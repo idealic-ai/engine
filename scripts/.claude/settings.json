@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(sessions/**)",
+      "Read(reports/**)",
+      "Grep(sessions/**)",
+      "Grep(reports/**)",
+      "Glob(sessions/**)",
+      "Glob(reports/**)"
+    ]
+  }
+}
