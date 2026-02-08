@@ -2,14 +2,14 @@
 name: chores
 description: "Executes routine maintenance and cleanup tasks from a structured task queue. Triggers: \"do some chores\", \"housekeeping tasks\", \"small cleanup tasks\", \"work through a task queue\"."
 version: 2.0
+tier: utility
 ---
 
 Executes routine maintenance and cleanup tasks from a structured task queue.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,7 +17,6 @@ Executes routine maintenance and cleanup tasks from a structured task queue.
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
@@ -59,10 +58,6 @@ Executes routine maintenance and cleanup tasks from a structured task queue.
 6.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
     *   If any files are found, add them to `contextPaths` for ingestion in Phase 2.
     *   *Why?* To ensure task execution includes the most recent intents and behavior changes.
-
-7.  **Discover Open Requests**: Execute `§CMD_DISCOVER_OPEN_DELEGATIONS`.
-    *   If any `#needs-delegation` files are found, read them and assess relevance to the current task area.
-    *   If relevant, factor them into the task queue.
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
@@ -143,9 +138,12 @@ Execute `AskUserQuestion` (multiSelect: false):
 #### Step 3: Execute
 *   Do the work. Keep changes minimal and focused.
 *   **Log**: `🔧 Task Execution` entry for each significant action.
-*   **Constraint**: If execution reveals the task is bigger than "small" (would require a plan, multiple phases, or TDD), STOP.
-    *   Report: "This task looks like it needs a full `/implement` session. Want me to continue here or defer?"
-    *   Wait for user decision.
+*   **Constraint**: If execution reveals the task is bigger than "small" (would require a plan, multiple phases, or TDD), STOP and present a gate.
+    Execute `AskUserQuestion` (multiSelect: false):
+    > "This task looks like it needs a full /implement session."
+    > - **"Continue here"** — Keep working in adhoc mode despite complexity
+    > - **"Defer to /implement"** — Log task as deferred, move to next
+    > - **"Abort task"** — Drop this task entirely and wait for next
 
 #### Step 4: Verify & Report
 *   Run relevant tests or perform manual verification as appropriate.
@@ -153,9 +151,14 @@ Execute `AskUserQuestion` (multiSelect: false):
 *   **Chat**: Brief report to user: what was done, what files changed, any caveats.
 *   **Side Discoveries**: If anything was noticed during execution, log `👁️ Side Discovery`.
 
-#### Step 5: Wait for Next Task
-*   **STOP**: End your turn. Wait for user to provide the next task or say "done".
-*   **Constraint**: Do NOT anticipate or suggest the next task. Wait for user input.
+#### Step 5: Next Task Gate
+Execute `AskUserQuestion` (multiSelect: false):
+> "Task complete. What's next?"
+> - **"Provide next task"** — Ready for the next chore (type task in "Other")
+> - **"Close session"** — Wrap up and generate debrief
+> - **"Review progress"** — Show summary of tasks completed so far
+
+*   **Constraint**: Do NOT anticipate or suggest the next task. The user drives the queue.
 
 ### ⏱️ Logging Heartbeat (CHECK BEFORE EVERY TOOL CALL)
 ```
@@ -217,17 +220,36 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 [!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The debrief FILE is the primary deliverable — chat output alone is not sufficient.
 
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
+
 **Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `ADHOC.md`).
   *   Write the file using the Write tool. This MUST produce a real file in the session directory.
   *   **Task Ledger**: Enumerate every task with request, outcome, changes, verification.
   *   **Cumulative Changes**: All files touched across all tasks.
   *   **Side Discoveries**: Anything noticed but not acted on.
 
-**Step 2**: Respond to Requests — Re-run `§CMD_DISCOVER_OPEN_DELEGATIONS`. For any request addressed by this session's work, execute `§CMD_POST_DELEGATION_RESPONSE`.
+**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
 
-**Step 3**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
+**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
 
-**Step 4**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
+**Step 4**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
+```
+§CMD_WALK_THROUGH_RESULTS Configuration:
+  mode: "results"
+  gateQuestion: "Chores complete. Walk through completed tasks and side discoveries?"
+  debriefFile: "ADHOC.md"
+  templateFile: "~/.claude/skills/chores/assets/TEMPLATE_ADHOC.md"
+  actionMenu:
+    - label: "Needs full implementation"
+      tag: "#needs-implementation"
+      when: "A task was deferred because it was too big for chores"
+    - label: "Needs investigation"
+      tag: "#needs-research"
+      when: "A side discovery warrants deeper analysis"
+    - label: "Needs documentation"
+      tag: "#needs-documentation"
+      when: "Changes made need to be reflected in docs"
+```
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
@@ -239,7 +261,21 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
-**Post-Synthesis**: If the user continues talking, obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
+**Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+
+### Next Skill Options
+*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
+
+> "Chores complete. What's next? (Type a /skill name to invoke it, or describe new work to scope it)"
+
+| Option | Label | Description |
+|--------|-------|-------------|
+| 1 | `/chores` (Recommended) | More tasks in the queue — keep going |
+| 2 | `/implement` | A task was too big for chores — implement it properly |
+| 3 | `/review` | Review recent session work for quality |
+| 4 | `/document` | Update documentation to reflect changes |
+
+**Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 
 ---
 

@@ -5,15 +5,17 @@
 #   ~/.claude/scripts/run.sh [claude args...]
 #
 # Options:
-#   --agent NAME         Load agent persona from ~/.claude/agents/NAME.md
-#   --description TEXT   Agent description injected into system prompt
-#   --focus TEXT         Focus areas (comma-separated) injected into system prompt
+#   --agent NAME              Load agent persona from ~/.claude/agents/NAME.md
+#   --description TEXT        Agent description injected into system prompt
+#   --focus TEXT              Focus areas (comma-separated) injected into system prompt
+#   --monitor-tags TAGS       Daemon mode: watch for files with these tags (comma-separated)
 #
 # Examples:
 #   ~/.claude/scripts/run.sh                      # Plain Claude
 #   ~/.claude/scripts/run.sh --agent operator     # Claude with operator agent
 #   ~/.claude/scripts/run.sh --agent builder      # Claude with builder agent
 #   ~/.claude/scripts/run.sh --agent researcher --description "Deep research" --focus "Insurance,Claims"
+#   ~/.claude/scripts/run.sh --monitor-tags '#needs-implementation,#needs-chores'  # Daemon mode
 #
 # Or alias it:
 #   alias claude='~/.claude/scripts/run.sh'
@@ -24,15 +26,17 @@
 #   - Checks for restart request after Claude exits
 #   - Loops with new prompt if restart was requested
 #   - Auto-detects fleet pane and resumes last session if in fleet tmux
+#   - Daemon mode (--monitor-tags): watches sessions/ for tagged files, auto-dispatches
 #
 # Related:
 #   Docs: (~/.claude/docs/)
 #     CONTEXT_GUARDIAN.md — Process supervision, restart handling
 #     SESSION_LIFECYCLE.md — Session resumption, fleet integration
 #     FLEET.md — Fleet pane detection, session binding
-#   Invariants: (~/.claude/standards/INVARIANTS.md)
+#   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet auto-detection
-#   Commands: (~/.claude/standards/COMMANDS.md)
+#     ¶INV_CLAIM_BEFORE_WORK — Tag swap before processing (daemon mode)
+#   Commands: (~/.claude/directives/COMMANDS.md)
 #     §CMD_REANCHOR_AFTER_RESTART — Triggered by run.sh after restart
 
 set -euo pipefail
@@ -58,36 +62,61 @@ build_system_prompt_additions() {
   # Terminal link protocol
   local protocol=$("$SCRIPTS_DIR/config.sh" get terminalLinkProtocol 2>/dev/null || echo "cursor://file")
   additions+="Terminal link protocol: $protocol"
-  additions+=$'\n'"CRITICAL: Read ~/.claude/standards/COMMANDS.md at session start and follow it religiously. It defines your operational discipline — logging, tagging, session management, and communication rules."
+  additions+=$'\n'"CRITICAL: Read ~/.claude/directives/COMMANDS.md at session start and follow it religiously. It defines your operational discipline — logging, tagging, session management, and communication rules."
 
   echo "$additions"
 }
 
 SYSTEM_PROMPT_ADDITIONS=$(build_system_prompt_additions)
 
-# Parse our custom flags (--fleet-pane, --agent, --description, --focus, --skip-setup), pass rest to Claude
-FLEET_PANE_ID=""
+# Daemon mode signal handling
+# When in daemon mode, SIGINT/SIGTERM sets this flag to exit cleanly
+DAEMON_EXIT=0
+daemon_exit_handler() {
+  DAEMON_EXIT=1
+  echo ""  # newline after ^C
+  echo "[run.sh] Caught signal, exiting..."
+}
+
+# Parse our custom flags (--agent, --description, --focus, --monitor-tags), pass rest to Claude
+# Supports both --flag value and --flag=value syntax
 AGENT_NAME=""
 AGENT_DESCRIPTION=""
 AGENT_FOCUS=""
-SKIP_SETUP=false
+MONITOR_TAGS=""
 REMAINING_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
-    --fleet-pane)
-      FLEET_PANE_ID="${2:?--fleet-pane requires a value}"
-      shift 2
+    --agent=*)
+      AGENT_NAME="${1#--agent=}"
+      shift
       ;;
     --agent)
       AGENT_NAME="${2:?--agent requires a value}"
       shift 2
       ;;
+    --description=*)
+      AGENT_DESCRIPTION="${1#--description=}"
+      shift
+      ;;
     --description)
       AGENT_DESCRIPTION="${2:?--description requires a value}"
       shift 2
       ;;
+    --focus=*)
+      AGENT_FOCUS="${1#--focus=}"
+      shift
+      ;;
     --focus)
       AGENT_FOCUS="${2:?--focus requires a value}"
+      shift 2
+      ;;
+    --monitor-tags=*)
+      MONITOR_TAGS="${1#--monitor-tags=}"
+      shift
+      ;;
+    --monitor-tags)
+      MONITOR_TAGS="${2:?--monitor-tags requires a value}"
       shift 2
       ;;
     *)
@@ -97,21 +126,19 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Run setup.sh to ensure engine is up to date (unless fleet already ran it)
+# Run engine.sh to ensure engine is up to date (unless fleet already ran it)
 if [ -z "${FLEET_SETUP_DONE:-}" ]; then
-  if ! "$SCRIPTS_DIR/setup.sh"; then
-    echo "[run.sh] ERROR: setup.sh failed. Please run from a project directory."
+  if ! "$SCRIPTS_DIR/engine.sh"; then
+    echo "[run.sh] ERROR: engine.sh failed. Please run from a project directory."
     exit 1
   fi
 fi
 
 # Auto-detect fleet pane ID using fleet.sh pane-id
 # Format: {session}:{window}:{pane_label} e.g., "yarik-fleet:company:SDK"
-if [ -z "$FLEET_PANE_ID" ]; then
-  FLEET_PANE_ID=$("$SCRIPTS_DIR/fleet.sh" pane-id 2>/dev/null || echo "")
-  if [ -n "$FLEET_PANE_ID" ]; then
-    echo "[run.sh] Fleet pane ID: $FLEET_PANE_ID"
-  fi
+FLEET_PANE_ID=$("$SCRIPTS_DIR/fleet.sh" pane-id 2>/dev/null || echo "")
+if [ -n "$FLEET_PANE_ID" ]; then
+  echo "[run.sh] Fleet pane ID: $FLEET_PANE_ID"
 fi
 
 # Fleet pane ID is used locally by run.sh for find_fleet_session()
@@ -327,8 +354,198 @@ run_claude() {
   set -e
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Daemon Mode Functions
+# ─────────────────────────────────────────────────────────────────────────────
+
+TAG_SCRIPT="$HOME/.claude/scripts/tag.sh"
+
+# Map #needs-* tag to skill command by scanning REQUEST templates
+# Returns the skill command (e.g. "/implement") or empty if unknown
+# Discovery: finds TEMPLATE_*_REQUEST.md with matching tag, derives skill from dir name
+daemon_tag_to_skill() {
+  local tag="$1"
+  local skills_dir="$HOME/.claude/skills"
+
+  local template_file
+  template_file=$(grep -rl "^\*\*Tags\*\*:.*${tag}" "$skills_dir"/*/assets/TEMPLATE_*_REQUEST.md 2>/dev/null | head -1 || true)
+
+  if [ -n "$template_file" ]; then
+    # Extract skill dir name: ~/.claude/skills/SKILL_NAME/assets/...
+    local skill_dir
+    skill_dir=$(echo "$template_file" | sed 's|.*/skills/\([^/]*\)/assets/.*|\1|')
+    echo "/$skill_dir"
+  else
+    echo ""
+  fi
+}
+
+# Scan sessions/ for files with monitored tags on their Tags line
+# Returns TAG:PATH (e.g. "#needs-implementation:/path/to/file.md")
+daemon_scan_for_work() {
+  local sessions_dir="$PWD/sessions/"
+  [ -d "$sessions_dir" ] || return 1
+
+  IFS=',' read -ra TAGS <<< "$MONITOR_TAGS"
+  for tag in "${TAGS[@]}"; do
+    # Trim whitespace
+    tag="${tag#"${tag%%[![:space:]]*}"}"
+    tag="${tag%"${tag##*[![:space:]]}"}"
+
+    local found
+    found=$("$TAG_SCRIPT" find "$tag" "$sessions_dir" --tags-only 2>/dev/null | head -1 || true)
+
+    if [ -n "$found" ] && [ -f "$found" ]; then
+      echo "${tag}:${found}"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
+# Claim a request file by swapping the specific monitored tag
+daemon_claim_request() {
+  local request_path="$1"
+  local needs_tag="$2"
+
+  local active_tag="${needs_tag/needs/active}"
+
+  if "$TAG_SCRIPT" swap "$request_path" "$needs_tag" "$active_tag"; then
+    echo "[run.sh] Claimed: $needs_tag -> $active_tag"
+    return 0
+  else
+    echo "[run.sh] Failed to claim $request_path" >&2
+    return 1
+  fi
+}
+
+# Process a single work item: claim, map to skill, spawn Claude
+daemon_process_work() {
+  local needs_tag="$1"
+  local request_path="$2"
+  local start_time
+  start_time=$(date +%s)
+
+  # Map tag to skill
+  local skill
+  skill=$(daemon_tag_to_skill "$needs_tag")
+  if [ -z "$skill" ]; then
+    echo "[run.sh] WARNING: No skill mapping for tag '$needs_tag', skipping"
+    return 1
+  fi
+
+  echo "[run.sh] Processing: $request_path ($needs_tag -> $skill)"
+
+  # Claim the request file (swap #needs-* -> #active-*)
+  if ! daemon_claim_request "$request_path" "$needs_tag"; then
+    echo "[run.sh] Skipping (claim failed, another worker got it?)"
+    return 1
+  fi
+
+  # Start watchdog BEFORE Claude — kills Claude on restart signal
+  WATCHDOG_PID=$(start_watchdog)
+  export WATCHDOG_PID
+
+  # Spawn Claude with the mapped skill command
+  # Append daemon-mode instruction so Claude exits after skill completion
+  local daemon_prompt="$SYSTEM_PROMPT_ADDITIONS
+DAEMON_MODE: You were spawned by the daemon (run.sh --monitor-tags). After completing the skill and deactivating the session, EXIT immediately — do NOT offer a next-skill menu or ask 'What's next?'. The daemon will automatically pick up the next tagged file."
+  set +e
+  "$CLAUDE_BIN" --append-system-prompt "$daemon_prompt" "$skill $request_path"
+  set -e
+
+  # Cleanup watchdog
+  kill "$WATCHDOG_PID" 2>/dev/null || true
+  wait "$WATCHDOG_PID" 2>/dev/null || true
+  unset WATCHDOG_PID
+
+  local end_time
+  end_time=$(date +%s)
+  local duration=$((end_time - start_time))
+  local duration_fmt="$((duration / 60))m $((duration % 60))s"
+
+  echo "[run.sh] Completed: $request_path ($duration_fmt)"
+  return 0
+}
+
+# Main daemon loop: scan for work, process, wait, repeat
+daemon_main_loop() {
+  local sessions_dir="$PWD/sessions"
+
+  echo "[run.sh] Daemon mode: monitoring $MONITOR_TAGS"
+  echo "[run.sh] Watching: $sessions_dir"
+  echo "[run.sh] Press Ctrl+C to exit"
+
+  # Install signal handlers for clean exit
+  trap daemon_exit_handler SIGINT SIGTERM
+
+  # Track idle state to avoid repeated messages
+  local was_idle=0
+
+  while [ "$DAEMON_EXIT" -eq 0 ]; do
+    # Check for work (returns TAG:PATH)
+    local scan_result
+    if scan_result=$(daemon_scan_for_work); then
+      was_idle=0
+      local matched_tag="${scan_result%%:*}"
+      local request_path="${scan_result#*:}"
+      daemon_process_work "$matched_tag" "$request_path"
+      # After processing, immediately check for more work
+      continue
+    fi
+
+    # No work found, wait for changes
+    if [ "$was_idle" -eq 0 ]; then
+      echo "[run.sh] Idle. Waiting for tagged files..."
+      was_idle=1
+    fi
+
+    # Use fswatch to wait for file changes
+    # fswatch -1 returns on first change (or on signal)
+    if command -v fswatch >/dev/null 2>&1; then
+      # Run fswatch in background with latency to batch rapid changes
+      # --latency=2 waits 2s after last change before reporting (reduces churn)
+      (
+        trap 'exit 0' TERM
+        fswatch -1 --latency=2 -r "$sessions_dir" >/dev/null 2>&1
+      ) &
+      local fswatch_pid=$!
+
+      # Wait for fswatch or signal
+      # Poll DAEMON_EXIT flag while waiting
+      while kill -0 "$fswatch_pid" 2>/dev/null; do
+        if [ "$DAEMON_EXIT" -eq 1 ]; then
+          kill "$fswatch_pid" 2>/dev/null || true
+          break
+        fi
+        sleep 0.5
+      done
+      wait "$fswatch_pid" 2>/dev/null || true
+    else
+      # Fallback: simple polling without fswatch
+      echo "[run.sh] WARNING: fswatch not found, using slow polling (install: brew install fswatch)"
+      sleep 5
+    fi
+  done
+
+  echo "[run.sh] Daemon exiting."
+}
+
 RESTART_PROMPT=""
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Main Execution
+# ─────────────────────────────────────────────────────────────────────────────
+
+# If daemon mode requested, enter daemon loop and exit
+if [ -n "$MONITOR_TAGS" ]; then
+  daemon_main_loop
+  echo "[run.sh] Goodbye."
+  exit 0
+fi
+
+# Normal mode: interactive Claude
 echo "[run.sh] Starting${AGENT_NAME:+ (agent: $AGENT_NAME)}${AGENT_DESCRIPTION:+ [desc: ${AGENT_DESCRIPTION:0:30}...]}..."
 
 RESTART_AGENT_FILE=""

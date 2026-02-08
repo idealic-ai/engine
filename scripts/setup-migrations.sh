@@ -2,7 +2,7 @@
 # ============================================================================
 # Setup Migrations — Numbered idempotent migrations for engine state
 # ============================================================================
-# Sourced by setup.sh. Each migration is a function that transforms engine
+# Sourced by engine.sh. Each migration is a function that transforms engine
 # state from version N to N+1. Migrations are idempotent — safe to run twice.
 #
 # Related:
@@ -32,6 +32,8 @@ MIGRATIONS=(
   "001:perfile_scripts_hooks"
   "002:perfile_skills"
   "003:state_json_rename"
+  "004:remove_stale_skill_symlinks"
+  "005:add_hooks_to_settings"
 )
 
 # ---- Migration functions ----
@@ -108,6 +110,108 @@ migration_003_state_json_rename() {
       mv "$f" "$dir/.state.json"
     fi
   done
+  return 0
+}
+
+# migration_004_remove_stale_skill_symlinks "$claude_dir"
+# What: Remove skill symlinks that point to empty/invalid dirs (no SKILL.md).
+# Why: Deprecated skills (e.g., /critique) leave dead symlinks cluttering the catalog.
+# Idempotency: Only removes symlinks whose targets lack SKILL.md. Real dirs untouched.
+migration_004_remove_stale_skill_symlinks() {
+  local claude_dir="${1:?}"
+
+  local skills_dir="$claude_dir/skills"
+  [ -d "$skills_dir" ] || return 0
+
+  for entry in "$skills_dir"/*/; do
+    [ -d "$entry" ] || continue
+    local skill_name
+    skill_name=$(basename "$entry")
+    local link="$skills_dir/$skill_name"
+
+    # Only act on symlinks, not real directories (local overrides)
+    [ -L "$link" ] || continue
+
+    local target
+    target=$(readlink "$link")
+
+    # Check if the target directory has a SKILL.md
+    if [ ! -f "$target/SKILL.md" ]; then
+      rm "$link"
+    fi
+  done
+  return 0
+}
+
+# migration_005_add_hooks_to_settings "$claude_dir"
+# What: Deep-merge 4 new hook entries into ~/.claude/settings.json for existing users.
+# Why: New installs get hooks via configure_hooks(). Existing users need this migration.
+# Hooks added: pre-tool-use-heartbeat, pre-tool-use-session-gate,
+#   post-tool-use-discovery, user-prompt-submit-session-gate
+# Idempotency: Skips if hooks already present (checks by command path).
+migration_005_add_hooks_to_settings() {
+  local claude_dir="${1:?}"
+
+  local settings="$claude_dir/settings.json"
+  # If no settings.json or no jq, skip — configure_hooks() handles fresh installs
+  [ -f "$settings" ] || return 0
+  command -v jq &>/dev/null || return 0
+
+  # Define the 4 new hook entries to merge
+  local merged
+  merged=$(cat "$settings" | jq '
+    # Helper: add entry to array if command not already present
+    def add_if_missing(entry):
+      if any(.[]; .hooks[]? | .command == (entry | .hooks[0].command))
+      then .
+      else . + [entry]
+      end;
+
+    # PreToolUse: add heartbeat + session-gate
+    .hooks.PreToolUse = ((.hooks.PreToolUse // [])
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{
+            "type": "command",
+            "command": "~/.claude/hooks/pre-tool-use-heartbeat.sh",
+            "timeout": 10,
+            "statusMessage": "Checking logging..."
+          }]
+        })
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{
+            "type": "command",
+            "command": "~/.claude/hooks/pre-tool-use-session-gate.sh",
+            "timeout": 5,
+            "statusMessage": "Checking session..."
+          }]
+        })
+    )
+
+    # PostToolUseSuccess: add discovery
+    | .hooks.PostToolUseSuccess = ((.hooks.PostToolUseSuccess // [])
+      | add_if_missing({
+          "hooks": [{
+            "type": "command",
+            "command": "~/.claude/hooks/post-tool-use-discovery.sh"
+          }]
+        })
+    )
+
+    # UserPromptSubmit: add session-gate
+    | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // [])
+      | add_if_missing({
+          "hooks": [{
+            "type": "command",
+            "command": "~/.claude/hooks/user-prompt-submit-session-gate.sh",
+            "timeout": 5
+          }]
+        })
+    )
+  ' 2>/dev/null) || return 0
+
+  echo "$merged" > "$settings"
   return 0
 }
 

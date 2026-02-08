@@ -10,7 +10,7 @@
 #   escape-tags.sh [path] --apply      # Apply changes
 #
 # Related:
-#   Commands: (~/.claude/standards/COMMANDS.md)
+#   Commands: (~/.claude/directives/COMMANDS.md)
 #     §CMD_ESCAPE_TAG_REFERENCES — Escaping protocol for tag references
 #
 # Tag pattern: #word-word (kebab-case with at least one hyphen)

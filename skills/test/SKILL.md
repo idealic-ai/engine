@@ -2,14 +2,14 @@
 name: test
 description: "Designs and writes test cases for code correctness and regression prevention. Supports goal-based modes: Coverage (gap-filling), Hardening (edge cases & stress), Integration (boundaries & contracts), Custom (user-defined lens). Triggers: \"write tests\", \"design test cases\", \"verify edge cases\", \"catch regressions\", \"test this feature\", \"harden this\", \"integration tests\"."
 version: 2.0
+tier: protocol
 ---
 
 Designs and writes test cases for code correctness and regression prevention.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,7 +17,6 @@ Designs and writes test cases for code correctness and regression prevention.
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
@@ -32,6 +31,7 @@ Designs and writes test cases for code correctness and regression prevention.
   {"major": 1, "minor": 0, "name": "Setup"},
   {"major": 2, "minor": 0, "name": "Context Ingestion"},
   {"major": 3, "minor": 0, "name": "Strategy"},
+  {"major": 3, "minor": 1, "name": "Agent Handoff"},
   {"major": 4, "minor": 0, "name": "Testing Loop"},
   {"major": 5, "minor": 0, "name": "Synthesis"}
 ]
@@ -42,143 +42,14 @@ Designs and writes test cases for code correctness and regression prevention.
 
 ## Mode Presets
 
-Testing modes configure the agent's lens — role, interrogation topics, and walk-through config. The mode is selected in Phase 1 Step 5b.
+Testing modes configure the agent's lens — role, interrogation topics, and walk-through config. The mode is selected in Phase 1 Step 5.1. Mode definitions live in `modes/*.md`.
 
-### Coverage (Default)
-*Default mode. Systematic gap-filling prioritized by risk.*
-
-**Role**: You are the **Coverage Strategist**.
-**Goal**: To systematically identify and fill test coverage gaps, prioritizing high-risk and frequently-changed code paths.
-**Mindset**: Methodical, Risk-Aware, Coverage-Driven.
-
-**Interrogation Topics** (Phase 3):
-- **Current coverage metrics & gaps** — what's tested, what's not, where are the blind spots
-- **Critical code paths lacking tests** — business logic, error handling, auth flows
-- **Recently changed/added code** — new features, refactored modules, hotfixes
-- **Error handling coverage** — catch blocks, fallback paths, validation failures
-- **Branch & condition coverage** — if/else paths, switch cases, ternary conditions
-- **Mock boundary accuracy** — do mocks reflect real behavior, are boundaries correct
-- **Test organization & naming** — conventions, discoverability, maintenance burden
-- **Priority ranking** — risk x change frequency to decide what to test first
-
-**Walk-Through Config** (Phase 5):
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Tests written. Walk through coverage results?"
-  debriefFile: "TESTING.md"
-  itemSources:
-    - "## 3. Defect Analysis (The Findings)"
-    - "## 4. Coverage Report (The Map)"
-    - "## 7. Systemic Insights (The Context Dump)"
-  actionMenu:
-    - label: "Add more coverage"
-      tag: "#needs-implementation"
-      when: "Critical gap identified but not yet covered"
-    - label: "Refactor tests"
-      tag: "#needs-implementation"
-      when: "Existing tests are brittle or poorly structured"
-    - label: "Document testing strategy"
-      tag: "#needs-documentation"
-      when: "Testing approach should be documented for the team"
-    - label: "Investigate further"
-      tag: "#needs-research"
-      when: "Unclear what behavior to test or how to test it"
-```
-
-### Hardening
-*Adversarial lens. Stress-test with edge cases and failure modes.*
-
-**Role**: You are the **Chaos Engineer**.
-**Goal**: To stress-test the system by probing edge cases, boundary conditions, and failure modes that normal testing misses.
-**Mindset**: Adversarial, Boundary-Seeking, Worst-Case-Oriented.
-
-**Interrogation Topics** (Phase 3):
-- **Null/undefined/NaN handling** — what happens with missing or invalid data
-- **Empty & max state behavior** — zero items, huge arrays, boundary values
-- **Concurrent access & race conditions** — parallel mutations, re-entrancy, timing
-- **Error recovery & graceful degradation** — what happens after failure, can the system resume
-- **Type coercion & format mismatches** — string vs number, date formats, encoding
-- **Resource exhaustion** — memory leaks, connection pool drain, handle limits
-- **Timeout & retry behavior** — what happens when things are slow or hang
-- **State corruption paths** — can public API calls leave the system in an invalid state
-
-**Walk-Through Config** (Phase 5):
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Hardening tests written. Walk through findings?"
-  debriefFile: "TESTING.md"
-  itemSources:
-    - "## 3. Defect Analysis (The Findings)"
-    - "## 5. Test Suite Health (The Garden)"
-    - "## 7. Systemic Insights (The Context Dump)"
-  actionMenu:
-    - label: "Fix vulnerability"
-      tag: "#needs-implementation"
-      when: "Edge case revealed a real bug or vulnerability"
-    - label: "Add guard/validation"
-      tag: "#needs-implementation"
-      when: "Missing input validation or boundary check"
-    - label: "Accept known limitation"
-      tag: ""
-      when: "Edge case is theoretical or cost of fix exceeds risk"
-    - label: "Research impact"
-      tag: "#needs-research"
-      when: "Edge case has unknown blast radius"
-```
-
-### Integration
-*Systems lens. Verify component boundaries, contracts, and E2E flows.*
-
-**Role**: You are the **Integration Architect**.
-**Goal**: To verify that components work correctly together by testing boundaries, contracts, and end-to-end flows.
-**Mindset**: Systems-Thinking, Contract-Focused, Boundary-Aware.
-
-**Interrogation Topics** (Phase 3):
-- **API contract validation** — request/response shapes, error codes, versioning
-- **Database query correctness** — joins, transactions, migration compatibility
-- **Cross-module data flow** — data transformations, serialization boundaries
-- **External service boundaries** — third-party APIs, SDK contracts, mock fidelity
-- **Event/message ordering** — pub/sub, queue consumers, webhook delivery
-- **Authentication & authorization flows** — token propagation, permission checks, session handling
-- **Error propagation across layers** — how errors bubble up, are they translated correctly
-- **Data consistency & transaction integrity** — concurrent writes, partial failures, rollback
-
-**Walk-Through Config** (Phase 5):
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Integration tests written. Walk through results?"
-  debriefFile: "TESTING.md"
-  itemSources:
-    - "## 3. Defect Analysis (The Findings)"
-    - "## 4. Coverage Report (The Map)"
-    - "## 7. Systemic Insights (The Context Dump)"
-  actionMenu:
-    - label: "Fix integration issue"
-      tag: "#needs-implementation"
-      when: "Test revealed a real integration bug"
-    - label: "Add contract test"
-      tag: "#needs-implementation"
-      when: "API boundary lacks contract validation"
-    - label: "Document integration pattern"
-      tag: "#needs-documentation"
-      when: "Integration approach should be documented"
-    - label: "Debug interaction"
-      tag: "#needs-implementation"
-      when: "Unexpected behavior at component boundary needs investigation"
-```
-
-### Custom (User-Defined)
-*User provides their own role/goal/mindset. Uses Coverage's topic lists and walk-through config as defaults.*
-
-**Role**: *Set from user's free-text input.*
-**Goal**: *Set from user's free-text input.*
-**Mindset**: *Set from user's free-text input.*
-
-**Interrogation Topics**: Same as Coverage mode.
-**Walk-Through Config**: Same as Coverage mode.
+| Mode | Focus | When to Use |
+|------|-------|-------------|
+| **Coverage** (Default) | Systematic gap-filling prioritized by risk | Expand test coverage, identify and fill gaps |
+| **Hardening** | Adversarial edge cases and failure modes | Stress-test with boundary conditions and worst cases |
+| **Integration** | Component boundaries, contracts, and E2E flows | Verify components work correctly together |
+| **Custom** | User-defined lens | None of the above fit the situation |
 
 ---
 
@@ -203,7 +74,7 @@ Testing modes configure the agent's lens — role, interrogation topics, and wal
     *   `~/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md` (Template for continuous testing logging)
     *   `~/.claude/skills/test/assets/TEMPLATE_TESTING.md` (Template for final session debrief/report)
     *   `~/.claude/skills/test/assets/TEMPLATE_TESTING_PLAN.md` (Template for drafting the test strategy)
-    *   `.claude/standards/TESTING.md` (Testing standards and quality requirements — project-level, load if exists)
+    *   `.claude/directives/TESTING.md` (Testing standards and quality requirements — project-level, load if exists)
 
 3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
     *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
@@ -212,28 +83,25 @@ Testing modes configure the agent's lens — role, interrogation topics, and wal
 
 5.  **Scope**: Understand the [Topic] and [Goal].
 
-5b. **Testing Mode Selection**: Execute `AskUserQuestion` (multiSelect: false):
+5.1. **Testing Mode Selection**: Execute `AskUserQuestion` (multiSelect: false):
     > "What testing lens should I use?"
     > - **"Coverage" (Recommended)** — Expand test coverage, identify and fill gaps
     > - **"Hardening"** — Stress-test with edge cases, boundary conditions, failure modes
     > - **"Integration"** — Verify component boundaries, contracts, and E2E flows
     > - **"Custom"** — Define your own testing focus and approach
 
-    **On "Custom"**: The user types their framing. Parse it into role/goal/mindset. Use Coverage's topic lists as defaults.
+    **On selection**: Read the corresponding `modes/{mode}.md` file (e.g., `modes/coverage.md`, `modes/hardening.md`, `modes/integration.md`).
+    **On "Custom"**: Read ALL 3 named mode files first (`modes/coverage.md`, `modes/hardening.md`, `modes/integration.md`) for context, then read `modes/custom.md`. The user types their framing. Parse it into role/goal/mindset. Use Coverage's topic lists as defaults.
 
     **Record**: Store the selected mode. It configures:
-    *   Phase 1 Step 6 role (from mode preset)
-    *   Phase 3 interrogation topics (from mode preset)
-    *   Phase 5 walk-through config (from mode preset)
+    *   Phase 1 Step 6 role (from mode file)
+    *   Phase 3 interrogation topics (from mode file)
+    *   Phase 5 walk-through config (from mode file)
 
-6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the Mode Presets section above.
+6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file (`modes/{mode}.md`).
 
 7.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
     *   If any files are found, add them to `contextPaths` for ingestion in Phase 2.
-
-8.  **Discover Open Requests**: Execute `§CMD_DISCOVER_OPEN_DELEGATIONS`.
-    *   If any `#needs-delegation` files are found, read them and assess relevance.
-    *   *Note*: Re-run discovery during Synthesis to catch late arrivals.
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
@@ -245,7 +113,8 @@ Testing modes configure the agent's lens — role, interrogation topics, and wal
 > - Parameters parsed and output: `________`
 > - Session directory: `________`
 > - Mode: `________` (coverage / hardening / integration / custom)
-> - Role assumed: `________` (quote the role name from the mode preset)
+> - Mode file loaded: `________` (path to the loaded mode file)
+> - Role assumed: `________` (quote the role name from the mode file)
 
 ### Phase Transition
 Execute `AskUserQuestion` (multiSelect: false):
@@ -343,10 +212,10 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 **Round counter**: Output it on every round: "**Round N / {depth_minimum}+**"
 
-**Topic selection**: Use the **Interrogation Topics from the selected mode preset** as the primary source for each round. The standard/repeatable topics below are available for all modes as supplementary material. Do NOT follow a fixed sequence — choose the most relevant uncovered topic based on what you've learned so far. Use the Question Bank above as inspiration for specific questions within each topic.
+**Topic selection**: Use the **Interrogation Topics from the loaded mode file** (`modes/{mode}.md`) as the primary source for each round. The standard/repeatable topics below are available for all modes as supplementary material. Do NOT follow a fixed sequence — choose the most relevant uncovered topic based on what you've learned so far. Use the Question Bank above as inspiration for specific questions within each topic.
 
 ### Interrogation Topics (Testing)
-*The mode preset topics are your primary source. These standard topics are available for all modes as supplementary material. Adapt to the task — skip irrelevant ones, invent new ones as needed.*
+*The mode file topics (from `modes/{mode}.md`) are your primary source. These standard topics are available for all modes as supplementary material. Adapt to the task — skip irrelevant ones, invent new ones as needed.*
 
 **Standard topics** (typically covered once):
 - **Testing strategy** — unit vs integration vs e2e, test runner, framework conventions
@@ -407,7 +276,7 @@ After interrogation completes:
 > - User approved plan: `________`
 
 ### Phase Transition
-Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/standards/commands/CMD_PARALLEL_HANDOFF.md`):
+Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/directives/commands/CMD_PARALLEL_HANDOFF.md`):
 1.  **Analyze**: Parse the plan's `**Depends**:` and `**Files**:` fields to derive parallel chunks.
 2.  **Visualize**: Present the chunk breakdown with non-intersection proof.
 3.  **Menu**: Present the richer handoff menu via `AskUserQuestion`.
@@ -420,7 +289,7 @@ Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/standards/commands/CMD_PARALLE
 
 ---
 
-## 3b. Agent Handoff (Opt-In)
+## 3.1. Agent Handoff (Opt-In)
 *Only if user selected an agent option in Phase 3 transition.*
 
 **Single agent** (no parallel chunks or user chose "1 agent"):
@@ -516,9 +385,10 @@ Execute `AskUserQuestion` (multiSelect: false):
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 5: Synthesis.
-> 2. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_TESTING.md` EXACTLY) to summarize findings.
-> 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 4. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
+> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_TESTING.md` EXACTLY) to summarize findings.
+> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
+> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
@@ -526,19 +396,19 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 [!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The debrief FILE is the primary deliverable — chat output alone is not sufficient.
 
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
+
 **Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `TESTING.md`).
   *   Write the file using the Write tool. This MUST produce a real file in the session directory.
   *   **Summary**: Pass/Fail rates.
   *   **Regressions**: What broke?
   *   **Coverage**: What new areas are covered?
 
-**Step 2**: Respond to Requests — Re-run `§CMD_DISCOVER_OPEN_DELEGATIONS`. For any request addressed by this session's work, execute `§CMD_POST_DELEGATION_RESPONSE`.
+**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
 
-**Step 3**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
+**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
 
-**Step 4**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 5**: Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the selected mode preset.
+**Step 4**: Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the loaded mode file (`modes/{mode}.md`).
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 5 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**

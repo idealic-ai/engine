@@ -2,14 +2,14 @@
 name: research
 description: "Full research cycle — refines query, calls Gemini Deep Research, polls, delivers report. Combines /research-request + /research-respond. Triggers: \"research this topic\", \"run a research cycle\", \"call Gemini Deep Research\"."
 version: 2.0
+tier: lightweight
 ---
 
 Full research cycle — refines query, calls Gemini Deep Research, polls, delivers report.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,7 +17,6 @@ Full research cycle — refines query, calls Gemini Deep Research, polls, delive
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
@@ -57,10 +56,6 @@ Full research cycle — refines query, calls Gemini Deep Research, polls, delive
 
 6.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
     *   If any files are found, add them to `contextPaths` for ingestion in Phase 2.
-
-7.  **Discover Open Requests**: Execute `§CMD_DISCOVER_OPEN_DELEGATIONS`.
-    *   If any `#needs-delegation` files are found, read them and assess relevance.
-    *   *Note*: Re-run discovery during Synthesis to catch late arrivals.
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
@@ -294,15 +289,18 @@ Execute `AskUserQuestion` (multiSelect: false):
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 5: Present Results.
-> 2. I will present the research report.
-> 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 4. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
+> 3. I will present the research report.
+> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
+> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
 
 **STOP**: Do not create artifacts yet. You must output the block above first.
 
 **2. Execution — SEQUENTIAL, NO SKIPPING**
 
 [!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 4 or 5 without completing step 1.
+
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
 
 **Step 1 (THE DELIVERABLE)**: Present the research report in chat so the user can read it immediately.
 
@@ -317,13 +315,11 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
       2.  Copy the response file with a descriptive name.
       3.  Report the copied path.
 
-**Step 4**: Respond to Requests — Re-run `§CMD_DISCOVER_OPEN_DELEGATIONS`. For any request addressed by this session's work, execute `§CMD_POST_DELEGATION_RESPONSE`.
+**Step 4**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
 
-**Step 5**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
+**Step 5**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
 
-**Step 6**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 7**: Suggest follow-up options:
+**Step 6**: Suggest follow-up options:
   *   "Run `/research` again to ask a follow-up question (will chain via Interaction ID)"
   *   "The research report is at `[path]` — reference it from any other session"
 

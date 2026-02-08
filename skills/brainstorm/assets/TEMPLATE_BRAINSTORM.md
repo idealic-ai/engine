@@ -14,6 +14,7 @@
 
 *   `sessions/YYYY_MM_DD_TOPIC/DEBRIEF.md` — [Why it was relevant]
 
+<!-- WALKTHROUGH RESULTS -->
 ## 2. Key Insights & Decisions (The Q&A Synthesis)
 *Summarize the critical questions asked during the session and the answers that shaped the new architecture.*
 
@@ -23,6 +24,7 @@
 *   **Reasoning**: Why is this the right path?
 *   **Implications**: What are the side effects?
 
+<!-- WALKTHROUGH RESULTS -->
 ## 3. The Pre-Mortem (Risk Analysis)
 *Assume this decision failed 6 months from now. Why did it fail?*
 
@@ -50,6 +52,7 @@
 *   **Status**: [Consensus Achieved / More Research Needed / Pivot Required]
 *   **Next Step**: (e.g., "Move to Planning Phase" or "Prototype X")
 
+<!-- WALKTHROUGH RESULTS -->
 ## 8. Agent's Expert Opinion (Subjective)
 *Your unfiltered thoughts on the session.*
 

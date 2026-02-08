@@ -18,7 +18,9 @@
 #                                                  # --keywords: comma-separated search keywords (stored in .state.json)
 #                                                  # Outputs: Related sessions from RAG search (if GEMINI_API_KEY set)
 #   session.sh restart <path>                      # Set status=ready-to-kill, signal wrapper
+#   session.sh check <path> [<<STDIN]                 # Tag scan + checklist validation (sets checkPassed=true)
 #   session.sh find                                 # Find session dir for current process (read-only)
+#   session.sh request-template <tag>               # Output REQUEST template for a #needs-* tag to stdout
 #
 # Examples:
 #   session.sh init sessions/2026_02_03_MY_TOPIC
@@ -33,11 +35,11 @@
 #     SESSION_LIFECYCLE.md — Session state machine, activation/deactivation flows
 #     CONTEXT_GUARDIAN.md — Overflow protection, restart handling
 #     FLEET.md — Fleet pane ID auto-detection, multi-agent coordination
-#   Invariants: (~/.claude/standards/INVARIANTS.md)
+#   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_PHASE_ENFORCEMENT — Phase transition enforcement via session.sh phase
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Graceful degradation without fleet/tmux
 #     ¶INV_QUESTION_GATE_OVER_TEXT_GATE — User approval gates (--user-approved)
-#   Commands: (~/.claude/standards/COMMANDS.md)
+#   Commands: (~/.claude/directives/COMMANDS.md)
 #     §CMD_MAINTAIN_SESSION_DIR — Session directory management
 #     §CMD_PARSE_PARAMETERS — Session activation with JSON params
 #     §CMD_UPDATE_PHASE — Phase tracking and enforcement
@@ -51,8 +53,8 @@ source "$HOME/.claude/scripts/lib.sh"
 
 ACTION="${1:?Usage: session.sh <init|activate|update|find|restart> <path> [args...]}"
 
-# DIR is required for all commands except 'find'
-if [ "$ACTION" = "find" ]; then
+# DIR is required for all commands except 'find' and 'request-template'
+if [ "$ACTION" = "find" ] || [ "$ACTION" = "request-template" ]; then
   DIR=""
 else
   DIR="${2:?Missing directory path}"
@@ -376,6 +378,91 @@ case "$ACTION" in
       else
         echo "(none)"
       fi
+
+      # Discovered Directives: walk-up from directoriesOfInterest
+      # Finds soft directives (README.md, INVARIANTS.md, TESTING.md, PITFALLS.md) and
+      # hard directives (CHECKLIST.md — enforced at deactivation).
+      # Skill filtering: core directives always shown; skill directives only if declared.
+      # See ¶INV_DIRECTORY_AWARENESS and ¶INV_CHECKLIST_BEFORE_CLOSE
+      DISCOVER_SCRIPT="$HOME/.claude/scripts/discover-directives.sh"
+      if [ -x "$DISCOVER_SCRIPT" ]; then
+        # Extract directoriesOfInterest from .state.json
+        DIRS_JSON=$(jq -r '(.directoriesOfInterest // []) | .[]' "$STATE_FILE" 2>/dev/null || true)
+        if [ -n "$DIRS_JSON" ]; then
+          ALL_DISCOVERED=""
+          while IFS= read -r interest_dir; do
+            [ -n "$interest_dir" ] || continue
+            # Resolve relative paths against PWD
+            if [[ "$interest_dir" != /* ]]; then
+              interest_dir="$PWD/$interest_dir"
+            fi
+            [ -d "$interest_dir" ] || continue
+            FOUND=$("$DISCOVER_SCRIPT" "$interest_dir" --walk-up --include-shared 2>/dev/null || true)
+            if [ -n "$FOUND" ]; then
+              ALL_DISCOVERED="${ALL_DISCOVERED}${ALL_DISCOVERED:+$'\n'}${FOUND}"
+            fi
+          done <<< "$DIRS_JSON"
+
+          echo ""
+          echo "## Discovered Directives"
+          if [ -n "$ALL_DISCOVERED" ]; then
+            # Skill-directive filtering: core directives always shown,
+            # skill directives (TESTING.md, PITFALLS.md) only if declared in `directives` array
+            CORE_DIRECTIVES="README.md INVARIANTS.md CHECKLIST.md"
+            SKILL_DECLARED=$(jq -r '(.directives // []) | .[]' "$STATE_FILE" 2>/dev/null || true)
+            FILTERED_DISCOVERED=""
+            while IFS= read -r discovered_file; do
+              [ -n "$discovered_file" ] || continue
+              local_basename=$(basename "$discovered_file")
+              # Core directives always pass
+              is_core=false
+              for core in $CORE_DIRECTIVES; do
+                if [ "$local_basename" = "$core" ]; then
+                  is_core=true
+                  break
+                fi
+              done
+              if [ "$is_core" = "true" ]; then
+                FILTERED_DISCOVERED="${FILTERED_DISCOVERED}${FILTERED_DISCOVERED:+$'\n'}${discovered_file}"
+                continue
+              fi
+              # Skill directives: only if declared
+              if [ -n "$SKILL_DECLARED" ]; then
+                while IFS= read -r declared; do
+                  if [ "$local_basename" = "$declared" ]; then
+                    FILTERED_DISCOVERED="${FILTERED_DISCOVERED}${FILTERED_DISCOVERED:+$'\n'}${discovered_file}"
+                    break
+                  fi
+                done <<< "$SKILL_DECLARED"
+              fi
+            done <<< "$(echo "$ALL_DISCOVERED" | sort -u)"
+            # Output filtered results
+            if [ -n "$FILTERED_DISCOVERED" ]; then
+              echo "$FILTERED_DISCOVERED"
+            else
+              echo "(none — skill directives filtered)"
+            fi
+            # Seed touchedDirs and discoveredChecklists in .state.json
+            while IFS= read -r discovered_file; do
+              [ -n "$discovered_file" ] || continue
+              discovered_dir=$(dirname "$discovered_file")
+              discovered_name=$(basename "$discovered_file")
+              # Add to touchedDirs
+              jq --arg dir "$discovered_dir" --arg name "$discovered_name" \
+                '(.touchedDirs //= {}) | .touchedDirs[$dir] = ((.touchedDirs[$dir] // []) + [$name] | unique)' \
+                "$STATE_FILE" | safe_json_write "$STATE_FILE"
+              # Add CHECKLIST.md to discoveredChecklists
+              if [ "$discovered_name" = "CHECKLIST.md" ]; then
+                jq --arg file "$discovered_file" \
+                  '(.discoveredChecklists //= []) | if (.discoveredChecklists | index($file)) then . else .discoveredChecklists += [$file] end' \
+                  "$STATE_FILE" | safe_json_write "$STATE_FILE"
+              fi
+            done <<< "$(echo "$ALL_DISCOVERED" | sort -u)"
+          else
+            echo "(none)"
+          fi
+        fi
+      fi
     fi
     ;;
 
@@ -443,6 +530,11 @@ case "$ACTION" in
         echo "ERROR: Phase label must start with a number (e.g., '3: Execution', '4.1: Sub-Step'). Got: '$PHASE'" >&2
         exit 1
       fi
+      # Reject alpha-style phase labels (e.g., "5b: Triage" — must use "5.1: Triage")
+      if echo "$PHASE" | grep -qE '^[0-9]+[a-zA-Z]'; then
+        echo "ERROR: Alpha-style phase labels are not allowed. Use 'N.M: Name' format (e.g., '5.1: Finding Triage' not '5b: Finding Triage'). Got: '$PHASE'" >&2
+        exit 1
+      fi
       # Extract minor: if "4.1: ..." → minor=1, if "4: ..." → minor=0
       REQ_MINOR=$(echo "$PHASE" | grep -oE '^\d+\.(\d+)' | grep -oE '\.\d+' | tr -d '.' || echo "0")
       [ -z "$REQ_MINOR" ] && REQ_MINOR=0
@@ -489,6 +581,26 @@ case "$ACTION" in
       # Case 1: Moving to the next declared phase
       if [ -n "$NEXT_MAJOR" ] && [ "$REQ_MAJOR" = "$NEXT_MAJOR" ] && [ "$REQ_MINOR" = "$NEXT_MINOR" ]; then
         IS_SEQUENTIAL=true
+      fi
+
+      # Case 1b: Sub-phases are optional — skip to next major is always allowed
+      # If the next declared phase is a sub-phase (minor > 0) of the current major,
+      # also allow jumping to the next major phase (current_major + 1, minor 0).
+      # This handles: 3.0 → 4.0 when 3.1 exists (skipping optional 3.1).
+      if [ "$IS_SEQUENTIAL" = "false" ] && [ -n "$NEXT_MAJOR" ] && [ "$NEXT_MINOR" -gt 0 ] && [ "$NEXT_MAJOR" = "$CUR_MAJOR" ]; then
+        NEXT_MAJOR_PHASE=$(( CUR_MAJOR + 1 ))
+        if [ "$REQ_MAJOR" = "$NEXT_MAJOR_PHASE" ] && [ "$REQ_MINOR" = "0" ]; then
+          IS_SEQUENTIAL=true
+        fi
+      fi
+
+      # Case 1c: From a sub-phase, allow jumping to the next major phase
+      # If current is N.M (minor > 0), allow transition to (N+1).0
+      if [ "$IS_SEQUENTIAL" = "false" ] && [ "$CUR_MINOR" -gt 0 ]; then
+        NEXT_MAJOR_FROM_SUB=$(( CUR_MAJOR + 1 ))
+        if [ "$REQ_MAJOR" = "$NEXT_MAJOR_FROM_SUB" ] && [ "$REQ_MINOR" = "0" ]; then
+          IS_SEQUENTIAL=true
+        fi
       fi
 
       # Case 2: Sub-phase auto-append — same major as current, higher minor
@@ -575,13 +687,18 @@ case "$ACTION" in
       exit 1
     fi
 
-    # Parse optional flags: --keywords "kw1,kw2,..."
+    # Parse optional flags: --keywords "kw1,kw2,...", --skip-debrief "reason"
     KEYWORDS=""
+    SKIP_DEBRIEF=""
     shift 2  # Remove action, dir
     while [ $# -gt 0 ]; do
       case "$1" in
         --keywords)
           KEYWORDS="${2:?--keywords requires a value}"
+          shift 2
+          ;;
+        --skip-debrief)
+          SKIP_DEBRIEF="${2:?--skip-debrief requires a reason}"
           shift 2
           ;;
         *)
@@ -603,6 +720,46 @@ case "$ACTION" in
       echo "  What was done in this session (1-3 lines)" >&2
       echo "  EOF" >&2
       exit 1
+    fi
+
+    # --- Debrief Gate (§CMD_DEBRIEF_BEFORE_CLOSE) ---
+    # Check if the skill's debrief file exists before allowing deactivation
+    # Derives filename from debriefTemplate in .state.json (e.g., TEMPLATE_TESTING.md → TESTING.md)
+    if [ -z "$SKIP_DEBRIEF" ]; then
+      DEBRIEF_TEMPLATE=$(jq -r '.debriefTemplate // ""' "$STATE_FILE" 2>/dev/null || echo "")
+      if [ -n "$DEBRIEF_TEMPLATE" ]; then
+        DEBRIEF_BASENAME=$(basename "$DEBRIEF_TEMPLATE")
+        DEBRIEF_NAME="${DEBRIEF_BASENAME#TEMPLATE_}"
+        DEBRIEF_FILE="$DIR/$DEBRIEF_NAME"
+        if [ ! -f "$DEBRIEF_FILE" ]; then
+          echo "§CMD_DEBRIEF_BEFORE_CLOSE: Cannot deactivate — no debrief file found." >&2
+          echo "  Expected: $DEBRIEF_NAME in $DIR" >&2
+          echo "" >&2
+          echo "  To fix: Write the debrief via §CMD_GENERATE_DEBRIEF_USING_TEMPLATE." >&2
+          echo "  To skip: session.sh deactivate $DIR --skip-debrief \"Reason: user approved skipping debrief\"" >&2
+          exit 1
+        fi
+      fi
+    fi
+
+    # --- Checklist Gate (¶INV_CHECKLIST_BEFORE_CLOSE) ---
+    # Requires checkPassed=true (set by session.sh check) if any checklists were discovered
+    DISCOVERED=$(jq -r '(.discoveredChecklists // []) | length' "$STATE_FILE" 2>/dev/null || echo "0")
+    if [ "$DISCOVERED" -gt 0 ]; then
+      CHECK_PASSED=$(jq -r '.checkPassed // false' "$STATE_FILE" 2>/dev/null || echo "false")
+      if [ "$CHECK_PASSED" != "true" ]; then
+        echo "¶INV_CHECKLIST_BEFORE_CLOSE: Cannot deactivate — $DISCOVERED checklist(s) discovered but checkPassed is not set." >&2
+        echo "" >&2
+        echo "  Discovered checklists:" >&2
+        jq -r '(.discoveredChecklists // []) | .[]' "$STATE_FILE" 2>/dev/null | while IFS= read -r f; do echo "    - $f" >&2; done
+        echo "" >&2
+        echo "  To fix: Run §CMD_PROCESS_CHECKLISTS — read each checklist, evaluate items, then call:" >&2
+        echo "    session.sh check $DIR <<'EOF'" >&2
+        echo "    ## CHECKLIST: /path/to/CHECKLIST.md" >&2
+        echo "    - [x] Verified item" >&2
+        echo "    EOF" >&2
+        exit 1
+      fi
     fi
 
     # Build jq expression based on whether keywords were provided
@@ -737,8 +894,233 @@ case "$ACTION" in
     echo "$FOUND_DIR"
     ;;
 
+  check)
+    # Validate session before deactivation: tag scan + checklist processing
+    #
+    # Two validations (both must pass for checkPassed=true):
+    #   1. TAG SCAN: Scans session .md files for bare unescaped inline #needs-*/#active-*/#done-* tags.
+    #      If found, reports them and exits 1. Agent must promote or acknowledge each tag,
+    #      then re-run check. Skip with tagCheckPassed=true in .state.json.
+    #   2. CHECKLIST: Validates checklist processing results (existing behavior, requires stdin).
+    #      Skip with no discoveredChecklists in .state.json.
+    #
+    # Usage:
+    #   session.sh check <path>                          # Tag scan only (no checklists)
+    #   session.sh check <path> <<'EOF'                  # Tag scan + checklist validation
+    #   ## CHECKLIST: /absolute/path/to/CHECKLIST.md
+    #   - [x] Item that was verified
+    #   EOF
+    #
+    # On success: sets checkPassed=true in .state.json
+    # On failure: exits 1 with descriptive error
+
+    if [ ! -f "$STATE_FILE" ]; then
+      echo "ERROR: No .state.json in $DIR" >&2
+      exit 1
+    fi
+
+    # ─── Validation 1: Tag Scan (¶INV_ESCAPE_BY_DEFAULT) ───
+    # Scan session .md files for bare unescaped inline lifecycle tags.
+    # Skip if tagCheckPassed is already true (tags were already addressed).
+    TAG_CHECK_PASSED=$(jq -r '.tagCheckPassed // false' "$STATE_FILE" 2>/dev/null || echo "false")
+
+    if [ "$TAG_CHECK_PASSED" != "true" ]; then
+      # Scan all .md files in session dir for bare lifecycle tags
+      # Pattern: #needs-*, #active-*, #done-* (the lifecycle tag families)
+      TAG_PATTERN='#(needs|active|done)-[a-z]+'
+      BARE_TAGS=""
+
+      if [ -d "$DIR" ]; then
+        # Find all .md files in session dir (not recursive into subdirs beyond session)
+        while IFS= read -r md_file; do
+          [ -f "$md_file" ] || continue
+          # Search for lifecycle tags, excluding:
+          #   - Tags-line matches (**Tags**: ...)
+          #   - Backtick-escaped references are handled per-tag in the loop below
+          #   - .state.json (not .md, but just in case)
+          MATCHES=$(grep -nE "$TAG_PATTERN" "$md_file" 2>/dev/null \
+            | grep -v '^\*\*Tags\*\*:' \
+            | grep -vE '[0-9]+:\*\*Tags\*\*:' \
+            || true)
+
+          if [ -n "$MATCHES" ]; then
+            # For each match line, extract and validate
+            while IFS= read -r match_line; do
+              [ -n "$match_line" ] || continue
+              LINE_NUM=$(echo "$match_line" | cut -d: -f1)
+              LINE_TEXT=$(echo "$match_line" | cut -d: -f2-)
+
+              # Double-check: is this line the Tags line? (line starts with **Tags**:)
+              if echo "$LINE_TEXT" | grep -qE '^\*\*Tags\*\*:'; then
+                continue
+              fi
+
+              # Double-check: is the tag backtick-escaped in this line?
+              # Extract each lifecycle tag from the line and check if it's escaped
+              TAGS_IN_LINE=$(echo "$LINE_TEXT" | grep -oE '#(needs|active|done)-[a-z]+' || true)
+              for tag in $TAGS_IN_LINE; do
+                # Check if this specific tag is backtick-escaped in the line
+                if echo "$LINE_TEXT" | grep -q "\`${tag}\`"; then
+                  continue  # Escaped — skip
+                fi
+                # Bare tag found — record it
+                BARE_TAGS="${BARE_TAGS}${md_file}:${LINE_NUM}: ${tag} — $(echo "$LINE_TEXT" | sed 's/^[[:space:]]*//')\n"
+              done
+            done <<< "$MATCHES"
+          fi
+        done < <(find "$DIR" -maxdepth 1 -name '*.md' -type f 2>/dev/null)
+      fi
+
+      if [ -n "$BARE_TAGS" ]; then
+        echo "¶INV_ESCAPE_BY_DEFAULT: Bare inline lifecycle tags found in session artifacts." >&2
+        echo "" >&2
+        echo "  Each bare tag must be addressed before synthesis:" >&2
+        echo "    PROMOTE — Create a request file + backtick-escape the inline tag" >&2
+        echo "    ACKNOWLEDGE — Mark as intentional (tag stays bare)" >&2
+        echo "" >&2
+        echo "  Bare tags found:" >&2
+        printf "    %b" "$BARE_TAGS" | while IFS= read -r line; do
+          [ -n "$line" ] && echo "    $line" >&2
+        done
+        echo "" >&2
+        echo "  After addressing all tags, set tagCheckPassed:" >&2
+        echo "    session.sh update $DIR tagCheckPassed true" >&2
+        echo "  Then re-run: session.sh check $DIR" >&2
+        exit 1
+      fi
+
+      # No bare tags found — mark tag check as passed
+      jq --arg ts "$(timestamp)" \
+        '.tagCheckPassed = true | .lastHeartbeat = $ts' \
+        "$STATE_FILE" | safe_json_write "$STATE_FILE"
+      echo "Tag scan: No bare inline lifecycle tags found. tagCheckPassed=true"
+    else
+      echo "Tag scan: Already passed (tagCheckPassed=true)."
+    fi
+
+    # ─── Validation 2: Checklist Processing (¶INV_CHECKLIST_BEFORE_CLOSE) ───
+    # Read checklist results from stdin
+    CHECK_INPUT=""
+    if [ ! -t 0 ]; then
+      CHECK_INPUT=$(cat)
+    fi
+
+    # Get discovered checklists from .state.json
+    DISCOVERED_JSON=$(jq -r '(.discoveredChecklists // [])' "$STATE_FILE" 2>/dev/null || echo "[]")
+    DISCOVERED_COUNT=$(echo "$DISCOVERED_JSON" | jq 'length')
+
+    if [ "$DISCOVERED_COUNT" -eq 0 ]; then
+      # No checklists discovered — checklist check passes trivially
+      jq --arg ts "$(timestamp)" \
+        '.checkPassed = true | .lastHeartbeat = $ts' \
+        "$STATE_FILE" | safe_json_write "$STATE_FILE"
+      echo "Checklist: No checklists discovered — check passed trivially."
+      echo "All checks passed. checkPassed=true"
+      exit 0
+    fi
+
+    # Checklists discovered — stdin required
+    if [ -z "$CHECK_INPUT" ]; then
+      echo "§CMD_PROCESS_CHECKLISTS: Checklists discovered but no results provided on stdin." >&2
+      echo "" >&2
+      echo "  Usage: session.sh check <path> <<'EOF'" >&2
+      echo "  ## CHECKLIST: /path/to/CHECKLIST.md" >&2
+      echo "  - [x] Verified item" >&2
+      echo "  - [ ] Not applicable (reason)" >&2
+      echo "  EOF" >&2
+      exit 1
+    fi
+
+    # Extract all ## CHECKLIST: paths from stdin
+    SUBMITTED_PATHS=$(echo "$CHECK_INPUT" | grep -oE '^## CHECKLIST: .+' | sed 's/^## CHECKLIST: //' || true)
+
+    # Validate: every discovered checklist has a matching block
+    MISSING_PATHS=()
+    while IFS= read -r discovered_path; do
+      [ -n "$discovered_path" ] || continue
+      # Check if this path appears in submitted paths
+      if ! echo "$SUBMITTED_PATHS" | grep -qF "$discovered_path"; then
+        MISSING_PATHS+=("$discovered_path")
+      fi
+    done < <(echo "$DISCOVERED_JSON" | jq -r '.[]')
+
+    if [ ${#MISSING_PATHS[@]} -gt 0 ]; then
+      echo "§CMD_PROCESS_CHECKLISTS: Checklist validation failed — ${#MISSING_PATHS[@]} missing." >&2
+      echo "" >&2
+      echo "  Missing checklist blocks:" >&2
+      for mp in "${MISSING_PATHS[@]}"; do
+        echo "    - $mp" >&2
+      done
+      echo "" >&2
+      echo "  Each discovered checklist needs a matching '## CHECKLIST: /path' block in stdin." >&2
+      exit 1
+    fi
+
+    # Validate: each block has at least one checklist item (- [x] or - [ ])
+    EMPTY_BLOCKS=()
+    while IFS= read -r discovered_path; do
+      [ -n "$discovered_path" ] || continue
+      # Extract the block for this path (from ## CHECKLIST: to next ## or end)
+      # Use exact string match (index) instead of regex (~) to avoid / escaping issues
+      BLOCK=$(echo "$CHECK_INPUT" | awk -v path="## CHECKLIST: $discovered_path" '
+        $0 == path { found=1; next }
+        found && /^## / { found=0 }
+        found { print }
+      ')
+      # Check if block has at least one - [x] or - [ ] item
+      # grep -c exits 1 when 0 matches; capture separately to avoid set -e issues
+      ITEM_COUNT=$(echo "$BLOCK" | grep -cE '^\s*- \[(x| )\]' 2>/dev/null) || ITEM_COUNT=0
+      if [ "$ITEM_COUNT" -eq 0 ]; then
+        EMPTY_BLOCKS+=("$discovered_path")
+      fi
+    done < <(echo "$DISCOVERED_JSON" | jq -r '.[]')
+
+    if [ ${#EMPTY_BLOCKS[@]} -gt 0 ]; then
+      echo "§CMD_PROCESS_CHECKLISTS: Checklist blocks have no items — ${#EMPTY_BLOCKS[@]} empty." >&2
+      echo "" >&2
+      echo "  Empty blocks (need at least one - [x] or - [ ] item):" >&2
+      for eb in "${EMPTY_BLOCKS[@]}"; do
+        echo "    - $eb" >&2
+      done
+      exit 1
+    fi
+
+    # All validations passed — set checkPassed
+    jq --arg ts "$(timestamp)" \
+      '.checkPassed = true | .lastHeartbeat = $ts' \
+      "$STATE_FILE" | safe_json_write "$STATE_FILE"
+
+    echo "§CMD_PROCESS_CHECKLISTS: All $DISCOVERED_COUNT checklist(s) validated."
+    echo "All checks passed. checkPassed=true"
+    ;;
+
+  request-template)
+    # Output a REQUEST template to stdout for a given #needs-* tag
+    # Usage: session.sh request-template '#needs-implementation'
+    # Discovery: scans ~/.claude/skills/*/assets/TEMPLATE_*_REQUEST.md for matching tag on Tags line
+    TAG="${2:?Usage: session.sh request-template '#needs-xxx'}"
+    SKILLS_DIR="$HOME/.claude/skills"
+
+    # Ensure trailing slash for BSD grep compatibility
+    TEMPLATE_FILE=$(grep -rl "^\*\*Tags\*\*:.*${TAG}" "$SKILLS_DIR"/*/assets/TEMPLATE_*_REQUEST.md 2>/dev/null | head -1 || true)
+
+    if [ -n "$TEMPLATE_FILE" ] && [ -f "$TEMPLATE_FILE" ]; then
+      cat "$TEMPLATE_FILE"
+    else
+      echo "ERROR: No REQUEST template found for tag '$TAG'" >&2
+      echo "" >&2
+      echo "Available templates:" >&2
+      for tmpl in "$SKILLS_DIR"/*/assets/TEMPLATE_*_REQUEST.md; do
+        [ -f "$tmpl" ] || continue
+        tmpl_tag=$(grep '^\*\*Tags\*\*:' "$tmpl" 2>/dev/null | grep -o '#needs-[a-z-]*' | head -1 || true)
+        [ -n "$tmpl_tag" ] && echo "  $tmpl_tag  →  $tmpl" >&2
+      done
+      exit 1
+    fi
+    ;;
+
   *)
-    echo "ERROR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart" >&2
+    echo "ERROR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart, check, request-template" >&2
     exit 1
     ;;
 esac

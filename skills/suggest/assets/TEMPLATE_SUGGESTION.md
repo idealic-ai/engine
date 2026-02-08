@@ -15,6 +15,7 @@
 
 ---
 
+<!-- WALKTHROUGH RESULTS -->
 ## 2. The "Context Squeeze" Findings
 
 ### A. Documentation vs. Reality
@@ -49,6 +50,7 @@
 
 ---
 
+<!-- WALKTHROUGH RESULTS -->
 ## 4. Action Plan (Next Steps)
 *Turn these into tickets.*
 

@@ -2,6 +2,7 @@
 name: reanchor
 description: Re-initializes session context after context overflow restart. Internal skill - invoked by session.sh restart.
 version: 2.0
+tier: lightweight
 trigger: internal
 ---
 
@@ -10,10 +11,9 @@ Re-initializes session context after context overflow restart.
 [!!!] THIS IS A RECOVERY SKILL -- Follow the protocol EXACTLY.
 
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -21,7 +21,6 @@ Re-initializes session context after context overflow restart.
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
@@ -79,9 +78,9 @@ Arguments:
 **Action**: Load the core standards into context. These are required for all skills.
 
 **Files to Read** (in order):
-1. `~/.claude/standards/COMMANDS.md` -- Command definitions
-2. `~/.claude/standards/INVARIANTS.md` -- System invariants
-3. `.claude/standards/INVARIANTS.md` -- Project invariants (if exists)
+1. `~/.claude/directives/COMMANDS.md` -- Command definitions
+2. `~/.claude/directives/INVARIANTS.md` -- System invariants
+3. `.claude/directives/INVARIANTS.md` -- Project invariants (if exists)
 
 ---
 
@@ -107,7 +106,7 @@ Arguments:
 | Prefix | Location | Example |
 |--------|----------|---------|
 | `~/.claude/` | User home | `~/.claude/skills/refine/SKILL.md` -> shared engine |
-| `.claude/` | Project root | `.claude/standards/INVARIANTS.md` -> project-local config |
+| `.claude/` | Project root | `.claude/directives/INVARIANTS.md` -> project-local config |
 | `sessions/` | Project root | `sessions/2026_02_05_FOO/REFINE_LOG.md` -> session artifacts |
 
 **WARNING**: `~/.claude/` is not `.claude/`. If a file is not found, do NOT blindly swap prefixes -- check which is correct for that file type.

@@ -20,6 +20,7 @@
 *Describe the journey. Was it smooth? Did we hit a swamp?*
 "We started strong with the Type definitions, but hit a major wall around the `AudioContext` mocking. We spent 30% of the session fighting the test environment. Once that was resolved, the logic implementation was trivial."
 
+<!-- WALKTHROUGH RESULTS -->
 ## 3. Plan vs. Reality (Deviation Analysis)
 *Compare the `_PLAN.md` to the actual code. Be verbose: Why did we change course?*
 
@@ -43,6 +44,7 @@
 *   **The Fix**: "Used `z.infer<typeof Schema>` explicit type helper."
 *   **The Lesson**: "Always export the inferred type immediately next to the schema."
 
+<!-- WALKTHROUGH RESULTS -->
 ## 5. The "Technical Debt" Ledger
 *Be honest. What did we borrow from the future?*
 
@@ -77,6 +79,7 @@
     *   "Checked UI responsiveness": ✅ OK
     *   "Checked memory usage": ⚠️ High (See Concern #2)
 
+<!-- WALKTHROUGH RESULTS -->
 ## 9. "Btw, I also noticed..." (Side Discoveries)
 *Unrelated things found while working. Use the Log's 'Parking Lot' and 'Observations'.*
 

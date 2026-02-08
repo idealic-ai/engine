@@ -53,6 +53,7 @@
 *   **Impact**: ...
 *   **Iteration**: ...
 
+<!-- WALKTHROUGH RESULTS -->
 ## 5. Failing Fixtures (Remaining)
 *What still doesn't work, and why.*
 
@@ -70,6 +71,7 @@
 
 *   **Insight 2**: ...
 
+<!-- WALKTHROUGH RESULTS -->
 ## 7. Regressions & Tradeoffs
 *Did we break anything? What tradeoffs were accepted?*
 
@@ -77,6 +79,7 @@
 *   **Tradeoff**: "Looser scope header matching increases false positives on dense layouts"
     *   *Accepted Because*: "Dense layouts are rare in our corpus"
 
+<!-- WALKTHROUGH RESULTS -->
 ## 8. Recommendations
 *What to do next.*
 

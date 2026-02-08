@@ -3,7 +3,7 @@
 #
 # Related:
 #   (no direct doc/invariant/command references — utility layer)
-#   Consumers: run.sh (terminalLinkProtocol), statusline.sh, setup.sh
+#   Consumers: run.sh (terminalLinkProtocol), statusline.sh, engine.sh
 #
 # Usage:
 #   config.sh get <key>           # Get value (returns default if unset)

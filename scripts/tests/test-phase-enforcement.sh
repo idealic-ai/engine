@@ -34,6 +34,29 @@ reset_state() {
 AGENTEOF
 }
 
+# Helper: create state file with sub-phases declared
+reset_state_with_subphases() {
+  local current_phase="${1:-1: Setup}"
+  mkdir -p "$TEST_DIR"
+  cat > "$STATE_FILE" <<AGENTEOF
+{
+  "pid": 99999,
+  "skill": "test",
+  "lifecycle": "active",
+  "currentPhase": "$current_phase",
+  "phases": [
+    {"major": 1, "minor": 0, "name": "Setup"},
+    {"major": 2, "minor": 0, "name": "Context Ingestion"},
+    {"major": 3, "minor": 0, "name": "Strategy"},
+    {"major": 3, "minor": 1, "name": "Agent Handoff"},
+    {"major": 4, "minor": 0, "name": "Testing Loop"},
+    {"major": 5, "minor": 0, "name": "Synthesis"}
+  ],
+  "phaseHistory": ["$current_phase"]
+}
+AGENTEOF
+}
+
 # Helper: create state file WITHOUT phases (backward compat)
 reset_state_no_phases() {
   local current_phase="${1:-Phase 3: Execution}"
@@ -164,6 +187,45 @@ assert_ok "4.2→5 forward to next major" \
 
 echo ""
 
+# --- Sub-phase Skippability ---
+# Sub-phases are optional alternative paths. Major phases are sequential.
+# Rule: Skip sub-phases to next major = OK. Skip a major = requires --user-approved.
+echo "--- Sub-phase Skippability ---"
+
+# Skip declared sub-phase 3.1 to go to next major 4 (should be allowed)
+reset_state_with_subphases "3: Strategy"
+assert_ok "3→4 skip declared sub-phase 3.1 to next major" \
+  "$SESSION_SH" phase "$TEST_DIR" "4: Testing Loop"
+assert_json "currentPhase updated to 4" '.currentPhase' '4: Testing Loop'
+
+# Enter sub-phase then skip to next major (should be allowed)
+reset_state_with_subphases "3: Strategy"
+"$SESSION_SH" phase "$TEST_DIR" "3.1: Agent Handoff" > /dev/null 2>&1
+assert_ok "3.1→4 from sub-phase to next major" \
+  "$SESSION_SH" phase "$TEST_DIR" "4: Testing Loop"
+
+# Skip major 4 entirely from 3 (should FAIL — major skip)
+reset_state_with_subphases "3: Strategy"
+assert_fail "3→5 skip entire major 4 without approval" \
+  "$SESSION_SH" phase "$TEST_DIR" "5: Synthesis"
+
+# Sub-phases within same major: free movement (any order)
+reset_state_with_subphases "3: Strategy"
+assert_ok "3.0→3.1 forward sub-phase" \
+  "$SESSION_SH" phase "$TEST_DIR" "3.1: Agent Handoff"
+
+# From a sub-phase, should reach the next major without needing approval
+reset_state_with_subphases "1: Setup"
+"$SESSION_SH" phase "$TEST_DIR" "2: Context Ingestion" > /dev/null 2>&1
+"$SESSION_SH" phase "$TEST_DIR" "3: Strategy" > /dev/null 2>&1
+"$SESSION_SH" phase "$TEST_DIR" "3.1: Agent Handoff" > /dev/null 2>&1
+assert_ok "3.1→4 sequential after entering sub-phase" \
+  "$SESSION_SH" phase "$TEST_DIR" "4: Testing Loop"
+assert_ok "4→5 continues normally" \
+  "$SESSION_SH" phase "$TEST_DIR" "5: Synthesis"
+
+echo ""
+
 # --- Phase History ---
 echo "--- Phase History ---"
 reset_state "1: Setup"
@@ -193,6 +255,72 @@ assert_fail "no number prefix rejected" \
 
 assert_fail "text-only prefix rejected" \
   "$SESSION_SH" phase "$TEST_DIR" "Phase 1: Setup"
+
+echo ""
+
+# --- Whitelist Format Validation ---
+# Only "N: Name" or "N.M: Name" formats are valid. Everything else rejected.
+echo "--- Whitelist Format Validation ---"
+
+# Valid formats (should pass)
+reset_state "1: Setup"
+assert_ok "valid N: format (5: Build Loop)" \
+  "$SESSION_SH" phase "$TEST_DIR" "2: Context Ingestion"
+reset_state "1: Setup"
+assert_ok "valid N.M: format (1.1: Sub)" \
+  "$SESSION_SH" phase "$TEST_DIR" "1.1: Sub"
+reset_state "1: Setup"
+# Multi-digit major
+"$SESSION_SH" phase "$TEST_DIR" "2: Context Ingestion" > /dev/null 2>&1  # get to 2 first
+"$SESSION_SH" phase "$TEST_DIR" "3: Interrogation" > /dev/null 2>&1
+"$SESSION_SH" phase "$TEST_DIR" "4: Planning" > /dev/null 2>&1
+"$SESSION_SH" phase "$TEST_DIR" "5: Build Loop" > /dev/null 2>&1
+"$SESSION_SH" phase "$TEST_DIR" "6: Synthesis" > /dev/null 2>&1
+# Now test going back with approval (tests format, not sequence)
+assert_ok "valid multi-digit format (12: Name) with approval" \
+  "$SESSION_SH" phase "$TEST_DIR" "12: Something" --user-approved "Reason: testing format"
+
+# Invalid formats — alpha-style (the migration target)
+reset_state "1: Setup"
+assert_fail "alpha-style 5b rejected" \
+  "$SESSION_SH" phase "$TEST_DIR" "5b: Triage"
+
+reset_state "1: Setup"
+assert_fail "alpha-style 3b rejected" \
+  "$SESSION_SH" phase "$TEST_DIR" "3b: Handoff"
+
+reset_state "1: Setup"
+assert_fail "alpha-style 1a rejected" \
+  "$SESSION_SH" phase "$TEST_DIR" "1a: Setup"
+
+reset_state "1: Setup"
+assert_fail "alpha-style uppercase 5B rejected" \
+  "$SESSION_SH" phase "$TEST_DIR" "5B: Upper"
+
+# Invalid formats — other non-whitelisted patterns
+reset_state "1: Setup"
+assert_fail "underscore 5_1 rejected" \
+  "$SESSION_SH" phase "$TEST_DIR" "5_1: Test"
+
+reset_state "1: Setup"
+assert_fail "space between digits 5 1 rejected" \
+  "$SESSION_SH" phase "$TEST_DIR" "5 1: Test"
+
+reset_state "1: Setup"
+assert_fail "mixed 5.1b rejected" \
+  "$SESSION_SH" phase "$TEST_DIR" "5.1b: Mixed"
+
+reset_state "1: Setup"
+assert_fail "no major .1 rejected" \
+  "$SESSION_SH" phase "$TEST_DIR" ".1: No Major"
+
+reset_state "1: Setup"
+assert_fail "trailing dot 5. rejected" \
+  "$SESSION_SH" phase "$TEST_DIR" "5.: No Minor"
+
+reset_state "1: Setup"
+assert_fail "space before colon 5 : rejected" \
+  "$SESSION_SH" phase "$TEST_DIR" "5 : Space"
 
 echo ""
 

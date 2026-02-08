@@ -103,14 +103,14 @@ dispatch-daemon.sh stop
 
 ## Tag Routing
 
-The daemon reads the `§TAG_DISPATCH` table from `~/.claude/standards/TAGS.md`:
+The daemon reads the `§TAG_DISPATCH` table from `~/.claude/directives/TAGS.md`:
 
 | Tag | Skill | Notes |
 |-----|-------|-------|
-| `#needs-decision` | `/decide` | Interactive decision making |
+| `#needs-brainstorm` | `/brainstorm` | Exploration and trade-off analysis |
 | `#needs-research` | `/research` | Gemini Deep Research |
-| `#needs-delegation` | `/delegate-respond` | Fulfill delegation request |
 | `#needs-implementation` | `/implement` | Code implementation |
+| `#needs-chores` | `/chores` | Small self-contained tasks |
 | `#needs-documentation` | `/document` | Documentation pass |
 | `#needs-review` | `/review` | Review debrief |
 
@@ -213,6 +213,6 @@ The agent may have errored. Check `~/.claude/scripts/run.sh` requirements.
 
 ## See Also
 
-- `~/.claude/standards/HANDOFF.md` — Full coordination reference
-- `~/.claude/standards/TAGS.md` — Tag system and routing
-- `~/.claude/standards/COMMANDS.md` — `§CMD_*` primitives
+- `~/.claude/directives/HANDOFF.md` — Full coordination reference
+- `~/.claude/directives/TAGS.md` — Tag system and routing
+- `~/.claude/directives/COMMANDS.md` — `§CMD_*` primitives

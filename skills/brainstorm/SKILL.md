@@ -2,14 +2,14 @@
 name: brainstorm
 description: "Structured ideation and trade-off analysis for design and architecture decisions. Triggers: \"brainstorm ideas\", \"explore this problem\", \"think through trade-offs\", \"challenge assumptions\", \"discuss architecture\"."
 version: 2.0
+tier: protocol
 ---
 
 Structured ideation and trade-off analysis for design and architecture decisions.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,13 +17,40 @@ Structured ideation and trade-off analysis for design and architecture decisions
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
 # Brainstorming Protocol (The Socratic Engine)
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases. The engine's artifacts live in the session directory as reviewable files, not in transient tool state. Use THIS protocol's phases, not the IDE's.
+
+### Phases (for §CMD_PARSE_PARAMETERS)
+*Include this array in the `phases` field when calling `session.sh activate`:*
+```json
+[
+  {"major": 1, "minor": 0, "name": "Setup"},
+  {"major": 2, "minor": 0, "name": "Context Ingestion"},
+  {"major": 3, "minor": 0, "name": "Dialogue Loop"},
+  {"major": 3, "minor": 1, "name": "Agent Handoff"},
+  {"major": 4, "minor": 0, "name": "Synthesis"}
+]
+```
+*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
+
+## Mode Presets
+
+Brainstorm modes configure the agent's ideation style — role, dialogue topics, and convergence approach. The mode is selected in Phase 1 via `AskUserQuestion`. Full mode definitions are in `modes/*.md` files.
+
+| Mode | Description | When to Use |
+|------|-------------|-------------|
+| **Explore** | Wide ideation, divergent, creative | Default — open-ended exploration |
+| **Focused** | Decision-oriented, trade-off analysis | Specific choice point, need recommendation |
+| **Adversarial** | Stress-test assumptions, devil's advocate | Challenge existing ideas, find risks |
+| **Custom** | Reads all 3 modes, synthesizes a hybrid | User provides framing, agent blends modes |
+
+**Mode files**: `~/.claude/skills/brainstorm/modes/{explore,focused,adversarial,custom}.md`
+
+---
 
 ## 1. Setup Phase
 
@@ -35,11 +62,9 @@ Structured ideation and trade-off analysis for design and architecture decisions
     > 5. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
     > 6. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
     > 7. I will `§CMD_MAINTAIN_SESSION_DIR` to establish working space.
-    > 7. I will `§CMD_ASSUME_ROLE` to execute better:
-    >    **Role**: You are the **Lead Architect** and **Socratic Partner**.
-    >    **Goal**: To explore the problem space, challenge assumptions, and arrive at **Truth**.
-    >    **Mindset**: The reward is in the process. We are not just ticking boxes; we are discovering the optimal path through a maze of trade-offs.
-    > 8. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
+    > 8. I will select the **Brainstorm Mode** (Explore / Focused / Adversarial / Custom).
+    > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
+    > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
     **Constraint**: Do NOT read any project files (source code, docs) in Phase 1. Only load the required system templates/standards.
 
@@ -55,17 +80,31 @@ Structured ideation and trade-off analysis for design and architecture decisions
 
 5.  **Scope**: Understand the [Topic] and [Goal].
 
-6.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
-    *   If any files are found, add them to `contextPaths` for ingestion in Phase 2.
+5.1. **Brainstorm Mode Selection**: Execute `AskUserQuestion` (multiSelect: false):
+    > "What brainstorm approach should I use?"
+    > - **"Explore" (Recommended)** — Open-ended ideation: generate options, challenge assumptions, map trade-offs
+    > - **"Focused"** — Decision-oriented: narrow down choices, evaluate trade-offs, reach a recommendation
+    > - **"Adversarial"** — Stress-test mode: poke holes, find weaknesses, challenge every assumption
+    > - **"Custom"** — Define your own role, goal, and mindset
 
-7.  **Discover Open Requests**: Execute `§CMD_DISCOVER_OPEN_DELEGATIONS`.
-    *   If any `#needs-delegation` files are found, read them and assess relevance to the current task.
-    *   If relevant, factor them into brainstorming direction.
+    **On selection**: Read the corresponding `modes/{mode}.md` file. It defines Role, Goal, Mindset, and Dialogue Topics.
+
+    **On "Custom"**: Read ALL 3 named mode files first (`modes/explore.md`, `modes/focused.md`, `modes/adversarial.md`), then accept user's framing. Parse into role/goal/mindset.
+
+    **Record**: Store the selected mode. It configures:
+    *   Phase 1 role (from mode file)
+    *   Phase 3 dialogue topics (from mode file)
+
+6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file.
+
+7.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
+    *   If any files are found, add them to `contextPaths` for ingestion in Phase 2.
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
 > **Phase 1 proof:**
-> - Role: `________`
+> - Mode: `________` (explore / focused / adversarial / custom)
+> - Role: `________` (quote the role name from the mode preset)
 > - Session dir: `________`
 > - Templates loaded: `________`, `________`
 > - Parameters parsed: `________`
@@ -100,7 +139,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 > "Phase 2: Context loaded. How to proceed?"
 > - **"Proceed to Phase 3: Dialogue Loop"** — Begin Socratic exploration of the problem space
 > - **"Stay in Phase 2"** — Load more files or context
-> - **"Skip to Phase 4: Convergence"** — I already know what I want, just synthesize
+> - **"Skip to Phase 4: Synthesis"** — I already know what I want, just synthesize
 
 ---
 
@@ -201,7 +240,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
 
 > "Round N complete (minimum met). What next?"
-> - **"Proceed to Phase 4: Convergence"** — *(terminal: if selected, skip all others and move on)*
+> - **"Proceed to Phase 4: Synthesis"** — *(terminal: if selected, skip all others and move on)*
 > - **"More dialogue (3 more rounds)"** — Standard topic rounds, then this gate re-appears
 > - **"Devil's advocate round"** — 1 round challenging assumptions, then this gate re-appears
 > - **"What-if scenarios round"** — 1 round exploring hypotheticals, then this gate re-appears
@@ -228,12 +267,12 @@ Execute `AskUserQuestion` (multiSelect: false):
 
 ---
 
-## 3b. Agent Handoff (Opt-In)
+## 3.1. Agent Handoff (Opt-In)
 *Only if user selected "Launch analyzer agent" in Phase 3 transition.*
 
 Execute `§CMD_HAND_OFF_TO_AGENT` with:
 *   `agentName`: `"analyzer"`
-*   `startAtPhase`: `"Phase 4: Convergence"`
+*   `startAtPhase`: `"Phase 4: Synthesis"`
 *   `planOrDirective`: `"Synthesize brainstorming findings into BRAINSTORM.md following the template. Focus on: [key themes and decisions from dialogue]"`
 *   `logFile`: `BRAINSTORM_LOG.md`
 *   `debriefTemplate`: `~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM.md`
@@ -244,15 +283,16 @@ Execute `§CMD_HAND_OFF_TO_AGENT` with:
 
 ---
 
-## 4. Convergence (Synthesis)
+## 4. Synthesis
 *When the dialogue has explored the space sufficiently.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Convergence.
-> 2. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_BRAINSTORM.md` EXACTLY) to summarize findings into a permanent record.
-> 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to formally close the session and list outputs.
-> 4. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 1. I am moving to Phase 4: Synthesis.
+> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
+> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_BRAINSTORM.md` EXACTLY) to summarize findings into a permanent record.
+> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to formally close the session and list outputs.
+> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
@@ -260,28 +300,25 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 [!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The brainstorm FILE is the primary deliverable — chat output alone is not sufficient.
 
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
+
 **Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `BRAINSTORM.md`).
   *   Write the file using the Write tool. This MUST produce a real file in the session directory.
   *   **Reflect**: Look back at the full session — identify key takeaways.
   *   **Synthesize**: Don't just summarize. Connect the dots between dialogue rounds.
   *   **Next Steps**: Propose the move to `IMPLEMENTATION` or `ANALYSIS` — guide the user.
 
-**Step 2**: Respond to Requests — Re-run `§CMD_DISCOVER_OPEN_DELEGATIONS`. For any request addressed by this session's work, execute `§CMD_POST_DELEGATION_RESPONSE`.
+**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
 
-**Step 3**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
+**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
 
-**Step 4**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 5**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
+**Step 4**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"
   gateQuestion: "Brainstorm complete. Walk through ideas?"
   debriefFile: "BRAINSTORM.md"
-  itemSources:
-    - "## Convergence"
-    - "## Sparks & Ideas"
-    - "## Recommendations"
+  templateFile: "~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM.md"
   actionMenu:
     - label: "Implement this idea"
       tag: "#needs-implementation"
@@ -304,7 +341,7 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
-**Step 6**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+**Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
 
 ### Next Skill Options
 *Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*

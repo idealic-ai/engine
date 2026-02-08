@@ -231,7 +231,7 @@ setup
 setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
 # Check whole-dir symlinks
 [ -L "$TEST_DIR/claude/commands" ] && pass "ENGINE-01: commands/ symlinked" || fail "ENGINE-01" "symlink" "not"
-[ -L "$TEST_DIR/claude/standards" ] && pass "ENGINE-02: standards/ symlinked" || fail "ENGINE-02" "symlink" "not"
+[ -L "$TEST_DIR/claude/directives" ] && pass "ENGINE-02: directives/ symlinked" || fail "ENGINE-02" "symlink" "not"
 [ -L "$TEST_DIR/claude/agents" ] && pass "ENGINE-03: agents/ symlinked" || fail "ENGINE-03" "symlink" "not"
 # Check per-file symlinks
 [ -L "$TEST_DIR/claude/scripts/session.sh" ] && pass "ENGINE-04: scripts/ has per-file symlinks" || fail "ENGINE-04" "symlink" "not"
@@ -344,13 +344,43 @@ echo '{}' > "$TEST_DIR/claude/settings.json"
 configure_hooks "$TEST_DIR/claude/settings.json"
 jq -e '.hooks.Notification' "$TEST_DIR/claude/settings.json" >/dev/null 2>&1 && pass "HOOKS-01: Adds Notification hooks" || fail "HOOKS-01" "present" "missing"
 jq -e '.hooks.PreToolUse' "$TEST_DIR/claude/settings.json" >/dev/null 2>&1 && pass "HOOKS-02: Adds PreToolUse hooks" || fail "HOOKS-02" "present" "missing"
+# Check new hooks are present
+hb=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-heartbeat.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$hb" = "1" ] && pass "HOOKS-02b: Adds heartbeat hook" || fail "HOOKS-02b" "1" "$hb"
+disc=$(jq '[.hooks.PostToolUseSuccess[] | select(.hooks[0].command == "~/.claude/hooks/post-tool-use-discovery.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$disc" = "1" ] && pass "HOOKS-02c: Adds discovery hook" || fail "HOOKS-02c" "1" "$disc"
 teardown
 
+# Deep-merge: preserves user's custom hooks
 setup
-echo '{"hooks":{"Notification":[{"matcher":"test"}]}}' > "$TEST_DIR/claude/settings.json"
-ACTIONS=()
+cat > "$TEST_DIR/claude/settings.json" << 'CUSTOMHOOKS'
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "~/.claude/hooks/my-custom-hook.sh"}]}
+    ],
+    "Notification": [
+      {"matcher": "custom_event", "hooks": [{"type": "command", "command": "~/.claude/hooks/my-notifier.sh"}]}
+    ]
+  }
+}
+CUSTOMHOOKS
 configure_hooks "$TEST_DIR/claude/settings.json"
-[ ${#ACTIONS[@]} -eq 0 ] && pass "HOOKS-03: Idempotent — no change when Notification exists" || fail "HOOKS-03" "0 actions" "${#ACTIONS[@]} actions"
+custom_ptu=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/my-custom-hook.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$custom_ptu" = "1" ] && pass "HOOKS-03: Deep-merge preserves user's custom PreToolUse hook" || fail "HOOKS-03" "1" "$custom_ptu"
+custom_notif=$(jq '[.hooks.Notification[] | select(.hooks[0].command == "~/.claude/hooks/my-notifier.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$custom_notif" = "1" ] && pass "HOOKS-03b: Deep-merge preserves user's custom Notification hook" || fail "HOOKS-03b" "1" "$custom_notif"
+engine_overflow=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-overflow.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$engine_overflow" = "1" ] && pass "HOOKS-03c: Deep-merge adds engine hooks alongside custom" || fail "HOOKS-03c" "1" "$engine_overflow"
+teardown
+
+# Idempotent: run twice, no duplicates
+setup
+echo '{}' > "$TEST_DIR/claude/settings.json"
+configure_hooks "$TEST_DIR/claude/settings.json"
+configure_hooks "$TEST_DIR/claude/settings.json"
+overflow_count=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-overflow.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$overflow_count" = "1" ] && pass "HOOKS-04: Idempotent — no duplicates after second run" || fail "HOOKS-04" "1" "$overflow_count"
 teardown
 
 # ============================================================================
@@ -385,22 +415,22 @@ rc=$?
 teardown
 
 # ============================================================================
-# ensure_project_standards tests
+# ensure_project_directives tests
 # ============================================================================
 echo ""
-echo "=== ensure_project_standards ==="
+echo "=== ensure_project_directives ==="
 
 setup
-ensure_project_standards "$TEST_DIR/project"
-[ -f "$TEST_DIR/project/.claude/standards/INVARIANTS.md" ] && pass "STD-01: Creates INVARIANTS.md" || fail "STD-01" "file exists" "missing"
+ensure_project_directives "$TEST_DIR/project"
+[ -f "$TEST_DIR/project/.claude/directives/INVARIANTS.md" ] && pass "STD-01: Creates INVARIANTS.md" || fail "STD-01" "file exists" "missing"
 teardown
 
 setup
-mkdir -p "$TEST_DIR/project/.claude/standards"
-echo "# Custom" > "$TEST_DIR/project/.claude/standards/INVARIANTS.md"
+mkdir -p "$TEST_DIR/project/.claude/directives"
+echo "# Custom" > "$TEST_DIR/project/.claude/directives/INVARIANTS.md"
 ACTIONS=()
-ensure_project_standards "$TEST_DIR/project"
-content=$(cat "$TEST_DIR/project/.claude/standards/INVARIANTS.md")
+ensure_project_directives "$TEST_DIR/project"
+content=$(cat "$TEST_DIR/project/.claude/directives/INVARIANTS.md")
 [ "$content" = "# Custom" ] && pass "STD-02: Preserves existing INVARIANTS.md" || fail "STD-02" "# Custom" "$content"
 [ ${#ACTIONS[@]} -eq 0 ] && pass "STD-03: No ACTIONS when file exists" || fail "STD-03" "0 actions" "${#ACTIONS[@]} actions"
 teardown

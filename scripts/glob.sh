@@ -11,7 +11,7 @@
 #   path    — optional root directory (defaults to .)
 #
 # Related:
-#   Invariants: (~/.claude/standards/INVARIANTS.md)
+#   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_GLOB_THROUGH_SYMLINKS — Primary use case (Glob tool fallback)
 #
 # Output: Newline-delimited file paths, relative to path, sorted by

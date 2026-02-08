@@ -20,6 +20,7 @@
 *Describe the testing session. Did we find bugs immediately? Did the suite fight us?*
 "We started with the Happy Path for the `AudioEngine`. It passed easily. Then we switched to the 'Edge Case' checklist (network disconnects, huge buffers), and that's where the system started to buckle. We spent 50% of the session diagnosing a race condition revealed by the stress test."
 
+<!-- WALKTHROUGH RESULTS -->
 ## 3. Defect Analysis (The Findings)
 *Summary of bugs discovered. Link to specific logs if possible.*
 
@@ -35,6 +36,7 @@
 *   **Root Cause**: ...
 *   **Status**: ...
 
+<!-- WALKTHROUGH RESULTS -->
 ## 4. Coverage Report (The Map)
 *What ground did we cover?*
 
@@ -46,6 +48,7 @@
 *   **❌ Uncovered (Risks)**:
     *   `Feature D` (Completely skipped due to mocking difficulty)
 
+<!-- WALKTHROUGH RESULTS -->
 ## 5. Test Suite Health (The Garden)
 *Comments on the tests themselves, not the product.*
 
@@ -60,6 +63,7 @@
 *   **Skipped Test**: "Concurrency test for `Database` (requires complex setup)."
 *   **Deferred Bug**: "UI glitch on high-DPI screens (low priority)."
 
+<!-- WALKTHROUGH RESULTS -->
 ## 7. Systemic Insights (The Context Dump)
 *Deep architectural observations found during testing.*
 

@@ -2,7 +2,7 @@
 # ============================================================================
 # Setup Library — Pure functions for workflow engine setup
 # ============================================================================
-# Sourced by setup.sh. All functions are parameterized (no global reads).
+# Sourced by engine.sh. All functions are parameterized (no global reads).
 # See ~/.claude/docs/SETUP_PROTOCOL.md for the full protocol.
 #
 # Testability: All path dependencies come via parameters or $SETUP_* env vars.
@@ -11,7 +11,7 @@
 # Related:
 #   Docs: (~/.claude/docs/)
 #     SETUP_PROTOCOL.md — Architecture and testing requirements
-#   Invariants: (~/.claude/standards/INVARIANTS.md)
+#   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_TEST_SANDBOX_ISOLATION — Testability requirement
 # ============================================================================
 
@@ -181,7 +181,7 @@ setup_engine_symlinks() {
 
   # Whole-dir symlinks
   link_if_needed "$engine_dir/commands"  "$claude_dir/commands"  "commands"  "0"
-  link_if_needed "$engine_dir/standards" "$claude_dir/standards" "standards" "0"
+  link_if_needed "$engine_dir/directives" "$claude_dir/directives" "directives" "0"
   link_if_needed "$engine_dir/agents"    "$claude_dir/agents"    "agents"    "0"
 
   # Per-file symlinks (allows local overrides)
@@ -302,71 +302,115 @@ configure_statusline() {
 }
 
 # configure_hooks "$settings_file"
-# Adds fleet notification hooks to settings.json.
+# Deep-merges engine hooks into settings.json. Preserves user's custom hooks.
+# Uses add_if_missing pattern: adds engine hook entries only if their command
+# path isn't already present in the category. Safe to run multiple times.
 configure_hooks() {
   local settings_file="$1"
 
   if ! command -v jq &>/dev/null; then return 1; fi
   if [ ! -f "$settings_file" ]; then return 1; fi
 
-  local current_hooks
-  current_hooks=$(jq '.hooks // {}' "$settings_file" 2>/dev/null)
-  if ! echo "$current_hooks" | jq -e '.Notification' &>/dev/null; then
-    local merged
-    merged=$(cat "$settings_file" | jq '.hooks.PreToolUse = [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
+  local merged
+  merged=$(cat "$settings_file" | jq '
+    # Helper: add entry to array if command not already present
+    def add_if_missing(entry):
+      if any(.[]; .hooks[]? | .command == (entry | .hooks[0].command))
+      then .
+      else . + [entry]
+      end;
+
+    # PreToolUse: overflow + heartbeat + session-gate
+    .hooks.PreToolUse = ((.hooks.PreToolUse // [])
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{
             "type": "command",
             "command": "~/.claude/hooks/pre-tool-use-overflow.sh",
             "timeout": 5,
             "statusMessage": "Checking context..."
-          }
-        ]
-      }
-    ] | .hooks.Stop = [
-      {
-        "hooks": [
-          {
+          }]
+        })
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{
             "type": "command",
-            "command": "~/.claude/hooks/stop-notify.sh"
-          }
-        ]
-      }
-    ] | .hooks.Notification = [
-      {
-        "matcher": "permission_prompt",
-        "hooks": [{"type": "command", "command": "~/.claude/hooks/notification-attention.sh"}]
-      },
-      {
-        "matcher": "idle_prompt",
-        "hooks": [{"type": "command", "command": "~/.claude/hooks/notification-idle.sh"}]
-      },
-      {
-        "matcher": "elicitation_dialog",
-        "hooks": [{"type": "command", "command": "~/.claude/hooks/notification-attention.sh"}]
-      }
-    ] | .hooks.UserPromptSubmit = [
-      {
-        "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-working.sh"}]
-      }
-    ] | .hooks.SessionEnd = [
-      {
-        "hooks": [{"type": "command", "command": "~/.claude/hooks/session-end-notify.sh"}]
-      }
-    ] | .hooks.PostToolUseSuccess = [
-      {
-        "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-complete-notify.sh"}]
-      }
-    ] | .hooks.PostToolUseFailure = [
-      {
-        "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-failure-notify.sh"}]
-      }
-    ]')
-    echo "$merged" > "$settings_file"
-    ACTIONS+=("Added fleet notification hooks")
-  fi
+            "command": "~/.claude/hooks/pre-tool-use-heartbeat.sh",
+            "timeout": 10,
+            "statusMessage": "Checking logging..."
+          }]
+        })
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{
+            "type": "command",
+            "command": "~/.claude/hooks/pre-tool-use-session-gate.sh",
+            "timeout": 5,
+            "statusMessage": "Checking session..."
+          }]
+        })
+    )
+
+    # Stop
+    | .hooks.Stop = ((.hooks.Stop // [])
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/stop-notify.sh"}]
+        })
+    )
+
+    # Notification
+    | .hooks.Notification = ((.hooks.Notification // [])
+      | add_if_missing({
+          "matcher": "permission_prompt",
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/notification-attention.sh"}]
+        })
+      | add_if_missing({
+          "matcher": "idle_prompt",
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/notification-idle.sh"}]
+        })
+      | add_if_missing({
+          "matcher": "elicitation_dialog",
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/notification-attention.sh"}]
+        })
+    )
+
+    # UserPromptSubmit: working + session-gate
+    | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // [])
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-working.sh"}]
+        })
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-session-gate.sh", "timeout": 5}]
+        })
+    )
+
+    # SessionEnd
+    | .hooks.SessionEnd = ((.hooks.SessionEnd // [])
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/session-end-notify.sh"}]
+        })
+    )
+
+    # PostToolUseSuccess: complete-notify + discovery
+    | .hooks.PostToolUseSuccess = ((.hooks.PostToolUseSuccess // [])
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-complete-notify.sh"}]
+        })
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-use-discovery.sh"}]
+        })
+    )
+
+    # PostToolUseFailure
+    | .hooks.PostToolUseFailure = ((.hooks.PostToolUseFailure // [])
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-failure-notify.sh"}]
+        })
+    )
+  ' 2>/dev/null) || return 1
+
+  echo "$merged" > "$settings_file"
+  ACTIONS+=("Configured engine hooks (deep-merge)")
   return 0
 }
 
@@ -406,24 +450,24 @@ link_project_dir() {
   fi
 }
 
-# ensure_project_standards "$project_root"
-# Creates .claude/standards/INVARIANTS.md stub if missing.
-ensure_project_standards() {
+# ensure_project_directives "$project_root"
+# Creates .claude/directives/INVARIANTS.md stub if missing.
+ensure_project_directives() {
   local project_root="$1"
-  local standards_dir="$project_root/.claude/standards"
-  local invariants_file="$standards_dir/INVARIANTS.md"
+  local directives_dir="$project_root/.claude/directives"
+  local invariants_file="$directives_dir/INVARIANTS.md"
 
-  mkdir -p "$standards_dir"
+  mkdir -p "$directives_dir"
 
   if [ ! -f "$invariants_file" ]; then
     cat > "$invariants_file" << 'STDINV'
 # Project Invariants
 
-Project-specific rules that extend the shared engine standards. Every command loads this file automatically after the shared `~/.claude/standards/INVARIANTS.md`.
+Project-specific rules that extend the shared engine standards. Every command loads this file automatically after the shared `~/.claude/directives/INVARIANTS.md`.
 
 Add your project's architectural rules, naming conventions, framework-specific constraints, and domain logic invariants here.
 STDINV
-    ACTIONS+=("Created .claude/standards/INVARIANTS.md")
+    ACTIONS+=("Created .claude/directives/INVARIANTS.md")
     return 0
   fi
   setup_log_verbose "INVARIANTS.md: OK"

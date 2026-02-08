@@ -2,14 +2,14 @@
 name: refine
 description: "Iterative prompt and schema refinement using TDD methodology for LLM workloads. Triggers: \"refine the prompt\", \"improve extraction\", \"iterate on schema\", \"prompt TDD\", \"tune the model\"."
 version: 2.0
+tier: protocol
 ---
 
 Iterative prompt and schema refinement using TDD methodology for LLM workloads.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,7 +17,6 @@ Iterative prompt and schema refinement using TDD methodology for LLM workloads.
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
@@ -34,6 +33,36 @@ ARGUMENTS: Accepts optional flags:
 - `--case <path>`: Focus on a single case instead of running all cases
 - `--continue`: Resume from last iteration in current session directory
 
+### Phases (for §CMD_PARSE_PARAMETERS)
+*Include this array in the `phases` field when calling `session.sh activate`:*
+```json
+[
+  {"major": 1, "minor": 0, "name": "Setup"},
+  {"major": 2, "minor": 0, "name": "Interrogation"},
+  {"major": 3, "minor": 0, "name": "Planning"},
+  {"major": 4, "minor": 0, "name": "Validation"},
+  {"major": 5, "minor": 0, "name": "Baseline"},
+  {"major": 6, "minor": 0, "name": "Iteration Loop"},
+  {"major": 7, "minor": 0, "name": "Synthesis"}
+]
+```
+*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
+
+## Mode Presets
+
+Refinement modes configure the iteration focus — what to optimize for. Mode definitions live in `modes/*.md`.
+
+| Mode | Focus | When to Use |
+|------|-------|-------------|
+| **Accuracy** | Precision and correctness | Quality-critical extractions |
+| **Speed** | Latency and token efficiency | Real-time or high-volume |
+| **Robustness** | Edge case handling | Diverse input formats |
+| **Custom** | User-defined | Hybrid or novel objectives |
+
+**Mode files**: `~/.claude/skills/refine/modes/{accuracy,speed,robustness,custom}.md`
+
+---
+
 ## 1. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
@@ -44,11 +73,9 @@ ARGUMENTS: Accepts optional flags:
     > 5. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
     > 6. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
     > 7. I will `§CMD_MAINTAIN_SESSION_DIR` to establish working space.
-    > 7. I will `§CMD_ASSUME_ROLE` to execute better:
-    >    **Role**: You are the **Prompt Engineer** and **Empiricist**.
-    >    **Goal**: To systematically improve LLM extraction accuracy through controlled experiments.
-    >    **Mindset**: "Measure, Hypothesize, Test, Iterate." Every change must be justified by data.
-    > 8. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
+    > 8. I will select the **Refinement Mode** (Accuracy / Speed / Robustness / Custom).
+    > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
+    > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
     **Constraint**: Do NOT read any project files (source code, docs) in Phase 1. Only load the required system templates/standards.
 
@@ -75,11 +102,24 @@ ARGUMENTS: Accepts optional flags:
 6.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
     *   If any files are found, add them to `contextPaths` for ingestion.
 
-7.  **Discover Open Requests**: Execute `§CMD_DISCOVER_OPEN_DELEGATIONS`.
-    *   If any `#needs-delegation` files are found, read them and assess relevance.
-    *   *Note*: Re-run discovery during Synthesis to catch late arrivals.
+6.1. **Refinement Mode Selection**: Execute `AskUserQuestion` (multiSelect: false):
+    > "What refinement objective should I optimize for?"
+    > - **"Accuracy" (Recommended)** — Precision-focused: maximize extraction correctness
+    > - **"Speed"** — Efficiency-focused: minimize latency and token usage
+    > - **"Robustness"** — Resilience-focused: handle edge cases and diverse inputs
+    > - **"Custom"** — Define your own optimization objective
 
-8.  **Resume Check**: Does `--continue` flag exist?
+    **On selection**: Read the corresponding `modes/{mode}.md` file. It defines Role, Goal, Mindset, and Configuration (iteration focus, hypothesis style, success metric).
+
+    **On "Custom"**: Read ALL 3 named mode files first (`modes/accuracy.md`, `modes/speed.md`, `modes/robustness.md`), then accept user's framing. Parse into role/goal/mindset.
+
+    **Record**: Store the selected mode. It configures:
+    *   Phase 1 Step 6.2 role (from mode file)
+    *   Phase 6 iteration focus, hypothesis style, and success metric (from mode file)
+
+6.2. **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file.
+
+7.  **Resume Check**: Does `--continue` flag exist?
     *   **If Yes**:
         1.  Read `REFINE_LOG.md` from session directory.
         2.  Parse last `🏁 Iteration Complete` or `📈 Metrics` entry to find iteration number.
@@ -98,7 +138,8 @@ ARGUMENTS: Accepts optional flags:
 ### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
 > **Phase 1 proof:**
-> - Role: `________`
+> - Mode: `________` (accuracy / speed / robustness / custom)
+> - Role: `________` (quote the role name from the mode preset)
 > - Session dir: `________`
 > - Templates loaded: `________`
 > - Parameters parsed: `________`
@@ -562,15 +603,18 @@ Execute `AskUserQuestion` (multiSelect: false):
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 7: Synthesis.
-> 2. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` following `assets/TEMPLATE_REFINE.md` EXACTLY.
-> 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 4. I will `§CMD_REPORT_SESSION_SUMMARY`.
+> 2. I will `§CMD_PROCESS_CHECKLISTS` (if any discovered checklists exist).
+> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` following `assets/TEMPLATE_REFINE.md` EXACTLY.
+> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
+> 5. I will `§CMD_REPORT_SESSION_SUMMARY`.
 
 **STOP**: Output the block above first.
 
 **2. Execution — SEQUENTIAL, NO SKIPPING**
 
 [!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The debrief FILE is the primary deliverable — chat output alone is not sufficient.
+
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
 
 **Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `REFINE.md`).
   *   Write the file using the Write tool. This MUST produce a real file in the session directory.
@@ -579,16 +623,33 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   *   Document remaining failures.
   *   Capture insights and recommendations.
 
-**Step 2**: Respond to Requests — Re-run `§CMD_DISCOVER_OPEN_DELEGATIONS`. For any request addressed by this session's work, execute `§CMD_POST_DELEGATION_RESPONSE`.
-
-**Step 3**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
+**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
   *   `REFINE_PLAN.md` — Experiment design and hypotheses
   *   `REFINE_LOG.md` — Full experiment journal
   *   `REFINE.md` — Session debrief
   *   `refine.manifest.json` — Workload configuration (if created)
   *   Modified prompt/schema files
 
-**Step 4**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
+**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
+
+**Step 4**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
+```
+§CMD_WALK_THROUGH_RESULTS Configuration:
+  mode: "results"
+  gateQuestion: "Refinement complete. Walk through remaining issues and recommendations?"
+  debriefFile: "REFINE.md"
+  templateFile: "~/.claude/skills/refine/assets/TEMPLATE_REFINE.md"
+  actionMenu:
+    - label: "Needs more refinement"
+      tag: "#needs-implementation"
+      when: "A failing fixture needs targeted prompt work"
+    - label: "Needs research"
+      tag: "#needs-research"
+      when: "A failure pattern needs deeper investigation"
+    - label: "Accept tradeoff"
+      tag: ""
+      when: "A regression was accepted as an intentional tradeoff"
+```
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 7 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
@@ -600,7 +661,21 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
-**Post-Synthesis**: If the user continues talking, obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
+**Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+
+### Next Skill Options
+*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
+
+> "Refinement complete. What's next? (Type a /skill name to invoke it, or describe new work to scope it)"
+
+| Option | Label | Description |
+|--------|-------|-------------|
+| 1 | `/refine` (Recommended) | Continue refining — more iterations on same or different workload |
+| 2 | `/test` | Write regression tests for the refined prompts/schemas |
+| 3 | `/implement` | Implement code changes discovered during refinement |
+| 4 | `/analyze` | Analyze the refinement results for deeper patterns |
+
+**Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 
 ---
 

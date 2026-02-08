@@ -32,7 +32,7 @@
 ## 🔍 Discovery (Root Cause)
 *   **Component**: `[Module]`
 *   **Findings**: "The buffer size was hardcoded to 1024, but the sample rate required 2048."
-*   **Reference**: "See `.claude/standards/INVARIANTS.md` Section 2."
+*   **Reference**: "See `.claude/directives/INVARIANTS.md` Section 2."
 
 ## 🚧 Blocker (Stuck)
 *   **Obstacle**: "Cannot reproduce the crash locally."

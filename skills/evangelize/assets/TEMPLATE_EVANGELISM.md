@@ -14,6 +14,7 @@
 
 *   `sessions/YYYY_MM_DD_TOPIC/DEBRIEF.md` — [Why it was relevant]
 
+<!-- WALKTHROUGH RESULTS -->
 ## 2. The Unlock Map (Strategic Value)
 *How does this translate to Product Power?*
 
@@ -67,6 +68,7 @@
 
 *(Add more challenges as raised)*
 
+<!-- WALKTHROUGH RESULTS -->
 ## 5. The "Story" (Marketing / Internal Comms)
 *Drafting the narrative for the team/public.*
 
@@ -84,6 +86,7 @@
     *   *Value*: ...
     *   *Enabled By*: ...
 
+<!-- WALKTHROUGH RESULTS -->
 ## 7. Next Steps (Capitalizing on the Win)
 *   **Immediate**: "[Ship / Announce / Demo the change]"
 *   **Explore**: "[Prototype the most promising unlock path]"

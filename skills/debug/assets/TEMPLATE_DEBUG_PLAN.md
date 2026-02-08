@@ -4,7 +4,7 @@
 **Context**: Link to `DEBUG_LOG.md` or prior session.
 **Diagnostic Mode**: [Test Failures / Behavior / Performance / Production]
 **Required Documents**:
-*   `~/.claude/standards/INVARIANTS.md` (Shared) and `.claude/standards/INVARIANTS.md` (Project-specific, if exists)
+*   `~/.claude/directives/INVARIANTS.md` (Shared) and `.claude/directives/INVARIANTS.md` (Project-specific, if exists)
 *   `docs/architecture/[RELEVANT_DOC].md`
 
 **Goal**: To systematically diagnose and resolve the issue by prioritizing high-confidence fixes, grouping related failures, and confirming options with the user before complex changes.
@@ -32,7 +32,7 @@
 ## 3. Standards & Invariants Check
 *Mandatory verification — are any invariants relevant to the diagnosis?*
 
-*   **Ref**: `~/.claude/standards/INVARIANTS.md` (shared) + `.claude/standards/INVARIANTS.md` (project)
+*   **Ref**: `~/.claude/directives/INVARIANTS.md` (shared) + `.claude/directives/INVARIANTS.md` (project)
 
 ### Relevant Invariants
 *   **§INV_[NAME]**: How does this invariant relate to the issue?
@@ -56,6 +56,7 @@
 
 ---
 
+<!-- WALKTHROUGH PLAN -->
 ## 5. Attack Plan (Prioritized Steps)
 *Break down the investigation and repair into atomic, verifiable steps.*
 *Each step MUST declare `Depends` and `Files` for parallel execution analysis.*

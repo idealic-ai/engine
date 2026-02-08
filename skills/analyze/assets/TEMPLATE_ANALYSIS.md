@@ -18,6 +18,7 @@
     *   `[Module/Concept B]`
 *   **The Blind Spots**: "We explicitly did NOT check X, Y, or Z. These remain unknown."
 
+<!-- WALKTHROUGH RESULTS -->
 ## 3. Key Insights (Synthesis)
 *Don't just list log entries. Group them into themes.*
 
@@ -30,10 +31,12 @@
 *   **Observation**: "The new 'Jam Mode' idea (Log item #12) aligns perfectly with the 'Socket' infrastructure we found in `network.ts`."
 *   **Opportunity**: "Low-hanging fruit to double retention."
 
+<!-- WALKTHROUGH RESULTS -->
 ## 4. The "Iceberg" Risks (Hidden Dangers)
 *   **Critical Risk**: "..."
 *   **Technical Debt**: "..."
 
+<!-- WALKTHROUGH RESULTS -->
 ## 5. Strategic Recommendations
 1.  **Immediate Win**: [Actionable Step]
 2.  **Strategic Shift**: [Long-term Pivot]

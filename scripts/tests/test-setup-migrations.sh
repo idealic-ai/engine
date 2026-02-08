@@ -145,6 +145,111 @@ migration_003_state_json_rename "$TEST_DIR/claude" "$TEST_DIR/sessions"
 teardown
 
 # ============================================================================
+# Migration 004: remove_stale_skill_symlinks
+# ============================================================================
+echo ""
+echo "=== Migration 004: remove_stale_skill_symlinks ==="
+
+# Fresh: remove symlink pointing to empty dir (no SKILL.md)
+setup
+mkdir -p "$TEST_DIR/claude/skills"
+mkdir -p "$TEST_DIR/engine/skills/critique"
+# critique has no SKILL.md — it's deprecated
+ln -s "$TEST_DIR/engine/skills/critique" "$TEST_DIR/claude/skills/critique"
+# brainstorm has a SKILL.md — it's valid
+mkdir -p "$TEST_DIR/engine/skills/brainstorm"
+echo "---" > "$TEST_DIR/engine/skills/brainstorm/SKILL.md"
+ln -s "$TEST_DIR/engine/skills/brainstorm" "$TEST_DIR/claude/skills/brainstorm"
+migration_004_remove_stale_skill_symlinks "$TEST_DIR/claude"
+[ ! -L "$TEST_DIR/claude/skills/critique" ] && pass "M004-01: Removes symlink to dir with no SKILL.md" || fail "M004-01" "removed" "still exists"
+[ -L "$TEST_DIR/claude/skills/brainstorm" ] && pass "M004-02: Preserves symlink to dir WITH SKILL.md" || fail "M004-02" "symlink" "missing"
+teardown
+
+# Idempotent: already cleaned
+setup
+mkdir -p "$TEST_DIR/claude/skills"
+mkdir -p "$TEST_DIR/engine/skills/brainstorm"
+echo "---" > "$TEST_DIR/engine/skills/brainstorm/SKILL.md"
+ln -s "$TEST_DIR/engine/skills/brainstorm" "$TEST_DIR/claude/skills/brainstorm"
+migration_004_remove_stale_skill_symlinks "$TEST_DIR/claude"
+rc=$?
+[ "$rc" -eq 0 ] && pass "M004-03: Idempotent — no-op when all symlinks valid" || fail "M004-03" "exit 0" "exit $rc"
+[ -L "$TEST_DIR/claude/skills/brainstorm" ] && pass "M004-04: Valid symlinks preserved" || fail "M004-04" "symlink" "missing"
+teardown
+
+# Real directory (local override) not touched
+setup
+mkdir -p "$TEST_DIR/claude/skills/custom-skill"
+# custom-skill is a real dir (local override), no SKILL.md — should NOT be removed
+migration_004_remove_stale_skill_symlinks "$TEST_DIR/claude"
+[ -d "$TEST_DIR/claude/skills/custom-skill" ] && pass "M004-05: Real directories not removed (local overrides)" || fail "M004-05" "exists" "removed"
+teardown
+
+# No skills dir — no-op
+setup
+migration_004_remove_stale_skill_symlinks "$TEST_DIR/claude"
+rc=$?
+[ "$rc" -eq 0 ] && pass "M004-06: No-op when skills dir missing" || fail "M004-06" "exit 0" "exit $rc"
+teardown
+
+# ============================================================================
+# Migration 005: add_hooks_to_settings
+# ============================================================================
+echo ""
+echo "=== Migration 005: add_hooks_to_settings ==="
+
+# Fresh: adds hooks to settings with existing PreToolUse
+setup
+cat > "$TEST_DIR/claude/settings.json" << 'SETTINGS'
+{
+  "permissions": {"allow": []},
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "*", "hooks": [{"type": "command", "command": "~/.claude/hooks/pre-tool-use-overflow.sh"}]}
+    ]
+  }
+}
+SETTINGS
+migration_005_add_hooks_to_settings "$TEST_DIR/claude"
+# Check new hooks were added
+heartbeat=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-heartbeat.sh")] | length' "$TEST_DIR/claude/settings.json")
+session_gate=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-session-gate.sh")] | length' "$TEST_DIR/claude/settings.json")
+discovery=$(jq '[.hooks.PostToolUseSuccess[] | select(.hooks[0].command == "~/.claude/hooks/post-tool-use-discovery.sh")] | length' "$TEST_DIR/claude/settings.json")
+submit_gate=$(jq '[.hooks.UserPromptSubmit[] | select(.hooks[0].command == "~/.claude/hooks/user-prompt-submit-session-gate.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$heartbeat" = "1" ] && pass "M005-01: Adds heartbeat hook" || fail "M005-01" "1" "$heartbeat"
+[ "$session_gate" = "1" ] && pass "M005-02: Adds session-gate hook" || fail "M005-02" "1" "$session_gate"
+[ "$discovery" = "1" ] && pass "M005-03: Adds discovery hook" || fail "M005-03" "1" "$discovery"
+[ "$submit_gate" = "1" ] && pass "M005-04: Adds user-prompt-submit session-gate" || fail "M005-04" "1" "$submit_gate"
+# Check existing overflow hook preserved
+overflow=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-overflow.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$overflow" = "1" ] && pass "M005-05: Preserves existing overflow hook" || fail "M005-05" "1" "$overflow"
+teardown
+
+# Idempotent: run twice — no duplicates
+setup
+cat > "$TEST_DIR/claude/settings.json" << 'SETTINGS'
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "*", "hooks": [{"type": "command", "command": "~/.claude/hooks/pre-tool-use-overflow.sh"}]}
+    ]
+  }
+}
+SETTINGS
+migration_005_add_hooks_to_settings "$TEST_DIR/claude"
+migration_005_add_hooks_to_settings "$TEST_DIR/claude"
+heartbeat_count=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-heartbeat.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$heartbeat_count" = "1" ] && pass "M005-06: Idempotent — no duplicates after second run" || fail "M005-06" "1" "$heartbeat_count"
+teardown
+
+# No settings.json — no-op
+setup
+migration_005_add_hooks_to_settings "$TEST_DIR/claude"
+rc=$?
+[ "$rc" -eq 0 ] && pass "M005-07: No-op when no settings.json" || fail "M005-07" "exit 0" "exit $rc"
+teardown
+
+# ============================================================================
 # Migration runner tests
 # ============================================================================
 echo ""
@@ -159,11 +264,14 @@ chmod +x "$TEST_DIR/engine/scripts/test.sh"
 ln -s "$TEST_DIR/engine/scripts" "$TEST_DIR/claude/scripts"
 mkdir -p "$TEST_DIR/engine/skills/foo"
 ln -s "$TEST_DIR/engine/skills" "$TEST_DIR/claude/skills"
+cat > "$TEST_DIR/claude/settings.json" << 'JSON'
+{"hooks":{}}
+JSON
 output=$(run_migrations "$TEST_DIR/claude" "$TEST_DIR/sessions" "$TEST_DIR/engine" 2>&1)
 [ -f "$SETUP_MIGRATION_STATE" ] && pass "RUNNER-01: Creates state file" || fail "RUNNER-01" "state file" "missing"
 count=$(wc -l < "$SETUP_MIGRATION_STATE" | tr -d ' ')
-[ "$count" = "3" ] && pass "RUNNER-02: All 3 migrations recorded" || fail "RUNNER-02" "3" "$count"
-[[ "$output" == *"Applied 3"* ]] && pass "RUNNER-03: Reports 3 applied" || fail "RUNNER-03" "Applied 3" "$output"
+[ "$count" = "5" ] && pass "RUNNER-02: All 5 migrations recorded" || fail "RUNNER-02" "5" "$count"
+[[ "$output" == *"Applied 5"* ]] && pass "RUNNER-03: Reports 5 applied" || fail "RUNNER-03" "Applied 5" "$output"
 teardown
 
 # Skips already-applied
@@ -171,6 +279,8 @@ setup
 echo "001:perfile_scripts_hooks:1707000000" > "$SETUP_MIGRATION_STATE"
 echo "002:perfile_skills:1707000001" >> "$SETUP_MIGRATION_STATE"
 echo "003:state_json_rename:1707000002" >> "$SETUP_MIGRATION_STATE"
+echo "004:remove_stale_skill_symlinks:1707000003" >> "$SETUP_MIGRATION_STATE"
+echo "005:add_hooks_to_settings:1707000004" >> "$SETUP_MIGRATION_STATE"
 output=$(run_migrations "$TEST_DIR/claude" "$TEST_DIR/sessions" "$TEST_DIR/engine" 2>&1)
 [[ "$output" == *"up to date"* ]] && pass "RUNNER-04: Skips all when up to date" || fail "RUNNER-04" "up to date" "$output"
 teardown
@@ -178,9 +288,14 @@ teardown
 # Runs only pending
 setup
 echo "001:perfile_scripts_hooks:1707000000" > "$SETUP_MIGRATION_STATE"
+echo "002:perfile_skills:1707000001" >> "$SETUP_MIGRATION_STATE"
+echo "003:state_json_rename:1707000002" >> "$SETUP_MIGRATION_STATE"
+cat > "$TEST_DIR/claude/settings.json" << 'JSON'
+{"hooks":{}}
+JSON
 output=$(run_migrations "$TEST_DIR/claude" "$TEST_DIR/sessions" "$TEST_DIR/engine" 2>&1)
 count=$(wc -l < "$SETUP_MIGRATION_STATE" | tr -d ' ')
-[ "$count" = "3" ] && pass "RUNNER-05: Runs only pending (2 new + 1 existing)" || fail "RUNNER-05" "3" "$count"
+[ "$count" = "5" ] && pass "RUNNER-05: Runs only pending (2 new + 3 existing)" || fail "RUNNER-05" "5" "$count"
 [[ "$output" == *"Applied 2"* ]] && pass "RUNNER-06: Reports correct pending count" || fail "RUNNER-06" "Applied 2" "$output"
 teardown
 
@@ -192,19 +307,21 @@ echo "=== pending_migrations ==="
 
 setup
 result=$(pending_migrations "$TEST_DIR/nonexistent-state")
-[ "$result" = "3" ] && pass "PENDING-01: All pending when no state file" || fail "PENDING-01" "3" "$result"
+[ "$result" = "5" ] && pass "PENDING-01: All pending when no state file" || fail "PENDING-01" "5" "$result"
 teardown
 
 setup
 echo "001:perfile_scripts_hooks:1707000000" > "$SETUP_MIGRATION_STATE"
 result=$(pending_migrations "$SETUP_MIGRATION_STATE")
-[ "$result" = "2" ] && pass "PENDING-02: Correct count with 1 applied" || fail "PENDING-02" "2" "$result"
+[ "$result" = "4" ] && pass "PENDING-02: Correct count with 1 applied" || fail "PENDING-02" "4" "$result"
 teardown
 
 setup
 echo "001:perfile_scripts_hooks:1707000000" > "$SETUP_MIGRATION_STATE"
 echo "002:perfile_skills:1707000001" >> "$SETUP_MIGRATION_STATE"
 echo "003:state_json_rename:1707000002" >> "$SETUP_MIGRATION_STATE"
+echo "004:remove_stale_skill_symlinks:1707000003" >> "$SETUP_MIGRATION_STATE"
+echo "005:add_hooks_to_settings:1707000004" >> "$SETUP_MIGRATION_STATE"
 result=$(pending_migrations "$SETUP_MIGRATION_STATE")
 [ "$result" = "0" ] && pass "PENDING-03: Zero pending when all applied" || fail "PENDING-03" "0" "$result"
 teardown

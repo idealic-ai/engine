@@ -13,6 +13,7 @@
 
 *   `sessions/YYYY_MM_DD_TOPIC/DEBRIEF.md` — [Why it was relevant]
 
+<!-- WALKTHROUGH RESULTS -->
 ## 2. Task Ledger
 *A structured record of every task handled in this session.*
 
@@ -36,12 +37,14 @@
 *   `path/to/file1.ts` — [Brief description of change]
 *   `path/to/file2.ts` — [Brief description of change]
 
+<!-- WALKTHROUGH RESULTS -->
 ## 4. Side Discoveries & Parking Lot
 *Things noticed but not acted on.*
 
 *   **Discovery 1**: [What was found, where, and why it matters]
 *   **Discovery 2**: ...
 
+<!-- WALKTHROUGH RESULTS -->
 ## 5. Agent's Quick Take
 *   **Session Health**: "Smooth / Bumpy / Blocked"
 *   **Concern**: [Anything that worries the agent about the changes made]

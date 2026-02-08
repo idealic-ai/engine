@@ -1,7 +1,7 @@
 #!/bin/bash
 # ~/.claude/engine/scripts/tests/test-lib.sh — Unit tests for lib.sh shared utilities
 #
-# Tests all 5 functions: timestamp, pid_exists, hook_allow, hook_deny, safe_json_write
+# Tests all 7 functions: timestamp, pid_exists, hook_allow, hook_deny, safe_json_write, notify_fleet, state_read
 #
 # Run: bash ~/.claude/engine/scripts/tests/test-lib.sh
 
@@ -313,6 +313,218 @@ test_safe_json_write_stale_lock() {
 }
 
 # =============================================================================
+# NOTIFY_FLEET TESTS
+# =============================================================================
+
+test_notify_fleet_no_tmux() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="notify_fleet: no TMUX env returns 0 (no-op)"
+  setup
+
+  # Ensure TMUX is unset
+  unset TMUX
+
+  notify_fleet "working"
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0" "exit $exit_code"
+  fi
+
+  teardown
+}
+
+test_notify_fleet_non_fleet_socket() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="notify_fleet: non-fleet TMUX socket returns 0 (no-op)"
+  setup
+
+  # Set TMUX to a non-fleet socket (format: socket_path,pid,session_index)
+  export TMUX="/tmp/tmux-501/default,12345,0"
+
+  # Create a fake fleet.sh that would fail if called
+  cat > "$HOME/.claude/scripts/fleet.sh" <<'SCRIPT'
+#!/bin/bash
+echo "ERROR: fleet.sh should not have been called" >&2
+exit 1
+SCRIPT
+  chmod +x "$HOME/.claude/scripts/fleet.sh"
+
+  notify_fleet "working"
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0" "exit $exit_code"
+  fi
+
+  teardown
+}
+
+test_notify_fleet_fleet_socket() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="notify_fleet: fleet socket calls fleet.sh notify"
+  setup
+
+  # Set TMUX to a fleet socket
+  export TMUX="/tmp/tmux-501/fleet,12345,0"
+
+  # Create a fake fleet.sh that records the call
+  local call_log="$TEST_DIR/fleet_calls.log"
+  cat > "$HOME/.claude/scripts/fleet.sh" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$call_log"
+SCRIPT
+  chmod +x "$HOME/.claude/scripts/fleet.sh"
+
+  notify_fleet "working"
+  local exit_code=$?
+
+  local call_content
+  call_content=$(cat "$call_log" 2>/dev/null || echo "")
+
+  if [ "$exit_code" -eq 0 ] && [ "$call_content" = "notify working" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 and fleet.sh called with 'notify working'" "exit=$exit_code, calls=$call_content"
+  fi
+
+  teardown
+}
+
+test_notify_fleet_fleet_prefixed_socket() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="notify_fleet: fleet-* socket calls fleet.sh notify"
+  setup
+
+  # Set TMUX to a fleet-prefixed socket (e.g., fleet-yarik)
+  export TMUX="/tmp/tmux-501/fleet-yarik,12345,0"
+
+  # Create a fake fleet.sh that records the call
+  local call_log="$TEST_DIR/fleet_calls.log"
+  cat > "$HOME/.claude/scripts/fleet.sh" <<SCRIPT
+#!/bin/bash
+echo "\$@" >> "$call_log"
+SCRIPT
+  chmod +x "$HOME/.claude/scripts/fleet.sh"
+
+  notify_fleet "done"
+  local exit_code=$?
+
+  local call_content
+  call_content=$(cat "$call_log" 2>/dev/null || echo "")
+
+  if [ "$exit_code" -eq 0 ] && [ "$call_content" = "notify done" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 and fleet.sh called with 'notify done'" "exit=$exit_code, calls=$call_content"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# STATE_READ TESTS
+# =============================================================================
+
+test_state_read_existing_field() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="state_read: returns value for existing field"
+  setup
+
+  local state_file="$TEST_DIR/state.json"
+  echo '{"skill":"implement","status":"active"}' > "$state_file"
+
+  local result
+  result=$(state_read "$state_file" "skill")
+
+  if [ "$result" = "implement" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "implement" "$result"
+  fi
+
+  teardown
+}
+
+test_state_read_missing_field_with_default() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="state_read: returns default for missing field"
+  setup
+
+  local state_file="$TEST_DIR/state.json"
+  echo '{"skill":"implement"}' > "$state_file"
+
+  local result
+  result=$(state_read "$state_file" "nonexistent" "fallback")
+
+  if [ "$result" = "fallback" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "fallback" "$result"
+  fi
+
+  teardown
+}
+
+test_state_read_missing_file() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="state_read: returns default for missing file"
+  setup
+
+  local result
+  result=$(state_read "$TEST_DIR/nonexistent.json" "skill" "default_val")
+
+  if [ "$result" = "default_val" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "default_val" "$result"
+  fi
+
+  teardown
+}
+
+test_state_read_no_default() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="state_read: returns empty string when no default provided"
+  setup
+
+  local result
+  result=$(state_read "$TEST_DIR/nonexistent.json" "skill")
+
+  if [ -z "$result" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "(empty string)" "$result"
+  fi
+
+  teardown
+}
+
+test_state_read_special_chars() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="state_read: handles special chars in value"
+  setup
+
+  local state_file="$TEST_DIR/state.json"
+  echo '{"description":"Fix bug in auth/login flow (v2.1)"}' > "$state_file"
+
+  local result
+  result=$(state_read "$state_file" "description")
+
+  if [ "$result" = "Fix bug in auth/login flow (v2.1)" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "Fix bug in auth/login flow (v2.1)" "$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -338,6 +550,19 @@ test_safe_json_write_valid
 test_safe_json_write_invalid
 test_safe_json_write_concurrent
 test_safe_json_write_stale_lock
+
+# notify_fleet
+test_notify_fleet_no_tmux
+test_notify_fleet_non_fleet_socket
+test_notify_fleet_fleet_socket
+test_notify_fleet_fleet_prefixed_socket
+
+# state_read
+test_state_read_existing_field
+test_state_read_missing_field_with_default
+test_state_read_missing_file
+test_state_read_no_default
+test_state_read_special_chars
 
 # Summary
 echo ""

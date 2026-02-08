@@ -5,9 +5,9 @@
 #   Docs: (~/.claude/docs/)
 #     STANDARDS_SYSTEM.md — Tag protocol, escaping convention
 #     DAEMON.md — Tag-based dispatch
-#   Invariants: (~/.claude/standards/INVARIANTS.md)
+#   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_CLAIM_BEFORE_WORK — Tag swap pattern
-#   Commands: (~/.claude/standards/COMMANDS.md)
+#   Commands: (~/.claude/directives/COMMANDS.md)
 #     §CMD_ESCAPE_TAG_REFERENCES — Backtick escaping protocol
 #     §CMD_TAG_FILE — Add tag to file
 #     §CMD_UNTAG_FILE — Remove tag from file
@@ -103,36 +103,50 @@ case "$ACTION" in
 
   find)
     TAG="${2:?Missing tag argument}"
-    # Parse remaining args: [path] [--context]
+    # Parse remaining args: [path] [--context] [--tags-only]
     SEARCH_PATH="sessions/"
     CONTEXT_MODE=0
+    TAGS_ONLY=0
     shift 2
     while [[ $# -gt 0 ]]; do
       case "$1" in
         --context) CONTEXT_MODE=1 ;;
+        --tags-only) TAGS_ONLY=1 ;;
         *) SEARCH_PATH="$1" ;;
       esac
       shift
     done
 
+    # Ensure trailing slash — BSD grep -r on macOS requires it for directory search
+    [[ "$SEARCH_PATH" != */ ]] && SEARCH_PATH="${SEARCH_PATH}/"
+
     # Escape tag for grep (# is literal, not special in grep)
     ESCAPED_TAG="$TAG"
 
-    # Pass 1: Tags-line matches (high precision)
-    TAGS_LINE_FILES=$(grep -rl "^\*\*Tags\*\*:.*${ESCAPED_TAG}" "$SEARCH_PATH" 2>/dev/null || true)
+    # Pass 1: Tags-line matches (high precision — NEVER filtered by file type)
+    TAGS_LINE_FILES=$(grep -rl --exclude='*.db' --exclude='*.db.bak' \
+      "^\*\*Tags\*\*:.*${ESCAPED_TAG}" "$SEARCH_PATH" 2>/dev/null || true)
 
-    # Pass 2: Inline body matches — bare tag, not on Tags line, not backtick-escaped
-    # Step 1: grep for the tag
-    # Step 2: exclude Tags-line matches (already found)
-    # Step 3: exclude backtick-escaped references
-    INLINE_FILES=$(grep -rn "${ESCAPED_TAG}" "$SEARCH_PATH" 2>/dev/null \
-      | grep -v '^\*\*Tags\*\*:' \
-      | grep -v "\`${ESCAPED_TAG}\`" \
-      | cut -d: -f1 \
-      | sort -u 2>/dev/null || true)
+    if [[ $TAGS_ONLY -eq 1 ]]; then
+      # --tags-only: skip inline pass, return Tags-line matches only
+      ALL_FILES=$(printf '%s\n' $TAGS_LINE_FILES | sort -u | grep -v '^$' || true)
+    else
+      # Pass 2: Inline body matches — bare tag, not on Tags line, not backtick-escaped
+      # Excludes non-text files: binary DBs (*.db) and serialized state (.state.json).
+      # All .md file types are now searchable — the session.sh check gate (¶INV_ESCAPE_BY_DEFAULT)
+      # ensures bare inline tags are intentional by the time synthesis completes.
+      INLINE_FILES=$(grep -rn \
+        --exclude='*.db' --exclude='*.db.bak' \
+        --exclude='.state.json' \
+        "${ESCAPED_TAG}" "$SEARCH_PATH" 2>/dev/null \
+        | grep -v '^\*\*Tags\*\*:' \
+        | grep -v "\`${ESCAPED_TAG}\`" \
+        | cut -d: -f1 \
+        | sort -u 2>/dev/null || true)
 
-    # Union and deduplicate
-    ALL_FILES=$(printf '%s\n' $TAGS_LINE_FILES $INLINE_FILES | sort -u | grep -v '^$' || true)
+      # Union and deduplicate
+      ALL_FILES=$(printf '%s\n' $TAGS_LINE_FILES $INLINE_FILES | sort -u | grep -v '^$' || true)
+    fi
 
     if [[ -z "$ALL_FILES" ]]; then
       exit 0

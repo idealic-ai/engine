@@ -2,14 +2,14 @@
 name: debug
 description: "Systematic diagnosis and repair of bugs, failures, and regressions — structured triage before action. Supports goal-based modes: Test Failures (systematic test diagnosis), Behavior (trace-driven runtime investigation), Performance (data-driven bottleneck analysis), Custom (user-defined lens). Triggers: \"debug this\", \"fix the tests\", \"investigate this failure\", \"why is this broken\", \"something isn't working right\", \"performance is degraded\"."
 version: 3.0
+tier: protocol
 ---
 
 Systematic diagnosis and repair of bugs, failures, and regressions — structured triage before action. Supports goal-based modes: Test Failures (systematic test diagnosis), Behavior (trace-driven runtime investigation), Performance (data-driven bottleneck analysis), Custom (user-defined lens).
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,7 +17,6 @@ Systematic diagnosis and repair of bugs, failures, and regressions — structure
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
@@ -33,6 +32,7 @@ Systematic diagnosis and repair of bugs, failures, and regressions — structure
   {"major": 2, "minor": 0, "name": "Context Ingestion"},
   {"major": 3, "minor": 0, "name": "Triage"},
   {"major": 4, "minor": 0, "name": "Planning"},
+  {"major": 4, "minor": 1, "name": "Agent Handoff"},
   {"major": 5, "minor": 0, "name": "Debug Loop"},
   {"major": 6, "minor": 0, "name": "Debrief"}
 ]
@@ -43,143 +43,14 @@ Systematic diagnosis and repair of bugs, failures, and regressions — structure
 
 ## Mode Presets
 
-Debug modes configure the agent's lens — role, triage topics, and walk-through config. The mode is selected in Phase 1 Step 7.
+Debug modes configure the agent's lens — role, triage topics, and walk-through config. The mode is selected in Phase 1 Step 7. Mode definitions live in `modes/*.md`.
 
-### Test Failures (Default)
-*Default mode. Systematic diagnosis of test suite failures.*
-
-**Role**: You are the **Test Failure Analyst**.
-**Goal**: To systematically diagnose why tests are failing, distinguish real regressions from test rot, and restore the suite to green.
-**Mindset**: Methodical, Pattern-Matching, Root-Cause-Focused.
-
-**Triage Topics** (Phase 3):
-- **Error messages & stack traces** — exact failures, assertion mismatches, exception types
-- **Mock/fixture setup** — missing mocks, stale fixtures, test doubles out of sync
-- **Test environment & versions** — Node version, dependency changes, CI vs local differences
-- **Assertion mismatches** — expected vs actual values, type coercion, floating point
-- **Test isolation & ordering** — shared state, test ordering dependencies, cleanup failures
-- **Import & dependency changes** — renamed modules, moved files, barrel export changes
-- **CI vs local differences** — environment variables, OS differences, timing sensitivity
-- **Flaky vs deterministic failures** — intermittent patterns, race conditions, timing
-
-**Walk-Through Config** (Phase 6):
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Debug complete. Walk through test failure findings?"
-  debriefFile: "DEBUG.md"
-  itemSources:
-    - "## 4. Root Cause Analysis & Decisions"
-    - "## 6. The \"Technical Debt\" Ledger"
-    - "## 8. The \"Parking Lot\" (Unresolved)"
-  actionMenu:
-    - label: "Fix test"
-      tag: "#needs-implementation"
-      when: "Test expectations are wrong or outdated"
-    - label: "Fix code"
-      tag: "#needs-implementation"
-      when: "Code has a real regression or bug"
-    - label: "Add regression test"
-      tag: "#needs-implementation"
-      when: "Fix applied but lacks a regression test"
-    - label: "Investigate deeper"
-      tag: "#needs-research"
-      when: "Root cause unclear, needs more investigation"
-```
-
-### Behavior
-*Trace-driven investigation of incorrect runtime behavior.*
-
-**Role**: You are the **Behavior Detective**.
-**Goal**: To reproduce, isolate, and fix incorrect runtime behavior by tracing data flow from input to unexpected output.
-**Mindset**: Curious, Trace-Driven, Hypothesis-Testing.
-
-**Triage Topics** (Phase 3):
-- **Expected vs observed behavior** — what should happen vs what actually happens
-- **Reproduction steps & minimal repro** — smallest possible reproduction case
-- **State flow & data transformations** — how data moves through the system, where it mutates
-- **Input validation & edge cases** — boundary conditions, unexpected input types
-- **Recent code changes & git blame** — what changed recently, who touched it
-- **Environment-specific behavior** — works locally but fails in staging, OS differences
-- **Silent failures & swallowed errors** — try/catch hiding real errors, empty catch blocks
-- **Cross-module interactions** — boundary between modules, API contract violations
-
-**Walk-Through Config** (Phase 6):
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Debug complete. Walk through behavior findings?"
-  debriefFile: "DEBUG.md"
-  itemSources:
-    - "## 4. Root Cause Analysis & Decisions"
-    - "## 6. The \"Technical Debt\" Ledger"
-    - "## 9. \"Btw, I also noticed...\" (Side Discoveries)"
-  actionMenu:
-    - label: "Implement fix"
-      tag: "#needs-implementation"
-      when: "Issue has a known fix that wasn't applied"
-    - label: "Add regression test"
-      tag: "#needs-implementation"
-      when: "Fix applied but behavior change lacks test coverage"
-    - label: "Research deeper"
-      tag: "#needs-research"
-      when: "Root cause is unclear or has broader implications"
-    - label: "Document behavior"
-      tag: "#needs-documentation"
-      when: "Expected behavior was undocumented, causing confusion"
-```
-
-### Performance
-*Data-driven diagnosis of performance bottlenecks.*
-
-**Role**: You are the **Performance Engineer**.
-**Goal**: To identify, measure, and eliminate performance bottlenecks using data-driven analysis.
-**Mindset**: Quantitative, Profile-Driven, Skeptical of Assumptions.
-
-**Triage Topics** (Phase 3):
-- **Profiling data & metrics** — CPU profiles, flame graphs, timing data
-- **Resource utilization (CPU/memory/IO)** — which resource is saturated
-- **Bottleneck isolation & hotspots** — where time is actually spent
-- **Algorithmic complexity** — O(n^2) loops, unnecessary iterations, inefficient data structures
-- **Database query performance** — slow queries, missing indexes, N+1 problems
-- **Network latency & payload sizes** — request waterfall, oversized payloads, chatty APIs
-- **Caching effectiveness** — cache hit rates, stale cache, cache invalidation issues
-- **Memory leaks & GC pressure** — heap growth, retained objects, GC pauses
-
-**Walk-Through Config** (Phase 6):
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Debug complete. Walk through performance findings?"
-  debriefFile: "DEBUG.md"
-  itemSources:
-    - "## 4. Root Cause Analysis & Decisions"
-    - "## 6. The \"Technical Debt\" Ledger"
-    - "## 8. The \"Parking Lot\" (Unresolved)"
-  actionMenu:
-    - label: "Optimize now"
-      tag: "#needs-implementation"
-      when: "Bottleneck identified with clear optimization path"
-    - label: "Add benchmark"
-      tag: "#needs-implementation"
-      when: "Performance regression risk — needs ongoing measurement"
-    - label: "Profile deeper"
-      tag: "#needs-research"
-      when: "Bottleneck source unclear, needs more profiling data"
-    - label: "Accept for now"
-      tag: ""
-      when: "Performance is acceptable, document as known limitation"
-```
-
-### Custom (User-Defined)
-*User provides their own role/goal/mindset. Uses Test Failures' topic lists as defaults.*
-
-**Role**: *Set from user's free-text input.*
-**Goal**: *Set from user's free-text input.*
-**Mindset**: *Set from user's free-text input.*
-
-**Triage Topics**: Same as Test Failures mode.
-**Walk-Through Config**: Same as Test Failures mode.
+| Mode | Focus | When to Use |
+|------|-------|-------------|
+| **Test Failures** (Default) | Systematic test suite diagnosis | Tests are red, failing, or flaky |
+| **Behavior** | Trace-driven runtime investigation | Code runs but produces wrong results |
+| **Performance** | Data-driven bottleneck analysis | Slow responses, memory leaks, resource exhaustion |
+| **Custom** | User-defined lens | None of the above fit the situation |
 
 ---
 
@@ -204,7 +75,7 @@ Debug modes configure the agent's lens — role, triage topics, and walk-through
     *   `~/.claude/skills/debug/assets/TEMPLATE_DEBUG_LOG.md` (Template for continuous debugging logging)
     *   `~/.claude/skills/debug/assets/TEMPLATE_DEBUG.md` (Template for final session debrief/report)
     *   `~/.claude/skills/debug/assets/TEMPLATE_DEBUG_PLAN.md` (Template for drafting the repair plan)
-    *   `.claude/standards/TESTING.md` (Testing standards and diagnostics — project-level, load if exists)
+    *   `.claude/directives/TESTING.md` (Testing standards and diagnostics — project-level, load if exists)
 
 3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
     *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
@@ -215,25 +86,22 @@ Debug modes configure the agent's lens — role, triage topics, and walk-through
     *   If any files are found, add them to `contextPaths` for ingestion in Phase 2.
     *   *Why?* To catch recent changes that might be the source of the bug.
 
-6.  **Discover Open Requests**: Execute `§CMD_DISCOVER_OPEN_DELEGATIONS`.
-    *   If any `#needs-delegation` files are found, read them and assess relevance.
-    *   *Note*: Re-run discovery during Debrief to catch late arrivals.
-
-7.  **Debug Mode Selection**: Execute `AskUserQuestion` (multiSelect: false):
+6.  **Debug Mode Selection**: Execute `AskUserQuestion` (multiSelect: false):
     > "What type of issue are we debugging?"
     > - **"Test Failures" (Default)** — Test suite is red, tests are failing or flaky
     > - **"Behavior"** — Code runs but produces wrong results or unexpected behavior
     > - **"Performance"** — Slow responses, memory leaks, resource exhaustion
     > - **"Custom"** — Define your own role, goal, and mindset
 
-    **On "Custom"**: The user types their framing. Parse it into role/goal/mindset. Use Test Failures' topic lists as defaults.
+    **On selection**: Read the corresponding `modes/{mode}.md` file (e.g., `modes/test-failures.md`, `modes/behavior.md`, `modes/performance.md`).
+    **On "Custom"**: Read ALL 3 named mode files first (`modes/test-failures.md`, `modes/behavior.md`, `modes/performance.md`) for context, then read `modes/custom.md`. The user types their framing. Parse it into role/goal/mindset. Use Test Failures' topic lists as defaults.
 
     **Record**: Store the selected mode. It configures:
-    *   Phase 1 Step 8 role (from mode preset)
-    *   Phase 3 triage topics (from mode preset)
-    *   Phase 6 walk-through config (from mode preset)
+    *   Phase 1 Step 8 role (from mode file)
+    *   Phase 3 triage topics (from mode file)
+    *   Phase 6 walk-through config (from mode file)
 
-8.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the Mode Presets section above.
+8.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file (`modes/{mode}.md`).
 
 9.  **Initial Evidence**: Capture initial state relevant to the diagnostic mode:
     *   **Test Failures**: Run the failing tests, capture output.
@@ -245,7 +113,8 @@ Debug modes configure the agent's lens — role, triage topics, and walk-through
 **Output this block in chat with every blank filled:**
 > **Phase 1 proof:**
 > - Mode: `________` (test-failures / behavior / performance / custom)
-> - Role: `________` (quote the role name from the mode preset)
+> - Mode file loaded: `________` (path to the loaded mode file)
+> - Role: `________` (quote the role name from the mode file)
 > - Session dir: `________`
 > - Templates loaded: `________`, `________`, `________`
 > - Parameters parsed: `________`
@@ -344,7 +213,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **Topic selection**: Pick from the topic menu below each round. Do NOT follow a fixed sequence — choose the most relevant uncovered topic based on what you've learned so far.
 
 ### Triage Topics (Debug)
-*Primary topic source: the **Triage Topics from the selected mode preset** (see Mode Presets section above). Use mode-specific topics as the primary investigation lens.*
+*Primary topic source: the **Triage Topics from the loaded mode file** (`modes/{mode}.md`). Use mode-specific topics as the primary investigation lens.*
 
 *The standard topics below are available for ALL modes as supplementary investigation themes. Adapt to the task — skip irrelevant ones, invent new ones as needed.*
 
@@ -428,8 +297,7 @@ Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
   mode: "plan"
   gateQuestion: "Investigation plan ready. Walk through the hypotheses?"
   debriefFile: "DEBUG_PLAN.md"
-  itemSources:
-    - "## 6. Step-by-Step Implementation Strategy"
+  templateFile: "~/.claude/skills/debug/assets/TEMPLATE_DEBUG_PLAN.md"
   planQuestions:
     - "Does this hypothesis seem likely given what you know?"
     - "Any other signals or logs I should check?"
@@ -439,7 +307,7 @@ Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
 If any items are flagged for revision, return to the plan for edits before proceeding.
 
 ### Phase Transition
-Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/standards/commands/CMD_PARALLEL_HANDOFF.md`):
+Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/directives/commands/CMD_PARALLEL_HANDOFF.md`):
 1.  **Analyze**: Parse the plan's `**Depends**:` and `**Files**:` fields to derive parallel chunks.
 2.  **Visualize**: Present the chunk breakdown with non-intersection proof.
 3.  **Menu**: Present the richer handoff menu via `AskUserQuestion`.
@@ -452,7 +320,7 @@ Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/standards/commands/CMD_PARALLE
 
 ---
 
-## 4b. Agent Handoff (Opt-In)
+## 4.1. Agent Handoff (Opt-In)
 *Only if user selected an agent option in Phase 4 transition.*
 
 **Single agent** (no parallel chunks or user chose "1 agent"):
@@ -579,15 +447,18 @@ Execute `AskUserQuestion` (multiSelect: false):
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 6: Debrief.
-> 2. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_DEBUG.md` EXACTLY) to summarize the debug session.
-> 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 4. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
+> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_DEBUG.md` EXACTLY) to summarize the debug session.
+> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
+> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
 **2. Execution — SEQUENTIAL, NO SKIPPING**
 
 [!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The debrief FILE is the primary deliverable — chat output alone is not sufficient.
+
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
 
 **Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `DEBUG.md`).
   *   Write the file using the Write tool. This MUST produce a real file in the session directory.
@@ -600,13 +471,11 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   *   **Parking Lot**: What was parked or deferred (§8 in template).
   *   **Expert Opinion**: Your unfiltered assessment (§10 in template).
 
-**Step 2**: Respond to Requests — Re-run `§CMD_DISCOVER_OPEN_DELEGATIONS`. For any request addressed by this session's work, execute `§CMD_POST_DELEGATION_RESPONSE`.
+**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
 
-**Step 3**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
+**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
 
-**Step 4**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 5**: Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the selected mode preset (see Mode Presets section above).
+**Step 4**: Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the loaded mode file (`modes/{mode}.md`).
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 6 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
@@ -618,7 +487,7 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
-**Step 6**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+**Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
 
 ### Next Skill Options
 *Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*

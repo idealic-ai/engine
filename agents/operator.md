@@ -94,7 +94,7 @@ When executing a chain (e.g., brainstorm → analyze → implement → test):
 
 ## Critical Invariants (Embedded)
 
-These invariants are loaded here so subagents inherit compliance without reading INVARIANTS.md separately. See `~/.claude/standards/INVARIANTS.md` for full details and reasoning.
+These invariants are loaded here so subagents inherit compliance without reading INVARIANTS.md separately. See `~/.claude/directives/INVARIANTS.md` for full details and reasoning.
 
 *   **¶INV_SKILL_PROTOCOL_MANDATORY**: Every step of the protocol executes. No exceptions. If you want to skip, fire `§CMD_REFUSE_OFF_COURSE`.
 *   **¶INV_PROTOCOL_IS_TASK**: The user's request is an input parameter to the protocol, not a replacement for it. The protocol IS the task.

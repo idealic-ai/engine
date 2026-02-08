@@ -2,14 +2,14 @@
 name: edit-skill
 description: "Creates or edits skills in .claude/ — scaffolds SKILL.md, references, and assets. Triggers: \"create a new skill\", \"edit a skill\", \"scaffold a skill\", \"add a project skill\", \"create a new command\"."
 version: 2.0
+tier: lightweight
 ---
 
 Creates or edits skills in .claude/ — scaffolds SKILL.md, references, and assets.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,7 +17,6 @@ Creates or edits skills in .claude/ — scaffolds SKILL.md, references, and asse
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
@@ -231,14 +230,14 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 name: <skill-name>
 description: [One-line description from interrogation]. Triggers: "[trigger phrase 1]", "[trigger phrase 2]", "[trigger phrase 3]".
 version: 2.0
+tier: lightweight
 ---
 
 [One-line description from interrogation].
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -246,7 +245,6 @@ version: 2.0
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
@@ -279,7 +277,7 @@ Each phase MUST reference appropriate §CMD_ commands:
 **DETAILS.md integration (automatic for non-utility archetypes)**:
 Any skill that has an Interrogation phase or interactive dialogue MUST include DETAILS.md logging. This is not optional — if the user talks, we record it.
 *   Add `§CMD_LOG_TO_DETAILS` calls after every interrogation round and user assertion.
-*   Reference `~/.claude/standards/TEMPLATE_DETAILS.md` as structural model.
+*   Reference `~/.claude/directives/TEMPLATE_DETAILS.md` as structural model.
 *   Only **utility** skills (no session artifacts, no interaction) skip this.
 
 **Question Bank (if requested during interrogation)**:
@@ -383,12 +381,15 @@ Execute `AskUserQuestion` (multiSelect: false):
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 7: Synthesis.
-> 2. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 3. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise overview.
+> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
+> 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
+> 4. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise overview.
 
 **2. Execution — SEQUENTIAL, NO SKIPPING**
 
 [!!!] CRITICAL: Execute these steps IN ORDER.
+
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
 
 **Step 1**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created/modified files in chat.
 

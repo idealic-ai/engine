@@ -1,0 +1,28 @@
+# Pitfalls
+
+Known gotchas and traps when working with engine scripts. Read before modifying any script.
+
+### session.sh activate reads stdin — pipe JSON or use `< /dev/null`
+**Context**: `session.sh activate` accepts optional JSON parameters on stdin (piped via heredoc). It uses this to populate `.state.json` with session parameters.
+**Trap**: Calling `session.sh activate path skill` without explicit stdin causes it to hang waiting for input. This is especially insidious in hooks or other scripts that call activate programmatically — the hang looks like a freeze, not an error.
+**Mitigation**: For re-activation without new parameters, always use `session.sh activate path skill < /dev/null`. For fresh activation, pipe the JSON via heredoc.
+
+### log.sh requires a `## ` heading in append content — or it exits 1
+**Context**: `log.sh` auto-injects timestamps into the first `## ` heading of each appended block. It enforces this by checking for the heading pattern.
+**Trap**: Appending plain text without a `## ` heading causes a silent exit 1. The content is not appended, and the calling script may not check the exit code. This leads to "missing log entries" that are hard to debug.
+**Mitigation**: Every `log.sh` heredoc must start with `## [Heading]`. Never append bare text.
+
+### tag.sh swap operates on the Tags line by default — use `--inline` for body tags
+**Context**: `tag.sh swap` replaces one tag with another. By default it operates on the `**Tags**:` line (line 2 of the file). Inline body tags require the `--inline <line>` flag.
+**Trap**: Running `tag.sh swap file '#needs-X' '#done-X'` when the tag is inline (not on the Tags line) silently succeeds but changes nothing — the tag stays bare in the body. The inverse is also a trap: using `--inline` on a Tags-line tag.
+**Mitigation**: Use `tag.sh find '#tag' --context` first to determine whether the tag is on the Tags line or inline, then choose the appropriate swap mode.
+
+### discover-directives.sh walks UP, not down — it finds parent directives
+**Context**: Given a directory, `discover-directives.sh` walks from that directory upward to the project root, collecting directive files (README.md, CHECKLIST.md, PITFALLS.md, INVARIANTS.md) at each level.
+**Trap**: Expecting it to find directives in child directories (e.g., passing `engine/` expecting it to find `engine/skills/PITFALLS.md`). It only walks up. For child directory discovery, you need to call it for each child directory separately.
+**Mitigation**: Pass the most specific directory the agent is working in (e.g., `engine/skills/implement/`), and it will find directives at `skills/implement/`, `skills/`, `engine/`, and root.
+
+### lib.sh functions are sourced — they share the caller's shell state
+**Context**: `lib.sh` provides shared functions (`ensure_jq`, `read_state`, `write_state`, etc.) that are sourced via `. lib.sh` into other scripts.
+**Trap**: Variables set in `lib.sh` functions (like `$SESSION_DIR`, `$STATE_FILE`) persist in the caller's scope and can collide with the caller's own variables. Similarly, `set -e` in `lib.sh` affects the caller's error handling.
+**Mitigation**: Use local variables (`local var=...`) in all `lib.sh` functions. Never set global options (`set -e`, `set -u`) inside sourced functions — let the caller control those.

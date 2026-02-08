@@ -2,14 +2,14 @@
 name: review
 description: "Reviews and validates work across sessions for consistency and correctness. Triggers: \"review session work\", \"validate debriefs\", \"approve session reports\", \"end-of-day review\"."
 version: 2.0
+tier: protocol
 ---
 
 Reviews and validates work across sessions for consistency and correctness.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,13 +17,39 @@ Reviews and validates work across sessions for consistency and correctness.
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
 # Review Protocol (The Multiplexer)
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structure — Phase 3 (Dashboard & Per-Debrief Interrogation) is the iterative work phase. The engine's artifacts live in the session directory as reviewable files, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
+
+### Phases (for §CMD_PARSE_PARAMETERS)
+*Include this array in the `phases` field when calling `session.sh activate`:*
+```json
+[
+  {"major": 1, "minor": 0, "name": "Setup"},
+  {"major": 2, "minor": 0, "name": "Discovery"},
+  {"major": 3, "minor": 0, "name": "Dashboard & Interrogation"},
+  {"major": 4, "minor": 0, "name": "Synthesis"}
+]
+```
+*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
+
+## Mode Presets
+
+Review modes configure the validation lens — what to focus on and how deeply to interrogate. The mode is selected in Phase 1 via `AskUserQuestion`. Full mode definitions are in `modes/*.md` files.
+
+| Mode | Description | When to Use |
+|------|-------------|-------------|
+| **Quality** | Thorough validation, evidence-driven | Default — comprehensive quality gate |
+| **Progress** | Cross-session status reporting | Summarize work across sessions by date/tag |
+| **Evangelize** | Stakeholder communication, narrative | Frame completed work for audiences |
+| **Custom** | Reads all 3 modes, synthesizes a hybrid | User provides framing, agent blends modes |
+
+**Mode files**: `~/.claude/skills/review/modes/{quality,progress,evangelize,custom}.md`
+
+---
 
 ## 1. Setup Phase
 
@@ -35,18 +61,16 @@ Reviews and validates work across sessions for consistency and correctness.
     > 5. I will `§CMD_FIND_TAGGED_FILES` to identify unvalidated debriefs (`#needs-review` and `#needs-rework`).
     > 6. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
     > 7. I will `§CMD_MAINTAIN_SESSION_DIR` to establish working space.
-    > 7. I will `§CMD_ASSUME_ROLE` to execute better:
-    >    **Role**: You are the **Senior Reviewer** and **Quality Gate**.
-    >    **Goal**: To review all agent session work, detect issues and conflicts, and present structured findings to the user for approval or rework.
-    >    **Mindset**: "Trust but Verify." You are the user's eyes across all parallel agent sessions. Read everything. Surface what matters. Skip what doesn't.
-    > 8. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
+    > 8. I will select the **Review Mode** (Quality / Progress / Evangelize / Custom).
+    > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
+    > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
     **Constraint**: Do NOT read any project source code in Phase 1. Only load system templates/standards and discover tagged files.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `~/.claude/skills/review/assets/TEMPLATE_REVIEW_LOG.md` (Template for continuous session logging)
     *   `~/.claude/skills/review/assets/TEMPLATE_REVIEW.md` (Template for the final review report)
-    *   `~/.claude/standards/TEMPLATE_DETAILS.md` (Template for Q&A capture)
+    *   `~/.claude/directives/TEMPLATE_DETAILS.md` (Template for Q&A capture)
 
 3.  **Discover Debriefs**: Execute `§CMD_FIND_TAGGED_FILES` for BOTH:
     *   `#needs-review` — never-validated debriefs.
@@ -61,16 +85,30 @@ Reviews and validates work across sessions for consistency and correctness.
 5.  **Session Location**: Execute `§CMD_MAINTAIN_SESSION_DIR` - ensure the directory is created.
     *   **Naming**: Use `sessions/[YYYY_MM_DD]_REVIEW_[N]` where N increments if multiple review sessions exist for the same date.
 
-6.  **Initialize Log**: Execute `§CMD_INIT_OR_RESUME_LOG_SESSION` (Template: `REVIEW_LOG.md`).
+5.1. **Review Mode Selection**: Execute `AskUserQuestion` (multiSelect: false):
+    > "What review lens should I use?"
+    > - **"Quality" (Recommended)** — Correctness-focused: verify work quality, consistency, and completeness
+    > - **"Progress"** — Status-focused: track completion, identify blockers, measure velocity
+    > - **"Evangelize"** — Communication-focused: frame results for stakeholders, highlight wins
+    > - **"Custom"** — Define your own role, goal, and mindset
 
-7.  **Discover Open Requests**: Execute `§CMD_DISCOVER_OPEN_DELEGATIONS`.
-    *   If any `#needs-delegation` files are found, read them and assess relevance.
-    *   *Note*: Re-run discovery during Convergence to catch late arrivals.
+    **On selection**: Read the corresponding `modes/{mode}.md` file. It defines Role, Goal, Mindset, and Review Strategy.
+
+    **On "Custom"**: Read ALL 3 named mode files first (`modes/quality.md`, `modes/progress.md`, `modes/evangelize.md`), then accept user's framing. Parse into role/goal/mindset.
+
+    **Record**: Store the selected mode. It configures:
+    *   Phase 1 role (from mode file)
+    *   Phase 3 review criteria (from mode file)
+
+6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file.
+
+7.  **Initialize Log**: Execute `§CMD_INIT_OR_RESUME_LOG_SESSION` (Template: `REVIEW_LOG.md`).
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
 > **Phase 1 proof:**
-> - Role: `________`
+> - Mode: `________` (quality / progress / evangelize / custom)
+> - Role: `________` (quote the role name from the mode preset)
 > - Session dir: `________`
 > - Templates loaded: `________`, `________`, `________`
 > - Debriefs discovered: `________`
@@ -134,7 +172,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 > "Phase 2: Discovery & analysis complete. How to proceed?"
 > - **"Proceed to Phase 3: Dashboard & Per-Debrief Interrogation"** — Present findings and walk through each debrief
 > - **"Stay in Phase 2"** — Read more files or continue analysis
-> - **"Skip to Phase 4: Convergence"** — I already know the verdicts, just write the report
+> - **"Skip to Phase 4: Synthesis"** — I already know the verdicts, just write the report
 
 ---
 
@@ -297,22 +335,25 @@ Record the user's choice. This sets the **minimum** per debrief — the agent ca
 
 ---
 
-## 4. Convergence (Wrap-Up)
+## 4. Synthesis
 *Produce the review report and spawn leftovers.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Convergence.
-> 2. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_REVIEW.md` EXACTLY) to create the review report.
-> 3. I will spawn leftover sessions with micro-dehydrated prompts.
-> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to formally close the session.
-> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 1. I am moving to Phase 4: Synthesis.
+> 2. I will `§CMD_PROCESS_CHECKLISTS` (if any discovered checklists exist).
+> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_REVIEW.md` EXACTLY) to create the review report.
+> 4. I will spawn leftover sessions with micro-dehydrated prompts.
+> 5. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to formally close the session.
+> 6. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
 **2. Execution — SEQUENTIAL, NO SKIPPING**
 
 [!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 without completing step 1. The review report FILE is the primary deliverable — chat output alone is not sufficient.
+
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
 
 **Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `REVIEW.md`).
   *   Write the file using the Write tool. This MUST produce a real file in the session directory.
@@ -324,11 +365,9 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
       *   **Complex tasks** (feature rework, bug investigation, test gaps): Recommend a command (`/implement`, `/debug`, `/test`, `/analyze`) with a self-contained prompt referencing the review report and original session.
       *   Enough context for the user to copy-paste and immediately act.
 
-**Step 2**: Respond to Requests — Re-run `§CMD_DISCOVER_OPEN_DELEGATIONS`. For any request addressed by this session's work, execute `§CMD_POST_DELEGATION_RESPONSE`.
+**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created/modified files in chat.
 
-**Step 3**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created/modified files in chat.
-
-**Step 4**: Execute `§CMD_REPORT_SESSION_SUMMARY` — output a final count: "Validated: N, Needs Rework: M, Leftovers Spawned: K."
+**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — output a final count: "Validated: N, Needs Rework: M, Leftovers Spawned: K."
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
@@ -342,4 +381,18 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
-**Post-Convergence**: If the user continues talking, obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
+**Step 4**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+
+### Next Skill Options
+*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
+
+> "Review complete. What's next? (Type a /skill name to invoke it, or describe new work to scope it)"
+
+| Option | Label | Description |
+|--------|-------|-------------|
+| 1 | `/implement` (Recommended) | Address rework items identified during review |
+| 2 | `/document` | Update documentation flagged as stale |
+| 3 | `/brainstorm` | Explore ideas discovered during review |
+| 4 | `/analyze` | Deep-dive into patterns found across sessions |
+
+**Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.

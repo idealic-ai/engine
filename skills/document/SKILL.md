@@ -2,14 +2,14 @@
 name: document
 description: "Keeps documentation in sync with code changes and project state. Triggers: \"update documentation\", \"patch the docs\", \"sync docs with code changes\", \"update architecture docs\"."
 version: 2.0
+tier: protocol
 ---
 
 Keeps documentation in sync with code changes and project state.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,13 +17,41 @@ Keeps documentation in sync with code changes and project state.
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
 # Document Update Protocol (The Surgical Standard)
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 2 (Diagnosis & Planning) produces a DOC_UPDATE_PLAN.md. The engine's plan lives in the session directory as a reviewable artifact, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
+[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 2 (Diagnosis & Planning) produces a DOCUMENTATION_PLAN.md. The engine's plan lives in the session directory as a reviewable artifact, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
+
+### Phases (for §CMD_PARSE_PARAMETERS)
+*Include this array in the `phases` field when calling `session.sh activate`:*
+```json
+[
+  {"major": 1, "minor": 0, "name": "Setup"},
+  {"major": 1, "minor": 1, "name": "Interrogation"},
+  {"major": 2, "minor": 0, "name": "Diagnosis & Planning"},
+  {"major": 2, "minor": 1, "name": "Agent Handoff"},
+  {"major": 3, "minor": 0, "name": "Operation"},
+  {"major": 4, "minor": 0, "name": "Synthesis"}
+]
+```
+*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
+
+## Mode Presets
+
+Documentation modes configure the scope and approach of the documentation pass. The mode is selected in Phase 1 via `AskUserQuestion`. Full mode definitions are in `modes/*.md` files.
+
+| Mode | Description | When to Use |
+|------|-------------|-------------|
+| **Surgical** | Fix specific stale/incorrect docs | Default — targeted fixes after code changes |
+| **Audit** | Read-only verification pass | Verify docs match code without editing |
+| **Refine** | Improve clarity, examples, structure | Polish existing docs without restructuring |
+| **Custom** | Reads all 3 modes, synthesizes a hybrid | User provides framing, agent blends modes |
+
+**Mode files**: `~/.claude/skills/document/modes/{surgical,audit,refine,custom}.md`
+
+---
 
 ## 1. Setup Phase
 
@@ -35,19 +63,17 @@ Keeps documentation in sync with code changes and project state.
     > 5. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
     > 6. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
     > 7. I will `§CMD_MAINTAIN_SESSION_DIR` to establish working space.
-    > 7. I will `§CMD_ASSUME_ROLE` to execute better:
-    >    **Role**: You are the **Documentation Surgeon**.
-    >    **Goal**: To align documentation with reality using **surgical precision**.
-    >    **Mindset**: "Scalpel, not Sledgehammer. Preserve the tissue, remove the disease."
-    > 8. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
+    > 8. I will select the **Documentation Mode** (Surgical / Refine / Audit / Custom).
+    > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
+    > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
     **Constraint**: Do NOT read any project files (source code, docs) in Phase 1. Only load the required system templates/standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project structure and file map)
-    *   `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE_LOG.md` (Template for continuous surgery logging)
-    *   `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE.md` (Template for final session debrief/report)
-    *   `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE_PLAN.md` (Template for technical execution planning)
+    *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md` (Template for continuous surgery logging)
+    *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md` (Template for final session debrief/report)
+    *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_PLAN.md` (Template for technical execution planning)
 
 3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
     *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
@@ -59,17 +85,32 @@ Keeps documentation in sync with code changes and project state.
     *   **Value**: Outdated docs are debt. They mislead devs and waste hours. You are the cleaner.
     *   **New Features**: If this is a **New Feature**, you must define its "Home". Does it need a new `concepts/X.md`? or a section in `features/Y.md`? **Do not leave it homeless.**
 
-6.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
-    *   If any files are found, add them to `contextPaths` for ingestion.
+5.1. **Documentation Mode Selection**: Execute `AskUserQuestion` (multiSelect: false):
+    > "What documentation approach should I use?"
+    > - **"Surgical" (Recommended)** — Targeted updates: fix specific docs affected by code changes
+    > - **"Refine"** — Improve existing docs: restructure, clarify, consolidate
+    > - **"Audit"** — Comprehensive review: find gaps, stale content, and inconsistencies
+    > - **"Custom"** — Define your own role, goal, and mindset
 
-7.  **Discover Open Requests**: Execute `§CMD_DISCOVER_OPEN_DELEGATIONS`.
-    *   If any `#needs-delegation` files are found, read them and assess relevance.
-    *   *Note*: Re-run discovery during Post-Op to catch late arrivals.
+    **On selection**: Read the corresponding `modes/{mode}.md` file. It defines Role, Goal, Mindset, and Operation Strategy.
+
+    **On "Custom"**: Read ALL 3 named mode files first (`modes/surgical.md`, `modes/refine.md`, `modes/audit.md`), then accept user's framing. Parse into role/goal/mindset.
+
+    **Record**: Store the selected mode. It configures:
+    *   Phase 1 role (from mode file)
+    *   Phase 2 diagnosis strategy (from mode file)
+    *   Phase 3 operation approach (from mode file)
+
+6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file.
+
+7.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
+    *   If any files are found, add them to `contextPaths` for ingestion.
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
 > **Phase 1 proof:**
-> - Role: `________`
+> - Mode: `________` (surgical / refine / audit / custom)
+> - Role: `________` (quote the role name from the mode preset)
 > - Session dir: `________`
 > - Templates loaded: `________`, `________`, `________`
 > - Parameters parsed: `________`
@@ -77,17 +118,17 @@ Keeps documentation in sync with code changes and project state.
 ### Phase Transition
 Execute `AskUserQuestion` (multiSelect: false):
 > "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 1b: Interrogation"** — Validate assumptions about scope, audience, and approach before planning
+> - **"Proceed to Phase 1.1: Interrogation"** — Validate assumptions about scope, audience, and approach before planning
 > - **"Skip to Phase 2: Diagnosis & Planning"** — Requirements are clear, go straight to surveying docs and drafting the plan
 > - **"Stay in Phase 1"** — Load additional standards or resolve setup issues
 
 ---
 
-## 1b. Interrogation (Optional Pre-Flight)
+## 1.1. Interrogation (Optional Pre-Flight)
 *Validate assumptions before cutting. Skip this phase when the documentation task is straightforward.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 1b: Interrogation.
+> 1. I am moving to Phase 1.1: Interrogation.
 > 2. I will `§CMD_EXECUTE_INTERROGATION_PROTOCOL` to validate assumptions.
 > 3. I will `§CMD_LOG_TO_DETAILS` to capture the Q&A.
 > 4. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
@@ -156,7 +197,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 > 1. I am moving to Phase 2: Diagnosis & Planning.
 > 2. I will `§CMD_INGEST_CONTEXT_BEFORE_WORK` to load relevant docs and code.
 > 3. I will survey the target documentation to assess the extent of the "drift".
-> 4. I will `§CMD_GENERATE_PLAN_FROM_TEMPLATE` using `DOC_UPDATE_PLAN.md`.
+> 4. I will `§CMD_GENERATE_PLAN_FROM_TEMPLATE` using `DOCUMENTATION_PLAN.md`.
 > 5. I will `§CMD_WAIT_FOR_USER_CONFIRMATION` before proceeding to edits.
 
 **Action**:
@@ -171,7 +212,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 > **Phase 2 proof:**
 > - Context ingested: `________`
 > - Documentation drift assessed: `________`
-> - DOC_UPDATE_PLAN.md written: `________`
+> - DOCUMENTATION_PLAN.md written: `________`
 > - Plan presented: `________`
 > - User approved: `________`
 
@@ -181,9 +222,8 @@ Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "plan"
   gateQuestion: "Surgical plan ready. Walk through the operations before cutting?"
-  debriefFile: "DOC_UPDATE_PLAN.md"
-  itemSources:
-    - "## 6. Step-by-Step Implementation Strategy"
+  debriefFile: "DOCUMENTATION_PLAN.md"
+  templateFile: "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_PLAN.md"
   planQuestions:
     - "Is this the right scope for this operation?"
     - "Any docs I'm missing that should also be updated?"
@@ -193,7 +233,7 @@ Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
 If any items are flagged for revision, return to the plan for edits before proceeding.
 
 ### Phase Transition
-Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/standards/commands/CMD_PARALLEL_HANDOFF.md`):
+Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/directives/commands/CMD_PARALLEL_HANDOFF.md`):
 1.  **Analyze**: Parse the plan's `**Depends**:` and `**Files**:` fields to derive parallel chunks.
 2.  **Visualize**: Present the chunk breakdown with non-intersection proof.
 3.  **Menu**: Present the richer handoff menu via `AskUserQuestion`.
@@ -206,26 +246,26 @@ Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/standards/commands/CMD_PARALLE
 
 ---
 
-## 2b. Agent Handoff (Opt-In)
+## 2.1. Agent Handoff (Opt-In)
 *Only if user selected an agent option in Phase 2 transition.*
 
 **Single agent** (no parallel chunks or user chose "1 agent"):
 Execute `§CMD_HAND_OFF_TO_AGENT` with:
 *   `agentName`: `"writer"`
 *   `startAtPhase`: `"Phase 3: The Operation"`
-*   `planOrDirective`: `[sessionDir]/DOC_UPDATE_PLAN.md`
-*   `logFile`: `DOC_UPDATE_LOG.md`
-*   `debriefTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE.md`
-*   `logTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE_LOG.md`
+*   `planOrDirective`: `[sessionDir]/DOCUMENTATION_PLAN.md`
+*   `logFile`: `DOCUMENTATION_LOG.md`
+*   `debriefTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md`
+*   `logTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md`
 *   `taskSummary`: `"Execute the document update plan: [brief description from taskSummary]"`
 
 **Multiple agents** (user chose "[N] agents" or "Custom agent count"):
 Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 *   `agentName`: `"writer"`
-*   `planFile`: `[sessionDir]/DOC_UPDATE_PLAN.md`
-*   `logFile`: `DOC_UPDATE_LOG.md`
-*   `debriefTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE.md`
-*   `logTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE_LOG.md`
+*   `planFile`: `[sessionDir]/DOCUMENTATION_PLAN.md`
+*   `logFile`: `DOCUMENTATION_LOG.md`
+*   `debriefTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md`
+*   `logTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md`
 *   `taskSummary`: `"Execute the document update plan: [brief description from taskSummary]"`
 
 **If "Continue inline"**: Proceed to Phase 3 as normal.
@@ -239,7 +279,7 @@ Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 3: Operation.
 > 2. I will `§CMD_USE_TODOS_TO_TRACK_PROGRESS` to manage edits.
-> 3. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` (following `assets/TEMPLATE_DOC_UPDATE_LOG.md` EXACTLY) to record changes as they happen.
+> 3. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` (following `assets/TEMPLATE_DOCUMENTATION_LOG.md` EXACTLY) to record changes as they happen.
 > 4. I will execute surgical updates (`§CMD_REFUSE_OFF_COURSE` applies).
 > 5. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
 
@@ -269,28 +309,29 @@ Before calling any tool, ask yourself:
 **Output this block in chat with every blank filled:**
 > **Phase 3 proof:**
 > - Plan steps completed: `________`
-> - DOC_UPDATE_LOG.md entries: `________`
+> - DOCUMENTATION_LOG.md entries: `________`
 > - Unresolved blocks: `________`
 
 ### Phase Transition
 Execute `AskUserQuestion` (multiSelect: false):
 > "Phase 3: Operation complete. How to proceed?"
-> - **"Proceed to Phase 4: Post-Op Synthesis"** — Generate debrief and close session
+> - **"Proceed to Phase 4: Synthesis"** — Generate debrief and close session
 > - **"Stay in Phase 3"** — More edits needed, continue operating
 > - **"Run verification first"** — Review changes before closing
 
 ---
 
-## 4. Post-Op (Synthesis)
+## 4. Synthesis
 *When the surgery is complete.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Post-Op Synthesis.
-> 2. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_DOC_UPDATE.md` EXACTLY).
-> 3. I will `§CMD_MANAGE_TOC` to update `docs/TOC.md` with documentation files touched this session.
-> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list all outputs.
-> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 1. I am moving to Phase 4: Synthesis.
+> 2. I will `§CMD_PROCESS_CHECKLISTS` (if any discovered checklists exist).
+> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_DOCUMENTATION.md` EXACTLY).
+> 4. I will `§CMD_MANAGE_TOC` to update `docs/TOC.md` with documentation files touched this session.
+> 5. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list all outputs.
+> 6. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
@@ -298,7 +339,9 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 [!!!] CRITICAL: Execute these steps IN ORDER.
 
-**Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `DOC_UPDATE.md`).
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
+
+**Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `DOCUMENTATION.md`).
   *   Write the file using the Write tool. This MUST produce a real file in the session directory.
   *   **Summary**: What was changed?
   *   **Prognosis**: Is the documentation healthy?
@@ -310,22 +353,17 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   *   Auto-applies selected changes to `docs/TOC.md`.
   *   Skips silently if no documentation files were touched.
 
-**Step 3**: Respond to Requests — Re-run `§CMD_DISCOVER_OPEN_DELEGATIONS`. For any request addressed by this session's work, execute `§CMD_POST_DELEGATION_RESPONSE`.
+**Step 3**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
 
-**Step 4**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
+**Step 4**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
 
-**Step 5**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 6**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
+**Step 5**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"
   gateQuestion: "Documentation complete. Walk through the updates?"
-  debriefFile: "DOC_UPDATE.md"
-  itemSources:
-    - "## 2. Operations Performed"
-    - "## 4. Side Discoveries"
-    - "## 5. Expert Opinion"
+  debriefFile: "DOCUMENTATION.md"
+  templateFile: "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md"
   actionMenu:
     - label: "Needs code changes"
       tag: "#needs-implementation"
@@ -341,7 +379,7 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 ### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
 > **Phase 4 proof:**
-> - DOC_UPDATE.md written: `________` (real file path)
+> - DOCUMENTATION.md written: `________` (real file path)
 > - Tags line: `________`
 > - Artifacts listed: `________`
 > - Session summary: `________`
@@ -357,7 +395,7 @@ If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 | Option | Label | Description |
 |--------|-------|-------------|
-| 1 | `/evangelize` (Recommended) | Docs ready — share the knowledge |
+| 1 | `/review` (Recommended) | Docs ready — validate and share (use Evangelize mode for stakeholder comms) |
 | 2 | `/implement` | Docs revealed gaps — build the missing pieces |
 | 3 | `/analyze` | Need deeper research for the docs |
 | 4 | `/brainstorm` | Explore ideas for better documentation |

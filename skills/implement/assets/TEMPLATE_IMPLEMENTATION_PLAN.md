@@ -3,7 +3,7 @@
 ## Overview
 **Context**: Link to `BRAINSTORM.md` or `ANALYSIS.md`.
 **Required Documents**:
-*   `~/.claude/standards/INVARIANTS.md` (Shared) and `.claude/standards/INVARIANTS.md` (Project-specific, if exists)
+*   `~/.claude/directives/INVARIANTS.md` (Shared) and `.claude/directives/INVARIANTS.md` (Project-specific, if exists)
 *   `docs/architecture/[RELEVANT_DOC].md`
 *   `docs/concepts/[RELEVANT_DOC].md`
 
@@ -16,7 +16,7 @@
 ## 1. Standards & Invariants Check
 *Mandatory verification against the "Laws of Physics".*
 
-*   **Ref**: `~/.claude/standards/INVARIANTS.md` (shared) + `.claude/standards/INVARIANTS.md` (project)
+*   **Ref**: `~/.claude/directives/INVARIANTS.md` (shared) + `.claude/directives/INVARIANTS.md` (project)
 
 ### Relevant Invariants
 *   **§INV_[NAME]**: How does this plan respect it?
@@ -75,6 +75,7 @@ interface NewState {
 
 ---
 
+<!-- WALKTHROUGH PLAN -->
 ## 6. Step-by-Step Implementation Strategy
 *Break down the work into atomic, verifiable steps. Max 50 lines of code per step.*
 *Each step MUST declare `Depends` and `Files` for parallel execution analysis.*

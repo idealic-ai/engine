@@ -6,7 +6,7 @@
 # Related:
 #   Docs: (~/.claude/docs/)
 #     FLEET.md — Pane styling, status colors
-#   Invariants: (~/.claude/standards/INVARIANTS.md)
+#   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — No-op outside fleet
 
 # Auto-detect fleet socket from $TMUX env var (fleet or fleet-*)
@@ -20,9 +20,9 @@ BLACK="bg=black"
 # Tinted backgrounds for unfocused panes (darker versions of status colors)
 # These are dim versions that don't overwhelm but show the status
 TINT_ERROR="bg=#3d2020"      # dark red
-TINT_UNCHECKED="bg=#251a10"  # dark orange
+TINT_UNCHECKED="bg=#081a10"  # dark mint green (needs attention)
 TINT_WORKING="bg=#080c10"    # very dark blue
-TINT_CHECKED="bg=#100a05"    # very dark orange (dimmer unchecked)
+TINT_CHECKED="bg=#0a1005"    # very dark sage (dimmer, acknowledged)
 TINT_DEFAULT="bg=#0a0a0a"    # very dark gray (done/no status)
 
 # Suppress check: programmatic style changes set @suppress_focus_hook=1

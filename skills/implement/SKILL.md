@@ -2,14 +2,14 @@
 name: implement
 description: "Drives feature implementation following structured development protocols. Triggers: \"implement this feature\", \"build this\", \"write the code\", \"TDD implementation\", \"execute the plan\"."
 version: 2.0
+tier: protocol
 ---
 
 Drives feature implementation following structured development protocols.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,7 +17,6 @@ Drives feature implementation following structured development protocols.
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
@@ -33,11 +32,25 @@ Drives feature implementation following structured development protocols.
   {"major": 2, "minor": 0, "name": "Context Ingestion"},
   {"major": 3, "minor": 0, "name": "Interrogation"},
   {"major": 4, "minor": 0, "name": "Planning"},
+  {"major": 4, "minor": 1, "name": "Agent Handoff"},
   {"major": 5, "minor": 0, "name": "Build Loop"},
   {"major": 6, "minor": 0, "name": "Synthesis"}
 ]
 ```
 *Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
+
+## Mode Presets
+
+Implementation modes configure the build approach — testing rigor, planning depth, and execution style. Mode definitions live in `modes/*.md`.
+
+| Mode | Focus | Interrogation | Build Approach |
+|------|-------|--------------|----------------|
+| **TDD** | Test-driven rigor | Medium (6+) | Red-Green-Refactor |
+| **Experimentation** | Fast prototyping | Short (3+) | Code first, test after |
+| **General** | Pragmatic balance | Medium (6+) | Natural order |
+| **Custom** | User-defined | User-defined | User-defined |
+
+---
 
 ## 1. Setup Phase
 
@@ -47,10 +60,7 @@ Drives feature implementation following structured development protocols.
     > 3. My focus is IMPLEMENTATION (`§CMD_REFUSE_OFF_COURSE` applies).
     > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
     > 5. I will `§CMD_PARSE_PARAMETERS` to activate the session and discover context (alerts, delegations, RAG).
-    > 6. I will `§CMD_ASSUME_ROLE` to execute better:
-    >    **Role**: You are the **Senior Tech Lead** and **Quality Assurance**.
-    >    **Goal**: To execute a flawless implementation by forcing strict planning, rigorous logging, and TDD.
-    >    **Mindset**: "Measure Twice, Cut Once." But when you cut, record *every* move.
+    > 6. I will `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file.
     > 8. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
     **Constraint**: Do NOT read any project files (source code, docs) in Phase 1. Only load the required system templates/standards.
@@ -60,23 +70,38 @@ Drives feature implementation following structured development protocols.
     *   `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md` (Template for continuous session logging)
     *   `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md` (Template for the final debrief/report)
     *   `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_PLAN.md` (Template for technical execution planning)
-    *   `.claude/standards/TESTING.md` (Testing standards and TDD rules — project-level, load if exists)
+    *   `.claude/directives/TESTING.md` (Testing standards and TDD rules — project-level, load if exists)
 
 3.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
     *   activate creates the session directory, stores parameters in `.state.json`, and returns context:
         *   `## Active Alerts` — files with `#active-alert` (add relevant ones to `contextPaths` for Phase 2)
-        *   `## Open Delegations` — files with `#needs-delegation` (assess relevance, factor into plan)
         *   `## RAG Suggestions` — semantic search results from session-search and doc-search (add relevant ones to `contextPaths`)
     *   **No JSON chat output** — parameters are stored by activate, not echoed to chat.
 
 4.  **Scope**: Understand the [Topic] and [Goal].
 
-5.  **Process Context**: Parse activate's output for alerts, delegations, and RAG suggestions. Add relevant items to `contextPaths` for ingestion in Phase 2.
-    *   *Note*: Open delegation requests may also appear mid-session. Re-run `§CMD_DISCOVER_OPEN_DELEGATIONS` during Synthesis to catch late arrivals.
+5.  **Process Context**: Parse activate's output for alerts and RAG suggestions. Add relevant items to `contextPaths` for ingestion in Phase 2.
+
+5.1. **Implementation Mode Selection**: Execute `AskUserQuestion` (multiSelect: false):
+    > "What implementation approach should I use?"
+    > - **"General" (Recommended)** — Pragmatic balance: solid code with appropriate testing
+    > - **"TDD"** — Test-driven: strict Red-Green-Refactor cycle, tests before code
+    > - **"Experimentation"** — Rapid prototype: code first, validate feasibility fast
+    > - **"Custom"** — Define your own role, goal, and mindset
+
+    **On selection**: Read the corresponding `modes/{mode}.md` file. It defines Role, Goal, Mindset, and Configuration.
+
+    **On "Custom"**: Read ALL 3 named mode files first (`modes/tdd.md`, `modes/experimentation.md`, `modes/general.md`), then accept user's framing. Parse into role/goal/mindset.
+
+    **Record**: Store the selected mode. It configures:
+    *   Phase 1 role (from mode file)
+    *   Phase 3 interrogation depth (from mode file)
+    *   Phase 5 build approach (from mode file)
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
 > **Phase 1 proof:**
+> - Mode: `________` (tdd / experimentation / general / custom)
 > - Role: `________`
 > - Session dir: `________`
 > - Templates loaded: `________`, `________`, `________`
@@ -225,8 +250,7 @@ Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
   mode: "plan"
   gateQuestion: "Plan is ready. Walk through the steps before building?"
   debriefFile: "IMPLEMENTATION_PLAN.md"
-  itemSources:
-    - "## 6. Step-by-Step Implementation Strategy"
+  templateFile: "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_PLAN.md"
   planQuestions:
     - "Any concerns about this step's approach or complexity?"
     - "Should the scope change — expand, narrow, or split this step?"
@@ -236,7 +260,7 @@ Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
 If any items are flagged for revision, return to the plan for edits before proceeding.
 
 ### Phase Transition
-Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/standards/commands/CMD_PARALLEL_HANDOFF.md`):
+Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/directives/commands/CMD_PARALLEL_HANDOFF.md`):
 1.  **Analyze**: Parse the plan's `**Depends**:` and `**Files**:` fields to derive parallel chunks.
 2.  **Visualize**: Present the chunk breakdown with non-intersection proof.
 3.  **Menu**: Present the richer handoff menu via `AskUserQuestion`.
@@ -249,7 +273,7 @@ Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/standards/commands/CMD_PARALLE
 
 ---
 
-## 4b. Agent Handoff (Opt-In)
+## 4.1. Agent Handoff (Opt-In)
 *Only if user selected an agent option in Phase 4 transition.*
 
 **Single agent** (no parallel chunks or user chose "1 agent"):
@@ -342,15 +366,18 @@ Execute `AskUserQuestion` (multiSelect: false):
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 6: Synthesis.
-> 2. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_IMPLEMENTATION.md` EXACTLY) to summarize the build.
-> 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 4. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will `§CMD_PROCESS_CHECKLISTS` (if any discovered checklists exist).
+> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_IMPLEMENTATION.md` EXACTLY) to summarize the build.
+> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
+> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
 **2. Execution — SEQUENTIAL, NO SKIPPING**
 
 [!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The debrief FILE is the primary deliverable — chat output alone is not sufficient.
+
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
 
 **Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `IMPLEMENTATION.md`).
   *   Write the file using the Write tool. This MUST produce a real file in the session directory.
@@ -359,22 +386,17 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   *   **The Story**: Narrate the build journey.
   *   **Next Steps**: Clear recommendations for the next session.
 
-**Step 2**: Respond to Requests — Re-run `§CMD_DISCOVER_OPEN_DELEGATIONS`. For any request addressed by this session's work, execute `§CMD_POST_DELEGATION_RESPONSE`.
+**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
 
-**Step 3**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
+**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
 
-**Step 4**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 5**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
+**Step 4**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"
   gateQuestion: "Implementation complete. Walk through the changes?"
   debriefFile: "IMPLEMENTATION.md"
-  itemSources:
-    - "## 3. Plan vs. Reality (Deviation Analysis)"
-    - "## 5. The \"Technical Debt\" Ledger"
-    - "## 9. \"Btw, I also noticed...\" (Side Discoveries)"
+  templateFile: "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md"
   actionMenu:
     - label: "Add test coverage"
       tag: "#needs-implementation"
@@ -397,7 +419,7 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
-**Step 6**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+**Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
 
 ### Next Skill Options
 *Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*

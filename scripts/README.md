@@ -9,12 +9,13 @@ Shell scripts for the workflow engine. Symlinked to `~/.claude/scripts/` and whi
 | `log.sh` | Append content to any file. Creates parent dirs. Auto-prepends blank line. | `log.sh <file> <<'EOF'` |
 | `tag.sh` | Manage semantic tags on markdown files. Subcommands: `add`, `remove`, `swap`, `find`. | `tag.sh add <file> '#tag'` |
 | `find-sessions.sh` | Find sessions by date, topic, tag, or date range. | `find-sessions.sh recent --files` |
-| `session.sh` | Create session directories. | `session.sh init <path>` |
+| `session.sh` | Session lifecycle: activate, phase tracking, deactivate, restart, context scans. | `session.sh activate <path> <skill>` |
+| `lib.sh` | Shared utilities for hooks: fleet notification, tmux guards, JSON helpers. | Sourced by hooks, not invoked directly. |
 | `research.sh` | Gemini Deep Research API wrapper. Polls until complete, writes report. | `research.sh <output> <<'EOF'` |
 | `write.sh` | Copy stdin to system clipboard. Used by `/dehydrate`. | `write.sh <<'EOF'` |
 | `glob.sh` | Symlink-aware file globbing. Fallback when Glob tool can't traverse symlinks. | `glob.sh '**/*.ts' sessions/` |
 | `escape-tags.sh` | Retroactive backtick escaping for bare tag references in markdown. | `escape-tags.sh <file>` |
-| `setup.sh` | One-time project setup. Symlinks engine dirs, creates session dir on GDrive. | See engine README. |
+| `engine.sh` | One-time project setup. Symlinks engine dirs, creates session dir on GDrive. | See engine README. |
 
 ## find-sessions.sh
 

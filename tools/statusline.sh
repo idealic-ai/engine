@@ -18,7 +18,7 @@
 #     CONTEXT_GUARDIAN.md — Context usage normalization, threshold display
 #     SESSION_LIFECYCLE.md — Session state display, skill/phase tracking
 #     FLEET.md — Fleet pane identity
-#   Invariants: (~/.claude/standards/INVARIANTS.md)
+#   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet-aware display
 
 # Don't use set -e, we want to handle errors gracefully

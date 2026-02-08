@@ -183,7 +183,7 @@ jq '.lifecycle = "completed" | .skill = "implement"' "$TEST_SESSION/.state.json"
 
 OUT=$(run_hook "1")
 assert_not_empty "$OUT" "Completed session → produces output"
-assert_contains 'SESSION GATE' "$OUT" "Message contains SESSION GATE"
+assert_contains '§CMD_REQUIRE_ACTIVE_SESSION' "$OUT" "Message contains §CMD_REQUIRE_ACTIVE_SESSION"
 assert_contains 'completed' "$OUT" "Message mentions completed"
 assert_contains 'implement' "$OUT" "Message mentions the skill"
 assert_contains 'hookSpecificOutput' "$OUT" "Output is valid hook response"
@@ -199,7 +199,7 @@ export CLAUDE_SUPERVISOR_PID=99999999
 
 OUT=$(run_hook "1")
 assert_not_empty "$OUT" "No session → produces output"
-assert_contains 'SESSION GATE' "$OUT" "Message contains SESSION GATE"
+assert_contains '§CMD_REQUIRE_ACTIVE_SESSION' "$OUT" "Message contains §CMD_REQUIRE_ACTIVE_SESSION"
 assert_contains 'No active session' "$OUT" "Message says no active session"
 assert_contains 'Boot sequence' "$OUT" "Message includes boot sequence"
 assert_contains 'hookSpecificOutput' "$OUT" "Output is valid hook response"

@@ -2,14 +2,14 @@
 name: refine-docs
 description: "Refines existing documentation for clarity, accuracy, and structure. Triggers: \"restructure the docs\", \"consolidate documentation\", \"improve doc readability\", \"fix stale documentation\", \"clean up docs\"."
 version: 2.0
+tier: utility
 ---
 
 Refines existing documentation for clarity, accuracy, and structure.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,13 +17,27 @@ Refines existing documentation for clarity, accuracy, and structure.
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
 # Document Improvement Session Protocol
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases. The engine's artifacts live in the session directory as reviewable files, not in transient tool state. Use THIS protocol's phases, not the IDE's.
+
+### Phases (for §CMD_PARSE_PARAMETERS)
+*Include this array in the `phases` field when calling `session.sh activate`:*
+```json
+[
+  {"major": 1, "minor": 0, "name": "Setup"},
+  {"major": 2, "minor": 0, "name": "Interrogation"},
+  {"major": 3, "minor": 0, "name": "Drafting"},
+  {"major": 3, "minor": 1, "name": "Agent Handoff"},
+  {"major": 4, "minor": 0, "name": "Synthesis"}
+]
+```
+*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
+
+---
 
 ## 1. Analysis & Initialization (Setup)
 
@@ -43,9 +57,9 @@ Refines existing documentation for clarity, accuracy, and structure.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project structure and file map)
-    *   `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE_LOG.md` (Template for continuous surgery logging)
-    *   `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE.md` (Template for final session debrief/report)
-    *   `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE_PLAN.md` (Template for technical execution planning)
+    *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md` (Template for continuous surgery logging)
+    *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md` (Template for final session debrief/report)
+    *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_PLAN.md` (Template for technical execution planning)
 
 3.  **Context**: What is the improvement goal? (e.g., "Merge duplicate Playback concepts," "Verify Code vs Docs").
 
@@ -56,7 +70,7 @@ Refines existing documentation for clarity, accuracy, and structure.
 
 6.  **Load Targets**: Read the specific documentation files (and optionally code files) provided by the user.
 
-7.  **Initialize Log**: Execute `§CMD_INIT_OR_RESUME_LOG_SESSION` (Template: `DOC_UPDATE_LOG.md`, Dest: `DOC_IMPROVEMENT_LOG.md`).
+7.  **Initialize Log**: Execute `§CMD_INIT_OR_RESUME_LOG_SESSION` (Template: `DOCUMENTATION_LOG.md`, Dest: `DOC_IMPROVEMENT_LOG.md`).
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
@@ -162,10 +176,10 @@ Execute `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to `DOC_IMPROVEMENT_LOG.md`.
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 3: Drafting.
-> 2. I will `§CMD_GENERATE_PLAN_FROM_TEMPLATE` (Template: `DOC_UPDATE.md`, Dest: `DOC_UPDATE_PLAN.md`) to create the improvement plan.
+> 2. I will `§CMD_GENERATE_PLAN_FROM_TEMPLATE` (Template: `DOCUMENTATION.md`, Dest: `DOCUMENTATION_PLAN.md`) to create the improvement plan.
 > 3. I will `§CMD_WAIT_FOR_USER_CONFIRMATION` before proceeding.
 
-1.  **Clone Template (IMPERATIVE)**: Execute `§CMD_GENERATE_PLAN_FROM_TEMPLATE` (Template: `DOC_UPDATE.md`, Dest: `DOC_UPDATE_PLAN.md`).
+1.  **Clone Template (IMPERATIVE)**: Execute `§CMD_GENERATE_PLAN_FROM_TEMPLATE` (Template: `DOCUMENTATION.md`, Dest: `DOCUMENTATION_PLAN.md`).
 2.  **Fill Template**: Use `search_replace` to populate the *existing* headers.
     *   **CRITICAL**: Do NOT overwrite the whole file. Fill in the blanks.
 3.  **Refine**:
@@ -182,7 +196,7 @@ Execute `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to `DOC_IMPROVEMENT_LOG.md`.
 ### §CMD_VERIFY_PHASE_EXIT — Phase 3
 **Output this block in chat with every blank filled:**
 > **Phase 3 proof:**
-> - DOC_UPDATE_PLAN.md written: `________`
+> - DOCUMENTATION_PLAN.md written: `________`
 > - Rich reasoning used: `________`
 > - Deprecation justifications: `________`
 > - Changes backed by evidence: `________`
@@ -190,7 +204,7 @@ Execute `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to `DOC_IMPROVEMENT_LOG.md`.
 > - User approved: `________`
 
 ### Phase Transition
-Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/standards/commands/CMD_PARALLEL_HANDOFF.md`):
+Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/directives/commands/CMD_PARALLEL_HANDOFF.md`):
 1.  **Analyze**: Parse the plan's `**Depends**:` and `**Files**:` fields to derive parallel chunks.
 2.  **Visualize**: Present the chunk breakdown with non-intersection proof.
 3.  **Menu**: Present the richer handoff menu via `AskUserQuestion`.
@@ -203,7 +217,7 @@ Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/standards/commands/CMD_PARALLE
 
 ---
 
-## 3b. Agent Handoff (Opt-In)
+## 3.1. Agent Handoff (Opt-In)
 *Only if user selected an agent option in Phase 3 transition.*
 
 **Single agent** (no parallel chunks or user chose "1 agent"):
@@ -211,19 +225,19 @@ Execute `§CMD_HAND_OFF_TO_AGENT` with:
 *   `agentName`: `"writer"`
 *   `parentPromptFile`: `~/.claude/skills/refine-docs/SKILL.md`
 *   `startAtPhase`: `"Phase 4: Output"`
-*   `planOrDirective`: `[sessionDir]/DOC_UPDATE_PLAN.md`
+*   `planOrDirective`: `[sessionDir]/DOCUMENTATION_PLAN.md`
 *   `logFile`: `DOC_IMPROVEMENT_LOG.md`
-*   `debriefTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE.md`
-*   `logTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE_LOG.md`
+*   `debriefTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md`
+*   `logTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md`
 *   `taskSummary`: `"Execute the documentation improvement plan: [brief description from taskSummary]"`
 
 **Multiple agents** (user chose "[N] agents" or "Custom agent count"):
 Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 *   `agentName`: `"writer"`
-*   `planFile`: `[sessionDir]/DOC_UPDATE_PLAN.md`
+*   `planFile`: `[sessionDir]/DOCUMENTATION_PLAN.md`
 *   `logFile`: `DOC_IMPROVEMENT_LOG.md`
-*   `debriefTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE.md`
-*   `logTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOC_UPDATE_LOG.md`
+*   `debriefTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md`
+*   `logTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md`
 *   `taskSummary`: `"Execute the documentation improvement plan: [brief description from taskSummary]"`
 
 **If "Continue inline"**: Proceed to Phase 4 as normal.
@@ -237,8 +251,9 @@ Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 4: Output.
-> 2. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 3. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
+> 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
+> 4. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
 
 **STOP**: Do not proceed until you output the block above first.
 
@@ -246,10 +261,12 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 [!!!] CRITICAL: Execute these steps IN ORDER.
 
-**Step 1 (THE DELIVERABLE)**: Confirm `DOC_UPDATE_PLAN.md` exists in the session directory and is complete.
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
+
+**Step 1 (THE DELIVERABLE)**: Confirm `DOCUMENTATION_PLAN.md` exists in the session directory and is complete.
 
 **Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat:
-*   `sessions/[...]/DOC_UPDATE_PLAN.md`
+*   `sessions/[...]/DOCUMENTATION_PLAN.md`
 *   `sessions/[...]/DOC_IMPROVEMENT_LOG.md`
 *   `sessions/[...]/DETAILS.md`
 
@@ -258,14 +275,28 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 ### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
 > **Phase 4 proof:**
-> - DOC_UPDATE_PLAN.md exists: `________` (real file path)
+> - DOCUMENTATION_PLAN.md exists: `________` (real file path)
 > - DOC_IMPROVEMENT_LOG.md entries: `________`
 > - Artifacts listed: `________`
 > - Session summary: `________`
 
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
-**Post-Synthesis**: If the user continues talking, obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
+**Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+
+### Next Skill Options
+*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
+
+> "Doc refinement complete. What's next? (Type a /skill name to invoke it, or describe new work to scope it)"
+
+| Option | Label | Description |
+|--------|-------|-------------|
+| 1 | `/refine-docs` (Recommended) | Continue refining more documentation |
+| 2 | `/review` | Review the refined docs for quality |
+| 3 | `/document` | Update documentation to match code changes |
+| 4 | `/analyze` | Analyze docs for structural issues |
+
+**Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 
 ---
 

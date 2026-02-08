@@ -165,8 +165,9 @@ else
   exit 1
 fi
 
-# Clear loading flag so tests run normally
-jq 'del(.loading)' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+# Clear loading flag and set logTemplate so heartbeat enforcement runs
+# (without logTemplate, hook exits early at line 130 with allow — no counting)
+jq 'del(.loading) | .logTemplate = "TESTING_LOG.md"' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 echo ""
@@ -218,7 +219,7 @@ echo ""
 echo "--- 4. Read whitelist ---"
 
 set_counter 3
-OUT=$(run_hook "Read" '{"file_path":"'"$FAKE_HOME"'/.claude/standards/COMMANDS.md"}')
+OUT=$(run_hook "Read" '{"file_path":"'"$FAKE_HOME"'/.claude/directives/COMMANDS.md"}')
 assert_contains '"allow"' "$OUT" "Read ~/.claude/* allowed"
 
 COUNTER=$(get_counter)
@@ -262,7 +263,7 @@ echo "--- 7. Warn threshold ---"
 set_counter 2
 OUT=$(run_hook "Grep" '{"pattern":"foo","path":"/tmp"}')
 assert_contains '"allow"' "$OUT" "At warn threshold → still allowed"
-assert_contains 'LOGGING REMINDER' "$OUT" "Warn message present"
+assert_contains '§CMD_LOG_BETWEEN_TOOL_USES' "$OUT" "Warn message present"
 
 echo ""
 
@@ -273,7 +274,7 @@ echo "--- 8. Block threshold ---"
 set_counter 9
 OUT=$(run_hook "Grep" '{"pattern":"foo","path":"/tmp"}')
 assert_contains '"deny"' "$OUT" "At block threshold → denied"
-assert_contains 'LOGGING HEARTBEAT VIOLATION' "$OUT" "Block message present"
+assert_contains '§CMD_LOG_BETWEEN_TOOL_USES' "$OUT" "Block message present"
 
 echo ""
 

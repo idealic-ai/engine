@@ -193,10 +193,10 @@ echo ""
 # --- 6-10. Read whitelist ---
 echo "--- 6-10. Read whitelist ---"
 
-OUT=$(run_hook "Read" '{"file_path":"'"$FAKE_HOME"'/.claude/standards/COMMANDS.md"}')
+OUT=$(run_hook "Read" '{"file_path":"'"$FAKE_HOME"'/.claude/directives/COMMANDS.md"}')
 assert_contains '"allow"' "$OUT" "Read: ~/.claude/ path whitelisted"
 
-OUT=$(run_hook "Read" '{"file_path":"/Users/invizko/Projects/finch/.claude/standards/INVARIANTS.md"}')
+OUT=$(run_hook "Read" '{"file_path":"/Users/invizko/Projects/finch/.claude/directives/INVARIANTS.md"}')
 assert_contains '"allow"' "$OUT" "Read: .claude/ project path whitelisted"
 
 OUT=$(run_hook "Read" '{"file_path":"/Users/invizko/Projects/finch/CLAUDE.md"}')
@@ -261,7 +261,7 @@ export CLAUDE_SUPERVISOR_PID=99999999
 
 OUT=$(run_hook "Write" '{"file_path":"/tmp/x","content":"foo"}')
 assert_contains '"deny"' "$OUT" "No session → denied"
-assert_contains 'SESSION GATE' "$OUT" "Deny message says SESSION GATE"
+assert_contains '§CMD_REQUIRE_ACTIVE_SESSION' "$OUT" "Deny message says §CMD_REQUIRE_ACTIVE_SESSION"
 
 echo ""
 

@@ -23,6 +23,7 @@ set -uo pipefail
 FLEET_SH="$HOME/.claude/scripts/fleet.sh"
 SESSION_SH="$HOME/.claude/scripts/session.sh"
 LIB_SH="$HOME/.claude/scripts/lib.sh"
+HOOK_SH="$HOME/.claude/hooks/pane-focus-style.sh"
 
 PASS=0
 FAIL=0
@@ -59,7 +60,8 @@ cleanup() {
            "${CR_SOCKET:-}" \
            "${NE_EXT_SOCKET:-}" "${NC_SOCKET:-}" "${RT_SOCKET:-}" \
            "${NV_SOCKET:-}" "${W5_SOCKET:-}" "${GF_SOCKET:-}" \
-           "${SS_SOCKET:-}"; do
+           "${SS_SOCKET:-}" \
+           "${HK_SOCKET:-}" "${SE_SOCKET:-}" "${AC_SOCKET:-}"; do
     [[ -n "$s" ]] && tmux -L "$s" kill-server 2>/dev/null || true
   done
   # Kill any spawned sleep process (used by FC-01)
@@ -966,6 +968,267 @@ SS04_STYLE=$(tmux -L "$SS_SOCKET" display -p -t "$SS_PANE1" '#{window-style}' 2>
 assert_contains "bg=#3d2020" "$SS04_STYLE" "SS-04: State change applies visual update (error color)"
 
 tmux -L "$SS_SOCKET" kill-server 2>/dev/null || true
+
+echo ""
+
+# =============================================
+# Category: Hook Direct Invocation (HK-01..HK-08)
+# =============================================
+echo "--- Hook Direct Invocation ---"
+
+# Create a fleet socket for hook tests (direct invocation of pane-focus-style.sh)
+HK_SOCKET="fleet-hk$$"
+tmux -L "$HK_SOCKET" new-session -d -s hk-session -n hk-window
+tmux -L "$HK_SOCKET" split-window -t hk-session:hk-window
+HK_PANE0=$(tmux -L "$HK_SOCKET" list-panes -t hk-session:hk-window -F '#{pane_id}' 2>/dev/null | head -1)
+HK_PANE1=$(tmux -L "$HK_SOCKET" list-panes -t hk-session:hk-window -F '#{pane_id}' 2>/dev/null | tail -1)
+tmux -L "$HK_SOCKET" set-option -p -t "$HK_PANE0" @pane_label "HK1"
+tmux -L "$HK_SOCKET" set-option -p -t "$HK_PANE1" @pane_label "HK2"
+
+# Helper: invoke hook directly with controlled TMUX env
+run_hook() {
+  local socket="$1"
+  local socket_path
+  socket_path=$(tmux -L "$socket" display-message -p '#{socket_path}' 2>/dev/null || echo "/tmp/tmux-$(id -u)/$socket")
+  TMUX="${socket_path},$(tmux -L "$socket" display-message -p '#{pid}' 2>/dev/null || echo '0'),0" \
+    bash "$ORIGINAL_HOME/.claude/hooks/pane-focus-style.sh" 2>/dev/null
+}
+
+# HK-01: Hook exits immediately when @suppress_focus_hook=1
+tmux -L "$HK_SOCKET" set -g @suppress_focus_hook "1" 2>/dev/null
+tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" 2>/dev/null
+tmux -L "$HK_SOCKET" set -g @last_focused_pane "$HK_PANE1" 2>/dev/null
+tmux -L "$HK_SOCKET" set-option -p -t "$HK_PANE1" @pane_notify "error" 2>/dev/null
+# Set pane1 to a known style — if hook fires despite suppress, it would change it
+tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE1" -P "bg=purple" 2>/dev/null
+tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" 2>/dev/null
+run_hook "$HK_SOCKET"
+HK01_STYLE=$(tmux -L "$HK_SOCKET" display -p -t "$HK_PANE1" '#{window-style}' 2>/dev/null || echo "")
+assert_eq "bg=purple" "$HK01_STYLE" "HK-01: Hook exits when @suppress_focus_hook=1 (style unchanged)"
+# Clean up suppress
+tmux -L "$HK_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
+
+# HK-02 through HK-06: Hook tints LAST pane with correct color for each status
+# Setup: focus pane0, pane1 is LAST. Invoke hook after setting @last_focused_pane=pane1.
+# Note: no declare -A (macOS bash 3.x compat)
+hk_expected_color() {
+  case "$1" in
+    error)     echo "bg=#3d2020" ;;
+    unchecked) echo "bg=#081a10" ;;
+    working)   echo "bg=#080c10" ;;
+    checked)   echo "bg=#0a1005" ;;
+    done)      echo "bg=#0a0a0a" ;;
+  esac
+}
+HK_NUM=2
+for hk_status in error unchecked working checked done; do
+  # Reset: clear styles, set up LAST/CURR
+  tmux -L "$HK_SOCKET" set -g @focus_hook_running "0" 2>/dev/null
+  tmux -L "$HK_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
+  tmux -L "$HK_SOCKET" set -g @last_focused_pane "$HK_PANE1" 2>/dev/null
+  tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" 2>/dev/null
+  tmux -L "$HK_SOCKET" set-option -p -t "$HK_PANE1" @pane_notify "$hk_status" 2>/dev/null
+  # Clear pane1 style so the hook must apply it fresh
+  tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE1" -P "default" 2>/dev/null
+  tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" 2>/dev/null
+  run_hook "$HK_SOCKET"
+  sleep 0.1
+  HK_RESULT=$(tmux -L "$HK_SOCKET" display -p -t "$HK_PANE1" '#{window-style}' 2>/dev/null || echo "")
+  HK_EXPECTED=$(hk_expected_color "$hk_status")
+  assert_contains "$HK_EXPECTED" "$HK_RESULT" "HK-0${HK_NUM}: Hook tints LAST pane with $hk_status color ($HK_EXPECTED)"
+  HK_NUM=$((HK_NUM + 1))
+done
+
+# HK-07: Hook sets CURR pane to black
+tmux -L "$HK_SOCKET" set -g @focus_hook_running "0" 2>/dev/null
+tmux -L "$HK_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
+tmux -L "$HK_SOCKET" set -g @last_focused_pane "$HK_PANE1" 2>/dev/null
+tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" 2>/dev/null
+# Set curr pane to non-black so we can see the hook change it
+tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" -P "bg=red" 2>/dev/null
+tmux -L "$HK_SOCKET" set-option -p -t "$HK_PANE1" @pane_notify "done" 2>/dev/null
+run_hook "$HK_SOCKET"
+sleep 0.1
+HK07_STYLE=$(tmux -L "$HK_SOCKET" display -p -t "$HK_PANE0" '#{window-style}' 2>/dev/null || echo "")
+assert_contains "bg=black" "$HK07_STYLE" "HK-07: Hook sets CURR pane to black"
+
+# HK-08: Hook skips tint when LAST pane style already matches target
+tmux -L "$HK_SOCKET" set -g @focus_hook_running "0" 2>/dev/null
+tmux -L "$HK_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
+tmux -L "$HK_SOCKET" set -g @last_focused_pane "$HK_PANE1" 2>/dev/null
+tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" 2>/dev/null
+tmux -L "$HK_SOCKET" set-option -p -t "$HK_PANE1" @pane_notify "error" 2>/dev/null
+# Pre-set pane1 style to exact target tint — hook should skip it
+tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE1" -P "bg=#3d2020" 2>/dev/null
+tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" 2>/dev/null
+run_hook "$HK_SOCKET"
+sleep 0.1
+# After hook, suppress should be 0 (never set because tint was skipped)
+HK08_SUPPRESS=$(tmux -L "$HK_SOCKET" show -gqv @suppress_focus_hook 2>/dev/null || echo "")
+assert_eq "0" "$HK08_SUPPRESS" "HK-08: Hook skips tint when LAST style already matches (suppress stayed 0)"
+
+tmux -L "$HK_SOCKET" kill-server 2>/dev/null || true
+
+echo ""
+
+# =============================================
+# Category: Suppress Edge Cases (SE-01..SE-04)
+# =============================================
+echo "--- Suppress Edge Cases ---"
+
+SE_SOCKET="fleet-se$$"
+tmux -L "$SE_SOCKET" new-session -d -s se-session -n se-window
+tmux -L "$SE_SOCKET" split-window -t se-session:se-window
+SE_PANE0=$(tmux -L "$SE_SOCKET" list-panes -t se-session:se-window -F '#{pane_id}' 2>/dev/null | head -1)
+SE_PANE1=$(tmux -L "$SE_SOCKET" list-panes -t se-session:se-window -F '#{pane_id}' 2>/dev/null | tail -1)
+tmux -L "$SE_SOCKET" set-option -p -t "$SE_PANE0" @pane_label "SE1"
+tmux -L "$SE_SOCKET" set-option -p -t "$SE_PANE1" @pane_label "SE2"
+
+# SE-01: Suppress flag is 0 after all 5 state transitions
+tmux -L "$SE_SOCKET" select-pane -t "$SE_PANE0" 2>/dev/null
+setup_tmux_env "$SE_SOCKET" "$SE_PANE1"
+SE01_ALL_CLEAR=true
+for se_state in working error unchecked checked done; do
+  "$FLEET_SH" notify "$se_state" 2>/dev/null || true
+  SE01_FLAG=$(tmux -L "$SE_SOCKET" show -gqv @suppress_focus_hook 2>/dev/null || echo "")
+  if [[ "$SE01_FLAG" != "0" ]]; then
+    SE01_ALL_CLEAR=false
+    break
+  fi
+done
+assert_eq "true" "$SE01_ALL_CLEAR" "SE-01: Suppress flag is 0 after all 5 state transitions"
+
+# SE-02: Concurrent notify calls both complete with suppress=0
+# Reset pane states
+tmux -L "$SE_SOCKET" set-option -p -t "$SE_PANE0" @pane_notify "done" 2>/dev/null
+tmux -L "$SE_SOCKET" set-option -p -t "$SE_PANE1" @pane_notify "done" 2>/dev/null
+tmux -L "$SE_SOCKET" select-pane -t "$SE_PANE0" 2>/dev/null  # focus pane0
+# Fire concurrent notifications to pane0 and pane1
+SE_ERR_DIR=$(mktemp -d)
+(
+  setup_tmux_env "$SE_SOCKET" "$SE_PANE1"
+  "$FLEET_SH" notify error 2>"$SE_ERR_DIR/err-1.txt" || true
+) &
+SE_PID1=$!
+(
+  # Need pane0 unfocused for style to apply — but pane0 IS focused.
+  # We'll notify from pane0 (focused path) which skips style but tests flag behavior
+  setup_tmux_env "$SE_SOCKET" "$SE_PANE0"
+  "$FLEET_SH" notify working 2>"$SE_ERR_DIR/err-0.txt" || true
+) &
+SE_PID2=$!
+wait "$SE_PID1" 2>/dev/null || true
+wait "$SE_PID2" 2>/dev/null || true
+sleep 0.2
+SE02_FLAG=$(tmux -L "$SE_SOCKET" show -gqv @suppress_focus_hook 2>/dev/null || echo "")
+SE02_P1=$(tmux -L "$SE_SOCKET" show-option -p -t "$SE_PANE1" -v @pane_notify 2>/dev/null || echo "")
+assert_eq "0" "$SE02_FLAG" "SE-02a: Suppress=0 after concurrent notify"
+assert_eq "error" "$SE02_P1" "SE-02b: Pane1 state correct after concurrent notify"
+rm -rf "$SE_ERR_DIR"
+
+# SE-03: Suppress flag visible during compound (observability test)
+# We can't directly observe mid-compound state, but we can verify the flag is SET
+# by checking it right after the compound starts. Instead, verify a simpler property:
+# set suppress=1, check it's 1, clear it.
+tmux -L "$SE_SOCKET" set -g @suppress_focus_hook "1" 2>/dev/null
+SE03_SET=$(tmux -L "$SE_SOCKET" show -gqv @suppress_focus_hook 2>/dev/null || echo "")
+tmux -L "$SE_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
+SE03_CLEAR=$(tmux -L "$SE_SOCKET" show -gqv @suppress_focus_hook 2>/dev/null || echo "")
+assert_eq "1" "$SE03_SET" "SE-03a: Suppress flag is immediately visible when set"
+assert_eq "0" "$SE03_CLEAR" "SE-03b: Suppress flag is immediately visible when cleared"
+
+# SE-04: Notify from focused pane does not touch suppress flag
+tmux -L "$SE_SOCKET" select-pane -t "$SE_PANE0" 2>/dev/null
+tmux -L "$SE_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
+tmux -L "$SE_SOCKET" set-option -p -t "$SE_PANE0" @pane_notify "done" 2>/dev/null
+setup_tmux_env "$SE_SOCKET" "$SE_PANE0"
+"$FLEET_SH" notify error 2>/dev/null || true
+SE04_FLAG=$(tmux -L "$SE_SOCKET" show -gqv @suppress_focus_hook 2>/dev/null || echo "")
+assert_eq "0" "$SE04_FLAG" "SE-04: Focused pane notify does not touch suppress flag"
+
+tmux -L "$SE_SOCKET" kill-server 2>/dev/null || true
+
+echo ""
+
+# =============================================
+# Category: Additional Coverage (AC-01..AC-04)
+# =============================================
+echo "--- Additional Coverage ---"
+
+AC_SOCKET="fleet-ac$$"
+tmux -L "$AC_SOCKET" new-session -d -s ac-session -n ac-window
+tmux -L "$AC_SOCKET" split-window -t ac-session:ac-window
+AC_PANE0=$(tmux -L "$AC_SOCKET" list-panes -t ac-session:ac-window -F '#{pane_id}' 2>/dev/null | head -1)
+AC_PANE1=$(tmux -L "$AC_SOCKET" list-panes -t ac-session:ac-window -F '#{pane_id}' 2>/dev/null | tail -1)
+tmux -L "$AC_SOCKET" set-option -p -t "$AC_PANE0" @pane_label "AC1"
+tmux -L "$AC_SOCKET" set-option -p -t "$AC_PANE1" @pane_label "AC2"
+
+# AC-01: Hook guard re-entry prevention
+tmux -L "$AC_SOCKET" set -g @focus_hook_running "1" 2>/dev/null
+tmux -L "$AC_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
+tmux -L "$AC_SOCKET" set -g @last_focused_pane "$AC_PANE1" 2>/dev/null
+tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" 2>/dev/null
+tmux -L "$AC_SOCKET" set-option -p -t "$AC_PANE1" @pane_notify "error" 2>/dev/null
+tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE1" -P "bg=cyan" 2>/dev/null
+tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" 2>/dev/null
+# Invoke hook directly — should exit due to guard
+AC_SP=$(tmux -L "$AC_SOCKET" display-message -p '#{socket_path}' 2>/dev/null || echo "/tmp/tmux-$(id -u)/$AC_SOCKET")
+TMUX="${AC_SP},$(tmux -L "$AC_SOCKET" display-message -p '#{pid}' 2>/dev/null || echo '0'),0" \
+  bash "$ORIGINAL_HOME/.claude/hooks/pane-focus-style.sh" 2>/dev/null || true
+AC01_STYLE=$(tmux -L "$AC_SOCKET" display -p -t "$AC_PANE1" '#{window-style}' 2>/dev/null || echo "")
+assert_eq "bg=cyan" "$AC01_STYLE" "AC-01: Hook guard prevents re-entry (style unchanged)"
+tmux -L "$AC_SOCKET" set -g @focus_hook_running "0" 2>/dev/null
+
+# AC-02: Hook handles missing @last_focused_pane gracefully
+tmux -L "$AC_SOCKET" set -g @focus_hook_running "0" 2>/dev/null
+tmux -L "$AC_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
+# Unset @last_focused_pane by setting it to empty
+tmux -L "$AC_SOCKET" set -g @last_focused_pane "" 2>/dev/null
+tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" 2>/dev/null
+tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" -P "bg=yellow" 2>/dev/null
+# Invoke hook — should skip LAST tinting (no LAST), set CURR to black
+TMUX="${AC_SP},$(tmux -L "$AC_SOCKET" display-message -p '#{pid}' 2>/dev/null || echo '0'),0" \
+  bash "$ORIGINAL_HOME/.claude/hooks/pane-focus-style.sh" 2>/dev/null || true
+sleep 0.1
+AC02_CURR=$(tmux -L "$AC_SOCKET" display -p -t "$AC_PANE0" '#{window-style}' 2>/dev/null || echo "")
+assert_contains "bg=black" "$AC02_CURR" "AC-02: Hook handles missing @last_focused_pane (CURR set to black)"
+
+# AC-03: Fleet.sh notify applies correct bg color for all 5 states on unfocused pane
+tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" 2>/dev/null  # focus pane0
+setup_tmux_env "$AC_SOCKET" "$AC_PANE1"
+# Note: no declare -A (macOS bash 3.x compat) — reuse hk_expected_color helper
+AC03_ALL_CORRECT=true
+for ac_state in error unchecked working checked done; do
+  # Reset pane state to force a new state each time
+  tmux -L "$AC_SOCKET" set-option -p -t "$AC_PANE1" @pane_notify "RESET" 2>/dev/null
+  "$FLEET_SH" notify "$ac_state" 2>/dev/null || true
+  AC03_STYLE=$(tmux -L "$AC_SOCKET" display -p -t "$AC_PANE1" '#{window-style}' 2>/dev/null || echo "")
+  AC03_EXPECTED=$(hk_expected_color "$ac_state")
+  if ! echo "$AC03_STYLE" | grep -q "$AC03_EXPECTED"; then
+    AC03_ALL_CORRECT=false
+    echo -e "${RED}FAIL${NC}: AC-03: fleet.sh $ac_state should set $AC03_EXPECTED, got $AC03_STYLE"
+    FAIL=$((FAIL + 1))
+  fi
+done
+if [[ "$AC03_ALL_CORRECT" == "true" ]]; then
+  echo -e "${GREEN}PASS${NC}: AC-03: Fleet.sh notify applies correct bg color for all 5 states"
+  PASS=$((PASS + 1))
+fi
+
+# AC-04: Hook with CURR==LAST (same pane re-focused) is a no-op for LAST tinting
+tmux -L "$AC_SOCKET" set -g @focus_hook_running "0" 2>/dev/null
+tmux -L "$AC_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
+tmux -L "$AC_SOCKET" set -g @last_focused_pane "$AC_PANE0" 2>/dev/null
+tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" 2>/dev/null
+tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" -P "bg=orange" 2>/dev/null
+TMUX="${AC_SP},$(tmux -L "$AC_SOCKET" display-message -p '#{pid}' 2>/dev/null || echo '0'),0" \
+  bash "$ORIGINAL_HOME/.claude/hooks/pane-focus-style.sh" 2>/dev/null || true
+sleep 0.1
+AC04_STYLE=$(tmux -L "$AC_SOCKET" display -p -t "$AC_PANE0" '#{window-style}' 2>/dev/null || echo "")
+# CURR==LAST means the LAST block is skipped (if LAST != CURR guard), and CURR gets set to black
+assert_contains "bg=black" "$AC04_STYLE" "AC-04: Hook with CURR==LAST sets CURR to black (LAST tinting skipped)"
+
+tmux -L "$AC_SOCKET" kill-server 2>/dev/null || true
 
 echo ""
 

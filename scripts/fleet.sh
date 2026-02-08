@@ -16,7 +16,7 @@
 #     FLEET.md — Fleet architecture, commands, config format
 #     SESSION_LIFECYCLE.md — Fleet session discovery and binding
 #     DAEMON.md — Worker coordination
-#   Invariants: (~/.claude/standards/INVARIANTS.md)
+#   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Core requirement for fleet
 #     ¶INV_CLAIM_BEFORE_WORK — Worker coordination pattern
 
@@ -76,24 +76,21 @@ fleet_tmux() {
 CURRENT_SOCKET=$(get_current_socket)
 TMUX_CMD="tmux -L $CURRENT_SOCKET"
 
-# Derive fleet base from tools symlink
-# Tools are at: .../Shared drives/finch-os/engine/tools
-# Fleet goes to:  .../Shared drives/finch-os/{user}/assets/fleet
-# Note: ~/.claude/scripts may be a directory of individual symlinks, not a symlink itself
+# Derive fleet base from user-info.sh data-root
+# Fleet configs live at: {data-root}/{user}/assets/fleet
+# data-root resolves correctly in both local and remote engine modes
 get_fleet_base() {
-    local tools_target
-    tools_target=$(readlink "$HOME/.claude/tools" 2>/dev/null || echo "")
-    if [[ -z "$tools_target" ]]; then
+    local data_root user_id
+    data_root=$("$HOME/.claude/scripts/user-info.sh" data-root 2>/dev/null || echo "")
+    user_id=$("$HOME/.claude/scripts/user-info.sh" username 2>/dev/null || echo "unknown")
+    if [[ -z "$data_root" || "$user_id" == "unknown" ]]; then
         echo ""
         return
     fi
-    # Replace /engine/tools with /{user}/assets/fleet
-    local user_id
-    user_id=$("$HOME/.claude/scripts/user-info.sh" username 2>/dev/null || echo "unknown")
-    echo "$tools_target" | sed -E "s|/engine/tools$|/${user_id}/assets/fleet|"
+    echo "$data_root/$user_id/assets/fleet"
 }
 
-# Get current user from Google Drive symlink
+# Get current user from user-info.sh
 get_user_id() {
     "$HOME/.claude/scripts/user-info.sh" username 2>/dev/null || echo "unknown"
 }
@@ -138,10 +135,10 @@ cmd_start() {
     local config_file
     local socket
 
-    # Run setup.sh to ensure engine is up to date before starting fleet
+    # Run engine.sh to ensure engine is up to date before starting fleet
     echo "Checking engine setup..."
-    if ! "$HOME/.claude/scripts/setup.sh"; then
-      echo "ERROR: setup.sh failed. Please run from a project directory."
+    if ! "$HOME/.claude/scripts/engine.sh"; then
+      echo "ERROR: engine.sh failed. Please run from a project directory."
       exit 1
     fi
 
@@ -472,9 +469,9 @@ cmd_notify() {
         local color
         case "$state" in
             error)     color="#3d2020" ;;
-            unchecked) color="#251a10" ;;
+            unchecked) color="#081a10" ;;
             working)   color="#080c10" ;;
-            checked)   color="#100a05" ;;
+            checked)   color="#0a1005" ;;
             *)         color="#0a0a0a" ;;
         esac
 

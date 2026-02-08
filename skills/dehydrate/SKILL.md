@@ -2,6 +2,7 @@
 name: dehydrate
 description: "Captures and persists current session context for later restoration. Triggers: \"dehydrate this session\", \"serialize session state\", \"save session snapshot\", \"pause and resume later\"."
 version: 2.0
+tier: lightweight
 args: "[restart]"
 ---
 
@@ -28,7 +29,6 @@ Captures and persists current session context for later restoration.
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 

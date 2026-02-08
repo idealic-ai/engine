@@ -7,7 +7,7 @@
 
 *   **The Problem**: [Detailed summary of the issue — what was broken, who was affected, how it manifested]
 *   **The Outcome**: [Detailed summary of the result — what was fixed, what remains]
-*   **Diagnostic Mode**: [Test Failures / Behavior / Performance / Production]
+*   **Diagnostic Mode**: [Test Failures / Behavior / Performance / Custom]
 *   **Key Artifacts**:
     *   `src/path/to/fixed_file.ts` (Root cause fix)
     *   `src/path/to/test.ts` (Regression test)
@@ -34,6 +34,7 @@
 *   **The Reality**: ...
 *   **The Reason**: ...
 
+<!-- WALKTHROUGH RESULTS -->
 ## 4. Root Cause Analysis & Decisions
 *For each significant bug found, document the forensic trail.*
 
@@ -58,6 +59,7 @@
 *   **The Fix**: "The middleware was the bottleneck, not the database."
 *   **The Lesson**: "Always profile the full request lifecycle, not just the layer mentioned in the error."
 
+<!-- WALKTHROUGH RESULTS -->
 ## 6. The "Technical Debt" Ledger
 *What shortcuts did we take or discover during debugging?*
 
@@ -78,6 +80,7 @@
 *   **Coverage Gaps**: Where are we flying blind?
 *   **Improvements**: What was pruned, refactored, or hardened?
 
+<!-- WALKTHROUGH RESULTS -->
 ## 8. The "Parking Lot" (Unresolved)
 *Issues we couldn't resolve in the timebox.*
 
@@ -85,6 +88,7 @@
 *   **Status**: [Skipped / Stuck / Needs More Data]
 *   **Next Steps**: "Needs a dedicated Analysis Session / Performance Profiling / Production Logs."
 
+<!-- WALKTHROUGH RESULTS -->
 ## 9. "Btw, I also noticed..." (Side Discoveries)
 *Unrelated things found while investigating.*
 

@@ -2,14 +2,14 @@
 name: analyze
 description: "Thorough analysis of code, architecture, or topics — produces a structured research report. Supports goal-based modes: Explore (general research), Audit (risk-focused critique), Improve (actionable suggestions), Custom (user-defined lens). Triggers: \"analyze this code\", \"deep dive into\", \"research this topic\", \"investigate how X works\", \"audit this\", \"critique this\", \"suggest improvements\", \"find risks in\"."
 version: 3.0
+tier: protocol
 ---
 
 Thorough analysis of code, architecture, or topics — produces a structured research report.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/standards/COMMANDS.md`, `~/.claude/standards/INVARIANTS.md`, and `~/.claude/standards/TAGS.md`.
-2. LOAD PROJECT STANDARDS: Read `.claude/standards/INVARIANTS.md`.
-3. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-4. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
+3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 ### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
 **Output this block in chat with every blank filled:**
@@ -17,7 +17,6 @@ Thorough analysis of code, architecture, or topics — produces a structured res
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
-> - Project INVARIANTS.md: `________ or N/A`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
 
@@ -29,180 +28,33 @@ Thorough analysis of code, architecture, or topics — produces a structured res
 
 ## Mode Presets
 
-Analysis modes configure the agent's lens — role, research topics, calibration topics, and walk-through config. The mode is selected in Phase 1 Step 5b.
+Analysis modes configure the agent's lens — role, research topics, calibration topics, and walk-through config. The mode is selected in Phase 1 Step 5.1. Full mode definitions are in `modes/*.md` files.
 
-### Explore (General Research)
-*Default mode. Broad, curiosity-driven investigation.*
+| Mode | Description | When to Use |
+|------|-------------|-------------|
+| **Explore** | Broad, curiosity-driven investigation | Default — general research and understanding |
+| **Audit** | Adversarial, risk-focused critique | Hunt for flaws, failure modes, hidden assumptions |
+| **Improve** | Constructive, actionable suggestions | Find concrete improvements with clear ROI |
+| **Custom** | Reads all 3 modes, synthesizes a hybrid | User provides framing, agent blends modes |
 
-**Role**: You are the **Deep Research Scientist**.
-**Goal**: To deeply understand, critique, and innovate upon the provided context.
-**Mindset**: Curious, Exhaustive, Skeptical, Connecting.
-
-**Research Topics** (Phase 3):
-- **Patterns**: How do components relate? Is there a hidden theme?
-- **Weaknesses**: What feels fragile? What assumptions are unspoken?
-- **Opportunities**: How could this be simpler? Faster? More elegant?
-- **Contradictions**: Does Doc A say X while Code B does Y?
-
-**Calibration Topics** (Phase 4):
-- **Scope & boundaries** — what's included/excluded, depth expectations
-- **Data sources & accuracy** — reliability of code/docs/data, known stale areas
-- **Methodology** — analytical framework, comparison approach, evaluation criteria
-- **Prior work & baselines** — existing analyses, benchmarks, known results
-- **Gaps & unknowns** — what information is missing, what couldn't be determined
-- **Output format & audience** — who reads the report, detail level
-- **Assumptions** — what the agent assumed during research, validate with user
-- **Dependencies & access** — external systems, data sources, tools needed
-- **Time constraints** — exploration vs diminishing returns
-- **Success criteria** — what would make this analysis "done" and valuable
-
-**Walk-Through Config** (Phase 5b):
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "ANALYSIS.md is written. Walk through findings?"
-  debriefFile: "ANALYSIS.md"
-  itemSources:
-    - "## 3. Key Insights"
-    - "## 4. The \"Iceberg\" Risks"
-    - "## 5. Strategic Recommendations"
-  actionMenu:
-    - label: "Delegate to /implement"
-      tag: "#needs-implementation"
-      when: "Finding is an actionable code/config change"
-    - label: "Delegate to /research"
-      tag: "#needs-research"
-      when: "Finding needs deeper investigation"
-    - label: "Delegate to /brainstorm"
-      tag: "#needs-implementation"
-      when: "Finding needs exploration of approaches before implementation"
-    - label: "Delegate to /debug"
-      tag: "#needs-implementation"
-      when: "Finding reveals a bug or regression"
-```
-
-### Audit (Risk-Focused Critique)
-*Adversarial lens. Hunt for risks, flaws, and failure modes.*
-
-**Role**: You are the **Adversarial Security Auditor**.
-**Goal**: To find every risk, flaw, and hidden assumption that could cause failure.
-**Mindset**: Suspicious, Methodical, Worst-Case, Unforgiving.
-
-**Research Topics** (Phase 3):
-- **Attack surface** — What are the entry points? What can be abused?
-- **Failure modes** — What happens when things go wrong? Cascading failures?
-- **Hidden assumptions** — What does the code assume that isn't guaranteed?
-- **Edge cases** — Boundary conditions, empty states, concurrency, race conditions
-- **Dependency risks** — Third-party fragility, version rot, supply chain
-- **Data integrity** — Corruption paths, validation gaps, inconsistency windows
-- **Security gaps** — Auth bypasses, injection points, privilege escalation
-- **Performance cliffs** — What causes sudden degradation? Resource exhaustion?
-
-**Calibration Topics** (Phase 4):
-- **Threat model** — who are the adversaries, what's the blast radius
-- **Risk tolerance** — acceptable vs unacceptable failure modes
-- **Known vulnerabilities** — existing issues, past incidents, audit history
-- **Compliance requirements** — regulatory, contractual, or policy constraints
-- **Recovery capabilities** — backup, rollback, disaster recovery readiness
-- **Monitoring & alerting** — can failures be detected? How fast?
-- **Assumptions** — what the agent assumed during audit, validate with user
-- **Scope boundaries** — what's in/out of the audit perimeter
-- **Priority framework** — how to rank findings (severity × likelihood)
-- **Success criteria** — what constitutes a thorough audit
-
-**Walk-Through Config** (Phase 5b):
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Audit complete. Walk through risks?"
-  debriefFile: "ANALYSIS.md"
-  itemSources:
-    - "## 3. Key Insights"
-    - "## 4. The \"Iceberg\" Risks"
-    - "## 5. Strategic Recommendations"
-  actionMenu:
-    - label: "Fix immediately"
-      tag: "#needs-implementation"
-      when: "Risk is critical and has a clear fix"
-    - label: "Investigate impact"
-      tag: "#needs-research"
-      when: "Risk severity is uncertain and needs analysis"
-    - label: "Add test coverage"
-      tag: "#needs-implementation"
-      when: "Risk can be mitigated by better testing"
-    - label: "Accept risk"
-      tag: ""
-      when: "Risk is known and accepted — document and move on"
-```
-
-### Improve (Actionable Suggestions)
-*Constructive lens. Find concrete ways to make things better.*
-
-**Role**: You are the **Senior Engineering Consultant**.
-**Goal**: To produce actionable, prioritized improvement suggestions with clear ROI.
-**Mindset**: Pragmatic, Constructive, Impact-Focused, Empathetic.
-
-**Research Topics** (Phase 3):
-- **Code quality** — Readability, maintainability, consistency, naming
-- **Architecture** — Coupling, cohesion, separation of concerns, abstraction levels
-- **Performance** — Bottlenecks, unnecessary work, caching opportunities
-- **Developer experience** — Build times, test speed, onboarding friction, tooling gaps
-- **Error handling** — Resilience, graceful degradation, error messages, recovery
-- **Testing** — Coverage gaps, test quality, missing edge cases, flaky tests
-- **Documentation** — Accuracy, completeness, discoverability, staleness
-- **Security** — Input validation, auth patterns, data protection, secrets management
-- **Scalability** — Growth bottlenecks, resource limits, data volume concerns
-- **Tech debt** — Accumulated shortcuts, deprecated patterns, migration needs
-
-**Calibration Topics** (Phase 4):
-- **Improvement priorities** — what matters most to the team right now
-- **Constraints** — time budget, team capacity, risk appetite for changes
-- **Past attempts** — what's been tried before, what worked or didn't
-- **Team context** — skill levels, ownership boundaries, velocity concerns
-- **Success metrics** — how to measure if improvements worked
-- **Quick wins vs deep work** — appetite for small fixes vs structural changes
-- **Assumptions** — what the agent assumed, validate with user
-- **Dependencies** — what blocks improvements, external factors
-- **Adoption** — how changes will be rolled out, migration strategy
-- **Success criteria** — what would make this improvement review valuable
-
-**Walk-Through Config** (Phase 5b):
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Suggestions ready. Walk through improvements?"
-  debriefFile: "ANALYSIS.md"
-  itemSources:
-    - "## 3. Key Insights"
-    - "## 4. The \"Iceberg\" Risks"
-    - "## 5. Strategic Recommendations"
-  actionMenu:
-    - label: "Implement now"
-      tag: "#needs-implementation"
-      when: "Suggestion is actionable and high-value"
-    - label: "Research first"
-      tag: "#needs-research"
-      when: "Suggestion needs validation or deeper understanding"
-    - label: "Prototype first"
-      tag: "#needs-implementation"
-      when: "Suggestion is promising but needs a proof of concept"
-    - label: "Brainstorm approaches"
-      tag: "#needs-implementation"
-      when: "Suggestion needs exploration of approaches before committing"
-```
-
-### Custom (User-Defined Lens)
-*User provides their own role/goal/mindset. Uses Explore's topic lists as defaults.*
-
-**Role**: *Set from user's free-text input.*
-**Goal**: *Set from user's free-text input.*
-**Mindset**: *Set from user's free-text input.*
-
-**Research Topics**: Same as Explore mode.
-**Calibration Topics**: Same as Explore mode.
-**Walk-Through Config**: Same as Explore mode.
+**Mode files**: `~/.claude/skills/analyze/modes/{explore,audit,improve,custom}.md`
 
 ---
+
+### Phases (for §CMD_PARSE_PARAMETERS)
+*Include this array in the `phases` field when calling `session.sh activate`:*
+```json
+[
+  {"major": 1, "minor": 0, "name": "Setup"},
+  {"major": 2, "minor": 0, "name": "Context Ingestion"},
+  {"major": 3, "minor": 0, "name": "Research Loop"},
+  {"major": 4, "minor": 0, "name": "Calibration"},
+  {"major": 4, "minor": 1, "name": "Agent Handoff"},
+  {"major": 5, "minor": 0, "name": "Synthesis"},
+  {"major": 5, "minor": 1, "name": "Finding Triage"}
+]
+```
+*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
 
 ## 1. Setup Phase
 
@@ -232,30 +84,28 @@ Analysis modes configure the agent's lens — role, research topics, calibration
 
 5.  **Scope**: Understand the [Subject] and [Question] provided by the user.
 
-5b. **Analysis Mode Selection**: Execute `AskUserQuestion` (multiSelect: false):
+5.1. **Analysis Mode Selection**: Execute `AskUserQuestion` (multiSelect: false):
     > "What analysis lens should I use?"
     > - **"Explore" (Recommended)** — General research: understand, critique, and innovate
     > - **"Audit"** — Risk-focused: hunt for flaws, failure modes, and hidden assumptions
     > - **"Improve"** — Suggestion-focused: find actionable improvements with clear ROI
     > - **"Custom"** — Define your own role, goal, and mindset
 
-    **On "Custom"**: The user types their framing. Parse it into role/goal/mindset. Use Explore's topic lists as defaults.
+    **On selection**: Read the corresponding `modes/{mode}.md` file. It defines Role, Goal, Mindset, Research Topics, Calibration Topics, and Walk-Through Config.
+
+    **On "Custom"**: Read ALL 3 named mode files first (`modes/explore.md`, `modes/audit.md`, `modes/improve.md`), then accept user's framing. Parse into role/goal/mindset.
 
     **Record**: Store the selected mode. It configures:
-    *   Phase 1 Step 6 role (from mode preset)
-    *   Phase 3 research topics (from mode preset)
-    *   Phase 4 calibration topics (from mode preset)
-    *   Phase 5b walk-through config (from mode preset)
+    *   Phase 1 Step 6 role (from mode file)
+    *   Phase 3 research topics (from mode file)
+    *   Phase 4 calibration topics (from mode file)
+    *   Phase 5.1 walk-through config (from mode file)
 
-6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the Mode Presets section above.
+6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file.
 
 7.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
     *   If any files are found, add them to `contextPaths` for ingestion in Phase 2.
     *   *Why?* To ensure analysis includes the most recent intents and behavior changes.
-
-8.  **Discover Open Requests**: Execute `§CMD_DISCOVER_OPEN_DELEGATIONS`.
-    *   If any `#needs-delegation` files are found, read them and assess relevance to the current task.
-    *   If relevant, factor them into research direction.
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
@@ -436,7 +286,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 
 ---
 
-## 4b. Agent Handoff (Opt-In)
+## 4.1. Agent Handoff (Opt-In)
 *Only if user selected "Launch analyzer agent" in Phase 4 transition.*
 
 Execute `§CMD_HAND_OFF_TO_AGENT` with:
@@ -458,15 +308,18 @@ Execute `§CMD_HAND_OFF_TO_AGENT` with:
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 5: Synthesis.
-> 2. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_ANALYSIS.md` EXACTLY) to structure the research.
-> 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to deliver the final report.
-> 4. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
+> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_ANALYSIS.md` EXACTLY) to structure the research.
+> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to deliver the final report.
+> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
 **2. Execution — SEQUENTIAL, NO SKIPPING**
 
 [!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The analysis FILE is the primary deliverable — chat output alone is not sufficient.
+
+**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
 
 **Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `ANALYSIS.md`).
   *   Write the file using the Write tool. This MUST produce a real file in the session directory.
@@ -475,11 +328,9 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   *   **Highlight**: Top Risks and Sparks.
   *   **Recommend**: Concrete next steps.
 
-**Step 2**: Respond to Requests — Re-run `§CMD_DISCOVER_OPEN_DELEGATIONS`. For any request addressed by this session's work, execute `§CMD_POST_DELEGATION_RESPONSE`.
+**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
 
-**Step 3**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
-
-**Step 4**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
+**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
 
 ### §CMD_VERIFY_PHASE_EXIT — Phase 5 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
@@ -494,24 +345,24 @@ If ANY blank above is empty: GO BACK and complete it before proceeding.
 ### Phase Transition
 Execute `AskUserQuestion` (multiSelect: false):
 > "ANALYSIS.md is written. Want to triage findings into actions?"
-> - **"Proceed to Phase 5b: Finding Triage"** — Walk through each finding and decide what to do with it
+> - **"Proceed to Phase 5.1: Finding Triage"** — Walk through each finding and decide what to do with it
 > - **"Skip to close"** — The report is enough, close the session
 
 ---
 
-## 5b. Finding Triage (Action Planning)
+## 5.1. Finding Triage (Action Planning)
 *Convert analysis into action. Walk through each finding with the user and decide its fate.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 5b: Finding Triage.
+> 1. I am moving to Phase 5.1: Finding Triage.
 > 2. I will execute `§CMD_WALK_THROUGH_RESULTS` to walk through each finding.
 > 3. Decisions will be logged to DETAILS.md.
 
 Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the selected mode preset.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 5b
+### §CMD_VERIFY_PHASE_EXIT — Phase 5.1
 **Output this block in chat with every blank filled:**
-> **Phase 5b proof:**
+> **Phase 5.1 proof:**
 > - Findings triaged: `________` / `________`
 > - Delegated: `________`
 > - Deferred: `________`
@@ -519,7 +370,7 @@ Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the s
 
 ---
 
-**Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+**Step 4**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
 
 ### Next Skill Options
 *Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*

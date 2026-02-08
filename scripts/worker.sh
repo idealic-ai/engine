@@ -5,10 +5,10 @@
 #   Docs: (~/.claude/docs/)
 #     DAEMON.md — Worker protocol, lifecycle
 #     FLEET.md — Worker registration and coordination
-#   Invariants: (~/.claude/standards/INVARIANTS.md)
+#   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_CLAIM_BEFORE_WORK — Tag swap before processing
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet requirement
-#   Commands: (~/.claude/standards/COMMANDS.md)
+#   Commands: (~/.claude/directives/COMMANDS.md)
 #     §CMD_HAND_OFF_TO_AGENT — Worker spawns agents
 #
 # Usage:

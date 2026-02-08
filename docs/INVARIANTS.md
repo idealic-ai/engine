@@ -1,6 +1,6 @@
 # Engine Invariants
 
-Rules specific to the workflow engine shell scripts (fleet.sh, session.sh, hooks, statusline). These complement the shared invariants in `~/.claude/standards/INVARIANTS.md`.
+Rules specific to the workflow engine shell scripts (fleet.sh, session.sh, hooks, statusline). These complement the shared invariants in `~/.claude/directives/INVARIANTS.md`.
 
 Reference this file alongside `ENGINE_TESTING.md` in all engine shell script headers.
 
