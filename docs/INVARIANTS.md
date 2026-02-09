@@ -39,3 +39,10 @@ Reference this file alongside `ENGINE_TESTING.md` in all engine shell script hea
 *   **INV_HOOKS_NOOP_WHEN_IDLE**: Hooks MUST be no-ops when there is nothing to do.
     *   **Rule**: If a hook has no work to perform (e.g., no session active, no fleet pane, no applicable condition), it must exit 0 immediately. No logging, no side effects, no errors.
     *   **Reason**: Hooks fire on every tool call. Unnecessary work or errors in idle hooks degrade the entire agent experience.
+
+## Engine CLI
+
+*   **INV_ENGINE_COMMAND_DISPATCH**: All engine operations MUST go through `engine <command>`.
+    *   **Rule**: Use `engine log`, `engine session`, `engine tag`, etc. Never invoke scripts by full path (`~/.claude/scripts/engine.sh log`, `~/.claude/scripts/log.sh`, `~/.claude/scripts/session.sh`). The `engine` command is the single entrypoint — hooks and allowlists are built around it.
+    *   **Reason**: The heartbeat hook allowlists `engine` commands specifically; full paths get blocked.
+    *   **Discovered**: 2026-02-09 — `sessions/2026_02_09_ENGINE_LOCAL_MODE`

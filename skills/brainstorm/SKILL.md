@@ -37,6 +37,7 @@ Structured ideation and trade-off analysis for design and architecture decisions
     {"major": 3, "minor": 0, "name": "Synthesis"}
   ],
   "nextSkills": ["/implement", "/analyze", "/document", "/fix", "/chores"],
+  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK", "/delegation-review"],
   "directives": [],
   "logTemplate": "~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM_LOG.md",
   "debriefTemplate": "~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM.md",

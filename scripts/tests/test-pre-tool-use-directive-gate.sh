@@ -1,0 +1,435 @@
+#!/bin/bash
+# ~/.claude/engine/scripts/tests/test-pre-tool-use-directive-gate.sh
+# Tests for the PreToolUse directive enforcement gate hook
+#
+# Tests: early exits, whitelists, pending file clearing, counter enforcement, edge cases.
+# All 10 code paths in pre-tool-use-directive-gate.sh are covered.
+#
+# Run: bash ~/.claude/engine/scripts/tests/test-pre-tool-use-directive-gate.sh
+
+set -uo pipefail
+source "$(dirname "$0")/test-helpers.sh"
+
+HOOK_SH="$HOME/.claude/hooks/pre-tool-use-directive-gate.sh"
+LIB_SH="$HOME/.claude/scripts/lib.sh"
+
+# Temp directory for test fixtures
+TEST_DIR=""
+ORIGINAL_HOME=""
+SESSION_DIR=""
+
+setup() {
+  TEST_DIR=$(mktemp -d)
+  ORIGINAL_HOME="$HOME"
+  export HOME="$TEST_DIR/fake-home"
+  mkdir -p "$HOME/.claude/scripts"
+  mkdir -p "$HOME/.claude/hooks"
+
+  # Link lib.sh into fake home
+  ln -sf "$LIB_SH" "$HOME/.claude/scripts/lib.sh"
+  # Link the hook into fake home
+  ln -sf "$HOOK_SH" "$HOME/.claude/hooks/pre-tool-use-directive-gate.sh"
+
+  # Create a fake session.sh that returns our test session dir
+  SESSION_DIR="$TEST_DIR/sessions/test-session"
+  mkdir -p "$SESSION_DIR"
+
+  cat > "$HOME/.claude/scripts/session.sh" <<SCRIPT
+#!/bin/bash
+if [ "\${1:-}" = "find" ]; then
+  echo "$SESSION_DIR"
+  exit 0
+fi
+exit 1
+SCRIPT
+  chmod +x "$HOME/.claude/scripts/session.sh"
+
+  # Default .state.json — no pending directives
+  echo '{}' > "$SESSION_DIR/.state.json"
+}
+
+teardown() {
+  export HOME="$ORIGINAL_HOME"
+  if [ -n "$TEST_DIR" ] && [ -d "$TEST_DIR" ]; then
+    rm -rf "$TEST_DIR"
+  fi
+}
+
+# Helper: run the hook with given JSON input, capture output and exit code
+run_hook() {
+  local input="$1"
+  echo "$input" | bash "$HOME/.claude/hooks/pre-tool-use-directive-gate.sh" 2>/dev/null
+}
+
+# Helper: read .state.json
+read_state() {
+  cat "$SESSION_DIR/.state.json"
+}
+
+# Helper: write .state.json with given content
+write_state() {
+  echo "$1" > "$SESSION_DIR/.state.json"
+}
+
+# =============================================================================
+# EARLY EXIT TESTS (Code paths 1-5)
+# =============================================================================
+
+test_allow_no_session() {
+  local test_name="TC-01: allow when no session is active"
+  setup
+
+  # Override session.sh to return empty
+  cat > "$HOME/.claude/scripts/session.sh" <<'SCRIPT'
+#!/bin/bash
+if [ "${1:-}" = "find" ]; then
+  echo ""
+  exit 1
+fi
+exit 1
+SCRIPT
+  chmod +x "$HOME/.claude/scripts/session.sh"
+
+  local output
+  output=$(run_hook '{"tool_name":"Read","tool_input":{"file_path":"/some/file.ts"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  # Output should contain allow or be empty (hook_allow outputs allow JSON)
+  assert_contains "allow" "$output" "$test_name — allows"
+
+  teardown
+}
+
+test_allow_no_state_file() {
+  local test_name="TC-02: allow when no .state.json exists"
+  setup
+
+  rm -f "$SESSION_DIR/.state.json"
+
+  local output
+  output=$(run_hook '{"tool_name":"Read","tool_input":{"file_path":"/some/file.ts"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows"
+
+  teardown
+}
+
+test_allow_loading_mode() {
+  local test_name="TC-03: allow when loading=true (skip enforcement during bootstrap)"
+  setup
+
+  write_state '{"loading": true, "pendingDirectives": ["/some/README.md"]}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Edit","tool_input":{"file_path":"/some/file.ts"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows"
+
+  # Counter should NOT be incremented
+  local counter
+  counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "0" "$counter" "$test_name — counter not incremented"
+
+  teardown
+}
+
+test_allow_empty_pending() {
+  local test_name="TC-04: allow when pendingDirectives is empty array"
+  setup
+
+  write_state '{"pendingDirectives": []}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Edit","tool_input":{"file_path":"/some/file.ts"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows"
+
+  teardown
+}
+
+test_allow_missing_pending_key() {
+  local test_name="TC-05: allow when pendingDirectives key is missing"
+  setup
+
+  write_state '{}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Edit","tool_input":{"file_path":"/some/file.ts"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows"
+
+  teardown
+}
+
+# =============================================================================
+# WHITELIST TESTS (Code paths 5-7)
+# =============================================================================
+
+test_allow_bash_log_sh() {
+  local test_name="TC-06: allow Bash log.sh without counting"
+  setup
+
+  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine log sessions/test/LOG.md"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows"
+
+  local counter
+  counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "0" "$counter" "$test_name — counter stays at 0"
+
+  teardown
+}
+
+test_allow_bash_session_sh() {
+  local test_name="TC-07: allow Bash session.sh without counting"
+  setup
+
+  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine session phase sessions/test \"3: Build\""}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows"
+
+  local counter
+  counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "0" "$counter" "$test_name — counter stays at 0"
+
+  teardown
+}
+
+test_allow_task_tool() {
+  local test_name="TC-08: allow Task tool without counting"
+  setup
+
+  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Task","tool_input":{"prompt":"do something"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows"
+
+  local counter
+  counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "0" "$counter" "$test_name — counter stays at 0"
+
+  teardown
+}
+
+test_allow_read_engine_infra() {
+  local test_name="TC-09: allow Read of ~/.claude/* without counting"
+  setup
+
+  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
+
+  local output
+  output=$(run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$HOME/.claude/skills/test/SKILL.md\"}}")
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows"
+
+  local counter
+  counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "0" "$counter" "$test_name — counter stays at 0"
+
+  teardown
+}
+
+# =============================================================================
+# PENDING FILE CLEARING TESTS (Code path 8)
+# =============================================================================
+
+test_clear_pending_on_read() {
+  local test_name="TC-10: clear pending file when Read targets it"
+  setup
+
+  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 2}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Read","tool_input":{"file_path":"/project/README.md"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows"
+
+  local pending_count
+  pending_count=$(jq -r '(.pendingDirectives // []) | length' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "0" "$pending_count" "$test_name — pendingDirectives cleared"
+
+  local counter
+  counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "0" "$counter" "$test_name — counter reset to 0"
+
+  teardown
+}
+
+test_clear_only_targeted_file() {
+  local test_name="TC-11: clear only the targeted file from pendingDirectives"
+  setup
+
+  write_state '{"pendingDirectives": ["/project/README.md", "/project/INVARIANTS.md"], "directiveReadsWithoutClearing": 1}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Read","tool_input":{"file_path":"/project/README.md"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows"
+
+  local pending_count
+  pending_count=$(jq -r '(.pendingDirectives // []) | length' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "1" "$pending_count" "$test_name — one file remains"
+
+  local remaining
+  remaining=$(jq -r '.pendingDirectives[0]' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "/project/INVARIANTS.md" "$remaining" "$test_name — correct file remains"
+
+  local counter
+  counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "0" "$counter" "$test_name — counter reset to 0"
+
+  teardown
+}
+
+# =============================================================================
+# COUNTER ENFORCEMENT TESTS (Code paths 9-10)
+# =============================================================================
+
+test_warn_under_threshold() {
+  local test_name="TC-12: warn and allow when under threshold"
+  setup
+
+  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0, "directiveBlockAfter": 3}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Edit","tool_input":{"file_path":"/some/file.ts"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows"
+  assert_contains "INV_DIRECTIVE_STACK" "$output" "$test_name — message references invariant"
+
+  local counter
+  counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "1" "$counter" "$test_name — counter incremented to 1"
+
+  teardown
+}
+
+test_deny_at_threshold() {
+  local test_name="TC-13: deny when at or over threshold"
+  setup
+
+  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 2, "directiveBlockAfter": 3}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Edit","tool_input":{"file_path":"/some/file.ts"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "deny" "$output" "$test_name — denies"
+  assert_contains "INV_DIRECTIVE_STACK" "$output" "$test_name — message references invariant"
+  assert_contains "/project/README.md" "$output" "$test_name — lists pending file"
+
+  local counter
+  counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "3" "$counter" "$test_name — counter incremented to 3"
+
+  teardown
+}
+
+test_deny_custom_threshold() {
+  local test_name="TC-14: deny with custom threshold (directiveBlockAfter=1)"
+  setup
+
+  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0, "directiveBlockAfter": 1}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Edit","tool_input":{"file_path":"/some/file.ts"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "deny" "$output" "$test_name — denies on first non-whitelisted call"
+
+  local counter
+  counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "1" "$counter" "$test_name — counter is 1"
+
+  teardown
+}
+
+# =============================================================================
+# EDGE CASE TESTS
+# =============================================================================
+
+test_non_whitelisted_bash_counts() {
+  local test_name="TC-15: non-whitelisted Bash command counts toward threshold"
+  setup
+
+  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0, "directiveBlockAfter": 3}'
+
+  local output
+  output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}')
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  assert_contains "allow" "$output" "$test_name — allows (under threshold)"
+
+  local counter
+  counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "1" "$counter" "$test_name — counter incremented"
+
+  teardown
+}
+
+# =============================================================================
+# RUN ALL TESTS
+# =============================================================================
+
+echo "=== test-pre-tool-use-directive-gate.sh ==="
+
+# Early exits
+test_allow_no_session
+test_allow_no_state_file
+test_allow_loading_mode
+test_allow_empty_pending
+test_allow_missing_pending_key
+
+# Whitelists
+test_allow_bash_log_sh
+test_allow_bash_session_sh
+test_allow_task_tool
+test_allow_read_engine_infra
+
+# Pending file clearing
+test_clear_pending_on_read
+test_clear_only_targeted_file
+
+# Counter enforcement
+test_warn_under_threshold
+test_deny_at_threshold
+test_deny_custom_threshold
+
+# Edge cases
+test_non_whitelisted_bash_counts
+
+exit_with_results

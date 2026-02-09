@@ -11,6 +11,7 @@
 | **Pitfall** | `PITFALLS.md` | Capture "gotchas" and traps discovered during the session |
 | **Testing** | `TESTING.md` | No end-of-session action (read-only during build — used for test guidance) |
 | **Checklist** | `CHECKLIST.md` | No end-of-session action (enforced by `§CMD_PROCESS_CHECKLISTS`) |
+| **Contributing** | `CONTRIBUTING.md` | Pass 4: Capture file patterns and conventions |
 
 **Algorithm**:
 
@@ -103,10 +104,43 @@
         ```
 6.  **Report**: "Added pitfalls: [titles and destinations]." or skip silently if none.
 
+#### Pass 4: Contributing-Pattern Capture
+
+1.  **Review Session**: Using agent judgment, identify file patterns and conventions established or followed during the session:
+    *   New files created that establish a pattern (e.g., "every workflow gets a `__tests__/` directory")
+    *   Barrel files (index.ts) that were updated or should be updated
+    *   Naming conventions followed (e.g., `*.workflow.ts`, `*.activity.ts`)
+    *   Example files that serve as templates for future similar files
+    *   Import/export patterns specific to the directory
+2.  **Check for Candidates**: Identify up to 5 potential contributing patterns. For each, draft:
+    *   A short title (e.g., "Workflow file naming convention")
+    *   A description of the pattern and when to follow it
+    *   An example file reference if applicable
+3.  **If No Candidates**: Skip silently.
+4.  **If Candidates Found**: For each pattern (max 5), execute `AskUserQuestion` with:
+    *   `question`: "Capture this contributing pattern? **[Title]**: [description]"
+    *   `header`: "Contributing"
+    *   `options`:
+        *   `"Add to nearest CONTRIBUTING.md"` — The CONTRIBUTING.md closest to where the pattern applies (walk-up from the affected directory)
+        *   `"Create new CONTRIBUTING.md here"` — Create in the most relevant directory
+        *   `"Skip this one"` — Do not capture
+    *   `multiSelect`: false
+5.  **On Selection**:
+    *   **If "Skip"**: Continue to next pattern.
+    *   **If a destination is chosen**: Append or create using Edit tool. Use the TEMPLATE_CONTRIBUTING.md structure:
+        ```markdown
+        ### [Title]
+        **Pattern**: [What the convention is]
+        **When**: [When to follow it]
+        **Example**: [Reference file or inline example]
+        ```
+    *   **If file doesn't exist**: Create from `TEMPLATE_CONTRIBUTING.md`.
+6.  **Report**: "Added contributing patterns: [titles and destinations]." or skip silently if none.
+
 **Constraints**:
-*   **Agent judgment only**: All three passes use agent judgment to identify candidates — no explicit markers or log scanning required.
+*   **Agent judgment only**: All four passes use agent judgment to identify candidates — no explicit markers or log scanning required.
 *   **Max 5 per pass**: Focus on the most valuable captures. Avoid prompt fatigue.
 *   **Non-blocking**: If user selects "Skip" for everything, the session continues normally.
 *   **Idempotent**: Check existing entries before suggesting to avoid duplicates.
-*   **Order matters**: README first (factual), then invariants (rules), then pitfalls (warnings). Each pass is independent.
+*   **Order matters**: README first (factual), then invariants (rules), then pitfalls (warnings), then contributing patterns (conventions). Each pass is independent.
 *   **Skip silently**: Each pass independently decides whether it has candidates. An empty pass produces no output and no prompt.

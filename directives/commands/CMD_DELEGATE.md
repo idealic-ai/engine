@@ -1,6 +1,6 @@
 ### §CMD_DELEGATE
 **Definition**: Write a delegation REQUEST file, apply the appropriate tag, and execute the chosen delegation mode (async, blocking, or silent).
-**Trigger**: Called by the `/delegate` skill after mode selection. Not called directly by agents.
+**Trigger**: Called by the `/delegation-create` skill after mode selection. Not called directly by agents.
 
 **Algorithm**:
 

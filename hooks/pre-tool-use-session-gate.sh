@@ -13,7 +13,7 @@
 #   4. Otherwise → deny with session selection instructions
 #
 # Whitelist (allowed without active session):
-#   - Bash: session.sh, log.sh, tag.sh commands
+#   - Bash: engine session/log/tag/glob commands
 #   - AskUserQuestion: always (for skill/session selection dialogue)
 #   - Skill: always (skill invocation activates session)
 #   - Read: paths under ~/.claude/ (standards, skills, docs, engine)
@@ -62,14 +62,13 @@ if [ "$TOOL_NAME" = "Skill" ]; then
   hook_allow
 fi
 
-# Bash: whitelist session.sh, log.sh, tag.sh, glob.sh (direct or via engine CLI)
+# Bash: whitelist engine session/log/tag/glob commands
 if [ "$TOOL_NAME" = "Bash" ]; then
   BASH_CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
-  if [[ "$BASH_CMD" == *"/.claude/scripts/session.sh"* ]] || \
-     [[ "$BASH_CMD" == *"/.claude/scripts/log.sh"* ]] || \
-     [[ "$BASH_CMD" == *"/.claude/scripts/tag.sh"* ]] || \
-     [[ "$BASH_CMD" == *"/.claude/scripts/glob.sh"* ]] || \
-     [[ "$BASH_CMD" =~ ^engine[[:space:]]+(session|log|tag|glob)[[:space:]] ]]; then
+  if is_engine_session_cmd "$BASH_CMD" || \
+     is_engine_log_cmd "$BASH_CMD" || \
+     is_engine_tag_cmd "$BASH_CMD" || \
+     is_engine_glob_cmd "$BASH_CMD"; then
     hook_allow
   fi
 fi
@@ -135,6 +134,6 @@ else
   DENY_GUIDANCE="Use AskUserQuestion to ask the user which skill they want to use and in which session."
 fi
 
-DENY_GUIDANCE="${DENY_GUIDANCE}\n\nWhitelisted tools (available now): Read(~/.claude/*), Bash(~/.claude/scripts/session.sh or engine session, same for log/tag/glob), AskUserQuestion, Skill."
+DENY_GUIDANCE="${DENY_GUIDANCE}\n\nWhitelisted tools (available now): Read(~/.claude/*), Bash(engine session/log/tag/glob), AskUserQuestion, Skill."
 
 hook_deny "$DENY_REASON" "$DENY_GUIDANCE" ""

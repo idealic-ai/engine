@@ -19,6 +19,11 @@
 #   pid_exists PID          — Returns 0 if PID is running, 1 otherwise
 #   notify_fleet STATE      — Send fleet notification if in fleet tmux (no-ops safely outside fleet)
 #   state_read FILE FIELD [DEFAULT] — Read a field from .state.json with fallback
+#   is_engine_cmd CMD SUBCMD — Returns 0 if CMD is "engine SUBCMD ..." (anchored regex)
+#   is_engine_log_cmd CMD   — Returns 0 if CMD is an engine log invocation
+#   is_engine_session_cmd CMD — Returns 0 if CMD is an engine session invocation
+#   is_engine_tag_cmd CMD   — Returns 0 if CMD is an engine tag invocation
+#   is_engine_glob_cmd CMD  — Returns 0 if CMD is an engine glob invocation
 
 # Guard against double-sourcing
 [ -n "${_LIB_SH_LOADED:-}" ] && return 0
@@ -77,6 +82,20 @@ hook_deny() {
     '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":$reason}}'
   exit 0
 }
+
+# is_engine_cmd CMD SUBCMD — Returns 0 if CMD starts with "engine SUBCMD"
+# Uses anchored regex: ^engine\s+SUBCMD(\s|$)
+# The anchor prevents false positives from heredoc bodies.
+is_engine_cmd() {
+  local cmd="$1" subcmd="$2"
+  [[ "$cmd" =~ ^engine[[:space:]]+"$subcmd"([[:space:]]|$) ]]
+}
+
+# Convenience wrappers for specific engine subcommands
+is_engine_log_cmd()     { is_engine_cmd "$1" "log"; }
+is_engine_session_cmd() { is_engine_cmd "$1" "session"; }
+is_engine_tag_cmd()     { is_engine_cmd "$1" "tag"; }
+is_engine_glob_cmd()    { is_engine_cmd "$1" "glob"; }
 
 # safe_json_write FILE
 #   Reads JSON from stdin, validates with `jq empty`, writes atomically.

@@ -233,11 +233,11 @@ The script writes `INTERACTION_ID=<id>` to the output file immediately (before p
     *   **Started**: [YYYY-MM-DD HH:MM:SS]
     EOF
     ```
-3.  **Swap tag**: `#needs-research` → `#active-research` on the request file:
+3.  **Swap tag**: `#needs-research` → `#claimed-research` on the request file:
     ```bash
-    ~/.claude/scripts/tag.sh swap "$REQUEST_FILE" '#needs-research' '#active-research'
+    ~/.claude/scripts/tag.sh swap "$REQUEST_FILE" '#needs-research' '#claimed-research'
     ```
-    This marks the request as in-flight. If this session dies, another agent can find `#active-research` requests, read the Interaction ID, and resume polling.
+    This marks the request as in-flight. If this session dies, another agent can find `#claimed-research` requests, read the Interaction ID, and resume polling.
 
 ### Step 4: Await Results
 1.  **Inform user**: "Research submitted to Gemini. Interaction ID: `[id]`. Watching for results via `§CMD_AWAIT_TAG`."
@@ -249,15 +249,15 @@ The script writes `INTERACTION_ID=<id>` to the output file immediately (before p
 3.  **Continue or Wait**: The agent can either:
     *   Continue other work while the research runs (the background watcher will notify on completion).
     *   Wait for the watcher to complete if no other work is pending.
-4.  **Timeout**: If the session ends before results arrive, the `#active-research` tag + Interaction ID on the request file means `/research-respond` can pick it up in a future session.
+4.  **Timeout**: If the session ends before results arrive, the `#claimed-research` tag + Interaction ID on the request file means `/research-respond` can pick it up in a future session.
 
 ### Step 5: Post Response
 1.  **Read** the output file. Line 1 is `INTERACTION_ID=<id>`. Remaining lines are the report.
 2.  **Create**: Populate `~/.claude/skills/research-respond/assets/TEMPLATE_RESEARCH_RESPONSE.md` with the interaction ID, original request path, and full report. Save as `RESEARCH_RESPONSE_[TOPIC].md`.
 3.  **Breadcrumb**: Append `## Response` section to the request file via `log.sh`.
-4.  **Swap Tag**: `#active-research` → `#done-research` on the request file:
+4.  **Swap Tag**: `#claimed-research` → `#done-research` on the request file:
     ```bash
-    ~/.claude/scripts/tag.sh swap "$REQUEST_FILE" '#active-research' '#done-research'
+    ~/.claude/scripts/tag.sh swap "$REQUEST_FILE" '#claimed-research' '#done-research'
     ```
 5.  **Cleanup**: Delete `research_raw_output.txt`.
 

@@ -1,4 +1,6 @@
-# Testing Standards — Dispatch Daemon
+# Testing Standards — Dispatch Daemon (DEPRECATED)
+
+> **Deprecated**: This standalone daemon has been superseded by `run.sh --monitor-tags`. See `~/.claude/docs/DAEMON.md`.
 
 The dispatch daemon currently has **no automated tests**. This file documents how to test it and the conventions to follow when adding tests.
 
@@ -19,7 +21,7 @@ Test dispatch.' > sessions/test-dispatch-request.md
 tail -f /tmp/dispatch-daemon.log
 
 # Verify tag was claimed
-grep -r '#active-chores' sessions/test-dispatch-request.md
+grep -r '#claimed-chores' sessions/test-dispatch-request.md
 
 # Clean up
 rm sessions/test-dispatch-request.md
@@ -32,8 +34,8 @@ The daemon is a bash script with these testable concerns:
 
 | Category | What to Test |
 |----------|-------------|
-| **Tag detection** | `#needs-*` tags on `**Tags**:` line are detected; backtick-escaped tags are ignored; body-only tags are ignored |
-| **Claim atomicity** | `#needs-X` swapped to `#active-X` before agent spawn; no double-processing |
+| **Tag detection** | `#delegated-*` tags on `**Tags**:` line are detected; backtick-escaped tags are ignored; body-only tags are ignored |
+| **Claim atomicity** | `#delegated-X` swapped to `#claimed-X` via `/delegation-claim` before work begins; no double-processing |
 | **Debounce** | Rapid-fire events on same file within 2s window produce only one spawn |
 | **Routing** | Each `#needs-X` tag maps to correct `/X` skill via `§TAG_DISPATCH` |
 | **Graceful degradation** | Missing `fswatch` → clear error; missing `tmux` → clear error; stale PID file → handled |

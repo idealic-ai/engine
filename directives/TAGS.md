@@ -16,8 +16,8 @@ All tags follow the 4-state `#needs-X` / `#delegated-X` / `#claimed-X` / `#done-
 
 **Actors**:
 *   **Requester** (any skill agent): Creates `#needs-X` via `§CMD_HANDLE_INLINE_TAG` or REQUEST file creation.
-*   **Requester** (human, during synthesis): Approves `#needs-X` → `#delegated-X` via `§CMD_DISPATCH_APPROVAL`.
-*   **Worker** (`/claim` skill): Claims `#delegated-X` → `#claimed-X` before starting work.
+*   **Requester** (human, during synthesis): Approves `#needs-X` → `#delegated-X` via `/delegation-review`.
+*   **Worker** (`/delegation-claim` skill): Claims `#delegated-X` → `#claimed-X` before starting work.
 *   **Worker** (target skill): Resolves `#claimed-X` → `#done-X` upon completion.
 
 | Command (Verb) | Tag Noun | Lifecycle Tags |
@@ -180,8 +180,8 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 4.  **Do NOT Duplicate**: The tag should appear in **exactly one** work artifact (the log OR the debrief section — whichever is active when the user defers). Do NOT propagate the tag from DETAILS.md into the debrief automatically. If the debrief has a "Pending Decisions" or "Open Questions" section, list it there as a **reference** (one-liner with source path), not a full copy.
 5.  **Tag the File**: If the work artifact is a debrief (final output), also add the `#needs-xxx` tag to the file's `**Tags**:` line via `§CMD_TAG_FILE`.
 6.  **Tag Reactivity** (`¶INV_WALKTHROUGH_TAGS_ARE_PASSIVE`): Determine the current context and react accordingly:
-    *   **During `§CMD_WALK_THROUGH_RESULTS`**: Tags are **passive**. The walkthrough protocol handles triage. Do NOT offer `/delegate` — the tag is protocol-placed, not a user-initiated deferral. Record and move on.
-    *   **All other contexts** (interrogation, QnA, ad-hoc chat, side discovery): Tags are **reactive**. After recording the tag, invoke `/delegate` via the Skill tool: `Skill(skill: "delegate", args: "[tag] [context summary]")`. The `/delegate` skill handles mode selection (async/blocking/silent) and REQUEST filing. The user can always decline via "Other" in the delegate prompt.
+    *   **During `§CMD_WALK_THROUGH_RESULTS`**: Tags are **passive**. The walkthrough protocol handles triage. Do NOT offer `/delegation-create` — the tag is protocol-placed, not a user-initiated deferral. Record and move on.
+    *   **All other contexts** (interrogation, QnA, ad-hoc chat, side discovery): Tags are **reactive**. After recording the tag, invoke `/delegation-create` via the Skill tool: `Skill(skill: "delegation-create", args: "[tag] [context summary]")`. The `/delegation-create` skill handles mode selection (async/blocking/silent) and REQUEST filing. The user can always decline via "Other" in the delegate prompt.
 7.  **Continue**: Resume the session. Do not halt or change phases — the deferral is recorded (and optionally delegated), move on.
 
 **Constraint**: **Once Only**. Each deferred item appears as an inline tag in ONE place. The DETAILS.md captures the verbatim exchange. The debrief may list it in a "Pending" section as a pointer. Never three copies.
@@ -211,9 +211,9 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **Tags**: `#needs-documentation`, `#delegated-documentation`, `#claimed-documentation`, `#done-documentation`
 *   **Location**: `sessions/`
 *   **Lifecycle** (4-state):
-    *   `#needs-documentation` — Pending. Auto-applied at debrief creation by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` for code-changing sessions (`IMPLEMENTATION`, `DEBUG`, `ADHOC`, `TESTING`). Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-documentation` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#claimed-documentation` — In-flight. Worker (`/claim`) swapped tag before starting `/document`.
+    *   `#needs-documentation` — Pending. Auto-applied at debrief creation by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` for code-changing sessions (`IMPLEMENTATION`, `DEBUG`, `ADHOC`, `TESTING`). Staging — awaits human review via `/delegation-review`.
+    *   `#delegated-documentation` — Dispatch-approved. Human approved via `/delegation-review`. Daemon may now pick up.
+    *   `#claimed-documentation` — In-flight. Worker (`/delegation-claim`) swapped tag before starting `/document`.
     *   `#done-documentation` — Documentation pass complete. Swapped via `/document` or manually after verifying docs are current.
 *   **Discovery**: `§CMD_FIND_TAGGED_FILES` for `#needs-documentation` returns all sessions with pending doc work.
 *   **Independence**: This feed is independent from both `§FEED_ALERTS` and `§FEED_REVIEWS`. A debrief may carry `#needs-review #needs-documentation` simultaneously, resolved by different commands.
@@ -222,9 +222,9 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **Tags**: `#needs-research`, `#delegated-research`, `#claimed-research`, `#done-research`
 *   **Location**: `sessions/`
 *   **Lifecycle** (4-state):
-    *   `#needs-research` — Open request. Created by `/research-request` or `/research`. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-research` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#claimed-research` — In-flight. Swapped when `/claim` picks up and the Gemini API call starts. The request file contains an `## Active Research` section with the Interaction ID. If the polling session dies, another agent can find `#claimed-research` requests, read the ID, and resume.
+    *   `#needs-research` — Open request. Created by `/research-request` or `/research`. Staging — awaits human review via `/delegation-review`.
+    *   `#delegated-research` — Dispatch-approved. Human approved via `/delegation-review`. Daemon may now pick up.
+    *   `#claimed-research` — In-flight. Swapped when `/delegation-claim` picks up and the Gemini API call starts. The request file contains an `## Active Research` section with the Interaction ID. If the polling session dies, another agent can find `#claimed-research` requests, read the ID, and resume.
     *   `#done-research` — Fulfilled. Swapped when the report is received. The request file contains a `## Response` breadcrumb linking to the response document.
 *   **File Convention**:
     *   Requests: `RESEARCH_REQUEST_[TOPIC].md` (in requesting session dir)
@@ -237,9 +237,9 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **Tags**: `#needs-brainstorm`, `#delegated-brainstorm`, `#claimed-brainstorm`, `#done-brainstorm`
 *   **Location**: `sessions/`
 *   **Lifecycle** (4-state):
-    *   `#needs-brainstorm` — Deferred. Applied inline by any agent when a topic needs exploration, trade-off analysis, or a decision that requires structured dialogue. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-brainstorm` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#claimed-brainstorm` — In-flight. Swapped when `/claim` picks up and `/brainstorm` begins working on the tagged item.
+    *   `#needs-brainstorm` — Deferred. Applied inline by any agent when a topic needs exploration, trade-off analysis, or a decision that requires structured dialogue. Staging — awaits human review via `/delegation-review`.
+    *   `#delegated-brainstorm` — Dispatch-approved. Human approved via `/delegation-review`. Daemon may now pick up.
+    *   `#claimed-brainstorm` — In-flight. Swapped when `/delegation-claim` picks up and `/brainstorm` begins working on the tagged item.
     *   `#done-brainstorm` — Complete. Swapped by `/brainstorm` after the session produces a `BRAINSTORM.md`.
 *   **Application**: Like `#needs-implementation`, this tag can be applied **inline** within work artifacts (log entries, plan steps, debrief sections). The agent discovers these via `tag.sh find`.
 *   **Output**: `/brainstorm` creates a `BRAINSTORM.md` in its session directory. For decision-focused brainstorms, use the Focused mode.
@@ -249,9 +249,9 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **Tags**: `#needs-chores`, `#delegated-chores`, `#claimed-chores`, `#done-chores`
 *   **Location**: `sessions/`
 *   **Lifecycle** (4-state):
-    *   `#needs-chores` — Pending. A small, self-contained task that has all context in place and doesn't need full `/implement` overhead. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-chores` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#claimed-chores` — Claimed. Swapped when `/claim` picks up and `/chores` begins working on the item from its queue.
+    *   `#needs-chores` — Pending. A small, self-contained task that has all context in place and doesn't need full `/implement` overhead. Staging — awaits human review via `/delegation-review`.
+    *   `#delegated-chores` — Dispatch-approved. Human approved via `/delegation-review`. Daemon may now pick up.
+    *   `#claimed-chores` — Claimed. Swapped when `/delegation-claim` picks up and `/chores` begins working on the item from its queue.
     *   `#done-chores` — Complete. Swapped after verification.
 *   **Context Model**: Tags are applied inline. The chores skill reads the full surrounding section (nearest heading above to next heading) to understand the task. No separate request file needed for inline tags, but request files are supported for explicit delegation.
 *   **Application**: Applied inline within work artifacts when the agent identifies a small task. Can also appear on the Tags line of debriefs for tasks that emerged during a session.
@@ -261,9 +261,9 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **Tags**: `#needs-fix`, `#delegated-fix`, `#claimed-fix`, `#done-fix`
 *   **Location**: `sessions/`
 *   **Lifecycle** (4-state):
-    *   `#needs-fix` — Deferred. Applied inline by any agent when a bug, failure, or regression is identified but not immediately addressed. Common during implementation, testing, or analysis sessions. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-fix` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#claimed-fix` — In-flight. Swapped when `/claim` picks up and `/fix` begins working on the tagged item.
+    *   `#needs-fix` — Deferred. Applied inline by any agent when a bug, failure, or regression is identified but not immediately addressed. Common during implementation, testing, or analysis sessions. Staging — awaits human review via `/delegation-review`.
+    *   `#delegated-fix` — Dispatch-approved. Human approved via `/delegation-review`. Daemon may now pick up.
+    *   `#claimed-fix` — In-flight. Swapped when `/delegation-claim` picks up and `/fix` begins working on the tagged item.
     *   `#done-fix` — Complete. Swapped by `/fix` after the fix is verified.
 *   **Application**: Applied **inline** within work artifacts (test logs, implementation debriefs, analysis reports). Agents discover these via `tag.sh find` and route to `/fix`.
 *   **Independence**: This feed is independent from all other feeds.
@@ -272,15 +272,15 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **Tags**: `#needs-implementation`, `#delegated-implementation`, `#claimed-implementation`, `#done-implementation`
 *   **Location**: `sessions/`
 *   **Lifecycle** (4-state):
-    *   `#needs-implementation` — Deferred. Applied inline by any agent when an actionable implementation task is identified but not immediately executed. Common during brainstorming, analysis, or decision sessions. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-implementation` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#claimed-implementation` — In-flight. Swapped when `/claim` picks up and `/implement` begins working on the tagged item.
+    *   `#needs-implementation` — Deferred. Applied inline by any agent when an actionable implementation task is identified but not immediately executed. Common during brainstorming, analysis, or decision sessions. Staging — awaits human review via `/delegation-review`.
+    *   `#delegated-implementation` — Dispatch-approved. Human approved via `/delegation-review`. Daemon may now pick up.
+    *   `#claimed-implementation` — In-flight. Swapped when `/delegation-claim` picks up and `/implement` begins working on the tagged item.
     *   `#done-implementation` — Complete. Swapped by `/implement` after the work is verified.
 *   **Application**: Like `#needs-brainstorm`, this tag is applied **inline** within work artifacts (brainstorm outputs, analysis reports, plan steps). Agents discover these via `tag.sh find` and route to `/implement`.
 *   **Independence**: This feed is independent from all other feeds.
 
 ## §TAG_DISPATCH
-*   **Purpose**: Maps `#needs-*` tags to their resolving skills and defines daemon dispatch behavior. Used by `/claim`, daemon, and `/find-tagged` to route deferred work to the correct skill.
+*   **Purpose**: Maps `#needs-*` tags to their resolving skills and defines daemon dispatch behavior. Used by `/delegation-claim`, daemon, and `/find-tagged` to route deferred work to the correct skill.
 *   **Rule**: Every `#needs-X` tag maps to exactly one skill `/X`. See `¶INV_1_TO_1_TAG_SKILL`.
 *   **Daemon monitors**: `#delegated-*` (NOT `#needs-*`). See `¶INV_NEEDS_IS_STAGING`.
 *   **Registry**:

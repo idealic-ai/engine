@@ -38,7 +38,7 @@ Keeps documentation in sync with code changes and project state.
     {"major": 3, "minor": 0, "name": "Synthesis"}
   ],
   "nextSkills": ["/review", "/implement", "/analyze", "/brainstorm", "/chores"],
-  "directives": ["TESTING.md", "PITFALLS.md"],
+  "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
   "planTemplate": "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_PLAN.md",
   "logTemplate": "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md",
   "debriefTemplate": "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md",

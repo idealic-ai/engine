@@ -38,7 +38,8 @@ Designs and writes test cases for code correctness and regression prevention.
     {"major": 4, "minor": 0, "name": "Synthesis"}
   ],
   "nextSkills": ["/document", "/implement", "/fix", "/analyze", "/chores"],
-  "directives": ["TESTING.md", "PITFALLS.md"],
+  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK", "/delegation-review"],
+  "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
   "planTemplate": "~/.claude/skills/test/assets/TEMPLATE_TESTING_PLAN.md",
   "logTemplate": "~/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md",
   "debriefTemplate": "~/.claude/skills/test/assets/TEMPLATE_TESTING.md",

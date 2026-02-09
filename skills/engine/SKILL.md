@@ -38,12 +38,13 @@ Smart assistant for the workflow engine — answers questions, invokes scripts, 
     > 3. I will load the engine index (`engine --help` + `engine toc`) for full awareness.
     > 4. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT`.
 
-2.  **Load Engine Index**: Execute these two commands to build awareness of the entire engine:
+2.  **Load Engine Index** [UNCONDITIONAL — costs ~4% context, always worth it]:
+    Run BOTH commands in parallel — no exceptions, no skipping, no deferring:
     ```bash
     engine --help
     engine toc
     ```
-    These provide the complete command reference and directory structure. Store the output in context — this is your knowledge base.
+    These provide the complete command reference and directory structure (~283 lines / ~15 KB total). This is your knowledge base for the entire session. Load once at boot — do NOT re-run on subsequent iterations.
 
 3.  **Parse User Intent**: Review the user's original request (the `/engine` arguments). Classify it:
     *   **Q&A** — User is asking a question ("how does session.sh work?", "what's the tag lifecycle?", "explain §CMD_PARSE_PARAMETERS")

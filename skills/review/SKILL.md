@@ -36,6 +36,7 @@ Reviews and validates work across sessions for consistency and correctness.
     {"major": 3, "minor": 0, "name": "Synthesis"}
   ],
   "nextSkills": ["/implement", "/document", "/brainstorm", "/analyze", "/chores"],
+  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK", "/delegation-review"],
   "directives": [],
   "logTemplate": "~/.claude/skills/review/assets/TEMPLATE_REVIEW_LOG.md",
   "debriefTemplate": "~/.claude/skills/review/assets/TEMPLATE_REVIEW.md",
@@ -71,7 +72,7 @@ Reviews and validates work across sessions for consistency and correctness.
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `~/.claude/skills/review/assets/TEMPLATE_REVIEW_LOG.md` (Template for continuous session logging)
     *   `~/.claude/skills/review/assets/TEMPLATE_REVIEW.md` (Template for the final review report)
-    *   `~/.claude/directives/TEMPLATE_DETAILS.md` (Template for Q&A capture)
+    *   `~/.claude/skills/_shared/TEMPLATE_DETAILS.md` (Template for Q&A capture)
 
 3.  **Discover Debriefs**: Execute `§CMD_FIND_TAGGED_FILES` for BOTH:
     *   `#needs-review` — never-validated debriefs.

@@ -264,11 +264,18 @@ Based on `targetLocation` from Phase 1:
 | `project` | `.claude/skills/<name>/` | None |
 | `shared` | `~/.claude/engine/skills/<name>/` | Create symlink: `~/.claude/skills/<name>` → `~/.claude/engine/skills/<name>/` |
 
-**For shared target**: After writing files to engine, create the symlink:
-```bash
-ln -s ~/.claude/engine/skills/<name> ~/.claude/skills/<name>
-```
-Verify symlink resolves: `ls -la ~/.claude/skills/<name>/SKILL.md`
+**For shared target**: After writing files to engine:
+
+1.  **Remove local project copy** (if it exists) to prevent duplication:
+    ```bash
+    # Only if .claude/skills/<name>/ is a real directory (not already a symlink)
+    [ -d .claude/skills/<name> ] && [ ! -L .claude/skills/<name> ] && rm -rf .claude/skills/<name>/
+    ```
+2.  **Create symlink**:
+    ```bash
+    ln -s ~/.claude/engine/skills/<name> ~/.claude/skills/<name>
+    ```
+3.  **Verify** symlink resolves: `ls -la ~/.claude/skills/<name>/SKILL.md`
 
 ### Step A: Skill File (SKILL.md) — v2 Inline Format
 

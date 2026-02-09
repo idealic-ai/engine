@@ -180,4 +180,4 @@ Every `engine` launch checks the symlink target and updates it if stale. If it p
 | `scripts/CONTRIBUTING.md` | `~/.claude/engine/scripts/CONTRIBUTING.md` | Script and test conventions |
 | `ENGINE_CLI.md` | `~/.claude/docs/ENGINE_CLI.md` | CLI protocol, function signatures, migration system |
 | `INVARIANTS.md` | `~/.claude/engine/docs/INVARIANTS.md` | Engine-specific invariants (tmux, hooks) |
-| `DEVELOPMENT.md` | `~/.claude/engine/DEVELOPMENT.md` | Dev environment setup and architecture |
+| `CONTRIBUTING.md` | `~/.claude/engine/CONTRIBUTING.md` | Dev environment setup and architecture |

@@ -114,20 +114,20 @@ This document defines the universal rules that apply across ALL projects using t
 
 
 *   **¶INV_CLAIM_BEFORE_WORK**: An agent MUST swap `#delegated-X` → `#claimed-X` before starting work on a tagged item.
-    *   **Rule**: When a daemon-spawned or manually-triggered agent begins work on a tagged request, it must immediately claim the work by swapping the tag via `/claim`. This prevents double-processing by parallel agents. The swap uses `tag.sh swap`, which errors if the old tag is already gone (race condition safety — another worker already claimed it).
+    *   **Rule**: When a daemon-spawned or manually-triggered agent begins work on a tagged request, it must immediately claim the work by swapping the tag via `/delegation-claim`. This prevents double-processing by parallel agents. The swap uses `tag.sh swap`, which errors if the old tag is already gone (race condition safety — another worker already claimed it).
     *   **Reason**: Stateless coordination. Tags are the state — `#claimed-X` means "someone is working on this." The `#delegated-X` → `#claimed-X` transition (not `#needs-X` → `#claimed-X`) ensures work was human-approved before any worker touches it.
 
 *   **¶INV_NEEDS_IS_STAGING**: `#needs-X` is a staging tag. Daemons MUST NOT monitor `#needs-X`.
-    *   **Rule**: `#needs-X` means "work identified, pending human review." Only `#delegated-X` triggers autonomous daemon dispatch. The transition `#needs-X` → `#delegated-X` requires human approval via `§CMD_DISPATCH_APPROVAL`.
+    *   **Rule**: `#needs-X` means "work identified, pending human review." Only `#delegated-X` triggers autonomous daemon dispatch. The transition `#needs-X` → `#delegated-X` requires human approval via `/delegation-review`.
     *   **Rule**: Agents may freely create `#needs-X` tags (via `§CMD_HANDLE_INLINE_TAG`, `§CMD_CAPTURE_SIDE_DISCOVERIES`, REQUEST file creation). These tags are inert until a human explicitly approves dispatch.
     *   **Reason**: Eliminates the race condition where daemons grab work the instant a tag appears, before the user has reviewed or batched related items.
 
 *   **¶INV_DISPATCH_APPROVAL_REQUIRED**: The `#needs-X` → `#delegated-X` transition requires human approval.
-    *   **Rule**: Agents MUST NOT auto-flip `#needs-X` → `#delegated-X` without presenting the dispatch approval walkthrough (`§CMD_DISPATCH_APPROVAL`). The human reviews each tagged item and approves, defers, or dismisses.
+    *   **Rule**: Agents MUST NOT auto-flip `#needs-X` → `#delegated-X` without presenting the dispatch approval walkthrough (`/delegation-review`). The human reviews each tagged item and approves, defers, or dismisses.
     *   **Reason**: The user is the authority on what gets dispatched. Batch review during synthesis enables informed decision-making about which work items are ready for autonomous processing.
 
 *   **¶INV_DAEMON_DEBOUNCE**: After detecting a `#delegated-X` tag, the daemon MUST wait 3 seconds before scanning and dispatching.
-    *   **Rule**: The debounce allows batch writes to settle — when `§CMD_DISPATCH_APPROVAL` flips multiple tags, the daemon collects all `#delegated-X` items after the debounce window, groups by tag type, and spawns one Claude per group.
+    *   **Rule**: The debounce allows batch writes to settle — when `/delegation-review` flips multiple tags, the daemon collects all `#delegated-X` items after the debounce window, groups by tag type, and spawns one Claude per group.
     *   **Reason**: Without debounce, the daemon would spawn separate Claude instances for each tag flip in rapid succession. Debounce enables intelligent batching.
 
 *   **¶INV_ESCAPE_BY_DEFAULT**: All lifecycle tags in body text MUST be backtick-escaped unless intentional.
@@ -227,8 +227,8 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Rule**: A worker must be able to fulfill a REQUEST without access to the requester's session state. Include relevant file paths, expectations, constraints, and requesting session reference inline.
     *   **Reason**: REQUESTs survive requester session death. The requester may have overflowed, deactivated, or been killed. The REQUEST file is the contract.
 
-*   **¶INV_DELEGATE_IS_NESTABLE**: `/delegate` must operate without session activation.
-    *   **Rule**: The `/delegate` skill reads from and writes to the current session directory. It does not call `session.sh activate`. It can be invoked from any phase of any skill without disturbing session state.
+*   **¶INV_DELEGATE_IS_NESTABLE**: `/delegation-create` must operate without session activation.
+    *   **Rule**: The `/delegation-create` skill reads from and writes to the current session directory. It does not call `session.sh activate`. It can be invoked from any phase of any skill without disturbing session state.
     *   **Reason**: Delegation happens mid-skill (during interrogation, walkthrough, or ad-hoc chat). Session activation would conflict with the active skill's session.
 
 *   **¶INV_GRACEFUL_DEGRADATION**: Delegation modes degrade gracefully when infrastructure is unavailable.
@@ -248,13 +248,15 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Rule**: `session.sh request-template '#needs-xxx'` resolves the tag noun to a skill, finds the template, and outputs it to stdout. This is the canonical lookup path.
     *   **Reason**: Static maps rot. Dynamic discovery is self-maintaining — adding a REQUEST template to a skill automatically makes it dispatchable. Removing the template removes the capability.
 
-*   **¶INV_DIRECTORY_AWARENESS**: Agents must be aware of directive markdown files in directories they touch.
-    *   **Rule**: Directive files are discovered via walk-up from touched directories to the project root. Two tiers:
-        *   **Core directives** (always discovered): README.md, INVARIANTS.md, CHECKLIST.md. Surfaced as soft suggestions (CHECKLIST.md is also enforced as a hard gate at session deactivation).
-        *   **Skill directives** (filtered by `directives` param): TESTING.md, PITFALLS.md. Only suggested when the active skill declares them in the `directives` field of session parameters.
-    *   **Discovery**: `discover-directives.sh` performs walk-up search. `session.sh activate` discovers files from `directoriesOfInterest`. At runtime, a PostToolUse hook tracks `touchedDirs` in `.state.json` and suggests newly-discovered files. Both apply skill-directive filtering.
-    *   **End-of-session**: `§CMD_MANAGE_DIRECTIVES` handles README updates, invariant capture, and pitfall capture based on session work.
-    *   **Reason**: Agents systematically ignore directive files placed near their work. Infrastructure-level discovery guarantees delivery.
+*   **¶INV_DIRECTIVE_STACK**: Agents must load the full stack of directive files (child-to-root ancestor chain) when working in a directory. Enforcement is escalating.
+    *   **Rule**: Directive files are discovered via walk-up from touched directories to the project root. Six directive types across three tiers:
+        *   **Core directives** (always discovered): README.md, INVARIANTS.md. Surfaced as soft suggestions.
+        *   **Hard gate** (blocks deactivation): CHECKLIST.md. Enforced by `§CMD_PROCESS_CHECKLISTS` at session deactivation.
+        *   **Skill directives** (filtered by `directives` param): TESTING.md, PITFALLS.md, CONTRIBUTING.md. Only suggested when the active skill declares them in the `directives` field of session parameters.
+    *   **Enforcement**: Escalating two-hook architecture. PostToolUse hook (`post-tool-use-discovery.sh`) discovers directives and adds them to `pendingDirectives` in `.state.json` with a warning. PreToolUse hook (`pre-tool-use-directive-gate.sh`) blocks after a threshold of tool calls if `pendingDirectives` is non-empty. Reading a pending file clears it from the list.
+    *   **Discovery**: `discover-directives.sh` performs walk-up search (full ancestor chain — all directives from child to root apply cumulatively). `session.sh activate` discovers files from `directoriesOfInterest`. At runtime, the PostToolUse hook tracks `touchedDirs` in `.state.json` and discovers files for newly-touched directories. Both apply skill-directive filtering.
+    *   **End-of-session**: `§CMD_MANAGE_DIRECTIVES` handles README updates, invariant capture, pitfall capture, and contributing-pattern capture based on session work.
+    *   **Reason**: Agents systematically ignore directive files placed near their work. Escalating enforcement (warn then block) ensures directives are always loaded.
 
 *   **¶INV_CHECKLIST_BEFORE_CLOSE**: A session cannot be deactivated with unprocessed CHECKLIST.md files.
     *   **Rule**: `session.sh deactivate` checks `checkPassed == true` in `.state.json` when `discoveredChecklists[]` is non-empty. If not set, deactivation is blocked.
@@ -266,8 +268,14 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Rule**: The agent must resolve all bare `#needs-*` tags (swap to `#done-*` or backtick-escape). For formal REQUEST files, also add a `## Response` section.
     *   **Reason**: Request files are contracts between sessions. Closing a session without fulfilling its requests leaves broken promises in the system — future sessions that depend on the work will find unfulfilled tags.
 
+*   **¶INV_PROVABLE_DEBRIEF_PIPELINE**: Skills with full synthesis must declare `provableDebriefItems` and prove each one before deactivation.
+    *   **Rule**: Skills that execute the full `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` pipeline (steps 8-11b) must declare a `provableDebriefItems` array in their session parameters JSON. Each item is a `§CMD_*` name from the pipeline. During synthesis (step 11c), the agent must submit proof for each declared item via `session.sh prove`. `session.sh deactivate` gates on proof completeness — all declared items must have proof in `.state.json`.
+    *   **Rule**: Proof is free-text — `§CMD_NAME: ran: description` or `§CMD_NAME: skipped: reason`. The gate validates presence (every declared item has a proof entry), not content. Templates in `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` guide the agent's proof format.
+    *   **Rule**: Skills with abbreviated synthesis (e.g., suggest) omit `provableDebriefItems`. The gate passes trivially when the field is absent.
+    *   **Reason**: Agents systematically skip steps 8-11b because each step says "skip silently if nothing found." Proof enforcement catches the primary failure mode (forgetting steps entirely) without over-engineering. Matches existing gate patterns (debrief existence, checklist processing, request fulfillment).
+
 *   **¶INV_WALKTHROUGH_TAGS_ARE_PASSIVE**: Tags placed during `§CMD_WALK_THROUGH_RESULTS` do NOT trigger delegation offers.
-    *   **Rule**: Tags applied during walkthrough triage are protocol-placed (expected output of the walkthrough step). They are recorded but do not invoke `/delegate`. Tags in all other contexts (interrogation, QnA, ad-hoc chat, side discovery) are reactive — they trigger a `/delegate` offer.
+    *   **Rule**: Tags applied during walkthrough triage are protocol-placed (expected output of the walkthrough step). They are recorded but do not invoke `/delegation-create`. Tags in all other contexts (interrogation, QnA, ad-hoc chat, side discovery) are reactive — they trigger a `/delegation-create` offer.
     *   **Reason**: Walkthrough triage already handles tag placement as part of its protocol. Offering delegation on top of that would double-prompt the user for every triage decision.
 
 *   **¶INV_1_TO_1_TAG_SKILL**: Every `#needs-X` tag maps to exactly one skill `/X`. No generic tags.

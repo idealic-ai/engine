@@ -476,29 +476,63 @@ USERJSON
     fi
   done
 
-  # Ensure sessions/ exists as a real local directory
+  # Ensure sessions/ and reports/ exist via project-local .claude/ storage
   local project_root
   project_root="$(pwd)"
-  local sessions_dir="$project_root/sessions"
+  local local_sessions="$project_root/.claude/sessions"
+  local local_reports="$project_root/.claude/reports"
+  local sessions_link="$project_root/sessions"
+  local reports_link="$project_root/reports"
 
-  if [ -L "$sessions_dir" ] && [ ! -e "$sessions_dir" ]; then
-    echo "  sessions/ symlink is broken (GDrive not accessible). Creating local directory..."
-    rm "$sessions_dir"
-    mkdir -p "$sessions_dir"
-    ACTIONS+=("Created local sessions/ directory (GDrive unavailable)")
-  elif [ ! -e "$sessions_dir" ]; then
-    echo "  Creating local sessions/ directory..."
-    mkdir -p "$sessions_dir"
-    ACTIONS+=("Created local sessions/ directory")
+  if [ ! -d "$GDRIVE_ROOT" ] 2>/dev/null; then
+    # GDrive unavailable: create project-local dirs + symlinks
+    mkdir -p "$local_sessions" "$local_reports"
+
+    # Fix or create sessions/ symlink
+    if [ -L "$sessions_link" ] && [ ! -e "$sessions_link" ]; then
+      echo "  sessions/ symlink is broken (GDrive not accessible). Relinking to .claude/sessions..."
+      rm "$sessions_link"
+      ln -s "$local_sessions" "$sessions_link"
+      ACTIONS+=("Relinked sessions/ → .claude/sessions (GDrive unavailable)")
+    elif [ ! -e "$sessions_link" ]; then
+      echo "  Creating sessions/ → .claude/sessions..."
+      ln -s "$local_sessions" "$sessions_link"
+      ACTIONS+=("Linked sessions/ → .claude/sessions")
+    fi
+
+    # Fix or create reports/ symlink
+    if [ -L "$reports_link" ] && [ ! -e "$reports_link" ]; then
+      echo "  reports/ symlink is broken (GDrive not accessible). Relinking to .claude/reports..."
+      rm "$reports_link"
+      ln -s "$local_reports" "$reports_link"
+      ACTIONS+=("Relinked reports/ → .claude/reports (GDrive unavailable)")
+    elif [ ! -e "$reports_link" ]; then
+      echo "  Creating reports/ → .claude/reports..."
+      ln -s "$local_reports" "$reports_link"
+      ACTIONS+=("Linked reports/ → .claude/reports")
+    fi
+  else
+    # GDrive available: ensure sessions/ exists (may be real dir or symlink)
+    local sessions_dir="$project_root/sessions"
+    if [ ! -e "$sessions_dir" ]; then
+      echo "  Creating local sessions/ directory..."
+      mkdir -p "$sessions_dir"
+      ACTIONS+=("Created local sessions/ directory")
+    fi
   fi
 
   # Bootstrap search DBs: copy from GDrive if available, otherwise auto-index
-  local gdrive_sessions="$GDRIVE_ROOT/$USER_NAME/$PROJECT_NAME/sessions" 2>/dev/null || true
-  local doc_db="$sessions_dir/.doc-search.db"
-  local session_db="$sessions_dir/.session-search.db"
+  # Resolve the actual sessions dir (follows symlink or uses real dir)
+  local resolved_sessions_dir="$project_root/sessions"
+  if [ -L "$resolved_sessions_dir" ]; then
+    resolved_sessions_dir="$(readlink "$resolved_sessions_dir")"
+  fi
+  local doc_db="$resolved_sessions_dir/.doc-search.db"
+  local session_db="$resolved_sessions_dir/.session-search.db"
 
   if [ -d "$GDRIVE_ROOT" ] 2>/dev/null; then
-    local gdrive_doc_db="$GDRIVE_ROOT/$USER_NAME/$PROJECT_NAME/sessions/.doc-search.db"
+    local gdrive_sessions="$GDRIVE_ROOT/$USER_NAME/$PROJECT_NAME/sessions"
+    local gdrive_doc_db="$gdrive_sessions/.doc-search.db"
     local gdrive_session_db="$gdrive_sessions/.session-search.db"
     local gdrive_tool_doc_db="$GDRIVE_ENGINE/tools/doc-search/.doc-search.db"
 
@@ -732,7 +766,7 @@ cmd_status() {
 
   # Symlink audit
   local local_count=0 gdrive_count=0 broken_count=0 other_count=0
-  for link in "$CLAUDE_DIR"/{commands,standards,agents,tools} "$CLAUDE_DIR/scripts"/* "$CLAUDE_DIR/hooks"/* "$CLAUDE_DIR/skills"/*; do
+  for link in "$CLAUDE_DIR"/{standards,agents,tools} "$CLAUDE_DIR/scripts"/* "$CLAUDE_DIR/hooks"/* "$CLAUDE_DIR/skills"/*; do
     [ -L "$link" ] || continue
     local target
     target=$(readlink "$link")
@@ -802,7 +836,7 @@ cmd_uninstall() {
   done
 
   local claude_dir="$HOME/.claude"
-  for link in "$claude_dir/commands" "$claude_dir/standards" "$claude_dir/scripts" "$claude_dir/tools"; do
+  for link in "$claude_dir/standards" "$claude_dir/scripts" "$claude_dir/tools"; do
     if [ -L "$link" ]; then
       rm "$link"
       echo "  Removed: ~/.claude/$(basename "$link") symlink"
@@ -911,7 +945,7 @@ cmd_report() {
 
   # Check symlinks
   echo "Engine Symlinks (~/.claude/):"
-  for name in commands standards scripts agents tools; do
+  for name in standards scripts agents tools; do
     local link="$CLAUDE_DIR/$name"
     if [ -L "$link" ]; then
       local target
@@ -1064,20 +1098,29 @@ cmd_setup() {
 
   if [ -z "$ENGINE_DIR" ] || [ ! -d "$ENGINE_DIR/skills" ]; then
     echo "ERROR: Engine not found."
-    echo "Expected commands/ and skills/ in engine directory."
+    echo "Expected skills/ in engine directory."
     exit 1
-  fi
-
-  # GDRIVE_ROOT must point to GDrive regardless of mode (for sessions/reports)
-  local GDRIVE_ROOT_RESOLVED
-  if [ "$(current_mode "$MODE_FILE")" = "local" ]; then
-    GDRIVE_ROOT_RESOLVED="$GDRIVE_ROOT"
-  else
-    GDRIVE_ROOT_RESOLVED="$(dirname "$ENGINE_DIR")"
   fi
 
   local PROJECT_NAME="${1:-$(basename "$(pwd)")}"
   local PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
+
+  # Resolve where sessions/reports live:
+  #   - Remote mode: GDrive path (via ENGINE_DIR parent)
+  #   - Local mode + GDrive available: GDrive path
+  #   - Local mode + GDrive unavailable: project-local .claude/ directory
+  local GDRIVE_ROOT_RESOLVED
+  local USE_LOCAL_STORAGE=false
+  if [ "$(current_mode "$MODE_FILE")" = "local" ]; then
+    if [ -d "$GDRIVE_ROOT" ] 2>/dev/null; then
+      GDRIVE_ROOT_RESOLVED="$GDRIVE_ROOT"
+    else
+      USE_LOCAL_STORAGE=true
+      GDRIVE_ROOT_RESOLVED="$PROJECT_ROOT/.claude"
+    fi
+  else
+    GDRIVE_ROOT_RESOLVED="$(dirname "$ENGINE_DIR")"
+  fi
 
   log_verbose "Engine: $ENGINE_DIR"
   log_verbose "Project: $PROJECT_ROOT"
@@ -1136,10 +1179,19 @@ cmd_setup() {
     if ! command -v fswatch &> /dev/null; then MISSING_DEPS+=("fswatch"); fi
   fi
 
-  # ---- Step 1: Create GDrive directories ----
-  log_step "Step 1: Create GDrive directories"
-  local SESSION_DIR="$GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME/sessions"
-  local REPORTS_DIR="$GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME/reports"
+  # ---- Step 1: Create session/report directories ----
+  log_step "Step 1: Create session/report directories"
+  local SESSION_DIR REPORTS_DIR
+  if [ "$USE_LOCAL_STORAGE" = true ]; then
+    # Local mode without GDrive: store directly under project/.claude/
+    SESSION_DIR="$PROJECT_ROOT/.claude/sessions"
+    REPORTS_DIR="$PROJECT_ROOT/.claude/reports"
+    log_verbose "Using project-local storage (GDrive unavailable)"
+  else
+    # GDrive available: store under GDrive user/project path
+    SESSION_DIR="$GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME/sessions"
+    REPORTS_DIR="$GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME/reports"
+  fi
   if [ ! -d "$SESSION_DIR" ]; then
     log_verbose "sessions/: creating $SESSION_DIR"
     mkdir -p "$SESSION_DIR"
@@ -1251,7 +1303,6 @@ REPREADME
   "permissions": {
     "allow": [
       "Read(~/.claude/agents/**)",
-      "Read(~/.claude/commands/**)",
       "Read(~/.claude/skills/**)",
       "Read(~/.claude/directives/**)",
       "Glob(~/.claude/**)",

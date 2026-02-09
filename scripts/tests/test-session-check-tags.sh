@@ -303,7 +303,7 @@ test_multiple_tags_same_file() {
 
 ## Findings
 This #needs-brainstorm and also #needs-implementation are both open.
-Another line with #active-research in progress.
+Another line with #claimed-research in progress.
 MD
 
   local output
@@ -312,7 +312,7 @@ MD
 
   # Should fail and report all three tags
   local count
-  count=$(echo "$output" | grep -c '#needs-\|#active-\|#done-' 2>/dev/null || echo 0)
+  count=$(echo "$output" | grep -c '#needs-\|#claimed-\|#done-' 2>/dev/null || echo 0)
 
   if [ "$exit_code" -eq 1 ] && [ "$count" -ge 3 ]; then
     pass "check reports multiple bare tags in same file"

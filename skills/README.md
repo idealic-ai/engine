@@ -22,7 +22,6 @@ Full-ceremony skills with all engine features.
 | `/brainstorm` | 4 (Setup → Context → Dialogue → Synthesis) | Yes | Results | Explore, Focused, Adversarial, Custom |
 | `/fix` | 7 (Setup → Context → Investigation → Triage Walk-Through → Fix Loop → Results Walk-Through → Debrief) | Yes | Results + Plan | General, TDD, Hotfix, Custom |
 | `/document` | 4 (Setup → Diagnosis & Planning → Operation → Synthesis) | Yes | Results + Plan | Surgical, Refine, Audit, Custom |
-| `/evangelize` | 5 (Setup → Context → Analysis → Interrogation → Synthesis) | Yes | Results | — |
 | `/implement` | 6 (Setup → Context → Interrogation → Planning → Build Loop → Synthesis) | Yes | Results + Plan | TDD, Experimentation, General, Custom |
 | `/refine` | 7 (Setup → Interrogation → Planning → Validation → Baseline → Iteration → Synthesis) | Yes | Results | Accuracy, Speed, Robustness |
 | `/review` | 4 (Setup → Discovery → Dashboard & Interrogation → Synthesis) | Yes | — | Quality, Velocity, Compliance |
@@ -53,8 +52,6 @@ Single-purpose tools with no session directory or minimal lifecycle.
 | `/research` | Full Gemini Deep Research cycle |
 | `/research-request` | Post async research request |
 | `/research-respond` | Check/retrieve research results |
-| `/share-skill` | Promote skill to shared engine |
-| `/suggest` | Analyze and propose improvements (has Walk-Through: Results) |
 | `/summarize-progress` | Generate cross-session progress report |
 | `/writeup` | Create situational documents |
 

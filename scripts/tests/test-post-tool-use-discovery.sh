@@ -302,7 +302,7 @@ test_discovers_soft_files_and_outputs_message() {
 }
 
 test_message_contains_invariant_code() {
-  local test_name="soft discovery: message references INV_DIRECTORY_AWARENESS"
+  local test_name="soft discovery: message references INV_DIRECTIVE_STACK"
   setup
 
   local output
@@ -311,10 +311,10 @@ test_message_contains_invariant_code() {
   local message
   message=$(echo "$output" | jq -r '.hookSpecificOutput.message' 2>/dev/null || echo "")
 
-  if [[ "$message" == *"INV_DIRECTORY_AWARENESS"* ]]; then
+  if [[ "$message" == *"INV_DIRECTIVE_STACK"* ]]; then
     pass "$test_name"
   else
-    fail "$test_name" "message contains INV_DIRECTORY_AWARENESS" "message='$message'"
+    fail "$test_name" "message contains INV_DIRECTIVE_STACK" "message='$message'"
   fi
 
   teardown

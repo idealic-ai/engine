@@ -20,7 +20,7 @@ This document is the comprehensive reference for inter-agent coordination and wo
 |---------|-----------|-----------|--------------|
 | **Sub-Agents** | `Task` tool | Synchronous | Same conversation, foreground |
 | **Tagged Requests** | `#needs-*` tags | Asynchronous | Cross-session, file-based |
-| **Daemon-Spawned** | `dispatch-daemon` + `§TAG_DISPATCH` | Parallel | Automatic, tag-triggered |
+| **Daemon-Spawned** | `run.sh --monitor-tags` + `§TAG_DISPATCH` | Parallel | Automatic, tag-triggered (`#delegated-*`) |
 
 ---
 
@@ -194,11 +194,13 @@ Scheduling behavior:
 
 The dispatch daemon is a background process that automatically processes tagged work items.
 
-**Location**: `~/.claude/tools/dispatch-daemon/`
+**Location**: `~/.claude/scripts/run.sh --monitor-tags` (daemon mode). See `~/.claude/docs/DAEMON.md` for full reference.
+
+> **Note**: The legacy standalone `dispatch-daemon.sh` at `~/.claude/tools/dispatch-daemon/` is deprecated.
 
 **Technology**:
-- Shell script + `fswatch` for file watching
-- `tmux` for agent window management
+- `run.sh --monitor-tags` with `fswatch` for file watching
+- `/delegation-claim` skill for worker-side routing
 - Stateless — tags ARE the state
 
 **Invariant** (`¶INV_DAEMON_STATELESS`): The daemon MUST NOT maintain state beyond what tags encode. `#claimed-X` IS the claim state.
@@ -209,12 +211,11 @@ The daemon reads the `§TAG_DISPATCH` table from `~/.claude/directives/TAGS.md` 
 
 | Tag | Skill | Mode |
 |-----|-------|------|
-| `#needs-brainstorm` | `/brainstorm` | interactive |
-| `#needs-research` | `/research` | async (Gemini) |
-| `#needs-implementation` | `/implement` | interactive |
-| `#needs-chores` | `/chores` | interactive |
-| `#needs-documentation` | `/document` | interactive |
-| `#needs-review` | `/review` | interactive |
+| `#delegated-brainstorm` | `/brainstorm` | interactive |
+| `#delegated-research` | `/research` | async (Gemini) |
+| `#delegated-implementation` | `/implement` | interactive |
+| `#delegated-chores` | `/chores` | interactive |
+| `#delegated-documentation` | `/document` | interactive |
 
 ### 5.3 Spawning
 
@@ -255,7 +256,7 @@ cat sessions/2026_02_06_MY_SESSION/.state.json
 **Detection method**: `.state.json` PID liveness check
 
 **Algorithm**:
-1. Agent claims work (swaps `#needs-X` → `#claimed-X`)
+1. Agent claims work (swaps `#delegated-X` → `#claimed-X`)
 2. Agent writes session reference to request file
 3. Agent writes PID to `.state.json` in session dir
 4. If daemon sees `#claimed-X` with no `#done-X`:

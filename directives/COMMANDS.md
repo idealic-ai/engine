@@ -72,7 +72,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 
 ### §CMD_REQUIRE_ACTIVE_SESSION
 **Definition**: All tool use requires an active session. Mechanically enforced by `pre-tool-use-session-gate.sh`.
-**Rule**: The session gate blocks all non-whitelisted tools until `session.sh activate` succeeds. Whitelisted: `Read(~/.claude/*)`, `Bash(session.sh/log.sh/tag.sh)`, `AskUserQuestion`, `Skill`.
+**Rule**: The session gate blocks all non-whitelisted tools until `engine session activate` succeeds. Whitelisted: `Read(~/.claude/*)`, `Bash(engine session/log/tag/glob)`, `AskUserQuestion`, `Skill`.
 **When Blocked**: Use `AskUserQuestion` to ask the user which skill/session to activate, then invoke the skill via the Skill tool.
 **Related**: `¶INV_SKILL_PROTOCOL_MANDATORY` (skills require formal session activation), `§CMD_MAINTAIN_SESSION_DIR` (session directory lifecycle).
 
@@ -217,6 +217,12 @@ engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name"
 
 # Phase transition (non-sequential — requires user approval)
 engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name" --user-approved "Reason"
+
+# Prove debrief pipeline execution (¶INV_PROVABLE_DEBRIEF_PIPELINE)
+engine session prove sessions/YYYY_MM_DD_TOPIC <<'EOF'
+§CMD_MANAGE_DIRECTIVES: skipped: no files touched
+§CMD_PROCESS_DELEGATIONS: ran: 2 bare tags processed
+EOF
 ```
 
 ---
@@ -338,9 +344,9 @@ engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name" --user-approved "
       "type": "array",
       "items": { "type": "string" },
       "title": "Skill Directives",
-      "description": "Directive file types this skill cares about beyond the core set (README.md, INVARIANTS.md, CHECKLIST.md are always discovered). Derived from the skill's Required Context section: if SKILL.md loads `.claude/directives/X.md`, include `X.md` here. Convention: editing skills (implement, test, debug, refine, document) load PITFALLS.md; testing skills (implement, test, debug) load TESTING.md. See ¶INV_DIRECTORY_AWARENESS.",
+      "description": "Directive file types this skill cares about beyond the core set (README.md, INVARIANTS.md, CHECKLIST.md are always discovered). Derived from the skill's Required Context section: if SKILL.md loads `.claude/directives/X.md`, include `X.md` here. Convention: editing skills (implement, fix, test, refine, document) load PITFALLS.md and CONTRIBUTING.md; testing skills (implement, fix, test) load TESTING.md. See ¶INV_DIRECTIVE_STACK.",
       "example": [
-        ["TESTING.md", "PITFALLS.md"],
+        ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
         ["PITFALLS.md"],
         []
       ],
@@ -417,6 +423,15 @@ engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name" --user-approved "
       "description": "Skills to suggest after session completion. Used by §CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL for the post-session menu. Each skill declares its own nextSkills in SKILL.md. Required field.",
       "example": [["/test", "/document", "/analyze", "/fix"]],
       "default": []
+    },
+    "provableDebriefItems": {
+      "type": "array",
+      "items": { "type": "string" },
+      "title": "Provable Debrief Items",
+      "description": "Debrief pipeline steps (§CMD_* names) that this skill requires proof for during synthesis. `session.sh deactivate` gates on proof completeness — all declared items must have proof in `.state.json` before deactivation succeeds. Skills with abbreviated synthesis omit this field (gate passes trivially). See ¶INV_PROVABLE_DEBRIEF_PIPELINE.",
+      "example": [
+        ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK", "/delegation-review"]
+      ]
     },
     "extraInfo": {
       "type": "string",
@@ -681,7 +696,7 @@ engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name" --user-approved "
     *   Each pass uses agent judgment, prompts user per candidate, skips silently if none found.
 9b. **Process Delegations**: Execute `§CMD_PROCESS_DELEGATIONS`.
     *   Scans session artifacts for unresolved bare `#needs-X` inline tags.
-    *   Invokes `/delegate` for each one (user chooses async/blocking/silent per tag).
+    *   Invokes `/delegation-create` for each one (user chooses async/blocking/silent per tag).
     *   Skips silently if no unresolved delegation tags found.
 10.  **Capture Side Discoveries**: Execute `§CMD_CAPTURE_SIDE_DISCOVERIES`.
     *   Scans the session log for side-discovery entries (observations, concerns, parking lot items).
@@ -696,11 +711,34 @@ engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name" --user-approved "
     *   Outputs a concise report in chat + appends to session log.
     *   Gives the user context for their next-skill choice.
     *   Skips silently if no leftover items found.
-11b. **Dispatch Approval**: Execute `§CMD_DISPATCH_APPROVAL`.
+11b. **Dispatch Approval**: Invoke `/delegation-review` (scoped to current session).
     *   Scans current session for `#needs-X` tags (excluding review/rework).
     *   Groups by tag type, presents walkthrough for user to approve → flip to `#delegated-X`.
     *   Approved items become visible to the daemon for autonomous dispatch.
     *   Skips silently if no `#needs-X` tags found.
+11c. **Prove Debrief Pipeline** (¶INV_PROVABLE_DEBRIEF_PIPELINE): If `provableDebriefItems` is declared in session parameters, submit proof that each pipeline step was executed.
+    *   **Output the proof block in chat** (filled in, no blanks):
+        > **Debrief pipeline proof:**
+        > - §CMD_MANAGE_DIRECTIVES: `________` (files touched / no README/INVARIANTS/PITFALLS changes needed)
+        > - §CMD_PROCESS_DELEGATIONS: `________` (N bare tags processed / no bare `#needs-X` tags found)
+        > - §CMD_CAPTURE_SIDE_DISCOVERIES: `________` (N items surfaced / no side discoveries in log)
+        > - §CMD_MANAGE_ALERTS: `________` (alert raised/resolved / no alert action needed)
+        > - §CMD_REPORT_LEFTOVER_WORK: `________` (N items reported / no leftover work)
+        > - /delegation-review: `________` (N approved, M deferred / no `#needs-X` tags to dispatch)
+    *   **Submit proof to engine**: Only include items declared in this skill's `provableDebriefItems`:
+        ```bash
+        session.sh prove <path> <<'EOF'
+        §CMD_MANAGE_DIRECTIVES: skipped: no files touched
+        §CMD_PROCESS_DELEGATIONS: ran: 2 bare tags processed
+        §CMD_CAPTURE_SIDE_DISCOVERIES: skipped: no side discoveries
+        §CMD_MANAGE_ALERTS: skipped: no alerts
+        §CMD_REPORT_LEFTOVER_WORK: ran: 1 item reported
+        /delegation-review: skipped: no #needs-X tags
+        EOF
+        ```
+    *   Each line: `§CMD_NAME: <free text proof>`. The proof text should match the hints above.
+    *   Skips if `provableDebriefItems` is not declared (abbreviated-synthesis skills).
+    *   `session.sh deactivate` gates on proof completeness — all declared items must have proof.
 12.  **Deactivate & Prompt Next Skill**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`.
     *   Deactivates the session with description and keywords, then presents the skill progression menu.
 
@@ -766,7 +804,7 @@ engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name" --user-approved "
 **Usage**: Execute this immediately after receiving a User response to an Interrogation or an important Assertion.
 
 **Algorithm**:
-1.  **Construct**: Prepare the Markdown block following `~/.claude/directives/TEMPLATE_DETAILS.md`.
+1.  **Construct**: Prepare the Markdown block following `~/.claude/skills/_shared/TEMPLATE_DETAILS.md`.
     *   **Agent**: Quote your question (keep nuance/options).
     *   **User**: VERBATIM quote of the user's answer.
     *   **Action**: Paraphrase your decision/action (e.g., "Updated Plan").
@@ -972,12 +1010,12 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **Reference**: `~/.claude/directives/commands/CMD_CAPTURE_SIDE_DISCOVERIES.md`
 
 ### §CMD_DELEGATE
-**Description**: Write a delegation REQUEST file, apply the appropriate tag, and execute the chosen delegation mode (async, blocking, or silent). The low-level primitive behind `/delegate`.
-**Trigger**: Called by the `/delegate` skill after mode selection. Not called directly by agents.
+**Description**: Write a delegation REQUEST file, apply the appropriate tag, and execute the chosen delegation mode (async, blocking, or silent). The low-level primitive behind `/delegation-create`.
+**Trigger**: Called by the `/delegation-create` skill after mode selection. Not called directly by agents.
 **Reference**: `~/.claude/directives/commands/CMD_DELEGATE.md`
 
 ### §CMD_PROCESS_DELEGATIONS
-**Description**: Scans session artifacts for unresolved bare `#needs-X` inline tags and invokes `/delegate` for each one. Synthesis pipeline step between walkthrough and debrief.
+**Description**: Scans session artifacts for unresolved bare `#needs-X` inline tags and invokes `/delegation-create` for each one. Synthesis pipeline step between walkthrough and debrief.
 **Trigger**: Called during skill synthesis phases, after `§CMD_WALK_THROUGH_RESULTS` and before `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`. Read the reference file before executing.
 **Reference**: `~/.claude/directives/commands/CMD_PROCESS_DELEGATIONS.md`
 
@@ -985,34 +1023,6 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **Description**: Extracts unfinished items from session artifacts (tech debt, unresolved blocks, incomplete plan steps) and presents a concise report in chat before the next-skill menu.
 **Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 11, after side discoveries. Read the reference file before executing.
 **Reference**: `~/.claude/directives/commands/CMD_REPORT_LEFTOVER_WORK.md`
-
-### §CMD_DISPATCH_APPROVAL
-**Description**: Reviews `#needs-X` tags in the current session and lets the user approve them for daemon dispatch (`#delegated-X`). The human gate between tag creation and autonomous processing.
-**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 9b (after `§CMD_PROCESS_DELEGATIONS`, before `§CMD_CAPTURE_SIDE_DISCOVERIES`). Also callable standalone.
-
-**Algorithm**:
-1.  **Scan**: Find all `#needs-X` tags in the current session directory:
-    *   `tag.sh find '#needs-*' [sessionDir] --tags-only` — Tags-line entries on REQUEST files and debriefs
-    *   Exclude `#needs-review` (resolved by `/review`, not daemon dispatch)
-    *   Exclude `#needs-rework` (resolved by `/review`)
-2.  **Skip if empty**: If no `#needs-X` tags found (excluding review/rework), skip silently. No user prompt.
-3.  **Group**: Organize results by tag type (e.g., all `#needs-implementation` together, all `#needs-chores` together).
-4.  **Present**: For each group, execute `AskUserQuestion` (multiSelect: true):
-    > "Dispatch approval — `#needs-[noun]` ([N] items):"
-    > - **"Approve all [N] for daemon dispatch → `#delegated-[noun]`"** — Flip all items in this group
-    > - **"Review individually"** — Walk through each item to approve/defer/dismiss
-    > - **"Defer all"** — Leave as `#needs-[noun]` (will appear in next session's dispatch approval)
-5.  **Execute**:
-    *   **Approve all**: For each file in the group, `tag.sh swap [file] '#needs-[noun]' '#delegated-[noun]'`.
-    *   **Review individually**: For each file, present: Approve (`#delegated-X`) / Defer (keep `#needs-X`) / Dismiss (remove tag entirely).
-    *   **Defer all**: No action. Tags remain as `#needs-X`.
-6.  **Report**: Output summary in chat: "Dispatched: [N] items. Deferred: [M] items. Dismissed: [K] items."
-
-**Constraints**:
-*   **Current session only**: Does NOT scan other sessions. Cross-session dispatch is out of scope.
-*   **Human approval required** (`¶INV_DISPATCH_APPROVAL_REQUIRED`): Agents MUST NOT auto-flip `#needs-X` → `#delegated-X`.
-*   **Daemon monitors `#delegated-*`** (`¶INV_NEEDS_IS_STAGING`): Only approved items become visible to the daemon.
-*   **Debounce-friendly**: Multiple `tag.sh swap` calls in rapid succession are collected by the daemon's 3s debounce (`¶INV_DAEMON_DEBOUNCE`).
 
 ### §CMD_WALK_THROUGH_RESULTS
 **Description**: Walks the user through skill outputs or plan items with configurable granularity (None / Groups / Each item). Two modes: **results** (post-execution triage — delegate/defer/dismiss) and **plan** (pre-execution review — comment/question/flag). Each skill provides a configuration block defining mode, gate question, item sources, and action menu or plan questions.

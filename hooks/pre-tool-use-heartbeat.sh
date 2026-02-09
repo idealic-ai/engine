@@ -66,16 +66,15 @@ if [ -n "$TRANSCRIPT_PATH" ]; then
   fi
 fi
 
-# Whitelist: log.sh and session.sh calls always allowed without counting
-# Matches both full path (~/.claude/scripts/log.sh) and engine CLI (engine log ...)
+# Whitelist: engine log and engine session calls always allowed without counting
 if [ "$TOOL_NAME" = "Bash" ]; then
   BASH_CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
   is_log=false
   is_session=false
-  if [[ "$BASH_CMD" == *"/.claude/scripts/log.sh"* ]] || [[ "$BASH_CMD" =~ ^engine[[:space:]]+log[[:space:]] ]]; then
+  if is_engine_log_cmd "$BASH_CMD"; then
     is_log=true
   fi
-  if [[ "$BASH_CMD" == *"/.claude/scripts/session.sh"* ]] || [[ "$BASH_CMD" =~ ^engine[[:space:]]+session[[:space:]] ]]; then
+  if is_engine_session_cmd "$BASH_CMD"; then
     is_session=true
   fi
   if [ "$is_log" = true ] || [ "$is_session" = true ]; then
@@ -173,7 +172,7 @@ main() {
   if [ "$new_counter" -ge "$block_after" ]; then
     hook_deny \
       "§CMD_LOG_BETWEEN_TOOL_USES: $new_counter tool calls without logging. Tool DENIED." \
-      "You MUST Read the log template first, then log your progress before making any more tool calls.\nLog command: ~/.claude/scripts/log.sh $log_file <<'EOF'\n## [YYYY-MM-DD HH:MM:SS] [Entry Type]\n*   **Item**: ...\nEOF\nYou MUST Read this template for the required format: $template_path" \
+      "You MUST Read the log template first, then log your progress before making any more tool calls.\nLog command: engine log $log_file <<'EOF'\n## [YYYY-MM-DD HH:MM:SS] [Entry Type]\n*   **Item**: ...\nEOF\nYou MUST Read this template for the required format: $template_path" \
       ""
   fi
 
@@ -184,7 +183,7 @@ main() {
   "hookSpecificOutput": {
     "hookEventName": "PreToolUse",
     "permissionDecision": "allow",
-    "permissionDecisionReason": "§CMD_LOG_BETWEEN_TOOL_USES: $new_counter/$block_after tool calls without logging. Log soon.\nLog command: ~/.claude/scripts/log.sh $log_file\nTemplate (MUST Read first): $template_path"
+    "permissionDecisionReason": "§CMD_LOG_BETWEEN_TOOL_USES: $new_counter/$block_after tool calls without logging. Log soon.\nLog command: engine log $log_file\nTemplate (MUST Read first): $template_path"
   }
 }
 HOOKEOF

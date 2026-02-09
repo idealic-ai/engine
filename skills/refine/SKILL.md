@@ -48,7 +48,8 @@ ARGUMENTS: Accepts optional flags:
     {"major": 6, "minor": 0, "name": "Synthesis"}
   ],
   "nextSkills": ["/refine", "/test", "/implement", "/analyze", "/chores"],
-  "directives": ["TESTING.md", "PITFALLS.md"],
+  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK", "/delegation-review"],
+  "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
   "planTemplate": "~/.claude/skills/refine/assets/TEMPLATE_REFINE_PLAN.md",
   "logTemplate": "~/.claude/skills/refine/assets/TEMPLATE_REFINE_LOG.md",
   "debriefTemplate": "~/.claude/skills/refine/assets/TEMPLATE_REFINE.md",

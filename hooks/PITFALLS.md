@@ -22,6 +22,11 @@ Known gotchas and traps when working with hooks. Read before modifying any hook.
 **Trap**: A hook that calls `tmux display-message` or `fleet.sh` without checking `$TMUX` will error when run in a plain terminal or VSCode, potentially blocking tool use if the error message goes to stdout.
 **Mitigation**: Guard with `[ -n "${TMUX:-}" ]` before any tmux/fleet call, and always append `|| true` to fleet.sh invocations.
 
+### Heredoc bodies trigger pattern matching — strip before grep
+**Context**: Safety hooks use `grep -qE` with word-boundary patterns to detect destructive commands (e.g., `\brm\b.*-rf`, `\bgit\b.*push.*--force`). The hook receives the full bash command string including heredoc content.
+**Trap**: Commands like `engine log sessions/.../LOG.md <<'EOF'\n## Entry\n*   Ran rm -rf to clean up\nEOF` trigger false positives because `rm -rf` appears in the heredoc body — which is data (log content), not an executable command. This is especially common with `engine log` calls that document destructive commands in session logs.
+**Mitigation**: Strip heredoc bodies before pattern matching: `CMD="${CMD%%<<*}"`. This removes everything from the first `<<` onward. The stripping is greedy but safe — content after `<<` in Claude Code tool calls is always heredoc body, never executable commands.
+
 ### Per-agent counters use transcript_path as key — don't use PID
 **Context**: The heartbeat hook tracks tool call counts per agent using `transcript_path` basename as the key in `.state.json`. This isolates main agent counts from sub-agent counts.
 **Trap**: Using PID as the counter key fails because sub-agents launched via the Task tool may share the parent's PID in some execution models, or PIDs may be reused across context overflow restarts. Transcript paths are guaranteed unique per agent instance.

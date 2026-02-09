@@ -1,6 +1,10 @@
-# Dispatch Daemon
+# Dispatch Daemon (DEPRECATED)
 
-Automatic tag processor that watches `sessions/` for `#needs-*` tags and spawns Claude agents to handle them.
+> **Deprecated**: This standalone daemon has been superseded by `run.sh --monitor-tags` (daemon mode built into the Claude process supervisor). See `~/.claude/docs/DAEMON.md` for the current 4-state tag dispatch system.
+>
+> The standalone `dispatch-daemon.sh` script in this directory is no longer the recommended approach. Use `run.sh --monitor-tags '#delegated-implementation,#delegated-chores'` instead.
+
+Automatic tag processor that watches `sessions/` for `#delegated-*` tags and spawns Claude agents to handle them.
 
 ## Quick Start
 
@@ -86,9 +90,8 @@ dispatch-daemon.sh status
 # Log: /tmp/dispatch-daemon.log
 #
 # Recent log entries:
-# [2026-02-06 14:30:00] Detected #needs-research in sessions/.../REQUEST.md
-# [2026-02-06 14:30:00] Claimed: #needs-research -> #active-research
-# [2026-02-06 14:30:00] Spawning agent: agent-research-1707235200
+# [2026-02-06 14:30:00] Detected #delegated-research in sessions/.../REQUEST.md
+# [2026-02-06 14:30:00] Spawning /delegation-claim for batch dispatch
 ```
 
 ### Stopping the Daemon
@@ -103,28 +106,29 @@ dispatch-daemon.sh stop
 
 ## Tag Routing
 
+> **Note**: The current system watches `#delegated-*` tags (not `#needs-*`). See `¶INV_NEEDS_IS_STAGING`.
+
 The daemon reads the `§TAG_DISPATCH` table from `~/.claude/directives/TAGS.md`:
 
 | Tag | Skill | Notes |
 |-----|-------|-------|
-| `#needs-brainstorm` | `/brainstorm` | Exploration and trade-off analysis |
-| `#needs-research` | `/research` | Gemini Deep Research |
-| `#needs-implementation` | `/implement` | Code implementation |
-| `#needs-chores` | `/chores` | Small self-contained tasks |
-| `#needs-documentation` | `/document` | Documentation pass |
-| `#needs-review` | `/review` | Review debrief |
+| `#delegated-brainstorm` | `/brainstorm` | Exploration and trade-off analysis |
+| `#delegated-research` | `/research` | Gemini Deep Research |
+| `#delegated-implementation` | `/implement` | Code implementation |
+| `#delegated-chores` | `/chores` | Small self-contained tasks |
+| `#delegated-documentation` | `/document` | Documentation pass |
 
-To add new tag types, add a row to the `§TAG_DISPATCH` table in TAGS.md.
+To add new tag types, create a `TEMPLATE_*_REQUEST.md` in the skill's `assets/` directory (dynamic discovery).
 
 ## Coordination
 
 ### Tag Lifecycle
 
 ```
-#needs-X  ──daemon claims──>  #active-X  ──agent completes──>  #done-X
+#needs-X → #delegated-X → #claimed-X → #done-X
 ```
 
-The daemon swaps `#needs-X` to `#active-X` **before** spawning the agent. This prevents double-processing by parallel daemons or manual `/dispatch` runs.
+The 4-state lifecycle requires human approval (`/delegation-review`) to transition `#needs-X` → `#delegated-X`. The daemon watches only `#delegated-X` tags. Workers claim via `/delegation-claim` (`#delegated-X` → `#claimed-X`) before starting work.
 
 ### Debouncing
 
@@ -167,9 +171,9 @@ If the daemon crashes and restarts, it re-reads tags and continues correctly.
 
 ### ¶INV_CLAIM_BEFORE_WORK
 
-An agent MUST swap `#needs-X` -> `#active-X` before starting work.
+A worker MUST swap `#delegated-X` → `#claimed-X` before starting work.
 
-The daemon handles this: it swaps the tag before spawning the agent. This prevents race conditions with parallel agents.
+The `/delegation-claim` skill handles this via `tag.sh swap`. The swap errors (exit 1) if the old tag is already gone — race condition safety.
 
 ## Troubleshooting
 

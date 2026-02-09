@@ -62,7 +62,7 @@ TARGET_DIR="${TARGET_DIR%/}"
 EXCLUDED_DIRS="node_modules .git sessions tmp dist build"
 
 # --- Directive file lists ---
-SOFT_FILES="README.md INVARIANTS.md TESTING.md PITFALLS.md"
+SOFT_FILES="README.md INVARIANTS.md TESTING.md PITFALLS.md CONTRIBUTING.md"
 HARD_FILES="CHECKLIST.md"
 
 # Determine which files to look for based on --type

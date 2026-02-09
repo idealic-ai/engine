@@ -1,5 +1,5 @@
 ### §CMD_PROCESS_DELEGATIONS
-**Definition**: Scans the current session's artifacts for unresolved bare `#needs-X` inline tags and invokes `/delegate` for each one. This is a synthesis step that runs between `§CMD_WALK_THROUGH_RESULTS` and `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`.
+**Definition**: Scans the current session's artifacts for unresolved bare `#needs-X` inline tags and invokes `/delegation-create` for each one. This is a synthesis step that runs between `§CMD_WALK_THROUGH_RESULTS` and `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`.
 **Trigger**: Called during skill synthesis phases. Positioned after walkthrough (which places tags) and before debrief (which captures final state).
 
 **Algorithm**:
@@ -23,8 +23,8 @@
 
 4.  **Process Each**: For each unresolved tag:
     *   Extract the tag, source file, line number, and surrounding context (from `--context` output)
-    *   Invoke `/delegate` via the Skill tool: `Skill(skill: "delegate", args: "[tag] [source context summary]")`
-    *   `/delegate` handles mode selection and REQUEST filing
+    *   Invoke `/delegation-create` via the Skill tool: `Skill(skill: "delegation-create", args: "[tag] [source context summary]")`
+    *   `/delegation-create` handles mode selection and REQUEST filing
 
 5.  **Report**: After all tags processed:
     > "Delegation processing complete: [N] REQUESTs filed."
@@ -35,7 +35,7 @@
 
 **Constraints**:
 *   **Order**: Process tags in document order (top to bottom across files). This ensures higher-priority items (closer to plan steps) are delegated first.
-*   **One at a Time**: Process tags sequentially, not in batch. Each invocation of `/delegate` may require user interaction (mode selection, confirmation).
+*   **One at a Time**: Process tags sequentially, not in batch. Each invocation of `/delegation-create` may require user interaction (mode selection, confirmation).
 *   **Skip Silently**: If no unresolved tags are found, return immediately without any chat output. Do not announce "no delegations found."
-*   **Filter Aggressively**: Avoid re-delegating items that were already handled by walkthrough triage or earlier `/delegate` invocations in the same session.
+*   **Filter Aggressively**: Avoid re-delegating items that were already handled by walkthrough triage or earlier `/delegation-create` invocations in the same session.
 *   **Tags-line vs Inline**: Only process INLINE tags. Tags on the `**Tags**:` line of a file are structural metadata, not delegation candidates (they're already discoverable by `tag.sh find`).

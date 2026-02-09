@@ -38,9 +38,9 @@ Checks and retrieves completed research results from Gemini Deep Research.
 ## 2. Discovery
 *Find open or abandoned research requests.*
 
-1.  **Execute**: `§CMD_FIND_TAGGED_FILES` for both `#needs-research` and `#active-research` across `sessions/`.
+1.  **Execute**: `§CMD_FIND_TAGGED_FILES` for both `#needs-research` and `#claimed-research` across `sessions/`.
     *   `#needs-research` — never started. Will need full query composition + API call.
-    *   `#active-research` — started but abandoned (previous session died). The request file contains an `## Active Research` section with the Interaction ID. Can resume by polling the existing interaction.
+    *   `#claimed-research` — started but abandoned (previous session died). The request file contains an `## Active Research` section with the Interaction ID. Can resume by polling the existing interaction.
 2.  **If none found**: Report "No open research requests." and stop.
 3.  **If one found**: Present it to the user for confirmation.
 4.  **If multiple found**: Present the list with status (new vs abandoned). User picks one.

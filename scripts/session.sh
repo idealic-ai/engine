@@ -401,7 +401,7 @@ case "$ACTION" in
       # Finds soft directives (README.md, INVARIANTS.md, TESTING.md, PITFALLS.md) and
       # hard directives (CHECKLIST.md — enforced at deactivation).
       # Skill filtering: core directives always shown; skill directives only if declared.
-      # See ¶INV_DIRECTORY_AWARENESS and ¶INV_CHECKLIST_BEFORE_CLOSE
+      # See ¶INV_DIRECTIVE_STACK and ¶INV_CHECKLIST_BEFORE_CLOSE
       DISCOVER_SCRIPT="$HOME/.claude/scripts/discover-directives.sh"
       if [ -x "$DISCOVER_SCRIPT" ]; then
         # Extract directoriesOfInterest from .state.json
@@ -811,6 +811,41 @@ case "$ACTION" in
           "    - [x] Verified item" \
           "    EOF")"
         DEACTIVATE_ERRORS+=("$checklist_err")
+      fi
+    fi
+
+    # --- Proof Gate (¶INV_PROVABLE_DEBRIEF_PIPELINE) ---
+    # Requires all declared provableDebriefItems to have proof in provenItems
+    PROVABLE_JSON=$(jq -r '(.provableDebriefItems // null)' "$STATE_FILE" 2>/dev/null || echo "null")
+    if [ "$PROVABLE_JSON" != "null" ]; then
+      PROVABLE_COUNT=$(echo "$PROVABLE_JSON" | jq 'length')
+      if [ "$PROVABLE_COUNT" -gt 0 ]; then
+        PROVEN_JSON=$(jq -r '(.provenItems // {})' "$STATE_FILE" 2>/dev/null || echo "{}")
+        MISSING_PROOF=()
+        while IFS= read -r item; do
+          [ -n "$item" ] || continue
+          HAS_PROOF=$(echo "$PROVEN_JSON" | jq --arg k "$item" 'has($k)')
+          if [ "$HAS_PROOF" != "true" ]; then
+            MISSING_PROOF+=("$item")
+          fi
+        done < <(echo "$PROVABLE_JSON" | jq -r '.[]')
+
+        if [ ${#MISSING_PROOF[@]} -gt 0 ]; then
+          proof_err="$(printf '%s\n%s\n%s' \
+            "¶INV_PROVABLE_DEBRIEF_PIPELINE: Cannot deactivate — ${#MISSING_PROOF[@]} debrief pipeline item(s) lack proof." \
+            "" \
+            "  Missing proof for:")"
+          for mp in "${MISSING_PROOF[@]}"; do
+            proof_err+=$'\n'"    - $mp"
+          done
+          proof_err+="$(printf '\n%s\n%s\n%s\n%s\n%s' \
+            "" \
+            "  To fix: Execute each pipeline step, then run:" \
+            "    session.sh prove $DIR <<'EOF'" \
+            "    §CMD_NAME: ran: description / skipped: reason" \
+            "    EOF")"
+          DEACTIVATE_ERRORS+=("$proof_err")
+        fi
       fi
     fi
 
@@ -1262,8 +1297,78 @@ case "$ACTION" in
     fi
     ;;
 
+  prove)
+    # Write proof of debrief pipeline execution to .state.json
+    #
+    # Usage:
+    #   session.sh prove <path> <<'EOF'
+    #   §CMD_MANAGE_DIRECTIVES: skipped: no files touched
+    #   §CMD_PROCESS_DELEGATIONS: ran: 2 bare tags processed
+    #   §CMD_CAPTURE_SIDE_DISCOVERIES: skipped: no side discoveries
+    #   §CMD_MANAGE_ALERTS: skipped: no alerts
+    #   §CMD_REPORT_LEFTOVER_WORK: ran: 1 item reported
+    #   /delegation-review: skipped: no #needs-X tags
+    #   EOF
+    #
+    # Each line: §CMD_NAME: <free text proof>
+    # Replaces .provenItems entirely (not merge).
+    # Deactivation gate checks provenItems keys against provableDebriefItems.
+
+    if [ ! -f "$STATE_FILE" ]; then
+      echo "§CMD_REQUIRE_ACTIVE_SESSION: No .state.json in $DIR — is the session active?" >&2
+      exit 1
+    fi
+
+    # Read proof from stdin
+    PROOF_INPUT=""
+    if [ ! -t 0 ]; then
+      PROOF_INPUT=$(cat)
+    fi
+
+    if [ -z "$PROOF_INPUT" ]; then
+      echo "¶INV_PROVABLE_DEBRIEF_PIPELINE: No proof provided on stdin." >&2
+      echo "" >&2
+      echo "  Usage: session.sh prove <path> <<'EOF'" >&2
+      echo "  §CMD_MANAGE_DIRECTIVES: skipped: no files touched" >&2
+      echo "  §CMD_PROCESS_DELEGATIONS: ran: 2 bare tags processed" >&2
+      echo "  EOF" >&2
+      exit 1
+    fi
+
+    # Parse proof lines into JSON object
+    # Format: §CMD_NAME: <text> → {"§CMD_NAME": "<text>"}
+    PROOF_JSON="{}"
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      # Extract command name (everything before first ': ')
+      CMD_NAME=$(echo "$line" | sed -n 's/^\(§CMD_[A-Z_]*\): .*/\1/p')
+      if [ -z "$CMD_NAME" ]; then
+        continue  # Skip non-matching lines
+      fi
+      # Extract proof text (everything after first ': ')
+      PROOF_TEXT=$(echo "$line" | sed "s/^${CMD_NAME}: //")
+      PROOF_JSON=$(echo "$PROOF_JSON" | jq --arg k "$CMD_NAME" --arg v "$PROOF_TEXT" '.[$k] = $v')
+    done <<< "$PROOF_INPUT"
+
+    # Count proven items
+    PROVEN_COUNT=$(echo "$PROOF_JSON" | jq 'length')
+    if [ "$PROVEN_COUNT" -eq 0 ]; then
+      echo "¶INV_PROVABLE_DEBRIEF_PIPELINE: No valid proof lines found in input." >&2
+      echo "  Each line must match: §CMD_NAME: <proof text>" >&2
+      exit 1
+    fi
+
+    # Write provenItems to .state.json (replace, not merge)
+    jq --argjson proof "$PROOF_JSON" --arg ts "$(timestamp)" \
+      '.provenItems = $proof | .lastHeartbeat = $ts' \
+      "$STATE_FILE" | safe_json_write "$STATE_FILE"
+
+    echo "¶INV_PROVABLE_DEBRIEF_PIPELINE: Proof recorded for $PROVEN_COUNT item(s)."
+    echo "$PROOF_JSON" | jq -r 'to_entries[] | "  \(.key): \(.value)"'
+    ;;
+
   *)
-    echo "§CMD_MAINTAIN_SESSION_DIR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart, check, request-template" >&2
+    echo "§CMD_MAINTAIN_SESSION_DIR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart, check, prove, request-template" >&2
     exit 1
     ;;
 esac

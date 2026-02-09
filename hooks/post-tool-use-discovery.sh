@@ -18,8 +18,14 @@
 #     Keys = directories encountered. Values = directive files already suggested.
 #   discoveredChecklists: ["/abs/path/CHECKLIST.md"]
 #     All CHECKLIST.md files found — compared against processedChecklists at deactivate.
-#   directives: ["TESTING.md", "PITFALLS.md"]
+#   directives: ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"]
 #     Skill-declared directive types (from session parameters).
+#   pendingDirectives: ["/abs/path/README.md", "/abs/path/INVARIANTS.md"]
+#     Directive files discovered but not yet read by the agent. Cleared by
+#     pre-tool-use-directive-gate.sh when the agent reads each file.
+#   directiveReadsWithoutClearing: 0
+#     Counter of tool calls since pendingDirectives was last populated. Used by
+#     the directive gate hook for escalating enforcement.
 #
 # Behavior:
 #   - Only fires on Read, Edit, Write tools (matcher restricts to these)
@@ -36,7 +42,7 @@
 #     discover-directives.sh — Core discovery logic
 #     session.sh — Session state management
 #   Invariants: (~/.claude/standards/INVARIANTS.md)
-#     ¶INV_DIRECTORY_AWARENESS — Agents must be aware of directive markdown files
+#     ¶INV_DIRECTIVE_STACK — Agents must be aware of directive markdown files
 #     ¶INV_CHECKLIST_BEFORE_CLOSE — Session can't close with unprocessed checklists
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Graceful degradation without fleet
 
@@ -169,6 +175,17 @@ if [ ${#NEW_SOFT_FILES[@]} -gt 0 ]; then
     "$STATE_FILE" | safe_json_write "$STATE_FILE"
 fi
 
+# Add new soft files to pendingDirectives for enforcement gate
+if [ ${#NEW_SOFT_FILES[@]} -gt 0 ]; then
+  for f in "${NEW_SOFT_FILES[@]}"; do
+    jq --arg file "$f" \
+      '(.pendingDirectives //= []) | if (.pendingDirectives | index($file)) then . else .pendingDirectives += [$file] end' \
+      "$STATE_FILE" | safe_json_write "$STATE_FILE"
+  done
+  # Reset the directive-read counter when new directives are added
+  jq '.directiveReadsWithoutClearing = 0' "$STATE_FILE" | safe_json_write "$STATE_FILE"
+fi
+
 # Add new CHECKLIST.md files to discoveredChecklists
 if [ -n "$HARD_FILES" ]; then
   while IFS= read -r file; do
@@ -192,7 +209,7 @@ if [ ${#NEW_SOFT_FILES[@]} -gt 0 ]; then
 {
   "hookSpecificOutput": {
     "hookEventName": "PostToolUse",
-    "message": "¶INV_DIRECTORY_AWARENESS: Directives discovered near ${DIR_PATH}:${FILE_LIST}\nConsider reading these for context relevant to your current work."
+    "message": "¶INV_DIRECTIVE_STACK: Directives discovered near ${DIR_PATH}:${FILE_LIST}\nConsider reading these for context relevant to your current work."
   }
 }
 HOOKEOF

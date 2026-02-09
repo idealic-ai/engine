@@ -73,7 +73,7 @@ Slots for areas you don't know yet. Create "Future" agents to reserve space.
    ```
    Announce: "Detected identity: **{USERNAME}** ({EMAIL})"
 
-2. **Check for existing config**: Use `fleet.sh` to detect existing configs:
+2. **Check for existing config**: Use `engine fleet` to detect existing configs:
    ```bash
    engine fleet status
    ```
@@ -265,7 +265,7 @@ Delegation tags are used by the dispatch daemon to route work to the right agent
 
 ### Placeholder Agents
 
-For areas mentioned as "might work on soon" — no agent, no description, just `fleet.sh wait`:
+For areas mentioned as "might work on soon" — no agent, no description, just `engine fleet wait`:
 ```yaml
 - {workgroup}-future-1:
     - export TMUX_PANE_TITLE="{workgroup}-future-1"
@@ -328,12 +328,12 @@ tmux -L fleet set-option -p @pane_label "{NEW_LABEL}"
 
 Execute `AskUserQuestion` (multiSelect: false):
 > "Make this permanent in fleet.yml?"
-> - **"Yes — persist across fleet restarts"** — Update yml config so this survives `fleet.sh start`
+> - **"Yes — persist across fleet restarts"** — Update yml config so this survives `engine fleet start`
 > - **"No — temporary until restart"** — Keep as runtime-only change (reverts on next fleet launch)
 
 #### Step 5: Update Yml (if user said Yes)
 
-1. **Get yml path** (use `fleet.sh config-path` for dynamic resolution):
+1. **Get yml path** (use `engine fleet config-path` for dynamic resolution):
    ```bash
    # Default fleet config:
    YML_PATH=$(engine fleet config-path)
@@ -348,7 +348,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 3. **Update the pane block**:
    - Change the pane key (e.g., `domain-future-2` → `domain-research`)
    - Update `@pane_label` value
-   - Replace `fleet.sh wait` with `run.sh --agent {TYPE} --description "{DESC}" --focus "{FOCUS}"`
+   - Replace `engine fleet wait` with `engine run --agent {TYPE} --description "{DESC}" --focus "{FOCUS}"`
    - Add env var exports for description/focus
 
    **Before (placeholder)**:
@@ -459,19 +459,19 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
    ```
 
 2. **Generate tmuxinator config**:
-   - Location: Resolve via `fleet.sh config-path [workgroup]`
+   - Location: Resolve via `engine fleet config-path [workgroup]`
    - Default fleet: `tmux_command: tmux -L fleet -f ~/.claude/engine/skills/fleet/assets/tmux.conf`
    - Workgroup fleet: `tmux_command: tmux -L fleet-{workgroup} -f ~/.claude/engine/skills/fleet/assets/tmux.conf`
    - Each active pane exports `AGENT_DESCRIPTION` and calls `run.sh --agent {type} --description "$AGENT_DESCRIPTION"`
-   - Placeholder panes call `fleet.sh wait` (no agent, no description)
+   - Placeholder panes call `engine fleet wait` (no agent, no description)
    - Pool workers use `run.sh --monitor-tags` with delegation tags, `--agent`, and `--description`
 
 3. **Report**:
    ```
    Fleet configured!
 
-   To start default:  fleet.sh start
-   To start workgroup: fleet.sh start {workgroup}
+   To start default:  engine fleet start
+   To start workgroup: engine fleet start {workgroup}
    To update: /fleet update
    To rearrange: /fleet rearrange
    ```

@@ -424,8 +424,8 @@ daemon_scan_with_debounce() {
   daemon_scan_for_work || echo "$initial_results"
 }
 
-# Process a batch of delegated work items: spawn /claim to handle claiming + routing
-# The daemon no longer claims work directly — /claim handles #delegated-X → #claimed-X
+# Process a batch of delegated work items: spawn /delegation-claim to handle claiming + routing
+# The daemon no longer claims work directly — /delegation-claim handles #delegated-X → #claimed-X
 daemon_process_work() {
   local scan_results="$1"
   local start_time
@@ -441,12 +441,12 @@ daemon_process_work() {
   WATCHDOG_PID=$(start_watchdog)
   export WATCHDOG_PID
 
-  # Spawn Claude with /claim — it handles scanning, grouping, claiming, and routing
-  # /claim will re-scan for #delegated-* tags and present them for worker approval
+  # Spawn Claude with /delegation-claim — it handles scanning, grouping, claiming, and routing
+  # /delegation-claim will re-scan for #delegated-* tags and present them for worker approval
   local daemon_prompt="$SYSTEM_PROMPT_ADDITIONS
-DAEMON_MODE: You were spawned by the daemon (run.sh --monitor-tags). Run /claim to pick up delegated work items. After /claim routes you to a target skill and you complete it, EXIT immediately — do NOT offer a next-skill menu or ask 'What's next?'. The daemon will automatically pick up the next batch of delegated items."
+DAEMON_MODE: You were spawned by the daemon (run.sh --monitor-tags). Run /delegation-claim to pick up delegated work items. After /delegation-claim routes you to a target skill and you complete it, EXIT immediately — do NOT offer a next-skill menu or ask 'What's next?'. The daemon will automatically pick up the next batch of delegated items."
   set +e
-  "$CLAUDE_BIN" --append-system-prompt "$daemon_prompt" "/claim"
+  "$CLAUDE_BIN" --append-system-prompt "$daemon_prompt" "/delegation-claim"
   set -e
 
   # Cleanup watchdog

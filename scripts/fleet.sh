@@ -126,6 +126,10 @@ update_window_notify() {
     else
         $TMUX_CMD set-option -w @window_notify "done" 2>/dev/null || true
     fi
+
+    # Force immediate status bar redraw so window tab colors update instantly
+    # (setting @window_notify alone doesn't trigger a redraw — tmux waits for status-interval)
+    $TMUX_CMD refresh-client -S 2>/dev/null || true
 }
 
 

@@ -1,6 +1,6 @@
 # Tests — Engine Scripts
 
-Bash test suites for the workflow engine scripts. Auto-plugged into agent context via `¶INV_DIRECTORY_AWARENESS`.
+Bash test suites for the workflow engine scripts. Auto-plugged into agent context via `¶INV_DIRECTIVE_STACK`.
 
 ## Quick Start
 
