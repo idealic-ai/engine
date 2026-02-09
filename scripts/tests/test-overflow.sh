@@ -139,6 +139,46 @@ assert_contains '"allow"' "$OUT" "session.sh allowed even during overflow"
 
 echo ""
 
+# --- A2b. Bash whitelist: engine log (during overflow) ---
+echo "--- A2b. Bash whitelist: engine log ---"
+reset_state
+set_context_usage 0.80
+
+OUT=$(run_hook "Bash" '{"command":"engine log sessions/test/LOG.md"}')
+assert_contains '"allow"' "$OUT" "engine log allowed during overflow"
+
+echo ""
+
+# --- A2c. Bash whitelist: engine session (during overflow) ---
+echo "--- A2c. Bash whitelist: engine session ---"
+reset_state
+set_context_usage 0.80
+
+OUT=$(run_hook "Bash" '{"command":"engine session dehydrate sessions/test"}')
+assert_contains '"allow"' "$OUT" "engine session allowed during overflow"
+
+echo ""
+
+# --- A2d. Adversarial: non-whitelisted engine subcommand during overflow ---
+echo "--- A2d. Non-whitelisted engine subcommand ---"
+reset_state
+set_context_usage 0.80
+
+OUT=$(run_hook "Bash" '{"command":"engine tag find #needs-review"}')
+assert_contains '"deny"' "$OUT" "engine tag denied during overflow (only log/session whitelisted)"
+
+echo ""
+
+# --- A2e. Adversarial: partial engine match ---
+echo "--- A2e. Partial engine match ---"
+reset_state
+set_context_usage 0.80
+
+OUT=$(run_hook "Bash" '{"command":"engineering-tool log stuff"}')
+assert_contains '"deny"' "$OUT" "engineering-tool denied during overflow (not engine CLI)"
+
+echo ""
+
 # --- A3. Skill(dehydrate) sets lifecycle=dehydrating ---
 echo "--- A3. Skill(dehydrate) ---"
 reset_state

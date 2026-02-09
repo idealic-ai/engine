@@ -23,7 +23,18 @@
 #   - curl, jq
 
 
-: "${GEMINI_API_KEY:?GEMINI_API_KEY is required — set it in your environment}"
+# Source .env if GEMINI_API_KEY not already set
+if [ -z "${GEMINI_API_KEY:-}" ]; then
+  for envfile in .env "$HOME/.env" "$HOME/.claude/.env"; do
+    if [ -f "$envfile" ] && grep -q '^GEMINI_API_KEY=' "$envfile" 2>/dev/null; then
+      export GEMINI_API_KEY
+      GEMINI_API_KEY=$(grep '^GEMINI_API_KEY=' "$envfile" | head -1 | cut -d= -f2-)
+      break
+    fi
+  done
+fi
+
+: "${GEMINI_API_KEY:?GEMINI_API_KEY is required — set it in your environment or .env file}"
 export GEMINI_API_KEY
 
 set -euo pipefail

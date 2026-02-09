@@ -70,7 +70,8 @@ fi
 # Matches both full path (~/.claude/scripts/log.sh) and engine CLI (engine log ...)
 if [ "$TOOL_NAME" = "Bash" ]; then
   BASH_CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
-  local is_log=false is_session=false
+  is_log=false
+  is_session=false
   if [[ "$BASH_CMD" == *"/.claude/scripts/log.sh"* ]] || [[ "$BASH_CMD" =~ ^engine[[:space:]]+log[[:space:]] ]]; then
     is_log=true
   fi

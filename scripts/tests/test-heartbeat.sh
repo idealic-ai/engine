@@ -143,6 +143,25 @@ assert_eq "0" "$COUNTER" "log.sh resets counter to 0"
 
 echo ""
 
+# --- 2b. Bash whitelist: engine log resets counter ---
+echo "--- 2b. Bash whitelist: engine log ---"
+
+set_counter 5
+OUT=$(run_hook "Bash" '{"command":"engine log sessions/test/TESTING_LOG.md"}')
+assert_contains '"allow"' "$OUT" "engine log allowed"
+
+COUNTER=$(get_counter)
+assert_eq "0" "$COUNTER" "engine log resets counter to 0"
+
+# Edge case: engine log with heredoc content
+set_counter 7
+OUT=$(run_hook "Bash" '{"command":"engine log sessions/foo/LOG.md <<EOF\n## Entry\nEOF"}')
+assert_contains '"allow"' "$OUT" "engine log with heredoc allowed"
+COUNTER=$(get_counter)
+assert_eq "0" "$COUNTER" "engine log with heredoc resets counter"
+
+echo ""
+
 # --- 3. Bash whitelist: session.sh (no reset) ---
 echo "--- 3. Bash whitelist: session.sh ---"
 
@@ -153,6 +172,23 @@ assert_contains '"allow"' "$OUT" "session.sh allowed"
 # Counter should still be 5 (session.sh doesn't reset)
 COUNTER=$(get_counter)
 assert_eq "5" "$COUNTER" "session.sh doesn't reset counter"
+
+# --- 3b. Bash whitelist: engine session (no reset) ---
+echo "--- 3b. Bash whitelist: engine session ---"
+
+set_counter 5
+OUT=$(run_hook "Bash" '{"command":"engine session phase sessions/foo \"4: Fix Loop\""}')
+assert_contains '"allow"' "$OUT" "engine session allowed"
+
+COUNTER=$(get_counter)
+assert_eq "5" "$COUNTER" "engine session doesn't reset counter"
+
+# Adversarial: engine without whitelisted subcommand
+set_counter 3
+OUT=$(run_hook "Bash" '{"command":"engine setup"}')
+# Non-whitelisted engine commands should increment counter like any other Bash call
+COUNTER=$(get_counter)
+assert_eq "4" "$COUNTER" "engine setup increments counter (not whitelisted)"
 
 echo ""
 

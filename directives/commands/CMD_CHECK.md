@@ -20,7 +20,7 @@ EOF
 
 **Purpose**: Ensures no bare unescaped inline lifecycle tags remain in session artifacts.
 
-**What it checks**: Scans all `.md` files in the session directory for bare `#needs-*`, `#active-*`, `#done-*` tags. Excludes:
+**What it checks**: Scans all `.md` files in the session directory for bare `#needs-*`, `#claimed-*`, `#done-*` tags. Excludes:
 *   Tags on the `**Tags**:` line (those are intentional)
 *   Backtick-escaped references (`` `#needs-*` ``)
 

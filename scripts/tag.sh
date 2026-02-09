@@ -94,7 +94,20 @@ case "$ACTION" in
       fi
     else
       # Tags-line only: anchor to **Tags**: line
+      # Safety check: verify at least one old tag exists before swapping
+      # Prevents double-claiming race conditions (¶INV_CLAIM_BEFORE_WORK)
       IFS=',' read -ra OLD_TAGS <<< "$OLD"
+      local_found=0
+      for old_tag in "${OLD_TAGS[@]}"; do
+        if grep '^\*\*Tags\*\*:' "$FILE" | grep -q "$old_tag"; then
+          local_found=1
+          break
+        fi
+      done
+      if [[ $local_found -eq 0 ]]; then
+        echo "ERROR: None of '$OLD' found on Tags line of $FILE (already claimed?)" >&2
+        exit 1
+      fi
       for old_tag in "${OLD_TAGS[@]}"; do
         sed -i '' "/^\*\*Tags\*\*:/ s/$old_tag/$NEW/g" "$FILE"
       done

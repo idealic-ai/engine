@@ -75,8 +75,8 @@ Skills that support structured delegation have `_REQUEST.md` and `_RESPONSE.md` 
 
 **Lifecycle**:
 ```
-#needs-X  →  #active-X  →  #done-X
- (open)      (claimed)     (complete)
+#needs-X  →  #claimed-X  →  #done-X
+ (open)      (claimed)      (complete)
 ```
 
 ### 2.3 Research Handoff
@@ -98,15 +98,15 @@ Skills that support structured delegation have `_REQUEST.md` and `_RESPONSE.md` 
 
 **Lifecycle**:
 ```
-#needs-research  →  #active-research  →  #done-research
-   (queued)          (API call in-flight)  (report ready)
+#needs-research  →  #claimed-research  →  #done-research
+   (queued)          (API call in-flight)   (report ready)
 ```
 
 ---
 
 ## 3. Tag Lifecycle
 
-All coordination uses the `#needs-X` / `#active-X` / `#done-X` pattern.
+All coordination uses the `#needs-X` / `#claimed-X` / `#done-X` pattern.
 
 ### State Transitions
 
@@ -117,7 +117,7 @@ All coordination uses the `#needs-X` / `#active-X` / `#done-X` pattern.
          │ Agent claims work (swap tag)
          ▼
 ┌─────────────────┐
-│  #active-X      │  Work in progress, claimed by agent
+│  #claimed-X     │  Work in progress, claimed by agent
 └────────┬────────┘
          │ Agent completes work (swap tag)
          ▼
@@ -128,16 +128,16 @@ All coordination uses the `#needs-X` / `#active-X` / `#done-X` pattern.
 
 ### Claiming Semantics
 
-**CRITICAL**: An agent MUST swap `#needs-X` → `#active-X` **before** starting work.
+**CRITICAL**: An agent MUST swap `#needs-X` → `#claimed-X` **before** starting work.
 
 This prevents double-processing:
-1. Agent A sees `#needs-implementation`, swaps to `#active-implementation`
-2. Agent B sees `#active-implementation`, skips (already claimed)
+1. Agent A sees `#needs-implementation`, swaps to `#claimed-implementation`
+2. Agent B sees `#claimed-implementation`, skips (already claimed)
 3. Agent A completes, swaps to `#done-implementation`
 
 **Implementation**:
 ```bash
-engine tag swap "$FILE" '#needs-implementation' '#active-implementation'
+engine tag swap "$FILE" '#needs-implementation' '#claimed-implementation'
 ```
 
 ### Tag Discovery
@@ -201,7 +201,7 @@ The dispatch daemon is a background process that automatically processes tagged 
 - `tmux` for agent window management
 - Stateless — tags ARE the state
 
-**Invariant** (`¶INV_DAEMON_STATELESS`): The daemon MUST NOT maintain state beyond what tags encode. `#active-X` IS the claim state.
+**Invariant** (`¶INV_DAEMON_STATELESS`): The daemon MUST NOT maintain state beyond what tags encode. `#claimed-X` IS the claim state.
 
 ### 5.2 Routing
 
@@ -255,17 +255,17 @@ cat sessions/2026_02_06_MY_SESSION/.state.json
 **Detection method**: `.state.json` PID liveness check
 
 **Algorithm**:
-1. Agent claims work (swaps `#needs-X` → `#active-X`)
+1. Agent claims work (swaps `#needs-X` → `#claimed-X`)
 2. Agent writes session reference to request file
 3. Agent writes PID to `.state.json` in session dir
-4. If daemon sees `#active-X` with no `#done-X`:
+4. If daemon sees `#claimed-X` with no `#done-X`:
    - Check PID from `.state.json`
    - Dead PID = failed work
    - Options: re-queue (swap back to `#needs-X`) or alert
 
 **Failure states**:
-- `#active-X` + dead PID + no `#done-X` = crashed mid-work
-- `#active-X` + live PID = still running (ok)
+- `#claimed-X` + dead PID + no `#done-X` = crashed mid-work
+- `#claimed-X` + live PID = still running (ok)
 - `#done-X` = complete (ignore)
 
 ---
@@ -315,7 +315,7 @@ Bash("engine await-tag sessions/.../RESEARCH_REQUEST_MARKET_SIZE.md '#done-resea
 # (via §CMD_TAG_FILE or §CMD_HANDLE_INLINE_TAG)
 
 # 2. Worker (or manual /find-tagged) sees #needs-implementation
-# 3. Builder agent spawns, swaps to #active-implementation
+# 3. Builder agent spawns, swaps to #claimed-implementation
 # 4. Builder completes, swaps to #done-implementation
 ```
 
@@ -346,13 +346,13 @@ Bash("engine await-tag sessions/.../RESEARCH_REQUEST_MARKET_SIZE.md '#done-resea
 
 ## 8. Failure Recovery
 
-### Stale `#active-*` Tags
+### Stale `#claimed-*` Tags
 
-**Symptom**: `tag.sh find '#active-implementation'` returns files, but no agent is working on them.
+**Symptom**: `tag.sh find '#claimed-implementation'` returns files, but no agent is working on them.
 
 **Diagnosis**:
 ```bash
-# For each file with #active-X:
+# For each file with #claimed-X:
 # 1. Check for ## Response section — if exists, should be #done-X (bug)
 # 2. Check session referenced — read .state.json for PID
 # 3. Check PID liveness: kill -0 $PID (0 = alive, nonzero = dead)
@@ -361,10 +361,10 @@ Bash("engine await-tag sessions/.../RESEARCH_REQUEST_MARKET_SIZE.md '#done-resea
 **Recovery**:
 ```bash
 # Option A: Re-queue (swap back to #needs-X)
-engine tag swap "$FILE" '#active-implementation' '#needs-implementation'
+engine tag swap "$FILE" '#claimed-implementation' '#needs-implementation'
 
 # Option B: Manual completion (if work was done)
-engine tag swap "$FILE" '#active-implementation' '#done-implementation'
+engine tag swap "$FILE" '#claimed-implementation' '#done-implementation'
 ```
 
 ### Dead PIDs
@@ -384,7 +384,7 @@ ls sessions/2026_02_06_MY_SESSION/IMPLEMENTATION.md
 
 When automatically re-queuing failed work:
 
-1. Swap `#active-X` → `#needs-X`
+1. Swap `#claimed-X` → `#needs-X`
 2. Add a `## Recovery` section to the request file:
    ```markdown
    ## Recovery
@@ -402,11 +402,11 @@ When automatically re-queuing failed work:
 These invariants govern handoff behavior. Violations cause coordination failures.
 
 ### ¶INV_CLAIM_BEFORE_WORK
-An agent MUST swap `#needs-X` → `#active-X` before starting work on a tagged item.
+An agent MUST swap `#needs-X` → `#claimed-X` before starting work on a tagged item.
 
 **Rule**: When a daemon-spawned or manually-triggered agent begins work on a tagged request, it must immediately claim the work by swapping the tag. This prevents double-processing by parallel agents.
 
-**Reason**: Stateless coordination. Tags are the state — `#active-X` means "someone is working on this."
+**Reason**: Stateless coordination. Tags are the state — `#claimed-X` means "someone is working on this."
 
 ### ¶INV_DAEMON_STATELESS
 The dispatch daemon MUST NOT maintain state beyond what tags encode.

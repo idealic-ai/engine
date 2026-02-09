@@ -113,12 +113,25 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Reason**: Consistent patterns reduce cognitive load and maintenance burden.
 
 
-*   **¶INV_CLAIM_BEFORE_WORK**: An agent MUST swap `#needs-X` → `#active-X` before starting work on a tagged item.
-    *   **Rule**: When a daemon-spawned or manually-triggered agent begins work on a tagged request, it must immediately claim the work by swapping the tag. This prevents double-processing by parallel agents.
-    *   **Reason**: Stateless coordination. Tags are the state — `#active-X` means "someone is working on this."
+*   **¶INV_CLAIM_BEFORE_WORK**: An agent MUST swap `#delegated-X` → `#claimed-X` before starting work on a tagged item.
+    *   **Rule**: When a daemon-spawned or manually-triggered agent begins work on a tagged request, it must immediately claim the work by swapping the tag via `/claim`. This prevents double-processing by parallel agents. The swap uses `tag.sh swap`, which errors if the old tag is already gone (race condition safety — another worker already claimed it).
+    *   **Reason**: Stateless coordination. Tags are the state — `#claimed-X` means "someone is working on this." The `#delegated-X` → `#claimed-X` transition (not `#needs-X` → `#claimed-X`) ensures work was human-approved before any worker touches it.
+
+*   **¶INV_NEEDS_IS_STAGING**: `#needs-X` is a staging tag. Daemons MUST NOT monitor `#needs-X`.
+    *   **Rule**: `#needs-X` means "work identified, pending human review." Only `#delegated-X` triggers autonomous daemon dispatch. The transition `#needs-X` → `#delegated-X` requires human approval via `§CMD_DISPATCH_APPROVAL`.
+    *   **Rule**: Agents may freely create `#needs-X` tags (via `§CMD_HANDLE_INLINE_TAG`, `§CMD_CAPTURE_SIDE_DISCOVERIES`, REQUEST file creation). These tags are inert until a human explicitly approves dispatch.
+    *   **Reason**: Eliminates the race condition where daemons grab work the instant a tag appears, before the user has reviewed or batched related items.
+
+*   **¶INV_DISPATCH_APPROVAL_REQUIRED**: The `#needs-X` → `#delegated-X` transition requires human approval.
+    *   **Rule**: Agents MUST NOT auto-flip `#needs-X` → `#delegated-X` without presenting the dispatch approval walkthrough (`§CMD_DISPATCH_APPROVAL`). The human reviews each tagged item and approves, defers, or dismisses.
+    *   **Reason**: The user is the authority on what gets dispatched. Batch review during synthesis enables informed decision-making about which work items are ready for autonomous processing.
+
+*   **¶INV_DAEMON_DEBOUNCE**: After detecting a `#delegated-X` tag, the daemon MUST wait 3 seconds before scanning and dispatching.
+    *   **Rule**: The debounce allows batch writes to settle — when `§CMD_DISPATCH_APPROVAL` flips multiple tags, the daemon collects all `#delegated-X` items after the debounce window, groups by tag type, and spawns one Claude per group.
+    *   **Reason**: Without debounce, the daemon would spawn separate Claude instances for each tag flip in rapid succession. Debounce enables intelligent batching.
 
 *   **¶INV_ESCAPE_BY_DEFAULT**: All lifecycle tags in body text MUST be backtick-escaped unless intentional.
-    *   **Rule**: `#needs-*`, `#active-*`, and `#done-*` tags in body text (logs, details, plans, debriefs) must be backtick-escaped (`` `#needs-*` ``) unless they are intentional discoverable tags on the `**Tags**:` line or explicitly promoted/acknowledged inline tags.
+    *   **Rule**: `#needs-*`, `#delegated-*`, `#claimed-*`, and `#done-*` tags in body text (logs, details, plans, debriefs) must be backtick-escaped (`` `#needs-*` ``) unless they are intentional discoverable tags on the `**Tags**:` line or explicitly promoted/acknowledged inline tags.
     *   **Enforcement**: `session.sh check` scans session artifacts for bare inline lifecycle tags during synthesis. Each bare tag must be either PROMOTED (→ request file + escape inline) or ACKNOWLEDGED (→ marked intentional) before synthesis can complete.
     *   **Reason**: Bare inline tags in non-discoverable contexts pollute `tag.sh find` results. Escape-by-default ensures every surviving bare tag represents a real, actionable work item.
 

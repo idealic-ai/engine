@@ -152,6 +152,39 @@ assert_contains '"allow"' "$OUT" "Bash: glob.sh whitelisted"
 
 echo ""
 
+# --- 4b. Bash whitelist: engine CLI shorthand ---
+echo "--- 4b. Bash whitelist: engine CLI ---"
+
+OUT=$(run_hook "Bash" '{"command":"engine session activate sessions/foo test"}')
+assert_contains '"allow"' "$OUT" "Bash: engine session whitelisted"
+
+OUT=$(run_hook "Bash" '{"command":"engine log sessions/foo/LOG.md"}')
+assert_contains '"allow"' "$OUT" "Bash: engine log whitelisted"
+
+OUT=$(run_hook "Bash" '{"command":"engine tag find #needs-review"}')
+assert_contains '"allow"' "$OUT" "Bash: engine tag whitelisted"
+
+OUT=$(run_hook "Bash" '{"command":"engine glob *.md sessions/"}')
+assert_contains '"allow"' "$OUT" "Bash: engine glob whitelisted"
+
+# Edge cases: engine with extra whitespace, partial match
+OUT=$(run_hook "Bash" '{"command":"engine  session  phase foo"}')
+assert_contains '"allow"' "$OUT" "Bash: engine session with extra spaces"
+
+# Adversarial: engine without subcommand should NOT be whitelisted
+OUT=$(run_hook "Bash" '{"command":"engine"}')
+assert_contains '"deny"' "$OUT" "Bash: bare engine denied without session"
+
+# Adversarial: engine with non-whitelisted subcommand
+OUT=$(run_hook "Bash" '{"command":"engine setup"}')
+assert_contains '"deny"' "$OUT" "Bash: engine setup denied without session"
+
+# Adversarial: something that starts with 'engine' but isn't the CLI
+OUT=$(run_hook "Bash" '{"command":"engineering-tool run"}')
+assert_contains '"deny"' "$OUT" "Bash: engineering-tool not whitelisted"
+
+echo ""
+
 # --- 5. Bash non-whitelisted denied ---
 echo "--- 5. Bash non-whitelisted ---"
 

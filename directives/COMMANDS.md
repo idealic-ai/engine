@@ -696,6 +696,11 @@ engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name" --user-approved "
     *   Outputs a concise report in chat + appends to session log.
     *   Gives the user context for their next-skill choice.
     *   Skips silently if no leftover items found.
+11b. **Dispatch Approval**: Execute `§CMD_DISPATCH_APPROVAL`.
+    *   Scans current session for `#needs-X` tags (excluding review/rework).
+    *   Groups by tag type, presents walkthrough for user to approve → flip to `#delegated-X`.
+    *   Approved items become visible to the daemon for autonomous dispatch.
+    *   Skips silently if no `#needs-X` tags found.
 12.  **Deactivate & Prompt Next Skill**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`.
     *   Deactivates the session with description and keywords, then presents the skill progression menu.
 
@@ -933,7 +938,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **Reference**: `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md`
 
 ### §CMD_PROCESS_TAG_PROMOTIONS
-**Description**: Handles bare inline lifecycle tags reported by `session.sh check` during synthesis. For each bare `#needs-*` / `#active-*` / `#done-*` tag found in session artifacts, the agent presents a promote/acknowledge menu and processes the user's choices.
+**Description**: Handles bare inline lifecycle tags reported by `session.sh check` during synthesis. For each bare `#needs-*` / `#claimed-*` / `#done-*` tag found in session artifacts, the agent presents a promote/acknowledge menu and processes the user's choices.
 **Trigger**: Called when `session.sh check` exits 1 with `¶INV_ESCAPE_BY_DEFAULT` violations.
 
 **Algorithm**:
@@ -980,6 +985,34 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **Description**: Extracts unfinished items from session artifacts (tech debt, unresolved blocks, incomplete plan steps) and presents a concise report in chat before the next-skill menu.
 **Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 11, after side discoveries. Read the reference file before executing.
 **Reference**: `~/.claude/directives/commands/CMD_REPORT_LEFTOVER_WORK.md`
+
+### §CMD_DISPATCH_APPROVAL
+**Description**: Reviews `#needs-X` tags in the current session and lets the user approve them for daemon dispatch (`#delegated-X`). The human gate between tag creation and autonomous processing.
+**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 9b (after `§CMD_PROCESS_DELEGATIONS`, before `§CMD_CAPTURE_SIDE_DISCOVERIES`). Also callable standalone.
+
+**Algorithm**:
+1.  **Scan**: Find all `#needs-X` tags in the current session directory:
+    *   `tag.sh find '#needs-*' [sessionDir] --tags-only` — Tags-line entries on REQUEST files and debriefs
+    *   Exclude `#needs-review` (resolved by `/review`, not daemon dispatch)
+    *   Exclude `#needs-rework` (resolved by `/review`)
+2.  **Skip if empty**: If no `#needs-X` tags found (excluding review/rework), skip silently. No user prompt.
+3.  **Group**: Organize results by tag type (e.g., all `#needs-implementation` together, all `#needs-chores` together).
+4.  **Present**: For each group, execute `AskUserQuestion` (multiSelect: true):
+    > "Dispatch approval — `#needs-[noun]` ([N] items):"
+    > - **"Approve all [N] for daemon dispatch → `#delegated-[noun]`"** — Flip all items in this group
+    > - **"Review individually"** — Walk through each item to approve/defer/dismiss
+    > - **"Defer all"** — Leave as `#needs-[noun]` (will appear in next session's dispatch approval)
+5.  **Execute**:
+    *   **Approve all**: For each file in the group, `tag.sh swap [file] '#needs-[noun]' '#delegated-[noun]'`.
+    *   **Review individually**: For each file, present: Approve (`#delegated-X`) / Defer (keep `#needs-X`) / Dismiss (remove tag entirely).
+    *   **Defer all**: No action. Tags remain as `#needs-X`.
+6.  **Report**: Output summary in chat: "Dispatched: [N] items. Deferred: [M] items. Dismissed: [K] items."
+
+**Constraints**:
+*   **Current session only**: Does NOT scan other sessions. Cross-session dispatch is out of scope.
+*   **Human approval required** (`¶INV_DISPATCH_APPROVAL_REQUIRED`): Agents MUST NOT auto-flip `#needs-X` → `#delegated-X`.
+*   **Daemon monitors `#delegated-*`** (`¶INV_NEEDS_IS_STAGING`): Only approved items become visible to the daemon.
+*   **Debounce-friendly**: Multiple `tag.sh swap` calls in rapid succession are collected by the daemon's 3s debounce (`¶INV_DAEMON_DEBOUNCE`).
 
 ### §CMD_WALK_THROUGH_RESULTS
 **Description**: Walks the user through skill outputs or plan items with configurable granularity (None / Groups / Each item). Two modes: **results** (post-execution triage — delegate/defer/dismiss) and **plan** (pre-execution review — comment/question/flag). Each skill provides a configuration block defining mode, gate question, item sources, and action menu or plan questions.

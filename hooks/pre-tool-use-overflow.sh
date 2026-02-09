@@ -54,9 +54,10 @@ SESSION_ID=$(echo "$INPUT" | jq -r '.session_id // ""' 2>/dev/null || echo "")
 # even during overflow, otherwise the agent can't save context or restart
 if [ "$TOOL_NAME" = "Bash" ]; then
   BASH_CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
-  # Allow log.sh and session.sh (dehydration scripts)
+  # Allow log.sh and session.sh (dehydration scripts) — full path or engine CLI
   if [[ "$BASH_CMD" == *"/.claude/scripts/log.sh"* ]] || \
-     [[ "$BASH_CMD" == *"/.claude/scripts/session.sh"* ]]; then
+     [[ "$BASH_CMD" == *"/.claude/scripts/session.sh"* ]] || \
+     [[ "$BASH_CMD" =~ ^engine[[:space:]]+(log|session)[[:space:]] ]]; then
     hook_allow
   fi
 fi

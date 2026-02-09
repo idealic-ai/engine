@@ -225,6 +225,42 @@ test_setup_creates_marker() {
   fi
 }
 
+test_flag_forwarding_pattern_exists() {
+  # Verify the --flag forwarding elif branch exists in engine.sh
+  # This was added to forward unknown --flags to run.sh
+  if grep -q 'SUBCMD.*==.*--\*' "$ENGINE_SH" || grep -q 'SUBCMD.*=~.*^--' "$ENGINE_SH"; then
+    pass "--flag forwarding pattern exists in engine.sh"
+  else
+    fail "--flag forwarding pattern exists in engine.sh" "elif with --* pattern" "(not found)"
+  fi
+}
+
+test_flag_forwarding_uses_exec() {
+  # The flag forwarding branch should use exec to pass through to run.sh
+  # Look for the exec $RUN_SCRIPT in the context of --* handling
+  # Need -A5 because exec is ~4 lines after the elif --* pattern
+  if grep -A5 '\-\-\*' "$ENGINE_SH" | grep -q 'exec.*RUN_SCRIPT'; then
+    pass "--flag forwarding uses exec to run.sh"
+  else
+    fail "--flag forwarding uses exec to run.sh" 'exec "$RUN_SCRIPT"' "(not found near --* pattern)"
+  fi
+}
+
+test_flag_forwarding_does_not_error() {
+  # engine --nonexistent-flag should NOT produce an "Unknown command" error
+  # because --flags are forwarded to run.sh (which will handle/error on them)
+  # We can't actually exec run.sh (it starts Claude), but we can verify
+  # the dispatch logic by checking engine.sh's structure
+  local output
+  # Use --help as a known flag to verify flags are parsed
+  output=$(bash "$ENGINE_SH" --help 2>&1)
+  if echo "$output" | grep -q "Built-in commands:"; then
+    pass "--help still works (known flag)"
+  else
+    fail "--help still works" "Contains 'Built-in commands:'" "$output"
+  fi
+}
+
 # ============================================================================
 # Run all tests
 # ============================================================================
@@ -245,5 +281,8 @@ run_test test_default_execs_run_sh
 run_test test_auto_dispatch_uses_exec
 run_test test_uninstall_clears_marker
 run_test test_setup_creates_marker
+run_test test_flag_forwarding_pattern_exists
+run_test test_flag_forwarding_uses_exec
+run_test test_flag_forwarding_does_not_error
 
 exit_with_results

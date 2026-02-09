@@ -108,10 +108,17 @@ engine/
 └── README.md                # This file
 ```
 
+## Documentation
+
+| Document | Type | Purpose |
+|----------|------|---------|
+| **[CONTRIBUTING.md](CONTRIBUTING.md)** | Directive | Rules for modifying the engine — code standards, testing, migration conventions |
+| **[docs/ENGINE_LIFECYCLE.md](docs/ENGINE_LIFECYCLE.md)** | Reference | Mode system, sync operations, Git workflow, troubleshooting |
+| **[DEVELOPMENT.md](DEVELOPMENT.md)** | Reference | How to add skills, agents, hooks, scripts. Architecture details, testing, migrations |
+| **[AGENTS.md](AGENTS.md)** | Reference | Full agent reference: all 11 agents, when to use each, how they're loaded |
+
 ## Further Reading
 
-- **[DEVELOPMENT.md](DEVELOPMENT.md)** — How to add skills, agents, hooks, scripts. Architecture details, testing, migrations.
-- **[AGENTS.md](AGENTS.md)** — Full agent reference: all 11 agents, when to use each, how they're loaded.
 - **[directives/COMMANDS.md](directives/COMMANDS.md)** — All `§CMD_*` protocol building blocks.
 - **[directives/INVARIANTS.md](directives/INVARIANTS.md)** — System invariants (`¶INV_*`).
 - **[directives/TAGS.md](directives/TAGS.md)** — Tag system and lifecycle feeds.

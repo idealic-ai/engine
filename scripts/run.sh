@@ -15,7 +15,7 @@
 #   ~/.claude/scripts/run.sh --agent operator     # Claude with operator agent
 #   ~/.claude/scripts/run.sh --agent builder      # Claude with builder agent
 #   ~/.claude/scripts/run.sh --agent researcher --description "Deep research" --focus "Insurance,Claims"
-#   ~/.claude/scripts/run.sh --monitor-tags '#needs-implementation,#needs-chores'  # Daemon mode
+#   ~/.claude/scripts/run.sh --monitor-tags '#delegated-implementation,#delegated-chores'  # Daemon mode
 #
 # Or alias it:
 #   alias claude='~/.claude/scripts/run.sh'
@@ -376,101 +376,77 @@ daemon_tag_to_skill() {
 }
 
 # Scan sessions/ for files with monitored tags on their Tags line
-# Returns TAG:PATH (e.g. "#needs-implementation:/path/to/file.md")
+# Returns all TAG:PATH pairs (one per line), grouped by tag type
+# With debounce: after first match, waits DAEMON_DEBOUNCE_SEC for batch writes to settle
+DAEMON_DEBOUNCE_SEC=3
+
 daemon_scan_for_work() {
   local sessions_dir="$PWD/sessions/"
   [ -d "$sessions_dir" ] || return 1
 
+  local results=""
   IFS=',' read -ra TAGS <<< "$MONITOR_TAGS"
   for tag in "${TAGS[@]}"; do
     # Trim whitespace
     tag="${tag#"${tag%%[![:space:]]*}"}"
     tag="${tag%"${tag##*[![:space:]]}"}"
 
-    local found
-    found=$("$TAG_SCRIPT" find "$tag" "$sessions_dir" --tags-only 2>/dev/null | head -1 || true)
+    local found_files
+    found_files=$("$TAG_SCRIPT" find "$tag" "$sessions_dir" --tags-only 2>/dev/null || true)
 
-    if [ -n "$found" ] && [ -f "$found" ]; then
-      echo "${tag}:${found}"
-      return 0
-    fi
+    while IFS= read -r found; do
+      if [ -n "$found" ] && [ -f "$found" ]; then
+        results+="${tag}:${found}"$'\n'
+      fi
+    done <<< "$found_files"
   done
 
-  return 1
-}
+  # Trim trailing newline
+  results="${results%$'\n'}"
 
-# Claim a request file by swapping the specific monitored tag
-daemon_claim_request() {
-  local request_path="$1"
-  local needs_tag="$2"
-
-  local active_tag="${needs_tag/needs/active}"
-
-  if "$TAG_SCRIPT" swap "$request_path" "$needs_tag" "$active_tag"; then
-    echo "[run.sh] Claimed: $needs_tag -> $active_tag"
-    return 0
-  else
-    echo "[run.sh] Failed to claim $request_path" >&2
+  if [ -z "$results" ]; then
     return 1
   fi
+
+  echo "$results"
+  return 0
 }
 
-# Process a single work item: claim, map to skill, spawn Claude
+# Scan with debounce: initial scan, wait, re-scan to collect batch writes
+daemon_scan_with_debounce() {
+  local initial_results
+  initial_results=$(daemon_scan_for_work) || return 1
+
+  echo "[run.sh] Found work, debouncing ${DAEMON_DEBOUNCE_SEC}s for batch writes..." >&2
+  sleep "$DAEMON_DEBOUNCE_SEC"
+
+  # Re-scan after debounce to catch any additional tags written during the window
+  daemon_scan_for_work || echo "$initial_results"
+}
+
+# Process a batch of delegated work items: spawn /claim to handle claiming + routing
+# The daemon no longer claims work directly — /claim handles #delegated-X → #claimed-X
 daemon_process_work() {
-  local needs_tag="$1"
-  local request_path="$2"
+  local scan_results="$1"
   local start_time
   start_time=$(date +%s)
 
-  # Map tag to skill
-  local skill
-  skill=$(daemon_tag_to_skill "$needs_tag")
-  if [ -z "$skill" ]; then
-    echo "[run.sh] WARNING: No skill mapping for tag '$needs_tag', skipping"
-    return 1
-  fi
+  # Count items
+  local item_count
+  item_count=$(echo "$scan_results" | wc -l | tr -d ' ')
 
-  echo "[run.sh] Processing: $request_path ($needs_tag -> $skill)"
-
-  # Claim the request file (swap #needs-* -> #active-*)
-  if ! daemon_claim_request "$request_path" "$needs_tag"; then
-    echo "[run.sh] Skipping (claim failed, another worker got it?)"
-    return 1
-  fi
+  echo "[run.sh] Processing batch: $item_count delegated item(s)"
 
   # Start watchdog BEFORE Claude — kills Claude on restart signal
   WATCHDOG_PID=$(start_watchdog)
   export WATCHDOG_PID
 
-  # Build context-aware prompt based on file type
-  local context_hint=""
-  local request_basename
-  request_basename=$(basename "$request_path")
-
-  if [[ "$request_basename" == *_REQUEST*.md ]]; then
-    # Structured REQUEST file — extract fields as input
-    context_hint="
-DAEMON_CONTEXT: The file '$request_path' is a structured REQUEST file. Read it and extract the Topic, Context, Expectations, and Acceptance Criteria as your input parameters. The REQUEST file contains everything you need to begin.
-DAEMON_REQUEST_FILE: Include '$request_path' in the requestFiles array when calling session.sh activate. This ensures session.sh check validates that the REQUEST file has a ## Response section and no bare #needs-* tags before deactivation."
-  else
-    # Tagged debrief or other file — load session context
-    local source_session_dir
-    source_session_dir=$(dirname "$request_path")
-    context_hint="
-DAEMON_CONTEXT: The file '$request_path' is a tagged debrief (not a REQUEST file). To understand what work is needed:
-1. Read ALL debrief files in '$source_session_dir/' (ANALYSIS.md, BRAINSTORM.md, IMPLEMENTATION.md, etc.)
-2. Read '$source_session_dir/DETAILS.md' if it exists (contains Q&A context)
-3. Look for the specific section or inline tag that triggered this work item
-4. Use the debrief content + DETAILS.md to understand the full context before starting.
-DAEMON_REQUEST_FILE: Include '$request_path' in the requestFiles array when calling session.sh activate. This ensures session.sh check validates that all bare #needs-* tags in this file are resolved (swapped to #done-* or backtick-escaped) before deactivation."
-  fi
-
-  # Spawn Claude with the mapped skill command
-  # Append daemon-mode instruction so Claude exits after skill completion
-  local daemon_prompt="$SYSTEM_PROMPT_ADDITIONS$context_hint
-DAEMON_MODE: You were spawned by the daemon (run.sh --monitor-tags). After completing the skill and deactivating the session, EXIT immediately — do NOT offer a next-skill menu or ask 'What's next?'. The daemon will automatically pick up the next tagged file."
+  # Spawn Claude with /claim — it handles scanning, grouping, claiming, and routing
+  # /claim will re-scan for #delegated-* tags and present them for worker approval
+  local daemon_prompt="$SYSTEM_PROMPT_ADDITIONS
+DAEMON_MODE: You were spawned by the daemon (run.sh --monitor-tags). Run /claim to pick up delegated work items. After /claim routes you to a target skill and you complete it, EXIT immediately — do NOT offer a next-skill menu or ask 'What's next?'. The daemon will automatically pick up the next batch of delegated items."
   set +e
-  "$CLAUDE_BIN" --append-system-prompt "$daemon_prompt" "$skill $request_path"
+  "$CLAUDE_BIN" --append-system-prompt "$daemon_prompt" "/claim"
   set -e
 
   # Cleanup watchdog
@@ -483,7 +459,7 @@ DAEMON_MODE: You were spawned by the daemon (run.sh --monitor-tags). After compl
   local duration=$((end_time - start_time))
   local duration_fmt="$((duration / 60))m $((duration % 60))s"
 
-  echo "[run.sh] Completed: $request_path ($duration_fmt)"
+  echo "[run.sh] Batch completed ($duration_fmt)"
   return 0
 }
 
@@ -502,13 +478,11 @@ daemon_main_loop() {
   local was_idle=0
 
   while [ "$DAEMON_EXIT" -eq 0 ]; do
-    # Check for work (returns TAG:PATH)
-    local scan_result
-    if scan_result=$(daemon_scan_for_work); then
+    # Check for work (returns TAG:PATH pairs, debounced for batch collection)
+    local scan_results
+    if scan_results=$(daemon_scan_with_debounce); then
       was_idle=0
-      local matched_tag="${scan_result%%:*}"
-      local request_path="${scan_result#*:}"
-      daemon_process_work "$matched_tag" "$request_path"
+      daemon_process_work "$scan_results"
       # After processing, immediately check for more work
       continue
     fi

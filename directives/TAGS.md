@@ -4,18 +4,36 @@ This document defines the semantic tag system used across sessions for cross-ses
 
 ## Tag Convention
 
-All tags follow the `#needs-X` / `#active-X` / `#done-X` lifecycle pattern where X is a **noun** that maps to a command **verb**:
+All tags follow the 4-state `#needs-X` / `#delegated-X` / `#claimed-X` / `#done-X` lifecycle pattern where X is a **noun** that maps to a command **verb**:
+
+```
+#needs-X → #delegated-X → #claimed-X → #done-X
+   │           │              │           │
+ staging    approved       worker      resolved
+ (human     for daemon     picked up
+  review)   dispatch       & working
+```
+
+**Actors**:
+*   **Requester** (any skill agent): Creates `#needs-X` via `§CMD_HANDLE_INLINE_TAG` or REQUEST file creation.
+*   **Requester** (human, during synthesis): Approves `#needs-X` → `#delegated-X` via `§CMD_DISPATCH_APPROVAL`.
+*   **Worker** (`/claim` skill): Claims `#delegated-X` → `#claimed-X` before starting work.
+*   **Worker** (target skill): Resolves `#claimed-X` → `#done-X` upon completion.
 
 | Command (Verb) | Tag Noun | Lifecycle Tags |
 |----------------|----------|----------------|
-| `/brainstorm` | brainstorm | `#needs-brainstorm` -> `#active-brainstorm` -> `#done-brainstorm` |
-| `/research` | research | `#needs-research` -> `#active-research` -> `#done-research` |
-| `/implement` | implementation | `#needs-implementation` -> `#active-implementation` -> `#done-implementation` |
-| `/chores` | chores | `#needs-chores` -> `#active-chores` -> `#done-chores` |
-| `/document` | documentation | `#needs-documentation` -> `#done-documentation` |
-| `/fix` | fix | `#needs-fix` -> `#active-fix` -> `#done-fix` |
+| `/brainstorm` | brainstorm | `#needs-brainstorm` -> `#delegated-brainstorm` -> `#claimed-brainstorm` -> `#done-brainstorm` |
+| `/research` | research | `#needs-research` -> `#delegated-research` -> `#claimed-research` -> `#done-research` |
+| `/implement` | implementation | `#needs-implementation` -> `#delegated-implementation` -> `#claimed-implementation` -> `#done-implementation` |
+| `/chores` | chores | `#needs-chores` -> `#delegated-chores` -> `#claimed-chores` -> `#done-chores` |
+| `/document` | documentation | `#needs-documentation` -> `#delegated-documentation` -> `#claimed-documentation` -> `#done-documentation` |
+| `/fix` | fix | `#needs-fix` -> `#delegated-fix` -> `#claimed-fix` -> `#done-fix` |
 | `/review` | review | `#needs-review` -> `#done-review` (or `#needs-rework`) |
 | `§CMD_MANAGE_ALERTS` | alert | `#active-alert` -> `#done-alert` |
+
+**Exceptions**:
+*   **Alerts** (`#active-alert` / `#done-alert`): 2-state lifecycle. Alerts use different semantics ("ongoing situation" vs "resolved"), not the delegation lifecycle.
+*   **Reviews** (`#needs-review` / `#done-review`): 2-state lifecycle. Reviews are processed by `/review` directly, not via daemon dispatch.
 
 ---
 
@@ -26,6 +44,7 @@ Tags in body text must be distinguished from actual tags to prevent false positi
 ### The Rule
 *   **Bare `#tag`** = actual tag. Placed on the Tags line (`**Tags**: #needs-review`) or intentionally inline (per `§CMD_HANDLE_INLINE_TAG`).
 *   **Backticked `` `#tag` ``** = reference/discussion. NOT an actual tag. Filtered out by `tag.sh find`.
+*   **Lifecycle tags**: `#needs-*`, `#delegated-*`, `#claimed-*`, `#done-*` — all four states follow this escaping convention.
 
 ### When Writing (Agents)
 *   **Tags line**: Always bare. `**Tags**: #needs-review #needs-documentation`
@@ -88,7 +107,7 @@ Only non-text data files are excluded from discovery:
 
 ### Check Gate Enforcement (¶INV_ESCAPE_BY_DEFAULT)
 
-During synthesis, `session.sh check` scans session artifacts for bare unescaped inline lifecycle tags (`#needs-*`, `#active-*`, `#done-*`). For each bare tag found:
+During synthesis, `session.sh check` scans session artifacts for bare unescaped inline lifecycle tags (`#needs-*`, `#delegated-*`, `#claimed-*`, `#done-*`). For each bare tag found:
 
 1. **PROMOTE** — Create a REQUEST file from the skill's template + backtick-escape the inline tag
 2. **ACKNOWLEDGE** — Mark as intentional (tag stays bare, agent opts in)
@@ -179,29 +198,33 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 ## §FEED_REVIEWS
 *   **Tags**: `#needs-review`, `#done-review`, `#needs-rework`
 *   **Location**: `sessions/`
-*   **Lifecycle**:
+*   **Lifecycle** (2-state — no delegation dispatch):
     *   `#needs-review` — Unvalidated. Auto-applied at debrief creation by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`.
     *   `#done-review` — User-approved via `/review`. No further action needed.
     *   `#needs-rework` — User-rejected via `/review`. Contains `## Rework Notes` with rejection context. Re-presented on next review run.
 
 *   **Independence**: This feed is fully independent from `§FEED_ALERTS`. The two systems are parallel — a file (e.g., `ALERT_RAISE.md`) may carry both `#active-alert` and `#needs-review` simultaneously, resolved by different commands.
 *   **Review Command**: `/review` discovers all `#needs-review` and `#needs-rework` files, performs cross-session analysis, and walks the user through structured approval.
+*   **Note**: Reviews use a 2-state lifecycle (no `#delegated-review` or `#claimed-review`) because `/review` is always invoked directly by the user, not via daemon dispatch.
 
 ## §FEED_DOCUMENTATION
-*   **Tags**: `#needs-documentation`, `#done-documentation`
+*   **Tags**: `#needs-documentation`, `#delegated-documentation`, `#claimed-documentation`, `#done-documentation`
 *   **Location**: `sessions/`
-*   **Lifecycle**:
-    *   `#needs-documentation` — Pending. Auto-applied at debrief creation by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` for code-changing sessions (`IMPLEMENTATION`, `DEBUG`, `ADHOC`, `TESTING`).
+*   **Lifecycle** (4-state):
+    *   `#needs-documentation` — Pending. Auto-applied at debrief creation by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` for code-changing sessions (`IMPLEMENTATION`, `DEBUG`, `ADHOC`, `TESTING`). Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
+    *   `#delegated-documentation` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
+    *   `#claimed-documentation` — In-flight. Worker (`/claim`) swapped tag before starting `/document`.
     *   `#done-documentation` — Documentation pass complete. Swapped via `/document` or manually after verifying docs are current.
 *   **Discovery**: `§CMD_FIND_TAGGED_FILES` for `#needs-documentation` returns all sessions with pending doc work.
 *   **Independence**: This feed is independent from both `§FEED_ALERTS` and `§FEED_REVIEWS`. A debrief may carry `#needs-review #needs-documentation` simultaneously, resolved by different commands.
 
 ## §FEED_RESEARCH
-*   **Tags**: `#needs-research`, `#active-research`, `#done-research`
+*   **Tags**: `#needs-research`, `#delegated-research`, `#claimed-research`, `#done-research`
 *   **Location**: `sessions/`
-*   **Lifecycle**:
-    *   `#needs-research` — Open request. Created by `/research-request` or `/research`. Discoverable by `§CMD_DISCOVER_OPEN_RESEARCH`.
-    *   `#active-research` — In-flight. Swapped when the Gemini API call starts. The request file contains an `## Active Research` section with the Interaction ID. If the polling session dies, another agent can find `#active-research` requests, read the ID, and resume.
+*   **Lifecycle** (4-state):
+    *   `#needs-research` — Open request. Created by `/research-request` or `/research`. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
+    *   `#delegated-research` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
+    *   `#claimed-research` — In-flight. Swapped when `/claim` picks up and the Gemini API call starts. The request file contains an `## Active Research` section with the Interaction ID. If the polling session dies, another agent can find `#claimed-research` requests, read the ID, and resume.
     *   `#done-research` — Fulfilled. Swapped when the report is received. The request file contains a `## Response` breadcrumb linking to the response document.
 *   **File Convention**:
     *   Requests: `RESEARCH_REQUEST_[TOPIC].md` (in requesting session dir)
@@ -211,65 +234,71 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **API**: Uses Gemini Deep Research (`deep-research-pro-preview-12-2025`) via `engine research`. Requires `$GEMINI_API_KEY`.
 
 ## §FEED_BRAINSTORM
-*   **Tags**: `#needs-brainstorm`, `#active-brainstorm`, `#done-brainstorm`
+*   **Tags**: `#needs-brainstorm`, `#delegated-brainstorm`, `#claimed-brainstorm`, `#done-brainstorm`
 *   **Location**: `sessions/`
-*   **Lifecycle**:
-    *   `#needs-brainstorm` — Deferred. Applied inline by any agent when a topic needs exploration, trade-off analysis, or a decision that requires structured dialogue.
-    *   `#active-brainstorm` — In-flight. Swapped when `/brainstorm` begins working on the tagged item.
+*   **Lifecycle** (4-state):
+    *   `#needs-brainstorm` — Deferred. Applied inline by any agent when a topic needs exploration, trade-off analysis, or a decision that requires structured dialogue. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
+    *   `#delegated-brainstorm` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
+    *   `#claimed-brainstorm` — In-flight. Swapped when `/claim` picks up and `/brainstorm` begins working on the tagged item.
     *   `#done-brainstorm` — Complete. Swapped by `/brainstorm` after the session produces a `BRAINSTORM.md`.
 *   **Application**: Like `#needs-implementation`, this tag can be applied **inline** within work artifacts (log entries, plan steps, debrief sections). The agent discovers these via `tag.sh find`.
 *   **Output**: `/brainstorm` creates a `BRAINSTORM.md` in its session directory. For decision-focused brainstorms, use the Focused mode.
 *   **Independence**: This feed is independent from all other feeds.
 
 ## §FEED_CHORES
-*   **Tags**: `#needs-chores`, `#active-chores`, `#done-chores`
+*   **Tags**: `#needs-chores`, `#delegated-chores`, `#claimed-chores`, `#done-chores`
 *   **Location**: `sessions/`
-*   **Lifecycle**:
-    *   `#needs-chores` — Pending. A small, self-contained task that has all context in place and doesn't need full `/implement` overhead.
-    *   `#active-chores` — Claimed. Swapped when `/chores` picks up the item from its queue.
+*   **Lifecycle** (4-state):
+    *   `#needs-chores` — Pending. A small, self-contained task that has all context in place and doesn't need full `/implement` overhead. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
+    *   `#delegated-chores` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
+    *   `#claimed-chores` — Claimed. Swapped when `/claim` picks up and `/chores` begins working on the item from its queue.
     *   `#done-chores` — Complete. Swapped after verification.
 *   **Context Model**: Tags are applied inline. The chores skill reads the full surrounding section (nearest heading above to next heading) to understand the task. No separate request file needed for inline tags, but request files are supported for explicit delegation.
 *   **Application**: Applied inline within work artifacts when the agent identifies a small task. Can also appear on the Tags line of debriefs for tasks that emerged during a session.
 *   **Independence**: This feed is independent from all other feeds.
 
 ## §FEED_FIX
-*   **Tags**: `#needs-fix`, `#active-fix`, `#done-fix`
+*   **Tags**: `#needs-fix`, `#delegated-fix`, `#claimed-fix`, `#done-fix`
 *   **Location**: `sessions/`
-*   **Lifecycle**:
-    *   `#needs-fix` — Deferred. Applied inline by any agent when a bug, failure, or regression is identified but not immediately addressed. Common during implementation, testing, or analysis sessions.
-    *   `#active-fix` — In-flight. Swapped when `/fix` begins working on the tagged item.
+*   **Lifecycle** (4-state):
+    *   `#needs-fix` — Deferred. Applied inline by any agent when a bug, failure, or regression is identified but not immediately addressed. Common during implementation, testing, or analysis sessions. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
+    *   `#delegated-fix` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
+    *   `#claimed-fix` — In-flight. Swapped when `/claim` picks up and `/fix` begins working on the tagged item.
     *   `#done-fix` — Complete. Swapped by `/fix` after the fix is verified.
 *   **Application**: Applied **inline** within work artifacts (test logs, implementation debriefs, analysis reports). Agents discover these via `tag.sh find` and route to `/fix`.
 *   **Independence**: This feed is independent from all other feeds.
 
 ## §FEED_IMPLEMENTATION
-*   **Tags**: `#needs-implementation`, `#active-implementation`, `#done-implementation`
+*   **Tags**: `#needs-implementation`, `#delegated-implementation`, `#claimed-implementation`, `#done-implementation`
 *   **Location**: `sessions/`
-*   **Lifecycle**:
-    *   `#needs-implementation` — Deferred. Applied inline by any agent when an actionable implementation task is identified but not immediately executed. Common during brainstorming, analysis, or decision sessions.
-    *   `#active-implementation` — In-flight. Swapped when `/implement` begins working on the tagged item.
+*   **Lifecycle** (4-state):
+    *   `#needs-implementation` — Deferred. Applied inline by any agent when an actionable implementation task is identified but not immediately executed. Common during brainstorming, analysis, or decision sessions. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
+    *   `#delegated-implementation` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
+    *   `#claimed-implementation` — In-flight. Swapped when `/claim` picks up and `/implement` begins working on the tagged item.
     *   `#done-implementation` — Complete. Swapped by `/implement` after the work is verified.
 *   **Application**: Like `#needs-brainstorm`, this tag is applied **inline** within work artifacts (brainstorm outputs, analysis reports, plan steps). Agents discover these via `tag.sh find` and route to `/implement`.
 *   **Independence**: This feed is independent from all other feeds.
 
 ## §TAG_DISPATCH
-*   **Purpose**: Maps `#needs-*` tags to their resolving skills. Used by workers and `/find-tagged` to route deferred work to the correct skill.
+*   **Purpose**: Maps `#needs-*` tags to their resolving skills and defines daemon dispatch behavior. Used by `/claim`, daemon, and `/find-tagged` to route deferred work to the correct skill.
 *   **Rule**: Every `#needs-X` tag maps to exactly one skill `/X`. See `¶INV_1_TO_1_TAG_SKILL`.
+*   **Daemon monitors**: `#delegated-*` (NOT `#needs-*`). See `¶INV_NEEDS_IS_STAGING`.
 *   **Registry**:
 
-| Tag | Resolving Skill | Mode | Priority |
-|-----|----------------|------|----------|
-| `#needs-brainstorm` | `/brainstorm` | interactive | 1 (exploration unblocks decisions) |
-| `#needs-research` | `/research` | async (Gemini) | 2 (queue early) |
-| `#needs-fix` | `/fix` | interactive/agent | 3 (bugs block progress) |
-| `#needs-implementation` | `/implement` | interactive/agent | 4 |
-| `#needs-chores` | `/chores` | interactive | 5 (quick wins, filler) |
-| `#needs-documentation` | `/document` | interactive | 6 |
-| `#needs-review` | `/review` | interactive | 7 |
-| `#needs-rework` | `/review` | interactive | 7 |
+| Tag Noun | Resolving Skill | Mode | Daemon-Dispatchable | Priority |
+|----------|----------------|------|---------------------|----------|
+| brainstorm | `/brainstorm` | interactive | Yes | 1 (exploration unblocks decisions) |
+| research | `/research` | async (Gemini) | Yes | 2 (queue early) |
+| fix | `/fix` | interactive/agent | Yes | 3 (bugs block progress) |
+| implementation | `/implement` | interactive/agent | Yes | 4 |
+| chores | `/chores` | interactive | Yes | 5 (quick wins, filler) |
+| documentation | `/document` | interactive | Yes | 6 |
+| review | `/review` | interactive | No (user-invoked only) | 7 |
+| rework | `/review` | interactive | No (user-invoked only) | 7 |
 
 *   **Extensibility**: To add a new dispatchable tag, add a row to this table and create the corresponding `§FEED_*` section above. The tag noun MUST match the skill name (`¶INV_1_TO_1_TAG_SKILL`).
 *   **Priority**: Resolves in priority order (1 first). Brainstorming unblocks decisions; research is async so queue early; fixes unblock progress; implementation is the main work; chores fill gaps; documentation after code; review last.
+*   **Daemon-Dispatchable**: Only tags marked "Yes" will be picked up by the daemon when in `#delegated-*` state. Tags marked "No" are resolved manually by the user.
 
 ## §TAG_WEIGHTS
 Weight tags express urgency and effort for work items. They are optional metadata — absence means default priority (P2) and unknown effort.

@@ -10,16 +10,20 @@ set -euo pipefail
 #
 # Usage:
 #   engine                          Launch Claude (auto-setup if needed)
+#   engine run [args...]            Launch Claude (explicit)
 #   engine <command> [args...]      Run a sub-command (any script in scripts/)
-#   engine --help                   Show available sub-commands
+#   engine --help                   Show all commands with descriptions
 #   engine --verbose <command>      Verbose output
 #
 # Built-in commands:
+#   engine run [args...]            Launch Claude via run.sh
+#   engine fleet <cmd> [args...]    Fleet management (start, stop, status)
 #   engine setup [project-name]     Full project setup (symlinks, permissions, etc.)
 #   engine local                    Switch to local mode (+ Git onboarding)
 #   engine remote                   Switch engine symlinks to GDrive
 #   engine status                   Show current mode + symlink audit
 #   engine report                   Full system health report
+#   engine toc                      Show engine directory tree (~/.claude/)
 #   engine push                     git push engine to origin
 #   engine pull                     git pull engine from origin
 #   engine deploy                   Sync local engine → GDrive (rsync)
@@ -41,19 +45,21 @@ set -euo pipefail
 #   - Access to the finch-os Shared Drive
 #
 # Related:
-#   Docs: (~/.claude/docs/)
-#     SETUP_PROTOCOL.md — Complete setup protocol and modes
-#     DIRECTIVES_SYSTEM.md — Directives symlink creation
+#   Engine docs: (~/.claude/engine/docs/)
+#     ENGINE_LIFECYCLE.md — Mode system, sync operations, Git workflow, troubleshooting
+#     INVARIANTS.md — Engine-specific invariants (tmux, hooks)
+#   Shared docs: (~/.claude/docs/)
+#     ENGINE_CLI.md — CLI protocol, function signatures, migration system
 #   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_TEST_SANDBOX_ISOLATION — Test safety requirements
 #     ¶INV_INFER_USER_FROM_GDRIVE — Identity detection
 #
 # CONTRIBUTING:
-#   Before modifying this script, read ~/.claude/docs/SETUP_PROTOCOL.md.
+#   Before modifying this script, read ~/.claude/engine/CONTRIBUTING.md.
 #   - New pure functions → setup-lib.sh (parameterized, no globals)
 #   - New migrations → setup-migrations.sh (numbered, idempotent, tested)
 #   - Test coverage required for all changes (test-setup-lib.sh / test-setup-migrations.sh)
-#   - All paths use $SETUP_* env vars for testability (see protocol doc)
+#   - All paths use $SETUP_* env vars for testability (see ENGINE_CLI.md)
 # ============================================================================
 
 # ---- Parse top-level flags ----
@@ -116,54 +122,228 @@ SETUP_MARKER="$HOME/.claude/engine/.setup-done"
 # ---- Help command (early exit, no identity needed) ----
 
 cmd_help() {
-  echo "Usage: engine [--verbose] [--help] [<command>] [args...]"
-  echo ""
-  echo "The Claude workflow engine CLI. Default (no args): launch Claude."
-  echo ""
-  echo "Built-in commands:"
-  echo "  setup [project]    Full project setup (symlinks, permissions, deps)"
-  echo "  local              Switch to local engine mode (+ Git onboarding)"
-  echo "  remote             Switch engine symlinks to GDrive"
-  echo "  status             Show current mode + symlink audit"
-  echo "  report             Full system health report"
-  echo "  push               git push engine to origin"
-  echo "  pull               git pull engine from origin"
-  echo "  deploy             Sync local engine → GDrive (rsync)"
-  echo "  test [args...]     Run engine test suite"
-  echo "  uninstall          Remove engine symlinks and hooks"
-  echo ""
-  echo "Script commands (auto-discovered from scripts/):"
+  cat <<'HELPTEXT'
+Usage: engine [--verbose] [--help] [<command>] [args...]
 
-  # List scripts/*.sh, excluding engine.sh itself
-  local scripts_found=0
-  for script in "$SCRIPT_DIR"/*.sh; do
+The Claude workflow engine CLI. Dispatches sub-commands to scripts,
+manages setup, and launches Claude.
+
+LIFECYCLE COMMANDS
+  run [args...]          Launch Claude (same as bare `engine`)
+  fleet <cmd> [args...]  Fleet management (start, stop, status, list, attach)
+  setup [project]        Full project setup (symlinks, permissions, deps)
+  uninstall              Remove engine symlinks and hooks
+
+MODE COMMANDS
+  local                  Switch to local engine mode (+ Git onboarding)
+  remote                 Switch engine symlinks to GDrive
+  status                 Show current mode + symlink audit
+  report                 Full system health report
+
+GIT COMMANDS
+  push                   git push engine to origin
+  pull                   git pull engine from origin
+  deploy                 Sync local engine → GDrive (rsync)
+
+TESTING & DIAGNOSTICS
+  test [args...]         Run engine test suite
+  toc                    Show engine directory tree (~/.claude/)
+  skill-doctor [name]    Validate skill definitions
+
+SESSION MANAGEMENT
+  session <cmd>          Session lifecycle (activate, phase, deactivate, check, find)
+    activate <path> <skill>   Activate a session
+    phase <path> "N: Name"    Transition phase
+    deactivate <path>         Deactivate session
+    check <path>              Validate session artifacts
+    find <query>              Search sessions
+    request-template <tag>    Find REQUEST template for a tag
+
+LOGGING & TAGS
+  log <file>             Append-only logging (stdin-based, auto-timestamp)
+  tag <cmd>              Semantic tag management
+    add <file> '#tag'         Add tag to file
+    remove <file> '#tag'      Remove tag from file
+    swap <file> '#old' '#new' Swap one tag for another
+    find '#tag' [path]        Find files with tag
+
+SEARCH & DISCOVERY
+  session-search <cmd>   Session search via embeddings
+    index [path]              Index session artifacts
+    query "text"              Search sessions
+  doc-search <cmd>       Documentation search via embeddings
+    index [path]              Index documentation
+    query "text"              Search docs
+  find-sessions <cmd>    Session discovery by date/topic/tag
+    today | yesterday | recent | active | topic <q> | tag <t>
+  glob '<pattern>' [path]  Symlink-aware file globbing
+  discover-directives <dir>  Walk-up directive file discovery
+
+UTILITIES
+  config <cmd>           Session state management (.state.json)
+    get <key>                 Read a config value
+    set <key> <value>         Write a config value
+  user-info <cmd>        User identity detection
+    username | email | json
+  research <file>        Gemini Deep Research API wrapper (stdin-based)
+  await-tag <file> '#tag'  Block until tag appears (fswatch)
+  escape-tags <file>     Retroactive backtick-escaping for tags
+  worker                 Fleet worker daemon (background)
+
+OPTIONS
+  --verbose, -v          Verbose output
+  --help, -h             Show this help
+
+EXAMPLES
+  engine                              # Launch Claude (auto-setup if needed)
+  engine run --agent operator         # Launch Claude with agent persona
+  engine fleet start                  # Start fleet workspace
+  engine setup                        # Run full project setup
+  engine session activate path skill  # Activate session
+  engine tag find '#needs-review'     # Find tagged files
+  engine toc                          # Show engine directory tree
+HELPTEXT
+}
+
+cmd_toc() {
+  local engine_dir="$HOME/.claude"
+  echo "Engine Directory Tree: $engine_dir"
+  echo "========================================"
+  echo ""
+
+  # Scripts
+  echo "scripts/"
+  for script in "$engine_dir/scripts"/*.sh; do
     [ -f "$script" ] || continue
     local name
-    name=$(basename "$script" .sh)
-    # Skip self and internal libraries
-    [ "$name" = "engine" ] && continue
-    echo "  $name"
-    scripts_found=$((scripts_found + 1))
+    name=$(basename "$script")
+    # Extract short description: find first comment line with " — " separator
+    local desc=""
+    desc=$(grep -m1 '^ *# .*— ' "$script" 2>/dev/null | sed 's/.*— //' | head -c 60)
+    if [ -z "$desc" ]; then
+      # Fallback: second comment line, strip path prefixes
+      desc=$(sed -n '2s|^# *\(~/.claude/[^ ]* — \)\{0,1\}||p' "$script" 2>/dev/null | head -c 60)
+    fi
+    printf "  %-30s %s\n" "$name" "${desc:-(no description)}"
   done
+  echo ""
 
-  if [ "$scripts_found" -eq 0 ]; then
-    echo "  (none found)"
+  # Skills
+  echo "skills/"
+  for skill_dir in "$engine_dir/skills"/*/; do
+    [ -d "$skill_dir" ] || continue
+    local skill_name
+    skill_name=$(basename "$skill_dir")
+    # Read description from SKILL.md frontmatter
+    local desc=""
+    if [ -f "$skill_dir/SKILL.md" ]; then
+      desc=$(sed -n '/^description:/{ s/^description: *"\{0,1\}//; s/"\{0,1\} *$//; s/\. Triggers:.*//; p; q; }' "$skill_dir/SKILL.md" 2>/dev/null)
+    fi
+    printf "  %-25s %s\n" "$skill_name/" "${desc:-(no description)}"
+    # List assets
+    if [ -d "$skill_dir/assets" ]; then
+      for asset in "$skill_dir/assets"/*.md; do
+        [ -f "$asset" ] || continue
+        printf "    assets/%-20s\n" "$(basename "$asset")"
+      done
+    fi
+    # List modes
+    if [ -d "$skill_dir/modes" ]; then
+      for mode in "$skill_dir/modes"/*.md; do
+        [ -f "$mode" ] || continue
+        printf "    modes/%-20s\n" "$(basename "$mode")"
+      done
+    fi
+  done
+  echo ""
+
+  # Agents
+  if [ -d "$engine_dir/agents" ]; then
+    echo "agents/"
+    for agent in "$engine_dir/agents"/*.md; do
+      [ -f "$agent" ] || continue
+      local name
+      name=$(basename "$agent" .md)
+      local desc
+      desc=$(sed -n '/^description:/{ s/^description: *"\{0,1\}//; s/"\{0,1\} *$//; p; q; }' "$agent" 2>/dev/null)
+      printf "  %-25s %s\n" "$name.md" "${desc:-(no description)}"
+    done
+    echo ""
   fi
 
-  echo ""
-  echo "Options:"
-  echo "  --verbose, -v      Verbose output"
-  echo "  --help, -h         Show this help"
-  echo ""
-  echo "Examples:"
-  echo "  engine                         # Launch Claude (auto-setup if needed)"
-  echo "  engine setup                   # Run full project setup"
-  echo "  engine session activate ...    # Delegate to session.sh"
-  echo "  engine tag find '#needs-review'  # Delegate to tag.sh"
+  # Hooks
+  if [ -d "$engine_dir/hooks" ]; then
+    echo "hooks/"
+    for hook in "$engine_dir/hooks"/*.sh; do
+      [ -f "$hook" ] || continue
+      local name
+      name=$(basename "$hook")
+      local desc
+      desc=$(sed -n '2s/^# *//p' "$hook" 2>/dev/null | head -c 80)
+      printf "  %-40s %s\n" "$name" "${desc:-(no description)}"
+    done
+    echo ""
+  fi
+
+  # Directives
+  if [ -d "$engine_dir/directives" ]; then
+    echo "directives/"
+    for directive in "$engine_dir/directives"/*.md; do
+      [ -f "$directive" ] || continue
+      printf "  %s\n" "$(basename "$directive")"
+    done
+    if [ -d "$engine_dir/directives/commands" ]; then
+      echo "  commands/"
+      for cmd_file in "$engine_dir/directives/commands"/*.md; do
+        [ -f "$cmd_file" ] || continue
+        printf "    %s\n" "$(basename "$cmd_file")"
+      done
+    fi
+    echo ""
+  fi
+
+  # Docs
+  if [ -d "$engine_dir/docs" ]; then
+    echo "docs/"
+    for doc in "$engine_dir/docs"/*.md; do
+      [ -f "$doc" ] || continue
+      printf "  %s\n" "$(basename "$doc")"
+    done
+    echo ""
+  fi
+
+  # Engine-specific docs
+  local engine_engine="$engine_dir/engine"
+  if [ -d "$engine_engine/docs" ]; then
+    echo "engine/docs/"
+    for doc in "$engine_engine/docs"/*.md; do
+      [ -f "$doc" ] || continue
+      printf "  %s\n" "$(basename "$doc")"
+    done
+    echo ""
+  fi
+
+  # Tools
+  if [ -d "$engine_dir/tools" ]; then
+    echo "tools/"
+    for tool_dir in "$engine_dir/tools"/*/; do
+      [ -d "$tool_dir" ] || continue
+      printf "  %s\n" "$(basename "$tool_dir")/"
+    done
+    echo ""
+  fi
 }
 
 if [ "$SHOW_HELP" = true ]; then
   cmd_help
+  exit 0
+fi
+
+# ---- Early-exit commands (no identity needed) ----
+
+# toc: directory tree (doesn't need identity resolution)
+if [ "${POSITIONAL_ARGS[0]:-}" = "toc" ]; then
+  cmd_toc
   exit 0
 fi
 
@@ -448,6 +628,38 @@ cmd_push() {
   if [ -z "$branch" ]; then
     echo "ERROR: Could not determine current Git branch."
     exit 1
+  fi
+
+  # Commit message: from argument or interactive prompt
+  local commit_msg="${1:-}"
+
+  # Check for uncommitted changes
+  local status
+  status=$(git -C "$LOCAL_ENGINE" status --porcelain 2>/dev/null)
+
+  if [ -n "$status" ]; then
+    echo "Uncommitted changes detected on $branch:"
+    echo ""
+    git -C "$LOCAL_ENGINE" status --short 2>/dev/null
+    echo ""
+
+    # Prompt for commit message if not provided as argument
+    if [ -z "$commit_msg" ]; then
+      printf "Commit message (empty to abort): "
+      read -r commit_msg
+      if [ -z "$commit_msg" ]; then
+        echo "Aborted. No commit created, nothing pushed."
+        exit 0
+      fi
+    fi
+
+    # Stage all and commit
+    git -C "$LOCAL_ENGINE" add -A 2>&1
+    git -C "$LOCAL_ENGINE" commit -m "$commit_msg" 2>&1
+    ACTIONS+=("Committed: $commit_msg")
+    echo ""
+  else
+    echo "Working tree clean on $branch."
   fi
 
   echo "Pushing $branch to origin..."
@@ -1226,13 +1438,34 @@ case "$SUBCMD" in
   local)     cmd_local;          exit 0 ;;
   remote)    cmd_remote;         exit 0 ;;
   pull)      cmd_pull;           exit 0 ;;
-  push)      cmd_push;           exit 0 ;;
+  push)      cmd_push "$@";      exit 0 ;;
   deploy)    cmd_deploy;         exit 0 ;;
   status)    cmd_status;         exit 0 ;;
   report)    cmd_report;         exit 0 ;;
   test)      cmd_test "$@";      exit 0 ;;
   uninstall) cmd_uninstall;      exit 0 ;;
   help)      cmd_help;           exit 0 ;;
+  toc)       cmd_toc;            exit 0 ;;
+  run)
+    # Thin wrapper: delegate to run.sh
+    RUN_SCRIPT="$SCRIPT_DIR/run.sh"
+    if [ -x "$RUN_SCRIPT" ]; then
+      exec "$RUN_SCRIPT" "$@"
+    else
+      echo "ERROR: run.sh not found at $RUN_SCRIPT"
+      exit 1
+    fi
+    ;;
+  fleet)
+    # Thin wrapper: delegate to fleet.sh
+    FLEET_SCRIPT="$SCRIPT_DIR/fleet.sh"
+    if [ -x "$FLEET_SCRIPT" ]; then
+      exec "$FLEET_SCRIPT" "$@"
+    else
+      echo "ERROR: fleet.sh not found at $FLEET_SCRIPT"
+      exit 1
+    fi
+    ;;
 esac
 
 # 2. Auto-dispatch: check if scripts/<subcmd>.sh exists

@@ -2,20 +2,46 @@
 
 Shell scripts for the workflow engine. Symlinked to `~/.claude/scripts/` and whitelisted globally with `Bash(~/.claude/scripts/*)` — no permission prompts.
 
+## The `engine` CLI Alias
+
+All scripts can be invoked via the `engine` CLI alias, which routes `engine <command> [args]` to the corresponding `<command>.sh` script:
+
+```bash
+engine session activate sessions/2026_02_09_TOPIC implement   # → session.sh activate ...
+engine log sessions/.../LOG.md <<'EOF'                         # → log.sh ...
+engine tag find '#needs-review'                                # → tag.sh find ...
+engine glob '**/*.md' sessions/                                # → glob.sh ...
+```
+
+The alias is the preferred invocation method — it's shorter and whitelisted via `Bash(engine *)`.
+
 ## Reference
 
 | Script | Purpose | Usage |
 |--------|---------|-------|
-| `log.sh` | Append content to any file. Creates parent dirs. Auto-prepends blank line. | `log.sh <file> <<'EOF'` |
-| `tag.sh` | Manage semantic tags on markdown files. Subcommands: `add`, `remove`, `swap`, `find`. | `tag.sh add <file> '#tag'` |
-| `find-sessions.sh` | Find sessions by date, topic, tag, or date range. | `find-sessions.sh recent --files` |
-| `session.sh` | Session lifecycle: activate, phase tracking, deactivate, restart, context scans. | `session.sh activate <path> <skill>` |
-| `lib.sh` | Shared utilities for hooks: fleet notification, tmux guards, JSON helpers. | Sourced by hooks, not invoked directly. |
-| `research.sh` | Gemini Deep Research API wrapper. Polls until complete, writes report. | `research.sh <output> <<'EOF'` |
-| `write.sh` | Copy stdin to system clipboard. Used by `/dehydrate`. | `write.sh <<'EOF'` |
-| `glob.sh` | Symlink-aware file globbing. Fallback when Glob tool can't traverse symlinks. | `glob.sh '**/*.ts' sessions/` |
-| `escape-tags.sh` | Retroactive backtick escaping for bare tag references in markdown. | `escape-tags.sh <file>` |
-| `engine.sh` | One-time project setup. Symlinks engine dirs, creates session dir on GDrive. | See engine README. |
+| `engine.sh` | CLI alias — routes `engine <cmd>` to the corresponding script | `engine session activate ...` |
+| `session.sh` | Session lifecycle: activate, phase tracking, deactivate, restart, context scans | `session.sh activate <path> <skill>` |
+| `log.sh` | Append content to any file. Creates parent dirs. Auto-injects timestamps into `## ` headings | `log.sh <file> <<'EOF'` |
+| `tag.sh` | Manage semantic tags on markdown files. Subcommands: `add`, `remove`, `swap`, `find` | `tag.sh add <file> '#tag'` |
+| `lib.sh` | Shared utilities for hooks: fleet notification, tmux guards, JSON helpers | Sourced by hooks, not invoked directly |
+| `find-sessions.sh` | Find sessions by date, topic, tag, or date range | `find-sessions.sh recent --files` |
+| `glob.sh` | Symlink-aware file globbing. Fallback when Glob tool can't traverse symlinks | `glob.sh '**/*.ts' sessions/` |
+| `research.sh` | Gemini Deep Research API wrapper. Polls until complete, writes report | `research.sh <output> <<'EOF'` |
+| `write.sh` | Copy stdin to system clipboard. Used by `/dehydrate` | `write.sh <<'EOF'` |
+| `escape-tags.sh` | Retroactive backtick escaping for bare tag references in markdown | `escape-tags.sh <file>` |
+| `config.sh` | Session configuration management. Reads/writes `.state.json` fields | Sourced by session.sh |
+| `run.sh` | Generic script runner with error handling | `run.sh <script> [args]` |
+| `discover-directives.sh` | Walk-up discovery of directive files (README, CHECKLIST, PITFALLS, INVARIANTS) from a directory | `discover-directives.sh <dir>` |
+| `doc-search.sh` | Documentation search via embeddings. Index and query project docs | `doc-search.sh query "search terms"` |
+| `session-search.sh` | Session search via embeddings. Index and query past session artifacts | `session-search.sh query "search terms"` |
+| `setup-lib.sh` | Bootstrap shared library functions for other scripts | Sourced by scripts at startup |
+| `setup-migrations.sh` | Run schema migrations on `.state.json` when engine updates | `setup-migrations.sh` |
+| `await-tag.sh` | Background watcher that blocks until a specific tag appears on a file | `await-tag.sh <file> '#tag'` |
+| `fleet.sh` | Multi-pane tmux fleet management. Launch, query, coordinate agent panes | `fleet.sh pane-id` |
+| `user-info.sh` | Auto-detect user identity from Google Drive symlink | `user-info.sh username` / `email` / `json` |
+| `skill-doctor.sh` | Validate skill definitions (SKILL.md structure, templates, modes) | `skill-doctor.sh [skill-name]` |
+| `worker.sh` | Daemon worker process. Picks up tagged work items and dispatches to skills | `worker.sh` |
+| `migrate-fleet-pane-ids.sh` | One-time migration for fleet pane ID format changes | `migrate-fleet-pane-ids.sh` |
 
 ## find-sessions.sh
 

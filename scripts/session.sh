@@ -1044,6 +1044,7 @@ case "$ACTION" in
         echo "  Each bare tag must be addressed before synthesis:" >&2
         echo "    PROMOTE — Create a request file + backtick-escape the inline tag" >&2
         echo "    ACKNOWLEDGE — Mark as intentional (tag stays bare)" >&2
+        echo "    ESCAPE — Just backtick-escape it (reference, not a work item)" >&2
         echo "" >&2
         echo "  Bare tags found:" >&2
         printf "    %b" "$BARE_TAGS" | while IFS= read -r line; do
