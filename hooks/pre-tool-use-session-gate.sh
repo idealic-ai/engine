@@ -28,10 +28,10 @@
 # Related:
 #   Docs: (~/.claude/docs/)
 #     SESSION_LIFECYCLE.md — Session lifecycle, activation gate
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/standards/INVARIANTS.md)
 #     ¶INV_SKILL_PROTOCOL_MANDATORY — Skills require formal session activation
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet notification graceful degradation
-#   Commands: (~/.claude/directives/COMMANDS.md)
+#   Commands: (~/.claude/standards/COMMANDS.md)
 #     §CMD_REQUIRE_ACTIVE_SESSION — This hook enforces it
 
 set -euo pipefail
@@ -62,13 +62,14 @@ if [ "$TOOL_NAME" = "Skill" ]; then
   hook_allow
 fi
 
-# Bash: whitelist session.sh, log.sh, tag.sh, glob.sh
+# Bash: whitelist session.sh, log.sh, tag.sh, glob.sh (direct or via engine CLI)
 if [ "$TOOL_NAME" = "Bash" ]; then
   BASH_CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
   if [[ "$BASH_CMD" == *"/.claude/scripts/session.sh"* ]] || \
      [[ "$BASH_CMD" == *"/.claude/scripts/log.sh"* ]] || \
      [[ "$BASH_CMD" == *"/.claude/scripts/tag.sh"* ]] || \
-     [[ "$BASH_CMD" == *"/.claude/scripts/glob.sh"* ]]; then
+     [[ "$BASH_CMD" == *"/.claude/scripts/glob.sh"* ]] || \
+     [[ "$BASH_CMD" =~ ^engine[[:space:]]+(session|log|tag|glob)[[:space:]] ]]; then
     hook_allow
   fi
 fi
@@ -134,6 +135,6 @@ else
   DENY_GUIDANCE="Use AskUserQuestion to ask the user which skill they want to use and in which session."
 fi
 
-DENY_GUIDANCE="${DENY_GUIDANCE}\n\nWhitelisted tools (available now): Read(~/.claude/*), Bash(session.sh/log.sh/tag.sh), AskUserQuestion, Skill."
+DENY_GUIDANCE="${DENY_GUIDANCE}\n\nWhitelisted tools (available now): Read(~/.claude/*), Bash(~/.claude/scripts/session.sh or engine session, same for log/tag/glob), AskUserQuestion, Skill."
 
 hook_deny "$DENY_REASON" "$DENY_GUIDANCE" ""

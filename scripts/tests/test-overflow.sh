@@ -21,34 +21,24 @@
 # Run: bash ~/.claude/engine/scripts/tests/test-overflow.sh
 
 set -uo pipefail
+source "$(dirname "$0")/test-helpers.sh"
 
 HOOK="$HOME/.claude/hooks/pre-tool-use-overflow.sh"
-SESSION_SH="$HOME/.claude/scripts/session.sh"
+SESSION_SH="$HOME/.claude/engine/scripts/session.sh"
 LIB_SH="$HOME/.claude/scripts/lib.sh"
 CONFIG_SH="$HOME/.claude/engine/config.sh"
 
 TMP_DIR=$(mktemp -d)
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-
-# Disable fleet/tmux
-unset TMUX 2>/dev/null || true
-unset TMUX_PANE 2>/dev/null || true
 
 # Use a dead PID for isolation
 export CLAUDE_SUPERVISOR_PID=99999999
 
 # Create fake HOME to isolate session.sh find from real sessions
-FAKE_HOME="$TMP_DIR/fake-home"
-mkdir -p "$FAKE_HOME/.claude/scripts"
-mkdir -p "$FAKE_HOME/.claude/hooks"
+setup_fake_home "$TMP_DIR"
+disable_fleet_tmux
+
+# Create engine dir in fake home for config.sh
 mkdir -p "$FAKE_HOME/.claude/engine"
-mkdir -p "$FAKE_HOME/.claude/tools/session-search"
-mkdir -p "$FAKE_HOME/.claude/tools/doc-search"
 
 # Symlink real scripts into fake home
 ln -sf "$SESSION_SH" "$FAKE_HOME/.claude/scripts/session.sh"
@@ -56,28 +46,9 @@ ln -sf "$LIB_SH" "$FAKE_HOME/.claude/scripts/lib.sh"
 ln -sf "$HOOK" "$FAKE_HOME/.claude/hooks/pre-tool-use-overflow.sh"
 ln -sf "$CONFIG_SH" "$FAKE_HOME/.claude/engine/config.sh"
 
-# Stub fleet.sh (no fleet)
-cat > "$FAKE_HOME/.claude/scripts/fleet.sh" <<'MOCK'
-#!/bin/bash
-case "${1:-}" in
-  pane-id) echo ""; exit 0 ;;
-  *)       exit 0 ;;
-esac
-MOCK
-chmod +x "$FAKE_HOME/.claude/scripts/fleet.sh"
-
-# Stub search tools
-for tool in session-search doc-search; do
-  cat > "$FAKE_HOME/.claude/tools/$tool/$tool.sh" <<'MOCK'
-#!/bin/bash
-echo "(none)"
-MOCK
-  chmod +x "$FAKE_HOME/.claude/tools/$tool/$tool.sh"
-done
-
-# Save original HOME and switch
-ORIGINAL_HOME="$HOME"
-export HOME="$FAKE_HOME"
+# Stub fleet.sh and search tools
+mock_fleet_sh "$FAKE_HOME"
+mock_search_tools "$FAKE_HOME"
 
 # Work in TMP_DIR so session.sh find scans our test sessions
 cd "$TMP_DIR"
@@ -90,36 +61,10 @@ mkdir -p "$TEST_SESSION"
 RESOLVED_HOOK="$FAKE_HOME/.claude/hooks/pre-tool-use-overflow.sh"
 
 cleanup() {
-  export HOME="$ORIGINAL_HOME"
+  teardown_fake_home
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
-
-assert_contains() {
-  local expected="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -q "$expected"; then
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Expected to contain: $expected"
-    echo "  Actual: $actual"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_eq() {
-  local expected="$1" actual="$2" msg="$3"
-  if [ "$expected" = "$actual" ]; then
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Expected: $expected"
-    echo "  Actual: $actual"
-    FAIL=$((FAIL + 1))
-  fi
-}
 
 # Run hook with given tool_name and optional tool_input
 run_hook() {
@@ -157,11 +102,9 @@ export CLAUDE_SUPERVISOR_PID=$$
 # Verify session.sh find resolves correctly
 FOUND=$("$FAKE_HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "NOT_FOUND")
 if [[ "$FOUND" == *"test_overflow"* ]]; then
-  echo -e "${GREEN}PASS${NC}: session.sh find resolves to test session"
-  PASS=$((PASS + 1))
+  pass "session.sh find resolves to test session"
 else
-  echo -e "${RED}FAIL${NC}: session.sh find → $FOUND (expected test_overflow)"
-  FAIL=$((FAIL + 1))
+  fail "session.sh find -> $FOUND (expected test_overflow)"
   echo "  Cannot test overflow without session discovery. Aborting."
   exit 1
 fi
@@ -254,7 +197,7 @@ set_context_usage 0.77
 
 OUT=$(run_hook "Grep" '{"pattern":"foo","path":"/tmp"}')
 assert_contains '"deny"' "$OUT" "Grep denied above threshold"
-assert_contains 'CONTEXT OVERFLOW' "$OUT" "Deny message contains CONTEXT OVERFLOW"
+assert_contains 'Context overflow' "$OUT" "Deny message contains Context overflow"
 
 echo ""
 
@@ -274,10 +217,10 @@ echo "--- A9. Sticky flag persistence ---"
 # State from A8: overflowed=true. Now set context below threshold.
 set_context_usage 0.10
 
-# overflowed=true + lifecycle=active → the hook still allows (overflowed doesn't block,
+# overflowed=true + lifecycle=active -> the hook still allows (overflowed doesn't block,
 # it only blocks via overflow hook's threshold check; stickiness means it's not cleared)
 OUT=$(run_hook "Grep" '{"pattern":"foo","path":"/tmp"}')
-assert_contains '"allow"' "$OUT" "Below threshold → allowed even with overflowed flag"
+assert_contains '"allow"' "$OUT" "Below threshold -> allowed even with overflowed flag"
 
 OVERFLOWED=$(jq -r '.overflowed // false' "$TEST_SESSION/.state.json" 2>/dev/null)
 assert_eq "true" "$OVERFLOWED" "overflowed flag persists (sticky)"
@@ -295,7 +238,7 @@ set_context_usage 0.77
 
 OUT=$(run_hook "Read" '{"file_path":"/tmp/foo.ts"}')
 assert_contains '"deny"' "$OUT" "Read denied during overflow"
-assert_contains 'CONTEXT OVERFLOW' "$OUT" "Read deny has CONTEXT OVERFLOW message"
+assert_contains 'Context overflow' "$OUT" "Read deny has Context overflow message"
 
 echo ""
 
@@ -306,7 +249,7 @@ set_context_usage 0.77
 
 OUT=$(run_hook "Bash" '{"command":"git status"}')
 assert_contains '"deny"' "$OUT" "git status denied during overflow"
-assert_contains 'CONTEXT OVERFLOW' "$OUT" "Bash deny has CONTEXT OVERFLOW message"
+assert_contains 'Context overflow' "$OUT" "Bash deny has Context overflow message"
 
 echo ""
 
@@ -320,7 +263,7 @@ echo "--- A12. No session directory ---"
 export CLAUDE_SUPERVISOR_PID=99999999
 
 OUT=$(run_hook "Grep" '{"pattern":"foo","path":"/tmp"}')
-assert_contains '"allow"' "$OUT" "No session → allow"
+assert_contains '"allow"' "$OUT" "No session -> allow"
 
 echo ""
 
@@ -332,13 +275,6 @@ export CLAUDE_SUPERVISOR_PID=$$
 rm -f "$TEST_SESSION/.state.json"
 
 OUT=$(run_hook "Grep" '{"pattern":"foo","path":"/tmp"}')
-assert_contains '"allow"' "$OUT" "Missing .state.json → allow"
+assert_contains '"allow"' "$OUT" "Missing .state.json -> allow"
 
-echo ""
-
-# --- Summary ---
-echo "======================================"
-echo -e "Results: ${GREEN}$PASS passed${NC}, ${RED}$FAIL failed${NC}"
-echo "======================================"
-
-[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+exit_with_results

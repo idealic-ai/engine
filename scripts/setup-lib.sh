@@ -155,8 +155,13 @@ link_files_if_needed() {
         count=$((count + 1))
       fi
     elif [ -e "$dest_file" ]; then
-      setup_log_verbose "$display_name/$name: local override exists, skipping"
-      continue
+      # Regular file exists where symlink should be — backup and replace
+      local backup_file="${dest_file}.local-backup"
+      setup_log_verbose "$display_name/$name: regular file exists, backing up to $name.local-backup"
+      mv "$dest_file" "$backup_file"
+      ln -s "$src_file" "$dest_file"
+      count=$((count + 1))
+      ACTIONS+=("Backed up $display_name/$name → $name.local-backup, replaced with symlink")
     else
       ln -s "$src_file" "$dest_file"
       count=$((count + 1))
@@ -182,7 +187,7 @@ setup_engine_symlinks() {
   # Whole-dir symlinks
   link_if_needed "$engine_dir/commands"  "$claude_dir/commands"  "commands"  "0"
   link_if_needed "$engine_dir/directives" "$claude_dir/directives" "directives" "0"
-  link_if_needed "$engine_dir/agents"    "$claude_dir/agents"    "agents"    "0"
+  link_files_if_needed "$engine_dir/agents" "$claude_dir/agents" "agents"
 
   # Per-file symlinks (allows local overrides)
   link_files_if_needed "$engine_dir/scripts" "$claude_dir/scripts" "scripts"
@@ -391,8 +396,12 @@ configure_hooks() {
         })
     )
 
-    # PostToolUseSuccess: complete-notify + discovery
-    | .hooks.PostToolUseSuccess = ((.hooks.PostToolUseSuccess // [])
+    # PostToolUse: complete-notify + discovery
+    | (if .hooks.PostToolUseSuccess then
+        .hooks.PostToolUse = ((.hooks.PostToolUse // []) + .hooks.PostToolUseSuccess | unique_by(.hooks[0].command))
+        | del(.hooks.PostToolUseSuccess)
+       else . end)
+    | .hooks.PostToolUse = ((.hooks.PostToolUse // [])
       | add_if_missing({
           "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-complete-notify.sh"}]
         })

@@ -4,18 +4,13 @@
 # ============================================================================
 # Verifies that session.sh check correctly scans session .md artifacts for
 # bare unescaped inline #needs-*/#active-*/#done-* lifecycle tags (the
-# ¶INV_ESCAPE_BY_DEFAULT enforcement gate).
+# INV_ESCAPE_BY_DEFAULT enforcement gate).
 # ============================================================================
 set -uo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 SESSION_SH="$HOME/.claude/scripts/session.sh"
-
-# ---- Framework ----
-PASS=0
-FAIL=0
-
-pass() { echo -e "\033[32mPASS\033[0m: $1"; PASS=$((PASS + 1)); }
-fail() { echo -e "\033[31mFAIL\033[0m: $1 (expected: $2, got: $3)"; FAIL=$((FAIL + 1)); }
 
 # ---- Setup / Teardown ----
 TEST_DIR=""
@@ -567,6 +562,4 @@ test_hc08_mixed_escaped_and_bare_same_line
 
 teardown
 
-echo ""
-echo "Results: $PASS passed, $FAIL failed"
-[[ $FAIL -eq 0 ]] && exit 0 || exit 1
+exit_with_results

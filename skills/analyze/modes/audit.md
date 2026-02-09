@@ -34,17 +34,4 @@
   gateQuestion: "Audit complete. Walk through risks?"
   debriefFile: "ANALYSIS.md"
   templateFile: "~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS.md"
-  actionMenu:
-    - label: "Fix immediately"
-      tag: "#needs-implementation"
-      when: "Risk is critical and has a clear fix"
-    - label: "Investigate impact"
-      tag: "#needs-research"
-      when: "Risk severity is uncertain and needs analysis"
-    - label: "Add test coverage"
-      tag: "#needs-implementation"
-      when: "Risk can be mitigated by better testing"
-    - label: "Accept risk"
-      tag: ""
-      when: "Risk is known and accepted — document and move on"
 ```

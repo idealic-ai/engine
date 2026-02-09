@@ -135,15 +135,8 @@ cmd_start() {
     local config_file
     local socket
 
-    # Run engine.sh to ensure engine is up to date before starting fleet
-    echo "Checking engine setup..."
-    if ! "$HOME/.claude/scripts/engine.sh"; then
-      echo "ERROR: engine.sh failed. Please run from a project directory."
-      exit 1
-    fi
-
-    # Export so run.sh instances spawned by tmuxinator skip setup
-    export FLEET_SETUP_DONE=1
+    # Setup is handled by engine CLI (auto-setup on first run).
+    # fleet.sh no longer invokes engine.sh directly — callers should use `engine` entrypoint.
 
     socket=$(get_fleet_socket "$workgroup")
     if [[ -n "$workgroup" ]]; then
@@ -457,46 +450,93 @@ cmd_notify() {
         local prev_state
         prev_state=$($TMUX_CMD display -p -t "$target_pane" '#{@pane_notify}' 2>/dev/null || echo "")
 
-        $TMUX_CMD set-option -p -t "$target_pane" @pane_notify "$state" 2>/dev/null || true
-
-        # Skip visual update if state unchanged (data layer updated above, visual is redundant)
+        # Skip pane update if state unchanged, but still refresh window aggregate
+        # (other panes may have changed externally — window needs recomputation)
         if [[ "$prev_state" == "$state" ]]; then
             update_window_notify
             return
         fi
 
-        # Get border/tint color for this state
-        local color
+        # State priority for debounce: higher = more urgent
+        # error(4) > unchecked(3) > working(2) > checked(1) > done(0)
+        local prev_priority=0 new_priority=0
+        case "$prev_state" in
+            error) prev_priority=4 ;; unchecked) prev_priority=3 ;;
+            working) prev_priority=2 ;; checked) prev_priority=1 ;; *) prev_priority=0 ;;
+        esac
         case "$state" in
-            error)     color="#3d2020" ;;
-            unchecked) color="#081a10" ;;
-            working)   color="#080c10" ;;
-            checked)   color="#0a1005" ;;
-            *)         color="#0a0a0a" ;;
+            error) new_priority=4 ;; unchecked) new_priority=3 ;;
+            working) new_priority=2 ;; checked) new_priority=1 ;; *) new_priority=0 ;;
         esac
 
-        # Apply bg color via select-pane -P (the only API for per-pane style in tmux 3.6a)
-        # set-option -p -t style is INVALID — "style" is not a recognized pane option
-        local active_pane
-        active_pane=$($TMUX_CMD display -p '#{pane_id}' 2>/dev/null || echo "")
-        if [[ "$target_pane" == "$active_pane" ]]; then
-            # Focused pane — skip style to avoid flash/distraction while user is looking at it
-            :
+        # Debounce file per pane (uses pane ID with % replaced to be filename-safe)
+        local debounce_dir="/tmp/fleet-debounce"
+        mkdir -p "$debounce_dir" 2>/dev/null || true
+        local safe_pane="${target_pane//%/_}"
+        local debounce_file="$debounce_dir/$safe_pane"
+
+        # Data layer: ALWAYS apply immediately (tests and queries depend on this)
+        _apply_notify_data "$target_pane" "$state"
+
+        if [[ "$new_priority" -ge "$prev_priority" ]]; then
+            # Upgrade (or same priority): apply visual immediately, cancel pending downgrade
+            echo "$state" > "$debounce_file" 2>/dev/null || true
+            _apply_notify_visual "$target_pane" "$state"
         else
-            # Unfocused pane — suppress hooks + set style + restore focus in one atomic tmux call
-            # (INV_SUPPRESS_HOOKS_FOR_PROGRAMMATIC_STYLE — prevents after-select-pane hook cascade)
-            $TMUX_CMD set -g @suppress_focus_hook 1 \; \
-                select-pane -t "$target_pane" -P "bg=$color" \; \
-                select-pane -t "$active_pane" \; \
-                set -g @suppress_focus_hook 0 \
-                2>/dev/null || true
+            # Downgrade: defer visual by 200ms to prevent flash
+            # Data layer already applied above — only the select-pane -P is deferred
+            echo "$state" > "$debounce_file" 2>/dev/null || true
+            (
+                sleep 0.2
+                local current_intent
+                current_intent=$(cat "$debounce_file" 2>/dev/null || echo "")
+                if [[ "$current_intent" == "$state" ]]; then
+                    _apply_notify_visual "$target_pane" "$state"
+                fi
+            ) &
+            disown 2>/dev/null || true
         fi
     else
         $TMUX_CMD set-option -p @pane_notify "$state" 2>/dev/null || true
+        update_window_notify
     fi
+}
 
-    # Update window aggregate
+# Helper: Apply data layer only (@pane_notify + window aggregate)
+# Always called synchronously so tests and queries see the state immediately.
+_apply_notify_data() {
+    local target_pane="$1" state="$2"
+    $TMUX_CMD set-option -p -t "$target_pane" @pane_notify "$state" 2>/dev/null || true
     update_window_notify
+}
+
+# Helper: Apply visual layer only (select-pane -P bg color)
+# This is the part that can be deferred on downgrades to prevent flash.
+_apply_notify_visual() {
+    local target_pane="$1" state="$2"
+
+    local color
+    case "$state" in
+        error)     color="#3d2020" ;;
+        unchecked) color="#081a10" ;;
+        working)   color="#080c10" ;;
+        checked)   color="#0a1005" ;;
+        *)         color="#0a0a0a" ;;
+    esac
+
+    local active_pane
+    active_pane=$($TMUX_CMD display -p '#{pane_id}' 2>/dev/null || echo "")
+    if [[ "$target_pane" == "$active_pane" ]]; then
+        # Focused pane — skip style to avoid flash/distraction while user is looking at it
+        :
+    else
+        # Unfocused pane — suppress hooks + set style + restore focus in one atomic tmux call
+        $TMUX_CMD set -g @suppress_focus_hook 1 \; \
+            select-pane -t "$target_pane" -P "bg=$color" \; \
+            select-pane -t "$active_pane" \; \
+            set -g @suppress_focus_hook 0 \
+            2>/dev/null || true
+    fi
 }
 
 cmd_notify_clear() {

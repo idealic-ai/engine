@@ -23,17 +23,4 @@ CMD_WALK_THROUGH_RESULTS Configuration:
   gateQuestion: "Integration tests written. Walk through results?"
   debriefFile: "TESTING.md"
   templateFile: "~/.claude/skills/test/assets/TEMPLATE_TESTING.md"
-  actionMenu:
-    - label: "Fix integration issue"
-      tag: "#needs-implementation"
-      when: "Test revealed a real integration bug"
-    - label: "Add contract test"
-      tag: "#needs-implementation"
-      when: "API boundary lacks contract validation"
-    - label: "Document integration pattern"
-      tag: "#needs-documentation"
-      when: "Integration approach should be documented"
-    - label: "Debug interaction"
-      tag: "#needs-implementation"
-      when: "Unexpected behavior at component boundary needs investigation"
 ```

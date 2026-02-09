@@ -31,11 +31,11 @@
 3.  **Tag**: The file is created with `#active-alert` on its Tags line. This makes it discoverable by `§CMD_FIND_TAGGED_FILES` and loaded into new agent sessions via `§FEED_ALERTS`.
 
 #### Alert Resolve Check
-1.  **Discover**: Run `~/.claude/scripts/tag.sh find '#active-alert'` in `sessions/`.
+1.  **Discover**: Run `engine tag find '#active-alert'` in `sessions/`.
 2.  **For each active alert**: Read the alert file. Evaluate whether this session's work resolves the issue described.
 3.  **If resolved**:
     ```bash
-    ~/.claude/scripts/tag.sh swap "$ALERT_FILE" '#active-alert' '#done-alert'
+    engine tag swap "$ALERT_FILE" '#active-alert' '#done-alert'
     ```
     Append a `## Resolution` section to the alert file:
     ```markdown
@@ -47,7 +47,7 @@
 4.  **If NOT resolved**: Leave the alert active. No action needed.
 5.  **Report**: If any alerts were raised or resolved, log to the session's `_LOG.md`:
     ```bash
-    ~/.claude/scripts/log.sh [sessionDir]/[LOG_NAME].md <<'EOF'
+    engine log [sessionDir]/[LOG_NAME].md <<'EOF'
     ## 🚨 Alert Management
     *   **Raised**: [N] alerts ([list topics])
     *   **Resolved**: [N] alerts ([list topics])

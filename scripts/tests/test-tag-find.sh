@@ -9,14 +9,9 @@
 # ============================================================================
 set -uo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 TAG_SH="$HOME/.claude/scripts/tag.sh"
-
-# ---- Framework ----
-PASS=0
-FAIL=0
-
-pass() { echo -e "\033[32mPASS\033[0m: $1"; PASS=$((PASS + 1)); }
-fail() { echo -e "\033[31mFAIL\033[0m: $1 (expected: $2, got: $3)"; FAIL=$((FAIL + 1)); }
 
 assert_found() {
   local desc="$1" file="$2" results="$3"
@@ -321,6 +316,4 @@ test_hf05_context_flag_output
 
 teardown
 
-echo ""
-echo "Results: $PASS passed, $FAIL failed"
-[[ $FAIL -eq 0 ]] && exit 0 || exit 1
+exit_with_results

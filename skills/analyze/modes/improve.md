@@ -36,17 +36,4 @@
   gateQuestion: "Suggestions ready. Walk through improvements?"
   debriefFile: "ANALYSIS.md"
   templateFile: "~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS.md"
-  actionMenu:
-    - label: "Implement now"
-      tag: "#needs-implementation"
-      when: "Suggestion is actionable and high-value"
-    - label: "Research first"
-      tag: "#needs-research"
-      when: "Suggestion needs validation or deeper understanding"
-    - label: "Prototype first"
-      tag: "#needs-implementation"
-      when: "Suggestion is promising but needs a proof of concept"
-    - label: "Brainstorm approaches"
-      tag: "#needs-implementation"
-      when: "Suggestion needs exploration of approaches before committing"
 ```

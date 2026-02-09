@@ -8,14 +8,9 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/test-helpers.sh"
+
 LIB="$SCRIPT_DIR/../setup-lib.sh"
-
-# ---- Framework ----
-PASS=0
-FAIL=0
-
-pass() { echo -e "\033[32mPASS\033[0m: $1"; PASS=$((PASS + 1)); }
-fail() { echo -e "\033[31mFAIL\033[0m: $1 (expected: $2, got: $3)"; FAIL=$((FAIL + 1)); }
 
 # ---- Setup / Teardown ----
 TEST_DIR=""
@@ -193,15 +188,14 @@ link_files_if_needed "$TEST_DIR/engine/scripts" "$TEST_DIR/claude/scripts" "scri
 teardown
 
 setup
-# Local override: real file in dest should NOT be replaced
+# Local override: real file in dest is backed up and replaced with symlink
 link_files_if_needed "$TEST_DIR/engine/scripts" "$TEST_DIR/claude/scripts" "scripts"
 # Now create a local override
-echo "# local version" > "$TEST_DIR/claude/scripts/session.sh"
 rm -f "$TEST_DIR/claude/scripts/session.sh"  # remove the symlink
 echo "# local version" > "$TEST_DIR/claude/scripts/session.sh"  # create real file
 ACTIONS=()
 link_files_if_needed "$TEST_DIR/engine/scripts" "$TEST_DIR/claude/scripts" "scripts"
-[ ! -L "$TEST_DIR/claude/scripts/session.sh" ] && pass "FILES-06: Preserves local override (real file not replaced)" || fail "FILES-06" "real file" "symlink"
+[ -L "$TEST_DIR/claude/scripts/session.sh" ] && [ -f "$TEST_DIR/claude/scripts/session.sh.local-backup" ] && pass "FILES-06: Backs up local override and replaces with symlink" || fail "FILES-06" "symlink + .local-backup" "got: symlink=$([ -L "$TEST_DIR/claude/scripts/session.sh" ] && echo yes || echo no), backup=$([ -f "$TEST_DIR/claude/scripts/session.sh.local-backup" ] && echo yes || echo no)"
 teardown
 
 setup
@@ -232,7 +226,7 @@ setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
 # Check whole-dir symlinks
 [ -L "$TEST_DIR/claude/commands" ] && pass "ENGINE-01: commands/ symlinked" || fail "ENGINE-01" "symlink" "not"
 [ -L "$TEST_DIR/claude/directives" ] && pass "ENGINE-02: directives/ symlinked" || fail "ENGINE-02" "symlink" "not"
-[ -L "$TEST_DIR/claude/agents" ] && pass "ENGINE-03: agents/ symlinked" || fail "ENGINE-03" "symlink" "not"
+[ -d "$TEST_DIR/claude/agents" ] && [ ! -L "$TEST_DIR/claude/agents" ] && pass "ENGINE-03: agents/ is real dir (per-file linking)" || fail "ENGINE-03" "real dir" "$([ -L "$TEST_DIR/claude/agents" ] && echo symlink || echo missing)"
 # Check per-file symlinks
 [ -L "$TEST_DIR/claude/scripts/session.sh" ] && pass "ENGINE-04: scripts/ has per-file symlinks" || fail "ENGINE-04" "symlink" "not"
 [ -L "$TEST_DIR/claude/hooks/pre-tool-use-overflow.sh" ] && pass "ENGINE-05: hooks/ has per-file symlinks" || fail "ENGINE-05" "symlink" "not"
@@ -347,8 +341,8 @@ jq -e '.hooks.PreToolUse' "$TEST_DIR/claude/settings.json" >/dev/null 2>&1 && pa
 # Check new hooks are present
 hb=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-heartbeat.sh")] | length' "$TEST_DIR/claude/settings.json")
 [ "$hb" = "1" ] && pass "HOOKS-02b: Adds heartbeat hook" || fail "HOOKS-02b" "1" "$hb"
-disc=$(jq '[.hooks.PostToolUseSuccess[] | select(.hooks[0].command == "~/.claude/hooks/post-tool-use-discovery.sh")] | length' "$TEST_DIR/claude/settings.json")
-[ "$disc" = "1" ] && pass "HOOKS-02c: Adds discovery hook" || fail "HOOKS-02c" "1" "$disc"
+disc=$(jq '[.hooks.PostToolUse[] | select(.hooks[0].command == "~/.claude/hooks/post-tool-use-discovery.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$disc" = "1" ] && pass "HOOKS-02c: Adds discovery hook (PostToolUse)" || fail "HOOKS-02c" "1" "$disc"
 teardown
 
 # Deep-merge: preserves user's custom hooks
@@ -472,9 +466,5 @@ teardown
 # ============================================================================
 # Results
 # ============================================================================
-echo ""
-echo "======================================"
-echo -e "Results: \033[32m${PASS} passed\033[0m, \033[31m${FAIL} failed\033[0m ($(( PASS + FAIL )) total)"
-echo "======================================"
 
-[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+exit_with_results

@@ -1,3 +1,5 @@
 001:hooks:1770538125
 002:perfile_skills:1770538125
 003:state_json_rename:1770538126
+004:remove_stale_skill_symlinks:1770572586
+005:add_hooks_to_settings:1770572586

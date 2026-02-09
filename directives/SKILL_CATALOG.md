@@ -20,7 +20,7 @@ Full-ceremony skills with all engine features.
 |-------|--------|------------|--------------|--------------|
 | `/analyze` | 5 (Setup → Context → Research → Calibration → Synthesis) | Yes | Results | Explore, Audit, Improve, Custom |
 | `/brainstorm` | 4 (Setup → Context → Dialogue → Synthesis) | Yes | Results | Explore, Focused, Adversarial, Custom |
-| `/debug` | 6 (Setup → Context → Interrogation → Investigation → Repair → Synthesis) | Yes | Results + Plan | Test Failures, Behavior, Performance, Custom |
+| `/fix` | 7 (Setup → Context → Investigation → Triage Walk-Through → Fix Loop → Results Walk-Through → Debrief) | Yes | Results + Plan | General, TDD, Hotfix, Custom |
 | `/document` | 4 (Setup → Diagnosis & Planning → Operation → Synthesis) | Yes | Results + Plan | Surgical, Refine, Audit, Custom |
 | `/evangelize` | 5 (Setup → Context → Analysis → Interrogation → Synthesis) | Yes | Results | — |
 | `/implement` | 6 (Setup → Context → Interrogation → Planning → Build Loop → Synthesis) | Yes | Results + Plan | TDD, Experimentation, General, Custom |

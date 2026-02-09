@@ -11,24 +11,40 @@ Analyzes code/documentation and proposes actionable improvements.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
-### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
+### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
 **Output this block in chat with every blank filled:**
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
 
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
+[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Suggestion Session Protocol (The Code Auditor)
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structure — Phase 2 (The Interrogation) is the iterative work phase. The engine's artifacts live in the session directory as reviewable files, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
+[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structure — Phase 1 (The Interrogation) is the iterative work phase. The engine's artifacts live in the session directory as reviewable files, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
 
-## 1. Setup Phase
+### Session Parameters (for §CMD_PARSE_PARAMETERS)
+*Merge into the JSON passed to `session.sh activate`:*
+```json
+{
+  "taskType": "ANALYSIS",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup"},
+    {"major": 1, "minor": 0, "name": "The Interrogation"},
+    {"major": 2, "minor": 0, "name": "Synthesis"}
+  ],
+  "nextSkills": ["/implement", "/analyze", "/brainstorm", "/chores"],
+  "directives": [],
+  "debriefTemplate": "~/.claude/skills/suggest/assets/TEMPLATE_SUGGESTION.md"
+}
+```
+
+## 0. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 1: Setup phase.
-    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 1 only (Strict Bootloader — expires at Phase 2).
+    > 1. I am starting Phase 0: Setup phase.
+    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 0 only (Strict Bootloader — expires at Phase 1).
     > 3. My focus is SUGGESTION (`§CMD_REFUSE_OFF_COURSE` applies).
     > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
     > 5. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
@@ -40,7 +56,7 @@ Analyzes code/documentation and proposes actionable improvements.
     >    **Mindset**: "Be Critical. Don't Fix (Yet). Leverage Context."
     > 8. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
-    **Constraint**: Do NOT read any project files (source code, docs) in Phase 1. Only load the required system templates/standards.
+    **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project structure and file map)
@@ -56,27 +72,23 @@ Analyzes code/documentation and proposes actionable improvements.
 6.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
     *   If any files are found, add them to `contextPaths` for ingestion.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
+### §CMD_VERIFY_PHASE_EXIT — Phase 0
 **Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
+> **Phase 0 proof:**
 > - Role: `________`
 > - Session dir: `________`
 > - SUGGESTION template: `________`
 > - Parameters parsed: `________`
 
-### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 2: The Interrogation"** — Run the Context Squeeze checklist against loaded code
-> - **"Stay in Phase 1"** — Load additional files or context first
+*Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
 
-## 2. The Interrogation (The Context Squeeze)
+## 1. The Interrogation (The Context Squeeze)
 *Think in the Log. Ask yourself these questions about the loaded code/docs.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 2: The Interrogation.
+> 1. I am moving to Phase 1: The Interrogation.
 > 2. I will `§CMD_EXECUTE_INTERROGATION_PROTOCOL` using the Context Squeeze checklist.
 > 3. I will `§CMD_THINK_IN_LOG` throughout.
 > 4. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
@@ -175,7 +187,7 @@ Record the user's choice.
 **After completing minimum sections**, present this choice via `AskUserQuestion` (multiSelect: true):
 
 > "Audit sections complete (minimum met). What next?"
-> - **"Proceed to Phase 3: Synthesis"** — *(terminal: if selected, skip all others and move on)*
+> - **"Proceed to Phase 2: Synthesis"** — *(terminal: if selected, skip all others and move on)*
 > - **"More audit (2 more sections)"** — Continue through remaining checklist sections
 > - **"Devil's advocate round"** — 1 round challenging the findings so far
 > - **"What-if scenarios round"** — 1 round exploring hypothetical impacts
@@ -183,24 +195,29 @@ Record the user's choice.
 
 **Execution order** (when multiple selected): Standard sections first → Devil's advocate → What-ifs → Deep dive → re-present exit gate.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
+### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
+> **Phase 1 proof:**
 > - Depth chosen: `________`
 > - Sections completed: `________` / `________`+
 > - Findings logged: `________`
 
 ### Phase Transition
-*(Handled by exit gate above)*
+*Fired by §CMD_EXECUTE_INTERROGATION_PROTOCOL exit gate's "Proceed to next phase" option.*
+
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "1: The Interrogation"
+  nextPhase: "2: Synthesis"
+  prevPhase: "0: Setup"
 
 ---
 
-## 3. Synthesis & Handoff
+## 2. Synthesis & Handoff
 *Produce the suggestion report and offer conversion to action sessions.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3: Synthesis.
+> 1. I am moving to Phase 2: Synthesis.
 > 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
 > 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_SUGGESTION.md` EXACTLY) to create the suggestion report.
 > 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
@@ -231,18 +248,11 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   gateQuestion: "Suggestions ready. Walk through them?"
   debriefFile: "SUGGESTIONS.md"
   templateFile: "~/.claude/skills/suggest/assets/TEMPLATE_SUGGESTION.md"
-  actionMenu:
-    - label: "Implement now"
-      tag: "#needs-implementation"
-      when: "Suggestion is actionable and high-value"
-    - label: "Research first"
-      tag: "#needs-research"
-      when: "Suggestion needs validation or deeper understanding"
 ```
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3 (PROOF OF WORK)
+### §CMD_VERIFY_PHASE_EXIT — Phase 2 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
+> **Phase 2 proof:**
 > - SUGGESTIONS.md written: `________` (real file path)
 > - Tags line: `________`
 > - Sorted by impact: `________`
@@ -253,18 +263,6 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 **Step 6**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
-
-### Next Skill Options
-*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
-
-> "Suggestions ready. What's next?"
-
-| Option | Label | Description |
-|--------|-------|-------------|
-| 1 | `/implement` (Recommended) | High-impact suggestion identified — start building |
-| 2 | `/analyze` | Need deeper research before acting on a suggestion |
-| 3 | `/brainstorm` | Explore a suggestion's design space further |
-| 4 | `/critique` | Stress-test a suggestion before committing |
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 

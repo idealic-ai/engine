@@ -10,18 +10,10 @@
 
 set -uo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 SESSION_SH="$HOME/.claude/engine/scripts/session.sh"
 LIB_SH="$HOME/.claude/scripts/lib.sh"
-
-# Colors
-RED='\033[31m'
-GREEN='\033[32m'
-RESET='\033[0m'
-
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
 
 # Temp directory for test fixtures
 TEST_DIR=""
@@ -95,18 +87,6 @@ teardown() {
   fi
 }
 
-pass() {
-  echo -e "${GREEN}PASS${RESET}: $1"
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-}
-
-fail() {
-  echo -e "${RED}FAIL${RESET}: $1"
-  echo "  Expected: $2"
-  echo "  Got: $3"
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-}
-
 # Helper: activate a session with given directoriesOfInterest
 activate_with_dirs() {
   local session_dir="$1"
@@ -117,7 +97,14 @@ activate_with_dirs() {
 {
   "taskSummary": "Test session",
   "taskType": "TESTING",
+  "scope": "Test",
   "directoriesOfInterest": $dirs_json,
+  "preludeFiles": [],
+  "contextPaths": [],
+  "planTemplate": "",
+  "logTemplate": "",
+  "debriefTemplate": "",
+  "extraInfo": "",
   "phases": [{"major":1,"minor":0,"name":"Setup"},{"major":2,"minor":0,"name":"Test"}]
 }
 EOF
@@ -134,7 +121,6 @@ read_state() {
 # =============================================================================
 
 test_activate_discovers_readme_from_dir() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate discovery: finds README.md from directoriesOfInterest"
   setup
 
@@ -156,7 +142,6 @@ test_activate_discovers_readme_from_dir() {
 }
 
 test_activate_discovers_checklist() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate discovery: adds CHECKLIST.md to discoveredChecklists"
   setup
 
@@ -178,7 +163,6 @@ test_activate_discovers_checklist() {
 }
 
 test_activate_discovers_from_multiple_dirs() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate discovery: discovers from multiple directoriesOfInterest"
   setup
 
@@ -201,7 +185,6 @@ test_activate_discovers_from_multiple_dirs() {
 }
 
 test_activate_no_discovery_when_empty_dirs() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate discovery: no discovery when directoriesOfInterest is empty"
   setup
 
@@ -225,7 +208,6 @@ test_activate_no_discovery_when_empty_dirs() {
 }
 
 test_activate_outputs_discovered_instructions_section() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate discovery: outputs '## Discovered Directives' section"
   setup
 
@@ -243,7 +225,6 @@ test_activate_outputs_discovered_instructions_section() {
 }
 
 test_activate_checklist_path_is_absolute() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate discovery: checklist path is absolute"
   setup
 
@@ -269,7 +250,6 @@ test_activate_checklist_path_is_absolute() {
 # =============================================================================
 
 test_deactivate_blocks_unprocessed_checklists() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="deactivate gate: blocks when unprocessed checklists exist"
   setup
 
@@ -284,7 +264,7 @@ EOF
   )
   local exit_code=$?
 
-  if [ "$exit_code" -ne 0 ] && [[ "$output" == *"unprocessed CHECKLIST"* ]]; then
+  if [ "$exit_code" -ne 0 ] && [[ "$output" == *"CHECKLIST"* ]]; then
     pass "$test_name"
   else
     fail "$test_name" "exit non-zero, error mentions checklists" "exit=$exit_code, output=$output"
@@ -294,21 +274,27 @@ EOF
 }
 
 test_deactivate_passes_when_checklists_processed() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="deactivate gate: passes when all checklists processed"
   setup
 
   local session_dir="$TEST_DIR/sessions/test-deactivate-2"
   activate_with_dirs "$session_dir" "[\"$PROJECT_DIR/src/utils\"]" > /dev/null 2>&1
 
-  # Read the discovered checklists to know what to mark processed
+  # Read the discovered checklists to know what to submit
   local state
   state=$(read_state "$session_dir")
-  local checklists
-  checklists=$(echo "$state" | jq -c '.discoveredChecklists // []')
 
-  # Mark them as processed via session.sh update
-  "$HOME/.claude/scripts/session.sh" update "$session_dir" processedChecklists "$checklists" > /dev/null 2>&1
+  # Build checklist results for session.sh check
+  local checklist_input=""
+  while IFS= read -r cpath; do
+    [ -n "$cpath" ] || continue
+    checklist_input="${checklist_input}## CHECKLIST: ${cpath}
+- [x] Verified item
+"
+  done <<< "$(echo "$state" | jq -r '(.discoveredChecklists // [])[]')"
+
+  # Process checklists via session.sh check (sets checkPassed=true)
+  echo "$checklist_input" | "$HOME/.claude/scripts/session.sh" check "$session_dir" > /dev/null 2>&1
 
   # Now deactivate should succeed
   local output
@@ -328,7 +314,6 @@ EOF
 }
 
 test_deactivate_passes_when_no_checklists() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="deactivate gate: passes when no checklists were discovered"
   setup
 
@@ -353,7 +338,6 @@ EOF
 }
 
 test_deactivate_error_lists_unprocessed_files() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="deactivate gate: error message lists unprocessed file paths"
   setup
 
@@ -376,7 +360,6 @@ EOF
 }
 
 test_deactivate_references_invariant_code() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="deactivate gate: error references ¶INV_CHECKLIST_BEFORE_CLOSE"
   setup
 
@@ -403,7 +386,6 @@ EOF
 # =============================================================================
 
 test_activate_no_duplicate_checklists_on_reactivate() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="idempotency: re-activation doesn't duplicate checklists"
   setup
 
@@ -459,8 +441,4 @@ test_deactivate_references_invariant_code
 # Idempotency
 test_activate_no_duplicate_checklists_on_reactivate
 
-# Summary
-echo ""
-echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_RUN total"
-
-[ $TESTS_FAILED -eq 0 ] && exit 0 || exit 1
+exit_with_results

@@ -66,7 +66,7 @@ Arguments:
 **Action**: Re-register this Claude process with the session.
 
 ```bash
-~/.claude/scripts/session.sh activate [SESSION_DIR] [SKILL]
+engine session activate [SESSION_DIR] [SKILL]
 ```
 
 **Announce**: "Reanchoring session: `[SESSION_DIR]`"
@@ -119,7 +119,7 @@ Arguments:
 **Skill Templates by Type**:
 - `implement`: `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md`, `TEMPLATE_IMPLEMENTATION.md`, `TEMPLATE_IMPLEMENTATION_PLAN.md`
 - `analyze`: `~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS_LOG.md`, `TEMPLATE_ANALYSIS.md`
-- `debug`: `~/.claude/skills/debug/assets/TEMPLATE_DEBUG_LOG.md`, `TEMPLATE_DEBUG.md`
+- `fix`: `~/.claude/skills/fix/assets/TEMPLATE_FIX_LOG.md`, `TEMPLATE_FIX.md`
 - `brainstorm`: `~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM_LOG.md`, `TEMPLATE_BRAINSTORM.md`
 - `test`: `~/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md`, `TEMPLATE_TESTING.md`
 
@@ -134,7 +134,7 @@ Arguments:
 Examples:
 - implement -> `~/.claude/skills/implement/SKILL.md`
 - analyze -> `~/.claude/skills/analyze/SKILL.md`
-- debug -> `~/.claude/skills/debug/SKILL.md`
+- fix -> `~/.claude/skills/fix/SKILL.md`
 
 **Note**: In v2, the protocol is inline in SKILL.md. There is no separate `references/` file.
 
@@ -159,7 +159,7 @@ Examples:
   *   **Next Steps**: [from dehydrated context]
   EOF
   ```
-- Update phase tracking: `~/.claude/scripts/session.sh phase [SESSION_DIR] "[PHASE]"`
+- Update phase tracking: `engine session phase [SESSION_DIR] "[PHASE]"`
 
 **Announce**: "Reanchored: `[SESSION_DIR]` -- resuming `[SKILL]` at `[PHASE]`"
 

@@ -11,18 +11,18 @@ Iterative prompt and schema refinement using TDD methodology for LLM workloads.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
-### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
+### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
 **Output this block in chat with every blank filled:**
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
 
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
+[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Refinement Protocol (The Iteration Engine)
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 2 (Interrogation / Manifest Creation) and Phase 3 (Experiment Design). The engine's plan lives in the session directory as a reviewable artifact, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
+[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 1 (Interrogation / Manifest Creation) and Phase 2 (Experiment Design). The engine's plan lives in the session directory as a reviewable artifact, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
 
 ARGUMENTS: Accepts optional flags:
 - `--auto`: Run N iterations automatically (default: suggestion mode)
@@ -33,41 +33,41 @@ ARGUMENTS: Accepts optional flags:
 - `--case <path>`: Focus on a single case instead of running all cases
 - `--continue`: Resume from last iteration in current session directory
 
-### Phases (for §CMD_PARSE_PARAMETERS)
-*Include this array in the `phases` field when calling `session.sh activate`:*
+### Session Parameters (for §CMD_PARSE_PARAMETERS)
+*Merge into the JSON passed to `session.sh activate`:*
 ```json
-[
-  {"major": 1, "minor": 0, "name": "Setup"},
-  {"major": 2, "minor": 0, "name": "Interrogation"},
-  {"major": 3, "minor": 0, "name": "Planning"},
-  {"major": 4, "minor": 0, "name": "Validation"},
-  {"major": 5, "minor": 0, "name": "Baseline"},
-  {"major": 6, "minor": 0, "name": "Iteration Loop"},
-  {"major": 7, "minor": 0, "name": "Synthesis"}
-]
+{
+  "taskType": "CHANGESET",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup"},
+    {"major": 1, "minor": 0, "name": "Interrogation"},
+    {"major": 2, "minor": 0, "name": "Planning"},
+    {"major": 3, "minor": 0, "name": "Validation"},
+    {"major": 4, "minor": 0, "name": "Baseline"},
+    {"major": 5, "minor": 0, "name": "Iteration Loop"},
+    {"major": 6, "minor": 0, "name": "Synthesis"}
+  ],
+  "nextSkills": ["/refine", "/test", "/implement", "/analyze", "/chores"],
+  "directives": ["TESTING.md", "PITFALLS.md"],
+  "planTemplate": "~/.claude/skills/refine/assets/TEMPLATE_REFINE_PLAN.md",
+  "logTemplate": "~/.claude/skills/refine/assets/TEMPLATE_REFINE_LOG.md",
+  "debriefTemplate": "~/.claude/skills/refine/assets/TEMPLATE_REFINE.md",
+  "modes": {
+    "accuracy": {"label": "Accuracy", "description": "Precision and correctness", "file": "~/.claude/skills/refine/modes/accuracy.md"},
+    "speed": {"label": "Speed", "description": "Latency and token efficiency", "file": "~/.claude/skills/refine/modes/speed.md"},
+    "robustness": {"label": "Robustness", "description": "Edge case handling", "file": "~/.claude/skills/refine/modes/robustness.md"},
+    "custom": {"label": "Custom", "description": "User-defined", "file": "~/.claude/skills/refine/modes/custom.md"}
+  }
+}
 ```
-*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
-
-## Mode Presets
-
-Refinement modes configure the iteration focus — what to optimize for. Mode definitions live in `modes/*.md`.
-
-| Mode | Focus | When to Use |
-|------|-------|-------------|
-| **Accuracy** | Precision and correctness | Quality-critical extractions |
-| **Speed** | Latency and token efficiency | Real-time or high-volume |
-| **Robustness** | Edge case handling | Diverse input formats |
-| **Custom** | User-defined | Hybrid or novel objectives |
-
-**Mode files**: `~/.claude/skills/refine/modes/{accuracy,speed,robustness,custom}.md`
 
 ---
 
-## 1. Setup Phase
+## 0. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 1: Setup phase.
-    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 1 only (Strict Bootloader — expires at Phase 2).
+    > 1. I am starting Phase 0: Setup phase.
+    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 0 only (Strict Bootloader — expires at Phase 1).
     > 3. My focus is REFINEMENT (`§CMD_REFUSE_OFF_COURSE` applies).
     > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
     > 5. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
@@ -77,13 +77,14 @@ Refinement modes configure the iteration focus — what to optimize for. Mode de
     > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
     > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
-    **Constraint**: Do NOT read any project files (source code, docs) in Phase 1. Only load the required system templates/standards.
+    **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `~/.claude/skills/refine/assets/TEMPLATE_REFINE_PLAN.md` (Template for experiment planning)
     *   `~/.claude/skills/refine/assets/TEMPLATE_REFINE_LOG.md` (Template for experiment logging)
     *   `~/.claude/skills/refine/assets/TEMPLATE_REFINE.md` (Template for session debrief)
     *   `~/.claude/skills/refine/assets/MANIFEST_SCHEMA.json` (Schema for workload manifest)
+    *   `.claude/directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
 
 3.  **Parse Arguments**: Check for flags in the user's command:
     *   `--manifest <path>`: Skip interrogation, use existing manifest
@@ -114,8 +115,8 @@ Refinement modes configure the iteration focus — what to optimize for. Mode de
     **On "Custom"**: Read ALL 3 named mode files first (`modes/accuracy.md`, `modes/speed.md`, `modes/robustness.md`), then accept user's framing. Parse into role/goal/mindset.
 
     **Record**: Store the selected mode. It configures:
-    *   Phase 1 Step 6.2 role (from mode file)
-    *   Phase 6 iteration focus, hypothesis style, and success metric (from mode file)
+    *   Phase 0 Step 6.2 role (from mode file)
+    *   Phase 5 iteration focus, hypothesis style, and success metric (from mode file)
 
 6.2. **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file.
 
@@ -124,20 +125,20 @@ Refinement modes configure the iteration focus — what to optimize for. Mode de
         1.  Read `REFINE_LOG.md` from session directory.
         2.  Parse last `🏁 Iteration Complete` or `📈 Metrics` entry to find iteration number.
         3.  Read manifest path from log or ask user.
-        4.  Skip to Phase 6 (Iteration Loop) starting at iteration N+1.
+        4.  Skip to Phase 5 (Iteration Loop) starting at iteration N+1.
     *   **If No**: Continue to manifest check.
 
 9.  **Manifest Check**: Does `--manifest <path>` exist?
     *   **If Yes**: Read the manifest, validate against schema, proceed to plan check.
-    *   **If No**: Proceed to Phase 2 (Interrogation).
+    *   **If No**: Proceed to Phase 1 (Interrogation).
 
 10. **Plan Check**: Does `--plan <path>` exist?
-    *   **If Yes**: Read the plan, skip to Phase 4 (Validation).
-    *   **If No**: Proceed to Phase 3 (Planning).
+    *   **If Yes**: Read the plan, skip to Phase 3 (Validation).
+    *   **If No**: Proceed to Phase 2 (Planning).
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
+### §CMD_VERIFY_PHASE_EXIT — Phase 0
 **Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
+> **Phase 0 proof:**
 > - Mode: `________` (accuracy / speed / robustness / custom)
 > - Role: `________` (quote the role name from the mode preset)
 > - Session dir: `________`
@@ -147,19 +148,15 @@ Refinement modes configure the iteration focus — what to optimize for. Mode de
 > - Routing: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 2: Interrogation"** — Build workload manifest through structured questioning
-> - **"Stay in Phase 1"** — Load additional standards or resolve setup issues
-> - **"Skip to Phase 3: Planning"** — Manifest already loaded via --manifest flag
+*Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
 
-## 2. Interrogation Phase (Manifest Creation)
+## 1. Interrogation Phase (Manifest Creation)
 *Build the workload manifest through structured questioning.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 2: Interrogation (Manifest Creation).
+> 1. I am moving to Phase 1: Interrogation (Manifest Creation).
 > 2. I will ask questions to understand the workload configuration.
 > 3. I will build a `refine.manifest.json` from your answers.
 > 4. I will `§CMD_LOG_TO_DETAILS` to capture the Q&A.
@@ -256,9 +253,9 @@ Within the interrogation rounds, cover these manifest-specific fields:
     > - **"Confirmed"** — Manifest is correct, proceed
     > - **"I have changes"** — Let me adjust before proceeding
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
+### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
+> **Phase 1 proof:**
 > - Depth chosen: `________`
 > - Rounds completed: `________` / `________`+
 > - DETAILS.md entries: `________`
@@ -266,19 +263,19 @@ Within the interrogation rounds, cover these manifest-specific fields:
 > - User confirmed: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 2: Manifest ready. How to proceed?"
-> - **"Proceed to Phase 3: Planning"** — Design experiments before iterating
-> - **"Stay in Phase 2"** — Modify the manifest
-> - **"Skip to Phase 4: Validation"** — Jump straight to single-fixture test
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "1: Interrogation"
+  nextPhase: "2: Planning"
+  prevPhase: "0: Setup"
+  custom: "Skip to Phase 3: Validation | Jump straight to single-fixture test"
 
 ---
 
-## 3. Planning Phase (Experiment Design)
+## 2. Planning Phase (Experiment Design)
 *Before iterating, design the experiment. Measure twice, cut once.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3: Planning (Experiment Design).
+> 1. I am moving to Phase 2: Planning (Experiment Design).
 > 2. I will analyze current failures and form ranked hypotheses.
 > 3. I will `§CMD_POPULATE_LOADED_TEMPLATE` using `REFINE_PLAN.md` template.
 > 4. I will `§CMD_WAIT_FOR_USER_CONFIRMATION` before proceeding.
@@ -327,9 +324,9 @@ Execute `AskUserQuestion` (multiSelect: false):
     > - **"Approved"** — Plan is good, begin execution
     > - **"Needs revision"** — Adjust the plan first
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
+### §CMD_VERIFY_PHASE_EXIT — Phase 2
 **Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
+> **Phase 2 proof:**
 > - Failure context: `________`
 > - Hypotheses ranked: `________`
 > - Experiments designed: `________`
@@ -339,19 +336,19 @@ Execute `AskUserQuestion` (multiSelect: false):
 > - User approved: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 3: Plan approved. How to proceed?"
-> - **"Proceed to Phase 4: Validation"** — Run single-fixture test to verify manifest
-> - **"Revise the plan"** — Go back and edit the plan
-> - **"Skip to Phase 5: Baseline"** — Manifest already validated, go straight to baseline
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "2: Planning"
+  nextPhase: "3: Validation"
+  prevPhase: "1: Interrogation"
+  custom: "Skip to Phase 4: Baseline | Manifest already validated, go straight to baseline"
 
 ---
 
-## 4. Validation Phase (Single-Fixture Test)
+## 3. Validation Phase (Single-Fixture Test)
 *Prove the manifest works before committing to the full loop.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Validation (Single-Fixture Test).
+> 1. I am moving to Phase 3: Validation (Single-Fixture Test).
 > 2. I will run ONE case through the pipeline to verify the manifest.
 > 3. If validation fails, I will help fix the manifest interactively.
 
@@ -378,7 +375,7 @@ Execute `AskUserQuestion` (multiSelect: false):
     1.  Log `✅ Validation Success` to REFINE_LOG.md.
     2.  Ask: "Validation passed. Where should I save the manifest?"
     3.  Write manifest to specified path (default: alongside workload code).
-    4.  Proceed to Phase 5.
+    4.  Proceed to Phase 4.
 
 *   **If Any Failed**:
     1.  Log `🛑 Validation Failure` with details.
@@ -387,27 +384,27 @@ Execute `AskUserQuestion` (multiSelect: false):
     4.  **Loop**: Return to Step B and retry (max 3 attempts).
     5.  **If 3 failures**: Abort with "Please fix the manifest manually and re-run with `--manifest <path>`."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4
+### §CMD_VERIFY_PHASE_EXIT — Phase 3
 **Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
+> **Phase 3 proof:**
 > - Test fixture: `________`
 > - Pipeline result: `________`
 > - Manifest saved: `________`
 > - Validation logged: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 4: Validation passed. How to proceed?"
-> - **"Proceed to Phase 5: Baseline"** — Run all cases to establish starting metrics
-> - **"Stay in Phase 4"** — Re-run validation or fix issues
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "3: Validation"
+  nextPhase: "4: Baseline"
+  prevPhase: "2: Planning"
 
 ---
 
-## 5. Baseline Phase (Initial Metrics)
+## 4. Baseline Phase (Initial Metrics)
 *Establish the starting point before any refinement.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 5: Baseline (Initial Metrics).
+> 1. I am moving to Phase 4: Baseline (Initial Metrics).
 > 2. I will run ALL cases to establish baseline metrics.
 > 3. This is iteration 0 — no changes have been made yet.
 
@@ -442,27 +439,27 @@ Execute `AskUserQuestion` (multiSelect: false):
     > - **"Begin"** — Start iterating on refinements
     > - **"Let me review"** — I want to inspect the baseline first
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 5
+### §CMD_VERIFY_PHASE_EXIT — Phase 4
 **Output this block in chat with every blank filled:**
-> **Phase 5 proof:**
+> **Phase 4 proof:**
 > - Cases executed: `________`
 > - Baseline metrics: `________`
 > - Baseline presented: `________`
 > - User confirmed: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 5: Baseline established. How to proceed?"
-> - **"Proceed to Phase 6: Iteration Loop"** — Begin analyze-critique-suggest-apply-measure cycle
-> - **"Stay in Phase 5"** — Re-run baseline or investigate specific failures
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "4: Baseline"
+  nextPhase: "5: Iteration Loop"
+  prevPhase: "3: Validation"
 
 ---
 
-## 6. Iteration Loop (The Core Cycle)
+## 5. Iteration Loop (The Core Cycle)
 *Analyze → Critique → Suggest → Apply → Measure → Repeat*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 6: Iteration Loop.
+> 1. I am moving to Phase 5: Iteration Loop.
 > 2. I will analyze failures, critique visually, suggest edits, and measure impact.
 > 3. Mode: `[Suggestion / Auto]`, Max iterations: `N`
 
@@ -580,29 +577,29 @@ Before calling any tool, ask yourself:
 *   **If Auto Mode and no improvement for 2 iterations**: Log `🏁 Iteration Complete (Plateau)`, exit loop.
 *   **Otherwise**: Continue to next iteration.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 6
+### §CMD_VERIFY_PHASE_EXIT — Phase 5
 **Output this block in chat with every blank filled:**
-> **Phase 6 proof:**
+> **Phase 5 proof:**
 > - Iterations completed: `________`
 > - Each iteration logged: `________`
 > - Exit condition: `________`
 > - REFINE_LOG.md entries: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 6: Iteration loop complete. How to proceed?"
-> - **"Proceed to Phase 7: Synthesis"** — Generate debrief and close session
-> - **"Stay in Phase 6"** — More iterations needed
-> - **"Re-run baseline comparison"** — Compare current state to original baseline
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "5: Iteration Loop"
+  nextPhase: "6: Synthesis"
+  prevPhase: "4: Baseline"
+  custom: "Re-run baseline comparison | Compare current state to original baseline"
 
 ---
 
-## 7. Synthesis Phase (Debrief)
+## 6. Synthesis Phase (Debrief)
 *Summarize the refinement session.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 7: Synthesis.
+> 1. I am moving to Phase 6: Synthesis.
 > 2. I will `§CMD_PROCESS_CHECKLISTS` (if any discovered checklists exist).
 > 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` following `assets/TEMPLATE_REFINE.md` EXACTLY.
 > 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
@@ -639,21 +636,11 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   gateQuestion: "Refinement complete. Walk through remaining issues and recommendations?"
   debriefFile: "REFINE.md"
   templateFile: "~/.claude/skills/refine/assets/TEMPLATE_REFINE.md"
-  actionMenu:
-    - label: "Needs more refinement"
-      tag: "#needs-implementation"
-      when: "A failing fixture needs targeted prompt work"
-    - label: "Needs research"
-      tag: "#needs-research"
-      when: "A failure pattern needs deeper investigation"
-    - label: "Accept tradeoff"
-      tag: ""
-      when: "A regression was accepted as an intentional tradeoff"
 ```
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 7 (PROOF OF WORK)
+### §CMD_VERIFY_PHASE_EXIT — Phase 6 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
-> **Phase 7 proof:**
+> **Phase 6 proof:**
 > - REFINE.md written: `________` (real file path)
 > - Tags line: `________`
 > - Artifacts listed: `________`
@@ -662,18 +649,6 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 **Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
-
-### Next Skill Options
-*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
-
-> "Refinement complete. What's next? (Type a /skill name to invoke it, or describe new work to scope it)"
-
-| Option | Label | Description |
-|--------|-------|-------------|
-| 1 | `/refine` (Recommended) | Continue refining — more iterations on same or different workload |
-| 2 | `/test` | Write regression tests for the refined prompts/schemas |
-| 3 | `/implement` | Implement code changes discovered during refinement |
-| 4 | `/analyze` | Analyze the refinement results for deeper patterns |
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 

@@ -8,17 +8,9 @@
 
 set -uo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 SCRIPT="$HOME/.claude/scripts/discover-directives.sh"
-
-# Colors
-RED='\033[31m'
-GREEN='\033[32m'
-RESET='\033[0m'
-
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
 
 # Temp directory for test fixtures
 TEST_DIR=""
@@ -38,24 +30,11 @@ teardown() {
   fi
 }
 
-pass() {
-  echo -e "${GREEN}PASS${RESET}: $1"
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-}
-
-fail() {
-  echo -e "${RED}FAIL${RESET}: $1"
-  echo "  Expected: $2"
-  echo "  Got: $3"
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-}
-
 # =============================================================================
 # TEST 1: Single directory — finds files in current dir (no walk-up)
 # =============================================================================
 
 test_single_dir_finds_readme() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="single dir: finds README.md in target directory"
   setup
 
@@ -80,7 +59,6 @@ test_single_dir_finds_readme() {
 # =============================================================================
 
 test_walkup_finds_multiple_levels() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="walk-up: finds files at multiple ancestor levels"
   setup
 
@@ -107,7 +85,6 @@ test_walkup_finds_multiple_levels() {
 # =============================================================================
 
 test_walkup_stops_at_project_root() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="walk-up: stops at project root (PWD) boundary"
   setup
 
@@ -135,7 +112,6 @@ test_walkup_stops_at_project_root() {
 # =============================================================================
 
 test_no_files_exits_1() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="no files: exits 1 when no directive files found"
   setup
 
@@ -159,7 +135,6 @@ test_no_files_exits_1() {
 # =============================================================================
 
 test_type_soft_filters() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="type soft: returns README.md, INVARIANTS.md, TESTING.md, PITFALLS.md"
   setup
 
@@ -193,7 +168,6 @@ test_type_soft_filters() {
 # =============================================================================
 
 test_type_hard_filters() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="type hard: returns only CHECKLIST.md"
   setup
 
@@ -223,7 +197,6 @@ test_type_hard_filters() {
 # =============================================================================
 
 test_excluded_dirs_skipped() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="exclusions: skips node_modules, .git, sessions, tmp, dist, build"
   setup
 
@@ -257,7 +230,6 @@ test_excluded_dirs_skipped() {
 # =============================================================================
 
 test_walkup_deduplicates() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="walk-up: deduplicates results (sort -u)"
   setup
 
@@ -285,7 +257,6 @@ test_walkup_deduplicates() {
 # =============================================================================
 
 test_type_all_returns_everything() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="type all: returns all directive types"
   setup
 
@@ -319,7 +290,6 @@ test_type_all_returns_everything() {
 # =============================================================================
 
 test_default_type_is_all() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="default: no --type flag behaves like --type all"
   setup
 
@@ -349,7 +319,6 @@ test_default_type_is_all() {
 # =============================================================================
 
 test_discovers_pitfalls() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="pitfalls: discovers PITFALLS.md in target directory"
   setup
 
@@ -374,7 +343,6 @@ test_discovers_pitfalls() {
 # =============================================================================
 
 test_discovers_testing() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="testing: discovers TESTING.md in target directory"
   setup
 
@@ -399,7 +367,6 @@ test_discovers_testing() {
 # =============================================================================
 
 test_walkup_finds_pitfalls_ancestor() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="walk-up: finds PITFALLS.md at ancestor level"
   setup
 
@@ -440,7 +407,4 @@ test_discovers_testing
 test_walkup_finds_pitfalls_ancestor
 
 # Summary
-echo ""
-echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_RUN total"
-
-[ $TESTS_FAILED -eq 0 ] && exit 0 || exit 1
+exit_with_results

@@ -48,13 +48,13 @@ Generates a progress report summarizing work across sessions.
 **Execute immediately** to get the file manifest for sessions active in the time window:
 
 ```bash
-~/.claude/scripts/find-sessions.sh active --files
+engine find-sessions active --files
 ```
 
 Use `since` or `window` if the user specifies a custom time range:
 ```bash
-~/.claude/scripts/find-sessions.sh since '2026-02-03 06:00' --files
-~/.claude/scripts/find-sessions.sh window '2026-02-03 06:00' '2026-02-04 02:00' --files
+engine find-sessions since '2026-02-03 06:00' --files
+engine find-sessions window '2026-02-03 06:00' '2026-02-04 02:00' --files
 ```
 
 **Then**: Load `~/.claude/skills/summarize-progress/assets/TEMPLATE_PROGRESS_SUMMARY.md` if not already in context.

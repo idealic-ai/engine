@@ -2,29 +2,40 @@
 # ~/.claude/hooks/post-tool-use-discovery.sh — PostToolUse hook for directory-aware discovery
 #
 # Tracks directories touched by Read/Edit/Write tools. When a new directory is encountered,
-# runs discover-instructions.sh to find README.md, INVARIANTS.md (soft suggestions) and
-# CHECKLIST.md (hard enforcement at session deactivation).
+# runs discover-directives.sh to find directive files.
+#
+# Directive tiers:
+#   Soft (suggested): README.md, INVARIANTS.md, TESTING.md, PITFALLS.md
+#   Hard (enforced at deactivation): CHECKLIST.md
+#
+# Skill filtering:
+#   Core directives (README.md, INVARIANTS.md, CHECKLIST.md) are always discovered.
+#   Skill directives (TESTING.md, PITFALLS.md) are only suggested when the active skill
+#   declares them in the `directives` field of session parameters.
 #
 # State in .state.json:
 #   touchedDirs: { "/abs/path": ["README.md"], "/other": [] }
-#     Keys = directories encountered. Values = instruction files already suggested.
+#     Keys = directories encountered. Values = directive files already suggested.
 #   discoveredChecklists: ["/abs/path/CHECKLIST.md"]
 #     All CHECKLIST.md files found — compared against processedChecklists at deactivate.
+#   directives: ["TESTING.md", "PITFALLS.md"]
+#     Skill-declared directive types (from session parameters).
 #
 # Behavior:
 #   - Only fires on Read, Edit, Write tools (matcher restricts to these)
 #   - Extracts directory from tool_input.file_path
 #   - If directory already in touchedDirs: skip (no re-discovery)
-#   - If new directory: run discover-instructions.sh --walk-up --type soft
-#   - Soft files (README.md, INVARIANTS.md): inject suggestion message
+#   - If new directory: run discover-directives.sh --walk-up
+#   - Core soft files (README.md, INVARIANTS.md): always inject suggestion
+#   - Skill soft files (TESTING.md, PITFALLS.md): only suggest if in `directives` array
 #   - Hard files (CHECKLIST.md): silently add to discoveredChecklists (enforced at deactivate)
 #   - If no active session: skip (no state to write to)
 #
 # Related:
 #   Scripts: (~/.claude/scripts/)
-#     discover-instructions.sh — Core discovery logic
+#     discover-directives.sh — Core discovery logic
 #     session.sh — Session state management
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/standards/INVARIANTS.md)
 #     ¶INV_DIRECTORY_AWARENESS — Agents must be aware of directive markdown files
 #     ¶INV_CHECKLIST_BEFORE_CLOSE — Session can't close with unprocessed checklists
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Graceful degradation without fleet
@@ -92,19 +103,52 @@ jq --arg dir "$DIR_PATH" \
   '(.touchedDirs //= {}) | .touchedDirs[$dir] = []' \
   "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
-# Run discovery for soft files (README.md, INVARIANTS.md)
-SOFT_FILES=$("$HOME/.claude/scripts/discover-instructions.sh" "$DIR_PATH" --walk-up --type soft 2>/dev/null || echo "")
+# Run discovery for soft files (README.md, INVARIANTS.md, TESTING.md, PITFALLS.md)
+SOFT_FILES=$("$HOME/.claude/scripts/discover-directives.sh" "$DIR_PATH" --walk-up --type soft 2>/dev/null || echo "")
 
 # Run discovery for hard files (CHECKLIST.md)
-HARD_FILES=$("$HOME/.claude/scripts/discover-instructions.sh" "$DIR_PATH" --walk-up --type hard 2>/dev/null || echo "")
+HARD_FILES=$("$HOME/.claude/scripts/discover-directives.sh" "$DIR_PATH" --walk-up --type hard 2>/dev/null || echo "")
+
+# Core directives are always suggested; skill directives need declaration
+CORE_DIRECTIVES=("README.md" "INVARIANTS.md")
+
+# Read skill-declared directives from .state.json
+SKILL_DIRECTIVES=$(jq -r '(.directives // []) | .[]' "$STATE_FILE" 2>/dev/null || echo "")
 
 # Track which soft files are new (not already suggested for another dir)
 NEW_SOFT_FILES=()
 if [ -n "$SOFT_FILES" ]; then
   while IFS= read -r file; do
     [ -n "$file" ] || continue
+    local_basename=$(basename "$file")
+
+    # Check if this is a core directive (always suggested) or skill directive (needs declaration)
+    is_core=false
+    for core in "${CORE_DIRECTIVES[@]}"; do
+      if [ "$local_basename" = "$core" ]; then
+        is_core=true
+        break
+      fi
+    done
+
+    if [ "$is_core" = "false" ]; then
+      # Skill directive — check if declared
+      is_declared=false
+      if [ -n "$SKILL_DIRECTIVES" ]; then
+        while IFS= read -r declared; do
+          if [ "$local_basename" = "$declared" ]; then
+            is_declared=true
+            break
+          fi
+        done <<< "$SKILL_DIRECTIVES"
+      fi
+      if [ "$is_declared" = "false" ]; then
+        continue  # Skip — skill doesn't care about this directive type
+      fi
+    fi
+
     # Check if this file was already suggested via any other touchedDir
-    already_suggested=$(jq -r --arg file "$(basename "$file")" \
+    already_suggested=$(jq -r --arg file "$local_basename" \
       '[(.touchedDirs // {}) | to_entries[] | .value[] | select(. == $file)] | length > 0' \
       "$STATE_FILE" 2>/dev/null || echo "false")
     if [ "$already_suggested" != "true" ]; then
@@ -148,7 +192,7 @@ if [ ${#NEW_SOFT_FILES[@]} -gt 0 ]; then
 {
   "hookSpecificOutput": {
     "hookEventName": "PostToolUse",
-    "message": "¶INV_DIRECTORY_AWARENESS: Directive files discovered near ${DIR_PATH}:${FILE_LIST}\nConsider reading these for context relevant to your current work."
+    "message": "¶INV_DIRECTORY_AWARENESS: Directives discovered near ${DIR_PATH}:${FILE_LIST}\nConsider reading these for context relevant to your current work."
   }
 }
 HOOKEOF

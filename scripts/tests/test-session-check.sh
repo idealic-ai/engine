@@ -10,18 +10,10 @@
 # Don't use set -e globally — we need to handle return codes manually in tests
 set -uo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 SESSION_SH="$HOME/.claude/engine/scripts/session.sh"
 LIB_SH="$HOME/.claude/scripts/lib.sh"
-
-# Colors
-RED='\033[31m'
-GREEN='\033[32m'
-RESET='\033[0m'
-
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
 
 # Temp directory for test fixtures
 TEST_DIR=""
@@ -75,18 +67,6 @@ teardown() {
   if [ -n "$TEST_DIR" ] && [ -d "$TEST_DIR" ]; then
     rm -rf "$TEST_DIR"
   fi
-}
-
-pass() {
-  echo -e "${GREEN}PASS${RESET}: $1"
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-}
-
-fail() {
-  echo -e "${RED}FAIL${RESET}: $1"
-  echo "  Expected: $2"
-  echo "  Got: $3"
-  TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 # Helper: write a .state.json fixture
@@ -290,7 +270,7 @@ test_deactivate_allows_with_checkpassed() {
     "checkPassed": true
   }'
 
-  # No debriefTemplate in state → debrief gate is skipped
+  # No debriefTemplate in state -> debrief gate is skipped
   local output exit_code=0
   output=$("$HOME/.claude/scripts/session.sh" deactivate "$SESSION_DIR" <<'EOF' 2>&1
 Test session deactivation with checkPassed
@@ -365,7 +345,4 @@ test_deactivate_allows_with_checkpassed
 test_check_handles_paths_with_spaces
 
 # Summary
-echo ""
-echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_RUN total"
-
-[ $TESTS_FAILED -eq 0 ] && exit 0 || exit 1
+exit_with_results

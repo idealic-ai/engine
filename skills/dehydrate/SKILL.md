@@ -15,7 +15,7 @@ Captures and persists current session context for later restoration.
 [!!!] INVOCATION (READ THIS):
 - This skill is invoked via the **Skill tool**, NOT via Bash.
 - Correct: `Skill(skill: "dehydrate", args: "restart")`
-- WRONG: `~/.claude/scripts/session.sh dehydrate` (this does not exist)
+- WRONG: `engine session dehydrate` (this does not exist)
 - WRONG: `Bash("/dehydrate restart")` (slash commands are not shell scripts)
 
 [!!!] CRITICAL BOOT SEQUENCE:
@@ -117,7 +117,7 @@ Captures and persists current session context for later restoration.
 ### Step 3a: Write to File (ALWAYS)
 **Action**: Write the full dehydrated markdown to `DEHYDRATED_CONTEXT.md` in the session directory using log.sh.
 ```bash
-~/.claude/scripts/log.sh --overwrite sessions/[CURRENT_SESSION]/DEHYDRATED_CONTEXT.md <<'EOF'
+engine log --overwrite sessions/[CURRENT_SESSION]/DEHYDRATED_CONTEXT.md <<'EOF'
 # DEHYDRATED CONTEXT (Session Handover)
 [FULL CONTENT HERE]
 EOF
@@ -137,14 +137,14 @@ EOF
 
 1. **Save current phase** — Determine which phase of the skill protocol you were in and save it:
    ```bash
-   ~/.claude/scripts/session.sh phase sessions/[CURRENT_SESSION] "Phase X: [Name]"
+   engine session phase sessions/[CURRENT_SESSION] "Phase X: [Name]"
    ```
    *   Look at your recent work to determine the phase (e.g., "Phase 3: Execution", "Phase 5: Build Loop")
    *   This tells the restarted Claude where to resume
 
 2. **Trigger restart** — Call `session.sh restart` to spawn fresh Claude:
    ```bash
-   ~/.claude/scripts/session.sh restart sessions/[CURRENT_SESSION]
+   engine session restart sessions/[CURRENT_SESSION]
    ```
 
 **WARNING**: This command will:

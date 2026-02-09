@@ -11,38 +11,42 @@ Refines existing documentation for clarity, accuracy, and structure.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
-### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
+### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
 **Output this block in chat with every blank filled:**
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
 
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
+[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Document Improvement Session Protocol
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases. The engine's artifacts live in the session directory as reviewable files, not in transient tool state. Use THIS protocol's phases, not the IDE's.
 
-### Phases (for §CMD_PARSE_PARAMETERS)
-*Include this array in the `phases` field when calling `session.sh activate`:*
+### Session Parameters (for §CMD_PARSE_PARAMETERS)
+*Merge into the JSON passed to `session.sh activate`:*
 ```json
-[
-  {"major": 1, "minor": 0, "name": "Setup"},
-  {"major": 2, "minor": 0, "name": "Interrogation"},
-  {"major": 3, "minor": 0, "name": "Drafting"},
-  {"major": 3, "minor": 1, "name": "Agent Handoff"},
-  {"major": 4, "minor": 0, "name": "Synthesis"}
-]
+{
+  "taskType": "DOC_IMPROVE",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup"},
+    {"major": 1, "minor": 0, "name": "Interrogation"},
+    {"major": 2, "minor": 0, "name": "Drafting"},
+    {"major": 2, "minor": 1, "name": "Agent Handoff"},
+    {"major": 3, "minor": 0, "name": "Synthesis"}
+  ],
+  "nextSkills": ["/refine-docs", "/review", "/document", "/analyze", "/chores"],
+  "directives": []
+}
 ```
-*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
 
 ---
 
-## 1. Analysis & Initialization (Setup)
+## 0. Analysis & Initialization (Setup)
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 1: Analysis & Initialization.
+    > 1. I am starting Phase 0: Analysis & Initialization.
     > 2. My focus is REFINE_DOCS (`§CMD_REFUSE_OFF_COURSE` applies).
     > 3. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
     > 4. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
@@ -53,7 +57,7 @@ Refines existing documentation for clarity, accuracy, and structure.
     >    **Mindset**: Precision over speed. Every edit must be justified. Every deletion must be accounted for.
     > 7. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
-    **Constraint**: Do NOT edit any documentation files in Phase 1. Only load templates and standards.
+    **Constraint**: Do NOT edit any documentation files in Phase 0. Only load templates and standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project structure and file map)
@@ -72,9 +76,9 @@ Refines existing documentation for clarity, accuracy, and structure.
 
 7.  **Initialize Log**: Execute `§CMD_INIT_OR_RESUME_LOG_SESSION` (Template: `DOCUMENTATION_LOG.md`, Dest: `DOC_IMPROVEMENT_LOG.md`).
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
+### §CMD_VERIFY_PHASE_EXIT — Phase 0
 **Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
+> **Phase 0 proof:**
 > - Role: `________`
 > - Session dir: `________`
 > - Templates loaded: `________`, `________`, `________`
@@ -83,21 +87,17 @@ Refines existing documentation for clarity, accuracy, and structure.
 > - Target files loaded: `________`
 > - DOC_IMPROVEMENT_LOG.md: `________`
 
-### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 2: Interrogation"** — Stress-test the documentation through structured rounds
-> - **"Stay in Phase 1"** — Load additional files or resolve setup issues
+*Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
 
-## 2. The Interrogation (3+ Rounds)
+## 1. The Interrogation (3+ Rounds)
 *Before writing the Plan, stress-test the documentation with the user.*
 
 **STOP. Do not write the Plan yet.** You must interact with the user to stress-test the documentation.
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 2: Interrogation.
+> 1. I am moving to Phase 1: Interrogation.
 > 2. I will `§CMD_EXECUTE_INTERROGATION_PROTOCOL` to stress-test the docs in structured rounds.
 > 3. I will `§CMD_LOG_TO_DETAILS` to capture the Q&A.
 > 4. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to track internal findings in `DOC_IMPROVEMENT_LOG.md`.
@@ -153,16 +153,16 @@ Execute `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to `DOC_IMPROVEMENT_LOG.md`.
 **After completing Round 3**, present this choice via `AskUserQuestion` (multiSelect: true):
 
 > "Round N complete (minimum 3 met). What next?"
-> - **"Proceed to Phase 3: Drafting"** — *(terminal: if selected, skip all others and move on)*
+> - **"Proceed to Phase 2: Drafting"** — *(terminal: if selected, skip all others and move on)*
 > - **"More interrogation (3 more rounds)"** — Additional stress-testing, then this gate re-appears
 > - **"Devil's advocate round"** — 1 round challenging assumptions about proposed changes, then this gate re-appears
 > - **"Deep dive round"** — 1 round drilling into a specific doc area in more detail, then this gate re-appears
 
 **Execution order** (when multiple selected): Standard rounds first -> Devil's advocate -> Deep dive -> re-present exit gate.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
+### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
+> **Phase 1 proof:**
 > - Round 1 (Ambiguity): `________`
 > - Round 2 (Truth): `________`
 > - Round 3 (Preservation): `________`
@@ -171,11 +171,11 @@ Execute `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to `DOC_IMPROVEMENT_LOG.md`.
 
 ---
 
-## 3. The Drafting (Planning)
+## 2. The Drafting (Planning)
 *Create the documentation improvement plan.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3: Drafting.
+> 1. I am moving to Phase 2: Drafting.
 > 2. I will `§CMD_GENERATE_PLAN_FROM_TEMPLATE` (Template: `DOCUMENTATION.md`, Dest: `DOCUMENTATION_PLAN.md`) to create the improvement plan.
 > 3. I will `§CMD_WAIT_FOR_USER_CONFIRMATION` before proceeding.
 
@@ -193,9 +193,9 @@ Execute `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to `DOC_IMPROVEMENT_LOG.md`.
     *   **Reasoning**: Every major bullet point must have a "Why" or "Before/After" explanation.
 5.  **Present**: Report the plan file via `§CMD_REPORT_FILE_CREATION_SILENTLY`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
+### §CMD_VERIFY_PHASE_EXIT — Phase 2
 **Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
+> **Phase 2 proof:**
 > - DOCUMENTATION_PLAN.md written: `________`
 > - Rich reasoning used: `________`
 > - Deprecation justifications: `________`
@@ -210,21 +210,21 @@ Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/directives/commands/CMD_PARALL
 3.  **Menu**: Present the richer handoff menu via `AskUserQuestion`.
 
 *If the plan has no `**Depends**:` fields, fall back to the simple menu:*
-> "Phase 3: Plan ready. How to proceed?"
+> "Phase 2: Plan ready. How to proceed?"
 > - **"Launch writer agent"** — Hand off to autonomous agent for execution
 > - **"Continue inline"** — Execute the plan step by step in this conversation
 > - **"Revise the plan"** — Go back and edit the plan before proceeding
 
 ---
 
-## 3.1. Agent Handoff (Opt-In)
-*Only if user selected an agent option in Phase 3 transition.*
+## 2.1. Agent Handoff (Opt-In)
+*Only if user selected an agent option in Phase 2 transition.*
 
 **Single agent** (no parallel chunks or user chose "1 agent"):
 Execute `§CMD_HAND_OFF_TO_AGENT` with:
 *   `agentName`: `"writer"`
 *   `parentPromptFile`: `~/.claude/skills/refine-docs/SKILL.md`
-*   `startAtPhase`: `"Phase 4: Output"`
+*   `startAtPhase`: `"Phase 3: Output"`
 *   `planOrDirective`: `[sessionDir]/DOCUMENTATION_PLAN.md`
 *   `logFile`: `DOC_IMPROVEMENT_LOG.md`
 *   `debriefTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md`
@@ -240,17 +240,17 @@ Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 *   `logTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md`
 *   `taskSummary`: `"Execute the documentation improvement plan: [brief description from taskSummary]"`
 
-**If "Continue inline"**: Proceed to Phase 4 as normal.
-**If "Revise the plan"**: Return to Phase 3 for revision.
+**If "Continue inline"**: Proceed to Phase 3 as normal.
+**If "Revise the plan"**: Return to Phase 2 for revision.
 
 ---
 
-## 4. Output (Synthesis)
+## 3. Output (Synthesis)
 *Finalize and deliver the documentation improvement plan.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Output.
+> 1. I am moving to Phase 3: Output.
 > 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
 > 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
 > 4. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
@@ -272,9 +272,9 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 **Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
+### §CMD_VERIFY_PHASE_EXIT — Phase 3 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
+> **Phase 3 proof:**
 > - DOCUMENTATION_PLAN.md exists: `________` (real file path)
 > - DOC_IMPROVEMENT_LOG.md entries: `________`
 > - Artifacts listed: `________`
@@ -283,18 +283,6 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 **Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
-
-### Next Skill Options
-*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
-
-> "Doc refinement complete. What's next? (Type a /skill name to invoke it, or describe new work to scope it)"
-
-| Option | Label | Description |
-|--------|-------|-------------|
-| 1 | `/refine-docs` (Recommended) | Continue refining more documentation |
-| 2 | `/review` | Review the refined docs for quality |
-| 3 | `/document` | Update documentation to match code changes |
-| 4 | `/analyze` | Analyze docs for structural issues |
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 

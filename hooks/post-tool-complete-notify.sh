@@ -1,24 +1,20 @@
 #!/bin/bash
-# Post tool completion hook - clears working state
-# Fires after any tool completes (success or failure)
-# PostToolUseFailure hook will override with error state if needed
-# Only clears if currently in working state (avoid unnecessary state changes)
+# Post tool completion hook — NO-OP for notification
+# Previously cleared working→done after every tool, but this caused flashing
+# because the agent is still working between tool calls.
+#
+# The correct lifecycle:
+#   UserPromptSubmit → working (agent starts)
+#   PreToolUse       → working (re-assert during loop)
+#   PostToolUse      → (no state change — agent is still thinking)
+#   Stop             → done (agent truly finished)
+#   SessionEnd       → done (session closed)
+#   Notification(idle_prompt) → done (agent idle)
 #
 # Related:
 #   Docs: (~/.claude/docs/)
-#     FLEET.md — Pane notification states, working→done transition
+#     FLEET.md — Pane notification states
 #   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — No-op outside fleet
 
-source "$HOME/.claude/scripts/lib.sh"
-
-# Check if we're in fleet tmux first
-[ -n "${TMUX:-}" ] || exit 0
-socket=$(echo "$TMUX" | cut -d, -f1 | xargs basename 2>/dev/null || echo "")
-[[ "$socket" == "fleet" || "$socket" == fleet-* ]] || exit 0
-
-# Only clear if currently in working state
-current=$(tmux -L "$socket" display -p '#{@pane_notify}' 2>/dev/null || echo "")
-if [[ "$current" == "working" ]]; then
-  notify_fleet done
-fi
+exit 0

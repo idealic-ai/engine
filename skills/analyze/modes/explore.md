@@ -30,17 +30,4 @@
   gateQuestion: "ANALYSIS.md is written. Walk through findings?"
   debriefFile: "ANALYSIS.md"
   templateFile: "~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS.md"
-  actionMenu:
-    - label: "Delegate to /implement"
-      tag: "#needs-implementation"
-      when: "Finding is an actionable code/config change"
-    - label: "Delegate to /research"
-      tag: "#needs-research"
-      when: "Finding needs deeper investigation"
-    - label: "Delegate to /brainstorm"
-      tag: "#needs-implementation"
-      when: "Finding needs exploration of approaches before implementation"
-    - label: "Delegate to /debug"
-      tag: "#needs-implementation"
-      when: "Finding reveals a bug or regression"
 ```

@@ -126,7 +126,7 @@ Execute `AskUserQuestion` (multiSelect: false):
     [list of files this chunk touches]
 
     ### Rules
-    - Log every action to the log file via: ~/.claude/scripts/log.sh [sessionDir]/[logFile]
+    - Log every action to the log file via: engine log [sessionDir]/[logFile]
     - Prefix EVERY log entry header with `[Chunk X]` for traceability
     - Follow the TDD cycle: write test (red), implement (green), refactor
     - Do NOT touch files outside your file set

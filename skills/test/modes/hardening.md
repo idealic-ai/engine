@@ -23,17 +23,4 @@ CMD_WALK_THROUGH_RESULTS Configuration:
   gateQuestion: "Hardening tests written. Walk through findings?"
   debriefFile: "TESTING.md"
   templateFile: "~/.claude/skills/test/assets/TEMPLATE_TESTING.md"
-  actionMenu:
-    - label: "Fix vulnerability"
-      tag: "#needs-implementation"
-      when: "Edge case revealed a real bug or vulnerability"
-    - label: "Add guard/validation"
-      tag: "#needs-implementation"
-      when: "Missing input validation or boundary check"
-    - label: "Accept known limitation"
-      tag: ""
-      when: "Edge case is theoretical or cost of fix exceeds risk"
-    - label: "Research impact"
-      tag: "#needs-research"
-      when: "Edge case has unknown blast radius"
 ```

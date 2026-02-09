@@ -50,19 +50,17 @@ Since skills are executed by Claude, not by code, behavioral testing is done by 
 *   **Synthesis completeness**: Verify the debrief contains all template sections, the Tags line is set, and `session.sh deactivate` succeeds.
 *   **Context overflow**: Verify `/dehydrate restart` produces a valid `DEHYDRATED_CONTEXT.md` that enables `/reanchor` to resume at the correct phase.
 
-## 6. Quick Validation Script
+## 6. Automated Validation
+
+Run the skill doctor to check all skills at once:
 
 ```bash
-# Check a skill's structure (basic)
-SKILL_DIR=~/.claude/engine/skills/implement
-
-# Frontmatter exists
-head -1 "$SKILL_DIR/SKILL.md" | grep -q '^---' && echo "OK: frontmatter" || echo "FAIL: no frontmatter"
-
-# Assets exist
-ls "$SKILL_DIR/assets/TEMPLATE_"*_LOG.md > /dev/null 2>&1 && echo "OK: log template" || echo "FAIL: no log template"
-ls "$SKILL_DIR/assets/TEMPLATE_"*.md | grep -v LOG | grep -v PLAN | grep -v REQUEST | grep -v RESPONSE | head -1 > /dev/null 2>&1 && echo "OK: debrief template" || echo "FAIL: no debrief template"
-
-# Modes exist
-ls "$SKILL_DIR/modes/"*.md > /dev/null 2>&1 && echo "OK: modes" || echo "WARN: no modes (may be non-modal skill)"
+engine skill-doctor
 ```
+
+The doctor validates all rule categories (DR-A through DR-I) across every skill in the engine. It is tier-aware: protocol-tier skills get strict checks (modes, phases, Next Skill Options), while utility/lightweight skills get basic structural checks only.
+
+*   **PASS**: Check passed
+*   **WARN**: Non-critical issue (e.g., REQUEST template without RESPONSE)
+*   **FAIL**: Structural defect that must be fixed
+*   **Exit code**: 0 if no FAILs, 1 if any FAIL detected

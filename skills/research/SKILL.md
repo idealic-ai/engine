@@ -11,24 +11,24 @@ Full research cycle — refines query, calls Gemini Deep Research, polls, delive
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
-### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
+### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
 **Output this block in chat with every blank filled:**
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
 
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
+[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Research Protocol (Full Lifecycle — Request + Fulfill)
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 3 (Interrogation / Query Refinement). The engine's artifacts live in the session directory as reviewable files, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
+[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 2 (Interrogation / Query Refinement). The engine's artifacts live in the session directory as reviewable files, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
 
-## 1. Setup Phase
+## 0. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 1: Setup phase.
-    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 1 only (Strict Bootloader — expires at Phase 2).
+    > 1. I am starting Phase 0: Setup phase.
+    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 0 only (Strict Bootloader — expires at Phase 1).
     > 3. My focus is RESEARCH (`§CMD_REFUSE_OFF_COURSE` applies).
     > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
     > 5. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
@@ -40,10 +40,10 @@ Full research cycle — refines query, calls Gemini Deep Research, polls, delive
     >    **Mindset**: A good research question is half the answer. Spend time refining before firing.
     > 8. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
-    **Constraint**: Do NOT read any project files (source code, docs) in Phase 1. Only load the required system templates/standards.
+    **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
-    *   `~/.claude/skills/research-request/SKILL.md` (Request posting protocol — Phase 4 reuses steps)
+    *   `~/.claude/skills/research-request/SKILL.md` (Request posting protocol — Phase 3 reuses steps)
     *   `~/.claude/skills/research-respond/assets/TEMPLATE_RESEARCH_RESPONSE.md` (Template for the response document)
     *   `~/.claude/skills/research-request/assets/TEMPLATE_RESEARCH_LOG.md` (Template for session logging)
 
@@ -55,55 +55,51 @@ Full research cycle — refines query, calls Gemini Deep Research, polls, delive
 5.  **Scope**: Understand the [Topic] and [Goal].
 
 6.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
-    *   If any files are found, add them to `contextPaths` for ingestion in Phase 2.
+    *   If any files are found, add them to `contextPaths` for ingestion in Phase 1.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
+### §CMD_VERIFY_PHASE_EXIT — Phase 0
 **Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
+> **Phase 0 proof:**
 > - Role: `________`
 > - Session dir: `________`
 > - Templates loaded: `________`, `________`
 > - Parameters parsed: `________`
 
-### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 2: Context Ingestion"** — Load project files and RAG context
-> - **"Stay in Phase 1"** — Load additional standards or resolve setup issues
+*Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
 
-## 2. Context Ingestion
+## 1. Context Ingestion
 *Load relevant materials before refining the query.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 2: Context Ingestion.
+> 1. I am moving to Phase 1: Context Ingestion.
 > 2. I will `§CMD_INGEST_CONTEXT_BEFORE_WORK` to ask for and load `contextPaths`.
 
 **Action**: Execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
+### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
+> **Phase 1 proof:**
 > - RAG session-search: `________ results` or `unavailable`
 > - RAG doc-search: `________ results` or `unavailable`
 > - Files loaded: `________ files`
 > - User confirmed: `yes / no`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 2: Context loaded. How to proceed?"
-> - **"Proceed to Phase 3: Query Refinement"** — Refine the research question through interrogation
-> - **"Stay in Phase 2"** — Load more files or context
-> - **"Skip to Phase 4: Execute Research"** — Question is already well-defined, skip refinement
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "1: Context Ingestion"
+  nextPhase: "2: Query Refinement"
+  prevPhase: "0: Setup"
+  custom: "Skip to 3: Execute Research | Question is already well-defined, skip refinement"
 
 ---
 
-## 3. The Interrogation (Query Refinement)
+## 2. The Interrogation (Query Refinement)
 *Refine the research question through structured dialogue.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3: Query Refinement.
+> 1. I am moving to Phase 2: Query Refinement.
 > 2. I will `§CMD_EXECUTE_INTERROGATION_PROTOCOL` to refine the research question.
 > 3. I will `§CMD_LOG_TO_DETAILS` to capture the Q&A.
 > 4. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
@@ -156,7 +152,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 1. Pick an uncovered topic (or a repeatable topic).
 2. Execute `§CMD_ASK_ROUND_OF_QUESTIONS` via `AskUserQuestion` (3-5 targeted questions on that topic).
 3. On response: Execute `§CMD_LOG_TO_DETAILS` immediately.
-4. Also log a 🎯 Query Refinement entry to the session log via `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`.
+4. Also log a Query Refinement entry to the session log via `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`.
 5. If the user asks a counter-question: ANSWER it, verify understanding, then resume.
 
 **If this is a follow-up**: Also ask which previous response to continue from. Read it to extract the Interaction ID.
@@ -166,7 +162,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
 
 > "Round N complete (minimum met). What next?"
-> - **"Proceed to Phase 4: Execute Research"** — *(terminal: if selected, skip all others and move on)*
+> - **"Proceed to Phase 3: Execute Research"** — *(terminal: if selected, skip all others and move on)*
 > - **"More interrogation (3 more rounds)"** — Standard topic rounds, then this gate re-appears
 > - **"Devil's advocate round"** — 1 round challenging assumptions, then this gate re-appears
 > - **"What-if scenarios round"** — 1 round exploring hypotheticals, then this gate re-appears
@@ -176,9 +172,9 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Ask: "Round N complete. I still have questions about [X]. Continuing..."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
+### §CMD_VERIFY_PHASE_EXIT — Phase 2
 **Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
+> **Phase 2 proof:**
 > - Depth chosen: `________`
 > - Rounds completed: `________` / `________`+
 > - DETAILS.md entries: `________`
@@ -186,11 +182,11 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 ---
 
-## 4. Post Request & Execute Research
+## 3. Post Request & Execute Research
 *Create the request document, then immediately fulfill it.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Research Execution.
+> 1. I am moving to Phase 3: Research Execution.
 > 2. I will post the request document for traceability.
 > 3. I will call Gemini Deep Research and poll for results.
 
@@ -205,7 +201,7 @@ Before calling any tool, ask yourself:
 [!!!] If you make 3 tool calls without logging, you are FAILING the protocol. The log is your brain — unlogged work is invisible work.
 
 ### Step 1: Post Request
-Execute Phase 4 (steps 1-3) of `~/.claude/skills/research-request/SKILL.md` to create the request document, tag it with `#needs-research`, and log the posting. Use the interrogation context already gathered in Phase 3 above — do not re-interrogate.
+Execute Phase 3 (steps 1-3) of `~/.claude/skills/research-request/SKILL.md` to create the request document, tag it with `#needs-research`, and log the posting. Use the interrogation context already gathered in Phase 2 above — do not re-interrogate.
 
 ### Step 2: Call Gemini
 1.  **Compose**: Synthesize the Query, Context, Constraints, and Expected Output from the request document into a coherent research prompt.
@@ -265,9 +261,9 @@ The script writes `INTERACTION_ID=<id>` to the output file immediately (before p
     ```
 5.  **Cleanup**: Delete `research_raw_output.txt`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4
+### §CMD_VERIFY_PHASE_EXIT — Phase 3
 **Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
+> **Phase 3 proof:**
 > - Request created and tagged: `________`
 > - Gemini called: `________`
 > - Interaction ID captured: `________`
@@ -276,19 +272,19 @@ The script writes `INTERACTION_ID=<id>` to the output file immediately (before p
 > - Raw output cleaned: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 4: Research complete. How to proceed?"
-> - **"Proceed to Phase 5: Present Results"** — Show the research and close session
-> - **"Stay in Phase 4"** — Research is still in progress or needs re-execution
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "3: Execute Research"
+  nextPhase: "4: Present Results"
+  prevPhase: "2: Query Refinement"
 
 ---
 
-## 5. Present Results & Debrief
+## 4. Present Results & Debrief
 *Show the research results and close the session.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 5: Present Results.
+> 1. I am moving to Phase 4: Present Results.
 > 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
 > 3. I will present the research report.
 > 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
@@ -304,7 +300,7 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 **Step 1 (THE DELIVERABLE)**: Present the research report in chat so the user can read it immediately.
 
-**Step 2**: Log a ✅ Research Complete entry via `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`.
+**Step 2**: Log a Research Complete entry via `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`.
 
 **Step 3**: Archive to Docs (Optional) — Ask the user if they want to copy the research to a project docs directory for permanent reference.
   *   Use `AskUserQuestion` with options:
@@ -323,9 +319,9 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   *   "Run `/research` again to ask a follow-up question (will chain via Interaction ID)"
   *   "The research report is at `[path]` — reference it from any other session"
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 5 (PROOF OF WORK)
+### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
-> **Phase 5 proof:**
+> **Phase 4 proof:**
 > - Research report presented: `________`
 > - Log entry written: `________`
 > - Archive decision: `________`

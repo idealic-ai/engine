@@ -26,7 +26,7 @@
         > - Pending: [N] items
     e.  **Log**: Append to the session's `_LOG.md`:
         ```bash
-        ~/.claude/scripts/log.sh [sessionDir]/[LOG_NAME].md <<'EOF'
+        engine log [sessionDir]/[LOG_NAME].md <<'EOF'
         ## 📋 Checklist Processed
         *   **File**: [absolute path]
         *   **Items**: [total] total — [done] done, [pending] pending
@@ -35,7 +35,7 @@
         ```
 4.  **Submit to session.sh check**: Concatenate all quote-back blocks and pipe to `session.sh check`:
     ```bash
-    ~/.claude/scripts/session.sh check [sessionDir] <<'EOF'
+    engine session check [sessionDir] <<'EOF'
     ## CHECKLIST: /path/to/first/CHECKLIST.md
     - [x] Verified item one
     - [x] Verified item two

@@ -82,13 +82,13 @@ Checks and retrieves completed research results from Gemini Deep Research.
 2.  **Execute** (background):
     *   **If initial request** (Interaction ID = None):
         ```bash
-        ~/.claude/scripts/research.sh <output-path> <<'EOF'
+        engine research <output-path> <<'EOF'
         [composed research prompt]
         EOF
         ```
     *   **If follow-up** (Interaction ID present):
         ```bash
-        ~/.claude/scripts/research.sh --continue <interaction-id> <output-path> <<'EOF'
+        engine research --continue <interaction-id> <output-path> <<'EOF'
         [composed follow-up prompt]
         EOF
         ```
@@ -117,7 +117,7 @@ Checks and retrieves completed research results from Gemini Deep Research.
 3.  **Tag**: The template already includes `#done-research` in the Tags line.
 4.  **Breadcrumb**: Append to the **original request** file:
     ```bash
-    ~/.claude/scripts/log.sh "$REQUEST_FILE" <<'EOF'
+    engine log "$REQUEST_FILE" <<'EOF'
     ## Response
     *   **Responded By**: `[RESPONSE_FILE_PATH]`
     *   **Date**: [YYYY-MM-DD HH:MM:SS]
@@ -127,7 +127,7 @@ Checks and retrieves completed research results from Gemini Deep Research.
     ```
 5.  **Swap Tag**: On the original request:
     ```bash
-    ~/.claude/scripts/tag.sh swap "$REQUEST_FILE" '#needs-research' '#done-research'
+    engine tag swap "$REQUEST_FILE" '#needs-research' '#done-research'
     ```
 6.  **Cleanup**: Delete the `.tmp` output file if it exists.
 7.  **Report**: State "Research complete: [link]. Interaction ID: `[id]`." where [link] is a clickable link per `¶INV_TERMINAL_FILE_LINKS` (Full variant).

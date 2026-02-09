@@ -126,7 +126,7 @@ main() {
     notify_fleet error
 
     hook_deny \
-      "CONTEXT OVERFLOW — You MUST invoke the dehydrate skill NOW." \
+      "§CMD_REANCHOR_AFTER_RESTART: Context overflow — you MUST invoke the dehydrate skill NOW." \
       "Use: Skill(skill: \"dehydrate\", args: \"restart\"). Do NOT use Bash or session.sh. The Skill tool is required. This will save your context and restart with fresh context to continue the $skill session." \
       ""
   fi

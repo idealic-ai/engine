@@ -13,6 +13,7 @@ All tags follow the `#needs-X` / `#active-X` / `#done-X` lifecycle pattern where
 | `/implement` | implementation | `#needs-implementation` -> `#active-implementation` -> `#done-implementation` |
 | `/chores` | chores | `#needs-chores` -> `#active-chores` -> `#done-chores` |
 | `/document` | documentation | `#needs-documentation` -> `#done-documentation` |
+| `/fix` | fix | `#needs-fix` -> `#active-fix` -> `#done-fix` |
 | `/review` | review | `#needs-review` -> `#done-review` (or `#needs-rework`) |
 | `§CMD_MANAGE_ALERTS` | alert | `#active-alert` -> `#done-alert` |
 
@@ -108,7 +109,7 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 1.  **Identify**: Determine the target tag (e.g., `#active-alert`).
 2.  **Execute**:
     ```bash
-    ~/.claude/scripts/tag.sh find '#tag-name'
+    engine tag find '#tag-name'
     ```
     *   Searches `sessions/` by default. Pass a path argument to override.
     *   Two-pass search: Tags line (high precision) + inline body (backtick-filtered).
@@ -123,7 +124,7 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 **Algorithm**:
 1.  **Execute**:
     ```bash
-    ~/.claude/scripts/tag.sh add "$FILE" '#tag-name'
+    engine tag add "$FILE" '#tag-name'
     ```
     *   Ensures `**Tags**:` line exists after H1, then appends tag idempotently.
     *   Safe to run multiple times.
@@ -133,7 +134,7 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 **Algorithm**:
 1.  **Execute**:
     ```bash
-    ~/.claude/scripts/tag.sh remove "$FILE" '#tag-name'
+    engine tag remove "$FILE" '#tag-name'
     ```
 
 ### §CMD_SWAP_TAG_IN_FILE
@@ -141,7 +142,7 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 **Algorithm**:
 1.  **Execute**:
     ```bash
-    ~/.claude/scripts/tag.sh swap "$FILE" '#old-tag' '#new-tag'
+    engine tag swap "$FILE" '#old-tag' '#new-tag'
     ```
     *   Supports comma-separated old tags for multi-swap: `'#tag-a,#tag-b'`
 
@@ -159,7 +160,10 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 3.  **Log to DETAILS.md**: Execute `§CMD_LOG_TO_DETAILS` recording the user's deferral (the question asked, the `#needs-xxx` response, and the context).
 4.  **Do NOT Duplicate**: The tag should appear in **exactly one** work artifact (the log OR the debrief section — whichever is active when the user defers). Do NOT propagate the tag from DETAILS.md into the debrief automatically. If the debrief has a "Pending Decisions" or "Open Questions" section, list it there as a **reference** (one-liner with source path), not a full copy.
 5.  **Tag the File**: If the work artifact is a debrief (final output), also add the `#needs-xxx` tag to the file's `**Tags**:` line via `§CMD_TAG_FILE`.
-6.  **Continue**: Resume the session. Do not halt or change phases — the deferral is recorded, move on.
+6.  **Tag Reactivity** (`¶INV_WALKTHROUGH_TAGS_ARE_PASSIVE`): Determine the current context and react accordingly:
+    *   **During `§CMD_WALK_THROUGH_RESULTS`**: Tags are **passive**. The walkthrough protocol handles triage. Do NOT offer `/delegate` — the tag is protocol-placed, not a user-initiated deferral. Record and move on.
+    *   **All other contexts** (interrogation, QnA, ad-hoc chat, side discovery): Tags are **reactive**. After recording the tag, invoke `/delegate` via the Skill tool: `Skill(skill: "delegate", args: "[tag] [context summary]")`. The `/delegate` skill handles mode selection (async/blocking/silent) and REQUEST filing. The user can always decline via "Other" in the delegate prompt.
+7.  **Continue**: Resume the session. Do not halt or change phases — the deferral is recorded (and optionally delegated), move on.
 
 **Constraint**: **Once Only**. Each deferred item appears as an inline tag in ONE place. The DETAILS.md captures the verbatim exchange. The debrief may list it in a "Pending" section as a pointer. Never three copies.
 
@@ -204,7 +208,7 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
     *   Responses: `RESEARCH_RESPONSE_[TOPIC].md` (in responding session dir)
     *   Follow-ups: `RESEARCH_REQUEST_[TOPIC]_2.md`, `_3.md`, etc. — each carries the previous Interaction ID.
 *   **Independence**: This feed is independent from all other feeds.
-*   **API**: Uses Gemini Deep Research (`deep-research-pro-preview-12-2025`) via `~/.claude/scripts/research.sh`. Requires `$GEMINI_API_KEY`.
+*   **API**: Uses Gemini Deep Research (`deep-research-pro-preview-12-2025`) via `engine research`. Requires `$GEMINI_API_KEY`.
 
 ## §FEED_BRAINSTORM
 *   **Tags**: `#needs-brainstorm`, `#active-brainstorm`, `#done-brainstorm`
@@ -228,6 +232,16 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **Application**: Applied inline within work artifacts when the agent identifies a small task. Can also appear on the Tags line of debriefs for tasks that emerged during a session.
 *   **Independence**: This feed is independent from all other feeds.
 
+## §FEED_FIX
+*   **Tags**: `#needs-fix`, `#active-fix`, `#done-fix`
+*   **Location**: `sessions/`
+*   **Lifecycle**:
+    *   `#needs-fix` — Deferred. Applied inline by any agent when a bug, failure, or regression is identified but not immediately addressed. Common during implementation, testing, or analysis sessions.
+    *   `#active-fix` — In-flight. Swapped when `/fix` begins working on the tagged item.
+    *   `#done-fix` — Complete. Swapped by `/fix` after the fix is verified.
+*   **Application**: Applied **inline** within work artifacts (test logs, implementation debriefs, analysis reports). Agents discover these via `tag.sh find` and route to `/fix`.
+*   **Independence**: This feed is independent from all other feeds.
+
 ## §FEED_IMPLEMENTATION
 *   **Tags**: `#needs-implementation`, `#active-implementation`, `#done-implementation`
 *   **Location**: `sessions/`
@@ -247,14 +261,15 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 |-----|----------------|------|----------|
 | `#needs-brainstorm` | `/brainstorm` | interactive | 1 (exploration unblocks decisions) |
 | `#needs-research` | `/research` | async (Gemini) | 2 (queue early) |
-| `#needs-implementation` | `/implement` | interactive/agent | 3 |
-| `#needs-chores` | `/chores` | interactive | 4 (quick wins, filler) |
-| `#needs-documentation` | `/document` | interactive | 5 |
-| `#needs-review` | `/review` | interactive | 6 |
-| `#needs-rework` | `/review` | interactive | 6 |
+| `#needs-fix` | `/fix` | interactive/agent | 3 (bugs block progress) |
+| `#needs-implementation` | `/implement` | interactive/agent | 4 |
+| `#needs-chores` | `/chores` | interactive | 5 (quick wins, filler) |
+| `#needs-documentation` | `/document` | interactive | 6 |
+| `#needs-review` | `/review` | interactive | 7 |
+| `#needs-rework` | `/review` | interactive | 7 |
 
 *   **Extensibility**: To add a new dispatchable tag, add a row to this table and create the corresponding `§FEED_*` section above. The tag noun MUST match the skill name (`¶INV_1_TO_1_TAG_SKILL`).
-*   **Priority**: Resolves in priority order (1 first). Brainstorming unblocks decisions; research is async so queue early; implementation is the main work; chores fill gaps; documentation after code; review last.
+*   **Priority**: Resolves in priority order (1 first). Brainstorming unblocks decisions; research is async so queue early; fixes unblock progress; implementation is the main work; chores fill gaps; documentation after code; review last.
 
 ## §TAG_WEIGHTS
 Weight tags express urgency and effort for work items. They are optional metadata — absence means default priority (P2) and unknown effort.

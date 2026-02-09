@@ -8,20 +8,11 @@
 # Run: bash ~/.claude/engine/scripts/tests/test-post-tool-use-discovery.sh
 
 set -uo pipefail
+source "$(dirname "$0")/test-helpers.sh"
 
 HOOK_SH="$HOME/.claude/hooks/post-tool-use-discovery.sh"
 LIB_SH="$HOME/.claude/scripts/lib.sh"
 DISCOVER_SH="$HOME/.claude/scripts/discover-directives.sh"
-
-# Colors
-RED='\033[31m'
-GREEN='\033[32m'
-RESET='\033[0m'
-
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
 
 # Temp directory for test fixtures
 TEST_DIR=""
@@ -78,18 +69,6 @@ teardown() {
   fi
 }
 
-pass() {
-  echo -e "${GREEN}PASS${RESET}: $1"
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-}
-
-fail() {
-  echo -e "${RED}FAIL${RESET}: $1"
-  echo "  Expected: $2"
-  echo "  Got: $3"
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-}
-
 # Helper: run the hook with given JSON input
 run_hook() {
   local input="$1"
@@ -106,7 +85,6 @@ read_state() {
 # =============================================================================
 
 test_skips_non_matching_tools() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="tool filter: skips Bash tool (silent exit)"
   setup
 
@@ -129,7 +107,6 @@ test_skips_non_matching_tools() {
 }
 
 test_skips_glob_tool() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="tool filter: skips Glob tool"
   setup
 
@@ -147,7 +124,6 @@ test_skips_glob_tool() {
 }
 
 test_processes_read_tool() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="tool filter: processes Read tool"
   setup
 
@@ -167,7 +143,6 @@ test_processes_read_tool() {
 }
 
 test_processes_edit_tool() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="tool filter: processes Edit tool"
   setup
 
@@ -187,7 +162,6 @@ test_processes_edit_tool() {
 }
 
 test_processes_write_tool() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="tool filter: processes Write tool"
   setup
 
@@ -211,7 +185,6 @@ test_processes_write_tool() {
 # =============================================================================
 
 test_skips_engine_paths() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="engine skip: ignores ~/.claude/ paths"
   setup
 
@@ -235,7 +208,6 @@ test_skips_engine_paths() {
 # =============================================================================
 
 test_skips_when_no_session() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="no session: skips when session.sh find returns empty"
   setup
 
@@ -268,7 +240,6 @@ SCRIPT
 # =============================================================================
 
 test_tracks_new_dir() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="tracking: adds new directory to touchedDirs"
   setup
 
@@ -288,14 +259,13 @@ test_tracks_new_dir() {
 }
 
 test_idempotent_same_dir() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="tracking: second call to same dir produces no output (idempotent)"
   setup
 
-  # First call — should discover
+  # First call -- should discover
   run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/lib/test.ts\"}}" > /dev/null
 
-  # Second call — should be silent
+  # Second call -- should be silent
   local output
   output=$(run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/lib/other.ts\"}}")
 
@@ -313,7 +283,6 @@ test_idempotent_same_dir() {
 # =============================================================================
 
 test_discovers_soft_files_and_outputs_message() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="soft discovery: outputs hookSpecificOutput message for README/INVARIANTS"
   setup
 
@@ -333,8 +302,7 @@ test_discovers_soft_files_and_outputs_message() {
 }
 
 test_message_contains_invariant_code() {
-  TESTS_RUN=$((TESTS_RUN + 1))
-  local test_name="soft discovery: message references ¶INV_DIRECTORY_AWARENESS"
+  local test_name="soft discovery: message references INV_DIRECTORY_AWARENESS"
   setup
 
   local output
@@ -353,7 +321,6 @@ test_message_contains_invariant_code() {
 }
 
 test_soft_files_stored_in_touched_dirs() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="soft discovery: stores basenames in touchedDirs values"
   setup
 
@@ -378,14 +345,13 @@ test_soft_files_stored_in_touched_dirs() {
 }
 
 test_dedup_across_dirs() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="soft discovery: second dir doesn't re-suggest already-suggested files"
   setup
 
   # First call discovers README.md from project root walk-up
   run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/lib/test.ts\"}}" > /dev/null
 
-  # Second call from a different dir — README.md was already suggested via first dir
+  # Second call from a different dir -- README.md was already suggested via first dir
   local output
   output=$(run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/utils/test.ts\"}}")
 
@@ -410,7 +376,6 @@ test_dedup_across_dirs() {
 # =============================================================================
 
 test_discovers_checklist_adds_to_state() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="hard discovery: adds CHECKLIST.md to discoveredChecklists"
   setup
 
@@ -433,7 +398,6 @@ test_discovers_checklist_adds_to_state() {
 }
 
 test_checklist_not_duplicated() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="hard discovery: CHECKLIST.md not duplicated on repeated discovery"
   setup
 
@@ -465,7 +429,6 @@ test_checklist_not_duplicated() {
 # =============================================================================
 
 test_skips_empty_file_path() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="empty path: skips when file_path is empty"
   setup
 
@@ -489,7 +452,6 @@ test_skips_empty_file_path() {
 # =============================================================================
 
 test_no_output_when_no_instruction_files() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="no files: no output when directory has no instruction files"
   setup
 
@@ -548,8 +510,4 @@ test_checklist_not_duplicated
 test_skips_empty_file_path
 test_no_output_when_no_instruction_files
 
-# Summary
-echo ""
-echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_RUN total"
-
-[ $TESTS_FAILED -eq 0 ] && exit 0 || exit 1
+exit_with_results

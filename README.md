@@ -38,7 +38,7 @@ Any step can end with `/dehydrate`, which serializes the session state and copie
 The engine has seven layers, from low-level utilities to user-facing commands:
 
 ```
-Layer 7: Skills        /analyze, /implement, /debug, ...    (user-invoked protocols)
+Layer 7: Skills        /analyze, /implement, /fix, ...       (user-invoked protocols)
 Layer 6: Agents        builder, debugger, analyzer, ...     (sub-agent personas)
 Layer 5: Commands      find-sessions, details, fleet, ...   (light utility commands)
 Layer 4: Directives    COMMANDS.md, INVARIANTS.md, TAGS.md  (rules and templates)
@@ -61,7 +61,7 @@ Layer 1: Scripts       session.sh, tag.sh, log.sh, ...      (shell utilities)
 
 ## Skills, Tags & Sessions
 
-The engine includes 30+ skills organized into core workflow (`/analyze`, `/implement`, `/debug`, `/test`, `/document`, `/brainstorm`, `/refine`), session management (`/chores`, `/review`, `/dehydrate`), cross-session communication (`/research`, `/delegate`), and engine management (`/edit-skill`, `/fleet`).
+The engine includes 30+ skills organized into core workflow (`/analyze`, `/implement`, `/fix`, `/test`, `/document`, `/brainstorm`, `/refine`), session management (`/chores`, `/review`, `/dehydrate`), cross-session communication (`/research`, `/delegate`), and engine management (`/edit-skill`, `/fleet`).
 
 Cross-session coordination uses semantic tags with a lifecycle: `#needs-X` → `#active-X` → `#done-X`. Sessions are directories (`sessions/YYYY_MM_DD_TOPIC/`) containing logs, plans, debriefs, and `.state.json`.
 

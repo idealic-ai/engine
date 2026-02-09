@@ -10,18 +10,13 @@
 
 set -euo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 # Scripts under test
 CONFIG_SH="$HOME/.claude/engine/config.sh"
 HOOK="$HOME/.claude/engine/hooks/pre-tool-use-overflow.sh"
 STATUSLINE="$HOME/.claude/tools/statusline.sh"
 SESSION_SH="$HOME/.claude/scripts/session.sh"
-
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
 
 # Stub Claude: disable fleet (tmux) and debug mode, use PID-based session discovery
 unset TMUX 2>/dev/null || true
@@ -35,32 +30,6 @@ cleanup() { rm -rf "$TEST_SESSION"; }
 trap cleanup EXIT
 
 # --- Helpers ---
-
-assert_eq() {
-  local expected="$1" actual="$2" msg="$3"
-  if [ "$expected" = "$actual" ]; then
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Expected: $expected"
-    echo "  Actual:   $actual"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_contains() {
-  local expected="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -q "$expected"; then
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Expected to contain: $expected"
-    echo "  Actual: $actual"
-    FAIL=$((FAIL + 1))
-  fi
-}
 
 # Set .state.json fields (jq expression)
 set_state() {
@@ -106,17 +75,11 @@ echo "--- Setup: activate test session ---"
 # Verify session.sh find resolves to our test session
 FOUND=$("$SESSION_SH" find 2>/dev/null || echo "NOT_FOUND")
 if [[ "$FOUND" == *"test_threshold_$$"* ]]; then
-  echo -e "${GREEN}PASS${NC}: session.sh find resolves to test session"
-  PASS=$((PASS + 1))
+  pass "session.sh find resolves to test session"
 else
-  echo -e "${RED}FAIL${NC}: session.sh find → $FOUND (expected test_threshold_$$)"
+  fail "session.sh find → $FOUND (expected test_threshold_$$)" "test_threshold_$$" "$FOUND"
   echo "  Cannot test hook/statusline without session discovery. Aborting."
-  FAIL=$((FAIL + 1))
-  echo ""
-  echo "======================================"
-  echo -e "Results: ${GREEN}$PASS passed${NC}, ${RED}$FAIL failed${NC}"
-  echo "======================================"
-  exit 1
+  exit_with_results
 fi
 echo ""
 
@@ -149,7 +112,7 @@ echo "--- 4. Overflow hook: deny at/above threshold ---"
 set_state '.contextUsage = 0.76 | .lifecycle = "active" | .overflowed = false | .killRequested = false'
 OUT=$(run_hook '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"},"session_id":"x"}')
 assert_contains '"deny"' "$OUT" "76% → deny (at threshold)"
-assert_contains 'CONTEXT OVERFLOW' "$OUT" "deny message says CONTEXT OVERFLOW"
+assert_contains 'Context overflow' "$OUT" "deny message says Context overflow"
 
 set_state '.contextUsage = 0.80 | .lifecycle = "active" | .overflowed = false | .killRequested = false'
 OUT=$(run_hook '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"},"session_id":"x"}')
@@ -159,10 +122,10 @@ echo ""
 # --- 5. Overflow hook: deny message format ---
 echo "--- 5. Overflow hook: deny message ---"
 
-# Deny message should contain CONTEXT OVERFLOW (no percentage — removed for clarity)
+# Deny message should contain Context overflow (no percentage — removed for clarity)
 set_state '.contextUsage = 0.76 | .lifecycle = "active" | .overflowed = false | .killRequested = false'
 OUT=$(run_hook '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"},"session_id":"x"}')
-assert_contains 'CONTEXT OVERFLOW' "$OUT" "76% raw → deny with CONTEXT OVERFLOW message"
+assert_contains 'Context overflow' "$OUT" "76% raw → deny with Context overflow message"
 echo ""
 
 # --- 6. Overflow hook: dehydrate skill bypass ---
@@ -219,9 +182,4 @@ PCT=$(extract_pct "$OUT")
 assert_eq "0%" "$PCT" "0% raw → 0% display"
 echo ""
 
-# ============================================
-echo "======================================"
-echo -e "Results: ${GREEN}$PASS passed${NC}, ${RED}$FAIL failed${NC}"
-echo "======================================"
-
-[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+exit_with_results

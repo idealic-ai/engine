@@ -30,7 +30,7 @@
 6.  **Apply Tags**: For each tagged discovery:
     *   Add the tag to the debrief file's `**Tags**:` line via `§CMD_TAG_FILE`:
         ```bash
-        ~/.claude/scripts/tag.sh add "[sessionDir]/[DEBRIEF].md" '#needs-implementation'
+        engine tag add "[sessionDir]/[DEBRIEF].md" '#needs-implementation'
         ```
     *   Also write the discovery as an inline tag in the debrief's "Side Discoveries" or "Btw, I also noticed..." section (if it exists), or append a new `## Tagged Discoveries` section:
         ```markdown
@@ -40,7 +40,7 @@
         ```
 7.  **Report**: Log the tagging to the session's `_LOG.md`:
     ```bash
-    ~/.claude/scripts/log.sh [sessionDir]/[LOG_NAME].md <<'EOF'
+    engine log [sessionDir]/[LOG_NAME].md <<'EOF'
     ## 🏷️ Side Discoveries Tagged
     *   **Discoveries found**: [N]
     *   **Tagged**: [N] ([list of tags applied])

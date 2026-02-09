@@ -34,7 +34,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 2.  **Construct**: Prepare Markdown content matching that schema. Use `## ` headings (no timestamp — log.sh adds it).
 3.  **Execute**:
     ```bash
-    ~/.claude/scripts/log.sh sessions/[YYYY_MM_DD]_[TOPIC]/[LOG_NAME].md <<'EOF'
+    engine log sessions/[YYYY_MM_DD]_[TOPIC]/[LOG_NAME].md <<'EOF'
     ## [Header/Type]
     *   **Item**: ...
     *   **Details**: ...
@@ -42,7 +42,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
     ```
     *   The script auto-prepends a blank line, creates parent dirs, auto-injects timestamp into first `## ` heading, and appends content.
     *   In append mode, content MUST contain a `## ` heading or log.sh will error (exit 1).
-    *   Whitelisted globally via `Bash(~/.claude/scripts/*)` — no permission prompts.
+    *   Whitelisted globally via `Bash(engine *)` — no permission prompts.
 
 **Forbidden Patterns (DO NOT DO)**:
 *   ❌ **The "Read-Modify-Write"**: Reading the file, adding text in Python/JS, and writing it back.
@@ -80,8 +80,31 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 **Definition**: A session cannot be deactivated without its debrief file. Mechanically enforced by `session.sh deactivate`.
 **Rule**: Before deactivation, `session.sh` checks if the skill's debrief file exists (e.g., `IMPLEMENTATION.md` for `/implement`, `ANALYSIS.md` for `/analyze`). If missing, deactivation is blocked.
 **When Blocked**: Write the debrief via `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`, then retry deactivation.
-**Skip**: If the user explicitly approves skipping, use `--skip-debrief "Reason: [user's reason]"` on the deactivate command. The agent MUST use `AskUserQuestion` to get user approval before skipping.
+**Skip**: If the user explicitly approves skipping, use `--user-approved "Reason: [quote user's words]"` on the deactivate command. The agent MUST use `AskUserQuestion` to get user approval before skipping. The reason MUST quote the user's actual words — agent-authored justifications are not valid.
+**Prohibited justifications** (these are never valid reasons to skip the debrief):
+*   "Small focused change — no debrief needed."
+*   "This task was too simple for a debrief."
+*   "The changes are self-explanatory."
+*   Any reason authored by the agent without user input.
+**Valid reasons** (these require the user to have actually said it):
+*   `"Reason: User said 'skip the debrief, just close it'"`
+*   `"Reason: User said 'discard this session'"`
+*   `"Reason: User abandoned session early — said 'never mind, move on'"`
 **Related**: `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (creates the debrief), `¶INV_CHECKLIST_BEFORE_CLOSE` (similar gate pattern for checklists).
+
+### §CMD_VERIFY_PHASE_EXIT
+**Definition**: Self-report proof block that gates phase progression. The agent fills in every blank; if any blank is empty, the agent cannot proceed. Covers both the boot gate (standards loaded) and per-phase exit proofs (phase work verified).
+**Rule**: Every skill phase ends with a `§CMD_VERIFY_PHASE_EXIT` block. The agent outputs it in chat with every blank filled. If any blank is empty, the agent goes back and completes the missing work before proceeding.
+**Variants**:
+*   **Boot gate** (Phase 0 entry): Verifies standards files are loaded (`COMMANDS.md`, `INVARIANTS.md`, `TAGS.md`). Uses the `⛔ GATE CHECK` heading. Placed before Phase 0 in the skill protocol.
+*   **Phase exit** (Phase N completion): Verifies the phase's deliverables exist and are valid. Uses the `§CMD_VERIFY_PHASE_EXIT — Phase N` heading. Placed at the end of each phase.
+**Algorithm**:
+1.  **Output**: Print the proof block template (defined inline in each skill's SKILL.md) to chat.
+2.  **Fill**: Replace every `________` placeholder with the actual value from the current session state.
+3.  **Verify**: If any blank is still empty, GO BACK and complete the missing work. Do NOT proceed to the next phase.
+4.  **Proceed**: Once all blanks are filled, the phase exit is verified. The agent may now execute the phase transition (via `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH` or the phase's specific transition pattern).
+**Constraint**: The proof block is output to chat (not logged) — it's a user-visible verification step.
+**Related**: `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH` (called after this command at phase boundaries), `¶INV_PHASE_ENFORCEMENT` (mechanical enforcement of phase ordering).
 
 ### §CMD_NO_MICRO_NARRATION
 **Definition**: Do not narrate micro-steps or internal thoughts in the chat.
@@ -172,6 +195,32 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
     > "Phase 3 requires a minimum of 3 interrogation rounds, but the task feels straightforward. I'm tempted to skip to planning. This conflicts with the protocol."
     > → [AskUserQuestion with 5 options]
 
+### §CMD_SESSION_CLI
+**CRITICAL**: These are the exact command formats. Do NOT invent flags (e.g., `--description`). Description and parameters are always piped via stdin heredoc.
+
+```bash
+# Activate (with parameters — first activation)
+engine session activate sessions/YYYY_MM_DD_TOPIC skill-name <<'EOF'
+{ "taskSummary": "...", "taskType": "...", ... }
+EOF
+
+# Activate (re-activation — no new parameters)
+engine session activate sessions/YYYY_MM_DD_TOPIC skill-name < /dev/null
+
+# Deactivate (description via stdin, keywords via flag)
+engine session deactivate sessions/YYYY_MM_DD_TOPIC --keywords "kw1,kw2" <<'EOF'
+What was done in this session (1-3 lines)
+EOF
+
+# Phase transition (sequential)
+engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name"
+
+# Phase transition (non-sequential — requires user approval)
+engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name" --user-approved "Reason"
+```
+
+---
+
 ### §CMD_PARSE_PARAMETERS
 **Definition**: Parse and validate the session parameters before execution.
 **Rule**: Execute this immediately after `§CMD_MAINTAIN_SESSION_DIR` (or as part of setup). This command outputs the "Flight Plan" for the session.
@@ -181,7 +230,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 {
   "type": "object",
   "title": "Session Parameters",
-  "required": ["sessionDir", "taskType", "taskSummary", "startedAt", "scope", "directoriesOfInterest", "preludeFiles", "contextPaths", "planTemplate", "logTemplate", "debriefTemplate", "extraInfo", "phases"],
+  "required": ["sessionDir", "taskType", "taskSummary", "startedAt", "scope", "directoriesOfInterest", "preludeFiles", "contextPaths", "planTemplate", "logTemplate", "debriefTemplate", "requestTemplate", "responseTemplate", "requestFiles", "nextSkills", "extraInfo", "phases"],
   "properties": {
     "sessionDir": {
       "type": "string",
@@ -289,10 +338,10 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
       "type": "array",
       "items": { "type": "string" },
       "title": "Skill Directives",
-      "description": "Directive file types this skill cares about beyond the core set (README.md, INVARIANTS.md, CHECKLIST.md are always discovered). Discovery finds all types; this field filters which skill-specific directives are suggested to the agent. See ¶INV_DIRECTORY_AWARENESS.",
+      "description": "Directive file types this skill cares about beyond the core set (README.md, INVARIANTS.md, CHECKLIST.md are always discovered). Derived from the skill's Required Context section: if SKILL.md loads `.claude/directives/X.md`, include `X.md` here. Convention: editing skills (implement, test, debug, refine, document) load PITFALLS.md; testing skills (implement, test, debug) load TESTING.md. See ¶INV_DIRECTORY_AWARENESS.",
       "example": [
         ["TESTING.md", "PITFALLS.md"],
-        ["TESTING.md"],
+        ["PITFALLS.md"],
         []
       ],
       "default": []
@@ -303,7 +352,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
       "description": "Path to the plan template (if applicable).",
       "example": [
         "skills/implement/assets/TEMPLATE_IMPLEMENTATION_PLAN.md",
-        "skills/debug/assets/TEMPLATE_DEBUG_PLAN.md",
+        "skills/fix/assets/TEMPLATE_FIX_PLAN.md",
         "skills/test/assets/TEMPLATE_TESTING_PLAN.md"
       ],
       "default": null
@@ -314,7 +363,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
       "description": "Path to the log template (if applicable).",
       "example": [
         "skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md",
-        "skills/debug/assets/TEMPLATE_DEBUG_LOG.md",
+        "skills/fix/assets/TEMPLATE_FIX_LOG.md",
         "skills/analyze/assets/TEMPLATE_ANALYSIS_LOG.md"
       ],
       "default": null
@@ -325,10 +374,49 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
       "description": "Path to the debrief template.",
       "example": [
         "skills/implement/assets/TEMPLATE_IMPLEMENTATION.md",
-        "skills/debug/assets/TEMPLATE_DEBUG.md",
+        "skills/fix/assets/TEMPLATE_FIX.md",
         "skills/brainstorm/assets/TEMPLATE_BRAINSTORM.md"
       ],
       "default": null
+    },
+    "requestTemplate": {
+      "type": "string",
+      "title": "Request Template Path",
+      "description": "Path to the REQUEST template (if this skill supports delegation).",
+      "example": [
+        "skills/implement/assets/TEMPLATE_IMPLEMENTATION_REQUEST.md",
+        "skills/brainstorm/assets/TEMPLATE_BRAINSTORM_REQUEST.md"
+      ],
+      "default": null
+    },
+    "responseTemplate": {
+      "type": "string",
+      "title": "Response Template Path",
+      "description": "Path to the RESPONSE template (if this skill supports delegation).",
+      "example": [
+        "skills/implement/assets/TEMPLATE_IMPLEMENTATION_RESPONSE.md",
+        "skills/brainstorm/assets/TEMPLATE_BRAINSTORM_RESPONSE.md"
+      ],
+      "default": null
+    },
+    "requestFiles": {
+      "type": "array",
+      "items": { "type": "string" },
+      "title": "Request Files",
+      "description": "Request files this session is fulfilling. Supports two types: formal REQUEST files (filename contains 'REQUEST') and inline-tag source files (any other file with #needs-* tags). Validated by session.sh check Validation 3 (¶INV_REQUEST_BEFORE_CLOSE).",
+      "example": [
+        ["sessions/2026_02_09_TOPIC/IMPLEMENTATION_REQUEST_FEATURE.md"],
+        ["sessions/2026_02_09_TOPIC/BRAINSTORM.md"]
+      ],
+      "default": []
+    },
+    "nextSkills": {
+      "type": "array",
+      "items": { "type": "string" },
+      "title": "Next Skill Options",
+      "description": "Skills to suggest after session completion. Used by §CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL for the post-session menu. Each skill declares its own nextSkills in SKILL.md. Required field.",
+      "example": [["/test", "/document", "/analyze", "/fix"]],
+      "default": []
     },
     "extraInfo": {
       "type": "string",
@@ -382,13 +470,8 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 **Algorithm**:
 1.  **Analyze**: Review the user's prompt and current context to extract the parameters.
 2.  **Construct**: Create the JSON object matching the schema.
-3.  **Activate Session**: Pipe the JSON to `session.sh activate` via heredoc. The JSON is stored in `.state.json` (merged with runtime fields) and activate returns context (alerts, delegations, RAG suggestions). Do NOT output the JSON to chat — it is stored by activate.
-    ```bash
-    ~/.claude/scripts/session.sh activate sessions/[YYYY_MM_DD]_[TOPIC] [SKILL_NAME] <<'EOF'
-    { "taskSummary": "...", "taskType": "...", ... }
-    EOF
-    ```
-    *   The agent reads activate's stdout for context sections (## Active Alerts, ## RAG: Sessions, ## RAG: Docs).
+3.  **Activate Session**: Pipe the JSON to `session.sh activate` via heredoc (see `§CMD_SESSION_CLI` for exact syntax). The JSON is stored in `.state.json` (merged with runtime fields) and activate returns context (alerts, delegations, RAG suggestions). Do NOT output the JSON to chat — it is stored by activate.
+    *   The agent reads activate's stdout for context sections (## §CMD_SURFACE_ACTIVE_ALERTS, ## §CMD_RECALL_PRIOR_SESSIONS, ## §CMD_RECALL_RELEVANT_DOCS, ## §CMD_DISCOVER_DELEGATION_TARGETS).
     *   activate uses `taskSummary` from the JSON to run thematic searches via session-search and doc-search automatically.
     *   **No-JSON calls** (e.g., re-activation without new params): use `< /dev/null` to avoid stdin hang.
 4.  **Process Context Output**: Parse activate's Markdown output to identify the 3 context categories (Alerts, RAG:Sessions, RAG:Docs). These are consumed by `§CMD_INGEST_CONTEXT_BEFORE_WORK` to build the multichoice menu in Phase 2.
@@ -416,10 +499,11 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
     *   Auto-detect fleet pane ID if running in fleet tmux (no manual `--fleet-pane` needed).
     *   Enable context overflow protection (PreToolUse hook will block at 90%).
     *   Run context scans (on fresh activation or skill change) — all use `taskSummary` for thematic relevance:
-        *   `session-search.sh query --tag '#active-alert'` → `## Active Alerts` section
-        *   *(Open Delegations scan removed — delegation system deprecated)*
-        *   `session-search.sh query` → `## RAG: Sessions` section
-        *   `doc-search.sh query` → `## RAG: Docs` section
+        *   `session-search.sh query --tag '#active-alert'` → `## §CMD_SURFACE_ACTIVE_ALERTS` section
+        *   `session-search.sh query --tag '#needs-delegation'` → `## §CMD_SURFACE_OPEN_DELEGATIONS` section
+        *   `session-search.sh query` → `## §CMD_RECALL_PRIOR_SESSIONS` section
+        *   `doc-search.sh query` → `## §CMD_RECALL_RELEVANT_DOCS` section
+        *   `§CMD_DISCOVER_DELEGATION_TARGETS` runs unconditionally (outside SHOULD_SCAN guard)
     *   If the same Claude (same PID) and same skill: brief re-activation, no scans.
     *   If the same Claude but different skill: updates skill, runs scans.
     *   If a different Claude is already active in this session, it rejects with an error.
@@ -430,7 +514,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
     *   After identifying/creating the session directory, check if artifacts from the **current skill type** already exist:
         *   For `/implement`: `IMPLEMENTATION_LOG.md`, `IMPLEMENTATION.md`
         *   For `/test`: `TESTING_LOG.md`, `TESTING.md`
-        *   For `/debug`: `DEBUG_LOG.md`, `DEBUG.md`
+        *   For `/fix`: `FIX_LOG.md`, `FIX.md`
         *   For `/analyze`: `ANALYSIS_LOG.md`, `ANALYSIS.md`
         *   For `/brainstorm`: `BRAINSTORM_LOG.md`, `BRAINSTORM.md`
         *   (etc. — match the skill's log and debrief filenames)
@@ -446,16 +530,9 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 **Rule**: Call this when transitioning between phases of a skill protocol. Phase enforcement ensures sequential progression.
 
 **Algorithm**:
-1.  **Execute** (sequential transition — next phase in order):
-    ```bash
-    ~/.claude/scripts/session.sh phase sessions/[CURRENT_SESSION] "N: [Name]"
-    ```
-    *   Example: `session.sh phase sessions/2026_02_05_MY_TOPIC "3: Interrogation"`
+1.  **Execute** (sequential transition — next phase in order): Use the `engine session phase` command (see `§CMD_SESSION_CLI` for exact syntax).
     *   Phase labels MUST start with a number: `"N: Name"` or `"N.M: Name"` (e.g., `"4: Planning"`, `"4.1: Agent Handoff"`).
-2.  **Execute** (non-sequential transition — skip forward or go backward):
-    ```bash
-    ~/.claude/scripts/session.sh phase sessions/[CURRENT_SESSION] "N: [Name]" --user-approved "Reason: [why you need this phase change, citing user's response]"
-    ```
+2.  **Execute** (non-sequential transition — skip forward or go backward): Use `engine session phase` with `--user-approved` flag (see `§CMD_SESSION_CLI`).
     *   **Required**: The `--user-approved` reason MUST quote the user's actual response from `AskUserQuestion`.
     *   Without `--user-approved`, non-sequential transitions are **rejected** (exit 1).
 3.  **Effect**:
@@ -562,7 +639,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 **Definition**: Present discovered context as a multichoice menu before work begins.
 **Rule**: STOP after init. Enter this phase. Do NOT load files until user responds.
 
-**Categories**: Activate outputs 3 sections: `## RAG: Sessions`, `## RAG: Docs`, `## Active Alerts`. Each contains file paths (one per line) or `(none)`.
+**Categories**: Activate outputs sections: `## §CMD_SURFACE_ACTIVE_ALERTS`, `## §CMD_SURFACE_OPEN_DELEGATIONS`, `## §CMD_RECALL_PRIOR_SESSIONS`, `## §CMD_RECALL_RELEVANT_DOCS`, `## §CMD_DISCOVER_DELEGATION_TARGETS`. Each contains file paths (one per line) or `(none)`, except delegation targets which outputs a table.
 
 **Algorithm**:
 1.  Auto-load `contextPaths` from session parameters (explicitly requested — no menu needed).
@@ -583,18 +660,12 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 2.  **Execute**: `§CMD_POPULATE_LOADED_TEMPLATE` using the `.md` schema found in context.
     *   **Continuation Note**: The debrief **replaces** any existing debrief file. Do NOT append — regenerate the entire document so it reads as one coherent summary of all work.
 3.  **Tag**: Include a `**Tags**: #needs-review` line immediately after the H1 heading. This marks the debrief as unvalidated and discoverable by `/review`.
-4.  **Doc Update Tag**: If the session involved code changes (task types: `IMPLEMENTATION`, `DEBUG`, `ADHOC`, `TESTING`), also add `#needs-documentation` to the Tags line. This marks the session as needing a documentation pass and is discoverable by scanning for the tag.
-    *   *Example (code-changing session)*:
+    *   *Example*:
         ```markdown
         # Implementation Debriefing: My Feature
-        **Tags**: #needs-review #needs-documentation
-        ```
-    *   *Example (read-only session)*:
-        ```markdown
-        # Analysis: My Research Topic
         **Tags**: #needs-review
         ```
-    *   **Skip**: If the agent is confident there is zero documentation impact (e.g., a trivial config change with no user-facing effect), it may omit `#needs-documentation` but must log the reasoning.
+    *   **Note**: Do NOT auto-add `#needs-documentation`. Documentation tags are applied manually by the user when needed, not auto-applied to every debrief.
 5.  **Related Sessions**: If `ragDiscoveredPaths` was populated during context ingestion (session-search found relevant past sessions), include a `## Related Sessions` section in the debrief:
     ```markdown
     ## Related Sessions
@@ -608,15 +679,15 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 8.  **Directive Management**: Execute `§CMD_MANAGE_DIRECTIVES`.
     *   Three passes: README updates (doc files touched), invariant capture (new rules), pitfall capture (gotchas).
     *   Each pass uses agent judgment, prompts user per candidate, skips silently if none found.
+9b. **Process Delegations**: Execute `§CMD_PROCESS_DELEGATIONS`.
+    *   Scans session artifacts for unresolved bare `#needs-X` inline tags.
+    *   Invokes `/delegate` for each one (user chooses async/blocking/silent per tag).
+    *   Skips silently if no unresolved delegation tags found.
 10.  **Capture Side Discoveries**: Execute `§CMD_CAPTURE_SIDE_DISCOVERIES`.
     *   Scans the session log for side-discovery entries (observations, concerns, parking lot items).
     *   Presents multichoice to tag them for future dispatch (`#needs-implementation`, `#needs-research`, `#needs-brainstorm`).
     *   Skips silently if no side-discovery entries found.
-10b. **Resolve Cross-Session Tags**: Execute `§CMD_RESOLVE_CROSS_SESSION_TAGS`.
-    *   Scans the session's work for items that were originally tagged `#needs-*` in OTHER sessions.
-    *   For each resolved item, swaps the tag in the originating file: `#needs-X` → `#done-X`.
-    *   Skips silently if no cross-session tag resolutions are identified.
-10c. **Manage Alerts**: Execute `§CMD_MANAGE_ALERTS`.
+10b. **Manage Alerts**: Execute `§CMD_MANAGE_ALERTS`.
     *   Checks whether this session's work warrants raising or resolving alerts.
     *   Uses `tag.sh` operations for `#active-alert` / `#done-alert` lifecycle.
     *   Skips silently if no alert actions needed.
@@ -637,13 +708,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 2.  **Infer Keywords**: Based on the session's work, infer 3-5 search keywords that capture the key topics, files, and concepts. These power future RAG discoverability.
     *   *Example*: For a session that refactored auth middleware: `"auth, middleware, ClerkAuthGuard, session-management, NestJS"`
     *   Keywords should be comma-separated, concise, and specific to this session's work.
-3.  **Deactivate**: Execute:
-    ```bash
-    ~/.claude/scripts/session.sh deactivate [sessionDir] --keywords "kw1,kw2,kw3" <<'EOF'
-    [1-3 line description]
-    EOF
-    ```
-    This sets `lifecycle=completed`, stores description + keywords in `.state.json`, and runs a RAG search returning related sessions in stdout.
+3.  **Deactivate**: Execute using `engine session deactivate` (see `§CMD_SESSION_CLI` for exact syntax). This sets `lifecycle=completed`, stores description + keywords in `.state.json`, and runs a RAG search returning related sessions in stdout.
 4.  **Process RAG Results**: If deactivate returned a `## Related Sessions` section in stdout, display it in chat. This gives the user awareness of related past work.
 5.  **Contextualize & Present Menu**:
     *   **Preamble (REQUIRED)**: Before presenting the menu, output a short summary block in chat that explains what each skill option would concretely do *for this session's work*. Do NOT use generic descriptions — tailor each to the actual changes, files, and outcomes of the session. Format:
@@ -652,7 +717,9 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
         > - `/skill2` — [1-2 sentences: what this skill would do given the specific work just completed]
         > - `/skill3` — [1-2 sentences]
         > - `/skill4` — [1-2 sentences]
-    *   **Menu**: Then execute `AskUserQuestion` with the options defined in the **current skill's SKILL.md** under `### Next Skill Options`. Each skill defines up to **4 options** (the AskUserQuestion limit). The implicit 5th option ("Other") lets the user type a skill name or describe new work. The question text MUST explain this: include "(Type a /skill name to invoke it, or describe new work to scope it)" in the question.
+    *   **Menu**: Then execute `AskUserQuestion` with options derived from the `nextSkills` array in `.state.json` (populated at session activation from the skill's `### Next Skills` declaration). Each skill defines up to **4 options** (the AskUserQuestion limit). The implicit 5th option ("Other") lets the user type a skill name or describe new work. The question text MUST explain this: include "(Type a /skill name to invoke it, or describe new work to scope it)" in the question.
+    *   **Option format**: For each skill in `nextSkills`, use: label=`"/skill-name"`, description=contextualized to this session's work (from the preamble above). The first option should be marked "(Recommended)".
+    *   **Fallback**: If `nextSkills` is empty or missing in `.state.json`, use the `§CMD_DISCOVER_DELEGATION_TARGETS` table to derive options (pick the 4 most commonly recommended skills).
 6.  **On Selection**:
     *   **If a skill is chosen**: Invoke the Skill tool: `Skill(skill: "[chosen-skill]")`
     *   **If "Other" — skill name** (user typed `/implement`, `/test`, etc.): Invoke the Skill tool with the typed skill name.
@@ -661,8 +728,8 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 **Constraints**:
 *   **Session description is REQUIRED**: `session.sh deactivate` will ERROR if no description is piped. This powers RAG search for future sessions.
 *   **Keywords are RECOMMENDED**: If omitted, deactivate still works but the session is less discoverable by future RAG queries.
-*   **Max 4 options**: Each skill defines exactly 4 skill options in its `### Next Skill Options` section. The first should be marked "(Recommended)". The user can always type something else via "Other".
-*   **Options come from SKILL.md**: Each skill defines its own options. The command just presents them — it doesn't decide.
+*   **Max 4 options**: Each skill defines up to 4 skill options via its `nextSkills` array. The first should be marked "(Recommended)". The user can always type something else via "Other".
+*   **Options come from `nextSkills`**: Each skill declares its own `nextSkills` in `### Next Skills (for §CMD_PARSE_PARAMETERS)`. The command reads them from `.state.json` at runtime — it doesn't read SKILL.md.
 *   **Same session directory**: The next skill reuses the same session directory (sessions are multi-modal per `§CMD_MAINTAIN_SESSION_DIR`).
 
 ### §CMD_GENERATE_PLAN_FROM_TEMPLATE
@@ -681,11 +748,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 2.  **Check**: Have I already reported this phase intent recently without interruption?
     *   *Yes*: Skip reporting.
     *   *No*: Proceed to report.
-3.  **Update Phase Tracking**: Execute `§CMD_UPDATE_PHASE` to update `.state.json`:
-    ```bash
-    ~/.claude/scripts/session.sh phase sessions/[CURRENT_SESSION] "Phase X: [Name]"
-    ```
-    *   This updates the status line display and enables restart recovery.
+3.  **Update Phase Tracking**: Execute `§CMD_UPDATE_PHASE` to update `.state.json` (see `§CMD_SESSION_CLI` for exact syntax). This updates the status line display and enables restart recovery.
 4.  **Output**: Display a blockquote summary of your intent. When referencing files, use clickable links per `¶INV_TERMINAL_FILE_LINKS` (Compact `§` for inline, Location for code points).
     *   *Example*:
         > 1. I am moving to Phase 3: Test Implementation and will `§CMD_USE_TODOS_TO_TRACK_PROGRESS`.
@@ -704,7 +767,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
     *   **Action**: Paraphrase your decision/action (e.g., "Updated Plan").
 2.  **Execute**:
     ```bash
-    ~/.claude/scripts/log.sh sessions/[YYYY_MM_DD]_[TOPIC]/DETAILS.md <<'EOF'
+    engine log sessions/[YYYY_MM_DD]_[TOPIC]/DETAILS.md <<'EOF'
     ## [Topic Summary]
     **Type**: [Q&A / Assertion / Discussion]
 
@@ -725,21 +788,70 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
     ```
 
 ### §CMD_EXECUTE_INTERROGATION_PROTOCOL
-**Definition**: The standard "Ask -> Log" loop using structured input.
-**Algorithm**:
-1.  **Execute**: Use `§CMD_ASK_ROUND_OF_QUESTIONS` via the `AskUserQuestion` tool.
-2.  **Analyze User Response**:
-    *   **Case A**: User asked a question / wants discussion.
-        *   **Action**: PAUSE interrogation. Answer the user's question in Chat.
-        *   **Verify**: Ask "Does this clarify? Ready to resume?"
-        *   **Resume**: Once confirmed, return to Step 1.
-    *   **Case B**: User provided answers.
-        *   **Log**: Execute `§CMD_LOG_TO_DETAILS` to capture the Q&A.
-        *   **Iterate**: Continue to the next round.
-3.  **Iteration Constraint**: You MUST complete **AT LEAST 3 ROUNDS** of questioning.
-4.  **Completion**:
-    *   **Action**: Ask "Interrogation Phase Complete. Do you have any final questions or adjustments before I create the Plan?" via `AskUserQuestion`.
-    *   **Wait**: Only proceed to the next phase when the user explicitly selects "Proceed".
+**Definition**: Structured interrogation with depth selection, topic-driven rounds, between-rounds context, and exit gating. The skill provides a **standard topics list** (under `### Interrogation Topics` in its SKILL.md); the command owns all mechanics.
+**Trigger**: Called by skill protocols during their interrogation/pre-flight phase.
+
+**Step 1 — Depth Selection**: Present via `AskUserQuestion` (multiSelect: false):
+> "How deep should interrogation go?"
+
+| Depth | Minimum Rounds | When to Use |
+|-------|---------------|-------------|
+| **Short** | 3+ | Task is well-understood, small scope, clear requirements |
+| **Medium** | 6+ | Moderate complexity, some unknowns, multi-file changes |
+| **Long** | 9+ | Complex system changes, many unknowns, architectural impact |
+| **Absolute** | Until ALL questions resolved | Novel domain, high risk, critical system, zero ambiguity tolerance |
+
+Record the user's choice. This sets the **minimum** — the agent can always ask more, and the user can always say "proceed" after the minimum is met.
+
+**Step 2 — Round Loop**:
+
+[!!!] CRITICAL: You MUST complete at least the minimum rounds for the chosen depth.
+
+**Round counter**: Output on every round: "**Round N / {depth_minimum}+**"
+
+**Topic selection**: Pick from the skill's standard topics or the universal repeatable topics below. Do NOT follow a fixed sequence — choose the most relevant uncovered topic based on what you've learned so far.
+
+**Universal repeatable topics** (available to all skills, can be selected any number of times):
+- **Followup** — Clarify or revisit answers from previous rounds
+- **Devil's advocate** — Challenge assumptions and decisions made so far
+- **What-if scenarios** — Explore hypotheticals, edge cases, and alternative futures
+- **Deep dive** — Drill into a specific topic from a previous round in much more detail
+
+**Each round**:
+1.  **Between-rounds context (2 paragraphs — MANDATORY, skip for Round 1)**:
+    > **Round N-1 recap**: [1 paragraph — Summarize what was learned: key answers, decisions made, constraints established, assumptions confirmed or invalidated.]
+    >
+    > **Round N — [Topic]**: [1 paragraph — Explain what topic is next, why it's relevant given what was just learned, and what the questions aim to uncover.]
+
+    **Anti-pattern**: Do NOT jump straight into questions without context. The user should always know what was just established and why they're being asked the next set.
+2.  **Ask**: Execute `§CMD_ASK_ROUND_OF_QUESTIONS` via `AskUserQuestion` (3-5 targeted questions on the chosen topic).
+3.  **Handle response**:
+    *   **User provided answers**: Execute `§CMD_LOG_TO_DETAILS` immediately. Continue to next round.
+    *   **User asked a counter-question**: PAUSE. Answer in chat. Ask "Does this clarify? Ready to resume?" Once confirmed, resume.
+
+**Step 3 — Exit Gate**: After reaching minimum rounds, present via `AskUserQuestion` (multiSelect: true):
+> "Round N complete (minimum met). What next?"
+> - **"Proceed to next phase"** — *(terminal: if selected, skip all others and move on)*
+> - **"More interrogation (3 more rounds)"** — Standard topic rounds, then this gate re-appears
+> - **"Devil's advocate round"** — 1 round challenging assumptions, then this gate re-appears
+> - **"What-if scenarios round"** — 1 round exploring hypotheticals, then this gate re-appears
+
+**Execution order** (when multiple selected): Standard rounds first → Devil's advocate → What-ifs → re-present exit gate.
+
+**On "Proceed to next phase"**: After the exit gate resolves, fire `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH` using the skill's Phase Transition config for the interrogation boundary. This gives the user the walkthrough option (review what was established during interrogation) before committing to the next phase. The skill's `### Phase Transition` block after interrogation provides the `completedPhase`/`nextPhase`/`prevPhase` values.
+
+**For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Output: "Round N complete. I still have questions about [X]. Continuing..."
+
+**Constraints**:
+*   Minimum rounds are mandatory. No self-authorized skips — fire `§CMD_REFUSE_OFF_COURSE` if tempted.
+*   Between-rounds context is mandatory after Round 1. No bare question dumps.
+*   Every round logged to DETAILS.md. No unlogged rounds.
+*   Counter-questions don't count as rounds.
+
+### §CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH
+**Description**: Standardized phase boundary menu — presents 3 core options (proceed to next phase, walkthrough current phase output, go back to previous phase) plus an optional 4th skill-specific option. Replaces ad-hoc `AskUserQuestion` blocks at phase transitions.
+**Trigger**: Called by skill protocols at phase boundaries, after `§CMD_VERIFY_PHASE_EXIT`. Not used for special boundaries (interrogation exit gate, parallel handoff, synthesis deactivation).
+**Reference**: `~/.claude/directives/commands/CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH.md`
 
 ### §CMD_HAND_OFF_TO_AGENT
 **Description**: Standardized handoff from a parent command to an autonomous agent (opt-in, foreground).
@@ -780,13 +892,13 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 **Algorithm**:
 1.  **Detect**: You just finished a skill's synthesis phase and the user is now asking for more work or discussing the topic further.
 2.  **Reactivate Session (CRITICAL)**:
-    *   Execute `~/.claude/scripts/session.sh activate [sessionDir] [skill]` to re-register this Claude process with the session.
+    *   Execute `engine session activate [sessionDir] [skill]` to re-register this Claude process with the session.
     *   *Why*: After context overflow restart or new conversation, the status line reads from `.state.json`. Without reactivation, it shows stale session info.
 3.  **Same Topic — Assume Continuation**:
     *   **Announce** (not a question): "📂 Continuing in `[sessionDir]` — logging resumed."
     *   **Log Continuation Header**: Append to the existing `_LOG.md`:
         ```bash
-        ~/.claude/scripts/log.sh [sessionDir]/[LOG_NAME].md <<'EOF'
+        engine log [sessionDir]/[LOG_NAME].md <<'EOF'
         ## ♻️ Session Continuation
         *   **Trigger**: User requested further work after synthesis.
         *   **Goal**: [brief description of what user asked for]
@@ -809,6 +921,11 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
     *   **Why Regenerate**: A debrief is a summary of the entire session. Appending creates a patchwork; regenerating keeps it coherent and properly structured.
 7.  **Trivial Messages**: If the user's message is clearly conversational (e.g., "thanks", "got it", "bye"), respond naturally without triggering this protocol — but still offer to update the debrief if continuation work was done:
     > "Got it. Want me to update the debrief before we wrap up?"
+
+### §CMD_CHECK
+**Description**: Validates session artifacts before deactivation — 3 validations (tag scan, checklists, request files). All must pass for `checkPassed=true`.
+**Trigger**: Called during synthesis, before debrief. Agents use `§CMD_PROCESS_TAG_PROMOTIONS` and `§CMD_PROCESS_CHECKLISTS` to address failures.
+**Reference**: `~/.claude/directives/commands/CMD_CHECK.md`
 
 ### §CMD_PROCESS_CHECKLISTS
 **Description**: Processes discovered CHECKLIST.md files during synthesis — reads each checklist, evaluates items against the session's work, then quotes results back to `session.sh check` for mechanical validation. Sets `checkPassed=true` in `.state.json`. Ensures the deactivation gate (`¶INV_CHECKLIST_BEFORE_CLOSE`) will pass.
@@ -849,17 +966,15 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 **Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 10, after TOC management. Read the reference file before executing.
 **Reference**: `~/.claude/directives/commands/CMD_CAPTURE_SIDE_DISCOVERIES.md`
 
-### §CMD_RESOLVE_CROSS_SESSION_TAGS
-**Description**: After a skill completes work, checks if any `#needs-*` tags in OTHER sessions have been resolved by this session's work. Swaps resolved tags to `#done-*`.
-**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 10b, after side discoveries.
-**Algorithm**:
-1. Review the session's work (plan, log, debrief) to identify what was accomplished.
-2. Run `tag.sh find` for relevant `#needs-*` tags (e.g., `#needs-implementation` if this was an implement session).
-3. For each result file from OTHER sessions (not the current session), check if the tagged item was resolved by this session's work.
-4. If resolved: execute `tag.sh swap <file> '#needs-X' '#done-X'` (for Tags-line tags) or `tag.sh swap <file> '#needs-X' '#done-X' --inline <line>` (for inline tags).
-5. Log each swap to the session log.
-6. Skip silently if no cross-session resolutions are identified.
-**Guidance**: Be conservative — only swap tags where you are confident the work was completed. When in doubt, leave the tag and log the uncertainty.
+### §CMD_DELEGATE
+**Description**: Write a delegation REQUEST file, apply the appropriate tag, and execute the chosen delegation mode (async, blocking, or silent). The low-level primitive behind `/delegate`.
+**Trigger**: Called by the `/delegate` skill after mode selection. Not called directly by agents.
+**Reference**: `~/.claude/directives/commands/CMD_DELEGATE.md`
+
+### §CMD_PROCESS_DELEGATIONS
+**Description**: Scans session artifacts for unresolved bare `#needs-X` inline tags and invokes `/delegate` for each one. Synthesis pipeline step between walkthrough and debrief.
+**Trigger**: Called during skill synthesis phases, after `§CMD_WALK_THROUGH_RESULTS` and before `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`. Read the reference file before executing.
+**Reference**: `~/.claude/directives/commands/CMD_PROCESS_DELEGATIONS.md`
 
 ### §CMD_REPORT_LEFTOVER_WORK
 **Description**: Extracts unfinished items from session artifacts (tech debt, unresolved blocks, incomplete plan steps) and presents a concise report in chat before the next-skill menu.

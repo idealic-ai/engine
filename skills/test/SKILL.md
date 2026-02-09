@@ -11,53 +11,55 @@ Designs and writes test cases for code correctness and regression prevention.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
-### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
+### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
 **Output this block in chat with every blank filled:**
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
 
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
+[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Testing Protocol (The QA Standard)
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 3 (Strategy) and TESTING_PLAN.md. The engine's plan lives in the session directory as a reviewable artifact, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
+[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 2 (Strategy) and TESTING_PLAN.md. The engine's plan lives in the session directory as a reviewable artifact, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
 
-### Phases (for §CMD_PARSE_PARAMETERS)
-*Include this array in the `phases` field when calling `session.sh activate`:*
+### Session Parameters (for §CMD_PARSE_PARAMETERS)
+*Merge into the JSON passed to `session.sh activate`:*
 ```json
-[
-  {"major": 1, "minor": 0, "name": "Setup"},
-  {"major": 2, "minor": 0, "name": "Context Ingestion"},
-  {"major": 3, "minor": 0, "name": "Strategy"},
-  {"major": 3, "minor": 1, "name": "Agent Handoff"},
-  {"major": 4, "minor": 0, "name": "Testing Loop"},
-  {"major": 5, "minor": 0, "name": "Synthesis"}
-]
+{
+  "taskType": "TESTING",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup"},
+    {"major": 1, "minor": 0, "name": "Context Ingestion"},
+    {"major": 2, "minor": 0, "name": "Strategy"},
+    {"major": 2, "minor": 1, "name": "Agent Handoff"},
+    {"major": 3, "minor": 0, "name": "Testing Loop"},
+    {"major": 4, "minor": 0, "name": "Synthesis"}
+  ],
+  "nextSkills": ["/document", "/implement", "/fix", "/analyze", "/chores"],
+  "directives": ["TESTING.md", "PITFALLS.md"],
+  "planTemplate": "~/.claude/skills/test/assets/TEMPLATE_TESTING_PLAN.md",
+  "logTemplate": "~/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md",
+  "debriefTemplate": "~/.claude/skills/test/assets/TEMPLATE_TESTING.md",
+  "modes": {
+    "coverage": {"label": "Coverage", "description": "Systematic gap-filling prioritized by risk", "file": "~/.claude/skills/test/modes/coverage.md"},
+    "hardening": {"label": "Hardening", "description": "Adversarial edge cases and failure modes", "file": "~/.claude/skills/test/modes/hardening.md"},
+    "integration": {"label": "Integration", "description": "Component boundaries, contracts, and E2E flows", "file": "~/.claude/skills/test/modes/integration.md"},
+    "custom": {"label": "Custom", "description": "User-defined lens", "file": "~/.claude/skills/test/modes/custom.md"}
+  }
+}
 ```
-*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
 
 ---
 
-## Mode Presets
-
-Testing modes configure the agent's lens — role, interrogation topics, and walk-through config. The mode is selected in Phase 1 Step 5.1. Mode definitions live in `modes/*.md`.
-
-| Mode | Focus | When to Use |
-|------|-------|-------------|
-| **Coverage** (Default) | Systematic gap-filling prioritized by risk | Expand test coverage, identify and fill gaps |
-| **Hardening** | Adversarial edge cases and failure modes | Stress-test with boundary conditions and worst cases |
-| **Integration** | Component boundaries, contracts, and E2E flows | Verify components work correctly together |
-| **Custom** | User-defined lens | None of the above fit the situation |
-
 ---
 
-## 1. Setup Phase
+## 0. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 1: Setup phase.
-    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 1 only (Strict Bootloader — expires at Phase 2).
+    > 1. I am starting Phase 0: Setup phase.
+    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 0 only (Strict Bootloader — expires at Phase 1).
     > 3. My focus is TESTING (`§CMD_REFUSE_OFF_COURSE` applies).
     > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
     > 5. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
@@ -67,7 +69,7 @@ Testing modes configure the agent's lens — role, interrogation topics, and wal
     > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
     > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
-    **Constraint**: Do NOT read any project files (source code, docs) in Phase 1. Only load the required system templates/standards.
+    **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project map and file index)
@@ -75,6 +77,7 @@ Testing modes configure the agent's lens — role, interrogation topics, and wal
     *   `~/.claude/skills/test/assets/TEMPLATE_TESTING.md` (Template for final session debrief/report)
     *   `~/.claude/skills/test/assets/TEMPLATE_TESTING_PLAN.md` (Template for drafting the test strategy)
     *   `.claude/directives/TESTING.md` (Testing standards and quality requirements — project-level, load if exists)
+    *   `.claude/directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
 
 3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
     *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
@@ -94,18 +97,18 @@ Testing modes configure the agent's lens — role, interrogation topics, and wal
     **On "Custom"**: Read ALL 3 named mode files first (`modes/coverage.md`, `modes/hardening.md`, `modes/integration.md`) for context, then read `modes/custom.md`. The user types their framing. Parse it into role/goal/mindset. Use Coverage's topic lists as defaults.
 
     **Record**: Store the selected mode. It configures:
-    *   Phase 1 Step 6 role (from mode file)
-    *   Phase 3 interrogation topics (from mode file)
-    *   Phase 5 walk-through config (from mode file)
+    *   Phase 0 Step 6 role (from mode file)
+    *   Phase 2 interrogation topics (from mode file)
+    *   Phase 4 walk-through config (from mode file)
 
 6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file (`modes/{mode}.md`).
 
 7.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
-    *   If any files are found, add them to `contextPaths` for ingestion in Phase 2.
+    *   If any files are found, add them to `contextPaths` for ingestion in Phase 1.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
+### §CMD_VERIFY_PHASE_EXIT — Phase 0
 **Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
+> **Phase 0 proof:**
 > - COMMANDS.md loaded: `________`
 > - INVARIANTS.md loaded (shared + project): `________`
 > - TAGS.md loaded: `________`
@@ -116,45 +119,41 @@ Testing modes configure the agent's lens — role, interrogation topics, and wal
 > - Mode file loaded: `________` (path to the loaded mode file)
 > - Role assumed: `________` (quote the role name from the mode file)
 
-### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 2: Context Ingestion"** — Load project files and RAG context
-> - **"Stay in Phase 1"** — Load additional standards or resolve setup issues
+*Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
 
-## 2. Context Ingestion
+## 1. Context Ingestion
 *Load the raw materials before processing.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 2: Context Ingestion.
+> 1. I am moving to Phase 1: Context Ingestion.
 > 2. I will `§CMD_INGEST_CONTEXT_BEFORE_WORK` to ask for and load `contextPaths`.
 
 **Action**: Execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
+### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
+> **Phase 1 proof:**
 > - RAG searches executed: `________`
 > - Context paths presented: `________`
 > - User confirmed files: `________`
 > - Files loaded: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 2: Context loaded. How to proceed?"
-> - **"Proceed to Phase 3: Strategy"** — Plan test scenarios and coverage strategy
-> - **"Stay in Phase 2"** — Load more files or context
-> - **"Skip to Phase 4: Testing Loop"** — Requirements are obvious, jump straight to writing tests
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "1: Context Ingestion"
+  nextPhase: "2: Strategy"
+  prevPhase: "0: Setup"
+  custom: "Skip to Phase 3: Testing Loop | Requirements are obvious, jump straight to writing tests"
 
 ---
 
-## 3. The Strategy Phase (Planning + Interrogation)
+## 2. The Strategy Phase (Planning + Interrogation)
 *Before writing code, use the **Anti-Fragile Checklist** to generate high-value scenarios.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3: Strategy.
+> 1. I am moving to Phase 2: Strategy.
 > 2. I will use the Question Bank to brainstorm test scenarios.
 > 3. I will `§CMD_EXECUTE_INTERROGATION_PROTOCOL` to validate testing assumptions.
 > 4. I will `§CMD_LOG_TO_DETAILS` to capture the Q&A.
@@ -265,9 +264,9 @@ After interrogation completes:
     *   **Format**: `[Scenario] (Complexity: Low/High, Value: Low/High) - [Reasoning]`
 3.  **Refine**: Ask the user which to include, then update `TESTING_PLAN.md`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
+### §CMD_VERIFY_PHASE_EXIT — Phase 2
 **Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
+> **Phase 2 proof:**
 > - Interrogation depth chosen: `________`
 > - Minimum rounds completed: `________`
 > - Each round logged to DETAILS.md: `________`
@@ -282,20 +281,20 @@ Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/directives/commands/CMD_PARALL
 3.  **Menu**: Present the richer handoff menu via `AskUserQuestion`.
 
 *If the plan has no `**Depends**:` fields, fall back to the simple menu:*
-> "Phase 3: Strategy complete, plan approved. How to proceed?"
+> "Phase 2: Strategy complete, plan approved. How to proceed?"
 > - **"Launch builder agent"** — Hand off to autonomous agent for test execution
 > - **"Continue inline"** — Execute step by step in this conversation
 > - **"Revise the plan"** — Go back and edit the plan before proceeding
 
 ---
 
-## 3.1. Agent Handoff (Opt-In)
-*Only if user selected an agent option in Phase 3 transition.*
+## 2.1. Agent Handoff (Opt-In)
+*Only if user selected an agent option in Phase 2 transition.*
 
 **Single agent** (no parallel chunks or user chose "1 agent"):
 Execute `§CMD_HAND_OFF_TO_AGENT` with:
 *   `agentName`: `"builder"`
-*   `startAtPhase`: `"Phase 4: Testing Loop"`
+*   `startAtPhase`: `"Phase 3: Testing Loop"`
 *   `planOrDirective`: `[sessionDir]/TESTING_PLAN.md`
 *   `logFile`: `TESTING_LOG.md`
 *   `debriefTemplate`: `~/.claude/skills/test/assets/TEMPLATE_TESTING.md`
@@ -311,16 +310,16 @@ Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 *   `logTemplate`: `~/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md`
 *   `taskSummary`: `"Execute the testing plan: [brief description from taskSummary]"`
 
-**If "Continue inline"**: Proceed to Phase 4 as normal.
-**If "Revise the plan"**: Return to Phase 3 for revision.
+**If "Continue inline"**: Proceed to Phase 3 as normal.
+**If "Revise the plan"**: Return to Phase 2 for revision.
 
 ---
 
-## 4. The Testing Loop (Execution)
+## 3. The Testing Loop (Execution)
 *Iterate through the Plan. Obey §CMD_THINK_IN_LOG.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Testing Loop.
+> 1. I am moving to Phase 3: Testing Loop.
 > 2. I will `§CMD_USE_TODOS_TO_TRACK_PROGRESS` to manage the test execution cycle.
 > 3. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` (following `assets/TEMPLATE_TESTING_LOG.md` EXACTLY) to `§CMD_THINK_IN_LOG` continuously.
 > 4. I will not write the debrief until the step is done (`§CMD_REFUSE_OFF_COURSE` applies).
@@ -362,29 +361,29 @@ Before calling any tool, ask yourself:
 3.  **Log**: Update `TESTING_LOG.md` with your status.
 4.  **Tick**: Mark `[x]` in `TESTING_PLAN.md`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4
+### §CMD_VERIFY_PHASE_EXIT — Phase 3
 **Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
+> **Phase 3 proof:**
 > - All plan steps marked [x] (or deferred with reasoning): `________`
 > - Tests pass: `________`
 > - TESTING_LOG.md has entries for each step: `________`
 > - No unresolved stuck entries: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 4: Testing loop complete. How to proceed?"
-> - **"Proceed to Phase 5: Synthesis"** — Generate debrief and close session
-> - **"Stay in Phase 4"** — More tests needed, continue testing
-> - **"Run full test suite first"** — Run all tests before closing to verify no regressions
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "3: Testing Loop"
+  nextPhase: "4: Synthesis"
+  prevPhase: "2: Strategy"
+  custom: "Run full test suite first | Run all tests before closing to verify no regressions"
 
 ---
 
-## 5. The Synthesis (Debrief)
+## 4. The Synthesis (Debrief)
 *When the session is done.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 5: Synthesis.
+> 1. I am moving to Phase 4: Synthesis.
 > 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
 > 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_TESTING.md` EXACTLY) to summarize findings.
 > 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
@@ -410,9 +409,9 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 **Step 4**: Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the loaded mode file (`modes/{mode}.md`).
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 5 (PROOF OF WORK)
+### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
-> **Phase 5 proof:**
+> **Phase 4 proof:**
 > - TESTING.md written: `________` (real file path)
 > - Tags line: `________`
 > - Artifacts listed: `________`
@@ -422,18 +421,6 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 **Step 6**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
-
-### Next Skill Options
-*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
-
-> "Tests complete. What's next?"
-
-| Option | Label | Description |
-|--------|-------|-------------|
-| 1 | `/document` (Recommended) | Tests pass — document the changes |
-| 2 | `/implement` | Tests revealed missing features — build them |
-| 3 | `/debug` | Tests found bugs — investigate |
-| 4 | `/analyze` | Test results need deeper analysis |
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 

@@ -35,9 +35,9 @@
 # Related:
 #   Docs: (~/.claude/docs/)
 #     SESSION_LIFECYCLE.md — .state.json toolCallsByTranscript field
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/standards/INVARIANTS.md)
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet notification graceful degradation
-#   Commands: (~/.claude/directives/COMMANDS.md)
+#   Commands: (~/.claude/standards/COMMANDS.md)
 #     §CMD_LOG_BETWEEN_TOOL_USES — This hook enforces it
 #     §CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE — Logging mechanism
 
@@ -67,12 +67,19 @@ if [ -n "$TRANSCRIPT_PATH" ]; then
 fi
 
 # Whitelist: log.sh and session.sh calls always allowed without counting
+# Matches both full path (~/.claude/scripts/log.sh) and engine CLI (engine log ...)
 if [ "$TOOL_NAME" = "Bash" ]; then
   BASH_CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
-  if [[ "$BASH_CMD" == *"/.claude/scripts/log.sh"* ]] || \
-     [[ "$BASH_CMD" == *"/.claude/scripts/session.sh"* ]]; then
-    # Reset THIS agent's counter on log.sh calls (session.sh just passes through)
-    if [[ "$BASH_CMD" == *"/.claude/scripts/log.sh"* ]]; then
+  local is_log=false is_session=false
+  if [[ "$BASH_CMD" == *"/.claude/scripts/log.sh"* ]] || [[ "$BASH_CMD" =~ ^engine[[:space:]]+log[[:space:]] ]]; then
+    is_log=true
+  fi
+  if [[ "$BASH_CMD" == *"/.claude/scripts/session.sh"* ]] || [[ "$BASH_CMD" =~ ^engine[[:space:]]+session[[:space:]] ]]; then
+    is_session=true
+  fi
+  if [ "$is_log" = true ] || [ "$is_session" = true ]; then
+    # Reset THIS agent's counter on log calls (session calls just pass through)
+    if [ "$is_log" = true ]; then
       session_dir=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
       if [ -n "$session_dir" ] && [ -f "$session_dir/.state.json" ]; then
         jq --arg key "$TRANSCRIPT_KEY" \

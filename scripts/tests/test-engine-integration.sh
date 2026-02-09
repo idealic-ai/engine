@@ -11,23 +11,10 @@
 # GDrive path so EMAIL auto-detection works, create fake engine trees.
 # ============================================================================
 set -uo pipefail
+source "$(dirname "$0")/test-helpers.sh"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ENGINE_DIR="$SCRIPT_DIR/.."
-
-# ---- Framework ----
-PASS=0
-FAIL=0
-
-pass() { echo -e "\033[32mPASS\033[0m: $1"; PASS=$((PASS + 1)); }
-fail() { echo -e "\033[31mFAIL\033[0m: $1"; echo "  Expected: $2"; echo "  Actual:   $3"; FAIL=$((FAIL + 1)); }
-
-assert_eq() { [ "$1" = "$2" ] && pass "$3" || fail "$3" "$1" "$2"; }
-assert_contains() { echo "$2" | grep -q "$1" && pass "$3" || fail "$3" "contains '$1'" "$2"; }
-assert_file_exists() { [ -f "$1" ] && pass "$2" || fail "$2" "file exists: $1" "missing"; }
-assert_dir_exists() { [ -d "$1" ] && pass "$2" || fail "$2" "dir exists: $1" "missing"; }
-assert_symlink() { [ -L "$1" ] && pass "$2" || fail "$2" "symlink: $1" "not a symlink"; }
-assert_not_symlink() { [ ! -L "$1" ] && pass "$2" || fail "$2" "not a symlink: $1" "is a symlink"; }
 
 # ---- Sandbox Setup ----
 REAL_HOME="$HOME"
@@ -51,7 +38,7 @@ create_sandbox() {
   cp "$ENGINE_DIR/setup-lib.sh" "$GDRIVE_BASE/engine/scripts/setup-lib.sh" 2>/dev/null || true
   cp "$ENGINE_DIR/setup-migrations.sh" "$GDRIVE_BASE/engine/scripts/setup-migrations.sh" 2>/dev/null || true
 
-  # Wait — engine.sh sources from SCRIPT_DIR, so we need the scripts dir
+  # Wait -- engine.sh sources from SCRIPT_DIR, so we need the scripts dir
   mkdir -p "$GDRIVE_BASE/engine/scripts"
   cp "$ENGINE_DIR/engine.sh" "$GDRIVE_BASE/engine/scripts/"
   cp "$ENGINE_DIR/setup-lib.sh" "$GDRIVE_BASE/engine/scripts/"
@@ -60,7 +47,7 @@ create_sandbox() {
 
   # Create engine content in the GDrive engine
   mkdir -p "$GDRIVE_BASE/engine/commands"
-  mkdir -p "$GDRIVE_BASE/engine/standards"
+  mkdir -p "$GDRIVE_BASE/engine/directives"
   mkdir -p "$GDRIVE_BASE/engine/agents"
   mkdir -p "$GDRIVE_BASE/engine/scripts"
   mkdir -p "$GDRIVE_BASE/engine/hooks"
@@ -125,7 +112,7 @@ echo "=== Source Integration ==="
 
 create_sandbox
 echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
-# Use 'status' subcommand — it's read-only and exercises source + dispatch
+# Use 'status' subcommand -- it's read-only and exercises source + dispatch
 OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" status 2>&1 || true)
 # The key is: it should NOT fail with "source: file not found" errors
 if echo "$OUT" | grep -qi "source.*not found\|No such file"; then
@@ -203,11 +190,11 @@ echo "=== Normal project setup flow ==="
 
 create_sandbox
 echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
-OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" project 2>&1)
+OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup 2>&1)
 
 # Engine symlinks should be created (using lib's setup_engine_symlinks)
 assert_symlink "$HOME/.claude/commands" "FLOW-01: engine commands symlink"
-assert_symlink "$HOME/.claude/standards" "FLOW-02: engine standards symlink"
+assert_symlink "$HOME/.claude/directives" "FLOW-02: engine directives symlink"
 
 # Per-file symlinks for scripts/hooks (from lib's link_files_if_needed)
 assert_dir_exists "$HOME/.claude/scripts" "FLOW-03: scripts dir exists"
@@ -230,8 +217,8 @@ else
   fi
 fi
 
-# Project standards stub
-assert_dir_exists "$PROJECT_DIR/.claude/standards" "FLOW-08: project standards dir created"
+# Project directives stub
+assert_dir_exists "$PROJECT_DIR/.claude/directives" "FLOW-08: project directives dir created"
 destroy_sandbox
 
 # ============================================================================
@@ -245,7 +232,7 @@ echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
 
 # Create a pre-migration state: whole-dir symlinks that migration_001 should convert
 # But since this is a fresh setup, migrations should run and record to state file
-OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" project 2>&1)
+OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup 2>&1)
 
 # The migration state file should exist after setup runs
 MIGRATION_STATE="$HOME/.claude/engine/.migrations"
@@ -272,8 +259,8 @@ else
   fail "MIG-03: migration 001 recorded" "present" "N/A"
 fi
 
-# Run setup again — migrations should be idempotent (all up to date)
-OUT2=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" project 2>&1)
+# Run setup again -- migrations should be idempotent (all up to date)
+OUT2=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup 2>&1)
 assert_contains "up to date" "$OUT2" "MIG-04: second run reports migrations up to date"
 destroy_sandbox
 
@@ -295,7 +282,7 @@ echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
 mkdir -p "$HOME/.claude/commands"
 echo "local file" > "$HOME/.claude/commands/test.md"
 
-# Run setup — should NOT hang waiting for input (lib returns 2 for real dirs)
+# Run setup -- should NOT hang waiting for input (lib returns 2 for real dirs)
 OUT=$(cd "$PROJECT_DIR" && timeout 10 bash "$ENGINE_SH" local 2>&1)
 RC=$?
 
@@ -361,7 +348,7 @@ else
 fi
 destroy_sandbox
 
-# DEPLOY-02: Deploy without GDrive accessible → error
+# DEPLOY-02: Deploy without GDrive accessible -> error
 create_sandbox
 echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
 
@@ -385,10 +372,10 @@ destroy_sandbox
 echo ""
 echo "=== push subcommand (Git) ==="
 
-# PUSH-01: push with .git present → attempts git push
+# PUSH-01: push with .git present -> attempts git push
 create_sandbox
 echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
-# Sandbox already has .git from create_sandbox — no extra init needed
+# Sandbox already has .git from create_sandbox -- no extra init needed
 
 OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" push 2>&1 || true)
 # Should reference git push operations (will fail at push since no remote, but shows intent)
@@ -399,7 +386,7 @@ else
 fi
 destroy_sandbox
 
-# PUSH-02: push without .git → error message mentioning engine.sh local
+# PUSH-02: push without .git -> error message mentioning engine.sh local
 create_sandbox
 echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
 rm -rf "$FAKE_LOCAL_ENGINE/.git"
@@ -415,10 +402,10 @@ destroy_sandbox
 echo ""
 echo "=== pull subcommand (Git) ==="
 
-# PULL-01: pull with .git present → attempts git pull
+# PULL-01: pull with .git present -> attempts git pull
 create_sandbox
 echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
-# Sandbox already has .git from create_sandbox — no extra init needed
+# Sandbox already has .git from create_sandbox -- no extra init needed
 
 OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" pull 2>&1 || true)
 if echo "$OUT" | grep -qi "pull\|origin\|branch"; then
@@ -428,7 +415,7 @@ else
 fi
 destroy_sandbox
 
-# PULL-02: pull without .git → error message mentioning engine.sh local
+# PULL-02: pull without .git -> error message mentioning engine.sh local
 create_sandbox
 echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
 rm -rf "$FAKE_LOCAL_ENGINE/.git"
@@ -438,7 +425,7 @@ assert_contains "ERROR" "$OUT" "PULL-02a: pull without .git shows error"
 assert_contains "local" "$OUT" "PULL-02b: pull without .git mentions engine.sh local"
 destroy_sandbox
 
-# PULL-03: pull without local engine → error
+# PULL-03: pull without local engine -> error
 create_sandbox
 echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
 rm -rf "$FAKE_LOCAL_ENGINE"
@@ -448,12 +435,12 @@ assert_contains "ERROR" "$OUT" "PULL-03: pull without local engine shows error"
 destroy_sandbox
 
 # ============================================================================
-# Test: engine.sh local subcommand — Git onboarding
+# Test: engine.sh local subcommand -- Git onboarding
 # ============================================================================
 echo ""
 echo "=== local subcommand (Git onboarding) ==="
 
-# LOCAL-GIT-01: local with no .git → detects and prompts for URL
+# LOCAL-GIT-01: local with no .git -> detects and prompts for URL
 create_sandbox
 echo "remote" > "$FAKE_LOCAL_ENGINE/.mode"
 # Ensure no .git dir
@@ -464,13 +451,13 @@ OUT=$(cd "$PROJECT_DIR" && echo "" | bash "$ENGINE_SH" local 2>&1)
 assert_contains "No Git repository" "$OUT" "LOCAL-GIT-01: local without .git detects missing repo"
 destroy_sandbox
 
-# LOCAL-GIT-02: local with .git already present → normal mode switch (no clone prompt)
+# LOCAL-GIT-02: local with .git already present -> normal mode switch (no clone prompt)
 create_sandbox
 echo "remote" > "$FAKE_LOCAL_ENGINE/.mode"
-# Sandbox already has .git from create_sandbox — no extra init needed
+# Sandbox already has .git from create_sandbox -- no extra init needed
 
 OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" local 2>&1)
-# Should NOT mention git setup — just do normal mode switch
+# Should NOT mention git setup -- just do normal mode switch
 if echo "$OUT" | grep -q "No Git repository"; then
   fail "LOCAL-GIT-02: local with .git skips onboarding" "no git prompt" "prompted for git"
 else
@@ -493,14 +480,14 @@ echo "=== test subcommand ==="
 mkdir -p "$(dirname "$ENGINE_SH")/tests"
 cat > "$(dirname "$ENGINE_SH")/tests/run-all.sh" << 'TESTRUNNER'
 #!/bin/bash
-echo "╔════════════════════════════════════════╗"
-echo "║     Engine Test Runner                 ║"
-echo "╚════════════════════════════════════════╝"
-echo "  ✓ mock-test (1 passed)"
+echo "========================================"
+echo "     Engine Test Runner                 "
+echo "========================================"
+echo "  mock-test (1 passed)"
 echo ""
-echo "╔════════════════════════════════════════╗"
-echo "║  ALL 1 SUITES PASSED                  ║"
-echo "╚════════════════════════════════════════╝"
+echo "========================================"
+echo "  ALL 1 SUITES PASSED                  "
+echo "========================================"
 exit 0
 TESTRUNNER
 chmod +x "$(dirname "$ENGINE_SH")/tests/run-all.sh"
@@ -520,7 +507,7 @@ destroy_sandbox
 
 create_sandbox
 # First do a project setup to create symlinks
-cd "$PROJECT_DIR" && bash "$ENGINE_SH" project >/dev/null 2>&1
+cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup >/dev/null 2>&1
 
 echo "=== uninstall subcommand ==="
 
@@ -617,9 +604,4 @@ fi
 
 destroy_sandbox
 
-# ============================================================================
-# Summary
-# ============================================================================
-echo ""
-echo "Results: $PASS passed, $FAIL failed"
-[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+exit_with_results

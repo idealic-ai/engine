@@ -5,7 +5,7 @@
 **Algorithm (File Mode — watch a specific request file)**:
 1.  **Launch**: Start the watcher in the background:
     ```bash
-    Bash("~/.claude/scripts/await-tag.sh <file> '<tag>'", run_in_background=true)
+    Bash("engine await-tag <file> '<tag>'", run_in_background=true)
     ```
     *   Example: `await-tag.sh sessions/.../RESEARCH_REQUEST_AUTH.md '#done-research'`
 2.  **Continue**: The agent keeps working on other tasks. The watcher runs silently.
@@ -14,7 +14,7 @@
 **Algorithm (Directory Mode — watch for any tag appearance)**:
 1.  **Launch**:
     ```bash
-    Bash("~/.claude/scripts/await-tag.sh --dir <path> '<tag>'", run_in_background=true)
+    Bash("engine await-tag --dir <path> '<tag>'", run_in_background=true)
     ```
     *   Example: `await-tag.sh --dir sessions/ '#done-research'`
 2.  **Continue/Receive**: Same as file mode.

@@ -41,25 +41,54 @@ Present the walk-through offer via `AskUserQuestion` (multiSelect: false):
 
 **For each item**, present via `AskUserQuestion` (multiSelect: false):
 
-1.  **Quote**: Display the finding as a blockquote — include the title and the 1-2 most important sentences from the synthesis. Keep it concise enough to decide on, not the full section.
+1.  **Context Block (2 paragraphs — MANDATORY)**: Display 2 paragraphs that let the user triage the item **without reading the debrief file**:
 
     > **[Item N / Total]**: [Title]
     >
-    > > [Quoted synthesis — 2-4 sentences max]
+    > **What this is about**: [1 paragraph — Explain the topic/area this item covers: what part of the session's work does it relate to, what was the goal or context. The user should understand *what they're being asked about* from this paragraph alone.]
+    >
+    > **The finding**: [1 paragraph — The specific content from the debrief synthesis: what happened, what was discovered, what the state is. Concrete details, not vague summaries.]
 
-2.  **Present Options**: Build from the skill's `actionMenu` configuration. Rules:
-    *   Always include **Defer** and **Dismiss** as the last two options.
-    *   Pick the 1-2 most relevant **action options** from the config for this specific item.
-    *   Maximum 4 options per `AskUserQuestion` (user can always type "Other").
-    *   If the config has more than 2 action options, choose the 2 most relevant for this item based on its content.
+    **Anti-pattern**: Do NOT present an item as just a title + 1 line of debrief text. The user is NOT reading the debrief file — these 2 paragraphs ARE their view of the content.
+
+2.  **Present Options**: Build dynamically from the `§CMD_DISCOVER_DELEGATION_TARGETS` table (loaded at activate). Rules:
+    *   Pick the **2 most relevant tags** from the delegation targets table for this specific item based on its content. Use `nextSkills` from `.state.json` to bias selection — prefer tags whose skills appear in `nextSkills`.
+    *   Always include **Dismiss** as the last option.
+    *   Maximum 3 options (2 dynamic tags + Dismiss) per `AskUserQuestion` (user can always type "Other").
     *   **Descriptive labels** (per `¶INV_QUESTION_GATE_OVER_TEXT_GATE`): Option labels MUST include the `#needs-X` tag and describe the specific action for THIS item. Do NOT use generic labels like "Delegate to /implement" — instead write `"#needs-implementation: [what specifically]"`. Descriptions explain the benefit/purpose.
         *   *Example*: label=`"#needs-implementation: add rate limiting to /api/extract"`, description=`"Prevents abuse of the LLM extraction endpoint"`
 
-3.  **On Selection**:
-    *   **Action option (delegate)**: Apply the inline tag specified in the config to the relevant section in the debrief file via `§CMD_HANDLE_INLINE_TAG`. Log the decision to DETAILS.md via `§CMD_LOG_TO_DETAILS`.
-    *   **Defer**: Apply `#needs-brainstorm` inline. Log to DETAILS.md.
-    *   **Dismiss**: No tag. Log the dismissal reason to DETAILS.md.
-    *   **Other (user typed)**: Execute the user's custom instruction. Log to DETAILS.md.
+3.  **On Selection** (execute in order — do NOT skip sub-steps):
+    *   **Tag option (delegate)**:
+        1.  **Place inline tag**: Edit the debrief file to place the `#needs-X` tag inline next to the relevant item via `§CMD_HANDLE_INLINE_TAG`. This is the primary action — the Tags line is secondary.
+        2.  **Output tag proof** (fill in ALL blanks):
+            > **Tag proof [Item N]:** The tag `____` for item `____` was placed at `____` in `____`
+        3.  **Log**: Record the decision to DETAILS.md via `§CMD_LOG_TO_DETAILS`.
+    *   **Dismiss**:
+        1.  No tag placed.
+        2.  Output: **Tag proof [Item N]:** No tag — dismissed.
+        3.  Log the dismissal reason to DETAILS.md.
+    *   **Other (user typed)**: Execute the user's custom instruction. Output tag proof if a tag was placed. Log to DETAILS.md.
+
+    [!!!] If ANY blank in the tag proof is empty, you skipped the inline tag placement. Go back and place the tag before continuing.
+
+### Step 3b: Per-Group Walk-Through (Groups granularity)
+
+**For each group** (one per source section from Step 2), present via `AskUserQuestion` (multiSelect: false):
+
+1.  **Context Block (2 paragraphs — MANDATORY)**: Before the options, output 2 paragraphs in chat that let the user triage the group **without reading the debrief file**:
+
+    > **Group [N / Total]**: [Section Title]
+    >
+    > **What this covers**: [1 paragraph — Explain what aspect of the session this group represents. What was the goal, what area of the codebase was involved, what kind of work was done. The user should understand the *topic* from this paragraph alone.]
+    >
+    > **Key findings**: [1 paragraph — Summarize the specific items in this group. For each item, give its title and a 1-sentence summary. If there are 3+ items, use an inline list (e.g., "(1) ..., (2) ..., (3) ..."). The user should be able to make a triage decision from this paragraph alone.]
+
+    **Anti-pattern**: Do NOT present a group as just a title + 1 line of debrief text. The user is NOT reading the debrief file — these 2 paragraphs ARE their view of the content.
+
+2.  **Present Options**: Same rules as Step 3 (pick 2 most relevant tags from delegation targets + Dismiss), applied to the group as a whole.
+
+3.  **On Selection**: Same as Step 3 (including tag proof output), applied to all items in the group.
 
 ### Step 4: Batch Shortcuts
 
@@ -82,9 +111,19 @@ After all items are triaged (or user batched the rest):
     | 3 | [Title] | Defer | #needs-brainstorm |
     ```
 
-2.  **Update Debrief Tags Line**: If any inline tags were applied, also add them to the debrief file's `**Tags**:` line via `§CMD_TAG_FILE` so they're discoverable by `tag.sh find`.
+2.  **Inline Tag Verification**: Output a verification report listing every inline tag placed:
+    ```
+    **Inline Tag Verification:**
+    Tagged: N items | Dismissed: N items
+    1. `#needs-xxx`: [item title] ([location in debrief])
+    2. `#needs-xxx`: [item title] ([location in debrief])
+    ...
+    ```
+    [!!!] The count here MUST match the number of tag proofs output during Step 3. If it doesn't, go back and find the missing inline tags.
 
-3.  **Log**: Append a summary entry to the session log:
+3.  **Update Debrief Tags Line**: If any inline tags were applied, also add them to the debrief file's `**Tags**:` line via `§CMD_TAG_FILE` so they're discoverable by `tag.sh find`.
+
+4.  **Log**: Append a summary entry to the session log:
     ```
     Walk-through complete: N items triaged — X delegated, Y deferred, Z dismissed.
     ```
@@ -114,12 +153,15 @@ Return control to the calling skill protocol. The skill continues with its next 
 
 For each plan item, present via `AskUserQuestion` (multiSelect: true):
 
-1.  **Quote**: Display the plan step as a blockquote:
+1.  **Context Block (2 paragraphs — MANDATORY)**: Display 2 paragraphs that let the user review the step **without reading the plan file**:
 
     > **[Step N / Total]**: [Step title]
     >
-    > > [Step intent + reasoning — 2-4 sentences]
-    > > **Files**: [files listed] | **Depends**: [dependencies]
+    > **What this step does**: [1 paragraph — Explain the goal, approach, and reasoning for this step. What area of the codebase does it target, and why is this step needed at this point in the sequence.]
+    >
+    > **Scope**: [1 paragraph — Specific files to be changed, dependencies on prior steps, verification method. Concrete details so the user can assess feasibility and risk.]
+
+    **Anti-pattern**: Do NOT present a step as just a title + 1 line. The user is NOT reading the plan file — these 2 paragraphs ARE their view of the content.
 
 2.  **Present Questions**: Use the skill's `planQuestions` config (or defaults below):
     *   Default Q1: "Any concerns about this step's approach?"
@@ -137,9 +179,20 @@ For each plan item, present via `AskUserQuestion` (multiSelect: true):
     *   **Flag for revision**: Mark the step in the plan file and log the concern. The skill should address flagged items before proceeding to build.
 
 **Step 3 (Groups granularity)**:
-*   Group plan steps by their phase/section.
-*   Present one `AskUserQuestion` per phase with all steps quoted.
-*   Same options as per-item but applied to the group.
+
+Group plan steps by their phase/section. For each group, present via `AskUserQuestion` (multiSelect: true):
+
+1.  **Context Block (2 paragraphs — MANDATORY)**: Before the options, output 2 paragraphs in chat:
+
+    > **Group [N / Total]**: [Phase/Section Title]
+    >
+    > **What this covers**: [1 paragraph — Explain what this phase of the plan accomplishes, what area it targets, and why it's sequenced here. The user should understand the scope from this paragraph alone.]
+    >
+    > **Steps in this group**: [1 paragraph — List each step with its title and a 1-sentence summary of its intent. Include file and dependency info inline.]
+
+    **Anti-pattern**: Do NOT present a group as just a title + 1 line. The user is NOT reading the plan file — these 2 paragraphs ARE their view of the content.
+
+2.  **Options**: Same as per-item (Looks good / I have feedback / Flag for revision), applied to the group.
 
 **Step 4: Review Summary**:
 
@@ -166,10 +219,6 @@ Each skill provides a configuration block that customizes the walk-through. The 
   gateQuestion: "[Question offering the walk-through]"
   debriefFile: "[Filename to extract items from]"
   templateFile: "[Path to template with <!-- WALKTHROUGH --> markers]"
-  actionMenu:                      # For results mode: triage actions
-    - label: "[Action label]"
-      tag: "[#needs-xxx tag to apply]"
-      when: "[When this option is relevant]"
   planQuestions:                    # For plan mode: per-item review questions
     - "[Question template 1]"
     - "[Question template 2]"
@@ -181,131 +230,8 @@ Each skill provides a configuration block that customizes the walk-through. The 
 *   `debriefFile` is the filename (not path) — the command resolves it relative to the session directory.
 *   `templateFile` is the path to the template file containing `<!-- WALKTHROUGH RESULTS -->` or `<!-- WALKTHROUGH PLAN -->` markers. The command reads this template to discover which sections to extract from the debrief file. **Preferred over `itemSources`**.
 *   `itemSources` *(legacy, deprecated)*: lists section headings directly. Retained for backward compatibility — if `templateFile` is present, `itemSources` is ignored. If only `itemSources` is present, the old heading-matching behavior applies.
-*   `actionMenu` (results mode): defines 2-4 action options (excluding Defer and Dismiss, which are always auto-included).
+*   **Triage actions (results mode)**: Dynamically derived from `§CMD_DISCOVER_DELEGATION_TARGETS` table. No `actionMenu` configuration needed — the agent picks the 2 most relevant tags per item, biased by `nextSkills`. Dismiss is always included.
 *   `planQuestions` (plan mode): 2-3 question templates for per-item review. Use `[item]` placeholder for the item title. If omitted, defaults to generic plan review questions.
-*   Each action has a `when` hint that helps the command select the most relevant options per item.
-
----
-
-## Skill Configurations
-
-### /analyze (Results Mode)
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "ANALYSIS.md is written. Walk through findings?"
-  debriefFile: "ANALYSIS.md"
-  templateFile: "~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS.md"
-  actionMenu:
-    - label: "Delegate to /implement"
-      tag: "#needs-implementation"
-      when: "Finding is an actionable code/config change"
-    - label: "Delegate to /research"
-      tag: "#needs-research"
-      when: "Finding needs deeper investigation"
-    - label: "Delegate to /brainstorm"
-      tag: "#needs-implementation"
-      when: "Finding needs exploration of approaches before implementation"
-    - label: "Delegate to /debug"
-      tag: "#needs-implementation"
-      when: "Finding reveals a bug or regression"
-```
-
-### /implement (Results Mode)
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Implementation complete. Walk through the changes?"
-  debriefFile: "IMPLEMENTATION.md"
-  templateFile: "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md"
-  actionMenu:
-    - label: "Add test coverage"
-      tag: "#needs-implementation"
-      when: "Change lacks adequate test coverage"
-    - label: "Needs documentation"
-      tag: "#needs-documentation"
-      when: "Change affects user-facing behavior or API surface"
-    - label: "Investigate further"
-      tag: "#needs-research"
-      when: "Change introduced uncertainty or has unknown side effects"
-```
-
-### /brainstorm (Results Mode)
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Brainstorm complete. Walk through ideas?"
-  debriefFile: "BRAINSTORM.md"
-  templateFile: "~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM.md"
-  actionMenu:
-    - label: "Implement this idea"
-      tag: "#needs-implementation"
-      when: "Idea is ready to build"
-    - label: "Research feasibility"
-      tag: "#needs-research"
-      when: "Idea needs validation or deeper investigation before committing"
-    - label: "Prototype first"
-      tag: "#needs-implementation"
-      when: "Idea is promising but needs a quick proof of concept"
-```
-
-### /debug (Results Mode)
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Debug complete. Walk through findings?"
-  debriefFile: "DEBUG.md"
-  templateFile: "~/.claude/skills/debug/assets/TEMPLATE_DEBUG.md"
-  actionMenu:
-    - label: "Implement fix"
-      tag: "#needs-implementation"
-      when: "Issue has a known fix that wasn't applied in this session"
-    - label: "Add regression test"
-      tag: "#needs-implementation"
-      when: "Fix was applied but lacks a regression test"
-    - label: "Research deeper"
-      tag: "#needs-research"
-      when: "Root cause is unclear or issue may have broader implications"
-```
-
-### /implement (Plan Mode)
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "plan"
-  gateQuestion: "Plan is ready. Walk through the steps before building?"
-  debriefFile: "IMPLEMENTATION_PLAN.md"
-  templateFile: "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_PLAN.md"
-  planQuestions:
-    - "Any concerns about this step's approach or complexity?"
-    - "Should the scope change — expand, narrow, or split this step?"
-    - "Dependencies or risks I'm missing?"
-```
-
-### /document (Plan Mode)
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "plan"
-  gateQuestion: "Surgical plan ready. Walk through the operations before cutting?"
-  debriefFile: "DOCUMENTATION_PLAN.md"
-  templateFile: "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_PLAN.md"
-  planQuestions:
-    - "Is this the right scope for this operation?"
-    - "Any docs I'm missing that should also be updated?"
-    - "Concerns about this change breaking existing references?"
-```
-
-### /debug (Plan Mode)
-```
-§CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "plan"
-  gateQuestion: "Investigation plan ready. Walk through the hypotheses?"
-  debriefFile: "DEBUG_PLAN.md"
-  templateFile: "~/.claude/skills/debug/assets/TEMPLATE_DEBUG_PLAN.md"
-  planQuestions:
-    - "Does this hypothesis seem likely given what you know?"
-    - "Any other signals or logs I should check?"
-    - "Should I prioritize this step or skip it?"
-```
 
 ---
 
@@ -316,7 +242,7 @@ Each skill provides a configuration block that customizes the walk-through. The 
 *   **Batch respect**: When the user gives a batch instruction, honor it immediately. Do not force per-item triage.
 *   **Tag hygiene** (results mode): Inline tags follow `§CMD_HANDLE_INLINE_TAG` rules. File-level tags use `§CMD_TAG_FILE`.
 *   **Logging**: Every triage decision (results) or feedback comment (plan) is logged to DETAILS.md. The summary is logged to the session log.
-*   **AskUserQuestion limits**: Maximum 4 options per question. In results mode: always include Defer and Dismiss, pick 1-2 action options. In plan mode: always include "Looks good", "I have feedback", "Flag for revision".
+*   **AskUserQuestion limits**: Maximum 4 options per question. In results mode: pick 2 dynamic tags + Dismiss (3 options + Other). In plan mode: always include "Looks good", "I have feedback", "Flag for revision".
 *   **Idempotent**: If called multiple times (e.g., after continuation), re-read the source file and present unprocessed items only.
 *   **Groups collapse**: If "Groups" granularity is selected but a section has only 1 item, present it as-is (don't force grouping of a singleton).
 *   **Mode default**: If `mode` is omitted from config, default to `"results"` (backward-compatible).
@@ -358,6 +284,6 @@ If any items are flagged for revision, return to the plan for edits before proce
 *   `/implement` — Results: Review changes. Plan: Review implementation steps.
 *   `/document` — Results: Review doc updates. Plan: Review surgical plan.
 *   `/brainstorm` — Results: Convert ideas into actionable work
-*   `/debug` — Results: Track remaining issues. Plan: Review hypotheses.
+*   `/fix` — Results: Track remaining issues. Plan: Review hypotheses.
 
 **Adoption is optional**: The "None" granularity option lets users skip instantly. Adding the call adds one `AskUserQuestion` overhead for sessions where the user doesn't want a walk-through.

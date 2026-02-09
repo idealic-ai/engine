@@ -19,9 +19,9 @@
 # Related:
 #   Docs: (~/.claude/docs/)
 #     SESSION_LIFECYCLE.md — Session lifecycle, activation gate
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/standards/INVARIANTS.md)
 #     ¶INV_SKILL_PROTOCOL_MANDATORY — Skills require formal session activation
-#   Commands: (~/.claude/directives/COMMANDS.md)
+#   Commands: (~/.claude/standards/COMMANDS.md)
 #     §CMD_REQUIRE_ACTIVE_SESSION — This hook enforces it
 
 set -euo pipefail
@@ -47,7 +47,7 @@ if [ -n "$SESSION_DIR" ] && [ -f "$SESSION_DIR/.state.json" ]; then
   SESSION_NAME=$(basename "$SESSION_DIR")
 
   MESSAGE="§CMD_REQUIRE_ACTIVE_SESSION: Previous session '$SESSION_NAME' (skill: $SKILL) is completed."
-  MESSAGE="$MESSAGE\n\nBoot sequence:\n1. Read ~/.claude/directives/COMMANDS.md, ~/.claude/directives/INVARIANTS.md, and ~/.claude/directives/TAGS.md\n2. Read .claude/directives/INVARIANTS.md (project standards)\n3. Use AskUserQuestion to ask: 'Your previous session ($SESSION_NAME / $SKILL) is complete. Would you like to continue it, or start a new session with a different skill?'"
+  MESSAGE="$MESSAGE\n\nBoot sequence:\n1. Read ~/.claude/standards/COMMANDS.md, ~/.claude/standards/INVARIANTS.md, and ~/.claude/standards/TAGS.md\n2. Read .claude/standards/INVARIANTS.md (project standards)\n3. Use AskUserQuestion to ask: 'Your previous session ($SESSION_NAME / $SKILL) is complete. Would you like to continue it, or start a new session with a different skill?'"
 
   cat <<HOOKEOF
 {
@@ -61,7 +61,7 @@ fi
 
 # No session at all — inject full boot sequence
 MESSAGE="§CMD_REQUIRE_ACTIVE_SESSION: No active session. You must activate a session before doing any work."
-MESSAGE="$MESSAGE\n\nBoot sequence:\n1. Read ~/.claude/directives/COMMANDS.md, ~/.claude/directives/INVARIANTS.md, and ~/.claude/directives/TAGS.md\n2. Read .claude/directives/INVARIANTS.md (project standards)\n3. Use AskUserQuestion to ask which skill the user wants to use (e.g., /implement, /analyze, /debug, /brainstorm, /test)"
+MESSAGE="$MESSAGE\n\nBoot sequence:\n1. Read ~/.claude/standards/COMMANDS.md, ~/.claude/standards/INVARIANTS.md, and ~/.claude/standards/TAGS.md\n2. Read .claude/standards/INVARIANTS.md (project standards)\n3. Use AskUserQuestion to ask which skill the user wants to use (e.g., /implement, /analyze, /fix, /brainstorm, /test)"
 
 cat <<HOOKEOF
 {

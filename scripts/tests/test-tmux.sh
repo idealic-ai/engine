@@ -19,18 +19,12 @@
 
 # NOTE: set -uo pipefail, NOT set -e (counter increment issue per ENGINE_TESTING.md)
 set -uo pipefail
+source "$(dirname "$0")/test-helpers.sh"
 
 FLEET_SH="$HOME/.claude/scripts/fleet.sh"
 SESSION_SH="$HOME/.claude/scripts/session.sh"
 LIB_SH="$HOME/.claude/scripts/lib.sh"
 HOOK_SH="$HOME/.claude/hooks/pane-focus-style.sh"
-
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
 
 # Test isolation: unique socket name per test run
 SOCKET="test-fleet-$$"
@@ -86,45 +80,16 @@ trap cleanup EXIT
 
 # --- Helpers ---
 
-assert_eq() {
-  local expected="$1" actual="$2" msg="$3"
-  if [[ "$expected" = "$actual" ]]; then
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Expected: '$expected'"
-    echo "  Actual:   '$actual'"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_contains() {
-  local expected="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -q "$expected"; then
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Expected to contain: '$expected'"
-    echo "  Actual: '$actual'"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
+# assert_exit is unique to this file (not in test-helpers.sh)
 assert_exit() {
   local expected_code="$1" msg="$2"
   shift 2
   local actual_code=0
   "$@" >/dev/null 2>&1 || actual_code=$?
   if [[ "$expected_code" -eq "$actual_code" ]]; then
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
+    pass "$msg"
   else
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Expected exit code: $expected_code"
-    echo "  Actual exit code:   $actual_code"
-    FAIL=$((FAIL + 1))
+    fail "$msg" "exit code $expected_code" "exit code $actual_code"
   fi
 }
 
@@ -152,7 +117,7 @@ get_pane_style() {
 # Set up TMUX env vars to point at our test socket
 setup_tmux_env() {
   local socket="$1" pane="$2"
-  # TMUX format: /path/to/socket,pid,session — we need the socket path
+  # TMUX format: /path/to/socket,pid,session -- we need the socket path
   local socket_path
   socket_path=$(tmux -L "$socket" display-message -p '#{socket_path}' 2>/dev/null || echo "/tmp/tmux-$(id -u)/$socket")
   export TMUX="${socket_path},$(tmux -L "$socket" display-message -p '#{pid}' 2>/dev/null || echo '0'),0"
@@ -306,13 +271,13 @@ N05_STATE=$(get_pane_option "$NOTIFY_SOCKET" "$NOTIFY_PANE" "@pane_notify")
 assert_eq "done" "$N05_STATE" "N-05: notify-clear resets to done"
 
 # N-06: notify-check transitions unchecked->checked only
-# First: set to unchecked, call notify-check → should become checked
+# First: set to unchecked, call notify-check -> should become checked
 tmux -L "$NOTIFY_SOCKET" set-option -p -t "$NOTIFY_PANE" @pane_notify "unchecked" 2>/dev/null
 "$FLEET_SH" notify-check "$NOTIFY_PANE" 2>/dev/null || true
 N06A_STATE=$(get_pane_option "$NOTIFY_SOCKET" "$NOTIFY_PANE" "@pane_notify")
 assert_eq "checked" "$N06A_STATE" "N-06a: notify-check transitions unchecked->checked"
 
-# Second: set to working, call notify-check → should stay working
+# Second: set to working, call notify-check -> should stay working
 tmux -L "$NOTIFY_SOCKET" set-option -p -t "$NOTIFY_PANE" @pane_notify "working" 2>/dev/null
 "$FLEET_SH" notify-check "$NOTIFY_PANE" 2>/dev/null || true
 N06B_STATE=$(get_pane_option "$NOTIFY_SOCKET" "$NOTIFY_PANE" "@pane_notify")
@@ -336,14 +301,14 @@ tmux -L "$AGG_SOCKET" set-option -p -t "$AGG_PANE1" @pane_label "Agg2"
 
 setup_tmux_env "$AGG_SOCKET" "$AGG_PANE0"
 
-# W-01: All panes "done" → window "done"
+# W-01: All panes "done" -> window "done"
 tmux -L "$AGG_SOCKET" set-option -p -t "$AGG_PANE0" @pane_notify "done" 2>/dev/null
 tmux -L "$AGG_SOCKET" set-option -p -t "$AGG_PANE1" @pane_notify "done" 2>/dev/null
 "$FLEET_SH" notify done 2>/dev/null || true  # triggers update_window_notify via cmd_notify
 W01_STATE=$(get_window_option "$AGG_SOCKET" "@window_notify")
 assert_eq "done" "$W01_STATE" "W-01: All panes done -> window done"
 
-# W-02: One pane "error", one "working" → window "error"
+# W-02: One pane "error", one "working" -> window "error"
 tmux -L "$AGG_SOCKET" set-option -p -t "$AGG_PANE0" @pane_notify "error" 2>/dev/null
 tmux -L "$AGG_SOCKET" set-option -p -t "$AGG_PANE1" @pane_notify "working" 2>/dev/null
 # Trigger update by calling notify on pane0 (which will set pane0 again but also call update_window_notify)
@@ -351,14 +316,14 @@ tmux -L "$AGG_SOCKET" set-option -p -t "$AGG_PANE1" @pane_notify "working" 2>/de
 W02_STATE=$(get_window_option "$AGG_SOCKET" "@window_notify")
 assert_eq "error" "$W02_STATE" "W-02: error+working -> window error"
 
-# W-03: One pane "unchecked", one "working" → window "unchecked"
+# W-03: One pane "unchecked", one "working" -> window "unchecked"
 tmux -L "$AGG_SOCKET" set-option -p -t "$AGG_PANE0" @pane_notify "working" 2>/dev/null
 tmux -L "$AGG_SOCKET" set-option -p -t "$AGG_PANE1" @pane_notify "unchecked" 2>/dev/null
 "$FLEET_SH" notify working 2>/dev/null || true  # triggers update via pane0
 W03_STATE=$(get_window_option "$AGG_SOCKET" "@window_notify")
 assert_eq "unchecked" "$W03_STATE" "W-03: working+unchecked -> window unchecked"
 
-# W-04: One pane "working", one "checked" → window "working"
+# W-04: One pane "working", one "checked" -> window "working"
 tmux -L "$AGG_SOCKET" set-option -p -t "$AGG_PANE0" @pane_notify "checked" 2>/dev/null
 tmux -L "$AGG_SOCKET" set-option -p -t "$AGG_PANE1" @pane_notify "working" 2>/dev/null
 # Need to trigger from a pane pointing at this socket
@@ -448,7 +413,7 @@ assert_eq "working" "$SF03_STATE" "SF-03: phase transition sets @pane_notify=wor
 
 # SF-04: session.sh phase "WAITING: user input" sets @pane_notify="unchecked"
 # Note: WAITING: labels don't start with a digit, so phase enforcement rejects them.
-# Remove the phases array to disable enforcement and test the WAITING→unchecked notify path.
+# Remove the phases array to disable enforcement and test the WAITING->unchecked notify path.
 jq 'del(.phases)' "$SF_SESSION_DIR/.state.json" > "$SF_SESSION_DIR/.state.json.tmp" \
   && mv "$SF_SESSION_DIR/.state.json.tmp" "$SF_SESSION_DIR/.state.json"
 "$FAKE_HOME/.claude/scripts/session.sh" phase "$SF_SESSION_DIR" "WAITING: user input" >/dev/null 2>&1 || true
@@ -482,11 +447,11 @@ FC02_DIR_A="$TEST_DIR/sessions/fc02_session_a"
 FC02_DIR_B="$TEST_DIR/sessions/fc02_session_b"
 mkdir -p "$FC02_DIR_A" "$FC02_DIR_B"
 
-# Activate session A — it will get our current fleetPaneId
+# Activate session A -- it will get our current fleetPaneId
 "$FAKE_HOME/.claude/scripts/session.sh" activate "$FC02_DIR_A" test < /dev/null >/dev/null 2>&1 || true
 FC02A_FPANE=$(jq -r '.fleetPaneId // ""' "$FC02_DIR_A/.state.json" 2>/dev/null)
 
-# Now activate session B from the same pane — should claim the fleetPaneId
+# Now activate session B from the same pane -- should claim the fleetPaneId
 "$FAKE_HOME/.claude/scripts/session.sh" activate "$FC02_DIR_B" test < /dev/null >/dev/null 2>&1 || true
 
 # Session A should have lost its fleetPaneId
@@ -529,7 +494,7 @@ tmux -L "$NE_SOCKET" kill-server 2>/dev/null || true
 
 # NE-02: session.sh deactivate sets @pane_notify="unchecked"
 # Re-use SF session: set pane to "done" first so we can see the transition to "unchecked"
-# NOTE: We intentionally do NOT call session.sh phase "DONE" here — that would trigger
+# NOTE: We intentionally do NOT call session.sh phase "DONE" here -- that would trigger
 # fleet.sh notify unchecked as a side effect, masking whether deactivate itself notifies.
 setup_tmux_env "$SF_SOCKET" "$SF_PANE"
 "$FLEET_SH" notify done 2>/dev/null || true
@@ -538,7 +503,7 @@ setup_tmux_env "$SF_SOCKET" "$SF_PANE"
 NE02_PRE=$(get_pane_option "$SF_SOCKET" "$SF_PANE" "@pane_notify")
 assert_eq "done" "$NE02_PRE" "NE-02 pre: pane starts as done"
 
-# Deactivate — this should set @pane_notify=unchecked via its own notification path
+# Deactivate -- this should set @pane_notify=unchecked via its own notification path
 "$FAKE_HOME/.claude/scripts/session.sh" deactivate "$SF_SESSION_DIR" <<'DESC'
 Test deactivation for NE-02
 DESC
@@ -592,7 +557,7 @@ echo ""
 # =============================================
 echo "--- Concurrent Notify Stress Test ---"
 
-# CR-01: Fire concurrent notifications to 10+ panes — focus must not move
+# CR-01: Fire concurrent notifications to 10+ panes -- focus must not move
 CR_SOCKET="fleet-cr$$"
 tmux -L "$CR_SOCKET" new-session -d -s cr-test -x 200 -y 50
 
@@ -665,7 +630,7 @@ assert_eq "false" "$CR_HAS_ERRORS" \
 rm -rf "$CR_ERR_DIR"
 
 # ASSERT 4: Window-level aggregation correct after concurrent blast
-# Set the focused pane (pane 0) to "done" too — it was "working" from setup (line 614)
+# Set the focused pane (pane 0) to "done" too -- it was "working" from setup (line 614)
 # and the concurrent blast only updated panes 1-9
 setup_tmux_env "$CR_SOCKET" "$CR_FOCUS_PANE"
 "$FLEET_SH" notify done 2>/dev/null || true
@@ -703,7 +668,7 @@ NE03_STATE=$(get_pane_option "$NE_EXT_SOCKET" "$NE_EXT_PANE0" "@pane_notify")
 assert_eq "error" "$NE03_STATE" "NE-03a: Focused pane gets @pane_notify=error"
 
 NE03_STYLE=$(get_pane_style "$NE_EXT_SOCKET" "$NE_EXT_PANE0")
-# Style is NOT applied to focused pane — avoids flash/distraction while user is looking at it
+# Style is NOT applied to focused pane -- avoids flash/distraction while user is looking at it
 NE03_HAS_BG="false"
 echo "$NE03_STYLE" | grep -q "bg=" && NE03_HAS_BG="true"
 assert_eq "false" "$NE03_HAS_BG" "NE-03b: Focused pane does NOT get bg tint (skip to avoid flash)"
@@ -718,7 +683,6 @@ NE04_STATE=$(get_pane_option "$NE_EXT_SOCKET" "$NE_EXT_PANE1" "@pane_notify")
 assert_eq "error" "$NE04_STATE" "NE-04: Rapid transitions settle to last state (error)"
 
 # NE-05: Empty TMUX_PANE falls back to current pane (else branch)
-# Unset TMUX_PANE but keep TMUX pointing at our socket
 setup_tmux_env "$NE_EXT_SOCKET" "$NE_EXT_PANE0"
 tmux -L "$NE_EXT_SOCKET" select-pane -t "$NE_EXT_PANE0" 2>/dev/null
 tmux -L "$NE_EXT_SOCKET" set-option -p -t "$NE_EXT_PANE0" @pane_notify "done" 2>/dev/null
@@ -887,7 +851,7 @@ tmux -L "$GF_SOCKET" set-option -p -t "$GF_PANE1" @pane_label "GF2"
 DEAD_PANE_ID="$GF_PANE1"
 tmux -L "$GF_SOCKET" kill-pane -t "$GF_PANE1" 2>/dev/null || true
 
-# Notify targeting the dead pane — should not crash
+# Notify targeting the dead pane -- should not crash
 setup_tmux_env "$GF_SOCKET" "$DEAD_PANE_ID"
 GF01_RC=0
 "$FLEET_SH" notify error 2>/dev/null || GF01_RC=$?
@@ -913,7 +877,7 @@ tmux -L "$SS_SOCKET" set-option -p -t "$SS_PANE0" @pane_label "SS1"
 tmux -L "$SS_SOCKET" set-option -p -t "$SS_PANE1" @pane_label "SS2"
 
 # SS-01: @suppress_focus_hook is 0 after notify completes
-# Focus pane0, notify from pane1 (unfocused — triggers the suppress compound)
+# Focus pane0, notify from pane1 (unfocused -- triggers the suppress compound)
 tmux -L "$SS_SOCKET" select-pane -t "$SS_PANE0" 2>/dev/null
 setup_tmux_env "$SS_SOCKET" "$SS_PANE1"
 "$FLEET_SH" notify error 2>/dev/null || true
@@ -921,7 +885,7 @@ SS01_SUPPRESS=$(tmux -L "$SS_SOCKET" show -gqv @suppress_focus_hook 2>/dev/null 
 assert_eq "0" "$SS01_SUPPRESS" "SS-01: @suppress_focus_hook cleared after notify"
 
 # SS-02: State-check debounce skips redundant visual update
-# Set pane1 to error, then notify error again — state unchanged, visual should be skipped
+# Set pane1 to error, then notify error again -- state unchanged, visual should be skipped
 # Record the style before second notify
 tmux -L "$SS_SOCKET" select-pane -t "$SS_PANE0" 2>/dev/null
 setup_tmux_env "$SS_SOCKET" "$SS_PANE1"
@@ -930,7 +894,7 @@ SS02_STYLE_BEFORE=$(tmux -L "$SS_SOCKET" display -p -t "$SS_PANE1" '#{window-sty
 # Manually change the style to something different to detect if notify re-applies it
 tmux -L "$SS_SOCKET" select-pane -t "$SS_PANE1" -P "bg=green" 2>/dev/null
 tmux -L "$SS_SOCKET" select-pane -t "$SS_PANE0" 2>/dev/null  # restore focus
-# Now notify error again — state is still "error", so visual update should be SKIPPED
+# Now notify error again -- state is still "error", so visual update should be SKIPPED
 "$FLEET_SH" notify error 2>/dev/null || true
 SS02_STYLE_AFTER=$(tmux -L "$SS_SOCKET" display -p -t "$SS_PANE1" '#{window-style}' 2>/dev/null || echo "")
 # If debounce worked, the green style should remain (not overwritten back to error color)
@@ -953,13 +917,13 @@ sleep 0.1  # Give hook time to (not) fire
 SS03_POST_STYLE=$(tmux -L "$SS_SOCKET" display -p -t "$SS_PANE0" '#{window-style}' 2>/dev/null || echo "")
 # Clear suppress to avoid leaving it stuck
 tmux -L "$SS_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
-# pane0 was the "last focused" — if hook ran, it would have tinted pane0. If suppressed, pane0 is unchanged.
+# pane0 was the "last focused" -- if hook ran, it would have tinted pane0. If suppressed, pane0 is unchanged.
 # We can't directly assert the hook didn't run (it's async), but we verify suppress flag behavior
 assert_eq "0" "$(tmux -L "$SS_SOCKET" show -gqv @suppress_focus_hook 2>/dev/null || echo "")" \
   "SS-03: @suppress_focus_hook can be set and cleared"
 
 # SS-04: Notify with state change applies visual update
-# Reset state, then notify with a NEW state — should apply visual
+# Reset state, then notify with a NEW state -- should apply visual
 tmux -L "$SS_SOCKET" set-option -p -t "$SS_PANE1" @pane_notify "done" 2>/dev/null
 tmux -L "$SS_SOCKET" select-pane -t "$SS_PANE0" 2>/dev/null
 setup_tmux_env "$SS_SOCKET" "$SS_PANE1"
@@ -999,7 +963,7 @@ tmux -L "$HK_SOCKET" set -g @suppress_focus_hook "1" 2>/dev/null
 tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" 2>/dev/null
 tmux -L "$HK_SOCKET" set -g @last_focused_pane "$HK_PANE1" 2>/dev/null
 tmux -L "$HK_SOCKET" set-option -p -t "$HK_PANE1" @pane_notify "error" 2>/dev/null
-# Set pane1 to a known style — if hook fires despite suppress, it would change it
+# Set pane1 to a known style -- if hook fires despite suppress, it would change it
 tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE1" -P "bg=purple" 2>/dev/null
 tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" 2>/dev/null
 run_hook "$HK_SOCKET"
@@ -1058,7 +1022,7 @@ tmux -L "$HK_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
 tmux -L "$HK_SOCKET" set -g @last_focused_pane "$HK_PANE1" 2>/dev/null
 tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" 2>/dev/null
 tmux -L "$HK_SOCKET" set-option -p -t "$HK_PANE1" @pane_notify "error" 2>/dev/null
-# Pre-set pane1 style to exact target tint — hook should skip it
+# Pre-set pane1 style to exact target tint -- hook should skip it
 tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE1" -P "bg=#3d2020" 2>/dev/null
 tmux -L "$HK_SOCKET" select-pane -t "$HK_PANE0" 2>/dev/null
 run_hook "$HK_SOCKET"
@@ -1111,7 +1075,7 @@ SE_ERR_DIR=$(mktemp -d)
 ) &
 SE_PID1=$!
 (
-  # Need pane0 unfocused for style to apply — but pane0 IS focused.
+  # Need pane0 unfocused for style to apply -- but pane0 IS focused.
   # We'll notify from pane0 (focused path) which skips style but tests flag behavior
   setup_tmux_env "$SE_SOCKET" "$SE_PANE0"
   "$FLEET_SH" notify working 2>"$SE_ERR_DIR/err-0.txt" || true
@@ -1171,7 +1135,7 @@ tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" 2>/dev/null
 tmux -L "$AC_SOCKET" set-option -p -t "$AC_PANE1" @pane_notify "error" 2>/dev/null
 tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE1" -P "bg=cyan" 2>/dev/null
 tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" 2>/dev/null
-# Invoke hook directly — should exit due to guard
+# Invoke hook directly -- should exit due to guard
 AC_SP=$(tmux -L "$AC_SOCKET" display-message -p '#{socket_path}' 2>/dev/null || echo "/tmp/tmux-$(id -u)/$AC_SOCKET")
 TMUX="${AC_SP},$(tmux -L "$AC_SOCKET" display-message -p '#{pid}' 2>/dev/null || echo '0'),0" \
   bash "$ORIGINAL_HOME/.claude/hooks/pane-focus-style.sh" 2>/dev/null || true
@@ -1186,7 +1150,7 @@ tmux -L "$AC_SOCKET" set -g @suppress_focus_hook "0" 2>/dev/null
 tmux -L "$AC_SOCKET" set -g @last_focused_pane "" 2>/dev/null
 tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" 2>/dev/null
 tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" -P "bg=yellow" 2>/dev/null
-# Invoke hook — should skip LAST tinting (no LAST), set CURR to black
+# Invoke hook -- should skip LAST tinting (no LAST), set CURR to black
 TMUX="${AC_SP},$(tmux -L "$AC_SOCKET" display-message -p '#{pid}' 2>/dev/null || echo '0'),0" \
   bash "$ORIGINAL_HOME/.claude/hooks/pane-focus-style.sh" 2>/dev/null || true
 sleep 0.1
@@ -1196,7 +1160,7 @@ assert_contains "bg=black" "$AC02_CURR" "AC-02: Hook handles missing @last_focus
 # AC-03: Fleet.sh notify applies correct bg color for all 5 states on unfocused pane
 tmux -L "$AC_SOCKET" select-pane -t "$AC_PANE0" 2>/dev/null  # focus pane0
 setup_tmux_env "$AC_SOCKET" "$AC_PANE1"
-# Note: no declare -A (macOS bash 3.x compat) — reuse hk_expected_color helper
+# Note: no declare -A (macOS bash 3.x compat) -- reuse hk_expected_color helper
 AC03_ALL_CORRECT=true
 for ac_state in error unchecked working checked done; do
   # Reset pane state to force a new state each time
@@ -1206,13 +1170,11 @@ for ac_state in error unchecked working checked done; do
   AC03_EXPECTED=$(hk_expected_color "$ac_state")
   if ! echo "$AC03_STYLE" | grep -q "$AC03_EXPECTED"; then
     AC03_ALL_CORRECT=false
-    echo -e "${RED}FAIL${NC}: AC-03: fleet.sh $ac_state should set $AC03_EXPECTED, got $AC03_STYLE"
-    FAIL=$((FAIL + 1))
+    fail "AC-03: fleet.sh $ac_state should set $AC03_EXPECTED" "$AC03_EXPECTED" "$AC03_STYLE"
   fi
 done
 if [[ "$AC03_ALL_CORRECT" == "true" ]]; then
-  echo -e "${GREEN}PASS${NC}: AC-03: Fleet.sh notify applies correct bg color for all 5 states"
-  PASS=$((PASS + 1))
+  pass "AC-03: Fleet.sh notify applies correct bg color for all 5 states"
 fi
 
 # AC-04: Hook with CURR==LAST (same pane re-focused) is a no-op for LAST tinting
@@ -1258,9 +1220,4 @@ tmux -L "$NOTIFY_SOCKET" kill-server 2>/dev/null || true
 # Restore HOME
 export HOME="$ORIGINAL_HOME"
 
-# ============================================
-echo "======================================"
-echo -e "Results: ${GREEN}$PASS passed${NC}, ${RED}$FAIL failed${NC}"
-echo "======================================"
-
-[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+exit_with_results

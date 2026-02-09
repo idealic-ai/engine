@@ -11,23 +11,43 @@ Executes routine maintenance and cleanup tasks from a structured task queue.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
-### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
+### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
 **Output this block in chat with every blank filled:**
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
 
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
+[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Adhoc Protocol (The Utility Player's Code)
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases. The engine's artifacts live in the session directory as reviewable files, not in transient tool state. Use THIS protocol's phases, not the IDE's.
 
-## 1. Setup Phase
+### Session Parameters (for §CMD_PARSE_PARAMETERS)
+*Merge into the JSON passed to `session.sh activate`:*
+```json
+{
+  "taskType": "ADHOC",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup"},
+    {"major": 1, "minor": 0, "name": "Context Ingestion"},
+    {"major": 2, "minor": 0, "name": "The Task Loop"},
+    {"major": 3, "minor": 0, "name": "Session Close"}
+  ],
+  "nextSkills": ["/chores", "/implement", "/review", "/document"],
+  "directives": [],
+  "logTemplate": "~/.claude/skills/chores/assets/TEMPLATE_ADHOC_LOG.md",
+  "debriefTemplate": "~/.claude/skills/chores/assets/TEMPLATE_ADHOC.md",
+  "requestTemplate": "~/.claude/skills/chores/assets/TEMPLATE_ADHOC_REQUEST.md",
+  "responseTemplate": "~/.claude/skills/chores/assets/TEMPLATE_ADHOC_RESPONSE.md"
+}
+```
+
+## 0. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 1: Setup phase.
+    > 1. I am starting Phase 0: Setup phase.
     > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` immediately (Strict Bootloader).
     > 3. My focus is ADHOC (`§CMD_REFUSE_OFF_COURSE` applies).
     > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
@@ -40,7 +60,7 @@ Executes routine maintenance and cleanup tasks from a structured task queue.
     >    **Mindset**: "Get in, fix it, log it, next." Each task is self-contained. Don't let one bleed into another.
     > 8. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
-    **Constraint**: Do NOT read any project files (source code, docs) in Phase 1. Only load the required system templates/standards.
+    **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project map and file index)
@@ -56,55 +76,52 @@ Executes routine maintenance and cleanup tasks from a structured task queue.
 5.  **Scope**: Understand the [Topic] and [Context Area]. This session will handle multiple small tasks within this area.
 
 6.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
-    *   If any files are found, add them to `contextPaths` for ingestion in Phase 2.
+    *   If any files are found, add them to `contextPaths` for ingestion in Phase 1.
     *   *Why?* To ensure task execution includes the most recent intents and behavior changes.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
+### §CMD_VERIFY_PHASE_EXIT — Phase 0
 **Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
+> **Phase 0 proof:**
 > - Role: `________`
 > - Session dir: `________`
 > - Templates loaded: `________`, `________`
 > - Parameters parsed: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 2: Context Ingestion"** — Load project files and shared context
-> - **"Stay in Phase 1"** — Load additional standards or resolve setup issues
+*Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
 
-## 2. Context Ingestion
+## 1. Context Ingestion
 *Load the shared context that all tasks in this session will operate within.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 2: Context Ingestion.
+> 1. I am moving to Phase 1: Context Ingestion.
 > 2. I will `§CMD_INGEST_CONTEXT_BEFORE_WORK` to ask for and load `contextPaths`.
 
 **Action**: Execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
+### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
+> **Phase 1 proof:**
 > - RAG session-search: `________ results` or `unavailable`
 > - RAG doc-search: `________ results` or `unavailable`
 > - Files loaded: `________ files`
 > - User confirmed: `yes / no`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 2: Context loaded. How to proceed?"
-> - **"Proceed to Phase 3: Task Loop"** — Ready to receive tasks
-> - **"Stay in Phase 2"** — Load more files or context
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "1: Context Ingestion"
+  nextPhase: "2: The Task Loop"
+  prevPhase: "0: Setup"
 
 ---
 
-## 3. The Task Loop (Core Cycle)
+## 2. The Task Loop (Core Cycle)
 *The heart of ADHOC: receive task, clarify if needed, execute, log, repeat.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3: Task Loop.
+> 1. I am moving to Phase 2: Task Loop.
 > 2. I will process tasks one at a time in a receive → clarify → execute → log cycle.
 > 3. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` (following `assets/TEMPLATE_ADHOC_LOG.md` EXACTLY) to `§CMD_THINK_IN_LOG`.
 > 4. Each task is self-contained (`§CMD_REFUSE_OFF_COURSE` applies).
@@ -191,25 +208,25 @@ Before calling any tool, ask yourself:
 4.  **Quick Clarification, Not Interrogation**: 1-3 questions max per task. Get unblocked and move on.
 5.  **User Drives the Queue**: The agent never decides what to work on next.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
+### §CMD_VERIFY_PHASE_EXIT — Phase 2
 **Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
+> **Phase 2 proof:**
 > - Tasks processed: `________`
 > - Each task logged: `________`
 > - Side discoveries: `________`
 > - User exit signal: `________`
 
 ### Phase Transition
-*Phase 3 does not use a standard transition question. Instead, the user signals completion by saying "done", "close", "wrap up", or similar. When the user signals completion, proceed to Phase 4.*
+*Phase 2 does not use a standard transition question. Instead, the user signals completion by saying "done", "close", "wrap up", or similar. When the user signals completion, proceed to Phase 3.*
 
 ---
 
-## 4. Session Close (Debrief)
+## 3. Session Close (Debrief)
 *When the user says "done", "close", "wrap up", or similar.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Session Close.
+> 1. I am moving to Phase 3: Session Close.
 > 2. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_ADHOC.md` EXACTLY) to summarize all tasks.
 > 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
 > 4. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
@@ -239,21 +256,11 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   gateQuestion: "Chores complete. Walk through completed tasks and side discoveries?"
   debriefFile: "ADHOC.md"
   templateFile: "~/.claude/skills/chores/assets/TEMPLATE_ADHOC.md"
-  actionMenu:
-    - label: "Needs full implementation"
-      tag: "#needs-implementation"
-      when: "A task was deferred because it was too big for chores"
-    - label: "Needs investigation"
-      tag: "#needs-research"
-      when: "A side discovery warrants deeper analysis"
-    - label: "Needs documentation"
-      tag: "#needs-documentation"
-      when: "Changes made need to be reflected in docs"
 ```
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
+### §CMD_VERIFY_PHASE_EXIT — Phase 3 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
+> **Phase 3 proof:**
 > - ADHOC.md: `________` (real file path)
 > - Tags: `________`
 > - Artifacts listed: `________`
@@ -263,26 +270,14 @@ If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 **Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
 
-### Next Skill Options
-*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
-
-> "Chores complete. What's next? (Type a /skill name to invoke it, or describe new work to scope it)"
-
-| Option | Label | Description |
-|--------|-------|-------------|
-| 1 | `/chores` (Recommended) | More tasks in the queue — keep going |
-| 2 | `/implement` | A task was too big for chores — implement it properly |
-| 3 | `/review` | Review recent session work for quality |
-| 4 | `/document` | Update documentation to reflect changes |
-
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 
 ---
 
 ## Rules of Engagement
 *   **Lightweight Over Rigorous**: This is NOT `/implement`. No TDD cycle, no 3-round interrogation, no formal plan. Just focused execution.
-*   **Context is Shared**: Load context once in Phase 2. All tasks operate within that context. If a task needs files outside the loaded context, load them on demand.
+*   **Context is Shared**: Load context once in Phase 1. All tasks operate within that context. If a task needs files outside the loaded context, load them on demand.
 *   **Token Thrift**: Group file reads. Don't re-read files already in context. Use `§CMD_AVOID_WASTING_TOKENS`.
 *   **Blind Write**: Use `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` for logging.
-*   **Escalation Path**: If a task is too big for adhoc, recommend `/implement` or `/debug`. Don't force it.
+*   **Escalation Path**: If a task is too big for adhoc, recommend `/implement` or `/fix`. Don't force it.
 *   **The Log is the Source of Truth**: Every task must leave a trace in the log, even if it was trivial.

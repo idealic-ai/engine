@@ -11,42 +11,10 @@
 #   7. Migration: old .agent.json auto-renamed to .state.json on activate
 
 set -euo pipefail
+source "$(dirname "$0")/test-helpers.sh"
 
 SESSION_SH="$HOME/.claude/scripts/session.sh"
 TEST_DIR="/tmp/test-completed-skills-$$"
-PASS=0
-FAIL=0
-
-# Colors
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-
-assert() {
-  local label="$1"
-  local expected="$2"
-  local actual="$3"
-  if [ "$expected" = "$actual" ]; then
-    echo -e "${GREEN}PASS${NC}: $label"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $label (expected='$expected', actual='$actual')"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_contains() {
-  local label="$1"
-  local expected="$2"
-  local actual="$3"
-  if echo "$actual" | grep -q "$expected"; then
-    echo -e "${GREEN}PASS${NC}: $label"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $label (expected to contain '$expected', got='$actual')"
-    FAIL=$((FAIL + 1))
-  fi
-}
 
 cleanup() {
   rm -rf "$TEST_DIR"
@@ -65,19 +33,19 @@ echo "=== Test 1: Activate → deactivate → completedSkills contains skill ===
 Test deactivation for completedSkills
 EOF
 COMPLETED=$(jq -r '.completedSkills | join(",")' "$TEST_DIR/sessions/test_session/.state.json" 2>/dev/null)
-assert "completedSkills contains implement" "implement" "$COMPLETED"
+assert_eq "implement" "$COMPLETED" "completedSkills contains implement"
 
 echo ""
 echo "=== Test 2: Re-activate same skill → rejected ==="
 OUTPUT=$("$SESSION_SH" activate "$TEST_DIR/sessions/test_session" implement < /dev/null 2>&1 || true)
 EXIT_CODE=$?
 # The activate should fail — check error message
-assert_contains "Rejected with error message" "already completed" "$OUTPUT"
+assert_contains "already completed" "$OUTPUT" "Rejected with error message"
 
 echo ""
 echo "=== Test 3: Re-activate same skill with --user-approved → succeeds ==="
 OUTPUT=$("$SESSION_SH" activate "$TEST_DIR/sessions/test_session" implement --user-approved "User said: 'yes, continue implement'" < /dev/null 2>&1)
-assert_contains "Approved re-activation" "re-activation approved" "$OUTPUT"
+assert_contains "re-activation approved" "$OUTPUT" "Approved re-activation"
 
 echo ""
 echo "=== Test 4: Activate different skill → succeeds (multi-modal) ==="
@@ -87,14 +55,12 @@ Test second deactivation
 EOF
 # Now activate a DIFFERENT skill — should succeed without --user-approved
 OUTPUT=$("$SESSION_SH" activate "$TEST_DIR/sessions/test_session" analyze < /dev/null 2>&1)
-assert_contains "Different skill accepted" "Session" "$OUTPUT"
+assert_contains "Session" "$OUTPUT" "Different skill accepted"
 # Should NOT contain "already completed" error
 if echo "$OUTPUT" | grep -q "already completed"; then
-  echo -e "${RED}FAIL${NC}: Different skill should not be rejected"
-  FAIL=$((FAIL + 1))
+  fail "Different skill should not be rejected"
 else
-  echo -e "${GREEN}PASS${NC}: Different skill not rejected"
-  PASS=$((PASS + 1))
+  pass "Different skill not rejected"
 fi
 
 echo ""
@@ -105,24 +71,24 @@ EOF
 COMPLETED=$(jq -r '.completedSkills | join(",")' "$TEST_DIR/sessions/test_session/.state.json" 2>/dev/null)
 # Should have implement,analyze (no duplicates)
 IMPL_COUNT=$(jq '[.completedSkills[] | select(. == "implement")] | length' "$TEST_DIR/sessions/test_session/.state.json")
-assert "implement appears once" "1" "$IMPL_COUNT"
-assert_contains "completedSkills has both skills" "analyze" "$COMPLETED"
+assert_eq "1" "$IMPL_COUNT" "implement appears once"
+assert_contains "analyze" "$COMPLETED" "completedSkills has both skills"
 
 echo ""
 echo "=== Test 6: .state.json filename used ==="
-assert "state.json exists" "true" "$([ -f "$TEST_DIR/sessions/test_session/.state.json" ] && echo true || echo false)"
-assert "agent.json does NOT exist" "false" "$([ -f "$TEST_DIR/sessions/test_session/.agent.json" ] && echo true || echo false)"
+assert_eq "true" "$([ -f "$TEST_DIR/sessions/test_session/.state.json" ] && echo true || echo false)" "state.json exists"
+assert_eq "false" "$([ -f "$TEST_DIR/sessions/test_session/.agent.json" ] && echo true || echo false)" "agent.json does NOT exist"
 
 echo ""
 echo "=== Test 7: Migration — old .agent.json auto-renamed ==="
 # Create a fresh session with an old .agent.json file
 mkdir -p "$TEST_DIR/sessions/migrate_test"
 echo '{"pid": 99999, "skill": "test", "lifecycle": "completed"}' > "$TEST_DIR/sessions/migrate_test/.agent.json"
-assert "Old .agent.json exists before migrate" "true" "$([ -f "$TEST_DIR/sessions/migrate_test/.agent.json" ] && echo true || echo false)"
+assert_eq "true" "$([ -f "$TEST_DIR/sessions/migrate_test/.agent.json" ] && echo true || echo false)" "Old .agent.json exists before migrate"
 OUTPUT=$("$SESSION_SH" activate "$TEST_DIR/sessions/migrate_test" debug < /dev/null 2>&1)
-assert_contains "Migration message" "Migrated" "$OUTPUT"
-assert "After migration: .state.json exists" "true" "$([ -f "$TEST_DIR/sessions/migrate_test/.state.json" ] && echo true || echo false)"
-assert "After migration: .agent.json gone" "false" "$([ -f "$TEST_DIR/sessions/migrate_test/.agent.json" ] && echo true || echo false)"
+assert_contains "Migrated" "$OUTPUT" "Migration message"
+assert_eq "true" "$([ -f "$TEST_DIR/sessions/migrate_test/.state.json" ] && echo true || echo false)" "After migration: .state.json exists"
+assert_eq "false" "$([ -f "$TEST_DIR/sessions/migrate_test/.agent.json" ] && echo true || echo false)" "After migration: .agent.json gone"
 
 echo ""
 echo "=== Test 8: Existing phase enforcement still works ==="
@@ -137,11 +103,6 @@ jq '.phases = [{"major":1,"minor":0,"name":"Setup"},{"major":2,"minor":0,"name":
 "$SESSION_SH" phase "$TEST_DIR/sessions/phase_test" "1: Setup" >/dev/null 2>&1
 # Sequential transition should work
 OUTPUT=$("$SESSION_SH" phase "$TEST_DIR/sessions/phase_test" "2: Build" 2>&1)
-assert_contains "Phase transition works" "Phase:" "$OUTPUT"
+assert_contains "Phase:" "$OUTPUT" "Phase transition works"
 
-echo ""
-echo "==============================="
-echo -e "Results: ${GREEN}$PASS passed${NC}, ${RED}$FAIL failed${NC}"
-echo "==============================="
-
-[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+exit_with_results

@@ -8,17 +8,9 @@
 
 set -uo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 USER_INFO_SH="$HOME/.claude/engine/scripts/user-info.sh"
-
-# Colors
-RED='\033[31m'
-GREEN='\033[32m'
-RESET='\033[0m'
-
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
 
 TEST_DIR=""
 ORIGINAL_HOME="$HOME"
@@ -35,26 +27,6 @@ teardown() {
   if [ -n "$TEST_DIR" ] && [ -d "$TEST_DIR" ]; then
     rm -rf "$TEST_DIR"
   fi
-}
-
-pass() {
-  echo -e "${GREEN}PASS${RESET}: $1"
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-}
-
-fail() {
-  echo -e "${RED}FAIL${RESET}: $1"
-  echo "  Expected: $2"
-  echo "  Got: ${3:-<empty>}"
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-}
-
-run_test() {
-  local name="$1"
-  TESTS_RUN=$((TESTS_RUN + 1))
-  setup
-  eval "$name"
-  teardown
 }
 
 echo "=== user-info.sh Deep Coverage Tests ==="
@@ -347,11 +319,5 @@ run_test test_cache_overrides_symlink
 # ============================================================
 # RESULTS
 # ============================================================
-echo ""
-echo "======================================"
-echo -e "Results: ${GREEN}${TESTS_PASSED} passed${RESET}, ${RED}${TESTS_FAILED} failed${RESET} (${TESTS_RUN} total)"
-echo "======================================"
 
-if [[ $TESTS_FAILED -gt 0 ]]; then
-  exit 1
-fi
+exit_with_results

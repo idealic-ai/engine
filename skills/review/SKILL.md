@@ -11,51 +11,52 @@ Reviews and validates work across sessions for consistency and correctness.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
-### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
+### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
 **Output this block in chat with every blank filled:**
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
 
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
+[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Review Protocol (The Multiplexer)
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structure — Phase 3 (Dashboard & Per-Debrief Interrogation) is the iterative work phase. The engine's artifacts live in the session directory as reviewable files, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
+[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structure — Phase 2 (Dashboard & Per-Debrief Interrogation) is the iterative work phase. The engine's artifacts live in the session directory as reviewable files, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
 
-### Phases (for §CMD_PARSE_PARAMETERS)
-*Include this array in the `phases` field when calling `session.sh activate`:*
+### Session Parameters (for §CMD_PARSE_PARAMETERS)
+*Merge into the JSON passed to `session.sh activate`:*
 ```json
-[
-  {"major": 1, "minor": 0, "name": "Setup"},
-  {"major": 2, "minor": 0, "name": "Discovery"},
-  {"major": 3, "minor": 0, "name": "Dashboard & Interrogation"},
-  {"major": 4, "minor": 0, "name": "Synthesis"}
-]
+{
+  "taskType": "RESOLVE",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup"},
+    {"major": 1, "minor": 0, "name": "Discovery"},
+    {"major": 2, "minor": 0, "name": "Dashboard & Interrogation"},
+    {"major": 3, "minor": 0, "name": "Synthesis"}
+  ],
+  "nextSkills": ["/implement", "/document", "/brainstorm", "/analyze", "/chores"],
+  "directives": [],
+  "logTemplate": "~/.claude/skills/review/assets/TEMPLATE_REVIEW_LOG.md",
+  "debriefTemplate": "~/.claude/skills/review/assets/TEMPLATE_REVIEW.md",
+  "requestTemplate": "~/.claude/skills/review/assets/TEMPLATE_REVIEW_REQUEST.md",
+  "responseTemplate": "~/.claude/skills/review/assets/TEMPLATE_REVIEW_RESPONSE.md",
+  "modes": {
+    "quality": {"label": "Quality", "description": "Thorough validation, evidence-driven", "file": "~/.claude/skills/review/modes/quality.md"},
+    "progress": {"label": "Progress", "description": "Cross-session status reporting", "file": "~/.claude/skills/review/modes/progress.md"},
+    "evangelize": {"label": "Evangelize", "description": "Stakeholder communication, narrative", "file": "~/.claude/skills/review/modes/evangelize.md"},
+    "custom": {"label": "Custom", "description": "User-defined", "file": "~/.claude/skills/review/modes/custom.md"}
+  }
+}
 ```
-*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
-
-## Mode Presets
-
-Review modes configure the validation lens — what to focus on and how deeply to interrogate. The mode is selected in Phase 1 via `AskUserQuestion`. Full mode definitions are in `modes/*.md` files.
-
-| Mode | Description | When to Use |
-|------|-------------|-------------|
-| **Quality** | Thorough validation, evidence-driven | Default — comprehensive quality gate |
-| **Progress** | Cross-session status reporting | Summarize work across sessions by date/tag |
-| **Evangelize** | Stakeholder communication, narrative | Frame completed work for audiences |
-| **Custom** | Reads all 3 modes, synthesizes a hybrid | User provides framing, agent blends modes |
-
-**Mode files**: `~/.claude/skills/review/modes/{quality,progress,evangelize,custom}.md`
 
 ---
 
-## 1. Setup Phase
+## 0. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 1: Setup phase.
-    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 1 only (Strict Bootloader — expires at Phase 2).
+    > 1. I am starting Phase 0: Setup phase.
+    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 0 only (Strict Bootloader — expires at Phase 1).
     > 3. My focus is REVIEW (`§CMD_REFUSE_OFF_COURSE` applies).
     > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
     > 5. I will `§CMD_FIND_TAGGED_FILES` to identify unvalidated debriefs (`#needs-review` and `#needs-rework`).
@@ -65,7 +66,7 @@ Review modes configure the validation lens — what to focus on and how deeply t
     > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
     > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
-    **Constraint**: Do NOT read any project source code in Phase 1. Only load system templates/standards and discover tagged files.
+    **Constraint**: Do NOT read any project source code in Phase 0. Only load system templates/standards and discover tagged files.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `~/.claude/skills/review/assets/TEMPLATE_REVIEW_LOG.md` (Template for continuous session logging)
@@ -97,16 +98,16 @@ Review modes configure the validation lens — what to focus on and how deeply t
     **On "Custom"**: Read ALL 3 named mode files first (`modes/quality.md`, `modes/progress.md`, `modes/evangelize.md`), then accept user's framing. Parse into role/goal/mindset.
 
     **Record**: Store the selected mode. It configures:
-    *   Phase 1 role (from mode file)
-    *   Phase 3 review criteria (from mode file)
+    *   Phase 0 role (from mode file)
+    *   Phase 2 review criteria (from mode file)
 
 6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file.
 
 7.  **Initialize Log**: Execute `§CMD_INIT_OR_RESUME_LOG_SESSION` (Template: `REVIEW_LOG.md`).
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
+### §CMD_VERIFY_PHASE_EXIT — Phase 0
 **Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
+> **Phase 0 proof:**
 > - Mode: `________` (quality / progress / evangelize / custom)
 > - Role: `________` (quote the role name from the mode preset)
 > - Session dir: `________`
@@ -115,18 +116,15 @@ Review modes configure the validation lens — what to focus on and how deeply t
 > - Parameters parsed: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 2: Discovery & Cross-Session Analysis"** — Read all debriefs and perform cross-session analysis
-> - **"Stay in Phase 1"** — Load additional standards or resolve setup issues
+*Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
 
-## 2. Discovery & Cross-Session Analysis
+## 1. Discovery & Cross-Session Analysis
 *Read everything. Build the global picture.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 2: Discovery & Cross-Session Analysis.
+> 1. I am moving to Phase 1: Discovery & Cross-Session Analysis.
 > 2. I will read ALL discovered debrief files AND their sibling `_LOG.md` files.
 > 3. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to log a `Debrief Card` for each debrief.
 > 4. I will perform the Cross-Session Analysis and log any `Cross-Session Conflict` findings.
@@ -158,9 +156,9 @@ Before calling any tool, ask yourself:
 
 **Constraint**: Do NOT present findings to the user yet. Complete the full analysis first.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
+### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
+> **Phase 1 proof:**
 > - Debriefs read: `________`
 > - Sibling logs/plans read: `________`
 > - Debrief Cards logged: `________`
@@ -168,21 +166,21 @@ Before calling any tool, ask yourself:
 > - Conflicts found: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 2: Discovery & analysis complete. How to proceed?"
-> - **"Proceed to Phase 3: Dashboard & Per-Debrief Interrogation"** — Present findings and walk through each debrief
-> - **"Stay in Phase 2"** — Read more files or continue analysis
-> - **"Skip to Phase 4: Synthesis"** — I already know the verdicts, just write the report
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "1: Discovery"
+  nextPhase: "2: Dashboard & Interrogation"
+  prevPhase: "0: Setup"
+  custom: "Skip to Phase 3: Synthesis | I already know the verdicts, just write the report"
 
 ---
 
-## 3. Dashboard & Per-Debrief Interrogation
+## 2. Dashboard & Per-Debrief Interrogation
 
-### Phase 3a: The Dashboard
+### Phase 2a: The Dashboard
 *Present the global picture first.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3a: Dashboard.
+> 1. I am moving to Phase 2a: Dashboard.
 > 2. I will present ALL debrief summary cards and cross-session analysis findings.
 > 3. I will `§CMD_WAIT_FOR_USER_CONFIRMATION` before drilling into individual debriefs.
 
@@ -203,11 +201,11 @@ Execute `AskUserQuestion` (multiSelect: false):
 > - **"Proceed to per-debrief review"** — Walk through each debrief individually
 > - **"Discuss dashboard first"** — I want to talk about the cross-session findings
 
-### Phase 3b: Per-Debrief Interrogation
+### Phase 2b: Per-Debrief Interrogation
 *Walk through each debrief with the user.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3b: Per-Debrief Interrogation.
+> 1. I am moving to Phase 2b: Per-Debrief Interrogation.
 > 2. I will `§CMD_EXECUTE_INTERROGATION_PROTOCOL` for each debrief.
 > 3. I will `§CMD_LOG_TO_DETAILS` to capture the Q&A.
 > 4. I will use the Standard Validation Checklist as internal guidance.
@@ -322,9 +320,9 @@ Record the user's choice. This sets the **minimum** per debrief — the agent ca
 
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining concerns. Ask: "Round N complete. I still have concerns about [X]. Continuing..."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
+### §CMD_VERIFY_PHASE_EXIT — Phase 2
 **Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
+> **Phase 2 proof:**
 > - Dashboard presented: `________`
 > - User confirmed: `________`
 > - Depth chosen: `________`
@@ -335,12 +333,12 @@ Record the user's choice. This sets the **minimum** per debrief — the agent ca
 
 ---
 
-## 4. Synthesis
+## 3. Synthesis
 *Produce the review report and spawn leftovers.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Synthesis.
+> 1. I am moving to Phase 3: Synthesis.
 > 2. I will `§CMD_PROCESS_CHECKLISTS` (if any discovered checklists exist).
 > 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_REVIEW.md` EXACTLY) to create the review report.
 > 4. I will spawn leftover sessions with micro-dehydrated prompts.
@@ -358,20 +356,20 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 **Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `REVIEW.md`).
   *   Write the file using the Write tool. This MUST produce a real file in the session directory.
   *   Populate ALL sections from the template.
-  *   Cross-Session Analysis: Transcribe findings from Phase 2.
+  *   Cross-Session Analysis: Transcribe findings from Phase 1.
   *   Per-Debrief Verdicts: Condensed card for each debrief with verdict.
   *   Leftovers: For each rework item or discovered TODO, generate a micro-dehydrated prompt:
       *   **Simple tasks** (delete a file, rename, small config change): Just a plain instruction. No command protocol needed.
-      *   **Complex tasks** (feature rework, bug investigation, test gaps): Recommend a command (`/implement`, `/debug`, `/test`, `/analyze`) with a self-contained prompt referencing the review report and original session.
+      *   **Complex tasks** (feature rework, bug investigation, test gaps): Recommend a command (`/implement`, `/fix`, `/test`, `/analyze`) with a self-contained prompt referencing the review report and original session.
       *   Enough context for the user to copy-paste and immediately act.
 
 **Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created/modified files in chat.
 
 **Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — output a final count: "Validated: N, Needs Rework: M, Leftovers Spawned: K."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
+### §CMD_VERIFY_PHASE_EXIT — Phase 3 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
+> **Phase 3 proof:**
 > - REVIEW.md written: `________` (real file path)
 > - Tags line: `________`
 > - Per-debrief verdicts: `________`
@@ -382,17 +380,5 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 **Step 4**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
-
-### Next Skill Options
-*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
-
-> "Review complete. What's next? (Type a /skill name to invoke it, or describe new work to scope it)"
-
-| Option | Label | Description |
-|--------|-------|-------------|
-| 1 | `/implement` (Recommended) | Address rework items identified during review |
-| 2 | `/document` | Update documentation flagged as stale |
-| 3 | `/brainstorm` | Explore ideas discovered during review |
-| 4 | `/analyze` | Deep-dive into patterns found across sessions |
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.

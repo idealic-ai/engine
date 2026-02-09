@@ -3,7 +3,7 @@
 #
 # Related:
 #   Docs: (~/.claude/docs/)
-#     STANDARDS_SYSTEM.md — Tag protocol, escaping convention
+#     DIRECTIVES_SYSTEM.md — Tag protocol, escaping convention
 #     DAEMON.md — Tag-based dispatch
 #   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_CLAIM_BEFORE_WORK — Tag swap pattern

@@ -137,17 +137,17 @@ This prevents double-processing:
 
 **Implementation**:
 ```bash
-~/.claude/scripts/tag.sh swap "$FILE" '#needs-implementation' '#active-implementation'
+engine tag swap "$FILE" '#needs-implementation' '#active-implementation'
 ```
 
 ### Tag Discovery
 
 ```bash
 # Find all open implementation requests
-~/.claude/scripts/tag.sh find '#needs-implementation'
+engine tag find '#needs-implementation'
 
 # Find with context (line numbers + lookaround)
-~/.claude/scripts/tag.sh find '#needs-implementation' sessions/ --context
+engine tag find '#needs-implementation' sessions/ --context
 ```
 
 ---
@@ -226,7 +226,7 @@ Each agent runs in a named `tmux` window:
 ```bash
 # Example: spawned research agent
 tmux new-window -t dispatch -n "agent-research-1707235200" \
-  "~/.claude/scripts/run.sh /research $REQUEST_FILE"
+  "engine run /research $REQUEST_FILE"
 ```
 
 **Parallelism**: Unbounded. The daemon spawns as many agents as there are open tags.
@@ -298,7 +298,7 @@ All handoff-related commands are defined in `~/.claude/directives/COMMANDS.md`. 
 # Creates: RESEARCH_REQUEST_MARKET_SIZE.md with #needs-research
 
 # 2. Start background watcher
-Bash("~/.claude/scripts/await-tag.sh sessions/.../RESEARCH_REQUEST_MARKET_SIZE.md '#done-research'", run_in_background=true)
+Bash("engine await-tag sessions/.../RESEARCH_REQUEST_MARKET_SIZE.md '#done-research'", run_in_background=true)
 
 # 3. Continue other work...
 
@@ -361,10 +361,10 @@ Bash("~/.claude/scripts/await-tag.sh sessions/.../RESEARCH_REQUEST_MARKET_SIZE.m
 **Recovery**:
 ```bash
 # Option A: Re-queue (swap back to #needs-X)
-~/.claude/scripts/tag.sh swap "$FILE" '#active-implementation' '#needs-implementation'
+engine tag swap "$FILE" '#active-implementation' '#needs-implementation'
 
 # Option B: Manual completion (if work was done)
-~/.claude/scripts/tag.sh swap "$FILE" '#active-implementation' '#done-implementation'
+engine tag swap "$FILE" '#active-implementation' '#done-implementation'
 ```
 
 ### Dead PIDs

@@ -4,22 +4,33 @@ set -euo pipefail
 # ============================================================================
 # Workflow Engine CLI
 # ============================================================================
-# Sets up the shared workflow engine for a team member on a specific project.
+# The main entrypoint for the Claude workflow engine. Dispatches sub-commands
+# to scripts in the scripts/ directory, with built-in commands for setup,
+# mode switching, and Git operations.
 #
-# Usage (from your project root):
-#   engine.sh [project-name]       Normal project setup (respects current mode)
-#   engine.sh --report             Full system health report
-#   engine.sh --verbose [project]  Verbose output
+# Usage:
+#   engine                          Launch Claude (auto-setup if needed)
+#   engine <command> [args...]      Run a sub-command (any script in scripts/)
+#   engine --help                   Show available sub-commands
+#   engine --verbose <command>      Verbose output
 #
-# Mode switching:
-#   engine.sh local                Switch to local mode (+ Git onboarding if no .git)
-#   engine.sh remote               Switch engine symlinks to GDrive
-#   engine.sh status               Show current mode + symlink audit
+# Built-in commands:
+#   engine setup [project-name]     Full project setup (symlinks, permissions, etc.)
+#   engine local                    Switch to local mode (+ Git onboarding)
+#   engine remote                   Switch engine symlinks to GDrive
+#   engine status                   Show current mode + symlink audit
+#   engine report                   Full system health report
+#   engine push                     git push engine to origin
+#   engine pull                     git pull engine from origin
+#   engine deploy                   Sync local engine → GDrive (rsync)
+#   engine test [args...]           Run engine test suite
+#   engine uninstall                Remove engine symlinks
 #
-# Git operations (requires .git in ~/.claude/engine/):
-#   engine.sh push                 git push current branch to origin
-#   engine.sh pull                 git pull current branch from origin
-#   engine.sh deploy               Sync local engine → GDrive (rsync, excludes .git)
+# Auto-dispatch:
+#   engine session activate ...     → scripts/session.sh activate ...
+#   engine tag find '#needs-review' → scripts/tag.sh find '#needs-review'
+#   engine log ...                  → scripts/log.sh ...
+#   (any scripts/*.sh file)
 #
 # Everything is inferred automatically:
 #   - Email and username: from the script's own GDrive path or .user.json cache
@@ -32,7 +43,7 @@ set -euo pipefail
 # Related:
 #   Docs: (~/.claude/docs/)
 #     SETUP_PROTOCOL.md — Complete setup protocol and modes
-#     STANDARDS_SYSTEM.md — Standards symlink creation
+#     DIRECTIVES_SYSTEM.md — Directives symlink creation
 #   Invariants: (~/.claude/directives/INVARIANTS.md)
 #     ¶INV_TEST_SANDBOX_ISOLATION — Test safety requirements
 #     ¶INV_INFER_USER_FROM_GDRIVE — Identity detection
@@ -45,8 +56,12 @@ set -euo pipefail
 #   - All paths use $SETUP_* env vars for testability (see protocol doc)
 # ============================================================================
 
-# ---- Parse flags ----
+# ---- Parse top-level flags ----
 VERBOSE=false
+
+# We need to handle --help and --verbose before anything else,
+# but pass all other args through to sub-commands.
+SHOW_HELP=false
 POSITIONAL_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -55,9 +70,18 @@ while [[ $# -gt 0 ]]; do
       VERBOSE=true
       shift
       ;;
+    --help|-h)
+      SHOW_HELP=true
+      shift
+      ;;
     *)
+      # Once we hit a non-flag, everything from here is positional
       POSITIONAL_ARGS+=("$1")
       shift
+      while [[ $# -gt 0 ]]; do
+        POSITIONAL_ARGS+=("$1")
+        shift
+      done
       ;;
   esac
 done
@@ -79,7 +103,7 @@ log_step() {
   fi
 }
 
-# ---- Resolve paths and identity ----
+# ---- Resolve paths ----
 
 SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
@@ -87,6 +111,63 @@ CLAUDE_DIR="$HOME/.claude"
 LOCAL_ENGINE="$HOME/.claude/engine"
 MODE_FILE="$HOME/.claude/engine/.mode"
 ACTIONS=()
+SETUP_MARKER="$HOME/.claude/engine/.setup-done"
+
+# ---- Help command (early exit, no identity needed) ----
+
+cmd_help() {
+  echo "Usage: engine [--verbose] [--help] [<command>] [args...]"
+  echo ""
+  echo "The Claude workflow engine CLI. Default (no args): launch Claude."
+  echo ""
+  echo "Built-in commands:"
+  echo "  setup [project]    Full project setup (symlinks, permissions, deps)"
+  echo "  local              Switch to local engine mode (+ Git onboarding)"
+  echo "  remote             Switch engine symlinks to GDrive"
+  echo "  status             Show current mode + symlink audit"
+  echo "  report             Full system health report"
+  echo "  push               git push engine to origin"
+  echo "  pull               git pull engine from origin"
+  echo "  deploy             Sync local engine → GDrive (rsync)"
+  echo "  test [args...]     Run engine test suite"
+  echo "  uninstall          Remove engine symlinks and hooks"
+  echo ""
+  echo "Script commands (auto-discovered from scripts/):"
+
+  # List scripts/*.sh, excluding engine.sh itself
+  local scripts_found=0
+  for script in "$SCRIPT_DIR"/*.sh; do
+    [ -f "$script" ] || continue
+    local name
+    name=$(basename "$script" .sh)
+    # Skip self and internal libraries
+    [ "$name" = "engine" ] && continue
+    echo "  $name"
+    scripts_found=$((scripts_found + 1))
+  done
+
+  if [ "$scripts_found" -eq 0 ]; then
+    echo "  (none found)"
+  fi
+
+  echo ""
+  echo "Options:"
+  echo "  --verbose, -v      Verbose output"
+  echo "  --help, -h         Show this help"
+  echo ""
+  echo "Examples:"
+  echo "  engine                         # Launch Claude (auto-setup if needed)"
+  echo "  engine setup                   # Run full project setup"
+  echo "  engine session activate ...    # Delegate to session.sh"
+  echo "  engine tag find '#needs-review'  # Delegate to tag.sh"
+}
+
+if [ "$SHOW_HELP" = true ]; then
+  cmd_help
+  exit 0
+fi
+
+# ---- Resolve identity (needed for most commands) ----
 
 # Source libraries (functions become available for all subcommands)
 source "$SCRIPT_DIR/setup-lib.sh"
@@ -103,7 +184,7 @@ fi
 if [ -z "$EMAIL" ]; then
   echo "ERROR: Could not infer email from script path or user-info.sh."
   echo "Expected script to live under ~/Library/CloudStorage/GoogleDrive-<email>/..."
-  echo "Or run 'engine.sh pull' first to cache identity."
+  echo "Or run 'engine setup' first to cache identity."
   exit 1
 fi
 
@@ -115,20 +196,14 @@ GDRIVE_ROOT="$HOME/Library/CloudStorage/GoogleDrive-$EMAIL/Shared drives/finch-o
 
 log_verbose "User: $USER_NAME ($EMAIL)"
 
-# ---- Mode helpers: now in setup-lib.sh (current_mode, resolve_engine_dir) ----
-
-# ---- Symlink functions: now in setup-lib.sh ----
-
-# ---- Engine symlink setup: now in setup-lib.sh (setup_engine_symlinks) ----
-
 # ============================================================================
-# Subcommand handlers
+# Built-in subcommand handlers
 # ============================================================================
 
 cmd_local() {
   if [ ! -d "$LOCAL_ENGINE" ]; then
     echo "ERROR: Local engine not found at $LOCAL_ENGINE"
-    echo "Run 'engine.sh pull' first to copy engine from GDrive."
+    echo "Run 'engine pull' first to copy engine from GDrive."
     exit 1
   fi
 
@@ -151,7 +226,7 @@ cmd_local() {
       read -r repo_url
       if [ -z "$repo_url" ]; then
         echo "ERROR: No URL provided. Skipping Git setup."
-        echo "You can re-run 'engine.sh local' to try again."
+        echo "You can re-run 'engine local' to try again."
       fi
     fi
 
@@ -208,6 +283,60 @@ USERJSON
   echo "Switching to local mode..."
   log_verbose "Engine: $LOCAL_ENGINE"
   setup_engine_symlinks "$LOCAL_ENGINE" "$CLAUDE_DIR"
+
+  # Install npm deps for tools if needed
+  for tool_dir in "$LOCAL_ENGINE/tools"/*/; do
+    local tool_name
+    tool_name="$(basename "$tool_dir")"
+    if [ -f "$tool_dir/package.json" ] && [ ! -d "$tool_dir/node_modules" ]; then
+      echo "  Installing $tool_name deps..."
+      (cd "$tool_dir" && npm install --silent 2>/dev/null) && ACTIONS+=("Installed $tool_name npm deps")
+    fi
+  done
+
+  # Ensure sessions/ exists as a real local directory
+  local project_root
+  project_root="$(pwd)"
+  local sessions_dir="$project_root/sessions"
+
+  if [ -L "$sessions_dir" ] && [ ! -e "$sessions_dir" ]; then
+    echo "  sessions/ symlink is broken (GDrive not accessible). Creating local directory..."
+    rm "$sessions_dir"
+    mkdir -p "$sessions_dir"
+    ACTIONS+=("Created local sessions/ directory (GDrive unavailable)")
+  elif [ ! -e "$sessions_dir" ]; then
+    echo "  Creating local sessions/ directory..."
+    mkdir -p "$sessions_dir"
+    ACTIONS+=("Created local sessions/ directory")
+  fi
+
+  # Bootstrap search DBs: copy from GDrive if available, otherwise auto-index
+  local gdrive_sessions="$GDRIVE_ROOT/$USER_NAME/$PROJECT_NAME/sessions" 2>/dev/null || true
+  local doc_db="$sessions_dir/.doc-search.db"
+  local session_db="$sessions_dir/.session-search.db"
+
+  if [ -d "$GDRIVE_ROOT" ] 2>/dev/null; then
+    local gdrive_doc_db="$GDRIVE_ROOT/$USER_NAME/$PROJECT_NAME/sessions/.doc-search.db"
+    local gdrive_session_db="$gdrive_sessions/.session-search.db"
+    local gdrive_tool_doc_db="$GDRIVE_ENGINE/tools/doc-search/.doc-search.db"
+
+    if [ -f "$gdrive_doc_db" ]; then
+      cp "$gdrive_doc_db" "$doc_db"
+      ACTIONS+=("Copied doc-search DB from GDrive sessions/")
+    elif [ -f "$gdrive_tool_doc_db" ]; then
+      cp "$gdrive_tool_doc_db" "$doc_db"
+      ACTIONS+=("Copied doc-search DB from GDrive tool dir")
+    fi
+
+    if [ -f "$gdrive_session_db" ]; then
+      cp "$gdrive_session_db" "$session_db"
+      ACTIONS+=("Copied session-search DB from GDrive")
+    fi
+  else
+    echo "  GDrive not accessible. Search DBs will be empty until indexed."
+    echo "  Run: doc-search.sh index && session-search.sh index"
+  fi
+
   echo ""
   echo "Done. Mode: local"
   echo "  Engine: $LOCAL_ENGINE"
@@ -240,12 +369,12 @@ cmd_remote() {
 cmd_pull() {
   if [ ! -d "$LOCAL_ENGINE" ]; then
     echo "ERROR: Local engine not found at $LOCAL_ENGINE"
-    echo "Run 'engine.sh local' first to initialize Git."
+    echo "Run 'engine local' first to initialize Git."
     exit 1
   fi
   if [ ! -d "$LOCAL_ENGINE/.git" ]; then
     echo "ERROR: No Git repository found in $LOCAL_ENGINE"
-    echo "Run 'engine.sh local' first to initialize Git."
+    echo "Run 'engine local' first to initialize Git."
     exit 1
   fi
   if ! command -v git &>/dev/null; then
@@ -253,7 +382,6 @@ cmd_pull() {
     exit 1
   fi
 
-  # Determine branch
   local branch
   branch=$(git -C "$LOCAL_ENGINE" rev-parse --abbrev-ref HEAD 2>/dev/null)
   if [ -z "$branch" ]; then
@@ -266,7 +394,6 @@ cmd_pull() {
   pull_output=$(git -C "$LOCAL_ENGINE" pull origin "$branch" 2>&1) || {
     local exit_code=$?
     echo ""
-    # Check for merge conflict
     if git -C "$LOCAL_ENGINE" diff --name-only --diff-filter=U 2>/dev/null | grep -q .; then
       echo "MERGE CONFLICT detected."
       echo ""
@@ -308,7 +435,7 @@ cmd_push() {
   fi
   if [ ! -d "$LOCAL_ENGINE/.git" ]; then
     echo "ERROR: No Git repository found in $LOCAL_ENGINE"
-    echo "Run 'engine.sh local' first to initialize Git."
+    echo "Run 'engine local' first to initialize Git."
     exit 1
   fi
   if ! command -v git &>/dev/null; then
@@ -316,7 +443,6 @@ cmd_push() {
     exit 1
   fi
 
-  # Determine branch
   local branch
   branch=$(git -C "$LOCAL_ENGINE" rev-parse --abbrev-ref HEAD 2>/dev/null)
   if [ -z "$branch" ]; then
@@ -352,14 +478,12 @@ cmd_deploy() {
   fi
   echo "Deploying local engine → GDrive..."
   echo "  WARNING: This will overwrite GDrive engine. Non-dev changes on GDrive will be lost."
-  # Backup GDrive if exists
   if [ -d "$GDRIVE_ENGINE" ]; then
     echo "  Backing up GDrive → ${GDRIVE_ENGINE}.bak"
     rm -rf "${GDRIVE_ENGINE}.bak"
     cp -a "$GDRIVE_ENGINE" "${GDRIVE_ENGINE}.bak"
     ACTIONS+=("Backed up $GDRIVE_ENGINE → ${GDRIVE_ENGINE}.bak")
   fi
-  # Sync (exclude .git, local-only files, and node_modules)
   rsync -a --delete \
     --exclude='.git' \
     --exclude='.mode' \
@@ -416,30 +540,24 @@ cmd_status() {
   [ "$other_count" -gt 0 ] && echo "  Other:  $other_count"
   echo ""
 
-  # Consistency check
   if [ "$mode" = "local" ] && [ "$gdrive_count" -gt 0 ]; then
     echo "⚠️  Mode is 'local' but $gdrive_count symlinks still point to GDrive."
-    echo "   Run 'engine.sh local' to fix."
+    echo "   Run 'engine local' to fix."
   elif [ "$mode" = "remote" ] && [ "$local_count" -gt 0 ]; then
     echo "⚠️  Mode is 'remote' but $local_count symlinks still point to local engine."
-    echo "   Run 'engine.sh remote' to fix."
+    echo "   Run 'engine remote' to fix."
   elif [ "$broken_count" -gt 0 ]; then
     echo "⚠️  $broken_count broken symlinks detected."
-    echo "   Run 'engine.sh $mode' to fix."
+    echo "   Run 'engine $mode' to fix."
   else
     echo "✓ All symlinks consistent with mode."
   fi
 
-  # Backup info
   echo ""
   echo "Backups:"
   [ -d "${LOCAL_ENGINE}.bak" ] && echo "  Local:  ${LOCAL_ENGINE}.bak ✓" || echo "  Local:  (none)"
   [ -d "${GDRIVE_ENGINE}.bak" ] && echo "  GDrive: ${GDRIVE_ENGINE}.bak ✓" || echo "  GDrive: (none)"
 }
-
-# ============================================================================
-# cmd_test — Run the engine test suite
-# ============================================================================
 
 cmd_test() {
   local tests_dir
@@ -453,10 +571,6 @@ cmd_test() {
   bash "$tests_dir/run-all.sh" "$@"
 }
 
-# ============================================================================
-# cmd_uninstall — Remove project symlinks (preserves settings.json)
-# ============================================================================
-
 cmd_uninstall() {
   local project_root
   project_root="${PROJECT_ROOT:-$(pwd)}"
@@ -464,7 +578,6 @@ cmd_uninstall() {
   echo "Uninstalling engine from: $project_root"
   echo ""
 
-  # Remove project-level symlinks
   local removed=0
   for link in "$project_root/sessions" "$project_root/reports"; do
     if [ -L "$link" ]; then
@@ -474,7 +587,6 @@ cmd_uninstall() {
     fi
   done
 
-  # Remove user-level engine symlinks
   local claude_dir="$HOME/.claude"
   for link in "$claude_dir/commands" "$claude_dir/standards" "$claude_dir/scripts" "$claude_dir/tools"; do
     if [ -L "$link" ]; then
@@ -484,7 +596,6 @@ cmd_uninstall() {
     fi
   done
 
-  # Remove per-item symlinks (scripts, skills, agents, hooks)
   for dir in scripts skills agents hooks; do
     if [ -d "$claude_dir/$dir" ]; then
       local link_count=0
@@ -501,7 +612,6 @@ cmd_uninstall() {
     fi
   done
 
-  # Remove /usr/local/bin/engine symlink
   if [ -L "/usr/local/bin/engine" ]; then
     rm "/usr/local/bin/engine" 2>/dev/null || sudo rm "/usr/local/bin/engine" 2>/dev/null || {
       echo "  WARNING: Could not remove /usr/local/bin/engine (try: sudo rm /usr/local/bin/engine)"
@@ -510,12 +620,10 @@ cmd_uninstall() {
     removed=$((removed + 1))
   fi
 
-  # Clean engine-owned hooks from ~/.claude/settings.json
   local settings="$claude_dir/settings.json"
   if [ -f "$settings" ] && command -v jq &>/dev/null; then
     local hooks_removed=0
 
-    # Remove statusLine if it points to our statusline.sh
     local sl_cmd
     sl_cmd=$(jq -r '.statusLine.command // ""' "$settings" 2>/dev/null)
     if [[ "$sl_cmd" == *"statusline.sh"* ]]; then
@@ -523,10 +631,8 @@ cmd_uninstall() {
       hooks_removed=$((hooks_removed + 1))
     fi
 
-    # Remove all hooks.* entries that reference ~/.claude/hooks/ or ~/.claude/tools/
-    for hook_type in PreToolUse Stop Notification UserPromptSubmit SessionEnd PostToolUseSuccess PostToolUseFailure; do
+    for hook_type in PreToolUse PostToolUse Stop Notification UserPromptSubmit SessionEnd PostToolUseSuccess PostToolUseFailure; do
       if jq -e ".hooks.${hook_type}" "$settings" &>/dev/null; then
-        # Filter out entries with commands referencing engine paths
         local remaining
         remaining=$(jq --arg ht "$hook_type" '
           .hooks[$ht] |= [.[] | select(
@@ -540,12 +646,10 @@ cmd_uninstall() {
       fi
     done
 
-    # Remove empty hooks object if all entries were cleaned
     if jq -e '.hooks | length == 0' "$settings" &>/dev/null; then
       jq 'del(.hooks)' "$settings" > "$settings.tmp" && mv "$settings.tmp" "$settings"
     fi
 
-    # Remove engine-specific permission patterns
     if jq -e '.permissions.allow' "$settings" &>/dev/null; then
       jq '.permissions.allow = [.permissions.allow[] | select(
         (startswith("Read(~/.claude/") or
@@ -563,6 +667,9 @@ cmd_uninstall() {
     fi
   fi
 
+  # Remove setup marker
+  rm -f "$SETUP_MARKER"
+
   echo ""
   if [ "$removed" -gt 0 ]; then
     echo "Uninstalled ($removed items removed)."
@@ -572,60 +679,14 @@ cmd_uninstall() {
   fi
 }
 
-# ============================================================================
-# Subcommand dispatch — check before normal project setup flow
-# ============================================================================
+cmd_report() {
+  # ---- Resolve ENGINE_DIR based on current mode ----
+  local ENGINE_DIR
+  ENGINE_DIR=$(resolve_engine_dir "$(current_mode "$MODE_FILE")" "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$SCRIPT_DIR")
 
-case "${1:-}" in
-  local)     cmd_local;  exit 0 ;;
-  remote)    cmd_remote; exit 0 ;;
-  pull)      cmd_pull;   exit 0 ;;
-  push)      cmd_push;   exit 0 ;;
-  deploy)    cmd_deploy; exit 0 ;;
-  status)    cmd_status; exit 0 ;;
-  test)      shift; cmd_test "$@"; exit 0 ;;
-  uninstall) cmd_uninstall; exit 0 ;;
-esac
+  local PROJECT_ROOT
+  PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
 
-# ============================================================================
-# Normal project setup flow (no subcommand given)
-# ============================================================================
-
-# ---- Resolve ENGINE_DIR based on current mode ----
-ENGINE_DIR=$(resolve_engine_dir "$(current_mode "$MODE_FILE")" "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$SCRIPT_DIR")
-
-if [ -z "$ENGINE_DIR" ] || [ ! -d "$ENGINE_DIR/skills" ]; then
-  echo "ERROR: Engine not found."
-  echo "Expected commands/ and skills/ in engine directory."
-  exit 1
-fi
-
-# GDRIVE_ROOT must point to GDrive regardless of mode (for sessions/reports)
-if [ "$(current_mode "$MODE_FILE")" = "local" ]; then
-  GDRIVE_ROOT_RESOLVED="$GDRIVE_ROOT"
-else
-  GDRIVE_ROOT_RESOLVED="$(dirname "$ENGINE_DIR")"
-fi
-
-PROJECT_NAME="${1:-$(basename "$(pwd)")}"
-PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
-
-log_verbose "Engine: $ENGINE_DIR"
-log_verbose "Project: $PROJECT_ROOT"
-
-# ---- Prevent running from home directory ----
-if [ "$PROJECT_ROOT" = "$HOME" ] || [ "$PROJECT_ROOT" = "/" ]; then
-  echo "ERROR: Cannot run engine.sh from home directory or root."
-  echo "Please cd to your project directory first."
-  echo ""
-  echo "Example:"
-  echo "  cd ~/Projects/myproject"
-  echo "  ~/.claude/scripts/engine.sh"
-  exit 1
-fi
-
-# ---- Report mode ----
-if [ "${1:-}" = "--report" ]; then
   echo "Workflow Engine Status"
   echo "======================"
   echo ""
@@ -637,8 +698,9 @@ if [ "${1:-}" = "--report" ]; then
   # Check symlinks
   echo "Engine Symlinks (~/.claude/):"
   for name in commands standards scripts agents tools; do
-    link="$CLAUDE_DIR/$name"
+    local link="$CLAUDE_DIR/$name"
     if [ -L "$link" ]; then
+      local target
       target=$(readlink "$link")
       if [[ "$target" == *"$ENGINE_DIR"* ]] || [[ "$target" == *"engine"* ]]; then
         echo "  $name: OK"
@@ -652,16 +714,17 @@ if [ "${1:-}" = "--report" ]; then
     fi
   done
 
-  # Check skills (per-skill symlinks)
   echo ""
   echo "Skills (~/.claude/skills/):"
   if [ -L "$CLAUDE_DIR/skills" ]; then
     echo "  WARNING: whole-dir symlink (should be per-skill)"
   elif [ -d "$CLAUDE_DIR/skills" ]; then
+    local engine_skills installed_skills
     engine_skills=$(find "$ENGINE_DIR/skills" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l | tr -d ' ')
     installed_skills=$(find "$CLAUDE_DIR/skills" -mindepth 1 -maxdepth 1 -type l 2>/dev/null | wc -l | tr -d ' ')
     echo "  $installed_skills/$engine_skills skills linked"
     for skill_dir in "$ENGINE_DIR/skills"/*/; do
+      local skill_name
       skill_name="$(basename "$skill_dir")"
       if [ ! -L "$CLAUDE_DIR/skills/$skill_name" ]; then
         echo "    MISSING: $skill_name"
@@ -671,17 +734,17 @@ if [ "${1:-}" = "--report" ]; then
     echo "  MISSING: ~/.claude/skills/ directory"
   fi
 
-  # Check tools
   echo ""
   echo "Tools (~/.claude/tools/):"
   if [ -d "$CLAUDE_DIR/tools" ]; then
     for tool_dir in "$ENGINE_DIR/tools"/*/; do
+      local tool_name
       tool_name="$(basename "$tool_dir")"
       if [ -f "$tool_dir/package.json" ]; then
         if [ -d "$tool_dir/node_modules" ]; then
           echo "  $tool_name: OK"
         else
-          echo "  $tool_name: MISSING node_modules (run engine.sh)"
+          echo "  $tool_name: MISSING node_modules (run engine setup)"
         fi
       fi
     done
@@ -689,22 +752,23 @@ if [ "${1:-}" = "--report" ]; then
     echo "  MISSING: ~/.claude/tools/ directory"
   fi
 
-  # Check hooks in settings.json
   echo ""
   echo "Hooks (~/.claude/settings.json):"
   if [ -f "$CLAUDE_DIR/settings.json" ] && command -v jq &>/dev/null; then
     if jq -e '.statusLine' "$CLAUDE_DIR/settings.json" &>/dev/null; then
+      local sl_cmd
       sl_cmd=$(jq -r '.statusLine.command // "none"' "$CLAUDE_DIR/settings.json")
       if [[ "$sl_cmd" == *"statusline.sh"* ]]; then
         echo "  statusLine: OK (engine)"
       elif [[ "$sl_cmd" == *"input=\$(cat)"* ]] || [[ ${#sl_cmd} -gt 100 ]]; then
-        echo "  statusLine: DEFAULT (not engine) - run engine.sh to fix"
+        echo "  statusLine: DEFAULT (not engine) - run engine setup to fix"
       else
         echo "  statusLine: $sl_cmd"
       fi
     else
       echo "  statusLine: NOT CONFIGURED"
     fi
+    local ptu_count perm_count
     ptu_count=$(jq '.hooks.PreToolUse // [] | length' "$CLAUDE_DIR/settings.json" 2>/dev/null || echo "0")
     echo "  PreToolUse hooks: $ptu_count"
     perm_count=$(jq '.permissions.allow // [] | length' "$CLAUDE_DIR/settings.json" 2>/dev/null || echo "0")
@@ -715,7 +779,6 @@ if [ "${1:-}" = "--report" ]; then
     echo "  MISSING: ~/.claude/settings.json"
   fi
 
-  # Check project setup
   echo ""
   echo "Project ($PROJECT_ROOT):"
   if [ -L "$PROJECT_ROOT/sessions" ]; then
@@ -738,11 +801,10 @@ if [ "${1:-}" = "--report" ]; then
     echo "  .claude/settings.json: MISSING"
   fi
 
-  # Script permissions
   echo ""
   echo "Script Permissions:"
-  non_exec_count=0
-  non_exec_files=()
+  local non_exec_count=0
+  local non_exec_files=()
   while IFS= read -r -d '' script; do
     if [ ! -x "$script" ]; then
       non_exec_count=$((non_exec_count + 1))
@@ -750,6 +812,7 @@ if [ "${1:-}" = "--report" ]; then
     fi
   done < <(find "$ENGINE_DIR" -name "*.sh" -type f -print0 2>/dev/null)
 
+  local total_scripts exec_count
   total_scripts=$(find "$ENGINE_DIR" -name "*.sh" -type f 2>/dev/null | wc -l | tr -d ' ')
   exec_count=$((total_scripts - non_exec_count))
 
@@ -762,11 +825,10 @@ if [ "${1:-}" = "--report" ]; then
       echo "    - $f"
     done
     if [ "$non_exec_count" -gt 10 ]; then
-      echo "    ... and $((non_exec_count - 10)) more (run engine.sh to fix)"
+      echo "    ... and $((non_exec_count - 10)) more (run engine setup to fix)"
     fi
   fi
 
-  # Dependencies
   echo ""
   echo "Dependencies:"
   for cmd in jq sqlite3 fswatch; do
@@ -776,153 +838,168 @@ if [ "${1:-}" = "--report" ]; then
       echo "  $cmd: NOT INSTALLED"
     fi
   done
+}
 
-  exit 0
-fi
+# ============================================================================
+# cmd_setup — Full project setup (was the old default behavior)
+# ============================================================================
 
-# ---- Begin normal setup ----
-echo "Setting up workflow engine for $USER_NAME/$PROJECT_NAME"
+cmd_setup() {
+  local ENGINE_DIR
+  ENGINE_DIR=$(resolve_engine_dir "$(current_mode "$MODE_FILE")" "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$SCRIPT_DIR")
 
-MISSING_DEPS=()
+  if [ -z "$ENGINE_DIR" ] || [ ! -d "$ENGINE_DIR/skills" ]; then
+    echo "ERROR: Engine not found."
+    echo "Expected commands/ and skills/ in engine directory."
+    exit 1
+  fi
 
-# ---- Install dependencies via brew ----
-log_step "Checking dependencies"
-if command -v brew &> /dev/null; then
-  if ! command -v jq &> /dev/null; then
-    log_verbose "jq: installing via brew..."
-    if [ "$VERBOSE" = true ]; then
-      brew install jq && ACTIONS+=("Installed jq via brew")
-    else
-      brew install jq >/dev/null 2>&1 && ACTIONS+=("Installed jq via brew")
-    fi
+  # GDRIVE_ROOT must point to GDrive regardless of mode (for sessions/reports)
+  local GDRIVE_ROOT_RESOLVED
+  if [ "$(current_mode "$MODE_FILE")" = "local" ]; then
+    GDRIVE_ROOT_RESOLVED="$GDRIVE_ROOT"
   else
-    log_verbose "jq: OK"
+    GDRIVE_ROOT_RESOLVED="$(dirname "$ENGINE_DIR")"
   fi
-  if ! command -v sqlite3 &> /dev/null; then
-    log_verbose "sqlite: installing via brew..."
-    if [ "$VERBOSE" = true ]; then
-      brew install sqlite && ACTIONS+=("Installed sqlite via brew")
-    else
-      brew install sqlite >/dev/null 2>&1 && ACTIONS+=("Installed sqlite via brew")
-    fi
-  else
-    log_verbose "sqlite3: OK"
-  fi
-  if ! command -v fswatch &> /dev/null; then
-    log_verbose "fswatch: installing via brew..."
-    if [ "$VERBOSE" = true ]; then
-      brew install fswatch && ACTIONS+=("Installed fswatch via brew")
-    else
-      brew install fswatch >/dev/null 2>&1 && ACTIONS+=("Installed fswatch via brew")
-    fi
-  else
-    log_verbose "fswatch: OK"
-  fi
-else
-  if ! command -v jq &> /dev/null; then
-    MISSING_DEPS+=("jq")
-  fi
-  if ! command -v sqlite3 &> /dev/null; then
-    MISSING_DEPS+=("sqlite3")
-  fi
-  if ! command -v fswatch &> /dev/null; then
-    MISSING_DEPS+=("fswatch")
-  fi
-fi
 
-# ---- Step 1: Create GDrive directories ----
-log_step "Step 1: Create GDrive directories"
-SESSION_DIR="$GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME/sessions"
-REPORTS_DIR="$GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME/reports"
-if [ ! -d "$SESSION_DIR" ]; then
-  log_verbose "sessions/: creating $SESSION_DIR"
-  mkdir -p "$SESSION_DIR"
-  ACTIONS+=("Created $SESSION_DIR")
-else
-  log_verbose "sessions/: OK"
-fi
-if [ ! -d "$REPORTS_DIR" ]; then
-  log_verbose "reports/: creating $REPORTS_DIR"
-  mkdir -p "$REPORTS_DIR"
-  ACTIONS+=("Created $REPORTS_DIR")
-else
-  log_verbose "reports/: OK"
-fi
+  local PROJECT_NAME="${1:-$(basename "$(pwd)")}"
+  local PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
 
-# ---- Step 2: Engine symlinks ----
-log_step "Step 2: User-level shared engine setup"
-setup_engine_symlinks "$ENGINE_DIR" "$CLAUDE_DIR"
+  log_verbose "Engine: $ENGINE_DIR"
+  log_verbose "Project: $PROJECT_ROOT"
 
-# Install npm deps for tools
-if [ -d "$ENGINE_DIR/tools" ]; then
-  for tool_dir in "$ENGINE_DIR/tools"/*/; do
-    tool_name="$(basename "$tool_dir")"
-    if [ -f "$tool_dir/package.json" ] && [ ! -d "$tool_dir/node_modules" ]; then
-      log_verbose "$tool_name: npm install (this may take a while)..."
+  # Prevent running from home directory
+  if [ "$PROJECT_ROOT" = "$HOME" ] || [ "$PROJECT_ROOT" = "/" ]; then
+    echo "ERROR: Cannot run setup from home directory or root."
+    echo "Please cd to your project directory first."
+    echo ""
+    echo "Example:"
+    echo "  cd ~/Projects/myproject"
+    echo "  engine setup"
+    exit 1
+  fi
+
+  echo "Setting up workflow engine for $USER_NAME/$PROJECT_NAME"
+
+  local MISSING_DEPS=()
+
+  # ---- Install dependencies via brew ----
+  log_step "Checking dependencies"
+  if command -v brew &> /dev/null; then
+    if ! command -v jq &> /dev/null; then
+      log_verbose "jq: installing via brew..."
       if [ "$VERBOSE" = true ]; then
-        (cd "$tool_dir" && npm install) && ACTIONS+=("Installed $tool_name npm deps")
+        brew install jq && ACTIONS+=("Installed jq via brew")
       else
-        (cd "$tool_dir" && npm install --silent 2>/dev/null) && ACTIONS+=("Installed $tool_name npm deps")
+        brew install jq >/dev/null 2>&1 && ACTIONS+=("Installed jq via brew")
       fi
+    else
+      log_verbose "jq: OK"
     fi
-  done
-fi
-
-# ---- Step 2b: Run migrations ----
-log_step "Step 2b: Run migrations"
-run_migrations "$CLAUDE_DIR" "${SESSION_DIR:-}" "$ENGINE_DIR"
-
-# ---- Step 3: Project-level symlinks (sessions + reports) ----
-log_step "Step 3: Project symlinks"
-link_project_dir "$SESSION_DIR" "$PROJECT_ROOT/sessions" "./sessions"
-link_project_dir "$REPORTS_DIR" "$PROJECT_ROOT/reports" "./reports"
-
-# ---- Step 4: Create project standards stub ----
-log_step "Step 4: Project standards"
-PROJECT_CLAUDE_DIR="$PROJECT_ROOT/.claude/standards"
-PROJECT_INVARIANTS="$PROJECT_CLAUDE_DIR/INVARIANTS.md"
-mkdir -p "$PROJECT_CLAUDE_DIR"
-
-if [ ! -f "$PROJECT_INVARIANTS" ]; then
-  log_verbose "INVARIANTS.md: creating"
-  cat > "$PROJECT_INVARIANTS" << 'STDINV'
-# Project Invariants
-
-Project-specific rules that extend the shared engine standards. Every command loads this file automatically after the shared `~/.claude/directives/INVARIANTS.md`.
-
-Add your project's architectural rules, naming conventions, framework-specific constraints, and domain logic invariants here.
-STDINV
-  ACTIONS+=("Created .claude/directives/INVARIANTS.md")
-else
-  log_verbose "INVARIANTS.md: OK"
-fi
-
-# ---- Step 5: Update .gitignore ----
-log_step "Step 5: Update .gitignore"
-GITIGNORE="$PROJECT_ROOT/.gitignore"
-if [ -f "$GITIGNORE" ]; then
-  for entry in "sessions" "reports"; do
-    if ! grep -qx "$entry" "$GITIGNORE" && ! grep -qx "$entry/" "$GITIGNORE"; then
-      log_verbose ".gitignore: adding '$entry'"
-      echo "$entry" >> "$GITIGNORE"
-      ACTIONS+=("Added '$entry' to .gitignore")
+    if ! command -v sqlite3 &> /dev/null; then
+      log_verbose "sqlite: installing via brew..."
+      if [ "$VERBOSE" = true ]; then
+        brew install sqlite && ACTIONS+=("Installed sqlite via brew")
+      else
+        brew install sqlite >/dev/null 2>&1 && ACTIONS+=("Installed sqlite via brew")
+      fi
+    else
+      log_verbose "sqlite3: OK"
     fi
-  done
-  log_verbose ".gitignore: OK"
-else
-  log_verbose ".gitignore: creating"
-  printf 'sessions\nreports\n' > "$GITIGNORE"
-  ACTIONS+=("Created .gitignore")
-fi
+    if ! command -v fswatch &> /dev/null; then
+      log_verbose "fswatch: installing via brew..."
+      if [ "$VERBOSE" = true ]; then
+        brew install fswatch && ACTIONS+=("Installed fswatch via brew")
+      else
+        brew install fswatch >/dev/null 2>&1 && ACTIONS+=("Installed fswatch via brew")
+      fi
+    else
+      log_verbose "fswatch: OK"
+    fi
+  else
+    if ! command -v jq &> /dev/null; then MISSING_DEPS+=("jq"); fi
+    if ! command -v sqlite3 &> /dev/null; then MISSING_DEPS+=("sqlite3"); fi
+    if ! command -v fswatch &> /dev/null; then MISSING_DEPS+=("fswatch"); fi
+  fi
 
-# ---- Step 6: Drop README files into sessions and reports ----
-log_step "Step 6: Create README files"
-if [ ! -f "$SESSION_DIR/README.md" ]; then
-  log_verbose "sessions/README.md: creating"
-  cat > "$SESSION_DIR/README.md" << 'SESSREADME'
+  # ---- Step 1: Create GDrive directories ----
+  log_step "Step 1: Create GDrive directories"
+  local SESSION_DIR="$GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME/sessions"
+  local REPORTS_DIR="$GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME/reports"
+  if [ ! -d "$SESSION_DIR" ]; then
+    log_verbose "sessions/: creating $SESSION_DIR"
+    mkdir -p "$SESSION_DIR"
+    ACTIONS+=("Created $SESSION_DIR")
+  else
+    log_verbose "sessions/: OK"
+  fi
+  if [ ! -d "$REPORTS_DIR" ]; then
+    log_verbose "reports/: creating $REPORTS_DIR"
+    mkdir -p "$REPORTS_DIR"
+    ACTIONS+=("Created $REPORTS_DIR")
+  else
+    log_verbose "reports/: OK"
+  fi
+
+  # ---- Step 2: Engine symlinks ----
+  log_step "Step 2: User-level shared engine setup"
+  setup_engine_symlinks "$ENGINE_DIR" "$CLAUDE_DIR"
+
+  # Install npm deps for tools
+  if [ -d "$ENGINE_DIR/tools" ]; then
+    for tool_dir in "$ENGINE_DIR/tools"/*/; do
+      local tool_name
+      tool_name="$(basename "$tool_dir")"
+      if [ -f "$tool_dir/package.json" ] && [ ! -d "$tool_dir/node_modules" ]; then
+        log_verbose "$tool_name: npm install (this may take a while)..."
+        if [ "$VERBOSE" = true ]; then
+          (cd "$tool_dir" && npm install) && ACTIONS+=("Installed $tool_name npm deps")
+        else
+          (cd "$tool_dir" && npm install --silent 2>/dev/null) && ACTIONS+=("Installed $tool_name npm deps")
+        fi
+      fi
+    done
+  fi
+
+  # ---- Step 2b: Run migrations ----
+  log_step "Step 2b: Run migrations"
+  run_migrations "$CLAUDE_DIR" "${SESSION_DIR:-}" "$ENGINE_DIR"
+
+  # ---- Step 3: Project-level symlinks (sessions + reports) ----
+  log_step "Step 3: Project symlinks"
+  link_project_dir "$SESSION_DIR" "$PROJECT_ROOT/sessions" "./sessions"
+  link_project_dir "$REPORTS_DIR" "$PROJECT_ROOT/reports" "./reports"
+
+  # ---- Step 4: Create project directives stub ----
+  log_step "Step 4: Project directives"
+  ensure_project_directives "$PROJECT_ROOT"
+
+  # ---- Step 5: Update .gitignore ----
+  log_step "Step 5: Update .gitignore"
+  local GITIGNORE="$PROJECT_ROOT/.gitignore"
+  if [ -f "$GITIGNORE" ]; then
+    for entry in "sessions" "reports"; do
+      if ! grep -qx "$entry" "$GITIGNORE" && ! grep -qx "$entry/" "$GITIGNORE"; then
+        log_verbose ".gitignore: adding '$entry'"
+        echo "$entry" >> "$GITIGNORE"
+        ACTIONS+=("Added '$entry' to .gitignore")
+      fi
+    done
+    log_verbose ".gitignore: OK"
+  else
+    log_verbose ".gitignore: creating"
+    printf 'sessions\nreports\n' > "$GITIGNORE"
+    ACTIONS+=("Created .gitignore")
+  fi
+
+  # ---- Step 6: Drop README files into sessions and reports ----
+  log_step "Step 6: Create README files"
+  if [ ! -f "$SESSION_DIR/README.md" ]; then
+    log_verbose "sessions/README.md: creating"
+    cat > "$SESSION_DIR/README.md" << 'SESSREADME'
 # Sessions
 
-Each subdirectory is one work session, named `YYYY_MM_DD_TOPIC/`. Sessions are created automatically by workflow commands (`/brainstorm`, `/implement`, `/debug`, etc.).
+Each subdirectory is one work session, named `YYYY_MM_DD_TOPIC/`. Sessions are created automatically by workflow commands (`/brainstorm`, `/implement`, `/fix`, etc.).
 
 A typical session contains:
 - **LOG.md** — Stream-of-consciousness record of decisions, blocks, and progress
@@ -932,30 +1009,30 @@ A typical session contains:
 
 Sessions are stored on Google Drive and symlinked into each project. Browse anyone's sessions from the Shared Drive.
 SESSREADME
-  ACTIONS+=("Created sessions/README.md")
-else
-  log_verbose "sessions/README.md: OK"
-fi
+    ACTIONS+=("Created sessions/README.md")
+  else
+    log_verbose "sessions/README.md: OK"
+  fi
 
-if [ ! -f "$REPORTS_DIR/README.md" ]; then
-  log_verbose "reports/README.md: creating"
-  cat > "$REPORTS_DIR/README.md" << 'REPREADME'
+  if [ ! -f "$REPORTS_DIR/README.md" ]; then
+    log_verbose "reports/README.md: creating"
+    cat > "$REPORTS_DIR/README.md" << 'REPREADME'
 # Reports
 
 Progress reports generated by `/summarize-progress`. Each report summarizes recent session activity — what shipped, what's in progress, and what's blocked.
 
 Reports are stored on Google Drive and symlinked into each project.
 REPREADME
-  ACTIONS+=("Created reports/README.md")
-else
-  log_verbose "reports/README.md: OK"
-fi
+    ACTIONS+=("Created reports/README.md")
+  else
+    log_verbose "reports/README.md: OK"
+  fi
 
-# ---- Step 7: Configure Claude Code permissions ----
-log_step "Step 7: Configure permissions"
-GLOBAL_SETTINGS="$CLAUDE_DIR/settings.json"
+  # ---- Step 7: Configure Claude Code permissions ----
+  log_step "Step 7: Configure permissions"
+  local GLOBAL_SETTINGS="$CLAUDE_DIR/settings.json"
 
-read -r -d '' GLOBAL_PERMISSIONS << 'PERMS' || true
+  read -r -d '' GLOBAL_PERMISSIONS << 'PERMS' || true
 {
   "permissions": {
     "allow": [
@@ -973,62 +1050,62 @@ read -r -d '' GLOBAL_PERMISSIONS << 'PERMS' || true
 }
 PERMS
 
-MISSING_DEPS=()
-
-if command -v jq &> /dev/null; then
-  log_verbose "~/.claude/settings.json: configuring with jq"
-  if [ -f "$GLOBAL_SETTINGS" ] && [ -s "$GLOBAL_SETTINGS" ]; then
-    log_verbose "  merging permissions..."
-    EXISTING=$(cat "$GLOBAL_SETTINGS")
-    MERGED=$(echo "$EXISTING" | jq --argjson new "$GLOBAL_PERMISSIONS" '
-      .permissions.allow = ((.permissions.allow // []) + $new.permissions.allow | unique)
-    ')
-    if [ "$EXISTING" != "$MERGED" ]; then
-      echo "$MERGED" > "$GLOBAL_SETTINGS"
-      ACTIONS+=("Updated ~/.claude/settings.json permissions")
-    fi
-  else
-    log_verbose "  creating new settings.json..."
-    echo "$GLOBAL_PERMISSIONS" > "$GLOBAL_SETTINGS"
-    ACTIONS+=("Created ~/.claude/settings.json")
-  fi
-
-  # StatusLine hook
-  log_verbose "  checking statusLine hook..."
-  CURRENT_STATUSLINE=$(jq -r '.statusLine.command // ""' "$GLOBAL_SETTINGS" 2>/dev/null)
-  if [[ "$CURRENT_STATUSLINE" != *"statusline.sh"* ]]; then
-    log_verbose "  configuring statusLine hook..."
-    MERGED=$(cat "$GLOBAL_SETTINGS" | jq '.statusLine = {
-      "type": "command",
-      "command": "~/.claude/tools/statusline.sh"
-    }')
-    echo "$MERGED" > "$GLOBAL_SETTINGS"
-    if [ -z "$CURRENT_STATUSLINE" ]; then
-      ACTIONS+=("Added statusLine hook")
+  if command -v jq &> /dev/null; then
+    log_verbose "~/.claude/settings.json: configuring with jq"
+    if [ -f "$GLOBAL_SETTINGS" ] && [ -s "$GLOBAL_SETTINGS" ]; then
+      log_verbose "  merging permissions..."
+      local EXISTING MERGED
+      EXISTING=$(cat "$GLOBAL_SETTINGS")
+      MERGED=$(echo "$EXISTING" | jq --argjson new "$GLOBAL_PERMISSIONS" '
+        .permissions.allow = ((.permissions.allow // []) + $new.permissions.allow | unique)
+      ')
+      if [ "$EXISTING" != "$MERGED" ]; then
+        echo "$MERGED" > "$GLOBAL_SETTINGS"
+        ACTIONS+=("Updated ~/.claude/settings.json permissions")
+      fi
     else
-      ACTIONS+=("Replaced default statusLine with engine statusLine")
+      log_verbose "  creating new settings.json..."
+      echo "$GLOBAL_PERMISSIONS" > "$GLOBAL_SETTINGS"
+      ACTIONS+=("Created ~/.claude/settings.json")
     fi
+
+    # StatusLine hook
+    log_verbose "  checking statusLine hook..."
+    local CURRENT_STATUSLINE
+    CURRENT_STATUSLINE=$(jq -r '.statusLine.command // ""' "$GLOBAL_SETTINGS" 2>/dev/null)
+    if [[ "$CURRENT_STATUSLINE" != *"statusline.sh"* ]]; then
+      log_verbose "  configuring statusLine hook..."
+      MERGED=$(cat "$GLOBAL_SETTINGS" | jq '.statusLine = {
+        "type": "command",
+        "command": "~/.claude/tools/statusline.sh"
+      }')
+      echo "$MERGED" > "$GLOBAL_SETTINGS"
+      if [ -z "$CURRENT_STATUSLINE" ]; then
+        ACTIONS+=("Added statusLine hook")
+      else
+        ACTIONS+=("Replaced default statusLine with engine statusLine")
+      fi
+    else
+      log_verbose "  statusLine: OK"
+    fi
+
+    # Fleet notification hooks (deep-merge via setup-lib.sh)
+    log_verbose "  checking notification hooks..."
+    configure_hooks "$GLOBAL_SETTINGS"
   else
-    log_verbose "  statusLine: OK"
+    log_verbose "~/.claude/settings.json: jq not available, using basic config"
+    if [ ! -f "$GLOBAL_SETTINGS" ] || [ "$(cat "$GLOBAL_SETTINGS" 2>/dev/null)" = "{}" ]; then
+      echo "$GLOBAL_PERMISSIONS" > "$GLOBAL_SETTINGS"
+      ACTIONS+=("Created ~/.claude/settings.json (basic, no jq)")
+    fi
   fi
 
-  # Fleet notification hooks (deep-merge via setup-lib.sh)
-  log_verbose "  checking notification hooks..."
-  configure_hooks "$GLOBAL_SETTINGS"
-else
-  log_verbose "~/.claude/settings.json: jq not available, using basic config"
-  if [ ! -f "$GLOBAL_SETTINGS" ] || [ "$(cat "$GLOBAL_SETTINGS" 2>/dev/null)" = "{}" ]; then
-    echo "$GLOBAL_PERMISSIONS" > "$GLOBAL_SETTINGS"
-    ACTIONS+=("Created ~/.claude/settings.json (basic, no jq)")
-  fi
-fi
+  # Project permissions
+  log_verbose ".claude/settings.json: configuring project permissions"
+  local PROJECT_SETTINGS="$PROJECT_ROOT/.claude/settings.json"
+  mkdir -p "$PROJECT_ROOT/.claude"
 
-# Project permissions
-log_verbose ".claude/settings.json: configuring project permissions"
-PROJECT_SETTINGS="$PROJECT_ROOT/.claude/settings.json"
-mkdir -p "$PROJECT_ROOT/.claude"
-
-read -r -d '' PROJECT_PERMISSIONS << 'PERMS' || true
+  read -r -d '' PROJECT_PERMISSIONS << 'PERMS' || true
 {
   "permissions": {
     "allow": [
@@ -1043,68 +1120,180 @@ read -r -d '' PROJECT_PERMISSIONS << 'PERMS' || true
 }
 PERMS
 
-if command -v jq &> /dev/null; then
-  if [ -f "$PROJECT_SETTINGS" ] && [ -s "$PROJECT_SETTINGS" ]; then
-    log_verbose "  merging project permissions..."
-    EXISTING=$(cat "$PROJECT_SETTINGS")
-    MERGED=$(echo "$EXISTING" | jq --argjson new "$PROJECT_PERMISSIONS" '
-      .permissions.allow = ((.permissions.allow // []) + $new.permissions.allow | unique)
-    ')
-    if [ "$EXISTING" != "$MERGED" ]; then
-      echo "$MERGED" > "$PROJECT_SETTINGS"
-      ACTIONS+=("Updated .claude/settings.json permissions")
+  if command -v jq &> /dev/null; then
+    if [ -f "$PROJECT_SETTINGS" ] && [ -s "$PROJECT_SETTINGS" ]; then
+      log_verbose "  merging project permissions..."
+      local EXISTING MERGED
+      EXISTING=$(cat "$PROJECT_SETTINGS")
+      MERGED=$(echo "$EXISTING" | jq --argjson new "$PROJECT_PERMISSIONS" '
+        .permissions.allow = ((.permissions.allow // []) + $new.permissions.allow | unique)
+      ')
+      if [ "$EXISTING" != "$MERGED" ]; then
+        echo "$MERGED" > "$PROJECT_SETTINGS"
+        ACTIONS+=("Updated .claude/settings.json permissions")
+      else
+        log_verbose "  project permissions: OK"
+      fi
     else
-      log_verbose "  project permissions: OK"
+      log_verbose "  creating project settings.json..."
+      echo "$PROJECT_PERMISSIONS" > "$PROJECT_SETTINGS"
+      ACTIONS+=("Created .claude/settings.json")
     fi
   else
-    log_verbose "  creating project settings.json..."
-    echo "$PROJECT_PERMISSIONS" > "$PROJECT_SETTINGS"
-    ACTIONS+=("Created .claude/settings.json")
+    if [ ! -f "$PROJECT_SETTINGS" ] || [ "$(cat "$PROJECT_SETTINGS" 2>/dev/null)" = "{}" ] || [ ! -s "$PROJECT_SETTINGS" ]; then
+      log_verbose "  creating project settings.json (basic)..."
+      echo "$PROJECT_PERMISSIONS" > "$PROJECT_SETTINGS"
+      ACTIONS+=("Created .claude/settings.json (basic)")
+    else
+      log_verbose "  project settings: OK"
+    fi
   fi
-else
-  if [ ! -f "$PROJECT_SETTINGS" ] || [ "$(cat "$PROJECT_SETTINGS" 2>/dev/null)" = "{}" ] || [ ! -s "$PROJECT_SETTINGS" ]; then
-    log_verbose "  creating project settings.json (basic)..."
-    echo "$PROJECT_PERMISSIONS" > "$PROJECT_SETTINGS"
-    ACTIONS+=("Created .claude/settings.json (basic)")
+
+  # ---- Global symlink (/usr/local/bin/engine) ----
+  # Creates /usr/local/bin/engine → this script so `engine` works globally.
+  # Tries without sudo first; if that fails, explains what we need and asks for sudo.
+  # sudo runs in a subshell so credentials don't propagate to Claude.
+  local SELF_PATH
+  SELF_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$(basename "$SCRIPT_PATH")"
+
+  _engine_symlink_sudo() {
+    # Run ln via sudo in a subshell to isolate sudo credential caching
+    local cmd="$1"  # "create" or "update"
+    echo ""
+    echo "  Need sudo to $cmd /usr/local/bin/engine → $SELF_PATH"
+    echo "  (This makes the 'engine' command available globally)"
+    (exec sudo ln -sf "$SELF_PATH" "/usr/local/bin/engine")
+  }
+
+  if [ -L "/usr/local/bin/engine" ]; then
+    local current_target
+    current_target=$(readlink "/usr/local/bin/engine")
+    if [ "$current_target" = "$SELF_PATH" ]; then
+      log_verbose "  /usr/local/bin/engine: already linked"
+    else
+      ln -sf "$SELF_PATH" "/usr/local/bin/engine" 2>/dev/null || _engine_symlink_sudo "update" || {
+        echo "  WARNING: Could not update /usr/local/bin/engine"
+      }
+      if [ -L "/usr/local/bin/engine" ] && [ "$(readlink "/usr/local/bin/engine")" = "$SELF_PATH" ]; then
+        ACTIONS+=("Updated /usr/local/bin/engine symlink")
+      fi
+    fi
+  elif [ ! -e "/usr/local/bin/engine" ]; then
+    ln -s "$SELF_PATH" "/usr/local/bin/engine" 2>/dev/null || _engine_symlink_sudo "create" || {
+      echo "  WARNING: Could not create /usr/local/bin/engine"
+    }
+    if [ -L "/usr/local/bin/engine" ]; then
+      ACTIONS+=("Created /usr/local/bin/engine symlink")
+    fi
   else
-    log_verbose "  project settings: OK"
+    log_verbose "  /usr/local/bin/engine: exists but is not a symlink (skipping)"
+  fi
+
+  # ---- Mark setup as complete ----
+  touch "$SETUP_MARKER"
+
+  # ---- Output summary ----
+  log_step "Complete"
+  if [ ${#ACTIONS[@]} -gt 0 ]; then
+    echo ""
+    echo "Done:"
+    for action in "${ACTIONS[@]}"; do
+      echo "  - $action"
+    done
+  fi
+
+  if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
+    echo ""
+    echo "Missing: ${MISSING_DEPS[*]} (install Homebrew, then re-run engine setup)"
+  fi
+}
+
+# ============================================================================
+# Main dispatch
+# ============================================================================
+
+# Get the sub-command (first positional arg)
+SUBCMD="${1:-}"
+
+# If a sub-command was given, shift it off so "$@" contains only its args
+if [ -n "$SUBCMD" ]; then
+  shift
+fi
+
+# 1. Built-in commands (explicit handlers)
+case "$SUBCMD" in
+  setup)     cmd_setup "$@";     exit 0 ;;
+  local)     cmd_local;          exit 0 ;;
+  remote)    cmd_remote;         exit 0 ;;
+  pull)      cmd_pull;           exit 0 ;;
+  push)      cmd_push;           exit 0 ;;
+  deploy)    cmd_deploy;         exit 0 ;;
+  status)    cmd_status;         exit 0 ;;
+  report)    cmd_report;         exit 0 ;;
+  test)      cmd_test "$@";      exit 0 ;;
+  uninstall) cmd_uninstall;      exit 0 ;;
+  help)      cmd_help;           exit 0 ;;
+esac
+
+# 2. Auto-dispatch: check if scripts/<subcmd>.sh exists
+if [ -n "$SUBCMD" ]; then
+  SUBCMD_SCRIPT="$SCRIPT_DIR/${SUBCMD}.sh"
+  if [ -x "$SUBCMD_SCRIPT" ]; then
+    # Pure passthrough: exec replaces this process
+    exec "$SUBCMD_SCRIPT" "$@"
+  elif [[ "$SUBCMD" == --* ]]; then
+    # Flag intended for run.sh (e.g., --monitor-tags, --agent, --description, --focus)
+    # Forward to run.sh as the default action
+    RUN_SCRIPT="$SCRIPT_DIR/run.sh"
+    if [ -x "$RUN_SCRIPT" ]; then
+      exec "$RUN_SCRIPT" "$SUBCMD" "$@"
+    else
+      echo "ERROR: run.sh not found at $RUN_SCRIPT"
+      exit 1
+    fi
+  else
+    echo "ERROR: Unknown command '$SUBCMD'"
+    echo ""
+    echo "Run 'engine --help' to see available commands."
+    exit 1
   fi
 fi
 
-# ---- Global symlink (/usr/local/bin/engine) ----
-SELF_PATH="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+# 3. Default (no args): auto-setup if needed, then launch Claude
+if [ ! -f "$SETUP_MARKER" ]; then
+  echo "First run detected. Running setup..."
+  echo ""
+  cmd_setup
+  echo ""
+fi
+
+# Ensure /usr/local/bin/engine symlink exists (lightweight check, every launch)
+SELF_PATH_CHECK="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$(basename "$SCRIPT_PATH")"
 if [ -L "/usr/local/bin/engine" ]; then
-  current_target=$(readlink "/usr/local/bin/engine")
-  if [ "$current_target" = "$SELF_PATH" ]; then
-    log_verbose "  /usr/local/bin/engine: already linked"
-  else
-    ln -sf "$SELF_PATH" "/usr/local/bin/engine" 2>/dev/null || sudo ln -sf "$SELF_PATH" "/usr/local/bin/engine" 2>/dev/null || {
-      log_verbose "  WARNING: Could not update /usr/local/bin/engine (try: sudo ln -sf $SELF_PATH /usr/local/bin/engine)"
+  _current=$(readlink "/usr/local/bin/engine")
+  if [ "$_current" != "$SELF_PATH_CHECK" ]; then
+    echo "  /usr/local/bin/engine points to stale target: $_current"
+    echo "  Updating to: $SELF_PATH_CHECK"
+    ln -sf "$SELF_PATH_CHECK" "/usr/local/bin/engine" 2>/dev/null || {
+      echo ""
+      echo "  Need sudo to update /usr/local/bin/engine → $SELF_PATH_CHECK"
+      (exec sudo ln -sf "$SELF_PATH_CHECK" "/usr/local/bin/engine") || echo "  WARNING: Could not update symlink"
     }
-    ACTIONS+=("Updated /usr/local/bin/engine symlink")
   fi
 elif [ ! -e "/usr/local/bin/engine" ]; then
-  ln -s "$SELF_PATH" "/usr/local/bin/engine" 2>/dev/null || sudo ln -s "$SELF_PATH" "/usr/local/bin/engine" 2>/dev/null || {
-    log_verbose "  WARNING: Could not create /usr/local/bin/engine (try: sudo ln -s $SELF_PATH /usr/local/bin/engine)"
+  ln -s "$SELF_PATH_CHECK" "/usr/local/bin/engine" 2>/dev/null || {
+    echo ""
+    echo "  Need sudo to create /usr/local/bin/engine → $SELF_PATH_CHECK"
+    echo "  (This makes the 'engine' command available globally)"
+    (exec sudo ln -sf "$SELF_PATH_CHECK" "/usr/local/bin/engine") || echo "  WARNING: Could not create symlink"
   }
-  if [ -L "/usr/local/bin/engine" ]; then
-    ACTIONS+=("Created /usr/local/bin/engine symlink")
-  fi
-else
-  log_verbose "  /usr/local/bin/engine: exists but is not a symlink (skipping)"
 fi
 
-# ---- Output summary ----
-log_step "Complete"
-if [ ${#ACTIONS[@]} -gt 0 ]; then
-  echo ""
-  echo "Done:"
-  for action in "${ACTIONS[@]}"; do
-    echo "  - $action"
-  done
+# Launch Claude via run.sh
+RUN_SCRIPT="$SCRIPT_DIR/run.sh"
+if [ ! -x "$RUN_SCRIPT" ]; then
+  echo "ERROR: run.sh not found at $RUN_SCRIPT"
+  exit 1
 fi
 
-if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
-  echo ""
-  echo "Missing: ${MISSING_DEPS[*]} (install Homebrew, then re-run engine.sh)"
-fi
+exec "$RUN_SCRIPT" "$@"

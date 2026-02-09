@@ -6,19 +6,9 @@
 # Run: bash ~/.claude/engine/scripts/tests/test-lib.sh
 
 set -uo pipefail
+source "$(dirname "$0")/test-helpers.sh"
 
 LIB_SH="$HOME/.claude/scripts/lib.sh"
-
-# Colors
-RED='\033[31m'
-GREEN='\033[32m'
-YELLOW='\033[33m'
-RESET='\033[0m'
-
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
 
 # Temp directory for test fixtures
 TEST_DIR=""
@@ -45,24 +35,11 @@ teardown() {
   fi
 }
 
-pass() {
-  echo -e "${GREEN}PASS${RESET}: $1"
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-}
-
-fail() {
-  echo -e "${RED}FAIL${RESET}: $1"
-  echo "  Expected: $2"
-  echo "  Got: $3"
-  TESTS_FAILED=$((TESTS_FAILED + 1))
-}
-
 # =============================================================================
 # TIMESTAMP TESTS
 # =============================================================================
 
 test_timestamp_iso_format() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="timestamp: outputs ISO format"
   setup
 
@@ -84,7 +61,6 @@ test_timestamp_iso_format() {
 # =============================================================================
 
 test_pid_exists_running() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="pid_exists: returns 0 for running PID"
   setup
 
@@ -98,7 +74,6 @@ test_pid_exists_running() {
 }
 
 test_pid_exists_dead() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="pid_exists: returns 1 for dead PID"
   setup
 
@@ -116,7 +91,6 @@ test_pid_exists_dead() {
 # =============================================================================
 
 test_hook_allow_json() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="hook_allow: outputs correct JSON"
   setup
 
@@ -139,7 +113,6 @@ test_hook_allow_json() {
 # =============================================================================
 
 test_hook_deny_json() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="hook_deny: outputs correct JSON with all 3 args"
   setup
 
@@ -162,7 +135,6 @@ test_hook_deny_json() {
 }
 
 test_hook_deny_debug_included() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="hook_deny: DEBUG=1 includes debug info"
   setup
 
@@ -182,7 +154,6 @@ test_hook_deny_debug_included() {
 }
 
 test_hook_deny_debug_excluded() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="hook_deny: DEBUG unset excludes debug info"
   setup
 
@@ -207,7 +178,6 @@ test_hook_deny_debug_excluded() {
 # =============================================================================
 
 test_safe_json_write_valid() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="safe_json_write: valid JSON writes atomically"
   setup
 
@@ -228,7 +198,6 @@ test_safe_json_write_valid() {
 }
 
 test_safe_json_write_invalid() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="safe_json_write: invalid JSON is rejected"
   setup
 
@@ -251,7 +220,6 @@ test_safe_json_write_invalid() {
 }
 
 test_safe_json_write_concurrent() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="safe_json_write: concurrent writes don't corrupt"
   setup
 
@@ -285,7 +253,6 @@ test_safe_json_write_concurrent() {
 }
 
 test_safe_json_write_stale_lock() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="safe_json_write: stale lock is cleaned up"
   setup
 
@@ -317,7 +284,6 @@ test_safe_json_write_stale_lock() {
 # =============================================================================
 
 test_notify_fleet_no_tmux() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="notify_fleet: no TMUX env returns 0 (no-op)"
   setup
 
@@ -337,7 +303,6 @@ test_notify_fleet_no_tmux() {
 }
 
 test_notify_fleet_non_fleet_socket() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="notify_fleet: non-fleet TMUX socket returns 0 (no-op)"
   setup
 
@@ -365,7 +330,6 @@ SCRIPT
 }
 
 test_notify_fleet_fleet_socket() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="notify_fleet: fleet socket calls fleet.sh notify"
   setup
 
@@ -396,7 +360,6 @@ SCRIPT
 }
 
 test_notify_fleet_fleet_prefixed_socket() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="notify_fleet: fleet-* socket calls fleet.sh notify"
   setup
 
@@ -431,7 +394,6 @@ SCRIPT
 # =============================================================================
 
 test_state_read_existing_field() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="state_read: returns value for existing field"
   setup
 
@@ -451,7 +413,6 @@ test_state_read_existing_field() {
 }
 
 test_state_read_missing_field_with_default() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="state_read: returns default for missing field"
   setup
 
@@ -471,7 +432,6 @@ test_state_read_missing_field_with_default() {
 }
 
 test_state_read_missing_file() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="state_read: returns default for missing file"
   setup
 
@@ -488,7 +448,6 @@ test_state_read_missing_file() {
 }
 
 test_state_read_no_default() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="state_read: returns empty string when no default provided"
   setup
 
@@ -505,7 +464,6 @@ test_state_read_no_default() {
 }
 
 test_state_read_special_chars() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="state_read: handles special chars in value"
   setup
 
@@ -564,8 +522,4 @@ test_state_read_missing_file
 test_state_read_no_default
 test_state_read_special_chars
 
-# Summary
-echo ""
-echo "Results: $TESTS_PASSED passed, $TESTS_FAILED failed, $TESTS_RUN total"
-
-[ $TESTS_FAILED -eq 0 ] && exit 0 || exit 1
+exit_with_results

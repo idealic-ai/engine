@@ -9,15 +9,23 @@
 set -uo pipefail
 
 TESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Pre-flight: verify test-helpers.sh exists
+if [ ! -f "$TESTS_DIR/test-helpers.sh" ]; then
+  echo "ERROR: test-helpers.sh not found in $TESTS_DIR"
+  echo "All test files depend on this shared library."
+  exit 1
+fi
+
 TOTAL_SUITES=0
 PASSED_SUITES=0
 FAILED_SUITES=0
 FAILED_NAMES=()
 VERBOSE=0
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
+RED='\033[31m'
+GREEN='\033[32m'
+RESET='\033[0m'
 
 # Parse -v flag
 ARGS=()
@@ -53,11 +61,11 @@ run_suite() {
       # Extract pass count from "Results: N passed" line
       local count
       count=$(echo "$output" | grep -oE '[0-9]+ passed' | head -1 || echo "")
-      echo -e "  ${GREEN}✓${NC} $name ${count:+($count)}"
+      echo -e "  ${GREEN}✓${RESET} $name ${count:+($count)}"
     else
       FAILED_SUITES=$((FAILED_SUITES + 1))
       FAILED_NAMES+=("$name")
-      echo -e "  ${RED}✗${NC} $name"
+      echo -e "  ${RED}✗${RESET} $name"
       # Show only FAIL lines + results summary
       echo "$output" | grep -E 'FAIL|Expected|Actual|Results:' | sed 's/^/    /'
     fi
@@ -78,15 +86,16 @@ if [ $# -gt 0 ]; then
     elif [ -f "$arg" ]; then
       run_suite "$arg"
     else
-      echo -e "${RED}NOT FOUND${NC}: $arg"
+      echo -e "${RED}NOT FOUND${RESET}: $arg"
       FAILED_SUITES=$((FAILED_SUITES + 1))
       FAILED_NAMES+=("$arg")
     fi
   done
 else
-  # Run all test-*.sh files
+  # Run all test-*.sh files (skip test-helpers.sh — it's a library, not a suite)
   for file in "$TESTS_DIR"/test-*.sh; do
     [ -f "$file" ] || continue
+    [ "$(basename "$file")" = "test-helpers.sh" ] && continue
     run_suite "$file"
   done
 fi
@@ -95,11 +104,11 @@ fi
 echo ""
 echo "╔════════════════════════════════════════╗"
 if [ $FAILED_SUITES -eq 0 ]; then
-  echo -e "║  ${GREEN}ALL $TOTAL_SUITES SUITES PASSED${NC}                  ║"
+  echo -e "║  ${GREEN}ALL $TOTAL_SUITES SUITES PASSED${RESET}                  ║"
 else
-  echo -e "║  ${RED}$FAILED_SUITES/$TOTAL_SUITES SUITES FAILED${NC}                  ║"
+  echo -e "║  ${RED}$FAILED_SUITES/$TOTAL_SUITES SUITES FAILED${RESET}                  ║"
   for name in "${FAILED_NAMES[@]}"; do
-    echo -e "║    ${RED}✗${NC} $name"
+    echo -e "║    ${RED}✗${RESET} $name"
   done
 fi
 echo "╚════════════════════════════════════════╝"

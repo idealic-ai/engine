@@ -11,14 +11,14 @@ Creates semi-permanent situational documents for reference. Writeups describe a 
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
-### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
+### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
 **Output this block in chat with every blank filled:**
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
 
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
+[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Writeup Protocol (Lightweight Situational Documentation)
 
@@ -26,7 +26,7 @@ Creates semi-permanent situational documents for reference. Writeups describe a 
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structure. Use THIS protocol's phases, not the IDE's.
 
-## 1. Setup & Discovery
+## 0. Setup & Discovery
 
 **Intent**: Parse the topic and discover available destinations.
 
@@ -48,23 +48,19 @@ Creates semi-permanent situational documents for reference. Writeups describe a 
     mkdir -p <destination>/docs/writeups
     ```
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
+### §CMD_VERIFY_PHASE_EXIT — Phase 0
 **Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
+> **Phase 0 proof:**
 > - Topic parsed: `________`
 > - Destinations discovered: `________`
 > - User selected destination: `________`
 > - writeups/ directory exists: `________`
 
-### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 2: RAG Keywords"** — Search for related context before writing
-> - **"Skip to Phase 3: Interrogation"** — Skip RAG, go straight to clarification
+*Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
 
-## 2. RAG Keywords (Optional Context Discovery)
+## 1. RAG Keywords (Optional Context Discovery)
 
 **Intent**: Offer the user keywords to search for related context.
 
@@ -86,22 +82,22 @@ Execute `AskUserQuestion` (multiSelect: false):
 
 4.  **If Skipped**: Proceed without the Related section (or mark it "None").
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
+### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
+> **Phase 1 proof:**
 > - Keywords generated (or skipped): `________`
 > - RAG searches executed (or skipped): `________`
 > - Related files collected (or "None"): `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 2: RAG complete. How to proceed?"
-> - **"Proceed to Phase 3: Interrogation"** — Clarify writeup content
-> - **"Stay in Phase 2"** — Search more keywords
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "1: RAG Keywords"
+  nextPhase: "2: Interrogation"
+  prevPhase: "0: Setup & Discovery"
 
 ---
 
-## 3. Interrogation (Brief Clarification)
+## 2. Interrogation (Brief Clarification)
 
 **Intent**: Gather structured input for each section of the writeup.
 
@@ -158,21 +154,21 @@ Use `AskUserQuestion` to clarify the writeup content.
 **After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
 
 > "Clarification complete (minimum met). What next?"
-> - **"Proceed to Phase 4: Writing"** — *(terminal: if selected, skip all others and move on)*
+> - **"Proceed to Phase 3: Writing"** — *(terminal: if selected, skip all others and move on)*
 > - **"More clarification (1 more round)"** — Additional questions, then this gate re-appears
 > - **"Devil's advocate round"** — 1 round challenging the framing
 > - **"Deep dive round"** — 1 round drilling into a specific aspect
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
+### §CMD_VERIFY_PHASE_EXIT — Phase 2
 **Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
+> **Phase 2 proof:**
 > - Interrogation depth chosen: `________`
 > - Minimum rounds completed: `________`
 > - User selected proceed: `________`
 
 ---
 
-## 4. Writing
+## 3. Writing
 
 **Intent**: Generate the writeup document.
 
@@ -199,9 +195,9 @@ Use `AskUserQuestion` to clarify the writeup content.
 
 5.  **Report**: Output to chat the created file path as a clickable link per `¶INV_TERMINAL_FILE_LINKS`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
+### §CMD_VERIFY_PHASE_EXIT — Phase 3 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
+> **Phase 3 proof:**
 > - Writeup file created: `________` (real file path)
 > - All template sections populated: `________`
 > - File path reported: `________`

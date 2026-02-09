@@ -9,19 +9,10 @@
 # Don't use set -e globally — we need to handle return codes manually in tests
 set -uo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 SESSION_SH="$HOME/.claude/engine/scripts/session.sh"
 LIB_SH="$HOME/.claude/scripts/lib.sh"
-
-# Colors
-RED='\033[31m'
-GREEN='\033[32m'
-YELLOW='\033[33m'
-RESET='\033[0m'
-
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
 
 # Temp directory for test fixtures
 TEST_DIR=""
@@ -88,22 +79,6 @@ teardown() {
   fi
 }
 
-pass() {
-  echo -e "${GREEN}PASS${RESET}: $1"
-  ((TESTS_PASSED++))
-}
-
-fail() {
-  echo -e "${RED}FAIL${RESET}: $1"
-  echo "  Expected: $2"
-  echo "  Got: $3"
-  ((TESTS_FAILED++))
-}
-
-skip() {
-  echo -e "${YELLOW}SKIP${RESET}: $1 — $2"
-}
-
 # Helper: set fleet.sh mock to return a specific pane ID
 mock_fleet_pane() {
   local pane_id="$1"
@@ -126,12 +101,31 @@ create_state() {
   echo "$json" > "$dir/.state.json"
 }
 
+# Helper: returns a complete valid activation JSON with all required fields.
+# Usage: valid_activate_json '{"phases":[...], "taskSummary":"override"}' → merged JSON
+# Pass '{}' or omit to get base defaults.
+valid_activate_json() {
+  local overrides="${1:-{\}}"
+  jq -n --argjson overrides "$overrides" '{
+    "taskType": "IMPLEMENTATION",
+    "taskSummary": "test task",
+    "scope": "Full Codebase",
+    "directoriesOfInterest": [],
+    "preludeFiles": [],
+    "contextPaths": [],
+    "planTemplate": null,
+    "logTemplate": null,
+    "debriefTemplate": null,
+    "extraInfo": "",
+    "phases": []
+  } * $overrides'
+}
+
 # =============================================================================
 # INIT TESTS
 # =============================================================================
 
 test_init_creates_directory() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="init: creates directory when it doesn't exist"
   setup
 
@@ -148,7 +142,6 @@ test_init_creates_directory() {
 }
 
 test_init_existing_directory() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="init: reports 'already exists' for existing directory"
   setup
 
@@ -170,7 +163,6 @@ test_init_existing_directory() {
 # =============================================================================
 
 test_activate_creates_state_json() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: creates .state.json with correct fields"
   setup
 
@@ -202,7 +194,6 @@ test_activate_creates_state_json() {
 }
 
 test_activate_with_fleet_pane() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: sets fleetPaneId when fleet.sh returns pane ID"
   setup
   mock_fleet_pane "test:pane:1"
@@ -223,11 +214,10 @@ test_activate_with_fleet_pane() {
 }
 
 test_activate_merges_stdin_json() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: merges JSON from stdin into .state.json"
   setup
 
-  echo '{"taskSummary":"test task","extraInfo":"some extra"}' | \
+  valid_activate_json '{"taskSummary":"test task","extraInfo":"some extra"}' | \
     "$SESSION_SH" activate "$TEST_DIR/sessions/MERGE" brainstorm > /dev/null 2>&1
 
   local sf="$TEST_DIR/sessions/MERGE/.state.json"
@@ -245,11 +235,10 @@ test_activate_merges_stdin_json() {
 }
 
 test_activate_sets_phase_from_phases_array() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: derives currentPhase from phases array"
   setup
 
-  echo '{"phases":[{"major":1,"minor":0,"name":"Setup"},{"major":2,"minor":0,"name":"Build"}]}' | \
+  valid_activate_json '{"phases":[{"major":1,"minor":0,"name":"Setup"},{"major":2,"minor":0,"name":"Build"}]}' | \
     "$SESSION_SH" activate "$TEST_DIR/sessions/PHASES" brainstorm > /dev/null 2>&1
 
   local sf="$TEST_DIR/sessions/PHASES/.state.json"
@@ -270,7 +259,6 @@ test_activate_sets_phase_from_phases_array() {
 # =============================================================================
 
 test_activate_same_pid_same_skill() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: re-activates silently for same PID + same skill"
   setup
 
@@ -295,7 +283,6 @@ test_activate_same_pid_same_skill() {
 }
 
 test_activate_same_pid_new_skill() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: updates skill and wipes phases for same PID + different skill"
   setup
 
@@ -306,7 +293,7 @@ test_activate_same_pid_new_skill() {
     currentPhase: "1: Setup"
   }')"
 
-  echo '{"phases":[{"major":1,"minor":0,"name":"Setup"},{"major":2,"minor":0,"name":"Build"}]}' | \
+  valid_activate_json '{"phases":[{"major":1,"minor":0,"name":"Setup"},{"major":2,"minor":0,"name":"Build"}]}' | \
     "$SESSION_SH" activate "$TEST_DIR/sessions/NEWSKILL" implement > /dev/null 2>&1
 
   local sf="$TEST_DIR/sessions/NEWSKILL/.state.json"
@@ -324,7 +311,6 @@ test_activate_same_pid_new_skill() {
 }
 
 test_activate_resets_overflow_flags() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: clears killRequested and overflowed on re-activation"
   setup
 
@@ -335,7 +321,7 @@ test_activate_resets_overflow_flags() {
   }')"
 
   # Activate with a different skill to trigger the re-activation path (not early-exit)
-  echo '{"phases":[{"major":1,"minor":0,"name":"Setup"}]}' | \
+  valid_activate_json '{"phases":[{"major":1,"minor":0,"name":"Setup"}]}' | \
     "$SESSION_SH" activate "$TEST_DIR/sessions/OVERFLOW" implement > /dev/null 2>&1
 
   local sf="$TEST_DIR/sessions/OVERFLOW/.state.json"
@@ -357,7 +343,6 @@ test_activate_resets_overflow_flags() {
 # =============================================================================
 
 test_activate_rejects_alive_pid() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: rejects activation when different alive PID holds session"
   setup
 
@@ -382,7 +367,6 @@ test_activate_rejects_alive_pid() {
 }
 
 test_activate_cleans_dead_pid() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: cleans up stale .state.json when PID is dead"
   setup
 
@@ -412,7 +396,6 @@ test_activate_cleans_dead_pid() {
 }
 
 test_activate_claims_pid_from_other_sessions() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: clears PID from other sessions"
   setup
 
@@ -446,7 +429,6 @@ test_activate_claims_pid_from_other_sessions() {
 # =============================================================================
 
 test_activate_rejects_completed_skill() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: rejects activation when skill is in completedSkills"
   setup
 
@@ -472,7 +454,6 @@ test_activate_rejects_completed_skill() {
 }
 
 test_activate_allows_completed_with_approval() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: allows re-activation with --user-approved"
   setup
 
@@ -502,7 +483,6 @@ test_activate_allows_completed_with_approval() {
 # =============================================================================
 
 test_activate_migrates_agent_json() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="activate: migrates .agent.json to .state.json"
   setup
 
@@ -526,11 +506,75 @@ test_activate_migrates_agent_json() {
 }
 
 # =============================================================================
+# ACTIVATE — REQUIRED FIELDS VALIDATION
+# =============================================================================
+
+test_activate_rejects_missing_required_fields() {
+  local test_name="activate: errors when required JSON fields are missing"
+  setup
+
+  # Provide JSON with only 2 of the required fields — should list all missing ones
+  local output
+  output=$("$SESSION_SH" activate "$TEST_DIR/sessions/VALIDATE" implement <<'PARAMS' 2>&1
+{"taskType": "IMPLEMENTATION", "taskSummary": "Test task"}
+PARAMS
+  )
+  local exit_code=$?
+
+  # Should fail and mention multiple missing fields
+  local has_error has_debrief has_phases
+  has_error=0; has_debrief=0; has_phases=0
+  [[ "$output" == *"Missing required"* ]] && has_error=1
+  [[ "$output" == *"debriefTemplate"* ]] && has_debrief=1
+  [[ "$output" == *"phases"* ]] && has_phases=1
+
+  if [ $exit_code -ne 0 ] && [ $has_error -eq 1 ] && [ $has_debrief -eq 1 ] && [ $has_phases -eq 1 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 1 + lists missing fields (debriefTemplate, phases, etc.)" \
+      "exit=$exit_code, has_error=$has_error, has_debrief=$has_debrief, has_phases=$has_phases"
+  fi
+
+  teardown
+}
+
+test_activate_accepts_complete_json() {
+  local test_name="activate: accepts JSON with all required fields"
+  setup
+
+  local output
+  output=$("$SESSION_SH" activate "$TEST_DIR/sessions/VALID" implement <<'PARAMS' 2>&1
+{
+  "taskType": "IMPLEMENTATION",
+  "taskSummary": "Build the feature",
+  "scope": "Full Codebase",
+  "directoriesOfInterest": [],
+  "preludeFiles": [],
+  "contextPaths": [],
+  "planTemplate": null,
+  "logTemplate": "skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md",
+  "debriefTemplate": "skills/implement/assets/TEMPLATE_IMPLEMENTATION.md",
+  "extraInfo": "",
+  "phases": [{"major": 1, "minor": 0, "name": "Setup"}]
+}
+PARAMS
+  )
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ] && [[ "$output" == *"Session activated"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 + 'Session activated'" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+# =============================================================================
 # UPDATE TESTS
 # =============================================================================
 
 test_update_numeric_value() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="update: stores numeric value as number"
   setup
 
@@ -556,7 +600,6 @@ test_update_numeric_value() {
 }
 
 test_update_string_value() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="update: stores string value as string"
   setup
 
@@ -581,7 +624,6 @@ test_update_string_value() {
 }
 
 test_update_missing_state_file() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="update: errors when .state.json doesn't exist"
   setup
 
@@ -604,7 +646,6 @@ test_update_missing_state_file() {
 # =============================================================================
 
 test_phase_allows_sequential() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="phase: allows next-in-sequence phase transition"
   setup
 
@@ -635,7 +676,6 @@ test_phase_allows_sequential() {
 }
 
 test_phase_rejects_skip() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="phase: rejects skipping a phase without --user-approved"
   setup
 
@@ -663,7 +703,6 @@ test_phase_rejects_skip() {
 }
 
 test_phase_allows_skip_with_approval() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="phase: allows skip with --user-approved"
   setup
 
@@ -694,7 +733,6 @@ test_phase_allows_skip_with_approval() {
 }
 
 test_phase_auto_appends_subphase() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="phase: auto-appends sub-phase with same major"
   setup
 
@@ -727,7 +765,6 @@ test_phase_auto_appends_subphase() {
 }
 
 test_phase_clears_loading_flag() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="phase: clears loading flag and resets counters"
   setup
 
@@ -760,7 +797,6 @@ test_phase_clears_loading_flag() {
 }
 
 test_phase_no_enforcement_without_phases_array() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="phase: allows any transition when no phases array"
   setup
 
@@ -790,7 +826,6 @@ test_phase_no_enforcement_without_phases_array() {
 # =============================================================================
 
 test_target_updates_target_file() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="target: sets targetFile in .state.json"
   setup
 
@@ -818,7 +853,6 @@ test_target_updates_target_file() {
 # =============================================================================
 
 test_deactivate_sets_completed() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="deactivate: sets lifecycle=completed and stores description"
   setup
 
@@ -844,7 +878,6 @@ test_deactivate_sets_completed() {
 }
 
 test_deactivate_requires_description() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="deactivate: errors when no description piped"
   setup
 
@@ -866,7 +899,6 @@ test_deactivate_requires_description() {
 }
 
 test_deactivate_appends_completed_skills() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="deactivate: adds current skill to completedSkills"
   setup
 
@@ -890,7 +922,6 @@ test_deactivate_appends_completed_skills() {
 }
 
 test_deactivate_stores_keywords() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="deactivate: stores keywords as array"
   setup
 
@@ -915,12 +946,78 @@ test_deactivate_stores_keywords() {
   teardown
 }
 
+test_deactivate_outputs_all_errors() {
+  local test_name="deactivate: outputs all errors when multiple gates fail"
+  setup
+
+  # State with discoveredChecklists but no checkPassed, and a debriefTemplate
+  create_state "$TEST_DIR/sessions/DEACT_MULTI" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "debriefTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md",
+    "discoveredChecklists": ["packages/foo/CHECKLIST.md"]
+  }'
+  # No debrief file exists, no description piped, checklist not passed → all 3 gates fail
+
+  local output
+  output=$(echo "" | "$SESSION_SH" deactivate "$TEST_DIR/sessions/DEACT_MULTI" 2>&1)
+  local exit_code=$?
+
+  local has_desc_err has_debrief_err has_checklist_err
+  has_desc_err=0
+  has_debrief_err=0
+  has_checklist_err=0
+  [[ "$output" == *"Description is required"* ]] && has_desc_err=1
+  [[ "$output" == *"Cannot deactivate — no debrief file found"* ]] && has_debrief_err=1
+  [[ "$output" == *"Cannot deactivate"*"checkPassed"* ]] && has_checklist_err=1
+
+  if [ $exit_code -ne 0 ] && [ $has_desc_err -eq 1 ] && [ $has_debrief_err -eq 1 ] && [ $has_checklist_err -eq 1 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 1 + all 3 gate errors present" \
+      "exit=$exit_code, desc_err=$has_desc_err, debrief_err=$has_debrief_err, checklist_err=$has_checklist_err"
+  fi
+
+  teardown
+}
+
+test_deactivate_single_error_only() {
+  local test_name="deactivate: outputs only relevant error when one gate fails"
+  setup
+
+  # State with debriefTemplate but no debrief file. No checklists. Description IS provided.
+  create_state "$TEST_DIR/sessions/DEACT_SINGLE" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "debriefTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md"
+  }'
+  # No debrief file → only gate 2 should fire
+
+  local output
+  output=$(echo "Some description" | "$SESSION_SH" deactivate "$TEST_DIR/sessions/DEACT_SINGLE" 2>&1)
+  local exit_code=$?
+
+  local has_desc_err has_debrief_err has_checklist_err
+  has_desc_err=0
+  has_debrief_err=0
+  has_checklist_err=0
+  [[ "$output" == *"Description is required"* ]] && has_desc_err=1
+  [[ "$output" == *"Cannot deactivate — no debrief file found"* ]] && has_debrief_err=1
+  [[ "$output" == *"checkPassed"* ]] && has_checklist_err=1
+
+  if [ $exit_code -ne 0 ] && [ $has_desc_err -eq 0 ] && [ $has_debrief_err -eq 1 ] && [ $has_checklist_err -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 1 + ONLY debrief error" \
+      "exit=$exit_code, desc_err=$has_desc_err, debrief_err=$has_debrief_err, checklist_err=$has_checklist_err"
+  fi
+
+  teardown
+}
+
 # =============================================================================
 # RESTART TESTS
 # =============================================================================
 
 test_restart_sets_kill_requested() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="restart: sets killRequested=true and writes restartPrompt"
   setup
 
@@ -951,7 +1048,6 @@ test_restart_sets_kill_requested() {
 }
 
 test_restart_missing_state_file() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="restart: errors when .state.json doesn't exist"
   setup
 
@@ -974,7 +1070,6 @@ test_restart_missing_state_file() {
 # =============================================================================
 
 test_find_by_pid() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="find: finds session by matching PID (non-fleet mode)"
   setup
 
@@ -997,7 +1092,6 @@ test_find_by_pid() {
 }
 
 test_find_no_match() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="find: exits 1 when no session matches"
   setup
 
@@ -1020,7 +1114,6 @@ test_find_no_match() {
 }
 
 test_find_rejects_alive_different_pid() {
-  TESTS_RUN=$((TESTS_RUN + 1))
   local test_name="find: exits 1 when fleet match has alive different PID"
   setup
 
@@ -1087,6 +1180,11 @@ main() {
   test_activate_migrates_agent_json
 
   echo ""
+  echo "--- Activate: Required Fields ---"
+  test_activate_rejects_missing_required_fields
+  test_activate_accepts_complete_json
+
+  echo ""
   echo "--- Update ---"
   test_update_numeric_value
   test_update_string_value
@@ -1111,6 +1209,8 @@ main() {
   test_deactivate_requires_description
   test_deactivate_appends_completed_skills
   test_deactivate_stores_keywords
+  test_deactivate_outputs_all_errors
+  test_deactivate_single_error_only
 
   echo ""
   echo "--- Restart ---"
@@ -1123,14 +1223,7 @@ main() {
   test_find_no_match
   test_find_rejects_alive_different_pid
 
-  echo ""
-  echo "============================================="
-  echo "Results: $TESTS_PASSED/$TESTS_RUN passed, $TESTS_FAILED failed"
-  echo "============================================="
-
-  if [ $TESTS_FAILED -gt 0 ]; then
-    exit 1
-  fi
+  exit_with_results
 }
 
 main "$@"

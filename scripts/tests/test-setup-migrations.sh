@@ -8,14 +8,9 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/test-helpers.sh"
+
 MIGRATIONS_SH="$SCRIPT_DIR/../setup-migrations.sh"
-
-# ---- Framework ----
-PASS=0
-FAIL=0
-
-pass() { echo -e "\033[32mPASS\033[0m: $1"; PASS=$((PASS + 1)); }
-fail() { echo -e "\033[31mFAIL\033[0m: $1 (expected: $2, got: $3)"; FAIL=$((FAIL + 1)); }
 
 # ---- Setup / Teardown ----
 TEST_DIR=""
@@ -329,9 +324,5 @@ teardown
 # ============================================================================
 # Results
 # ============================================================================
-echo ""
-echo "======================================"
-echo -e "Results: \033[32m${PASS} passed\033[0m, \033[31m${FAIL} failed\033[0m ($(( PASS + FAIL )) total)"
-echo "======================================"
 
-[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+exit_with_results

@@ -1,18 +1,17 @@
 #!/bin/bash
 # tests/test-run-lifecycle.sh — Integration tests for run.sh lifecycle
 #
-# Tests the full run.sh → Claude binary → session.sh cycle using a stub Claude binary.
+# Tests the full run.sh -> Claude binary -> session.sh cycle using a stub Claude binary.
 # The stub reads a "script" file that tells it what to do (session commands, exit codes, etc.)
 #
 # Run: bash tmp/test-run-lifecycle.sh
 
 set -uo pipefail
+source "$(dirname "$0")/test-helpers.sh"
 
 SESSION_SH="$HOME/.claude/scripts/session.sh"
 RUN_SH="$HOME/.claude/scripts/run.sh"
 TMP_DIR=$(mktemp -d)
-PASS=0
-FAIL=0
 
 # Save original PATH for proper expansion
 ORIG_PATH="$PATH"
@@ -20,64 +19,6 @@ ORIG_PATH="$PATH"
 # Disable fleet/tmux detection for test isolation
 unset TMUX 2>/dev/null || true
 unset TMUX_PANE 2>/dev/null || true
-
-# Helpers
-assert_eq() {
-  local desc="$1" expected="$2" actual="$3"
-  if [ "$expected" = "$actual" ]; then
-    echo "  PASS: $desc"
-    PASS=$((PASS + 1))
-  else
-    echo "  FAIL: $desc (expected '$expected', got '$actual')"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_contains() {
-  local desc="$1" expected="$2" actual="$3"
-  if echo "$actual" | grep -q "$expected"; then
-    echo "  PASS: $desc"
-    PASS=$((PASS + 1))
-  else
-    echo "  FAIL: $desc (expected to contain '$expected')"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_json() {
-  local desc="$1" file="$2" field="$3" expected="$4"
-  local actual
-  actual=$(jq -r "$field" "$file" 2>/dev/null || echo "ERROR")
-  if [ "$actual" = "$expected" ]; then
-    echo "  PASS: $desc"
-    PASS=$((PASS + 1))
-  else
-    echo "  FAIL: $desc (expected '$expected', got '$actual')"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_file_exists() {
-  local desc="$1" path="$2"
-  if [ -f "$path" ]; then
-    echo "  PASS: $desc"
-    PASS=$((PASS + 1))
-  else
-    echo "  FAIL: $desc (file not found: $path)"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_gt() {
-  local desc="$1" a="$2" b="$3"
-  if [ "$a" -gt "$b" ] 2>/dev/null; then
-    echo "  PASS: $desc"
-    PASS=$((PASS + 1))
-  else
-    echo "  FAIL: $desc ($a is not > $b)"
-    FAIL=$((FAIL + 1))
-  fi
-}
 
 # Create a stub claude binary in a temp dir and return the dir path
 # Usage: STUB_BIN_DIR=$(make_stub "script content here")
@@ -161,9 +102,9 @@ STUB_DIR=$(make_stub "exit:0")
 OUTPUT=$(run_with_stub "$STUB_DIR")
 
 INVOCATIONS=$(wc -l < "$STUB_DIR/invocations.log" | tr -d ' ')
-assert_gt "Claude was invoked at least once" "$INVOCATIONS" 0
-assert_contains "run.sh printed starting message" "Starting" "$OUTPUT"
-assert_contains "run.sh printed goodbye" "Goodbye" "$OUTPUT"
+assert_gt "$INVOCATIONS" 0 "Claude was invoked at least once"
+assert_contains "Starting" "$OUTPUT" "run.sh printed starting message"
+assert_contains "Goodbye" "$OUTPUT" "run.sh printed goodbye"
 
 echo ""
 
@@ -217,16 +158,15 @@ export FLEET_SETUP_DONE=1
 RESTART_OUTPUT=$(timeout 15 env PATH="$RESTART_STUB_DIR:$ORIG_PATH" TMUX="" TMUX_PANE="" bash -c "cd '$PROJECT_DIR' && bash '$RUN_SH'" 2>&1 || true)
 
 RESTART_INVOCATIONS=$(grep -c "INVOKED" "$RESTART_STUB_DIR/invocations.log" || echo "0")
-assert_gt "Claude invoked at least twice (restart loop)" "$RESTART_INVOCATIONS" 1
-assert_contains "run.sh detected restart" "Restart" "$RESTART_OUTPUT"
+assert_gt "$RESTART_INVOCATIONS" 1 "Claude invoked at least twice (restart loop)"
+assert_contains "Restart" "$RESTART_OUTPUT" "run.sh detected restart"
 
 # Invocations log should contain "reanchor" (the restart prompt passed to second invocation)
 RESTART_LOG_CONTENT=$(cat "$RESTART_STUB_DIR/invocations.log")
-assert_contains "Restart prompt contains reanchor" "reanchor" "$RESTART_LOG_CONTENT"
+assert_contains "reanchor" "$RESTART_LOG_CONTENT" "Restart prompt contains reanchor"
 
 # After restart loop, lifecycle should be restarting
-assert_json "lifecycle is restarting" \
-  "$PROJECT_DIR/sessions/restart_test/.state.json" '.lifecycle' 'restarting'
+assert_json "$PROJECT_DIR/sessions/restart_test/.state.json" '.lifecycle' 'restarting' "lifecycle is restarting"
 
 echo ""
 
@@ -246,23 +186,23 @@ CASE5EOF
 )")
 OUTPUT=$(run_with_stub "$STUB_DIR")
 
-assert_file_exists "state.json created by activate" "$CASE5_SESSION/.state.json"
+assert_file_exists "$CASE5_SESSION/.state.json" "state.json created by activate"
 if [ -f "$CASE5_SESSION/.state.json" ]; then
-  assert_json "skill set to implement" "$CASE5_SESSION/.state.json" '.skill' 'implement'
-  assert_json "lifecycle is completed" "$CASE5_SESSION/.state.json" '.lifecycle' 'completed'
-  assert_json "completedSkills contains implement" "$CASE5_SESSION/.state.json" '.completedSkills[0]' 'implement'
+  assert_json "$CASE5_SESSION/.state.json" '.skill' 'implement' "skill set to implement"
+  assert_json "$CASE5_SESSION/.state.json" '.lifecycle' 'completed' "lifecycle is completed"
+  assert_json "$CASE5_SESSION/.state.json" '.completedSkills[0]' 'implement' "completedSkills contains implement"
 
   PHASE_HISTORY_LEN=$(jq '.phaseHistory | length' "$CASE5_SESSION/.state.json" 2>/dev/null || echo "0")
-  assert_gt "phaseHistory has entries" "$PHASE_HISTORY_LEN" 0
+  assert_gt "$PHASE_HISTORY_LEN" 0 "phaseHistory has entries"
 else
   echo "  SKIP: remaining Case 5 assertions (no state file)"
-  FAIL=$((FAIL + 4))
+  TESTS_FAILED=$((TESTS_FAILED + 4))
 fi
 
 echo ""
 
 # --- Case 6: Full lifecycle with all phases ---
-echo "--- Case 6: Full lifecycle activate → all phases → deactivate ---"
+echo "--- Case 6: Full lifecycle activate -> all phases -> deactivate ---"
 
 CASE6_SESSION="$TMP_DIR/sessions/case6_test"
 mkdir -p "$CASE6_SESSION"
@@ -280,21 +220,21 @@ CASE6EOF
 )")
 OUTPUT=$(run_with_stub "$STUB_DIR")
 
-assert_file_exists "state.json exists" "$CASE6_SESSION/.state.json"
+assert_file_exists "$CASE6_SESSION/.state.json" "state.json exists"
 if [ -f "$CASE6_SESSION/.state.json" ]; then
-  assert_json "skill is test" "$CASE6_SESSION/.state.json" '.skill' 'test'
-  assert_json "lifecycle is completed" "$CASE6_SESSION/.state.json" '.lifecycle' 'completed'
-  assert_json "currentPhase is 5: Synthesis" "$CASE6_SESSION/.state.json" '.currentPhase' '5: Synthesis'
-  assert_json "completedSkills contains test" "$CASE6_SESSION/.state.json" '.completedSkills[0]' 'test'
+  assert_json "$CASE6_SESSION/.state.json" '.skill' 'test' "skill is test"
+  assert_json "$CASE6_SESSION/.state.json" '.lifecycle' 'completed' "lifecycle is completed"
+  assert_json "$CASE6_SESSION/.state.json" '.currentPhase' '5: Synthesis' "currentPhase is 5: Synthesis"
+  assert_json "$CASE6_SESSION/.state.json" '.completedSkills[0]' 'test' "completedSkills contains test"
 
   CASE6_PH_LEN=$(jq '.phaseHistory | length' "$CASE6_SESSION/.state.json" 2>/dev/null || echo "0")
-  assert_gt "phaseHistory has 5+ entries" "$CASE6_PH_LEN" 4
+  assert_gt "$CASE6_PH_LEN" 4 "phaseHistory has 5+ entries"
 
   CASE6_PID=$(jq -r '.pid' "$CASE6_SESSION/.state.json" 2>/dev/null || echo "0")
-  assert_gt "PID is set (not 0)" "$CASE6_PID" 0
+  assert_gt "$CASE6_PID" 0 "PID is set (not 0)"
 else
   echo "  SKIP: remaining Case 6 assertions (no state file)"
-  FAIL=$((FAIL + 6))
+  TESTS_FAILED=$((TESTS_FAILED + 6))
 fi
 
 echo ""
@@ -316,25 +256,13 @@ chmod +x "$ENV_STUB_DIR/claude"
 export FLEET_SETUP_DONE=1
 ENV_OUTPUT=$(timeout 15 env PATH="$ENV_STUB_DIR:$ORIG_PATH" TMUX="" TMUX_PANE="" bash "$RUN_SH" 2>&1 || true)
 
-assert_contains "SESSION_REQUIRED=1 exported" "SESSION_REQUIRED=1" "$ENV_OUTPUT"
-assert_contains "CLAUDE_SUPERVISOR_PID exported" "CLAUDE_SUPERVISOR_PID=" "$ENV_OUTPUT"
-assert_contains "WATCHDOG_PID exported" "WATCHDOG_PID=" "$ENV_OUTPUT"
+assert_contains "SESSION_REQUIRED=1" "$ENV_OUTPUT" "SESSION_REQUIRED=1 exported"
+assert_contains "CLAUDE_SUPERVISOR_PID=" "$ENV_OUTPUT" "CLAUDE_SUPERVISOR_PID exported"
+assert_contains "WATCHDOG_PID=" "$ENV_OUTPUT" "WATCHDOG_PID exported"
 
 echo ""
 
 # --- Cleanup ---
 rm -rf "$TMP_DIR"
 
-# --- Summary ---
-echo "=== Results ==="
-echo "  Passed: $PASS"
-echo "  Failed: $FAIL"
-echo ""
-
-if [ "$FAIL" -gt 0 ]; then
-  echo "SOME TESTS FAILED"
-  exit 1
-else
-  echo "ALL TESTS PASSED"
-  exit 0
-fi
+exit_with_results

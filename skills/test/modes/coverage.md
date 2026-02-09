@@ -23,17 +23,4 @@ CMD_WALK_THROUGH_RESULTS Configuration:
   gateQuestion: "Tests written. Walk through coverage results?"
   debriefFile: "TESTING.md"
   templateFile: "~/.claude/skills/test/assets/TEMPLATE_TESTING.md"
-  actionMenu:
-    - label: "Add more coverage"
-      tag: "#needs-implementation"
-      when: "Critical gap identified but not yet covered"
-    - label: "Refactor tests"
-      tag: "#needs-implementation"
-      when: "Existing tests are brittle or poorly structured"
-    - label: "Document testing strategy"
-      tag: "#needs-documentation"
-      when: "Testing approach should be documented for the team"
-    - label: "Investigate further"
-      tag: "#needs-research"
-      when: "Unclear what behavior to test or how to test it"
 ```

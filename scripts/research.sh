@@ -23,7 +23,7 @@
 #   - curl, jq
 
 
-: "${GEMINI_API_KEY:=AIzaSyDjT2ZF-1hkkv5W0ALQNaVTVmKYSrDPod0}"
+: "${GEMINI_API_KEY:?GEMINI_API_KEY is required — set it in your environment}"
 export GEMINI_API_KEY
 
 set -euo pipefail

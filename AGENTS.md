@@ -17,7 +17,7 @@ Both methods inject the agent's role, contract, and boundaries into the model's 
 |-------|-------|------|---------|
 | [builder](#builder) | opus | TDD executor | `/implement`, `/delegate` |
 | [analyzer](#analyzer) | — | Research synthesizer | `/analyze` |
-| [debugger](#debugger) | — | Bug diagnostician | `/debug` |
+| [debugger](#debugger) | — | Bug diagnostician | `/fix` |
 | [tester](#tester) | — | Test engineer | `/test` |
 | [writer](#writer) | — | Documentation updater | `/document` |
 | [operator](#operator) | — | General-purpose executor | `/chores`, `/dispatch` |

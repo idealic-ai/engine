@@ -11,53 +11,55 @@ Keeps documentation in sync with code changes and project state.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
-### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
+### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
 **Output this block in chat with every blank filled:**
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
 
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
+[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Document Update Protocol (The Surgical Standard)
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 2 (Diagnosis & Planning) produces a DOCUMENTATION_PLAN.md. The engine's plan lives in the session directory as a reviewable artifact, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
+[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 1 (Diagnosis & Planning) produces a DOCUMENTATION_PLAN.md. The engine's plan lives in the session directory as a reviewable artifact, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
 
-### Phases (for §CMD_PARSE_PARAMETERS)
-*Include this array in the `phases` field when calling `session.sh activate`:*
+### Session Parameters (for §CMD_PARSE_PARAMETERS)
+*Merge into the JSON passed to `session.sh activate`:*
 ```json
-[
-  {"major": 1, "minor": 0, "name": "Setup"},
-  {"major": 1, "minor": 1, "name": "Interrogation"},
-  {"major": 2, "minor": 0, "name": "Diagnosis & Planning"},
-  {"major": 2, "minor": 1, "name": "Agent Handoff"},
-  {"major": 3, "minor": 0, "name": "Operation"},
-  {"major": 4, "minor": 0, "name": "Synthesis"}
-]
+{
+  "taskType": "DOCUMENT_UPDATE",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup"},
+    {"major": 0, "minor": 1, "name": "Interrogation"},
+    {"major": 1, "minor": 0, "name": "Diagnosis & Planning"},
+    {"major": 1, "minor": 1, "name": "Agent Handoff"},
+    {"major": 2, "minor": 0, "name": "Operation"},
+    {"major": 3, "minor": 0, "name": "Synthesis"}
+  ],
+  "nextSkills": ["/review", "/implement", "/analyze", "/brainstorm", "/chores"],
+  "directives": ["TESTING.md", "PITFALLS.md"],
+  "planTemplate": "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_PLAN.md",
+  "logTemplate": "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md",
+  "debriefTemplate": "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md",
+  "requestTemplate": "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_REQUEST.md",
+  "responseTemplate": "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_RESPONSE.md",
+  "modes": {
+    "surgical": {"label": "Surgical", "description": "Fix specific stale/incorrect docs", "file": "~/.claude/skills/document/modes/surgical.md"},
+    "audit": {"label": "Audit", "description": "Read-only verification pass", "file": "~/.claude/skills/document/modes/audit.md"},
+    "refine": {"label": "Refine", "description": "Improve clarity, examples, structure", "file": "~/.claude/skills/document/modes/refine.md"},
+    "custom": {"label": "Custom", "description": "User-defined", "file": "~/.claude/skills/document/modes/custom.md"}
+  }
+}
 ```
-*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
-
-## Mode Presets
-
-Documentation modes configure the scope and approach of the documentation pass. The mode is selected in Phase 1 via `AskUserQuestion`. Full mode definitions are in `modes/*.md` files.
-
-| Mode | Description | When to Use |
-|------|-------------|-------------|
-| **Surgical** | Fix specific stale/incorrect docs | Default — targeted fixes after code changes |
-| **Audit** | Read-only verification pass | Verify docs match code without editing |
-| **Refine** | Improve clarity, examples, structure | Polish existing docs without restructuring |
-| **Custom** | Reads all 3 modes, synthesizes a hybrid | User provides framing, agent blends modes |
-
-**Mode files**: `~/.claude/skills/document/modes/{surgical,audit,refine,custom}.md`
 
 ---
 
-## 1. Setup Phase
+## 0. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 1: Setup phase.
-    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 1 only (Strict Bootloader — expires at Phase 2).
+    > 1. I am starting Phase 0: Setup phase.
+    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 0 only (Strict Bootloader — expires at Phase 1).
     > 3. My focus is DOCUMENT_UPDATE (`§CMD_REFUSE_OFF_COURSE` applies).
     > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
     > 5. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
@@ -67,13 +69,14 @@ Documentation modes configure the scope and approach of the documentation pass. 
     > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
     > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
-    **Constraint**: Do NOT read any project files (source code, docs) in Phase 1. Only load the required system templates/standards.
+    **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project structure and file map)
     *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md` (Template for continuous surgery logging)
     *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md` (Template for final session debrief/report)
     *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_PLAN.md` (Template for technical execution planning)
+    *   `.claude/directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
 
 3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
     *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
@@ -97,38 +100,33 @@ Documentation modes configure the scope and approach of the documentation pass. 
     **On "Custom"**: Read ALL 3 named mode files first (`modes/surgical.md`, `modes/refine.md`, `modes/audit.md`), then accept user's framing. Parse into role/goal/mindset.
 
     **Record**: Store the selected mode. It configures:
-    *   Phase 1 role (from mode file)
-    *   Phase 2 diagnosis strategy (from mode file)
-    *   Phase 3 operation approach (from mode file)
+    *   Phase 0 role (from mode file)
+    *   Phase 1 diagnosis strategy (from mode file)
+    *   Phase 2 operation approach (from mode file)
 
 6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file.
 
 7.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
     *   If any files are found, add them to `contextPaths` for ingestion.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
+### §CMD_VERIFY_PHASE_EXIT — Phase 0
 **Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
+> **Phase 0 proof:**
 > - Mode: `________` (surgical / refine / audit / custom)
 > - Role: `________` (quote the role name from the mode preset)
 > - Session dir: `________`
 > - Templates loaded: `________`, `________`, `________`
 > - Parameters parsed: `________`
 
-### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 1.1: Interrogation"** — Validate assumptions about scope, audience, and approach before planning
-> - **"Skip to Phase 2: Diagnosis & Planning"** — Requirements are clear, go straight to surveying docs and drafting the plan
-> - **"Stay in Phase 1"** — Load additional standards or resolve setup issues
+*Phase 0 always proceeds to Phase 0.1 — no transition question needed.*
 
 ---
 
-## 1.1. Interrogation (Optional Pre-Flight)
+## 0.1. Interrogation (Optional Pre-Flight)
 *Validate assumptions before cutting. Skip this phase when the documentation task is straightforward.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 1.1: Interrogation.
+> 1. I am moving to Phase 0.1: Interrogation.
 > 2. I will `§CMD_EXECUTE_INTERROGATION_PROTOCOL` to validate assumptions.
 > 3. I will `§CMD_LOG_TO_DETAILS` to capture the Q&A.
 > 4. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
@@ -177,24 +175,24 @@ Execute `AskUserQuestion` (multiSelect: false):
 **After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
 
 > "Round N complete (minimum met). What next?"
-> - **"Proceed to Phase 2: Diagnosis & Planning"** — *(terminal: if selected, skip all others and move on)*
+> - **"Proceed to Phase 1: Diagnosis & Planning"** — *(terminal: if selected, skip all others and move on)*
 > - **"More interrogation (3 more rounds)"** — Standard topic rounds, then this gate re-appears
 > - **"Deep dive round"** — 1 round drilling into a prior topic, then this gate re-appears
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1b
+### §CMD_VERIFY_PHASE_EXIT — Phase 0b
 **Output this block in chat with every blank filled:**
-> **Phase 1b proof:**
+> **Phase 0b proof:**
 > - Depth chosen: `________`
 > - Rounds completed: `________` / `________`+
 > - DETAILS.md entries: `________`
 
 ---
 
-## 2. Diagnosis & Planning (Pre-Op)
+## 1. Diagnosis & Planning (Pre-Op)
 *Before cutting, understand the anatomy and draft the procedure.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 2: Diagnosis & Planning.
+> 1. I am moving to Phase 1: Diagnosis & Planning.
 > 2. I will `§CMD_INGEST_CONTEXT_BEFORE_WORK` to load relevant docs and code.
 > 3. I will survey the target documentation to assess the extent of the "drift".
 > 4. I will `§CMD_GENERATE_PLAN_FROM_TEMPLATE` using `DOCUMENTATION_PLAN.md`.
@@ -207,9 +205,9 @@ Execute `AskUserQuestion` (multiSelect: false):
     *   **Constraint**: Be specific. "Rewrite Section 3 of X.md" is better than "Update X.md".
 4.  **Verify**: **STOP**. Ask user to confirm the Surgical Plan.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
+### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
+> **Phase 1 proof:**
 > - Context ingested: `________`
 > - Documentation drift assessed: `________`
 > - DOCUMENTATION_PLAN.md written: `________`
@@ -239,20 +237,20 @@ Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/directives/commands/CMD_PARALL
 3.  **Menu**: Present the richer handoff menu via `AskUserQuestion`.
 
 *If the plan has no `**Depends**:` fields, fall back to the simple menu:*
-> "Phase 2: Surgical plan ready. How to proceed?"
+> "Phase 1: Surgical plan ready. How to proceed?"
 > - **"Launch writer agent"** — Hand off to autonomous agent for execution
 > - **"Continue inline"** — Execute step by step in this conversation
 > - **"Revise the plan"** — Go back and edit the plan before proceeding
 
 ---
 
-## 2.1. Agent Handoff (Opt-In)
-*Only if user selected an agent option in Phase 2 transition.*
+## 1.1. Agent Handoff (Opt-In)
+*Only if user selected an agent option in Phase 1 transition.*
 
 **Single agent** (no parallel chunks or user chose "1 agent"):
 Execute `§CMD_HAND_OFF_TO_AGENT` with:
 *   `agentName`: `"writer"`
-*   `startAtPhase`: `"Phase 3: The Operation"`
+*   `startAtPhase`: `"Phase 2: The Operation"`
 *   `planOrDirective`: `[sessionDir]/DOCUMENTATION_PLAN.md`
 *   `logFile`: `DOCUMENTATION_LOG.md`
 *   `debriefTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md`
@@ -268,16 +266,16 @@ Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 *   `logTemplate`: `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md`
 *   `taskSummary`: `"Execute the document update plan: [brief description from taskSummary]"`
 
-**If "Continue inline"**: Proceed to Phase 3 as normal.
-**If "Revise the plan"**: Return to Phase 2 for revision.
+**If "Continue inline"**: Proceed to Phase 2 as normal.
+**If "Revise the plan"**: Return to Phase 1 for revision.
 
 ---
 
-## 3. The Operation (Execution)
+## 2. The Operation (Execution)
 *Execute the plan. Obey §CMD_THINK_IN_LOG.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3: Operation.
+> 1. I am moving to Phase 2: Operation.
 > 2. I will `§CMD_USE_TODOS_TO_TRACK_PROGRESS` to manage edits.
 > 3. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` (following `assets/TEMPLATE_DOCUMENTATION_LOG.md` EXACTLY) to record changes as they happen.
 > 4. I will execute surgical updates (`§CMD_REFUSE_OFF_COURSE` applies).
@@ -305,28 +303,27 @@ Before calling any tool, ask yourself:
 **Constraint**: **High-Fidelity Logging**. Use `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`.
 **Constraint**: **BLIND WRITE**. Do not re-read the log file.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
+### §CMD_VERIFY_PHASE_EXIT — Phase 2
 **Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
+> **Phase 2 proof:**
 > - Plan steps completed: `________`
 > - DOCUMENTATION_LOG.md entries: `________`
 > - Unresolved blocks: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 3: Operation complete. How to proceed?"
-> - **"Proceed to Phase 4: Synthesis"** — Generate debrief and close session
-> - **"Stay in Phase 3"** — More edits needed, continue operating
-> - **"Run verification first"** — Review changes before closing
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "2: Operation"
+  nextPhase: "3: Synthesis"
+  prevPhase: "1: Diagnosis & Planning"
 
 ---
 
-## 4. Synthesis
+## 3. Synthesis
 *When the surgery is complete.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Synthesis.
+> 1. I am moving to Phase 3: Synthesis.
 > 2. I will `§CMD_PROCESS_CHECKLISTS` (if any discovered checklists exist).
 > 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_DOCUMENTATION.md` EXACTLY).
 > 4. I will `§CMD_MANAGE_TOC` to update `docs/TOC.md` with documentation files touched this session.
@@ -364,21 +361,11 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   gateQuestion: "Documentation complete. Walk through the updates?"
   debriefFile: "DOCUMENTATION.md"
   templateFile: "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md"
-  actionMenu:
-    - label: "Needs code changes"
-      tag: "#needs-implementation"
-      when: "Doc update revealed code that needs fixing"
-    - label: "Research further"
-      tag: "#needs-research"
-      when: "Doc gap needs deeper investigation"
-    - label: "Add more docs"
-      tag: "#needs-documentation"
-      when: "Related documentation also needs updating"
 ```
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
+### §CMD_VERIFY_PHASE_EXIT — Phase 3 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
+> **Phase 3 proof:**
 > - DOCUMENTATION.md written: `________` (real file path)
 > - Tags line: `________`
 > - Artifacts listed: `________`
@@ -387,17 +374,5 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 **Step 7**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
-
-### Next Skill Options
-*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
-
-> "Documentation complete. What's next?"
-
-| Option | Label | Description |
-|--------|-------|-------------|
-| 1 | `/review` (Recommended) | Docs ready — validate and share (use Evangelize mode for stakeholder comms) |
-| 2 | `/implement` | Docs revealed gaps — build the missing pieces |
-| 3 | `/analyze` | Need deeper research for the docs |
-| 4 | `/brainstorm` | Explore ideas for better documentation |
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.

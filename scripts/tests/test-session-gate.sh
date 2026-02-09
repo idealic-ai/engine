@@ -25,17 +25,13 @@
 
 set -uo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 HOOK="$HOME/.claude/hooks/pre-tool-use-session-gate.sh"
 SESSION_SH="$HOME/.claude/scripts/session.sh"
 LIB_SH="$HOME/.claude/scripts/lib.sh"
 
 TMP_DIR=$(mktemp -d)
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
 
 # Disable fleet/tmux and clear inherited SESSION_REQUIRED from run.sh
 unset TMUX 2>/dev/null || true
@@ -95,32 +91,6 @@ cleanup() {
   rm -rf "$TMP_DIR"
 }
 trap cleanup EXIT
-
-assert_contains() {
-  local expected="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -q "$expected"; then
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Expected to contain: $expected"
-    echo "  Actual: $actual"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_not_contains() {
-  local unexpected="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -q "$unexpected"; then
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Should NOT contain: $unexpected"
-    echo "  Actual: $actual"
-    FAIL=$((FAIL + 1))
-  else
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
-  fi
-}
 
 # Run hook with given tool_name and optional tool_input
 # Uses printf for proper JSON construction (avoids double-quote escaping issues)
@@ -265,8 +235,4 @@ assert_contains '§CMD_REQUIRE_ACTIVE_SESSION' "$OUT" "Deny message says §CMD_R
 
 echo ""
 
-echo "======================================"
-echo -e "Results: ${GREEN}$PASS passed${NC}, ${RED}$FAIL failed${NC}"
-echo "======================================"
-
-[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+exit_with_results

@@ -9,18 +9,9 @@
 
 set -uo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 TAG_SH="$HOME/.claude/engine/scripts/tag.sh"
-
-# Colors
-RED='\033[31m'
-GREEN='\033[32m'
-YELLOW='\033[33m'
-RESET='\033[0m'
-
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
 
 # Temp directory for test fixtures
 TEST_DIR=""
@@ -34,18 +25,6 @@ teardown() {
   if [ -n "$TEST_DIR" ] && [ -d "$TEST_DIR" ]; then
     rm -rf "$TEST_DIR"
   fi
-}
-
-pass() {
-  echo -e "${GREEN}PASS${RESET}: $1"
-  TESTS_PASSED=$((TESTS_PASSED + 1))
-}
-
-fail() {
-  echo -e "${RED}FAIL${RESET}: $1"
-  echo "  Expected: $2"
-  echo "  Got: ${3:-<empty>}"
-  TESTS_FAILED=$((TESTS_FAILED + 1))
 }
 
 # Helper: create a markdown file with H1 heading
@@ -67,14 +46,6 @@ create_md_with_inline() {
   local file="$1"
   local tag="$2"
   printf '# Test Document\n**Tags**: #other-tag\n\nSome body content.\n### Block — Widget API %s\nMore text here.\n' "$tag" > "$file"
-}
-
-run_test() {
-  local name="$1"
-  TESTS_RUN=$((TESTS_RUN + 1))
-  setup
-  eval "$name"
-  teardown
 }
 
 echo "=== tag.sh Deep Coverage Tests ==="
@@ -678,11 +649,5 @@ run_test test_remove_inline_preserves_surrounding
 # ============================================================
 # RESULTS
 # ============================================================
-echo ""
-echo "======================================"
-echo -e "Results: ${GREEN}${TESTS_PASSED} passed${RESET}, ${RED}${TESTS_FAILED} failed${RESET} (${TESTS_RUN} total)"
-echo "======================================"
 
-if [[ $TESTS_FAILED -gt 0 ]]; then
-  exit 1
-fi
+exit_with_results

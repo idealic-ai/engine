@@ -126,13 +126,8 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Run engine.sh to ensure engine is up to date (unless fleet already ran it)
-if [ -z "${FLEET_SETUP_DONE:-}" ]; then
-  if ! "$SCRIPTS_DIR/engine.sh"; then
-    echo "[run.sh] ERROR: engine.sh failed. Please run from a project directory."
-    exit 1
-  fi
-fi
+# Setup is handled by engine CLI (auto-setup on first run).
+# run.sh no longer invokes engine.sh directly — callers should use `engine` entrypoint.
 
 # Auto-detect fleet pane ID using fleet.sh pane-id
 # Format: {session}:{window}:{pane_label} e.g., "yarik-fleet:company:SDK"
@@ -447,9 +442,32 @@ daemon_process_work() {
   WATCHDOG_PID=$(start_watchdog)
   export WATCHDOG_PID
 
+  # Build context-aware prompt based on file type
+  local context_hint=""
+  local request_basename
+  request_basename=$(basename "$request_path")
+
+  if [[ "$request_basename" == *_REQUEST*.md ]]; then
+    # Structured REQUEST file — extract fields as input
+    context_hint="
+DAEMON_CONTEXT: The file '$request_path' is a structured REQUEST file. Read it and extract the Topic, Context, Expectations, and Acceptance Criteria as your input parameters. The REQUEST file contains everything you need to begin.
+DAEMON_REQUEST_FILE: Include '$request_path' in the requestFiles array when calling session.sh activate. This ensures session.sh check validates that the REQUEST file has a ## Response section and no bare #needs-* tags before deactivation."
+  else
+    # Tagged debrief or other file — load session context
+    local source_session_dir
+    source_session_dir=$(dirname "$request_path")
+    context_hint="
+DAEMON_CONTEXT: The file '$request_path' is a tagged debrief (not a REQUEST file). To understand what work is needed:
+1. Read ALL debrief files in '$source_session_dir/' (ANALYSIS.md, BRAINSTORM.md, IMPLEMENTATION.md, etc.)
+2. Read '$source_session_dir/DETAILS.md' if it exists (contains Q&A context)
+3. Look for the specific section or inline tag that triggered this work item
+4. Use the debrief content + DETAILS.md to understand the full context before starting.
+DAEMON_REQUEST_FILE: Include '$request_path' in the requestFiles array when calling session.sh activate. This ensures session.sh check validates that all bare #needs-* tags in this file are resolved (swapped to #done-* or backtick-escaped) before deactivation."
+  fi
+
   # Spawn Claude with the mapped skill command
   # Append daemon-mode instruction so Claude exits after skill completion
-  local daemon_prompt="$SYSTEM_PROMPT_ADDITIONS
+  local daemon_prompt="$SYSTEM_PROMPT_ADDITIONS$context_hint
 DAEMON_MODE: You were spawned by the daemon (run.sh --monitor-tags). After completing the skill and deactivating the session, EXIT immediately — do NOT offer a next-skill menu or ask 'What's next?'. The daemon will automatically pick up the next tagged file."
   set +e
   "$CLAUDE_BIN" --append-system-prompt "$daemon_prompt" "$skill $request_path"
@@ -555,6 +573,9 @@ while true; do
   WATCHDOG_PID=$(start_watchdog)
   export WATCHDOG_PID
 
+  # Track start time for stale-session detection
+  local_start_time=$(date +%s)
+
   if [ -n "$RESTART_PROMPT" ]; then
     clear
     echo "[run.sh] Restarting with new prompt..."
@@ -584,6 +605,28 @@ while true; do
   else
     # Normal startup in FOREGROUND
     run_claude
+  fi
+
+  # Stale session detection: if Claude exited within 5 seconds and we were resuming,
+  # the session ID is likely invalid ("No conversation found"). Strip --resume and retry.
+  # Covers both fleet-resume (RESUME_SESSION_ID) and restart-resume (RESTART_SESSION_ID).
+  local_end_time=$(date +%s)
+  local_duration=$((local_end_time - local_start_time))
+  if [ "$local_duration" -le 5 ] && { [ -n "${RESUME_SESSION_ID:-}" ] || [ -n "${RESTART_SESSION_ID:-}" ]; }; then
+    echo "[run.sh] Claude exited in ${local_duration}s with --resume — session likely stale. Retrying fresh..."
+    RESUME_SESSION_ID=""
+    RESTART_SESSION_ID=""
+    RESTART_PROMPT=""
+    RESTART_AGENT_FILE=""
+    CLAUDE_ARGS=("--append-system-prompt" "$SYSTEM_PROMPT_ADDITIONS")
+    if [ ${#REMAINING_ARGS[@]} -gt 0 ]; then
+      CLAUDE_ARGS+=("${REMAINING_ARGS[@]}")
+    fi
+    # Cleanup watchdog before retry
+    kill "$WATCHDOG_PID" 2>/dev/null || true
+    wait "$WATCHDOG_PID" 2>/dev/null || true
+    unset WATCHDOG_PID
+    continue
   fi
 
   # Claude exited — cleanup watchdog

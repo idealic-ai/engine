@@ -12,19 +12,10 @@
 # Don't use set -e globally — we need to handle return codes manually in tests
 set -uo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 SCRIPTS_DIR="$HOME/.claude/scripts"
 TOOLS_DIR="$HOME/.claude/tools"
-
-# Colors
-RED='\033[31m'
-GREEN='\033[32m'
-YELLOW='\033[33m'
-RESET='\033[0m'
-
-# Test counters
-TESTS_RUN=0
-TESTS_PASSED=0
-TESTS_FAILED=0
 
 # Temp directory for test fixtures
 TEST_DIR=""
@@ -40,22 +31,6 @@ teardown() {
   if [ -n "$TEST_DIR" ] && [ -d "$TEST_DIR" ]; then
     rm -rf "$TEST_DIR"
   fi
-}
-
-pass() {
-  echo -e "${GREEN}PASS${RESET}: $1"
-  ((TESTS_PASSED++))
-}
-
-fail() {
-  echo -e "${RED}FAIL${RESET}: $1"
-  echo "  Expected: $2"
-  echo "  Got: $3"
-  ((TESTS_FAILED++))
-}
-
-skip() {
-  echo -e "${YELLOW}SKIP${RESET}: $1 — $2"
 }
 
 # =============================================================================
@@ -433,14 +408,7 @@ main() {
   test_migration_script
   test_migration_script_skips_scoped
 
-  echo ""
-  echo "============================================="
-  echo "Results: $TESTS_PASSED/$TESTS_RUN passed, $TESTS_FAILED failed"
-  echo "============================================="
-
-  if [ $TESTS_FAILED -gt 0 ]; then
-    exit 1
-  fi
+  exit_with_results
 }
 
 main "$@"

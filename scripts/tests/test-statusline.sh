@@ -22,18 +22,14 @@
 
 set -uo pipefail
 
+source "$(dirname "$0")/test-helpers.sh"
+
 STATUSLINE="$HOME/.claude/engine/tools/statusline.sh"
 SESSION_SH="$HOME/.claude/scripts/session.sh"
 LIB_SH="$HOME/.claude/scripts/lib.sh"
 CONFIG_SH="$HOME/.claude/engine/config.sh"
 
 TMP_DIR=$(mktemp -d)
-PASS=0
-FAIL=0
-
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
 
 # Disable fleet/tmux
 unset TMUX 2>/dev/null || true
@@ -92,45 +88,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-assert_contains() {
-  local expected="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -q "$expected"; then
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Expected to contain: $expected"
-    echo "  Actual: $actual"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
-assert_not_contains() {
-  local unexpected="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -q "$unexpected"; then
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Should NOT contain: $unexpected"
-    echo "  Actual: $actual"
-    FAIL=$((FAIL + 1))
-  else
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
-  fi
-}
-
-assert_eq() {
-  local expected="$1" actual="$2" msg="$3"
-  if [ "$expected" = "$actual" ]; then
-    echo -e "${GREEN}PASS${NC}: $msg"
-    PASS=$((PASS + 1))
-  else
-    echo -e "${RED}FAIL${NC}: $msg"
-    echo "  Expected: $expected"
-    echo "  Actual: $actual"
-    FAIL=$((FAIL + 1))
-  fi
-}
-
 # Run statusline with given stdin JSON
 run_statusline() {
   local input="$1"
@@ -171,11 +128,9 @@ export CLAUDE_SUPERVISOR_PID=$$
 # Verify session.sh find resolves correctly
 FOUND=$("$FAKE_HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "NOT_FOUND")
 if [[ "$FOUND" == *"TEST_STATUS"* ]]; then
-  echo -e "${GREEN}PASS${NC}: session.sh find resolves to test session"
-  PASS=$((PASS + 1))
+  pass "session.sh find resolves to test session"
 else
-  echo -e "${RED}FAIL${NC}: session.sh find → $FOUND (expected TEST_STATUS)"
-  FAIL=$((FAIL + 1))
+  fail "session.sh find → $FOUND (expected TEST_STATUS)" "TEST_STATUS" "$FOUND"
   echo "  Cannot test statusline without session discovery. Aborting."
   exit 1
 fi
@@ -208,12 +163,9 @@ run_statusline "$(make_input 10)" > /dev/null
 HEARTBEAT=$(jq -r '.lastHeartbeat // ""' "$TEST_SESSION/.state.json" 2>/dev/null)
 # Verify ISO format: YYYY-MM-DDTHH:MM:SSZ
 if [[ "$HEARTBEAT" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
-  echo -e "${GREEN}PASS${NC}: lastHeartbeat in ISO format ($HEARTBEAT)"
-  PASS=$((PASS + 1))
+  pass "lastHeartbeat in ISO format ($HEARTBEAT)"
 else
-  echo -e "${RED}FAIL${NC}: lastHeartbeat should be ISO format"
-  echo "  Actual: $HEARTBEAT"
-  FAIL=$((FAIL + 1))
+  fail "lastHeartbeat should be ISO format" "ISO format" "$HEARTBEAT"
 fi
 
 echo ""
@@ -353,9 +305,4 @@ assert_contains "builder" "$OUT" "Agent name 'builder' shown in output"
 
 echo ""
 
-# --- Summary ---
-echo "======================================"
-echo -e "Results: ${GREEN}$PASS passed${NC}, ${RED}$FAIL failed${NC}"
-echo "======================================"
-
-[ "$FAIL" -eq 0 ] && exit 0 || exit 1
+exit_with_results

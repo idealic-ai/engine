@@ -45,7 +45,7 @@
     *   When referencing files, use clickable links per `¶INV_TERMINAL_FILE_LINKS` (Compact `§` variant).
 5.  **Append to Log**: Write the report to the session's `_LOG.md` for audit trail:
     ```bash
-    ~/.claude/scripts/log.sh [sessionDir]/[LOG_NAME].md <<'EOF'
+    engine log [sessionDir]/[LOG_NAME].md <<'EOF'
     ## 📋 Leftover Work Report
     *   **Tech Debt**: [N] items
     *   **Unresolved Blocks**: [N] items

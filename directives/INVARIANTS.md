@@ -51,7 +51,7 @@ This document defines the universal rules that apply across ALL projects using t
 
 *   **¶INV_SKILL_VIA_TOOL**: Slash commands (skills) MUST be invoked via the Skill tool, NEVER via Bash.
     *   **Rule**: When instructed to run `/dehydrate`, `/commit`, `/review`, or any `/skill-name`, you MUST use the Skill tool with `skill: "skill-name"`. Do NOT use Bash to call scripts.
-    *   **Prohibited**: `~/.claude/scripts/session.sh dehydrate`, `bash -c "/dehydrate"`, or any shell-based skill invocation.
+    *   **Prohibited**: `engine session dehydrate`, `bash -c "/dehydrate"`, or any shell-based skill invocation.
     *   **Correct**: `Skill(skill: "dehydrate", args: "restart")` or `Skill(skill: "commit")`
     *   **Reason**: Skills are registered in the Claude Code skill system and invoked via the Skill tool. They are NOT bash scripts. The `/` prefix is syntactic sugar for "use the Skill tool".
 
@@ -143,8 +143,8 @@ This document defines the universal rules that apply across ALL projects using t
 
 
 *   **¶INV_INFER_USER_FROM_GDRIVE**: Auto-detect user identity from Google Drive symlink. Do not ask.
-    *   **Rule**: When a skill needs user info (name, email), call `~/.claude/scripts/user-info.sh` instead of prompting.
-    *   **Detection**: Reads `~/.claude/scripts` symlink target, extracts `GoogleDrive-email@domain` from the path. No CloudStorage scanning.
+    *   **Rule**: When a skill needs user info (name, email), call `engine user-info` instead of prompting.
+    *   **Detection**: Reads `~/.claude/scripts` symlink target (via `engine user-info`), extracts `GoogleDrive-email@domain` from the path. No CloudStorage scanning.
     *   **Usage**: `user-info.sh username` → `yarik`, `user-info.sh email` → `yarik@finchclaims.com`, `user-info.sh json` → full object.
     *   **Reason**: No extra state. The symlink already points to the user's Google Drive — derive identity from it.
 
@@ -184,7 +184,7 @@ This document defines the universal rules that apply across ALL projects using t
 ## 7. Filesystem Physics
 
 *   **¶INV_GLOB_THROUGH_SYMLINKS**: The Glob tool does not traverse symlinks. Use `glob.sh` as a fallback for symlinked directories.
-    *   **Rule**: When Glob returns empty for a path that should have files (especially `sessions/` or any symlinked directory), fall back to `~/.claude/scripts/glob.sh '<pattern>' <path>`. For known symlinked paths (`sessions/`), prefer `glob.sh` directly.
+    *   **Rule**: When Glob returns empty for a path that should have files (especially `sessions/` or any symlinked directory), fall back to `engine glob '<pattern>' <path>`. For known symlinked paths (`sessions/`), prefer `glob.sh` directly.
     *   **Reason**: `sessions/` is symlinked to Google Drive. The Glob tool's internal engine silently skips symlinks, producing false "no results" responses.
 
 
@@ -210,9 +210,24 @@ This document defines the universal rules that apply across ALL projects using t
         *   **Constraint**: This rule ONLY triggers on empty/whitespace-only "Other" responses. Any non-empty text from "Other" is treated as user input per normal behavior.
     *   **Reason**: `AskUserQuestion` provides structured input, mechanical blocking, and clear selection semantics. Text-rendered menus are ambiguous (the user might type something unexpected), non-blocking (the agent might continue without waiting), and invisible to tool-use auditing. Context-free questions and vague option labels are equally harmful — they force the user to guess what the agent is referring to.
 
+*   **¶INV_REQUEST_IS_SELF_CONTAINED**: REQUEST files must contain all context needed for execution.
+    *   **Rule**: A worker must be able to fulfill a REQUEST without access to the requester's session state. Include relevant file paths, expectations, constraints, and requesting session reference inline.
+    *   **Reason**: REQUESTs survive requester session death. The requester may have overflowed, deactivated, or been killed. The REQUEST file is the contract.
+
+*   **¶INV_DELEGATE_IS_NESTABLE**: `/delegate` must operate without session activation.
+    *   **Rule**: The `/delegate` skill reads from and writes to the current session directory. It does not call `session.sh activate`. It can be invoked from any phase of any skill without disturbing session state.
+    *   **Reason**: Delegation happens mid-skill (during interrogation, walkthrough, or ad-hoc chat). Session activation would conflict with the active skill's session.
+
+*   **¶INV_GRACEFUL_DEGRADATION**: Delegation modes degrade gracefully when infrastructure is unavailable.
+    *   **Rule**: Async delegation without fleet degrades to manual pickup (REQUEST file + tag persists). Blocking delegation degrades to async if the session dies (tag persists, worker can still find it). Silent mode requires no infrastructure beyond the Task tool.
+    *   **Reason**: Solo developers without fleet/daemon should still benefit from the delegation file format. Nothing is lost — just deferred.
+
 *   **¶INV_DELEGATION_VIA_TEMPLATES**: A skill supports delegation if and only if it has `_REQUEST.md` and `_RESPONSE.md` templates in its `assets/` folder.
     *   **Rule**: Template presence is the opt-in signal. If a skill has no `_REQUEST.md` template, it does not accept delegation requests.
     *   **Rule**: The request template defines what a requester must fill in. The response template defines what a responder must deliver. Both are populated via `§CMD_POPULATE_LOADED_TEMPLATE`.
+    *   **Rule**: REQUEST files are written to the **requesting** session directory. RESPONSE files are written to the **responding** session directory (where the skill executes).
+    *   **Rule**: Each RESPONSE template is tailored to its skill's specific outputs (code changes for implement, decisions for brainstorm, docs updated for document, verdict for review, task checklist for chores, research report for research).
+    *   **Reference**: See `~/.claude/docs/TAG_LIFECYCLE.md` for the full delegation flow and template inventory.
     *   **Reason**: Delegation was previously a parallel mechanism (3 standalone skills + separate files). This convention makes delegation a capability of each skill rather than a separate system.
 
 *   **¶INV_DYNAMIC_DISCOVERY**: Tag-to-skill mapping must use dynamic template discovery, not static maps.
@@ -233,6 +248,15 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Rule**: `§CMD_PROCESS_CHECKLISTS` must run during synthesis. The agent reads each checklist, evaluates items, then quotes results back via `session.sh check` (which sets `checkPassed=true`). The deactivate gate is the mechanical safety net.
     *   **Reason**: Checklists contain post-work requirements (testing steps, user questions, cleanup tasks). Allowing session close without processing them defeats their purpose.
 
+*   **¶INV_REQUEST_BEFORE_CLOSE**: A session cannot be deactivated with unfulfilled request files.
+    *   **Rule**: `session.sh check` Validation 3 reads `requestFiles[]` from `.state.json`. Every request file must (a) exist and (b) have no bare `#needs-*` tags anywhere in the file (backtick-escaped excluded). Formal REQUEST files (filename contains "REQUEST") must additionally have a `## Response` section. If any fail, check exits 1 and deactivation is blocked.
+    *   **Rule**: The agent must resolve all bare `#needs-*` tags (swap to `#done-*` or backtick-escape). For formal REQUEST files, also add a `## Response` section.
+    *   **Reason**: Request files are contracts between sessions. Closing a session without fulfilling its requests leaves broken promises in the system — future sessions that depend on the work will find unfulfilled tags.
+
+*   **¶INV_WALKTHROUGH_TAGS_ARE_PASSIVE**: Tags placed during `§CMD_WALK_THROUGH_RESULTS` do NOT trigger delegation offers.
+    *   **Rule**: Tags applied during walkthrough triage are protocol-placed (expected output of the walkthrough step). They are recorded but do not invoke `/delegate`. Tags in all other contexts (interrogation, QnA, ad-hoc chat, side discovery) are reactive — they trigger a `/delegate` offer.
+    *   **Reason**: Walkthrough triage already handles tag placement as part of its protocol. Offering delegation on top of that would double-prompt the user for every triage decision.
+
 *   **¶INV_1_TO_1_TAG_SKILL**: Every `#needs-X` tag maps to exactly one skill `/X`. No generic tags.
     *   **Rule**: The tag noun IS the skill name. `#needs-brainstorm` → `/brainstorm`, `#needs-implementation` → `/implement`, `#needs-chores` → `/chores`. No generic `#needs-delegation` or catch-all tags. If a new work type needs a tag, it needs a corresponding skill (or mode within an existing skill).
     *   **Reason**: Generic tags create routing ambiguity. 1:1 mapping makes the system self-documenting — seeing a tag tells you exactly which skill resolves it.
@@ -240,3 +264,8 @@ This document defines the universal rules that apply across ALL projects using t
 *   **¶INV_MODE_STANDARDIZATION**: All modal skills have exactly **3 named modes + Custom**. Custom is always the last mode.
     *   **Rule**: Skills with multiple modes present them via `AskUserQuestion` in Phase 1 Setup. Mode definitions live in `skills/X/modes/*.md` (per-skill, not shared). SKILL.md contains a summary table of available modes; full definitions are in separate files. Custom mode reads all 3 named mode files to understand the flavor space, then synthesizes a hybrid mode from user input.
     *   **Reason**: Consistent UX across skills. Users learn one pattern. Mode files keep SKILL.md lean and make modes independently versionable. The 3+Custom constraint prevents mode bloat.
+
+*   **¶INV_NO_BUILTIN_COLLISION**: Engine skill names must not collide with Claude Code built-in CLI commands.
+    *   **Rule**: Before naming a new skill, check against the known built-in list: `/help`, `/clear`, `/compact`, `/config`, `/debug`, `/init`, `/login`, `/logout`, `/review`, `/status`, `/doctor`, `/hooks`, `/listen`, `/vim`, `/terminal-setup`, `/memory`. Built-in commands intercept at the CLI layer before the LLM sees the input — a colliding skill will be silently shadowed.
+    *   **Detection**: Built-in commands produce `<command-name>` tags in the output. If invoking a skill produces a `<command-name>` tag instead of the engine protocol, the name collides.
+    *   **Reason**: The `/debug` skill was silently broken for its entire lifetime because Claude Code's built-in `/debug` intercepted it. Renamed to `/fix` to resolve.

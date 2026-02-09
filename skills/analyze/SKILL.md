@@ -11,14 +11,14 @@ Thorough analysis of code, architecture, or topics — produces a structured res
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
-### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
+### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
 **Output this block in chat with every blank filled:**
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
 
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
+[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Deep Research Protocol
 
@@ -26,41 +26,40 @@ Thorough analysis of code, architecture, or topics — produces a structured res
 
 ---
 
-## Mode Presets
-
-Analysis modes configure the agent's lens — role, research topics, calibration topics, and walk-through config. The mode is selected in Phase 1 Step 5.1. Full mode definitions are in `modes/*.md` files.
-
-| Mode | Description | When to Use |
-|------|-------------|-------------|
-| **Explore** | Broad, curiosity-driven investigation | Default — general research and understanding |
-| **Audit** | Adversarial, risk-focused critique | Hunt for flaws, failure modes, hidden assumptions |
-| **Improve** | Constructive, actionable suggestions | Find concrete improvements with clear ROI |
-| **Custom** | Reads all 3 modes, synthesizes a hybrid | User provides framing, agent blends modes |
-
-**Mode files**: `~/.claude/skills/analyze/modes/{explore,audit,improve,custom}.md`
+### Session Parameters (for §CMD_PARSE_PARAMETERS)
+*Merge into the JSON passed to `session.sh activate`:*
+```json
+{
+  "taskType": "ANALYSIS",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup"},
+    {"major": 1, "minor": 0, "name": "Context Ingestion"},
+    {"major": 2, "minor": 0, "name": "Research Loop"},
+    {"major": 3, "minor": 0, "name": "Calibration"},
+    {"major": 3, "minor": 1, "name": "Agent Handoff"},
+    {"major": 4, "minor": 0, "name": "Synthesis"},
+    {"major": 4, "minor": 1, "name": "Finding Triage"}
+  ],
+  "nextSkills": ["/brainstorm", "/implement", "/document", "/fix", "/chores"],
+  "directives": [],
+  "logTemplate": "~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS_LOG.md",
+  "debriefTemplate": "~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS.md",
+  "modes": {
+    "explore": {"label": "Explore", "description": "Broad, curiosity-driven investigation", "file": "~/.claude/skills/analyze/modes/explore.md"},
+    "audit": {"label": "Audit", "description": "Adversarial, risk-focused critique", "file": "~/.claude/skills/analyze/modes/audit.md"},
+    "improve": {"label": "Improve", "description": "Constructive, actionable suggestions", "file": "~/.claude/skills/analyze/modes/improve.md"},
+    "custom": {"label": "Custom", "description": "User provides framing, agent blends modes", "file": "~/.claude/skills/analyze/modes/custom.md"}
+  }
+}
+```
 
 ---
 
-### Phases (for §CMD_PARSE_PARAMETERS)
-*Include this array in the `phases` field when calling `session.sh activate`:*
-```json
-[
-  {"major": 1, "minor": 0, "name": "Setup"},
-  {"major": 2, "minor": 0, "name": "Context Ingestion"},
-  {"major": 3, "minor": 0, "name": "Research Loop"},
-  {"major": 4, "minor": 0, "name": "Calibration"},
-  {"major": 4, "minor": 1, "name": "Agent Handoff"},
-  {"major": 5, "minor": 0, "name": "Synthesis"},
-  {"major": 5, "minor": 1, "name": "Finding Triage"}
-]
-```
-*Phase enforcement (¶INV_PHASE_ENFORCEMENT): transitions must be sequential. Use `--user-approved` for skip/backward.*
-
-## 1. Setup Phase
+## 0. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 1: Setup phase.
-    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 1 only (Strict Bootloader — expires at Phase 2).
+    > 1. I am starting Phase 0: Setup phase.
+    > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 0 only (Strict Bootloader — expires at Phase 1).
     > 3. My focus is ANALYSIS (`§CMD_REFUSE_OFF_COURSE` applies).
     > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
     > 5. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
@@ -70,7 +69,7 @@ Analysis modes configure the agent's lens — role, research topics, calibration
     > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
     > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
-    **Constraint**: Do NOT read any project files (source code, docs) in Phase 1. Only load the required system templates/standards.
+    **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project map and file index)
@@ -96,20 +95,20 @@ Analysis modes configure the agent's lens — role, research topics, calibration
     **On "Custom"**: Read ALL 3 named mode files first (`modes/explore.md`, `modes/audit.md`, `modes/improve.md`), then accept user's framing. Parse into role/goal/mindset.
 
     **Record**: Store the selected mode. It configures:
-    *   Phase 1 Step 6 role (from mode file)
-    *   Phase 3 research topics (from mode file)
-    *   Phase 4 calibration topics (from mode file)
-    *   Phase 5.1 walk-through config (from mode file)
+    *   Phase 0 Step 6 role (from mode file)
+    *   Phase 2 research topics (from mode file)
+    *   Phase 3 calibration topics (from mode file)
+    *   Phase 4.1 walk-through config (from mode file)
 
 6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file.
 
 7.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
-    *   If any files are found, add them to `contextPaths` for ingestion in Phase 2.
+    *   If any files are found, add them to `contextPaths` for ingestion in Phase 1.
     *   *Why?* To ensure analysis includes the most recent intents and behavior changes.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
+### §CMD_VERIFY_PHASE_EXIT — Phase 0
 **Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
+> **Phase 0 proof:**
 > - Mode: `________` (explore / audit / improve / custom)
 > - Role: `________` (quote the role name from the mode preset)
 > - Session dir: `________`
@@ -117,45 +116,41 @@ Analysis modes configure the agent's lens — role, research topics, calibration
 > - Templates loaded: `________`, `________`
 > - Active alerts: `________ found` or `none`
 
-### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 2: Context Ingestion"** — Load project files and RAG context
-> - **"Stay in Phase 1"** — Load additional standards or resolve setup issues
+*Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
 
-## 2. Context Ingestion
+## 1. Context Ingestion
 *Load the raw materials before processing.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 2: Context Ingestion.
+> 1. I am moving to Phase 1: Context Ingestion.
 > 2. I will `§CMD_INGEST_CONTEXT_BEFORE_WORK` to ask for and load `contextPaths`.
 
 **Action**: Execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
+### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
+> **Phase 1 proof:**
 > - RAG session-search: `________ results` or `unavailable`
 > - RAG doc-search: `________ results` or `unavailable`
 > - Files loaded: `________ files`
 > - User confirmed: `yes / no`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 2: Context loaded. How to proceed?"
-> - **"Proceed to Phase 3: Research Loop"** — Begin autonomous deep dive into loaded context
-> - **"Stay in Phase 2"** — Load more files or context
-> - **"Skip to Phase 4: Calibration"** — I want to guide the analysis direction before research begins
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "1: Context Ingestion"
+  nextPhase: "2: Research Loop"
+  prevPhase: "0: Setup"
+  custom: "Skip to Phase 3: Calibration | I want to guide the analysis direction before research begins"
 
 ---
 
-## 3. The Research Loop (Autonomous Deep Dive)
+## 2. The Research Loop (Autonomous Deep Dive)
 *Do not wait for permission. Explore the context immediately.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3: Research Loop.
+> 1. I am moving to Phase 2: Research Loop.
 > 2. I will `§CMD_USE_TODOS_TO_TRACK_PROGRESS` to organize my investigation.
 > 3. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` (following `assets/TEMPLATE_ANALYSIS_LOG.md` EXACTLY) to `§CMD_THINK_IN_LOG` continuously.
 > 4. I will maintain strict analytical focus (`§CMD_REFUSE_OFF_COURSE` applies).
@@ -193,27 +188,27 @@ For *every* significant thought, execute `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLA
 
 **Rule**: Dump your thoughts continuously. Do not filter for "high polish" yet—capture the raw insight.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
+### §CMD_VERIFY_PHASE_EXIT — Phase 2
 **Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
+> **Phase 2 proof:**
 > - Log entries written: `________` (minimum 5)
 > - Key finding: `________` (one-liner of strongest insight)
 > - Open gaps: `________` (count of unresolved questions)
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 3: Research loop complete. How to proceed?"
-> - **"Proceed to Phase 4: Calibration"** — Align research direction with user feedback
-> - **"Stay in Phase 3"** — Continue exploring, more to discover
-> - **"Skip to Phase 5: Synthesis"** — Findings are clear, ready to write the report
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "2: Research Loop"
+  nextPhase: "3: Calibration"
+  prevPhase: "1: Context Ingestion"
+  custom: "Skip to Phase 4: Synthesis | Findings are clear, ready to write the report"
 
 ---
 
-## 4. The Calibration Phase (Interactive)
+## 3. The Calibration Phase (Interactive)
 *After you have logged a significant batch of findings (5+), STOP and turn to the user.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Calibration.
+> 1. I am moving to Phase 3: Calibration.
 > 2. I will `§CMD_EXECUTE_INTERROGATION_PROTOCOL` to align direction with the user.
 > 3. I will `§CMD_LOG_TO_DETAILS` to record the feedback.
 > 4. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
@@ -260,7 +255,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
 
 > "Round N complete (minimum met). What next?"
-> - **"Proceed to Phase 5: Synthesis"** — *(terminal: if selected, skip all others and move on)*
+> - **"Proceed to Phase 4: Synthesis"** — *(terminal: if selected, skip all others and move on)*
 > - **"More calibration (3 more rounds)"** — Standard topic rounds, then this gate re-appears
 > - **"Devil's advocate round"** — 1 round challenging assumptions, then this gate re-appears
 > - **"What-if scenarios round"** — 1 round exploring hypotheticals, then this gate re-appears
@@ -270,44 +265,44 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Ask: "Round N complete. I still have questions about [X]. Continuing..."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4
+### §CMD_VERIFY_PHASE_EXIT — Phase 3
 **Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
+> **Phase 3 proof:**
 > - Depth chosen: `________`
 > - Rounds completed: `________` / `________`+
 > - DETAILS.md entries: `________`
 
 ### Phase Transition
 Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 4: Calibration complete. How to proceed with synthesis?"
+> "Phase 3: Calibration complete. How to proceed with synthesis?"
 > - **"Launch analyzer agent"** — Hand off to autonomous agent for synthesis (you'll get the report when done)
 > - **"Continue inline"** — Write synthesis in this conversation
-> - **"Return to Phase 3: Research Loop"** — More exploration needed before synthesis
+> - **"Return to Phase 2: Research Loop"** — More exploration needed before synthesis
 
 ---
 
-## 4.1. Agent Handoff (Opt-In)
-*Only if user selected "Launch analyzer agent" in Phase 4 transition.*
+## 3.1. Agent Handoff (Opt-In)
+*Only if user selected "Launch analyzer agent" in Phase 3 transition.*
 
 Execute `§CMD_HAND_OFF_TO_AGENT` with:
 *   `agentName`: `"analyzer"`
-*   `startAtPhase`: `"Phase 5: The Synthesis Phase"`
+*   `startAtPhase`: `"Phase 4: The Synthesis Phase"`
 *   `planOrDirective`: `"Synthesize research findings into ANALYSIS.md following the template. Focus on: [calibration-agreed themes and questions]"`
 *   `logFile`: `ANALYSIS_LOG.md`
 *   `debriefTemplate`: `~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS.md`
 *   `logTemplate`: `~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS_LOG.md`
 *   `taskSummary`: `"Synthesize analysis: [brief description from taskSummary]"`
 
-**If "Continue inline"**: Proceed to Phase 5 as normal.
+**If "Continue inline"**: Proceed to Phase 4 as normal.
 
 ---
 
-## 5. The Synthesis Phase (Final)
+## 4. The Synthesis Phase (Final)
 *When the user is satisfied.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 5: Synthesis.
+> 1. I am moving to Phase 4: Synthesis.
 > 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
 > 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_ANALYSIS.md` EXACTLY) to structure the research.
 > 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to deliver the final report.
@@ -332,9 +327,9 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
 **Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 5 (PROOF OF WORK)
+### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
-> **Phase 5 proof:**
+> **Phase 4 proof:**
 > - ANALYSIS.md written: `________` (real file path)
 > - Tags line: `________`
 > - Artifacts listed: `________`
@@ -343,26 +338,27 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "ANALYSIS.md is written. Want to triage findings into actions?"
-> - **"Proceed to Phase 5.1: Finding Triage"** — Walk through each finding and decide what to do with it
-> - **"Skip to close"** — The report is enough, close the session
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "4: Synthesis"
+  nextPhase: "4.1: Finding Triage"
+  prevPhase: "3: Calibration"
+  custom: "Skip to close | The report is enough, close the session"
 
 ---
 
-## 5.1. Finding Triage (Action Planning)
+## 4.1. Finding Triage (Action Planning)
 *Convert analysis into action. Walk through each finding with the user and decide its fate.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 5.1: Finding Triage.
+> 1. I am moving to Phase 4.1: Finding Triage.
 > 2. I will execute `§CMD_WALK_THROUGH_RESULTS` to walk through each finding.
 > 3. Decisions will be logged to DETAILS.md.
 
 Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the selected mode preset.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 5.1
+### §CMD_VERIFY_PHASE_EXIT — Phase 4.1
 **Output this block in chat with every blank filled:**
-> **Phase 5.1 proof:**
+> **Phase 4.1 proof:**
 > - Findings triaged: `________` / `________`
 > - Delegated: `________`
 > - Deferred: `________`
@@ -371,17 +367,5 @@ Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the s
 ---
 
 **Step 4**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
-
-### Next Skill Options
-*Present these via `AskUserQuestion` after deactivation (user can always type "Other" to chat freely):*
-
-> "Analysis complete. What's next?"
-
-| Option | Label | Description |
-|--------|-------|-------------|
-| 1 | `/brainstorm` (Recommended) | Research done — explore solutions and approaches |
-| 2 | `/implement` | Findings are clear — start building |
-| 3 | `/document` | Capture the analysis as permanent documentation |
-| 4 | `/debug` | Analysis revealed a bug — investigate and fix |
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.

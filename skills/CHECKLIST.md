@@ -27,3 +27,9 @@ Pre-flight checks when creating or modifying skills in `engine/skills/`.
 - [ ] No hardcoded paths — use `~/.claude/` prefix for shared engine files
 - [ ] Mode files define Role, Goal, Mindset, and Approach sections
 - [ ] Interrogation phase (if present) has depth selection and exit gate
+
+### Automated Validation
+- [ ] Run `engine skill-doctor` — exit code 0 (no FAILs)
+- [ ] All FAIL results addressed (DR-A through DR-I rule categories)
+- [ ] WARN results reviewed (acceptable WARNs documented in commit message)
+- [ ] New skills appear in doctor output with correct tier classification

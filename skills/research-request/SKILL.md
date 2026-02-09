@@ -11,21 +11,21 @@ Posts a research request for async fulfillment by Gemini Deep Research.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
-### ⛔ GATE CHECK — Do NOT proceed to Phase 1 until ALL are filled in:
+### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
 **Output this block in chat with every blank filled:**
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
 > - TAGS.md — §FEED spotted: `________`
 
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 1 until every blank is filled.
+[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Research Request Protocol (The Query Refiner)
 
-## 1. Setup Phase
+## 0. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 1: Setup phase.
+    > 1. I am starting Phase 0: Setup phase.
     > 2. My focus is RESEARCH_REQUEST (`§CMD_REFUSE_OFF_COURSE` applies).
     > 3. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
     > 4. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
@@ -46,53 +46,49 @@ Posts a research request for async fulfillment by Gemini Deep Research.
 
 5.  **Scope**: Understand the [Topic] and [Goal].
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
+### §CMD_VERIFY_PHASE_EXIT — Phase 0
 **Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
+> **Phase 0 proof:**
 > - Role: `________`
 > - Session dir: `________`
 > - Templates loaded: `________`, `________`
 > - Parameters parsed: `________`
 
-### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 1: Setup complete. How to proceed?"
-> - **"Proceed to Phase 2: Context Ingestion"** — Load relevant materials before refining the query
-> - **"Stay in Phase 1"** — Load additional standards or resolve setup issues
+*Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
 
-## 2. Context Ingestion
+## 1. Context Ingestion
 *Load relevant materials before refining the query.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 2: Context Ingestion.
+> 1. I am moving to Phase 1: Context Ingestion.
 > 2. I will `§CMD_INGEST_CONTEXT_BEFORE_WORK` to ask for and load `contextPaths`.
 
 **Action**: Execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
+### §CMD_VERIFY_PHASE_EXIT — Phase 1
 **Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
+> **Phase 1 proof:**
 > - RAG session-search: `________ results` or `unavailable`
 > - RAG doc-search: `________ results` or `unavailable`
 > - Files loaded: `________ files`
 > - User confirmed: `yes / no`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 2: Context loaded. How to proceed?"
-> - **"Proceed to Phase 3: Interrogation"** — Refine the research question through structured dialogue
-> - **"Stay in Phase 2"** — Load more files or context
-> - **"Skip to Phase 4: Post Request"** — Question is already clear, just post it
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "1: Context Ingestion"
+  nextPhase: "2: Interrogation"
+  prevPhase: "0: Setup"
+  custom: "Skip to 3: Post Request | Question is already clear, just post it"
 
 ---
 
-## 3. The Interrogation (Query Refinement)
+## 2. The Interrogation (Query Refinement)
 *Refine the research question through structured dialogue.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3: Interrogation.
+> 1. I am moving to Phase 2: Interrogation.
 > 2. I will `§CMD_EXECUTE_INTERROGATION_PROTOCOL` to refine the research question.
 > 3. I will `§CMD_LOG_TO_DETAILS` to capture the Q&A.
 > 4. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
@@ -115,9 +111,9 @@ Execute `AskUserQuestion` (multiSelect: false):
 > - **"Ready"** — Submit the research request
 > - **"More discussion"** — Continue refining the question
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
+### §CMD_VERIFY_PHASE_EXIT — Phase 2
 **Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
+> **Phase 2 proof:**
 > - Rounds completed: `________` (minimum 3)
 > - Core question refined: `________`
 > - Constraints identified: `________`
@@ -126,25 +122,27 @@ Execute `AskUserQuestion` (multiSelect: false):
 > - User confirmed: `________`
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 3: Query refined. How to proceed?"
-> - **"Proceed to Phase 4: Post Request"** — Create and tag the research request document
-> - **"More refinement"** — Continue sharpening the query
-> - **"Start over"** — The question has changed fundamentally, re-interrogate
+*Fired by §CMD_EXECUTE_INTERROGATION_PROTOCOL exit gate's "Proceed to next phase" option.*
+
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+  completedPhase: "2: Interrogation"
+  nextPhase: "3: Post Request"
+  prevPhase: "1: Context Ingestion"
+  custom: "Start over | The question has changed fundamentally, re-interrogate"
 
 ---
 
-## 4. Post Request
+## 3. Post Request
 *Create the research request document.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Post Request.
+> 1. I am moving to Phase 3: Post Request.
 > 2. I will `§CMD_POST_RESEARCH_REQUEST` to create and tag the request document.
 > 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` to close the session.
 
 1.  **Create**: Populate the `~/.claude/skills/research-request/assets/TEMPLATE_RESEARCH_REQUEST.md` template with the refined query, context, constraints, expected output, and previous research (if follow-up). Save as `RESEARCH_REQUEST_[TOPIC].md` in the session directory (`[TOPIC]` is UPPER_SNAKE_CASE; for follow-ups append `_2.md`, `_3.md`). Tag with `#needs-research`:
     ```bash
-    ~/.claude/scripts/tag.sh add "$FILE" '#needs-research'
+    engine tag add "$FILE" '#needs-research'
     ```
 2.  **Log**: Execute `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` with a Request Posted entry.
 3.  **Await (Optional)**: If the agent has other work to do in this session, offer to start a background watcher:
@@ -154,9 +152,9 @@ Execute `AskUserQuestion` (multiSelect: false):
 4.  **Debrief**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` using a lightweight summary (no full debrief template — just a brief "Research Request Debrief" capturing the refined query, constraints, and why this research is needed).
 5.  **Finalize**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` and `§CMD_REPORT_SESSION_SUMMARY`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
+### §CMD_VERIFY_PHASE_EXIT — Phase 3 (PROOF OF WORK)
 **Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
+> **Phase 3 proof:**
 > - Request written: `________` (real file path)
 > - Tagged: `________`
 > - Log entry: `________`

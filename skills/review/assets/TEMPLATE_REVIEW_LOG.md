@@ -38,7 +38,7 @@
 
 ## Leftover Spawned
 *   **Title**: `[Leftover Description]`
-*   **Command**: `/implement` or `/debug` or `/test`
+*   **Command**: `/implement` or `/fix` or `/test`
 *   **Source Debrief**: `[Session/File]`
 *   **Prompt**: "The micro-dehydrated prompt for the leftover session."
 
