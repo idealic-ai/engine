@@ -93,7 +93,7 @@ link_if_needed() {
   elif [ -d "$link" ]; then
     if [ "$interactive" = "0" ]; then
       setup_log_verbose "$name: REAL DIRECTORY - non-interactive mode, skipping"
-      return 2
+      return 0
     fi
     setup_log_verbose "$name: REAL DIRECTORY - waiting for input"
     echo ""

@@ -150,7 +150,7 @@ setup
 mkdir -p "$TEST_DIR/claude/real-dir"
 link_if_needed "$TEST_DIR/engine/scripts" "$TEST_DIR/claude/real-dir" "test-link" "0"
 rc=$?
-[ "$rc" -eq 2 ] && pass "LINK-06: Returns 2 for real dir in non-interactive mode" || fail "LINK-06" "exit 2" "exit $rc"
+[ "$rc" -eq 0 ] && pass "LINK-06: Returns 0 for real dir in non-interactive mode (safe skip)" || fail "LINK-06" "exit 0" "exit $rc"
 [ -d "$TEST_DIR/claude/real-dir" ] && pass "LINK-07: Real dir preserved (not deleted)" || fail "LINK-07" "dir exists" "dir gone"
 teardown
 

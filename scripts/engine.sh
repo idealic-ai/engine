@@ -118,7 +118,7 @@ CLAUDE_DIR="$HOME/.claude"
 LOCAL_ENGINE="$HOME/.claude/engine"
 MODE_FILE="$HOME/.claude/engine/.mode"
 ACTIONS=()
-SETUP_MARKER="$HOME/.claude/engine/.setup-done"
+SETUP_MARKER="$HOME/.claude/.setup-done"
 
 # ---- Global symlink helper ----
 # Relinks /usr/local/bin/engine → the given engine.sh path.
