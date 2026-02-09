@@ -430,7 +430,7 @@ EOF
       "title": "Provable Debrief Items",
       "description": "Debrief pipeline steps (§CMD_* names) that this skill requires proof for during synthesis. `session.sh deactivate` gates on proof completeness — all declared items must have proof in `.state.json` before deactivation succeeds. Skills with abbreviated synthesis omit this field (gate passes trivially). See ¶INV_PROVABLE_DEBRIEF_PIPELINE.",
       "example": [
-        ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK", "/delegation-review"]
+        ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]
       ]
     },
     "extraInfo": {
@@ -690,61 +690,61 @@ EOF
     *   Only include sessions (not code files). Link to the debrief or most relevant artifact.
     *   This creates a knowledge graph — future sessions can trace lineage.
 6.  **Report**: `§CMD_REPORT_FILE_CREATION_SILENTLY`. If this was a regeneration, say "Updated `[path]`" not "Created".
-7.  **Reindex Search DBs**: *Handled automatically by `session.sh deactivate` (step 12).* No manual action needed — deactivate spawns background `session-search.sh index` and `doc-search.sh index` processes.
+7.  **Reindex Search DBs**: *Handled automatically by `session.sh deactivate` (step 15).* No manual action needed — deactivate spawns background `session-search.sh index` and `doc-search.sh index` processes.
 8.  **Directive Management**: Execute `§CMD_MANAGE_DIRECTIVES`.
     *   Three passes: README updates (doc files touched), invariant capture (new rules), pitfall capture (gotchas).
     *   Each pass uses agent judgment, prompts user per candidate, skips silently if none found.
-9b. **Process Delegations**: Execute `§CMD_PROCESS_DELEGATIONS`.
+9.  **Process Delegations**: Execute `§CMD_PROCESS_DELEGATIONS`.
     *   Scans session artifacts for unresolved bare `#needs-X` inline tags.
     *   Invokes `/delegation-create` for each one (user chooses async/blocking/silent per tag).
     *   Skips silently if no unresolved delegation tags found.
-10.  **Capture Side Discoveries**: Execute `§CMD_CAPTURE_SIDE_DISCOVERIES`.
-    *   Scans the session log for side-discovery entries (observations, concerns, parking lot items).
-    *   Presents multichoice to tag them for future dispatch (`#needs-implementation`, `#needs-research`, `#needs-brainstorm`).
-    *   Skips silently if no side-discovery entries found.
-10b. **Manage Alerts**: Execute `§CMD_MANAGE_ALERTS`.
-    *   Checks whether this session's work warrants raising or resolving alerts.
-    *   Uses `tag.sh` operations for `#active-alert` / `#done-alert` lifecycle.
-    *   Skips silently if no alert actions needed.
-11.  **Report Leftover Work**: Execute `§CMD_REPORT_LEFTOVER_WORK`.
-    *   Extracts unfinished items from session artifacts (tech debt, unresolved blocks, incomplete plan steps, doc impact).
-    *   Outputs a concise report in chat + appends to session log.
-    *   Gives the user context for their next-skill choice.
-    *   Skips silently if no leftover items found.
-11b. **Dispatch Approval**: Invoke `/delegation-review` (scoped to current session).
+10.  **Dispatch Approval**: Execute `§CMD_DISPATCH_APPROVAL`.
     *   Scans current session for `#needs-X` tags (excluding review/rework).
     *   Groups by tag type, presents walkthrough for user to approve → flip to `#delegated-X`.
     *   Approved items become visible to the daemon for autonomous dispatch.
     *   Skips silently if no `#needs-X` tags found.
-11c. **Prove Debrief Pipeline** (¶INV_PROVABLE_DEBRIEF_PIPELINE): If `provableDebriefItems` is declared in session parameters, submit proof that each pipeline step was executed.
+11.  **Capture Side Discoveries**: Execute `§CMD_CAPTURE_SIDE_DISCOVERIES`.
+    *   Scans the session log for side-discovery entries (observations, concerns, parking lot items).
+    *   Presents multichoice to tag them for future dispatch (`#needs-implementation`, `#needs-research`, `#needs-brainstorm`).
+    *   Skips silently if no side-discovery entries found.
+12.  **Manage Alerts**: Execute `§CMD_MANAGE_ALERTS`.
+    *   Checks whether this session's work warrants raising or resolving alerts.
+    *   Uses `tag.sh` operations for `#active-alert` / `#done-alert` lifecycle.
+    *   Skips silently if no alert actions needed.
+13.  **Report Leftover Work**: Execute `§CMD_REPORT_LEFTOVER_WORK`.
+    *   Extracts unfinished items from session artifacts (tech debt, unresolved blocks, incomplete plan steps, doc impact).
+    *   Outputs a concise report in chat + appends to session log.
+    *   Gives the user context for their next-skill choice.
+    *   Skips silently if no leftover items found.
+14.  **Prove Debrief Pipeline** (¶INV_PROVABLE_DEBRIEF_PIPELINE): If `provableDebriefItems` is declared in session parameters, submit proof that each pipeline step was executed.
     *   **Output the proof block in chat** (filled in, no blanks):
         > **Debrief pipeline proof:**
         > - §CMD_MANAGE_DIRECTIVES: `________` (files touched / no README/INVARIANTS/PITFALLS changes needed)
         > - §CMD_PROCESS_DELEGATIONS: `________` (N bare tags processed / no bare `#needs-X` tags found)
+        > - §CMD_DISPATCH_APPROVAL: `________` (N approved, M deferred / no `#needs-X` tags to dispatch)
         > - §CMD_CAPTURE_SIDE_DISCOVERIES: `________` (N items surfaced / no side discoveries in log)
         > - §CMD_MANAGE_ALERTS: `________` (alert raised/resolved / no alert action needed)
         > - §CMD_REPORT_LEFTOVER_WORK: `________` (N items reported / no leftover work)
-        > - /delegation-review: `________` (N approved, M deferred / no `#needs-X` tags to dispatch)
     *   **Submit proof to engine**: Only include items declared in this skill's `provableDebriefItems`:
         ```bash
         session.sh prove <path> <<'EOF'
         §CMD_MANAGE_DIRECTIVES: skipped: no files touched
         §CMD_PROCESS_DELEGATIONS: ran: 2 bare tags processed
+        §CMD_DISPATCH_APPROVAL: skipped: no #needs-X tags
         §CMD_CAPTURE_SIDE_DISCOVERIES: skipped: no side discoveries
         §CMD_MANAGE_ALERTS: skipped: no alerts
         §CMD_REPORT_LEFTOVER_WORK: ran: 1 item reported
-        /delegation-review: skipped: no #needs-X tags
         EOF
         ```
     *   Each line: `§CMD_NAME: <free text proof>`. The proof text should match the hints above.
     *   Skips if `provableDebriefItems` is not declared (abbreviated-synthesis skills).
     *   `session.sh deactivate` gates on proof completeness — all declared items must have proof.
-12.  **Deactivate & Prompt Next Skill**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`.
+15.  **Deactivate & Prompt Next Skill**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`.
     *   Deactivates the session with description and keywords, then presents the skill progression menu.
 
 ### §CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL
 **Definition**: After synthesis is complete, deactivates the session (re-engaging the gate) and presents skill-specific next-step options to guide the user.
-**Trigger**: Called as the final step of `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (step 12).
+**Trigger**: Called as the final step of `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (step 15).
 
 **Algorithm**:
 1.  **Compose Description**: Write a 1-3 line summary of what was accomplished in this session. Focus on *what changed* and *why*, not process details.
@@ -1006,13 +1006,41 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 ### §CMD_CAPTURE_SIDE_DISCOVERIES
 **Description**: Scans the session log for side-discovery entries (observations, concerns, parking lot items) and presents a multichoice menu to tag them for future dispatch.
-**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 10, after TOC management. Read the reference file before executing.
+**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 11, after dispatch approval. Read the reference file before executing.
 **Reference**: `~/.claude/directives/commands/CMD_CAPTURE_SIDE_DISCOVERIES.md`
 
 ### §CMD_DELEGATE
 **Description**: Write a delegation REQUEST file, apply the appropriate tag, and execute the chosen delegation mode (async, blocking, or silent). The low-level primitive behind `/delegation-create`.
 **Trigger**: Called by the `/delegation-create` skill after mode selection. Not called directly by agents.
 **Reference**: `~/.claude/directives/commands/CMD_DELEGATE.md`
+
+### §CMD_DISPATCH_APPROVAL
+**Description**: Reviews `#needs-X` tags in the current session and lets the user approve them for daemon dispatch (`#delegated-X`). The human gate between tag creation and autonomous processing.
+**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 10 (after `§CMD_PROCESS_DELEGATIONS`, before `§CMD_CAPTURE_SIDE_DISCOVERIES`). Also callable standalone.
+
+**Algorithm**:
+1.  **Scan**: Find all `#needs-X` tags in the current session directory:
+    *   `tag.sh find '#needs-*' [sessionDir] --tags-only` — Tags-line entries on REQUEST files and debriefs
+    *   Exclude `#needs-review` (resolved by `/review`, not daemon dispatch)
+    *   Exclude `#needs-rework` (resolved by `/review`)
+2.  **Skip if empty**: If no `#needs-X` tags found (excluding review/rework), skip silently. No user prompt.
+3.  **Group**: Organize results by tag type (e.g., all `#needs-implementation` together, all `#needs-chores` together).
+4.  **Present**: For each group, execute `AskUserQuestion` (multiSelect: true):
+    > "Dispatch approval — `#needs-[noun]` ([N] items):"
+    > - **"Approve all [N] for daemon dispatch → `#delegated-[noun]`"** — Flip all items in this group
+    > - **"Review individually"** — Walk through each item to approve/defer/dismiss
+    > - **"Defer all"** — Leave as `#needs-[noun]` (will appear in next session's dispatch approval)
+5.  **Execute**:
+    *   **Approve all**: For each file in the group, `tag.sh swap [file] '#needs-[noun]' '#delegated-[noun]'`.
+    *   **Review individually**: For each file, present: Approve (`#delegated-X`) / Defer (keep `#needs-X`) / Dismiss (remove tag entirely).
+    *   **Defer all**: No action. Tags remain as `#needs-X`.
+6.  **Report**: Output summary in chat: "Dispatched: [N] items. Deferred: [M] items. Dismissed: [K] items."
+
+**Constraints**:
+*   **Current session only**: Does NOT scan other sessions. Cross-session dispatch is out of scope.
+*   **Human approval required** (`¶INV_DISPATCH_APPROVAL_REQUIRED`): Agents MUST NOT auto-flip `#needs-X` → `#delegated-X`.
+*   **Daemon monitors `#delegated-*`** (`¶INV_NEEDS_IS_STAGING`): Only approved items become visible to the daemon.
+*   **Debounce-friendly**: Multiple `tag.sh swap` calls in rapid succession are collected by the daemon's 3s debounce (`¶INV_DAEMON_DEBOUNCE`).
 
 ### §CMD_PROCESS_DELEGATIONS
 **Description**: Scans session artifacts for unresolved bare `#needs-X` inline tags and invokes `/delegation-create` for each one. Synthesis pipeline step between walkthrough and debrief.
@@ -1021,7 +1049,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 ### §CMD_REPORT_LEFTOVER_WORK
 **Description**: Extracts unfinished items from session artifacts (tech debt, unresolved blocks, incomplete plan steps) and presents a concise report in chat before the next-skill menu.
-**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 11, after side discoveries. Read the reference file before executing.
+**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 13, after manage alerts. Read the reference file before executing.
 **Reference**: `~/.claude/directives/commands/CMD_REPORT_LEFTOVER_WORK.md`
 
 ### §CMD_WALK_THROUGH_RESULTS

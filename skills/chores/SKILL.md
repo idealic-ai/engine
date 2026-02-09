@@ -36,7 +36,7 @@ Executes routine maintenance and cleanup tasks from a structured task queue.
     {"major": 3, "minor": 0, "name": "Session Close"}
   ],
   "nextSkills": ["/chores", "/implement", "/review", "/document"],
-  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK", "/delegation-review"],
+  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"],
   "directives": [],
   "logTemplate": "~/.claude/skills/chores/assets/TEMPLATE_ADHOC_LOG.md",
   "debriefTemplate": "~/.claude/skills/chores/assets/TEMPLATE_ADHOC.md",

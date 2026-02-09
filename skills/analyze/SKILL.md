@@ -41,7 +41,7 @@ Thorough analysis of code, architecture, or topics — produces a structured res
     {"major": 4, "minor": 1, "name": "Finding Triage"}
   ],
   "nextSkills": ["/brainstorm", "/implement", "/document", "/fix", "/chores"],
-  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK", "/delegation-review"],
+  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"],
   "directives": [],
   "logTemplate": "~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS_LOG.md",
   "debriefTemplate": "~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS.md",

@@ -128,7 +128,7 @@ To add new tag types, create a `TEMPLATE_*_REQUEST.md` in the skill's `assets/` 
 #needs-X → #delegated-X → #claimed-X → #done-X
 ```
 
-The 4-state lifecycle requires human approval (`/delegation-review`) to transition `#needs-X` → `#delegated-X`. The daemon watches only `#delegated-X` tags. Workers claim via `/delegation-claim` (`#delegated-X` → `#claimed-X`) before starting work.
+The 4-state lifecycle requires human approval (`§CMD_DISPATCH_APPROVAL`) to transition `#needs-X` → `#delegated-X`. The daemon watches only `#delegated-X` tags. Workers claim via `/delegation-claim` (`#delegated-X` → `#claimed-X`) before starting work.
 
 ### Debouncing
 

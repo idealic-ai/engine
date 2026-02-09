@@ -1304,10 +1304,10 @@ case "$ACTION" in
     #   session.sh prove <path> <<'EOF'
     #   §CMD_MANAGE_DIRECTIVES: skipped: no files touched
     #   §CMD_PROCESS_DELEGATIONS: ran: 2 bare tags processed
+    #   §CMD_DISPATCH_APPROVAL: skipped: no #needs-X tags
     #   §CMD_CAPTURE_SIDE_DISCOVERIES: skipped: no side discoveries
     #   §CMD_MANAGE_ALERTS: skipped: no alerts
     #   §CMD_REPORT_LEFTOVER_WORK: ran: 1 item reported
-    #   /delegation-review: skipped: no #needs-X tags
     #   EOF
     #
     # Each line: §CMD_NAME: <free text proof>
