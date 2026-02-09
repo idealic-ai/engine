@@ -4,6 +4,13 @@ import * as path from "node:path";
 
 export const EMBEDDING_DIMENSIONS = 3072;
 
+/**
+ * Schema version — bump this when table structure changes.
+ * On open, if the DB's PRAGMA user_version doesn't match,
+ * all tables are dropped and recreated (reindex required).
+ */
+export const SCHEMA_VERSION = 1;
+
 export type { Database };
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>> | null = null;
@@ -37,9 +44,23 @@ export async function initDb(dbPath: string): Promise<Database> {
   if (fs.existsSync(dbPath)) {
     const buffer = fs.readFileSync(dbPath);
     db = new SqlJs.Database(buffer);
+
+    // Check schema version — drop and recreate if mismatched
+    const result = db.exec("PRAGMA user_version;");
+    const dbVersion = result[0]?.values[0]?.[0] as number ?? 0;
+    if (dbVersion !== SCHEMA_VERSION) {
+      console.error(
+        `[doc-search] Schema version mismatch (db=${dbVersion}, expected=${SCHEMA_VERSION}). Dropping tables and reindexing.`
+      );
+      db.run("DROP TABLE IF EXISTS doc_chunks;");
+      db.run("DROP TABLE IF EXISTS embeddings;");
+    }
   } else {
     db = new SqlJs.Database();
   }
+
+  // Set schema version
+  db.run(`PRAGMA user_version = ${SCHEMA_VERSION};`);
 
   // Create embeddings table (content-addressed, global)
   db.run(`

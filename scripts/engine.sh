@@ -24,10 +24,11 @@ set -euo pipefail
 #   engine status                   Show current mode + symlink audit
 #   engine report                   Full system health report
 #   engine toc                      Show engine directory tree (~/.claude/)
-#   engine push                     git push engine to origin
+#   engine push [message]            Commit (if dirty) + push to origin
 #   engine pull                     git pull engine from origin
 #   engine deploy                   Sync local engine → GDrive (rsync)
 #   engine test [args...]           Run engine test suite
+#   engine reindex                  Rebuild doc-search + session-search DBs
 #   engine uninstall                Remove engine symlinks
 #
 # Auto-dispatch:
@@ -141,12 +142,13 @@ MODE COMMANDS
   report                 Full system health report
 
 GIT COMMANDS
-  push                   git push engine to origin
+  push [message]         Commit (if dirty) + push engine to origin
   pull                   git pull engine from origin
   deploy                 Sync local engine → GDrive (rsync)
 
 TESTING & DIAGNOSTICS
   test [args...]         Run engine test suite
+  reindex                Delete and rebuild doc-search + session-search DBs
   toc                    Show engine directory tree (~/.claude/)
   skill-doctor [name]    Validate skill definitions
 
@@ -1432,6 +1434,59 @@ if [ -n "$SUBCMD" ]; then
   shift
 fi
 
+cmd_reindex() {
+  local sessions_dir
+  sessions_dir=$(cd "$(pwd)/sessions" 2>/dev/null && pwd -P 2>/dev/null || echo "$(pwd)/sessions")
+
+  echo "Reindexing search databases..."
+  echo ""
+
+  # Remove existing DB files
+  local removed=0
+  for db_file in "$sessions_dir/.doc-search.db" "$sessions_dir/.session-search.db"; do
+    if [ -f "$db_file" ]; then
+      rm "$db_file"
+      echo "  Deleted: $(basename "$db_file")"
+      removed=$((removed + 1))
+    fi
+  done
+
+  # Also remove lock files
+  for lock_file in "$sessions_dir/.doc-search.lock"; do
+    if [ -f "$lock_file" ]; then
+      rm "$lock_file"
+      echo "  Deleted: $(basename "$lock_file")"
+    fi
+  done
+
+  if [ "$removed" -eq 0 ]; then
+    echo "  No existing DB files found."
+  fi
+  echo ""
+
+  # Run doc-search index
+  local doc_search="$SCRIPT_DIR/doc-search.sh"
+  if [ -x "$doc_search" ]; then
+    echo "Running doc-search index..."
+    "$doc_search" index 2>&1 || echo "  WARNING: doc-search index failed"
+    echo ""
+  else
+    echo "  SKIP: doc-search.sh not found"
+  fi
+
+  # Run session-search index
+  local session_search="$SCRIPT_DIR/session-search.sh"
+  if [ -x "$session_search" ]; then
+    echo "Running session-search index..."
+    "$session_search" index 2>&1 || echo "  WARNING: session-search index failed"
+    echo ""
+  else
+    echo "  SKIP: session-search.sh not found"
+  fi
+
+  echo "Done. Search databases rebuilt."
+}
+
 # 1. Built-in commands (explicit handlers)
 case "$SUBCMD" in
   setup)     cmd_setup "$@";     exit 0 ;;
@@ -1443,6 +1498,7 @@ case "$SUBCMD" in
   status)    cmd_status;         exit 0 ;;
   report)    cmd_report;         exit 0 ;;
   test)      cmd_test "$@";      exit 0 ;;
+  reindex)   cmd_reindex;        exit 0 ;;
   uninstall) cmd_uninstall;      exit 0 ;;
   help)      cmd_help;           exit 0 ;;
   toc)       cmd_toc;            exit 0 ;;

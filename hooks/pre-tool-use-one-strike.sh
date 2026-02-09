@@ -44,6 +44,17 @@ if [ -z "$CMD" ]; then
   hook_allow
 fi
 
+# Strip heredoc bodies before pattern matching.
+# Heredocs (<<EOF ... EOF) contain text content, not commands.
+# Without stripping, text like "force-pushing overwrites history" in a
+# log heredoc would false-positive on the git push --force pattern.
+CMD="${CMD%%<<*}"
+
+# After stripping, re-check for empty
+if [ -z "$CMD" ]; then
+  hook_allow
+fi
+
 # PID for scoping warning files
 SUPERVISOR_PID="${CLAUDE_SUPERVISOR_PID:-$PPID}"
 

@@ -334,4 +334,133 @@ assert_contains 'Retrying' "$OUT" "deny message mentions retrying will be allowe
 
 echo ""
 
+# ============================================
+# HARDENING TESTS — Heredoc False-Positive Fix
+# ============================================
+
+# Helper: create properly escaped JSON for multi-line commands using jq
+make_bash_json() {
+  jq -n --arg cmd "$1" '{"tool_name":"Bash","tool_input":{"command":$cmd}}'
+}
+
+# --- H1. Heredoc with "force-pushing" text should NOT trigger ---
+echo "--- H1. Heredoc body with force-pushing text ---"
+clear_warnings
+
+# Real-world case: engine log with heredoc body mentioning destructive concepts
+HEREDOC_CMD="$(printf 'engine log sessions/test/LOG.md <<'\''EOF'\''\n## Force Push Discussion\nForce-pushing overwrites remote history. git push --force is dangerous.\nEOF')"
+OUT=$(make_bash_json "$HEREDOC_CMD" | "$HOOK" 2>/dev/null)
+assert_contains '"allow"' "$OUT" "heredoc body with force-pushing text -> allowed"
+
+echo ""
+
+# --- H2. Heredoc with "rm -rf" in text content ---
+echo "--- H2. Heredoc body with rm -rf text ---"
+clear_warnings
+
+HEREDOC_CMD="$(printf 'engine log sessions/test/LOG.md <<'\''EOF'\''\n## Cleanup Notes\nUse rm -rf to clean temp directories. Be careful with rm --recursive.\nEOF')"
+OUT=$(make_bash_json "$HEREDOC_CMD" | "$HOOK" 2>/dev/null)
+assert_contains '"allow"' "$OUT" "heredoc body with rm -rf text -> allowed"
+
+echo ""
+
+# --- H3. Heredoc with "git reset --hard" in text content ---
+echo "--- H3. Heredoc body with git reset --hard text ---"
+clear_warnings
+
+HEREDOC_CMD="$(printf 'engine log sessions/test/LOG.md <<'\''EOF'\''\ngit reset --hard discards all uncommitted changes.\nEOF')"
+OUT=$(make_bash_json "$HEREDOC_CMD" | "$HOOK" 2>/dev/null)
+assert_contains '"allow"' "$OUT" "heredoc body with git reset --hard text -> allowed"
+
+echo ""
+
+# --- H4. Heredoc with "git stash" in text content ---
+echo "--- H4. Heredoc body with git stash text ---"
+clear_warnings
+
+HEREDOC_CMD="$(printf 'engine log sessions/test/LOG.md <<'\''EOF'\''\ngit stash moves uncommitted changes off the working tree.\nEOF')"
+OUT=$(make_bash_json "$HEREDOC_CMD" | "$HOOK" 2>/dev/null)
+assert_contains '"allow"' "$OUT" "heredoc body with git stash text -> allowed"
+
+echo ""
+
+# --- H5. Real rm -rf BEFORE heredoc still denied ---
+echo "--- H5. Destructive command before heredoc ---"
+clear_warnings
+
+HEREDOC_CMD="$(printf 'rm -rf /tmp/foo && cat <<'\''EOF'\''\nsome text\nEOF')"
+OUT=$(make_bash_json "$HEREDOC_CMD" | "$HOOK" 2>/dev/null)
+assert_contains '"deny"' "$OUT" "rm -rf before heredoc -> denied"
+
+echo ""
+
+# --- H6. Standalone destructive commands still work (regression) ---
+echo "--- H6. Regression: standalone rm -rf still denied ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"rm -rf /tmp/foo"}')
+assert_contains '"deny"' "$OUT" "standalone rm -rf still denied (regression check)"
+
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git push --force origin main"}')
+assert_contains '"deny"' "$OUT" "standalone git push --force still denied (regression check)"
+
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git stash"}')
+assert_contains '"deny"' "$OUT" "standalone git stash still denied (regression check)"
+
+echo ""
+
+# ============================================
+# BOUNDARY HARDENING TESTS
+# ============================================
+
+# --- B1. Very long command (>4KB) ---
+echo "--- B1. Very long command ---"
+clear_warnings
+
+LONG_CMD="echo $(printf 'x%.0s' $(seq 1 5000))"
+OUT=$(make_bash_json "$LONG_CMD" | "$HOOK" 2>/dev/null)
+assert_contains '"allow"' "$OUT" "5KB non-destructive command -> allowed"
+
+echo ""
+
+# --- B2. Quoted rm -rf in echo (actually allowed — rm preceded by " not a word boundary) ---
+echo "--- B2. Quoted destructive pattern in echo ---"
+clear_warnings
+
+OUT=$(make_bash_json 'echo "rm -rf" | wc -l' | "$HOOK" 2>/dev/null)
+assert_contains '"allow"' "$OUT" "echo with quoted rm -rf -> allowed (rm not at word boundary)"
+
+# But piped rm IS caught (rm at word boundary after |)
+OUT=$(make_bash_json 'echo foo | rm -rf /tmp/bar' | "$HOOK" 2>/dev/null)
+assert_contains '"deny"' "$OUT" "piped rm -rf -> denied (rm at word boundary after pipe)"
+
+echo ""
+
+# --- B3. Malformed JSON gracefully handled ---
+echo "--- B3. Malformed JSON input ---"
+clear_warnings
+
+OUT=$(echo "not json at all" | "$HOOK" 2>/dev/null || echo '{"decision":"allow"}')
+assert_contains '"allow"' "$OUT" "malformed JSON -> allowed (fail-open)"
+
+OUT=$(echo '{"tool_name":"Bash"' | "$HOOK" 2>/dev/null || echo '{"decision":"allow"}')
+assert_contains '"allow"' "$OUT" "truncated JSON -> allowed (fail-open)"
+
+echo ""
+
+# --- B4. Multi-line command with destructive pattern ---
+echo "--- B4. Multi-line command with destructive pattern ---"
+clear_warnings
+
+# newline in the command field — properly encoded
+MULTI_CMD="$(printf 'echo foo\ngit reset --hard')"
+OUT=$(make_bash_json "$MULTI_CMD" | "$HOOK" 2>/dev/null)
+assert_contains '"deny"' "$OUT" "multi-line command with git reset --hard -> denied"
+
+echo ""
+
 exit_with_results
