@@ -46,7 +46,6 @@ create_sandbox() {
   chmod +x "$GDRIVE_BASE/engine/scripts/"*.sh
 
   # Create engine content in the GDrive engine
-  mkdir -p "$GDRIVE_BASE/engine/commands"
   mkdir -p "$GDRIVE_BASE/engine/directives"
   mkdir -p "$GDRIVE_BASE/engine/agents"
   mkdir -p "$GDRIVE_BASE/engine/scripts"
@@ -54,7 +53,6 @@ create_sandbox() {
   mkdir -p "$GDRIVE_BASE/engine/skills/brainstorm"
   mkdir -p "$GDRIVE_BASE/engine/skills/implement"
 
-  echo "# Test" > "$GDRIVE_BASE/engine/commands/README.md"
   echo "# Test" > "$GDRIVE_BASE/engine/directives/INVARIANTS.md"
   echo "# SKILL" > "$GDRIVE_BASE/engine/skills/brainstorm/SKILL.md"
   echo "# SKILL" > "$GDRIVE_BASE/engine/skills/implement/SKILL.md"
@@ -134,7 +132,7 @@ echo "remote" > "$FAKE_LOCAL_ENGINE/.mode"
 OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" local 2>&1)
 
 # Should create symlinks in ~/.claude/ pointing to local engine
-assert_symlink "$HOME/.claude/commands" "LOCAL-01: commands symlink created"
+assert_symlink "$HOME/.claude/directives" "LOCAL-01: directives symlink created"
 
 # Mode file should say "local"
 MODE=$(cat "$FAKE_LOCAL_ENGINE/.mode")
@@ -159,7 +157,7 @@ MODE=$(cat "$FAKE_LOCAL_ENGINE/.mode")
 assert_eq "remote" "$MODE" "REMOTE-01: mode file set to remote"
 
 # Should create symlinks
-assert_symlink "$HOME/.claude/commands" "REMOTE-02: commands symlink created"
+assert_symlink "$HOME/.claude/directives" "REMOTE-02: directives symlink created"
 
 # Output should mention "remote"
 assert_contains "remote" "$OUT" "REMOTE-03: output mentions remote mode"
@@ -193,8 +191,7 @@ echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
 OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup 2>&1)
 
 # Engine symlinks should be created (using lib's setup_engine_symlinks)
-assert_symlink "$HOME/.claude/commands" "FLOW-01: engine commands symlink"
-assert_symlink "$HOME/.claude/directives" "FLOW-02: engine directives symlink"
+assert_symlink "$HOME/.claude/directives" "FLOW-01: engine directives symlink"
 
 # Per-file symlinks for scripts/hooks (from lib's link_files_if_needed)
 assert_dir_exists "$HOME/.claude/scripts" "FLOW-03: scripts dir exists"
@@ -278,9 +275,9 @@ echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
 # returns 2 (non-interactive mode) instead of prompting. This verifies
 # we're using the lib version.
 
-# Create a real dir where commands symlink should go
-mkdir -p "$HOME/.claude/commands"
-echo "local file" > "$HOME/.claude/commands/test.md"
+# Create a real dir where directives symlink should go
+mkdir -p "$HOME/.claude/directives"
+echo "local file" > "$HOME/.claude/directives/test.md"
 
 # Run setup -- should NOT hang waiting for input (lib returns 2 for real dirs)
 OUT=$(cd "$PROJECT_DIR" && timeout 10 bash "$ENGINE_SH" local 2>&1)
@@ -293,7 +290,7 @@ else
 fi
 
 # The local file should still exist (not replaced)
-if [ -f "$HOME/.claude/commands/test.md" ]; then
+if [ -f "$HOME/.claude/directives/test.md" ]; then
   pass "LIB-02: real dir preserved (non-interactive skip)"
 else
   fail "LIB-02: real dir preserved" "file exists" "replaced or deleted"
@@ -377,7 +374,7 @@ create_sandbox
 echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
 # Sandbox already has .git from create_sandbox -- no extra init needed
 
-OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" push 2>&1 || true)
+OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" push "test commit" 2>&1 || true)
 # Should reference git push operations (will fail at push since no remote, but shows intent)
 if echo "$OUT" | grep -qi "push\|origin\|branch"; then
   pass "PUSH-01: push with .git attempts git push"
@@ -533,8 +530,8 @@ else
   pass "UNINSTALL-03: settings.json preserved (was never created)"
 fi
 
-# UNINSTALL-04: commands symlink removed
-assert_not_symlink "$HOME/.claude/commands" "UNINSTALL-04: commands symlink removed"
+# UNINSTALL-04: directives symlink removed
+assert_not_symlink "$HOME/.claude/directives" "UNINSTALL-04: directives symlink removed"
 
 # UNINSTALL-05: standards symlink removed
 assert_not_symlink "$HOME/.claude/standards" "UNINSTALL-05: standards symlink removed"

@@ -53,11 +53,11 @@ resolve_engine_dir() {
 
   if [ "$mode" = "local" ]; then
     echo "$local_engine"
-  elif [ -d "$gdrive_engine/commands" ] && [ -d "$gdrive_engine/skills" ]; then
+  elif [ -d "$gdrive_engine/directives" ] && [ -d "$gdrive_engine/skills" ]; then
     echo "$gdrive_engine"
-  elif [ -d "$script_dir/../commands" ] && [ -d "$script_dir/../skills" ]; then
+  elif [ -d "$script_dir/../directives" ] && [ -d "$script_dir/../skills" ]; then
     (cd "$script_dir/.." && pwd)
-  elif [ -d "$script_dir/commands" ] && [ -d "$script_dir/skills" ]; then
+  elif [ -d "$script_dir/directives" ] && [ -d "$script_dir/skills" ]; then
     echo "$script_dir"
   else
     echo ""
@@ -185,7 +185,6 @@ setup_engine_symlinks() {
   mkdir -p "$claude_dir"
 
   # Whole-dir symlinks
-  link_if_needed "$engine_dir/commands"  "$claude_dir/commands"  "commands"  "0"
   link_if_needed "$engine_dir/directives" "$claude_dir/directives" "directives" "0"
   link_files_if_needed "$engine_dir/agents" "$claude_dir/agents" "agents"
 

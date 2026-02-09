@@ -141,18 +141,19 @@ _relink_engine_bin() {
       echo ""
       echo "  Need sudo to update /usr/local/bin/engine → $target"
       echo "  (This makes the 'engine' command available globally)"
-      (exec sudo ln -sf "$target" "/usr/local/bin/engine") || {
+      (sudo mkdir -p /usr/local/bin && sudo ln -sf "$target" "/usr/local/bin/engine") || {
         echo "  WARNING: Could not update /usr/local/bin/engine"
         return 0
       }
     }
     ACTIONS+=("Updated /usr/local/bin/engine → $target")
   elif [ ! -e "/usr/local/bin/engine" ]; then
+    mkdir -p /usr/local/bin 2>/dev/null || true
     ln -s "$target" "/usr/local/bin/engine" 2>/dev/null || {
       echo ""
       echo "  Need sudo to create /usr/local/bin/engine → $target"
       echo "  (This makes the 'engine' command available globally)"
-      (exec sudo ln -sf "$target" "/usr/local/bin/engine") || {
+      (sudo mkdir -p /usr/local/bin && sudo ln -sf "$target" "/usr/local/bin/engine") || {
         echo "  WARNING: Could not create /usr/local/bin/engine"
         return 0
       }
@@ -888,7 +889,7 @@ cmd_uninstall() {
   done
 
   local claude_dir="$HOME/.claude"
-  for link in "$claude_dir/standards" "$claude_dir/scripts" "$claude_dir/tools"; do
+  for link in "$claude_dir/standards" "$claude_dir/directives" "$claude_dir/scripts" "$claude_dir/tools"; do
     if [ -L "$link" ]; then
       rm "$link"
       echo "  Removed: ~/.claude/$(basename "$link") symlink"
@@ -1471,6 +1472,7 @@ PERMS
   _relink_engine_bin "$ENGINE_DIR/scripts/engine.sh"
 
   # ---- Mark setup as complete ----
+  mkdir -p "$(dirname "$SETUP_MARKER")"
   touch "$SETUP_MARKER"
 
   # ---- Output summary ----

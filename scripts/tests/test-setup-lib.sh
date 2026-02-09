@@ -28,7 +28,7 @@ setup() {
   mkdir -p "$TEST_DIR/engine/skills/brainstorm"
   mkdir -p "$TEST_DIR/engine/skills/implement"
   mkdir -p "$TEST_DIR/engine/skills/test"
-  mkdir -p "$TEST_DIR/engine/commands"
+  mkdir -p "$TEST_DIR/engine/directives"
   mkdir -p "$TEST_DIR/engine/standards"
   mkdir -p "$TEST_DIR/engine/agents"
 
@@ -100,7 +100,7 @@ teardown
 
 setup
 # Create fake GDrive engine with required dirs
-mkdir -p "$TEST_DIR/gdrive/commands" "$TEST_DIR/gdrive/skills"
+mkdir -p "$TEST_DIR/gdrive/directives" "$TEST_DIR/gdrive/skills"
 result=$(resolve_engine_dir "remote" "$TEST_DIR/engine" "$TEST_DIR/gdrive" "$TEST_DIR/scripts")
 [ "$result" = "$TEST_DIR/gdrive" ] && pass "RESOLVE-02: Remote mode returns GDrive engine when dirs exist" || fail "RESOLVE-02" "$TEST_DIR/gdrive" "$result"
 teardown
@@ -112,8 +112,8 @@ result=$(resolve_engine_dir "remote" "$TEST_DIR/engine" "$TEST_DIR/nonexistent" 
 teardown
 
 setup
-# Fallback: script_dir/../ has commands/ and skills/
-mkdir -p "$TEST_DIR/parent/commands" "$TEST_DIR/parent/skills" "$TEST_DIR/parent/scripts"
+# Fallback: script_dir/../ has directives/ and skills/
+mkdir -p "$TEST_DIR/parent/directives" "$TEST_DIR/parent/skills" "$TEST_DIR/parent/scripts"
 result=$(resolve_engine_dir "remote" "$TEST_DIR/engine" "$TEST_DIR/nonexistent" "$TEST_DIR/parent/scripts")
 expected=$(cd "$TEST_DIR/parent" && pwd)
 [ "$result" = "$expected" ] && pass "RESOLVE-04: Fallback to script_dir parent when GDrive missing" || fail "RESOLVE-04" "$expected" "$result"
@@ -224,8 +224,7 @@ echo "=== setup_engine_symlinks ==="
 setup
 setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
 # Check whole-dir symlinks
-[ -L "$TEST_DIR/claude/commands" ] && pass "ENGINE-01: commands/ symlinked" || fail "ENGINE-01" "symlink" "not"
-[ -L "$TEST_DIR/claude/directives" ] && pass "ENGINE-02: directives/ symlinked" || fail "ENGINE-02" "symlink" "not"
+[ -L "$TEST_DIR/claude/directives" ] && pass "ENGINE-01: directives/ symlinked" || fail "ENGINE-01" "symlink" "not"
 [ -d "$TEST_DIR/claude/agents" ] && [ ! -L "$TEST_DIR/claude/agents" ] && pass "ENGINE-03: agents/ is real dir (per-file linking)" || fail "ENGINE-03" "real dir" "$([ -L "$TEST_DIR/claude/agents" ] && echo symlink || echo missing)"
 # Check per-file symlinks
 [ -L "$TEST_DIR/claude/scripts/session.sh" ] && pass "ENGINE-04: scripts/ has per-file symlinks" || fail "ENGINE-04" "symlink" "not"
