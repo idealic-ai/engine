@@ -7,7 +7,10 @@ set -euo pipefail
 if [ -z "${GEMINI_API_KEY:-}" ] && [ -f ".env" ]; then
   GEMINI_API_KEY=$(grep -E '^GEMINI_API_KEY=' .env | cut -d'=' -f2- | tr -d '"' || true)
 fi
-export GEMINI_API_KEY="${GEMINI_API_KEY:-AIzaSyDjT2ZF-1hkkv5W0ALQNaVTVmKYSrDPod0}"
+if [ -z "${GEMINI_API_KEY:-}" ]; then
+  echo "ERROR: GEMINI_API_KEY not set. Add it to .env or export it." >&2
+  exit 1
+fi
 
 # Resolve symlinks to get the real tool directory
 SOURCE="${BASH_SOURCE[0]}"

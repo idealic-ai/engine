@@ -120,6 +120,49 @@ MODE_FILE="$HOME/.claude/engine/.mode"
 ACTIONS=()
 SETUP_MARKER="$HOME/.claude/engine/.setup-done"
 
+# ---- Global symlink helper ----
+# Relinks /usr/local/bin/engine → the given engine.sh path.
+# Called by cmd_setup, cmd_local, cmd_remote.
+_relink_engine_bin() {
+  local target="$1"
+  if [ ! -f "$target" ]; then
+    log_verbose "/usr/local/bin/engine: target $target does not exist, skipping"
+    return 0
+  fi
+
+  if [ -L "/usr/local/bin/engine" ]; then
+    local current
+    current=$(readlink "/usr/local/bin/engine")
+    if [ "$current" = "$target" ]; then
+      log_verbose "/usr/local/bin/engine: already correct"
+      return 0
+    fi
+    ln -sf "$target" "/usr/local/bin/engine" 2>/dev/null || {
+      echo ""
+      echo "  Need sudo to update /usr/local/bin/engine → $target"
+      echo "  (This makes the 'engine' command available globally)"
+      (exec sudo ln -sf "$target" "/usr/local/bin/engine") || {
+        echo "  WARNING: Could not update /usr/local/bin/engine"
+        return 0
+      }
+    }
+    ACTIONS+=("Updated /usr/local/bin/engine → $target")
+  elif [ ! -e "/usr/local/bin/engine" ]; then
+    ln -s "$target" "/usr/local/bin/engine" 2>/dev/null || {
+      echo ""
+      echo "  Need sudo to create /usr/local/bin/engine → $target"
+      echo "  (This makes the 'engine' command available globally)"
+      (exec sudo ln -sf "$target" "/usr/local/bin/engine") || {
+        echo "  WARNING: Could not create /usr/local/bin/engine"
+        return 0
+      }
+    }
+    ACTIONS+=("Created /usr/local/bin/engine → $target")
+  else
+    log_verbose "/usr/local/bin/engine: exists but is not a symlink (skipping)"
+  fi
+}
+
 # ---- Help command (early exit, no identity needed) ----
 
 cmd_help() {
@@ -383,6 +426,8 @@ log_verbose "User: $USER_NAME ($EMAIL)"
 # ============================================================================
 
 cmd_local() {
+  local PROJECT_NAME="${1:-$(basename "$(pwd)")}"
+
   if [ ! -d "$LOCAL_ENGINE" ]; then
     echo "ERROR: Local engine not found at $LOCAL_ENGINE"
     echo "Run 'engine pull' first to copy engine from GDrive."
@@ -553,6 +598,9 @@ USERJSON
     echo "  Run: doc-search.sh index && session-search.sh index"
   fi
 
+  # Relink /usr/local/bin/engine → local engine
+  _relink_engine_bin "$LOCAL_ENGINE/scripts/engine.sh"
+
   echo ""
   echo "Done. Mode: local"
   echo "  Engine: $LOCAL_ENGINE"
@@ -574,6 +622,10 @@ cmd_remote() {
   echo "Switching to remote mode..."
   log_verbose "Engine: $engine_dir"
   setup_engine_symlinks "$engine_dir" "$CLAUDE_DIR"
+
+  # Relink /usr/local/bin/engine → GDrive engine
+  _relink_engine_bin "$engine_dir/scripts/engine.sh"
+
   echo ""
   echo "Done. Mode: remote"
   echo "  Engine: $engine_dir"
@@ -1415,44 +1467,8 @@ PERMS
   fi
 
   # ---- Global symlink (/usr/local/bin/engine) ----
-  # Creates /usr/local/bin/engine → this script so `engine` works globally.
-  # Tries without sudo first; if that fails, explains what we need and asks for sudo.
-  # sudo runs in a subshell so credentials don't propagate to Claude.
-  local SELF_PATH
-  SELF_PATH="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$(basename "$SCRIPT_PATH")"
-
-  _engine_symlink_sudo() {
-    # Run ln via sudo in a subshell to isolate sudo credential caching
-    local cmd="$1"  # "create" or "update"
-    echo ""
-    echo "  Need sudo to $cmd /usr/local/bin/engine → $SELF_PATH"
-    echo "  (This makes the 'engine' command available globally)"
-    (exec sudo ln -sf "$SELF_PATH" "/usr/local/bin/engine")
-  }
-
-  if [ -L "/usr/local/bin/engine" ]; then
-    local current_target
-    current_target=$(readlink "/usr/local/bin/engine")
-    if [ "$current_target" = "$SELF_PATH" ]; then
-      log_verbose "  /usr/local/bin/engine: already linked"
-    else
-      ln -sf "$SELF_PATH" "/usr/local/bin/engine" 2>/dev/null || _engine_symlink_sudo "update" || {
-        echo "  WARNING: Could not update /usr/local/bin/engine"
-      }
-      if [ -L "/usr/local/bin/engine" ] && [ "$(readlink "/usr/local/bin/engine")" = "$SELF_PATH" ]; then
-        ACTIONS+=("Updated /usr/local/bin/engine symlink")
-      fi
-    fi
-  elif [ ! -e "/usr/local/bin/engine" ]; then
-    ln -s "$SELF_PATH" "/usr/local/bin/engine" 2>/dev/null || _engine_symlink_sudo "create" || {
-      echo "  WARNING: Could not create /usr/local/bin/engine"
-    }
-    if [ -L "/usr/local/bin/engine" ]; then
-      ACTIONS+=("Created /usr/local/bin/engine symlink")
-    fi
-  else
-    log_verbose "  /usr/local/bin/engine: exists but is not a symlink (skipping)"
-  fi
+  # Links to the mode-resolved engine.sh so `engine` always runs the right copy.
+  _relink_engine_bin "$ENGINE_DIR/scripts/engine.sh"
 
   # ---- Mark setup as complete ----
   touch "$SETUP_MARKER"
@@ -1608,26 +1624,7 @@ if [ ! -f "$SETUP_MARKER" ]; then
 fi
 
 # Ensure /usr/local/bin/engine symlink exists (lightweight check, every launch)
-SELF_PATH_CHECK="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$(basename "$SCRIPT_PATH")"
-if [ -L "/usr/local/bin/engine" ]; then
-  _current=$(readlink "/usr/local/bin/engine")
-  if [ "$_current" != "$SELF_PATH_CHECK" ]; then
-    echo "  /usr/local/bin/engine points to stale target: $_current"
-    echo "  Updating to: $SELF_PATH_CHECK"
-    ln -sf "$SELF_PATH_CHECK" "/usr/local/bin/engine" 2>/dev/null || {
-      echo ""
-      echo "  Need sudo to update /usr/local/bin/engine → $SELF_PATH_CHECK"
-      (exec sudo ln -sf "$SELF_PATH_CHECK" "/usr/local/bin/engine") || echo "  WARNING: Could not update symlink"
-    }
-  fi
-elif [ ! -e "/usr/local/bin/engine" ]; then
-  ln -s "$SELF_PATH_CHECK" "/usr/local/bin/engine" 2>/dev/null || {
-    echo ""
-    echo "  Need sudo to create /usr/local/bin/engine → $SELF_PATH_CHECK"
-    echo "  (This makes the 'engine' command available globally)"
-    (exec sudo ln -sf "$SELF_PATH_CHECK" "/usr/local/bin/engine") || echo "  WARNING: Could not create symlink"
-  }
-fi
+_relink_engine_bin "$(cd "$(dirname "$SCRIPT_PATH")" && pwd)/$(basename "$SCRIPT_PATH")"
 
 # Launch Claude via run.sh
 RUN_SCRIPT="$SCRIPT_DIR/run.sh"
