@@ -189,6 +189,43 @@ Based on organization preference:
 - **Combined**: Merge related workgroups (e.g., Project + Meta)
 - **Separate sessions**: Generate multiple tmuxinator configs
 
+### YAML String Safety
+
+[!!!] **QUOTE ALL STRING VALUES IN YML**. YAML silently converts unquoted values into non-string types. This causes runtime bugs that are invisible until the config is parsed.
+
+**Dangerous unquoted values** (YAML interprets these as non-strings):
+
+| Written | Parsed As | Type | Fix |
+|---------|-----------|------|-----|
+| `no` | `false` | boolean | `"no"` |
+| `yes` | `true` | boolean | `"yes"` |
+| `on` / `off` | `true` / `false` | boolean | `"on"` / `"off"` |
+| `null` | `null` | null | `"null"` |
+| `1.0` | `1` (integer) | number | `"1.0"` |
+| `3:00` | `180` (seconds) | sexagesimal | `"3:00"` |
+| `value: with colon` | nested object | mapping | `"value: with colon"` |
+| `- starts with dash` | array item | sequence | `"- starts with dash"` |
+| `{curly}` | flow mapping | object | `"{curly}"` |
+| `[bracket]` | flow sequence | array | `"[bracket]"` |
+
+**Rule**: Always double-quote ALL string values in generated yml — descriptions, labels, env var values, command arguments. The only safe unquoted values are simple single-word identifiers with no special characters.
+
+**Examples**:
+```yaml
+# BAD — "Deep research: web and docs" is parsed as nested mapping
+- export AGENT_DESCRIPTION=Deep research: web and docs
+
+# BAD — "no" becomes boolean false
+- export AGENT_FOCUS=no specific focus
+
+# GOOD — always quote
+- export AGENT_DESCRIPTION="Deep research: web and docs"
+- export AGENT_FOCUS="no specific focus"
+- tmux set-option -p -t $TMUX_PANE @pane_label "Research"
+```
+
+---
+
 ### Agent Generation
 
 For each subproject discovered, gather three things during the interview:

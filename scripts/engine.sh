@@ -523,10 +523,22 @@ USERJSON
     local tool_name
     tool_name="$(basename "$tool_dir")"
     if [ -f "$tool_dir/package.json" ] && [ ! -d "$tool_dir/node_modules" ]; then
-      echo "  Installing $tool_name deps..."
+      echo "  Installing $tool_name npm deps..."
       (cd "$tool_dir" && npm install --silent 2>/dev/null) && ACTIONS+=("Installed $tool_name npm deps")
     fi
   done
+
+  # Install brew deps if needed
+  if command -v brew &> /dev/null; then
+    for dep in jq sqlite3 fswatch tmuxinator; do
+      local formula="$dep"
+      [ "$dep" = "sqlite3" ] && formula="sqlite"
+      if ! command -v "$dep" &> /dev/null; then
+        echo "  Installing $dep..."
+        brew install "$formula" >/dev/null 2>&1 && ACTIONS+=("Installed $dep via brew")
+      fi
+    done
+  fi
 
   # Ensure sessions/ and reports/ exist via project-local .claude/ storage
   local project_root
@@ -858,6 +870,22 @@ cmd_status() {
   fi
 
   echo ""
+  echo "Dependencies:"
+  local dep_ok=true
+  for cmd in jq sqlite3 fswatch tmuxinator; do
+    if command -v $cmd &>/dev/null; then
+      echo "  $cmd: ✓"
+    else
+      echo "  $cmd: ✗ (not installed)"
+      dep_ok=false
+    fi
+  done
+  if [ "$dep_ok" = false ]; then
+    echo ""
+    echo "⚠️  Missing dependencies. Run 'engine setup' to install via brew."
+  fi
+
+  echo ""
   echo "Backups:"
   [ -d "${LOCAL_ENGINE}.bak" ] && echo "  Local:  ${LOCAL_ENGINE}.bak ✓" || echo "  Local:  (none)"
   [ -d "${GDRIVE_ENGINE}.bak" ] && echo "  GDrive: ${GDRIVE_ENGINE}.bak ✓" || echo "  GDrive: (none)"
@@ -1135,11 +1163,11 @@ cmd_report() {
 
   echo ""
   echo "Dependencies:"
-  for cmd in jq sqlite3 fswatch; do
+  for cmd in jq sqlite3 fswatch tmuxinator; do
     if command -v $cmd &>/dev/null; then
       echo "  $cmd: $(which $cmd)"
     else
-      echo "  $cmd: NOT INSTALLED"
+      echo "  $cmd: NOT INSTALLED (brew install $cmd)"
     fi
   done
 }
@@ -1235,40 +1263,25 @@ cmd_setup() {
   # ---- Install dependencies via brew ----
   log_step "Checking dependencies"
   if command -v brew &> /dev/null; then
-    if ! command -v jq &> /dev/null; then
-      log_verbose "jq: installing via brew..."
-      if [ "$VERBOSE" = true ]; then
-        brew install jq && ACTIONS+=("Installed jq via brew")
+    for dep in jq sqlite3 fswatch tmuxinator; do
+      # sqlite3 is installed via the "sqlite" brew formula
+      local formula="$dep"
+      [ "$dep" = "sqlite3" ] && formula="sqlite"
+      if ! command -v "$dep" &> /dev/null; then
+        echo "  Installing $dep..."
+        if [ "$VERBOSE" = true ]; then
+          brew install "$formula" && ACTIONS+=("Installed $dep via brew")
+        else
+          brew install "$formula" >/dev/null 2>&1 && ACTIONS+=("Installed $dep via brew")
+        fi
       else
-        brew install jq >/dev/null 2>&1 && ACTIONS+=("Installed jq via brew")
+        log_verbose "$dep: OK"
       fi
-    else
-      log_verbose "jq: OK"
-    fi
-    if ! command -v sqlite3 &> /dev/null; then
-      log_verbose "sqlite: installing via brew..."
-      if [ "$VERBOSE" = true ]; then
-        brew install sqlite && ACTIONS+=("Installed sqlite via brew")
-      else
-        brew install sqlite >/dev/null 2>&1 && ACTIONS+=("Installed sqlite via brew")
-      fi
-    else
-      log_verbose "sqlite3: OK"
-    fi
-    if ! command -v fswatch &> /dev/null; then
-      log_verbose "fswatch: installing via brew..."
-      if [ "$VERBOSE" = true ]; then
-        brew install fswatch && ACTIONS+=("Installed fswatch via brew")
-      else
-        brew install fswatch >/dev/null 2>&1 && ACTIONS+=("Installed fswatch via brew")
-      fi
-    else
-      log_verbose "fswatch: OK"
-    fi
+    done
   else
-    if ! command -v jq &> /dev/null; then MISSING_DEPS+=("jq"); fi
-    if ! command -v sqlite3 &> /dev/null; then MISSING_DEPS+=("sqlite3"); fi
-    if ! command -v fswatch &> /dev/null; then MISSING_DEPS+=("fswatch"); fi
+    for dep in jq sqlite3 fswatch tmuxinator; do
+      if ! command -v "$dep" &> /dev/null; then MISSING_DEPS+=("$dep"); fi
+    done
   fi
 
   # ---- Step 1: Create session/report directories ----
@@ -1309,7 +1322,7 @@ cmd_setup() {
       local tool_name
       tool_name="$(basename "$tool_dir")"
       if [ -f "$tool_dir/package.json" ] && [ ! -d "$tool_dir/node_modules" ]; then
-        log_verbose "$tool_name: npm install (this may take a while)..."
+        echo "  Installing $tool_name npm deps..."
         if [ "$VERBOSE" = true ]; then
           (cd "$tool_dir" && npm install) && ACTIONS+=("Installed $tool_name npm deps")
         else
