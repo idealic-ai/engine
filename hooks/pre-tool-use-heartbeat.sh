@@ -54,13 +54,17 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || echo "")
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null || echo "")
 TRANSCRIPT_KEY=$(basename "$TRANSCRIPT_PATH" 2>/dev/null || echo "unknown")
 
-# Loading mode: skip ALL heartbeat logic during session bootstrap
-# Set by session.sh activate, cleared by session.sh phase
+# Loading/dehydrating/overflowed mode: skip ALL heartbeat logic
+# - loading=true: session bootstrap (set by activate, cleared by phase)
+# - lifecycle=dehydrating: context overflow dehydration in progress
+# - overflowed=true: context overflow detected, agent is saving/restarting
 if [ -n "$TRANSCRIPT_PATH" ]; then
   session_dir=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
   if [ -n "$session_dir" ] && [ -f "$session_dir/.state.json" ]; then
     loading=$(jq -r '.loading // false' "$session_dir/.state.json" 2>/dev/null || echo "false")
-    if [ "$loading" = "true" ]; then
+    lifecycle=$(jq -r '.lifecycle // "active"' "$session_dir/.state.json" 2>/dev/null || echo "active")
+    overflowed=$(jq -r '.overflowed // false' "$session_dir/.state.json" 2>/dev/null || echo "false")
+    if [ "$loading" = "true" ] || [ "$lifecycle" = "dehydrating" ] || [ "$overflowed" = "true" ]; then
       hook_allow
     fi
   fi
@@ -172,7 +176,7 @@ main() {
   if [ "$new_counter" -ge "$block_after" ]; then
     hook_deny \
       "§CMD_LOG_BETWEEN_TOOL_USES: $new_counter tool calls without logging. Tool DENIED." \
-      "You MUST Read the log template first, then log your progress before making any more tool calls.\nLog command: engine log $log_file <<'EOF'\n## [YYYY-MM-DD HH:MM:SS] [Entry Type]\n*   **Item**: ...\nEOF\nYou MUST Read this template for the required format: $template_path" \
+      "You MUST Read the log template first, then log your progress before making any more tool calls.\nLog command: engine log $log_file <<'EOF'\n## [Entry Type]\n*   **Item**: ...\nEOF\nYou MUST Read this template for the required format: $template_path" \
       ""
   fi
 
@@ -195,3 +199,4 @@ HOOKEOF
 }
 
 main
+exit 0

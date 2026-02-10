@@ -52,12 +52,14 @@ while IFS= read -r line || [ -n "$line" ]; do
     session:activate)
       DIR=$(echo "$ARGS" | awk '{print $1}')
       SKILL=$(echo "$ARGS" | awk '{print $2}')
-      "$HOME/.claude/scripts/session.sh" activate "$DIR" "$SKILL" < /dev/null >/dev/null 2>&1 || true
+      "$HOME/.claude/scripts/session.sh" activate "$DIR" "$SKILL" >/dev/null 2>&1 <<'ACTIVATE_JSON' || true
+{"taskType":"TESTING","taskSummary":"stub test","scope":"test","directoriesOfInterest":[],"preludeFiles":[],"contextPaths":[],"planTemplate":null,"logTemplate":null,"debriefTemplate":null,"requestTemplate":null,"responseTemplate":null,"requestFiles":[],"nextSkills":[],"extraInfo":"","phases":[{"major":1,"minor":0,"name":"Setup"},{"major":2,"minor":0,"name":"Context Ingestion"},{"major":3,"minor":0,"name":"Strategy"},{"major":4,"minor":0,"name":"Testing Loop"},{"major":5,"minor":0,"name":"Synthesis"}]}
+ACTIVATE_JSON
       ;;
     session:phase)
       DIR=$(echo "$ARGS" | awk '{print $1}')
       PHASE=$(echo "$ARGS" | cut -d' ' -f2-)
-      "$HOME/.claude/scripts/session.sh" phase "$DIR" "$PHASE" >/dev/null 2>&1 || true
+      "$HOME/.claude/scripts/session.sh" phase "$DIR" "$PHASE" < /dev/null >/dev/null 2>&1 || true
       ;;
     session:deactivate)
       DIR=$(echo "$ARGS" | awk '{print $1}')

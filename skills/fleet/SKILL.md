@@ -6,19 +6,6 @@ tier: lightweight
 ---
 
 Interactive agent fleet designer - configure your multi-agent workspace.
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Fleet Protocol (The Workspace Architect)
 
@@ -99,14 +86,6 @@ Slots for areas you don't know yet. Create "Future" agents to reserve space.
    ```
 
    If running in a fleet pane, offer: "You're in pane **{CURRENT_LABEL}** ({CURRENT_PANE_ID}). Update this pane, or configure the whole fleet?"
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - Identity detected: `________`
-> - Existing config: `________`
-> - Pane context: `________`
-> - Mode: `________`
 
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
@@ -196,20 +175,8 @@ Execute `AskUserQuestion` (multiSelect: false):
 > - **"Yes (2 workers)"** — Small pool with 2 background workers
 > - **"No"** — No delegation pool
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
-**Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
-> - Workgroups selected: `________`
-> - Subprojects per workgroup: `________`
-> - Hardware/layout: `________`
-> - Organization: `________`
-> - Delegation pool: `________`
-
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "1: Interview"
-  nextPhase: "2: Generate Layout"
-  prevPhase: "0: Setup"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
@@ -373,20 +340,8 @@ Execute `AskUserQuestion` (multiSelect: false):
 
 5. **Confirm**: "Updated `{YML_PATH}`. Changes will persist on fleet restart."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
-**Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
-> - Layout generated: `________`
-> - Agent types assigned: `________`
-> - Descriptions written: `________`
-> - Placeholders created: `________`
-> - Pool workers configured: `________`
-
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "2: Generate Layout"
-  nextPhase: "3: Present & Confirm"
-  prevPhase: "1: Interview"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
@@ -435,18 +390,8 @@ Show the proposed layout with workgroup organization:
 Adjust anything? (Add/remove/rename/reorder)
 ```
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
-**Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
-> - Layout presented: `________`
-> - User reviewed: `________`
-> - User confirmed or adjusted: `________`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "3: Present & Confirm"
-  nextPhase: "4: Save & Generate"
-  prevPhase: "2: Generate Layout"
   custom: "Go back to Phase 1 | Re-interview for different setup"
 
 ---
@@ -476,19 +421,8 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
    To rearrange: /fleet rearrange
    ```
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4
-**Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
-> - Fleet directory created: `________`
-> - Tmuxinator config written: `________`
-> - Config validated (unique pane IDs): `________`
-> - Launch instructions displayed: `________`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "4: Save & Generate"
-  nextPhase: "5: Update Mode"
-  prevPhase: "3: Present & Confirm"
   custom: "Done | Exit the fleet designer"
 
 ---
@@ -505,13 +439,6 @@ Execute `AskUserQuestion` (multiSelect: false):
 > - **"Rearrange layout"** — Reorder tabs, move agents between tabs
 >
 > *(Add/remove workgroups, convert placeholder → type in "Other")*
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 5
-**Output this block in chat with every blank filled:**
-> **Phase 5 proof:**
-> - Changes applied: `________`
-> - Config file updated: `________`
-> - User confirmed: `________`
 
 ---
 
@@ -531,15 +458,6 @@ For easy reordering:
 2. Ask: "Enter new order (e.g., '3,1,2,5,4') or move commands ('move 5 to Project')"
 
 3. Apply changes, regenerate config
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 6 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **Phase 6 proof:**
-> - New order applied: `________`
-> - Config regenerated: `________`
-> - User confirmed: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 ---
 

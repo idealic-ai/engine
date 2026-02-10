@@ -1,4 +1,5 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 
 export interface Chunk {
   sessionPath: string;
@@ -7,6 +8,8 @@ export interface Chunk {
   sectionTitle: string;
   content: string;
   contentHash: string;
+  sessionStartedAt?: string;
+  sessionCompletedAt?: string;
 }
 
 /**
@@ -120,6 +123,87 @@ export function parseChunks(
       sectionTitle: title,
       content,
       contentHash: computeContentHash(content),
+    });
+  }
+
+  return chunks;
+}
+
+/**
+ * Parse a .state.json file into synthetic searchable chunks.
+ *
+ * Extracts:
+ *   - `searchKeywords` (string[]) → one Chunk per keyword
+ *   - `sessionDescription` (string) → one Chunk
+ *
+ * Skips gracefully if the file is unreadable, unparseable, or missing
+ * the relevant fields.
+ */
+export function parseStateJsonChunks(
+  absolutePath: string,
+  sessionPath: string,
+  filePath: string
+): Chunk[] {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(absolutePath, "utf-8");
+  } catch {
+    return [];
+  }
+
+  let data: Record<string, unknown>;
+  try {
+    data = JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return [];
+  }
+
+  const sessionDate = extractDate(sessionPath);
+  const chunks: Chunk[] = [];
+
+  // Extract timestamps for all chunks from this session
+  const sessionStartedAt = typeof data.startedAt === "string" ? data.startedAt : undefined;
+  // completedAt may be stored at top level or in lifecycle
+  const sessionCompletedAt =
+    typeof data.completedAt === "string" ? data.completedAt :
+    (typeof (data as Record<string, unknown>).deactivatedAt === "string"
+      ? (data as Record<string, unknown>).deactivatedAt as string
+      : undefined);
+
+  // Extract searchKeywords — one chunk per keyword
+  if (Array.isArray(data.searchKeywords)) {
+    for (const kw of data.searchKeywords) {
+      if (typeof kw === "string" && kw.trim().length > 0) {
+        const content = kw.trim();
+        chunks.push({
+          sessionPath,
+          sessionDate,
+          filePath,
+          sectionTitle: content,
+          content,
+          contentHash: computeContentHash(content),
+          sessionStartedAt,
+          sessionCompletedAt,
+        });
+      }
+    }
+  }
+
+  // Extract sessionDescription — one chunk
+  if (
+    typeof data.sessionDescription === "string" &&
+    data.sessionDescription.trim().length > 0
+  ) {
+    const content = data.sessionDescription.trim();
+    chunks.push({
+      sessionPath,
+      sessionDate,
+      filePath,
+      sectionTitle: "session-description",
+      content,
+      contentHash: computeContentHash(content),
+      sessionStartedAt,
+      sessionCompletedAt,
     });
   }
 

@@ -119,23 +119,23 @@ echo ""
 # WHITELIST / BYPASS LOGIC
 # =============================================================================
 
-# --- A1. Bash whitelist: log.sh ---
-echo "--- A1. Bash whitelist: log.sh ---"
+# --- A1. Bash: direct log.sh denied during overflow (only engine CLI whitelisted) ---
+echo "--- A1. Bash: direct log.sh denied ---"
 reset_state
-set_context_usage 0.80  # above threshold, but log.sh should still be allowed
+set_context_usage 0.80  # above threshold, direct script path not whitelisted
 
 OUT=$(run_hook "Bash" '{"command":"~/.claude/scripts/log.sh sessions/test/LOG.md"}')
-assert_contains '"allow"' "$OUT" "log.sh allowed even during overflow"
+assert_contains '"deny"' "$OUT" "direct log.sh denied during overflow (use engine log)"
 
 echo ""
 
-# --- A2. Bash whitelist: session.sh ---
-echo "--- A2. Bash whitelist: session.sh ---"
+# --- A2. Bash: direct session.sh denied during overflow (only engine CLI whitelisted) ---
+echo "--- A2. Bash: direct session.sh denied ---"
 reset_state
 set_context_usage 0.80
 
 OUT=$(run_hook "Bash" '{"command":"~/.claude/scripts/session.sh dehydrate sessions/test"}')
-assert_contains '"allow"' "$OUT" "session.sh allowed even during overflow"
+assert_contains '"deny"' "$OUT" "direct session.sh denied during overflow (use engine session)"
 
 echo ""
 

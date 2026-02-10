@@ -131,15 +131,14 @@ jq 'del(.loading)' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp"
 
 echo ""
 
-# --- 2. Bash whitelist: log.sh resets counter ---
-echo "--- 2. Bash whitelist: log.sh ---"
+# --- 2. Bash: direct log.sh path NOT whitelisted (only engine CLI is) ---
+echo "--- 2. Bash: direct log.sh ---"
 
 set_counter 5
 OUT=$(run_hook "Bash" '{"command":"~/.claude/scripts/log.sh '"$TEST_SESSION"'/TESTING_LOG.md"}')
-assert_contains '"allow"' "$OUT" "log.sh allowed"
-
+# Direct script path goes through main logic — counter increments, not resets
 COUNTER=$(get_counter)
-assert_eq "0" "$COUNTER" "log.sh resets counter to 0"
+assert_eq "6" "$COUNTER" "direct log.sh increments counter (not whitelisted)"
 
 echo ""
 
@@ -162,16 +161,14 @@ assert_eq "0" "$COUNTER" "engine log with heredoc resets counter"
 
 echo ""
 
-# --- 3. Bash whitelist: session.sh (no reset) ---
-echo "--- 3. Bash whitelist: session.sh ---"
+# --- 3. Bash: direct session.sh path NOT whitelisted (only engine CLI is) ---
+echo "--- 3. Bash: direct session.sh ---"
 
 set_counter 5
 OUT=$(run_hook "Bash" '{"command":"~/.claude/scripts/session.sh phase foo"}')
-assert_contains '"allow"' "$OUT" "session.sh allowed"
-
-# Counter should still be 5 (session.sh doesn't reset)
+# Direct script path goes through main logic — counter increments
 COUNTER=$(get_counter)
-assert_eq "5" "$COUNTER" "session.sh doesn't reset counter"
+assert_eq "6" "$COUNTER" "direct session.sh increments counter (not whitelisted)"
 
 # --- 3b. Bash whitelist: engine session (no reset) ---
 echo "--- 3b. Bash whitelist: engine session ---"
@@ -196,7 +193,7 @@ echo ""
 echo "--- 4. Read whitelist ---"
 
 set_counter 3
-OUT=$(run_hook "Read" '{"file_path":"'"$FAKE_HOME"'/.claude/directives/COMMANDS.md"}')
+OUT=$(run_hook "Read" '{"file_path":"'"$FAKE_HOME"'/.claude/.directives/COMMANDS.md"}')
 assert_contains '"allow"' "$OUT" "Read ~/.claude/* allowed"
 
 COUNTER=$(get_counter)

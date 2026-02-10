@@ -6,6 +6,7 @@ set -euo pipefail
 # Load GEMINI_API_KEY from project .env if not already set
 if [ -z "${GEMINI_API_KEY:-}" ] && [ -f ".env" ]; then
   GEMINI_API_KEY=$(grep -E '^GEMINI_API_KEY=' .env | cut -d'=' -f2- | tr -d '"' || true)
+  export GEMINI_API_KEY
 fi
 if [ -z "${GEMINI_API_KEY:-}" ]; then
   echo "ERROR: GEMINI_API_KEY not set. Add it to .env or export it." >&2

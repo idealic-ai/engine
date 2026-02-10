@@ -2,23 +2,14 @@
 name: edit-skill
 description: "Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-local or shared engine. Triggers: \"create a new skill\", \"edit a skill\", \"scaffold a skill\", \"promote a skill\", \"add a project skill\", \"create a new command\"."
 version: 2.0
-tier: lightweight
+tier: protocol
 ---
 
 Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-local or shared engine.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Edit Skill Protocol (The Skill Forge)
 
@@ -34,6 +25,30 @@ Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-
 **Routing**: Parse the arguments to determine the flow:
 - If first argument is `promote`: Jump to **Promote Flow** (after Phase 0 setup).
 - Otherwise: Continue with **Create/Edit Flow** (Phases 0-5).
+
+### Session Parameters (for §CMD_PARSE_PARAMETERS)
+*Merge into the JSON passed to `session.sh activate`:*
+```json
+{
+  "taskType": "EDIT_SKILL",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup", "proof": ["mode", "templates_loaded", "parameters_parsed"]},
+    {"major": 1, "minor": 0, "name": "Detection", "proof": ["detection_mode", "target_location"]},
+    {"major": 2, "minor": 0, "name": "Context Ingestion", "proof": ["context_sources_presented"]},
+    {"major": 3, "minor": 0, "name": "Interrogation", "proof": ["depth_chosen", "rounds_completed"]},
+    {"major": 4, "minor": 0, "name": "Scaffold", "proof": ["plan_presented", "log_entries"]},
+    {"major": 5, "minor": 0, "name": "Synthesis"},
+    {"major": 5, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
+    {"major": 5, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
+    {"major": 5, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+    {"major": 5, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
+  ],
+  "nextSkills": ["/edit-skill", "/implement", "/analyze", "/chores"],
+  "directives": [],
+  "logTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md",
+  "debriefTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md"
+}
+```
 
 ---
 
@@ -70,15 +85,6 @@ Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-
         > **Skill**: `<skill-name>`
         > **Protocol**: `<PROTOCOL_NAME>`
         > **Subcommand**: `create/edit` or `promote`
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - Role: `________`
-> - Reference skills loaded: `________`, `________`, `________`, `________`
-> - Skill name: `________`
-> - Protocol name: `________`
-> - Subcommand: `________`
 
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
@@ -122,19 +128,8 @@ Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-
     *   *Edit (shared → local override)*: "**Edit Mode** — Creating local override of shared skill."
     *   *Edit (local override)*: "**Edit Mode** — Found local override at `.claude/skills/<name>/`."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
-**Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
-> - Project-local exists: `________`
-> - Shared engine exists: `________`
-> - Mode: `________`
-> - Target location: `________`
-
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "1: Detection"
-  nextPhase: "2: Context Ingestion"
-  prevPhase: "0: Setup"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
@@ -149,18 +144,8 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
 ### If CREATE MODE:
 *   No files to read. Proceed directly to Phase 3 (Interrogation).
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
-**Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
-> - SKILL.md read/summarized: `________`
-> - Assets directory checked: `________`
-> - Summary presented: `________`
-
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "2: Context Ingestion"
-  nextPhase: "3: Interrogation"
-  prevPhase: "1: Detection"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
@@ -237,14 +222,6 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
-**Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
-> - Depth chosen: `________`
-> - Rounds completed: `________` / `________`+
-> - DETAILS.md entries: `________`
-> - User proceeded: `________`
-
 ---
 
 ## 4. Scaffold / Rewrite
@@ -281,7 +258,7 @@ Based on `targetLocation` from Phase 1:
 
 **Destination**: `[target_path]/<skill-name>/SKILL.md`
 
-**CRITICAL**: The v2 format puts the entire protocol INLINE in SKILL.md. There is NO separate `references/` protocol file. The protocol goes directly into SKILL.md after the boot sequence and gate check.
+**CRITICAL**: The v2 format puts the entire protocol INLINE in SKILL.md. There is NO separate `references/` protocol file. The protocol goes directly into SKILL.md after the boot sequence.
 
 **Template**:
 ```markdown
@@ -289,29 +266,20 @@ Based on `targetLocation` from Phase 1:
 name: <skill-name>
 description: "[One-line description]. Triggers: \"[trigger 1]\", \"[trigger 2]\", \"[trigger 3]\"."
 version: 2.0
-tier: lightweight
+tier: protocol
 ---
 
 [One-line description].
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # [Protocol Title]
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases.
 
-[Full inline protocol with phases, §CMD_VERIFY_PHASE_EXIT after every phase, Phase Transition with AskUserQuestion after every phase except the last, --- between phases, PROOF OF WORK roll call on the final phase]
+[Full inline protocol with phases, Phase Transition with AskUserQuestion after every phase except the last, --- between phases]
 ```
 
 Generate the phased protocol following the engine pattern. Include these phases based on the archetype:
@@ -331,13 +299,12 @@ Each phase MUST reference appropriate §CMD_ commands:
 *   Interrogation → `§CMD_EXECUTE_INTERROGATION_PROTOCOL`, `§CMD_LOG_TO_DETAILS`
 *   Planning → `§CMD_POPULATE_LOADED_TEMPLATE` (using plan template)
 *   Work Loop → `§CMD_THINK_IN_LOG`, `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`, `§CMD_REFUSE_OFF_COURSE`
-*   Synthesis → `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`, `§CMD_REPORT_RESULTING_ARTIFACTS`, `§CMD_REPORT_SESSION_SUMMARY`
+*   Synthesis → `§CMD_FOLLOW_DEBRIEF_PROTOCOL`
 
 **v2 Structural Requirements**:
-*   `§CMD_VERIFY_PHASE_EXIT` after EVERY phase.
-*   `### Phase Transition` with `AskUserQuestion` after every phase except the last.
+*   `### Phase Transition` with `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH` after every phase except the last.
 *   `---` between phases.
-*   Final phase gets PROOF OF WORK roll call.
+*   Final phase uses `§CMD_FOLLOW_DEBRIEF_PROTOCOL` for synthesis.
 *   Skills with interrogation get: depth selection table, round counter, custom topics (standard + repeatable), exit gate.
 
 **DETAILS.md integration (automatic for non-utility archetypes)**:
@@ -361,23 +328,8 @@ Generate templates based on archetype. Follow engine template conventions.
 ### Step C: Report
 Execute `§CMD_REPORT_FILE_CREATION_SILENTLY` for each file created.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4
-**Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
-> - SKILL.md written (v2 inline): `________`
-> - Target location: `________`
-> - Template files created: `________`
-> - Symlink created (if shared): `________`
-> - Phase exits included: `________`
-> - Phase transitions included: `________`
-> - PROOF OF WORK on final phase: `________`
-> - Files reported: `________`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "4: Scaffold"
-  nextPhase: "5: Synthesis"
-  prevPhase: "3: Interrogation"
   custom: "Revise the scaffold | Go back and edit generated files"
 
 ---
@@ -387,34 +339,28 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 5: Synthesis.
-> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
-> 3. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 4. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise overview.
+> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
 
-**2. Execution — SEQUENTIAL, NO SKIPPING**
+**STOP**: Do not create artifacts yet. You must output the block above first.
 
-[!!!] CRITICAL: Execute these steps IN ORDER.
+**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
 
-**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS`. Skips silently if no checklists were discovered.
+**Debrief creation notes** (for Step 1 -- `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
+*   Dest: `EDIT_SKILL.md`
+*   Include: skill name, mode (create/edit), target location, files generated, archetype used.
 
-**Step 1**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created/modified files in chat.
+**Walk-through config** (for Step 3 -- `§CMD_WALK_THROUGH_RESULTS`):
+```
+§CMD_WALK_THROUGH_RESULTS Configuration:
+  mode: "results"
+  gateQuestion: "Skill scaffolded. Walk through the generated files?"
+  debriefFile: "EDIT_SKILL.md"
+  templateFile: "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md"
+```
 
-**Step 2**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 3**: Suggest next action:
+**Post-scaffold suggestion**:
 - If project-local: "You can now use `/<skill-name>` in this project. To share it across projects, run `/edit-skill promote <skill-name>`."
 - If shared: "You can now use `/<skill-name>` in any project."
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 5 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **Phase 5 proof:**
-> - SKILL.md: `________` (real file path, v2 inline format)
-> - Templates: `________` files in assets/
-> - Location: `________` (project-local or shared engine)
-> - Symlink: `________` (if shared — the symlink path)
-> - Session summary: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 **Post-Synthesis**: If the user continues talking, obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 
@@ -451,13 +397,6 @@ If ANY blank above is empty: GO BACK and complete it before proceeding.
     | assets/TEMPLATE_*.md | ✅/❌ | ✅/❌ | New / Overwrite / Skip |
     ```
 
-### §CMD_VERIFY_PHASE_EXIT — P1
-**Output this block in chat with every blank filled:**
-> **P1 proof:**
-> - Local skill scanned: `________`
-> - Engine counterparts checked: `________`
-> - Manifest displayed: `________`
-
 ---
 
 ## P2. Diff (Conditional)
@@ -474,11 +413,6 @@ For each file being overwritten:
 3.  **Output** a summary per file.
 
 *If NO files are being overwritten (all "New")*: Skip this phase entirely and note "All files are new — no overwrites."
-
-### §CMD_VERIFY_PHASE_EXIT — P2
-**Output this block in chat with every blank filled:**
-> **P2 proof:**
-> - Overwrite diffs displayed: `________` or `all files are new`
 
 ---
 
@@ -507,12 +441,6 @@ Execute `AskUserQuestion` (multiSelect: false):
 > - **"No, abort"** — Cancel the promotion
 
 *If user aborts*: Report "Promote cancelled. No files were modified." and END.
-
-### §CMD_VERIFY_PHASE_EXIT — P3
-**Output this block in chat with every blank filled:**
-> **P3 proof:**
-> - Action summary displayed: `________`
-> - User approved: `________`
 
 ---
 
@@ -545,16 +473,6 @@ Execute `AskUserQuestion` (multiSelect: false):
     ```
 
 7.  **Report**: Execute `§CMD_REPORT_FILE_CREATION_SILENTLY` for each file.
-
-### §CMD_VERIFY_PHASE_EXIT — P4 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **P4 proof:**
-> - Files copied to engine: `________`
-> - Local directory deleted: `________`
-> - Symlink created: `________`
-> - Symlink verified: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 Execute `§CMD_REPORT_RESULTING_ARTIFACTS`.
 Execute `§CMD_REPORT_SESSION_SUMMARY`.

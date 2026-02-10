@@ -30,11 +30,12 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 | `pre-tool-use-directive-gate.sh` | Enforces reading of directive files discovered by `post-tool-use-discovery.sh`. Blocks after N tool calls if pending directives remain unread. |
 | _installed order_ | session-gate → overflow → heartbeat → one-strike → directive-gate |
 
-### PostToolUse (3 hooks)
+### PostToolUse (4 hooks)
 
 | Hook | Purpose |
 |------|---------|
 | `post-tool-use-discovery.sh` | Tracks directories touched by tool calls. Discovers directive files (README, CHECKLIST, PITFALLS, INVARIANTS, TESTING) via walk-up search. |
+| `post-tool-use-details-log.sh` | Auto-logs every AskUserQuestion interaction to the session's DETAILS.md. Captures agent preamble (from transcript), questions, options, and user answers. Matcher: `AskUserQuestion`. |
 | `post-tool-complete-notify.sh` | No-op placeholder — agent is still working between tool calls, so no notification state change. |
 | `post-tool-failure-notify.sh` | No-op placeholder — tool failure doesn't stop the agent, so no notification state change. |
 
@@ -103,8 +104,9 @@ Hook tests live in `~/.claude/engine/scripts/tests/`:
 | `test-session-gate.sh` | `pre-tool-use-session-gate.sh` | 30 tests — whitelisting, blocking, session lifecycle |
 | `test-post-tool-use-discovery.sh` | `post-tool-use-discovery.sh` | 17 tests — tool filtering, dir tracking, soft/hard discovery, dedup |
 | `test-pre-tool-use-directive-gate.sh` | `pre-tool-use-directive-gate.sh` | 15 tests — early exits, whitelists, pending clearing, counter enforcement |
+| `test-post-tool-use-details-log.sh` | `post-tool-use-details-log.sh` | 20 tests — single/multi question, no session, preamble extraction, transcript handling |
 
-Total: 161 tests across 5 hook suites.
+Total: 181 tests across 6 hook suites.
 
 ## Related Files
 

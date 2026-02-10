@@ -5,7 +5,7 @@
 #   1. Gate disabled when SESSION_REQUIRED != 1
 #   2. AskUserQuestion whitelisted (always allowed)
 #   3. Skill whitelisted (always allowed)
-#   4. Bash: session.sh/log.sh/tag.sh/glob.sh whitelisted
+#   4. Bash: direct script paths NOT whitelisted (only engine CLI is)
 #   5. Bash: non-whitelisted command denied when no session
 #   6. Read: ~/.claude/* paths whitelisted
 #   7. Read: .claude/ project paths whitelisted
@@ -28,69 +28,19 @@ set -uo pipefail
 source "$(dirname "$0")/test-helpers.sh"
 
 HOOK="$HOME/.claude/hooks/pre-tool-use-session-gate.sh"
-SESSION_SH="$HOME/.claude/scripts/session.sh"
-LIB_SH="$HOME/.claude/scripts/lib.sh"
 
-TMP_DIR=$(mktemp -d)
-
-# Disable fleet/tmux and clear inherited SESSION_REQUIRED from run.sh
-unset TMUX 2>/dev/null || true
-unset TMUX_PANE 2>/dev/null || true
+# Clear inherited SESSION_REQUIRED from run.sh
 unset SESSION_REQUIRED 2>/dev/null || true
 
-# Use a dead PID for isolation (won't conflict with real sessions)
-export CLAUDE_SUPERVISOR_PID=99999999
+setup_test_env "test_gate"
 
-# Create fake HOME to isolate session.sh find from real sessions
-FAKE_HOME="$TMP_DIR/fake-home"
-mkdir -p "$FAKE_HOME/.claude/scripts"
-mkdir -p "$FAKE_HOME/.claude/hooks"
-mkdir -p "$FAKE_HOME/.claude/tools/session-search"
-mkdir -p "$FAKE_HOME/.claude/tools/doc-search"
-
-# Symlink real scripts into fake home
-ln -sf "$SESSION_SH" "$FAKE_HOME/.claude/scripts/session.sh"
-ln -sf "$LIB_SH" "$FAKE_HOME/.claude/scripts/lib.sh"
-ln -sf "$HOOK" "$FAKE_HOME/.claude/hooks/pre-tool-use-session-gate.sh"
-
-# Stub fleet.sh (no fleet)
-cat > "$FAKE_HOME/.claude/scripts/fleet.sh" <<'MOCK'
-#!/bin/bash
-case "${1:-}" in
-  pane-id) echo ""; exit 0 ;;
-  *)       exit 0 ;;
-esac
-MOCK
-chmod +x "$FAKE_HOME/.claude/scripts/fleet.sh"
-
-# Stub search tools
-for tool in session-search doc-search; do
-  cat > "$FAKE_HOME/.claude/tools/$tool/$tool.sh" <<'MOCK'
-#!/bin/bash
-echo "(none)"
-MOCK
-  chmod +x "$FAKE_HOME/.claude/tools/$tool/$tool.sh"
-done
-
-# Save original HOME and switch
-ORIGINAL_HOME="$HOME"
-export HOME="$FAKE_HOME"
-
-# Work in TMP_DIR so session.sh find scans our test sessions
-cd "$TMP_DIR"
-
-# Test session — absolute path
-TEST_SESSION="$TMP_DIR/sessions/test_gate"
-mkdir -p "$TEST_SESSION"
+# Symlink test-specific hook
+ln -sf "$REAL_HOOKS_DIR/pre-tool-use-session-gate.sh" "$FAKE_HOME/.claude/hooks/pre-tool-use-session-gate.sh"
 
 # Resolved hook path (symlinked in fake home)
 RESOLVED_HOOK="$FAKE_HOME/.claude/hooks/pre-tool-use-session-gate.sh"
 
-cleanup() {
-  export HOME="$ORIGINAL_HOME"
-  rm -rf "$TMP_DIR"
-}
-trap cleanup EXIT
+trap cleanup_test_env EXIT
 
 # Run hook with given tool_name and optional tool_input
 # Uses printf for proper JSON construction (avoids double-quote escaping issues)
@@ -135,37 +85,37 @@ assert_contains '"allow"' "$OUT" "Skill always allowed"
 
 echo ""
 
-# --- 4. Bash whitelist ---
-echo "--- 4. Bash whitelist ---"
+# --- 4. Bash whitelist: direct script paths NOT whitelisted (only engine CLI is) ---
+echo "--- 4. Bash: direct script paths denied ---"
 
 OUT=$(run_hook "Bash" '{"command":"~/.claude/scripts/session.sh find"}')
-assert_contains '"allow"' "$OUT" "Bash: session.sh whitelisted"
+assert_contains '"deny"' "$OUT" "Bash: direct session.sh path denied (use engine CLI)"
 
 OUT=$(run_hook "Bash" '{"command":"~/.claude/scripts/log.sh foo/LOG.md"}')
-assert_contains '"allow"' "$OUT" "Bash: log.sh whitelisted"
+assert_contains '"deny"' "$OUT" "Bash: direct log.sh path denied (use engine CLI)"
 
 OUT=$(run_hook "Bash" '{"command":"~/.claude/scripts/tag.sh find #needs-review"}')
-assert_contains '"allow"' "$OUT" "Bash: tag.sh whitelisted"
+assert_contains '"deny"' "$OUT" "Bash: direct tag.sh path denied (use engine CLI)"
 
 OUT=$(run_hook "Bash" '{"command":"~/.claude/scripts/glob.sh *.md sessions/"}')
-assert_contains '"allow"' "$OUT" "Bash: glob.sh whitelisted"
+assert_contains '"deny"' "$OUT" "Bash: direct glob.sh path denied (use engine CLI)"
 
 echo ""
 
-# --- 4b. Bash whitelist: engine CLI shorthand ---
+# --- 4b. Bash whitelist: engine CLI ---
 echo "--- 4b. Bash whitelist: engine CLI ---"
 
 OUT=$(run_hook "Bash" '{"command":"engine session activate sessions/foo test"}')
 assert_contains '"allow"' "$OUT" "Bash: engine session whitelisted"
 
 OUT=$(run_hook "Bash" '{"command":"engine log sessions/foo/LOG.md"}')
-assert_contains '"allow"' "$OUT" "Bash: engine log whitelisted"
+assert_contains '"deny"' "$OUT" "Bash: engine log denied without session"
 
 OUT=$(run_hook "Bash" '{"command":"engine tag find #needs-review"}')
-assert_contains '"allow"' "$OUT" "Bash: engine tag whitelisted"
+assert_contains '"deny"' "$OUT" "Bash: engine tag denied without session"
 
 OUT=$(run_hook "Bash" '{"command":"engine glob *.md sessions/"}')
-assert_contains '"allow"' "$OUT" "Bash: engine glob whitelisted"
+assert_contains '"deny"' "$OUT" "Bash: engine glob denied without session"
 
 # Edge cases: engine with extra whitespace, partial match
 OUT=$(run_hook "Bash" '{"command":"engine  session  phase foo"}')
@@ -196,10 +146,10 @@ echo ""
 # --- 6-10. Read whitelist ---
 echo "--- 6-10. Read whitelist ---"
 
-OUT=$(run_hook "Read" '{"file_path":"'"$FAKE_HOME"'/.claude/directives/COMMANDS.md"}')
+OUT=$(run_hook "Read" '{"file_path":"'"$FAKE_HOME"'/.claude/.directives/COMMANDS.md"}')
 assert_contains '"allow"' "$OUT" "Read: ~/.claude/ path whitelisted"
 
-OUT=$(run_hook "Read" '{"file_path":"/Users/invizko/Projects/finch/.claude/directives/INVARIANTS.md"}')
+OUT=$(run_hook "Read" '{"file_path":"/Users/invizko/Projects/finch/.claude/.directives/INVARIANTS.md"}')
 assert_contains '"allow"' "$OUT" "Read: .claude/ project path whitelisted"
 
 OUT=$(run_hook "Read" '{"file_path":"/Users/invizko/Projects/finch/CLAUDE.md"}')

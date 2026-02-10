@@ -149,3 +149,4 @@ fi
 
 # Not destructive — allow
 hook_allow
+exit 0

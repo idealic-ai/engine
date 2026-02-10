@@ -7,18 +7,9 @@ tier: protocol
 
 Thorough analysis of code, architecture, or topics — produces a structured research report.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Deep Research Protocol
 
@@ -32,16 +23,19 @@ Thorough analysis of code, architecture, or topics — produces a structured res
 {
   "taskType": "ANALYSIS",
   "phases": [
-    {"major": 0, "minor": 0, "name": "Setup"},
-    {"major": 1, "minor": 0, "name": "Context Ingestion"},
-    {"major": 2, "minor": 0, "name": "Research Loop"},
-    {"major": 3, "minor": 0, "name": "Calibration"},
+    {"major": 0, "minor": 0, "name": "Setup", "proof": ["mode", "session_dir", "templates_loaded", "parameters_parsed"]},
+    {"major": 1, "minor": 0, "name": "Context Ingestion", "proof": ["context_sources_presented", "files_loaded"]},
+    {"major": 2, "minor": 0, "name": "Research Loop", "proof": ["log_entries", "key_finding", "open_gaps"]},
+    {"major": 3, "minor": 0, "name": "Calibration", "proof": ["depth_chosen", "rounds_completed"]},
     {"major": 3, "minor": 1, "name": "Agent Handoff"},
     {"major": 4, "minor": 0, "name": "Synthesis"},
-    {"major": 4, "minor": 1, "name": "Finding Triage"}
+    {"major": 4, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
+    {"major": 4, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
+    {"major": 4, "minor": 3, "name": "Finding Triage", "proof": ["findings_triaged", "delegated", "deferred", "dismissed"]},
+    {"major": 4, "minor": 4, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+    {"major": 4, "minor": 5, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
   ],
   "nextSkills": ["/brainstorm", "/implement", "/document", "/fix", "/chores"],
-  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"],
   "directives": [],
   "logTemplate": "~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS_LOG.md",
   "debriefTemplate": "~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS.md",
@@ -107,16 +101,6 @@ Thorough analysis of code, architecture, or topics — produces a structured res
     *   If any files are found, add them to `contextPaths` for ingestion in Phase 1.
     *   *Why?* To ensure analysis includes the most recent intents and behavior changes.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - Mode: `________` (explore / audit / improve / custom)
-> - Role: `________` (quote the role name from the mode preset)
-> - Session dir: `________`
-> - taskType: `________`
-> - Templates loaded: `________`, `________`
-> - Active alerts: `________ found` or `none`
-
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
@@ -130,19 +114,8 @@ Thorough analysis of code, architecture, or topics — produces a structured res
 
 **Action**: Execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
-**Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
-> - RAG session-search: `________ results` or `unavailable`
-> - RAG doc-search: `________ results` or `unavailable`
-> - Files loaded: `________ files`
-> - User confirmed: `yes / no`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "1: Context Ingestion"
-  nextPhase: "2: Research Loop"
-  prevPhase: "0: Setup"
   custom: "Skip to Phase 3: Calibration | I want to guide the analysis direction before research begins"
 
 ---
@@ -189,18 +162,8 @@ For *every* significant thought, execute `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLA
 
 **Rule**: Dump your thoughts continuously. Do not filter for "high polish" yet—capture the raw insight.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
-**Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
-> - Log entries written: `________` (minimum 5)
-> - Key finding: `________` (one-liner of strongest insight)
-> - Open gaps: `________` (count of unresolved questions)
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "2: Research Loop"
-  nextPhase: "3: Calibration"
-  prevPhase: "1: Context Ingestion"
   custom: "Skip to Phase 4: Synthesis | Findings are clear, ready to write the report"
 
 ---
@@ -266,13 +229,6 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Ask: "Round N complete. I still have questions about [X]. Continuing..."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
-**Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
-> - Depth chosen: `________`
-> - Rounds completed: `________` / `________`+
-> - DETAILS.md entries: `________`
-
 ### Phase Transition
 Execute `AskUserQuestion` (multiSelect: false):
 > "Phase 3: Calibration complete. How to proceed with synthesis?"
@@ -298,75 +254,41 @@ Execute `§CMD_HAND_OFF_TO_AGENT` with:
 
 ---
 
-## 4. The Synthesis Phase (Final)
+## 4. The Synthesis (Debrief)
 *When the user is satisfied.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 4: Synthesis.
-> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
-> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_ANALYSIS.md` EXACTLY) to structure the research.
-> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to deliver the final report.
-> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
-**2. Execution — SEQUENTIAL, NO SKIPPING**
+**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
 
-[!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The analysis FILE is the primary deliverable — chat output alone is not sufficient.
+**Debrief creation notes** (for Step 1 -- `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
+*   Dest: `ANALYSIS.md`
+*   **Synthesize**: Don't just summarize. Connect the dots between Log entries.
+*   **Identify Themes**: Group isolated findings into "Strategic Themes".
+*   **Highlight**: Top Risks and Sparks.
+*   **Recommend**: Concrete next steps.
 
-**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
+**Skill-specific step** (between Steps 1 and 2 of `§CMD_FOLLOW_DEBRIEF_PROTOCOL`):
 
-**Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `ANALYSIS.md`).
-  *   Write the file using the Write tool. This MUST produce a real file in the session directory.
-  *   **Synthesize**: Don't just summarize. Connect the dots between Log entries.
-  *   **Identify Themes**: Group isolated findings into "Strategic Themes".
-  *   **Highlight**: Top Risks and Sparks.
-  *   **Recommend**: Concrete next steps.
-
-**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
-
-**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
-> - ANALYSIS.md written: `________` (real file path)
-> - Tags line: `________`
-> - Artifacts listed: `________`
-> - Session summary: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
-
-### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "4: Synthesis"
-  nextPhase: "4.1: Finding Triage"
-  prevPhase: "3: Calibration"
-  custom: "Skip to close | The report is enough, close the session"
-
----
-
-## 4.1. Finding Triage (Action Planning)
+### 4.3. Finding Triage (Action Planning)
 *Convert analysis into action. Walk through each finding with the user and decide its fate.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4.1: Finding Triage.
+> 1. I am moving to Phase 4.3: Finding Triage.
 > 2. I will execute `§CMD_WALK_THROUGH_RESULTS` to walk through each finding.
 > 3. Decisions will be logged to DETAILS.md.
 
 Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the selected mode preset.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4.1
-**Output this block in chat with every blank filled:**
-> **Phase 4.1 proof:**
-> - Findings triaged: `________` / `________`
-> - Delegated: `________`
-> - Deferred: `________`
-> - Dismissed: `________`
-
----
-
-**Step 4**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+**Walk-through config** (for Step 3 -- `§CMD_WALK_THROUGH_RESULTS`):
+```
+§CMD_WALK_THROUGH_RESULTS Configuration:
+  (uses Walk-Through Config from the selected mode preset)
+```
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.

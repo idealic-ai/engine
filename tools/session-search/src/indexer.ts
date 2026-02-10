@@ -102,8 +102,8 @@ export async function reconcileChunks(
   // Insert new chunks
   for (const chunk of toInsert) {
     db.run(
-      `INSERT INTO chunks (session_path, session_date, file_path, section_title, content, content_hash)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO chunks (session_path, session_date, file_path, section_title, content, content_hash, session_started_at, session_completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         chunk.sessionPath,
         chunk.sessionDate,
@@ -111,6 +111,8 @@ export async function reconcileChunks(
         chunk.sectionTitle,
         chunk.content,
         chunk.contentHash,
+        chunk.sessionStartedAt ?? null,
+        chunk.sessionCompletedAt ?? null,
       ]
     );
 
@@ -133,9 +135,9 @@ export async function reconcileChunks(
   for (const { chunk, existingId } of toUpdate) {
     db.run(
       `UPDATE chunks
-       SET content = ?, content_hash = ?, updated_at = datetime('now')
+       SET content = ?, content_hash = ?, session_started_at = ?, session_completed_at = ?, updated_at = datetime('now')
        WHERE id = ?`,
-      [chunk.content, chunk.contentHash, existingId]
+      [chunk.content, chunk.contentHash, chunk.sessionStartedAt ?? null, chunk.sessionCompletedAt ?? null, existingId]
     );
 
     // Delete old embedding and insert new one

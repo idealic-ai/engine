@@ -8,18 +8,9 @@ tier: lightweight
 Smart assistant for the workflow engine — answers questions, invokes scripts, and navigates engine docs/scripts/skills.
 
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Engine Assistant Protocol (The Operator's Manual)
 
@@ -52,14 +43,6 @@ Smart assistant for the workflow engine — answers questions, invokes scripts, 
     *   **Navigate** — User wants to find something ("where is the fleet config?", "which doc covers context overflow?")
     *   **Mixed** — Multiple intents, or unclear. Ask for clarification.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - Role: `Engine Operator`
-> - engine --help loaded: `________`
-> - engine toc loaded: `________`
-> - User intent: `________`
-
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
@@ -76,7 +59,7 @@ Smart assistant for the workflow engine — answers questions, invokes scripts, 
 
 2.  **On-Demand Reads**: When the index isn't sufficient:
     *   **Script questions**: Read the script file (`~/.claude/scripts/<name>.sh`) — focus on the header comments and usage section.
-    *   **Directive questions** (`§CMD_*`, `¶INV_*`): Read from `~/.claude/directives/COMMANDS.md` or `INVARIANTS.md`. These are already in context from boot — search your context first.
+    *   **Directive questions** (`§CMD_*`, `¶INV_*`): Read from `~/.claude/.directives/COMMANDS.md` or `INVARIANTS.md`. These are already in context from boot — search your context first.
     *   **Doc questions**: Read the specific doc file (`~/.claude/docs/<name>.md` or `~/.claude/engine/docs/<name>.md`).
     *   **Skill questions**: Read `~/.claude/skills/<name>/SKILL.md` for the skill protocol.
     *   **Hook questions**: Read `~/.claude/hooks/<name>.sh` for hook behavior.
@@ -164,6 +147,6 @@ After handling each request, wait for the user's next message. Do NOT proactivel
 | Testing | ENGINE_TESTING.md | ~/.claude/docs/ |
 | Hooks | HOOKS.md | ~/.claude/docs/ |
 | Doc indexing | DOCUMENT_INDEXING.md | ~/.claude/docs/ |
-| Commands vocabulary | COMMANDS.md | ~/.claude/directives/ |
-| System invariants | INVARIANTS.md | ~/.claude/directives/ |
-| Tag conventions | TAGS.md | ~/.claude/directives/ |
+| Commands vocabulary | COMMANDS.md | ~/.claude/.directives/ |
+| System invariants | INVARIANTS.md | ~/.claude/.directives/ |
+| Tag conventions | TAGS.md | ~/.claude/.directives/ |

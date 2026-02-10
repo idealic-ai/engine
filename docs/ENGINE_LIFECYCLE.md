@@ -147,7 +147,7 @@ To resolve:
 3. **Engine symlinks**: Links `~/.claude/{scripts,skills,hooks,agents,tools,commands,standards}` to the active engine
 4. **Migrations**: Runs any pending numbered migrations from `setup-migrations.sh`
 5. **Project symlinks**: Links `./sessions/` and `./reports/` to GDrive paths
-6. **Project directives**: Creates `.claude/directives/INVARIANTS.md` stub if missing
+6. **Project directives**: Creates `.claude/.directives/INVARIANTS.md` stub if missing
 7. **Gitignore**: Adds `sessions` and `reports` to `.gitignore`
 8. **Permissions**: Configures `~/.claude/settings.json` (engine permissions, hooks, statusLine)
 9. **Global symlink**: Creates `/usr/local/bin/engine` (may require sudo)

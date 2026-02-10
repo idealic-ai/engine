@@ -156,11 +156,12 @@ else
 fi
 
 # Verify JSON structure has the expected key path
-MSG=$(echo "$OUT" | jq -r '.hookSpecificOutput.message' 2>/dev/null || echo "ERROR")
+# Note: uses additionalContext (not message) to avoid Claude Code "hook error" display bug (#13912)
+MSG=$(echo "$OUT" | jq -r '.hookSpecificOutput.additionalContext' 2>/dev/null || echo "ERROR")
 if [ "$MSG" != "ERROR" ] && [ "$MSG" != "null" ]; then
-  pass "JSON has hookSpecificOutput.message field"
+  pass "JSON has hookSpecificOutput.additionalContext field"
 else
-  fail "JSON has hookSpecificOutput.message field" "non-null message" "$MSG"
+  fail "JSON has hookSpecificOutput.additionalContext field" "non-null additionalContext" "$MSG"
 fi
 
 echo ""

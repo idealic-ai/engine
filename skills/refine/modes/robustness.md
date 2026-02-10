@@ -5,8 +5,11 @@
 **Goal**: To make the extraction pipeline resilient to edge cases, malformed inputs, and adversarial content.
 **Mindset**: "What's the weirdest input this could see?" Defensive, boundary-testing.
 
-## Configuration
+## Iteration Focus
+Handle empty pages, unusual formatting, multi-language, corrupt data.
 
-**Iteration Focus**: Handle empty pages, unusual formatting, multi-language, corrupt data.
-**Hypothesis Style**: "The LLM fails on input X because it doesn't match pattern Y."
-**Success Metric**: Error rate reduction on edge case corpus.
+## Hypothesis Style
+"The LLM fails on input X because it doesn't match pattern Y."
+
+## Success Metric
+Error rate reduction on edge case corpus.

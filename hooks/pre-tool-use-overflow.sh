@@ -19,7 +19,7 @@
 #   Docs: (~/.claude/docs/)
 #     CONTEXT_GUARDIAN.md — Primary reference for overflow protection
 #     SESSION_LIFECYCLE.md — Lifecycle state integration
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet notification graceful degradation
 
 set -euo pipefail
@@ -135,3 +135,4 @@ main() {
 }
 
 main
+exit 0

@@ -9,7 +9,7 @@ export const EMBEDDING_DIMENSIONS = 3072;
  * On open, if the DB's PRAGMA user_version doesn't match,
  * all tables are dropped and recreated (reindex required).
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>> | null = null;
 
@@ -65,6 +65,8 @@ export async function initDb(dbPath: string): Promise<Database> {
       section_title TEXT NOT NULL,
       content TEXT NOT NULL,
       content_hash TEXT NOT NULL,
+      session_started_at TEXT,
+      session_completed_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );

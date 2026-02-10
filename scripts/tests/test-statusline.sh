@@ -271,7 +271,7 @@ jq '.currentPhase = "3: Strategy"' "$TEST_SESSION/.state.json" > "$TEST_SESSION/
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 OUT=$(run_statusline "$(make_input 10)")
-assert_contains "test/strategy" "$OUT" "Shows skill/phase (test/strategy)"
+assert_contains "3. Strategy" "$OUT" "Shows phase in N. Name format (no phases array)"
 # Session name should have date stripped: 2026_02_08_TEST_STATUS → TEST_STATUS
 assert_contains "TEST_STATUS" "$OUT" "Session name has date prefix stripped"
 

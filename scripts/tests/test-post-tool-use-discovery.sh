@@ -448,6 +448,100 @@ test_skips_empty_file_path() {
 }
 
 # =============================================================================
+# EXCLUDED PATH COMPONENT TESTS (¶INV_DIRECTIVE_STACK — sessions/, tmp/, etc.)
+# =============================================================================
+
+test_excludes_sessions_subdirectory() {
+  local test_name="excluded paths: sessions/ subdirectory does not discover TESTING.md"
+  setup
+
+  # Create a sessions/ subdirectory with a TESTING.md (mimics session debrief artifact)
+  mkdir -p "$PROJECT_DIR/sessions/2026_02_09_SOME_SESSION"
+  echo "# Testing Debrief" > "$PROJECT_DIR/sessions/2026_02_09_SOME_SESSION/TESTING.md"
+
+  # Also add TESTING.md to skill directives so it would be picked up if not excluded
+  jq '.directives = ["TESTING.md"]' "$SESSION_DIR/.state.json" | tee "$SESSION_DIR/.state.json.tmp" > /dev/null && mv "$SESSION_DIR/.state.json.tmp" "$SESSION_DIR/.state.json"
+
+  local output
+  output=$(run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/sessions/2026_02_09_SOME_SESSION/file.ts\"}}")
+
+  local state
+  state=$(read_state)
+  local pending
+  pending=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(contains("TESTING.md"))]')
+  local testing_count
+  testing_count=$(echo "$pending" | jq 'length')
+
+  if [ "$testing_count" -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "TESTING.md not in pendingDirectives (sessions/ excluded)" "pending=$pending, output='$output'"
+  fi
+
+  teardown
+}
+
+test_excludes_tmp_subdirectory() {
+  local test_name="excluded paths: tmp/ subdirectory does not discover README.md"
+  setup
+
+  # Create a tmp/ subdirectory with a README.md
+  mkdir -p "$PROJECT_DIR/tmp/debug-output"
+  echo "# Debug README" > "$PROJECT_DIR/tmp/debug-output/README.md"
+
+  # Remove project-root README so it doesn't confuse the test
+  rm -f "$PROJECT_DIR/README.md"
+
+  local output
+  output=$(run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/tmp/debug-output/file.ts\"}}")
+
+  local state
+  state=$(read_state)
+  local pending
+  pending=$(echo "$state" | jq '.pendingDirectives // []')
+  local count
+  count=$(echo "$pending" | jq 'length')
+
+  if [ "$count" -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "no pendingDirectives (tmp/ excluded)" "pending=$pending"
+  fi
+
+  teardown
+}
+
+test_excludes_node_modules_subdirectory() {
+  local test_name="excluded paths: node_modules/ subdirectory does not discover README.md"
+  setup
+
+  # Create a node_modules/ subdirectory with a README.md
+  mkdir -p "$PROJECT_DIR/node_modules/some-package"
+  echo "# Package README" > "$PROJECT_DIR/node_modules/some-package/README.md"
+
+  # Remove project-root README
+  rm -f "$PROJECT_DIR/README.md"
+
+  local output
+  output=$(run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/node_modules/some-package/index.ts\"}}")
+
+  local state
+  state=$(read_state)
+  local pending
+  pending=$(echo "$state" | jq '.pendingDirectives // []')
+  local count
+  count=$(echo "$pending" | jq 'length')
+
+  if [ "$count" -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "no pendingDirectives (node_modules/ excluded)" "pending=$pending"
+  fi
+
+  teardown
+}
+
+# =============================================================================
 # NO DISCOVERY FILES TESTS
 # =============================================================================
 
@@ -505,6 +599,11 @@ test_dedup_across_dirs
 # Hard file (checklist) discovery
 test_discovers_checklist_adds_to_state
 test_checklist_not_duplicated
+
+# Excluded path components (sessions/, tmp/, node_modules/)
+test_excludes_sessions_subdirectory
+test_excludes_tmp_subdirectory
+test_excludes_node_modules_subdirectory
 
 # Edge cases
 test_skips_empty_file_path

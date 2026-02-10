@@ -16,7 +16,7 @@
 #     FLEET.md — Fleet architecture, commands, config format
 #     SESSION_LIFECYCLE.md — Fleet session discovery and binding
 #     DAEMON.md — Worker coordination
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Core requirement for fleet
 #     ¶INV_CLAIM_BEFORE_WORK — Worker coordination pattern
 

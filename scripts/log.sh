@@ -4,7 +4,7 @@
 # Related:
 #   Docs: (~/.claude/docs/)
 #     SESSION_LIFECYCLE.md — Log file lifecycle
-#   Commands: (~/.claude/directives/COMMANDS.md)
+#   Commands: (~/.claude/.directives/COMMANDS.md)
 #     §CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE — Primary usage pattern
 #     §CMD_THINK_IN_LOG — Reasoning documentation
 #     §CMD_LOG_TO_DETAILS — Q&A logging

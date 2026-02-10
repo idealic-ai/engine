@@ -10,6 +10,11 @@
 **Goal**: *Set from user's free-text input.*
 **Mindset**: *Blended from the mode closest to user's intent, adjusted per their framing.*
 
-## Configuration
+## Iteration Focus
+Synthesize from the 3 named modes based on user's framing. Default to Accuracy focus if unclear.
 
-Synthesize from the 3 named modes based on user's framing. Default to Accuracy configuration if unclear.
+## Hypothesis Style
+Synthesize from the 3 named modes based on user's framing. Default to Accuracy style if unclear.
+
+## Success Metric
+Synthesize from the 3 named modes based on user's framing. Default to Accuracy metric if unclear.

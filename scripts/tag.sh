@@ -5,9 +5,9 @@
 #   Docs: (~/.claude/docs/)
 #     DIRECTIVES_SYSTEM.md — Tag protocol, escaping convention
 #     DAEMON.md — Tag-based dispatch
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_CLAIM_BEFORE_WORK — Tag swap pattern
-#   Commands: (~/.claude/directives/COMMANDS.md)
+#   Commands: (~/.claude/.directives/COMMANDS.md)
 #     §CMD_ESCAPE_TAG_REFERENCES — Backtick escaping protocol
 #     §CMD_TAG_FILE — Add tag to file
 #     §CMD_UNTAG_FILE — Remove tag from file
@@ -153,7 +153,11 @@ case "$ACTION" in
         --exclude='.state.json' \
         "${ESCAPED_TAG}" "$SEARCH_PATH" 2>/dev/null \
         | grep -v '^\*\*Tags\*\*:' \
-        | grep -v "\`${ESCAPED_TAG}\`" \
+        | awk -v tag="$ESCAPED_TAG" '{
+            stripped = $0;
+            gsub(/`[^`]*`/, "", stripped);
+            if (stripped ~ tag) print
+          }' \
         | cut -d: -f1 \
         | sort -u 2>/dev/null || true)
 
@@ -173,7 +177,11 @@ case "$ACTION" in
       for file in $ALL_FILES; do
         # Find all matching line numbers in this file (Tags-line and inline, excluding backtick-escaped)
         LINE_NUMS=$(grep -n "${ESCAPED_TAG}" "$file" 2>/dev/null \
-          | grep -v "\`${ESCAPED_TAG}\`" \
+          | awk -v tag="$ESCAPED_TAG" '{
+              stripped = $0;
+              gsub(/`[^`]*`/, "", stripped);
+              if (stripped ~ tag) print
+            }' \
           | cut -d: -f1 || true)
         for line_num in $LINE_NUMS; do
           echo "${file}:${line_num}"

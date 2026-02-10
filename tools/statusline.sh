@@ -5,10 +5,10 @@
 # It receives JSON on stdin with context window information.
 #
 # Display format:
-#   SESSION_NAME [skill/phase] XX%
-#   ↑             ↑           ↑
-#   clickable     clickable   context usage (normalized)
-#   → folder      → target file
+#   SESSION · skill · N. Phase · agent · $X.XX · XX%
+#   ↑         ↑       ↑                         ↑
+#   clickable clickable clickable                context usage
+#   → plan    → SKILL.md → target file           (normalized)
 #
 # When no session is active:
 #   No session (red)
@@ -18,7 +18,7 @@
 #     CONTEXT_GUARDIAN.md — Context usage normalization, threshold display
 #     SESSION_LIFECYCLE.md — Session state display, skill/phase tracking
 #     FLEET.md — Fleet pane identity
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet-aware display
 
 # Don't use set -e, we want to handle errors gracefully
@@ -148,11 +148,23 @@ if output=$(update_session 2>/dev/null); then
   SKILL=$(echo "$output" | tail -1)
   # Extract session name from path, strip date prefix (YYYY_MM_DD_)
   SESSION_NAME=$(basename "$SESSION_DIR" | sed 's/^[0-9]\{4\}_[0-9]\{2\}_[0-9]\{2\}_//')
-  # Get current phase (extract phase name, e.g., "Phase 3: Execution" -> "execution")
+  # Get current phase: "5: Strategy" → "[5/10]. Strategy" (with phases array) or "5. Strategy" (without)
   FULL_PHASE=$(state_read "$SESSION_DIR/.state.json" currentPhase "")
   if [ -n "$FULL_PHASE" ]; then
-    # Extract phase name after colon, lowercase: "Phase 3: Execution" -> "execution"
-    PHASE=$(echo "$FULL_PHASE" | sed -n 's/.*: *\(.*\)/\1/p' | tr '[:upper:]' '[:lower:]' | tr ' ' '-')
+    # Try to build [major/max_major]. name format from phases array
+    PHASE=$(jq -r --arg cp "$FULL_PHASE" '
+      if has("phases") and (.phases | length > 0) then
+        (.phases | map(.major) | max) as $max_major |
+        (.phases[] | select(
+          (if .minor == 0 then "\(.major): \(.name)" else "\(.major).\(.minor): \(.name)" end) == $cp
+        )) as $match |
+        if $match != null then "[\($match.major)/\($max_major)] \($match.name)" else "" end
+      else "" end
+    ' "$SESSION_DIR/.state.json" 2>/dev/null || echo "")
+    # Fallback: no phases array or no match → original "N. Name" format
+    if [ -z "$PHASE" ]; then
+      PHASE=$(echo "$FULL_PHASE" | sed 's/: /. /')
+    fi
   fi
   # Get target file (for clicking on skill/phase)
   TARGET_FILE=$(state_read "$SESSION_DIR/.state.json" targetFile "")
@@ -162,7 +174,7 @@ fi
 COST_FMT=$(printf '$%.2f' "$TOTAL_COST")
 
 # Format output for status line
-# Layout: SESSION · skill/phase · agent · $X.XX · XX%
+# Layout: SESSION · skill · N. Phase · agent · $X.XX · XX%
 # No session → "No session" in red
 
 # Build right side: agent · $cost · %
@@ -172,10 +184,15 @@ if [ -n "$AGENT_NAME" ]; then
 fi
 RIGHT_SIDE="${RIGHT_SIDE}${COST_FMT} · ${DISPLAY_PERCENT}%"
 
-if [ "${DEBUG:-}" = "1" ]; then
-  # Debug mode: show PID resolution + match result inline
-  printf 'sup=%s ppid=%s res=%s dir=%s' \
-    "${CLAUDE_SUPERVISOR_PID:-unset}" "$PPID" "${CLAUDE_SUPERVISOR_PID:-$PPID}" \
+# Debug mode: env var OR file-based trigger (file works even if env isn't inherited)
+if [ "${DEBUG:-}" = "1" ] || [ -f /tmp/statusline-debug ]; then
+  FLEET_DBG=$("$HOME/.claude/scripts/fleet.sh" pane-id 2>&1 || echo "(exit:$?)")
+  SESS_EXISTS=$([ -d "$PWD/sessions" ] && echo Y || echo N)
+  printf 'sup=%s ppid=%s tmux=%s pane=%s fleet=%s pwd=%s sess=%s dir=%s' \
+    "${CLAUDE_SUPERVISOR_PID:-X}" "$PPID" \
+    "${TMUX:+Y}${TMUX:-X}" "${TMUX_PANE:-X}" \
+    "$FLEET_DBG" \
+    "$(basename "$PWD")" "$SESS_EXISTS" \
     "${SESSION_DIR:-(none)}"
   exit 0
 fi
@@ -187,40 +204,34 @@ else
   # Session active — build clickable output
   ABS_SESSION_DIR=$(cd "$SESSION_DIR" && pwd)
 
-  # Session name → links to planning file ("how we planned it")
-  # Priority: BRAINSTORM.md, BRAINSTORM_PLAN.md, ANALYSIS.md, ANALYSIS_PLAN.md, IMPLEMENTATION_PLAN.md
-  PLAN_FILE=""
-  for f in BRAINSTORM.md BRAINSTORM_PLAN.md ANALYSIS.md ANALYSIS_PLAN.md IMPLEMENTATION_PLAN.md; do
-    if [ -f "$SESSION_DIR/$f" ]; then
-      PLAN_FILE="$f"
-      break
-    fi
-  done
+  # Session name → links to session directory
+  SESSION_LINK=$(osc8_link "${LINK_PROTOCOL}${ABS_SESSION_DIR}" "$SESSION_NAME")
 
-  if [ -n "$PLAN_FILE" ]; then
-    SESSION_LINK=$(osc8_link "${LINK_PROTOCOL}${ABS_SESSION_DIR}/${PLAN_FILE}" "$SESSION_NAME")
-  else
-    # No plan file yet — plain text, no link
-    SESSION_LINK="$SESSION_NAME"
-  fi
-
-  # Skill/phase → links to target file ("how's it going")
+  # Skill → links to SKILL.md ("what skill is running")
   SKILL_DISPLAY=""
   if [ -n "$SKILL" ]; then
-    if [ -n "$PHASE" ]; then
-      SKILL_TEXT="$SKILL/$PHASE"
+    SKILL_MD="$HOME/.claude/skills/${SKILL}/SKILL.md"
+    if [ -f "$SKILL_MD" ]; then
+      SKILL_DISPLAY=$(osc8_link "${LINK_PROTOCOL}${SKILL_MD}" "$SKILL")
     else
-      SKILL_TEXT="$SKILL"
-    fi
-
-    if [ -n "$TARGET_FILE" ] && [ -f "$SESSION_DIR/$TARGET_FILE" ]; then
-      # Have target file → make it clickable
-      SKILL_DISPLAY=$(osc8_link "${LINK_PROTOCOL}${ABS_SESSION_DIR}/${TARGET_FILE}" "$SKILL_TEXT")
-    else
-      # No target file → plain text
-      SKILL_DISPLAY="$SKILL_TEXT"
+      SKILL_DISPLAY="$SKILL"
     fi
   fi
 
-  printf '%s · %s · %s' "$SESSION_LINK" "$SKILL_DISPLAY" "$RIGHT_SIDE"
+  # Phase → links to target file ("how's it going")
+  PHASE_DISPLAY=""
+  if [ -n "$PHASE" ]; then
+    if [ -n "$TARGET_FILE" ] && [ -f "$SESSION_DIR/$TARGET_FILE" ]; then
+      PHASE_DISPLAY=$(osc8_link "${LINK_PROTOCOL}${ABS_SESSION_DIR}/${TARGET_FILE}" "$PHASE")
+    else
+      PHASE_DISPLAY="$PHASE"
+    fi
+  fi
+
+  # Assemble: SESSION · skill · phase · agent · $cost · %
+  # Only include non-empty segments
+  OUTPUT="$SESSION_LINK"
+  [ -n "$SKILL_DISPLAY" ] && OUTPUT="$OUTPUT · $SKILL_DISPLAY"
+  [ -n "$PHASE_DISPLAY" ] && OUTPUT="$OUTPUT · $PHASE_DISPLAY"
+  printf '%s · %s' "$OUTPUT" "$RIGHT_SIDE"
 fi

@@ -7,18 +7,9 @@ tier: protocol
 
 Reviews and validates work across sessions for consistency and correctness.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Review Protocol (The Multiplexer)
 
@@ -30,13 +21,16 @@ Reviews and validates work across sessions for consistency and correctness.
 {
   "taskType": "RESOLVE",
   "phases": [
-    {"major": 0, "minor": 0, "name": "Setup"},
-    {"major": 1, "minor": 0, "name": "Discovery"},
-    {"major": 2, "minor": 0, "name": "Dashboard & Interrogation"},
-    {"major": 3, "minor": 0, "name": "Synthesis"}
+    {"major": 0, "minor": 0, "name": "Setup", "proof": ["mode", "session_dir", "templates_loaded", "parameters_parsed", "debriefs_discovered"]},
+    {"major": 1, "minor": 0, "name": "Discovery", "proof": ["debriefs_read", "sibling_logs_plans_read", "debrief_cards_logged", "cross_session_checks", "conflicts_found"]},
+    {"major": 2, "minor": 0, "name": "Dashboard & Interrogation", "proof": ["dashboard_presented", "depth_chosen", "rounds_completed", "debriefs_reviewed", "verdicts_tagged", "log_entries"]},
+    {"major": 3, "minor": 0, "name": "Synthesis"},
+    {"major": 3, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
+    {"major": 3, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
+    {"major": 3, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+    {"major": 3, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
   ],
   "nextSkills": ["/implement", "/document", "/brainstorm", "/analyze", "/chores"],
-  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"],
   "directives": [],
   "logTemplate": "~/.claude/skills/review/assets/TEMPLATE_REVIEW_LOG.md",
   "debriefTemplate": "~/.claude/skills/review/assets/TEMPLATE_REVIEW.md",
@@ -74,11 +68,13 @@ Reviews and validates work across sessions for consistency and correctness.
     *   `~/.claude/skills/review/assets/TEMPLATE_REVIEW.md` (Template for the final review report)
     *   `~/.claude/skills/_shared/TEMPLATE_DETAILS.md` (Template for Q&A capture)
 
-3.  **Discover Debriefs**: Execute `§CMD_FIND_TAGGED_FILES` for BOTH:
+3.  **Discover Debriefs & Requests**: Execute `§CMD_FIND_TAGGED_FILES` for:
     *   `#needs-review` — never-validated debriefs.
     *   `#needs-rework` — previously rejected debriefs.
     *   Search scope: `sessions/` directory.
-    *   **Output**: List all found files to the user with their tag status. Each path should be a clickable link per `¶INV_TERMINAL_FILE_LINKS` (Full variant).
+    *   **Also discover REQUEST files**: Glob for `sessions/**/REVIEW_REQUEST_*.md` to find review delegation requests that may not carry tags yet.
+    *   **Merge & deduplicate**: Combine tag-discovered files with glob-discovered REQUEST files. Deduplicate by path.
+    *   **Output**: List all found files to the user with their source (tag-discovered or REQUEST file). Each path should be a clickable link per `¶INV_TERMINAL_FILE_LINKS` (Full variant).
 
 4.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
     *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
@@ -105,16 +101,6 @@ Reviews and validates work across sessions for consistency and correctness.
 6.  **Assume Role**: Execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset** from the loaded mode file.
 
 7.  **Initialize Log**: Execute `§CMD_INIT_OR_RESUME_LOG_SESSION` (Template: `REVIEW_LOG.md`).
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - Mode: `________` (quality / progress / evangelize / custom)
-> - Role: `________` (quote the role name from the mode preset)
-> - Session dir: `________`
-> - Templates loaded: `________`, `________`, `________`
-> - Debriefs discovered: `________`
-> - Parameters parsed: `________`
 
 ### Phase Transition
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
@@ -157,20 +143,8 @@ Before calling any tool, ask yourself:
 
 **Constraint**: Do NOT present findings to the user yet. Complete the full analysis first.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
-**Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
-> - Debriefs read: `________`
-> - Sibling logs/plans read: `________`
-> - Debrief Cards logged: `________`
-> - Cross-session checks: `________` / 4
-> - Conflicts found: `________`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "1: Discovery"
-  nextPhase: "2: Dashboard & Interrogation"
-  prevPhase: "0: Setup"
   custom: "Skip to Phase 3: Synthesis | I already know the verdicts, just write the report"
 
 ---
@@ -203,14 +177,16 @@ Execute `AskUserQuestion` (multiSelect: false):
 > - **"Discuss dashboard first"** — I want to talk about the cross-session findings
 
 ### Phase 2b: Per-Debrief Interrogation
-*Walk through each debrief with the user.*
+*Walk through each debrief and REQUEST file with the user.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 2b: Per-Debrief Interrogation.
 > 2. I will `§CMD_EXECUTE_INTERROGATION_PROTOCOL` for each debrief.
-> 3. I will `§CMD_LOG_TO_DETAILS` to capture the Q&A.
-> 4. I will use the Standard Validation Checklist as internal guidance.
-> 5. After each debrief, I will tag the outcome (validate or mark for rework) using the tag swap procedures below.
+> 3. I will review each discovered REVIEW_REQUEST file with its structured fields.
+> 4. I will `§CMD_LOG_TO_DETAILS` to capture the Q&A.
+> 5. I will use the Standard Validation Checklist as internal guidance.
+> 6. After each debrief, I will tag the outcome (validate or mark for rework) using the tag swap procedures below.
+> 7. After each REQUEST file, I will write a REVIEW_RESPONSE file (`¶INV_REQUEST_BEFORE_CLOSE`).
 
 ### Interrogation Depth Selection
 
@@ -283,13 +259,13 @@ Record the user's choice. This sets the **minimum** per debrief — the agent ca
 3.  **Process User Response**:
     *   **Approve (clean)**: Validate the debrief — swap tags and log:
         ```bash
-        ~/.claude/scripts/tag.sh swap "$FILE" '#needs-review,#needs-rework' '#done-review'
+        engine tag swap "$FILE" '#needs-review,#needs-rework' '#done-review'
         ```
         Record the verdict in `REVIEW_LOG.md`. Log `Verdict: Validated`. No leftovers.
     *   **Approve + note TODOs**: Validate (same tag swap as clean approve). Then immediately ask: "What follow-up work should I note down?" Capture the user's response and log it as `Leftover Spawned`. These become micro-dehydrated prompts in the Leftovers section of the final REVIEW.md report.
     *   **Flag for Rework**: Mark the debrief as needing rework:
         ```bash
-        ~/.claude/scripts/tag.sh swap "$FILE" '#needs-review' '#needs-rework'
+        engine tag swap "$FILE" '#needs-review' '#needs-rework'
         ```
         Then append a `## Rework Notes` section at the end with: the date of rejection, the user's stated reason, and specific items to address. If `## Rework Notes` already exists, append a new dated entry under it.
         Record the verdict in `REVIEW_LOG.md`. Ask user for the rework reason. Log `Verdict: Needs Rework`. The leftover prompt generated for this rework MUST include the instruction:
@@ -306,6 +282,31 @@ Record the user's choice. This sets the **minimum** per debrief — the agent ca
 
 5.  **Repeat** for next debrief.
 
+### Per-REQUEST File Review
+
+**For each discovered `REVIEW_REQUEST_*.md` file (after all debriefs are processed)**:
+
+1.  **Read REQUEST**: Read the full REQUEST file. Extract structured fields: Topic, Context, Expectations, Requesting Session.
+2.  **Read Linked Context**: If the REQUEST references a session or specific files, read them.
+3.  **Present to User**: Show the REQUEST summary and ask:
+    *   **"Fulfill request"** — Review the linked work and write a RESPONSE file
+    *   **"Defer"** — Leave the REQUEST for a future review session
+    *   **"Dismiss"** — Remove the REQUEST (tag swap to `#done-review`)
+
+4.  **On "Fulfill request"**: Review the linked artifacts (debrief, code, etc.) using the Standard Validation Checklist. Then apply the same verdict options (Approve clean / Approve + TODOs / Flag for rework / Questions).
+
+5.  **Write RESPONSE** (`¶INV_REQUEST_BEFORE_CLOSE`): After the verdict, write a `REVIEW_RESPONSE_[TOPIC].md` in the **review session directory** using `§CMD_POPULATE_LOADED_TEMPLATE` with the `TEMPLATE_REVIEW_RESPONSE.md` template. Also add a `## Response` breadcrumb section to the original REQUEST file:
+    ```markdown
+    ## Response
+    **Reviewed by**: `[review session dir]`
+    **Verdict**: [Validated / Needs Rework]
+    **Response file**: `[path to REVIEW_RESPONSE_*.md]`
+    ```
+
+6.  **Tag the REQUEST**: Swap the REQUEST file's tag:
+    *   Validated: `engine tag swap [REQUEST_FILE] '#needs-review' '#done-review'`
+    *   Needs rework: `engine tag swap [REQUEST_FILE] '#needs-review' '#needs-rework'`
+
 ### Interrogation Exit Gate
 
 **After reaching minimum rounds for a debrief**, present this choice via `AskUserQuestion` (multiSelect: true):
@@ -321,65 +322,35 @@ Record the user's choice. This sets the **minimum** per debrief — the agent ca
 
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining concerns. Ask: "Round N complete. I still have concerns about [X]. Continuing..."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
-**Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
-> - Dashboard presented: `________`
-> - User confirmed: `________`
-> - Depth chosen: `________`
-> - Debriefs reviewed: `________`
-> - Verdicts tagged: `________`
-> - REVIEW_LOG.md entries: `________`
-> - DETAILS.md entries: `________`
-
 ---
 
 ## 3. Synthesis
-*Produce the review report and spawn leftovers.*
+*When all tasks are complete.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 3: Synthesis.
-> 2. I will `§CMD_PROCESS_CHECKLISTS` (if any discovered checklists exist).
-> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_REVIEW.md` EXACTLY) to create the review report.
-> 4. I will spawn leftover sessions with micro-dehydrated prompts.
-> 5. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to formally close the session.
-> 6. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
-**2. Execution — SEQUENTIAL, NO SKIPPING**
+**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
 
-[!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 without completing step 1. The review report FILE is the primary deliverable — chat output alone is not sufficient.
+**Debrief creation notes** (for Step 1 -- `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
+*   Dest: `REVIEW.md`
+*   Write the file using the Write tool. This MUST produce a real file in the session directory.
+*   Populate ALL sections from the template (`assets/TEMPLATE_REVIEW.md`).
+*   Cross-Session Analysis: Transcribe findings from Phase 1.
+*   Per-Debrief Verdicts: Condensed card for each debrief with verdict.
+*   Leftovers: For each rework item or discovered TODO, generate a micro-dehydrated prompt:
+    *   **Simple tasks** (delete a file, rename, small config change): Just a plain instruction. No command protocol needed.
+    *   **Complex tasks** (feature rework, bug investigation, test gaps): Recommend a command (`/implement`, `/fix`, `/test`, `/analyze`) with a self-contained prompt referencing the review report and original session.
+    *   Enough context for the user to copy-paste and immediately act.
 
-**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
-
-**Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `REVIEW.md`).
-  *   Write the file using the Write tool. This MUST produce a real file in the session directory.
-  *   Populate ALL sections from the template.
-  *   Cross-Session Analysis: Transcribe findings from Phase 1.
-  *   Per-Debrief Verdicts: Condensed card for each debrief with verdict.
-  *   Leftovers: For each rework item or discovered TODO, generate a micro-dehydrated prompt:
-      *   **Simple tasks** (delete a file, rename, small config change): Just a plain instruction. No command protocol needed.
-      *   **Complex tasks** (feature rework, bug investigation, test gaps): Recommend a command (`/implement`, `/fix`, `/test`, `/analyze`) with a self-contained prompt referencing the review report and original session.
-      *   Enough context for the user to copy-paste and immediately act.
-
-**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created/modified files in chat.
-
-**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — output a final count: "Validated: N, Needs Rework: M, Leftovers Spawned: K."
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 3 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
-> - REVIEW.md written: `________` (real file path)
-> - Tags line: `________`
-> - Per-debrief verdicts: `________`
-> - Leftovers: `________`
-> - Artifacts listed: `________`
-> - Session summary: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
-
-**Step 4**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+**Walk-through config** (for Step 3 -- `§CMD_WALK_THROUGH_RESULTS`):
+```
+§CMD_WALK_THROUGH_RESULTS Configuration:
+  Summary format: "Validated: N, Needs Rework: M, Leftovers Spawned: K."
+```
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.

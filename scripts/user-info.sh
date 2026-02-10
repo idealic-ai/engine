@@ -2,7 +2,7 @@
 # user-info.sh — Auto-detect user info from Google Drive symlink or cache
 #
 # Related:
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_INFER_USER_FROM_GDRIVE — Auto-detect identity from GDrive symlink
 #
 # Usage: user-info.sh [field]

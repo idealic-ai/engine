@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { initDb, saveDb } from "./db.js";
-import { parseChunks } from "./chunker.js";
-import { scanMarkdownFiles, extractSessionPath } from "./scanner.js";
+import { parseChunks, parseStateJsonChunks } from "./chunker.js";
+import { scanMarkdownFiles, scanStateFiles, extractSessionPath } from "./scanner.js";
 import { createEmbeddingClient } from "./embed.js";
 import { reconcileChunks, type IndexReport } from "./indexer.js";
 import {
@@ -10,6 +10,7 @@ import {
   groupResultsByFile,
   type QueryFilters,
 } from "./query.js";
+import { parseTimeArg, toISOString } from "../../shared/parse-time-arg.js";
 
 const SESSIONS_DIR = "sessions";
 const DB_FILENAME = ".session-search.db";
@@ -36,11 +37,18 @@ Usage:
   session-search query "text" [options]                 Semantic search
 
 Query options:
-  --after  YYYY-MM-DD    Only sessions on or after date
-  --before YYYY-MM-DD    Only sessions before date
+  --after  YYYY-MM-DD    Only sessions on or after date (date-precision)
+  --before YYYY-MM-DD    Only sessions before date (date-precision)
+  --since  TIME          Only sessions started on or after TIME (timestamp-precision)
+  --until  TIME          Only sessions started before TIME (timestamp-precision)
   --file   PATTERN       Filter by filename pattern (e.g., BRAINSTORM)
   --tags   TAG           Filter by tag in content
   --limit  N             Max results (default: 20)
+
+TIME formats:
+  16h, 7d, 2w, 1m, 1y   Relative (hours, days, weeks, months, years ago)
+  2026-02-01             Absolute date (midnight UTC)
+  2026-02-01T14:30:00Z   ISO datetime
 
 Environment:
   GEMINI_API_KEY         Required for embedding (index and query)`);
@@ -81,12 +89,7 @@ async function runIndex(targetPath?: string): Promise<void> {
   const files = scanMarkdownFiles(sessionsDir);
   console.log(`Found ${files.length} markdown files`);
 
-  if (files.length === 0) {
-    console.log("Nothing to index.");
-    return;
-  }
-
-  // 2. Parse all files into chunks, with namespace prefix for multi-user support
+  // 2. Parse all markdown files into chunks, with namespace prefix for multi-user support
   const namespace = extractNamespace(sessionsDir);
   const allChunks = [];
   for (const relativeFile of files) {
@@ -99,7 +102,62 @@ async function runIndex(targetPath?: string): Promise<void> {
     allChunks.push(...chunks);
   }
 
-  console.log(`Parsed ${allChunks.length} chunks from ${files.length} files`);
+  // 2b. Scan for .state.json files — extract timestamps and parse metadata into chunks
+  const stateFiles = scanStateFiles(sessionsDir);
+  console.log(`Found ${stateFiles.length} .state.json files`);
+
+  // Build a map of sessionPath → timestamps for propagation to markdown chunks
+  const sessionTimestamps = new Map<string, { startedAt?: string; completedAt?: string }>();
+
+  for (const relativeFile of stateFiles) {
+    const absolutePath = path.join(sessionsDir, relativeFile);
+    const rawSessionPath = extractSessionPath(relativeFile);
+    const sessionPath = `${namespace}/${rawSessionPath}`;
+    const filePath = `${namespace}/${relativeFile}`;
+    const chunks = parseStateJsonChunks(absolutePath, sessionPath, filePath);
+    allChunks.push(...chunks);
+
+    // Extract timestamps from the first chunk (all chunks from same .state.json share timestamps)
+    if (chunks.length > 0) {
+      sessionTimestamps.set(sessionPath, {
+        startedAt: chunks[0].sessionStartedAt,
+        completedAt: chunks[0].sessionCompletedAt,
+      });
+    } else {
+      // Even if no searchable chunks, try to read timestamps directly
+      try {
+        const raw = fs.readFileSync(absolutePath, "utf-8");
+        const data = JSON.parse(raw) as Record<string, unknown>;
+        const startedAt = typeof data.startedAt === "string" ? data.startedAt : undefined;
+        const completedAt =
+          typeof data.completedAt === "string" ? data.completedAt :
+          (typeof data.deactivatedAt === "string" ? data.deactivatedAt : undefined);
+        if (startedAt || completedAt) {
+          sessionTimestamps.set(sessionPath, { startedAt, completedAt });
+        }
+      } catch {
+        // Skip unreadable state files
+      }
+    }
+  }
+
+  // 2c. Propagate session timestamps to markdown chunks
+  for (const chunk of allChunks) {
+    if (!chunk.sessionStartedAt) {
+      const ts = sessionTimestamps.get(chunk.sessionPath);
+      if (ts) {
+        chunk.sessionStartedAt = ts.startedAt;
+        chunk.sessionCompletedAt = ts.completedAt;
+      }
+    }
+  }
+
+  if (allChunks.length === 0) {
+    console.log("Nothing to index.");
+    return;
+  }
+
+  console.log(`Parsed ${allChunks.length} total chunks from ${files.length} markdown files and ${stateFiles.length} state files`);
 
   // 3. Initialize DB and embedder
   const db = await initDb(dbPath);
@@ -233,6 +291,22 @@ async function main(): Promise<void> {
       const filters: QueryFilters = {};
       if (flags.after) filters.after = flags.after;
       if (flags.before) filters.before = flags.before;
+      if (flags.since) {
+        try {
+          filters.since = toISOString(parseTimeArg(flags.since));
+        } catch (e: unknown) {
+          console.error(`Error: Invalid --since value: ${(e as Error).message}`);
+          process.exit(1);
+        }
+      }
+      if (flags.until) {
+        try {
+          filters.until = toISOString(parseTimeArg(flags.until));
+        } catch (e: unknown) {
+          console.error(`Error: Invalid --until value: ${(e as Error).message}`);
+          process.exit(1);
+        }
+      }
       if (flags.file) filters.file = flags.file;
       if (flags.tags) filters.tags = flags.tags;
 

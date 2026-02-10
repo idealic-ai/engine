@@ -288,6 +288,75 @@ EOF
   fi
 }
 
+# ---- Code Span Filtering Tests (CS-01 through CS-04) ----
+
+test_cs01_excludes_tag_in_code_span() {
+  local S="$TEST_DIR/sessions/2026_CS_CODE_SPAN"
+  mkdir -p "$S"
+
+  cat > "$S/COMMANDS_REF.md" << 'EOF'
+# Command Reference
+
+## Tag Operations
+Use `engine tag swap "$FILE" '#needs-review' '#done-review'` to resolve tags.
+Use `engine tag find '#needs-implementation' sessions/` to discover work items.
+EOF
+
+  local results
+  results=$("$TAG_SH" find '#needs-review' "$TEST_DIR/sessions/" 2>/dev/null)
+  assert_not_found "CS-01: excludes tag inside larger backtick code span" "COMMANDS_REF.md" "$results"
+}
+
+test_cs02_excludes_tag_in_code_span_with_quotes() {
+  local S="$TEST_DIR/sessions/2026_CS_QUOTES"
+  mkdir -p "$S"
+
+  cat > "$S/ANALYSIS.md" << 'EOF'
+# Analysis
+**Tags**: #needs-review
+
+## Findings
+The scanner filters `grep -v "\`${ESCAPED_TAG}\`"` which misses '#needs-review' inside spans.
+EOF
+
+  local results
+  results=$("$TAG_SH" find '#needs-review' "$TEST_DIR/sessions/" 2>/dev/null)
+  # Should be found via Tags-line (Pass 1), but NOT via inline (the body reference is in a code span)
+  assert_found "CS-02: still found via Tags line even when body has code-span reference" "ANALYSIS.md" "$results"
+}
+
+test_cs03_bare_tag_still_found_alongside_code_span() {
+  local S="$TEST_DIR/sessions/2026_CS_MIXED"
+  mkdir -p "$S"
+
+  cat > "$S/LOG.md" << 'EOF'
+# Log
+
+## Notes
+Use `engine tag find '#needs-brainstorm'` to search. Also #needs-brainstorm here bare.
+EOF
+
+  local results
+  results=$("$TAG_SH" find '#needs-brainstorm' "$TEST_DIR/sessions/" 2>/dev/null)
+  assert_found "CS-03: bare tag still found when also present in code span on same line" "LOG.md" "$results"
+}
+
+test_cs04_context_mode_excludes_code_span() {
+  local S="$TEST_DIR/sessions/2026_CS_CONTEXT"
+  mkdir -p "$S"
+
+  cat > "$S/DOCS.md" << 'EOF'
+# Documentation
+
+## Commands
+Run `engine tag swap "$FILE" '#needs-review' '#done-review'` to resolve.
+EOF
+
+  local results
+  results=$("$TAG_SH" find '#needs-review' "$TEST_DIR/sessions/" --context 2>/dev/null)
+  assert_not_found "CS-04: context mode excludes tag inside code span" "DOCS.md" "$results"
+}
+
 # ---- Run ----
 setup
 
@@ -313,6 +382,15 @@ test_hf02_finds_tag_in_log_heading
 test_hf03_excludes_only_backtick_escaped
 test_hf04_finds_tag_in_testing_debrief
 test_hf05_context_flag_output
+
+echo ""
+echo "=== Code span filtering tests ==="
+echo ""
+
+test_cs01_excludes_tag_in_code_span
+test_cs02_excludes_tag_in_code_span_with_quotes
+test_cs03_bare_tag_still_found_alongside_code_span
+test_cs04_context_mode_excludes_code_span
 
 teardown
 

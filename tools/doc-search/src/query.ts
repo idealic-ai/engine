@@ -21,6 +21,8 @@ export interface QueryFilters {
   branch?: string; // Filter by specific branch
   allBranches?: boolean; // Search all branches (not just current)
   allProjects?: boolean; // Search all projects (not just current)
+  since?: number; // Unix ms timestamp — only docs modified on or after
+  until?: number; // Unix ms timestamp — only docs modified before
 }
 
 /**
@@ -98,6 +100,16 @@ export async function searchDocs(
   if (filters.branch && !filters.allBranches) {
     whereClauses.push("c.branch = ?");
     params.push(filters.branch);
+  }
+
+  // Time filters (mtime is Unix ms)
+  if (filters.since != null) {
+    whereClauses.push("c.mtime >= ?");
+    params.push(filters.since);
+  }
+  if (filters.until != null) {
+    whereClauses.push("c.mtime < ?");
+    params.push(filters.until);
   }
 
   const filterClause = whereClauses.length > 0

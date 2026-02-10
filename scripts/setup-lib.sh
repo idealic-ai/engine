@@ -11,7 +11,7 @@
 # Related:
 #   Docs: (~/.claude/docs/)
 #     SETUP_PROTOCOL.md — Architecture and testing requirements
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_TEST_SANDBOX_ISOLATION — Testability requirement
 # ============================================================================
 
@@ -53,11 +53,11 @@ resolve_engine_dir() {
 
   if [ "$mode" = "local" ]; then
     echo "$local_engine"
-  elif [ -d "$gdrive_engine/directives" ] && [ -d "$gdrive_engine/skills" ]; then
+  elif [ -d "$gdrive_engine/.directives" ] && [ -d "$gdrive_engine/skills" ]; then
     echo "$gdrive_engine"
-  elif [ -d "$script_dir/../directives" ] && [ -d "$script_dir/../skills" ]; then
+  elif [ -d "$script_dir/../.directives" ] && [ -d "$script_dir/../skills" ]; then
     (cd "$script_dir/.." && pwd)
-  elif [ -d "$script_dir/directives" ] && [ -d "$script_dir/skills" ]; then
+  elif [ -d "$script_dir/.directives" ] && [ -d "$script_dir/skills" ]; then
     echo "$script_dir"
   else
     echo ""
@@ -185,7 +185,7 @@ setup_engine_symlinks() {
   mkdir -p "$claude_dir"
 
   # Whole-dir symlinks
-  link_if_needed "$engine_dir/directives" "$claude_dir/directives" "directives" "0"
+  link_if_needed "$engine_dir/.directives" "$claude_dir/.directives" ".directives" "0"
   link_files_if_needed "$engine_dir/agents" "$claude_dir/agents" "agents"
 
   # Per-file symlinks (allows local overrides)
@@ -205,6 +205,41 @@ setup_engine_symlinks() {
     skill_name="$(basename "$skill_dir")"
     link_if_needed "$skill_dir" "$claude_dir/skills/$skill_name" "skills/$skill_name" "0"
   done
+
+  # Clean up stale skill symlinks pointing to a different engine
+  # Uses find -type l instead of glob */ to catch broken (dangling) symlinks too
+  local stale_count=0
+  while IFS= read -r skill_link; do
+    local link_target
+    link_target=$(readlink "$skill_link")
+    if [[ "$link_target" == "$engine_dir/skills/"* ]]; then
+      continue
+    fi
+    # Only remove symlinks that point into an engine skills dir
+    if [[ "$link_target" != *"/engine/skills/"* ]]; then
+      continue
+    fi
+    setup_log_verbose "Removing stale skill symlink: $(basename "$skill_link") -> $link_target"
+    rm "$skill_link"
+    stale_count=$((stale_count + 1))
+  done < <(find "$claude_dir/skills" -maxdepth 1 -type l 2>/dev/null)
+  if [ "$stale_count" -gt 0 ]; then
+    ACTIONS+=("Removed $stale_count stale skill symlinks from previous engine")
+  fi
+
+  # Clean up broken (dangling) symlinks in skills/
+  local broken_count=0
+  while IFS= read -r skill_link; do
+    [ -e "$skill_link" ] && continue  # target exists, not broken
+    local link_target
+    link_target=$(readlink "$skill_link")
+    setup_log_verbose "Removing broken skill symlink: $(basename "$skill_link") -> $link_target"
+    rm "$skill_link"
+    broken_count=$((broken_count + 1))
+  done < <(find "$claude_dir/skills" -maxdepth 1 -type l 2>/dev/null)
+  if [ "$broken_count" -gt 0 ]; then
+    ACTIONS+=("Removed $broken_count broken skill symlinks")
+  fi
 
   # Tools
   if [ -d "$engine_dir/tools" ]; then
@@ -242,6 +277,37 @@ fix_script_permissions() {
   else
     setup_log_verbose "Scripts: all executable"
   fi
+}
+
+# ---- Safe copy with realpath guard ----
+
+# cp_if_different "$source" "$dest" "$label"
+# Copies source to dest only if they resolve to different files (realpath check).
+# Prevents cp-to-self when source and dest are symlinks to the same file (e.g., GDrive).
+# Returns 0 on success or skip, 1 if source doesn't exist.
+# Appends to ACTIONS array (must be declared by caller).
+cp_if_different() {
+  local source="$1"
+  local dest="$2"
+  local label="${3:-$(basename "$source")}"
+
+  if [ ! -f "$source" ]; then
+    setup_log_verbose "$label: source not found ($source)"
+    return 1
+  fi
+
+  local src_real dest_real
+  src_real=$(realpath "$source" 2>/dev/null) || src_real="$source"
+  dest_real=$(realpath "$dest" 2>/dev/null) || dest_real=""
+
+  if [ -n "$dest_real" ] && [ "$src_real" = "$dest_real" ]; then
+    setup_log_verbose "$label: skipping (same file)"
+    return 0
+  fi
+
+  cp "$source" "$dest"
+  ACTIONS+=("Copied $label")
+  return 0
 }
 
 # ---- Settings.json operations ----
@@ -459,10 +525,10 @@ link_project_dir() {
 }
 
 # ensure_project_directives "$project_root"
-# Creates .claude/directives/INVARIANTS.md stub if missing.
+# Creates .claude/.directives/INVARIANTS.md stub if missing.
 ensure_project_directives() {
   local project_root="$1"
-  local directives_dir="$project_root/.claude/directives"
+  local directives_dir="$project_root/.claude/.directives"
   local invariants_file="$directives_dir/INVARIANTS.md"
 
   mkdir -p "$directives_dir"
@@ -471,11 +537,11 @@ ensure_project_directives() {
     cat > "$invariants_file" << 'STDINV'
 # Project Invariants
 
-Project-specific rules that extend the shared engine standards. Every command loads this file automatically after the shared `~/.claude/directives/INVARIANTS.md`.
+Project-specific rules that extend the shared engine standards. Every command loads this file automatically after the shared `~/.claude/.directives/INVARIANTS.md`.
 
 Add your project's architectural rules, naming conventions, framework-specific constraints, and domain logic invariants here.
 STDINV
-    ACTIONS+=("Created .claude/directives/INVARIANTS.md")
+    ACTIONS+=("Created .claude/.directives/INVARIANTS.md")
     return 0
   fi
   setup_log_verbose "INVARIANTS.md: OK"

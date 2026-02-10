@@ -4,7 +4,7 @@
 # Usage: discover-directives.sh <target-dir> [--walk-up] [--type soft|hard|all] [--include-shared]
 #
 # Directive types:
-#   soft: README.md, INVARIANTS.md, TESTING.md, PITFALLS.md
+#   soft: AGENTS.md, INVARIANTS.md, TESTING.md, PITFALLS.md, TEMPLATE.md
 #   hard: CHECKLIST.md
 #   all:  both soft and hard (default)
 #
@@ -17,6 +17,9 @@
 # Exit:   0 if files found, 1 if nothing found
 
 set -uo pipefail
+
+# Source shared utilities (provides STANDARD_EXCLUDED_DIRS, is_excluded_dir, is_path_excluded)
+source "$HOME/.claude/scripts/lib.sh"
 
 # --- Parse arguments ---
 TARGET_DIR=""
@@ -58,11 +61,8 @@ fi
 # Normalize (remove trailing slash)
 TARGET_DIR="${TARGET_DIR%/}"
 
-# --- Excluded directory names ---
-EXCLUDED_DIRS="node_modules .git sessions tmp dist build"
-
 # --- Directive file lists ---
-SOFT_FILES="README.md INVARIANTS.md TESTING.md PITFALLS.md CONTRIBUTING.md"
+SOFT_FILES="AGENTS.md INVARIANTS.md TESTING.md PITFALLS.md CONTRIBUTING.md TEMPLATE.md"
 HARD_FILES="CHECKLIST.md"
 
 # Determine which files to look for based on --type
@@ -78,58 +78,34 @@ case "$TYPE" in
     ;;
 esac
 
-# --- Check if a directory is excluded ---
-is_excluded() {
-  local dir_path="$1"
-  local dir_name
-  dir_name=$(basename "$dir_path")
-  for excl in $EXCLUDED_DIRS; do
-    if [ "$dir_name" = "$excl" ]; then
-      return 0
-    fi
-  done
-  return 1
-}
-
-# --- Check if a path component contains an excluded dir ---
-path_contains_excluded() {
-  local dir_path="$1"
-  local IFS='/'
-  for component in $dir_path; do
-    [ -z "$component" ] && continue
-    for excl in $EXCLUDED_DIRS; do
-      if [ "$component" = "$excl" ]; then
-        return 0
-      fi
-    done
-  done
-  return 1
-}
-
 # --- Collect results ---
 RESULTS=""
 
 scan_dir() {
   local dir="$1"
 
-  # Skip excluded directories
-  if is_excluded "$dir"; then
+  # Skip excluded directories (uses shared functions from lib.sh)
+  if is_excluded_dir "$dir"; then
     return
   fi
 
   # Also check if any path component is excluded
-  if path_contains_excluded "$dir"; then
+  if is_path_excluded "$dir"; then
     return
   fi
 
   [ -d "$dir" ] || return
 
+  local abs_dir
+  abs_dir=$(cd "$dir" 2>/dev/null && pwd) || return
+
   for fname in $DIRECTIVE_FILES; do
-    if [ -f "$dir/$fname" ]; then
-      local abs_path
-      # Get real absolute path
-      abs_path=$(cd "$dir" 2>/dev/null && pwd)/"$fname"
-      RESULTS="${RESULTS}${RESULTS:+$'\n'}${abs_path}"
+    # Check .directives/ subfolder first (preferred location)
+    if [ -f "$dir/.directives/$fname" ]; then
+      RESULTS="${RESULTS}${RESULTS:+$'\n'}${abs_dir}/.directives/${fname}"
+    # Fall back to flat directory root (legacy compat)
+    elif [ -f "$dir/$fname" ]; then
+      RESULTS="${RESULTS}${RESULTS:+$'\n'}${abs_dir}/${fname}"
     fi
   done
 }

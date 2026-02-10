@@ -7,18 +7,9 @@ tier: protocol
 
 Drives feature implementation following structured development protocols.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Implementation Protocol (The Builder's Code)
 
@@ -30,16 +21,19 @@ Drives feature implementation following structured development protocols.
 {
   "taskType": "IMPLEMENTATION",
   "phases": [
-    {"major": 0, "minor": 0, "name": "Setup"},
-    {"major": 1, "minor": 0, "name": "Context Ingestion"},
-    {"major": 2, "minor": 0, "name": "Interrogation"},
-    {"major": 3, "minor": 0, "name": "Planning"},
+    {"major": 0, "minor": 0, "name": "Setup", "proof": ["mode", "session_dir", "templates_loaded", "parameters_parsed"]},
+    {"major": 1, "minor": 0, "name": "Context Ingestion", "proof": ["context_sources_presented", "files_loaded"]},
+    {"major": 2, "minor": 0, "name": "Interrogation", "proof": ["depth_chosen", "rounds_completed"]},
+    {"major": 3, "minor": 0, "name": "Planning", "proof": ["plan_written", "plan_presented", "user_approved"]},
     {"major": 3, "minor": 1, "name": "Agent Handoff"},
-    {"major": 4, "minor": 0, "name": "Build Loop"},
-    {"major": 5, "minor": 0, "name": "Synthesis"}
+    {"major": 4, "minor": 0, "name": "Build Loop", "proof": ["plan_steps_completed", "tests_pass", "log_entries", "unresolved_blocks"]},
+    {"major": 5, "minor": 0, "name": "Synthesis"},
+    {"major": 5, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
+    {"major": 5, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
+    {"major": 5, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+    {"major": 5, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
   ],
   "nextSkills": ["/test", "/document", "/analyze", "/fix", "/chores"],
-  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
   "planTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_PLAN.md",
   "logTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md",
@@ -75,8 +69,8 @@ Drives feature implementation following structured development protocols.
     *   `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md` (Template for continuous session logging)
     *   `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md` (Template for the final debrief/report)
     *   `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_PLAN.md` (Template for technical execution planning)
-    *   `.claude/directives/TESTING.md` (Testing standards and TDD rules — project-level, load if exists)
-    *   `.claude/directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
+    *   `.claude/.directives/TESTING.md` (Testing standards and TDD rules — project-level, load if exists)
+    *   `.claude/.directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
 
 3.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
     *   activate creates the session directory, stores parameters in `.state.json`, and returns context:
@@ -104,15 +98,6 @@ Drives feature implementation following structured development protocols.
     *   Phase 2 interrogation depth (from mode file)
     *   Phase 4 build approach (from mode file)
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - Mode: `________` (tdd / experimentation / general / custom)
-> - Role: `________`
-> - Session dir: `________`
-> - Templates loaded: `________`, `________`, `________`
-> - Activate context: alerts=`___`, delegations=`___`, RAG=`___`
-
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
@@ -122,22 +107,17 @@ Drives feature implementation following structured development protocols.
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 1: Context Ingestion.
-> 2. I will `§CMD_INGEST_CONTEXT_BEFORE_WORK` to ask for and load `contextPaths`.
+> 2. I will load all discovered directives unconditionally.
+> 3. I will `§CMD_INGEST_CONTEXT_BEFORE_WORK` to present optional context for user selection.
 
-**Action**: Execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`, which presents a multichoice menu of discovered context — RAG-suggested sessions, docs, and active alerts from the activate output — so the user can pick which ones to load. Any files in `contextPaths` are auto-loaded; the menu covers everything else that semantic search found relevant.
+**Step 1 — Directives (MANDATORY, no user choice)**:
+Load ALL files listed in `pendingDirectives` from `.state.json`. These are directive files discovered by the system when the session touched project directories (e.g., `INVARIANTS.md`, `PITFALLS.md`, `AGENTS.md`, `TESTING.md`). Read each one unconditionally — do not ask, do not skip, do not present a menu. The `pre-tool-use-directive-gate.sh` hook **will block all further tool calls** if pending directives are not read. This is not optional.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
-**Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
-> - Context sources presented: `________`
-> - Files loaded: `________ files`
-> - User confirmed: `yes / no`
+**Step 2 — Context (optional, user choice)**:
+Execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`, which presents a multichoice menu of discovered context — RAG-suggested sessions, docs, and active alerts from the activate output — so the user can pick which ones to load. Any files in `contextPaths` are auto-loaded; the menu covers everything else that semantic search found relevant.
 
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "1: Context Ingestion"
-  nextPhase: "2: Interrogation"
-  prevPhase: "0: Setup"
   custom: "Skip to 3: Planning | Requirements are obvious, jump to planning"
 
 ---
@@ -167,20 +147,10 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
 
 **Action**: Execute `§CMD_EXECUTE_INTERROGATION_PROTOCOL` with the topics above, which first asks how deep the interrogation should go (Short 3+ / Medium 6+ / Long 9+ / Absolute). Then runs rounds — each round opens with a 2-paragraph context block summarizing what was learned and previewing the next topic, followed by 3-5 targeted questions. After the minimum is met, an exit gate lets the user proceed to planning or request more rounds.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
-**Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
-> - Depth chosen: `________`
-> - Rounds completed: `________` / `________`+
-> - DETAILS.md entries: `________`
-
 ### Phase Transition
 *Fired by `§CMD_EXECUTE_INTERROGATION_PROTOCOL` exit gate's "Proceed to next phase" option.*
 
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "2: Interrogation"
-  nextPhase: "3: Planning"
-  prevPhase: "1: Context Ingestion"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
@@ -194,13 +164,6 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
 
 1.  **Create Plan**: Execute `§CMD_POPULATE_LOADED_TEMPLATE` (Schema: `IMPLEMENTATION_PLAN.md`), which takes the template already in context and fills in every section — invariants check, interface design, pitfalls, test plan, and the step-by-step strategy with `Depends`/`Files` fields for parallel execution analysis. The result is written as `IMPLEMENTATION_PLAN.md` in the session directory.
 2.  **Present**: Execute `§CMD_REPORT_FILE_CREATION_SILENTLY`, which outputs a clickable link to the plan file — the content stays in the file, not echoed to chat.
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
-**Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
-> - IMPLEMENTATION_PLAN.md written: `________`
-> - Plan presented: `________`
-> - User approved: `________`
 
 ### Optional: Plan Walk-Through
 Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
@@ -219,7 +182,7 @@ Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
 If any items are flagged for revision, return to the plan for edits before proceeding.
 
 ### Phase Transition
-Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/directives/commands/CMD_PARALLEL_HANDOFF.md`):
+Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/.directives/commands/CMD_PARALLEL_HANDOFF.md`):
 1.  **Analyze**: Parse the plan's `**Depends**:` and `**Files**:` fields to derive parallel chunks.
 2.  **Visualize**: Present the chunk breakdown with non-intersection proof.
 3.  **Menu**: Present the richer handoff menu via `AskUserQuestion`.
@@ -300,19 +263,8 @@ Before calling any tool, ask yourself:
 3.  **Log**: Update `IMPLEMENTATION_LOG.md` with your status.
 4.  **Tick**: Mark `[x]` in `IMPLEMENTATION_PLAN.md`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4
-**Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
-> - Plan steps completed: `________`
-> - Tests pass: `________`
-> - IMPLEMENTATION_LOG.md entries: `________`
-> - Unresolved blocks: `________`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "4: Build Loop"
-  nextPhase: "5: Synthesis"
-  prevPhase: "3: Planning"
   custom: "Run verification first | Run tests/lint before closing"
 
 **On "Other" (free-text)**: The user is describing new requirements or additional work. Route to Phase 2 (Interrogation) to scope it before building — do NOT stay in Phase 4 or jump to synthesis. Use `session.sh phase` with `--user-approved` to go backward.
@@ -325,31 +277,21 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 5: Synthesis.
-> 2. I will `§CMD_PROCESS_CHECKLISTS` (if any discovered checklists exist).
-> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_IMPLEMENTATION.md` EXACTLY) to summarize the build.
-> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
-**2. Execution — SEQUENTIAL, NO SKIPPING**
+**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
 
-[!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The debrief FILE is the primary deliverable — chat output alone is not sufficient.
+**Debrief creation notes** (for Step 1 — `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
+*   Dest: `IMPLEMENTATION.md`
+*   Write the file using the Write tool. This MUST produce a real file in the session directory.
+*   **Deviation Analysis**: Compare Plan vs. Log. Where did we struggle?
+*   **Tech Debt**: What did we hack to get it working?
+*   **The Story**: Narrate the build journey.
+*   **Next Steps**: Clear recommendations for the next session.
 
-**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
-
-**Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `IMPLEMENTATION.md`).
-  *   Write the file using the Write tool. This MUST produce a real file in the session directory.
-  *   **Deviation Analysis**: Compare Plan vs. Log. Where did we struggle?
-  *   **Tech Debt**: What did we hack to get it working?
-  *   **The Story**: Narrate the build journey.
-  *   **Next Steps**: Clear recommendations for the next session.
-
-**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
-
-**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 4**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
+**Walk-through config** (for Step 3 — `§CMD_WALK_THROUGH_RESULTS`):
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"
@@ -357,17 +299,5 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   debriefFile: "IMPLEMENTATION.md"
   templateFile: "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md"
 ```
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 5 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **Phase 5 proof:**
-> - IMPLEMENTATION.md written: `________` (real file path)
-> - Tags line: `________`
-> - Artifacts listed: `________`
-> - Session summary: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
-
-**Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.

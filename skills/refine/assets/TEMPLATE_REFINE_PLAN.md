@@ -3,7 +3,7 @@
 ## Overview
 **Context**: Link to `ANALYSIS.md` or prior `REFINE.md` if this is a follow-up refinement.
 **Required Documents**:
-*   `~/.claude/directives/INVARIANTS.md` (Shared) and `.claude/directives/INVARIANTS.md` (Project-specific, if exists)
+*   `~/.claude/.directives/INVARIANTS.md` (Shared) and `.claude/.directives/INVARIANTS.md` (Project-specific, if exists)
 *   Relevant prompt files from `promptPaths`
 *   Relevant schema files from `schemaPaths`
 

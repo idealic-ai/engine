@@ -88,7 +88,7 @@ engine/
 │   └── <skill-name>/
 │       ├── SKILL.md         # Entry point (frontmatter + protocol)
 │       └── assets/          # Templates (TEMPLATE_*.md)
-├── directives/              # Shared authority files (behavioral directives)
+├── .directives/             # Shared authority files (behavioral directives)
 │   ├── COMMANDS.md          # Command index (all §CMD_* references)
 │   ├── INVARIANTS.md        # System invariants (¶INV_*)
 │   ├── TAGS.md              # Tag system reference (§FEED_*)
@@ -116,10 +116,10 @@ engine/
 
 ## Further Reading
 
-- **[directives/COMMANDS.md](directives/COMMANDS.md)** — All `§CMD_*` protocol building blocks.
-- **[directives/INVARIANTS.md](directives/INVARIANTS.md)** — System invariants (`¶INV_*`).
-- **[directives/TAGS.md](directives/TAGS.md)** — Tag system and lifecycle feeds.
-- **[directives/HANDOFF.md](directives/HANDOFF.md)** — Inter-agent coordination patterns.
+- **[.directives/COMMANDS.md](.directives/COMMANDS.md)** — All `§CMD_*` protocol building blocks.
+- **[.directives/INVARIANTS.md](.directives/INVARIANTS.md)** — System invariants (`¶INV_*`).
+- **[.directives/TAGS.md](.directives/TAGS.md)** — Tag system and lifecycle feeds.
+- **[.directives/HANDOFF.md](.directives/HANDOFF.md)** — Inter-agent coordination patterns.
 - **[scripts/README.md](scripts/README.md)** — Script reference with usage examples.
 - **[docs/DAEMON.md](docs/DAEMON.md)** — Daemon mode and tag dispatch (current).
 - **[tools/dispatch-daemon/README.md](tools/dispatch-daemon/README.md)** — Legacy standalone daemon (deprecated).

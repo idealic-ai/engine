@@ -33,10 +33,10 @@
 #     CONTEXT_GUARDIAN.md — Process supervision, restart handling
 #     SESSION_LIFECYCLE.md — Session resumption, fleet integration
 #     FLEET.md — Fleet pane detection, session binding
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet auto-detection
 #     ¶INV_CLAIM_BEFORE_WORK — Tag swap before processing (daemon mode)
-#   Commands: (~/.claude/directives/COMMANDS.md)
+#   Commands: (~/.claude/.directives/COMMANDS.md)
 #     §CMD_REANCHOR_AFTER_RESTART — Triggered by run.sh after restart
 
 set -euo pipefail
@@ -62,7 +62,7 @@ build_system_prompt_additions() {
   # Terminal link protocol
   local protocol=$("$SCRIPTS_DIR/config.sh" get terminalLinkProtocol 2>/dev/null || echo "cursor://file")
   additions+="Terminal link protocol: $protocol"
-  additions+=$'\n'"CRITICAL: Read ~/.claude/directives/COMMANDS.md at session start and follow it religiously. It defines your operational discipline — logging, tagging, session management, and communication rules."
+  additions+=$'\n'"CRITICAL: Read ~/.claude/.directives/COMMANDS.md at session start and follow it religiously. It defines your operational discipline — logging, tagging, session management, and communication rules."
 
   echo "$additions"
 }

@@ -5,7 +5,7 @@
 #   Docs: (~/.claude/docs/)
 #     CONTEXT_GUARDIAN.md — lib.sh API section, consumer list
 #     ENGINE_TESTING.md — Testing patterns for lib functions
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     (none directly — utility layer)
 #
 # Source this file at the top of scripts that need these functions:
@@ -96,6 +96,50 @@ is_engine_log_cmd()     { is_engine_cmd "$1" "log"; }
 is_engine_session_cmd() { is_engine_cmd "$1" "session"; }
 is_engine_tag_cmd()     { is_engine_cmd "$1" "tag"; }
 is_engine_glob_cmd()    { is_engine_cmd "$1" "glob"; }
+
+# --- Directory exclusion utilities ---
+# Standard directories to exclude from discovery/scanning
+STANDARD_EXCLUDED_DIRS="node_modules .git sessions tmp dist build"
+
+# is_excluded_dir DIR_PATH [EXCLUDED_LIST]
+#   Returns 0 if the basename of DIR_PATH matches any excluded name.
+#   Defaults to $STANDARD_EXCLUDED_DIRS if no second arg.
+is_excluded_dir() {
+  local dir_path="$1"
+  local excluded="${2:-$STANDARD_EXCLUDED_DIRS}"
+  local dir_name
+  dir_name=$(basename "$dir_path")
+  for excl in $excluded; do
+    if [ "$dir_name" = "$excl" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# is_path_excluded DIR_PATH [EXCLUDED_LIST]
+#   Returns 0 if any path component matches an excluded name.
+#   Uses parameter expansion (Bash 3.2 safe). Defaults to $STANDARD_EXCLUDED_DIRS.
+is_path_excluded() {
+  local dir_path="$1"
+  local excluded="${2:-$STANDARD_EXCLUDED_DIRS}"
+  local remaining="$dir_path"
+  while [ -n "$remaining" ]; do
+    local component="${remaining%%/*}"
+    if [ "$component" = "$remaining" ]; then
+      remaining=""
+    else
+      remaining="${remaining#*/}"
+    fi
+    [ -z "$component" ] && continue
+    for excl in $excluded; do
+      if [ "$component" = "$excl" ]; then
+        return 0
+      fi
+    done
+  done
+  return 1
+}
 
 # safe_json_write FILE
 #   Reads JSON from stdin, validates with `jq empty`, writes atomically.

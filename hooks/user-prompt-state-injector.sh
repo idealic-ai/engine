@@ -30,7 +30,7 @@ STATE_FILE="$SESSION_DIR/.state.json"
 
 # Check lifecycle — only inject for active sessions
 LIFECYCLE=$(state_read "$STATE_FILE" "lifecycle" "active")
-if [ "$LIFECYCLE" != "active" ]; then
+if [ "$LIFECYCLE" != "active" ] && [ "$LIFECYCLE" != "resuming" ]; then
   exit 0
 fi
 
@@ -57,5 +57,6 @@ fi
 
 MESSAGE="${MESSAGE} | Heartbeat: ${HEARTBEAT_COUNT}/${HEARTBEAT_MAX}"
 
-# Output JSON with proper escaping
-jq -n --arg msg "$MESSAGE" '{"hookSpecificOutput":{"message":$msg}}'
+# Output JSON with proper escaping — use additionalContext (added discretely, no "error" label)
+jq -n --arg msg "$MESSAGE" '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":$msg}}'
+exit 0

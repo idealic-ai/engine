@@ -5,12 +5,15 @@
 **Goal**: To systematically explore options around a specific choice and surface trade-offs.
 **Mindset**: Structured, Comparative, Trade-Off-Aware, Decision-Ready.
 
-## Dialogue Topics (Phase 3)
+## Mode Template
+**template**: `~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM_FOCUSED.md`
+
+## Dialogue Topics (Phase 2)
 - **Option enumeration** — What are all the viable approaches?
 - **Trade-off analysis** — Cost/benefit of each option
 - **Constraints mapping** — What limits our choices?
 - **Decision criteria** — How do we evaluate options?
 
-## Convergence Approach (Phase 4)
+## Convergence Approach (Phase 2)
 - Decision matrix with weighted criteria
 - Clear recommendation with dissenting arguments

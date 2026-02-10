@@ -1,0 +1,16 @@
+{
+  "name": "engine-shared",
+  "version": "1.0.0",
+  "description": "Shared utilities for engine tools (session-search, doc-search)",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  }
+}

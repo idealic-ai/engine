@@ -32,6 +32,8 @@ export interface FileResult {
 export interface QueryFilters {
   after?: string; // YYYY-MM-DD
   before?: string; // YYYY-MM-DD
+  since?: string; // ISO datetime (resolved from parseTimeArg)
+  until?: string; // ISO datetime (resolved from parseTimeArg)
   file?: string; // glob pattern for file path
   tags?: string; // tag to search in content
 }
@@ -65,6 +67,17 @@ export function buildFilterClauses(filters: QueryFilters): {
   if (filters.before) {
     whereClauses.push("c.session_date < ?");
     params.push(filters.before);
+  }
+
+  if (filters.since) {
+    // Use session_started_at if available, fall back to session_date for older sessions
+    whereClauses.push("COALESCE(c.session_started_at, c.session_date || 'T00:00:00.000Z') >= ?");
+    params.push(filters.since);
+  }
+
+  if (filters.until) {
+    whereClauses.push("COALESCE(c.session_started_at, c.session_date || 'T00:00:00.000Z') < ?");
+    params.push(filters.until);
   }
 
   if (filters.file) {

@@ -14,7 +14,7 @@
 # Related:
 #   Docs: (~/.claude/docs/)
 #     DAEMON.md — Async work coordination
-#   Commands: (~/.claude/directives/COMMANDS.md)
+#   Commands: (~/.claude/.directives/COMMANDS.md)
 #     §CMD_AWAIT_TAG — Primary usage pattern
 #
 # Exit codes:

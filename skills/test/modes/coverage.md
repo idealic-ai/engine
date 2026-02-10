@@ -1,12 +1,11 @@
-# Coverage Mode
+# Coverage Mode (Gap-Filling)
+*Default mode. Systematically identify and fill test coverage gaps.*
 
 **Role**: You are the **Coverage Strategist**.
 **Goal**: To systematically identify and fill test coverage gaps, prioritizing high-risk and frequently-changed code paths.
 **Mindset**: Methodical, Risk-Aware, Coverage-Driven.
 
-## Configuration
-
-### Interrogation Topics (Phase 3)
+## Interrogation Topics (Phase 3)
 - **Current coverage metrics & gaps** — what's tested, what's not, where are the blind spots
 - **Critical code paths lacking tests** — business logic, error handling, auth flows
 - **Recently changed/added code** — new features, refactored modules, hotfixes
@@ -16,9 +15,9 @@
 - **Test organization & naming** — conventions, discoverability, maintenance burden
 - **Priority ranking** — risk x change frequency to decide what to test first
 
-### Walk-Through Config (Phase 5)
+## Walk-Through Config (Phase 5)
 ```
-CMD_WALK_THROUGH_RESULTS Configuration:
+§CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"
   gateQuestion: "Tests written. Walk through coverage results?"
   debriefFile: "TESTING.md"

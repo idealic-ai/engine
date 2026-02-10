@@ -11,6 +11,7 @@
 #                                                  # --user-approved: Required to re-activate a previously completed skill
 #   session.sh update <path> <field> <value>       # Update field in .state.json
 #   session.sh phase <path> <phase>                # Shortcut: update currentPhase
+#   session.sh continue <path>                     # Resume after context overflow (clears loading, resets heartbeat)
 #   session.sh target <path> <file>               # Shortcut: update targetFile (for status line)
 #   session.sh deactivate <path> [--keywords 'kw1,kw2'] <<DESCRIPTION
 #                                                  # Set lifecycle=completed (gate re-engages)
@@ -35,11 +36,11 @@
 #     SESSION_LIFECYCLE.md — Session state machine, activation/deactivation flows
 #     CONTEXT_GUARDIAN.md — Overflow protection, restart handling
 #     FLEET.md — Fleet pane ID auto-detection, multi-agent coordination
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_PHASE_ENFORCEMENT — Phase transition enforcement via session.sh phase
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Graceful degradation without fleet/tmux
 #     ¶INV_QUESTION_GATE_OVER_TEXT_GATE — User approval gates (--user-approved)
-#   Commands: (~/.claude/directives/COMMANDS.md)
+#   Commands: (~/.claude/.directives/COMMANDS.md)
 #     §CMD_MAINTAIN_SESSION_DIR — Session directory management
 #     §CMD_PARSE_PARAMETERS — Session activation with JSON params
 #     §CMD_UPDATE_PHASE — Phase tracking and enforcement
@@ -128,9 +129,9 @@ case "$ACTION" in
         fi
 
         # --- Required Fields Validation (§CMD_PARSE_PARAMETERS schema) ---
-        # Validate all required fields are present when JSON is provided.
+        # ALL fields are required. No defaults. Agents must provide the complete schema.
         # sessionDir and startedAt are set by the script, not the caller.
-        REQUIRED_FIELDS="taskType taskSummary scope directoriesOfInterest preludeFiles contextPaths planTemplate logTemplate debriefTemplate extraInfo phases"
+        REQUIRED_FIELDS="taskType taskSummary scope directoriesOfInterest preludeFiles contextPaths planTemplate logTemplate debriefTemplate requestTemplate responseTemplate requestFiles nextSkills extraInfo phases"
         MISSING_FIELDS=""
         for field in $REQUIRED_FIELDS; do
           if ! echo "$STDIN_JSON" | jq -e "has(\"$field\")" > /dev/null 2>&1; then
@@ -361,11 +362,12 @@ case "$ACTION" in
         echo "(none)"
       fi
 
-      # §CMD_SURFACE_OPEN_DELEGATIONS (thematic via session-search)
+      # §CMD_SURFACE_OPEN_DELEGATIONS (scan for #next-* tags in current session)
       echo ""
       echo "## §CMD_SURFACE_OPEN_DELEGATIONS"
-      if [ -n "$TASK_SUMMARY" ]; then
-        SURFACE_DELEGATIONS=$("$SESSION_SEARCH" query "$TASK_SUMMARY" --tag '#needs-delegation' --limit 10 2>/dev/null || true)
+      TAG_SH="$HOME/.claude/scripts/tag.sh"
+      if [ -d "$DIR" ]; then
+        SURFACE_DELEGATIONS=$("$TAG_SH" find '#next-*' "$DIR" 2>/dev/null || true)
       fi
       if [ -n "${SURFACE_DELEGATIONS:-}" ]; then
         echo "$SURFACE_DELEGATIONS"
@@ -397,8 +399,8 @@ case "$ACTION" in
         echo "(none)"
       fi
 
-      # Discovered Directives: walk-up from directoriesOfInterest
-      # Finds soft directives (README.md, INVARIANTS.md, TESTING.md, PITFALLS.md) and
+      # §CMD_DISCOVER_DIRECTIVES: walk-up from directoriesOfInterest
+      # Finds soft directives (AGENTS.md, INVARIANTS.md, TESTING.md, PITFALLS.md, TEMPLATE.md) and
       # hard directives (CHECKLIST.md — enforced at deactivation).
       # Skill filtering: core directives always shown; skill directives only if declared.
       # See ¶INV_DIRECTIVE_STACK and ¶INV_CHECKLIST_BEFORE_CLOSE
@@ -422,11 +424,11 @@ case "$ACTION" in
           done <<< "$DIRS_JSON"
 
           echo ""
-          echo "## Discovered Directives"
+          echo "## §CMD_DISCOVER_DIRECTIVES"
           if [ -n "$ALL_DISCOVERED" ]; then
             # Skill-directive filtering: core directives always shown,
             # skill directives (TESTING.md, PITFALLS.md) only if declared in `directives` array
-            CORE_DIRECTIVES="README.md INVARIANTS.md CHECKLIST.md"
+            CORE_DIRECTIVES="AGENTS.md INVARIANTS.md CHECKLIST.md"
             SKILL_DECLARED=$(jq -r '(.directives // []) | .[]' "$STATE_FILE" 2>/dev/null || true)
             FILTERED_DISCOVERED=""
             while IFS= read -r discovered_file; do
@@ -541,7 +543,7 @@ case "$ACTION" in
       exit 1
     fi
 
-    # Parse optional --user-approved flag for non-sequential transitions
+    # Parse optional flags: --user-approved
     USER_APPROVED=""
     shift 3  # Remove action, dir, phase
     while [ $# -gt 0 ]; do
@@ -557,6 +559,12 @@ case "$ACTION" in
       esac
     done
 
+    # Read proof from STDIN (if available)
+    PROOF_INPUT=""
+    if [ ! -t 0 ]; then
+      PROOF_INPUT=$(cat)
+    fi
+
     # --- Phase Enforcement ---
     # If .state.json has a "phases" array, enforce sequential progression.
     # If no "phases" array, skip enforcement (backward compat with old sessions).
@@ -571,13 +579,34 @@ case "$ACTION" in
         echo "§CMD_UPDATE_PHASE: Phase label must start with a number (e.g., '3: Execution', '4.1: Sub-Step'). Got: '$PHASE'" >&2
         exit 1
       fi
-      # Reject alpha-style phase labels (e.g., "5b: Triage" — must use "5.1: Triage")
+      # Reject alpha-style phase labels on MAJOR phases (e.g., "5b: Triage" — must use "5.1: Triage")
+      # But ALLOW single uppercase letter suffix on MINOR sub-phases (e.g., "3.1A: Agent Handoff")
       if echo "$PHASE" | grep -qE '^[0-9]+[a-zA-Z]'; then
         echo "§CMD_UPDATE_PHASE: Alpha-style phase labels are not allowed. Use 'N.M: Name' format (e.g., '5.1: Finding Triage' not '5b: Finding Triage'). Got: '$PHASE'" >&2
         exit 1
       fi
-      # Extract minor: if "4.1: ..." → minor=1, if "4: ..." → minor=0
-      REQ_MINOR=$(echo "$PHASE" | grep -oE '^\d+\.(\d+)' | grep -oE '\.\d+' | tr -d '.' || echo "0")
+
+      # Extract letter suffix from sub-phase label (e.g., "3.1A: Name" → LETTER="A")
+      # Constraints: single uppercase letter only, only on sub-phases (N.M format)
+      LETTER_SUFFIX=""
+      if echo "$PHASE" | grep -qE '^[0-9]+\.[0-9]+[A-Z]:'; then
+        LETTER_SUFFIX=$(echo "$PHASE" | grep -oE '^[0-9]+\.[0-9]+[A-Z]' | grep -oE '[A-Z]$')
+      fi
+      # Reject: lowercase letter suffix (e.g., "3.1a: Bad")
+      if echo "$PHASE" | grep -qE '^[0-9]+\.[0-9]+[a-z]:'; then
+        echo "§CMD_UPDATE_PHASE: Letter suffixes must be uppercase (e.g., '3.1A: Name' not '3.1a: Name'). Got: '$PHASE'" >&2
+        exit 1
+      fi
+      # Reject: double letters (e.g., "3.1AB: Bad")
+      if echo "$PHASE" | grep -qE '^[0-9]+\.[0-9]+[A-Za-z]{2,}:'; then
+        echo "§CMD_UPDATE_PHASE: Only single letter suffixes allowed (e.g., '3.1A' not '3.1AB'). Got: '$PHASE'" >&2
+        exit 1
+      fi
+
+      # Extract minor: if "4.1: ..." → minor=1, if "4.1A: ..." → minor=1, if "4: ..." → minor=0
+      # Strip optional letter suffix before extracting minor number
+      PHASE_NUMERIC=$(echo "$PHASE" | sed -E 's/^([0-9]+(\.[0-9]+)?)[A-Z]?:/\1:/')
+      REQ_MINOR=$(echo "$PHASE_NUMERIC" | grep -oE '^\d+\.(\d+)' | grep -oE '\.\d+' | tr -d '.' || echo "0")
       [ -z "$REQ_MINOR" ] && REQ_MINOR=0
 
       # Get current phase major.minor
@@ -687,13 +716,93 @@ case "$ACTION" in
       fi
     fi
 
+    # --- Proof Parsing ---
+    # Always parse STDIN proof into JSON when provided, regardless of validation.
+    # This ensures proof is stored in phaseHistory even when the target phase has no proof fields.
+    # Proof format: "field_name: value" lines piped via STDIN.
+    PROOF_JSON="{}"
+    if [ -n "$PROOF_INPUT" ]; then
+      while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        # Extract key (everything before first ': ')
+        # Supports: alphanumeric keys (e.g., debrief_file) and §CMD_ prefixed keys (e.g., §CMD_PROCESS_CHECKLISTS)
+        PKEY=$(echo "$line" | sed -n 's/^\([§a-zA-Z_][§a-zA-Z0-9_]*\): .*/\1/p')
+        [ -z "$PKEY" ] && continue
+        # Extract value: everything after the first ': ' separator
+        # Uses bash parameter expansion to avoid sed issues with § in patterns
+        PVAL="${line#*: }"
+        PROOF_JSON=$(echo "$PROOF_JSON" | jq --arg k "$PKEY" --arg v "$PVAL" '. + {($k): $v}')
+      done <<< "$PROOF_INPUT"
+    fi
+
+    # --- Proof Validation (TO-validation) ---
+    # If the TARGET phase (being entered) declares proof fields, validate STDIN contains all required fields.
+    # Proof validates what the agent completed to earn entry into the target phase.
+    if [ "$HAS_PHASES" = "true" ]; then
+      # Look up proof fields for the target phase being entered (TO validation)
+      PROOF_FIELDS_JSON=$(jq -r --argjson m "$REQ_MAJOR" --argjson n "$REQ_MINOR" \
+        '(.phases[] | select(.major == $m and .minor == $n) | .proof) // empty' \
+        "$STATE_FILE" 2>/dev/null || echo "")
+
+      if [ -n "$PROOF_FIELDS_JSON" ] && [ "$PROOF_FIELDS_JSON" != "null" ]; then
+        PROOF_FIELDS_COUNT=$(echo "$PROOF_FIELDS_JSON" | jq 'length' 2>/dev/null || echo "0")
+
+        if [ "$PROOF_FIELDS_COUNT" -gt 0 ]; then
+          # Proof fields are declared on target phase — validate STDIN
+          if [ -z "$PROOF_INPUT" ]; then
+            echo "§CMD_UPDATE_PHASE: Proof required to enter phase '$PHASE' but no STDIN provided." >&2
+            echo "  Required proof fields: $(echo "$PROOF_FIELDS_JSON" | jq -r 'join(", ")')" >&2
+            echo "" >&2
+            echo "  Usage: echo 'field: value' | session.sh phase $DIR \"$PHASE\"" >&2
+            exit 1
+          fi
+
+          # Validate all required fields are present (proof already parsed above)
+          MISSING_FIELDS=""
+          for field in $(echo "$PROOF_FIELDS_JSON" | jq -r '.[]'); do
+            FIELD_VAL=$(echo "$PROOF_JSON" | jq -r --arg f "$field" '.[$f] // ""')
+            if [ -z "$FIELD_VAL" ]; then
+              MISSING_FIELDS="${MISSING_FIELDS}${MISSING_FIELDS:+, }$field"
+            elif [ "$FIELD_VAL" = "________" ]; then
+              echo "§CMD_UPDATE_PHASE: Proof field '$field' has unfilled blank (________). Complete the work before transitioning." >&2
+              exit 1
+            fi
+          done
+
+          if [ -n "$MISSING_FIELDS" ]; then
+            echo "§CMD_UPDATE_PHASE: Missing proof fields to enter phase '$PHASE': $MISSING_FIELDS" >&2
+            echo "  Required: $(echo "$PROOF_FIELDS_JSON" | jq -r 'join(", ")')" >&2
+            echo "  Provided: $(echo "$PROOF_JSON" | jq -r 'keys | join(", ")')" >&2
+            exit 1
+          fi
+        fi
+      else
+        # Target phase has no proof field — warn if sibling phases have proof (backward-compat nudge)
+        HAS_PROOF_SIBLINGS=$(jq '[.phases[] | select(has("proof") and (.proof | length > 0))] | length > 0' "$STATE_FILE" 2>/dev/null || echo "false")
+        if [ "$HAS_PROOF_SIBLINGS" = "true" ]; then
+          echo "§CMD_UPDATE_PHASE: Target phase '$PHASE' has no proof fields declared, but other phases in this session declare proof. Consider adding proof fields to this phase." >&2
+        fi
+      fi
+    fi
+
     # Update phase, clear loading flag, and reset all heartbeat transcript counters
     # loading=true is set by activate; cleared here when the agent transitions to a named phase
     # Counter reset gives a clean slate for the work phase
-    # Append to phaseHistory for audit trail
-    jq --arg phase "$PHASE" --arg ts "$(timestamp)" \
-      '.currentPhase = $phase | .lastHeartbeat = $ts | del(.loading) | .toolCallsByTranscript = {} | .phaseHistory = ((.phaseHistory // []) + [$phase])' \
-      "$STATE_FILE" | safe_json_write "$STATE_FILE"
+    # Append to phaseHistory for audit trail (with proof if provided)
+    #
+    # currentPhase stores the full label (including letter suffix) for display.
+    # Enforcement uses numeric major.minor extracted at parse time.
+    # phaseHistory stores objects with proof when proof was provided.
+    if [ "$PROOF_JSON" != "{}" ] && [ -n "$PROOF_INPUT" ]; then
+      # Store phase + proof in phaseHistory as an object
+      jq --arg phase "$PHASE" --arg ts "$(timestamp)" --argjson proof "$PROOF_JSON" \
+        '.currentPhase = $phase | .lastHeartbeat = $ts | del(.loading) | .toolCallsByTranscript = {} | .phaseHistory = ((.phaseHistory // []) + [{"phase": $phase, "ts": $ts, "proof": $proof}])' \
+        "$STATE_FILE" | safe_json_write "$STATE_FILE"
+    else
+      jq --arg phase "$PHASE" --arg ts "$(timestamp)" \
+        '.currentPhase = $phase | .lastHeartbeat = $ts | del(.loading) | .toolCallsByTranscript = {} | .phaseHistory = ((.phaseHistory // []) + [$phase])' \
+        "$STATE_FILE" | safe_json_write "$STATE_FILE"
+    fi
 
     # Notify fleet of state change (if running in fleet context)
     # WAITING: or DONE = needs attention (unchecked), otherwise = working (orange)
@@ -720,6 +829,207 @@ case "$ACTION" in
       "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
     echo "Target file: $FILE"
+    ;;
+
+  continue)
+    # Resume session after context overflow restart (used by /reanchor).
+    # Clears loading flag, resets heartbeat counters — does NOT touch phase state.
+    # The saved phase in .state.json is the single source of truth.
+    #
+    # Usage: session.sh continue <path>
+    # Output: Rich context info (session, skill, phase, log file)
+
+    if [ ! -f "$STATE_FILE" ]; then
+      echo "§CMD_REQUIRE_ACTIVE_SESSION: No .state.json in $DIR — is the session active?" >&2
+      exit 1
+    fi
+
+    # Clear loading flag, reset heartbeat counters, update timestamp
+    jq --arg ts "$(timestamp)" \
+      'del(.loading) | .toolCallsByTranscript = {} | .lastHeartbeat = $ts' \
+      "$STATE_FILE" | safe_json_write "$STATE_FILE"
+
+    # Read state for rich output
+    SKILL=$(jq -r '.skill // "unknown"' "$STATE_FILE")
+    CURRENT_PHASE=$(jq -r '.currentPhase // "unknown"' "$STATE_FILE")
+    LOG_FILE="${DIR}/$(echo "$SKILL" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z]/_/g')_LOG.md"
+
+    # Derive log file from logTemplate if available (more reliable than skill name mangling)
+    LOG_TEMPLATE=$(jq -r '.logTemplate // ""' "$STATE_FILE")
+    if [ -n "$LOG_TEMPLATE" ]; then
+      LOG_BASENAME=$(basename "$LOG_TEMPLATE")
+      LOG_FILE="${DIR}/${LOG_BASENAME#TEMPLATE_}"
+    fi
+
+    echo "Session continued: $DIR"
+    echo "  Skill: $SKILL"
+    echo "  Phase: $CURRENT_PHASE"
+    echo "  Log: $LOG_FILE"
+    ;;
+
+  debrief)
+    # Pre-flight scan for synthesis pipeline.
+    # Reads phases array from .state.json, discovers §CMD_ proof fields,
+    # runs scans for recognized commands, outputs structured Markdown.
+    #
+    # Usage: session.sh debrief <path>
+    # Output: Markdown sections with ## §CMD_NAME (N) headings
+    # Exit: 0 always (scan results are informational)
+
+    if [ ! -f "$STATE_FILE" ]; then
+      echo "§CMD_REQUIRE_ACTIVE_SESSION: No .state.json in $DIR — is the session active?" >&2
+      exit 1
+    fi
+
+    # Step 1: Discover §CMD_ proof fields from phases array
+    HAS_PHASES=$(jq 'has("phases") and (.phases | length > 0)' "$STATE_FILE" 2>/dev/null || echo "false")
+    if [ "$HAS_PHASES" != "true" ]; then
+      echo "(no phases array — nothing to scan)"
+      exit 0
+    fi
+
+    # Collect all unique proof field names that start with §CMD_
+    CMD_FIELDS=$(jq -r '[.phases[] | select(has("proof")) | .proof[]] | unique | .[] | select(startswith("§CMD_"))' "$STATE_FILE" 2>/dev/null || echo "")
+
+    if [ -z "$CMD_FIELDS" ]; then
+      echo "(no synthesis proof fields declared — nothing to scan)"
+      exit 0
+    fi
+
+    # Step 2: Output instructions header
+    echo "## Instructions"
+    echo "Process each section below in order. After completing all sections, prove each"
+    echo "via \`session.sh phase\` with the §CMD_ names as proof keys."
+    echo ""
+
+    # Step 3: Run scans and output sections in canonical pipeline order
+    # Canonical order: SCAN sections first, then STATIC, then DEPENDENT
+    # Within SCAN: delegations → discoveries → leftover
+    # Within STATIC: directives → alerts
+    # DEPENDENT: dispatch (only if delegations > 0)
+
+    DELEGATIONS_COUNT=0
+
+    # --- SCAN: §CMD_PROCESS_DELEGATIONS ---
+    if echo "$CMD_FIELDS" | grep -q "§CMD_PROCESS_DELEGATIONS"; then
+      # Scan for bare #needs-* tags in session artifacts (excluding backtick-escaped)
+      DELEG_RESULTS=""
+      if command -v "$HOME/.claude/scripts/tag.sh" > /dev/null 2>&1; then
+        DELEG_RESULTS=$("$HOME/.claude/scripts/tag.sh" find '#needs-*' "$DIR" --context 2>/dev/null || echo "")
+      else
+        # Fallback: grep for bare #needs- tags (not backtick-escaped)
+        DELEG_RESULTS=$(grep -rn '#needs-' "$DIR"/*.md 2>/dev/null | grep -v '`#needs-' || echo "")
+      fi
+      if [ -n "$DELEG_RESULTS" ]; then
+        DELEGATIONS_COUNT=$(echo "$DELEG_RESULTS" | wc -l | tr -d ' ')
+      fi
+      echo "## §CMD_PROCESS_DELEGATIONS ($DELEGATIONS_COUNT)"
+      if [ -n "$DELEG_RESULTS" ]; then
+        echo "$DELEG_RESULTS"
+      else
+        echo "(none)"
+      fi
+      echo ""
+    fi
+
+    # --- SCAN: §CMD_CAPTURE_SIDE_DISCOVERIES ---
+    if echo "$CMD_FIELDS" | grep -q "§CMD_CAPTURE_SIDE_DISCOVERIES"; then
+      # Grep for side discovery emojis in LOG files: 👁️ (observation), 😟 (concern), 🅿️ (parking lot)
+      DISC_RESULTS=""
+      for logfile in "$DIR"/*_LOG.md; do
+        [ -f "$logfile" ] || continue
+        DISC_LINES=$(grep -n '👁️\|😟\|🅿️' "$logfile" 2>/dev/null || echo "")
+        if [ -n "$DISC_LINES" ]; then
+          while IFS= read -r dline; do
+            DISC_RESULTS="${DISC_RESULTS}${DISC_RESULTS:+
+}${logfile}:${dline}"
+          done <<< "$DISC_LINES"
+        fi
+      done
+      DISC_COUNT=0
+      if [ -n "$DISC_RESULTS" ]; then
+        DISC_COUNT=$(echo "$DISC_RESULTS" | wc -l | tr -d ' ')
+      fi
+      echo "## §CMD_CAPTURE_SIDE_DISCOVERIES ($DISC_COUNT)"
+      if [ -n "$DISC_RESULTS" ]; then
+        echo "$DISC_RESULTS"
+      else
+        echo "(none)"
+      fi
+      echo ""
+    fi
+
+    # --- SCAN: §CMD_REPORT_LEFTOVER_WORK ---
+    if echo "$CMD_FIELDS" | grep -q "§CMD_REPORT_LEFTOVER_WORK"; then
+      LEFT_RESULTS=""
+      # Scan PLAN files for unchecked items: [ ]
+      for planfile in "$DIR"/*_PLAN.md "$DIR"/*PLAN*.md; do
+        [ -f "$planfile" ] || continue
+        UNCHECKED=$(grep -n '\[ \]' "$planfile" 2>/dev/null || echo "")
+        if [ -n "$UNCHECKED" ]; then
+          while IFS= read -r uline; do
+            LEFT_RESULTS="${LEFT_RESULTS}${LEFT_RESULTS:+
+}${planfile}:${uline}"
+          done <<< "$UNCHECKED"
+        fi
+      done
+      # Scan LOG files for unresolved blocks: 🚧 Block
+      for logfile in "$DIR"/*_LOG.md; do
+        [ -f "$logfile" ] || continue
+        BLOCKS=$(grep -n '🚧 Block' "$logfile" 2>/dev/null || echo "")
+        if [ -n "$BLOCKS" ]; then
+          while IFS= read -r bline; do
+            LEFT_RESULTS="${LEFT_RESULTS}${LEFT_RESULTS:+
+}${logfile}:${bline}"
+          done <<< "$BLOCKS"
+        fi
+      done
+      LEFT_COUNT=0
+      if [ -n "$LEFT_RESULTS" ]; then
+        LEFT_COUNT=$(echo "$LEFT_RESULTS" | wc -l | tr -d ' ')
+      fi
+      echo "## §CMD_REPORT_LEFTOVER_WORK ($LEFT_COUNT)"
+      if [ -n "$LEFT_RESULTS" ]; then
+        echo "$LEFT_RESULTS"
+      else
+        echo "(none)"
+      fi
+      echo ""
+    fi
+
+    # --- STATIC: §CMD_MANAGE_DIRECTIVES ---
+    if echo "$CMD_FIELDS" | grep -q "§CMD_MANAGE_DIRECTIVES"; then
+      echo "## §CMD_MANAGE_DIRECTIVES"
+      echo "Review whether session work warrants directive updates:"
+      echo "- AGENTS.md — doc directory READMEs near touched files"
+      echo "- INVARIANTS.md — new rules or constraints discovered"
+      echo "- PITFALLS.md — gotchas encountered during implementation"
+      echo "- CONTRIBUTING.md — patterns worth documenting for contributors"
+      echo "- TEMPLATE.md — template updates needed"
+      echo ""
+    fi
+
+    # --- STATIC: §CMD_MANAGE_ALERTS ---
+    if echo "$CMD_FIELDS" | grep -q "§CMD_MANAGE_ALERTS"; then
+      echo "## §CMD_MANAGE_ALERTS"
+      echo "Check whether to raise or resolve alerts based on session work."
+      echo "- Raise: Ongoing issues that future sessions need to know about"
+      echo "- Resolve: Previously raised alerts that this session addressed"
+      echo ""
+    fi
+
+    # --- DEPENDENT: §CMD_DISPATCH_APPROVAL ---
+    if echo "$CMD_FIELDS" | grep -q "§CMD_DISPATCH_APPROVAL"; then
+      if [ "$DELEGATIONS_COUNT" -gt 0 ]; then
+        echo "## §CMD_DISPATCH_APPROVAL"
+        echo "Delegation scan found $DELEGATIONS_COUNT items above."
+        echo "Present dispatch approval walkthrough for user triage."
+        echo ""
+      fi
+      # If delegations = 0, dispatch section is omitted (nothing to dispatch)
+    fi
+
+    exit 0
     ;;
 
   deactivate)
@@ -885,21 +1195,23 @@ case "$ACTION" in
 
     echo "Session deactivated: $DIR (lifecycle=completed)"
 
-    # Reindex search databases (background, best-effort)
-    # Keeps RAG fresh so the next session's context ingestion finds this session's work
-    "$HOME/.claude/tools/session-search/session-search.sh" index &>/dev/null &
-    "$HOME/.claude/tools/doc-search/doc-search.sh" index &>/dev/null &
-
-    # Run RAG search on deactivation (non-blocking, best-effort)
-    # Uses description as search query to find related sessions
-    if command -v "$HOME/.claude/scripts/session-search.sh" &>/dev/null && [ -n "${GEMINI_API_KEY:-}" ]; then
-      RAG_RESULTS=$("$HOME/.claude/scripts/session-search.sh" query "$DESCRIPTION" --limit 5 2>/dev/null || echo "")
+    # Run RAG search FIRST (query old index — still useful for session linkage)
+    # The search scripts load .env internally — no GEMINI_API_KEY guard needed here
+    SESSION_SEARCH="$HOME/.claude/tools/session-search/session-search.sh"
+    DOC_SEARCH="$HOME/.claude/tools/doc-search/doc-search.sh"
+    if [ -x "$SESSION_SEARCH" ]; then
+      RAG_RESULTS=$("$SESSION_SEARCH" query "$DESCRIPTION" --limit 5 2>/dev/null || echo "")
       if [ -n "$RAG_RESULTS" ]; then
         echo ""
         echo "## Related Sessions"
         echo "$RAG_RESULTS"
       fi
     fi
+
+    # THEN reindex search databases (background, best-effort)
+    # Keeps RAG fresh so the next session's context ingestion finds this session's work
+    "$SESSION_SEARCH" index &>/dev/null &
+    "$DOC_SEARCH" index &>/dev/null &
     ;;
 
   restart)
@@ -975,7 +1287,7 @@ case "$ACTION" in
     fi
 
     # Strategy 2: Non-fleet fallback — lookup by PID
-    if [ -z "$FOUND_DIR" ] && [ -z "$FLEET_PANE" ]; then
+    if [ -z "$FOUND_DIR" ]; then
       while IFS= read -r f; do
         [ -f "$f" ] || continue
         file_pid=$(jq -r '.pid // 0' "$f" 2>/dev/null)
@@ -1028,8 +1340,8 @@ case "$ACTION" in
 
     if [ "$TAG_CHECK_PASSED" != "true" ]; then
       # Scan all .md files in session dir for bare lifecycle tags
-      # Pattern: #needs-*, #active-*, #done-* (the lifecycle tag families)
-      TAG_PATTERN='#(needs|active|done)-[a-z]+'
+      # Pattern: all lifecycle tag families (¶INV_ESCAPE_BY_DEFAULT)
+      TAG_PATTERN='#(needs|delegated|next|claimed|active|done)-[a-z]+'
       BARE_TAGS=""
 
       if [ -d "$DIR" ]; then
@@ -1057,14 +1369,11 @@ case "$ACTION" in
                 continue
               fi
 
-              # Double-check: is the tag backtick-escaped in this line?
-              # Extract each lifecycle tag from the line and check if it's escaped
-              TAGS_IN_LINE=$(echo "$LINE_TEXT" | grep -oE '#(needs|active|done)-[a-z]+' || true)
+              # Double-check: is the tag inside a backtick code span in this line?
+              # Strip all backtick code spans, then check if the tag still appears bare
+              STRIPPED_LINE=$(echo "$LINE_TEXT" | sed 's/`[^`]*`//g')
+              TAGS_IN_LINE=$(echo "$STRIPPED_LINE" | grep -oE '#(needs|delegated|next|claimed|active|done)-[a-z]+' || true)
               for tag in $TAGS_IN_LINE; do
-                # Check if this specific tag is backtick-escaped in the line
-                if echo "$LINE_TEXT" | grep -q "\`${tag}\`"; then
-                  continue  # Escaped — skip
-                fi
                 # Bare tag found — record it
                 BARE_TAGS="${BARE_TAGS}${md_file}:${LINE_NUM}: ${tag} — $(echo "$LINE_TEXT" | sed 's/^[[:space:]]*//')\n"
               done
@@ -1223,12 +1532,10 @@ case "$ACTION" in
           line_num=$(echo "$match_line" | cut -d: -f1)
           line_text=$(echo "$match_line" | cut -d: -f2-)
 
-          tags_in_line=$(echo "$line_text" | grep -oE '#needs-[a-z-]+' || true)
+          # Strip all backtick code spans, then extract remaining bare tags
+          stripped_line=$(echo "$line_text" | sed 's/`[^`]*`//g')
+          tags_in_line=$(echo "$stripped_line" | grep -oE '#needs-[a-z-]+' || true)
           for tag in $tags_in_line; do
-            # Skip if backtick-escaped
-            if echo "$line_text" | grep -q "\`${tag}\`"; then
-              continue
-            fi
             BARE_NEEDS="${BARE_NEEDS}  L${line_num}: ${tag}\n"
           done
         done < <(grep -nE '#needs-[a-z-]+' "$req_file" 2>/dev/null || true)
@@ -1314,6 +1621,12 @@ case "$ACTION" in
     # Replaces .provenItems entirely (not merge).
     # Deactivation gate checks provenItems keys against provableDebriefItems.
 
+    # DEPRECATED: session.sh prove is replaced by proof-gated phase transitions.
+    # Proof is now provided inline with each sub-phase transition via STDIN to session.sh phase.
+    # See ¶INV_PROVABLE_DEBRIEF_PIPELINE (deprecated) and ¶INV_PHASE_ENFORCEMENT.
+    echo "WARNING: 'session.sh prove' is deprecated. Use proof-gated phase transitions instead." >&2
+    echo "  Proof should be piped to 'session.sh phase' via STDIN for each sub-phase transition." >&2
+
     if [ ! -f "$STATE_FILE" ]; then
       echo "§CMD_REQUIRE_ACTIVE_SESSION: No .state.json in $DIR — is the session active?" >&2
       exit 1
@@ -1368,7 +1681,7 @@ case "$ACTION" in
     ;;
 
   *)
-    echo "§CMD_MAINTAIN_SESSION_DIR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart, check, prove, request-template" >&2
+    echo "§CMD_MAINTAIN_SESSION_DIR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart, check, prove, request-template, debrief" >&2
     exit 1
     ;;
 esac

@@ -3,7 +3,7 @@
 ## Overview
 **Context**: Link to `BRAINSTORM.md` or `ANALYSIS.md`.
 **Required Documents**:
-*   `~/.claude/directives/INVARIANTS.md` (Shared) and `.claude/directives/INVARIANTS.md` (Project-specific, if exists)
+*   `~/.claude/.directives/INVARIANTS.md` (Shared) and `.claude/.directives/INVARIANTS.md` (Project-specific, if exists)
 *   `docs/architecture/[RELEVANT_DOC].md`
 *   `docs/concepts/[RELEVANT_DOC].md`
 
@@ -16,7 +16,7 @@
 ## 1. Standards & Invariants Check
 *Mandatory verification against the "Laws of Physics".*
 
-*   **Ref**: `~/.claude/directives/INVARIANTS.md` (shared) + `.claude/directives/INVARIANTS.md` (project)
+*   **Ref**: `~/.claude/.directives/INVARIANTS.md` (shared) + `.claude/.directives/INVARIANTS.md` (project)
 
 ### Relevant Invariants
 *   **§INV_[NAME]**: How does this plan respect it?

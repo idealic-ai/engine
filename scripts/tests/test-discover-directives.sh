@@ -2,7 +2,7 @@
 # ~/.claude/engine/scripts/tests/test-discover-directives.sh — Unit tests for discover-directives.sh
 #
 # Tests walk-up logic, boundary detection, type filtering, exclusion rules,
-# and discovery of all directive types (README.md, INVARIANTS.md, TESTING.md, PITFALLS.md, CHECKLIST.md).
+# and discovery of all directive types (AGENTS.md, INVARIANTS.md, TESTING.md, PITFALLS.md, CHECKLIST.md, etc.).
 #
 # Run: bash ~/.claude/engine/scripts/tests/test-discover-directives.sh
 
@@ -34,21 +34,21 @@ teardown() {
 # TEST 1: Single directory — finds files in current dir (no walk-up)
 # =============================================================================
 
-test_single_dir_finds_readme() {
-  local test_name="single dir: finds README.md in target directory"
+test_single_dir_finds_agents() {
+  local test_name="single dir: finds AGENTS.md in target directory"
   setup
 
   mkdir -p "$TEST_DIR/src/components"
-  echo "# Component README" > "$TEST_DIR/src/components/README.md"
+  echo "# Component Agents" > "$TEST_DIR/src/components/AGENTS.md"
 
   local result
   result=$(bash "$SCRIPT" "$TEST_DIR/src/components" 2>/dev/null)
   local exit_code=$?
 
-  if [ "$exit_code" -eq 0 ] && [[ "$result" == *"src/components/README.md"* ]]; then
+  if [ "$exit_code" -eq 0 ] && [[ "$result" == *"src/components/AGENTS.md"* ]]; then
     pass "$test_name"
   else
-    fail "$test_name" "exit 0, output contains README.md" "exit=$exit_code, output=$result"
+    fail "$test_name" "exit 0, output contains AGENTS.md" "exit=$exit_code, output=$result"
   fi
 
   teardown
@@ -63,7 +63,7 @@ test_walkup_finds_multiple_levels() {
   setup
 
   # Create files at different levels
-  echo "# Root README" > "$TEST_DIR/README.md"
+  echo "# Root Agents" > "$TEST_DIR/AGENTS.md"
   mkdir -p "$TEST_DIR/src/lib"
   echo "# Src INVARIANTS" > "$TEST_DIR/src/INVARIANTS.md"
 
@@ -71,10 +71,10 @@ test_walkup_finds_multiple_levels() {
   result=$(bash "$SCRIPT" "$TEST_DIR/src/lib" --walk-up 2>/dev/null)
   local exit_code=$?
 
-  if [ "$exit_code" -eq 0 ] && [[ "$result" == *"INVARIANTS.md"* ]] && [[ "$result" == *"README.md"* ]]; then
+  if [ "$exit_code" -eq 0 ] && [[ "$result" == *"INVARIANTS.md"* ]] && [[ "$result" == *"AGENTS.md"* ]]; then
     pass "$test_name"
   else
-    fail "$test_name" "exit 0, contains INVARIANTS.md and README.md" "exit=$exit_code, output=$result"
+    fail "$test_name" "exit 0, contains INVARIANTS.md and AGENTS.md" "exit=$exit_code, output=$result"
   fi
 
   teardown
@@ -89,7 +89,7 @@ test_walkup_stops_at_project_root() {
   setup
 
   mkdir -p "$TEST_DIR/deep/nested/dir"
-  echo "# Deep README" > "$TEST_DIR/deep/nested/dir/README.md"
+  echo "# Deep Agents" > "$TEST_DIR/deep/nested/dir/AGENTS.md"
 
   cd "$TEST_DIR/deep"
 
@@ -97,10 +97,10 @@ test_walkup_stops_at_project_root() {
   result=$(bash "$SCRIPT" "$TEST_DIR/deep/nested/dir" --walk-up 2>/dev/null)
   local exit_code=$?
 
-  if [ "$exit_code" -eq 0 ] && [[ "$result" == *"dir/README.md"* ]]; then
+  if [ "$exit_code" -eq 0 ] && [[ "$result" == *"dir/AGENTS.md"* ]]; then
     pass "$test_name"
   else
-    fail "$test_name" "exit 0, contains dir/README.md" "exit=$exit_code, output=$result"
+    fail "$test_name" "exit 0, contains dir/AGENTS.md" "exit=$exit_code, output=$result"
   fi
 
   cd "$ORIGINAL_PWD"
@@ -135,11 +135,11 @@ test_no_files_exits_1() {
 # =============================================================================
 
 test_type_soft_filters() {
-  local test_name="type soft: returns README.md, INVARIANTS.md, TESTING.md, PITFALLS.md"
+  local test_name="type soft: returns AGENTS.md, INVARIANTS.md, TESTING.md, PITFALLS.md"
   setup
 
   mkdir -p "$TEST_DIR/mydir"
-  echo "# README" > "$TEST_DIR/mydir/README.md"
+  echo "# AGENTS" > "$TEST_DIR/mydir/AGENTS.md"
   echo "# INVARIANTS" > "$TEST_DIR/mydir/INVARIANTS.md"
   echo "# TESTING" > "$TEST_DIR/mydir/TESTING.md"
   echo "# PITFALLS" > "$TEST_DIR/mydir/PITFALLS.md"
@@ -150,14 +150,14 @@ test_type_soft_filters() {
   local exit_code=$?
 
   if [ "$exit_code" -eq 0 ] && \
-     [[ "$result" == *"README.md"* ]] && \
+     [[ "$result" == *"AGENTS.md"* ]] && \
      [[ "$result" == *"INVARIANTS.md"* ]] && \
      [[ "$result" == *"TESTING.md"* ]] && \
      [[ "$result" == *"PITFALLS.md"* ]] && \
      [[ "$result" != *"CHECKLIST.md"* ]]; then
     pass "$test_name"
   else
-    fail "$test_name" "README.md + INVARIANTS.md + TESTING.md + PITFALLS.md, no CHECKLIST.md" "exit=$exit_code, output=$result"
+    fail "$test_name" "AGENTS.md + INVARIANTS.md + TESTING.md + PITFALLS.md, no CHECKLIST.md" "exit=$exit_code, output=$result"
   fi
 
   teardown
@@ -202,7 +202,7 @@ test_excluded_dirs_skipped() {
 
   for excl in node_modules .git sessions tmp dist build; do
     mkdir -p "$TEST_DIR/$excl"
-    echo "# Should be skipped" > "$TEST_DIR/$excl/README.md"
+    echo "# Should be skipped" > "$TEST_DIR/$excl/AGENTS.md"
   done
 
   local any_found=false
@@ -210,7 +210,7 @@ test_excluded_dirs_skipped() {
     local result
     result=$(bash "$SCRIPT" "$TEST_DIR/$excl" 2>/dev/null)
     local exit_code=$?
-    if [ "$exit_code" -eq 0 ]; then
+    if [ "$exit_code" -eq 0 ] && [ -n "$result" ]; then
       any_found=true
       break
     fi
@@ -234,19 +234,19 @@ test_walkup_deduplicates() {
   setup
 
   mkdir -p "$TEST_DIR/src"
-  echo "# Root README" > "$TEST_DIR/README.md"
+  echo "# Root Agents" > "$TEST_DIR/AGENTS.md"
 
   local result
   result=$(bash "$SCRIPT" "$TEST_DIR/src" --walk-up 2>/dev/null)
   local exit_code=$?
 
   local count
-  count=$(echo "$result" | grep -c "README.md" || true)
+  count=$(echo "$result" | grep -c "AGENTS.md" || true)
 
   if [ "$exit_code" -eq 0 ] && [ "$count" -eq 1 ]; then
     pass "$test_name"
   else
-    fail "$test_name" "exactly 1 README.md line" "exit=$exit_code, count=$count"
+    fail "$test_name" "exactly 1 AGENTS.md line" "exit=$exit_code, count=$count"
   fi
 
   teardown
@@ -261,7 +261,7 @@ test_type_all_returns_everything() {
   setup
 
   mkdir -p "$TEST_DIR/mydir"
-  echo "# README" > "$TEST_DIR/mydir/README.md"
+  echo "# AGENTS" > "$TEST_DIR/mydir/AGENTS.md"
   echo "# INVARIANTS" > "$TEST_DIR/mydir/INVARIANTS.md"
   echo "# TESTING" > "$TEST_DIR/mydir/TESTING.md"
   echo "# PITFALLS" > "$TEST_DIR/mydir/PITFALLS.md"
@@ -272,7 +272,7 @@ test_type_all_returns_everything() {
   local exit_code=$?
 
   if [ "$exit_code" -eq 0 ] && \
-     [[ "$result" == *"README.md"* ]] && \
+     [[ "$result" == *"AGENTS.md"* ]] && \
      [[ "$result" == *"INVARIANTS.md"* ]] && \
      [[ "$result" == *"TESTING.md"* ]] && \
      [[ "$result" == *"PITFALLS.md"* ]] && \
@@ -294,7 +294,7 @@ test_default_type_is_all() {
   setup
 
   mkdir -p "$TEST_DIR/mydir"
-  echo "# README" > "$TEST_DIR/mydir/README.md"
+  echo "# AGENTS" > "$TEST_DIR/mydir/AGENTS.md"
   echo "# CHECKLIST" > "$TEST_DIR/mydir/CHECKLIST.md"
   echo "# PITFALLS" > "$TEST_DIR/mydir/PITFALLS.md"
 
@@ -303,12 +303,12 @@ test_default_type_is_all() {
   local exit_code=$?
 
   if [ "$exit_code" -eq 0 ] && \
-     [[ "$result" == *"README.md"* ]] && \
+     [[ "$result" == *"AGENTS.md"* ]] && \
      [[ "$result" == *"CHECKLIST.md"* ]] && \
      [[ "$result" == *"PITFALLS.md"* ]]; then
     pass "$test_name"
   else
-    fail "$test_name" "README.md, CHECKLIST.md, and PITFALLS.md" "exit=$exit_code, output=$result"
+    fail "$test_name" "AGENTS.md, CHECKLIST.md, and PITFALLS.md" "exit=$exit_code, output=$result"
   fi
 
   teardown
@@ -392,7 +392,7 @@ test_walkup_finds_pitfalls_ancestor() {
 
 echo "=== test-discover-directives.sh ==="
 
-test_single_dir_finds_readme
+test_single_dir_finds_agents
 test_walkup_finds_multiple_levels
 test_walkup_stops_at_project_root
 test_no_files_exits_1

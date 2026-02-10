@@ -7,18 +7,9 @@ tier: protocol
 
 Structured ideation and trade-off analysis for design and architecture decisions.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Brainstorming Protocol (The Socratic Engine)
 
@@ -30,14 +21,17 @@ Structured ideation and trade-off analysis for design and architecture decisions
 {
   "taskType": "BRAINSTORM",
   "phases": [
-    {"major": 0, "minor": 0, "name": "Setup"},
-    {"major": 1, "minor": 0, "name": "Context Ingestion"},
-    {"major": 2, "minor": 0, "name": "Dialogue Loop"},
+    {"major": 0, "minor": 0, "name": "Setup", "proof": ["mode", "session_dir", "templates_loaded", "parameters_parsed"]},
+    {"major": 1, "minor": 0, "name": "Context Ingestion", "proof": ["context_sources_presented", "files_loaded"]},
+    {"major": 2, "minor": 0, "name": "Dialogue Loop", "proof": ["depth_chosen", "rounds_completed", "log_entries"]},
     {"major": 2, "minor": 1, "name": "Agent Handoff"},
-    {"major": 3, "minor": 0, "name": "Synthesis"}
+    {"major": 3, "minor": 0, "name": "Synthesis"},
+    {"major": 3, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
+    {"major": 3, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
+    {"major": 3, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+    {"major": 3, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
   ],
   "nextSkills": ["/implement", "/analyze", "/document", "/fix", "/chores"],
-  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"],
   "directives": [],
   "logTemplate": "~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM_LOG.md",
   "debriefTemplate": "~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM.md",
@@ -102,17 +96,6 @@ Structured ideation and trade-off analysis for design and architecture decisions
 7.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
     *   If any files are found, add them to `contextPaths` for ingestion in Phase 1.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - Mode: `________` (explore / focused / adversarial / custom)
-> - Role: `________` (quote the role name from the mode preset)
-> - Session dir: `________`
-> - Templates loaded: `________`, `________`
-> - Parameters parsed: `________`
-
-*Phase 0 always proceeds to Phase 1 — no transition question needed.*
-
 ---
 
 ## 1. Context Ingestion
@@ -124,19 +107,8 @@ Structured ideation and trade-off analysis for design and architecture decisions
 
 **Action**: Execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
-**Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
-> - RAG session-search: `________ results` or `unavailable`
-> - RAG doc-search: `________ results` or `unavailable`
-> - Files loaded: `________ files`
-> - User confirmed: `yes / no`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "1: Context Ingestion"
-  nextPhase: "2: Dialogue Loop"
-  prevPhase: "0: Setup"
   custom: "Skip to Phase 3: Synthesis | I already know what I want, just synthesize"
 
 ---
@@ -248,14 +220,6 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Ask: "Round N complete. I still have questions about [X]. Continuing..."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
-**Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
-> - Dialogue depth: `________`
-> - Rounds completed: `________` / `________`+
-> - DETAILS.md entries: `________`
-> - BRAINSTORM_LOG.md entries: `________`
-
 ### Phase Transition
 Execute `AskUserQuestion` (multiSelect: false):
 > "Phase 2: Dialogue complete. How to proceed with convergence?"
@@ -281,36 +245,25 @@ Execute `§CMD_HAND_OFF_TO_AGENT` with:
 
 ---
 
-## 3. Synthesis
+## 3. The Synthesis (Debrief)
 *When the dialogue has explored the space sufficiently.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 3: Synthesis.
-> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
-> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_BRAINSTORM.md` EXACTLY) to summarize findings into a permanent record.
-> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to formally close the session and list outputs.
-> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
-**2. Execution — SEQUENTIAL, NO SKIPPING**
+**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
 
-[!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The brainstorm FILE is the primary deliverable — chat output alone is not sufficient.
+**Debrief creation notes** (for Step 1 -- `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
+*   Dest: `BRAINSTORM.md`
+*   **Reflect**: Look back at the full session -- identify key takeaways.
+*   **Synthesize**: Don't just summarize. Connect the dots between dialogue rounds.
+*   **Next Steps**: Propose the move to `IMPLEMENTATION` or `ANALYSIS` -- guide the user.
 
-**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
-
-**Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `BRAINSTORM.md`).
-  *   Write the file using the Write tool. This MUST produce a real file in the session directory.
-  *   **Reflect**: Look back at the full session — identify key takeaways.
-  *   **Synthesize**: Don't just summarize. Connect the dots between dialogue rounds.
-  *   **Next Steps**: Propose the move to `IMPLEMENTATION` or `ANALYSIS` — guide the user.
-
-**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
-
-**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 4**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
+**Walk-through config** (for Step 3 -- `§CMD_WALK_THROUGH_RESULTS`):
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"
@@ -318,17 +271,5 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   debriefFile: "BRAINSTORM.md"
   templateFile: "~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM.md"
 ```
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 3 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
-> - BRAINSTORM.md: `________` (real file path)
-> - Tags: `________`
-> - Artifacts listed: `________`
-> - Summary: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
-
-**Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.

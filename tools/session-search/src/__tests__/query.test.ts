@@ -239,6 +239,38 @@ describe("query", () => {
       expect(whereClauses).toHaveLength(3);
       expect(params).toHaveLength(3);
     });
+
+    it("should filter by since (timestamp-precision)", () => {
+      const { whereClauses, params } = buildFilterClauses({
+        since: "2026-02-01T14:00:00.000Z",
+      });
+      expect(whereClauses).toHaveLength(1);
+      expect(whereClauses[0]).toContain("COALESCE");
+      expect(whereClauses[0]).toContain("session_started_at");
+      expect(whereClauses[0]).toContain(">=");
+      expect(params).toEqual(["2026-02-01T14:00:00.000Z"]);
+    });
+
+    it("should filter by until (timestamp-precision)", () => {
+      const { whereClauses, params } = buildFilterClauses({
+        until: "2026-02-10T00:00:00.000Z",
+      });
+      expect(whereClauses).toHaveLength(1);
+      expect(whereClauses[0]).toContain("COALESCE");
+      expect(whereClauses[0]).toContain("<");
+      expect(params).toEqual(["2026-02-10T00:00:00.000Z"]);
+    });
+
+    it("should combine since/until with existing filters", () => {
+      const { whereClauses, params } = buildFilterClauses({
+        after: "2026-01-01",
+        since: "2026-02-01T00:00:00.000Z",
+        until: "2026-02-10T00:00:00.000Z",
+        file: "BRAINSTORM",
+      });
+      expect(whereClauses).toHaveLength(4);
+      expect(params).toHaveLength(4);
+    });
   });
 
   describe("searchChunks (integration)", () => {

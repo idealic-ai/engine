@@ -276,3 +276,55 @@ disable_fleet_tmux() {
   unset TMUX_PANE 2>/dev/null || true
   export FLEET_SETUP_DONE=1
 }
+
+# setup_test_env SESSION_NAME
+# One-shot test environment setup — combines the 8-step boilerplate.
+#
+# Sets these globals (for caller use):
+#   TMP_DIR          — Temp directory (cleaned up by cleanup_test_env)
+#   TEST_SESSION     — $TMP_DIR/sessions/$SESSION_NAME
+#   FAKE_HOME        — (from setup_fake_home)
+#   ORIGINAL_HOME    — (from setup_fake_home)
+#   REAL_SCRIPTS_DIR — Original ~/.claude/scripts/ (for extra symlinks)
+#   REAL_ENGINE_DIR  — Original ~/.claude/engine/ (for extra symlinks)
+#   REAL_HOOKS_DIR   — Original ~/.claude/hooks/ (for extra symlinks)
+#
+# After calling, add test-specific symlinks:
+#   ln -sf "$REAL_HOOKS_DIR/my-hook.sh" "$FAKE_HOME/.claude/hooks/my-hook.sh"
+#   ln -sf "$REAL_ENGINE_DIR/config.sh" "$FAKE_HOME/.claude/engine/config.sh"
+setup_test_env() {
+  local session_name="${1:-test_session}"
+
+  TMP_DIR=$(mktemp -d)
+  export CLAUDE_SUPERVISOR_PID=99999999
+
+  # Capture real paths before HOME switch
+  REAL_SCRIPTS_DIR="$HOME/.claude/scripts"
+  REAL_ENGINE_DIR="$HOME/.claude/engine"
+  REAL_HOOKS_DIR="$HOME/.claude/hooks"
+
+  setup_fake_home "$TMP_DIR"
+  disable_fleet_tmux
+
+  # Symlink core scripts (always needed by hooks that call session.sh)
+  ln -sf "$REAL_ENGINE_DIR/scripts/session.sh" "$FAKE_HOME/.claude/scripts/session.sh"
+  ln -sf "$REAL_SCRIPTS_DIR/lib.sh" "$FAKE_HOME/.claude/scripts/lib.sh"
+
+  # Stub fleet and search tools
+  mock_fleet_sh "$FAKE_HOME"
+  mock_search_tools "$FAKE_HOME"
+
+  # Work in TMP_DIR so session.sh find scans our test sessions
+  cd "$TMP_DIR"
+
+  # Create test session directory
+  TEST_SESSION="$TMP_DIR/sessions/$session_name"
+  mkdir -p "$TEST_SESSION"
+}
+
+# cleanup_test_env — Restores HOME and removes temp directory.
+# Usage: trap cleanup_test_env EXIT
+cleanup_test_env() {
+  teardown_fake_home
+  rm -rf "${TMP_DIR:-}"
+}

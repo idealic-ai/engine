@@ -108,7 +108,7 @@ dispatch-daemon.sh stop
 
 > **Note**: The current system watches `#delegated-*` tags (not `#needs-*`). See `¶INV_NEEDS_IS_STAGING`.
 
-The daemon reads the `§TAG_DISPATCH` table from `~/.claude/directives/TAGS.md`:
+The daemon reads the `§TAG_DISPATCH` table from `~/.claude/.directives/TAGS.md`:
 
 | Tag | Skill | Notes |
 |-----|-------|-------|
@@ -217,6 +217,6 @@ The agent may have errored. Check `~/.claude/scripts/run.sh` requirements.
 
 ## See Also
 
-- `~/.claude/directives/HANDOFF.md` — Full coordination reference
-- `~/.claude/directives/TAGS.md` — Tag system and routing
-- `~/.claude/directives/COMMANDS.md` — `§CMD_*` primitives
+- `~/.claude/.directives/HANDOFF.md` — Full coordination reference
+- `~/.claude/.directives/TAGS.md` — Tag system and routing
+- `~/.claude/.directives/COMMANDS.md` — `§CMD_*` primitives

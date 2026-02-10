@@ -104,6 +104,10 @@ activate_with_dirs() {
   "planTemplate": "",
   "logTemplate": "",
   "debriefTemplate": "",
+  "requestTemplate": "",
+  "responseTemplate": "",
+  "requestFiles": [],
+  "nextSkills": [],
   "extraInfo": "",
   "phases": [{"major":1,"minor":0,"name":"Setup"},{"major":2,"minor":0,"name":"Test"}]
 }
@@ -215,10 +219,10 @@ test_activate_outputs_discovered_instructions_section() {
   local output
   output=$(activate_with_dirs "$session_dir" "[\"$PROJECT_DIR/src/lib\"]" 2>/dev/null)
 
-  if [[ "$output" == *"Discovered Directives"* ]]; then
+  if [[ "$output" == *"DISCOVER_DIRECTIVES"* ]]; then
     pass "$test_name"
   else
-    fail "$test_name" "output contains 'Discovered Directives'" "output=$(echo "$output" | head -20)"
+    fail "$test_name" "output contains 'DISCOVER_DIRECTIVES'" "output=$(echo "$output" | head -20)"
   fi
 
   teardown
@@ -400,7 +404,18 @@ test_activate_no_duplicate_checklists_on_reactivate() {
 {
   "taskSummary": "Re-activate test",
   "taskType": "IMPLEMENTATION",
+  "scope": "Test",
   "directoriesOfInterest": ["$PROJECT_DIR/src/utils"],
+  "preludeFiles": [],
+  "contextPaths": [],
+  "planTemplate": "",
+  "logTemplate": "",
+  "debriefTemplate": "",
+  "requestTemplate": "",
+  "responseTemplate": "",
+  "requestFiles": [],
+  "nextSkills": [],
+  "extraInfo": "",
   "phases": [{"major":1,"minor":0,"name":"Setup"}]
 }
 EOF

@@ -34,6 +34,7 @@ MIGRATIONS=(
   "003:state_json_rename"
   "004:remove_stale_skill_symlinks"
   "005:add_hooks_to_settings"
+  "006:hooks_to_project_local"
 )
 
 # ---- Migration functions ----
@@ -212,6 +213,71 @@ migration_005_add_hooks_to_settings() {
   ' 2>/dev/null) || return 0
 
   echo "$merged" > "$settings"
+  return 0
+}
+
+# migration_006_hooks_to_project_local "$claude_dir"
+# What: Strip hooks, statusLine, and engine permissions from global ~/.claude/settings.json.
+# Why: Engine config moves to project-local .claude/settings.json. Global should only hold
+#   non-engine user config. setup-lib.sh configure_hooks() now targets project settings.
+# Idempotency: If hooks/statusLine already absent, no-op. If settings.json missing, no-op.
+migration_006_hooks_to_project_local() {
+  local claude_dir="${1:?}"
+
+  local settings="$claude_dir/settings.json"
+  # If no settings.json or no jq, skip
+  [ -f "$settings" ] || return 0
+  command -v jq &>/dev/null || return 0
+
+  # Engine permission patterns to remove from global
+  # These are the exact entries that setup-lib.sh / engine.sh add
+  local engine_perms=(
+    'Bash(engine *)'
+    'Bash(~/.claude/scripts/*)'
+    'Bash(~/.claude/tools/doc-search/doc-search.sh *)'
+    'Bash(~/.claude/tools/session-search/session-search.sh *)'
+    'Glob(reports/**)'
+    'Glob(sessions/**)'
+    'Glob(~/.claude/**)'
+    'Grep(reports/**)'
+    'Grep(sessions/**)'
+    'Grep(~/.claude/**)'
+    'Read(reports/**)'
+    'Read(sessions/**)'
+    'Read(~/.claude/agents/**)'
+    'Read(~/.claude/commands/**)'
+    'Read(~/.claude/.directives/**)'
+    'Read(~/.claude/skills/**)'
+  )
+
+  # Build a jq array from the patterns
+  local jq_array="["
+  local first=true
+  for perm in "${engine_perms[@]}"; do
+    if [ "$first" = true ]; then
+      first=false
+    else
+      jq_array+=","
+    fi
+    jq_array+="\"$perm\""
+  done
+  jq_array+="]"
+
+  local stripped
+  stripped=$(cat "$settings" | jq --argjson engine_perms "$jq_array" '
+    # Remove hooks section entirely
+    del(.hooks)
+    # Remove statusLine section entirely
+    | del(.statusLine)
+    # Remove engine-specific permission entries
+    | if .permissions.allow then
+        .permissions.allow = [.permissions.allow[] | select(. as $p | $engine_perms | index($p) | not)]
+      else . end
+    # Clean up empty permissions
+    | if .permissions.allow == [] then del(.permissions) else . end
+  ' 2>/dev/null) || return 0
+
+  echo "$stripped" > "$settings"
   return 0
 }
 

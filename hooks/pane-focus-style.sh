@@ -6,7 +6,7 @@
 # Related:
 #   Docs: (~/.claude/docs/)
 #     FLEET.md — Pane styling, status colors
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — No-op outside fleet
 
 # Auto-detect fleet socket from $TMUX env var (fleet or fleet-*)
@@ -83,3 +83,4 @@ tmux -L "$SOCKET" set -g @last_focused_pane "$CURR"
 
 # Clear guard
 tmux -L "$SOCKET" set -g @focus_hook_running "0"
+exit 0

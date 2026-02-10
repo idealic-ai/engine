@@ -7,18 +7,9 @@ tier: lightweight
 
 Creates semi-permanent situational documents for reference. Writeups describe a current situation, explain context, and suggest improvements. Stored in `apps/*/docs/writeups/` or `packages/*/docs/writeups/`.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Writeup Protocol (Lightweight Situational Documentation)
 
@@ -48,14 +39,6 @@ Creates semi-permanent situational documents for reference. Writeups describe a 
     mkdir -p <destination>/docs/writeups
     ```
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - Topic parsed: `________`
-> - Destinations discovered: `________`
-> - User selected destination: `________`
-> - writeups/ directory exists: `________`
-
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
@@ -74,26 +57,16 @@ Creates semi-permanent situational documents for reference. Writeups describe a 
 
 3.  **Execute Searches**: For each selected keyword (if any):
     ```bash
-    ~/.claude/tools/session-search/session-search.sh query "<keyword>" --limit 5
-    ~/.claude/tools/doc-search/doc-search.sh query "<keyword>" --limit 5
+    engine session-search query "<keyword>" --limit 5
+    engine doc-search query "<keyword>" --limit 5
     ```
     *   Collect unique file paths and brief descriptions.
     *   These populate the "Related" section of the writeup.
 
 4.  **If Skipped**: Proceed without the Related section (or mark it "None").
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
-**Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
-> - Keywords generated (or skipped): `________`
-> - RAG searches executed (or skipped): `________`
-> - Related files collected (or "None"): `________`
-
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "1: RAG Keywords"
-  nextPhase: "2: Interrogation"
-  prevPhase: "0: Setup & Discovery"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
@@ -159,13 +132,6 @@ Use `AskUserQuestion` to clarify the writeup content.
 > - **"Devil's advocate round"** — 1 round challenging the framing
 > - **"Deep dive round"** — 1 round drilling into a specific aspect
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
-**Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
-> - Interrogation depth chosen: `________`
-> - Minimum rounds completed: `________`
-> - User selected proceed: `________`
-
 ---
 
 ## 3. Writing
@@ -194,15 +160,6 @@ Use `AskUserQuestion` to clarify the writeup content.
 4.  **Write File**: Create the document at the computed path.
 
 5.  **Report**: Output to chat the created file path as a clickable link per `¶INV_TERMINAL_FILE_LINKS`.
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 3 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
-> - Writeup file created: `________` (real file path)
-> - All template sections populated: `________`
-> - File path reported: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
 
 **Constraint**: No debrief, no log, no session summary. Just report the created file.
 

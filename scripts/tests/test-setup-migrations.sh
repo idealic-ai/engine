@@ -245,6 +245,89 @@ rc=$?
 teardown
 
 # ============================================================================
+# Migration 006: hooks_to_project_local
+# ============================================================================
+echo ""
+echo "=== Migration 006: hooks_to_project_local ==="
+
+# Fresh: strips hooks, statusLine, and engine permissions from global settings
+setup
+cat > "$TEST_DIR/claude/settings.json" << 'SETTINGS'
+{
+  "permissions": {
+    "allow": [
+      "Bash(engine *)",
+      "Bash(~/.claude/scripts/*)",
+      "Glob(~/.claude/**)",
+      "Read(~/.claude/skills/**)",
+      "Read(sessions/**)",
+      "Bash(custom-user-thing)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "*", "hooks": [{"type": "command", "command": "~/.claude/hooks/pre-tool-use-heartbeat.sh"}]}
+    ]
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/tools/statusline.sh"
+  }
+}
+SETTINGS
+migration_006_hooks_to_project_local "$TEST_DIR/claude"
+has_hooks=$(jq 'has("hooks")' "$TEST_DIR/claude/settings.json")
+has_sl=$(jq 'has("statusLine")' "$TEST_DIR/claude/settings.json")
+[ "$has_hooks" = "false" ] && pass "M006-01: Strips hooks section" || fail "M006-01" "false" "$has_hooks"
+[ "$has_sl" = "false" ] && pass "M006-02: Strips statusLine section" || fail "M006-02" "false" "$has_sl"
+# Engine permissions removed but user custom permission preserved
+engine_perm=$(jq '[.permissions.allow[] | select(. == "Bash(engine *)")] | length' "$TEST_DIR/claude/settings.json")
+user_perm=$(jq '[.permissions.allow[] | select(. == "Bash(custom-user-thing)")] | length' "$TEST_DIR/claude/settings.json")
+[ "$engine_perm" = "0" ] && pass "M006-03: Removes engine permissions" || fail "M006-03" "0" "$engine_perm"
+[ "$user_perm" = "1" ] && pass "M006-04: Preserves user-custom permissions" || fail "M006-04" "1" "$user_perm"
+teardown
+
+# Idempotent: already clean — no hooks, no statusLine
+setup
+cat > "$TEST_DIR/claude/settings.json" << 'SETTINGS'
+{
+  "permissions": {"allow": ["Bash(custom-user-thing)"]}
+}
+SETTINGS
+migration_006_hooks_to_project_local "$TEST_DIR/claude"
+rc=$?
+user_perm=$(jq '[.permissions.allow[] | select(. == "Bash(custom-user-thing)")] | length' "$TEST_DIR/claude/settings.json")
+[ "$rc" -eq 0 ] && pass "M006-05: Idempotent — no-op when already clean" || fail "M006-05" "exit 0" "exit $rc"
+[ "$user_perm" = "1" ] && pass "M006-06: Preserves user permissions on idempotent run" || fail "M006-06" "1" "$user_perm"
+teardown
+
+# No settings.json — no-op
+setup
+migration_006_hooks_to_project_local "$TEST_DIR/claude"
+rc=$?
+[ "$rc" -eq 0 ] && pass "M006-07: No-op when no settings.json" || fail "M006-07" "exit 0" "exit $rc"
+teardown
+
+# All engine perms removed — permissions section cleaned up
+setup
+cat > "$TEST_DIR/claude/settings.json" << 'SETTINGS'
+{
+  "permissions": {
+    "allow": [
+      "Bash(engine *)",
+      "Bash(~/.claude/scripts/*)",
+      "Glob(~/.claude/**)"
+    ]
+  },
+  "hooks": {}
+}
+SETTINGS
+migration_006_hooks_to_project_local "$TEST_DIR/claude"
+has_perms=$(jq 'has("permissions")' "$TEST_DIR/claude/settings.json")
+[ "$has_perms" = "false" ] && pass "M006-08: Removes empty permissions section" || fail "M006-08" "false" "$has_perms"
+teardown
+
+# ============================================================================
 # Migration runner tests
 # ============================================================================
 echo ""
@@ -265,8 +348,8 @@ JSON
 output=$(run_migrations "$TEST_DIR/claude" "$TEST_DIR/sessions" "$TEST_DIR/engine" 2>&1)
 [ -f "$SETUP_MIGRATION_STATE" ] && pass "RUNNER-01: Creates state file" || fail "RUNNER-01" "state file" "missing"
 count=$(wc -l < "$SETUP_MIGRATION_STATE" | tr -d ' ')
-[ "$count" = "5" ] && pass "RUNNER-02: All 5 migrations recorded" || fail "RUNNER-02" "5" "$count"
-[[ "$output" == *"Applied 5"* ]] && pass "RUNNER-03: Reports 5 applied" || fail "RUNNER-03" "Applied 5" "$output"
+[ "$count" = "6" ] && pass "RUNNER-02: All 6 migrations recorded" || fail "RUNNER-02" "6" "$count"
+[[ "$output" == *"Applied 6"* ]] && pass "RUNNER-03: Reports 6 applied" || fail "RUNNER-03" "Applied 6" "$output"
 teardown
 
 # Skips already-applied
@@ -276,6 +359,7 @@ echo "002:perfile_skills:1707000001" >> "$SETUP_MIGRATION_STATE"
 echo "003:state_json_rename:1707000002" >> "$SETUP_MIGRATION_STATE"
 echo "004:remove_stale_skill_symlinks:1707000003" >> "$SETUP_MIGRATION_STATE"
 echo "005:add_hooks_to_settings:1707000004" >> "$SETUP_MIGRATION_STATE"
+echo "006:hooks_to_project_local:1707000005" >> "$SETUP_MIGRATION_STATE"
 output=$(run_migrations "$TEST_DIR/claude" "$TEST_DIR/sessions" "$TEST_DIR/engine" 2>&1)
 [[ "$output" == *"up to date"* ]] && pass "RUNNER-04: Skips all when up to date" || fail "RUNNER-04" "up to date" "$output"
 teardown
@@ -285,12 +369,13 @@ setup
 echo "001:perfile_scripts_hooks:1707000000" > "$SETUP_MIGRATION_STATE"
 echo "002:perfile_skills:1707000001" >> "$SETUP_MIGRATION_STATE"
 echo "003:state_json_rename:1707000002" >> "$SETUP_MIGRATION_STATE"
+echo "004:remove_stale_skill_symlinks:1707000003" >> "$SETUP_MIGRATION_STATE"
 cat > "$TEST_DIR/claude/settings.json" << 'JSON'
 {"hooks":{}}
 JSON
 output=$(run_migrations "$TEST_DIR/claude" "$TEST_DIR/sessions" "$TEST_DIR/engine" 2>&1)
 count=$(wc -l < "$SETUP_MIGRATION_STATE" | tr -d ' ')
-[ "$count" = "5" ] && pass "RUNNER-05: Runs only pending (2 new + 3 existing)" || fail "RUNNER-05" "5" "$count"
+[ "$count" = "6" ] && pass "RUNNER-05: Runs only pending (2 new + 4 existing)" || fail "RUNNER-05" "6" "$count"
 [[ "$output" == *"Applied 2"* ]] && pass "RUNNER-06: Reports correct pending count" || fail "RUNNER-06" "Applied 2" "$output"
 teardown
 
@@ -302,13 +387,13 @@ echo "=== pending_migrations ==="
 
 setup
 result=$(pending_migrations "$TEST_DIR/nonexistent-state")
-[ "$result" = "5" ] && pass "PENDING-01: All pending when no state file" || fail "PENDING-01" "5" "$result"
+[ "$result" = "6" ] && pass "PENDING-01: All pending when no state file" || fail "PENDING-01" "6" "$result"
 teardown
 
 setup
 echo "001:perfile_scripts_hooks:1707000000" > "$SETUP_MIGRATION_STATE"
 result=$(pending_migrations "$SETUP_MIGRATION_STATE")
-[ "$result" = "4" ] && pass "PENDING-02: Correct count with 1 applied" || fail "PENDING-02" "4" "$result"
+[ "$result" = "5" ] && pass "PENDING-02: Correct count with 1 applied" || fail "PENDING-02" "5" "$result"
 teardown
 
 setup
@@ -317,6 +402,7 @@ echo "002:perfile_skills:1707000001" >> "$SETUP_MIGRATION_STATE"
 echo "003:state_json_rename:1707000002" >> "$SETUP_MIGRATION_STATE"
 echo "004:remove_stale_skill_symlinks:1707000003" >> "$SETUP_MIGRATION_STATE"
 echo "005:add_hooks_to_settings:1707000004" >> "$SETUP_MIGRATION_STATE"
+echo "006:hooks_to_project_local:1707000005" >> "$SETUP_MIGRATION_STATE"
 result=$(pending_migrations "$SETUP_MIGRATION_STATE")
 [ "$result" = "0" ] && pass "PENDING-03: Zero pending when all applied" || fail "PENDING-03" "0" "$result"
 teardown

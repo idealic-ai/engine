@@ -7,18 +7,9 @@ tier: protocol
 
 Keeps documentation in sync with code changes and project state.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Document Update Protocol (The Surgical Standard)
 
@@ -30,12 +21,16 @@ Keeps documentation in sync with code changes and project state.
 {
   "taskType": "DOCUMENT_UPDATE",
   "phases": [
-    {"major": 0, "minor": 0, "name": "Setup"},
-    {"major": 0, "minor": 1, "name": "Interrogation"},
-    {"major": 1, "minor": 0, "name": "Diagnosis & Planning"},
+    {"major": 0, "minor": 0, "name": "Setup", "proof": ["mode", "session_dir", "templates_loaded", "parameters_parsed"]},
+    {"major": 0, "minor": 1, "name": "Interrogation", "proof": ["§CMD_EXECUTE_INTERROGATION_PROTOCOL", "§CMD_LOG_TO_DETAILS"]},
+    {"major": 1, "minor": 0, "name": "Diagnosis & Planning", "proof": ["context_sources_presented", "documentation_drift_assessed", "plan_written", "plan_presented", "user_approved"]},
     {"major": 1, "minor": 1, "name": "Agent Handoff"},
-    {"major": 2, "minor": 0, "name": "Operation"},
-    {"major": 3, "minor": 0, "name": "Synthesis"}
+    {"major": 2, "minor": 0, "name": "Operation", "proof": ["plan_steps_completed", "log_entries", "unresolved_blocks"]},
+    {"major": 3, "minor": 0, "name": "Synthesis"},
+    {"major": 3, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
+    {"major": 3, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
+    {"major": 3, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+    {"major": 3, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
   ],
   "nextSkills": ["/review", "/implement", "/analyze", "/brainstorm", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
@@ -76,7 +71,7 @@ Keeps documentation in sync with code changes and project state.
     *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md` (Template for continuous surgery logging)
     *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md` (Template for final session debrief/report)
     *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_PLAN.md` (Template for technical execution planning)
-    *   `.claude/directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
+    *   `.claude/.directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
 
 3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
     *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
@@ -108,15 +103,6 @@ Keeps documentation in sync with code changes and project state.
 
 7.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
     *   If any files are found, add them to `contextPaths` for ingestion.
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - Mode: `________` (surgical / refine / audit / custom)
-> - Role: `________` (quote the role name from the mode preset)
-> - Session dir: `________`
-> - Templates loaded: `________`, `________`, `________`
-> - Parameters parsed: `________`
 
 *Phase 0 always proceeds to Phase 0.1 — no transition question needed.*
 
@@ -179,13 +165,6 @@ Keeps documentation in sync with code changes and project state.
 > - **"More interrogation (3 more rounds)"** — Standard topic rounds, then this gate re-appears
 > - **"Deep dive round"** — 1 round drilling into a prior topic, then this gate re-appears
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 0b
-**Output this block in chat with every blank filled:**
-> **Phase 0b proof:**
-> - Depth chosen: `________`
-> - Rounds completed: `________` / `________`+
-> - DETAILS.md entries: `________`
-
 ---
 
 ## 1. Diagnosis & Planning (Pre-Op)
@@ -205,15 +184,6 @@ Keeps documentation in sync with code changes and project state.
     *   **Constraint**: Be specific. "Rewrite Section 3 of X.md" is better than "Update X.md".
 4.  **Verify**: **STOP**. Ask user to confirm the Surgical Plan.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
-**Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
-> - Context ingested: `________`
-> - Documentation drift assessed: `________`
-> - DOCUMENTATION_PLAN.md written: `________`
-> - Plan presented: `________`
-> - User approved: `________`
-
 ### Optional: Plan Walk-Through
 Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
 ```
@@ -231,7 +201,7 @@ Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
 If any items are flagged for revision, return to the plan for edits before proceeding.
 
 ### Phase Transition
-Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/directives/commands/CMD_PARALLEL_HANDOFF.md`):
+Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/.directives/commands/CMD_PARALLEL_HANDOFF.md`):
 1.  **Analyze**: Parse the plan's `**Depends**:` and `**Files**:` fields to derive parallel chunks.
 2.  **Visualize**: Present the chunk breakdown with non-intersection proof.
 3.  **Menu**: Present the richer handoff menu via `AskUserQuestion`.
@@ -303,18 +273,8 @@ Before calling any tool, ask yourself:
 **Constraint**: **High-Fidelity Logging**. Use `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`.
 **Constraint**: **BLIND WRITE**. Do not re-read the log file.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
-**Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
-> - Plan steps completed: `________`
-> - DOCUMENTATION_LOG.md entries: `________`
-> - Unresolved blocks: `________`
-
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "2: Operation"
-  nextPhase: "3: Synthesis"
-  prevPhase: "1: Diagnosis & Planning"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
@@ -324,37 +284,27 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 3: Synthesis.
-> 2. I will `§CMD_PROCESS_CHECKLISTS` (if any discovered checklists exist).
-> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_DOCUMENTATION.md` EXACTLY).
-> 4. I will `§CMD_MANAGE_TOC` to update `docs/TOC.md` with documentation files touched this session.
-> 5. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list all outputs.
-> 6. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
+> 3. I will also execute `§CMD_MANAGE_TOC` to update `docs/TOC.md` with documentation files touched this session.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
-**2. Execution — SEQUENTIAL, NO SKIPPING**
+**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
 
-[!!!] CRITICAL: Execute these steps IN ORDER.
+**Debrief creation notes** (for Step 1 -- `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
+*   Dest: `DOCUMENTATION.md`
+*   **Summary**: What was changed?
+*   **Prognosis**: Is the documentation healthy?
+*   **Expert Opinion**: Your subjective take on the state of the docs.
 
-**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
-
-**Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `DOCUMENTATION.md`).
-  *   Write the file using the Write tool. This MUST produce a real file in the session directory.
-  *   **Summary**: What was changed?
-  *   **Prognosis**: Is the documentation healthy?
-  *   **Expert Opinion**: Your subjective take on the state of the docs.
-
-**Step 2 (TOC MANAGEMENT)**: Execute `§CMD_MANAGE_TOC`.
+**Skill-specific step** (after Step 1, before Step 2):
+**TOC MANAGEMENT**: Execute `§CMD_MANAGE_TOC`.
   *   Collects all documentation files created, modified, or deleted during this session.
   *   Presents multichoice for TOC.md additions, description updates, and stale entry removals.
   *   Auto-applies selected changes to `docs/TOC.md`.
   *   Skips silently if no documentation files were touched.
 
-**Step 3**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
-
-**Step 4**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 5**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
+**Walk-through config** (for Step 3 -- `§CMD_WALK_THROUGH_RESULTS`):
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"
@@ -362,17 +312,5 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   debriefFile: "DOCUMENTATION.md"
   templateFile: "~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md"
 ```
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 3 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
-> - DOCUMENTATION.md written: `________` (real file path)
-> - Tags line: `________`
-> - Artifacts listed: `________`
-> - Session summary: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
-
-**Step 7**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.

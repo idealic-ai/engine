@@ -13,10 +13,10 @@
 #   Docs: (~/.claude/docs/)
 #     DAEMON.md — Dispatch protocol, tag routing
 #     FLEET.md — Worker coordination
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_CLAIM_BEFORE_WORK — Tag swap before routing to worker
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet dependency
-#   Tags: (~/.claude/directives/TAGS.md)
+#   Tags: (~/.claude/.directives/TAGS.md)
 #     §TAG_DISPATCH — Tag-to-skill routing table
 #
 # Dependencies:
@@ -40,7 +40,7 @@ PIDFILE="/tmp/dispatch-daemon.pid"
 LOGFILE="/tmp/dispatch-daemon.log"
 TAG_SCRIPT="$HOME/.claude/scripts/tag.sh"
 WORKERS_DIR="$HOME/.claude/fleet/workers"
-TAGS_FILE="$HOME/.claude/directives/TAGS.md"
+TAGS_FILE="$HOME/.claude/.directives/TAGS.md"
 
 # Debounce: ignore rapid-fire events on same file (seconds)
 DEBOUNCE_SECS=2

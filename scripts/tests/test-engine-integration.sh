@@ -46,14 +46,14 @@ create_sandbox() {
   chmod +x "$GDRIVE_BASE/engine/scripts/"*.sh
 
   # Create engine content in the GDrive engine
-  mkdir -p "$GDRIVE_BASE/engine/directives"
+  mkdir -p "$GDRIVE_BASE/engine/.directives"
   mkdir -p "$GDRIVE_BASE/engine/agents"
   mkdir -p "$GDRIVE_BASE/engine/scripts"
   mkdir -p "$GDRIVE_BASE/engine/hooks"
   mkdir -p "$GDRIVE_BASE/engine/skills/brainstorm"
   mkdir -p "$GDRIVE_BASE/engine/skills/implement"
 
-  echo "# Test" > "$GDRIVE_BASE/engine/directives/INVARIANTS.md"
+  echo "# Test" > "$GDRIVE_BASE/engine/.directives/INVARIANTS.md"
   echo "# SKILL" > "$GDRIVE_BASE/engine/skills/brainstorm/SKILL.md"
   echo "# SKILL" > "$GDRIVE_BASE/engine/skills/implement/SKILL.md"
   echo '#!/bin/bash' > "$GDRIVE_BASE/engine/scripts/session.sh"
@@ -132,7 +132,7 @@ echo "remote" > "$FAKE_LOCAL_ENGINE/.mode"
 OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" local 2>&1)
 
 # Should create symlinks in ~/.claude/ pointing to local engine
-assert_symlink "$HOME/.claude/directives" "LOCAL-01: directives symlink created"
+assert_symlink "$HOME/.claude/.directives" "LOCAL-01: .directives symlink created"
 
 # Mode file should say "local"
 MODE=$(cat "$FAKE_LOCAL_ENGINE/.mode")
@@ -157,7 +157,7 @@ MODE=$(cat "$FAKE_LOCAL_ENGINE/.mode")
 assert_eq "remote" "$MODE" "REMOTE-01: mode file set to remote"
 
 # Should create symlinks
-assert_symlink "$HOME/.claude/directives" "REMOTE-02: directives symlink created"
+assert_symlink "$HOME/.claude/.directives" "REMOTE-02: .directives symlink created"
 
 # Output should mention "remote"
 assert_contains "remote" "$OUT" "REMOTE-03: output mentions remote mode"
@@ -188,10 +188,10 @@ echo "=== Normal project setup flow ==="
 
 create_sandbox
 echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
-OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup 2>&1)
+OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup --yes 2>&1)
 
 # Engine symlinks should be created (using lib's setup_engine_symlinks)
-assert_symlink "$HOME/.claude/directives" "FLOW-01: engine directives symlink"
+assert_symlink "$HOME/.claude/.directives" "FLOW-01: engine .directives symlink"
 
 # Per-file symlinks for scripts/hooks (from lib's link_files_if_needed)
 assert_dir_exists "$HOME/.claude/scripts" "FLOW-03: scripts dir exists"
@@ -215,7 +215,7 @@ else
 fi
 
 # Project directives stub
-assert_dir_exists "$PROJECT_DIR/.claude/directives" "FLOW-08: project directives dir created"
+assert_dir_exists "$PROJECT_DIR/.claude/.directives" "FLOW-08: project .directives dir created"
 destroy_sandbox
 
 # ============================================================================
@@ -229,17 +229,17 @@ echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
 
 # Create a pre-migration state: whole-dir symlinks that migration_001 should convert
 # But since this is a fresh setup, migrations should run and record to state file
-OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup 2>&1)
+OUT=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup --yes 2>&1)
 
 # The migration state file should exist after setup runs
 MIGRATION_STATE="$HOME/.claude/engine/.migrations"
 if [ -f "$MIGRATION_STATE" ]; then
   pass "MIG-01: migration state file created"
 
-  # Should have recorded all 3 migrations
+  # Should have recorded all migrations (currently 6)
   COUNT=$(wc -l < "$MIGRATION_STATE" | tr -d ' ')
   if [ "$COUNT" -ge 3 ]; then
-    pass "MIG-02: all 3 migrations recorded in state file"
+    pass "MIG-02: all migrations recorded in state file ($COUNT entries)"
   else
     fail "MIG-02: migration count" ">=3" "$COUNT"
   fi
@@ -257,7 +257,7 @@ else
 fi
 
 # Run setup again -- migrations should be idempotent (all up to date)
-OUT2=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup 2>&1)
+OUT2=$(cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup --yes 2>&1)
 assert_contains "up to date" "$OUT2" "MIG-04: second run reports migrations up to date"
 destroy_sandbox
 
@@ -276,8 +276,8 @@ echo "local" > "$FAKE_LOCAL_ENGINE/.mode"
 # we're using the lib version.
 
 # Create a real dir where directives symlink should go
-mkdir -p "$HOME/.claude/directives"
-echo "local file" > "$HOME/.claude/directives/test.md"
+mkdir -p "$HOME/.claude/.directives"
+echo "local file" > "$HOME/.claude/.directives/test.md"
 
 # Run setup -- should NOT hang waiting for input (lib returns 2 for real dirs)
 OUT=$(cd "$PROJECT_DIR" && timeout 10 bash "$ENGINE_SH" local 2>&1)
@@ -290,7 +290,7 @@ else
 fi
 
 # The local file should still exist (not replaced)
-if [ -f "$HOME/.claude/directives/test.md" ]; then
+if [ -f "$HOME/.claude/.directives/test.md" ]; then
   pass "LIB-02: real dir preserved (non-interactive skip)"
 else
   fail "LIB-02: real dir preserved" "file exists" "replaced or deleted"
@@ -504,7 +504,7 @@ destroy_sandbox
 
 create_sandbox
 # First do a project setup to create symlinks
-cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup >/dev/null 2>&1
+cd "$PROJECT_DIR" && bash "$ENGINE_SH" setup --yes >/dev/null 2>&1
 
 echo "=== uninstall subcommand ==="
 
@@ -531,7 +531,7 @@ else
 fi
 
 # UNINSTALL-04: directives symlink removed
-assert_not_symlink "$HOME/.claude/directives" "UNINSTALL-04: directives symlink removed"
+assert_not_symlink "$HOME/.claude/.directives" "UNINSTALL-04: .directives symlink removed"
 
 # UNINSTALL-05: standards symlink removed
 assert_not_symlink "$HOME/.claude/standards" "UNINSTALL-05: standards symlink removed"

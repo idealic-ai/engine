@@ -51,7 +51,7 @@ set -euo pipefail
 #     INVARIANTS.md — Engine-specific invariants (tmux, hooks)
 #   Shared docs: (~/.claude/docs/)
 #     ENGINE_CLI.md — CLI protocol, function signatures, migration system
-#   Invariants: (~/.claude/directives/INVARIANTS.md)
+#   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_TEST_SANDBOX_ISOLATION — Test safety requirements
 #     ¶INV_INFER_USER_FROM_GDRIVE — Identity detection
 #
@@ -65,6 +65,7 @@ set -euo pipefail
 
 # ---- Parse top-level flags ----
 VERBOSE=false
+AUTO_YES=false
 
 # We need to handle --help and --verbose before anything else,
 # but pass all other args through to sub-commands.
@@ -79,6 +80,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --help|-h)
       SHOW_HELP=true
+      shift
+      ;;
+    --yes|-y)
+      AUTO_YES=true
       shift
       ;;
     *)
@@ -238,6 +243,7 @@ UTILITIES
 
 OPTIONS
   --verbose, -v          Verbose output
+  --yes, -y              Skip confirmation prompts (for scripts/tests)
   --help, -h             Show this help
 
 EXAMPLES
@@ -332,15 +338,15 @@ cmd_toc() {
   fi
 
   # Directives
-  if [ -d "$engine_dir/directives" ]; then
-    echo "directives/"
-    for directive in "$engine_dir/directives"/*.md; do
+  if [ -d "$engine_dir/.directives" ]; then
+    echo ".directives/"
+    for directive in "$engine_dir/.directives"/*.md; do
       [ -f "$directive" ] || continue
       printf "  %s\n" "$(basename "$directive")"
     done
-    if [ -d "$engine_dir/directives/commands" ]; then
+    if [ -d "$engine_dir/.directives/commands" ]; then
       echo "  commands/"
-      for cmd_file in "$engine_dir/directives/commands"/*.md; do
+      for cmd_file in "$engine_dir/.directives/commands"/*.md; do
         [ -f "$cmd_file" ] || continue
         printf "    %s\n" "$(basename "$cmd_file")"
       done
@@ -583,16 +589,13 @@ USERJSON
     local gdrive_tool_doc_db="$GDRIVE_ENGINE/tools/doc-search/.doc-search.db"
 
     if [ -f "$gdrive_doc_db" ]; then
-      cp "$gdrive_doc_db" "$doc_db"
-      ACTIONS+=("Copied doc-search DB from GDrive sessions/")
+      cp_if_different "$gdrive_doc_db" "$doc_db" "doc-search DB from GDrive sessions/"
     elif [ -f "$gdrive_tool_doc_db" ]; then
-      cp "$gdrive_tool_doc_db" "$doc_db"
-      ACTIONS+=("Copied doc-search DB from GDrive tool dir")
+      cp_if_different "$gdrive_tool_doc_db" "$doc_db" "doc-search DB from GDrive tool dir"
     fi
 
     if [ -f "$gdrive_session_db" ]; then
-      cp "$gdrive_session_db" "$session_db"
-      ACTIONS+=("Copied session-search DB from GDrive")
+      cp_if_different "$gdrive_session_db" "$session_db" "session-search DB from GDrive"
     fi
   else
     echo "  GDrive not accessible. Search DBs will be empty until indexed."
@@ -889,7 +892,7 @@ cmd_uninstall() {
   done
 
   local claude_dir="$HOME/.claude"
-  for link in "$claude_dir/standards" "$claude_dir/directives" "$claude_dir/scripts" "$claude_dir/tools"; do
+  for link in "$claude_dir/standards" "$claude_dir/directives" "$claude_dir/.directives" "$claude_dir/scripts" "$claude_dir/tools"; do
     if [ -L "$link" ]; then
       rm "$link"
       echo "  Removed: ~/.claude/$(basename "$link") symlink"
@@ -1146,6 +1149,16 @@ cmd_report() {
 # ============================================================================
 
 cmd_setup() {
+  # Parse cmd_setup's own args (supports `engine setup --yes [name]`)
+  local setup_args=()
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --yes|-y) AUTO_YES=true; shift ;;
+      *)        setup_args+=("$1"); shift ;;
+    esac
+  done
+  set -- "${setup_args[@]+"${setup_args[@]}"}"
+
   local ENGINE_DIR
   ENGINE_DIR=$(resolve_engine_dir "$(current_mode "$MODE_FILE")" "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$SCRIPT_DIR")
 
@@ -1187,6 +1200,32 @@ cmd_setup() {
     echo "  cd ~/Projects/myproject"
     echo "  engine setup"
     exit 1
+  fi
+
+  # Confirmation prompt (skip with --yes)
+  if [ "$AUTO_YES" != true ]; then
+    local storage_desc
+    if [ "$USE_LOCAL_STORAGE" = true ]; then
+      storage_desc="project-local (.claude/sessions)"
+    else
+      storage_desc="GDrive ($GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME)"
+    fi
+    echo ""
+    echo "About to set up workflow engine:"
+    echo "  Project:  $PROJECT_NAME"
+    echo "  Path:     $PROJECT_ROOT"
+    echo "  Engine:   $ENGINE_DIR"
+    echo "  Mode:     $(current_mode "$MODE_FILE")"
+    echo "  Storage:  $storage_desc"
+    echo ""
+    echo "This will create symlinks, configure settings, and set up session directories."
+    echo ""
+    read -rp "Proceed? [y/N] " confirm
+    if [ "$confirm" != "y" ] && [ "$confirm" != "Y" ]; then
+      echo "Aborted."
+      exit 0
+    fi
+    echo ""
   fi
 
   echo "Setting up workflow engine for $USER_NAME/$PROJECT_NAME"
@@ -1347,103 +1386,49 @@ REPREADME
     log_verbose "reports/README.md: OK"
   fi
 
-  # ---- Step 7: Configure Claude Code permissions ----
-  log_step "Step 7: Configure permissions"
+  # ---- Step 7: Configure Claude Code settings ----
+  # Engine config (hooks, statusLine, permissions) lives in PROJECT-LOCAL .claude/settings.json.
+  # Global ~/.claude/settings.json is for non-engine user config only.
+  log_step "Step 7: Configure settings"
   local GLOBAL_SETTINGS="$CLAUDE_DIR/settings.json"
-
-  read -r -d '' GLOBAL_PERMISSIONS << 'PERMS' || true
-{
-  "permissions": {
-    "allow": [
-      "Read(~/.claude/agents/**)",
-      "Read(~/.claude/skills/**)",
-      "Read(~/.claude/directives/**)",
-      "Glob(~/.claude/**)",
-      "Grep(~/.claude/**)",
-      "Bash(~/.claude/scripts/*)",
-      "Bash(~/.claude/tools/session-search/session-search.sh *)",
-      "Bash(~/.claude/tools/doc-search/doc-search.sh *)"
-    ]
-  }
-}
-PERMS
-
-  if command -v jq &> /dev/null; then
-    log_verbose "~/.claude/settings.json: configuring with jq"
-    if [ -f "$GLOBAL_SETTINGS" ] && [ -s "$GLOBAL_SETTINGS" ]; then
-      log_verbose "  merging permissions..."
-      local EXISTING MERGED
-      EXISTING=$(cat "$GLOBAL_SETTINGS")
-      MERGED=$(echo "$EXISTING" | jq --argjson new "$GLOBAL_PERMISSIONS" '
-        .permissions.allow = ((.permissions.allow // []) + $new.permissions.allow | unique)
-      ')
-      if [ "$EXISTING" != "$MERGED" ]; then
-        echo "$MERGED" > "$GLOBAL_SETTINGS"
-        ACTIONS+=("Updated ~/.claude/settings.json permissions")
-      fi
-    else
-      log_verbose "  creating new settings.json..."
-      echo "$GLOBAL_PERMISSIONS" > "$GLOBAL_SETTINGS"
-      ACTIONS+=("Created ~/.claude/settings.json")
-    fi
-
-    # StatusLine hook
-    log_verbose "  checking statusLine hook..."
-    local CURRENT_STATUSLINE
-    CURRENT_STATUSLINE=$(jq -r '.statusLine.command // ""' "$GLOBAL_SETTINGS" 2>/dev/null)
-    if [[ "$CURRENT_STATUSLINE" != *"statusline.sh"* ]]; then
-      log_verbose "  configuring statusLine hook..."
-      MERGED=$(cat "$GLOBAL_SETTINGS" | jq '.statusLine = {
-        "type": "command",
-        "command": "~/.claude/tools/statusline.sh"
-      }')
-      echo "$MERGED" > "$GLOBAL_SETTINGS"
-      if [ -z "$CURRENT_STATUSLINE" ]; then
-        ACTIONS+=("Added statusLine hook")
-      else
-        ACTIONS+=("Replaced default statusLine with engine statusLine")
-      fi
-    else
-      log_verbose "  statusLine: OK"
-    fi
-
-    # Fleet notification hooks (deep-merge via setup-lib.sh)
-    log_verbose "  checking notification hooks..."
-    configure_hooks "$GLOBAL_SETTINGS"
-  else
-    log_verbose "~/.claude/settings.json: jq not available, using basic config"
-    if [ ! -f "$GLOBAL_SETTINGS" ] || [ "$(cat "$GLOBAL_SETTINGS" 2>/dev/null)" = "{}" ]; then
-      echo "$GLOBAL_PERMISSIONS" > "$GLOBAL_SETTINGS"
-      ACTIONS+=("Created ~/.claude/settings.json (basic, no jq)")
-    fi
-  fi
-
-  # Project permissions
-  log_verbose ".claude/settings.json: configuring project permissions"
   local PROJECT_SETTINGS="$PROJECT_ROOT/.claude/settings.json"
   mkdir -p "$PROJECT_ROOT/.claude"
 
-  read -r -d '' PROJECT_PERMISSIONS << 'PERMS' || true
+  # All engine permissions — combined global + project scope
+  read -r -d '' ENGINE_PERMISSIONS << 'PERMS' || true
 {
   "permissions": {
     "allow": [
-      "Read(sessions/**)",
-      "Read(reports/**)",
-      "Grep(sessions/**)",
-      "Grep(reports/**)",
+      "Bash(engine *)",
+      "Bash(~/.claude/scripts/*)",
+      "Bash(~/.claude/tools/doc-search/doc-search.sh *)",
+      "Bash(~/.claude/tools/session-search/session-search.sh *)",
+      "Glob(reports/**)",
       "Glob(sessions/**)",
-      "Glob(reports/**)"
+      "Glob(~/.claude/**)",
+      "Grep(reports/**)",
+      "Grep(sessions/**)",
+      "Grep(~/.claude/**)",
+      "Read(reports/**)",
+      "Read(sessions/**)",
+      "Read(~/.claude/agents/**)",
+      "Read(~/.claude/commands/**)",
+      "Read(~/.claude/.directives/**)",
+      "Read(~/.claude/skills/**)"
     ]
   }
 }
 PERMS
 
   if command -v jq &> /dev/null; then
+    # ---- Project-local settings (hooks + statusLine + permissions) ----
+    log_verbose ".claude/settings.json: configuring project settings with jq"
+
     if [ -f "$PROJECT_SETTINGS" ] && [ -s "$PROJECT_SETTINGS" ]; then
       log_verbose "  merging project permissions..."
       local EXISTING MERGED
       EXISTING=$(cat "$PROJECT_SETTINGS")
-      MERGED=$(echo "$EXISTING" | jq --argjson new "$PROJECT_PERMISSIONS" '
+      MERGED=$(echo "$EXISTING" | jq --argjson new "$ENGINE_PERMISSIONS" '
         .permissions.allow = ((.permissions.allow // []) + $new.permissions.allow | unique)
       ')
       if [ "$EXISTING" != "$MERGED" ]; then
@@ -1454,16 +1439,43 @@ PERMS
       fi
     else
       log_verbose "  creating project settings.json..."
-      echo "$PROJECT_PERMISSIONS" > "$PROJECT_SETTINGS"
+      echo "$ENGINE_PERMISSIONS" > "$PROJECT_SETTINGS"
       ACTIONS+=("Created .claude/settings.json")
     fi
-  else
-    if [ ! -f "$PROJECT_SETTINGS" ] || [ "$(cat "$PROJECT_SETTINGS" 2>/dev/null)" = "{}" ] || [ ! -s "$PROJECT_SETTINGS" ]; then
-      log_verbose "  creating project settings.json (basic)..."
-      echo "$PROJECT_PERMISSIONS" > "$PROJECT_SETTINGS"
-      ACTIONS+=("Created .claude/settings.json (basic)")
+
+    # StatusLine hook (project-local)
+    log_verbose "  checking statusLine hook..."
+    configure_statusline "$PROJECT_SETTINGS"
+
+    # Engine hooks (project-local, deep-merge via setup-lib.sh)
+    log_verbose "  checking engine hooks..."
+    configure_hooks "$PROJECT_SETTINGS"
+
+    # ---- Global settings (strip engine config) ----
+    # Ensure global settings.json exists but has no engine-owned config
+    if [ -f "$GLOBAL_SETTINGS" ] && [ -s "$GLOBAL_SETTINGS" ]; then
+      log_verbose "~/.claude/settings.json: ensuring no engine config in global"
+      local HAS_HOOKS HAS_SL
+      HAS_HOOKS=$(jq 'has("hooks")' "$GLOBAL_SETTINGS" 2>/dev/null)
+      HAS_SL=$(jq 'has("statusLine")' "$GLOBAL_SETTINGS" 2>/dev/null)
+      if [ "$HAS_HOOKS" = "true" ] || [ "$HAS_SL" = "true" ]; then
+        log_verbose "  stripping hooks/statusLine from global settings..."
+        MERGED=$(cat "$GLOBAL_SETTINGS" | jq 'del(.hooks) | del(.statusLine)')
+        echo "$MERGED" > "$GLOBAL_SETTINGS"
+        ACTIONS+=("Stripped engine config from ~/.claude/settings.json")
+      else
+        log_verbose "  global settings: clean"
+      fi
     else
-      log_verbose "  project settings: OK"
+      log_verbose "~/.claude/settings.json: creating minimal"
+      echo '{}' > "$GLOBAL_SETTINGS"
+      ACTIONS+=("Created ~/.claude/settings.json (minimal)")
+    fi
+  else
+    log_verbose ".claude/settings.json: jq not available, using basic config"
+    if [ ! -f "$PROJECT_SETTINGS" ] || [ "$(cat "$PROJECT_SETTINGS" 2>/dev/null)" = "{}" ] || [ ! -s "$PROJECT_SETTINGS" ]; then
+      echo "$ENGINE_PERMISSIONS" > "$PROJECT_SETTINGS"
+      ACTIONS+=("Created .claude/settings.json (basic, no jq)")
     fi
   fi
 
@@ -1582,6 +1594,13 @@ case "$SUBCMD" in
     fi
     ;;
   fleet)
+    # Ensure setup has run before fleet operations
+    if [ ! -f "$SETUP_MARKER" ]; then
+      echo "First run detected. Running setup..."
+      echo ""
+      cmd_setup --yes
+      echo ""
+    fi
     # Thin wrapper: delegate to fleet.sh
     FLEET_SCRIPT="$SCRIPT_DIR/fleet.sh"
     if [ -x "$FLEET_SCRIPT" ]; then

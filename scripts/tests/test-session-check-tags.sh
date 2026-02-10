@@ -528,6 +528,77 @@ MD
   fi
 }
 
+# ---- Code Span Filtering Tests (CS-01 through CS-03) ----
+
+test_cs01_passes_tag_in_code_span() {
+  local S
+  S=$(make_session "cs01_code_span")
+
+  cat > "$S/IMPLEMENTATION_LOG.md" << 'MD'
+# Implementation Log
+
+## Commands Used
+Used `engine tag swap "$FILE" '#needs-review' '#done-review'` to resolve tags.
+Also ran `engine tag find '#needs-implementation' sessions/` for discovery.
+MD
+
+  local exit_code
+  "$SESSION_SH" check "$S" < /dev/null > /dev/null 2>&1
+  exit_code=$?
+
+  if [ "$exit_code" -eq 0 ]; then
+    pass "CS-01: check passes when tags only appear inside backtick code spans"
+  else
+    fail "CS-01: check passes when tags only appear inside backtick code spans" "exit 0" "exit $exit_code"
+  fi
+}
+
+test_cs02_fails_bare_tag_next_to_code_span() {
+  local S
+  S=$(make_session "cs02_mixed_span")
+
+  cat > "$S/IMPLEMENTATION_LOG.md" << 'MD'
+# Implementation Log
+
+## Notes
+Used `engine tag find '#needs-brainstorm'` to search. Also #needs-brainstorm here bare.
+MD
+
+  local exit_code output
+  output=$("$SESSION_SH" check "$S" < /dev/null 2>&1)
+  exit_code=$?
+
+  if [ "$exit_code" -eq 1 ] && echo "$output" | grep -q "#needs-brainstorm"; then
+    pass "CS-02: detects bare tag even when same tag appears in code span on same line"
+  else
+    fail "CS-02: detects bare tag even when same tag appears in code span on same line" "exit 1 + tag found" "exit=$exit_code"
+  fi
+}
+
+test_cs03_passes_multiple_code_spans() {
+  local S
+  S=$(make_session "cs03_multi_span")
+
+  cat > "$S/ANALYSIS.md" << 'MD'
+# Analysis
+**Tags**: #needs-review
+
+## Command Examples
+The `#needs-review` tag is auto-applied. Use `engine tag swap "$FILE" '#needs-review' '#done-review'` to resolve.
+Run `engine tag find '#needs-implementation'` for discovery. The `#delegated-fix` state means approved.
+MD
+
+  local exit_code
+  "$SESSION_SH" check "$S" < /dev/null > /dev/null 2>&1
+  exit_code=$?
+
+  if [ "$exit_code" -eq 0 ]; then
+    pass "CS-03: check passes with multiple code spans containing different lifecycle tags"
+  else
+    fail "CS-03: check passes with multiple code spans containing different lifecycle tags" "exit 0" "exit $exit_code"
+  fi
+}
+
 # ---- Run ----
 setup
 
@@ -559,6 +630,14 @@ test_hc05_tag_at_start_of_line
 test_hc06_tag_at_end_of_line
 test_hc07_tags_line_extra_whitespace
 test_hc08_mixed_escaped_and_bare_same_line
+
+echo ""
+echo "=== Code span filtering tests ==="
+echo ""
+
+test_cs01_passes_tag_in_code_span
+test_cs02_fails_bare_tag_next_to_code_span
+test_cs03_passes_multiple_code_spans
 
 teardown
 

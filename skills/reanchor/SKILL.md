@@ -11,7 +11,7 @@ Re-initializes session context after context overflow restart.
 [!!!] THIS IS A RECOVERY SKILL -- Follow the protocol EXACTLY.
 
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
@@ -55,9 +55,8 @@ Arguments:
 > 1. Activate session and load standards
 > 2. Read dehydrated context
 > 3. Load required files and skill protocol
-> 4. Log the restart entry
-> 5. **Reinstate logging discipline** (critical -- fresh context loses muscle memory)
-> 6. Resume at `[PHASE]`
+> 4. Log the restart entry and resume session tracking
+> 5. Resume at `[PHASE]`
 
 ---
 
@@ -78,9 +77,9 @@ engine session activate [SESSION_DIR] [SKILL]
 **Action**: Load the core standards into context. These are required for all skills.
 
 **Files to Read** (in order):
-1. `~/.claude/directives/COMMANDS.md` -- Command definitions
-2. `~/.claude/directives/INVARIANTS.md` -- System invariants
-3. `.claude/directives/INVARIANTS.md` -- Project invariants (if exists)
+1. `~/.claude/.directives/COMMANDS.md` -- Command definitions
+2. `~/.claude/.directives/INVARIANTS.md` -- System invariants
+3. `.claude/.directives/INVARIANTS.md` -- Project invariants (if exists)
 
 ---
 
@@ -106,7 +105,7 @@ engine session activate [SESSION_DIR] [SKILL]
 | Prefix | Location | Example |
 |--------|----------|---------|
 | `~/.claude/` | User home | `~/.claude/skills/refine/SKILL.md` -> shared engine |
-| `.claude/` | Project root | `.claude/directives/INVARIANTS.md` -> project-local config |
+| `.claude/` | Project root | `.claude/.directives/INVARIANTS.md` -> project-local config |
 | `sessions/` | Project root | `sessions/2026_02_05_FOO/REFINE_LOG.md` -> session artifacts |
 
 **WARNING**: `~/.claude/` is not `.claude/`. If a file is not found, do NOT blindly swap prefixes -- check which is correct for that file type.
@@ -152,47 +151,22 @@ Examples:
 **DO**:
 - Log the continuation to `_LOG.md`:
   ```bash
-  ~/.claude/scripts/log.sh [SESSION_DIR]/[SKILL_UPPER]_LOG.md <<'EOF'
-  ## [YYYY-MM-DD HH:MM:SS] Context Overflow Restart
+  engine log [SESSION_DIR]/[SKILL_UPPER]_LOG.md <<'EOF'
+  ## Context Overflow Restart
   *   **Resumed At**: [PHASE]
   *   **Last Action**: [from dehydrated context]
   *   **Next Steps**: [from dehydrated context]
   EOF
   ```
-- Update phase tracking: `engine session phase [SESSION_DIR] "[PHASE]"`
+- Resume session tracking with `engine session continue`:
+  `engine session continue [SESSION_DIR]`
+  This clears the `loading` flag and resets heartbeat counters without touching phase state. The saved phase in `.state.json` is the single source of truth — `continue` simply resumes the heartbeat at that phase.
 
 **Announce**: "Reanchored: `[SESSION_DIR]` -- resuming `[SKILL]` at `[PHASE]`"
 
 ---
 
-## Phase 7: Reinstate Logging Discipline
-
-[!!!] CRITICAL: Fresh context means you've lost the logging muscle memory. Reinstate it NOW.
-
-**Action**: Before doing ANY work, acknowledge the logging rules you MUST follow.
-
-**Output this blockquote verbatim**:
-> **Logging Discipline Reinstated**
->
-> I will obey `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to `§CMD_THINK_IN_LOG`:
-> - **Log File**: `[SESSION_DIR]/[SKILL_UPPER]_LOG.md`
-> - **Cadence**: Every 3-4 tool calls, log a status update
-> - **Format**: Use the log template schemas from `TEMPLATE_[SKILL]_LOG.md`
-> - **Timestamps**: Every entry header starts with `[YYYY-MM-DD HH:MM:SS]`
-> - **Blind Write**: Do NOT re-read the log file. Trust the append.
->
-> **Thought Triggers** (review before each tool call):
-> - Starting something? -> Log it
-> - Hit an error? -> Log it
-> - Made a choice? -> Log it
-> - Stuck? -> Log it
-> - Succeeded? -> Log it
-
-**Constraint**: If you make 3+ tool calls without logging, you are failing the protocol.
-
----
-
-## Phase 8: Report Resumed Intent
+## Phase 7: Report Resumed Intent
 
 **Action**: After rehydration is complete, report intent for the RESUMED skill.
 
@@ -223,21 +197,4 @@ Examples:
 - **Fresh context**: You have 0% context usage. Do NOT run `/dehydrate restart` again.
 - **Trust dehydrated context**: It was written by the previous Claude with full knowledge.
 - **Follow original protocol**: Once reanchored, follow the skill protocol exactly as if you were in that phase.
-- [!!!] **LOGGING IS NON-NEGOTIABLE**: The previous Claude logged. You MUST continue logging. Every hypothesis, every attempt, every success, every failure -- log it. If you're not logging, you're not following protocol. The log file is the audit trail that proves you did the work. A restart without continued logging is a failed restart.
-
----
-
-## Quick Reference
-
-```
-Session:    [SESSION_DIR]
-Skill:      [SKILL]
-Phase:      [PHASE]
-Log:        [SESSION_DIR]/[SKILL_UPPER]_LOG.md
-Dehydrated: [SESSION_DIR]/DEHYDRATED_CONTEXT.md
-
-LOGGING CHECKLIST (ask yourself constantly):
-   - Did I log what I'm about to do?
-   - Did I log the result?
-   - Has it been 3+ tool calls since my last log entry?
-```
+- **Logging**: The previous Claude logged. Continue logging per `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` and `§CMD_THINK_IN_LOG`. The `engine session continue` output tells you the log file path.

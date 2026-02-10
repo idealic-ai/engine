@@ -577,17 +577,18 @@ test_swap_no_match_on_tags_line() {
   local f="$TEST_DIR/test.md"
   create_md_with_tags "$f" "#other-tag"
 
-  # Swap a tag that's not on the Tags line — should be silent no-op (Tags-line mode)
-  bash "$TAG_SH" swap "$f" '#nonexistent' '#done-something'
+  # Swap a tag that's not on the Tags line — safety check rejects (¶INV_CLAIM_BEFORE_WORK)
+  local output
+  output=$(bash "$TAG_SH" swap "$f" '#nonexistent' '#done-something' 2>&1)
   local rc=$?
 
   local tags_line
   tags_line=$(grep '^\*\*Tags\*\*:' "$f")
-  if [[ $rc -eq 0 ]] && [[ "$tags_line" == *"#other-tag"* ]]; then
-    pass "EDGE-03: Tags-line swap with no match is no-op"
+  if [[ $rc -ne 0 ]] && [[ "$output" == *"ERROR"* ]] && [[ "$tags_line" == *"#other-tag"* ]]; then
+    pass "EDGE-03: Tags-line swap with no match errors (safety check)"
   else
-    fail "EDGE-03: Tags-line swap with no match is no-op" \
-      "exit 0, #other-tag preserved" "rc=$rc, tags=$tags_line"
+    fail "EDGE-03: Tags-line swap with no match errors (safety check)" \
+      "exit 1 + ERROR, #other-tag preserved" "rc=$rc, tags=$tags_line"
   fi
 }
 run_test test_swap_no_match_on_tags_line

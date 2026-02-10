@@ -28,7 +28,7 @@ setup() {
   mkdir -p "$TEST_DIR/engine/skills/brainstorm"
   mkdir -p "$TEST_DIR/engine/skills/implement"
   mkdir -p "$TEST_DIR/engine/skills/test"
-  mkdir -p "$TEST_DIR/engine/directives"
+  mkdir -p "$TEST_DIR/engine/.directives"
   mkdir -p "$TEST_DIR/engine/standards"
   mkdir -p "$TEST_DIR/engine/agents"
 
@@ -100,7 +100,7 @@ teardown
 
 setup
 # Create fake GDrive engine with required dirs
-mkdir -p "$TEST_DIR/gdrive/directives" "$TEST_DIR/gdrive/skills"
+mkdir -p "$TEST_DIR/gdrive/.directives" "$TEST_DIR/gdrive/skills"
 result=$(resolve_engine_dir "remote" "$TEST_DIR/engine" "$TEST_DIR/gdrive" "$TEST_DIR/scripts")
 [ "$result" = "$TEST_DIR/gdrive" ] && pass "RESOLVE-02: Remote mode returns GDrive engine when dirs exist" || fail "RESOLVE-02" "$TEST_DIR/gdrive" "$result"
 teardown
@@ -112,8 +112,8 @@ result=$(resolve_engine_dir "remote" "$TEST_DIR/engine" "$TEST_DIR/nonexistent" 
 teardown
 
 setup
-# Fallback: script_dir/../ has directives/ and skills/
-mkdir -p "$TEST_DIR/parent/directives" "$TEST_DIR/parent/skills" "$TEST_DIR/parent/scripts"
+# Fallback: script_dir/../ has .directives/ and skills/
+mkdir -p "$TEST_DIR/parent/.directives" "$TEST_DIR/parent/skills" "$TEST_DIR/parent/scripts"
 result=$(resolve_engine_dir "remote" "$TEST_DIR/engine" "$TEST_DIR/nonexistent" "$TEST_DIR/parent/scripts")
 expected=$(cd "$TEST_DIR/parent" && pwd)
 [ "$result" = "$expected" ] && pass "RESOLVE-04: Fallback to script_dir parent when GDrive missing" || fail "RESOLVE-04" "$expected" "$result"
@@ -224,7 +224,7 @@ echo "=== setup_engine_symlinks ==="
 setup
 setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
 # Check whole-dir symlinks
-[ -L "$TEST_DIR/claude/directives" ] && pass "ENGINE-01: directives/ symlinked" || fail "ENGINE-01" "symlink" "not"
+[ -L "$TEST_DIR/claude/.directives" ] && pass "ENGINE-01: .directives/ symlinked" || fail "ENGINE-01" "symlink" "not"
 [ -d "$TEST_DIR/claude/agents" ] && [ ! -L "$TEST_DIR/claude/agents" ] && pass "ENGINE-03: agents/ is real dir (per-file linking)" || fail "ENGINE-03" "real dir" "$([ -L "$TEST_DIR/claude/agents" ] && echo symlink || echo missing)"
 # Check per-file symlinks
 [ -L "$TEST_DIR/claude/scripts/session.sh" ] && pass "ENGINE-04: scripts/ has per-file symlinks" || fail "ENGINE-04" "symlink" "not"
@@ -415,15 +415,15 @@ echo "=== ensure_project_directives ==="
 
 setup
 ensure_project_directives "$TEST_DIR/project"
-[ -f "$TEST_DIR/project/.claude/directives/INVARIANTS.md" ] && pass "STD-01: Creates INVARIANTS.md" || fail "STD-01" "file exists" "missing"
+[ -f "$TEST_DIR/project/.claude/.directives/INVARIANTS.md" ] && pass "STD-01: Creates INVARIANTS.md" || fail "STD-01" "file exists" "missing"
 teardown
 
 setup
-mkdir -p "$TEST_DIR/project/.claude/directives"
-echo "# Custom" > "$TEST_DIR/project/.claude/directives/INVARIANTS.md"
+mkdir -p "$TEST_DIR/project/.claude/.directives"
+echo "# Custom" > "$TEST_DIR/project/.claude/.directives/INVARIANTS.md"
 ACTIONS=()
 ensure_project_directives "$TEST_DIR/project"
-content=$(cat "$TEST_DIR/project/.claude/directives/INVARIANTS.md")
+content=$(cat "$TEST_DIR/project/.claude/.directives/INVARIANTS.md")
 [ "$content" = "# Custom" ] && pass "STD-02: Preserves existing INVARIANTS.md" || fail "STD-02" "# Custom" "$content"
 [ ${#ACTIONS[@]} -eq 0 ] && pass "STD-03: No ACTIONS when file exists" || fail "STD-03" "0 actions" "${#ACTIONS[@]} actions"
 teardown
@@ -460,6 +460,153 @@ printf 'sessions/\n' > "$TEST_DIR/project/.gitignore"
 ACTIONS=()
 update_gitignore "$TEST_DIR/project" "sessions"
 [ ${#ACTIONS[@]} -eq 0 ] && pass "GIT-07: Recognizes entry with trailing slash" || fail "GIT-07" "0 actions" "${#ACTIONS[@]} actions"
+teardown
+
+# ============================================================================
+# Stale symlink cleanup tests (setup_engine_symlinks)
+# ============================================================================
+echo ""
+echo "=== stale symlink cleanup ==="
+
+# STALE-01: Should remove stale engine symlink pointing to different engine
+# Note: cleanup pattern matches */engine/skills/*, so stale path must contain /engine/skills/
+setup
+mkdir -p "$TEST_DIR/other-root/engine/skills/old-skill"
+mkdir -p "$TEST_DIR/claude/skills"
+ln -s "$TEST_DIR/other-root/engine/skills/old-skill" "$TEST_DIR/claude/skills/old-skill"
+setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
+[ ! -L "$TEST_DIR/claude/skills/old-skill" ] && pass "STALE-01: Removes stale symlink from different engine" || fail "STALE-01" "removed" "still exists"
+teardown
+
+# STALE-02: Should preserve symlink pointing to current engine
+setup
+setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
+[ -L "$TEST_DIR/claude/skills/brainstorm" ] && pass "STALE-02: Preserves symlink to current engine" || fail "STALE-02" "symlink" "not symlink"
+actual=$(readlink "$TEST_DIR/claude/skills/brainstorm")
+[[ "$actual" == "$TEST_DIR/engine/skills/brainstorm"* ]] && pass "STALE-02b: Points to correct engine" || fail "STALE-02b" "$TEST_DIR/engine/skills/brainstorm*" "$actual"
+teardown
+
+# STALE-03: Should preserve user-created symlink (not pointing to any engine)
+setup
+mkdir -p "$TEST_DIR/user-custom-path"
+mkdir -p "$TEST_DIR/claude/skills"
+ln -s "$TEST_DIR/user-custom-path" "$TEST_DIR/claude/skills/custom"
+setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
+[ -L "$TEST_DIR/claude/skills/custom" ] && pass "STALE-03: Preserves user symlink (not engine path)" || fail "STALE-03" "symlink" "removed"
+actual=$(readlink "$TEST_DIR/claude/skills/custom")
+[ "$actual" = "$TEST_DIR/user-custom-path" ] && pass "STALE-03b: User symlink target unchanged" || fail "STALE-03b" "$TEST_DIR/user-custom-path" "$actual"
+teardown
+
+# STALE-04: Should preserve real (non-symlink) skill directory
+setup
+mkdir -p "$TEST_DIR/claude/skills/local-skill"
+echo "# Local" > "$TEST_DIR/claude/skills/local-skill/SKILL.md"
+setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
+[ -d "$TEST_DIR/claude/skills/local-skill" ] && [ ! -L "$TEST_DIR/claude/skills/local-skill" ] && pass "STALE-04: Preserves real skill directory" || fail "STALE-04" "real dir" "missing or symlink"
+[ -f "$TEST_DIR/claude/skills/local-skill/SKILL.md" ] && pass "STALE-04b: Real dir content preserved" || fail "STALE-04b" "file exists" "missing"
+teardown
+
+# STALE-05: Should report correct count in ACTIONS for multiple stale symlinks
+setup
+mkdir -p "$TEST_DIR/root-a/engine/skills/skill-a"
+mkdir -p "$TEST_DIR/root-b/engine/skills/skill-b"
+mkdir -p "$TEST_DIR/root-c/engine/skills/skill-c"
+mkdir -p "$TEST_DIR/claude/skills"
+ln -s "$TEST_DIR/root-a/engine/skills/skill-a" "$TEST_DIR/claude/skills/skill-a"
+ln -s "$TEST_DIR/root-b/engine/skills/skill-b" "$TEST_DIR/claude/skills/skill-b"
+ln -s "$TEST_DIR/root-c/engine/skills/skill-c" "$TEST_DIR/claude/skills/skill-c"
+setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
+found_action=false
+for action in "${ACTIONS[@]}"; do
+  if [[ "$action" == *"Removed 3 stale skill symlinks"* ]]; then
+    found_action=true
+    break
+  fi
+done
+[ "$found_action" = true ] && pass "STALE-05: ACTIONS reports 'Removed 3 stale skill symlinks'" || fail "STALE-05" "Removed 3 stale..." "${ACTIONS[*]}"
+teardown
+
+# STALE-06: Broken stale symlinks are removed (fixed — find -type l catches broken links)
+setup
+mkdir -p "$TEST_DIR/claude/skills"
+ln -s "$TEST_DIR/deleted/engine/skills/dead-skill" "$TEST_DIR/claude/skills/dead-skill"
+setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
+[ ! -L "$TEST_DIR/claude/skills/dead-skill" ] && pass "STALE-06: Broken stale symlink is removed" || fail "STALE-06" "removed" "still exists"
+teardown
+
+# STALE-07: Should clean up stale symlinks after whole-dir skills/ migration
+setup
+mkdir -p "$TEST_DIR/old-root/engine/skills/brainstorm"
+mkdir -p "$TEST_DIR/old-root/engine/skills/implement"
+mkdir -p "$TEST_DIR/old-root/engine/skills/old-only"
+# Start with whole-dir symlink to old engine
+ln -s "$TEST_DIR/old-root/engine/skills" "$TEST_DIR/claude/skills"
+# Now run setup with new engine — should migrate + create per-skill + no stale
+setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
+[ -d "$TEST_DIR/claude/skills" ] && [ ! -L "$TEST_DIR/claude/skills" ] && pass "STALE-07: Whole-dir symlink migrated to real dir" || fail "STALE-07" "real dir" "symlink or missing"
+[ -L "$TEST_DIR/claude/skills/brainstorm" ] && pass "STALE-07b: New engine skills linked" || fail "STALE-07b" "symlink" "not"
+actual=$(readlink "$TEST_DIR/claude/skills/brainstorm")
+[[ "$actual" == "$TEST_DIR/engine/skills/brainstorm"* ]] && pass "STALE-07c: Points to new engine" || fail "STALE-07c" "$TEST_DIR/engine/skills/brainstorm*" "$actual"
+teardown
+
+# STALE-08: Broken non-engine symlink in skills/ is removed
+setup
+mkdir -p "$TEST_DIR/claude/skills"
+ln -s "$TEST_DIR/deleted/user/custom-path" "$TEST_DIR/claude/skills/broken-user-skill"
+setup_engine_symlinks "$TEST_DIR/engine" "$TEST_DIR/claude"
+[ ! -L "$TEST_DIR/claude/skills/broken-user-skill" ] && pass "STALE-08: Broken non-engine symlink is removed" || fail "STALE-08" "removed" "still exists"
+teardown
+
+# ============================================================================
+# cp_if_different tests
+# ============================================================================
+echo ""
+echo "=== cp_if_different ==="
+
+# CPGUARD-01: Should copy when source and dest are different files
+setup
+echo "source content" > "$TEST_DIR/src-file.txt"
+echo "old content" > "$TEST_DIR/dest-file.txt"
+cp_if_different "$TEST_DIR/src-file.txt" "$TEST_DIR/dest-file.txt" "test-file"
+actual=$(cat "$TEST_DIR/dest-file.txt")
+[ "$actual" = "source content" ] && pass "CPGUARD-01: Copies when files differ" || fail "CPGUARD-01" "source content" "$actual"
+teardown
+
+# CPGUARD-02: Should skip when source and dest are same file (identical realpath)
+setup
+echo "shared content" > "$TEST_DIR/real-file.txt"
+ln -s "$TEST_DIR/real-file.txt" "$TEST_DIR/link-a.txt"
+ln -s "$TEST_DIR/real-file.txt" "$TEST_DIR/link-b.txt"
+ACTIONS=()
+cp_if_different "$TEST_DIR/link-a.txt" "$TEST_DIR/link-b.txt" "test-file"
+[ ${#ACTIONS[@]} -eq 0 ] && pass "CPGUARD-02: Skips copy when same realpath (no ACTIONS)" || fail "CPGUARD-02" "0 actions" "${#ACTIONS[@]} actions"
+teardown
+
+# CPGUARD-03: Should copy when dest does not exist
+setup
+echo "new content" > "$TEST_DIR/src-file.txt"
+cp_if_different "$TEST_DIR/src-file.txt" "$TEST_DIR/new-dest.txt" "test-file"
+[ -f "$TEST_DIR/new-dest.txt" ] && pass "CPGUARD-03: Creates dest when missing" || fail "CPGUARD-03" "file exists" "missing"
+actual=$(cat "$TEST_DIR/new-dest.txt")
+[ "$actual" = "new content" ] && pass "CPGUARD-03b: Dest has correct content" || fail "CPGUARD-03b" "new content" "$actual"
+teardown
+
+# CPGUARD-04: Should fail when source does not exist
+setup
+cp_if_different "$TEST_DIR/nonexistent.txt" "$TEST_DIR/dest.txt" "test-file"
+rc=$?
+[ "$rc" -eq 1 ] && pass "CPGUARD-04: Returns 1 when source missing" || fail "CPGUARD-04" "exit 1" "exit $rc"
+[ ! -f "$TEST_DIR/dest.txt" ] && pass "CPGUARD-04b: Dest not created" || fail "CPGUARD-04b" "no file" "file exists"
+teardown
+
+# CPGUARD-05: Should skip when both symlinks point to same target
+setup
+echo "target content" > "$TEST_DIR/target.txt"
+ln -s "$TEST_DIR/target.txt" "$TEST_DIR/sym-src.txt"
+ln -s "$TEST_DIR/target.txt" "$TEST_DIR/sym-dest.txt"
+ACTIONS=()
+cp_if_different "$TEST_DIR/sym-src.txt" "$TEST_DIR/sym-dest.txt" "test-file"
+[ ${#ACTIONS[@]} -eq 0 ] && pass "CPGUARD-05: Skips when both symlinks to same target" || fail "CPGUARD-05" "0 actions" "${#ACTIONS[@]} actions"
 teardown
 
 # ============================================================================

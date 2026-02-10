@@ -13,7 +13,7 @@
 #   4. Otherwise → deny with session selection instructions
 #
 # Whitelist (allowed without active session):
-#   - Bash: engine session/log/tag/glob commands
+#   - Bash: engine session commands only (activate/deactivate/find/phase)
 #   - AskUserQuestion: always (for skill/session selection dialogue)
 #   - Skill: always (skill invocation activates session)
 #   - Read: paths under ~/.claude/ (standards, skills, docs, engine)
@@ -62,13 +62,12 @@ if [ "$TOOL_NAME" = "Skill" ]; then
   hook_allow
 fi
 
-# Bash: whitelist engine session/log/tag/glob commands
+# Bash: whitelist engine session commands only
+# Only session activation is needed pre-session. After activation, lifecycle check passes.
+# Removed: engine log, tag, glob — not needed before session, enabled gate circumvention.
 if [ "$TOOL_NAME" = "Bash" ]; then
   BASH_CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
-  if is_engine_session_cmd "$BASH_CMD" || \
-     is_engine_log_cmd "$BASH_CMD" || \
-     is_engine_tag_cmd "$BASH_CMD" || \
-     is_engine_glob_cmd "$BASH_CMD"; then
+  if is_engine_session_cmd "$BASH_CMD"; then
     hook_allow
   fi
 fi
@@ -107,8 +106,8 @@ SESSION_DIR=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
 if [ -n "$SESSION_DIR" ] && [ -f "$SESSION_DIR/.state.json" ]; then
   LIFECYCLE=$(jq -r '.lifecycle // "active"' "$SESSION_DIR/.state.json" 2>/dev/null || echo "active")
 
-  # Active or dehydrating sessions allow all tools
-  if [ "$LIFECYCLE" = "active" ] || [ "$LIFECYCLE" = "dehydrating" ]; then
+  # Active, dehydrating, or resuming sessions allow all tools
+  if [ "$LIFECYCLE" = "active" ] || [ "$LIFECYCLE" = "dehydrating" ] || [ "$LIFECYCLE" = "resuming" ]; then
     hook_allow
   fi
 
@@ -134,6 +133,7 @@ else
   DENY_GUIDANCE="Use AskUserQuestion to ask the user which skill they want to use and in which session."
 fi
 
-DENY_GUIDANCE="${DENY_GUIDANCE}\n\nWhitelisted tools (available now): Read(~/.claude/*), Bash(engine session/log/tag/glob), AskUserQuestion, Skill."
+DENY_GUIDANCE="${DENY_GUIDANCE}\n\nUse /do for quick tasks, or pick a skill with AskUserQuestion.\nPopular skills: /implement, /analyze, /fix, /test"
 
 hook_deny "$DENY_REASON" "$DENY_GUIDANCE" ""
+exit 0

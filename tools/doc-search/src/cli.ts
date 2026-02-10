@@ -8,6 +8,7 @@ import { parseChunks, type DocChunk } from "./chunker.js";
 import { createEmbeddingClient } from "./embed.js";
 import { reconcileChunks, type IndexReport } from "./indexer.js";
 import { searchDocs, groupResultsByFile, type QueryFilters } from "./query.js";
+import { parseTimeArg, toUnixMs } from "../../shared/parse-time-arg.js";
 import { acquireLock, releaseLock } from "./lock.js";
 
 const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -110,7 +111,14 @@ Query options:
   --branch NAME     Filter by specific branch (default: current branch)
   --all-branches    Search all branches
   --all-projects    Search all indexed projects (not just current)
+  --since TIME      Only docs modified on or after TIME
+  --until TIME      Only docs modified before TIME
   --limit N         Max results (default: 20)
+
+TIME formats:
+  16h, 7d, 2w, 1m, 1y   Relative (hours, days, weeks, months, years ago)
+  2026-02-01             Absolute date (midnight UTC)
+  2026-02-01T14:30:00Z   ISO datetime
 
 Environment:
   GEMINI_API_KEY    Required for embedding (index and query)
@@ -419,6 +427,22 @@ async function main(): Promise<void> {
       }
       if (flags["all-projects"]) {
         filters.allProjects = true;
+      }
+      if (flags["since"] && typeof flags["since"] === "string") {
+        try {
+          filters.since = toUnixMs(parseTimeArg(flags["since"]));
+        } catch (e: unknown) {
+          console.error(`Error: Invalid --since value: ${(e as Error).message}`);
+          process.exit(1);
+        }
+      }
+      if (flags["until"] && typeof flags["until"] === "string") {
+        try {
+          filters.until = toUnixMs(parseTimeArg(flags["until"]));
+        } catch (e: unknown) {
+          console.error(`Error: Invalid --until value: ${(e as Error).message}`);
+          process.exit(1);
+        }
       }
 
       const limit =

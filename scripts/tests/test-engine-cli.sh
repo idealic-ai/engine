@@ -42,18 +42,18 @@ test_help_flag() {
   local output
   output=$(bash "$ENGINE_SH" --help 2>&1)
 
-  # Should contain "Built-in commands:" section
-  if echo "$output" | grep -q "Built-in commands:"; then
-    pass "--help shows Built-in commands section"
+  # Should contain "LIFECYCLE COMMANDS" section (core built-in commands)
+  if echo "$output" | grep -q "LIFECYCLE COMMANDS"; then
+    pass "--help shows LIFECYCLE COMMANDS section"
   else
-    fail "--help shows Built-in commands section" "Contains 'Built-in commands:'" "$output"
+    fail "--help shows LIFECYCLE COMMANDS section" "Contains 'LIFECYCLE COMMANDS'" "$output"
   fi
 
-  # Should contain "Script commands" section
-  if echo "$output" | grep -q "Script commands"; then
-    pass "--help shows Script commands section"
+  # Should contain "SESSION MANAGEMENT" section (script-based commands)
+  if echo "$output" | grep -q "SESSION MANAGEMENT"; then
+    pass "--help shows SESSION MANAGEMENT section"
   else
-    fail "--help shows Script commands section" "Contains 'Script commands'" "$output"
+    fail "--help shows SESSION MANAGEMENT section" "Contains 'SESSION MANAGEMENT'" "$output"
   fi
 }
 
@@ -80,15 +80,15 @@ test_help_excludes_engine() {
   local output
   output=$(bash "$ENGINE_SH" --help 2>&1)
 
-  # The "Script commands" section should NOT list "engine" (would create engine engine)
-  # Extract just the script commands section
-  local scripts_section
-  scripts_section=$(echo "$output" | sed -n '/Script commands/,/^$/p')
+  # The help output should NOT list "engine" as a sub-command (would create engine engine)
+  # Extract only the command names (first word of 2-space indented lines)
+  local command_names
+  command_names=$(echo "$output" | grep '^  [a-z]' | grep -v '#' | awk '{print $1}')
 
-  if echo "$scripts_section" | grep -qw "engine"; then
-    fail "--help excludes 'engine' from script list" "engine not listed" "engine is listed"
+  if echo "$command_names" | grep -qx "engine"; then
+    fail "--help excludes 'engine' from command list" "engine not listed as command" "engine is listed"
   else
-    pass "--help excludes 'engine' from script list"
+    pass "--help excludes 'engine' from command list"
   fi
 }
 
@@ -97,10 +97,10 @@ test_help_subcommand() {
   local output
   output=$(bash "$ENGINE_SH" help 2>&1)
 
-  if echo "$output" | grep -q "Built-in commands:"; then
+  if echo "$output" | grep -q "LIFECYCLE COMMANDS"; then
     pass "'engine help' shows help output"
   else
-    fail "'engine help' shows help output" "Contains 'Built-in commands:'" "$output"
+    fail "'engine help' shows help output" "Contains 'LIFECYCLE COMMANDS'" "$output"
   fi
 }
 
@@ -132,10 +132,10 @@ test_verbose_flag_parsed() {
   local output
   output=$(bash "$ENGINE_SH" --verbose --help 2>&1)
 
-  if echo "$output" | grep -q "Built-in commands:"; then
+  if echo "$output" | grep -q "LIFECYCLE COMMANDS"; then
     pass "--verbose --help still shows help"
   else
-    fail "--verbose --help still shows help" "Contains 'Built-in commands:'" "$output"
+    fail "--verbose --help still shows help" "Contains 'LIFECYCLE COMMANDS'" "$output"
   fi
 }
 
@@ -144,10 +144,10 @@ test_short_flags() {
   local output
   output=$(bash "$ENGINE_SH" -h 2>&1)
 
-  if echo "$output" | grep -q "Built-in commands:"; then
+  if echo "$output" | grep -q "LIFECYCLE COMMANDS"; then
     pass "-h flag shows help"
   else
-    fail "-h flag shows help" "Contains 'Built-in commands:'" "$output"
+    fail "-h flag shows help" "Contains 'LIFECYCLE COMMANDS'" "$output"
   fi
 }
 
@@ -254,10 +254,10 @@ test_flag_forwarding_does_not_error() {
   local output
   # Use --help as a known flag to verify flags are parsed
   output=$(bash "$ENGINE_SH" --help 2>&1)
-  if echo "$output" | grep -q "Built-in commands:"; then
+  if echo "$output" | grep -q "LIFECYCLE COMMANDS"; then
     pass "--help still works (known flag)"
   else
-    fail "--help still works" "Contains 'Built-in commands:'" "$output"
+    fail "--help still works" "Contains 'LIFECYCLE COMMANDS'" "$output"
   fi
 }
 

@@ -7,18 +7,9 @@ tier: protocol
 
 Iterative prompt and schema refinement using TDD methodology for LLM workloads.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Refinement Protocol (The Iteration Engine)
 
@@ -39,16 +30,19 @@ ARGUMENTS: Accepts optional flags:
 {
   "taskType": "CHANGESET",
   "phases": [
-    {"major": 0, "minor": 0, "name": "Setup"},
-    {"major": 1, "minor": 0, "name": "Interrogation"},
-    {"major": 2, "minor": 0, "name": "Planning"},
-    {"major": 3, "minor": 0, "name": "Validation"},
-    {"major": 4, "minor": 0, "name": "Baseline"},
-    {"major": 5, "minor": 0, "name": "Iteration Loop"},
-    {"major": 6, "minor": 0, "name": "Synthesis"}
+    {"major": 0, "minor": 0, "name": "Setup", "proof": ["mode", "session_dir", "templates_loaded", "parameters_parsed", "flags_parsed", "routing"]},
+    {"major": 1, "minor": 0, "name": "Interrogation", "proof": ["depth_chosen", "rounds_completed", "manifest_validated"]},
+    {"major": 2, "minor": 0, "name": "Planning", "proof": ["failure_context", "hypotheses_ranked", "experiments_designed", "cases_selected", "success_criteria", "plan_written", "user_approved"]},
+    {"major": 3, "minor": 0, "name": "Validation", "proof": ["test_fixture", "pipeline_result", "manifest_saved", "validation_logged"]},
+    {"major": 4, "minor": 0, "name": "Baseline", "proof": ["cases_executed", "baseline_metrics", "baseline_presented", "user_approved"]},
+    {"major": 5, "minor": 0, "name": "Iteration Loop", "proof": ["iterations_completed", "log_entries", "exit_condition"]},
+    {"major": 6, "minor": 0, "name": "Synthesis"},
+    {"major": 6, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
+    {"major": 6, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
+    {"major": 6, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+    {"major": 6, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
   ],
   "nextSkills": ["/refine", "/test", "/implement", "/analyze", "/chores"],
-  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
   "planTemplate": "~/.claude/skills/refine/assets/TEMPLATE_REFINE_PLAN.md",
   "logTemplate": "~/.claude/skills/refine/assets/TEMPLATE_REFINE_LOG.md",
@@ -85,7 +79,7 @@ ARGUMENTS: Accepts optional flags:
     *   `~/.claude/skills/refine/assets/TEMPLATE_REFINE_LOG.md` (Template for experiment logging)
     *   `~/.claude/skills/refine/assets/TEMPLATE_REFINE.md` (Template for session debrief)
     *   `~/.claude/skills/refine/assets/MANIFEST_SCHEMA.json` (Schema for workload manifest)
-    *   `.claude/directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
+    *   `.claude/.directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
 
 3.  **Parse Arguments**: Check for flags in the user's command:
     *   `--manifest <path>`: Skip interrogation, use existing manifest
@@ -136,17 +130,6 @@ ARGUMENTS: Accepts optional flags:
 10. **Plan Check**: Does `--plan <path>` exist?
     *   **If Yes**: Read the plan, skip to Phase 3 (Validation).
     *   **If No**: Proceed to Phase 2 (Planning).
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - Mode: `________` (accuracy / speed / robustness / custom)
-> - Role: `________` (quote the role name from the mode preset)
-> - Session dir: `________`
-> - Templates loaded: `________`
-> - Parameters parsed: `________`
-> - Flags parsed: `________`
-> - Routing: `________`
 
 ### Phase Transition
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
@@ -254,20 +237,8 @@ Within the interrogation rounds, cover these manifest-specific fields:
     > - **"Confirmed"** — Manifest is correct, proceed
     > - **"I have changes"** — Let me adjust before proceeding
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
-**Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
-> - Depth chosen: `________`
-> - Rounds completed: `________` / `________`+
-> - DETAILS.md entries: `________`
-> - Manifest validated: `________`
-> - User confirmed: `________`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "1: Interrogation"
-  nextPhase: "2: Planning"
-  prevPhase: "0: Setup"
   custom: "Skip to Phase 3: Validation | Jump straight to single-fixture test"
 
 ---
@@ -325,22 +296,8 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
     > - **"Approved"** — Plan is good, begin execution
     > - **"Needs revision"** — Adjust the plan first
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
-**Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
-> - Failure context: `________`
-> - Hypotheses ranked: `________`
-> - Experiments designed: `________`
-> - Cases selected: `________`
-> - Success criteria: `________`
-> - REFINE_PLAN.md written: `________`
-> - User approved: `________`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "2: Planning"
-  nextPhase: "3: Validation"
-  prevPhase: "1: Interrogation"
   custom: "Skip to Phase 4: Baseline | Manifest already validated, go straight to baseline"
 
 ---
@@ -385,19 +342,8 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
     4.  **Loop**: Return to Step B and retry (max 3 attempts).
     5.  **If 3 failures**: Abort with "Please fix the manifest manually and re-run with `--manifest <path>`."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
-**Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
-> - Test fixture: `________`
-> - Pipeline result: `________`
-> - Manifest saved: `________`
-> - Validation logged: `________`
-
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "3: Validation"
-  nextPhase: "4: Baseline"
-  prevPhase: "2: Planning"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
@@ -440,19 +386,8 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
     > - **"Begin"** — Start iterating on refinements
     > - **"Let me review"** — I want to inspect the baseline first
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 4
-**Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
-> - Cases executed: `________`
-> - Baseline metrics: `________`
-> - Baseline presented: `________`
-> - User confirmed: `________`
-
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "4: Baseline"
-  nextPhase: "5: Iteration Loop"
-  prevPhase: "3: Validation"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
@@ -485,44 +420,28 @@ Before calling any tool, ask yourself:
     *   Collect error messages from failed validators.
 3.  **Log**: Append findings to REFINE_LOG.md using appropriate thought triggers.
 
-#### Step B: Visual Critique (Reviewer Agent)
+#### Step B: Visual Critique (Layout Review Workflow)
 
-1.  **Select Pages**: Choose pages for review:
-    *   All failing pages (from Step A analysis)
-    *   Random sample of N pages if many failures (default: 5)
-    *   Or specific pages flagged by user
-
-2.  **Prepare Images**: Download/copy overlay images to `tmp/`:
-    *   Full-page overlays: `tmp/layout-overlay-page-{N}.png`
-    *   Layout JSON: `tmp/layout.json`
-    *   (Optional) Quadrant tiles if precision needed
-
-3.  **Launch Reviewer Agent**:
+1.  **Trigger Review**: Run the layout review via SDK CLI:
+    ```bash
+    npx tsx packages/sdk/src/cli.ts estimate review run <caseId> --wait -o tmp/review.json
     ```
-    Task(subagent_type="reviewer", prompt=`
-      Review extraction results for case ${caseId}.
+    This triggers the `reviewLayout` Temporal workflow which performs visual critique with overlay analysis, cross-references layout JSON, and produces a structured `LayoutReviewReport`.
 
-      **Images to analyze** (use Read tool):
-      ${overlayPaths.map(p => `- ${p}`).join('\n')}
+2.  **Process Results**: Read `tmp/review.json` and extract:
+    *   `summary.verdict` (pass / needsAttention / fail)
+    *   `summary.overallScore` (0-100)
+    *   `summary.criticalIssues` (page-level critical findings)
+    *   Per-page check results across all sections (pageFrame, scope, table, etc.)
+    *   `suggestions` (layoutDetection, edgeImprovement, schemaChanges, promptChanges, freeForm)
 
-      **Layout JSON**:
-      - ${layoutJsonPath}
+3.  **Log**: Append `👁️ Critique` entry with:
+    *   Overall score and verdict
+    *   Issue count by severity (critical / warning / info)
+    *   Top 3 actionable suggestions
+    *   Feed suggestions into Step C (Hypothesis)
 
-      **Pages**: ${selectedPages.join(', ')}
-
-      Analyze each overlay image, cross-reference with layout JSON, and return a CritiqueReport JSON.
-      Run ALL checks from your §CRITIQUE_CHECKLIST.
-      Include actionable recommendations for each issue found.
-    `)
-    ```
-
-4.  **Process Results**:
-    *   Parse CritiqueReport JSON from task result
-    *   Log `👁️ Critique` entry with:
-        *   Overall score
-        *   Issue count by type
-        *   Top 3 recommendations
-    *   Feed recommendations into Step C (Hypothesis)
+4.  **Fallback**: If the review workflow fails or times out, fall back to the **reviewer subagent** (see Appendix). This ensures the refinement loop continues even if the Temporal workflow is unavailable.
 
 5.  **Manual Override** (if `--manual-critique` flag):
     *   If `overallScore < 70`: Present images to user for confirmation
@@ -578,59 +497,32 @@ Before calling any tool, ask yourself:
 *   **If Auto Mode and no improvement for 2 iterations**: Log `🏁 Iteration Complete (Plateau)`, exit loop.
 *   **Otherwise**: Continue to next iteration.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 5
-**Output this block in chat with every blank filled:**
-> **Phase 5 proof:**
-> - Iterations completed: `________`
-> - Each iteration logged: `________`
-> - Exit condition: `________`
-> - REFINE_LOG.md entries: `________`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "5: Iteration Loop"
-  nextPhase: "6: Synthesis"
-  prevPhase: "4: Baseline"
   custom: "Re-run baseline comparison | Compare current state to original baseline"
 
 ---
 
-## 6. Synthesis Phase (Debrief)
+## 6. Synthesis Phase (Synthesis)
 *Summarize the refinement session.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 6: Synthesis.
-> 2. I will `§CMD_PROCESS_CHECKLISTS` (if any discovered checklists exist).
-> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` following `assets/TEMPLATE_REFINE.md` EXACTLY.
-> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 5. I will `§CMD_REPORT_SESSION_SUMMARY`.
+> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
 
-**STOP**: Output the block above first.
+**STOP**: Do not create the file yet. You must output the block above first.
 
-**2. Execution — SEQUENTIAL, NO SKIPPING**
+**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
 
-[!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The debrief FILE is the primary deliverable — chat output alone is not sufficient.
+**Debrief creation notes** (for Step 1 -- `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
+*   Dest: `REFINE.md`
+*   Populate iteration history table.
+*   List all edits made with impact.
+*   Document remaining failures.
+*   Capture insights and recommendations.
 
-**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
-
-**Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `REFINE.md`).
-  *   Write the file using the Write tool. This MUST produce a real file in the session directory.
-  *   Populate iteration history table.
-  *   List all edits made with impact.
-  *   Document remaining failures.
-  *   Capture insights and recommendations.
-
-**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
-  *   `REFINE_PLAN.md` — Experiment design and hypotheses
-  *   `REFINE_LOG.md` — Full experiment journal
-  *   `REFINE.md` — Session debrief
-  *   `refine.manifest.json` — Workload configuration (if created)
-  *   Modified prompt/schema files
-
-**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 4**: Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
+**Walk-through config** (for Step 3 -- `§CMD_WALK_THROUGH_RESULTS`):
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"
@@ -638,18 +530,6 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   debriefFile: "REFINE.md"
   templateFile: "~/.claude/skills/refine/assets/TEMPLATE_REFINE.md"
 ```
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 6 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **Phase 6 proof:**
-> - REFINE.md written: `________` (real file path)
-> - Tags line: `________`
-> - Artifacts listed: `________`
-> - Session summary: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
-
-**Step 5**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 

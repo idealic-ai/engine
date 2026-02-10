@@ -1,28 +1,43 @@
 ---
 name: research
-description: "Full research cycle — refines query, calls Gemini Deep Research, polls, delivers report. Combines /research-request + /research-respond. Triggers: \"research this topic\", \"run a research cycle\", \"call Gemini Deep Research\"."
+description: "Full research cycle — refines query, calls Gemini Deep Research, polls, delivers report. Triggers: \"research this topic\", \"run a research cycle\", \"call Gemini Deep Research\"."
 version: 2.0
-tier: lightweight
+tier: protocol
 ---
 
 Full research cycle — refines query, calls Gemini Deep Research, polls, delivers report.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Research Protocol (Full Lifecycle — Request + Fulfill)
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 2 (Interrogation / Query Refinement). The engine's artifacts live in the session directory as reviewable files, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
+
+### Session Parameters (for §CMD_PARSE_PARAMETERS)
+*Merge into the JSON passed to `session.sh activate`:*
+```json
+{
+  "taskType": "RESEARCH",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup", "proof": ["mode", "session_dir", "templates_loaded", "parameters_parsed"]},
+    {"major": 1, "minor": 0, "name": "Context Ingestion", "proof": ["context_sources_presented", "files_loaded"]},
+    {"major": 2, "minor": 0, "name": "Interrogation", "proof": ["depth_chosen", "rounds_completed"]},
+    {"major": 3, "minor": 0, "name": "Research Execution", "proof": ["research_submitted", "research_fulfilled", "log_entries"]},
+    {"major": 4, "minor": 0, "name": "Synthesis"},
+    {"major": 4, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
+    {"major": 4, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
+    {"major": 4, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+    {"major": 4, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
+  ],
+  "nextSkills": ["/research", "/implement", "/analyze", "/brainstorm"],
+  "directives": [],
+  "logTemplate": "~/.claude/skills/research/assets/TEMPLATE_RESEARCH_LOG.md",
+  "debriefTemplate": "~/.claude/skills/research/assets/TEMPLATE_RESEARCH_RESPONSE.md",
+  "requestTemplate": "~/.claude/skills/research/assets/TEMPLATE_RESEARCH_REQUEST.md"
+}
+```
 
 ## 0. Setup Phase
 
@@ -43,9 +58,9 @@ Full research cycle — refines query, calls Gemini Deep Research, polls, delive
     **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
-    *   `~/.claude/skills/research-request/SKILL.md` (Request posting protocol — Phase 3 reuses steps)
-    *   `~/.claude/skills/research-respond/assets/TEMPLATE_RESEARCH_RESPONSE.md` (Template for the response document)
-    *   `~/.claude/skills/research-request/assets/TEMPLATE_RESEARCH_LOG.md` (Template for session logging)
+    *   `~/.claude/skills/research/assets/TEMPLATE_RESEARCH_RESPONSE.md` (Template for the response document)
+    *   `~/.claude/skills/research/assets/TEMPLATE_RESEARCH_LOG.md` (Template for session logging)
+    *   `~/.claude/skills/research/assets/TEMPLATE_RESEARCH_REQUEST.md` (Template for the request document)
 
 3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
     *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
@@ -56,14 +71,6 @@ Full research cycle — refines query, calls Gemini Deep Research, polls, delive
 
 6.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
     *   If any files are found, add them to `contextPaths` for ingestion in Phase 1.
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - Role: `________`
-> - Session dir: `________`
-> - Templates loaded: `________`, `________`
-> - Parameters parsed: `________`
 
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
@@ -78,19 +85,8 @@ Full research cycle — refines query, calls Gemini Deep Research, polls, delive
 
 **Action**: Execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
-**Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
-> - RAG session-search: `________ results` or `unavailable`
-> - RAG doc-search: `________ results` or `unavailable`
-> - Files loaded: `________ files`
-> - User confirmed: `yes / no`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "1: Context Ingestion"
-  nextPhase: "2: Query Refinement"
-  prevPhase: "0: Setup"
   custom: "Skip to 3: Execute Research | Question is already well-defined, skip refinement"
 
 ---
@@ -172,18 +168,10 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Ask: "Round N complete. I still have questions about [X]. Continuing..."
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
-**Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
-> - Depth chosen: `________`
-> - Rounds completed: `________` / `________`+
-> - DETAILS.md entries: `________`
-> - Research question defined: `________`
-
 ---
 
-## 3. Post Request & Execute Research
-*Create the request document, then immediately fulfill it.*
+## 3. Research Execution
+*Create the request document, call Gemini, and fulfill the research.*
 
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 3: Research Execution.
@@ -201,7 +189,14 @@ Before calling any tool, ask yourself:
 [!!!] If you make 3 tool calls without logging, you are FAILING the protocol. The log is your brain — unlogged work is invisible work.
 
 ### Step 1: Post Request
-Execute Phase 3 (steps 1-3) of `~/.claude/skills/research-request/SKILL.md` to create the request document, tag it with `#needs-research`, and log the posting. Use the interrogation context already gathered in Phase 2 above — do not re-interrogate.
+Create the request document using `~/.claude/skills/research/assets/TEMPLATE_RESEARCH_REQUEST.md`:
+1.  **Populate**: Fill in Query, Context, Constraints, Expected Output, and Requesting Session sections from interrogation context.
+2.  **Save**: Write to `[session-dir]/RESEARCH_REQUEST_[TOPIC].md`.
+3.  **Tag**: Apply `#needs-research` tag:
+    ```bash
+    engine tag add "$REQUEST_FILE" '#needs-research'
+    ```
+4.  **Log**: Log `📝 Request Posted` entry via `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`.
 
 ### Step 2: Call Gemini
 1.  **Compose**: Synthesize the Query, Context, Constraints, and Expected Output from the request document into a coherent research prompt.
@@ -209,13 +204,13 @@ Execute Phase 3 (steps 1-3) of `~/.claude/skills/research-request/SKILL.md` to c
 3.  **Execute** (background):
     *   **If initial request** (no previous Interaction ID):
         ```bash
-        ~/.claude/scripts/research.sh <output-path> <<'EOF'
+        engine research <output-path> <<'EOF'
         [composed research prompt]
         EOF
         ```
     *   **If follow-up** (Interaction ID present):
         ```bash
-        ~/.claude/scripts/research.sh --continue <interaction-id> <output-path> <<'EOF'
+        engine research --continue <interaction-id> <output-path> <<'EOF'
         [composed follow-up prompt]
         EOF
         ```
@@ -227,7 +222,7 @@ The script writes `INTERACTION_ID=<id>` to the output file immediately (before p
 1.  **Read**: Read the output file. First line should be `INTERACTION_ID=<id>`.
 2.  **Write to request**: Append the interaction ID to the **request file** so it's recoverable:
     ```bash
-    ~/.claude/scripts/log.sh "$REQUEST_FILE" <<'EOF'
+    engine log "$REQUEST_FILE" <<'EOF'
     ## Active Research
     *   **Interaction ID**: `[interaction-id]`
     *   **Started**: [YYYY-MM-DD HH:MM:SS]
@@ -235,7 +230,7 @@ The script writes `INTERACTION_ID=<id>` to the output file immediately (before p
     ```
 3.  **Swap tag**: `#needs-research` → `#claimed-research` on the request file:
     ```bash
-    ~/.claude/scripts/tag.sh swap "$REQUEST_FILE" '#needs-research' '#claimed-research'
+    engine tag swap "$REQUEST_FILE" '#needs-research' '#claimed-research'
     ```
     This marks the request as in-flight. If this session dies, another agent can find `#claimed-research` requests, read the Interaction ID, and resume polling.
 
@@ -243,91 +238,64 @@ The script writes `INTERACTION_ID=<id>` to the output file immediately (before p
 1.  **Inform user**: "Research submitted to Gemini. Interaction ID: `[id]`. Watching for results via `§CMD_AWAIT_TAG`."
 2.  **Watch**: Execute `§CMD_AWAIT_TAG` (file mode) on the request file for `#done-research`:
     ```bash
-    Bash("~/.claude/scripts/await-tag.sh $REQUEST_FILE '#done-research'", run_in_background=true)
+    Bash("engine await-tag $REQUEST_FILE '#done-research'", run_in_background=true)
     ```
     The `research.sh` script (launched in Step 2) handles polling Gemini, writing the response, and swapping the tag. `await-tag.sh` detects the tag swap and signals the agent.
 3.  **Continue or Wait**: The agent can either:
     *   Continue other work while the research runs (the background watcher will notify on completion).
     *   Wait for the watcher to complete if no other work is pending.
-4.  **Timeout**: If the session ends before results arrive, the `#claimed-research` tag + Interaction ID on the request file means `/research-respond` can pick it up in a future session.
+4.  **Timeout**: If the session ends before results arrive, the `#claimed-research` tag + Interaction ID on the request file means `/research` can pick it up in a future session.
 
 ### Step 5: Post Response
 1.  **Read** the output file. Line 1 is `INTERACTION_ID=<id>`. Remaining lines are the report.
-2.  **Create**: Populate `~/.claude/skills/research-respond/assets/TEMPLATE_RESEARCH_RESPONSE.md` with the interaction ID, original request path, and full report. Save as `RESEARCH_RESPONSE_[TOPIC].md`.
-3.  **Breadcrumb**: Append `## Response` section to the request file via `log.sh`.
+2.  **Create**: Populate `~/.claude/skills/research/assets/TEMPLATE_RESEARCH_RESPONSE.md` with the interaction ID, original request path, and full report. Save as `RESEARCH_RESPONSE_[TOPIC].md`.
+3.  **Breadcrumb**: Append `## Response` section to the request file via `engine log`.
 4.  **Swap Tag**: `#claimed-research` → `#done-research` on the request file:
     ```bash
-    ~/.claude/scripts/tag.sh swap "$REQUEST_FILE" '#claimed-research' '#done-research'
+    engine tag swap "$REQUEST_FILE" '#claimed-research' '#done-research'
     ```
 5.  **Cleanup**: Delete `research_raw_output.txt`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
-**Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
-> - Request created and tagged: `________`
-> - Gemini called: `________`
-> - Interaction ID captured: `________`
-> - Response saved: `________`
-> - Tag lifecycle complete: `________`
-> - Raw output cleaned: `________`
-
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "3: Execute Research"
-  nextPhase: "4: Present Results"
-  prevPhase: "2: Query Refinement"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
-## 4. Present Results & Debrief
-*Show the research results and close the session.*
+## 4. Synthesis
+*Present results and close the session.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Present Results.
-> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
-> 3. I will present the research report.
-> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 1. I am moving to Phase 4: Synthesis.
+> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
 
 **STOP**: Do not create artifacts yet. You must output the block above first.
 
-**2. Execution — SEQUENTIAL, NO SKIPPING**
+**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
 
-[!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 4 or 5 without completing step 1.
+**Pre-debrief**: Present the research report in chat so the user can read it immediately.
 
-**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
+**Debrief creation notes** (for Step 1 -- `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
+*   Dest: `RESEARCH_RESPONSE_[TOPIC].md` (already created in Phase 3 Step 5 — update if needed)
+*   Include: Interaction ID, original request path, full report content.
 
-**Step 1 (THE DELIVERABLE)**: Present the research report in chat so the user can read it immediately.
+**Archive to Docs (Optional)** — After the debrief, ask the user if they want to copy the research to a project docs directory for permanent reference:
+*   Use `AskUserQuestion` with options:
+    *   "Yes — copy to docs" (provide a suggested path like `packages/[pkg]/docs/research/` or `docs/research/`)
+    *   "No — keep in session only"
+*   If yes: ensure target directory exists, copy the response file, report the copied path.
 
-**Step 2**: Log a Research Complete entry via `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`.
+**Walk-through config** (for Step 3 -- `§CMD_WALK_THROUGH_RESULTS`):
+```
+§CMD_WALK_THROUGH_RESULTS Configuration:
+  mode: "results"
+  gateQuestion: "Research complete. Walk through the findings?"
+  debriefFile: "RESEARCH_RESPONSE_[TOPIC].md"
+  templateFile: "~/.claude/skills/research/assets/TEMPLATE_RESEARCH_RESPONSE.md"
+```
 
-**Step 3**: Archive to Docs (Optional) — Ask the user if they want to copy the research to a project docs directory for permanent reference.
-  *   Use `AskUserQuestion` with options:
-      *   "Yes — copy to docs" (provide a suggested path like `packages/[pkg]/docs/research/` or `docs/research/`)
-      *   "No — keep in session only"
-  *   If yes:
-      1.  Ensure the target directory exists (`mkdir -p`).
-      2.  Copy the response file with a descriptive name.
-      3.  Report the copied path.
-
-**Step 4**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
-
-**Step 5**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 6**: Suggest follow-up options:
-  *   "Run `/research` again to ask a follow-up question (will chain via Interaction ID)"
-  *   "The research report is at `[path]` — reference it from any other session"
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
-> - Research report presented: `________`
-> - Log entry written: `________`
-> - Archive decision: `________`
-> - Artifacts listed: `________`
-> - Session summary: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
+**Follow-up suggestion**: After close, suggest:
+*   "Run `/research` again to ask a follow-up question (will chain via Interaction ID)"
+*   "The research report is at `[path]` — reference it from any other session"
 
 **Post-Synthesis**: If the user continues talking, obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.

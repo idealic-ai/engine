@@ -7,18 +7,9 @@ tier: protocol
 
 Designs and writes test cases for code correctness and regression prevention.
 [!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/directives/COMMANDS.md`, `~/.claude/directives/INVARIANTS.md`, and `~/.claude/directives/TAGS.md`.
+1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
 2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
 3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
-### ⛔ GATE CHECK — Do NOT proceed to Phase 0 until ALL are filled in:
-**Output this block in chat with every blank filled:**
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-[!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT read Phase 0 until every blank is filled.
 
 # Testing Protocol (The QA Standard)
 
@@ -30,15 +21,18 @@ Designs and writes test cases for code correctness and regression prevention.
 {
   "taskType": "TESTING",
   "phases": [
-    {"major": 0, "minor": 0, "name": "Setup"},
-    {"major": 1, "minor": 0, "name": "Context Ingestion"},
-    {"major": 2, "minor": 0, "name": "Strategy"},
+    {"major": 0, "minor": 0, "name": "Setup", "proof": ["mode", "session_dir", "templates_loaded", "parameters_parsed"]},
+    {"major": 1, "minor": 0, "name": "Context Ingestion", "proof": ["context_sources_presented", "files_loaded"]},
+    {"major": 2, "minor": 0, "name": "Strategy", "proof": ["depth_chosen", "rounds_completed", "plan_written", "user_approved"]},
     {"major": 2, "minor": 1, "name": "Agent Handoff"},
-    {"major": 3, "minor": 0, "name": "Testing Loop"},
-    {"major": 4, "minor": 0, "name": "Synthesis"}
+    {"major": 3, "minor": 0, "name": "Testing Loop", "proof": ["plan_steps_completed", "tests_pass", "log_entries", "unresolved_blocks"]},
+    {"major": 4, "minor": 0, "name": "Synthesis"},
+    {"major": 4, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
+    {"major": 4, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
+    {"major": 4, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+    {"major": 4, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
   ],
   "nextSkills": ["/document", "/implement", "/fix", "/analyze", "/chores"],
-  "provableDebriefItems": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
   "planTemplate": "~/.claude/skills/test/assets/TEMPLATE_TESTING_PLAN.md",
   "logTemplate": "~/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md",
@@ -77,8 +71,8 @@ Designs and writes test cases for code correctness and regression prevention.
     *   `~/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md` (Template for continuous testing logging)
     *   `~/.claude/skills/test/assets/TEMPLATE_TESTING.md` (Template for final session debrief/report)
     *   `~/.claude/skills/test/assets/TEMPLATE_TESTING_PLAN.md` (Template for drafting the test strategy)
-    *   `.claude/directives/TESTING.md` (Testing standards and quality requirements — project-level, load if exists)
-    *   `.claude/directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
+    *   `.claude/.directives/TESTING.md` (Testing standards and quality requirements — project-level, load if exists)
+    *   `.claude/.directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
 
 3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
     *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
@@ -107,19 +101,6 @@ Designs and writes test cases for code correctness and regression prevention.
 7.  **Identify Recent Truth**: Execute `§CMD_FIND_TAGGED_FILES` for `#active-alert`.
     *   If any files are found, add them to `contextPaths` for ingestion in Phase 1.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 0
-**Output this block in chat with every blank filled:**
-> **Phase 0 proof:**
-> - COMMANDS.md loaded: `________`
-> - INVARIANTS.md loaded (shared + project): `________`
-> - TAGS.md loaded: `________`
-> - All 3 templates loaded (LOG, DEBRIEF, PLAN): `________`
-> - Parameters parsed and output: `________`
-> - Session directory: `________`
-> - Mode: `________` (coverage / hardening / integration / custom)
-> - Mode file loaded: `________` (path to the loaded mode file)
-> - Role assumed: `________` (quote the role name from the mode file)
-
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
@@ -133,19 +114,8 @@ Designs and writes test cases for code correctness and regression prevention.
 
 **Action**: Execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 1
-**Output this block in chat with every blank filled:**
-> **Phase 1 proof:**
-> - RAG searches executed: `________`
-> - Context paths presented: `________`
-> - User confirmed files: `________`
-> - Files loaded: `________`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "1: Context Ingestion"
-  nextPhase: "2: Strategy"
-  prevPhase: "0: Setup"
   custom: "Skip to Phase 3: Testing Loop | Requirements are obvious, jump straight to writing tests"
 
 ---
@@ -265,18 +235,8 @@ After interrogation completes:
     *   **Format**: `[Scenario] (Complexity: Low/High, Value: Low/High) - [Reasoning]`
 3.  **Refine**: Ask the user which to include, then update `TESTING_PLAN.md`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 2
-**Output this block in chat with every blank filled:**
-> **Phase 2 proof:**
-> - Interrogation depth chosen: `________`
-> - Minimum rounds completed: `________`
-> - Each round logged to DETAILS.md: `________`
-> - User selected proceed in exit gate: `________`
-> - TESTING_PLAN.md written: `________`
-> - User approved plan: `________`
-
 ### Phase Transition
-Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/directives/commands/CMD_PARALLEL_HANDOFF.md`):
+Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/.directives/commands/CMD_PARALLEL_HANDOFF.md`):
 1.  **Analyze**: Parse the plan's `**Depends**:` and `**Files**:` fields to derive parallel chunks.
 2.  **Visualize**: Present the chunk breakdown with non-intersection proof.
 3.  **Menu**: Present the richer handoff menu via `AskUserQuestion`.
@@ -362,66 +322,35 @@ Before calling any tool, ask yourself:
 3.  **Log**: Update `TESTING_LOG.md` with your status.
 4.  **Tick**: Mark `[x]` in `TESTING_PLAN.md`.
 
-### §CMD_VERIFY_PHASE_EXIT — Phase 3
-**Output this block in chat with every blank filled:**
-> **Phase 3 proof:**
-> - All plan steps marked [x] (or deferred with reasoning): `________`
-> - Tests pass: `________`
-> - TESTING_LOG.md has entries for each step: `________`
-> - No unresolved stuck entries: `________`
-
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "3: Testing Loop"
-  nextPhase: "4: Synthesis"
-  prevPhase: "2: Strategy"
   custom: "Run full test suite first | Run all tests before closing to verify no regressions"
 
 ---
 
 ## 4. The Synthesis (Debrief)
-*When the session is done.*
+*When all tasks are complete.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 4: Synthesis.
-> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
-> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_TESTING.md` EXACTLY) to summarize findings.
-> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
-**2. Execution — SEQUENTIAL, NO SKIPPING**
+**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
 
-[!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The debrief FILE is the primary deliverable — chat output alone is not sufficient.
+**Debrief creation notes** (for Step 1 -- `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
+*   Dest: `TESTING.md`
+*   **Summary**: Pass/Fail rates.
+*   **Regressions**: What broke?
+*   **Coverage**: What new areas are covered?
 
-**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
-
-**Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `TESTING.md`).
-  *   Write the file using the Write tool. This MUST produce a real file in the session directory.
-  *   **Summary**: Pass/Fail rates.
-  *   **Regressions**: What broke?
-  *   **Coverage**: What new areas are covered?
-
-**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
-
-**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 4**: Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the loaded mode file (`modes/{mode}.md`).
-
-### §CMD_VERIFY_PHASE_EXIT — Phase 4 (PROOF OF WORK)
-**Output this block in chat with every blank filled:**
-> **Phase 4 proof:**
-> - TESTING.md written: `________` (real file path)
-> - Tags line: `________`
-> - Artifacts listed: `________`
-> - Session summary: `________`
-> - Walk-through completed: `________`
-
-If ANY blank above is empty: GO BACK and complete it before proceeding.
-
-**Step 6**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+**Walk-through config** (for Step 3 -- `§CMD_WALK_THROUGH_RESULTS`):
+```
+§CMD_WALK_THROUGH_RESULTS Configuration:
+  (uses Walk-Through Config from the loaded mode file: modes/{mode}.md)
+```
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 

@@ -42,6 +42,45 @@ export function scanMarkdownFiles(
 }
 
 /**
+ * Scan session directories for .state.json files.
+ * Unlike scanMarkdownFiles which skips hidden files, this specifically
+ * targets .state.json in immediate session subdirectories.
+ * Returns file paths relative to the base directory.
+ */
+export function scanStateFiles(
+  baseDir: string,
+  relativeTo?: string
+): string[] {
+  const root = relativeTo ?? baseDir;
+  const results: string[] = [];
+
+  // Read top-level entries (session directories)
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(baseDir, { withFileTypes: true });
+  } catch {
+    return results;
+  }
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+
+    const sessionDir = path.join(baseDir, entry.name);
+    const stateFile = path.join(sessionDir, ".state.json");
+
+    try {
+      if (fs.statSync(stateFile).isFile()) {
+        results.push(path.relative(root, stateFile));
+      }
+    } catch {
+      // .state.json doesn't exist in this session directory — skip
+    }
+  }
+
+  return results.sort();
+}
+
+/**
  * Extract the session directory path from a file path.
  * e.g., "sessions/2026_02_04_TEST/BRAINSTORM.md" -> "sessions/2026_02_04_TEST"
  */

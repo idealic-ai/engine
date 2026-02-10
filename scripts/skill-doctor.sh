@@ -190,9 +190,9 @@ check_boot() {
     fi
   fi
 
-  # DR-B4: Uses correct paths (directives/ not standards/)
+  # DR-B4: Uses correct paths (.directives/ not standards/)
   if grep -q 'standards/COMMANDS\|standards/INVARIANTS\|standards/TAGS' "$skill_file"; then
-    fail "DR-B4" "Uses wrong path: ~/.claude/standards/ (should be ~/.claude/directives/)"
+    fail "DR-B4" "Uses wrong path: ~/.claude/standards/ (should be ~/.claude/.directives/)"
   else
     pass "DR-B4" "Correct directive paths"
   fi

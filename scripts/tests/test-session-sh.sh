@@ -116,6 +116,10 @@ valid_activate_json() {
     "planTemplate": null,
     "logTemplate": null,
     "debriefTemplate": null,
+    "requestTemplate": null,
+    "responseTemplate": null,
+    "requestFiles": [],
+    "nextSkills": [],
     "extraInfo": "",
     "phases": []
   } * $overrides'
@@ -554,6 +558,10 @@ test_activate_accepts_complete_json() {
   "planTemplate": null,
   "logTemplate": "skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md",
   "debriefTemplate": "skills/implement/assets/TEMPLATE_IMPLEMENTATION.md",
+  "requestTemplate": null,
+  "responseTemplate": null,
+  "requestFiles": [],
+  "nextSkills": [],
   "extraInfo": "",
   "phases": [{"major": 1, "minor": 0, "name": "Setup"}]
 }

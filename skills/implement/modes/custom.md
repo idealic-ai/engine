@@ -1,15 +1,23 @@
-# Custom Mode
+# Custom Mode (User-Defined Approach)
+*Synthesized from the full mode spectrum.*
 
-**Role**: Defined by user.
-**Goal**: Defined by user.
-**Mindset**: Defined by user.
+**Boot**: Before accepting user input, read all 3 named mode files to understand the implementation flavor space:
+- `modes/general.md` — pragmatic balance, appropriate testing
+- `modes/tdd.md` — strict Red-Green-Refactor, tests before code
+- `modes/experimentation.md` — rapid prototyping, speed over polish
 
-## Behavior
+**Role**: *Synthesized from user's free-text input + understanding of the 3 named modes.*
+**Goal**: *Set from user's free-text input.*
+**Mindset**: *Blended from the mode closest to user's intent, adjusted per their framing.*
 
-When Custom is selected:
-1. Read ALL 3 named mode files (`modes/tdd.md`, `modes/experimentation.md`, `modes/general.md`) to understand the flavor space.
-2. Ask the user to describe their desired approach, or pick elements from each mode.
-3. Parse their response into Role, Goal, Mindset, and Configuration fields.
-4. Proceed with the synthesized mode.
+## Interrogation Depth
+Synthesize from the 3 named modes based on user's framing. Default to General depth if unclear.
 
-Custom mode exists because the 3 named modes cannot cover every situation. The user might want "TDD rigor but no interrogation" or "General approach with experimentation-level planning."
+## Build Approach
+Synthesize from the 3 named modes based on user's framing. Default to General approach if unclear.
+
+## Planning
+Synthesize from the 3 named modes based on user's framing. Default to General planning if unclear.
+
+## When to Use
+When the 3 named modes don't fit. The user might want "TDD rigor but no interrogation" or "General approach with experimentation-level planning."

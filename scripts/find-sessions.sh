@@ -4,7 +4,7 @@
 # Related:
 #   Docs: (~/.claude/docs/)
 #     SESSION_LIFECYCLE.md — Session directory structure
-#   Commands: (~/.claude/directives/COMMANDS.md)
+#   Commands: (~/.claude/.directives/COMMANDS.md)
 #     §CMD_INGEST_CONTEXT_BEFORE_WORK — RAG session discovery
 #
 # Usage:
