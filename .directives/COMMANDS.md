@@ -700,6 +700,8 @@ EOF
 **Trigger**: Called by skill protocols during their synthesis phase (typically Phase 5 or Phase 6, depending on skill).
 **Prerequisite**: The skill MUST declare synthesis sub-phases with `§CMD_`-named proof fields in its `phases` array (see Sub-phase Convention below).
 
+[!!!] **WORK → PROVE pattern**: Each step below follows the same sequence: execute the command first, then transition the phase with proof. The phase transition is the LAST action of each step, not the first. After context overflow recovery, the agent resumes at the saved phase — it must do the next step's work before transitioning.
+
 **Sub-phase Convention** (all protocol-tier skills follow this pattern):
 ```json
 {"major": N, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},

@@ -54,7 +54,7 @@ Captures and persists current session context for later restoration.
     *   **Outcome**: Succeed, Fail, or Hang?
     *   **State**: Is code compilable? Tests passing?
 5.  **Handover Instructions**: Specific instructions for the next agent.
-6.  **Next Steps**: Bulleted list of immediate tasks.
+6.  **Next Steps**: Bulleted list of immediate tasks. For proof-gated phases, include the proof fields needed for the next transition (e.g., "Execute §CMD_GENERATE_DEBRIEF_USING_TEMPLATE → prove 5.2 with §CMD_GENERATE_DEBRIEF_file + §CMD_GENERATE_DEBRIEF_tags"). This prevents the rehydrated agent from trying to transition before doing the work.
 7.  **Required Files (Context List)**:
     *   **Path Conventions**:
         | Prefix | Resolves To | Contains |

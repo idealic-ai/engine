@@ -162,6 +162,11 @@ Examples:
   `engine session continue [SESSION_DIR]`
   This clears the `loading` flag and resets heartbeat counters without touching phase state. The saved phase in `.state.json` is the single source of truth — `continue` simply resumes the heartbeat at that phase.
 
+**Proof-Gated Awareness**: After `session continue`, you are AT the saved phase — not past it. If dehydrated context says the current phase's work is complete, you must:
+1. DO the next phase's work first (while still at the current phase in `.state.json`)
+2. THEN transition with the next phase's required proof via `engine session phase`
+Do NOT call `engine session phase` before doing the work — the proof fields are evidence of completed work, provided at the moment of transition.
+
 **Announce**: "Reanchored: `[SESSION_DIR]` -- resuming `[SKILL]` at `[PHASE]`"
 
 ---
