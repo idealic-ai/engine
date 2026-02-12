@@ -126,7 +126,6 @@ All 32 `§CMD_` commands in COMMANDS.md, organized by layer. Each command has a 
 | `§CMD_MAINTAIN_SESSION_DIR` | Anchor to a session directory for the duration of the task |
 | `§CMD_UPDATE_PHASE` | Update `.state.json` with the current skill phase |
 | `§CMD_SESSION_CONTINUE_AFTER_RESTART` | Re-initialize context after a context overflow restart |
-| `§CMD_LOAD_AUTHORITY_FILES` | Load system-critical files into context (check-before-read) |
 | `§CMD_USE_ONLY_GIVEN_CONTEXT` | Phase-specific constraint — no filesystem exploration during setup |
 | `§CMD_AVOID_WASTING_TOKENS` | Prevent redundant reads and operations |
 | `§CMD_USE_TODOS_TO_TRACK_PROGRESS` | Maintain an internal TODO list for session progress |
@@ -166,7 +165,6 @@ Commands compose — higher-layer commands call lower-layer commands. Key compos
 
 §CMD_INGEST_CONTEXT_BEFORE_WORK
   └── §CMD_WAIT_FOR_USER_CONFIRMATION (Layer 2) [twice — hard stops]
-  └── §CMD_LOAD_AUTHORITY_FILES (Layer 2)
 
 §CMD_EXECUTE_INTERROGATION_PROTOCOL
   └── §CMD_ASK_ROUND_OF_QUESTIONS (Layer 3)
@@ -350,7 +348,6 @@ Skills are the "user-space applications" that run on top of the standards system
 │  /implement SKILL.md                              │
 │                                                   │
 │  Phase 1: Setup                                   │
-│    → §CMD_LOAD_AUTHORITY_FILES                     │
 │    → §CMD_PARSE_PARAMETERS                         │
 │    → §CMD_MAINTAIN_SESSION_DIR                     │
 │                                                   │

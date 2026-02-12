@@ -22,7 +22,7 @@
       "condition": { "noActiveSession": true }
     },
     "payload": {
-      "text": "§CMD_REQUIRE_ACTIVE_SESSION: No active session. Use AskUserQuestion to ask the user which skill to use. Popular: /do, /implement, /analyze, /fix, /test"
+      "text": "§CMD_REQUIRE_ACTIVE_SESSION: No active session (found: $sessionDir, lifecycle: $lifecycle). Use engine session activate to start a session, or AskUserQuestion to ask the user which skill to use. Popular: /do, /implement, /analyze, /fix, /test"
     },
     "mode": "inline",
     "urgency": "block",
@@ -148,6 +148,21 @@
     "mode": "preload",
     "urgency": "allow",
     "priority": 21,
+    "inject": "always"
+  },
+  {
+    "id": "command-preload",
+    "description": "Auto-preload pending CMD files when discovered by phase transition hook",
+    "trigger": {
+      "type": "discovery",
+      "condition": { "field": "pendingCommands", "nonEmpty": true }
+    },
+    "payload": {
+      "preload": "$pendingCommands"
+    },
+    "mode": "preload",
+    "urgency": "allow",
+    "priority": 22,
     "inject": "always"
   },
   {

@@ -399,6 +399,224 @@ test_panes_filter_by_label() {
 }
 
 # ============================================================
+# Category: "done" State as Actionable
+# ============================================================
+
+test_done_state_is_actionable() {
+    local pane_id
+    pane_id=$(get_test_pane)
+    [[ -z "$pane_id" ]] && { skip "done state actionable" "no panes available"; return; }
+
+    local saved_state
+    saved_state=$(save_pane_state "$pane_id")
+
+    # Set pane to "done" — should be treated as actionable (line 913: unchecked|error|done)
+    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_notify "done" 2>/dev/null
+
+    local start_time result
+    start_time=$(date +%s)
+    result=$("$FLEET_SH" oversee-wait 5 --socket "$SOCKET" 2>/dev/null)
+    local elapsed=$(( $(date +%s) - start_time ))
+
+    # Should return immediately (pre-sweep finds "done" pane)
+    if [[ "$elapsed" -lt 2 ]]; then
+        pass "Case 11a: oversee-wait returns immediately when done pane exists"
+    else
+        fail "Case 11a: oversee-wait returns immediately for done" "< 2s" "${elapsed}s"
+    fi
+
+    assert_contains "$pane_id" "$result" "Case 11b: output contains the done pane ID"
+    assert_contains "done" "$result" "Case 11c: output contains 'done' state"
+
+    restore_pane_state "$pane_id" "$saved_state"
+}
+
+# ============================================================
+# Category: Error Path (No tmux session)
+# ============================================================
+
+test_error_no_tmux_session() {
+    # Use a non-existent socket to trigger the tmux availability check error path
+    local result exit_code
+    result=$("$FLEET_SH" oversee-wait 2 --socket "nonexistent_socket_$$" 2>&1) || exit_code=$?
+
+    # Should return exit code 1
+    assert_eq "1" "${exit_code:-0}" "Case 12a: exit code is 1 when no tmux session"
+
+    # Should contain error message on stderr (captured via 2>&1)
+    assert_contains "ERROR" "$result" "Case 12b: output contains ERROR message"
+    assert_contains "No fleet tmux session" "$result" "Case 12c: error mentions no fleet session"
+}
+
+# ============================================================
+# Category: Multi-Value --panes Filter
+# ============================================================
+
+test_multi_value_panes_filter() {
+    local panes
+    panes=$(tmux -L "$SOCKET" list-panes -a -F '#{pane_id}' 2>/dev/null)
+    local pane_count
+    pane_count=$(echo "$panes" | wc -l | tr -d ' ')
+
+    if [[ "$pane_count" -lt 3 ]]; then
+        skip "multi-value --panes filter" "need at least 3 panes"
+        return
+    fi
+
+    local pane1 pane2 pane3 saved1 saved2 saved3
+    pane1=$(echo "$panes" | sed -n '1p')
+    pane2=$(echo "$panes" | sed -n '2p')
+    pane3=$(echo "$panes" | sed -n '3p')
+    saved1=$(save_pane_state "$pane1")
+    saved2=$(save_pane_state "$pane2")
+    saved3=$(save_pane_state "$pane3")
+
+    # Set all three to unchecked
+    tmux -L "$SOCKET" set-option -p -t "$pane1" @pane_notify "unchecked" 2>/dev/null
+    tmux -L "$SOCKET" set-option -p -t "$pane2" @pane_notify "unchecked" 2>/dev/null
+    tmux -L "$SOCKET" set-option -p -t "$pane3" @pane_notify "unchecked" 2>/dev/null
+
+    # Filter to pane1 and pane2 via comma-separated list (tests IFS=',' parsing at line 920)
+    local result
+    result=$("$FLEET_SH" oversee-wait 5 --panes "${pane1},${pane2}" --socket "$SOCKET" 2>/dev/null)
+
+    assert_contains "$pane1" "$result" "Case 13a: comma-separated filter includes first pane"
+    assert_contains "$pane2" "$result" "Case 13b: comma-separated filter includes second pane"
+    assert_not_contains "$pane3" "$result" "Case 13c: comma-separated filter excludes third pane"
+
+    restore_pane_state "$pane1" "$saved1"
+    restore_pane_state "$pane2" "$saved2"
+    restore_pane_state "$pane3" "$saved3"
+}
+
+# ============================================================
+# Category: Wake Signal Negative Test
+# ============================================================
+
+test_wake_signal_non_actionable_states() {
+    local pane_id
+    pane_id=$(get_test_pane)
+    [[ -z "$pane_id" ]] && { skip "wake signal negative" "no panes available"; return; }
+
+    # Save ALL pane states
+    local all_saved
+    all_saved=$(save_all_pane_states)
+
+    # Set all panes to non-actionable states (checked/working)
+    local toggle=0
+    for p in $(tmux -L "$SOCKET" list-panes -a -F '#{pane_id}' 2>/dev/null); do
+        if [[ $((toggle % 2)) -eq 0 ]]; then
+            tmux -L "$SOCKET" set-option -p -t "$p" @pane_notify "checked" 2>/dev/null || true
+        else
+            tmux -L "$SOCKET" set-option -p -t "$p" @pane_notify "working" 2>/dev/null || true
+        fi
+        toggle=$((toggle + 1))
+    done
+
+    # Drain stale signals
+    timeout 0.2 tmux -L "$SOCKET" wait-for overseer-wake 2>/dev/null || true
+
+    # Background: send wake signal after 1s but DON'T change any state to actionable
+    (
+        sleep 1
+        for _i in 1 2 3; do
+            tmux -L "$SOCKET" wait-for -S overseer-wake 2>/dev/null || true
+            sleep 0.2
+        done
+    ) &
+    local bg_pid=$!
+
+    # Short timeout — should still return TIMEOUT since no panes are actionable after wake
+    local result
+    result=$(timeout 8 "$FLEET_SH" oversee-wait 3 --socket "$SOCKET" 2>/dev/null) || true
+
+    wait "$bg_pid" 2>/dev/null || true
+
+    assert_eq "TIMEOUT" "$result" "Case 14: wake with no actionable panes still returns TIMEOUT"
+
+    restore_all_pane_states "$all_saved"
+}
+
+# ============================================================
+# Category: Mixed State Scenario
+# ============================================================
+
+test_mixed_states_only_actionable_returned() {
+    local panes
+    panes=$(tmux -L "$SOCKET" list-panes -a -F '#{pane_id}' 2>/dev/null)
+    local pane_count
+    pane_count=$(echo "$panes" | wc -l | tr -d ' ')
+
+    if [[ "$pane_count" -lt 3 ]]; then
+        skip "mixed state scenario" "need at least 3 panes"
+        return
+    fi
+
+    local pane1 pane2 pane3 saved1 saved2 saved3
+    pane1=$(echo "$panes" | sed -n '1p')
+    pane2=$(echo "$panes" | sed -n '2p')
+    pane3=$(echo "$panes" | sed -n '3p')
+    saved1=$(save_pane_state "$pane1")
+    saved2=$(save_pane_state "$pane2")
+    saved3=$(save_pane_state "$pane3")
+
+    # Mixed states: checked (non-actionable), error (actionable), unchecked (actionable)
+    tmux -L "$SOCKET" set-option -p -t "$pane1" @pane_notify "checked" 2>/dev/null
+    tmux -L "$SOCKET" set-option -p -t "$pane2" @pane_notify "error" 2>/dev/null
+    tmux -L "$SOCKET" set-option -p -t "$pane3" @pane_notify "unchecked" 2>/dev/null
+
+    local result
+    result=$("$FLEET_SH" oversee-wait 5 --socket "$SOCKET" 2>/dev/null)
+
+    assert_not_contains "$pane1" "$result" "Case 15a: checked pane excluded from results"
+    assert_contains "$pane2" "$result" "Case 15b: error pane included in results"
+    assert_contains "$pane3" "$result" "Case 15c: unchecked pane included in results"
+
+    # Verify the specific states in output
+    assert_contains "error" "$result" "Case 15d: output contains 'error' state"
+    assert_contains "unchecked" "$result" "Case 15e: output contains 'unchecked' state"
+
+    restore_pane_state "$pane1" "$saved1"
+    restore_pane_state "$pane2" "$saved2"
+    restore_pane_state "$pane3" "$saved3"
+}
+
+# ============================================================
+# Category: Edge Timeout Values
+# ============================================================
+
+test_short_timeout() {
+    # Save ALL pane states
+    local all_saved
+    all_saved=$(save_all_pane_states)
+
+    # Set all panes to checked (non-actionable)
+    for p in $(tmux -L "$SOCKET" list-panes -a -F '#{pane_id}' 2>/dev/null); do
+        tmux -L "$SOCKET" set-option -p -t "$p" @pane_notify "checked" 2>/dev/null || true
+    done
+
+    # Drain stale signals
+    timeout 0.2 tmux -L "$SOCKET" wait-for overseer-wake 2>/dev/null || true
+
+    local start_time result
+    start_time=$(date +%s)
+    # 1-second timeout — should return quickly
+    # NOTE: timeout=0 means "no limit" in GNU coreutils, so we test 1s instead
+    result=$(timeout 8 "$FLEET_SH" oversee-wait 1 --socket "$SOCKET" 2>/dev/null) || true
+    local elapsed=$(( $(date +%s) - start_time ))
+
+    assert_eq "TIMEOUT" "$result" "Case 16a: 1s timeout returns TIMEOUT when no actionable panes"
+
+    if [[ "$elapsed" -ge 1 && "$elapsed" -le 5 ]]; then
+        pass "Case 16b: 1s timeout completes in reasonable time (${elapsed}s)"
+    else
+        fail "Case 16b: 1s timeout duration" "1-5s" "${elapsed}s"
+    fi
+
+    restore_all_pane_states "$all_saved"
+}
+
+# ============================================================
 # Category: Help
 # ============================================================
 
@@ -446,5 +664,23 @@ test_panes_filter_by_label
 
 # Help
 test_help_flag
+
+# "done" State
+test_done_state_is_actionable
+
+# Error Path
+test_error_no_tmux_session
+
+# Multi-Value --panes Filter
+test_multi_value_panes_filter
+
+# Wake Signal Negative
+test_wake_signal_non_actionable_states
+
+# Mixed State
+test_mixed_states_only_actionable_returned
+
+# Edge Timeout
+test_short_timeout
 
 exit_with_results

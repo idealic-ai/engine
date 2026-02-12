@@ -6,11 +6,6 @@ tier: protocol
 ---
 
 Structured ideation and trade-off analysis for design and architecture decisions.
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
 # Brainstorming Protocol (The Socratic Engine)
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases. The engine's artifacts live in the session directory as reviewable files, not in transient tool state. Use THIS protocol's phases, not the IDE's.
@@ -54,20 +49,16 @@ Structured ideation and trade-off analysis for design and architecture decisions
     > 1. I am starting Phase 0: Setup phase.
     > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 0 only (Strict Bootloader — expires at Phase 1).
     > 3. My focus is BRAINSTORM (`§CMD_REFUSE_OFF_COURSE` applies).
-    > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
-    > 5. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
-    > 6. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
-    > 7. I will `§CMD_MAINTAIN_SESSION_DIR` to establish working space.
-    > 8. I will select the **Brainstorm Mode** (Explore / Focused / Adversarial / Custom).
-    > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
-    > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
+    > 4. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
+    > 5. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
+    > 6. I will `§CMD_MAINTAIN_SESSION_DIR` to establish working space.
+    > 7. I will select the **Brainstorm Mode** (Explore / Focused / Adversarial / Custom).
+    > 8. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
+    > 9. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
     **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
-2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
-    *   `docs/TOC.md` (Project structure and file map)
-
-3.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
+2.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
 
 4.  **Session Location**: Execute `§CMD_MAINTAIN_SESSION_DIR` - ensure the directory is created.
 

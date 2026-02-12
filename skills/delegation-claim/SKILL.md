@@ -6,11 +6,6 @@ tier: lightweight
 ---
 
 Worker-side claiming of delegated work items. Scans `#delegated-X` tags, presents items for claiming, and routes to target skills.
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
 **Note**: This is a utility skill — no session activation. Operates within the caller's session or standalone. Can be spawned by the daemon or invoked manually.
 
 ### GATE CHECK — Do NOT proceed until ALL are filled in:

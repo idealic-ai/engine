@@ -6,11 +6,6 @@ tier: protocol
 ---
 
 Thorough analysis of code, architecture, or topics — produces a structured research report.
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
 # Deep Research Protocol
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases. The engine's artifacts live in the session directory as reviewable files, not in transient tool state. Use THIS protocol's phases, not the IDE's.
@@ -65,10 +60,7 @@ Thorough analysis of code, architecture, or topics — produces a structured res
 
     **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
-2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
-    *   `docs/TOC.md` (Project map and file index)
-
-3.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
+2.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
 
 4.  **Session Location**: Execute `§CMD_MAINTAIN_SESSION_DIR` - ensure the directory is created.
 

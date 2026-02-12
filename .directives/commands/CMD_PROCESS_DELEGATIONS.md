@@ -1,5 +1,5 @@
 ### §CMD_PROCESS_DELEGATIONS
-**Definition**: Scans the current session's artifacts for unresolved bare `#needs-X` inline tags and invokes `/delegation-create` for each one. This is a synthesis step that runs between `§CMD_WALK_THROUGH_RESULTS` and `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`.
+**Definition**: Scans the current session's artifacts for unresolved bare `#needs-X` inline tags and invokes `/delegation-create` for each one. This is a synthesis step that runs between `§CMD_WALK_THROUGH_RESULTS` and `§CMD_GENERATE_DEBRIEF`.
 **Trigger**: Called during skill synthesis phases. Positioned after walkthrough (which places tags) and before debrief (which captures final state).
 
 **Algorithm**:

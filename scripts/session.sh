@@ -46,8 +46,8 @@
 #     §CMD_MAINTAIN_SESSION_DIR — Session directory management
 #     §CMD_PARSE_PARAMETERS — Session activation with JSON params
 #     §CMD_UPDATE_PHASE — Phase tracking and enforcement
-#     §CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL — Session completion
-#     §CMD_SESSION_CONTINUE_AFTER_RESTART — Restart recovery
+#     §CMD_CLOSE_SESSION — Session completion
+#     §CMD_RECOVER_SESSION — Restart recovery
 #     §CMD_REQUIRE_ACTIVE_SESSION — Session gate enforcement
 #     §CMD_RESOLVE_REQUEST_TEMPLATE — Tag-to-skill template resolution
 
@@ -1080,7 +1080,7 @@ case "$ACTION" in
           shift 2
           ;;
         *)
-          echo "§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL: Unknown flag '$1'" >&2
+          echo "§CMD_CLOSE_SESSION: Unknown flag '$1'" >&2
           shift
           ;;
       esac
@@ -1097,10 +1097,10 @@ case "$ACTION" in
     # This lets the agent see ALL issues at once and fix them in a single pass.
     DEACTIVATE_ERRORS=()
 
-    # --- Description Gate (§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL) ---
+    # --- Description Gate (§CMD_CLOSE_SESSION) ---
     if [ -z "$DESCRIPTION" ]; then
       DEACTIVATE_ERRORS+=("$(printf '%s\n%s\n%s\n%s' \
-        "§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL: Description is required. Pipe 1-3 lines via stdin:" \
+        "§CMD_CLOSE_SESSION: Description is required. Pipe 1-3 lines via stdin:" \
         "  session.sh deactivate <path> [--keywords 'kw1,kw2'] <<'EOF'" \
         "  What was done in this session (1-3 lines)" \
         "  EOF")")
@@ -1120,7 +1120,7 @@ case "$ACTION" in
             "§CMD_DEBRIEF_BEFORE_CLOSE: Cannot deactivate — no debrief file found." \
             "  Expected: $DEBRIEF_NAME in $DIR" \
             "" \
-            "  To fix: Write the debrief via §CMD_GENERATE_DEBRIEF_USING_TEMPLATE." \
+            "  To fix: Write the debrief via §CMD_GENERATE_DEBRIEF." \
             "  To skip: session.sh deactivate $DIR --user-approved \"Reason: [quote user's words]\"")")
         fi
       fi
@@ -1300,7 +1300,7 @@ case "$ACTION" in
       echo "Restart prepared. Signaling watchdog (PID $WATCHDOG_PID) to kill Claude..."
       kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
     else
-      echo "§CMD_SESSION_CONTINUE_AFTER_RESTART: No watchdog active (WATCHDOG_PID not set)."
+      echo "§CMD_RECOVER_SESSION: No watchdog active (WATCHDOG_PID not set)."
       echo "Not running under run.sh wrapper. To restart manually, run:"
       echo ""
       echo "claude '$PROMPT'"
@@ -1467,9 +1467,9 @@ case "$ACTION" in
       jq --arg ts "$(timestamp)" \
         '.tagCheckPassed = true | .lastHeartbeat = $ts' \
         "$STATE_FILE" | safe_json_write "$STATE_FILE"
-      echo "§CMD_PROCESS_TAG_PROMOTIONS: Tag scan passed — no bare inline lifecycle tags."
+      echo "§CMD_RESOLVE_BARE_TAGS: Tag scan passed — no bare inline lifecycle tags."
     else
-      echo "§CMD_PROCESS_TAG_PROMOTIONS: Tag scan already passed."
+      echo "§CMD_RESOLVE_BARE_TAGS: Tag scan already passed."
     fi
 
     # ─── Validation 2: Checklist Processing (¶INV_CHECKLIST_BEFORE_CLOSE) ───
@@ -1638,7 +1638,7 @@ case "$ACTION" in
       '.checkPassed = true | .lastHeartbeat = $ts' \
       "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
-    echo "§CMD_CHECK: All checks passed."
+    echo "§CMD_VALIDATE_ARTIFACTS: All checks passed."
     ;;
 
   request-template)

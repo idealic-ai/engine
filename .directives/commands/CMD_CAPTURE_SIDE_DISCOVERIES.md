@@ -1,6 +1,6 @@
 ### §CMD_CAPTURE_SIDE_DISCOVERIES
 **Definition**: At synthesis, scans the session log for side-discovery entries and presents a multichoice menu — letting the user tag discoveries for future work.
-**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 10, after `§CMD_MANAGE_TOC` and before `§CMD_REPORT_LEFTOVER_WORK`.
+**Trigger**: Called by `§CMD_GENERATE_DEBRIEF` step 10, after `§CMD_MANAGE_TOC` and before `§CMD_REPORT_LEFTOVER_WORK`.
 
 **Algorithm**:
 1.  **Locate Log File**: Find the session's `*_LOG.md` file (e.g., `IMPLEMENTATION_LOG.md`, `DOCUMENTATION_LOG.md`).

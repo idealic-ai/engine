@@ -158,11 +158,11 @@ check_boot() {
   local skill_dir="$1" skill_file="$skill_dir/SKILL.md" name
   name=$(basename "$skill_dir")
 
-  # DR-B1: Boot sequence present
+  # DR-B1: Boot sequence removed (deprecated — now auto-injected by hooks)
   if grep -q 'CRITICAL BOOT SEQUENCE' "$skill_file"; then
-    pass "DR-B1" "Boot sequence block present"
+    fail "DR-B1" "Deprecated boot sequence block still present — remove it"
   else
-    fail "DR-B1" "Missing boot sequence block"
+    pass "DR-B1" "No deprecated boot sequence block"
   fi
 
   # DR-B2: Gate check present

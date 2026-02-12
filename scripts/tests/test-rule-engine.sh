@@ -1037,7 +1037,7 @@ assert_eq "0" "$COUNT" "P2: inject:once prevents re-injection after delivery"
 echo ""
 
 # ============================================================
-# DYNAMIC PAYLOAD RESOLUTION TESTS (D1-D4)
+# DYNAMIC PAYLOAD RESOLUTION TESTS (D1-D7)
 # ============================================================
 echo "--- Dynamic Payload Resolution Tests ---"
 
@@ -1080,6 +1080,42 @@ PAYLOAD='{"preload": "$pendingDirectives"}'
 RESOLVED=$(_resolve_payload_refs "$PAYLOAD" "$TEST_SESSION/.state.json")
 RESOLVED_LEN=$(echo "$RESOLVED" | jq '.preload | length')
 assert_eq "0" "$RESOLVED_LEN" "D4: Empty pendingDirectives resolves to empty array"
+
+# D5: Inline $var interpolation within string values
+reset_state
+activate_session
+jq '.lifecycle = "completed" | .sessionDir = "sessions/FOO"' \
+  "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+PAYLOAD='{"text": "status: $lifecycle, dir: $sessionDir"}'
+RESOLVED=$(_resolve_payload_refs "$PAYLOAD" "$TEST_SESSION/.state.json")
+RESOLVED_TEXT=$(echo "$RESOLVED" | jq -r '.text')
+assert_eq "status: completed, dir: sessions/FOO" "$RESOLVED_TEXT" "D5: Inline \$var interpolation resolves multiple vars in string"
+
+# D6: Inline $var alongside whole-value $ref in same payload
+reset_state
+activate_session
+jq '.pendingDirectives = ["/a.md"] | .lifecycle = "active"' \
+  "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+PAYLOAD='{"preload": "$pendingDirectives", "text": "life: $lifecycle"}'
+RESOLVED=$(_resolve_payload_refs "$PAYLOAD" "$TEST_SESSION/.state.json")
+RESOLVED_TYPE=$(echo "$RESOLVED" | jq -r '.preload | type')
+RESOLVED_FIRST=$(echo "$RESOLVED" | jq -r '.preload[0]')
+RESOLVED_TEXT=$(echo "$RESOLVED" | jq -r '.text')
+assert_eq "array" "$RESOLVED_TYPE" "D6a: Whole-value \$ref resolved to array"
+assert_eq "/a.md" "$RESOLVED_FIRST" "D6b: Whole-value array content correct"
+assert_eq "life: active" "$RESOLVED_TEXT" "D6c: Inline \$var resolved in same payload"
+
+# D7: Unknown inline $var left unchanged
+reset_state
+activate_session
+PAYLOAD='{"text": "val: $unknownInlineField"}'
+RESOLVED=$(_resolve_payload_refs "$PAYLOAD" "$TEST_SESSION/.state.json")
+RESOLVED_TEXT=$(echo "$RESOLVED" | jq -r '.text')
+assert_eq 'val: $unknownInlineField' "$RESOLVED_TEXT" "D7: Unknown inline \$var left unchanged"
 
 echo ""
 

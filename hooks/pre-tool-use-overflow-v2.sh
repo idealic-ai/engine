@@ -101,6 +101,41 @@ _clear_preloaded_directives() {
     "$state_file" | safe_json_write "$state_file"
 }
 
+# _enrich_heartbeat_message TEXT STATE_FILE SESSION_DIR
+#   Enriches a heartbeat message with actionable logging instructions.
+#   Reads skill from .state.json, derives log file path, appends
+#   session dir + log path + ready-to-use engine log command.
+#   Falls back to original text if no session context available.
+_enrich_heartbeat_message() {
+  local text="$1" state_file="$2" session_dir="$3"
+
+  if [ -z "$session_dir" ] || [ -z "$state_file" ] || [ ! -f "$state_file" ]; then
+    echo "$text"
+    return 0
+  fi
+
+  # Derive log file from logTemplate in .state.json (same logic as session.sh)
+  local log_template log_file log_path
+  log_template=$(jq -r '.logTemplate // ""' "$state_file" 2>/dev/null || echo "")
+  if [ -n "$log_template" ]; then
+    local log_basename
+    log_basename=$(basename "$log_template")
+    log_file="${log_basename#TEMPLATE_}"
+  else
+    # Fallback: derive from skill name
+    local skill
+    skill=$(state_read "$state_file" skill "")
+    if [ -z "$skill" ]; then
+      echo "$text"
+      return 0
+    fi
+    log_file="$(echo "$skill" | tr '[:lower:]' '[:upper:]' | sed 's/[^A-Z]/_/g')_LOG.md"
+  fi
+  log_path="${session_dir}/${log_file}"
+
+  printf '%s\n\nSession: %s\nLog file: %s\nCommand:\n```bash\nengine log %s <<'\''EOF'\''\n## Progress Update\n*   **Task**: [what you were doing]\n*   **Status**: [done/in-progress/blocked]\n*   **Next**: [what'\''s next]\nEOF\n```' "$text" "$session_dir" "$log_path" "$log_path"
+}
+
 main() {
   notify_fleet working
 
@@ -260,6 +295,10 @@ _process_rules() {
           if [ -z "$text" ]; then
             text=$(echo "$injection" | jq -r '.payload.files // [] | map("INJECTION [\(.)]") | join("\n")')
           fi
+          # Enrich heartbeat messages with actionable logging context
+          if [[ "$rule_id" == heartbeat-* ]]; then
+            text=$(_enrich_heartbeat_message "$text" "$state_file" "$session_dir")
+          fi
           block_reason="${block_reason}${block_reason:+\n}[Injection: $rule_id] $text"
           ;;
         read)
@@ -370,6 +409,12 @@ _deliver_allow_rules() {
         text=$(echo "$injection" | jq -r '.payload.text // ""')
         if [ -z "$text" ]; then
           text=$(echo "$injection" | jq -r '.payload.files // [] | map("INJECTION [\(.)]") | join("\n")')
+        fi
+        # Enrich heartbeat messages with actionable logging context
+        if [[ "$rule_id" == heartbeat-* ]] && [ -n "$state_file" ]; then
+          local hb_session_dir
+          hb_session_dir=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
+          text=$(_enrich_heartbeat_message "$text" "$state_file" "$hb_session_dir")
         fi
         entry_content="[Injection: $rule_id] $text"
         ;;

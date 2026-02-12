@@ -6,11 +6,6 @@ tier: protocol
 ---
 
 Reviews and validates work across sessions for consistency and correctness.
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
 # Review Protocol (The Multiplexer)
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structure — Phase 2 (Dashboard & Per-Debrief Interrogation) is the iterative work phase. The engine's artifacts live in the session directory as reviewable files, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
@@ -53,20 +48,16 @@ Reviews and validates work across sessions for consistency and correctness.
     > 1. I am starting Phase 0: Setup phase.
     > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 0 only (Strict Bootloader — expires at Phase 1).
     > 3. My focus is REVIEW (`§CMD_REFUSE_OFF_COURSE` applies).
-    > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
-    > 5. I will `§CMD_FIND_TAGGED_FILES` to identify unvalidated debriefs (`#needs-review` and `#needs-rework`).
-    > 6. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
-    > 7. I will `§CMD_MAINTAIN_SESSION_DIR` to establish working space.
-    > 8. I will select the **Review Mode** (Quality / Progress / Evangelize / Custom).
-    > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
-    > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
+    > 4. I will `§CMD_FIND_TAGGED_FILES` to identify unvalidated debriefs (`#needs-review` and `#needs-rework`).
+    > 5. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
+    > 6. I will `§CMD_MAINTAIN_SESSION_DIR` to establish working space.
+    > 7. I will select the **Review Mode** (Quality / Progress / Evangelize / Custom).
+    > 8. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
+    > 9. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
     **Constraint**: Do NOT read any project source code in Phase 0. Only load system templates/standards and discover tagged files.
 
-2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
-    *   `~/.claude/skills/_shared/TEMPLATE_DETAILS.md` (Template for Q&A capture)
-
-3.  **Discover Debriefs & Requests**: Execute `§CMD_FIND_TAGGED_FILES` for:
+2.  **Discover Debriefs & Requests**: Execute `§CMD_FIND_TAGGED_FILES` for:
     *   `#needs-review` — never-validated debriefs.
     *   `#needs-rework` — previously rejected debriefs.
     *   Search scope: `sessions/` directory.

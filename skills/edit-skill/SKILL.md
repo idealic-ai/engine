@@ -6,11 +6,6 @@ tier: protocol
 ---
 
 Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-local or shared engine.
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
 # Edit Skill Protocol (The Skill Forge)
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases. The engine's artifacts live in the session directory as reviewable files, not in transient tool state. Use THIS protocol's phases, not the IDE's.
@@ -57,16 +52,13 @@ Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
     > 1. I am starting Phase 0: Setup phase.
     > 2. My focus is EDIT_SKILL (`§CMD_REFUSE_OFF_COURSE` applies).
-    > 3. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all standards are loaded.
-    > 4. I will `§CMD_ASSUME_ROLE`:
+    > 3. I will `§CMD_ASSUME_ROLE`:
     >    **Role**: You are the **Skill Architect**.
     >    **Goal**: To scaffold or modify skills that follow engine conventions exactly, in the right location.
     >    **Mindset**: Every skill is a protocol. Sloppy skills produce sloppy sessions. Location matters — shared means permanent.
-    > 5. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
+    > 4. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
-2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
-
-    **Reference Examples — Load ALL of these to build by example:**
+2.  **Reference Examples**: Load ALL of these to build by example:
 
     *Entry points (SKILL.md files — read all to see the v2 inline pattern):*
     *   `~/.claude/skills/implement/SKILL.md` (full-session archetype)
@@ -270,11 +262,6 @@ tier: protocol
 ---
 
 [One-line description].
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
 # [Protocol Title]
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases.
@@ -294,7 +281,7 @@ Generate the phased protocol following the engine pattern. Include these phases 
 | 5. Synthesis | yes | yes | yes | no |
 
 Each phase MUST reference appropriate §CMD_ commands:
-*   Setup → `§CMD_LOAD_AUTHORITY_FILES`, `§CMD_ASSUME_ROLE`, `§CMD_MAINTAIN_SESSION_DIR`, `§CMD_PARSE_PARAMETERS`
+*   Setup → `§CMD_ASSUME_ROLE`, `§CMD_MAINTAIN_SESSION_DIR`, `§CMD_PARSE_PARAMETERS`
 *   Context Ingestion → `§CMD_INGEST_CONTEXT_BEFORE_WORK`
 *   Interrogation → `§CMD_EXECUTE_INTERROGATION_PROTOCOL`, `§CMD_LOG_TO_DETAILS`
 *   Planning → `§CMD_POPULATE_LOADED_TEMPLATE` (using plan template)

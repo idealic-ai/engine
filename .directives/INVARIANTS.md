@@ -139,27 +139,10 @@ This document defines the universal rules that apply across ALL projects using t
 
 *   **¶INV_ESCAPE_BY_DEFAULT**: All lifecycle tags in body text MUST be backtick-escaped unless intentional.
     *   **Rule**: `#needs-*`, `#delegated-*`, `#next-*`, `#claimed-*`, and `#done-*` tags in body text (logs, details, plans, debriefs) must be backtick-escaped (`` `#needs-*` ``) unless they are intentional discoverable tags on the `**Tags**:` line or explicitly promoted/acknowledged inline tags.
-    *   **Enforcement**: `session.sh check` scans session artifacts for bare inline lifecycle tags during synthesis. Each bare tag must be either PROMOTED (→ request file + escape inline) or ACKNOWLEDGED (→ marked intentional) before synthesis can complete.
+    *   **Enforcement**: `engine session check` scans session artifacts for bare inline lifecycle tags during synthesis. Each bare tag must be either PROMOTED (→ request file + escape inline) or ACKNOWLEDGED (→ marked intentional) before synthesis can complete.
     *   **Reason**: Bare inline tags in non-discoverable contexts pollute `tag.sh find` results. Escape-by-default ensures every surviving bare tag represents a real, actionable work item.
 
 ## 6. LLM Output Physics
-
-*   **¶INV_ENUM_OVER_FLOAT**: LLM confidence outputs must use named enum bands, not free-floating numbers.
-    *   **Rule**: Define confidence as a discrete enum (e.g., `definitive`, `strong`, `moderate`, `weak`). Code maps bands to deterministic numeric scores via a single utility function.
-    *   **Reason**: LLMs self-censor on floating-point outputs and cluster at round numbers. Enums constrain the output space and make routing deterministic.
-
-*   **¶INV_RULE_TRACEABILITY**: Every LLM classification must trace to a named rule via a `ruleApplied` enum.
-    *   **Rule**: Free-text rationale is a summary for display, not the audit trail. The enum IS the audit trail — each value maps 1:1 to a classification rule in the prompt.
-    *   **Reason**: Debugging misclassifications requires knowing which rule fired, not parsing natural language.
-
-*   **¶INV_ORG_CONTEXT_TWO_TIER**: Org-specific LLM behavior uses two tiers: type-level templates in code (version-controlled) + org-specific config in DB (runtime-tunable).
-    *   **Rule**: Type templates are a TypeScript map keyed by `organization.type`. Org-specific overrides live in a JSONB field with structured fields + free-text. Never hardcode customer-specific logic.
-    *   **Reason**: Prevents the "one customer trap" where prompt changes optimized for one org break another.
-
-
-*   **¶INV_REUSE_OVER_REINVENT_MATCHING**: When a matching/scoring engine exists for direction A→B, invert it for B→A rather than building new matching rules.
-    *   **Rule**: If you already have a service that does "given X, find matching Y" (with fuzzy matching, scoring, normalization), create an inverse method on that same service rather than writing new brittle SQL or hard-coded rules for "given Y, find matching X."
-    *   **Reason**: The forward-direction engine already handles edge cases (normalization, fuzzy matching, multi-source scoring). Re-inventing matching rules from scratch is brittle and duplicates logic. Inversion leverages battle-tested code.
 
 
 *   **¶INV_INFER_USER_FROM_GDRIVE**: Auto-detect user identity from Google Drive symlink. Do not ask.
@@ -186,12 +169,12 @@ This document defines the universal rules that apply across ALL projects using t
 
 *   **¶INV_NEW_SESSION_BOUNDARY**: When a user requests a new session, create one. Do not continue the old one.
     *   **Rule**: When the user explicitly requests a new session — via next-skill selection (`§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`), `/session dehydrate restart`, or saying "new session" / "next session" — the agent MUST create a fresh session directory via `§CMD_MAINTAIN_SESSION_DIR`. It MUST NOT reactivate, continue, or override errors in the previous session.
-    *   **Prohibited**: Seeing `session.sh activate` reject because the session is completed/active and deciding to "override" or "continue anyway." The rejection IS the expected outcome — the old session is done.
-    *   **Redirection**: If `session.sh activate` rejects, create a new session directory with `§CMD_MAINTAIN_SESSION_DIR`. The user's intent is forward motion, not recovery.
+    *   **Prohibited**: Seeing `engine session activate` reject because the session is completed/active and deciding to "override" or "continue anyway." The rejection IS the expected outcome — the old session is done.
+    *   **Redirection**: If `engine session activate` rejects, create a new session directory with `§CMD_MAINTAIN_SESSION_DIR`. The user's intent is forward motion, not recovery.
     *   **Reason**: Agents systematically conflate "next skill" with "continue this session" because their helpfulness bias prioritizes continuity. The user's new-session request is a boundary signal, not a suggestion.
 
-*   **¶INV_PHASE_ENFORCEMENT**: Phase transitions are mechanically enforced via `session.sh phase`.
-    *   **Rule**: When a session has a `phases` array (declared at activation), `session.sh phase` enforces sequential progression. Non-sequential transitions (skip forward or go backward) require `--user-approved "Reason: [why, citing user's response]"`.
+*   **¶INV_PHASE_ENFORCEMENT**: Phase transitions are mechanically enforced via `engine session phase`.
+    *   **Rule**: When a session has a `phases` array (declared at activation), `engine session phase` enforces sequential progression. Non-sequential transitions (skip forward or go backward) require `--user-approved "Reason: [why, citing user's response]"`.
     *   **Proof-gated transitions (FROM validation)**: The current phase (being left) may declare a `proof` field (array of field names). When present, the agent MUST pipe proof as `key: value` lines via STDIN when transitioning away from it. Missing or unfilled fields reject the transition. Proof is always parsed and stored in `phaseHistory` as structured objects when provided, regardless of whether the current phase declares proof fields. Semantically: proof on a phase describes what must be accomplished IN that phase before leaving it.
     *   **Letter suffixes**: Sub-phase labels may include a single uppercase letter suffix (e.g., `"3.1A: Agent Handoff"`). The letter is stripped for enforcement (enforces as `3.1`) but preserved in `phaseHistory` for audit trail. Distinguishes alternative branches.
     *   **Context overflow recovery**: `/session continue` uses `engine session continue` to resume the heartbeat without touching phase state. No phase transition needed — the saved phase in `.state.json` is the source of truth.
@@ -238,7 +221,7 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Reason**: REQUESTs survive requester session death. The requester may have overflowed, deactivated, or been killed. The REQUEST file is the contract.
 
 *   **¶INV_DELEGATE_IS_NESTABLE**: `/delegation-create` must operate without session activation.
-    *   **Rule**: The `/delegation-create` skill reads from and writes to the current session directory. It does not call `session.sh activate`. It can be invoked from any phase of any skill without disturbing session state.
+    *   **Rule**: The `/delegation-create` skill reads from and writes to the current session directory. It does not call `engine session activate`. It can be invoked from any phase of any skill without disturbing session state.
     *   **Reason**: Delegation happens mid-skill (during interrogation, walkthrough, or ad-hoc chat). Session activation would conflict with the active skill's session.
 
 *   **¶INV_GRACEFUL_DEGRADATION**: Delegation modes degrade gracefully when infrastructure is unavailable.
@@ -255,7 +238,7 @@ This document defines the universal rules that apply across ALL projects using t
 
 *   **¶INV_DYNAMIC_DISCOVERY**: Tag-to-skill mapping must use dynamic template discovery, not static maps.
     *   **Rule**: Daemon dispatch discovers available skills by scanning for `TEMPLATE_*_REQUEST.md` files in each skill's `assets/` directory. No hardcoded tag registries or static configuration maps.
-    *   **Rule**: `session.sh request-template '#needs-xxx'` resolves the tag noun to a skill, finds the template, and outputs it to stdout. This is the canonical lookup path.
+    *   **Rule**: `engine session request-template '#needs-xxx'` resolves the tag noun to a skill, finds the template, and outputs it to stdout. This is the canonical lookup path.
     *   **Reason**: Static maps rot. Dynamic discovery is self-maintaining — adding a REQUEST template to a skill automatically makes it dispatchable. Removing the template removes the capability.
 
 *   **¶INV_DIRECTIVE_STACK**: Agents must load the full stack of directive files (child-to-root ancestor chain) when working in a directory. Enforcement is escalating.
@@ -264,24 +247,20 @@ This document defines the universal rules that apply across ALL projects using t
         *   **Hard gate** (blocks deactivation): CHECKLIST.md. Enforced by `§CMD_PROCESS_CHECKLISTS` at session deactivation.
         *   **Skill directives** (filtered by `directives` param): TESTING.md, PITFALLS.md, CONTRIBUTING.md, TEMPLATE.md. Only suggested when the active skill declares them in the `directives` field of session parameters.
     *   **Enforcement**: Escalating two-hook architecture. PostToolUse hook (`post-tool-use-discovery.sh`) discovers directives and adds them to `pendingDirectives` in `.state.json` with a warning. PreToolUse hook (`pre-tool-use-directive-gate.sh`) blocks after a threshold of tool calls if `pendingDirectives` is non-empty. Reading a pending file clears it from the list.
-    *   **Discovery**: `discover-directives.sh` performs walk-up search (full ancestor chain — all directives from child to root apply cumulatively), checking `.directives/` subfolders first with flat directory root fallback. `session.sh activate` discovers files from `directoriesOfInterest`. At runtime, the PostToolUse hook tracks `touchedDirs` in `.state.json` and discovers files for newly-touched directories. Both apply skill-directive filtering.
+    *   **Discovery**: `discover-directives.sh` performs walk-up search (full ancestor chain — all directives from child to root apply cumulatively), checking `.directives/` subfolders first with flat directory root fallback. `engine session activate` discovers files from `directoriesOfInterest`. At runtime, the PostToolUse hook tracks `touchedDirs` in `.state.json` and discovers files for newly-touched directories. Both apply skill-directive filtering.
     *   **End-of-session**: `§CMD_MANAGE_DIRECTIVES` handles AGENTS.md updates, invariant capture, pitfall capture, and contributing-pattern capture based on session work.
     *   **Reason**: Agents systematically ignore directive files placed near their work. Escalating enforcement (warn then block) ensures directives are always loaded.
 
 *   **¶INV_CHECKLIST_BEFORE_CLOSE**: A session cannot be deactivated with unprocessed CHECKLIST.md files.
-    *   **Rule**: `session.sh deactivate` checks `checkPassed == true` in `.state.json` when `discoveredChecklists[]` is non-empty. If not set, deactivation is blocked.
-    *   **Rule**: `§CMD_PROCESS_CHECKLISTS` must run during synthesis. The agent reads each checklist, evaluates items, then quotes results back via `session.sh check` (which sets `checkPassed=true`). The deactivate gate is the mechanical safety net.
+    *   **Rule**: `engine session deactivate` checks `checkPassed == true` in `.state.json` when `discoveredChecklists[]` is non-empty. If not set, deactivation is blocked.
+    *   **Rule**: `§CMD_PROCESS_CHECKLISTS` must run during synthesis. The agent reads each checklist, evaluates items, then quotes results back via `engine session check` (which sets `checkPassed=true`). The deactivate gate is the mechanical safety net.
     *   **Reason**: Checklists contain post-work requirements (testing steps, user questions, cleanup tasks). Allowing session close without processing them defeats their purpose.
 
 *   **¶INV_REQUEST_BEFORE_CLOSE**: A session cannot be deactivated with unfulfilled request files.
-    *   **Rule**: `session.sh check` Validation 3 reads `requestFiles[]` from `.state.json`. Every request file must (a) exist and (b) have no bare `#needs-*` tags anywhere in the file (backtick-escaped excluded). Formal REQUEST files (filename contains "REQUEST") must additionally have a `## Response` section. If any fail, check exits 1 and deactivation is blocked.
+    *   **Rule**: `engine session check` Validation 3 reads `requestFiles[]` from `.state.json`. Every request file must (a) exist and (b) have no bare `#needs-*` tags anywhere in the file (backtick-escaped excluded). Formal REQUEST files (filename contains "REQUEST") must additionally have a `## Response` section. If any fail, check exits 1 and deactivation is blocked.
     *   **Rule**: The agent must resolve all bare `#needs-*` tags (swap to `#done-*` or backtick-escape). For formal REQUEST files, also add a `## Response` section.
     *   **Reason**: Request files are contracts between sessions. Closing a session without fulfilling its requests leaves broken promises in the system — future sessions that depend on the work will find unfulfilled tags.
 
-*   **¶INV_PROVABLE_DEBRIEF_PIPELINE** *(DEPRECATED)*: Replaced by proof-gated phase transitions (`¶INV_PHASE_ENFORCEMENT`).
-    *   **Migration**: Proof for synthesis pipeline steps is now provided inline with each phase transition. Skills declare `proof` fields on phases in the `phases` array (e.g., `{"major": 2, "minor": 0, "name": "Interrogation", "proof": ["depth_chosen", "rounds_completed"]}`). When the agent transitions away from a phase, it pipes proof via STDIN to `session.sh phase`. This replaces the separate `provableDebriefItems` array and `session.sh prove` command. Proof on a phase describes what must be accomplished IN that phase before leaving it (FROM validation).
-    *   **Backward compat**: The `provableDebriefItems` field and `session.sh prove` command still work but emit a deprecation warning. New skills should use `proof` fields on phases instead.
-    *   **Reason**: The original design required a separate prove step at the end of synthesis — agents frequently skipped it. Inline proof on each phase transition makes proof unavoidable (you can't leave the phase without providing it).
 
 *   **¶INV_WALKTHROUGH_TAGS_ARE_PASSIVE**: Tags placed during `§CMD_WALK_THROUGH_RESULTS` do NOT trigger delegation offers.
     *   **Rule**: Tags applied during walkthrough triage are protocol-placed (expected output of the walkthrough step). They are recorded but do not invoke `/delegation-create`. Tags in all other contexts (interrogation, QnA, ad-hoc chat, side discovery) are reactive — they trigger a `/delegation-create` offer.

@@ -204,8 +204,12 @@ safe_json_write() {
 
 # _resolve_payload_refs PAYLOAD_JSON STATE_FILE
 #   Resolve "$fieldName" references in payload values from .state.json.
-#   Walks all payload keys. If a value is a string starting with "$",
-#   looks up the field name (without $) in state and replaces the value.
+#   Two-pass resolution:
+#     Pass 1 (whole-value): Strings starting with "$" get replaced entirely.
+#       Example: "$pendingDirectives" → ["/a.md", "/b.md"]
+#     Pass 2 (inline): Strings containing "$field" get interpolated in-place.
+#       Example: "lifecycle: $lifecycle" → "lifecycle: completed"
+#       Only substitutes scalar state values (string, number, boolean).
 #   Returns the resolved payload JSON.
 _resolve_payload_refs() {
   local payload="$1" state_file="$2"
@@ -215,31 +219,57 @@ _resolve_payload_refs() {
     return 0
   fi
 
-  # Get all keys whose values are strings starting with "$"
+  local resolved="$payload"
+
+  # Pass 1: Whole-value $field resolution
+  # Keys whose values are strings starting with "$" get replaced entirely
   local ref_keys
   ref_keys=$(echo "$payload" | jq -r 'to_entries[] | select(.value | type == "string" and startswith("$")) | .key' 2>/dev/null || echo "")
 
-  if [ -z "$ref_keys" ]; then
-    echo "$payload"
-    return 0
+  if [ -n "$ref_keys" ]; then
+    while IFS= read -r key; do
+      [ -z "$key" ] && continue
+      local ref_val field_name
+      ref_val=$(echo "$payload" | jq -r --arg k "$key" '.[$k]')
+      field_name="${ref_val#\$}"
+
+      local state_val
+      state_val=$(jq --arg f "$field_name" '.[$f] // null' "$state_file" 2>/dev/null || echo "null")
+
+      if [ "$state_val" != "null" ]; then
+        resolved=$(echo "$resolved" | jq --arg k "$key" --argjson v "$state_val" '.[$k] = $v')
+      fi
+    done <<< "$ref_keys"
   fi
 
-  local resolved="$payload"
-  while IFS= read -r key; do
-    [ -z "$key" ] && continue
-    # Extract the field name (strip leading $)
-    local ref_val field_name
-    ref_val=$(echo "$payload" | jq -r --arg k "$key" '.[$k]')
-    field_name="${ref_val#\$}"
+  # Pass 2: Inline $field interpolation within string values
+  # Handles strings like "lifecycle: $lifecycle, dir: $sessionDir"
+  # Only substitutes scalar state values (string, number, boolean)
+  local inline_keys
+  inline_keys=$(echo "$resolved" | jq -r 'to_entries[] | select(.value | type == "string" and contains("$") and (startswith("$") | not)) | .key' 2>/dev/null || echo "")
 
-    # Look up the field in state (expected to be an array)
-    local state_val
-    state_val=$(jq --arg f "$field_name" '.[$f] // null' "$state_file" 2>/dev/null || echo "null")
-
-    if [ "$state_val" != "null" ]; then
-      resolved=$(echo "$resolved" | jq --arg k "$key" --argjson v "$state_val" '.[$k] = $v')
-    fi
-  done <<< "$ref_keys"
+  if [ -n "$inline_keys" ]; then
+    while IFS= read -r key; do
+      [ -z "$key" ] && continue
+      local str_val
+      str_val=$(echo "$resolved" | jq -r --arg k "$key" '.[$k]')
+      local vars
+      vars=$(echo "$str_val" | grep -oE '\$[a-zA-Z_][a-zA-Z0-9_]*' | sort -u || echo "")
+      if [ -n "$vars" ]; then
+        local new_val="$str_val"
+        while IFS= read -r var_ref; do
+          [ -z "$var_ref" ] && continue
+          local var_name="${var_ref#\$}"
+          local var_val
+          var_val=$(jq -r --arg f "$var_name" '.[$f] // null | if type == "string" or type == "number" or type == "boolean" then tostring else "" end' "$state_file" 2>/dev/null || echo "")
+          if [ -n "$var_val" ]; then
+            new_val="${new_val//$var_ref/$var_val}"
+          fi
+        done <<< "$vars"
+        resolved=$(echo "$resolved" | jq --arg k "$key" --arg v "$new_val" '.[$k] = $v')
+      fi
+    done <<< "$inline_keys"
+  fi
 
   echo "$resolved"
 }

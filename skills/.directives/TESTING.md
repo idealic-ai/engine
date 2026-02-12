@@ -39,7 +39,6 @@ Guidelines for verifying skill correctness. Skills are Markdown protocols, not c
     - Every `§CMD_*` reference exists in `~/.claude/.directives/COMMANDS.md` or `.directives/commands/*.md`
     - Every `¶INV_*` reference exists in `~/.claude/.directives/INVARIANTS.md` or `.claude/.directives/INVARIANTS.md`
     - Every `§FEED_*` reference exists in `~/.claude/.directives/TAGS.md`
-    - File path references in `§CMD_LOAD_AUTHORITY_FILES` point to existing files
 
 ## 5. Behavioral Verification (Manual)
 

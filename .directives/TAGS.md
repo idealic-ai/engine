@@ -227,96 +227,24 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **Review Command**: `/review` discovers all `#needs-review` and `#needs-rework` files, performs cross-session analysis, and walks the user through structured approval.
 *   **Note**: Reviews use a 2-state lifecycle (no `#delegated-review` or `#claimed-review`) because `/review` is always invoked directly by the user, not via daemon dispatch.
 
-## §FEED_DOCUMENTATION
-*   **Tags**: `#needs-documentation`, `#delegated-documentation`, `#next-documentation`, `#claimed-documentation`, `#done-documentation`
+## §FEED_GENERIC
+*   **Applies to**: documentation, research, brainstorm, chores, fix, loop, implementation
+*   **Tags**: `#needs-{NOUN}`, `#delegated-{NOUN}`, `#next-{NOUN}`, `#claimed-{NOUN}`, `#done-{NOUN}`
 *   **Location**: `sessions/`
 *   **Lifecycle** (5-state, two paths):
-    *   `#needs-documentation` — Pending. Auto-applied at debrief creation by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` for code-changing sessions (`IMPLEMENTATION`, `DEBUG`, `CHORES`, `TESTING`). Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-documentation` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#next-documentation` — Claimed for immediate next-skill execution. Set via "Claim for next skill" in `§CMD_DISPATCH_APPROVAL`. Daemon ignores. Auto-claimed by `/document` on activation.
-    *   `#claimed-documentation` — In-flight. Worker (`/delegation-claim`) swapped tag before starting `/document`.
-    *   `#done-documentation` — Documentation pass complete. Swapped via `/document` or manually after verifying docs are current.
-*   **Discovery**: `§CMD_FIND_TAGGED_FILES` for `#needs-documentation` returns all sessions with pending doc work.
-*   **Independence**: This feed is independent from both `§FEED_ALERTS` and `§FEED_REVIEWS`. A debrief may carry `#needs-review #needs-documentation` simultaneously, resolved by different commands.
+    *   `#needs-{NOUN}` — Staging. Work identified, pending human review via `§CMD_DISPATCH_APPROVAL`.
+    *   `#delegated-{NOUN}` — Dispatch-approved. Human approved. Daemon may now pick up.
+    *   `#next-{NOUN}` — Claimed for immediate next-skill execution. Daemon ignores. Auto-claimed by matching skill on activation.
+    *   `#claimed-{NOUN}` — In-flight. Worker swapped tag before starting work.
+    *   `#done-{NOUN}` — Complete. Swapped by the resolving skill after verification.
+*   **Application**: Tags can be applied inline within work artifacts or on the `**Tags**:` line of debriefs. Discovered via `engine tag find`.
+*   **Independence**: Each feed is independent from all other feeds. A file may carry multiple `#needs-*` tags simultaneously.
 
-## §FEED_RESEARCH
-*   **Tags**: `#needs-research`, `#delegated-research`, `#next-research`, `#claimed-research`, `#done-research`
-*   **Location**: `sessions/`
-*   **Lifecycle** (5-state, two paths):
-    *   `#needs-research` — Open request. Created by `/research`. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-research` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#next-research` — Claimed for immediate next-skill execution. Set via "Claim for next skill" in `§CMD_DISPATCH_APPROVAL`. Daemon ignores. Auto-claimed by `/research` on activation.
-    *   `#claimed-research` — In-flight. Swapped when `/delegation-claim` picks up and the Gemini API call starts. The request file contains an `## Active Research` section with the Interaction ID. If the polling session dies, another agent can find `#claimed-research` requests, read the ID, and resume.
-    *   `#done-research` — Fulfilled. Swapped when the report is received. The request file contains a `## Response` breadcrumb linking to the response document.
-*   **File Convention**:
-    *   Requests: `RESEARCH_REQUEST_[TOPIC].md` (in requesting session dir)
-    *   Responses: `RESEARCH_RESPONSE_[TOPIC].md` (in responding session dir)
-    *   Follow-ups: `RESEARCH_REQUEST_[TOPIC]_2.md`, `_3.md`, etc. — each carries the previous Interaction ID.
-*   **Independence**: This feed is independent from all other feeds.
-*   **API**: Uses Gemini Deep Research (`deep-research-pro-preview-12-2025`) via `engine research`. Requires `$GEMINI_API_KEY`.
 
-## §FEED_BRAINSTORM
-*   **Tags**: `#needs-brainstorm`, `#delegated-brainstorm`, `#next-brainstorm`, `#claimed-brainstorm`, `#done-brainstorm`
-*   **Location**: `sessions/`
-*   **Lifecycle** (5-state, two paths):
-    *   `#needs-brainstorm` — Deferred. Applied inline by any agent when a topic needs exploration, trade-off analysis, or a decision that requires structured dialogue. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-brainstorm` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#next-brainstorm` — Claimed for immediate next-skill execution. Set via "Claim for next skill" in `§CMD_DISPATCH_APPROVAL`. Daemon ignores. Auto-claimed by `/brainstorm` on activation.
-    *   `#claimed-brainstorm` — In-flight. Swapped when `/delegation-claim` picks up and `/brainstorm` begins working on the tagged item.
-    *   `#done-brainstorm` — Complete. Swapped by `/brainstorm` after the session produces a `BRAINSTORM.md`.
-*   **Application**: Like `#needs-implementation`, this tag can be applied **inline** within work artifacts (log entries, plan steps, debrief sections). The agent discovers these via `tag.sh find`.
-*   **Output**: `/brainstorm` creates a `BRAINSTORM.md` in its session directory. For decision-focused brainstorms, use the Focused mode.
-*   **Independence**: This feed is independent from all other feeds.
 
-## §FEED_CHORES
-*   **Tags**: `#needs-chores`, `#delegated-chores`, `#next-chores`, `#claimed-chores`, `#done-chores`
-*   **Location**: `sessions/`
-*   **Lifecycle** (5-state, two paths):
-    *   `#needs-chores` — Pending. A small, self-contained task that has all context in place and doesn't need full `/implement` overhead. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-chores` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#next-chores` — Claimed for immediate next-skill execution. Set via "Claim for next skill" in `§CMD_DISPATCH_APPROVAL`. Daemon ignores. Auto-claimed by `/chores` on activation.
-    *   `#claimed-chores` — Claimed. Swapped when `/delegation-claim` picks up and `/chores` begins working on the item from its queue.
-    *   `#done-chores` — Complete. Swapped after verification.
-*   **Context Model**: Tags are applied inline. The chores skill reads the full surrounding section (nearest heading above to next heading) to understand the task. No separate request file needed for inline tags, but request files are supported for explicit delegation.
-*   **Application**: Applied inline within work artifacts when the agent identifies a small task. Can also appear on the Tags line of debriefs for tasks that emerged during a session.
-*   **Independence**: This feed is independent from all other feeds.
 
-## §FEED_FIX
-*   **Tags**: `#needs-fix`, `#delegated-fix`, `#next-fix`, `#claimed-fix`, `#done-fix`
-*   **Location**: `sessions/`
-*   **Lifecycle** (5-state, two paths):
-    *   `#needs-fix` — Deferred. Applied inline by any agent when a bug, failure, or regression is identified but not immediately addressed. Common during implementation, testing, or analysis sessions. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-fix` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#next-fix` — Claimed for immediate next-skill execution. Set via "Claim for next skill" in `§CMD_DISPATCH_APPROVAL`. Daemon ignores. Auto-claimed by `/fix` on activation.
-    *   `#claimed-fix` — In-flight. Swapped when `/delegation-claim` picks up and `/fix` begins working on the tagged item.
-    *   `#done-fix` — Complete. Swapped by `/fix` after the fix is verified.
-*   **Application**: Applied **inline** within work artifacts (test logs, implementation debriefs, analysis reports). Agents discover these via `tag.sh find` and route to `/fix`.
-*   **Independence**: This feed is independent from all other feeds.
 
-## §FEED_LOOP
-*   **Tags**: `#needs-loop`, `#delegated-loop`, `#next-loop`, `#claimed-loop`, `#done-loop`
-*   **Location**: `sessions/`
-*   **Lifecycle** (5-state, two paths):
-    *   `#needs-loop` — Deferred. Applied inline by any agent when an LLM workload needs hypothesis-driven iteration to improve quality (prompt tuning, schema refinement, config optimization). Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-loop` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#next-loop` — Claimed for immediate next-skill execution. Set via "Claim for next skill" in `§CMD_DISPATCH_APPROVAL`. Daemon ignores. Auto-claimed by `/loop` on activation.
-    *   `#claimed-loop` — In-flight. Swapped when `/delegation-claim` picks up and `/loop` begins working on the tagged item.
-    *   `#done-loop` — Complete. Swapped by `/loop` after the iteration session produces a `LOOP.md`.
-*   **Application**: Applied **inline** within work artifacts (implementation debriefs, analysis reports, testing reports) when the agent identifies an LLM workload that needs iterative improvement. Agents discover these via `tag.sh find` and route to `/loop`.
-*   **Output**: `/loop` creates a `LOOP.md` in its session directory with hypothesis audit trail, iteration history, and Composer insights.
-*   **Independence**: This feed is independent from all other feeds.
 
-## §FEED_IMPLEMENTATION
-*   **Tags**: `#needs-implementation`, `#delegated-implementation`, `#next-implementation`, `#claimed-implementation`, `#done-implementation`
-*   **Location**: `sessions/`
-*   **Lifecycle** (5-state, two paths):
-    *   `#needs-implementation` — Deferred. Applied inline by any agent when an actionable implementation task is identified but not immediately executed. Common during brainstorming, analysis, or decision sessions. Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
-    *   `#delegated-implementation` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
-    *   `#next-implementation` — Claimed for immediate next-skill execution. Set via "Claim for next skill" in `§CMD_DISPATCH_APPROVAL`. Daemon ignores. Auto-claimed by `/implement` on activation.
-    *   `#claimed-implementation` — In-flight. Swapped when `/delegation-claim` picks up and `/implement` begins working on the tagged item.
-    *   `#done-implementation` — Complete. Swapped by `/implement` after the work is verified.
-*   **Application**: Like `#needs-brainstorm`, this tag is applied **inline** within work artifacts (brainstorm outputs, analysis reports, plan steps). Agents discover these via `tag.sh find` and route to `/implement`.
-*   **Independence**: This feed is independent from all other feeds.
 
 ## §TAG_DISPATCH
 *   **Purpose**: Maps `#needs-*` tags to their resolving skills and defines daemon dispatch behavior. Used by `/delegation-claim`, daemon, and `/find-tagged` to route deferred work to the correct skill.

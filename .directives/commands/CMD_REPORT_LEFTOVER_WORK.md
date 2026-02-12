@@ -1,6 +1,6 @@
 ### §CMD_REPORT_LEFTOVER_WORK
 **Definition**: At synthesis, extracts unfinished items from session artifacts and presents a concise report in chat — giving the user context before the next-skill menu.
-**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 11, after `§CMD_CAPTURE_SIDE_DISCOVERIES` and before `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`.
+**Trigger**: Called by `§CMD_GENERATE_DEBRIEF` step 11, after `§CMD_CAPTURE_SIDE_DISCOVERIES` and before `§CMD_CLOSE_SESSION`.
 
 **Algorithm**:
 1.  **Identify Artifacts**: Locate the session's debrief, log, and plan files:

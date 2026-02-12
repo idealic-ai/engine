@@ -4,7 +4,7 @@
 
 **Algorithm**:
 
-1.  **Resolve Template**: Execute `session.sh request-template '#needs-X'` to get the REQUEST template for the target skill. If no template exists, use a generic format:
+1.  **Resolve Template**: Execute `engine session request-template '#needs-X'` to get the REQUEST template for the target skill. If no template exists, use a generic format:
     ```markdown
     # Request: [topic]
     **Tags**: #needs-[noun]

@@ -1,14 +1,14 @@
 ### §CMD_CHECK
 **Definition**: Validates session artifacts before deactivation. Runs 3 validations sequentially — all must pass for `checkPassed=true` in `.state.json`.
-**Trigger**: Called during synthesis phase, before `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`. Agents use `§CMD_PROCESS_TAG_PROMOTIONS` and `§CMD_PROCESS_CHECKLISTS` to address failures, then re-run check.
+**Trigger**: Called during synthesis phase, before `§CMD_GENERATE_DEBRIEF`. Agents use `§CMD_RESOLVE_BARE_TAGS` and `§CMD_PROCESS_CHECKLISTS` to address failures, then re-run check.
 
 **Usage**:
 ```bash
 # Tag scan + request files only (no checklists)
-session.sh check <path> < /dev/null
+engine session check <path> < /dev/null
 
 # Tag scan + checklist validation + request files
-session.sh check <path> <<'EOF'
+engine session check <path> <<'EOF'
 ## CHECKLIST: /absolute/path/to/CHECKLIST.md
 - [x] Item that was verified
 EOF
@@ -24,9 +24,9 @@ EOF
 *   Tags on the `**Tags**:` line (those are intentional)
 *   Backtick-escaped references (`` `#needs-*` ``)
 
-**On failure**: Exits 1 with a list of bare tags found (file:line: tag — context). Agent must address each via `§CMD_PROCESS_TAG_PROMOTIONS` (promote, acknowledge, or escape), then set `tagCheckPassed=true`:
+**On failure**: Exits 1 with a list of bare tags found (file:line: tag — context). Agent must address each via `§CMD_RESOLVE_BARE_TAGS` (promote, acknowledge, or escape), then set `tagCheckPassed=true`:
 ```bash
-session.sh update <path> tagCheckPassed true
+engine session update <path> tagCheckPassed true
 ```
 
 **Skip condition**: `tagCheckPassed=true` in `.state.json` (tags already addressed).
@@ -71,8 +71,8 @@ Summary: [1-2 lines of what was done]
 
 | Field | Type | Set By | Purpose |
 |-------|------|--------|---------|
-| `tagCheckPassed` | boolean | `session.sh update` | Skips Validation 1 on re-run |
-| `checkPassed` | boolean | `session.sh check` | Master gate — all validations passed |
-| `requestCheckPassed` | boolean | `session.sh check` | Skips Validation 3 on re-run |
+| `tagCheckPassed` | boolean | `engine session update` | Skips Validation 1 on re-run |
+| `checkPassed` | boolean | `engine session check` | Master gate — all validations passed |
+| `requestCheckPassed` | boolean | `engine session check` | Skips Validation 3 on re-run |
 | `discoveredChecklists` | string[] | `session.sh activate` | Input for Validation 2 |
 | `requestFiles` | string[] | `session.sh activate` | Input for Validation 3 |

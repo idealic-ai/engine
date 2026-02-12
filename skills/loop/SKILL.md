@@ -6,11 +6,6 @@ tier: protocol
 ---
 
 Hypothesis-driven iteration engine for any LLM workload.
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
 # Loop Protocol (The Iteration Engine)
 
 [!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own planning system — Phase 1 (Interrogation / Manifest Creation) and Phase 2 (Experiment Design). The engine's plan lives in the session directory as a reviewable artifact, not in a transient tool state. Use THIS protocol's phases, not the IDE's.
@@ -68,20 +63,14 @@ ARGUMENTS: Accepts optional flags:
     > 1. I am starting Phase 0: Setup phase.
     > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 0 only (Strict Bootloader — expires at Phase 1).
     > 3. My focus is ITERATION (`§CMD_REFUSE_OFF_COURSE` applies).
-    > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
-    > 5. I will `§CMD_PARSE_PARAMETERS` to activate the session and discover context.
-    > 6. I will select the **Loop Mode** (Precision / Exploration / Convergence / Custom).
-    > 7. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
-    > 8. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
+    > 4. I will `§CMD_PARSE_PARAMETERS` to activate the session and discover context.
+    > 5. I will select the **Loop Mode** (Precision / Exploration / Convergence / Custom).
+    > 6. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
+    > 7. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
     **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
-2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
-    *   `~/.claude/skills/loop/assets/MANIFEST_SCHEMA.json` (Schema for workload manifest)
-    *   `~/.claude/skills/loop/assets/COMPOSER_PROMPT.md` (Composer subagent prompt template)
-    *   `.claude/.directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
-
-3.  **Parse Arguments**: Check for flags in the user's command:
+2.  **Parse Arguments**: Check for flags in the user's command:
     *   `--manifest <path>`: Skip interrogation, use existing manifest
     *   `--plan <path>`: Skip planning, use existing LOOP_PLAN.md
     *   `--case <path>`: Focus on a single case instead of running all cases

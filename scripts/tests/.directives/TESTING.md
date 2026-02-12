@@ -117,3 +117,10 @@ bash ~/.claude/engine/scripts/tests/run-all.sh -v test-session-sh.sh
 | `assert_fail` | `desc command...` | Command exits non-zero |
 
 Use `pass "msg"` and `fail "msg" [expected] [got]` for custom assertions.
+
+## 9. Tmux Tests Must Never Kill the Server
+
+*   **Rule**: Tests that interact with tmux (fleet tests, summary tests) MUST NOT use `kill-server`, `kill-session` on the live fleet socket, or any command that could destroy the user's running fleet. Only `kill-window` and `kill-pane` are acceptable for cleanup — and only on windows/panes the test itself created.
+*   **Rule**: When debugging fleet test failures, NEVER run ad-hoc `tmux -L fleet` commands outside the test harness. The test harness has save/restore and cleanup logic; ad-hoc commands bypass it and contaminate real pane metadata or destroy real windows.
+*   **Rule**: Tests that use the live fleet socket (`SOCKET="fleet"`) must save ALL state they touch in `setup()` and restore it in `teardown()` / cleanup functions. Use `save_pane_summary_state` / `restore_pane_summary_state` patterns from `test-fleet-summary.sh`.
+*   **Why**: The fleet tmux server hosts the user's running agent workspace. Killing the server or removing windows destroys active Claude sessions, loses unsaved work, and requires full fleet restart. There is no undo.

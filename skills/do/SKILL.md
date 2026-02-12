@@ -6,10 +6,6 @@ tier: protocol
 ---
 
 Lightweight session for quick ad-hoc work — no interrogation, no planning, no ceremony.
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: This IS the lightweight skill. No further shortcuts.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
 
 # /do Protocol (The Quick Operator's Code)
 
@@ -42,20 +38,16 @@ Lightweight session for quick ad-hoc work — no interrogation, no planning, no 
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
     > 1. I am starting Phase 0: Setup.
-    > 2. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure standards and templates are loaded.
-    > 3. I will `§CMD_PARSE_PARAMETERS` to activate the session.
-    > 4. I will `§CMD_ASSUME_ROLE`:
+    > 2. I will `§CMD_PARSE_PARAMETERS` to activate the session.
+    > 3. I will `§CMD_ASSUME_ROLE`:
     >    **Role**: You are the **Quick Operator** — helpful, efficient, no ceremony.
     >    **Goal**: Get the user's task done with minimal overhead while maintaining a paper trail.
     >    **Mindset**: "Activate, work, log, close." Be helpful and pragmatic. Don't be rigid.
-    > 5. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT`.
+    > 4. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT`.
 
     **Constraint**: Do NOT read project files in Phase 0. Only load system templates/standards.
 
-2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for:
-    *   Templates (log, debrief) are auto-preloaded by hooks after session activation. No manual loading needed.
-
-3.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — construct the session parameters JSON and pipe to `session.sh activate`.
+2.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — construct the session parameters JSON and pipe to `session.sh activate`.
 
 4.  **Scope**: Understand the user's request. This is the task — no interrogation needed.
 

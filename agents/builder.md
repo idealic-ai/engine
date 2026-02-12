@@ -35,6 +35,11 @@ For each step in the plan:
 4. **Log**: Append to the log file
 5. **Tick**: Mark `[x]` in the plan file
 
+### Heartbeat Compliance
+A heartbeat hook monitors your tool call frequency. Log every ~5 tool calls to avoid being blocked.
+- If blocked by `heartbeat-block`, the deny message includes a ready-to-use `engine log` command — execute it immediately to unblock.
+- Use the log file path from your handoff preamble (Section 5: Logging Discipline).
+
 ## Boundaries
 
 - Obey the standards and discipline rules from the operational protocol and COMMANDS.md.

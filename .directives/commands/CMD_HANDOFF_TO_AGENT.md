@@ -1,4 +1,4 @@
-### §CMD_HAND_OFF_TO_AGENT
+### §CMD_HANDOFF_TO_AGENT
 **Definition**: Standardized handoff from a parent command to an autonomous agent.
 **Rule**: Opt-in, foreground, user-initiated. The parent command asks; the user decides.
 
@@ -16,7 +16,7 @@
 *   `taskSummary`: One-line description of what the agent should do
 
 **Algorithm**:
-1.  **Ask** (via `§CMD_ASK_ROUND_OF_QUESTIONS`):
+1.  **Ask** (via `§CMD_ASK_ROUND`):
     > "Plan approved. How do you want to proceed?"
     > - **"Launch [agentName] agent"** — Hand off to the agent for autonomous execution. You'll get the debrief when it's done.
     > - **"Continue inline"** — Execute step by step in this conversation.
@@ -55,6 +55,23 @@
 
         Context files to read:
         [list each contextFile]
+
+        ## 5. Logging Discipline
+        You MUST log progress to the session log every ~5 tool calls.
+        A heartbeat hook will BLOCK you if you exceed 10 tool calls without logging.
+
+        Log file: [sessionDir]/[logFile]
+        Command:
+        ```bash
+        engine log [sessionDir]/[logFile] <<'EOF'
+        ## Progress Update
+        *   **Task**: [what you were doing]
+        *   **Status**: [done/in-progress/blocked]
+        *   **Next**: [what's next]
+        EOF
+        ```
+
+        If blocked by the heartbeat hook, use the command above immediately to unblock.
         ```
 
     d.  **Invoke**: Call the `Task` tool with `subagent_type: [agentName]` (foreground).
@@ -63,11 +80,11 @@
         2.  Tail the log file (last ~30 lines) — check for unresolved blocks or `😨 Stuck` entries.
         3.  *(Plan-driven agents only)*: Read the plan file — check for unchecked `[ ]` steps. Flag any incomplete work.
         4.  Present a concise summary to the user: what was done, any issues found, next steps.
-    f.  **Report**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` and `§CMD_REPORT_SESSION_SUMMARY`.
+    f.  **Report**: Execute `§CMD_REPORT_ARTIFACTS` and `§CMD_REPORT_SESSION_SUMMARY`.
     g.  **Skip**: The parent command skips its remaining execution and debrief phases — the agent handled both.
 
 **Constraints**:
 *   **Opt-In Only**: Never launch an agent without asking. The user always chooses.
 *   **Foreground Only**: Agents run in the foreground. The parent waits for completion.
-*   **No Chaining**: An agent cannot launch another agent. Only the parent command (user-facing) can invoke `§CMD_HAND_OFF_TO_AGENT`.
+*   **No Chaining**: An agent cannot launch another agent. Only the parent command (user-facing) can invoke `§CMD_HANDOFF_TO_AGENT`.
 *   **Audit Trail**: The agent's log file IS the audit trail. The parent verifies it during post-agent review.

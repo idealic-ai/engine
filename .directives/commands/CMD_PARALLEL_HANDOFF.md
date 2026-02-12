@@ -1,6 +1,6 @@
 ### §CMD_PARALLEL_HANDOFF
 **Definition**: Standardized parallel handoff from a parent command to multiple autonomous agents, each executing an independent chunk of the plan.
-**Rule**: Opt-in, user-initiated. The parent analyzes the plan for parallelizable chunks, presents a non-intersection proof, and offers a richer handoff menu. Extends `§CMD_HAND_OFF_TO_AGENT` with multi-agent coordination.
+**Rule**: Opt-in, user-initiated. The parent analyzes the plan for parallelizable chunks, presents a non-intersection proof, and offers a richer handoff menu. Extends `§CMD_HANDOFF_TO_AGENT` with multi-agent coordination.
 
 **Preconditions**:
 *   A plan file exists with steps that declare `**Depends**:` and `**Files**:` fields.
@@ -8,7 +8,7 @@
 
 ---
 
-#### Parameters (inherited from §CMD_HAND_OFF_TO_AGENT + extensions)
+#### Parameters (inherited from §CMD_HANDOFF_TO_AGENT + extensions)
 
 *   `agentName`: Agent type per chunk (e.g., `"builder"`, `"writer"`, `"debugger"`)
 *   `sessionDir`: Absolute path to the session directory
@@ -74,7 +74,7 @@
 **Recommended**: [N] parallel agents for Wave 1, then [M] for Wave 2 (or inline).
 ```
 
-*   If the plan has no `**Depends**:` fields on any step → single chunk → skip visualization, behave like `§CMD_HAND_OFF_TO_AGENT` (backward compatible).
+*   If the plan has no `**Depends**:` fields on any step → single chunk → skip visualization, behave like `§CMD_HANDOFF_TO_AGENT` (backward compatible).
 *   If all steps are sequential (each depends on prior) → single chunk → skip visualization.
 
 ##### Step 4: Present Handoff Menu
@@ -95,7 +95,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 
 **"Continue inline"**: Return control to the parent command's build loop. Done.
 
-**"1 agent"**: Execute `§CMD_HAND_OFF_TO_AGENT` with the full plan (single agent, all steps sequential). Done.
+**"1 agent"**: Execute `§CMD_HANDOFF_TO_AGENT` with the full plan (single agent, all steps sequential). Done.
 
 **"Revise the plan"**: Return to the planning phase for revision. Done.
 
@@ -172,8 +172,8 @@ After all agents complete (or fail):
 
 1.  **Read Log File**: Read the full shared log file to understand what all agents did.
 2.  **Check Plan**: Read the plan file for any unchecked `[ ]` steps. Flag incomplete work.
-3.  **Synthesize Debrief**: The parent writes the unified debrief using `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`. This covers ALL chunks, not just individual agent work.
-4.  **Report**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` and `§CMD_REPORT_SESSION_SUMMARY`.
+3.  **Synthesize Debrief**: The parent writes the unified debrief using `§CMD_GENERATE_DEBRIEF`. This covers ALL chunks, not just individual agent work.
+4.  **Report**: Execute `§CMD_REPORT_ARTIFACTS` and `§CMD_REPORT_SESSION_SUMMARY`.
 
 ---
 
@@ -184,7 +184,7 @@ After all agents complete (or fail):
 *   **Shared Log**: All agents append to the SAME log file via `log.sh`. Each entry prefixed with `[Chunk X]`.
 *   **No Agent-to-Agent Communication**: Agents are isolated. They cannot read each other's output. Only the parent orchestrates.
 *   **No Agent Debriefs**: Agents do NOT write debriefs. The parent synthesizes one unified debrief from all agent logs.
-*   **Backward Compatible**: Plans without `**Depends**:` fields → single chunk → single-agent menu (identical to `§CMD_HAND_OFF_TO_AGENT`).
+*   **Backward Compatible**: Plans without `**Depends**:` fields → single chunk → single-agent menu (identical to `§CMD_HANDOFF_TO_AGENT`).
 *   **Opt-In Only**: Never launch parallel agents without user approval.
 *   **Agents Receive INVARIANTS**: Each agent gets shared + project INVARIANTS. They do NOT receive the full skill protocol.
 
@@ -227,7 +227,7 @@ Plan steps have no `**Depends**:` fields → treated as single sequential chunk 
 > - "Continue inline" — Execute step by step
 > - "Revise the plan"
 
-(Identical to `§CMD_HAND_OFF_TO_AGENT` behavior.)
+(Identical to `§CMD_HANDOFF_TO_AGENT` behavior.)
 
 **Example 3 — Multi-wave with sequential tail**:
 ```

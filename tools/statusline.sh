@@ -52,10 +52,15 @@ TOTAL_COST=$(echo "$INPUT" | jq -r '.cost.total_cost_usd // 0' 2>/dev/null || ec
 CONTEXT_DECIMAL=$(awk "BEGIN {printf \"%.4f\", $RAW_PERCENT / 100}")
 
 # Normalize for display: our threshold = 100% (dehydration triggers at threshold)
-# Formula: normalized = raw / (threshold * 100), capped at 100
+# When DISABLE_AUTO_COMPACT=1: show raw %, cap at 100 (full context is the target)
+# When compact enabled (default): normalized = raw / (threshold * 100), capped at 100
 # OVERFLOW_THRESHOLD is sourced from ~/.claude/engine/config.sh
-THRESHOLD_PERCENT=$(awk "BEGIN {printf \"%.2f\", $OVERFLOW_THRESHOLD * 100}")
-DISPLAY_PERCENT=$(awk "BEGIN {v = $RAW_PERCENT / $THRESHOLD_PERCENT * 100; if (v > 100) v = 100; printf \"%.0f\", v}")
+if [ "${DISABLE_AUTO_COMPACT:-}" = "1" ]; then
+  DISPLAY_PERCENT=$(awk "BEGIN {v = $RAW_PERCENT; if (v > 100) v = 100; printf \"%.0f\", v}")
+else
+  THRESHOLD_PERCENT=$(awk "BEGIN {printf \"%.2f\", $OVERFLOW_THRESHOLD * 100}")
+  DISPLAY_PERCENT=$(awk "BEGIN {v = $RAW_PERCENT / $THRESHOLD_PERCENT * 100; if (v > 100) v = 100; printf \"%.0f\", v}")
+fi
 
 # ANSI colors
 RED='\033[31m'

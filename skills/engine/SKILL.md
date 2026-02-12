@@ -7,11 +7,6 @@ tier: lightweight
 
 Smart assistant for the workflow engine — answers questions, invokes scripts, and navigates engine docs/scripts/skills.
 
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
 # Engine Assistant Protocol (The Operator's Manual)
 
 [!!!] This is a **sessionless utility** skill. No session directory, no logging, no debrief. It boots, loads the engine index, and enters an interactive loop until the user is done.

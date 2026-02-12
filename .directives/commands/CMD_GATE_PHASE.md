@@ -1,4 +1,4 @@
-### §CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH
+### §CMD_GATE_PHASE
 **Definition**: Standardized phase boundary menu. Presents options to proceed (with proof), walk through current output, go back, or take a skill-specific action. Derives current/next/previous phases from the `phases` array in `.state.json`.
 **Concept**: "What do you want to do at this phase boundary?"
 **Trigger**: Called by skill protocols at phase boundaries.
@@ -10,13 +10,13 @@
 Each invocation is configured inline in the skill's SKILL.md. Since the phases array declares the sequence, only the optional `custom` field is needed:
 
 ```
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
+Execute `§CMD_GATE_PHASE`.
 ```
 
 Or with a custom 4th option:
 
 ```
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+Execute `§CMD_GATE_PHASE`:
   custom: "Label | Description"
 ```
 
@@ -53,7 +53,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 
 ### Step 3: Execute Choice
 
-*   **"Proceed"**: Pipe proof fields via STDIN to `session.sh phase` for the current phase (proving it was completed). If the current phase declares `proof` fields, you MUST provide them as `key: value` lines. See **Proof-Gated Transitions** below.
+*   **"Proceed"**: Pipe proof fields via STDIN to `engine session phase` for the current phase (proving it was completed). If the current phase declares `proof` fields, you MUST provide them as `key: value` lines. See **Proof-Gated Transitions** below.
 
 *   **"Walkthrough"**: Invoke `§CMD_WALK_THROUGH_RESULTS` ad-hoc on the current phase's artifacts. After the walk-through completes, **re-present this same menu**.
 
@@ -69,7 +69,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 
 ## Proof-Gated Transitions
 
-When the current phase (being left) declares `proof` fields in the phases array, the agent must pipe proof as `key: value` lines via STDIN to `session.sh phase`. This is FROM validation — you prove what you just completed, not what you're about to start.
+When the current phase (being left) declares `proof` fields in the phases array, the agent must pipe proof as `key: value` lines via STDIN to `engine session phase`. This is FROM validation — you prove what you just completed, not what you're about to start.
 
 **Example** (leaving Phase 1: Context Ingestion which declares `proof: ["context_sources_presented", "files_loaded", "user_confirmed"]`):
 ```bash
@@ -102,4 +102,4 @@ EOF
 *   **Phase 0 -> Phase 1** -> Setup always proceeds to the next phase. No user question needed — just flow through.
 *   **`§CMD_EXECUTE_INTERROGATION_PROTOCOL` exit gate** -> The interrogation protocol handles its own exit with depth-based gating. However, when the user selects "Proceed to next phase", fire this command for the actual transition.
 *   **`§CMD_PARALLEL_HANDOFF` boundaries** -> Plan -> Build transitions that offer agent handoff keep their specialized menu.
-*   **Synthesis phase transitions** -> Post-synthesis uses `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`.
+*   **Synthesis phase transitions** -> Post-synthesis uses `§CMD_CLOSE_SESSION`.

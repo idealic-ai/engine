@@ -20,7 +20,7 @@
 > - **Mode**: `[--continue present ? "Auto-continue" : "Manual"]`
 >
 > I will now:
-> 1. Activate session and load standards
+> 1. Activate session
 > 2. Read dehydrated context
 > 3. Load required files and skill protocol
 > 4. Log the restart entry and resume session tracking
@@ -40,30 +40,7 @@ engine session activate [SESSION_DIR] [SKILL] < /dev/null
 
 ---
 
-## Phase 2: Load Standards
-
-**Action**: Load the core standards into context. These are required for all skills.
-
-**Files to Read** (in order):
-1. `~/.claude/.directives/COMMANDS.md` — Command definitions
-2. `~/.claude/.directives/INVARIANTS.md` — System invariants
-3. `~/.claude/.directives/TAGS.md` — Tag system reference
-4. `.claude/.directives/INVARIANTS.md` — Project invariants (if exists)
-
-### Gate Check
-
-Do NOT proceed to Phase 3 until ALL are filled in:
-
-> **Boot proof:**
-> - COMMANDS.md — §CMD spotted: `________`
-> - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
-
-If ANY blank above is empty: STOP. Go back and load the missing file.
-
----
-
-## Phase 3: Read Dehydrated Context
+## Phase 2: Read Dehydrated Context
 
 **Action**: Load the dehydrated context to understand where we left off.
 
@@ -77,7 +54,7 @@ If ANY blank above is empty: STOP. Go back and load the missing file.
 
 ---
 
-## Phase 4: Load Required Files
+## Phase 3: Load Required Files
 
 **Action**: Load all files listed in the "Required Files" section of dehydrated context.
 
@@ -105,7 +82,7 @@ If ANY blank above is empty: STOP. Go back and load the missing file.
 
 ---
 
-## Phase 5: Load Original Skill Protocol
+## Phase 4: Load Original Skill Protocol
 
 **Action**: Load the original skill's protocol so you know how to continue.
 
@@ -120,7 +97,7 @@ Examples:
 
 ---
 
-## Phase 6: Resume at Saved Phase
+## Phase 5: Resume at Saved Phase
 
 **Action**: Skip to the phase specified in arguments.
 
@@ -155,7 +132,7 @@ Do NOT call `engine session phase` before doing the work — the proof fields ar
 
 ---
 
-## Phase 7: Report Resumed Intent
+## Phase 6: Report Resumed Intent
 
 **Action**: After recovery is complete, report intent for the RESUMED skill.
 
@@ -189,9 +166,7 @@ The Context Injection Framework (`~/.claude/engine/injections.json`) may automat
 - **Dehydration pre-load**: The `dehydration-preload` rule may inject dehydration protocol files if context usage is already elevated.
 - **Session gate**: The `session-gate` rule will NOT fire once `engine session activate` succeeds (lifecycle becomes active).
 
-**The continue protocol loads files manually as a fallback** — the injection framework may not have fired yet during early phases (before session activation). The manual file loading in Phases 2-5 ensures all required context is present regardless of injection framework state.
-
-**Do NOT skip manual loading** because you see injection framework content in the context. The injection framework is complementary, not a replacement for the continue protocol's explicit loading.
+Engine standards (`COMMANDS.md`, `INVARIANTS.md`, `TAGS.md`) are auto-injected by the injection framework's `standards-preload` and `directive-autoload` rules. The continue protocol relies on this injection for standards loading — no manual loading phase is needed.
 
 ---
 

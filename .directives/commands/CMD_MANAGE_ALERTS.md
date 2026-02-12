@@ -1,6 +1,6 @@
 ### §CMD_MANAGE_ALERTS
 **Definition**: During synthesis, checks whether the current session's work warrants raising or resolving an alert. Replaces the former `/alert-raise` and `/alert-resolve` standalone skills.
-**Trigger**: Called during synthesis, after `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` and before `§CMD_REPORT_RESULTING_ARTIFACTS`. Agents should also call this proactively when they begin work that will temporarily break shared systems.
+**Trigger**: Called during synthesis, after `§CMD_GENERATE_DEBRIEF` and before `§CMD_REPORT_ARTIFACTS`. Agents should also call this proactively when they begin work that will temporarily break shared systems.
 
 **Algorithm**:
 

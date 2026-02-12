@@ -6,11 +6,6 @@ tier: lightweight
 ---
 
 Standalone dispatch approval for reviewing pending `#needs-X` and stale `#next-X` tags across sessions.
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
 **Note**: This is a utility skill — no session activation. Operates standalone or within an existing session context. Can be invoked manually at any time.
 
 ### GATE CHECK — Do NOT proceed until ALL are filled in:

@@ -27,6 +27,16 @@ Known gotchas and traps when working with engine scripts. Read before modifying 
 **Trap**: Cleanup loops that use `*/` to iterate symlinks will miss broken symlinks entirely. The loop sees valid symlinks and real directories, but broken symlinks are invisible. This was the root cause of STALE-06.
 **Mitigation**: Use `find "$dir" -maxdepth 1 -type l` to iterate ALL symlinks (both valid and broken). `find -type l` matches on the link itself, not its target, so broken links are included. Combine with `readlink` for target inspection — `readlink` returns the stored path even when the target doesn't exist.
 
+### `sleep infinity` fails on macOS BSD sleep — use `read` or `sleep 86400`
+**Context**: GNU coreutils `sleep` accepts `infinity` as a duration. macOS ships BSD `sleep`, which only accepts numeric values.
+**Trap**: `sleep infinity` silently fails with "invalid number: infinity" and exits non-zero. In scripts with `set -e`, this kills the entire script. Without `set -e`, the command after `sleep infinity` runs immediately.
+**Mitigation**: Use `read` (blocks on stdin forever) or `sleep 86400` (24h). Never use `sleep infinity` in scripts that must run on macOS.
+
+### tmux destroys panes/windows when the shell command exits — use a blocking command
+**Context**: `tmux new-window` and `split-window` accept a shell command argument. When that command's process exits (for any reason), tmux destroys the pane. If it was the last pane, the window is also destroyed.
+**Trap**: `new-window` returns exit 0 (window created successfully), but if the command fails immediately after, the window is destroyed before the next tmux query runs. `list-panes` returns empty, `list-windows` may not find it — a race condition with no error message. Combined with `sleep infinity` on macOS, this produces "ghost windows" that exist for milliseconds.
+**Mitigation**: Placeholder panes must use a command that blocks indefinitely: `read`, `cat`, or `while true; do sleep 3600; done`. Test by running `list-panes` immediately after `new-window` to verify the pane persists.
+
 ### lib.sh functions are sourced — they share the caller's shell state
 **Context**: `lib.sh` provides shared functions (`ensure_jq`, `read_state`, `write_state`, etc.) that are sourced via `. lib.sh` into other scripts.
 **Trap**: Variables set in `lib.sh` functions (like `$SESSION_DIR`, `$STATE_FILE`) persist in the caller's scope and can collide with the caller's own variables. Similarly, `set -e` in `lib.sh` affects the caller's error handling.

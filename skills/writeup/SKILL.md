@@ -6,11 +6,6 @@ tier: lightweight
 ---
 
 Creates semi-permanent situational documents for reference. Writeups describe a current situation, explain context, and suggest improvements. Stored in `apps/*/docs/writeups/` or `packages/*/docs/writeups/`.
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
 # Writeup Protocol (Lightweight Situational Documentation)
 
 [!!!] LIGHTWEIGHT SKILL: No session directory, no log file, no tags. Just focused writing.

@@ -959,6 +959,271 @@ cmd_oversee_wait() {
     return 0
 }
 
+# ============================================================
+# Summary Commands (Fleet Overseer Summaries Tab)
+# ============================================================
+
+# Discover overseer groups from @pane_manager tmux user options.
+# Output: One line per group: manager_pane_id|manager_label|worker_pane_ids(comma-sep)|source_window_id
+# Workers declare their manager by setting: tmux set-option -p @pane_manager "ManagerLabel"
+# A pane whose @pane_label matches a @pane_manager value is the manager for that group.
+_summary_discover_groups() {
+    local socket="${1:-$CURRENT_SOCKET}"
+
+    # Query all panes for label, manager declaration, window info
+    local pane_data
+    pane_data=$(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_label}|#{@pane_manager}|#{window_id}|#{window_name}' 2>/dev/null) || return 1
+
+    # Collect unique manager names (non-empty @pane_manager values)
+    local manager_names
+    manager_names=$(echo "$pane_data" | awk -F'|' '$3 != "" { print $3 }' | sort -u)
+
+    [[ -z "$manager_names" ]] && return 0
+
+    # For each manager name, find the manager pane and its workers
+    while IFS= read -r mgr_name; do
+        [[ -z "$mgr_name" ]] && continue
+
+        # Find the pane whose @pane_label matches this manager name
+        local mgr_pane_id="" mgr_window_id=""
+        while IFS='|' read -r pid plabel pmanager wid wname; do
+            if [[ "$plabel" == "$mgr_name" ]]; then
+                mgr_pane_id="$pid"
+                mgr_window_id="$wid"
+                break
+            fi
+        done <<< "$pane_data"
+
+        if [[ -z "$mgr_pane_id" ]]; then
+            echo "WARNING: No pane with @pane_label '$mgr_name' found (orphaned manager reference)" >&2
+            continue
+        fi
+
+        # Collect worker pane IDs (panes that declare this manager)
+        local worker_ids=""
+        while IFS='|' read -r pid plabel pmanager wid wname; do
+            if [[ "$pmanager" == "$mgr_name" && "$pid" != "$mgr_pane_id" ]]; then
+                [[ -n "$worker_ids" ]] && worker_ids+=","
+                worker_ids+="$pid"
+            fi
+        done <<< "$pane_data"
+
+        echo "${mgr_pane_id}|${mgr_name}|${worker_ids}|${mgr_window_id}"
+    done <<< "$manager_names"
+}
+
+cmd_summary_list() {
+    # List discovered overseer groups
+    # Usage: fleet.sh summary list [--socket <socket>]
+    local socket="${CURRENT_SOCKET}"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --socket) socket="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local groups
+    groups=$(_summary_discover_groups "$socket")
+
+    if [[ -z "$groups" ]]; then
+        echo "No overseer groups found (no panes have @pane_manager set)"
+        return 0
+    fi
+
+    echo "=== Overseer Groups ==="
+    while IFS='|' read -r mgr_id mgr_label workers src_window; do
+        local worker_count=0
+        if [[ -n "$workers" ]]; then
+            worker_count=$(echo "$workers" | tr ',' '\n' | wc -l | tr -d ' ')
+        fi
+        echo "  Manager: $mgr_label ($mgr_id) — $worker_count worker(s) — window: $src_window"
+    done <<< "$groups"
+}
+
+cmd_summary_setup() {
+    # Create the summaries window with placeholder panes for each discovered group.
+    # Usage: fleet.sh summary setup [--socket <socket>]
+    # The summaries window is created at index 1 (first window, base-index=1).
+    local socket="${CURRENT_SOCKET}"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --socket) socket="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local groups
+    groups=$(_summary_discover_groups "$socket")
+
+    if [[ -z "$groups" ]]; then
+        echo "No overseer groups found — nothing to set up"
+        return 0
+    fi
+
+    # Get session name early (list-sessions works outside tmux)
+    local session_name
+    session_name=$(fleet_tmux "$socket" list-sessions -F '#{session_name}' 2>/dev/null | head -1)
+
+    if [[ -z "$session_name" ]]; then
+        echo "ERROR: No session found on socket '$socket'" >&2
+        return 1
+    fi
+
+    # Check if summaries window already exists
+    local summaries_window=""
+    summaries_window=$(fleet_tmux "$socket" list-windows -t "${session_name}" -F '#{window_id} #{window_name}' 2>/dev/null | awk '$2 == "summaries" { print $1; exit }')
+
+    if [[ -n "$summaries_window" ]]; then
+        echo "Summaries window already exists ($summaries_window)"
+        return 0
+    fi
+
+    # Create summaries window in the session (at next available index)
+    # -d = don't switch to it, -n = name
+    # NOTE: Use 'read' not 'sleep infinity' — BSD sleep (macOS) doesn't support infinity
+    fleet_tmux "$socket" new-window -d -n "summaries" -t "${session_name}" \
+        "echo 'Placeholder'; read" 2>/dev/null
+
+    # Get the summaries window ID
+    summaries_window=$(fleet_tmux "$socket" list-windows -t "${session_name}" -F '#{window_id} #{window_name}' 2>/dev/null | awk '$2 == "summaries" { print $1; exit }')
+
+    if [[ -z "$summaries_window" ]]; then
+        echo "ERROR: Failed to create summaries window" >&2
+        return 1
+    fi
+
+    # Label the first placeholder pane
+    local first_group=true
+    local first_pane
+    first_pane=$(fleet_tmux "$socket" list-panes -t "$summaries_window" -F '#{pane_id}' 2>/dev/null | head -1)
+
+    while IFS='|' read -r mgr_id mgr_label workers src_window; do
+        if [[ "$first_group" == "true" ]]; then
+            # Use the existing first pane as the first placeholder
+            fleet_tmux "$socket" set-option -p -t "$first_pane" @pane_label "${mgr_label} (placeholder)" 2>/dev/null
+            fleet_tmux "$socket" set-option -p -t "$first_pane" @pane_manager_placeholder "$mgr_label" 2>/dev/null
+            first_group=false
+        else
+            # Split to create additional placeholder panes
+            local new_pane
+            new_pane=$(fleet_tmux "$socket" split-window -d -t "$summaries_window" -P -F '#{pane_id}' \
+                "echo 'Placeholder: ${mgr_label}'; read" 2>/dev/null)
+            fleet_tmux "$socket" set-option -p -t "$new_pane" @pane_label "${mgr_label} (placeholder)" 2>/dev/null
+            fleet_tmux "$socket" set-option -p -t "$new_pane" @pane_manager_placeholder "$mgr_label" 2>/dev/null
+        fi
+    done <<< "$groups"
+
+    # Tile the layout evenly
+    fleet_tmux "$socket" select-layout -t "$summaries_window" tiled 2>/dev/null || true
+
+    local group_count
+    group_count=$(echo "$groups" | wc -l | tr -d ' ')
+    echo "Created summaries window with $group_count placeholder pane(s)"
+}
+
+cmd_summary_toggle() {
+    # Toggle managers into/out of the summaries window using swap-pane.
+    # §INV_SWAP_PANE_NOT_MOVE — uses swap-pane, not move-pane or join-pane.
+    # State is re-derived each time (stateless): check if each manager is currently
+    # in the summaries window or in its source window.
+    # Usage: fleet.sh summary toggle [--socket <socket>]
+    local socket="${CURRENT_SOCKET}"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --socket) socket="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    local groups
+    groups=$(_summary_discover_groups "$socket")
+
+    if [[ -z "$groups" ]]; then
+        echo "No overseer groups found — nothing to toggle"
+        return 0
+    fi
+
+    # Find the summaries window (use -a for cross-session search outside tmux)
+    local summaries_window=""
+    summaries_window=$(fleet_tmux "$socket" list-windows -a -F '#{window_id} #{window_name}' 2>/dev/null | awk '$2 == "summaries" { print $1; exit }')
+
+    if [[ -z "$summaries_window" ]]; then
+        echo "No summaries window found. Run 'fleet.sh summary setup' first."
+        return 1
+    fi
+
+    # Determine current state: are managers IN the summaries window or OUT?
+    # Check the first manager's current window
+    local first_mgr_id first_mgr_window
+    first_mgr_id=$(echo "$groups" | head -1 | cut -d'|' -f1)
+    first_mgr_window=$(fleet_tmux "$socket" display-message -p -t "$first_mgr_id" '#{window_id}' 2>/dev/null || echo "")
+
+    local swapping_in=true
+    if [[ "$first_mgr_window" == "$summaries_window" ]]; then
+        # Managers are currently in summaries — swap them back out
+        swapping_in=false
+    fi
+
+    local swap_count=0
+    while IFS='|' read -r mgr_id mgr_label workers src_window; do
+        # Find the corresponding placeholder in the summaries window
+        local placeholder_id=""
+        while IFS='|' read -r pid plabel; do
+            local ph_marker
+            ph_marker=$(fleet_tmux "$socket" display-message -p -t "$pid" '#{@pane_manager_placeholder}' 2>/dev/null || echo "")
+            if [[ "$ph_marker" == "$mgr_label" ]]; then
+                placeholder_id="$pid"
+                break
+            fi
+        done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_label}' 2>/dev/null)
+
+        if [[ -z "$placeholder_id" ]]; then
+            echo "WARNING: No placeholder found for manager '$mgr_label' — skipping" >&2
+            continue
+        fi
+
+        if [[ "$swapping_in" == "true" ]]; then
+            # Swap manager INTO summaries (manager ↔ placeholder)
+            fleet_tmux "$socket" swap-pane -s "$mgr_id" -t "$placeholder_id" 2>/dev/null && {
+                (( swap_count++ )) || true
+            }
+        else
+            # Swap manager BACK to source (placeholder ↔ manager)
+            fleet_tmux "$socket" swap-pane -s "$mgr_id" -t "$placeholder_id" 2>/dev/null && {
+                (( swap_count++ )) || true
+            }
+        fi
+    done <<< "$groups"
+
+    if [[ "$swapping_in" == "true" ]]; then
+        echo "Swapped $swap_count manager(s) into summaries window"
+    else
+        echo "Swapped $swap_count manager(s) back to source windows"
+    fi
+}
+
+cmd_summary() {
+    # Router for summary subcommands
+    # Usage: fleet.sh summary <list|setup|toggle> [args]
+    local subcmd="${1:-list}"
+    shift 2>/dev/null || true
+
+    case "$subcmd" in
+        list)   cmd_summary_list "$@" ;;
+        setup)  cmd_summary_setup "$@" ;;
+        toggle) cmd_summary_toggle "$@" ;;
+        *)
+            echo "Unknown summary subcommand: $subcmd"
+            echo "Usage: fleet.sh summary <list|setup|toggle>"
+            return 1
+            ;;
+    esac
+}
+
 cmd_help() {
     cat <<EOF
 fleet.sh — Fleet management commands
@@ -980,6 +1245,7 @@ Commands:
   capture-pane <pane>  Capture pane content and extract AskUserQuestion state (JSON)
   list-panes           List all panes with notify state (for /oversee polling)
   oversee-wait [secs]  Block until actionable panes appear or timeout (event-driven)
+  summary <sub>        Overseer summaries tab (sub: list, setup, toggle)
   config-path [group]  Output path to fleet yml config (default: main fleet)
   init                 Create fleet directory in Google Drive
 
@@ -1018,6 +1284,7 @@ case "${1:-help}" in
     capture-pane) cmd_capture_pane "${2:-}" "${@:3}" ;;
     list-panes) cmd_list_panes "${@:2}" ;;
     oversee-wait) cmd_oversee_wait "${@:2}" ;;
+    summary)  cmd_summary "${@:2}" ;;
     pane-id)  cmd_pane_id ;;
     config-path) get_config_path "${2:-}" ;;
     init)     cmd_init ;;

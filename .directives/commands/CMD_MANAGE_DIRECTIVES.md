@@ -31,7 +31,7 @@ AGENTS.md is a micro-README: it describes what a directory is for, what to think
         *   `"Update: path/to/.directives/AGENTS.md"` — description: `"Add mention of [new directive files]. Will also refresh dir description if stale."`
     *   For each selected AGENTS.md: Read it, add references to new directive files in the "Available Directives" section (or equivalent). If the AGENTS.md has no such section, add one. Refresh the directory description if it's clearly stale.
 5.  **Apply**: Use Edit tool to update. Report: "AGENTS.md updated: [list]."
-6.  **If AGENTS.md is Missing**: If a directory received new directive files but has NO AGENTS.md at all, offer to create one from `TEMPLATE_AGENTS.md` (in `~/.claude/engine/.directives/templates/`):
+6.  **If AGENTS.md is Missing**: If a directory received new directive files but has NO AGENTS.md at all, offer to create one from `TEMPLATE_AGENTS.md` (in `~/.claude/.directives/templates/`):
     *   `question`: "Directory [path] has directive files but no AGENTS.md. Create one?"
     *   `options`: `"Create from template"` / `"Skip"`
 
@@ -114,4 +114,4 @@ AGENTS.md is a micro-README: it describes what a directory is for, what to think
 *   **Idempotent**: Check existing entries before suggesting to avoid duplicates.
 *   **Order matters**: AGENTS.md first (factual/structural), then invariants (rules), then pitfalls (warnings). Each pass is independent.
 *   **Skip silently**: Each pass independently decides whether it has candidates. An empty pass produces no output and no prompt.
-*   **Template location**: Scaffolding templates for all directive types live in `~/.claude/engine/.directives/templates/TEMPLATE_*.md`.
+*   **Template location**: Scaffolding templates for all directive types live in `~/.claude/.directives/templates/TEMPLATE_*.md`.

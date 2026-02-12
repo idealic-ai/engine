@@ -1,7 +1,7 @@
 ### §CMD_WALK_THROUGH_RESULTS
 **Definition**: Walks the user through skill outputs or plan items with configurable granularity (None / Groups / Each item). Supports two modes: **results** (post-execution triage — delegate/defer/dismiss) and **plan** (pre-execution review — comment/question/flag).
 **Concept**: "What kind of walk-through are we doing here?"
-**Trigger**: Called by skill protocols either (a) during synthesis before `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` (results mode), or (b) after plan creation before phase transition to build (plan mode). Each skill provides a **Configuration Block** that customizes the behavior.
+**Trigger**: Called by skill protocols either (a) during synthesis before `§CMD_CLOSE_SESSION` (results mode), or (b) after plan creation before phase transition to build (plan mode). Each skill provides a **Configuration Block** that customizes the behavior.
 
 ---
 
@@ -130,7 +130,7 @@ After all items are triaged (or user batched the rest):
 
 ### Step 6: Return Control
 
-Return control to the calling skill protocol. The skill continues with its next step (typically `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`).
+Return control to the calling skill protocol. The skill continues with its next step (typically `§CMD_CLOSE_SESSION`).
 
 ---
 
@@ -252,7 +252,7 @@ Each skill provides a configuration block that customizes the walk-through. The 
 ## Integration Guide
 
 ### Results Mode Integration
-Any skill that produces a debrief with actionable items can integrate results mode. Add it to the skill's synthesis phase after the debrief is written and before `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`.
+Any skill that produces a debrief with actionable items can integrate results mode. Add it to the skill's synthesis phase after the debrief is written and before `§CMD_CLOSE_SESSION`.
 
 **Where to add**: In the synthesis phase, after session summary and before deactivate.
 

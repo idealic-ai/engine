@@ -8,11 +8,6 @@ args: "[subcommand] [args]"
 
 Smart assistant for session management — dehydrate, recover, search, and inspect sessions.
 
-[!!!] CRITICAL BOOT SEQUENCE:
-1. LOAD STANDARDS: IF NOT LOADED, Read `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, and `~/.claude/.directives/TAGS.md`.
-2. GUARD: "Quick task"? NO SHORTCUTS. See `¶INV_SKILL_PROTOCOL_MANDATORY`.
-3. EXECUTE: FOLLOW THE PROTOCOL BELOW EXACTLY.
-
 # Session Assistant Protocol (The Session Operator)
 
 [!!!] This is a **sessionless utility** skill. No session directory, no logging, no debrief. It boots, classifies the request, and handles it. Identical pattern to `/engine`.
