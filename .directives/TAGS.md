@@ -59,11 +59,11 @@ Immediate path (next-skill):
 
 ## Escaping Convention
 
-Tags in body text must be distinguished from actual tags to prevent false positives in discovery (`tag.sh find`).
+Tags in body text must be distinguished from actual tags to prevent false positives in discovery (`engine tag find`).
 
 ### The Rule
 *   **Bare `#tag`** = actual tag. Placed on the Tags line (`**Tags**: #needs-review`) or intentionally inline (per `§CMD_HANDLE_INLINE_TAG`).
-*   **Backticked `` `#tag` ``** = reference/discussion. NOT an actual tag. Filtered out by `tag.sh find`.
+*   **Backticked `` `#tag` ``** = reference/discussion. NOT an actual tag. Filtered out by `engine tag find`.
 *   **Lifecycle tags**: `#needs-*`, `#delegated-*`, `#next-*`, `#claimed-*`, `#done-*` — all five states follow this escaping convention.
 
 ### When Writing (Agents)
@@ -87,7 +87,7 @@ Tags in body text must be distinguished from actual tags to prevent false positi
 The `#needs-review` tag is auto-applied at debrief creation.
 We swapped `#needs-review` → `#done-review` on 42 files.
 
-# Bad — Unescaped reference (creates noise in tag.sh find)
+# Bad — Unescaped reference (creates noise in engine tag find)
 The #needs-review tag is auto-applied at debrief creation.
 ```
 
@@ -107,7 +107,7 @@ The #needs-review tag is auto-applied at debrief creation.
 
 ## Tag Discoverability (Escape-by-Default)
 
-All `.md` file types are discoverable by `tag.sh find`. Bare inline tags are treated as intentional — the `session.sh check` gate (`¶INV_ESCAPE_BY_DEFAULT`) enforces this by requiring agents to promote or acknowledge every bare inline tag before synthesis completes.
+All `.md` file types are discoverable by `engine tag find`. Bare inline tags are treated as intentional — the `engine session check` gate (`¶INV_ESCAPE_BY_DEFAULT`) enforces this by requiring agents to promote or acknowledge every bare inline tag before synthesis completes.
 
 ### Discovery Rules
 
@@ -127,7 +127,7 @@ Only non-text data files are excluded from discovery:
 
 ### Check Gate Enforcement (¶INV_ESCAPE_BY_DEFAULT)
 
-During synthesis, `session.sh check` scans session artifacts for bare unescaped inline lifecycle tags (`#needs-*`, `#delegated-*`, `#next-*`, `#claimed-*`, `#done-*`). For each bare tag found:
+During synthesis, `engine session check` scans session artifacts for bare unescaped inline lifecycle tags (`#needs-*`, `#delegated-*`, `#next-*`, `#claimed-*`, `#done-*`). For each bare tag found:
 
 1. **PROMOTE** — Create a REQUEST file from the skill's template + backtick-escape the inline tag
 2. **ACKNOWLEDGE** — Mark as intentional (tag stays bare, agent opts in)
@@ -196,7 +196,7 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
     *   *In a log entry*: `### [timestamp] 🚧 Block — [Topic] #needs-brainstorm`
     *   *In a plan step*: `*   [ ] **Step 3**: [Action] #needs-brainstorm`
     *   *In a debrief section*: Add to the relevant paragraph or as a bullet.
-3.  **Log to DETAILS.md**: Execute `§CMD_LOG_TO_DETAILS` recording the user's deferral (the question asked, the `#needs-xxx` response, and the context).
+3.  **Log to DETAILS.md**: Execute `§CMD_LOG_INTERACTION` recording the user's deferral (the question asked, the `#needs-xxx` response, and the context).
 4.  **Do NOT Duplicate**: The tag should appear in **exactly one** work artifact (the log OR the debrief section — whichever is active when the user defers). Do NOT propagate the tag from DETAILS.md into the debrief automatically. If the debrief has a "Pending Decisions" or "Open Questions" section, list it there as a **reference** (one-liner with source path), not a full copy.
 5.  **Tag the File**: If the work artifact is a debrief (final output), also add the `#needs-xxx` tag to the file's `**Tags**:` line via `§CMD_TAG_FILE`.
 6.  **Tag Reactivity** (`¶INV_WALKTHROUGH_TAGS_ARE_PASSIVE`): Determine the current context and react accordingly:
@@ -219,7 +219,7 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **Tags**: `#needs-review`, `#done-review`, `#needs-rework`
 *   **Location**: `sessions/`
 *   **Lifecycle** (2-state — no delegation dispatch):
-    *   `#needs-review` — Unvalidated. Auto-applied at debrief creation by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`.
+    *   `#needs-review` — Unvalidated. Auto-applied at debrief creation by `§CMD_GENERATE_DEBRIEF`.
     *   `#done-review` — User-approved via `/review`. No further action needed.
     *   `#needs-rework` — User-rejected via `/review`. Contains `## Rework Notes` with rejection context. Re-presented on next review run.
 
@@ -290,7 +290,7 @@ Weight tags express urgency and effort for work items. They are optional metadat
 *   Tags are separate and combinable: `#needs-implementation #P1 #M`
 *   Scheduling: Priority-first (P0 > P1 > P2), FIFO within same priority
 *   Effort is informational for human planning — does not affect daemon scheduling
-*   Discovery: `tag.sh find '#P0'` finds all critical items
+*   Discovery: `engine tag find '#P0'` finds all critical items
 
 ### Examples
 ```markdown
@@ -304,8 +304,3 @@ Weight tags express urgency and effort for work items. They are optional metadat
 **Tags**: #needs-documentation #P2 #S
 ```
 
----
-
-## §FEED_AGGREGATION
-*   When starting a new session, the agent should search for `#active-alert` and read the relevant files to understand the "Recent State of the Codebase" beyond what is in the main documentation.
-*   This is especially critical during periods of high churn or complex debugging.

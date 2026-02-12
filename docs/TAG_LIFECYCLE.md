@@ -39,15 +39,15 @@ This document provides the operational reference for the tag system's complete l
 | 1 | `§CMD_HANDLE_INLINE_TAG` | User types `#needs-X` during dialogue | Inline tag placed in work artifact |
 | 2 | `§CMD_WALK_THROUGH_RESULTS` (results mode) | User selects triage action (delegate/defer) | Inline tag applied via `§CMD_HANDLE_INLINE_TAG` |
 | 3 | `§CMD_CAPTURE_SIDE_DISCOVERIES` | Agent scans log for observations/parking lot entries | User selects tag type → `tag.sh add` to Tags line |
-| 4 | `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` | Debrief creation (auto-tagging) | `#needs-review` on every debrief |
-| 5 | Manual REQUEST file creation | `session.sh request-template '#needs-X'` → template | Populated REQUEST file with `#needs-X` on Tags line |
+| 4 | `§CMD_GENERATE_DEBRIEF` | Debrief creation (auto-tagging) | `#needs-review` on every debrief |
+| 5 | Manual REQUEST file creation | `engine session request-template '#needs-X'` → template | Populated REQUEST file with `#needs-X` on Tags line |
 
 ### Stage 2: Governance (Quality Gates During Synthesis)
 
 | # | Mechanism | Trigger | Output |
 |---|-----------|---------|--------|
-| 6 | `§CMD_PROCESS_TAG_PROMOTIONS` | `session.sh check` finds bare inline tags | PROMOTE → REQUEST file + escape inline, ACKNOWLEDGE → keep bare, ESCAPE → backtick-escape |
-| 7 | `¶INV_ESCAPE_BY_DEFAULT` | `session.sh check` gate | Blocks deactivation until all bare inline tags addressed |
+| 6 | `§CMD_RESOLVE_BARE_TAGS` | `engine session check` finds bare inline tags | PROMOTE → REQUEST file + escape inline, ACKNOWLEDGE → keep bare, ESCAPE → backtick-escape |
+| 7 | `¶INV_ESCAPE_BY_DEFAULT` | `engine session check` gate | Blocks deactivation until all bare inline tags addressed |
 
 ### Stage 3: Dispatch Approval (`#needs-X` → `#delegated-X`)
 
@@ -90,7 +90,7 @@ Agent creates REQUEST file → Tags line: #needs-X
 
 ```
 Walk-through applies inline #needs-X in debrief
-  → §CMD_PROCESS_TAG_PROMOTIONS catches bare tag during synthesis
+  → §CMD_RESOLVE_BARE_TAGS catches bare tag during synthesis
   → User chooses "Promote"
   → REQUEST file created from skill's template + inline tag backtick-escaped
   → /delegation-review presents the REQUEST for approval
@@ -216,7 +216,7 @@ The chores worker benefits from batching (two small tasks are more efficient tog
 
 - **REQUEST files**: Written to the **requesting** session directory (e.g., `sessions/2026_02_08_MY_SESSION/IMPLEMENTATION_REQUEST_FOO.md`)
 - **RESPONSE files**: Written to the **responding** session directory (where the skill runs)
-- **Template lookup**: `session.sh request-template '#needs-X'` resolves tag → skill → template path
+- **Template lookup**: `engine session request-template '#needs-X'` resolves tag → skill → template path
 
 ### RESPONSE Template Design
 
@@ -233,9 +233,9 @@ Each RESPONSE template is tailored to the skill's specific outputs:
 
 ## Tag Promotion Gate
 
-The promotion gate (`§CMD_PROCESS_TAG_PROMOTIONS`) runs during synthesis when `session.sh check` finds bare inline lifecycle tags. For each bare tag:
+The promotion gate (`§CMD_RESOLVE_BARE_TAGS`) runs during synthesis when `engine session check` finds bare inline lifecycle tags. For each bare tag:
 
-1. **PROMOTE**: Create a REQUEST file from the skill's template (via `session.sh request-template`) + backtick-escape the inline tag. This makes the work item formally dispatchable.
+1. **PROMOTE**: Create a REQUEST file from the skill's template (via `engine session request-template`) + backtick-escape the inline tag. This makes the work item formally dispatchable.
 2. **ACKNOWLEDGE**: Leave the tag bare (intentional inline marker). Agent logs the acknowledgment.
 3. **ESCAPE**: Backtick-escape the tag (it was a reference, not a work item).
 

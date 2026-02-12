@@ -2,10 +2,10 @@
 
 Known gotchas and traps when working with engine scripts. Read before modifying any script.
 
-### session.sh activate reads stdin — pipe JSON or use `< /dev/null`
-**Context**: `session.sh activate` accepts optional JSON parameters on stdin (piped via heredoc). It uses this to populate `.state.json` with session parameters.
-**Trap**: Calling `session.sh activate path skill` without explicit stdin causes it to hang waiting for input. This is especially insidious in hooks or other scripts that call activate programmatically — the hang looks like a freeze, not an error.
-**Mitigation**: For re-activation without new parameters, always use `session.sh activate path skill < /dev/null`. For fresh activation, pipe the JSON via heredoc.
+### engine session activate reads stdin — pipe JSON or use `< /dev/null`
+**Context**: `engine session activate` accepts optional JSON parameters on stdin (piped via heredoc). It uses this to populate `.state.json` with session parameters.
+**Trap**: Calling `engine session activate path skill` without explicit stdin causes it to hang waiting for input. This is especially insidious in hooks or other scripts that call activate programmatically — the hang looks like a freeze, not an error.
+**Mitigation**: For re-activation without new parameters, always use `engine session activate path skill < /dev/null`. For fresh activation, pipe the JSON via heredoc.
 
 ### log.sh requires a `## ` heading in append content — or it exits 1
 **Context**: `log.sh` auto-injects timestamps into the first `## ` heading of each appended block. It enforces this by checking for the heading pattern.

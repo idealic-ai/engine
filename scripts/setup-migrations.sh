@@ -190,15 +190,7 @@ migration_005_add_hooks_to_settings() {
         })
     )
 
-    # PostToolUseSuccess: add discovery
-    | .hooks.PostToolUseSuccess = ((.hooks.PostToolUseSuccess // [])
-      | add_if_missing({
-          "hooks": [{
-            "type": "command",
-            "command": "~/.claude/hooks/post-tool-use-discovery.sh"
-          }]
-        })
-    )
+    # PostToolUseSuccess: discovery hook removed (moved to PreToolUse)
 
     # UserPromptSubmit: add session-gate
     | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // [])

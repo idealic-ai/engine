@@ -80,7 +80,7 @@ user_confirmed: yes
 EOF
 ```
 
-**Validation**: `session.sh` checks that all proof fields declared on the current phase are present and non-blank. Missing or unfilled fields reject the transition (exit 1).
+**Validation**: `engine session phase` checks that all proof fields declared on the current phase are present and non-blank. Missing or unfilled fields reject the transition (exit 1).
 
 **No proof declared**: If the current phase has no `proof` array, the transition proceeds normally without STDIN.
 
@@ -100,6 +100,6 @@ EOF
 
 **Do NOT use this command for**:
 *   **Phase 0 -> Phase 1** -> Setup always proceeds to the next phase. No user question needed — just flow through.
-*   **`§CMD_EXECUTE_INTERROGATION_PROTOCOL` exit gate** -> The interrogation protocol handles its own exit with depth-based gating. However, when the user selects "Proceed to next phase", fire this command for the actual transition.
+*   **`§CMD_INTERROGATE` exit gate** -> The interrogation protocol handles its own exit with depth-based gating. However, when the user selects "Proceed to next phase", fire this command for the actual transition.
 *   **`§CMD_PARALLEL_HANDOFF` boundaries** -> Plan -> Build transitions that offer agent handoff keep their specialized menu.
 *   **Synthesis phase transitions** -> Post-synthesis uses `§CMD_CLOSE_SESSION`.

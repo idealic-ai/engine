@@ -340,8 +340,7 @@ jq -e '.hooks.PreToolUse' "$TEST_DIR/claude/settings.json" >/dev/null 2>&1 && pa
 # Check new hooks are present
 hb=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-heartbeat.sh")] | length' "$TEST_DIR/claude/settings.json")
 [ "$hb" = "1" ] && pass "HOOKS-02b: Adds heartbeat hook" || fail "HOOKS-02b" "1" "$hb"
-disc=$(jq '[.hooks.PostToolUse[] | select(.hooks[0].command == "~/.claude/hooks/post-tool-use-discovery.sh")] | length' "$TEST_DIR/claude/settings.json")
-[ "$disc" = "1" ] && pass "HOOKS-02c: Adds discovery hook (PostToolUse)" || fail "HOOKS-02c" "1" "$disc"
+# discovery hook removed (moved to PreToolUse _run_discovery)
 teardown
 
 # Deep-merge: preserves user's custom hooks

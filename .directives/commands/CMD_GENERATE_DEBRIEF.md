@@ -1,7 +1,7 @@
 ### §CMD_GENERATE_DEBRIEF
 **Definition**: Creates or regenerates a standardized debrief artifact.
 **Algorithm**:
-1.  **Check for Continuation**: Is this a continuation of an existing session (user chose "Continue existing" via `§CMD_MAINTAIN_SESSION_DIR`, or continued post-synthesis via `§CMD_CONTINUE_OR_CLOSE_SESSION`)?
+1.  **Check for Continuation**: Is this a continuation of an existing session (user chose "Continue existing" via `§CMD_MAINTAIN_SESSION_DIR`, or continued post-synthesis via `§CMD_RESUME_AFTER_CLOSE`)?
     *   **If continuation**: Read the **full log file** (original + continuation entries) to capture the complete session history. The debrief must reflect ALL work done, not just the latest round.
     *   **If fresh**: Proceed normally with current context.
 2.  **Execute**: `§CMD_WRITE_FROM_TEMPLATE` using the `.md` schema found in context.
@@ -24,4 +24,23 @@
 6.  **Report**: `§CMD_LINK_FILE`. If this was a regeneration, say "Updated `[path]`" not "Created".
 7.  **Reindex Search DBs**: *Handled automatically by `engine session deactivate`.* No manual action needed.
 
-**Note**: Steps 8-15 (pipeline orchestration, deactivation) have been extracted to `§CMD_FOLLOW_DEBRIEF_PROTOCOL`. This command now only handles debrief file creation (steps 1-7).
+**Note**: Steps 8-15 (pipeline orchestration, deactivation) have been extracted to `§CMD_RUN_SYNTHESIS_PIPELINE`. This command now only handles debrief file creation (steps 1-7).
+
+---
+
+## PROOF FOR §CMD_GENERATE_DEBRIEF
+
+```json
+{
+  "debrief_file": {
+    "type": "string",
+    "description": "Filename of the debrief written to the session directory",
+    "examples": ["IMPLEMENTATION.md", "ANALYSIS.md", "BRAINSTORM.md", "FIX.md"]
+  },
+  "debrief_tags": {
+    "type": "string",
+    "description": "Tags applied to the debrief file",
+    "examples": ["#needs-review", "#needs-review #delegated-implement"]
+  }
+}
+```

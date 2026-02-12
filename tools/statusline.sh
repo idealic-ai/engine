@@ -154,20 +154,20 @@ if output=$(update_session 2>/dev/null); then
   # Rules are now evaluated inline by the PreToolUse hook (unified rule engine)
   # Extract session name from path, strip date prefix (YYYY_MM_DD_)
   SESSION_NAME=$(basename "$SESSION_DIR" | sed 's/^[0-9]\{4\}_[0-9]\{2\}_[0-9]\{2\}_//')
-  # Get current phase: "5: Strategy" → "[5/10]. Strategy" (with phases array) or "5. Strategy" (without)
+  # Get current phase: "3.C: Build" → "[3.C/4] Build" (with phases) or "3.C. Build" (without)
   FULL_PHASE=$(state_read "$SESSION_DIR/.state.json" currentPhase "")
   if [ -n "$FULL_PHASE" ]; then
-    # Try to build [major/max_major]. name format from phases array
+    # Try to build [label/max_major] name format from phases array
+    # Bilingual: uses .label if present, derives from major/minor if not
     PHASE=$(jq -r --arg cp "$FULL_PHASE" '
+      def phase_lbl: if has("label") then .label elif .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end;
       if has("phases") and (.phases | length > 0) then
-        (.phases | map(.major) | max) as $max_major |
-        (.phases[] | select(
-          (if .minor == 0 then "\(.major): \(.name)" else "\(.major).\(.minor): \(.name)" end) == $cp
-        )) as $match |
-        if $match != null then "[\($match.major)/\($max_major)] \($match.name)" else "" end
+        (.phases | map(phase_lbl | split(".") | first | tonumber) | max) as $max_major |
+        (.phases[] | select(("\(phase_lbl): \(.name)") == $cp)) as $match |
+        if $match != null then "[\($match | phase_lbl)/\($max_major)] \($match.name)" else "" end
       else "" end
     ' "$SESSION_DIR/.state.json" 2>/dev/null || echo "")
-    # Fallback: no phases array or no match → original "N. Name" format
+    # Fallback: no phases array or no match
     if [ -z "$PHASE" ]; then
       PHASE=$(echo "$FULL_PHASE" | sed 's/: /. /')
     fi

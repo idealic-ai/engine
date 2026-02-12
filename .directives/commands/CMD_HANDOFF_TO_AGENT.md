@@ -80,7 +80,7 @@
         2.  Tail the log file (last ~30 lines) — check for unresolved blocks or `😨 Stuck` entries.
         3.  *(Plan-driven agents only)*: Read the plan file — check for unchecked `[ ]` steps. Flag any incomplete work.
         4.  Present a concise summary to the user: what was done, any issues found, next steps.
-    f.  **Report**: Execute `§CMD_REPORT_ARTIFACTS` and `§CMD_REPORT_SESSION_SUMMARY`.
+    f.  **Report**: Execute `§CMD_REPORT_ARTIFACTS` and `§CMD_REPORT_SUMMARY`.
     g.  **Skip**: The parent command skips its remaining execution and debrief phases — the agent handled both.
 
 **Constraints**:
@@ -88,3 +88,17 @@
 *   **Foreground Only**: Agents run in the foreground. The parent waits for completion.
 *   **No Chaining**: An agent cannot launch another agent. Only the parent command (user-facing) can invoke `§CMD_HANDOFF_TO_AGENT`.
 *   **Audit Trail**: The agent's log file IS the audit trail. The parent verifies it during post-agent review.
+
+---
+
+## PROOF FOR §CMD_HANDOFF_TO_AGENT
+
+```json
+{
+  "agent_launched": {
+    "type": "string",
+    "description": "Agent type and task summary for the launched agent",
+    "examples": ["builder: Execute implementation plan (5 steps)"]
+  }
+}
+```

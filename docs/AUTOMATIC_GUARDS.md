@@ -39,7 +39,7 @@ These fire **before every tool call**. If they deny, the tool does not execute.
 - `§CMD_REQUIRE_ACTIVE_SESSION: No active session. Tool use blocked.`
 - `§CMD_REQUIRE_ACTIVE_SESSION: Previous session '[name]' (skill: [skill]) is completed. Tool use blocked.`
 
-**Resolution**: Invoke a skill via the Skill tool (e.g., `Skill(skill: "implement")`), which triggers `session.sh activate`.
+**Resolution**: Invoke a skill via the Skill tool (e.g., `Skill(skill: "implement")`), which triggers `engine session activate`.
 
 ---
 
@@ -67,7 +67,7 @@ These fire **before every tool call**. If they deny, the tool does not execute.
 - `Edit` of the same file consecutively (only first edit counts)
 
 **Skipped entirely when**:
-- `loading=true` in `.state.json` (during session bootstrap, cleared by `session.sh phase`)
+- `loading=true` in `.state.json` (during session bootstrap, cleared by `engine session phase`)
 - No active session
 - No `logTemplate` set in `.state.json`
 
@@ -88,7 +88,7 @@ EOF
 ### 3. Context Overflow
 
 **Hook**: `pre-tool-use-overflow.sh`
-**Enforces**: `§CMD_SESSION_CONTINUE_AFTER_RESTART`
+**Enforces**: `§CMD_RECOVER_SESSION`
 **Purpose**: Forces context dehydration when the conversation approaches the context window limit. Prevents data loss from silent truncation.
 
 **When it fires**: When `contextUsage` in `.state.json` >= `OVERFLOW_THRESHOLD` (default 0.76, ~97.5% of Claude's 80% auto-compact threshold).
@@ -99,7 +99,7 @@ EOF
 - All tools when `lifecycle=dehydrating` or `killRequested=true`
 
 **Error message**:
-`§CMD_SESSION_CONTINUE_AFTER_RESTART: Context overflow — you MUST invoke the session dehydrate skill NOW.`
+`§CMD_RECOVER_SESSION: Context overflow — you MUST invoke the session dehydrate skill NOW.`
 
 **Resolution**: Invoke `Skill(skill: "session", args: "dehydrate restart")`. This saves context to `DEHYDRATED_CONTEXT.md` and triggers a fresh Claude session that resumes via `/session continue`.
 
@@ -175,7 +175,7 @@ These are validation gates inside `session.sh` commands. They fire when the agen
 
 ### 6. Activate: Required Field Validation
 
-**Command**: `session.sh activate <dir> <skill> <<< '{json}'`
+**Command**: `engine session activate <dir> <skill> <<< '{json}'`
 **Enforces**: `§CMD_PARSE_PARAMETERS`
 **Purpose**: Ensures agents provide all required session parameters when activating with JSON.
 
@@ -187,13 +187,13 @@ These are validation gates inside `session.sh` commands. They fire when the agen
 
 **Error message**: `§CMD_PARSE_PARAMETERS: Missing required field(s) in JSON: [field1], [field2], ...`
 
-**Resolution**: Include all required fields in the JSON piped to `session.sh activate`.
+**Resolution**: Include all required fields in the JSON piped to `engine session activate`.
 
 ---
 
 ### 7. Activate: Completed Skill Gate
 
-**Command**: `session.sh activate <dir> <skill>`
+**Command**: `engine session activate <dir> <skill>`
 **Enforces**: `§CMD_PARSE_PARAMETERS`
 **Purpose**: Prevents accidentally re-entering a completed skill (e.g., re-running `/implement` after it was deactivated).
 
@@ -207,7 +207,7 @@ These are validation gates inside `session.sh` commands. They fire when the agen
 
 ### 8. Activate: PID Conflict
 
-**Command**: `session.sh activate <dir> <skill>`
+**Command**: `engine session activate <dir> <skill>`
 **Enforces**: `§CMD_MAINTAIN_SESSION_DIR`
 **Purpose**: Prevents two agents from claiming the same session simultaneously.
 
@@ -223,7 +223,7 @@ These are validation gates inside `session.sh` commands. They fire when the agen
 
 ### 9. Phase: Format Validation
 
-**Command**: `session.sh phase <dir> "<label>"`
+**Command**: `engine session phase <dir> "<label>"`
 **Enforces**: `§CMD_UPDATE_PHASE`
 **Purpose**: Ensures phase labels follow the required format.
 
@@ -239,7 +239,7 @@ These are validation gates inside `session.sh` commands. They fire when the agen
 
 ### 10. Phase: Sequential Enforcement
 
-**Command**: `session.sh phase <dir> "<label>"`
+**Command**: `engine session phase <dir> "<label>"`
 **Enforces**: `¶INV_PHASE_ENFORCEMENT`
 **Purpose**: Prevents agents from skipping phases in the protocol.
 
@@ -264,31 +264,31 @@ These are validation gates inside `session.sh` commands. They fire when the agen
 
 ### 11. Deactivate: Three Gates (Batched)
 
-**Command**: `session.sh deactivate <dir> [--keywords ...]`
+**Command**: `engine session deactivate <dir> [--keywords ...]`
 **Purpose**: Ensures sessions produce required artifacts before closing.
 
 All three gates are evaluated together — the agent sees ALL failures at once (not one-by-one).
 
 #### Gate A: Description Required
-**Enforces**: `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`
+**Enforces**: `§CMD_CLOSE_SESSION`
 **Check**: Description must be piped on stdin.
-**Resolution**: Pipe 1-3 lines of description: `session.sh deactivate $DIR <<< "What was done"`
+**Resolution**: Pipe 1-3 lines of description: `engine session deactivate $DIR <<< "What was done"`
 
 #### Gate B: Debrief Required
 **Enforces**: `§CMD_DEBRIEF_BEFORE_CLOSE`
 **Check**: If `debriefTemplate` is set, the corresponding debrief file must exist (e.g., `IMPLEMENTATION.md` for template `TEMPLATE_IMPLEMENTATION.md`).
-**Resolution**: Write the debrief via `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`, OR skip with `--skip-debrief "Reason: ..."` (requires user approval via `AskUserQuestion`).
+**Resolution**: Write the debrief via `§CMD_GENERATE_DEBRIEF`, OR skip with `--skip-debrief "Reason: ..."` (requires user approval via `AskUserQuestion`).
 
 #### Gate C: Checklist Required
 **Enforces**: `¶INV_CHECKLIST_BEFORE_CLOSE`
 **Check**: If `discoveredChecklists` is non-empty, `checkPassed` must be `true` in `.state.json`.
-**Resolution**: Run `§CMD_PROCESS_CHECKLISTS` which calls `session.sh check` with checklist results on stdin.
+**Resolution**: Run `§CMD_PROCESS_CHECKLISTS` which calls `engine session check` with checklist results on stdin.
 
 ---
 
 ### 12. Check: Three Validations
 
-**Command**: `session.sh check <dir>`
+**Command**: `engine session check <dir>`
 **Purpose**: Pre-deactivation validation. Sets `checkPassed=true` when all validations pass.
 
 #### Validation 1: Tag Scan
@@ -317,18 +317,18 @@ All three gates are evaluated together — the agent sees ALL failures at once (
 |---|-------|------------|---------|--------------|------------|
 | 1 | Session Gate | `pre-tool-use-session-gate.sh` | Any tool without active session | `§CMD_REQUIRE_ACTIVE_SESSION` | Invoke a skill |
 | 2 | Logging Heartbeat | `pre-tool-use-heartbeat.sh` | N tool calls without logging | `§CMD_LOG_BETWEEN_TOOL_USES` | Append to log via `log.sh` |
-| 3 | Context Overflow | `pre-tool-use-overflow.sh` | Context usage >= 76% | `§CMD_SESSION_CONTINUE_AFTER_RESTART` | Invoke `/session dehydrate restart` |
+| 3 | Context Overflow | `pre-tool-use-overflow.sh` | Context usage >= 76% | `§CMD_RECOVER_SESSION` | Invoke `/session dehydrate restart` |
 | 4 | Directory Discovery | `post-tool-use-discovery.sh` | Read/Edit/Write in new directory | `¶INV_DIRECTIVE_STACK` | Read suggested files |
 | 4b | Directive Gate | `pre-tool-use-directive-gate.sh` | N tool calls with unread directives | `¶INV_DIRECTIVE_STACK` | Read pending directive files |
 | 5 | Session Boot | `user-prompt-submit-session-gate.sh` | User message without session | `§CMD_REQUIRE_ACTIVE_SESSION` | Load standards, select skill |
-| 6 | Activate: Fields | `session.sh activate` | Missing required JSON fields | `§CMD_PARSE_PARAMETERS` | Include all 11 required fields |
-| 7 | Activate: Completed | `session.sh activate` | Skill in `completedSkills` | `§CMD_PARSE_PARAMETERS` | Use `--user-approved` |
-| 8 | Activate: PID | `session.sh activate` | Another agent holds session | `§CMD_MAINTAIN_SESSION_DIR` | Use different session |
-| 9 | Phase: Format | `session.sh phase` | Invalid label format | `§CMD_UPDATE_PHASE` | Use `N: Name` format |
-| 10 | Phase: Sequence | `session.sh phase` | Non-sequential transition | `¶INV_PHASE_ENFORCEMENT` | Use `--user-approved` |
-| 11a | Deactivate: Desc | `session.sh deactivate` | No description piped | `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` | Pipe description on stdin |
-| 11b | Deactivate: Debrief | `session.sh deactivate` | Missing debrief file | `§CMD_DEBRIEF_BEFORE_CLOSE` | Write debrief or `--skip-debrief` |
-| 11c | Deactivate: Checklist | `session.sh deactivate` | Unprocessed checklists | `¶INV_CHECKLIST_BEFORE_CLOSE` | Run `session.sh check` |
-| 12a | Check: Tags | `session.sh check` | Bare inline lifecycle tags | `¶INV_ESCAPE_BY_DEFAULT` | Promote or acknowledge tags |
-| 12b | Check: Checklists | `session.sh check` | Missing checklist blocks | `§CMD_PROCESS_CHECKLISTS` | Pipe checklist results |
-| 12c | Check: Requests | `session.sh check` | Incomplete request files | `¶INV_REQUEST_BEFORE_CLOSE` | Complete response sections |
+| 6 | Activate: Fields | `engine session activate` | Missing required JSON fields | `§CMD_PARSE_PARAMETERS` | Include all 11 required fields |
+| 7 | Activate: Completed | `engine session activate` | Skill in `completedSkills` | `§CMD_PARSE_PARAMETERS` | Use `--user-approved` |
+| 8 | Activate: PID | `engine session activate` | Another agent holds session | `§CMD_MAINTAIN_SESSION_DIR` | Use different session |
+| 9 | Phase: Format | `engine session phase` | Invalid label format | `§CMD_UPDATE_PHASE` | Use `N: Name` format |
+| 10 | Phase: Sequence | `engine session phase` | Non-sequential transition | `¶INV_PHASE_ENFORCEMENT` | Use `--user-approved` |
+| 11a | Deactivate: Desc | `engine session deactivate` | No description piped | `§CMD_CLOSE_SESSION` | Pipe description on stdin |
+| 11b | Deactivate: Debrief | `engine session deactivate` | Missing debrief file | `§CMD_DEBRIEF_BEFORE_CLOSE` | Write debrief or `--skip-debrief` |
+| 11c | Deactivate: Checklist | `engine session deactivate` | Unprocessed checklists | `¶INV_CHECKLIST_BEFORE_CLOSE` | Run `engine session check` |
+| 12a | Check: Tags | `engine session check` | Bare inline lifecycle tags | `¶INV_ESCAPE_BY_DEFAULT` | Promote or acknowledge tags |
+| 12b | Check: Checklists | `engine session check` | Missing checklist blocks | `§CMD_PROCESS_CHECKLISTS` | Pipe checklist results |
+| 12c | Check: Requests | `engine session check` | Incomplete request files | `¶INV_REQUEST_BEFORE_CLOSE` | Complete response sections |

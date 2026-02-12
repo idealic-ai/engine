@@ -6,18 +6,18 @@
 
 Context overflow restarts leave **zombie Claude processes** and break the **statusline**. Three distinct bugs compound into a completely broken restart experience:
 
-1. **Zombie Claude**: The old Claude process survives the restart — `session.sh restart` fails to kill it. The old process holds a PID lock in `.state.json`, blocking reactivation by the new Claude.
+1. **Zombie Claude**: The old Claude process survives the restart — `engine session restart` fails to kill it. The old process holds a PID lock in `.state.json`, blocking reactivation by the new Claude.
 2. **Statusline "No session"**: After restart, the statusline can't find the session because it looks up by `FLEET_PANE_ID` from the env, which diverges from the pane ID in `.state.json`.
 3. **Restart theft**: A different `run.sh` instance (in a different fleet pane) steals the restart prompt because `find_restart_agent_json()` scans globally with no pane scoping.
 
-**Observed failure**: Claude overflows → dehydrate writes state → `session.sh restart` writes `ready-to-kill` → old Claude doesn't die → a different run.sh grabs the restart → new Claude spawns in the wrong pane → can't activate (PID lock) → statusline shows "No session" → operator is blind.
+**Observed failure**: Claude overflows → dehydrate writes state → `engine session restart` writes `ready-to-kill` → old Claude doesn't die → a different run.sh grabs the restart → new Claude spawns in the wrong pane → can't activate (PID lock) → statusline shows "No session" → operator is blind.
 
 ## Context
 
 The restart flow involves four components working in sequence:
 
 ```
-session.sh restart  →  writes ready-to-kill to .state.json
+engine session restart  →  writes ready-to-kill to .state.json
                     →  attempts to kill Claude via SIGTERM
 run.sh              →  detects Claude exit, finds restart prompt
                     →  spawns new Claude with /reanchor prompt
@@ -25,7 +25,7 @@ statusline.sh       →  finds session by FLEET_PANE_ID env var
                     →  updates .state.json with contextUsage + sessionId
 ```
 
-**The fundamental architectural tension**: `run.sh` runs Claude in the **foreground** (required for TUI rendering). This means run.sh is **blocked** — it can't poll, can't kill, can't do anything until Claude exits. The current design has Claude kill itself via `session.sh restart`, which is fragile.
+**The fundamental architectural tension**: `run.sh` runs Claude in the **foreground** (required for TUI rendering). This means run.sh is **blocked** — it can't poll, can't kill, can't do anything until Claude exits. The current design has Claude kill itself via `engine session restart`, which is fragile.
 
 ## Related
 
@@ -64,7 +64,7 @@ Three components independently capture the fleet pane ID at different times:
 | Source | When captured | Value observed |
 |--------|-------------|----------------|
 | `run.sh` env (`FLEET_PANE_ID`) | At run.sh startup | `yarik-fleet:company:SDK` |
-| `session.sh activate` (`.state.json`) | At session activation | `yarik-fleet:meta:Sessions` |
+| `engine session activate` (`.state.json`) | At session activation | `yarik-fleet:meta:Sessions` |
 | `fleet.sh pane-id` (live) | Right now | `yarik-fleet:company:Future` |
 
 The statusline uses the env var (source 1) to look up sessions, but `.state.json` has source 2. They don't match → "No session."
@@ -85,7 +85,7 @@ Replace the self-kill architecture with an event-driven external watchdog.
 
 ### Design
 
-`session.sh restart` becomes **state-only** — it writes `ready-to-kill` to `.state.json` and exits. No kill attempt.
+`engine session restart` becomes **state-only** — it writes `ready-to-kill` to `.state.json` and exits. No kill attempt.
 
 `run.sh` spawns a **watchdog co-process** before Claude starts. The watchdog uses `fswatch` (FSEvents on macOS — already a project dependency via `await-tag.sh`) to monitor `.state.json` changes. When it detects `ready-to-kill` on the current pane's session, it kills Claude from the outside. Claude exits → run.sh unblocks → restart loop continues.
 
@@ -184,7 +184,7 @@ while true; do
 done
 ```
 
-### Implementation: session.sh restart Simplification
+### Implementation: engine session restart Simplification
 
 ```bash
 restart)
@@ -247,7 +247,7 @@ find_session_dir() {
     fi
   done < <(find -L "$sessions_dir" -name ".state.json" -type f 2>/dev/null)
 
-  # Strategy 2: Fleet pane fallback (for first tick before session.sh activate writes PID)
+  # Strategy 2: Fleet pane fallback (for first tick before engine session activate writes PID)
   if [ -z "$agent_file" ] && [ -n "$fleet_pane_id" ]; then
     # ... existing fleet lookup ...
   fi
@@ -271,14 +271,14 @@ find_session_dir() {
 
 2. **S4 (line 222-223)**: "run.sh detects Claude exit" → Add: "run.sh's restart scan is scoped by `FLEET_PANE_ID` to prevent cross-pane restart theft."
 
-3. **Section 6, session.sh restart** (line 427): Remove "Kill Claude" from responsibilities. Add: "State-only — writes `ready-to-kill` + `restartPrompt`. Does not kill."
+3. **Section 6, engine session restart** (line 427): Remove "Kill Claude" from responsibilities. Add: "State-only — writes `ready-to-kill` + `restartPrompt`. Does not kill."
 
 4. **Section 6, statusline.sh** (line 440): "fleetPaneId-first (fleet mode) or PID (non-fleet)" → "PID-first (all modes), fleet pane fallback for first tick."
 
 ### Missing Race Conditions to Add
 
 **R6: Fleet Pane ID Divergence**
-- Three independent captures (`run.sh` env, `session.sh activate`, `fleet.sh pane-id` live) can return different values if pane labels change or process migrates.
+- Three independent captures (`run.sh` env, `engine session activate`, `fleet.sh pane-id` live) can return different values if pane labels change or process migrates.
 - **Mitigation**: Statusline uses PID-first lookup. Pane ID from env is a fallback only.
 
 **R7: Watchdog vs Normal Exit Race**
@@ -296,7 +296,7 @@ find_session_dir() {
 
 ## Risk Assessment
 
-**Reversibility**: Easy. If the watchdog causes issues, revert to the self-kill by re-adding the old `session.sh restart` kill block. The watchdog is additive — removing it restores the old behavior.
+**Reversibility**: Easy. If the watchdog causes issues, revert to the self-kill by re-adding the old `engine session restart` kill block. The watchdog is additive — removing it restores the old behavior.
 
 **Edge cases**:
 - `fswatch` not installed → watchdog silently exits (`2>/dev/null`), falls back to old behavior (session.sh self-kill should be kept as a degraded fallback)

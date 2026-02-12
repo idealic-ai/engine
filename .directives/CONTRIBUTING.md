@@ -49,7 +49,7 @@ Skills follow a phased protocol. Common phases:
 5. **Execution** — Do the work
 6. **Synthesis** — Write debrief, report artifacts, prompt next skill
 
-Phase transitions are mechanically enforced via `session.sh phase`. Non-sequential transitions require `--user-approved`.
+Phase transitions are mechanically enforced via `engine session phase`. Non-sequential transitions require `--user-approved`.
 
 ### Required Protocol Elements
 
@@ -58,8 +58,8 @@ Every skill protocol MUST include:
 - **Boot sequence**: Load `COMMANDS.md`, `INVARIANTS.md`, `TAGS.md`, project `INVARIANTS.md`
 - **`§CMD_PARSE_PARAMETERS`**: Activate session with JSON params
 - **`§CMD_INGEST_CONTEXT_BEFORE_WORK`**: Context menu in Phase 2
-- **`§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`**: Synthesis output
-- **`§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`**: Session closure + next-step menu
+- **`§CMD_GENERATE_DEBRIEF`**: Synthesis output
+- **`§CMD_CLOSE_SESSION`**: Session closure + next-step menu
 - **Mode presets** (for multi-mode skills): Role, goal, mindset, research topics, calibration topics
 - **Walk-through config**: For finding triage in Phase 5b
 - **`phases` array**: Declared at activation for enforcement
@@ -70,7 +70,7 @@ Use `/edit-skill <name>` to scaffold a new skill with all the boilerplate. Use `
 
 ## Adding a New Agent
 
-Agents are sub-agent personas loaded via `run.sh --agent <name>` or used as `subagent_type` in the Task tool.
+Agents are sub-agent personas loaded via `engine run --agent <name>` or used as `subagent_type` in the Task tool.
 
 ### Structure
 
@@ -107,7 +107,7 @@ You are a **Senior [Role]** doing [what].
 
 ### How Agents Are Loaded
 
-1. **Via `run.sh --agent <name>`**: Agent content is appended to Claude's system prompt. Full toolset preserved.
+1. **Via `engine run --agent <name>`**: Agent content is appended to Claude's system prompt. Full toolset preserved.
 2. **Via Task tool `subagent_type`**: Claude Code natively supports agents defined in `~/.claude/agents/`. The frontmatter `name` maps to `subagent_type`.
 
 See [agents/README.md](agents/README.md) for the full agent reference.
@@ -157,7 +157,7 @@ hook_deny "title" "message" "detail"    # from lib.sh
 
 ### Registering Hooks
 
-Hooks are registered in `~/.claude/settings.json` by `engine.sh`. Per-hook symlinks allow local overrides.
+Hooks are registered in `~/.claude/settings.json` by `engine setup`. Per-hook symlinks allow local overrides.
 
 ## Adding a Script
 
@@ -305,13 +305,13 @@ Core commands defined directly in `.directives/COMMANDS.md`:
 | `§CMD_MAINTAIN_SESSION_DIR` | Session directory management |
 | `§CMD_UPDATE_PHASE` | Phase tracking and enforcement |
 | `§CMD_REPORT_INTENT_TO_USER` | Phase transition announcements |
-| `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` | Append-only log writing |
-| `§CMD_POPULATE_LOADED_TEMPLATE` | Template instantiation |
-| `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` | Full synthesis pipeline |
-| `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` | Session closure + next-step menu |
+| `§CMD_APPEND_LOG` | Append-only log writing |
+| `§CMD_WRITE_FROM_TEMPLATE` | Template instantiation |
+| `§CMD_GENERATE_DEBRIEF` | Full synthesis pipeline |
+| `§CMD_CLOSE_SESSION` | Session closure + next-step menu |
 | `§CMD_INGEST_CONTEXT_BEFORE_WORK` | Context ingestion menu |
-| `§CMD_EXECUTE_INTERROGATION_PROTOCOL` | Ask/log loop |
-| `§CMD_CONTINUE_OR_CLOSE_SESSION` | Post-synthesis continuation |
+| `§CMD_INTERROGATE` | Ask/log loop |
+| `§CMD_RESUME_AFTER_CLOSE` | Post-synthesis continuation |
 
 ### External Commands (in .directives/commands/)
 
@@ -319,7 +319,7 @@ Complex commands with their own reference files:
 
 | Command | File | Purpose |
 |---------|------|---------|
-| `§CMD_HAND_OFF_TO_AGENT` | `CMD_HAND_OFF_TO_AGENT.md` | Synchronous sub-agent launch |
+| `§CMD_HANDOFF_TO_AGENT` | `CMD_HANDOFF_TO_AGENT.md` | Synchronous sub-agent launch |
 | `§CMD_PARALLEL_HANDOFF` | `CMD_PARALLEL_HANDOFF.md` | Multi-agent parallel execution |
 | `§CMD_WALK_THROUGH_RESULTS` | `CMD_WALK_THROUGH_RESULTS.md` | Finding triage / plan review |
 | `§CMD_PROMPT_INVARIANT_CAPTURE` | `CMD_PROMPT_INVARIANT_CAPTURE.md` | Invariant discovery |
@@ -364,9 +364,9 @@ OVERFLOW_THRESHOLD=0.76    # Context overflow trigger (0.0-1.0)
 ### User Config (`scripts/config.sh`)
 
 ```bash
-config.sh get terminalLinkProtocol    # cursor://file (default)
-config.sh set terminalLinkProtocol vscode://file
-config.sh list                         # Show all config
+engine config get terminalLinkProtocol    # cursor://file (default)
+engine config set terminalLinkProtocol vscode://file
+engine config list                         # Show all config
 ```
 
 ### Identity (`.user.json`)
@@ -376,3 +376,70 @@ Cached user identity, auto-detected from GDrive path:
 ```json
 {"username":"yarik","email":"yarik@finchclaims.com","domain":"finchclaims.com","source":"cached"}
 ```
+
+## Code Standards & Development Philosophy
+
+Rules for writing code. These apply across all code-writing skills (implement, fix, test).
+
+### Testing
+
+*   **¶INV_HEADLESS_LOGIC**: Business logic MUST be testable without the framework.
+    *   **Rule**: Core domain logic (calculations, state transitions) should be pure functions or classes that don't import framework specifics.
+    *   **Reason**: Tests run in milliseconds, not seconds.
+
+*   **¶INV_ISOLATED_STATE**: Tests MUST NOT share mutable state.
+    *   **Rule**: Each test case starts with a fresh mock/database transaction/workflow ID.
+    *   **Reason**: Flaky tests destroy developer confidence.
+
+### Architecture
+
+*   **¶INV_SPEC_FIRST**: Complex logic MUST be specified before implementation.
+    *   **Requirement**: Major system components require a written Spec derived from the standard template.
+    *   **Rule**: Do not write the code until the Spec (Context, Sequence Diagram, Failure Analysis) is written and reviewed.
+    *   **Reason**: It is 10x cheaper to fix a design flaw in Markdown than in code.
+
+*   **¶INV_ATOMIC_TASKS**: Units of work should do ONE thing well.
+    *   **Bad**: `processAndEmailAndBill()`
+    *   **Good**: `calculateBill()`, `chargeCard()`, `sendReceiptEmail()`
+    *   **Reason**: Granular tasks allow for targeted retries and better observability.
+
+### Code Hygiene
+
+*   **¶INV_NO_DEAD_CODE**: Delete it, don't comment it out.
+    *   **Rule**: Git is your history. The codebase is the current state.
+    *   **Reason**: Commented code rots and confuses readers.
+
+*   **¶INV_NO_LEGACY_CODE**: No Legacy Code.
+    *   **Rule**: Migrate immediately, clean up, update tests. Don't leave legacy codepaths.
+    *   **Reason**: Legacy code increases technical debt and complexity.
+
+*   **¶INV_ENV_CONFIG**: Configuration comes from Environment Variables.
+    *   **Rule**: No hardcoded secrets or API keys in code.
+    *   **Reason**: Security and portability across environments (Dev/Stage/Prod).
+
+### Philosophy
+
+*   **¶INV_DATA_LAYER_FIRST**: Fix problems at the data layer, not the view.
+    *   **Rule**: If a problem can be solved by correcting the schema or upstream data, do that instead of adding view-layer patches or transformer workarounds.
+    *   **Rule**: Single source of truth — generate/derive from canonical data, don't duplicate.
+    *   **Reason**: View-layer patches accumulate as tech debt and hide the real problem.
+
+*   **¶INV_EXPLICIT_OVER_IMPLICIT**: Prefer explicit configuration over implicit inference.
+    *   **Rule**: Caching invalidation, feature flags, and state transitions should use explicit signals (override maps, checksums), not automatic hash-based derivation.
+    *   **Rule**: When code and documentation diverge, update documentation to match working code — code is reality.
+    *   **Reason**: Implicit behavior is hard to debug and leads to "magic" that breaks unexpectedly.
+
+*   **¶INV_DX_OVER_PERF**: Optimize for developer velocity when performance is acceptable.
+    *   **Rule**: If a solution is marginally slower but significantly easier to debug/iterate on, choose it.
+    *   **Rule**: Local-first tools (CLI, scripts) over server dependencies where possible.
+    *   **Reason**: Developer time is the bottleneck, not CPU time.
+
+*   **¶INV_COMPREHENSIVE_FOUNDATION**: Build foundational systems comprehensively.
+    *   **Rule**: For infrastructure/framework code, implement the full feature set rather than a minimal slice.
+    *   **Rule**: Test fixtures should cover all patterns — "all of the above" is often correct.
+    *   **Reason**: Foundational shortcuts create tech debt that compounds over time.
+
+*   **¶INV_EXTEND_EXISTING_PATTERNS**: Extend existing patterns before inventing new ones.
+    *   **Rule**: Check if the project already has a similar pattern before inventing a new abstraction.
+    *   **Rule**: Extract shared utilities instead of duplicating code across modules.
+    *   **Reason**: Consistent patterns reduce cognitive load and maintenance burden.

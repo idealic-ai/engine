@@ -24,7 +24,7 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 
 | Hook | Purpose |
 |------|---------|
-| `pre-tool-use-session-gate.sh` | Blocks non-whitelisted tools when no session is active. Forces `session.sh activate` before work begins. |
+| `pre-tool-use-session-gate.sh` | Blocks non-whitelisted tools when no session is active. Forces `engine session activate` before work begins. |
 | `pre-tool-use-overflow.sh` | Blocks all tools when context usage exceeds the overflow threshold. Forces `/dehydrate` to save state. |
 | `pre-tool-use-heartbeat.sh` | Tracks tool calls per agent via per-transcript counters. Warns, then blocks, if the agent hasn't logged recently. |
 | `pre-tool-use-one-strike.sh` | Blocks destructive bash commands on first attempt with an educational warning. Allows on retry (same pattern type) within the session. |
@@ -52,9 +52,9 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 
 | Hook | Purpose |
 |------|---------|
-| `pre-compact-kill.sh` | Intercepts auto-compaction to prevent lossy context compression. Generates mini-dehydration if `DEHYDRATED_CONTEXT.md` is missing, then delegates to `session.sh restart` (marks `killRequested`, signals watchdog). Matcher: `auto` only — manual `/compact` is not intercepted. |
+| `pre-compact-kill.sh` | Intercepts auto-compaction to prevent lossy context compression. Generates mini-dehydration if `DEHYDRATED_CONTEXT.md` is missing, then delegates to `engine session restart` (marks `killRequested`, signals watchdog). Matcher: `auto` only — manual `/compact` is not intercepted. |
 
-**Flow**: PreCompact(auto) fires → find active session → generate mini-dehydration if needed → `session.sh restart` → watchdog kills Claude → external restart with `/session continue`.
+**Flow**: PreCompact(auto) fires → find active session → generate mini-dehydration if needed → `engine session restart` → watchdog kills Claude → external restart with `/session continue`.
 
 **Safety net**: This is the "suspenders" to overflow-v2's "belt". overflow-v2 dehydrates at 76% context usage. PreCompact fires at ~95% when Claude Code itself triggers compaction. By the time PreCompact fires, `DEHYDRATED_CONTEXT.md` should already exist from overflow-v2.
 
@@ -104,7 +104,7 @@ The session gate allows specific tools without session activation:
 - `AskUserQuestion` — User interaction
 - `Skill` — Skill invocation
 
-All other tool calls are blocked until `session.sh activate` succeeds.
+All other tool calls are blocked until `engine session activate` succeeds.
 
 ## Testing
 

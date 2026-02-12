@@ -58,3 +58,22 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 *   Between-rounds context is mandatory after Round 1. No bare question dumps.
 *   Every round logged to DETAILS.md. No unlogged rounds.
 *   Counter-questions don't count as rounds.
+
+---
+
+## PROOF FOR §CMD_INTERROGATE
+
+```json
+{
+  "depth_chosen": {
+    "type": "string",
+    "description": "The interrogation depth selected by the user",
+    "examples": ["Short", "Medium", "Long", "Absolute"]
+  },
+  "rounds_completed": {
+    "type": "number",
+    "description": "Total number of interrogation rounds completed",
+    "examples": [3, 6, 9]
+  }
+}
+```

@@ -1,62 +1,11 @@
 # Shared System Invariants (The "Laws of Physics")
 
-This document defines the universal rules that apply across ALL projects using the workflow engine. Project-specific invariants belong in each project's `.claude/.directives/INVARIANTS.md`.
+This document defines the system physics — rules about how sessions, phases, tags, delegation, and the engine work. Agent behavior rules are in AGENTS.md. Code standards are in CONTRIBUTING.md.
 
-## 1. Testing Physics
+## 1. Protocol Physics
 
-*   **¶INV_HEADLESS_LOGIC**: Business logic MUST be testable without the framework.
-    *   **Rule**: Core domain logic (calculations, state transitions) should be pure functions or classes that don't import framework specifics.
-    *   **Reason**: Tests run in milliseconds, not seconds.
-
-*   **¶INV_ISOLATED_STATE**: Tests MUST NOT share mutable state.
-    *   **Rule**: Each test case starts with a fresh mock/database transaction/workflow ID.
-    *   **Reason**: Flaky tests destroy developer confidence.
-
-## 2. Architecture & Task Decomposition
-
-*   **¶INV_SPEC_FIRST**: Complex logic MUST be specified before implementation.
-    *   **Requirement**: Major system components require a written Spec derived from the standard template.
-    *   **Rule**: Do not write the code until the Spec (Context, Sequence Diagram, Failure Analysis) is written and reviewed.
-    *   **Reason**: It is 10x cheaper to fix a design flaw in Markdown than in code.
-
-*   **¶INV_ATOMIC_TASKS**: Units of work should do ONE thing well.
-    *   **Bad**: `processAndEmailAndBill()`
-    *   **Good**: `calculateBill()`, `chargeCard()`, `sendReceiptEmail()`
-    *   **Reason**: Granular tasks allow for targeted retries and better observability.
-
-## 3. General Code Physics
-
-*   **¶INV_CAMELCASE_EVERYWHERE**: All identifiers use camelCase. No exceptions.
-    *   **Rule**: Schema field names, TypeScript properties, variable names, and documentation references to field names MUST use camelCase (`commentPattern`, `isGroupHeader`, `totalSumVerification`).
-    *   **Prohibited**: snake_case (`comment_pattern`, `is_group_header`), kebab-case in property names, or any other casing convention for identifiers.
-    *   **Reason**: Consistency. One convention across the entire codebase — code, schemas, docs, tests. No mental translation between cases.
-
-*   **¶INV_NO_DEAD_CODE**: Delete it, don't comment it out.
-    *   **Rule**: Git is your history. The codebase is the current state.
-    *   **Reason**: Commented code rots and confuses readers.
-
-*   **¶INV_NO_LEGACY_CODE**: No Legacy Code.
-    *   **Rule**: Migrate immediately, clean up, update tests. Don't leave legacy codepaths.
-    *   **Reason**: Legacy code increases technical debt and complexity.
-
-*   **¶INV_TYPESCRIPT_STRICT**: No `any`.
-    *   **Rule**: Use `unknown` if you must, then narrow it.
-    *   **Reason**: `any` disables the type checker, which is our primary safety net.
-
-*   **¶INV_ENV_CONFIG**: Configuration comes from Environment Variables.
-    *   **Rule**: No hardcoded secrets or API keys in code.
-    *   **Reason**: Security and portability across environments (Dev/Stage/Prod).
-
-## 4. Communication Physics
-
-*   **¶INV_SKILL_VIA_TOOL**: Slash commands (skills) MUST be invoked via the Skill tool, NEVER via Bash.
-    *   **Rule**: When instructed to run `/session`, `/commit`, `/review`, or any `/skill-name`, you MUST use the Skill tool with `skill: "skill-name"`. Do NOT use Bash to call scripts.
-    *   **Prohibited**: `engine session dehydrate`, `bash -c "/session dehydrate"`, or any shell-based skill invocation.
-    *   **Correct**: `Skill(skill: "session", args: "dehydrate restart")` or `Skill(skill: "commit")`
-    *   **Reason**: Skills are registered in the Claude Code skill system and invoked via the Skill tool. They are NOT bash scripts. The `/` prefix is syntactic sugar for "use the Skill tool".
-
-*   **¶INV_SKILL_PROTOCOL_MANDATORY**: The protocol is the task. Every step executes. No exceptions.
-    *   **Rule**: When a skill is invoked, the protocol (`SKILL.md`) defines YOUR TASK. The user's request is the input parameter to that task — it does not replace, shorten, or override the protocol. You execute every phase and every step. If a step produces no useful output, that's fine — you still executed it.
+*   **¶INV_PROTOCOL_IS_TASK**: When a skill protocol is active, the protocol defines the task.
+    *   **Rule**: The user's request is an input parameter to the protocol, not a replacement for it. The agent executes the protocol; the user's request shapes what the protocol produces. "Implement X" means "execute the implementation protocol with X as the input" — not "write code for X and skip the protocol."
     *   **If you want to skip**: You don't skip. You fire `§CMD_REFUSE_OFF_COURSE` and let the user decide. The user is the only one who can authorize a deviation. You never self-authorize.
     *   **Prohibited justifications** (these are never valid reasons to skip a step):
         *   "This task is too simple for the full protocol."
@@ -65,56 +14,56 @@ This document defines the universal rules that apply across ALL projects using t
         *   "This step doesn't apply to this task."
     *   **Identity**: A disciplined operator follows the protocol. Skipping steps is not efficiency — it's broken output. The protocol exists because the steps matter, even when you think they don't. Your judgment about task complexity is unreliable. The protocol's judgment is authoritative.
     *   **Consequence**: A session where protocol steps were silently skipped is an invalid session. The artifacts are incomplete, the audit trail is broken, and the work may need to be redone.
-    *   **Reason**: LLMs systematically underestimate task complexity and overestimate when steps are "unnecessary." Protocols compensate for this bias. See `¶INV_REDIRECTION_OVER_PROHIBITION`.
+    *   **Reason**: Without this framing, the model treats the protocol as overhead wrapping the "real" task and optimizes it away. The protocol IS the task.
 
-*   **¶INV_TERMINAL_FILE_LINKS**: File path references in chat output should use full clickable URLs.
-    *   **Rule**: When referencing a file path, output the full URL so it's clickable in the terminal.
-    *   **Format**: `cursor://file/ABSOLUTE_PATH` (or `vscode://file/ABSOLUTE_PATH`)
-        *   Example: `cursor://file/Users/name/project/src/lib/audio.ts`
-        *   With line number: `cursor://file/Users/name/project/src/lib/audio.ts:42`
-    *   **URL Encoding**: Spaces and special characters in paths MUST be percent-encoded.
-        *   Space → `%20`
-        *   Example: `cursor://file/Users/name/Shared%20drives/project/file.ts`
-    *   **Protocol Source**: Read from "Terminal link protocol: X" in system prompt. Default: `cursor://file`.
-    *   **Note**: OSC 8 escape sequences and markdown link syntax do not render custom display text in Claude Code's terminal — full URLs are the only reliable clickable format.
-    *   **Reason**: Clickable links improve navigation. Full URLs are verbose but functional. Unencoded spaces break URL parsing.
+## 2. Session & Phase Physics
 
-*   **¶INV_CONCISE_CHAT**: Chat output is for **User Communication Only**.
-    *   **Rule**: Do NOT narrate your internal decision process or micro-steps in the chat.
-    *   **Prohibited**: "Wait, I need to check...", "Okay, reading file...", "Executing...", "I will now..." (followed immediately by action).
-    *   **Reason**: It consumes tokens, confuses the user, and creates "infinite loop" risks where the agent talks about doing something instead of doing it.
-    *   **Mechanism**: If you need to think, write to the `_LOG.md` file. If you need to act, just call the tool.
+*   **¶INV_NEW_SESSION_BOUNDARY**: When a user requests a new session, create one. Do not continue the old one.
+    *   **Rule**: When the user explicitly requests a new session — via next-skill selection (`§CMD_CLOSE_SESSION`), `/session dehydrate restart`, or saying "new session" / "next session" — the agent MUST create a fresh session directory via `§CMD_MAINTAIN_SESSION_DIR`. It MUST NOT reactivate, continue, or override errors in the previous session.
+    *   **Prohibited**: Seeing `engine session activate` reject because the session is completed/active and deciding to "override" or "continue anyway." The rejection IS the expected outcome — the old session is done.
+    *   **Redirection**: If `engine session activate` rejects, create a new session directory with `§CMD_MAINTAIN_SESSION_DIR`. The user's intent is forward motion, not recovery.
+    *   **Reason**: Agents systematically conflate "next skill" with "continue this session" because their helpfulness bias prioritizes continuity. The user's new-session request is a boundary signal, not a suggestion.
 
-## 5. Development Philosophy
+*   **¶INV_PHASE_ENFORCEMENT**: Phase transitions are mechanically enforced via `engine session phase`.
+    *   **Rule**: When a session has a `phases` array (declared at activation), `engine session phase` enforces sequential progression. Non-sequential transitions (skip forward or go backward) require `--user-approved "Reason: [why, citing user's response]"`.
+    *   **Proof-gated transitions (FROM validation)**: The current phase (being left) may declare a `proof` field (array of field names). When present, the agent MUST pipe proof as `key: value` lines via STDIN when transitioning away from it. Missing or unfilled fields reject the transition. Proof is always parsed and stored in `phaseHistory` as structured objects when provided, regardless of whether the current phase declares proof fields. Semantically: proof on a phase describes what must be accomplished IN that phase before leaving it.
+    *   **Letter suffixes**: Sub-phase labels may include a single uppercase letter suffix (e.g., `"3.1A: Agent Handoff"`). The letter is stripped for enforcement (enforces as `3.1`) but preserved in `phaseHistory` for audit trail. Distinguishes alternative branches.
+    *   **Context overflow recovery**: `/session continue` uses `engine session continue` to resume the heartbeat without touching phase state. No phase transition needed — the saved phase in `.state.json` is the source of truth.
+    *   **Sub-phases**: Phases with the same major number and a higher minor number (e.g., 4.1 after 4.0) are auto-appended without pre-declaration.
+    *   **Sub-phase skippability**: Sub-phases are optional — they represent alternative paths, not mandatory steps. `N.0→(N+1).0` is always allowed even when `N.1` is declared (skip over optional sub-phase). `N.M→(N+1).0` is always allowed (exit sub-phase to next major). Neither requires `--user-approved`.
+    *   **Backward compat**: Sessions without a `phases` array have no enforcement — any transition is allowed. Phases without `proof` fields emit a stderr warning if sibling phases declare proof (nudge, not block).
+    *   **Reason**: Agents systematically skip phases they judge as "unnecessary." Mechanical enforcement removes this judgment call — the user decides, not the agent.
 
-*   **¶INV_DATA_LAYER_FIRST**: Fix problems at the data layer, not the view.
-    *   **Rule**: If a problem can be solved by correcting the schema or upstream data, do that instead of adding view-layer patches or transformer workarounds.
-    *   **Rule**: Single source of truth — generate/derive from canonical data, don't duplicate.
-    *   **Reason**: View-layer patches accumulate as tech debt and hide the real problem.
+*   **¶INV_USER_APPROVED_REQUIRES_TOOL**: The `--user-approved` flag on `engine session phase` requires a reason obtained via `AskUserQuestion`.
+    *   **Rule**: `AskUserQuestion` is the ONLY valid mechanism to obtain a `--user-approved` reason string. The reason MUST quote the user's answer from the `AskUserQuestion` tool response. Self-authored reasons are invalid regardless of how reasonable they seem.
+    *   **Valid example**: `--user-approved "User chose 'Go back to 2: Research Loop' via AskUserQuestion"`
+    *   **Valid example**: `--user-approved "User said 'skip calibration, findings are clear' via AskUserQuestion"`
+    *   **Invalid example**: `--user-approved "Phase doesn't apply to this task"` (self-authored, no tool call)
+    *   **Invalid example**: `--user-approved "Skipping calibration per user request"` (paraphrase, not a quoted tool response)
+    *   **Mechanism**: Before using `--user-approved`, the agent MUST have called `AskUserQuestion` in the current conversation turn (or a recent prior turn). The reason string must contain a verbatim quote of the user's selection or text from that tool response.
+    *   **Redirection**: Instead of self-authoring a reason, call `AskUserQuestion` with the phase transition as an option. The user's response becomes the valid reason.
+    *   **Reason**: Agents systematically invent plausible-sounding justifications for non-sequential phase transitions. Text-based prohibition lists are ineffective because agents rephrase around them. Requiring a tool call creates a mechanical audit trail — no `AskUserQuestion` in the transcript means the `--user-approved` is invalid.
 
-*   **¶INV_EXPLICIT_OVER_IMPLICIT**: Prefer explicit configuration over implicit inference.
-    *   **Rule**: Caching invalidation, feature flags, and state transitions should use explicit signals (override maps, checksums), not automatic hash-based derivation.
-    *   **Rule**: When code and documentation diverge, update documentation to match working code — code is reality.
-    *   **Reason**: Implicit behavior is hard to debug and leads to "magic" that breaks unexpectedly.
+## 3. Tag Physics
 
-*   **¶INV_DX_OVER_PERF**: Optimize for developer velocity when performance is acceptable.
-    *   **Rule**: If a solution is marginally slower but significantly easier to debug/iterate on, choose it.
-    *   **Rule**: Local-first tools (CLI, scripts) over server dependencies where possible.
-    *   **Reason**: Developer time is the bottleneck, not CPU time.
+*   **¶INV_ESCAPE_BY_DEFAULT**: All lifecycle tags in body text MUST be backtick-escaped unless intentional.
+    *   **Rule**: `#needs-*`, `#delegated-*`, `#next-*`, `#claimed-*`, and `#done-*` tags in body text (logs, details, plans, debriefs) must be backtick-escaped (`` `#needs-*` ``) unless they are intentional discoverable tags on the `**Tags**:` line or explicitly promoted/acknowledged inline tags.
+    *   **Enforcement**: `engine session check` scans session artifacts for bare inline lifecycle tags during synthesis. Each bare tag must be either PROMOTED (→ request file + escape inline) or ACKNOWLEDGED (→ marked intentional) before synthesis can complete.
+    *   **Reason**: Bare inline tags in non-discoverable contexts pollute `engine tag find` results. Escape-by-default ensures every surviving bare tag represents a real, actionable work item.
 
-*   **¶INV_COMPREHENSIVE_FOUNDATION**: Build foundational systems comprehensively.
-    *   **Rule**: For infrastructure/framework code, implement the full feature set rather than a minimal slice.
-    *   **Rule**: Test fixtures should cover all patterns — "all of the above" is often correct.
-    *   **Reason**: Foundational shortcuts create tech debt that compounds over time.
+*   **¶INV_1_TO_1_TAG_SKILL**: Every `#needs-X` tag maps to exactly one skill `/X`. No generic tags.
+    *   **Rule**: The tag noun IS the skill name. `#needs-brainstorm` → `/brainstorm`, `#needs-implementation` → `/implement`, `#needs-chores` → `/chores`. No generic `#needs-delegation` or catch-all tags. If a new work type needs a tag, it needs a corresponding skill (or mode within an existing skill).
+    *   **Reason**: Generic tags create routing ambiguity. 1:1 mapping makes the system self-documenting — seeing a tag tells you exactly which skill resolves it.
 
-*   **¶INV_EXTEND_EXISTING_PATTERNS**: Extend existing patterns before inventing new ones.
-    *   **Rule**: Check if the project already has a similar pattern before inventing a new abstraction.
-    *   **Rule**: Extract shared utilities instead of duplicating code across modules.
-    *   **Reason**: Consistent patterns reduce cognitive load and maintenance burden.
+## 4. Multi-Agent Safety
 
+*   **¶INV_NO_GIT_STATE_COMMANDS**: Agents in multi-agent scenarios MUST NOT run git state-changing commands.
+    *   **Rule**: Reserved for future implementation. When multi-agent support is active, agents must coordinate git operations through the engine, not directly.
+
+## 5. Delegation Physics
 
 *   **¶INV_CLAIM_BEFORE_WORK**: An agent MUST swap `#delegated-X` → `#claimed-X` before starting work on a tagged item.
-    *   **Rule**: When a daemon-spawned or manually-triggered agent begins work on a tagged request, it must immediately claim the work by swapping the tag via `/delegation-claim`. This prevents double-processing by parallel agents. The swap uses `tag.sh swap`, which errors if the old tag is already gone (race condition safety — another worker already claimed it).
+    *   **Rule**: When a daemon-spawned or manually-triggered agent begins work on a tagged request, it must immediately claim the work by swapping the tag via `/delegation-claim`. This prevents double-processing by parallel agents. The swap uses `engine tag swap`, which errors if the old tag is already gone (race condition safety — another worker already claimed it).
     *   **Reason**: Stateless coordination. Tags are the state — `#claimed-X` means "someone is working on this." The `#delegated-X` → `#claimed-X` transition (not `#needs-X` → `#claimed-X`) ensures work was human-approved before any worker touches it.
 
 *   **¶INV_NEEDS_IS_STAGING**: `#needs-X` is a staging tag. Daemons MUST NOT monitor `#needs-X`.
@@ -133,89 +82,6 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Rule**: Agents MUST NOT auto-flip `#needs-X` → `#delegated-X` or `#needs-X` → `#next-X` without presenting the dispatch approval walkthrough (`§CMD_DISPATCH_APPROVAL`). The human reviews each tagged item and approves, defers, claims for next skill, or dismisses.
     *   **Reason**: The user is the authority on what gets dispatched. Batch review during synthesis enables informed decision-making about which work items are ready for autonomous processing or immediate execution.
 
-*   **¶INV_DAEMON_DEBOUNCE**: After detecting a `#delegated-X` tag, the daemon MUST wait 3 seconds before scanning and dispatching.
-    *   **Rule**: The debounce allows batch writes to settle — when `§CMD_DISPATCH_APPROVAL` flips multiple tags, the daemon collects all `#delegated-X` items after the debounce window, groups by tag type, and spawns one Claude per group.
-    *   **Reason**: Without debounce, the daemon would spawn separate Claude instances for each tag flip in rapid succession. Debounce enables intelligent batching.
-
-*   **¶INV_ESCAPE_BY_DEFAULT**: All lifecycle tags in body text MUST be backtick-escaped unless intentional.
-    *   **Rule**: `#needs-*`, `#delegated-*`, `#next-*`, `#claimed-*`, and `#done-*` tags in body text (logs, details, plans, debriefs) must be backtick-escaped (`` `#needs-*` ``) unless they are intentional discoverable tags on the `**Tags**:` line or explicitly promoted/acknowledged inline tags.
-    *   **Enforcement**: `engine session check` scans session artifacts for bare inline lifecycle tags during synthesis. Each bare tag must be either PROMOTED (→ request file + escape inline) or ACKNOWLEDGED (→ marked intentional) before synthesis can complete.
-    *   **Reason**: Bare inline tags in non-discoverable contexts pollute `tag.sh find` results. Escape-by-default ensures every surviving bare tag represents a real, actionable work item.
-
-## 6. LLM Output Physics
-
-
-*   **¶INV_INFER_USER_FROM_GDRIVE**: Auto-detect user identity from Google Drive symlink. Do not ask.
-    *   **Rule**: When a skill needs user info (name, email), call `engine user-info` instead of prompting.
-    *   **Detection**: Reads `~/.claude/scripts` symlink target (via `engine user-info`), extracts `GoogleDrive-email@domain` from the path. No CloudStorage scanning.
-    *   **Usage**: `user-info.sh username` → `yarik`, `user-info.sh email` → `yarik@finchclaims.com`, `user-info.sh json` → full object.
-    *   **Reason**: No extra state. The symlink already points to the user's Google Drive — derive identity from it.
-
-
-*   **¶INV_TMUX_AND_FLEET_OPTIONAL**: Fleet/tmux is an optional enhancement, not a requirement.
-    *   **Rule**: All hooks and scripts that interact with tmux/fleet MUST fail gracefully when running outside tmux. The core workflow engine (sessions, logging, tags, statusline) MUST work identically with or without fleet.
-    *   **Pattern**: Guard tmux calls with `[ -n "${TMUX:-}" ]` check, and always use `|| true` when calling fleet.sh from hooks.
-    *   **Reason**: Users may run Claude in a plain terminal, VSCode, or other environments. Fleet is a multi-pane coordination layer — its absence should never break the workflow.
-
-
-*   **¶INV_REDIRECTION_OVER_PROHIBITION**: When preventing an undesired LLM behavior, provide an alternative action rather than just prohibiting the behavior.
-    *   **Rule**: Redirections ("do X instead") are more reliable than prohibitions ("don't do Y"). When designing constraints for LLM agents, always pair a prohibition with a concrete alternative action the agent should take instead.
-    *   **Reason**: Prohibitions require the model to suppress an impulse, which competes with training signals (helpfulness, efficiency). Redirections channel the impulse into a compliant action, which is fundamentally easier to follow.
-
-
-*   **¶INV_PROTOCOL_IS_TASK**: When a skill protocol is active, the protocol defines the task.
-    *   **Rule**: The user's request is an input parameter to the protocol, not a replacement for it. The agent executes the protocol; the user's request shapes what the protocol produces. "Implement X" means "execute the implementation protocol with X as the input" — not "write code for X and skip the protocol."
-    *   **Reason**: Without this framing, the model treats the protocol as overhead wrapping the "real" task and optimizes it away. The protocol IS the task.
-
-*   **¶INV_NEW_SESSION_BOUNDARY**: When a user requests a new session, create one. Do not continue the old one.
-    *   **Rule**: When the user explicitly requests a new session — via next-skill selection (`§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`), `/session dehydrate restart`, or saying "new session" / "next session" — the agent MUST create a fresh session directory via `§CMD_MAINTAIN_SESSION_DIR`. It MUST NOT reactivate, continue, or override errors in the previous session.
-    *   **Prohibited**: Seeing `engine session activate` reject because the session is completed/active and deciding to "override" or "continue anyway." The rejection IS the expected outcome — the old session is done.
-    *   **Redirection**: If `engine session activate` rejects, create a new session directory with `§CMD_MAINTAIN_SESSION_DIR`. The user's intent is forward motion, not recovery.
-    *   **Reason**: Agents systematically conflate "next skill" with "continue this session" because their helpfulness bias prioritizes continuity. The user's new-session request is a boundary signal, not a suggestion.
-
-*   **¶INV_PHASE_ENFORCEMENT**: Phase transitions are mechanically enforced via `engine session phase`.
-    *   **Rule**: When a session has a `phases` array (declared at activation), `engine session phase` enforces sequential progression. Non-sequential transitions (skip forward or go backward) require `--user-approved "Reason: [why, citing user's response]"`.
-    *   **Proof-gated transitions (FROM validation)**: The current phase (being left) may declare a `proof` field (array of field names). When present, the agent MUST pipe proof as `key: value` lines via STDIN when transitioning away from it. Missing or unfilled fields reject the transition. Proof is always parsed and stored in `phaseHistory` as structured objects when provided, regardless of whether the current phase declares proof fields. Semantically: proof on a phase describes what must be accomplished IN that phase before leaving it.
-    *   **Letter suffixes**: Sub-phase labels may include a single uppercase letter suffix (e.g., `"3.1A: Agent Handoff"`). The letter is stripped for enforcement (enforces as `3.1`) but preserved in `phaseHistory` for audit trail. Distinguishes alternative branches.
-    *   **Context overflow recovery**: `/session continue` uses `engine session continue` to resume the heartbeat without touching phase state. No phase transition needed — the saved phase in `.state.json` is the source of truth.
-    *   **Sub-phases**: Phases with the same major number and a higher minor number (e.g., 4.1 after 4.0) are auto-appended without pre-declaration.
-    *   **Sub-phase skippability**: Sub-phases are optional — they represent alternative paths, not mandatory steps. `N.0→(N+1).0` is always allowed even when `N.1` is declared (skip over optional sub-phase). `N.M→(N+1).0` is always allowed (exit sub-phase to next major). Neither requires `--user-approved`.
-    *   **Backward compat**: Sessions without a `phases` array have no enforcement — any transition is allowed. Phases without `proof` fields emit a stderr warning if sibling phases declare proof (nudge, not block).
-    *   **Reason**: Agents systematically skip phases they judge as "unnecessary." Mechanical enforcement removes this judgment call — the user decides, not the agent.
-
-*   **¶INV_SKILL_FEATURE_PROPAGATION**: When adding a new feature to a skill, propagate it to ALL applicable skills or tag for follow-up.
-    *   **Rule**: When a new engine feature (phase enforcement array, walk-through config, deactivate wiring, mode presets, interrogation depth) is added to one skill, the same feature MUST be added to all other applicable skills in the same session — or each missing skill MUST be explicitly tagged `#needs-implementation` for follow-up.
-    *   **Reason**: Feature additions without propagation create structural debt. Each improvement session that touches 1-3 skills leaves the remaining skills further behind, creating an ever-widening gap between "gold standard" and "stale" skills.
-
-## 7. Filesystem Physics
-
-*   **¶INV_GLOB_THROUGH_SYMLINKS**: The Glob tool does not traverse symlinks. Use `glob.sh` as a fallback for symlinked directories.
-    *   **Rule**: When Glob returns empty for a path that should have files (especially `sessions/` or any symlinked directory), fall back to `engine glob '<pattern>' <path>`. For known symlinked paths (`sessions/`), prefer `glob.sh` directly.
-    *   **Reason**: `sessions/` is symlinked to Google Drive. The Glob tool's internal engine silently skips symlinks, producing false "no results" responses.
-
-
-*   **¶INV_NO_GIT_ON_CLOUD_SYNC**: Git repositories (`.git/`) must never be stored on cloud sync services (GDrive, Dropbox, OneDrive).
-    *   **Rule**: Cloud sync services sync files individually and asynchronously. Git requires atomic multi-file writes to `.git/objects/`. This mismatch causes repository corruption. Use a proper Git remote (GitHub, GitLab, bare repo on a server) and deploy clean files (without `.git/`) to cloud sync if needed.
-    *   **Reason**: This is a known, unfixable corruption pattern. No workaround (locking, single-writer discipline) reliably prevents it.
-
-
-*   **¶INV_QUESTION_GATE_OVER_TEXT_GATE**: User-facing gates and option menus in skill protocols MUST use `AskUserQuestion` (tool-based blocking), never bare text.
-    *   **Rule**: When a skill protocol needs user confirmation before proceeding, it must use `AskUserQuestion` with structured options. Text-based "STOP" instructions are unreliable — they depend on agent compliance. Tool-based gates are mechanically enforced.
-    *   **Rule**: When a skill protocol specifies presenting choices, options, or menus to the user, the agent MUST use the `AskUserQuestion` tool. It MUST NOT render the options as a Markdown table, bullet list, or plain text in chat and then wait for the user to type a response.
-    *   **Rule**: Before calling `AskUserQuestion`, the agent MUST output enough context in chat for the user to understand what the options mean and why they are being asked. A bare question with options but no surrounding explanation is a violation — the user cannot make an informed choice without context. The **last line** of chat text before the `AskUserQuestion` call MUST be an empty line (`\n`), because the question UI element overlaps the bottom of the preceding text. Without the trailing blank line, the user cannot read the agent's final sentence.
-    *   **Rule**: `AskUserQuestion` option labels and descriptions MUST be descriptive and actionable. Labels explain *what* happens; descriptions explain *why* it matters. When an option triggers tagging, include the `#needs-X` tag in the label. No vague labels — every word must carry information.
-        *   **Bad**: label=`"Delegate to /implement"`, description=`"Code change needed"`
-        *   **Good**: label=`"#needs-implementation: add auth validation"`, description=`"Prevents unauthenticated access to the payment endpoint"`
-    *   **Rule**: When the user responds to `AskUserQuestion` with an empty string or whitespace-only text (via "Other"), treat it as **"Use your best judgement."** The agent MUST:
-        1. **Justify**: Output a blockquote in chat explaining which option(s) it is choosing and why (up to 3 lines).
-            *   Format: `> Auto-proceeding with "[Option label]" — [reason, up to 3 lines].`
-        2. **Choose**: For **single-select**, pick the first option (or the most contextually appropriate if none is marked Recommended). For **multi-select**, pick whichever option(s) the agent deems best given the current context.
-        3. **Log**: Execute `§CMD_LOG_TO_DETAILS` with `**Type**: Auto-Decision` recording the question, the agent's choice, and the justification.
-        4. **Proceed**: Continue execution as if the user had selected that option.
-        *   **Scope**: Applies to ALL `AskUserQuestion` calls — phase gates, interrogation questions, depth selection, decisions, walk-throughs. No exceptions.
-        *   **Constraint**: This rule ONLY triggers on empty/whitespace-only "Other" responses. Any non-empty text from "Other" is treated as user input per normal behavior.
-    *   **Reason**: `AskUserQuestion` provides structured input, mechanical blocking, and clear selection semantics. Text-rendered menus are ambiguous (the user might type something unexpected), non-blocking (the agent might continue without waiting), and invisible to tool-use auditing. Context-free questions and vague option labels are equally harmful — they force the user to guess what the agent is referring to.
-
 *   **¶INV_REQUEST_IS_SELF_CONTAINED**: REQUEST files must contain all context needed for execution.
     *   **Rule**: A worker must be able to fulfill a REQUEST without access to the requester's session state. Include relevant file paths, expectations, constraints, and requesting session reference inline.
     *   **Reason**: REQUESTs survive requester session death. The requester may have overflowed, deactivated, or been killed. The REQUEST file is the contract.
@@ -230,7 +96,7 @@ This document defines the universal rules that apply across ALL projects using t
 
 *   **¶INV_DELEGATION_VIA_TEMPLATES**: A skill supports delegation if and only if it has `_REQUEST.md` and `_RESPONSE.md` templates in its `assets/` folder.
     *   **Rule**: Template presence is the opt-in signal. If a skill has no `_REQUEST.md` template, it does not accept delegation requests.
-    *   **Rule**: The request template defines what a requester must fill in. The response template defines what a responder must deliver. Both are populated via `§CMD_POPULATE_LOADED_TEMPLATE`.
+    *   **Rule**: The request template defines what a requester must fill in. The response template defines what a responder must deliver. Both are populated via `§CMD_WRITE_FROM_TEMPLATE`.
     *   **Rule**: REQUEST files are written to the **requesting** session directory. RESPONSE files are written to the **responding** session directory (where the skill executes).
     *   **Rule**: Each RESPONSE template is tailored to its skill's specific outputs (code changes for implement, decisions for brainstorm, docs updated for document, verdict for review, task checklist for chores, research report for research).
     *   **Reference**: See `~/.claude/docs/TAG_LIFECYCLE.md` for the full delegation flow and template inventory.
@@ -241,13 +107,15 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Rule**: `engine session request-template '#needs-xxx'` resolves the tag noun to a skill, finds the template, and outputs it to stdout. This is the canonical lookup path.
     *   **Reason**: Static maps rot. Dynamic discovery is self-maintaining — adding a REQUEST template to a skill automatically makes it dispatchable. Removing the template removes the capability.
 
+## 6. Directive Physics
+
 *   **¶INV_DIRECTIVE_STACK**: Agents must load the full stack of directive files (child-to-root ancestor chain) when working in a directory. Enforcement is escalating.
     *   **Rule**: Directive files live in `.directives/` subfolders at each directory level (e.g., `packages/estimate/.directives/INVARIANTS.md`). Discovery walks up from touched directories to the project root, checking `.directives/` at each level. Seven directive types across three tiers:
         *   **Core directives** (always discovered): AGENTS.md, INVARIANTS.md. Surfaced as soft suggestions.
         *   **Hard gate** (blocks deactivation): CHECKLIST.md. Enforced by `§CMD_PROCESS_CHECKLISTS` at session deactivation.
         *   **Skill directives** (filtered by `directives` param): TESTING.md, PITFALLS.md, CONTRIBUTING.md, TEMPLATE.md. Only suggested when the active skill declares them in the `directives` field of session parameters.
     *   **Enforcement**: Escalating two-hook architecture. PostToolUse hook (`post-tool-use-discovery.sh`) discovers directives and adds them to `pendingDirectives` in `.state.json` with a warning. PreToolUse hook (`pre-tool-use-directive-gate.sh`) blocks after a threshold of tool calls if `pendingDirectives` is non-empty. Reading a pending file clears it from the list.
-    *   **Discovery**: `discover-directives.sh` performs walk-up search (full ancestor chain — all directives from child to root apply cumulatively), checking `.directives/` subfolders first with flat directory root fallback. `engine session activate` discovers files from `directoriesOfInterest`. At runtime, the PostToolUse hook tracks `touchedDirs` in `.state.json` and discovers files for newly-touched directories. Both apply skill-directive filtering.
+    *   **Discovery**: `engine discover-directives` performs walk-up search (full ancestor chain — all directives from child to root apply cumulatively), checking `.directives/` subfolders first with flat directory root fallback. `engine session activate` discovers files from `directoriesOfInterest`. At runtime, the PostToolUse hook tracks `touchedDirs` in `.state.json` and discovers files for newly-touched directories. Both apply skill-directive filtering.
     *   **End-of-session**: `§CMD_MANAGE_DIRECTIVES` handles AGENTS.md updates, invariant capture, pitfall capture, and contributing-pattern capture based on session work.
     *   **Reason**: Agents systematically ignore directive files placed near their work. Escalating enforcement (warn then block) ensures directives are always loaded.
 
@@ -261,42 +129,40 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Rule**: The agent must resolve all bare `#needs-*` tags (swap to `#done-*` or backtick-escape). For formal REQUEST files, also add a `## Response` section.
     *   **Reason**: Request files are contracts between sessions. Closing a session without fulfilling its requests leaves broken promises in the system — future sessions that depend on the work will find unfulfilled tags.
 
-
-*   **¶INV_WALKTHROUGH_TAGS_ARE_PASSIVE**: Tags placed during `§CMD_WALK_THROUGH_RESULTS` do NOT trigger delegation offers.
-    *   **Rule**: Tags applied during walkthrough triage are protocol-placed (expected output of the walkthrough step). They are recorded but do not invoke `/delegation-create`. Tags in all other contexts (interrogation, QnA, ad-hoc chat, side discovery) are reactive — they trigger a `/delegation-create` offer.
-    *   **Reason**: Walkthrough triage already handles tag placement as part of its protocol. Offering delegation on top of that would double-prompt the user for every triage decision.
-
-*   **¶INV_1_TO_1_TAG_SKILL**: Every `#needs-X` tag maps to exactly one skill `/X`. No generic tags.
-    *   **Rule**: The tag noun IS the skill name. `#needs-brainstorm` → `/brainstorm`, `#needs-implementation` → `/implement`, `#needs-chores` → `/chores`. No generic `#needs-delegation` or catch-all tags. If a new work type needs a tag, it needs a corresponding skill (or mode within an existing skill).
-    *   **Reason**: Generic tags create routing ambiguity. 1:1 mapping makes the system self-documenting — seeing a tag tells you exactly which skill resolves it.
-
-*   **¶INV_MODE_STANDARDIZATION**: All modal skills have exactly **3 named modes + Custom**. Custom is always the last mode.
-    *   **Rule**: Skills with multiple modes present them via `AskUserQuestion` in Phase 1 Setup. Mode definitions live in `skills/X/modes/*.md` (per-skill, not shared). SKILL.md contains a summary table of available modes; full definitions are in separate files. Custom mode reads all 3 named mode files to understand the flavor space, then synthesizes a hybrid mode from user input.
-    *   **Reason**: Consistent UX across skills. Users learn one pattern. Mode files keep SKILL.md lean and make modes independently versionable. The 3+Custom constraint prevents mode bloat.
-
-*   **¶INV_NO_BUILTIN_COLLISION**: Engine skill names must not collide with Claude Code built-in CLI commands.
-    *   **Rule**: Before naming a new skill, check against the known built-in list: `/help`, `/clear`, `/compact`, `/config`, `/debug`, `/init`, `/login`, `/logout`, `/review`, `/status`, `/doctor`, `/hooks`, `/listen`, `/vim`, `/terminal-setup`, `/memory`. Built-in commands intercept at the CLI layer before the LLM sees the input — a colliding skill will be silently shadowed.
-    *   **Detection**: Built-in commands produce `<command-name>` tags in the output. If invoking a skill produces a `<command-name>` tag instead of the engine protocol, the name collides.
-    *   **Reason**: The `/debug` skill was silently broken for its entire lifetime because Claude Code's built-in `/debug` intercepted it. Renamed to `/fix` to resolve.
-
-## 8. Engine Physics
+## 7. Engine Physics
 
 *   **¶INV_ENGINE_COMMAND_DISPATCH**: All engine operations MUST go through `engine <command>`.
-    *   **Rule**: Use `engine log`, `engine session`, `engine tag`, `engine research`, `engine session-search`, `engine doc-search`, etc. Never invoke scripts by full path (`~/.claude/scripts/session.sh`, `~/.claude/scripts/log.sh`, `~/.claude/tools/session-search/session-search.sh`). The `engine` command is the single entrypoint.
-    *   **Prohibited**: `~/.claude/scripts/research.sh`, `~/.claude/scripts/tag.sh swap`, `~/.claude/tools/session-search/session-search.sh query`. Use `engine research`, `engine tag swap`, `engine session-search query` instead.
-    *   **Reason**: The heartbeat hook allowlists `engine` commands specifically; full paths may be blocked. Skill files and directive prose should reference `engine` subcommands, not raw script paths.
+    *   **Rule**: Use `engine log`, `engine session`, `engine tag`, `engine research`, `engine session-search`, `engine doc-search`, etc. The `engine` command is available as a bare command via PATH — just use `engine`. Never resolve it manually.
+    *   **Prohibited**: Any absolute or relative path to engine scripts. Examples: `~/.claude/engine/scripts/engine.sh`, `~/.claude/scripts/session.sh`, `~/.claude/scripts/log.sh`, `~/.claude/tools/session-search/session-search.sh`, `$(which engine)`. Use `engine research`, `engine tag swap`, `engine session-search query` instead.
+    *   **Reason**: The heartbeat hook allowlists `engine` commands specifically; full paths are blocked. Resolving the `engine` script path manually (e.g., guessing `~/.claude/engine/scripts/engine.sh`) bypasses PATH and may reference a stale or wrong location.
     *   **Cross-ref**: Originally captured in `~/.claude/docs/.directives/INVARIANTS.md`. Promoted to shared for universal visibility.
 
-*   **¶INV_DAEMON_STATELESS**: The dispatch daemon MUST NOT maintain state beyond what tags encode.
-    *   **Rule**: The daemon reads tags, routes to skills, and spawns agents. It does not track which agents are running, which work is complete, or any other state. Tags ARE the state. `#claimed-X` IS the claim state.
-    *   **Reason**: Simplicity and crash recovery. If the daemon restarts, it re-reads tags and resumes correctly. No state file to corrupt, no process table to reconcile.
+## 8. Phase Execution Physics
 
-*   **¶INV_USER_APPROVED_REQUIRES_TOOL**: The `--user-approved` flag on `engine session phase` requires a reason obtained via `AskUserQuestion`.
-    *   **Rule**: `AskUserQuestion` is the ONLY valid mechanism to obtain a `--user-approved` reason string. The reason MUST quote the user's answer from the `AskUserQuestion` tool response. Self-authored reasons are invalid regardless of how reasonable they seem.
-    *   **Valid example**: `--user-approved "User chose 'Go back to 2: Research Loop' via AskUserQuestion"`
-    *   **Valid example**: `--user-approved "User said 'skip calibration, findings are clear' via AskUserQuestion"`
-    *   **Invalid example**: `--user-approved "Phase doesn't apply to this task"` (self-authored, no tool call)
-    *   **Invalid example**: `--user-approved "Skipping calibration per user request"` (paraphrase, not a quoted tool response)
-    *   **Mechanism**: Before using `--user-approved`, the agent MUST have called `AskUserQuestion` in the current conversation turn (or a recent prior turn). The reason string must contain a verbatim quote of the user's selection or text from that tool response.
-    *   **Redirection** (`¶INV_REDIRECTION_OVER_PROHIBITION`): Instead of self-authoring a reason, call `AskUserQuestion` with the phase transition as an option. The user's response becomes the valid reason.
-    *   **Reason**: Agents systematically invent plausible-sounding justifications for non-sequential phase transitions. Text-based prohibition lists are ineffective because agents rephrase around them. Requiring a tool call creates a mechanical audit trail — no `AskUserQuestion` in the transcript means the `--user-approved` is invalid.
+*   **¶INV_BOOT_SECTOR_AT_TOP**: Every protocol-tier SKILL.md starts with `§CMD_EXECUTE_SKILL_PHASES`.
+    *   **Rule**: The first instruction in a protocol-tier skill (after frontmatter and title) must invoke `§CMD_EXECUTE_SKILL_PHASES`. This is the boot sector — it tells the LLM "run through all my phases." Phase sections follow below.
+    *   **Scope**: Only protocol-tier skills (those with `phases` arrays). Utility-tier skills (sessionless, no phases) do not use the boot sector.
+    *   **Reason**: The boot sector ensures the LLM encounters the phase orchestrator before any phase-specific prose, establishing the mechanical execution pattern from the start.
+
+*   **¶INV_STEPS_ARE_COMMANDS**: Phase steps MUST be `§CMD_*` references.
+    *   **Rule**: The `steps` array in a phase declaration contains only `§CMD_*` command names. Prose instructions are not steps — they belong in SKILL.md phase sections, executed after `§CMD_EXECUTE_PHASE_STEPS` completes.
+    *   **Redirection**: If you want to add a prose instruction as a step, extract it into a `CMD_*.md` file first, then reference it as a step.
+    *   **Reason**: Mechanical step execution requires machine-parseable command references. Prose in steps would break hook-driven preloading and proof schema derivation.
+
+*   **¶INV_PROOF_IS_DERIVED**: Phase proof is the concatenation of its steps' proof schemas.
+    *   **Rule**: Skills declare `steps` and `commands` per phase. The `proof` array contains data fields that the step commands produce (as defined in each CMD file's `## PROOF FOR §CMD_X` section). Phase proof is the union of all step proof schemas plus any phase-level data fields.
+    *   **Reason**: Co-located proof schemas (in CMD files) are the source of truth. Declaring proof separately from steps creates drift — the proof list diverges from what the commands actually produce.
+
+*   **¶INV_PROOF_COLOCATED**: Each `CMD_*.md` file has a `## PROOF FOR §CMD_X` section.
+    *   **Rule**: Every extracted command file in `~/.claude/engine/.directives/commands/` must include a proof schema section at the bottom. The schema uses JSON format with `type`, `description`, and `examples` for each field.
+    *   **Rule**: Commands that orchestrate other commands (like `§CMD_RUN_SYNTHESIS_PIPELINE` or `§CMD_EXECUTE_PHASE_STEPS`) note that proof comes from the commands they invoke, not from themselves.
+    *   **Reason**: Co-location keeps command files self-contained (definition + proof contract). The hook preloads CMD files into context — the LLM sees the proof schema alongside the command definition.
+
+## 9. Token Economy
+
+*   **¶INV_TRUST_CACHED_CONTEXT**: Do not burn tokens on redundant operations.
+    *   **Rule**: If you have loaded `DEHYDRATED_CONTEXT.md` or `DEHYDRATED_DOCS.md` during session rehydration, you MUST NOT read the individual files contained within them (e.g., `_LOG.md`, specs) unless you have a specific reason to believe they have changed externally.
+    *   **Rule**: Rely on your context window. Do not `read_file` something just to check a detail if you recently read it in a dehydrated block. Memory over IO.
+    *   **Rule**: Prefer single, larger tool calls over many small ones. Batch operations.
+    *   **Rule**: When you know a file exists and you have its content in a summary/dehydrated file, trust it. Blind trust.
+    *   **Reason**: Token-expensive re-reads of already-loaded content waste context budget and add latency. Trust the cache.

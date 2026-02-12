@@ -1,7 +1,7 @@
 ---
 name: delegation-claim
 description: "Worker-side claiming of delegated work items. Scans #delegated-X tags, presents items for claiming, routes to target skills. Triggers: \"claim work\", \"pick up delegated items\", \"what's available to work on\", \"delegation claim\"."
-version: 2.0
+version: 3.0
 tier: lightweight
 ---
 
@@ -21,7 +21,6 @@ Worker-side claiming of delegated work items. Scans `#delegated-X` tags, present
 
 Lightweight utility for claiming delegated work items and routing them to the appropriate target skill. The worker-side counterpart to `/delegation-review` (requester-side approval). No session activation, no log file, no debrief.
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This is a utility skill with a single-phase protocol. Follow the steps below exactly.
 
 ---
 
@@ -133,7 +132,7 @@ After all groups are processed:
 
 ## Constraints
 
-- **No session activation** (`¶INV_DELEGATE_IS_NESTABLE` pattern): This skill does not call `session.sh activate`. It can be invoked from any context — daemon-spawned, standalone, or mid-skill.
+- **No session activation** (`¶INV_DELEGATE_IS_NESTABLE` pattern): This skill does not call `engine session activate`. It can be invoked from any context — daemon-spawned, standalone, or mid-skill.
 - **No REQUEST/RESPONSE templates**: `/delegation-claim` does not accept delegation requests itself. It IS the delegation resolver.
 - **Always interactive**: Even when spawned by the daemon, `/delegation-claim` presents items to the human via `AskUserQuestion`. The human monitoring the daemon terminal approves what gets claimed. No auto-claiming.
 - **Race-safe claiming**: Uses `tag.sh swap` which errors if the old tag is gone. Worker must handle this gracefully — skip the item, do not crash.

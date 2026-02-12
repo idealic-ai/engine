@@ -32,7 +32,7 @@ You produce:
 - Maintain session directory structure.
 - Use `§CMD_*` commands as specified in COMMANDS.md.
 - Tag artifacts appropriately (`#needs-review`, etc.).
-- Update phase tracking via `session.sh phase`.
+- Update phase tracking via `engine session phase`.
 
 ### Skill Chaining
 When executing a chain (e.g., brainstorm → analyze → implement → test):

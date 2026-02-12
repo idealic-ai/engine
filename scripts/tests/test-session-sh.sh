@@ -829,6 +829,84 @@ test_phase_no_enforcement_without_phases_array() {
   teardown
 }
 
+test_phase_populates_pending_commands() {
+  local test_name="phase: populates pendingCommands from steps and commands arrays"
+  setup
+
+  # Create CMD files in the fake HOME so session.sh can resolve them
+  local cmd_dir="$HOME/.claude/.directives/commands"
+  mkdir -p "$cmd_dir"
+  echo "# APPEND_LOG" > "$cmd_dir/CMD_APPEND_LOG.md"
+  echo "# TRACK_PROGRESS" > "$cmd_dir/CMD_TRACK_PROGRESS.md"
+  # CMD_NONEXISTENT.md intentionally NOT created — should be filtered out
+
+  create_state "$TEST_DIR/sessions/PHASE_CMD" "$(jq -n '{
+    pid: 99999999, skill: "fix", lifecycle: "active", loading: true,
+    currentPhase: "2: Triage Walk-Through",
+    phases: [
+      {major: 2, minor: 0, name: "Triage Walk-Through"},
+      {major: 3, minor: 0, name: "Fix Loop",
+       steps: ["§CMD_NONEXISTENT"],
+       commands: ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS"]}
+    ]
+  }')"
+
+  "$SESSION_SH" phase "$TEST_DIR/sessions/PHASE_CMD" "3: Fix Loop" > /dev/null 2>&1
+
+  local sf="$TEST_DIR/sessions/PHASE_CMD/.state.json"
+  local pending_count pending_has_append pending_has_track pending_has_nonexistent
+  pending_count=$(jq '.pendingCommands | length' "$sf" 2>/dev/null || echo "0")
+  pending_has_append=$(jq '[.pendingCommands[] | test("CMD_APPEND_LOG")] | any' "$sf" 2>/dev/null || echo "false")
+  pending_has_track=$(jq '[.pendingCommands[] | test("CMD_TRACK_PROGRESS")] | any' "$sf" 2>/dev/null || echo "false")
+  pending_has_nonexistent=$(jq '[.pendingCommands[] | test("CMD_NONEXISTENT")] | any' "$sf" 2>/dev/null || echo "false")
+
+  if [ "$pending_count" = "2" ] && [ "$pending_has_append" = "true" ] && [ "$pending_has_track" = "true" ] && [ "$pending_has_nonexistent" = "false" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "2 pending (APPEND_LOG + TRACK_PROGRESS, no NONEXISTENT)" \
+      "count=$pending_count, append=$pending_has_append, track=$pending_has_track, nonexistent=$pending_has_nonexistent"
+  fi
+
+  teardown
+}
+
+test_phase_skips_already_preloaded_commands() {
+  local test_name="phase: filters already-preloaded files from pendingCommands"
+  setup
+
+  local cmd_dir="$HOME/.claude/.directives/commands"
+  mkdir -p "$cmd_dir"
+  echo "# APPEND_LOG" > "$cmd_dir/CMD_APPEND_LOG.md"
+  echo "# TRACK_PROGRESS" > "$cmd_dir/CMD_TRACK_PROGRESS.md"
+
+  create_state "$TEST_DIR/sessions/PHASE_PRELOADED" "$(jq -n --arg cmd_dir "$cmd_dir" '{
+    pid: 99999999, skill: "fix", lifecycle: "active", loading: true,
+    currentPhase: "2: Triage Walk-Through",
+    preloadedFiles: [($cmd_dir + "/CMD_APPEND_LOG.md")],
+    phases: [
+      {major: 2, minor: 0, name: "Triage Walk-Through"},
+      {major: 3, minor: 0, name: "Fix Loop",
+       commands: ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS"]}
+    ]
+  }')"
+
+  "$SESSION_SH" phase "$TEST_DIR/sessions/PHASE_PRELOADED" "3: Fix Loop" > /dev/null 2>&1
+
+  local sf="$TEST_DIR/sessions/PHASE_PRELOADED/.state.json"
+  local pending_count pending_has_track
+  pending_count=$(jq '.pendingCommands | length' "$sf" 2>/dev/null || echo "0")
+  pending_has_track=$(jq '[.pendingCommands[] | test("CMD_TRACK_PROGRESS")] | any' "$sf" 2>/dev/null || echo "false")
+
+  if [ "$pending_count" = "1" ] && [ "$pending_has_track" = "true" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "1 pending (TRACK_PROGRESS only, APPEND_LOG filtered)" \
+      "count=$pending_count, track=$pending_has_track"
+  fi
+
+  teardown
+}
+
 # =============================================================================
 # TARGET TEST
 # =============================================================================
@@ -1034,9 +1112,9 @@ test_restart_sets_kill_requested() {
     "currentPhase": "4: Build", "sessionId": "sess-123", "contextUsage": 0.75
   }'
 
-  # No WATCHDOG_PID so it won't try to signal
+  # No WATCHDOG_PID so it won't try to signal; TEST_MODE prevents tmux keystroke injection
   unset WATCHDOG_PID 2>/dev/null || true
-  "$SESSION_SH" restart "$TEST_DIR/sessions/RESTART" > /dev/null 2>&1 || true  # restart calls exit 0
+  TEST_MODE=1 "$SESSION_SH" restart "$TEST_DIR/sessions/RESTART" > /dev/null 2>&1 || true  # restart calls exit 0
 
   local sf="$TEST_DIR/sessions/RESTART/.state.json"
   local kill_req prompt ctx sid
@@ -1206,6 +1284,8 @@ main() {
   test_phase_auto_appends_subphase
   test_phase_clears_loading_flag
   test_phase_no_enforcement_without_phases_array
+  test_phase_populates_pending_commands
+  test_phase_skips_already_preloaded_commands
 
   echo ""
   echo "--- Target ---"

@@ -80,8 +80,8 @@ find_session_dir() {
 }
 
 # _clear_preloaded_directives STATE_FILE PRELOADED_PATHS
-#   Remove successfully preloaded files from pendingDirectives and track them
-#   in preloadedFiles to prevent double-loading on re-discovery.
+#   Remove successfully preloaded files from pendingDirectives AND pendingCommands,
+#   and track them in preloadedFiles to prevent double-loading on re-discovery.
 #   PRELOADED_PATHS is newline-separated list of original (unresolved) paths.
 _clear_preloaded_directives() {
   local state_file="$1" preloaded_paths="$2"
@@ -94,11 +94,181 @@ _clear_preloaded_directives() {
     remove_paths=$(echo "$remove_paths" | jq --arg p "$ppath" --arg r "$resolved" '. + [$p, $r]')
   done <<< "$preloaded_paths"
 
-  # Single atomic write: remove from pendingDirectives + add to preloadedFiles
+  # Single atomic write: remove from pendingDirectives + pendingCommands + add to preloadedFiles
   jq --argjson paths "$remove_paths" \
     '(.pendingDirectives //= []) | .pendingDirectives -= $paths |
+     (.pendingCommands //= []) | .pendingCommands -= $paths |
      (.preloadedFiles //= []) | .preloadedFiles = (.preloadedFiles + $paths | unique)' \
     "$state_file" | safe_json_write "$state_file"
+}
+
+# _run_discovery STATE_FILE
+#   Runs directive discovery for Read/Edit/Write tools BEFORE evaluate_rules().
+#   Extracts file_path from TOOL_INPUT, discovers directives in the directory,
+#   populates pendingDirectives + touchedDirs + discoveredChecklists.
+#   This enables the directive-autoload rule to fire in the SAME tool call,
+#   eliminating the one-call latency of PostToolUse-based discovery.
+_run_discovery() {
+  local state_file="$1"
+
+  # Only process Read, Edit, Write, Glob, Grep tools
+  case "$TOOL_NAME" in
+    Read|Edit|Write|Glob|Grep) ;;
+    *) return 0 ;;
+  esac
+
+  # Extract file path from tool_input (Read/Edit/Write use file_path, Grep/Glob use path)
+  local file_path
+  file_path=$(echo "$TOOL_INPUT" | jq -r '.file_path // .path // ""' 2>/dev/null || echo "")
+  [ -n "$file_path" ] || return 0
+
+  # Get directory from file path (Grep/Glob path may already be a directory)
+  local dir_path
+  if [ -d "$file_path" ]; then
+    dir_path="$file_path"
+  else
+    dir_path=$(dirname "$file_path")
+  fi
+  [ -n "$dir_path" ] || return 0
+
+  # Check if this directory is already tracked in touchedDirs
+  local already_tracked
+  already_tracked=$(jq -r --arg dir "$dir_path" \
+    '(.touchedDirs // {}) | has($dir)' "$state_file" 2>/dev/null || echo "false")
+  if [ "$already_tracked" = "true" ]; then
+    # Auto-track checklist reads (moved from PostToolUse)
+    if [ "$TOOL_NAME" = "Read" ]; then
+      local is_checklist
+      is_checklist=$(jq -r --arg fp "$file_path" \
+        '(.discoveredChecklists // []) | any(. == $fp)' "$state_file" 2>/dev/null || echo "false")
+      if [ "$is_checklist" = "true" ]; then
+        local already_read
+        already_read=$(jq -r --arg fp "$file_path" \
+          '(.readChecklists // []) | any(. == $fp)' "$state_file" 2>/dev/null || echo "false")
+        if [ "$already_read" != "true" ]; then
+          jq --arg fp "$file_path" \
+            '(.readChecklists //= []) | .readChecklists += [$fp] | .readChecklists |= unique' \
+            "$state_file" | safe_json_write "$state_file"
+        fi
+      fi
+    fi
+    return 0
+  fi
+
+  # New directory — register it in touchedDirs with empty array
+  jq --arg dir "$dir_path" \
+    '(.touchedDirs //= {}) | .touchedDirs[$dir] = []' \
+    "$state_file" | safe_json_write "$state_file"
+
+  # Multi-root: if path is under ~/.claude/, pass --root to cap walk-up
+  local root_arg=""
+  if [[ "$dir_path" == "$HOME/.claude/"* ]]; then
+    root_arg="--root $HOME/.claude"
+  fi
+
+  # Run discovery for soft files
+  local soft_files
+  soft_files=$("$HOME/.claude/scripts/discover-directives.sh" "$dir_path" --walk-up --type soft $root_arg 2>/dev/null || echo "")
+
+  # Run discovery for hard files (CHECKLIST.md)
+  local hard_files
+  hard_files=$("$HOME/.claude/scripts/discover-directives.sh" "$dir_path" --walk-up --type hard $root_arg 2>/dev/null || echo "")
+
+  # Core directives are always suggested; skill directives need declaration
+  local core_directives=("AGENTS.md" "INVARIANTS.md" "COMMANDS.md")
+
+  # Read skill-declared directives from .state.json
+  local skill_directives
+  skill_directives=$(jq -r '(.directives // []) | .[]' "$state_file" 2>/dev/null || echo "")
+
+  # Track which soft files are new (not already suggested for another dir)
+  local new_soft_files=()
+  if [ -n "$soft_files" ]; then
+    while IFS= read -r file; do
+      [ -n "$file" ] || continue
+      local local_basename
+      local_basename=$(basename "$file")
+
+      # Check if this is a core directive (always suggested) or skill directive (needs declaration)
+      local is_core=false
+      local core
+      for core in "${core_directives[@]}"; do
+        if [ "$local_basename" = "$core" ]; then
+          is_core=true
+          break
+        fi
+      done
+
+      if [ "$is_core" = "false" ]; then
+        # Skill directive — check if declared
+        local is_declared=false
+        if [ -n "$skill_directives" ]; then
+          local declared
+          while IFS= read -r declared; do
+            if [ "$local_basename" = "$declared" ]; then
+              is_declared=true
+              break
+            fi
+          done <<< "$skill_directives"
+        fi
+        if [ "$is_declared" = "false" ]; then
+          continue  # Skip — skill doesn't care about this directive type
+        fi
+      fi
+
+      # Check if this exact file (full path) was already suggested via any other touchedDir
+      local already_suggested
+      already_suggested=$(jq -r --arg file "$file" \
+        '[(.touchedDirs // {}) | to_entries[] | .value[] | select(. == $file)] | length > 0' \
+        "$state_file" 2>/dev/null || echo "false")
+      if [ "$already_suggested" != "true" ]; then
+        new_soft_files+=("$file")
+      fi
+    done <<< "$soft_files"
+  fi
+
+  # Update touchedDirs with the files we're about to suggest
+  if [ ${#new_soft_files[@]} -gt 0 ]; then
+    local filenames_json="[]"
+    local f
+    for f in "${new_soft_files[@]}"; do
+      filenames_json=$(echo "$filenames_json" | jq --arg name "$f" '. + [$name] | unique')
+    done
+    jq --arg dir "$dir_path" --argjson names "$filenames_json" \
+      '(.touchedDirs //= {}) | .touchedDirs[$dir] = $names' \
+      "$state_file" | safe_json_write "$state_file"
+  fi
+
+  # Add new soft files to pendingDirectives (skip already-preloaded)
+  if [ ${#new_soft_files[@]} -gt 0 ]; then
+    local f
+    for f in "${new_soft_files[@]}"; do
+      # Skip if already preloaded (prevents double-loading after re-discovery)
+      local already_preloaded
+      already_preloaded=$(jq -r --arg file "$f" \
+        '(.preloadedFiles // []) | any(. == $file)' "$state_file" 2>/dev/null || echo "false")
+      if [ "$already_preloaded" = "true" ]; then
+        continue
+      fi
+      jq --arg file "$f" \
+        '(.pendingDirectives //= []) | if (.pendingDirectives | index($file)) then . else .pendingDirectives += [$file] end' \
+        "$state_file" | safe_json_write "$state_file"
+    done
+    # Reset the directive-read counter when new directives are added
+    jq '.directiveReadsWithoutClearing = 0' "$state_file" | safe_json_write "$state_file"
+  fi
+
+  # Add new CHECKLIST.md files to discoveredChecklists
+  if [ -n "$hard_files" ]; then
+    while IFS= read -r file; do
+      [ -n "$file" ] || continue
+      jq --arg file "$file" \
+        '(.discoveredChecklists //= []) | if (.discoveredChecklists | index($file)) then . else .discoveredChecklists += [$file] end' \
+        "$state_file" | safe_json_write "$state_file"
+    done <<< "$hard_files"
+  fi
+
+  return 0
 }
 
 # _enrich_heartbeat_message TEXT STATE_FILE SESSION_DIR
@@ -141,21 +311,26 @@ main() {
 
   local session_dir
   if ! session_dir=$(find_session_dir); then
-    # No session found — evaluate rules without session context
-    # (session-gate rule will fire via lifecycle trigger)
-    if [ -f "$INJECTIONS_FILE" ]; then
-      # Create a minimal temp state for evaluation (no session = lifecycle not active)
-      local tmp_state
-      tmp_state=$(mktemp)
-      echo '{"lifecycle":"none","contextUsage":0}' > "$tmp_state"
-      local matched_rules
-      matched_rules=$(evaluate_rules "$tmp_state" "$INJECTIONS_FILE" "$TRANSCRIPT_KEY")
-      rm -f "$tmp_state"
-
-      # Process blocking rules with union whitelist
-      _process_rules "$matched_rules" "" ""
+    # No session found — auto-activate /do silently (mechanical, no agent decision)
+    # Creates an ad-hoc session so the tool can proceed without gate blocking.
+    # Uses date-based naming: sessions/YYYY_MM_DD_ADHOC (reuses if exists)
+    local adhoc_dir="sessions/$(date +%Y_%m_%d)_ADHOC"
+    "$HOME/.claude/scripts/session.sh" activate "$adhoc_dir" do < /dev/null 2>/dev/null || true
+    # Re-find session dir after activation
+    session_dir=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
+    if [ -z "$session_dir" ]; then
+      # Activation failed — fall back to old behavior (evaluate rules, gate fires)
+      if [ -f "$INJECTIONS_FILE" ]; then
+        local tmp_state
+        tmp_state=$(mktemp)
+        echo '{"lifecycle":"none","contextUsage":0}' > "$tmp_state"
+        local matched_rules
+        matched_rules=$(evaluate_rules "$tmp_state" "$INJECTIONS_FILE" "$TRANSCRIPT_KEY")
+        rm -f "$tmp_state"
+        _process_rules "$matched_rules" "" ""
+      fi
+      hook_allow
     fi
-    hook_allow
   fi
 
   local state_file="$session_dir/.state.json"
@@ -170,10 +345,13 @@ main() {
   loading=$(state_read "$state_file" loading "false")
   overflowed=$(state_read "$state_file" overflowed "false")
 
-  # Allow /session dehydrate or /session continue (overflow recovery path)
+  # Allow engine session dehydrate or /session continue (overflow recovery path)
+  if [ "$TOOL_NAME" = "Bash" ] && [[ "$BASH_CMD" == *"engine session dehydrate"* ]]; then
+    jq '.lifecycle = "dehydrating"' "$state_file" | safe_json_write "$state_file"
+    hook_allow
+  fi
   if [ "$TOOL_NAME" = "Skill" ] && [ "$SKILL_ARG" = "session" ]; then
-    if [[ "$SKILL_ARGS" == *dehydrate* ]] || [[ "$SKILL_ARGS" == *continue* ]]; then
-      jq '.lifecycle = "dehydrating"' "$state_file" | safe_json_write "$state_file"
+    if [[ "$SKILL_ARGS" == *continue* ]]; then
       hook_allow
     fi
   fi
@@ -183,10 +361,11 @@ main() {
     hook_allow
   fi
 
-  # Loading/completed/restarting/overflowed bypass for heartbeat counters
+  # Loading/completed/idle/restarting/overflowed bypass for heartbeat counters
   # (don't increment or enforce heartbeat during these states)
+  # idle: session is between skills — no logging requirement until a new skill activates
   local skip_heartbeat=false
-  if [ "$loading" = "true" ] || [ "$lifecycle" = "completed" ] || [ "$lifecycle" = "restarting" ] || [ "$overflowed" = "true" ]; then
+  if [ "$loading" = "true" ] || [ "$lifecycle" = "completed" ] || [ "$lifecycle" = "idle" ] || [ "$lifecycle" = "restarting" ] || [ "$lifecycle" = "resuming" ] || [ "$overflowed" = "true" ]; then
     skip_heartbeat=true
   fi
 
@@ -223,6 +402,12 @@ main() {
           "$state_file" | safe_json_write "$state_file"
       fi
     fi
+  fi
+
+  # --- Step 5b: Run directive discovery BEFORE rule evaluation ---
+  # This populates pendingDirectives so directive-autoload fires same-call.
+  if [ "$skip_heartbeat" = "false" ] && [ "$loading" != "true" ]; then
+    _run_discovery "$state_file"
   fi
 
   # --- Step 6: Evaluate ALL rules ---

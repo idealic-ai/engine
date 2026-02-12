@@ -21,3 +21,9 @@
 *   This command runs BEFORE `§CMD_GENERATE_DEBRIEF` — debrief cannot be written until tags are resolved.
 *   The `tagCheckPassed` field in `.state.json` persists across re-runs — once set, the tag scan is skipped.
 *   If no per-skill request template exists for the tag's noun, use a generic format: `# Request: [topic]\n**Tags**: #needs-[noun]\n## Context\n[surrounding text]`.
+
+---
+
+## PROOF FOR §CMD_RESOLVE_BARE_TAGS
+
+This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).

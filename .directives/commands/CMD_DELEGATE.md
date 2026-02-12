@@ -24,7 +24,7 @@
 3.  **Write REQUEST**: Write the populated template to the current session directory:
     *   **Filename**: `[SKILL_UPPER]_REQUEST_[TOPIC].md` (e.g., `IMPLEMENTATION_REQUEST_AUTH_VALIDATION.md`)
     *   **Location**: Always the current session directory (the requester's session).
-    *   **Tool**: Use the Write tool (not log.sh -- this is a new file, not an append).
+    *   **Tool**: Use the Write tool (not `engine log` -- this is a new file, not an append).
 
 4.  **Tag REQUEST**: Apply the lifecycle tag to the REQUEST file:
     ```bash
@@ -35,7 +35,7 @@
 
     **Async Mode** ("Delegate -- worker will notify"):
     *   No further action. The REQUEST file + tag is sufficient.
-    *   A pool worker (or manual user) discovers via `tag.sh find '#needs-X'` and processes it.
+    *   A pool worker (or manual user) discovers via `engine tag find '#needs-X'` and processes it.
     *   Report to user: "REQUEST filed at `[path]`. Worker will process and notify via `#done-X`."
 
     **Blocking Mode** ("Await result from worker now"):
@@ -64,7 +64,7 @@
         ```
     *   On completion:
         -   Read the subagent's output
-        -   Swap tag on REQUEST: `tag.sh swap "$REQUEST_FILE" '#needs-X' '#done-X'`
+        -   Swap tag on REQUEST: `engine tag swap "$REQUEST_FILE" '#needs-X' '#done-X'`
         -   Write RESPONSE breadcrumb if subagent didn't (link back to REQUEST)
     *   Report summary to user.
 
@@ -73,4 +73,4 @@
 *   **Single Location**: REQUEST files always go in the requester's session directory. RESPONSE files go in the worker's (new) session directory.
 *   **Tag First**: Apply the tag AFTER writing the file. The file must exist before tagging.
 *   **No Session Activation**: This command does not activate or create sessions. It operates within the caller's active session.
-*   **Idempotent Tagging**: `tag.sh add` is idempotent -- safe to re-run.
+*   **Idempotent Tagging**: `engine tag add` is idempotent -- safe to re-run.

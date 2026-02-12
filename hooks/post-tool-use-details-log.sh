@@ -3,7 +3,7 @@
 #
 # Automatically logs every AskUserQuestion interaction to the session's DETAILS.md.
 # Captures: agent's preamble (from transcript), questions, options, and user's answers.
-# Removes the agent's burden of manual §CMD_LOG_TO_DETAILS for Q&A logging.
+# Removes the agent's burden of manual §CMD_LOG_INTERACTION for Q&A logging.
 #
 # Input (stdin): PostToolUse JSON with tool_name, tool_input, tool_response, transcript_path
 # Output: Appends formatted entry to [sessionDir]/DETAILS.md via engine log
@@ -12,7 +12,7 @@
 #
 # Related:
 #   Commands: (~/.claude/.directives/COMMANDS.md)
-#     §CMD_LOG_TO_DETAILS — Manual logging this hook replaces
+#     §CMD_LOG_INTERACTION — Manual logging this hook replaces
 #   Templates: (~/.claude/skills/_shared/TEMPLATE_DETAILS.md)
 #   Hooks: (~/.claude/engine/hooks/)
 #     post-tool-use-discovery.sh — Reference PostToolUse pattern

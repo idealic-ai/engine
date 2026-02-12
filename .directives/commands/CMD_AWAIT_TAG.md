@@ -7,7 +7,7 @@
     ```bash
     Bash("engine await-tag <file> '<tag>'", run_in_background=true)
     ```
-    *   Example: `await-tag.sh sessions/.../RESEARCH_REQUEST_AUTH.md '#done-research'`
+    *   Example: `engine await-tag sessions/.../RESEARCH_REQUEST_AUTH.md '#done-research'`
 2.  **Continue**: The agent keeps working on other tasks. The watcher runs silently.
 3.  **Receive**: When the tag appears (e.g., research completes with `#done-research`), the background task completes. The agent receives the result on its next turn.
 
@@ -16,11 +16,11 @@
     ```bash
     Bash("engine await-tag --dir <path> '<tag>'", run_in_background=true)
     ```
-    *   Example: `await-tag.sh --dir sessions/ '#done-research'`
+    *   Example: `engine await-tag --dir sessions/ '#done-research'`
 2.  **Continue/Receive**: Same as file mode.
 
 **Use Cases**:
-*   After launching research (`research.sh`), await `#done-research` on the request file.
+*   After launching research (`engine research`), await `#done-research` on the request file.
 *   Monitor for newly completed work: `--dir sessions/ '#done-implementation'`.
 
 **Constraints**:

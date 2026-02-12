@@ -64,7 +64,7 @@ How `run.sh --monitor-tags` watches for tagged files, maps tags to skills, and s
 ~/.claude/scripts/run.sh --monitor-tags='#delegated-implementation,#delegated-chores'
 
 # Create a request (from another agent session)
-~/.claude/scripts/session.sh request-template '#needs-implementation' > REQUEST.md
+~/.claude/scripts/engine session request-template '#needs-implementation' > REQUEST.md
 # Edit REQUEST.md, then during synthesis /delegation-review flips #needs-X → #delegated-X
 ```
 
@@ -106,10 +106,10 @@ tag.sh swap "$FILE" '#claimed-implementation' '#done-implementation'  # Complete
 
 ```bash
 # Outputs the REQUEST template for a tag to stdout
-~/.claude/scripts/session.sh request-template '#needs-implementation'
+~/.claude/scripts/engine session request-template '#needs-implementation'
 
 # Agent workflow: get template, write file via log.sh
-TEMPLATE=$(~/.claude/scripts/session.sh request-template '#needs-implementation')
+TEMPLATE=$(~/.claude/scripts/engine session request-template '#needs-implementation')
 # Fill in fields, write to session directory
 ```
 
@@ -151,7 +151,7 @@ All REQUEST templates follow the same pattern:
 
 ## Dynamic Discovery
 
-**No static maps.** Both the daemon and `session.sh request-template` discover tag-to-skill mappings by scanning `TEMPLATE_*_REQUEST.md` files:
+**No static maps.** Both the daemon and `engine session request-template` discover tag-to-skill mappings by scanning `TEMPLATE_*_REQUEST.md` files:
 
 ```bash
 # How discovery works (used by both run.sh and session.sh):
@@ -161,7 +161,7 @@ grep -rl "^\*\*Tags\*\*:.*#needs-implementation" \
 # Skill dir = "implement" → command = "/implement"
 ```
 
-**Adding a new dispatchable skill**: Create `~/.claude/skills/YOUR_SKILL/assets/TEMPLATE_*_REQUEST.md` with the tag on its Tags line. Both the daemon and `session.sh request-template` will discover it automatically.
+**Adding a new dispatchable skill**: Create `~/.claude/skills/YOUR_SKILL/assets/TEMPLATE_*_REQUEST.md` with the tag on its Tags line. Both the daemon and `engine session request-template` will discover it automatically.
 
 ## Daemon Internals
 

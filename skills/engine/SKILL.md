@@ -1,7 +1,7 @@
 ---
 name: engine
 description: "Smart assistant for the workflow engine — answers questions, invokes scripts, and navigates docs. Triggers: \"engine help\", \"how does the engine work\", \"run an engine command\", \"what scripts are available\"."
-version: 2.0
+version: 3.0
 tier: lightweight
 ---
 

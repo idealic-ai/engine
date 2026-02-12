@@ -140,3 +140,22 @@
     *   activate uses `taskSummary` from the JSON to run thematic searches via session-search and doc-search automatically.
     *   **No-JSON calls** (e.g., re-activation without new params): use `< /dev/null` to avoid stdin hang.
 4.  **Process Context Output**: Parse activate's Markdown output to identify the context categories (Alerts, RAG:Sessions, RAG:Docs). These are consumed by `§CMD_INGEST_CONTEXT_BEFORE_WORK`, which curates the best results and builds the multichoice menu in Phase 1.
+
+---
+
+## PROOF FOR §CMD_PARSE_PARAMETERS
+
+```json
+{
+  "session_dir": {
+    "type": "string",
+    "description": "Path to the created session directory",
+    "examples": ["sessions/2026_02_12_MY_FEATURE_IMPL"]
+  },
+  "parameters_parsed": {
+    "type": "boolean",
+    "description": "Whether session parameters were successfully parsed and stored",
+    "examples": [true]
+  }
+}
+```

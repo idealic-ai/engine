@@ -1,145 +1,123 @@
 ---
 name: do
 description: "Lightweight session for quick ad-hoc work. No interrogation, no planning — just activate, work, and close. Triggers: \"quick task\", \"just do this\", \"/do this\", \"ad-hoc work\"."
-version: 2.0
+version: 3.0
 tier: protocol
 ---
 
-Lightweight session for quick ad-hoc work — no interrogation, no planning, no ceremony.
+Lightweight session for quick ad-hoc work -- no interrogation, no planning, no ceremony.
 
 # /do Protocol (The Quick Operator's Code)
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases. Use THIS protocol's phases, not the IDE's.
+Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
-### Session Parameters (for §CMD_PARSE_PARAMETERS)
-*Merge into the JSON passed to `session.sh activate`:*
+### Session Parameters
 ```json
 {
   "taskType": "DO",
   "phases": [
-    {"major": 0, "minor": 0, "name": "Setup", "proof": ["session_dir", "templates_loaded", "parameters_parsed"]},
-    {"major": 1, "minor": 0, "name": "Work", "proof": ["log_entries"]},
-    {"major": 2, "minor": 0, "name": "Synthesis"},
-    {"major": 2, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
-    {"major": 2, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
-    {"major": 2, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
-    {"major": 2, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
+    {"label": "0", "name": "Setup",
+      "steps": ["§CMD_PARSE_PARAMETERS"],
+      "commands": [],
+      "proof": ["session_dir", "parameters_parsed"]},
+    {"label": "1", "name": "Work",
+      "steps": [],
+      "commands": ["§CMD_APPEND_LOG", "§CMD_ASK_USER_IF_STUCK"],
+      "proof": ["log_entries"]},
+    {"label": "2", "name": "Synthesis",
+      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+    {"label": "2.1", "name": "Checklists",
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+    {"label": "2.2", "name": "Debrief",
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+    {"label": "2.3", "name": "Pipeline",
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+    {"label": "2.4", "name": "Close",
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/do", "/implement", "/analyze", "/chores"],
   "directives": [],
-  "logTemplate": "~/.claude/skills/do/assets/TEMPLATE_DO_LOG.md",
-  "debriefTemplate": "~/.claude/skills/do/assets/TEMPLATE_DO.md"
+  "logTemplate": "assets/TEMPLATE_DO_LOG.md",
+  "debriefTemplate": "assets/TEMPLATE_DO.md"
 }
 ```
 
 ---
 
-## 0. Setup Phase
+## 0. Setup
 
-1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 0: Setup.
-    > 2. I will `§CMD_PARSE_PARAMETERS` to activate the session.
-    > 3. I will `§CMD_ASSUME_ROLE`:
-    >    **Role**: You are the **Quick Operator** — helpful, efficient, no ceremony.
-    >    **Goal**: Get the user's task done with minimal overhead while maintaining a paper trail.
-    >    **Mindset**: "Activate, work, log, close." Be helpful and pragmatic. Don't be rigid.
-    > 4. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT`.
+`§CMD_REPORT_INTENT_TO_USER`:
+> Quick task: ___.
+> Activating lightweight session. No interrogation, no planning.
 
-    **Constraint**: Do NOT read project files in Phase 0. Only load system templates/standards.
+`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
-2.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — construct the session parameters JSON and pipe to `session.sh activate`.
+*   **Scope**: Understand the user's request. This is the task -- no interrogation needed.
 
-4.  **Scope**: Understand the user's request. This is the task — no interrogation needed.
-
-*Phase 0 always proceeds to Phase 1 — no transition question needed.*
+*Phase 0 always proceeds to Phase 1 -- no transition question needed.*
 
 ---
 
-## 1. Work Phase
+## 1. Work
 *The heart of /do: just do the work.*
 
-**Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 1: Work.
-> 2. I will do what the user asked, logging as I go.
-> 3. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to maintain the paper trail.
-> 4. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
+`§CMD_REPORT_INTENT_TO_USER`:
+> Working on ___. Logging as I go.
+> Will ask clarifying questions naturally if needed.
+
+`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
 ### How This Phase Works
-There is no formal structure — no interrogation, no planning, no task gates. The agent works on whatever the user requested, asks clarifying questions as needed, and logs progress.
+There is no formal structure -- no interrogation, no planning, no task gates. The agent works on whatever the user requested, asks clarifying questions as needed, and logs progress.
 
 **What to do**:
 *   Work on the user's request directly
-*   Ask clarifying questions naturally (not via `§CMD_EXECUTE_INTERROGATION_PROTOCOL` — just ask)
+*   Ask clarifying questions naturally (not via `§CMD_INTERROGATE` -- just ask)
 *   Load project files as needed
 *   Make changes, run tests, verify
 
 **What NOT to do**:
 *   Don't create a formal plan (use the log for thinking)
 *   Don't run interrogation rounds
-*   Don't gate on AskUserQuestion between steps — just work
-
-### ⏱️ Logging Heartbeat (CHECK BEFORE EVERY TOOL CALL)
-```
-Before calling any tool, ask yourself:
-  Have I made 2+ tool calls since my last log entry?
-  → YES: Log NOW before doing anything else. This is not optional.
-  → NO: Proceed with the tool call.
-```
-
-[!!!] If you make 3 tool calls without logging, you are FAILING the protocol. The log is your brain — unlogged work is invisible work.
-
-### 🧠 Thought Triggers (When to Log)
-*   **Starting work?** → Log `▶️ Started` (goal and approach).
-*   **Made progress?** → Log `🔧 Progress` (what changed and why).
-*   **Made a choice?** → Log `💡 Decision` (why A over B).
-*   **Blocked?** → Log `🚧 Block` (what's wrong, what you're trying).
-*   **Done with something?** → Log `✅ Done` (summary and verification).
-*   **Noticed something?** → Log `👁️ Side Discovery`.
-
-**Constraint**: **BLIND WRITE**. Do not re-read the log file. See `§CMD_AVOID_WASTING_TOKENS`.
+*   Don't gate on AskUserQuestion between steps -- just work
 
 ### Completion Signal
 When a unit of work is done, present the work-phase gate via `AskUserQuestion` (multiSelect: false):
 > "What next?"
-> - **"Keep working"** — Stay in Phase 1. The session remains active for more tasks. Log the completed unit and continue.
-> - **"Close session"** — Proceed to Phase 2: Synthesis. Write the debrief and deactivate.
-> - **"Walkthrough changes"** — Review what was done so far, then re-present this gate.
+> - **"Keep working"** -- Stay in Phase 1. The session remains active for more tasks. Log the completed unit and continue.
+> - **"Close session"** -- Proceed to Phase 2: Synthesis. Write the debrief and deactivate.
+> - **"Walkthrough changes"** -- Review what was done so far, then re-present this gate.
 
-If the user explicitly says "done", "that's it", "close", or similar — skip the gate and proceed directly to Phase 2.
+If the user explicitly says "done", "that's it", "close", or similar -- skip the gate and proceed directly to Phase 2.
 
-**On "Keep working"**: Log a `✅ Done` entry for the completed unit, then remain in Phase 1. The agent waits for the user's next request. Repeat this gate after each subsequent unit of work.
+**On "Keep working"**: Log a done entry for the completed unit, then remain in Phase 1. The agent waits for the user's next request. Repeat this gate after each subsequent unit of work.
 
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
+Execute `§CMD_GATE_PHASE`.
 
 ---
 
 ## 2. Synthesis
 *Wrap up and create the debrief.*
 
-**1. Announce Intent**
-Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 2: Synthesis.
-> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
+`§CMD_REPORT_INTENT_TO_USER`:
+> Synthesizing. ___ units of work completed.
+> Producing DO.md debrief.
 
-**STOP**: Do not create the file yet. You must output the block above first.
+`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
-**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
-
-**Debrief creation notes** (for Step 1 -- `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
-*   Dest: `DO.md`
+**Debrief notes** (for `DO.md`):
 *   Fill in every section from the template based on the work done.
 
-**Walk-through config** (for Step 3 -- `§CMD_WALK_THROUGH_RESULTS`):
+**Walk-through config**:
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"
   gateQuestion: "Work complete. Walk through the changes?"
   debriefFile: "DO.md"
-  templateFile: "~/.claude/skills/do/assets/TEMPLATE_DO.md"
 ```
 
-**Post-Synthesis**: If the user continues talking, obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
+**Post-Synthesis**: If the user continues talking, obey `§CMD_RESUME_AFTER_CLOSE`.
 
 ---
 
@@ -149,8 +127,3 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 *   **No Interrogation**: Ask questions naturally as part of the work, not via formal rounds.
 *   **No Planning Phase**: Use the log for thinking. Don't create a separate plan artifact.
 *   **Escalation Path**: If the work turns out to be complex (multi-file, needs TDD, architectural decisions), suggest switching to `/implement` via `§CMD_REFUSE_OFF_COURSE`.
-
-### Next Skills (for §CMD_PARSE_PARAMETERS)
-```json
-["/do", "/implement", "/analyze", "/chores"]
-```

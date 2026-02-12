@@ -60,7 +60,7 @@ Where N is the skill's synthesis phase number (e.g., 5 for implement, 6 for anal
 
 **Step 3 — Close** (sub-phase N.4):
 1.  Execute `§CMD_REPORT_ARTIFACTS` — list all created/modified files in chat.
-2.  Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph session summary in chat.
+2.  Execute `§CMD_REPORT_SUMMARY` — 2-paragraph session summary in chat.
 3.  Execute `§CMD_WALK_THROUGH_RESULTS` — skill-specific walk-through (config defined in each SKILL.md).
 4.  Prove:
     ```bash
@@ -81,3 +81,9 @@ Where N is the skill's synthesis phase number (e.g., 5 for implement, 6 for anal
 *   **No skipping**: Every sub-phase executes, even if it produces no output. `§CMD_REFUSE_OFF_COURSE` applies.
 *   **Sequential**: Sub-phases execute in order (N.1 → N.2 → N.3 → N.4). Each must prove before proceeding.
 *   **Scan-first**: `engine session debrief` runs once at the start of Step 2. Its output drives the agent's pipeline processing. The agent does NOT re-scan — it uses the debrief output as its task list.
+
+---
+
+## PROOF FOR §CMD_RUN_SYNTHESIS_PIPELINE
+
+This command orchestrates sub-phases (Checklists, Debrief, Pipeline, Close). It does not produce its own proof — proof comes from the sub-phase commands it invokes.

@@ -1,7 +1,7 @@
 ---
 name: fleet
 description: "Interactive agent fleet designer - configure your multi-agent workspace. Triggers: \"configure fleet\", \"setup agents\", \"multi-agent workspace\", \"fleet layout\"."
-version: 2.0
+version: 3.0
 tier: lightweight
 ---
 
@@ -11,7 +11,6 @@ Interactive agent fleet designer - configure your multi-agent workspace.
 
 Interactive agent fleet designer. Helps users configure their multi-agent workspace based on their workflow, not generic categories.
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases. Use THIS protocol's phases, not the IDE's.
 
 ## Core Concepts
 
@@ -176,7 +175,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 > - **"No"** — No delegation pool
 
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
+Execute `§CMD_GATE_PHASE`.
 
 ---
 
@@ -378,7 +377,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 5. **Confirm**: "Updated `{YML_PATH}`. Changes will persist on fleet restart."
 
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
+Execute `§CMD_GATE_PHASE`.
 
 ---
 
@@ -428,7 +427,7 @@ Adjust anything? (Add/remove/rename/reorder)
 ```
 
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+Execute `§CMD_GATE_PHASE`:
   custom: "Go back to Phase 1 | Re-interview for different setup"
 
 ---
@@ -459,7 +458,7 @@ Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
    ```
 
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
+Execute `§CMD_GATE_PHASE`:
   custom: "Done | Exit the fleet designer"
 
 ---

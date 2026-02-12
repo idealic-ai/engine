@@ -164,6 +164,11 @@ cmd_start() {
         echo "Starting fleet '$session_name' (socket: $socket)..."
         # Kill stale server on THIS socket only (preserves other fleet sockets)
         fleet_tmux "$socket" kill-server 2>/dev/null || true
+        # Remove stale socket file if server is dead (kill-server can't clean up a dead server)
+        local socket_path="/private/tmp/tmux-$(id -u)/$socket"
+        if [[ -S "$socket_path" ]] && ! fleet_tmux "$socket" has-session 2>/dev/null; then
+            rm -f "$socket_path"
+        fi
         # Use -p to specify config path directly (no ~/.tmuxinator needed)
         tmuxinator start -p "$config_file"
     fi
@@ -523,10 +528,65 @@ cmd_notify() {
 
 # Helper: Apply data layer only (@pane_notify + window aggregate)
 # Always called synchronously so tests and queries see the state immediately.
+# §INV_AUTO_DISCONNECT_ON_STATE_CHANGE: Clears @pane_overseer_active on any non-unchecked transition.
 _apply_notify_data() {
     local target_pane="$1" state="$2"
     $TMUX_CMD set-option -p -t "$target_pane" @pane_notify "$state" 2>/dev/null || true
+
+    # Auto-disconnect: any non-unchecked state clears overseer connection
+    if [[ "$state" != "unchecked" ]]; then
+        local overseer_active
+        overseer_active=$($TMUX_CMD display -p -t "$target_pane" '#{@pane_overseer_active}' 2>/dev/null || echo "")
+        if [[ "$overseer_active" == "true" ]]; then
+            $TMUX_CMD set-option -pu -t "$target_pane" @pane_overseer_active 2>/dev/null || true
+        fi
+    fi
+
     update_window_notify
+}
+
+# Helper: Resolve the bg color for a pane based on purple layer + notify state + theme.
+# §INV_PURPLE_OVERRIDES_NOTIFY: Purple layer takes priority over notify colors.
+# Order: overseer-active (dark purple) > manager (light purple) > theme override > notify default.
+_resolve_pane_color() {
+    local target_pane="$1" state="$2"
+
+    # 1. Check if overseer is actively connected to this pane (dark purple)
+    local overseer_active
+    overseer_active=$($TMUX_CMD show-option -pqv -t "$target_pane" @pane_overseer_active 2>/dev/null || echo "")
+    if [[ "$overseer_active" == "true" ]]; then
+        local active_color
+        active_color=$($TMUX_CMD show-option -gqv @fleet_theme_active 2>/dev/null || echo "")
+        echo "${active_color:-#0d0518}"
+        return
+    fi
+
+    # 2. Check if this pane is a manager (has @pane_manages — light purple)
+    local manages
+    manages=$($TMUX_CMD show-option -pqv -t "$target_pane" @pane_manages 2>/dev/null || echo "")
+    if [[ -n "$manages" ]]; then
+        local manager_color
+        manager_color=$($TMUX_CMD show-option -gqv @fleet_theme_manager 2>/dev/null || echo "")
+        echo "${manager_color:-#110520}"
+        return
+    fi
+
+    # 3. Check for theme override for this notify state
+    local theme_color
+    theme_color=$($TMUX_CMD show-option -gqv "@fleet_theme_${state}" 2>/dev/null || echo "")
+    if [[ -n "$theme_color" ]]; then
+        echo "$theme_color"
+        return
+    fi
+
+    # 4. Hardcoded notify defaults
+    case "$state" in
+        error)     echo "#3d2020" ;;
+        unchecked) echo "#081a10" ;;
+        working)   echo "#080c10" ;;
+        checked)   echo "#0a1005" ;;
+        *)         echo "#0a0a0a" ;;
+    esac
 }
 
 # Helper: Apply visual layer only (select-pane -P bg color)
@@ -535,13 +595,7 @@ _apply_notify_visual() {
     local target_pane="$1" state="$2"
 
     local color
-    case "$state" in
-        error)     color="#3d2020" ;;
-        unchecked) color="#081a10" ;;
-        working)   color="#080c10" ;;
-        checked)   color="#0a1005" ;;
-        *)         color="#0a0a0a" ;;
-    esac
+    color=$(_resolve_pane_color "$target_pane" "$state")
 
     local active_pane
     active_pane=$($TMUX_CMD display -p '#{pane_id}' 2>/dev/null || echo "")
@@ -738,14 +792,21 @@ parse_pane_content() {
         fi
     done
 
-    # If no tab line found but we found options with separator — legacy ⏺ detection
+    # If no tab line found but we found options with separator — options alone are sufficient
     if [[ "$found_tab_line" == "false" && "$found_separator" == "true" && "$option_count" -gt 0 ]]; then
-        # Check for ⏺ marker (older format or single question)
+        has_question=true
+        # Try to find question text via ⏺ marker or first non-blank line above separator
         for (( j=i; j >= 0; j-- )); do
             if [[ "${lines[$j]}" =~ ⏺ ]]; then
                 question_line=$(echo "${lines[$j]}" | sed 's/^[[:space:]]*⏺[[:space:]]*//' | sed 's/[[:space:]]*$//')
-                has_question=true
                 break
+            fi
+        done
+        # Collect preamble from above the question region (tab line absent)
+        for (( j=i; j >= 0; j-- )); do
+            local trimmed="${lines[$j]#"${lines[$j]%%[![:space:]]*}"}"
+            if [[ -n "$trimmed" ]]; then
+                preamble_lines=("${lines[$j]}" ${preamble_lines[@]+"${preamble_lines[@]}"})
             fi
         done
     fi
@@ -842,11 +903,15 @@ cmd_capture_pane() {
         exit 1
     }
 
-    # Check pane notify state and label
-    local notify_state
-    notify_state=$(fleet_tmux "$socket" display-message -p -t "$pane_id" '#{@pane_notify}' 2>/dev/null || echo "unknown")
-    local pane_label
-    pane_label=$(fleet_tmux "$socket" display-message -p -t "$pane_id" '#{@pane_label}' 2>/dev/null || echo "")
+    # Read notify state and label via list-panes (avoids display-message -t which
+    # triggers after-select-pane hook → notify-check flips unchecked→checked)
+    local pane_info
+    pane_info=$(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_label}' 2>/dev/null \
+        | grep "^${pane_id}|" | head -1)
+    local notify_state="${pane_info#*|}"
+    notify_state="${notify_state%%|*}"
+    local pane_label="${pane_info##*|}"
+    [[ -z "$notify_state" ]] && notify_state="unknown"
 
     # Pipe captured content through the parser
     echo "$content" | parse_pane_content --pane "$pane_id" --state "$notify_state" --label "$pane_label"
@@ -864,9 +929,9 @@ cmd_list_panes() {
         esac
     done
 
-    # Get all panes with their notify state and label
-    fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_label}|#{pane_title}|#{session_name}:#{window_name}' 2>/dev/null | while IFS='|' read -r pane_id notify_state label title location; do
-        echo "$pane_id $notify_state $location $label $title"
+    # Get all panes with their notify state, fleet_id, and label
+    fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{pane_title}|#{session_name}:#{window_name}' 2>/dev/null | while IFS='|' read -r pane_id notify_state fleet_id label title location; do
+        echo "$pane_id $notify_state $location ${fleet_id:-$label} $title"
     done
 }
 
@@ -874,7 +939,18 @@ cmd_oversee_wait() {
     # Block until actionable panes appear or timeout.
     # Sweep-first event loop: check existing state before blocking.
     # Usage: fleet.sh oversee-wait [timeout_seconds] [--panes pane1,pane2,...] [--socket <socket>]
-    # Output: pane_id|state|label|location lines, or TIMEOUT
+    #
+    # Pane discovery (priority order):
+    #   1. --panes argument (explicit list)
+    #   2. @pane_manages on calling pane (auto-discovery from fleet.yml)
+    #   3. No filter (all panes)
+    #
+    # Pane matching (priority order):
+    #   1. @pane_fleet_id exact match (stable ID from fleet.yml)
+    #   2. pane_id or @pane_label exact match
+    #   3. Compound window-label match (case-insensitive fallback)
+    #
+    # Output: pane_id|state|label|location lines, or TIMEOUT + STATUS summary
     local timeout=30
     local panes_filter=""
     local socket="${CURRENT_SOCKET}"
@@ -887,9 +963,10 @@ cmd_oversee_wait() {
                 echo "Usage: fleet.sh oversee-wait [timeout_seconds] [--panes p1,p2,...] [--socket <socket>]"
                 echo ""
                 echo "Blocks until actionable panes (unchecked/error/done) appear or timeout."
-                echo "Sweep-first: checks existing state before blocking."
+                echo "Pane filter: --panes > @pane_manages on caller > all panes."
+                echo "Pane matching: @pane_fleet_id > pane_id/label > compound window-label."
                 echo ""
-                echo "Output: pane_id|state|label|location (one per line), or TIMEOUT"
+                echo "Output: pane_id|state|label|location (one per line), or TIMEOUT + STATUS"
                 return 0
                 ;;
             [0-9]*)
@@ -904,22 +981,31 @@ cmd_oversee_wait() {
         return 1
     fi
 
+    # Auto-discover managed panes from @pane_manages if --panes not provided
+    if [[ -z "$panes_filter" && -n "${TMUX_PANE:-}" ]]; then
+        local manages
+        manages=$(fleet_tmux "$socket" display -p -t "$TMUX_PANE" '#{@pane_manages}' 2>/dev/null || echo "")
+        if [[ -n "$manages" ]]; then
+            panes_filter="$manages"
+        fi
+    fi
+
     # --- Sweep function: find actionable panes ---
     _oversee_sweep() {
         local result=""
-        while IFS='|' read -r pane_id notify_state label title location; do
+        while IFS='|' read -r pane_id notify_state fleet_id label location; do
             # Filter by actionable states
             case "$notify_state" in
                 unchecked|error|done) ;;
                 *) continue ;;
             esac
 
-            # Filter by managed panes if --panes specified
+            # Filter by managed panes if filter specified
             if [[ -n "$panes_filter" ]]; then
                 local match=false
                 IFS=',' read -ra managed <<< "$panes_filter"
                 for mp in "${managed[@]}"; do
-                    if [[ "$pane_id" == "$mp" || "$label" == "$mp" ]]; then
+                    if [[ "$fleet_id" == "$mp" || "$pane_id" == "$mp" || "$label" == "$mp" ]]; then
                         match=true
                         break
                     fi
@@ -929,7 +1015,7 @@ cmd_oversee_wait() {
 
             [[ -n "$result" ]] && result+=$'\n'
             result+="${pane_id}|${notify_state}|${label}|${location}"
-        done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_label}|#{pane_title}|#{session_name}:#{window_name}' 2>/dev/null)
+        done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{session_name}:#{window_name}' 2>/dev/null)
 
         echo "$result"
     }
@@ -955,8 +1041,111 @@ cmd_oversee_wait() {
     fi
 
     # No actionable panes after wake — must have been timeout
+    # Include state summary so caller can distinguish "all busy" from "all idle"
     echo "TIMEOUT"
+    local working_count=0 done_count=0 idle_count=0 total_count=0
+    while IFS='|' read -r pane_id notify_state fleet_id label location; do
+        # Apply same pane filter as sweep
+        if [[ -n "$panes_filter" ]]; then
+            local match=false
+            IFS=',' read -ra managed <<< "$panes_filter"
+            for mp in "${managed[@]}"; do
+                if [[ "$fleet_id" == "$mp" || "$pane_id" == "$mp" || "$label" == "$mp" ]]; then
+                    match=true; break
+                fi
+            done
+            [[ "$match" == "false" ]] && continue
+        fi
+        (( total_count++ )) || true
+        case "$notify_state" in
+            working) (( working_count++ )) || true ;;
+            done) (( done_count++ )) || true ;;
+            *) (( idle_count++ )) || true ;;
+        esac
+    done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{session_name}:#{window_name}' 2>/dev/null)
+    echo "STATUS total=$total_count working=$working_count done=$done_count idle=$idle_count"
     return 0
+}
+
+# ============================================================
+# Overseer Connection Commands (Purple Layer)
+# ============================================================
+
+cmd_overseer_connect() {
+    # Mark a pane as overseer-active (dark purple bg).
+    # Usage: fleet.sh overseer-connect <pane_id> [--socket <socket>]
+    local pane_id="${1:-}"
+    local socket="${CURRENT_SOCKET}"
+
+    shift 2>/dev/null || true
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --socket) socket="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ -z "$pane_id" ]]; then
+        echo "Usage: fleet.sh overseer-connect <pane_id>"
+        exit 1
+    fi
+
+    # Set the active flag
+    fleet_tmux "$socket" set-option -p -t "$pane_id" @pane_overseer_active "true" 2>/dev/null || {
+        echo "ERROR: Failed to set @pane_overseer_active on $pane_id" >&2
+        return 1
+    }
+
+    # Trigger visual refresh — read current notify state and re-apply visual
+    local current_state
+    current_state=$(fleet_tmux "$socket" display -p -t "$pane_id" '#{@pane_notify}' 2>/dev/null || echo "done")
+    TMUX_CMD="tmux -L $socket" _apply_notify_visual "$pane_id" "$current_state"
+
+    echo "Connected to $pane_id (purple active)"
+}
+
+cmd_overseer_disconnect() {
+    # Clear overseer-active flag on a pane (revert to notify color).
+    # Usage: fleet.sh overseer-disconnect <pane_id> [--socket <socket>]
+    local pane_id="${1:-}"
+    local socket="${CURRENT_SOCKET}"
+
+    shift 2>/dev/null || true
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --socket) socket="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    if [[ -z "$pane_id" ]]; then
+        echo "Usage: fleet.sh overseer-disconnect <pane_id>"
+        exit 1
+    fi
+
+    # Clear the active flag (unset the option entirely)
+    fleet_tmux "$socket" set-option -pu -t "$pane_id" @pane_overseer_active 2>/dev/null || true
+
+    # Trigger visual refresh — re-apply notify color
+    local current_state
+    current_state=$(fleet_tmux "$socket" display -p -t "$pane_id" '#{@pane_notify}' 2>/dev/null || echo "done")
+    TMUX_CMD="tmux -L $socket" _apply_notify_visual "$pane_id" "$current_state"
+
+    echo "Disconnected from $pane_id"
+}
+
+cmd_style_init() {
+    # Apply correct visual styles to all panes (including purple layer).
+    # Called by tmux.conf on config load, or manually after marking overseer panes.
+    # Uses _resolve_pane_color for full color resolution (purple, manager, notify, theme).
+    while IFS='|' read -r pane_id notify_state; do
+        local color
+        color=$(_resolve_pane_color "$pane_id" "${notify_state:-done}")
+        $TMUX_CMD select-pane -t "$pane_id" -P "bg=$color" 2>/dev/null || true
+    done < <($TMUX_CMD list-panes -a -F '#{pane_id}|#{@pane_notify}' 2>/dev/null)
+
+    # Set focused pane to black
+    $TMUX_CMD select-pane -P "bg=black" 2>/dev/null || true
 }
 
 # ============================================================
@@ -1245,6 +1434,9 @@ Commands:
   capture-pane <pane>  Capture pane content and extract AskUserQuestion state (JSON)
   list-panes           List all panes with notify state (for /oversee polling)
   oversee-wait [secs]  Block until actionable panes appear or timeout (event-driven)
+  overseer-connect <pane>   Mark pane as overseer-active (dark purple bg)
+  overseer-disconnect <pane> Clear overseer-active flag (revert to notify color)
+  style-init                Apply correct colors to all panes (including purple layer)
   summary <sub>        Overseer summaries tab (sub: list, setup, toggle)
   config-path [group]  Output path to fleet yml config (default: main fleet)
   init                 Create fleet directory in Google Drive
@@ -1285,6 +1477,9 @@ case "${1:-help}" in
     list-panes) cmd_list_panes "${@:2}" ;;
     oversee-wait) cmd_oversee_wait "${@:2}" ;;
     summary)  cmd_summary "${@:2}" ;;
+    overseer-connect) cmd_overseer_connect "${2:-}" "${@:3}" ;;
+    overseer-disconnect) cmd_overseer_disconnect "${2:-}" "${@:3}" ;;
+    style-init) cmd_style_init ;;
     pane-id)  cmd_pane_id ;;
     config-path) get_config_path "${2:-}" ;;
     init)     cmd_init ;;

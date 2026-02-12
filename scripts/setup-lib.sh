@@ -470,9 +470,6 @@ configure_hooks() {
       | add_if_missing({
           "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-complete-notify.sh"}]
         })
-      | add_if_missing({
-          "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-use-discovery.sh"}]
-        })
     )
 
     # PostToolUseFailure

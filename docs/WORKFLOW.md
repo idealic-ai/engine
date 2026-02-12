@@ -38,18 +38,18 @@ Every interaction with the workflow engine happens inside a session. The session
 
 ### Activation
 
-When you invoke a skill (e.g., `/implement`), the skill protocol calls `session.sh activate`, which:
+When you invoke a skill (e.g., `/implement`), the skill protocol calls `engine session activate`, which:
 1. Creates or reuses a session directory under `sessions/`
 2. Writes `.state.json` with PID, skill name, phase tracking, and logging enforcement thresholds
 3. Sets `lifecycle=active`, enabling all tools
 
 ### Phases
 
-Each skill defines a sequence of phases. The agent transitions between them via `session.sh phase`, which updates `.state.json` and the status line. Phase enforcement is mechanical — non-sequential transitions (skip forward or backward) require explicit user approval via `--user-approved`.
+Each skill defines a sequence of phases. The agent transitions between them via `engine session phase`, which updates `.state.json` and the status line. Phase enforcement is mechanical — non-sequential transitions (skip forward or backward) require explicit user approval via `--user-approved`.
 
 ### Deactivation
 
-After synthesis (writing the debrief), the skill calls `session.sh deactivate`, which:
+After synthesis (writing the debrief), the skill calls `engine session deactivate`, which:
 1. Sets `lifecycle=completed` — the session gate re-engages
 2. Stores a description and search keywords for future RAG discoverability
 3. Runs a RAG search returning related past sessions
@@ -117,11 +117,11 @@ The most powerful pattern in the workflow engine is **skill chaining**: completi
 ### How It Works
 
 1. A skill completes its synthesis phase and writes a debrief
-2. The debrief protocol (`§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`) runs post-synthesis steps: TOC management, invariant capture, side discovery tagging, leftover work reporting
-3. `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` deactivates the session and presents the "Next Skill" menu
+2. The debrief protocol (`§CMD_GENERATE_DEBRIEF`) runs post-synthesis steps: TOC management, invariant capture, side discovery tagging, leftover work reporting
+3. `§CMD_CLOSE_SESSION` deactivates the session and presents the "Next Skill" menu
 4. Each skill defines its own recommended next steps. For example, `/implement` recommends `/test`, `/test` recommends `/document`, `/document` recommends `/review`
 5. The user selects a skill (or types a skill name via "Other"), and the Skill tool invokes it
-6. The new skill runs `session.sh activate` — which detects the existing session directory and offers to reuse it
+6. The new skill runs `engine session activate` — which detects the existing session directory and offers to reuse it
 
 ### The Endless Agent Pattern
 
@@ -141,7 +141,7 @@ When a new skill activates in an existing session directory:
 
 ### Post-Synthesis Continuation
 
-If the user sends a message after synthesis (without choosing a skill), `§CMD_CONTINUE_OR_CLOSE_SESSION` fires: it reactivates the session, logs a continuation header, and works on the user's request. When done, the debrief is regenerated (not appended) to maintain coherence.
+If the user sends a message after synthesis (without choosing a skill), `§CMD_RESUME_AFTER_CLOSE` fires: it reactivates the session, logs a continuation header, and works on the user's request. When done, the debrief is regenerated (not appended) to maintain coherence.
 
 ---
 
@@ -259,7 +259,7 @@ The status line script (`statusline.sh`) tracks `contextUsage` in `.state.json`.
 
 ### Restart
 
-After dehydration, `session.sh restart` signals the restart watchdog (via USR1). The watchdog kills the current Claude process. `run.sh` detects the exit, reads the restart prompt from `.state.json`, and spawns a fresh Claude with NO `--resume` (overflow means the old context is too large).
+After dehydration, `engine session restart` signals the restart watchdog (via USR1). The watchdog kills the current Claude process. `run.sh` detects the exit, reads the restart prompt from `.state.json`, and spawns a fresh Claude with NO `--resume` (overflow means the old context is too large).
 
 ### Restoration
 
@@ -299,7 +299,7 @@ The log is the agent's brain — unlogged work is invisible work. Each skill has
 
 ### Phase Enforcement
 
-Phase transitions are tracked in `.state.json` via `session.sh phase`. Non-sequential transitions (skipping a phase or going backward) are rejected unless `--user-approved` is passed with a reason citing the user's explicit approval. This prevents agents from silently skipping protocol steps they judge as "unnecessary."
+Phase transitions are tracked in `.state.json` via `engine session phase`. Non-sequential transitions (skipping a phase or going backward) are rejected unless `--user-approved` is passed with a reason citing the user's explicit approval. This prevents agents from silently skipping protocol steps they judge as "unnecessary."
 
 See `~/.claude/docs/DIRECTIVES_SYSTEM.md` for the full architecture of the standards layer and how it relates to skill protocols.
 

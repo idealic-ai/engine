@@ -14,7 +14,7 @@ Pre-flight checks when creating or modifying skills in `engine/skills/`.
 - [ ] Every phase has `§CMD_VERIFY_PHASE_EXIT` proof block
 - [ ] Phase transitions use `AskUserQuestion` (not bare text gates)
 - [ ] Synthesis phase calls steps in order: checklists, debrief, directives, artifacts, summary
-- [ ] Next Skill Options section defines exactly 4 options for `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`
+- [ ] Next Skill Options section defines exactly 4 options for `§CMD_CLOSE_SESSION`
 
 ### Templates
 - [ ] Log template schemas match the log types used in the Operation phase

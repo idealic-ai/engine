@@ -18,6 +18,10 @@
 #                                                  # REQUIRES 1-3 line description on stdin for RAG/search
 #                                                  # --keywords: comma-separated search keywords (stored in .state.json)
 #                                                  # Outputs: Related sessions from RAG search (if GEMINI_API_KEY set)
+#   session.sh idle <path> [--keywords 'kw1,kw2'] <<DESCRIPTION
+#                                                  # Set lifecycle=idle (restricted gate, reactivatable)
+#                                                  # Like deactivate but session stays alive for fast-track reactivation
+#                                                  # Clears PID (null sentinel), stores description + keywords
 #   session.sh dehydrate <path> <<JSON              # Merge dehydrated context JSON into .state.json
 #   session.sh restart <path>                      # Set status=ready-to-kill, signal wrapper
 #   session.sh check <path> [<<STDIN]                 # Tag scan + checklist validation (sets checkPassed=true)
@@ -89,12 +93,13 @@ case "$ACTION" in
   activate)
     SKILL="${3:?Missing skill name}"
 
-    # Parse optional flags: --fleet-pane NAME, --target-file FILE, --user-approved REASON
+    # Parse optional flags: --fleet-pane NAME, --target-file FILE, --user-approved REASON, --fast-track
     # PID comes from CLAUDE_SUPERVISOR_PID env var (exported by run.sh)
     TARGET_PID="${CLAUDE_SUPERVISOR_PID:-$PPID}"
     FLEET_PANE=""
     TARGET_FILE=""
     USER_APPROVED=""
+    FAST_TRACK=""
     shift 3  # Remove action, dir, skill
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -109,6 +114,10 @@ case "$ACTION" in
         --user-approved)
           USER_APPROVED="${2:?--user-approved requires a reason string}"
           shift 2
+          ;;
+        --fast-track)
+          FAST_TRACK=true
+          shift
           ;;
         *)
           echo "§CMD_PARSE_PARAMETERS: Unknown flag '$1'" >&2
@@ -133,7 +142,7 @@ case "$ACTION" in
         # --- Required Fields Validation (§CMD_PARSE_PARAMETERS schema) ---
         # ALL fields are required. No defaults. Agents must provide the complete schema.
         # sessionDir and startedAt are set by the script, not the caller.
-        REQUIRED_FIELDS="taskType taskSummary scope directoriesOfInterest preludeFiles contextPaths planTemplate logTemplate debriefTemplate requestTemplate responseTemplate requestFiles nextSkills extraInfo phases"
+        REQUIRED_FIELDS="taskType taskSummary scope directoriesOfInterest contextPaths planTemplate logTemplate debriefTemplate requestTemplate responseTemplate requestFiles nextSkills extraInfo phases"
         MISSING_FIELDS=""
         for field in $REQUIRED_FIELDS; do
           if ! echo "$STDIN_JSON" | jq -e "has(\"$field\")" > /dev/null 2>&1; then
@@ -172,7 +181,7 @@ case "$ACTION" in
     SESSIONS_DIR=$(dirname "$DIR")
     grep -l "\"pid\": $TARGET_PID" "$SESSIONS_DIR"/*/.state.json 2>/dev/null | while read -r other_file; do
       [ "$other_file" = "$STATE_FILE" ] && continue
-      jq '.pid = 0' "$other_file" | safe_json_write "$other_file"
+      jq 'del(.pid)' "$other_file" | safe_json_write "$other_file"
       echo "Cleared stale PID from: $(dirname "$other_file" | xargs basename)"
     done || true
 
@@ -187,8 +196,9 @@ case "$ACTION" in
 
     # --- completedSkills Gate ---
     # If the state file has a completedSkills array containing the requested skill, reject
-    # unless --user-approved is provided (same pattern as phase enforcement)
-    if [ -f "$STATE_FILE" ]; then
+    # unless --user-approved or --fast-track is provided
+    # Exception: "do" skill is always reactivatable (ad-hoc work, meant to be reusable)
+    if [ -f "$STATE_FILE" ] && [ "$SKILL" != "do" ] && [ -z "$FAST_TRACK" ]; then
       SKILL_COMPLETED=$(jq -r --arg s "$SKILL" \
         '(.completedSkills // []) | any(. == $s)' "$STATE_FILE" 2>/dev/null || echo "false")
       if [ "$SKILL_COMPLETED" = "true" ]; then
@@ -251,11 +261,11 @@ case "$ACTION" in
             # Derive currentPhase from new phases array (if provided by new skill)
             HAS_NEW_PHASES=$(jq 'has("phases") and (.phases | length > 0)' "$STATE_FILE" 2>/dev/null || echo "false")
             if [ "$HAS_NEW_PHASES" = "true" ]; then
-              jq '.currentPhase = (
-                .phases | sort_by(.major, .minor) | first |
-                if .minor == 0 then "\(.major): \(.name)"
-                else "\(.major).\(.minor): \(.name)" end
-              )' "$STATE_FILE" | safe_json_write "$STATE_FILE"
+              jq '
+                def phase_lbl: if has("label") then .label elif .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end;
+                def sort_key: phase_lbl | split(".") | map(if test("^[0-9]+$") then ("000" + .)[-3:] else . end) | join(".");
+                .currentPhase = (.phases | sort_by(sort_key) | first | "\(phase_lbl): \(.name)")
+              ' "$STATE_FILE" | safe_json_write "$STATE_FILE"
             else
               # No phases array in new activation — reset to default
               jq '.currentPhase = "Phase 1: Setup"' \
@@ -275,10 +285,56 @@ case "$ACTION" in
           echo "Cleaning up stale .state.json (PID $EXISTING_PID no longer running)"
           rm "$STATE_FILE"
         fi
+      else
+        # PID is null/empty — check if this is an idle session (reactivatable)
+        EXISTING_LIFECYCLE=$(jq -r '.lifecycle // ""' "$STATE_FILE" 2>/dev/null || echo "")
+        if [ "$EXISTING_LIFECYCLE" = "idle" ]; then
+          # Idle → active. Preserve state, swap skill, reset phases.
+          # SHOULD_SCAN determined by --fast-track flag (unified with other paths).
+          EXISTING_SKILL=$(jq -r '.skill // empty' "$STATE_FILE")
+
+          JQ_EXPR='.pid = $pid | .skill = $skill | .lifecycle = "active" | .loading = true | .overflowed = false | .killRequested = false | .lastHeartbeat = $ts'
+          JQ_ARGS=(--argjson pid "$TARGET_PID" --arg skill "$SKILL" --arg ts "$(timestamp)")
+
+          if [ -n "$FLEET_PANE" ]; then
+            JQ_EXPR="$JQ_EXPR | .fleetPaneId = \$pane"
+            JQ_ARGS+=(--arg pane "$FLEET_PANE")
+          fi
+
+          jq "${JQ_ARGS[@]}" "$JQ_EXPR" \
+            "$STATE_FILE" | safe_json_write "$STATE_FILE"
+
+          # Wipe phase state for new skill
+          jq 'del(.phases) | .phaseHistory = []' \
+            "$STATE_FILE" | safe_json_write "$STATE_FILE"
+
+          # Merge stdin JSON if provided
+          if [ -n "$STDIN_JSON" ]; then
+            jq -s '.[0] * .[1]' "$STATE_FILE" <(echo "$STDIN_JSON") | safe_json_write "$STATE_FILE"
+          fi
+
+          ACTIVATED=true
+          SHOULD_SCAN=true  # Unified: --fast-track override applied later if set
+
+          # Derive currentPhase from new phases array
+          HAS_NEW_PHASES=$(jq 'has("phases") and (.phases | length > 0)' "$STATE_FILE" 2>/dev/null || echo "false")
+          if [ "$HAS_NEW_PHASES" = "true" ]; then
+            jq '
+              def phase_lbl: if has("label") then .label elif .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end;
+              def sort_key: phase_lbl | split(".") | map(if test("^[0-9]+$") then ("000" + .)[-3:] else . end) | join(".");
+              .currentPhase = (.phases | sort_by(sort_key) | first | "\(phase_lbl): \(.name)")
+            ' "$STATE_FILE" | safe_json_write "$STATE_FILE"
+          else
+            jq '.currentPhase = "Phase 1: Setup"' \
+              "$STATE_FILE" | safe_json_write "$STATE_FILE"
+          fi
+
+          echo "Session reactivated (idle → active): $DIR (skill: $SKILL, pid: $TARGET_PID)"
+        fi
       fi
     fi
 
-    # Create fresh .state.json (skip if already handled via same-PID path)
+    # Create fresh .state.json (skip if already handled via same-PID or idle path)
     if [ "$ACTIVATED" = false ]; then
       NOW=$(timestamp)
       # Build base JSON and conditionally add optional fields
@@ -321,16 +377,22 @@ case "$ACTION" in
       HAS_PHASES_CHECK=$(echo "$BASE_JSON" | jq 'has("phases") and (.phases | length > 0)' 2>/dev/null || echo "false")
       if [ "$HAS_PHASES_CHECK" = "true" ]; then
         BASE_JSON=$(echo "$BASE_JSON" | jq '
-          .currentPhase = (
-            .phases | sort_by(.major, .minor) | first |
-            if .minor == 0 then "\(.major): \(.name)"
-            else "\(.major).\(.minor): \(.name)" end
-          )
+          def phase_lbl: if has("label") then .label elif .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end;
+          def sort_key: phase_lbl | split(".") | map(if test("^[0-9]+$") then ("000" + .)[-3:] else . end) | join(".");
+          .currentPhase = (.phases | sort_by(sort_key) | first | "\(phase_lbl): \(.name)")
         ')
       fi
 
       echo "$BASE_JSON" | safe_json_write "$STATE_FILE"
       SHOULD_SCAN=true
+    fi
+
+    # --- Fast-Track Override ---
+    # --fast-track forces SHOULD_SCAN=false regardless of which code path set it.
+    # Stores fastTrack: true in .state.json (informational — not read on restart).
+    if [ "$FAST_TRACK" = true ]; then
+      SHOULD_SCAN=false
+      jq '.fastTrack = true' "$STATE_FILE" | safe_json_write "$STATE_FILE"
     fi
 
     # --- Output: Structured Markdown Context ---
@@ -340,6 +402,18 @@ case "$ACTION" in
     [ -n "$FLEET_PANE" ] && MSG="$MSG, fleet: $FLEET_PANE"
     [ -n "$TARGET_FILE" ] && MSG="$MSG, target: $TARGET_FILE"
     echo "$MSG)"
+
+    # Global invariant self-affirmations (cognitive anchoring — agent grounds on these before any phase work)
+    # These are system-level truths that apply to ALL phases of ALL skills.
+    echo ""
+    echo "## Global Invariants (Self-Affirm Before Every Phase)"
+    echo "  - ¶INV_PROTOCOL_IS_TASK: The protocol defines the task. Do not skip steps."
+    echo "  - ¶INV_ENGINE_COMMAND_DISPATCH: Use \`engine <command>\` only. Never resolve script paths."
+    echo "  - ¶INV_PHASE_ENFORCEMENT: Phase transitions are mechanically enforced. Do not self-authorize skips."
+    echo "  - ¶INV_USER_APPROVED_REQUIRES_TOOL: --user-approved requires AskUserQuestion. Never self-author reasons."
+    echo "  - ¶INV_STEPS_ARE_COMMANDS: Phase steps must be §CMD_* references. No prose in steps arrays."
+    echo "  - ¶INV_PROOF_IS_DERIVED: Phase proof comes from step CMD schemas. Do not invent proof fields."
+    echo "  - ¶INV_TRUST_CACHED_CONTEXT: Do not re-read files already in context. Memory over IO."
 
     # Context scanning (only on fresh activation or skill change)
     if [ "$SHOULD_SCAN" = true ]; then
@@ -410,6 +484,15 @@ case "$ACTION" in
       if [ -x "$DISCOVER_SCRIPT" ]; then
         # Extract directoriesOfInterest from .state.json
         DIRS_JSON=$(jq -r '(.directoriesOfInterest // []) | .[]' "$STATE_FILE" 2>/dev/null || true)
+        # Auto-inject the active skill's directory for directive discovery
+        SKILL_DIR="$HOME/.claude/skills/$SKILL"
+        if [ -d "$SKILL_DIR" ]; then
+          if [ -n "$DIRS_JSON" ]; then
+            DIRS_JSON="${DIRS_JSON}"$'\n'"${SKILL_DIR}"
+          else
+            DIRS_JSON="$SKILL_DIR"
+          fi
+        fi
         if [ -n "$DIRS_JSON" ]; then
           ALL_DISCOVERED=""
           while IFS= read -r interest_dir; do
@@ -419,7 +502,14 @@ case "$ACTION" in
               interest_dir="$PWD/$interest_dir"
             fi
             [ -d "$interest_dir" ] || continue
-            FOUND=$("$DISCOVER_SCRIPT" "$interest_dir" --walk-up --include-shared 2>/dev/null || true)
+            # Add --root for cross-tree dirs (e.g., ~/.claude/skills/) so walk-up
+            # boundary is correct. Without this, walk-up defaults to $PWD which
+            # is not an ancestor of ~/.claude/ paths.
+            ROOT_ARG=""
+            if [[ "$interest_dir" == "$HOME/.claude"* ]]; then
+              ROOT_ARG="--root $HOME/.claude"
+            fi
+            FOUND=$("$DISCOVER_SCRIPT" "$interest_dir" --walk-up --include-shared $ROOT_ARG 2>/dev/null || true)
             if [ -n "$FOUND" ]; then
               ALL_DISCOVERED="${ALL_DISCOVERED}${ALL_DISCOVERED:+$'\n'}${FOUND}"
             fi
@@ -570,125 +660,168 @@ case "$ACTION" in
     # --- Phase Enforcement ---
     # If .state.json has a "phases" array, enforce sequential progression.
     # If no "phases" array, skip enforcement (backward compat with old sessions).
-    # Phases use {major, minor} integer pairs — no floats.
+    # Bilingual: supports label-based phases ({"label": "3.C"}) and legacy major/minor.
+    # Labels are hierarchical: "3.C" (branch), "4.1" (sequential), "4.A.1.2" (deep).
     HAS_PHASES=$(jq 'has("phases") and (.phases | length > 0)' "$STATE_FILE" 2>/dev/null || echo "false")
 
     if [ "$HAS_PHASES" = "true" ]; then
-      # Extract major.minor from the requested phase label
-      # Format: "N: Name" (major only) or "N.M: Name" (with minor)
-      REQ_MAJOR=$(echo "$PHASE" | grep -oE '^[0-9]+' || echo "")
-      if [ -z "$REQ_MAJOR" ]; then
-        echo "§CMD_UPDATE_PHASE: Phase label must start with a number (e.g., '3: Execution', '4.1: Sub-Step'). Got: '$PHASE'" >&2
-        exit 1
-      fi
-      # Reject alpha-style phase labels on MAJOR phases (e.g., "5b: Triage" — must use "5.1: Triage")
-      # But ALLOW single uppercase letter suffix on MINOR sub-phases (e.g., "3.1A: Agent Handoff")
-      if echo "$PHASE" | grep -qE '^[0-9]+[a-zA-Z]'; then
-        echo "§CMD_UPDATE_PHASE: Alpha-style phase labels are not allowed. Use 'N.M: Name' format (e.g., '5.1: Finding Triage' not '5b: Finding Triage'). Got: '$PHASE'" >&2
-        exit 1
-      fi
 
-      # Extract letter suffix from sub-phase label (e.g., "3.1A: Name" → LETTER="A")
-      # Constraints: single uppercase letter only, only on sub-phases (N.M format)
-      LETTER_SUFFIX=""
-      if echo "$PHASE" | grep -qE '^[0-9]+\.[0-9]+[A-Z]:'; then
-        LETTER_SUFFIX=$(echo "$PHASE" | grep -oE '^[0-9]+\.[0-9]+[A-Z]' | grep -oE '[A-Z]$')
-      fi
-      # Reject: lowercase letter suffix (e.g., "3.1a: Bad")
-      if echo "$PHASE" | grep -qE '^[0-9]+\.[0-9]+[a-z]:'; then
-        echo "§CMD_UPDATE_PHASE: Letter suffixes must be uppercase (e.g., '3.1A: Name' not '3.1a: Name'). Got: '$PHASE'" >&2
-        exit 1
-      fi
-      # Reject: double letters (e.g., "3.1AB: Bad")
-      if echo "$PHASE" | grep -qE '^[0-9]+\.[0-9]+[A-Za-z]{2,}:'; then
-        echo "§CMD_UPDATE_PHASE: Only single letter suffixes allowed (e.g., '3.1A' not '3.1AB'). Got: '$PHASE'" >&2
-        exit 1
-      fi
-
-      # Extract minor: if "4.1: ..." → minor=1, if "4.1A: ..." → minor=1, if "4: ..." → minor=0
-      # Strip optional letter suffix before extracting minor number
-      PHASE_NUMERIC=$(echo "$PHASE" | sed -E 's/^([0-9]+(\.[0-9]+)?)[A-Z]?:/\1:/')
-      REQ_MINOR=$(echo "$PHASE_NUMERIC" | grep -oE '^\d+\.(\d+)' | grep -oE '\.\d+' | tr -d '.' || echo "0")
-      [ -z "$REQ_MINOR" ] && REQ_MINOR=0
-
-      # Get current phase major.minor
-      CURRENT_PHASE=$(jq -r '.currentPhase // ""' "$STATE_FILE")
-      CUR_MAJOR=$(echo "$CURRENT_PHASE" | grep -oE '^[0-9]+' || echo "0")
-      CUR_MINOR=$(echo "$CURRENT_PHASE" | grep -oE '^\d+\.(\d+)' | grep -oE '\.\d+' | tr -d '.' || echo "0")
-      [ -z "$CUR_MINOR" ] && CUR_MINOR=0
-
-      # Helper: compare two major.minor pairs
-      # Returns: "lt", "eq", "gt"
-      phase_cmp() {
-        local a_maj=$1 a_min=$2 b_maj=$3 b_min=$4
-        if [ "$a_maj" -lt "$b_maj" ]; then echo "lt"
-        elif [ "$a_maj" -gt "$b_maj" ]; then echo "gt"
-        elif [ "$a_min" -lt "$b_min" ]; then echo "lt"
-        elif [ "$a_min" -gt "$b_min" ]; then echo "gt"
-        else echo "eq"
-        fi
+      # --- Helper: derive label from a phase JSON entry ---
+      phase_entry_label() {
+        jq -r 'if has("label") then .label elif .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end'
       }
 
-      # Find the next declared phase (first phase with major.minor > current)
-      NEXT_PHASE_JSON=$(jq -r --argjson cm "$CUR_MAJOR" --argjson cn "$CUR_MINOR" \
-        '[.phases[] | select(.major > $cm or (.major == $cm and .minor > $cn))] | sort_by(.major, .minor) | first // empty' \
-        "$STATE_FILE" 2>/dev/null || echo "")
+      # --- Helper: extract major number from a label string ---
+      label_major() { echo "$1" | grep -oE '^[0-9]+' || echo "0"; }
 
+      # --- Helper: check if label has sub-parts ---
+      label_is_sub() { echo "$1" | grep -q '\.'; }
+
+      # --- Helper: detect branch switching by walking label segments ---
+      # Returns 0 (true) if cur→req crosses between letter branches at the same depth.
+      # "3.A.1" vs "3.B" → true (A≠B at depth 1 under parent "3")
+      # "3.A.1" vs "3.A.2" → false (same branch A, different sub-phase)
+      # "4.1" vs "4.2" → false (numbers, not branches)
+      is_branch_switch() {
+        local cur="$1" req="$2"
+        IFS='.' read -ra CS <<< "$cur"
+        IFS='.' read -ra RS <<< "$req"
+        local min=${#CS[@]}
+        [ ${#RS[@]} -lt $min ] && min=${#RS[@]}
+        local i
+        for ((i=0; i<min; i++)); do
+          local c="${CS[$i]}" r="${RS[$i]}"
+          if [[ "$c" =~ ^[A-Z]+$ ]] && [[ "$r" =~ ^[A-Z]+$ ]] && [ "$c" != "$r" ]; then
+            return 0  # branch switch: different letters at same depth
+          fi
+          [ "$c" != "$r" ] && return 1  # diverged on non-letter segment
+        done
+        return 1  # no branch switch detected
+      }
+
+      # --- Helper: compute sort key for label (pad numbers to 3 digits) ---
+      label_sort_key() {
+        echo "$1" | awk -F. '{ for(i=1;i<=NF;i++) { if($i ~ /^[0-9]+$/) printf "%03d",$i; else printf "%s",$i; if(i<NF) printf "." } }'
+      }
+
+      # --- jq helpers for label sorting ---
+      JQ_LABEL_HELPERS='
+        def phase_lbl: if has("label") then .label elif .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end;
+        def sort_key: phase_lbl | split(".") | map(if test("^[0-9]+$") then ("000" + .)[-3:] else . end) | join(".");
+      '
+
+      # --- Parse requested phase ---
+      REQ_LABEL=$(echo "$PHASE" | sed -E 's/: .*//')
+      REQ_MAJOR=$(label_major "$REQ_LABEL")
+      if [ -z "$REQ_MAJOR" ]; then
+        echo "§CMD_UPDATE_PHASE: Phase label must start with a number (e.g., '3: Exec', '3.C: Branch'). Got: '$PHASE'" >&2
+        exit 1
+      fi
+      # --- Parse current phase ---
+      CURRENT_PHASE=$(jq -r '.currentPhase // ""' "$STATE_FILE")
+      CUR_LABEL=$(echo "$CURRENT_PHASE" | sed -E 's/: .*//')
+      CUR_MAJOR=$(label_major "$CUR_LABEL")
+
+      # --- Find the next declared phase (by label sort order) ---
+      NEXT_PHASE_JSON=$(jq -r --arg cl "$CUR_LABEL" "
+        $JQ_LABEL_HELPERS
+        def cur_key: \$cl | split(\".\") | map(if test(\"^[0-9]+$\") then (\"000\" + .)[-3:] else . end) | join(\".\");
+        [.phases[] | select(sort_key > cur_key)] | sort_by(sort_key) | first // empty
+      " "$STATE_FILE" 2>/dev/null || echo "")
+
+      NEXT_LABEL=""
       NEXT_MAJOR=""
-      NEXT_MINOR=""
       if [ -n "$NEXT_PHASE_JSON" ]; then
-        NEXT_MAJOR=$(echo "$NEXT_PHASE_JSON" | jq -r '.major')
-        NEXT_MINOR=$(echo "$NEXT_PHASE_JSON" | jq -r '.minor')
+        NEXT_LABEL=$(echo "$NEXT_PHASE_JSON" | phase_entry_label)
+        NEXT_MAJOR=$(label_major "$NEXT_LABEL")
       fi
 
-      # Determine if transition is sequential
+      # --- Determine if transition is sequential ---
       IS_SEQUENTIAL=false
 
       # Case 0: Re-entering the same phase (no-op, always allowed)
-      # Happens after skill switch: activate sets currentPhase, agent formally enters it
-      if [ "$REQ_MAJOR" = "$CUR_MAJOR" ] && [ "$REQ_MINOR" = "$CUR_MINOR" ]; then
+      if [ "$REQ_LABEL" = "$CUR_LABEL" ]; then
         IS_SEQUENTIAL=true
       fi
 
-      # Case 1: Moving to the next declared phase
-      if [ -n "$NEXT_MAJOR" ] && [ "$REQ_MAJOR" = "$NEXT_MAJOR" ] && [ "$REQ_MINOR" = "$NEXT_MINOR" ]; then
-        IS_SEQUENTIAL=true
-      fi
-
-      # Case 1b: Sub-phases are optional — skip to next major is always allowed
-      # If the next declared phase is a sub-phase (minor > 0) of the current major,
-      # also allow jumping to the next major phase (current_major + 1, minor 0).
-      # This handles: 3.0 → 4.0 when 3.1 exists (skipping optional 3.1).
-      if [ "$IS_SEQUENTIAL" = "false" ] && [ -n "$NEXT_MAJOR" ] && [ "$NEXT_MINOR" -gt 0 ] && [ "$NEXT_MAJOR" = "$CUR_MAJOR" ]; then
-        NEXT_MAJOR_PHASE=$(( CUR_MAJOR + 1 ))
-        if [ "$REQ_MAJOR" = "$NEXT_MAJOR_PHASE" ] && [ "$REQ_MINOR" = "0" ]; then
+      # Case 1: Moving to the next declared phase (next in label sort order)
+      # Guard: branch switching is forbidden even for adjacent phases (3.A → 3.B)
+      if [ "$IS_SEQUENTIAL" = "false" ] && [ -n "$NEXT_LABEL" ] && [ "$REQ_LABEL" = "$NEXT_LABEL" ]; then
+        if ! is_branch_switch "$CUR_LABEL" "$REQ_LABEL"; then
           IS_SEQUENTIAL=true
         fi
       fi
 
-      # Case 1c: From a sub-phase, allow jumping to the next major phase
-      # If current is N.M (minor > 0), allow transition to (N+1).0
-      if [ "$IS_SEQUENTIAL" = "false" ] && [ "$CUR_MINOR" -gt 0 ]; then
-        NEXT_MAJOR_FROM_SUB=$(( CUR_MAJOR + 1 ))
-        if [ "$REQ_MAJOR" = "$NEXT_MAJOR_FROM_SUB" ] && [ "$REQ_MINOR" = "0" ]; then
+      # Case 1b: Sub-phases/branches are optional — skip to next major always allowed
+      # If the next declared phase is under the same major as current,
+      # allow jumping to the next major phase (current_major + 1).
+      if [ "$IS_SEQUENTIAL" = "false" ] && [ -n "$NEXT_MAJOR" ] && [ "$NEXT_MAJOR" = "$CUR_MAJOR" ]; then
+        NEXT_MAJOR_NUM=$(( CUR_MAJOR + 1 ))
+        if [ "$REQ_MAJOR" = "$NEXT_MAJOR_NUM" ]; then
           IS_SEQUENTIAL=true
         fi
       fi
 
-      # Case 2: Sub-phase auto-append — same major as current, higher minor
-      # e.g., current=4.0, requested=4.1 → valid sub-phase (auto-appended)
+      # Case 1c: From a sub-phase/branch, allow jumping to the next major
+      if [ "$IS_SEQUENTIAL" = "false" ] && label_is_sub "$CUR_LABEL"; then
+        NEXT_MAJOR_NUM=$(( CUR_MAJOR + 1 ))
+        if [ "$REQ_MAJOR" = "$NEXT_MAJOR_NUM" ]; then
+          IS_SEQUENTIAL=true
+        fi
+      fi
+
+      # Case 1d: Forward transitions for declared phases (branch-aware)
+      # ALLOWS:
+      #   - Entry into next major: 2 → 3.B (any declared phase under CUR_MAJOR + 1)
+      #   - Forward sub-phase skip: 4 → 4.2, 4.1 → 4.3 (numbered, forward only)
+      # FORBIDS:
+      #   - Branch switching: 3.A → 3.B (letter-to-letter under same parent)
+      #   - Backward movement: 4.2 → 4.1
       if [ "$IS_SEQUENTIAL" = "false" ]; then
-        IS_DECLARED=$(jq -r --argjson m "$REQ_MAJOR" --argjson n "$REQ_MINOR" \
-          '[.phases[]] | any(.major == $m and .minor == $n)' \
-          "$STATE_FILE" 2>/dev/null || echo "false")
+        IS_DECLARED=$(jq -r --arg rl "$REQ_LABEL" "
+          $JQ_LABEL_HELPERS
+          [.phases[]] | any(phase_lbl == \$rl)
+        " "$STATE_FILE" 2>/dev/null || echo "false")
 
-        if [ "$IS_DECLARED" = "false" ] && [ "$REQ_MAJOR" = "$CUR_MAJOR" ] && [ "$REQ_MINOR" -gt "$CUR_MINOR" ]; then
+        if [ "$IS_DECLARED" = "true" ]; then
+          NEXT_MAJOR_NUM=$(( CUR_MAJOR + 1 ))
+
+          if [ "$REQ_MAJOR" = "$NEXT_MAJOR_NUM" ]; then
+            # Sub-case A: Entry into next major — always allowed for declared phases
+            # Handles: 2 → 3.A, 2 → 3.B, 2 → 3.C
+            IS_SEQUENTIAL=true
+
+          elif [ "$REQ_MAJOR" = "$CUR_MAJOR" ]; then
+            # Sub-case B: Same-major forward movement (not branch switching)
+            REQ_SK=$(label_sort_key "$REQ_LABEL")
+            CUR_SK=$(label_sort_key "$CUR_LABEL")
+
+            if [[ "$REQ_SK" > "$CUR_SK" ]]; then
+              # Forward — check for branch switching at any depth
+              if ! is_branch_switch "$CUR_LABEL" "$REQ_LABEL"; then
+                IS_SEQUENTIAL=true
+              fi
+            fi
+            # If not forward, fall through to rejection (backward movement)
+          fi
+        fi
+      fi
+
+      # Case 2: Auto-append — same major, not yet declared
+      if [ "$IS_SEQUENTIAL" = "false" ]; then
+        IS_DECLARED=$(jq -r --arg rl "$REQ_LABEL" "
+          $JQ_LABEL_HELPERS
+          [.phases[]] | any(phase_lbl == \$rl)
+        " "$STATE_FILE" 2>/dev/null || echo "false")
+
+        if [ "$IS_DECLARED" = "false" ] && [ "$REQ_MAJOR" = "$CUR_MAJOR" ]; then
           IS_SEQUENTIAL=true
-          # Auto-append: insert this sub-phase into the phases array
-          REQUESTED_NAME=$(echo "$PHASE" | sed -E 's/^[0-9]+(\.[0-9]+)?: //')
-          jq --argjson maj "$REQ_MAJOR" --argjson min "$REQ_MINOR" --arg name "$REQUESTED_NAME" \
-            '.phases += [{"major": $maj, "minor": $min, "name": $name}] | .phases |= sort_by(.major, .minor)' \
-            "$STATE_FILE" | safe_json_write "$STATE_FILE"
+          # Auto-append: insert this phase into the phases array with label
+          REQUESTED_NAME=$(echo "$PHASE" | sed -E 's/^[^:]+: //')
+          jq --arg lbl "$REQ_LABEL" --arg name "$REQUESTED_NAME" "
+            $JQ_LABEL_HELPERS
+            .phases += [{\"label\": \$lbl, \"name\": \$name}] | .phases |= sort_by(sort_key)
+          " "$STATE_FILE" | safe_json_write "$STATE_FILE"
         fi
       fi
 
@@ -696,28 +829,21 @@ case "$ACTION" in
       if [ "$IS_SEQUENTIAL" = "false" ]; then
         if [ -z "$USER_APPROVED" ]; then
           echo "§CMD_UPDATE_PHASE: Non-sequential phase transition rejected." >&2
-          echo "  Current phase: $CURRENT_PHASE ($CUR_MAJOR.$CUR_MINOR)" >&2
-          echo "  Requested phase: $PHASE ($REQ_MAJOR.$REQ_MINOR)" >&2
-          if [ -n "$NEXT_MAJOR" ]; then
+          echo "  Current phase: $CURRENT_PHASE (label: $CUR_LABEL)" >&2
+          echo "  Requested phase: $PHASE (label: $REQ_LABEL)" >&2
+          if [ -n "$NEXT_LABEL" ]; then
             NEXT_NAME=$(echo "$NEXT_PHASE_JSON" | jq -r '.name')
-            if [ "$NEXT_MINOR" = "0" ]; then
-              NEXT_LABEL="$NEXT_MAJOR: $NEXT_NAME"
-            else
-              NEXT_LABEL="$NEXT_MAJOR.$NEXT_MINOR: $NEXT_NAME"
-            fi
-            echo "  Expected next: $NEXT_LABEL" >&2
+            echo "  Expected next: $NEXT_LABEL: $NEXT_NAME" >&2
           fi
           echo "" >&2
-          echo "Ensure you are doing the right thing — right skill, right phase. You may change phase if the user explicitly allowed it." >&2
-          echo "  To proceed: session.sh phase $DIR \"$PHASE\" --user-approved \"Reason: ...\"" >&2
+          echo "Ensure you are doing the right thing — right skill, right phase." >&2
+          echo "  To proceed: engine session phase $DIR \"$PHASE\" --user-approved \"Reason: ...\"" >&2
           exit 1
         fi
-        # Log the approved non-sequential transition
-        echo "Phase transition approved (non-sequential): $CURRENT_PHASE → $PHASE"
+        echo "Phase transition approved (non-sequential): $CURRENT_PHASE -> $PHASE"
         echo "  Approval: $USER_APPROVED"
       fi
     fi
-
     # --- Proof Parsing ---
     # Always parse STDIN proof into JSON when provided, regardless of validation.
     # This ensures proof is stored in phaseHistory even when the target phase has no proof fields.
@@ -744,16 +870,18 @@ case "$ACTION" in
     #   when transitioning FROM Phase 2 to Phase 3, agent must prove interrogation was done.
     if [ "$HAS_PHASES" = "true" ] && [ -n "$CURRENT_PHASE" ]; then
       # Look up proof fields for the current phase being left (FROM validation)
-      PROOF_FIELDS_JSON=$(jq -r --argjson m "$CUR_MAJOR" --argjson n "$CUR_MINOR" \
-        '(.phases[] | select(.major == $m and .minor == $n) | .proof) // empty' \
-        "$STATE_FILE" 2>/dev/null || echo "")
+      # Match current phase by label (bilingual: try .label, fallback to major/minor)
+      PROOF_FIELDS_JSON=$(jq -r --arg cl "$CUR_LABEL" "
+        $JQ_LABEL_HELPERS
+        (.phases[] | select(phase_lbl == \$cl) | .proof) // empty
+      " "$STATE_FILE" 2>/dev/null || echo "")
 
       if [ -n "$PROOF_FIELDS_JSON" ] && [ "$PROOF_FIELDS_JSON" != "null" ]; then
         PROOF_FIELDS_COUNT=$(echo "$PROOF_FIELDS_JSON" | jq 'length' 2>/dev/null || echo "0")
 
         if [ "$PROOF_FIELDS_COUNT" -gt 0 ]; then
           # Re-entering same phase (Case 0) skips FROM validation — nothing to prove yet
-          if [ "$REQ_MAJOR" = "$CUR_MAJOR" ] && [ "$REQ_MINOR" = "$CUR_MINOR" ]; then
+          if [ "$REQ_LABEL" = "$CUR_LABEL" ]; then
             : # No FROM validation when re-entering same phase
           else
             # Proof fields are declared on current phase — validate STDIN
@@ -783,12 +911,61 @@ case "$ACTION" in
               echo "  Provided: $(echo "$PROOF_JSON" | jq -r 'keys | join(", ")')" >&2
               exit 1
             fi
+
+            # --- Proof Schema Validation (warning only) ---
+            # If phase has steps, validate proof keys against CMD file PROOF schemas.
+            # Extracts JSON schema keys from each step's CMD file and warns on unrecognized proof keys.
+            CUR_STEPS_JSON=$(jq -r --arg cl "$CUR_LABEL" "
+              $JQ_LABEL_HELPERS
+              (.phases[] | select(phase_lbl == \$cl) | .steps) // empty
+            " "$STATE_FILE" 2>/dev/null || echo "")
+            if [ -n "$CUR_STEPS_JSON" ] && [ "$CUR_STEPS_JSON" != "null" ]; then
+              CUR_STEPS_COUNT=$(echo "$CUR_STEPS_JSON" | jq 'length' 2>/dev/null || echo "0")
+              if [ "$CUR_STEPS_COUNT" -gt 0 ]; then
+                # Build union of valid proof field names from CMD file schemas
+                SCHEMA_FIELDS=""
+                CMD_DIR="$HOME/.claude/engine/.directives/commands"
+                for step_cmd in $(echo "$CUR_STEPS_JSON" | jq -r '.[]'); do
+                  # Strip §CMD_ prefix to get CMD file name
+                  cmd_name="${step_cmd#§CMD_}"
+                  cmd_file="$CMD_DIR/CMD_${cmd_name}.md"
+                  [ -f "$cmd_file" ] || continue
+                  # Extract JSON block from ## PROOF FOR section
+                  # Pattern: find "## PROOF FOR" heading, then extract content between ```json and ```
+                  json_block=$(sed -n '/^## PROOF FOR/,/^## /{ /^```json$/,/^```$/{ /^```/d; p; } }' "$cmd_file" 2>/dev/null || echo "")
+                  if [ -n "$json_block" ]; then
+                    # Extract top-level keys from JSON schema
+                    step_keys=$(echo "$json_block" | jq -r 'keys[]' 2>/dev/null || echo "")
+                    if [ -n "$step_keys" ]; then
+                      SCHEMA_FIELDS="${SCHEMA_FIELDS}${SCHEMA_FIELDS:+$'\n'}${step_keys}"
+                    fi
+                  fi
+                done
+                # Also include declared proof fields as valid (phase-level data fields)
+                DECLARED_FIELDS=$(echo "$PROOF_FIELDS_JSON" | jq -r '.[]' 2>/dev/null || echo "")
+                ALL_VALID="${SCHEMA_FIELDS}${SCHEMA_FIELDS:+$'\n'}${DECLARED_FIELDS}"
+                ALL_VALID=$(echo "$ALL_VALID" | sort -u)
+                # Check provided proof keys against valid set
+                if [ -n "$SCHEMA_FIELDS" ]; then
+                  UNRECOGNIZED=""
+                  for provided_key in $(echo "$PROOF_JSON" | jq -r 'keys[]'); do
+                    if ! echo "$ALL_VALID" | grep -qxF "$provided_key"; then
+                      UNRECOGNIZED="${UNRECOGNIZED}${UNRECOGNIZED:+, }$provided_key"
+                    fi
+                  done
+                  if [ -n "$UNRECOGNIZED" ]; then
+                    echo "§CMD_UPDATE_PHASE: Proof key(s) not found in any step's PROOF schema: $UNRECOGNIZED" >&2
+                    echo "  Valid keys (from CMD schemas + phase declaration): $(echo "$ALL_VALID" | tr '\n' ', ' | sed 's/,$//')" >&2
+                  fi
+                fi
+              fi
+            fi
           fi
         fi
       else
         # Current phase has no proof field — warn if sibling phases have proof (backward-compat nudge)
         # Only warn when leaving a phase (not re-entering same phase)
-        if [ "$REQ_MAJOR" != "$CUR_MAJOR" ] || [ "$REQ_MINOR" != "$CUR_MINOR" ]; then
+        if [ "$REQ_LABEL" != "$CUR_LABEL" ]; then
           HAS_PROOF_SIBLINGS=$(jq '[.phases[] | select(has("proof") and (.proof | length > 0))] | length > 0' "$STATE_FILE" 2>/dev/null || echo "false")
           if [ "$HAS_PROOF_SIBLINGS" = "true" ]; then
             echo "§CMD_UPDATE_PHASE: Phase '$CURRENT_PHASE' has no proof fields declared, but other phases in this session declare proof. Consider adding proof fields to this phase." >&2
@@ -802,8 +979,8 @@ case "$ACTION" in
     # Counter reset gives a clean slate for the work phase
     # Append to phaseHistory for audit trail (with proof if provided)
     #
-    # currentPhase stores the full label (including letter suffix) for display.
-    # Enforcement uses numeric major.minor extracted at parse time.
+    # currentPhase stores the full label for display and enforcement.
+    # Labels are hierarchical paths parsed at enforcement time.
     # phaseHistory stores objects with proof when proof was provided.
     # Proof is FROM-validation: it describes what was accomplished in the phase being LEFT.
     if [ "$PROOF_JSON" != "{}" ] && [ -n "$PROOF_INPUT" ]; then
@@ -817,6 +994,48 @@ case "$ACTION" in
         "$STATE_FILE" | safe_json_write "$STATE_FILE"
     fi
 
+    # --- Populate pendingCommands for CMD file preloading ---
+    # Resolve §CMD_X step/command names to ~/.claude/.directives/commands/CMD_X.md file paths.
+    # The command-preload injection rule in injections.json fires when pendingCommands is non-empty.
+    # Same pattern as pendingDirectives for directive-autoload.
+    if [ "$HAS_PHASES" = "true" ]; then
+      CMD_DIR="$HOME/.claude/.directives/commands"
+      PENDING_CMDS="[]"
+
+      # Collect from both steps and commands arrays for the new phase
+      for array_name in steps commands; do
+        ARRAY_JSON=$(jq -r --arg rl "$REQ_LABEL" \
+          "$JQ_LABEL_HELPERS (.phases[] | select(phase_lbl == \$rl) | .$array_name) // empty" \
+          "$STATE_FILE" 2>/dev/null || echo "")
+        if [ -n "$ARRAY_JSON" ] && [ "$ARRAY_JSON" != "null" ]; then
+          ARRAY_COUNT=$(echo "$ARRAY_JSON" | jq 'length' 2>/dev/null || echo "0")
+          if [ "$ARRAY_COUNT" -gt 0 ]; then
+            for cmd_ref in $(echo "$ARRAY_JSON" | jq -r '.[]'); do
+              # Strip §CMD_ prefix → CMD_X.md
+              cmd_name="${cmd_ref#§CMD_}"
+              cmd_file="$CMD_DIR/CMD_${cmd_name}.md"
+              if [ -f "$cmd_file" ]; then
+                # Add if not already in the list
+                PENDING_CMDS=$(echo "$PENDING_CMDS" | jq --arg f "$cmd_file" \
+                  'if any(. == $f) then . else . + [$f] end')
+              fi
+            done
+          fi
+        fi
+      done
+
+      # Write to .state.json if any CMD files were found
+      PENDING_COUNT=$(echo "$PENDING_CMDS" | jq 'length')
+      if [ "$PENDING_COUNT" -gt 0 ]; then
+        # Filter out already-preloaded files
+        jq --argjson cmds "$PENDING_CMDS" \
+          '(.preloadedFiles // []) as $already |
+           ($cmds | map(select(. as $f | $already | any(. == $f) | not))) as $new |
+           if ($new | length) > 0 then .pendingCommands = ((.pendingCommands // []) + $new | unique) else . end' \
+          "$STATE_FILE" | safe_json_write "$STATE_FILE"
+      fi
+    fi
+
     # Notify fleet of state change (if running in fleet context)
     # WAITING: or DONE = needs attention (unchecked), otherwise = working (orange)
     if [[ "$PHASE" == WAITING:* ]] || [[ "$PHASE" == "DONE" ]]; then
@@ -827,11 +1046,55 @@ case "$ACTION" in
 
     echo "Phase: $PHASE"
 
-    # Output proof requirements for the new current phase (if declared)
+    # Output steps, commands, and proof for the new current phase (if declared)
     if [ "$HAS_PHASES" = "true" ]; then
-      NEW_PROOF_FIELDS=$(jq -r --argjson m "$REQ_MAJOR" --argjson n "$REQ_MINOR" \
-        '(.phases[] | select(.major == $m and .minor == $n) | .proof) // empty' \
-        "$STATE_FILE" 2>/dev/null || echo "")
+      # Extract phase prefix for step sub-indexing (e.g., "1: Interrogation" → "1", "3.1: Agent Handoff" → "3.1")
+      PHASE_PREFIX=$(echo "$PHASE" | sed -E 's/[: ].*//')
+
+      # Output invariants for this phase (cognitive anchoring / grounding — agent self-affirms each)
+      NEW_INVARIANTS=$(jq -r --arg rl "$REQ_LABEL" "
+        $JQ_LABEL_HELPERS
+        (.phases[] | select(phase_lbl == \$rl) | .invariants) // empty
+      " "$STATE_FILE" 2>/dev/null || echo "")
+      if [ -n "$NEW_INVARIANTS" ] && [ "$NEW_INVARIANTS" != "null" ]; then
+        INV_COUNT=$(echo "$NEW_INVARIANTS" | jq 'length' 2>/dev/null || echo "0")
+        if [ "$INV_COUNT" -gt 0 ]; then
+          echo "Invariants:"
+          echo "$NEW_INVARIANTS" | jq -r '.[] | "  - \(.)"'
+        fi
+      fi
+
+      # Output steps listing with sub-indices
+      NEW_STEPS=$(jq -r --arg rl "$REQ_LABEL" "
+        $JQ_LABEL_HELPERS
+        (.phases[] | select(phase_lbl == \$rl) | .steps) // empty
+      " "$STATE_FILE" 2>/dev/null || echo "")
+      if [ -n "$NEW_STEPS" ] && [ "$NEW_STEPS" != "null" ]; then
+        STEP_COUNT=$(echo "$NEW_STEPS" | jq 'length' 2>/dev/null || echo "0")
+        if [ "$STEP_COUNT" -gt 0 ]; then
+          echo "Steps:"
+          echo "$NEW_STEPS" | jq -r 'to_entries[] | "  '"$PHASE_PREFIX"'.\(.key + 1): \(.value)"'
+        fi
+      fi
+
+      # Output commands listing (preloads for this phase)
+      NEW_COMMANDS=$(jq -r --arg rl "$REQ_LABEL" "
+        $JQ_LABEL_HELPERS
+        (.phases[] | select(phase_lbl == \$rl) | .commands) // empty
+      " "$STATE_FILE" 2>/dev/null || echo "")
+      if [ -n "$NEW_COMMANDS" ] && [ "$NEW_COMMANDS" != "null" ]; then
+        CMD_COUNT=$(echo "$NEW_COMMANDS" | jq 'length' 2>/dev/null || echo "0")
+        if [ "$CMD_COUNT" -gt 0 ]; then
+          echo "Commands:"
+          echo "$NEW_COMMANDS" | jq -r '.[] | "  - \(.)"'
+        fi
+      fi
+
+      # Output proof requirements
+      NEW_PROOF_FIELDS=$(jq -r --arg rl "$REQ_LABEL" "
+        $JQ_LABEL_HELPERS
+        (.phases[] | select(phase_lbl == \$rl) | .proof) // empty
+      " "$STATE_FILE" 2>/dev/null || echo "")
       if [ -n "$NEW_PROOF_FIELDS" ] && [ "$NEW_PROOF_FIELDS" != "null" ]; then
         PF_COUNT=$(echo "$NEW_PROOF_FIELDS" | jq 'length' 2>/dev/null || echo "0")
         if [ "$PF_COUNT" -gt 0 ]; then
@@ -1092,6 +1355,16 @@ case "$ACTION" in
       DESCRIPTION=$(cat)
     fi
 
+    # --- Smart Deactivate: skip validation gates for early phases ---
+    # Phase 0 (Setup) and Phase 1 (Interrogation) have no work product to debrief.
+    # When currentPhase major <= 1, skip debrief/checklist/proof gates entirely.
+    CURRENT_PHASE=$(jq -r '.currentPhase // ""' "$STATE_FILE" 2>/dev/null || echo "")
+    PHASE_MAJOR=$(echo "$CURRENT_PHASE" | grep -oE '^[0-9]+' || echo "0")
+    EARLY_PHASE=false
+    if [ "$PHASE_MAJOR" -le 1 ] 2>/dev/null; then
+      EARLY_PHASE=true
+    fi
+
     # --- Collect all validation errors before exiting ---
     # All gates append to DEACTIVATE_ERRORS instead of exiting immediately.
     # This lets the agent see ALL issues at once and fix them in a single pass.
@@ -1109,6 +1382,10 @@ case "$ACTION" in
     # --- Debrief Gate (§CMD_DEBRIEF_BEFORE_CLOSE) ---
     # Check if the skill's debrief file exists before allowing deactivation
     # Derives filename from debriefTemplate in .state.json (e.g., TEMPLATE_TESTING.md → TESTING.md)
+    # Skipped for early phases (Phase 0/1) — no work product to debrief
+    if [ "$EARLY_PHASE" = "true" ]; then
+      SKIP_DEBRIEF="Early abandonment — phase $PHASE_MAJOR has no work product"
+    fi
     if [ -z "$SKIP_DEBRIEF" ]; then
       DEBRIEF_TEMPLATE=$(jq -r '.debriefTemplate // ""' "$STATE_FILE" 2>/dev/null || echo "")
       if [ -n "$DEBRIEF_TEMPLATE" ]; then
@@ -1128,8 +1405,9 @@ case "$ACTION" in
 
     # --- Checklist Gate (¶INV_CHECKLIST_BEFORE_CLOSE) ---
     # Requires checkPassed=true (set by session.sh check) if any checklists were discovered
+    # Skipped for early phases (Phase 0/1) — no checklists apply
     DISCOVERED=$(jq -r '(.discoveredChecklists // []) | length' "$STATE_FILE" 2>/dev/null || echo "0")
-    if [ "$DISCOVERED" -gt 0 ]; then
+    if [ "$EARLY_PHASE" != "true" ] && [ "$DISCOVERED" -gt 0 ]; then
       CHECK_PASSED=$(jq -r '.checkPassed // false' "$STATE_FILE" 2>/dev/null || echo "false")
       if [ "$CHECK_PASSED" != "true" ]; then
         # Build checklist error with dynamic list
@@ -1153,8 +1431,9 @@ case "$ACTION" in
 
     # --- Proof Gate (¶INV_PROVABLE_DEBRIEF_PIPELINE) ---
     # Requires all declared provableDebriefItems to have proof in provenItems
+    # Skipped for early phases (Phase 0/1) — no pipeline items apply
     PROVABLE_JSON=$(jq -r '(.provableDebriefItems // null)' "$STATE_FILE" 2>/dev/null || echo "null")
-    if [ "$PROVABLE_JSON" != "null" ]; then
+    if [ "$EARLY_PHASE" != "true" ] && [ "$PROVABLE_JSON" != "null" ]; then
       PROVABLE_COUNT=$(echo "$PROVABLE_JSON" | jq 'length')
       if [ "$PROVABLE_COUNT" -gt 0 ]; then
         PROVEN_JSON=$(jq -r '(.provenItems // {})' "$STATE_FILE" 2>/dev/null || echo "{}")
@@ -1241,8 +1520,82 @@ case "$ACTION" in
     "$DOC_SEARCH" index &>/dev/null &
     ;;
 
+  idle)
+    # Transition session to idle state (post-synthesis, awaiting next skill)
+    # Usage: engine session idle <path> [--keywords 'kw1,kw2'] <<DESCRIPTION
+    # Like deactivate but sets lifecycle=idle instead of completed, and clears PID.
+    # The session remains reactivatable via `engine session activate`.
+    if [ ! -f "$STATE_FILE" ]; then
+      echo "§CMD_REQUIRE_ACTIVE_SESSION: No .state.json in $DIR — is the session active?" >&2
+      exit 1
+    fi
+
+    # Parse optional flags
+    KEYWORDS=""
+    shift 2  # Remove action, dir
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --keywords)
+          KEYWORDS="${2:?--keywords requires a value}"
+          shift 2
+          ;;
+        *)
+          echo "§CMD_CLOSE_SESSION: Unknown flag '$1'" >&2
+          shift
+          ;;
+      esac
+    done
+
+    # Read description from stdin
+    DESCRIPTION=""
+    if [ ! -t 0 ]; then
+      DESCRIPTION=$(cat)
+    fi
+    if [ -z "$DESCRIPTION" ]; then
+      echo "§CMD_CLOSE_SESSION: Description is required. Pipe 1-3 lines via stdin." >&2
+      exit 1
+    fi
+
+    # Set lifecycle=idle, clear PID (null sentinel), store description/keywords
+    if [ -n "$KEYWORDS" ]; then
+      jq --arg ts "$(timestamp)" --arg desc "$DESCRIPTION" --arg kw "$KEYWORDS" \
+        '.lifecycle = "idle" | del(.pid) | .lastHeartbeat = $ts | .sessionDescription = $desc | .searchKeywords = ($kw | split(",") | map(gsub("^\\s+|\\s+$"; "")))' \
+        "$STATE_FILE" | safe_json_write "$STATE_FILE"
+    else
+      jq --arg ts "$(timestamp)" --arg desc "$DESCRIPTION" \
+        '.lifecycle = "idle" | del(.pid) | .lastHeartbeat = $ts | .sessionDescription = $desc' \
+        "$STATE_FILE" | safe_json_write "$STATE_FILE"
+    fi
+
+    # Append current skill to completedSkills
+    CURRENT_SKILL=$(jq -r '.skill // empty' "$STATE_FILE" 2>/dev/null || echo "")
+    if [ -n "$CURRENT_SKILL" ]; then
+      jq --arg s "$CURRENT_SKILL" \
+        'if (.completedSkills // []) | any(. == $s) then . else .completedSkills = ((.completedSkills // []) + [$s]) end' \
+        "$STATE_FILE" | safe_json_write "$STATE_FILE"
+    fi
+
+    echo "Session idle: $DIR (lifecycle=idle, awaiting next skill)"
+
+    # Run RAG search (same as deactivate)
+    SESSION_SEARCH="$HOME/.claude/tools/session-search/session-search.sh"
+    DOC_SEARCH="$HOME/.claude/tools/doc-search/doc-search.sh"
+    if [ -x "$SESSION_SEARCH" ]; then
+      RAG_RESULTS=$("$SESSION_SEARCH" query "$DESCRIPTION" --limit 5 2>/dev/null || echo "")
+      if [ -n "$RAG_RESULTS" ]; then
+        echo ""
+        echo "## Related Sessions"
+        echo "$RAG_RESULTS"
+      fi
+    fi
+
+    # Reindex in background
+    "$SESSION_SEARCH" index &>/dev/null &
+    "$DOC_SEARCH" index &>/dev/null &
+    ;;
+
   dehydrate)
-    # Merge dehydrated context JSON into .state.json under dehydratedContext key
+    # Combined dehydrate + restart: stores JSON in .state.json, then triggers restart
     # Usage: engine session dehydrate <path> <<< '{"summary":"...","requiredFiles":[...]}'
     if [ ! -f "$STATE_FILE" ]; then
       echo "Error: No .state.json in $DIR — is the session active?" >&2
@@ -1262,9 +1615,63 @@ case "$ACTION" in
       exit 1
     fi
 
+    # Cap requiredFiles at 8
+    FILE_COUNT=$(echo "$DEHYDRATED_JSON" | jq '.requiredFiles // [] | length' 2>/dev/null || echo "0")
+    if [ "$FILE_COUNT" -gt 8 ]; then
+      echo "Warning: requiredFiles has $FILE_COUNT entries, capping at 8" >&2
+      DEHYDRATED_JSON=$(echo "$DEHYDRATED_JSON" | jq '.requiredFiles = (.requiredFiles // [])[:8]')
+    fi
+
     # Merge into .state.json under dehydratedContext key
     jq --argjson ctx "$DEHYDRATED_JSON" '.dehydratedContext = $ctx' "$STATE_FILE" | safe_json_write "$STATE_FILE"
     echo "Dehydrated context saved to $STATE_FILE"
+
+    # Trigger restart (same logic as restart subcommand)
+    SKILL=$(jq -r '.skill' "$STATE_FILE")
+    CURRENT_PHASE=$(jq -r '.currentPhase // "Phase 1: Setup"' "$STATE_FILE")
+    PROMPT="/session continue --session $DIR --skill $SKILL --phase \"$CURRENT_PHASE\""
+
+    # dehydratedContext is always present (we just wrote it) — use hook-based restore
+    RESTART_MODE="hook"
+
+    jq --arg ts "$(timestamp)" --arg prompt "$PROMPT" --arg mode "$RESTART_MODE" \
+      '.killRequested = true | .lastHeartbeat = $ts | .restartPrompt = $prompt | .restartMode = $mode | .contextUsage = 0 | del(.sessionId)' \
+      "$STATE_FILE" | safe_json_write "$STATE_FILE"
+
+    # Signal restart
+    if [ "${TEST_MODE:-}" = "1" ]; then
+      echo "TEST: Would send tmux keystroke injection to restart session"
+      echo "TEST: Prompt: $PROMPT"
+      echo "TEST: Restart mode: $RESTART_MODE"
+    elif [ -n "${TMUX:-}" ]; then
+      target_flag=""
+      if [ -n "${TMUX_PANE:-}" ]; then
+        target_flag="-t $TMUX_PANE"
+      fi
+      (
+        sleep 0.5
+        tmux send-keys $target_flag Escape 2>/dev/null
+        sleep 1
+        tmux send-keys $target_flag Escape 2>/dev/null
+        sleep 0.3
+        tmux send-keys $target_flag -l "/clear" 2>/dev/null
+        tmux send-keys $target_flag Enter 2>/dev/null
+        if [ -n "$PROMPT" ]; then
+          sleep 1.5
+          tmux send-keys $target_flag -l "$PROMPT" 2>/dev/null
+          tmux send-keys $target_flag Enter 2>/dev/null
+        fi
+      ) &
+      disown
+      echo "Dehydrated and restart prepared. Sending /clear + prompt via tmux."
+    elif [ -n "${WATCHDOG_PID:-}" ]; then
+      echo "Dehydrated. Signaling watchdog (PID $WATCHDOG_PID) to restart..."
+      kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
+    else
+      echo "Dehydrated to $STATE_FILE. No tmux/watchdog — restart manually:"
+      echo "  claude '$PROMPT'"
+    fi
+    exit 0
     ;;
 
   restart)
@@ -1295,8 +1702,38 @@ case "$ACTION" in
       '.killRequested = true | .lastHeartbeat = $ts | .restartPrompt = $prompt | .restartMode = $mode | .contextUsage = 0 | del(.sessionId)' \
       "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
-    # Signal the watchdog to kill Claude
-    if [ -n "${WATCHDOG_PID:-}" ]; then
+    # Signal restart — tmux keystroke injection (preferred) or watchdog kill (fallback)
+    # TEST_MODE=1 skips tmux injection to prevent sending /clear to the test runner's pane
+    if [ "${TEST_MODE:-}" = "1" ]; then
+      echo "TEST: Would send tmux keystroke injection to restart session"
+      echo "TEST: Prompt: $PROMPT"
+      echo "TEST: Restart mode: $RESTART_MODE"
+    elif [ -n "${TMUX:-}" ]; then
+      # tmux path: send Esc → 1s delay → Esc → /clear → Enter
+      target_flag=""
+      if [ -n "${TMUX_PANE:-}" ]; then
+        target_flag="-t $TMUX_PANE"
+      fi
+      # Background the keystroke sequence to avoid race condition:
+      # the Esc would interrupt Claude mid-execution of this script
+      (
+        sleep 0.5  # let the calling command finish first
+        tmux send-keys $target_flag Escape 2>/dev/null
+        sleep 1
+        tmux send-keys $target_flag Escape 2>/dev/null
+        sleep 0.3
+        tmux send-keys $target_flag -l "/clear" 2>/dev/null
+        tmux send-keys $target_flag Enter 2>/dev/null
+        # Send restart prompt after /clear settles (if set)
+        if [ -n "$PROMPT" ]; then
+          sleep 1.5
+          tmux send-keys $target_flag -l "$PROMPT" 2>/dev/null
+          tmux send-keys $target_flag Enter 2>/dev/null
+        fi
+      ) &
+      disown
+      echo "Restart prepared. Sending /clear + prompt via tmux keystroke injection (backgrounded)."
+    elif [ -n "${WATCHDOG_PID:-}" ]; then
       echo "Restart prepared. Signaling watchdog (PID $WATCHDOG_PID) to kill Claude..."
       kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
     else
@@ -1335,8 +1772,8 @@ case "$ACTION" in
         file_fleet_pane=$(jq -r '.fleetPaneId // ""' "$f" 2>/dev/null)
         if [ "$file_fleet_pane" = "$FLEET_PANE" ]; then
           # PID guard: reject if a different alive PID holds the session
-          file_pid=$(jq -r '.pid // 0' "$f" 2>/dev/null)
-          if [ "$file_pid" != "0" ] && [ "$file_pid" != "$CLAUDE_PID" ]; then
+          file_pid=$(jq -r '.pid // empty' "$f" 2>/dev/null)
+          if [ -n "$file_pid" ] && [ "$file_pid" != "$CLAUDE_PID" ]; then
             if kill -0 "$file_pid" 2>/dev/null; then
               # Different Claude is active — not our session
               exit 1
@@ -1352,8 +1789,8 @@ case "$ACTION" in
     if [ -z "$FOUND_DIR" ]; then
       while IFS= read -r f; do
         [ -f "$f" ] || continue
-        file_pid=$(jq -r '.pid // 0' "$f" 2>/dev/null)
-        if [ "$file_pid" = "$CLAUDE_PID" ]; then
+        file_pid=$(jq -r '.pid // empty' "$f" 2>/dev/null)
+        if [ -n "$file_pid" ] && [ "$file_pid" = "$CLAUDE_PID" ]; then
           FOUND_DIR=$(dirname "$f")
           break
         fi

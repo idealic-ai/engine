@@ -20,7 +20,7 @@ This document is the comprehensive reference for inter-agent coordination and wo
 |---------|-----------|-----------|--------------|
 | **Sub-Agents** | `Task` tool | Synchronous | Same conversation, foreground |
 | **Tagged Requests** | `#needs-*` tags | Asynchronous | Cross-session, file-based |
-| **Daemon-Spawned** | `run.sh --monitor-tags` + `§TAG_DISPATCH` | Parallel | Automatic, tag-triggered (`#delegated-*`) |
+| **Daemon-Spawned** | `engine run --monitor-tags` + `§TAG_DISPATCH` | Parallel | Automatic, tag-triggered (`#delegated-*`) |
 
 ---
 
@@ -28,7 +28,7 @@ This document is the comprehensive reference for inter-agent coordination and wo
 
 ### 2.1 Sub-Agents (Task Tool)
 
-**Command**: `§CMD_HAND_OFF_TO_AGENT`
+**Command**: `§CMD_HANDOFF_TO_AGENT`
 
 **Characteristics**:
 - Synchronous — parent waits for completion
@@ -246,7 +246,7 @@ The dispatch daemon is a background process that automatically processes tagged 
 > **Note**: The legacy standalone `dispatch-daemon.sh` at `~/.claude/tools/dispatch-daemon/` is deprecated.
 
 **Technology**:
-- `run.sh --monitor-tags` with `fswatch` for file watching
+- `engine run --monitor-tags` with `fswatch` for file watching
 - `/delegation-claim` skill for worker-side routing
 - Stateless — tags ARE the state
 
@@ -328,7 +328,7 @@ All handoff-related commands are defined in `~/.claude/.directives/COMMANDS.md`.
 
 | Command | Purpose |
 |---------|---------|
-| `§CMD_HAND_OFF_TO_AGENT` | Synchronous sub-agent invocation |
+| `§CMD_HANDOFF_TO_AGENT` | Synchronous sub-agent invocation |
 | `§CMD_AWAIT_TAG` | Block until tag appears (fswatch) |
 | `§CMD_FIND_TAGGED_FILES` | Discover files with specific tags |
 | `§CMD_TAG_FILE` | Add tag to file's Tags line |
@@ -400,7 +400,7 @@ Bash("engine await-tag sessions/.../RESEARCH_REQUEST_MARKET_SIZE.md '#done-resea
 
 ### Stale `#claimed-*` Tags
 
-**Symptom**: `tag.sh find '#claimed-implementation'` returns files, but no agent is working on them.
+**Symptom**: `engine tag find '#claimed-implementation'` returns files, but no agent is working on them.
 
 **Diagnosis**:
 ```bash

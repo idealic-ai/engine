@@ -1,7 +1,7 @@
 ---
 name: graph
 description: "Creates ASCII flowgraph diagrams using the §CMD_FLOWGRAPH notation. Lightweight skill for rendering complex flows as structured visual diagrams. Triggers: \"draw a flowgraph\", \"create a flow diagram\", \"visualize this flow\", \"graph this process\"."
-version: 1.0
+version: 3.0
 tier: suggest
 ---
 

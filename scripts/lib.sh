@@ -347,10 +347,15 @@ evaluate_rules() {
         ;;
 
       lifecycle)
-        local no_active
+        local no_active lifecycle_eq
         no_active=$(echo "$rule" | jq -r '.trigger.condition.noActiveSession // false')
+        lifecycle_eq=$(echo "$rule" | jq -r '.trigger.condition.eq // ""')
         if [ "$no_active" = "true" ]; then
-          if [ "$lifecycle" != "active" ]; then
+          if [ "$lifecycle" != "active" ] && [ "$lifecycle" != "idle" ] && [ "$lifecycle" != "resuming" ]; then
+            matched=true
+          fi
+        elif [ -n "$lifecycle_eq" ]; then
+          if [ "$lifecycle" = "$lifecycle_eq" ]; then
             matched=true
           fi
         fi

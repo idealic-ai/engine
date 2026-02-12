@@ -56,3 +56,9 @@
 *   **Belt-and-suspenders**: This command is the "belt" (protocol-level). The `engine session deactivate` gate is the "suspenders" (infrastructure-level). Both exist because agents skip protocol steps — the gate catches failures.
 *   **Session state**: `checkPassed` (boolean) in `.state.json` is the source of truth. The deactivate gate checks `checkPassed == true` when `discoveredChecklists` is non-empty.
 *   **Idempotent**: Safe to run multiple times. If `checkPassed` is already true, skips (step 2).
+
+---
+
+## PROOF FOR §CMD_PROCESS_CHECKLISTS
+
+This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).

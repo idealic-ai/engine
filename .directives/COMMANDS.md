@@ -11,7 +11,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 
 ## 1. File Operation Commands (The "Physics")
 
-### §CMD_POPULATE_LOADED_TEMPLATE
+### §CMD_WRITE_FROM_TEMPLATE
 **Definition**: To create a new artifact (Plan, Debrief), use the Template already loaded in your context.
 
 **Algorithm**:
@@ -24,9 +24,9 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 *   Do NOT read the template file from disk (it is already in your context).
 *   **STRICT TEMPLATE FIDELITY**: Do not invent headers or change structure.
 
-### §CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE
+### §CMD_APPEND_LOG
 **Definition**: Logs are Append-Only streams.
-**Constraint**: **BLIND WRITE**. You will not see the file content. Trust the append. See `§CMD_AVOID_WASTING_TOKENS`.
+**Constraint**: **BLIND WRITE**. You will not see the file content. Trust the append. See `¶INV_TRUST_CACHED_CONTEXT`.
 **Constraint**: **TIMESTAMPS**. `engine log` auto-injects `[YYYY-MM-DD HH:MM:SS]` into the first `## ` heading. Do NOT include timestamps manually.
 
 **Algorithm**:
@@ -48,7 +48,7 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 *   ❌ **The "Read-Modify-Write"**: Reading the file, adding text in Python/JS, and writing it back.
 *   ❌ **The "Placeholder Hunt"**: Looking for `{{NEXT_ENTRY}}`.
 
-### §CMD_REPORT_FILE_CREATION_SILENTLY
+### §CMD_LINK_FILE
 **Definition**: The Chat is for Meta-Discussion. The Filesystem is for Content.
 **Algorithm**:
 1.  **Action**: Create/Update the file.
@@ -67,30 +67,14 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 ### §CMD_LOG_BETWEEN_TOOL_USES
 **Definition**: Log progress at a regular cadence between tool calls. Mechanically enforced by `pre-tool-use-heartbeat.sh`.
 **Rule**: After N tool calls without an `engine log` append, the heartbeat hook warns (at `toolUseWithoutLogsWarnAfter`, default 3) and blocks (at `toolUseWithoutLogsBlockAfter`, default 10). Thresholds are configurable in `.state.json`.
-**When Blocked**: Read the log template for the active skill, then append a progress entry via `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`.
-**Related**: `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` (the logging mechanism), `§CMD_THINK_IN_LOG` (the logging rationale).
+**When Blocked**: Append a progress entry via `§CMD_APPEND_LOG`. The log template is already in your context (preloaded by `template-preload` rule or SubagentStart hook).
+**Related**: `§CMD_APPEND_LOG` (the logging mechanism), `§CMD_THINK_IN_LOG` (the logging rationale).
 
 ### §CMD_REQUIRE_ACTIVE_SESSION
 **Definition**: All tool use requires an active session. Mechanically enforced by `pre-tool-use-session-gate.sh`.
 **Rule**: The session gate blocks all non-whitelisted tools until `engine session activate` succeeds. Whitelisted: `Read(~/.claude/*)`, `Bash(engine session)`, `AskUserQuestion`, `Skill`.
 **When Blocked**: Use `AskUserQuestion` to ask the user which skill to activate. Suggest `/do` for quick ad-hoc tasks, or a structured skill (`/implement`, `/analyze`, `/fix`, etc.) for larger work. Then invoke the skill via the Skill tool.
 **Related**: `¶INV_SKILL_PROTOCOL_MANDATORY` (skills require formal session activation), `§CMD_MAINTAIN_SESSION_DIR` (session directory lifecycle).
-
-### §CMD_DEBRIEF_BEFORE_CLOSE
-**Definition**: A session cannot be deactivated without its debrief file. Mechanically enforced by `engine session deactivate`.
-**Rule**: Before deactivation, `engine session deactivate` checks if the skill's debrief file exists (e.g., `IMPLEMENTATION.md` for `/implement`, `ANALYSIS.md` for `/analyze`). If missing, deactivation is blocked.
-**When Blocked**: Write the debrief via `§CMD_GENERATE_DEBRIEF`, then retry deactivation.
-**Skip**: If the user explicitly approves skipping, use `--user-approved "Reason: [quote user's words]"` on the deactivate command. The agent MUST use `AskUserQuestion` to get user approval before skipping. The reason MUST quote the user's actual words — agent-authored justifications are not valid.
-**Prohibited justifications** (these are never valid reasons to skip the debrief):
-*   "Small focused change — no debrief needed."
-*   "This task was too simple for a debrief."
-*   "The changes are self-explanatory."
-*   Any reason authored by the agent without user input.
-**Valid reasons** (these require the user to have actually said it):
-*   `"Reason: User said 'skip the debrief, just close it'"`
-*   `"Reason: User said 'discard this session'"`
-*   `"Reason: User abandoned session early — said 'never mind, move on'"`
-**Related**: `§CMD_GENERATE_DEBRIEF` (creates the debrief), `¶INV_CHECKLIST_BEFORE_CLOSE` (similar gate pattern for checklists).
 
 ### §CMD_NO_MICRO_NARRATION
 **Definition**: Do not narrate micro-steps or internal thoughts in the chat.
@@ -102,6 +86,20 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 ### §CMD_ESCAPE_TAG_REFERENCES
 **Definition**: Backtick-escape tag references in body text/chat. Bare `#tag` = actual tag; backticked `` `#tag` `` = reference only.
 **Reference**: See `~/.claude/.directives/TAGS.md` § Escaping Convention for the full behavioral rule, reading/writing conventions, and examples.
+
+### §CMD_DEBUG_HOOKS_IF_PROMPTED
+**Definition**: When the user asks to debug hooks or asks about hook/injection behavior, switch to verbose hook reporting mode.
+**Trigger**: User says "debug hooks", "what hooks are firing", "show me injections", "why is this being injected", or similar.
+**Algorithm**:
+1.  **Announce**: "Hook debug mode active. I'll report all hook activity I observe."
+2.  **For each hook response you receive** (system-reminder tags with hook context), report in chat:
+    *   **Hook name**: Which hook fired (e.g., `pre-tool-use-heartbeat.sh`, `post-tool-use-discovery.sh`)
+    *   **Trigger**: What tool call triggered it
+    *   **Injected content**: What was injected (preloaded files, directives, warnings, blocks)
+    *   **Effect**: What it changed (added to pendingDirectives, blocked a tool call, warned about logging)
+3.  **Continue reporting** until the user says "stop debugging" or the session ends.
+**Constraint**: This is observational — do NOT modify hook behavior. Just report what you see.
+**Constraint**: Only activate when explicitly prompted. Do NOT auto-activate on hook errors or warnings.
 
 ### §CMD_THINK_IN_LOG
 **Definition**: The Log file is your Brain. The Chat is your Mouth.
@@ -116,13 +114,13 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 2.  **Internalize**: Explicitly acknowledge the role in chat.
 3.  **Effect**: Maintain this persona for the duration of the session.
 
-### §CMD_INIT_OR_RESUME_LOG_SESSION
+### §CMD_INIT_LOG
 **Definition**: Establates or reconnects to a session log.
 **Algorithm**:
 1.  **Check**: Does the destination log file already exist?
 2.  **Action**: 
-    *   *If No*: Create it using `§CMD_POPULATE_LOADED_TEMPLATE`.
-    *   *If Yes*: Continue appending to it using `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`.
+    *   *If No*: Create it using `§CMD_WRITE_FROM_TEMPLATE`.
+    *   *If Yes*: Continue appending to it using `§CMD_APPEND_LOG`.
 
 ### §CMD_WAIT_FOR_USER_CONFIRMATION
 **Definition**: You are not allowed to switch Phases (e.g., Brainstorm -> Implement) or proceed past "Wait" steps on your own.
@@ -182,10 +180,14 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
     > → [AskUserQuestion with 5 options]
 
 ### §CMD_SESSION_CLI
-**CRITICAL**: These are the exact command formats. Do NOT invent flags (e.g., `--description`). Description and parameters are always piped via stdin heredoc.
+**CRITICAL**: 
+    * These are the exact command formats. Do NOT invent flags (e.g., `--description`). Description and parameters are always piped via stdin heredoc.
+    * Use `engine` command directly, dont attempt to resolve the symlink or add `.sh`, per §INV_ENGINE_COMMAND_DISPATCH
+
 
 ```bash
 # Activate (with parameters — first activation)
+# Remember to pass COMPLETE §CMD_PARSE_PARAMETERS json schema with all required fields
 engine session activate sessions/YYYY_MM_DD_TOPIC skill-name <<'EOF'
 { "taskSummary": "...", "taskType": "...", ... }
 EOF
@@ -279,12 +281,19 @@ EOF
 *   At the START of each major phase (after completing the previous one)
 *   Phase labels must match the `phases` array declared at session activation
 
-### §CMD_RECOVER_SESSION
-**Description**: Re-initialize skill context after context overflow restart. Handled by `/session continue`.
-**Trigger**: Automatically invoked by `engine session restart` — you don't call this manually.
-**Reference**: `~/.claude/.directives/commands/CMD_RECOVER_SESSION.md`
+### §CMD_DEHYDRATE
+**Description**: Captures current session context as JSON and triggers context overflow restart. Agent pipes JSON (summary, lastAction, nextSteps, requiredFiles) to `engine session dehydrate`, which stores in `.state.json` and restarts Claude.
+**Trigger**: Injected by overflow hook as `§CMD_DEHYDRATE NOW` when context usage exceeds threshold.
+**Preloaded**: Always — injected by SessionStart hook.
+**Reference**: `~/.claude/.directives/commands/CMD_DEHYDRATE.md`
 
-### §CMD_USE_ONLY_GIVEN_CONTEXT
+### §CMD_REHYDRATE
+**Description**: Re-initializes session context after context overflow restart. SessionStart hook auto-injects dehydrated content from `.state.json`. This command tells the agent how to resume (re-activate session, resume tracking, log restart, continue at saved phase).
+**Trigger**: Automatically invoked when fresh Claude starts and SessionStart hook injects dehydrated context.
+**Preloaded**: Always — injected by SessionStart hook.
+**Reference**: `~/.claude/.directives/commands/CMD_REHYDRATE.md`
+
+### §CMD_FREEZE_CONTEXT
 **Definition**: Work strictly within the current Context Window boundaries. Do NOT explore the filesystem.
 **Scope**: This is a **phase-specific** constraint, typically applied during Setup (Phase 1) to prevent premature exploration. It does NOT apply to later phases like Context Ingestion (Phase 2), which explicitly require running searches.
 **Rules**:
@@ -293,16 +302,7 @@ EOF
 3.  **Exception**: If a file is CRITICAL and missing, you must **ASK** the user to load it. Do not load it yourself.
 4.  **Expiration**: This constraint expires when the protocol moves to a phase that requires exploration (e.g., Context Ingestion). Do not carry this constraint forward into later phases.
 
-### §CMD_AVOID_WASTING_TOKENS
-**Definition**: Do not burn tokens on redundant operations.
-**Rules**:
-1.  **Rehydration Check**: If you have loaded `DEHYDRATED_CONTEXT.md` or `DEHYDRATED_DOCS.md` during session rehydration, you MUST NOT read the individual files contained within them (e.g., `_LOG.md`, specs) unless you have a specific reason to believe they have changed externally.
-2.  **Memory over IO**: Rely on your context window. Do not `read_file` something just to check a detail if you recently read it in a dehydrated block.
-3.  **Batch Operations**: Prefer single, larger tool calls over many small ones.
-4.  **Blind Trust**: When you know a file exists and you have its content in a summary/dehydrated file, trust it.
-
-
-### §CMD_USE_TODOS_TO_TRACK_PROGRESS
+### §CMD_TRACK_PROGRESS
 **Definition**: Use an internal `TODO` list to manage work items and track progress throughout the session.
 
 **Rules**:
@@ -341,7 +341,7 @@ EOF
 **Description**: Centralized synthesis pipeline orchestrator. 4 sub-phases: Checklists → Debrief → Pipeline (directives, delegations, dispatch, discoveries, alerts, leftover) → Close. WORK → PROVE pattern on each step.
 
 ### §CMD_CLOSE_SESSION
-**Description**: Deactivate the session (compose description + keywords, call `engine session deactivate`), display RAG results, present contextualized next-skill menu from `nextSkills` array.
+**Description**: Verify debrief gate (debrief file must exist — merged from `§CMD_DEBRIEF_BEFORE_CLOSE`), deactivate the session (compose description + keywords, call `engine session deactivate`), display RAG results, present contextualized next-skill menu from `nextSkills` array.
 
 ### §CMD_SELECT_MODE
 **Description**: Present skill mode selection (3 named + Custom per `¶INV_MODE_STANDARDIZATION`), load mode file, handle Custom blending, record config, execute `§CMD_ASSUME_ROLE`.
@@ -361,16 +361,16 @@ EOF
     *   *No*: Proceed to report.
 3.  **Output**: Display a blockquote summary of your intent. When referencing files, use clickable links per `¶INV_TERMINAL_FILE_LINKS` (Compact `§` for inline, Location for code points).
     *   *Example*:
-        > 1. I am moving to Phase 3: Test Implementation and will `§CMD_USE_TODOS_TO_TRACK_PROGRESS`.
-        > 2. I'll `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to `§CMD_THINK_IN_LOG`.
+        > 1. I am moving to Phase 3: Test Implementation and will `§CMD_TRACK_PROGRESS`.
+        > 2. I'll `§CMD_APPEND_LOG` to `§CMD_THINK_IN_LOG`.
         > 3. I will not write the debrief until the step is done (`§CMD_REFUSE_OFF_COURSE` applies).
         > 4. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
 
-### §CMD_LOG_TO_DETAILS
+### §CMD_LOG_INTERACTION
 **Definition**: Records a User Assertion or Discussion into the session's high-fidelity `DETAILS.md`.
 **Usage**: Execute this immediately after receiving an important User Assertion or Discussion that was NOT triggered by `AskUserQuestion`.
 
-**Auto-Logging**: Q&A entries from `AskUserQuestion` are **automatically logged** by the `post-tool-use-details-log.sh` PostToolUse hook. The hook captures the agent's preamble (from transcript), questions, options, and user answers. **Do NOT manually log AskUserQuestion interactions** — the hook handles it. Manual `§CMD_LOG_TO_DETAILS` is only needed for:
+**Auto-Logging**: Q&A entries from `AskUserQuestion` are **automatically logged** by the `post-tool-use-details-log.sh` PostToolUse hook. The hook captures the agent's preamble (from transcript), questions, options, and user answers. **Do NOT manually log AskUserQuestion interactions** — the hook handles it. Manual `§CMD_LOG_INTERACTION` is only needed for:
 *   **Assertions**: The user makes an unprompted statement that shapes the work (e.g., "always use bun", "no Python").
 *   **Discussions**: Non-AskUserQuestion back-and-forth that establishes important context.
 
@@ -404,6 +404,16 @@ EOF
 ### §CMD_INTERROGATE
 **Description**: Structured interrogation — depth selection (Short/Medium/Long/Absolute), topic-driven round loop with between-rounds context, exit gating with proceed/extend/devil's-advocate/what-if options.
 
+### §CMD_EXECUTE_SKILL_PHASES
+**Description**: Skill-level phase orchestrator. Lives at the TOP of each protocol-tier SKILL.md (`¶INV_BOOT_SECTOR_AT_TOP`). Drives the agent through all phases sequentially — identify current phase, execute its section (which calls `§CMD_EXECUTE_PHASE_STEPS`), transition, repeat.
+**Trigger**: First instruction in every protocol-tier skill. Not used by utility-tier (sessionless) skills.
+**Reference**: `~/.claude/.directives/commands/CMD_EXECUTE_SKILL_PHASES.md`
+
+### §CMD_EXECUTE_PHASE_STEPS
+**Description**: Per-phase step runner. Reads the current phase's `steps` array (from `engine session phase` stdout), executes each `§CMD_*` step sequentially, and collects proof outputs. Returns control to SKILL.md prose after steps complete. Phases with `steps: []` return immediately (prose-only).
+**Trigger**: Called within each phase section of SKILL.md, typically after `§CMD_REPORT_INTENT_TO_USER`.
+**Reference**: `~/.claude/.directives/commands/CMD_EXECUTE_PHASE_STEPS.md`
+
 ### §CMD_GATE_PHASE
 **Description**: Standardized phase boundary menu. Presents options to proceed (with proof), walk through current output, go back, or take a skill-specific action. Derives current/next/previous phases from the `phases` array in `.state.json`. When proceeding, pipes proof fields declared on the current phase (FROM validation) via STDIN to `engine session phase`.
 **Trigger**: Called by skill protocols at phase boundaries. Not used for special boundaries (interrogation exit gate, parallel handoff, synthesis deactivation).
@@ -425,7 +435,7 @@ EOF
 ### §CMD_REPORT_SUMMARY
 **Description**: Produces a dense 2-paragraph narrative summary of the session's work.
 
-### §CMD_CONTINUE_OR_CLOSE_SESSION
+### §CMD_RESUME_AFTER_CLOSE
 **Definition**: When the user sends a message after a skill has completed its synthesis phase, re-anchor to the session and continue logging. No question — assume continuation by default.
 **Why**: Without this, post-skill conversation loses session context — no logging, no debrief updates, no artifact trail. Work happens but leaves no record.
 **Trigger**: The user sends a message AND all of these are true:
@@ -448,7 +458,7 @@ EOF
         *   **Goal**: [brief description of what user asked for]
         EOF
         ```
-    *   **Work**: Execute the user's request. Continue logging as normal (same `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` cadence as the original skill).
+    *   **Work**: Execute the user's request. Continue logging as normal (same `§CMD_APPEND_LOG` cadence as the original skill).
 4.  **Different Topic — Ask First**:
     *   If the user's message is clearly about a **different topic**:
         > "This looks like a new topic. Start fresh session, or continue in `[sessionDir]`?"

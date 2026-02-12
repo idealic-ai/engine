@@ -41,3 +41,9 @@
 *   **Human approval required** (`¶INV_DISPATCH_APPROVAL_REQUIRED`): Agents MUST NOT auto-flip `#needs-X` → `#delegated-X` or `#needs-X` → `#next-X`.
 *   **Daemon monitors `#delegated-*` only** (`¶INV_NEEDS_IS_STAGING`, `¶INV_NEXT_IS_IMMEDIATE`): `#delegated-X` items become visible to the daemon. `#next-X` items are handled by the next skill, not the daemon.
 *   **Debounce-friendly**: Multiple `engine tag swap` calls in rapid succession are collected by the daemon's 3s debounce (`¶INV_DAEMON_DEBOUNCE`).
+
+---
+
+## PROOF FOR §CMD_DISPATCH_APPROVAL
+
+This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).

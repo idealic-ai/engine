@@ -9,7 +9,7 @@
 #     ¶INV_CLAIM_BEFORE_WORK — Tag swap before processing
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet requirement
 #   Commands: (~/.claude/.directives/COMMANDS.md)
-#     §CMD_HAND_OFF_TO_AGENT — Worker spawns agents
+#     §CMD_HANDOFF_TO_AGENT — Worker spawns agents
 #
 # Usage:
 #   worker.sh --pane-id <id> --accepts <tags> [--project <path>] [--agent <name>] [--description <text>]

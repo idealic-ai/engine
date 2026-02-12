@@ -74,5 +74,11 @@ Summary: [1-2 lines of what was done]
 | `tagCheckPassed` | boolean | `engine session update` | Skips Validation 1 on re-run |
 | `checkPassed` | boolean | `engine session check` | Master gate — all validations passed |
 | `requestCheckPassed` | boolean | `engine session check` | Skips Validation 3 on re-run |
-| `discoveredChecklists` | string[] | `session.sh activate` | Input for Validation 2 |
-| `requestFiles` | string[] | `session.sh activate` | Input for Validation 3 |
+| `discoveredChecklists` | string[] | `engine session activate` | Input for Validation 2 |
+| `requestFiles` | string[] | `engine session activate` | Input for Validation 3 |
+
+---
+
+## PROOF FOR §CMD_VALIDATE_ARTIFACTS
+
+This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).

@@ -37,7 +37,7 @@
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet auto-detection
 #     ¶INV_CLAIM_BEFORE_WORK — Tag swap before processing (daemon mode)
 #   Commands: (~/.claude/.directives/COMMANDS.md)
-#     §CMD_SESSION_CONTINUE_AFTER_RESTART — Triggered by run.sh after restart
+#     §CMD_RECOVER_SESSION — Triggered by run.sh after restart
 
 set -euo pipefail
 
@@ -51,6 +51,16 @@ export CLAUDE_SUPERVISOR_PID=$$
 # Session gate: require formal session activation before tool use
 # Gate hook (pre-tool-use-session-gate.sh) blocks non-whitelisted tools when this is set
 export SESSION_REQUIRED=1
+
+# Context management: disable auto-compaction, use full context window
+# DISABLE_AUTO_COMPACT=1 — our custom flag, raises overflow threshold to 0.95 (config.sh)
+# CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=100 — Claude Code native: never trigger auto-compact
+# CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=999999 — Claude Code: increase blocking limit
+# DISABLE_COMPACT=1 — disable compaction entirely
+export DISABLE_AUTO_COMPACT=1
+export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=100
+export CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=999999
+export DISABLE_COMPACT=1
 
 AGENTS_DIR="$HOME/.claude/agents"
 SCRIPTS_DIR="$HOME/.claude/scripts"
@@ -221,7 +231,7 @@ find_fleet_session() {
     fi
 
     # Reset stale fields before returning (PID is dead, not overflowed)
-    jq '.pid = 0 | .lifecycle = "resuming"' "$agent_file" > "$agent_file.tmp" \
+    jq 'del(.pid) | .lifecycle = "resuming"' "$agent_file" > "$agent_file.tmp" \
       && mv "$agent_file.tmp" "$agent_file"
 
     local session_id

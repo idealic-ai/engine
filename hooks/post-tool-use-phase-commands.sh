@@ -35,8 +35,12 @@ if [ "$TOOL_NAME" != "Bash" ]; then
   exit 0
 fi
 
-# Get tool output — try tool_response (stdin JSON), fall back to TOOL_OUTPUT env var
-STDOUT=$(echo "$INPUT" | jq -r '.tool_response // ""' 2>/dev/null || echo "")
+# Get tool output — extract stdout from Bash tool_response object
+# Claude Code sends Bash tool_response as {stdout, stderr, interrupted, isImage, noOutputExpected}
+STDOUT=$(echo "$INPUT" | jq -r '
+  if .tool_response | type == "object" then .tool_response.stdout // ""
+  else .tool_response // ""
+  end' 2>/dev/null || echo "")
 if [ -z "$STDOUT" ]; then
   STDOUT="${TOOL_OUTPUT:-}"
 fi
@@ -68,8 +72,21 @@ PROOF_FIELDS=$(jq -r --argjson major "$PHASE_MAJOR" \
   '[.phases // [] | .[] | select(.major == $major) | .proof // [] | .[]] | unique | .[]' \
   "$STATE_FILE" 2>/dev/null || echo "")
 
-[ -n "$PROOF_FIELDS" ] || exit 0
-debug "proof fields: $(echo "$PROOF_FIELDS" | tr '\n' ', ')"
+# Read steps array for this phase (all entries are §CMD_ — no filtering needed)
+STEP_FIELDS=$(jq -r --argjson major "$PHASE_MAJOR" \
+  '[.phases // [] | .[] | select(.major == $major) | .steps // [] | .[]] | unique | .[]' \
+  "$STATE_FILE" 2>/dev/null || echo "")
+
+# Read commands array for this phase (preloads — all entries are §CMD_)
+COMMAND_FIELDS=$(jq -r --argjson major "$PHASE_MAJOR" \
+  '[.phases // [] | .[] | select(.major == $major) | .commands // [] | .[]] | unique | .[]' \
+  "$STATE_FILE" 2>/dev/null || echo "")
+
+# Combine all §CMD_ sources: proof fields + steps + commands
+ALL_FIELDS=$(printf '%s\n%s\n%s' "$PROOF_FIELDS" "$STEP_FIELDS" "$COMMAND_FIELDS" | sort -u)
+
+[ -n "$ALL_FIELDS" ] || exit 0
+debug "all CMD fields: $(echo "$ALL_FIELDS" | tr '\n' ', ')"
 
 # CMD files directory
 CMD_DIR="$HOME/.claude/engine/.directives/commands"
@@ -77,21 +94,21 @@ CMD_DIR="$HOME/.claude/engine/.directives/commands"
 # Already preloaded files (for dedup)
 ALREADY_PRELOADED=$(jq -r '(.preloadedFiles // []) | .[]' "$STATE_FILE" 2>/dev/null || echo "")
 
-# Process proof fields: filter §CMD_ prefixed, resolve to file paths, dedup
+# Process all fields (proof + steps + commands): filter §CMD_ prefixed, resolve to file paths, dedup
 SEEN_CMDS=""
 NEW_COMMANDS=()
 
-while IFS= read -r proof; do
-  [ -n "$proof" ] || continue
+while IFS= read -r field; do
+  [ -n "$field" ] || continue
 
-  # Skip non-§CMD_ prefixed fields
-  case "$proof" in
+  # Skip non-§CMD_ prefixed fields (data fields like "depth_chosen" from proof arrays)
+  case "$field" in
     '§CMD_'*) ;;
-    *) debug "skip proof: $proof (no §CMD_ prefix)"; continue ;;
+    *) debug "skip field: $field (no §CMD_ prefix)"; continue ;;
   esac
 
   # Strip §CMD_ prefix: §CMD_GENERATE_DEBRIEF_file → GENERATE_DEBRIEF_file
-  name="${proof#§CMD_}"
+  name="${field#§CMD_}"
 
   # Strip lowercase suffix (proof sub-field): GENERATE_DEBRIEF_file → GENERATE_DEBRIEF
   name=$(echo "$name" | sed -E 's/_[a-z][a-z_]*$//')
@@ -128,7 +145,7 @@ while IFS= read -r proof; do
 
   NEW_COMMANDS+=("$cmd_file")
   debug "ADD: $cmd_file"
-done <<< "$PROOF_FIELDS"
+done <<< "$ALL_FIELDS"
 
 # Write new commands to pendingCommands in .state.json
 if [ ${#NEW_COMMANDS[@]} -gt 0 ]; then

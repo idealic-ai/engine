@@ -59,4 +59,10 @@
 *   **Non-blocking on empty**: If no alerts to raise or resolve, skip silently.
 *   **Judgment-based**: The agent uses judgment to assess whether work warrants an alert. Not every change needs one — only changes that affect shared systems or break other agents' expectations.
 *   **Proactive raising**: Agents should raise alerts at the START of disruptive work, not just at synthesis. Call the raise portion as soon as you know you'll break something.
-*   **Tag operations only**: Uses `tag.sh add` and `tag.sh swap`. No new scripts needed.
+*   **Tag operations only**: Uses `engine tag add` and `engine tag swap`. No new scripts needed.
+
+---
+
+## PROOF FOR §CMD_MANAGE_ALERTS
+
+This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).

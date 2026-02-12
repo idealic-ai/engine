@@ -63,7 +63,7 @@ The system scaled to 29 skills. The boot sequence became pure overhead — every
 
 - Plan: `/Users/invizko/.claude/plans/fancy-herding-quokka.md` — The approved implementation plan for this migration
 - Draft: `IMPLEMENT_DRAFT.md` (fleet session) — Prototype of gating + interrogation changes for the implement skill
-- COMMANDS.md `§CMD_HAND_OFF_TO_AGENT` — References `parentPromptFile` paths that will change
+- COMMANDS.md `§CMD_HANDOFF_TO_AGENT` — References `parentPromptFile` paths that will change
 - INVARIANTS.md `¶INV_SKILL_PROTOCOL_MANDATORY` — References `references/*.md` pattern
 - `edit-skill` protocol — Scaffolds new skills using the old two-file pattern
 - `reanchor` protocol — Loads skill protocols by constructing `references/` paths

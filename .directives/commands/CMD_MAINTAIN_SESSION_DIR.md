@@ -21,7 +21,7 @@
     *   Auto-detect fleet pane ID if running in fleet tmux (no manual `--fleet-pane` needed).
     *   Enable context overflow protection (PreToolUse hook will block at 90%).
     *   Run context scans (on fresh activation or skill change) — all use `taskSummary` for thematic relevance:
-        *   `engine session-search query --tag '#active-alert'` → `## §CMD_SURFACE_ACTIVE_ALERTS` section
+        *   `§CMD_SURFACE_ACTIVE_ALERTS` — alerts are surfaced automatically (no agent action needed)
         *   `engine tag find '#next-*' [sessionDir]` → `## §CMD_SURFACE_OPEN_DELEGATIONS` section (scans current session for `#next-*` items claimed for immediate next-skill execution)
         *   `engine session-search query` → `## §CMD_RECALL_PRIOR_SESSIONS` section
         *   `engine doc-search query` → `## §CMD_RECALL_RELEVANT_DOCS` section
@@ -41,8 +41,9 @@
         *   For `/brainstorm`: `BRAINSTORM_LOG.md`, `BRAINSTORM.md`
         *   (etc. — match the skill's log and debrief filenames)
     *   **If artifacts exist**, ask before proceeding:
-        > "This session already has [skill] artifacts (`[LOG_FILE]`, `[DEBRIEF_FILE]`). Continue the existing [skill] phase, or start a new session?"
-        > - **"Continue existing"** — Resume: use the existing log (append), and regenerate the debrief at the end.
+        > "This session already has [skill] artifacts (`[LOG_FILE]`, `[DEBRIEF_FILE]`). How should I proceed?"
+        > - **"Continue (fast-track)"** — Resume with `--fast-track`: skip RAG/directive scans. Use existing log (append), regenerate debrief at end. Pass `--fast-track` flag to `engine session activate`.
+        > - **"Continue (full ceremony)"** — Resume with full context: run RAG search, directive discovery, alert surfacing. Use existing log (append), regenerate debrief at end. Do NOT pass `--fast-track`.
         > - **"New session"** — Create a new session directory with a distinguishing suffix (e.g., `_v2`, `_round2`).
     *   **If no artifacts exist** for this skill type, proceed normally (even if other skill artifacts exist — sessions are multi-modal).
 6.  **Echo (CRITICAL)**: Output "📂 **Session Directory**: [Path]" to the chat, where [Path] is a clickable link per `¶INV_TERMINAL_FILE_LINKS` (Full variant). If reusing, say "📂 **Reusing Session Directory**: [Path]". If continuing existing skill artifacts, say "📂 **Continuing existing [skill] in**: [Path]".

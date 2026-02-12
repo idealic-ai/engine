@@ -50,13 +50,13 @@ COMMANDS.md organizes its 32 commands into four layers. Each layer has a distinc
 │  Layer 4: Composites ("The Shortcuts")                              │
 │  ├── Multi-step workflows built from lower layers                   │
 │  ├── §CMD_INGEST_CONTEXT_BEFORE_WORK                                │
-│  ├── §CMD_GENERATE_DEBRIEF_USING_TEMPLATE                           │
+│  ├── §CMD_GENERATE_DEBRIEF                           │
 │  └── ... (11 commands)                                              │
 │                                                                     │
 │  Layer 3: Interaction ("The Conversation")                          │
 │  ├── User-facing I/O and question protocols                         │
 │  ├── §CMD_ASK_USER_IF_STUCK                                         │
-│  ├── §CMD_ASK_ROUND_OF_QUESTIONS                                    │
+│  ├── §CMD_ASK_ROUND                                    │
 │  └── ... (2 commands)                                               │
 │                                                                     │
 │  Layer 2: Process Control ("The Guards")                            │
@@ -67,8 +67,8 @@ COMMANDS.md organizes its 32 commands into four layers. Each layer has a distinc
 │                                                                     │
 │  Layer 1: File Operations ("The Physics")                           │
 │  ├── Primitive I/O — create, append, report                         │
-│  ├── §CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE                        │
-│  ├── §CMD_POPULATE_LOADED_TEMPLATE                                   │
+│  ├── §CMD_APPEND_LOG                        │
+│  ├── §CMD_WRITE_FROM_TEMPLATE                                   │
 │  └── ... (4 commands)                                               │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -80,17 +80,17 @@ The four layers map to an operating system stack. This is not a forced metaphor 
 
 | COMMANDS.md Layer | OS Equivalent | Key Parallel |
 |-------------------|---------------|--------------|
-| Layer 1: File Operations | Kernel I/O syscalls | `§CMD_APPEND_LOG` = `write()`, `§CMD_POPULATE_LOADED_TEMPLATE` = `creat()` |
+| Layer 1: File Operations | Kernel I/O syscalls | `§CMD_APPEND_LOG` = `write()`, `§CMD_WRITE_FROM_TEMPLATE` = `creat()` |
 | Layer 2: Process Control | Process scheduler + signal handlers | `§CMD_REFUSE_OFF_COURSE` = signal handler, `§CMD_WAIT_FOR_USER_CONFIRMATION` = `waitpid()` |
 | Layer 3: Interaction | User-space IPC / terminal I/O | `§CMD_ASK_USER_IF_STUCK` = blocking `read()` on stdin |
-| Layer 4: Composites | Shell builtins / coreutils | `§CMD_INGEST_CONTEXT_BEFORE_WORK` = `source`, `§CMD_SESSION_CONTINUE_AFTER_RESTART` = checkpoint/restore |
+| Layer 4: Composites | Shell builtins / coreutils | `§CMD_INGEST_CONTEXT_BEFORE_WORK` = `source`, `§CMD_RECOVER_SESSION` = checkpoint/restore |
 
 Supporting structures complete the analogy:
 
 | System Component | OS Equivalent |
 |------------------|---------------|
 | `.state.json` | Process table (PID, phase, skill, status) |
-| `session.sh activate --pid "$PPID"` | `fork()` + `exec()` with PID registration |
+| `engine session activate --pid "$PPID"` | `fork()` + `exec()` with PID registration |
 | Tags (`#needs-X` / `#claimed-X` / `#done-X`) | IPC message queues |
 | INVARIANTS.md | Kernel parameters (`sysctl.conf`) |
 | Skill protocols | User-space applications |
@@ -106,9 +106,9 @@ All 32 `§CMD_` commands in COMMANDS.md, organized by layer. Each command has a 
 
 | Command | Purpose |
 |---------|---------|
-| `§CMD_POPULATE_LOADED_TEMPLATE` | Create an artifact by populating a template already in context (no disk read) |
-| `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` | Append to log files via `log.sh` — blind write, no re-reading |
-| `§CMD_REPORT_FILE_CREATION_SILENTLY` | Report file creation as a clickable link — never echo content to chat |
+| `§CMD_WRITE_FROM_TEMPLATE` | Create an artifact by populating a template already in context (no disk read) |
+| `§CMD_APPEND_LOG` | Append to log files via `log.sh` — blind write, no re-reading |
+| `§CMD_LINK_FILE` | Report file creation as a clickable link — never echo content to chat |
 | `§CMD_AWAIT_TAG` | Block on a filesystem watcher until a tag appears (async coordination) |
 
 ### Layer 2: Process Control (15 commands)
@@ -119,38 +119,38 @@ All 32 `§CMD_` commands in COMMANDS.md, organized by layer. Each command has a 
 | `§CMD_ESCAPE_TAG_REFERENCES` | Backtick-escape tag references in body text to prevent false positives |
 | `§CMD_THINK_IN_LOG` | Write reasoning to the log file, not the chat |
 | `§CMD_ASSUME_ROLE` | Anchor to a persona (e.g., TDD, Skeptic, Rigor) for the session |
-| `§CMD_INIT_OR_RESUME_LOG_SESSION` | Create or reconnect to a session log file |
+| `§CMD_INIT_LOG` | Create or reconnect to a session log file |
 | `§CMD_WAIT_FOR_USER_CONFIRMATION` | Hard stop — end turn and wait for user input before proceeding |
 | `§CMD_REFUSE_OFF_COURSE` | Deviation router — surface conflicts instead of silently skipping steps |
 | `§CMD_PARSE_PARAMETERS` | Parse session inputs against a JSON schema (the "function signature" of a session) |
 | `§CMD_MAINTAIN_SESSION_DIR` | Anchor to a session directory for the duration of the task |
 | `§CMD_UPDATE_PHASE` | Update `.state.json` with the current skill phase |
-| `§CMD_SESSION_CONTINUE_AFTER_RESTART` | Re-initialize context after a context overflow restart |
-| `§CMD_USE_ONLY_GIVEN_CONTEXT` | Phase-specific constraint — no filesystem exploration during setup |
-| `§CMD_AVOID_WASTING_TOKENS` | Prevent redundant reads and operations |
-| `§CMD_USE_TODOS_TO_TRACK_PROGRESS` | Maintain an internal TODO list for session progress |
+| `§CMD_RECOVER_SESSION` | Re-initialize context after a context overflow restart |
+| `§CMD_FREEZE_CONTEXT` | Phase-specific constraint — no filesystem exploration during setup |
+| `§CMD_TRUST_CACHED_CONTEXT` | Prevent redundant reads and operations |
+| `§CMD_TRACK_PROGRESS` | Maintain an internal TODO list for session progress |
 
 ### Layer 3: Interaction (2 commands)
 
 | Command | Purpose |
 |---------|---------|
 | `§CMD_ASK_USER_IF_STUCK` | Halt and ask when progress is stalled or ambiguity is high |
-| `§CMD_ASK_ROUND_OF_QUESTIONS` | Structured questioning protocol — 3-5 targeted questions per round |
+| `§CMD_ASK_ROUND` | Structured questioning protocol — 3-5 targeted questions per round |
 
 ### Layer 4: Composites (11 commands)
 
 | Command | Purpose |
 |---------|---------|
 | `§CMD_INGEST_CONTEXT_BEFORE_WORK` | Dedicated phase for RAG search + user confirmation before execution |
-| `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` | Create a standardized debrief with tags, related sessions, and reindexing |
-| `§CMD_GENERATE_PLAN_FROM_TEMPLATE` | Create a standardized plan artifact from template |
+| `§CMD_GENERATE_DEBRIEF` | Create a standardized debrief with tags, related sessions, and reindexing |
+| `§CMD_GENERATE_PLAN` | Create a standardized plan artifact from template |
 | `§CMD_REPORT_INTENT_TO_USER` | State current phase and intent before transitioning |
-| `§CMD_LOG_TO_DETAILS` | Record Q&A interactions to the session's `DETAILS.md` |
-| `§CMD_EXECUTE_INTERROGATION_PROTOCOL` | Multi-round Ask-Log loop with minimum 3 rounds |
-| `§CMD_HAND_OFF_TO_AGENT` | Standardized handoff from parent command to autonomous agent |
-| `§CMD_REPORT_RESULTING_ARTIFACTS` | Final artifact inventory with clickable links |
-| `§CMD_REPORT_SESSION_SUMMARY` | Dense 2-paragraph narrative of session work |
-| `§CMD_CONTINUE_OR_CLOSE_SESSION` | Re-anchor and continue logging after a skill completes |
+| `§CMD_LOG_INTERACTION` | Record Q&A interactions to the session's `DETAILS.md` |
+| `§CMD_INTERROGATE` | Multi-round Ask-Log loop with minimum 3 rounds |
+| `§CMD_HANDOFF_TO_AGENT` | Standardized handoff from parent command to autonomous agent |
+| `§CMD_REPORT_ARTIFACTS` | Final artifact inventory with clickable links |
+| `§CMD_REPORT_SUMMARY` | Dense 2-paragraph narrative of session work |
+| `§CMD_RESUME_AFTER_CLOSE` | Re-anchor and continue logging after a skill completes |
 | `§CMD_PROMPT_INVARIANT_CAPTURE` | Review session for insights worth capturing as permanent invariants |
 
 ### Command Composition
@@ -158,21 +158,21 @@ All 32 `§CMD_` commands in COMMANDS.md, organized by layer. Each command has a 
 Commands compose — higher-layer commands call lower-layer commands. Key composition chains:
 
 ```
-§CMD_GENERATE_DEBRIEF_USING_TEMPLATE
-  └── §CMD_POPULATE_LOADED_TEMPLATE (Layer 1)
-  └── §CMD_REPORT_FILE_CREATION_SILENTLY (Layer 1)
+§CMD_GENERATE_DEBRIEF
+  └── §CMD_WRITE_FROM_TEMPLATE (Layer 1)
+  └── §CMD_LINK_FILE (Layer 1)
   └── §CMD_PROMPT_INVARIANT_CAPTURE (Layer 4)
 
 §CMD_INGEST_CONTEXT_BEFORE_WORK
   └── §CMD_WAIT_FOR_USER_CONFIRMATION (Layer 2) [twice — hard stops]
 
-§CMD_EXECUTE_INTERROGATION_PROTOCOL
-  └── §CMD_ASK_ROUND_OF_QUESTIONS (Layer 3)
-  └── §CMD_LOG_TO_DETAILS (Layer 4)
+§CMD_INTERROGATE
+  └── §CMD_ASK_ROUND (Layer 3)
+  └── §CMD_LOG_INTERACTION (Layer 4)
 
 §CMD_MAINTAIN_SESSION_DIR
-  └── §CMD_POPULATE_LOADED_TEMPLATE (Layer 1) [if creating]
-  └── §CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE (Layer 1) [if resuming]
+  └── §CMD_WRITE_FROM_TEMPLATE (Layer 1) [if creating]
+  └── §CMD_APPEND_LOG (Layer 1) [if resuming]
 ```
 
 ---
@@ -298,7 +298,7 @@ Strict separation of brain (filesystem) and mouth (chat). All reasoning goes to 
 
 Append-only logging with no re-reading. The agent writes to the log via `log.sh` and never sees its accumulated output. This creates a write-heavy, read-light I/O pattern.
 
-**Mechanism**: `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` + `§CMD_AVOID_WASTING_TOKENS`
+**Mechanism**: `§CMD_APPEND_LOG` + `§CMD_TRUST_CACHED_CONTEXT`
 
 **Why it works**: A typical session might append 20-40 log entries. Without blind writes, each append would require reading the entire log first (read-modify-write), consuming thousands of tokens. Blind appends cost only the new content.
 
@@ -320,7 +320,7 @@ Named, composable behavioral specifications using the `§CMD_` and `¶INV_` pref
 
 ### Session Lifecycle Management
 
-A complete process lifecycle from birth to post-synthesis continuation. Sessions are born (`§CMD_PARSE_PARAMETERS`), activated (`§CMD_MAINTAIN_SESSION_DIR`), executed through phases (`§CMD_UPDATE_PHASE`), debriefed (`§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`), and optionally continued (`§CMD_CONTINUE_OR_CLOSE_SESSION`) or restarted after overflow (`§CMD_SESSION_CONTINUE_AFTER_RESTART`).
+A complete process lifecycle from birth to post-synthesis continuation. Sessions are born (`§CMD_PARSE_PARAMETERS`), activated (`§CMD_MAINTAIN_SESSION_DIR`), executed through phases (`§CMD_UPDATE_PHASE`), debriefed (`§CMD_GENERATE_DEBRIEF`), and optionally continued (`§CMD_RESUME_AFTER_CLOSE`) or restarted after overflow (`§CMD_RECOVER_SESSION`).
 
 **Mechanism**: `.state.json` as the process table, PID tracking, phase tracking, dehydration/session continue for overflow recovery
 
@@ -355,13 +355,13 @@ Skills are the "user-space applications" that run on top of the standards system
 │    → §CMD_INGEST_CONTEXT_BEFORE_WORK               │
 │                                                   │
 │  Phase 3: Planning                                │
-│    → §CMD_EXECUTE_INTERROGATION_PROTOCOL           │
-│    → §CMD_GENERATE_PLAN_FROM_TEMPLATE              │
+│    → §CMD_INTERROGATE           │
+│    → §CMD_GENERATE_PLAN              │
 │                                                   │
 │  Phase N: Synthesis                               │
-│    → §CMD_GENERATE_DEBRIEF_USING_TEMPLATE          │
-│    → §CMD_REPORT_RESULTING_ARTIFACTS               │
-│    → §CMD_REPORT_SESSION_SUMMARY                   │
+│    → §CMD_GENERATE_DEBRIEF          │
+│    → §CMD_REPORT_ARTIFACTS               │
+│    → §CMD_REPORT_SUMMARY                   │
 │                                                   │
 │  Invariants enforced throughout:                  │
 │    ¶INV_SKILL_PROTOCOL_MANDATORY                   │
@@ -396,7 +396,7 @@ The standards system contains what amounts to a type system, though it was not d
 
 ### Output Types (Template Fidelity)
 
-The "STRICT TEMPLATE FIDELITY" constraint in `§CMD_POPULATE_LOADED_TEMPLATE` means debrief and plan templates define the return type of a session. The agent cannot add or remove sections — only populate the predefined structure. This is structural typing: the output must conform to the template's shape.
+The "STRICT TEMPLATE FIDELITY" constraint in `§CMD_WRITE_FROM_TEMPLATE` means debrief and plan templates define the return type of a session. The agent cannot add or remove sections — only populate the predefined structure. This is structural typing: the output must conform to the template's shape.
 
 ### State Types (Tag Lifecycles)
 
@@ -414,8 +414,8 @@ The standards system references shell scripts that implement its operations. The
 
 | Script | Called By | Purpose |
 |--------|-----------|---------|
-| `log.sh` | `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` | Append-only log writes |
-| `session.sh` | `§CMD_MAINTAIN_SESSION_DIR`, `§CMD_UPDATE_PHASE`, `§CMD_SESSION_CONTINUE_AFTER_RESTART` | Session state management |
+| `log.sh` | `§CMD_APPEND_LOG` | Append-only log writes |
+| `session.sh` | `§CMD_MAINTAIN_SESSION_DIR`, `§CMD_UPDATE_PHASE`, `§CMD_RECOVER_SESSION` | Session state management |
 | `tag.sh` | `§CMD_TAG_FILE`, `§CMD_UNTAG_FILE`, `§CMD_SWAP_TAG_IN_FILE`, `§CMD_FIND_TAGGED_FILES` | Tag operations |
 | `user-info.sh` | `¶INV_INFER_USER_FROM_GDRIVE` | User identity detection |
 | `glob.sh` | `¶INV_GLOB_THROUGH_SYMLINKS` | Symlink-aware file globbing |

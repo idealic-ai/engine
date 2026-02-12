@@ -14,20 +14,20 @@ A **session** is a working directory under `sessions/` (e.g., `sessions/2026_02_
 
 | Component | Role | Reads | Writes |
 |-----------|------|-------|--------|
-| `session.sh activate` | Creates session, sets identity | Existing `.state.json` | pid, skill, lifecycle, loading (→ true), overflowed (→ false), killRequested (→ false), fleetPaneId, startedAt, toolCallsSinceLastLog (→ 0), toolUseWithoutLogsWarnAfter (→ 3), toolUseWithoutLogsBlockAfter (→ 10) |
+| `engine session activate` | Creates session, sets identity | Existing `.state.json` | pid, skill, lifecycle, loading (→ true), overflowed (→ false), killRequested (→ false), fleetPaneId, startedAt, toolCallsSinceLastLog (→ 0), toolUseWithoutLogsWarnAfter (→ 3), toolUseWithoutLogsBlockAfter (→ 10) |
 | `session.sh find` | Locates active session (read-only) | fleetPaneId, pid across all `.state.json` files | — (read-only, no writes) |
-| `session.sh phase` | Updates phase tracking | — | currentPhase, lastHeartbeat, loading (deleted), toolCallsByTranscript (reset to {}) |
-| `session.sh deactivate` | Marks session completed (gate re-engages) | — | lifecycle (→ completed), lastHeartbeat, sessionDescription (from stdin), keywords (from --keywords flag) |
-| `session.sh restart` | Initiates restart (state-only — does not kill) | skill, currentPhase | killRequested (→ true), restartPrompt, contextUsage (→ 0), sessionId (deleted) |
+| `engine session phase` | Updates phase tracking | — | currentPhase, lastHeartbeat, loading (deleted), toolCallsByTranscript (reset to {}) |
+| `engine session deactivate` | Marks session completed (gate re-engages) | — | lifecycle (→ completed), lastHeartbeat, sessionDescription (from stdin), keywords (from --keywords flag) |
+| `engine session restart` | Initiates restart (state-only — does not kill) | skill, currentPhase | killRequested (→ true), restartPrompt, contextUsage (→ 0), sessionId (deleted) |
 | `statusline.sh` | Binds sessionId, updates context | pid/fleetPaneId (lookup), killRequested, overflowed | sessionId, contextUsage, lastHeartbeat, pid (claim) |
 | `pre-tool-use-overflow.sh` | Blocks tools at overflow | sessionId/fleetPaneId/pid (lookup), contextUsage, overflowed, lifecycle | overflowed (→ true), lifecycle (→ dehydrating when /session dehydrate invoked) |
 | `run.sh` | Process supervisor, restart loop | fleetPaneId (fleet resume), killRequested, restartPrompt, sessionId, overflowed | pid (reset to 0), lifecycle (→ resuming, → restarting) |
-| Restart Watchdog (run.sh) | Kills Claude on restart signal | — (receives USR1 signal from session.sh restart) | — (sends SIGTERM to sibling processes via process group kill) |
+| Restart Watchdog (run.sh) | Kills Claude on restart signal | — (receives USR1 signal from engine session restart) | — (sends SIGTERM to sibling processes via process group kill) |
 | `pre-tool-use-heartbeat.sh` | Logging discipline enforcement | loading, toolCallsByTranscript, toolUseWithoutLogsWarnAfter, toolUseWithoutLogsBlockAfter, skill | toolCallsByTranscript (increment/reset per transcript key) |
 | `pre-tool-use-session-gate.sh` | Blocks tools when no active session (SESSION_REQUIRED gate) | SESSION_REQUIRED env, lifecycle (via session.sh find) | — (read-only, denies/allows) |
 | `user-prompt-submit-session-gate.sh` | Injects boot instructions when no active session | SESSION_REQUIRED env, lifecycle (via session.sh find) | — (read-only, injects message) |
 | `/session dehydrate` subcommand | Saves context to file | session dir contents | DEHYDRATED_CONTEXT.md (separate file) |
-| `/session continue` subcommand | Restores context after restart | DEHYDRATED_CONTEXT.md, session artifacts | (calls session.sh activate → clears overflowed, killRequested) |
+| `/session continue` subcommand | Restores context after restart | DEHYDRATED_CONTEXT.md, session artifacts | (calls engine session activate → clears overflowed, killRequested) |
 
 ---
 
@@ -37,7 +37,7 @@ Three fields identify "who owns this session." They serve different purposes and
 
 ### `pid` — Process Identity
 
-- **Set by**: `session.sh activate` (reads `$CLAUDE_SUPERVISOR_PID` env var, fallback `$PPID`)
+- **Set by**: `engine session activate` (reads `$CLAUDE_SUPERVISOR_PID` env var, fallback `$PPID`)
 - **Value**: Claude's OS process ID (specifically run.sh's PID via `$CLAUDE_SUPERVISOR_PID`)
 - **Purpose**: Guards against two Claudes using the same session simultaneously. Also used by the restart watchdog to scope kill signals.
 - **Lifecycle**: Set at activation. Becomes stale when Claude exits (PID no longer running). Checked via `kill -0 $pid`.
@@ -49,18 +49,18 @@ Three fields identify "who owns this session." They serve different purposes and
 - **Value**: Claude Code's internal conversation identifier (UUID-like)
 - **Purpose**: Enables `--resume` flag to restore Claude's conversation history across restarts
 - **Lifecycle**: Not available until first statusline render (after Claude starts). Written to `.state.json` by statusline on every tick.
-- **Limitation**: Only exists while Claude is running. Deleted by `session.sh restart` to prevent resuming an overflow-killed session.
+- **Limitation**: Only exists while Claude is running. Deleted by `engine session restart` to prevent resuming an overflow-killed session.
 - **Race condition**: See R1 below.
 
 ### `fleetPaneId` — Fleet Pane Identity
 
-- **Set by**: `session.sh activate` (auto-detected via `fleet.sh pane-id`)
+- **Set by**: `engine session activate` (auto-detected via `fleet.sh pane-id`)
 - **Value**: Composite string `{tmux_session}:{window}:{pane_label}` (e.g., `yarik-fleet:company:SDK`)
 - **Format**: Produced by `fleet.sh pane-id`, which reads tmux session name, window name, and `@pane_label` user variable
 - **Purpose**: Stable identity that survives fleet restart cycles (PID changes, but pane label persists)
 - **Lifecycle**: Set at activation. Persists in `.state.json` across restarts. Cleared from OTHER sessions when a new activation claims the same pane (one pane = one session).
 - **Limitation**: Only available inside fleet tmux (socket name = `fleet`). Returns empty outside fleet.
-- **Caveat**: Three components independently capture this value at different times (`run.sh` env at startup, `session.sh activate` at activation, `fleet.sh pane-id` live). They can diverge if pane labels change. See R6.
+- **Caveat**: Three components independently capture this value at different times (`run.sh` env at startup, `engine session activate` at activation, `fleet.sh pane-id` live). They can diverge if pane labels change. See R6.
 
 ### Lookup Priority by Component
 
@@ -106,7 +106,7 @@ The session's runtime state is tracked by three independent fields in `.state.js
 
 - **Type**: boolean
 - **Default**: `false`
-- **Sticky**: Set to `true` when context hits threshold. Only cleared by `session.sh activate` (which proves a new Claude with fresh context has taken over).
+- **Sticky**: Set to `true` when context hits threshold. Only cleared by `engine session activate` (which proves a new Claude with fresh context has taken over).
 - **Purpose**: Prevents `--resume` on an overflowed conversation. The old context is too large — resuming would hit the same overflow immediately.
 
 | Value | Meaning | `--resume` Allowed? |
@@ -118,8 +118,8 @@ The session's runtime state is tracked by three independent fields in `.state.js
 
 - **Type**: boolean
 - **Default**: `false`
-- **Purpose**: Signal from `session.sh restart` to the restart watchdog that Claude should be terminated.
-- **Cleared by**: `session.sh activate` (new Claude takes over) or `run.sh` (after processing restart).
+- **Purpose**: Signal from `engine session restart` to the restart watchdog that Claude should be terminated.
+- **Cleared by**: `engine session activate` (new Claude takes over) or `run.sh` (after processing restart).
 
 | Value | Meaning | Watchdog Action |
 |-------|---------|----------------|
@@ -132,8 +132,8 @@ The session's runtime state is tracked by three independent fields in `.state.js
 
 | Writer | Sets To | When | Guard |
 |--------|---------|------|-------|
-| `session.sh activate` | `active` | New skill or reactivation | Checks PID ownership |
-| `session.sh deactivate` | `completed` | Skill synthesis done | Checks .state.json exists |
+| `engine session activate` | `active` | New skill or reactivation | Checks PID ownership |
+| `engine session deactivate` | `completed` | Skill synthesis done | Checks .state.json exists |
 | `pre-tool-use-overflow.sh` | `dehydrating` | Skill tool called with `session` (dehydrate subcommand) | Trusts tool name |
 | `run.sh` restart loop | `restarting` | After reading restartPrompt | Checks killRequested + restartPrompt present |
 | `run.sh find_fleet_session()` | `resuming` | Fleet restart, dead PID found | Checks PID is dead |
@@ -143,7 +143,7 @@ The session's runtime state is tracked by three independent fields in `.state.js
 | Writer | Sets To | When | Guard |
 |--------|---------|------|-------|
 | `pre-tool-use-overflow.sh` | `true` | contextUsage >= 0.76 | Only if currently `false` (implicit) |
-| `session.sh activate` | `false` | New Claude activates session | Always — fresh context means not overflowed |
+| `engine session activate` | `false` | New Claude activates session | Always — fresh context means not overflowed |
 
 **Key property**: Only ONE component sets `true` (overflow hook). Only ONE component clears it (activate). The flag survives across restarts, fleet stops, and process deaths. It can only be cleared by proving a new Claude has started.
 
@@ -151,8 +151,8 @@ The session's runtime state is tracked by three independent fields in `.state.js
 
 | Writer | Sets To | When | Guard |
 |--------|---------|------|-------|
-| `session.sh restart` | `true` | `/session dehydrate` calls restart | Trusts caller |
-| `session.sh activate` | `false` | New Claude activates | Always — new lifecycle |
+| `engine session restart` | `true` | `/session dehydrate` calls restart | Trusts caller |
+| `engine session activate` | `false` | New Claude activates | Always — new lifecycle |
 | `run.sh` restart loop | `false` | After processing restart prompt | Checks killRequested was true |
 
 ### 3.3 Reader Audit — Who Reads Each Field and Why?
@@ -231,7 +231,7 @@ For migration reference. The old single `status` field maps to these field combi
                     │    │ killRequested: false         │           │       │
                     │    │ [tools allowed]             │           │       │
                     │    └──────────┬─────────────────┘           │       │
-                    │               │ session.sh restart           │       │
+                    │               │ engine session restart           │       │
                     │               ▼                              │       │
                     │    ┌────────────────────────────┐           │       │
                     │    │ lifecycle: active*          │           │       │
@@ -255,7 +255,7 @@ For migration reference. The old single `status` field maps to these field combi
                     │   synthesis)   │ killRequested: false        │       │
                     │                │ [gate blocks non-whitelist] │       │
                     │                └──────────┬─────────────────┘       │
-                    │                           │ session.sh activate     │
+                    │                           │ engine session activate     │
                     │                           │ (user picks new skill   │
                     │                           │  or continues)          │
                     │                           └─────────────►active     │
@@ -273,14 +273,14 @@ For migration reference. The old single `status` field maps to these field combi
 
 ### 3.6 Transition Guards
 
-- **active → lifecycle=completed**: Only `session.sh deactivate` sets this, called by skill protocols after synthesis
-- **completed → lifecycle=active**: Only `session.sh activate` resets this, when user picks a new skill or continues
+- **active → lifecycle=completed**: Only `engine session deactivate` sets this, called by skill protocols after synthesis
+- **completed → lifecycle=active**: Only `engine session activate` resets this, when user picks a new skill or continues
 - **active → overflowed=true**: Only the overflow hook sets this, and only when `contextUsage >= 0.76`
 - **overflowed → lifecycle=dehydrating**: Only when the Skill tool is called with `skill: "session"` (dehydrate subcommand)
-- **dehydrating → killRequested=true**: Only `session.sh restart` sets this
+- **dehydrating → killRequested=true**: Only `engine session restart` sets this
 - **killRequested → lifecycle=restarting**: Only `run.sh` post-exit loop sets this (after clearing killRequested)
-- **restarting → active (overflowed=false)**: Only `session.sh activate` from the NEW Claude resets everything
-- **resuming → active**: Only `session.sh activate` from the NEW Claude sets this
+- **restarting → active (overflowed=false)**: Only `engine session activate` from the NEW Claude resets everything
+- **resuming → active**: Only `engine session activate` from the NEW Claude sets this
 - **overflowed=true blocks --resume**: `find_fleet_session()` refuses to return sessionId. `run.sh` restart loop skips `--resume`. Two independent guards.
 
 ---
@@ -298,7 +298,7 @@ User runs run.sh
   → run.sh exports WATCHDOG_PID to environment
   → run.sh starts Claude with no --resume (Claude inherits WATCHDOG_PID)
   → Claude invokes a skill (e.g., /implement)
-  → Skill calls session.sh activate sessions/... implement
+  → Skill calls engine session activate sessions/... implement
   → .state.json created: { pid, skill, lifecycle: "active", overflowed: false, killRequested: false }
   → statusline.sh starts binding sessionId on each render tick
   → Normal operation
@@ -319,7 +319,7 @@ Fleet starts → tmuxinator creates panes → each pane runs run.sh
   → No .state.json has matching fleetPaneId → returns empty
   → run.sh starts watchdog + Claude fresh (no --resume)
   → Claude invokes a skill
-  → session.sh activate sets fleetPaneId in .state.json
+  → engine session activate sets fleetPaneId in .state.json
   → Normal operation
 ```
 
@@ -347,7 +347,7 @@ run.sh (in pane "SDK"):
   → Claude picks up where it left off (same context window)
 ```
 
-**Key point**: This is a **conversation resume**, not a rehydration. Claude Code's `--resume` flag restores the full conversation history. The session `.state.json` is re-claimed by the new Claude via `session.sh activate`.
+**Key point**: This is a **conversation resume**, not a rehydration. Claude Code's `--resume` flag restores the full conversation history. The session `.state.json` is re-claimed by the new Claude via `engine session activate`.
 
 **Requires**: `sessionId` was written to `.state.json` by statusline before the fleet stopped. If sessionId is missing, resume fails and Claude starts fresh.
 
@@ -372,8 +372,8 @@ Normal operation, context growing...
   → /session dehydrate:
       1. Inventories session from memory (minimal I/O)
       2. Writes DEHYDRATED_CONTEXT.md to session dir
-      3. Calls session.sh phase to save current phase
-      4. Calls session.sh restart:
+      3. Calls engine session phase to save current phase
+      4. Calls engine session restart:
           → Sets killRequested = true
           → Writes restartPrompt = "/session continue --session ... --skill ... --phase ... --continue"
           → Resets contextUsage = 0
@@ -391,7 +391,7 @@ Normal operation, context growing...
   → run.sh spawns new watchdog + Claude with restart prompt (NO --resume)
   → New Claude receives /session continue prompt
   → /session continue:
-      1. Activates session (session.sh activate → lifecycle="active", overflowed=false, killRequested=false, new PID)
+      1. Activates session (engine session activate → lifecycle="active", overflowed=false, killRequested=false, new PID)
       2. Loads standards
       3. Reads DEHYDRATED_CONTEXT.md
       4. Loads required files
@@ -401,7 +401,7 @@ Normal operation, context growing...
 
 **Key point**: This is a **fresh context start** with **rehydration**. The old conversation is NOT resumed because context was overflowed. Instead, `/session continue` reconstructs the working context from `DEHYDRATED_CONTEXT.md` + required files.
 
-**sessionId handling**: `session.sh restart` deletes sessionId to prevent `run.sh` from using `--resume` on an overflow session. `run.sh` also double-checks: if `overflowed=true`, it skips sessionId even if present (defense in depth against R1).
+**sessionId handling**: `engine session restart` deletes sessionId to prevent `run.sh` from using `--resume` on an overflow session. `run.sh` also double-checks: if `overflowed=true`, it skips sessionId even if present (defense in depth against R1).
 
 ### S5: Claude Crash/Exit (No Overflow, No Restart Request)
 
@@ -427,7 +427,7 @@ Claude exits (any reason)
 
 **Subcase A — sessionId was deleted (correct flow)**:
 ```
-session.sh restart deleted sessionId
+engine session restart deleted sessionId
   → run.sh reads .state.json: killRequested=true, overflowed=true, no sessionId
   → Spawns Claude WITHOUT --resume (fresh conversation)
   → Claude gets /session continue prompt, starts from scratch with rehydration
@@ -435,7 +435,7 @@ session.sh restart deleted sessionId
 
 **Subcase B — sessionId present (race condition R1 occurred)**:
 ```
-statusline.sh wrote sessionId AFTER session.sh restart deleted it
+statusline.sh wrote sessionId AFTER engine session restart deleted it
   → run.sh reads .state.json: killRequested=true, overflowed=true, sessionId present
   → run.sh guard: skips sessionId because overflowed=true
   → Spawns Claude WITHOUT --resume (correct behavior despite race)
@@ -447,9 +447,9 @@ statusline.sh wrote sessionId AFTER session.sh restart deleted it
 
 ```
 Skill completes → debrief written → user sends new message
-  → §CMD_CONTINUE_OR_CLOSE_SESSION fires:
+  → §CMD_RESUME_AFTER_CLOSE fires:
       1. Detects debrief exists in session dir
-      2. Reactivates session: session.sh activate
+      2. Reactivates session: engine session activate
       3. Announces continuation
       4. Logs continuation header to _LOG.md
       5. Executes user's request
@@ -465,7 +465,7 @@ Skill completes → debrief written → user sends new message
 ```
 /implement completes in sessions/2026_02_07_MY_TOPIC/
   → User invokes /test
-  → /test calls session.sh activate ... test
+  → /test calls engine session activate ... test
   → Same PID detected → updates skill field, resets lifecycle to "active"
   → New log file: TESTING_LOG.md (separate from IMPLEMENTATION_LOG.md)
   → Normal operation continues
@@ -491,7 +491,7 @@ Claude is in overflow state (overflowed=true, tools blocked)
   → run.sh starts Claude FRESH (no --resume, no /session continue)
   → Claude starts with clean context, no session
   → Previous session's .state.json has overflowed=true, stale PID
-  → On next session.sh activate (any session), old .state.json is cleaned up
+  → On next engine session activate (any session), old .state.json is cleaned up
 ```
 
 **Without decomposition (old bug)**: `find_fleet_session()` would see `status="overflow"`, set it to `"resuming"`, and return sessionId. run.sh would `--resume` an overflowed conversation. Claude would immediately hit overflow again. Infinite restart loop.
@@ -509,17 +509,17 @@ run.sh exports SESSION_REQUIRED=1
   → Claude reads standards (whitelisted: Read ~/.claude/*)
   → Claude uses AskUserQuestion (whitelisted) to ask about skill
   → User picks /implement → Skill tool invoked (whitelisted)
-  → /implement calls session.sh activate → lifecycle="active"
+  → /implement calls engine session activate → lifecycle="active"
   → PreToolUse gate: session.sh find succeeds, lifecycle="active" → allow all tools
   → Normal operation
 ```
 
 ### S11: Session Gate — Completed Session Re-Engagement
 
-**Trigger**: Skill completes synthesis, calls `session.sh deactivate`. User sends next message.
+**Trigger**: Skill completes synthesis, calls `engine session deactivate`. User sends next message.
 
 ```
-Skill synthesis complete → session.sh deactivate → lifecycle="completed"
+Skill synthesis complete → engine session deactivate → lifecycle="completed"
   → User sends new message
   → UserPromptSubmit hook fires:
       → SESSION_REQUIRED=1 → session.sh find → session found, lifecycle="completed"
@@ -527,11 +527,11 @@ Skill synthesis complete → session.sh deactivate → lifecycle="completed"
   → Claude reads standards (whitelisted)
   → Claude uses AskUserQuestion (whitelisted) to offer continuation
   → User picks "continue" or "new skill"
-  → Skill invocation → session.sh activate → lifecycle="active"
+  → Skill invocation → engine session activate → lifecycle="active"
   → Gate opens → normal operation
 ```
 
-**Key point**: `lifecycle=completed` makes the gate re-engage WITHOUT destroying session state. The session directory, logs, and debrief all remain intact. A new `session.sh activate` transitions back to `active`.
+**Key point**: `lifecycle=completed` makes the gate re-engage WITHOUT destroying session state. The session directory, logs, and debrief all remain intact. A new `engine session activate` transitions back to `active`.
 
 ---
 
@@ -541,7 +541,7 @@ Skill synthesis complete → session.sh deactivate → lifecycle="completed"
 
 **The race**:
 ```
-T1: session.sh restart → deletes sessionId, sets killRequested=true
+T1: engine session restart → deletes sessionId, sets killRequested=true
 T2: statusline.sh tick → reads .state.json, writes sessionId back
 T3: run.sh reads .state.json → sees sessionId (resurrected!)
 ```
@@ -552,21 +552,21 @@ T3: run.sh reads .state.json → sees sessionId (resurrected!)
 
 **Residual risk**: Low. Two independent guards (statusline skip + run.sh skip). Both would need to fail simultaneously.
 
-### R2: session.sh phase Overwrites State During Restart
+### R2: engine session phase Overwrites State During Restart
 
 **The race**:
 ```
 T1: Overflow hook sets overflowed=true
-T2: Claude calls session.sh phase "Phase 3: Execution" (queued tool call)
+T2: Claude calls engine session phase "Phase 3: Execution" (queued tool call)
     → phase command updates currentPhase + lastHeartbeat
     → BUT does NOT touch overflowed or killRequested (safe — phase only writes currentPhase)
 ```
 
-**Analysis**: Not actually a race. `session.sh phase` only writes `currentPhase` and `lastHeartbeat` — it does not modify state fields. The original concern was about jq read-modify-write atomicity on the whole file, but since `phase` uses `jq '.currentPhase = $phase | .lastHeartbeat = $ts'`, it preserves all other fields.
+**Analysis**: Not actually a race. `engine session phase` only writes `currentPhase` and `lastHeartbeat` — it does not modify state fields. The original concern was about jq read-modify-write atomicity on the whole file, but since `phase` uses `jq '.currentPhase = $phase | .lastHeartbeat = $ts'`, it preserves all other fields.
 
 **However**: If `phase` and `restart` execute simultaneously (separate shell processes), the jq read→write is not atomic. One could overwrite the other's changes.
 
-**Mitigation (current)**: The overflow hook blocks tools before `session.sh restart` runs, so no new `session.sh phase` calls can happen after overflow is triggered. `/session dehydrate` runs phase BEFORE restart.
+**Mitigation (current)**: The overflow hook blocks tools before `engine session restart` runs, so no new `engine session phase` calls can happen after overflow is triggered. `/session dehydrate` runs phase BEFORE restart.
 
 **Residual risk**: Very low. Tool blocking prevents concurrent phase/restart calls.
 
@@ -578,14 +578,14 @@ T1: Fleet stops → all Claudes die
 T2: Fleet starts → new Claude in pane "SDK"
 T3: run.sh find_fleet_session() → finds old .state.json with fleetPaneId
 T4: run.sh sets pid=0, lifecycle="resuming"
-T5: Claude starts, invokes skill → session.sh activate
-T6: session.sh activate claims fleet pane (clears fleetPaneId from OTHER sessions)
+T5: Claude starts, invokes skill → engine session activate
+T6: engine session activate claims fleet pane (clears fleetPaneId from OTHER sessions)
 ```
 
 **Potential issue**: Between T4 and T6, the `.state.json` has pid=0 and lifecycle="resuming". If ANOTHER process scans `.state.json` during this window, it sees a session with no active owner.
 
 **Mitigation (current)**:
-- `session.sh activate` fleet pane claiming (step T6) greps for matching fleetPaneId in OTHER sessions and clears them. This is idempotent.
+- `engine session activate` fleet pane claiming (step T6) greps for matching fleetPaneId in OTHER sessions and clears them. This is idempotent.
 - `statusline.sh` fleet lookup will claim the session (update PID) on first tick after activation.
 
 **Residual risk**: Low. The window is sub-second and fleet panes are 1:1 with sessions.
@@ -610,16 +610,16 @@ T5: Hook reads lifecycle="dehydrating" → allows (correct)
 **The race**:
 ```
 T1: statusline.sh reads .state.json → JSON in memory
-T2: session.sh phase reads .state.json → JSON in memory
+T2: engine session phase reads .state.json → JSON in memory
 T3: statusline.sh writes .state.json (with sessionId update)
-T4: session.sh phase writes .state.json (with phase update, but stale sessionId)
+T4: engine session phase writes .state.json (with phase update, but stale sessionId)
 ```
 
 **Analysis**: All jq operations follow the pattern `jq '...' file > file.tmp && mv file.tmp file`. The `mv` is atomic on POSIX, but the read-modify-write sequence is not. Two concurrent writers can lose each other's changes.
 
 **Mitigation (current)**: None explicitly. In practice, collisions are rare because:
 - statusline runs on a render tick (every few seconds)
-- session.sh phase is called by Claude (between tool calls)
+- engine session phase is called by Claude (between tool calls)
 - These rarely overlap within the same millisecond
 
 **Residual risk**: Low but real. A file lock (`flock`) would eliminate this.
@@ -631,7 +631,7 @@ Two independent captures of `fleetPaneId` can return different values:
 
 | Source | When Captured | Example Value |
 |--------|-------------|---------------|
-| `session.sh activate` (`.state.json`) | At session activation | `yarik-fleet:meta:Sessions` |
+| `engine session activate` (`.state.json`) | At session activation | `yarik-fleet:meta:Sessions` |
 | `fleet.sh pane-id` (live, called by `session.sh find`) | At lookup time | `yarik-fleet:company:Future` |
 
 This happens when pane labels change between activation and lookup, or when a process migrates between panes.
@@ -710,11 +710,11 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 
 | Responsibility | Details |
 |---------------|---------|
-| Signal reception | Waits for USR1 signal from `session.sh restart` (via `WATCHDOG_PID` env var) |
+| Signal reception | Waits for USR1 signal from `engine session restart` (via `WATCHDOG_PID` env var) |
 | Kill mechanism | Process group kill: sends SIGTERM to all children of run.sh (`pgrep -P $$`) except itself (`$BASHPID`). Escalates to SIGKILL after 1s. |
-| Communication | `session.sh restart` → `kill -USR1 $WATCHDOG_PID`. No filesystem monitoring. |
+| Communication | `engine session restart` → `kill -USR1 $WATCHDOG_PID`. No filesystem monitoring. |
 | Lifecycle | Spawned before each Claude invocation. `WATCHDOG_PID` exported to environment. Killed + waited by run.sh after Claude exits (any reason). |
-| Fallback | If `WATCHDOG_PID` is not set (not running under run.sh), `session.sh restart` prints warning + manual restart instructions. No self-kill fallback. |
+| Fallback | If `WATCHDOG_PID` is not set (not running under run.sh), `engine session restart` prints warning + manual restart instructions. No self-kill fallback. |
 
 ### `pre-tool-use-overflow.sh` — Context Guardian
 
@@ -734,7 +734,7 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 
 | Responsibility | Details |
 |---------------|---------|
-| Loading mode | If `loading=true` in `.state.json`, skip ALL heartbeat logic — pure passthrough (`allow_tool` immediately). Set by `session.sh activate` on every activation (fresh + re-activation). Cleared by `session.sh phase` (which also resets all counters). Prevents false violations during bootstrap/session-continue when agent loads standards, templates, and context files. |
+| Loading mode | If `loading=true` in `.state.json`, skip ALL heartbeat logic — pure passthrough (`allow_tool` immediately). Set by `engine session activate` on every activation (fresh + re-activation). Cleared by `engine session phase` (which also resets all counters). Prevents false violations during bootstrap/session-continue when agent loads standards, templates, and context files. |
 | Session lookup | `session.sh find` (single source of truth) |
 | Counter management | Per-transcript counters in `toolCallsByTranscript` map (keyed by `basename(transcript_path)`). Each agent instance (main + sub-agents) gets an isolated counter. Increments on each tool call. Resets to 0 when `log.sh` detected in Bash command. |
 | Transcript isolation | `transcript_path` (from hook input JSON) uniquely identifies each agent instance. `basename()` extracts the key (e.g., `abc123.jsonl`). Sub-agent tool calls don't pollute the main agent's counter. |
@@ -773,8 +773,8 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 |---------------|---------|
 | Context inventory | Lists session files, recalls loaded context from memory |
 | Dehydrated context | Writes structured handover to `DEHYDRATED_CONTEXT.md` |
-| Phase save | Calls `session.sh phase` to record current phase before restart |
-| Restart trigger | Calls `session.sh restart` which sets `killRequested=true`, prepares restart prompt, and signals watchdog via `kill -USR1 $WATCHDOG_PID`. |
+| Phase save | Calls `engine session phase` to record current phase before restart |
+| Restart trigger | Calls `engine session restart` which sets `killRequested=true`, prepares restart prompt, and signals watchdog via `kill -USR1 $WATCHDOG_PID`. |
 
 ### `/session continue` Subcommand — Context Restorer
 
@@ -782,7 +782,7 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 
 | Responsibility | Details |
 |---------------|---------|
-| Session activation | Calls `session.sh activate` to register new Claude (resets overflowed=false, killRequested=false, sets new PID) |
+| Session activation | Calls `engine session activate` to register new Claude (resets overflowed=false, killRequested=false, sets new PID) |
 | Standards loading | Reads COMMANDS.md, INVARIANTS.md |
 | Context restoration | Reads DEHYDRATED_CONTEXT.md, extracts required files list |
 | File loading | Reads all required files (session artifacts, skill templates, source code) |
@@ -794,9 +794,9 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 
 ### Hard Requirements
 
-1. **One session per pane**: In fleet mode, each pane owns at most one active session. `session.sh activate` enforces this by clearing `fleetPaneId` from other sessions.
+1. **One session per pane**: In fleet mode, each pane owns at most one active session. `engine session activate` enforces this by clearing `fleetPaneId` from other sessions.
 
-2. **One Claude per session**: A session cannot be shared by two running Claude processes. `session.sh activate` rejects if a different living PID owns the session.
+2. **One Claude per session**: A session cannot be shared by two running Claude processes. `engine session activate` rejects if a different living PID owns the session.
 
 3. **Overflow must dehydrate**: When the overflow hook fires, Claude MUST run `/session dehydrate restart`. No other tool is allowed (except logging/session scripts).
 
@@ -804,25 +804,25 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
     - `run.sh` restart loop — skips `--resume` when `overflowed=true`
     - `run.sh find_fleet_session()` — refuses to return sessionId when `overflowed=true`
     - `statusline.sh` — skips sessionId write when `overflowed=true`
-    Three independent guards. The `overflowed` flag is sticky — only cleared by `session.sh activate` (proving fresh context).
+    Three independent guards. The `overflowed` flag is sticky — only cleared by `engine session activate` (proving fresh context).
 
 5. **Fleet restart = conversation resume (if not overflowed)**: A fleet stop/start cycle tries `--resume` with the stored `sessionId`, but ONLY if `overflowed=false`. If the session was mid-overflow when fleet stopped, Claude starts fresh.
 
-6. **State fields must flow forward**: State transitions follow the flow diagram. No component should set fields to an earlier state except `session.sh activate` (which resets everything as the "new lifecycle" entry point).
+6. **State fields must flow forward**: State transitions follow the flow diagram. No component should set fields to an earlier state except `engine session activate` (which resets everything as the "new lifecycle" entry point).
 
-7. **sessionId must not survive overflow restart**: `session.sh restart` deletes `sessionId`. `run.sh` and `statusline.sh` guard against resurrection. This is defense-in-depth alongside the `overflowed` flag.
+7. **sessionId must not survive overflow restart**: `engine session restart` deletes `sessionId`. `run.sh` and `statusline.sh` guard against resurrection. This is defense-in-depth alongside the `overflowed` flag.
 
-8. **PID identity comes from `CLAUDE_SUPERVISOR_PID` (run.sh's PID)**: Claude spawns child processes via different paths — Bash tools go through a subprocess manager, statusline is spawned directly. Their `$PPID` values differ. `run.sh` exports `CLAUDE_SUPERVISOR_PID=$$` early, and all consumers (`session.sh activate`, `statusline.sh find_session_dir`) read it. This eliminates PID disagreements without fragile process-tree walking.
+8. **PID identity comes from `CLAUDE_SUPERVISOR_PID` (run.sh's PID)**: Claude spawns child processes via different paths — Bash tools go through a subprocess manager, statusline is spawned directly. Their `$PPID` values differ. `run.sh` exports `CLAUDE_SUPERVISOR_PID=$$` early, and all consumers (`engine session activate`, `statusline.sh find_session_dir`) read it. This eliminates PID disagreements without fragile process-tree walking.
 
-9. **Watchdog is signal-driven, not filesystem-driven**: The restart watchdog receives USR1 from `session.sh restart` via `WATCHDOG_PID` env var. It kills Claude via process group kill (siblings of watchdog). No `.state.json` reading, no pane ID scoping, no PID matching. The signal IS the scope — only the session.sh that knows `WATCHDOG_PID` can trigger it.
+9. **Watchdog is signal-driven, not filesystem-driven**: The restart watchdog receives USR1 from `engine session restart` via `WATCHDOG_PID` env var. It kills Claude via process group kill (siblings of watchdog). No `.state.json` reading, no pane ID scoping, no PID matching. The signal IS the scope — only the session.sh that knows `WATCHDOG_PID` can trigger it.
 
-10. **Logging enforcement uses per-transcript counters**: `pre-tool-use-heartbeat.sh` tracks tool calls between log entries via `toolCallsByTranscript` — a map keyed by `basename(transcript_path)` that isolates each agent instance's counter. Sub-agent tool calls don't inflate the main agent's counter. Warn at `toolUseWithoutLogsWarnAfter` (default 3), block at `toolUseWithoutLogsBlockAfter` (default 10). Thresholds are written to `.state.json` by `session.sh activate` and readable with jq fallbacks for backward compatibility. Counter is reset to 0 whenever `log.sh` is detected in a Bash tool call. Read of `TEMPLATE_*_LOG.md` files is whitelisted (no counting).
+10. **Logging enforcement uses per-transcript counters**: `pre-tool-use-heartbeat.sh` tracks tool calls between log entries via `toolCallsByTranscript` — a map keyed by `basename(transcript_path)` that isolates each agent instance's counter. Sub-agent tool calls don't inflate the main agent's counter. Warn at `toolUseWithoutLogsWarnAfter` (default 3), block at `toolUseWithoutLogsBlockAfter` (default 10). Thresholds are written to `.state.json` by `engine session activate` and readable with jq fallbacks for backward compatibility. Counter is reset to 0 whenever `log.sh` is detected in a Bash tool call. Read of `TEMPLATE_*_LOG.md` files is whitelisted (no counting).
 
 11. **Session lookup is centralized in `session.sh find`**: All components that need to find "which session am I in?" call `session.sh find` instead of implementing their own lookup. `session.sh find` is read-only (no PID claiming, no writes). Two strategies: fleet pane match, then PID match. Returns session dir path or exit 1.
 
-12. **Session activation is mandatory (SESSION_REQUIRED gate)**: When `SESSION_REQUIRED=1` (set by `run.sh`), the `pre-tool-use-session-gate.sh` hook blocks all non-whitelisted tools until the agent activates a session via skill invocation. Whitelisted: Read(`~/.claude/*`, `.claude/*`, `*/CLAUDE.md`), Bash(`session.sh`/`log.sh`/`tag.sh`/`glob.sh`), AskUserQuestion, Skill. The `user-prompt-submit-session-gate.sh` hook proactively injects boot instructions. After synthesis, `session.sh deactivate` sets `lifecycle=completed`, re-engaging the gate for the next skill cycle.
+12. **Session activation is mandatory (SESSION_REQUIRED gate)**: When `SESSION_REQUIRED=1` (set by `run.sh`), the `pre-tool-use-session-gate.sh` hook blocks all non-whitelisted tools until the agent activates a session via skill invocation. Whitelisted: Read(`~/.claude/*`, `.claude/*`, `*/CLAUDE.md`), Bash(`session.sh`/`log.sh`/`tag.sh`/`glob.sh`), AskUserQuestion, Skill. The `user-prompt-submit-session-gate.sh` hook proactively injects boot instructions. After synthesis, `engine session deactivate` sets `lifecycle=completed`, re-engaging the gate for the next skill cycle.
 
-13. **Loading mode bypasses heartbeat during bootstrap**: `session.sh activate` sets `loading=true` on every activation (fresh and re-activation). While `loading=true`, the heartbeat hook skips ALL logic — no counting, no warnings, no blocks (pure passthrough). `session.sh phase` clears the loading flag and resets all `toolCallsByTranscript` counters to `{}`, giving the work phase a clean slate. This prevents false heartbeat violations during bootstrap/session-continue when the agent loads standards, templates, dehydrated context, and skill files.
+13. **Loading mode bypasses heartbeat during bootstrap**: `engine session activate` sets `loading=true` on every activation (fresh and re-activation). While `loading=true`, the heartbeat hook skips ALL logic — no counting, no warnings, no blocks (pure passthrough). `engine session phase` clears the loading flag and resets all `toolCallsByTranscript` counters to `{}`, giving the work phase a clean slate. This prevents false heartbeat violations during bootstrap/session-continue when the agent loads standards, templates, dehydrated context, and skill files.
 
 ### Soft Requirements (Aspirational)
 
@@ -861,26 +861,26 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 
 | Field | Type | Set By | Cleared By | Purpose |
 |-------|------|--------|-----------|---------|
-| `pid` | number | `session.sh activate` (from `$CLAUDE_SUPERVISOR_PID`), `statusline.sh` (claim) | `run.sh` (set to 0 on fleet resume) | Process identity (run.sh's PID, not Claude binary's) |
-| `sessionId` | string | `statusline.sh` | `session.sh restart` (deleted) | Claude conversation ID for `--resume` |
-| `skill` | string | `session.sh activate` | — | Current skill name |
-| `lifecycle` | string | Various (see §3.2) | `session.sh activate` (reset to active) | Session lifecycle phase |
-| `loading` | boolean | `session.sh activate` (→ true) | `session.sh phase` (deleted via `del(.loading)`) | Bootstrap mode flag — heartbeat hook skips ALL logic when true. Set on every activation, cleared on first phase transition. |
-| `overflowed` | boolean | `pre-tool-use-overflow.sh` (→ true) | `session.sh activate` (→ false) | Sticky overflow flag, blocks `--resume` |
-| `killRequested` | boolean | `session.sh restart` (→ true) | `session.sh activate` (→ false), `run.sh` (→ false) | Kill signal for watchdog |
-| `contextUsage` | number | `statusline.sh` | `session.sh restart` (reset to 0) | Raw context % (0.0–1.0) |
-| `currentPhase` | string | `session.sh phase` | — | Skill phase for status line + restart recovery |
-| `fleetPaneId` | string | `session.sh activate` | `session.sh activate` (cleared from OTHER sessions) | Stable fleet identity |
+| `pid` | number | `engine session activate` (from `$CLAUDE_SUPERVISOR_PID`), `statusline.sh` (claim) | `run.sh` (set to 0 on fleet resume) | Process identity (run.sh's PID, not Claude binary's) |
+| `sessionId` | string | `statusline.sh` | `engine session restart` (deleted) | Claude conversation ID for `--resume` |
+| `skill` | string | `engine session activate` | — | Current skill name |
+| `lifecycle` | string | Various (see §3.2) | `engine session activate` (reset to active) | Session lifecycle phase |
+| `loading` | boolean | `engine session activate` (→ true) | `engine session phase` (deleted via `del(.loading)`) | Bootstrap mode flag — heartbeat hook skips ALL logic when true. Set on every activation, cleared on first phase transition. |
+| `overflowed` | boolean | `pre-tool-use-overflow.sh` (→ true) | `engine session activate` (→ false) | Sticky overflow flag, blocks `--resume` |
+| `killRequested` | boolean | `engine session restart` (→ true) | `engine session activate` (→ false), `run.sh` (→ false) | Kill signal for watchdog |
+| `contextUsage` | number | `statusline.sh` | `engine session restart` (reset to 0) | Raw context % (0.0–1.0) |
+| `currentPhase` | string | `engine session phase` | — | Skill phase for status line + restart recovery |
+| `fleetPaneId` | string | `engine session activate` | `engine session activate` (cleared from OTHER sessions) | Stable fleet identity |
 | `targetFile` | string | `session.sh target` | — | Clickable file in status line |
-| `sessionDescription` | string | `session.sh deactivate` (from stdin) | — | 1-3 line summary of session work for RAG/search discovery |
-| `keywords` | string | `session.sh deactivate` (from `--keywords` flag) | — | Comma-separated search keywords for RAG discoverability |
-| `startedAt` | string | `session.sh activate` | — | Session creation timestamp |
+| `sessionDescription` | string | `engine session deactivate` (from stdin) | — | 1-3 line summary of session work for RAG/search discovery |
+| `keywords` | string | `engine session deactivate` (from `--keywords` flag) | — | Comma-separated search keywords for RAG discoverability |
+| `startedAt` | string | `engine session activate` | — | Session creation timestamp |
 | `lastHeartbeat` | string | `statusline.sh`, `session.sh` | — | Last activity timestamp |
-| `restartPrompt` | string | `session.sh restart` | `run.sh` (deleted after reading) | Command for new Claude on restart |
-| `toolCallsSinceLastLog` | number | `pre-tool-use-heartbeat.sh` (increment), `log.sh` detection resets to 0 | `session.sh activate` (→ 0) | Legacy counter for logging enforcement (deprecated — see `toolCallsByTranscript`) |
-| `toolCallsByTranscript` | object | `pre-tool-use-heartbeat.sh` (increment per transcript key), `log.sh` detection resets calling key to 0 | `session.sh activate` (not set — grows lazily) | Per-agent counters keyed by `basename(transcript_path)`. Isolates main agent from sub-agents. |
-| `toolUseWithoutLogsWarnAfter` | number | `session.sh activate` (default 3) | — | Threshold: warn after N tool calls without logging |
-| `toolUseWithoutLogsBlockAfter` | number | `session.sh activate` (default 10) | — | Threshold: block after N tool calls without logging |
+| `restartPrompt` | string | `engine session restart` | `run.sh` (deleted after reading) | Command for new Claude on restart |
+| `toolCallsSinceLastLog` | number | `pre-tool-use-heartbeat.sh` (increment), `log.sh` detection resets to 0 | `engine session activate` (→ 0) | Legacy counter for logging enforcement (deprecated — see `toolCallsByTranscript`) |
+| `toolCallsByTranscript` | object | `pre-tool-use-heartbeat.sh` (increment per transcript key), `log.sh` detection resets calling key to 0 | `engine session activate` (not set — grows lazily) | Per-agent counters keyed by `basename(transcript_path)`. Isolates main agent from sub-agents. |
+| `toolUseWithoutLogsWarnAfter` | number | `engine session activate` (default 3) | — | Threshold: warn after N tool calls without logging |
+| `toolUseWithoutLogsBlockAfter` | number | `engine session activate` (default 10) | — | Threshold: block after N tool calls without logging |
 
 ---
 
@@ -902,9 +902,9 @@ Claude starts (via run.sh, SESSION_REQUIRED=1)
   │   ├── UPS hook injects boot instructions
   │   ├── Agent loads standards (whitelisted Read)
   │   ├── Agent asks user about skill (whitelisted AskUserQuestion)
-  │   └── Skill invoked → session.sh activate → gate opens
+  │   └── Skill invoked → engine session activate → gate opens
   │
-  ├── Post-synthesis: session.sh deactivate → lifecycle=completed
+  ├── Post-synthesis: engine session deactivate → lifecycle=completed
   │   ├── Gate re-engages (blocks non-whitelisted)
   │   ├── UPS hook injects continuation prompt
   │   └── Agent asks user → new skill/continuation → activate → gate opens

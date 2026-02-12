@@ -53,4 +53,10 @@
 *   **Tag to debrief only**: Tags are written to the debrief file (the canonical session artifact), not to the log. The log gets an audit entry.
 *   **Batching**: If more than 4 discoveries, present in batches of 4 per `AskUserQuestion`'s option limit. Offer "More items..." as the 4th option in each batch.
 *   **No double-tagging**: Check if the debrief already has the proposed tag before adding (idempotent).
-*   **Discovery → Resolution pipeline**: Once tagged, discoveries become discoverable by `tag.sh find` which routes them to the appropriate resolving skill per `§TAG_DISPATCH` (e.g., `#needs-implementation` → `/implement`, `#needs-research` → `/research`, `#needs-brainstorm` → `/brainstorm`). This closes the loop: session work → log discovery → tag → resolve.
+*   **Discovery → Resolution pipeline**: Once tagged, discoveries become discoverable by `engine tag find` which routes them to the appropriate resolving skill per `§TAG_DISPATCH` (e.g., `#needs-implementation` → `/implement`, `#needs-research` → `/research`, `#needs-brainstorm` → `/brainstorm`). This closes the loop: session work → log discovery → tag → resolve.
+
+---
+
+## PROOF FOR §CMD_CAPTURE_SIDE_DISCOVERIES
+
+This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).

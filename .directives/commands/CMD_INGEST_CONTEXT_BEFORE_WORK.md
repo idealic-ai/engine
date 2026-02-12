@@ -18,3 +18,22 @@
     *   If total curated options > 4, promote largest categories to bulk until ≤ 4.
     *   **All empty** → skip menu, prompt for free-text paths via "Other".
 5.  Load selected items + any "Other" free-text paths.
+
+---
+
+## PROOF FOR §CMD_INGEST_CONTEXT_BEFORE_WORK
+
+```json
+{
+  "context_sources_presented": {
+    "type": "string",
+    "description": "Summary of context sources offered to the user",
+    "examples": ["menu shown with 3 RAG items + 2 alerts"]
+  },
+  "files_loaded": {
+    "type": "string",
+    "description": "Count or list of files loaded into context",
+    "examples": ["5 files loaded", "BRAINSTORM.md, session.sh, CMD_GATE_PHASE.md"]
+  }
+}
+```

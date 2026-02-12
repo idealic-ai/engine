@@ -7,7 +7,7 @@ Shell scripts for the workflow engine. Symlinked to `~/.claude/scripts/` and whi
 All scripts can be invoked via the `engine` CLI alias, which routes `engine <command> [args]` to the corresponding `<command>.sh` script:
 
 ```bash
-engine session activate sessions/2026_02_09_TOPIC implement   # → session.sh activate ...
+engine session activate sessions/2026_02_09_TOPIC implement   # → engine session activate ...
 engine log sessions/.../LOG.md <<'EOF'                         # → log.sh ...
 engine tag find '#needs-review'                                # → tag.sh find ...
 engine glob '**/*.md' sessions/                                # → glob.sh ...
@@ -20,7 +20,7 @@ The alias is the preferred invocation method — it's shorter and whitelisted vi
 | Script | Purpose | Usage |
 |--------|---------|-------|
 | `engine.sh` | CLI alias — routes `engine <cmd>` to the corresponding script | `engine session activate ...` |
-| `session.sh` | Session lifecycle: activate, phase tracking, deactivate, restart, context scans | `session.sh activate <path> <skill>` |
+| `session.sh` | Session lifecycle: activate, phase tracking, deactivate, restart, context scans | `engine session activate <path> <skill>` |
 | `log.sh` | Append content to any file. Creates parent dirs. Auto-injects timestamps into `## ` headings | `log.sh <file> <<'EOF'` |
 | `tag.sh` | Manage semantic tags on markdown files. Subcommands: `add`, `remove`, `swap`, `find` | `tag.sh add <file> '#tag'` |
 | `lib.sh` | Shared utilities for hooks: fleet notification, tmux guards, JSON helpers | Sourced by hooks, not invoked directly |

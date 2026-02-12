@@ -487,6 +487,6 @@ These migrations were originally inline in `engine.sh` and are being extracted:
 |---|------|--------|-------------|
 | 001 | perfile_scripts_hooks | engine.sh `link_files_if_needed` migration logic | Converts whole-dir symlinks for `scripts/` and `hooks/` to per-file symlinks |
 | 002 | perfile_skills | engine.sh `setup_engine_symlinks` migration logic | Converts whole-dir `skills/` symlink to per-skill symlinks |
-| 003 | state_json_rename | session.sh activate migration logic | Renames `.agent.json` to `.state.json` across all sessions |
+| 003 | state_json_rename | engine session activate migration logic | Renames `.agent.json` to `.state.json` across all sessions |
 | 004 | remove_stale_skill_symlinks | Analysis recommendation §5.1 | Removes symlinks in `skills/` that point to dirs without `SKILL.md` |
 | 005 | add_hooks_to_settings | Analysis recommendation §5.3 | Deep-merges 4 new hook entries into `settings.json` (preserves existing user hooks) |

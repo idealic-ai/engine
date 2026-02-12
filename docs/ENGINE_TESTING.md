@@ -11,8 +11,8 @@ All tests live in `~/.claude/engine/scripts/tests/`. This is the canonical locat
 | File | Target | Assertions | What It Tests |
 |------|--------|------------|---------------|
 | `test-session-sh.sh` | session.sh (all subcommands) | 34 | init, activate (fresh/re-activation/PID conflicts/completedSkills/migration), update, phase, target, deactivate, restart, find |
-| `test-completed-skills.sh` | session.sh activate/deactivate | 14 | completedSkills gating, .state.json rename, migration |
-| `test-phase-enforcement.sh` | session.sh phase | 36 | Phase enforcement, sequential/skip/backward transitions, sub-phases, skill-switch reset |
+| `test-completed-skills.sh` | engine session activate/deactivate | 14 | completedSkills gating, .state.json rename, migration |
+| `test-phase-enforcement.sh` | engine session phase | 36 | Phase enforcement, sequential/skip/backward transitions, sub-phases, skill-switch reset |
 | `test-log-sh.sh` | log.sh | 13 | Timestamp injection, double-stamp guard, overwrite mode, heading validation |
 | `test-run-lifecycle.sh` | run.sh | 22 | Full lifecycle with Claude binary stub — normal exit, restart loop, env vars |
 | `test-run-sh.sh` | run.sh (functions) | 8 | find_fleet_session, scoped fleetPaneId, restart sessionId skip, statusline defense, migration |
@@ -35,8 +35,8 @@ All tests live in `~/.claude/engine/scripts/tests/`. This is the canonical locat
 | `test-discover-instructions.sh` | discover-instructions.sh | 10 | Walk-up logic, boundary detection (PWD), type filtering (soft/hard/all), exclusion rules (node_modules/.git/sessions/tmp/dist/build), deduplication |
 | `test-post-tool-use-discovery.sh` | post-tool-use-discovery.sh | 17 | Tool filtering (Read/Edit/Write only), engine path skip, no-session graceful exit, touchedDirs tracking, soft discovery (hookSpecificOutput/dedup), hard discovery (CHECKLIST.md), idempotency |
 | `test-session-discovery.sh` | session.sh (discovery integration) | 12 | Activate seeds touchedDirs/discoveredChecklists from directoriesOfInterest, deactivate checklist gate (¶INV_CHECKLIST_BEFORE_CLOSE), idempotent re-activation |
-| `test-session-check.sh` | session.sh check subcommand | 8 | check validation (empty stdin, missing blocks, empty blocks, happy path, no checklists, paths with spaces), deactivate checklist gate (checkPassed blocking/allowing) |
-| `test-session-check-tags.sh` | session.sh check (tag scanning) | 20 | `¶INV_ESCAPE_BY_DEFAULT` enforcement, bare tag detection (needs/active/done), Tags-line exclusion, backtick-escape filtering, tagCheckPassed skip, checklist integration, multiple tags per file, empty session, hardening: plan steps, headings, narrative, multi-family, line-start/end, whitespace, mixed escaped+bare |
+| `test-session-check.sh` | engine session check subcommand | 8 | check validation (empty stdin, missing blocks, empty blocks, happy path, no checklists, paths with spaces), deactivate checklist gate (checkPassed blocking/allowing) |
+| `test-session-check-tags.sh` | engine session check (tag scanning) | 20 | `¶INV_ESCAPE_BY_DEFAULT` enforcement, bare tag detection (needs/active/done), Tags-line exclusion, backtick-escape filtering, tagCheckPassed skip, checklist integration, multiple tags per file, empty session, hardening: plan steps, headings, narrative, multi-family, line-start/end, whitespace, mixed escaped+bare |
 | `test-tag-find.sh` | tag.sh find (discovery rules) | 17 | Escape-by-default discovery (all .md types), binary DB exclusion, .state.json exclusion, Tags-line Pass 1, inline Pass 2, backtick filtering, dedup, hardening: plan steps, log headings, only-escaped exclusion, TESTING.md debrief, --context flag |
 
 **Total: 28 suites, ~565+ assertions**
@@ -66,9 +66,9 @@ Tests use **real** session.sh, real hooks, and real filesystem operations. Only 
 
 1. Logs each invocation to `invocations.log` (for assertion)
 2. Reads a script file from `$STUB_SCRIPT_FILE` with commands like:
-   - `session:activate DIR SKILL` — calls session.sh activate
-   - `session:phase DIR PHASE` — calls session.sh phase
-   - `session:deactivate DIR` — calls session.sh deactivate
+   - `session:activate DIR SKILL` — calls engine session activate
+   - `session:phase DIR PHASE` — calls engine session phase
+   - `session:deactivate DIR` — calls engine session deactivate
    - `exit:CODE` — exits with code
 3. This enables testing run.sh's restart loop, env var export, and watchdog behavior without a real Claude process
 

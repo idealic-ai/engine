@@ -1,7 +1,7 @@
 ---
 name: delegation-review
 description: "Standalone dispatch approval — scans #needs-X tags, presents grouped approval menu, executes tag transitions. Triggers: \"review delegations\", \"dispatch approval\", \"what needs dispatching\", \"delegation review\"."
-version: 2.0
+version: 3.0
 tier: lightweight
 ---
 
@@ -21,7 +21,6 @@ Standalone dispatch approval for reviewing pending `#needs-X` and stale `#next-X
 
 Lightweight utility for reviewing pending `#needs-X` tags and approving them for daemon dispatch (`#delegated-X`) or immediate next-skill execution (`#next-X`). The requester-side counterpart to `/delegation-claim` (worker-side claiming). No session activation, no log file, no debrief.
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This is a utility skill with a single-phase protocol. Follow the steps below exactly.
 
 ---
 
@@ -145,7 +144,7 @@ After all groups are processed:
 
 ## Constraints
 
-- **No session activation** (`¶INV_DELEGATE_IS_NESTABLE` pattern): This skill does not call `session.sh activate`. It can be invoked standalone or mid-skill.
+- **No session activation** (`¶INV_DELEGATE_IS_NESTABLE` pattern): This skill does not call `engine session activate`. It can be invoked standalone or mid-skill.
 - **No REQUEST/RESPONSE templates**: `/delegation-review` does not accept delegation requests itself. It IS the dispatch approver.
 - **Human approval required** (`¶INV_DISPATCH_APPROVAL_REQUIRED`): Every `#needs-X` -> `#delegated-X` or `#needs-X` -> `#next-X` transition requires explicit user approval. No auto-flipping.
 - **Excludes review/rework tags**: `#needs-review` and `#needs-rework` are handled by `/review`, not this skill. Filter them out of scan results.

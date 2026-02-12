@@ -39,7 +39,7 @@ Manages session state in `.state.json`.
 
 ```bash
 # Activate session
-session.sh activate sessions/2026_02_05_MY_SESSION brainstorm
+engine session activate sessions/2026_02_05_MY_SESSION brainstorm
 
 # PID detection: session.sh reads $CLAUDE_SUPERVISOR_PID (set by run.sh)
 # Fallback: $PPID. No --pid flag needed.
@@ -48,7 +48,7 @@ session.sh activate sessions/2026_02_05_MY_SESSION brainstorm
 session.sh update sessions/2026_02_05_MY_SESSION contextUsage 0.85
 
 # Trigger restart (signals run.sh)
-session.sh restart sessions/2026_02_05_MY_SESSION
+engine session restart sessions/2026_02_05_MY_SESSION
 ```
 
 ### `~/.claude/hooks/pre-tool-use-overflow.sh` — Overflow Hook
@@ -129,7 +129,7 @@ The system uses two-stage binding to reliably track sessions across restarts:
 ┌────────────────────────────────────────────────────────────────────┐
 │                     SESSION BINDING FLOW                           │
 ├────────────────────────────────────────────────────────────────────┤
-│  1. session.sh activate                                            │
+│  1. engine session activate                                            │
 │     └── Creates .state.json with PID                               │
 │                                                                    │
 │  2. statusline.sh (runs on every render)                           │
@@ -172,16 +172,16 @@ Located at `sessions/<session>/.state.json`:
 
 | Field | Set By | Purpose |
 |-------|--------|---------|
-| `pid` | `session.sh activate` | Claude process ID (from `$CLAUDE_SUPERVISOR_PID`) |
+| `pid` | `engine session activate` | Claude process ID (from `$CLAUDE_SUPERVISOR_PID`) |
 | `sessionId` | `statusline.sh` | Claude's internal session ID for hook matching |
-| `skill` | `session.sh activate` | Current skill being executed |
+| `skill` | `engine session activate` | Current skill being executed |
 | `lifecycle` | Various | `active` → `dehydrating` → `restarting` → `resuming` / `completed` |
 | `overflowed` | `pre-tool-use-overflow.sh` | Sticky flag — blocks `--resume` until fresh activation |
-| `killRequested` | `session.sh restart` | Signal for restart watchdog |
+| `killRequested` | `engine session restart` | Signal for restart watchdog |
 | `contextUsage` | `statusline.sh` | Raw context percentage (0.0-1.0) |
-| `currentPhase` | `session.sh phase` | Skill phase for resume after restart |
+| `currentPhase` | `engine session phase` | Skill phase for resume after restart |
 | `lastHeartbeat` | `statusline.sh` | Timestamp of last status update |
-| `restartPrompt` | `session.sh restart` | Command for new Claude to run |
+| `restartPrompt` | `engine session restart` | Command for new Claude to run |
 
 *Full schema with all fields: see `~/.claude/docs/SESSION_LIFECYCLE.md` §8.*
 
@@ -193,7 +193,7 @@ Located at `sessions/<session>/.state.json`:
 ├─────────────────────────────────────────────────────────────┤
 │  run.sh spawns Claude                                        │
 │       ↓                                                      │
-│  Skill calls session.sh activate                             │
+│  Skill calls engine session activate                             │
 │       ↓                                                      │
 │  Status line updates contextUsage in .state.json             │
 │       ↓                                                      │
@@ -209,13 +209,13 @@ Located at `sessions/<session>/.state.json`:
 │       ↓                                                      │
 │  /session dehydrate writes DEHYDRATED_CONTEXT.md             │
 │       ↓                                                      │
-│  session.sh restart writes restartPrompt, sends SIGUSR1      │
+│  engine session restart writes restartPrompt, sends SIGUSR1      │
 │       ↓                                                      │
 │  run.sh catches signal, kills Claude, reads .state.json      │
 │       ↓                                                      │
 │  run.sh spawns fresh Claude with restart prompt              │
 │       ↓                                                      │
-│  run.sh calls session.sh activate (PID from env)              │
+│  run.sh calls engine session activate (PID from env)              │
 │       ↓                                                      │
 │  New Claude reads DEHYDRATED_CONTEXT.md, resumes work        │
 └─────────────────────────────────────────────────────────────┘
@@ -240,7 +240,7 @@ This will:
 
 **Cause:** Session wasn't activated after restart or continuation.
 
-**Fix:** Run `session.sh activate <session_dir> <skill>` manually, or ensure `run.sh` wrapper is being used.
+**Fix:** Run `engine session activate <session_dir> <skill>` manually, or ensure `run.sh` wrapper is being used.
 
 ### Hook blocks but Claude doesn't dehydrate
 
@@ -266,5 +266,5 @@ This will:
 - `~/.claude/docs/DIRECTIVES_SYSTEM.md` — Behavioral specification system (commands, invariants, tags) that governs session behavior
 - `~/.claude/engine/skills/session/SKILL.md` — Session skill (dehydration + continuation protocols)
 - `~/.claude/engine/skills/session/references/continue-protocol.md` — Rehydration protocol (post-restart context restoration)
-- `~/.claude/.directives/COMMANDS.md` — `§CMD_CONTINUE_OR_CLOSE_SESSION` for reactivation
+- `~/.claude/.directives/COMMANDS.md` — `§CMD_RESUME_AFTER_CLOSE` for reactivation
 - `sessions/<session>/DEHYDRATED_CONTEXT.md` — Session handover document

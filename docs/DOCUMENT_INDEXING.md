@@ -131,7 +131,7 @@ Skills automatically query session-search during setup:
 
 Results populate `ragDiscoveredPaths` for user review.
 
-### Post-Synthesis Reindexing (`§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`)
+### Post-Synthesis Reindexing (`§CMD_GENERATE_DEBRIEF`)
 
 After completing a skill, the debrief phase triggers reindexing:
 

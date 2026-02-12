@@ -113,7 +113,7 @@ Each Claude instance is tied to a workflow session in `sessions/YYYY_MM_DD_TOPIC
 2. At 90%+ context:
    - Blocks the tool call
    - Triggers `/session dehydrate` → saves state to `DEHYDRATED_CONTEXT.md`
-   - Triggers `session.sh restart` → kills Claude, relaunches with recovery
+   - Triggers `engine session restart` → kills Claude, relaunches with recovery
 
 ## Session Persistence
 
@@ -125,7 +125,7 @@ Each Claude instance is tied to a workflow session in `sessions/YYYY_MM_DD_TOPIC
 
 ### How Fleet Pane ID is Set
 
-1. `session.sh activate` auto-detects if running inside fleet tmux
+1. `engine session activate` auto-detects if running inside fleet tmux
 2. Reads the `@pane_label` from tmux if socket is named "fleet"
 3. Writes `fleetPaneId` to `.state.json` automatically
 4. No manual `--fleet-pane` flag needed — detection is automatic
@@ -191,7 +191,7 @@ Claude Code has a ~200k token context window. At ~80% (160k), it auto-compacts. 
 │     - Writes DEHYDRATED_CONTEXT.md (goal, state, next steps)   │
 │     - Records current phase                                     │
 │     ↓                                                           │
-│  7. session.sh restart:                                         │
+│  7. engine session restart:                                         │
 │     - Reads sessionId from .state.json                          │
 │     - Kills old Claude process                                  │
 │     - Launches: claude --resume <sessionId> "/session continue" │
@@ -281,10 +281,10 @@ fleet.sh pane-id              # Output composite pane ID (session:window:label)
 ### session.sh
 
 ```bash
-session.sh activate <dir> <skill> --pid "$PPID"  # Register Claude with session (auto-detects fleet pane)
-session.sh phase <dir> "Phase N: Name"           # Update current phase
-session.sh deactivate <dir>                      # Mark session completed
-session.sh restart <dir>                         # Kill and relaunch Claude
+engine session activate <dir> <skill> --pid "$PPID"  # Register Claude with session (auto-detects fleet pane)
+engine session phase <dir> "Phase N: Name"           # Update current phase
+engine session deactivate <dir>                      # Mark session completed
+engine session restart <dir>                         # Kill and relaunch Claude
 ```
 
 ### run.sh
@@ -401,7 +401,7 @@ The dispatch daemon (if running) routes tagged work to fleet workers:
 ### With /session continue
 
 On context overflow restart:
-1. `session.sh restart` invokes `/session continue`
+1. `engine session restart` invokes `/session continue`
 2. `/session continue` loads standards, dehydrated context, skill protocol
 3. Resumes at saved phase without repeating earlier work
 

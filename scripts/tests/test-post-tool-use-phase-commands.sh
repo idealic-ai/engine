@@ -590,6 +590,93 @@ test_malformed_tool_response_graceful() {
 }
 
 # =============================================================================
+# TEST 18: tool_response as object (real Claude Code format) → extracts .stdout
+# =============================================================================
+
+test_tool_response_object_extracts_stdout() {
+  local test_name="18: tool_response as object extracts .stdout field"
+  setup
+
+  # Claude Code sends Bash tool_response as an object: {stdout, stderr, interrupted, ...}
+  run_hook '{"tool_name":"Bash","tool_response":{"stdout":"Phase: 5: Synthesis\nProof required...","stderr":"","interrupted":false,"isImage":false,"noOutputExpected":false}}' > /dev/null
+
+  local state
+  state=$(read_state)
+  local pending
+  pending=$(echo "$state" | jq '.pendingCommands // []')
+  local count
+  count=$(echo "$pending" | jq 'length')
+
+  local has_debrief
+  has_debrief=$(echo "$pending" | jq 'any(endswith("CMD_GENERATE_DEBRIEF.md"))')
+  local has_checklists
+  has_checklists=$(echo "$pending" | jq 'any(endswith("CMD_PROCESS_CHECKLISTS.md"))')
+
+  if [ "$count" -eq 2 ] && [ "$has_debrief" = "true" ] && [ "$has_checklists" = "true" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "2 pendingCommands from object tool_response" "count=$count, pending=$pending"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TEST 19: tool_response object with non-Phase stdout → exits cleanly
+# =============================================================================
+
+test_tool_response_object_no_phase() {
+  local test_name="19: tool_response object without Phase: in stdout exits cleanly"
+  setup
+
+  run_hook '{"tool_name":"Bash","tool_response":{"stdout":"some normal output","stderr":"","interrupted":false}}' > /dev/null
+  local exit_code=$?
+
+  local state
+  state=$(read_state)
+  local has_pending
+  has_pending=$(echo "$state" | jq 'has("pendingCommands")')
+
+  if [ "$exit_code" -eq 0 ] && [ "$has_pending" = "false" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0, no pendingCommands" "exit=$exit_code, hasPending=$has_pending"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TEST 20: steps array populates pendingCommands
+# =============================================================================
+
+test_steps_array_populates_pending() {
+  local test_name="20: steps array populates pendingCommands"
+  setup
+
+  # Create a phase with steps (not just proof fields)
+  jq '.currentPhase = "6: Custom" | .phases += [{"major": 6, "minor": 0, "name": "Custom", "steps": ["§CMD_WALK_THROUGH_RESULTS"], "commands": [], "proof": []}]' \
+    "$SESSION_DIR/.state.json" > "$SESSION_DIR/.state.json.tmp" && mv "$SESSION_DIR/.state.json.tmp" "$SESSION_DIR/.state.json"
+
+  run_hook '{"tool_name":"Bash","tool_response":{"stdout":"Phase: 6: Custom","stderr":"","interrupted":false}}' > /dev/null
+
+  local state
+  state=$(read_state)
+  local pending
+  pending=$(echo "$state" | jq '.pendingCommands // []')
+  local has_walk
+  has_walk=$(echo "$pending" | jq 'any(endswith("CMD_WALK_THROUGH_RESULTS.md"))')
+
+  if [ "$has_walk" = "true" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "pendingCommands contains CMD_WALK_THROUGH_RESULTS.md" "pending=$pending"
+  fi
+
+  teardown
+}
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -615,5 +702,10 @@ test_mixed_proofs_only_cmd_processed
 test_cmd_name_no_lowercase_suffix
 test_pending_commands_append_not_overwrite
 test_malformed_tool_response_graceful
+
+# Bug fix tests (18-20): tool_response as object
+test_tool_response_object_extracts_stdout
+test_tool_response_object_no_phase
+test_steps_array_populates_pending
 
 exit_with_results

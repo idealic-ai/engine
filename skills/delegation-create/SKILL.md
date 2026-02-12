@@ -1,7 +1,7 @@
 ---
 name: delegation-create
 description: "Routes tagged work items to workers via async, blocking, or silent delegation. Triggers: \"delegate this\", \"route this work\", \"hand off this task\", \"delegation create\"."
-version: 2.0
+version: 3.0
 tier: lightweight
 ---
 
@@ -21,7 +21,6 @@ Routes tagged work items to workers via async, blocking, or silent delegation.
 
 Lightweight utility for routing tagged work items to other agents or workers. Can be invoked standalone or mid-skill. No session activation, no log file, no debrief.
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This is a utility skill with a single-phase protocol. Follow the steps below exactly.
 
 ---
 
@@ -50,7 +49,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 
 ## 2. Resolve Template
 
-Use `session.sh request-template` to find the REQUEST template for the detected tag:
+Use `engine session request-template` to find the REQUEST template for the detected tag:
 
 ```bash
 engine session request-template '#needs-X'
@@ -178,7 +177,7 @@ No debrief. No session deactivation. No next-skill menu. This is a utility — i
 
 ## Constraints
 
-- **No session activation** (`¶INV_DELEGATE_IS_NESTABLE`): This skill does not call `session.sh activate`. It operates within the caller's session or standalone without a session.
+- **No session activation** (`¶INV_DELEGATE_IS_NESTABLE`): This skill does not call `engine session activate`. It operates within the caller's session or standalone without a session.
 - **REQUEST files are self-contained** (`¶INV_REQUEST_IS_SELF_CONTAINED`): A worker must be able to start work from the REQUEST file alone, without context from the delegating agent.
 - **Graceful degradation** (`¶INV_GRACEFUL_DEGRADATION`):
   - Async without fleet: REQUEST file still gets written and tagged. User can run the resolving skill manually later.

@@ -53,7 +53,7 @@ The `§CMD_` naming system is a significant advancement by itself. It creates ad
 | **State persistence** | None | None | None | `.state.json`, session directories, log files |
 | **Context overflow** | Unhandled (fresh start) | Unhandled | N/A | `§CMD_REANCHOR_AFTER_RESTART` with phase recovery |
 | **Multi-session** | N/A | N/A | N/A | Tags for cross-session communication |
-| **Post-completion** | N/A | N/A | N/A | `§CMD_CONTINUE_OR_CLOSE_SESSION` with debrief regeneration |
+| **Post-completion** | N/A | N/A | N/A | `§CMD_RESUME_AFTER_CLOSE` with debrief regeneration |
 
 This is the widest gap. None of the three comparands have any concept of session state, lifecycle, or recovery. The context overflow recovery -- dehydration, restart, reanchor with phase skip -- has no parallel in any publicly documented LLM behavioral framework.
 
@@ -87,7 +87,7 @@ Another gap with no parallel. The tag-based coordination system (`#needs-X` to `
 | **Runtime cost** | No optimization | No optimization | N/A | Blind writes, dehydration, "memory over IO" |
 | **Cost trajectory** | Flat | Flat | Flat | Amortized (upfront cost, runtime savings) |
 
-This is COMMANDS.md's most honest weakness. The ~700 lines of behavioral specification consume significant context window real estate on every session. The system compensates with runtime optimizations (blind writes saving thousands of tokens per session, dehydration/reanchor for infinite sessions, `§CMD_AVOID_WASTING_TOKENS` reducing redundant reads). Cursor .cursorrules at 20-100 lines are 7-35x cheaper in context tokens. The question is whether the behavioral improvements justify the cost -- and at 90%+ compliance with materially better agent behavior, the empirical answer is yes.
+This is COMMANDS.md's most honest weakness. The ~700 lines of behavioral specification consume significant context window real estate on every session. The system compensates with runtime optimizations (blind writes saving thousands of tokens per session, dehydration/reanchor for infinite sessions, `§CMD_TRUST_CACHED_CONTEXT` reducing redundant reads). Cursor .cursorrules at 20-100 lines are 7-35x cheaper in context tokens. The question is whether the behavioral improvements justify the cost -- and at 90%+ compliance with materially better agent behavior, the empirical answer is yes.
 
 ---
 

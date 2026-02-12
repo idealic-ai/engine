@@ -1,7 +1,7 @@
 ---
 name: writeup
 description: "Creates semi-permanent situational documents in project docs folders. Lightweight skill — no session, no logs, just focused writing. Triggers: \"write up\", \"writeup\"."
-version: 2.0
+version: 3.0
 tier: lightweight
 ---
 
@@ -10,7 +10,6 @@ Creates semi-permanent situational documents for reference. Writeups describe a 
 
 [!!!] LIGHTWEIGHT SKILL: No session directory, no log file, no tags. Just focused writing.
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structure. Use THIS protocol's phases, not the IDE's.
 
 ## 0. Setup & Discovery
 
@@ -61,7 +60,7 @@ Creates semi-permanent situational documents for reference. Writeups describe a 
 4.  **If Skipped**: Proceed without the Related section (or mark it "None").
 
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
+Execute `§CMD_GATE_PHASE`.
 
 ---
 
@@ -144,7 +143,7 @@ Use `AskUserQuestion` to clarify the writeup content.
     <destination>/docs/writeups/YYYY_MM_DD_<TOPIC_SLUG>.md
     ```
 
-3.  **Populate Template**: Use `§CMD_POPULATE_LOADED_TEMPLATE` with `TEMPLATE_WRITEUP.md`.
+3.  **Populate Template**: Use `§CMD_WRITE_FROM_TEMPLATE` with `TEMPLATE_WRITEUP.md`.
     *   **Problem**: From interrogation answer + agent analysis.
     *   **Context**: Agent synthesizes from loaded context + RAG results.
     *   **Related**: List of RAG-discovered files (if any). Format as bullet list with brief descriptions.

@@ -38,4 +38,10 @@
 *   **One at a Time**: Process tags sequentially, not in batch. Each invocation of `/delegation-create` may require user interaction (mode selection, confirmation).
 *   **Skip Silently**: If no unresolved tags are found, return immediately without any chat output. Do not announce "no delegations found."
 *   **Filter Aggressively**: Avoid re-delegating items that were already handled by walkthrough triage or earlier `/delegation-create` invocations in the same session.
-*   **Tags-line vs Inline**: Only process INLINE tags. Tags on the `**Tags**:` line of a file are structural metadata, not delegation candidates (they're already discoverable by `tag.sh find`).
+*   **Tags-line vs Inline**: Only process INLINE tags. Tags on the `**Tags**:` line of a file are structural metadata, not delegation candidates (they're already discoverable by `engine tag find`).
+
+---
+
+## PROOF FOR §CMD_PROCESS_DELEGATIONS
+
+This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).

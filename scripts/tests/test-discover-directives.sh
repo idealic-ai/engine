@@ -530,6 +530,158 @@ test_root_with_type_soft() {
 }
 
 # =============================================================================
+# TEST 19: --root walk-up works when target is NOT under PWD (cross-tree)
+# =============================================================================
+
+test_root_cross_tree_walkup() {
+  local test_name="root flag: walk-up works when target is NOT under PWD (cross-tree)"
+  setup
+
+  # Simulate real-world: PWD=/Users/x/Projects/finch (LONGER path), target=~/.claude/deep (SHORTER --root)
+  # The bug: string-length comparison picks PWD as boundary when PWD is longer, even though
+  # PWD is in a completely different tree from the target. Walk-up breaks immediately.
+  # Key: project_dir must be LONGER than other_tree to trigger the bug.
+  local project_dir="$TEST_DIR/users/someone/Projects/myproject"
+  local other_tree="$TEST_DIR/dotclaude"
+
+  mkdir -p "$project_dir"
+  mkdir -p "$other_tree/deep/nested"
+  mkdir -p "$other_tree/.directives"
+  echo "# Tree INVARIANTS" > "$other_tree/.directives/INVARIANTS.md"
+
+  # Set PWD to project dir (different tree, LONGER path)
+  cd "$project_dir"
+
+  local result
+  result=$(bash "$SCRIPT" "$other_tree/deep/nested" --walk-up --root "$other_tree" 2>/dev/null)
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && [[ "$result" == *"INVARIANTS.md"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0, INVARIANTS.md found via walk-up" "exit=$exit_code, output=$result"
+  fi
+
+  cd "$ORIGINAL_PWD"
+  teardown
+}
+
+# =============================================================================
+# TEST 20: --root walk-up finds intermediate .directives/ in cross-tree
+# =============================================================================
+
+test_root_cross_tree_intermediate_directives() {
+  local test_name="root flag: walk-up finds .directives/ at intermediate level (cross-tree)"
+  setup
+
+  # Simulate: PWD = /Users/x/Projects/finch (LONGER), target = ~/.claude/skills/analyze/modes/
+  # .directives/INVARIANTS.md is at ~/.claude/skills/ (intermediate ancestor)
+  # Key: project_dir LONGER than claude_dir to trigger the bug
+  local project_dir="$TEST_DIR/users/someone/Projects/myproject"
+  local claude_dir="$TEST_DIR/dc"
+
+  mkdir -p "$project_dir"
+  mkdir -p "$claude_dir/skills/analyze/modes"
+  mkdir -p "$claude_dir/skills/.directives"
+  echo "# Skills INVARIANTS" > "$claude_dir/skills/.directives/INVARIANTS.md"
+
+  # PWD is in a completely different tree (and LONGER)
+  cd "$project_dir"
+
+  local result
+  result=$(bash "$SCRIPT" "$claude_dir/skills/analyze/modes" --walk-up --root "$claude_dir" 2>/dev/null)
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && [[ "$result" == *"INVARIANTS.md"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0, skills/.directives/INVARIANTS.md found" "exit=$exit_code, output=$result"
+  fi
+
+  cd "$ORIGINAL_PWD"
+  teardown
+}
+
+# =============================================================================
+# TEST 21: --root walk-up finds files at multiple levels in cross-tree
+# =============================================================================
+
+test_root_cross_tree_multiple_levels() {
+  local test_name="root flag: walk-up finds files at multiple ancestor levels (cross-tree)"
+  setup
+
+  # Key: project_dir LONGER than claude_dir to trigger the bug
+  local project_dir="$TEST_DIR/users/someone/Projects/myproject"
+  local claude_dir="$TEST_DIR/dc"
+
+  mkdir -p "$project_dir"
+  mkdir -p "$claude_dir/skills/analyze/modes"
+  mkdir -p "$claude_dir/skills/analyze/.directives"
+  mkdir -p "$claude_dir/skills/.directives"
+  mkdir -p "$claude_dir/.directives"
+
+  echo "# Analyze TESTING" > "$claude_dir/skills/analyze/.directives/TESTING.md"
+  echo "# Skills INVARIANTS" > "$claude_dir/skills/.directives/INVARIANTS.md"
+  echo "# Root AGENTS" > "$claude_dir/.directives/AGENTS.md"
+
+  cd "$project_dir"
+
+  local result
+  result=$(bash "$SCRIPT" "$claude_dir/skills/analyze/modes" --walk-up --root "$claude_dir" 2>/dev/null)
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && \
+     [[ "$result" == *"TESTING.md"* ]] && \
+     [[ "$result" == *"INVARIANTS.md"* ]] && \
+     [[ "$result" == *"AGENTS.md"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "all 3 files from different ancestor levels" "exit=$exit_code, output=$result"
+  fi
+
+  cd "$ORIGINAL_PWD"
+  teardown
+}
+
+# =============================================================================
+# TEST 22: --root cross-tree still caps at root boundary
+# =============================================================================
+
+test_root_cross_tree_caps_at_root() {
+  local test_name="root flag: cross-tree walk-up stops at --root boundary"
+  setup
+
+  # Key: project_dir LONGER than claude_dir to trigger the bug
+  local project_dir="$TEST_DIR/users/someone/Projects/myproject"
+  local claude_dir="$TEST_DIR/dc"
+
+  mkdir -p "$project_dir"
+  mkdir -p "$claude_dir/skills/analyze"
+  # File ABOVE the --root (should NOT be found)
+  echo "# Above Root" > "$TEST_DIR/AGENTS.md"
+  # File AT the --root (should be found)
+  echo "# Root INVARIANTS" > "$claude_dir/INVARIANTS.md"
+
+  cd "$project_dir"
+
+  local result
+  result=$(bash "$SCRIPT" "$claude_dir/skills/analyze" --walk-up --root "$claude_dir" 2>/dev/null)
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && \
+     [[ "$result" == *"INVARIANTS.md"* ]] && \
+     [[ "$result" != *"Above Root"* ]] && \
+     [[ "$result" != *"$TEST_DIR/AGENTS.md"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "INVARIANTS.md at root, NOT AGENTS.md above root" "exit=$exit_code, output=$result"
+  fi
+
+  cd "$ORIGINAL_PWD"
+  teardown
+}
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -555,6 +707,12 @@ test_root_tighter_than_pwd
 test_root_same_as_target
 test_root_without_walkup
 test_root_with_type_soft
+
+# --root cross-tree tests (PWD not ancestor of target)
+test_root_cross_tree_walkup
+test_root_cross_tree_intermediate_directives
+test_root_cross_tree_multiple_levels
+test_root_cross_tree_caps_at_root
 
 # Summary
 exit_with_results

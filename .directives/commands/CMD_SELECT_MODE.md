@@ -45,3 +45,17 @@
 *   The `modes` parameter is optional. Skills without modes (e.g., `/do`, `/brainstorm` historically) skip this command entirely.
 *   `¶INV_MODE_STANDARDIZATION` requires exactly 3 named modes + Custom. Custom is always the last option.
 *   Mode selection happens once per session. Re-selection requires `§CMD_REFUSE_OFF_COURSE`.
+
+---
+
+## PROOF FOR §CMD_SELECT_MODE
+
+```json
+{
+  "mode": {
+    "type": "string",
+    "description": "The mode selected by the user (skill-specific mode names)",
+    "examples": ["general", "tdd", "explore", "audit", "coverage"]
+  }
+}
+```

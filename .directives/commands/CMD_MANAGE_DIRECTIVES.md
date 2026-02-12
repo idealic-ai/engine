@@ -1,6 +1,6 @@
 ### §CMD_MANAGE_DIRECTIVES
 **Definition**: After debrief creation, manages directive files discovered during the session. Three passes: AGENTS.md updates (auto-mention new directives, keep dir context current), invariant capture, and pitfall capture.
-**Trigger**: Called by `§CMD_FOLLOW_DEBRIEF_PROTOCOL` Step 2 (Pipeline), after debrief is written.
+**Trigger**: Called by `§CMD_RUN_SYNTHESIS_PIPELINE` Step 2 (Pipeline), after debrief is written.
 
 **Directive Types Managed**:
 
@@ -115,3 +115,9 @@ AGENTS.md is a micro-README: it describes what a directory is for, what to think
 *   **Order matters**: AGENTS.md first (factual/structural), then invariants (rules), then pitfalls (warnings). Each pass is independent.
 *   **Skip silently**: Each pass independently decides whether it has candidates. An empty pass produces no output and no prompt.
 *   **Template location**: Scaffolding templates for all directive types live in `~/.claude/.directives/templates/TEMPLATE_*.md`.
+
+---
+
+## PROOF FOR §CMD_MANAGE_DIRECTIVES
+
+This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).

@@ -44,7 +44,7 @@ PreToolUse and PostToolUse hooks run in `settings.json` array order. Earlier hoo
 `safe_json_write` protects the write (mkdir lock + atomic mv), but the read-before-write is unprotected. Two hooks reading the same state, transforming independently, and writing back will lose the first write. High-frequency fields (`toolCallsByTranscript`, `pendingDirectives`) are most at risk.
 
 ## 6. `loading=true` is the bootstrap escape hatch
-`session.sh activate` sets `loading=true` in `.state.json`. Both heartbeat and directive-gate hooks skip ALL enforcement when this flag is set. Skills MUST activate before reading standards/templates, or the reads get counted toward heartbeat/directive thresholds. `session.sh phase` clears the flag.
+`engine session activate` sets `loading=true` in `.state.json`. Both heartbeat and directive-gate hooks skip ALL enforcement when this flag is set. Skills MUST activate before reading standards/templates, or the reads get counted toward heartbeat/directive thresholds. `engine session phase` clears the flag.
 
 ## 7. Hooks receive JSON on stdin — parse with jq, not grep
 Claude Code passes a JSON object on stdin with fields like `tool_name`, `tool_input`, `session_id`, `transcript_path`. Hooks must parse this to make allow/deny decisions.
@@ -82,6 +82,12 @@ PreToolUse hooks that return `exit 0` (allow) can set `permissionDecisionReason`
 **Mitigation (original)**: Use `urgency: "block"` with a whitelist for content delivery. The block path places content in the error message, which IS visible to the model as a `system-reminder`. Whitelist critical tools (logging, session management, standards reads) so they bypass the block.
 **Fix (2026-02-12)**: Implemented stash-and-deliver via PostToolUse `additionalContext`. PreToolUse `_deliver_allow_rules()` now stashes content to `.state.json:pendingAllowInjections`. New `post-tool-use-injections.sh` hook reads the stash, delivers via PostToolUse `additionalContext` (which IS surfaced as `<system-reminder>`), and clears the stash. This resolves the allow-path dead end for all 4 affected injection rules.
 **Discovered**: 2026-02-11, audit of `directive-autoload` injection rule.
+
+## 16. SessionStart preloadedFiles must match directive-autoload paths exactly
+After `session-start-restore.sh` clears and re-seeds `preloadedFiles` in `.state.json`, the paths must use the same tilde-prefix format (`~/.claude/...`) that `directive-autoload` in `overflow-v2.sh` checks against.
+**Trap**: If SessionStart records absolute paths (e.g., `/Users/name/.claude/.directives/COMMANDS.md`) but directive-autoload compares against tilde paths (`~/.claude/.directives/COMMANDS.md`), the dedup check fails silently and standards get injected twice — wasting ~900 lines of context per duplicate.
+**Mitigation**: Always use tilde-prefix paths in `preloadedFiles`. The existing `overflow-v2.sh` preload dedup (lines 609-617) normalizes to tilde for comparison — match that format in SessionStart seeding.
+**Discovered**: 2026-02-12, during SessionStart dedup fix implementation.
 
 ## 13. PostToolUse discovery deduplicates by basename, not full path
 `post-tool-use-discovery.sh` checks if a directive file is already in `pendingDirectives` or `discoveredDirectives` by comparing basenames (e.g., `INVARIANTS.md`). If a parent-level `INVARIANTS.md` was already discovered, a child-level `INVARIANTS.md` with different content is silently skipped.

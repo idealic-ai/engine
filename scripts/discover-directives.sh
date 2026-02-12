@@ -67,7 +67,7 @@ fi
 TARGET_DIR="${TARGET_DIR%/}"
 
 # --- Directive file lists ---
-SOFT_FILES="AGENTS.md INVARIANTS.md ARCHITECTURE.md TESTING.md PITFALLS.md CONTRIBUTING.md TEMPLATE.md"
+SOFT_FILES="AGENTS.md INVARIANTS.md ARCHITECTURE.md COMMANDS.md TESTING.md PITFALLS.md CONTRIBUTING.md TEMPLATE.md"
 HARD_FILES="CHECKLIST.md"
 
 # Determine which files to look for based on --type
@@ -122,10 +122,13 @@ scan_dir "$TARGET_DIR"
 if [ "$WALK_UP" = true ]; then
   BOUNDARY="$PWD"
   if [ -n "${ROOT_DIR:-}" ]; then
-    # Use tighter (deeper) of --root and $PWD
-    if [ ${#ROOT_DIR} -gt ${#BOUNDARY} ]; then
-      BOUNDARY="$ROOT_DIR"
-    fi
+    # Use --root as boundary when target is under --root (cross-tree case).
+    # PWD is only relevant when the target is under PWD.
+    case "$TARGET_DIR" in
+      "$ROOT_DIR"|"$ROOT_DIR"/*)
+        BOUNDARY="$ROOT_DIR"
+        ;;
+    esac
   fi
   CURRENT="$TARGET_DIR"
 

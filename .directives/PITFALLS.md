@@ -12,7 +12,7 @@ Under `set -euo pipefail`, the script exits with the last command's exit code. I
 - Unquoted variables with `-u`: always use `"${VAR:-}"` for potentially unset vars.
 
 ## 4. `loading=true` is the bootstrap escape hatch
-`session.sh activate` sets `loading=true` in `.state.json`. Both heartbeat and directive-gate hooks skip ALL enforcement when this flag is set. Skills MUST activate before reading standards/templates, or the reads get counted toward heartbeat/directive thresholds. `session.sh phase` clears the flag.
+`engine session activate` sets `loading=true` in `.state.json`. Both heartbeat and directive-gate hooks skip ALL enforcement when this flag is set. Skills MUST activate before reading standards/templates, or the reads get counted toward heartbeat/directive thresholds. `engine session phase` clears the flag.
 
 ## 5. `.state.json` read-modify-write is not atomic
 `safe_json_write` protects the write (mkdir lock + atomic mv), but the read-before-write is unprotected. Two hooks reading the same state, transforming independently, and writing back will lose the first write. High-frequency fields (toolCallsByTranscript, pendingDirectives) are most at risk.

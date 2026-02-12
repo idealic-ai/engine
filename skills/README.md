@@ -79,5 +79,5 @@ When creating a new skill, verify it has:
 2. **Boot sequence** (standards loading + gate check)
 3. **If protocol tier**: Phases array, mode presets, walk-through config, deactivate + Next Skill Options
 4. **If utility tier**: Deactivate + Next Skill Options
-5. **If session-running**: Log template, debrief template, `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`
-6. **Post-synthesis**: `§CMD_CONTINUE_OR_CLOSE_SESSION` handler
+5. **If session-running**: Log template, debrief template, `§CMD_GENERATE_DEBRIEF`
+6. **Post-synthesis**: `§CMD_RESUME_AFTER_CLOSE` handler

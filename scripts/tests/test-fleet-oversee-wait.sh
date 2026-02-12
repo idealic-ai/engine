@@ -48,6 +48,12 @@ get_pane_label() {
     tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_label}' 2>/dev/null || echo ""
 }
 
+# Get pane title for a pane
+get_pane_title() {
+    local pane_id="$1"
+    tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{pane_title}' 2>/dev/null || echo ""
+}
+
 # Save and restore pane notify state
 save_pane_state() {
     local pane_id="$1"
@@ -398,6 +404,33 @@ test_panes_filter_by_label() {
     restore_pane_state "$pane_id" "$saved_state"
 }
 
+test_panes_filter_by_title() {
+    local pane_id
+    pane_id=$(get_test_pane)
+    [[ -z "$pane_id" ]] && { skip "--panes filter by title" "no panes available"; return; }
+
+    local title saved_state
+    title=$(get_pane_title "$pane_id")
+    saved_state=$(save_pane_state "$pane_id")
+
+    if [[ -z "$title" ]]; then
+        skip "Case 10: --panes filter by title" "pane has no pane_title"
+        restore_pane_state "$pane_id" "$saved_state"
+        return
+    fi
+
+    # Set pane to unchecked
+    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_notify "unchecked" 2>/dev/null
+
+    # Filter by pane title
+    local result
+    result=$("$FLEET_SH" oversee-wait 5 --panes "$title" --socket "$SOCKET" 2>/dev/null)
+
+    assert_contains "$pane_id" "$result" "Case 10: --panes filter by title finds the pane"
+
+    restore_pane_state "$pane_id" "$saved_state"
+}
+
 # ============================================================
 # Category: "done" State as Actionable
 # ============================================================
@@ -586,23 +619,11 @@ test_mixed_states_only_actionable_returned() {
 # ============================================================
 
 test_short_timeout() {
-    # Save ALL pane states
-    local all_saved
-    all_saved=$(save_all_pane_states)
-
-    # Set all panes to checked (non-actionable)
-    for p in $(tmux -L "$SOCKET" list-panes -a -F '#{pane_id}' 2>/dev/null); do
-        tmux -L "$SOCKET" set-option -p -t "$p" @pane_notify "checked" 2>/dev/null || true
-    done
-
-    # Drain stale signals
-    timeout 0.2 tmux -L "$SOCKET" wait-for overseer-wake 2>/dev/null || true
-
+    # Use --panes with a non-existent pane to guarantee no match,
+    # eliminating race conditions from live fleet activity changing pane states.
     local start_time result
     start_time=$(date +%s)
-    # 1-second timeout — should return quickly
-    # NOTE: timeout=0 means "no limit" in GNU coreutils, so we test 1s instead
-    result=$(timeout 8 "$FLEET_SH" oversee-wait 1 --socket "$SOCKET" 2>/dev/null) || true
+    result=$(timeout 8 "$FLEET_SH" oversee-wait 1 --panes "nonexistent_pane_$$" --socket "$SOCKET" 2>/dev/null) || true
     local elapsed=$(( $(date +%s) - start_time ))
 
     assert_eq "TIMEOUT" "$result" "Case 16a: 1s timeout returns TIMEOUT when no actionable panes"
@@ -612,8 +633,6 @@ test_short_timeout() {
     else
         fail "Case 16b: 1s timeout duration" "1-5s" "${elapsed}s"
     fi
-
-    restore_all_pane_states "$all_saved"
 }
 
 # ============================================================
@@ -661,6 +680,7 @@ test_enriched_output_format
 # --panes Filter
 test_panes_filter_by_id
 test_panes_filter_by_label
+test_panes_filter_by_title
 
 # Help
 test_help_flag

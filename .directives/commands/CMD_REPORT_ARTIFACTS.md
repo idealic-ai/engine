@@ -5,3 +5,9 @@
 1.  **Identify**: List all files created or modified during this session (Logs, Plans, Debriefs, Code).
 2.  **Format**: Create a Markdown list where each path is a clickable link per `¶INV_TERMINAL_FILE_LINKS`. Use **Full** display variant (relative path as display text).
 3.  **Output**: Print this list to the chat under the header "## Generated Artifacts".
+
+---
+
+## PROOF FOR §CMD_REPORT_ARTIFACTS
+
+This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).

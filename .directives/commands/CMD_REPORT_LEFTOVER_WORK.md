@@ -61,3 +61,9 @@
 *   **Generic extraction**: Pattern-match by emoji prefixes and heading keywords, not hardcoded section numbers. Different skill templates use different section structures.
 *   **Concise**: Max 15 items total in the chat report. If more exist, show top 15 and note "... and N more items (see debrief for full list)."
 *   **Skip silently**: If the session produced zero leftover items, output nothing. A clean session needs no report.
+
+---
+
+## PROOF FOR §CMD_REPORT_LEFTOVER_WORK
+
+This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).

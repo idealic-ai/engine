@@ -63,7 +63,7 @@ Present the walk-through offer via `AskUserQuestion` (multiSelect: false):
         1.  **Place inline tag**: Edit the debrief file to place the `#needs-X` tag inline next to the relevant item via `§CMD_HANDLE_INLINE_TAG`. This is the primary action — the Tags line is secondary.
         2.  **Output tag proof** (fill in ALL blanks):
             > **Tag proof [Item N]:** The tag `____` for item `____` was placed at `____` in `____`
-        3.  **Log**: Record the decision to DETAILS.md via `§CMD_LOG_TO_DETAILS`.
+        3.  **Log**: Record the decision to DETAILS.md via `§CMD_LOG_INTERACTION`.
     *   **Dismiss**:
         1.  No tag placed.
         2.  Output: **Tag proof [Item N]:** No tag — dismissed.
@@ -121,7 +121,7 @@ After all items are triaged (or user batched the rest):
     ```
     [!!!] The count here MUST match the number of tag proofs output during Step 3. If it doesn't, go back and find the missing inline tags.
 
-3.  **Update Debrief Tags Line**: If any inline tags were applied, also add them to the debrief file's `**Tags**:` line via `§CMD_TAG_FILE` so they're discoverable by `tag.sh find`.
+3.  **Update Debrief Tags Line**: If any inline tags were applied, also add them to the debrief file's `**Tags**:` line via `§CMD_TAG_FILE` so they're discoverable by `engine tag find`.
 
 4.  **Log**: Append a summary entry to the session log:
     ```
@@ -170,7 +170,7 @@ For each plan item, present via `AskUserQuestion` (multiSelect: true):
 
 3.  **Options**:
     > - **"Looks good"** — No comments, move to next item
-    > - **"I have feedback"** — User types comments; record to DETAILS.md via `§CMD_LOG_TO_DETAILS`
+    > - **"I have feedback"** — User types comments; record to DETAILS.md via `§CMD_LOG_INTERACTION`
     > - **"Flag for revision"** — Mark step in plan with `[!]` prefix; record concern to DETAILS.md
 
 4.  **On Selection**:
@@ -237,6 +237,7 @@ Each skill provides a configuration block that customizes the walk-through. The 
 
 ## Constraints
 
+*   **Tags are passive**: Tags placed during walk-through triage do NOT trigger `/delegation-create` offers. They are protocol-placed (expected output of this command). Tags in other contexts (interrogation, QnA, ad-hoc chat, side discovery) are reactive and trigger delegation offers. This prevents double-prompting the user for every triage decision.
 *   **Non-blocking**: If user selects "None" at the gate, the session continues normally. No walk-through performed.
 *   **Item count**: Aim for 5-15 items. Consolidate if more; include all if fewer.
 *   **Batch respect**: When the user gives a batch instruction, honor it immediately. Do not force per-item triage.
@@ -287,3 +288,22 @@ If any items are flagged for revision, return to the plan for edits before proce
 *   `/fix` — Results: Track remaining issues. Plan: Review hypotheses.
 
 **Adoption is optional**: The "None" granularity option lets users skip instantly. Adding the call adds one `AskUserQuestion` overhead for sessions where the user doesn't want a walk-through.
+
+---
+
+## PROOF FOR §CMD_WALK_THROUGH_RESULTS
+
+```json
+{
+  "results_presented": {
+    "type": "string",
+    "description": "Summary of items walked through with the user",
+    "examples": ["5 plan steps reviewed", "8 findings triaged"]
+  },
+  "user_approved": {
+    "type": "string",
+    "description": "User disposition after walk-through",
+    "examples": ["approved all", "revised 2 items", "flagged 1 for followup"]
+  }
+}
+```

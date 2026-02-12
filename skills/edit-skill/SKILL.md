@@ -1,16 +1,17 @@
 ---
 name: edit-skill
 description: "Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-local or shared engine. Triggers: \"create a new skill\", \"edit a skill\", \"scaffold a skill\", \"promote a skill\", \"add a project skill\", \"create a new command\"."
-version: 2.0
+version: 3.0
 tier: protocol
 ---
 
 Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-local or shared engine.
+
 # Edit Skill Protocol (The Skill Forge)
 
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases. The engine's artifacts live in the session directory as reviewable files, not in transient tool state. Use THIS protocol's phases, not the IDE's.
+Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
-## Subcommands
+### Subcommands
 
 | Command | Action |
 |---------|--------|
@@ -19,71 +20,91 @@ Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-
 
 **Routing**: Parse the arguments to determine the flow:
 - If first argument is `promote`: Jump to **Promote Flow** (after Phase 0 setup).
-- Otherwise: Continue with **Create/Edit Flow** (Phases 0-5).
+- Otherwise: Continue with **Create/Edit Flow** (Phases 0-4).
 
-### Session Parameters (for §CMD_PARSE_PARAMETERS)
-*Merge into the JSON passed to `session.sh activate`:*
+### Session Parameters (for `§CMD_PARSE_PARAMETERS`)
+*Merge into the JSON passed to `engine session activate`:*
 ```json
 {
   "taskType": "EDIT_SKILL",
   "phases": [
-    {"major": 0, "minor": 0, "name": "Setup", "proof": ["mode", "templates_loaded", "parameters_parsed"]},
-    {"major": 1, "minor": 0, "name": "Detection", "proof": ["detection_mode", "target_location"]},
-    {"major": 2, "minor": 0, "name": "Context Ingestion", "proof": ["context_sources_presented"]},
-    {"major": 3, "minor": 0, "name": "Interrogation", "proof": ["depth_chosen", "rounds_completed"]},
-    {"major": 4, "minor": 0, "name": "Scaffold", "proof": ["plan_presented", "log_entries"]},
-    {"major": 5, "minor": 0, "name": "Synthesis"},
-    {"major": 5, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
-    {"major": 5, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
-    {"major": 5, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
-    {"major": 5, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
+    {"label": "0", "name": "Setup",
+      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "commands": [],
+      "proof": ["mode", "session_dir", "parameters_parsed", "templates_loaded"]},
+    {"label": "1", "name": "Detection",
+      "steps": [],
+      "commands": [],
+      "proof": ["detection_mode", "target_location"]},
+    {"label": "2", "name": "Interrogation",
+      "steps": ["§CMD_INTERROGATE"],
+      "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
+      "proof": ["depth_chosen", "rounds_completed"]},
+    {"label": "3", "name": "Scaffold",
+      "steps": [],
+      "commands": ["§CMD_APPEND_LOG", "§CMD_LINK_FILE"],
+      "proof": ["plan_presented", "log_entries"]},
+    {"label": "4", "name": "Synthesis",
+      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+    {"label": "4.1", "name": "Checklists",
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+    {"label": "4.2", "name": "Debrief",
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+    {"label": "4.3", "name": "Pipeline",
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+    {"label": "4.4", "name": "Close",
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/edit-skill", "/implement", "/analyze", "/chores"],
   "directives": [],
-  "logTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md",
-  "debriefTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md"
+  "logTemplate": "assets/TEMPLATE_IMPLEMENTATION_LOG.md",
+  "debriefTemplate": "assets/TEMPLATE_IMPLEMENTATION.md"
 }
 ```
 
 ---
 
-## 0. Setup Phase
+## 0. Setup
 
-1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-    > 1. I am starting Phase 0: Setup phase.
-    > 2. My focus is EDIT_SKILL (`§CMD_REFUSE_OFF_COURSE` applies).
-    > 3. I will `§CMD_ASSUME_ROLE`:
-    >    **Role**: You are the **Skill Architect**.
-    >    **Goal**: To scaffold or modify skills that follow engine conventions exactly, in the right location.
-    >    **Mindset**: Every skill is a protocol. Sloppy skills produce sloppy sessions. Location matters — shared means permanent.
-    > 4. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
+`§CMD_REPORT_INTENT_TO_USER`:
+> Forging skill: ___.
+> Operation: ___. Target: ___.
+> Role: Skill Architect — every skill is a protocol.
 
-2.  **Reference Examples**: Load ALL of these to build by example:
+`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
-    *Entry points (SKILL.md files — read all to see the v2 inline pattern):*
-    *   `~/.claude/skills/implement/SKILL.md` (full-session archetype)
-    *   `~/.claude/skills/brainstorm/SKILL.md` (light-session archetype)
-    *   `~/.claude/skills/suggest/SKILL.md` (report-only archetype)
-    *   `~/.claude/skills/session/SKILL.md` (utility archetype)
+*   **Scope**: Understand the skill name, subcommand (create/edit/promote), and load reference exemplars.
 
-    **Constraint**: You MUST load all the files listed above before proceeding. These are your exemplars — every file you scaffold must follow the patterns found in these references.
+**Reference Examples**: Load ALL of these to build by example:
 
-3.  **Parse Arguments**: Extract the skill name and subcommand from the user's input.
-    *   **Input**: `/edit-skill [promote] <skill-name> [additional context]`
-    *   **Normalize**: Convert to kebab-case if not already (e.g., `mySkill` → `my-skill`).
-    *   **Derive**: `PROTOCOL_NAME` = uppercase + underscores (e.g., `my-skill` → `MY_SKILL`).
-    *   **Route**: If first argument is `promote`, jump to **Promote Flow** after displaying parsed names.
-    *   **Output**: Display the parsed names:
-        > **Skill**: `<skill-name>`
-        > **Protocol**: `<PROTOCOL_NAME>`
-        > **Subcommand**: `create/edit` or `promote`
+*Entry points (SKILL.md files — read all to see the v2 inline pattern):*
+*   `~/.claude/skills/implement/SKILL.md` (full-session archetype)
+*   `~/.claude/skills/brainstorm/SKILL.md` (light-session archetype)
+*   `~/.claude/skills/suggest/SKILL.md` (report-only archetype)
+*   `~/.claude/skills/session/SKILL.md` (utility archetype)
+
+**Parse Arguments**: Extract the skill name and subcommand from the user's input.
+*   **Input**: `/edit-skill [promote] <skill-name> [additional context]`
+*   **Normalize**: Convert to kebab-case if not already (e.g., `mySkill` -> `my-skill`).
+*   **Derive**: `PROTOCOL_NAME` = uppercase + underscores (e.g., `my-skill` -> `MY_SKILL`).
+*   **Route**: If first argument is `promote`, jump to **Promote Flow** after displaying parsed names.
+*   **Output**: Display the parsed names:
+    > **Skill**: `<skill-name>`
+    > **Protocol**: `<PROTOCOL_NAME>`
+    > **Subcommand**: `create/edit` or `promote`
 
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
 
-## 1. Detection Phase
+## 1. Detection
 *Determine whether this is a CREATE or EDIT operation, and where the skill should live.*
+
+`§CMD_REPORT_INTENT_TO_USER`:
+> Detecting skill ___ in project-local and shared engine.
+> Routing to CREATE or EDIT based on what exists.
+
+`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
 1.  **Check project-local**: Does `.claude/skills/<skill-name>/SKILL.md` exist?
 2.  **Check shared engine**: Does `~/.claude/engine/skills/<skill-name>/SKILL.md` exist?
@@ -117,39 +138,29 @@ Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-
     *   *Create (project)*: "**Create Mode** — Scaffolding new skill in `.claude/skills/<name>/`."
     *   *Create (shared)*: "**Create Mode** — Scaffolding new skill in `~/.claude/engine/skills/<name>/` (+ symlink)."
     *   *Edit (local)*: "**Edit Mode** — Found local skill at `.claude/skills/<name>/`."
-    *   *Edit (shared → local override)*: "**Edit Mode** — Creating local override of shared skill."
+    *   *Edit (shared -> local override)*: "**Edit Mode** — Creating local override of shared skill."
     *   *Edit (local override)*: "**Edit Mode** — Found local override at `.claude/skills/<name>/`."
-
-### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
-## 2. Context Ingestion
+## 2. Interrogation
+*Gather requirements through structured questioning.*
 
-### If EDIT MODE:
+`§CMD_REPORT_INTENT_TO_USER`:
+> Interrogating ___ skill design assumptions before scaffolding.
+> Drawing from purpose, phases, templates, and integration topics.
+
+`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+
+### Context Ingestion (Pre-Interrogation)
+
+**If EDIT MODE**:
 1.  **Read** the existing SKILL.md entry point (from the source — project-local or shared engine).
 2.  **Read** any associated asset files (check the skill's `assets/` directory for templates).
 3.  **Summarize** to the user: Brief description of what the skill does, its phases, what templates it uses. Do NOT dump the full content.
-4.  **Proceed** to Phase 3 (Interrogation).
 
-### If CREATE MODE:
-*   No files to read. Proceed directly to Phase 3 (Interrogation).
-
-### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
-
----
-
-## 3. Interrogation
-*Gather requirements through structured questioning.*
-
-**Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 3: Interrogation.
-> 2. I will `§CMD_EXECUTE_INTERROGATION_PROTOCOL` to gather skill requirements.
-> 3. I will `§CMD_LOG_TO_DETAILS` to capture the Q&A.
-
-**Action**: First, ask the user to choose interrogation depth. Then execute rounds.
+**If CREATE MODE**:
+*   No files to read. Proceed directly to interrogation rounds.
 
 ### Interrogation Depth Selection
 
@@ -169,21 +180,14 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **CREATE mode**: 3 rounds minimum regardless of depth choice.
 **EDIT mode**: 2 rounds minimum regardless of depth choice.
 
-### Interrogation Protocol (Rounds)
-
-[!!!] CRITICAL: You MUST complete at least the minimum rounds for the chosen depth. Track your round count visibly.
-
-**Round counter**: Output it on every round: "**Round N / {depth_minimum}+**"
-
-**Topic selection**: Pick from the topic menu below each round. Do NOT follow a fixed sequence — choose the most relevant uncovered topic based on what you've learned so far.
-
-### Interrogation Topics (Skill Design)
+### Topics (Skill Design)
+*Standard topics for the command to draw from. Adapt to the task -- skip irrelevant ones, invent new ones as needed.*
 
 **Standard topics** (typically covered once):
 - **Skill purpose** — what the skill does, why it exists, what gap it fills
 - **Phase structure** — what phases are needed, what order, what each does
 - **Template needs** — what session artifacts to generate, what sections they need
-- **Integration points** — what §CMD_ commands to reference, what other skills it interacts with
+- **Integration points** — what `§CMD_` commands to reference, what other skills it interacts with
 - **Testing approach** — how to verify the skill works, what a good run looks like
 - **Archetype selection** — full-session, light-session, report-only, or utility
 
@@ -193,36 +197,31 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 - **What-if scenarios** — Explore hypotheticals, edge cases, and alternative futures
 - **Deep dive** — Drill into a specific topic from a previous round in much more detail
 
-**Each round**:
-1. Pick an uncovered topic (or a repeatable topic).
-2. Execute `§CMD_ASK_ROUND_OF_QUESTIONS` via `AskUserQuestion` (3-5 targeted questions on that topic).
-3. On response: Execute `§CMD_LOG_TO_DETAILS` immediately.
-4. If the user asks a counter-question: ANSWER it, verify understanding, then resume.
-
 ### Interrogation Exit Gate
 
 **After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
 
 > "Round N complete (minimum met). What next?"
-> - **"Proceed to Phase 4: Scaffold"** — *(terminal: if selected, skip all others and move on)*
+> - **"Proceed to Phase 3: Scaffold"** — *(terminal: if selected, skip all others and move on)*
 > - **"More interrogation (3 more rounds)"** — Standard topic rounds, then this gate re-appears
 > - **"Devil's advocate round"** — 1 round challenging assumptions, then this gate re-appears
 > - **"What-if scenarios round"** — 1 round exploring hypotheticals, then this gate re-appears
 > - **"Deep dive round"** — 1 round drilling into a prior topic, then this gate re-appears
 
-**Execution order** (when multiple selected): Standard rounds first → Devil's advocate → What-ifs → Deep dive → re-present exit gate.
+**Execution order** (when multiple selected): Standard rounds first -> Devil's advocate -> What-ifs -> Deep dive -> re-present exit gate.
 
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions.
 
 ---
 
-## 4. Scaffold / Rewrite
+## 3. Scaffold / Rewrite
 *Generate the v2 inline SKILL.md into the target location.*
 
-**Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 4: Scaffold.
-> 2. I will generate skill files into the target location determined in Phase 1.
-> 3. I will `§CMD_REPORT_FILE_CREATION_SILENTLY` for each file.
+`§CMD_REPORT_INTENT_TO_USER`:
+> Scaffolding skill ___ into ___.
+> Generating SKILL.md and templates for ___ archetype.
+
+`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 
 ### Target Path Resolution
 
@@ -231,7 +230,7 @@ Based on `targetLocation` from Phase 1:
 | Target | Skill files go to | Symlink action |
 |--------|-------------------|----------------|
 | `project` | `.claude/skills/<name>/` | None |
-| `shared` | `~/.claude/engine/skills/<name>/` | Create symlink: `~/.claude/skills/<name>` → `~/.claude/engine/skills/<name>/` |
+| `shared` | `~/.claude/engine/skills/<name>/` | Create symlink: `~/.claude/skills/<name>` -> `~/.claude/engine/skills/<name>/` |
 
 **For shared target**: After writing files to engine:
 
@@ -250,7 +249,7 @@ Based on `targetLocation` from Phase 1:
 
 **Destination**: `[target_path]/<skill-name>/SKILL.md`
 
-**CRITICAL**: The v2 format puts the entire protocol INLINE in SKILL.md. There is NO separate `references/` protocol file. The protocol goes directly into SKILL.md after the boot sequence.
+The v2 format puts the entire protocol INLINE in SKILL.md. There is NO separate `references/` protocol file. The protocol goes directly into SKILL.md after the boot sequence.
 
 **Template**:
 ```markdown
@@ -263,8 +262,6 @@ tier: protocol
 
 [One-line description].
 # [Protocol Title]
-
-[!!!] DO NOT USE THE BUILT-IN PLAN MODE (EnterPlanMode tool). This protocol has its own structured phases.
 
 [Full inline protocol with phases, Phase Transition with AskUserQuestion after every phase except the last, --- between phases]
 ```
@@ -280,18 +277,18 @@ Generate the phased protocol following the engine pattern. Include these phases 
 | 4. Work Loop | yes | yes | yes | yes |
 | 5. Synthesis | yes | yes | yes | no |
 
-Each phase MUST reference appropriate §CMD_ commands:
-*   Setup → `§CMD_ASSUME_ROLE`, `§CMD_MAINTAIN_SESSION_DIR`, `§CMD_PARSE_PARAMETERS`
-*   Context Ingestion → `§CMD_INGEST_CONTEXT_BEFORE_WORK`
-*   Interrogation → `§CMD_EXECUTE_INTERROGATION_PROTOCOL`, `§CMD_LOG_TO_DETAILS`
-*   Planning → `§CMD_POPULATE_LOADED_TEMPLATE` (using plan template)
-*   Work Loop → `§CMD_THINK_IN_LOG`, `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE`, `§CMD_REFUSE_OFF_COURSE`
-*   Synthesis → `§CMD_FOLLOW_DEBRIEF_PROTOCOL`
+Each phase MUST reference appropriate `§CMD_` commands:
+*   Setup -> `§CMD_ASSUME_ROLE`, `§CMD_MAINTAIN_SESSION_DIR`, `§CMD_PARSE_PARAMETERS`
+*   Context Ingestion -> `§CMD_INGEST_CONTEXT_BEFORE_WORK`
+*   Interrogation -> `§CMD_INTERROGATE`, `§CMD_LOG_INTERACTION`
+*   Planning -> `§CMD_WRITE_FROM_TEMPLATE` (using plan template)
+*   Work Loop -> `§CMD_THINK_IN_LOG`, `§CMD_APPEND_LOG`, `§CMD_REFUSE_OFF_COURSE`
+*   Synthesis -> `§CMD_RUN_SYNTHESIS_PIPELINE`
 
 **v2 Structural Requirements**:
-*   `### Phase Transition` with `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH` after every phase except the last.
+*   `### Phase Transition` with `§CMD_GATE_PHASE` after every phase except the last.
 *   `---` between phases.
-*   Final phase uses `§CMD_FOLLOW_DEBRIEF_PROTOCOL` for synthesis.
+*   Final phase uses `§CMD_RUN_SYNTHESIS_PIPELINE` for synthesis.
 *   Skills with interrogation get: depth selection table, round counter, custom topics (standard + repeatable), exit gate.
 
 **DETAILS.md integration (automatic for non-utility archetypes)**:
@@ -313,43 +310,34 @@ Generate templates based on archetype. Follow engine template conventions.
 *   **Destination**: `[target_path]/<skill-name>/assets/TEMPLATE_<NAME>.md`
 
 ### Step C: Report
-Execute `§CMD_REPORT_FILE_CREATION_SILENTLY` for each file created.
-
-### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  custom: "Revise the scaffold | Go back and edit generated files"
+Execute `§CMD_LINK_FILE` for each file created.
 
 ---
 
-## 5. Synthesis
+## 4. Synthesis
+*When scaffolding is complete.*
 
-**1. Announce Intent**
-Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 5: Synthesis.
-> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
+`§CMD_REPORT_INTENT_TO_USER`:
+> Synthesizing. Skill ___ scaffolded with ___ files.
+> Producing EDIT_SKILL.md debrief.
 
-**STOP**: Do not create artifacts yet. You must output the block above first.
+`§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
 
-**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
-
-**Debrief creation notes** (for Step 1 -- `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
-*   Dest: `EDIT_SKILL.md`
+**Debrief notes** (for `EDIT_SKILL.md`):
 *   Include: skill name, mode (create/edit), target location, files generated, archetype used.
 
-**Walk-through config** (for Step 3 -- `§CMD_WALK_THROUGH_RESULTS`):
+**Walk-through config**:
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"
   gateQuestion: "Skill scaffolded. Walk through the generated files?"
   debriefFile: "EDIT_SKILL.md"
-  templateFile: "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md"
+  templateFile: "assets/TEMPLATE_IMPLEMENTATION.md"
 ```
 
 **Post-scaffold suggestion**:
 - If project-local: "You can now use `/<skill-name>` in this project. To share it across projects, run `/edit-skill promote <skill-name>`."
 - If shared: "You can now use `/<skill-name>` in any project."
-
-**Post-Synthesis**: If the user continues talking, obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
 
 ---
 ---
@@ -380,8 +368,8 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 
     | File | Local | Engine | Action |
     |------|-------|--------|--------|
-    | SKILL.md | ✅ | ✅/❌ | New / Overwrite |
-    | assets/TEMPLATE_*.md | ✅/❌ | ✅/❌ | New / Overwrite / Skip |
+    | SKILL.md | yes | yes/no | New / Overwrite |
+    | assets/TEMPLATE_*.md | yes/no | yes/no | New / Overwrite / Skip |
     ```
 
 ---
@@ -389,13 +377,13 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
 ## P2. Diff (Conditional)
 *For files that will OVERWRITE existing engine files, produce a structural comparison.*
 
-**Constraint**: Only diff files where both local and engine versions exist (Action = "Overwrite"). Skip files where the action is "New".
+Only diff files where both local and engine versions exist (Action = "Overwrite"). Skip files where the action is "New".
 
 For each file being overwritten:
 
 1.  **Read** both the local version and the engine version.
 2.  **Structural comparison**:
-    *   **For SKILL.md**: Compare frontmatter (description, version). Compare phase structure. Report added/removed/reordered phases. Report changed roles, mindsets, or §CMD_ references.
+    *   **For SKILL.md**: Compare frontmatter (description, version). Compare phase structure. Report added/removed/reordered phases. Report changed roles, mindsets, or `§CMD_` references.
     *   **For templates**: Compare section headers (H2/H3). Report added/removed sections.
 3.  **Output** a summary per file.
 
@@ -419,7 +407,7 @@ Files to OVERWRITE: [list] (see diff above)
 
 After promote:
   - Local .claude/skills/<name>/ will be DELETED
-  - Symlink created: ~/.claude/skills/<name> → ~/.claude/engine/skills/<name>/
+  - Symlink created: ~/.claude/skills/<name> -> ~/.claude/engine/skills/<name>/
 ```
 
 Execute `AskUserQuestion` (multiSelect: false):
@@ -459,9 +447,7 @@ Execute `AskUserQuestion` (multiSelect: false):
     ls -la ~/.claude/skills/<name>/SKILL.md
     ```
 
-7.  **Report**: Execute `§CMD_REPORT_FILE_CREATION_SILENTLY` for each file.
+7.  **Report**: Execute `§CMD_LINK_FILE` for each file.
 
-Execute `§CMD_REPORT_RESULTING_ARTIFACTS`.
-Execute `§CMD_REPORT_SESSION_SUMMARY`.
-
-**Post-Synthesis**: If the user continues talking, obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
+Execute `§CMD_REPORT_ARTIFACTS`.
+Execute `§CMD_REPORT_SUMMARY`.

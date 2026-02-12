@@ -209,11 +209,10 @@ migration_005_add_hooks_to_settings "$TEST_DIR/claude"
 # Check new hooks were added
 heartbeat=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-heartbeat.sh")] | length' "$TEST_DIR/claude/settings.json")
 session_gate=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-session-gate.sh")] | length' "$TEST_DIR/claude/settings.json")
-discovery=$(jq '[.hooks.PostToolUseSuccess[] | select(.hooks[0].command == "~/.claude/hooks/post-tool-use-discovery.sh")] | length' "$TEST_DIR/claude/settings.json")
 submit_gate=$(jq '[.hooks.UserPromptSubmit[] | select(.hooks[0].command == "~/.claude/hooks/user-prompt-submit-session-gate.sh")] | length' "$TEST_DIR/claude/settings.json")
 [ "$heartbeat" = "1" ] && pass "M005-01: Adds heartbeat hook" || fail "M005-01" "1" "$heartbeat"
 [ "$session_gate" = "1" ] && pass "M005-02: Adds session-gate hook" || fail "M005-02" "1" "$session_gate"
-[ "$discovery" = "1" ] && pass "M005-03: Adds discovery hook" || fail "M005-03" "1" "$discovery"
+# M005-03 (discovery hook) removed — discovery moved to PreToolUse
 [ "$submit_gate" = "1" ] && pass "M005-04: Adds user-prompt-submit session-gate" || fail "M005-04" "1" "$submit_gate"
 # Check existing overflow hook preserved
 overflow=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-overflow.sh")] | length' "$TEST_DIR/claude/settings.json")

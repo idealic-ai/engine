@@ -173,7 +173,7 @@ After all agents complete (or fail):
 1.  **Read Log File**: Read the full shared log file to understand what all agents did.
 2.  **Check Plan**: Read the plan file for any unchecked `[ ]` steps. Flag incomplete work.
 3.  **Synthesize Debrief**: The parent writes the unified debrief using `§CMD_GENERATE_DEBRIEF`. This covers ALL chunks, not just individual agent work.
-4.  **Report**: Execute `§CMD_REPORT_ARTIFACTS` and `§CMD_REPORT_SESSION_SUMMARY`.
+4.  **Report**: Execute `§CMD_REPORT_ARTIFACTS` and `§CMD_REPORT_SUMMARY`.
 
 ---
 
@@ -181,7 +181,7 @@ After all agents complete (or fail):
 
 *   **Max 5 Agents**: Hard cap. If chunk count > 5, merge smallest chunks until count <= 5.
 *   **Disjoint File Sets**: Chunks within the same wave MUST touch different files. The non-intersection proof is mandatory — if it fails, merge chunks.
-*   **Shared Log**: All agents append to the SAME log file via `log.sh`. Each entry prefixed with `[Chunk X]`.
+*   **Shared Log**: All agents append to the SAME log file via `engine log`. Each entry prefixed with `[Chunk X]`.
 *   **No Agent-to-Agent Communication**: Agents are isolated. They cannot read each other's output. Only the parent orchestrates.
 *   **No Agent Debriefs**: Agents do NOT write debriefs. The parent synthesizes one unified debrief from all agent logs.
 *   **Backward Compatible**: Plans without `**Depends**:` fields → single chunk → single-agent menu (identical to `§CMD_HANDOFF_TO_AGENT`).
@@ -250,4 +250,18 @@ Plan steps have no `**Depends**:` fields → treated as single sequential chunk 
 | C | 5, 6, 7 | `src/index.ts`, `src/parser.ts`, `src/renderer.ts` | Chunk A, Chunk B |
 
 **Recommended**: 2 agents for Wave 1, then Chunk C inline (touches files from both A and B).
+```
+
+---
+
+## PROOF FOR §CMD_PARALLEL_HANDOFF
+
+```json
+{
+  "agents_launched": {
+    "type": "string",
+    "description": "Number and type of agents launched with chunk assignments",
+    "examples": ["3 builder agents: Chunk A (steps 1-3), Chunk B (steps 4-6), Chunk C (steps 7-8)"]
+  }
+}
 ```

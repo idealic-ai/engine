@@ -1,18 +1,23 @@
 [
   {
     "id": "overflow-dehydration",
-    "description": "Force dehydration at overflow threshold via tmux paste",
+    "description": "Order agent to dehydrate at overflow threshold (§CMD_DEHYDRATE is preloaded)",
     "trigger": {
       "type": "contextThreshold",
       "condition": { "gte": "OVERFLOW_THRESHOLD" }
     },
     "payload": {
-      "command": "/session dehydrate restart"
+      "text": "CONTEXT OVERFLOW — §CMD_DEHYDRATE NOW. Follow the §CMD_DEHYDRATE protocol preloaded in your context. Produce JSON, pipe to `engine session dehydrate sessions/[CURRENT_SESSION]`. This is your LAST action before restart."
     },
-    "mode": "paste",
+    "mode": "inline",
     "urgency": "block",
     "priority": 1,
-    "inject": "always"
+    "inject": "always",
+    "whitelist": [
+      "Bash(engine session *)",
+      "Bash(engine log *)",
+      "Bash(ls *)"
+    ]
   },
   {
     "id": "session-gate",
@@ -40,23 +45,25 @@
     ]
   },
   {
-    "id": "standards-preload",
-    "description": "Auto-inject core standards when no session is active (fixes /session continue bootstrap)",
+    "id": "idle-gate",
+    "description": "Restrict tools when session is idle — only skill selection and engine commands allowed",
     "trigger": {
       "type": "lifecycle",
-      "condition": { "noActiveSession": true }
+      "condition": { "eq": "idle" }
     },
     "payload": {
-      "preload": [
-        "~/.claude/.directives/COMMANDS.md",
-        "~/.claude/.directives/INVARIANTS.md",
-        "~/.claude/.directives/TAGS.md"
-      ]
+      "text": "Session is idle (synthesis complete). Pick a skill to continue, start a new session, or close. Use AskUserQuestion, Skill, or engine commands only."
     },
-    "mode": "preload",
-    "urgency": "allow",
+    "mode": "inline",
+    "urgency": "block",
     "priority": 3,
-    "inject": "once"
+    "inject": "always",
+    "whitelist": [
+      "AskUserQuestion",
+      "Skill",
+      "Bash(engine session *)",
+      "Bash(engine log *)"
+    ]
   },
   {
     "id": "heartbeat-warn",
@@ -77,7 +84,8 @@
       "Bash(engine session *)",
       "Read(*/.claude/*)",
       "Read(*/TEMPLATE_*_LOG.md)",
-      "Task"
+      "Task",
+      "Write"
     ]
   },
   {
@@ -88,7 +96,7 @@
       "condition": { "gte": 10 }
     },
     "payload": {
-      "text": "§CMD_LOG_BETWEEN_TOOL_USES: Too many tool calls without logging. You MUST log progress now. Read the log template, then use engine log."
+      "text": "§CMD_LOG_BETWEEN_TOOL_USES: Log progress now."
     },
     "mode": "inline",
     "urgency": "block",
@@ -99,26 +107,9 @@
       "Bash(engine session *)",
       "Read(*/.claude/*)",
       "Read(*/TEMPLATE_*_LOG.md)",
-      "Task"
+      "Task",
+      "Write"
     ]
-  },
-  {
-    "id": "dehydration-preload",
-    "description": "Pre-load dehydration protocol at 50% context usage",
-    "trigger": {
-      "type": "contextThreshold",
-      "condition": { "gte": 0.50 }
-    },
-    "payload": {
-      "files": [
-        "~/.claude/skills/dehydrate/SKILL.md",
-        "~/.claude/skills/_shared/TEMPLATE_DEHYDRATED_CONTEXT.md"
-      ]
-    },
-    "mode": "inline",
-    "urgency": "allow",
-    "priority": 10,
-    "inject": "once"
   },
   {
     "id": "directive-autoload",
@@ -173,7 +164,7 @@
       "condition": { "matches": "Synthesis" }
     },
     "payload": {
-      "text": "SYNTHESIS PHASE ACTIVE: Execute §CMD_FOLLOW_DEBRIEF_PROTOCOL. Sub-phases: Checklists → Debrief → Pipeline → Close. Each sub-phase requires proof before proceeding."
+      "text": "SYNTHESIS PHASE ACTIVE: Execute §CMD_RUN_SYNTHESIS_PIPELINE. Sub-phases: Checklists → Debrief → Pipeline → Close. Each sub-phase requires proof before proceeding."
     },
     "mode": "inline",
     "urgency": "allow",
