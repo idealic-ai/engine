@@ -68,6 +68,12 @@ Captures and persists current session context for later restoration.
     *   **Source Code**: All relevant code, tests, and config files touched during the session.
     *   **Guidance**: Better to include too much than too little.
     *   **WARNING**: Do NOT confuse `~/.claude/` (shared engine) with `.claude/` (project-local).
+    *   **Injection Framework Note**: The following files are auto-injected by the injection framework after restart (via `injections.json` rules). You SHOULD still list them in Required Files for completeness, but the `/reanchor` skill will not need to manually read them if the injection framework fires:
+        - Engine standards (`COMMANDS.md`, `INVARIANTS.md`, `TAGS.md`) — loaded by `/reanchor` Phase 2
+        - Project directives (`.claude/.directives/*.md`) — injected by `directive-autoload` rule
+        - Dehydration protocol (this skill's own `SKILL.md`) — injected by `dehydration-preload` rule at 50% context
+        - Skill templates (`TEMPLATE_*_LOG.md`, etc.) — loaded by `/reanchor` Phase 4
+    *   **Focus dehydration on session-specific state**: The most critical content is session artifacts (`_LOG.md`, `_PLAN.md`, `DETAILS.md`), source code files being modified, and user interaction history. These are NOT auto-injectable — they exist only in your context window.
 
 ---
 

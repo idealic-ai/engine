@@ -146,6 +146,7 @@ TARGET_FILE=""
 if output=$(update_session 2>/dev/null); then
   SESSION_DIR=$(echo "$output" | head -1)
   SKILL=$(echo "$output" | tail -1)
+  # Rules are now evaluated inline by the PreToolUse hook (unified rule engine)
   # Extract session name from path, strip date prefix (YYYY_MM_DD_)
   SESSION_NAME=$(basename "$SESSION_DIR" | sed 's/^[0-9]\{4\}_[0-9]\{2\}_[0-9]\{2\}_//')
   # Get current phase: "5: Strategy" → "[5/10]. Strategy" (with phases array) or "5. Strategy" (without)

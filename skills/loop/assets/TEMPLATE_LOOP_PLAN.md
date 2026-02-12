@@ -1,52 +1,56 @@
-# Refinement Plan (The Experiment Design)
+# Loop Plan (The Experiment Design)
 
 ## Overview
-**Context**: Link to `ANALYSIS.md` or prior `REFINE.md` if this is a follow-up refinement.
+**Context**: Link to prior `LOOP.md` or `ANALYSIS.md` if this is a follow-up.
 **Required Documents**:
 *   `~/.claude/.directives/INVARIANTS.md` (Shared) and `.claude/.directives/INVARIANTS.md` (Project-specific, if exists)
-*   Relevant prompt files from `promptPaths`
-*   Relevant schema files from `schemaPaths`
+*   Relevant artifact files from `artifactPaths`
+*   Domain docs from `domainDocs`
 
-**Goal**: Design a systematic approach to improve LLM extraction accuracy through controlled experiments.
+**Goal**: Design a systematic hypothesis-driven approach to improve LLM workload quality through controlled experiments.
 
-**Filename Convention**: `sessions/[YYYY_MM_DD]_[TOPIC]/REFINE_PLAN.md`.
+**Filename Convention**: `sessions/[YYYY_MM_DD]_[TOPIC]/LOOP_PLAN.md`.
 
 ---
 
 ## 1. Problem Statement
-*What are we trying to fix? What's the current state?*
+*What are we trying to improve? What's the current state?*
 
-*   **Current Accuracy**: `X/Y` cases passing (`Z%`)
+*   **Current Quality**: `X/Y` cases passing (`Z%`)
 *   **Primary Symptom**: (e.g., "Scope headers on multi-line entries are missed")
 *   **Secondary Symptoms**: (e.g., "Bounding boxes drift right on continuation pages")
-*   **Impact**: (e.g., "Affects 30% of estimates in production")
+*   **Impact**: (e.g., "Affects 30% of inputs in production")
 
 ---
 
 ## 2. Workload Configuration
-*The manifest-level settings for this refinement session.*
+*The manifest-level settings for this iteration session.*
 
 *   **Workload ID**: `[name]`
-*   **Prompt Files**: `[list paths]`
-*   **Schema Files**: `[list paths if any]`
+*   **Artifact Files**: `[list paths — these will be modified during iteration]`
 *   **Case Files**: `[glob pattern or list]`
 *   **Expected Outputs**: `[path pattern or "none — qualitative only"]`
+*   **Run Command**: `[command template]`
+*   **Evaluate Command**: `[command template]`
+*   **Composer Agent**: `[prompt file path or "default"]`
 
 ---
 
 ## 3. Hypotheses (Ranked)
-*What do we believe is causing the failures? Rank by likelihood and testability.*
+*What do we believe is causing the failures? Rank by likelihood, testability, and impact.*
 
 ### Hypothesis A: [Title] — Priority: HIGH
-*   **Observation**: "3 fixtures fail on scope headers that span two lines"
+*   **Observation**: "3 cases fail on scope headers that span two lines"
 *   **Theory**: "The prompt lacks examples of multi-line headers"
+*   **Mechanism**: "Anchoring rule — add explicit multi-line pattern example"
 *   **Testable?**: Yes — add example, re-run affected cases
-*   **Expected Impact**: "Fixes fixtures 3, 7, 12"
+*   **Expected Impact**: "Fixes cases 3, 7, 12"
 *   **Confidence**: [High / Medium / Low]
 
 ### Hypothesis B: [Title] — Priority: MEDIUM
 *   **Observation**: "..."
 *   **Theory**: "..."
+*   **Mechanism**: "..."
 *   **Testable?**: ...
 *   **Expected Impact**: "..."
 *   **Confidence**: ...
@@ -54,6 +58,7 @@
 ### Hypothesis C: [Title] — Priority: LOW
 *   **Observation**: "..."
 *   **Theory**: "..."
+*   **Mechanism**: "..."
 *   **Testable?**: ...
 *   **Expected Impact**: "..."
 *   **Confidence**: ...
@@ -65,17 +70,17 @@
 
 ### 4.1 Control Group (Baseline)
 *   **Cases**: `[list or "all cases in casePaths"]`
-*   **Prompt Version**: `[commit hash or "current HEAD"]`
+*   **Artifact Version**: `[commit hash or "current HEAD"]`
 *   **Baseline Metrics**: `[from prior run or "TBD in Baseline Phase"]`
 
 ### 4.2 Test Variables
 *What we're changing in each experiment.*
 
-| Variable | Current Value | Proposed Change |
-|----------|---------------|-----------------|
-| Multi-line header guidance | None | Add explicit example |
-| Coordinate system bounds | Implicit | Add explicit "x in [0,612], y in [0,792]" |
-| ... | ... | ... |
+| Variable | Current Value | Proposed Change | Mechanism |
+|----------|---------------|-----------------|-----------|
+| Multi-line header guidance | None | Add explicit example | Anchoring rule |
+| Coordinate system bounds | Implicit | Add explicit "x in [0,612], y in [0,792]" | Explicit constraint |
+| ... | ... | ... | ... |
 
 ### 4.3 Constants (Do Not Change)
 *What stays fixed to isolate variables.*
@@ -109,7 +114,7 @@
 ### 5.3 Excluded Cases (And Why)
 *Cases we're intentionally ignoring this session.*
 
-*   `edge-case/scanned-poor-quality` — Input quality issue, not prompt issue
+*   `edge-case/scanned-poor-quality` — Input quality issue, not artifact issue
 *   `...`
 
 ---
@@ -123,7 +128,7 @@
 *   **Stretch**: 100% pass rate on focus cases
 
 ### 6.2 Qualitative Goals
-*   Visual overlays show correct bounding boxes on all focus cases
+*   Evaluation outputs show improved quality on focus cases
 *   No new categories of errors introduced
 *   Insights documented for future sessions
 
@@ -133,7 +138,7 @@
 *   **Success**: Target pass rate achieved
 *   **Plateau**: No improvement for 2 consecutive iterations
 *   **Regression**: Net negative change after 3 iterations
-*   **Max Iterations**: `N` iterations reached (default: 5)
+*   **Max Iterations**: `N` iterations reached (from manifest)
 
 ---
 
@@ -141,9 +146,9 @@
 *Ordered list of experiments to run. Each tests one hypothesis.*
 
 ### Experiment 1: [Title] — Tests Hypothesis A
-*   [ ] **Setup**: Identify the specific prompt section to modify
+*   [ ] **Setup**: Identify the specific artifact section to modify
 *   [ ] **Change**: Add multi-line header example to `prompts.ts:47`
-*   [ ] **Run**: Execute on focus cases: `multi-room-v2/page-3`, `edge-case/dense-layout`
+*   [ ] **Run**: Execute on focus cases
 *   [ ] **Measure**: Compare pass rate, check for regressions
 *   [ ] **Verdict**: [Proceed / Revert / Refine]
 
@@ -177,9 +182,9 @@
 ## 9. Pre-Flight Checklist
 *Verify before starting iteration loop.*
 
-*   [ ] Manifest validated against schema
+*   [ ] Manifest validated against schema (Calibration Phase passed)
 *   [ ] All case files accessible
-*   [ ] Baseline metrics recorded (or scheduled for Phase 4)
+*   [ ] Baseline metrics recorded (or scheduled for Baseline Phase)
 *   [ ] Focus cases identified and prioritized
 *   [ ] Regression guard cases identified
 *   [ ] Success criteria agreed with user
@@ -191,5 +196,5 @@
 
 *   **Time Box**: "Max 2 hours for this session"
 *   **Scope Limit**: "Prompt changes only — no schema modifications"
-*   **Dependencies**: "Requires overlay generation to be working"
+*   **Dependencies**: "Requires evaluation pipeline to be working"
 *   **...**: ...

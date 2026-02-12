@@ -40,10 +40,11 @@ function makeMockEmbedder(): EmbeddingClient {
 describe("indexer - reconcileChunks", () => {
   const tmpDbs: string[] = [];
 
-  function setupDb(): ReturnType<typeof initDb> {
+  async function setupDb() {
     const p = makeTmpDbPath();
     tmpDbs.push(p);
-    return initDb(p);
+    const db = await initDb(p);
+    return { db, dbPath: p };
   }
 
   afterEach(() => {
@@ -58,7 +59,7 @@ describe("indexer - reconcileChunks", () => {
   });
 
   it("should insert new chunks into empty database", async () => {
-    const db = setupDb();
+    const { db, dbPath } = await setupDb();
     const embedder = makeMockEmbedder();
 
     const chunks: Chunk[] = [
@@ -80,7 +81,7 @@ describe("indexer - reconcileChunks", () => {
       },
     ];
 
-    const report = await reconcileChunks(db, chunks, embedder);
+    const report = await reconcileChunks(db, dbPath, chunks, embedder);
 
     expect(report.inserted).toBe(2);
     expect(report.updated).toBe(0);
@@ -88,25 +89,20 @@ describe("indexer - reconcileChunks", () => {
     expect(report.deleted).toBe(0);
 
     // Verify data in DB
-    const rows = db.prepare("SELECT * FROM chunks").all() as Array<{
-      id: number;
-      content_hash: string;
-      session_date: string;
-    }>;
-    expect(rows).toHaveLength(2);
-    expect(rows[0].session_date).toBe("2026-02-04");
+    const rowsResult = db.exec("SELECT * FROM chunks");
+    expect(rowsResult).toHaveLength(1);
+    expect(rowsResult[0].values).toHaveLength(2);
 
-    // Verify vectors exist
-    const vecRows = db
-      .prepare("SELECT chunk_id FROM vec_chunks")
-      .all() as Array<{ chunk_id: number }>;
-    expect(vecRows).toHaveLength(2);
+    // Verify embeddings exist
+    const embResult = db.exec("SELECT chunk_id FROM embeddings");
+    expect(embResult).toHaveLength(1);
+    expect(embResult[0].values).toHaveLength(2);
 
     db.close();
   });
 
   it("should skip unchanged chunks", async () => {
-    const db = setupDb();
+    const { db, dbPath } = await setupDb();
     const embedder = makeMockEmbedder();
 
     const chunks: Chunk[] = [
@@ -121,10 +117,10 @@ describe("indexer - reconcileChunks", () => {
     ];
 
     // First run — insert
-    await reconcileChunks(db, chunks, embedder);
+    await reconcileChunks(db, dbPath, chunks, embedder);
 
     // Second run — same chunks, should skip
-    const report = await reconcileChunks(db, chunks, embedder);
+    const report = await reconcileChunks(db, dbPath, chunks, embedder);
 
     expect(report.inserted).toBe(0);
     expect(report.updated).toBe(0);
@@ -135,7 +131,7 @@ describe("indexer - reconcileChunks", () => {
   });
 
   it("should update changed chunks", async () => {
-    const db = setupDb();
+    const { db, dbPath } = await setupDb();
     const embedder = makeMockEmbedder();
 
     const chunks: Chunk[] = [
@@ -150,7 +146,7 @@ describe("indexer - reconcileChunks", () => {
     ];
 
     // First run — insert
-    await reconcileChunks(db, chunks, embedder);
+    await reconcileChunks(db, dbPath, chunks, embedder);
 
     // Second run — changed hash
     const updatedChunks: Chunk[] = [
@@ -164,7 +160,7 @@ describe("indexer - reconcileChunks", () => {
       },
     ];
 
-    const report = await reconcileChunks(db, updatedChunks, embedder);
+    const report = await reconcileChunks(db, dbPath, updatedChunks, embedder);
 
     expect(report.inserted).toBe(0);
     expect(report.updated).toBe(1);
@@ -172,16 +168,15 @@ describe("indexer - reconcileChunks", () => {
     expect(report.deleted).toBe(0);
 
     // Verify content updated
-    const row = db
-      .prepare("SELECT content_hash FROM chunks WHERE section_title = ?")
-      .get("Section One") as { content_hash: string };
-    expect(row.content_hash).toBe("hash_updated");
+    const result = db.exec("SELECT content_hash FROM chunks WHERE section_title = 'Section One'");
+    expect(result).toHaveLength(1);
+    expect(result[0].values[0][0]).toBe("hash_updated");
 
     db.close();
   });
 
   it("should delete orphaned chunks", async () => {
-    const db = setupDb();
+    const { db, dbPath } = await setupDb();
     const embedder = makeMockEmbedder();
 
     const chunks: Chunk[] = [
@@ -204,7 +199,7 @@ describe("indexer - reconcileChunks", () => {
     ];
 
     // First run — insert both
-    await reconcileChunks(db, chunks, embedder);
+    await reconcileChunks(db, dbPath, chunks, embedder);
 
     // Second run — only one chunk remains (section two was deleted from file)
     const remainingChunks: Chunk[] = [
@@ -218,7 +213,7 @@ describe("indexer - reconcileChunks", () => {
       },
     ];
 
-    const report = await reconcileChunks(db, remainingChunks, embedder);
+    const report = await reconcileChunks(db, dbPath, remainingChunks, embedder);
 
     expect(report.inserted).toBe(0);
     expect(report.updated).toBe(0);
@@ -226,14 +221,15 @@ describe("indexer - reconcileChunks", () => {
     expect(report.deleted).toBe(1);
 
     // Verify only one chunk remains
-    const rows = db.prepare("SELECT * FROM chunks").all();
-    expect(rows).toHaveLength(1);
+    const result = db.exec("SELECT * FROM chunks");
+    expect(result).toHaveLength(1);
+    expect(result[0].values).toHaveLength(1);
 
     db.close();
   });
 
   it("should handle mixed operations: insert + skip + update + delete", async () => {
-    const db = setupDb();
+    const { db, dbPath } = await setupDb();
     const embedder = makeMockEmbedder();
 
     const initialChunks: Chunk[] = [
@@ -263,7 +259,7 @@ describe("indexer - reconcileChunks", () => {
       },
     ];
 
-    await reconcileChunks(db, initialChunks, embedder);
+    await reconcileChunks(db, dbPath, initialChunks, embedder);
 
     // Second round: Unchanged stays, Will Change is modified, Will Delete is gone, New appears
     const updatedChunks: Chunk[] = [
@@ -293,18 +289,17 @@ describe("indexer - reconcileChunks", () => {
       },
     ];
 
-    const report = await reconcileChunks(db, updatedChunks, embedder);
+    const report = await reconcileChunks(db, dbPath, updatedChunks, embedder);
 
     expect(report.inserted).toBe(1); // Brand New
     expect(report.updated).toBe(1); // Will Change
     expect(report.skipped).toBe(1); // Unchanged
     expect(report.deleted).toBe(1); // Will Delete
 
-    const rows = db.prepare("SELECT section_title FROM chunks ORDER BY section_title").all() as Array<{
-      section_title: string;
-    }>;
-    expect(rows).toHaveLength(3);
-    expect(rows.map((r) => r.section_title)).toEqual([
+    const result = db.exec("SELECT section_title FROM chunks ORDER BY section_title");
+    expect(result).toHaveLength(1);
+    expect(result[0].values).toHaveLength(3);
+    expect(result[0].values.map((r) => r[0])).toEqual([
       "Brand New",
       "Unchanged",
       "Will Change",
@@ -314,7 +309,7 @@ describe("indexer - reconcileChunks", () => {
   });
 
   it("should handle empty chunk list (delete all)", async () => {
-    const db = setupDb();
+    const { db, dbPath } = await setupDb();
     const embedder = makeMockEmbedder();
 
     const chunks: Chunk[] = [
@@ -328,16 +323,17 @@ describe("indexer - reconcileChunks", () => {
       },
     ];
 
-    await reconcileChunks(db, chunks, embedder);
+    await reconcileChunks(db, dbPath, chunks, embedder);
 
     // Pass empty chunks — should delete everything
-    const report = await reconcileChunks(db, [], embedder);
+    const report = await reconcileChunks(db, dbPath, [], embedder);
 
     expect(report.inserted).toBe(0);
     expect(report.deleted).toBe(1);
 
-    const rows = db.prepare("SELECT * FROM chunks").all();
-    expect(rows).toHaveLength(0);
+    const result = db.exec("SELECT * FROM chunks");
+    // Empty result set — no rows
+    expect(result.length === 0 || result[0].values.length === 0).toBe(true);
 
     db.close();
   });

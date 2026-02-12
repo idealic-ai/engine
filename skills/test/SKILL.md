@@ -34,9 +34,6 @@ Designs and writes test cases for code correctness and regression prevention.
   ],
   "nextSkills": ["/document", "/implement", "/fix", "/analyze", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
-  "planTemplate": "~/.claude/skills/test/assets/TEMPLATE_TESTING_PLAN.md",
-  "logTemplate": "~/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md",
-  "debriefTemplate": "~/.claude/skills/test/assets/TEMPLATE_TESTING.md",
   "modes": {
     "coverage": {"label": "Coverage", "description": "Systematic gap-filling prioritized by risk", "file": "~/.claude/skills/test/modes/coverage.md"},
     "hardening": {"label": "Hardening", "description": "Adversarial edge cases and failure modes", "file": "~/.claude/skills/test/modes/hardening.md"},
@@ -68,14 +65,10 @@ Designs and writes test cases for code correctness and regression prevention.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project map and file index)
-    *   `~/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md` (Template for continuous testing logging)
-    *   `~/.claude/skills/test/assets/TEMPLATE_TESTING.md` (Template for final session debrief/report)
-    *   `~/.claude/skills/test/assets/TEMPLATE_TESTING_PLAN.md` (Template for drafting the test strategy)
     *   `.claude/.directives/TESTING.md` (Testing standards and quality requirements — project-level, load if exists)
     *   `.claude/.directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
 
-3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
-    *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
+3.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
 
 4.  **Session Location**: Execute `§CMD_MAINTAIN_SESSION_DIR` - ensure the directory is created.
 
@@ -258,8 +251,6 @@ Execute `§CMD_HAND_OFF_TO_AGENT` with:
 *   `startAtPhase`: `"Phase 3: Testing Loop"`
 *   `planOrDirective`: `[sessionDir]/TESTING_PLAN.md`
 *   `logFile`: `TESTING_LOG.md`
-*   `debriefTemplate`: `~/.claude/skills/test/assets/TEMPLATE_TESTING.md`
-*   `logTemplate`: `~/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md`
 *   `taskSummary`: `"Execute the testing plan: [brief description from taskSummary]"`
 
 **Multiple agents** (user chose "[N] agents" or "Custom agent count"):
@@ -267,8 +258,6 @@ Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 *   `agentName`: `"builder"`
 *   `planFile`: `[sessionDir]/TESTING_PLAN.md`
 *   `logFile`: `TESTING_LOG.md`
-*   `debriefTemplate`: `~/.claude/skills/test/assets/TEMPLATE_TESTING.md`
-*   `logTemplate`: `~/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md`
 *   `taskSummary`: `"Execute the testing plan: [brief description from taskSummary]"`
 
 **If "Continue inline"**: Proceed to Phase 3 as normal.
@@ -282,7 +271,6 @@ Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 3: Testing Loop.
 > 2. I will `§CMD_USE_TODOS_TO_TRACK_PROGRESS` to manage the test execution cycle.
-> 3. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` (following `assets/TEMPLATE_TESTING_LOG.md` EXACTLY) to `§CMD_THINK_IN_LOG` continuously.
 > 4. I will not write the debrief until the step is done (`§CMD_REFUSE_OFF_COURSE` applies).
 > 5. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
 

@@ -45,6 +45,7 @@ Immediate path (next-skill):
 | `/chores` | chores | `#needs-chores` -> `#delegated-chores` -> `#claimed-chores` -> `#done-chores` |
 | `/document` | documentation | `#needs-documentation` -> `#delegated-documentation` -> `#claimed-documentation` -> `#done-documentation` |
 | `/fix` | fix | `#needs-fix` -> `#delegated-fix` -> `#claimed-fix` -> `#done-fix` |
+| `/loop` | loop | `#needs-loop` -> `#delegated-loop` -> `#claimed-loop` -> `#done-loop` |
 | `/review` | review | `#needs-review` -> `#done-review` (or `#needs-rework`) |
 | `§CMD_MANAGE_ALERTS` | alert | `#active-alert` -> `#done-alert` |
 
@@ -292,6 +293,19 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **Application**: Applied **inline** within work artifacts (test logs, implementation debriefs, analysis reports). Agents discover these via `tag.sh find` and route to `/fix`.
 *   **Independence**: This feed is independent from all other feeds.
 
+## §FEED_LOOP
+*   **Tags**: `#needs-loop`, `#delegated-loop`, `#next-loop`, `#claimed-loop`, `#done-loop`
+*   **Location**: `sessions/`
+*   **Lifecycle** (5-state, two paths):
+    *   `#needs-loop` — Deferred. Applied inline by any agent when an LLM workload needs hypothesis-driven iteration to improve quality (prompt tuning, schema refinement, config optimization). Staging — awaits human review via `§CMD_DISPATCH_APPROVAL`.
+    *   `#delegated-loop` — Dispatch-approved. Human approved via `§CMD_DISPATCH_APPROVAL`. Daemon may now pick up.
+    *   `#next-loop` — Claimed for immediate next-skill execution. Set via "Claim for next skill" in `§CMD_DISPATCH_APPROVAL`. Daemon ignores. Auto-claimed by `/loop` on activation.
+    *   `#claimed-loop` — In-flight. Swapped when `/delegation-claim` picks up and `/loop` begins working on the tagged item.
+    *   `#done-loop` — Complete. Swapped by `/loop` after the iteration session produces a `LOOP.md`.
+*   **Application**: Applied **inline** within work artifacts (implementation debriefs, analysis reports, testing reports) when the agent identifies an LLM workload that needs iterative improvement. Agents discover these via `tag.sh find` and route to `/loop`.
+*   **Output**: `/loop` creates a `LOOP.md` in its session directory with hypothesis audit trail, iteration history, and Composer insights.
+*   **Independence**: This feed is independent from all other feeds.
+
 ## §FEED_IMPLEMENTATION
 *   **Tags**: `#needs-implementation`, `#delegated-implementation`, `#next-implementation`, `#claimed-implementation`, `#done-implementation`
 *   **Location**: `sessions/`
@@ -316,6 +330,7 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 | research | `/research` | async (Gemini) | Yes | 2 (queue early) |
 | fix | `/fix` | interactive/agent | Yes | 3 (bugs block progress) |
 | implementation | `/implement` | interactive/agent | Yes | 4 |
+| loop | `/loop` | interactive | Yes | 4.5 (iteration workloads) |
 | chores | `/chores` | interactive | Yes | 5 (quick wins, filler) |
 | documentation | `/document` | interactive | Yes | 6 |
 | review | `/review` | interactive | No (user-invoked only) | 7 |

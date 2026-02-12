@@ -46,10 +46,11 @@ function makeMockEmbedder(): EmbeddingClient {
 describe("query", () => {
   const tmpDbs: string[] = [];
 
-  function setupDb(): ReturnType<typeof initDb> {
+  async function setupDb() {
     const p = makeTmpDbPath();
     tmpDbs.push(p);
-    return initDb(p);
+    const db = await initDb(p);
+    return { db, dbPath: p };
   }
 
   afterEach(() => {
@@ -271,11 +272,26 @@ describe("query", () => {
       expect(whereClauses).toHaveLength(4);
       expect(params).toHaveLength(4);
     });
+
+    it("should use COALESCE fallback — session_date when session_started_at is NULL", () => {
+      // The COALESCE(session_started_at, session_date || 'T00:00:00.000Z') pattern
+      // ensures older sessions without timestamps still filter correctly
+      const { whereClauses, params } = buildFilterClauses({
+        since: "2026-02-05T10:00:00.000Z",
+      });
+      expect(whereClauses).toHaveLength(1);
+      // Verify the clause uses COALESCE with session_date fallback
+      expect(whereClauses[0]).toContain("COALESCE");
+      expect(whereClauses[0]).toContain("session_started_at");
+      expect(whereClauses[0]).toContain("session_date");
+      expect(whereClauses[0]).toContain("T00:00:00.000Z");
+      expect(params).toEqual(["2026-02-05T10:00:00.000Z"]);
+    });
   });
 
   describe("searchChunks (integration)", () => {
     it("should find indexed chunks via vector search", async () => {
-      const db = setupDb();
+      const { db, dbPath } = await setupDb();
       const embedder = makeMockEmbedder();
 
       const chunks: Chunk[] = [
@@ -298,7 +314,7 @@ describe("query", () => {
         },
       ];
 
-      await reconcileChunks(db, chunks, embedder);
+      await reconcileChunks(db, dbPath, chunks, embedder);
 
       // Search with the mock embedder
       const results = await searchChunks(db, "SQLite vector storage", embedder, {}, 10);

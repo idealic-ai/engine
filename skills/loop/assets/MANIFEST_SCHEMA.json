@@ -1,0 +1,85 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://finch.claims/schemas/loop-manifest.json",
+  "title": "Loop Workload Manifest",
+  "description": "Configuration for hypothesis-driven iteration on any LLM workload",
+  "type": "object",
+  "required": ["workloadId", "artifactPaths", "casePaths", "runCommand", "outputPath", "evaluateCommand"],
+  "properties": {
+    "workloadId": {
+      "type": "string",
+      "description": "Unique identifier for this workload (e.g., 'estimate-extraction', 'invoice-parser', 'code-review-prompt')"
+    },
+    "artifactPaths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Paths to files that may be modified during iteration (prompts, schemas, configs, templates — any artifact)"
+    },
+    "casePaths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "description": "Glob patterns for test case input files (e.g., 'cases/*/input.json', 'images/*.png')"
+    },
+    "expectedPaths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Glob patterns for expected output files. Optional — the loop works from evaluation critiques alone when omitted"
+    },
+    "runCommand": {
+      "type": "string",
+      "description": "Shell command to execute the workload. Use {case} placeholder for input path"
+    },
+    "outputPath": {
+      "type": "string",
+      "description": "Path template for workload output. Use {case} placeholder"
+    },
+    "evaluateCommand": {
+      "type": "string",
+      "description": "Shell command to evaluate quality of workload output. Receives {output} and optionally {expected} placeholders. Should produce structured JSON critique"
+    },
+    "reviewCommand": {
+      "type": "string",
+      "description": "Optional alternative evaluation command (e.g., visual overlay review, human-in-the-loop). If both evaluateCommand and reviewCommand are set, both are run and results are merged"
+    },
+    "agents": {
+      "type": "object",
+      "description": "Agent configurations for the iteration cycle",
+      "properties": {
+        "composer": {
+          "type": "object",
+          "description": "The Composer subagent — does deep analytical reasoning about artifact improvements",
+          "properties": {
+            "promptFile": {
+              "type": "string",
+              "description": "Path to the Composer agent prompt template. If omitted, uses the default COMPOSER_PROMPT.md"
+            }
+          }
+        },
+        "reviewer": {
+          "type": "object",
+          "description": "Optional reviewer subagent — performs structured evaluation (alternative to evaluateCommand)",
+          "properties": {
+            "promptFile": {
+              "type": "string",
+              "description": "Path to the reviewer agent prompt template"
+            }
+          }
+        }
+      }
+    },
+    "domainDocs": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Paths to domain context documents that the Composer should read for deep understanding (architecture docs, specs, READMEs)"
+    },
+    "maxIterations": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 10,
+      "description": "Maximum iterations before stopping"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,16 @@
+←  ☒ Colors  ☐ Seasons  ☐ Multi  ✔ Submit  →
+
+Example question 2: What's your favorite season?
+
+❯ 1. Summer
+     Warm and sunny
+  2. Winter
+     Cold and cozy
+  3. Spring
+     Fresh and green
+  4. Type something.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel

@@ -17,20 +17,21 @@ Systematic diagnosis and repair of bugs, failures, and regressions — structure
 {
   "taskType": "FIX",
   "phases": [
-    {"major": 0, "minor": 0, "name": "Setup"},
-    {"major": 1, "minor": 0, "name": "Context Ingestion"},
-    {"major": 2, "minor": 0, "name": "Investigation"},
-    {"major": 3, "minor": 0, "name": "Triage Walk-Through"},
-    {"major": 4, "minor": 0, "name": "Fix Loop"},
+    {"major": 0, "minor": 0, "name": "Setup", "proof": ["mode", "session_dir", "templates_loaded", "parameters_parsed"]},
+    {"major": 1, "minor": 0, "name": "Context Ingestion", "proof": ["context_sources_presented", "files_loaded"]},
+    {"major": 2, "minor": 0, "name": "Investigation", "proof": ["depth_chosen", "rounds_completed"]},
+    {"major": 3, "minor": 0, "name": "Triage Walk-Through", "proof": ["plan_written", "issues_triaged", "user_approved"]},
+    {"major": 4, "minor": 0, "name": "Fix Loop", "proof": ["fixes_applied", "tests_pass", "log_entries", "unresolved_blocks"]},
     {"major": 4, "minor": 1, "name": "Agent Handoff"},
-    {"major": 5, "minor": 0, "name": "Results Walk-Through"},
-    {"major": 6, "minor": 0, "name": "Debrief"}
+    {"major": 5, "minor": 0, "name": "Results Walk-Through", "proof": ["results_presented", "user_approved"]},
+    {"major": 6, "minor": 0, "name": "Synthesis"},
+    {"major": 6, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
+    {"major": 6, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
+    {"major": 6, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+    {"major": 6, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
   ],
   "nextSkills": ["/test", "/implement", "/analyze", "/document", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
-  "planTemplate": "~/.claude/skills/fix/assets/TEMPLATE_FIX_PLAN.md",
-  "logTemplate": "~/.claude/skills/fix/assets/TEMPLATE_FIX_LOG.md",
-  "debriefTemplate": "~/.claude/skills/fix/assets/TEMPLATE_FIX.md",
   "modes": {
     "general": {"label": "General", "description": "Standard investigate-fix-verify", "file": "~/.claude/skills/fix/modes/general.md"},
     "tdd": {"label": "TDD", "description": "Test-first discipline", "file": "~/.claude/skills/fix/modes/tdd.md"},
@@ -58,9 +59,6 @@ Systematic diagnosis and repair of bugs, failures, and regressions — structure
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project map and file index)
-    *   `~/.claude/skills/fix/assets/TEMPLATE_FIX_LOG.md` (Template for continuous fix logging)
-    *   `~/.claude/skills/fix/assets/TEMPLATE_FIX.md` (Template for final session debrief/report)
-    *   `~/.claude/skills/fix/assets/TEMPLATE_FIX_PLAN.md` (Template for drafting the repair plan)
     *   `.claude/.directives/TESTING.md` (Testing standards and diagnostics — project-level, load if exists)
     *   `.claude/.directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
 
@@ -112,10 +110,7 @@ Systematic diagnosis and repair of bugs, failures, and regressions — structure
 
 ### Phase Transition
 Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "1: Context Ingestion"
-  nextPhase: "2: Investigation"
-  prevPhase: "0: Setup"
-  custom: "Skip to Phase 4: Fix Loop | Issues are obvious, go straight to fixing"
+  custom: "Skip to 4: Fix Loop | Issues are obvious, go straight to fixing"
 
 ---
 
@@ -214,7 +209,6 @@ Execute `§CMD_PARALLEL_HANDOFF` (from `~/.claude/.directives/commands/CMD_PARAL
 > 1. I am moving to Phase 4: Fix Loop.
 > 2. I will `§CMD_USE_TODOS_TO_TRACK_PROGRESS` to manage the fix cycle.
 > 3. I will resolve Tier 1 issues first, then investigate Tier 2.
-> 4. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` (following `assets/TEMPLATE_FIX_LOG.md` EXACTLY) to `§CMD_THINK_IN_LOG`.
 > 5. I will log decisions (`💡`) and tech debt (`💸`) as I encounter them.
 > 6. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
 
@@ -278,10 +272,7 @@ Before calling any tool, ask yourself:
 *   **Document Everything**: Every hypothesis, every dead end, every decision. The log is more valuable than the fix.
 
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "4: Fix Loop"
-  nextPhase: "5: Results Walk-Through"
-  prevPhase: "3: Triage Walk-Through"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
@@ -294,8 +285,6 @@ Execute `§CMD_HAND_OFF_TO_AGENT` with:
 *   `startAtPhase`: `"Phase 4: Fix Loop"`
 *   `planOrDirective`: `[sessionDir]/FIX_PLAN.md`
 *   `logFile`: `FIX_LOG.md`
-*   `debriefTemplate`: `~/.claude/skills/fix/assets/TEMPLATE_FIX.md`
-*   `logTemplate`: `~/.claude/skills/fix/assets/TEMPLATE_FIX_LOG.md`
 *   `taskSummary`: `"Fix: [brief description from taskSummary]"`
 
 **Multiple agents** (user chose "[N] agents" or "Custom agent count"):
@@ -303,8 +292,6 @@ Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 *   `agentName`: `"debugger"`
 *   `planFile`: `[sessionDir]/FIX_PLAN.md`
 *   `logFile`: `FIX_LOG.md`
-*   `debriefTemplate`: `~/.claude/skills/fix/assets/TEMPLATE_FIX.md`
-*   `logTemplate`: `~/.claude/skills/fix/assets/TEMPLATE_FIX_LOG.md`
 *   `taskSummary`: `"Fix: [brief description from taskSummary]"`
 
 **If "Continue inline"**: Proceed to Phase 4 as normal.
@@ -323,46 +310,40 @@ Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 **Action**: Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config (Phase 5 — Results)** from the loaded mode file.
 
 ### Phase Transition
-Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`:
-  completedPhase: "5: Results Walk-Through"
-  nextPhase: "6: Debrief"
-  prevPhase: "4: Fix Loop"
+Execute `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
 
 ---
 
-## 6. The Debrief
+## 6. The Synthesis (Debrief)
+*When all fixes are applied and verified.*
 
 **1. Announce Intent**
 Execute `§CMD_REPORT_INTENT_TO_USER`.
-> 1. I am moving to Phase 6: Debrief.
-> 2. I will `§CMD_PROCESS_CHECKLISTS` to process any discovered CHECKLIST.md files.
-> 3. I will `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (following `assets/TEMPLATE_FIX.md` EXACTLY) to summarize the fix session.
-> 4. I will `§CMD_REPORT_RESULTING_ARTIFACTS` to list outputs.
-> 5. I will `§CMD_REPORT_SESSION_SUMMARY` to provide a concise session overview.
+> 1. I am moving to Phase 6: Synthesis.
+> 2. I will execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL` to process checklists, write the debrief, run the pipeline, and close.
 
 **STOP**: Do not create the file yet. You must output the block above first.
 
-**2. Execution — SEQUENTIAL, NO SKIPPING**
+**2. Execute `§CMD_FOLLOW_DEBRIEF_PROTOCOL`**
 
-[!!!] CRITICAL: Execute these steps IN ORDER. Do NOT skip to step 3 or 4 without completing step 1. The debrief FILE is the primary deliverable — chat output alone is not sufficient.
+**Debrief creation notes** (for Step 1 — `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`):
+*   Dest: `FIX.md`
+*   Write the file using the Write tool. This MUST produce a real file in the session directory.
+*   **The Story**: Narrate the diagnostic journey (§2 in template).
+*   **Deviation Analysis**: Compare Plan vs. Reality — where did we pivot? (§3 in template).
+*   **Root Cause Analysis**: Document the actual root causes found (§4 in template).
+*   **War Story**: The hardest moment of the investigation (§5 in template).
+*   **Tech Debt**: What shortcuts did we take or discover? (§6 in template).
+*   **System Health**: What did we learn about the system's overall health? (§7 in template).
+*   **Parking Lot**: What was parked or deferred (§8 in template).
+*   **Expert Opinion**: Your unfiltered assessment (§10 in template).
 
-**Step 0 (CHECKLISTS)**: Execute `§CMD_PROCESS_CHECKLISTS` — process any discovered CHECKLIST.md files. Read `~/.claude/.directives/commands/CMD_PROCESS_CHECKLISTS.md` for the algorithm. Skips silently if no checklists were discovered. This MUST run before the debrief to satisfy `¶INV_CHECKLIST_BEFORE_CLOSE`.
-
-**Step 1 (THE DELIVERABLE)**: Execute `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` (Dest: `FIX.md`).
-  *   Write the file using the Write tool. This MUST produce a real file in the session directory.
-  *   **The Story**: Narrate the diagnostic journey (§2 in template).
-  *   **Deviation Analysis**: Compare Plan vs. Reality — where did we pivot? (§3 in template).
-  *   **Root Cause Analysis**: Document the actual root causes found (§4 in template).
-  *   **War Story**: The hardest moment of the investigation (§5 in template).
-  *   **Tech Debt**: What shortcuts did we take or discover? (§6 in template).
-  *   **System Health**: What did we learn about the system's overall health? (§7 in template).
-  *   **Parking Lot**: What was parked or deferred (§8 in template).
-  *   **Expert Opinion**: Your unfiltered assessment (§10 in template).
-
-**Step 2**: Execute `§CMD_REPORT_RESULTING_ARTIFACTS` — list all created files in chat.
-
-**Step 3**: Execute `§CMD_REPORT_SESSION_SUMMARY` — 2-paragraph summary in chat.
-
-**Step 4**: Execute `§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL` — deactivate session with description, present skill progression menu.
+**Walk-through config** (for Step 3 — `§CMD_WALK_THROUGH_RESULTS`):
+```
+§CMD_WALK_THROUGH_RESULTS Configuration:
+  mode: "results"
+  gateQuestion: "Fixes complete. Walk through the changes?"
+  debriefFile: "FIX.md"
+```
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.

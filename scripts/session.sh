@@ -18,9 +18,11 @@
 #                                                  # REQUIRES 1-3 line description on stdin for RAG/search
 #                                                  # --keywords: comma-separated search keywords (stored in .state.json)
 #                                                  # Outputs: Related sessions from RAG search (if GEMINI_API_KEY set)
+#   session.sh dehydrate <path> <<JSON              # Merge dehydrated context JSON into .state.json
 #   session.sh restart <path>                      # Set status=ready-to-kill, signal wrapper
 #   session.sh check <path> [<<STDIN]                 # Tag scan + checklist validation (sets checkPassed=true)
 #   session.sh find                                 # Find session dir for current process (read-only)
+#   session.sh evaluate-injections <path>            # Evaluate injection rules, populate pendingInjections[]
 #   session.sh request-template <tag>               # Output REQUEST template for a #needs-* tag to stdout
 #
 # Examples:
@@ -45,7 +47,7 @@
 #     §CMD_PARSE_PARAMETERS — Session activation with JSON params
 #     §CMD_UPDATE_PHASE — Phase tracking and enforcement
 #     §CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL — Session completion
-#     §CMD_REANCHOR_AFTER_RESTART — Restart recovery
+#     §CMD_SESSION_CONTINUE_AFTER_RESTART — Restart recovery
 #     §CMD_REQUIRE_ACTIVE_SESSION — Session gate enforcement
 #     §CMD_RESOLVE_REQUEST_TEMPLATE — Tag-to-skill template resolution
 
@@ -735,12 +737,14 @@ case "$ACTION" in
       done <<< "$PROOF_INPUT"
     fi
 
-    # --- Proof Validation (TO-validation) ---
-    # If the TARGET phase (being entered) declares proof fields, validate STDIN contains all required fields.
-    # Proof validates what the agent completed to earn entry into the target phase.
-    if [ "$HAS_PHASES" = "true" ]; then
-      # Look up proof fields for the target phase being entered (TO validation)
-      PROOF_FIELDS_JSON=$(jq -r --argjson m "$REQ_MAJOR" --argjson n "$REQ_MINOR" \
+    # --- Proof Validation (FROM-validation) ---
+    # If the CURRENT phase (being left) declares proof fields, validate STDIN contains all required fields.
+    # Proof validates what the agent accomplished in the current phase before leaving it.
+    # Example: Phase "2: Interrogation" has proof ["depth_chosen", "rounds_completed"] —
+    #   when transitioning FROM Phase 2 to Phase 3, agent must prove interrogation was done.
+    if [ "$HAS_PHASES" = "true" ] && [ -n "$CURRENT_PHASE" ]; then
+      # Look up proof fields for the current phase being left (FROM validation)
+      PROOF_FIELDS_JSON=$(jq -r --argjson m "$CUR_MAJOR" --argjson n "$CUR_MINOR" \
         '(.phases[] | select(.major == $m and .minor == $n) | .proof) // empty' \
         "$STATE_FILE" 2>/dev/null || echo "")
 
@@ -748,39 +752,47 @@ case "$ACTION" in
         PROOF_FIELDS_COUNT=$(echo "$PROOF_FIELDS_JSON" | jq 'length' 2>/dev/null || echo "0")
 
         if [ "$PROOF_FIELDS_COUNT" -gt 0 ]; then
-          # Proof fields are declared on target phase — validate STDIN
-          if [ -z "$PROOF_INPUT" ]; then
-            echo "§CMD_UPDATE_PHASE: Proof required to enter phase '$PHASE' but no STDIN provided." >&2
-            echo "  Required proof fields: $(echo "$PROOF_FIELDS_JSON" | jq -r 'join(", ")')" >&2
-            echo "" >&2
-            echo "  Usage: echo 'field: value' | session.sh phase $DIR \"$PHASE\"" >&2
-            exit 1
-          fi
-
-          # Validate all required fields are present (proof already parsed above)
-          MISSING_FIELDS=""
-          for field in $(echo "$PROOF_FIELDS_JSON" | jq -r '.[]'); do
-            FIELD_VAL=$(echo "$PROOF_JSON" | jq -r --arg f "$field" '.[$f] // ""')
-            if [ -z "$FIELD_VAL" ]; then
-              MISSING_FIELDS="${MISSING_FIELDS}${MISSING_FIELDS:+, }$field"
-            elif [ "$FIELD_VAL" = "________" ]; then
-              echo "§CMD_UPDATE_PHASE: Proof field '$field' has unfilled blank (________). Complete the work before transitioning." >&2
+          # Re-entering same phase (Case 0) skips FROM validation — nothing to prove yet
+          if [ "$REQ_MAJOR" = "$CUR_MAJOR" ] && [ "$REQ_MINOR" = "$CUR_MINOR" ]; then
+            : # No FROM validation when re-entering same phase
+          else
+            # Proof fields are declared on current phase — validate STDIN
+            if [ -z "$PROOF_INPUT" ]; then
+              echo "§CMD_UPDATE_PHASE: Proof required to leave phase '$CURRENT_PHASE' but no STDIN provided." >&2
+              echo "  Required proof fields: $(echo "$PROOF_FIELDS_JSON" | jq -r 'join(", ")')" >&2
+              echo "" >&2
+              echo "  Usage: echo 'field: value' | session.sh phase $DIR \"$PHASE\"" >&2
               exit 1
             fi
-          done
 
-          if [ -n "$MISSING_FIELDS" ]; then
-            echo "§CMD_UPDATE_PHASE: Missing proof fields to enter phase '$PHASE': $MISSING_FIELDS" >&2
-            echo "  Required: $(echo "$PROOF_FIELDS_JSON" | jq -r 'join(", ")')" >&2
-            echo "  Provided: $(echo "$PROOF_JSON" | jq -r 'keys | join(", ")')" >&2
-            exit 1
+            # Validate all required fields are present (proof already parsed above)
+            MISSING_FIELDS=""
+            for field in $(echo "$PROOF_FIELDS_JSON" | jq -r '.[]'); do
+              FIELD_VAL=$(echo "$PROOF_JSON" | jq -r --arg f "$field" '.[$f] // ""')
+              if [ -z "$FIELD_VAL" ]; then
+                MISSING_FIELDS="${MISSING_FIELDS}${MISSING_FIELDS:+, }$field"
+              elif [ "$FIELD_VAL" = "________" ]; then
+                echo "§CMD_UPDATE_PHASE: Proof field '$field' has unfilled blank (________). Complete the work before transitioning." >&2
+                exit 1
+              fi
+            done
+
+            if [ -n "$MISSING_FIELDS" ]; then
+              echo "§CMD_UPDATE_PHASE: Missing proof to leave phase '$CURRENT_PHASE': $MISSING_FIELDS" >&2
+              echo "  Required: $(echo "$PROOF_FIELDS_JSON" | jq -r 'join(", ")')" >&2
+              echo "  Provided: $(echo "$PROOF_JSON" | jq -r 'keys | join(", ")')" >&2
+              exit 1
+            fi
           fi
         fi
       else
-        # Target phase has no proof field — warn if sibling phases have proof (backward-compat nudge)
-        HAS_PROOF_SIBLINGS=$(jq '[.phases[] | select(has("proof") and (.proof | length > 0))] | length > 0' "$STATE_FILE" 2>/dev/null || echo "false")
-        if [ "$HAS_PROOF_SIBLINGS" = "true" ]; then
-          echo "§CMD_UPDATE_PHASE: Target phase '$PHASE' has no proof fields declared, but other phases in this session declare proof. Consider adding proof fields to this phase." >&2
+        # Current phase has no proof field — warn if sibling phases have proof (backward-compat nudge)
+        # Only warn when leaving a phase (not re-entering same phase)
+        if [ "$REQ_MAJOR" != "$CUR_MAJOR" ] || [ "$REQ_MINOR" != "$CUR_MINOR" ]; then
+          HAS_PROOF_SIBLINGS=$(jq '[.phases[] | select(has("proof") and (.proof | length > 0))] | length > 0' "$STATE_FILE" 2>/dev/null || echo "false")
+          if [ "$HAS_PROOF_SIBLINGS" = "true" ]; then
+            echo "§CMD_UPDATE_PHASE: Phase '$CURRENT_PHASE' has no proof fields declared, but other phases in this session declare proof. Consider adding proof fields to this phase." >&2
+          fi
         fi
       fi
     fi
@@ -793,6 +805,7 @@ case "$ACTION" in
     # currentPhase stores the full label (including letter suffix) for display.
     # Enforcement uses numeric major.minor extracted at parse time.
     # phaseHistory stores objects with proof when proof was provided.
+    # Proof is FROM-validation: it describes what was accomplished in the phase being LEFT.
     if [ "$PROOF_JSON" != "{}" ] && [ -n "$PROOF_INPUT" ]; then
       # Store phase + proof in phaseHistory as an object
       jq --arg phase "$PHASE" --arg ts "$(timestamp)" --argjson proof "$PROOF_JSON" \
@@ -813,6 +826,20 @@ case "$ACTION" in
     fi
 
     echo "Phase: $PHASE"
+
+    # Output proof requirements for the new current phase (if declared)
+    if [ "$HAS_PHASES" = "true" ]; then
+      NEW_PROOF_FIELDS=$(jq -r --argjson m "$REQ_MAJOR" --argjson n "$REQ_MINOR" \
+        '(.phases[] | select(.major == $m and .minor == $n) | .proof) // empty' \
+        "$STATE_FILE" 2>/dev/null || echo "")
+      if [ -n "$NEW_PROOF_FIELDS" ] && [ "$NEW_PROOF_FIELDS" != "null" ]; then
+        PF_COUNT=$(echo "$NEW_PROOF_FIELDS" | jq 'length' 2>/dev/null || echo "0")
+        if [ "$PF_COUNT" -gt 0 ]; then
+          echo "Proof required to leave this phase:"
+          echo "$NEW_PROOF_FIELDS" | jq -r '.[] | "  - \(.)"'
+        fi
+      fi
+    fi
     ;;
 
   target)
@@ -832,7 +859,7 @@ case "$ACTION" in
     ;;
 
   continue)
-    # Resume session after context overflow restart (used by /reanchor).
+    # Resume session after context overflow restart (used by /session continue).
     # Clears loading flag, resets heartbeat counters — does NOT touch phase state.
     # The saved phase in .state.json is the single source of truth.
     #
@@ -1214,6 +1241,32 @@ case "$ACTION" in
     "$DOC_SEARCH" index &>/dev/null &
     ;;
 
+  dehydrate)
+    # Merge dehydrated context JSON into .state.json under dehydratedContext key
+    # Usage: engine session dehydrate <path> <<< '{"summary":"...","requiredFiles":[...]}'
+    if [ ! -f "$STATE_FILE" ]; then
+      echo "Error: No .state.json in $DIR — is the session active?" >&2
+      exit 1
+    fi
+
+    # Read JSON from stdin
+    DEHYDRATED_JSON=$(cat)
+    if [ -z "$DEHYDRATED_JSON" ]; then
+      echo "Error: No JSON provided on stdin" >&2
+      exit 1
+    fi
+
+    # Validate it's valid JSON
+    if ! echo "$DEHYDRATED_JSON" | jq empty 2>/dev/null; then
+      echo "Error: Invalid JSON on stdin" >&2
+      exit 1
+    fi
+
+    # Merge into .state.json under dehydratedContext key
+    jq --argjson ctx "$DEHYDRATED_JSON" '.dehydratedContext = $ctx' "$STATE_FILE" | safe_json_write "$STATE_FILE"
+    echo "Dehydrated context saved to $STATE_FILE"
+    ;;
+
   restart)
     if [ ! -f "$STATE_FILE" ]; then
       echo "§CMD_REQUIRE_ACTIVE_SESSION: No .state.json in $DIR — is the session active?" >&2
@@ -1224,13 +1277,22 @@ case "$ACTION" in
     SKILL=$(jq -r '.skill' "$STATE_FILE")
     CURRENT_PHASE=$(jq -r '.currentPhase // "Phase 1: Setup"' "$STATE_FILE")
 
-    # Create the prompt for the new Claude - invoke /reanchor skill with --continue for unbroken restart
-    PROMPT="/reanchor --session $DIR --skill $SKILL --phase \"$CURRENT_PHASE\" --continue"
+    # Create the prompt for the new Claude - invoke /session continue for unbroken restart
+    PROMPT="/session continue --session $DIR --skill $SKILL --phase \"$CURRENT_PHASE\""
+
+    # Detect if hook-based restore is available (dehydratedContext exists in .state.json)
+    HAS_DEHYDRATED=$(jq -r '.dehydratedContext // null | type' "$STATE_FILE" 2>/dev/null)
+    if [ "$HAS_DEHYDRATED" = "object" ]; then
+      RESTART_MODE="hook"
+    else
+      RESTART_MODE="prompt"
+    fi
 
     # State-only restart: set killRequested, write restartPrompt, reset contextUsage, delete sessionId
+    # restartMode: "hook" = SessionStart hook will inject context; "prompt" = /session continue fallback
     # The watchdog (signaled below) handles the actual kill
-    jq --arg ts "$(timestamp)" --arg prompt "$PROMPT" \
-      '.killRequested = true | .lastHeartbeat = $ts | .restartPrompt = $prompt | .contextUsage = 0 | del(.sessionId)' \
+    jq --arg ts "$(timestamp)" --arg prompt "$PROMPT" --arg mode "$RESTART_MODE" \
+      '.killRequested = true | .lastHeartbeat = $ts | .restartPrompt = $prompt | .restartMode = $mode | .contextUsage = 0 | del(.sessionId)' \
       "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
     # Signal the watchdog to kill Claude
@@ -1238,7 +1300,7 @@ case "$ACTION" in
       echo "Restart prepared. Signaling watchdog (PID $WATCHDOG_PID) to kill Claude..."
       kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
     else
-      echo "§CMD_REANCHOR_AFTER_RESTART: No watchdog active (WATCHDOG_PID not set)."
+      echo "§CMD_SESSION_CONTINUE_AFTER_RESTART: No watchdog active (WATCHDOG_PID not set)."
       echo "Not running under run.sh wrapper. To restart manually, run:"
       echo ""
       echo "claude '$PROMPT'"
@@ -1680,8 +1742,44 @@ case "$ACTION" in
     echo "$PROOF_JSON" | jq -r 'to_entries[] | "  \(.key): \(.value)"'
     ;;
 
+  evaluate-injections)
+    # Evaluate injection rules against current session state.
+    # Backward-compat wrapper around evaluate_rules() from lib.sh.
+    # Writes matched rules to pendingInjections[] in .state.json.
+    #
+    # Usage:
+    #   session.sh evaluate-injections <path>
+    #
+    # NOTE: The unified hook (overflow-v2.sh) now evaluates rules inline.
+    # This subcommand is kept for backward compatibility and testing.
+
+    INJECTIONS_FILE="$HOME/.claude/engine/injections.json"
+
+    if [ ! -f "$STATE_FILE" ]; then
+      exit 0  # No session — nothing to evaluate
+    fi
+
+    if [ ! -f "$INJECTIONS_FILE" ]; then
+      exit 0  # No rules file — nothing to evaluate
+    fi
+
+    # Delegate to evaluate_rules() from lib.sh
+    NEW_PENDING=$(evaluate_rules "$STATE_FILE" "$INJECTIONS_FILE")
+
+    # Write pendingInjections to .state.json (backward compat format)
+    jq --argjson pending "$NEW_PENDING" --arg ts "$(timestamp)" \
+      '.pendingInjections = $pending | .lastHeartbeat = $ts' \
+      "$STATE_FILE" | safe_json_write "$STATE_FILE"
+
+    PENDING_COUNT=$(echo "$NEW_PENDING" | jq 'length')
+    if [ "$PENDING_COUNT" -gt 0 ]; then
+      echo "evaluate-injections: $PENDING_COUNT rule(s) matched"
+      echo "$NEW_PENDING" | jq -r '.[] | "  \(.ruleId) (priority \(.priority), \(.mode)+\(.urgency))"'
+    fi
+    ;;
+
   *)
-    echo "§CMD_MAINTAIN_SESSION_DIR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart, check, prove, request-template, debrief" >&2
+    echo "§CMD_MAINTAIN_SESSION_DIR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart, check, prove, request-template, debrief, evaluate-injections" >&2
     exit 1
     ;;
 esac

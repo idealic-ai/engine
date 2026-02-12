@@ -4,14 +4,15 @@ Rules for testing PreToolUse, PostToolUse, and lifecycle hooks. Tests live in `e
 
 ## 1. Test File Mapping
 
-| Hook | Test File |
-|------|-----------|
-| `pre-tool-use-heartbeat.sh` | `test-heartbeat.sh` |
-| `pre-tool-use-overflow.sh` | `test-overflow.sh` |
-| `pre-tool-use-session-gate.sh` | `test-session-gate.sh` |
-| `post-tool-use-discovery.sh` | `test-post-tool-use-discovery.sh` |
-| `user-prompt-submit-session-gate.sh` | `test-prompt-gate.sh` |
-| `notification-*.sh`, `session-end-notify.sh` | `test-tmux.sh` (fleet notify integration) |
+| Hook | Test File | Location |
+|------|-----------|----------|
+| `pre-tool-use-heartbeat.sh` | `test-heartbeat.sh` | `engine/scripts/tests/` |
+| `pre-tool-use-overflow.sh` | `test-overflow.sh` | `engine/scripts/tests/` |
+| `pre-tool-use-session-gate.sh` | `test-session-gate.sh` | `engine/scripts/tests/` |
+| `post-tool-use-discovery.sh` | `test-post-tool-use-discovery.sh` | `engine/scripts/tests/` |
+| `post-tool-use-injections.sh` | `post-tool-use-injections.test.sh` | `hooks/__tests__/` |
+| `user-prompt-submit-session-gate.sh` | `test-prompt-gate.sh` | `engine/scripts/tests/` |
+| `notification-*.sh`, `session-end-notify.sh` | `test-tmux.sh` | `engine/scripts/tests/` |
 
 ## 2. Running Hook Tests
 

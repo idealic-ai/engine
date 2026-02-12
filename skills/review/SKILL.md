@@ -64,8 +64,6 @@ Reviews and validates work across sessions for consistency and correctness.
     **Constraint**: Do NOT read any project source code in Phase 0. Only load system templates/standards and discover tagged files.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
-    *   `~/.claude/skills/review/assets/TEMPLATE_REVIEW_LOG.md` (Template for continuous session logging)
-    *   `~/.claude/skills/review/assets/TEMPLATE_REVIEW.md` (Template for the final review report)
     *   `~/.claude/skills/_shared/TEMPLATE_DETAILS.md` (Template for Q&A capture)
 
 3.  **Discover Debriefs & Requests**: Execute `§CMD_FIND_TAGGED_FILES` for:
@@ -76,8 +74,7 @@ Reviews and validates work across sessions for consistency and correctness.
     *   **Merge & deduplicate**: Combine tag-discovered files with glob-discovered REQUEST files. Deduplicate by path.
     *   **Output**: List all found files to the user with their source (tag-discovered or REQUEST file). Each path should be a clickable link per `¶INV_TERMINAL_FILE_LINKS` (Full variant).
 
-4.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
-    *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
+4.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
     *   The `contextPaths` MUST include all discovered debrief files.
 
 5.  **Session Location**: Execute `§CMD_MAINTAIN_SESSION_DIR` - ensure the directory is created.

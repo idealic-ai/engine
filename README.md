@@ -59,7 +59,7 @@ Layer 1: Scripts       session.sh, tag.sh, log.sh, ...      (shell utilities)
 
 ## Skills, Tags & Sessions
 
-The engine includes 30+ skills organized into core workflow (`/analyze`, `/implement`, `/fix`, `/test`, `/document`, `/brainstorm`, `/refine`), session management (`/chores`, `/review`, `/dehydrate`), cross-session communication (`/research`, `/delegate`), and engine management (`/edit-skill`, `/fleet`).
+The engine includes 30+ skills organized into core workflow (`/analyze`, `/implement`, `/fix`, `/test`, `/document`, `/brainstorm`, `/loop`), session management (`/chores`, `/review`, `/dehydrate`), cross-session communication (`/research`, `/delegate`), and engine management (`/edit-skill`, `/fleet`).
 
 Cross-session coordination uses semantic tags with a 4-state lifecycle: `#needs-X` → `#delegated-X` → `#claimed-X` → `#done-X`. Sessions are directories (`sessions/YYYY_MM_DD_TOPIC/`) containing logs, plans, debriefs, and `.state.json`.
 

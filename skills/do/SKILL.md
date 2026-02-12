@@ -53,8 +53,7 @@ Lightweight session for quick ad-hoc work — no interrogation, no planning, no 
     **Constraint**: Do NOT read project files in Phase 0. Only load system templates/standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for:
-    *   `~/.claude/skills/do/assets/TEMPLATE_DO_LOG.md` (Log template)
-    *   `~/.claude/skills/do/assets/TEMPLATE_DO.md` (Debrief template)
+    *   Templates (log, debrief) are auto-preloaded by hooks after session activation. No manual loading needed.
 
 3.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — construct the session parameters JSON and pipe to `session.sh activate`.
 

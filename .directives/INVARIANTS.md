@@ -50,9 +50,9 @@ This document defines the universal rules that apply across ALL projects using t
 ## 4. Communication Physics
 
 *   **¶INV_SKILL_VIA_TOOL**: Slash commands (skills) MUST be invoked via the Skill tool, NEVER via Bash.
-    *   **Rule**: When instructed to run `/dehydrate`, `/commit`, `/review`, or any `/skill-name`, you MUST use the Skill tool with `skill: "skill-name"`. Do NOT use Bash to call scripts.
-    *   **Prohibited**: `engine session dehydrate`, `bash -c "/dehydrate"`, or any shell-based skill invocation.
-    *   **Correct**: `Skill(skill: "dehydrate", args: "restart")` or `Skill(skill: "commit")`
+    *   **Rule**: When instructed to run `/session`, `/commit`, `/review`, or any `/skill-name`, you MUST use the Skill tool with `skill: "skill-name"`. Do NOT use Bash to call scripts.
+    *   **Prohibited**: `engine session dehydrate`, `bash -c "/session dehydrate"`, or any shell-based skill invocation.
+    *   **Correct**: `Skill(skill: "session", args: "dehydrate restart")` or `Skill(skill: "commit")`
     *   **Reason**: Skills are registered in the Claude Code skill system and invoked via the Skill tool. They are NOT bash scripts. The `/` prefix is syntactic sugar for "use the Skill tool".
 
 *   **¶INV_SKILL_PROTOCOL_MANDATORY**: The protocol is the task. Every step executes. No exceptions.
@@ -185,16 +185,16 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Reason**: Without this framing, the model treats the protocol as overhead wrapping the "real" task and optimizes it away. The protocol IS the task.
 
 *   **¶INV_NEW_SESSION_BOUNDARY**: When a user requests a new session, create one. Do not continue the old one.
-    *   **Rule**: When the user explicitly requests a new session — via next-skill selection (`§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`), `/dehydrate restart`, or saying "new session" / "next session" — the agent MUST create a fresh session directory via `§CMD_MAINTAIN_SESSION_DIR`. It MUST NOT reactivate, continue, or override errors in the previous session.
+    *   **Rule**: When the user explicitly requests a new session — via next-skill selection (`§CMD_DEACTIVATE_AND_PROMPT_NEXT_SKILL`), `/session dehydrate restart`, or saying "new session" / "next session" — the agent MUST create a fresh session directory via `§CMD_MAINTAIN_SESSION_DIR`. It MUST NOT reactivate, continue, or override errors in the previous session.
     *   **Prohibited**: Seeing `session.sh activate` reject because the session is completed/active and deciding to "override" or "continue anyway." The rejection IS the expected outcome — the old session is done.
     *   **Redirection**: If `session.sh activate` rejects, create a new session directory with `§CMD_MAINTAIN_SESSION_DIR`. The user's intent is forward motion, not recovery.
     *   **Reason**: Agents systematically conflate "next skill" with "continue this session" because their helpfulness bias prioritizes continuity. The user's new-session request is a boundary signal, not a suggestion.
 
 *   **¶INV_PHASE_ENFORCEMENT**: Phase transitions are mechanically enforced via `session.sh phase`.
     *   **Rule**: When a session has a `phases` array (declared at activation), `session.sh phase` enforces sequential progression. Non-sequential transitions (skip forward or go backward) require `--user-approved "Reason: [why, citing user's response]"`.
-    *   **Proof-gated transitions (TO validation)**: The target phase (being entered) may declare a `proof` field (array of field names). When present, the agent MUST pipe proof as `key: value` lines via STDIN when entering it. Missing or unfilled fields reject the transition. Proof is always parsed and stored in `phaseHistory` as structured objects when provided, regardless of whether the target phase declares proof fields.
+    *   **Proof-gated transitions (FROM validation)**: The current phase (being left) may declare a `proof` field (array of field names). When present, the agent MUST pipe proof as `key: value` lines via STDIN when transitioning away from it. Missing or unfilled fields reject the transition. Proof is always parsed and stored in `phaseHistory` as structured objects when provided, regardless of whether the current phase declares proof fields. Semantically: proof on a phase describes what must be accomplished IN that phase before leaving it.
     *   **Letter suffixes**: Sub-phase labels may include a single uppercase letter suffix (e.g., `"3.1A: Agent Handoff"`). The letter is stripped for enforcement (enforces as `3.1`) but preserved in `phaseHistory` for audit trail. Distinguishes alternative branches.
-    *   **Context overflow recovery**: `/reanchor` uses `engine session continue` to resume the heartbeat without touching phase state. No phase transition needed — the saved phase in `.state.json` is the source of truth.
+    *   **Context overflow recovery**: `/session continue` uses `engine session continue` to resume the heartbeat without touching phase state. No phase transition needed — the saved phase in `.state.json` is the source of truth.
     *   **Sub-phases**: Phases with the same major number and a higher minor number (e.g., 4.1 after 4.0) are auto-appended without pre-declaration.
     *   **Sub-phase skippability**: Sub-phases are optional — they represent alternative paths, not mandatory steps. `N.0→(N+1).0` is always allowed even when `N.1` is declared (skip over optional sub-phase). `N.M→(N+1).0` is always allowed (exit sub-phase to next major). Neither requires `--user-approved`.
     *   **Backward compat**: Sessions without a `phases` array have no enforcement — any transition is allowed. Phases without `proof` fields emit a stderr warning if sibling phases declare proof (nudge, not block).
@@ -279,9 +279,9 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Reason**: Request files are contracts between sessions. Closing a session without fulfilling its requests leaves broken promises in the system — future sessions that depend on the work will find unfulfilled tags.
 
 *   **¶INV_PROVABLE_DEBRIEF_PIPELINE** *(DEPRECATED)*: Replaced by proof-gated phase transitions (`¶INV_PHASE_ENFORCEMENT`).
-    *   **Migration**: Proof for synthesis pipeline steps is now provided inline with each synthesis sub-phase transition. Skills declare `proof` fields on their synthesis sub-phases in the `phases` array (e.g., `{"major": 5, "minor": 2, "name": "Debrief", "proof": ["debrief_file", "tags_line"]}`). When the agent transitions to a sub-phase, it pipes proof via STDIN to `session.sh phase`. This replaces the separate `provableDebriefItems` array and `session.sh prove` command.
-    *   **Backward compat**: The `provableDebriefItems` field and `session.sh prove` command still work but emit a deprecation warning. New skills should use `proof` fields on synthesis sub-phases instead.
-    *   **Reason**: The original design required a separate prove step at the end of synthesis — agents frequently skipped it. Inline proof on each sub-phase transition makes proof unavoidable (you can't enter the sub-phase without providing it).
+    *   **Migration**: Proof for synthesis pipeline steps is now provided inline with each phase transition. Skills declare `proof` fields on phases in the `phases` array (e.g., `{"major": 2, "minor": 0, "name": "Interrogation", "proof": ["depth_chosen", "rounds_completed"]}`). When the agent transitions away from a phase, it pipes proof via STDIN to `session.sh phase`. This replaces the separate `provableDebriefItems` array and `session.sh prove` command. Proof on a phase describes what must be accomplished IN that phase before leaving it (FROM validation).
+    *   **Backward compat**: The `provableDebriefItems` field and `session.sh prove` command still work but emit a deprecation warning. New skills should use `proof` fields on phases instead.
+    *   **Reason**: The original design required a separate prove step at the end of synthesis — agents frequently skipped it. Inline proof on each phase transition makes proof unavoidable (you can't leave the phase without providing it).
 
 *   **¶INV_WALKTHROUGH_TAGS_ARE_PASSIVE**: Tags placed during `§CMD_WALK_THROUGH_RESULTS` do NOT trigger delegation offers.
     *   **Rule**: Tags applied during walkthrough triage are protocol-placed (expected output of the walkthrough step). They are recorded but do not invoke `/delegation-create`. Tags in all other contexts (interrogation, QnA, ad-hoc chat, side discovery) are reactive — they trigger a `/delegation-create` offer.
@@ -307,6 +307,10 @@ This document defines the universal rules that apply across ALL projects using t
     *   **Prohibited**: `~/.claude/scripts/research.sh`, `~/.claude/scripts/tag.sh swap`, `~/.claude/tools/session-search/session-search.sh query`. Use `engine research`, `engine tag swap`, `engine session-search query` instead.
     *   **Reason**: The heartbeat hook allowlists `engine` commands specifically; full paths may be blocked. Skill files and directive prose should reference `engine` subcommands, not raw script paths.
     *   **Cross-ref**: Originally captured in `~/.claude/docs/.directives/INVARIANTS.md`. Promoted to shared for universal visibility.
+
+*   **¶INV_DAEMON_STATELESS**: The dispatch daemon MUST NOT maintain state beyond what tags encode.
+    *   **Rule**: The daemon reads tags, routes to skills, and spawns agents. It does not track which agents are running, which work is complete, or any other state. Tags ARE the state. `#claimed-X` IS the claim state.
+    *   **Reason**: Simplicity and crash recovery. If the daemon restarts, it re-reads tags and resumes correctly. No state file to corrupt, no process table to reconcile.
 
 *   **¶INV_USER_APPROVED_REQUIRES_TOOL**: The `--user-approved` flag on `engine session phase` requires a reason obtained via `AskUserQuestion`.
     *   **Rule**: `AskUserQuestion` is the ONLY valid mechanism to obtain a `--user-approved` reason string. The reason MUST quote the user's answer from the `AskUserQuestion` tool response. Self-authored reasons are invalid regardless of how reasonable they seem.

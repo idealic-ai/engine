@@ -237,6 +237,7 @@ UTILITIES
   user-info <cmd>        User identity detection
     username | email | json
   research <file>        Gemini Deep Research API wrapper (stdin-based)
+  rewrite <in> <out>     Gemini 3 Pro document rewriter (stdin instructions)
   await-tag <file> '#tag'  Block until tag appears (fswatch)
   escape-tags <file>     Retroactive backtick-escaping for tags
   worker                 Fleet worker daemon (background)

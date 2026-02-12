@@ -19,3 +19,9 @@ Under `set -euo pipefail`, the script exits with the last command's exit code. I
 
 ## 6. Hook execution order matters
 PreToolUse hooks run in settings.json array order. Earlier hooks can block before later hooks run. The session-gate (whitelists tools without a session) is 5th — heartbeat (3rd) and directive-gate (4th) can block first, preventing the agent from ever reaching activation.
+
+## 7. YAML frontmatter `description:` field must be quoted if it contains colons
+The `yaml` npm package interprets bare `Triggers: "..."` as a nested mapping key, causing parse errors. Always quote the `description:` value in YAML frontmatter when it contains colons (e.g., `description: "Triggers: run a research cycle"`). Discovered in SKILL.md files — all 30 files were affected.
+
+## 8. Bash defers SIGTERM to subshells until foreground child exits
+When you `kill $subshell_pid`, bash delivers SIGTERM to the subshell — but the subshell defers it until its foreground child (e.g., `sleep`) completes. This breaks background timer patterns like `(sleep N; do_thing)& kill $!`. Use `timeout N command` instead, which directly kills the child process on expiry or early termination.

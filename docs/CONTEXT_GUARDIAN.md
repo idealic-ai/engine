@@ -8,7 +8,7 @@ When a Claude session approaches context limits (76% raw, ~95% of the 80% auto-c
 
 1. **Detects** — Status line tracks context usage via `.state.json`
 2. **Blocks** — PreToolUse hook denies all tool calls at threshold (76% raw = 100% normalized)
-3. **Forces Dehydration** — Claude must run `/dehydrate restart`
+3. **Forces Dehydration** — Claude must run `/session dehydrate restart`
 4. **Restarts** — Fresh Claude spawns with session continuation prompt
 5. **Rehydrates** — New Claude reads `DEHYDRATED_CONTEXT.md` and resumes
 
@@ -59,7 +59,7 @@ PreToolUse hook that blocks tools when context is nearly full.
 - Reads `contextUsage` from `.state.json`
 - Sources `~/.claude/engine/config.sh` for `OVERFLOW_THRESHOLD` (default: 0.76)
 - Allows tools if < threshold
-- Blocks all tools if >= threshold with message: "CONTEXT OVERFLOW — You MUST run `/dehydrate restart` NOW" (no percentage shown — threshold is already 100% normalized)
+- Blocks all tools if >= threshold with message: "CONTEXT OVERFLOW — You MUST run `/session dehydrate restart` NOW" (no percentage shown — threshold is already 100% normalized)
 - Sets sticky `overflowed=true` flag in `.state.json` on first deny
 - Sources `~/.claude/scripts/lib.sh` for shared utilities (`hook_allow`, `hook_deny`, `safe_json_write`)
 
@@ -104,7 +104,7 @@ jq --arg ts "$(timestamp)" '.contextUsage = 0.85 | .lastHeartbeat = $ts' "$STATE
 
 # Hook responses
 hook_allow
-hook_deny "CONTEXT OVERFLOW" "You MUST run /dehydrate restart NOW" ""
+hook_deny "CONTEXT OVERFLOW" "You MUST run /session dehydrate restart NOW" ""
 
 # Fleet notification (no-ops outside fleet tmux)
 notify_fleet "working"
@@ -205,9 +205,9 @@ Located at `sessions/<session>/.state.json`:
 ├─────────────────────────────────────────────────────────────┤
 │  PreToolUse hook blocks ALL tools                            │
 │       ↓                                                      │
-│  Claude forced to run /dehydrate restart                     │
+│  Claude forced to run /session dehydrate restart              │
 │       ↓                                                      │
-│  /dehydrate writes DEHYDRATED_CONTEXT.md                     │
+│  /session dehydrate writes DEHYDRATED_CONTEXT.md             │
 │       ↓                                                      │
 │  session.sh restart writes restartPrompt, sends SIGUSR1      │
 │       ↓                                                      │
@@ -246,13 +246,13 @@ This will:
 
 **Cause:** Claude may be stuck or confused by the block message.
 
-**Fix:** The hook message explicitly tells Claude to run `/dehydrate restart`. If Claude ignores it, there may be a prompt issue.
+**Fix:** The hook message explicitly tells Claude to run `/session dehydrate restart`. If Claude ignores it, there may be a prompt issue.
 
 ### Restart doesn't preserve session
 
 **Cause:** `DEHYDRATED_CONTEXT.md` wasn't written or doesn't contain proper handover.
 
-**Fix:** Check `/dehydrate` skill is correctly writing the file. The file must include session path and continuation instructions.
+**Fix:** Check `/session dehydrate` subcommand is correctly writing the file. The file must include session path and continuation instructions.
 
 ### Multiple agents cause collision
 
@@ -264,7 +264,7 @@ This will:
 
 - `~/.claude/docs/SESSION_LIFECYCLE.md` — **Comprehensive session lifecycle reference** (all restart/restore/rehydration scenarios, state machine, race conditions)
 - `~/.claude/docs/DIRECTIVES_SYSTEM.md` — Behavioral specification system (commands, invariants, tags) that governs session behavior
-- `~/.claude/skills/dehydrate/references/DEHYDRATE.md` — Dehydration protocol
-- `~/.claude/skills/reanchor/references/REANCHOR.md` — Rehydration protocol (post-restart context restoration)
+- `~/.claude/engine/skills/session/SKILL.md` — Session skill (dehydration + continuation protocols)
+- `~/.claude/engine/skills/session/references/continue-protocol.md` — Rehydration protocol (post-restart context restoration)
 - `~/.claude/.directives/COMMANDS.md` — `§CMD_CONTINUE_OR_CLOSE_SESSION` for reactivation
 - `sessions/<session>/DEHYDRATED_CONTEXT.md` — Session handover document

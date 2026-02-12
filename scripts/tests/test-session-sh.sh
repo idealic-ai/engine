@@ -1045,10 +1045,10 @@ test_restart_sets_kill_requested() {
   ctx=$(jq -r '.contextUsage' "$sf")
   sid=$(jq -r '.sessionId // "deleted"' "$sf")
 
-  if [ "$kill_req" = "true" ] && [[ "$prompt" == *"/reanchor"* ]] && [ "$ctx" = "0" ] && [ "$sid" = "deleted" ]; then
+  if [ "$kill_req" = "true" ] && [[ "$prompt" == *"/session continue"* ]] && [ "$ctx" = "0" ] && [ "$sid" = "deleted" ]; then
     pass "$test_name"
   else
-    fail "$test_name" "killRequested=true, prompt contains /reanchor, ctx=0, sessionId deleted" \
+    fail "$test_name" "killRequested=true, prompt contains /session continue, ctx=0, sessionId deleted" \
       "kill=$kill_req, prompt=$prompt, ctx=$ctx, sid=$sid"
   fi
 

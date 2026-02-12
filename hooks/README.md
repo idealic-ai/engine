@@ -14,6 +14,7 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 | `Notification` | On attention state changes | No |
 | `Stop` | When Claude's turn ends | No |
 | `SessionEnd` | When the Claude session exits | No |
+| `PreCompact` | Before context compaction | No — notification only |
 
 **Ordering matters for PreToolUse**: Hooks execute in array order from `settings.json`. The session gate must run first — other hooks read `.state.json` which only exists after session activation.
 
@@ -46,6 +47,18 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 | `user-prompt-state-injector.sh` | Injects runtime context into the agent's prompt: current time, session info, skill/phase, heartbeat state. |
 | `user-prompt-submit-session-gate.sh` | Instructs the agent to load standards and activate a session when no session is active. |
 | `user-prompt-working.sh` | Sends "working" notification state when the user submits a prompt, before Claude processes. |
+
+### PreCompact (1 hook)
+
+| Hook | Purpose |
+|------|---------|
+| `pre-compact-kill.sh` | Intercepts auto-compaction to prevent lossy context compression. Generates mini-dehydration if `DEHYDRATED_CONTEXT.md` is missing, then delegates to `session.sh restart` (marks `killRequested`, signals watchdog). Matcher: `auto` only — manual `/compact` is not intercepted. |
+
+**Flow**: PreCompact(auto) fires → find active session → generate mini-dehydration if needed → `session.sh restart` → watchdog kills Claude → external restart with `/session continue`.
+
+**Safety net**: This is the "suspenders" to overflow-v2's "belt". overflow-v2 dehydrates at 76% context usage. PreCompact fires at ~95% when Claude Code itself triggers compaction. By the time PreCompact fires, `DEHYDRATED_CONTEXT.md` should already exist from overflow-v2.
+
+**Testing**: Set `TEST_MODE=1` for dry-run (prints actions without killing). Example: `echo '{"event":"auto"}' | TEST_MODE=1 bash ~/.claude/engine/hooks/pre-compact-kill.sh`.
 
 ### Notification / Lifecycle (4 hooks)
 
@@ -105,8 +118,10 @@ Hook tests live in `~/.claude/engine/scripts/tests/`:
 | `test-post-tool-use-discovery.sh` | `post-tool-use-discovery.sh` | 17 tests — tool filtering, dir tracking, soft/hard discovery, dedup |
 | `test-pre-tool-use-directive-gate.sh` | `pre-tool-use-directive-gate.sh` | 15 tests — early exits, whitelists, pending clearing, counter enforcement |
 | `test-post-tool-use-details-log.sh` | `post-tool-use-details-log.sh` | 20 tests — single/multi question, no session, preamble extraction, transcript handling |
+| `test-precompact-hook.sh` | `pre-compact-kill.sh` | 10 tests — mini-dehydration, preservation, restart delegation, no-op, manual bypass |
+| `test-rule-engine.sh` | `pre-tool-use-overflow-v2.sh` | 81 tests — whitelist, per-transcript, session-gate, heartbeat, rule evaluation, composition, preload |
 
-Total: 181 tests across 6 hook suites.
+Total: 272 tests across 8 hook/engine suites.
 
 ## Related Files
 

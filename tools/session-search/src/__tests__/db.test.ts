@@ -27,89 +27,79 @@ describe("db", () => {
     tmpDbs.length = 0;
   });
 
-  it("should create database and return a connection", () => {
+  it("should create database and return a connection", async () => {
     const dbPath = makeTmpDbPath();
-    const db = initDb(dbPath);
+    const db = await initDb(dbPath);
     expect(db).toBeDefined();
-    expect(db.open).toBe(true);
     db.close();
   });
 
-  it("should create the chunks metadata table", () => {
+  it("should create the chunks metadata table", async () => {
     const dbPath = makeTmpDbPath();
-    const db = initDb(dbPath);
+    const db = await initDb(dbPath);
 
-    const tables = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='chunks'"
-      )
-      .all() as Array<{ name: string }>;
-    expect(tables).toHaveLength(1);
-    expect(tables[0].name).toBe("chunks");
+    const result = db.exec(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='chunks'"
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].values[0][0]).toBe("chunks");
     db.close();
   });
 
-  it("should create the vec_chunks virtual table", () => {
+  it("should create the embeddings table", async () => {
     const dbPath = makeTmpDbPath();
-    const db = initDb(dbPath);
+    const db = await initDb(dbPath);
 
-    const tables = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='vec_chunks'"
-      )
-      .all() as Array<{ name: string }>;
-    expect(tables).toHaveLength(1);
-    expect(tables[0].name).toBe("vec_chunks");
+    const result = db.exec(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='embeddings'"
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0].values[0][0]).toBe("embeddings");
     db.close();
   });
 
-  it("should load sqlite-vec extension and return version", () => {
+  it("should have embeddings table with correct schema", async () => {
     const dbPath = makeTmpDbPath();
-    const db = initDb(dbPath);
+    const db = await initDb(dbPath);
 
-    const result = db.prepare("SELECT vec_version() as version").get() as {
-      version: string;
-    };
-    expect(result.version).toBeTruthy();
-    expect(typeof result.version).toBe("string");
+    const result = db.exec("PRAGMA table_info(embeddings)");
+    const columns = result[0].values.map((row) => ({
+      name: row[1] as string,
+      type: row[2] as string,
+    }));
+
+    const chunkIdCol = columns.find((c) => c.name === "chunk_id");
+    expect(chunkIdCol).toBeDefined();
+    expect(chunkIdCol!.type).toBe("INTEGER");
+
+    const embeddingCol = columns.find((c) => c.name === "embedding");
+    expect(embeddingCol).toBeDefined();
+    expect(embeddingCol!.type).toBe("BLOB");
     db.close();
   });
 
-  it("should use DELETE journal mode for Google Drive compatibility", () => {
+  it("should be idempotent — calling initDb twice works", async () => {
     const dbPath = makeTmpDbPath();
-    const db = initDb(dbPath);
-
-    const result = db.prepare("PRAGMA journal_mode").get() as {
-      journal_mode: string;
-    };
-    expect(result.journal_mode).toBe("delete");
-    db.close();
-  });
-
-  it("should be idempotent — calling initDb twice works", () => {
-    const dbPath = makeTmpDbPath();
-    const db1 = initDb(dbPath);
+    const db1 = await initDb(dbPath);
     db1.close();
 
-    const db2 = initDb(dbPath);
-    expect(db2.open).toBe(true);
-
-    const tables = db2
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='chunks'"
-      )
-      .all() as Array<{ name: string }>;
-    expect(tables).toHaveLength(1);
+    const db2 = await initDb(dbPath);
+    const result = db2.exec(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='chunks'"
+    );
+    expect(result).toHaveLength(1);
     db2.close();
   });
 
-  it("should include session_date NOT NULL column in chunks table", () => {
+  it("should include session_date NOT NULL column in chunks table", async () => {
     const dbPath = makeTmpDbPath();
-    const db = initDb(dbPath);
+    const db = await initDb(dbPath);
 
-    const columns = db
-      .prepare("PRAGMA table_info(chunks)")
-      .all() as Array<{ name: string; notnull: number }>;
+    const result = db.exec("PRAGMA table_info(chunks)");
+    const columns = result[0].values.map((row) => ({
+      name: row[1] as string,
+      notnull: row[3] as number,
+    }));
 
     const sessionDateCol = columns.find((c) => c.name === "session_date");
     expect(sessionDateCol).toBeDefined();
@@ -117,16 +107,14 @@ describe("db", () => {
     db.close();
   });
 
-  it("should create unique index on file_path + section_title", () => {
+  it("should create unique index on file_path + section_title", async () => {
     const dbPath = makeTmpDbPath();
-    const db = initDb(dbPath);
+    const db = await initDb(dbPath);
 
-    const indexes = db
-      .prepare(
-        "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_chunks_path_section'"
-      )
-      .all() as Array<{ name: string }>;
-    expect(indexes).toHaveLength(1);
+    const result = db.exec(
+      "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_chunks_path_section'"
+    );
+    expect(result).toHaveLength(1);
     db.close();
   });
 });

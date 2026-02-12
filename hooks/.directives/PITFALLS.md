@@ -23,14 +23,20 @@ Under `set -euo pipefail`, the script exits with the last command's exit code. I
 - Unquoted variables with `-u`: always use `"${VAR:-}"` for potentially unset vars.
 
 ## 4. Hook execution order matters
-PreToolUse hooks run in `settings.json` array order. Earlier hooks can block before later hooks run. Current order and implications:
-1. `pre-tool-use-one-strike` — destructive command guard
-2. `pre-tool-use-overflow` — context overflow protection
-3. `pre-tool-use-heartbeat` — logging enforcement (can block before session-gate)
-4. `pre-tool-use-directive-gate` — directive loading enforcement (can block before session-gate)
-5. `pre-tool-use-session-gate` — session activation requirement
+PreToolUse and PostToolUse hooks run in `settings.json` array order. Earlier hooks can block before later hooks run.
 
-**Implication**: Hooks 3 and 4 can block BEFORE hook 5 runs. If a skill needs to activate a session but heartbeat or directive-gate fires first, the agent deadlocks. Solution: skills MUST activate before loading standards (so `loading=true` is set before hooks 3/4 fire).
+**PreToolUse** (current order):
+1. `pre-tool-use-one-strike` — destructive command guard
+2. `pre-tool-use-overflow-v2` — context overflow protection + heartbeat + directive gate (consolidated rule engine)
+3. `pre-tool-use-session-gate` — session activation requirement
+
+**PostToolUse** (current order):
+1. `post-tool-use-injections` — delivers stashed allow-urgency content via `additionalContext`
+2. `post-tool-use-discovery` — directive file discovery for touched directories
+3. `post-tool-use-details-log` — auto-logs AskUserQuestion interactions to DETAILS.md
+4. `post-tool-use-heartbeat` — heartbeat counter increment
+
+**Implication**: PreToolUse hook 2 (overflow-v2) consolidates heartbeat, directive-gate, and overflow into a single rule engine. It can block BEFORE session-gate runs. Skills MUST activate before loading standards (so `loading=true` is set before overflow-v2 fires).
 
 **Mitigation**: After any hook array modification, verify the order in the installed `settings.json`.
 
@@ -70,7 +76,26 @@ jq -n --arg msg "$MESSAGE" '{"hookSpecificOutput":{"hookEventName":"UserPromptSu
 This injects context without the error label. If the bug is fixed upstream, plain stdout may also work, but `additionalContext` is the safer path.
 **Discovered**: 2026-02-10 in `user-prompt-state-injector.sh` and `user-prompt-submit-session-gate.sh`.
 
-## 12. Per-agent counters use transcript_path as key — don't use PID
+## 12. `permissionDecisionReason` from allow-path hooks does NOT reach model context
+PreToolUse hooks that return `exit 0` (allow) can set `permissionDecisionReason` in their JSON output. This field appears in Claude Code's internal permission system but is NOT surfaced as a `system-reminder` to the model.
+**Trap**: Building content injection rules with `urgency: "allow"` in `injections.json` — the content is prepared, the rule evaluates, but the model never sees it. The allow path silently drops content.
+**Mitigation (original)**: Use `urgency: "block"` with a whitelist for content delivery. The block path places content in the error message, which IS visible to the model as a `system-reminder`. Whitelist critical tools (logging, session management, standards reads) so they bypass the block.
+**Fix (2026-02-12)**: Implemented stash-and-deliver via PostToolUse `additionalContext`. PreToolUse `_deliver_allow_rules()` now stashes content to `.state.json:pendingAllowInjections`. New `post-tool-use-injections.sh` hook reads the stash, delivers via PostToolUse `additionalContext` (which IS surfaced as `<system-reminder>`), and clears the stash. This resolves the allow-path dead end for all 4 affected injection rules.
+**Discovered**: 2026-02-11, audit of `directive-autoload` injection rule.
+
+## 13. PostToolUse discovery deduplicates by basename, not full path
+`post-tool-use-discovery.sh` checks if a directive file is already in `pendingDirectives` or `discoveredDirectives` by comparing basenames (e.g., `INVARIANTS.md`). If a parent-level `INVARIANTS.md` was already discovered, a child-level `INVARIANTS.md` with different content is silently skipped.
+**Trap**: Projects with multi-level `.directives/` structures (e.g., `packages/sdk/.directives/INVARIANTS.md` and `.directives/INVARIANTS.md`) won't get child-level overrides loaded. This violates `¶INV_DIRECTIVE_STACK` which requires cumulative loading.
+**Mitigation**: Change deduplication to use full paths instead of basenames. Until fixed, child-level directives with the same filename as already-discovered parent directives will be invisible.
+**Discovered**: 2026-02-11, audit of hook injection chain.
+
+## 14. Two PreToolUse hooks cause double "error" noise per tool call
+The engine has both `pre-tool-use-heartbeat.sh` and `pre-tool-use-overflow-v2.sh` registered as separate PreToolUse hooks. Both fire on every tool call, and both write diagnostic output to stderr. Claude Code labels each stderr output as "PreToolUse:Bash hook error" — so users see 2 "error" messages per Bash call even when everything is working.
+**Trap**: Users interpret "hook error" as something broken. The double-fire also doubles evaluation overhead.
+**Mitigation**: Consolidate heartbeat into the unified rule engine (`overflow-v2.sh`) as a rule in `injections.json`. This eliminates the standalone heartbeat hook and the double-fire pattern.
+**Discovered**: 2026-02-11, user observation during audit session.
+
+## 15. Per-agent counters use transcript_path as key — don't use PID
 The heartbeat hook tracks tool call counts per agent using `transcript_path` basename as the key in `.state.json`. This isolates main agent counts from sub-agent counts.
 **Trap**: Using PID as the counter key fails because sub-agents launched via the Task tool may share the parent's PID in some execution models, or PIDs may be reused across context overflow restarts. Transcript paths are guaranteed unique per agent instance.
 **Mitigation**: Always key per-agent state on `transcript_path`, not PID or session_id.

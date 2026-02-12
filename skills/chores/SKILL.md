@@ -58,11 +58,8 @@ Executes routine maintenance and cleanup tasks from a structured task queue.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project map and file index)
-    *   `~/.claude/skills/chores/assets/TEMPLATE_CHORES_LOG.md` (Template for continuous session logging)
-    *   `~/.claude/skills/chores/assets/TEMPLATE_CHORES.md` (Template for the final debrief/report)
 
-3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
-    *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
+3.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
     *   **Note**: `taskSummary` should describe the overall context/area, not a specific task. Individual tasks come later.
 
 4.  **Session Location**: Execute `§CMD_MAINTAIN_SESSION_DIR` - ensure the directory is created.

@@ -37,7 +37,7 @@
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet auto-detection
 #     ¶INV_CLAIM_BEFORE_WORK — Tag swap before processing (daemon mode)
 #   Commands: (~/.claude/.directives/COMMANDS.md)
-#     §CMD_REANCHOR_AFTER_RESTART — Triggered by run.sh after restart
+#     §CMD_SESSION_CONTINUE_AFTER_RESTART — Triggered by run.sh after restart
 
 set -euo pipefail
 

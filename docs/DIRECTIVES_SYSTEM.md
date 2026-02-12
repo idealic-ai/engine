@@ -83,7 +83,7 @@ The four layers map to an operating system stack. This is not a forced metaphor 
 | Layer 1: File Operations | Kernel I/O syscalls | `§CMD_APPEND_LOG` = `write()`, `§CMD_POPULATE_LOADED_TEMPLATE` = `creat()` |
 | Layer 2: Process Control | Process scheduler + signal handlers | `§CMD_REFUSE_OFF_COURSE` = signal handler, `§CMD_WAIT_FOR_USER_CONFIRMATION` = `waitpid()` |
 | Layer 3: Interaction | User-space IPC / terminal I/O | `§CMD_ASK_USER_IF_STUCK` = blocking `read()` on stdin |
-| Layer 4: Composites | Shell builtins / coreutils | `§CMD_INGEST_CONTEXT_BEFORE_WORK` = `source`, `§CMD_REANCHOR_AFTER_RESTART` = checkpoint/restore |
+| Layer 4: Composites | Shell builtins / coreutils | `§CMD_INGEST_CONTEXT_BEFORE_WORK` = `source`, `§CMD_SESSION_CONTINUE_AFTER_RESTART` = checkpoint/restore |
 
 Supporting structures complete the analogy:
 
@@ -125,7 +125,7 @@ All 32 `§CMD_` commands in COMMANDS.md, organized by layer. Each command has a 
 | `§CMD_PARSE_PARAMETERS` | Parse session inputs against a JSON schema (the "function signature" of a session) |
 | `§CMD_MAINTAIN_SESSION_DIR` | Anchor to a session directory for the duration of the task |
 | `§CMD_UPDATE_PHASE` | Update `.state.json` with the current skill phase |
-| `§CMD_REANCHOR_AFTER_RESTART` | Re-initialize context after a context overflow restart |
+| `§CMD_SESSION_CONTINUE_AFTER_RESTART` | Re-initialize context after a context overflow restart |
 | `§CMD_LOAD_AUTHORITY_FILES` | Load system-critical files into context (check-before-read) |
 | `§CMD_USE_ONLY_GIVEN_CONTEXT` | Phase-specific constraint — no filesystem exploration during setup |
 | `§CMD_AVOID_WASTING_TOKENS` | Prevent redundant reads and operations |
@@ -322,11 +322,11 @@ Named, composable behavioral specifications using the `§CMD_` and `¶INV_` pref
 
 ### Session Lifecycle Management
 
-A complete process lifecycle from birth to post-synthesis continuation. Sessions are born (`§CMD_PARSE_PARAMETERS`), activated (`§CMD_MAINTAIN_SESSION_DIR`), executed through phases (`§CMD_UPDATE_PHASE`), debriefed (`§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`), and optionally continued (`§CMD_CONTINUE_OR_CLOSE_SESSION`) or restarted after overflow (`§CMD_REANCHOR_AFTER_RESTART`).
+A complete process lifecycle from birth to post-synthesis continuation. Sessions are born (`§CMD_PARSE_PARAMETERS`), activated (`§CMD_MAINTAIN_SESSION_DIR`), executed through phases (`§CMD_UPDATE_PHASE`), debriefed (`§CMD_GENERATE_DEBRIEF_USING_TEMPLATE`), and optionally continued (`§CMD_CONTINUE_OR_CLOSE_SESSION`) or restarted after overflow (`§CMD_SESSION_CONTINUE_AFTER_RESTART`).
 
-**Mechanism**: `.state.json` as the process table, PID tracking, phase tracking, dehydration/reanchor for overflow recovery
+**Mechanism**: `.state.json` as the process table, PID tracking, phase tracking, dehydration/session continue for overflow recovery
 
-**Why it works**: Creates a process manager for LLM agents built entirely in Markdown and shell scripts. The agent has a persistent identity (PID), knows where it is (phase), and can recover from crashes (reanchor). See `~/.claude/docs/SESSION_LIFECYCLE.md` for the full state machine.
+**Why it works**: Creates a process manager for LLM agents built entirely in Markdown and shell scripts. The agent has a persistent identity (PID), knows where it is (phase), and can recover from crashes (session continue). See `~/.claude/docs/SESSION_LIFECYCLE.md` for the full state machine.
 
 ### Interdependence
 
@@ -418,7 +418,7 @@ The standards system references shell scripts that implement its operations. The
 | Script | Called By | Purpose |
 |--------|-----------|---------|
 | `log.sh` | `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` | Append-only log writes |
-| `session.sh` | `§CMD_MAINTAIN_SESSION_DIR`, `§CMD_UPDATE_PHASE`, `§CMD_REANCHOR_AFTER_RESTART` | Session state management |
+| `session.sh` | `§CMD_MAINTAIN_SESSION_DIR`, `§CMD_UPDATE_PHASE`, `§CMD_SESSION_CONTINUE_AFTER_RESTART` | Session state management |
 | `tag.sh` | `§CMD_TAG_FILE`, `§CMD_UNTAG_FILE`, `§CMD_SWAP_TAG_IN_FILE`, `§CMD_FIND_TAGGED_FILES` | Tag operations |
 | `user-info.sh` | `¶INV_INFER_USER_FROM_GDRIVE` | User identity detection |
 | `glob.sh` | `¶INV_GLOB_THROUGH_SYMLINKS` | Symlink-aware file globbing |
@@ -447,6 +447,7 @@ The standards system references shell scripts that implement its operations. The
 - **Session state machine**: `~/.claude/docs/SESSION_LIFECYCLE.md` — All restart/restore/rehydration scenarios, race conditions, identity fields
 - **Multi-agent workspace**: `~/.claude/docs/FLEET.md` — Fleet tmux management, pane coordination, dispatch
 - **Overflow protection**: `~/.claude/docs/CONTEXT_GUARDIAN.md` — Context overflow detection, dehydration, restart flow
+- **Session skill**: `~/.claude/docs/SESSION_SKILL.md` — Usage guide for `/session` (dehydrate, continue, search, status)
 - **Document indexing**: `~/.claude/docs/DOCUMENT_INDEXING.md` — RAG search infrastructure used by `§CMD_INGEST_CONTEXT_BEFORE_WORK`
 - **Comparative analysis**: `~/.claude/docs/writeups/2026_02_07_COMMANDS_COMPARATIVE_ANALYSIS.md` — How COMMANDS.md compares to Cursor .cursorrules, system prompts, and JSON schema approaches
 - **The source files**: `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, `~/.claude/.directives/TAGS.md`

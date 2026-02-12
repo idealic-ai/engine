@@ -152,6 +152,7 @@ hook_deny "title" "message" "detail"    # from lib.sh
 | `user-prompt-working.sh` | UserPromptSubmit | Sends "working" fleet state |
 | `stop-notify.sh` | Stop | Sends "done" fleet state |
 | `session-end-notify.sh` | SessionEnd | Fleet cleanup |
+| `post-tool-use-templates.sh` | PostToolUseSuccess | Convention-based skill template preloading on Skill invocation |
 | `pane-focus-style.sh` | tmux focus | Pane visual state management |
 
 ### Registering Hooks
@@ -187,7 +188,7 @@ All scripts source `~/.claude/scripts/lib.sh` which provides:
 | `glob.sh` | Symlink-aware file globbing |
 | `research.sh` | Gemini Deep Research API wrapper |
 | `config.sh` | User-level config management |
-| `write.sh` | Clipboard writer (used by `/dehydrate`) |
+| `write.sh` | Clipboard writer (used by `/session dehydrate`) |
 | `escape-tags.sh` | Retroactive tag escaping |
 | `user-info.sh` | User identity from GDrive path |
 | `engine.sh` | Project setup (called by engine `engine.sh`) |

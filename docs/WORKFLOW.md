@@ -10,7 +10,7 @@ How a human developer uses the workflow engine day-to-day: opening agents, runni
 
 The workflow engine is a session-gated, phase-enforced skill execution system that turns Claude Code into a disciplined development partner. Three concepts define how it works:
 
-- **Skills** are protocols. Each skill (`/implement`, `/test`, `/fix`, `/analyze`, `/document`, `/brainstorm`, `/refine`, `/review`) defines a multi-phase procedure with interrogation, planning, execution, and synthesis stages. The protocol IS the task — the user's request is an input parameter.
+- **Skills** are protocols. Each skill (`/implement`, `/test`, `/fix`, `/analyze`, `/document`, `/brainstorm`, `/loop`, `/review`) defines a multi-phase procedure with interrogation, planning, execution, and synthesis stages. The protocol IS the task — the user's request is an input parameter.
 - **Sessions** are containers. A session directory (`sessions/YYYY_MM_DD_TOPIC/`) holds all artifacts: logs, plans, debriefs, and state. Sessions are multi-modal — the same directory can host `/implement` followed by `/test`.
 - **Phases** are checkpoints. Each skill defines numbered phases (Setup, Interrogation, Planning, Execution, Synthesis). Phase transitions are mechanically enforced — agents cannot skip phases without user approval.
 
@@ -84,7 +84,7 @@ See `~/.claude/docs/SESSION_LIFECYCLE.md` for the full state machine, all 11 sce
 | `/analyze` | Code/architecture analysis | Protocol |
 | `/document` | Documentation updates | Protocol |
 | `/brainstorm` | Ideation and trade-off analysis | Protocol |
-| `/refine` | Prompt/schema iteration (TDD for LLMs) | Protocol |
+| `/loop` | Prompt/schema iteration (TDD for LLMs) | Protocol |
 | `/review` | Cross-session work validation | Protocol |
 | `/chores` | Routine maintenance tasks | Utility |
 | `/delegation-create` | Task delegation between agents | Utility |
@@ -247,11 +247,11 @@ Claude Code has a limited context window. When it fills up during long sessions,
 The status line script (`statusline.sh`) tracks `contextUsage` in `.state.json`. The overflow hook (`pre-tool-use-overflow.sh`) fires before every tool call. When `contextUsage >= 0.76` (raw, which maps to ~95% of the 80% auto-compact threshold):
 
 1. **Block**: All tools are blocked (except logging and session scripts)
-2. **Force dehydration**: Claude must run `/dehydrate restart`
+2. **Force dehydration**: Claude must run `/session dehydrate restart`
 
 ### Dehydration
 
-`/dehydrate` writes `DEHYDRATED_CONTEXT.md` — a structured handover document containing:
+`/session dehydrate` writes `DEHYDRATED_CONTEXT.md` — a structured handover document containing:
 - Ultimate goal and strategy
 - Last action and outcome
 - Required files list (for reloading in the new context)
@@ -261,9 +261,9 @@ The status line script (`statusline.sh`) tracks `contextUsage` in `.state.json`.
 
 After dehydration, `session.sh restart` signals the restart watchdog (via USR1). The watchdog kills the current Claude process. `run.sh` detects the exit, reads the restart prompt from `.state.json`, and spawns a fresh Claude with NO `--resume` (overflow means the old context is too large).
 
-### Reanchoring
+### Restoration
 
-The new Claude receives `/reanchor` as its first prompt. `/reanchor`:
+The new Claude receives `/session continue` as its first prompt. `/session continue`:
 1. Activates the session (clears `overflowed`, sets new PID)
 2. Loads directives (COMMANDS.md, INVARIANTS.md, TAGS.md)
 3. Reads `DEHYDRATED_CONTEXT.md`

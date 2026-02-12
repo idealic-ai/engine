@@ -112,7 +112,7 @@ Each Claude instance is tied to a workflow session in `sessions/YYYY_MM_DD_TOPIC
 1. Reads `contextUsage` from `.state.json`
 2. At 90%+ context:
    - Blocks the tool call
-   - Triggers `session.sh dehydrate` → saves state to `DEHYDRATED_CONTEXT.md`
+   - Triggers `/session dehydrate` → saves state to `DEHYDRATED_CONTEXT.md`
    - Triggers `session.sh restart` → kills Claude, relaunches with recovery
 
 ## Session Persistence
@@ -157,13 +157,13 @@ CLAUDE_SESSION_ID=$(jq -r '.sessionId // empty' "$SESSION_DIR/.state.json")
 
 # Resume the Claude conversation
 if [ -n "$CLAUDE_SESSION_ID" ]; then
-  claude --resume "$CLAUDE_SESSION_ID" "/reanchor --session $SESSION_DIR --skill implement --phase 'Phase 5' --continue"
+  claude --resume "$CLAUDE_SESSION_ID" "/session continue --session $SESSION_DIR --skill implement --phase 'Phase 5' --continue"
 else
-  claude "/reanchor --session $SESSION_DIR --skill implement --phase 'Phase 5' --continue"
+  claude "/session continue --session $SESSION_DIR --skill implement --phase 'Phase 5' --continue"
 fi
 ```
 
-**Key insight**: `--resume <uuid>` restores Claude's conversation history. `/reanchor` restores the agent's workflow context (standards, templates, dehydrated state).
+**Key insight**: `--resume <uuid>` restores Claude's conversation history. `/session continue` restores the agent's workflow context (standards, templates, dehydrated state).
 
 ## Context Overflow Recovery
 
@@ -187,18 +187,18 @@ Claude Code has a ~200k token context window. At ~80% (160k), it auto-compacts. 
 │     ↓                                                           │
 │  5. Claude sees "Context overflow - dehydrating..."             │
 │     ↓                                                           │
-│  6. session.sh dehydrate:                                       │
+│  6. /session dehydrate:                                         │
 │     - Writes DEHYDRATED_CONTEXT.md (goal, state, next steps)   │
 │     - Records current phase                                     │
 │     ↓                                                           │
 │  7. session.sh restart:                                         │
 │     - Reads sessionId from .state.json                          │
 │     - Kills old Claude process                                  │
-│     - Launches: claude --resume <sessionId> "/reanchor ..."     │
+│     - Launches: claude --resume <sessionId> "/session continue" │
 │     ↓                                                           │
 │  8. New Claude starts with:                                     │
 │     - Full conversation history (via --resume)                  │
-│     - Reanchored workflow context (via /reanchor)               │
+│     - Restored workflow context (via /session continue)         │
 │     - Picks up exactly where it left off                        │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -222,7 +222,7 @@ The new Claude reads this to understand where it was.
 ~/.claude/
 ├── scripts/
 │   ├── fleet.sh              # Fleet CLI commands
-│   ├── session.sh            # Session management (activate, restart, dehydrate)
+│   ├── session.sh            # Session management (activate, restart, phase)
 │   ├── user-info.sh          # User identity from Google Drive path
 │   └── ...
 ├── tools/
@@ -283,7 +283,7 @@ fleet.sh pane-id              # Output composite pane ID (session:window:label)
 ```bash
 session.sh activate <dir> <skill> --pid "$PPID"  # Register Claude with session (auto-detects fleet pane)
 session.sh phase <dir> "Phase N: Name"           # Update current phase
-session.sh dehydrate <dir>                       # Save state for restart
+session.sh deactivate <dir>                      # Mark session completed
 session.sh restart <dir>                         # Kill and relaunch Claude
 ```
 
@@ -398,11 +398,11 @@ The dispatch daemon (if running) routes tagged work to fleet workers:
 # Worker claims work by swapping: #needs-implementation → #claimed-implementation
 ```
 
-### With /reanchor Skill
+### With /session continue
 
 On context overflow restart:
-1. `session.sh restart` invokes `/reanchor`
-2. `/reanchor` loads standards, dehydrated context, skill protocol
+1. `session.sh restart` invokes `/session continue`
+2. `/session continue` loads standards, dehydrated context, skill protocol
 3. Resumes at saved phase without repeating earlier work
 
 ## Invariants

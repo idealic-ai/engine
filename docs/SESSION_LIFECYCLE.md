@@ -20,14 +20,14 @@ A **session** is a working directory under `sessions/` (e.g., `sessions/2026_02_
 | `session.sh deactivate` | Marks session completed (gate re-engages) | — | lifecycle (→ completed), lastHeartbeat, sessionDescription (from stdin), keywords (from --keywords flag) |
 | `session.sh restart` | Initiates restart (state-only — does not kill) | skill, currentPhase | killRequested (→ true), restartPrompt, contextUsage (→ 0), sessionId (deleted) |
 | `statusline.sh` | Binds sessionId, updates context | pid/fleetPaneId (lookup), killRequested, overflowed | sessionId, contextUsage, lastHeartbeat, pid (claim) |
-| `pre-tool-use-overflow.sh` | Blocks tools at overflow | sessionId/fleetPaneId/pid (lookup), contextUsage, overflowed, lifecycle | overflowed (→ true), lifecycle (→ dehydrating when /dehydrate invoked) |
+| `pre-tool-use-overflow.sh` | Blocks tools at overflow | sessionId/fleetPaneId/pid (lookup), contextUsage, overflowed, lifecycle | overflowed (→ true), lifecycle (→ dehydrating when /session dehydrate invoked) |
 | `run.sh` | Process supervisor, restart loop | fleetPaneId (fleet resume), killRequested, restartPrompt, sessionId, overflowed | pid (reset to 0), lifecycle (→ resuming, → restarting) |
 | Restart Watchdog (run.sh) | Kills Claude on restart signal | — (receives USR1 signal from session.sh restart) | — (sends SIGTERM to sibling processes via process group kill) |
 | `pre-tool-use-heartbeat.sh` | Logging discipline enforcement | loading, toolCallsByTranscript, toolUseWithoutLogsWarnAfter, toolUseWithoutLogsBlockAfter, skill | toolCallsByTranscript (increment/reset per transcript key) |
 | `pre-tool-use-session-gate.sh` | Blocks tools when no active session (SESSION_REQUIRED gate) | SESSION_REQUIRED env, lifecycle (via session.sh find) | — (read-only, denies/allows) |
 | `user-prompt-submit-session-gate.sh` | Injects boot instructions when no active session | SESSION_REQUIRED env, lifecycle (via session.sh find) | — (read-only, injects message) |
-| `/dehydrate` skill | Saves context to file | session dir contents | DEHYDRATED_CONTEXT.md (separate file) |
-| `/reanchor` skill | Restores context after restart | DEHYDRATED_CONTEXT.md, session artifacts | (calls session.sh activate → clears overflowed, killRequested) |
+| `/session dehydrate` subcommand | Saves context to file | session dir contents | DEHYDRATED_CONTEXT.md (separate file) |
+| `/session continue` subcommand | Restores context after restart | DEHYDRATED_CONTEXT.md, session artifacts | (calls session.sh activate → clears overflowed, killRequested) |
 
 ---
 
@@ -98,7 +98,7 @@ The session's runtime state is tracked by three independent fields in `.state.js
 |-------|---------|---------------|
 | `active` | Normal operation | Yes |
 | `completed` | Skill synthesis done, session gate re-engages | Whitelisted only (gate blocks non-whitelisted) |
-| `dehydrating` | `/dehydrate` skill is running, saving context | Yes (needs Read/Write/Bash) |
+| `dehydrating` | `/session dehydrate` is running, saving context | Yes (needs Read/Write/Bash) |
 | `restarting` | run.sh picked up restart prompt, spawning new Claude | N/A (between processes) |
 | `resuming` | Fleet restart detected previous session | N/A (before Claude starts) |
 
@@ -134,7 +134,7 @@ The session's runtime state is tracked by three independent fields in `.state.js
 |--------|---------|------|-------|
 | `session.sh activate` | `active` | New skill or reactivation | Checks PID ownership |
 | `session.sh deactivate` | `completed` | Skill synthesis done | Checks .state.json exists |
-| `pre-tool-use-overflow.sh` | `dehydrating` | Skill tool called with `dehydrate` | Trusts tool name |
+| `pre-tool-use-overflow.sh` | `dehydrating` | Skill tool called with `session` (dehydrate subcommand) | Trusts tool name |
 | `run.sh` restart loop | `restarting` | After reading restartPrompt | Checks killRequested + restartPrompt present |
 | `run.sh find_fleet_session()` | `resuming` | Fleet restart, dead PID found | Checks PID is dead |
 
@@ -151,7 +151,7 @@ The session's runtime state is tracked by three independent fields in `.state.js
 
 | Writer | Sets To | When | Guard |
 |--------|---------|------|-------|
-| `session.sh restart` | `true` | `/dehydrate` calls restart | Trusts caller |
+| `session.sh restart` | `true` | `/session dehydrate` calls restart | Trusts caller |
 | `session.sh activate` | `false` | New Claude activates | Always — new lifecycle |
 | `run.sh` restart loop | `false` | After processing restart prompt | Checks killRequested was true |
 
@@ -170,7 +170,7 @@ The session's runtime state is tracked by three independent fields in `.state.js
 
 | Reader | Reads | Branches On | Purpose |
 |--------|-------|------------|---------|
-| `pre-tool-use-overflow.sh` | overflowed | `true` → block tools (except `/dehydrate`) | Enforce overflow handling |
+| `pre-tool-use-overflow.sh` | overflowed | `true` → block tools (except `/session dehydrate`) | Enforce overflow handling |
 | `statusline.sh` | overflowed | `true` → skip sessionId write | Don't resurrect sessionId after overflow |
 | `run.sh find_fleet_session()` | overflowed | `true` → **do not return sessionId** | Prevent resuming overflowed conversation |
 | `run.sh` restart loop | overflowed | `true` → skip `--resume` | Fresh start required |
@@ -223,7 +223,7 @@ For migration reference. The old single `status` field maps to these field combi
                     │    │ killRequested: false         │           │       │
                     │    │ [tools blocked]             │           │       │
                     │    └──────────┬─────────────────┘           │       │
-                    │               │ /dehydrate invoked           │       │
+                    │               │ /session dehydrate invoked    │       │
                     │               ▼                              │       │
                     │    ┌────────────────────────────┐           │       │
                     │    │ lifecycle: dehydrating      │           │       │
@@ -276,7 +276,7 @@ For migration reference. The old single `status` field maps to these field combi
 - **active → lifecycle=completed**: Only `session.sh deactivate` sets this, called by skill protocols after synthesis
 - **completed → lifecycle=active**: Only `session.sh activate` resets this, when user picks a new skill or continues
 - **active → overflowed=true**: Only the overflow hook sets this, and only when `contextUsage >= 0.76`
-- **overflowed → lifecycle=dehydrating**: Only when the Skill tool is called with `skill: "dehydrate"`
+- **overflowed → lifecycle=dehydrating**: Only when the Skill tool is called with `skill: "session"` (dehydrate subcommand)
 - **dehydrating → killRequested=true**: Only `session.sh restart` sets this
 - **killRequested → lifecycle=restarting**: Only `run.sh` post-exit loop sets this (after clearing killRequested)
 - **restarting → active (overflowed=false)**: Only `session.sh activate` from the NEW Claude resets everything
@@ -353,7 +353,7 @@ run.sh (in pane "SDK"):
 
 **Important**: Context is NOT overflowed in this case. The previous Claude was killed externally (fleet stop), not by overflow. So the conversation can be resumed as-is.
 
-**Guard**: If `overflowed=true` (fleet killed Claude mid-overflow), `find_fleet_session()` does NOT return sessionId. Claude starts fresh with `/reanchor` if a restartPrompt exists, or fully fresh otherwise.
+**Guard**: If `overflowed=true` (fleet killed Claude mid-overflow), `find_fleet_session()` does NOT return sessionId. Claude starts fresh with `/session continue` if a restartPrompt exists, or fully fresh otherwise.
 
 ### S4: Context Overflow Restart
 
@@ -366,16 +366,16 @@ Normal operation, context growing...
   → pre-tool-use-overflow.sh fires:
       → Reads contextUsage >= 0.76
       → Sets overflowed = true
-      → BLOCKS tool with message: "CONTEXT OVERFLOW — run /dehydrate restart"
-  → Claude invokes Skill(skill: "dehydrate", args: "restart")
-  → Overflow hook detects dehydrate skill → sets lifecycle = "dehydrating" → allows
-  → /dehydrate skill:
+      → BLOCKS tool with message: "CONTEXT OVERFLOW — run /session dehydrate restart"
+  → Claude invokes Skill(skill: "session", args: "dehydrate restart")
+  → Overflow hook detects session dehydrate → sets lifecycle = "dehydrating" → allows
+  → /session dehydrate:
       1. Inventories session from memory (minimal I/O)
       2. Writes DEHYDRATED_CONTEXT.md to session dir
       3. Calls session.sh phase to save current phase
       4. Calls session.sh restart:
           → Sets killRequested = true
-          → Writes restartPrompt = "/reanchor --session ... --skill ... --phase ... --continue"
+          → Writes restartPrompt = "/session continue --session ... --skill ... --phase ... --continue"
           → Resets contextUsage = 0
           → Deletes sessionId (prevents stale resume)
           → Sends kill -USR1 $WATCHDOG_PID (signals watchdog)
@@ -389,8 +389,8 @@ Normal operation, context growing...
   → run.sh checks overflowed:
       → overflowed=true → SKIPS sessionId (fresh start, no --resume)
   → run.sh spawns new watchdog + Claude with restart prompt (NO --resume)
-  → New Claude receives /reanchor prompt
-  → /reanchor skill:
+  → New Claude receives /session continue prompt
+  → /session continue:
       1. Activates session (session.sh activate → lifecycle="active", overflowed=false, killRequested=false, new PID)
       2. Loads standards
       3. Reads DEHYDRATED_CONTEXT.md
@@ -399,7 +399,7 @@ Normal operation, context growing...
       6. Resumes at saved phase
 ```
 
-**Key point**: This is a **fresh context start** with **rehydration**. The old conversation is NOT resumed because context was overflowed. Instead, `/reanchor` reconstructs the working context from `DEHYDRATED_CONTEXT.md` + required files.
+**Key point**: This is a **fresh context start** with **rehydration**. The old conversation is NOT resumed because context was overflowed. Instead, `/session continue` reconstructs the working context from `DEHYDRATED_CONTEXT.md` + required files.
 
 **sessionId handling**: `session.sh restart` deletes sessionId to prevent `run.sh` from using `--resume` on an overflow session. `run.sh` also double-checks: if `overflowed=true`, it skips sessionId even if present (defense in depth against R1).
 
@@ -430,7 +430,7 @@ Claude exits (any reason)
 session.sh restart deleted sessionId
   → run.sh reads .state.json: killRequested=true, overflowed=true, no sessionId
   → Spawns Claude WITHOUT --resume (fresh conversation)
-  → Claude gets /reanchor prompt, starts from scratch with rehydration
+  → Claude gets /session continue prompt, starts from scratch with rehydration
 ```
 
 **Subcase B — sessionId present (race condition R1 occurred)**:
@@ -488,7 +488,7 @@ Claude is in overflow state (overflowed=true, tools blocked)
       → Check overflowed: TRUE → do NOT return sessionId
       → Return empty (no resume possible)
   → run.sh checks for restartPrompt: none (dehydration didn't finish)
-  → run.sh starts Claude FRESH (no --resume, no /reanchor)
+  → run.sh starts Claude FRESH (no --resume, no /session continue)
   → Claude starts with clean context, no session
   → Previous session's .state.json has overflowed=true, stale PID
   → On next session.sh activate (any session), old .state.json is cleaned up
@@ -566,7 +566,7 @@ T2: Claude calls session.sh phase "Phase 3: Execution" (queued tool call)
 
 **However**: If `phase` and `restart` execute simultaneously (separate shell processes), the jq read→write is not atomic. One could overwrite the other's changes.
 
-**Mitigation (current)**: The overflow hook blocks tools before `session.sh restart` runs, so no new `session.sh phase` calls can happen after overflow is triggered. The dehydrate skill runs phase BEFORE restart.
+**Mitigation (current)**: The overflow hook blocks tools before `session.sh restart` runs, so no new `session.sh phase` calls can happen after overflow is triggered. `/session dehydrate` runs phase BEFORE restart.
 
 **Residual risk**: Very low. Tool blocking prevents concurrent phase/restart calls.
 
@@ -595,8 +595,8 @@ T6: session.sh activate claims fleet pane (clears fleetPaneId from OTHER session
 **The race**:
 ```
 T1: Overflow hook blocks a tool, overflowed=true
-T2: Claude invokes /dehydrate, hook sets lifecycle="dehydrating", allows
-T3: /dehydrate runs, uses Read/Write/Bash tools
+T2: Claude invokes /session dehydrate, hook sets lifecycle="dehydrating", allows
+T3: /session dehydrate runs, uses Read/Write/Bash tools
 T4: Each tool triggers overflow hook again
 T5: Hook reads lifecycle="dehydrating" → allows (correct)
 ```
@@ -725,7 +725,7 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 |---------------|---------|
 | Session lookup | `session.sh find` (centralized — see §7 requirement 11) |
 | Threshold check | Blocks tools when `contextUsage >= 0.76` |
-| State transitions | Sets `overflowed=true` when threshold hit. Sets `lifecycle=dehydrating` when dehydrate invoked. |
+| State transitions | Sets `overflowed=true` when threshold hit. Sets `lifecycle=dehydrating` when `/session dehydrate` invoked. |
 | Allowlisting | Always allows `log.sh`, `session.sh` (Bash whitelist). Allows all tools when `lifecycle=dehydrating` or `killRequested=true`. |
 
 ### `pre-tool-use-heartbeat.sh` — Logging Discipline Enforcer
@@ -734,7 +734,7 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 
 | Responsibility | Details |
 |---------------|---------|
-| Loading mode | If `loading=true` in `.state.json`, skip ALL heartbeat logic — pure passthrough (`allow_tool` immediately). Set by `session.sh activate` on every activation (fresh + re-activation). Cleared by `session.sh phase` (which also resets all counters). Prevents false violations during bootstrap/reanchor when agent loads standards, templates, and context files. |
+| Loading mode | If `loading=true` in `.state.json`, skip ALL heartbeat logic — pure passthrough (`allow_tool` immediately). Set by `session.sh activate` on every activation (fresh + re-activation). Cleared by `session.sh phase` (which also resets all counters). Prevents false violations during bootstrap/session-continue when agent loads standards, templates, and context files. |
 | Session lookup | `session.sh find` (single source of truth) |
 | Counter management | Per-transcript counters in `toolCallsByTranscript` map (keyed by `basename(transcript_path)`). Each agent instance (main + sub-agents) gets an isolated counter. Increments on each tool call. Resets to 0 when `log.sh` detected in Bash command. |
 | Transcript isolation | `transcript_path` (from hook input JSON) uniquely identifies each agent instance. `basename()` extracts the key (e.g., `abc123.jsonl`). Sub-agent tool calls don't pollute the main agent's counter. |
@@ -765,7 +765,7 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 | No session | Injects: "Load standards, then ask user which skill to use" |
 | Completed session | Injects: "Previous session X (skill: Y) is completed. Load standards, ask about continuation." |
 
-### `/dehydrate` Skill — Context Archiver
+### `/session dehydrate` Subcommand — Context Archiver
 
 **Owns**: Writing `DEHYDRATED_CONTEXT.md`, triggering restart.
 
@@ -776,7 +776,7 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 | Phase save | Calls `session.sh phase` to record current phase before restart |
 | Restart trigger | Calls `session.sh restart` which sets `killRequested=true`, prepares restart prompt, and signals watchdog via `kill -USR1 $WATCHDOG_PID`. |
 
-### `/reanchor` Skill — Context Restorer
+### `/session continue` Subcommand — Context Restorer
 
 **Owns**: Rebuilding working context from `DEHYDRATED_CONTEXT.md` after overflow restart.
 
@@ -798,7 +798,7 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 
 2. **One Claude per session**: A session cannot be shared by two running Claude processes. `session.sh activate` rejects if a different living PID owns the session.
 
-3. **Overflow must dehydrate**: When the overflow hook fires, Claude MUST run `/dehydrate restart`. No other tool is allowed (except logging/session scripts).
+3. **Overflow must dehydrate**: When the overflow hook fires, Claude MUST run `/session dehydrate restart`. No other tool is allowed (except logging/session scripts).
 
 4. **Overflow must never resume**: An overflowed session MUST NOT be resumed via `--resume`. This is enforced by `overflowed=true` which is checked by:
     - `run.sh` restart loop — skips `--resume` when `overflowed=true`
@@ -822,7 +822,7 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
 
 12. **Session activation is mandatory (SESSION_REQUIRED gate)**: When `SESSION_REQUIRED=1` (set by `run.sh`), the `pre-tool-use-session-gate.sh` hook blocks all non-whitelisted tools until the agent activates a session via skill invocation. Whitelisted: Read(`~/.claude/*`, `.claude/*`, `*/CLAUDE.md`), Bash(`session.sh`/`log.sh`/`tag.sh`/`glob.sh`), AskUserQuestion, Skill. The `user-prompt-submit-session-gate.sh` hook proactively injects boot instructions. After synthesis, `session.sh deactivate` sets `lifecycle=completed`, re-engaging the gate for the next skill cycle.
 
-13. **Loading mode bypasses heartbeat during bootstrap**: `session.sh activate` sets `loading=true` on every activation (fresh and re-activation). While `loading=true`, the heartbeat hook skips ALL logic — no counting, no warnings, no blocks (pure passthrough). `session.sh phase` clears the loading flag and resets all `toolCallsByTranscript` counters to `{}`, giving the work phase a clean slate. This prevents false heartbeat violations during bootstrap/reanchor when the agent loads standards, templates, dehydrated context, and skill files.
+13. **Loading mode bypasses heartbeat during bootstrap**: `session.sh activate` sets `loading=true` on every activation (fresh and re-activation). While `loading=true`, the heartbeat hook skips ALL logic — no counting, no warnings, no blocks (pure passthrough). `session.sh phase` clears the loading flag and resets all `toolCallsByTranscript` counters to `{}`, giving the work phase a clean slate. This prevents false heartbeat violations during bootstrap/session-continue when the agent loads standards, templates, dehydrated context, and skill files.
 
 ### Soft Requirements (Aspirational)
 
@@ -851,7 +851,7 @@ T2: Watchdog tries to kill Claude (stale PID) at the same instant
   "keywords": "auth,middleware,ClerkAuthGuard,session-management,NestJS",
   "startedAt": "2026-02-07T14:30:00Z",
   "lastHeartbeat": "2026-02-07T15:45:00Z",
-  "restartPrompt": "/reanchor --session ... --skill ... --phase ...",
+  "restartPrompt": "/session continue --session ... --skill ... --phase ...",
   "toolCallsSinceLastLog": 0,
   "toolCallsByTranscript": { "abc123.jsonl": 5, "agent-def456.jsonl": 3 },
   "toolUseWithoutLogsWarnAfter": 3,
@@ -891,7 +891,7 @@ Claude exits
   ├── Was killRequested=true in .state.json?
   │   ├── YES → Overflow Restart (S4/S6)
   │   │   ├── Is overflowed=true?
-  │   │   │   ├── YES → Fresh start (no --resume). /reanchor rebuilds context.
+  │   │   │   ├── YES → Fresh start (no --resume). /session continue rebuilds context.
   │   │   │   └── NO → Should not happen (killRequested without overflow is unexpected).
   │   │   └── run.sh clears killRequested, sets lifecycle="restarting", spawns Claude
   │   └── NO → Normal exit (S5)

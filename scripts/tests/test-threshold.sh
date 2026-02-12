@@ -128,12 +128,12 @@ OUT=$(run_hook '{"tool_name":"Read","tool_input":{"file_path":"/tmp/x"},"session
 assert_contains 'Context overflow' "$OUT" "76% raw → deny with Context overflow message"
 echo ""
 
-# --- 6. Overflow hook: dehydrate skill bypass ---
-echo "--- 6. Overflow hook: dehydrate bypass ---"
+# --- 6. Overflow hook: session dehydrate skill bypass ---
+echo "--- 6. Overflow hook: session dehydrate bypass ---"
 
 set_state '.contextUsage = 0.80 | .lifecycle = "active" | .overflowed = false | .killRequested = false'
-OUT=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"dehydrate"},"session_id":"x"}')
-assert_contains '"allow"' "$OUT" "dehydrate skill allowed during overflow"
+OUT=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"session","args":"dehydrate restart"},"session_id":"x"}')
+assert_contains '"allow"' "$OUT" "Skill(session, args:dehydrate) allowed during overflow"
 echo ""
 
 # --- 7. Overflow hook: lifecycle bypass ---

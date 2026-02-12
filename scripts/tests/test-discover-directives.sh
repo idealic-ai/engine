@@ -387,6 +387,149 @@ test_walkup_finds_pitfalls_ancestor() {
 }
 
 # =============================================================================
+# TEST 14: --root caps walk-up boundary
+# =============================================================================
+
+test_root_caps_walkup() {
+  local test_name="root flag: --root caps walk-up boundary"
+  setup
+
+  # AGENTS.md at TEST_DIR root (should NOT be found — outside --root boundary)
+  echo "# Root Agents" > "$TEST_DIR/AGENTS.md"
+  # INVARIANTS.md inside the --root boundary
+  mkdir -p "$TEST_DIR/sub/deep"
+  echo "# Deep INVARIANTS" > "$TEST_DIR/sub/deep/INVARIANTS.md"
+
+  local result
+  result=$(bash "$SCRIPT" "$TEST_DIR/sub/deep" --walk-up --root "$TEST_DIR/sub" 2>/dev/null)
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && \
+     [[ "$result" == *"INVARIANTS.md"* ]] && \
+     [[ "$result" != *"AGENTS.md"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "INVARIANTS.md found, AGENTS.md NOT found" "exit=$exit_code, output=$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TEST 15: --root tighter than PWD wins
+# =============================================================================
+
+test_root_tighter_than_pwd() {
+  local test_name="root flag: --root tighter than PWD wins"
+  setup
+
+  # PWD is TEST_DIR (set by setup's cd)
+  mkdir -p "$TEST_DIR/a/b/c"
+  echo "# C Agents" > "$TEST_DIR/a/b/c/AGENTS.md"
+  echo "# A INVARIANTS" > "$TEST_DIR/a/INVARIANTS.md"
+
+  local result
+  result=$(bash "$SCRIPT" "$TEST_DIR/a/b/c" --walk-up --root "$TEST_DIR/a/b" 2>/dev/null)
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && \
+     [[ "$result" == *"AGENTS.md"* ]] && \
+     [[ "$result" != *"INVARIANTS.md"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "AGENTS.md found at c, INVARIANTS.md NOT found at a" "exit=$exit_code, output=$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TEST 16: --root same as target — no walk-up
+# =============================================================================
+
+test_root_same_as_target() {
+  local test_name="root flag: --root same as target dir — no walk-up"
+  setup
+
+  mkdir -p "$TEST_DIR/mydir"
+  echo "# Root Agents" > "$TEST_DIR/AGENTS.md"
+  echo "# Mydir INVARIANTS" > "$TEST_DIR/mydir/INVARIANTS.md"
+
+  local result
+  result=$(bash "$SCRIPT" "$TEST_DIR/mydir" --walk-up --root "$TEST_DIR/mydir" 2>/dev/null)
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && \
+     [[ "$result" == *"INVARIANTS.md"* ]] && \
+     [[ "$result" != *"AGENTS.md"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "only INVARIANTS.md (no walk-up past root)" "exit=$exit_code, output=$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TEST 17: --root without --walk-up has no effect
+# =============================================================================
+
+test_root_without_walkup() {
+  local test_name="root flag: --root without --walk-up has no effect"
+  setup
+
+  mkdir -p "$TEST_DIR/sub/deep"
+  echo "# Deep INVARIANTS" > "$TEST_DIR/sub/deep/INVARIANTS.md"
+  echo "# Root Agents" > "$TEST_DIR/AGENTS.md"
+
+  local result
+  result=$(bash "$SCRIPT" "$TEST_DIR/sub/deep" --root "$TEST_DIR/sub" 2>/dev/null)
+  local exit_code=$?
+
+  # Without --walk-up, only target dir is scanned — same as no --root
+  if [ "$exit_code" -eq 0 ] && \
+     [[ "$result" == *"INVARIANTS.md"* ]] && \
+     [[ "$result" != *"AGENTS.md"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "only target dir scanned (INVARIANTS.md)" "exit=$exit_code, output=$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TEST 18: --root with --type soft filters correctly
+# =============================================================================
+
+test_root_with_type_soft() {
+  local test_name="root flag: --root with --type soft filters correctly"
+  setup
+
+  mkdir -p "$TEST_DIR/sub/deep"
+  echo "# Deep AGENTS" > "$TEST_DIR/sub/deep/AGENTS.md"
+  echo "# Sub CHECKLIST" > "$TEST_DIR/sub/CHECKLIST.md"
+  echo "# Root INVARIANTS" > "$TEST_DIR/INVARIANTS.md"
+
+  local result
+  result=$(bash "$SCRIPT" "$TEST_DIR/sub/deep" --walk-up --type soft --root "$TEST_DIR/sub" 2>/dev/null)
+  local exit_code=$?
+
+  # Should find AGENTS.md (soft, at target), NOT CHECKLIST.md (hard, filtered by --type soft)
+  # Should NOT find INVARIANTS.md at TEST_DIR (outside --root boundary)
+  if [ "$exit_code" -eq 0 ] && \
+     [[ "$result" == *"AGENTS.md"* ]] && \
+     [[ "$result" != *"CHECKLIST.md"* ]] && \
+     [[ "$result" != *"INVARIANTS.md"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "AGENTS.md only (soft + root-capped)" "exit=$exit_code, output=$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -405,6 +548,13 @@ test_default_type_is_all
 test_discovers_pitfalls
 test_discovers_testing
 test_walkup_finds_pitfalls_ancestor
+
+# --root flag tests
+test_root_caps_walkup
+test_root_tighter_than_pwd
+test_root_same_as_target
+test_root_without_walkup
+test_root_with_type_soft
 
 # Summary
 exit_with_results

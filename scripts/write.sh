@@ -3,7 +3,7 @@
 #
 # Related:
 #   (no direct doc/invariant/command references — clipboard utility)
-#   Consumer: /dehydrate skill
+#   Consumer: /session dehydrate
 #
 # Usage:
 #   write.sh <<'EOF'
@@ -11,7 +11,7 @@
 #   EOF
 #
 # Reads stdin and copies it to the system clipboard via pbcopy.
-# Used by /dehydrate to export session snapshots.
+# Used by /session dehydrate to export session snapshots.
 
 set -euo pipefail
 

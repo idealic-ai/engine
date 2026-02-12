@@ -14,8 +14,8 @@
 #   declares them in the `directives` field of session parameters.
 #
 # State in .state.json:
-#   touchedDirs: { "/abs/path": ["AGENTS.md"], "/other": [] }
-#     Keys = directories encountered. Values = directive files already suggested.
+#   touchedDirs: { "/abs/path": ["/abs/path/.directives/AGENTS.md"], "/other": [] }
+#     Keys = directories encountered. Values = full paths of directive files already suggested.
 #   discoveredChecklists: ["/abs/path/CHECKLIST.md"]
 #     All CHECKLIST.md files found — compared against processedChecklists at deactivate.
 #   directives: ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"]
@@ -48,6 +48,14 @@
 
 set -euo pipefail
 
+# Debug logging — enable with HOOK_DEBUG=1 or check /tmp/hooks-debug-enabled
+DEBUG_LOG="/tmp/hooks-debug.log"
+debug() {
+  if [ "${HOOK_DEBUG:-}" = "1" ] || [ -f /tmp/hooks-debug-enabled ]; then
+    echo "[$(date +%H:%M:%S)] [discovery] $*" >> "$DEBUG_LOG"
+  fi
+}
+
 # Source shared utilities
 source "$HOME/.claude/scripts/lib.sh"
 
@@ -60,7 +68,7 @@ TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || echo "")
 # Only process Read, Edit, Write tools
 case "$TOOL_NAME" in
   Read|Edit|Write) ;;
-  *) exit 0 ;;
+  *) debug "skip: tool=$TOOL_NAME (not Read/Edit/Write)"; exit 0 ;;
 esac
 
 # Extract file_path from tool_input
@@ -70,9 +78,14 @@ FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""' 2>/dev/null || e
 # Get directory from file path
 DIR_PATH=$(dirname "$FILE_PATH")
 [ -n "$DIR_PATH" ] || exit 0
+debug "tool=$TOOL_NAME file=$FILE_PATH dir=$DIR_PATH"
 
-# Skip engine/standards files — these are infrastructure, not project code
-[[ "$DIR_PATH" != "$HOME/.claude/"* ]] || exit 0
+# Multi-root: if path is under ~/.claude/, pass --root to cap walk-up
+ROOT_ARG=""
+if [[ "$DIR_PATH" == "$HOME/.claude/"* ]]; then
+  ROOT_ARG="--root $HOME/.claude"
+  debug "multi-root: using --root $HOME/.claude"
+fi
 
 # Find active session
 SESSION_DIR=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
@@ -101,8 +114,10 @@ ALREADY_TRACKED=$(jq -r --arg dir "$DIR_PATH" \
   '(.touchedDirs // {}) | has($dir)' "$STATE_FILE" 2>/dev/null || echo "false")
 
 if [ "$ALREADY_TRACKED" = "true" ]; then
+  debug "skip: dir already tracked"
   exit 0
 fi
+debug "NEW dir — running discovery"
 
 # New directory — register it in touchedDirs with empty array
 jq --arg dir "$DIR_PATH" \
@@ -110,10 +125,10 @@ jq --arg dir "$DIR_PATH" \
   "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
 # Run discovery for soft files (AGENTS.md, INVARIANTS.md, TESTING.md, PITFALLS.md)
-SOFT_FILES=$("$HOME/.claude/scripts/discover-directives.sh" "$DIR_PATH" --walk-up --type soft 2>/dev/null || echo "")
+SOFT_FILES=$("$HOME/.claude/scripts/discover-directives.sh" "$DIR_PATH" --walk-up --type soft $ROOT_ARG 2>/dev/null || echo "")
 
 # Run discovery for hard files (CHECKLIST.md)
-HARD_FILES=$("$HOME/.claude/scripts/discover-directives.sh" "$DIR_PATH" --walk-up --type hard 2>/dev/null || echo "")
+HARD_FILES=$("$HOME/.claude/scripts/discover-directives.sh" "$DIR_PATH" --walk-up --type hard $ROOT_ARG 2>/dev/null || echo "")
 
 # Core directives are always suggested; skill directives need declaration
 CORE_DIRECTIVES=("AGENTS.md" "INVARIANTS.md")
@@ -153,8 +168,8 @@ if [ -n "$SOFT_FILES" ]; then
       fi
     fi
 
-    # Check if this file was already suggested via any other touchedDir
-    already_suggested=$(jq -r --arg file "$local_basename" \
+    # Check if this exact file (full path) was already suggested via any other touchedDir
+    already_suggested=$(jq -r --arg file "$file" \
       '[(.touchedDirs // {}) | to_entries[] | .value[] | select(. == $file)] | length > 0' \
       "$STATE_FILE" 2>/dev/null || echo "false")
     if [ "$already_suggested" != "true" ]; then
@@ -165,19 +180,27 @@ fi
 
 # Update touchedDirs with the files we're about to suggest
 if [ ${#NEW_SOFT_FILES[@]} -gt 0 ]; then
-  # Build JSON array of unique basenames
+  # Build JSON array of full paths (not basenames) for accurate dedup
   FILENAMES_JSON="[]"
   for f in "${NEW_SOFT_FILES[@]}"; do
-    FILENAMES_JSON=$(echo "$FILENAMES_JSON" | jq --arg name "$(basename "$f")" '. + [$name] | unique')
+    FILENAMES_JSON=$(echo "$FILENAMES_JSON" | jq --arg name "$f" '. + [$name] | unique')
   done
   jq --arg dir "$DIR_PATH" --argjson names "$FILENAMES_JSON" \
     '(.touchedDirs //= {}) | .touchedDirs[$dir] = $names' \
     "$STATE_FILE" | safe_json_write "$STATE_FILE"
 fi
 
-# Add new soft files to pendingDirectives for enforcement gate
+# Add new soft files to pendingDirectives for enforcement gate (skip already-preloaded)
 if [ ${#NEW_SOFT_FILES[@]} -gt 0 ]; then
   for f in "${NEW_SOFT_FILES[@]}"; do
+    # Skip if already preloaded (prevents double-loading after re-discovery)
+    already_preloaded=$(jq -r --arg file "$f" \
+      '(.preloadedFiles // []) | any(. == $file)' "$STATE_FILE" 2>/dev/null || echo "false")
+    if [ "$already_preloaded" = "true" ]; then
+      debug "SKIP pendingDirectives: $f (already in preloadedFiles)"
+      continue
+    fi
+    debug "ADD pendingDirectives: $f"
     jq --arg file "$f" \
       '(.pendingDirectives //= []) | if (.pendingDirectives | index($file)) then . else .pendingDirectives += [$file] end' \
       "$STATE_FILE" | safe_json_write "$STATE_FILE"

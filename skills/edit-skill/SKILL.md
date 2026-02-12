@@ -72,7 +72,7 @@ Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-
     *   `~/.claude/skills/implement/SKILL.md` (full-session archetype)
     *   `~/.claude/skills/brainstorm/SKILL.md` (light-session archetype)
     *   `~/.claude/skills/suggest/SKILL.md` (report-only archetype)
-    *   `~/.claude/skills/dehydrate/SKILL.md` (utility archetype)
+    *   `~/.claude/skills/session/SKILL.md` (utility archetype)
 
     **Constraint**: You MUST load all the files listed above before proceeding. These are your exemplars — every file you scaffold must follow the patterns found in these references.
 

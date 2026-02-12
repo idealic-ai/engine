@@ -1,0 +1,168 @@
+[
+  {
+    "id": "overflow-dehydration",
+    "description": "Force dehydration at overflow threshold via tmux paste",
+    "trigger": {
+      "type": "contextThreshold",
+      "condition": { "gte": "OVERFLOW_THRESHOLD" }
+    },
+    "payload": {
+      "command": "/session dehydrate restart"
+    },
+    "mode": "paste",
+    "urgency": "block",
+    "priority": 1,
+    "inject": "always"
+  },
+  {
+    "id": "session-gate",
+    "description": "Block non-whitelisted tools when no active session (§CMD_REQUIRE_ACTIVE_SESSION)",
+    "trigger": {
+      "type": "lifecycle",
+      "condition": { "noActiveSession": true }
+    },
+    "payload": {
+      "text": "§CMD_REQUIRE_ACTIVE_SESSION: No active session. Use AskUserQuestion to ask the user which skill to use. Popular: /do, /implement, /analyze, /fix, /test"
+    },
+    "mode": "inline",
+    "urgency": "block",
+    "priority": 2,
+    "inject": "always",
+    "whitelist": [
+      "AskUserQuestion",
+      "Skill",
+      "Bash(engine session *)",
+      "Read(*/.claude/*)",
+      "Read(*/CLAUDE.md)",
+      "Read(*/memory/*)",
+      "Read(*/MEMORY.md)",
+      "Read(*/sessions/*.md)"
+    ]
+  },
+  {
+    "id": "standards-preload",
+    "description": "Auto-inject core standards when no session is active (fixes /session continue bootstrap)",
+    "trigger": {
+      "type": "lifecycle",
+      "condition": { "noActiveSession": true }
+    },
+    "payload": {
+      "preload": [
+        "~/.claude/.directives/COMMANDS.md",
+        "~/.claude/.directives/INVARIANTS.md",
+        "~/.claude/.directives/TAGS.md"
+      ]
+    },
+    "mode": "preload",
+    "urgency": "allow",
+    "priority": 3,
+    "inject": "once"
+  },
+  {
+    "id": "heartbeat-warn",
+    "description": "Warn agent to log progress (§CMD_LOG_BETWEEN_TOOL_USES) at warn threshold",
+    "trigger": {
+      "type": "perTranscriptToolCount",
+      "condition": { "eq": 3 }
+    },
+    "payload": {
+      "text": "§CMD_LOG_BETWEEN_TOOL_USES: Tool calls without logging approaching limit. Log soon."
+    },
+    "mode": "inline",
+    "urgency": "allow",
+    "priority": 50,
+    "inject": "always",
+    "whitelist": [
+      "Bash(engine log *)",
+      "Bash(engine session *)",
+      "Read(*/.claude/*)",
+      "Read(*/TEMPLATE_*_LOG.md)",
+      "Task"
+    ]
+  },
+  {
+    "id": "heartbeat-block",
+    "description": "Block agent until it logs progress (§CMD_LOG_BETWEEN_TOOL_USES) at block threshold",
+    "trigger": {
+      "type": "perTranscriptToolCount",
+      "condition": { "gte": 10 }
+    },
+    "payload": {
+      "text": "§CMD_LOG_BETWEEN_TOOL_USES: Too many tool calls without logging. You MUST log progress now. Read the log template, then use engine log."
+    },
+    "mode": "inline",
+    "urgency": "block",
+    "priority": 5,
+    "inject": "always",
+    "whitelist": [
+      "Bash(engine log *)",
+      "Bash(engine session *)",
+      "Read(*/.claude/*)",
+      "Read(*/TEMPLATE_*_LOG.md)",
+      "Task"
+    ]
+  },
+  {
+    "id": "dehydration-preload",
+    "description": "Pre-load dehydration protocol at 50% context usage",
+    "trigger": {
+      "type": "contextThreshold",
+      "condition": { "gte": 0.50 }
+    },
+    "payload": {
+      "files": [
+        "~/.claude/skills/dehydrate/SKILL.md",
+        "~/.claude/skills/_shared/TEMPLATE_DEHYDRATED_CONTEXT.md"
+      ]
+    },
+    "mode": "inline",
+    "urgency": "allow",
+    "priority": 10,
+    "inject": "once"
+  },
+  {
+    "id": "directive-autoload",
+    "description": "Auto-preload pending directive files when discovered (content injected alongside tool allow)",
+    "trigger": {
+      "type": "discovery",
+      "condition": { "field": "pendingDirectives", "nonEmpty": true }
+    },
+    "payload": {
+      "preload": "$pendingDirectives"
+    },
+    "mode": "preload",
+    "urgency": "allow",
+    "priority": 20,
+    "inject": "always"
+  },
+  {
+    "id": "template-preload",
+    "description": "Auto-preload pending template files when discovered by Skill hook",
+    "trigger": {
+      "type": "discovery",
+      "condition": { "field": "pendingTemplates", "nonEmpty": true }
+    },
+    "payload": {
+      "preload": "$pendingTemplates"
+    },
+    "mode": "preload",
+    "urgency": "allow",
+    "priority": 21,
+    "inject": "always"
+  },
+  {
+    "id": "synthesis-commands",
+    "description": "Inject synthesis protocol commands when entering synthesis phase",
+    "trigger": {
+      "type": "phase",
+      "condition": { "matches": "Synthesis" }
+    },
+    "payload": {
+      "text": "SYNTHESIS PHASE ACTIVE: Execute §CMD_FOLLOW_DEBRIEF_PROTOCOL. Sub-phases: Checklists → Debrief → Pipeline → Close. Each sub-phase requires proof before proceeding."
+    },
+    "mode": "inline",
+    "urgency": "allow",
+    "priority": 30,
+    "inject": "once"
+  }
+]

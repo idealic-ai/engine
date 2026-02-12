@@ -1,7 +1,7 @@
 #!/bin/bash
 # discover-directives.sh — Discover directive markdown files in a directory (and ancestors)
 #
-# Usage: discover-directives.sh <target-dir> [--walk-up] [--type soft|hard|all] [--include-shared]
+# Usage: discover-directives.sh <target-dir> [--walk-up] [--type soft|hard|all] [--root <path>] [--include-shared]
 #
 # Directive types:
 #   soft: AGENTS.md, INVARIANTS.md, TESTING.md, PITFALLS.md, TEMPLATE.md
@@ -25,6 +25,7 @@ source "$HOME/.claude/scripts/lib.sh"
 TARGET_DIR=""
 WALK_UP=false
 TYPE="all"
+ROOT_DIR=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -34,6 +35,10 @@ while [ $# -gt 0 ]; do
       ;;
     --type)
       TYPE="${2:-all}"
+      shift 2
+      ;;
+    --root)
+      ROOT_DIR="${2:-}"
       shift 2
       ;;
     --include-shared)
@@ -62,7 +67,7 @@ fi
 TARGET_DIR="${TARGET_DIR%/}"
 
 # --- Directive file lists ---
-SOFT_FILES="AGENTS.md INVARIANTS.md TESTING.md PITFALLS.md CONTRIBUTING.md TEMPLATE.md"
+SOFT_FILES="AGENTS.md INVARIANTS.md ARCHITECTURE.md TESTING.md PITFALLS.md CONTRIBUTING.md TEMPLATE.md"
 HARD_FILES="CHECKLIST.md"
 
 # Determine which files to look for based on --type
@@ -116,6 +121,12 @@ scan_dir "$TARGET_DIR"
 # Walk up to ancestors if requested
 if [ "$WALK_UP" = true ]; then
   BOUNDARY="$PWD"
+  if [ -n "${ROOT_DIR:-}" ]; then
+    # Use tighter (deeper) of --root and $PWD
+    if [ ${#ROOT_DIR} -gt ${#BOUNDARY} ]; then
+      BOUNDARY="$ROOT_DIR"
+    fi
+  fi
   CURRENT="$TARGET_DIR"
 
   while true; do

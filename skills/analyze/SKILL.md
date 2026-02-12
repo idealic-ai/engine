@@ -56,23 +56,19 @@ Thorough analysis of code, architecture, or topics — produces a structured res
     > 1. I am starting Phase 0: Setup phase.
     > 2. I will `§CMD_USE_ONLY_GIVEN_CONTEXT` for Phase 0 only (Strict Bootloader — expires at Phase 1).
     > 3. My focus is ANALYSIS (`§CMD_REFUSE_OFF_COURSE` applies).
-    > 4. I will `§CMD_LOAD_AUTHORITY_FILES` to ensure all templates and standards are loaded.
-    > 5. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
-    > 6. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
-    > 7. I will `§CMD_MAINTAIN_SESSION_DIR` to establish working space.
-    > 8. I will select the **Analysis Mode** (Explore / Audit / Improve / Custom).
-    > 9. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
-    > 10. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
+    > 4. I will `§CMD_FIND_TAGGED_FILES` to identify active alerts (`#active-alert`).
+    > 5. I will `§CMD_PARSE_PARAMETERS` to define the flight plan.
+    > 6. I will `§CMD_MAINTAIN_SESSION_DIR` to establish working space.
+    > 7. I will select the **Analysis Mode** (Explore / Audit / Improve / Custom).
+    > 8. I will `§CMD_ASSUME_ROLE` using the selected mode's preset.
+    > 9. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT` (Silence Protocol).
 
     **Constraint**: Do NOT read any project files (source code, docs) in Phase 0. Only load the required system templates/standards.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project map and file index)
-    *   `~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS_LOG.md` (Template for continuous research logging)
-    *   `~/.claude/skills/analyze/assets/TEMPLATE_ANALYSIS.md` (Template for final research synthesis/report)
 
-3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
-    *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
+3.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
 
 4.  **Session Location**: Execute `§CMD_MAINTAIN_SESSION_DIR` - ensure the directory is created.
 

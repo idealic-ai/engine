@@ -48,7 +48,7 @@ Since skills are executed by Claude, not by code, behavioral testing is done by 
 *   **Smoke test**: Run the skill with a minimal input. Verify it produces all expected artifacts (log, plan, debrief).
 *   **Phase enforcement**: Verify `session.sh phase` transitions follow the declared array.
 *   **Synthesis completeness**: Verify the debrief contains all template sections, the Tags line is set, and `session.sh deactivate` succeeds.
-*   **Context overflow**: Verify `/dehydrate restart` produces a valid `DEHYDRATED_CONTEXT.md` that enables `/reanchor` to resume at the correct phase.
+*   **Context overflow**: Verify `/session dehydrate restart` produces a valid `DEHYDRATED_CONTEXT.md` that enables `/session continue` to resume at the correct phase.
 
 ## 6. Automated Validation
 

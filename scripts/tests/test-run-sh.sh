@@ -234,7 +234,7 @@ test_restart_skips_sessionid_when_ready_to_kill() {
   "pid": 0,
   "sessionId": "should-not-use-this",
   "status": "ready-to-kill",
-  "restartPrompt": "/reanchor --session test"
+  "restartPrompt": "/session continue --session test"
 }
 EOF
 

@@ -68,13 +68,9 @@ Keeps documentation in sync with code changes and project state.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project structure and file map)
-    *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_LOG.md` (Template for continuous surgery logging)
-    *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION.md` (Template for final session debrief/report)
-    *   `~/.claude/skills/document/assets/TEMPLATE_DOCUMENTATION_PLAN.md` (Template for technical execution planning)
     *   `.claude/.directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
 
-3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
-    *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
+3.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
 
 4.  **Session Location**: Execute `§CMD_MAINTAIN_SESSION_DIR` - ensure the directory is created.
 

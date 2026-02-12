@@ -1,0 +1,17 @@
+←  ☒ Colors  ☒ Seasons  ☐ Multi  ✔ Submit  →
+
+Example question 3: Pick multiple items
+
+❯ 1. [ ] Option A
+  First choice
+  2. [ ] Option B
+  Second choice
+  3. [ ] Option C
+  Third choice
+  4. [ ] Type something
+     Submit
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel

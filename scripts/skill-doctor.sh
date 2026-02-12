@@ -172,8 +172,8 @@ check_boot() {
     fail "DR-B2" "Missing gate check block"
   fi
 
-  # DR-B3: References all 3 standards (skip for dehydrate)
-  if [ "$name" != "dehydrate" ]; then
+  # DR-B3: References all 3 standards (skip for legacy skills)
+  if [ "$name" != "dehydrate" ] && [ "$name" != "reanchor" ]; then
     local has_cmd has_inv has_tag
     has_cmd=$(grep -c 'COMMANDS\.md' "$skill_file" || true)
     has_inv=$(grep -c 'INVARIANTS\.md' "$skill_file" || true)

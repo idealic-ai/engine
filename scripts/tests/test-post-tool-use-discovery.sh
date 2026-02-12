@@ -181,11 +181,11 @@ test_processes_write_tool() {
 }
 
 # =============================================================================
-# ENGINE PATH SKIP TESTS
+# ENGINE PATH TRACKING TESTS (multi-root)
 # =============================================================================
 
-test_skips_engine_paths() {
-  local test_name="engine skip: ignores ~/.claude/ paths"
+test_tracks_engine_paths() {
+  local test_name="engine tracking: ~/.claude/ paths ARE tracked in touchedDirs"
   setup
 
   run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$HOME/.claude/scripts/lib.sh\"}}" > /dev/null
@@ -194,10 +194,96 @@ test_skips_engine_paths() {
   local has_touched
   has_touched=$(echo "$state" | jq 'has("touchedDirs")')
 
-  if [ "$has_touched" = "false" ]; then
+  if [ "$has_touched" = "true" ]; then
     pass "$test_name"
   else
-    fail "$test_name" "no touchedDirs (engine path skipped)" "state=$state"
+    fail "$test_name" "touchedDirs exists (engine path tracked)" "state=$state"
+  fi
+
+  teardown
+}
+
+test_engine_paths_use_root() {
+  local test_name="engine root: walk-up from ~/.claude/skills/ finds ~/.claude/.directives/ but NOT ~/"
+  setup
+
+  # Create engine directive structure inside fake HOME
+  mkdir -p "$HOME/.claude/.directives"
+  echo "# Engine INVARIANTS" > "$HOME/.claude/.directives/INVARIANTS.md"
+  mkdir -p "$HOME/.claude/skills/brainstorm"
+  echo "# Brainstorm skill" > "$HOME/.claude/skills/brainstorm/SKILL.md"
+
+  # Create a directive ABOVE ~/.claude/ that should NOT be found
+  echo "# Home AGENTS" > "$HOME/AGENTS.md"
+
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$HOME/.claude/skills/brainstorm/SKILL.md\"}}" > /dev/null
+  local state
+  state=$(read_state)
+
+  # pendingDirectives should contain INVARIANTS.md from ~/.claude/.directives/
+  local has_invariants
+  has_invariants=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(contains("INVARIANTS.md"))] | length > 0')
+
+  # pendingDirectives should NOT contain AGENTS.md from ~/
+  local has_agents
+  has_agents=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(contains("AGENTS.md"))] | length > 0')
+
+  if [ "$has_invariants" = "true" ] && [ "$has_agents" = "false" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "INVARIANTS.md in pending, AGENTS.md NOT in pending" "state=$state"
+  fi
+
+  teardown
+}
+
+test_engine_directives_added_to_pending() {
+  local test_name="engine pending: reading ~/.claude/skills/ adds directives to pendingDirectives"
+  setup
+
+  # Create engine directive structure inside fake HOME
+  mkdir -p "$HOME/.claude/.directives"
+  echo "# Engine INVARIANTS" > "$HOME/.claude/.directives/INVARIANTS.md"
+  mkdir -p "$HOME/.claude/skills/brainstorm"
+  echo "# Brainstorm" > "$HOME/.claude/skills/brainstorm/SKILL.md"
+
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$HOME/.claude/skills/brainstorm/SKILL.md\"}}" > /dev/null
+  local state
+  state=$(read_state)
+
+  local pending_count
+  pending_count=$(echo "$state" | jq '(.pendingDirectives // []) | length')
+
+  if [ "$pending_count" -gt 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "pendingDirectives non-empty" "state=$state"
+  fi
+
+  teardown
+}
+
+test_project_paths_unchanged() {
+  local test_name="project paths: non-engine paths still use PWD boundary (no --root)"
+  setup
+
+  # Create project directives at project root and deep inside
+  echo "# Root AGENTS" > "$PROJECT_DIR/AGENTS.md"
+  mkdir -p "$PROJECT_DIR/src/deep/nested"
+  echo "# Deep INVARIANTS" > "$PROJECT_DIR/src/deep/nested/INVARIANTS.md"
+
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/deep/nested/file.ts\"}}" > /dev/null
+  local state
+  state=$(read_state)
+
+  # Walk-up from src/deep/nested should find AGENTS.md at project root (PWD boundary)
+  local has_agents
+  has_agents=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(contains("AGENTS.md"))] | length > 0')
+
+  if [ "$has_agents" = "true" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "AGENTS.md found via walk-up to PWD" "state=$state"
   fi
 
   teardown
@@ -321,7 +407,7 @@ test_message_contains_invariant_code() {
 }
 
 test_soft_files_stored_in_touched_dirs() {
-  local test_name="soft discovery: stores basenames in touchedDirs values"
+  local test_name="soft discovery: stores full paths in touchedDirs values"
   setup
 
   run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/lib/test.ts\"}}" > /dev/null
@@ -331,14 +417,14 @@ test_soft_files_stored_in_touched_dirs() {
   local filenames
   filenames=$(echo "$state" | jq --arg dir "$PROJECT_DIR/src/lib" '.touchedDirs[$dir]')
 
-  # Should contain INVARIANTS.md (local) and README.md (from walk-up to project root)
+  # Should contain full path ending in INVARIANTS.md (local discovery)
   local has_invariants
-  has_invariants=$(echo "$filenames" | jq 'index("INVARIANTS.md") != null')
+  has_invariants=$(echo "$filenames" | jq 'any(endswith("INVARIANTS.md"))')
 
   if [ "$has_invariants" = "true" ]; then
     pass "$test_name"
   else
-    fail "$test_name" "touchedDirs values contain INVARIANTS.md" "filenames=$filenames"
+    fail "$test_name" "touchedDirs values contain path ending in INVARIANTS.md" "filenames=$filenames"
   fi
 
   teardown
@@ -580,8 +666,11 @@ test_processes_read_tool
 test_processes_edit_tool
 test_processes_write_tool
 
-# Engine path skip
-test_skips_engine_paths
+# Engine path tracking (multi-root)
+test_tracks_engine_paths
+test_engine_paths_use_root
+test_engine_directives_added_to_pending
+test_project_paths_unchanged
 
 # No session
 test_skips_when_no_session

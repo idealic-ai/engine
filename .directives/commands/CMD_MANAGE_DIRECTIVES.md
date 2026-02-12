@@ -1,36 +1,39 @@
 ### §CMD_MANAGE_DIRECTIVES
-**Definition**: After debrief creation, manages directive files discovered during the session. Handles three concerns in one pass: AGENTS.md updates (replaces `§CMD_MANAGE_TOC`), invariant capture (replaces `§CMD_PROMPT_INVARIANT_CAPTURE`), and pitfall capture (new).
-**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 8, after debrief is written.
+**Definition**: After debrief creation, manages directive files discovered during the session. Three passes: AGENTS.md updates (auto-mention new directives, keep dir context current), invariant capture, and pitfall capture.
+**Trigger**: Called by `§CMD_FOLLOW_DEBRIEF_PROTOCOL` Step 2 (Pipeline), after debrief is written.
 
 **Directive Types Managed**:
 
-| Type | File | Action |
-|------|------|--------|
-| **AGENTS** | `AGENTS.md` | Update descriptions of documentation files touched this session |
-| **Invariant** | `INVARIANTS.md` | Capture new rules/constraints discovered during the session |
-| **Pitfall** | `PITFALLS.md` | Capture "gotchas" and traps discovered during the session |
-| **Testing** | `TESTING.md` | No end-of-session action (read-only during build — used for test guidance) |
-| **Checklist** | `CHECKLIST.md` | No end-of-session action (enforced by `§CMD_PROCESS_CHECKLISTS`) |
-| **Contributing** | `CONTRIBUTING.md` | Pass 4: Capture file patterns and conventions |
+| Type | File | Management |
+|------|------|------------|
+| **AGENTS** | `AGENTS.md` | **Managed** — Pass 1: Auto-update when new directive files added to a dir |
+| **Invariant** | `INVARIANTS.md` | **Managed** — Pass 2: Capture new rules/constraints discovered during session |
+| **Pitfall** | `PITFALLS.md` | **Managed** — Pass 3: Capture gotchas/traps discovered during session |
+| **Checklist** | `CHECKLIST.md` | **Not managed** — Enforced by `§CMD_PROCESS_CHECKLISTS` at deactivation |
+| **Testing** | `TESTING.md` | **Not managed** — Read-only during build (used for test guidance) |
+| **Contributing** | `CONTRIBUTING.md` | **Not managed** — Manual maintenance only |
+| **Architecture** | `ARCHITECTURE.md` | **Not managed** — Manual maintenance only |
+| **Template** | `TEMPLATE.md` | **Not managed** — Manual maintenance only |
 
 **Algorithm**:
 
 #### Pass 1: AGENTS.md Updates
 
-1.  **Collect File Manifest**: Gather documentation files touched this session:
-    *   **Created**: New files (candidates for AGENTS.md mention)
-    *   **Modified**: Updated files (descriptions may be stale)
-    *   **Deleted**: Removed files (remove stale references)
-    *   **Scope**: Only files under `docs/` or other documentation directories. Exclude session artifacts (`sessions/`), templates, and standards.
-2.  **Check Each Discovered AGENTS.md**: For each AGENTS.md in `discoveredDirectives` (from `.state.json`), check if any touched doc files are in its directory tree.
+AGENTS.md is a micro-README: it describes what a directory is for, what to think about when working there, and lists available directive files. It's force-fed to every agent touching that directory — keep it tight.
+
+1.  **Collect Directive Changes**: Check if this session created or deleted any directive files (INVARIANTS.md, CHECKLIST.md, TESTING.md, PITFALLS.md, CONTRIBUTING.md, ARCHITECTURE.md, TEMPLATE.md) in any directory.
+2.  **Check Each Discovered AGENTS.md**: For each AGENTS.md in `discoveredDirectives` (from `.state.json`), check if directive files were added or removed in its directory tree.
 3.  **If No Changes**: Skip silently.
 4.  **If Changes Found**: Present via `AskUserQuestion` (multiSelect: true):
-    *   `question`: "Documentation files were touched near these AGENTS.md files. Which updates should I apply?"
+    *   `question`: "New directive files were created near these AGENTS.md files. Update them to mention the new directives?"
     *   `header`: "AGENTS updates"
     *   `options` (up to 4, batch if more):
-        *   `"Update: path/to/.directives/AGENTS.md"` — description: `"[N] doc files changed in this tree. Will refresh descriptions."`
-    *   For each selected AGENTS.md: Read it, identify entries referencing touched files, regenerate descriptions from current file content.
+        *   `"Update: path/to/.directives/AGENTS.md"` — description: `"Add mention of [new directive files]. Will also refresh dir description if stale."`
+    *   For each selected AGENTS.md: Read it, add references to new directive files in the "Available Directives" section (or equivalent). If the AGENTS.md has no such section, add one. Refresh the directory description if it's clearly stale.
 5.  **Apply**: Use Edit tool to update. Report: "AGENTS.md updated: [list]."
+6.  **If AGENTS.md is Missing**: If a directory received new directive files but has NO AGENTS.md at all, offer to create one from `TEMPLATE_AGENTS.md` (in `~/.claude/engine/.directives/templates/`):
+    *   `question`: "Directory [path] has directive files but no AGENTS.md. Create one?"
+    *   `options`: `"Create from template"` / `"Skip"`
 
 #### Pass 2: Invariant Capture
 
@@ -104,43 +107,11 @@
         ```
 6.  **Report**: "Added pitfalls: [titles and destinations]." or skip silently if none.
 
-#### Pass 4: Contributing-Pattern Capture
-
-1.  **Review Session**: Using agent judgment, identify file patterns and conventions established or followed during the session:
-    *   New files created that establish a pattern (e.g., "every workflow gets a `__tests__/` directory")
-    *   Barrel files (index.ts) that were updated or should be updated
-    *   Naming conventions followed (e.g., `*.workflow.ts`, `*.activity.ts`)
-    *   Example files that serve as templates for future similar files
-    *   Import/export patterns specific to the directory
-2.  **Check for Candidates**: Identify up to 5 potential contributing patterns. For each, draft:
-    *   A short title (e.g., "Workflow file naming convention")
-    *   A description of the pattern and when to follow it
-    *   An example file reference if applicable
-3.  **If No Candidates**: Skip silently.
-4.  **If Candidates Found**: For each pattern (max 5), execute `AskUserQuestion` with:
-    *   `question`: "Capture this contributing pattern? **[Title]**: [description]"
-    *   `header`: "Contributing"
-    *   `options`:
-        *   `"Add to nearest CONTRIBUTING.md"` — The CONTRIBUTING.md closest to where the pattern applies (walk-up from the affected directory)
-        *   `"Create new CONTRIBUTING.md here"` — Create in the most relevant directory
-        *   `"Skip this one"` — Do not capture
-    *   `multiSelect`: false
-5.  **On Selection**:
-    *   **If "Skip"**: Continue to next pattern.
-    *   **If a destination is chosen**: Append or create using Edit tool. Use the TEMPLATE_CONTRIBUTING.md structure:
-        ```markdown
-        ### [Title]
-        **Pattern**: [What the convention is]
-        **When**: [When to follow it]
-        **Example**: [Reference file or inline example]
-        ```
-    *   **If file doesn't exist**: Create from `TEMPLATE_CONTRIBUTING.md`.
-6.  **Report**: "Added contributing patterns: [titles and destinations]." or skip silently if none.
-
 **Constraints**:
-*   **Agent judgment only**: All four passes use agent judgment to identify candidates — no explicit markers or log scanning required.
+*   **Agent judgment only**: All three passes use agent judgment to identify candidates — no explicit markers or log scanning required.
 *   **Max 5 per pass**: Focus on the most valuable captures. Avoid prompt fatigue.
 *   **Non-blocking**: If user selects "Skip" for everything, the session continues normally.
 *   **Idempotent**: Check existing entries before suggesting to avoid duplicates.
-*   **Order matters**: AGENTS.md first (factual), then invariants (rules), then pitfalls (warnings), then contributing patterns (conventions). Each pass is independent.
+*   **Order matters**: AGENTS.md first (factual/structural), then invariants (rules), then pitfalls (warnings). Each pass is independent.
 *   **Skip silently**: Each pass independently decides whether it has candidates. An empty pass produces no output and no prompt.
+*   **Template location**: Scaffolding templates for all directive types live in `~/.claude/engine/.directives/templates/TEMPLATE_*.md`.

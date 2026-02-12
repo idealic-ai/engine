@@ -66,11 +66,8 @@ Structured ideation and trade-off analysis for design and architecture decisions
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project structure and file map)
-    *   `~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM_LOG.md` (Template for continuous session logging)
-    *   `~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM.md` (Template for final session debrief/report)
 
-3.  **Parse parameters**: Execute `§CMD_PARSE_PARAMETERS` - output parameters to the user as you parsed it.
-    *   **CRITICAL**: You must output the JSON **BEFORE** proceeding to any other step.
+3.  **Parse & Activate**: Execute `§CMD_PARSE_PARAMETERS` — constructs the session parameters JSON and pipes it to `session.sh activate` via heredoc.
 
 4.  **Session Location**: Execute `§CMD_MAINTAIN_SESSION_DIR` - ensure the directory is created.
 

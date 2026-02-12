@@ -8,7 +8,7 @@ Feature matrix of all workflow engine skills. Use this as a reference when addin
 |------|-------|-------------|----------|
 | **protocol** | 9 | Full ceremony — interrogation, planning, build loop, synthesis | Phases, Deactivate, Walk-Through, Mode Presets |
 | **utility** | 2 | Session-running, lighter protocol — focused execution | Deactivate, some Walk-Through |
-| **lightweight** | 10 | No session dir or minimal lifecycle — single-purpose tools | None required |
+| **lightweight** | 9 | No session dir or minimal lifecycle — single-purpose tools | None required |
 
 ---
 
@@ -23,7 +23,7 @@ Full-ceremony skills with all engine features.
 | `/fix` | 7 (Setup → Context → Investigation → Triage Walk-Through → Fix Loop → Results Walk-Through → Debrief) | Yes | Results + Plan | General, TDD, Hotfix, Custom |
 | `/document` | 4 (Setup → Diagnosis & Planning → Operation → Synthesis) | Yes | Results + Plan | Surgical, Refine, Audit, Custom |
 | `/implement` | 6 (Setup → Context → Interrogation → Planning → Build Loop → Synthesis) | Yes | Results + Plan | TDD, Experimentation, General, Custom |
-| `/refine` | 7 (Setup → Interrogation → Planning → Validation → Baseline → Iteration → Synthesis) | Yes | Results | Accuracy, Speed, Robustness |
+| `/loop` | 7 (Setup → Interrogation → Planning → Validation → Baseline → Iteration → Synthesis) | Yes | Results | Accuracy, Speed, Robustness |
 | `/review` | 4 (Setup → Discovery → Dashboard & Interrogation → Synthesis) | Yes | — | Quality, Velocity, Compliance |
 | `/test` | 6 (Setup → Context → Interrogation → Planning → Execution → Synthesis) | Yes | Results | Coverage, Hardening, Integration, Custom |
 
@@ -40,15 +40,14 @@ Session-running skills with lighter protocols.
 
 ---
 
-## Lightweight Skills (14)
+## Lightweight Skills (13)
 
 Single-purpose tools with no session directory or minimal lifecycle.
 
 | Skill | Purpose |
 |-------|---------|
-| `/dehydrate` | Serialize session context for restart |
 | `/edit-skill` | Create or edit skills in `.claude/` |
-| `/reanchor` | Re-initialize after context overflow |
+| `/session` | Session management — dehydrate, recover, search, status |
 | `/research` | Full Gemini Deep Research cycle |
 | `/research-request` | Post async research request |
 | `/research-respond` | Check/retrieve research results |

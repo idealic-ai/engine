@@ -88,20 +88,20 @@ EOF
 ### 3. Context Overflow
 
 **Hook**: `pre-tool-use-overflow.sh`
-**Enforces**: `§CMD_REANCHOR_AFTER_RESTART`
+**Enforces**: `§CMD_SESSION_CONTINUE_AFTER_RESTART`
 **Purpose**: Forces context dehydration when the conversation approaches the context window limit. Prevents data loss from silent truncation.
 
 **When it fires**: When `contextUsage` in `.state.json` >= `OVERFLOW_THRESHOLD` (default 0.76, ~97.5% of Claude's 80% auto-compact threshold).
 
 **What it blocks**: All tools except:
 - `Bash` calls to `log.sh` or `session.sh` (needed for dehydration)
-- `Skill(skill: "dehydrate")` — sets lifecycle to "dehydrating" and allows through
+- `Skill(skill: "session", args: "dehydrate")` — sets lifecycle to "dehydrating" and allows through
 - All tools when `lifecycle=dehydrating` or `killRequested=true`
 
 **Error message**:
-`§CMD_REANCHOR_AFTER_RESTART: Context overflow — you MUST invoke the dehydrate skill NOW.`
+`§CMD_SESSION_CONTINUE_AFTER_RESTART: Context overflow — you MUST invoke the session dehydrate skill NOW.`
 
-**Resolution**: Invoke `Skill(skill: "dehydrate", args: "restart")`. This saves context to `DEHYDRATED_CONTEXT.md` and triggers a fresh Claude session that resumes via `/reanchor`.
+**Resolution**: Invoke `Skill(skill: "session", args: "dehydrate restart")`. This saves context to `DEHYDRATED_CONTEXT.md` and triggers a fresh Claude session that resumes via `/session continue`.
 
 ---
 
@@ -317,7 +317,7 @@ All three gates are evaluated together — the agent sees ALL failures at once (
 |---|-------|------------|---------|--------------|------------|
 | 1 | Session Gate | `pre-tool-use-session-gate.sh` | Any tool without active session | `§CMD_REQUIRE_ACTIVE_SESSION` | Invoke a skill |
 | 2 | Logging Heartbeat | `pre-tool-use-heartbeat.sh` | N tool calls without logging | `§CMD_LOG_BETWEEN_TOOL_USES` | Append to log via `log.sh` |
-| 3 | Context Overflow | `pre-tool-use-overflow.sh` | Context usage >= 76% | `§CMD_REANCHOR_AFTER_RESTART` | Invoke `/dehydrate restart` |
+| 3 | Context Overflow | `pre-tool-use-overflow.sh` | Context usage >= 76% | `§CMD_SESSION_CONTINUE_AFTER_RESTART` | Invoke `/session dehydrate restart` |
 | 4 | Directory Discovery | `post-tool-use-discovery.sh` | Read/Edit/Write in new directory | `¶INV_DIRECTIVE_STACK` | Read suggested files |
 | 4b | Directive Gate | `pre-tool-use-directive-gate.sh` | N tool calls with unread directives | `¶INV_DIRECTIVE_STACK` | Read pending directive files |
 | 5 | Session Boot | `user-prompt-submit-session-gate.sh` | User message without session | `§CMD_REQUIRE_ACTIVE_SESSION` | Load standards, select skill |

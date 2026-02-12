@@ -125,7 +125,7 @@ cat > "$PROJECT_DIR/sessions/restart_test/.state.json" <<RESTARTEOF
   "lifecycle": "active",
   "currentPhase": "3: Testing",
   "killRequested": true,
-  "restartPrompt": "/reanchor --session sessions/restart_test --skill test --phase 3 --continue",
+  "restartPrompt": "/session continue --session sessions/restart_test --skill test --phase \"3: Testing\"",
   "overflowed": false
 }
 RESTARTEOF
@@ -163,9 +163,9 @@ RESTART_INVOCATIONS=$(grep -c "INVOKED" "$RESTART_STUB_DIR/invocations.log" || e
 assert_gt "$RESTART_INVOCATIONS" 1 "Claude invoked at least twice (restart loop)"
 assert_contains "Restart" "$RESTART_OUTPUT" "run.sh detected restart"
 
-# Invocations log should contain "reanchor" (the restart prompt passed to second invocation)
+# Invocations log should contain "/session continue" (the restart prompt passed to second invocation)
 RESTART_LOG_CONTENT=$(cat "$RESTART_STUB_DIR/invocations.log")
-assert_contains "reanchor" "$RESTART_LOG_CONTENT" "Restart prompt contains reanchor"
+assert_contains "session continue" "$RESTART_LOG_CONTENT" "Restart prompt contains /session continue"
 
 # After restart loop, lifecycle should be restarting
 assert_json "$PROJECT_DIR/sessions/restart_test/.state.json" '.lifecycle' 'restarting' "lifecycle is restarting"

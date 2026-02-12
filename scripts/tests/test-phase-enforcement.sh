@@ -371,10 +371,13 @@ assert_json "$STATE_FILE" '.currentPhase' 'Phase 1: Setup' "skill change without
 
 echo ""
 
-# --- Proof-Gated Phase Transitions ---
-echo "--- Proof-Gated Phase Transitions ---"
+# --- Proof-Gated Phase Transitions (FROM Validation) ---
+echo "--- Proof-Gated Phase Transitions (FROM Validation) ---"
 
 # Helper: create state with proof fields in phases
+# NOTE: Proof is FROM-validation — checked on the CURRENT phase being LEFT, not the target.
+# When leaving Phase N (which declares proof fields), the agent must pipe proof via STDIN.
+# Entering a phase with proof fields does NOT trigger validation.
 reset_state_with_proofs() {
   local current_phase="${1:-1: Setup}"
   mkdir -p "$TEST_DIR"
@@ -398,16 +401,12 @@ reset_state_with_proofs() {
 AGENTEOF
 }
 
-# NOTE: Proof is TO-validation — checked on the TARGET phase being ENTERED, not the phase being left.
-# When entering Phase N (which declares proof fields), the agent must pipe proof via STDIN.
-# Leaving a phase with proof fields does not trigger validation — proof was validated when entering it.
-
-# Test: TO-validation — entering Phase 3 (has proof) with all required fields
+# Test: FROM-validation — leaving Phase 2 (has proof) with all required fields
 reset_state_with_proofs "2: Context Ingestion"
-assert_ok "proof: accept entering phase with all proof fields" \
-  bash -c "echo 'depth_chosen: Short
-rounds_completed: 3' | '$SESSION_SH' phase '$TEST_DIR' '3: Interrogation'"
-assert_json "$STATE_FILE" '.currentPhase' '3: Interrogation' "proof: phase updated after valid proof"
+assert_ok "proof: accept leaving phase with all proof fields" \
+  bash -c "echo 'context_sources: 3 presented
+files_loaded: 5 files' | '$SESSION_SH' phase '$TEST_DIR' '3: Interrogation'"
+assert_json "$STATE_FILE" '.currentPhase' '3: Interrogation' "proof: phase updated after valid FROM proof"
 
 # Test: Verify proof stored in phaseHistory
 LAST_HISTORY=$(jq -r '.phaseHistory[-1]' "$STATE_FILE" 2>/dev/null)
@@ -419,56 +418,71 @@ else
   fail "proof: phaseHistory last entry" "3: Interrogation or object with proof" "$LAST_HISTORY"
 fi
 
-# Test: TO-validation — entering Phase 3, missing one proof field
+# Test: FROM-validation — leaving Phase 2, missing one proof field
 reset_state_with_proofs "2: Context Ingestion"
-assert_fail "proof: reject entering phase with missing proof fields" \
-  bash -c "echo 'depth_chosen: Short' | '$SESSION_SH' phase '$TEST_DIR' '3: Interrogation'"
+assert_fail "proof: reject leaving phase with missing proof fields" \
+  bash -c "echo 'context_sources: 3' | '$SESSION_SH' phase '$TEST_DIR' '3: Interrogation'"
 
 # Verify stderr mentions missing field
 reset_state_with_proofs "2: Context Ingestion"
-STDERR=$(echo 'depth_chosen: Short' | "$SESSION_SH" phase "$TEST_DIR" "3: Interrogation" 2>&1 >/dev/null || true)
-assert_contains "rounds_completed" "$STDERR" "proof: stderr lists missing field name"
+STDERR=$(echo 'context_sources: 3' | "$SESSION_SH" phase "$TEST_DIR" "3: Interrogation" 2>&1 >/dev/null || true)
+assert_contains "files_loaded" "$STDERR" "proof: stderr lists missing field name"
 
-# Test: TO-validation — entering Phase 3, one field has unfilled blank
-reset_state_with_proofs "2: Context Ingestion"
+# Test: FROM-validation — leaving Phase 3, one field has unfilled blank
+reset_state_with_proofs "3: Interrogation"
 assert_fail "proof: reject unfilled blanks" \
   bash -c "echo 'depth_chosen: ________
-rounds_completed: 3' | '$SESSION_SH' phase '$TEST_DIR' '3: Interrogation'"
+rounds_completed: 3' | '$SESSION_SH' phase '$TEST_DIR' '4: Planning'"
 
-# Test: TO-validation — entering Phase 5 (no proof) requires no STDIN
-reset_state_with_proofs "4: Planning"
-assert_ok "proof: no STDIN needed when entering phase without proof" \
-  "$SESSION_SH" phase "$TEST_DIR" "5: Build Loop"
+# Test: FROM-validation — leaving Phase 1 (no proof) requires no STDIN
+reset_state_with_proofs "1: Setup"
+assert_ok "proof: no STDIN needed when leaving phase without proof" \
+  "$SESSION_SH" phase "$TEST_DIR" "2: Context Ingestion"
 
-# Test: Warn when entering a phase without proof in a session that has proof elsewhere
-reset_state_with_proofs "4: Planning"
-STDERR=$("$SESSION_SH" phase "$TEST_DIR" "5: Build Loop" 2>&1 >/dev/null || true)
-assert_contains "no proof fields" "$STDERR" "proof: stderr warns about entering phase without proof"
+# Test: FROM-validation — entering Phase 3 (has proof) does NOT require STDIN
+# (proof is validated when LEAVING Phase 3, not when entering it)
+reset_state_with_proofs "2: Context Ingestion"
+# Provide Phase 2's proof (required to leave Phase 2), Phase 3's proof is NOT required to enter it
+assert_ok "proof: entering proof-gated phase does NOT require proof (FROM semantics)" \
+  bash -c "echo 'context_sources: done
+files_loaded: done' | '$SESSION_SH' phase '$TEST_DIR' '3: Interrogation'"
 
-# Test: TO-validation — entering sub-phase 5.1 (has proof) requires STDIN
+# Test: FROM-validation — leaving Phase 5 (Build Loop, no proof) to sub-phase 5.1 requires no STDIN
 reset_state_with_proofs "5: Build Loop"
-assert_fail "proof: reject entering sub-phase without required proof" \
+assert_ok "proof: no STDIN needed leaving phase without proof to sub-phase" \
   "$SESSION_SH" phase "$TEST_DIR" "5.1: Checklists"
 
-# Test: TO-validation — entering sub-phase 5.1 with correct proof
+# Test: FROM-validation — leaving sub-phase 5.1 (has proof) requires STDIN
 reset_state_with_proofs "5: Build Loop"
-assert_ok "proof: sub-phase entry with TO-validation proof" \
-  bash -c "echo 'checklists_processed: 2 checklists evaluated' | '$SESSION_SH' phase '$TEST_DIR' '5.1: Checklists'"
+"$SESSION_SH" phase "$TEST_DIR" "5.1: Checklists" > /dev/null 2>&1
+assert_fail "proof: reject leaving sub-phase without required proof" \
+  "$SESSION_SH" phase "$TEST_DIR" "5.2: Debrief"
 
-# Test: TO-validation — entering sub-phase 5.2 (has proof) from 5.1 with correct proof
+# Test: FROM-validation — leaving sub-phase 5.1 with correct proof
 reset_state_with_proofs "5: Build Loop"
-echo 'checklists_processed: done' | "$SESSION_SH" phase "$TEST_DIR" "5.1: Checklists" > /dev/null 2>&1
-assert_ok "proof: sub-phase chain with TO-validation proof" \
-  bash -c "echo 'debrief_file: sessions/test/FIX.md
-tags_line: #needs-review' | '$SESSION_SH' phase '$TEST_DIR' '5.2: Debrief'"
+"$SESSION_SH" phase "$TEST_DIR" "5.1: Checklists" > /dev/null 2>&1
+assert_ok "proof: sub-phase chain with FROM-validation proof" \
+  bash -c "echo 'checklists_processed: 2 checklists evaluated' | '$SESSION_SH' phase '$TEST_DIR' '5.2: Debrief'"
 
-# Test: Phase with empty proof array passes trivially
+# Test: First transition (no current phase) skips FROM validation
+reset_state_with_proofs ""
+# Empty currentPhase means first transition — FROM validation should be skipped
+jq '.currentPhase = ""' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+assert_ok "proof: first transition (empty currentPhase) skips FROM validation" \
+  "$SESSION_SH" phase "$TEST_DIR" "1: Setup"
+
+# Test: Re-entering same phase skips FROM validation (even if phase has proof)
+reset_state_with_proofs "3: Interrogation"
+assert_ok "proof: re-entering same phase skips FROM validation" \
+  "$SESSION_SH" phase "$TEST_DIR" "3: Interrogation"
+
+# Test: Phase with empty proof array passes trivially when leaving
 reset_state_with_proofs "1: Setup"
-# Modify state to add a phase with proof: []
-jq '.phases += [{"major": 1, "minor": 1, "name": "EmptyProof", "proof": []}]' \
+# Modify state to add a phase with proof: [] and set current to it
+jq '.phases += [{"major": 1, "minor": 1, "name": "EmptyProof", "proof": []}] | .currentPhase = "1.1: EmptyProof"' \
   "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
-assert_ok "proof: empty proof array passes trivially" \
-  "$SESSION_SH" phase "$TEST_DIR" "1.1: EmptyProof"
+assert_ok "proof: empty proof array passes trivially when leaving" \
+  "$SESSION_SH" phase "$TEST_DIR" "2: Context Ingestion"
 
 echo ""
 
@@ -582,6 +596,47 @@ assert_fail "continue: fails without .state.json" \
 
 # Restore state for cleanup
 reset_state "1: Setup"
+
+echo ""
+
+# ============================================================
+# PROOF OUTPUT TESTS (PO1-PO4)
+# ============================================================
+echo "--- Proof Output Tests ---"
+
+# PO1: Transitioning to a phase with proof fields outputs requirements
+reset_state_with_proofs "2: Context Ingestion"
+OUTPUT=$(echo -e "context_sources: 3\nfiles_loaded: 5" | "$SESSION_SH" phase "$TEST_DIR" "3: Interrogation" 2>/dev/null)
+assert_contains "Proof required to leave this phase" "$OUTPUT" "PO1a: Proof header present in output"
+assert_contains "depth_chosen" "$OUTPUT" "PO1b: Proof field 'depth_chosen' listed"
+assert_contains "rounds_completed" "$OUTPUT" "PO1c: Proof field 'rounds_completed' listed"
+
+# PO2: Transitioning to a phase WITHOUT proof fields — no proof output
+reset_state "1: Setup"
+OUTPUT=$("$SESSION_SH" phase "$TEST_DIR" "2: Context Ingestion" 2>/dev/null)
+assert_contains "Phase: 2: Context Ingestion" "$OUTPUT" "PO2a: Phase transition line present"
+# Should NOT contain proof output
+if echo "$OUTPUT" | grep -q "Proof required"; then
+  fail "PO2b: No proof output for phase without proof fields"
+else
+  pass "PO2b: No proof output for phase without proof fields"
+fi
+
+# PO3: Transitioning to a sub-phase with proof fields
+reset_state_with_proofs "5: Synthesis"
+OUTPUT=$("$SESSION_SH" phase "$TEST_DIR" "5.1: Checklists" 2>/dev/null)
+assert_contains "Proof required to leave this phase" "$OUTPUT" "PO3a: Sub-phase proof header"
+assert_contains "checklists_processed" "$OUTPUT" "PO3b: Sub-phase proof field listed"
+
+# PO4: Transitioning to a phase with multiple proof fields lists all
+reset_state_with_proofs "4: Planning"
+OUTPUT=$(echo "plan_file: PLAN.md" | "$SESSION_SH" phase "$TEST_DIR" "5: Synthesis" 2>/dev/null)
+# Phase 5.0 (Synthesis) has no proof in the test fixture, but 5.1 does — check that 5.0 has none
+if echo "$OUTPUT" | grep -q "Proof required"; then
+  fail "PO4: Synthesis phase (no proof) should not show proof output"
+else
+  pass "PO4: Synthesis phase (no proof) correctly omits proof output"
+fi
 
 echo ""
 

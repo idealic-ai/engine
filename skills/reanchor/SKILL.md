@@ -104,9 +104,9 @@ engine session activate [SESSION_DIR] [SKILL]
 **Path Conventions** (resolve correctly):
 | Prefix | Location | Example |
 |--------|----------|---------|
-| `~/.claude/` | User home | `~/.claude/skills/refine/SKILL.md` -> shared engine |
+| `~/.claude/` | User home | `~/.claude/skills/loop/SKILL.md` -> shared engine |
 | `.claude/` | Project root | `.claude/.directives/INVARIANTS.md` -> project-local config |
-| `sessions/` | Project root | `sessions/2026_02_05_FOO/REFINE_LOG.md` -> session artifacts |
+| `sessions/` | Project root | `sessions/2026_02_05_FOO/LOOP_LOG.md` -> session artifacts |
 
 **WARNING**: `~/.claude/` is not `.claude/`. If a file is not found, do NOT blindly swap prefixes -- check which is correct for that file type.
 
@@ -194,6 +194,20 @@ Do NOT call `engine session phase` before doing the work — the proof fields ar
 **Manual Mode** (if `--continue` flag is NOT present):
 - Wait for user confirmation before proceeding
 - Ask: "Ready to continue?"
+
+---
+
+## Injection Framework Dependency
+
+The Context Injection Framework (`~/.claude/engine/injections.json`) may automatically inject content via PreToolUse hooks during reanchoring. This is expected behavior:
+
+- **Directive auto-injection**: The `directive-autoload` rule may inject discovered directives as you read files and touch directories.
+- **Dehydration pre-load**: The `dehydration-preload` rule may inject dehydration protocol files if context usage is already elevated.
+- **Session gate**: The `session-gate` rule will NOT fire once `engine session activate` succeeds (lifecycle becomes active).
+
+**Reanchor loads files manually as a fallback** — the injection framework may not have fired yet during early reanchoring phases (before session activation). The manual file loading in Phases 2-5 ensures all required context is present regardless of injection framework state.
+
+**Do NOT skip manual loading** because you see injection framework content in the context. The injection framework is complementary, not a replacement for reanchor's explicit loading protocol.
 
 ---
 

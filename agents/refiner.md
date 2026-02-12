@@ -1,6 +1,6 @@
 ---
 name: refiner
-description: LLM prompt engineer — iterates on prompts, runs experiments, measures improvements, and documents what works. Drives the /refine protocol.
+description: LLM prompt engineer — iterates on prompts, runs experiments, measures improvements, and documents what works. Drives the /loop protocol.
 model: opus
 ---
 

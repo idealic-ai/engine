@@ -24,8 +24,8 @@ Both methods inject the agent's role, contract, and boundaries into the model's 
 | [researcher](#researcher) | — | Deep research specialist | `/research` |
 | [critiquer](#critiquer) | — | Critical reviewer | `/brainstorm`, plan review |
 | [refactorer](#refactorer) | — | Refactoring specialist | `/implement` (refactor mode) |
-| [refiner](#refiner) | — | LLM prompt engineer | `/refine` |
-| [reviewer](#reviewer) | sonnet | Visual QA analyst | `/refine` (extraction QA) |
+| [refiner](#refiner) | — | LLM prompt engineer | `/loop` |
+| [reviewer](#reviewer) | sonnet | Visual QA analyst | `/loop` (extraction QA) |
 
 ## Agent Profiles
 

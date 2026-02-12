@@ -1,0 +1,16 @@
+←  ☐ Colors  ☐ Seasons  ☐ Multi  ✔ Submit  →
+
+[32mExample question 1: What color is the sky?[0m
+
+❯ 1. [36mBlue[0m
+     The standard daytime color
+  2. [31mRed[0m
+     During sunset
+  3. [90mGray[0m
+     Overcast day
+  4. Type something.
+
+──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  5. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel

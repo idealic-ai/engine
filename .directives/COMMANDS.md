@@ -204,7 +204,7 @@ engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name"
 # Phase transition (non-sequential — requires user approval)
 engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name" --user-approved "Reason"
 
-# Continue session after context overflow restart (used by /reanchor)
+# Continue session after context overflow restart (used by /session continue)
 engine session continue sessions/YYYY_MM_DD_TOPIC
 
 # Prove debrief pipeline execution (¶INV_PROVABLE_DEBRIEF_PIPELINE)
@@ -464,7 +464,7 @@ EOF
     *   The agent reads activate's stdout for context sections (## §CMD_SURFACE_ACTIVE_ALERTS, ## §CMD_RECALL_PRIOR_SESSIONS, ## §CMD_RECALL_RELEVANT_DOCS, ## §CMD_DISCOVER_DELEGATION_TARGETS).
     *   activate uses `taskSummary` from the JSON to run thematic searches via session-search and doc-search automatically.
     *   **No-JSON calls** (e.g., re-activation without new params): use `< /dev/null` to avoid stdin hang.
-4.  **Process Context Output**: Parse activate's Markdown output to identify the 3 context categories (Alerts, RAG:Sessions, RAG:Docs). These are consumed by `§CMD_INGEST_CONTEXT_BEFORE_WORK` to build the multichoice menu in Phase 2.
+4.  **Process Context Output**: Parse activate's Markdown output to identify the context categories (Alerts, RAG:Sessions, RAG:Docs). These are consumed by `§CMD_INGEST_CONTEXT_BEFORE_WORK`, which curates the best results and builds the multichoice menu in Phase 1.
 
 ### §CMD_MAINTAIN_SESSION_DIR
 **Definition**: To ensure continuity, the Agent must anchor itself in a single Session Directory for the duration of the task.
@@ -532,15 +532,17 @@ EOF
         *   `"Reason: User said 'Skip to synthesis' in response to 'Ready to proceed?'"`
         *   `"Reason: User said 'Go back to planning' in response to 'How to proceed?'"`
     *   Without `--user-approved`, non-sequential transitions are **rejected** (exit 1).
-3.  **Proof-gated transitions (TO validation)**: If the target phase (being entered) declares `proof` fields in its phases array entry, the agent MUST pipe proof as key:value lines via STDIN when transitioning to it. Proof validates what the agent completed to earn entry into the target phase.
+3.  **Proof-gated transitions (FROM validation)**: If the current phase (being left) declares `proof` fields in its phases array entry, the agent MUST pipe proof as key:value lines via STDIN when transitioning away from it. Proof validates what the agent accomplished IN that phase before leaving. Semantically: proof on a phase = "what you must accomplish in this phase before leaving it."
     *   **Format**: `field_name: value` (one per line, piped via heredoc or echo).
-    *   **Validation**: `engine session phase` validates all declared fields on the target phase are present and non-blank. Missing or unfilled (`________`) fields reject the transition (exit 1).
-    *   **No proof declared on target**: Transition proceeds normally. If sibling phases have proof fields, a stderr warning is emitted (nudge to add proof).
+    *   **Validation**: `engine session phase` validates all declared fields on the current phase (being left) are present and non-blank. Missing or unfilled (`________`) fields reject the transition (exit 1).
+    *   **No proof declared on current phase**: Transition proceeds normally. If sibling phases have proof fields, a stderr warning is emitted (nudge to add proof).
     *   **Empty proof array** (`proof: []`): Passes trivially — intentionally no requirements.
-    *   **Proof storage**: When proof is provided (regardless of whether the target phase declares proof fields), the `phaseHistory` entry stores it as an object: `{"phase": "N: Name", "ts": "...", "proof": {"field": "value"}}`. Proof is always parsed and stored when piped via STDIN.
-    *   **Example** (entering Phase 2: Interrogation which declares `proof: ["depth_chosen", "rounds_completed"]`):
+    *   **First transition** (no current phase set): FROM validation is skipped — there is no phase to leave.
+    *   **Re-entering same phase**: FROM validation is skipped — you are not leaving.
+    *   **Proof storage**: When proof is provided (regardless of whether the current phase declares proof fields), the `phaseHistory` entry stores it as an object: `{"phase": "N: Name", "ts": "...", "proof": {"field": "value"}}`. Proof is always parsed and stored when piped via STDIN.
+    *   **Example** (leaving Phase 2: Interrogation which declares `proof: ["depth_chosen", "rounds_completed"]`, transitioning to Phase 3):
         ```bash
-        engine session phase sessions/DIR "2: Interrogation" <<'EOF'
+        engine session phase sessions/DIR "3: Planning" <<'EOF'
         depth_chosen: Short
         rounds_completed: 3
         EOF
@@ -562,7 +564,7 @@ EOF
 *   **Skip forward**: Requires `--user-approved`. Error message shows expected next phase.
 *   **Go backward**: Requires `--user-approved`. Error message shows expected next phase.
 *   **Sub-phase**: Same major, higher minor → auto-appended and allowed.
-*   **Proof-gated (TO)**: If the target phase (being entered) has `proof` fields, STDIN proof is required and validated.
+*   **Proof-gated (FROM)**: If the current phase (being left) has `proof` fields, STDIN proof is required and validated.
 *   **No `phases` array**: Enforcement is disabled (backward compat). Any transition allowed.
 *   **Context overflow recovery**: Use `engine session continue` (not `phase`) to resume after restart. `continue` clears loading and resets heartbeat counters without touching phase state.
 
@@ -570,20 +572,20 @@ EOF
 *   At the START of each major phase (after completing the previous one)
 *   Phase labels must match the `phases` array declared at session activation
 
-### §CMD_REANCHOR_AFTER_RESTART
+### §CMD_SESSION_CONTINUE_AFTER_RESTART
 **Definition**: Re-initialize skill context after a context overflow restart.
-**Implementation**: Handled by the `/reanchor` skill.
+**Implementation**: Handled by the `/session continue` subcommand. Protocol lives in `~/.claude/engine/skills/session/references/continue-protocol.md`.
 **Trigger**: Automatically invoked by `engine session restart` — you don't call this manually.
 
 **What it does**:
 1. Activates the session
-2. Loads standards (COMMANDS.md, INVARIANTS.md)
+2. Loads standards (COMMANDS.md, INVARIANTS.md, TAGS.md)
 3. Reads dehydrated context
 4. Loads required files and skill templates
 5. Loads original skill protocol
 6. Skips to saved phase and resumes work
 
-**See**: `~/.claude/skills/reanchor/SKILL.md` for full protocol.
+**See**: `~/.claude/engine/skills/session/SKILL.md` for the full `/session` skill, and `references/continue-protocol.md` for the recovery protocol.
 
 ### §CMD_LOAD_AUTHORITY_FILES
 **Definition**: Load system-critical files (Templates, Standards) into context.
@@ -659,13 +661,18 @@ EOF
 
 **Algorithm**:
 1.  Auto-load `contextPaths` from session parameters (explicitly requested — no menu needed).
-2.  Parse activate's 4 sections. Drop empty categories and already-loaded paths.
-3.  Build a single `AskUserQuestion` (multiSelect: true, max 4 options):
-    *   **≤4 items** in a category → each item is a separate option (label=path, description=category).
-    *   **>4 items** → single bulk option: `"[Category] ([N] found)"`.
-    *   If total options > 4, promote largest categories to bulk until ≤ 4.
+2.  Parse activate's sections. Drop empty categories and already-loaded paths.
+3.  **Curate** — For each non-empty category (Sessions, Docs), select **up to 3 best** results:
+    *   **Primary signal**: Distance score (lower = more similar). Rank by score.
+    *   **Secondary signal**: Agent judgment — does the result's topic/content actually relate to the current task? A low-distance result about an unrelated topic should be skipped in favor of a slightly higher-distance result that's on-topic.
+    *   **Discretion**: Include **more than 3** if additional results are genuinely relevant (e.g., multiple prior sessions that each contributed to the current feature). The default is 3; extras require justification.
+    *   **Fewer than 3 available**: Show all of them. No filtering needed.
+    *   Alerts and delegations are NOT curated — always include all (they are operational, not search results).
+4.  Build a single `AskUserQuestion` (multiSelect: true, max 4 options) from the **curated** set:
+    *   Each curated item is a separate option (label=path, description=category + relevance note).
+    *   If total curated options > 4, promote largest categories to bulk until ≤ 4.
     *   **All empty** → skip menu, prompt for free-text paths via "Other".
-4.  Load selected items + any "Other" free-text paths.
+5.  Load selected items + any "Other" free-text paths.
 
 ### §CMD_GENERATE_DEBRIEF_USING_TEMPLATE
 **Definition**: Creates or regenerates a standardized debrief artifact.
@@ -737,7 +744,7 @@ Where N is the skill's synthesis phase number (e.g., 5 for implement, 6 for anal
 **Step 2 — Pipeline** (sub-phase N.3):
 1.  Run `engine session debrief sessions/DIR` to get scan results. The output contains `## §CMD_NAME (count)` headings for SCAN sections, static reminders for STATIC sections, and conditional sections for DEPENDENT sections.
 2.  Process each section in the debrief output, in this canonical order:
-    *   `§CMD_MANAGE_DIRECTIVES` (STATIC) — always execute. Three passes: README updates, invariant capture, pitfall capture. Skips silently if none found.
+    *   `§CMD_MANAGE_DIRECTIVES` (STATIC) — always execute. Three passes: AGENTS.md updates, invariant capture, pitfall capture. Skips silently if none found.
     *   `§CMD_PROCESS_DELEGATIONS` (SCAN) — use the scan results from debrief output. Execute the command with the listed items. Skips silently if count is 0.
     *   `§CMD_DISPATCH_APPROVAL` (DEPENDENT) — only execute if `§CMD_PROCESS_DELEGATIONS` found items (count > 0). Present dispatch walkthrough for user triage.
     *   `§CMD_CAPTURE_SIDE_DISCOVERIES` (SCAN) — use the scan results. Present multichoice for tagging. Skips silently if count is 0.
@@ -819,8 +826,8 @@ Where N is the skill's synthesis phase number (e.g., 5 for implement, 6 for anal
 2.  **Report**: `§CMD_REPORT_FILE_CREATION_SILENTLY`.
 
 ### §CMD_REPORT_INTENT_TO_USER
-**Definition**: Explicitly state your current phase and intent to the user before transitioning.
-**Rule**: Execute this before starting a new major block of work or changing phases (e.g., Setup -> Plan, Plan -> Execution).
+**Definition**: Display-only announcement of the current phase and intent. Does NOT call `§CMD_UPDATE_PHASE` — phase transitions happen at EXIT via `§CMD_TRANSITION_PHASE_WITH_OPTIONAL_WALKTHROUGH`.
+**Rule**: Execute this before starting a new major block of work. This is a chat-only announcement — no engine calls.
 **Constraint**: **Once Per Phase**. Do NOT repeat this intent block for every step within the phase (e.g., do not repeat it for every file edit or test run). Only report when *changing* phases or if the user interrupts and you resume.
 
 **Algorithm**:
@@ -828,8 +835,7 @@ Where N is the skill's synthesis phase number (e.g., 5 for implement, 6 for anal
 2.  **Check**: Have I already reported this phase intent recently without interruption?
     *   *Yes*: Skip reporting.
     *   *No*: Proceed to report.
-3.  **Update Phase Tracking**: Execute `§CMD_UPDATE_PHASE` to update `.state.json` (see `§CMD_SESSION_CLI` for exact syntax). This updates the status line display and enables restart recovery.
-4.  **Output**: Display a blockquote summary of your intent. When referencing files, use clickable links per `¶INV_TERMINAL_FILE_LINKS` (Compact `§` for inline, Location for code points).
+3.  **Output**: Display a blockquote summary of your intent. When referencing files, use clickable links per `¶INV_TERMINAL_FILE_LINKS` (Compact `§` for inline, Location for code points).
     *   *Example*:
         > 1. I am moving to Phase 3: Test Implementation and will `§CMD_USE_TODOS_TO_TRACK_PROGRESS`.
         > 2. I'll `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` to `§CMD_THINK_IN_LOG`.
@@ -1041,8 +1047,8 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 *   If no per-skill request template exists for the tag's noun, use a generic format: `# Request: [topic]\n**Tags**: #needs-[noun]\n## Context\n[surrounding text]`.
 
 ### §CMD_MANAGE_DIRECTIVES
-**Description**: Unified end-of-session directive management. Three passes: README updates (doc files touched near discovered READMEs), invariant capture (new rules/constraints), pitfall capture (gotchas and traps). Replaces `§CMD_MANAGE_TOC` + `§CMD_PROMPT_INVARIANT_CAPTURE`.
-**Trigger**: Called by `§CMD_GENERATE_DEBRIEF_USING_TEMPLATE` step 8, after debrief is written. Read the reference file before executing.
+**Description**: Unified end-of-session directive management. Three passes: AGENTS.md updates (auto-mention new directives in directory), invariant capture (new rules/constraints), pitfall capture (gotchas and traps).
+**Trigger**: Called by `§CMD_FOLLOW_DEBRIEF_PROTOCOL` Step 2 (Pipeline), after debrief is written. Read the reference file before executing.
 **Reference**: `~/.claude/.directives/commands/CMD_MANAGE_DIRECTIVES.md`
 
 ### §CMD_CAPTURE_SIDE_DISCOVERIES
@@ -1114,148 +1120,4 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **Trigger**: Called by skill protocols either during synthesis (results mode) or after plan creation (plan mode). Read the reference file before executing.
 **Reference**: `~/.claude/.directives/commands/CMD_WALK_THROUGH_RESULTS.md`
 
----
-
-## 5. Documentation Commands (The "Visuals")
-
-### §CMD_FLOWGRAPH
-**Definition**: Render an ASCII flowgraph using the standardized glyph vocabulary. Flowgraphs are hand-crafted by agents to visualize complex flows — protocols, architecture, tag lifecycles, decision trees — in plain-text Markdown.
-
-**When to Consider** (suggestions, not mandatory):
-*   Implementation plans with branching logic or decision gates
-*   Architecture documentation showing data flows with conditional routing
-*   Bug analysis where the flow has multiple failure paths
-*   Tag lifecycle diagrams with state transitions
-*   Skill protocol overviews (phase flows with optional sub-phases)
-
-**When NOT to Use**: Simple linear sequences (1 → 2 → 3). If the flow has no branches, decisions, or loops, a numbered list is clearer.
-
-**Algorithm**:
-1.  **Assess**: Does the flow have branching, decisions, or loops? If yes, a flowgraph adds value. If no, use prose.
-2.  **Draft**: Construct the flowgraph using the Glyph Vocabulary below.
-3.  **Rules**: Follow the Composition Rules (especially 2-space indentation).
-4.  **Embed**: Place the flowgraph in the target document inside a markdown code fence (` ```  ``` `) or as raw text. Code fences preserve spacing reliably.
-
-**Constraint**: Flowgraphs are the canonical representation — no dual JSON/YAML format. Agents parse them directly.
-
----
-
-#### Glyph Vocabulary
-
-| Glyph | Name | Meaning | Usage |
-|-------|------|---------|-------|
-| `→` | Arrow | Horizontal flow / terminal transition | `START → Label`, `END → Label` |
-| `↓` | Down | Vertical flow (next step) | Between major blocks |
-| `│` | Pipe | Continuation line (vertical spine) | Sequential flow within a block |
-| `├►` | Branch | Fork to a sub-step (non-terminal) | Non-last item in a branch group |
-| `╰►` | Last Branch | Fork to a sub-step (terminal) | Last item in a branch group |
-| `╭───╯` | Rejoin | Loop-back / rejoin from sub-branch | **Must** include a textual label |
-| `◆` | Diamond | Decision point | Question or conditional check |
-| `║` | Double Pipe | Decision continuation line | Conditional flow within a decision block |
-| `╠⇒` | Decision Branch | Conditional branch (non-terminal) | Non-last branch of a decision diamond |
-| `╚⇒` | Decision Last | Conditional branch (terminal/else) | Last/default branch of a decision |
-| `•` | Bullet | Annotation within a step | Detail items inside a process block |
-| `⟨text⟩` | Angle Bracket | Behavioral annotation | `⟨streaming⟩`, `⟨callback⟩`, `⟨async⟩` |
-| `LABEL` | Block Header | Named process block (ALL CAPS) | `INPUT PROCESSING`, `TASK EXECUTION` |
-
-**Glyph Sets** (visual disambiguation):
-*   **Single-line** (`│ ├ ╰`): Sequential flow and branches. "This is a step."
-*   **Double-line** (`║ ╠ ╚`): Decision/conditional flow. "This is a choice."
-
----
-
-#### Composition Rules
-
-1.  **Indentation**: 2-space indent per nesting level. Consistent across the entire graph.
-2.  **Block Headers**: ALL CAPS, standalone on their own line. Represent named process blocks.
-3.  **Textual Junctions**: Loop-back arrows (`╭───╯`) and cross-references MUST include a textual label (e.g., `╰► Loop back to TASK EXECUTION`). Purely visual arrows without labels are ambiguous.
-4.  **Decision Diamonds**: Always followed by `║` continuation, then `╠⇒` / `╚⇒` branches. Each branch gets a label (e.g., `YES →`, `ERROR →`).
-5.  **Terminal Nodes**: `START →` and `END →` mark entry/exit points.
-6.  **Annotations**: Use `•` bullets for detail within a step. Use `⟨text⟩` for behavioral markers (streaming, async, callback).
-7.  **Code Fences**: Wrap flowgraphs in markdown code fences to preserve whitespace.
-
----
-
-#### Pattern Library
-
-**Pattern 1 — Linear Sequence**
-```
-START → User Request
-  ↓
-STEP ONE
-  │ • Detail about step one
-  │ • Another detail
-  ↓
-STEP TWO
-  │ • Detail about step two
-  ↓
-END → Result
-```
-
-**Pattern 2 — Branch Group**
-```
-PROCESSING
-  │
-  ├► SUB-STEP A
-  │   │ • First thing
-  │   │ • Second thing
-  │   ↓
-  ├► SUB-STEP B
-  │   │ • Another path
-  │   ↓
-  ╰► SUB-STEP C (final)
-      │ • Last branch
-```
-
-**Pattern 3 — Decision Diamond**
-```
-  ◆ Is the input valid?
-  ║
-  ╠⇒ YES → Continue processing
-  ║       │ • Validate schema
-  ║       │ • Transform data
-  ║
-  ╚⇒ NO → Return error
-          │ • Log failure reason
-          │ • Send error response
-```
-
-**Pattern 4 — Loop-Back**
-```
-TASK EXECUTION
-  │ • Process current item
-  │ • Update state
-  ╭───╯
-  ↓
-CONTINUATION CHECK
-  │
-  ◆ More items?
-  ║
-  ╠⇒ YES → Continue
-  ║       ╰► Loop back to TASK EXECUTION
-  ║
-  ╚⇒ NO → Proceed to OUTPUT
-```
-
-**Pattern 5 — Nested Blocks**
-```
-OUTER PROCESS
-  │
-  ├► INNER BLOCK A
-  │   │
-  │   ├► Detail 1
-  │   │   │ • Sub-detail
-  │   │   ↓
-  │   ╰► Detail 2
-  │       │ • Sub-detail
-  │   ╭───╯
-  │   ↓
-  ╰► INNER BLOCK B
-      │
-      ◆ Decision inside nest?
-      ║
-      ╠⇒ YES → Handle it
-      ║
-      ╚⇒ NO → Skip
-```
 

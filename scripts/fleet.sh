@@ -482,6 +482,14 @@ cmd_notify() {
         # Data layer: ALWAYS apply immediately (tests and queries depend on this)
         _apply_notify_data "$target_pane" "$state"
 
+        # Wake the overseer on actionable states (§INV_WAKE_ON_ACTIONABLE_STATES)
+        # Signal is optimization — overseer's sweep is truth. Fire-and-forget.
+        case "$state" in
+            unchecked|error|done)
+                $TMUX_CMD wait-for -S overseer-wake 2>/dev/null || true
+                ;;
+        esac
+
         if [[ "$new_priority" -ge "$prev_priority" ]]; then
             # Upgrade (or same priority): apply visual immediately, cancel pending downgrade
             echo "$state" > "$debounce_file" 2>/dev/null || true
@@ -503,6 +511,13 @@ cmd_notify() {
     else
         $TMUX_CMD set-option -p @pane_notify "$state" 2>/dev/null || true
         update_window_notify
+
+        # Wake the overseer on actionable states (§INV_WAKE_ON_ACTIONABLE_STATES)
+        case "$state" in
+            unchecked|error|done)
+                $TMUX_CMD wait-for -S overseer-wake 2>/dev/null || true
+                ;;
+        esac
     fi
 }
 
@@ -606,6 +621,344 @@ cmd_pane_id() {
     echo "${session_name}:${window_name}:${pane_label}"
 }
 
+# Escape a string for safe JSON embedding
+_json_escape() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+# Strip ANSI escape codes from input
+_strip_ansi() {
+    sed $'s/\033\[[0-9;]*[a-zA-Z]//g' | sed $'s/\033\][^\033]*\033\\\\//g'
+}
+
+# Parse terminal content from stdin and extract AskUserQuestion state.
+# Usage: echo "$content" | parse_pane_content [--pane <id>] [--state <notify_state>]
+# Output: JSON with question, options, preamble, and state
+parse_pane_content() {
+    local pane_id="unknown"
+    local notify_state="unknown"
+    local pane_label=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --pane) pane_id="$2"; shift 2 ;;
+            --state) notify_state="$2"; shift 2 ;;
+            --label) pane_label="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    # Read and clean stdin
+    local content
+    content=$(cat | _strip_ansi)
+
+    local has_question="false"
+    local question_text=""
+    local options=""
+    local preamble=""
+    local option_count=0
+    local is_multi_select="false"
+
+    # Parse from bottom up — the active question is at the bottom of the terminal
+    local in_options=false
+    local found_separator=false
+    local found_tab_line=false
+    local lines=()
+
+    while IFS= read -r line; do
+        lines+=("$line")
+    done <<< "$content"
+
+    # Scan from bottom to find question structure
+    local i=${#lines[@]}
+    local option_lines=()
+    local preamble_lines=()
+    local question_line=""
+
+    while (( i > 0 )); do
+        (( i-- ))
+        local line="${lines[$i]}"
+
+        # Skip known non-content lines
+        # Footer help text
+        if [[ "$line" =~ ^[[:space:]]*Enter\ to\ select ]]; then
+            continue
+        fi
+        # "Chat about this" option (below second separator)
+        if [[ "$line" =~ Chat\ about\ this ]]; then
+            continue
+        fi
+
+        # Detect option lines (start with ❯ or spaces followed by numbered option)
+        if [[ "$line" =~ ^[[:space:]]*(❯[[:space:]]*)?[0-9]+\. ]]; then
+            in_options=true
+            option_lines=("$line" ${option_lines[@]+"${option_lines[@]}"})
+            (( option_count++ ))
+            # Detect multi-select checkboxes
+            if [[ "$line" =~ \[\ \] ]] || [[ "$line" =~ \[✓\] ]] || [[ "$line" =~ \[☒\] ]]; then
+                is_multi_select="true"
+            fi
+        # Option description lines (indented text while in options block)
+        elif [[ "$in_options" == "true" && "$line" =~ ^[[:space:]]{3,} && -n "${line// /}" ]]; then
+            option_lines=("$line" ${option_lines[@]+"${option_lines[@]}"})
+        # Detect separator (─────)
+        elif [[ "$line" =~ ──── ]]; then
+            if [[ "$in_options" == "true" ]]; then
+                # Separator above options — stop collecting options
+                in_options=false
+            fi
+            found_separator=true
+        # Detect tab line (← ☐/☒ ... ✔ Submit →) — the definitive AskUserQuestion marker
+        elif [[ "$line" =~ ←.*✔.*Submit.*→ ]] || [[ "$line" =~ ←.*☐ ]] || [[ "$line" =~ ←.*☒ ]]; then
+            found_tab_line=true
+            has_question=true
+            # Question text is between tab line and options — collect as question
+        # Detect submit confirmation (NOT a worker question)
+        elif [[ "$line" =~ Ready\ to\ submit\ your\ answers ]]; then
+            # This is the TUI's submit confirmation dialog — not actionable
+            has_question="false"
+            break
+        # Collect question text (between tab line and first separator, after options)
+        elif [[ "$found_separator" == "true" && "$found_tab_line" == "false" ]]; then
+            local trimmed="${line#"${line%%[![:space:]]*}"}"
+            if [[ -n "$trimmed" ]]; then
+                question_line="$trimmed"
+            fi
+        # Collect preamble (above the first separator, before the question UI)
+        elif [[ "$found_tab_line" == "true" ]]; then
+            local trimmed="${line#"${line%%[![:space:]]*}"}"
+            if [[ -n "$trimmed" ]]; then
+                preamble_lines=("$line" ${preamble_lines[@]+"${preamble_lines[@]}"})
+            fi
+        fi
+    done
+
+    # If no tab line found but we found options with separator — legacy ⏺ detection
+    if [[ "$found_tab_line" == "false" && "$found_separator" == "true" && "$option_count" -gt 0 ]]; then
+        # Check for ⏺ marker (older format or single question)
+        for (( j=i; j >= 0; j-- )); do
+            if [[ "${lines[$j]}" =~ ⏺ ]]; then
+                question_line=$(echo "${lines[$j]}" | sed 's/^[[:space:]]*⏺[[:space:]]*//' | sed 's/[[:space:]]*$//')
+                has_question=true
+                break
+            fi
+        done
+    fi
+
+    question_text="$question_line"
+
+    # Build options as newline-separated list
+    options=""
+    for opt in ${option_lines[@]+"${option_lines[@]}"}; do
+        local cleaned
+        cleaned=$(echo "$opt" | sed 's/^[[:space:]]*❯[[:space:]]*//' | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//')
+        if [[ -n "$cleaned" ]]; then
+            [[ -n "$options" ]] && options+=$'\n'
+            options+="$cleaned"
+        fi
+    done
+
+    # Build preamble
+    preamble=""
+    for pl in ${preamble_lines[@]+"${preamble_lines[@]}"}; do
+        local trimmed
+        trimmed=$(echo "$pl" | sed 's/[[:space:]]*$//')
+        [[ -n "$preamble" ]] && preamble+=$'\n'
+        preamble+="$trimmed"
+    done
+
+    # Output JSON
+    local j_question j_options j_preamble j_state j_pane j_label
+    j_question=$(_json_escape "$question_text")
+    j_options=$(_json_escape "$options")
+    j_preamble=$(_json_escape "$preamble")
+    j_state=$(_json_escape "$notify_state")
+    j_pane=$(_json_escape "$pane_id")
+    j_label=$(_json_escape "$pane_label")
+
+    cat <<ENDJSON
+{
+  "pane": "$j_pane",
+  "paneLabel": "$j_label",
+  "notifyState": "$j_state",
+  "hasQuestion": $has_question,
+  "question": "$j_question",
+  "options": "$j_options",
+  "optionCount": $option_count,
+  "isMultiSelect": $is_multi_select,
+  "preamble": "$j_preamble"
+}
+ENDJSON
+}
+
+cmd_capture_pane() {
+    # Capture pane content and extract AskUserQuestion state for /oversee
+    # Usage: fleet.sh capture-pane <pane_id> [--socket <socket>]
+    #        echo "content" | fleet.sh capture-pane --stdin [--pane <id>]
+    # Output: JSON with question, options, preamble, and state
+    local pane_id="${1:-}"
+    local socket="${CURRENT_SOCKET}"
+    local use_stdin=false
+
+    # Check for --stdin mode (for testing)
+    if [[ "$pane_id" == "--stdin" ]]; then
+        use_stdin=true
+        shift
+        local extra_args=()
+        while [[ $# -gt 0 ]]; do
+            case "$1" in
+                --pane) extra_args+=(--pane "$2"); shift 2 ;;
+                --state) extra_args+=(--state "$2"); shift 2 ;;
+                --label) extra_args+=(--label "$2"); shift 2 ;;
+                *) shift ;;
+            esac
+        done
+        parse_pane_content ${extra_args[@]+"${extra_args[@]}"}
+        return
+    fi
+
+    if [[ -z "$pane_id" ]]; then
+        echo '{"error": "Usage: fleet.sh capture-pane <pane_id> [--socket <socket>]"}'
+        exit 1
+    fi
+
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --socket) socket="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    # Capture last 80 lines of pane content
+    local content
+    content=$(fleet_tmux "$socket" capture-pane -t "$pane_id" -p -S -80 2>/dev/null) || {
+        echo '{"error": "Failed to capture pane content", "pane": "'"$pane_id"'"}'
+        exit 1
+    }
+
+    # Check pane notify state and label
+    local notify_state
+    notify_state=$(fleet_tmux "$socket" display-message -p -t "$pane_id" '#{@pane_notify}' 2>/dev/null || echo "unknown")
+    local pane_label
+    pane_label=$(fleet_tmux "$socket" display-message -p -t "$pane_id" '#{@pane_label}' 2>/dev/null || echo "")
+
+    # Pipe captured content through the parser
+    echo "$content" | parse_pane_content --pane "$pane_id" --state "$notify_state" --label "$pane_label"
+}
+
+cmd_list_panes() {
+    # List all worker panes with their notify state (for /oversee polling)
+    # Usage: fleet.sh list-panes [--socket <socket>]
+    local socket="${CURRENT_SOCKET}"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --socket) socket="$2"; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    # Get all panes with their notify state and label
+    fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_label}|#{pane_title}|#{session_name}:#{window_name}' 2>/dev/null | while IFS='|' read -r pane_id notify_state label title location; do
+        echo "$pane_id $notify_state $location $label $title"
+    done
+}
+
+cmd_oversee_wait() {
+    # Block until actionable panes appear or timeout.
+    # Sweep-first event loop: check existing state before blocking.
+    # Usage: fleet.sh oversee-wait [timeout_seconds] [--panes pane1,pane2,...] [--socket <socket>]
+    # Output: pane_id|state|label|location lines, or TIMEOUT
+    local timeout=30
+    local panes_filter=""
+    local socket="${CURRENT_SOCKET}"
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --panes) panes_filter="$2"; shift 2 ;;
+            --socket) socket="$2"; shift 2 ;;
+            --help|-h)
+                echo "Usage: fleet.sh oversee-wait [timeout_seconds] [--panes p1,p2,...] [--socket <socket>]"
+                echo ""
+                echo "Blocks until actionable panes (unchecked/error/done) appear or timeout."
+                echo "Sweep-first: checks existing state before blocking."
+                echo ""
+                echo "Output: pane_id|state|label|location (one per line), or TIMEOUT"
+                return 0
+                ;;
+            [0-9]*)
+                timeout="$1"; shift ;;
+            *) shift ;;
+        esac
+    done
+
+    # Check tmux is available
+    if ! fleet_tmux "$socket" has-session 2>/dev/null; then
+        echo "ERROR: No fleet tmux session on socket '$socket'" >&2
+        return 1
+    fi
+
+    # --- Sweep function: find actionable panes ---
+    _oversee_sweep() {
+        local result=""
+        while IFS='|' read -r pane_id notify_state label title location; do
+            # Filter by actionable states
+            case "$notify_state" in
+                unchecked|error|done) ;;
+                *) continue ;;
+            esac
+
+            # Filter by managed panes if --panes specified
+            if [[ -n "$panes_filter" ]]; then
+                local match=false
+                IFS=',' read -ra managed <<< "$panes_filter"
+                for mp in "${managed[@]}"; do
+                    if [[ "$pane_id" == "$mp" || "$label" == "$mp" ]]; then
+                        match=true
+                        break
+                    fi
+                done
+                [[ "$match" == "false" ]] && continue
+            fi
+
+            [[ -n "$result" ]] && result+=$'\n'
+            result+="${pane_id}|${notify_state}|${label}|${location}"
+        done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_label}|#{pane_title}|#{session_name}:#{window_name}' 2>/dev/null)
+
+        echo "$result"
+    }
+
+    # --- Pre-sweep: return immediately if actionable panes exist ---
+    local sweep_result
+    sweep_result=$(_oversee_sweep)
+    if [[ -n "$sweep_result" ]]; then
+        echo "$sweep_result"
+        return 0
+    fi
+
+    # --- Block: wait for signal or timeout ---
+    # Uses `timeout` command instead of manual background timer.
+    # This avoids orphan sleep processes and bash SIGTERM deferral issues.
+    timeout "$timeout" tmux -L "$socket" wait-for overseer-wake 2>/dev/null || true
+
+    # --- Post-wake sweep: check what triggered the wake ---
+    sweep_result=$(_oversee_sweep)
+    if [[ -n "$sweep_result" ]]; then
+        echo "$sweep_result"
+        return 0
+    fi
+
+    # No actionable panes after wake — must have been timeout
+    echo "TIMEOUT"
+    return 0
+}
+
 cmd_help() {
     cat <<EOF
 fleet.sh — Fleet management commands
@@ -624,6 +977,9 @@ Commands:
   notify-check <pane>  Transition unchecked→checked (called by tmux focus hook)
   notify-clear         Clear pane notification to done
   pane-id              Output composite pane ID (session:window:label) for session binding
+  capture-pane <pane>  Capture pane content and extract AskUserQuestion state (JSON)
+  list-panes           List all panes with notify state (for /oversee polling)
+  oversee-wait [secs]  Block until actionable panes appear or timeout (event-driven)
   config-path [group]  Output path to fleet yml config (default: main fleet)
   init                 Create fleet directory in Google Drive
 
@@ -659,6 +1015,9 @@ case "${1:-help}" in
     notify)   cmd_notify "${2:-}" ;;
     notify-check) cmd_notify_check "${2:-}" ;;
     notify-clear) cmd_notify_clear ;;
+    capture-pane) cmd_capture_pane "${2:-}" "${@:3}" ;;
+    list-panes) cmd_list_panes "${@:2}" ;;
+    oversee-wait) cmd_oversee_wait "${@:2}" ;;
     pane-id)  cmd_pane_id ;;
     config-path) get_config_path "${2:-}" ;;
     init)     cmd_init ;;

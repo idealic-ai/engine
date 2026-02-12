@@ -4,7 +4,7 @@
 # Tests:
 #   A1.  Bash whitelist: log.sh allowed even during overflow
 #   A2.  Bash whitelist: session.sh allowed even during overflow
-#   A3.  Skill(dehydrate) allowed and sets lifecycle=dehydrating
+#   A3.  Skill(session, args:dehydrate) allowed and sets lifecycle=dehydrating
 #   A4.  All tools allowed when lifecycle=dehydrating
 #   A5.  All tools allowed when killRequested=true
 #   A6.  Allow tools when contextUsage below threshold (0.75)
@@ -179,13 +179,13 @@ assert_contains '"deny"' "$OUT" "engineering-tool denied during overflow (not en
 
 echo ""
 
-# --- A3. Skill(dehydrate) sets lifecycle=dehydrating ---
-echo "--- A3. Skill(dehydrate) ---"
+# --- A3. Skill(session, args:dehydrate) sets lifecycle=dehydrating ---
+echo "--- A3. Skill(session, args:dehydrate) ---"
 reset_state
 set_context_usage 0.80
 
-OUT=$(run_hook "Skill" '{"skill":"dehydrate","args":"restart"}')
-assert_contains '"allow"' "$OUT" "Skill(dehydrate) allowed"
+OUT=$(run_hook "Skill" '{"skill":"session","args":"dehydrate restart"}')
+assert_contains '"allow"' "$OUT" "Skill(session, args:dehydrate) allowed"
 
 LIFECYCLE=$(jq -r '.lifecycle' "$TEST_SESSION/.state.json" 2>/dev/null)
 assert_eq "dehydrating" "$LIFECYCLE" "lifecycle set to dehydrating"

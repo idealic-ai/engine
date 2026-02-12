@@ -35,9 +35,6 @@ Drives feature implementation following structured development protocols.
   ],
   "nextSkills": ["/test", "/document", "/analyze", "/fix", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
-  "planTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_PLAN.md",
-  "logTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md",
-  "debriefTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md",
   "requestTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_REQUEST.md",
   "responseTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_RESPONSE.md",
   "modes": {
@@ -66,9 +63,6 @@ Drives feature implementation following structured development protocols.
 
 2.  **Required Context**: Execute `§CMD_LOAD_AUTHORITY_FILES` (multi-read) for the following files:
     *   `docs/TOC.md` (Project map and file index)
-    *   `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md` (Template for continuous session logging)
-    *   `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md` (Template for the final debrief/report)
-    *   `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_PLAN.md` (Template for technical execution planning)
     *   `.claude/.directives/TESTING.md` (Testing standards and TDD rules — project-level, load if exists)
     *   `.claude/.directives/PITFALLS.md` (Known pitfalls and gotchas — project-level, load if exists)
 
@@ -172,7 +166,6 @@ Execute `§CMD_WALK_THROUGH_RESULTS` with this configuration:
   mode: "plan"
   gateQuestion: "Plan is ready. Walk through the steps before building?"
   debriefFile: "IMPLEMENTATION_PLAN.md"
-  templateFile: "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_PLAN.md"
   planQuestions:
     - "Any concerns about this step's approach or complexity?"
     - "Should the scope change — expand, narrow, or split this step?"
@@ -204,8 +197,6 @@ Execute `§CMD_HAND_OFF_TO_AGENT` with:
 *   `startAtPhase`: `"Phase 4: Build Loop"`
 *   `planOrDirective`: `[sessionDir]/IMPLEMENTATION_PLAN.md`
 *   `logFile`: `IMPLEMENTATION_LOG.md`
-*   `debriefTemplate`: `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md`
-*   `logTemplate`: `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md`
 *   `taskSummary`: `"Execute the implementation plan: [brief description from taskSummary]"`
 
 **Multiple agents** (user chose "[N] agents" or "Custom agent count"):
@@ -213,8 +204,6 @@ Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 *   `agentName`: `"builder"`
 *   `planFile`: `[sessionDir]/IMPLEMENTATION_PLAN.md`
 *   `logFile`: `IMPLEMENTATION_LOG.md`
-*   `debriefTemplate`: `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md`
-*   `logTemplate`: `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md`
 *   `taskSummary`: `"Execute the implementation plan: [brief description from taskSummary]"`
 
 **If "Continue inline"**: Proceed to Phase 4 as normal.
@@ -228,7 +217,6 @@ Execute `§CMD_PARALLEL_HANDOFF` Steps 5-6 with:
 **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
 > 1. I am moving to Phase 4: Build Loop.
 > 2. I will `§CMD_USE_TODOS_TO_TRACK_PROGRESS` to manage the TDD cycle.
-> 3. I will `§CMD_APPEND_LOG_VIA_BASH_USING_TEMPLATE` (following `assets/TEMPLATE_IMPLEMENTATION_LOG.md` EXACTLY) to `§CMD_THINK_IN_LOG` continuously.
 > 4. I will execute Red-Green-Refactor (`§CMD_REFUSE_OFF_COURSE` applies).
 > 5. If I get stuck, I'll `§CMD_ASK_USER_IF_STUCK`.
 
@@ -297,7 +285,6 @@ Execute `§CMD_REPORT_INTENT_TO_USER`.
   mode: "results"
   gateQuestion: "Implementation complete. Walk through the changes?"
   debriefFile: "IMPLEMENTATION.md"
-  templateFile: "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md"
 ```
 
 **Post-Synthesis**: If the user continues talking (without choosing a skill), obey `§CMD_CONTINUE_OR_CLOSE_SESSION`.
