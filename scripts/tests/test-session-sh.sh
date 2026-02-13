@@ -517,26 +517,27 @@ test_activate_rejects_missing_required_fields() {
   local test_name="activate: errors when required JSON fields are missing"
   setup
 
-  # Provide JSON with only 2 of the required fields — should list all missing ones
+  # Provide JSON with only taskSummary — should list missing dynamic fields
+  # Static fields (taskType, phases, debriefTemplate, etc.) come from SKILL.md, not agent
   local output
   output=$("$SESSION_SH" activate "$TEST_DIR/sessions/VALIDATE" implement <<'PARAMS' 2>&1
-{"taskType": "IMPLEMENTATION", "taskSummary": "Test task"}
+{"taskSummary": "Test task"}
 PARAMS
   )
   local exit_code=$?
 
-  # Should fail and mention multiple missing fields
-  local has_error has_debrief has_phases
-  has_error=0; has_debrief=0; has_phases=0
+  # Should fail and mention missing dynamic fields (scope, contextPaths, etc.)
+  local has_error has_scope has_context
+  has_error=0; has_scope=0; has_context=0
   [[ "$output" == *"Missing required"* ]] && has_error=1
-  [[ "$output" == *"debriefTemplate"* ]] && has_debrief=1
-  [[ "$output" == *"phases"* ]] && has_phases=1
+  [[ "$output" == *"scope"* ]] && has_scope=1
+  [[ "$output" == *"contextPaths"* ]] && has_context=1
 
-  if [ $exit_code -ne 0 ] && [ $has_error -eq 1 ] && [ $has_debrief -eq 1 ] && [ $has_phases -eq 1 ]; then
+  if [ $exit_code -ne 0 ] && [ $has_error -eq 1 ] && [ $has_scope -eq 1 ] && [ $has_context -eq 1 ]; then
     pass "$test_name"
   else
-    fail "$test_name" "exit 1 + lists missing fields (debriefTemplate, phases, etc.)" \
-      "exit=$exit_code, has_error=$has_error, has_debrief=$has_debrief, has_phases=$has_phases"
+    fail "$test_name" "exit 1 + lists missing dynamic fields (scope, contextPaths, etc.)" \
+      "exit=$exit_code, has_error=$has_error, has_scope=$has_scope, has_context=$has_context"
   fi
 
   teardown
@@ -573,6 +574,214 @@ PARAMS
     pass "$test_name"
   else
     fail "$test_name" "exit 0 + 'Session activated'" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# SKILL.MD EXTRACTION TESTS
+# =============================================================================
+
+# Helper: create a mock SKILL.md with a JSON block in the fake home
+create_mock_skill() {
+  local skill="$1"
+  local json_block="$2"
+  local skill_dir="$HOME/.claude/skills/$skill"
+  mkdir -p "$skill_dir"
+  cat > "$skill_dir/SKILL.md" <<SKILLEOF
+---
+description: "Test skill"
+---
+# Test Skill
+
+\`\`\`json
+$json_block
+\`\`\`
+
+## Phase 1: Setup
+...
+SKILLEOF
+}
+
+test_activate_extracts_skill_json() {
+  local test_name="activate: extracts static fields from SKILL.md JSON block"
+  setup
+
+  create_mock_skill "test-skill" '{
+    "taskType": "ANALYSIS",
+    "phases": [{"major": 1, "minor": 0, "name": "Setup"}],
+    "nextSkills": ["implement", "fix"]
+  }'
+
+  "$SESSION_SH" activate "$TEST_DIR/sessions/SKILL_EXTRACT" test-skill <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "Test extraction",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": ""
+}
+PARAMS
+
+  local sf="$TEST_DIR/sessions/SKILL_EXTRACT/.state.json"
+  local task_type phases_len next_skills
+  task_type=$(jq -r '.taskType' "$sf")
+  phases_len=$(jq '.phases | length' "$sf")
+  next_skills=$(jq -r '.nextSkills[0]' "$sf")
+
+  if [ "$task_type" = "ANALYSIS" ] && [ "$phases_len" = "1" ] && [ "$next_skills" = "implement" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "taskType=ANALYSIS, phases_len=1, nextSkills[0]=implement" \
+      "taskType=$task_type, phases_len=$phases_len, nextSkills[0]=$next_skills"
+  fi
+
+  teardown
+}
+
+test_activate_resolves_skill_paths() {
+  local test_name="activate: resolves relative template paths from SKILL.md to absolute"
+  setup
+
+  create_mock_skill "test-skill" '{
+    "taskType": "TEST",
+    "logTemplate": "assets/TEMPLATE_TEST_LOG.md",
+    "debriefTemplate": "assets/TEMPLATE_TEST.md",
+    "planTemplate": "assets/TEMPLATE_TEST_PLAN.md"
+  }'
+
+  "$SESSION_SH" activate "$TEST_DIR/sessions/SKILL_PATHS" test-skill <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "Test paths",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": ""
+}
+PARAMS
+
+  local sf="$TEST_DIR/sessions/SKILL_PATHS/.state.json"
+  local log_tmpl debrief_tmpl
+  log_tmpl=$(jq -r '.logTemplate' "$sf")
+  debrief_tmpl=$(jq -r '.debriefTemplate' "$sf")
+
+  local expected_prefix="$HOME/.claude/skills/test-skill"
+  if [[ "$log_tmpl" == "$expected_prefix/assets/TEMPLATE_TEST_LOG.md" ]] && \
+     [[ "$debrief_tmpl" == "$expected_prefix/assets/TEMPLATE_TEST.md" ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "paths resolved to $expected_prefix/..." \
+      "logTemplate=$log_tmpl, debriefTemplate=$debrief_tmpl"
+  fi
+
+  teardown
+}
+
+test_activate_skill_overwrites_agent_static() {
+  local test_name="activate: SKILL.md static fields overwrite agent-provided values"
+  setup
+
+  create_mock_skill "test-skill" '{
+    "taskType": "CORRECT_TYPE",
+    "phases": [{"major": 1, "minor": 0, "name": "Correct Phase"}]
+  }'
+
+  # Agent provides WRONG static fields — SKILL.md should win
+  "$SESSION_SH" activate "$TEST_DIR/sessions/SKILL_OVERWRITE" test-skill <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "Test overwrite",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": "",
+  "taskType": "WRONG_TYPE",
+  "phases": [{"major": 99, "minor": 0, "name": "Wrong Phase"}]
+}
+PARAMS
+
+  local sf="$TEST_DIR/sessions/SKILL_OVERWRITE/.state.json"
+  local task_type phase_name
+  task_type=$(jq -r '.taskType' "$sf")
+  phase_name=$(jq -r '.phases[0].name' "$sf")
+
+  if [ "$task_type" = "CORRECT_TYPE" ] && [ "$phase_name" = "Correct Phase" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "SKILL.md values win (CORRECT_TYPE, Correct Phase)" \
+      "taskType=$task_type, phase_name=$phase_name"
+  fi
+
+  teardown
+}
+
+test_activate_skips_missing_skill() {
+  local test_name="activate: skips extraction when SKILL.md doesn't exist"
+  setup
+
+  # No mock skill created — agent provides everything manually
+  "$SESSION_SH" activate "$TEST_DIR/sessions/SKILL_MISSING" no-skill <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "Test missing skill",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": "",
+  "taskType": "MANUAL_TYPE"
+}
+PARAMS
+  local exit_code=$?
+
+  local sf="$TEST_DIR/sessions/SKILL_MISSING/.state.json"
+  local task_type
+  task_type=$(jq -r '.taskType' "$sf")
+
+  if [ $exit_code -eq 0 ] && [ "$task_type" = "MANUAL_TYPE" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 + agent taskType preserved" \
+      "exit=$exit_code, taskType=$task_type"
+  fi
+
+  teardown
+}
+
+test_activate_dynamic_only_with_skill() {
+  local test_name="activate: succeeds with dynamic-only JSON when SKILL.md provides static"
+  setup
+
+  create_mock_skill "test-skill" '{
+    "taskType": "TEST",
+    "phases": [{"major": 1, "minor": 0, "name": "Setup"}],
+    "nextSkills": [],
+    "logTemplate": "assets/LOG.md",
+    "debriefTemplate": "assets/DEBRIEF.md"
+  }'
+
+  # Agent provides ONLY dynamic fields — static come from SKILL.md
+  local output
+  output=$("$SESSION_SH" activate "$TEST_DIR/sessions/SKILL_DYNAMIC" test-skill <<'PARAMS' 2>&1
+{
+  "taskSummary": "Test dynamic only",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": ""
+}
+PARAMS
+  )
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ] && [[ "$output" == *"Session activated"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 + 'Session activated'" \
+      "exit=$exit_code, output=$(echo "$output" | head -1)"
   fi
 
   teardown
@@ -1269,6 +1478,14 @@ main() {
   echo "--- Activate: Required Fields ---"
   test_activate_rejects_missing_required_fields
   test_activate_accepts_complete_json
+
+  echo ""
+  echo "--- Activate: SKILL.md Extraction ---"
+  test_activate_extracts_skill_json
+  test_activate_resolves_skill_paths
+  test_activate_skill_overwrites_agent_static
+  test_activate_skips_missing_skill
+  test_activate_dynamic_only_with_skill
 
   echo ""
   echo "--- Update ---"

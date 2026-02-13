@@ -7,7 +7,7 @@
 {
   "type": "object",
   "title": "Session Parameters",
-  "required": ["sessionDir", "taskType", "taskSummary", "scope", "directoriesOfInterest", "contextPaths", "planTemplate", "logTemplate", "debriefTemplate", "requestTemplate", "responseTemplate", "requestFiles", "nextSkills", "extraInfo", "phases"],
+  "required": ["sessionDir", "taskSummary", "scope", "directoriesOfInterest", "contextPaths", "requestFiles", "extraInfo"],
   "properties": {
     "sessionDir": {
       "type": "string",
@@ -132,9 +132,12 @@
 }
 ```
 
+**Static vs Dynamic Fields**:
+Static fields (`taskType`, `phases`, `nextSkills`, `directives`, `modes`, `logTemplate`, `debriefTemplate`, `planTemplate`, `requestTemplate`, `responseTemplate`) are auto-extracted from the skill's SKILL.md JSON block by the engine. Agents only need to provide dynamic fields (`taskSummary`, `scope`, `directoriesOfInterest`, `contextPaths`, `requestFiles`, `extraInfo`). If an agent passes static fields, the engine's SKILL.md values take precedence. Skills without SKILL.md (e.g., utility-tier) fall back to agent-provided values.
+
 **Algorithm**:
 1.  **Analyze**: Review the user's prompt and current context to extract the parameters.
-2.  **Construct**: Create the JSON object matching the schema.
+2.  **Construct**: Create the JSON object matching the schema. Only dynamic fields are required.
 3.  **Activate Session**: Pipe the JSON to `engine session activate` via heredoc (see `§CMD_SESSION_CLI` for exact syntax). The JSON is stored in `.state.json` (merged with runtime fields) and activate returns context (alerts, delegations, RAG suggestions). Do NOT output the JSON to chat — it is stored by activate.
     *   The agent reads activate's stdout for context sections (## §CMD_SURFACE_ACTIVE_ALERTS, ## §CMD_RECALL_PRIOR_SESSIONS, ## §CMD_RECALL_RELEVANT_DOCS, ## §CMD_DISCOVER_DELEGATION_TARGETS).
     *   activate uses `taskSummary` from the JSON to run thematic searches via session-search and doc-search automatically.

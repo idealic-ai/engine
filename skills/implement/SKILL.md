@@ -48,7 +48,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/test", "/document", "/analyze", "/fix", "/chores"],
-  "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
+  "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md", "CHECKLIST.md"],
   "planTemplate": "assets/TEMPLATE_IMPLEMENTATION_PLAN.md",
   "logTemplate": "assets/TEMPLATE_IMPLEMENTATION_LOG.md",
   "debriefTemplate": "assets/TEMPLATE_IMPLEMENTATION.md",

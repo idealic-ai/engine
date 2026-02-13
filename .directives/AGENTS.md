@@ -18,10 +18,11 @@ The workflow engine is a structured skill-and-session system layered on top of C
 
 Agent-facing context files in `.directives/` subfolders at any level of the project hierarchy. This is the primary mechanism for feeding context to agents.
 
-**8 directive types** (3 tiers):
+**8 directive types** (2 tiers):
 - **Core** (always discovered): `AGENTS.md`, `INVARIANTS.md`, `ARCHITECTURE.md`
-- **Hard gate** (blocks deactivation): `CHECKLIST.md`
-- **Skill-filtered** (loaded when skill declares them): `TESTING.md`, `PITFALLS.md`, `CONTRIBUTING.md`, `TEMPLATE.md`
+- **Skill-filtered** (loaded when skill declares them): `TESTING.md`, `PITFALLS.md`, `CONTRIBUTING.md`, `TEMPLATE.md`, `CHECKLIST.md`
+
+`CHECKLIST.md` is skill-filtered but has a **hard gate** at deactivation: when discovered, `§CMD_PROCESS_CHECKLISTS` must pass before `engine session deactivate` succeeds. Skills that declare it: `/implement`, `/fix`, `/test`.
 
 **Inheritance**: Directives stack cumulatively child-to-root. Package directives extend project directives extend engine directives — never shadow.
 

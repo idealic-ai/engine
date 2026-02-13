@@ -51,6 +51,11 @@ TOTAL_COST=$(echo "$INPUT" | jq -r '.cost.total_cost_usd // 0' 2>/dev/null || ec
 # Convert to decimal (0.0 - 1.0) for .state.json (raw value, used by overflow hook)
 CONTEXT_DECIMAL=$(awk "BEGIN {printf \"%.4f\", $RAW_PERCENT / 100}")
 
+# Debug: log every statusline invocation to /tmp/statusline-debug.log
+{
+  echo "[$(date +%H:%M:%S)] raw=${RAW_PERCENT}% decimal=${CONTEXT_DECIMAL} session_id=${CLAUDE_SESSION_ID:0:12} agent=${AGENT_NAME:-main} cost=\$${TOTAL_COST}"
+} >> /tmp/statusline-debug.log 2>/dev/null || true
+
 # Normalize for display: our threshold = 100% (dehydration triggers at threshold)
 # When DISABLE_AUTO_COMPACT=1: show raw %, cap at 100 (full context is the target)
 # When compact enabled (default): normalized = raw / (threshold * 100), capped at 100
@@ -150,6 +155,8 @@ TARGET_FILE=""
 
 if output=$(update_session 2>/dev/null); then
   SESSION_DIR=$(echo "$output" | head -1)
+  # Debug: log session binding
+  echo "  → session=$(basename "$SESSION_DIR") wrote=${CONTEXT_DECIMAL}" >> /tmp/statusline-debug.log 2>/dev/null || true
   SKILL=$(echo "$output" | tail -1)
   # Rules are now evaluated inline by the PreToolUse hook (unified rule engine)
   # Extract session name from path, strip date prefix (YYYY_MM_DD_)

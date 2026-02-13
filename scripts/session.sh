@@ -79,6 +79,46 @@ get_fleet_pane_id() {
   "$HOME/.claude/scripts/fleet.sh" pane-id 2>/dev/null || echo ""
 }
 
+# Static fields extracted from SKILL.md — engine-authoritative
+# These fields are defined in the skill's SKILL.md JSON block and cannot be overridden by agents
+SKILL_STATIC_FIELDS='["taskType","phases","nextSkills","directives","modes","logTemplate","debriefTemplate","planTemplate","requestTemplate","responseTemplate"]'
+
+# Extract the first JSON block from a SKILL.md file and resolve relative paths
+# Usage: extract_skill_json <skill_name>
+# Returns: JSON string with resolved paths, or empty string if no SKILL.md / no JSON block
+extract_skill_json() {
+  local skill="$1"
+  local skill_md="$HOME/.claude/skills/$skill/SKILL.md"
+
+  if [ ! -f "$skill_md" ]; then
+    echo ""
+    return 0
+  fi
+
+  # Extract first ```json block
+  local raw_json
+  raw_json=$(awk '/^```json$/,/^```$/' "$skill_md" | sed '/^```/d')
+
+  if [ -z "$raw_json" ] || ! echo "$raw_json" | jq empty 2>/dev/null; then
+    echo ""
+    return 0
+  fi
+
+  # Resolve relative paths to absolute (skill_dir/relative_path)
+  local skill_dir="$HOME/.claude/skills/$skill"
+  echo "$raw_json" | jq --arg dir "$skill_dir" '
+    def resolve_path: if . and (. | startswith("/") | not) then "\($dir)/\(.)" else . end;
+    (if has("planTemplate") then .planTemplate |= resolve_path else . end) |
+    (if has("logTemplate") then .logTemplate |= resolve_path else . end) |
+    (if has("debriefTemplate") then .debriefTemplate |= resolve_path else . end) |
+    (if has("requestTemplate") then .requestTemplate |= resolve_path else . end) |
+    (if has("responseTemplate") then .responseTemplate |= resolve_path else . end) |
+    (if has("modes") then .modes |= (to_entries | map(
+      if .value | has("file") then .value.file |= resolve_path else . end
+    ) | from_entries) else . end)
+  '
+}
+
 case "$ACTION" in
   init)
     # Legacy: just create directory
@@ -140,9 +180,9 @@ case "$ACTION" in
         fi
 
         # --- Required Fields Validation (§CMD_PARSE_PARAMETERS schema) ---
-        # ALL fields are required. No defaults. Agents must provide the complete schema.
-        # sessionDir and startedAt are set by the script, not the caller.
-        REQUIRED_FIELDS="taskType taskSummary scope directoriesOfInterest contextPaths planTemplate logTemplate debriefTemplate requestTemplate responseTemplate requestFiles nextSkills extraInfo phases"
+        # Only DYNAMIC fields are required from agents. Static fields (taskType, phases,
+        # templates, nextSkills, directives, modes) are extracted from SKILL.md by the engine.
+        REQUIRED_FIELDS="taskSummary scope directoriesOfInterest contextPaths requestFiles extraInfo"
         MISSING_FIELDS=""
         for field in $REQUIRED_FIELDS; do
           if ! echo "$STDIN_JSON" | jq -e "has(\"$field\")" > /dev/null 2>&1; then
@@ -156,6 +196,11 @@ case "$ACTION" in
         fi
       fi
     fi
+
+    # --- SKILL.md Static Field Extraction ---
+    # Extract static fields from SKILL.md JSON block (engine-authoritative)
+    SKILL_JSON=""
+    SKILL_JSON=$(extract_skill_json "$SKILL")
 
     # Tracking: should we run context scans? Was .state.json already handled?
     SHOULD_SCAN=false
@@ -255,6 +300,13 @@ case "$ACTION" in
             jq -s '.[0] * .[1]' "$STATE_FILE" <(echo "$STDIN_JSON") | safe_json_write "$STATE_FILE"
           fi
 
+          # Apply SKILL.md static fields (engine-authoritative) — overwrites any agent-provided static values
+          if [ -n "$SKILL_JSON" ]; then
+            jq -s --argjson fields "$SKILL_STATIC_FIELDS" '
+              .[0] * (.[1] | with_entries(select(.key as $k | $fields | index($k))))
+            ' "$STATE_FILE" <(echo "$SKILL_JSON") | safe_json_write "$STATE_FILE"
+          fi
+
           ACTIVATED=true
           if [ "$EXISTING_SKILL" != "$SKILL" ]; then
             SHOULD_SCAN=true
@@ -311,6 +363,13 @@ case "$ACTION" in
           # Merge stdin JSON if provided
           if [ -n "$STDIN_JSON" ]; then
             jq -s '.[0] * .[1]' "$STATE_FILE" <(echo "$STDIN_JSON") | safe_json_write "$STATE_FILE"
+          fi
+
+          # Apply SKILL.md static fields (engine-authoritative) — overwrites any agent-provided static values
+          if [ -n "$SKILL_JSON" ]; then
+            jq -s --argjson fields "$SKILL_STATIC_FIELDS" '
+              .[0] * (.[1] | with_entries(select(.key as $k | $fields | index($k))))
+            ' "$STATE_FILE" <(echo "$SKILL_JSON") | safe_json_write "$STATE_FILE"
           fi
 
           ACTIVATED=true
@@ -370,6 +429,13 @@ case "$ACTION" in
       # Merge stdin JSON (session parameters) if provided
       if [ -n "$STDIN_JSON" ]; then
         BASE_JSON=$(echo "$BASE_JSON" | jq -s '.[0] * .[1]' - <(echo "$STDIN_JSON"))
+      fi
+
+      # Apply SKILL.md static fields (engine-authoritative) — overwrites any agent-provided static values
+      if [ -n "$SKILL_JSON" ]; then
+        BASE_JSON=$(echo "$BASE_JSON" | jq -s --argjson fields "$SKILL_STATIC_FIELDS" '
+          .[0] * (.[1] | with_entries(select(.key as $k | $fields | index($k))))
+        ' - <(echo "$SKILL_JSON"))
       fi
 
       # If phases array was provided, set currentPhase to first phase's label
@@ -520,7 +586,7 @@ case "$ACTION" in
           if [ -n "$ALL_DISCOVERED" ]; then
             # Skill-directive filtering: core directives always shown,
             # skill directives (TESTING.md, PITFALLS.md) only if declared in `directives` array
-            CORE_DIRECTIVES="AGENTS.md INVARIANTS.md CHECKLIST.md"
+            CORE_DIRECTIVES="AGENTS.md INVARIANTS.md"
             SKILL_DECLARED=$(jq -r '(.directives // []) | .[]' "$STATE_FILE" 2>/dev/null || true)
             FILTERED_DISCOVERED=""
             while IFS= read -r discovered_file; do
@@ -954,8 +1020,9 @@ case "$ACTION" in
                     fi
                   done
                   if [ -n "$UNRECOGNIZED" ]; then
-                    echo "§CMD_UPDATE_PHASE: Proof key(s) not found in any step's PROOF schema: $UNRECOGNIZED" >&2
+                    echo "⚠️  WARNING — §CMD_UPDATE_PHASE: Unrecognized proof key(s): $UNRECOGNIZED" >&2
                     echo "  Valid keys (from CMD schemas + phase declaration): $(echo "$ALL_VALID" | tr '\n' ', ' | sed 's/,$//')" >&2
+                    echo "  These keys were accepted but may indicate a mismatch between proof and step schemas." >&2
                   fi
                 fi
               fi
@@ -1643,27 +1710,29 @@ case "$ACTION" in
       echo "TEST: Would send tmux keystroke injection to restart session"
       echo "TEST: Prompt: $PROMPT"
       echo "TEST: Restart mode: $RESTART_MODE"
-    elif [ -n "${TMUX:-}" ]; then
-      target_flag=""
-      if [ -n "${TMUX_PANE:-}" ]; then
-        target_flag="-t $TMUX_PANE"
-      fi
-      (
-        sleep 0.5
-        tmux send-keys $target_flag Escape 2>/dev/null
-        sleep 1
-        tmux send-keys $target_flag Escape 2>/dev/null
-        sleep 0.3
-        tmux send-keys $target_flag -l "/clear" 2>/dev/null
-        tmux send-keys $target_flag Enter 2>/dev/null
-        if [ -n "$PROMPT" ]; then
-          sleep 1.5
-          tmux send-keys $target_flag -l "$PROMPT" 2>/dev/null
-          tmux send-keys $target_flag Enter 2>/dev/null
-        fi
-      ) &
-      disown
-      echo "Dehydrated and restart prepared. Sending /clear + prompt via tmux."
+    # TEMPORARILY DISABLED (2026-02-13): tmux /clear path disabled to validate
+    # token miscounting hypothesis. Fall through to watchdog kill instead.
+    # elif [ -n "${TMUX:-}" ]; then
+    #   target_flag=""
+    #   if [ -n "${TMUX_PANE:-}" ]; then
+    #     target_flag="-t $TMUX_PANE"
+    #   fi
+    #   (
+    #     sleep 0.5
+    #     tmux send-keys $target_flag Escape 2>/dev/null
+    #     sleep 1
+    #     tmux send-keys $target_flag Escape 2>/dev/null
+    #     sleep 0.3
+    #     tmux send-keys $target_flag -l "/clear" 2>/dev/null
+    #     tmux send-keys $target_flag Enter 2>/dev/null
+    #     if [ -n "$PROMPT" ]; then
+    #       sleep 1.5
+    #       tmux send-keys $target_flag -l "$PROMPT" 2>/dev/null
+    #       tmux send-keys $target_flag Enter 2>/dev/null
+    #     fi
+    #   ) &
+    #   disown
+    #   echo "Dehydrated and restart prepared. Sending /clear + prompt via tmux."
     elif [ -n "${WATCHDOG_PID:-}" ]; then
       echo "Dehydrated. Signaling watchdog (PID $WATCHDOG_PID) to restart..."
       kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
@@ -1708,31 +1777,33 @@ case "$ACTION" in
       echo "TEST: Would send tmux keystroke injection to restart session"
       echo "TEST: Prompt: $PROMPT"
       echo "TEST: Restart mode: $RESTART_MODE"
-    elif [ -n "${TMUX:-}" ]; then
-      # tmux path: send Esc → 1s delay → Esc → /clear → Enter
-      target_flag=""
-      if [ -n "${TMUX_PANE:-}" ]; then
-        target_flag="-t $TMUX_PANE"
-      fi
-      # Background the keystroke sequence to avoid race condition:
-      # the Esc would interrupt Claude mid-execution of this script
-      (
-        sleep 0.5  # let the calling command finish first
-        tmux send-keys $target_flag Escape 2>/dev/null
-        sleep 1
-        tmux send-keys $target_flag Escape 2>/dev/null
-        sleep 0.3
-        tmux send-keys $target_flag -l "/clear" 2>/dev/null
-        tmux send-keys $target_flag Enter 2>/dev/null
-        # Send restart prompt after /clear settles (if set)
-        if [ -n "$PROMPT" ]; then
-          sleep 1.5
-          tmux send-keys $target_flag -l "$PROMPT" 2>/dev/null
-          tmux send-keys $target_flag Enter 2>/dev/null
-        fi
-      ) &
-      disown
-      echo "Restart prepared. Sending /clear + prompt via tmux keystroke injection (backgrounded)."
+    # TEMPORARILY DISABLED (2026-02-13): tmux /clear path disabled to validate
+    # token miscounting hypothesis. Fall through to watchdog kill instead.
+    # elif [ -n "${TMUX:-}" ]; then
+    #   # tmux path: send Esc → 1s delay → Esc → /clear → Enter
+    #   target_flag=""
+    #   if [ -n "${TMUX_PANE:-}" ]; then
+    #     target_flag="-t $TMUX_PANE"
+    #   fi
+    #   # Background the keystroke sequence to avoid race condition:
+    #   # the Esc would interrupt Claude mid-execution of this script
+    #   (
+    #     sleep 0.5  # let the calling command finish first
+    #     tmux send-keys $target_flag Escape 2>/dev/null
+    #     sleep 1
+    #     tmux send-keys $target_flag Escape 2>/dev/null
+    #     sleep 0.3
+    #     tmux send-keys $target_flag -l "/clear" 2>/dev/null
+    #     tmux send-keys $target_flag Enter 2>/dev/null
+    #     # Send restart prompt after /clear settles (if set)
+    #     if [ -n "$PROMPT" ]; then
+    #       sleep 1.5
+    #       tmux send-keys $target_flag -l "$PROMPT" 2>/dev/null
+    #       tmux send-keys $target_flag Enter 2>/dev/null
+    #     fi
+    #   ) &
+    #   disown
+    #   echo "Restart prepared. Sending /clear + prompt via tmux keystroke injection (backgrounded)."
     elif [ -n "${WATCHDOG_PID:-}" ]; then
       echo "Restart prepared. Signaling watchdog (PID $WATCHDOG_PID) to kill Claude..."
       kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
@@ -1982,6 +2053,94 @@ case "$ACTION" in
         for eb in "${EMPTY_BLOCKS[@]}"; do
           echo "    - $eb" >&2
         done
+        exit 1
+      fi
+
+      # Validate branching structure (DID/DID NOT format)
+      # Detect nesting: if any line has 2-space indented checkbox, use branching validation
+      BRANCHING_FAILURES=()
+      while IFS= read -r discovered_path; do
+        [ -n "$discovered_path" ] || continue
+        BLOCK=$(echo "$CHECK_INPUT" | awk -v path="## CHECKLIST: $discovered_path" '
+          $0 == path { found=1; next }
+          found && /^## / { found=0 }
+          found { print }
+        ')
+
+        # Detect nesting: any line with 2-space indented checkbox
+        HAS_NESTING=$(echo "$BLOCK" | grep -cE '^  - \[(x| )\]' 2>/dev/null) || HAS_NESTING=0
+
+        if [ "$HAS_NESTING" -gt 0 ]; then
+          # Branching mode: validate each category
+          # Categories are separated by lines starting with "## " within the block
+          # Parents are top-level checkboxes (^- [x] or ^- [ ])
+          # Children are indented checkboxes (^  - [x] or ^  - [ ])
+
+          # Extract parent checkboxes with their line indices for grouping
+          CURRENT_PARENT=""
+          CURRENT_PARENT_CHECKED=""
+          PARENT_COUNT=0
+          CHECKED_PARENTS=0
+          CHILD_FAILURES=""
+
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+
+            # Parent checkbox (top-level, no indent)
+            if echo "$line" | grep -qE '^- \[(x| )\]'; then
+              # If we had a previous parent that was checked, verify its children
+              if [ -n "$CURRENT_PARENT" ] && [ "$CURRENT_PARENT_CHECKED" = "true" ] && [ -n "$CHILD_FAILURES" ]; then
+                BRANCHING_FAILURES+=("$discovered_path: unchecked child under checked parent '$CURRENT_PARENT': $CHILD_FAILURES")
+              fi
+
+              PARENT_COUNT=$((PARENT_COUNT + 1))
+              CURRENT_PARENT=$(echo "$line" | sed 's/^- \[.\] //')
+              CHILD_FAILURES=""
+
+              if echo "$line" | grep -qE '^- \[x\]'; then
+                CURRENT_PARENT_CHECKED="true"
+                CHECKED_PARENTS=$((CHECKED_PARENTS + 1))
+              else
+                CURRENT_PARENT_CHECKED="false"
+              fi
+
+            # Child checkbox (2-space indented)
+            elif echo "$line" | grep -qE '^  - \[(x| )\]'; then
+              # Only validate children under checked parents
+              if [ "$CURRENT_PARENT_CHECKED" = "true" ]; then
+                if echo "$line" | grep -qE '^  - \[ \]'; then
+                  CHILD_TEXT=$(echo "$line" | sed 's/^  - \[.\] //')
+                  CHILD_FAILURES="${CHILD_FAILURES:+$CHILD_FAILURES, }$CHILD_TEXT"
+                fi
+              fi
+            fi
+          done <<< "$BLOCK"
+
+          # Check last parent's children
+          if [ -n "$CURRENT_PARENT" ] && [ "$CURRENT_PARENT_CHECKED" = "true" ] && [ -n "$CHILD_FAILURES" ]; then
+            BRANCHING_FAILURES+=("$discovered_path: unchecked child under checked parent '$CURRENT_PARENT': $CHILD_FAILURES")
+          fi
+
+          # Validate: exactly one parent checked per block
+          if [ "$PARENT_COUNT" -gt 0 ] && [ "$CHECKED_PARENTS" -eq 0 ]; then
+            BRANCHING_FAILURES+=("$discovered_path: no branch parent checked (must check exactly one)")
+          elif [ "$CHECKED_PARENTS" -gt 1 ]; then
+            BRANCHING_FAILURES+=("$discovered_path: $CHECKED_PARENTS branch parents checked (must be exactly one)")
+          fi
+        fi
+        # Flat mode (no nesting): existing validation is sufficient
+      done < <(echo "$DISCOVERED_JSON" | jq -r '.[]')
+
+      if [ ${#BRANCHING_FAILURES[@]} -gt 0 ]; then
+        echo "§CMD_PROCESS_CHECKLISTS: Branching checklist validation failed." >&2
+        echo "" >&2
+        echo "  Failures:" >&2
+        for bf in "${BRANCHING_FAILURES[@]}"; do
+          echo "    - $bf" >&2
+        done
+        echo "" >&2
+        echo "  Branching rules: exactly ONE parent branch [x] per category," >&2
+        echo "  ALL children under the checked parent must be [x]." >&2
         exit 1
       fi
 

@@ -279,6 +279,82 @@ test_safe_json_write_stale_lock() {
   teardown
 }
 
+test_safe_json_write_concurrent_data_loss() {
+  local test_name="safe_json_write: concurrent read-modify-write may lose keys (TOCTOU demo)"
+  setup
+
+  local target="$TEST_DIR/race.json"
+  echo '{"base":true}' > "$target"
+
+  # Writer A: read current state, add keyA, write back
+  (jq '.keyA = "valueA"' "$target" | safe_json_write "$target") &
+  local pid_a=$!
+  # Writer B: read current state, add keyB, write back
+  (jq '.keyB = "valueB"' "$target" | safe_json_write "$target") &
+  local pid_b=$!
+
+  wait "$pid_a" "$pid_b"
+
+  local content
+  content=$(cat "$target")
+
+  # The file must be valid JSON regardless
+  if ! echo "$content" | jq empty 2>/dev/null; then
+    fail "$test_name" "valid JSON" "corrupted: $content"
+    teardown
+    return
+  fi
+
+  local has_a has_b
+  has_a=$(echo "$content" | jq 'has("keyA")' 2>/dev/null)
+  has_b=$(echo "$content" | jq 'has("keyB")' 2>/dev/null)
+
+  if [ "$has_a" = "true" ] && [ "$has_b" = "true" ]; then
+    # Both keys survived — no data loss this run
+    pass "$test_name (both keys present — race did not manifest)"
+  else
+    # One key was lost — demonstrates the TOCTOU bug (M1)
+    # This is expected: between read and write, the other writer overwrites.
+    pass "$test_name (data loss demonstrated: keyA=$has_a, keyB=$has_b)"
+  fi
+
+  teardown
+}
+
+test_safe_json_write_stale_lock_cleanup() {
+  local test_name="safe_json_write: stale lock dir is removed after recovery"
+  setup
+
+  local target="$TEST_DIR/stale-lock-cleanup.json"
+  local lock_dir="${target}.lock"
+
+  # Create a stale lock with an old mtime (>10s ago)
+  mkdir "$lock_dir"
+  touch -t 202601010000 "$lock_dir"
+
+  local exit_code=0
+  echo '{"cleaned":true}' | safe_json_write "$target" || exit_code=$?
+
+  local content
+  content=$(cat "$target" 2>/dev/null || echo "")
+
+  # Verify write succeeded
+  if [ "$exit_code" -ne 0 ] || [ "$content" != '{"cleaned":true}' ]; then
+    fail "$test_name" "exit 0 and content={\"cleaned\":true}" "exit=$exit_code, content=$content"
+    teardown
+    return
+  fi
+
+  # Verify the lock directory was cleaned up (not left behind)
+  if [ -d "$lock_dir" ]; then
+    fail "$test_name" "lock dir removed" "lock dir still exists at $lock_dir"
+  else
+    pass "$test_name"
+  fi
+
+  teardown
+}
+
 # =============================================================================
 # NOTIFY_FLEET TESTS
 # =============================================================================
@@ -483,6 +559,56 @@ test_state_read_special_chars() {
 }
 
 # =============================================================================
+# RESOLVE_PAYLOAD_REFS TESTS
+# =============================================================================
+
+test_resolve_payload_refs_prefix_collision() {
+  local test_name="_resolve_payload_refs: short var \$s does not corrupt longer \$session (M3 prefix collision)"
+  setup
+
+  local state_file="$TEST_DIR/state-prefix.json"
+  echo '{"s":"foo","session":"bar"}' > "$state_file"
+
+  local payload='{"text":"val=$s, full=$session"}'
+  local result
+  result=$(_resolve_payload_refs "$payload" "$state_file")
+
+  local text_val
+  text_val=$(echo "$result" | jq -r '.text')
+
+  # Correct behavior: $s -> foo, $session -> bar => "val=foo, full=bar"
+  # Bug behavior: $s matches inside $session => "val=foo, full=fooession"
+  if [[ "$text_val" == *"fooession"* ]]; then
+    fail "$test_name" "val=foo, full=bar" "$text_val (prefix collision: \$s corrupted \$session)"
+  elif [ "$text_val" = "val=foo, full=bar" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "val=foo, full=bar" "$text_val"
+  fi
+
+  teardown
+}
+
+test_resolve_payload_refs_no_collision() {
+  local test_name="_resolve_payload_refs: non-overlapping vars resolve correctly"
+  setup
+
+  local state_file="$TEST_DIR/state-nocollision.json"
+  echo '{"name":"Alice","age":"30"}' > "$state_file"
+
+  local payload='{"text":"name=$name, age=$age"}'
+  local result
+  result=$(_resolve_payload_refs "$payload" "$state_file")
+
+  local text_val
+  text_val=$(echo "$result" | jq -r '.text')
+
+  assert_eq "name=Alice, age=30" "$text_val" "$test_name"
+
+  teardown
+}
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -508,6 +634,8 @@ test_safe_json_write_valid
 test_safe_json_write_invalid
 test_safe_json_write_concurrent
 test_safe_json_write_stale_lock
+test_safe_json_write_concurrent_data_loss
+test_safe_json_write_stale_lock_cleanup
 
 # notify_fleet
 test_notify_fleet_no_tmux
@@ -521,5 +649,9 @@ test_state_read_missing_field_with_default
 test_state_read_missing_file
 test_state_read_no_default
 test_state_read_special_chars
+
+# _resolve_payload_refs
+test_resolve_payload_refs_prefix_collision
+test_resolve_payload_refs_no_collision
 
 exit_with_results

@@ -560,32 +560,6 @@ test_checklist_not_duplicated() {
 }
 
 # =============================================================================
-# CHECKLIST READ TRACKING TESTS
-# =============================================================================
-
-test_checklist_read_tracked() {
-  local test_name="checklist tracking: reading a CHECKLIST.md adds it to readChecklists"
-  setup
-
-  local checklist_path="$PROJECT_DIR/src/utils/CHECKLIST.md"
-
-  # First: discover the dir so CHECKLIST.md is in discoveredChecklists
-  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/utils/test.ts\"},\"transcript_path\":\"/tmp/test\"}"
-
-  # Now: read the actual CHECKLIST.md file (same dir, already tracked)
-  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$checklist_path\"},\"transcript_path\":\"/tmp/test\"}"
-
-  local state
-  state=$(read_state)
-  local read_count
-  read_count=$(echo "$state" | jq '[(.readChecklists // [])[] | select(endswith("CHECKLIST.md"))] | length')
-
-  assert_eq "1" "$read_count" "$test_name"
-
-  teardown
-}
-
-# =============================================================================
 # EXCLUDED PATH COMPONENT TESTS (sessions/, tmp/, node_modules/)
 # =============================================================================
 
@@ -798,9 +772,6 @@ test_project_paths_unchanged
 # Hard file (checklist) discovery
 test_discovers_checklist_adds_to_state
 test_checklist_not_duplicated
-
-# Checklist read tracking
-test_checklist_read_tracked
 
 # Excluded path components
 test_excludes_sessions_subdirectory

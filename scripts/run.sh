@@ -55,12 +55,12 @@ export SESSION_REQUIRED=1
 # Context management: disable auto-compaction, use full context window
 # DISABLE_AUTO_COMPACT=1 — our custom flag, raises overflow threshold to 0.95 (config.sh)
 # CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=100 — Claude Code native: never trigger auto-compact
-# CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=999999 — Claude Code: increase blocking limit
-# DISABLE_COMPACT=1 — disable compaction entirely
+# CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=197000 — Claude Code: block near actual context limit (200k)
+# DISABLE_COMPACT=1 — commented out: was causing used_percentage to report compressed size
 export DISABLE_AUTO_COMPACT=1
 export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=100
-export CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=999999
-export DISABLE_COMPACT=1
+export CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=197000
+# export DISABLE_COMPACT=1
 
 AGENTS_DIR="$HOME/.claude/agents"
 SCRIPTS_DIR="$HOME/.claude/scripts"

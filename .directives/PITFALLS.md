@@ -25,3 +25,6 @@ The `yaml` npm package interprets bare `Triggers: "..."` as a nested mapping key
 
 ## 8. Bash defers SIGTERM to subshells until foreground child exits
 When you `kill $subshell_pid`, bash delivers SIGTERM to the subshell — but the subshell defers it until its foreground child (e.g., `sleep`) completes. This breaks background timer patterns like `(sleep N; do_thing)& kill $!`. Use `timeout N command` instead, which directly kills the child process on expiry or early termination.
+
+## 9. Deactivation gate tests need `currentPhase` set to a synthesis phase
+When `.state.json` has no `currentPhase`, session.sh defaults to phase 0 → `EARLY_PHASE=true` → checklist gate and other synthesis-time gates are silently bypassed. Tests that exercise deactivation behavior (e.g., "blocks when checkPassed is not set") must set `"currentPhase": "4: Synthesis"` (or similar non-early phase) in the test's `.state.json` setup, or the gate under test will never fire.

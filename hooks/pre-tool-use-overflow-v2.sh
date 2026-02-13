@@ -136,22 +136,6 @@ _run_discovery() {
   already_tracked=$(jq -r --arg dir "$dir_path" \
     '(.touchedDirs // {}) | has($dir)' "$state_file" 2>/dev/null || echo "false")
   if [ "$already_tracked" = "true" ]; then
-    # Auto-track checklist reads (moved from PostToolUse)
-    if [ "$TOOL_NAME" = "Read" ]; then
-      local is_checklist
-      is_checklist=$(jq -r --arg fp "$file_path" \
-        '(.discoveredChecklists // []) | any(. == $fp)' "$state_file" 2>/dev/null || echo "false")
-      if [ "$is_checklist" = "true" ]; then
-        local already_read
-        already_read=$(jq -r --arg fp "$file_path" \
-          '(.readChecklists // []) | any(. == $fp)' "$state_file" 2>/dev/null || echo "false")
-        if [ "$already_read" != "true" ]; then
-          jq --arg fp "$file_path" \
-            '(.readChecklists //= []) | .readChecklists += [$fp] | .readChecklists |= unique' \
-            "$state_file" | safe_json_write "$state_file"
-        fi
-      fi
-    fi
     return 0
   fi
 
@@ -166,13 +150,9 @@ _run_discovery() {
     root_arg="--root $HOME/.claude"
   fi
 
-  # Run discovery for soft files
+  # Run discovery for all directive files (soft — CHECKLIST.md moved from hard to soft)
   local soft_files
   soft_files=$("$HOME/.claude/scripts/discover-directives.sh" "$dir_path" --walk-up --type soft $root_arg 2>/dev/null || echo "")
-
-  # Run discovery for hard files (CHECKLIST.md)
-  local hard_files
-  hard_files=$("$HOME/.claude/scripts/discover-directives.sh" "$dir_path" --walk-up --type hard $root_arg 2>/dev/null || echo "")
 
   # Core directives are always suggested; skill directives need declaration
   local core_directives=("AGENTS.md" "INVARIANTS.md" "COMMANDS.md")
@@ -258,14 +238,16 @@ _run_discovery() {
     jq '.directiveReadsWithoutClearing = 0' "$state_file" | safe_json_write "$state_file"
   fi
 
-  # Add new CHECKLIST.md files to discoveredChecklists
-  if [ -n "$hard_files" ]; then
-    while IFS= read -r file; do
-      [ -n "$file" ] || continue
-      jq --arg file "$file" \
-        '(.discoveredChecklists //= []) | if (.discoveredChecklists | index($file)) then . else .discoveredChecklists += [$file] end' \
-        "$state_file" | safe_json_write "$state_file"
-    done <<< "$hard_files"
+  # Add new CHECKLIST.md files to discoveredChecklists (from soft_files, since CHECKLIST.md is now soft)
+  if [ ${#new_soft_files[@]} -gt 0 ]; then
+    local sf
+    for sf in "${new_soft_files[@]}"; do
+      if [[ "$(basename "$sf")" == "CHECKLIST.md" ]]; then
+        jq --arg file "$sf" \
+          '(.discoveredChecklists //= []) | if (.discoveredChecklists | index($file)) then . else .discoveredChecklists += [$file] end' \
+          "$state_file" | safe_json_write "$state_file"
+      fi
+    done
   fi
 
   return 0

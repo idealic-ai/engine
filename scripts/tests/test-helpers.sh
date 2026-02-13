@@ -306,8 +306,12 @@ setup_test_env() {
   setup_fake_home "$TMP_DIR"
   disable_fleet_tmux
 
-  # Symlink core scripts (always needed by hooks that call session.sh)
-  ln -sf "$REAL_ENGINE_DIR/scripts/session.sh" "$FAKE_HOME/.claude/scripts/session.sh"
+  # Copy session.sh (NOT symlink) — prevents `cat > $HOME/.claude/scripts/session.sh`
+  # in mock-writing tests from following a symlink and destroying the real file.
+  # session.sh uses $HOME-based paths, not dirname $0, so a copy works identically.
+  cp "$REAL_ENGINE_DIR/scripts/session.sh" "$FAKE_HOME/.claude/scripts/session.sh"
+  chmod +x "$FAKE_HOME/.claude/scripts/session.sh"
+  # lib.sh is read-only (sourced, never overwritten) — symlink is safe
   ln -sf "$REAL_SCRIPTS_DIR/lib.sh" "$FAKE_HOME/.claude/scripts/lib.sh"
 
   # Stub fleet and search tools

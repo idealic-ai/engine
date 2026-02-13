@@ -301,6 +301,97 @@ test_other_freetext() {
 }
 
 # ============================================================
+# Test H1.1: Heredoc preserves dollar variables (regression)
+# ============================================================
+test_heredoc_preserves_dollar_vars() {
+  local input
+  input=$(jq -n \
+    --arg resp 'My path is $HOME/docs and $USER is me' \
+    '{
+      tool_name: "AskUserQuestion",
+      tool_input: {
+        questions: [{question: "Where are your files?", header: "Location", options: [{label: "Default", description: "d"}], multiSelect: false}]
+      },
+      tool_response: $resp,
+      session_id: "test123",
+      tool_use_id: "toolu_H1_1"
+    }')
+
+  run_hook "$input"
+
+  local details
+  details=$(read_details)
+
+  assert_contains '$HOME' "$details" "H1.1: Literal \$HOME preserved in DETAILS.md"
+  assert_contains '$USER' "$details" "H1.1: Literal \$USER preserved in DETAILS.md"
+  assert_not_contains "$ORIGINAL_HOME" "$details" "H1.1: \$HOME was NOT expanded to real path"
+}
+
+# ============================================================
+# Test H1.2: Heredoc preserves command substitutions (regression)
+# ============================================================
+test_heredoc_preserves_command_substitution() {
+  local input
+  input=$(jq -n \
+    --arg resp 'Run `whoami` or use $(date) for timestamps' \
+    '{
+      tool_name: "AskUserQuestion",
+      tool_input: {
+        questions: [{question: "How to get user info?", header: "UserInfo", options: [{label: "Default", description: "d"}], multiSelect: false}]
+      },
+      tool_response: $resp,
+      session_id: "test123",
+      tool_use_id: "toolu_H1_2"
+    }')
+
+  run_hook "$input"
+
+  local details
+  details=$(read_details)
+
+  assert_contains '$(date)' "$details" "H1.2: Literal \$(date) preserved in DETAILS.md"
+  assert_contains 'whoami' "$details" "H1.2: Backtick-whoami text preserved in DETAILS.md"
+  # If $(date) was expanded, it would produce output like "Thu Feb 13 ..." in the user response line.
+  # We check the User response line specifically for the literal form.
+  local user_line
+  user_line=$(echo "$details" | grep 'use .*(date)' || true)
+  assert_not_empty "$user_line" "H1.2: User response line with date reference exists"
+  assert_contains '$(date)' "$user_line" "H1.2: \$(date) in user response is literal, not expanded"
+}
+
+# ============================================================
+# Test H1.3: Heredoc preserves backslashes (regression)
+# ============================================================
+test_heredoc_preserves_backslashes() {
+  local input
+  input=$(jq -n \
+    --arg resp 'Use \n for newlines and \t for tabs' \
+    '{
+      tool_name: "AskUserQuestion",
+      tool_input: {
+        questions: [{question: "How to format output?", header: "Formatting", options: [{label: "Default", description: "d"}], multiSelect: false}]
+      },
+      tool_response: $resp,
+      session_id: "test123",
+      tool_use_id: "toolu_H1_3"
+    }')
+
+  run_hook "$input"
+
+  local details
+  details=$(read_details)
+
+  # Check for literal backslash-n and backslash-t in the user response line.
+  # Use grep with fixed string to avoid interpreting \n as a newline.
+  local user_line
+  user_line=$(echo "$details" | grep -F 'Use \n for newlines' || true)
+  assert_not_empty "$user_line" "H1.3: User response contains literal backslash-n"
+  local user_line_t
+  user_line_t=$(echo "$details" | grep -F '\t for tabs' || true)
+  assert_not_empty "$user_line_t" "H1.3: User response contains literal backslash-t"
+}
+
+# ============================================================
 # Run all tests
 # ============================================================
 echo "=== PostToolUse DETAILS.md Auto-Logger Tests ==="
@@ -314,5 +405,8 @@ run_test test_multiselect
 run_test test_preamble_from_transcript
 run_test test_missing_transcript
 run_test test_other_freetext
+run_test test_heredoc_preserves_dollar_vars
+run_test test_heredoc_preserves_command_substitution
+run_test test_heredoc_preserves_backslashes
 
 exit_with_results

@@ -239,6 +239,7 @@ test_deactivate_blocks_no_checkpassed() {
     "pid": 99999,
     "skill": "test",
     "lifecycle": "active",
+    "currentPhase": "4: Synthesis",
     "discoveredChecklists": ["/path/to/CHECKLIST.md"]
   }'
 
@@ -319,6 +320,198 @@ EOF
     pass "$test_name"
   else
     fail "$test_name" "exit 0, checkPassed=true" "exit=$exit_code, checkPassed=$check_passed, output=$output"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# BRANCHING VALIDATION TESTS
+# =============================================================================
+
+test_branching_one_branch_checked_passes() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="branching: one branch checked with all children checked — passes"
+  setup
+
+  write_state '{
+    "pid": 99999,
+    "skill": "test",
+    "lifecycle": "active",
+    "discoveredChecklists": ["/path/to/CHECKLIST.md"]
+  }'
+
+  local output exit_code=0
+  output=$("$HOME/.claude/scripts/session.sh" check "$SESSION_DIR" <<'EOF' 2>&1
+## CHECKLIST: /path/to/CHECKLIST.md
+- [x] I DID update the docs
+  - [x] README updated
+  - [x] CHANGELOG updated
+- [ ] I DID NOT update the docs
+  - [ ] Reason documented
+EOF
+  ) || exit_code=$?
+
+  if [ "$exit_code" -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_branching_zero_branches_checked_fails() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="branching: zero branches checked — fails"
+  setup
+
+  write_state '{
+    "pid": 99999,
+    "skill": "test",
+    "lifecycle": "active",
+    "discoveredChecklists": ["/path/to/CHECKLIST.md"]
+  }'
+
+  local output exit_code=0
+  output=$("$HOME/.claude/scripts/session.sh" check "$SESSION_DIR" <<'EOF' 2>&1
+## CHECKLIST: /path/to/CHECKLIST.md
+- [ ] I DID update the docs
+  - [ ] README updated
+- [ ] I DID NOT update the docs
+  - [ ] Reason documented
+EOF
+  ) || exit_code=$?
+
+  if [ "$exit_code" -ne 0 ] && [[ "$output" == *"no branch parent checked"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit non-zero, mentions 'no branch parent checked'" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_branching_both_branches_checked_fails() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="branching: both branches checked — fails"
+  setup
+
+  write_state '{
+    "pid": 99999,
+    "skill": "test",
+    "lifecycle": "active",
+    "discoveredChecklists": ["/path/to/CHECKLIST.md"]
+  }'
+
+  local output exit_code=0
+  output=$("$HOME/.claude/scripts/session.sh" check "$SESSION_DIR" <<'EOF' 2>&1
+## CHECKLIST: /path/to/CHECKLIST.md
+- [x] I DID update the docs
+  - [x] README updated
+- [x] I DID NOT update the docs
+  - [x] Reason documented
+EOF
+  ) || exit_code=$?
+
+  if [ "$exit_code" -ne 0 ] && [[ "$output" == *"branch parents checked"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit non-zero, mentions multiple parents checked" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_branching_unchecked_child_fails() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="branching: checked parent with unchecked child — fails"
+  setup
+
+  write_state '{
+    "pid": 99999,
+    "skill": "test",
+    "lifecycle": "active",
+    "discoveredChecklists": ["/path/to/CHECKLIST.md"]
+  }'
+
+  local output exit_code=0
+  output=$("$HOME/.claude/scripts/session.sh" check "$SESSION_DIR" <<'EOF' 2>&1
+## CHECKLIST: /path/to/CHECKLIST.md
+- [x] I DID update the docs
+  - [x] README updated
+  - [ ] CHANGELOG updated
+- [ ] I DID NOT update the docs
+  - [ ] Reason documented
+EOF
+  ) || exit_code=$?
+
+  if [ "$exit_code" -ne 0 ] && [[ "$output" == *"unchecked child"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit non-zero, mentions 'unchecked child'" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_flat_checklist_still_works() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="flat: checklist without nesting — existing behavior preserved"
+  setup
+
+  write_state '{
+    "pid": 99999,
+    "skill": "test",
+    "lifecycle": "active",
+    "discoveredChecklists": ["/path/to/CHECKLIST.md"]
+  }'
+
+  local output exit_code=0
+  output=$("$HOME/.claude/scripts/session.sh" check "$SESSION_DIR" <<'EOF' 2>&1
+## CHECKLIST: /path/to/CHECKLIST.md
+- [x] Item one verified
+- [ ] Item two not applicable
+- [x] Item three verified
+EOF
+  ) || exit_code=$?
+
+  if [ "$exit_code" -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_branching_did_not_branch_passes() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="branching: DID NOT branch checked with all children checked — passes"
+  setup
+
+  write_state '{
+    "pid": 99999,
+    "skill": "test",
+    "lifecycle": "active",
+    "discoveredChecklists": ["/path/to/CHECKLIST.md"]
+  }'
+
+  local output exit_code=0
+  output=$("$HOME/.claude/scripts/session.sh" check "$SESSION_DIR" <<'EOF' 2>&1
+## CHECKLIST: /path/to/CHECKLIST.md
+- [ ] I DID update the docs
+  - [ ] README updated
+  - [ ] CHANGELOG updated
+- [x] I DID NOT update the docs
+  - [x] Not applicable — no code changes
+EOF
+  ) || exit_code=$?
+
+  if [ "$exit_code" -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
   fi
 
   teardown

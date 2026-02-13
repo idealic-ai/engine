@@ -254,7 +254,7 @@ _resolve_payload_refs() {
       local str_val
       str_val=$(echo "$resolved" | jq -r --arg k "$key" '.[$k]')
       local vars
-      vars=$(echo "$str_val" | grep -oE '\$[a-zA-Z_][a-zA-Z0-9_]*' | sort -u || echo "")
+      vars=$(echo "$str_val" | grep -oE '\$[a-zA-Z_][a-zA-Z0-9_]*' | sort -u | awk '{print length, $0}' | sort -rnk1 | awk '{print $2}' || echo "")
       if [ -n "$vars" ]; then
         local new_val="$str_val"
         while IFS= read -r var_ref; do

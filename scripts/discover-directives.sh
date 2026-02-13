@@ -4,8 +4,8 @@
 # Usage: discover-directives.sh <target-dir> [--walk-up] [--type soft|hard|all] [--root <path>] [--include-shared]
 #
 # Directive types:
-#   soft: AGENTS.md, INVARIANTS.md, TESTING.md, PITFALLS.md, TEMPLATE.md
-#   hard: CHECKLIST.md
+#   soft: AGENTS.md, INVARIANTS.md, TESTING.md, PITFALLS.md, TEMPLATE.md, CHECKLIST.md
+#   hard: (none)
 #   all:  both soft and hard (default)
 #
 # Options:
@@ -67,8 +67,8 @@ fi
 TARGET_DIR="${TARGET_DIR%/}"
 
 # --- Directive file lists ---
-SOFT_FILES="AGENTS.md INVARIANTS.md ARCHITECTURE.md COMMANDS.md TESTING.md PITFALLS.md CONTRIBUTING.md TEMPLATE.md"
-HARD_FILES="CHECKLIST.md"
+SOFT_FILES="AGENTS.md INVARIANTS.md ARCHITECTURE.md COMMANDS.md TESTING.md PITFALLS.md CONTRIBUTING.md TEMPLATE.md CHECKLIST.md"
+HARD_FILES=""
 
 # Determine which files to look for based on --type
 case "$TYPE" in
