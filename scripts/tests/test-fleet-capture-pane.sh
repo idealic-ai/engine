@@ -1,7 +1,7 @@
 #!/bin/bash
 # test-fleet-capture-pane.sh — Tests for fleet.sh parse_pane_content() and cmd_capture_pane()
 #
-# Tests the terminal parser that powers /oversee:
+# Tests the terminal parser that powers /coordinate:
 #   - State detection (hasQuestion true/false)
 #   - Content extraction (question text, options, preamble)
 #   - Edge cases (empty pane, ANSI codes, submit confirmation)
@@ -163,8 +163,8 @@ test_case10_strips_status_line() {
     preamble=$(json_field "$result" '.preamble')
     options=$(json_field "$result" '.options')
 
-    assert_not_contains "OVERSEE_SKILL_DESIGN" "$preamble" "Case 10a: status line not in preamble"
-    assert_not_contains "OVERSEE_SKILL_DESIGN" "$options" "Case 10b: status line not in options"
+    assert_not_contains "COORDINATE_SKILL_DESIGN" "$preamble" "Case 10a: status line not in preamble"
+    assert_not_contains "COORDINATE_SKILL_DESIGN" "$options" "Case 10b: status line not in options"
 }
 
 # ============================================================

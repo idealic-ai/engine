@@ -1,54 +1,39 @@
-# Progress Report: [Date Range]
+# [Evocative Title — capture the period's theme]
 **Tags**: #needs-review
 **Filename Convention**: `sessions/[YYYY_MM_DD]_REVIEW_[N]/REVIEW.md`
 
-## 1. Summary
-*   **Period**: [today / this week / YYYY-MM-DD to YYYY-MM-DD]
-*   **Sessions**: [N] sessions completed
-*   **Headline**: [1-2 sentence summary of the most important outcome]
+## Summary
+*A single paragraph (3-5 sentences) that captures the big picture: how many sessions, what changed at the highest level, and the overall mood (productive sprint? stabilization? exploration?). Include key numbers woven into prose — never as bullet points.*
 
-## 2. Accomplishments
-*By session, chronological order. Each entry summarizes what was done and why it matters.*
+## Accomplishments
+*Group by THEME, not by session. Each theme gets a ### heading with a short evocative name. Write 1-2 paragraphs per theme as flowing prose — what changed, why it matters, specific numbers woven in naturally. No bullet points, no session names, no "What/Impact/Files" structure. End each theme with what's next or what's risky about this area.*
 
-### [Session Topic] — /[skill]
-*   **What**:
-    *   [Concrete outcome 1]
-    *   [Concrete outcome 2]
-*   **Impact**: [Why this matters — 1 sentence]
-*   **Key Files**: `[path/to/key/file.ts]`
+### [Theme Name — e.g., "The Great Context Diet"]
+[1-2 paragraphs of prose. Weave in specific numbers and outcomes. Mention what was done and WHY it matters. End with forward-looking risk or next step.]
 
-### [Session Topic] — /[skill]
-*   **What**:
-    *   [Concrete outcome]
-*   **Impact**: [Why this matters]
-*   **Key Files**: `[path/to/key/file.ts]`
+### [Theme Name]
+[1-2 paragraphs of prose.]
 
-*(Repeat for each session in the period.)*
+*(3-5 themes typical for a multi-day review. Fewer for single-day.)*
 
-## 3. Blockers & Risks
-*Items that slowed progress or remain unresolved. Use "None — smooth sailing." if clean.*
+## Blockers & Risks
+*Short paragraphs (not bullets) for each active blocker or risk. Bold the title, then explain in 1-3 sentences. Include what's needed to unblock. Use "Smooth sailing — nothing blocking." if clean.*
 
-*   **[Blocker Title]**: [Description + what's needed to unblock]
-*   **[Risk Title]**: [Description + current mitigation]
+## Velocity & Patterns
+*One paragraph describing the throughput, time distribution across skill types, and the dominant pattern of the period. If multi-day, describe the day-by-day arc (e.g., "Day 1 was raw implementation, Day 2 shifted to hardening, Day 3 was integration"). Weave numbers into sentences.*
 
-## 4. Velocity & Patterns
-*   **Throughput**: [N sessions, M debriefs, K files changed]
-*   **Time Distribution**: [rough breakdown — e.g., "60% implementation, 20% analysis, 20% review"]
-*   **Pattern**: [Any recurring theme — "debugging-heavy day", "mostly documentation", "feature sprint"]
-*   **Comparison**: [vs previous period if applicable — "up from N-1 sessions last period"]
+## Next Steps
+*Numbered list (3-5 items). Each item is 1-2 sentences with enough context to act on. Priority order.*
 
-## 5. Next Steps
-*What should happen next, in priority order.*
+1.  [Action + why it's next]
+2.  [Action + why it's next]
+3.  [Action + why it's next]
 
-1.  [Action item with context]
-2.  [Action item with context]
-3.  [Action item with context]
+## Open Questions
+*1-3 questions that need team input. Each question is a full sentence with context — not just "What about X?" but "How do we handle X given that Y happened?" Use "All clear — no open questions." if clean.*
 
-## 6. Open Questions
-*Decisions or unknowns that need attention. Use "None — all clear." if clean.*
-
-*   [Question + context]
-*   [Question + context]
+## What Keeps Me Up At Night
+*1 paragraph of honest, unfiltered risk assessment. What could go wrong? What's fragile? What debt is accumulating? This section is the reviewer's personal take — subjective and valuable.*
 
 ---
-*Progress Reporter | Session: [Session Dir]*
+*Progress Reporter | [Date Range]*

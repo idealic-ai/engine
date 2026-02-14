@@ -121,7 +121,7 @@ test_allow_loading_mode() {
   local test_name="TC-03: allow when loading=true (skip enforcement during bootstrap)"
   setup
 
-  write_state '{"loading": true, "pendingDirectives": ["/some/README.md"]}'
+  write_state '{"loading": true, "pendingPreloads": ["/some/README.md"]}'
 
   local output
   output=$(run_hook '{"tool_name":"Edit","tool_input":{"file_path":"/some/file.ts"}}')
@@ -139,10 +139,10 @@ test_allow_loading_mode() {
 }
 
 test_allow_empty_pending() {
-  local test_name="TC-04: allow when pendingDirectives is empty array"
+  local test_name="TC-04: allow when pendingPreloads is empty array"
   setup
 
-  write_state '{"pendingDirectives": []}'
+  write_state '{"pendingPreloads": []}'
 
   local output
   output=$(run_hook '{"tool_name":"Edit","tool_input":{"file_path":"/some/file.ts"}}')
@@ -155,7 +155,7 @@ test_allow_empty_pending() {
 }
 
 test_allow_missing_pending_key() {
-  local test_name="TC-05: allow when pendingDirectives key is missing"
+  local test_name="TC-05: allow when pendingPreloads key is missing"
   setup
 
   write_state '{}'
@@ -178,7 +178,7 @@ test_allow_bash_log_sh() {
   local test_name="TC-06: allow Bash log.sh without counting"
   setup
 
-  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
+  write_state '{"pendingPreloads": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
 
   local output
   output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine log sessions/test/LOG.md"}}')
@@ -198,7 +198,7 @@ test_allow_bash_session_sh() {
   local test_name="TC-07: allow Bash session.sh without counting"
   setup
 
-  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
+  write_state '{"pendingPreloads": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
 
   local output
   output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine session phase sessions/test \"3: Build\""}}')
@@ -218,7 +218,7 @@ test_allow_task_tool() {
   local test_name="TC-08: allow Task tool without counting"
   setup
 
-  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
+  write_state '{"pendingPreloads": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
 
   local output
   output=$(run_hook '{"tool_name":"Task","tool_input":{"prompt":"do something"}}')
@@ -238,7 +238,7 @@ test_allow_read_engine_infra() {
   local test_name="TC-09: allow Read of ~/.claude/* without counting"
   setup
 
-  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
+  write_state '{"pendingPreloads": ["/project/README.md"], "directiveReadsWithoutClearing": 0}'
 
   local output
   output=$(run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$HOME/.claude/skills/test/SKILL.md\"}}")
@@ -262,7 +262,7 @@ test_clear_pending_on_read() {
   local test_name="TC-10: clear pending file when Read targets it"
   setup
 
-  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 2}'
+  write_state '{"pendingPreloads": ["/project/README.md"], "directiveReadsWithoutClearing": 2}'
 
   local output
   output=$(run_hook '{"tool_name":"Read","tool_input":{"file_path":"/project/README.md"}}')
@@ -272,8 +272,8 @@ test_clear_pending_on_read() {
   assert_contains "allow" "$output" "$test_name — allows"
 
   local pending_count
-  pending_count=$(jq -r '(.pendingDirectives // []) | length' "$SESSION_DIR/.state.json" 2>/dev/null)
-  assert_eq "0" "$pending_count" "$test_name — pendingDirectives cleared"
+  pending_count=$(jq -r '(.pendingPreloads // []) | length' "$SESSION_DIR/.state.json" 2>/dev/null)
+  assert_eq "0" "$pending_count" "$test_name — pendingPreloads cleared"
 
   local counter
   counter=$(jq -r '.directiveReadsWithoutClearing // 0' "$SESSION_DIR/.state.json" 2>/dev/null)
@@ -283,10 +283,10 @@ test_clear_pending_on_read() {
 }
 
 test_clear_only_targeted_file() {
-  local test_name="TC-11: clear only the targeted file from pendingDirectives"
+  local test_name="TC-11: clear only the targeted file from pendingPreloads"
   setup
 
-  write_state '{"pendingDirectives": ["/project/README.md", "/project/INVARIANTS.md"], "directiveReadsWithoutClearing": 1}'
+  write_state '{"pendingPreloads": ["/project/README.md", "/project/INVARIANTS.md"], "directiveReadsWithoutClearing": 1}'
 
   local output
   output=$(run_hook '{"tool_name":"Read","tool_input":{"file_path":"/project/README.md"}}')
@@ -296,11 +296,11 @@ test_clear_only_targeted_file() {
   assert_contains "allow" "$output" "$test_name — allows"
 
   local pending_count
-  pending_count=$(jq -r '(.pendingDirectives // []) | length' "$SESSION_DIR/.state.json" 2>/dev/null)
+  pending_count=$(jq -r '(.pendingPreloads // []) | length' "$SESSION_DIR/.state.json" 2>/dev/null)
   assert_eq "1" "$pending_count" "$test_name — one file remains"
 
   local remaining
-  remaining=$(jq -r '.pendingDirectives[0]' "$SESSION_DIR/.state.json" 2>/dev/null)
+  remaining=$(jq -r '.pendingPreloads[0]' "$SESSION_DIR/.state.json" 2>/dev/null)
   assert_eq "/project/INVARIANTS.md" "$remaining" "$test_name — correct file remains"
 
   local counter
@@ -318,7 +318,7 @@ test_warn_under_threshold() {
   local test_name="TC-12: warn and allow when under threshold"
   setup
 
-  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0, "directiveBlockAfter": 3}'
+  write_state '{"pendingPreloads": ["/project/README.md"], "directiveReadsWithoutClearing": 0, "directiveBlockAfter": 3}'
 
   local output
   output=$(run_hook '{"tool_name":"Edit","tool_input":{"file_path":"/some/file.ts"}}')
@@ -339,7 +339,7 @@ test_deny_at_threshold() {
   local test_name="TC-13: deny when at or over threshold"
   setup
 
-  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 2, "directiveBlockAfter": 3}'
+  write_state '{"pendingPreloads": ["/project/README.md"], "directiveReadsWithoutClearing": 2, "directiveBlockAfter": 3}'
 
   local output
   output=$(run_hook '{"tool_name":"Edit","tool_input":{"file_path":"/some/file.ts"}}')
@@ -361,7 +361,7 @@ test_deny_custom_threshold() {
   local test_name="TC-14: deny with custom threshold (directiveBlockAfter=1)"
   setup
 
-  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0, "directiveBlockAfter": 1}'
+  write_state '{"pendingPreloads": ["/project/README.md"], "directiveReadsWithoutClearing": 0, "directiveBlockAfter": 1}'
 
   local output
   output=$(run_hook '{"tool_name":"Edit","tool_input":{"file_path":"/some/file.ts"}}')
@@ -385,7 +385,7 @@ test_non_whitelisted_bash_counts() {
   local test_name="TC-15: non-whitelisted Bash command counts toward threshold"
   setup
 
-  write_state '{"pendingDirectives": ["/project/README.md"], "directiveReadsWithoutClearing": 0, "directiveBlockAfter": 3}'
+  write_state '{"pendingPreloads": ["/project/README.md"], "directiveReadsWithoutClearing": 0, "directiveBlockAfter": 3}'
 
   local output
   output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}')

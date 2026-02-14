@@ -2,11 +2,11 @@
 # test-fleet-purple-layer.sh — Tests for fleet.sh purple layer system
 #
 # Integration tests that require a running fleet tmux session.
-# Tests the overseer purple layer feature:
-#   - _resolve_pane_color: 4-level priority (overseer-active > manager > theme > default)
-#   - _apply_notify_data: auto-disconnect clears @pane_overseer_active on non-unchecked
-#   - cmd_overseer_connect: sets @pane_overseer_active, triggers visual
-#   - cmd_overseer_disconnect: clears @pane_overseer_active, triggers visual
+# Tests the coordinator purple layer feature:
+#   - _resolve_pane_color: 4-level priority (coordinator-active > manager > theme > default)
+#   - _apply_notify_data: auto-disconnect clears @pane_coordinator_active on non-unchecked
+#   - cmd_coordinator_connect: sets @pane_coordinator_active, triggers visual
+#   - cmd_coordinator_disconnect: clears @pane_coordinator_active, triggers visual
 #
 # Requires: tmux with fleet socket running
 
@@ -47,22 +47,22 @@ get_test_pane() {
 # Save purple-layer-relevant state for a pane
 save_pane_purple_state() {
     local pane_id="$1"
-    local label manager overseer_active notify pane_bg
+    local label manager coordinator_active notify pane_bg
     label=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_label}' 2>/dev/null || echo "")
     manager=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_manager}' 2>/dev/null || echo "")
-    overseer_active=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_overseer_active}' 2>/dev/null || echo "")
+    coordinator_active=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_coordinator_active}' 2>/dev/null || echo "")
     notify=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_notify}' 2>/dev/null || echo "")
     pane_bg=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{pane_bg}' 2>/dev/null || echo "")
-    echo "${label}|${manager}|${overseer_active}|${notify}|${pane_bg}"
+    echo "${label}|${manager}|${coordinator_active}|${notify}|${pane_bg}"
 }
 
 # Restore purple-layer-relevant state for a pane
 restore_pane_purple_state() {
     local pane_id="$1" saved="$2"
-    local label manager overseer_active notify pane_bg
+    local label manager coordinator_active notify pane_bg
     label=$(echo "$saved" | cut -d'|' -f1)
     manager=$(echo "$saved" | cut -d'|' -f2)
-    overseer_active=$(echo "$saved" | cut -d'|' -f3)
+    coordinator_active=$(echo "$saved" | cut -d'|' -f3)
     notify=$(echo "$saved" | cut -d'|' -f4)
     pane_bg=$(echo "$saved" | cut -d'|' -f5)
 
@@ -80,11 +80,11 @@ restore_pane_purple_state() {
         tmux -L "$SOCKET" set-option -p -t "$pane_id" -u @pane_manager 2>/dev/null || true
     fi
 
-    # Restore overseer_active
-    if [[ "$overseer_active" == "true" ]]; then
-        tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_overseer_active "true" 2>/dev/null || true
+    # Restore coordinator_active
+    if [[ "$coordinator_active" == "true" ]]; then
+        tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_coordinator_active "true" 2>/dev/null || true
     else
-        tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_overseer_active 2>/dev/null || true
+        tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_coordinator_active 2>/dev/null || true
     fi
 
     # Restore notify
@@ -125,10 +125,10 @@ restore_theme_state() {
     fi
 }
 
-# Helper: get @pane_overseer_active value
-get_overseer_active() {
+# Helper: get @pane_coordinator_active value
+get_coordinator_active() {
     local pane_id="$1"
-    tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_overseer_active}' 2>/dev/null || echo ""
+    tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_coordinator_active}' 2>/dev/null || echo ""
 }
 
 # Helper: get pane bg color
@@ -138,10 +138,10 @@ get_pane_bg() {
 }
 
 # ============================================================
-# Category: cmd_overseer_connect
+# Category: cmd_coordinator_connect
 # ============================================================
 
-test_connect_sets_overseer_active() {
+test_connect_sets_coordinator_active() {
     local pane_id
     pane_id=$(get_test_pane)
     [[ -z "$pane_id" ]] && { skip "connect sets active" "no panes available"; return; }
@@ -149,14 +149,14 @@ test_connect_sets_overseer_active() {
     local saved
     saved=$(save_pane_purple_state "$pane_id")
 
-    # Clear any existing overseer state
-    tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_overseer_active 2>/dev/null || true
+    # Clear any existing coordinator state
+    tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_coordinator_active 2>/dev/null || true
 
-    "$FLEET_SH" overseer-connect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
+    "$FLEET_SH" coordinator-connect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
 
     local result
-    result=$(get_overseer_active "$pane_id")
-    assert_eq "true" "$result" "Case 12: overseer-connect sets @pane_overseer_active=true"
+    result=$(get_coordinator_active "$pane_id")
+    assert_eq "true" "$result" "Case 12: coordinator-connect sets @pane_coordinator_active=true"
 
     restore_pane_purple_state "$pane_id" "$saved"
 }
@@ -170,27 +170,27 @@ test_connect_outputs_confirmation() {
     saved=$(save_pane_purple_state "$pane_id")
 
     local result
-    result=$("$FLEET_SH" overseer-connect "$pane_id" --socket "$SOCKET" 2>/dev/null)
+    result=$("$FLEET_SH" coordinator-connect "$pane_id" --socket "$SOCKET" 2>/dev/null)
 
-    assert_contains "Connected" "$result" "Case 13a: overseer-connect outputs 'Connected'"
-    assert_contains "$pane_id" "$result" "Case 13b: overseer-connect output contains pane_id"
+    assert_contains "Connected" "$result" "Case 13a: coordinator-connect outputs 'Connected'"
+    assert_contains "$pane_id" "$result" "Case 13b: coordinator-connect output contains pane_id"
 
     restore_pane_purple_state "$pane_id" "$saved"
 }
 
 test_connect_missing_pane_id() {
     local result exit_code=0
-    result=$("$FLEET_SH" overseer-connect 2>&1) || exit_code=$?
+    result=$("$FLEET_SH" coordinator-connect 2>&1) || exit_code=$?
 
-    assert_eq "1" "$exit_code" "Case 14a: overseer-connect exits 1 with no pane_id"
-    assert_contains "Usage" "$result" "Case 14b: overseer-connect shows Usage with no pane_id"
+    assert_eq "1" "$exit_code" "Case 14a: coordinator-connect exits 1 with no pane_id"
+    assert_contains "Usage" "$result" "Case 14b: coordinator-connect shows Usage with no pane_id"
 }
 
 # ============================================================
-# Category: cmd_overseer_disconnect
+# Category: cmd_coordinator_disconnect
 # ============================================================
 
-test_disconnect_clears_overseer_active() {
+test_disconnect_clears_coordinator_active() {
     local pane_id
     pane_id=$(get_test_pane)
     [[ -z "$pane_id" ]] && { skip "disconnect clears active" "no panes available"; return; }
@@ -199,14 +199,14 @@ test_disconnect_clears_overseer_active() {
     saved=$(save_pane_purple_state "$pane_id")
 
     # Connect first
-    "$FLEET_SH" overseer-connect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
+    "$FLEET_SH" coordinator-connect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
 
     # Then disconnect
-    "$FLEET_SH" overseer-disconnect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
+    "$FLEET_SH" coordinator-disconnect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
 
     local result
-    result=$(get_overseer_active "$pane_id")
-    assert_eq "" "$result" "Case 15: overseer-disconnect clears @pane_overseer_active"
+    result=$(get_coordinator_active "$pane_id")
+    assert_eq "" "$result" "Case 15: coordinator-disconnect clears @pane_coordinator_active"
 
     restore_pane_purple_state "$pane_id" "$saved"
 }
@@ -220,33 +220,33 @@ test_disconnect_outputs_confirmation() {
     saved=$(save_pane_purple_state "$pane_id")
 
     # Connect first so there's something to disconnect
-    "$FLEET_SH" overseer-connect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
+    "$FLEET_SH" coordinator-connect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
 
     local result
-    result=$("$FLEET_SH" overseer-disconnect "$pane_id" --socket "$SOCKET" 2>/dev/null)
+    result=$("$FLEET_SH" coordinator-disconnect "$pane_id" --socket "$SOCKET" 2>/dev/null)
 
-    assert_contains "Disconnected" "$result" "Case 16a: overseer-disconnect outputs 'Disconnected'"
-    assert_contains "$pane_id" "$result" "Case 16b: overseer-disconnect output contains pane_id"
+    assert_contains "Disconnected" "$result" "Case 16a: coordinator-disconnect outputs 'Disconnected'"
+    assert_contains "$pane_id" "$result" "Case 16b: coordinator-disconnect output contains pane_id"
 
     restore_pane_purple_state "$pane_id" "$saved"
 }
 
 test_disconnect_missing_pane_id() {
     local result exit_code=0
-    result=$("$FLEET_SH" overseer-disconnect 2>&1) || exit_code=$?
+    result=$("$FLEET_SH" coordinator-disconnect 2>&1) || exit_code=$?
 
-    assert_eq "1" "$exit_code" "Case 17a: overseer-disconnect exits 1 with no pane_id"
-    assert_contains "Usage" "$result" "Case 17b: overseer-disconnect shows Usage with no pane_id"
+    assert_eq "1" "$exit_code" "Case 17a: coordinator-disconnect exits 1 with no pane_id"
+    assert_contains "Usage" "$result" "Case 17b: coordinator-disconnect shows Usage with no pane_id"
 }
 
 # ============================================================
-# Category: _resolve_pane_color (via overseer-connect visual)
+# Category: _resolve_pane_color (via coordinator-connect visual)
 # ============================================================
 
-test_color_overseer_active_dark_purple() {
+test_color_coordinator_active_dark_purple() {
     local pane_id
     pane_id=$(get_test_pane)
-    [[ -z "$pane_id" ]] && { skip "overseer active color" "no panes available"; return; }
+    [[ -z "$pane_id" ]] && { skip "coordinator active color" "no panes available"; return; }
 
     local saved theme_saved
     saved=$(save_pane_purple_state "$pane_id")
@@ -256,14 +256,14 @@ test_color_overseer_active_dark_purple() {
     tmux -L "$SOCKET" set-option -gu @fleet_theme_active 2>/dev/null || true
 
     # Connect — triggers _apply_notify_visual → _resolve_pane_color
-    "$FLEET_SH" overseer-connect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
+    "$FLEET_SH" coordinator-connect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
 
     # Brief wait for visual to apply
     sleep 0.1
 
     local bg
     bg=$(get_pane_bg "$pane_id")
-    assert_eq "#0d0518" "$bg" "Case 1: overseer-active pane gets dark purple (#0d0518)"
+    assert_eq "#0d0518" "$bg" "Case 1: coordinator-active pane gets dark purple (#0d0518)"
 
     restore_pane_purple_state "$pane_id" "$saved"
     restore_theme_state "$theme_saved"
@@ -282,7 +282,7 @@ test_color_theme_override_active() {
     tmux -L "$SOCKET" set-option -g @fleet_theme_active "#aabbcc" 2>/dev/null
 
     # Connect
-    "$FLEET_SH" overseer-connect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
+    "$FLEET_SH" coordinator-connect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
 
     sleep 0.1
 
@@ -314,8 +314,8 @@ test_color_manager_light_purple() {
 
     # Clear theme override
     tmux -L "$SOCKET" set-option -gu @fleet_theme_manager 2>/dev/null || true
-    # Clear overseer-active so manager check is reached
-    tmux -L "$SOCKET" set-option -pu -t "$pane1" @pane_overseer_active 2>/dev/null || true
+    # Clear coordinator-active so manager check is reached
+    tmux -L "$SOCKET" set-option -pu -t "$pane1" @pane_coordinator_active 2>/dev/null || true
 
     # Make pane1 a manager: pane1 has label, pane2 declares that label as manager
     tmux -L "$SOCKET" set-option -p -t "$pane1" @pane_label "PurpleTestMgr" 2>/dev/null
@@ -324,8 +324,8 @@ test_color_manager_light_purple() {
     tmux -L "$SOCKET" set-option -p -t "$pane1" @pane_notify "checked" 2>/dev/null
 
     # Trigger visual refresh on pane1 via notify (uses TMUX_PANE to target)
-    # Use overseer-disconnect as a no-op visual refresh trigger
-    "$FLEET_SH" overseer-disconnect "$pane1" --socket "$SOCKET" > /dev/null 2>&1
+    # Use coordinator-disconnect as a no-op visual refresh trigger
+    "$FLEET_SH" coordinator-disconnect "$pane1" --socket "$SOCKET" > /dev/null 2>&1
 
     sleep 0.1
 
@@ -338,14 +338,14 @@ test_color_manager_light_purple() {
     restore_theme_state "$theme_saved"
 }
 
-test_color_overseer_beats_manager() {
+test_color_coordinator_beats_manager() {
     local panes
     panes=$(get_test_panes)
     local pane_count
     pane_count=$(echo "$panes" | wc -l | tr -d ' ')
 
     if [[ "$pane_count" -lt 2 ]]; then
-        skip "overseer beats manager" "need at least 2 panes"
+        skip "coordinator beats manager" "need at least 2 panes"
         return
     fi
 
@@ -360,18 +360,18 @@ test_color_overseer_beats_manager() {
     tmux -L "$SOCKET" set-option -gu @fleet_theme_active 2>/dev/null || true
     tmux -L "$SOCKET" set-option -gu @fleet_theme_manager 2>/dev/null || true
 
-    # Make pane1 BOTH a manager AND overseer-active
+    # Make pane1 BOTH a manager AND coordinator-active
     tmux -L "$SOCKET" set-option -p -t "$pane1" @pane_label "DualTestMgr" 2>/dev/null
     tmux -L "$SOCKET" set-option -p -t "$pane2" @pane_manager "DualTestMgr" 2>/dev/null
 
-    # Connect as overseer (sets active + visual)
-    "$FLEET_SH" overseer-connect "$pane1" --socket "$SOCKET" > /dev/null 2>&1
+    # Connect as coordinator (sets active + visual)
+    "$FLEET_SH" coordinator-connect "$pane1" --socket "$SOCKET" > /dev/null 2>&1
 
     sleep 0.1
 
     local bg
     bg=$(get_pane_bg "$pane1")
-    assert_eq "#0d0518" "$bg" "Case 5: overseer-active (#0d0518) beats manager (#1a0a2e)"
+    assert_eq "#0d0518" "$bg" "Case 5: coordinator-active (#0d0518) beats manager (#1a0a2e)"
 
     restore_pane_purple_state "$pane1" "$saved1"
     restore_pane_purple_state "$pane2" "$saved2"
@@ -388,7 +388,7 @@ test_color_hardcoded_defaults() {
     theme_saved=$(save_theme_state)
 
     # Clear all purple layer state
-    tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_overseer_active 2>/dev/null || true
+    tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_coordinator_active 2>/dev/null || true
     tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_manager 2>/dev/null || true
     # Clear any theme overrides for checked state
     tmux -L "$SOCKET" set-option -gu @fleet_theme_checked 2>/dev/null || true
@@ -397,7 +397,7 @@ test_color_hardcoded_defaults() {
 
     # Set notify state and trigger visual via disconnect (no-op clear + visual refresh)
     tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_notify "checked" 2>/dev/null
-    "$FLEET_SH" overseer-disconnect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
+    "$FLEET_SH" coordinator-disconnect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
 
     sleep 0.1
 
@@ -423,7 +423,7 @@ test_color_theme_override_state() {
     orig_checked_theme=$(tmux -L "$SOCKET" show-option -gqv @fleet_theme_checked 2>/dev/null || echo "")
 
     # Clear purple layer state
-    tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_overseer_active 2>/dev/null || true
+    tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_coordinator_active 2>/dev/null || true
     tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_label 2>/dev/null || true
 
     # Set a theme override for "checked" state
@@ -431,7 +431,7 @@ test_color_theme_override_state() {
 
     # Trigger visual with checked state
     tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_notify "checked" 2>/dev/null
-    "$FLEET_SH" overseer-disconnect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
+    "$FLEET_SH" coordinator-disconnect "$pane_id" --socket "$SOCKET" > /dev/null 2>&1
 
     sleep 0.1
 
@@ -462,16 +462,16 @@ test_auto_disconnect_on_checked() {
     local saved
     saved=$(save_pane_purple_state "$pane_id")
 
-    # Set overseer active and ensure initial state differs from "checked" to avoid debounce
-    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_overseer_active "true" 2>/dev/null
+    # Set coordinator active and ensure initial state differs from "checked" to avoid debounce
+    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_coordinator_active "true" 2>/dev/null
     tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_notify "unchecked" 2>/dev/null
 
     # Trigger notify with "checked" — should auto-disconnect
     TMUX_PANE="$pane_id" "$FLEET_SH" notify checked 2>/dev/null || true
 
     local result
-    result=$(get_overseer_active "$pane_id")
-    assert_eq "" "$result" "Case 7: auto-disconnect clears @pane_overseer_active on 'checked'"
+    result=$(get_coordinator_active "$pane_id")
+    assert_eq "" "$result" "Case 7: auto-disconnect clears @pane_coordinator_active on 'checked'"
 
     restore_pane_purple_state "$pane_id" "$saved"
 }
@@ -484,14 +484,14 @@ test_auto_disconnect_on_working() {
     local saved
     saved=$(save_pane_purple_state "$pane_id")
 
-    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_overseer_active "true" 2>/dev/null
+    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_coordinator_active "true" 2>/dev/null
     tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_notify "unchecked" 2>/dev/null
 
     TMUX_PANE="$pane_id" "$FLEET_SH" notify working 2>/dev/null || true
 
     local result
-    result=$(get_overseer_active "$pane_id")
-    assert_eq "" "$result" "Case 8: auto-disconnect clears @pane_overseer_active on 'working'"
+    result=$(get_coordinator_active "$pane_id")
+    assert_eq "" "$result" "Case 8: auto-disconnect clears @pane_coordinator_active on 'working'"
 
     restore_pane_purple_state "$pane_id" "$saved"
 }
@@ -504,14 +504,14 @@ test_auto_disconnect_on_done() {
     local saved
     saved=$(save_pane_purple_state "$pane_id")
 
-    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_overseer_active "true" 2>/dev/null
+    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_coordinator_active "true" 2>/dev/null
     tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_notify "unchecked" 2>/dev/null
 
     TMUX_PANE="$pane_id" "$FLEET_SH" notify done 2>/dev/null || true
 
     local result
-    result=$(get_overseer_active "$pane_id")
-    assert_eq "" "$result" "Case 9: auto-disconnect clears @pane_overseer_active on 'done'"
+    result=$(get_coordinator_active "$pane_id")
+    assert_eq "" "$result" "Case 9: auto-disconnect clears @pane_coordinator_active on 'done'"
 
     restore_pane_purple_state "$pane_id" "$saved"
 }
@@ -524,14 +524,14 @@ test_auto_disconnect_on_error() {
     local saved
     saved=$(save_pane_purple_state "$pane_id")
 
-    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_overseer_active "true" 2>/dev/null
+    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_coordinator_active "true" 2>/dev/null
     tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_notify "checked" 2>/dev/null
 
     TMUX_PANE="$pane_id" "$FLEET_SH" notify error 2>/dev/null || true
 
     local result
-    result=$(get_overseer_active "$pane_id")
-    assert_eq "" "$result" "Case 10: auto-disconnect clears @pane_overseer_active on 'error'"
+    result=$(get_coordinator_active "$pane_id")
+    assert_eq "" "$result" "Case 10: auto-disconnect clears @pane_coordinator_active on 'error'"
 
     restore_pane_purple_state "$pane_id" "$saved"
 }
@@ -544,14 +544,14 @@ test_no_disconnect_on_unchecked() {
     local saved
     saved=$(save_pane_purple_state "$pane_id")
 
-    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_overseer_active "true" 2>/dev/null
+    tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_coordinator_active "true" 2>/dev/null
     tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_notify "checked" 2>/dev/null
 
     TMUX_PANE="$pane_id" "$FLEET_SH" notify unchecked 2>/dev/null || true
 
     local result
-    result=$(get_overseer_active "$pane_id")
-    assert_eq "true" "$result" "Case 11: @pane_overseer_active preserved on 'unchecked'"
+    result=$(get_coordinator_active "$pane_id")
+    assert_eq "true" "$result" "Case 11: @pane_coordinator_active preserved on 'unchecked'"
 
     restore_pane_purple_state "$pane_id" "$saved"
 }
@@ -566,21 +566,21 @@ echo ""
 # Check prerequisites first
 check_tmux_available
 
-# cmd_overseer_connect
-test_connect_sets_overseer_active
+# cmd_coordinator_connect
+test_connect_sets_coordinator_active
 test_connect_outputs_confirmation
 test_connect_missing_pane_id
 
-# cmd_overseer_disconnect
-test_disconnect_clears_overseer_active
+# cmd_coordinator_disconnect
+test_disconnect_clears_coordinator_active
 test_disconnect_outputs_confirmation
 test_disconnect_missing_pane_id
 
 # _resolve_pane_color (via visual)
-test_color_overseer_active_dark_purple
+test_color_coordinator_active_dark_purple
 test_color_theme_override_active
 test_color_manager_light_purple
-test_color_overseer_beats_manager
+test_color_coordinator_beats_manager
 test_color_hardcoded_defaults
 test_color_theme_override_state
 

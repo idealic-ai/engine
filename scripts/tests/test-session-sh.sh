@@ -52,8 +52,8 @@ MOCK
   mkdir -p "$HOME/.claude/tools/session-search"
   mkdir -p "$HOME/.claude/tools/doc-search"
 
-  # Symlink the real session.sh and lib.sh
-  ln -sf "$SESSION_SH" "$HOME/.claude/scripts/session.sh"
+  # Copy session.sh (not symlink — see PITFALLS.md: symlink + cat > destroys real file)
+  cp "$SESSION_SH" "$HOME/.claude/scripts/session.sh"
   ln -sf "$LIB_SH" "$HOME/.claude/scripts/lib.sh"
 
   # Link mock fleet.sh into the fake home
@@ -415,14 +415,14 @@ test_activate_claims_pid_from_other_sessions() {
   # Activate SESSION_B with same PID
   "$SESSION_SH" activate "$TEST_DIR/sessions/SESSION_B" implement < /dev/null > /dev/null 2>&1
 
-  # SESSION_A should have pid=0 now
+  # SESSION_A should have pid deleted (del(.pid) removes the key)
   local old_pid
-  old_pid=$(jq -r '.pid' "$TEST_DIR/sessions/SESSION_A/.state.json" 2>/dev/null)
+  old_pid=$(jq -r '.pid // "deleted"' "$TEST_DIR/sessions/SESSION_A/.state.json" 2>/dev/null)
 
-  if [ "$old_pid" = "0" ]; then
+  if [ "$old_pid" = "null" ] || [ "$old_pid" = "deleted" ]; then
     pass "$test_name"
   else
-    fail "$test_name" "SESSION_A pid=0" "SESSION_A pid=$old_pid"
+    fail "$test_name" "SESSION_A pid=null/deleted" "SESSION_A pid=$old_pid"
   fi
 
   teardown
@@ -788,6 +788,441 @@ PARAMS
 }
 
 # =============================================================================
+# SKILL.MD EXTRACTION: EXPANDED COVERAGE (Cases 1-10)
+# =============================================================================
+
+test_activate_same_pid_skill_change_extracts() {
+  local test_name="activate: applies SKILL.md static fields on same-PID skill change"
+  setup
+
+  create_mock_skill "skill-a" '{
+    "taskType": "TYPE_A",
+    "phases": [{"label": "0", "name": "Setup A"}]
+  }'
+  create_mock_skill "skill-b" '{
+    "taskType": "TYPE_B",
+    "phases": [{"label": "0", "name": "Setup B"}]
+  }'
+
+  # First activation with skill-a
+  export CLAUDE_SUPERVISOR_PID=$$
+  "$SESSION_SH" activate "$TEST_DIR/sessions/SAME_PID" skill-a <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "First activation",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": ""
+}
+PARAMS
+
+  # Re-activate same session with skill-b (same PID)
+  "$SESSION_SH" activate "$TEST_DIR/sessions/SAME_PID" skill-b <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "Second activation",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": ""
+}
+PARAMS
+
+  local sf="$TEST_DIR/sessions/SAME_PID/.state.json"
+  local task_type skill phase_name
+  task_type=$(jq -r '.taskType' "$sf")
+  skill=$(jq -r '.skill' "$sf")
+  phase_name=$(jq -r '.phases[0].name' "$sf")
+
+  if [ "$task_type" = "TYPE_B" ] && [ "$skill" = "skill-b" ] && [ "$phase_name" = "Setup B" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "taskType=TYPE_B, skill=skill-b, phase=Setup B" \
+      "taskType=$task_type, skill=$skill, phase=$phase_name"
+  fi
+
+  teardown
+}
+
+test_activate_idle_reactivation_extracts() {
+  local test_name="activate: applies SKILL.md static fields on idle reactivation"
+  setup
+
+  create_mock_skill "idle-skill" '{
+    "taskType": "IDLE_TYPE",
+    "phases": [{"label": "0", "name": "Idle Setup"}],
+    "nextSkills": ["/fix"]
+  }'
+
+  # Create an idle .state.json with null PID
+  local dir="$TEST_DIR/sessions/IDLE_REACTIVATE"
+  mkdir -p "$dir"
+  cat > "$dir/.state.json" <<'STATE'
+{
+  "pid": null,
+  "skill": "old-skill",
+  "lifecycle": "idle",
+  "loading": false,
+  "overflowed": false,
+  "killRequested": false,
+  "taskType": "OLD_TYPE"
+}
+STATE
+
+  export CLAUDE_SUPERVISOR_PID=$$
+  "$SESSION_SH" activate "$dir" idle-skill <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "Idle reactivation test",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": ""
+}
+PARAMS
+
+  local sf="$dir/.state.json"
+  local task_type lifecycle pid next_skill
+  task_type=$(jq -r '.taskType' "$sf")
+  lifecycle=$(jq -r '.lifecycle' "$sf")
+  pid=$(jq -r '.pid' "$sf")
+  next_skill=$(jq -r '.nextSkills[0]' "$sf")
+
+  if [ "$task_type" = "IDLE_TYPE" ] && [ "$lifecycle" = "active" ] && \
+     [ "$pid" = "$$" ] && [ "$next_skill" = "/fix" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "taskType=IDLE_TYPE, lifecycle=active, pid=$$, nextSkills[0]=/fix" \
+      "taskType=$task_type, lifecycle=$lifecycle, pid=$pid, nextSkills[0]=$next_skill"
+  fi
+
+  teardown
+}
+
+test_activate_resolves_modes_paths() {
+  local test_name="activate: resolves modes nested file paths to absolute"
+  setup
+
+  create_mock_skill "modes-skill" '{
+    "taskType": "MODES_TEST",
+    "modes": {
+      "coverage": {"label": "Coverage", "description": "Gap filling", "file": "modes/coverage.md"},
+      "hardening": {"label": "Hardening", "description": "Edge cases", "file": "modes/hardening.md"}
+    }
+  }'
+
+  "$SESSION_SH" activate "$TEST_DIR/sessions/MODES_PATHS" modes-skill <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "Test modes paths",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": ""
+}
+PARAMS
+
+  local sf="$TEST_DIR/sessions/MODES_PATHS/.state.json"
+  local coverage_file hardening_file
+  coverage_file=$(jq -r '.modes.coverage.file' "$sf")
+  hardening_file=$(jq -r '.modes.hardening.file' "$sf")
+
+  local expected_prefix="$HOME/.claude/skills/modes-skill"
+  if [[ "$coverage_file" == "$expected_prefix/modes/coverage.md" ]] && \
+     [[ "$hardening_file" == "$expected_prefix/modes/hardening.md" ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "modes paths resolved to $expected_prefix/modes/..." \
+      "coverage=$coverage_file, hardening=$hardening_file"
+  fi
+
+  teardown
+}
+
+test_activate_same_pid_same_skill_no_remerge() {
+  local test_name="activate: same-PID same-skill exits early without re-merging state"
+  setup
+
+  create_mock_skill "test-skill" '{
+    "taskType": "ORIGINAL",
+    "phases": [{"label": "0", "name": "Setup"}]
+  }'
+
+  export CLAUDE_SUPERVISOR_PID=$$
+  "$SESSION_SH" activate "$TEST_DIR/sessions/NO_REMERGE" test-skill <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "First activation",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": ""
+}
+PARAMS
+
+  # Add a custom field to .state.json
+  local sf="$TEST_DIR/sessions/NO_REMERGE/.state.json"
+  jq '.customField = "survive"' "$sf" | tee "$sf.tmp" > /dev/null && mv "$sf.tmp" "$sf"
+
+  # Re-activate same skill, same PID
+  local output
+  output=$("$SESSION_SH" activate "$TEST_DIR/sessions/NO_REMERGE" test-skill < /dev/null 2>&1) || true
+
+  local custom_field
+  custom_field=$(jq -r '.customField // "missing"' "$sf")
+
+  if [[ "$output" == *"Session re-activated"* ]] && [ "$custom_field" = "survive" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "early exit with 'Session re-activated' + customField survives" \
+      "output=$(echo "$output" | head -1), customField=$custom_field"
+  fi
+
+  teardown
+}
+
+test_activate_setup_copies_session_sh() {
+  local test_name="activate: setup() copies session.sh instead of symlinking"
+  setup
+
+  local session_sh_path="$HOME/.claude/scripts/session.sh"
+  if [ -L "$session_sh_path" ]; then
+    fail "$test_name" "regular file (not symlink)" "is a symlink"
+  elif [ -f "$session_sh_path" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "regular file exists" "file does not exist"
+  fi
+
+  teardown
+}
+
+test_activate_invalid_json_graceful() {
+  local test_name="activate: gracefully handles invalid JSON in SKILL.md"
+  setup
+
+  # Create SKILL.md with malformed JSON
+  local skill_dir="$HOME/.claude/skills/bad-json"
+  mkdir -p "$skill_dir"
+  cat > "$skill_dir/SKILL.md" <<'SKILLEOF'
+---
+description: "Bad JSON skill"
+---
+# Bad JSON Skill
+
+```json
+{ "taskType": "BROKEN", "phases": INVALID_NOT_JSON }
+```
+SKILLEOF
+
+  local output
+  output=$("$SESSION_SH" activate "$TEST_DIR/sessions/BAD_JSON" bad-json <<'PARAMS' 2>&1
+{
+  "taskSummary": "Test bad json",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": "",
+  "taskType": "AGENT_FALLBACK"
+}
+PARAMS
+  ) || true
+  local exit_code=$?
+
+  local sf="$TEST_DIR/sessions/BAD_JSON/.state.json"
+  local task_type
+  task_type=$(jq -r '.taskType' "$sf" 2>/dev/null || echo "missing")
+
+  if [ $exit_code -eq 0 ] && [ "$task_type" = "AGENT_FALLBACK" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 + agent taskType=AGENT_FALLBACK preserved" \
+      "exit=$exit_code, taskType=$task_type"
+  fi
+
+  teardown
+}
+
+test_activate_no_json_block_graceful() {
+  local test_name="activate: handles SKILL.md with no JSON block"
+  setup
+
+  # Create SKILL.md with no ```json fence
+  local skill_dir="$HOME/.claude/skills/no-json"
+  mkdir -p "$skill_dir"
+  cat > "$skill_dir/SKILL.md" <<'SKILLEOF'
+---
+description: "No JSON skill"
+---
+# No JSON Skill
+
+This skill has prose but no JSON block.
+
+## Phase 1: Setup
+Just do things.
+SKILLEOF
+
+  local output
+  output=$("$SESSION_SH" activate "$TEST_DIR/sessions/NO_JSON" no-json <<'PARAMS' 2>&1
+{
+  "taskSummary": "Test no json block",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": "",
+  "taskType": "AGENT_PROVIDED"
+}
+PARAMS
+  ) || true
+  local exit_code=$?
+
+  local sf="$TEST_DIR/sessions/NO_JSON/.state.json"
+  local task_type
+  task_type=$(jq -r '.taskType' "$sf" 2>/dev/null || echo "missing")
+
+  if [ $exit_code -eq 0 ] && [ "$task_type" = "AGENT_PROVIDED" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 + agent taskType=AGENT_PROVIDED preserved" \
+      "exit=$exit_code, taskType=$task_type"
+  fi
+
+  teardown
+}
+
+test_activate_absolute_paths_unchanged() {
+  local test_name="activate: absolute paths in SKILL.md are not double-resolved"
+  setup
+
+  create_mock_skill "abs-path-skill" '{
+    "taskType": "ABS_TEST",
+    "logTemplate": "/absolute/path/LOG.md",
+    "debriefTemplate": "assets/TEMPLATE_REL.md"
+  }'
+
+  "$SESSION_SH" activate "$TEST_DIR/sessions/ABS_PATHS" abs-path-skill <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "Test absolute paths",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": ""
+}
+PARAMS
+
+  local sf="$TEST_DIR/sessions/ABS_PATHS/.state.json"
+  local log_tmpl debrief_tmpl
+  log_tmpl=$(jq -r '.logTemplate' "$sf")
+  debrief_tmpl=$(jq -r '.debriefTemplate' "$sf")
+
+  local expected_prefix="$HOME/.claude/skills/abs-path-skill"
+  if [ "$log_tmpl" = "/absolute/path/LOG.md" ] && \
+     [[ "$debrief_tmpl" == "$expected_prefix/assets/TEMPLATE_REL.md" ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "logTemplate=/absolute/path/LOG.md (unchanged), debriefTemplate resolved" \
+      "logTemplate=$log_tmpl, debriefTemplate=$debrief_tmpl"
+  fi
+
+  teardown
+}
+
+test_activate_static_filter_preserves_dynamic() {
+  local test_name="activate: static filter overwrites only static fields, preserves dynamic"
+  setup
+
+  create_mock_skill "filter-skill" '{
+    "taskType": "SKILL_TYPE",
+    "phases": [{"label": "0", "name": "Skill Phase"}],
+    "nextSkills": ["/review"]
+  }'
+
+  "$SESSION_SH" activate "$TEST_DIR/sessions/STATIC_FILTER" filter-skill <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "My specific task",
+  "scope": "Narrow scope",
+  "directoriesOfInterest": ["src/"],
+  "contextPaths": ["docs/README.md"],
+  "requestFiles": [],
+  "extraInfo": "Agent-only info",
+  "taskType": "WRONG_AGENT_TYPE"
+}
+PARAMS
+
+  local sf="$TEST_DIR/sessions/STATIC_FILTER/.state.json"
+  local task_type task_summary scope extra_info
+  task_type=$(jq -r '.taskType' "$sf")
+  task_summary=$(jq -r '.taskSummary' "$sf")
+  scope=$(jq -r '.scope' "$sf")
+  extra_info=$(jq -r '.extraInfo' "$sf")
+
+  if [ "$task_type" = "SKILL_TYPE" ] && \
+     [ "$task_summary" = "My specific task" ] && \
+     [ "$scope" = "Narrow scope" ] && \
+     [ "$extra_info" = "Agent-only info" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "static overwritten (SKILL_TYPE), dynamic preserved (My specific task, Narrow scope, Agent-only info)" \
+      "taskType=$task_type, taskSummary=$task_summary, scope=$scope, extraInfo=$extra_info"
+  fi
+
+  teardown
+}
+
+test_activate_stale_pid_then_extracts() {
+  local test_name="activate: cleans stale PID then applies SKILL.md extraction on fresh activation"
+  setup
+
+  create_mock_skill "stale-skill" '{
+    "taskType": "STALE_FRESH",
+    "phases": [{"label": "0", "name": "Fresh Start"}]
+  }'
+
+  # Create .state.json with a dead PID
+  local dir="$TEST_DIR/sessions/STALE_PID"
+  mkdir -p "$dir"
+  cat > "$dir/.state.json" <<'STATE'
+{
+  "pid": 99999998,
+  "skill": "old-skill",
+  "lifecycle": "active",
+  "taskType": "OLD_STALE"
+}
+STATE
+
+  export CLAUDE_SUPERVISOR_PID=$$
+  "$SESSION_SH" activate "$dir" stale-skill <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "After stale cleanup",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": ""
+}
+PARAMS
+
+  local sf="$dir/.state.json"
+  local task_type pid phase_name
+  task_type=$(jq -r '.taskType' "$sf")
+  pid=$(jq -r '.pid' "$sf")
+  phase_name=$(jq -r '.phases[0].name' "$sf")
+
+  if [ "$task_type" = "STALE_FRESH" ] && [ "$pid" = "$$" ] && [ "$phase_name" = "Fresh Start" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "taskType=STALE_FRESH, pid=$$, phase=Fresh Start" \
+      "taskType=$task_type, pid=$pid, phase=$phase_name"
+  fi
+
+  teardown
+}
+
+# =============================================================================
 # UPDATE TESTS
 # =============================================================================
 
@@ -969,7 +1404,8 @@ test_phase_auto_appends_subphase() {
   local sf="$TEST_DIR/sessions/PHASE_SUB/.state.json"
   local phase sub_exists
   phase=$(jq -r '.currentPhase' "$sf")
-  sub_exists=$(jq '[.phases[] | select(.major == 4 and .minor == 1)] | length' "$sf")
+  # Auto-appended sub-phases use label-only format (no major/minor fields)
+  sub_exists=$(jq '[.phases[] | select(.label == "4.1")] | length' "$sf")
 
   if [ $exit_code -eq 0 ] && [ "$phase" = "4.1: Agent Handoff" ] && [ "$sub_exists" = "1" ]; then
     pass "$test_name"
@@ -1039,7 +1475,7 @@ test_phase_no_enforcement_without_phases_array() {
 }
 
 test_phase_populates_pending_commands() {
-  local test_name="phase: populates pendingCommands from steps and commands arrays"
+  local test_name="phase: populates pendingPreloads from steps and commands arrays"
   setup
 
   # Create CMD files in the fake HOME so session.sh can resolve them
@@ -1064,10 +1500,10 @@ test_phase_populates_pending_commands() {
 
   local sf="$TEST_DIR/sessions/PHASE_CMD/.state.json"
   local pending_count pending_has_append pending_has_track pending_has_nonexistent
-  pending_count=$(jq '.pendingCommands | length' "$sf" 2>/dev/null || echo "0")
-  pending_has_append=$(jq '[.pendingCommands[] | test("CMD_APPEND_LOG")] | any' "$sf" 2>/dev/null || echo "false")
-  pending_has_track=$(jq '[.pendingCommands[] | test("CMD_TRACK_PROGRESS")] | any' "$sf" 2>/dev/null || echo "false")
-  pending_has_nonexistent=$(jq '[.pendingCommands[] | test("CMD_NONEXISTENT")] | any' "$sf" 2>/dev/null || echo "false")
+  pending_count=$(jq '.pendingPreloads | length' "$sf" 2>/dev/null || echo "0")
+  pending_has_append=$(jq '[.pendingPreloads[] | test("CMD_APPEND_LOG")] | any' "$sf" 2>/dev/null || echo "false")
+  pending_has_track=$(jq '[.pendingPreloads[] | test("CMD_TRACK_PROGRESS")] | any' "$sf" 2>/dev/null || echo "false")
+  pending_has_nonexistent=$(jq '[.pendingPreloads[] | test("CMD_NONEXISTENT")] | any' "$sf" 2>/dev/null || echo "false")
 
   if [ "$pending_count" = "2" ] && [ "$pending_has_append" = "true" ] && [ "$pending_has_track" = "true" ] && [ "$pending_has_nonexistent" = "false" ]; then
     pass "$test_name"
@@ -1080,7 +1516,7 @@ test_phase_populates_pending_commands() {
 }
 
 test_phase_skips_already_preloaded_commands() {
-  local test_name="phase: filters already-preloaded files from pendingCommands"
+  local test_name="phase: filters already-preloaded files from pendingPreloads"
   setup
 
   local cmd_dir="$HOME/.claude/.directives/commands"
@@ -1088,10 +1524,10 @@ test_phase_skips_already_preloaded_commands() {
   echo "# APPEND_LOG" > "$cmd_dir/CMD_APPEND_LOG.md"
   echo "# TRACK_PROGRESS" > "$cmd_dir/CMD_TRACK_PROGRESS.md"
 
-  create_state "$TEST_DIR/sessions/PHASE_PRELOADED" "$(jq -n --arg cmd_dir "$cmd_dir" '{
+  create_state "$TEST_DIR/sessions/PHASE_PRELOADED" "$(jq -n '{
     pid: 99999999, skill: "fix", lifecycle: "active", loading: true,
     currentPhase: "2: Triage Walk-Through",
-    preloadedFiles: [($cmd_dir + "/CMD_APPEND_LOG.md")],
+    preloadedFiles: ["~/.claude/.directives/commands/CMD_APPEND_LOG.md"],
     phases: [
       {major: 2, minor: 0, name: "Triage Walk-Through"},
       {major: 3, minor: 0, name: "Fix Loop",
@@ -1103,8 +1539,8 @@ test_phase_skips_already_preloaded_commands() {
 
   local sf="$TEST_DIR/sessions/PHASE_PRELOADED/.state.json"
   local pending_count pending_has_track
-  pending_count=$(jq '.pendingCommands | length' "$sf" 2>/dev/null || echo "0")
-  pending_has_track=$(jq '[.pendingCommands[] | test("CMD_TRACK_PROGRESS")] | any' "$sf" 2>/dev/null || echo "false")
+  pending_count=$(jq '.pendingPreloads | length' "$sf" 2>/dev/null || echo "0")
+  pending_has_track=$(jq '[.pendingPreloads[] | test("CMD_TRACK_PROGRESS")] | any' "$sf" 2>/dev/null || echo "false")
 
   if [ "$pending_count" = "1" ] && [ "$pending_has_track" = "true" ]; then
     pass "$test_name"
@@ -1246,8 +1682,10 @@ test_deactivate_outputs_all_errors() {
   setup
 
   # State with discoveredChecklists but no checkPassed, and a debriefTemplate
+  # currentPhase must be > 1 so EARLY_PHASE=false and gates actually fire
   create_state "$TEST_DIR/sessions/DEACT_MULTI" '{
     "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "3: Synthesis",
     "debriefTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md",
     "discoveredChecklists": ["packages/foo/CHECKLIST.md"]
   }'
@@ -1280,8 +1718,10 @@ test_deactivate_single_error_only() {
   setup
 
   # State with debriefTemplate but no debrief file. No checklists. Description IS provided.
+  # currentPhase must be > 1 so EARLY_PHASE=false and debrief gate fires
   create_state "$TEST_DIR/sessions/DEACT_SINGLE" '{
     "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "3: Synthesis",
     "debriefTemplate": "~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md"
   }'
   # No debrief file → only gate 2 should fire
@@ -1303,6 +1743,115 @@ test_deactivate_single_error_only() {
   else
     fail "$test_name" "exit 1 + ONLY debrief error" \
       "exit=$exit_code, desc_err=$has_desc_err, debrief_err=$has_debrief_err, checklist_err=$has_checklist_err"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TERMINAL PROOF TESTS (deactivate from idle with phase proof)
+# =============================================================================
+
+test_deactivate_terminal_proof_succeeds_no_proof_fields() {
+  local test_name="deactivate terminal proof: succeeds when current phase has no proof fields"
+  setup
+
+  # Idle session with phases array, but terminal phase has no proof fields
+  create_state "$TEST_DIR/sessions/DEACT_TP1" '{
+    "pid": null, "skill": "implement", "lifecycle": "idle",
+    "currentPhase": "4.4: Close",
+    "sessionDescription": "Did some work",
+    "phases": [
+      {"label": "4.4", "name": "Close"}
+    ]
+  }'
+
+  local output
+  output=$(echo "" | "$SESSION_SH" deactivate "$TEST_DIR/sessions/DEACT_TP1" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_deactivate_terminal_proof_blocks_no_stdin() {
+  local test_name="deactivate terminal proof: blocks when phase has proof fields but no stdin"
+  setup
+
+  # Idle session with phases array, terminal phase HAS proof fields
+  create_state "$TEST_DIR/sessions/DEACT_TP2" '{
+    "pid": null, "skill": "implement", "lifecycle": "idle",
+    "currentPhase": "4.4: Close",
+    "sessionDescription": "Did some work",
+    "phases": [
+      {"label": "4.4", "name": "Close", "proof": ["session_idled", "description_written"]}
+    ]
+  }'
+
+  local output
+  output=$(echo "" | "$SESSION_SH" deactivate "$TEST_DIR/sessions/DEACT_TP2" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -ne 0 ] && [[ "$output" == *"Terminal proof required"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 1 + 'Terminal proof required'" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_deactivate_terminal_proof_succeeds_with_proof() {
+  local test_name="deactivate terminal proof: succeeds when proof is piped via stdin"
+  setup
+
+  # Idle session with proof fields on terminal phase
+  create_state "$TEST_DIR/sessions/DEACT_TP3" '{
+    "pid": null, "skill": "implement", "lifecycle": "idle",
+    "currentPhase": "4.4: Close",
+    "sessionDescription": "Did some work",
+    "phases": [
+      {"label": "4.4", "name": "Close", "proof": ["session_idled", "description_written"]}
+    ]
+  }'
+
+  local output
+  output=$(printf 'session_idled: true\ndescription_written: true' | "$SESSION_SH" deactivate "$TEST_DIR/sessions/DEACT_TP3" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_deactivate_terminal_proof_skips_no_phases() {
+  local test_name="deactivate terminal proof: skips validation when no phases array"
+  setup
+
+  # Idle session WITHOUT phases array (backward compat)
+  create_state "$TEST_DIR/sessions/DEACT_TP4" '{
+    "pid": null, "skill": "implement", "lifecycle": "idle",
+    "currentPhase": "4.4: Close",
+    "sessionDescription": "Did some work"
+  }'
+
+  local output
+  output=$(echo "" | "$SESSION_SH" deactivate "$TEST_DIR/sessions/DEACT_TP4" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 (no phases = no enforcement)" "exit=$exit_code, output=$output"
   fi
 
   teardown
@@ -1434,6 +1983,314 @@ test_find_rejects_alive_different_pid() {
 }
 
 # =============================================================================
+# TERMINAL PROOF INTEGRATION TESTS
+# =============================================================================
+
+test_full_lifecycle_idle_then_deactivate_with_proof() {
+  local test_name="lifecycle: activate → phase → idle → deactivate with proof"
+  setup
+
+  local DIR="$TEST_DIR/sessions/LIFECYCLE1"
+
+  # Step 1: Activate with phases array where terminal phase has proof fields
+  local output
+  output=$(valid_activate_json '{"phases":[{"label":"0","name":"Setup","proof":[]},{"label":"1","name":"Work","proof":[]},{"label":"2","name":"Synthesis","proof":["session_idled","description_written"]}]}' | "$SESSION_SH" activate "$DIR" implement 2>&1)
+
+  # Step 2: Transition through phases to terminal phase
+  echo "" | "$SESSION_SH" phase "$DIR" "0: Setup" 2>&1 > /dev/null
+  echo "" | "$SESSION_SH" phase "$DIR" "1: Work" 2>&1 > /dev/null
+  echo "" | "$SESSION_SH" phase "$DIR" "2: Synthesis" 2>&1 > /dev/null
+
+  # Step 3: Call idle (stores description + keywords)
+  echo "Completed lifecycle test work" | "$SESSION_SH" idle "$DIR" --keywords "test,lifecycle" 2>&1 > /dev/null
+
+  # Step 4: Deactivate with proof via stdin
+  output=$(printf 'session_idled: true\ndescription_written: true' | "$SESSION_SH" deactivate "$DIR" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    local lifecycle
+    lifecycle=$(jq -r '.lifecycle' "$DIR/.state.json")
+    assert_eq "completed" "$lifecycle" "$test_name — lifecycle is completed"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_full_lifecycle_idle_then_deactivate_no_proof_needed() {
+  local test_name="lifecycle: activate → idle → deactivate succeeds when terminal phase has no proof fields"
+  setup
+
+  local DIR="$TEST_DIR/sessions/LIFECYCLE2"
+
+  # Activate with phases array where terminal phase has empty proof
+  valid_activate_json '{"phases":[{"label":"0","name":"Setup","proof":[]},{"label":"1","name":"Work","proof":[]},{"label":"2","name":"Synthesis","proof":[]}]}' | "$SESSION_SH" activate "$DIR" implement 2>&1 > /dev/null
+
+  # Transition through phases
+  echo "" | "$SESSION_SH" phase "$DIR" "0: Setup" 2>&1 > /dev/null
+  echo "" | "$SESSION_SH" phase "$DIR" "1: Work" 2>&1 > /dev/null
+  echo "" | "$SESSION_SH" phase "$DIR" "2: Synthesis" 2>&1 > /dev/null
+
+  # Idle with description
+  echo "No proof needed work" | "$SESSION_SH" idle "$DIR" 2>&1 > /dev/null
+
+  # Deactivate — no proof needed (empty proof array on terminal phase)
+  local output
+  output=$(echo "" | "$SESSION_SH" deactivate "$DIR" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    local lifecycle
+    lifecycle=$(jq -r '.lifecycle' "$DIR/.state.json")
+    assert_eq "completed" "$lifecycle" "$test_name — lifecycle is completed"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_direct_deactivate_active_session_skips_proof() {
+  local test_name="lifecycle: direct deactivate (active, no idle) skips proof gate"
+  setup
+
+  local DIR="$TEST_DIR/sessions/LIFECYCLE3"
+
+  # Activate with proof fields on terminal phase
+  valid_activate_json '{"phases":[{"label":"0","name":"Setup","proof":[]},{"label":"2","name":"Synthesis","proof":["session_idled","description_written"]}]}' | "$SESSION_SH" activate "$DIR" implement 2>&1 > /dev/null
+
+  # Transition to terminal phase
+  echo "" | "$SESSION_SH" phase "$DIR" "0: Setup" 2>&1 > /dev/null
+  echo "" | "$SESSION_SH" phase "$DIR" "2: Synthesis" 2>&1 > /dev/null
+
+  # Deactivate directly (lifecycle=active, not idle) — stdin is description, NOT proof
+  local output
+  output=$(echo "Direct deactivation description" | "$SESSION_SH" deactivate "$DIR" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    local desc
+    desc=$(jq -r '.sessionDescription' "$DIR/.state.json")
+    assert_contains "Direct deactivation" "$desc" "$test_name — description stored"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_deactivate_idle_stdin_is_proof_not_description() {
+  local test_name="deactivate stdin routing: idle session uses stdin as proof, description from state"
+  setup
+
+  # Create idle session with description already stored
+  create_state "$TEST_DIR/sessions/STDIN_PROOF" '{
+    "pid": null, "skill": "implement", "lifecycle": "idle",
+    "currentPhase": "4.4: Close",
+    "sessionDescription": "Work done in idle",
+    "phases": [
+      {"label": "4.4", "name": "Close", "proof": ["session_idled"]}
+    ]
+  }'
+
+  # Deactivate with proof via stdin
+  local output
+  output=$(printf 'session_idled: true' | "$SESSION_SH" deactivate "$TEST_DIR/sessions/STDIN_PROOF" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    # Description should come from stored state, not from stdin
+    local desc
+    desc=$(jq -r '.sessionDescription' "$TEST_DIR/sessions/STDIN_PROOF/.state.json")
+    assert_eq "Work done in idle" "$desc" "$test_name — description from state"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_deactivate_active_stdin_is_description_not_proof() {
+  local test_name="deactivate stdin routing: active session uses stdin as description, skips proof"
+  setup
+
+  # Create active session with proof-gated terminal phase
+  create_state "$TEST_DIR/sessions/STDIN_DESC" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "4.4: Close",
+    "phases": [
+      {"label": "4.4", "name": "Close", "proof": ["session_idled", "description_written"]}
+    ]
+  }'
+
+  # Deactivate with description via stdin (lifecycle=active → proof gate skipped)
+  local output
+  output=$(echo "This is a description not proof" | "$SESSION_SH" deactivate "$TEST_DIR/sessions/STDIN_DESC" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    local desc
+    desc=$(jq -r '.sessionDescription' "$TEST_DIR/sessions/STDIN_DESC/.state.json")
+    assert_contains "This is a description" "$desc" "$test_name — description stored"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_deactivate_terminal_proof_partial_fields() {
+  local test_name="deactivate terminal proof: blocks on partial proof (missing field)"
+  setup
+
+  # Idle session, terminal phase needs two proof fields
+  create_state "$TEST_DIR/sessions/PARTIAL_PROOF" '{
+    "pid": null, "skill": "implement", "lifecycle": "idle",
+    "currentPhase": "4.4: Close",
+    "sessionDescription": "Partial proof work",
+    "phases": [
+      {"label": "4.4", "name": "Close", "proof": ["session_idled", "description_written"]}
+    ]
+  }'
+
+  # Only provide one of two required proof fields
+  local output
+  output=$(printf 'session_idled: true' | "$SESSION_SH" deactivate "$TEST_DIR/sessions/PARTIAL_PROOF" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -ne 0 ]; then
+    assert_contains "Terminal proof incomplete" "$output" "$test_name — error mentions incomplete"
+    assert_contains "description_written" "$output" "$test_name — error mentions missing field"
+  else
+    fail "$test_name" "exit 1 (partial proof)" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_deactivate_terminal_proof_unfilled_blanks() {
+  local test_name="deactivate terminal proof: blocks on unfilled blank (________)"
+  setup
+
+  # Idle session with proof fields
+  create_state "$TEST_DIR/sessions/UNFILLED_BLANK" '{
+    "pid": null, "skill": "implement", "lifecycle": "idle",
+    "currentPhase": "4.4: Close",
+    "sessionDescription": "Unfilled blank work",
+    "phases": [
+      {"label": "4.4", "name": "Close", "proof": ["session_idled", "description_written"]}
+    ]
+  }'
+
+  # Provide proof with unfilled placeholder
+  local output
+  output=$(printf 'session_idled: ________\ndescription_written: true' | "$SESSION_SH" deactivate "$TEST_DIR/sessions/UNFILLED_BLANK" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -ne 0 ]; then
+    assert_contains "unfilled blank" "$output" "$test_name — error mentions unfilled blank"
+  else
+    fail "$test_name" "exit 1 (unfilled blank)" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_deactivate_idle_no_description_stored() {
+  local test_name="deactivate: blocks when idle session has no stored description"
+  setup
+
+  # Idle session with empty sessionDescription
+  create_state "$TEST_DIR/sessions/NO_DESC_IDLE" '{
+    "pid": null, "skill": "implement", "lifecycle": "idle",
+    "currentPhase": "4.4: Close",
+    "sessionDescription": "",
+    "phases": [
+      {"label": "4.4", "name": "Close", "proof": []}
+    ]
+  }'
+
+  # Deactivate — stdin is proof (lifecycle=idle), description comes from state (empty)
+  local output
+  output=$(echo "" | "$SESSION_SH" deactivate "$TEST_DIR/sessions/NO_DESC_IDLE" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -ne 0 ] && [[ "$output" == *"Description is required"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 1 + 'Description is required'" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_continue_clears_loading_flag() {
+  local test_name="continue: clears loading flag and resets toolCallsByTranscript"
+  setup
+
+  local DIR="$TEST_DIR/sessions/CONTINUE1"
+  create_state "$DIR" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "3: Build", "loading": true,
+    "toolCallsByTranscript": {"Bash": 5, "Read": 3}
+  }'
+
+  local output
+  output=$(echo "" | "$SESSION_SH" continue "$DIR" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    local sf="$DIR/.state.json"
+    local loading tc_count phase
+    loading=$(jq -r '.loading // "deleted"' "$sf")
+    tc_count=$(jq '.toolCallsByTranscript | length' "$sf")
+    phase=$(jq -r '.currentPhase' "$sf")
+
+    assert_eq "deleted" "$loading" "$test_name — loading flag deleted"
+    assert_eq "0" "$tc_count" "$test_name — toolCallsByTranscript reset to empty"
+    assert_eq "3: Build" "$phase" "$test_name — currentPhase unchanged"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_continue_preserves_phase_state() {
+  local test_name="continue: preserves currentPhase and phaseHistory"
+  setup
+
+  local DIR="$TEST_DIR/sessions/CONTINUE2"
+  create_state "$DIR" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "3.A: Build Loop",
+    "phaseHistory": ["0: Setup", "1: Context", "2: Plan", "3.A: Build Loop"],
+    "loading": true,
+    "toolCallsByTranscript": {"Bash": 10}
+  }'
+
+  local output
+  output=$(echo "" | "$SESSION_SH" continue "$DIR" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ]; then
+    local sf="$DIR/.state.json"
+    local phase history_len
+    phase=$(jq -r '.currentPhase' "$sf")
+    history_len=$(jq '.phaseHistory | length' "$sf")
+
+    assert_eq "3.A: Build Loop" "$phase" "$test_name — currentPhase preserved"
+    assert_eq "4" "$history_len" "$test_name — phaseHistory unchanged (4 entries)"
+  else
+    fail "$test_name" "exit 0" "exit=$exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+# =============================================================================
 # Run all tests
 # =============================================================================
 main() {
@@ -1488,6 +2345,19 @@ main() {
   test_activate_dynamic_only_with_skill
 
   echo ""
+  echo "--- Activate: Extraction Expanded Coverage ---"
+  test_activate_same_pid_skill_change_extracts
+  test_activate_idle_reactivation_extracts
+  test_activate_resolves_modes_paths
+  test_activate_same_pid_same_skill_no_remerge
+  test_activate_setup_copies_session_sh
+  test_activate_invalid_json_graceful
+  test_activate_no_json_block_graceful
+  test_activate_absolute_paths_unchanged
+  test_activate_static_filter_preserves_dynamic
+  test_activate_stale_pid_then_extracts
+
+  echo ""
   echo "--- Update ---"
   test_update_numeric_value
   test_update_string_value
@@ -1518,6 +2388,13 @@ main() {
   test_deactivate_single_error_only
 
   echo ""
+  echo "--- Terminal Proof ---"
+  test_deactivate_terminal_proof_succeeds_no_proof_fields
+  test_deactivate_terminal_proof_blocks_no_stdin
+  test_deactivate_terminal_proof_succeeds_with_proof
+  test_deactivate_terminal_proof_skips_no_phases
+
+  echo ""
   echo "--- Restart ---"
   test_restart_sets_kill_requested
   test_restart_missing_state_file
@@ -1527,6 +2404,19 @@ main() {
   test_find_by_pid
   test_find_no_match
   test_find_rejects_alive_different_pid
+
+  echo ""
+  echo "--- Terminal Proof Integration ---"
+  test_full_lifecycle_idle_then_deactivate_with_proof
+  test_full_lifecycle_idle_then_deactivate_no_proof_needed
+  test_direct_deactivate_active_session_skips_proof
+  test_deactivate_idle_stdin_is_proof_not_description
+  test_deactivate_active_stdin_is_description_not_proof
+  test_deactivate_terminal_proof_partial_fields
+  test_deactivate_terminal_proof_unfilled_blanks
+  test_deactivate_idle_no_description_stored
+  test_continue_clears_loading_flag
+  test_continue_preserves_phase_state
 
   exit_with_results
 }

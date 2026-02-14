@@ -130,7 +130,7 @@ Before the `engine session dehydrate` call, briefly announce in chat:
 - **Cap at 8 files**: `requiredFiles` max 8 entries. Prioritize session artifacts > source code > templates.
 - **Combined command**: `engine session dehydrate` both stores AND restarts. Do not call `engine session restart` separately.
 - **JSON only**: Content must be valid JSON. The engine validates before storing.
-- **Auto-injected files**: COMMANDS.md, INVARIANTS.md, TAGS.md, CMD_DEHYDRATE.md, CMD_REHYDRATE.md are auto-injected by SessionStart. Do NOT list them in requiredFiles.
+- **Auto-injected files**: COMMANDS.md, INVARIANTS.md, TAGS.md, CMD_DEHYDRATE.md, CMD_RESUME_SESSION.md are auto-injected by SessionStart. Do NOT list them in requiredFiles.
 
 ---
 
@@ -138,15 +138,19 @@ Before the `engine session dehydrate` call, briefly announce in chat:
 
 ```json
 {
-  "dehydrated": {
-    "type": "boolean",
-    "description": "Whether dehydration JSON was piped to engine session dehydrate",
-    "examples": [true]
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "dehydrated": {
+      "type": "boolean",
+      "description": "Whether dehydration JSON was piped to engine session dehydrate"
+    },
+    "files_listed": {
+      "type": "number",
+      "description": "Number of required files in the JSON payload"
+    }
   },
-  "files_listed": {
-    "type": "number",
-    "description": "Number of required files in the JSON payload",
-    "examples": [5, 8]
-  }
+  "required": ["dehydrated", "files_listed"],
+  "additionalProperties": false
 }
 ```

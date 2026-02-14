@@ -1,7 +1,7 @@
 ### §CMD_EXECUTE_PHASE_STEPS
 **Definition**: Per-phase step runner. Reads the current phase's `steps` array from `.state.json`, executes each step command sequentially, and collects proof outputs.
 **Concept**: "Here are this phase's mechanical steps — execute them in order."
-**Trigger**: Called within each phase section of SKILL.md, typically after `§CMD_REPORT_INTENT_TO_USER`.
+**Trigger**: Called within each phase section of SKILL.md, typically after `§CMD_REPORT_INTENT`.
 
 ---
 
@@ -66,7 +66,7 @@ This command is called WITHIN prose, not instead of it. The pattern:
 ```markdown
 ## N. Phase Name
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > [intent block]
 
 Execute `§CMD_EXECUTE_PHASE_STEPS`.

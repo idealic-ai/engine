@@ -275,7 +275,7 @@ All three gates are evaluated together — the agent sees ALL failures at once (
 **Resolution**: Pipe 1-3 lines of description: `engine session deactivate $DIR <<< "What was done"`
 
 #### Gate B: Debrief Required
-**Enforces**: `§CMD_DEBRIEF_BEFORE_CLOSE`
+**Enforces**: `§CMD_CLOSE_SESSION` (debrief gate)
 **Check**: If `debriefTemplate` is set, the corresponding debrief file must exist (e.g., `IMPLEMENTATION.md` for template `TEMPLATE_IMPLEMENTATION.md`).
 **Resolution**: Write the debrief via `§CMD_GENERATE_DEBRIEF`, OR skip with `--skip-debrief "Reason: ..."` (requires user approval via `AskUserQuestion`).
 
@@ -327,7 +327,7 @@ All three gates are evaluated together — the agent sees ALL failures at once (
 | 9 | Phase: Format | `engine session phase` | Invalid label format | `§CMD_UPDATE_PHASE` | Use `N: Name` format |
 | 10 | Phase: Sequence | `engine session phase` | Non-sequential transition | `¶INV_PHASE_ENFORCEMENT` | Use `--user-approved` |
 | 11a | Deactivate: Desc | `engine session deactivate` | No description piped | `§CMD_CLOSE_SESSION` | Pipe description on stdin |
-| 11b | Deactivate: Debrief | `engine session deactivate` | Missing debrief file | `§CMD_DEBRIEF_BEFORE_CLOSE` | Write debrief or `--skip-debrief` |
+| 11b | Deactivate: Debrief | `engine session deactivate` | Missing debrief file | `§CMD_CLOSE_SESSION` | Write debrief or `--skip-debrief` |
 | 11c | Deactivate: Checklist | `engine session deactivate` | Unprocessed checklists | `¶INV_CHECKLIST_BEFORE_CLOSE` | Run `engine session check` |
 | 12a | Check: Tags | `engine session check` | Bare inline lifecycle tags | `¶INV_ESCAPE_BY_DEFAULT` | Promote or acknowledge tags |
 | 12b | Check: Checklists | `engine session check` | Missing checklist blocks | `§CMD_PROCESS_CHECKLISTS` | Pipe checklist results |

@@ -54,6 +54,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Output: "Round N complete. I still have questions about [X]. Continuing..."
 
 **Constraints**:
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
 *   Minimum rounds are mandatory. No self-authorized skips — fire `§CMD_REFUSE_OFF_COURSE` if tempted.
 *   Between-rounds context is mandatory after Round 1. No bare question dumps.
 *   Every round logged to DETAILS.md. No unlogged rounds.
@@ -65,15 +66,19 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 ```json
 {
-  "depth_chosen": {
-    "type": "string",
-    "description": "The interrogation depth selected by the user",
-    "examples": ["Short", "Medium", "Long", "Absolute"]
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "depth_chosen": {
+      "type": "string",
+      "description": "The interrogation depth selected by the user"
+    },
+    "rounds_completed": {
+      "type": "number",
+      "description": "Total number of interrogation rounds completed"
+    }
   },
-  "rounds_completed": {
-    "type": "number",
-    "description": "Total number of interrogation rounds completed",
-    "examples": [3, 6, 9]
-  }
+  "required": ["depth_chosen", "rounds_completed"],
+  "additionalProperties": false
 }
 ```

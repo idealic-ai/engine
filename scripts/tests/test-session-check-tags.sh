@@ -182,8 +182,15 @@ test_works_with_checklists() {
   local S
   S=$(make_session "with_checklists")
 
+  # Create the original checklist file in the test dir
+  local CL_PATH="$S/CHECKLIST.md"
+  cat > "$CL_PATH" << 'CL'
+# Checklist
+- [ ] All items verified
+CL
+
   # Session with discovered checklists AND no bare tags
-  jq '.discoveredChecklists = ["/tmp/CHECKLIST.md"]' "$S/.state.json" > "$S/.tmp.json" && mv "$S/.tmp.json" "$S/.state.json"
+  jq --arg cp "$CL_PATH" '.discoveredChecklists = [$cp]' "$S/.state.json" > "$S/.tmp.json" && mv "$S/.tmp.json" "$S/.state.json"
 
   cat > "$S/IMPLEMENTATION.md" << 'MD'
 # Implementation
@@ -193,12 +200,10 @@ test_works_with_checklists() {
 Clean implementation, no inline tags.
 MD
 
-  # Provide checklist results on stdin
-  local exit_code
-  "$SESSION_SH" check "$S" << 'STDIN' > /dev/null 2>&1
-## CHECKLIST: /tmp/CHECKLIST.md
-- [x] All items verified
-STDIN
+  # Provide checklist results on stdin as JSON (check expects JSON format)
+  local exit_code CHECK_JSON
+  CHECK_JSON=$(jq -n --arg k "$CL_PATH" --arg v "$(printf '# Checklist\n- [x] All items verified')" '{($k): $v}')
+  "$SESSION_SH" check "$S" <<< "$CHECK_JSON" > /dev/null 2>&1
   exit_code=$?
 
   if [ "$exit_code" -eq 0 ]; then

@@ -179,7 +179,7 @@ CASE5_SESSION="$TMP_DIR/sessions/case5_test"
 mkdir -p "$CASE5_SESSION"
 
 STUB_DIR=$(make_stub "$(cat <<CASE5EOF
-session:activate $CASE5_SESSION implement
+session:activate $CASE5_SESSION stub-impl
 session:phase $CASE5_SESSION 1: Setup
 session:phase $CASE5_SESSION 2: Context Ingestion
 session:deactivate $CASE5_SESSION
@@ -190,9 +190,9 @@ OUTPUT=$(run_with_stub "$STUB_DIR")
 
 assert_file_exists "$CASE5_SESSION/.state.json" "state.json created by activate"
 if [ -f "$CASE5_SESSION/.state.json" ]; then
-  assert_json "$CASE5_SESSION/.state.json" '.skill' 'implement' "skill set to implement"
+  assert_json "$CASE5_SESSION/.state.json" '.skill' 'stub-impl' "skill set to implement"
   assert_json "$CASE5_SESSION/.state.json" '.lifecycle' 'completed' "lifecycle is completed"
-  assert_json "$CASE5_SESSION/.state.json" '.completedSkills[0]' 'implement' "completedSkills contains implement"
+  assert_json "$CASE5_SESSION/.state.json" '.completedSkills[0]' 'stub-impl' "completedSkills contains implement"
 
   PHASE_HISTORY_LEN=$(jq '.phaseHistory | length' "$CASE5_SESSION/.state.json" 2>/dev/null || echo "0")
   assert_gt "$PHASE_HISTORY_LEN" 0 "phaseHistory has entries"
@@ -210,7 +210,7 @@ CASE6_SESSION="$TMP_DIR/sessions/case6_test"
 mkdir -p "$CASE6_SESSION"
 
 STUB_DIR=$(make_stub "$(cat <<CASE6EOF
-session:activate $CASE6_SESSION test
+session:activate $CASE6_SESSION stub-test
 session:phase $CASE6_SESSION 1: Setup
 session:phase $CASE6_SESSION 2: Context Ingestion
 session:phase $CASE6_SESSION 3: Strategy
@@ -224,10 +224,10 @@ OUTPUT=$(run_with_stub "$STUB_DIR")
 
 assert_file_exists "$CASE6_SESSION/.state.json" "state.json exists"
 if [ -f "$CASE6_SESSION/.state.json" ]; then
-  assert_json "$CASE6_SESSION/.state.json" '.skill' 'test' "skill is test"
+  assert_json "$CASE6_SESSION/.state.json" '.skill' 'stub-test' "skill is test"
   assert_json "$CASE6_SESSION/.state.json" '.lifecycle' 'completed' "lifecycle is completed"
   assert_json "$CASE6_SESSION/.state.json" '.currentPhase' '5: Synthesis' "currentPhase is 5: Synthesis"
-  assert_json "$CASE6_SESSION/.state.json" '.completedSkills[0]' 'test' "completedSkills contains test"
+  assert_json "$CASE6_SESSION/.state.json" '.completedSkills[0]' 'stub-test' "completedSkills contains test"
 
   CASE6_PH_LEN=$(jq '.phaseHistory | length' "$CASE6_SESSION/.state.json" 2>/dev/null || echo "0")
   assert_gt "$CASE6_PH_LEN" 4 "phaseHistory has 5+ entries"

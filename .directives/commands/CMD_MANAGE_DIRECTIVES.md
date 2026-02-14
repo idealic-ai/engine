@@ -108,6 +108,7 @@ AGENTS.md is a micro-README: it describes what a directory is for, what to think
 6.  **Report**: "Added pitfalls: [titles and destinations]." or skip silently if none.
 
 **Constraints**:
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
 *   **Agent judgment only**: All three passes use agent judgment to identify candidates — no explicit markers or log scanning required.
 *   **Max 5 per pass**: Focus on the most valuable captures. Avoid prompt fatigue.
 *   **Non-blocking**: If user selects "Skip" for everything, the session continues normally.

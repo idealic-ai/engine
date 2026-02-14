@@ -208,6 +208,8 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 
 ---
 
+**Note**: All feeds below use `sessions/` as their location. When `WORKSPACE` is set, this resolves to `$WORKSPACE/sessions/`. Tag discovery (`engine tag find`) searches both workspace and global sessions directories.
+
 ## §FEED_ALERTS
 *   **Tags**: `#active-alert`, `#done-alert`
 *   **Location**: `sessions/`
@@ -228,7 +230,7 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 *   **Note**: Reviews use a 2-state lifecycle (no `#delegated-review` or `#claimed-review`) because `/review` is always invoked directly by the user, not via daemon dispatch.
 
 ## §FEED_GENERIC
-*   **Applies to**: documentation, research, brainstorm, chores, fix, loop, implementation
+*   **Applies to**: documentation, research, brainstorm, chores, fix, loop, implementation, direct
 *   **Tags**: `#needs-{NOUN}`, `#delegated-{NOUN}`, `#next-{NOUN}`, `#claimed-{NOUN}`, `#done-{NOUN}`
 *   **Location**: `sessions/`
 *   **Lifecycle** (5-state, two paths):
@@ -255,6 +257,7 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 | Tag Noun | Resolving Skill | Mode | Daemon-Dispatchable | Priority |
 |----------|----------------|------|---------------------|----------|
 | brainstorm | `/brainstorm` | interactive | Yes | 1 (exploration unblocks decisions) |
+| direct | `/direct` | interactive | Yes | 1.5 (vision unblocks coordinator) |
 | research | `/research` | async (Gemini) | Yes | 2 (queue early) |
 | fix | `/fix` | interactive/agent | Yes | 3 (bugs block progress) |
 | implementation | `/implement` | interactive/agent | Yes | 4 |

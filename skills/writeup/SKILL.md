@@ -33,6 +33,11 @@ Creates semi-permanent situational documents for reference. Writeups describe a 
     mkdir -p <destination>/docs/writeups
     ```
 
+5.  **Ask Model**: Execute `§CMD_SUGGEST_EXTERNAL_MODEL` with:
+    > modelQuestion: "Use an external model for writing instead of Claude?"
+
+    Records `externalModel` (model name or `"claude"`).
+
 *Phase 0 always proceeds to Phase 1 — no transition question needed.*
 
 ---
@@ -143,17 +148,30 @@ Use `AskUserQuestion` to clarify the writeup content.
     <destination>/docs/writeups/YYYY_MM_DD_<TOPIC_SLUG>.md
     ```
 
-3.  **Populate Template**: Use `§CMD_WRITE_FROM_TEMPLATE` with `TEMPLATE_WRITEUP.md`.
-    *   **Problem**: From interrogation answer + agent analysis.
-    *   **Context**: Agent synthesizes from loaded context + RAG results.
-    *   **Related**: List of RAG-discovered files (if any). Format as bullet list with brief descriptions.
-    *   **Options**: From interrogation + agent analysis. Present 2-3 options with trade-offs.
-    *   **Recommendation**: From user preference or agent's analysis.
-    *   **Next Steps**: Concrete actionable items.
+3.  **Generate Content**:
 
-4.  **Write File**: Create the document at the computed path.
+    **If `externalModel` is not "claude"** (external model path):
+    1.  **Gather context file paths**: Collect paths to all relevant files — RAG results, user-referenced files, interrogation context. Do NOT read them into context (save tokens).
+    2.  **Compose prompt**: Describe the writeup structure, interrogation answers, tone, and audience.
+    3.  **Execute `§CMD_EXECUTE_EXTERNAL_MODEL`** with:
+        *   `prompt`: The composed writeup instructions
+        *   `template`: `TEMPLATE_WRITEUP.md` path
+        *   `vars`: `TOPIC`, `DATE`, etc.
+        *   `system`: `"You are a technical writer producing a situational document. Output ONLY the document content in Markdown. No preamble."`
+        *   `contextFiles`: The gathered file paths
+    4.  **Write the output** to the computed path.
 
-5.  **Report**: Output to chat the created file path as a clickable link per `¶INV_TERMINAL_FILE_LINKS`.
+    **If `externalModel` is "claude"** (default path):
+    1.  **Populate Template**: Use `§CMD_WRITE_FROM_TEMPLATE` with `TEMPLATE_WRITEUP.md`.
+        *   **Problem**: From interrogation answer + agent analysis.
+        *   **Context**: Agent synthesizes from loaded context + RAG results.
+        *   **Related**: List of RAG-discovered files (if any). Format as bullet list with brief descriptions.
+        *   **Options**: From interrogation + agent analysis. Present 2-3 options with trade-offs.
+        *   **Recommendation**: From user preference or agent's analysis.
+        *   **Next Steps**: Concrete actionable items.
+    2.  **Write File**: Create the document at the computed path.
+
+4.  **Report**: Output to chat the created file path as a clickable link per `¶INV_TERMINAL_FILE_LINKS`.
 
 **Constraint**: No debrief, no log, no session summary. Just report the created file.
 

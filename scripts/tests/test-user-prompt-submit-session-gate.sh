@@ -1,13 +1,12 @@
 #!/bin/bash
 # ~/.claude/engine/scripts/tests/test-user-prompt-submit-session-gate.sh
-# Tests for the UserPromptSubmit session-gate hook's discovery write path.
+# Tests for the UserPromptSubmit session-gate hook's skill preload and gate behavior.
 #
-# M2 regression tests: The hook writes to .state.json using raw
-# "jq > .tmp && mv" instead of safe_json_write (no locking, no validation).
+# M2 regression tests: verify safe_json_write + skill preload queuing.
 #
 # Tests:
-#   M2.1: Discovery path survives malformed .state.json
-#   M2.2: Discovery path preserves existing fields when adding pendingDirectives
+#   M2.1: Skill preload path survives malformed .state.json
+#   M2.2: Skill preload preserves existing fields when adding pendingPreloads
 #
 # Run: bash ~/.claude/engine/scripts/tests/test-user-prompt-submit-session-gate.sh
 
@@ -29,10 +28,10 @@ setup() {
   mkdir -p "$HOME/.claude/scripts"
   mkdir -p "$HOME/.claude/hooks"
   mkdir -p "$HOME/.claude/engine/hooks"
+  mkdir -p "$HOME/.claude/engine/.directives/commands"
 
   # Symlink the hook and lib.sh
   ln -sf "$UPS_HOOK_REAL" "$HOME/.claude/engine/hooks/user-prompt-submit-session-gate.sh"
-  # The hook sources lib.sh from $HOME/.claude/scripts/lib.sh
   ln -sf "$LIB_SH_REAL" "$HOME/.claude/scripts/lib.sh"
 
   # Create a fake session dir with valid .state.json
@@ -40,11 +39,29 @@ setup() {
   mkdir -p "$SESSION_DIR"
   echo '{"pid":99999,"skill":"test","lifecycle":"active","currentPhase":"2: Build"}' > "$SESSION_DIR/.state.json"
 
-  # Create the skill directory so the hook enters the discovery path
-  mkdir -p "$HOME/.claude/skills/m2skill"
+  # Create the skill directory with a SKILL.md containing Phase 0 commands
+  mkdir -p "$HOME/.claude/skills/mtest"
+  cat > "$HOME/.claude/skills/mtest/SKILL.md" <<'SKILL'
+---
+name: mtest
+description: "Test skill for M2 regression tests"
+---
+# M2 Test Skill
 
-  # Create a fake directive file that discover-directives will "find"
-  echo "# Test Directive" > "$TEST_DIR/m2-directive.md"
+```json
+{
+  "taskType": "TEST",
+  "phases": [
+    {"label": "0", "name": "Setup",
+      "steps": ["§CMD_M2TEST"],
+      "commands": []}
+  ]
+}
+```
+SKILL
+
+  # Create the CMD file that extract_skill_preloads will find
+  echo "# M2 Test Command" > "$HOME/.claude/engine/.directives/commands/CMD_M2TEST.md"
 
   # Mock session.sh — returns our test session dir for "find", activate exits 0
   cat > "$HOME/.claude/scripts/session.sh" <<MOCK
@@ -56,13 +73,6 @@ case "\${1:-}" in
 esac
 MOCK
   chmod +x "$HOME/.claude/scripts/session.sh"
-
-  # Mock discover-directives.sh — outputs our fake directive path
-  cat > "$HOME/.claude/scripts/discover-directives.sh" <<MOCK
-#!/bin/bash
-echo "$TEST_DIR/m2-directive.md"
-MOCK
-  chmod +x "$HOME/.claude/scripts/discover-directives.sh"
 }
 
 teardown() {
@@ -72,58 +82,59 @@ teardown() {
   fi
 }
 
-# Helper: run the UserPromptSubmit hook with a skill command prompt
+# Helper: run the UserPromptSubmit hook with a /skill-name prompt
 run_ups_hook() {
   local skill_name="$1"
   (
     export SESSION_REQUIRED=1
-    printf '{"prompt":"<command-name>/%s</command-name>","session_id":"test"}\n' "$skill_name" \
+    printf '{"prompt":"/%s","session_id":"test"}\n' "$skill_name" \
       | bash "$HOME/.claude/engine/hooks/user-prompt-submit-session-gate.sh" 2>/dev/null
   )
 }
 
 # ============================================================
-# M2.1: Discovery survives malformed .state.json
+# M2.1: Skill preload survives malformed .state.json
 # ============================================================
-test_discovery_survives_malformed_state() {
+test_preload_graceful_on_malformed_state() {
   # Write malformed JSON — jq will fail to parse this
   echo '{invalid json' > "$SESSION_DIR/.state.json"
 
-  # Trigger the hook — jq should fail on malformed JSON, && prevents mv
-  run_ups_hook "m2skill" || true
-
-  # The original malformed content should survive (jq fails, && prevents mv)
-  local content
-  content=$(cat "$SESSION_DIR/.state.json")
-  assert_eq '{invalid json' "$content" "M2.1: malformed .state.json not clobbered by failed jq"
+  # Trigger the hook — should still produce additionalContext (direct delivery works
+  # without session state). The hook exits 0 because skill preload succeeds even
+  # when session queuing fails.
+  local output
+  output=$(run_ups_hook "mtest" 2>/dev/null || true)
+  local has_preloaded
+  has_preloaded=$(echo "$output" | grep -c "Preloaded:" || true)
+  assert_gt "$has_preloaded" 0 "M2.1: hook outputs additionalContext despite malformed .state.json"
 }
 
 # ============================================================
-# M2.2: Discovery preserves existing fields
+# M2.2: Skill preload preserves existing fields
 # ============================================================
-test_discovery_preserves_existing_fields() {
+test_preload_preserves_existing_fields() {
   # Write valid .state.json with custom fields
   cat > "$SESSION_DIR/.state.json" <<'JSON'
 {"pid":99999,"skill":"test","lifecycle":"active","currentPhase":"2: Build","customField":"keep-me"}
 JSON
 
-  # Trigger the hook — should add pendingDirectives without losing other fields
-  run_ups_hook "m2skill" || true
+  # Trigger the hook — should add pendingPreloads without losing other fields
+  run_ups_hook "mtest" || true
 
-  # Assert all original fields survived the raw jq write
+  # Assert all original fields survived
   assert_json "$SESSION_DIR/.state.json" '.skill' "test" "M2.2: .skill field preserved"
   assert_json "$SESSION_DIR/.state.json" '.lifecycle' "active" "M2.2: .lifecycle field preserved"
   assert_json "$SESSION_DIR/.state.json" '.currentPhase' "2: Build" "M2.2: .currentPhase field preserved"
   assert_json "$SESSION_DIR/.state.json" '.customField' "keep-me" "M2.2: .customField preserved"
 
-  # Assert pendingDirectives was added with the discovered file
+  # Assert pendingPreloads was added with the skill CMD file (tilde-prefix path)
   local pending_len
-  pending_len=$(jq -r '.pendingDirectives // [] | length' "$SESSION_DIR/.state.json" 2>/dev/null || echo "0")
-  assert_gt "$pending_len" 0 "M2.2: pendingDirectives contains discovered directive"
+  pending_len=$(jq -r '.pendingPreloads // [] | length' "$SESSION_DIR/.state.json" 2>/dev/null || echo "0")
+  assert_gt "$pending_len" 0 "M2.2: pendingPreloads contains skill CMD file"
 
-  local first_directive
-  first_directive=$(jq -r '.pendingDirectives[0] // ""' "$SESSION_DIR/.state.json" 2>/dev/null || echo "")
-  assert_eq "$TEST_DIR/m2-directive.md" "$first_directive" "M2.2: pendingDirectives[0] is the discovered file"
+  local first_preload
+  first_preload=$(jq -r '.pendingPreloads[0] // ""' "$SESSION_DIR/.state.json" 2>/dev/null || echo "")
+  assert_eq "~/.claude/engine/.directives/commands/CMD_M2TEST.md" "$first_preload" "M2.2: pendingPreloads[0] is the CMD file (tilde-prefix)"
 }
 
 # ============================================================
@@ -132,7 +143,7 @@ JSON
 echo "=== UserPromptSubmit Session Gate — M2 Regression Tests ==="
 echo ""
 
-run_test test_discovery_survives_malformed_state
-run_test test_discovery_preserves_existing_fields
+run_test test_preload_graceful_on_malformed_state
+run_test test_preload_preserves_existing_fields
 
 exit_with_results

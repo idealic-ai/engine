@@ -30,6 +30,7 @@ create_state_json() {
   "skill": "$skill",
   "lifecycle": "active",
   "pid": $$,
+  "currentPhase": "4: Synthesis",
   "debriefTemplate": "$debrief_template",
   "provableDebriefItems": $provable,
   "lastHeartbeat": "2026-02-10T00:00:00Z"

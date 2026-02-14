@@ -144,7 +144,7 @@ All 32 `§CMD_` commands in COMMANDS.md, organized by layer. Each command has a 
 | `§CMD_INGEST_CONTEXT_BEFORE_WORK` | Dedicated phase for RAG search + user confirmation before execution |
 | `§CMD_GENERATE_DEBRIEF` | Create a standardized debrief with tags, related sessions, and reindexing |
 | `§CMD_GENERATE_PLAN` | Create a standardized plan artifact from template |
-| `§CMD_REPORT_INTENT_TO_USER` | State current phase and intent before transitioning |
+| `§CMD_REPORT_INTENT` | State current phase and intent before transitioning |
 | `§CMD_LOG_INTERACTION` | Record Q&A interactions to the session's `DETAILS.md` |
 | `§CMD_INTERROGATE` | Multi-round Ask-Log loop with minimum 3 rounds |
 | `§CMD_HANDOFF_TO_AGENT` | Standardized handoff from parent command to autonomous agent |

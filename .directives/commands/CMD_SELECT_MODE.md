@@ -41,6 +41,7 @@
 6.  **Assume Role**: After recording, execute `§CMD_ASSUME_ROLE` using the selected mode's **Role**, **Goal**, and **Mindset**.
 
 **Constraints**:
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
 *   Mode files live in `~/.claude/skills/[skill]/modes/`. Each skill owns its mode definitions.
 *   The `modes` parameter is optional. Skills without modes (e.g., `/do`, `/brainstorm` historically) skip this command entirely.
 *   `¶INV_MODE_STANDARDIZATION` requires exactly 3 named modes + Custom. Custom is always the last option.
@@ -52,10 +53,15 @@
 
 ```json
 {
-  "mode": {
-    "type": "string",
-    "description": "The mode selected by the user (skill-specific mode names)",
-    "examples": ["general", "tdd", "explore", "audit", "coverage"]
-  }
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "mode": {
+      "type": "string",
+      "description": "The mode selected by the user (skill-specific mode names)"
+    }
+  },
+  "required": ["mode"],
+  "additionalProperties": false
 }
 ```

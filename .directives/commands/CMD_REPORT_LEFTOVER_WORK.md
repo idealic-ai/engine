@@ -57,6 +57,7 @@
     ```
 
 **Constraints**:
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
 *   **Non-blocking**: This is a read-only report. No `AskUserQuestion` — just output. The user sees it and uses it to inform their next-skill choice.
 *   **Generic extraction**: Pattern-match by emoji prefixes and heading keywords, not hardcoded section numbers. Different skill templates use different section structures.
 *   **Concise**: Max 15 items total in the chat report. If more exist, show top 15 and note "... and N more items (see debrief for full list)."

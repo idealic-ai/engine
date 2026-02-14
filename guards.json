@@ -7,7 +7,7 @@
       "condition": { "gte": "OVERFLOW_THRESHOLD" }
     },
     "payload": {
-      "text": "CONTEXT OVERFLOW — §CMD_DEHYDRATE NOW. Follow the §CMD_DEHYDRATE protocol preloaded in your context. Produce JSON, pipe to `engine session dehydrate sessions/[CURRENT_SESSION]`. This is your LAST action before restart."
+      "text": "[block: overflow] §CMD_DEHYDRATE — context at threshold. Execute §CMD_DEHYDRATE protocol NOW. Pipe JSON to `engine session dehydrate sessions/[CURRENT_SESSION]`. This is your LAST action before restart."
     },
     "mode": "inline",
     "urgency": "block",
@@ -27,7 +27,7 @@
       "condition": { "noActiveSession": true }
     },
     "payload": {
-      "text": "§CMD_REQUIRE_ACTIVE_SESSION: No active session (found: $sessionDir, lifecycle: $lifecycle). Use engine session activate to start a session, or AskUserQuestion to ask the user which skill to use. Popular: /do, /implement, /analyze, /fix, /test"
+      "text": "[block: session] §CMD_REQUIRE_ACTIVE_SESSION — no active session (found: $sessionDir, lifecycle: $lifecycle). Use AskUserQuestion to pick a skill. Popular: /do, /implement, /analyze, /fix, /test"
     },
     "mode": "inline",
     "urgency": "block",
@@ -37,6 +37,11 @@
       "AskUserQuestion",
       "Skill",
       "Bash(engine session *)",
+      "Bash(engine session-search *)",
+      "Bash(engine tag *)",
+      "Bash(engine find-sessions *)",
+      "Bash(engine doc-search *)",
+      "Bash(engine discover-directives *)",
       "Read(*/.claude/*)",
       "Read(*/CLAUDE.md)",
       "Read(*/memory/*)",
@@ -52,7 +57,7 @@
       "condition": { "eq": "idle" }
     },
     "payload": {
-      "text": "Session is idle (synthesis complete). Pick a skill to continue, start a new session, or close. Use AskUserQuestion, Skill, or engine commands only."
+      "text": "[block: idle] §CMD_REQUIRE_ACTIVE_SESSION — session idle. Select next skill or close. Use AskUserQuestion, Skill, or engine commands only."
     },
     "mode": "inline",
     "urgency": "block",
@@ -62,7 +67,34 @@
       "AskUserQuestion",
       "Skill",
       "Bash(engine session *)",
+      "Bash(engine session-search *)",
+      "Bash(engine tag *)",
+      "Bash(engine find-sessions *)",
+      "Bash(engine doc-search *)",
+      "Bash(engine discover-directives *)",
       "Bash(engine log *)"
+    ]
+  },
+  {
+    "id": "read-throttle",
+    "description": "Block Read tool when context usage is high to prevent context overflow from large file reads",
+    "trigger": {
+      "type": "contextThreshold",
+      "condition": { "gte": 0.90 }
+    },
+    "toolFilter": { "include": ["Read"] },
+    "payload": {
+      "text": "[block: read-throttle] Context is at 90%+ capacity. Read tool is blocked to prevent context overflow.\n\nTo continue working:\n- Use Bash with `head`, `tail`, or `sed` for targeted line ranges\n- Use Grep to search for specific patterns instead of reading whole files\n- Use Glob to find files without reading them\n- Execute §CMD_DEHYDRATE to restart with a fresh context window\n\nDo NOT attempt to Read files — the context cannot absorb more content at this usage level."
+    },
+    "mode": "inline",
+    "urgency": "block",
+    "priority": 4,
+    "inject": "always",
+    "whitelist": [
+      "Bash(engine log *)",
+      "Bash(engine session *)",
+      "AskUserQuestion",
+      "Skill"
     ]
   },
   {
@@ -73,7 +105,7 @@
       "condition": { "eq": 3 }
     },
     "payload": {
-      "text": "§CMD_LOG_BETWEEN_TOOL_USES: Tool calls without logging approaching limit. Log soon."
+      "text": "[warn: heartbeat] §CMD_APPEND_LOG"
     },
     "mode": "inline",
     "urgency": "allow",
@@ -85,7 +117,8 @@
       "Read(*/.claude/*)",
       "Read(*/TEMPLATE_*_LOG.md)",
       "Task",
-      "Write"
+      "Write",
+      "AskUserQuestion"
     ]
   },
   {
@@ -96,7 +129,7 @@
       "condition": { "gte": 10 }
     },
     "payload": {
-      "text": "§CMD_LOG_BETWEEN_TOOL_USES: Log progress now."
+      "text": "[block: heartbeat] §CMD_APPEND_LOG"
     },
     "mode": "inline",
     "urgency": "block",
@@ -108,52 +141,23 @@
       "Read(*/.claude/*)",
       "Read(*/TEMPLATE_*_LOG.md)",
       "Task",
-      "Write"
+      "Write",
+      "AskUserQuestion"
     ]
   },
   {
-    "id": "directive-autoload",
-    "description": "Auto-preload pending directive files when discovered (content injected alongside tool allow)",
+    "id": "preload",
+    "description": "Auto-preload all pending files (directives, CMDs, templates) when discovered",
     "trigger": {
       "type": "discovery",
-      "condition": { "field": "pendingDirectives", "nonEmpty": true }
+      "condition": { "field": "pendingPreloads", "nonEmpty": true }
     },
     "payload": {
-      "preload": "$pendingDirectives"
+      "preload": "$pendingPreloads"
     },
     "mode": "preload",
     "urgency": "allow",
     "priority": 20,
-    "inject": "always"
-  },
-  {
-    "id": "template-preload",
-    "description": "Auto-preload pending template files when discovered by Skill hook",
-    "trigger": {
-      "type": "discovery",
-      "condition": { "field": "pendingTemplates", "nonEmpty": true }
-    },
-    "payload": {
-      "preload": "$pendingTemplates"
-    },
-    "mode": "preload",
-    "urgency": "allow",
-    "priority": 21,
-    "inject": "always"
-  },
-  {
-    "id": "command-preload",
-    "description": "Auto-preload pending CMD files when discovered by phase transition hook",
-    "trigger": {
-      "type": "discovery",
-      "condition": { "field": "pendingCommands", "nonEmpty": true }
-    },
-    "payload": {
-      "preload": "$pendingCommands"
-    },
-    "mode": "preload",
-    "urgency": "allow",
-    "priority": 22,
     "inject": "always"
   },
   {
@@ -164,7 +168,7 @@
       "condition": { "matches": "Synthesis" }
     },
     "payload": {
-      "text": "SYNTHESIS PHASE ACTIVE: Execute §CMD_RUN_SYNTHESIS_PIPELINE. Sub-phases: Checklists → Debrief → Pipeline → Close. Each sub-phase requires proof before proceeding."
+      "text": "[warn: synthesis] §CMD_RUN_SYNTHESIS_PIPELINE — execute synthesis. Checklists → Debrief → Pipeline → Close. Each sub-phase requires proof before proceeding."
     },
     "mode": "inline",
     "urgency": "allow",

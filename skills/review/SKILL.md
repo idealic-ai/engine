@@ -37,7 +37,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "3.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "3.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/implement", "/document", "/brainstorm", "/analyze", "/chores"],
   "directives": [],
@@ -58,7 +58,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Reviewing ___ session debriefs.
 > Mode: ___. Scope: ___ tagged files discovered.
 > Focus: session activation, mode selection, debrief discovery.
@@ -82,6 +82,13 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 *   Phase 0 role (from mode file)
 *   Phase 2 review criteria (from mode file)
 
+**Model Selection** (after mode selection):
+
+Execute `§CMD_SUGGEST_EXTERNAL_MODEL` with:
+> modelQuestion: "Use an external model for writing the review report instead of Claude?"
+
+Records `externalModel` (model name or `"claude"`).
+
 ### Phase Transition
 *Phase 0 always proceeds to Phase 1 -- no transition question needed.*
 
@@ -90,7 +97,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Discovery & Cross-Session Analysis
 *Read everything. Build the global picture.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Reading ___ debriefs and their sibling logs.
 > Building debrief cards and cross-session conflict analysis.
 
@@ -123,7 +130,7 @@ Execute `§CMD_GATE_PHASE`:
 ### Phase 2a: The Dashboard
 *Present the global picture first.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Presenting dashboard for ___ debriefs and ___ cross-session findings.
 > Awaiting direction before per-debrief drill-down.
 
@@ -286,13 +293,25 @@ This is YOUR internal rubric -- do NOT present it as a form. Use it to generate 
 ## 3. Synthesis
 *When all debriefs are reviewed.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. ___ debriefs validated, ___ flagged for rework, ___ leftovers spawned.
 > Producing REVIEW.md with verdicts and dehydrated leftover prompts.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 
-**Debrief notes** (for `REVIEW.md`):
+**Debrief generation**:
+
+**If `externalModel` is not "claude"** (external model path):
+1.  **Gather context file paths**: Collect paths to all reviewed debriefs, their logs, REVIEW_LOG.md, DETAILS.md, and TEMPLATE_REVIEW.md. Do NOT read them into context.
+2.  **Compose prompt**: Describe the review template structure, all verdicts, cross-session findings, and leftover work items.
+3.  **Execute `§CMD_EXECUTE_EXTERNAL_MODEL`** with:
+    *   `prompt`: The composed review synthesis instructions
+    *   `template`: `TEMPLATE_REVIEW.md` path
+    *   `system`: `"You are a senior technical reviewer producing a structured review report. Output ONLY the document content in Markdown. Follow the template structure exactly."`
+    *   `contextFiles`: All debrief, log, and details file paths
+4.  **Write the output** as REVIEW.md and proceed with tagging.
+
+**If `externalModel` is "claude"** (default path):
 *   **Cross-Session Analysis**: Transcribe findings from Phase 1.
 *   **Per-Debrief Verdicts**: Condensed card for each debrief with verdict.
 *   **Leftovers**: For each rework item or discovered TODO, generate a micro-dehydrated prompt:

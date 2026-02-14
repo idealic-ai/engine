@@ -10,15 +10,19 @@
 
 #### Parameters (inherited from §CMD_HANDOFF_TO_AGENT + extensions)
 
-*   `agentName`: Agent type per chunk (e.g., `"builder"`, `"writer"`, `"debugger"`)
-*   `sessionDir`: Absolute path to the session directory
-*   `planFile`: Path to the approved plan file (e.g., `IMPLEMENTATION_PLAN.md`)
-*   `logFile`: Relative path to shared log file within session (e.g., `IMPLEMENTATION_LOG.md`)
-*   `debriefTemplate`: Path to debrief template
-*   `logTemplate`: Path to log entry template
-*   `contextFiles`: List of files loaded during context ingestion
-*   `detailsFile`: Path to `DETAILS.md`
-*   `taskSummary`: One-line description of the overall task
+```json
+{
+  "agentName": "builder | writer | debugger",
+  "sessionDir": "[absolute path to session directory]",
+  "planFile": "[path to approved plan file, e.g. IMPLEMENTATION_PLAN.md]",
+  "logFile": "[relative path to shared log file, e.g. IMPLEMENTATION_LOG.md]",
+  "debriefTemplate": "[path to debrief template]",
+  "logTemplate": "[path to log entry template]",
+  "contextFiles": ["[files loaded during context ingestion]"],
+  "detailsFile": "[path to DETAILS.md]",
+  "taskSummary": "[one-line description]"
+}
+```
 
 ---
 
@@ -179,6 +183,7 @@ After all agents complete (or fail):
 
 #### Constraints
 
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
 *   **Max 5 Agents**: Hard cap. If chunk count > 5, merge smallest chunks until count <= 5.
 *   **Disjoint File Sets**: Chunks within the same wave MUST touch different files. The non-intersection proof is mandatory — if it fails, merge chunks.
 *   **Shared Log**: All agents append to the SAME log file via `engine log`. Each entry prefixed with `[Chunk X]`.
@@ -258,10 +263,15 @@ Plan steps have no `**Depends**:` fields → treated as single sequential chunk 
 
 ```json
 {
-  "agents_launched": {
-    "type": "string",
-    "description": "Number and type of agents launched with chunk assignments",
-    "examples": ["3 builder agents: Chunk A (steps 1-3), Chunk B (steps 4-6), Chunk C (steps 7-8)"]
-  }
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agents_launched": {
+      "type": "string",
+      "description": "Number and type of agents launched with chunk assignments"
+    }
+  },
+  "required": ["agents_launched"],
+  "additionalProperties": false
 }
 ```

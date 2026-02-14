@@ -2,8 +2,8 @@
 # ~/.claude/engine/scripts/tests/test-post-tool-use-templates.sh
 # Tests for the PostToolUse templates hook (post-tool-use-templates.sh)
 #
-# Tests: Skill tool filtering, template path derivation, dedup, skill change,
-# no session handling, hyphenated skill names, missing templates.
+# Tests: Skill tool filtering, direct additionalContext delivery via SKILL.md
+# JSON fields, session tracking (preloadedFiles), dedup, no-session delivery.
 #
 # Run: bash ~/.claude/engine/scripts/tests/test-post-tool-use-templates.sh
 
@@ -57,7 +57,7 @@ teardown() {
   fi
 }
 
-# Helper: run the hook with given JSON input
+# Helper: run the hook with given JSON input, capture stdout
 run_hook() {
   local input="$1"
   echo "$input" | bash "$HOME/.claude/hooks/post-tool-use-templates.sh" 2>/dev/null
@@ -68,55 +68,84 @@ read_state() {
   cat "$SESSION_DIR/.state.json"
 }
 
-# Helper: create template files for a skill
-create_skill_templates() {
+# Helper: create SKILL.md with JSON block + template files for a skill
+create_skill_with_templates() {
   local skill_name="$1"
   shift
-  local upper_skill
-  upper_skill=$(echo "$skill_name" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
-  local skill_dir="$HOME/.claude/skills/$skill_name/assets"
-  mkdir -p "$skill_dir"
+  local skill_dir="$HOME/.claude/skills/$skill_name"
+  local assets_dir="$skill_dir/assets"
+  mkdir -p "$assets_dir"
 
+  # Build JSON fields and create template files
+  local json_fields=""
   for tmpl_type in "$@"; do
+    local filename
+    local upper_skill
+    upper_skill=$(echo "$skill_name" | tr '[:lower:]' '[:upper:]' | tr '-' '_')
     case "$tmpl_type" in
       LOG)
-        echo "# Log template for $skill_name" > "$skill_dir/TEMPLATE_${upper_skill}_LOG.md"
+        filename="TEMPLATE_${upper_skill}_LOG.md"
+        echo "# Log template for $skill_name" > "$assets_dir/$filename"
+        json_fields="${json_fields}  \"logTemplate\": \"assets/$filename\",
+"
         ;;
       DEBRIEF)
-        echo "# Debrief template for $skill_name" > "$skill_dir/TEMPLATE_${upper_skill}.md"
+        filename="TEMPLATE_${upper_skill}.md"
+        echo "# Debrief template for $skill_name" > "$assets_dir/$filename"
+        json_fields="${json_fields}  \"debriefTemplate\": \"assets/$filename\",
+"
         ;;
       PLAN)
-        echo "# Plan template for $skill_name" > "$skill_dir/TEMPLATE_${upper_skill}_PLAN.md"
+        filename="TEMPLATE_${upper_skill}_PLAN.md"
+        echo "# Plan template for $skill_name" > "$assets_dir/$filename"
+        json_fields="${json_fields}  \"planTemplate\": \"assets/$filename\",
+"
         ;;
     esac
   done
+
+  # Create SKILL.md with JSON block
+  cat > "$skill_dir/SKILL.md" <<SKILLEOF
+---
+description: "Test skill $skill_name"
+---
+
+# $skill_name
+
+\`\`\`json
+{
+  "taskType": "$(echo "$skill_name" | tr '[:lower:]' '[:upper:]' | tr '-' '_')",
+${json_fields}  "phases": []
+}
+\`\`\`
+SKILLEOF
 }
 
 # =============================================================================
-# TEST: fires on Skill tool
+# TEST: fires on Skill tool — delivers templates via additionalContext
 # =============================================================================
 
 test_fires_on_skill_tool() {
-  local test_name="fires on Skill tool: adds templates to pendingTemplates"
+  local test_name="fires on Skill tool: delivers templates via additionalContext"
   setup
 
-  create_skill_templates "brainstorm" LOG DEBRIEF
+  create_skill_with_templates "brainstorm" LOG DEBRIEF
 
-  run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}' > /dev/null
+  local output
+  output=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}')
 
-  local state
-  state=$(read_state)
-  local pending_count
-  pending_count=$(echo "$state" | jq '.pendingTemplates | length')
-  local has_log
-  has_log=$(echo "$state" | jq '[.pendingTemplates[] | select(endswith("TEMPLATE_BRAINSTORM_LOG.md"))] | length')
-  local has_debrief
-  has_debrief=$(echo "$state" | jq '[.pendingTemplates[] | select(endswith("TEMPLATE_BRAINSTORM.md"))] | length')
+  # Check stdout has additionalContext with template content
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
 
-  if [ "$pending_count" = "2" ] && [ "$has_log" = "1" ] && [ "$has_debrief" = "1" ]; then
+  local has_log has_debrief
+  has_log=$(echo "$has_context" | grep -c "TEMPLATE_BRAINSTORM_LOG.md" || true)
+  has_debrief=$(echo "$has_context" | grep -c "TEMPLATE_BRAINSTORM.md" || true)
+
+  if [ "$has_log" -ge 1 ] && [ "$has_debrief" -ge 1 ]; then
     pass "$test_name"
   else
-    fail "$test_name" "2 pendingTemplates (LOG + DEBRIEF)" "pending_count=$pending_count, state=$state"
+    fail "$test_name" "additionalContext with LOG + DEBRIEF templates" "has_log=$has_log, has_debrief=$has_debrief"
   fi
 
   teardown
@@ -127,164 +156,144 @@ test_fires_on_skill_tool() {
 # =============================================================================
 
 test_ignores_non_skill_tools() {
-  local test_name="ignores non-Skill tools: no state changes"
+  local test_name="ignores non-Skill tools: no output"
   setup
 
-  run_hook '{"tool_name":"Read","tool_input":{"file_path":"/some/file"}}' > /dev/null
+  local output
+  output=$(run_hook '{"tool_name":"Read","tool_input":{"file_path":"/some/file"}}')
 
-  local state
-  state=$(read_state)
-  local has_pending
-  has_pending=$(echo "$state" | jq 'has("pendingTemplates")')
-  local has_last_skill
-  has_last_skill=$(echo "$state" | jq 'has("lastPreloadedSkill")')
-
-  if [ "$has_pending" = "false" ] && [ "$has_last_skill" = "false" ]; then
+  if [ -z "$output" ]; then
     pass "$test_name"
   else
-    fail "$test_name" "no pendingTemplates, no lastPreloadedSkill" "state=$state"
+    fail "$test_name" "(empty output)" "$output"
   fi
 
   teardown
 }
 
 # =============================================================================
-# TEST: derives correct template paths (all 3 types)
+# TEST: derives correct template paths (all 3 types from SKILL.md JSON)
 # =============================================================================
 
 test_derives_correct_template_paths() {
-  local test_name="derives correct paths: all 3 template types for skill 'implement'"
+  local test_name="derives correct paths: all 3 template types from SKILL.md JSON"
   setup
 
-  create_skill_templates "implement" LOG DEBRIEF PLAN
+  create_skill_with_templates "implement" LOG DEBRIEF PLAN
 
-  run_hook '{"tool_name":"Skill","tool_input":{"skill":"implement"}}' > /dev/null
+  local output
+  output=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"implement"}}')
 
-  local state
-  state=$(read_state)
-  local pending_count
-  pending_count=$(echo "$state" | jq '.pendingTemplates | length')
-  local has_log
-  has_log=$(echo "$state" | jq '[.pendingTemplates[] | select(endswith("TEMPLATE_IMPLEMENT_LOG.md"))] | length')
-  local has_debrief
-  has_debrief=$(echo "$state" | jq '[.pendingTemplates[] | select(endswith("TEMPLATE_IMPLEMENT.md"))] | length')
-  local has_plan
-  has_plan=$(echo "$state" | jq '[.pendingTemplates[] | select(endswith("TEMPLATE_IMPLEMENT_PLAN.md"))] | length')
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
 
-  if [ "$pending_count" = "3" ] && [ "$has_log" = "1" ] && [ "$has_debrief" = "1" ] && [ "$has_plan" = "1" ]; then
+  local has_log has_debrief has_plan
+  has_log=$(echo "$has_context" | grep -c "TEMPLATE_IMPLEMENT_LOG.md" || true)
+  has_debrief=$(echo "$has_context" | grep -c "TEMPLATE_IMPLEMENT.md" || true)
+  has_plan=$(echo "$has_context" | grep -c "TEMPLATE_IMPLEMENT_PLAN.md" || true)
+
+  if [ "$has_log" -ge 1 ] && [ "$has_debrief" -ge 1 ] && [ "$has_plan" -ge 1 ]; then
     pass "$test_name"
   else
-    fail "$test_name" "3 pendingTemplates (LOG + DEBRIEF + PLAN)" "pending_count=$pending_count, state=$state"
+    fail "$test_name" "additionalContext with LOG + DEBRIEF + PLAN" "has_log=$has_log, has_debrief=$has_debrief, has_plan=$has_plan"
   fi
 
   teardown
 }
 
 # =============================================================================
-# TEST: skips missing templates
+# TEST: skips missing templates gracefully
 # =============================================================================
 
 test_skips_missing_templates() {
-  local test_name="skips missing: only LOG exists for skill 'test'"
+  local test_name="skips missing: only LOG exists, DEBRIEF/PLAN absent"
   setup
 
-  # Only create LOG template (no DEBRIEF, no PLAN)
-  create_skill_templates "test" LOG
+  create_skill_with_templates "test" LOG
 
-  run_hook '{"tool_name":"Skill","tool_input":{"skill":"test"}}' > /dev/null
+  local output
+  output=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"test"}}')
+
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
+
+  local has_log has_debrief
+  has_log=$(echo "$has_context" | grep -c "TEMPLATE_TEST_LOG.md" || true)
+  has_debrief=$(echo "$has_context" | grep -c "TEMPLATE_TEST.md" || true)
+
+  if [ "$has_log" -ge 1 ] && [ "$has_debrief" -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "LOG present, DEBRIEF absent" "has_log=$has_log, has_debrief=$has_debrief"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TEST: template content is included in additionalContext
+# =============================================================================
+
+test_template_content_included() {
+  local test_name="content: template file content appears in additionalContext"
+  setup
+
+  create_skill_with_templates "brainstorm" LOG
+
+  local output
+  output=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}')
+
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
+
+  # The template file contains "# Log template for brainstorm"
+  local has_content
+  has_content=$(echo "$has_context" | grep -c "Log template for brainstorm" || true)
+
+  if [ "$has_content" -ge 1 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "contains template file content" "content not found in additionalContext"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TEST: session tracking — preloadedFiles
+# =============================================================================
+
+test_session_tracking() {
+  local test_name="session tracking: updates preloadedFiles"
+  setup
+
+  create_skill_with_templates "brainstorm" LOG DEBRIEF
+
+  run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}' > /dev/null
 
   local state
   state=$(read_state)
-  local pending_count
-  pending_count=$(echo "$state" | jq '.pendingTemplates | length')
-  local has_log
-  has_log=$(echo "$state" | jq '[.pendingTemplates[] | select(endswith("TEMPLATE_TEST_LOG.md"))] | length')
+  local preloaded_count
+  preloaded_count=$(echo "$state" | jq '.preloadedFiles | length' 2>/dev/null || echo "0")
 
-  if [ "$pending_count" = "1" ] && [ "$has_log" = "1" ]; then
+  if [ "$preloaded_count" -gt 0 ]; then
     pass "$test_name"
   else
-    fail "$test_name" "1 pendingTemplates (LOG only)" "pending_count=$pending_count, state=$state"
+    fail "$test_name" "preloadedFiles non-empty" "preloaded_count=$preloaded_count"
   fi
 
   teardown
 }
 
 # =============================================================================
-# TEST: dedup on reinvocation
+# TEST: no session — still delivers templates via additionalContext
 # =============================================================================
 
-test_dedup_on_reinvocation() {
-  local test_name="dedup: second invocation of same skill is no-op"
+test_delivers_without_session() {
+  local test_name="no session: still delivers templates via direct additionalContext"
   setup
 
-  create_skill_templates "brainstorm" LOG DEBRIEF
-
-  # First invocation
-  run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}' > /dev/null
-  local state_after_first
-  state_after_first=$(read_state)
-  local count_first
-  count_first=$(echo "$state_after_first" | jq '.pendingTemplates | length')
-
-  # Second invocation — should be deduped via lastPreloadedSkill
-  run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}' > /dev/null
-  local state_after_second
-  state_after_second=$(read_state)
-  local count_second
-  count_second=$(echo "$state_after_second" | jq '.pendingTemplates | length')
-
-  if [ "$count_first" = "2" ] && [ "$count_second" = "2" ]; then
-    pass "$test_name"
-  else
-    fail "$test_name" "count stays at 2 after second call" "count_first=$count_first, count_second=$count_second"
-  fi
-
-  teardown
-}
-
-# =============================================================================
-# TEST: skill change repreloads
-# =============================================================================
-
-test_skill_change_repreloads() {
-  local test_name="skill change: switching skills adds new templates"
-  setup
-
-  create_skill_templates "brainstorm" LOG
-  create_skill_templates "implement" LOG DEBRIEF
-
-  # First: brainstorm
-  run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}' > /dev/null
-
-  # Second: implement — should add implement templates
-  run_hook '{"tool_name":"Skill","tool_input":{"skill":"implement"}}' > /dev/null
-
-  local state
-  state=$(read_state)
-  local pending_count
-  pending_count=$(echo "$state" | jq '.pendingTemplates | length')
-  local last_skill
-  last_skill=$(echo "$state" | jq -r '.lastPreloadedSkill')
-
-  # Should have 3 total: 1 brainstorm + 2 implement
-  if [ "$pending_count" = "3" ] && [ "$last_skill" = "implement" ]; then
-    pass "$test_name"
-  else
-    fail "$test_name" "3 pendingTemplates, lastPreloadedSkill=implement" "pending_count=$pending_count, last_skill=$last_skill, state=$state"
-  fi
-
-  teardown
-}
-
-# =============================================================================
-# TEST: skips when no session
-# =============================================================================
-
-test_skips_when_no_session() {
-  local test_name="no session: skips when session.sh find returns empty"
-  setup
-
-  # Override session.sh to return empty
+  # Override session.sh to return empty (no session)
   cat > "$HOME/.claude/scripts/session.sh" <<'SCRIPT'
 #!/bin/bash
 if [ "${1:-}" = "find" ]; then
@@ -295,22 +304,21 @@ exit 1
 SCRIPT
   chmod +x "$HOME/.claude/scripts/session.sh"
 
-  create_skill_templates "brainstorm" LOG
+  create_skill_with_templates "brainstorm" LOG DEBRIEF
 
   local output
   output=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}')
-  local exit_code=$?
 
-  # State should be unchanged (still {})
-  local state
-  state=$(read_state)
-  local has_pending
-  has_pending=$(echo "$state" | jq 'has("pendingTemplates")')
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
 
-  if [ "$exit_code" -eq 0 ] && [ "$has_pending" = "false" ]; then
+  local has_log
+  has_log=$(echo "$has_context" | grep -c "TEMPLATE_BRAINSTORM_LOG.md" || true)
+
+  if [ "$has_log" -ge 1 ]; then
     pass "$test_name"
   else
-    fail "$test_name" "exit 0, no pendingTemplates" "exit=$exit_code, state=$state"
+    fail "$test_name" "additionalContext with templates even without session" "has_log=$has_log"
   fi
 
   teardown
@@ -321,24 +329,24 @@ SCRIPT
 # =============================================================================
 
 test_handles_hyphenated_skill_name() {
-  local test_name="hyphenated: edit-skill derives TEMPLATE_EDIT_SKILL_LOG.md"
+  local test_name="hyphenated: edit-skill reads from SKILL.md JSON correctly"
   setup
 
-  create_skill_templates "edit-skill" LOG
+  create_skill_with_templates "edit-skill" LOG
 
-  run_hook '{"tool_name":"Skill","tool_input":{"skill":"edit-skill"}}' > /dev/null
+  local output
+  output=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"edit-skill"}}')
 
-  local state
-  state=$(read_state)
-  local pending_count
-  pending_count=$(echo "$state" | jq '.pendingTemplates | length')
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
+
   local has_log
-  has_log=$(echo "$state" | jq '[.pendingTemplates[] | select(endswith("TEMPLATE_EDIT_SKILL_LOG.md"))] | length')
+  has_log=$(echo "$has_context" | grep -c "TEMPLATE_EDIT_SKILL_LOG.md" || true)
 
-  if [ "$pending_count" = "1" ] && [ "$has_log" = "1" ]; then
+  if [ "$has_log" -ge 1 ]; then
     pass "$test_name"
   else
-    fail "$test_name" "1 pendingTemplates with TEMPLATE_EDIT_SKILL_LOG.md" "pending_count=$pending_count, state=$state"
+    fail "$test_name" "additionalContext with TEMPLATE_EDIT_SKILL_LOG.md" "has_log=$has_log"
   fi
 
   teardown
@@ -355,9 +363,9 @@ test_fires_on_skill_tool
 test_ignores_non_skill_tools
 test_derives_correct_template_paths
 test_skips_missing_templates
-test_dedup_on_reinvocation
-test_skill_change_repreloads
-test_skips_when_no_session
+test_template_content_included
+test_session_tracking
+test_delivers_without_session
 test_handles_hyphenated_skill_name
 
 exit_with_results

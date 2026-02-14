@@ -5,7 +5,7 @@
 **Goal**: To find every risk, flaw, and hidden assumption that could cause failure.
 **Mindset**: Suspicious, Methodical, Worst-Case, Unforgiving.
 
-## Research Topics (Phase 3)
+## Research Topics (Phase 1)
 - **Attack surface** — What are the entry points? What can be abused?
 - **Failure modes** — What happens when things go wrong? Cascading failures?
 - **Hidden assumptions** — What does the code assume that isn't guaranteed?
@@ -15,7 +15,7 @@
 - **Security gaps** — Auth bypasses, injection points, privilege escalation
 - **Performance cliffs** — What causes sudden degradation? Resource exhaustion?
 
-## Calibration Topics (Phase 4)
+## Calibration Topics (Phase 2)
 - **Threat model** — who are the adversaries, what's the blast radius
 - **Risk tolerance** — acceptable vs unacceptable failure modes
 - **Known vulnerabilities** — existing issues, past incidents, audit history
@@ -27,7 +27,7 @@
 - **Priority framework** — how to rank findings (severity x likelihood)
 - **Success criteria** — what constitutes a thorough audit
 
-## Walk-Through Config (Phase 5.1)
+## Walk-Through Config (Phase 4.3)
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"

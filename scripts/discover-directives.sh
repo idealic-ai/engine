@@ -104,15 +104,36 @@ scan_dir() {
   local abs_dir
   abs_dir=$(cd "$dir" 2>/dev/null && pwd) || return
 
+  # Resolve .directives symlink once (prevents duplicate preloads from symlinked dirs)
+  local directives_canonical=""
+  if [ -d "$dir/.directives" ]; then
+    directives_canonical=$(cd "$dir/.directives" 2>/dev/null && pwd -P) || directives_canonical="${abs_dir}/.directives"
+  fi
+  local dir_canonical
+  dir_canonical=$(cd "$dir" 2>/dev/null && pwd -P) || dir_canonical="${abs_dir}"
+
   for fname in $DIRECTIVE_FILES; do
     # Check .directives/ subfolder first (preferred location)
-    if [ -f "$dir/.directives/$fname" ]; then
-      RESULTS="${RESULTS}${RESULTS:+$'\n'}${abs_dir}/.directives/${fname}"
+    if [ -n "$directives_canonical" ] && [ -f "$dir/.directives/$fname" ]; then
+      RESULTS="${RESULTS}${RESULTS:+$'\n'}${directives_canonical}/${fname}"
     # Fall back to flat directory root (legacy compat)
     elif [ -f "$dir/$fname" ]; then
-      RESULTS="${RESULTS}${RESULTS:+$'\n'}${abs_dir}/${fname}"
+      RESULTS="${RESULTS}${RESULTS:+$'\n'}${dir_canonical}/${fname}"
     fi
   done
+
+  # Discover local command files in .directives/commands/CMD_*.md
+  if [ -n "$directives_canonical" ] && [ -d "$dir/.directives/commands" ]; then
+    local commands_canonical
+    commands_canonical=$(cd "$dir/.directives/commands" 2>/dev/null && pwd -P) || commands_canonical="${directives_canonical}/commands"
+    local cmd_file
+    for cmd_file in "$dir/.directives/commands"/CMD_*.md; do
+      [ -f "$cmd_file" ] || continue
+      local cmd_basename
+      cmd_basename=$(basename "$cmd_file")
+      RESULTS="${RESULTS}${RESULTS:+$'\n'}${commands_canonical}/${cmd_basename}"
+    done
+  fi
 }
 
 # Scan the target directory

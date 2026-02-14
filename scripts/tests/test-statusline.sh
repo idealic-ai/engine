@@ -24,6 +24,8 @@ set -uo pipefail
 
 source "$(dirname "$0")/test-helpers.sh"
 
+unset DISABLE_AUTO_COMPACT 2>/dev/null || true
+
 STATUSLINE="$HOME/.claude/engine/tools/statusline.sh"
 SESSION_SH="$HOME/.claude/scripts/session.sh"
 LIB_SH="$HOME/.claude/scripts/lib.sh"

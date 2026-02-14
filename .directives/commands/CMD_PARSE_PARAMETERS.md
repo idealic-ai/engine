@@ -5,43 +5,42 @@
 **Schema**:
 ```json
 {
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "title": "Session Parameters",
-  "required": ["sessionDir", "taskSummary", "scope", "directoriesOfInterest", "contextPaths", "requestFiles", "extraInfo"],
+  "required": ["taskSummary", "scope", "directoriesOfInterest", "contextPaths", "requestFiles", "extraInfo"],
   "properties": {
     "sessionDir": {
       "type": "string",
       "title": "Session Directory",
-      "description": "Absolute or relative path to the active session folder.",
-
-      "setByScript": true
+      "description": "Absolute or relative path to the active session folder. Set by the engine, not the agent."
     },
     "taskType": {
-      "type": "string",
+      "type": ["string", "null"],
       "title": "Task Type",
       "description": "The active mode of operation. Skills define their own task types."
     },
     "taskSummary": {
       "type": "string",
       "title": "Task Summary",
-      "description": "Concise summary of the user's prompt/goal.",
+      "description": "Concise summary of the user's prompt/goal."
     },
     "scope": {
       "type": "string",
       "title": "Scope of Work",
-      "description": "Operational boundaries and sanity check (e.g., 'Discussion Only', 'Code Changes Allowed'). Prevents phase leakage.",
+      "description": "Operational boundaries and sanity check (e.g., 'Discussion Only', 'Code Changes Allowed'). Prevents phase leakage."
     },
     "directoriesOfInterest": {
       "type": "array",
       "title": "Working Directories / Directories of interest",
       "description": "Explicit directories targeted for this task (source code, docs, etc.).",
-      "items": { "type": "string" },
+      "items": { "type": "string" }
     },
     "contextPaths": {
       "type": "array",
       "title": "Project Context Paths",
       "description": "User-specified files/directories to load in Phase 2.",
-      "items": { "type": "string" },
+      "items": { "type": "string" }
     },
     "ragDiscoveredPaths": {
       "type": "array",
@@ -55,55 +54,55 @@
           "confidence": { "type": "string", "enum": ["high", "medium", "low"], "description": "RAG confidence level" }
         },
         "required": ["path", "reason"]
-      },
+      }
     },
     "directives": {
       "type": "array",
       "items": { "type": "string" },
       "title": "Skill Directives",
-      "description": "Directive file types this skill cares about beyond the core set (README.md, INVARIANTS.md, CHECKLIST.md are always discovered). Derived from the skill's Required Context section: if SKILL.md loads `.claude/.directives/X.md`, include `X.md` here. Convention: editing skills (implement, fix, test, refine, document) load PITFALLS.md and CONTRIBUTING.md; testing skills (implement, fix, test) load TESTING.md. See ¶INV_DIRECTIVE_STACK.",
+      "description": "Directive file types this skill cares about beyond the core set (README.md, INVARIANTS.md, CHECKLIST.md are always discovered). Derived from the skill's Required Context section: if SKILL.md loads `.claude/.directives/X.md`, include `X.md` here. Convention: editing skills (implement, fix, test, refine, document) load PITFALLS.md and CONTRIBUTING.md; testing skills (implement, fix, test) load TESTING.md. See ¶INV_DIRECTIVE_STACK."
     },
     "planTemplate": {
-      "type": "string",
+      "type": ["string", "null"],
       "title": "Plan Template Path",
-      "description": "Path to the plan template (if applicable).",
+      "description": "Path to the plan template (if applicable)."
     },
     "logTemplate": {
-      "type": "string",
+      "type": ["string", "null"],
       "title": "Log Template Path",
-      "description": "Path to the log template (if applicable).",
+      "description": "Path to the log template (if applicable)."
     },
     "debriefTemplate": {
-      "type": "string",
+      "type": ["string", "null"],
       "title": "Debrief Template Path",
-      "description": "Path to the debrief template.",
+      "description": "Path to the debrief template."
     },
     "requestTemplate": {
-      "type": "string",
+      "type": ["string", "null"],
       "title": "Request Template Path",
-      "description": "Path to the REQUEST template (if this skill supports delegation).",
+      "description": "Path to the REQUEST template (if this skill supports delegation)."
     },
     "responseTemplate": {
-      "type": "string",
+      "type": ["string", "null"],
       "title": "Response Template Path",
-      "description": "Path to the RESPONSE template (if this skill supports delegation).",
+      "description": "Path to the RESPONSE template (if this skill supports delegation)."
     },
     "requestFiles": {
       "type": "array",
       "items": { "type": "string" },
       "title": "Request Files",
-      "description": "Request files this session is fulfilling. Supports two types: formal REQUEST files (filename contains 'REQUEST') and inline-tag source files (any other file with #needs-* tags). Validated by `engine session check` Validation 3 (¶INV_REQUEST_BEFORE_CLOSE).",
+      "description": "Request files this session is fulfilling. Supports two types: formal REQUEST files (filename contains 'REQUEST') and inline-tag source files (any other file with #needs-* tags). Validated by `engine session check` Validation 3 (¶INV_REQUEST_BEFORE_CLOSE)."
     },
     "nextSkills": {
       "type": "array",
       "items": { "type": "string" },
       "title": "Next Skill Options",
-      "description": "Skills to suggest after session completion. Used by §CMD_CLOSE_SESSION for the post-session menu. Each skill declares its own nextSkills in SKILL.md. Required field.",
+      "description": "Skills to suggest after session completion. Used by §CMD_CLOSE_SESSION for the post-session menu. Each skill declares its own nextSkills in SKILL.md. Required field."
     },
     "extraInfo": {
-      "type": "string",
+      "type": ["string", "null"],
       "title": "Extra Info",
-      "description": "Any additional context or constraints.",
+      "description": "Any additional context or constraints."
     },
     "phases": {
       "type": "array",
@@ -150,15 +149,19 @@ Static fields (`taskType`, `phases`, `nextSkills`, `directives`, `modes`, `logTe
 
 ```json
 {
-  "session_dir": {
-    "type": "string",
-    "description": "Path to the created session directory",
-    "examples": ["sessions/2026_02_12_MY_FEATURE_IMPL"]
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "session_dir": {
+      "type": "string",
+      "description": "Path to the created session directory"
+    },
+    "parameters_parsed": {
+      "type": "boolean",
+      "description": "Whether session parameters were successfully parsed and stored"
+    }
   },
-  "parameters_parsed": {
-    "type": "boolean",
-    "description": "Whether session parameters were successfully parsed and stored",
-    "examples": [true]
-  }
+  "required": ["session_dir", "parameters_parsed"],
+  "additionalProperties": false
 }
 ```

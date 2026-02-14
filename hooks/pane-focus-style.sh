@@ -68,6 +68,12 @@ if [ -n "$LAST" ] && [ "$LAST" != "$CURR" ]; then
       select-pane -t "$CURR" \; \
       set -g @suppress_focus_hook 0 2>/dev/null
   fi
+
+  # Clear @pane_user_focused on the pane that lost focus
+  tmux -L "$SOCKET" set-option -pu -t "$LAST" @pane_user_focused 2>/dev/null || true
+
+  # Fire coordinator-wake signal so coordinate-wait can re-sweep
+  tmux -L "$SOCKET" wait-for -S coordinator-wake 2>/dev/null || true
 fi
 
 # Set current pane to black (state-check: skip if already black)
@@ -77,6 +83,9 @@ if [ "$CURR_STYLE" != "$BLACK" ]; then
     select-pane -t "$CURR" -P "$BLACK" \; \
     set -g @suppress_focus_hook 0 2>/dev/null
 fi
+
+# Set @pane_user_focused on the pane that gained focus
+tmux -L "$SOCKET" set-option -p -t "$CURR" @pane_user_focused "1" 2>/dev/null || true
 
 # Store current as last for next time
 tmux -L "$SOCKET" set -g @last_focused_pane "$CURR"

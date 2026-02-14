@@ -98,16 +98,28 @@ for ((i=0; i<Q_COUNT; i++)); do
   fi
 done
 
-# Extract user response
-USER_RESPONSE=$(echo "$INPUT" | jq -r '.tool_response // ""' 2>/dev/null || echo "")
-# If tool_response is a JSON object (structured answers), stringify it nicely
-if echo "$USER_RESPONSE" | jq empty 2>/dev/null; then
-  # It's valid JSON — check if it's a string or object
-  RESPONSE_TYPE=$(echo "$INPUT" | jq -r '.tool_response | type' 2>/dev/null || echo "string")
-  if [ "$RESPONSE_TYPE" = "object" ]; then
-    USER_RESPONSE=$(echo "$INPUT" | jq -r '.tool_response | to_entries | map("\(.key): \(.value)") | join("\n")' 2>/dev/null || echo "$USER_RESPONSE")
-  fi
-fi
+# Extract user response — answers only, with fallback chain
+# Priority: tool_response.answers > tool_input.answers > raw tool_response
+USER_RESPONSE=$(echo "$INPUT" | jq -r '
+  def non_empty_obj: type == "object" and length > 0;
+  def fmt_value: if type == "array" then join(", ") elif type == "string" then . else tostring end;
+
+  ((.tool_response // {}) | if type == "object" then (.answers // null) else null end) as $resp_ans |
+  ((.tool_input // {}) | if type == "object" then (.answers // null) else null end) as $input_ans |
+  (if ($resp_ans | non_empty_obj) then $resp_ans
+   elif ($input_ans | non_empty_obj) then $input_ans
+   else null end) as $answers |
+
+  if ($answers | . == null | not) then
+    ($answers | to_entries | map("\(.key): \(.value | fmt_value)") | join("\n"))
+  elif (.tool_response | type) == "string" then
+    .tool_response
+  elif (.tool_response | type) == "object" then
+    (.tool_response | to_entries | map("\(.key): \(.value | tostring)") | join("\n"))
+  else
+    (.tool_response // "" | tostring)
+  end
+' 2>/dev/null || echo "")
 
 # --- Escape tag references in all content sources (¶INV_ESCAPE_BY_DEFAULT) ---
 PREAMBLE=$(printf '%s' "$PREAMBLE" | escape_tags)
@@ -140,8 +152,6 @@ ENTRY="${ENTRY}"$'\n'
 ENTRY="${ENTRY}---"
 
 # Append to DETAILS.md via engine log
-"$HOME/.claude/scripts/log.sh" "$SESSION_DIR/DETAILS.md" <<LOGEOF
-${ENTRY}
-LOGEOF
+printf '%s\n' "$ENTRY" | "$HOME/.claude/scripts/log.sh" "$SESSION_DIR/DETAILS.md"
 
 exit 0

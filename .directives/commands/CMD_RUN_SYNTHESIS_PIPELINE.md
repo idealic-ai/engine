@@ -10,7 +10,7 @@
 {"major": N, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
 {"major": N, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
 {"major": N, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
-{"major": N, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
+{"major": N, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"]}
 ```
 Where N is the skill's synthesis phase number (e.g., 5 for implement, 6 for analyze).
 
@@ -62,14 +62,17 @@ Where N is the skill's synthesis phase number (e.g., 5 for implement, 6 for anal
 1.  Execute `§CMD_REPORT_ARTIFACTS` — list all created/modified files in chat.
 2.  Execute `§CMD_REPORT_SUMMARY` — 2-paragraph session summary in chat.
 3.  Execute `§CMD_WALK_THROUGH_RESULTS` — skill-specific walk-through (config defined in each SKILL.md).
-4.  Prove:
+4.  Execute `§CMD_CLOSE_SESSION` — debrief gate, compose description, infer keywords, transition to idle.
+5.  Execute `§CMD_PRESENT_NEXT_STEPS` — post-synthesis routing menu (continue/switch skill/done).
+6.  Prove:
     ```bash
     engine session phase sessions/DIR "N.4: Close" <<'EOF'
     §CMD_REPORT_ARTIFACTS: yes
     §CMD_REPORT_SUMMARY: yes
+    §CMD_CLOSE_SESSION: [session idled with description]
+    §CMD_PRESENT_NEXT_STEPS: [user chose /skill or "Done for now"]
     EOF
     ```
-5.  Execute `§CMD_CLOSE_SESSION` — deactivate session, present next-skill menu.
 
 **What stays skill-specific** (NOT centralized):
 *   **Debrief template**: Each skill uses its own `TEMPLATE_*.md` (e.g., `TEMPLATE_IMPLEMENTATION.md` vs `TEMPLATE_ANALYSIS.md`).

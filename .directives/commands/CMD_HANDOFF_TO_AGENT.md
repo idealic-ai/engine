@@ -3,17 +3,21 @@
 **Rule**: Opt-in, foreground, user-initiated. The parent command asks; the user decides.
 
 **Parameters**:
-*   `agentName`: `"builder"` | `"writer"` | `"debugger"` | `"analyzer"`
-*   `sessionDir`: Absolute path to the session directory
-*   `parentPromptFile`: Path to the parent skill protocol (e.g., `~/.claude/skills/implement/SKILL.md`)
-*   `startAtPhase`: Which phase the agent begins at (e.g., `"Phase 5: Build Loop"`)
-*   `planOrDirective`: Path to plan file (plan-driven agents) or inline directive text (prompt-driven agents)
-*   `logFile`: Relative path to log file within session (e.g., `IMPLEMENTATION_LOG.md`)
-*   `debriefTemplate`: Path to debrief template (e.g., `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md`)
-*   `logTemplate`: Path to log entry template (e.g., `~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md`)
-*   `contextFiles`: List of files loaded during Phase 2 (the agent must read these)
-*   `detailsFile`: Path to `DETAILS.md` (interrogation record, for agent reference)
-*   `taskSummary`: One-line description of what the agent should do
+```json
+{
+  "agentName": "builder | writer | debugger | analyzer",
+  "sessionDir": "[absolute path to session directory]",
+  "parentPromptFile": "[path to parent skill protocol, e.g. ~/.claude/skills/implement/SKILL.md]",
+  "startAtPhase": "[phase label, e.g. 'Phase 5: Build Loop']",
+  "planOrDirective": "[path to plan file or inline directive text]",
+  "logFile": "[relative path within session, e.g. IMPLEMENTATION_LOG.md]",
+  "debriefTemplate": "[path to debrief template, e.g. ~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md]",
+  "logTemplate": "[path to log entry template, e.g. ~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md]",
+  "contextFiles": ["[files loaded during Phase 2]"],
+  "detailsFile": "[path to DETAILS.md]",
+  "taskSummary": "[one-line description]"
+}
+```
 
 **Algorithm**:
 1.  **Ask** (via `§CMD_ASK_ROUND`):
@@ -95,10 +99,15 @@
 
 ```json
 {
-  "agent_launched": {
-    "type": "string",
-    "description": "Agent type and task summary for the launched agent",
-    "examples": ["builder: Execute implementation plan (5 steps)"]
-  }
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "agent_launched": {
+      "type": "string",
+      "description": "Agent type and task summary for the launched agent"
+    }
+  },
+  "required": ["agent_launched"],
+  "additionalProperties": false
 }
 ```

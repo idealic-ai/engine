@@ -4,19 +4,21 @@
 # Tests:
 #   B1. Whitelist: engine log always allowed
 #   B2. Whitelist: engine session always allowed
-#   B3. Skill(session, args:dehydrate) allowed and sets lifecycle=dehydrating
-#   B3b. Skill(session, args:continue) allowed and sets lifecycle=dehydrating
+#   B3. Skill(session, args:dehydrate) is allowed (lifecycle unchanged — Bash handles state)
+#   B3b. Skill(session, args:continue) is allowed
 #   B3c. Skill(session, args:status) does NOT set lifecycle=dehydrating
 #   B4. All tools allowed when lifecycle=dehydrating
 #   B5. All tools allowed when killRequested=true
-#   B6. Delivers inline+allow injection via permissionDecisionReason
-#   B7. Delivers inline+block injection via hook_deny
-#   B8. Delivers read+block injection with file instruction
-#   B9. Delivers paste+allow — falls back to block without tmux
-#   B10. Marks delivered rules in injectedRules and clears from pendingInjections
-#   B11. Fallback: blocks at OVERFLOW_THRESHOLD when no pendingInjections
+#   B6. inline+allow delivery: heartbeat-warn stashes content for PostToolUse
+#   B7. inline+block delivery: overflow-dehydration denies with content
+#   B8. read+block delivery: denies with file read instruction (custom guards)
+#   B9. paste+block delivery: denies with command text without tmux (custom guards)
+#   B10. Delivered rules tracked in injectedRules
+#   B11. Fallback: blocks at OVERFLOW_THRESHOLD
 #   B12. Allow when contextUsage below threshold and no injections
 #   B13. Allow when no session directory
+#   B14. Non-whitelisted engine subcommand denied during overflow
+#   B15. Adversarial engine-like command denied during overflow
 #
 # Run: bash ~/.claude/engine/scripts/tests/test-overflow-v2.sh
 
@@ -27,16 +29,21 @@ HOOK="$HOME/.claude/engine/hooks/pre-tool-use-overflow-v2.sh"
 SESSION_SH="$HOME/.claude/engine/scripts/session.sh"
 LIB_SH="$HOME/.claude/scripts/lib.sh"
 CONFIG_SH="$HOME/.claude/engine/config.sh"
+GUARDS_JSON="$HOME/.claude/engine/guards.json"
 
 TMP_DIR=$(mktemp -d)
 
 export CLAUDE_SUPERVISOR_PID=99999999
+
+# Ensure default threshold (0.76) — unset flag that raises it to 0.95
+unset DISABLE_AUTO_COMPACT 2>/dev/null || true
 
 # Save real paths
 REAL_HOOK="$HOOK"
 REAL_SESSION_SH="$SESSION_SH"
 REAL_LIB_SH="$LIB_SH"
 REAL_CONFIG_SH="$CONFIG_SH"
+REAL_GUARDS_JSON="$GUARDS_JSON"
 
 setup_fake_home "$TMP_DIR"
 disable_fleet_tmux
@@ -48,6 +55,7 @@ mkdir -p "$FAKE_HOME/.claude/hooks"
 ln -sf "$REAL_SESSION_SH" "$FAKE_HOME/.claude/scripts/session.sh"
 ln -sf "$REAL_LIB_SH" "$FAKE_HOME/.claude/scripts/lib.sh"
 ln -sf "$REAL_CONFIG_SH" "$FAKE_HOME/.claude/engine/config.sh"
+ln -sf "$REAL_GUARDS_JSON" "$FAKE_HOME/.claude/engine/guards.json"
 ln -sf "$REAL_HOOK" "$FAKE_HOME/.claude/hooks/pre-tool-use-overflow-v2.sh"
 
 mock_fleet_sh "$FAKE_HOME"
@@ -78,9 +86,22 @@ run_hook() {
 reset_state() {
   # Preserve fields from session.sh activate, only reset test-relevant fields
   jq '.lifecycle = "active" | .killRequested = false | .contextUsage = 0 |
-      del(.overflowed) | .injectedRules = {} | .pendingInjections = []' \
+      .loading = false | del(.overflowed) | .injectedRules = {} |
+      .pendingAllowInjections = [] | .toolCallsByTranscript = {} |
+      .toolCallsSinceLastLog = 0 | .pendingPreloads = []' \
     "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
     && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+}
+
+# Write custom guards.json for mode-specific tests (B8, B9)
+write_test_guards() {
+  rm -f "$FAKE_HOME/.claude/engine/guards.json"
+  echo "$1" > "$FAKE_HOME/.claude/engine/guards.json"
+}
+
+restore_real_guards() {
+  rm -f "$FAKE_HOME/.claude/engine/guards.json"
+  ln -sf "$REAL_GUARDS_JSON" "$FAKE_HOME/.claude/engine/guards.json"
 }
 
 echo "======================================"
@@ -117,20 +138,29 @@ else
 fi
 
 # ============================================================
-# B3: Skill(session, args:dehydrate) sets lifecycle=dehydrating
+# B3: Skill(session, args:dehydrate) is allowed
+# In the new architecture, only Bash(engine session dehydrate)
+# sets lifecycle=dehydrating. Skill invocations load the protocol;
+# the lifecycle change happens when the protocol runs the bash command.
 # ============================================================
 reset_state
 OUTPUT=$(run_hook "Skill" '{"skill":"session","args":"dehydrate restart"}')
-LIFECYCLE=$(jq -r '.lifecycle' "$TEST_SESSION/.state.json")
-assert_eq "dehydrating" "$LIFECYCLE" "B3: Skill(session, args:dehydrate) sets lifecycle=dehydrating"
+if echo "$OUTPUT" | grep -q '"permissionDecision".*"deny"'; then
+  fail "B3: Skill(session, dehydrate) should be allowed"
+else
+  pass "B3: Skill(session, dehydrate) is allowed"
+fi
 
 # ============================================================
-# B3b: Skill(session, args:continue) sets lifecycle=dehydrating
+# B3b: Skill(session, args:continue) is allowed
 # ============================================================
 reset_state
 OUTPUT=$(run_hook "Skill" '{"skill":"session","args":"continue --session sessions/TEST --skill do --phase \"1: Work\""}')
-LIFECYCLE=$(jq -r '.lifecycle' "$TEST_SESSION/.state.json")
-assert_eq "dehydrating" "$LIFECYCLE" "B3b: Skill(session, args:continue) sets lifecycle=dehydrating"
+if echo "$OUTPUT" | grep -q '"permissionDecision".*"deny"'; then
+  fail "B3b: Skill(session, continue) should be allowed"
+else
+  pass "B3b: Skill(session, continue) is allowed"
+fi
 
 # ============================================================
 # B3c: Skill(session, args:status) does NOT set lifecycle=dehydrating
@@ -166,101 +196,107 @@ else
 fi
 
 # ============================================================
-# B6: inline+allow — delivers via permissionDecisionReason
+# B6: inline+allow — heartbeat-warn stashes content for PostToolUse
+# Trigger: set per-transcript counter to 2 (hook increments to 3,
+# matching heartbeat-warn rule with eq:3 condition)
 # ============================================================
 reset_state
-jq '.pendingInjections = [{
-  "ruleId": "test-inline-allow",
-  "mode": "inline",
-  "urgency": "allow",
-  "priority": 10,
-  "payload": {"text": "injected content here"}
-}]' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+jq '.toolCallsByTranscript = {"test.jsonl": 2} | .toolCallsSinceLastLog = 2' \
+  "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+OUTPUT=$(run_hook "Read" '{"file_path":"/some/file.ts"}')
+# Should allow (not deny)
+if echo "$OUTPUT" | grep -q '"permissionDecision".*"deny"'; then
+  fail "B6: inline+allow should not deny"
+else
+  # Verify content stashed in pendingAllowInjections
+  STASH_LEN=$(jq '.pendingAllowInjections // [] | length' "$TEST_SESSION/.state.json")
+  STASH_RULE=$(jq -r '.pendingAllowInjections[0].ruleId // ""' "$TEST_SESSION/.state.json")
+  if [ "$STASH_LEN" -gt 0 ] && [ "$STASH_RULE" = "heartbeat-warn" ]; then
+    pass "B6: inline+allow stashes heartbeat-warn for PostToolUse delivery"
+  else
+    fail "B6: inline+allow should stash content" "heartbeat-warn stash" "len=$STASH_LEN rule=$STASH_RULE"
+  fi
+fi
+
+# ============================================================
+# B7: inline+block — overflow-dehydration denies with content
+# Trigger: contextUsage=0.80 > default threshold 0.76
+# Tool: Read (not in overflow-dehydration whitelist)
+# ============================================================
+reset_state
+jq '.contextUsage = 0.80' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 OUTPUT=$(run_hook "Read" '{"file_path":"/some/file.ts"}')
 DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
-REASON=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""' 2>/dev/null || echo "")
-assert_eq "allow" "$DECISION" "B6: inline+allow returns allow decision"
-assert_contains "injected content here" "$REASON" "B6: inline+allow includes payload in reason"
+assert_eq "deny" "$DECISION" "B7: inline+block (overflow) returns deny"
 
 # ============================================================
-# B7: inline+block — delivers via hook_deny
+# B8: read+block — denies with file read instruction
+# Uses custom guards.json with a read-mode blocking rule
 # ============================================================
 reset_state
-jq '.pendingInjections = [{
-  "ruleId": "test-inline-block",
-  "mode": "inline",
-  "urgency": "block",
-  "priority": 10,
-  "payload": {"text": "blocking content"}
-}]' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
-  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
-
-OUTPUT=$(run_hook "Read" '{"file_path":"/some/file.ts"}')
-DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
-assert_eq "deny" "$DECISION" "B7: inline+block returns deny decision"
-
-# ============================================================
-# B8: read+block — includes file instruction
-# ============================================================
-reset_state
-jq '.pendingInjections = [{
-  "ruleId": "test-read-block",
+write_test_guards '[{
+  "id": "test-read-block",
+  "trigger": {"type": "contextThreshold", "condition": {"gte": 0.01}},
+  "payload": {"files": ["/some/directive.md"]},
   "mode": "read",
   "urgency": "block",
   "priority": 20,
-  "payload": {"files": ["/some/directive.md"]}
-}]' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  "inject": "always"
+}]'
+jq '.contextUsage = 0.50' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 OUTPUT=$(run_hook "Read" '{"file_path":"/some/file.ts"}')
 DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
 assert_eq "deny" "$DECISION" "B8: read+block returns deny"
+restore_real_guards
 
 # ============================================================
-# B9: paste+allow — falls back to block without tmux
+# B9: paste+block — denies with command text without tmux
+# Uses custom guards.json with a paste-mode blocking rule
 # ============================================================
 reset_state
 unset TMUX 2>/dev/null || true
-jq '.pendingInjections = [{
-  "ruleId": "test-paste-allow",
+write_test_guards '[{
+  "id": "test-paste-block",
+  "trigger": {"type": "contextThreshold", "condition": {"gte": 0.01}},
+  "payload": {"command": "/session dehydrate restart"},
   "mode": "paste",
-  "urgency": "allow",
+  "urgency": "block",
   "priority": 5,
-  "payload": {"command": "/session dehydrate restart"}
-}]' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  "inject": "always"
+}]'
+jq '.contextUsage = 0.50' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 OUTPUT=$(run_hook "Read" '{"file_path":"/some/file.ts"}')
 DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
-assert_eq "deny" "$DECISION" "B9: paste+allow falls back to block without tmux"
+assert_eq "deny" "$DECISION" "B9: paste+block returns deny without tmux"
+restore_real_guards
 
 # ============================================================
-# B10: Delivered rules marked in injectedRules, cleared from pendingInjections
+# B10: Delivered rules tracked in injectedRules
+# Trigger overflow-dehydration via contextUsage, verify tracking
 # ============================================================
 reset_state
-jq '.pendingInjections = [{
-  "ruleId": "test-delivery",
-  "mode": "inline",
-  "urgency": "allow",
-  "priority": 10,
-  "payload": {"text": "delivered content"}
-}]' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+jq '.contextUsage = 0.80' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 run_hook "Read" '{"file_path":"/some/file.ts"}' > /dev/null
 
-INJECTED=$(jq -r '.injectedRules["test-delivery"] // "false"' "$TEST_SESSION/.state.json")
-REMAINING=$(jq '.pendingInjections | length' "$TEST_SESSION/.state.json")
-assert_eq "true" "$INJECTED" "B10: delivered rule marked in injectedRules"
-assert_eq "0" "$REMAINING" "B10: delivered rule cleared from pendingInjections"
+INJECTED=$(jq -r '.injectedRules["overflow-dehydration"] // "false"' "$TEST_SESSION/.state.json")
+assert_eq "true" "$INJECTED" "B10: delivered rule tracked in injectedRules"
 
 # ============================================================
-# B11: Fallback — blocks at OVERFLOW_THRESHOLD when no injections
+# B11: Fallback — blocks at OVERFLOW_THRESHOLD
+# contextUsage=0.80 > default threshold 0.76
 # ============================================================
 reset_state
-jq '.contextUsage = 0.80 | .pendingInjections = []' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+jq '.contextUsage = 0.80' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 OUTPUT=$(run_hook "Read" '{"file_path":"/some/file.ts"}')
@@ -271,7 +307,7 @@ assert_eq "deny" "$DECISION" "B11: fallback blocks at overflow threshold"
 # B12: Allow when below threshold and no injections
 # ============================================================
 reset_state
-jq '.contextUsage = 0.30 | .pendingInjections = []' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+jq '.contextUsage = 0.30' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 OUTPUT=$(run_hook "Read" '{"file_path":"/some/file.ts"}')
@@ -288,6 +324,30 @@ fi
 # Instead just verify hook doesn't crash with bad input.
 OUTPUT=$(printf '{"tool_name":"Read","tool_input":{"file_path":"/x"}}\n' | "$RESOLVED_HOOK" 2>/dev/null || true)
 pass "B13: hook doesn't crash on execution"
+
+# ============================================================
+# B14: Non-whitelisted engine subcommand denied during overflow
+# ============================================================
+reset_state
+jq '.contextUsage = 0.80' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+# engine tag is NOT in the hardcoded whitelist (only engine log and engine session)
+OUTPUT=$(run_hook "Bash" '{"command":"engine tag find #needs-review"}')
+DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
+assert_eq "deny" "$DECISION" "B14: engine tag denied during overflow (not whitelisted)"
+
+# ============================================================
+# B15: Adversarial engine-like command denied during overflow
+# ============================================================
+reset_state
+jq '.contextUsage = 0.80' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+# "engineering-tool" is not "engine" — should not match the whitelist
+OUTPUT=$(run_hook "Bash" '{"command":"engineering-tool log sessions/test/LOG.md"}')
+DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
+assert_eq "deny" "$DECISION" "B15: adversarial engine-like command denied during overflow"
 
 # ============================================================
 # Results

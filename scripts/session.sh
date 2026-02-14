@@ -26,7 +26,7 @@
 #   session.sh restart <path>                      # Set status=ready-to-kill, signal wrapper
 #   session.sh check <path> [<<STDIN]                 # Tag scan + checklist validation (sets checkPassed=true)
 #   session.sh find                                 # Find session dir for current process (read-only)
-#   session.sh evaluate-injections <path>            # Evaluate injection rules, populate pendingInjections[]
+#   session.sh evaluate-guards <path>                # Evaluate guard rules, populate pendingGuards[]
 #   session.sh request-template <tag>               # Output REQUEST template for a #needs-* tag to stdout
 #
 # Examples:
@@ -66,7 +66,7 @@ ACTION="${1:?Usage: session.sh <init|activate|update|find|restart> <path> [args.
 if [ "$ACTION" = "find" ] || [ "$ACTION" = "request-template" ]; then
   DIR=""
 else
-  DIR="${2:?Missing directory path}"
+  DIR=$(resolve_session_path "${2:?Missing directory path}")
 fi
 
 STATE_FILE="$DIR/.state.json"
@@ -77,6 +77,35 @@ get_fleet_pane_id() {
   # Use fleet.sh pane-id for composite format (session:window:pane)
   # This is the canonical source of truth for fleet identity
   "$HOME/.claude/scripts/fleet.sh" pane-id 2>/dev/null || echo ""
+}
+
+# Helper: Validate a JSON instance against a JSON Schema
+# Usage: validate_json_schema <schema_json_string> <instance_json_string>
+# Returns: 0 if valid, 1 if invalid (errors on stderr), 2 if tool missing
+validate_json_schema() {
+  local schema_json="$1"
+  local instance_json="$2"
+  local validate_sh="$HOME/.claude/tools/json-schema-validate/validate.sh"
+
+  if [ ! -x "$validate_sh" ]; then
+    echo "validate_json_schema: validate.sh not found at $validate_sh" >&2
+    return 2
+  fi
+
+  local tmp_instance
+  tmp_instance=$(mktemp)
+  trap "rm -f '$tmp_instance'" RETURN
+
+  echo "$instance_json" > "$tmp_instance"
+  echo "$schema_json" | "$validate_sh" --schema-stdin "$tmp_instance"
+}
+
+# Helper: Extract proof schema JSON from a CMD_*.md file
+# Usage: extract_proof_schema <cmd_file_path>
+# Returns: JSON Schema string, or empty if not found
+extract_proof_schema() {
+  local cmd_file="$1"
+  awk '/## PROOF FOR/,0{if(/```json/){f=1;next}if(/```/){f=0;next}if(f)print}' "$cmd_file" 2>/dev/null || echo ""
 }
 
 # Static fields extracted from SKILL.md — engine-authoritative
@@ -179,20 +208,36 @@ case "$ACTION" in
           exit 1
         fi
 
-        # --- Required Fields Validation (§CMD_PARSE_PARAMETERS schema) ---
-        # Only DYNAMIC fields are required from agents. Static fields (taskType, phases,
-        # templates, nextSkills, directives, modes) are extracted from SKILL.md by the engine.
-        REQUIRED_FIELDS="taskSummary scope directoriesOfInterest contextPaths requestFiles extraInfo"
-        MISSING_FIELDS=""
-        for field in $REQUIRED_FIELDS; do
-          if ! echo "$STDIN_JSON" | jq -e "has(\"$field\")" > /dev/null 2>&1; then
-            MISSING_FIELDS="${MISSING_FIELDS:+$MISSING_FIELDS, }$field"
+        # --- Schema Validation (§CMD_PARSE_PARAMETERS) ---
+        # Extract JSON Schema from CMD_PARSE_PARAMETERS.md and validate stdin JSON.
+        # Only dynamic fields are required from agents — static fields come from SKILL.md.
+        PARAMS_CMD_FILE="$HOME/.claude/engine/.directives/commands/CMD_PARSE_PARAMETERS.md"
+        PARAMS_SCHEMA=""
+        if [ -f "$PARAMS_CMD_FILE" ]; then
+          PARAMS_SCHEMA=$(awk '/```json/{f=1;next}/```/{if(f){f=0;exit}}f' "$PARAMS_CMD_FILE" 2>/dev/null || echo "")
+        fi
+        if [ -n "$PARAMS_SCHEMA" ] && echo "$PARAMS_SCHEMA" | jq empty 2>/dev/null; then
+          if ! validate_json_schema "$PARAMS_SCHEMA" "$STDIN_JSON" 2>/tmp/params_validation_err; then
+            echo "§CMD_PARSE_PARAMETERS: Session parameters validation failed:" >&2
+            cat /tmp/params_validation_err >&2
+            rm -f /tmp/params_validation_err
+            exit 1
           fi
-        done
-        if [ -n "$MISSING_FIELDS" ]; then
-          echo "§CMD_PARSE_PARAMETERS: Missing required field(s) in JSON: $MISSING_FIELDS" >&2
-          echo "  See §CMD_PARSE_PARAMETERS schema for required fields." >&2
-          exit 1
+          rm -f /tmp/params_validation_err
+        else
+          # Fallback: hardcoded required fields check (if schema extraction fails)
+          REQUIRED_FIELDS="taskSummary scope directoriesOfInterest contextPaths requestFiles extraInfo"
+          MISSING_FIELDS=""
+          for field in $REQUIRED_FIELDS; do
+            if ! echo "$STDIN_JSON" | jq -e "has(\"$field\")" > /dev/null 2>&1; then
+              MISSING_FIELDS="${MISSING_FIELDS:+$MISSING_FIELDS, }$field"
+            fi
+          done
+          if [ -n "$MISSING_FIELDS" ]; then
+            echo "§CMD_PARSE_PARAMETERS: Missing required field(s) in JSON: $MISSING_FIELDS" >&2
+            echo "  See §CMD_PARSE_PARAMETERS schema for required fields." >&2
+            exit 1
+          fi
         fi
       fi
     fi
@@ -286,6 +331,11 @@ case "$ACTION" in
             JQ_ARGS+=(--arg file "$TARGET_FILE")
           fi
 
+          if [ -n "${WORKSPACE:-}" ]; then
+            JQ_EXPR="$JQ_EXPR | .workspace = \$ws"
+            JQ_ARGS+=(--arg ws "$WORKSPACE")
+          fi
+
           jq "${JQ_ARGS[@]}" "$JQ_EXPR" \
             "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
@@ -353,6 +403,11 @@ case "$ACTION" in
             JQ_ARGS+=(--arg pane "$FLEET_PANE")
           fi
 
+          if [ -n "${WORKSPACE:-}" ]; then
+            JQ_EXPR="$JQ_EXPR | .workspace = \$ws"
+            JQ_ARGS+=(--arg ws "$WORKSPACE")
+          fi
+
           jq "${JQ_ARGS[@]}" "$JQ_EXPR" \
             "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
@@ -415,7 +470,11 @@ case "$ACTION" in
           toolUseWithoutLogsWarnAfter: 3,
           toolUseWithoutLogsBlockAfter: 10,
           startedAt: $startedAt,
-          lastHeartbeat: $lastHeartbeat
+          lastHeartbeat: $lastHeartbeat,
+          preloadedFiles: ["~/.claude/.directives/COMMANDS.md","~/.claude/.directives/INVARIANTS.md","~/.claude/.directives/TAGS.md","~/.claude/.directives/commands/CMD_DEHYDRATE.md","~/.claude/.directives/commands/CMD_RESUME_SESSION.md","~/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"],
+          touchedDirs: {},
+          pendingPreloads: [],
+          pendingAllowInjections: []
         }')
 
       # Add optional fields
@@ -424,6 +483,9 @@ case "$ACTION" in
       fi
       if [ -n "$TARGET_FILE" ]; then
         BASE_JSON=$(echo "$BASE_JSON" | jq --arg file "$TARGET_FILE" '.targetFile = $file')
+      fi
+      if [ -n "${WORKSPACE:-}" ]; then
+        BASE_JSON=$(echo "$BASE_JSON" | jq --arg ws "$WORKSPACE" '.workspace = $ws')
       fi
 
       # Merge stdin JSON (session parameters) if provided
@@ -783,6 +845,14 @@ case "$ACTION" in
         echo "§CMD_UPDATE_PHASE: Phase label must start with a number (e.g., '3: Exec', '3.C: Branch'). Got: '$PHASE'" >&2
         exit 1
       fi
+      # --- Label format validation ---
+      # Valid: N, N.M, N.A, N.MA (single uppercase letter suffix on sub-phase), N.A.M, etc.
+      # First segment: pure number. Subsequent: number, letters, or number+single uppercase letter.
+      # Rejects: alpha-style (1a, 5B), double letter suffix (3.1AB), lowercase suffix (3.1a)
+      if ! echo "$REQ_LABEL" | grep -qE '^[0-9]+(\.(([0-9]+[A-Z]?)|[A-Z]+))*$'; then
+        echo "§CMD_UPDATE_PHASE: Invalid phase label format: '$REQ_LABEL'. Valid formats: N, N.M, N.A, N.MA (single uppercase). Got: '$PHASE'" >&2
+        exit 1
+      fi
       # --- Parse current phase ---
       CURRENT_PHASE=$(jq -r '.currentPhase // ""' "$STATE_FILE")
       CUR_LABEL=$(echo "$CURRENT_PHASE" | sed -E 's/: .*//')
@@ -913,20 +983,31 @@ case "$ACTION" in
     # --- Proof Parsing ---
     # Always parse STDIN proof into JSON when provided, regardless of validation.
     # This ensures proof is stored in phaseHistory even when the target phase has no proof fields.
-    # Proof format: "field_name: value" lines piped via STDIN.
+    # Supports two formats:
+    #   1. JSON object (preferred): {"depth_chosen": "Short", "rounds_completed": 3}
+    #   2. key: value lines (deprecated): depth_chosen: Short\nrounds_completed: 3
     PROOF_JSON="{}"
+    PROOF_FORMAT=""
     if [ -n "$PROOF_INPUT" ]; then
-      while IFS= read -r line; do
-        [ -n "$line" ] || continue
-        # Extract key (everything before first ': ')
-        # Supports: alphanumeric keys (e.g., debrief_file) and §CMD_ prefixed keys (e.g., §CMD_PROCESS_CHECKLISTS)
-        PKEY=$(echo "$line" | sed -n 's/^\([§a-zA-Z_][§a-zA-Z0-9_]*\): .*/\1/p')
-        [ -z "$PKEY" ] && continue
-        # Extract value: everything after the first ': ' separator
-        # Uses bash parameter expansion to avoid sed issues with § in patterns
-        PVAL="${line#*: }"
-        PROOF_JSON=$(echo "$PROOF_JSON" | jq --arg k "$PKEY" --arg v "$PVAL" '. + {($k): $v}')
-      done <<< "$PROOF_INPUT"
+      # Try JSON parse first
+      if echo "$PROOF_INPUT" | jq empty 2>/dev/null; then
+        PROOF_JSON="$PROOF_INPUT"
+        PROOF_FORMAT="json"
+      else
+        # Fallback: key: value line parsing (backward compat, deprecated)
+        echo "⚠️  DEPRECATED: Proof piped as key:value lines. Use JSON objects instead." >&2
+        PROOF_FORMAT="key-value"
+        while IFS= read -r line; do
+          [ -n "$line" ] || continue
+          # Extract key (everything before first ': ')
+          # Supports: alphanumeric keys (e.g., debrief_file) and §CMD_ prefixed keys (e.g., §CMD_PROCESS_CHECKLISTS)
+          PKEY=$(echo "$line" | sed -n 's/^\([§a-zA-Z_][§a-zA-Z0-9_]*\): .*/\1/p')
+          [ -z "$PKEY" ] && continue
+          # Extract value: everything after the first ': ' separator
+          PVAL="${line#*: }"
+          PROOF_JSON=$(echo "$PROOF_JSON" | jq --arg k "$PKEY" --arg v "$PVAL" '. + {($k): $v}')
+        done <<< "$PROOF_INPUT"
+      fi
     fi
 
     # --- Proof Validation (FROM-validation) ---
@@ -978,9 +1059,9 @@ case "$ACTION" in
               exit 1
             fi
 
-            # --- Proof Schema Validation (warning only) ---
-            # If phase has steps, validate proof keys against CMD file PROOF schemas.
-            # Extracts JSON schema keys from each step's CMD file and warns on unrecognized proof keys.
+            # --- Proof Schema Validation ---
+            # If phase has steps, extract CMD proof schemas and validate proof against them.
+            # Two levels: (1) key recognition (warning), (2) full JSON Schema validation (exit 1).
             CUR_STEPS_JSON=$(jq -r --arg cl "$CUR_LABEL" "
               $JQ_LABEL_HELPERS
               (.phases[] | select(phase_lbl == \$cl) | .steps) // empty
@@ -988,42 +1069,68 @@ case "$ACTION" in
             if [ -n "$CUR_STEPS_JSON" ] && [ "$CUR_STEPS_JSON" != "null" ]; then
               CUR_STEPS_COUNT=$(echo "$CUR_STEPS_JSON" | jq 'length' 2>/dev/null || echo "0")
               if [ "$CUR_STEPS_COUNT" -gt 0 ]; then
-                # Build union of valid proof field names from CMD file schemas
-                SCHEMA_FIELDS=""
+                # Build combined schema from CMD file PROOF schemas
+                COMBINED_PROPERTIES="{}"
+                COMBINED_REQUIRED="[]"
                 CMD_DIR="$HOME/.claude/engine/.directives/commands"
                 for step_cmd in $(echo "$CUR_STEPS_JSON" | jq -r '.[]'); do
                   # Strip §CMD_ prefix to get CMD file name
                   cmd_name="${step_cmd#§CMD_}"
                   cmd_file="$CMD_DIR/CMD_${cmd_name}.md"
                   [ -f "$cmd_file" ] || continue
-                  # Extract JSON block from ## PROOF FOR section
-                  # Pattern: find "## PROOF FOR" heading, then extract content between ```json and ```
-                  json_block=$(sed -n '/^## PROOF FOR/,/^## /{ /^```json$/,/^```$/{ /^```/d; p; } }' "$cmd_file" 2>/dev/null || echo "")
-                  if [ -n "$json_block" ]; then
-                    # Extract top-level keys from JSON schema
-                    step_keys=$(echo "$json_block" | jq -r 'keys[]' 2>/dev/null || echo "")
-                    if [ -n "$step_keys" ]; then
-                      SCHEMA_FIELDS="${SCHEMA_FIELDS}${SCHEMA_FIELDS:+$'\n'}${step_keys}"
+                  # Extract JSON Schema from ## PROOF FOR section
+                  json_block=$(extract_proof_schema "$cmd_file")
+                  if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
+                    # Merge properties from this schema into combined
+                    step_props=$(echo "$json_block" | jq -r '.properties // empty' 2>/dev/null || echo "")
+                    step_req=$(echo "$json_block" | jq -r '.required // empty' 2>/dev/null || echo "")
+                    if [ -n "$step_props" ] && [ "$step_props" != "null" ]; then
+                      COMBINED_PROPERTIES=$(echo "$COMBINED_PROPERTIES" | jq -s '.[0] * .[1]' - <(echo "$step_props"))
+                    fi
+                    if [ -n "$step_req" ] && [ "$step_req" != "null" ]; then
+                      COMBINED_REQUIRED=$(echo "$COMBINED_REQUIRED" | jq -s '.[0] + .[1] | unique' - <(echo "$step_req"))
                     fi
                   fi
                 done
+
                 # Also include declared proof fields as valid (phase-level data fields)
                 DECLARED_FIELDS=$(echo "$PROOF_FIELDS_JSON" | jq -r '.[]' 2>/dev/null || echo "")
-                ALL_VALID="${SCHEMA_FIELDS}${SCHEMA_FIELDS:+$'\n'}${DECLARED_FIELDS}"
-                ALL_VALID=$(echo "$ALL_VALID" | sort -u)
-                # Check provided proof keys against valid set
-                if [ -n "$SCHEMA_FIELDS" ]; then
-                  UNRECOGNIZED=""
-                  for provided_key in $(echo "$PROOF_JSON" | jq -r 'keys[]'); do
-                    if ! echo "$ALL_VALID" | grep -qxF "$provided_key"; then
-                      UNRECOGNIZED="${UNRECOGNIZED}${UNRECOGNIZED:+, }$provided_key"
+                if [ -n "$DECLARED_FIELDS" ]; then
+                  while IFS= read -r df; do
+                    [ -n "$df" ] || continue
+                    # Add undeclared phase-level fields as string type
+                    HAS_FIELD=$(echo "$COMBINED_PROPERTIES" | jq --arg f "$df" 'has($f)' 2>/dev/null || echo "false")
+                    if [ "$HAS_FIELD" = "false" ]; then
+                      COMBINED_PROPERTIES=$(echo "$COMBINED_PROPERTIES" | jq --arg f "$df" '. + {($f): {"type": "string"}}')
                     fi
-                  done
-                  if [ -n "$UNRECOGNIZED" ]; then
-                    echo "⚠️  WARNING — §CMD_UPDATE_PHASE: Unrecognized proof key(s): $UNRECOGNIZED" >&2
-                    echo "  Valid keys (from CMD schemas + phase declaration): $(echo "$ALL_VALID" | tr '\n' ', ' | sed 's/,$//')" >&2
-                    echo "  These keys were accepted but may indicate a mismatch between proof and step schemas." >&2
+                    COMBINED_REQUIRED=$(echo "$COMBINED_REQUIRED" | jq --arg f "$df" 'if index($f) then . else . + [$f] end')
+                  done <<< "$DECLARED_FIELDS"
+                fi
+
+                # Build the combined JSON Schema
+                HAS_PROPS=$(echo "$COMBINED_PROPERTIES" | jq 'length > 0' 2>/dev/null || echo "false")
+                if [ "$HAS_PROPS" = "true" ]; then
+                  COMBINED_SCHEMA=$(jq -n \
+                    --argjson props "$COMBINED_PROPERTIES" \
+                    --argjson req "$COMBINED_REQUIRED" \
+                    '{
+                      "$schema": "https://json-schema.org/draft/2020-12/schema",
+                      "type": "object",
+                      "properties": $props,
+                      "required": $req
+                    }')
+
+                  # Full JSON Schema validation (exit 1 on failure)
+                  if ! validate_json_schema "$COMBINED_SCHEMA" "$PROOF_JSON" 2>/tmp/proof_validation_err; then
+                    echo "§CMD_UPDATE_PHASE: Proof validation failed against CMD schemas:" >&2
+                    cat /tmp/proof_validation_err >&2
+                    echo "" >&2
+                    echo "  Schema required: $(echo "$COMBINED_REQUIRED" | jq -r 'join(", ")')" >&2
+                    echo "  Proof provided: $PROOF_JSON" >&2
+                    rm -f /tmp/proof_validation_err
+                    exit 1
                   fi
+                  rm -f /tmp/proof_validation_err
                 fi
               fi
             fi
@@ -1061,10 +1168,9 @@ case "$ACTION" in
         "$STATE_FILE" | safe_json_write "$STATE_FILE"
     fi
 
-    # --- Populate pendingCommands for CMD file preloading ---
-    # Resolve §CMD_X step/command names to ~/.claude/.directives/commands/CMD_X.md file paths.
-    # The command-preload injection rule in injections.json fires when pendingCommands is non-empty.
-    # Same pattern as pendingDirectives for directive-autoload.
+    # --- Populate pendingPreloads for CMD file preloading ---
+    # Resolve §CMD_X step/command names to CMD_X.md file paths (normalized tilde-prefix).
+    # The preload rule in guards.json fires when pendingPreloads is non-empty.
     if [ "$HAS_PHASES" = "true" ]; then
       CMD_DIR="$HOME/.claude/.directives/commands"
       PENDING_CMDS="[]"
@@ -1082,8 +1188,9 @@ case "$ACTION" in
               cmd_name="${cmd_ref#§CMD_}"
               cmd_file="$CMD_DIR/CMD_${cmd_name}.md"
               if [ -f "$cmd_file" ]; then
-                # Add if not already in the list
-                PENDING_CMDS=$(echo "$PENDING_CMDS" | jq --arg f "$cmd_file" \
+                # Normalize to tilde-prefix and add if not already in the list
+                norm_file=$(normalize_preload_path "$cmd_file")
+                PENDING_CMDS=$(echo "$PENDING_CMDS" | jq --arg f "$norm_file" \
                   'if any(. == $f) then . else . + [$f] end')
               fi
             done
@@ -1098,7 +1205,7 @@ case "$ACTION" in
         jq --argjson cmds "$PENDING_CMDS" \
           '(.preloadedFiles // []) as $already |
            ($cmds | map(select(. as $f | $already | any(. == $f) | not))) as $new |
-           if ($new | length) > 0 then .pendingCommands = ((.pendingCommands // []) + $new | unique) else . end' \
+           if ($new | length) > 0 then .pendingPreloads = ((.pendingPreloads // []) + $new | unique) else . end' \
           "$STATE_FILE" | safe_json_write "$STATE_FILE"
       fi
     fi
@@ -1416,10 +1523,23 @@ case "$ACTION" in
       esac
     done
 
-    # Read REQUIRED description from stdin (1-3 lines for RAG/search)
-    DESCRIPTION=""
+    # Read stdin (description or proof, depending on lifecycle — see below)
+    STDIN_INPUT=""
     if [ ! -t 0 ]; then
-      DESCRIPTION=$(cat)
+      STDIN_INPUT=$(cat)
+    fi
+
+    # --- Lifecycle-aware stdin interpretation ---
+    # If session is idle (went through engine session idle), description is already stored.
+    # Stdin is interpreted as terminal phase proof instead.
+    PROOF_INPUT=""
+    DESCRIPTION=""
+    LIFECYCLE=$(jq -r '.lifecycle // "active"' "$STATE_FILE" 2>/dev/null || echo "active")
+    if [ "$LIFECYCLE" = "idle" ]; then
+      PROOF_INPUT="$STDIN_INPUT"
+      DESCRIPTION=$(jq -r '.sessionDescription // ""' "$STATE_FILE" 2>/dev/null || echo "")
+    else
+      DESCRIPTION="$STDIN_INPUT"
     fi
 
     # --- Smart Deactivate: skip validation gates for early phases ---
@@ -1493,6 +1613,73 @@ case "$ACTION" in
           "    - [x] Verified item" \
           "    EOF")"
         DEACTIVATE_ERRORS+=("$checklist_err")
+      fi
+    fi
+
+    # --- Terminal Phase Proof Gate (¶INV_PHASE_ENFORCEMENT) ---
+    # When deactivating from idle, validate proof for the current (terminal) phase.
+    # Mirrors FROM validation in engine session phase — the terminal phase never gets
+    # FROM-validated because there's no next phase transition. Deactivation IS the terminal transition.
+    # Only applies when: session was idle (stdin=proof), not early phase, phases array exists.
+    HAS_PHASES=$(jq 'has("phases") and (.phases | length > 0)' "$STATE_FILE" 2>/dev/null || echo "false")
+    if [ "$EARLY_PHASE" != "true" ] && [ "$LIFECYCLE" = "idle" ] && [ "$HAS_PHASES" = "true" ] && [ -n "$CURRENT_PHASE" ]; then
+      CUR_LABEL=$(echo "$CURRENT_PHASE" | sed -E 's/: .*//')
+
+      # jq helper (same as phase case)
+      JQ_DEACT_HELPERS='
+        def phase_lbl: if has("label") then .label elif .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end;
+      '
+
+      # Look up proof fields for current (terminal) phase
+      TERM_PROOF_JSON=$(jq -r --arg cl "$CUR_LABEL" "
+        $JQ_DEACT_HELPERS
+        (.phases[] | select(phase_lbl == \$cl) | .proof) // empty
+      " "$STATE_FILE" 2>/dev/null || echo "")
+
+      if [ -n "$TERM_PROOF_JSON" ] && [ "$TERM_PROOF_JSON" != "null" ]; then
+        TERM_PROOF_COUNT=$(echo "$TERM_PROOF_JSON" | jq 'length' 2>/dev/null || echo "0")
+
+        if [ "$TERM_PROOF_COUNT" -gt 0 ]; then
+          # Parse proof from stdin (same format as phase: key: value lines)
+          TERM_PROOF_OBJ="{}"
+          if [ -n "$PROOF_INPUT" ]; then
+            while IFS= read -r line; do
+              [ -n "$line" ] || continue
+              PKEY=$(echo "$line" | sed -n 's/^\([§a-zA-Z_][§a-zA-Z0-9_]*\): .*/\1/p')
+              [ -z "$PKEY" ] && continue
+              PVAL="${line#*: }"
+              TERM_PROOF_OBJ=$(echo "$TERM_PROOF_OBJ" | jq --arg k "$PKEY" --arg v "$PVAL" '. + {($k): $v}')
+            done <<< "$PROOF_INPUT"
+          fi
+
+          if [ -z "$PROOF_INPUT" ]; then
+            term_proof_err="$(printf '%s\n%s\n%s\n%s' \
+              "¶INV_PHASE_ENFORCEMENT: Terminal proof required — current phase '$CURRENT_PHASE' has proof fields but no proof provided via stdin." \
+              "  Required proof fields: $(echo "$TERM_PROOF_JSON" | jq -r 'join(", ")')" \
+              "" \
+              "  Usage: engine session deactivate $DIR [--keywords ...] <<< 'field: value'")"
+            DEACTIVATE_ERRORS+=("$term_proof_err")
+          else
+            # Validate all required fields are present
+            MISSING_TERM_FIELDS=""
+            for field in $(echo "$TERM_PROOF_JSON" | jq -r '.[]'); do
+              FIELD_VAL=$(echo "$TERM_PROOF_OBJ" | jq -r --arg f "$field" '.[$f] // ""')
+              if [ -z "$FIELD_VAL" ]; then
+                MISSING_TERM_FIELDS="${MISSING_TERM_FIELDS}${MISSING_TERM_FIELDS:+, }$field"
+              elif [ "$FIELD_VAL" = "________" ]; then
+                MISSING_TERM_FIELDS="${MISSING_TERM_FIELDS}${MISSING_TERM_FIELDS:+, }$field (unfilled blank)"
+              fi
+            done
+
+            if [ -n "$MISSING_TERM_FIELDS" ]; then
+              term_proof_err="$(printf '%s\n%s\n%s' \
+                "¶INV_PHASE_ENFORCEMENT: Terminal proof incomplete — missing: $MISSING_TERM_FIELDS" \
+                "  Required: $(echo "$TERM_PROOF_JSON" | jq -r 'join(", ")')" \
+                "  Provided: $(echo "$TERM_PROOF_OBJ" | jq -r 'keys | join(", ")')")"
+              DEACTIVATE_ERRORS+=("$term_proof_err")
+            fi
+          fi
+        fi
       fi
     fi
 
@@ -1827,8 +2014,15 @@ case "$ACTION" in
     # PID guard: if a different alive PID holds the session, return 1
     # Output: session directory path (one line) or exit 1
 
-    SESSIONS_DIR="$PWD/sessions"
-    if [ ! -d "$SESSIONS_DIR" ]; then
+    # Build search paths: workspace sessions first, then global fallback
+    SEARCH_PATHS=()
+    if [ -n "${WORKSPACE:-}" ] && [ -d "$PWD/${WORKSPACE}/sessions" ]; then
+      SEARCH_PATHS+=("$PWD/${WORKSPACE}/sessions")
+    fi
+    if [ -d "$PWD/sessions" ]; then
+      SEARCH_PATHS+=("$PWD/sessions")
+    fi
+    if [ ${#SEARCH_PATHS[@]} -eq 0 ]; then
       exit 1
     fi
 
@@ -1838,34 +2032,38 @@ case "$ACTION" in
     # Strategy 1: Fleet mode — lookup by fleetPaneId
     FLEET_PANE=$(get_fleet_pane_id)
     if [ -n "$FLEET_PANE" ]; then
-      while IFS= read -r f; do
-        [ -f "$f" ] || continue
-        file_fleet_pane=$(jq -r '.fleetPaneId // ""' "$f" 2>/dev/null)
-        if [ "$file_fleet_pane" = "$FLEET_PANE" ]; then
-          # PID guard: reject if a different alive PID holds the session
-          file_pid=$(jq -r '.pid // empty' "$f" 2>/dev/null)
-          if [ -n "$file_pid" ] && [ "$file_pid" != "$CLAUDE_PID" ]; then
-            if kill -0 "$file_pid" 2>/dev/null; then
-              # Different Claude is active — not our session
-              exit 1
+      for SESSIONS_DIR in "${SEARCH_PATHS[@]}"; do
+        while IFS= read -r f; do
+          [ -f "$f" ] || continue
+          file_fleet_pane=$(jq -r '.fleetPaneId // ""' "$f" 2>/dev/null)
+          if [ "$file_fleet_pane" = "$FLEET_PANE" ]; then
+            # PID guard: reject if a different alive PID holds the session
+            file_pid=$(jq -r '.pid // empty' "$f" 2>/dev/null)
+            if [ -n "$file_pid" ] && [ "$file_pid" != "$CLAUDE_PID" ]; then
+              if kill -0 "$file_pid" 2>/dev/null; then
+                # Different Claude is active — not our session
+                exit 1
+              fi
             fi
+            FOUND_DIR=$(dirname "$f")
+            break 2
           fi
-          FOUND_DIR=$(dirname "$f")
-          break
-        fi
-      done < <(find -L "$SESSIONS_DIR" -name ".state.json" -type f 2>/dev/null)
+        done < <(find -L "$SESSIONS_DIR" -name ".state.json" -type f 2>/dev/null)
+      done
     fi
 
     # Strategy 2: Non-fleet fallback — lookup by PID
     if [ -z "$FOUND_DIR" ]; then
-      while IFS= read -r f; do
-        [ -f "$f" ] || continue
-        file_pid=$(jq -r '.pid // empty' "$f" 2>/dev/null)
-        if [ -n "$file_pid" ] && [ "$file_pid" = "$CLAUDE_PID" ]; then
-          FOUND_DIR=$(dirname "$f")
-          break
-        fi
-      done < <(find -L "$SESSIONS_DIR" -name ".state.json" -type f 2>/dev/null)
+      for SESSIONS_DIR in "${SEARCH_PATHS[@]}"; do
+        while IFS= read -r f; do
+          [ -f "$f" ] || continue
+          file_pid=$(jq -r '.pid // empty' "$f" 2>/dev/null)
+          if [ -n "$file_pid" ] && [ "$file_pid" = "$CLAUDE_PID" ]; then
+            FOUND_DIR=$(dirname "$f")
+            break 2
+          fi
+        done < <(find -L "$SESSIONS_DIR" -name ".state.json" -type f 2>/dev/null)
+      done
     fi
 
     if [ -z "$FOUND_DIR" ]; then
@@ -1890,9 +2088,8 @@ case "$ACTION" in
     #
     # Usage:
     #   session.sh check <path>                          # Tag scan only (no checklists)
-    #   session.sh check <path> <<'EOF'                  # Tag scan + checklist validation
-    #   ## CHECKLIST: /absolute/path/to/CHECKLIST.md
-    #   - [x] Item that was verified
+    #   session.sh check <path> <<'EOF'                  # Tag scan + checklist validation (JSON)
+    #   {"path/to/CHECKLIST.md": "- [x] Item one\n- [ ] Item two"}
     #   EOF
     #
     # On success: sets checkPassed=true in .state.json
@@ -1981,7 +2178,8 @@ case "$ACTION" in
     fi
 
     # ─── Validation 2: Checklist Processing (¶INV_CHECKLIST_BEFORE_CLOSE) ───
-    # Read checklist results from stdin
+    # Read checklist results from stdin (JSON format)
+    # Schema: {"path/to/CHECKLIST.md": "full markdown with [x] filled", ...}
     CHECK_INPUT=""
     if [ ! -t 0 ]; then
       CHECK_INPUT=$(cat)
@@ -1991,6 +2189,14 @@ case "$ACTION" in
     DISCOVERED_JSON=$(jq -r '(.discoveredChecklists // [])' "$STATE_FILE" 2>/dev/null || echo "[]")
     DISCOVERED_COUNT=$(echo "$DISCOVERED_JSON" | jq 'length')
 
+    # Helper: normalize content for checkbox-blind comparison
+    # 1. Normalize CRLF→LF
+    # 2. Replace all checkbox variants [x], [X], [ ] with [ ]
+    # 3. Trim trailing whitespace per line
+    normalize_checklist() {
+      printf '%s' "$1" | tr -d '\r' | sed -E 's/- \[(x|X| )\]/- [ ]/g' | sed 's/[[:space:]]*$//'
+    }
+
     if [ "$DISCOVERED_COUNT" -eq 0 ]; then
       # No checklists discovered — checklist check passes trivially
       echo "§CMD_PROCESS_CHECKLISTS: No checklists discovered — passed trivially."
@@ -1999,105 +2205,109 @@ case "$ACTION" in
       if [ -z "$CHECK_INPUT" ]; then
         echo "§CMD_PROCESS_CHECKLISTS: Checklists discovered but no results provided on stdin." >&2
         echo "" >&2
-        echo "  Usage: session.sh check <path> <<'EOF'" >&2
-        echo "  ## CHECKLIST: /path/to/CHECKLIST.md" >&2
-        echo "  - [x] Verified item" >&2
-        echo "  - [ ] Not applicable (reason)" >&2
-        echo "  EOF" >&2
+        echo "  JSON format required. Schema:" >&2
+        echo '  {"path/to/CHECKLIST.md": "full markdown with [x] filled"}' >&2
         exit 1
       fi
 
-      # Extract all ## CHECKLIST: paths from stdin
-      SUBMITTED_PATHS=$(echo "$CHECK_INPUT" | grep -oE '^## CHECKLIST: .+' | sed 's/^## CHECKLIST: //' || true)
+      # Validate stdin is valid JSON
+      if ! echo "$CHECK_INPUT" | jq empty 2>/dev/null; then
+        echo "§CMD_PROCESS_CHECKLISTS: Invalid JSON on stdin." >&2
+        echo "" >&2
+        echo "  JSON format required. Schema:" >&2
+        echo '  {"path/to/CHECKLIST.md": "full markdown with [x] filled"}' >&2
+        exit 1
+      fi
 
-      # Validate: every discovered checklist has a matching block
-      MISSING_PATHS=()
+      # Validate it's a JSON object (not array, string, etc.)
+      JSON_TYPE=$(echo "$CHECK_INPUT" | jq -r 'type')
+      if [ "$JSON_TYPE" != "object" ]; then
+        echo "§CMD_PROCESS_CHECKLISTS: Expected JSON object, got $JSON_TYPE." >&2
+        exit 1
+      fi
+
+      CHECKLIST_FAILURES=()
+
       while IFS= read -r discovered_path; do
         [ -n "$discovered_path" ] || continue
-        if ! echo "$SUBMITTED_PATHS" | grep -qF "$discovered_path"; then
-          MISSING_PATHS+=("$discovered_path")
+
+        # (a) Check path exists as key in JSON
+        HAS_KEY=$(echo "$CHECK_INPUT" | jq --arg k "$discovered_path" 'has($k)')
+        if [ "$HAS_KEY" != "true" ]; then
+          CHECKLIST_FAILURES+=("$discovered_path: missing from JSON input")
+          continue
         fi
-      done < <(echo "$DISCOVERED_JSON" | jq -r '.[]')
 
-      if [ ${#MISSING_PATHS[@]} -gt 0 ]; then
-        echo "§CMD_PROCESS_CHECKLISTS: Checklist validation failed — ${#MISSING_PATHS[@]} missing." >&2
-        echo "" >&2
-        echo "  Missing checklist blocks:" >&2
-        for mp in "${MISSING_PATHS[@]}"; do
-          echo "    - $mp" >&2
-        done
-        echo "" >&2
-        echo "  Each discovered checklist needs a matching '## CHECKLIST: /path' block in stdin." >&2
-        exit 1
-      fi
+        # (b) Extract agent's content from JSON
+        AGENT_CONTENT=$(echo "$CHECK_INPUT" | jq -r --arg k "$discovered_path" '.[$k]')
 
-      # Validate: each block has at least one checklist item (- [x] or - [ ])
-      EMPTY_BLOCKS=()
-      while IFS= read -r discovered_path; do
-        [ -n "$discovered_path" ] || continue
-        BLOCK=$(echo "$CHECK_INPUT" | awk -v path="## CHECKLIST: $discovered_path" '
-          $0 == path { found=1; next }
-          found && /^## / { found=0 }
-          found { print }
-        ')
-        ITEM_COUNT=$(echo "$BLOCK" | grep -cE '^\s*- \[(x| )\]' 2>/dev/null) || ITEM_COUNT=0
-        if [ "$ITEM_COUNT" -eq 0 ]; then
-          EMPTY_BLOCKS+=("$discovered_path")
+        # (c) Read original CHECKLIST.md from disk
+        if [ ! -f "$discovered_path" ]; then
+          CHECKLIST_FAILURES+=("$discovered_path: original file not found on disk")
+          continue
         fi
-      done < <(echo "$DISCOVERED_JSON" | jq -r '.[]')
+        ORIGINAL_CONTENT=$(cat "$discovered_path")
 
-      if [ ${#EMPTY_BLOCKS[@]} -gt 0 ]; then
-        echo "§CMD_PROCESS_CHECKLISTS: Checklist blocks have no items — ${#EMPTY_BLOCKS[@]} empty." >&2
-        echo "" >&2
-        echo "  Empty blocks (need at least one - [x] or - [ ] item):" >&2
-        for eb in "${EMPTY_BLOCKS[@]}"; do
-          echo "    - $eb" >&2
-        done
-        exit 1
-      fi
-
-      # Validate branching structure (DID/DID NOT format)
-      # Detect nesting: if any line has 2-space indented checkbox, use branching validation
-      BRANCHING_FAILURES=()
-      while IFS= read -r discovered_path; do
-        [ -n "$discovered_path" ] || continue
-        BLOCK=$(echo "$CHECK_INPUT" | awk -v path="## CHECKLIST: $discovered_path" '
-          $0 == path { found=1; next }
-          found && /^## / { found=0 }
-          found { print }
-        ')
-
+        # (d) Branching validation on agent's content (fast fail on format)
         # Detect nesting: any line with 2-space indented checkbox
-        HAS_NESTING=$(echo "$BLOCK" | grep -cE '^  - \[(x| )\]' 2>/dev/null) || HAS_NESTING=0
+        HAS_NESTING=$(echo "$AGENT_CONTENT" | grep -cE '^  - \[(x|X| )\]' 2>/dev/null) || HAS_NESTING=0
 
         if [ "$HAS_NESTING" -gt 0 ]; then
-          # Branching mode: validate each category
-          # Categories are separated by lines starting with "## " within the block
-          # Parents are top-level checkboxes (^- [x] or ^- [ ])
-          # Children are indented checkboxes (^  - [x] or ^  - [ ])
-
-          # Extract parent checkboxes with their line indices for grouping
           CURRENT_PARENT=""
           CURRENT_PARENT_CHECKED=""
           PARENT_COUNT=0
           CHECKED_PARENTS=0
           CHILD_FAILURES=""
+          SECTION_HAS_NESTING=false
+
+          # Helper: validate the completed section's branching rules
+          # Only validates if the section actually has nested items (branch parents with children)
+          _validate_section() {
+            # Check last parent's children in this section
+            if [ -n "$CURRENT_PARENT" ] && [ "$CURRENT_PARENT_CHECKED" = "true" ] && [ -n "$CHILD_FAILURES" ]; then
+              CHECKLIST_FAILURES+=("$discovered_path: unchecked child under checked parent '$CURRENT_PARENT': $CHILD_FAILURES")
+            fi
+            # Validate: exactly one parent checked per section (only if section has nesting)
+            if [ "$SECTION_HAS_NESTING" = "true" ] && [ "$PARENT_COUNT" -gt 0 ]; then
+              if [ "$CHECKED_PARENTS" -eq 0 ]; then
+                CHECKLIST_FAILURES+=("$discovered_path: no branch parent checked (must check exactly one)")
+              elif [ "$CHECKED_PARENTS" -gt 1 ]; then
+                CHECKLIST_FAILURES+=("$discovered_path: $CHECKED_PARENTS branch parents checked (must be exactly one)")
+              fi
+            fi
+          }
 
           while IFS= read -r line; do
             [ -n "$line" ] || continue
 
+            # Section boundary: ## heading resets per-section counters
+            if echo "$line" | grep -qE '^## '; then
+              # Validate the previous section (if any parents were found)
+              if [ "$PARENT_COUNT" -gt 0 ]; then
+                _validate_section
+              fi
+              # Reset for new section
+              CURRENT_PARENT=""
+              CURRENT_PARENT_CHECKED=""
+              PARENT_COUNT=0
+              CHECKED_PARENTS=0
+              CHILD_FAILURES=""
+              SECTION_HAS_NESTING=false
+              continue
+            fi
+
             # Parent checkbox (top-level, no indent)
-            if echo "$line" | grep -qE '^- \[(x| )\]'; then
-              # If we had a previous parent that was checked, verify its children
+            if echo "$line" | grep -qE '^- \[(x|X| )\]'; then
+              # Check previous parent's children
               if [ -n "$CURRENT_PARENT" ] && [ "$CURRENT_PARENT_CHECKED" = "true" ] && [ -n "$CHILD_FAILURES" ]; then
-                BRANCHING_FAILURES+=("$discovered_path: unchecked child under checked parent '$CURRENT_PARENT': $CHILD_FAILURES")
+                CHECKLIST_FAILURES+=("$discovered_path: unchecked child under checked parent '$CURRENT_PARENT': $CHILD_FAILURES")
               fi
 
               PARENT_COUNT=$((PARENT_COUNT + 1))
-              CURRENT_PARENT=$(echo "$line" | sed 's/^- \[.\] //')
+              CURRENT_PARENT=$(echo "$line" | sed -E 's/^- \[.\] //')
               CHILD_FAILURES=""
 
-              if echo "$line" | grep -qE '^- \[x\]'; then
+              if echo "$line" | grep -qE '^- \[(x|X)\]'; then
                 CURRENT_PARENT_CHECKED="true"
                 CHECKED_PARENTS=$((CHECKED_PARENTS + 1))
               else
@@ -2105,42 +2315,43 @@ case "$ACTION" in
               fi
 
             # Child checkbox (2-space indented)
-            elif echo "$line" | grep -qE '^  - \[(x| )\]'; then
-              # Only validate children under checked parents
+            elif echo "$line" | grep -qE '^  - \[(x|X| )\]'; then
+              SECTION_HAS_NESTING=true
               if [ "$CURRENT_PARENT_CHECKED" = "true" ]; then
                 if echo "$line" | grep -qE '^  - \[ \]'; then
-                  CHILD_TEXT=$(echo "$line" | sed 's/^  - \[.\] //')
+                  CHILD_TEXT=$(echo "$line" | sed -E 's/^  - \[.\] //')
                   CHILD_FAILURES="${CHILD_FAILURES:+$CHILD_FAILURES, }$CHILD_TEXT"
                 fi
               fi
             fi
-          done <<< "$BLOCK"
+          done <<< "$AGENT_CONTENT"
 
-          # Check last parent's children
-          if [ -n "$CURRENT_PARENT" ] && [ "$CURRENT_PARENT_CHECKED" = "true" ] && [ -n "$CHILD_FAILURES" ]; then
-            BRANCHING_FAILURES+=("$discovered_path: unchecked child under checked parent '$CURRENT_PARENT': $CHILD_FAILURES")
-          fi
+          # Validate the final section
+          _validate_section
 
-          # Validate: exactly one parent checked per block
-          if [ "$PARENT_COUNT" -gt 0 ] && [ "$CHECKED_PARENTS" -eq 0 ]; then
-            BRANCHING_FAILURES+=("$discovered_path: no branch parent checked (must check exactly one)")
-          elif [ "$CHECKED_PARENTS" -gt 1 ]; then
-            BRANCHING_FAILURES+=("$discovered_path: $CHECKED_PARENTS branch parents checked (must be exactly one)")
-          fi
+          unset -f _validate_section
         fi
-        # Flat mode (no nesting): existing validation is sufficient
+
+        # (e) Strict text diff: normalize both, compare
+        NORM_ORIGINAL=$(normalize_checklist "$ORIGINAL_CONTENT")
+        NORM_AGENT=$(normalize_checklist "$AGENT_CONTENT")
+
+        if [ "$NORM_ORIGINAL" != "$NORM_AGENT" ]; then
+          CHECKLIST_FAILURES+=("$discovered_path: content mismatch — agent's version differs from original after normalizing checkboxes")
+        fi
+
       done < <(echo "$DISCOVERED_JSON" | jq -r '.[]')
 
-      if [ ${#BRANCHING_FAILURES[@]} -gt 0 ]; then
-        echo "§CMD_PROCESS_CHECKLISTS: Branching checklist validation failed." >&2
+      if [ ${#CHECKLIST_FAILURES[@]} -gt 0 ]; then
+        echo "§CMD_PROCESS_CHECKLISTS: Checklist validation failed — ${#CHECKLIST_FAILURES[@]} issue(s)." >&2
         echo "" >&2
         echo "  Failures:" >&2
-        for bf in "${BRANCHING_FAILURES[@]}"; do
-          echo "    - $bf" >&2
+        for cf in "${CHECKLIST_FAILURES[@]}"; do
+          echo "    - $cf" >&2
         done
         echo "" >&2
-        echo "  Branching rules: exactly ONE parent branch [x] per category," >&2
-        echo "  ALL children under the checked parent must be [x]." >&2
+        echo "  JSON format required. Schema:" >&2
+        echo '  {"path/to/CHECKLIST.md": "full markdown with [x] filled"}' >&2
         exit 1
       fi
 
@@ -2338,44 +2549,44 @@ case "$ACTION" in
     echo "$PROOF_JSON" | jq -r 'to_entries[] | "  \(.key): \(.value)"'
     ;;
 
-  evaluate-injections)
-    # Evaluate injection rules against current session state.
+  evaluate-guards)
+    # Evaluate guard rules against current session state.
     # Backward-compat wrapper around evaluate_rules() from lib.sh.
-    # Writes matched rules to pendingInjections[] in .state.json.
+    # Writes matched rules to pendingGuards[] in .state.json.
     #
     # Usage:
-    #   session.sh evaluate-injections <path>
+    #   session.sh evaluate-guards <path>
     #
     # NOTE: The unified hook (overflow-v2.sh) now evaluates rules inline.
     # This subcommand is kept for backward compatibility and testing.
 
-    INJECTIONS_FILE="$HOME/.claude/engine/injections.json"
+    GUARDS_FILE="$HOME/.claude/engine/guards.json"
 
     if [ ! -f "$STATE_FILE" ]; then
       exit 0  # No session — nothing to evaluate
     fi
 
-    if [ ! -f "$INJECTIONS_FILE" ]; then
+    if [ ! -f "$GUARDS_FILE" ]; then
       exit 0  # No rules file — nothing to evaluate
     fi
 
     # Delegate to evaluate_rules() from lib.sh
-    NEW_PENDING=$(evaluate_rules "$STATE_FILE" "$INJECTIONS_FILE")
+    NEW_PENDING=$(evaluate_rules "$STATE_FILE" "$GUARDS_FILE")
 
-    # Write pendingInjections to .state.json (backward compat format)
+    # Write pendingGuards to .state.json
     jq --argjson pending "$NEW_PENDING" --arg ts "$(timestamp)" \
-      '.pendingInjections = $pending | .lastHeartbeat = $ts' \
+      '.pendingGuards = $pending | .lastHeartbeat = $ts' \
       "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
     PENDING_COUNT=$(echo "$NEW_PENDING" | jq 'length')
     if [ "$PENDING_COUNT" -gt 0 ]; then
-      echo "evaluate-injections: $PENDING_COUNT rule(s) matched"
+      echo "evaluate-guards: $PENDING_COUNT rule(s) matched"
       echo "$NEW_PENDING" | jq -r '.[] | "  \(.ruleId) (priority \(.priority), \(.mode)+\(.urgency))"'
     fi
     ;;
 
   *)
-    echo "§CMD_MAINTAIN_SESSION_DIR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart, check, prove, request-template, debrief, evaluate-injections" >&2
+    echo "§CMD_MAINTAIN_SESSION_DIR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart, check, prove, request-template, debrief, evaluate-guards" >&2
     exit 1
     ;;
 esac

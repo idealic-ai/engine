@@ -295,15 +295,19 @@ If any items are flagged for revision, return to the plan for edits before proce
 
 ```json
 {
-  "results_presented": {
-    "type": "string",
-    "description": "Summary of items walked through with the user",
-    "examples": ["5 plan steps reviewed", "8 findings triaged"]
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "results_presented": {
+      "type": "string",
+      "description": "Summary of items walked through with the user"
+    },
+    "user_approved": {
+      "type": "string",
+      "description": "User disposition after walk-through"
+    }
   },
-  "user_approved": {
-    "type": "string",
-    "description": "User disposition after walk-through",
-    "examples": ["approved all", "revised 2 items", "flagged 1 for followup"]
-  }
+  "required": ["results_presented", "user_approved"],
+  "additionalProperties": false
 }
 ```

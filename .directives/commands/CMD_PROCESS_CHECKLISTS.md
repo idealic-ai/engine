@@ -1,5 +1,5 @@
 ### §CMD_PROCESS_CHECKLISTS
-**Definition**: During synthesis, processes all discovered CHECKLIST.md files — reads each checklist, evaluates items against the session's work, then quotes results back to `engine session check` for mechanical validation. Ensures the deactivation gate (`¶INV_CHECKLIST_BEFORE_CLOSE`) will pass.
+**Definition**: During synthesis, processes all discovered CHECKLIST.md files — reads each checklist, fills checkboxes based on session work, then submits full content as JSON to `engine session check` for strict validation. The engine reads the original files from disk and compares via text diff after normalizing checkboxes. Ensures the deactivation gate (`¶INV_CHECKLIST_BEFORE_CLOSE`) will pass.
 **Trigger**: Called by skill protocols during the synthesis phase, BEFORE `§CMD_GENERATE_DEBRIEF`. Read this file before executing.
 
 **Algorithm**:
@@ -10,49 +10,66 @@
 3.  **For Each Discovered Checklist**:
     a.  **Read**: Load the CHECKLIST.md file content.
     b.  **Evaluate**: Review each item in the checklist against the session's work:
-        *   If the item was addressed by this session → mark `[x]` with brief evidence.
-        *   If the item was NOT addressed but is relevant → mark `[ ]` with explanation.
-        *   If the item is not applicable to this session → mark `[x]` with "N/A: [reason]".
-    c.  **Build Quote-Back Block**: Construct a `## CHECKLIST:` block for this file:
-        ```
-        ## CHECKLIST: /absolute/path/to/CHECKLIST.md
-        - [x] Item one — verified in src/foo.ts
-        - [x] Item two — N/A: not relevant to this session
-        - [ ] Item three — not addressed, pending for next session
-        ```
+        *   If the item was addressed by this session → mark `[x]`.
+        *   If the item was NOT addressed → leave `[ ]`.
+        *   For branching checklists (items with 2-space indented children): check exactly ONE parent branch and ALL its children.
+    c.  **CRITICAL — Reproduce Faithfully**: The agent MUST reproduce the EXACT text of every checklist item. The ONLY change allowed is toggling `[ ]` to `[x]`. Do NOT:
+        *   Modify item text (even slightly — "unit tests" → "tests" will fail)
+        *   Omit items
+        *   Add items
+        *   Reorder items
+        *   Add annotations, comments, or evidence text after items
     d.  **Present Summary**: Output a brief summary in chat:
         > **Checklist processed**: `[path]`
-        > - Done: [N] items
-        > - Pending: [N] items
+        > - Checked: [N] items
+        > - Unchecked: [N] items
     e.  **Log**: Append to the session's `_LOG.md`:
         ```bash
         engine log [sessionDir]/[LOG_NAME].md <<'EOF'
         ## 📋 Checklist Processed
         *   **File**: [absolute path]
-        *   **Items**: [total] total — [done] done, [pending] pending
-        *   **Pending Items**: [list of pending items, if any]
+        *   **Items**: [total] total — [checked] checked, [unchecked] unchecked
         EOF
         ```
-4.  **Submit to engine session check**: Concatenate all quote-back blocks and pipe to `engine session check`:
+4.  **Submit as JSON to engine session check**: Build a JSON object keyed by absolute file path, with values being the full checklist markdown content (with `[x]` filled). Pipe to `engine session check`:
     ```bash
     engine session check [sessionDir] <<'EOF'
-    ## CHECKLIST: /path/to/first/CHECKLIST.md
-    - [x] Verified item one
-    - [x] Verified item two
-
-    ## CHECKLIST: /path/to/second/CHECKLIST.md
-    - [x] All items verified
+    {
+      "/absolute/path/to/CHECKLIST.md": "- [x] Item one\n- [x] Item two\n- [ ] Item three",
+      "/absolute/path/to/OTHER_CHECKLIST.md": "- [x] All items verified"
+    }
     EOF
     ```
     *   On success: `engine session check` sets `checkPassed=true` in `.state.json`. The deactivation gate will pass.
-    *   On failure: `engine session check` exits 1 with a descriptive error. Fix the missing blocks and retry.
-5.  **Report Pending Items**: If any checklist items are marked `[ ]` (pending), flag them:
+    *   On failure: `engine session check` exits 1 with a descriptive error. Fix the content and retry.
+5.  **Report Pending Items**: If any checklist items are marked `[ ]` (unchecked), flag them:
     *   Add a brief mention in the debrief's "Next Steps" section.
     *   If significant, tag with `#needs-implementation` via `§CMD_TAG_FILE`.
 
+**JSON Schema** (stdin to `engine session check`):
+```json
+{
+  "/absolute/path/to/CHECKLIST.md": "full markdown content with [x] filled"
+}
+```
+*   **Keys**: Absolute paths matching entries in `discoveredChecklists[]` from `.state.json`.
+*   **Values**: The complete checklist markdown content. Must be a faithful reproduction of the original with only checkbox state changed.
+*   **All discovered paths must be present**: Missing keys cause validation failure.
+
+**Validation Pipeline** (what `engine session check` does):
+1.  Parse JSON — must be a valid JSON object
+2.  For each discovered checklist path:
+    a.  Verify the path exists as a key in the JSON
+    b.  Extract the agent's content from the JSON value
+    c.  Read the original CHECKLIST.md from disk
+    d.  Run branching validation on agent's content (if nested checkboxes detected)
+    e.  Normalize both versions: `[x]`/`[X]`/`[ ]` → `[ ]`, trim trailing whitespace, CRLF→LF
+    f.  Compare normalized versions — any difference = failure
+
 **Constraints**:
 *   **Non-blocking on empty**: Skip silently if no discovered checklists. Only process when checklists exist.
-*   **Quote-back pattern**: The agent MUST echo checklist items back via stdin to prove processing. `engine session check` validates that every `discoveredChecklists[]` path has a matching `## CHECKLIST:` block with at least one item.
+*   **Strict text diff**: The engine compares the normalized original against the normalized agent content. Any non-checkbox text difference causes failure. This prevents agents from omitting items, changing text, or fabricating content.
+*   **Branching validation**: For checklists with nested items (2-space indented children), exactly one parent branch must be checked, and all children of the checked parent must also be checked.
 *   **Belt-and-suspenders**: This command is the "belt" (protocol-level). The `engine session deactivate` gate is the "suspenders" (infrastructure-level). Both exist because agents skip protocol steps — the gate catches failures.
 *   **Session state**: `checkPassed` (boolean) in `.state.json` is the source of truth. The deactivate gate checks `checkPassed == true` when `discoveredChecklists` is non-empty.
 *   **Idempotent**: Safe to run multiple times. If `checkPassed` is already true, skips (step 2).

@@ -60,6 +60,15 @@ assert_eq() {
   fi
 }
 
+assert_neq() {
+  local expected="$1" actual="$2" msg="$3"
+  if [ "$expected" != "$actual" ]; then
+    pass "$msg"
+  else
+    fail "$msg" "not $expected" "$actual"
+  fi
+}
+
 assert_contains() {
   local pattern="$1" actual="$2" msg="$3"
   if echo "$actual" | grep -qF "$pattern" 2>/dev/null || echo "$actual" | grep -q "$pattern" 2>/dev/null; then
@@ -331,4 +340,71 @@ setup_test_env() {
 cleanup_test_env() {
   teardown_fake_home
   rm -rf "${TMP_DIR:-}"
+}
+
+# ============================================================
+# Isolated Tmux Session for Integration Tests
+# ============================================================
+#
+# Creates an isolated tmux server so tests don't affect the live fleet.
+# Socket name is fleet-test-$$ (PID-unique, matches fleet-* pattern).
+#
+# Sets these globals:
+#   TEST_TMUX_SOCKET  — Socket name for tmux -L
+#   TEST_TMUX_PANES   — Array of pane IDs created
+#
+# Usage:
+#   setup_test_tmux [pane_count] [register_hooks]
+#   trap cleanup_test_tmux EXIT
+#
+#   pane_count:     Number of panes (default 6)
+#   register_hooks: "true" to register after-select-pane hook (for focus tests)
+
+setup_test_tmux() {
+  local pane_count="${1:-6}"
+  local register_hooks="${2:-false}"
+
+  TEST_TMUX_SOCKET="fleet-test-$$"
+
+  # Kill any leftover test server with this name
+  tmux -L "$TEST_TMUX_SOCKET" kill-server 2>/dev/null || true
+
+  # Start a new tmux server with a session
+  tmux -L "$TEST_TMUX_SOCKET" new-session -d -s test -x 120 -y 40
+
+  # Create additional panes (we start with 1)
+  local i
+  for (( i = 1; i < pane_count; i++ )); do
+    tmux -L "$TEST_TMUX_SOCKET" split-window -t test 2>/dev/null || true
+    tmux -L "$TEST_TMUX_SOCKET" select-layout -t test tiled 2>/dev/null || true
+  done
+
+  # Set default pane options (labels, fleet IDs, notify=checked)
+  local idx=0
+  TEST_TMUX_PANES=()
+  while IFS= read -r p; do
+    [[ -z "$p" ]] && continue
+    TEST_TMUX_PANES+=("$p")
+    tmux -L "$TEST_TMUX_SOCKET" set-option -p -t "$p" @pane_notify "checked" 2>/dev/null || true
+    tmux -L "$TEST_TMUX_SOCKET" set-option -p -t "$p" @pane_fleet_id "worker-$idx" 2>/dev/null || true
+    tmux -L "$TEST_TMUX_SOCKET" set-option -p -t "$p" @pane_label "Worker$idx" 2>/dev/null || true
+    idx=$((idx + 1))
+  done < <(tmux -L "$TEST_TMUX_SOCKET" list-panes -a -F '#{pane_id}' 2>/dev/null)
+
+  # Register hooks if requested (for focus tests)
+  if [[ "$register_hooks" == "true" ]]; then
+    tmux -L "$TEST_TMUX_SOCKET" set-hook -g after-select-pane \
+      "run-shell \"$HOME/.claude/hooks/pane-focus-style.sh; $HOME/.claude/scripts/fleet.sh notify-check #{pane_id}\"" \
+      2>/dev/null || true
+    tmux -L "$TEST_TMUX_SOCKET" set-hook -g after-select-window \
+      "run-shell \"$HOME/.claude/hooks/pane-focus-style.sh; $HOME/.claude/scripts/fleet.sh notify-check #{pane_id}\"" \
+      2>/dev/null || true
+  fi
+}
+
+# Tear down the isolated tmux server.
+cleanup_test_tmux() {
+  if [[ -n "${TEST_TMUX_SOCKET:-}" ]]; then
+    tmux -L "$TEST_TMUX_SOCKET" kill-server 2>/dev/null || true
+  fi
 }

@@ -26,6 +26,7 @@ export CLAUDE_SUPERVISOR_PID=99999999
 
 setup_fake_home "$TMP_DIR"
 disable_fleet_tmux
+unset DISABLE_AUTO_COMPACT 2>/dev/null || true
 
 # Create engine dirs in fake home
 mkdir -p "$FAKE_HOME/.claude/engine/hooks"
@@ -58,8 +59,8 @@ trap cleanup EXIT
 source "$FAKE_HOME/.claude/scripts/lib.sh"
 
 # Helpers
-write_injections() {
-  echo "$1" > "$FAKE_HOME/.claude/engine/injections.json"
+write_guards() {
+  echo "$1" > "$FAKE_HOME/.claude/engine/guards.json"
 }
 
 reset_state() {
@@ -72,8 +73,8 @@ reset_state() {
   "currentPhase": "4: Build Loop",
   "contextUsage": 0,
   "injectedRules": {},
-  "pendingInjections": [],
-  "pendingDirectives": [],
+  "pendingGuards": [],
+  "pendingPreloads": [],
   "toolUseWithoutLogs": 0,
   "toolUseWithoutLogsBlockAfter": 10,
   "toolCallsByTranscript": {},
@@ -120,7 +121,8 @@ echo "--- Whitelist Tests ---"
 
 # W1: Tool matching whitelist allows through blocking injection
 reset_state
-write_injections '[{
+activate_session
+write_guards '[{
   "id": "test-block",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": { "text": "blocked" },
@@ -137,7 +139,8 @@ assert_eq "allow" "$DECISION" "W1: Whitelisted tool passes through blocking inje
 
 # W2: Tool NOT matching whitelist gets blocked
 reset_state
-write_injections '[{
+activate_session
+write_guards '[{
   "id": "test-block",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": { "text": "blocked" },
@@ -153,7 +156,8 @@ assert_eq "deny" "$DECISION" "W2: Non-whitelisted tool gets blocked"
 
 # W3: Union semantics — tool matching ANY rule's whitelist passes ALL rules
 reset_state
-write_injections '[
+activate_session
+write_guards '[
   {
     "id": "rule-a", "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
     "payload": { "text": "A" }, "mode": "inline", "urgency": "block", "priority": 2, "inject": "always",
@@ -186,7 +190,7 @@ echo "--- Per-Transcript Tests ---"
 reset_state
 activate_session
 
-write_injections '[]'
+write_guards '[]'
 
 run_hook "Read" '{"file_path": "/tmp/a.txt"}' "transcript-A"
 COUNTER_A=$(jq -r '.toolCallsByTranscript["transcript-A"] // 0' "$TEST_SESSION/.state.json")
@@ -206,7 +210,7 @@ jq '.toolCallsByTranscript = {"test-t": 9}' "$TEST_SESSION/.state.json" > "$TEST
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 # Evaluate rules with counter at 9, gte=10 → Read increments to 10 → gte matches
-write_injections '[{
+write_guards '[{
   "id": "gte-test",
   "trigger": { "type": "perTranscriptToolCount", "condition": { "gte": 10 } },
   "payload": { "text": "blocked at gte 10" },
@@ -224,7 +228,7 @@ activate_session
 jq '.toolCallsByTranscript = {"test-t": 2}' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "eq-test",
   "trigger": { "type": "perTranscriptToolCount", "condition": { "eq": 3 } },
   "payload": { "text": "warn at eq 3" },
@@ -250,7 +254,7 @@ activate_session
 jq '.toolCallsByTranscript = {"test-t": 8}' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[]'
+write_guards '[]'
 
 # Simulate engine log command (Bash tool with engine log)
 # Note: The hook bypasses early for engine log — resets counter and allows
@@ -262,7 +266,7 @@ assert_eq "0" "$COUNTER_AFTER" "T5: Counter resets on engine log command"
 reset_state
 activate_session
 
-write_injections '[]'
+write_guards '[]'
 
 # First edit to file-x → counter=1
 run_hook "Edit" '{"file_path": "/tmp/file-x.ts", "old_string": "a", "new_string": "b"}' "test-t"
@@ -283,7 +287,7 @@ assert_eq "2" "$C3" "T6c: Different-file edit increments counter"
 reset_state
 activate_session
 
-write_injections '[]'
+write_guards '[]'
 
 run_hook "Task" '{"prompt": "do stuff", "subagent_type": "general-purpose"}' "test-t"
 COUNTER_TASK=$(jq -r '.toolCallsByTranscript["test-t"] // 0' "$TEST_SESSION/.state.json")
@@ -302,7 +306,7 @@ activate_session
 jq '.lifecycle = "completed"' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "session-gate",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": { "text": "no active session" },
@@ -318,7 +322,7 @@ assert_eq "deny" "$DECISION" "G1: No active session blocks non-whitelisted Grep"
 reset_state
 activate_session
 
-write_injections '[{
+write_guards '[{
   "id": "session-gate",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": { "text": "no active session" },
@@ -336,7 +340,7 @@ activate_session
 jq '.lifecycle = "completed"' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "session-gate",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": { "text": "no active session" },
@@ -354,7 +358,7 @@ activate_session
 jq '.lifecycle = "completed"' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "session-gate",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": { "text": "no active session" },
@@ -376,7 +380,7 @@ activate_session
 jq '.lifecycle = "dehydrating"' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "session-gate",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": { "text": "no active session" },
@@ -400,7 +404,7 @@ activate_session
 jq '.toolCallsByTranscript = {"test-t": 2}' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "heartbeat-warn",
   "trigger": { "type": "perTranscriptToolCount", "condition": { "eq": 3 } },
   "payload": { "text": "Log soon" },
@@ -420,7 +424,7 @@ activate_session
 jq '.toolCallsByTranscript = {"test-t": 9}' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "heartbeat-block",
   "trigger": { "type": "perTranscriptToolCount", "condition": { "gte": 10 } },
   "payload": { "text": "Must log now" },
@@ -438,7 +442,7 @@ activate_session
 jq '.toolCallsByTranscript = {"test-t": 15}' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "heartbeat-block",
   "trigger": { "type": "perTranscriptToolCount", "condition": { "gte": 10 } },
   "payload": { "text": "Must log" },
@@ -460,7 +464,7 @@ activate_session
 jq '.loading = true' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[]'
+write_guards '[]'
 
 run_hook "Read" '{"file_path": "/tmp/test.txt"}' "test-t"
 COUNTER_LOADING=$(jq -r '.toolCallsByTranscript["test-t"] // 0' "$TEST_SESSION/.state.json")
@@ -472,7 +476,7 @@ activate_session
 jq '.toolCallsByTranscript = {"test-t": 11}' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "heartbeat-block",
   "trigger": { "type": "perTranscriptToolCount", "condition": { "gte": 10 } },
   "payload": { "text": "Must log" },
@@ -497,14 +501,14 @@ reset_state
 jq '.contextUsage = 0.55' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "ctx-test",
   "trigger": { "type": "contextThreshold", "condition": { "gte": 0.50 } },
   "payload": { "text": "context threshold" },
   "mode": "inline", "urgency": "allow", "priority": 10, "inject": "once"
 }]'
 
-RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/injections.json" "test-t")
+RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/guards.json" "test-t")
 COUNT=$(echo "$RESULT" | jq 'length')
 assert_eq "1" "$COUNT" "E1: contextThreshold trigger matches"
 
@@ -513,14 +517,14 @@ reset_state
 jq '.lifecycle = "completed"' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "lc-test",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": { "text": "no session" },
   "mode": "inline", "urgency": "block", "priority": 2, "inject": "always"
 }]'
 
-RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/injections.json" "test-t")
+RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/guards.json" "test-t")
 COUNT=$(echo "$RESULT" | jq 'length')
 assert_eq "1" "$COUNT" "E2: lifecycle trigger matches when not active"
 
@@ -529,32 +533,32 @@ reset_state
 jq '.currentPhase = "5: Synthesis"' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "phase-test",
   "trigger": { "type": "phase", "condition": { "matches": "Synthesis" } },
   "payload": { "text": "synth" },
   "mode": "inline", "urgency": "allow", "priority": 30, "inject": "once"
 }]'
 
-RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/injections.json" "test-t")
+RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/guards.json" "test-t")
 COUNT=$(echo "$RESULT" | jq 'length')
 assert_eq "1" "$COUNT" "E3: phase trigger matches Synthesis"
 
 # E4: discovery trigger
 reset_state
-jq '.pendingDirectives = ["/some/file.md"]' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+jq '.pendingPreloads = ["/some/file.md"]' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "disc-test",
-  "trigger": { "type": "discovery", "condition": { "field": "pendingDirectives", "nonEmpty": true } },
-  "payload": { "files": "$pendingDirectives" },
+  "trigger": { "type": "discovery", "condition": { "field": "pendingPreloads", "nonEmpty": true } },
+  "payload": { "files": "$pendingPreloads" },
   "mode": "read", "urgency": "block", "priority": 20, "inject": "always"
 }]'
 
-RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/injections.json" "test-t")
+RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/guards.json" "test-t")
 COUNT=$(echo "$RESULT" | jq 'length')
-assert_eq "1" "$COUNT" "E4: discovery trigger matches non-empty pendingDirectives"
+assert_eq "1" "$COUNT" "E4: discovery trigger matches non-empty pendingPreloads"
 
 # E5: inject:once skips already-injected
 reset_state
@@ -562,14 +566,14 @@ jq '.contextUsage = 0.55 | .injectedRules = {"ctx-test": true}' \
   "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "ctx-test",
   "trigger": { "type": "contextThreshold", "condition": { "gte": 0.50 } },
   "payload": { "text": "test" },
   "mode": "inline", "urgency": "allow", "priority": 10, "inject": "once"
 }]'
 
-RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/injections.json" "test-t")
+RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/guards.json" "test-t")
 COUNT=$(echo "$RESULT" | jq 'length')
 assert_eq "0" "$COUNT" "E5: inject:once skips already-injected rule"
 
@@ -579,14 +583,14 @@ jq '.contextUsage = 0.55 | .currentPhase = "5: Synthesis"' \
   "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[
+write_guards '[
   {"id": "low-pri", "trigger": { "type": "contextThreshold", "condition": { "gte": 0.50 } },
    "payload": { "text": "low" }, "mode": "inline", "urgency": "allow", "priority": 30, "inject": "once"},
   {"id": "high-pri", "trigger": { "type": "phase", "condition": { "matches": "Synthesis" } },
    "payload": { "text": "high" }, "mode": "inline", "urgency": "allow", "priority": 5, "inject": "once"}
 ]'
 
-RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/injections.json" "test-t")
+RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/guards.json" "test-t")
 FIRST=$(echo "$RESULT" | jq -r '.[0].ruleId')
 SECOND=$(echo "$RESULT" | jq -r '.[1].ruleId')
 assert_eq "high-pri" "$FIRST" "E6a: Lower priority number first"
@@ -597,14 +601,14 @@ reset_state
 jq '.contextUsage = 0.80' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "overflow-ref",
   "trigger": { "type": "contextThreshold", "condition": { "gte": "OVERFLOW_THRESHOLD" } },
   "payload": { "command": "/session dehydrate restart" },
   "mode": "paste", "urgency": "block", "priority": 1, "inject": "always"
 }]'
 
-RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/injections.json" "test-t")
+RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/guards.json" "test-t")
 COUNT=$(echo "$RESULT" | jq 'length')
 assert_eq "1" "$COUNT" "E7: OVERFLOW_THRESHOLD reference resolved (0.80 >= 0.76)"
 
@@ -622,7 +626,7 @@ jq '.lifecycle = "completed" | .toolCallsByTranscript = {"test-t": 15}' \
   "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[
+write_guards '[
   {
     "id": "gate", "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
     "payload": { "text": "no session" },
@@ -651,7 +655,7 @@ jq '.contextUsage = 0.55' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.js
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 # One blocking rule (no whitelist) + one allow rule both trigger
-write_injections '[
+write_guards '[
   {
     "id": "blocker", "trigger": { "type": "contextThreshold", "condition": { "gte": 0.50 } },
     "payload": { "text": "too much context" },
@@ -674,7 +678,7 @@ activate_session
 jq '.lifecycle = "completed"' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[
+write_guards '[
   {
     "id": "gate", "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
     "payload": { "text": "no session" },
@@ -708,7 +712,7 @@ jq '.lifecycle = "completed" | .toolCallsByTranscript = {"test-t": 15}' \
   "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[
+write_guards '[
   {
     "id": "gate", "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
     "payload": { "text": "no session" },
@@ -742,7 +746,7 @@ activate_session
 jq '.toolCallsByTranscript = {"test-t": 9}' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[
+write_guards '[
   {
     "id": "heartbeat-warn", "trigger": { "type": "perTranscriptToolCount", "condition": { "eq": 3 } },
     "payload": { "text": "Log soon" },
@@ -768,7 +772,7 @@ activate_session
 jq '.toolCallsByTranscript = {"test-t": 2}' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[
+write_guards '[
   {
     "id": "heartbeat-warn", "trigger": { "type": "perTranscriptToolCount", "condition": { "eq": 3 } },
     "payload": { "text": "Log soon" },
@@ -824,7 +828,7 @@ activate_session
 jq '.lifecycle = "completed"' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "tracked-block",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": { "text": "blocked" },
@@ -842,7 +846,7 @@ activate_session
 jq '.contextUsage = 0.55' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "tracked-allow",
   "trigger": { "type": "contextThreshold", "condition": { "gte": 0.50 } },
   "payload": { "text": "guidance" },
@@ -867,32 +871,32 @@ echo ""
 # ============================================================
 echo "--- Error Path Tests ---"
 
-# X1: Missing injections.json — hook allows all
+# X1: Missing guards.json — hook allows all
 reset_state
 activate_session
-rm -f "$FAKE_HOME/.claude/engine/injections.json"
+rm -f "$FAKE_HOME/.claude/engine/guards.json"
 
 run_hook "Read" '{"file_path": "/tmp/foo.txt"}' "test-t"
 DECISION=$(echo "$HOOK_OUT" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null || echo "none")
-assert_eq "allow" "$DECISION" "X1: Missing injections.json — hook allows all"
+assert_eq "allow" "$DECISION" "X1: Missing guards.json — hook allows all"
 
-# X2: Empty injections.json array — hook allows all
+# X2: Empty guards.json array — hook allows all
 reset_state
 activate_session
-write_injections '[]'
+write_guards '[]'
 
 run_hook "Read" '{"file_path": "/tmp/foo.txt"}' "test-t"
 DECISION=$(echo "$HOOK_OUT" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null || echo "none")
-assert_eq "allow" "$DECISION" "X2: Empty injections.json — hook allows all"
+assert_eq "allow" "$DECISION" "X2: Empty guards.json — hook allows all"
 
-# X3: Malformed injections.json — hook allows all (graceful degradation)
+# X3: Malformed guards.json — hook allows all (graceful degradation)
 reset_state
 activate_session
-echo "this is not json at all {{{" > "$FAKE_HOME/.claude/engine/injections.json"
+echo "this is not json at all {{{" > "$FAKE_HOME/.claude/engine/guards.json"
 
 run_hook "Read" '{"file_path": "/tmp/foo.txt"}' "test-t"
 DECISION=$(echo "$HOOK_OUT" | jq -r '.hookSpecificOutput.permissionDecision // "none"' 2>/dev/null || echo "none")
-assert_eq "allow" "$DECISION" "X3: Malformed injections.json — hook allows all (graceful degradation)"
+assert_eq "allow" "$DECISION" "X3: Malformed guards.json — hook allows all (graceful degradation)"
 
 # X4: Rule with unknown trigger type — skipped gracefully, other rules still evaluate
 reset_state
@@ -900,7 +904,7 @@ activate_session
 jq '.contextUsage = 0.55' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[
+write_guards '[
   {
     "id": "unknown-trigger",
     "trigger": { "type": "foobar", "condition": { "whatever": true } },
@@ -915,7 +919,7 @@ write_injections '[
   }
 ]'
 
-RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/injections.json" "test-t")
+RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/guards.json" "test-t")
 COUNT=$(echo "$RESULT" | jq 'length')
 RULE_ID=$(echo "$RESULT" | jq -r '.[0].ruleId')
 assert_eq "1" "$COUNT" "X4a: Unknown trigger type skipped, valid rule still evaluates"
@@ -932,7 +936,7 @@ cat > "$TEST_SESSION/.state.json" <<STATEEOF
 }
 STATEEOF
 
-write_injections '[{
+write_guards '[{
   "id": "ctx-default",
   "trigger": { "type": "contextThreshold", "condition": { "gte": 0.50 } },
   "payload": { "text": "test" },
@@ -940,7 +944,7 @@ write_injections '[{
 }]'
 
 # contextUsage defaults to 0, so 0 >= 0.50 should NOT match
-RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/injections.json" "test-t")
+RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/guards.json" "test-t")
 COUNT=$(echo "$RESULT" | jq 'length')
 assert_eq "0" "$COUNT" "X5: Missing contextUsage defaults to 0 (rule doesn't match)"
 
@@ -957,7 +961,7 @@ activate_session
 jq '.overflowed = true' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[]'
+write_guards '[]'
 
 run_hook "Read" '{"file_path": "/tmp/test.txt"}' "test-t"
 COUNTER_OVF=$(jq -r '.toolCallsByTranscript["test-t"] // 0' "$TEST_SESSION/.state.json")
@@ -969,7 +973,7 @@ activate_session
 jq '.killRequested = true' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "should-be-bypassed",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": { "text": "blocked" },
@@ -997,7 +1001,7 @@ reset_state
 jq '.lifecycle = "none" | .contextUsage = 0' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "standards-preload",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": {
@@ -1006,7 +1010,7 @@ write_injections '[{
   "mode": "preload", "urgency": "allow", "priority": 3, "inject": "once"
 }]'
 
-RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/injections.json" "test-t")
+RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/guards.json" "test-t")
 COUNT=$(echo "$RESULT" | jq 'length')
 MODE=$(echo "$RESULT" | jq -r '.[0].mode // "none"')
 assert_eq "1" "$COUNT" "P1a: standards-preload rule matches when lifecycle=none"
@@ -1018,7 +1022,7 @@ jq '.lifecycle = "none" | .injectedRules = {"standards-preload": true}' \
   "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-write_injections '[{
+write_guards '[{
   "id": "standards-preload",
   "trigger": { "type": "lifecycle", "condition": { "noActiveSession": true } },
   "payload": {
@@ -1027,7 +1031,7 @@ write_injections '[{
   "mode": "preload", "urgency": "allow", "priority": 3, "inject": "once"
 }]'
 
-RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/injections.json" "test-t")
+RESULT=$(evaluate_rules "$TEST_SESSION/.state.json" "$FAKE_HOME/.claude/engine/guards.json" "test-t")
 COUNT=$(echo "$RESULT" | jq 'length')
 assert_eq "0" "$COUNT" "P2: inject:once prevents re-injection after delivery"
 
@@ -1041,19 +1045,19 @@ echo ""
 # ============================================================
 echo "--- Dynamic Payload Resolution Tests ---"
 
-# D1: _resolve_payload_refs resolves $pendingDirectives from state
+# D1: _resolve_payload_refs resolves $pendingPreloads from state
 reset_state
 activate_session
-jq '.pendingDirectives = ["/tmp/dir1.md", "/tmp/dir2.md"]' \
+jq '.pendingPreloads = ["/tmp/dir1.md", "/tmp/dir2.md"]' \
   "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-PAYLOAD='{"preload": "$pendingDirectives"}'
+PAYLOAD='{"preload": "$pendingPreloads"}'
 RESOLVED=$(_resolve_payload_refs "$PAYLOAD" "$TEST_SESSION/.state.json")
 RESOLVED_TYPE=$(echo "$RESOLVED" | jq -r '.preload | type')
 RESOLVED_LEN=$(echo "$RESOLVED" | jq '.preload | length')
 RESOLVED_FIRST=$(echo "$RESOLVED" | jq -r '.preload[0]')
-assert_eq "array" "$RESOLVED_TYPE" "D1a: \$pendingDirectives resolved to array"
+assert_eq "array" "$RESOLVED_TYPE" "D1a: \$pendingPreloads resolved to array"
 assert_eq "2" "$RESOLVED_LEN" "D1b: Resolved array has 2 entries"
 assert_eq "/tmp/dir1.md" "$RESOLVED_FIRST" "D1c: First entry matches state"
 
@@ -1071,15 +1075,15 @@ RESOLVED=$(_resolve_payload_refs "$PAYLOAD" "$TEST_SESSION/.state.json")
 RESOLVED_VAL=$(echo "$RESOLVED" | jq -r '.preload')
 assert_eq '$nonExistentField' "$RESOLVED_VAL" "D3: Missing state field leaves $-ref unchanged"
 
-# D4: Empty pendingDirectives resolves to empty array
-jq '.pendingDirectives = []' \
+# D4: Empty pendingPreloads resolves to empty array
+jq '.pendingPreloads = []' \
   "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-PAYLOAD='{"preload": "$pendingDirectives"}'
+PAYLOAD='{"preload": "$pendingPreloads"}'
 RESOLVED=$(_resolve_payload_refs "$PAYLOAD" "$TEST_SESSION/.state.json")
 RESOLVED_LEN=$(echo "$RESOLVED" | jq '.preload | length')
-assert_eq "0" "$RESOLVED_LEN" "D4: Empty pendingDirectives resolves to empty array"
+assert_eq "0" "$RESOLVED_LEN" "D4: Empty pendingPreloads resolves to empty array"
 
 # D5: Inline $var interpolation within string values
 reset_state
@@ -1096,11 +1100,11 @@ assert_eq "status: completed, dir: sessions/FOO" "$RESOLVED_TEXT" "D5: Inline \$
 # D6: Inline $var alongside whole-value $ref in same payload
 reset_state
 activate_session
-jq '.pendingDirectives = ["/a.md"] | .lifecycle = "active"' \
+jq '.pendingPreloads = ["/a.md"] | .lifecycle = "active"' \
   "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-PAYLOAD='{"preload": "$pendingDirectives", "text": "life: $lifecycle"}'
+PAYLOAD='{"preload": "$pendingPreloads", "text": "life: $lifecycle"}'
 RESOLVED=$(_resolve_payload_refs "$PAYLOAD" "$TEST_SESSION/.state.json")
 RESOLVED_TYPE=$(echo "$RESOLVED" | jq -r '.preload | type')
 RESOLVED_FIRST=$(echo "$RESOLVED" | jq -r '.preload[0]')

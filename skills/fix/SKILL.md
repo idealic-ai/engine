@@ -25,9 +25,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION", "§CMD_APPEND_LOG"],
       "proof": ["depth_chosen", "rounds_completed"]},
     {"label": "2", "name": "Triage Walk-Through",
-      "steps": ["§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS", "§CMD_SELECT_EXECUTION_PATH"],
+      "steps": ["§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS"],
       "commands": ["§CMD_LINK_FILE"],
       "proof": ["plan_written", "issues_triaged", "user_approved"]},
+    {"label": "3", "name": "Execution",
+      "steps": ["§CMD_SELECT_EXECUTION_PATH"],
+      "proof": ["path_chosen", "paths_available"]},
     {"label": "3.A", "name": "Fix Loop",
       "steps": [],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
@@ -36,24 +39,26 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
     {"label": "3.C", "name": "Parallel Agent Handoff",
       "steps": ["§CMD_PARALLEL_HANDOFF"], "commands": [], "proof": []},
-    {"label": "3.D", "name": "Results Walk-Through",
+    {"label": "4", "name": "Results Walk-Through",
       "steps": ["§CMD_WALK_THROUGH_RESULTS"], "commands": [], "proof": ["results_presented", "user_approved"]},
-    {"label": "4", "name": "Synthesis",
+    {"label": "5", "name": "Synthesis",
       "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
-    {"label": "4.1", "name": "Checklists",
+    {"label": "5.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
-    {"label": "4.2", "name": "Debrief",
+    {"label": "5.2", "name": "Debrief",
       "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
-    {"label": "4.3", "name": "Pipeline",
+    {"label": "5.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
-    {"label": "4.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+    {"label": "5.4", "name": "Close",
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/test", "/implement", "/analyze", "/document", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md", "CHECKLIST.md"],
   "planTemplate": "assets/TEMPLATE_FIX_PLAN.md",
   "logTemplate": "assets/TEMPLATE_FIX_LOG.md",
   "debriefTemplate": "assets/TEMPLATE_FIX.md",
+  "requestTemplate": "assets/TEMPLATE_FIX_REQUEST.md",
+  "responseTemplate": "assets/TEMPLATE_FIX_RESPONSE.md",
   "modes": {
     "general": {"label": "General", "description": "Standard investigate-fix-verify", "file": "modes/general.md"},
     "tdd": {"label": "TDD", "description": "Test-first discipline", "file": "modes/tdd.md"},
@@ -67,7 +72,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Fixing ___. Symptoms: ___.
 > Mode: ___. Trigger: ___.
 > Focus: session activation, mode selection, context loading.
@@ -85,7 +90,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 **Record**: Store the selected mode. It configures:
 *   Phase 0 role (from mode file)
 *   Phase 1 investigation topics (from mode file)
-*   Phase 2 & 3.3 walk-through configs (from mode file)
+*   Phase 2 & 4 walk-through configs (from mode file)
 
 **Initial Evidence**: Capture initial state relevant to the fix mode:
 *   **General**: Reproduce the issue, document symptoms.
@@ -97,7 +102,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 1. Investigation
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Interrogating ___ assumptions before triaging fixes.
 > Categorizing issues into tiers, logging findings to FIX_LOG.md.
 
@@ -148,7 +153,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 2. Triage Walk-Through
 *User reviews and approves what to fix before any code changes.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Presenting ___ investigated issues for triage.
 > User decides what to fix, defer, or investigate further.
 
@@ -176,14 +181,25 @@ If any items are flagged for revision, update the plan before proceeding.
 
 ---
 
+## 3. Execution
+*Gateway: select execution path before entering a branch.*
+
+`§CMD_REPORT_INTENT`:
+> Selecting execution path for ___ fixes.
+> Options: inline fix loop, agent handoff, or parallel agents.
+
+`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+
+---
+
 ## 3.A. Fix Loop
 *Execute repairs. Resolve Tier 1 first, then investigate Tier 2.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Executing ___-issue fix plan. Target: ___.
 > Tier 1 quick wins first, then Tier 2 investigations.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(3.A.*)`
 
 ### Sub-Phase: Quick Wins (Tier 1)
 1.  **Action**: Apply Tier 1 fixes.
@@ -221,38 +237,46 @@ If any items are flagged for revision, update the plan before proceeding.
 ## 3.B. Agent Handoff
 *Hand off to a single autonomous agent.*
 
-`§CMD_EXECUTE_PHASE_STEPS(3.1.*)`
+`§CMD_EXECUTE_PHASE_STEPS(3.B.*)`
 
 `§CMD_HANDOFF_TO_AGENT` with:
-*   `agentName`: `"debugger"`
-*   `startAtPhase`: `"3.A: Fix Loop"`
-*   `planOrDirective`: `[sessionDir]/FIX_PLAN.md`
-*   `logFile`: `FIX_LOG.md`
-*   `taskSummary`: `"Fix: [brief description from taskSummary]"`
+```json
+{
+  "agentName": "debugger",
+  "startAtPhase": "3.A: Fix Loop",
+  "planOrDirective": "[sessionDir]/FIX_PLAN.md",
+  "logFile": "FIX_LOG.md",
+  "taskSummary": "Fix: [brief description from taskSummary]"
+}
+```
 
 ---
 
 ## 3.C. Parallel Agent Handoff
 *Hand off to multiple agents working in parallel on independent plan chunks.*
 
-`§CMD_EXECUTE_PHASE_STEPS(3.2.*)`
+`§CMD_EXECUTE_PHASE_STEPS(3.C.*)`
 
 `§CMD_PARALLEL_HANDOFF` with:
-*   `agentName`: `"debugger"`
-*   `planFile`: `[sessionDir]/FIX_PLAN.md`
-*   `logFile`: `FIX_LOG.md`
-*   `taskSummary`: `"Fix: [brief description from taskSummary]"`
+```json
+{
+  "agentName": "debugger",
+  "planFile": "[sessionDir]/FIX_PLAN.md",
+  "logFile": "FIX_LOG.md",
+  "taskSummary": "Fix: [brief description from taskSummary]"
+}
+```
 
 ---
 
-## 3.D. Results Walk-Through
+## 4. Results Walk-Through
 *User reviews all applied fixes before synthesis.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Presenting ___ applied fixes for review.
 > User can accept, revise, or tag fixes for follow-up.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.3.*)`
+`§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
 
 **Walk-through** (from loaded mode file):
 ```
@@ -264,14 +288,14 @@ If any items are flagged for revision, update the plan before proceeding.
 
 ---
 
-## 4. Synthesis
+## 5. Synthesis
 *When all fixes are applied and verified.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. ___ fixes applied, ___ tests passing.
 > Producing FIX.md debrief with root cause analysis.
 
-`§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(5.0.*)`
 
 **Debrief notes** (for `FIX.md`):
 *   **The Story**: Narrate the diagnostic journey.

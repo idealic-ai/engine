@@ -24,29 +24,41 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "steps": [],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
       "proof": ["log_entries", "key_finding", "open_gaps"]},
-    {"label": "2.A", "name": "Calibration",
+    {"label": "2", "name": "Calibration",
       "steps": ["§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
       "proof": ["depth_chosen", "rounds_completed"]},
-    {"label": "2.B", "name": "Agent Handoff",
+    {"label": "3", "name": "Execution",
+      "steps": ["§CMD_SELECT_EXECUTION_PATH"],
+      "commands": [],
+      "proof": ["path_chosen", "paths_available"]},
+    {"label": "3.A", "name": "Inline Analysis",
+      "steps": [],
+      "commands": ["§CMD_APPEND_LOG"],
+      "proof": []},
+    {"label": "3.B", "name": "Agent Handoff",
       "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
-    {"label": "3", "name": "Synthesis",
+    {"label": "3.C", "name": "Parallel Agent Handoff",
+      "steps": ["§CMD_PARALLEL_HANDOFF"], "commands": [], "proof": []},
+    {"label": "4", "name": "Synthesis",
       "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
-    {"label": "3.1", "name": "Checklists",
+    {"label": "4.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
-    {"label": "3.2", "name": "Debrief",
+    {"label": "4.2", "name": "Debrief",
       "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
-    {"label": "3.3", "name": "Finding Triage",
+    {"label": "4.3", "name": "Finding Triage",
       "steps": ["§CMD_WALK_THROUGH_RESULTS"], "commands": [], "proof": ["findings_triaged", "delegated", "deferred", "dismissed"]},
-    {"label": "3.4", "name": "Pipeline",
+    {"label": "4.4", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
-    {"label": "3.5", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+    {"label": "4.5", "name": "Close",
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/brainstorm", "/implement", "/document", "/fix", "/chores"],
   "directives": [],
   "logTemplate": "assets/TEMPLATE_ANALYSIS_LOG.md",
   "debriefTemplate": "assets/TEMPLATE_ANALYSIS.md",
+  "requestTemplate": "assets/TEMPLATE_ANALYSIS_REQUEST.md",
+  "responseTemplate": "assets/TEMPLATE_ANALYSIS_RESPONSE.md",
   "modes": {
     "explore": {"label": "Explore", "description": "Broad, curiosity-driven investigation", "file": "modes/explore.md"},
     "audit": {"label": "Audit", "description": "Adversarial, risk-focused critique", "file": "modes/audit.md"},
@@ -60,7 +72,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Analyzing ___. Mode: ___.
 > Loading context, selecting analysis lens, preparing research workspace.
 > Focus: ANALYSIS — session activation, mode selection, context ingestion.
@@ -79,7 +91,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 *   Phase 0 role (from mode file)
 *   Phase 1 research topics (from mode file)
 *   Phase 2 calibration topics (from mode file)
-*   Phase 3.3 walk-through config (from mode file)
+*   Phase 4.3 walk-through config (from mode file)
 
 
 
@@ -92,7 +104,7 @@ Execute `§CMD_GATE_PHASE`:
 ## 1. Research Loop (Autonomous Deep Dive)
 *Do not wait for permission. Explore the context immediately.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Researching ___. Exploring loaded context autonomously.
 > Logging findings continuously via `§CMD_APPEND_LOG`.
 > Target: 5+ log entries before Calibration.
@@ -110,14 +122,14 @@ For *every* significant thought, execute `§CMD_APPEND_LOG`.
 
 ### Phase Transition
 Execute `§CMD_GATE_PHASE`:
-  custom: "Skip to Phase 3: Synthesis | Findings are clear, ready to write the report"
+  custom: "Skip to Phase 4: Synthesis | Findings are clear, ready to write the report"
 
 ---
 
 ## 2. Calibration (Interactive)
 *After you have logged a significant batch of findings (5+), STOP and turn to the user.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Calibrating with ___ findings logged.
 > Aligning analysis direction with the user via `§CMD_INTERROGATE`.
 > Feedback recorded via `§CMD_LOG_INTERACTION`.
@@ -164,7 +176,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
 
 > "Round N complete (minimum met). What next?"
-> - **"Proceed to Phase 3: Synthesis"** — *(terminal: if selected, skip all others and move on)*
+> - **"Proceed to Phase 3: Execution"** — *(terminal: if selected, skip all others and move on)*
 > - **"More calibration (3 more rounds)"** — Standard topic rounds, then this gate re-appears
 > - **"Devil's advocate round"** — 1 round challenging assumptions, then this gate re-appears
 > - **"What-if scenarios round"** — 1 round exploring hypotheticals, then this gate re-appears
@@ -174,37 +186,71 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Ask: "Round N complete. I still have questions about [X]. Continuing..."
 
-### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Phase 2: Calibration complete. How to proceed with synthesis?"
-> - **"Launch analyzer agent"** — Hand off to autonomous agent for synthesis (you'll get the report when done)
-> - **"Continue inline"** — Write synthesis in this conversation
-> - **"Return to Phase 1: Research Loop"** — More exploration needed before synthesis
+---
+
+## 3. Execution
+
+`§CMD_REPORT_INTENT`:
+> Selecting execution path for analysis.
+
+`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+
+*Gateway phase — presents inline/agent/parallel choice, then enters the selected branch.*
 
 ---
 
-## 2.1. Agent Handoff
-*Only if user selected "Launch analyzer agent" in Phase 2 transition.*
+## 3.A. Inline Analysis
+*Continue synthesis in this conversation.*
 
-`§CMD_EXECUTE_PHASE_STEPS(2.1.*)`
+`§CMD_EXECUTE_PHASE_STEPS(3.A.*)`
+
+Proceed directly to Phase 4: Synthesis.
+
+---
+
+## 3.B. Agent Handoff
+*Hand off to a single autonomous agent.*
+
+`§CMD_EXECUTE_PHASE_STEPS(3.B.*)`
 
 `§CMD_HANDOFF_TO_AGENT` with:
-*   `agentName`: `"analyzer"`
-*   `startAtPhase`: `"3: Synthesis"`
-*   `planOrDirective`: `"Synthesize research findings into ANALYSIS.md following the template. Focus on: [calibration-agreed themes and questions]"`
-*   `logFile`: `ANALYSIS_LOG.md`
-*   `taskSummary`: `"Synthesize analysis: [brief description from taskSummary]"`
+```json
+{
+  "agentName": "analyzer",
+  "startAtPhase": "4: Synthesis",
+  "planOrDirective": "Synthesize research findings into ANALYSIS.md following the template. Focus on: [calibration-agreed themes and questions]",
+  "logFile": "ANALYSIS_LOG.md",
+  "taskSummary": "Synthesize analysis: [brief description from taskSummary]"
+}
+```
 
 ---
 
-## 3. Synthesis
+## 3.C. Parallel Agent Handoff
+*Hand off to multiple agents working in parallel on independent analysis chunks.*
+
+`§CMD_EXECUTE_PHASE_STEPS(3.C.*)`
+
+`§CMD_PARALLEL_HANDOFF` with:
+```json
+{
+  "agentName": "analyzer",
+  "planFile": "[sessionDir]/ANALYSIS_LOG.md",
+  "logFile": "ANALYSIS_LOG.md",
+  "taskSummary": "Synthesize analysis: [brief description from taskSummary]"
+}
+```
+
+---
+
+## 4. Synthesis
 *When the user is satisfied.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. ___ findings logged, ___ calibration rounds completed.
 > Producing ANALYSIS.md with strategic themes and recommendations.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
 
 **Debrief notes** (for `ANALYSIS.md`):
 *   **Synthesize**: Don't just summarize. Connect the dots between Log entries.
@@ -212,15 +258,15 @@ Execute `AskUserQuestion` (multiSelect: false):
 *   **Highlight**: Top Risks and Sparks.
 *   **Recommend**: Concrete next steps.
 
-### 3.3. Finding Triage (Action Planning)
+### 4.3. Finding Triage (Action Planning)
 *Convert analysis into action. Walk through each finding with the user and decide its fate.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Triaging ___ findings into action items.
 > Walking through each finding via `§CMD_WALK_THROUGH_RESULTS`.
 > Decisions logged to DETAILS.md.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.3.*)`
+`§CMD_EXECUTE_PHASE_STEPS(4.3.*)`
 
 Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the selected mode preset.
 

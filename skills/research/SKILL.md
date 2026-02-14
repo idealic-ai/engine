@@ -37,7 +37,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "3.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "3.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/research", "/implement", "/analyze", "/brainstorm"],
   "directives": [],
@@ -51,7 +51,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Researching ___. Goal: ___.
 > Role: Research Strategist — craft a precise question, get it answered, deliver the result.
 > A good research question is half the answer. Spend time refining before firing.
@@ -64,7 +64,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 1. Interrogation (Query Refinement)
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Interrogating ___ assumptions before composing the research query.
 > Drawing from scope, source quality, prior knowledge, and success criteria topics.
 
@@ -141,7 +141,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 ## 2. Research Execution
 *Create the request document, call Gemini, and fulfill the research.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Executing research on ___. Posting request, calling Gemini Deep Research, awaiting results.
 > Interaction will be tracked via request file tags for recoverability.
 
@@ -220,7 +220,7 @@ The script writes `INTERACTION_ID=<id>` to the output file immediately (before p
 ## 3. Synthesis
 *Present results and close the session.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. Research on ___ fulfilled.
 > Presenting report and closing session.
 

@@ -55,7 +55,7 @@ ARGUMENTS: Accepts optional flags:
     {"label": "6.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "6.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/loop", "/test", "/implement", "/analyze", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
@@ -77,7 +77,7 @@ ARGUMENTS: Accepts optional flags:
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Iterating on ___ workload.
 > Mode: ___. Trigger: ___.
 > Focus: session activation, flag parsing, mode selection, context loading.
@@ -123,7 +123,7 @@ ARGUMENTS: Accepts optional flags:
 ## 1. Interrogation (Manifest Creation)
 *Build the workload manifest through guided questioning.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Interrogating ___ assumptions before designing experiments.
 > Building a workload manifest from structured questions.
 
@@ -191,7 +191,7 @@ If the user doesn't have existing agent prompts:
 ## 2. Planning (Experiment Design)
 *Before iterating, design the experiment. Measure twice, cut once.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Planning iteration experiments for ___ workload.
 > Analyzing failures, ranking hypotheses, designing experiments.
 
@@ -242,7 +242,7 @@ If the user doesn't have existing agent prompts:
 ## 3. Calibration (Single-Fixture Test)
 *Prove the manifest works before committing to the full loop.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Calibrating pipeline with single fixture for ___ workload.
 > Verifying manifest configuration before full iteration.
 
@@ -286,7 +286,7 @@ If the user doesn't have existing agent prompts:
 ## 4. Baseline (Initial Metrics)
 *Establish the starting point before any iteration.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Running baseline for ___ workload. All cases, iteration 0.
 > Establishing initial metrics before hypothesis-driven iteration.
 
@@ -322,7 +322,7 @@ If the user doesn't have existing agent prompts:
 ## 5. Iteration Loop (The Core Cycle)
 *HYPOTHESIZE -> RUN -> REVIEW -> ANALYZE -> DECIDE -> EDIT*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Entering iteration loop for ___ workload.
 > Each iteration follows: hypothesize, execute, review, analyze, decide, edit.
 
@@ -413,7 +413,7 @@ If the user doesn't have existing agent prompts:
 ## 6. Synthesis
 *When iteration is complete.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. ___ iterations completed, ___ cases passing.
 > Producing LOOP.md debrief with iteration history and learnings.
 

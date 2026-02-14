@@ -197,6 +197,7 @@ GIT COMMANDS
 
 TESTING & DIAGNOSTICS
   test [args...]         Run engine test suite
+  test-e2e [N...]        Run E2E Claude hook tests (optional: specific test numbers)
   reindex                Delete and rebuild doc-search + session-search DBs
   toc                    Show engine directory tree (~/.claude/)
   skill-doctor [name]    Validate skill definitions
@@ -894,7 +895,7 @@ cmd_status() {
 
 cmd_test() {
   local tests_dir
-  tests_dir="$(cd "$(dirname "$0")" && pwd)/tests"
+  tests_dir="$SCRIPT_DIR/tests"
 
   if [ ! -f "$tests_dir/run-all.sh" ]; then
     echo "ERROR: Test runner not found at $tests_dir/run-all.sh"
@@ -902,6 +903,17 @@ cmd_test() {
   fi
 
   bash "$tests_dir/run-all.sh" "$@"
+}
+
+cmd_test_e2e() {
+  local e2e_script="$SCRIPT_DIR/tests/test-e2e-claude-hooks.sh"
+
+  if [ ! -f "$e2e_script" ]; then
+    echo "ERROR: E2E test script not found at $e2e_script"
+    exit 1
+  fi
+
+  bash "$e2e_script" "$@"
 }
 
 cmd_uninstall() {
@@ -1593,6 +1605,7 @@ case "$SUBCMD" in
   status)    cmd_status;         exit 0 ;;
   report)    cmd_report;         exit 0 ;;
   test)      cmd_test "$@";      exit 0 ;;
+  test-e2e)  cmd_test_e2e "$@";  exit 0 ;;
   reindex)   cmd_reindex;        exit 0 ;;
   uninstall) cmd_uninstall;      exit 0 ;;
   help)      cmd_help;           exit 0 ;;

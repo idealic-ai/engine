@@ -157,7 +157,7 @@ assert_json "$STATE_FILE" '.currentPhase' '4.1: Agent Handoff' "currentPhase upd
 
 # Verify 4.1 was inserted into phases array
 assert_json "$STATE_FILE" \
-  '[.phases[] | select(.major == 4 and .minor == 1)] | length' '1' "4.1 in phases array"
+  '[.phases[] | select(.label == "4.1")] | length' '1' "4.1 in phases array"
 
 assert_ok "4.1->4.2 sub-phase chain" \
   "$SESSION_SH" phase "$TEST_DIR" "4.2: Review"
@@ -365,7 +365,7 @@ reset_state "5: Build Loop"
 jq '.phaseHistory = ["1: Setup", "2: Context Ingestion", "3: Interrogation", "4: Planning", "5: Build Loop"]' \
   "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
 valid_activate_json '{"taskSummary": "test skill change no phases"}' | \
-  "$SESSION_SH" activate "$TEST_DIR" "analyze" > /dev/null 2>&1
+  "$SESSION_SH" activate "$TEST_DIR" "nonexistent-skill" > /dev/null 2>&1
 assert_json "$STATE_FILE" '.phaseHistory | length' '0' "skill change without phases resets phaseHistory"
 assert_json "$STATE_FILE" '.currentPhase' 'Phase 1: Setup' "skill change without phases uses default currentPhase"
 
@@ -637,6 +637,130 @@ if echo "$OUTPUT" | grep -q "Proof required"; then
 else
   pass "PO4: Synthesis phase (no proof) correctly omits proof output"
 fi
+
+echo ""
+
+# --- Gateway Parent Pattern ---
+echo "--- Gateway Parent Pattern ---"
+
+# Helper: state with gateway parent + letter branches (implement-like pattern)
+reset_state_with_gateway() {
+  local current_phase="${1:-1: Setup}"
+  mkdir -p "$TEST_DIR"
+  cat > "$STATE_FILE" <<AGENTEOF
+{
+  "pid": 99999,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "$current_phase",
+  "phases": [
+    {"label": "1", "name": "Setup"},
+    {"label": "2", "name": "Planning"},
+    {"label": "3", "name": "Execution"},
+    {"label": "3.A", "name": "Build Loop"},
+    {"label": "3.B", "name": "Agent Handoff"},
+    {"label": "3.C", "name": "Parallel Agent Handoff"},
+    {"label": "4", "name": "Synthesis"}
+  ],
+  "phaseHistory": ["$current_phase"]
+}
+AGENTEOF
+}
+
+# Test: Gateway → first branch (N → N.A)
+reset_state_with_gateway "3: Execution"
+assert_ok "gateway: 3->3.A enter first branch from gateway" \
+  "$SESSION_SH" phase "$TEST_DIR" "3.A: Build Loop"
+assert_json "$STATE_FILE" '.currentPhase' '3.A: Build Loop' "gateway: currentPhase updated to 3.A"
+
+# Test: Gateway → alternate branch (N → N.B, skipping N.A)
+reset_state_with_gateway "3: Execution"
+assert_ok "gateway: 3->3.B enter alternate branch from gateway" \
+  "$SESSION_SH" phase "$TEST_DIR" "3.B: Agent Handoff"
+assert_json "$STATE_FILE" '.currentPhase' '3.B: Agent Handoff' "gateway: currentPhase updated to 3.B"
+
+# Test: Gateway → third branch (N → N.C)
+reset_state_with_gateway "3: Execution"
+assert_ok "gateway: 3->3.C enter third branch from gateway" \
+  "$SESSION_SH" phase "$TEST_DIR" "3.C: Parallel Agent Handoff"
+
+# Test: Branch → next major (N.A → N+1)
+reset_state_with_gateway "3: Execution"
+"$SESSION_SH" phase "$TEST_DIR" "3.A: Build Loop" > /dev/null 2>&1
+assert_ok "gateway: 3.A->4 exit branch to next major" \
+  "$SESSION_SH" phase "$TEST_DIR" "4: Synthesis"
+assert_json "$STATE_FILE" '.currentPhase' '4: Synthesis' "gateway: currentPhase updated to 4"
+
+# Test: Branch switch (N.A → N.B) — should be BLOCKED
+reset_state_with_gateway "3: Execution"
+"$SESSION_SH" phase "$TEST_DIR" "3.A: Build Loop" > /dev/null 2>&1
+assert_fail "gateway: 3.A->3.B branch switch blocked" \
+  "$SESSION_SH" phase "$TEST_DIR" "3.B: Agent Handoff"
+
+# Test: Previous phase → gateway (N-1 → N)
+reset_state_with_gateway "2: Planning"
+assert_ok "gateway: 2->3 enter gateway from previous phase" \
+  "$SESSION_SH" phase "$TEST_DIR" "3: Execution"
+
+# Test: Skip gateway to next major (N-1 → N+1, skipping gateway+branches) — should FAIL
+reset_state_with_gateway "2: Planning"
+assert_fail "gateway: 2->4 skip gateway without approval" \
+  "$SESSION_SH" phase "$TEST_DIR" "4: Synthesis"
+
+# Test: Skip gateway with approval
+reset_state_with_gateway "2: Planning"
+assert_ok "gateway: 2->4 skip gateway with approval" \
+  "$SESSION_SH" phase "$TEST_DIR" "4: Synthesis" --user-approved "User said: 'Skip to synthesis'"
+
+echo ""
+
+# --- Nested Gateway Pattern ---
+echo "--- Nested Gateway Pattern ---"
+
+# Helper: state with nested gateway using letter branches under a numbered sub-phase
+reset_state_with_nested_gateway() {
+  local current_phase="${1:-1: Setup}"
+  mkdir -p "$TEST_DIR"
+  cat > "$STATE_FILE" <<AGENTEOF
+{
+  "pid": 99999,
+  "skill": "analyze",
+  "lifecycle": "active",
+  "currentPhase": "$current_phase",
+  "phases": [
+    {"label": "1", "name": "Setup"},
+    {"label": "2", "name": "Calibration"},
+    {"label": "2.3", "name": "Execution"},
+    {"label": "2.3.A", "name": "Inline Analysis"},
+    {"label": "2.3.B", "name": "Agent Handoff"},
+    {"label": "3", "name": "Synthesis"}
+  ],
+  "phaseHistory": ["$current_phase"]
+}
+AGENTEOF
+}
+
+# Test: Nested gateway → branch (2.3 → 2.3.A)
+reset_state_with_nested_gateway "2.3: Execution"
+assert_ok "nested gateway: 2.3->2.3.A enter branch" \
+  "$SESSION_SH" phase "$TEST_DIR" "2.3.A: Inline Analysis"
+
+# Test: Nested gateway → alternate branch (2.3 → 2.3.B)
+reset_state_with_nested_gateway "2.3: Execution"
+assert_ok "nested gateway: 2.3->2.3.B enter alternate branch" \
+  "$SESSION_SH" phase "$TEST_DIR" "2.3.B: Agent Handoff"
+
+# Test: Nested branch → next major (2.3.A → 3)
+reset_state_with_nested_gateway "2.3: Execution"
+"$SESSION_SH" phase "$TEST_DIR" "2.3.A: Inline Analysis" > /dev/null 2>&1
+assert_ok "nested gateway: 2.3.A->3 exit nested branch to next major" \
+  "$SESSION_SH" phase "$TEST_DIR" "3: Synthesis"
+
+# Test: Nested branch switch (2.3.A → 2.3.B) — should be BLOCKED
+reset_state_with_nested_gateway "2.3: Execution"
+"$SESSION_SH" phase "$TEST_DIR" "2.3.A: Inline Analysis" > /dev/null 2>&1
+assert_fail "nested gateway: 2.3.A->2.3.B branch switch blocked" \
+  "$SESSION_SH" phase "$TEST_DIR" "2.3.B: Agent Handoff"
 
 echo ""
 

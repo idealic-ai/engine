@@ -39,15 +39,17 @@ Use `.directives/` files instead of Claude Code's built-in memory feature (`/mem
 ## Core Standards (The "Big Three")
 
 Loaded at every session boot — these define the engine's fundamental operations:
-- `COMMANDS.md` — All `§CMD_` command definitions (file ops, process control, workflows)
+- `COMMANDS.md` — All `¶CMD_` command definitions (file ops, process control, workflows)
 - `INVARIANTS.md` — Shared `¶INV_` rules (testing, architecture, code, communication, engine physics)
-- `TAGS.md` — Tag lifecycle (`§FEED_`), escaping, operations, dispatch routing
+- `TAGS.md` — Tag lifecycle (`¶FEED_`), escaping, operations, dispatch routing
 
 ## Agent Behavior Rules
 
 Rules that govern how agents communicate, interact, and operate. These are behavioral — the agent must follow them but they aren't mechanically enforced.
 
 ### Communication
+
+*   See `§INV_SIGIL_SEMANTICS` (shared INVARIANTS.md) — `¶` = definition, `§` = reference. All sigiled nouns (CMD, INV, FEED, TAG) follow this convention.
 
 *   **¶INV_CONCISE_CHAT**: Chat output is for **User Communication Only**.
     *   **Rule**: Do NOT narrate your internal decision process or micro-steps in the chat.
@@ -88,6 +90,10 @@ Rules that govern how agents communicate, interact, and operate. These are behav
         4. **Proceed**: Continue execution as if the user had selected that option.
         *   **Scope**: Applies to ALL `AskUserQuestion` calls — phase gates, interrogation questions, depth selection, decisions, walk-throughs. No exceptions.
         *   **Constraint**: This rule ONLY triggers on empty/whitespace-only "Other" responses. Any non-empty text from "Other" is treated as user input per normal behavior.
+    *   **Rule**: Interaction chains MUST stay structured end-to-end. When an `AskUserQuestion` selection leads to a follow-up question or routing decision, that follow-up MUST also use `AskUserQuestion`. Never degrade from a structured tool-based interaction to bare text mid-chain. If a user's selection requires further input, present the next question via `AskUserQuestion` — do not output "Which X do you want?" as plain text.
+        *   **Bad**: `AskUserQuestion` → user picks "Start a new skill" → agent outputs "Which skill?" as plain text
+        *   **Good**: `AskUserQuestion` → user picks "Start a new skill" → agent presents skill options via another `AskUserQuestion`
+        *   **Redirection** (`¶INV_REDIRECTION_OVER_PROHIBITION`): If you find yourself about to type a question in chat, stop — use `AskUserQuestion` instead.
     *   **Reason**: `AskUserQuestion` provides structured input, mechanical blocking, and clear selection semantics. Text-rendered menus are ambiguous (the user might type something unexpected), non-blocking (the agent might continue without waiting), and invisible to tool-use auditing. Context-free questions and vague option labels are equally harmful — they force the user to guess what the agent is referring to.
 
 *   **¶INV_REDIRECTION_OVER_PROHIBITION**: When preventing an undesired LLM behavior, provide an alternative action rather than just prohibiting the behavior.

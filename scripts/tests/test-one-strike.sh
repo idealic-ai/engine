@@ -117,7 +117,7 @@ clear_warnings
 
 OUT=$(run_hook "Bash" '{"command":"rm -rf /tmp/foo"}')
 assert_contains '"deny"' "$OUT" "rm -rf denied on first attempt"
-assert_contains 'ONE-STRIKE' "$OUT" "deny message contains ONE-STRIKE"
+assert_contains 'one-strike' "$OUT" "deny message contains one-strike guard name"
 assert_contains 'recursive/force' "$OUT" "deny message mentions recursive/force"
 
 echo ""
@@ -330,7 +330,7 @@ echo "--- 18. Deny message quality ---"
 clear_warnings
 
 OUT=$(run_hook "Bash" '{"command":"rm -rf /tmp/foo"}')
-assert_contains 'Retrying' "$OUT" "deny message mentions retrying will be allowed"
+assert_contains 'Retry' "$OUT" "deny message mentions retry will be allowed"
 
 echo ""
 

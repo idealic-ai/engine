@@ -159,8 +159,10 @@ if output=$(update_session 2>/dev/null); then
   echo "  → session=$(basename "$SESSION_DIR") wrote=${CONTEXT_DECIMAL}" >> /tmp/statusline-debug.log 2>/dev/null || true
   SKILL=$(echo "$output" | tail -1)
   # Rules are now evaluated inline by the PreToolUse hook (unified rule engine)
-  # Extract session name from path, strip date prefix (YYYY_MM_DD_)
-  SESSION_NAME=$(basename "$SESSION_DIR" | sed 's/^[0-9]\{4\}_[0-9]\{2\}_[0-9]\{2\}_//')
+  # Show full dated session name (no date stripping)
+  SESSION_NAME=$(basename "$SESSION_DIR")
+  # Read workspace from .state.json (if set)
+  SESSION_WORKSPACE=$(state_read "$SESSION_DIR/.state.json" workspace "")
   # Get current phase: "3.C: Build" → "[3.C/4] Build" (with phases) or "3.C. Build" (without)
   FULL_PHASE=$(state_read "$SESSION_DIR/.state.json" currentPhase "")
   if [ -n "$FULL_PHASE" ]; then
@@ -241,9 +243,13 @@ else
     fi
   fi
 
-  # Assemble: SESSION · skill · phase · agent · $cost · %
+  # Assemble: [workspace ·] SESSION · skill · phase · agent · $cost · %
   # Only include non-empty segments
-  OUTPUT="$SESSION_LINK"
+  OUTPUT=""
+  if [ -n "$SESSION_WORKSPACE" ]; then
+    OUTPUT="$SESSION_WORKSPACE · "
+  fi
+  OUTPUT="${OUTPUT}${SESSION_LINK}"
   [ -n "$SKILL_DISPLAY" ] && OUTPUT="$OUTPUT · $SKILL_DISPLAY"
   [ -n "$PHASE_DISPLAY" ] && OUTPUT="$OUTPUT · $PHASE_DISPLAY"
   printf '%s · %s' "$OUTPUT" "$RIGHT_SIDE"

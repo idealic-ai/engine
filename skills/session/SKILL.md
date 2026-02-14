@@ -18,7 +18,7 @@ Smart assistant for session management — search, inspect, restart, and continu
 
 ## 0. Setup Phase
 
-1.  **Intent**: Execute `§CMD_REPORT_INTENT_TO_USER`.
+1.  **Intent**: Execute `§CMD_REPORT_INTENT`.
     > 1. I am starting Phase 0: Setup for the Session Assistant.
     > 2. I will `§CMD_ASSUME_ROLE`:
     >    **Role**: You are the **Session Operator** — the authoritative guide to session lifecycle, context preservation, and session discovery.
@@ -32,7 +32,7 @@ Smart assistant for session management — search, inspect, restart, and continu
     |---------|-----------|---------|
     | *(bare — no args)* | `status` | Show current session status + offer menu |
     | `restart` | `restart` | Auto-detect session, bare restart (no dehydration) |
-    | `continue --session X --skill Y --phase Z [--continue]` | `continue` | Resume after overflow via `§CMD_REHYDRATE` |
+    | `continue --session X --skill Y --phase Z [--continue]` | `continue` | Resume after overflow via `§CMD_RESUME_SESSION` |
     | `search <query>` | `search` | Semantic session search |
     | `status` | `status` | Show `.state.json` details |
     | `find <filter>` | `find` | Structured session find |
@@ -120,7 +120,7 @@ Smart assistant for session management — search, inspect, restart, and continu
 - `--phase`: Phase to resume at (REQUIRED)
 - `--continue`: Auto-continue execution after recovery (no pause for user)
 
-**Protocol**: Execute `§CMD_REHYDRATE` (preloaded in context). The SessionStart hook has already injected dehydrated context and required files from `.state.json`. Follow the `§CMD_REHYDRATE` algorithm to re-activate the session, resume tracking, log the restart, and continue at the saved phase.
+**Protocol**: Execute `§CMD_RESUME_SESSION` (preloaded in context). The SessionStart hook has already injected dehydrated context and required files from `.state.json`. Follow the `§CMD_RESUME_SESSION` algorithm to re-activate the session, resume tracking, log the restart, and continue at the saved phase.
 
 ---
 
@@ -181,7 +181,7 @@ After handling each request, wait for the user's next message. Do NOT proactivel
 |------|---------|-------|
 | Dehydrate context | `§CMD_DEHYDRATE` protocol | Preloaded; produces JSON → `engine session dehydrate` |
 | Bare restart | `/session restart` | Kill + respawn (no dehydration) |
-| Recover from overflow | `/session continue --session X ...` | Follows `§CMD_REHYDRATE` |
+| Recover from overflow | `/session continue --session X ...` | Follows `§CMD_RESUME_SESSION` |
 | Search sessions | `/session search <query>` | Semantic search |
 | Find sessions | `/session find --tag X` | Structured filters |
 | Session status | `/session` or `/session status` | Current session state |

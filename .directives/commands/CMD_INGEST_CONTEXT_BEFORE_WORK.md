@@ -19,21 +19,28 @@
     *   **All empty** → skip menu, prompt for free-text paths via "Other".
 5.  Load selected items + any "Other" free-text paths.
 
+**Constraints**:
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
+
 ---
 
 ## PROOF FOR §CMD_INGEST_CONTEXT_BEFORE_WORK
 
 ```json
 {
-  "context_sources_presented": {
-    "type": "string",
-    "description": "Summary of context sources offered to the user",
-    "examples": ["menu shown with 3 RAG items + 2 alerts"]
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "context_sources_presented": {
+      "type": "string",
+      "description": "Summary of context sources offered to the user"
+    },
+    "files_loaded": {
+      "type": "string",
+      "description": "Count or list of files loaded into context"
+    }
   },
-  "files_loaded": {
-    "type": "string",
-    "description": "Count or list of files loaded into context",
-    "examples": ["5 files loaded", "BRAINSTORM.md, session.sh, CMD_GATE_PHASE.md"]
-  }
+  "required": ["context_sources_presented", "files_loaded"],
+  "additionalProperties": false
 }
 ```

@@ -46,8 +46,12 @@
 
 set -euo pipefail
 
+# Source lib.sh for resolve_sessions_dir
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
+
 # --- Defaults ---
-SEARCH_PATH="sessions/"
+SEARCH_PATH="$(resolve_sessions_dir)/"
 MODE="dirs"  # dirs | files | debriefs
 
 # --- Helpers ---

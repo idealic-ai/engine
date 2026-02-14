@@ -10,11 +10,11 @@
 **Goal**: *Set from user's free-text input.*
 **Mindset**: *Blended from the mode closest to user's intent, adjusted per their framing.*
 
-## Research Topics (Phase 3)
+## Research Topics (Phase 1)
 Synthesize from the 3 named modes based on user's framing. Default to Explore topics if unclear.
 
-## Calibration Topics (Phase 4)
+## Calibration Topics (Phase 2)
 Synthesize from the 3 named modes based on user's framing. Default to Explore topics if unclear.
 
-## Walk-Through Config (Phase 5.1)
+## Walk-Through Config (Phase 4.3)
 Same as Explore mode. User can override.

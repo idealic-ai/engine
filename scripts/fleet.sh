@@ -487,11 +487,11 @@ cmd_notify() {
         # Data layer: ALWAYS apply immediately (tests and queries depend on this)
         _apply_notify_data "$target_pane" "$state"
 
-        # Wake the overseer on actionable states (§INV_WAKE_ON_ACTIONABLE_STATES)
-        # Signal is optimization — overseer's sweep is truth. Fire-and-forget.
+        # Wake the coordinator on actionable states (§INV_WAKE_ON_ACTIONABLE_STATES)
+        # Signal is optimization — coordinator's sweep is truth. Fire-and-forget.
         case "$state" in
             unchecked|error|done)
-                $TMUX_CMD wait-for -S overseer-wake 2>/dev/null || true
+                $TMUX_CMD wait-for -S coordinator-wake 2>/dev/null || true
                 ;;
         esac
 
@@ -517,10 +517,10 @@ cmd_notify() {
         $TMUX_CMD set-option -p @pane_notify "$state" 2>/dev/null || true
         update_window_notify
 
-        # Wake the overseer on actionable states (§INV_WAKE_ON_ACTIONABLE_STATES)
+        # Wake the coordinator on actionable states (§INV_WAKE_ON_ACTIONABLE_STATES)
         case "$state" in
             unchecked|error|done)
-                $TMUX_CMD wait-for -S overseer-wake 2>/dev/null || true
+                $TMUX_CMD wait-for -S coordinator-wake 2>/dev/null || true
                 ;;
         esac
     fi
@@ -528,17 +528,17 @@ cmd_notify() {
 
 # Helper: Apply data layer only (@pane_notify + window aggregate)
 # Always called synchronously so tests and queries see the state immediately.
-# §INV_AUTO_DISCONNECT_ON_STATE_CHANGE: Clears @pane_overseer_active on any non-unchecked transition.
+# §INV_AUTO_DISCONNECT_ON_STATE_CHANGE: Clears @pane_coordinator_active on any non-unchecked transition.
 _apply_notify_data() {
     local target_pane="$1" state="$2"
     $TMUX_CMD set-option -p -t "$target_pane" @pane_notify "$state" 2>/dev/null || true
 
-    # Auto-disconnect: any non-unchecked state clears overseer connection
+    # Auto-disconnect: any non-unchecked state clears coordinator connection
     if [[ "$state" != "unchecked" ]]; then
-        local overseer_active
-        overseer_active=$($TMUX_CMD display -p -t "$target_pane" '#{@pane_overseer_active}' 2>/dev/null || echo "")
-        if [[ "$overseer_active" == "true" ]]; then
-            $TMUX_CMD set-option -pu -t "$target_pane" @pane_overseer_active 2>/dev/null || true
+        local coordinator_active
+        coordinator_active=$($TMUX_CMD display -p -t "$target_pane" '#{@pane_coordinator_active}' 2>/dev/null || echo "")
+        if [[ "$coordinator_active" == "true" ]]; then
+            $TMUX_CMD set-option -pu -t "$target_pane" @pane_coordinator_active 2>/dev/null || true
         fi
     fi
 
@@ -547,14 +547,14 @@ _apply_notify_data() {
 
 # Helper: Resolve the bg color for a pane based on purple layer + notify state + theme.
 # §INV_PURPLE_OVERRIDES_NOTIFY: Purple layer takes priority over notify colors.
-# Order: overseer-active (dark purple) > manager (light purple) > theme override > notify default.
+# Order: coordinator-active (dark purple) > manager (light purple) > theme override > notify default.
 _resolve_pane_color() {
     local target_pane="$1" state="$2"
 
-    # 1. Check if overseer is actively connected to this pane (dark purple)
-    local overseer_active
-    overseer_active=$($TMUX_CMD show-option -pqv -t "$target_pane" @pane_overseer_active 2>/dev/null || echo "")
-    if [[ "$overseer_active" == "true" ]]; then
+    # 1. Check if coordinator is actively connected to this pane (dark purple)
+    local coordinator_active
+    coordinator_active=$($TMUX_CMD show-option -pqv -t "$target_pane" @pane_coordinator_active 2>/dev/null || echo "")
+    if [[ "$coordinator_active" == "true" ]]; then
         local active_color
         active_color=$($TMUX_CMD show-option -gqv @fleet_theme_active 2>/dev/null || echo "")
         echo "${active_color:-#0d0518}"
@@ -858,7 +858,7 @@ ENDJSON
 }
 
 cmd_capture_pane() {
-    # Capture pane content and extract AskUserQuestion state for /oversee
+    # Capture pane content and extract AskUserQuestion state for /coordinate
     # Usage: fleet.sh capture-pane <pane_id> [--socket <socket>]
     #        echo "content" | fleet.sh capture-pane --stdin [--pane <id>]
     # Output: JSON with question, options, preamble, and state
@@ -918,7 +918,7 @@ cmd_capture_pane() {
 }
 
 cmd_list_panes() {
-    # List all worker panes with their notify state (for /oversee polling)
+    # List all worker panes with their notify state (for /coordinate polling)
     # Usage: fleet.sh list-panes [--socket <socket>]
     local socket="${CURRENT_SOCKET}"
 
@@ -935,10 +935,10 @@ cmd_list_panes() {
     done
 }
 
-cmd_oversee_wait() {
+cmd_coordinate_wait() {
     # Block until actionable panes appear or timeout.
-    # Sweep-first event loop: check existing state before blocking.
-    # Usage: fleet.sh oversee-wait [timeout_seconds] [--panes pane1,pane2,...] [--socket <socket>]
+    # V2: Auto-disconnect previous → sweep (skip focused) → auto-connect → capture → return
+    # Usage: fleet.sh coordinate-wait [timeout_seconds] [--panes pane1,pane2,...] [--socket <socket>]
     #
     # Pane discovery (priority order):
     #   1. --panes argument (explicit list)
@@ -950,7 +950,7 @@ cmd_oversee_wait() {
     #   2. pane_id or @pane_label exact match
     #   3. Compound window-label match (case-insensitive fallback)
     #
-    # Output: pane_id|state|label|location lines, or TIMEOUT + STATUS summary
+    # Output: pane_id|state|label|location + capture JSON, or FOCUSED/TIMEOUT + STATUS
     local timeout=30
     local panes_filter=""
     local socket="${CURRENT_SOCKET}"
@@ -960,13 +960,14 @@ cmd_oversee_wait() {
             --panes) panes_filter="$2"; shift 2 ;;
             --socket) socket="$2"; shift 2 ;;
             --help|-h)
-                echo "Usage: fleet.sh oversee-wait [timeout_seconds] [--panes p1,p2,...] [--socket <socket>]"
+                echo "Usage: fleet.sh coordinate-wait [timeout_seconds] [--panes p1,p2,...] [--socket <socket>]"
                 echo ""
                 echo "Blocks until actionable panes (unchecked/error/done) appear or timeout."
+                echo "V2: Auto-disconnect previous, skip focused panes, auto-connect picked, inline capture."
                 echo "Pane filter: --panes > @pane_manages on caller > all panes."
                 echo "Pane matching: @pane_fleet_id > pane_id/label > compound window-label."
                 echo ""
-                echo "Output: pane_id|state|label|location (one per line), or TIMEOUT + STATUS"
+                echo "Output: pane_id|state|label|location + capture JSON, or FOCUSED/TIMEOUT + STATUS"
                 return 0
                 ;;
             [0-9]*)
@@ -990,10 +991,31 @@ cmd_oversee_wait() {
         fi
     fi
 
-    # --- Sweep function: find actionable panes ---
-    _oversee_sweep() {
+    # --- V2: Auto-disconnect previous pane ---
+    if [[ -n "${TMUX_PANE:-}" ]]; then
+        local prev_pane
+        prev_pane=$(fleet_tmux "$socket" show-option -pqv -t "$TMUX_PANE" @pane_last_coordinated 2>/dev/null || echo "")
+        if [[ -n "$prev_pane" ]]; then
+            # Clear coordinator connection on previous pane
+            fleet_tmux "$socket" set-option -pu -t "$prev_pane" @pane_coordinator_active 2>/dev/null || true
+            # Refresh visual (revert from purple to notify color)
+            local _prev_info
+            _prev_info=$(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}' 2>/dev/null \
+                | grep "^${prev_pane}|" | head -1) || true
+            local _prev_state="${_prev_info#*|}"
+            TMUX_CMD="tmux -L $socket" _apply_notify_visual "$prev_pane" "${_prev_state:-done}"
+            # Clear tracking variable
+            fleet_tmux "$socket" set-option -pu -t "$TMUX_PANE" @pane_last_coordinated 2>/dev/null || true
+        fi
+    fi
+
+    # --- Sweep function: find actionable non-focused panes ---
+    # Returns pane lines, or "FOCUSED:<count>" if all actionable panes are user-focused.
+    # (Uses marker because subshell prevents variable propagation to caller.)
+    _coordinate_sweep() {
+        local focused_skipped=0
         local result=""
-        while IFS='|' read -r pane_id notify_state fleet_id label location; do
+        while IFS='|' read -r pane_id notify_state fleet_id label pane_focused location; do
             # Filter by actionable states
             case "$notify_state" in
                 unchecked|error|done) ;;
@@ -1013,67 +1035,126 @@ cmd_oversee_wait() {
                 [[ "$match" == "false" ]] && continue
             fi
 
+            # V2: Skip user-focused panes (graceful: unset = not focused)
+            if [[ "$pane_focused" == "1" ]]; then
+                (( focused_skipped++ )) || true
+                continue
+            fi
+
             [[ -n "$result" ]] && result+=$'\n'
             result+="${pane_id}|${notify_state}|${label}|${location}"
-        done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{session_name}:#{window_name}' 2>/dev/null)
+        done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{@pane_user_focused}|#{session_name}:#{window_name}' 2>/dev/null)
 
-        echo "$result"
+        if [[ -z "$result" && "$focused_skipped" -gt 0 ]]; then
+            echo "FOCUSED:$focused_skipped"
+        else
+            echo "$result"
+        fi
+    }
+
+    # --- V2: Auto-connect + capture + output helper ---
+    _coordinate_connect_and_output() {
+        local sweep_output="$1"
+        # Pick the first actionable pane
+        local picked_line
+        picked_line=$(echo "$sweep_output" | head -1)
+        local picked_pane picked_state picked_label
+        picked_pane=$(echo "$picked_line" | cut -d'|' -f1)
+        picked_state=$(echo "$picked_line" | cut -d'|' -f2)
+        picked_label=$(echo "$picked_line" | cut -d'|' -f3)
+
+        # Auto-connect (purple layer)
+        if [[ -n "${TMUX_PANE:-}" && -n "$picked_pane" ]]; then
+            fleet_tmux "$socket" set-option -p -t "$picked_pane" @pane_coordinator_active "true" 2>/dev/null || true
+            TMUX_CMD="tmux -L $socket" _apply_notify_visual "$picked_pane" "${picked_state:-unchecked}"
+            # Store for next call's auto-disconnect
+            fleet_tmux "$socket" set-option -p -t "$TMUX_PANE" @pane_last_coordinated "$picked_pane" 2>/dev/null || true
+        fi
+
+        # Output metadata line
+        echo "$picked_line"
+
+        # Inline capture (JSON on second line)
+        if [[ -n "$picked_pane" ]]; then
+            local capture_content
+            capture_content=$(fleet_tmux "$socket" capture-pane -t "$picked_pane" -p -S -80 2>/dev/null || echo "")
+            if [[ -n "$capture_content" ]]; then
+                echo "$capture_content" | parse_pane_content --pane "$picked_pane" --state "${picked_state:-unchecked}" --label "$picked_label"
+            else
+                echo '{"error": "capture failed", "pane": "'"$picked_pane"'"}'
+            fi
+        fi
+    }
+
+    # --- Status summary helper ---
+    _coordinate_status() {
+        local working_count=0 done_count=0 idle_count=0 focused_count=0 total_count=0
+        while IFS='|' read -r pane_id notify_state fleet_id label pane_focused location; do
+            # Apply same pane filter as sweep
+            if [[ -n "$panes_filter" ]]; then
+                local match=false
+                IFS=',' read -ra managed <<< "$panes_filter"
+                for mp in "${managed[@]}"; do
+                    if [[ "$fleet_id" == "$mp" || "$pane_id" == "$mp" || "$label" == "$mp" ]]; then
+                        match=true; break
+                    fi
+                done
+                [[ "$match" == "false" ]] && continue
+            fi
+            (( total_count++ )) || true
+            if [[ "$pane_focused" == "1" ]]; then
+                (( focused_count++ )) || true
+            fi
+            case "$notify_state" in
+                working) (( working_count++ )) || true ;;
+                done) (( done_count++ )) || true ;;
+                *) (( idle_count++ )) || true ;;
+            esac
+        done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{@pane_user_focused}|#{session_name}:#{window_name}' 2>/dev/null)
+        echo "STATUS total=$total_count working=$working_count done=$done_count focused=$focused_count idle=$idle_count"
     }
 
     # --- Pre-sweep: return immediately if actionable panes exist ---
     local sweep_result
-    sweep_result=$(_oversee_sweep)
-    if [[ -n "$sweep_result" ]]; then
-        echo "$sweep_result"
+    sweep_result=$(_coordinate_sweep)
+    if [[ "$sweep_result" == FOCUSED:* ]]; then
+        echo "FOCUSED"
+        _coordinate_status
+        return 0
+    elif [[ -n "$sweep_result" ]]; then
+        _coordinate_connect_and_output "$sweep_result"
         return 0
     fi
 
     # --- Block: wait for signal or timeout ---
     # Uses `timeout` command instead of manual background timer.
     # This avoids orphan sleep processes and bash SIGTERM deferral issues.
-    timeout "$timeout" tmux -L "$socket" wait-for overseer-wake 2>/dev/null || true
+    timeout "$timeout" tmux -L "$socket" wait-for coordinator-wake 2>/dev/null || true
 
     # --- Post-wake sweep: check what triggered the wake ---
-    sweep_result=$(_oversee_sweep)
-    if [[ -n "$sweep_result" ]]; then
-        echo "$sweep_result"
+    sweep_result=$(_coordinate_sweep)
+    if [[ "$sweep_result" == FOCUSED:* ]]; then
+        echo "FOCUSED"
+        _coordinate_status
+        return 0
+    elif [[ -n "$sweep_result" ]]; then
+        _coordinate_connect_and_output "$sweep_result"
         return 0
     fi
 
     # No actionable panes after wake — must have been timeout
-    # Include state summary so caller can distinguish "all busy" from "all idle"
     echo "TIMEOUT"
-    local working_count=0 done_count=0 idle_count=0 total_count=0
-    while IFS='|' read -r pane_id notify_state fleet_id label location; do
-        # Apply same pane filter as sweep
-        if [[ -n "$panes_filter" ]]; then
-            local match=false
-            IFS=',' read -ra managed <<< "$panes_filter"
-            for mp in "${managed[@]}"; do
-                if [[ "$fleet_id" == "$mp" || "$pane_id" == "$mp" || "$label" == "$mp" ]]; then
-                    match=true; break
-                fi
-            done
-            [[ "$match" == "false" ]] && continue
-        fi
-        (( total_count++ )) || true
-        case "$notify_state" in
-            working) (( working_count++ )) || true ;;
-            done) (( done_count++ )) || true ;;
-            *) (( idle_count++ )) || true ;;
-        esac
-    done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{session_name}:#{window_name}' 2>/dev/null)
-    echo "STATUS total=$total_count working=$working_count done=$done_count idle=$idle_count"
+    _coordinate_status
     return 0
 }
 
 # ============================================================
-# Overseer Connection Commands (Purple Layer)
+# Coordinator Connection Commands (Purple Layer)
 # ============================================================
 
-cmd_overseer_connect() {
-    # Mark a pane as overseer-active (dark purple bg).
-    # Usage: fleet.sh overseer-connect <pane_id> [--socket <socket>]
+cmd_coordinator_connect() {
+    # Mark a pane as coordinator-active (dark purple bg).
+    # Usage: fleet.sh coordinator-connect <pane_id> [--socket <socket>]
     local pane_id="${1:-}"
     local socket="${CURRENT_SOCKET}"
 
@@ -1086,13 +1167,13 @@ cmd_overseer_connect() {
     done
 
     if [[ -z "$pane_id" ]]; then
-        echo "Usage: fleet.sh overseer-connect <pane_id>"
+        echo "Usage: fleet.sh coordinator-connect <pane_id>"
         exit 1
     fi
 
     # Set the active flag
-    fleet_tmux "$socket" set-option -p -t "$pane_id" @pane_overseer_active "true" 2>/dev/null || {
-        echo "ERROR: Failed to set @pane_overseer_active on $pane_id" >&2
+    fleet_tmux "$socket" set-option -p -t "$pane_id" @pane_coordinator_active "true" 2>/dev/null || {
+        echo "ERROR: Failed to set @pane_coordinator_active on $pane_id" >&2
         return 1
     }
 
@@ -1104,9 +1185,9 @@ cmd_overseer_connect() {
     echo "Connected to $pane_id (purple active)"
 }
 
-cmd_overseer_disconnect() {
-    # Clear overseer-active flag on a pane (revert to notify color).
-    # Usage: fleet.sh overseer-disconnect <pane_id> [--socket <socket>]
+cmd_coordinator_disconnect() {
+    # Clear coordinator-active flag on a pane (revert to notify color).
+    # Usage: fleet.sh coordinator-disconnect <pane_id> [--socket <socket>]
     local pane_id="${1:-}"
     local socket="${CURRENT_SOCKET}"
 
@@ -1119,12 +1200,12 @@ cmd_overseer_disconnect() {
     done
 
     if [[ -z "$pane_id" ]]; then
-        echo "Usage: fleet.sh overseer-disconnect <pane_id>"
+        echo "Usage: fleet.sh coordinator-disconnect <pane_id>"
         exit 1
     fi
 
     # Clear the active flag (unset the option entirely)
-    fleet_tmux "$socket" set-option -pu -t "$pane_id" @pane_overseer_active 2>/dev/null || true
+    fleet_tmux "$socket" set-option -pu -t "$pane_id" @pane_coordinator_active 2>/dev/null || true
 
     # Trigger visual refresh — re-apply notify color
     local current_state
@@ -1136,7 +1217,7 @@ cmd_overseer_disconnect() {
 
 cmd_style_init() {
     # Apply correct visual styles to all panes (including purple layer).
-    # Called by tmux.conf on config load, or manually after marking overseer panes.
+    # Called by tmux.conf on config load, or manually after marking coordinator panes.
     # Uses _resolve_pane_color for full color resolution (purple, manager, notify, theme).
     while IFS='|' read -r pane_id notify_state; do
         local color
@@ -1149,10 +1230,10 @@ cmd_style_init() {
 }
 
 # ============================================================
-# Summary Commands (Fleet Overseer Summaries Tab)
+# Summary Commands (Fleet Coordinator Summaries Tab)
 # ============================================================
 
-# Discover overseer groups from @pane_manager tmux user options.
+# Discover coordinator groups from @pane_manager tmux user options.
 # Output: One line per group: manager_pane_id|manager_label|worker_pane_ids(comma-sep)|source_window_id
 # Workers declare their manager by setting: tmux set-option -p @pane_manager "ManagerLabel"
 # A pane whose @pane_label matches a @pane_manager value is the manager for that group.
@@ -1202,7 +1283,7 @@ _summary_discover_groups() {
 }
 
 cmd_summary_list() {
-    # List discovered overseer groups
+    # List discovered coordinator groups
     # Usage: fleet.sh summary list [--socket <socket>]
     local socket="${CURRENT_SOCKET}"
 
@@ -1217,11 +1298,11 @@ cmd_summary_list() {
     groups=$(_summary_discover_groups "$socket")
 
     if [[ -z "$groups" ]]; then
-        echo "No overseer groups found (no panes have @pane_manager set)"
+        echo "No coordinator groups found (no panes have @pane_manager set)"
         return 0
     fi
 
-    echo "=== Overseer Groups ==="
+    echo "=== Coordinator Groups ==="
     while IFS='|' read -r mgr_id mgr_label workers src_window; do
         local worker_count=0
         if [[ -n "$workers" ]]; then
@@ -1248,7 +1329,7 @@ cmd_summary_setup() {
     groups=$(_summary_discover_groups "$socket")
 
     if [[ -z "$groups" ]]; then
-        echo "No overseer groups found — nothing to set up"
+        echo "No coordinator groups found — nothing to set up"
         return 0
     fi
 
@@ -1332,7 +1413,7 @@ cmd_summary_toggle() {
     groups=$(_summary_discover_groups "$socket")
 
     if [[ -z "$groups" ]]; then
-        echo "No overseer groups found — nothing to toggle"
+        echo "No coordinator groups found — nothing to toggle"
         return 0
     fi
 
@@ -1432,12 +1513,12 @@ Commands:
   notify-clear         Clear pane notification to done
   pane-id              Output composite pane ID (session:window:label) for session binding
   capture-pane <pane>  Capture pane content and extract AskUserQuestion state (JSON)
-  list-panes           List all panes with notify state (for /oversee polling)
-  oversee-wait [secs]  Block until actionable panes appear or timeout (event-driven)
-  overseer-connect <pane>   Mark pane as overseer-active (dark purple bg)
-  overseer-disconnect <pane> Clear overseer-active flag (revert to notify color)
+  list-panes           List all panes with notify state (for /coordinate polling)
+  coordinate-wait [secs]  Block until actionable panes appear or timeout (event-driven)
+  coordinator-connect <pane>   Mark pane as coordinator-active (dark purple bg)
+  coordinator-disconnect <pane> Clear coordinator-active flag (revert to notify color)
   style-init                Apply correct colors to all panes (including purple layer)
-  summary <sub>        Overseer summaries tab (sub: list, setup, toggle)
+  summary <sub>        Coordinator summaries tab (sub: list, setup, toggle)
   config-path [group]  Output path to fleet yml config (default: main fleet)
   init                 Create fleet directory in Google Drive
 
@@ -1475,10 +1556,10 @@ case "${1:-help}" in
     notify-clear) cmd_notify_clear ;;
     capture-pane) cmd_capture_pane "${2:-}" "${@:3}" ;;
     list-panes) cmd_list_panes "${@:2}" ;;
-    oversee-wait) cmd_oversee_wait "${@:2}" ;;
+    coordinate-wait) cmd_coordinate_wait "${@:2}" ;;
     summary)  cmd_summary "${@:2}" ;;
-    overseer-connect) cmd_overseer_connect "${2:-}" "${@:3}" ;;
-    overseer-disconnect) cmd_overseer_disconnect "${2:-}" "${@:3}" ;;
+    coordinator-connect) cmd_coordinator_connect "${2:-}" "${@:3}" ;;
+    coordinator-disconnect) cmd_coordinator_disconnect "${2:-}" "${@:3}" ;;
     style-init) cmd_style_init ;;
     pane-id)  cmd_pane_id ;;
     config-path) get_config_path "${2:-}" ;;

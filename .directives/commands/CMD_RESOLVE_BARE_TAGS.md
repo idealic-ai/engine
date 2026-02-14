@@ -18,6 +18,7 @@
 6.  **Re-run check**: Execute `engine session check [sessionDir]` again (with stdin for checklists if applicable). Should now pass.
 
 **Constraints**:
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
 *   This command runs BEFORE `§CMD_GENERATE_DEBRIEF` — debrief cannot be written until tags are resolved.
 *   The `tagCheckPassed` field in `.state.json` persists across re-runs — once set, the tag scan is skipped.
 *   If no per-skill request template exists for the tag's noun, use a generic format: `# Request: [topic]\n**Tags**: #needs-[noun]\n## Context\n[surrounding text]`.

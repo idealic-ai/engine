@@ -9,6 +9,7 @@
 #   --description TEXT        Agent description injected into system prompt
 #   --focus TEXT              Focus areas (comma-separated) injected into system prompt
 #   --monitor-tags TAGS       Daemon mode: watch for files with these tags (comma-separated)
+#   --workspace PATH          Set WORKSPACE env var for workspace-scoped sessions
 #
 # Examples:
 #   ~/.claude/scripts/run.sh                      # Plain Claude
@@ -53,14 +54,10 @@ export CLAUDE_SUPERVISOR_PID=$$
 export SESSION_REQUIRED=1
 
 # Context management: disable auto-compaction, use full context window
-# DISABLE_AUTO_COMPACT=1 — our custom flag, raises overflow threshold to 0.95 (config.sh)
-# CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=100 — Claude Code native: never trigger auto-compact
-# CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=197000 — Claude Code: block near actual context limit (200k)
-# DISABLE_COMPACT=1 — commented out: was causing used_percentage to report compressed size
 export DISABLE_AUTO_COMPACT=1
 export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=100
 export CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=197000
-# export DISABLE_COMPACT=1
+export DISABLE_COMPACT=1
 
 AGENTS_DIR="$HOME/.claude/agents"
 SCRIPTS_DIR="$HOME/.claude/scripts"
@@ -94,6 +91,7 @@ AGENT_NAME=""
 AGENT_DESCRIPTION=""
 AGENT_FOCUS=""
 MONITOR_TAGS=""
+WORKSPACE_ARG=""
 REMAINING_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -129,12 +127,26 @@ while [ $# -gt 0 ]; do
       MONITOR_TAGS="${2:?--monitor-tags requires a value}"
       shift 2
       ;;
+    --workspace=*)
+      WORKSPACE_ARG="${1#--workspace=}"
+      shift
+      ;;
+    --workspace)
+      WORKSPACE_ARG="${2:?--workspace requires a value}"
+      shift 2
+      ;;
     *)
       REMAINING_ARGS+=("$1")
       shift
       ;;
   esac
 done
+
+# Export WORKSPACE env var if --workspace flag was provided
+if [ -n "$WORKSPACE_ARG" ]; then
+  export WORKSPACE="$WORKSPACE_ARG"
+  echo "[run.sh] Workspace: $WORKSPACE"
+fi
 
 # Setup is handled by engine CLI (auto-setup on first run).
 # run.sh no longer invokes engine.sh directly — callers should use `engine` entrypoint.
@@ -250,9 +262,11 @@ find_fleet_session() {
   return 1
 }
 
-# Check for fleet pane resume
+# Check for fleet pane resume (bypass with FRESH_START=1)
 RESUME_SESSION_ID=""
-if [ -n "$FLEET_PANE_ID" ]; then
+if [ "${FRESH_START:-}" = "1" ]; then
+  echo "[run.sh] FRESH_START=1 — skipping session restoration"
+elif [ -n "$FLEET_PANE_ID" ]; then
   RESUME_SESSION_ID=$(find_fleet_session "$FLEET_PANE_ID" 2>/dev/null || true)
   if [ -n "$RESUME_SESSION_ID" ]; then
     echo "[run.sh] Fleet pane '$FLEET_PANE_ID' resuming session: ${RESUME_SESSION_ID:0:8}..."
@@ -566,7 +580,9 @@ while true; do
     # Get sessionId from agent file for --resume (preserves Claude conversation history)
     # Defense in depth: skip sessionId if overflowed=true OR killRequested=true
     RESTART_SESSION_ID=""
-    if [ -n "$RESTART_AGENT_FILE" ] && [ -f "$RESTART_AGENT_FILE" ]; then
+    if [ "${FRESH_START:-}" = "1" ]; then
+      echo "[run.sh] FRESH_START=1 — skipping restart session resume"
+    elif [ -n "$RESTART_AGENT_FILE" ] && [ -f "$RESTART_AGENT_FILE" ]; then
       restart_overflowed=$(jq -r '.overflowed // false' "$RESTART_AGENT_FILE" 2>/dev/null || echo "false")
       restart_kill=$(jq -r '.killRequested // false' "$RESTART_AGENT_FILE" 2>/dev/null || echo "false")
       if [ "$restart_overflowed" = "true" ] || [ "$restart_kill" = "true" ]; then

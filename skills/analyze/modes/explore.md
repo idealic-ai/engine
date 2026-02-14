@@ -5,13 +5,13 @@
 **Goal**: To deeply understand, critique, and innovate upon the provided context.
 **Mindset**: Curious, Exhaustive, Skeptical, Connecting.
 
-## Research Topics (Phase 3)
+## Research Topics (Phase 1)
 - **Patterns**: How do components relate? Is there a hidden theme?
 - **Weaknesses**: What feels fragile? What assumptions are unspoken?
 - **Opportunities**: How could this be simpler? Faster? More elegant?
 - **Contradictions**: Does Doc A say X while Code B does Y?
 
-## Calibration Topics (Phase 4)
+## Calibration Topics (Phase 2)
 - **Scope & boundaries** — what's included/excluded, depth expectations
 - **Data sources & accuracy** — reliability of code/docs/data, known stale areas
 - **Methodology** — analytical framework, comparison approach, evaluation criteria
@@ -23,7 +23,7 @@
 - **Time constraints** — exploration vs diminishing returns
 - **Success criteria** — what would make this analysis "done" and valuable
 
-## Walk-Through Config (Phase 5.1)
+## Walk-Through Config (Phase 4.3)
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"

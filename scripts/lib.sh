@@ -97,6 +97,112 @@ is_engine_session_cmd() { is_engine_cmd "$1" "session"; }
 is_engine_tag_cmd()     { is_engine_cmd "$1" "tag"; }
 is_engine_glob_cmd()    { is_engine_cmd "$1" "glob"; }
 
+# --- Path normalization utilities ---
+
+# normalize_preload_path PATH → tilde-prefix path on stdout
+#   Replaces $HOME prefix with ~ for consistent dedup in preloadedFiles/pendingPreloads.
+#   Paths already using ~ are passed through unchanged.
+normalize_preload_path() {
+  local path="$1"
+  if [[ "$path" == "$HOME/"* ]]; then
+    echo "~/${path#$HOME/}"
+  else
+    echo "$path"
+  fi
+}
+
+# extract_skill_preloads SKILL_NAME
+#   Reads SKILL.md, extracts Phase 0 CMD files + template files.
+#   Outputs normalized tilde-prefix paths (one per line) to stdout.
+#   Does NOT check dedup — caller handles that.
+#   Fails silently on malformed JSON or missing files.
+extract_skill_preloads() {
+  local skill_name="$1"
+  local skill_dir="$HOME/.claude/skills/$skill_name"
+  local skill_file="$skill_dir/SKILL.md"
+  [ -f "$skill_file" ] || return 0
+
+  # Extract JSON block from SKILL.md
+  local params_json
+  params_json=$(sed -n '/^```json$/,/^```$/p' "$skill_file" | sed '1d;$d' 2>/dev/null || echo "")
+  [ -n "$params_json" ] || return 0
+
+  # Phase 0 CMD files
+  local phase0_cmds
+  phase0_cmds=$(echo "$params_json" | jq -r '
+    (.phases // [])[0] |
+    ((.steps // []) + (.commands // [])) |
+    .[] | select(startswith("§CMD_"))
+  ' 2>/dev/null || echo "")
+
+  local cmd_dir="$HOME/.claude/engine/.directives/commands"
+  local seen_cmds=""
+  if [ -n "$phase0_cmds" ]; then
+    while IFS= read -r field; do
+      [ -n "$field" ] || continue
+      local name="${field#§CMD_}"
+      name=$(echo "$name" | sed -E 's/_[a-z][a-z_]*$//')
+      case "$seen_cmds" in *"|${name}|"*) continue ;; esac
+      seen_cmds="${seen_cmds}|${name}|"
+      local cmd_file="$cmd_dir/CMD_${name}.md"
+      [ -f "$cmd_file" ] || continue
+      normalize_preload_path "$cmd_file"
+    done <<< "$phase0_cmds"
+  fi
+
+  # Template files (logTemplate, debriefTemplate, planTemplate)
+  local template_paths
+  template_paths=$(echo "$params_json" | jq -r '[.logTemplate, .debriefTemplate, .planTemplate] | .[] // empty' 2>/dev/null || echo "")
+  if [ -n "$template_paths" ]; then
+    while IFS= read -r rel_path; do
+      [ -n "$rel_path" ] || continue
+      local candidate="$skill_dir/$rel_path"
+      [ -f "$candidate" ] || continue
+      normalize_preload_path "$candidate"
+    done <<< "$template_paths"
+  fi
+}
+
+# --- Workspace path resolution utilities ---
+
+# resolve_sessions_dir — Returns the sessions directory path
+# Without WORKSPACE: returns "sessions"
+# With WORKSPACE: returns "$WORKSPACE/sessions"
+resolve_sessions_dir() {
+  if [ -n "${WORKSPACE:-}" ]; then
+    echo "${WORKSPACE}/sessions"
+  else
+    echo "sessions"
+  fi
+}
+
+# resolve_session_path — Normalizes a session path argument
+# Accepts 3 forms:
+#   1. Bare name: "2026_02_14_X" → "$SESSIONS_DIR/2026_02_14_X"
+#   2. With prefix: "sessions/2026_02_14_X" → "$SESSIONS_DIR/2026_02_14_X"
+#   3. Full path: "epic/sessions/2026_02_14_X" → used as-is (must contain "sessions/")
+# Does NOT validate existence — caller decides.
+resolve_session_path() {
+  local input="$1"
+  local sessions_dir
+  sessions_dir=$(resolve_sessions_dir)
+
+  case "$input" in
+    */sessions/*)
+      # Full path with sessions/ segment — use as-is
+      echo "$input"
+      ;;
+    sessions/*)
+      # Strip "sessions/" prefix, prepend resolved sessions dir
+      echo "$sessions_dir/${input#sessions/}"
+      ;;
+    *)
+      # Bare session name — prepend resolved sessions dir
+      echo "$sessions_dir/$input"
+      ;;
+  esac
+}
+
 # --- Directory exclusion utilities ---
 # Standard directories to exclude from discovery/scanning
 STANDARD_EXCLUDED_DIRS="node_modules .git sessions tmp dist build"
@@ -198,15 +304,15 @@ safe_json_write() {
 }
 
 # --- Rule evaluation engine ---
-# Core evaluation function for the unified injection rule engine.
-# Extracted from session.sh evaluate-injections for shared use between
+# Core evaluation function for the unified guard rule engine.
+# Extracted from session.sh evaluate-guards for shared use between
 # the hook (inline) and session.sh (backward compat wrapper).
 
 # _resolve_payload_refs PAYLOAD_JSON STATE_FILE
 #   Resolve "$fieldName" references in payload values from .state.json.
 #   Two-pass resolution:
 #     Pass 1 (whole-value): Strings starting with "$" get replaced entirely.
-#       Example: "$pendingDirectives" → ["/a.md", "/b.md"]
+#       Example: "$pendingPreloads" → ["~/.claude/.directives/a.md", "~/.claude/.directives/b.md"]
 #     Pass 2 (inline): Strings containing "$field" get interpolated in-place.
 #       Example: "lifecycle: $lifecycle" → "lifecycle: completed"
 #       Only substitutes scalar state values (string, number, boolean).
@@ -274,22 +380,24 @@ _resolve_payload_refs() {
   echo "$resolved"
 }
 
-# evaluate_rules STATE_FILE INJECTIONS_FILE [TRANSCRIPT_KEY]
-#   Evaluate all injection rules against current session state.
+# evaluate_rules STATE_FILE GUARDS_FILE [TRANSCRIPT_KEY] [TOOL_NAME]
+#   Evaluate all guard rules against current session state.
 #   Outputs matched rules as a JSON array (sorted by priority) to stdout.
 #   TRANSCRIPT_KEY is optional — used for perTranscriptToolCount trigger.
+#   TOOL_NAME is optional — used for toolFilter exclusion (e.g., skip preload on Bash/Grep/Glob).
 #
 #   Reads: .state.json fields (contextUsage, lifecycle, currentPhase, etc.)
-#   Reads: injections.json rules
+#   Reads: guards.json rules
 #   Reads: config.sh for OVERFLOW_THRESHOLD
 #
 #   Returns 0 always (errors produce empty array).
 evaluate_rules() {
   local state_file="${1:?evaluate_rules requires STATE_FILE}"
-  local injections_file="${2:?evaluate_rules requires INJECTIONS_FILE}"
+  local guards_file="${2:?evaluate_rules requires GUARDS_FILE}"
   local transcript_key="${3:-}"
+  local tool_name="${4:-}"
 
-  if [ ! -f "$state_file" ] || [ ! -f "$injections_file" ]; then
+  if [ ! -f "$state_file" ] || [ ! -f "$guards_file" ]; then
     echo "[]"
     return 0
   fi
@@ -313,11 +421,11 @@ evaluate_rules() {
 
   # Process each rule
   local rule_count
-  rule_count=$(jq 'length' "$injections_file" 2>/dev/null || echo "0")
+  rule_count=$(jq 'length' "$guards_file" 2>/dev/null || echo "0")
   local i
   for (( i=0; i<rule_count; i++ )); do
     local rule rule_id inject_freq trigger_type
-    rule=$(jq ".[$i]" "$injections_file")
+    rule=$(jq ".[$i]" "$guards_file")
     rule_id=$(echo "$rule" | jq -r '.id')
     inject_freq=$(echo "$rule" | jq -r '.inject')
     trigger_type=$(echo "$rule" | jq -r '.trigger.type')
@@ -328,6 +436,25 @@ evaluate_rules() {
       already_injected=$(echo "$injected_rules" | jq -r --arg id "$rule_id" '.[$id] // "false"')
       if [ "$already_injected" = "true" ]; then
         continue
+      fi
+    fi
+
+    # Skip rules excluded for this tool type (toolFilter.exclude)
+    if [ -n "$tool_name" ]; then
+      local excluded
+      excluded=$(echo "$rule" | jq -r --arg t "$tool_name" '(.toolFilter.exclude // []) | any(. == $t)')
+      if [ "$excluded" = "true" ]; then
+        continue
+      fi
+      # Skip rules that only apply to specific tools (toolFilter.include)
+      local has_include
+      has_include=$(echo "$rule" | jq -r '.toolFilter.include // null | type')
+      if [ "$has_include" = "array" ]; then
+        local included
+        included=$(echo "$rule" | jq -r --arg t "$tool_name" '.toolFilter.include | any(. == $t)')
+        if [ "$included" != "true" ]; then
+          continue
+        fi
       fi
     fi
 
@@ -426,7 +553,7 @@ evaluate_rules() {
       payload=$(echo "$rule" | jq '.payload')
 
       # Dynamic payload resolution: resolve "$fieldName" references from .state.json
-      # Example: payload.preload = "$pendingDirectives" → resolves to actual array from state
+      # Example: payload.preload = "$pendingPreloads" → resolves to actual array from state
       payload=$(_resolve_payload_refs "$payload" "$state_file")
 
       whitelist_arr=$(echo "$rule" | jq '.whitelist // []')
@@ -450,8 +577,8 @@ evaluate_rules() {
   echo "$new_pending" | jq 'sort_by(.priority)'
 }
 
-# --- tmux injection utilities ---
-# Used by injection framework hooks for paste mode delivery.
+# --- tmux guard utilities ---
+# Used by guard framework hooks for paste mode delivery.
 # All functions degrade gracefully outside tmux (¶INV_TMUX_AND_FLEET_OPTIONAL).
 
 # tmux_paste TEXT

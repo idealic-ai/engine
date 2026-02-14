@@ -55,10 +55,8 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 2.  **Report**: Output a clickable link per `¶INV_TERMINAL_FILE_LINKS`. Use **Full** display variant (relative path as display text).
 3.  **Constraint**: NEVER echo the file content in the chat.
 
-### §CMD_AWAIT_TAG
-**Description**: Start a background watcher that blocks until a specific tag appears on a file or directory. Uses `fswatch`.
-**Trigger**: After launching async work (research, delegation), optionally await the completion tag.
-**Reference**: `~/.claude/.directives/commands/CMD_AWAIT_TAG.md`
+### [§CMD_AWAIT_TAG](commands/CMD_AWAIT_TAG.md)
+Start a background watcher that blocks until a specific tag appears on a file or directory.
 
 ---
 
@@ -88,8 +86,8 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
 **Reference**: See `~/.claude/.directives/TAGS.md` § Escaping Convention for the full behavioral rule, reading/writing conventions, and examples.
 
 ### §CMD_DEBUG_HOOKS_IF_PROMPTED
-**Definition**: When the user asks to debug hooks or asks about hook/injection behavior, switch to verbose hook reporting mode.
-**Trigger**: User says "debug hooks", "what hooks are firing", "show me injections", "why is this being injected", or similar.
+**Definition**: When the user asks to debug hooks or asks about hook/guard behavior, switch to verbose hook reporting mode.
+**Trigger**: User says "debug hooks", "what hooks are firing", "show me guards", "why is this being injected", or similar.
 **Algorithm**:
 1.  **Announce**: "Hook debug mode active. I'll report all hook activity I observe."
 2.  **For each hook response you receive** (system-reminder tags with hook context), report in chat:
@@ -216,13 +214,20 @@ engine session prove sessions/YYYY_MM_DD_TOPIC <<'EOF'
 EOF
 ```
 
+**Workspace-aware path resolution**: Session paths accept 3 forms:
+1. **Bare name**: `2026_02_14_X` → resolved via `$WORKSPACE/sessions/` or `sessions/`
+2. **With prefix**: `sessions/2026_02_14_X` → prefix stripped, then resolved same as bare
+3. **Full path**: `epic/sessions/2026_02_14_X` → used as-is (must contain `sessions/`)
+
+When `WORKSPACE` env var is set (e.g., `WORKSPACE=apps/estimate-viewer/extraction`), sessions live at `$WORKSPACE/sessions/`. All session subcommands are workspace-aware via `resolve_session_path()` in lib.sh.
+
 ---
 
-### §CMD_PARSE_PARAMETERS
-**Description**: Parse and validate session parameters, construct the JSON schema, pipe to `engine session activate`, and process context output (alerts, RAG, delegations).
+### [§CMD_PARSE_PARAMETERS](commands/CMD_PARSE_PARAMETERS.md)
+Parse and validate session parameters, construct the JSON schema, pipe to `engine session activate`, and process context output.
 
-### §CMD_MAINTAIN_SESSION_DIR
-**Description**: Anchor the agent in a single session directory — identify/reuse/create, detect existing skill artifacts, echo the session path. Called automatically by `§CMD_PARSE_PARAMETERS`.
+### [§CMD_MAINTAIN_SESSION_DIR](commands/CMD_MAINTAIN_SESSION_DIR.md)
+Anchor the agent in a single session directory — identify/reuse/create, detect existing skill artifacts, echo the session path.
 
 ### §CMD_UPDATE_PHASE
 **Definition**: Update the current skill phase in `.state.json` for status line display, context overflow recovery, and **phase enforcement**.
@@ -241,9 +246,9 @@ EOF
         *   `"Reason: User said 'Skip to synthesis' in response to 'Ready to proceed?'"`
         *   `"Reason: User said 'Go back to planning' in response to 'How to proceed?'"`
     *   Without `--user-approved`, non-sequential transitions are **rejected** (exit 1).
-3.  **Proof-gated transitions (FROM validation)**: If the current phase (being left) declares `proof` fields in its phases array entry, the agent MUST pipe proof as key:value lines via STDIN when transitioning away from it. Proof validates what the agent accomplished IN that phase before leaving. Semantically: proof on a phase = "what you must accomplish in this phase before leaving it."
-    *   **Format**: `field_name: value` (one per line, piped via heredoc or echo).
-    *   **Validation**: `engine session phase` validates all declared fields on the current phase (being left) are present and non-blank. Missing or unfilled (`________`) fields reject the transition (exit 1).
+3.  **Proof-gated transitions (FROM validation)**: If the current phase (being left) declares `proof` fields in its phases array entry, the agent MUST pipe proof as a JSON object via STDIN when transitioning away from it. Proof validates what the agent accomplished IN that phase before leaving. Semantically: proof on a phase = "what you must accomplish in this phase before leaving it."
+    *   **Format**: JSON object piped via heredoc. Example: `{"depth_chosen": "Short", "rounds_completed": 3}`. Backward compat: `key: value` lines are still accepted with a deprecation warning.
+    *   **Validation**: Two levels — (1) field presence: all declared proof fields must be present and non-blank, (2) schema validation: proof is validated against the combined JSON Schema from the phase's CMD step files (exit 1 on failure). CMD proof schemas use standard JSON Schema format (see `## PROOF FOR` sections in CMD files).
     *   **No proof declared on current phase**: Transition proceeds normally. If sibling phases have proof fields, a stderr warning is emitted (nudge to add proof).
     *   **Empty proof array** (`proof: []`): Passes trivially — intentionally no requirements.
     *   **First transition** (no current phase set): FROM validation is skipped — there is no phase to leave.
@@ -252,8 +257,7 @@ EOF
     *   **Example** (leaving Phase 2: Interrogation which declares `proof: ["depth_chosen", "rounds_completed"]`, transitioning to Phase 3):
         ```bash
         engine session phase sessions/DIR "3: Planning" <<'EOF'
-        depth_chosen: Short
-        rounds_completed: 3
+        {"depth_chosen": "Short", "rounds_completed": 3}
         EOF
         ```
 4.  **Letter suffix** (optional branch labels): Sub-phase labels may include a single uppercase letter suffix: `"3.1A: Agent Handoff"`.
@@ -287,11 +291,16 @@ EOF
 **Preloaded**: Always — injected by SessionStart hook.
 **Reference**: `~/.claude/.directives/commands/CMD_DEHYDRATE.md`
 
-### §CMD_REHYDRATE
-**Description**: Re-initializes session context after context overflow restart. SessionStart hook auto-injects dehydrated content from `.state.json`. This command tells the agent how to resume (re-activate session, resume tracking, log restart, continue at saved phase).
-**Trigger**: Automatically invoked when fresh Claude starts and SessionStart hook injects dehydrated context.
+### §CMD_RESUME_SESSION
+**Description**: Resumes a session after interruption. Two paths: (1) fast — dehydrated context present from overflow restart, (2) slow — bare continuation without dehydrated context (scan artifacts, present options). Replaces the former `§CMD_REHYDRATE`.
+**Trigger**: Invoked when a fresh Claude starts and needs to resume an existing session (overflow or manual).
 **Preloaded**: Always — injected by SessionStart hook.
-**Reference**: `~/.claude/.directives/commands/CMD_REHYDRATE.md`
+**Reference**: `~/.claude/.directives/commands/CMD_RESUME_SESSION.md`
+
+### §CMD_PRESENT_NEXT_STEPS
+**Description**: Post-synthesis routing menu. Presents continue/switch skill/done options while session is idle. Called after `§CMD_CLOSE_SESSION` transitions session to idle.
+**Trigger**: Final step of `§CMD_RUN_SYNTHESIS_PIPELINE` Close sub-phase.
+**Reference**: `~/.claude/.directives/commands/CMD_PRESENT_NEXT_STEPS.md`
 
 ### §CMD_FREEZE_CONTEXT
 **Definition**: Work strictly within the current Context Window boundaries. Do NOT explore the filesystem.
@@ -346,10 +355,18 @@ EOF
 ### §CMD_SELECT_MODE
 **Description**: Present skill mode selection (3 named + Custom per `¶INV_MODE_STANDARDIZATION`), load mode file, handle Custom blending, record config, execute `§CMD_ASSUME_ROLE`.
 
+### §CMD_SUGGEST_EXTERNAL_MODEL
+**Description**: Present external model selection via `AskUserQuestion` (Gemini Pro, Flash, or Claude default). Records `externalModel` for downstream use by `§CMD_EXECUTE_EXTERNAL_MODEL`. Called in Phase 0 after mode selection.
+**Reference**: `~/.claude/.directives/commands/CMD_SUGGEST_EXTERNAL_MODEL.md`
+
+### §CMD_EXECUTE_EXTERNAL_MODEL
+**Description**: Executes a writing/synthesis task via an external model (Gemini). Accepts prompt + template + vars + context files, calls `engine gemini`, returns stdout. Graceful fallback to Claude on failure.
+**Reference**: `~/.claude/.directives/commands/CMD_EXECUTE_EXTERNAL_MODEL.md`
+
 ### §CMD_GENERATE_PLAN
 **Description**: Creates a standardized plan artifact using the `_PLAN.md` template from context.
 
-### §CMD_REPORT_INTENT_TO_USER
+### §CMD_REPORT_INTENT
 **Definition**: Display-only announcement of the current phase and intent. Does NOT call `§CMD_UPDATE_PHASE` — phase transitions happen at EXIT via `§CMD_GATE_PHASE`.
 **Rule**: Execute this before starting a new major block of work. This is a chat-only announcement — no engine calls.
 **Constraint**: **Once Per Phase**. Do NOT repeat this intent block for every step within the phase (e.g., do not repeat it for every file edit or test run). Only report when *changing* phases or if the user interrupts and you resume.
@@ -411,7 +428,7 @@ EOF
 
 ### §CMD_EXECUTE_PHASE_STEPS
 **Description**: Per-phase step runner. Reads the current phase's `steps` array (from `engine session phase` stdout), executes each `§CMD_*` step sequentially, and collects proof outputs. Returns control to SKILL.md prose after steps complete. Phases with `steps: []` return immediately (prose-only).
-**Trigger**: Called within each phase section of SKILL.md, typically after `§CMD_REPORT_INTENT_TO_USER`.
+**Trigger**: Called within each phase section of SKILL.md, typically after `§CMD_REPORT_INTENT`.
 **Reference**: `~/.claude/.directives/commands/CMD_EXECUTE_PHASE_STEPS.md`
 
 ### §CMD_GATE_PHASE
@@ -428,6 +445,11 @@ EOF
 **Description**: Parallel agent handoff — analyzes plan dependencies, derives independent chunks, presents non-intersection proof, and launches multiple agents in parallel.
 **Trigger**: After plan approval in plan-based skills (implement, fix, test, document). Extends `§CMD_HANDOFF_TO_AGENT` with multi-agent coordination.
 **Reference**: `~/.claude/.directives/commands/CMD_PARALLEL_HANDOFF.md`
+
+### §CMD_DESIGN_E2E_TEST
+**Description**: Designs and runs e2e reproduction tests for changes made during the session. Creates a sandbox, reproduces "before" (broken) behavior, applies fix, demonstrates "after" (improved) behavior. Protocol-level TDD.
+**Trigger**: Called by skill protocols during test/verification phases, after changes have been applied. Currently used by `/improve-protocol` Phase 4.
+**Reference**: `~/.claude/.directives/commands/CMD_DESIGN_E2E_TEST.md`
 
 ### §CMD_REPORT_ARTIFACTS
 **Description**: Final summary step — lists all files created or modified during the session as clickable links.

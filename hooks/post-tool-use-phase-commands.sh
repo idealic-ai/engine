@@ -9,7 +9,7 @@
 #   → strip lowercase suffix → GENERATE_DEBRIEF → CMD_GENERATE_DEBRIEF.md
 #
 # State in .state.json:
-#   pendingCommands: ["/abs/path/CMD_FOO.md", ...]  — CMD files awaiting injection
+#   pendingPreloads: ["~/.claude/.directives/commands/CMD_FOO.md", ...]  — files awaiting injection
 #   preloadedFiles: ["/abs/path/CMD_FOO.md", ...]   — Already-injected files (dedup)
 
 set -euo pipefail
@@ -128,33 +128,35 @@ while IFS= read -r field; do
     continue
   fi
 
-  # Skip if already in preloadedFiles
+  # Normalize to tilde-prefix for dedup and storage
+  norm_file=$(normalize_preload_path "$cmd_file")
+
+  # Skip if already in preloadedFiles (tilde-prefix comparison)
   is_preloaded=false
   if [ -n "$ALREADY_PRELOADED" ]; then
     while IFS= read -r preloaded; do
-      if [ "$preloaded" = "$cmd_file" ]; then
+      if [ "$preloaded" = "$norm_file" ]; then
         is_preloaded=true
         break
       fi
     done <<< "$ALREADY_PRELOADED"
   fi
   if [ "$is_preloaded" = "true" ]; then
-    debug "skip: $cmd_file (already in preloadedFiles)"
+    debug "skip: $norm_file (already in preloadedFiles)"
     continue
   fi
-
-  NEW_COMMANDS+=("$cmd_file")
-  debug "ADD: $cmd_file"
+  NEW_COMMANDS+=("$norm_file")
+  debug "ADD: $norm_file"
 done <<< "$ALL_FIELDS"
 
-# Write new commands to pendingCommands in .state.json
+# Write new commands to pendingPreloads in .state.json
 if [ ${#NEW_COMMANDS[@]} -gt 0 ]; then
   for cmd in "${NEW_COMMANDS[@]}"; do
     jq --arg file "$cmd" \
-      '(.pendingCommands //= []) | if (.pendingCommands | index($file)) then . else .pendingCommands += [$file] end' \
+      '(.pendingPreloads //= []) | if (.pendingPreloads | index($file)) then . else .pendingPreloads += [$file] end' \
       "$STATE_FILE" | safe_json_write "$STATE_FILE"
   done
-  debug "wrote ${#NEW_COMMANDS[@]} to pendingCommands"
+  debug "wrote ${#NEW_COMMANDS[@]} to pendingPreloads"
 fi
 
 exit 0

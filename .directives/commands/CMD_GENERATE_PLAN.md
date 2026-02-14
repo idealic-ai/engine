@@ -10,15 +10,19 @@
 
 ```json
 {
-  "plan_written": {
-    "type": "string",
-    "description": "Filename of the plan written to the session directory",
-    "examples": ["IMPLEMENTATION_PLAN.md", "FIX_PLAN.md", "TESTING_PLAN.md"]
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "plan_written": {
+      "type": "string",
+      "description": "Filename of the plan written to the session directory"
+    },
+    "plan_presented": {
+      "type": "string",
+      "description": "How the plan was presented to the user"
+    }
   },
-  "plan_presented": {
-    "type": "string",
-    "description": "How the plan was presented to the user",
-    "examples": ["cursor://file link shared", "plan echoed to chat"]
-  }
+  "required": ["plan_written", "plan_presented"],
+  "additionalProperties": false
 }
 ```

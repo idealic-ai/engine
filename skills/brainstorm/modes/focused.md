@@ -8,12 +8,12 @@
 ## Mode Template
 **template**: `~/.claude/skills/brainstorm/assets/TEMPLATE_BRAINSTORM_FOCUSED.md`
 
-## Dialogue Topics (Phase 2)
+## Dialogue Topics (Phase 1)
 - **Option enumeration** — What are all the viable approaches?
 - **Trade-off analysis** — Cost/benefit of each option
 - **Constraints mapping** — What limits our choices?
 - **Decision criteria** — How do we evaluate options?
 
-## Convergence Approach (Phase 2)
+## Convergence Approach (Phase 1)
 - Decision matrix with weighted criteria
 - Clear recommendation with dissenting arguments

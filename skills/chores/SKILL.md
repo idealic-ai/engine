@@ -33,7 +33,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "2.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "2.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/chores", "/implement", "/review", "/document"],
   "directives": [],
@@ -48,7 +48,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Processing chores for ___ context area.
 > Trigger: ___. Loading context, then entering task loop.
 > Role: Utility Player -- get in, fix it, log it, next.
@@ -65,7 +65,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Task Loop
 *The heart of chores: receive task, clarify if needed, execute, log, repeat.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Entering task loop for ___ area.
 > Cycle: receive, clarify, execute, log, next.
 > User drives the queue. Each task is self-contained.
@@ -132,7 +132,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 2. Synthesis
 *When the user says "done", "close", "wrap up", or similar.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. ___ tasks completed in ___ area.
 > Producing CHORES.md debrief with task ledger.
 

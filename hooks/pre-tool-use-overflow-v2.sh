@@ -1,5 +1,5 @@
 #!/bin/bash
-# ~/.claude/engine/hooks/pre-tool-use-overflow-v2.sh — Unified PreToolUse rule engine
+# ~/.claude/engine/hooks/pre-tool-use-overflow-v2.sh — Unified PreToolUse guard engine
 #
 # Single hook that replaces session-gate, heartbeat, and overflow hooks.
 # Flow:
@@ -8,16 +8,16 @@
 #   3. Find session dir, read .state.json
 #   4. Lifecycle bypass (dehydrating, loading, completed/restarting for heartbeat-only)
 #   5. Per-transcript counter increment (with same-file edit suppression, Task bypass)
-#   6. Evaluate ALL rules via evaluate_rules() — reads injections.json + .state.json
+#   6. Evaluate ALL rules via evaluate_rules() — reads guards.json + .state.json
 #   7. Separate matched rules into blocking vs allow
 #   8. Compute union whitelist from ALL blocking rules
-#   9. Tool matches union whitelist? → allow (skip all blocking injections)
-#  10. Deliver blocking injections (deny + message)
-#  11. Deliver allow injections (inject guidance as permissionDecisionReason)
+#   9. Tool matches union whitelist? → allow (skip all blocking guards)
+#  10. Deliver blocking guards (deny + message)
+#  11. Deliver allow guards (inject guidance via PostToolUse additionalContext)
 #  12. Fallback: allow
 #
 # Mode × Urgency matrix:
-#   inline+allow  → permissionDecisionReason text, allow tool
+#   inline+allow  → stashed for PostToolUse delivery, allow tool
 #   inline+block  → hook_deny with content in message
 #   read+allow    → "REQUIRED: Read [file]" in reason, allow tool
 #   read+block    → hook_deny with read instruction
@@ -28,7 +28,7 @@
 #   preload+block → reads files, injects as [Preloaded: path] content in deny message
 #
 # Related:
-#   Engine: injections.json (rule store), lib.sh (evaluate_rules, match_whitelist)
+#   Engine: guards.json (rule store), lib.sh (evaluate_rules, match_whitelist)
 #   Invariants: ¶INV_TMUX_AND_FLEET_OPTIONAL
 
 set -euo pipefail
@@ -41,7 +41,7 @@ source "$HOME/.claude/scripts/lib.sh"
 source "$HOME/.claude/engine/config.sh" 2>/dev/null || true
 OVERFLOW_THRESHOLD="${OVERFLOW_THRESHOLD:-0.76}"
 
-INJECTIONS_FILE="$HOME/.claude/engine/injections.json"
+GUARDS_FILE="$HOME/.claude/engine/guards.json"
 
 # Read hook input from stdin
 INPUT=$(cat)
@@ -79,11 +79,11 @@ find_session_dir() {
   "$HOME/.claude/scripts/session.sh" find 2>/dev/null
 }
 
-# _clear_preloaded_directives STATE_FILE PRELOADED_PATHS
-#   Remove successfully preloaded files from pendingDirectives AND pendingCommands,
+# _clear_preloaded STATE_FILE PRELOADED_PATHS
+#   Remove successfully preloaded files from pendingPreloads,
 #   and track them in preloadedFiles to prevent double-loading on re-discovery.
 #   PRELOADED_PATHS is newline-separated list of original (unresolved) paths.
-_clear_preloaded_directives() {
+_clear_preloaded() {
   local state_file="$1" preloaded_paths="$2"
 
   # Batch: collect all paths to remove and track
@@ -94,24 +94,156 @@ _clear_preloaded_directives() {
     remove_paths=$(echo "$remove_paths" | jq --arg p "$ppath" --arg r "$resolved" '. + [$p, $r]')
   done <<< "$preloaded_paths"
 
-  # Single atomic write: remove from pendingDirectives + pendingCommands + add to preloadedFiles
+  # Single atomic write: remove from pendingPreloads + add to preloadedFiles
   jq --argjson paths "$remove_paths" \
-    '(.pendingDirectives //= []) | .pendingDirectives -= $paths |
-     (.pendingCommands //= []) | .pendingCommands -= $paths |
+    '(.pendingPreloads //= []) | .pendingPreloads -= $paths |
      (.preloadedFiles //= []) | .preloadedFiles = (.preloadedFiles + $paths | unique)' \
     "$state_file" | safe_json_write "$state_file"
+}
+
+# _claim_and_preload STATE_FILE <<< "file1\nfile2\n..."
+#   Atomically claims files for preloading under the .state.json lock.
+#   Prevents parallel hooks from preloading the same files (race condition fix).
+#   Flow: acquire lock → check preloadedFiles → claim unclaimed → write state → release → read files.
+#   Sets globals: _CLAIMED_CONTENT (injection string), _CLAIMED_PATHS (newline-sep paths)
+_claim_and_preload() {
+  local state_file="$1"
+  local preload_files
+  preload_files=$(cat)
+
+  _CLAIMED_CONTENT=""
+  _CLAIMED_PATHS=""
+
+  [ -n "$preload_files" ] || return 0
+  [ -n "$state_file" ] && [ -f "$state_file" ] || return 0
+
+  local lock_dir="${state_file}.lock"
+  local tmp_file="${state_file}.tmp.$$"
+
+  # Acquire lock (same mechanism as safe_json_write)
+  local retries=0
+  local max_retries=100
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    retries=$((retries + 1))
+    if [ "$retries" -ge "$max_retries" ]; then
+      echo "ERROR: _claim_and_preload: lock timeout for $state_file" >&2
+      return 1
+    fi
+    if [ -d "$lock_dir" ]; then
+      local lock_mtime now_epoch lock_age
+      lock_mtime=$(stat -f "%m" "$lock_dir" 2>/dev/null || echo "0")
+      now_epoch=$(date +%s)
+      lock_age=$((now_epoch - lock_mtime))
+      if [ "$lock_age" -gt 10 ]; then
+        rmdir "$lock_dir" 2>/dev/null || true
+        continue
+      fi
+    fi
+    sleep 0.01
+  done
+
+  # --- Under lock: read state, filter unclaimed, update state ---
+  local current_preloaded
+  current_preloaded=$(jq '.preloadedFiles // []' "$state_file" 2>/dev/null || echo '[]')
+
+  # Build inode set from current preloaded files (hardlink dedup)
+  local preloaded_inodes=""
+  while IFS= read -r existing; do
+    [ -z "$existing" ] && continue
+    local existing_resolved="${existing/#\~/$HOME}"
+    local inode
+    inode=$(stat -f "%i" "$existing_resolved" 2>/dev/null || echo "")
+    [ -n "$inode" ] && preloaded_inodes="${preloaded_inodes} ${inode} "
+  done < <(echo "$current_preloaded" | jq -r '.[]')
+
+  local claimed_files=()
+  while IFS= read -r pfile; do
+    [ -z "$pfile" ] && continue
+    local resolved="${pfile/#\~/$HOME}"
+    # Skip if already preloaded (check path strings)
+    if echo "$current_preloaded" | jq -e --arg p "$pfile" --arg r "$resolved" \
+      'any(. == $p or . == $r)' >/dev/null 2>&1; then
+      continue
+    fi
+    # Skip if file doesn't exist
+    if [ ! -f "$resolved" ]; then
+      echo "Warning: preload file not found, skipping: $resolved" >&2
+      continue
+    fi
+    # Skip if same inode already preloaded (hardlink dedup)
+    local file_inode
+    file_inode=$(stat -f "%i" "$resolved" 2>/dev/null || echo "")
+    if [ -n "$file_inode" ] && [[ " $preloaded_inodes" == *" $file_inode "* ]]; then
+      continue
+    fi
+    claimed_files+=("$pfile")
+    # Track inode for intra-batch dedup
+    [ -n "$file_inode" ] && preloaded_inodes="${preloaded_inodes}${file_inode} "
+  done <<< "$preload_files"
+
+  if [ ${#claimed_files[@]} -eq 0 ]; then
+    rmdir "$lock_dir" 2>/dev/null || true
+    return 0
+  fi
+
+  # Build removal paths (both original and resolved forms)
+  local remove_paths="[]"
+  for pfile in "${claimed_files[@]}"; do
+    local resolved="${pfile/#\~/$HOME}"
+    remove_paths=$(echo "$remove_paths" | jq --arg p "$pfile" --arg r "$resolved" '. + [$p, $r]')
+  done
+
+  # Atomically update state: claim files (add to preloaded, remove from pending)
+  jq --argjson paths "$remove_paths" '
+    (.pendingPreloads //= []) | .pendingPreloads -= $paths |
+    (.preloadedFiles //= []) | .preloadedFiles = (.preloadedFiles + $paths | unique)
+  ' "$state_file" > "$tmp_file" && mv "$tmp_file" "$state_file"
+
+  # Release lock — state is updated, other parallel hooks will now see files as preloaded
+  rmdir "$lock_dir" 2>/dev/null || true
+
+  # --- Outside lock: read file contents (safe — we've claimed them) ---
+  for pfile in "${claimed_files[@]}"; do
+    local resolved="${pfile/#\~/$HOME}"
+    local content
+    content=$(cat "$resolved")
+
+    # Override detection: if this is a CMD file and a global CMD with the same basename
+    # is already preloaded, add [Override] header so the LLM knows local takes precedence
+    local pfile_basename
+    pfile_basename=$(basename "$pfile")
+    local override_header=""
+    if [[ "$pfile_basename" == CMD_*.md ]]; then
+      local existing
+      while IFS= read -r existing; do
+        [ -z "$existing" ] && continue
+        local existing_basename
+        existing_basename=$(basename "$existing")
+        if [ "$existing_basename" = "$pfile_basename" ] && [ "$existing" != "$pfile" ]; then
+          override_header="[Override: shadows $pfile_basename from $existing]\n"
+          break
+        fi
+      done < <(echo "$current_preloaded" | jq -r '.[]')
+    fi
+
+    _CLAIMED_CONTENT="${_CLAIMED_CONTENT}${_CLAIMED_CONTENT:+\n\n}${override_header}[Preloaded: $resolved]\n$content"
+    _CLAIMED_PATHS="${_CLAIMED_PATHS}${_CLAIMED_PATHS:+
+}$pfile"
+  done
 }
 
 # _run_discovery STATE_FILE
 #   Runs directive discovery for Read/Edit/Write tools BEFORE evaluate_rules().
 #   Extracts file_path from TOOL_INPUT, discovers directives in the directory,
-#   populates pendingDirectives + touchedDirs + discoveredChecklists.
+#   populates pendingPreloads + touchedDirs + discoveredChecklists.
 #   This enables the directive-autoload rule to fire in the SAME tool call,
 #   eliminating the one-call latency of PostToolUse-based discovery.
 _run_discovery() {
   local state_file="$1"
 
-  # Only process Read, Edit, Write, Glob, Grep tools
+  # Process tools that indicate directory interaction
+  # Read/Edit/Write: file being worked on → discover directives in its directory
+  # Glob/Grep: path param is search scope → discover directives there too
   case "$TOOL_NAME" in
     Read|Edit|Write|Glob|Grep) ;;
     *) return 0 ;;
@@ -219,44 +351,41 @@ _run_discovery() {
       "$state_file" | safe_json_write "$state_file"
   fi
 
-  # Add new soft files to pendingDirectives (skip already-preloaded)
+  # Add new soft files to pendingPreloads + discoveredChecklists (batched single write)
   if [ ${#new_soft_files[@]} -gt 0 ]; then
+    local files_json="[]"
+    local checklists_json="[]"
     local f
     for f in "${new_soft_files[@]}"; do
-      # Skip if already preloaded (prevents double-loading after re-discovery)
-      local already_preloaded
-      already_preloaded=$(jq -r --arg file "$f" \
-        '(.preloadedFiles // []) | any(. == $file)' "$state_file" 2>/dev/null || echo "false")
-      if [ "$already_preloaded" = "true" ]; then
-        continue
-      fi
-      jq --arg file "$f" \
-        '(.pendingDirectives //= []) | if (.pendingDirectives | index($file)) then . else .pendingDirectives += [$file] end' \
-        "$state_file" | safe_json_write "$state_file"
-    done
-    # Reset the directive-read counter when new directives are added
-    jq '.directiveReadsWithoutClearing = 0' "$state_file" | safe_json_write "$state_file"
-  fi
-
-  # Add new CHECKLIST.md files to discoveredChecklists (from soft_files, since CHECKLIST.md is now soft)
-  if [ ${#new_soft_files[@]} -gt 0 ]; then
-    local sf
-    for sf in "${new_soft_files[@]}"; do
-      if [[ "$(basename "$sf")" == "CHECKLIST.md" ]]; then
-        jq --arg file "$sf" \
-          '(.discoveredChecklists //= []) | if (.discoveredChecklists | index($file)) then . else .discoveredChecklists += [$file] end' \
-          "$state_file" | safe_json_write "$state_file"
+      files_json=$(echo "$files_json" | jq --arg f "$f" '. + [$f]')
+      if [[ "$(basename "$f")" == "CHECKLIST.md" ]]; then
+        checklists_json=$(echo "$checklists_json" | jq --arg f "$f" '. + [$f]')
       fi
     done
+    jq --argjson files "$files_json" --argjson checklists "$checklists_json" '
+      (.preloadedFiles // []) as $pf |
+      (.pendingPreloads //= []) |
+      (.discoveredChecklists //= []) |
+      reduce ($files[]) as $f (.;
+        if ($pf | any(. == $f)) then .
+        elif (.pendingPreloads | index($f)) then .
+        else .pendingPreloads += [$f]
+        end
+      ) |
+      reduce ($checklists[]) as $c (.;
+        if (.discoveredChecklists | index($c)) then .
+        else .discoveredChecklists += [$c]
+        end
+      ) |
+      .directiveReadsWithoutClearing = 0
+    ' "$state_file" | safe_json_write "$state_file"
   fi
 
   return 0
 }
 
 # _enrich_heartbeat_message TEXT STATE_FILE SESSION_DIR
-#   Enriches a heartbeat message with actionable logging instructions.
-#   Reads skill from .state.json, derives log file path, appends
-#   session dir + log path + ready-to-use engine log command.
+#   Enriches a heartbeat message with counter (N/M) and log path.
 #   Falls back to original text if no session context available.
 _enrich_heartbeat_message() {
   local text="$1" state_file="$2" session_dir="$3"
@@ -266,7 +395,12 @@ _enrich_heartbeat_message() {
     return 0
   fi
 
-  # Derive log file from logTemplate in .state.json (same logic as session.sh)
+  # Read counter and block threshold
+  local counter block_threshold
+  counter=$(jq -r '.toolCallsSinceLastLog // 0' "$state_file" 2>/dev/null || echo "0")
+  block_threshold=$(jq -r '.toolUseWithoutLogsBlockAfter // 10' "$state_file" 2>/dev/null || echo "10")
+
+  # Derive log file from logTemplate in .state.json
   local log_template log_file log_path
   log_template=$(jq -r '.logTemplate // ""' "$state_file" 2>/dev/null || echo "")
   if [ -n "$log_template" ]; then
@@ -274,7 +408,6 @@ _enrich_heartbeat_message() {
     log_basename=$(basename "$log_template")
     log_file="${log_basename#TEMPLATE_}"
   else
-    # Fallback: derive from skill name
     local skill
     skill=$(state_read "$state_file" skill "")
     if [ -z "$skill" ]; then
@@ -285,7 +418,18 @@ _enrich_heartbeat_message() {
   fi
   log_path="${session_dir}/${log_file}"
 
-  printf '%s\n\nSession: %s\nLog file: %s\nCommand:\n```bash\nengine log %s <<'\''EOF'\''\n## Progress Update\n*   **Task**: [what you were doing]\n*   **Status**: [done/in-progress/blocked]\n*   **Next**: [what'\''s next]\nEOF\n```' "$text" "$session_dir" "$log_path" "$log_path"
+  # Resolve log template path for agent guidance
+  local template_path=""
+  if [ -n "$log_template" ]; then
+    template_path="$log_template"
+  fi
+
+  # Output: §CMD_APPEND_LOG (N/M) + engine log path [+ template hint]
+  if [ -n "$template_path" ]; then
+    printf '%s (%s/%s)\nengine log %s\n[Log template: %s]' "$text" "$counter" "$block_threshold" "$log_path" "$template_path"
+  else
+    printf '%s (%s/%s)\nengine log %s' "$text" "$counter" "$block_threshold" "$log_path"
+  fi
 }
 
 main() {
@@ -302,12 +446,12 @@ main() {
     session_dir=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
     if [ -z "$session_dir" ]; then
       # Activation failed — fall back to old behavior (evaluate rules, gate fires)
-      if [ -f "$INJECTIONS_FILE" ]; then
+      if [ -f "$GUARDS_FILE" ]; then
         local tmp_state
         tmp_state=$(mktemp)
         echo '{"lifecycle":"none","contextUsage":0}' > "$tmp_state"
         local matched_rules
-        matched_rules=$(evaluate_rules "$tmp_state" "$INJECTIONS_FILE" "$TRANSCRIPT_KEY")
+        matched_rules=$(evaluate_rules "$tmp_state" "$GUARDS_FILE" "$TRANSCRIPT_KEY")
         rm -f "$tmp_state"
         _process_rules "$matched_rules" "" ""
       fi
@@ -387,15 +531,15 @@ main() {
   fi
 
   # --- Step 5b: Run directive discovery BEFORE rule evaluation ---
-  # This populates pendingDirectives so directive-autoload fires same-call.
+  # This populates pendingPreloads so the preload rule fires same-call.
   if [ "$skip_heartbeat" = "false" ] && [ "$loading" != "true" ]; then
     _run_discovery "$state_file"
   fi
 
   # --- Step 6: Evaluate ALL rules ---
   local matched_rules="[]"
-  if [ -f "$INJECTIONS_FILE" ]; then
-    matched_rules=$(evaluate_rules "$state_file" "$INJECTIONS_FILE" "$TRANSCRIPT_KEY")
+  if [ -f "$GUARDS_FILE" ]; then
+    matched_rules=$(evaluate_rules "$state_file" "$GUARDS_FILE" "$TRANSCRIPT_KEY" "$TOOL_NAME")
   fi
 
   # --- Steps 7-11: Process matched rules ---
@@ -407,7 +551,7 @@ main() {
 
 # _process_rules MATCHED_RULES_JSON STATE_FILE SESSION_DIR
 #   Separates blocking vs allow rules, computes union whitelist,
-#   checks tool against union, delivers injections.
+#   checks tool against union, delivers guards.
 _process_rules() {
   local matched_rules="$1" state_file="$2" session_dir="$3"
 
@@ -460,18 +604,18 @@ _process_rules() {
           local text
           text=$(echo "$injection" | jq -r '.payload.text // ""')
           if [ -z "$text" ]; then
-            text=$(echo "$injection" | jq -r '.payload.files // [] | map("INJECTION [\(.)]") | join("\n")')
+            text=$(echo "$injection" | jq -r '.payload.files // [] | map("[\(.)]") | join("\n")')
           fi
           # Enrich heartbeat messages with actionable logging context
           if [[ "$rule_id" == heartbeat-* ]]; then
             text=$(_enrich_heartbeat_message "$text" "$state_file" "$session_dir")
           fi
-          block_reason="${block_reason}${block_reason:+\n}[Injection: $rule_id] $text"
+          block_reason="${block_reason}${block_reason:+\n}$text"
           ;;
         read)
           local files
           files=$(echo "$injection" | jq -r '.payload.files // [] | join(", ")')
-          block_reason="${block_reason}${block_reason:+\n}[Injection: $rule_id] REQUIRED: Read these files: $files"
+          block_reason="${block_reason}${block_reason:+\n}[block: $rule_id] REQUIRED: Read these files: $files"
           ;;
         paste)
           local command
@@ -481,48 +625,20 @@ _process_rules() {
           else
             tmux_paste "$command" 2>/dev/null || true
           fi
-          block_reason="${block_reason}${block_reason:+\n}[Injection: $rule_id] $command"
+          block_reason="${block_reason}${block_reason:+\n}$command"
           ;;
         preload)
-          local preload_content=""
-          local preloaded_paths=""
           local preload_files
           preload_files=$(echo "$injection" | jq -r '.payload.preload // [] | .[]')
-          # Read already-preloaded set for dedup
-          local already_preloaded="[]"
-          if [ -n "$state_file" ] && [ -f "$state_file" ]; then
-            already_preloaded=$(jq '.preloadedFiles // []' "$state_file" 2>/dev/null || echo '[]')
-          fi
-          while IFS= read -r pfile; do
-            [ -z "$pfile" ] && continue
-            local resolved="${pfile/#\~/$HOME}"
-            # Skip if already preloaded (check both original and resolved forms)
-            if echo "$already_preloaded" | jq -e --arg p "$pfile" --arg r "$resolved" \
-              'any(. == $p or . == $r)' >/dev/null 2>&1; then
-              continue
-            fi
-            if [ -f "$resolved" ]; then
-              local content
-              content=$(cat "$resolved")
-              preload_content="${preload_content}${preload_content:+\n\n}[Preloaded: $resolved]\n$content"
-              preloaded_paths="${preloaded_paths}${preloaded_paths:+
-}$pfile"
-            else
-              echo "Warning: preload file not found, skipping: $resolved" >&2
-            fi
-          done <<< "$preload_files"
-          if [ -n "$preload_content" ]; then
-            block_reason="${block_reason}${block_reason:+\n}$preload_content"
-          fi
-          # Auto-clear preloaded files from pendingDirectives + track in preloadedFiles
-          if [ -n "$preloaded_paths" ] && [ -n "$state_file" ] && [ -f "$state_file" ]; then
-            _clear_preloaded_directives "$state_file" "$preloaded_paths"
+          _claim_and_preload "$state_file" <<< "$preload_files"
+          if [ -n "$_CLAIMED_CONTENT" ]; then
+            block_reason="${block_reason}${block_reason:+\n}$_CLAIMED_CONTENT"
           fi
           ;;
       esac
     done
 
-    # Track delivered injections in .state.json
+    # Track delivered guards in .state.json
     _track_delivered "$matched_rules" "$state_file"
 
     # Build descriptive deny reason from blocking rule IDs
@@ -535,7 +651,7 @@ _process_rules() {
 
     notify_fleet error
     hook_deny \
-      "Blocked by: ${deny_summary}." \
+      "[block: ${deny_summary}]" \
       "$block_reason" \
       ""
   fi
@@ -545,7 +661,7 @@ _process_rules() {
 }
 
 # _deliver_allow_rules ALLOW_RULES_JSON STATE_FILE
-#   Stashes allow-urgency injections to .state.json for PostToolUse delivery.
+#   Stashes allow-urgency guards to .state.json for PostToolUse delivery.
 #   Content is assembled here (preload reads, text formatting) and written to
 #   pendingAllowInjections. PostToolUse hook (post-tool-use-injections.sh)
 #   delivers via additionalContext, which Claude Code surfaces to the model.
@@ -575,7 +691,7 @@ _deliver_allow_rules() {
         local text
         text=$(echo "$injection" | jq -r '.payload.text // ""')
         if [ -z "$text" ]; then
-          text=$(echo "$injection" | jq -r '.payload.files // [] | map("INJECTION [\(.)]") | join("\n")')
+          text=$(echo "$injection" | jq -r '.payload.files // [] | map("[\(.)]") | join("\n")')
         fi
         # Enrich heartbeat messages with actionable logging context
         if [[ "$rule_id" == heartbeat-* ]] && [ -n "$state_file" ]; then
@@ -583,49 +699,24 @@ _deliver_allow_rules() {
           hb_session_dir=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
           text=$(_enrich_heartbeat_message "$text" "$state_file" "$hb_session_dir")
         fi
-        entry_content="[Injection: $rule_id] $text"
+        entry_content="$text"
         ;;
       read)
         local files
         files=$(echo "$injection" | jq -r '.payload.files // [] | join(", ")')
-        entry_content="[Injection: $rule_id] REQUIRED: Read these files: $files"
+        entry_content="[warn: $rule_id] REQUIRED: Read these files: $files"
         ;;
       paste)
         local command
         command=$(echo "$injection" | jq -r '.payload.command // ""')
         tmux_paste "$command" 2>/dev/null || true
-        entry_content="[Injection: $rule_id] Pasted: $command"
+        entry_content="$command"
         ;;
       preload)
-        local preload_files preloaded_paths_allow=""
+        local preload_files
         preload_files=$(echo "$injection" | jq -r '.payload.preload // [] | .[]')
-        # Read already-preloaded set for dedup
-        local already_preloaded_allow="[]"
-        if [ -n "$state_file" ] && [ -f "$state_file" ]; then
-          already_preloaded_allow=$(jq '.preloadedFiles // []' "$state_file" 2>/dev/null || echo '[]')
-        fi
-        while IFS= read -r pfile; do
-          [ -z "$pfile" ] && continue
-          local resolved="${pfile/#\~/$HOME}"
-          # Skip if already preloaded
-          if echo "$already_preloaded_allow" | jq -e --arg p "$pfile" --arg r "$resolved" \
-            'any(. == $p or . == $r)' >/dev/null 2>&1; then
-            continue
-          fi
-          if [ -f "$resolved" ]; then
-            local content
-            content=$(cat "$resolved")
-            entry_content="${entry_content}${entry_content:+\n\n}[Preloaded: $resolved]\n$content"
-            preloaded_paths_allow="${preloaded_paths_allow}${preloaded_paths_allow:+
-}$pfile"
-          else
-            echo "Warning: preload file not found, skipping: $resolved" >&2
-          fi
-        done <<< "$preload_files"
-        # Auto-clear preloaded files from pendingDirectives + track in preloadedFiles
-        if [ -n "$preloaded_paths_allow" ] && [ -n "$state_file" ] && [ -f "$state_file" ]; then
-          _clear_preloaded_directives "$state_file" "$preloaded_paths_allow"
-        fi
+        _claim_and_preload "$state_file" <<< "$preload_files"
+        entry_content="$_CLAIMED_CONTENT"
         ;;
     esac
 
@@ -635,7 +726,7 @@ _deliver_allow_rules() {
     fi
   done
 
-  # Track delivered injections
+  # Track delivered guards
   _track_delivered "$allow_rules" "$state_file"
 
   # Stash to .state.json for PostToolUse delivery (instead of permissionDecisionReason)
@@ -649,7 +740,7 @@ _deliver_allow_rules() {
 }
 
 # _track_delivered RULES_JSON STATE_FILE
-#   Marks delivered rules in .state.json injectedRules.
+#   Marks delivered rules in .state.json injectedRules (tracks which guards fired).
 _track_delivered() {
   local rules_json="$1" state_file="$2"
 

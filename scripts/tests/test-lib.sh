@@ -609,6 +609,328 @@ test_resolve_payload_refs_no_collision() {
 }
 
 # =============================================================================
+# NORMALIZE_PRELOAD_PATH TESTS
+# =============================================================================
+
+test_normalize_preload_path_home_prefix() {
+  local test_name="normalize_preload_path: HOME prefix → tilde-prefix"
+  setup
+
+  local result
+  result=$(normalize_preload_path "$HOME/.claude/skills/implement/SKILL.md")
+  assert_eq "~/.claude/skills/implement/SKILL.md" "$result" "$test_name"
+
+  teardown
+}
+
+test_normalize_preload_path_tilde_passthrough() {
+  local test_name="normalize_preload_path: already tilde-prefixed → unchanged"
+  setup
+
+  local result
+  result=$(normalize_preload_path "~/.claude/foo.md")
+  assert_eq "~/.claude/foo.md" "$result" "$test_name"
+
+  teardown
+}
+
+test_normalize_preload_path_non_home() {
+  local test_name="normalize_preload_path: non-HOME absolute path → unchanged"
+  setup
+
+  local result
+  result=$(normalize_preload_path "/tmp/some/file.md")
+  assert_eq "/tmp/some/file.md" "$result" "$test_name"
+
+  teardown
+}
+
+test_normalize_preload_path_relative() {
+  local test_name="normalize_preload_path: relative path → unchanged"
+  setup
+
+  local result
+  result=$(normalize_preload_path "sessions/foo/LOG.md")
+  assert_eq "sessions/foo/LOG.md" "$result" "$test_name"
+
+  teardown
+}
+
+# =============================================================================
+# EXTRACT_SKILL_PRELOADS TESTS
+# =============================================================================
+
+test_extract_skill_preloads_known_skill() {
+  local test_name="extract_skill_preloads: known skill → outputs CMD + template paths"
+  setup
+
+  # Create a minimal skill directory with SKILL.md
+  local skill_dir="$HOME/.claude/skills/fakeskill"
+  mkdir -p "$skill_dir/assets"
+  cat > "$skill_dir/SKILL.md" <<'SKILLEOF'
+---
+name: fakeskill
+---
+# Fake Skill
+```json
+{
+  "phases": [
+    {"label": "0", "name": "Setup",
+      "steps": ["§CMD_PARSE_PARAMETERS"],
+      "commands": ["§CMD_FIND_TAGGED_FILES"]}
+  ],
+  "logTemplate": "assets/TEMPLATE_LOG.md"
+}
+```
+SKILLEOF
+
+  # Create the CMD file and template that the function expects
+  local cmd_dir="$HOME/.claude/engine/.directives/commands"
+  mkdir -p "$cmd_dir"
+  echo "# CMD_PARSE_PARAMETERS" > "$cmd_dir/CMD_PARSE_PARAMETERS.md"
+  echo "# CMD_FIND_TAGGED_FILES" > "$cmd_dir/CMD_FIND_TAGGED_FILES.md"
+  echo "# Log template" > "$skill_dir/assets/TEMPLATE_LOG.md"
+
+  local result
+  result=$(extract_skill_preloads "fakeskill")
+
+  # Should output normalized paths for CMD files + template
+  assert_contains "CMD_PARSE_PARAMETERS.md" "$result" "$test_name (CMD_PARSE_PARAMETERS)"
+  assert_contains "CMD_FIND_TAGGED_FILES.md" "$result" "$test_name (CMD_FIND_TAGGED_FILES)"
+  assert_contains "TEMPLATE_LOG.md" "$result" "$test_name (template)"
+
+  teardown
+}
+
+test_extract_skill_preloads_nonexistent() {
+  local test_name="extract_skill_preloads: nonexistent skill → empty output, exit 0"
+  setup
+
+  local result exit_code=0
+  result=$(extract_skill_preloads "nosuchskill") || exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name (exit code)"
+  assert_eq "" "$result" "$test_name (empty output)"
+
+  teardown
+}
+
+test_extract_skill_preloads_no_json() {
+  local test_name="extract_skill_preloads: skill without JSON block → empty output"
+  setup
+
+  local skill_dir="$HOME/.claude/skills/nojson"
+  mkdir -p "$skill_dir"
+  cat > "$skill_dir/SKILL.md" <<'SKILLEOF'
+---
+name: nojson
+---
+# No JSON Skill
+This skill has no json block at all.
+SKILLEOF
+
+  local result exit_code=0
+  result=$(extract_skill_preloads "nojson") || exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name (exit code)"
+  assert_eq "" "$result" "$test_name (empty output)"
+
+  teardown
+}
+
+test_extract_skill_preloads_dedup() {
+  local test_name="extract_skill_preloads: overlapping CMD names → no duplicates"
+  setup
+
+  local skill_dir="$HOME/.claude/skills/dupskill"
+  mkdir -p "$skill_dir"
+  cat > "$skill_dir/SKILL.md" <<'SKILLEOF'
+---
+name: dupskill
+---
+# Dedup Skill
+```json
+{
+  "phases": [
+    {"label": "0", "name": "Setup",
+      "steps": ["§CMD_PARSE_PARAMETERS"],
+      "commands": ["§CMD_PARSE_PARAMETERS"]}
+  ]
+}
+```
+SKILLEOF
+
+  local cmd_dir="$HOME/.claude/engine/.directives/commands"
+  mkdir -p "$cmd_dir"
+  echo "# CMD" > "$cmd_dir/CMD_PARSE_PARAMETERS.md"
+
+  local result
+  result=$(extract_skill_preloads "dupskill")
+
+  local count
+  count=$(echo "$result" | grep -c "CMD_PARSE_PARAMETERS" || true)
+  assert_eq "1" "$count" "$test_name (single occurrence)"
+
+  teardown
+}
+
+test_extract_skill_preloads_missing_template() {
+  local test_name="extract_skill_preloads: template file doesn't exist → skipped"
+  setup
+
+  local skill_dir="$HOME/.claude/skills/missingtpl"
+  mkdir -p "$skill_dir"
+  cat > "$skill_dir/SKILL.md" <<'SKILLEOF'
+---
+name: missingtpl
+---
+# Missing Template Skill
+```json
+{
+  "phases": [
+    {"label": "0", "name": "Setup", "steps": [], "commands": []}
+  ],
+  "logTemplate": "assets/DOES_NOT_EXIST.md"
+}
+```
+SKILLEOF
+
+  local result exit_code=0
+  result=$(extract_skill_preloads "missingtpl") || exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name (exit code)"
+  # Should NOT contain the missing template path
+  if [[ "$result" == *"DOES_NOT_EXIST"* ]]; then
+    fail "$test_name" "no DOES_NOT_EXIST in output" "$result"
+  else
+    pass "$test_name"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# RESOLVE_SESSIONS_DIR TESTS
+# =============================================================================
+
+test_resolve_sessions_dir_no_workspace() {
+  local test_name="resolve_sessions_dir: no WORKSPACE → 'sessions'"
+  setup
+  unset WORKSPACE
+
+  local result
+  result=$(resolve_sessions_dir)
+  assert_eq "sessions" "$result" "$test_name"
+
+  teardown
+}
+
+test_resolve_sessions_dir_with_workspace() {
+  local test_name="resolve_sessions_dir: WORKSPACE set → 'WORKSPACE/sessions'"
+  setup
+  export WORKSPACE="apps/estimate-viewer/extraction"
+
+  local result
+  result=$(resolve_sessions_dir)
+  assert_eq "apps/estimate-viewer/extraction/sessions" "$result" "$test_name"
+
+  unset WORKSPACE
+  teardown
+}
+
+test_resolve_sessions_dir_empty_workspace() {
+  local test_name="resolve_sessions_dir: WORKSPACE='' → 'sessions'"
+  setup
+  export WORKSPACE=""
+
+  local result
+  result=$(resolve_sessions_dir)
+  assert_eq "sessions" "$result" "$test_name"
+
+  unset WORKSPACE
+  teardown
+}
+
+# =============================================================================
+# RESOLVE_SESSION_PATH TESTS
+# =============================================================================
+
+test_resolve_session_path_bare_no_workspace() {
+  local test_name="resolve_session_path: bare name without WORKSPACE"
+  setup
+  unset WORKSPACE
+
+  local result
+  result=$(resolve_session_path "2026_02_14_TEST")
+  assert_eq "sessions/2026_02_14_TEST" "$result" "$test_name"
+
+  teardown
+}
+
+test_resolve_session_path_bare_with_workspace() {
+  local test_name="resolve_session_path: bare name with WORKSPACE"
+  setup
+  export WORKSPACE="apps/viewer/extraction"
+
+  local result
+  result=$(resolve_session_path "2026_02_14_TEST")
+  assert_eq "apps/viewer/extraction/sessions/2026_02_14_TEST" "$result" "$test_name"
+
+  unset WORKSPACE
+  teardown
+}
+
+test_resolve_session_path_sessions_prefix_no_workspace() {
+  local test_name="resolve_session_path: sessions/ prefix without WORKSPACE"
+  setup
+  unset WORKSPACE
+
+  local result
+  result=$(resolve_session_path "sessions/2026_02_14_TEST")
+  assert_eq "sessions/2026_02_14_TEST" "$result" "$test_name"
+
+  teardown
+}
+
+test_resolve_session_path_sessions_prefix_with_workspace() {
+  local test_name="resolve_session_path: sessions/ prefix with WORKSPACE → strips and resolves"
+  setup
+  export WORKSPACE="apps/viewer/extraction"
+
+  local result
+  result=$(resolve_session_path "sessions/2026_02_14_TEST")
+  assert_eq "apps/viewer/extraction/sessions/2026_02_14_TEST" "$result" "$test_name"
+
+  unset WORKSPACE
+  teardown
+}
+
+test_resolve_session_path_full_path_passthrough() {
+  local test_name="resolve_session_path: full path with sessions/ segment → passthrough"
+  setup
+  export WORKSPACE="apps/viewer/extraction"
+
+  local result
+  result=$(resolve_session_path "epic/sessions/2026_02_14_TEST")
+  assert_eq "epic/sessions/2026_02_14_TEST" "$result" "$test_name"
+
+  unset WORKSPACE
+  teardown
+}
+
+test_resolve_session_path_full_path_no_workspace() {
+  local test_name="resolve_session_path: full path passthrough even without WORKSPACE"
+  setup
+  unset WORKSPACE
+
+  local result
+  result=$(resolve_session_path "other/sessions/2026_02_14_TEST")
+  assert_eq "other/sessions/2026_02_14_TEST" "$result" "$test_name"
+
+  teardown
+}
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -653,5 +975,31 @@ test_state_read_special_chars
 # _resolve_payload_refs
 test_resolve_payload_refs_prefix_collision
 test_resolve_payload_refs_no_collision
+
+# normalize_preload_path
+test_normalize_preload_path_home_prefix
+test_normalize_preload_path_tilde_passthrough
+test_normalize_preload_path_non_home
+test_normalize_preload_path_relative
+
+# extract_skill_preloads
+test_extract_skill_preloads_known_skill
+test_extract_skill_preloads_nonexistent
+test_extract_skill_preloads_no_json
+test_extract_skill_preloads_dedup
+test_extract_skill_preloads_missing_template
+
+# resolve_sessions_dir
+test_resolve_sessions_dir_no_workspace
+test_resolve_sessions_dir_with_workspace
+test_resolve_sessions_dir_empty_workspace
+
+# resolve_session_path
+test_resolve_session_path_bare_no_workspace
+test_resolve_session_path_bare_with_workspace
+test_resolve_session_path_sessions_prefix_no_workspace
+test_resolve_session_path_sessions_prefix_with_workspace
+test_resolve_session_path_full_path_passthrough
+test_resolve_session_path_full_path_no_workspace
 
 exit_with_results

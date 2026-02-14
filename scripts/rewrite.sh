@@ -1,8 +1,8 @@
 #!/bin/bash
-# ~/.claude/engine/scripts/rewrite.sh — Gemini document rewriter
+# ~/.claude/engine/scripts/rewrite.sh — Document rewriter (thin wrapper around gemini.sh)
 #
-# Uses Gemini 3 Pro (generateContent API) to rewrite a document
-# based on instructions piped via stdin.
+# Composes a rewrite-specific prompt and delegates to engine gemini.
+# Writes the result to an output file with word-count stats.
 #
 # Usage:
 #   engine rewrite <input-file> <output-file> <<'EOF'
@@ -18,23 +18,11 @@
 #
 # Requires:
 #   - GEMINI_API_KEY environment variable
-#   - curl, jq
-
-# Source .env if GEMINI_API_KEY not already set
-if [ -z "${GEMINI_API_KEY:-}" ]; then
-  for envfile in .env "$HOME/.env" "$HOME/.claude/.env"; do
-    if [ -f "$envfile" ] && grep -q '^GEMINI_API_KEY=' "$envfile" 2>/dev/null; then
-      export GEMINI_API_KEY
-      GEMINI_API_KEY=$(grep '^GEMINI_API_KEY=' "$envfile" | head -1 | cut -d= -f2-)
-      break
-    fi
-  done
-fi
-
-: "${GEMINI_API_KEY:?GEMINI_API_KEY is required — set it in your environment or .env file}"
-export GEMINI_API_KEY
+#   - engine gemini (gemini.sh)
 
 set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # ---- Help ----
 if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
@@ -65,13 +53,6 @@ if [ ! -f "$INPUT_FILE" ]; then
   exit 1
 fi
 
-for cmd in curl jq; do
-  if ! command -v "$cmd" &> /dev/null; then
-    echo "ERROR: $cmd is required but not installed." >&2
-    exit 1
-  fi
-done
-
 # ---- Read instructions from stdin ----
 INSTRUCTIONS=$(cat)
 if [ -z "$INSTRUCTIONS" ]; then
@@ -79,71 +60,21 @@ if [ -z "$INSTRUCTIONS" ]; then
   exit 1
 fi
 
-# ---- Read input document ----
-DOCUMENT=$(cat "$INPUT_FILE")
-if [ -z "$DOCUMENT" ]; then
-  echo "ERROR: Input file is empty: $INPUT_FILE" >&2
-  exit 1
-fi
-
-# ---- Warn on large documents ----
-DOC_SIZE=$(wc -c < "$INPUT_FILE")
-if [ "$DOC_SIZE" -gt 102400 ]; then
-  echo "WARNING: Input file is $(( DOC_SIZE / 1024 ))KB — large documents may hit API limits." >&2
-fi
-
-# ---- Build prompt ----
-PROMPT="You are a professional document editor. Your task is to rewrite the following document according to the instructions below.
-
-INSTRUCTIONS:
-${INSTRUCTIONS}
+# ---- Compose rewrite prompt ----
+SYSTEM_PROMPT="You are a professional document editor. Your task is to rewrite the following document according to the instructions below.
 
 IMPORTANT RULES:
 - Output ONLY the rewritten document. No preamble, no explanation, no meta-commentary.
 - Preserve markdown formatting (headers, links, code blocks, lists).
 - Do not add new information that wasn't in the original.
-- Maintain the document's factual accuracy.
+- Maintain the document's factual accuracy."
 
-DOCUMENT TO REWRITE:
-${DOCUMENT}"
-
-# ---- Build request body ----
-MODEL="gemini-3-pro-preview"
-API_URL="https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent"
-
-BODY=$(jq -n \
-  --arg prompt "$PROMPT" \
-  '{
-    contents: [{
-      parts: [{
-        text: $prompt
-      }]
-    }],
-    generationConfig: {
-      temperature: 0.3
-    }
-  }')
-
-# ---- Call Gemini ----
+# ---- Call engine gemini ----
 echo "Rewriting document with Gemini 3 Pro..." >&2
 
-RESPONSE=$(curl -s -X POST "${API_URL}?key=${GEMINI_API_KEY}" \
-  -H "Content-Type: application/json" \
-  -d "$BODY")
-
-# ---- Extract result ----
-ERROR_MSG=$(echo "$RESPONSE" | jq -r '.error.message // empty')
-if [ -n "$ERROR_MSG" ]; then
-  echo "ERROR: Gemini API error: $ERROR_MSG" >&2
-  exit 1
-fi
-
-RESULT=$(echo "$RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty')
-if [ -z "$RESULT" ]; then
-  echo "ERROR: No text in Gemini response." >&2
-  echo "Response: $(echo "$RESPONSE" | jq -c '.')" >&2
-  exit 1
-fi
+RESULT=$(echo "$INSTRUCTIONS" | "$SCRIPT_DIR/gemini.sh" \
+  --system "$SYSTEM_PROMPT" \
+  "$INPUT_FILE")
 
 # ---- Write output ----
 mkdir -p "$(dirname "$OUTPUT_FILE")"

@@ -87,8 +87,8 @@ deny_destructive() {
   set_warned "$idx"
 
   hook_deny \
-    "ONE-STRIKE WARNING: Destructive command blocked — ${desc}" \
-    "${explanation} Retrying the same type of command will be allowed." \
+    "[block: one-strike] §CMD_CONFIRM_DESTRUCTIVE — ${desc}" \
+    "${explanation} Retry to allow." \
     ""
 }
 

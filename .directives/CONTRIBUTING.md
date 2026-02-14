@@ -59,7 +59,8 @@ Every skill protocol MUST include:
 - **`§CMD_PARSE_PARAMETERS`**: Activate session with JSON params
 - **`§CMD_INGEST_CONTEXT_BEFORE_WORK`**: Context menu in Phase 2
 - **`§CMD_GENERATE_DEBRIEF`**: Synthesis output
-- **`§CMD_CLOSE_SESSION`**: Session closure + next-step menu
+- **`§CMD_CLOSE_SESSION`**: Session deactivation to idle state
+- **`§CMD_PRESENT_NEXT_STEPS`**: Post-synthesis routing menu
 - **Mode presets** (for multi-mode skills): Role, goal, mindset, research topics, calibration topics
 - **Walk-through config**: For finding triage in Phase 5b
 - **`phases` array**: Declared at activation for enforcement
@@ -304,14 +305,15 @@ Core commands defined directly in `.directives/COMMANDS.md`:
 | `§CMD_PARSE_PARAMETERS` | Parse session params, activate session |
 | `§CMD_MAINTAIN_SESSION_DIR` | Session directory management |
 | `§CMD_UPDATE_PHASE` | Phase tracking and enforcement |
-| `§CMD_REPORT_INTENT_TO_USER` | Phase transition announcements |
+| `§CMD_REPORT_INTENT` | Phase transition announcements |
 | `§CMD_APPEND_LOG` | Append-only log writing |
 | `§CMD_WRITE_FROM_TEMPLATE` | Template instantiation |
 | `§CMD_GENERATE_DEBRIEF` | Full synthesis pipeline |
-| `§CMD_CLOSE_SESSION` | Session closure + next-step menu |
+| `§CMD_CLOSE_SESSION` | Session deactivation to idle state |
 | `§CMD_INGEST_CONTEXT_BEFORE_WORK` | Context ingestion menu |
 | `§CMD_INTERROGATE` | Ask/log loop |
 | `§CMD_RESUME_AFTER_CLOSE` | Post-synthesis continuation |
+| `§CMD_RESUME_SESSION` | Resume after overflow or manual restart |
 
 ### External Commands (in .directives/commands/)
 
@@ -327,6 +329,8 @@ Complex commands with their own reference files:
 | `§CMD_CAPTURE_SIDE_DISCOVERIES` | `CMD_CAPTURE_SIDE_DISCOVERIES.md` | Side-discovery tagging |
 | `§CMD_REPORT_LEFTOVER_WORK` | `CMD_REPORT_LEFTOVER_WORK.md` | Unfinished work report |
 | `§CMD_AWAIT_TAG` | `CMD_AWAIT_TAG.md` | Async tag watcher |
+| `§CMD_RESUME_SESSION` | `CMD_RESUME_SESSION.md` | Resume after overflow or manual restart |
+| `§CMD_PRESENT_NEXT_STEPS` | `CMD_PRESENT_NEXT_STEPS.md` | Post-synthesis routing menu |
 
 ## Fleet System
 

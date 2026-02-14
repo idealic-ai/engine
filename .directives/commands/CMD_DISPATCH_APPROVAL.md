@@ -37,6 +37,7 @@
 6.  **Report**: Output summary in chat: "Dispatched: [N] items. Claimed for next skill: [P] items. Deferred: [M] items. Dismissed: [K] items."
 
 **Constraints**:
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
 *   **Current session only**: Does NOT scan other sessions. Cross-session dispatch is out of scope (use `/delegation-review` for cross-session).
 *   **Human approval required** (`¶INV_DISPATCH_APPROVAL_REQUIRED`): Agents MUST NOT auto-flip `#needs-X` → `#delegated-X` or `#needs-X` → `#next-X`.
 *   **Daemon monitors `#delegated-*` only** (`¶INV_NEEDS_IS_STAGING`, `¶INV_NEXT_IS_IMMEDIATE`): `#delegated-X` items become visible to the daemon. `#next-X` items are handled by the next skill, not the daemon.

@@ -20,16 +20,22 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": ["§CMD_FIND_TAGGED_FILES"],
       "proof": ["mode", "session_dir", "parameters_parsed"]},
-    {"label": "1.A", "name": "Strategy",
-      "steps": ["§CMD_INTERROGATE", "§CMD_GENERATE_PLAN", "§CMD_SELECT_EXECUTION_PATH"],
+    {"label": "1", "name": "Strategy",
+      "steps": ["§CMD_INTERROGATE", "§CMD_GENERATE_PLAN"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION", "§CMD_LINK_FILE"],
       "proof": ["depth_chosen", "rounds_completed", "plan_written", "user_approved"]},
-    {"label": "1.B", "name": "Agent Handoff",
-      "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
-    {"label": "2", "name": "Testing Loop",
+    {"label": "2", "name": "Execution",
+      "steps": ["§CMD_SELECT_EXECUTION_PATH"],
+      "commands": [],
+      "proof": ["path_chosen", "paths_available"]},
+    {"label": "2.A", "name": "Testing Loop",
       "steps": [],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
       "proof": ["plan_steps_completed", "tests_pass", "log_entries", "unresolved_blocks"]},
+    {"label": "2.B", "name": "Agent Handoff",
+      "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
+    {"label": "2.C", "name": "Parallel Agent Handoff",
+      "steps": ["§CMD_PARALLEL_HANDOFF"], "commands": [], "proof": []},
     {"label": "3", "name": "Synthesis",
       "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "3.1", "name": "Checklists",
@@ -39,7 +45,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "3.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "3.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/document", "/implement", "/fix", "/analyze", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md", "CHECKLIST.md"],
@@ -59,12 +65,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Testing ___ with ___ mode.
 > Trigger: ___. Focus: session activation, mode selection, context loading.
 > Loading context via `§CMD_INGEST_CONTEXT_BEFORE_WORK`.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(0.*)`
 
 *   **Scope**: Understand the [Topic] and [Goal].
 
@@ -83,12 +89,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Strategy (Planning + Interrogation)
 *Before writing code, use the Anti-Fragile Checklist to generate high-value scenarios.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Interrogating ___ testing assumptions, then building the plan.
 > Drawing from mode-specific topics and the Question Bank.
 > Minimum rounds: ___ (based on depth selection).
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(1.*)`
 
 ### Interrogation Depth Selection
 
@@ -206,28 +212,21 @@ After interrogation completes:
 
 ---
 
-## 1.B. Agent Handoff
-*Hand off to a single autonomous agent.*
+## 2. Execution
+*Gateway: select inline, agent handoff, or parallel handoff.*
 
-`§CMD_EXECUTE_PHASE_STEPS(1.1.*)`
-
-`§CMD_HANDOFF_TO_AGENT` with:
-*   `agentName`: `"builder"`
-*   `startAtPhase`: `"2: Testing Loop"`
-*   `planOrDirective`: `[sessionDir]/TESTING_PLAN.md`
-*   `logFile`: `TESTING_LOG.md`
-*   `taskSummary`: `"Execute the testing plan: [brief description from taskSummary]"`
+`§CMD_EXECUTE_PHASE_STEPS(2.*)`
 
 ---
 
-## 2. Testing Loop (Execution)
+## 2.A. Testing Loop
 *Iterate through the Plan.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Executing ___-step testing plan. Target: ___.
 > Approach: Write test, run, log, tick.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(2.A.*)`
 
 **Build Cycle**:
 1.  **Write Test**: Create the test case (assert first).
@@ -237,10 +236,37 @@ After interrogation completes:
 
 ---
 
+## 2.B. Agent Handoff
+*Hand off to a single autonomous agent.*
+
+`§CMD_EXECUTE_PHASE_STEPS(2.B.*)`
+
+`§CMD_HANDOFF_TO_AGENT` with:
+```json
+{
+  "agentName": "builder",
+  "startAtPhase": "2.A: Testing Loop",
+  "planOrDirective": "[sessionDir]/TESTING_PLAN.md",
+  "logFile": "TESTING_LOG.md",
+  "taskSummary": "Execute the testing plan: [brief description from taskSummary]"
+}
+```
+
+---
+
+## 2.C. Parallel Agent Handoff
+*Hand off to multiple autonomous agents in parallel.*
+
+`§CMD_EXECUTE_PHASE_STEPS(2.C.*)`
+
+`§CMD_PARALLEL_HANDOFF` with the testing plan split across agents.
+
+---
+
 ## 3. Synthesis
 *When all tasks are complete.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. ___ test scenarios completed, ___ tests passing.
 > Producing TESTING.md debrief with coverage analysis.
 

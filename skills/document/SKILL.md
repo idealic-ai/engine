@@ -21,15 +21,21 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
       "proof": ["mode", "session_dir", "parameters_parsed"]},
     {"label": "1", "name": "Diagnosis & Planning",
-      "steps": ["§CMD_GENERATE_PLAN", "§CMD_SELECT_EXECUTION_PATH"],
+      "steps": ["§CMD_GENERATE_PLAN"],
       "commands": ["§CMD_LINK_FILE"],
       "proof": ["context_sources_presented", "documentation_drift_assessed", "plan_written", "plan_presented", "user_approved"]},
-    {"label": "1.B", "name": "Agent Handoff",
-      "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
-    {"label": "2", "name": "Operation",
+    {"label": "2", "name": "Execution",
+      "steps": ["§CMD_SELECT_EXECUTION_PATH"],
+      "commands": [],
+      "proof": ["path_chosen", "paths_available"]},
+    {"label": "2.A", "name": "Operation",
       "steps": [],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS"],
       "proof": ["plan_steps_completed", "log_entries", "unresolved_blocks"]},
+    {"label": "2.B", "name": "Agent Handoff",
+      "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
+    {"label": "2.C", "name": "Parallel Agent Handoff",
+      "steps": ["§CMD_PARALLEL_HANDOFF"], "commands": [], "proof": []},
     {"label": "3", "name": "Synthesis",
       "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "3.1", "name": "Checklists",
@@ -39,7 +45,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "3.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "3.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/review", "/implement", "/analyze", "/brainstorm", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
@@ -61,7 +67,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Updating documentation for ___.
 > Mode: ___. Trigger: ___.
 > Focus: session activation, mode selection, brief interrogation, context loading.
@@ -107,7 +113,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Diagnosis & Planning
 *Before cutting, understand the anatomy and draft the procedure.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Diagnosing documentation drift for ___.
 > Surveying ___ target docs, then producing DOCUMENTATION_PLAN.md.
 > Will present plan for approval before any edits.
@@ -134,42 +140,62 @@ If any items are flagged for revision, return to the plan for edits before proce
 
 ---
 
-## 1.1. Agent Handoff
-*Hand off to a single autonomous agent.*
+## 2. Execution
+*Gateway -- select the execution path.*
 
-`§CMD_EXECUTE_PHASE_STEPS(1.1.*)`
-
-`§CMD_HANDOFF_TO_AGENT` with:
-*   `agentName`: `"writer"`
-*   `startAtPhase`: `"2: Operation"`
-*   `planOrDirective`: `[sessionDir]/DOCUMENTATION_PLAN.md`
-*   `logFile`: `DOCUMENTATION_LOG.md`
-*   `taskSummary`: `"Execute the document update plan: [brief description from taskSummary]"`
+`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
 ---
 
-## 2. Operation
+## 2.A. Operation
 *Execute the plan. Surgical updates only.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Executing ___-step documentation plan. Target: ___.
 > Logging each incision, finding, and suture to DOCUMENTATION_LOG.md.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(2.A.*)`
 
 **Operation Cycle**:
 1.  **Cut**: Make the targeted edit.
 2.  **Log**: `§CMD_APPEND_LOG` to `DOCUMENTATION_LOG.md`.
 3.  **Tick**: Mark `[x]` in `DOCUMENTATION_PLAN.md`.
 
-**On "Other" (free-text) at phase transition**: The user is describing new requirements. Route to Phase 0 (Setup) to scope it before operating -- do NOT stay in Phase 2 or jump to synthesis.
+**On "Other" (free-text) at phase transition**: The user is describing new requirements. Route to Phase 0 (Setup) to scope it before operating -- do NOT stay in Phase 2.A or jump to synthesis.
+
+---
+
+## 2.B. Agent Handoff
+*Hand off to a single autonomous agent.*
+
+`§CMD_EXECUTE_PHASE_STEPS(2.B.*)`
+
+`§CMD_HANDOFF_TO_AGENT` with:
+```json
+{
+  "agentName": "writer",
+  "startAtPhase": "2.A: Operation",
+  "planOrDirective": "[sessionDir]/DOCUMENTATION_PLAN.md",
+  "logFile": "DOCUMENTATION_LOG.md",
+  "taskSummary": "Execute the document update plan: [brief description from taskSummary]"
+}
+```
+
+---
+
+## 2.C. Parallel Agent Handoff
+*Hand off to multiple autonomous agents in parallel.*
+
+`§CMD_EXECUTE_PHASE_STEPS(2.C.*)`
+
+`§CMD_PARALLEL_HANDOFF` with the plan from `DOCUMENTATION_PLAN.md`.
 
 ---
 
 ## 3. Synthesis
 *When the surgery is complete.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. ___ documentation updates completed.
 > Producing DOCUMENTATION.md debrief with prognosis.
 

@@ -7,3 +7,6 @@
     *   **Goal**: Gather structured data to inform the next steps.
 3.  **Wait**: The tool will pause execution until the user responds.
 4.  **Resume**: Once the tool returns, proceed immediately to logging.
+
+**Constraints**:
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.

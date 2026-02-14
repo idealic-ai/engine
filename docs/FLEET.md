@@ -2,7 +2,7 @@
 
 The Fleet system manages multiple Claude Code agents in a tmux workspace with session persistence, context overflow recovery, and coordinated dispatch.
 
-**Related**: `~/.claude/docs/SESSION_LIFECYCLE.md` (session state machine), `~/.claude/docs/CONTEXT_GUARDIAN.md` (overflow protection), `~/.claude/docs/DIRECTIVES_SYSTEM.md` (behavioral specification — commands, invariants, tags)
+**Related**: `~/.claude/docs/SESSION_LIFECYCLE.md` (session state machine), `~/.claude/docs/CONTEXT_GUARDIAN.md` (overflow protection), `~/.claude/docs/DIRECTIVES_SYSTEM.md` (behavioral specification — commands, invariants, tags), `ORCHESTRATION.md` (multi-chapter project orchestration), `COORDINATE.md` (single-session coordinator mechanics)
 
 ## Overview
 

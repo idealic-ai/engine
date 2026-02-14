@@ -174,48 +174,54 @@ test_preloaded_files_recorded() {
 }
 JSON
 
-  # Create CMD_DEHYDRATE.md and CMD_REHYDRATE.md so all 5 paths exist
+  # Create CMD_DEHYDRATE.md, CMD_RESUME_SESSION.md, and CMD_PARSE_PARAMETERS.md so all 6 paths exist
   mkdir -p "$FAKE_HOME/.claude/.directives/commands"
   echo "# CMD_DEHYDRATE" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
-  echo "# CMD_REHYDRATE" > "$FAKE_HOME/.claude/.directives/commands/CMD_REHYDRATE.md"
+  echo "# CMD_RESUME_SESSION" > "$FAKE_HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md"
+  echo "# CMD_PARSE_PARAMETERS" > "$FAKE_HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"
 
   run_hook "startup" > /dev/null || true
 
-  # After hook, .state.json should have preloadedFiles with the 5 standard+command paths
+  # After hook, .state.json should have preloadedFiles with the 6 standard+command paths
   local count
   count=$(jq '.preloadedFiles | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
-  assert_eq "5" "$count" "preloadedFiles has 5 entries after startup"
+  assert_eq "6" "$count" "preloadedFiles has 6 entries after startup"
 
   # Check specific paths are present
-  local has_commands has_invariants has_tags has_dehydrate has_rehydrate
+  local has_commands has_invariants has_tags has_dehydrate has_rehydrate has_parse_params
   has_commands=$(jq '[.preloadedFiles[] | select(contains("COMMANDS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
   has_invariants=$(jq '[.preloadedFiles[] | select(contains("INVARIANTS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
   has_tags=$(jq '[.preloadedFiles[] | select(contains("TAGS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
   has_dehydrate=$(jq '[.preloadedFiles[] | select(contains("CMD_DEHYDRATE.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
-  has_rehydrate=$(jq '[.preloadedFiles[] | select(contains("CMD_REHYDRATE.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
+  has_rehydrate=$(jq '[.preloadedFiles[] | select(contains("CMD_RESUME_SESSION.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
+  has_parse_params=$(jq '[.preloadedFiles[] | select(contains("CMD_PARSE_PARAMETERS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
 
   assert_eq "1" "$has_commands" "preloadedFiles includes COMMANDS.md"
   assert_eq "1" "$has_invariants" "preloadedFiles includes INVARIANTS.md"
   assert_eq "1" "$has_tags" "preloadedFiles includes TAGS.md"
   assert_eq "1" "$has_dehydrate" "preloadedFiles includes CMD_DEHYDRATE.md"
-  assert_eq "1" "$has_rehydrate" "preloadedFiles includes CMD_REHYDRATE.md"
+  assert_eq "1" "$has_rehydrate" "preloadedFiles includes CMD_RESUME_SESSION.md"
+  assert_eq "1" "$has_parse_params" "preloadedFiles includes CMD_PARSE_PARAMETERS.md"
 }
 
 # --- Test 8: Dehydrate command files preloaded in output ---
 test_dehydrate_command_files_preloaded() {
-  # Create dehydrate command files (new location after refactor)
+  # Create command files (new location after refactor)
   mkdir -p "$FAKE_HOME/.claude/.directives/commands"
   echo "# CMD_DEHYDRATE content" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
-  echo "# CMD_REHYDRATE content" > "$FAKE_HOME/.claude/.directives/commands/CMD_REHYDRATE.md"
+  echo "# CMD_RESUME_SESSION content" > "$FAKE_HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md"
+  echo "# CMD_PARSE_PARAMETERS content" > "$FAKE_HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"
 
   local output
   output=$(run_hook "startup") || true
 
   assert_contains "CMD_DEHYDRATE content" "$output" "output contains CMD_DEHYDRATE.md content"
-  assert_contains "CMD_REHYDRATE content" "$output" "output contains CMD_REHYDRATE.md content"
+  assert_contains "CMD_RESUME_SESSION content" "$output" "output contains CMD_RESUME_SESSION.md content"
+  assert_contains "CMD_PARSE_PARAMETERS content" "$output" "output contains CMD_PARSE_PARAMETERS.md content"
   assert_contains "[Preloaded:" "$output" "command files use [Preloaded:] format"
   assert_contains "CMD_DEHYDRATE.md]" "$output" "preloaded marker includes CMD_DEHYDRATE.md"
-  assert_contains "CMD_REHYDRATE.md]" "$output" "preloaded marker includes CMD_REHYDRATE.md"
+  assert_contains "CMD_RESUME_SESSION.md]" "$output" "preloaded marker includes CMD_RESUME_SESSION.md"
+  assert_contains "CMD_PARSE_PARAMETERS.md]" "$output" "preloaded marker includes CMD_PARSE_PARAMETERS.md"
 }
 
 # --- Test 9: One dehydrate command file missing, other still preloaded ---
@@ -223,13 +229,13 @@ test_dehydrate_command_one_missing() {
   # Only create one of the two command files
   mkdir -p "$FAKE_HOME/.claude/.directives/commands"
   echo "# CMD_DEHYDRATE only" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
-  # Do NOT create CMD_REHYDRATE.md
+  # Do NOT create CMD_RESUME_SESSION.md
 
   local output
   output=$(run_hook "startup") || true
 
-  assert_contains "CMD_DEHYDRATE only" "$output" "output contains CMD_DEHYDRATE.md when CMD_REHYDRATE missing"
-  assert_not_contains "CMD_REHYDRATE" "$output" "output skips missing CMD_REHYDRATE.md file"
+  assert_contains "CMD_DEHYDRATE only" "$output" "output contains CMD_DEHYDRATE.md when CMD_RESUME_SESSION missing"
+  assert_not_contains "CMD_RESUME_SESSION" "$output" "output skips missing CMD_RESUME_SESSION.md file"
 
   # Standards should still be present
   assert_contains "COMMANDS content" "$output" "standards still present when command file missing"

@@ -12,7 +12,8 @@ import {
 } from "./query.js";
 import { parseTimeArg, toISOString } from "../../shared/parse-time-arg.js";
 
-const SESSIONS_DIR = "sessions";
+const WORKSPACE = process.env.WORKSPACE;
+const SESSIONS_DIR = WORKSPACE ? path.join(WORKSPACE, "sessions") : "sessions";
 const DB_FILENAME = ".session-search.db";
 
 /**

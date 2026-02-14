@@ -32,15 +32,19 @@
 
 ```json
 {
-  "debrief_file": {
-    "type": "string",
-    "description": "Filename of the debrief written to the session directory",
-    "examples": ["IMPLEMENTATION.md", "ANALYSIS.md", "BRAINSTORM.md", "FIX.md"]
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "debrief_file": {
+      "type": "string",
+      "description": "Filename of the debrief written to the session directory"
+    },
+    "debrief_tags": {
+      "type": "string",
+      "description": "Tags applied to the debrief file"
+    }
   },
-  "debrief_tags": {
-    "type": "string",
-    "description": "Tags applied to the debrief file",
-    "examples": ["#needs-review", "#needs-review #delegated-implement"]
-  }
+  "required": ["debrief_file", "debrief_tags"],
+  "additionalProperties": false
 }
 ```

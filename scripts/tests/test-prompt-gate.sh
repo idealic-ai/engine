@@ -166,23 +166,35 @@ assert_contains 'AskUserQuestion' "$OUT" "No session -> still instructs AskUserQ
 
 echo ""
 
-# --- 8. Skill discovery on <command-name> ---
-echo "--- 8. <command-name> detection in prompt ---"
+# --- 8. Skill discovery on /skill-name ---
+echo "--- 8. /skill-name detection in prompt ---"
 
 # Re-create active session for discovery test
 "$FAKE_HOME/.claude/scripts/session.sh" activate "$TEST_SESSION" test < /dev/null >/dev/null 2>&1
 jq 'del(.loading)' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-# Create a fake skill directory with discoverable directives
+# Create a fake skill directory with SKILL.md containing Phase 0 CMD refs
 SKILL_DIR="$FAKE_HOME/.claude/skills/analyze"
 mkdir -p "$SKILL_DIR"
-echo "# Test skill" > "$SKILL_DIR/SKILL.md"
-# Create skills-level .directives/ so walk-up finds something
-mkdir -p "$FAKE_HOME/.claude/skills/.directives"
-echo "# Skills invariants" > "$FAKE_HOME/.claude/skills/.directives/INVARIANTS.md"
+# SKILL.md with phases JSON block containing Phase 0 steps
+cat > "$SKILL_DIR/SKILL.md" <<'SKILLEOF'
+# Test skill
 
-# Run hook with <command-name> in prompt
+```json
+{
+  "phases": [
+    { "major": 0, "minor": 0, "name": "Setup", "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE"] }
+  ]
+}
+```
+SKILLEOF
+# Create CMD files that the hook should discover
+mkdir -p "$FAKE_HOME/.claude/engine/.directives/commands"
+echo "# Parse params" > "$FAKE_HOME/.claude/engine/.directives/commands/CMD_PARSE_PARAMETERS.md"
+echo "# Select mode" > "$FAKE_HOME/.claude/engine/.directives/commands/CMD_SELECT_MODE.md"
+
+# Run hook with /skill-name in prompt
 run_hook_with_prompt() {
   local prompt="$1"
   local session_required="${2-1}"
@@ -193,29 +205,94 @@ run_hook_with_prompt() {
   )
 }
 
-OUT=$(run_hook_with_prompt '<command-name>analyze</command-name>' "1")
+OUT=$(run_hook_with_prompt '/analyze' "1")
 
-# With active session, the hook passes through — but should have triggered discovery
-# Check .state.json for pendingDirectives
+# With active session, the hook queues Phase 0 CMD files to pendingPreloads
 if [ -f "$TEST_SESSION/.state.json" ]; then
-  PENDING=$(jq -r '.pendingDirectives // [] | length' "$TEST_SESSION/.state.json" 2>/dev/null || echo "0")
-  # Discovery should have added files from the skill directory
-  assert_gt "$PENDING" "0" "<command-name> detection -> pendingDirectives has entries from skill dir"
+  PENDING=$(jq -r '.pendingPreloads // [] | length' "$TEST_SESSION/.state.json" 2>/dev/null || echo "0")
+  assert_gt "$PENDING" "0" "/skill-name detection -> pendingPreloads has Phase 0 CMD files"
 else
-  fail "<command-name> detection -> .state.json exists after discovery" "file exists" "missing"
+  fail "/skill-name detection -> .state.json exists after CMD queuing" "file exists" "missing"
 fi
 
 echo ""
 
-echo "--- 9. No <command-name> in prompt -> no discovery ---"
+echo "--- 9. No <command-name> in prompt -> no CMD queuing ---"
 
-# Clear pendingDirectives first
-jq '.pendingDirectives = []' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+# Clear pendingPreloads first
+jq '.pendingPreloads = []' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 OUT=$(run_hook_with_prompt 'just a normal message' "1")
 
-PENDING_AFTER=$(jq -r '.pendingDirectives // [] | length' "$TEST_SESSION/.state.json" 2>/dev/null || echo "0")
-assert_eq "0" "$PENDING_AFTER" "no <command-name> -> pendingDirectives stays empty"
+PENDING_AFTER=$(jq -r '.pendingPreloads // [] | length' "$TEST_SESSION/.state.json" 2>/dev/null || echo "0")
+assert_eq "0" "$PENDING_AFTER" "no <command-name> -> pendingPreloads stays empty"
+
+# --- 10. Small SKILL.md -> preloaded as content, CMDs as suggestions ---
+echo "--- 10. Small SKILL.md -> preloaded content + CMDs as suggestions ---"
+
+# Clear state for fresh test
+jq '.pendingPreloads = [] | .preloadedFiles = []' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+OUT=$(run_hook_with_prompt '/analyze' "1")
+# SKILL.md is ~100 bytes — well under 9K budget
+# Should be preloaded (content delivered), CMDs should be suggestions
+assert_contains 'Preloaded:' "$OUT" "Small SKILL.md -> content is preloaded"
+assert_contains 'Test skill' "$OUT" "Small SKILL.md -> SKILL.md content appears in output"
+assert_contains 'Suggested' "$OUT" "Small SKILL.md -> suggestions section exists"
+assert_contains 'CMD_PARSE_PARAMETERS' "$OUT" "Small SKILL.md -> CMD files listed as suggestions"
+
+# Verify preloadedFiles has SKILL.md path (not CMD paths)
+PRELOADED=$(jq -r '.preloadedFiles // [] | .[]' "$TEST_SESSION/.state.json" 2>/dev/null || echo "")
+assert_contains 'SKILL.md' "$PRELOADED" "Small SKILL.md -> preloadedFiles tracks SKILL.md"
+
+echo ""
+
+# --- 11. Large SKILL.md -> CMDs preloaded, SKILL.md as suggestion ---
+echo "--- 11. Large SKILL.md -> CMDs preloaded, SKILL.md suggested ---"
+
+# Create a large SKILL.md (>9K) to trigger fallback
+LARGE_SKILL_DIR="$FAKE_HOME/.claude/skills/largeskill"
+mkdir -p "$LARGE_SKILL_DIR"
+# Generate SKILL.md over 9K: JSON block + padding
+{
+  echo '# Large skill'
+  echo ''
+  echo '```json'
+  echo '{'
+  echo '  "phases": ['
+  echo '    { "major": 0, "minor": 0, "name": "Setup", "steps": ["§CMD_PARSE_PARAMETERS"] }'
+  echo '  ]'
+  echo '}'
+  echo '```'
+  echo ''
+  # Pad to >9K
+  for i in $(seq 1 200); do
+    echo "## Section $i — This is padding content to make the file exceed the 9K budget threshold for testing purposes."
+  done
+} > "$LARGE_SKILL_DIR/SKILL.md"
+
+# Verify it's actually large
+LARGE_SIZE=$(wc -c < "$LARGE_SKILL_DIR/SKILL.md")
+assert_gt "$LARGE_SIZE" "9000" "Large SKILL.md -> file is over 9K"
+
+# Clear state
+jq '.pendingPreloads = [] | .preloadedFiles = []' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+OUT=$(run_hook_with_prompt '/largeskill' "1")
+# SKILL.md exceeds budget — should be suggested, CMDs should be preloaded
+assert_contains 'Suggested' "$OUT" "Large SKILL.md -> suggestions section exists"
+assert_contains 'SKILL.md' "$OUT" "Large SKILL.md -> SKILL.md listed in suggestions"
+assert_contains 'CMD_PARSE_PARAMETERS' "$OUT" "Large SKILL.md -> CMD file preloaded"
+assert_contains 'Parse params' "$OUT" "Large SKILL.md -> CMD content is delivered"
+
+# Verify preloadedFiles has CMD path (not SKILL.md)
+PRELOADED=$(jq -r '.preloadedFiles // [] | .[]' "$TEST_SESSION/.state.json" 2>/dev/null || echo "")
+assert_not_contains 'SKILL.md' "$PRELOADED" "Large SKILL.md -> preloadedFiles does NOT have SKILL.md"
+assert_contains 'CMD_PARSE_PARAMETERS' "$PRELOADED" "Large SKILL.md -> preloadedFiles has CMD"
+
+echo ""
 
 exit_with_results

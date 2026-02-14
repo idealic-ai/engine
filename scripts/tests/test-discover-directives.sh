@@ -682,6 +682,122 @@ test_root_cross_tree_caps_at_root() {
 }
 
 # =============================================================================
+# TEST 23: CMD files discovered in .directives/commands/
+# =============================================================================
+
+test_cmd_discovery_single_dir() {
+  local test_name="cmd discovery: finds CMD_*.md in .directives/commands/"
+  setup
+
+  mkdir -p "$TEST_DIR/packages/foo/.directives/commands"
+  echo "# Local BAR command" > "$TEST_DIR/packages/foo/.directives/commands/CMD_BAR.md"
+  echo "# Local BAZ command" > "$TEST_DIR/packages/foo/.directives/commands/CMD_BAZ.md"
+
+  local result
+  result=$(bash "$SCRIPT" "$TEST_DIR/packages/foo" 2>/dev/null)
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && \
+     [[ "$result" == *"CMD_BAR.md"* ]] && \
+     [[ "$result" == *"CMD_BAZ.md"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0, CMD_BAR.md and CMD_BAZ.md" "exit=$exit_code, output=$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TEST 24: CMD files discovered during walk-up at multiple levels
+# =============================================================================
+
+test_cmd_discovery_walkup() {
+  local test_name="cmd discovery: walk-up finds CMD files at multiple ancestor levels"
+  setup
+
+  mkdir -p "$TEST_DIR/.directives/commands"
+  mkdir -p "$TEST_DIR/packages/foo/.directives/commands"
+  echo "# Root CMD" > "$TEST_DIR/.directives/commands/CMD_ROOT.md"
+  echo "# Local CMD" > "$TEST_DIR/packages/foo/.directives/commands/CMD_LOCAL.md"
+  # Same-name override at child level
+  echo "# Local override" > "$TEST_DIR/packages/foo/.directives/commands/CMD_ROOT.md"
+
+  local result
+  result=$(bash "$SCRIPT" "$TEST_DIR/packages/foo" --walk-up 2>/dev/null)
+  local exit_code=$?
+
+  # Should find all 3: root CMD_ROOT.md, child CMD_LOCAL.md, child CMD_ROOT.md
+  local root_count
+  root_count=$(echo "$result" | grep -c "CMD_ROOT.md" || true)
+
+  if [ "$exit_code" -eq 0 ] && \
+     [[ "$result" == *"CMD_LOCAL.md"* ]] && \
+     [ "$root_count" -eq 2 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "CMD_LOCAL.md + 2x CMD_ROOT.md (child + root)" "exit=$exit_code, root_count=$root_count, output=$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TEST 25: No CMD files when no commands/ subdirectory exists
+# =============================================================================
+
+test_cmd_discovery_no_commands_dir() {
+  local test_name="cmd discovery: no CMD files when .directives/commands/ absent"
+  setup
+
+  mkdir -p "$TEST_DIR/packages/foo/.directives"
+  echo "# INVARIANTS" > "$TEST_DIR/packages/foo/.directives/INVARIANTS.md"
+
+  local result
+  result=$(bash "$SCRIPT" "$TEST_DIR/packages/foo" 2>/dev/null)
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && \
+     [[ "$result" == *"INVARIANTS.md"* ]] && \
+     [[ "$result" != *"CMD_"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "INVARIANTS.md found, no CMD_ files" "exit=$exit_code, output=$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# TEST 26: Only CMD_*.md pattern matched (not other .md files in commands/)
+# =============================================================================
+
+test_cmd_discovery_only_cmd_pattern() {
+  local test_name="cmd discovery: only CMD_*.md pattern matched, not other files"
+  setup
+
+  mkdir -p "$TEST_DIR/packages/foo/.directives/commands"
+  echo "# Valid CMD" > "$TEST_DIR/packages/foo/.directives/commands/CMD_VALID.md"
+  echo "# Not a CMD" > "$TEST_DIR/packages/foo/.directives/commands/README.md"
+  echo "# Also not" > "$TEST_DIR/packages/foo/.directives/commands/NOTES.md"
+
+  local result
+  result=$(bash "$SCRIPT" "$TEST_DIR/packages/foo" 2>/dev/null)
+  local exit_code=$?
+
+  if [ "$exit_code" -eq 0 ] && \
+     [[ "$result" == *"CMD_VALID.md"* ]] && \
+     [[ "$result" != *"README.md"* ]] && \
+     [[ "$result" != *"NOTES.md"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "CMD_VALID.md only, not README.md or NOTES.md" "exit=$exit_code, output=$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -713,6 +829,12 @@ test_root_cross_tree_walkup
 test_root_cross_tree_intermediate_directives
 test_root_cross_tree_multiple_levels
 test_root_cross_tree_caps_at_root
+
+# CMD discovery tests
+test_cmd_discovery_single_dir
+test_cmd_discovery_walkup
+test_cmd_discovery_no_commands_dir
+test_cmd_discovery_only_cmd_pattern
 
 # Summary
 exit_with_results

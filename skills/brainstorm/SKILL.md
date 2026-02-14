@@ -20,24 +20,36 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
       "proof": ["mode", "session_dir", "parameters_parsed"]},
-    {"label": "1.A", "name": "Dialogue Loop",
+    {"label": "1", "name": "Dialogue Loop",
       "steps": ["§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION", "§CMD_APPEND_LOG"],
       "proof": ["depth_chosen", "rounds_completed", "log_entries"]},
-    {"label": "1.B", "name": "Agent Handoff",
+    {"label": "2", "name": "Execution",
+      "steps": ["§CMD_SELECT_EXECUTION_PATH"],
+      "commands": [],
+      "proof": ["path_chosen", "paths_available"]},
+    {"label": "2.A", "name": "Inline Synthesis",
+      "steps": [],
+      "commands": [],
+      "proof": []},
+    {"label": "2.B", "name": "Agent Handoff",
       "steps": ["§CMD_HANDOFF_TO_AGENT"],
       "commands": [],
       "proof": []},
-    {"label": "2", "name": "Synthesis",
+    {"label": "2.C", "name": "Parallel Agent Handoff",
+      "steps": ["§CMD_PARALLEL_HANDOFF"],
+      "commands": [],
+      "proof": []},
+    {"label": "3", "name": "Synthesis",
       "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
-    {"label": "2.1", "name": "Checklists",
+    {"label": "3.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
-    {"label": "2.2", "name": "Debrief",
+    {"label": "3.2", "name": "Debrief",
       "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
-    {"label": "2.3", "name": "Pipeline",
+    {"label": "3.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
-    {"label": "2.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+    {"label": "3.4", "name": "Close",
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/implement", "/analyze", "/document", "/fix", "/chores"],
   "directives": [],
@@ -58,12 +70,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Brainstorming ___ topic.
 > Mode: ___. Trigger: ___.
 > Focus: session activation, mode selection, context loading.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(0.*)`
 
 *   **Scope**: Understand the [Topic] and [Goal].
 
@@ -82,11 +94,11 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Dialogue Loop (Socratic Exploration)
 *Engage in Socratic inquiry to uncover constraints and opportunities.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Exploring ___ problem space through Socratic dialogue.
 > Depth: ___. Drawing from mode-specific topics.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(1.*)`
 
 ### Dialogue Depth Selection
 
@@ -165,38 +177,67 @@ Record the user's choice. This sets the **minimum** -- the agent can always ask 
 **For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Ask: "Round N complete. I still have questions about [X]. Continuing..."
 
 ### Phase Transition
-Execute `AskUserQuestion` (multiSelect: false):
-> "Dialogue complete. How to proceed with convergence?"
-> - **"Launch analyzer agent"** -- Hand off to autonomous agent for convergence synthesis (you'll get the report when done)
-> - **"Continue inline"** -- Write convergence in this conversation
-> - **"Stay in Dialogue"** -- More exploration needed
+Execute `§CMD_GATE_PHASE`.
 
 ---
 
-## 1.B. Agent Handoff
-*Only if user selected "Launch analyzer agent" in Phase 1 transition.*
+## 2. Execution
 
-`§CMD_EXECUTE_PHASE_STEPS(1.1.*)`
+`§CMD_REPORT_INTENT`:
+> Selecting execution path for convergence synthesis.
+
+`§CMD_EXECUTE_PHASE_STEPS(2.*)`
+
+This is a gateway phase. The agent presents execution path options and routes to the selected branch.
+
+---
+
+## 2.A. Inline Synthesis
+*Continue convergence synthesis inline in this conversation.*
+
+Proceed directly to Phase 3: Synthesis.
+
+---
+
+## 2.B. Agent Handoff
+*Only if user selected agent handoff in the execution path.*
+
+`§CMD_EXECUTE_PHASE_STEPS(2.B.*)`
 
 `§CMD_HANDOFF_TO_AGENT` with:
-*   `agentName`: `"analyzer"`
-*   `startAtPhase`: `"2: Synthesis"`
-*   `planOrDirective`: `"Synthesize brainstorming findings into BRAINSTORM.md following the template. Focus on: [key themes and decisions from dialogue]"`
-*   `logFile`: `BRAINSTORM_LOG.md`
-*   `debriefTemplate`: `assets/TEMPLATE_BRAINSTORM.md`
-*   `logTemplate`: `assets/TEMPLATE_BRAINSTORM_LOG.md`
-*   `taskSummary`: `"Synthesize brainstorm: [brief description from taskSummary]"`
+```json
+{
+  "agentName": "analyzer",
+  "startAtPhase": "3: Synthesis",
+  "planOrDirective": "Synthesize brainstorming findings into BRAINSTORM.md following the template. Focus on: [key themes and decisions from dialogue]",
+  "logFile": "BRAINSTORM_LOG.md",
+  "debriefTemplate": "assets/TEMPLATE_BRAINSTORM.md",
+  "logTemplate": "assets/TEMPLATE_BRAINSTORM_LOG.md",
+  "taskSummary": "Synthesize brainstorm: [brief description from taskSummary]"
+}
+```
 
 ---
 
-## 2. Synthesis
+## 2.C. Parallel Agent Handoff
+
+`§CMD_EXECUTE_PHASE_STEPS(2.C.*)`
+
+`§CMD_PARALLEL_HANDOFF` with:
+- **Agent type**: analyzer
+- **Plan file**: BRAINSTORM_LOG.md (dialogue summary as work items)
+- **Start at phase**: "3: Synthesis"
+
+---
+
+## 3. Synthesis
 *When the dialogue has explored the space sufficiently.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. ___ rounds of dialogue completed.
 > Producing BRAINSTORM.md with connected insights and next steps.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 
 **Debrief notes** (for `BRAINSTORM.md`):
 *   **Reflect**: Look back at the full session -- identify key takeaways.

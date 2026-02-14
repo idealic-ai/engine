@@ -53,12 +53,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "4.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "4.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/edit-skill", "/implement", "/analyze", "/chores"],
   "directives": [],
   "logTemplate": "assets/TEMPLATE_IMPLEMENTATION_LOG.md",
-  "debriefTemplate": "assets/TEMPLATE_IMPLEMENTATION.md"
+  "debriefTemplate": "assets/TEMPLATE_EDIT_SKILL.md"
 }
 ```
 
@@ -66,7 +66,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Forging skill: ___.
 > Operation: ___. Target: ___.
 > Role: Skill Architect — every skill is a protocol.
@@ -80,7 +80,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 *Entry points (SKILL.md files — read all to see the v2 inline pattern):*
 *   `~/.claude/skills/implement/SKILL.md` (full-session archetype)
 *   `~/.claude/skills/brainstorm/SKILL.md` (light-session archetype)
-*   `~/.claude/skills/suggest/SKILL.md` (report-only archetype)
+*   `~/.claude/skills/do/SKILL.md` (lightweight archetype)
 *   `~/.claude/skills/session/SKILL.md` (utility archetype)
 
 **Parse Arguments**: Extract the skill name and subcommand from the user's input.
@@ -100,7 +100,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Detection
 *Determine whether this is a CREATE or EDIT operation, and where the skill should live.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Detecting skill ___ in project-local and shared engine.
 > Routing to CREATE or EDIT based on what exists.
 
@@ -146,7 +146,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 2. Interrogation
 *Gather requirements through structured questioning.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Interrogating ___ skill design assumptions before scaffolding.
 > Drawing from purpose, phases, templates, and integration topics.
 
@@ -217,7 +217,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 ## 3. Scaffold / Rewrite
 *Generate the v2 inline SKILL.md into the target location.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Scaffolding skill ___ into ___.
 > Generating SKILL.md and templates for ___ archetype.
 
@@ -317,7 +317,7 @@ Execute `§CMD_LINK_FILE` for each file created.
 ## 4. Synthesis
 *When scaffolding is complete.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. Skill ___ scaffolded with ___ files.
 > Producing EDIT_SKILL.md debrief.
 

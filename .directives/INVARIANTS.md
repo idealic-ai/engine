@@ -150,14 +150,21 @@ This document defines the system physics — rules about how sessions, phases, t
 
 *   **¶INV_PROOF_IS_DERIVED**: Phase proof is the concatenation of its steps' proof schemas.
     *   **Rule**: Skills declare `steps` and `commands` per phase. The `proof` array contains data fields that the step commands produce (as defined in each CMD file's `## PROOF FOR §CMD_X` section). Phase proof is the union of all step proof schemas plus any phase-level data fields.
+    *   **Enforcement**: `engine session phase` extracts standard JSON Schemas from each step's CMD file, merges them into a combined schema, and validates the proof JSON against it (exit 1 on failure). The validation tool is `tools/json-schema-validate/`.
     *   **Reason**: Co-located proof schemas (in CMD files) are the source of truth. Declaring proof separately from steps creates drift — the proof list diverges from what the commands actually produce.
 
 *   **¶INV_PROOF_COLOCATED**: Each `CMD_*.md` file has a `## PROOF FOR §CMD_X` section.
-    *   **Rule**: Every extracted command file in `~/.claude/engine/.directives/commands/` must include a proof schema section at the bottom. The schema uses JSON format with `type`, `description`, and `examples` for each field.
+    *   **Rule**: Every extracted command file in `~/.claude/engine/.directives/commands/` must include a proof schema section at the bottom. The schema uses standard JSON Schema format (`$schema`, `type: object`, `properties`, `required`, `additionalProperties`).
     *   **Rule**: Commands that orchestrate other commands (like `§CMD_RUN_SYNTHESIS_PIPELINE` or `§CMD_EXECUTE_PHASE_STEPS`) note that proof comes from the commands they invoke, not from themselves.
     *   **Reason**: Co-location keeps command files self-contained (definition + proof contract). The hook preloads CMD files into context — the LLM sees the proof schema alongside the command definition.
 
-## 9. Token Economy
+## 9. Hook Physics
+
+*   **¶INV_PREFER_AC_OVER_STDOUT**: Hooks SHOULD use JSON `additionalContext` over plain stdout.
+    *   **Rule**: When delivering content to the LLM from hooks, use `hookSpecificOutput.additionalContext` (with `hookEventName`) rather than plain stdout. Both mechanisms work for SessionStart and UserPromptSubmit, but `additionalContext` is the documented, structured delivery path.
+    *   **Reason**: `additionalContext` is the official mechanism per Claude Code docs. Plain stdout works but is the legacy/simple path. Consistent use of `additionalContext` makes hook output parseable and debuggable.
+
+## 10. Token Economy
 
 *   **¶INV_TRUST_CACHED_CONTEXT**: Do not burn tokens on redundant operations.
     *   **Rule**: If you have loaded `DEHYDRATED_CONTEXT.md` or `DEHYDRATED_DOCS.md` during session rehydration, you MUST NOT read the individual files contained within them (e.g., `_LOG.md`, specs) unless you have a specific reason to believe they have changed externally.
@@ -165,3 +172,28 @@ This document defines the system physics — rules about how sessions, phases, t
     *   **Rule**: Prefer single, larger tool calls over many small ones. Batch operations.
     *   **Rule**: When you know a file exists and you have its content in a summary/dehydrated file, trust it. Blind trust.
     *   **Reason**: Token-expensive re-reads of already-loaded content waste context budget and add latency. Trust the cache.
+
+## 11. Naming Conventions
+
+*   **¶INV_SIGIL_SEMANTICS**: Sigils encode definition vs reference semantics.
+    *   **Rule**: `¶` (pilcrow) marks a **definition** — the place where a command, invariant, feed, or tag section is declared and specified. `§` (section sign) marks a **reference** — a citation of something defined elsewhere.
+    *   **Applies to**: All sigiled nouns — `CMD_`, `INV_`, `FEED_`, `TAG_`.
+    *   **Definition sites**: COMMANDS.md headings (`¶CMD_X`), CMD_*.md headings (`¶CMD_X`), INVARIANTS.md entries (`¶INV_X`), AGENTS.md entries (`¶INV_X`), CONTRIBUTING.md entries (`¶INV_X`), TAGS.md section headers (`¶FEED_X`, `¶TAG_X`), any file's inline invariant definitions (`¶INV_X`).
+    *   **Reference sites**: SKILL.md steps arrays (`§CMD_X`), body text cross-references (`§CMD_Y`, `§INV_Y`), PROOF FOR headings (`§CMD_X`), docs/ (`§INV_X`, `§CMD_X`).
+    *   **Governance**: Any file may define an invariant using `¶INV_X`. Only COMMANDS.md and CMD_*.md may define commands using `¶CMD_X`.
+    *   **Redirection**: If you're about to write a sigiled noun, ask: "Am I defining it here, or referring to it?" `¶` = defining, `§` = referring.
+    *   **Reason**: Without semantic sigils, readers cannot distinguish "this is defined here" from "this is defined elsewhere." The convention enables grep-based discovery: `grep '¶CMD_'` finds all definition sites; `grep '§CMD_'` finds all usage sites.
+
+*   **¶INV_EPIC_SLUG_SIGIL**: Epic and chapter references use the `@` sigil prefix.
+    *   **Rule**: When referencing epics or chapters by their semantic slug, prefix with `@`: `@scope/slug` (e.g., `@app/auth-system`, `@packages/sdk/types`). This is the canonical format in vision documents, dependency graphs, plans, logs, and inline references.
+    *   **Sigil inventory**: `#` = tags, `§` = commands, `¶` = invariants, `@` = epic/chapter slugs. Each sigil is distinct and greppable.
+    *   **Slug format**: Path-based semantic slug mirroring project structure (e.g., `app/auth-system`, `packages/estimate/layout-extraction`). Slugs are stable identifiers — renaming a slug of a completed chapter triggers re-execution.
+    *   **Workspace alignment**: Epic slugs double as workspace directory paths. `@apps/estimate-viewer/extraction` is both an epic reference and a valid `WORKSPACE` value. Sessions created with `WORKSPACE=apps/estimate-viewer/extraction` live at `apps/estimate-viewer/extraction/sessions/`. Epic directories coexist alongside source code directories (e.g., `src/`) within package folders.
+    *   **Usage examples**:
+        *   Chapter headings: `### @app/auth-system: Auth System Refactor`
+        *   Dependencies: `**Depends on**: @app/auth-system`
+        *   Dependency graphs: `@app/auth-system ──► @app/rate-limiting`
+        *   Inline references: "See `@app/auth-system` for the token service work"
+        *   Workspace: `engine run --workspace apps/estimate-viewer/extraction`
+    *   **Discovery**: `grep '@app/' docs/` finds all epics in the `app` scope.
+    *   **Reason**: Epics/chapters are first-class addressable entities in the orchestration system. A dedicated sigil prevents collision with tags (`#`), commands (`§`), and invariants (`¶`), and enables mechanical discovery.

@@ -38,8 +38,8 @@ setup() {
   ln -sf "$DISCOVER_SH" "$HOME/.claude/scripts/discover-directives.sh"
   ln -sf "$HOOK_SH" "$HOME/.claude/hooks/pre-tool-use-overflow-v2.sh"
 
-  # Create empty injections.json (no rules — avoids blocking/allow side effects)
-  echo '{"rules": []}' > "$HOME/.claude/engine/injections.json"
+  # Create empty guards.json (no rules — avoids blocking/allow side effects)
+  echo '{"rules": []}' > "$HOME/.claude/engine/guards.json"
 
   # Create empty config.sh (hook sources it; missing file causes exit under set -e)
   touch "$HOME/.claude/engine/config.sh"
@@ -70,7 +70,7 @@ MOCK
   "toolCallsSinceLastLog": 0,
   "toolUseWithoutLogsWarnAfter": 100,
   "toolUseWithoutLogsBlockAfter": 200,
-  "directives": ["TESTING.md", "PITFALLS.md"]
+  "directives": ["TESTING.md", "PITFALLS.md", "CHECKLIST.md"]
 }
 JSON
 
@@ -272,14 +272,14 @@ test_idempotent_same_dir() {
   local state1
   state1=$(read_state)
   local pending1
-  pending1=$(echo "$state1" | jq '(.pendingDirectives // []) | length')
+  pending1=$(echo "$state1" | jq '(.pendingPreloads // []) | length')
 
   # Second call to same dir — should be idempotent
   run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/lib/other.ts\"},\"transcript_path\":\"/tmp/test\"}"
   local state2
   state2=$(read_state)
   local pending2
-  pending2=$(echo "$state2" | jq '(.pendingDirectives // []) | length')
+  pending2=$(echo "$state2" | jq '(.pendingPreloads // []) | length')
 
   assert_eq "$pending1" "$pending2" "$test_name"
 
@@ -308,14 +308,14 @@ test_tracks_multiple_dirs() {
 # =============================================================================
 
 test_discovers_invariants_in_pending() {
-  local test_name="soft discovery: INVARIANTS.md added to pendingDirectives"
+  local test_name="soft discovery: INVARIANTS.md added to pendingPreloads"
   setup
 
   run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/lib/test.ts\"},\"transcript_path\":\"/tmp/test\"}"
   local state
   state=$(read_state)
   local has_invariants
-  has_invariants=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(endswith("INVARIANTS.md"))] | length > 0')
+  has_invariants=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(endswith("INVARIANTS.md"))] | length > 0')
 
   assert_eq "true" "$has_invariants" "$test_name"
 
@@ -330,7 +330,7 @@ test_walk_up_discovers_agents() {
   local state
   state=$(read_state)
   local has_agents
-  has_agents=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(endswith("AGENTS.md"))] | length > 0')
+  has_agents=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(endswith("AGENTS.md"))] | length > 0')
 
   assert_eq "true" "$has_agents" "$test_name"
 
@@ -369,7 +369,7 @@ test_discovers_commands_md() {
   local state
   state=$(read_state)
   local has_commands
-  has_commands=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(endswith("COMMANDS.md"))] | length > 0')
+  has_commands=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(endswith("COMMANDS.md"))] | length > 0')
 
   assert_eq "true" "$has_commands" "$test_name"
 
@@ -389,9 +389,9 @@ test_includes_core_directives() {
   state=$(read_state)
 
   local has_agents
-  has_agents=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(endswith("AGENTS.md"))] | length > 0')
+  has_agents=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(endswith("AGENTS.md"))] | length > 0')
   local has_invariants
-  has_invariants=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(endswith("INVARIANTS.md"))] | length > 0')
+  has_invariants=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(endswith("INVARIANTS.md"))] | length > 0')
 
   if [ "$has_agents" = "true" ] && [ "$has_invariants" = "true" ]; then
     pass "$test_name"
@@ -413,7 +413,7 @@ test_includes_declared_skill_directives() {
   local state
   state=$(read_state)
   local has_testing
-  has_testing=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(endswith("TESTING.md"))] | length > 0')
+  has_testing=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(endswith("TESTING.md"))] | length > 0')
 
   assert_eq "true" "$has_testing" "$test_name"
 
@@ -431,7 +431,7 @@ test_excludes_undeclared_skill_directives() {
   local state
   state=$(read_state)
   local has_contributing
-  has_contributing=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(endswith("CONTRIBUTING.md"))] | length > 0')
+  has_contributing=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(endswith("CONTRIBUTING.md"))] | length > 0')
 
   assert_eq "false" "$has_contributing" "$test_name"
 
@@ -459,25 +459,25 @@ test_engine_paths_use_root() {
   local state
   state=$(read_state)
 
-  # pendingDirectives should contain INVARIANTS.md from ~/.claude/.directives/
+  # pendingPreloads should contain INVARIANTS.md from ~/.claude/.directives/
   local has_invariants
-  has_invariants=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(contains("INVARIANTS.md"))] | length > 0')
+  has_invariants=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(contains("INVARIANTS.md"))] | length > 0')
 
-  # pendingDirectives should NOT contain AGENTS.md from ~/
+  # pendingPreloads should NOT contain AGENTS.md from ~/
   local has_agents
-  has_agents=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(contains("AGENTS.md"))] | length > 0')
+  has_agents=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(contains("AGENTS.md"))] | length > 0')
 
   if [ "$has_invariants" = "true" ] && [ "$has_agents" = "false" ]; then
     pass "$test_name"
   else
-    fail "$test_name" "INVARIANTS.md in pending, AGENTS.md NOT in pending" "$(echo "$state" | jq '.pendingDirectives')"
+    fail "$test_name" "INVARIANTS.md in pending, AGENTS.md NOT in pending" "$(echo "$state" | jq '.pendingPreloads')"
   fi
 
   teardown
 }
 
 test_engine_directives_added_to_pending() {
-  local test_name="engine pending: reading ~/.claude/skills/ adds directives to pendingDirectives"
+  local test_name="engine pending: reading ~/.claude/skills/ adds directives to pendingPreloads"
   setup
 
   # Create engine directive structure
@@ -490,7 +490,7 @@ test_engine_directives_added_to_pending() {
   local state
   state=$(read_state)
   local pending_count
-  pending_count=$(echo "$state" | jq '(.pendingDirectives // []) | length')
+  pending_count=$(echo "$state" | jq '(.pendingPreloads // []) | length')
 
   assert_gt "$pending_count" 0 "$test_name"
 
@@ -511,7 +511,7 @@ test_project_paths_unchanged() {
 
   # Walk-up from src/deep/nested should find AGENTS.md at project root (PWD boundary)
   local has_agents
-  has_agents=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(contains("AGENTS.md"))] | length > 0')
+  has_agents=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(contains("AGENTS.md"))] | length > 0')
 
   assert_eq "true" "$has_agents" "$test_name"
 
@@ -575,7 +575,7 @@ test_excludes_sessions_subdirectory() {
   local state
   state=$(read_state)
   local testing_count
-  testing_count=$(echo "$state" | jq '[(.pendingDirectives // [])[] | select(contains("TESTING.md"))] | length')
+  testing_count=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(contains("TESTING.md"))] | length')
 
   assert_eq "0" "$testing_count" "$test_name"
 
@@ -597,7 +597,7 @@ test_excludes_tmp_subdirectory() {
   local state
   state=$(read_state)
   local pending_count
-  pending_count=$(echo "$state" | jq '(.pendingDirectives // []) | length')
+  pending_count=$(echo "$state" | jq '(.pendingPreloads // []) | length')
 
   assert_eq "0" "$pending_count" "$test_name"
 
@@ -619,7 +619,7 @@ test_excludes_node_modules_subdirectory() {
   local state
   state=$(read_state)
   local pending_count
-  pending_count=$(echo "$state" | jq '(.pendingDirectives // []) | length')
+  pending_count=$(echo "$state" | jq '(.pendingPreloads // []) | length')
 
   assert_eq "0" "$pending_count" "$test_name"
 
@@ -646,7 +646,7 @@ test_skips_empty_file_path() {
 }
 
 test_no_discovery_when_no_instruction_files() {
-  local test_name="no files: no pendingDirectives when directory has no instruction files"
+  local test_name="no files: no pendingPreloads when directory has no instruction files"
   setup
 
   # Create an empty subdirectory with no instruction files
@@ -659,7 +659,7 @@ test_no_discovery_when_no_instruction_files() {
   local state
   state=$(read_state)
   local pending_count
-  pending_count=$(echo "$state" | jq '(.pendingDirectives // []) | length')
+  pending_count=$(echo "$state" | jq '(.pendingPreloads // []) | length')
 
   assert_eq "0" "$pending_count" "$test_name"
 
@@ -707,7 +707,7 @@ SCRIPT
 # =============================================================================
 
 test_skips_already_preloaded_files() {
-  local test_name="preloaded dedup: files in preloadedFiles are not re-added to pendingDirectives"
+  local test_name="preloaded dedup: files in preloadedFiles are not re-added to pendingPreloads"
   setup
 
   # Pre-populate preloadedFiles with a path that would otherwise be discovered
@@ -720,10 +720,10 @@ test_skips_already_preloaded_files() {
   local state
   state=$(read_state)
 
-  # The project-root INVARIANTS.md should NOT be in pendingDirectives (already preloaded)
+  # The project-root INVARIANTS.md should NOT be in pendingPreloads (already preloaded)
   local root_invariants_in_pending
   root_invariants_in_pending=$(echo "$state" | jq --arg file "$invariants_path" \
-    '[(.pendingDirectives // [])[] | select(. == $file)] | length')
+    '[(.pendingPreloads // [])[] | select(. == $file)] | length')
 
   assert_eq "0" "$root_invariants_in_pending" "$test_name"
 

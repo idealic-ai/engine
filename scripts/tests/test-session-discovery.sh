@@ -260,6 +260,9 @@ test_deactivate_blocks_unprocessed_checklists() {
   local session_dir="$TEST_DIR/sessions/test-deactivate-1"
   activate_with_dirs "$session_dir" "[\"$PROJECT_DIR/src/utils\"]" > /dev/null 2>&1
 
+  # Advance past early phase so deactivation gates fire (PITFALLS.md #9)
+  "$HOME/.claude/scripts/session.sh" phase "$session_dir" "2: Test" > /dev/null 2>&1
+
   # Try to deactivate without processing checklists
   local output
   output=$("$HOME/.claude/scripts/session.sh" deactivate "$session_dir" --keywords "test" <<'EOF' 2>&1
@@ -348,6 +351,9 @@ test_deactivate_error_lists_unprocessed_files() {
   local session_dir="$TEST_DIR/sessions/test-deactivate-4"
   activate_with_dirs "$session_dir" "[\"$PROJECT_DIR/src/utils\"]" > /dev/null 2>&1
 
+  # Advance past early phase so deactivation gates fire (PITFALLS.md #9)
+  "$HOME/.claude/scripts/session.sh" phase "$session_dir" "2: Test" > /dev/null 2>&1
+
   local output
   output=$("$HOME/.claude/scripts/session.sh" deactivate "$session_dir" --keywords "test" <<'EOF' 2>&1
 Test session complete
@@ -369,6 +375,9 @@ test_deactivate_references_invariant_code() {
 
   local session_dir="$TEST_DIR/sessions/test-deactivate-5"
   activate_with_dirs "$session_dir" "[\"$PROJECT_DIR/src/utils\"]" > /dev/null 2>&1
+
+  # Advance past early phase so deactivation gates fire (PITFALLS.md #9)
+  "$HOME/.claude/scripts/session.sh" phase "$session_dir" "2: Test" > /dev/null 2>&1
 
   local output
   output=$("$HOME/.claude/scripts/session.sh" deactivate "$session_dir" --keywords "test" <<'EOF' 2>&1

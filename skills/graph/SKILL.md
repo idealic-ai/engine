@@ -62,7 +62,7 @@ Creates ASCII flowgraph diagrams. Lightweight skill for rendering complex flows 
 | `│` | Pipe | Continuation line (vertical spine) | Sequential flow within a block |
 | `├►` | Branch | Fork to a sub-step (non-terminal) | Non-last item in a branch group |
 | `╰►` | Last Branch | Fork to a sub-step (terminal) | Last item in a branch group |
-| `╭───╯` | Rejoin | Loop-back / rejoin from sub-branch | **Must** include a textual label |
+| `╭───╯` | Rejoin | Convergence point — branches merge here, or loop-back to earlier block | For convergence: placed after branches merge. For loop-back: **must** include textual label (e.g., `╰► Loop back to BLOCK`). Width varies: `╭──╯`, `╭────╯`, `╭───────────╯` |
 | `◆` | Diamond | Decision point | Question or conditional check |
 | `║` | Double Pipe | Decision continuation line | Conditional flow within a decision block |
 | `╠⇒` | Decision Branch | Conditional branch (non-terminal) | Non-last branch of a decision diamond |
@@ -81,7 +81,7 @@ Creates ASCII flowgraph diagrams. Lightweight skill for rendering complex flows 
 
 1.  **Indentation**: 2-space indent per nesting level. Consistent across the entire graph.
 2.  **Block Headers**: ALL CAPS, standalone on their own line. Represent named process blocks.
-3.  **Textual Junctions**: Loop-back arrows (`╭───╯`) and cross-references MUST include a textual label (e.g., `╰► Loop back to TASK EXECUTION`). Purely visual arrows without labels are ambiguous.
+3.  **Rejoin Glyphs** (`╭───╯`): Two uses — **convergence** (branches merge forward to the next block) and **loop-back** (rejoin an earlier block). Convergence rejoins do not require a label — the `↓` after them makes the forward flow clear. Loop-back rejoins MUST include a textual label (e.g., `╰► Loop back to TASK EXECUTION`). Width varies to match indentation: `╭──╯`, `╭────╯`, `╭───────────╯`.
 4.  **Decision Diamonds**: Always followed by `║` continuation, then `╠⇒` / `╚⇒` branches. Each branch gets a label (e.g., `YES →`, `ERROR →`).
 5.  **Terminal Nodes**: `START →` and `END →` mark entry/exit points.
 6.  **Annotations**: Use `•` bullets for detail within a step. Use `⟨text⟩` for behavioral markers (streaming, async, callback).
@@ -171,3 +171,58 @@ OUTER PROCESS
       ║
       ╚⇒ NO → Skip
 ```
+
+**Pattern 6 — Decision Convergence (branches merge forward)**
+```
+PROCESSING
+  │
+  ◆ Which path?
+  ║
+  ╠⇒ PATH A → Handle case A
+  ║         │ • Do A-specific work
+  ║         │ • Produce A result
+  ║    ╭────╯
+  ║    ↓
+  ╚⇒ PATH B → Handle case B
+            │ • Do B-specific work
+            │ • Produce B result
+  ╭─────────╯
+  ↓
+MERGED CONTINUATION
+  │ • Both paths arrive here
+  │ • Process combined result
+  ↓
+END → Done
+```
+
+*Key*: The `╭────╯` glyph after each branch signals "this branch feeds forward." The `↓` immediately after it shows the flow continuing downward. The next block after the last branch's `╭─────────╯` receives flow from ALL branches. Width of `╭───╯` varies to match indentation depth.
+
+**Pattern 7 — Multi-Branch Convergence with Nested Decisions**
+```
+DISPATCH
+  │
+  ◆ Result type?
+  ║
+  ╠⇒ ERROR → Error handling
+  ║         │ • Log error
+  ║         │ • Execute fallback
+  ║    ╭────╯
+  ║    ↓
+  ╚⇒ SUCCESS → Update state
+              │ • Store result
+  ╭───────────╯
+  ↓
+CONTINUATION CHECK
+  │
+  ◆ More items?
+  ║
+  ╠⇒ YES → Continue
+  ║       ╰► Loop back to DISPATCH
+  ║
+  ╚⇒ NO → All done
+  ╭──────╯
+  ↓
+END → Complete
+```
+
+*Key*: Convergence (`╭───╯`) and loop-back (`╰► Loop back to`) can coexist in the same graph. Convergence merges branches forward; loop-back returns to an earlier block.

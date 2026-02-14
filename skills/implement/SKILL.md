@@ -25,9 +25,13 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
       "proof": ["depth_chosen", "rounds_completed"]},
     {"label": "2", "name": "Planning",
-      "steps": ["§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS", "§CMD_SELECT_EXECUTION_PATH"],
+      "steps": ["§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS"],
       "commands": ["§CMD_LINK_FILE"],
       "proof": ["plan_written", "plan_presented", "user_approved"]},
+    {"label": "3", "name": "Execution",
+      "steps": ["§CMD_SELECT_EXECUTION_PATH"],
+      "commands": [],
+      "proof": ["path_chosen", "paths_available"]},
     {"label": "3.A", "name": "Build Loop",
       "steps": [],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
@@ -45,7 +49,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "4.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "4.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/test", "/document", "/analyze", "/fix", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md", "CHECKLIST.md"],
@@ -67,7 +71,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Implementing ___ feature.
 > Mode: ___. Trigger: ___.
 > Focus: session activation, mode selection, context loading.
@@ -91,7 +95,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 1. Interrogation
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Interrogating ___ assumptions before planning implementation.
 > Drawing from scope, data flow, testing, and risk topics.
 
@@ -115,7 +119,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 2. Planning
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Planning ___ implementation. ___ steps identified.
 > Producing IMPLEMENTATION_PLAN.md with dependencies and file mappings.
 
@@ -141,14 +145,25 @@ If any items are flagged for revision, return to the plan for edits before proce
 
 ---
 
+## 3. Execution
+
+`§CMD_REPORT_INTENT`:
+> Selecting execution path for implementation.
+
+`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+
+*Gateway phase — presents inline/agent/parallel choice, then enters the selected branch.*
+
+---
+
 ## 3.A. Build Loop (TDD Cycle)
 *Execute the plan step by step in this conversation.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Executing ___-step build plan. Target: ___.
 > Approach: Red-Green-Refactor per mode configuration.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(3.A.*)`
 
 **Build Cycle**:
 1.  **Write Test (Red)**: Create the test case.
@@ -163,34 +178,42 @@ If any items are flagged for revision, return to the plan for edits before proce
 ## 3.B. Agent Handoff
 *Hand off to a single autonomous agent.*
 
-`§CMD_EXECUTE_PHASE_STEPS(3.1.*)`
+`§CMD_EXECUTE_PHASE_STEPS(3.B.*)`
 
 `§CMD_HANDOFF_TO_AGENT` with:
-*   `agentName`: `"builder"`
-*   `startAtPhase`: `"3.A: Build Loop"`
-*   `planOrDirective`: `[sessionDir]/IMPLEMENTATION_PLAN.md`
-*   `logFile`: `IMPLEMENTATION_LOG.md`
-*   `taskSummary`: `"Execute the implementation plan: [brief description]"`
+```json
+{
+  "agentName": "builder",
+  "startAtPhase": "3.A: Build Loop",
+  "planOrDirective": "[sessionDir]/IMPLEMENTATION_PLAN.md",
+  "logFile": "IMPLEMENTATION_LOG.md",
+  "taskSummary": "Execute the implementation plan: [brief description]"
+}
+```
 
 ---
 
 ## 3.C. Parallel Agent Handoff
 *Hand off to multiple agents working in parallel on independent plan chunks.*
 
-`§CMD_EXECUTE_PHASE_STEPS(3.2.*)`
+`§CMD_EXECUTE_PHASE_STEPS(3.C.*)`
 
 `§CMD_PARALLEL_HANDOFF` with:
-*   `agentName`: `"builder"`
-*   `planFile`: `[sessionDir]/IMPLEMENTATION_PLAN.md`
-*   `logFile`: `IMPLEMENTATION_LOG.md`
-*   `taskSummary`: `"Execute the implementation plan: [brief description]"`
+```json
+{
+  "agentName": "builder",
+  "planFile": "[sessionDir]/IMPLEMENTATION_PLAN.md",
+  "logFile": "IMPLEMENTATION_LOG.md",
+  "taskSummary": "Execute the implementation plan: [brief description]"
+}
+```
 
 ---
 
 ## 4. Synthesis
 *When all tasks are complete.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. ___ plan steps completed, ___ tests passing.
 > Producing IMPLEMENTATION.md debrief with deviation analysis.
 

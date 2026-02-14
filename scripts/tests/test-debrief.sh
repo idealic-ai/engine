@@ -110,11 +110,11 @@ PROOF_VAL=$(jq -r '.phaseHistory[-1].proof["§CMD_PROCESS_CHECKLISTS"] // "MISSI
 assert_eq "skipped: none discovered" "$PROOF_VAL" "§CMD_ proof value stored in phaseHistory"
 
 # Test: Multiple §CMD_ proof keys in one transition
-create_state_with_cmd_proof "5.2: Debrief"  # Start from 5.2 to test 5.3
-# Need to set currentPhase to 5.2 directly
-jq '.currentPhase = "5.2: Debrief"' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+# FROM validation checks proof on the phase being LEFT (5.3: Pipeline has 6 proof keys)
+create_state_with_cmd_proof "5.3: Pipeline"
+jq '.currentPhase = "5.3: Pipeline"' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
 
-OUTPUT=$("$SESSION_SH" phase "$TEST_DIR" "5.3: Pipeline" <<'EOF'
+OUTPUT=$("$SESSION_SH" phase "$TEST_DIR" "5.4: Close" <<'EOF'
 §CMD_MANAGE_DIRECTIVES: skipped: no files touched
 §CMD_PROCESS_DELEGATIONS: ran: 2 bare tags processed
 §CMD_DISPATCH_APPROVAL: ran: 2 items dispatched
@@ -133,9 +133,10 @@ assert_eq "6" "$PROOF_KEYS" "All 6 §CMD_ proof keys stored in phaseHistory"
 DELEG_VAL=$(jq -r '.phaseHistory[-1].proof["§CMD_PROCESS_DELEGATIONS"] // "MISSING"' "$STATE_FILE" 2>/dev/null)
 assert_eq "ran: 2 bare tags processed" "$DELEG_VAL" "§CMD_PROCESS_DELEGATIONS proof value correct"
 
-# Test: Missing §CMD_ proof key is rejected
-create_state_with_cmd_proof "5: Synthesis"
-OUTPUT=$("$SESSION_SH" phase "$TEST_DIR" "5.1: Checklists" 2>&1 <<'EOF'
+# Test: Missing §CMD_ proof key is rejected (leaving 5.1 which requires §CMD_PROCESS_CHECKLISTS)
+create_state_with_cmd_proof "5.1: Checklists"
+jq '.currentPhase = "5.1: Checklists"' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+OUTPUT=$("$SESSION_SH" phase "$TEST_DIR" "5.2: Debrief" 2>&1 <<'EOF'
 EOF
 )
 PHASE_RESULT=$?
@@ -508,9 +509,10 @@ else
 fi
 
 # Case 9.3: Duplicate proof keys — last value wins (jq merge behavior)
-create_state_with_cmd_proof "5.2: Debrief"
-jq '.currentPhase = "5.2: Debrief"' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
-OUTPUT=$("$SESSION_SH" phase "$TEST_DIR" "5.3: Pipeline" <<'EOF'
+# FROM validation checks proof on 5.3 (Pipeline, 6 keys) — provide all 6 with one duplicate
+create_state_with_cmd_proof "5.3: Pipeline"
+jq '.currentPhase = "5.3: Pipeline"' "$STATE_FILE" > "$STATE_FILE.tmp" && mv "$STATE_FILE.tmp" "$STATE_FILE"
+OUTPUT=$("$SESSION_SH" phase "$TEST_DIR" "5.4: Close" <<'EOF'
 §CMD_MANAGE_DIRECTIVES: first value
 §CMD_PROCESS_DELEGATIONS: ran: 1 item
 §CMD_DISPATCH_APPROVAL: skipped

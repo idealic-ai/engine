@@ -33,7 +33,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "2.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "2.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/do", "/implement", "/analyze", "/chores"],
   "directives": [],
@@ -46,7 +46,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Quick task: ___.
 > Activating lightweight session. No interrogation, no planning.
 
@@ -61,7 +61,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Work
 *The heart of /do: just do the work.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Working on ___. Logging as I go.
 > Will ask clarifying questions naturally if needed.
 
@@ -100,7 +100,7 @@ Execute `§CMD_GATE_PHASE`.
 ## 2. Synthesis
 *Wrap up and create the debrief.*
 
-`§CMD_REPORT_INTENT_TO_USER`:
+`§CMD_REPORT_INTENT`:
 > Synthesizing. ___ units of work completed.
 > Producing DO.md debrief.
 

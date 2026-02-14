@@ -6,9 +6,10 @@ Pre-flight checks when creating or modifying skills in `engine/skills/`.
 
 - [ ] I DID create or modify SKILL.md
   - [ ] YAML frontmatter has `name`, `description`, `version`, `tier`
-  - [ ] Boot Sequence block is present (load standards, guard, gate check)
-  - [ ] `assets/` directory exists with `TEMPLATE_*_LOG.md` and `TEMPLATE_*.md` (debrief)
-  - [ ] Phases array is declared for `§CMD_PARSE_PARAMETERS` (protocol-tier skills)
+  - [ ] Boot sector (`§CMD_EXECUTE_SKILL_PHASES`) present at top (protocol-tier)
+  - [ ] JSON manifest block is valid and passes `skill-manifest.json` schema
+  - [ ] `assets/` directory exists with log and debrief templates
+  - [ ] Phase labels in JSON match `## N.` section headers
 - [ ] I DID NOT create or modify SKILL.md
   - [ ] Confirmed changes don't affect skill structure
 
@@ -24,10 +25,11 @@ Pre-flight checks when creating or modifying skills in `engine/skills/`.
 ## Protocol Compliance
 
 - [ ] I DID modify protocol phases
-  - [ ] Every phase has `§CMD_REPORT_INTENT_TO_USER` intent block
-  - [ ] Phase transitions use `AskUserQuestion` (not bare text gates)
-  - [ ] Synthesis phase calls steps in order: checklists, debrief, directives, artifacts, summary
-  - [ ] Next Skill Options section defines exactly 4 options for `§CMD_CLOSE_SESSION`
+  - [ ] Every major phase has `§CMD_REPORT_INTENT` and `§CMD_EXECUTE_PHASE_STEPS`
+  - [ ] Phase transitions use `§CMD_GATE_PHASE` (not bare text gates)
+  - [ ] Synthesis phases include `§CMD_RUN_SYNTHESIS_PIPELINE` and `§CMD_CLOSE_SESSION`
+  - [ ] All `§CMD_*` step references resolve to CMD files or COMMANDS.md
+  - [ ] `nextSkills` array references valid skill directories
 - [ ] I DID NOT modify protocol phases
   - [ ] Confirmed phase structure unchanged
 
@@ -52,9 +54,10 @@ Pre-flight checks when creating or modifying skills in `engine/skills/`.
 ## Automated Validation
 
 - [ ] I DID run `engine skill-doctor`
-  - [ ] Exit code 0 (no FAILs)
+  - [ ] Exit code 0 (no FAILs) — or all FAILs are pre-existing in other skills
   - [ ] All FAIL results addressed (DR-A through DR-I rule categories)
   - [ ] WARN results reviewed (acceptable WARNs documented in commit message)
   - [ ] New skills appear in doctor output with correct tier classification
+  - [ ] JSON schema validation passes for modified skills (DR-C2)
 - [ ] I DID NOT run `engine skill-doctor`
   - [ ] Changes are minor enough to skip automated validation

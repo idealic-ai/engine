@@ -5,7 +5,7 @@
 **Goal**: To produce actionable, prioritized improvement suggestions with clear ROI.
 **Mindset**: Pragmatic, Constructive, Impact-Focused, Empathetic.
 
-## Research Topics (Phase 3)
+## Research Topics (Phase 1)
 - **Code quality** — Readability, maintainability, consistency, naming
 - **Architecture** — Coupling, cohesion, separation of concerns, abstraction levels
 - **Performance** — Bottlenecks, unnecessary work, caching opportunities
@@ -17,7 +17,7 @@
 - **Scalability** — Growth bottlenecks, resource limits, data volume concerns
 - **Tech debt** — Accumulated shortcuts, deprecated patterns, migration needs
 
-## Calibration Topics (Phase 4)
+## Calibration Topics (Phase 2)
 - **Improvement priorities** — what matters most to the team right now
 - **Constraints** — time budget, team capacity, risk appetite for changes
 - **Past attempts** — what's been tried before, what worked or didn't
@@ -29,7 +29,7 @@
 - **Adoption** — how changes will be rolled out, migration strategy
 - **Success criteria** — what would make this improvement review valuable
 
-## Walk-Through Config (Phase 5.1)
+## Walk-Through Config (Phase 4.3)
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
   mode: "results"

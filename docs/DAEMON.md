@@ -256,3 +256,5 @@ Tag-to-skill mapping is discovered from templates, not hardcoded. Adding a new s
 - `~/.claude/skills/delegation-claim/SKILL.md` — Worker-side claiming protocol
 - `~/.claude/skills/delegation-review/SKILL.md` — Dispatch approval (synthesis pipeline)
 - `~/.claude/skills/fleet/references/FLEET.md` — Fleet configuration protocol
+- `ORCHESTRATION.md` — Multi-chapter project orchestration (how the coordinator uses `#needs-coordinate` for chapter dispatch)
+- `COORDINATE.md` — Single-session coordinator mechanics (how panes are processed, decisions made)

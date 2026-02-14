@@ -2,7 +2,7 @@
 # test-fleet-summary.sh — Tests for fleet.sh summary commands
 #
 # Integration tests that require a running fleet tmux session.
-# Tests the overseer summaries tab feature:
+# Tests the coordinator summaries tab feature:
 #   - Discovery of manager groups from @pane_manager options
 #   - Summaries window creation with placeholders
 #   - Toggle: swap managers into/out of summaries window
@@ -143,7 +143,7 @@ test_discover_no_groups() {
     local result
     result=$("$FLEET_SH" summary list --socket "$SOCKET" 2>/dev/null)
 
-    assert_contains "No overseer groups" "$result" "Case 2: summary list reports no groups when none exist"
+    assert_contains "No coordinator groups" "$result" "Case 2: summary list reports no groups when none exist"
 
     restore_all_summary_states "$all_saved"
 }
@@ -332,7 +332,7 @@ test_summary_toggle_no_groups() {
     local result
     result=$("$FLEET_SH" summary toggle --socket "$SOCKET" 2>/dev/null)
 
-    assert_contains "No overseer groups" "$result" "Case 7: toggle with no groups is a no-op"
+    assert_contains "No coordinator groups" "$result" "Case 7: toggle with no groups is a no-op"
 
     restore_all_summary_states "$all_saved"
 }

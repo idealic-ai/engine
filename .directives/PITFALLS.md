@@ -1,7 +1,7 @@
 # Hook & Engine Pitfalls
 
-## 1. hook_allow / hook_deny exit immediately
-`hook_allow` and `hook_deny` (from lib.sh) call `exit 0`. Any code after them in the same branch NEVER runs. When multiple checks can match the same input, ordering determines which fires. Put side-effect logic (state clearing, counter resets) BEFORE stateless whitelists.
+## 1. hook_allow / hook_deny exit immediately — both exit 0
+`hook_allow` and `hook_deny` (from lib.sh) call `exit 0`. Any code after them in the same branch NEVER runs. When multiple checks can match the same input, ordering determines which fires. Put side-effect logic (state clearing, counter resets) BEFORE stateless whitelists. **Both functions exit 0** — denial is communicated via JSON `permissionDecision: "deny"` in stdout, NOT via exit code. Tests that check hook behavior must parse the JSON output, not the exit status.
 
 ## 2. Always end hooks with explicit `exit 0`
 Under `set -euo pipefail`, the script exits with the last command's exit code. If that's `jq`, a malformed input or race condition on `.state.json` causes non-zero exit → "hook error" in Claude Code. Every hook branch should end with `exit 0`.
@@ -25,6 +25,21 @@ The `yaml` npm package interprets bare `Triggers: "..."` as a nested mapping key
 
 ## 8. Bash defers SIGTERM to subshells until foreground child exits
 When you `kill $subshell_pid`, bash delivers SIGTERM to the subshell — but the subshell defers it until its foreground child (e.g., `sleep`) completes. This breaks background timer patterns like `(sleep N; do_thing)& kill $!`. Use `timeout N command` instead, which directly kills the child process on expiry or early termination.
+
+## 10. `hookEventName` is required for JSON `additionalContext` delivery
+Hook output using `hookSpecificOutput.additionalContext` is **silently dropped** if `hookEventName` is missing from the JSON. No error, no warning — content just never reaches the LLM. The correct format:
+```json
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PostToolUse",
+    "additionalContext": "content here"
+  }
+}
+```
+All three hook types that support `additionalContext` (SessionStart, UserPromptSubmit, PostToolUse) require this field. Empirically validated 2026-02-13.
+
+## 11. UserPromptSubmit output truncates at ~10K characters
+Both plain stdout and JSON `additionalContext` for UserPromptSubmit hooks are hard-truncated at approximately 10,000 characters. Content beyond this point is silently dropped. Stay under 9K for safety margin. SessionStart and PostToolUse have no such limit (tested up to 100K). Use UserPromptSubmit for metadata/skill detection only, not bulk file delivery. Empirically validated 2026-02-13 using checkpoint-based testing with `claude -p`.
 
 ## 9. Deactivation gate tests need `currentPhase` set to a synthesis phase
 When `.state.json` has no `currentPhase`, session.sh defaults to phase 0 → `EARLY_PHASE=true` → checklist gate and other synthesis-time gates are silently bypassed. Tests that exercise deactivation behavior (e.g., "blocks when checkPassed is not set") must set `"currentPhase": "4: Synthesis"` (or similar non-early phase) in the test's `.state.json` setup, or the gate under test will never fire.
