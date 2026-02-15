@@ -39,12 +39,7 @@
     *   Link type (continuation, derived, delegation, related)
     *   Evidence (how the relationship was detected)
 3.  **If No Candidates**: Output in chat: "No cross-session relationships detected." No log entry.
-4.  **If Candidates Found**: Present via `AskUserQuestion` (multiSelect: true):
-    *   `question`: "These cross-session links were detected. Add backlinks to the relevant debriefs?"
-    *   `header`: "Backlinks"
-    *   `options` (up to 4, batch if more):
-        *   `"[Type]: [current] ↔ [target]"` — description: `"[Evidence summary]"`
-5.  **For Each Approved Link**: Add a `## Related Sessions` section to both debriefs (or append to existing):
+4.  **Auto-Apply All Links**: For each candidate, add a `## Related Sessions` section to both debriefs (or append to existing). No user prompt — all detected links are created automatically.
     *   **In current session's debrief**:
         ```markdown
         ## Related Sessions
@@ -57,15 +52,13 @@
         ```
     *   If the target debrief doesn't exist (session incomplete or no debrief), skip the backward link and log: "Target debrief not found for [session]. Forward link only."
     *   If a `## Related Sessions` section already exists, append to it (don't duplicate existing links).
-6.  **Report**: "Added N backlinks across M sessions." or skip silently if none.
+5.  **Report**: "Added N backlinks across M sessions." or skip silently if none.
 
 **Constraints**:
 *   **Debrief-only**: Links are added to debrief files (IMPLEMENTATION.md, ANALYSIS.md, etc.), not logs or plans. Debriefs are the durable artifacts.
 *   **Idempotent**: Check existing `## Related Sessions` entries before adding. Never create duplicate links.
-*   **Conservative**: Only suggest links with clear evidence. "Same general topic" is not enough — there must be a concrete connection (shared files, explicit references, delegation chain).
+*   **Conservative**: Only create links with clear evidence. "Same general topic" is not enough — there must be a concrete connection (shared files, explicit references, delegation chain).
 *   **Bidirectional**: Every link creates entries in BOTH debriefs (forward + backward). This ensures discoverability from either direction.
-*   **Non-blocking**: If the user deselects all options, no files are modified.
-*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions MUST use `AskUserQuestion`.
 
 ---
 

@@ -10,7 +10,7 @@ How a human developer uses the workflow engine day-to-day: opening agents, runni
 
 The workflow engine is a session-gated, phase-enforced skill execution system that turns Claude Code into a disciplined development partner. Three concepts define how it works:
 
-- **Skills** are protocols. Each skill (`/implement`, `/test`, `/fix`, `/analyze`, `/document`, `/brainstorm`, `/loop`, `/review`) defines a multi-phase procedure with interrogation, planning, execution, and synthesis stages. The protocol IS the task — the user's request is an input parameter.
+- **Skills** are protocols. Each skill (`/implement`, `/test`, `/fix`, `/analyze`, `/document`, `/brainstorm`, `/loop`, `/review`, `/research`, `/direct`) defines a multi-phase procedure with interrogation, planning, execution, and synthesis stages. The protocol IS the task — the user's request is an input parameter.
 - **Sessions** are containers. A session directory (`sessions/YYYY_MM_DD_TOPIC/`) holds all artifacts: logs, plans, debriefs, and state. Sessions are multi-modal — the same directory can host `/implement` followed by `/test`.
 - **Phases** are checkpoints. Each skill defines numbered phases (Setup, Interrogation, Planning, Execution, Synthesis). Phase transitions are mechanically enforced — agents cannot skip phases without user approval.
 
@@ -59,14 +59,23 @@ After synthesis (writing the debrief), the skill calls `engine session deactivat
 
 `.state.json` is the coordination contract. Key fields:
 
-| Field | Purpose |
-|-------|---------|
-| `pid` | Process identity (guards one-Claude-per-session) |
-| `skill` | Current skill name |
-| `currentPhase` | Phase for status line + restart recovery |
-| `lifecycle` | `active` / `completed` / `dehydrating` / `restarting` / `resuming` |
-| `overflowed` | Sticky flag — blocks `--resume` until fresh activation |
-| `contextUsage` | Raw context percentage (0.0–1.0) |
+- **`pid`**
+  Purpose: Process identity (guards one-Claude-per-session)
+
+- **`skill`**
+  Purpose: Current skill name
+
+- **`currentPhase`**
+  Purpose: Phase for status line + restart recovery
+
+- **`lifecycle`**
+  Purpose: `active` / `completed` / `dehydrating` / `restarting` / `resuming`
+
+- **`overflowed`**
+  Purpose: Sticky flag — blocks `--resume` until fresh activation
+
+- **`contextUsage`**
+  Purpose: Raw context percentage (0.0-1.0)
 
 See `~/.claude/docs/SESSION_LIFECYCLE.md` for the full state machine, all 11 scenarios, race conditions, and component responsibilities.
 
@@ -76,20 +85,86 @@ See `~/.claude/docs/SESSION_LIFECYCLE.md` for the full state machine, all 11 sce
 
 ### Available Skills
 
-| Skill | Purpose | Tier |
-|-------|---------|------|
-| `/implement` | Feature implementation with TDD | Protocol |
-| `/test` | Test design and coverage | Protocol |
-| `/fix` | Bug diagnosis and repair | Protocol |
-| `/analyze` | Code/architecture analysis | Protocol |
-| `/document` | Documentation updates | Protocol |
-| `/brainstorm` | Ideation and trade-off analysis | Protocol |
-| `/loop` | Prompt/schema iteration (TDD for LLMs) | Protocol |
-| `/review` | Cross-session work validation | Protocol |
-| `/chores` | Routine maintenance tasks | Utility |
-| `/delegation-create` | Task delegation between agents | Utility |
-| `/delegation-claim` | Worker-side claiming of delegated work | Utility |
-| `/delegation-review` | Dispatch approval for `#needs-X` tags | Utility |
+- **`/implement`**
+  Purpose: Feature implementation with TDD. Tier: Protocol
+
+- **`/test`**
+  Purpose: Test design and coverage. Tier: Protocol
+
+- **`/fix`**
+  Purpose: Bug diagnosis and repair. Tier: Protocol
+
+- **`/analyze`**
+  Purpose: Code/architecture analysis. Tier: Protocol
+
+- **`/document`**
+  Purpose: Documentation updates. Tier: Protocol
+
+- **`/brainstorm`**
+  Purpose: Ideation and trade-off analysis. Tier: Protocol
+
+- **`/loop`**
+  Purpose: Prompt/schema iteration (TDD for LLMs). Tier: Protocol
+
+- **`/review`**
+  Purpose: Cross-session work validation. Tier: Protocol
+
+- **`/research`**
+  Purpose: Async Gemini Deep Research cycles. Tier: Protocol
+
+- **`/direct`**
+  Purpose: Vision and coordination directives. Tier: Protocol
+
+- **`/do`**
+  Purpose: Quick ad-hoc task execution. Tier: Utility
+
+- **`/chores`**
+  Purpose: Routine maintenance tasks. Tier: Utility
+
+- **`/delegation-create`**
+  Purpose: Task delegation between agents. Tier: Utility
+
+- **`/delegation-claim`**
+  Purpose: Worker-side claiming of delegated work. Tier: Utility
+
+- **`/delegation-review`**
+  Purpose: Dispatch approval for `#needs-X` tags. Tier: Utility
+
+- **`/session`**
+  Purpose: Session lifecycle management. Tier: Utility
+
+- **`/engine`**
+  Purpose: Engine setup and configuration. Tier: Utility
+
+- **`/fleet`**
+  Purpose: Fleet tmux workspace management. Tier: Utility
+
+- **`/coordinate`**
+  Purpose: Multi-agent coordination. Tier: Utility
+
+- **`/edit-skill`**
+  Purpose: Skill scaffolding and editing. Tier: Utility
+
+- **`/decide`**
+  Purpose: Structured decision making. Tier: Utility
+
+- **`/graph`**
+  Purpose: Dependency and relationship graphing. Tier: Utility
+
+- **`/writeup`**
+  Purpose: Long-form writing and reports. Tier: Utility
+
+- **`/rewrite`**
+  Purpose: Content rewriting and restructuring. Tier: Utility
+
+- **`/workflow`**
+  Purpose: Workflow design and management. Tier: Utility
+
+- **`/improve-protocol`**
+  Purpose: Skill protocol improvement. Tier: Utility
+
+- **`/keybindings-help`**
+  Purpose: Keybinding reference and help. Tier: Utility
 
 **Protocol skills** run the full session lifecycle: Setup → Interrogation → Planning → Execution → Synthesis. **Utility skills** are lighter — they perform focused operations without the full ceremony.
 
@@ -106,7 +181,7 @@ Every protocol skill follows this structure:
 
 ### Mode Presets
 
-Many skills offer mode presets that configure their scope and approach. For example, `/document` offers Surgical (targeted fixes), Comprehensive (full rewrite), and Audit (read-only verification). `/analyze` offers Explore, Audit, Improve, and Custom. Modes are selected in Phase 1 via `AskUserQuestion`.
+Many skills offer mode presets that configure their scope and approach. For example, `/document` offers Surgical (targeted fixes), Audit (read-only verification), Refine (iterative improvement), and Custom. `/analyze` offers Explore, Audit, Improve, and Custom. Modes are selected in Phase 1 via `AskUserQuestion`.
 
 ---
 
@@ -117,7 +192,7 @@ The most powerful pattern in the workflow engine is **skill chaining**: completi
 ### How It Works
 
 1. A skill completes its synthesis phase and writes a debrief
-2. The debrief protocol (`§CMD_GENERATE_DEBRIEF`) runs post-synthesis steps: TOC management, invariant capture, side discovery tagging, leftover work reporting
+2. The synthesis pipeline (`§CMD_RUN_SYNTHESIS_PIPELINE`) runs multi-step post-work processing: checklists, debrief generation, directive management, delegation processing, side discoveries, cross-session tag resolution, backlink management, and leftover work reporting
 3. `§CMD_CLOSE_SESSION` deactivates the session and presents the "Next Skill" menu
 4. Each skill defines its own recommended next steps. For example, `/implement` recommends `/test`, `/test` recommends `/document`, `/document` recommends `/review`
 5. The user selects a skill (or types a skill name via "Other"), and the Skill tool invokes it
@@ -206,23 +281,36 @@ See `~/.claude/docs/FLEET.md` for full fleet documentation and `~/.claude/docs/D
 - **Approve** → tag swapped to `#done-review`
 - **Reject** → tag swapped to `#needs-rework`, rejection context added
 
-### Progress Summaries
-
-`/summarize-progress` generates cross-session reports — useful for end-of-day status updates or multi-day project tracking.
-
 ### Tag-Driven Quality
 
 The tag system (`~/.claude/.directives/SIGILS.md`) provides asynchronous work routing via the 4-state lifecycle:
 
-| Tag | Resolving Skill | When Applied | Daemon-Dispatchable |
-|-----|----------------|--------------|---------------------|
-| `#needs-review` | `/review` | Auto-applied at debrief creation | No (user-invoked) |
-| `#needs-documentation` | `/document` | Applied for code-changing sessions | Yes |
-| `#needs-implementation` | `/implement` | Applied inline when implementation work is deferred | Yes |
-| `#needs-brainstorm` | `/brainstorm` | Applied inline when topics need exploration | Yes |
-| `#needs-research` | `/research` | Applied for async Gemini Deep Research | Yes |
-| `#needs-fix` | `/fix` | Applied inline when bugs are identified | Yes |
-| `#needs-chores` | `/chores` | Applied for small self-contained tasks | Yes |
+- **`#needs-brainstorm`** → `/brainstorm`
+  Priority: 1 (exploration unblocks decisions). Daemon: Yes
+
+- **`#needs-direct`** → `/direct`
+  Priority: 1.5 (vision unblocks coordination). Daemon: Yes
+
+- **`#needs-research`** → `/research`
+  Priority: 2 (async, queue early). Daemon: Yes
+
+- **`#needs-fix`** → `/fix`
+  Priority: 3 (bugs block progress). Daemon: Yes
+
+- **`#needs-implementation`** → `/implement`
+  Priority: 4 (core work). Daemon: Yes
+
+- **`#needs-loop`** → `/loop`
+  Priority: 4.5 (iteration workloads). Daemon: Yes
+
+- **`#needs-chores`** → `/chores`
+  Priority: 5 (quick wins). Daemon: Yes
+
+- **`#needs-documentation`** → `/document`
+  Priority: 6 (post-code). Daemon: Yes
+
+- **`#needs-review`** → `/review`
+  Priority: 7 (quality gate). Daemon: No (user-invoked)
 
 Tags marked "Daemon-Dispatchable" follow the full 4-state lifecycle: `#needs-X` (staging) → `#delegated-X` (human-approved) → `#claimed-X` (worker active) → `#done-X` (resolved). The `#needs-X` → `#delegated-X` transition requires human approval via `/delegation-review` during synthesis.
 
@@ -232,7 +320,6 @@ A typical end-of-day pattern:
 
 ```
 /review              → Validate today's debriefs
-/summarize-progress  → Generate status report
 /delegation-claim    → Pick up any #delegated-* work items
 ```
 
@@ -244,18 +331,14 @@ Claude Code has a limited context window. When it fills up during long sessions,
 
 ### Detection
 
-The status line script (`statusline.sh`) tracks `contextUsage` in `.state.json`. The overflow hook (`pre-tool-use-overflow.sh`) fires before every tool call. When `contextUsage >= 0.76` (raw, which maps to ~95% of the 80% auto-compact threshold):
+The status line script (`statusline.sh`) tracks `contextUsage` in `.state.json`. The overflow hook (`pre-tool-use-overflow-v2.sh`) fires before every tool call. When `contextUsage >= 0.76` (raw, which maps to ~95% of the 80% auto-compact threshold):
 
 1. **Block**: All tools are blocked (except logging and session scripts)
-2. **Force dehydration**: Claude must run `/session dehydrate restart`
+2. **Force dehydration**: Claude must execute `§CMD_DEHYDRATE` — producing a JSON payload piped to `engine session dehydrate`
 
 ### Dehydration
 
-`/session dehydrate` writes `DEHYDRATED_CONTEXT.md` — a structured handover document containing:
-- Ultimate goal and strategy
-- Last action and outcome
-- Required files list (for reloading in the new context)
-- Next steps
+`§CMD_DEHYDRATE` produces a structured JSON payload containing the session summary, last action, next steps, and required file paths. This JSON is piped to `engine session dehydrate`, which stores it in `.state.json` and triggers a process restart.
 
 ### Restart
 
@@ -263,13 +346,7 @@ After dehydration, `engine session restart` signals the restart watchdog (via US
 
 ### Restoration
 
-The new Claude receives `/session continue` as its first prompt. `/session continue`:
-1. Activates the session (clears `overflowed`, sets new PID)
-2. Loads directives (COMMANDS.md, INVARIANTS.md, SIGILS.md)
-3. Reads `DEHYDRATED_CONTEXT.md`
-4. Loads all required files (session artifacts, skill templates, source code)
-5. Loads the original skill protocol
-6. Resumes at the saved phase
+The SessionStart hook (`session-start-restore.sh`) auto-injects dehydrated context from `.state.json` into the new agent's context. The agent then follows `§CMD_RESUME_SESSION` to re-activate the session and continue from the saved phase.
 
 **To the user, this is seamless**: the agent picks up exactly where it left off, with a fresh context window.
 
@@ -281,17 +358,15 @@ See `~/.claude/docs/CONTEXT_GUARDIAN.md` for component details and `~/.claude/do
 
 Three documents define the "operating system" for all agent interactions:
 
-| Document | Prefix | Role |
-|----------|--------|------|
-| `COMMANDS.md` | `§CMD_` | 32 named operations — the instruction set agents execute |
-| `INVARIANTS.md` | `¶INV_` | 23 universal rules — the laws that cannot be overridden |
-| `SIGILS.md` | `§FEED_` | 6 tag feeds — cross-session communication protocol |
+- **`COMMANDS.md`** — Prefix: `§CMD_`. 32 named operations — the instruction set agents execute.
+- **`INVARIANTS.md`** — Prefix: `¶INV_`. 23 universal rules — the laws that cannot be overridden.
+- **`SIGILS.md`** — Prefix: `§FEED_`. 6 tag feeds — cross-session communication protocol.
 
 Together they define ~1,100 lines of behavioral specification loaded into every agent session.
 
 ### Logging Discipline
 
-Agents must log every 3-4 tool calls to their `_LOG.md` file. This is mechanically enforced by `pre-tool-use-heartbeat.sh`:
+Agents must log every 3-4 tool calls to their `_LOG.md` file. This is mechanically enforced by `pre-tool-use-one-strike.sh`:
 - **Warn** at 3 tool calls without logging
 - **Block** at 10 tool calls without logging (tool use denied until a log entry is appended)
 
@@ -307,16 +382,14 @@ See `~/.claude/docs/DIRECTIVES_SYSTEM.md` for the full architecture of the stand
 
 ## 10. Cross-Reference Table
 
-| Topic | Detailed Documentation |
-|-------|----------------------|
-| Session state machine & scenarios | `~/.claude/docs/SESSION_LIFECYCLE.md` |
-| Fleet multi-agent workspace | `~/.claude/docs/FLEET.md` |
-| Context overflow protection | `~/.claude/docs/CONTEXT_GUARDIAN.md` |
-| Dispatch daemon & workers | `~/.claude/docs/DAEMON.md` |
-| Standards system architecture | `~/.claude/docs/DIRECTIVES_SYSTEM.md` |
-| Engine CLI & migrations | `~/.claude/docs/ENGINE_CLI.md` |
-| Engine script testing | `~/.claude/docs/ENGINE_TESTING.md` |
-| Command definitions | `~/.claude/.directives/COMMANDS.md` |
-| System invariants | `~/.claude/.directives/INVARIANTS.md` |
-| Tag feeds & lifecycle | `~/.claude/.directives/SIGILS.md` |
-| Individual skill protocols | `~/.claude/skills/[skill-name]/SKILL.md` |
+- **Session state machine & scenarios** — `~/.claude/docs/SESSION_LIFECYCLE.md`
+- **Fleet multi-agent workspace** — `~/.claude/docs/FLEET.md`
+- **Context overflow protection** — `~/.claude/docs/CONTEXT_GUARDIAN.md`
+- **Dispatch daemon & workers** — `~/.claude/docs/DAEMON.md`
+- **Standards system architecture** — `~/.claude/docs/DIRECTIVES_SYSTEM.md`
+- **Engine CLI & migrations** — `~/.claude/docs/ENGINE_CLI.md`
+- **Engine script testing** — `~/.claude/docs/ENGINE_TESTING.md`
+- **Command definitions** — `~/.claude/.directives/COMMANDS.md`
+- **System invariants** — `~/.claude/.directives/INVARIANTS.md`
+- **Tag feeds & lifecycle** — `~/.claude/.directives/SIGILS.md`
+- **Individual skill protocols** — `~/.claude/skills/[skill-name]/SKILL.md`

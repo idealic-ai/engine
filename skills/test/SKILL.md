@@ -9,7 +9,7 @@ Designs and writes test cases for code correctness and regression prevention.
 
 # Testing Protocol (The QA Standard)
 
-Execute `§CMD_EXECUTE_SKILL_PHASES`.
+Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### Session Parameters
 ```json
@@ -19,7 +19,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "0", "name": "Setup",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": ["§CMD_FIND_TAGGED_FILES"],
-      "proof": ["mode", "sessionDir", "parametersParsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"], "gate": false},
     {"label": "1", "name": "Strategy",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE", "§CMD_GENERATE_PLAN"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION", "§CMD_LINK_FILE"],
@@ -27,7 +27,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "2", "name": "Execution",
       "steps": ["§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
-      "proof": ["pathChosen", "pathsAvailable"]},
+      "proof": ["pathChosen", "pathsAvailable"], "gate": false},
     {"label": "2.A", "name": "Testing Loop",
       "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
@@ -37,15 +37,15 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "2.C", "name": "Parallel Agent Handoff",
       "steps": ["§CMD_PARALLEL_HANDOFF"], "commands": [], "proof": []},
     {"label": "3", "name": "Synthesis",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "3.1", "name": "Checklists",
-      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "3.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "3.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "3.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/document", "/implement", "/fix", "/analyze", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md", "CHECKLIST.md"],
@@ -65,12 +65,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 0: Testing ___. Trigger: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.*)`
+§CMD_EXECUTE_PHASE_STEPS(0.*)
 
 *   **Scope**: Understand the [Topic] and [Goal].
 
@@ -89,12 +89,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Strategy (Planning + Interrogation)
 *Before writing code, use the Anti-Fragile Checklist to generate high-value scenarios.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 1: Interrogating ___ testing assumptions, then building the plan. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.*)`
+§CMD_EXECUTE_PHASE_STEPS(1.*)
 
 ### Interrogation Depth Selection
 
@@ -215,24 +215,24 @@ After interrogation completes:
 ## 2. Execution
 *Gateway: select inline, agent handoff, or parallel handoff.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2: Selecting execution path for test implementation. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.*)
 
 ---
 
 ## 2.A. Testing Loop
 *Iterate through the Plan.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2.A: Executing ___-step testing plan. Target: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.A.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.A.*)
 
 **Build Cycle**:
 1.  **Write Test**: Create the test case (assert first).
@@ -245,9 +245,9 @@ After interrogation completes:
 ## 2.B. Agent Handoff
 *Hand off to a single autonomous agent.*
 
-`§CMD_EXECUTE_PHASE_STEPS(2.B.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.B.*)
 
-`§CMD_HANDOFF_TO_AGENT` with:
+§CMD_HANDOFF_TO_AGENT with:
 ```json
 {
   "agentName": "builder",
@@ -263,21 +263,21 @@ After interrogation completes:
 ## 2.C. Parallel Agent Handoff
 *Hand off to multiple autonomous agents in parallel.*
 
-`§CMD_EXECUTE_PHASE_STEPS(2.C.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.C.*)
 
-`§CMD_PARALLEL_HANDOFF` with the testing plan split across agents.
+§CMD_PARALLEL_HANDOFF with the testing plan split across agents.
 
 ---
 
 ## 3. Synthesis
 *When all tasks are complete.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3: Synthesizing. ___ test scenarios completed, ___ tests passing.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.0.*)
 
 **Debrief notes** (for `TESTING.md`):
 *   **Summary**: Pass/Fail rates.

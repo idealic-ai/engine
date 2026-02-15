@@ -144,8 +144,8 @@ EOF
   assert_empty "$output" "deduplicates against already-loaded files"
 }
 
-test_resolve_refs_skips_skill_md_cmd_refs() {
-  # Case 5: Should skip SKILL.md files for CMD refs
+test_resolve_refs_resolves_skill_md_cmd_refs() {
+  # Case 5: SKILL.md CMD refs ARE now resolved (exclusion removed)
   cat > "$ENGINE_DIRECTIVES/commands/CMD_FOO.md" <<'EOF'
 # CMD_FOO
 EOF
@@ -160,7 +160,7 @@ EOF
   local output
   output=$(resolve_refs "$test_file" 2 '[]')
 
-  assert_empty "$output" "SKILL.md CMD refs are excluded"
+  assert_contains "CMD_FOO.md" "$output" "SKILL.md CMD refs are resolved"
 }
 
 test_resolve_refs_finds_fmt_references() {
@@ -254,8 +254,8 @@ EOF
   assert_contains "CMD_BAR.md" "$output" "finds section sign reference §CMD_BAR"
 }
 
-test_resolve_refs_skill_md_allows_fmt() {
-  # Case 10: SKILL.md CAN trigger FMT preloading
+test_resolve_refs_skill_md_allows_all_refs() {
+  # Case 10: SKILL.md resolves both FMT and CMD refs
   cat > "$ENGINE_DIRECTIVES/formats/FMT_LIGHT_LIST.md" <<'EOF'
 # FMT_LIGHT_LIST
 EOF
@@ -274,7 +274,7 @@ EOF
   output=$(resolve_refs "$test_file" 2 '[]')
 
   assert_contains "FMT_LIGHT_LIST.md" "$output" "SKILL.md FMT refs are resolved"
-  assert_not_contains "CMD_FOO.md" "$output" "SKILL.md CMD refs are excluded"
+  assert_contains "CMD_FOO.md" "$output" "SKILL.md CMD refs are resolved"
 }
 
 test_resolve_refs_nonexistent_file() {
@@ -389,21 +389,308 @@ EOF
   assert_empty "$output" "unresolvable reference silently skipped"
 }
 
+# --- Integration Tests: Hook Wiring ---
+# These tests verify that _claim_and_preload() in overflow-v2.sh and the
+# templates hook correctly invoke resolve_refs() and queue results into
+# pendingPreloads in .state.json.
+
+# Capture real hook paths before HOME gets swapped
+_REAL_OVERFLOW_HOOK="$(cd "$(dirname "$0")/../../hooks" && pwd)/pre-tool-use-overflow-v2.sh"
+_REAL_TEMPLATES_HOOK="$(cd "$(dirname "$0")/../../hooks" && pwd)/post-tool-use-templates.sh"
+
+# Extract a bash function from a script file without executing the script.
+# Uses awk to find the function definition and track brace depth.
+_extract_function() {
+  local file="$1" func_name="$2"
+  awk -v name="$func_name" '
+    $0 ~ "^" name "\\(\\) \\{" { found=1; depth=0 }
+    found {
+      for (i=1; i<=length($0); i++) {
+        c = substr($0, i, 1)
+        if (c == "{") depth++
+        if (c == "}") depth--
+      }
+      print
+      if (found && depth == 0) { exit }
+    }
+  ' "$file"
+}
+
+# Integration setup: extends base setup with .state.json and hook functions.
+integration_setup() {
+  setup
+
+  # Source lib.sh for resolve_refs, safe_json_write, normalize_preload_path
+  source "$FAKE_HOME/.claude/scripts/lib.sh"
+
+  # Extract _claim_and_preload from the real overflow hook
+  eval "$(_extract_function "$_REAL_OVERFLOW_HOOK" "_claim_and_preload")"
+
+  # Create a session directory with .state.json
+  TEST_SESSION="$TMP_DIR/sessions/test_session"
+  mkdir -p "$TEST_SESSION"
+  STATE_FILE="$TEST_SESSION/.state.json"
+}
+
+# Helper: create a .state.json with given preloadedFiles and pendingPreloads
+_write_state() {
+  local preloaded="${1:-[]}" pending="${2:-[]}"
+  cat > "$STATE_FILE" <<STATEOF
+{
+  "lifecycle": "active",
+  "skill": "test",
+  "currentPhase": "0: Setup",
+  "preloadedFiles": $preloaded,
+  "pendingPreloads": $pending
+}
+STATEOF
+}
+
+test_integration_claim_and_preload_queues_refs() {
+  # 3.A.1/1: Preloading CMD_A (which refs §CMD_B) should queue CMD_B into pendingPreloads
+  integration_setup
+
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_A.md" <<'EOF'
+# CMD_A
+Execute §CMD_B after setup.
+EOF
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_B.md" <<'EOF'
+# CMD_B
+A dependency command.
+EOF
+
+  local cmd_a_path
+  cmd_a_path=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_A.md")
+  _write_state '[]' '[]'
+
+  _claim_and_preload "$STATE_FILE" <<< "$cmd_a_path"
+
+  # CMD_A should be in preloadedFiles
+  local preloaded
+  preloaded=$(jq -r '.preloadedFiles[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
+  assert_contains "CMD_A.md" "$preloaded" "CMD_A is in preloadedFiles"
+
+  # CMD_B should be in pendingPreloads (queued by resolve_refs)
+  local pending
+  pending=$(jq -r '.pendingPreloads[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
+  assert_contains "CMD_B.md" "$pending" "CMD_B queued in pendingPreloads"
+
+  teardown
+}
+
+test_integration_claim_dedup_against_preloaded() {
+  # 3.A.1/2: If CMD_B is already in preloadedFiles, resolve_refs should NOT re-queue it
+  integration_setup
+
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_A.md" <<'EOF'
+# CMD_A
+Execute §CMD_B after setup.
+EOF
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_B.md" <<'EOF'
+# CMD_B
+Already loaded.
+EOF
+
+  local cmd_a_path cmd_b_path
+  cmd_a_path=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_A.md")
+  cmd_b_path=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_B.md")
+
+  # Pre-populate preloadedFiles with CMD_B
+  _write_state "[\"$cmd_b_path\"]" '[]'
+
+  _claim_and_preload "$STATE_FILE" <<< "$cmd_a_path"
+
+  # pendingPreloads should be empty — CMD_B is already loaded
+  local pending_count
+  pending_count=$(jq '.pendingPreloads | length' "$STATE_FILE" 2>/dev/null)
+  assert_eq "0" "$pending_count" "no refs queued when already preloaded"
+
+  teardown
+}
+
+test_integration_claim_ignores_code_fence_refs() {
+  # 3.A.1/3: Refs inside code fences should NOT be queued
+  integration_setup
+
+  # Create CMD files that would be burst-loaded if code fences weren't filtered
+  for name in CMD_STEP1 CMD_STEP2 CMD_STEP3 CMD_STEP4 CMD_STEP5; do
+    cat > "$ENGINE_DIRECTIVES/commands/${name}.md" <<EOF
+# $name
+EOF
+  done
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_BARE_REF.md" <<'EOF'
+# CMD_BARE_REF
+A real dependency.
+EOF
+
+  # CMD_PIPELINE has 5 refs inside a code fence and 1 bare ref outside
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_PIPELINE.md" <<'CMDEOF'
+# CMD_PIPELINE
+Execute §CMD_BARE_REF first.
+
+```json
+{
+  "steps": ["§CMD_STEP1", "§CMD_STEP2", "§CMD_STEP3", "§CMD_STEP4", "§CMD_STEP5"]
+}
+```
+CMDEOF
+
+  local pipeline_path
+  pipeline_path=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_PIPELINE.md")
+  _write_state '[]' '[]'
+
+  _claim_and_preload "$STATE_FILE" <<< "$pipeline_path"
+
+  local pending
+  pending=$(jq -r '.pendingPreloads[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
+
+  # Only CMD_BARE_REF should be queued, not the 5 code-fence refs
+  assert_contains "CMD_BARE_REF.md" "$pending" "bare ref outside code fence is queued"
+  assert_not_contains "CMD_STEP1.md" "$pending" "code fence ref STEP1 not queued"
+  assert_not_contains "CMD_STEP2.md" "$pending" "code fence ref STEP2 not queued"
+  assert_not_contains "CMD_STEP5.md" "$pending" "code fence ref STEP5 not queued"
+
+  teardown
+}
+
+test_integration_claim_depth2_chain() {
+  # 3.A.1/4: CMD_A → CMD_B → CMD_C should queue both B and C
+  integration_setup
+
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_A.md" <<'EOF'
+# CMD_A
+Execute §CMD_B.
+EOF
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_B.md" <<'EOF'
+# CMD_B
+Then execute §CMD_C.
+EOF
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_C.md" <<'EOF'
+# CMD_C
+Leaf command.
+EOF
+
+  local cmd_a_path
+  cmd_a_path=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_A.md")
+  _write_state '[]' '[]'
+
+  _claim_and_preload "$STATE_FILE" <<< "$cmd_a_path"
+
+  local pending
+  pending=$(jq -r '.pendingPreloads[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
+  assert_contains "CMD_B.md" "$pending" "depth-1 ref CMD_B queued"
+  assert_contains "CMD_C.md" "$pending" "depth-2 ref CMD_C queued"
+
+  teardown
+}
+
+test_integration_templates_hook_queues_refs() {
+  # 3.A.1/5: Templates hook's resolve_refs path queues refs into pendingPreloads
+  integration_setup
+
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_TARGET.md" <<'EOF'
+# CMD_TARGET
+Referenced by a template-delivered file.
+EOF
+
+  # Simulate a template-delivered CMD file that references CMD_TARGET
+  local delivered_file="$ENGINE_DIRECTIVES/commands/CMD_DELIVERED.md"
+  cat > "$delivered_file" <<'EOF'
+# CMD_DELIVERED
+After delivery, resolve §CMD_TARGET.
+EOF
+
+  local delivered_path
+  delivered_path=$(normalize_preload_path "$delivered_file")
+  # Mark CMD_DELIVERED as already preloaded (templates hook adds to preloadedFiles first)
+  _write_state "[\"$delivered_path\"]" '[]'
+
+  # Simulate the templates hook's resolve_refs integration block:
+  #   current_loaded = .preloadedFiles
+  #   refs = resolve_refs(file, 2, current_loaded)
+  #   queue refs into pendingPreloads via jq
+  source "$FAKE_HOME/.claude/scripts/lib.sh"
+  local current_loaded
+  current_loaded=$(jq '.preloadedFiles // []' "$STATE_FILE" 2>/dev/null)
+  local abs_path="${delivered_path/#\~/$HOME}"
+  local refs
+  refs=$(resolve_refs "$abs_path" 2 "$current_loaded") || true
+
+  if [ -n "$refs" ]; then
+    local refs_json="[]"
+    while IFS= read -r ref_path; do
+      [ -n "$ref_path" ] || continue
+      refs_json=$(echo "$refs_json" | jq --arg f "$ref_path" '. + [$f]')
+    done <<< "$refs"
+
+    jq --argjson refs "$refs_json" '
+      (.preloadedFiles // []) as $pf |
+      (.pendingPreloads //= []) |
+      reduce ($refs[]) as $r (.;
+        if ($pf | any(. == $r)) then .
+        elif (.pendingPreloads | index($r)) then .
+        else .pendingPreloads += [$r]
+        end
+      )
+    ' "$STATE_FILE" | safe_json_write "$STATE_FILE"
+  fi
+
+  local pending
+  pending=$(jq -r '.pendingPreloads[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
+  assert_contains "CMD_TARGET.md" "$pending" "templates hook path queues refs into pendingPreloads"
+
+  teardown
+}
+
+test_integration_claim_silent_skip_unresolvable() {
+  # 3.A.1/6: Unresolvable refs should be silently skipped, no error
+  integration_setup
+
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_WITH_MISSING.md" <<'EOF'
+# CMD_WITH_MISSING
+Depends on §CMD_DOES_NOT_EXIST which has no file.
+EOF
+
+  local cmd_path
+  cmd_path=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_WITH_MISSING.md")
+  _write_state '[]' '[]'
+
+  # Should not fail
+  _claim_and_preload "$STATE_FILE" <<< "$cmd_path"
+  local exit_code=$?
+
+  assert_eq "0" "$exit_code" "no error on unresolvable ref"
+
+  # pendingPreloads should be empty (nothing to resolve)
+  local pending_count
+  pending_count=$(jq '.pendingPreloads | length' "$STATE_FILE" 2>/dev/null)
+  assert_eq "0" "$pending_count" "no refs queued for unresolvable"
+
+  teardown
+}
+
 # --- Run all tests ---
 run_test test_resolve_refs_finds_bare_cmd_references
 run_test test_resolve_refs_ignores_backtick_escaped
 run_test test_resolve_refs_respects_depth_limit
 run_test test_resolve_refs_dedup_against_already_loaded
-run_test test_resolve_refs_skips_skill_md_cmd_refs
+run_test test_resolve_refs_resolves_skill_md_cmd_refs
 run_test test_resolve_refs_finds_fmt_references
 run_test test_resolve_refs_walk_up_local_override
 run_test test_resolve_refs_no_references
 run_test test_resolve_refs_only_section_sign_not_pilcrow
-run_test test_resolve_refs_skill_md_allows_fmt
+run_test test_resolve_refs_skill_md_allows_all_refs
 run_test test_resolve_refs_nonexistent_file
 run_test test_resolve_refs_zero_depth
 run_test test_resolve_refs_dedup_within_output
 run_test test_resolve_refs_inv_prefix
 run_test test_resolve_refs_skips_code_fence_content
 run_test test_resolve_refs_unresolvable_ref
+# Integration tests
+run_test test_integration_claim_and_preload_queues_refs
+run_test test_integration_claim_dedup_against_preloaded
+run_test test_integration_claim_ignores_code_fence_refs
+run_test test_integration_claim_depth2_chain
+run_test test_integration_templates_hook_queues_refs
+run_test test_integration_claim_silent_skip_unresolvable
 exit_with_results

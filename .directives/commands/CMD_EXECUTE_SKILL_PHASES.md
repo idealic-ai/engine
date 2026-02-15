@@ -39,7 +39,7 @@ Find the matching phase section in SKILL.md (e.g., `## 0. Setup`, `## 1. Interro
 
 ### Step 3: Transition to Next Phase
 
-When the current phase's work is complete, transition via `engine session phase` (either directly or through `§CMD_GATE_PHASE`). This:
+When the current phase's work is complete, transition via `engine session phase` (automatic at the end of §CMD_EXECUTE_PHASE_STEPS). This:
 1. Records proof for the phase being left (FROM validation)
 2. Updates `currentPhase` in `.state.json`
 3. Outputs the new phase's steps/commands/proof in stdout
@@ -88,7 +88,7 @@ If context overflows mid-skill:
 ## Constraints
 
 - **Boot sector position**: This must be the first instruction in SKILL.md (`¶INV_BOOT_SECTOR_AT_TOP`).
-- **No phase skipping**: Execute phases in order. The only exception is user-approved skips via `§CMD_GATE_PHASE` custom options.
+- **No phase skipping**: Execute phases in order. The only exception is user-approved skips via `§CMD_EXECUTE_PHASE_STEPS` gate options.
 - **No backward jumps without approval**: Moving to an earlier phase requires `--user-approved` flag on `engine session phase`.
 - **Utility-tier skills don't use this**: Only protocol-tier skills (with phases arrays) use the boot sector. Sessionless utilities (do, session, engine, fleet, etc.) have no phases.
 - **`¶INV_PROTOCOL_IS_TASK`**: The protocol defines the task — do not skip phases or steps.

@@ -13,7 +13,7 @@ Read `.state.json` to get the `phases` array and `currentPhase`. Identify **cand
 **Discovery logic**:
 1. Get the current phase's major number `N` (e.g., if current is `3: Execution`, N=3).
 2. Collect all phases with labels matching `N.A`, `N.B`, `N.C`, etc. — these are the mutually exclusive branch paths.
-3. If no branch candidates exist, skip this command — proceed directly to the next phase via `§CMD_GATE_PHASE`.
+3. If no branch candidates exist, skip this command -- proceed directly to the next phase via `§CMD_EXECUTE_PHASE_STEPS` (which handles the gate automatically).
 
 **Path types** (by convention):
 *   **`N.A`**: Inline execution — the agent does the work in this conversation (Build Loop, Fix Loop, Testing Loop, Operation, etc.)
@@ -24,7 +24,7 @@ Letter suffixes are convention, not enforced. The paths are whatever the skill d
 
 ### Step 2: Present Choice
 
-Invoke `§CMD_DECISION_TREE` with `§ASK_EXECUTION_PATH`. Use preamble context to describe the discovered paths (from Step 1) with their phase names from the manifest.
+Invoke §CMD_DECISION_TREE with `§ASK_EXECUTION_PATH`. Use preamble context to describe the discovered paths (from Step 1) with their phase names from the manifest.
 
 **Option order**: Inline first (recommended default), then single agent, then parallel.
 

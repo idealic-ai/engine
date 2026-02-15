@@ -174,9 +174,6 @@ Execute `AskUserQuestion` (multiSelect: false):
 > - **"Yes (2 workers)"** — Small pool with 2 background workers
 > - **"No"** — No delegation pool
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`.
-
 ---
 
 ## 2. Generate Layout Phase
@@ -376,9 +373,6 @@ Execute `AskUserQuestion` (multiSelect: false):
 
 5. **Confirm**: "Updated `{YML_PATH}`. Changes will persist on fleet restart."
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`.
-
 ---
 
 ## 3. Present & Confirm Phase
@@ -426,10 +420,6 @@ Show the proposed layout with workgroup organization:
 Adjust anything? (Add/remove/rename/reorder)
 ```
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`:
-  custom: "Go back to Phase 1 | Re-interview for different setup"
-
 ---
 
 ## 4. Save & Generate Phase
@@ -456,10 +446,6 @@ Execute `§CMD_GATE_PHASE`:
    To update: /fleet update
    To rearrange: /fleet rearrange
    ```
-
-### Phase Transition
-Execute `§CMD_GATE_PHASE`:
-  custom: "Done | Exit the fleet designer"
 
 ---
 

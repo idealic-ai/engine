@@ -67,6 +67,8 @@ ACTION="${1:?Usage: session.sh <init|activate|update|find|restart> <path> [args.
 # DIR is required for all commands except 'find' and 'request-template'
 if [ "$ACTION" = "find" ] || [ "$ACTION" = "request-template" ]; then
   DIR=""
+elif [ "$ACTION" = "continue" ] && [ -z "${2:-}" ]; then
+  DIR=""  # Auto-detect in the continue handler
 else
   DIR=$(resolve_session_path "${2:?Missing directory path}")
 fi
@@ -1465,6 +1467,13 @@ case "$ACTION" in
           ($props[.].description // "") as $desc |
           if $desc != "" then "  - \(.): \($desc)" else "  - \(.)" end'
       fi
+
+      # Output gate configuration (default: true)
+      NEW_GATE=$(jq -r --arg rl "$REQ_LABEL" "
+        $JQ_LABEL_HELPERS
+        (.phases[] | select(phase_lbl == \$rl) | .gate) // true
+      " "$STATE_FILE" 2>/dev/null || echo "true")
+      echo "Gate: $NEW_GATE"
     fi
     ;;
 
@@ -1489,8 +1498,18 @@ case "$ACTION" in
     # Clears loading flag, resets heartbeat counters — does NOT touch phase state.
     # The saved phase in .state.json is the single source of truth.
     #
-    # Usage: session.sh continue <path>
-    # Output: Rich context info (session, skill, phase, log file)
+    # Usage: session.sh continue [path]
+    # If path omitted: auto-detect via fleet pane ID (tmux) or PID fallback
+    # Output: Rich context info (session, skill, phase, log file, artifacts, next skills)
+
+    # Auto-detect session if no path given
+    if [ -z "$DIR" ]; then
+      DIR=$("$0" find 2>/dev/null) || {
+        echo "No active session found. Use a /skill to start one." >&2
+        exit 1
+      }
+      STATE_FILE="$DIR/.state.json"
+    fi
 
     if [ ! -f "$STATE_FILE" ]; then
       echo "§CMD_REQUIRE_ACTIVE_SESSION: No .state.json in $DIR — is the session active?" >&2
@@ -1518,6 +1537,21 @@ case "$ACTION" in
     echo "  Skill: $SKILL"
     echo "  Phase: $CURRENT_PHASE"
     echo "  Log: $LOG_FILE"
+
+    # List session artifacts for slow-path resume (agent uses this instead of manual ls)
+    echo ""
+    echo "## Artifacts"
+    for f in "$DIR"/*.md; do
+      [ -f "$f" ] && echo "  $(basename "$f")"
+    done
+
+    # Output nextSkills for routing context
+    NEXT_SKILLS_C=$(jq -r '(.nextSkills // []) | .[]' "$STATE_FILE" 2>/dev/null || echo "")
+    if [ -n "$NEXT_SKILLS_C" ]; then
+      echo ""
+      echo "## Next Skills"
+      echo "$NEXT_SKILLS_C"
+    fi
     ;;
 
   debrief)
@@ -1942,6 +1976,14 @@ case "$ACTION" in
 
     echo "Session deactivated: $DIR (lifecycle=completed)"
 
+    # Output nextSkills so the agent can present the menu without reading .state.json
+    NEXT_SKILLS=$(jq -r '(.nextSkills // []) | .[]' "$STATE_FILE" 2>/dev/null || echo "")
+    if [ -n "$NEXT_SKILLS" ]; then
+      echo ""
+      echo "## Next Skills"
+      echo "$NEXT_SKILLS"
+    fi
+
     # Run RAG search FIRST (query old index — still useful for session linkage)
     # The search scripts load .env internally — no GEMINI_API_KEY guard needed here
     SESSION_SEARCH="$HOME/.claude/tools/session-search/session-search.sh"
@@ -2020,6 +2062,14 @@ case "$ACTION" in
 
     echo "Session idle: $DIR (lifecycle=idle, awaiting next skill)"
 
+    # Output nextSkills so the agent can present the menu without reading .state.json
+    NEXT_SKILLS=$(jq -r '(.nextSkills // []) | .[]' "$STATE_FILE" 2>/dev/null || echo "")
+    if [ -n "$NEXT_SKILLS" ]; then
+      echo ""
+      echo "## Next Skills"
+      echo "$NEXT_SKILLS"
+    fi
+
     # Run RAG search (same as deactivate)
     SESSION_SEARCH="$HOME/.claude/tools/session-search/session-search.sh"
     DOC_SEARCH="$HOME/.claude/tools/doc-search/doc-search.sh"
@@ -2096,7 +2146,7 @@ case "$ACTION" in
         tmux send-keys $target_flag Escape 2>/dev/null
         sleep 1
         tmux send-keys $target_flag Escape 2>/dev/null
-        sleep 0.3
+        sleep 0.5
         tmux send-keys $target_flag -l "/clear" 2>/dev/null
         tmux send-keys $target_flag Enter 2>/dev/null
         if [ -n "$PROMPT" ]; then
@@ -2164,7 +2214,7 @@ case "$ACTION" in
         tmux send-keys $target_flag Escape 2>/dev/null
         sleep 1
         tmux send-keys $target_flag Escape 2>/dev/null
-        sleep 0.3
+        sleep 0.5
         tmux send-keys $target_flag -l "/clear" 2>/dev/null
         tmux send-keys $target_flag Enter 2>/dev/null
         # Send restart prompt after /clear settles (if set)
@@ -2219,7 +2269,7 @@ case "$ACTION" in
         tmux send-keys $target_flag Escape 2>/dev/null
         sleep 1
         tmux send-keys $target_flag Escape 2>/dev/null
-        sleep 0.3
+        sleep 0.5
         tmux send-keys $target_flag -l "/clear" 2>/dev/null
         tmux send-keys $target_flag Enter 2>/dev/null
       ) &

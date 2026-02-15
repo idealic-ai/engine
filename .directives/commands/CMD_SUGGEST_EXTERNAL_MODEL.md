@@ -1,5 +1,5 @@
 ### ¶CMD_SUGGEST_EXTERNAL_MODEL
-**Definition**: Present an external model selection via `AskUserQuestion`. Records the user's choice (model name or "claude") for downstream use by `§CMD_EXECUTE_EXTERNAL_MODEL`. Generic command — any skill can invoke it to offer external model delegation.
+**Definition**: Present an external model selection via `AskUserQuestion`. Records the user's choice (model name or "claude") for downstream use by §CMD_EXECUTE_EXTERNAL_MODEL. Generic command — any skill can invoke it to offer external model delegation.
 **Trigger**: Called during Phase 0 (Setup) of skills that support external model delegation, after `§CMD_SELECT_MODE`. **Opt-in only** — skills that don't need external models simply don't invoke this CMD. Currently used by `/document` and `/rewrite`.
 
 **Prerequisites**:
@@ -10,7 +10,7 @@
 
 ## Algorithm
 
-1.  **Present**: Invoke `§CMD_DECISION_TREE` with `§ASK_MODEL_SELECTION`. Use the skill's `modelQuestion` phrasing as the preamble context.
+1.  **Present**: Invoke §CMD_DECISION_TREE with `§ASK_MODEL_SELECTION`. Use the skill's `modelQuestion` phrasing as the preamble context.
 
 2.  **Record**: Store the selected model as `externalModel` based on the tree path:
     *   `PRO` → `externalModel = "gemini-3-pro-preview"`
@@ -19,7 +19,7 @@
     *   `OTH/CUS` → Parse as a model name string, otherwise default to `"claude"`
     *   `OTH/SKP` → `externalModel = "claude"`
 
-3.  **Effect**: The recorded `externalModel` value is used by `§CMD_EXECUTE_EXTERNAL_MODEL` in the skill's execution phase. When `externalModel = "claude"`, the skill proceeds normally (Claude writes inline). When set to a Gemini model, the skill gathers context file paths instead of reading files into context, and delegates writing to `§CMD_EXECUTE_EXTERNAL_MODEL`.
+3.  **Effect**: The recorded `externalModel` value is used by §CMD_EXECUTE_EXTERNAL_MODEL in the skill's execution phase. When `externalModel = "claude"`, the skill proceeds normally (Claude writes inline). When set to a Gemini model, the skill gathers context file paths instead of reading files into context, and delegates writing to §CMD_EXECUTE_EXTERNAL_MODEL.
 
 **Constraints**:
 *   This CMD only asks the question and records the answer. It does NOT execute any model calls.

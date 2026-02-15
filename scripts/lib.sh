@@ -29,6 +29,19 @@
 [ -n "${_LIB_SH_LOADED:-}" ] && return 0
 _LIB_SH_LOADED=1
 
+# rotation_log EVENT DETAIL — Append to account rotation log
+# Format: [YYYY-MM-DD HH:MM:SS] EVENT: detail
+# Log file: ~/.claude/accounts/rotation.log
+rotation_log() {
+  local event="${1:?rotation_log requires EVENT}" detail="${2:-}"
+  local log_dir="$HOME/.claude/accounts"
+  local log_file="$log_dir/rotation.log"
+  mkdir -p "$log_dir"
+  local ts
+  ts=$(date +"%Y-%m-%d %H:%M:%S")
+  echo "[$ts] $event: $detail" >> "$log_file"
+}
+
 # notify_fleet STATE — Send fleet notification if in fleet tmux
 # Safely no-ops outside fleet. STATE: working|done|error|unchecked
 notify_fleet() {
@@ -615,9 +628,12 @@ tmux_interrupt_and_paste() {
   fi
   # ESC cancels Claude Code's current generation
   tmux send-keys $target_flag Escape 2>/dev/null
-  sleep 0.5
+  sleep 0.3
   # Second ESC for reliability (belt and suspenders)
   tmux send-keys $target_flag Escape 2>/dev/null
+  sleep 0.3
+  # Ctrl+U clears the textarea (any leftover typed text)
+  tmux send-keys $target_flag C-u 2>/dev/null
   sleep 0.3
   # Now paste the text
   tmux_paste "$text"
@@ -784,11 +800,6 @@ resolve_refs() {
     local full_name="${ref#§}"
     local prefix="${full_name%%_*}"
     local ref_name="$full_name"
-
-    # SKILL.md exclusion: skip CMD refs (but allow FMT and INV)
-    if [ "$is_skill_md" = "true" ] && [ "$prefix" = "CMD" ]; then
-      continue
-    fi
 
     # Prefix-to-folder mapping
     local folder

@@ -9,7 +9,7 @@ Hypothesis-driven iteration engine for any LLM workload.
 
 # Loop Protocol (The Iteration Engine)
 
-Execute `§CMD_EXECUTE_SKILL_PHASES`.
+Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ARGUMENTS: Accepts optional flags:
 - `--manifest <path>`: Use existing manifest instead of interrogation
@@ -25,7 +25,8 @@ ARGUMENTS: Accepts optional flags:
     {"label": "0", "name": "Setup",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "sessionDir", "parametersParsed", "flagsParsed", "routing"]},
+      "proof": ["mode", "sessionDir", "parametersParsed", "flagsParsed", "routing"],
+      "gate": false},
     {"label": "1", "name": "Interrogation",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
@@ -47,15 +48,15 @@ ARGUMENTS: Accepts optional flags:
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS"],
       "proof": ["iterationsCompleted", "logEntries", "exitCondition"]},
     {"label": "6", "name": "Synthesis",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "6.1", "name": "Checklists",
-      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "6.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "6.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "6.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/loop", "/test", "/implement", "/analyze", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
@@ -77,12 +78,12 @@ ARGUMENTS: Accepts optional flags:
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 0: Iterating on ___ workload. Trigger: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(0.0.*)
 
 *   **Scope**: Understand the workload, parse flags, select iteration strategy, load context.
 
@@ -123,12 +124,12 @@ ARGUMENTS: Accepts optional flags:
 ## 1. Interrogation (Manifest Creation)
 *Build the workload manifest through guided questioning.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 1: Interrogating ___ assumptions before designing experiments. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(1.0.*)
 
 ### Topics (Loop)
 *Standard topics for the command to draw from. Adapt to the workload -- skip irrelevant ones, invent new ones as needed.*
@@ -183,21 +184,17 @@ If the user doesn't have existing agent prompts:
 2.  **Validate**: Check against `MANIFEST_SCHEMA.json`.
 3.  **Present**: Show the manifest to the user for confirmation.
 
-### Phase Transition
-`§CMD_GATE_PHASE`:
-  custom: "Skip to Phase 3: Calibration | Jump straight to single-fixture test"
-
 ---
 
 ## 2. Planning (Experiment Design)
 *Before iterating, design the experiment. Measure twice, cut once.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2: Planning iteration experiments for ___ workload. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.0.*)
 
 ### Step A: Gather Failure Context
 
@@ -235,21 +232,17 @@ If the user doesn't have existing agent prompts:
 2.  **Qualitative**: What improvements do we expect to see?
 3.  **Exit Conditions**: When do we stop iterating?
 
-### Phase Transition
-`§CMD_GATE_PHASE`:
-  custom: "Skip to Phase 4: Baseline | Manifest already validated, go straight to baseline"
-
 ---
 
 ## 3. Calibration (Single-Fixture Test)
 *Prove the manifest works before committing to the full loop.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3: Calibrating pipeline with single fixture for ___ workload. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.0.*)
 
 ### Step A: Select Test Fixture
 
@@ -281,20 +274,17 @@ If the user doesn't have existing agent prompts:
     4.  **Loop**: Return to Step B and retry (max 3 attempts).
     5.  **If 3 failures**: Abort with "Please fix the manifest manually and re-run with `--manifest <path>`."
 
-### Phase Transition
-`§CMD_GATE_PHASE`.
-
 ---
 
 ## 4. Baseline (Initial Metrics)
 *Establish the starting point before any iteration.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 4: Running baseline for ___ workload. All cases, iteration 0.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(4.0.*)
 
 ### Step A: Form Initial Hypothesis
 
@@ -318,20 +308,17 @@ If the user doesn't have existing agent prompts:
 2.  **List Issues**: Show which cases had problems and why (if known).
 3.  Present choice: "Baseline: X/Y passing. Ready to begin iteration?" / "Let me review first"
 
-### Phase Transition
-`§CMD_GATE_PHASE`.
-
 ---
 
 ## 5. Iteration Loop (The Core Cycle)
 *HYPOTHESIZE -> RUN -> REVIEW -> ANALYZE -> DECIDE -> EDIT*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 5: Entering iteration loop for ___ workload. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(5.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(5.0.*)
 
 ### For Each Iteration (1 to maxIterations):
 
@@ -409,21 +396,17 @@ If the user doesn't have existing agent prompts:
 
 *   **Otherwise**: Continue to next iteration (loop back to Step A).
 
-### Phase Transition
-`§CMD_GATE_PHASE`:
-  custom: "Re-run baseline comparison | Compare current state to original baseline"
-
 ---
 
 ## 6. Synthesis
 *When iteration is complete.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 6: Synthesizing. ___ iterations completed, ___ cases passing.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(6.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(6.0.*)
 
 **Debrief notes** (for `LOOP.md`):
 *   Populate iteration history table with hypothesis records.

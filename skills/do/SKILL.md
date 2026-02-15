@@ -9,7 +9,7 @@ Lightweight session for quick ad-hoc work -- no interrogation, no planning, no c
 
 # /do Protocol (The Quick Operator's Code)
 
-Execute `§CMD_EXECUTE_SKILL_PHASES`.
+Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### Session Parameters
 ```json
@@ -19,21 +19,21 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "0", "name": "Setup",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS"],
       "commands": [],
-      "proof": ["sessionDir", "parametersParsed"]},
+      "proof": ["sessionDir", "parametersParsed"], "gate": false},
     {"label": "1", "name": "Work",
       "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_ASK_USER_IF_STUCK"],
       "proof": ["logEntries"]},
     {"label": "2", "name": "Synthesis",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "2.1", "name": "Checklists",
-      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "2.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "2.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "2.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/do", "/implement", "/analyze", "/chores"],
   "directives": [],
@@ -46,12 +46,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 0: Quick task: ___. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(0.0.*)
 
 *   **Scope**: Understand the user's request. This is the task -- no interrogation needed.
 
@@ -62,12 +62,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Work
 *The heart of /do: just do the work.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 1: Working on ___. Logging as I go.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(1.0.*)
 
 ### How This Phase Works
 There is no formal structure -- no interrogation, no planning, no task gates. The agent works on whatever the user requested, asks clarifying questions as needed, and logs progress.
@@ -94,20 +94,17 @@ If the user explicitly says "done", "that's it", "close", or similar -- skip the
 
 **On "Keep working"**: Log a done entry for the completed unit, then remain in Phase 1. The agent waits for the user's next request. Repeat this gate after each subsequent unit of work.
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`.
-
 ---
 
 ## 2. Synthesis
 *Wrap up and create the debrief.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2: Synthesizing. ___ units of work completed.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.0.*)
 
 **Debrief notes** (for `DO.md`):
 *   Fill in every section from the template based on the work done.

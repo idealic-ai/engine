@@ -1,9 +1,9 @@
 ### ¶CMD_EXECUTE_EXTERNAL_MODEL
 **Definition**: Executes a writing/synthesis task via an external model (Gemini). Accepts a prompt, optional template with variables, and context file paths. Calls `engine gemini` and returns the result on stdout. The calling skill decides where to write the output.
-**Trigger**: Called during execution/writing phases of skills that support external model delegation, when `§CMD_SUGGEST_EXTERNAL_MODEL` recorded a non-claude model choice.
+**Trigger**: Called during execution/writing phases of skills that support external model delegation, when §CMD_SUGGEST_EXTERNAL_MODEL recorded a non-claude model choice.
 
 **Prerequisites**:
-*   `§CMD_SUGGEST_EXTERNAL_MODEL` has been called and recorded `externalModel` (a Gemini model name).
+*   §CMD_SUGGEST_EXTERNAL_MODEL has been called and recorded `externalModel` (a Gemini model name).
 *   The skill has gathered all relevant context file paths (not contents — paths only).
 *   The skill has composed its prompt text describing what to produce.
 
@@ -11,7 +11,7 @@
 
 ## Algorithm
 
-1.  **Check Model**: Read the `externalModel` value recorded by `§CMD_SUGGEST_EXTERNAL_MODEL`.
+1.  **Check Model**: Read the `externalModel` value recorded by §CMD_SUGGEST_EXTERNAL_MODEL.
     *   If `"claude"` → Do NOT execute this CMD. The skill should handle writing inline (Claude default path). This CMD should never be called when model is claude.
     *   If a Gemini model name → Proceed.
 
@@ -64,7 +64,7 @@
     ```
 
 **Constraints**:
-*   This CMD handles execution only. The decision to use an external model is made by `§CMD_SUGGEST_EXTERNAL_MODEL`.
+*   This CMD handles execution only. The decision to use an external model is made by §CMD_SUGGEST_EXTERNAL_MODEL.
 *   The skill composes the prompt. This CMD is plumbing — it renders templates and calls `engine gemini`.
 *   Output is stdout only. The skill decides where to write the result.
 *   On failure, graceful degradation to Claude inline is mandatory. Never leave the skill stuck.

@@ -26,7 +26,7 @@ Pre-flight checks when creating or modifying skills in `engine/skills/`.
 
 - [ ] I DID modify protocol phases
   - [ ] Every major phase has `§CMD_REPORT_INTENT` and `§CMD_EXECUTE_PHASE_STEPS`
-  - [ ] Phase transitions use `§CMD_GATE_PHASE` (not bare text gates)
+  - [ ] Phase transitions use `§CMD_EXECUTE_PHASE_STEPS` gate (not bare text gates)
   - [ ] Synthesis phases include `§CMD_RUN_SYNTHESIS_PIPELINE` and `§CMD_CLOSE_SESSION`
   - [ ] All `§CMD_*` step references resolve to CMD files or COMMANDS.md
   - [ ] `nextSkills` array references valid skill directories

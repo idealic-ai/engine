@@ -5,7 +5,7 @@
 # It receives JSON on stdin with context window information.
 #
 # Display format:
-#   SESSION · skill · N. Phase · agent · $X.XX · XX%
+#   SESSION · skill · [N of M] Phase · agent · $X.XX · XX%
 #   ↑         ↑       ↑                         ↑
 #   clickable clickable clickable                context usage
 #   → plan    → SKILL.md → target file           (normalized)
@@ -163,7 +163,7 @@ if output=$(update_session 2>/dev/null); then
   SESSION_NAME=$(basename "$SESSION_DIR")
   # Read workspace from .state.json (if set)
   SESSION_WORKSPACE=$(state_read "$SESSION_DIR/.state.json" workspace "")
-  # Get current phase: "3.C: Build" → "[3.C/4] Build" (with phases) or "3.C. Build" (without)
+  # Get current phase: "3.C: Build" → "[3.C of 4] Build" (with phases) or "3.C. Build" (without)
   FULL_PHASE=$(state_read "$SESSION_DIR/.state.json" currentPhase "")
   if [ -n "$FULL_PHASE" ]; then
     # Try to build [label/max_major] name format from phases array
@@ -173,7 +173,7 @@ if output=$(update_session 2>/dev/null); then
       if has("phases") and (.phases | length > 0) then
         (.phases | map(phase_lbl | split(".") | first | tonumber) | max) as $max_major |
         (.phases[] | select(("\(phase_lbl): \(.name)") == $cp)) as $match |
-        if $match != null then "[\($match | phase_lbl)/\($max_major)] \($match.name)" else "" end
+        if $match != null then "[\($match | phase_lbl) of \($max_major)] \($match.name)" else "" end
       else "" end
     ' "$SESSION_DIR/.state.json" 2>/dev/null || echo "")
     # Fallback: no phases array or no match
@@ -189,7 +189,7 @@ fi
 COST_FMT=$(printf '$%.2f' "$TOTAL_COST")
 
 # Format output for status line
-# Layout: SESSION · skill · N. Phase · agent · $X.XX · XX%
+# Layout: SESSION · skill · [N of M] Phase · agent · $X.XX · XX%
 # No session → "No session" in red
 
 # Build right side: agent · $cost · %

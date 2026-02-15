@@ -9,7 +9,7 @@ Drives feature implementation following structured development protocols.
 
 # Implementation Protocol (The Builder's Code)
 
-Execute `§CMD_EXECUTE_SKILL_PHASES`.
+Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### Session Parameters
 ```json
@@ -19,7 +19,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "0", "name": "Setup",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "sessionDir", "parametersParsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"], "gate": false},
     {"label": "1", "name": "Interrogation",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
@@ -31,7 +31,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "3", "name": "Execution",
       "steps": ["§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
-      "proof": ["pathChosen", "pathsAvailable"]},
+      "proof": ["pathChosen", "pathsAvailable"], "gate": false},
     {"label": "3.A", "name": "Build Loop",
       "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
@@ -41,15 +41,15 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "3.C", "name": "Parallel Agent Handoff",
       "steps": ["§CMD_PARALLEL_HANDOFF"], "commands": [], "proof": []},
     {"label": "4", "name": "Synthesis",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "4.1", "name": "Checklists",
-      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "4.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "4.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "4.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/test", "/document", "/analyze", "/fix", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md", "CHECKLIST.md"],
@@ -71,12 +71,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 0: Implementing ___ feature. Trigger: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(0.0.*)
 
 *   **Scope**: Understand the [Topic] and [Goal].
 
@@ -95,12 +95,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 1. Interrogation
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 1: Interrogating ___ assumptions before planning implementation. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(1.0.*)
 
 ### Topics (Implementation)
 *Standard topics for the command to draw from. Adapt to the task -- skip irrelevant ones, invent new ones as needed.*
@@ -120,12 +120,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 2. Planning
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2: Planning ___ implementation. ___ steps identified.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.0.*)
 
 **Unless the user points to an existing plan, you MUST create one.**
 
@@ -149,12 +149,12 @@ If any items are flagged for revision, return to the plan for edits before proce
 
 ## 3. Execution
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3: Selecting execution path for implementation. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.0.*)
 
 *Gateway phase — presents inline/agent/parallel choice, then enters the selected branch.*
 
@@ -163,12 +163,12 @@ If any items are flagged for revision, return to the plan for edits before proce
 ## 3.A. Build Loop (TDD Cycle)
 *Execute the plan step by step in this conversation.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3.A: Executing ___-step build plan. Target: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.A.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.A.*)
 
 **Build Cycle**:
 1.  **Write Test (Red)**: Create the test case.
@@ -183,9 +183,9 @@ If any items are flagged for revision, return to the plan for edits before proce
 ## 3.B. Agent Handoff
 *Hand off to a single autonomous agent.*
 
-`§CMD_EXECUTE_PHASE_STEPS(3.B.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.B.*)
 
-`§CMD_HANDOFF_TO_AGENT` with:
+§CMD_HANDOFF_TO_AGENT with:
 ```json
 {
   "agentName": "builder",
@@ -201,9 +201,9 @@ If any items are flagged for revision, return to the plan for edits before proce
 ## 3.C. Parallel Agent Handoff
 *Hand off to multiple agents working in parallel on independent plan chunks.*
 
-`§CMD_EXECUTE_PHASE_STEPS(3.C.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.C.*)
 
-`§CMD_PARALLEL_HANDOFF` with:
+§CMD_PARALLEL_HANDOFF with:
 ```json
 {
   "agentName": "builder",
@@ -218,12 +218,12 @@ If any items are flagged for revision, return to the plan for edits before proce
 ## 4. Synthesis
 *When all tasks are complete.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 4: Synthesizing. ___ plan steps completed, ___ tests passing.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(4.0.*)
 
 **Debrief notes** (for `IMPLEMENTATION.md`):
 *   **Deviation Analysis**: Compare Plan vs. Log. Where did we struggle?

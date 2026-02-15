@@ -58,7 +58,7 @@ AGENTS.md is a micro-README: it describes what a directory is for, what to think
 
 #### Pass 2: Invariant Capture
 
-Invoke `§CMD_CAPTURE_KNOWLEDGE` with:
+Invoke §CMD_CAPTURE_KNOWLEDGE with:
 *   **Type**: Invariant
 *   **Scan criteria**: Repeated corrections, "always/never" patterns, friction points, new constraints, preventable mistakes
 *   **Draft fields**: `¶INV_NAME` convention name, one-line rule summary, reason
@@ -68,7 +68,7 @@ Invoke `§CMD_CAPTURE_KNOWLEDGE` with:
 
 #### Pass 3: Pitfall Capture
 
-Invoke `§CMD_CAPTURE_KNOWLEDGE` with:
+Invoke §CMD_CAPTURE_KNOWLEDGE with:
 *   **Type**: Pitfall
 *   **Scan criteria**: Surprising behavior, debugging dead ends, counterintuitive APIs, configuration traps, common mistakes
 *   **Draft fields**: Short title, description (what happens + why surprising), mitigation

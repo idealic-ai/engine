@@ -3,7 +3,7 @@
 **Algorithm**:
 1.  **Run check**: Execute `engine session check [sessionDir] < /dev/null`. If exit 0, skip (no bare tags).
 2.  **Parse output**: Extract bare tag entries from stderr (format: `file:line: #tag — context`).
-3.  **Present menu**: For each bare tag (or in batches of up to 4), invoke `§CMD_DECISION_TREE` with `§ASK_BARE_TAG_TRIAGE`. Use preamble context to show the tag, file path (per `¶INV_TERMINAL_FILE_LINKS`), and surrounding context.
+3.  **Present menu**: For each bare tag (or in batches of up to 4), invoke §CMD_DECISION_TREE with `§ASK_BARE_TAG_TRIAGE`. Use preamble context to show the tag, file path (per `¶INV_TERMINAL_FILE_LINKS`), and surrounding context.
 4.  **Execute choice** (by tree path):
     *   **`PRO`** (Promote): (a) Read the skill's `TEMPLATE_*_REQUEST.md` from `~/.claude/skills/[tag-noun]/assets/`. (b) Populate the template with context from the inline tag's surrounding text. (c) Write the request file to the session directory. (d) Backtick-escape the inline tag in the source file.
     *   **`ACK`** (Acknowledge): Log the acknowledgment to `_LOG.md`. No file changes.

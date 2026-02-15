@@ -9,7 +9,7 @@ Full research cycle — refines query, calls Gemini Deep Research, polls, delive
 
 # Research Protocol (Full Lifecycle — Request + Fulfill)
 
-Execute `§CMD_EXECUTE_SKILL_PHASES`.
+Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### Session Parameters
 ```json
@@ -19,7 +19,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "0", "name": "Setup",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["sessionDir", "parametersParsed", "contextSourcesPresented"]},
+      "proof": ["sessionDir", "parametersParsed", "contextSourcesPresented"], "gate": false},
     {"label": "1", "name": "Interrogation",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
@@ -29,15 +29,15 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "commands": ["§CMD_APPEND_LOG"],
       "proof": ["researchSubmitted", "researchFulfilled", "logEntries"]},
     {"label": "3", "name": "Synthesis",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "3.1", "name": "Checklists",
-      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "3.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "3.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "3.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/research", "/implement", "/analyze", "/brainstorm"],
   "directives": [],
@@ -51,12 +51,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 0: Researching ___. Goal: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(0.0.*)
 
 *   **Scope**: Understand the [Topic] and [Goal].
 
@@ -64,12 +64,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 1. Interrogation (Query Refinement)
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 1: Interrogating ___ assumptions before composing the research query. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(1.0.*)
 
 ### Interrogation Depth Selection
 
@@ -142,12 +142,12 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 ## 2. Research Execution
 *Create the request document, call Gemini, and fulfill the research.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2: Executing research on ___. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.0.*)
 
 ### Step 1: Post Request
 Create the request document using `assets/TEMPLATE_RESEARCH_REQUEST.md`:
@@ -222,12 +222,12 @@ The script writes `INTERACTION_ID=<id>` to the output file immediately (before p
 ## 3. Synthesis
 *Present results and close the session.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3: Synthesizing. Research on ___ fulfilled.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.0.*)
 
 **Pre-debrief**: Present the research report in chat so the user can read it immediately.
 

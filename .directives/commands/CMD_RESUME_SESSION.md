@@ -105,10 +105,10 @@ Read the original skill's SKILL.md so you know how to continue:
 
 After resuming, check if the current phase's work is already complete:
 1. **Read the log** — are all planned work items done?
-2. **If yes**: Fire `§CMD_GATE_PHASE` immediately. Do NOT informally announce readiness — the gate IS the announcement.
+2. **If yes**: Fire §CMD_EXECUTE_PHASE_STEPS immediately -- the gate at the end of step execution handles the transition. Do NOT informally announce readiness -- the gate IS the announcement.
 3. **If no**: Continue executing the phase's remaining work.
 
-**Constraint**: "Ready to proceed when you give the word" is NEVER a valid substitute for `§CMD_GATE_PHASE`. If you're at a boundary, use the tool.
+**Constraint**: "Ready to proceed when you give the word" is NEVER a valid substitute for §CMD_EXECUTE_PHASE_STEPS. If you're at a boundary, use the tool.
 
 ### Step 9F: Announce Resume
 
@@ -125,101 +125,112 @@ After resuming, check if the current phase's work is already complete:
 
 ## Slow Path (No Dehydrated Context)
 
-### Step 2S: Detect Active Session
+The slow path mirrors the fast path — auto-resume with a concise announcement. The user invoked `/session continue` specifically to resume; asking what to do adds unnecessary friction.
 
-Read `.state.json` from the most recent session directory (or the session specified by the user):
-*   **Session dir**: From user args or auto-detected by `/session continue`
-*   **Phase**: `currentPhase` from `.state.json`
-*   **Skill**: `skill` from `.state.json`
-*   **Lifecycle**: `lifecycle` from `.state.json`
+### Step 2S: Auto-Detect and Resume
 
-If no `.state.json` exists or `lifecycle` is `completed`, inform the user: "No active session found. Use a `/skill` to start one."
+Run `engine session continue` with no arguments. It auto-detects the session (fleet pane ID in tmux, PID fallback outside tmux), clears loading, resets heartbeat, and outputs everything:
 
-### Step 3S: Scan Artifacts
+```bash
+engine session continue
+```
 
-Assess what was actually accomplished in the session:
-1. **List session files**: `ls -F sessions/[SESSION_DIR]/`
-2. **Check log**: Does `[SKILL_UPPER]_LOG.md` exist? Read the last few entries to understand progress.
-3. **Check plan**: Does `[SKILL_UPPER]_PLAN.md` exist? Check which steps are marked `[x]`.
-4. **Check debrief**: Does the debrief file exist? If so, synthesis may have already run.
-5. **Derive actual state**: Compare `.state.json` phase with artifact evidence. The artifacts are ground truth — the phase claim may be stale if the agent died mid-phase.
-6. **Derive sub-phase state**: Read `phaseHistory` from `.state.json` to identify the exact last sub-phase completed. `currentPhase` may store a sub-phase label (e.g., `"5.2: Debrief"`). If it does, the resume point is AT that sub-phase — not at the major phase. Debrief existence does NOT mean synthesis is complete — it only proves sub-phase N.2 ran. Sub-phases N.3 (Pipeline) and N.4 (Close) may still be pending.
+If no active session is found, it exits 1 — inform the user: "No active session found. Use a `/skill` to start one."
 
-### Step 4S: Report Intent
+Parse the output to get session dir, then re-activate:
 
-> **Session Resume (Manual)**
->
-> Found active session:
-> - **Session**: `[SESSION_DIR]`
-> - **Skill**: `[SKILL]`
-> - **Saved phase**: `[PHASE]`
-> - **Artifacts found**: [list: log, plan, debrief, etc.]
-> - **Actual progress**: [derived from artifact scan]
+```bash
+engine session activate [SESSION_DIR from output] [SKILL from output] < /dev/null
+```
 
-### Step 5S: Present Options
+The `continue` output provides structured context:
+*   **Skill**: The active skill name
+*   **Phase**: The saved phase (source of truth)
+*   **Log**: Path to the active log file
+*   **`## Artifacts`**: List of session files (log, plan, debrief, etc.)
+*   **`## Next Skills`**: Post-session skill suggestions
 
-**Constraint**: The tree defines the core options. Do NOT add, remove, or modify the tree's options. The user can always type a custom response via "Other".
+Parse this output to derive the session state — no manual artifact scanning needed.
 
-**Sub-phase label**: If `currentPhase` from `.state.json` is a sub-phase (e.g., `"5.2: Debrief"`), use the sub-phase label in the preamble context — NOT the major phase label. Example: "Resume at 5.3: Pipeline" not "Resume at Synthesis".
+### Step 5S: Assess Progress
 
-Invoke `§CMD_DECISION_TREE` with `§ASK_RESUME_METHOD`. Use preamble context to fill in the specific phase/sub-phase names and a 1-line description of what remains based on artifact scan (Step 3S).
+Using the `engine session continue` output and the log file:
+1. **Read the last few log entries** to understand what was accomplished and what remains.
+2. **Derive sub-phase state**: If `currentPhase` is a sub-phase (e.g., `"5.2: Debrief"`), the resume point is AT that sub-phase. Debrief existence does NOT mean synthesis is complete — sub-phases N.3 (Pipeline) and N.4 (Close) may still be pending.
+3. **Derive actual state**: Compare `.state.json` phase with artifact evidence. Artifacts are ground truth.
 
-### Step 6S: Execute Choice
-
-*   **`RSM` (Resume)**: Re-activate session, call `engine session continue`, load skill protocol, resume at saved phase. Same as fast path steps 3F-9F but without dehydrated context — use artifact scan results instead.
-*   **`RST` (Restart)**: Re-activate session, call `engine session continue`, load skill protocol, re-execute the current phase from scratch (re-read inputs, redo the phase's work).
-*   **`SWT` (Switch skill)**: Present skill picker via `AskUserQuestion`. On selection, invoke `Skill(skill: "[chosen-skill]")`. The new skill handles session directory detection via `§CMD_MAINTAIN_SESSION_DIR`.
-*   **`OTH` path**:
-    *   **`OTH/ABN` (Abandon)**: Close this session and start fresh.
-    *   **`OTH/INS` (Inspect first)**: Read session artifacts before deciding, then re-present `§ASK_RESUME_METHOD`.
-    *   **`OTH/custom:[text]`**: Treat as new input. Route to the active skill's interrogation phase if it makes sense, or offer skill selection.
-
-### Step 7S: Log the Resume
+### Step 6S: Log the Restart
 
 ```bash
 engine log sessions/[SESSION_DIR]/[SKILL_UPPER]_LOG.md <<'EOF'
 ## ♻️ Manual Session Resume
 *   **Resumed At**: [PHASE]
-*   **Method**: [Resume / Restart / Switch]
-*   **Artifacts Found**: [list]
-*   **Actual Progress**: [derived state]
+*   **Artifacts Found**: [from engine session continue output]
+*   **Progress**: [derived from log scan]
 EOF
 ```
+
+### Step 7S: Load Skill Protocol
+
+Read the original skill's SKILL.md so you know how to continue:
+```
+~/.claude/skills/[SKILL]/SKILL.md
+```
+
+### Step 8S: Resume at Saved Phase
+
+Same rules as fast path Step 7F:
+
+**DO NOT**:
+- Repeat earlier phases (Setup, Interrogation, Planning if already done)
+- Re-parse parameters
+- Re-create the session directory
+
+**DO**:
+- Pick up exactly where the session left off
+- Follow the skill protocol from `[PHASE]` onward
+- Continue logging per `§CMD_APPEND_LOG`
+
+**Proof-Gated Awareness**: After `session continue`, you are AT the saved phase — not past it. If the log shows the current phase's work is complete, you must:
+1. DO the next phase's work first
+2. THEN transition with proof via `engine session phase`
+
+**Sub-Phase Awareness**: If the saved phase is a sub-phase (e.g., `"5.2: Debrief"`), you are AT that sub-phase. Check if its work is complete. If complete, transition to the next sub-phase. If not, finish it.
+
+### Step 9S: Check Phase Completion
+
+After resuming, check if the current phase's work is already complete:
+1. **Read the log** — are all planned work items done?
+2. **If yes**: Fire §CMD_EXECUTE_PHASE_STEPS immediately -- the gate at the end of step execution handles the transition. Do NOT informally announce readiness -- the gate IS the announcement.
+3. **If no**: Continue executing the phase's remaining work.
+
+**Constraint**: "Ready to proceed when you give the word" is NEVER a valid substitute for §CMD_EXECUTE_PHASE_STEPS. If you're at a boundary, use the tool.
+
+### Step 10S: Announce Resume
+
+> **Resuming `[SKILL]`** at `[PHASE]`
+>
+> - **Goal**: [from log/context]
+> - **Last Action**: [from log scan]
+> - **Remaining**: [derived from log]
+>
+> Continuing now...
 
 ---
 
 ## Constraints
 
-- **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
+- **Both paths auto-resume**: Neither path asks the user what to do. The user invoked `/session continue` — that IS the instruction. Auto-resume at the saved phase with a concise announcement.
 - **Fast path: Trust injected context**: The SessionStart hook already loaded the dehydrated summary and required files. Do NOT re-read files just to check details (`¶INV_TRUST_CACHED_CONTEXT`). However, if you need to **edit** any injected file, you MUST Read it first (`¶INV_PRELOAD_IS_REFERENCE_ONLY`).
 - **Fast path: Fresh context**: You have ~0% context usage. Do NOT trigger another dehydration.
 - **Fast path: Minimal I/O**: Only read the skill SKILL.md (Step 6F) and any files NOT already auto-loaded.
 - **Fast path: No re-interrogation**: The original agent already completed interrogation. Use the dehydrated summary.
-- **Slow path: Artifact scan is cheap**: Only `ls` and read last log entries. Don't load entire files.
+- **Slow path: Use engine output**: `engine session continue` outputs artifacts and next skills. Read the last few log entries for progress — don't load entire files.
 - **Slow path: Phase trust but verify**: `.state.json` phase may be stale. Artifacts are ground truth.
 - **Both paths: No re-creation**: Do NOT re-create the session directory or re-parse parameters.
 - **Both paths: No sub-phase skipping**: When resuming at a phase with sub-phases (e.g., synthesis), resume at the exact sub-phase from `currentPhase` in `.state.json`. Do NOT skip to the end of the major phase. Debrief existence proves sub-phase N.2 completed — it does NOT prove N.3 (Pipeline) or N.4 (Close) completed. Every sub-phase must execute per `§CMD_RUN_SYNTHESIS_PIPELINE`.
 - **`¶INV_CONCISE_CHAT`**: Chat output is for user communication only — no micro-narration of the resume steps.
 - **`¶INV_PROTOCOL_IS_TASK`**: The resume protocol defines the task — do not skip steps or phases.
-
----
-
-### ¶ASK_RESUME_METHOD
-Trigger: when resuming a session after interruption (except: fast path with dehydrated context — auto-resumes without asking)
-Extras: A: View session artifacts before deciding | B: Show phase history | C: Check for newer sessions on same topic
-
-## Decision: Resume Method
-- [RSM] Resume at saved phase
-  Pick up where the session left off
-- [RST] Restart current phase
-  Redo the current phase cleanly from scratch
-- [SWT] Switch skill
-  Start a different skill on this session directory
-- [OTH] Other
-  - [ABN] Abandon session
-    Close this session and start fresh
-  - [INS] Inspect first
-    Read session artifacts before deciding
 
 ---
 

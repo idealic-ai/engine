@@ -9,14 +9,14 @@ The algorithm below is parameterized. These mode-specific values fill the placeh
 
 *   **results**
   *   **Context labels**: "What this is about" + "The finding"
-  *   **Decision command**: `§CMD_TAG_TRIAGE` (dynamic tag options from `SRC_DELEGATION_TARGETS`)
+  *   **Decision command**: §CMD_TAG_TRIAGE (dynamic tag options from `SRC_DELEGATION_TARGETS`)
   *   **On result**: tag → `§CMD_HANDLE_INLINE_TAG` + tag proof output; dismiss → no tag; custom → execute instruction
   *   **Summary fields**: Tagged: N, Dismissed: N — includes inline tag verification report
   *   **Plan Review tree**: Not used
 
 *   **plan**
   *   **Context labels**: "What this step does" + "Scope"
-  *   **Decision command**: `§CMD_DECISION_TREE` with `Plan Review` tree (OK/INF/RWK/CHG/REM)
+  *   **Decision command**: §CMD_DECISION_TREE with `Plan Review` tree (OK/INF/RWK/CHG/REM)
   *   **On result**: OK → next; INF → detail + re-present; RWK → mark `[!]` + log; CHG → flag rework + log; REM → mark removal + log
   *   **Summary fields**: Approved: N, Feedback: N, Flagged: N
   *   **Plan Review tree**: (see below)
@@ -43,7 +43,7 @@ The algorithm below is parameterized. These mode-specific values fill the placeh
 
 ### Step 1: Gate Question (Granularity Selection)
 
-Invoke `§CMD_DECISION_TREE` with `§ASK_WALKTHROUGH_GRANULARITY`. Use the `gateQuestion` from config as preamble context.
+Invoke §CMD_DECISION_TREE with `§ASK_WALKTHROUGH_GRANULARITY`. Use the `gateQuestion` from config as preamble context.
 
 **Behavior by granularity**:
 *   **`EAC`** (Each item): Extract all items (Step 2), present one-by-one (Step 3).
@@ -66,7 +66,7 @@ Invoke `§CMD_DECISION_TREE` with `§ASK_WALKTHROUGH_GRANULARITY`. Use the `gate
 
 1.  **Context Block** (`§FMT_CONTEXT_BLOCK` — MANDATORY): Use mode context labels (see Mode Deltas). Reference the item by its ID (e.g., `> **4.2.3/2**: [Title]`). For groups, output ALL items' context blocks in one chat message, then one `AskUserQuestion` with up to 4 questions.
 
-2.  **Collect Decision**: Call the mode's **decision command** (see Mode Deltas). Results mode: `§CMD_TAG_TRIAGE`. Plan mode: `§CMD_DECISION_TREE` with Plan Review tree.
+2.  **Collect Decision**: Call the mode's **decision command** (see Mode Deltas). Results mode: §CMD_TAG_TRIAGE. Plan mode: §CMD_DECISION_TREE with Plan Review tree.
 
 3.  **On Result**: Execute mode-specific result handling (see Mode Deltas). For results mode, output tag proof per item:
     > **Tag proof [{itemId}]:** The tag `____` for item `____` was placed at `____` in `____`
@@ -121,7 +121,7 @@ Each skill provides inline configuration in its SKILL.md:
 *   **Non-blocking**: "None" at gate → no walk-through, session continues.
 *   **Batch respect**: Honor batch instructions immediately.
 *   **Group size**: Fixed at 4 (matching `AskUserQuestion` max). Last group gets remainder.
-*   **Decision commands**: Results → `§CMD_TAG_TRIAGE`. Plan → `§CMD_DECISION_TREE`.
+*   **Decision commands**: Results → §CMD_TAG_TRIAGE. Plan → §CMD_DECISION_TREE.
 *   **Idempotent**: If called multiple times, present unprocessed items only.
 *   **Logging**: Every decision logged to DETAILS.md. Summary to session log.
 *   **`¶INV_ESCAPE_BY_DEFAULT`**: Backtick-escape tag references in chat output and context blocks; bare tags only on `**Tags**:` lines or intentional inline placement.

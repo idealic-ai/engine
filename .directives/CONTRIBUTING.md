@@ -457,6 +457,10 @@ Complex commands with their own reference files:
   File: `CMD_WALK_THROUGH_RESULTS.md`
   Purpose: Finding triage / plan review
 
+- **`§CMD_CAPTURE_KNOWLEDGE`**
+  File: `CMD_CAPTURE_KNOWLEDGE.md`
+  Purpose: Parameterized knowledge capture loop (invariants, pitfalls)
+
 - **`§CMD_CAPTURE_SIDE_DISCOVERIES`**
   File: `CMD_CAPTURE_SIDE_DISCOVERIES.md`
   Purpose: Side-discovery tagging

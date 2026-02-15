@@ -9,7 +9,7 @@ Reviews and validates work across sessions for consistency and correctness.
 
 # Review Protocol (The Multiplexer)
 
-Execute `§CMD_EXECUTE_SKILL_PHASES`.
+Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### Session Parameters
 ```json
@@ -19,7 +19,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "0", "name": "Setup",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": ["§CMD_FIND_TAGGED_FILES"],
-      "proof": ["mode", "sessionDir", "parametersParsed", "debriefsDiscovered"]},
+      "proof": ["mode", "sessionDir", "parametersParsed", "debriefsDiscovered"], "gate": false},
     {"label": "1", "name": "Discovery",
       "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG"],
@@ -29,15 +29,15 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
       "proof": ["dashboardPresented", "depthChosen", "roundsCompleted", "debriefsReviewed", "verdictsTagged", "logEntries"]},
     {"label": "3", "name": "Synthesis",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "3.1", "name": "Checklists",
-      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "3.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "3.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "3.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/implement", "/document", "/brainstorm", "/analyze", "/chores"],
   "directives": [],
@@ -58,12 +58,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 0: Reviewing ___ session debriefs. Scope: ___ tagged files discovered.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(0.0.*)
 
 *   **Scope**: Identify unvalidated debriefs (`#needs-review` and `#needs-rework`) and review delegation requests.
 
@@ -97,12 +97,12 @@ Records `externalModel` (model name or `"claude"`).
 ## 1. Discovery & Cross-Session Analysis
 *Read everything. Build the global picture.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 1: Reading ___ debriefs and their sibling logs. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(1.0.*)
 
 **Action**:
 1.  **Read All Debriefs**: For each discovered file, read the full debrief.
@@ -120,10 +120,6 @@ Records `externalModel` (model name or `"claude"`).
 
 Do NOT present findings to the user yet. Complete the full analysis first.
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`:
-  custom: "Skip to Phase 3: Synthesis | I already know the verdicts, just write the report"
-
 ---
 
 ## 2. Dashboard & Per-Debrief Interrogation
@@ -131,12 +127,12 @@ Execute `§CMD_GATE_PHASE`:
 ### Phase 2a: The Dashboard
 *Present the global picture first.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2: Presenting dashboard for ___ debriefs and ___ cross-session findings. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.0.*)
 
 **Action**:
 1.  **Present Cross-Session Findings**: Output the cross-session analysis (file overlaps, conflicts, contradictions, dependencies). If none found, say "No cross-session conflicts detected."
@@ -295,12 +291,12 @@ This is YOUR internal rubric -- do NOT present it as a form. Use it to generate 
 ## 3. Synthesis
 *When all debriefs are reviewed.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3: Synthesizing. ___ debriefs validated, ___ flagged for rework, ___ leftovers spawned.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.0.*)
 
 **Debrief generation**:
 

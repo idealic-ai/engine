@@ -2,7 +2,7 @@
 **Definition**: Structured interrogation with depth selection, topic-driven rounds, between-rounds context, and exit gating. The skill provides a **standard topics list** (under `### Interrogation Topics` in its SKILL.md); the command owns all mechanics.
 **Trigger**: Called by skill protocols during their interrogation/pre-flight phase.
 
-**Step 1 — Depth Selection**: Invoke `§CMD_DECISION_TREE` with `§ASK_INTERROGATION_DEPTH`.
+**Step 1 — Depth Selection**: Invoke §CMD_DECISION_TREE with `§ASK_INTERROGATION_DEPTH`.
 
 Record the user's choice. This sets the **minimum** — the agent can always ask more, and the user can always say "proceed" after the minimum is met.
 
@@ -29,11 +29,11 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
     *   **User provided answers**: Auto-logged to DETAILS.md by `post-tool-use-details-log.sh` hook. Continue to next round.
     *   **User asked a counter-question**: PAUSE. Answer in chat. Ask "Does this clarify? Ready to resume?" Once confirmed, resume.
 
-**Step 3 — Exit Gate**: After reaching minimum rounds, invoke `§CMD_DECISION_TREE` with `§ASK_INTERROGATION_EXIT`.
+**Step 3 — Exit Gate**: After reaching minimum rounds, invoke §CMD_DECISION_TREE with `§ASK_INTERROGATION_EXIT`.
 
 **Execution order** (when multiple selected): Standard rounds first → Devil's advocate → What-ifs → re-present exit gate.
 
-**On "Proceed to next phase"**: Execute the phase transition directly — do NOT fire `§CMD_GATE_PHASE`. The exit gate IS the phase gate for interrogation. Walkthrough and Go Back are available via smart extras (A/B) on the exit gate preamble, eliminating the double-click problem.
+**On "Proceed to next phase"**: Execute the phase transition directly -- the exit gate IS the phase gate for interrogation (replacing the automatic gate in `§CMD_EXECUTE_PHASE_STEPS`). Walkthrough and Go Back are available via smart extras (A/B) on the exit gate preamble, eliminating the double-click problem.
 
 **Smart extras for exit gate preamble** (agent-generated, shown before AskUserQuestion):
 > **Also:** A: Walk through what was established before proceeding | B: Go back to re-do the last round | C: Skip to synthesis

@@ -12,15 +12,21 @@ The directives system is a three-document behavioral specification that sits bet
 
 ### The Three Documents
 
-| Document | Role | Prefix | Contents |
-|----------|------|--------|----------|
-| `COMMANDS.md` | Instruction set | `¶CMD_` | 32 named commands across 4 layers — the operations agents execute |
-| `INVARIANTS.md` | Constitution | `¶INV_` | 23 universal rules that cannot be overridden — the laws of the system |
-| `SIGILS.md` | Communication protocol | `¶FEED_` | 6 tag feeds for cross-session state and work routing |
+- **`COMMANDS.md`** — Instruction set
+  - **Prefix**: `¶CMD_`
+  - **Contents**: 45+ named commands across 4 layers — the operations agents execute
+
+- **`INVARIANTS.md`** — Constitution
+  - **Prefix**: `¶INV_`
+  - **Contents**: 30+ universal rules that cannot be overridden — the laws of the system
+
+- **`SIGILS.md`** — Communication protocol
+  - **Prefix**: `¶FEED_`
+  - **Contents**: Tag feeds for cross-session state and work routing (most use `§FEED_GENERIC`)
 
 **Sigil convention**: `¶` (pilcrow) marks **definitions** — where a command, invariant, or feed is declared. `§` (section sign) marks **references** — citations of something defined elsewhere. So `COMMANDS.md` uses `¶CMD_` headings (definitions), while `SKILL.md` uses `§CMD_` references (citations). See `¶INV_SIGIL_SEMANTICS` in `INVARIANTS.md` for the full rule.
 
-Together they define approximately 1,100 lines of behavioral specification loaded into every agent session. COMMANDS.md provides the verbs (what to do), INVARIANTS.md provides the constraints (what never to violate), and SIGILS.md provides the nouns (how to communicate state across sessions).
+Together they define approximately 1,500+ lines of behavioral specification loaded into every agent session. COMMANDS.md provides the verbs (what to do), INVARIANTS.md provides the constraints (what never to violate), and SIGILS.md provides the nouns (how to communicate state across sessions).
 
 ### Where It Sits
 
@@ -42,7 +48,7 @@ A skill protocol says "execute `§CMD_INGEST_CONTEXT_BEFORE_WORK`" without speci
 
 ## 2. Architecture — The Four-Layer Taxonomy
 
-COMMANDS.md organizes its 32 commands into four layers. Each layer has a distinct responsibility and maps to an operating system concept.
+COMMANDS.md organizes its 45+ commands into four layers. Each layer has a distinct responsibility and maps to an operating system concept.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -53,7 +59,7 @@ COMMANDS.md organizes its 32 commands into four layers. Each layer has a distinc
 │  ├── Multi-step workflows built from lower layers                   │
 │  ├── §CMD_INGEST_CONTEXT_BEFORE_WORK                                │
 │  ├── §CMD_GENERATE_DEBRIEF                           │
-│  └── ... (11 commands)                                              │
+│  └── ... (36 commands)                                              │
 │                                                                     │
 │  Layer 3: Interaction ("The Conversation")                          │
 │  ├── User-facing I/O and question protocols                         │
@@ -80,80 +86,102 @@ COMMANDS.md organizes its 32 commands into four layers. Each layer has a distinc
 
 The four layers map to an operating system stack. This is not a forced metaphor — it emerged from the document's structure.
 
-| COMMANDS.md Layer | OS Equivalent | Key Parallel |
-|-------------------|---------------|--------------|
-| Layer 1: File Operations | Kernel I/O syscalls | `§CMD_APPEND_LOG` = `write()`, `§CMD_WRITE_FROM_TEMPLATE` = `creat()` |
-| Layer 2: Process Control | Process scheduler + signal handlers | `§CMD_REFUSE_OFF_COURSE` = signal handler, `§CMD_WAIT_FOR_USER_CONFIRMATION` = `waitpid()` |
-| Layer 3: Interaction | User-space IPC / terminal I/O | `§CMD_ASK_USER_IF_STUCK` = blocking `read()` on stdin |
-| Layer 4: Composites | Shell builtins / coreutils | `§CMD_INGEST_CONTEXT_BEFORE_WORK` = `source`, `§CMD_RECOVER_SESSION` = checkpoint/restore |
+- **Layer 1: File Operations** — Kernel I/O syscalls
+  - `§CMD_APPEND_LOG` = `write()`, `§CMD_WRITE_FROM_TEMPLATE` = `creat()`
+- **Layer 2: Process Control** — Process scheduler + signal handlers
+  - `§CMD_REFUSE_OFF_COURSE` = signal handler, `§CMD_WAIT_FOR_USER_CONFIRMATION` = `waitpid()`
+- **Layer 3: Interaction** — User-space IPC / terminal I/O
+  - `§CMD_ASK_USER_IF_STUCK` = blocking `read()` on stdin
+- **Layer 4: Composites** — Shell builtins / coreutils
+  - `§CMD_INGEST_CONTEXT_BEFORE_WORK` = `source`, `§CMD_RESUME_SESSION` = checkpoint/restore
 
 Supporting structures complete the analogy:
 
-| System Component | OS Equivalent |
-|------------------|---------------|
-| `.state.json` | Process table (PID, phase, skill, status) |
-| `engine session activate --pid "$PPID"` | `fork()` + `exec()` with PID registration |
-| Tags (`#needs-X` / `#claimed-X` / `#done-X`) | IPC message queues |
-| INVARIANTS.md | Kernel parameters (`sysctl.conf`) |
-| Skill protocols | User-space applications |
-| The LLM | The CPU |
+- **`.state.json`** — Process table (PID, phase, skill, status)
+- **`engine session activate`** — `fork()` + `exec()` with PID registration
+- **Tags (`#needs-X` / `#claimed-X` / `#done-X`)** — IPC message queues
+- **INVARIANTS.md** — Kernel parameters (`sysctl.conf`)
+- **Skill protocols** — User-space applications
+- **The LLM** — The CPU
 
 ---
 
 ## 3. Command Inventory
 
-All 32 `§CMD_` commands in COMMANDS.md, organized by layer. Each command has a name, definition, algorithm, and constraints — functioning as a typed behavioral function.
+All 45+ `§CMD_` commands in COMMANDS.md, organized by layer. Each command has a name, definition, algorithm, and constraints — functioning as a typed behavioral function.
 
 ### Layer 1: File Operations (4 commands)
 
-| Command | Purpose |
-|---------|---------|
-| `§CMD_WRITE_FROM_TEMPLATE` | Create an artifact by populating a template already in context (no disk read) |
-| `§CMD_APPEND_LOG` | Append to log files via `log.sh` — blind write, no re-reading |
-| `§CMD_LINK_FILE` | Report file creation as a clickable link — never echo content to chat |
-| `§CMD_AWAIT_TAG` | Block on a filesystem watcher until a tag appears (async coordination) |
+- **`§CMD_WRITE_FROM_TEMPLATE`** — Create an artifact by populating a template already in context (no disk read)
+- **`§CMD_APPEND_LOG`** — Append to log files via `log.sh` — blind write, no re-reading
+- **`§CMD_LINK_FILE`** — Report file creation as a clickable link — never echo content to chat
+- **`§CMD_AWAIT_TAG`** — Block on a filesystem watcher until a tag appears (async coordination)
 
-### Layer 2: Process Control (15 commands)
+### Layer 2: Process Control
 
-| Command | Purpose |
-|---------|---------|
-| `§CMD_NO_MICRO_NARRATION` | Suppress internal monologue in chat — just call the tool |
-| `§CMD_ESCAPE_TAG_REFERENCES` | Backtick-escape tag references in body text to prevent false positives |
-| `§CMD_THINK_IN_LOG` | Write reasoning to the log file, not the chat |
-| `§CMD_ASSUME_ROLE` | Anchor to a persona (e.g., TDD, Skeptic, Rigor) for the session |
-| `§CMD_INIT_LOG` | Create or reconnect to a session log file |
-| `§CMD_WAIT_FOR_USER_CONFIRMATION` | Hard stop — end turn and wait for user input before proceeding |
-| `§CMD_REFUSE_OFF_COURSE` | Deviation router — surface conflicts instead of silently skipping steps |
-| `§CMD_PARSE_PARAMETERS` | Parse session inputs against a JSON schema (the "function signature" of a session) |
-| `§CMD_MAINTAIN_SESSION_DIR` | Anchor to a session directory for the duration of the task |
-| `§CMD_UPDATE_PHASE` | Update `.state.json` with the current skill phase |
-| `§CMD_RECOVER_SESSION` | Re-initialize context after a context overflow restart |
-| `§CMD_FREEZE_CONTEXT` | Phase-specific constraint — no filesystem exploration during setup |
-| `§INV_TRUST_CACHED_CONTEXT` | Prevent redundant reads and operations |
-| `§CMD_TRACK_PROGRESS` | Maintain an internal TODO list for session progress |
+- **`§CMD_NO_MICRO_NARRATION`** — Suppress internal monologue in chat — just call the tool
+- **`§CMD_ESCAPE_TAG_REFERENCES`** — Backtick-escape tag references in body text to prevent false positives
+- **`§CMD_THINK_IN_LOG`** — Write reasoning to the log file, not the chat
+- **`§CMD_ASSUME_ROLE`** — Anchor to a persona (e.g., TDD, Skeptic, Rigor) for the session
+- **`§CMD_INIT_LOG`** — Create or reconnect to a session log file
+- **`§CMD_WAIT_FOR_USER_CONFIRMATION`** — Hard stop — end turn and wait for user input before proceeding
+- **`§CMD_REFUSE_OFF_COURSE`** — Deviation router — surface conflicts instead of silently skipping steps
+- **`§CMD_PARSE_PARAMETERS`** — Parse session inputs against a JSON schema (the "function signature" of a session)
+- **`§CMD_MAINTAIN_SESSION_DIR`** — Anchor to a session directory for the duration of the task
+- **`§CMD_UPDATE_PHASE`** — Update `.state.json` with the current skill phase
+- **`§CMD_RESUME_SESSION`** — Resume after overflow or manual restart
+- **`§CMD_FREEZE_CONTEXT`** — Phase-specific constraint — no filesystem exploration during setup
+- **`§CMD_TRACK_PROGRESS`** — Maintain an internal TODO list for session progress
+- **`§CMD_LOG_BETWEEN_TOOL_USES`** — Log reasoning between tool calls
+- **`§CMD_REQUIRE_ACTIVE_SESSION`** — Gate that blocks work without an active session
+- **`§CMD_DEBUG_HOOKS_IF_PROMPTED`** — Hook debugging when user reports issues
+- **`§CMD_SESSION_CLI`** — Session management CLI interface
 
 ### Layer 3: Interaction (2 commands)
 
-| Command | Purpose |
-|---------|---------|
-| `§CMD_ASK_USER_IF_STUCK` | Halt and ask when progress is stalled or ambiguity is high |
-| `§CMD_ASK_ROUND` | Structured questioning protocol — 3-5 targeted questions per round |
+- **`§CMD_ASK_USER_IF_STUCK`** — Halt and ask when progress is stalled or ambiguity is high
+- **`§CMD_ASK_ROUND`** — Structured questioning protocol — 3-5 targeted questions per round
 
-### Layer 4: Composites (11 commands)
+### Layer 4: Composites (36 commands)
 
-| Command | Purpose |
-|---------|---------|
-| `§CMD_INGEST_CONTEXT_BEFORE_WORK` | Dedicated phase for RAG search + user confirmation before execution |
-| `§CMD_GENERATE_DEBRIEF` | Create a standardized debrief with tags, related sessions, and reindexing |
-| `§CMD_GENERATE_PLAN` | Create a standardized plan artifact from template |
-| `§CMD_REPORT_INTENT` | State current phase and intent before transitioning |
-| `§CMD_LOG_INTERACTION` | Record Q&A interactions to the session's `DETAILS.md` |
-| `§CMD_INTERROGATE` | Multi-round Ask-Log loop with minimum 3 rounds |
-| `§CMD_HANDOFF_TO_AGENT` | Standardized handoff from parent command to autonomous agent |
-| `§CMD_REPORT_ARTIFACTS` | Final artifact inventory with clickable links |
-| `§CMD_REPORT_SUMMARY` | Dense 2-paragraph narrative of session work |
-| `§CMD_RESUME_AFTER_CLOSE` | Re-anchor and continue logging after a skill completes |
-| `§CMD_MANAGE_DIRECTIVES` | AGENTS.md updates, invariant capture, pitfall capture (replaces CMD_PROMPT_INVARIANT_CAPTURE) |
+- **`§CMD_INGEST_CONTEXT_BEFORE_WORK`** — Dedicated phase for RAG search + user confirmation
+- **`§CMD_GENERATE_DEBRIEF`** — Standardized debrief with tags and reindexing
+- **`§CMD_GENERATE_PLAN`** — Create a standardized plan artifact
+- **`§CMD_RUN_SYNTHESIS_PIPELINE`** — Multi-step synthesis orchestrator
+- **`§CMD_CLOSE_SESSION`** — Session deactivation to idle state
+- **`§CMD_SELECT_MODE`** — Mode selection (3 named + Custom)
+- **`§CMD_SUGGEST_EXTERNAL_MODEL`** — External model selection (Gemini)
+- **`§CMD_EXECUTE_EXTERNAL_MODEL`** — Execute via external model with fallback
+- **`§CMD_REPORT_INTENT`** — Phase transition intent blockquote
+- **`§CMD_LOG_INTERACTION`** — Record Q&A to DETAILS.md
+- **`§CMD_INTERROGATE`** — Multi-round Ask-Log loop
+- **`§CMD_EXECUTE_SKILL_PHASES`** — Top-level phase orchestrator
+- **`§CMD_EXECUTE_PHASE_STEPS`** — Per-phase step runner
+- **`§CMD_EXECUTE_PHASE_STEPS`** — Per-phase step runner with automatic phase boundary gate
+- **`§CMD_SELECT_EXECUTION_PATH`** — Execution path chooser (inline/agent/parallel)
+- **`§CMD_HANDOFF_TO_AGENT`** — Synchronous sub-agent launch
+- **`§CMD_PARALLEL_HANDOFF`** — Multi-agent parallel execution
+- **`§CMD_DESIGN_E2E_TEST`** — E2E reproduction test design
+- **`§CMD_WALK_THROUGH_RESULTS`** — Finding triage / plan review
+- **`§CMD_CAPTURE_KNOWLEDGE`** — Parameterized knowledge capture (invariants, pitfalls)
+- **`§CMD_VALIDATE_ARTIFACTS`** — Session artifact validation
+- **`§CMD_PROCESS_CHECKLISTS`** — Checklist processing at deactivation
+- **`§CMD_RESOLVE_BARE_TAGS`** — Bare inline tag resolution
+- **`§CMD_MANAGE_DIRECTIVES`** — AGENTS.md updates, invariant + pitfall capture
+- **`§CMD_CAPTURE_SIDE_DISCOVERIES`** — Side-discovery tagging
+- **`§CMD_DELEGATE`** — Write delegation REQUEST files
+- **`§CMD_DISPATCH_APPROVAL`** — Approve `#needs-X` to `#delegated-X` transitions
+- **`§CMD_PROCESS_DELEGATIONS`** — Scan for unresolved inline `#needs-X` tags
+- **`§CMD_RESOLVE_CROSS_SESSION_TAGS`** — Cross-session tag resolution
+- **`§CMD_MANAGE_BACKLINKS`** — Cross-document link management (auto-apply)
+- **`§CMD_REPORT_LEFTOVER_WORK`** — Unfinished work report
+- **`§CMD_REPORT_ARTIFACTS`** — Final artifact inventory with clickable links
+- **`§CMD_REPORT_SUMMARY`** — Dense narrative of session work
+- **`§CMD_RESUME_AFTER_CLOSE`** — Re-anchor after skill completion
+- **`§CMD_DEHYDRATE`** — Context overflow dehydration
+- **`§CMD_PRESENT_NEXT_STEPS`** — Post-synthesis routing menu
+- **`§CMD_DECISION_TREE`** — Declarative decision tree collector
+- **`§CMD_TAG_TRIAGE`** — Tag-based item triage
 
 ### Command Composition
 
@@ -163,10 +191,16 @@ Commands compose — higher-layer commands call lower-layer commands. Key compos
 §CMD_GENERATE_DEBRIEF
   └── §CMD_WRITE_FROM_TEMPLATE (Layer 1)
   └── §CMD_LINK_FILE (Layer 1)
+
+§CMD_RUN_SYNTHESIS_PIPELINE
+  └── §CMD_GENERATE_DEBRIEF (Layer 4)
   └── §CMD_MANAGE_DIRECTIVES (Layer 4)
+  └── §CMD_CAPTURE_SIDE_DISCOVERIES (Layer 4)
+  └── §CMD_REPORT_LEFTOVER_WORK (Layer 4)
+  └── §CMD_VALIDATE_ARTIFACTS (Layer 4)
 
 §CMD_INGEST_CONTEXT_BEFORE_WORK
-  └── §CMD_WAIT_FOR_USER_CONFIRMATION (Layer 2) [twice — hard stops]
+  └── AskUserQuestion multichoice menu (context sources)
 
 §CMD_INTERROGATE
   └── §CMD_ASK_ROUND (Layer 3)
@@ -181,19 +215,17 @@ Commands compose — higher-layer commands call lower-layer commands. Key compos
 
 ## 4. The Invariant System
 
-INVARIANTS.md defines 23 universal rules organized into 7 categories. Invariants are constraints that hold across all sessions, all skills, and all projects. They are the constitution — commands implement behavior, invariants constrain it.
+INVARIANTS.md defines 30+ universal rules organized into 7 categories. Invariants are constraints that hold across all sessions, all skills, and all projects. They are the constitution — commands implement behavior, invariants constrain it.
 
 ### Invariant Categories
 
-| Category | Count | Scope |
-|----------|-------|-------|
-| Testing Physics | 2 | Test isolation and framework independence |
-| Architecture & Task Decomposition | 2 | Spec-first design, atomic tasks |
-| General Code Physics | 6 | Naming, dead code, TypeScript, config |
-| Communication Physics | 4 | Skill invocation, protocol compliance, file links, chat conciseness |
-| Development Philosophy | 5 | Data-first fixes, explicit config, DX priority, extend patterns |
-| LLM Output Physics | 4 | Enum confidence, rule traceability, org context |
-| Filesystem Physics | 1 | Symlink traversal workaround |
+- **Testing Physics** — Test isolation and framework independence
+- **Architecture & Task Decomposition** — Spec-first design, atomic tasks
+- **General Code Physics** — Naming, dead code, TypeScript, config
+- **Communication Physics** — Skill invocation, protocol compliance, file links, chat conciseness
+- **Development Philosophy** — Data-first fixes, explicit config, DX priority, extend patterns
+- **LLM Output Physics** — Enum confidence, rule traceability, org context
+- **Filesystem Physics** — Symlink traversal workaround
 
 ### Key Invariants for Agent Behavior
 
@@ -210,10 +242,13 @@ Several invariants directly govern how agents interact with the standards system
 
 Two levels of invariants exist:
 
-| Level | File | Scope | Example |
-|-------|------|-------|---------|
-| Shared | `~/.claude/.directives/INVARIANTS.md` | All projects | `¶INV_TYPESCRIPT_STRICT`, `¶INV_NO_DEAD_CODE` |
-| Project | `.claude/.directives/INVARIANTS.md` | One project | `¶INV_NO_GIT_STATE_COMMANDS`, `¶INV_SCRATCHPAD_IN_TEMP` |
+- **Shared** — `~/.claude/.directives/INVARIANTS.md`
+  - **Scope**: All projects
+  - **Example**: `¶INV_TYPESCRIPT_STRICT`, `¶INV_NO_DEAD_CODE`
+
+- **Project** — `.claude/.directives/INVARIANTS.md`
+  - **Scope**: One project
+  - **Example**: `¶INV_NO_GIT_STATE_COMMANDS`, `¶INV_SCRATCHPAD_IN_TEMP`
 
 Project invariants extend the shared set. They cannot contradict shared invariants — they only add project-specific constraints.
 
@@ -225,37 +260,41 @@ SIGILS.md defines a cross-session communication protocol using semantic tags. Ta
 
 ### Tag Lifecycle Pattern
 
-All tags follow a three-state lifecycle:
+All tags follow a 4-state lifecycle with two paths:
 
 ```
-#needs-X  ──→  #claimed-X  ──→  #done-X
-(pending)      (in flight)       (resolved)
+Daemon path (async):
+  #needs-X → #delegated-X → #claimed-X → #done-X
+   (staging)   (approved)     (worker)    (resolved)
+
+Immediate path (next-skill):
+  #needs-X → #next-X → #claimed-X → #done-X
+   (staging)  (claimed)   (worker)   (resolved)
 ```
 
-The lifecycle is a finite state machine. An artifact in `#needs-review` can transition to `#done-review` or `#needs-rework` — but never backward to `#needs-implementation`.
+The `#needs-X` → `#delegated-X` transition requires human approval via `§CMD_DISPATCH_APPROVAL`. The `#needs-X` → `#next-X` transition is set when the user claims work for the next skill session.
 
-### The Six Feeds
+### The Three Feed Types
 
-| Feed | Tags | Resolving Skill | Purpose |
-|------|------|-----------------|---------|
-| `§FEED_ALERTS` | `#active-alert`, `#done-alert` | `/alert-raise`, `/alert-resolve` | Active state loaded into every new session |
-| `§FEED_REVIEWS` | `#needs-review`, `#done-review`, `#needs-rework` | `/review` | Quality gate for debriefs |
-| `§FEED_DOCUMENTATION` | `#needs-documentation`, `#done-documentation` | `/document` | Doc debt tracking for code-changing sessions |
-| `§FEED_RESEARCH` | `#needs-research`, `#claimed-research`, `#done-research` | `/research` | Async research via Gemini Deep Research |
-| `§FEED_DECISIONS` | `#needs-decision`, `#done-decision` | `/decide` | Deferred decisions that block other work |
-| `§FEED_IMPLEMENTATION` | `#needs-implementation`, `#claimed-implementation`, `#done-implementation` | `/implement` | Deferred implementation tasks |
+*   **`§FEED_ALERTS`** — 2-state lifecycle (`#active-alert` → `#done-alert`). Active alerts are loaded into every new session. Managed by `§CMD_MANAGE_ALERTS`.
+
+*   **`§FEED_REVIEWS`** — 2-state lifecycle (`#needs-review` → `#done-review` or `#needs-rework`). Quality gate for debriefs. Auto-applied at debrief creation. Processed by `/review`.
+
+*   **`§FEED_GENERIC`** — 4-state lifecycle (two paths above). Covers all delegation-capable tag nouns: brainstorm, direct, research, fix, implementation, loop, chores, documentation. Each tag noun maps 1:1 to a resolving skill (`¶INV_1_TO_1_TAG_SKILL`).
 
 ### Dispatch Priority
 
 When multiple tagged items exist, `§TAG_DISPATCH` defines processing order:
 
-| Priority | Tag | Rationale |
-|----------|-----|-----------|
-| 1 | `#needs-decision` | Decisions unblock everything else |
-| 2 | `#needs-research` | Async — queue early so results arrive by the time they are needed |
-| 3 | `#needs-implementation` | Core work |
-| 4 | `#needs-documentation` | Post-implementation cleanup |
-| 5 | `#needs-review` / `#needs-rework` | Final quality gate |
+*   **Priority 1** — `#needs-brainstorm` → `/brainstorm` — Exploration unblocks decisions
+*   **Priority 1.5** — `#needs-direct` → `/direct` — Vision unblocks coordination
+*   **Priority 2** — `#needs-research` → `/research` — Async, queue early
+*   **Priority 3** — `#needs-fix` → `/fix` — Bugs block progress
+*   **Priority 4** — `#needs-implementation` → `/implement` — Core work
+*   **Priority 4.5** — `#needs-loop` → `/loop` — Iteration workloads
+*   **Priority 5** — `#needs-chores` → `/chores` — Quick wins, filler
+*   **Priority 6** — `#needs-documentation` → `/document` — Post-code cleanup
+*   **Priority 7** — `#needs-review` → `/review` — Final quality gate (user-invoked only)
 
 ### Weight Tags
 
@@ -414,30 +453,59 @@ This type system is enforced by LLM compliance, not by a machine checker. At 90%
 
 The standards system references shell scripts that implement its operations. The behavioral specification (COMMANDS.md) and the implementation (scripts) are separate layers.
 
-| Script | Called By | Purpose |
-|--------|-----------|---------|
-| `log.sh` | `§CMD_APPEND_LOG` | Append-only log writes |
-| `session.sh` | `§CMD_MAINTAIN_SESSION_DIR`, `§CMD_UPDATE_PHASE`, `§CMD_RECOVER_SESSION` | Session state management |
-| `tag.sh` | `§CMD_TAG_FILE`, `§CMD_UNTAG_FILE`, `§CMD_SWAP_TAG_IN_FILE`, `§CMD_FIND_TAGGED_FILES` | Tag operations |
-| `user-info.sh` | `¶INV_INFER_USER_FROM_GDRIVE` | User identity detection |
-| `glob.sh` | `¶INV_GLOB_THROUGH_SYMLINKS` | Symlink-aware file globbing |
-| `session-search.sh` | `§CMD_INGEST_CONTEXT_BEFORE_WORK` | RAG search over session history |
-| `doc-search.sh` | `§CMD_INGEST_CONTEXT_BEFORE_WORK` | RAG search over documentation |
-| `research.sh` | `§FEED_RESEARCH` | Gemini Deep Research API |
+*   **`log.sh`**
+  *   Called by: `§CMD_APPEND_LOG`
+  *   Purpose: Append-only log writes with timestamp injection
+
+*   **`session.sh`**
+  *   Called by: `§CMD_MAINTAIN_SESSION_DIR`, `§CMD_UPDATE_PHASE`, `§CMD_RESUME_SESSION`
+  *   Purpose: Session state management (activate, phase, deactivate, restart)
+
+*   **`tag.sh`**
+  *   Called by: `§CMD_TAG_FILE`, `§CMD_UNTAG_FILE`, `§CMD_SWAP_TAG_IN_FILE`, `§CMD_FIND_TAGGED_FILES`
+  *   Purpose: Tag lifecycle operations (add, remove, swap, find)
+
+*   **`user-info.sh`**
+  *   Called by: `¶INV_INFER_USER_FROM_GDRIVE`
+  *   Purpose: User identity detection from GDrive mount path
+
+*   **`glob.sh`**
+  *   Called by: `¶INV_GLOB_THROUGH_SYMLINKS`
+  *   Purpose: Symlink-aware file globbing
+
+*   **`session-search.sh`**
+  *   Called by: `§CMD_INGEST_CONTEXT_BEFORE_WORK`
+  *   Purpose: Semantic (RAG) search over session history
+
+*   **`doc-search.sh`**
+  *   Called by: `§CMD_INGEST_CONTEXT_BEFORE_WORK`
+  *   Purpose: Semantic (RAG) search over project documentation
+
+*   **`research.sh`**
+  *   Called by: `/research` skill
+  *   Purpose: Gemini Deep Research API wrapper
 
 ---
 
 ## 10. Key Metrics
 
-| Metric | Value | Source |
-|--------|-------|--------|
-| Named commands | 32 (COMMANDS.md) + 5 (SIGILS.md tag operations) | COMMANDS.md, SIGILS.md |
-| Named invariants | 23 (shared) + project-specific | INVARIANTS.md |
-| Tag feeds | 6 | SIGILS.md |
-| Architectural layers | 4 | COMMANDS.md section headers |
-| Total specification lines | ~1,100 | COMMANDS.md + INVARIANTS.md + SIGILS.md |
-| Reported compliance rate | 90%+ | Author-reported empirical observation |
-| Context cost per session | ~700 lines (COMMANDS.md alone) | Upfront load |
+*   **Named commands** — 45+ (COMMANDS.md inline) + 5 (SIGILS.md tag operations) + 45 extracted CMD files
+  *   Source: COMMANDS.md Section 3, `.directives/commands/`
+
+*   **Named invariants** — 30+ (shared) + project-specific
+  *   Source: INVARIANTS.md (14 categories)
+
+*   **Tag feeds** — 3 types (Alerts, Reviews, Generic) covering 10 tag nouns
+  *   Source: SIGILS.md
+
+*   **Architectural layers** — 4
+  *   Source: COMMANDS.md section headers
+
+*   **Total specification lines** — ~6,300 (~1,460 in the Big Three + ~4,870 across 45 extracted CMD files)
+  *   Source: COMMANDS.md + INVARIANTS.md + SIGILS.md + `.directives/commands/`
+
+*   **Context cost per session** — ~530 lines upfront (COMMANDS.md) + per-phase CMD file loading via hooks
+  *   Source: SessionStart hook loads Big Three; PostToolUse hook loads phase-specific CMD files on demand
 
 ---
 

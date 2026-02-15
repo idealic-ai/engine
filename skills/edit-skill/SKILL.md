@@ -9,7 +9,7 @@ Creates, edits, or promotes skills — scaffolds SKILL.md and assets to project-
 
 # Edit Skill Protocol (The Skill Forge)
 
-Execute `§CMD_EXECUTE_SKILL_PHASES`.
+Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### Subcommands
 
@@ -31,7 +31,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "0", "name": "Setup",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "sessionDir", "parametersParsed", "templatesLoaded"]},
+      "proof": ["mode", "sessionDir", "parametersParsed", "templatesLoaded"], "gate": false},
     {"label": "1", "name": "Detection",
       "steps": ["§CMD_REPORT_INTENT"],
       "commands": [],
@@ -45,15 +45,15 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "commands": ["§CMD_APPEND_LOG", "§CMD_LINK_FILE"],
       "proof": ["planPresented", "logEntries"]},
     {"label": "4", "name": "Synthesis",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "4.1", "name": "Checklists",
-      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "4.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "4.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "4.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/edit-skill", "/implement", "/analyze", "/chores"],
   "directives": [],
@@ -66,12 +66,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 0: Forging skill: ___. Operation: ___. Target: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(0.0.*)
 
 *   **Scope**: Understand the skill name, subcommand (create/edit/promote), and load reference exemplars.
 
@@ -100,12 +100,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Detection
 *Determine whether this is a CREATE or EDIT operation, and where the skill should live.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 1: Detecting skill ___ in project-local and shared engine. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(1.0.*)
 
 1.  **Check project-local**: Does `.claude/skills/<skill-name>/SKILL.md` exist?
 2.  **Check shared engine**: Does `~/.claude/engine/skills/<skill-name>/SKILL.md` exist?
@@ -147,12 +147,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 2. Interrogation
 *Gather requirements through structured questioning.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2: Interrogating ___ skill design assumptions before scaffolding. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.0.*)
 
 ### Context Ingestion (Pre-Interrogation)
 
@@ -219,12 +219,12 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 ## 3. Scaffold / Rewrite
 *Generate the v2 inline SKILL.md into the target location.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3: Scaffolding skill ___ into ___. Generating SKILL.md and templates for ___ archetype.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.0.*)
 
 ### Target Path Resolution
 
@@ -289,7 +289,7 @@ Each phase MUST reference appropriate `§CMD_` commands:
 *   Synthesis -> `§CMD_RUN_SYNTHESIS_PIPELINE`
 
 **v2 Structural Requirements**:
-*   `### Phase Transition` with `§CMD_GATE_PHASE` after every phase except the last.
+*   Phase transitions managed by §CMD_EXECUTE_PHASE_STEPS (automatic gating).
 *   `---` between phases.
 *   Final phase uses `§CMD_RUN_SYNTHESIS_PIPELINE` for synthesis.
 *   Skills with interrogation get: depth selection table, round counter, custom topics (standard + repeatable), exit gate.
@@ -320,12 +320,12 @@ Execute `§CMD_LINK_FILE` for each file created.
 ## 4. Synthesis
 *When scaffolding is complete.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 4: Synthesizing. Skill ___ scaffolded with ___ files.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(4.0.*)
 
 **Debrief notes** (for `EDIT_SKILL.md`):
 *   Include: skill name, mode (create/edit), target location, files generated, archetype used.

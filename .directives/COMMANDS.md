@@ -414,10 +414,7 @@ Structured interrogation — depth selection, topic-driven round loop with betwe
 Skill-level phase orchestrator — drives the agent through all phases sequentially at the TOP of each protocol-tier SKILL.md.
 
 ### [¶CMD_EXECUTE_PHASE_STEPS](commands/CMD_EXECUTE_PHASE_STEPS.md)
-Per-phase step runner — reads the current phase's `steps` array, executes each `§CMD_*` step sequentially, and collects proof outputs.
-
-### [¶CMD_GATE_PHASE](commands/CMD_GATE_PHASE.md)
-Standardized phase boundary menu — presents options to proceed (with proof), walk through output, go back, or take a skill-specific action.
+Per-phase step runner — reads the current phase's `steps` array, executes each `§CMD_*` step sequentially, collects proof outputs, and runs the phase gate menu (configurable per-phase via `gate: true/false`).
 
 ### [¶CMD_SELECT_EXECUTION_PATH](commands/CMD_SELECT_EXECUTION_PATH.md)
 Presents a choice between mutually exclusive execution paths (inline, agent, parallel) at gateway phases.

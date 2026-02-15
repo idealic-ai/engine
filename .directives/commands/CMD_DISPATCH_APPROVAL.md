@@ -11,7 +11,7 @@
     *   **Fallback**: If agent context is unavailable (e.g., post-overflow recovery without dehydrated context), fall back to `engine tag find '#needs-*' [sessionDir] --tags-only`.
 2.  **Skip if empty**: If no `#needs-X` tags found (excluding review/rework), skip silently. No user prompt.
 3.  **Group**: Organize results by tag type (e.g., all `#needs-implementation` together, all `#needs-chores` together).
-4.  **Present**: For each group, invoke `§CMD_DECISION_TREE` with `§ASK_DISPATCH_GROUP`. Use preamble context to describe the group (`#needs-[noun]`, item count, and brief context per item).
+4.  **Present**: For each group, invoke §CMD_DECISION_TREE with `§ASK_DISPATCH_GROUP`. Use preamble context to describe the group (`#needs-[noun]`, item count, and brief context per item).
 5.  **Execute** (based on `§ASK_DISPATCH_GROUP` path):
     *   **`APR` (Approve all)**: For each file in the group, `engine tag swap [file] '#needs-[noun]' '#delegated-[noun]'`.
     *   **`CLM` (Claim all for next skill)**: For each file in the group, `engine tag swap [file] '#needs-[noun]' '#next-[noun]'`. Then execute **state passing** (step 5a).
@@ -25,7 +25,7 @@
             >
             > **Current tag**: `#needs-[noun]` — [1 sentence — what work this represents]
 
-        2.  **Present Options**: Invoke `§CMD_DECISION_TREE` with `§ASK_DISPATCH_ITEM` in batch mode (up to 4 items per batch). Use per-item context blocks from step 1 as preamble context. Item IDs are passed through to `§CMD_DECISION_TREE` for use in `AskUserQuestion` headers.
+        2.  **Present Options**: Invoke §CMD_DECISION_TREE with `§ASK_DISPATCH_ITEM` in batch mode (up to 4 items per batch). Use per-item context blocks from step 1 as preamble context. Item IDs are passed through to §CMD_DECISION_TREE for use in `AskUserQuestion` headers.
 
         3.  **On Selection** (based on `§ASK_DISPATCH_ITEM` path): Process each file's answer independently:
             *   **`APR`**: `engine tag swap [file] '#needs-[noun]' '#delegated-[noun]'`

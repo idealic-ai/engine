@@ -9,7 +9,7 @@ Thorough analysis of code, architecture, or topics — produces a structured res
 
 # Deep Research Protocol
 
-Execute `§CMD_EXECUTE_SKILL_PHASES`.
+Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### Session Parameters
 ```json
@@ -19,7 +19,8 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "0", "name": "Setup",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "sessionDir", "parametersParsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"],
+      "gate": false},
     {"label": "1", "name": "Research Loop",
       "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
@@ -29,17 +30,17 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
       "proof": ["depthChosen", "roundsCompleted"]},
     {"label": "3", "name": "Synthesis",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "3.1", "name": "Checklists",
-      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "3.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "3.3", "name": "Finding Triage",
       "steps": ["§CMD_WALK_THROUGH_RESULTS"], "commands": [], "proof": ["findingsTriaged", "delegated", "deferred", "dismissed"]},
     {"label": "3.4", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "3.5", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/brainstorm", "/implement", "/document", "/fix", "/chores"],
   "directives": [],
@@ -60,12 +61,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 0: Analyzing ___. Trigger: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(0.0.*)
 
 *   **Scope**: Understand the [Subject] and [Question] provided by the user.
 
@@ -83,22 +84,17 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`:
-  custom: "Skip to Phase 2: Calibration | I want to guide the analysis direction before research begins"
-  custom: "Skip to Phase 3: Synthesis | Findings are clear, ready to write the report"
-
 ---
 
 ## 1. Research Loop (Autonomous Deep Dive)
 *Do not wait for permission. Explore the context immediately.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 1: Researching ___. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(1.0.*)
 
 ### A. Exploration Strategy
 Iterate through the loaded files/docs using the **Research Topics** from the selected mode preset. Do not just read — **Interrogate**.
@@ -110,21 +106,17 @@ For *every* significant thought, execute `§CMD_APPEND_LOG`. **Logging is the co
 *   **Cadence**: Log at least **8 items** before moving to Calibration.
 *   **Variety**: Use ALL available log schemas (Discovery, Weakness, Connection, Spark, Gap, Pattern, Tradeoff, Assumption, Strength). Varied entry types produce richer analysis.
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`:
-  custom: "Skip to Phase 3: Synthesis | Findings are clear, ready to write the report"
-
 ---
 
 ## 2. Calibration (Interactive)
 *After you have logged a significant batch of findings (8+), STOP and turn to the user.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2: Calibrating with ___ findings logged. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.0.*)
 
 **Findings Summary**: Before asking any calibration questions, present a condensed summary of what was found during the Research Loop. Format as a numbered list of key findings (one line each), grouped by log entry type. This gives the user context to calibrate effectively — they can't guide the analysis if they don't know what was found.
 
@@ -184,12 +176,12 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 ## 3. Synthesis
 *When the user is satisfied.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3: Synthesizing. ___ findings logged, ___ calibration rounds completed.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.0.*)
 
 **Debrief notes** (for `ANALYSIS.md`):
 *   **Synthesize**: Don't just summarize. Connect the dots between Log entries.
@@ -200,12 +192,12 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 ### 3.3. Finding Triage (Action Planning)
 *Convert analysis into action. Walk through each finding with the user and decide its fate.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3.3: Triaging ___ findings into action items.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.3.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.3.*)
 
 Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** from the selected mode preset.
 

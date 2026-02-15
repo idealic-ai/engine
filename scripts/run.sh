@@ -53,6 +53,7 @@ export CLAUDE_SUPERVISOR_PID=$$
 # stop-notify.sh compares this to the active account — if they differ, another pane already rotated
 CLAUDE_ACCOUNT=$(jq -r '.activeAccount // ""' "$HOME/.claude/accounts/state.json" 2>/dev/null || echo "")
 export CLAUDE_ACCOUNT
+rotation_log "LAUNCH" "account=$CLAUDE_ACCOUNT pid=$$"
 
 # Session gate: require formal session activation before tool use
 # Gate hook (pre-tool-use-session-gate.sh) blocks non-whitelisted tools when this is set

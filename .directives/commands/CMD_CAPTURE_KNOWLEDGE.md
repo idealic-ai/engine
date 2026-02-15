@@ -14,7 +14,7 @@
 1.  **Scan**: Using agent judgment, review the session for up to 5 candidates matching `scanCriteria`.
 2.  **Draft**: For each candidate, prepare `draftFields`.
 3.  **Gate**: If no candidates found, skip silently. Return `"0 captured"`.
-4.  **Present**: For each candidate (batches of up to 4), invoke `§CMD_DECISION_TREE` with the specified `decisionTree`. Use preamble context to show drafted fields.
+4.  **Present**: For each candidate (batches of up to 4), invoke §CMD_DECISION_TREE with the specified `decisionTree`. Use preamble context to show drafted fields.
 5.  **Route**: On selection, follow `targets`:
     *   **Skip path**: Continue to next candidate.
     *   **Add path**: Format using `formatTemplate`, append to target file via Edit tool.

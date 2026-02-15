@@ -9,7 +9,7 @@ Analyzes transcripts, session artifacts, or feedback to identify and apply proto
 
 # Protocol Improvement (The Protocol Doctor)
 
-Execute `§CMD_EXECUTE_SKILL_PHASES`.
+Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### Session Parameters
 ```json
@@ -19,7 +19,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "0", "name": "Setup",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "sessionDir", "parametersParsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"], "gate": false},
     {"label": "1", "name": "Analysis Loop",
       "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
@@ -37,15 +37,15 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
       "commands": ["§CMD_APPEND_LOG"],
       "proof": ["testsDesigned", "testsPassed", "testsFailed", "testsSkipped"]},
     {"label": "5", "name": "Synthesis",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "5.1", "name": "Checklists",
-      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "5.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "5.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "5.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/implement", "/analyze", "/edit-skill", "/chores"],
   "directives": ["PITFALLS.md", "CONTRIBUTING.md"],
@@ -64,12 +64,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 0: Improving protocol based on ___. Input type: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(0.0.*)
 
 *   **Scope**: Understand the input (session ID, transcript, or feedback) and goal.
 
@@ -109,20 +109,17 @@ Parse the user's arguments to determine input type:
 *   Phase 1 analysis focus (from mode file)
 *   Phase 2 calibration topics (from mode file)
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`
-
 ---
 
 ## 1. Analysis Loop (Autonomous Deep Dive)
 *Do not wait for permission. Analyze the input immediately.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 1: Analyzing ___ for protocol improvements. Mode: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(1.0.*)
 
 ### A. Input Processing
 
@@ -183,21 +180,17 @@ For *every* finding, execute `§CMD_APPEND_LOG` to `PROTOCOL_IMPROVEMENT_LOG.md`
 
 **Cadence**: Log at least **5 findings** before moving to Calibration.
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`:
-  custom: "Skip to Phase 3: Apply | Findings are clear, ready to propose changes"
-
 ---
 
 ## 2. Calibration (Interactive)
 *Present findings to the user and align on priorities.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2: Calibrating with ___ findings logged. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.0.*)
 
 ### Findings Summary
 
@@ -219,20 +212,17 @@ Before interrogation, present a summary:
 - **Structural decisions** -- For refactoring proposals, confirm the restructuring approach
 - **Risk assessment** -- Could any proposed change break existing behavior?
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`
-
 ---
 
 ## 3. Apply (Grouped-by-File Edit Proposals)
 *Present findings grouped by file and offer edits with user approval.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3: Applying ___ approved findings across ___ files. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.0.*)
 
 ### Apply Protocol
 
@@ -260,20 +250,17 @@ For each affected protocol file (grouped):
 
 5.  **Log**: `§CMD_APPEND_LOG` after each file group is processed.
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`
-
 ---
 
 ## 4. Test Loop (Autonomous Verification)
 *Verify applied changes by designing and running e2e reproduction tests in a sandbox.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 4: Testing ___ applied findings. Designing reproduction cases in sandbox.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(4.0.*)
 
 ### Test Execution
 
@@ -283,20 +270,17 @@ Execute `§CMD_DESIGN_E2E_TEST` (which handles its own testability assessment an
 
 **On test failure**: Offer to loop back to Phase 3: Apply to address the issue, or continue to synthesis with the failure noted.
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`
-
 ---
 
 ## 5. Synthesis
 *When all findings are processed and verified.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 5: Synthesizing. ___ findings processed, ___ applied, ___ tested.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(5.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(5.0.*)
 
 **Debrief notes** (for `PROTOCOL_IMPROVEMENT.md`):
 *   **Input Summary**: What was analyzed (session, transcript, or feedback).

@@ -9,7 +9,7 @@ Keeps documentation in sync with code changes and project state.
 
 # Document Update Protocol (The Surgical Standard)
 
-Execute `§CMD_EXECUTE_SKILL_PHASES`.
+Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### Session Parameters
 ```json
@@ -19,7 +19,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "0", "name": "Setup",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INTERROGATE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
-      "proof": ["mode", "sessionDir", "parametersParsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"], "gate": false},
     {"label": "1", "name": "Diagnosis & Planning",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_GENERATE_PLAN"],
       "commands": ["§CMD_LINK_FILE"],
@@ -27,7 +27,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "2", "name": "Execution",
       "steps": ["§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
-      "proof": ["pathChosen", "pathsAvailable"]},
+      "proof": ["pathChosen", "pathsAvailable"], "gate": false},
     {"label": "2.A", "name": "Operation",
       "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS"],
@@ -37,15 +37,15 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "2.C", "name": "Parallel Agent Handoff",
       "steps": ["§CMD_PARALLEL_HANDOFF"], "commands": [], "proof": []},
     {"label": "3", "name": "Synthesis",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "3.1", "name": "Checklists",
-      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "3.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "3.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "3.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/review", "/implement", "/analyze", "/brainstorm", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
@@ -67,12 +67,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 0: Updating documentation for ___. Trigger: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(0.0.*)
 
 *   **Scope**: Understand the [Trigger] (e.g., "We refactored the Audio Graph").
     *   **Goal**: The mission is **Truth Convergence**. Make the map match the territory.
@@ -113,12 +113,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Diagnosis & Planning
 *Before cutting, understand the anatomy and draft the procedure.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 1: Diagnosing documentation drift for ___. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(1.0.*)
 
 *   **Survey**: Use targeted reads to identify outdated sections.
 *   **Plan**: Be specific. "Rewrite Section 3 of X.md" is better than "Update X.md".
@@ -143,24 +143,24 @@ If any items are flagged for revision, return to the plan for edits before proce
 ## 2. Execution
 *Gateway -- select the execution path.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2: Selecting execution path for documentation updates. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.0.*)
 
 ---
 
 ## 2.A. Operation
 *Execute the plan. Surgical updates only.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2.A: Executing ___-step documentation plan. Target: ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.A.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.A.*)
 
 **Operation Cycle**:
 1.  **Cut**: Make the targeted edit.
@@ -174,9 +174,9 @@ If any items are flagged for revision, return to the plan for edits before proce
 ## 2.B. Agent Handoff
 *Hand off to a single autonomous agent.*
 
-`§CMD_EXECUTE_PHASE_STEPS(2.B.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.B.*)
 
-`§CMD_HANDOFF_TO_AGENT` with:
+§CMD_HANDOFF_TO_AGENT with:
 ```json
 {
   "agentName": "writer",
@@ -192,21 +192,21 @@ If any items are flagged for revision, return to the plan for edits before proce
 ## 2.C. Parallel Agent Handoff
 *Hand off to multiple autonomous agents in parallel.*
 
-`§CMD_EXECUTE_PHASE_STEPS(2.C.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.C.*)
 
-`§CMD_PARALLEL_HANDOFF` with the plan from `DOCUMENTATION_PLAN.md`.
+§CMD_PARALLEL_HANDOFF with the plan from `DOCUMENTATION_PLAN.md`.
 
 ---
 
 ## 3. Synthesis
 *When the surgery is complete.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3: Synthesizing. ___ documentation updates completed.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.0.*)
 
 **Debrief notes** (for `DOCUMENTATION.md`):
 *   **Summary**: What was changed?

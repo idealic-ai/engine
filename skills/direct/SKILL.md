@@ -9,7 +9,7 @@ High-level project vision designer — produces structured, diffable vision docu
 
 # Direct Protocol (The Architect's Blueprint)
 
-Execute `§CMD_EXECUTE_SKILL_PHASES`.
+Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### Session Parameters
 ```json
@@ -19,7 +19,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "0", "name": "Setup",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "sessionDir", "parametersParsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"], "gate": false},
     {"label": "1", "name": "Interrogation",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
@@ -35,7 +35,7 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "4", "name": "Execution",
       "steps": ["§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
-      "proof": ["pathChosen", "pathsAvailable"]},
+      "proof": ["pathChosen", "pathsAvailable"], "gate": false},
     {"label": "4.A", "name": "Vision Writing",
       "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_LINK_FILE"],
@@ -43,15 +43,15 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
     {"label": "4.B", "name": "Agent Handoff",
       "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
     {"label": "5", "name": "Synthesis",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "5.1", "name": "Checklists",
-      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
+      "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "5.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "5.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "5.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/loop", "/implement", "/analyze", "/brainstorm"],
   "directives": [],
@@ -73,12 +73,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 0. Setup
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 0: Designing project vision for ___. Output: `docs/[name]_DIRECT.md`.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(0.0.*)
 
 *   **Scope**: Understand the project goal and select the operating mode.
 
@@ -102,12 +102,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 1. Interrogation
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 1: Interrogating ___ project vision assumptions. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(1.0.*)
 
 ### Topics (Direct Design)
 *Standard topics for the command to draw from. Adapt to the task -- skip irrelevant ones, invent new ones as needed.*
@@ -136,12 +136,12 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 
 ## 2. Planning
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 2: Planning ___ vision structure. ___ chapters identified.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(2.0.*)
 
 **Unless the user points to an existing plan, you MUST create one.**
 
@@ -171,12 +171,12 @@ If any items are flagged for revision, return to the plan for edits before proce
 
 ## 3. Dependency Analysis
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 3: Analyzing dependencies across ___ chapters. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(3.0.*)
 
 **This phase is the unique value-add of /direct.**
 
@@ -208,19 +208,16 @@ Present the dependency analysis via `AskUserQuestion`:
 > - **"Adjust dependencies"** -- Modify the graph (add/remove dependencies)
 > - **"Re-analyze"** -- Something was missed, re-run the analysis
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`.
-
 ---
 
 ## 4. Execution
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 4: Selecting execution path for vision document. ___.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(4.*)`
+§CMD_EXECUTE_PHASE_STEPS(4.*)
 
 *Gateway phase — presents inline/agent/parallel choice, then enters the selected branch.*
 
@@ -229,12 +226,12 @@ Execute `§CMD_GATE_PHASE`.
 ## 4.A. Vision Writing
 *Produce the final vision document.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 4.A: Writing vision document: `docs/[name]_DIRECT.md`. ___ chapters across ___ parallel groups.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(4.A.*)`
+§CMD_EXECUTE_PHASE_STEPS(4.A.*)
 
 ### Output Path
 
@@ -283,17 +280,14 @@ Use `TEMPLATE_DIRECT_VISION.md` to produce the vision document. Populate all sec
 
 Execute `§CMD_LINK_FILE` for the produced vision document.
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`.
-
 ---
 
 ## 4.B. Agent Handoff
 *Hand off to an autonomous agent for vision writing.*
 
-`§CMD_EXECUTE_PHASE_STEPS(4.B.*)`
+§CMD_EXECUTE_PHASE_STEPS(4.B.*)
 
-`§CMD_HANDOFF_TO_AGENT` with:
+§CMD_HANDOFF_TO_AGENT with:
 ```json
 {
   "agentName": "writer",
@@ -309,12 +303,12 @@ Execute `§CMD_GATE_PHASE`.
 ## 5. Synthesis
 *When the vision document is complete.*
 
-`§CMD_REPORT_INTENT`:
+§CMD_REPORT_INTENT:
 > 5: Synthesizing. Vision document written with ___ chapters.
 > Focus: ___.
 > Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(5.0.*)`
+§CMD_EXECUTE_PHASE_STEPS(5.0.*)
 
 **Debrief notes** (for `DIRECT.md`):
 *   **Vision Summary**: What the project achieves, chapter count, parallel group count

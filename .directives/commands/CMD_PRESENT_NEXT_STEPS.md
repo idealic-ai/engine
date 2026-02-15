@@ -8,9 +8,9 @@
 
 ### Step 1: Read Next Skills
 
-Read `nextSkills` from `.state.json`. This array is declared by each skill in its SKILL.md and stored at session activation.
+Read `nextSkills` from the `## Next Skills` section of `engine session idle` (or `engine session deactivate`) output. These commands output nextSkills directly in their stdout after transitioning the session lifecycle.
 
-**Fallback**: If `nextSkills` is empty or missing, use the `SRC_DELEGATION_TARGETS` table to derive options (pick the 3 most commonly recommended skills + "Done and clear").
+**Fallback**: If the engine output doesn't include `## Next Skills` (older engine version), read `nextSkills` from `.state.json` via `jq -r '.nextSkills // [] | .[]'`. If still empty, use the `SRC_DELEGATION_TARGETS` table to derive options (pick the 3 most commonly recommended skills + "Done and clear").
 
 ### Step 2: Contextualize Options
 
@@ -43,7 +43,7 @@ AskUserQuestion:
 *   **If a skill is chosen**: Invoke `Skill(skill: "[chosen-skill]")`. The next skill's `§CMD_PARSE_PARAMETERS` will run `§CMD_MAINTAIN_SESSION_DIR`, which detects the idle session with existing artifacts and presents the delivery mode choice (fast-track / full ceremony / new session). The fast-track choice is handled there — NOT here — to avoid double-asking.
 *   **If "Done and clear"**: Output "Clearing context. Fresh Claude incoming." then execute `engine session clear <session-dir>`. This is terminal — do NOT call any further tools after it.
 *   **If "Other" — skill name** (user typed `/implement`, `/test`, etc.): Treat as skill selection — invoke `Skill(skill: "[typed-skill]")`.
-*   **If "Other" — new work details** (user typed notes, questions, or requirements): This is new input that needs scoping. Invoke `§CMD_DECISION_TREE` with `§ASK_NEW_WORK_ROUTING`. Use preamble context to summarize the user's input and how each option would handle it.
+*   **If "Other" — new work details** (user typed notes, questions, or requirements): This is new input that needs scoping. Invoke §CMD_DECISION_TREE with `§ASK_NEW_WORK_ROUTING`. Use preamble context to summarize the user's input and how each option would handle it.
 
 ---
 
@@ -51,7 +51,7 @@ AskUserQuestion:
 
 *   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All interactions — main menu AND follow-up routing — MUST use `AskUserQuestion`.
 *   **Idle gate active**: After `engine session idle`, tools are restricted to AskUserQuestion, Skill, and engine commands.
-*   **Options from `nextSkills`**: Read from `.state.json`. Session directory handling is done by `§CMD_MAINTAIN_SESSION_DIR` in the next skill, not here.
+*   **Options from engine output**: Read from the `## Next Skills` section of `engine session idle`/`deactivate` stdout. This avoids the session gate blocking `.state.json` reads after deactivation. Fallback to `.state.json` only if engine output lacks the section.
 *   **No deactivation**: Session stays idle. Deactivation happens when the next skill activates or the user explicitly closes it.
 
 ---

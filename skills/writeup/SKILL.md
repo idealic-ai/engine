@@ -64,9 +64,6 @@ Creates semi-permanent situational documents for reference. Writeups describe a 
 
 4.  **If Skipped**: Proceed without the Related section (or mark it "None").
 
-### Phase Transition
-Execute `§CMD_GATE_PHASE`.
-
 ---
 
 ## 2. Interrogation (Brief Clarification)

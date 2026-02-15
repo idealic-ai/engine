@@ -1,6 +1,6 @@
 ### ¶CMD_DECISION_TREE
 **Definition**: General-purpose declarative decision collector. Navigates markdown-defined trees via `AskUserQuestion`. Supports single-item and batch (up to 4 items) invocation. Returns `chosen_items[]` — no side effects.
-**Trigger**: Called by `§CMD_WALK_THROUGH_RESULTS`, `§CMD_DISPATCH_APPROVAL`, `§CMD_GATE_PHASE`, or any protocol step needing structured decisions.
+**Trigger**: Called by `§CMD_WALK_THROUGH_RESULTS`, `§CMD_DISPATCH_APPROVAL`, `§CMD_EXECUTE_PHASE_STEPS`, or any protocol step needing structured decisions.
 
 ---
 
@@ -72,7 +72,15 @@ Before calling `AskUserQuestion`, output a **preamble** in chat. The preamble ha
 
 **Single item** (1 item): One `AskUserQuestion` with the tree's root nodes as options (3 named + implicit Other).
 
-**Batch** (2-4 items): One `AskUserQuestion` with N questions (one per item). Each question offers the same root nodes as options. Header per question: the item's ID per the Item IDs convention (SIGILS.md § Item IDs). The caller provides item IDs — this command uses them as-is in `AskUserQuestion` headers.
+**Batch** (2-4 items): One `AskUserQuestion` with N questions (one per item). Each question offers the same root nodes as options.
+
+**Header convention**: `ID. Label` format — the item's full hierarchical ID (per SIGILS.md § Item IDs) + dot + space + short descriptive label (up to 20 chars for the label portion). The header stays the same across follow-ups for the same item (stable identifier). Examples: `1. Auth Design`, `2.3. Caching Layer`, `2.3.1. Error Handling`.
+
+**Question text convention**: At root level, the question text is a plain contextual question. At deeper levels (follow-ups after branch/OTH selection), prefix the question with a breadcrumb path in brackets: `[CODE]: Question text` or `[CODE/SUB]: Question text`. This shows the user where they are in the tree without cluttering the header chip.
+
+*   Root: `"How does Auth Design fit the system?"`
+*   Depth 1: `"[OTH]: What should change about Auth Design?"`
+*   Depth 2: `"[OTH/CHG]: How should Auth Design change?"`
 
 For each option:
 *   **Label**: Node's label text. Auto-append `...` if node has children.
@@ -125,13 +133,13 @@ For each item's selection:
 When a follow-up is triggered for ONE item in a batch (branch selection, prefix trigger, Q: question, or any "Re-present" action):
 
 1.  **Preserve resolved items**: Other items in the batch that already have answers are PRESERVED. Do NOT re-ask them.
-2.  **Re-present only the triggering item**: Fire a NEW `AskUserQuestion` with a SINGLE question for the unresolved item. Header: `"Item N: Follow-up"` (using the item's original batch identifier).
+2.  **Re-present only the triggering item**: Fire a NEW `AskUserQuestion` with a SINGLE question for the unresolved item. Header: same `ID. Label` as the original batch (stable — never changes). Question text: prefixed with breadcrumb path (e.g., `[OTH]: ...`).
 3.  **Include follow-up context**: In the preamble before re-presenting, explain what triggered the follow-up (the user's question, the agent's answer, or the subtree navigation). The user needs context for why they're seeing this item again.
 4.  **Continue the batch**: After the follow-up resolves, merge the result into `chosen_items[]` alongside the preserved answers. Proceed to the next batch (or Step 5 if this was the last batch).
 
 **"Re-present" in batch context**: When the Universal Prefixes table says "Re-present tree" — in batch mode this means re-present ONLY the triggering item (not the entire batch). Other items' answers are final.
 
-**Follow-up header convention**: The header for follow-up questions MUST include the item ID from the original batch. Format: `"{itemId}: Follow-up"` or `"{itemId}: [reason]"` (e.g., `"4.2.3/2: Subtree"`, `"4.2.3/2: Q&A"`).
+**Follow-up header convention**: The header for follow-up questions MUST be identical to the original batch header (`ID. Label`). Navigation context goes in the question text as a breadcrumb prefix (`[CODE]: ...`), not in the header. This keeps the header stable so the user always knows which item they're deciding on.
 
 ### Step 5: Return
 
@@ -179,7 +187,7 @@ These work in every `[OTH]` text field across all `¶ASK_*` patterns. Resolved a
 
 The caller provides:
 *   **Tree definition**: Markdown tree block (inline or by reference).
-*   **Items**: 1-4 items, each with `title` (used in question text and result), `itemId` (hierarchical ID per SIGILS.md § Item IDs — used in `AskUserQuestion` headers and `chosen_items[]` output), and `context` (displayed in chat before the question — caller generates context blocks, not this command).
+*   **Items**: 1-4 items, each with `title` (used in question text and result), `itemId` (hierarchical ID per SIGILS.md § Item IDs — tracked internally in `chosen_items[]` output, NOT used as headers), `label` (short descriptive label for the `AskUserQuestion` header — up to 20 chars, e.g., `"Auth Design"`), and `context` (displayed in chat before the question — caller generates context blocks, not this command).
 
 ---
 
@@ -214,7 +222,7 @@ AskUserQuestion supports max 4 questions per call. Batch size = `floor(4 / roots
 *   **`¶INV_ASK_OTH_SUBTREE`**: Empty Other → subtree; typed text → override.
 *   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All interactions via `AskUserQuestion`.
 *   **`¶INV_ASK_IN_BATCHES_OF_4`**: AskUserQuestion supports max 4 questions per call. Batch size depends on tree roots per item: 1 root question/item → batch 4 items. 2 root questions/item → batch 2 items. Complex multi-root trees → batch 1 item. Always maximize batching to save round trips.
-*   **`¶INV_ASK_BATCH_PRESERVING_FOLLOWUP`**: Follow-ups in batch mode preserve other items' answers and re-present ONLY the triggering item with `"Item N: Follow-up"` header. Never re-ask resolved items or break out of batch mode. See "Batch Follow-Up Rules" in Step 4.
+*   **`¶INV_ASK_BATCH_PRESERVING_FOLLOWUP`**: Follow-ups in batch mode preserve other items' answers and re-present ONLY the triggering item with the same `ID. Label` header (stable). Breadcrumb path goes in question text. Never re-ask resolved items or break out of batch mode. See "Batch Follow-Up Rules" in Step 4.
 
 ---
 
