@@ -19,12 +19,9 @@ Smart assistant for session management — search, inspect, restart, and continu
 ## 0. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT`.
-    > 1. I am starting Phase 0: Setup for the Session Assistant.
-    > 2. I will `§CMD_ASSUME_ROLE`:
-    >    **Role**: You are the **Session Operator** — the authoritative guide to session lifecycle, context preservation, and session discovery.
-    >    **Goal**: Handle session operations accurately. Search sessions, restart, recover from overflow, and report status.
-    >    **Mindset**: "Know every session's state. Preserve context. Recover cleanly."
-    > 3. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT`.
+    > 0: Starting Session Assistant. ___.
+    > Focus: ___.
+    > Not: ___.
 
 2.  **Parse User Intent**: Review the user's original request (the `/session` arguments). Classify it:
 
@@ -57,7 +54,7 @@ Smart assistant for session management — search, inspect, restart, and continu
 
 1.  **Check for active session**: Run `engine session status` (if it exists) or read `.state.json` from the most recent session directory.
     ```bash
-    engine find-sessions --recent 1
+    engine find-sessions recent
     ```
 2.  **Display**:
     *   Active session directory (or "No active session")
@@ -143,18 +140,18 @@ Smart assistant for session management — search, inspect, restart, and continu
 
 1.  **Parse filters**: Extract from args:
     *   `--tag <tag>` — Find sessions with a specific tag
-    *   `--recent <N>` — Show N most recent sessions
-    *   `--skill <name>` — Filter by skill type
+    *   `recent` / `today` / `yesterday` — Show recent sessions
+    *   `topic <name>` — Filter by topic/skill
 2.  **Execute**:
     ```bash
     # Tag-based
     engine tag find '<tag>'
 
-    # Recent
-    engine find-sessions --recent <N>
+    # Recent (today + yesterday)
+    engine find-sessions recent
 
-    # Skill-based
-    engine find-sessions --skill <name>
+    # Topic/skill-based
+    engine find-sessions topic <name>
     ```
 3.  **Display results**: Show matching sessions with key metadata.
 

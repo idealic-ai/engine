@@ -1,4 +1,4 @@
-### §CMD_HANDOFF_TO_AGENT
+### ¶CMD_HANDOFF_TO_AGENT
 **Definition**: Standardized handoff from a parent command to an autonomous agent.
 **Rule**: Opt-in, foreground, user-initiated. The parent command asks; the user decides.
 
@@ -92,6 +92,8 @@
 *   **Foreground Only**: Agents run in the foreground. The parent waits for completion.
 *   **No Chaining**: An agent cannot launch another agent. Only the parent command (user-facing) can invoke `§CMD_HANDOFF_TO_AGENT`.
 *   **Audit Trail**: The agent's log file IS the audit trail. The parent verifies it during post-agent review.
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`.
+*   **`¶INV_TERMINAL_FILE_LINKS`**: File paths in the post-agent review and report MUST be clickable URLs.
 
 ---
 
@@ -102,12 +104,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "agent_launched": {
+    "agentLaunched": {
       "type": "string",
       "description": "Agent type and task summary for the launched agent"
     }
   },
-  "required": ["agent_launched"],
+  "required": ["agentLaunched"],
   "additionalProperties": false
 }
 ```

@@ -47,24 +47,26 @@ get_test_pane() {
 # Save purple-layer-relevant state for a pane
 save_pane_purple_state() {
     local pane_id="$1"
-    local label manager coordinator_active notify pane_bg
+    local label manager coordinator_active notify pane_bg manages
     label=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_label}' 2>/dev/null || echo "")
     manager=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_manager}' 2>/dev/null || echo "")
     coordinator_active=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_coordinator_active}' 2>/dev/null || echo "")
     notify=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_notify}' 2>/dev/null || echo "")
     pane_bg=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{pane_bg}' 2>/dev/null || echo "")
-    echo "${label}|${manager}|${coordinator_active}|${notify}|${pane_bg}"
+    manages=$(tmux -L "$SOCKET" display-message -p -t "$pane_id" '#{@pane_manages}' 2>/dev/null || echo "")
+    echo "${label}|${manager}|${coordinator_active}|${notify}|${pane_bg}|${manages}"
 }
 
 # Restore purple-layer-relevant state for a pane
 restore_pane_purple_state() {
     local pane_id="$1" saved="$2"
-    local label manager coordinator_active notify pane_bg
+    local label manager coordinator_active notify pane_bg manages
     label=$(echo "$saved" | cut -d'|' -f1)
     manager=$(echo "$saved" | cut -d'|' -f2)
     coordinator_active=$(echo "$saved" | cut -d'|' -f3)
     notify=$(echo "$saved" | cut -d'|' -f4)
     pane_bg=$(echo "$saved" | cut -d'|' -f5)
+    manages=$(echo "$saved" | cut -d'|' -f6)
 
     # Restore label
     if [[ -n "$label" ]]; then
@@ -78,6 +80,13 @@ restore_pane_purple_state() {
         tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_manager "$manager" 2>/dev/null || true
     else
         tmux -L "$SOCKET" set-option -p -t "$pane_id" -u @pane_manager 2>/dev/null || true
+    fi
+
+    # Restore manages
+    if [[ -n "$manages" ]]; then
+        tmux -L "$SOCKET" set-option -p -t "$pane_id" @pane_manages "$manages" 2>/dev/null || true
+    else
+        tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_manages 2>/dev/null || true
     fi
 
     # Restore coordinator_active
@@ -317,8 +326,9 @@ test_color_manager_light_purple() {
     # Clear coordinator-active so manager check is reached
     tmux -L "$SOCKET" set-option -pu -t "$pane1" @pane_coordinator_active 2>/dev/null || true
 
-    # Make pane1 a manager: pane1 has label, pane2 declares that label as manager
+    # Make pane1 a manager: set @pane_manages (what _resolve_pane_color checks)
     tmux -L "$SOCKET" set-option -p -t "$pane1" @pane_label "PurpleTestMgr" 2>/dev/null
+    tmux -L "$SOCKET" set-option -p -t "$pane1" @pane_manages "pane2" 2>/dev/null
     tmux -L "$SOCKET" set-option -p -t "$pane2" @pane_manager "PurpleTestMgr" 2>/dev/null
     # Set a notify state so _apply_notify_visual is triggered
     tmux -L "$SOCKET" set-option -p -t "$pane1" @pane_notify "checked" 2>/dev/null
@@ -331,7 +341,7 @@ test_color_manager_light_purple() {
 
     local bg
     bg=$(get_pane_bg "$pane1")
-    assert_eq "#1a0a2e" "$bg" "Case 2: manager pane gets light purple (#1a0a2e)"
+    assert_eq "#110520" "$bg" "Case 2: manager pane gets light purple (#110520)"
 
     restore_pane_purple_state "$pane1" "$saved1"
     restore_pane_purple_state "$pane2" "$saved2"
@@ -371,7 +381,7 @@ test_color_coordinator_beats_manager() {
 
     local bg
     bg=$(get_pane_bg "$pane1")
-    assert_eq "#0d0518" "$bg" "Case 5: coordinator-active (#0d0518) beats manager (#1a0a2e)"
+    assert_eq "#0d0518" "$bg" "Case 5: coordinator-active (#0d0518) beats manager (#110520)"
 
     restore_pane_purple_state "$pane1" "$saved1"
     restore_pane_purple_state "$pane2" "$saved2"
@@ -390,6 +400,7 @@ test_color_hardcoded_defaults() {
     # Clear all purple layer state
     tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_coordinator_active 2>/dev/null || true
     tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_manager 2>/dev/null || true
+    tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_manages 2>/dev/null || true
     # Clear any theme overrides for checked state
     tmux -L "$SOCKET" set-option -gu @fleet_theme_checked 2>/dev/null || true
     # Temporarily clear label so pane isn't detected as manager
@@ -425,6 +436,7 @@ test_color_theme_override_state() {
     # Clear purple layer state
     tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_coordinator_active 2>/dev/null || true
     tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_label 2>/dev/null || true
+    tmux -L "$SOCKET" set-option -pu -t "$pane_id" @pane_manages 2>/dev/null || true
 
     # Set a theme override for "checked" state
     tmux -L "$SOCKET" set-option -g @fleet_theme_checked "#112233" 2>/dev/null

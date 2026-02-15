@@ -49,6 +49,11 @@ source "$HOME/.claude/scripts/lib.sh"
 # Both session.sh and statusline.sh use this instead of $PPID (which varies by spawn path)
 export CLAUDE_SUPERVISOR_PID=$$
 
+# Snapshot current account for race condition prevention in account rotation
+# stop-notify.sh compares this to the active account — if they differ, another pane already rotated
+CLAUDE_ACCOUNT=$(jq -r '.activeAccount // ""' "$HOME/.claude/accounts/state.json" 2>/dev/null || echo "")
+export CLAUDE_ACCOUNT
+
 # Session gate: require formal session activation before tool use
 # Gate hook (pre-tool-use-session-gate.sh) blocks non-whitelisted tools when this is set
 export SESSION_REQUIRED=1
@@ -347,8 +352,7 @@ find_restart_agent_json() {
 
   find -L "$sessions_dir" -name ".state.json" -type f 2>/dev/null | while read -r f; do
     local kill_req=$(jq -r '.killRequested // false' "$f" 2>/dev/null)
-    local prompt=$(jq -r '.restartPrompt // ""' "$f" 2>/dev/null)
-    if [ "$kill_req" = "true" ] && [ -n "$prompt" ]; then
+    if [ "$kill_req" = "true" ]; then
       # Fleet mode: scope to our pane to prevent cross-pane restart theft
       if [ -n "${FLEET_PANE_ID:-}" ]; then
         local pane=$(jq -r '.fleetPaneId // ""' "$f" 2>/dev/null)
@@ -641,13 +645,16 @@ while true; do
   RESTART_AGENT_FILE=$(find_restart_agent_json || true)
   if [ -n "$RESTART_AGENT_FILE" ] && [ -f "$RESTART_AGENT_FILE" ]; then
     RESTART_PROMPT=$(jq -r '.restartPrompt // empty' "$RESTART_AGENT_FILE" 2>/dev/null || true)
+    # Clear restart state, transition to restarting
+    jq 'del(.restartPrompt) | .killRequested = false | .lifecycle = "restarting"' \
+      "$RESTART_AGENT_FILE" > "$RESTART_AGENT_FILE.tmp" && mv "$RESTART_AGENT_FILE.tmp" "$RESTART_AGENT_FILE"
     if [ -n "$RESTART_PROMPT" ]; then
-      # Clear restart state, transition to restarting
-      jq 'del(.restartPrompt) | .killRequested = false | .lifecycle = "restarting"' \
-        "$RESTART_AGENT_FILE" > "$RESTART_AGENT_FILE.tmp" && mv "$RESTART_AGENT_FILE.tmp" "$RESTART_AGENT_FILE"
-      echo "[run.sh] Restart requested. Looping..."
-      continue
+      echo "[run.sh] Restart requested with prompt. Looping..."
+    else
+      # killRequested but no prompt — "done and clear" case. Restart fresh.
+      echo "[run.sh] Clear requested. Restarting fresh..."
     fi
+    continue
   fi
 
   # Normal exit

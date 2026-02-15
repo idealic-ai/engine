@@ -1,4 +1,4 @@
-### §CMD_DELEGATE
+### ¶CMD_DELEGATE
 **Definition**: Write a delegation REQUEST file, apply the appropriate tag, and execute the chosen delegation mode (async, blocking, or silent).
 **Trigger**: Called by the `/delegation-create` skill after mode selection. Not called directly by agents.
 
@@ -49,14 +49,12 @@
     **Silent Mode** ("Spawn sub-agent to do it silently"):
     *   Determine `subagent_type` from tag noun:
 
-        | Tag Noun | subagent_type |
-        |----------|--------------|
-        | implementation | builder |
-        | research | researcher |
-        | brainstorm | general-purpose |
-        | chores | builder |
-        | documentation | writer |
-        | review | reviewer |
+        - **implementation** — builder
+        - **research** — researcher
+        - **brainstorm** — general-purpose
+        - **chores** — builder
+        - **documentation** — writer
+        - **review** — reviewer
 
     *   Launch Task tool:
         ```
@@ -74,3 +72,41 @@
 *   **Tag First**: Apply the tag AFTER writing the file. The file must exist before tagging.
 *   **No Session Activation**: This command does not activate or create sessions. It operates within the caller's active session.
 *   **Idempotent Tagging**: `engine tag add` is idempotent -- safe to re-run.
+*   **`¶INV_ESCAPE_BY_DEFAULT`**: Backtick-escape tag references in chat output; bare tags only on `**Tags**:` lines or in `engine tag` commands.
+*   **`¶INV_TERMINAL_FILE_LINKS`**: File paths in REQUEST file reports and delegation status MUST be clickable URLs.
+
+---
+
+## PROOF FOR §CMD_DELEGATE
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "executed": {
+      "type": "string",
+      "description": "What was accomplished (3-7 word self-quote)"
+    },
+    "delegationMode": {
+      "type": "string",
+      "enum": ["async", "blocking", "silent"],
+      "description": "The delegation mode selected (async/blocking/silent)"
+    },
+    "requestFile": {
+      "type": "string",
+      "description": "Absolute path to the REQUEST file created"
+    },
+    "tagApplied": {
+      "type": "string",
+      "description": "The tag applied to the request (e.g., '#needs-implementation')"
+    },
+    "watcherStarted": {
+      "type": "string",
+      "description": "Watcher status (e.g., 'started for #done-impl' or 'not needed, async mode')"
+    }
+  },
+  "required": ["executed", "delegationMode", "requestFile", "tagApplied"],
+  "additionalProperties": false
+}
+```

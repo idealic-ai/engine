@@ -20,7 +20,7 @@ The restart flow involves four components working in sequence:
 engine session restart  →  writes ready-to-kill to .state.json
                     →  attempts to kill Claude via SIGTERM
 run.sh              →  detects Claude exit, finds restart prompt
-                    →  spawns new Claude with /reanchor prompt
+                    →  spawns new Claude with /session continue prompt
 statusline.sh       →  finds session by FLEET_PANE_ID env var
                     →  updates .state.json with contextUsage + sessionId
 ```
@@ -191,7 +191,7 @@ restart)
     # Read current state
     SKILL=$(jq -r '.skill' "$AGENT_FILE")
     CURRENT_PHASE=$(jq -r '.currentPhase // "Phase 1: Setup"' "$AGENT_FILE")
-    PROMPT="/reanchor --session $DIR --skill $SKILL --phase \"$CURRENT_PHASE\" --continue"
+    PROMPT="/session continue --session $DIR --skill $SKILL --phase \"$CURRENT_PHASE\" --continue"
 
     # Write restart state — watchdog handles the kill
     jq --arg ts "$(timestamp)" --arg prompt "$PROMPT" \

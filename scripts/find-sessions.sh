@@ -95,19 +95,29 @@ list_debriefs_in_dirs() {
 
 # Find session dirs that have ANY file modified after a given epoch timestamp.
 # Args: $1 = epoch_start, $2 = epoch_end (optional, defaults to now)
+# Uses temp reference files + find -newer (macOS BSD find lacks -newermt).
+# This avoids per-file stat process spawning which segfaults on FUSE mounts.
 dirs_with_files_in_window() {
   local epoch_start="$1"
   local epoch_end="${2:-$(date +%s)}"
+
+  # Create temp reference files with mtime set to window bounds
+  local start_ref end_ref
+  start_ref=$(mktemp)
+  end_ref=$(mktemp)
+  trap 'rm -f "$start_ref" "$end_ref"' RETURN
+  touch -t "$(date -r "$epoch_start" +%Y%m%d%H%M.%S)" "$start_ref"
+  # +1s to end_ref: touch -t has second precision but file mtimes have
+  # sub-second precision, so a file at 18.500s is "newer" than ref at 18.000s
+  touch -t "$(date -r "$((epoch_end + 1))" +%Y%m%d%H%M.%S)" "$end_ref"
+
   find "$SEARCH_PATH" -maxdepth 1 -type d ! -path "$SEARCH_PATH" 2>/dev/null | while IFS= read -r dir; do
-    # Check if any file in this session was modified within the window
-    local found=0
-    while IFS= read -r mtime; do
-      if [[ "$mtime" -ge "$epoch_start" ]] && [[ "$mtime" -le "$epoch_end" ]]; then
-        found=1
-        break
-      fi
-    done < <(find "$dir" -type f -exec stat -f "%m" {} \; 2>/dev/null)
-    [[ $found -eq 1 ]] && echo "$dir"
+    # O(1) filesystem check: any file modified within [start, end]?
+    local matches
+    matches=$(find "$dir" -type f -newer "$start_ref" ! -newer "$end_ref" -print 2>/dev/null || true)
+    if [[ -n "$matches" ]]; then
+      echo "$dir"
+    fi
   done | sort
 }
 

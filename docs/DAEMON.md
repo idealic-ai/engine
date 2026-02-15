@@ -250,7 +250,7 @@ Tag-to-skill mapping is discovered from templates, not hardcoded. Adding a new s
 
 ## See Also
 
-- `~/.claude/.directives/TAGS.md` — Tag system and `§TAG_DISPATCH` routing
+- `~/.claude/.directives/SIGILS.md` — Tag system and `§TAG_DISPATCH` routing
 - `~/.claude/.directives/INVARIANTS.md` — `¶INV_NEEDS_IS_STAGING`, `¶INV_DISPATCH_APPROVAL_REQUIRED`, `¶INV_DAEMON_DEBOUNCE`, `¶INV_CLAIM_BEFORE_WORK`
 - `~/.claude/.directives/COMMANDS.md` — `§CMD_DELEGATE` (low-level delegation primitive)
 - `~/.claude/skills/delegation-claim/SKILL.md` — Worker-side claiming protocol

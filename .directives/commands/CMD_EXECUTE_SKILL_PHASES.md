@@ -1,4 +1,4 @@
-### §CMD_EXECUTE_SKILL_PHASES
+### ¶CMD_EXECUTE_SKILL_PHASES
 **Definition**: Skill-level phase orchestrator. Lives at the TOP of each SKILL.md. Drives the agent through all phases sequentially, calling `§CMD_EXECUTE_PHASE_STEPS` within each phase's prose section.
 **Concept**: "Run through all my phases from start to finish."
 **Trigger**: Invoked at the beginning of every protocol-tier skill execution. It's the first instruction the LLM reads.
@@ -91,9 +91,27 @@ If context overflows mid-skill:
 - **No phase skipping**: Execute phases in order. The only exception is user-approved skips via `§CMD_GATE_PHASE` custom options.
 - **No backward jumps without approval**: Moving to an earlier phase requires `--user-approved` flag on `engine session phase`.
 - **Utility-tier skills don't use this**: Only protocol-tier skills (with phases arrays) use the boot sector. Sessionless utilities (do, session, engine, fleet, etc.) have no phases.
+- **`¶INV_PROTOCOL_IS_TASK`**: The protocol defines the task — do not skip phases or steps.
 
 ---
 
 ## PROOF FOR §CMD_EXECUTE_SKILL_PHASES
 
-This command does not produce its own proof. It orchestrates the phase sequence — proof is collected at the phase level by `§CMD_EXECUTE_PHASE_STEPS` and phase transitions.
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "executed": {
+      "type": "string",
+      "description": "What was accomplished (3-7 word self-quote)"
+    },
+    "phasesCompleted": {
+      "type": "string",
+      "description": "Count and names of phases completed (e.g., '5 phases: setup through synthesis')"
+    }
+  },
+  "required": ["executed", "phasesCompleted"],
+  "additionalProperties": false
+}
+```

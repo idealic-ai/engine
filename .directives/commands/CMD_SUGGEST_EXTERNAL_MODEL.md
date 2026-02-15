@@ -1,6 +1,6 @@
-### §CMD_SUGGEST_EXTERNAL_MODEL
+### ¶CMD_SUGGEST_EXTERNAL_MODEL
 **Definition**: Present an external model selection via `AskUserQuestion`. Records the user's choice (model name or "claude") for downstream use by `§CMD_EXECUTE_EXTERNAL_MODEL`. Generic command — any skill can invoke it to offer external model delegation.
-**Trigger**: Called during Phase 0 (Setup) of skills that support external model delegation, after `§CMD_SELECT_MODE`.
+**Trigger**: Called during Phase 0 (Setup) of skills that support external model delegation, after `§CMD_SELECT_MODE`. **Opt-in only** — skills that don't need external models simply don't invoke this CMD. Currently used by `/document` and `/rewrite`.
 
 **Prerequisites**:
 *   `engine gemini` is available and whitelisted (`Bash(engine *)`).
@@ -10,28 +10,40 @@
 
 ## Algorithm
 
-1.  **Build Question**: Construct an `AskUserQuestion` (multiSelect: false) using the skill's `modelQuestion` phrasing:
+1.  **Present**: Invoke `§CMD_DECISION_TREE` with `§ASK_MODEL_SELECTION`. Use the skill's `modelQuestion` phrasing as the preamble context.
 
-    | Option | Label | Description |
-    |--------|-------|-------------|
-    | 1 | "Yes — Gemini 3 Pro (Recommended)" | Uses `gemini-3-pro-preview`. Best for quality-critical synthesis from many files. |
-    | 2 | "Yes — Gemini 3 Flash" | Uses `gemini-3-flash-preview`. Faster and cheaper, good for straightforward tasks. |
-    | 3 | "No — Claude (default)" | Stay in context. Claude writes inline. Better for interactive refinement. |
+2.  **Record**: Store the selected model as `externalModel` based on the tree path:
+    *   `PRO` → `externalModel = "gemini-3-pro-preview"`
+    *   `FLS` → `externalModel = "gemini-3-flash-preview"`
+    *   `CLD` → `externalModel = "claude"`
+    *   `OTH/CUS` → Parse as a model name string, otherwise default to `"claude"`
+    *   `OTH/SKP` → `externalModel = "claude"`
 
-2.  **Present**: Execute `AskUserQuestion`.
-
-3.  **Record**: Store the selected model as `externalModel`:
-    *   "Yes — Gemini 3 Pro" → `externalModel = "gemini-3-pro-preview"`
-    *   "Yes — Gemini 3 Flash" → `externalModel = "gemini-3-flash-preview"`
-    *   "No — Claude" → `externalModel = "claude"`
-    *   "Other" (free text) → Parse as a model name string if it looks like one, otherwise default to `"claude"`
-
-4.  **Effect**: The recorded `externalModel` value is used by `§CMD_EXECUTE_EXTERNAL_MODEL` in the skill's execution phase. When `externalModel = "claude"`, the skill proceeds normally (Claude writes inline). When set to a Gemini model, the skill gathers context file paths instead of reading files into context, and delegates writing to `§CMD_EXECUTE_EXTERNAL_MODEL`.
+3.  **Effect**: The recorded `externalModel` value is used by `§CMD_EXECUTE_EXTERNAL_MODEL` in the skill's execution phase. When `externalModel = "claude"`, the skill proceeds normally (Claude writes inline). When set to a Gemini model, the skill gathers context file paths instead of reading files into context, and delegates writing to `§CMD_EXECUTE_EXTERNAL_MODEL`.
 
 **Constraints**:
 *   This CMD only asks the question and records the answer. It does NOT execute any model calls.
 *   The question is asked once per session. Re-asking requires `§CMD_REFUSE_OFF_COURSE`.
 *   Skills that don't support external models simply don't invoke this CMD.
+
+---
+
+### ¶ASK_MODEL_SELECTION
+Trigger: during setup of skills that support external model delegation (except: skills that don't invoke §CMD_SUGGEST_EXTERNAL_MODEL — opt-in only)
+Extras: A: Compare model capabilities | B: View estimated costs | C: Use same model as last session
+
+## Decision: External Model
+- [PRO] Gemini 3 Pro
+  Best for quality-critical synthesis from many files
+- [FLS] Gemini 3 Flash
+  Faster and cheaper, good for straightforward tasks
+- [CLD] Claude (default)
+  Stay in context. Better for interactive refinement
+- [OTH] Other
+  - [CUS] Custom model
+    Specify a model name manually (e.g., a fine-tuned variant)
+  - [SKP] Skip model selection
+    Stay with Claude default — don't ask again this session
 
 ---
 
@@ -42,12 +54,12 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "external_model": {
+    "externalModel": {
       "type": "string",
       "description": "The model chosen by the user: 'gemini-3-pro-preview', 'gemini-3-flash-preview', 'claude', or a custom model name"
     }
   },
-  "required": ["external_model"],
+  "required": ["externalModel"],
   "additionalProperties": false
 }
 ```

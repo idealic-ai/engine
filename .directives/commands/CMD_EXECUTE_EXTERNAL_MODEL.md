@@ -1,4 +1,4 @@
-### §CMD_EXECUTE_EXTERNAL_MODEL
+### ¶CMD_EXECUTE_EXTERNAL_MODEL
 **Definition**: Executes a writing/synthesis task via an external model (Gemini). Accepts a prompt, optional template with variables, and context file paths. Calls `engine gemini` and returns the result on stdout. The calling skill decides where to write the output.
 **Trigger**: Called during execution/writing phases of skills that support external model delegation, when `§CMD_SUGGEST_EXTERNAL_MODEL` recorded a non-claude model choice.
 
@@ -69,6 +69,7 @@
 *   Output is stdout only. The skill decides where to write the result.
 *   On failure, graceful degradation to Claude inline is mandatory. Never leave the skill stuck.
 *   Template rendering is simple `sed` substitution. No nested templates, no conditionals, no loops.
+*   **`¶INV_CONCISE_CHAT`**: Chat output is for user communication only — no micro-narration of the external model call steps.
 
 ---
 
@@ -97,20 +98,20 @@ Skills that use this CMD follow a dual-path pattern in their execution phase:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "model_used": {
+    "modelUsed": {
       "type": "string",
       "description": "The external model that was called (e.g., 'gemini-3-pro-preview')"
     },
-    "context_files_count": {
-      "type": "number",
-      "description": "Number of context files passed to the external model"
+    "contextFilesCount": {
+      "type": "string",
+      "description": "Count and scope of context files (e.g., '4 files: SKILL.md, 3 source')"
     },
-    "execution_result": {
+    "executionResult": {
       "type": "string",
       "description": "Outcome: 'success' or 'fallback_to_claude'"
     }
   },
-  "required": ["model_used", "context_files_count", "execution_result"],
+  "required": ["modelUsed", "contextFilesCount", "executionResult"],
   "additionalProperties": false
 }
 ```

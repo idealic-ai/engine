@@ -58,7 +58,7 @@ else
 fi
 
 # --- New name defined in COMMANDS.md ---
-if grep -q "### §CMD_REPORT_INTENT" "$REAL_DIRECTIVES_DIR/COMMANDS.md" 2>/dev/null; then
+if grep -q "### ¶CMD_REPORT_INTENT" "$REAL_DIRECTIVES_DIR/COMMANDS.md" 2>/dev/null; then
   pass "§CMD_REPORT_INTENT defined in COMMANDS.md"
 else
   fail "§CMD_REPORT_INTENT NOT found as heading in COMMANDS.md"
@@ -81,7 +81,7 @@ else
 fi
 
 # --- Definition has correct structure ---
-if grep -A2 "### §CMD_REPORT_INTENT" "$REAL_DIRECTIVES_DIR/COMMANDS.md" 2>/dev/null | grep -q "Definition"; then
+if grep -A2 "### ¶CMD_REPORT_INTENT" "$REAL_DIRECTIVES_DIR/COMMANDS.md" 2>/dev/null | grep -q "Definition"; then
   pass "§CMD_REPORT_INTENT has **Definition** field"
 else
   fail "Missing **Definition** field in COMMANDS.md"

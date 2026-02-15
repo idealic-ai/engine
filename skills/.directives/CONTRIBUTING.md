@@ -4,14 +4,15 @@ Quality gates and tooling for creating or modifying skills in `engine/skills/`.
 
 ## Skill Doctor
 
-Run the skill doctor before shipping any skill changes:
+Run the engine doctor before shipping any skill changes:
 
 ```bash
-engine skill-doctor        # quiet — shows only WARN/FAIL
-engine skill-doctor -v     # verbose — shows all checks including PASS
+engine doctor              # quiet — shows only WARN/FAIL
+engine doctor -v           # verbose — shows all checks including PASS
+engine doctor <dir>        # target a specific directory (auto-detects type)
 ```
 
-The doctor validates check categories DR-A through DR-I across every skill. It is tier-aware: protocol-tier skills get full checks (manifest, modes, phases, protocol completeness), while utility/lightweight skills get basic structural checks only.
+The doctor validates 6 check categories across the entire engine ecosystem: installation, skills (DR-A through DR-I), CMD files, directives, sessions, and sigil cross-references. It is tier-aware: protocol-tier skills get full checks (manifest, modes, phases, protocol completeness), while utility/lightweight skills get basic structural checks only.
 
 ### Check Categories
 

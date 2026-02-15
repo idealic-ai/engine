@@ -127,14 +127,14 @@ JSON
   assert_json "$SESSION_DIR/.state.json" '.currentPhase' "2: Build" "M2.2: .currentPhase field preserved"
   assert_json "$SESSION_DIR/.state.json" '.customField' "keep-me" "M2.2: .customField preserved"
 
-  # Assert pendingPreloads was added with the skill CMD file (tilde-prefix path)
+  # Assert pendingPreloads was added — SKILL.md fits <9K budget so it's preloaded first
   local pending_len
   pending_len=$(jq -r '.pendingPreloads // [] | length' "$SESSION_DIR/.state.json" 2>/dev/null || echo "0")
-  assert_gt "$pending_len" 0 "M2.2: pendingPreloads contains skill CMD file"
+  assert_gt "$pending_len" 0 "M2.2: pendingPreloads contains skill file"
 
   local first_preload
   first_preload=$(jq -r '.pendingPreloads[0] // ""' "$SESSION_DIR/.state.json" 2>/dev/null || echo "")
-  assert_eq "~/.claude/engine/.directives/commands/CMD_M2TEST.md" "$first_preload" "M2.2: pendingPreloads[0] is the CMD file (tilde-prefix)"
+  assert_eq "~/.claude/skills/mtest/SKILL.md" "$first_preload" "M2.2: pendingPreloads[0] is SKILL.md (budget-aware preload)"
 }
 
 # ============================================================

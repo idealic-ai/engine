@@ -34,3 +34,32 @@
     The system cancels the subscription immediately, but there seems to be no automated attempt to win the user back."
 *   **Question**: "Is this handled by an external CRM (HubSpot/Intercom) that isn't documented here? or is it a missing feature?"
 *   **Action**: "Need to check the `webhooks/stripe` handler to see if it triggers any external events."
+
+## 📊 Pattern (Recurring Theme)
+*   **Occurrences**: `[Location 1]`, `[Location 2]`, `[Location 3]`
+*   **Pattern**: "Every API endpoint that handles file uploads silently drops the `Content-Type` validation when the file is under 1MB.
+    This appears in the avatar upload, document import, and CSV batch endpoints — three independent implementations with the same gap."
+*   **Systemic Cause**: "Likely copy-pasted from an early prototype where small files were 'trusted'. No shared upload middleware exists."
+*   **Implication**: "This is not three bugs — it's a missing abstraction. Fixing one endpoint leaves two vulnerable."
+
+## ⚖️ Tradeoff (Decision Fork)
+*   **Decision**: `[Architecture/Design Choice]`
+*   **Option A**: "Use a shared Redis cache for session state across all services."
+    *   **Pro**: "Sub-millisecond lookups, battle-tested, simple mental model."
+    *   **Con**: "Single point of failure, added infrastructure cost, cold-start latency on cache miss."
+*   **Option B**: "Use JWT tokens with embedded claims — no shared state needed."
+    *   **Pro**: "Stateless, horizontally scalable, no cache infrastructure."
+    *   **Con**: "Token revocation is hard, payload size grows with claims, clock skew issues."
+*   **Lean**: "Option B for this scale — the revocation problem is solvable with a short TTL + refresh token pattern."
+
+## 🛡️ Assumption (Untested Belief)
+*   **Assumption**: "The codebase assumes that all webhook payloads from Stripe arrive exactly once and in order."
+*   **Evidence**: "No idempotency key checking in `webhooks/stripe.ts`. No event deduplication table. The handler processes events synchronously."
+*   **Risk**: "Stripe explicitly documents that webhooks can be retried and delivered out of order. A network hiccup could cause duplicate charge processing."
+*   **Validation Needed**: "Check Stripe dashboard for retry configuration. Review production logs for duplicate `invoice.paid` events."
+
+## ✅ Strength (What Works Well)
+*   **Target**: `[Component/Pattern]`
+*   **Observation**: "The error boundary system in the React app is exceptionally well-designed. Every route has a dedicated fallback UI, errors are captured with full stack traces via Sentry, and users see actionable recovery options instead of blank screens."
+*   **Why It Works**: "Clear ownership — each team owns their route's error boundary. The shared `ErrorBoundary` component enforces the pattern without being prescriptive about recovery UX."
+*   **Preserve**: "This pattern should be documented and replicated in the mobile app, which currently has no equivalent."

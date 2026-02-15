@@ -278,6 +278,31 @@ fleet.sh config-path [group]  # Output path to fleet yml config
 fleet.sh pane-id              # Output composite pane ID (session:window:label)
 ```
 
+### Coordination
+
+Commands used by the `/coordinate` skill. See `COORDINATE.md` for full decision engine details and `ORCHESTRATION.md` for multi-chapter orchestration.
+
+```bash
+# Core loop primitive — blocks until a pane needs attention
+fleet.sh coordinate-wait [timeout_seconds]              # Auto-discovers managed panes from @pane_manages
+fleet.sh coordinate-wait [timeout_seconds] --panes ID1,ID2  # Explicit pane list
+
+# Lifecycle (internal to coordinate-wait — callers should NOT use directly)
+fleet.sh coordinator-connect <pane_id>      # Set @pane_coordinator_active=1, apply purple bg
+fleet.sh coordinator-disconnect <pane_id>   # Clear @pane_coordinator_active, revert bg
+
+# Pane capture
+fleet.sh capture-pane <pane_id>             # Structured JSON: question, options, preamble, terminal content
+```
+
+**coordinate-wait v2 behavior**: Each call auto-disconnects the previous pane, sweeps for actionable panes (skip focused, skip already-managed), picks highest priority (`error` > `unchecked` > `done`), auto-connects the selected pane (purple bg), captures content, and returns. Callers never call `coordinator-connect`/`coordinator-disconnect` directly (`§INV_COORDINATE_WAIT_LIFECYCLE`).
+
+**Return values**:
+
+*   **Normal** — `pane_id|state|label|location` on line 1, capture JSON on line 2+
+*   **`TIMEOUT`** — No actionable panes within timeout. Second line: `STATUS total=N working=N done=N idle=N`
+*   **`FOCUSED`** — All actionable panes are user-focused. Second line: `STATUS total=N working=N done=N focused=N`
+
 ### session.sh
 
 ```bash
@@ -324,6 +349,17 @@ checked → working      # Agent starts new work (fleet.sh notify working)
 * → error              # Agent encounters an error (fleet.sh notify error)
 * → done               # Clear notification state (fleet.sh notify done)
 ```
+
+### Coordinator Layer
+
+The coordinator adds two orthogonal state dimensions on top of the notify state. Together with notify, they form a three-dimensional state model (see `COORDINATE.md` §3 for the full interaction matrix).
+
+*   **`@pane_coordinator_active`** — Set to `1` when `coordinate-wait` auto-connects a pane (purple bg applied). Cleared on the next `coordinate-wait` call (auto-disconnect) or on focus override. Callers never set this directly.
+*   **`@pane_user_focused`** — Set to `1` by the `pane-focus-in` tmux hook when the user focuses a pane. Cleared on `pane-focus-out`. `coordinate-wait` skips focused panes — the user has priority.
+
+**Purple visual**: When `@pane_coordinator_active = 1`, the pane background turns dark purple (`#1a0a2e`), indicating the coordinator is actively processing it. Reverts to the notify-state color on disconnect.
+
+**Focus override**: If the user focuses a pane the coordinator is processing (`coordinator_active=1` AND `user_focused=1`), the coordinator aborts, disconnects, sets notify back to `unchecked`, and yields.
 
 ### Commands
 

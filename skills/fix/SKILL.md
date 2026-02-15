@@ -17,38 +17,39 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
   "taskType": "FIX",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "session_dir", "parameters_parsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"]},
     {"label": "1", "name": "Investigation",
-      "steps": ["§CMD_INTERROGATE"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION", "§CMD_APPEND_LOG"],
-      "proof": ["depth_chosen", "rounds_completed"]},
+      "proof": ["depthChosen", "roundsCompleted"]},
     {"label": "2", "name": "Triage Walk-Through",
-      "steps": ["§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS"],
       "commands": ["§CMD_LINK_FILE"],
-      "proof": ["plan_written", "issues_triaged", "user_approved"]},
+      "proof": ["planWritten", "issuesTriaged", "userApproved"]},
     {"label": "3", "name": "Execution",
       "steps": ["§CMD_SELECT_EXECUTION_PATH"],
-      "proof": ["path_chosen", "paths_available"]},
+      "commands": [],
+      "proof": ["pathChosen", "pathsAvailable"]},
     {"label": "3.A", "name": "Fix Loop",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
-      "proof": ["fixes_applied", "tests_pass", "log_entries", "unresolved_blocks"]},
+      "proof": ["fixesApplied", "testsPass", "logEntries", "unresolvedBlocks"]},
     {"label": "3.B", "name": "Agent Handoff",
       "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
     {"label": "3.C", "name": "Parallel Agent Handoff",
       "steps": ["§CMD_PARALLEL_HANDOFF"], "commands": [], "proof": []},
     {"label": "4", "name": "Results Walk-Through",
-      "steps": ["§CMD_WALK_THROUGH_RESULTS"], "commands": [], "proof": ["results_presented", "user_approved"]},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_WALK_THROUGH_RESULTS"], "commands": [], "proof": ["resultsPresented", "userApproved"]},
     {"label": "5", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "5.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
     {"label": "5.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
     {"label": "5.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "5.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
@@ -73,9 +74,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Fixing ___. Symptoms: ___.
-> Mode: ___. Trigger: ___.
-> Focus: session activation, mode selection, context loading.
+> 0: Fixing ___. Symptoms: ___. Trigger: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
@@ -103,8 +104,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Investigation
 
 `§CMD_REPORT_INTENT`:
-> Interrogating ___ assumptions before triaging fixes.
-> Categorizing issues into tiers, logging findings to FIX_LOG.md.
+> 1: Interrogating ___ assumptions before triaging fixes. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
@@ -154,8 +156,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 *User reviews and approves what to fix before any code changes.*
 
 `§CMD_REPORT_INTENT`:
-> Presenting ___ investigated issues for triage.
-> User decides what to fix, defer, or investigate further.
+> 2: Presenting ___ investigated issues for triage. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
@@ -185,8 +188,9 @@ If any items are flagged for revision, update the plan before proceeding.
 *Gateway: select execution path before entering a branch.*
 
 `§CMD_REPORT_INTENT`:
-> Selecting execution path for ___ fixes.
-> Options: inline fix loop, agent handoff, or parallel agents.
+> 3: Selecting execution path for ___ fixes. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 
@@ -196,8 +200,9 @@ If any items are flagged for revision, update the plan before proceeding.
 *Execute repairs. Resolve Tier 1 first, then investigate Tier 2.*
 
 `§CMD_REPORT_INTENT`:
-> Executing ___-issue fix plan. Target: ___.
-> Tier 1 quick wins first, then Tier 2 investigations.
+> 3.A: Executing ___-issue fix plan. Target: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.A.*)`
 
@@ -273,8 +278,9 @@ If any items are flagged for revision, update the plan before proceeding.
 *User reviews all applied fixes before synthesis.*
 
 `§CMD_REPORT_INTENT`:
-> Presenting ___ applied fixes for review.
-> User can accept, revise, or tag fixes for follow-up.
+> 4: Presenting ___ applied fixes for review. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
 
@@ -292,8 +298,9 @@ If any items are flagged for revision, update the plan before proceeding.
 *When all fixes are applied and verified.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. ___ fixes applied, ___ tests passing.
-> Producing FIX.md debrief with root cause analysis.
+> 5: Synthesizing. ___ fixes applied, ___ tests passing.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(5.0.*)`
 

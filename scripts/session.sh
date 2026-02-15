@@ -24,6 +24,8 @@
 #                                                  # Clears PID (null sentinel), stores description + keywords
 #   session.sh dehydrate <path> <<JSON              # Merge dehydrated context JSON into .state.json
 #   session.sh restart <path>                      # Set status=ready-to-kill, signal wrapper
+#   session.sh clear <path>                        # Clear context and restart fresh (no prompt)
+#                                                  # TMUX: /clear keystroke, Watchdog: kill+restart, Neither: manual
 #   session.sh check <path> [<<STDIN]                 # Tag scan + checklist validation (sets checkPassed=true)
 #   session.sh find                                 # Find session dir for current process (read-only)
 #   session.sh evaluate-guards <path>                # Evaluate guard rules, populate pendingGuards[]
@@ -147,6 +149,13 @@ extract_skill_json() {
     ) | from_entries) else . end)
   '
 }
+
+# Shared jq helper functions for phase label operations
+# Used by both activate (proof display) and phase (enforcement + proof display)
+JQ_LABEL_HELPERS='
+  def phase_lbl: if has("label") then .label elif .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end;
+  def sort_key: phase_lbl | split(".") | map(if test("^[0-9]+$") then ("000" + .)[-3:] else . end) | join(".");
+'
 
 case "$ACTION" in
   init)
@@ -471,7 +480,7 @@ case "$ACTION" in
           toolUseWithoutLogsBlockAfter: 10,
           startedAt: $startedAt,
           lastHeartbeat: $lastHeartbeat,
-          preloadedFiles: ["~/.claude/.directives/COMMANDS.md","~/.claude/.directives/INVARIANTS.md","~/.claude/.directives/TAGS.md","~/.claude/.directives/commands/CMD_DEHYDRATE.md","~/.claude/.directives/commands/CMD_RESUME_SESSION.md","~/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"],
+          preloadedFiles: ["~/.claude/.directives/COMMANDS.md","~/.claude/.directives/INVARIANTS.md","~/.claude/.directives/SIGILS.md","~/.claude/.directives/commands/CMD_DEHYDRATE.md","~/.claude/.directives/commands/CMD_RESUME_SESSION.md","~/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"],
           touchedDirs: {},
           pendingPreloads: [],
           pendingAllowInjections: []
@@ -531,6 +540,18 @@ case "$ACTION" in
     [ -n "$TARGET_FILE" ] && MSG="$MSG, target: $TARGET_FILE"
     echo "$MSG)"
 
+    # Session context line — matches SessionStart/UserPromptSubmit format so agent sees fresh state
+    # Critical after overflow restart: overrides stale "90%+" belief from dehydrated context
+    ACT_PHASE=$(jq -r '.currentPhase // "0: Setup"' "$STATE_FILE" 2>/dev/null)
+    ACT_HB_COUNT=$(jq -r '.toolCallsSinceLastLog // 0' "$STATE_FILE" 2>/dev/null)
+    ACT_HB_MAX=$(jq -r '.toolUseWithoutLogsBlockAfter // 10' "$STATE_FILE" 2>/dev/null)
+    ACT_CTX_RAW=$(jq -r '.contextUsage // 0' "$STATE_FILE" 2>/dev/null)
+    ACT_CTX_PCT=$(awk "BEGIN {printf \"%.0f\", $ACT_CTX_RAW * 100}")
+    ACT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+    ACT_SESSION_NAME=$(basename "$DIR")
+    echo ""
+    echo "[Session Context] Time: ${ACT_TIME} | Session: ${ACT_SESSION_NAME} | Skill: ${SKILL} | Phase: ${ACT_PHASE} | Heartbeat: ${ACT_HB_COUNT}/${ACT_HB_MAX} | Context: ${ACT_CTX_PCT}%"
+
     # Global invariant self-affirmations (cognitive anchoring — agent grounds on these before any phase work)
     # These are system-level truths that apply to ALL phases of ALL skills.
     echo ""
@@ -543,6 +564,89 @@ case "$ACTION" in
     echo "  - ¶INV_PROOF_IS_DERIVED: Phase proof comes from step CMD schemas. Do not invent proof fields."
     echo "  - ¶INV_TRUST_CACHED_CONTEXT: Do not re-read files already in context. Memory over IO."
 
+    # --- Initial Phase Proof Display ---
+    # Show proof requirements for the initial phase (Phase 0) so agents know what's needed
+    # before their first phase transition. Uses the same combined merge logic as the phase subcommand.
+    ACT_INITIAL_PHASE=$(jq -r '.currentPhase // ""' "$STATE_FILE" 2>/dev/null)
+    if [ -n "$ACT_INITIAL_PHASE" ]; then
+      # Extract label from "N: Name" format
+      ACT_INIT_LABEL="${ACT_INITIAL_PHASE%%:*}"
+      ACT_INIT_LABEL=$(echo "$ACT_INIT_LABEL" | sed 's/ *$//')
+
+      # Read steps[], commands[], and proof[] for initial phase
+      ACT_INIT_STEPS=$(jq -r --arg rl "$ACT_INIT_LABEL" "
+        $JQ_LABEL_HELPERS
+        (.phases[] | select(phase_lbl == \$rl) | .steps) // empty
+      " "$STATE_FILE" 2>/dev/null || echo "")
+      ACT_INIT_COMMANDS=$(jq -r --arg rl "$ACT_INIT_LABEL" "
+        $JQ_LABEL_HELPERS
+        (.phases[] | select(phase_lbl == \$rl) | .commands) // empty
+      " "$STATE_FILE" 2>/dev/null || echo "")
+
+      # Build combined proof schema (same logic as phase subcommand lines 1319-1381)
+      ACT_PROPS="{}"
+      ACT_REQ="[]"
+      ACT_CMD_DIR="$HOME/.claude/engine/.directives/commands"
+
+      # Merge from steps[]
+      if [ -n "${ACT_INIT_STEPS:-}" ] && [ "${ACT_INIT_STEPS:-}" != "null" ]; then
+        for step_cmd in $(echo "$ACT_INIT_STEPS" | jq -r '.[]'); do
+          cmd_name="${step_cmd#§CMD_}"
+          cmd_file="$ACT_CMD_DIR/CMD_${cmd_name}.md"
+          [ -f "$cmd_file" ] || continue
+          json_block=$(extract_proof_schema "$cmd_file")
+          if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
+            sp=$(echo "$json_block" | jq -r '.properties // empty' 2>/dev/null || echo "")
+            sr=$(echo "$json_block" | jq -r '.required // empty' 2>/dev/null || echo "")
+            [ -n "$sp" ] && [ "$sp" != "null" ] && ACT_PROPS=$(echo "$ACT_PROPS" | jq -s '.[0] * .[1]' - <(echo "$sp"))
+            [ -n "$sr" ] && [ "$sr" != "null" ] && ACT_REQ=$(echo "$ACT_REQ" | jq -s '.[0] + .[1] | unique' - <(echo "$sr"))
+          fi
+        done
+      fi
+
+      # Merge from commands[]
+      if [ -n "${ACT_INIT_COMMANDS:-}" ] && [ "${ACT_INIT_COMMANDS:-}" != "null" ]; then
+        for cmd_ref in $(echo "$ACT_INIT_COMMANDS" | jq -r '.[]'); do
+          cmd_name="${cmd_ref#§CMD_}"
+          cmd_file="$ACT_CMD_DIR/CMD_${cmd_name}.md"
+          [ -f "$cmd_file" ] || continue
+          json_block=$(extract_proof_schema "$cmd_file")
+          if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
+            sp=$(echo "$json_block" | jq -r '.properties // empty' 2>/dev/null || echo "")
+            sr=$(echo "$json_block" | jq -r '.required // empty' 2>/dev/null || echo "")
+            [ -n "$sp" ] && [ "$sp" != "null" ] && ACT_PROPS=$(echo "$ACT_PROPS" | jq -s '.[0] * .[1]' - <(echo "$sp"))
+            [ -n "$sr" ] && [ "$sr" != "null" ] && ACT_REQ=$(echo "$ACT_REQ" | jq -s '.[0] + .[1] | unique' - <(echo "$sr"))
+          fi
+        done
+      fi
+
+      # Add declared proof fields
+      ACT_PROOF_FIELDS=$(jq -r --arg rl "$ACT_INIT_LABEL" "
+        $JQ_LABEL_HELPERS
+        (.phases[] | select(phase_lbl == \$rl) | .proof) // empty
+      " "$STATE_FILE" 2>/dev/null || echo "")
+      if [ -n "$ACT_PROOF_FIELDS" ] && [ "$ACT_PROOF_FIELDS" != "null" ]; then
+        for df in $(echo "$ACT_PROOF_FIELDS" | jq -r '.[]'); do
+          [ -n "$df" ] || continue
+          HAS_F=$(echo "$ACT_PROPS" | jq --arg f "$df" 'has($f)' 2>/dev/null || echo "false")
+          if [ "$HAS_F" = "false" ]; then
+            ACT_PROPS=$(echo "$ACT_PROPS" | jq --arg f "$df" '. + {($f): {"type": "string"}}')
+          fi
+          ACT_REQ=$(echo "$ACT_REQ" | jq --arg f "$df" 'if index($f) then . else . + [$f] end')
+        done
+      fi
+
+      # Display combined proof
+      ACT_REQ_COUNT=$(echo "$ACT_REQ" | jq 'length' 2>/dev/null || echo "0")
+      if [ "$ACT_REQ_COUNT" -gt 0 ]; then
+        echo ""
+        echo "Proof required to leave this phase ($ACT_INITIAL_PHASE):"
+        echo "$ACT_REQ" | jq -r --argjson props "$ACT_PROPS" '.[] |
+          ($props[.].description // "") as $desc |
+          if $desc != "" then "  - \(.): \($desc)" else "  - \(.)" end'
+      fi
+    fi
+
     # Context scanning (only on fresh activation or skill change)
     if [ "$SHOULD_SCAN" = true ]; then
       SESSION_SEARCH="$HOME/.claude/tools/session-search/session-search.sh"
@@ -554,9 +658,9 @@ case "$ACTION" in
         TASK_SUMMARY=$(echo "$STDIN_JSON" | jq -r '.taskSummary // empty')
       fi
 
-      # §CMD_SURFACE_ACTIVE_ALERTS (thematic via session-search)
+      # SRC_ACTIVE_ALERTS (thematic via session-search)
       echo ""
-      echo "## §CMD_SURFACE_ACTIVE_ALERTS"
+      echo "## SRC_ACTIVE_ALERTS"
       if [ -n "$TASK_SUMMARY" ]; then
         SURFACE_ALERTS=$("$SESSION_SEARCH" query "$TASK_SUMMARY" --tag '#active-alert' --limit 10 2>/dev/null || true)
       fi
@@ -566,9 +670,9 @@ case "$ACTION" in
         echo "(none)"
       fi
 
-      # §CMD_SURFACE_OPEN_DELEGATIONS (scan for #next-* tags in current session)
+      # SRC_OPEN_DELEGATIONS (scan for #next-* tags in current session)
       echo ""
-      echo "## §CMD_SURFACE_OPEN_DELEGATIONS"
+      echo "## SRC_OPEN_DELEGATIONS"
       TAG_SH="$HOME/.claude/scripts/tag.sh"
       if [ -d "$DIR" ]; then
         SURFACE_DELEGATIONS=$("$TAG_SH" find '#next-*' "$DIR" 2>/dev/null || true)
@@ -579,9 +683,9 @@ case "$ACTION" in
         echo "(none)"
       fi
 
-      # §CMD_RECALL_PRIOR_SESSIONS (semantic search over past session logs)
+      # SRC_PRIOR_SESSIONS (semantic search over past session logs)
       echo ""
-      echo "## §CMD_RECALL_PRIOR_SESSIONS"
+      echo "## SRC_PRIOR_SESSIONS"
       if [ -n "$TASK_SUMMARY" ]; then
         RECALL_SESSIONS=$("$SESSION_SEARCH" query "$TASK_SUMMARY" --limit 10 2>/dev/null || true)
       fi
@@ -591,9 +695,9 @@ case "$ACTION" in
         echo "(none)"
       fi
 
-      # §CMD_RECALL_RELEVANT_DOCS (semantic search over project documentation)
+      # SRC_RELEVANT_DOCS (semantic search over project documentation)
       echo ""
-      echo "## §CMD_RECALL_RELEVANT_DOCS"
+      echo "## SRC_RELEVANT_DOCS"
       if [ -n "$TASK_SUMMARY" ]; then
         RECALL_DOCS=$("$DOC_SEARCH" query "$TASK_SUMMARY" --limit 10 2>/dev/null || true)
       fi
@@ -705,10 +809,10 @@ case "$ACTION" in
       fi
     fi
 
-    # §CMD_DISCOVER_DELEGATION_TARGETS (runs unconditionally — fresh context needs this)
+    # SRC_DELEGATION_TARGETS (runs unconditionally — fresh context needs this)
     # Scans skills for TEMPLATE_*_REQUEST.md to build a delegation targets table.
     echo ""
-    echo "## §CMD_DISCOVER_DELEGATION_TARGETS"
+    echo "## SRC_DELEGATION_TARGETS"
     SKILLS_DIR="$HOME/.claude/skills"
     DELEGATION_TARGETS=""
     for tmpl in "$SKILLS_DIR"/*/assets/TEMPLATE_*_REQUEST.md; do
@@ -833,10 +937,7 @@ case "$ACTION" in
       }
 
       # --- jq helpers for label sorting ---
-      JQ_LABEL_HELPERS='
-        def phase_lbl: if has("label") then .label elif .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end;
-        def sort_key: phase_lbl | split(".") | map(if test("^[0-9]+$") then ("000" + .)[-3:] else . end) | join(".");
-      '
+      # JQ_LABEL_HELPERS defined at top of file (shared between activate and phase)
 
       # --- Parse requested phase ---
       REQ_LABEL=$(echo "$PHASE" | sed -E 's/: .*//')
@@ -874,6 +975,7 @@ case "$ACTION" in
 
       # --- Determine if transition is sequential ---
       IS_SEQUENTIAL=false
+      IS_BRANCH_SWITCH=false
 
       # Case 0: Re-entering the same phase (no-op, always allowed)
       if [ "$REQ_LABEL" = "$CUR_LABEL" ]; then
@@ -885,6 +987,8 @@ case "$ACTION" in
       if [ "$IS_SEQUENTIAL" = "false" ] && [ -n "$NEXT_LABEL" ] && [ "$REQ_LABEL" = "$NEXT_LABEL" ]; then
         if ! is_branch_switch "$CUR_LABEL" "$REQ_LABEL"; then
           IS_SEQUENTIAL=true
+        else
+          IS_BRANCH_SWITCH=true
         fi
       fi
 
@@ -936,6 +1040,8 @@ case "$ACTION" in
               # Forward — check for branch switching at any depth
               if ! is_branch_switch "$CUR_LABEL" "$REQ_LABEL"; then
                 IS_SEQUENTIAL=true
+              else
+                IS_BRANCH_SWITCH=true
               fi
             fi
             # If not forward, fall through to rejection (backward movement)
@@ -964,15 +1070,22 @@ case "$ACTION" in
       # If not sequential, require --user-approved
       if [ "$IS_SEQUENTIAL" = "false" ]; then
         if [ -z "$USER_APPROVED" ]; then
-          echo "§CMD_UPDATE_PHASE: Non-sequential phase transition rejected." >&2
-          echo "  Current phase: $CURRENT_PHASE (label: $CUR_LABEL)" >&2
-          echo "  Requested phase: $PHASE (label: $REQ_LABEL)" >&2
-          if [ -n "$NEXT_LABEL" ]; then
-            NEXT_NAME=$(echo "$NEXT_PHASE_JSON" | jq -r '.name')
-            echo "  Expected next: $NEXT_LABEL: $NEXT_NAME" >&2
+          if [ "$IS_BRANCH_SWITCH" = "true" ]; then
+            echo "§CMD_UPDATE_PHASE: Branch switch rejected ($CUR_LABEL → $REQ_LABEL)." >&2
+            echo "  Letter-labeled phases (N.A, N.B, N.C) are alternative branches, not sequential steps." >&2
+            echo "  You are in branch $CUR_LABEL — switching to $REQ_LABEL requires explicit approval." >&2
+            NEXT_MAJOR_NUM=$(( CUR_MAJOR + 1 ))
+            echo "  To exit this branch: engine session phase $DIR \"$NEXT_MAJOR_NUM: [NextPhase]\"" >&2
+          else
+            echo "§CMD_UPDATE_PHASE: Non-sequential phase transition rejected." >&2
+            echo "  Current phase: $CURRENT_PHASE (label: $CUR_LABEL)" >&2
+            echo "  Requested phase: $PHASE (label: $REQ_LABEL)" >&2
+            if [ -n "$NEXT_LABEL" ]; then
+              NEXT_NAME=$(echo "$NEXT_PHASE_JSON" | jq -r '.name')
+              echo "  Expected next: $NEXT_LABEL: $NEXT_NAME" >&2
+            fi
           fi
           echo "" >&2
-          echo "Ensure you are doing the right thing — right skill, right phase." >&2
           echo "  To proceed: engine session phase $DIR \"$PHASE\" --user-approved \"Reason: ...\"" >&2
           exit 1
         fi
@@ -1092,6 +1205,32 @@ case "$ACTION" in
                     fi
                   fi
                 done
+
+                # Also merge proof schemas from commands[] array (not just steps[])
+                # See PITFALLS.md #12: without this, commands[] proof fields fall through
+                # to the string fallback below, causing type mismatches
+                CUR_COMMANDS_JSON=$(jq -r --arg cl "$CUR_LABEL" "
+                  $JQ_LABEL_HELPERS
+                  (.phases[] | select(phase_lbl == \$cl) | .commands) // empty
+                " "$STATE_FILE" 2>/dev/null || echo "")
+                if [ -n "$CUR_COMMANDS_JSON" ] && [ "$CUR_COMMANDS_JSON" != "null" ]; then
+                  for cmd_ref in $(echo "$CUR_COMMANDS_JSON" | jq -r '.[]'); do
+                    cmd_name="${cmd_ref#§CMD_}"
+                    cmd_file="$CMD_DIR/CMD_${cmd_name}.md"
+                    [ -f "$cmd_file" ] || continue
+                    json_block=$(extract_proof_schema "$cmd_file")
+                    if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
+                      step_props=$(echo "$json_block" | jq -r '.properties // empty' 2>/dev/null || echo "")
+                      step_req=$(echo "$json_block" | jq -r '.required // empty' 2>/dev/null || echo "")
+                      if [ -n "$step_props" ] && [ "$step_props" != "null" ]; then
+                        COMBINED_PROPERTIES=$(echo "$COMBINED_PROPERTIES" | jq -s '.[0] * .[1]' - <(echo "$step_props"))
+                      fi
+                      if [ -n "$step_req" ] && [ "$step_req" != "null" ]; then
+                        COMBINED_REQUIRED=$(echo "$COMBINED_REQUIRED" | jq -s '.[0] + .[1] | unique' - <(echo "$step_req"))
+                      fi
+                    fi
+                  done
+                fi
 
                 # Also include declared proof fields as valid (phase-level data fields)
                 DECLARED_FIELDS=$(echo "$PROOF_FIELDS_JSON" | jq -r '.[]' 2>/dev/null || echo "")
@@ -1264,17 +1403,67 @@ case "$ACTION" in
         fi
       fi
 
-      # Output proof requirements
+      # Output proof requirements (combined from steps[], commands[], and declared proof[])
+      # Build the same combined schema used during FROM validation so agents see ALL required fields at entry
+      ENTRY_PROPS="{}"
+      ENTRY_REQ="[]"
+      ENTRY_CMD_DIR="$HOME/.claude/engine/.directives/commands"
+
+      # Merge proof from steps[] (reuses $NEW_STEPS already read above)
+      if [ -n "${NEW_STEPS:-}" ] && [ "${NEW_STEPS:-}" != "null" ]; then
+        for step_cmd in $(echo "$NEW_STEPS" | jq -r '.[]'); do
+          cmd_name="${step_cmd#§CMD_}"
+          cmd_file="$ENTRY_CMD_DIR/CMD_${cmd_name}.md"
+          [ -f "$cmd_file" ] || continue
+          json_block=$(extract_proof_schema "$cmd_file")
+          if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
+            sp=$(echo "$json_block" | jq -r '.properties // empty' 2>/dev/null || echo "")
+            sr=$(echo "$json_block" | jq -r '.required // empty' 2>/dev/null || echo "")
+            [ -n "$sp" ] && [ "$sp" != "null" ] && ENTRY_PROPS=$(echo "$ENTRY_PROPS" | jq -s '.[0] * .[1]' - <(echo "$sp"))
+            [ -n "$sr" ] && [ "$sr" != "null" ] && ENTRY_REQ=$(echo "$ENTRY_REQ" | jq -s '.[0] + .[1] | unique' - <(echo "$sr"))
+          fi
+        done
+      fi
+
+      # Merge proof from commands[] (reuses $NEW_COMMANDS already read above)
+      if [ -n "${NEW_COMMANDS:-}" ] && [ "${NEW_COMMANDS:-}" != "null" ]; then
+        for cmd_ref in $(echo "$NEW_COMMANDS" | jq -r '.[]'); do
+          cmd_name="${cmd_ref#§CMD_}"
+          cmd_file="$ENTRY_CMD_DIR/CMD_${cmd_name}.md"
+          [ -f "$cmd_file" ] || continue
+          json_block=$(extract_proof_schema "$cmd_file")
+          if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
+            sp=$(echo "$json_block" | jq -r '.properties // empty' 2>/dev/null || echo "")
+            sr=$(echo "$json_block" | jq -r '.required // empty' 2>/dev/null || echo "")
+            [ -n "$sp" ] && [ "$sp" != "null" ] && ENTRY_PROPS=$(echo "$ENTRY_PROPS" | jq -s '.[0] * .[1]' - <(echo "$sp"))
+            [ -n "$sr" ] && [ "$sr" != "null" ] && ENTRY_REQ=$(echo "$ENTRY_REQ" | jq -s '.[0] + .[1] | unique' - <(echo "$sr"))
+          fi
+        done
+      fi
+
+      # Add declared proof fields (phase-level fields from SKILL.md)
       NEW_PROOF_FIELDS=$(jq -r --arg rl "$REQ_LABEL" "
         $JQ_LABEL_HELPERS
         (.phases[] | select(phase_lbl == \$rl) | .proof) // empty
       " "$STATE_FILE" 2>/dev/null || echo "")
       if [ -n "$NEW_PROOF_FIELDS" ] && [ "$NEW_PROOF_FIELDS" != "null" ]; then
-        PF_COUNT=$(echo "$NEW_PROOF_FIELDS" | jq 'length' 2>/dev/null || echo "0")
-        if [ "$PF_COUNT" -gt 0 ]; then
-          echo "Proof required to leave this phase:"
-          echo "$NEW_PROOF_FIELDS" | jq -r '.[] | "  - \(.)"'
-        fi
+        for df in $(echo "$NEW_PROOF_FIELDS" | jq -r '.[]'); do
+          [ -n "$df" ] || continue
+          HAS_F=$(echo "$ENTRY_PROPS" | jq --arg f "$df" 'has($f)' 2>/dev/null || echo "false")
+          if [ "$HAS_F" = "false" ]; then
+            ENTRY_PROPS=$(echo "$ENTRY_PROPS" | jq --arg f "$df" '. + {($f): {"type": "string"}}')
+          fi
+          ENTRY_REQ=$(echo "$ENTRY_REQ" | jq --arg f "$df" 'if index($f) then . else . + [$f] end')
+        done
+      fi
+
+      # Display combined proof with descriptions from CMD schemas
+      ENTRY_REQ_COUNT=$(echo "$ENTRY_REQ" | jq 'length' 2>/dev/null || echo "0")
+      if [ "$ENTRY_REQ_COUNT" -gt 0 ]; then
+        echo "Proof required to leave this phase:"
+        echo "$ENTRY_REQ" | jq -r --argjson props "$ENTRY_PROPS" '.[] |
+          ($props[.].description // "") as $desc |
+          if $desc != "" then "  - \(.): \($desc)" else "  - \(.)" end'
       fi
     fi
     ;;
@@ -1308,9 +1497,9 @@ case "$ACTION" in
       exit 1
     fi
 
-    # Clear loading flag, reset heartbeat counters, update timestamp
+    # Clear loading flag, reset heartbeat counters, reset context usage, update timestamp
     jq --arg ts "$(timestamp)" \
-      'del(.loading) | .toolCallsByTranscript = {} | .lastHeartbeat = $ts' \
+      'del(.loading) | .toolCallsByTranscript = {} | .lastHeartbeat = $ts | .contextUsage = 0' \
       "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
     # Read state for rich output
@@ -1345,18 +1534,18 @@ case "$ACTION" in
       exit 1
     fi
 
-    # Step 1: Discover §CMD_ proof fields from phases array
+    # Step 1: Discover §CMD_ references from phases array (proof + steps + commands)
     HAS_PHASES=$(jq 'has("phases") and (.phases | length > 0)' "$STATE_FILE" 2>/dev/null || echo "false")
     if [ "$HAS_PHASES" != "true" ]; then
       echo "(no phases array — nothing to scan)"
       exit 0
     fi
 
-    # Collect all unique proof field names that start with §CMD_
-    CMD_FIELDS=$(jq -r '[.phases[] | select(has("proof")) | .proof[]] | unique | .[] | select(startswith("§CMD_"))' "$STATE_FILE" 2>/dev/null || echo "")
+    # Collect all unique §CMD_ names from proof[], steps[], and commands[] arrays
+    CMD_FIELDS=$(jq -r '[.phases[] | ((.proof // [])[], (.steps // [])[], (.commands // [])[])] | unique | .[] | select(startswith("§CMD_"))' "$STATE_FILE" 2>/dev/null || echo "")
 
     if [ -z "$CMD_FIELDS" ]; then
-      echo "(no synthesis proof fields declared — nothing to scan)"
+      echo "(no §CMD_ references in phases — nothing to scan)"
       exit 0
     fi
 
@@ -1369,7 +1558,7 @@ case "$ACTION" in
     # Step 3: Run scans and output sections in canonical pipeline order
     # Canonical order: SCAN sections first, then STATIC, then DEPENDENT
     # Within SCAN: delegations → discoveries → leftover
-    # Within STATIC: directives → alerts
+    # Within STATIC: directives → cross-session-tags → backlinks → alerts
     # DEPENDENT: dispatch (only if delegations > 0)
 
     DELEGATIONS_COUNT=0
@@ -1398,11 +1587,11 @@ case "$ACTION" in
 
     # --- SCAN: §CMD_CAPTURE_SIDE_DISCOVERIES ---
     if echo "$CMD_FIELDS" | grep -q "§CMD_CAPTURE_SIDE_DISCOVERIES"; then
-      # Grep for side discovery emojis in LOG files: 👁️ (observation), 😟 (concern), 🅿️ (parking lot)
+      # Grep for side discovery emojis in LOG files: 👁️ (observation), 😟 (concern), 🗑️ (parking lot), 🅿️ (parking lot alt), 🩺 (doc observation)
       DISC_RESULTS=""
       for logfile in "$DIR"/*_LOG.md; do
         [ -f "$logfile" ] || continue
-        DISC_LINES=$(grep -n '👁️\|😟\|🅿️' "$logfile" 2>/dev/null || echo "")
+        DISC_LINES=$(grep -n '👁️\|😟\|🗑️\|🅿️\|🩺' "$logfile" 2>/dev/null || echo "")
         if [ -n "$DISC_LINES" ]; then
           while IFS= read -r dline; do
             DISC_RESULTS="${DISC_RESULTS}${DISC_RESULTS:+
@@ -1448,6 +1637,21 @@ case "$ACTION" in
           done <<< "$BLOCKS"
         fi
       done
+      # Scan debrief files for tech debt (💸) and unchecked doc impact items
+      for debrieffile in "$DIR"/*.md; do
+        [ -f "$debrieffile" ] || continue
+        # Skip LOG and PLAN files (already scanned above)
+        case "$(basename "$debrieffile")" in
+          *_LOG.md|*_PLAN.md|DETAILS.md) continue ;;
+        esac
+        DEBT=$(grep -n '💸' "$debrieffile" 2>/dev/null || echo "")
+        if [ -n "$DEBT" ]; then
+          while IFS= read -r dline; do
+            LEFT_RESULTS="${LEFT_RESULTS}${LEFT_RESULTS:+
+}${debrieffile}:${dline}"
+          done <<< "$DEBT"
+        fi
+      done
       LEFT_COUNT=0
       if [ -n "$LEFT_RESULTS" ]; then
         LEFT_COUNT=$(echo "$LEFT_RESULTS" | wc -l | tr -d ' ')
@@ -1470,6 +1674,25 @@ case "$ACTION" in
       echo "- PITFALLS.md — gotchas encountered during implementation"
       echo "- CONTRIBUTING.md — patterns worth documenting for contributors"
       echo "- TEMPLATE.md — template updates needed"
+      echo ""
+    fi
+
+    # --- STATIC: §CMD_RESOLVE_CROSS_SESSION_TAGS ---
+    if echo "$CMD_FIELDS" | grep -q "§CMD_RESOLVE_CROSS_SESSION_TAGS"; then
+      echo "## §CMD_RESOLVE_CROSS_SESSION_TAGS"
+      echo "Check if this session's work resolves tags in other sessions."
+      echo "- Scan request files this session is fulfilling"
+      echo "- Trace back to requesting sessions and resolve source tags"
+      echo ""
+    fi
+
+    # --- STATIC: §CMD_MANAGE_BACKLINKS ---
+    if echo "$CMD_FIELDS" | grep -q "§CMD_MANAGE_BACKLINKS"; then
+      echo "## §CMD_MANAGE_BACKLINKS"
+      echo "Detect and create cross-session links."
+      echo "- Continuations: sessions that continue this work"
+      echo "- Derived work: sessions spawned from this session's findings"
+      echo "- Delegations: request/response relationships"
       echo ""
     fi
 
@@ -1566,7 +1789,7 @@ case "$ACTION" in
         "  EOF")")
     fi
 
-    # --- Debrief Gate (§CMD_DEBRIEF_BEFORE_CLOSE) ---
+    # --- Debrief Gate (§CMD_CLOSE_SESSION) ---
     # Check if the skill's debrief file exists before allowing deactivation
     # Derives filename from debriefTemplate in .state.json (e.g., TEMPLATE_TESTING.md → TESTING.md)
     # Skipped for early phases (Phase 0/1) — no work product to debrief
@@ -1581,7 +1804,7 @@ case "$ACTION" in
         DEBRIEF_FILE="$DIR/$DEBRIEF_NAME"
         if [ ! -f "$DEBRIEF_FILE" ]; then
           DEACTIVATE_ERRORS+=("$(printf '%s\n%s\n%s\n%s\n%s' \
-            "§CMD_DEBRIEF_BEFORE_CLOSE: Cannot deactivate — no debrief file found." \
+            "§CMD_CLOSE_SESSION: Cannot deactivate — no debrief file found." \
             "  Expected: $DEBRIEF_NAME in $DIR" \
             "" \
             "  To fix: Write the debrief via §CMD_GENERATE_DEBRIEF." \
@@ -1683,42 +1906,6 @@ case "$ACTION" in
       fi
     fi
 
-    # --- Proof Gate (¶INV_PROVABLE_DEBRIEF_PIPELINE) ---
-    # Requires all declared provableDebriefItems to have proof in provenItems
-    # Skipped for early phases (Phase 0/1) — no pipeline items apply
-    PROVABLE_JSON=$(jq -r '(.provableDebriefItems // null)' "$STATE_FILE" 2>/dev/null || echo "null")
-    if [ "$EARLY_PHASE" != "true" ] && [ "$PROVABLE_JSON" != "null" ]; then
-      PROVABLE_COUNT=$(echo "$PROVABLE_JSON" | jq 'length')
-      if [ "$PROVABLE_COUNT" -gt 0 ]; then
-        PROVEN_JSON=$(jq -r '(.provenItems // {})' "$STATE_FILE" 2>/dev/null || echo "{}")
-        MISSING_PROOF=()
-        while IFS= read -r item; do
-          [ -n "$item" ] || continue
-          HAS_PROOF=$(echo "$PROVEN_JSON" | jq --arg k "$item" 'has($k)')
-          if [ "$HAS_PROOF" != "true" ]; then
-            MISSING_PROOF+=("$item")
-          fi
-        done < <(echo "$PROVABLE_JSON" | jq -r '.[]')
-
-        if [ ${#MISSING_PROOF[@]} -gt 0 ]; then
-          proof_err="$(printf '%s\n%s\n%s' \
-            "¶INV_PROVABLE_DEBRIEF_PIPELINE: Cannot deactivate — ${#MISSING_PROOF[@]} debrief pipeline item(s) lack proof." \
-            "" \
-            "  Missing proof for:")"
-          for mp in "${MISSING_PROOF[@]}"; do
-            proof_err+=$'\n'"    - $mp"
-          done
-          proof_err+="$(printf '\n%s\n%s\n%s\n%s\n%s' \
-            "" \
-            "  To fix: Execute each pipeline step, then run:" \
-            "    session.sh prove $DIR <<'EOF'" \
-            "    §CMD_NAME: ran: description / skipped: reason" \
-            "    EOF")"
-          DEACTIVATE_ERRORS+=("$proof_err")
-        fi
-      fi
-    fi
-
     # --- Output all collected errors and exit ---
     if [ ${#DEACTIVATE_ERRORS[@]} -gt 0 ]; then
       for i in "${!DEACTIVATE_ERRORS[@]}"; do
@@ -1810,14 +1997,16 @@ case "$ACTION" in
       exit 1
     fi
 
-    # Set lifecycle=idle, clear PID (null sentinel), store description/keywords
+    # Set lifecycle=idle, preserve PID as lastKnownPid, clear active PID, store description/keywords
+    # lastKnownPid enables session.sh find to locate idle sessions (Strategy 3)
+    # without claiming ownership (multi-agent safe — different from keeping .pid)
     if [ -n "$KEYWORDS" ]; then
       jq --arg ts "$(timestamp)" --arg desc "$DESCRIPTION" --arg kw "$KEYWORDS" \
-        '.lifecycle = "idle" | del(.pid) | .lastHeartbeat = $ts | .sessionDescription = $desc | .searchKeywords = ($kw | split(",") | map(gsub("^\\s+|\\s+$"; "")))' \
+        '.lifecycle = "idle" | .lastKnownPid = .pid | del(.pid) | .lastHeartbeat = $ts | .sessionDescription = $desc | .searchKeywords = ($kw | split(",") | map(gsub("^\\s+|\\s+$"; "")))' \
         "$STATE_FILE" | safe_json_write "$STATE_FILE"
     else
       jq --arg ts "$(timestamp)" --arg desc "$DESCRIPTION" \
-        '.lifecycle = "idle" | del(.pid) | .lastHeartbeat = $ts | .sessionDescription = $desc' \
+        '.lifecycle = "idle" | .lastKnownPid = .pid | del(.pid) | .lastHeartbeat = $ts | .sessionDescription = $desc' \
         "$STATE_FILE" | safe_json_write "$STATE_FILE"
     fi
 
@@ -1897,29 +2086,27 @@ case "$ACTION" in
       echo "TEST: Would send tmux keystroke injection to restart session"
       echo "TEST: Prompt: $PROMPT"
       echo "TEST: Restart mode: $RESTART_MODE"
-    # TEMPORARILY DISABLED (2026-02-13): tmux /clear path disabled to validate
-    # token miscounting hypothesis. Fall through to watchdog kill instead.
-    # elif [ -n "${TMUX:-}" ]; then
-    #   target_flag=""
-    #   if [ -n "${TMUX_PANE:-}" ]; then
-    #     target_flag="-t $TMUX_PANE"
-    #   fi
-    #   (
-    #     sleep 0.5
-    #     tmux send-keys $target_flag Escape 2>/dev/null
-    #     sleep 1
-    #     tmux send-keys $target_flag Escape 2>/dev/null
-    #     sleep 0.3
-    #     tmux send-keys $target_flag -l "/clear" 2>/dev/null
-    #     tmux send-keys $target_flag Enter 2>/dev/null
-    #     if [ -n "$PROMPT" ]; then
-    #       sleep 1.5
-    #       tmux send-keys $target_flag -l "$PROMPT" 2>/dev/null
-    #       tmux send-keys $target_flag Enter 2>/dev/null
-    #     fi
-    #   ) &
-    #   disown
-    #   echo "Dehydrated and restart prepared. Sending /clear + prompt via tmux."
+    elif [ -n "${TMUX:-}" ]; then
+      target_flag=""
+      if [ -n "${TMUX_PANE:-}" ]; then
+        target_flag="-t $TMUX_PANE"
+      fi
+      (
+        sleep 0.5
+        tmux send-keys $target_flag Escape 2>/dev/null
+        sleep 1
+        tmux send-keys $target_flag Escape 2>/dev/null
+        sleep 0.3
+        tmux send-keys $target_flag -l "/clear" 2>/dev/null
+        tmux send-keys $target_flag Enter 2>/dev/null
+        if [ -n "$PROMPT" ]; then
+          sleep 1.5
+          tmux send-keys $target_flag -l "$PROMPT" 2>/dev/null
+          tmux send-keys $target_flag Enter 2>/dev/null
+        fi
+      ) &
+      disown
+      echo "Dehydrated and restart prepared. Sending /clear + prompt via tmux."
     elif [ -n "${WATCHDOG_PID:-}" ]; then
       echo "Dehydrated. Signaling watchdog (PID $WATCHDOG_PID) to restart..."
       kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
@@ -1964,33 +2151,31 @@ case "$ACTION" in
       echo "TEST: Would send tmux keystroke injection to restart session"
       echo "TEST: Prompt: $PROMPT"
       echo "TEST: Restart mode: $RESTART_MODE"
-    # TEMPORARILY DISABLED (2026-02-13): tmux /clear path disabled to validate
-    # token miscounting hypothesis. Fall through to watchdog kill instead.
-    # elif [ -n "${TMUX:-}" ]; then
-    #   # tmux path: send Esc → 1s delay → Esc → /clear → Enter
-    #   target_flag=""
-    #   if [ -n "${TMUX_PANE:-}" ]; then
-    #     target_flag="-t $TMUX_PANE"
-    #   fi
-    #   # Background the keystroke sequence to avoid race condition:
-    #   # the Esc would interrupt Claude mid-execution of this script
-    #   (
-    #     sleep 0.5  # let the calling command finish first
-    #     tmux send-keys $target_flag Escape 2>/dev/null
-    #     sleep 1
-    #     tmux send-keys $target_flag Escape 2>/dev/null
-    #     sleep 0.3
-    #     tmux send-keys $target_flag -l "/clear" 2>/dev/null
-    #     tmux send-keys $target_flag Enter 2>/dev/null
-    #     # Send restart prompt after /clear settles (if set)
-    #     if [ -n "$PROMPT" ]; then
-    #       sleep 1.5
-    #       tmux send-keys $target_flag -l "$PROMPT" 2>/dev/null
-    #       tmux send-keys $target_flag Enter 2>/dev/null
-    #     fi
-    #   ) &
-    #   disown
-    #   echo "Restart prepared. Sending /clear + prompt via tmux keystroke injection (backgrounded)."
+    elif [ -n "${TMUX:-}" ]; then
+      # tmux path: send Esc → 1s delay → Esc → /clear → Enter
+      target_flag=""
+      if [ -n "${TMUX_PANE:-}" ]; then
+        target_flag="-t $TMUX_PANE"
+      fi
+      # Background the keystroke sequence to avoid race condition:
+      # the Esc would interrupt Claude mid-execution of this script
+      (
+        sleep 0.5  # let the calling command finish first
+        tmux send-keys $target_flag Escape 2>/dev/null
+        sleep 1
+        tmux send-keys $target_flag Escape 2>/dev/null
+        sleep 0.3
+        tmux send-keys $target_flag -l "/clear" 2>/dev/null
+        tmux send-keys $target_flag Enter 2>/dev/null
+        # Send restart prompt after /clear settles (if set)
+        if [ -n "$PROMPT" ]; then
+          sleep 1.5
+          tmux send-keys $target_flag -l "$PROMPT" 2>/dev/null
+          tmux send-keys $target_flag Enter 2>/dev/null
+        fi
+      ) &
+      disown
+      echo "Restart prepared. Sending /clear + prompt via tmux keystroke injection (backgrounded)."
     elif [ -n "${WATCHDOG_PID:-}" ]; then
       echo "Restart prepared. Signaling watchdog (PID $WATCHDOG_PID) to kill Claude..."
       kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
@@ -1999,6 +2184,53 @@ case "$ACTION" in
       echo "Not running under run.sh wrapper. To restart manually, run:"
       echo ""
       echo "claude '$PROMPT'"
+    fi
+    exit 0
+    ;;
+
+  clear)
+    # Clear context and restart fresh — no session continuation prompt.
+    # Used by §CMD_PRESENT_NEXT_STEPS "Done and clear" option.
+    # Unlike restart, this does NOT set a restartPrompt — the new Claude starts blank.
+    #
+    # TMUX: sends /clear via keystroke injection (context reset, no process kill)
+    # Watchdog: sets killRequested=true (no prompt), watchdog kills, run.sh loops fresh
+    # Neither: prints manual instructions
+    if [ ! -f "$STATE_FILE" ]; then
+      echo "§CMD_REQUIRE_ACTIVE_SESSION: No .state.json in $DIR — is the session active?" >&2
+      exit 1
+    fi
+
+    # Set killRequested but NO restartPrompt — signals "restart fresh" to run.sh
+    jq --arg ts "$(timestamp)" \
+      '.killRequested = true | .lastHeartbeat = $ts | .contextUsage = 0 | del(.sessionId) | del(.restartPrompt)' \
+      "$STATE_FILE" | safe_json_write "$STATE_FILE"
+
+    if [ "${TEST_MODE:-}" = "1" ]; then
+      echo "TEST: Would clear context (tmux /clear or watchdog kill)"
+    elif [ -n "${TMUX:-}" ]; then
+      # tmux path: send /clear to reset context without killing process
+      target_flag=""
+      if [ -n "${TMUX_PANE:-}" ]; then
+        target_flag="-t $TMUX_PANE"
+      fi
+      (
+        sleep 0.5
+        tmux send-keys $target_flag Escape 2>/dev/null
+        sleep 1
+        tmux send-keys $target_flag Escape 2>/dev/null
+        sleep 0.3
+        tmux send-keys $target_flag -l "/clear" 2>/dev/null
+        tmux send-keys $target_flag Enter 2>/dev/null
+      ) &
+      disown
+      echo "Clearing context via tmux /clear."
+    elif [ -n "${WATCHDOG_PID:-}" ]; then
+      echo "Signaling watchdog (PID $WATCHDOG_PID) to restart fresh..."
+      kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
+    else
+      echo "No tmux/watchdog available. To clear manually, run:"
+      echo "  /clear"
     fi
     exit 0
     ;;
@@ -2059,6 +2291,29 @@ case "$ACTION" in
           [ -f "$f" ] || continue
           file_pid=$(jq -r '.pid // empty' "$f" 2>/dev/null)
           if [ -n "$file_pid" ] && [ "$file_pid" = "$CLAUDE_PID" ]; then
+            FOUND_DIR=$(dirname "$f")
+            break 2
+          fi
+        done < <(find -L "$SESSIONS_DIR" -name ".state.json" -type f 2>/dev/null)
+      done
+    fi
+
+    # Strategy 3: Match by lastKnownPid (for idle sessions where PID was cleared)
+    # lastKnownPid is set by `engine session idle` before clearing .pid
+    # Same PID guard applies — reject if a different alive PID holds the session
+    if [ -z "$FOUND_DIR" ]; then
+      for SESSIONS_DIR in "${SEARCH_PATHS[@]}"; do
+        while IFS= read -r f; do
+          [ -f "$f" ] || continue
+          file_last_pid=$(jq -r '.lastKnownPid // empty' "$f" 2>/dev/null)
+          if [ -n "$file_last_pid" ] && [ "$file_last_pid" = "$CLAUDE_PID" ]; then
+            # PID guard: reject if a different alive PID holds the session
+            file_pid=$(jq -r '.pid // empty' "$f" 2>/dev/null)
+            if [ -n "$file_pid" ] && [ "$file_pid" != "$CLAUDE_PID" ]; then
+              if kill -0 "$file_pid" 2>/dev/null; then
+                exit 1
+              fi
+            fi
             FOUND_DIR=$(dirname "$f")
             break 2
           fi
@@ -2473,82 +2728,6 @@ case "$ACTION" in
     fi
     ;;
 
-  prove)
-    # Write proof of debrief pipeline execution to .state.json
-    #
-    # Usage:
-    #   session.sh prove <path> <<'EOF'
-    #   §CMD_MANAGE_DIRECTIVES: skipped: no files touched
-    #   §CMD_PROCESS_DELEGATIONS: ran: 2 bare tags processed
-    #   §CMD_DISPATCH_APPROVAL: skipped: no #needs-X tags
-    #   §CMD_CAPTURE_SIDE_DISCOVERIES: skipped: no side discoveries
-    #   §CMD_MANAGE_ALERTS: skipped: no alerts
-    #   §CMD_REPORT_LEFTOVER_WORK: ran: 1 item reported
-    #   EOF
-    #
-    # Each line: §CMD_NAME: <free text proof>
-    # Replaces .provenItems entirely (not merge).
-    # Deactivation gate checks provenItems keys against provableDebriefItems.
-
-    # DEPRECATED: session.sh prove is replaced by proof-gated phase transitions.
-    # Proof is now provided inline with each sub-phase transition via STDIN to session.sh phase.
-    # See ¶INV_PROVABLE_DEBRIEF_PIPELINE (deprecated) and ¶INV_PHASE_ENFORCEMENT.
-    echo "WARNING: 'session.sh prove' is deprecated. Use proof-gated phase transitions instead." >&2
-    echo "  Proof should be piped to 'session.sh phase' via STDIN for each sub-phase transition." >&2
-
-    if [ ! -f "$STATE_FILE" ]; then
-      echo "§CMD_REQUIRE_ACTIVE_SESSION: No .state.json in $DIR — is the session active?" >&2
-      exit 1
-    fi
-
-    # Read proof from stdin
-    PROOF_INPUT=""
-    if [ ! -t 0 ]; then
-      PROOF_INPUT=$(cat)
-    fi
-
-    if [ -z "$PROOF_INPUT" ]; then
-      echo "¶INV_PROVABLE_DEBRIEF_PIPELINE: No proof provided on stdin." >&2
-      echo "" >&2
-      echo "  Usage: session.sh prove <path> <<'EOF'" >&2
-      echo "  §CMD_MANAGE_DIRECTIVES: skipped: no files touched" >&2
-      echo "  §CMD_PROCESS_DELEGATIONS: ran: 2 bare tags processed" >&2
-      echo "  EOF" >&2
-      exit 1
-    fi
-
-    # Parse proof lines into JSON object
-    # Format: §CMD_NAME: <text> → {"§CMD_NAME": "<text>"}
-    PROOF_JSON="{}"
-    while IFS= read -r line; do
-      [ -n "$line" ] || continue
-      # Extract command name (everything before first ': ')
-      CMD_NAME=$(echo "$line" | sed -n 's/^\(§CMD_[A-Z_]*\): .*/\1/p')
-      if [ -z "$CMD_NAME" ]; then
-        continue  # Skip non-matching lines
-      fi
-      # Extract proof text (everything after first ': ')
-      PROOF_TEXT=$(echo "$line" | sed "s/^${CMD_NAME}: //")
-      PROOF_JSON=$(echo "$PROOF_JSON" | jq --arg k "$CMD_NAME" --arg v "$PROOF_TEXT" '.[$k] = $v')
-    done <<< "$PROOF_INPUT"
-
-    # Count proven items
-    PROVEN_COUNT=$(echo "$PROOF_JSON" | jq 'length')
-    if [ "$PROVEN_COUNT" -eq 0 ]; then
-      echo "¶INV_PROVABLE_DEBRIEF_PIPELINE: No valid proof lines found in input." >&2
-      echo "  Each line must match: §CMD_NAME: <proof text>" >&2
-      exit 1
-    fi
-
-    # Write provenItems to .state.json (replace, not merge)
-    jq --argjson proof "$PROOF_JSON" --arg ts "$(timestamp)" \
-      '.provenItems = $proof | .lastHeartbeat = $ts' \
-      "$STATE_FILE" | safe_json_write "$STATE_FILE"
-
-    echo "¶INV_PROVABLE_DEBRIEF_PIPELINE: Proof recorded for $PROVEN_COUNT item(s)."
-    echo "$PROOF_JSON" | jq -r 'to_entries[] | "  \(.key): \(.value)"'
-    ;;
-
   evaluate-guards)
     # Evaluate guard rules against current session state.
     # Backward-compat wrapper around evaluate_rules() from lib.sh.
@@ -2586,7 +2765,7 @@ case "$ACTION" in
     ;;
 
   *)
-    echo "§CMD_MAINTAIN_SESSION_DIR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart, check, prove, request-template, debrief, evaluate-guards" >&2
+    echo "§CMD_MAINTAIN_SESSION_DIR: Unknown action '$ACTION'. Use: init, activate, update, find, phase, target, deactivate, restart, clear, check, prove, request-template, debrief, evaluate-guards" >&2
     exit 1
     ;;
 esac

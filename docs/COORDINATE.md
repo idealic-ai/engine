@@ -86,7 +86,7 @@ The core primitive. Each call to `coordinate-wait` performs a complete engagemen
 If the previous call returned a pane (stored internally as the "last connected" pane), `coordinate-wait` disconnects it: clears `@pane_coordinator_active`, reverts the purple background. This happens at the START of the new call, not at the end of the previous processing.
 
 **Step 2 — Sweep for actionable panes**
-Iterates through all managed panes (from `@pane_manages` or `--managed` flag). For each pane, reads `@pane_notify`, `@pane_coordinator_active`, and `@pane_user_focused`. Filters:
+Iterates through all managed panes (from `@pane_manages` or `--panes` flag). For each pane, reads `@pane_notify`, `@pane_coordinator_active`, and `@pane_user_focused`. Filters:
 - Skip if `@pane_user_focused = 1` (human is looking at it)
 - Skip if `@pane_coordinator_active = 1` (shouldn't happen after disconnect, but defensive)
 - Include if `@pane_notify` is `unchecked`, `error`, or `done`
@@ -519,7 +519,7 @@ After restart, the new Claude:
 
 ### Minimizing Overflow Frequency
 
-- **Selective logging** (`§INV_SELECTIVE_LOGGING`): Don't log routine option picks — only significant decisions
+- **Selective logging**: Don't log routine option picks — only significant decisions
 - **Compact escalations**: Keep escalation messages concise
 - **Config tuning**: Higher `confidenceThreshold` means fewer autonomous decisions to log
 
@@ -624,7 +624,7 @@ The coordinator escalates questions (immediate, blocking). It delegates discover
 
 ## 12. Logging
 
-The coordinator logs to `COORDINATE_LOG.md` in the session directory. Logging follows `§INV_SELECTIVE_LOGGING` — only significant events, not routine operations.
+The coordinator logs to `COORDINATE_LOG.md` in the session directory. Log only significant events, not routine operations.
 
 ### Log Entry Types
 

@@ -11,7 +11,7 @@
 #
 # Tests (26 total):
 #   --- Claude invocation tests (E2E-1 through E2E-14) ---
-#   E2E-1:  SessionStart hook preloads COMMANDS.md, INVARIANTS.md, TAGS.md
+#   E2E-1:  SessionStart hook preloads COMMANDS.md, INVARIANTS.md, SIGILS.md
 #   E2E-2:  Skill template preloading via /implement invocation
 #   E2E-3:  Phase transition via Bash tool updates session state
 #   E2E-4:  SessionStart reports heartbeat counter from .state.json
@@ -345,7 +345,7 @@ Report:
 1. preloadedFiles: An array of ALL file paths that appear after "[Preloaded: " markers. Extract the exact path string.
 2. hasCommandsMd: true if any preloaded path ends with "COMMANDS.md"
 3. hasInvariantsMd: true if any preloaded path ends with "INVARIANTS.md"
-4. hasTagsMd: true if any preloaded path ends with "TAGS.md"
+4. hasTagsMd: true if any preloaded path ends with "SIGILS.md"
 5. hasCmdDehydrate: true if any preloaded path contains "CMD_DEHYDRATE"
 6. hasCmdResumeSession: true if any preloaded path contains "CMD_RESUME_SESSION"
 7. sessionContextLine: The full "[Session Context] ..." line if present, or empty string'
@@ -370,7 +370,7 @@ else
 
   assert_eq "true" "$HAS_CMDS" "E2E-1: COMMANDS.md was preloaded"
   assert_eq "true" "$HAS_INV" "E2E-1: INVARIANTS.md was preloaded"
-  assert_eq "true" "$HAS_TAGS" "E2E-1: TAGS.md was preloaded"
+  assert_eq "true" "$HAS_TAGS" "E2E-1: SIGILS.md was preloaded"
   assert_eq "true" "$HAS_DEHY" "E2E-1: CMD_DEHYDRATE.md was preloaded"
   assert_contains "Session:" "$SESSION_CTX" "E2E-1: Session context line injected"
   assert_contains "e2e_session_start" "$SESSION_CTX" "E2E-1: Session name in context line"
@@ -561,7 +561,7 @@ PROMPT='You are in a test. Count the EXACT number of times each of these markers
 
 1. commandsMdCount: How many "[Preloaded: " markers have paths ending with "COMMANDS.md"? Count each separate occurrence.
 2. invariantsMdCount: How many "[Preloaded: " markers have paths ending with "INVARIANTS.md"? Count each separate occurrence.
-3. tagsMdCount: How many "[Preloaded: " markers have paths ending with "TAGS.md"? Count each separate occurrence.
+3. tagsMdCount: How many "[Preloaded: " markers have paths ending with "SIGILS.md"? Count each separate occurrence.
 
 Be precise. Count 0 if not found, 1 if found once, 2 if found twice, etc.'
 
@@ -581,12 +581,12 @@ else
 
   assert_eq "1" "$CMDS_COUNT" "E2E-6: COMMANDS.md appears exactly once"
   assert_eq "1" "$INV_COUNT" "E2E-6: INVARIANTS.md appears exactly once"
-  assert_eq "1" "$TAGS_COUNT" "E2E-6: TAGS.md appears exactly once"
+  assert_eq "1" "$TAGS_COUNT" "E2E-6: SIGILS.md appears exactly once"
 
   echo ""
   echo "  COMMANDS.md count: $CMDS_COUNT"
   echo "  INVARIANTS.md count: $INV_COUNT"
-  echo "  TAGS.md count: $TAGS_COUNT"
+  echo "  SIGILS.md count: $TAGS_COUNT"
 fi
 
 fi  # E2E-6
@@ -909,12 +909,12 @@ PROMPT='You are in a test. Do these steps in order using separate Bash tool call
 2. Run: echo step2
 3. Run: echo step3
 
-After running all 3 commands, check if you see any heartbeat-related warnings in system-reminder tags. Look for text containing "heartbeat", "CMD_APPEND_LOG", or "warn" in any system-reminder that appeared after your Bash calls. Also look for a "[Log template: ...]" line that tells you which log template to use.
+After running all 3 commands, check if you see any heartbeat-related warnings in system-reminder tags. Look for text containing "heartbeat", "CMD_APPEND_LOG", or "warn" in any system-reminder that appeared after your Bash calls. Also look for a "[Template: ...]" line that tells you which log template to use.
 
 Report:
 - heartbeatWarnSeen: true if you saw ANY heartbeat warning in any system-reminder during the session
 - warnText: The heartbeat warning text if found, or empty string
-- templateHint: The log template path from the "[Log template: ...]" line if found, or empty string
+- templateHint: The log template path from the "[Template: ...]" line if found, or empty string
 - stepsCompleted: How many echo commands you successfully ran'
 
 echo ""
@@ -1513,7 +1513,7 @@ STEP 2: Run via Bash: echo "dedup_test_marker"
 STEP 3: After the Bash call, count the EXACT number of times each of these markers appears in your ENTIRE context (including anything injected after the Bash call):
 - commandsMdCount: How many separate "[Preloaded: " markers have paths ending with "COMMANDS.md"?
 - invariantsMdCount: How many separate "[Preloaded: " markers have paths ending with "INVARIANTS.md"?
-- tagsMdCount: How many separate "[Preloaded: " markers have paths ending with "TAGS.md"?
+- tagsMdCount: How many separate "[Preloaded: " markers have paths ending with "SIGILS.md"?
 
 Report:
 - skillLoaded: true if Implementation Protocol was loaded at start
@@ -1547,7 +1547,7 @@ else
   assert_eq "true" "$BASH_OK" "E2E-14: Bash command succeeded"
   assert_eq "1" "$CMDS_COUNT" "E2E-14: COMMANDS.md appears exactly once (not duplicated)"
   assert_eq "1" "$INV_COUNT" "E2E-14: INVARIANTS.md appears exactly once (not duplicated)"
-  assert_eq "1" "$TAGS_COUNT" "E2E-14: TAGS.md appears exactly once (not duplicated)"
+  assert_eq "1" "$TAGS_COUNT" "E2E-14: SIGILS.md appears exactly once (not duplicated)"
   assert_eq "false" "$HOOK_ERR" "E2E-14: No hook errors"
 
   echo ""
@@ -1555,7 +1555,7 @@ else
   echo "  Bash succeeded: $BASH_OK"
   echo "  COMMANDS.md count: $CMDS_COUNT"
   echo "  INVARIANTS.md count: $INV_COUNT"
-  echo "  TAGS.md count: $TAGS_COUNT"
+  echo "  SIGILS.md count: $TAGS_COUNT"
   echo "  Hook errors: $HOOK_ERR"
 fi
 
@@ -2488,7 +2488,7 @@ fi  # E2E-25
 # Verifies that when a subagent starts, the SubagentStart hook injects
 # the log template (from .state.json logTemplate) and discovered directives
 # into the subagent's context. Does NOT inject core standards (COMMANDS.md,
-# INVARIANTS.md, TAGS.md) — those are for the main agent only.
+# INVARIANTS.md, SIGILS.md) — those are for the main agent only.
 
 if should_run 26; then
 cleanup_between_tests
@@ -2510,7 +2510,7 @@ cat > "$TEST_SESSION/.state.json" <<STATE_EOF
   "preloadedFiles": [
     "~/.claude/.directives/COMMANDS.md",
     "~/.claude/.directives/INVARIANTS.md",
-    "~/.claude/.directives/TAGS.md"
+    "~/.claude/.directives/SIGILS.md"
   ]
 }
 STATE_EOF

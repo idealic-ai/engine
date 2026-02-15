@@ -1,6 +1,6 @@
 ---
 name: graph
-description: "Creates ASCII flowgraph diagrams using the §CMD_FLOWGRAPH notation. Lightweight skill for rendering complex flows as structured visual diagrams. Triggers: \"draw a flowgraph\", \"create a flow diagram\", \"visualize this flow\", \"graph this process\"."
+description: "Creates ASCII flowgraph diagrams using the `§CMD_FLOWGRAPH` notation. Lightweight skill for rendering complex flows as structured visual diagrams. Triggers: \"draw a flowgraph\", \"create a flow diagram\", \"visualize this flow\", \"graph this process\"."
 version: 3.0
 tier: suggest
 ---
@@ -31,7 +31,7 @@ Creates ASCII flowgraph diagrams. Lightweight skill for rendering complex flows 
 
 ---
 
-## §CMD_FLOWGRAPH
+## ¶CMD_FLOWGRAPH
 **Definition**: Render an ASCII flowgraph using the standardized glyph vocabulary. Flowgraphs are hand-crafted by agents to visualize complex flows — protocols, architecture, tag lifecycles, decision trees — in plain-text Markdown.
 
 **When to Consider** (suggestions, not mandatory):

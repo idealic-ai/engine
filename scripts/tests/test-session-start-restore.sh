@@ -40,7 +40,7 @@ setup() {
   mkdir -p "$FAKE_HOME/.claude/.directives"
   echo "# COMMANDS content" > "$FAKE_HOME/.claude/.directives/COMMANDS.md"
   echo "# INVARIANTS content" > "$FAKE_HOME/.claude/.directives/INVARIANTS.md"
-  echo "# TAGS content" > "$FAKE_HOME/.claude/.directives/TAGS.md"
+  echo "# TAGS content" > "$FAKE_HOME/.claude/.directives/SIGILS.md"
 
   RESOLVED_HOOK="$FAKE_HOME/.claude/hooks/session-start-restore.sh"
 }
@@ -65,26 +65,26 @@ test_standards_all_present() {
 
   assert_contains "COMMANDS content" "$output" "output contains COMMANDS.md content"
   assert_contains "INVARIANTS content" "$output" "output contains INVARIANTS.md content"
-  assert_contains "TAGS content" "$output" "output contains TAGS.md content"
+  assert_contains "TAGS content" "$output" "output contains SIGILS.md content"
 }
 
 # --- Test 2: One standards file missing ---
 test_standards_one_missing() {
-  rm -f "$FAKE_HOME/.claude/.directives/TAGS.md"
+  rm -f "$FAKE_HOME/.claude/.directives/SIGILS.md"
 
   local output
   output=$(run_hook "startup") || true
 
   assert_contains "COMMANDS content" "$output" "output contains COMMANDS.md when TAGS missing"
   assert_contains "INVARIANTS content" "$output" "output contains INVARIANTS.md when TAGS missing"
-  assert_not_contains "TAGS content" "$output" "output skips missing TAGS.md"
+  assert_not_contains "TAGS content" "$output" "output skips missing SIGILS.md"
 }
 
 # --- Test 3: All standards files missing ---
 test_standards_all_missing() {
   rm -f "$FAKE_HOME/.claude/.directives/COMMANDS.md"
   rm -f "$FAKE_HOME/.claude/.directives/INVARIANTS.md"
-  rm -f "$FAKE_HOME/.claude/.directives/TAGS.md"
+  rm -f "$FAKE_HOME/.claude/.directives/SIGILS.md"
 
   local output
   output=$(run_hook "startup") || true
@@ -119,7 +119,7 @@ test_standards_preloaded_format() {
   assert_contains "[Preloaded:" "$output" "output uses [Preloaded:] format marker"
   assert_contains "COMMANDS.md]" "$output" "preloaded marker includes COMMANDS.md filename"
   assert_contains "INVARIANTS.md]" "$output" "preloaded marker includes INVARIANTS.md filename"
-  assert_contains "TAGS.md]" "$output" "preloaded marker includes TAGS.md filename"
+  assert_contains "SIGILS.md]" "$output" "preloaded marker includes SIGILS.md filename"
 }
 
 # --- Test 6: Standards come before dehydrated context ---
@@ -191,14 +191,14 @@ JSON
   local has_commands has_invariants has_tags has_dehydrate has_rehydrate has_parse_params
   has_commands=$(jq '[.preloadedFiles[] | select(contains("COMMANDS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
   has_invariants=$(jq '[.preloadedFiles[] | select(contains("INVARIANTS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
-  has_tags=$(jq '[.preloadedFiles[] | select(contains("TAGS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
+  has_tags=$(jq '[.preloadedFiles[] | select(contains("SIGILS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
   has_dehydrate=$(jq '[.preloadedFiles[] | select(contains("CMD_DEHYDRATE.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
   has_rehydrate=$(jq '[.preloadedFiles[] | select(contains("CMD_RESUME_SESSION.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
   has_parse_params=$(jq '[.preloadedFiles[] | select(contains("CMD_PARSE_PARAMETERS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
 
   assert_eq "1" "$has_commands" "preloadedFiles includes COMMANDS.md"
   assert_eq "1" "$has_invariants" "preloadedFiles includes INVARIANTS.md"
-  assert_eq "1" "$has_tags" "preloadedFiles includes TAGS.md"
+  assert_eq "1" "$has_tags" "preloadedFiles includes SIGILS.md"
   assert_eq "1" "$has_dehydrate" "preloadedFiles includes CMD_DEHYDRATE.md"
   assert_eq "1" "$has_rehydrate" "preloadedFiles includes CMD_RESUME_SESSION.md"
   assert_eq "1" "$has_parse_params" "preloadedFiles includes CMD_PARSE_PARAMETERS.md"

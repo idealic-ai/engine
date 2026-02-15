@@ -118,7 +118,7 @@ When no actionable panes exist, `coordinate-wait` blocks efficiently using `tmux
 ### Inputs
 
 - `--timeout <seconds>`: How long to block before returning TIMEOUT
-- `--managed <pane_ids>`: Panes this coordinator manages. If omitted, auto-discovers from `@pane_manages` on the calling pane (set in fleet.yml).
+- `--panes <pane_ids>`: Panes this coordinator manages. If omitted, auto-discovers from `@pane_manages` on the calling pane (set in fleet.yml).
 
 ---
 
@@ -486,7 +486,7 @@ The coordinator and the daemon operate in parallel, not in conflict:
 
 ### Connection to TAG_LIFECYCLE.md
 
-The `#needs-coordinate` tag follows `§FEED_GENERIC` conventions from `TAGS.md`:
+The `#needs-coordinate` tag follows `§FEED_GENERIC` conventions from `SIGILS.md`:
 - Created on the vision doc's chapter headings
 - Discoverable via `engine tag find '#needs-coordinate'`
 - Swapped via `engine tag swap`
@@ -671,13 +671,13 @@ Recommended split (from brainstorm Round 9):
 
 | Invariant | Definition | Source |
 |-----------|-----------|--------|
-| `§INV_SERIAL_PROCESSING` (existing) | One pane at a time. No background signals. | coordinate/SKILL.md |
-| `§INV_STRICT_CHAPTER_GATES` (new) | Chapter boundaries are sync points. All groups complete before any start next. | Brainstorm Round 6 |
-| `§INV_VISION_IS_EVERGREEN` (new) | Vision doc is a living document. Coordinator reads latest at chapter start. | Brainstorm Round 8 |
-| `§INV_COORDINATE_WAIT_LIFECYCLE` (new) | `coordinate-wait` manages connect/disconnect. Caller never calls them directly. | Brainstorm Round 3 |
-| `§INV_AUTO_DISCONNECT_ON_STATE_CHANGE` (existing) | Clears coordinator_active on non-unchecked transition. | fleet.sh |
-| `§INV_TERMINAL_IS_API` (existing) | Worker communication through TUI only. No custom protocols. | coordinate/SKILL.md |
-| `§INV_COORDINATOR_NEVER_RESTARTS_WORKERS` (existing) | Coordinator sends keystrokes only. Stuck workers escalated to human. | coordinate/SKILL.md |
+| `¶INV_SERIAL_PROCESSING` (existing) | One pane at a time. No background signals. | coordinate/SKILL.md |
+| `¶INV_STRICT_CHAPTER_GATES` (new) | Chapter boundaries are sync points. All groups complete before any start next. | Brainstorm Round 6 |
+| `¶INV_VISION_IS_EVERGREEN` (new) | Vision doc is a living document. Coordinator reads latest at chapter start. | Brainstorm Round 8 |
+| `¶INV_COORDINATE_WAIT_LIFECYCLE` (new) | `coordinate-wait` manages connect/disconnect. Caller never calls them directly. | Brainstorm Round 3 |
+| `¶INV_AUTO_DISCONNECT_ON_STATE_CHANGE` (existing) | Clears coordinator_active on non-unchecked transition. | fleet.sh |
+| `¶INV_TERMINAL_IS_API` (existing) | Worker communication through TUI only. No custom protocols. | coordinate/SKILL.md |
+| `¶INV_COORDINATOR_NEVER_RESTARTS_WORKERS` (existing) | Coordinator sends keystrokes only. Stuck workers escalated to human. | coordinate/SKILL.md |
 
 ---
 

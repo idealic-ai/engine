@@ -30,7 +30,7 @@ Not every feature needs all 7 steps. The point is that each skill slots into a k
 
 ### Session Handoff
 
-Any step can end with `/dehydrate`, which serializes the session state and copies it to your clipboard. Paste into the next command to resume: `/implement <paste>`. Works across machines and team members.
+Context overflow is handled automatically — `§CMD_DEHYDRATE` serializes session state to `.state.json` and triggers a restart. The new Claude resumes at the saved phase via `/session continue`.
 
 ## Architecture
 
@@ -39,7 +39,7 @@ The engine has six layers, from low-level utilities to user-facing skills:
 ```
 Layer 6: Skills        /analyze, /implement, /fix, ...       (user-invoked protocols)
 Layer 5: Agents        builder, debugger, analyzer, ...     (sub-agent personas)
-Layer 4: Directives    COMMANDS.md, INVARIANTS.md, TAGS.md  (rules and templates)
+Layer 4: Directives    COMMANDS.md, INVARIANTS.md, SIGILS.md  (rules and templates)
 Layer 3: Tools         statusline.sh, run.sh --monitor-tags  (background services)
 Layer 2: Hooks         overflow, notifications, gating      (Claude Code lifecycle)
 Layer 1: Scripts       session.sh, tag.sh, log.sh, ...      (shell utilities)
@@ -54,12 +54,12 @@ Layer 1: Scripts       session.sh, tag.sh, log.sh, ...      (shell utilities)
 | `fleet.sh` | Multi-agent tmux workspace management |
 | `worker.sh` | Fleet worker daemon — watches for tagged work, spawns agents |
 | `statusline.sh` | Status line: session name, skill/phase, context usage % |
-| `pre-tool-use-overflow.sh` | Context overflow protection — blocks tools at threshold, forces `/dehydrate` |
+| `pre-tool-use-overflow.sh` | Context overflow protection — blocks tools at threshold, triggers `§CMD_DEHYDRATE` |
 | `run.sh --monitor-tags` | Daemon mode: watches `sessions/` for `#delegated-*` tags, spawns `/claim` |
 
 ## Skills, Tags & Sessions
 
-The engine includes 30+ skills organized into core workflow (`/analyze`, `/implement`, `/fix`, `/test`, `/document`, `/brainstorm`, `/loop`), session management (`/chores`, `/review`, `/dehydrate`), cross-session communication (`/research`, `/delegate`), and engine management (`/edit-skill`, `/fleet`).
+The engine includes 30+ skills organized into core workflow (`/analyze`, `/implement`, `/fix`, `/test`, `/document`, `/brainstorm`, `/loop`), session management (`/chores`, `/review`, `/session`), cross-session communication (`/research`, `/delegate`), and engine management (`/edit-skill`, `/fleet`).
 
 Cross-session coordination uses semantic tags with a 4-state lifecycle: `#needs-X` → `#delegated-X` → `#claimed-X` → `#done-X`. Sessions are directories (`sessions/YYYY_MM_DD_TOPIC/`) containing logs, plans, debriefs, and `.state.json`.
 
@@ -91,7 +91,7 @@ engine/
 ├── .directives/             # Shared authority files (behavioral directives)
 │   ├── COMMANDS.md          # Command index (all §CMD_* references)
 │   ├── INVARIANTS.md        # System invariants (¶INV_*)
-│   ├── TAGS.md              # Tag system reference (§FEED_*)
+│   ├── SIGILS.md              # Tag system reference (§FEED_*)
 │   ├── HANDOFF.md           # Agent coordination reference
 │   └── commands/            # Reusable command definitions
 ├── tools/                   # Background services
@@ -118,7 +118,7 @@ engine/
 
 - **[.directives/COMMANDS.md](.directives/COMMANDS.md)** — All `§CMD_*` protocol building blocks.
 - **[.directives/INVARIANTS.md](.directives/INVARIANTS.md)** — System invariants (`¶INV_*`).
-- **[.directives/TAGS.md](.directives/TAGS.md)** — Tag system and lifecycle feeds.
+- **[.directives/SIGILS.md](.directives/SIGILS.md)** — Tag system and lifecycle feeds.
 - **[.directives/HANDOFF.md](.directives/HANDOFF.md)** — Inter-agent coordination patterns.
 - **[scripts/README.md](scripts/README.md)** — Script reference with usage examples.
 - **[docs/DAEMON.md](docs/DAEMON.md)** — Daemon mode and tag dispatch (current).

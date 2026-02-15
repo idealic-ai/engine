@@ -57,10 +57,13 @@ teardown() {
   fi
 }
 
-# Helper: run the hook with given JSON input, capture stdout
+# Helper: run the hook with env vars, capture stdout
 run_hook() {
   local input="$1"
-  echo "$input" | bash "$HOME/.claude/hooks/post-tool-use-templates.sh" 2>/dev/null
+  local tool_name tool_input
+  tool_name=$(echo "$input" | jq -r '.tool_name // ""')
+  tool_input=$(echo "$input" | jq -c '.tool_input // {}')
+  TOOL_NAME="$tool_name" TOOL_INPUT="$tool_input" bash "$HOME/.claude/hooks/post-tool-use-templates.sh" 2>/dev/null
 }
 
 # Helper: read .state.json
@@ -353,6 +356,119 @@ test_handles_hyphenated_skill_name() {
 }
 
 # =============================================================================
+# FAILURE SCENARIO TESTS — .state.json corruption / race conditions
+# These reproduce the "PostToolUse:Skill hook error" bug where unprotected
+# jq calls crash the hook under set -euo pipefail.
+# =============================================================================
+
+test_exits_0_with_corrupted_state_json() {
+  local test_name="resilience: exits 0 with corrupted .state.json"
+  setup
+
+  create_skill_with_templates "brainstorm" LOG DEBRIEF
+
+  # Corrupt .state.json with invalid JSON
+  echo "NOT VALID JSON {{{" > "$SESSION_DIR/.state.json"
+
+  local output exit_code
+  output=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}') || true
+  # Re-run to capture exit code cleanly
+  TOOL_NAME=Skill TOOL_INPUT='{"skill":"brainstorm"}' bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
+  exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  # Direct delivery should still work even if .state.json update fails
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null || echo "")
+  local has_log
+  has_log=$(echo "$has_context" | grep -c "TEMPLATE_BRAINSTORM_LOG.md" || true)
+  if [ "$has_log" -ge 1 ]; then
+    pass "$test_name — direct delivery still works"
+  else
+    fail "$test_name — direct delivery still works" "additionalContext present" "missing"
+  fi
+
+  teardown
+}
+
+test_exits_0_with_empty_state_json() {
+  local test_name="resilience: exits 0 with empty .state.json"
+  setup
+
+  create_skill_with_templates "brainstorm" LOG
+
+  # Empty file — jq empty will fail on this
+  > "$SESSION_DIR/.state.json"
+
+  local exit_code
+  TOOL_NAME=Skill TOOL_INPUT='{"skill":"brainstorm"}' bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
+  exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name"
+
+  teardown
+}
+
+test_exits_0_with_missing_preloaded_fields() {
+  local test_name="resilience: exits 0 when .state.json lacks preloadedFiles"
+  setup
+
+  create_skill_with_templates "brainstorm" LOG
+
+  # Minimal JSON without preloadedFiles or pendingPreloads
+  echo '{"pid": 1, "skill": "test"}' > "$SESSION_DIR/.state.json"
+
+  local output exit_code
+  output=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}') || true
+  TOOL_NAME=Skill TOOL_INPUT='{"skill":"brainstorm"}' bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
+  exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name — exit code"
+  # Direct delivery should still work
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null || echo "")
+  assert_not_empty "$has_context" "$test_name — direct delivery still works"
+
+  teardown
+}
+
+test_exits_0_with_state_json_deleted_mid_run() {
+  local test_name="resilience: exits 0 when .state.json disappears mid-execution"
+  setup
+
+  create_skill_with_templates "brainstorm" LOG
+
+  # session.sh find returns a dir, but .state.json doesn't exist
+  rm -f "$SESSION_DIR/.state.json"
+
+  local exit_code
+  TOOL_NAME=Skill TOOL_INPUT='{"skill":"brainstorm"}' bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
+  exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name"
+
+  teardown
+}
+
+test_exits_0_with_state_json_array_instead_of_object() {
+  local test_name="resilience: exits 0 when .state.json is a JSON array"
+  setup
+
+  create_skill_with_templates "brainstorm" LOG
+
+  # Valid JSON but wrong shape — jq operations expecting object will fail
+  echo '["not", "an", "object"]' > "$SESSION_DIR/.state.json"
+
+  local exit_code
+  TOOL_NAME=Skill TOOL_INPUT='{"skill":"brainstorm"}' bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
+  exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name"
+
+  teardown
+}
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -367,5 +483,12 @@ test_template_content_included
 test_session_tracking
 test_delivers_without_session
 test_handles_hyphenated_skill_name
+
+# Failure scenarios (reproduce "hook error" bug)
+test_exits_0_with_corrupted_state_json
+test_exits_0_with_empty_state_json
+test_exits_0_with_missing_preloaded_fields
+test_exits_0_with_state_json_deleted_mid_run
+test_exits_0_with_state_json_array_instead_of_object
 
 exit_with_results

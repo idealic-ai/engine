@@ -129,7 +129,7 @@ USER
 | `TEMPLATE_COORDINATOR_PLAN.md` | `~/.claude/skills/coordinate/assets/` | Chapter plan template with checkboxes and assignments | `@engine/orchestration/chapter-system` |
 | `/coordinate` SKILL.md | `~/.claude/skills/coordinate/SKILL.md` | Main skill protocol — phases, loop, synthesis | All chapters |
 | `coordinate.config.json` | Session directory | Runtime config — thresholds, escalation rules, priorities | `@engine/orchestration/foundation`, `@engine/orchestration/attention-model` |
-| TAGS.md | `~/.claude/.directives/TAGS.md` | `%worker` sigil convention | `@engine/orchestration/task-assignment` |
+| SIGILS.md | `~/.claude/.directives/SIGILS.md` | `%worker` sigil convention | `@engine/orchestration/task-assignment` |
 
 ### Key Technical Decisions
 
@@ -153,7 +153,7 @@ USER
 ### Risk & Escalation
 - The coordinator never makes irreversible decisions autonomously. Deletions, architecture changes, and PR creation always escalate regardless of confidence.
 - When uncertain, probe the worker first (pre-escalation interrogation). Only escalate to human if still unsure after the worker explains.
-- Flag Chapter 4's TAGS.md change as high-scrutiny — it's cross-cutting and affects all skills.
+- Flag Chapter 4's SIGILS.md change as high-scrutiny — it's cross-cutting and affects all skills.
 
 ### Quality & Standards
 - Follow existing patterns in the codebase — consistency over novelty.
@@ -211,7 +211,7 @@ PARALLEL GROUP 3 (depends on Group 2: chapter-system)
   ╰► @engine/orchestration/task-assignment
       │ • Depends on: @engine/orchestration/chapter-system
       │ • %worker sigil, REQUEST routing, completion tracking
-      │ • Effort: L | Files: TAGS.md, REQUEST templates, SKILL.md (loop)
+      │ • Effort: L | Files: SIGILS.md, REQUEST templates, SKILL.md (loop)
   ╭───╯
   ↓
 PARALLEL GROUP 4 (depends on all)
@@ -240,7 +240,7 @@ END → Autonomous orchestration operational
 |----------|----------|------|------------|
 | `SKILL.md` | 2, 3, 4, 5 | Merge conflicts if parallel | Section ownership: Ch 2 = phases, Ch 3 = escalation UI, Ch 4 = loop routing. Ch 5 = final restructure. |
 | `fleet.sh` | 1, 5 | Ch 5 hardening over Ch 1 additions | Sequential — Ch 1 completes before Ch 5 starts |
-| `TAGS.md` | 4 | Cross-cutting `%worker` sigil | Additive change — new sigil, no modification to existing tags |
+| `SIGILS.md` | 4 | Cross-cutting `%worker` sigil | Additive change — new sigil, no modification to existing tags |
 | `coordinate.config` | 1, 3 | Schema changes in both | Sequential — Ch 1 reconciles first, Ch 3 adds attention fields |
 
 ---
@@ -385,10 +385,10 @@ Make the coordinator respect human attention as a scarce resource. Add priority-
 Solve the "who does what" problem. Give the coordinator a mechanism to assign specific work items to specific workers, using the `%worker` sigil as an ephemeral identity that maps to fleet_id. Connect chapter plan checkboxes to worker completion for progress tracking.
 
 #### Scope
-- **In scope**: `%worker` sigil design and documentation in TAGS.md, REQUEST file template with `%worker` on Tags line, worker self-discovery (workers grep for their `%name`), chapter plan checkbox → worker completion wiring, coordinator loop modifications for work dispatch
+- **In scope**: `%worker` sigil design and documentation in SIGILS.md, REQUEST file template with `%worker` on Tags line, worker self-discovery (workers grep for their `%name`), chapter plan checkbox → worker completion wiring, coordinator loop modifications for work dispatch
 - **Out of scope**: Daemon routing of `%worker` (coordinator-local only), workgroup-level assignment (individual workers only in v1), worker process management
 - **Key files/components**:
-  - `~/.claude/.directives/TAGS.md` — `%worker` sigil convention added to sigil inventory
+  - `~/.claude/.directives/SIGILS.md` — `%worker` sigil convention added to sigil inventory
   - `~/.claude/skills/coordinate/assets/TEMPLATE_COORDINATE_REQUEST.md` — `%worker` on Tags line
   - `~/.claude/skills/coordinate/SKILL.md` — work dispatch logic in loop, completion tracking
   - Chapter plan template — `%worker` in assignment slots
@@ -396,24 +396,24 @@ Solve the "who does what" problem. Give the coordinator a mechanism to assign sp
 #### Dependencies
 - **Depends on**: `@engine/orchestration/chapter-system` (chapter plans needed to assign from)
 - **Blocks**: `@engine/orchestration/polish` (e2e testing needs routing to work)
-- **Shared resources**: TAGS.md (additive — new sigil, doesn't modify existing tags)
+- **Shared resources**: SIGILS.md (additive — new sigil, doesn't modify existing tags)
 
 #### Acceptance Criteria
-- [ ] TAGS.md documents `%worker` sigil: definition, format (`%fleet-id`), discovery (`engine tag find` or grep), scope (coordinator-local, not daemon-routed)
+- [ ] SIGILS.md documents `%worker` sigil: definition, format (`%fleet-id`), discovery (`engine tag find` or grep), scope (coordinator-local, not daemon-routed)
 - [ ] REQUEST files use `**Tags**: #claimed-implementation %prog-1` format for worker-specific assignment
 - [ ] Workers can discover work assigned to them by scanning for their `%name`
 - [ ] Chapter plan checkboxes update when corresponding work items reach `#done-*` state
 - [ ] The coordinator can dispatch work items from the chapter plan to specific `%worker` targets
 
 #### Risks & Open Questions
-- **Risk**: TAGS.md `%worker` change is cross-cutting — all skills that parse tags need to handle the new sigil → **Mitigation**: `%worker` is additive. Existing `engine tag find` ignores unknown sigils. Only the coordinator and workers need to understand `%worker`.
+- **Risk**: SIGILS.md `%worker` change is cross-cutting — all skills that parse tags need to handle the new sigil → **Mitigation**: `%worker` is additive. Existing `engine tag find` ignores unknown sigils. Only the coordinator and workers need to understand `%worker`.
 - **Open question**: How does `%worker` interact with fleet.yml workgroup definitions? Is `%worker` always a fleet_id, or can it be a workgroup name for load-balanced assignment?
 - **Open question**: What if a worker crashes mid-task? How does the coordinator detect and reassign?
 
 #### Complexity & Effort
 - **Estimated effort**: L
-- **Complexity drivers**: Cross-cutting TAGS.md change, worker self-discovery mechanism, completion tracking wiring, coordinator dispatch logic
-- **Parallel opportunity**: TAGS.md convention work and SKILL.md dispatch logic can be developed in parallel
+- **Complexity drivers**: Cross-cutting SIGILS.md change, worker self-discovery mechanism, completion tracking wiring, coordinator dispatch logic
+- **Parallel opportunity**: SIGILS.md convention work and SKILL.md dispatch logic can be developed in parallel
 
 ---
 

@@ -17,25 +17,25 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
   "taskType": "RESOLVE",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": ["§CMD_FIND_TAGGED_FILES"],
-      "proof": ["mode", "session_dir", "parameters_parsed", "debriefs_discovered"]},
+      "proof": ["mode", "sessionDir", "parametersParsed", "debriefsDiscovered"]},
     {"label": "1", "name": "Discovery",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG"],
-      "proof": ["debriefs_read", "sibling_logs_plans_read", "debrief_cards_logged", "cross_session_checks", "conflicts_found"]},
+      "proof": ["debriefsRead", "siblingLogsPlansRead", "debriefCardsLogged", "crossSessionChecks", "conflictsFound"]},
     {"label": "2", "name": "Dashboard & Interrogation",
-      "steps": ["§CMD_INTERROGATE"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
-      "proof": ["dashboard_presented", "depth_chosen", "rounds_completed", "debriefs_reviewed", "verdicts_tagged", "log_entries"]},
+      "proof": ["dashboardPresented", "depthChosen", "roundsCompleted", "debriefsReviewed", "verdictsTagged", "logEntries"]},
     {"label": "3", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "3.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
     {"label": "3.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
     {"label": "3.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "3.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
@@ -59,9 +59,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Reviewing ___ session debriefs.
-> Mode: ___. Scope: ___ tagged files discovered.
-> Focus: session activation, mode selection, debrief discovery.
+> 0: Reviewing ___ session debriefs. Scope: ___ tagged files discovered.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
@@ -98,8 +98,9 @@ Records `externalModel` (model name or `"claude"`).
 *Read everything. Build the global picture.*
 
 `§CMD_REPORT_INTENT`:
-> Reading ___ debriefs and their sibling logs.
-> Building debrief cards and cross-session conflict analysis.
+> 1: Reading ___ debriefs and their sibling logs. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
@@ -131,8 +132,9 @@ Execute `§CMD_GATE_PHASE`:
 *Present the global picture first.*
 
 `§CMD_REPORT_INTENT`:
-> Presenting dashboard for ___ debriefs and ___ cross-session findings.
-> Awaiting direction before per-debrief drill-down.
+> 2: Presenting dashboard for ___ debriefs and ___ cross-session findings. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
@@ -294,8 +296,9 @@ This is YOUR internal rubric -- do NOT present it as a form. Use it to generate 
 *When all debriefs are reviewed.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. ___ debriefs validated, ___ flagged for rework, ___ leftovers spawned.
-> Producing REVIEW.md with verdicts and dehydrated leftover prompts.
+> 3: Synthesizing. ___ debriefs validated, ___ flagged for rework, ___ leftovers spawned.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 

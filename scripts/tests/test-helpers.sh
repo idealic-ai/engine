@@ -198,6 +198,15 @@ assert_fail() {
 # Tests that define setup() and teardown() get them called automatically.
 run_test() {
   local name="$1"
+
+  # TEST_FILTER: silently skip non-matching tests
+  if [ -n "${TEST_FILTER:-}" ]; then
+    case "$name" in
+      *"$TEST_FILTER"*) ;;  # matches — continue
+      *) return 0 ;;        # silent skip
+    esac
+  fi
+
   if type setup &>/dev/null; then
     setup
   fi
@@ -205,6 +214,18 @@ run_test() {
   if type teardown &>/dev/null; then
     teardown
   fi
+}
+
+# Auto-discover and run all test_* functions in the current file.
+# Respects TEST_FILTER env var — run_test handles the filtering.
+# Replaces boilerplate: run_test test_a; run_test test_b; exit_with_results
+run_discovered_tests() {
+  local fn
+  while IFS= read -r fn; do
+    [ -z "$fn" ] && continue
+    run_test "$fn"
+  done < <(declare -F | awk '{print $3}' | grep '^test_' || true)
+  exit_with_results
 }
 
 # ============================================================

@@ -26,7 +26,8 @@ This document defines the system physics — rules about how sessions, phases, t
 
 *   **¶INV_PHASE_ENFORCEMENT**: Phase transitions are mechanically enforced via `engine session phase`.
     *   **Rule**: When a session has a `phases` array (declared at activation), `engine session phase` enforces sequential progression. Non-sequential transitions (skip forward or go backward) require `--user-approved "Reason: [why, citing user's response]"`.
-    *   **Proof-gated transitions (FROM validation)**: The current phase (being left) may declare a `proof` field (array of field names). When present, the agent MUST pipe proof as `key: value` lines via STDIN when transitioning away from it. Missing or unfilled fields reject the transition. Proof is always parsed and stored in `phaseHistory` as structured objects when provided, regardless of whether the current phase declares proof fields. Semantically: proof on a phase describes what must be accomplished IN that phase before leaving it.
+    *   **Proof-gated transitions (FROM validation)**: The current phase (being left) may declare a `proof` field (array of field names). When present, the agent MUST pipe proof as JSON via STDIN when transitioning away from it. Missing or unfilled fields reject the transition. Proof is always parsed and stored in `phaseHistory` as structured objects when provided, regardless of whether the current phase declares proof fields. Semantically: proof on a phase describes what must be accomplished IN that phase before leaving it.
+    *   **FROM proof applies even on skip**: When skipping Phase 1→3 with `--user-approved`, FROM validation checks Phase 1's proof (the phase being LEFT). The agent must prove Phase 1's work was done before leaving it. `--user-approved` bypasses sequential enforcement (allows non-sequential jumps) but does NOT bypass proof validation — these are independent checks. If Phase 1 has proof fields but no work was done, the skip fails because proof cannot be provided.
     *   **Letter suffixes**: Sub-phase labels may include a single uppercase letter suffix (e.g., `"3.1A: Agent Handoff"`). The letter is stripped for enforcement (enforces as `3.1`) but preserved in `phaseHistory` for audit trail. Distinguishes alternative branches.
     *   **Context overflow recovery**: `/session continue` uses `engine session continue` to resume the heartbeat without touching phase state. No phase transition needed — the saved phase in `.state.json` is the source of truth.
     *   **Sub-phases**: Phases with the same major number and a higher minor number (e.g., 4.1 after 4.0) are auto-appended without pre-declaration.
@@ -54,6 +55,12 @@ This document defines the system physics — rules about how sessions, phases, t
 *   **¶INV_1_TO_1_TAG_SKILL**: Every `#needs-X` tag maps to exactly one skill `/X`. No generic tags.
     *   **Rule**: The tag noun IS the skill name. `#needs-brainstorm` → `/brainstorm`, `#needs-implementation` → `/implement`, `#needs-chores` → `/chores`. No generic `#needs-delegation` or catch-all tags. If a new work type needs a tag, it needs a corresponding skill (or mode within an existing skill).
     *   **Reason**: Generic tags create routing ambiguity. 1:1 mapping makes the system self-documenting — seeing a tag tells you exactly which skill resolves it.
+
+*   **¶INV_BACKTICK_INERT_SIGIL**: Backtick-enclosed sigiled references are inert — no scanning, no preloading, no tag actions.
+    *   **Rule**: When a sigiled reference (`§CMD_*`, `§FMT_*`, `§INV_*`, `#needs-*`, etc.) is enclosed in backticks, it is a **mention** — documentation, not a dependency or action. All automated systems (tag discovery, reference preloading, dispatch routing) MUST ignore backtick-escaped references.
+    *   **Applies to**: Tag lifecycle (`#needs-*` etc. — see `§INV_ESCAPE_BY_DEFAULT`), reference preloading (`§CMD_*`, `§FMT_*`, `§INV_*` — scanner skips backticked refs), code fence blocks (treated as bulk-escaped — all refs inside are inert).
+    *   **Mechanism**: Two-pass filtering. First strip backtick spans and code fence blocks, then scan remaining text for bare sigiled references. This pattern is shared by `engine tag find` (tag discovery) and `resolve_refs()` (reference preloading).
+    *   **Reason**: Unifies the escaping convention across tags and preloads. Backtick = "I'm mentioning this, not invoking it" — same semantic everywhere.
 
 ## 4. Multi-Agent Safety
 
@@ -99,7 +106,6 @@ This document defines the system physics — rules about how sessions, phases, t
     *   **Rule**: The request template defines what a requester must fill in. The response template defines what a responder must deliver. Both are populated via `§CMD_WRITE_FROM_TEMPLATE`.
     *   **Rule**: REQUEST files are written to the **requesting** session directory. RESPONSE files are written to the **responding** session directory (where the skill executes).
     *   **Rule**: Each RESPONSE template is tailored to its skill's specific outputs (code changes for implement, decisions for brainstorm, docs updated for document, verdict for review, task checklist for chores, research report for research).
-    *   **Reference**: See `~/.claude/docs/TAG_LIFECYCLE.md` for the full delegation flow and template inventory.
     *   **Reason**: Delegation was previously a parallel mechanism (3 standalone skills + separate files). This convention makes delegation a capability of each skill rather than a separate system.
 
 *   **¶INV_DYNAMIC_DISCOVERY**: Tag-to-skill mapping must use dynamic template discovery, not static maps.
@@ -136,6 +142,12 @@ This document defines the system physics — rules about how sessions, phases, t
     *   **Reason**: The heartbeat hook allowlists `engine` commands specifically; full paths are blocked. Resolving the `engine` script path manually (e.g., guessing `~/.claude/engine/scripts/engine.sh`) bypasses PATH and may reference a stale or wrong location.
     *   **Cross-ref**: Originally captured in `~/.claude/docs/.directives/INVARIANTS.md`. Promoted to shared for universal visibility.
 
+*   **¶INV_JSONSCHEMA_COMPLIANCE**: When a JSON Schema is provided in context, agents MUST comply with it fully — not just the property names.
+    *   **Rule**: Read the **entire** schema, not just the `properties` block. The `required` array lists fields that MUST be present — omitting a required field causes validation failure. The `type` constraints define what values are acceptable. The `description` fields explain what each property means.
+    *   **Rule**: Every field in `"required"` MUST appear in your JSON, even if the value is an empty array `[]` or `null`. Missing required fields are rejected by the engine's JSON Schema validator.
+    *   **Redirection**: If you are about to construct a JSON payload that targets a schema, scan the schema's `required` array first. Then check each property's `type` and `description`. Only then construct the JSON.
+    *   **Reason**: Agents systematically read `properties` for field names but skip `required`, `type`, and `description`. This invariant was created after an agent missed `directoriesOfInterest` despite having the full schema in context — proving the failure mode is format-blindness, not missing information.
+
 ## 8. Phase Execution Physics
 
 *   **¶INV_BOOT_SECTOR_AT_TOP**: Every protocol-tier SKILL.md starts with `§CMD_EXECUTE_SKILL_PHASES`.
@@ -171,29 +183,97 @@ This document defines the system physics — rules about how sessions, phases, t
     *   **Rule**: Rely on your context window. Do not `read_file` something just to check a detail if you recently read it in a dehydrated block. Memory over IO.
     *   **Rule**: Prefer single, larger tool calls over many small ones. Batch operations.
     *   **Rule**: When you know a file exists and you have its content in a summary/dehydrated file, trust it. Blind trust.
+    *   **Exception**: Preloaded files require Read before Edit — see `¶INV_PRELOAD_IS_REFERENCE_ONLY`.
     *   **Reason**: Token-expensive re-reads of already-loaded content waste context budget and add latency. Trust the cache.
+
+*   **¶INV_PRELOAD_IS_REFERENCE_ONLY**: Preloaded content is already in your context. Do NOT re-read it. Editing requires an explicit Read.
+    *   **Rule**: Content injected via hooks (`additionalContext`, `[Preloaded: path]` markers) is delivered to your context window for **reading and reference only**. Claude Code's Edit tool maintains its own registry of "read" files — hook-injected content is NOT registered in that registry.
+    *   **Rule**: For **reference purposes**, preloaded content is **complete and sufficient**. Do NOT call Read on a file that was already preloaded — the content is already in your context window. This includes directive files (AGENTS.md, CONTRIBUTING.md, PITFALLS.md, etc.) auto-injected by hooks.
+    *   **Rule**: To **edit** a preloaded file, you MUST call the Read tool on it first. The Read call registers the file with the Edit tool. Without it, Edit will block with "you must read the file first."
+    *   **Redirection** (`¶INV_REDIRECTION_OVER_PROHIBITION`): When you see `[Preloaded: path]` content, trust it — the file is in your context. Only call Read if you intend to Edit. When you see `[Suggested — read these files for full context]:` with path-only listings, those files are NOT in your context — Read them if needed.
+    *   **Two markers**:
+        *   `[Preloaded: /path/to/file]` + file content inline → **Already loaded. Do NOT Read.**
+        *   `[Suggested — read these files for full context]:` + path list → **Not loaded. Read if relevant.**
+    *   **Scope**: Applies to ALL preload sources — SessionStart standards (COMMANDS.md, INVARIANTS.md, SIGILS.md), phase CMD files, skill SKILL.md, templates, directive files, dehydrated context files.
+    *   **Not affected**: Files you loaded yourself via the Read tool. Those are already registered.
+    *   **Reason**: Hooks deliver content via `additionalContext` injection, which bypasses the Edit tool's read-tracking. The agent sees the content and reasonably assumes it can edit it — but the Edit tool's internal state disagrees. Agents also systematically re-read preloaded directive files, wasting context tokens. This invariant makes both limitations explicit.
 
 ## 11. Naming Conventions
 
 *   **¶INV_SIGIL_SEMANTICS**: Sigils encode definition vs reference semantics.
     *   **Rule**: `¶` (pilcrow) marks a **definition** — the place where a command, invariant, feed, or tag section is declared and specified. `§` (section sign) marks a **reference** — a citation of something defined elsewhere.
     *   **Applies to**: All sigiled nouns — `CMD_`, `INV_`, `FEED_`, `TAG_`.
-    *   **Definition sites**: COMMANDS.md headings (`¶CMD_X`), CMD_*.md headings (`¶CMD_X`), INVARIANTS.md entries (`¶INV_X`), AGENTS.md entries (`¶INV_X`), CONTRIBUTING.md entries (`¶INV_X`), TAGS.md section headers (`¶FEED_X`, `¶TAG_X`), any file's inline invariant definitions (`¶INV_X`).
+    *   **Definition sites**: COMMANDS.md headings (`¶CMD_X`), CMD_*.md headings (`¶CMD_X`), INVARIANTS.md entries (`¶INV_X`), AGENTS.md entries (`¶INV_X`), CONTRIBUTING.md entries (`¶INV_X`), SIGILS.md section headers (`¶FEED_X`, `¶TAG_X`), any file's inline invariant definitions (`¶INV_X`).
     *   **Reference sites**: SKILL.md steps arrays (`§CMD_X`), body text cross-references (`§CMD_Y`, `§INV_Y`), PROOF FOR headings (`§CMD_X`), docs/ (`§INV_X`, `§CMD_X`).
     *   **Governance**: Any file may define an invariant using `¶INV_X`. Only COMMANDS.md and CMD_*.md may define commands using `¶CMD_X`.
     *   **Redirection**: If you're about to write a sigiled noun, ask: "Am I defining it here, or referring to it?" `¶` = defining, `§` = referring.
     *   **Reason**: Without semantic sigils, readers cannot distinguish "this is defined here" from "this is defined elsewhere." The convention enables grep-based discovery: `grep '¶CMD_'` finds all definition sites; `grep '§CMD_'` finds all usage sites.
 
-*   **¶INV_EPIC_SLUG_SIGIL**: Epic and chapter references use the `@` sigil prefix.
-    *   **Rule**: When referencing epics or chapters by their semantic slug, prefix with `@`: `@scope/slug` (e.g., `@app/auth-system`, `@packages/sdk/types`). This is the canonical format in vision documents, dependency graphs, plans, logs, and inline references.
-    *   **Sigil inventory**: `#` = tags, `§` = commands, `¶` = invariants, `@` = epic/chapter slugs. Each sigil is distinct and greppable.
-    *   **Slug format**: Path-based semantic slug mirroring project structure (e.g., `app/auth-system`, `packages/estimate/layout-extraction`). Slugs are stable identifiers — renaming a slug of a completed chapter triggers re-execution.
-    *   **Workspace alignment**: Epic slugs double as workspace directory paths. `@apps/estimate-viewer/extraction` is both an epic reference and a valid `WORKSPACE` value. Sessions created with `WORKSPACE=apps/estimate-viewer/extraction` live at `apps/estimate-viewer/extraction/sessions/`. Epic directories coexist alongside source code directories (e.g., `src/`) within package folders.
-    *   **Usage examples**:
-        *   Chapter headings: `### @app/auth-system: Auth System Refactor`
-        *   Dependencies: `**Depends on**: @app/auth-system`
-        *   Dependency graphs: `@app/auth-system ──► @app/rate-limiting`
-        *   Inline references: "See `@app/auth-system` for the token service work"
-        *   Workspace: `engine run --workspace apps/estimate-viewer/extraction`
-    *   **Discovery**: `grep '@app/' docs/` finds all epics in the `app` scope.
-    *   **Reason**: Epics/chapters are first-class addressable entities in the orchestration system. A dedicated sigil prevents collision with tags (`#`), commands (`§`), and invariants (`¶`), and enables mechanical discovery.
+*   **¶INV_EPIC_SLUG_SIGIL**: Epic and chapter references use the `@` sigil prefix. Full definition in SIGILS.md § `@` — Epic and Chapter Slugs.
+
+## 12. Formatting
+
+*   **¶INV_LISTS_INSTEAD_OF_TABLES**: Markdown tables are prohibited in all project `.md` files and agent chat output.
+    *   **Rule**: Do NOT use markdown tables (`| col | col |`) in any file — directives, SKILL.md files, docs, templates, session artifacts, or chat messages.
+    *   **Redirection**: Use `§FMT_LIGHT_LIST`, `§FMT_MEDIUM_LIST`, or `§FMT_HEAVY_LIST` instead. Choose the density level that matches the number of fields per item. See SIGILS.md § Formatting Conventions for definitions and examples.
+    *   **Heuristic**: 1-2 fields → `§FMT_LIGHT_LIST`. 3-4 fields → `§FMT_MEDIUM_LIST`. 5+ fields → `§FMT_HEAVY_LIST`.
+    *   **Scope**: All `.md` files in the project AND all agent chat output. No exceptions.
+    *   **Reason**: Tables break at narrow terminal widths, are hard to edit incrementally, and resist diffing. Lists are readable at any width, trivially editable, and diff cleanly.
+
+*   **¶INV_CAMELCASE_FOR_DATA**: All JSON data the engine reads or writes MUST use camelCase property names.
+    *   **Rule**: Property names in JSON schemas, `.state.json` fields, proof schemas, session parameters, dehydration payloads, and hook configs must be camelCase (`sessionDir`, `parametersParsed`, `logEntries`).
+    *   **Prohibited**: snake_case (`session_dir`, `parameters_parsed`), kebab-case, or any other casing convention for JSON property names.
+    *   **Scope**: All engine JSON — proof schemas in CMD `## PROOF FOR` sections, SKILL.md `proof` arrays, `§CMD_PARSE_PARAMETERS` schema, `§CMD_DEHYDRATE` schema, `.state.json` internal fields.
+    *   **Redirection**: When constructing JSON for engine consumption, scan the target schema's `properties` for the canonical camelCase names. Never invent snake_case equivalents.
+    *   **Reason**: Session parameters and dehydration data already use camelCase. Proof schemas were added later and used snake_case, creating an inconsistency that causes validation confusion.
+
+## 13. Tmux / Fleet
+
+*   **¶INV_NO_FOCUS_CHANGE_IN_NOTIFY**: Notification commands MUST NOT change the focused pane.
+    *   **Rule**: When applying visual state (background color) to a non-focused pane, use the atomic compound command `select-pane -t "$pane" -P "bg=$color" \; select-pane -t "$active"` — this sets style AND restores focus in one tmux server round-trip (no race window). For the focused pane, skip style entirely (avoid flash/distraction).
+    *   **Prohibited**: (1) `set-option -p -t style "bg=..."` — INVALID in tmux 3.6a, "style" is not a recognized pane option. (2) `select-pane -t "$pane" -P "bg=$color"` without focus restoration — creates a focus-theft race.
+    *   **Reason**: Multiple agents call `fleet.sh notify` concurrently. The atomic compound command eliminates the race window. Skipping focused pane style prevents visual flashing.
+
+*   **¶INV_FLEET_GRACEFUL_OUTSIDE_TMUX**: Fleet commands MUST be no-ops outside tmux.
+    *   **Rule**: All tmux calls in fleet.sh and session.sh fleet paths must use `2>/dev/null || true`. Missing `$TMUX` or `$TMUX_PANE` means "not in fleet" — exit silently, don't error.
+    *   **Cross-ref**: See also `§INV_TMUX_AND_FLEET_OPTIONAL` in AGENTS.md.
+
+*   **¶INV_SILENT_FAILURE_AUDIT**: Shell commands guarded by `|| true` must be audited for correctness.
+    *   **Rule**: When adding `|| true` to a command, verify that the command actually works as expected. Silent failure masking can hide regressions that persist for multiple sessions before being discovered.
+    *   **Pattern**: After adding `|| true`, run the command without `|| true` at least once to confirm it succeeds. If it fails, investigate — don't just silence it.
+    *   **Reason**: The style regression in fleet.sh was silently broken by `|| true` for an entire session cycle. The command was INVALID in tmux 3.6a but the error was invisible.
+
+*   **¶INV_SUPPRESS_HOOKS_FOR_PROGRAMMATIC_STYLE**: Programmatic style changes via `select-pane -P` MUST suppress the `after-select-pane` hook using `@suppress_focus_hook`.
+    *   **Rule**: Any code that calls `select-pane -P` for styling purposes must wrap it in `set -g @suppress_focus_hook 1 \; select-pane -P ... \; set -g @suppress_focus_hook 0`. The hook checks `@suppress_focus_hook` at the top and exits early if set to 1.
+    *   **Reason**: Without suppression, `select-pane -P` triggers the focus hook, which calls `select-pane -P` again, creating a rendering cascade that causes visible pane flashing.
+
+*   **¶INV_SKIP_REDUNDANT_STYLE_APPLY**: Visual style updates MUST be skipped when the target state hasn't changed.
+    *   **Rule**: Before calling `select-pane -P`, read the current `@pane_notify` value. If it matches the requested state, skip the visual update. Data layer (`@pane_notify` set-option) still updates every time — only the visual `select-pane -P` is skipped.
+    *   **Reason**: Redundant `select-pane -P` calls cause unnecessary tmux redraws and visible flashing.
+
+*   **¶INV_HOOKS_NOOP_WHEN_IDLE**: Hooks MUST be no-ops when there is nothing to do.
+    *   **Rule**: If a hook has no work to perform (e.g., no session active, no fleet pane, no applicable condition), it must exit 0 immediately. No logging, no side effects, no errors.
+    *   **Reason**: Hooks fire on every tool call. Unnecessary work or errors in idle hooks degrade the entire agent experience.
+
+## 14. Synthesis Pipeline Physics
+
+*   **¶INV_SKIP_ON_EMPTY**: Pipeline steps that find nothing MUST skip silently — no halt, no user prompt.
+    *   **Rule**: When a synthesis pipeline step (e.g., `§CMD_CAPTURE_SIDE_DISCOVERIES`, `§CMD_DISPATCH_APPROVAL`, `§CMD_RESOLVE_CROSS_SESSION_TAGS`) scans and finds zero items, it MUST NOT halt execution or prompt the user. Skip and return control to the orchestrator.
+    *   **Redirection**: Instead of prompting "No items found — proceed?", just echo the scan scope (per `¶INV_ECHO_ON_SKIP`) and continue.
+    *   **Reason**: Empty scans are the common case. Halting on every empty scan creates unnecessary round-trips in a pipeline that may have 8+ steps.
+
+*   **¶INV_ECHO_ON_SKIP**: Every synthesis pipeline step MUST echo its scan scope to chat, even when nothing is found.
+    *   **Rule**: When a pipeline step runs and finds zero results, it MUST still output a one-line summary of what it scanned and that nothing was found. Example: "Side discoveries: scanned IMPLEMENTATION_LOG.md — none found."
+    *   **Reason**: Silent skips make the pipeline opaque. The user cannot tell if a step ran and found nothing vs. was accidentally skipped. Echo-on-skip provides an audit trail in the chat.
+
+*   **¶INV_IDEMPOTENT_STEPS**: Pipeline steps MUST be safe to re-run without side effects.
+    *   **Rule**: Every synthesis pipeline step must check existing state before acting. If a debrief already exists, don't create a duplicate. If tags are already swapped, don't swap again. If backlinks are already written, don't double-write.
+    *   **Reason**: Context overflow can interrupt synthesis mid-pipeline. The rehydrated agent resumes at the saved sub-phase and re-runs steps. Non-idempotent steps would corrupt artifacts on re-run.
+
+*   **¶INV_BATCH_SIZE_4**: `AskUserQuestion` batches are fixed at 4 items per call.
+    *   **Rule**: When presenting multiple items for user decision (dispatch approval, tag triage, walkthrough items), batch them in groups of 4. The last batch gets the remainder (1-3 items). This matches `AskUserQuestion`'s maximum of 4 questions per call.
+    *   **Reason**: Consistent batch sizing across all pipeline steps. The tool's 4-question limit is the natural batch boundary.
+
+*   **¶INV_FOLLOWUP_ON_DEMAND**: Follow-up questions only when the user's selection requires additional input.
+    *   **Rule**: After an `AskUserQuestion` response, only ask a follow-up if the selected option requires additional information to execute (e.g., "Claim for next skill" needs state passing, "Split item" needs sub-item definitions). Do not ask confirmations, summaries, or "anything else?" after each batch.
+    *   **Reason**: Minimizes round-trips. The user chose an option — execute it. Only re-engage when genuinely blocked on missing input.

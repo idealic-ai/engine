@@ -4,15 +4,33 @@ The workflow engine is a structured skill-and-session system layered on top of C
 
 ## Key Subsystems
 
-| Subsystem | Entry Point | What It Does |
-|-----------|-------------|-------------|
-| **Sessions** | `engine session` | Activate/deactivate sessions, phase tracking, heartbeat, context overflow recovery |
-| **Logging** | `engine log` | Append-only session logs with auto-timestamps |
-| **Tags** | `engine tag` | Tag lifecycle management — add, remove, swap, find across session artifacts |
-| **Discovery** | `engine discover-directives` | Walk-up search for `.directives/` files from touched directories to project root |
-| **Search** | `engine session-search`, `engine doc-search` | Semantic search over past sessions and documentation (RAG) |
-| **Hooks** | PreToolUse/PostToolUse | Heartbeat enforcement, directive gate, context overflow protection, details logging |
-| **Skills** | `~/.claude/skills/*/SKILL.md` | Structured protocols (implement, analyze, fix, test, brainstorm, etc.) |
+*   **Sessions**
+    *   **Entry Point**: `engine session`
+    *   **What It Does**: Activate/deactivate sessions, phase tracking, heartbeat, context overflow recovery
+
+*   **Logging**
+    *   **Entry Point**: `engine log`
+    *   **What It Does**: Append-only session logs with auto-timestamps
+
+*   **Tags**
+    *   **Entry Point**: `engine tag`
+    *   **What It Does**: Tag lifecycle management — add, remove, swap, find across session artifacts
+
+*   **Discovery**
+    *   **Entry Point**: `engine discover-directives`
+    *   **What It Does**: Walk-up search for `.directives/` files from touched directories to project root
+
+*   **Search**
+    *   **Entry Point**: `engine session-search`, `engine doc-search`
+    *   **What It Does**: Semantic search over past sessions and documentation (RAG)
+
+*   **Hooks**
+    *   **Entry Point**: PreToolUse/PostToolUse
+    *   **What It Does**: Heartbeat enforcement, directive gate, context overflow protection, details logging
+
+*   **Skills**
+    *   **Entry Point**: `~/.claude/skills/*/SKILL.md`
+    *   **What It Does**: Structured protocols (implement, analyze, fix, test, brainstorm, etc.)
 
 ## The Directive System
 
@@ -23,6 +41,8 @@ Agent-facing context files in `.directives/` subfolders at any level of the proj
 - **Skill-filtered** (loaded when skill declares them): `TESTING.md`, `PITFALLS.md`, `CONTRIBUTING.md`, `TEMPLATE.md`, `CHECKLIST.md`
 
 `CHECKLIST.md` is skill-filtered but has a **hard gate** at deactivation: when discovered, `§CMD_PROCESS_CHECKLISTS` must pass before `engine session deactivate` succeeds. Skills that declare it: `/implement`, `/fix`, `/test`.
+
+**Checklist submission format**: `engine session check` expects JSON on stdin: `{"<absolute-path-to-CHECKLIST.md>": "<full original markdown with only [ ] → [x] changes>"}`. Three common mistakes: (1) passing raw markdown instead of JSON, (2) using `~/.claude/` instead of the absolute path, (3) abbreviating/truncating checklist content. The engine compares against the original file — content must be exact.
 
 **Inheritance**: Directives stack cumulatively child-to-root. Package directives extend project directives extend engine directives — never shadow.
 
@@ -41,7 +61,7 @@ Use `.directives/` files instead of Claude Code's built-in memory feature (`/mem
 Loaded at every session boot — these define the engine's fundamental operations:
 - `COMMANDS.md` — All `¶CMD_` command definitions (file ops, process control, workflows)
 - `INVARIANTS.md` — Shared `¶INV_` rules (testing, architecture, code, communication, engine physics)
-- `TAGS.md` — Tag lifecycle (`¶FEED_`), escaping, operations, dispatch routing
+- `SIGILS.md` — Tag lifecycle (`¶FEED_`), escaping, operations, dispatch routing
 
 ## Agent Behavior Rules
 
@@ -57,8 +77,8 @@ Rules that govern how agents communicate, interact, and operate. These are behav
     *   **Reason**: It consumes tokens, confuses the user, and creates "infinite loop" risks where the agent talks about doing something instead of doing it.
     *   **Mechanism**: If you need to think, write to the `_LOG.md` file. If you need to act, just call the tool.
 
-*   **¶INV_TERMINAL_FILE_LINKS**: File path references in chat output should use full clickable URLs.
-    *   **Rule**: When referencing a file path, output the full URL so it's clickable in the terminal.
+*   **¶INV_TERMINAL_FILE_LINKS**: File path references in chat output MUST use full clickable URLs.
+    *   **Rule**: When referencing a file path in chat, output the full `protocol://file/ABSOLUTE_PATH` URL. Resolve `~` to the actual home directory. Every file path the user sees MUST be clickable.
     *   **Format**: `cursor://file/ABSOLUTE_PATH` (or `vscode://file/ABSOLUTE_PATH`)
         *   Example: `cursor://file/Users/name/project/src/lib/audio.ts`
         *   With line number: `cursor://file/Users/name/project/src/lib/audio.ts:42`
@@ -66,6 +86,9 @@ Rules that govern how agents communicate, interact, and operate. These are behav
         *   Space → `%20`
         *   Example: `cursor://file/Users/name/Shared%20drives/project/file.ts`
     *   **Protocol Source**: Read from "Terminal link protocol: X" in system prompt. Default: `cursor://file`.
+    *   **Prohibited**: Backtick-wrapped paths (`` `~/.claude/file.md` ``), tilde paths (`~/.claude/...`), plain relative paths (`sessions/dir/FILE.md`), or any file reference that is not a clickable URL.
+    *   **Bad**: `File: ~/.claude/engine/scripts/lib.sh — 1 change`
+    *   **Good**: `File: cursor://file/Users/name/.claude/engine/scripts/lib.sh — 1 change`
     *   **Note**: OSC 8 escape sequences and markdown link syntax do not render custom display text in Claude Code's terminal — full URLs are the only reliable clickable format.
     *   **Reason**: Clickable links improve navigation. Full URLs are verbose but functional. Unencoded spaces break URL parsing.
 
@@ -75,9 +98,9 @@ Rules that govern how agents communicate, interact, and operate. These are behav
     *   **Correct**: `Skill(skill: "session", args: "dehydrate restart")` or `Skill(skill: "commit")`
     *   **Reason**: Skills are registered in the Claude Code skill system and invoked via the Skill tool. They are NOT bash scripts. The `/` prefix is syntactic sugar for "use the Skill tool".
 
-*   **¶INV_QUESTION_GATE_OVER_TEXT_GATE**: User-facing gates and option menus in skill protocols MUST use `AskUserQuestion` (tool-based blocking), never bare text.
-    *   **Rule**: When a skill protocol needs user confirmation before proceeding, it must use `AskUserQuestion` with structured options. Text-based "STOP" instructions are unreliable — they depend on agent compliance. Tool-based gates are mechanically enforced.
-    *   **Rule**: When a skill protocol specifies presenting choices, options, or menus to the user, the agent MUST use the `AskUserQuestion` tool. It MUST NOT render the options as a Markdown table, bullet list, or plain text in chat and then wait for the user to type a response.
+*   **¶INV_QUESTION_GATE_OVER_TEXT_GATE**: User-facing gates and option menus in ALL agent interactions MUST use `AskUserQuestion` (tool-based blocking), never bare text.
+    *   **Rule**: When the agent needs user confirmation before proceeding, it must use `AskUserQuestion` with structured options. Text-based "STOP" instructions are unreliable — they depend on agent compliance. Tool-based gates are mechanically enforced.
+    *   **Rule**: When presenting choices, options, or menus to the user, the agent MUST use the `AskUserQuestion` tool. It MUST NOT render the options as a Markdown table, bullet list, or plain text in chat and then wait for the user to type a response. **This applies everywhere** — inside active skill protocols, between sessions, before skill activation, during ad-hoc chat, and after session close. Any time you present 2+ choices to the user, use `AskUserQuestion`.
     *   **Rule**: Before calling `AskUserQuestion`, the agent MUST output enough context in chat for the user to understand what the options mean and why they are being asked. A bare question with options but no surrounding explanation is a violation — the user cannot make an informed choice without context. The **last line** of chat text before the `AskUserQuestion` call MUST be an empty line (`\n`), because the question UI element overlaps the bottom of the preceding text. Without the trailing blank line, the user cannot read the agent's final sentence.
     *   **Rule**: `AskUserQuestion` option labels and descriptions MUST be descriptive and actionable. Labels explain *what* happens; descriptions explain *why* it matters. When an option triggers tagging, include the `#needs-X` tag in the label. No vague labels — every word must carry information.
         *   **Bad**: label=`"Delegate to /implement"`, description=`"Code change needed"`
@@ -99,6 +122,18 @@ Rules that govern how agents communicate, interact, and operate. These are behav
 *   **¶INV_REDIRECTION_OVER_PROHIBITION**: When preventing an undesired LLM behavior, provide an alternative action rather than just prohibiting the behavior.
     *   **Rule**: Redirections ("do X instead") are more reliable than prohibitions ("don't do Y"). When designing constraints for LLM agents, always pair a prohibition with a concrete alternative action the agent should take instead.
     *   **Reason**: Prohibitions require the model to suppress an impulse, which competes with training signals (helpfulness, efficiency). Redirections channel the impulse into a compliant action, which is fundamentally easier to follow.
+
+*   **¶INV_BATCH_QUESTIONS**: `AskUserQuestion` calls should batch up to 4 questions (the tool maximum).
+    *   **Rule**: When asking the user questions via `AskUserQuestion`, group related questions into a single call with up to 4 questions. Do not ask 1-2 questions when you could batch 3-4 related ones together.
+    *   **Exempt**: Yes/no confirmations, simple gates, and single-purpose prompts (e.g., phase transition approval) do not need padding.
+    *   **Soft suggestion**: When batching, consider adding a probing or devil's-advocate question to deepen the conversation. If you have 2 essential questions, look for a useful "while we're here" question to include.
+    *   **Redirection**: When about to call `AskUserQuestion` with 1-2 questions, pause and look for related context questions to include in the same call.
+    *   **Reason**: Saves user attention time by batching related questions. Each `AskUserQuestion` call is a round-trip — fewer calls with more questions is more efficient.
+
+*   **¶INV_NO_TABLES_IN_CHAT**: Agents MUST NOT use markdown tables in chat output.
+    *   **Rule**: When presenting structured data in chat, use `§FMT_LIGHT_LIST`, `§FMT_MEDIUM_LIST`, or `§FMT_HEAVY_LIST` formatting instead of markdown tables.
+    *   **Redirection**: If you're about to type `| col |`, stop — use a bullet list with bold keys instead. See `§INV_LISTS_INSTEAD_OF_TABLES` in shared INVARIANTS.md.
+    *   **Reason**: Tables in terminal output often render poorly at narrow widths and are harder to scan than structured lists.
 
 ### Skill Design
 

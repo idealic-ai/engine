@@ -7,11 +7,17 @@
 
 <!-- Package/directory organization and roles -->
 
-| Component | Location | Role |
-|-----------|----------|------|
-| `module-a/` | `src/module-a/` | What this module does |
-| `module-b/` | `src/module-b/` | What this module does |
-| `shared/` | `src/shared/` | Shared utilities and types |
+- **`module-a/`**
+  Location: `src/module-a/`
+  Role: What this module does
+
+- **`module-b/`**
+  Location: `src/module-b/`
+  Role: What this module does
+
+- **`shared/`**
+  Location: `src/shared/`
+  Role: Shared utilities and types
 
 ## Data Flow
 

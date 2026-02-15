@@ -30,7 +30,7 @@ cd ~/Projects/myproject
 │  1. WATCH                 2. DETECT              3. ROUTE            │
 │  ┌──────────┐            ┌──────────┐           ┌──────────┐        │
 │  │ fswatch  │ ──event──> │ grep for │ ─#needs─> │ parse    │        │
-│  │ sessions/│            │ #needs-* │           │ TAGS.md  │        │
+│  │ sessions/│            │ #needs-* │           │ SIGILS.md  │        │
 │  └──────────┘            └──────────┘           └────┬─────┘        │
 │                                                      │               │
 │  4. CLAIM                 5. SPAWN                   │               │
@@ -108,7 +108,7 @@ dispatch-daemon.sh stop
 
 > **Note**: The current system watches `#delegated-*` tags (not `#needs-*`). See `¶INV_NEEDS_IS_STAGING`.
 
-The daemon reads the `§TAG_DISPATCH` table from `~/.claude/.directives/TAGS.md`:
+The daemon reads the `§TAG_DISPATCH` table from `~/.claude/.directives/SIGILS.md`:
 
 | Tag | Skill | Notes |
 |-----|-------|-------|
@@ -218,5 +218,5 @@ The agent may have errored. Check `~/.claude/scripts/run.sh` requirements.
 ## See Also
 
 - `~/.claude/.directives/HANDOFF.md` — Full coordination reference
-- `~/.claude/.directives/TAGS.md` — Tag system and routing
+- `~/.claude/.directives/SIGILS.md` — Tag system and routing
 - `~/.claude/.directives/COMMANDS.md` — `§CMD_*` primitives

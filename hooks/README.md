@@ -25,7 +25,7 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 | Hook | Purpose |
 |------|---------|
 | `pre-tool-use-session-gate.sh` | Blocks non-whitelisted tools when no session is active. Forces `engine session activate` before work begins. |
-| `pre-tool-use-overflow.sh` | Blocks all tools when context usage exceeds the overflow threshold. Forces `/dehydrate` to save state. |
+| `pre-tool-use-overflow.sh` | Blocks all tools when context usage exceeds the overflow threshold. Triggers `§CMD_DEHYDRATE` to save state. |
 | `pre-tool-use-heartbeat.sh` | Tracks tool calls per agent via per-transcript counters. Warns, then blocks, if the agent hasn't logged recently. |
 | `pre-tool-use-one-strike.sh` | Blocks destructive bash commands on first attempt with an educational warning. Allows on retry (same pattern type) within the session. |
 | `pre-tool-use-directive-gate.sh` | Enforces reading of directive files discovered by `post-tool-use-discovery.sh`. Blocks after N tool calls if pending directives remain unread. |

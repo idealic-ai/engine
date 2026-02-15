@@ -17,33 +17,33 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
   "taskType": "PROTOCOL_IMPROVEMENT",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "session_dir", "parameters_parsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"]},
     {"label": "1", "name": "Analysis Loop",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
-      "proof": ["log_entries", "findings_count", "files_analyzed"]},
+      "proof": ["logEntries", "findingsCount", "filesAnalyzed"]},
     {"label": "2", "name": "Calibration",
-      "steps": ["§CMD_INTERROGATE"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
-      "proof": ["depth_chosen", "rounds_completed"]},
+      "proof": ["depthChosen", "roundsCompleted"]},
     {"label": "3", "name": "Apply",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS"],
-      "proof": ["findings_presented", "edits_applied", "edits_skipped"]},
+      "proof": ["findingsPresented", "editsApplied", "editsSkipped"]},
     {"label": "4", "name": "Test Loop",
-      "steps": ["§CMD_DESIGN_E2E_TEST"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_DESIGN_E2E_TEST"],
       "commands": ["§CMD_APPEND_LOG"],
-      "proof": ["tests_designed", "tests_passed", "tests_failed", "tests_skipped"]},
+      "proof": ["testsDesigned", "testsPassed", "testsFailed", "testsSkipped"]},
     {"label": "5", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "5.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
     {"label": "5.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
     {"label": "5.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "5.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
@@ -65,9 +65,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Improving protocol based on ___.
-> Mode: ___. Input type: ___.
-> Focus: session activation, mode selection, input detection.
+> 0: Improving protocol based on ___. Input type: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
@@ -118,9 +118,9 @@ Execute `§CMD_GATE_PHASE`
 *Do not wait for permission. Analyze the input immediately.*
 
 `§CMD_REPORT_INTENT`:
-> Analyzing ___ for protocol improvements.
-> Mode: ___. Logging findings continuously.
-> Target: 5+ findings before Calibration.
+> 1: Analyzing ___ for protocol improvements. Mode: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
@@ -152,6 +152,7 @@ Apply these checks based on the mode's focus:
 - Missing between-rounds context in interrogation
 - No `§CMD_APPEND_LOG` between tool uses (heartbeat violations)
 - Agent self-authorized phase skips (violated `¶INV_USER_APPROVED_REQUIRES_TOOL`)
+- Agent output plain text file paths instead of clickable URLs (violated `¶INV_TERMINAL_FILE_LINKS`)
 - Bare tags in body text (violated `¶INV_ESCAPE_BY_DEFAULT`)
 
 **Clarity Patterns**:
@@ -192,8 +193,9 @@ Execute `§CMD_GATE_PHASE`:
 *Present findings to the user and align on priorities.*
 
 `§CMD_REPORT_INTENT`:
-> Calibrating with ___ findings logged.
-> Presenting findings summary and aligning priorities.
+> 2: Calibrating with ___ findings logged. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
@@ -208,41 +210,14 @@ Before interrogation, present a summary:
 >
 > **Files affected**: [list of protocol files]
 
-### Calibration Depth Selection
+### Interrogation Topics
 
-Present via `AskUserQuestion` (multiSelect: false):
-> "How deep should calibration go?"
-
-| Depth | Minimum Rounds | When to Use |
-|-------|---------------|-------------|
-| **Short** | 3+ | Findings are clear, user just needs to confirm priorities |
-| **Medium** | 5+ | Some findings need discussion, priorities unclear |
-| **Long** | 8+ | Complex findings, many trade-offs to discuss |
-| **Absolute** | Until ALL resolved | Every finding needs explicit user input |
-
-### Calibration Topics
-
-**Standard topics**:
+**Standard topics** (consumed by `§CMD_INTERROGATE`):
 - **Priority triage** -- Which findings matter most? What to fix first?
 - **Scope confirmation** -- Are all findings in scope, or should some be deferred?
 - **Wording review** -- For clarity fixes, does the proposed wording sound right?
 - **Structural decisions** -- For refactoring proposals, confirm the restructuring approach
 - **Risk assessment** -- Could any proposed change break existing behavior?
-
-**Repeatable topics**:
-- **Followup** -- Clarify or revisit answers from previous rounds
-- **Devil's advocate** -- Challenge the proposed changes
-- **What-if scenarios** -- What happens if we apply/don't apply this change?
-- **Deep dive** -- Drill into a specific finding
-
-### Calibration Exit Gate
-
-After reaching minimum rounds, present via `AskUserQuestion` (multiSelect: true):
-> "Round N complete (minimum met). What next?"
-> - **"Proceed to Phase 3: Apply"** -- *(terminal)*
-> - **"More calibration (3 more rounds)"**
-> - **"Devil's advocate round"**
-> - **"What-if scenarios round"**
 
 ### Phase Transition
 Execute `§CMD_GATE_PHASE`
@@ -253,8 +228,9 @@ Execute `§CMD_GATE_PHASE`
 *Present findings grouped by file and offer edits with user approval.*
 
 `§CMD_REPORT_INTENT`:
-> Applying ___ approved findings across ___ files.
-> Presenting changes grouped by file for approval.
+> 3: Applying ___ approved findings across ___ files. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 
@@ -262,9 +238,8 @@ Execute `§CMD_GATE_PHASE`
 
 For each affected protocol file (grouped):
 
-1.  **Present the file group**:
-    > **File: `[path]`**
-    > Findings: N changes proposed
+1.  **Present the file group** (file paths per `¶INV_TERMINAL_FILE_LINKS`):
+    > **File**: cursor://file/ABSOLUTE_PATH — N changes proposed
     >
     > | # | Type | Finding | Granularity |
     > |---|------|---------|-------------|
@@ -294,32 +269,17 @@ Execute `§CMD_GATE_PHASE`
 *Verify applied changes by designing and running e2e reproduction tests in a sandbox.*
 
 `§CMD_REPORT_INTENT`:
-> Testing ___ applied findings. Designing reproduction cases in sandbox.
-> Autonomous — will design, run, and report. Review in synthesis.
+> 4: Testing ___ applied findings. Designing reproduction cases in sandbox.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
 
-### Entry Gate
-
-Present via `AskUserQuestion` (multiSelect: false):
-> "Phase 4: Test Loop. ___ findings were applied. Want to verify them with e2e reproduction tests?"
-> - **"Run tests"** — Design and run sandbox reproduction tests for mechanically testable findings. Fully autonomous.
-> - **"Skip to synthesis"** — No testing. Proceed directly to debrief.
-
-*If "Skip to synthesis"*: Log "Phase 4: skipped by user choice" and proceed to Phase 5.
-
 ### Test Execution
 
-Execute `§CMD_DESIGN_E2E_TEST`:
+Execute `§CMD_DESIGN_E2E_TEST` (which handles its own testability assessment and user confirmation gate — no separate entry gate needed here).
 
-1.  **Testability assessment**: Classify each applied finding as mechanically testable or untestable (wording-only).
-    *   If ALL untestable: auto-skip with log entry. No further action.
-2.  **Sandbox setup**: Create `[sessionDir]/test-sandbox/` with symlinked engine components.
-3.  **For each testable finding**:
-    *   Design a reproduction case: craft the "before" state (broken behavior).
-    *   Run the test: demonstrate the broken behavior, then apply the fix and verify improvement.
-    *   Log the result (PASS/FAIL/SKIPPED).
-4.  **Report**: Output results table in chat.
+**On test failure**: Offer to loop back to Phase 3: Apply to address the issue, or continue to synthesis with the failure noted.
 
 **On test failure**: Offer to loop back to Phase 3: Apply to address the issue, or continue to synthesis with the failure noted.
 
@@ -332,8 +292,9 @@ Execute `§CMD_GATE_PHASE`
 *When all findings are processed and verified.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. ___ findings processed, ___ applied, ___ tested.
-> Producing PROTOCOL_IMPROVEMENT.md debrief.
+> 5: Synthesizing. ___ findings processed, ___ applied, ___ tested.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(5.0.*)`
 

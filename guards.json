@@ -7,7 +7,7 @@
       "condition": { "gte": "OVERFLOW_THRESHOLD" }
     },
     "payload": {
-      "text": "[block: overflow] §CMD_DEHYDRATE — context at threshold. Execute §CMD_DEHYDRATE protocol NOW. Pipe JSON to `engine session dehydrate sessions/[CURRENT_SESSION]`. This is your LAST action before restart."
+      "text": "[block: overflow] §CMD_DEHYDRATE — context at threshold. Execute §CMD_DEHYDRATE protocol NOW.\n\nIf a session is active: pipe JSON to `engine session dehydrate sessions/[CURRENT_SESSION]`.\nIf no active session (completed/idle): pipe JSON with the NEXT skill intent to `engine session dehydrate sessions/[LAST_SESSION]`.\n\nThis is your LAST action before restart."
     },
     "mode": "inline",
     "urgency": "block",
@@ -46,7 +46,8 @@
       "Read(*/CLAUDE.md)",
       "Read(*/memory/*)",
       "Read(*/MEMORY.md)",
-      "Read(*/sessions/*.md)"
+      "Read(*/sessions/*.md)",
+      "Read(*/.state.json)"
     ]
   },
   {
@@ -129,7 +130,7 @@
       "condition": { "gte": 10 }
     },
     "payload": {
-      "text": "[block: heartbeat] §CMD_APPEND_LOG"
+      "text": "[warn: heartbeat] §CMD_APPEND_LOG"
     },
     "mode": "inline",
     "urgency": "block",

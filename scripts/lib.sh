@@ -478,7 +478,7 @@ evaluate_rules() {
         no_active=$(echo "$rule" | jq -r '.trigger.condition.noActiveSession // false')
         lifecycle_eq=$(echo "$rule" | jq -r '.trigger.condition.eq // ""')
         if [ "$no_active" = "true" ]; then
-          if [ "$lifecycle" != "active" ] && [ "$lifecycle" != "idle" ] && [ "$lifecycle" != "resuming" ]; then
+          if [ "$lifecycle" != "active" ] && [ "$lifecycle" != "idle" ] && [ "$lifecycle" != "resuming" ] && [ "$lifecycle" != "restarting" ]; then
             matched=true
           fi
         elif [ -n "$lifecycle_eq" ]; then
@@ -717,6 +717,159 @@ match_whitelist() {
   done
 
   return 1
+}
+
+# --- Reference resolution utilities ---
+
+# resolve_refs FILE_PATH [DEPTH] [ALREADY_LOADED_JSON]
+#   Scans FILE_PATH for unescaped §(CMD|FMT|INV)_ references.
+#   Resolves each to a file path via convention-based prefix-to-folder mapping.
+#   Recurses to DEPTH (default 2). Deduplicates against ALREADY_LOADED_JSON.
+#   Walk-up resolution: starts from FILE_PATH's directory, walks up checking
+#   .directives/{prefix_folder}/ at each level, falls back to engine .directives/.
+#   Outputs resolved file paths (one per line, tilde-prefix normalized) to stdout.
+#
+#   Prefix-to-folder mapping:
+#     CMD → commands/
+#     FMT → formats/
+#     INV → invariants/
+#
+#   SKILL.md files are excluded from CMD preloading (preserves lazy per-phase loading).
+#   SKILL.md CAN trigger FMT preloading.
+#   Only § (section sign) references are resolved, not ¶ (pilcrow) definitions.
+#
+#   Returns: 0 always. Empty output = no refs found or all already loaded.
+resolve_refs() {
+  local file_path="${1:-}"
+  local depth="${2:-2}"
+  local already_loaded_json="${3:-[]}"
+
+  [ -n "$file_path" ] || return 0
+  [ -f "$file_path" ] || return 0
+  [ "$depth" -gt 0 ] 2>/dev/null || return 0
+
+  # Determine if this is a SKILL.md file (excluded from CMD preloading)
+  local basename_file
+  basename_file=$(basename "$file_path")
+  local is_skill_md=false
+  if [ "$basename_file" = "SKILL.md" ]; then
+    is_skill_md=true
+  fi
+
+  # Two-pass regex: strip code fences + backtick spans, then extract § references
+  # Pass 1: awk skips lines inside ``` code fences AND strips inline `code` spans
+  # Pass 2: Extract bare §(CMD|FMT|INV)_NAME references
+  local refs
+  refs=$(awk '/^```/{skip=!skip; next} skip{next} {gsub(/`[^`]*`/, ""); print}' "$file_path" | grep -oE '§(CMD|FMT|INV)_[A-Z][A-Z0-9_]*' | sort -u || true)
+
+  [ -n "$refs" ] || return 0
+
+  # Resolve the starting directory for walk-up
+  local start_dir
+  start_dir=$(cd "$(dirname "$file_path")" && pwd)
+
+  # Project root detection (stop walk-up here)
+  local project_root="${PROJECT_ROOT:-$(pwd)}"
+
+  # Engine directives fallback
+  local engine_directives="$HOME/.claude/engine/.directives"
+
+  local new_depth=$((depth - 1))
+  local collected=""
+
+  while IFS= read -r ref; do
+    [ -n "$ref" ] || continue
+
+    # Extract prefix and name: §CMD_FOO → prefix=CMD, name=FOO, full=CMD_FOO
+    local full_name="${ref#§}"
+    local prefix="${full_name%%_*}"
+    local ref_name="$full_name"
+
+    # SKILL.md exclusion: skip CMD refs (but allow FMT and INV)
+    if [ "$is_skill_md" = "true" ] && [ "$prefix" = "CMD" ]; then
+      continue
+    fi
+
+    # Prefix-to-folder mapping
+    local folder
+    case "$prefix" in
+      CMD) folder="commands" ;;
+      FMT) folder="formats" ;;
+      INV) folder="invariants" ;;
+      *)   continue ;;
+    esac
+
+    # Walk-up resolution: check .directives/{folder}/ at each ancestor level
+    local resolved=""
+    local search_dir="$start_dir"
+    while true; do
+      local candidate="$search_dir/.directives/$folder/${ref_name}.md"
+      if [ -f "$candidate" ]; then
+        resolved="$candidate"
+        break
+      fi
+
+      # Stop at project root
+      if [ "$search_dir" = "$project_root" ] || [ "$search_dir" = "/" ]; then
+        break
+      fi
+
+      # Move up one level
+      search_dir=$(dirname "$search_dir")
+    done
+
+    # Fallback to engine .directives/
+    if [ -z "$resolved" ]; then
+      local engine_candidate="$engine_directives/$folder/${ref_name}.md"
+      if [ -f "$engine_candidate" ]; then
+        resolved="$engine_candidate"
+      fi
+    fi
+
+    [ -n "$resolved" ] || continue
+
+    # Normalize the path for dedup
+    local normalized
+    normalized=$(normalize_preload_path "$resolved")
+
+    # Check against already_loaded list
+    local already_present
+    already_present=$(echo "$already_loaded_json" | jq -r --arg p "$normalized" 'any(. == $p)' 2>/dev/null || echo "false")
+    if [ "$already_present" = "true" ]; then
+      continue
+    fi
+
+    # Check against collected so far (prevent duplicates in output)
+    case "$collected" in
+      *"|$normalized|"*) continue ;;
+    esac
+    collected="${collected}|${normalized}|"
+
+    # Output this resolved path
+    echo "$normalized"
+
+    # Recurse into the resolved file (depth - 1)
+    if [ "$new_depth" -gt 0 ]; then
+      # Add current file to already_loaded for recursion dedup
+      local updated_loaded
+      updated_loaded=$(echo "$already_loaded_json" | jq --arg p "$normalized" '. + [$p]' 2>/dev/null || echo "$already_loaded_json")
+      local sub_refs
+      sub_refs=$(resolve_refs "$resolved" "$new_depth" "$updated_loaded")
+      if [ -n "$sub_refs" ]; then
+        while IFS= read -r sub_path; do
+          [ -n "$sub_path" ] || continue
+          # Dedup against collected
+          case "$collected" in
+            *"|$sub_path|"*) continue ;;
+          esac
+          collected="${collected}|${sub_path}|"
+          echo "$sub_path"
+        done <<< "$sub_refs"
+      fi
+    fi
+  done <<< "$refs"
+
+  return 0
 }
 
 # clear_agent_context SESSION_DIR

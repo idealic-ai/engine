@@ -1910,6 +1910,169 @@ test_restart_missing_state_file() {
 }
 
 # =============================================================================
+# CLEAR TESTS
+# =============================================================================
+
+test_clear_sets_kill_requested_without_prompt() {
+  local test_name="clear: sets killRequested=true without restartPrompt"
+  setup
+
+  create_state "$TEST_DIR/sessions/CLEAR1" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "4: Synthesis", "sessionId": "sess-456", "contextUsage": 0.85
+  }'
+
+  unset WATCHDOG_PID 2>/dev/null || true
+  TEST_MODE=1 "$SESSION_SH" clear "$TEST_DIR/sessions/CLEAR1" > /dev/null 2>&1 || true
+
+  local sf="$TEST_DIR/sessions/CLEAR1/.state.json"
+  local kill_req prompt ctx sid
+  kill_req=$(jq -r '.killRequested' "$sf")
+  prompt=$(jq -r '.restartPrompt // "absent"' "$sf")
+  ctx=$(jq -r '.contextUsage' "$sf")
+  sid=$(jq -r '.sessionId // "deleted"' "$sf")
+
+  if [ "$kill_req" = "true" ] && [ "$prompt" = "absent" ] && [ "$ctx" = "0" ] && [ "$sid" = "deleted" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "kill=true, no restartPrompt, ctx=0, sid=deleted" \
+      "kill=$kill_req, prompt=$prompt, ctx=$ctx, sid=$sid"
+  fi
+
+  teardown
+}
+
+test_clear_missing_state_file() {
+  local test_name="clear: errors when .state.json doesn't exist"
+  setup
+
+  mkdir -p "$TEST_DIR/sessions/NO_CLEAR"
+  local output
+  output=$("$SESSION_SH" clear "$TEST_DIR/sessions/NO_CLEAR" 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -ne 0 ] && [[ "$output" == *"No .state.json"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 1 + 'No .state.json'" "exit $exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+test_clear_test_mode_output() {
+  local test_name="clear: TEST_MODE=1 prints dry-run message"
+  setup
+
+  create_state "$TEST_DIR/sessions/CLEAR2" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "3: Build", "sessionId": "sess-789"
+  }'
+
+  unset WATCHDOG_PID 2>/dev/null || true
+  local output
+  output=$(TEST_MODE=1 "$SESSION_SH" clear "$TEST_DIR/sessions/CLEAR2" 2>&1) || true
+
+  if [[ "$output" == *"Would clear context"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "output contains 'Would clear context'" "output=$output"
+  fi
+
+  teardown
+}
+
+test_clear_deletes_existing_restart_prompt() {
+  local test_name="clear: removes pre-existing restartPrompt"
+  setup
+
+  create_state "$TEST_DIR/sessions/CLEAR3" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "3: Build", "sessionId": "sess-101",
+    "restartPrompt": "/session continue --session old --skill implement --phase 3"
+  }'
+
+  unset WATCHDOG_PID 2>/dev/null || true
+  TEST_MODE=1 "$SESSION_SH" clear "$TEST_DIR/sessions/CLEAR3" > /dev/null 2>&1 || true
+
+  local sf="$TEST_DIR/sessions/CLEAR3/.state.json"
+  local prompt
+  prompt=$(jq -r '.restartPrompt // "absent"' "$sf")
+
+  if [ "$prompt" = "absent" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "restartPrompt absent" "restartPrompt=$prompt"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# DEHYDRATE TESTS
+# =============================================================================
+
+test_dehydrate_stores_context_and_sets_restart() {
+  local test_name="dehydrate: stores context, sets killRequested and restartPrompt"
+  setup
+
+  create_state "$TEST_DIR/sessions/DEHY1" '{
+    "pid": 99999999, "skill": "analyze", "lifecycle": "active",
+    "currentPhase": "2: Research", "sessionId": "sess-dehy", "contextUsage": 0.92
+  }'
+
+  unset WATCHDOG_PID 2>/dev/null || true
+  TEST_MODE=1 "$SESSION_SH" dehydrate "$TEST_DIR/sessions/DEHY1" <<'DEHY_JSON' 2>/dev/null || true
+{
+  "summary": "Analyzing test patterns",
+  "lastAction": "Read test files",
+  "nextSteps": ["Write tests", "Run suite"],
+  "requiredFiles": ["sessions/DEHY1/ANALYSIS_LOG.md"]
+}
+DEHY_JSON
+
+  local sf="$TEST_DIR/sessions/DEHY1/.state.json"
+  local kill_req prompt lifecycle overflowed ctx dehy_summary
+  kill_req=$(jq -r '.killRequested' "$sf")
+  prompt=$(jq -r '.restartPrompt // "absent"' "$sf")
+  lifecycle=$(jq -r '.lifecycle' "$sf")
+  overflowed=$(jq -r '.overflowed // false' "$sf")
+  ctx=$(jq -r '.contextUsage' "$sf")
+  dehy_summary=$(jq -r '.dehydratedContext.summary // "missing"' "$sf")
+
+  if [ "$kill_req" = "true" ] && [ "$prompt" != "absent" ] && [ "$ctx" = "0" ] && \
+     [ "$dehy_summary" = "Analyzing test patterns" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "kill=true, prompt set, ctx=0, dehy stored" \
+      "kill=$kill_req, prompt=$prompt, ctx=$ctx, dehy=$dehy_summary"
+  fi
+
+  teardown
+}
+
+test_dehydrate_missing_state_file() {
+  local test_name="dehydrate: errors when .state.json doesn't exist"
+  setup
+
+  mkdir -p "$TEST_DIR/sessions/NO_DEHY"
+  local output
+  output=$("$SESSION_SH" dehydrate "$TEST_DIR/sessions/NO_DEHY" 2>&1 <<'EOF'
+{"summary":"test","lastAction":"test","nextSteps":[],"requiredFiles":[]}
+EOF
+  )
+  local exit_code=$?
+
+  if [ $exit_code -ne 0 ] && [[ "$output" == *"No .state.json"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 1 + 'No .state.json'" "exit $exit_code, output=$output"
+  fi
+
+  teardown
+}
+
+# =============================================================================
 # FIND TESTS
 # =============================================================================
 
@@ -2291,6 +2454,99 @@ test_continue_preserves_phase_state() {
 }
 
 # =============================================================================
+# DEBRIEF SCANNER TESTS
+# =============================================================================
+
+test_debrief_reads_steps_and_commands_arrays() {
+  local test_name="debrief: scanner reads §CMD_ names from steps[], commands[], AND proof[]"
+  setup
+
+  local DIR="$TEST_DIR/sessions/DEBRIEF1"
+  # Use phases with §CMD_ refs spread across all 3 arrays
+  # proof has one, steps has another, commands has a third
+  create_state "$DIR" '{
+    "pid": 99999999, "skill": "fake-skill", "lifecycle": "active",
+    "phases": [
+      {
+        "major": 4, "minor": 3, "name": "Pipeline",
+        "proof": ["§CMD_MANAGE_ALERTS"],
+        "steps": ["§CMD_MANAGE_DIRECTIVES"],
+        "commands": ["§CMD_REPORT_LEFTOVER_WORK"]
+      }
+    ]
+  }'
+  # Create a plan file with an unchecked item (for REPORT_LEFTOVER_WORK scan)
+  echo "- [ ] Todo item" > "$DIR/IMPL_PLAN.md"
+
+  local output
+  output=$("$SESSION_SH" debrief "$DIR" 2>&1) || true
+
+  # All 3 commands should appear in output — proving all 3 arrays are read
+  assert_contains "§CMD_MANAGE_ALERTS" "$output" "$test_name — proof[] command found"
+  assert_contains "§CMD_MANAGE_DIRECTIVES" "$output" "$test_name — steps[] command found"
+  assert_contains "§CMD_REPORT_LEFTOVER_WORK" "$output" "$test_name — commands[] command found"
+
+  teardown
+}
+
+test_debrief_outputs_static_sections_for_new_commands() {
+  local test_name="debrief: outputs STATIC sections for RESOLVE_CROSS_SESSION_TAGS and MANAGE_BACKLINKS"
+  setup
+
+  local DIR="$TEST_DIR/sessions/DEBRIEF2"
+  create_state "$DIR" '{
+    "pid": 99999999, "skill": "fake-skill", "lifecycle": "active",
+    "phases": [
+      {
+        "major": 4, "minor": 3, "name": "Pipeline",
+        "proof": [],
+        "steps": ["§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS"],
+        "commands": []
+      }
+    ]
+  }'
+
+  local output
+  output=$("$SESSION_SH" debrief "$DIR" 2>&1) || true
+
+  assert_contains "§CMD_RESOLVE_CROSS_SESSION_TAGS" "$output" "$test_name — cross-session tags section present"
+  assert_contains "§CMD_MANAGE_BACKLINKS" "$output" "$test_name — backlinks section present"
+  assert_contains "cross-session" "$output" "$test_name — cross-session tags has descriptive content"
+  assert_contains "Detect and create" "$output" "$test_name — backlinks has descriptive content"
+
+  teardown
+}
+
+test_debrief_empty_proof_still_finds_steps() {
+  local test_name="debrief: empty proof[] does not prevent steps[] discovery"
+  setup
+
+  local DIR="$TEST_DIR/sessions/DEBRIEF3"
+  # All skills currently have proof: [] for Pipeline — this tests that case
+  create_state "$DIR" '{
+    "pid": 99999999, "skill": "fake-skill", "lifecycle": "active",
+    "phases": [
+      {
+        "major": 4, "minor": 3, "name": "Pipeline",
+        "proof": [],
+        "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"],
+        "commands": []
+      }
+    ]
+  }'
+
+  local output
+  output=$("$SESSION_SH" debrief "$DIR" 2>&1) || true
+
+  # Should NOT say "no §CMD_ references" — steps[] provides them
+  assert_not_contains "nothing to scan" "$output" "$test_name — does not report nothing to scan"
+  assert_contains "§CMD_MANAGE_DIRECTIVES" "$output" "$test_name — MANAGE_DIRECTIVES found from steps[]"
+  assert_contains "§CMD_PROCESS_DELEGATIONS" "$output" "$test_name — PROCESS_DELEGATIONS found from steps[]"
+
+  teardown
+}
+
+# =============================================================================
 # Run all tests
 # =============================================================================
 main() {
@@ -2400,6 +2656,18 @@ main() {
   test_restart_missing_state_file
 
   echo ""
+  echo "--- Clear ---"
+  test_clear_sets_kill_requested_without_prompt
+  test_clear_missing_state_file
+  test_clear_test_mode_output
+  test_clear_deletes_existing_restart_prompt
+
+  echo ""
+  echo "--- Dehydrate ---"
+  test_dehydrate_stores_context_and_sets_restart
+  test_dehydrate_missing_state_file
+
+  echo ""
   echo "--- Find ---"
   test_find_by_pid
   test_find_no_match
@@ -2417,6 +2685,12 @@ main() {
   test_deactivate_idle_no_description_stored
   test_continue_clears_loading_flag
   test_continue_preserves_phase_state
+
+  echo ""
+  echo "--- Debrief Scanner ---"
+  test_debrief_reads_steps_and_commands_arrays
+  test_debrief_outputs_static_sections_for_new_commands
+  test_debrief_empty_proof_still_finds_steps
 
   exit_with_results
 }

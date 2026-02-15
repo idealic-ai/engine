@@ -391,6 +391,146 @@ EOF
 }
 
 # =============================================================================
+# Test 9: find_restart_agent_json finds .state.json with killRequested=true
+# =============================================================================
+test_find_restart_agent_json_finds_kill_requested() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="find_restart_agent_json finds .state.json with killRequested=true"
+
+  setup
+
+  # Create .state.json with killRequested=true
+  cat > "$TEST_DIR/sessions/2026_02_06_TEST_SESSION/.state.json" <<'EOF'
+{
+  "killRequested": true,
+  "pid": 12345,
+  "lifecycle": "active"
+}
+EOF
+
+  # Unset fleet pane to avoid scoping filter
+  unset FLEET_PANE_ID 2>/dev/null || true
+
+  # Inline the function from run.sh (not sourceable)
+  find_restart_agent_json() {
+    local sessions_dir="$PWD/sessions"
+    [ -d "$sessions_dir" ] || return 1
+
+    find -L "$sessions_dir" -name ".state.json" -type f 2>/dev/null | while read -r f; do
+      local kill_req=$(jq -r '.killRequested // false' "$f" 2>/dev/null)
+      if [ "$kill_req" = "true" ]; then
+        if [ -n "${FLEET_PANE_ID:-}" ]; then
+          local pane=$(jq -r '.fleetPaneId // ""' "$f" 2>/dev/null)
+          [ "$pane" != "$FLEET_PANE_ID" ] && continue
+        fi
+        echo "$f"
+        return 0
+      fi
+    done
+  }
+
+  result=$(find_restart_agent_json 2>/dev/null || true)
+
+  if [ -n "$result" ] && [[ "$result" == *".state.json" ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "path to .state.json" "$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# Test 10: find_restart_agent_json ignores .state.json with killRequested=false
+# =============================================================================
+test_find_restart_agent_json_ignores_no_kill() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="find_restart_agent_json ignores killRequested=false"
+
+  setup
+
+  # Create .state.json with killRequested=false
+  cat > "$TEST_DIR/sessions/2026_02_06_TEST_SESSION/.state.json" <<'EOF'
+{
+  "killRequested": false,
+  "pid": 12345,
+  "lifecycle": "active"
+}
+EOF
+
+  unset FLEET_PANE_ID 2>/dev/null || true
+
+  # Inline the function
+  find_restart_agent_json() {
+    local sessions_dir="$PWD/sessions"
+    [ -d "$sessions_dir" ] || return 1
+
+    find -L "$sessions_dir" -name ".state.json" -type f 2>/dev/null | while read -r f; do
+      local kill_req=$(jq -r '.killRequested // false' "$f" 2>/dev/null)
+      if [ "$kill_req" = "true" ]; then
+        if [ -n "${FLEET_PANE_ID:-}" ]; then
+          local pane=$(jq -r '.fleetPaneId // ""' "$f" 2>/dev/null)
+          [ "$pane" != "$FLEET_PANE_ID" ] && continue
+        fi
+        echo "$f"
+        return 0
+      fi
+    done
+  }
+
+  result=$(find_restart_agent_json 2>/dev/null || true)
+
+  if [ -z "$result" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "(empty)" "$result"
+  fi
+
+  teardown
+}
+
+# =============================================================================
+# Test 11: restart loop cleans up state (killRequested=false, del restartPrompt, lifecycle=restarting)
+# =============================================================================
+test_restart_loop_clear_state_cleanup() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="restart loop cleans up state after finding killRequested"
+
+  setup
+
+  local sf="$TEST_DIR/sessions/2026_02_06_TEST_SESSION/.state.json"
+
+  # Create .state.json with killRequested=true and a restartPrompt
+  cat > "$sf" <<'EOF'
+{
+  "killRequested": true,
+  "restartPrompt": "/session continue --session test",
+  "lifecycle": "active",
+  "pid": 12345
+}
+EOF
+
+  # Apply the cleanup logic from run.sh lines 649-650
+  jq 'del(.restartPrompt) | .killRequested = false | .lifecycle = "restarting"' \
+    "$sf" > "$sf.tmp" && mv "$sf.tmp" "$sf"
+
+  # Verify state mutations
+  local kill_req lifecycle has_prompt
+  kill_req=$(jq -r '.killRequested' "$sf")
+  lifecycle=$(jq -r '.lifecycle' "$sf")
+  has_prompt=$(jq -r '.restartPrompt // "ABSENT"' "$sf")
+
+  if [ "$kill_req" = "false" ] && [ "$lifecycle" = "restarting" ] && [ "$has_prompt" = "ABSENT" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "killRequested=false, lifecycle=restarting, restartPrompt=ABSENT" \
+      "killRequested=$kill_req, lifecycle=$lifecycle, restartPrompt=$has_prompt"
+  fi
+
+  teardown
+}
+
+# =============================================================================
 # Run all tests
 # =============================================================================
 main() {
@@ -407,6 +547,9 @@ main() {
   test_statusline_skips_sessionid_when_ready_to_kill
   test_migration_script
   test_migration_script_skips_scoped
+  test_find_restart_agent_json_finds_kill_requested
+  test_find_restart_agent_json_ignores_no_kill
+  test_restart_loop_clear_state_cleanup
 
   exit_with_results
 }

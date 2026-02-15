@@ -29,14 +29,29 @@ description: Short description shown in skill discovery
 
 ### Naming Conventions
 
-| Component | Convention | Example |
-|-----------|-----------|---------|
-| Skill folder | verb, kebab-case | `analyze`, `implement`, `delegate` |
-| Templates | `TEMPLATE_` + noun, UPPER_SNAKE | `TEMPLATE_ANALYSIS.md`, `TEMPLATE_ANALYSIS_LOG.md` |
-| Light commands | verb, kebab-case flat file | `commands/find-sessions.md` |
-| Agents | role noun, lowercase | `agents/builder.md`, `agents/debugger.md` |
-| Hooks | event-description, kebab-case | `hooks/pre-tool-use-overflow.sh` |
-| Scripts | tool name, kebab-case | `scripts/session.sh`, `scripts/tag.sh` |
+- **Skill folder**
+  Convention: verb, kebab-case
+  Example: `analyze`, `implement`, `delegate`
+
+- **Templates**
+  Convention: `TEMPLATE_` + noun, UPPER_SNAKE
+  Example: `TEMPLATE_ANALYSIS.md`, `TEMPLATE_ANALYSIS_LOG.md`
+
+- **Light commands**
+  Convention: verb, kebab-case flat file
+  Example: `commands/find-sessions.md`
+
+- **Agents**
+  Convention: role noun, lowercase
+  Example: `agents/builder.md`, `agents/debugger.md`
+
+- **Hooks**
+  Convention: event-description, kebab-case
+  Example: `hooks/pre-tool-use-overflow.sh`
+
+- **Scripts**
+  Convention: tool name, kebab-case
+  Example: `scripts/session.sh`, `scripts/tag.sh`
 
 ### Skill Protocol Phases
 
@@ -55,13 +70,14 @@ Phase transitions are mechanically enforced via `engine session phase`. Non-sequ
 
 Every skill protocol MUST include:
 
-- **Boot sequence**: Load `COMMANDS.md`, `INVARIANTS.md`, `TAGS.md`, project `INVARIANTS.md`
+- **Boot sequence**: Load `COMMANDS.md`, `INVARIANTS.md`, `SIGILS.md`, project `INVARIANTS.md`
 - **`§CMD_PARSE_PARAMETERS`**: Activate session with JSON params
 - **`§CMD_INGEST_CONTEXT_BEFORE_WORK`**: Context menu in Phase 2
 - **`§CMD_GENERATE_DEBRIEF`**: Synthesis output
 - **`§CMD_CLOSE_SESSION`**: Session deactivation to idle state
 - **`§CMD_PRESENT_NEXT_STEPS`**: Post-synthesis routing menu
 - **Mode presets** (for multi-mode skills): Role, goal, mindset, research topics, calibration topics
+- **`§CMD_REPORT_INTENT`**: Phase transition intent blockquote
 - **Walk-through config**: For finding triage in Phase 5b
 - **`phases` array**: Declared at activation for enforcement
 
@@ -100,11 +116,20 @@ You are a **Senior [Role]** doing [what].
 
 ### Frontmatter Fields
 
-| Field | Required | Values | Purpose |
-|-------|----------|--------|---------|
-| `name` | Yes | lowercase | Agent identifier |
-| `description` | Yes | string | Shown in Task tool agent selection |
-| `model` | No | `opus`, `sonnet`, `haiku` | Model preference |
+- **`name`**
+  **Required**: Yes
+  **Values**: lowercase
+  **Purpose**: Agent identifier
+
+- **`description`**
+  **Required**: Yes
+  **Values**: string
+  **Purpose**: Shown in Task tool agent selection
+
+- **`model`**
+  **Required**: No
+  **Values**: `opus`, `sonnet`, `haiku`
+  **Purpose**: Model preference
 
 ### How Agents Are Loaded
 
@@ -119,15 +144,41 @@ Hooks integrate with Claude Code's lifecycle events. Each hook is a shell script
 
 ### Available Hook Events
 
-| Event | When | Use Case |
-|-------|------|----------|
-| `PreToolUse` | Before any tool call | Context overflow protection, session gating |
-| `PostToolUseSuccess` | After successful tool call | Fleet notifications |
-| `PostToolUseFailure` | After failed tool call | Fleet error notifications |
-| `Notification` | Permission prompt, idle, elicitation | Fleet attention notifications |
-| `UserPromptSubmit` | User sends a message | Fleet working state |
-| `Stop` | Agent stops | Fleet done notification |
-| `SessionEnd` | Session ends | Fleet cleanup |
+- **`PreToolUse`**
+  When: Before any tool call
+  Use case: Context overflow protection, heartbeat enforcement, directive gate
+
+- **`PostToolUse`**
+  When: After successful tool call
+  Use case: Details logging, phase command preloading, template injection
+
+- **`Notification`**
+  When: Permission prompt, idle, elicitation
+  Use case: Fleet attention notifications
+
+- **`UserPromptSubmit`**
+  When: User sends a message
+  Use case: Session gate, state injection, fleet working state
+
+- **`SessionStart`**
+  When: Claude process starts
+  Use case: Standards injection, dehydration context restore
+
+- **`SubagentStart`**
+  When: Sub-agent (Task tool) starts
+  Use case: Session context injection into sub-agents
+
+- **`PreCompact`**
+  When: Before context compaction
+  Use case: Trigger dehydration restart instead of lossy compaction
+
+- **`Stop`**
+  When: Agent stops
+  Use case: Fleet done notification
+
+- **`SessionEnd`**
+  When: Session ends
+  Use case: Fleet cleanup
 
 ### Hook Protocol
 
@@ -141,20 +192,79 @@ hook_allow    # from lib.sh
 hook_deny "title" "message" "detail"    # from lib.sh
 ```
 
-### Current Hooks
+### Current Hooks (16)
 
-| Hook | Event | Purpose |
-|------|-------|---------|
-| `pre-tool-use-overflow.sh` | PreToolUse | Blocks tools at context overflow threshold |
-| `notification-attention.sh` | Notification | Sends "unchecked" (orange) fleet state |
-| `notification-idle.sh` | Notification | Sends "idle" fleet state |
-| `post-tool-complete-notify.sh` | PostToolUseSuccess | Sends "working" fleet state |
-| `post-tool-failure-notify.sh` | PostToolUseFailure | Sends "error" fleet state |
-| `user-prompt-working.sh` | UserPromptSubmit | Sends "working" fleet state |
-| `stop-notify.sh` | Stop | Sends "done" fleet state |
-| `session-end-notify.sh` | SessionEnd | Fleet cleanup |
-| `post-tool-use-templates.sh` | PostToolUseSuccess | Convention-based skill template preloading on Skill invocation |
-| `pane-focus-style.sh` | tmux focus | Pane visual state management |
+**Guard hooks** (PreToolUse — block/allow tool calls):
+
+- **`pre-tool-use-overflow-v2.sh`**
+  Event: PreToolUse
+  Purpose: Context overflow protection — blocks tools at threshold, forces dehydration
+
+- **`pre-tool-use-one-strike.sh`**
+  Event: PreToolUse
+  Purpose: Combined heartbeat enforcement + directive gate — warns then blocks
+
+**Context injection hooks** (inject content into agent context):
+
+- **`session-start-restore.sh`**
+  Event: SessionStart
+  Purpose: Standards injection (COMMANDS.md, INVARIANTS.md, SIGILS.md), dehydration context restore, directive preload
+
+- **`post-tool-use-phase-commands.sh`**
+  Event: PostToolUse
+  Purpose: Preloads CMD files referenced in current phase steps
+
+- **`post-tool-use-details-log.sh`**
+  Event: PostToolUse
+  Purpose: Auto-logs AskUserQuestion interactions to DETAILS.md
+
+- **`post-tool-use-templates.sh`**
+  Event: PostToolUse
+  Purpose: Convention-based skill template preloading on Skill invocation
+
+- **`user-prompt-state-injector.sh`**
+  Event: UserPromptSubmit
+  Purpose: Injects session state, phase info, heartbeat counters into context
+
+- **`user-prompt-submit-session-gate.sh`**
+  Event: UserPromptSubmit
+  Purpose: Session gate enforcement — blocks tools without active session
+
+- **`subagent-start-context.sh`**
+  Event: SubagentStart
+  Purpose: Injects session context (log template, directives) into sub-agents
+
+**Fleet notification hooks** (tmux pane state management):
+
+- **`notification-attention.sh`**
+  Event: Notification
+  Purpose: Sends "unchecked" (orange) fleet state on permission prompts
+
+- **`notification-idle.sh`**
+  Event: Notification
+  Purpose: Sends "idle" fleet state
+
+- **`user-prompt-working.sh`**
+  Event: UserPromptSubmit
+  Purpose: Sends "working" fleet state
+
+- **`stop-notify.sh`**
+  Event: Stop
+  Purpose: Sends "done" fleet state
+
+- **`session-end-notify.sh`**
+  Event: SessionEnd
+  Purpose: Fleet cleanup
+
+**Lifecycle hooks**:
+
+- **`pre-compact-kill.sh`**
+  Event: PreCompact
+  Purpose: Triggers dehydration restart instead of lossy context compaction
+
+- **`pane-focus-style.sh`**
+  Event: tmux after-select-pane
+  Purpose: Pane visual state management (focus/unfocus colors)
 
 ### Registering Hooks
 
@@ -177,24 +287,23 @@ All scripts source `~/.claude/scripts/lib.sh` which provides:
 
 ### Key Scripts
 
-| Script | Purpose |
-|--------|---------|
-| `session.sh` | Session lifecycle (activate, phase, deactivate, restart, find) |
-| `run.sh` | Claude process supervisor with restart loop |
-| `fleet.sh` | Fleet tmux management (start, stop, status, pane-id) |
-| `worker.sh` | Fleet worker daemon |
-| `log.sh` | Append-only file writing with timestamp injection |
-| `tag.sh` | Tag management (add, remove, swap, find) |
-| `find-sessions.sh` | Session discovery by date, topic, tag |
-| `glob.sh` | Symlink-aware file globbing |
-| `research.sh` | Gemini Deep Research API wrapper |
-| `config.sh` | User-level config management |
-| `write.sh` | Clipboard writer (used by `/session dehydrate`) |
-| `escape-tags.sh` | Retroactive tag escaping |
-| `user-info.sh` | User identity from GDrive path |
-| `engine.sh` | Project setup (called by engine `engine.sh`) |
-| `setup-lib.sh` | Pure setup functions (testable) |
-| `setup-migrations.sh` | Numbered idempotent migrations |
+- **`session.sh`** — Session lifecycle (activate, phase, deactivate, restart, find)
+- **`run.sh`** — Claude process supervisor with restart loop
+- **`fleet.sh`** — Fleet tmux management (start, stop, status, pane-id)
+- **`worker.sh`** — Fleet worker daemon
+- **`log.sh`** — Append-only file writing with timestamp injection
+- **`tag.sh`** — Tag management (add, remove, swap, find)
+- **`find-sessions.sh`** — Session discovery by date, topic, tag
+- **`glob.sh`** — Symlink-aware file globbing
+- **`research.sh`** — Gemini Deep Research API wrapper
+- **`config.sh`** — User-level config management
+- **`write.sh`** — Clipboard writer (used by `/session dehydrate`)
+- **`account-switch.sh`** — Claude account credential rotation (save, switch, rotate, list, status, remove)
+- **`escape-tags.sh`** — Retroactive tag escaping
+- **`user-info.sh`** — User identity from GDrive path
+- **`engine.sh`** — Project setup (called by engine `engine.sh`)
+- **`setup-lib.sh`** — Pure setup functions (testable)
+- **`setup-migrations.sh`** — Numbered idempotent migrations
 
 ## Setup System
 
@@ -213,22 +322,43 @@ All scripts source `~/.claude/scripts/lib.sh` which provides:
 
 ### Symlink Strategy
 
-| Directory | Strategy | Override Support |
-|-----------|----------|-----------------|
-| `commands/` | Whole-dir symlink | No |
-| `.directives/` | Whole-dir symlink | No |
-| `agents/` | Whole-dir symlink | No |
-| `scripts/` | Per-file symlinks | Yes — add local file |
-| `hooks/` | Per-file symlinks | Yes — add local file |
-| `skills/` | Per-skill dir symlinks | Yes — add local skill dir |
-| `tools/` | Whole-dir symlink | No |
+- **`commands/`**
+  Strategy: Whole-dir symlink
+  Override support: No
+
+- **`.directives/`**
+  Strategy: Whole-dir symlink
+  Override support: No
+
+- **`agents/`**
+  Strategy: Whole-dir symlink
+  Override support: No
+
+- **`scripts/`**
+  Strategy: Per-file symlinks
+  Override support: Yes — add local file
+
+- **`hooks/`**
+  Strategy: Per-file symlinks
+  Override support: Yes — add local file
+
+- **`skills/`**
+  Strategy: Per-skill dir symlinks
+  Override support: Yes — add local skill dir
+
+- **`tools/`**
+  Strategy: Whole-dir symlink
+  Override support: No
 
 ### Modes
 
-| Mode | Engine Location | `.mode` file |
-|------|----------------|--------------|
-| remote | Google Drive Shared Drive | absent or `remote` |
-| local | `~/.claude/engine/` | `local` |
+- **remote**
+  Engine location: Google Drive Shared Drive
+  `.mode` file: absent or `remote`
+
+- **local**
+  Engine location: `~/.claude/engine/`
+  `.mode` file: `local`
 
 Local mode is for engine development. The engine is a git repo at `~/.claude/engine/` with its own `.git/`.
 
@@ -262,32 +392,30 @@ bash ~/.claude/engine/scripts/tests/run-all.sh
 
 Individual test files:
 
-| Test | What It Tests |
-|------|---------------|
-| `test-session-sh.sh` | Session lifecycle, activation, phase enforcement |
-| `test-tag-sh.sh` | Tag add/remove/swap/find operations |
-| `test-log-sh.sh` | Append-only logging, timestamp injection |
-| `test-glob-sh.sh` | Symlink-aware globbing |
-| `test-config-sh.sh` | Config get/set/list |
-| `test-setup-lib.sh` | Setup library functions |
-| `test-setup-migrations.sh` | Migration runner and idempotency |
-| `test-phase-enforcement.sh` | Phase transition rules |
-| `test-overflow.sh` | Context overflow detection |
-| `test-session-gate.sh` | Session gate hook |
-| `test-statusline.sh` | Status line output |
-| `test-run-sh.sh` | Process supervisor lifecycle |
-| `test-run-lifecycle.sh` | Run/restart loop |
-| `test-heartbeat.sh` | Heartbeat monitoring |
-| `test-threshold.sh` | Overflow threshold |
-| `test-prompt-gate.sh` | Prompt gating |
-| `test-tmux.sh` | Tmux integration |
-| `test-user-info-sh.sh` | User identity detection |
-| `test-find-sessions-sh.sh` | Session discovery |
-| `test-completed-skills.sh` | Skill completion tracking |
+- **`test-session-sh.sh`** — Session lifecycle, activation, phase enforcement
+- **`test-tag-sh.sh`** — Tag add/remove/swap/find operations
+- **`test-log-sh.sh`** — Append-only logging, timestamp injection
+- **`test-glob-sh.sh`** — Symlink-aware globbing
+- **`test-config-sh.sh`** — Config get/set/list
+- **`test-setup-lib.sh`** — Setup library functions
+- **`test-setup-migrations.sh`** — Migration runner and idempotency
+- **`test-phase-enforcement.sh`** — Phase transition rules
+- **`test-overflow.sh`** — Context overflow detection
+- **`test-session-gate.sh`** — Session gate hook
+- **`test-statusline.sh`** — Status line output
+- **`test-run-sh.sh`** — Process supervisor lifecycle
+- **`test-run-lifecycle.sh`** — Run/restart loop
+- **`test-heartbeat.sh`** — Heartbeat monitoring
+- **`test-threshold.sh`** — Overflow threshold
+- **`test-prompt-gate.sh`** — Prompt gating
+- **`test-tmux.sh`** — Tmux integration
+- **`test-user-info-sh.sh`** — User identity detection
+- **`test-find-sessions-sh.sh`** — Session discovery
+- **`test-completed-skills.sh`** — Skill completion tracking
 
 ### Test Safety
 
-Tests MUST use sandbox isolation (`¶INV_TEST_SANDBOX_ISOLATION`):
+Tests MUST use sandbox isolation (`§INV_TEST_SANDBOX_ISOLATION`):
 - Export `PROJECT_ROOT` to a temp directory
 - Override `HOME` to isolate `~/.claude/` writes
 - Never touch the real project root or Google Drive
@@ -300,37 +428,70 @@ Protocol building blocks that skills call during their phases. Unlike skills (us
 
 Core commands defined directly in `.directives/COMMANDS.md`:
 
-| Command | Purpose |
-|---------|---------|
-| `§CMD_PARSE_PARAMETERS` | Parse session params, activate session |
-| `§CMD_MAINTAIN_SESSION_DIR` | Session directory management |
-| `§CMD_UPDATE_PHASE` | Phase tracking and enforcement |
-| `§CMD_REPORT_INTENT` | Phase transition announcements |
-| `§CMD_APPEND_LOG` | Append-only log writing |
-| `§CMD_WRITE_FROM_TEMPLATE` | Template instantiation |
-| `§CMD_GENERATE_DEBRIEF` | Full synthesis pipeline |
-| `§CMD_CLOSE_SESSION` | Session deactivation to idle state |
-| `§CMD_INGEST_CONTEXT_BEFORE_WORK` | Context ingestion menu |
-| `§CMD_INTERROGATE` | Ask/log loop |
-| `§CMD_RESUME_AFTER_CLOSE` | Post-synthesis continuation |
-| `§CMD_RESUME_SESSION` | Resume after overflow or manual restart |
+- **`§CMD_PARSE_PARAMETERS`** — Parse session params, activate session
+- **`§CMD_MAINTAIN_SESSION_DIR`** — Session directory management
+- **`§CMD_UPDATE_PHASE`** — Phase tracking and enforcement
+- **`§CMD_REPORT_INTENT`** — Phase transition announcements
+- **`§CMD_APPEND_LOG`** — Append-only log writing
+- **`§CMD_WRITE_FROM_TEMPLATE`** — Template instantiation
+- **`§CMD_GENERATE_DEBRIEF`** — Full synthesis pipeline
+- **`§CMD_CLOSE_SESSION`** — Session deactivation to idle state
+- **`§CMD_INGEST_CONTEXT_BEFORE_WORK`** — Context ingestion menu
+- **`§CMD_INTERROGATE`** — Ask/log loop
+- **`§CMD_RESUME_AFTER_CLOSE`** — Post-synthesis continuation
+- **`§CMD_RESUME_SESSION`** — Resume after overflow or manual restart
 
 ### External Commands (in .directives/commands/)
 
 Complex commands with their own reference files:
 
-| Command | File | Purpose |
-|---------|------|---------|
-| `§CMD_HANDOFF_TO_AGENT` | `CMD_HANDOFF_TO_AGENT.md` | Synchronous sub-agent launch |
-| `§CMD_PARALLEL_HANDOFF` | `CMD_PARALLEL_HANDOFF.md` | Multi-agent parallel execution |
-| `§CMD_WALK_THROUGH_RESULTS` | `CMD_WALK_THROUGH_RESULTS.md` | Finding triage / plan review |
-| `§CMD_PROMPT_INVARIANT_CAPTURE` | `CMD_PROMPT_INVARIANT_CAPTURE.md` | Invariant discovery |
-| `§CMD_MANAGE_TOC` | `CMD_MANAGE_TOC.md` | TOC management |
-| `§CMD_CAPTURE_SIDE_DISCOVERIES` | `CMD_CAPTURE_SIDE_DISCOVERIES.md` | Side-discovery tagging |
-| `§CMD_REPORT_LEFTOVER_WORK` | `CMD_REPORT_LEFTOVER_WORK.md` | Unfinished work report |
-| `§CMD_AWAIT_TAG` | `CMD_AWAIT_TAG.md` | Async tag watcher |
-| `§CMD_RESUME_SESSION` | `CMD_RESUME_SESSION.md` | Resume after overflow or manual restart |
-| `§CMD_PRESENT_NEXT_STEPS` | `CMD_PRESENT_NEXT_STEPS.md` | Post-synthesis routing menu |
+- **`§CMD_HANDOFF_TO_AGENT`**
+  File: `CMD_HANDOFF_TO_AGENT.md`
+  Purpose: Synchronous sub-agent launch
+
+- **`§CMD_PARALLEL_HANDOFF`**
+  File: `CMD_PARALLEL_HANDOFF.md`
+  Purpose: Multi-agent parallel execution
+
+- **`§CMD_WALK_THROUGH_RESULTS`**
+  File: `CMD_WALK_THROUGH_RESULTS.md`
+  Purpose: Finding triage / plan review
+
+- **`§CMD_CAPTURE_SIDE_DISCOVERIES`**
+  File: `CMD_CAPTURE_SIDE_DISCOVERIES.md`
+  Purpose: Side-discovery tagging
+
+- **`§CMD_REPORT_LEFTOVER_WORK`**
+  File: `CMD_REPORT_LEFTOVER_WORK.md`
+  Purpose: Unfinished work report
+
+- **`§CMD_RESOLVE_CROSS_SESSION_TAGS`**
+  File: `CMD_RESOLVE_CROSS_SESSION_TAGS.md`
+  Purpose: Cross-session tag resolution
+
+- **`§CMD_MANAGE_BACKLINKS`**
+  File: `CMD_MANAGE_BACKLINKS.md`
+  Purpose: Cross-document link management
+
+- **`§CMD_AWAIT_TAG`**
+  File: `CMD_AWAIT_TAG.md`
+  Purpose: Async tag watcher
+
+- **`§CMD_RESUME_SESSION`**
+  File: `CMD_RESUME_SESSION.md`
+  Purpose: Resume after overflow or manual restart
+
+- **`§CMD_PRESENT_NEXT_STEPS`**
+  File: `CMD_PRESENT_NEXT_STEPS.md`
+  Purpose: Post-synthesis routing menu
+
+- **`§CMD_DECISION_TREE`**
+  File: `CMD_DECISION_TREE.md`
+  Purpose: Declarative decision tree collector
+
+- **`§CMD_TAG_TRIAGE`**
+  File: `CMD_TAG_TRIAGE.md`
+  Purpose: Tag-based item triage
 
 ## Fleet System
 
@@ -340,7 +501,7 @@ The fleet is a tmux-based multi-agent workspace.
 
 - **`fleet.sh`** — Manages tmux sessions with fleet configs from GDrive
 - **`worker.sh`** — Daemon process that watches for tagged work and spawns Claude agents
-- **`dispatch-daemon.sh`** — Legacy standalone daemon (deprecated, see `docs/DAEMON.md`)
+- **`dispatch-daemon.sh`** — Legacy standalone daemon (deprecated)
 - **`/fleet` skill** — Interactive fleet designer
 
 ### Fleet Configs

@@ -97,7 +97,7 @@ See `~/.claude/docs/SESSION_LIFECYCLE.md` for the full state machine, all 11 sce
 
 Every protocol skill follows this structure:
 
-1. **Boot sequence**: Load directives (COMMANDS.md, INVARIANTS.md, TAGS.md), output boot proof
+1. **Boot sequence**: Load directives (COMMANDS.md, INVARIANTS.md, SIGILS.md), output boot proof
 2. **Phase 1: Setup**: Parse parameters, create/reuse session directory, assume role, load templates
 3. **Interrogation** (optional but enforced): 3+ rounds of structured questioning to validate assumptions. Depth selection: Short (3+), Medium (6+), Long (9+), Absolute (until all resolved)
 4. **Phase 2: Planning**: Ingest context, survey the problem space, write a plan artifact, present for user approval
@@ -212,7 +212,7 @@ See `~/.claude/docs/FLEET.md` for full fleet documentation and `~/.claude/docs/D
 
 ### Tag-Driven Quality
 
-The tag system (`~/.claude/.directives/TAGS.md`) provides asynchronous work routing via the 4-state lifecycle:
+The tag system (`~/.claude/.directives/SIGILS.md`) provides asynchronous work routing via the 4-state lifecycle:
 
 | Tag | Resolving Skill | When Applied | Daemon-Dispatchable |
 |-----|----------------|--------------|---------------------|
@@ -265,7 +265,7 @@ After dehydration, `engine session restart` signals the restart watchdog (via US
 
 The new Claude receives `/session continue` as its first prompt. `/session continue`:
 1. Activates the session (clears `overflowed`, sets new PID)
-2. Loads directives (COMMANDS.md, INVARIANTS.md, TAGS.md)
+2. Loads directives (COMMANDS.md, INVARIANTS.md, SIGILS.md)
 3. Reads `DEHYDRATED_CONTEXT.md`
 4. Loads all required files (session artifacts, skill templates, source code)
 5. Loads the original skill protocol
@@ -285,7 +285,7 @@ Three documents define the "operating system" for all agent interactions:
 |----------|--------|------|
 | `COMMANDS.md` | `§CMD_` | 32 named operations — the instruction set agents execute |
 | `INVARIANTS.md` | `¶INV_` | 23 universal rules — the laws that cannot be overridden |
-| `TAGS.md` | `§FEED_` | 6 tag feeds — cross-session communication protocol |
+| `SIGILS.md` | `§FEED_` | 6 tag feeds — cross-session communication protocol |
 
 Together they define ~1,100 lines of behavioral specification loaded into every agent session.
 
@@ -318,5 +318,5 @@ See `~/.claude/docs/DIRECTIVES_SYSTEM.md` for the full architecture of the stand
 | Engine script testing | `~/.claude/docs/ENGINE_TESTING.md` |
 | Command definitions | `~/.claude/.directives/COMMANDS.md` |
 | System invariants | `~/.claude/.directives/INVARIANTS.md` |
-| Tag feeds & lifecycle | `~/.claude/.directives/TAGS.md` |
+| Tag feeds & lifecycle | `~/.claude/.directives/SIGILS.md` |
 | Individual skill protocols | `~/.claude/skills/[skill-name]/SKILL.md` |

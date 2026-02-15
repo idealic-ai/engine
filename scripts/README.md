@@ -27,7 +27,7 @@ The alias is the preferred invocation method — it's shorter and whitelisted vi
 | `find-sessions.sh` | Find sessions by date, topic, tag, or date range | `find-sessions.sh recent --files` |
 | `glob.sh` | Symlink-aware file globbing. Fallback when Glob tool can't traverse symlinks | `glob.sh '**/*.ts' sessions/` |
 | `research.sh` | Gemini Deep Research API wrapper. Polls until complete, writes report | `research.sh <output> <<'EOF'` |
-| `write.sh` | Copy stdin to system clipboard. Used by `/dehydrate` | `write.sh <<'EOF'` |
+| `write.sh` | Copy stdin to system clipboard | `write.sh <<'EOF'` |
 | `escape-tags.sh` | Retroactive backtick escaping for bare tag references in markdown | `escape-tags.sh <file>` |
 | `config.sh` | Session configuration management. Reads/writes `.state.json` fields | Sourced by session.sh |
 | `run.sh` | Generic script runner with error handling | `run.sh <script> [args]` |
@@ -39,8 +39,9 @@ The alias is the preferred invocation method — it's shorter and whitelisted vi
 | `await-tag.sh` | Background watcher that blocks until a specific tag appears on a file | `await-tag.sh <file> '#tag'` |
 | `fleet.sh` | Multi-pane tmux fleet management. Launch, query, coordinate agent panes | `fleet.sh pane-id` |
 | `user-info.sh` | Auto-detect user identity from Google Drive symlink | `user-info.sh username` / `email` / `json` |
-| `skill-doctor.sh` | Validate skill definitions (SKILL.md structure, templates, modes) | `skill-doctor.sh [skill-name]` |
+| `doctor.sh` | Validate engine ecosystem health (skills, CMDs, directives, sessions, sigils) | `doctor.sh [-v] [dir]` |
 | `worker.sh` | Daemon worker process. Picks up tagged work items and dispatches to skills | `worker.sh` |
+| `account-switch.sh` | Claude account credential rotation — save, switch, rotate profiles via macOS Keychain | `engine account-switch save user@gmail.com` |
 | `migrate-fleet-pane-ids.sh` | One-time migration for fleet pane ID format changes | `migrate-fleet-pane-ids.sh` |
 
 ## find-sessions.sh

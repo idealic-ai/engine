@@ -1,7 +1,5 @@
-### §CMD_PROCESS_CHECKLISTS
+### ¶CMD_PROCESS_CHECKLISTS
 **Definition**: During synthesis, processes all discovered CHECKLIST.md files — reads each checklist, fills checkboxes based on session work, then submits full content as JSON to `engine session check` for strict validation. The engine reads the original files from disk and compares via text diff after normalizing checkboxes. Ensures the deactivation gate (`¶INV_CHECKLIST_BEFORE_CLOSE`) will pass.
-**Trigger**: Called by skill protocols during the synthesis phase, BEFORE `§CMD_GENERATE_DEBRIEF`. Read this file before executing.
-
 **Algorithm**:
 1.  **Check for Discovered Checklists**: Read `.state.json` field `discoveredChecklists` (array of absolute paths).
     *   If the array is empty or missing, skip silently. Return control to the caller.
@@ -19,8 +17,8 @@
         *   Add items
         *   Reorder items
         *   Add annotations, comments, or evidence text after items
-    d.  **Present Summary**: Output a brief summary in chat:
-        > **Checklist processed**: `[path]`
+    d.  **Present Summary**: Output a brief summary in chat. File path per `¶INV_TERMINAL_FILE_LINKS`:
+        > **Checklist processed**: cursor://file/ABSOLUTE_PATH
         > - Checked: [N] items
         > - Unchecked: [N] items
     e.  **Log**: Append to the session's `_LOG.md`:
@@ -73,9 +71,35 @@
 *   **Belt-and-suspenders**: This command is the "belt" (protocol-level). The `engine session deactivate` gate is the "suspenders" (infrastructure-level). Both exist because agents skip protocol steps — the gate catches failures.
 *   **Session state**: `checkPassed` (boolean) in `.state.json` is the source of truth. The deactivate gate checks `checkPassed == true` when `discoveredChecklists` is non-empty.
 *   **Idempotent**: Safe to run multiple times. If `checkPassed` is already true, skips (step 2).
+*   **`¶INV_CONCISE_CHAT`**: Chat output is for user communication only — brief checklist summary, no micro-narration of the validation steps.
 
 ---
 
 ## PROOF FOR §CMD_PROCESS_CHECKLISTS
 
-This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "executed": {
+      "type": "string",
+      "description": "What was accomplished (3-7 word self-quote)"
+    },
+    "checklistsProcessed": {
+      "type": "string",
+      "description": "Count and names of checklists processed"
+    },
+    "itemsChecked": {
+      "type": "string",
+      "description": "Count of items marked [x] (e.g., '8 of 10 checked')"
+    },
+    "itemsUnchecked": {
+      "type": "string",
+      "description": "Count and scope of unchecked items (e.g., '2 unchecked: docs, e2e tests')"
+    }
+  },
+  "required": ["executed", "checklistsProcessed"],
+  "additionalProperties": false
+}
+```

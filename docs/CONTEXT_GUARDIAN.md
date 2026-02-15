@@ -265,6 +265,6 @@ This will:
 - `~/.claude/docs/SESSION_LIFECYCLE.md` — **Comprehensive session lifecycle reference** (all restart/restore/rehydration scenarios, state machine, race conditions)
 - `~/.claude/docs/DIRECTIVES_SYSTEM.md` — Behavioral specification system (commands, invariants, tags) that governs session behavior
 - `~/.claude/engine/skills/session/SKILL.md` — Session skill (dehydration + continuation protocols)
-- `~/.claude/engine/skills/session/references/continue-protocol.md` — Rehydration protocol (post-restart context restoration)
+- `~/.claude/engine/skills/session/references/continue-protocol.md` — Recovery protocol (post-restart context restoration)
 - `~/.claude/.directives/COMMANDS.md` — `§CMD_RESUME_AFTER_CLOSE` for reactivation
 - `sessions/<session>/DEHYDRATED_CONTEXT.md` — Session handover document

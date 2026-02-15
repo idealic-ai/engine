@@ -1,4 +1,4 @@
-### §CMD_AWAIT_TAG
+### ¶CMD_AWAIT_TAG
 **Definition**: Start a background watcher that blocks until a specific tag appears on a file or in a directory. Uses `fswatch` for event-driven detection (no polling). Fires an OS notification when resolved.
 **Dependency**: Requires `fswatch` (`brew install fswatch`).
 
@@ -26,3 +26,36 @@
 **Constraints**:
 *   The watcher dies when the session ends. Cross-session durability is handled by the tag system itself (`§TAG_DISPATCH` routing or `SessionStart` hook).
 *   The agent is NOT required to start a watcher. It is opt-in — useful when the agent has other work to do while waiting.
+*   **`¶INV_ESCAPE_BY_DEFAULT`**: Backtick-escape tag references in chat output; bare tags only in `engine await-tag` commands or on `**Tags**:` lines.
+
+---
+
+## PROOF FOR §CMD_AWAIT_TAG
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "executed": {
+      "type": "string",
+      "description": "What was accomplished (3-7 word self-quote)"
+    },
+    "tagAwaited": {
+      "type": "string",
+      "description": "The tag being watched for (e.g., '#done-research')"
+    },
+    "watchMode": {
+      "type": "string",
+      "enum": ["file", "directory"],
+      "description": "Whether watching a specific file or a directory"
+    },
+    "tagAppeared": {
+      "type": "string",
+      "description": "Resolution status (e.g., 'appeared after 30s' or 'still watching')"
+    }
+  },
+  "required": ["executed", "tagAwaited", "watchMode"],
+  "additionalProperties": false
+}
+```

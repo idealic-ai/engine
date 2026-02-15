@@ -183,7 +183,7 @@ assert_not_contains "§CMD_MANAGE_ALERTS" "$DEBRIEF_OUTPUT" "minimal: alerts abs
 # Test: No synthesis sub-phases — debrief outputs nothing (or minimal)
 create_state_no_proof
 DEBRIEF_OUTPUT=$("$SESSION_SH" debrief "$TEST_DIR" 2>&1)
-assert_not_contains "§CMD_" "$DEBRIEF_OUTPUT" "no-proof: no §CMD_ sections output"
+assert_not_contains "## §CMD_" "$DEBRIEF_OUTPUT" "no-proof: no §CMD_ section headings output"
 
 echo ""
 
@@ -449,7 +449,7 @@ AGENTEOF
 DEBRIEF_OUTPUT=$("$SESSION_SH" debrief "$TEST_DIR" 2>&1)
 DEBRIEF_RESULT=$?
 assert_eq "0" "$DEBRIEF_RESULT" "8.3: no proof fields exits 0"
-assert_contains "no synthesis proof fields" "$DEBRIEF_OUTPUT" "8.3: says 'no synthesis proof fields'"
+assert_contains "nothing to scan" "$DEBRIEF_OUTPUT" "8.3: says nothing to scan when no §CMD_ refs in phases"
 
 # Case 8.4: Phases with empty proof arrays
 mkdir -p "$TEST_DIR"
@@ -469,7 +469,7 @@ AGENTEOF
 DEBRIEF_OUTPUT=$("$SESSION_SH" debrief "$TEST_DIR" 2>&1)
 DEBRIEF_RESULT=$?
 assert_eq "0" "$DEBRIEF_RESULT" "8.4: empty proof arrays exits 0"
-assert_contains "no synthesis proof fields" "$DEBRIEF_OUTPUT" "8.4: empty proof arrays treated as 'no synthesis proof fields'"
+assert_contains "nothing to scan" "$DEBRIEF_OUTPUT" "8.4: empty proof arrays with no steps/commands treated as nothing to scan"
 
 echo ""
 

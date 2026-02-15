@@ -1,10 +1,10 @@
 # Tag Lifecycle Reference
 
-This document provides the operational reference for the tag system's complete lifecycle — from creation through governance to resolution. It complements `~/.claude/.directives/TAGS.md` (which defines tag conventions, feeds, and dispatch) with detailed flow paths, mechanism descriptions, and daemon integration.
+This document provides the operational reference for the tag system's complete lifecycle — from creation through governance to resolution. It complements `~/.claude/.directives/SIGILS.md` (which defines tag conventions, feeds, and dispatch) with detailed flow paths, mechanism descriptions, and daemon integration.
 
 **When to use this doc**: When you need to understand how tags flow through the system, how the daemon dispatches work, or how tag promotions and cross-session resolution work.
 
-**When to use TAGS.md**: When you need tag conventions, escaping rules, feed definitions, or the dispatch table.
+**When to use SIGILS.md**: When you need tag conventions, escaping rules, feed definitions, or the dispatch table.
 
 ---
 

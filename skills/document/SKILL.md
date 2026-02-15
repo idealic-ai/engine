@@ -17,33 +17,33 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
   "taskType": "DOCUMENT_UPDATE",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INTERROGATE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INTERROGATE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
-      "proof": ["mode", "session_dir", "parameters_parsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"]},
     {"label": "1", "name": "Diagnosis & Planning",
-      "steps": ["§CMD_GENERATE_PLAN"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_GENERATE_PLAN"],
       "commands": ["§CMD_LINK_FILE"],
-      "proof": ["context_sources_presented", "documentation_drift_assessed", "plan_written", "plan_presented", "user_approved"]},
+      "proof": ["contextSourcesPresented", "documentationDriftAssessed", "planWritten", "planPresented", "userApproved"]},
     {"label": "2", "name": "Execution",
       "steps": ["§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
-      "proof": ["path_chosen", "paths_available"]},
+      "proof": ["pathChosen", "pathsAvailable"]},
     {"label": "2.A", "name": "Operation",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS"],
-      "proof": ["plan_steps_completed", "log_entries", "unresolved_blocks"]},
+      "proof": ["planStepsCompleted", "logEntries", "unresolvedBlocks"]},
     {"label": "2.B", "name": "Agent Handoff",
       "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
     {"label": "2.C", "name": "Parallel Agent Handoff",
       "steps": ["§CMD_PARALLEL_HANDOFF"], "commands": [], "proof": []},
     {"label": "3", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "3.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
     {"label": "3.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
     {"label": "3.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "3.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
@@ -68,9 +68,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Updating documentation for ___.
-> Mode: ___. Trigger: ___.
-> Focus: session activation, mode selection, brief interrogation, context loading.
+> 0: Updating documentation for ___. Trigger: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
@@ -114,9 +114,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 *Before cutting, understand the anatomy and draft the procedure.*
 
 `§CMD_REPORT_INTENT`:
-> Diagnosing documentation drift for ___.
-> Surveying ___ target docs, then producing DOCUMENTATION_PLAN.md.
-> Will present plan for approval before any edits.
+> 1: Diagnosing documentation drift for ___. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
@@ -143,6 +143,11 @@ If any items are flagged for revision, return to the plan for edits before proce
 ## 2. Execution
 *Gateway -- select the execution path.*
 
+`§CMD_REPORT_INTENT`:
+> 2: Selecting execution path for documentation updates. ___.
+> Focus: ___.
+> Not: ___.
+
 `§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
 ---
@@ -151,8 +156,9 @@ If any items are flagged for revision, return to the plan for edits before proce
 *Execute the plan. Surgical updates only.*
 
 `§CMD_REPORT_INTENT`:
-> Executing ___-step documentation plan. Target: ___.
-> Logging each incision, finding, and suture to DOCUMENTATION_LOG.md.
+> 2.A: Executing ___-step documentation plan. Target: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(2.A.*)`
 
@@ -196,8 +202,9 @@ If any items are flagged for revision, return to the plan for edits before proce
 *When the surgery is complete.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. ___ documentation updates completed.
-> Producing DOCUMENTATION.md debrief with prognosis.
+> 3: Synthesizing. ___ documentation updates completed.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 
@@ -207,7 +214,7 @@ If any items are flagged for revision, return to the plan for edits before proce
 *   **Expert Opinion**: Your subjective take on the state of the docs.
 
 **Skill-specific step** (after debrief, before pipeline):
-**TOC MANAGEMENT**: Execute `§CMD_MANAGE_TOC`.
+**TOC MANAGEMENT**: Reconcile documentation index.
   *   Collects all documentation files created, modified, or deleted during this session.
   *   Presents multichoice for TOC.md additions, description updates, and stale entry removals.
   *   Auto-applies selected changes to `docs/TOC.md`.

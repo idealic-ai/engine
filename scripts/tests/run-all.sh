@@ -27,11 +27,17 @@ RED='\033[31m'
 GREEN='\033[32m'
 RESET='\033[0m'
 
-# Parse -v flag
+# Parse flags
 ARGS=()
+GREP_NEXT=0
 for arg in "$@"; do
-  if [ "$arg" = "-v" ] || [ "$arg" = "--verbose" ]; then
+  if [ "$GREP_NEXT" = "1" ]; then
+    export TEST_FILTER="$arg"
+    GREP_NEXT=0
+  elif [ "$arg" = "-v" ] || [ "$arg" = "--verbose" ]; then
     VERBOSE=1
+  elif [ "$arg" = "--grep" ] || [ "$arg" = "-g" ]; then
+    GREP_NEXT=1
   else
     ARGS+=("$arg")
   fi
@@ -72,9 +78,24 @@ run_suite() {
   fi
 }
 
+# Pre-filter: when TEST_FILTER is set, skip files with no matching test functions or filename
+file_matches_filter() {
+  local file="$1"
+  [ -z "${TEST_FILTER:-}" ] && return 0  # no filter — match all
+  # Match filename
+  case "$(basename "$file")" in
+    *"$TEST_FILTER"*) return 0 ;;
+  esac
+  # Match function names inside the file
+  grep -q "^test_.*${TEST_FILTER}" "$file" 2>/dev/null && return 0
+  grep -q "test_.*${TEST_FILTER}" "$file" 2>/dev/null && return 0
+  return 1
+}
+
 # Header
 echo "╔════════════════════════════════════════╗"
 echo "║     Engine Test Runner                 ║"
+[ -n "${TEST_FILTER:-}" ] && echo "║     Filter: ${TEST_FILTER}$(printf '%*s' $((26 - ${#TEST_FILTER})) '')║"
 echo "╚════════════════════════════════════════╝"
 
 # Run specific suite or all
@@ -82,9 +103,9 @@ if [ $# -gt 0 ]; then
   # Run specific suite(s)
   for arg in "$@"; do
     if [ -f "$TESTS_DIR/$arg" ]; then
-      run_suite "$TESTS_DIR/$arg"
+      file_matches_filter "$TESTS_DIR/$arg" && run_suite "$TESTS_DIR/$arg"
     elif [ -f "$arg" ]; then
-      run_suite "$arg"
+      file_matches_filter "$arg" && run_suite "$arg"
     else
       echo -e "${RED}NOT FOUND${RESET}: $arg"
       FAILED_SUITES=$((FAILED_SUITES + 1))
@@ -96,6 +117,7 @@ else
   for file in "$TESTS_DIR"/test-*.sh; do
     [ -f "$file" ] || continue
     [ "$(basename "$file")" = "test-helpers.sh" ] && continue
+    file_matches_filter "$file" || continue
     run_suite "$file"
   done
 fi

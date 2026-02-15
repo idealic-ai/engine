@@ -14,11 +14,13 @@ The directives system is a three-document behavioral specification that sits bet
 
 | Document | Role | Prefix | Contents |
 |----------|------|--------|----------|
-| `COMMANDS.md` | Instruction set | `§CMD_` | 32 named commands across 4 layers — the operations agents execute |
+| `COMMANDS.md` | Instruction set | `¶CMD_` | 32 named commands across 4 layers — the operations agents execute |
 | `INVARIANTS.md` | Constitution | `¶INV_` | 23 universal rules that cannot be overridden — the laws of the system |
-| `TAGS.md` | Communication protocol | `§FEED_` | 6 tag feeds for cross-session state and work routing |
+| `SIGILS.md` | Communication protocol | `¶FEED_` | 6 tag feeds for cross-session state and work routing |
 
-Together they define approximately 1,100 lines of behavioral specification loaded into every agent session. COMMANDS.md provides the verbs (what to do), INVARIANTS.md provides the constraints (what never to violate), and TAGS.md provides the nouns (how to communicate state across sessions).
+**Sigil convention**: `¶` (pilcrow) marks **definitions** — where a command, invariant, or feed is declared. `§` (section sign) marks **references** — citations of something defined elsewhere. So `COMMANDS.md` uses `¶CMD_` headings (definitions), while `SKILL.md` uses `§CMD_` references (citations). See `¶INV_SIGIL_SEMANTICS` in `INVARIANTS.md` for the full rule.
+
+Together they define approximately 1,100 lines of behavioral specification loaded into every agent session. COMMANDS.md provides the verbs (what to do), INVARIANTS.md provides the constraints (what never to violate), and SIGILS.md provides the nouns (how to communicate state across sessions).
 
 ### Where It Sits
 
@@ -127,7 +129,7 @@ All 32 `§CMD_` commands in COMMANDS.md, organized by layer. Each command has a 
 | `§CMD_UPDATE_PHASE` | Update `.state.json` with the current skill phase |
 | `§CMD_RECOVER_SESSION` | Re-initialize context after a context overflow restart |
 | `§CMD_FREEZE_CONTEXT` | Phase-specific constraint — no filesystem exploration during setup |
-| `§CMD_TRUST_CACHED_CONTEXT` | Prevent redundant reads and operations |
+| `§INV_TRUST_CACHED_CONTEXT` | Prevent redundant reads and operations |
 | `§CMD_TRACK_PROGRESS` | Maintain an internal TODO list for session progress |
 
 ### Layer 3: Interaction (2 commands)
@@ -151,7 +153,7 @@ All 32 `§CMD_` commands in COMMANDS.md, organized by layer. Each command has a 
 | `§CMD_REPORT_ARTIFACTS` | Final artifact inventory with clickable links |
 | `§CMD_REPORT_SUMMARY` | Dense 2-paragraph narrative of session work |
 | `§CMD_RESUME_AFTER_CLOSE` | Re-anchor and continue logging after a skill completes |
-| `§CMD_PROMPT_INVARIANT_CAPTURE` | Review session for insights worth capturing as permanent invariants |
+| `§CMD_MANAGE_DIRECTIVES` | AGENTS.md updates, invariant capture, pitfall capture (replaces CMD_PROMPT_INVARIANT_CAPTURE) |
 
 ### Command Composition
 
@@ -161,7 +163,7 @@ Commands compose — higher-layer commands call lower-layer commands. Key compos
 §CMD_GENERATE_DEBRIEF
   └── §CMD_WRITE_FROM_TEMPLATE (Layer 1)
   └── §CMD_LINK_FILE (Layer 1)
-  └── §CMD_PROMPT_INVARIANT_CAPTURE (Layer 4)
+  └── §CMD_MANAGE_DIRECTIVES (Layer 4)
 
 §CMD_INGEST_CONTEXT_BEFORE_WORK
   └── §CMD_WAIT_FOR_USER_CONFIRMATION (Layer 2) [twice — hard stops]
@@ -219,7 +221,7 @@ Project invariants extend the shared set. They cannot contradict shared invarian
 
 ## 5. The Tag System
 
-TAGS.md defines a cross-session communication protocol using semantic tags. Tags are the IPC mechanism — they allow sessions to communicate state, request work, and coordinate parallel agents without shared memory.
+SIGILS.md defines a cross-session communication protocol using semantic tags. Tags are the IPC mechanism — they allow sessions to communicate state, request work, and coordinate parallel agents without shared memory.
 
 ### Tag Lifecycle Pattern
 
@@ -298,7 +300,7 @@ Strict separation of brain (filesystem) and mouth (chat). All reasoning goes to 
 
 Append-only logging with no re-reading. The agent writes to the log via `log.sh` and never sees its accumulated output. This creates a write-heavy, read-light I/O pattern.
 
-**Mechanism**: `§CMD_APPEND_LOG` + `§CMD_TRUST_CACHED_CONTEXT`
+**Mechanism**: `§CMD_APPEND_LOG` + `§INV_TRUST_CACHED_CONTEXT`
 
 **Why it works**: A typical session might append 20-40 log entries. Without blind writes, each append would require reading the entire log first (read-modify-write), consuming thousands of tokens. Blind appends cost only the new content.
 
@@ -429,11 +431,11 @@ The standards system references shell scripts that implement its operations. The
 
 | Metric | Value | Source |
 |--------|-------|--------|
-| Named commands | 32 (COMMANDS.md) + 5 (TAGS.md tag operations) | COMMANDS.md, TAGS.md |
+| Named commands | 32 (COMMANDS.md) + 5 (SIGILS.md tag operations) | COMMANDS.md, SIGILS.md |
 | Named invariants | 23 (shared) + project-specific | INVARIANTS.md |
-| Tag feeds | 6 | TAGS.md |
+| Tag feeds | 6 | SIGILS.md |
 | Architectural layers | 4 | COMMANDS.md section headers |
-| Total specification lines | ~1,100 | COMMANDS.md + INVARIANTS.md + TAGS.md |
+| Total specification lines | ~1,100 | COMMANDS.md + INVARIANTS.md + SIGILS.md |
 | Reported compliance rate | 90%+ | Author-reported empirical observation |
 | Context cost per session | ~700 lines (COMMANDS.md alone) | Upfront load |
 
@@ -447,4 +449,4 @@ The standards system references shell scripts that implement its operations. The
 - **Session skill**: `~/.claude/docs/SESSION_SKILL.md` — Usage guide for `/session` (dehydrate, continue, search, status)
 - **Document indexing**: `~/.claude/docs/DOCUMENT_INDEXING.md` — RAG search infrastructure used by `§CMD_INGEST_CONTEXT_BEFORE_WORK`
 - **Comparative analysis**: `~/.claude/docs/writeups/2026_02_07_COMMANDS_COMPARATIVE_ANALYSIS.md` — How COMMANDS.md compares to Cursor .cursorrules, system prompts, and JSON schema approaches
-- **The source files**: `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, `~/.claude/.directives/TAGS.md`
+- **The source files**: `~/.claude/.directives/COMMANDS.md`, `~/.claude/.directives/INVARIANTS.md`, `~/.claude/.directives/SIGILS.md`

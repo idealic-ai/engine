@@ -230,6 +230,45 @@ _claim_and_preload() {
     _CLAIMED_PATHS="${_CLAIMED_PATHS}${_CLAIMED_PATHS:+
 }$pfile"
   done
+
+  # --- Resolve § references in claimed files (recursive preloading) ---
+  # Discovered refs are queued in pendingPreloads for lazy loading on next tool call.
+  local all_new_refs=""
+  local current_loaded
+  current_loaded=$(jq '.preloadedFiles // []' "$state_file" 2>/dev/null || echo '[]')
+  for pfile in "${claimed_files[@]}"; do
+    local resolved="${pfile/#\~/$HOME}"
+    local refs
+    refs=$(resolve_refs "$resolved" 2 "$current_loaded") || true
+    if [ -n "$refs" ]; then
+      all_new_refs="${all_new_refs}${all_new_refs:+
+}${refs}"
+      # Update loaded list so subsequent files dedup against earlier refs
+      while IFS= read -r rpath; do
+        [ -n "$rpath" ] || continue
+        current_loaded=$(echo "$current_loaded" | jq --arg p "$rpath" '. + [$p]')
+      done <<< "$refs"
+    fi
+  done
+
+  if [ -n "$all_new_refs" ]; then
+    local refs_json="[]"
+    while IFS= read -r ref_path; do
+      [ -n "$ref_path" ] || continue
+      refs_json=$(echo "$refs_json" | jq --arg f "$ref_path" '. + [$f]')
+    done <<< "$all_new_refs"
+
+    jq --argjson refs "$refs_json" '
+      (.preloadedFiles // []) as $pf |
+      (.pendingPreloads //= []) |
+      reduce ($refs[]) as $r (.;
+        if ($pf | any(. == $r)) then .
+        elif (.pendingPreloads | index($r)) then .
+        else .pendingPreloads += [$r]
+        end
+      )
+    ' "$state_file" | safe_json_write "$state_file"
+  fi
 }
 
 # _run_discovery STATE_FILE
@@ -395,10 +434,14 @@ _enrich_heartbeat_message() {
     return 0
   fi
 
-  # Read counter and block threshold
-  local counter block_threshold
+  # Read counter, block threshold, context usage, and current time
+  local counter block_threshold context_pct current_time
   counter=$(jq -r '.toolCallsSinceLastLog // 0' "$state_file" 2>/dev/null || echo "0")
   block_threshold=$(jq -r '.toolUseWithoutLogsBlockAfter // 10' "$state_file" 2>/dev/null || echo "10")
+  local context_raw
+  context_raw=$(jq -r '.contextUsage // 0' "$state_file" 2>/dev/null || echo "0")
+  context_pct=$(awk "BEGIN {printf \"%.0f\", $context_raw * 100}")
+  current_time=$(date '+%H:%M')
 
   # Derive log file from logTemplate in .state.json
   local log_template log_file log_path
@@ -418,17 +461,23 @@ _enrich_heartbeat_message() {
   fi
   log_path="${session_dir}/${log_file}"
 
-  # Resolve log template path for agent guidance
-  local template_path=""
+  # Strip $PWD/ prefix from log path for cleaner output
+  local display_log_path="$log_path"
+  local pwd_prefix
+  pwd_prefix=$(pwd)
+  display_log_path="${log_path#"$pwd_prefix"/}"
+
+  # Resolve log template filename for agent guidance
+  local template_name=""
   if [ -n "$log_template" ]; then
-    template_path="$log_template"
+    template_name=$(basename "$log_template")
   fi
 
-  # Output: §CMD_APPEND_LOG (N/M) + engine log path [+ template hint]
-  if [ -n "$template_path" ]; then
-    printf '%s (%s/%s)\nengine log %s\n[Log template: %s]' "$text" "$counter" "$block_threshold" "$log_path" "$template_path"
+  # Output: §CMD_APPEND_LOG (N/M) [HH:MM | Context: XX%] + engine log command with heredoc template hint
+  if [ -n "$template_name" ]; then
+    printf "%s (%s/%s) [%s | Context: %s%%]\n    $ engine log %s <<'EOF' [Template: %s] ... EOF" "$text" "$counter" "$block_threshold" "$current_time" "$context_pct" "$display_log_path" "$template_name"
   else
-    printf '%s (%s/%s)\nengine log %s' "$text" "$counter" "$block_threshold" "$log_path"
+    printf '%s (%s/%s) [%s | Context: %s%%]\n    $ engine log %s' "$text" "$counter" "$block_threshold" "$current_time" "$context_pct" "$display_log_path"
   fi
 }
 
@@ -571,6 +620,18 @@ _process_rules() {
   blocking_count=$(echo "$blocking_rules" | jq 'length')
 
   if [ "$blocking_count" -gt 0 ]; then
+    # --- Step 7b: Overflow priority suppression ---
+    # When overflow-dehydration fires alongside other blocking guards (session-gate,
+    # idle-gate, heartbeat-block), overflow wins — suppress all others.
+    # This prevents the agent from seeing conflicting messages (e.g., "pick a skill"
+    # from session-gate when it should be dehydrating).
+    local has_overflow
+    has_overflow=$(echo "$blocking_rules" | jq 'any(.ruleId == "overflow-dehydration")')
+    if [ "$has_overflow" = "true" ]; then
+      blocking_rules=$(echo "$blocking_rules" | jq '[.[] | select(.ruleId == "overflow-dehydration")]')
+      blocking_count=1
+    fi
+
     # --- Step 8: Compute union whitelist from ALL blocking rules ---
     local union_whitelist
     union_whitelist=$(echo "$blocking_rules" | jq '[.[].whitelist // [] | .[]] | unique')

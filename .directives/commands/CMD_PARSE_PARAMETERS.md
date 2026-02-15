@@ -1,6 +1,8 @@
-### §CMD_PARSE_PARAMETERS
+### ¶CMD_PARSE_PARAMETERS
 **Definition**: Parse and validate the session parameters before execution.
 **Rule**: Execute this immediately after `§CMD_MAINTAIN_SESSION_DIR` (or as part of setup). This command outputs the "Flight Plan" for the session.
+
+**CONSTRAINT** (`§INV_JSONSCHEMA_COMPLIANCE`): Before constructing the JSON, read the full schema below — especially the `required` array and each property's `type`. Every required field must be present; every value must match its declared type. The engine validates against this schema and rejects non-compliant payloads.
 
 **Schema**:
 ```json
@@ -138,7 +140,7 @@ Static fields (`taskType`, `phases`, `nextSkills`, `directives`, `modes`, `logTe
 1.  **Analyze**: Review the user's prompt and current context to extract the parameters.
 2.  **Construct**: Create the JSON object matching the schema. Only dynamic fields are required.
 3.  **Activate Session**: Pipe the JSON to `engine session activate` via heredoc (see `§CMD_SESSION_CLI` for exact syntax). The JSON is stored in `.state.json` (merged with runtime fields) and activate returns context (alerts, delegations, RAG suggestions). Do NOT output the JSON to chat — it is stored by activate.
-    *   The agent reads activate's stdout for context sections (## §CMD_SURFACE_ACTIVE_ALERTS, ## §CMD_RECALL_PRIOR_SESSIONS, ## §CMD_RECALL_RELEVANT_DOCS, ## §CMD_DISCOVER_DELEGATION_TARGETS).
+    *   The agent reads activate's stdout for context sections (`## SRC_ACTIVE_ALERTS`, `## SRC_PRIOR_SESSIONS`, `## SRC_RELEVANT_DOCS`, `## SRC_DELEGATION_TARGETS`).
     *   activate uses `taskSummary` from the JSON to run thematic searches via session-search and doc-search automatically.
     *   **No-JSON calls** (e.g., re-activation without new params): use `< /dev/null` to avoid stdin hang.
 4.  **Process Context Output**: Parse activate's Markdown output to identify the context categories (Alerts, RAG:Sessions, RAG:Docs). These are consumed by `§CMD_INGEST_CONTEXT_BEFORE_WORK`, which curates the best results and builds the multichoice menu in Phase 1.
@@ -152,16 +154,16 @@ Static fields (`taskType`, `phases`, `nextSkills`, `directives`, `modes`, `logTe
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "session_dir": {
+    "sessionDir": {
       "type": "string",
       "description": "Path to the created session directory"
     },
-    "parameters_parsed": {
-      "type": "boolean",
-      "description": "Whether session parameters were successfully parsed and stored"
+    "parametersParsed": {
+      "type": "string",
+      "description": "Session params summary (e.g., 'activated, 3 context paths')"
     }
   },
-  "required": ["session_dir", "parameters_parsed"],
+  "required": ["sessionDir", "parametersParsed"],
   "additionalProperties": false
 }
 ```

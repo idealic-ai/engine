@@ -1,6 +1,6 @@
-### §CMD_PROCESS_DELEGATIONS
+### ¶CMD_PROCESS_DELEGATIONS
 **Definition**: Scans the current session's artifacts for unresolved bare `#needs-X` inline tags and invokes `/delegation-create` for each one. This is a synthesis step that runs between `§CMD_WALK_THROUGH_RESULTS` and `§CMD_GENERATE_DEBRIEF`.
-**Trigger**: Called during skill synthesis phases. Positioned after walkthrough (which places tags) and before debrief (which captures final state).
+**Classification**: SCAN
 
 **Algorithm**:
 
@@ -21,7 +21,7 @@
 
     If none remain, skip silently -- output nothing and return control.
 
-4.  **Process Each**: For each unresolved tag:
+4.  **Process Each**: For each unresolved tag (file paths per `¶INV_TERMINAL_FILE_LINKS`):
     *   Extract the tag, source file, line number, and surrounding context (from `--context` output)
     *   Invoke `/delegation-create` via the Skill tool: `Skill(skill: "delegation-create", args: "[tag] [source context summary]")`
     *   `/delegation-create` handles mode selection and REQUEST filing
@@ -39,9 +39,31 @@
 *   **Skip Silently**: If no unresolved tags are found, return immediately without any chat output. Do not announce "no delegations found."
 *   **Filter Aggressively**: Avoid re-delegating items that were already handled by walkthrough triage or earlier `/delegation-create` invocations in the same session.
 *   **Tags-line vs Inline**: Only process INLINE tags. Tags on the `**Tags**:` line of a file are structural metadata, not delegation candidates (they're already discoverable by `engine tag find`).
+*   **`¶INV_ESCAPE_BY_DEFAULT`**: Backtick-escape tag references in chat output and log entries; bare tags only on `**Tags**:` lines or intentional inline.
 
 ---
 
 ## PROOF FOR §CMD_PROCESS_DELEGATIONS
 
-This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "executed": {
+      "type": "string",
+      "description": "What was accomplished (3-7 word self-quote)"
+    },
+    "tagsFound": {
+      "type": "string",
+      "description": "Count and types of tags found (e.g., '3 tags: 2 #needs-impl, 1 #needs-research')"
+    },
+    "requestsFiled": {
+      "type": "string",
+      "description": "Count of REQUEST files created (e.g., '2 REQUESTs filed')"
+    }
+  },
+  "required": ["executed", "tagsFound"],
+  "additionalProperties": false
+}
+```

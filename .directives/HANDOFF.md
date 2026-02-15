@@ -16,11 +16,20 @@ This document is the comprehensive reference for inter-agent coordination and wo
 
 ### The Three Handoff Patterns
 
-| Pattern | Mechanism | Execution | Coordination |
-|---------|-----------|-----------|--------------|
-| **Sub-Agents** | `Task` tool | Synchronous | Same conversation, foreground |
-| **Tagged Requests** | `#needs-*` tags | Asynchronous | Cross-session, file-based |
-| **Daemon-Spawned** | `engine run --monitor-tags` + `§TAG_DISPATCH` | Parallel | Automatic, tag-triggered (`#delegated-*`) |
+**Sub-Agents**
+  **Mechanism**: `Task` tool
+  **Execution**: Synchronous
+  **Coordination**: Same conversation, foreground
+
+**Tagged Requests**
+  **Mechanism**: `#needs-*` tags
+  **Execution**: Asynchronous
+  **Coordination**: Cross-session, file-based
+
+**Daemon-Spawned**
+  **Mechanism**: `engine run --monitor-tags` + `§TAG_DISPATCH`
+  **Execution**: Parallel
+  **Coordination**: Automatic, tag-triggered (`#delegated-*`)
 
 ---
 
@@ -69,9 +78,9 @@ This document is the comprehensive reference for inter-agent coordination and wo
 - Any deferred work tagged during a session
 
 **Mechanism**:
-Every `#needs-X` tag maps 1:1 to a resolving skill (`¶INV_1_TO_1_TAG_SKILL`). When a tag is applied to a debrief or work artifact, the corresponding skill discovers and processes it.
+Every `#needs-X` tag maps 1:1 to a resolving skill (`§INV_1_TO_1_TAG_SKILL`). When a tag is applied to a debrief or work artifact, the corresponding skill discovers and processes it.
 
-Skills that support structured delegation have `_REQUEST.md` and `_RESPONSE.md` templates in their `assets/` folder (`¶INV_DELEGATION_VIA_TEMPLATES`). Skills without these templates process inline tags directly (reading the surrounding context).
+Skills that support structured delegation have `_REQUEST.md` and `_RESPONSE.md` templates in their `assets/` folder (`§INV_DELEGATION_VIA_TEMPLATES`). Skills without these templates process inline tags directly (reading the surrounding context).
 
 **Lifecycle** (two paths):
 ```
@@ -89,9 +98,9 @@ Immediate path (next-skill):
 ```
 
 **Key rules**:
-- `#needs-X` is a staging tag — daemons MUST NOT monitor it (`¶INV_NEEDS_IS_STAGING`)
-- `#needs-X` → `#delegated-X` requires human approval (`¶INV_DISPATCH_APPROVAL_REQUIRED`)
-- `#next-X` is for immediate next-skill execution — daemons MUST NOT monitor it (`¶INV_NEXT_IS_IMMEDIATE`)
+- `#needs-X` is a staging tag — daemons MUST NOT monitor it (`§INV_NEEDS_IS_STAGING`)
+- `#needs-X` → `#delegated-X` requires human approval (`§INV_DISPATCH_APPROVAL_REQUIRED`)
+- `#next-X` is for immediate next-skill execution — daemons MUST NOT monitor it (`§INV_NEXT_IS_IMMEDIATE`)
 - Only `#delegated-X` triggers daemon dispatch
 
 ### 2.3 Research Handoff
@@ -121,7 +130,7 @@ Immediate path (next-skill):
 
 ## 3. Tag Lifecycle
 
-All coordination uses a 5-state lifecycle with two paths. See `§FEED_*` sections in `~/.claude/.directives/TAGS.md` for the canonical reference.
+All coordination uses a 5-state lifecycle with two paths. See `§FEED_*` sections in `~/.claude/.directives/SIGILS.md` for the canonical reference.
 
 ### State Transitions
 
@@ -136,7 +145,7 @@ Daemon path (async — for background processing):
 ┌─────────────────┐
 │  #delegated-X   │  Approved for daemon dispatch
 └────────┬────────┘
-         │ Worker claims via /delegation-claim (¶INV_CLAIM_BEFORE_WORK)
+         │ Worker claims via /delegation-claim (§INV_CLAIM_BEFORE_WORK)
          ▼
 ┌─────────────────┐
 │  #claimed-X     │  Work in progress, claimed by agent
@@ -172,9 +181,9 @@ Immediate path (next-skill — for inline execution):
 
 ### Claiming Semantics
 
-**CRITICAL**: An agent MUST swap `#delegated-X` → `#claimed-X` **before** starting work (`¶INV_CLAIM_BEFORE_WORK`).
+**CRITICAL**: An agent MUST swap `#delegated-X` → `#claimed-X` **before** starting work (`§INV_CLAIM_BEFORE_WORK`).
 
-Note: Agents claim from `#delegated-X` (not `#needs-X`). The `#needs-X` → `#delegated-X` transition requires human approval (`¶INV_DISPATCH_APPROVAL_REQUIRED`).
+Note: Agents claim from `#delegated-X` (not `#needs-X`). The `#needs-X` → `#delegated-X` transition requires human approval (`§INV_DISPATCH_APPROVAL_REQUIRED`).
 
 This prevents double-processing:
 1. Human approves `#needs-implementation` → `#delegated-implementation`
@@ -205,19 +214,25 @@ Weight tags express urgency and effort. They are **optional metadata** — absen
 
 ### Priority Tags
 
-| Tag | Meaning | Scheduling |
-|-----|---------|------------|
-| `#P0` | Critical | Blocks everything. Process immediately. |
-| `#P1` | Important | Should be done soon. Higher queue priority. |
-| `#P2` | Normal | Default priority (assumed if absent). |
+**`#P0`** — Critical
+  Blocks everything. Process immediately.
+
+**`#P1`** — Important
+  Should be done soon. Higher queue priority.
+
+**`#P2`** — Normal
+  Default priority (assumed if absent).
 
 ### Effort Tags
 
-| Tag | Meaning | Time Estimate |
-|-----|---------|---------------|
-| `#S` | Small | < 30 minutes |
-| `#M` | Medium | 30 min - 2 hours |
-| `#L` | Large | > 2 hours |
+**`#S`** — Small
+  < 30 minutes
+
+**`#M`** — Medium
+  30 min - 2 hours
+
+**`#L`** — Large
+  > 2 hours
 
 ### Usage
 
@@ -231,7 +246,7 @@ Scheduling behavior:
 - **FIFO within priority**: First-in, first-out for same priority
 - **Effort is informational**: For human planning, not daemon scheduling
 
-**See Also**: `§TAG_WEIGHTS` in `~/.claude/.directives/TAGS.md`
+**See Also**: `§TAG_WEIGHTS` in `~/.claude/.directives/SIGILS.md`
 
 ---
 
@@ -241,7 +256,7 @@ Scheduling behavior:
 
 The dispatch daemon is a background process that automatically processes tagged work items.
 
-**Location**: `~/.claude/scripts/run.sh --monitor-tags` (daemon mode). See `~/.claude/docs/DAEMON.md` for full reference.
+**Location**: `~/.claude/scripts/run.sh --monitor-tags` (daemon mode).
 
 > **Note**: The legacy standalone `dispatch-daemon.sh` at `~/.claude/tools/dispatch-daemon/` is deprecated.
 
@@ -250,23 +265,48 @@ The dispatch daemon is a background process that automatically processes tagged 
 - `/delegation-claim` skill for worker-side routing
 - Stateless — tags ARE the state
 
-**Invariant** (`¶INV_DAEMON_STATELESS`): The daemon MUST NOT maintain state beyond what tags encode. `#claimed-X` IS the claim state.
+**Invariant** (`§INV_DAEMON_STATELESS`): The daemon MUST NOT maintain state beyond what tags encode. `#claimed-X` IS the claim state.
 
 ### 5.2 Routing
 
-The daemon reads the `§TAG_DISPATCH` table from `~/.claude/.directives/TAGS.md` to map tags to skills:
+The daemon reads the `§TAG_DISPATCH` table from `~/.claude/.directives/SIGILS.md` to map tags to skills:
 
-| Tag | Skill | Mode | Priority |
-|-----|-------|------|----------|
-| `#delegated-brainstorm` | `/brainstorm` | interactive | 1 (exploration unblocks decisions) |
-| `#delegated-research` | `/research` | async (Gemini) | 2 (queue early) |
-| `#delegated-fix` | `/fix` | interactive/agent | 3 (bugs block progress) |
-| `#delegated-implementation` | `/implement` | interactive/agent | 4 |
-| `#delegated-loop` | `/loop` | interactive | 4.5 (iteration workloads) |
-| `#delegated-chores` | `/chores` | interactive | 5 (quick wins, filler) |
-| `#delegated-documentation` | `/document` | interactive | 6 |
+**`#delegated-brainstorm`**
+  **Skill**: `/brainstorm`
+  **Mode**: interactive
+  **Priority**: 1 (exploration unblocks decisions)
 
-**Note**: Only `#delegated-*` tags trigger daemon dispatch. `#needs-*` and `#next-*` tags are ignored by the daemon. See `§TAG_DISPATCH` in `~/.claude/.directives/TAGS.md` for the canonical routing table.
+**`#delegated-research`**
+  **Skill**: `/research`
+  **Mode**: async (Gemini)
+  **Priority**: 2 (queue early)
+
+**`#delegated-fix`**
+  **Skill**: `/fix`
+  **Mode**: interactive/agent
+  **Priority**: 3 (bugs block progress)
+
+**`#delegated-implementation`**
+  **Skill**: `/implement`
+  **Mode**: interactive/agent
+  **Priority**: 4
+
+**`#delegated-loop`**
+  **Skill**: `/loop`
+  **Mode**: interactive
+  **Priority**: 4.5 (iteration workloads)
+
+**`#delegated-chores`**
+  **Skill**: `/chores`
+  **Mode**: interactive
+  **Priority**: 5 (quick wins, filler)
+
+**`#delegated-documentation`**
+  **Skill**: `/document`
+  **Mode**: interactive
+  **Priority**: 6
+
+**Note**: Only `#delegated-*` tags trigger daemon dispatch. `#needs-*` and `#next-*` tags are ignored by the daemon. See `§TAG_DISPATCH` in `~/.claude/.directives/SIGILS.md` for the canonical routing table.
 
 ### 5.3 Spawning
 
@@ -326,15 +366,13 @@ cat sessions/2026_02_06_MY_SESSION/.state.json
 
 All handoff-related commands are defined in `~/.claude/.directives/COMMANDS.md`. Summary:
 
-| Command | Purpose |
-|---------|---------|
-| `§CMD_HANDOFF_TO_AGENT` | Synchronous sub-agent invocation |
-| `§CMD_AWAIT_TAG` | Block until tag appears (fswatch) |
-| `§CMD_FIND_TAGGED_FILES` | Discover files with specific tags |
-| `§CMD_TAG_FILE` | Add tag to file's Tags line |
-| `§CMD_UNTAG_FILE` | Remove tag from file's Tags line |
-| `§CMD_SWAP_TAG_IN_FILE` | Atomically swap one tag for another |
-| `§CMD_MANAGE_ALERTS` | Raise/resolve alerts during synthesis |
+**`§CMD_HANDOFF_TO_AGENT`** — Synchronous sub-agent invocation
+**`§CMD_AWAIT_TAG`** — Block until tag appears (fswatch)
+**`§CMD_FIND_TAGGED_FILES`** — Discover files with specific tags
+**`§CMD_TAG_FILE`** — Add tag to file's Tags line
+**`§CMD_UNTAG_FILE`** — Remove tag from file's Tags line
+**`§CMD_SWAP_TAG_IN_FILE`** — Atomically swap one tag for another
+**`§CMD_MANAGE_ALERTS`** — Raise/resolve alerts during synthesis
 
 ---
 
@@ -453,9 +491,9 @@ When automatically re-queuing failed work:
 
 These invariants govern handoff behavior. Canonical definitions live in `~/.claude/.directives/INVARIANTS.md`. Summary references:
 
-*   **`¶INV_CLAIM_BEFORE_WORK`** — An agent MUST swap `#delegated-X` → `#claimed-X` before starting work. See shared INVARIANTS.md § Development Philosophy.
-*   **`¶INV_DAEMON_STATELESS`** — The dispatch daemon MUST NOT maintain state beyond what tags encode. See shared INVARIANTS.md § Engine Physics.
-*   **`¶INV_NEEDS_IS_STAGING`** — `#needs-X` is a staging tag; daemons MUST NOT monitor it. See shared INVARIANTS.md § Development Philosophy.
-*   **`¶INV_NEXT_IS_IMMEDIATE`** — `#next-X` is an immediate-execution tag; daemons MUST NOT monitor it. See shared INVARIANTS.md § Development Philosophy.
-*   **`¶INV_DISPATCH_APPROVAL_REQUIRED`** — The `#needs-X` → `#delegated-X` and `#needs-X` → `#next-X` transitions require human approval. See shared INVARIANTS.md § Development Philosophy.
-*   **`¶INV_DAEMON_DEBOUNCE`** — 3-second debounce after detecting `#delegated-X`. See shared INVARIANTS.md § Development Philosophy.
+*   **`§INV_CLAIM_BEFORE_WORK`** — An agent MUST swap `#delegated-X` → `#claimed-X` before starting work. See shared INVARIANTS.md § Development Philosophy.
+*   **`§INV_DAEMON_STATELESS`** — The dispatch daemon MUST NOT maintain state beyond what tags encode. See shared INVARIANTS.md § Engine Physics.
+*   **`§INV_NEEDS_IS_STAGING`** — `#needs-X` is a staging tag; daemons MUST NOT monitor it. See shared INVARIANTS.md § Development Philosophy.
+*   **`§INV_NEXT_IS_IMMEDIATE`** — `#next-X` is an immediate-execution tag; daemons MUST NOT monitor it. See shared INVARIANTS.md § Development Philosophy.
+*   **`§INV_DISPATCH_APPROVAL_REQUIRED`** — The `#needs-X` → `#delegated-X` and `#needs-X` → `#next-X` transitions require human approval. See shared INVARIANTS.md § Development Philosophy.
+*   **`§INV_DAEMON_DEBOUNCE`** — 3-second debounce after detecting `#delegated-X`. See shared INVARIANTS.md § Development Philosophy.

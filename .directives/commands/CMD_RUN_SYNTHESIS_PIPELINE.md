@@ -1,92 +1,116 @@
-### §CMD_RUN_SYNTHESIS_PIPELINE
-**Definition**: The centralized synthesis pipeline orchestrator. Replaces the copy-pasted synthesis blocks in individual SKILL.md files with a single standard mechanism. Skills reference this command in their synthesis phase instead of duplicating pipeline steps.
-**Trigger**: Called by skill protocols during their synthesis phase (typically Phase 5 or Phase 6, depending on skill).
-**Prerequisite**: The skill MUST declare synthesis sub-phases with `§CMD_`-named proof fields in its `phases` array (see Sub-phase Convention below).
-
-[!!!] **WORK → PROVE pattern**: Each step below follows the same sequence: execute the command first, then transition the phase with proof. The phase transition is the LAST action of each step, not the first. After context overflow recovery, the agent resumes at the saved phase — it must do the next step's work before transitioning.
-
-**Sub-phase Convention** (all protocol-tier skills follow this pattern):
-```json
-{"major": N, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
-{"major": N, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
-{"major": N, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
-{"major": N, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"]}
-```
-Where N is the skill's synthesis phase number (e.g., 5 for implement, 6 for analyze).
-
-**Proof Key Naming**: Every proof field name is a `§CMD_` reference from COMMANDS.md. This creates a direct link: proof field → command → debrief output heading. The `engine session debrief` command reads these proof fields to determine which scans to run.
-
-**Algorithm**:
-
-**Step 0 — Checklists** (sub-phase N.1):
-1.  Execute `§CMD_PROCESS_CHECKLISTS` — process discovered CHECKLIST.md files. Skips silently if none.
-2.  Prove:
-    ```bash
-    engine session phase sessions/DIR "N.1: Checklists" <<'EOF'
-    §CMD_PROCESS_CHECKLISTS: [processed N checklists | skipped: none discovered]
-    EOF
-    ```
-
-**Step 1 — Debrief** (sub-phase N.2):
-1.  Execute `§CMD_GENERATE_DEBRIEF` — creates the debrief file (steps 1-7 of that command).
-2.  Prove:
-    ```bash
-    engine session phase sessions/DIR "N.2: Debrief" <<'EOF'
-    §CMD_GENERATE_DEBRIEF_file: sessions/DIR/DEBRIEF_FILE.md
-    §CMD_GENERATE_DEBRIEF_tags: #needs-review
-    EOF
-    ```
-
-**Step 2 — Pipeline** (sub-phase N.3):
-1.  Run `engine session debrief sessions/DIR` to get scan results. The output contains `## §CMD_NAME (count)` headings for SCAN sections, static reminders for STATIC sections, and conditional sections for DEPENDENT sections.
-2.  Process each section in the debrief output, in this canonical order:
-    *   `§CMD_MANAGE_DIRECTIVES` (STATIC) — always execute. Three passes: AGENTS.md updates, invariant capture, pitfall capture. Skips silently if none found.
-    *   `§CMD_PROCESS_DELEGATIONS` (SCAN) — use the scan results from debrief output. Execute the command with the listed items. Skips silently if count is 0.
-    *   `§CMD_DISPATCH_APPROVAL` (DEPENDENT) — only execute if `§CMD_PROCESS_DELEGATIONS` found items (count > 0). Present dispatch walkthrough for user triage.
-    *   `§CMD_CAPTURE_SIDE_DISCOVERIES` (SCAN) — use the scan results. Present multichoice for tagging. Skips silently if count is 0.
-    *   `§CMD_MANAGE_ALERTS` (STATIC) — always execute. Check for alert raise/resolve. Skips silently if none needed.
-    *   `§CMD_REPORT_LEFTOVER_WORK` (SCAN) — use the scan results. Output report in chat. Skips silently if count is 0.
-3.  Prove:
-    ```bash
-    engine session phase sessions/DIR "N.3: Pipeline" <<'EOF'
-    §CMD_MANAGE_DIRECTIVES: [ran: N updates | skipped: no files touched]
-    §CMD_PROCESS_DELEGATIONS: [ran: N bare tags processed | skipped: none found]
-    §CMD_DISPATCH_APPROVAL: [ran: N items dispatched | skipped: none found]
-    §CMD_CAPTURE_SIDE_DISCOVERIES: [ran: N captured | skipped: none found]
-    §CMD_MANAGE_ALERTS: [ran: N alerts managed | skipped: none needed]
-    §CMD_REPORT_LEFTOVER_WORK: [ran: N items reported | skipped: none found]
-    EOF
-    ```
-
-**Step 3 — Close** (sub-phase N.4):
-1.  Execute `§CMD_REPORT_ARTIFACTS` — list all created/modified files in chat.
-2.  Execute `§CMD_REPORT_SUMMARY` — 2-paragraph session summary in chat.
-3.  Execute `§CMD_WALK_THROUGH_RESULTS` — skill-specific walk-through (config defined in each SKILL.md).
-4.  Execute `§CMD_CLOSE_SESSION` — debrief gate, compose description, infer keywords, transition to idle.
-5.  Execute `§CMD_PRESENT_NEXT_STEPS` — post-synthesis routing menu (continue/switch skill/done).
-6.  Prove:
-    ```bash
-    engine session phase sessions/DIR "N.4: Close" <<'EOF'
-    §CMD_REPORT_ARTIFACTS: yes
-    §CMD_REPORT_SUMMARY: yes
-    §CMD_CLOSE_SESSION: [session idled with description]
-    §CMD_PRESENT_NEXT_STEPS: [user chose /skill or "Done for now"]
-    EOF
-    ```
-
-**What stays skill-specific** (NOT centralized):
-*   **Debrief template**: Each skill uses its own `TEMPLATE_*.md` (e.g., `TEMPLATE_IMPLEMENTATION.md` vs `TEMPLATE_ANALYSIS.md`).
-*   **Walk-through config**: Each skill defines its own `§CMD_WALK_THROUGH_RESULTS Configuration` block (mode, gateQuestion, debriefFile, planQuestions).
-*   **Walk-through placement**: Some skills place the walk-through before the debrief (e.g., brainstorm), others after (e.g., implement). The skill's synthesis block controls when `§CMD_WALK_THROUGH_RESULTS` runs relative to the other steps.
-*   **Synthesis phase number**: N varies by skill (5 for implement, 6 for analyze, etc.).
-
-**Constraints**:
-*   **No skipping**: Every sub-phase executes, even if it produces no output. `§CMD_REFUSE_OFF_COURSE` applies.
-*   **Sequential**: Sub-phases execute in order (N.1 → N.2 → N.3 → N.4). Each must prove before proceeding.
-*   **Scan-first**: `engine session debrief` runs once at the start of Step 2. Its output drives the agent's pipeline processing. The agent does NOT re-scan — it uses the debrief output as its task list.
+### ¶CMD_RUN_SYNTHESIS_PIPELINE
+**Definition**: Conceptual guide to the synthesis pipeline — the session's final act where raw work becomes a coherent record. This document explains *why* synthesis matters and *how* the sub-phase convention works. Individual `§CMD_*` commands define their own procedures; this document provides the philosophy and structure that binds them.
+**Trigger**: Called by skill protocols during their synthesis phase (typically Phase 4, 5, or 6 depending on skill).
 
 ---
 
-## PROOF FOR §CMD_RUN_SYNTHESIS_PIPELINE
+## Why Synthesis Matters
 
-This command orchestrates sub-phases (Checklists, Debrief, Pipeline, Close). It does not produce its own proof — proof comes from the sub-phase commands it invokes.
+A session without synthesis is a session that never happened. Code changes persist, but reasoning — why this approach, what trade-offs, what remains — evaporates when the context window closes. The debrief is the primary deliverable: it transforms raw artifacts into a narrative future agents can act on. Without it, three failures compound: **orphaned work** (tags unresolved, delegations in limbo), **invisible debt** (shortcuts and assumptions die with the context), and **broken continuity** (sessions become isolated islands instead of a connected knowledge graph). A good debrief answers: goal, what happened (including plan deviations), decisions and why, what's undone, what the next agent needs. Tech debt callouts must be specific (file, line, what was hacked) not vague.
+
+## Why the Pipeline Scans Matter
+
+The pipeline (N.3) maintains system hygiene through scans that are cheap to run and expensive to skip. Directive management captures new invariants and pitfalls. Delegation processing advances the tag lifecycle (`#needs-X` → `#delegated-X` → `#claimed-X` → `#done-X`). Side-discovery capture harvests incidental findings. Cross-session tags and backlinks weave the session into the project's knowledge graph. Alert management surfaces ongoing situations. Leftover work reporting ensures nothing falls through.
+
+---
+
+## Sub-Phase Convention
+
+All protocol-tier skills declare synthesis as four sub-phases. N is the skill's synthesis phase number (e.g., 4 for implement, 5 for analyze).
+
+```json
+{"major": N, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
+{"major": N, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
+{"major": N, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+{"major": N, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"]}
+```
+
+**Proof key naming**: Every proof field is a `§CMD_` reference. This creates a direct link: proof field → command → debrief scanner output heading. The `engine session debrief` command reads these proof fields to determine which scans to run.
+
+[!!!] **WORK → PROVE pattern**: Each sub-phase follows the same sequence — execute the commands first, then transition the phase with proof. The phase transition is the LAST action of each sub-phase, not the first. After context overflow recovery, the agent resumes AT the saved sub-phase and must complete its work before transitioning.
+
+### N.1: Checklists
+Execute `§CMD_PROCESS_CHECKLISTS`. Process discovered CHECKLIST.md files (skips silently if none). Prove and transition.
+
+### N.2: Debrief
+Execute `§CMD_GENERATE_DEBRIEF`. Creates the debrief file using the skill's template. Prove with file path and tags.
+
+### N.3: Pipeline
+Run `engine session debrief sessions/DIR` once to get scan results. Process each command in canonical order:
+
+**1. `§CMD_MANAGE_DIRECTIVES`**
+  **Type**: STATIC
+  **Behavior**: Always execute. Three passes: AGENTS.md, invariants, pitfalls.
+
+**2. `§CMD_PROCESS_DELEGATIONS`**
+  **Type**: SCAN
+  **Behavior**: Use debrief scan results. Process bare inline tags.
+
+**3. `§CMD_DISPATCH_APPROVAL`**
+  **Type**: CONSUMER
+  **Behavior**: Consumes step 2 output (REQUEST files) + agent's pre-existing knowledge of Tags-line `#needs-*` tags. No independent scan. User triage walkthrough.
+
+**4. `§CMD_CAPTURE_SIDE_DISCOVERIES`**
+  **Type**: SCAN
+  **Behavior**: Use debrief scan results. Multichoice tagging menu.
+
+**5. `§CMD_RESOLVE_CROSS_SESSION_TAGS`**
+  **Type**: STATIC
+  **Behavior**: Always execute. Find tags resolved by this session's work.
+
+**6. `§CMD_MANAGE_BACKLINKS`**
+  **Type**: STATIC
+  **Behavior**: Always execute. Create cross-session links.
+
+**7. `§CMD_MANAGE_ALERTS`**
+  **Type**: STATIC
+  **Behavior**: Always execute. Check for alert raise/resolve.
+
+**8. `§CMD_REPORT_LEFTOVER_WORK`**
+  **Type**: SCAN
+  **Behavior**: Use debrief scan results. Report incomplete items.
+
+**Type semantics**: STATIC commands always run (reminder + action). SCAN commands use `engine session debrief` output as their task list. CONSUMER commands receive their input from a prior step's output rather than scanning independently. DEPENDENT commands only run when their prerequisite produced results.
+
+**Roll call format**: Every pipeline step echoes a single terse line in chat. This is the audit trail — no verbose narration, no emojis in the echo, no multi-paragraph explanations.
+
+**Format**: `N.3.K: §CMD_X — [outcome].`
+
+**Examples**:
+*   `5.3.1: §CMD_MANAGE_DIRECTIVES — no updates needed.`
+*   `5.3.2: §CMD_PROCESS_DELEGATIONS — 2 bare tags found, processing.`
+*   `5.3.4: §CMD_CAPTURE_SIDE_DISCOVERIES — scanned log, none found.`
+*   `5.3.8: §CMD_REPORT_LEFTOVER_WORK — 3 items reported.`
+
+When a step has actionable items, the roll call line precedes the interaction (e.g., `AskUserQuestion`). When a step finds nothing, the roll call line IS the full output — no follow-up.
+
+**Collapsibility classification**: Pipeline steps fall into two categories based on whether they can be silently skipped when they produce no actionable items:
+
+**COLLAPSIBLE**
+  **Steps**: `§CMD_MANAGE_DIRECTIVES` (invariant + pitfall passes), `§CMD_CAPTURE_SIDE_DISCOVERIES`, `§CMD_REPORT_LEFTOVER_WORK`
+  **Behavior when empty**: Roll call line only. No `AskUserQuestion`.
+
+**NOT COLLAPSIBLE**
+  **Steps**: `§CMD_RESOLVE_BARE_TAGS`, `§CMD_DISPATCH_APPROVAL`, `§CMD_PRESENT_NEXT_STEPS`
+  **Behavior when empty**: Require per-item user decisions. Always present even with few items.
+
+STATIC steps (`§CMD_MANAGE_DIRECTIVES` AGENTS.md pass, `§CMD_RESOLVE_CROSS_SESSION_TAGS`, `§CMD_MANAGE_BACKLINKS`, `§CMD_MANAGE_ALERTS`) always execute regardless — they perform actions, not triage. The collapsibility classification applies only to steps that would otherwise present an empty or trivial `AskUserQuestion`.
+
+### N.4: Close
+Execute in order: `§CMD_REPORT_ARTIFACTS` (list files), `§CMD_REPORT_SUMMARY` (2-paragraph narrative), `§CMD_WALK_THROUGH_RESULTS` (skill-specific), `§CMD_CLOSE_SESSION` (debrief gate + deactivate), `§CMD_PRESENT_NEXT_STEPS` (routing menu).
+
+---
+
+## What Stays Skill-Specific
+
+*   **Debrief template**: Each skill uses its own `TEMPLATE_*.md`.
+*   **Walk-through config**: Each skill defines mode, gateQuestion, debriefFile, planQuestions.
+*   **Walk-through placement**: Some skills walk through before debrief (brainstorm), others after (implement).
+*   **Synthesis phase number**: N varies by skill.
+
+## Constraints
+
+*   **No skipping**: Every sub-phase executes, even if it produces no output. `§CMD_REFUSE_OFF_COURSE` applies.
+*   **Sequential**: Sub-phases execute in order (N.1 → N.2 → N.3 → N.4). Each must prove before proceeding.
+*   **Scan-first**: `engine session debrief` runs once at the start of N.3. Its output drives pipeline processing. The agent does NOT re-scan.
+*   **`¶INV_PROTOCOL_IS_TASK`**: The synthesis pipeline defines the task — do not skip sub-phases or reorder them.

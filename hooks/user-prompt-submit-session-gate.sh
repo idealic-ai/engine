@@ -29,6 +29,17 @@ PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 # Find session once (used by both skill preloading and gate check)
 SESSION_DIR=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
 
+# --- Preload gate: skip skill preloading when context is near overflow ---
+# At 90%+ context, injecting SKILL.md content pushes past overflow threshold.
+# Instead, inject a short warning so the agent knows to dehydrate first.
+CONTEXT_HIGH=false
+if [ -n "$SESSION_DIR" ] && [ -f "$SESSION_DIR/.state.json" ]; then
+  CTX_USAGE=$(jq -r '.contextUsage // 0' "$SESSION_DIR/.state.json" 2>/dev/null || echo "0")
+  if [ "$(echo "$CTX_USAGE >= 0.90" | bc -l 2>/dev/null || echo 0)" = "1" ]; then
+    CONTEXT_HIGH=true
+  fi
+fi
+
 # --- Skill preloading: detect /skill-name and deliver SKILL.md + suggestions ---
 # Strategy: SKILL.md is priority. If it fits in the 10K budget, deliver it and list
 # Phase 0 CMDs + templates as suggestions. If SKILL.md is too large, deliver CMDs/templates
@@ -38,6 +49,10 @@ if [ -n "$PROMPT" ]; then
   # Detect raw /skill-name pattern (only mechanism — <command-name> tags don't appear in hook prompt)
   SKILL_NAME=$(echo "$PROMPT" | sed -n 's|^/\([a-z][a-z-]*\).*|\1|p' 2>/dev/null || true)
   if [ -n "$SKILL_NAME" ] && [ -d "$HOME/.claude/skills/$SKILL_NAME" ]; then
+    # Preload gate: at 90%+ context, skip file delivery to prevent overflow
+    if [ "$CONTEXT_HIGH" = "true" ]; then
+      SKILL_ADDITIONAL_CONTEXT="[block: preload-gate] Context at 90%+. Skill /$SKILL_NAME detected but preloading skipped to prevent overflow. Execute §CMD_DEHYDRATE before starting new skill."
+    else
     SKILL_FILE="$HOME/.claude/skills/$SKILL_NAME/SKILL.md"
     BUDGET=9000  # Safety margin under 10K truncation limit (pitfall #11)
     PRELOADED_JSON="[]"
@@ -104,6 +119,7 @@ if [ -n "$PROMPT" ]; then
         if ($new | length) > 0 then .pendingPreloads = ((.pendingPreloads // []) + $new | unique) else . end
       ' "$SESSION_DIR/.state.json" | safe_json_write "$SESSION_DIR/.state.json"
     fi
+    fi  # end CONTEXT_HIGH else branch
   fi
 fi
 
@@ -112,7 +128,7 @@ GATE_MESSAGE=""
 if [ -n "$SESSION_DIR" ] && [ -f "$SESSION_DIR/.state.json" ] && jq empty "$SESSION_DIR/.state.json" 2>/dev/null; then
   LIFECYCLE=$(jq -r '.lifecycle // "active"' "$SESSION_DIR/.state.json" 2>/dev/null || echo "active")
 
-  if [ "$LIFECYCLE" != "active" ] && [ "$LIFECYCLE" != "dehydrating" ] && [ "$LIFECYCLE" != "resuming" ]; then
+  if [ "$LIFECYCLE" != "active" ] && [ "$LIFECYCLE" != "dehydrating" ] && [ "$LIFECYCLE" != "resuming" ] && [ "$LIFECYCLE" != "restarting" ]; then
     # Completed session — inject continuation prompt
     SKILL=$(jq -r '.skill // ""' "$SESSION_DIR/.state.json" 2>/dev/null || echo "")
     SESSION_NAME=$(basename "$SESSION_DIR")

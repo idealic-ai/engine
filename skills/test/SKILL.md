@@ -17,33 +17,33 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
   "taskType": "TESTING",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": ["§CMD_FIND_TAGGED_FILES"],
-      "proof": ["mode", "session_dir", "parameters_parsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"]},
     {"label": "1", "name": "Strategy",
-      "steps": ["§CMD_INTERROGATE", "§CMD_GENERATE_PLAN"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE", "§CMD_GENERATE_PLAN"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION", "§CMD_LINK_FILE"],
-      "proof": ["depth_chosen", "rounds_completed", "plan_written", "user_approved"]},
+      "proof": ["depthChosen", "roundsCompleted", "planWritten", "userApproved"]},
     {"label": "2", "name": "Execution",
       "steps": ["§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
-      "proof": ["path_chosen", "paths_available"]},
+      "proof": ["pathChosen", "pathsAvailable"]},
     {"label": "2.A", "name": "Testing Loop",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
-      "proof": ["plan_steps_completed", "tests_pass", "log_entries", "unresolved_blocks"]},
+      "proof": ["planStepsCompleted", "testsPass", "logEntries", "unresolvedBlocks"]},
     {"label": "2.B", "name": "Agent Handoff",
       "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
     {"label": "2.C", "name": "Parallel Agent Handoff",
       "steps": ["§CMD_PARALLEL_HANDOFF"], "commands": [], "proof": []},
     {"label": "3", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "3.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
     {"label": "3.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
     {"label": "3.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "3.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
@@ -66,9 +66,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Testing ___ with ___ mode.
-> Trigger: ___. Focus: session activation, mode selection, context loading.
-> Loading context via `§CMD_INGEST_CONTEXT_BEFORE_WORK`.
+> 0: Testing ___. Trigger: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.*)`
 
@@ -90,9 +90,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 *Before writing code, use the Anti-Fragile Checklist to generate high-value scenarios.*
 
 `§CMD_REPORT_INTENT`:
-> Interrogating ___ testing assumptions, then building the plan.
-> Drawing from mode-specific topics and the Question Bank.
-> Minimum rounds: ___ (based on depth selection).
+> 1: Interrogating ___ testing assumptions, then building the plan. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.*)`
 
@@ -215,6 +215,11 @@ After interrogation completes:
 ## 2. Execution
 *Gateway: select inline, agent handoff, or parallel handoff.*
 
+`§CMD_REPORT_INTENT`:
+> 2: Selecting execution path for test implementation. ___.
+> Focus: ___.
+> Not: ___.
+
 `§CMD_EXECUTE_PHASE_STEPS(2.*)`
 
 ---
@@ -223,8 +228,9 @@ After interrogation completes:
 *Iterate through the Plan.*
 
 `§CMD_REPORT_INTENT`:
-> Executing ___-step testing plan. Target: ___.
-> Approach: Write test, run, log, tick.
+> 2.A: Executing ___-step testing plan. Target: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(2.A.*)`
 
@@ -267,8 +273,9 @@ After interrogation completes:
 *When all tasks are complete.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. ___ test scenarios completed, ___ tests passing.
-> Producing TESTING.md debrief with coverage analysis.
+> 3: Synthesizing. ___ test scenarios completed, ___ tests passing.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 

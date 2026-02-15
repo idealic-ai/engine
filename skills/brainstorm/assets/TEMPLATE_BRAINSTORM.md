@@ -40,7 +40,7 @@
 ## 5. Invariants & Rules
 *Define the new "Laws of Physics" that emerge from this decision.*
 
-*   **§INV_NAME**: Definition.
+*   **¶INV_NAME**: Definition.
 
 ## 6. Documentation Updates
 *A checklist of existing documentation that must be updated.*

@@ -6,10 +6,8 @@
 
 <!-- Core types table — what agents need to know to read/write code here -->
 
-| Type | Description |
-|------|-------------|
-| `ExampleType` | What it represents and when it's used |
-| `ExampleConfig` | Configuration shape and key fields |
+- **`ExampleType`** — What it represents and when it's used
+- **`ExampleConfig`** — Configuration shape and key fields
 
 ## Directory Structure
 
@@ -27,11 +25,9 @@ src/
 
 <!-- List other .directives/ files in this directory — helps agents find rules, tests, checklists -->
 
-| Directive | What it covers |
-|-----------|---------------|
-| `INVARIANTS.md` | Package-specific rules (e.g., schema constraints) |
-| `TESTING.md` | Test patterns, fixtures, coverage goals |
-| `CHECKLIST.md` | Pre-close verification items |
+- **`INVARIANTS.md`** — Package-specific rules (e.g., schema constraints)
+- **`TESTING.md`** — Test patterns, fixtures, coverage goals
+- **`CHECKLIST.md`** — Pre-close verification items
 
 ## Commands
 

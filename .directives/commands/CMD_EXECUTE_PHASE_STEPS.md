@@ -1,4 +1,4 @@
-### §CMD_EXECUTE_PHASE_STEPS
+### ¶CMD_EXECUTE_PHASE_STEPS
 **Definition**: Per-phase step runner. Reads the current phase's `steps` array from `.state.json`, executes each step command sequentially, and collects proof outputs.
 **Concept**: "Here are this phase's mechanical steps — execute them in order."
 **Trigger**: Called within each phase section of SKILL.md, typically after `§CMD_REPORT_INTENT`.
@@ -21,12 +21,13 @@ If no `Steps:` section appeared in the transition stdout, or the steps list is e
 
 ### Step 2: Execute Steps Sequentially
 
-For each step `N.M: §CMD_X`:
+For each step `N.M:` `§CMD_X`:
 
-1. **Locate the command**: The CMD file (`CMD_X.md`) was preloaded by the `post-tool-use-phase-commands.sh` hook during the phase transition. It should already be in your context.
-2. **Execute**: Follow the command definition exactly as written in `CMD_X.md`.
-3. **Collect proof**: After the command completes, note the proof fields specified in the `## PROOF FOR §CMD_X` section of the CMD file. These become part of the phase's proof when transitioning out.
-4. **Proceed to next step**: Move to step `N.(M+1)`.
+1. **Roll Call (Announce)**: Prefix your chat output with the step number from the engine's listing: `N.M. §CMD_X — [brief result]`. This creates a numbered roll call matching the engine's step listing. Example: `4.3.1. §CMD_MANAGE_DIRECTIVES — scanned 2 dirs, no updates needed`.
+2. **Locate the command**: The CMD file (`CMD_X.md`) was preloaded by the `post-tool-use-phase-commands.sh` hook during the phase transition. It should already be in your context for reference. **To edit a preloaded CMD file, Read it first** (`¶INV_PRELOAD_IS_REFERENCE_ONLY`).
+3. **Execute**: Follow the command definition exactly as written in `CMD_X.md`.
+4. **Collect proof**: After the command completes, note the proof fields specified in the `## PROOF FOR` `§CMD_X` section of the CMD file. These become part of the phase's proof when transitioning out.
+5. **Proceed to next step**: Move to step `N.(M+1)`.
 
 **Rules**:
 - Execute steps in declared order. Do NOT skip or reorder.
@@ -39,76 +40,36 @@ After all steps execute (or if there are no steps), the phase continues with wha
 
 ---
 
-## Self-Affirmation of Invariants
-
-If the phase stdout includes an `Invariants:` section, the agent MUST self-affirm each invariant before executing steps:
-
-```markdown
-> I will follow invariants:
-> * ¶INV_CONCISE_CHAT, because ____
-> * ¶INV_SKILL_PROTOCOL_MANDATORY, because ____
-```
-
-The agent fills in the blanks with its own understanding of WHY this invariant matters for the current phase. This is cognitive anchoring — the act of articulating the reason primes attention to the constraint throughout the phase.
-
-**Rules**:
-- Self-affirm BEFORE executing any steps (it's the first output after the intent block).
-- Fill every blank — do NOT leave `____` unfilled.
-- Keep reasons concise (one phrase or sentence).
-- If an invariant is unfamiliar, state that: "because I need to read this invariant to understand it."
-
----
-
-## Interaction with SKILL.md Prose
-
-This command is called WITHIN prose, not instead of it. The pattern:
-
-```markdown
-## N. Phase Name
-
-`§CMD_REPORT_INTENT`:
-> [intent block]
-
-Execute `§CMD_EXECUTE_PHASE_STEPS`.
-
-### Skill-Specific Content
-[Topics, question banks, configuration, etc.]
-```
-
-The prose WRAPS the protocol. Examples:
-- "Execute `§CMD_EXECUTE_PHASE_STEPS`. After steps complete, review the topics below for additional context."
-- "Before executing `§CMD_EXECUTE_PHASE_STEPS`, note that this skill uses a modified interrogation approach."
-
----
-
-## Step Sub-Indexing
-
-Steps are numbered with sub-indices derived from the phase label:
-- Phase `1` → steps `1.1`, `1.2`, `1.3`
-- Phase `2.1` → steps `2.1.1`, `2.1.2`
-- Phase `3.A` → steps `3.A.1`, `3.A.2`
-
-This creates a hierarchy (phase.step) readable in logs and audit trails.
-
----
-
-## Empty Phases
-
-Phases with `steps: []` (or no `steps` array) are prose-only. `§CMD_EXECUTE_PHASE_STEPS` has nothing to execute — it returns immediately. The phase runs entirely on SKILL.md prose.
-
-This is valid and expected for iterative work phases (Build Loop, Research Loop, Testing Loop) where the work pattern is inherently non-sequential.
-
----
-
 ## Constraints
 
+- **Self-affirmation**: If phase stdout includes `Invariants:`, self-affirm each before executing steps: `> I will follow ¶INV_X, because [your reasoning]`. Cognitive anchoring — articulating the reason primes attention.
+- **Sub-indexing**: Steps are numbered from the phase label — Phase `1` → `1.1`, `1.2`; Phase `3.A` → `3.A.1`, `3.A.2`. Use these numbers in roll call output.
+- **Empty phases**: Phases with `steps: []` are prose-only. This command returns immediately. Valid for iterative work phases (Build Loop, Research Loop).
 - **No step-level checkpointing**: If context overflows mid-phase, recovery restarts at the phase level. The LLM uses the log to determine which steps were completed.
 - **Steps are commands**: Every entry in `steps` MUST be a `§CMD_*` reference (`¶INV_STEPS_ARE_COMMANDS`). Prose instructions are not steps.
 - **Proof is cumulative**: Phase proof = union of all step proof schemas + any phase-level data fields (like `mode`, `session_dir`).
-- **Preloading is automatic**: The hook preloads CMD files for all steps and commands when you transition into a phase. You don't need to manually load them.
+- **Preloading is automatic**: The hook preloads CMD files for all steps and commands when you transition into a phase. To **edit** a preloaded file, call Read first (`¶INV_PRELOAD_IS_REFERENCE_ONLY`).
+- **`¶INV_PROTOCOL_IS_TASK`**: The protocol defines the task — do not skip steps or reorder them.
 
 ---
 
 ## PROOF FOR §CMD_EXECUTE_PHASE_STEPS
 
-This command does not produce its own proof. The proof comes from the individual steps it executes — each step's `## PROOF FOR §CMD_X` schema contributes to the phase proof.
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "executed": {
+      "type": "string",
+      "description": "What was accomplished (3-7 word self-quote)"
+    },
+    "stepsCompleted": {
+      "type": "string",
+      "description": "Count and names of steps completed (e.g., '3 steps: interrogate, log, gate')"
+    }
+  },
+  "required": ["executed"],
+  "additionalProperties": false
+}
+```

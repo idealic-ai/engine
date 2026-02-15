@@ -32,7 +32,7 @@
             "description": "§CMD_* step references executed sequentially by §CMD_EXECUTE_PHASE_STEPS",
             "items": {
               "type": "string",
-              "pattern": "^§CMD_[A-Z_]+$"
+              "pattern": "^§CMD_[A-Z0-9_]+$"
             }
           },
           "commands": {
@@ -40,7 +40,7 @@
             "description": "§CMD_* commands available during this phase (not auto-executed)",
             "items": {
               "type": "string",
-              "pattern": "^§CMD_[A-Z_]+$"
+              "pattern": "^§CMD_[A-Z0-9_]+$"
             }
           },
           "proof": {

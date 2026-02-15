@@ -17,21 +17,21 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
   "taskType": "DO",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS"],
       "commands": [],
-      "proof": ["session_dir", "parameters_parsed"]},
+      "proof": ["sessionDir", "parametersParsed"]},
     {"label": "1", "name": "Work",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_ASK_USER_IF_STUCK"],
-      "proof": ["log_entries"]},
+      "proof": ["logEntries"]},
     {"label": "2", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "2.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
     {"label": "2.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
     {"label": "2.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "2.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
@@ -47,8 +47,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Quick task: ___.
-> Activating lightweight session. No interrogation, no planning.
+> 0: Quick task: ___. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
@@ -62,8 +63,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 *The heart of /do: just do the work.*
 
 `§CMD_REPORT_INTENT`:
-> Working on ___. Logging as I go.
-> Will ask clarifying questions naturally if needed.
+> 1: Working on ___. Logging as I go.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
@@ -101,8 +103,9 @@ Execute `§CMD_GATE_PHASE`.
 *Wrap up and create the debrief.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. ___ units of work completed.
-> Producing DO.md debrief.
+> 2: Synthesizing. ___ units of work completed.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 

@@ -17,37 +17,37 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
   "taskType": "IMPLEMENTATION",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "session_dir", "parameters_parsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"]},
     {"label": "1", "name": "Interrogation",
-      "steps": ["§CMD_INTERROGATE"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
-      "proof": ["depth_chosen", "rounds_completed"]},
+      "proof": ["depthChosen", "roundsCompleted"]},
     {"label": "2", "name": "Planning",
-      "steps": ["§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS"],
       "commands": ["§CMD_LINK_FILE"],
-      "proof": ["plan_written", "plan_presented", "user_approved"]},
+      "proof": ["planWritten", "planPresented", "userApproved"]},
     {"label": "3", "name": "Execution",
       "steps": ["§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
-      "proof": ["path_chosen", "paths_available"]},
+      "proof": ["pathChosen", "pathsAvailable"]},
     {"label": "3.A", "name": "Build Loop",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
-      "proof": ["plan_steps_completed", "tests_pass", "log_entries", "unresolved_blocks"]},
+      "proof": ["planStepsCompleted", "testsPass", "logEntries", "unresolvedBlocks"]},
     {"label": "3.B", "name": "Agent Handoff",
       "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
     {"label": "3.C", "name": "Parallel Agent Handoff",
       "steps": ["§CMD_PARALLEL_HANDOFF"], "commands": [], "proof": []},
     {"label": "4", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "4.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
     {"label": "4.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
     {"label": "4.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "4.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
@@ -72,9 +72,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Implementing ___ feature.
-> Mode: ___. Trigger: ___.
-> Focus: session activation, mode selection, context loading.
+> 0: Implementing ___ feature. Trigger: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
@@ -96,8 +96,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Interrogation
 
 `§CMD_REPORT_INTENT`:
-> Interrogating ___ assumptions before planning implementation.
-> Drawing from scope, data flow, testing, and risk topics.
+> 1: Interrogating ___ assumptions before planning implementation. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
@@ -120,8 +121,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 2. Planning
 
 `§CMD_REPORT_INTENT`:
-> Planning ___ implementation. ___ steps identified.
-> Producing IMPLEMENTATION_PLAN.md with dependencies and file mappings.
+> 2: Planning ___ implementation. ___ steps identified.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
@@ -148,7 +150,9 @@ If any items are flagged for revision, return to the plan for edits before proce
 ## 3. Execution
 
 `§CMD_REPORT_INTENT`:
-> Selecting execution path for implementation.
+> 3: Selecting execution path for implementation. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 
@@ -160,8 +164,9 @@ If any items are flagged for revision, return to the plan for edits before proce
 *Execute the plan step by step in this conversation.*
 
 `§CMD_REPORT_INTENT`:
-> Executing ___-step build plan. Target: ___.
-> Approach: Red-Green-Refactor per mode configuration.
+> 3.A: Executing ___-step build plan. Target: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.A.*)`
 
@@ -214,8 +219,9 @@ If any items are flagged for revision, return to the plan for edits before proce
 *When all tasks are complete.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. ___ plan steps completed, ___ tests passing.
-> Producing IMPLEMENTATION.md debrief with deviation analysis.
+> 4: Synthesizing. ___ plan steps completed, ___ tests passing.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
 

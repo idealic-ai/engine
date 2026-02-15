@@ -17,25 +17,25 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
   "taskType": "RESEARCH",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["session_dir", "parameters_parsed", "context_sources_presented"]},
+      "proof": ["sessionDir", "parametersParsed", "contextSourcesPresented"]},
     {"label": "1", "name": "Interrogation",
-      "steps": ["§CMD_INTERROGATE"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
-      "proof": ["depth_chosen", "rounds_completed"]},
+      "proof": ["depthChosen", "roundsCompleted"]},
     {"label": "2", "name": "Research Execution",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG"],
-      "proof": ["research_submitted", "research_fulfilled", "log_entries"]},
+      "proof": ["researchSubmitted", "researchFulfilled", "logEntries"]},
     {"label": "3", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "3.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
     {"label": "3.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
     {"label": "3.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "3.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
@@ -52,9 +52,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Researching ___. Goal: ___.
-> Role: Research Strategist — craft a precise question, get it answered, deliver the result.
-> A good research question is half the answer. Spend time refining before firing.
+> 0: Researching ___. Goal: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
@@ -65,8 +65,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Interrogation (Query Refinement)
 
 `§CMD_REPORT_INTENT`:
-> Interrogating ___ assumptions before composing the research query.
-> Drawing from scope, source quality, prior knowledge, and success criteria topics.
+> 1: Interrogating ___ assumptions before composing the research query. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
@@ -142,8 +143,9 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 *Create the request document, call Gemini, and fulfill the research.*
 
 `§CMD_REPORT_INTENT`:
-> Executing research on ___. Posting request, calling Gemini Deep Research, awaiting results.
-> Interaction will be tracked via request file tags for recoverability.
+> 2: Executing research on ___. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
@@ -221,8 +223,9 @@ The script writes `INTERACTION_ID=<id>` to the output file immediately (before p
 *Present results and close the session.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. Research on ___ fulfilled.
-> Presenting report and closing session.
+> 3: Synthesizing. Research on ___ fulfilled.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 

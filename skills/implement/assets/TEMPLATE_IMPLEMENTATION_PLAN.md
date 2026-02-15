@@ -79,41 +79,42 @@ interface NewState {
 ## 6. Step-by-Step Implementation Strategy
 *Break down the work into atomic, verifiable steps. Max 50 lines of code per step.*
 *Each step MUST declare `Depends` and `Files` for parallel execution analysis.*
+*Step IDs use the Item IDs convention (SIGILS.md § Item IDs): `{plan-section}/{step}`. When the plan is created inside a skill phase (e.g., Build Loop = 3.A), the full ID becomes `{skill-phase}.{plan-section}/{step}` (e.g., `3.A.1/1`).*
 
-### Phase 1: Skeleton & Types
-*   [ ] **Step 1**: [Action]
+### Section 1: Skeleton & Types
+*   [ ] **1/1**: [Action]
     *   **Intent**: Why are we doing this?
     *   **Reasoning**: Why this way?
     *   **Depends**: None
     *   **Files**: `src/path/to/file.ts`
     *   **Verification**: How do we know it works?
-*   [ ] **Step 2**: Create the Test file with a failing test (red).
+*   [ ] **1/2**: Create the Test file with a failing test (red).
     *   **Intent**: TDD setup.
     *   **Reasoning**: Ensure we have a baseline.
-    *   **Depends**: Step 1
+    *   **Depends**: 1/1
     *   **Files**: `src/path/to/file.test.ts`
     *   **Verification**: Test fails as expected.
 
-### Phase 2: Core Logic
-*   [ ] **Step 3**: Implement minimal logic to pass Test 1 (green).
+### Section 2: Core Logic
+*   [ ] **2/1**: Implement minimal logic to pass Test 1 (green).
     *   **Intent**:
     *   **Reasoning**:
-    *   **Depends**: Step 2
+    *   **Depends**: 1/2
     *   **Files**: `src/path/to/file.ts`
     *   **Verification**:
-*   [ ] **Step 4**: Refactor to clean up (refactor).
-    *   **Depends**: Step 3
+*   [ ] **2/2**: Refactor to clean up (refactor).
+    *   **Depends**: 2/1
     *   **Files**: `src/path/to/file.ts`
-*   [ ] **Step 5**: Add Test 2 (edge case) and implement.
-    *   **Depends**: Step 3
+*   [ ] **2/3**: Add Test 2 (edge case) and implement.
+    *   **Depends**: 2/1
     *   **Files**: `src/path/to/file.ts`, `src/path/to/file.test.ts`
 
-### Phase 3: Integration & Wiring
-*   [ ] **Step 6**: Wire into `StreamController` / `Engine`.
-    *   **Depends**: Step 4, Step 5
+### Section 3: Integration & Wiring
+*   [ ] **3/1**: Wire into `StreamController` / `Engine`.
+    *   **Depends**: 2/2, 2/3
     *   **Files**: `src/path/to/engine.ts`
-*   [ ] **Step 7**: Verify full flow.
-    *   **Depends**: Step 6
+*   [ ] **3/2**: Verify full flow.
+    *   **Depends**: 3/1
     *   **Files**: (none — verification only)
 
 ---
@@ -125,17 +126,17 @@ interface NewState {
 *Compute from the dependency graph. Steps with no shared dependencies and disjoint file sets form parallel chunks.*
 
 ### Chunk [A]: [Description]
-**Steps**: [1, 3, 5]
+**Steps**: [1/1, 2/1, 2/3]
 **Files**: `src/parser.ts`, `src/parser.test.ts`
 **Dependencies**: None (root chunk)
 
 ### Chunk [B]: [Description]
-**Steps**: [2, 4, 6]
+**Steps**: [1/2, 2/2, 3/1]
 **Files**: `src/renderer.ts`, `src/renderer.test.ts`
 **Dependencies**: None (root chunk)
 
 ### Chunk [C]: [Description] — SEQUENTIAL
-**Steps**: [7, 8]
+**Steps**: [3/2]
 **Files**: `src/index.ts`
 **Dependencies**: Chunk A, Chunk B (runs after both complete)
 

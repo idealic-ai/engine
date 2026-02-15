@@ -23,37 +23,37 @@ ARGUMENTS: Accepts optional flags:
   "taskType": "CHANGESET",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "session_dir", "parameters_parsed", "flags_parsed", "routing"]},
+      "proof": ["mode", "sessionDir", "parametersParsed", "flagsParsed", "routing"]},
     {"label": "1", "name": "Interrogation",
-      "steps": ["§CMD_INTERROGATE"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
-      "proof": ["depth_chosen", "rounds_completed", "manifest_validated"]},
+      "proof": ["depthChosen", "roundsCompleted", "manifestValidated"]},
     {"label": "2", "name": "Planning",
-      "steps": ["§CMD_GENERATE_PLAN"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_GENERATE_PLAN"],
       "commands": [],
-      "proof": ["failure_context", "hypotheses_ranked", "experiments_designed", "cases_selected", "success_criteria", "plan_written", "user_approved"]},
+      "proof": ["failureContext", "hypothesesRanked", "experimentsDesigned", "casesSelected", "successCriteria", "planWritten", "userApproved"]},
     {"label": "3", "name": "Calibration",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG"],
-      "proof": ["test_fixture", "pipeline_result", "manifest_saved", "calibration_logged"]},
+      "proof": ["testFixture", "pipelineResult", "manifestSaved", "calibrationLogged"]},
     {"label": "4", "name": "Baseline",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG"],
-      "proof": ["cases_executed", "baseline_metrics", "baseline_presented", "user_approved"]},
+      "proof": ["casesExecuted", "baselineMetrics", "baselinePresented", "userApproved"]},
     {"label": "5", "name": "Iteration Loop",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS"],
-      "proof": ["iterations_completed", "log_entries", "exit_condition"]},
+      "proof": ["iterationsCompleted", "logEntries", "exitCondition"]},
     {"label": "6", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "6.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
     {"label": "6.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
     {"label": "6.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "6.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
@@ -78,9 +78,9 @@ ARGUMENTS: Accepts optional flags:
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Iterating on ___ workload.
-> Mode: ___. Trigger: ___.
-> Focus: session activation, flag parsing, mode selection, context loading.
+> 0: Iterating on ___ workload. Trigger: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
@@ -124,8 +124,9 @@ ARGUMENTS: Accepts optional flags:
 *Build the workload manifest through guided questioning.*
 
 `§CMD_REPORT_INTENT`:
-> Interrogating ___ assumptions before designing experiments.
-> Building a workload manifest from structured questions.
+> 1: Interrogating ___ assumptions before designing experiments. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
@@ -192,8 +193,9 @@ If the user doesn't have existing agent prompts:
 *Before iterating, design the experiment. Measure twice, cut once.*
 
 `§CMD_REPORT_INTENT`:
-> Planning iteration experiments for ___ workload.
-> Analyzing failures, ranking hypotheses, designing experiments.
+> 2: Planning iteration experiments for ___ workload. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
@@ -243,8 +245,9 @@ If the user doesn't have existing agent prompts:
 *Prove the manifest works before committing to the full loop.*
 
 `§CMD_REPORT_INTENT`:
-> Calibrating pipeline with single fixture for ___ workload.
-> Verifying manifest configuration before full iteration.
+> 3: Calibrating pipeline with single fixture for ___ workload. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 
@@ -287,8 +290,9 @@ If the user doesn't have existing agent prompts:
 *Establish the starting point before any iteration.*
 
 `§CMD_REPORT_INTENT`:
-> Running baseline for ___ workload. All cases, iteration 0.
-> Establishing initial metrics before hypothesis-driven iteration.
+> 4: Running baseline for ___ workload. All cases, iteration 0.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
 
@@ -323,8 +327,9 @@ If the user doesn't have existing agent prompts:
 *HYPOTHESIZE -> RUN -> REVIEW -> ANALYZE -> DECIDE -> EDIT*
 
 `§CMD_REPORT_INTENT`:
-> Entering iteration loop for ___ workload.
-> Each iteration follows: hypothesize, execute, review, analyze, decide, edit.
+> 5: Entering iteration loop for ___ workload. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(5.0.*)`
 
@@ -414,8 +419,9 @@ If the user doesn't have existing agent prompts:
 *When iteration is complete.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. ___ iterations completed, ___ cases passing.
-> Producing LOOP.md debrief with iteration history and learnings.
+> 6: Synthesizing. ___ iterations completed, ___ cases passing.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(6.0.*)`
 
@@ -440,11 +446,11 @@ If the user doesn't have existing agent prompts:
 
 The protocol respects these invariants:
 
-*   **§INV_HYPOTHESIS_AUDIT_TRAIL**: Every iteration must produce a hypothesis record (prediction + outcome). The log is the audit trail of what was tried, predicted, and learned.
-*   **§INV_REVIEW_BEFORE_COMPOSE**: The Composer subagent MUST receive evaluation results as input. It never operates on raw outputs alone -- the reviewer/evaluator provides the structured quality signal.
-*   **§INV_COMPOSER_STRUCTURAL_FIXES**: Composer suggestions must be structural prompt engineering fixes ("add anchoring rule for table boundaries"), not surface-level ("extract the table correctly"). If a suggestion lacks a concrete mechanism, it is rejected.
-*   **§INV_RE_REVIEW_AFTER_EDIT**: After each edit, the next iteration's RUN+REVIEW step provides fresh evaluation. Do not compare old reviews to new outputs.
-*   **§INV_EXPECTED_OPTIONAL**: `expectedPaths` in the manifest is optional. The loop must work from evaluation critiques alone.
-*   **§INV_MANIFEST_COLOCATED**: Manifests live with workload code, not in a central registry.
-*   **§INV_NO_SILENT_REGRESSION**: Regressions are detected and surfaced to the user with options. Never silently accepted.
-*   **§INV_VALIDATE_BEFORE_ITERATE**: Single-case calibration before the full loop.
+*   **¶INV_HYPOTHESIS_AUDIT_TRAIL**: Every iteration must produce a hypothesis record (prediction + outcome). The log is the audit trail of what was tried, predicted, and learned.
+*   **¶INV_REVIEW_BEFORE_COMPOSE**: The Composer subagent MUST receive evaluation results as input. It never operates on raw outputs alone -- the reviewer/evaluator provides the structured quality signal.
+*   **¶INV_COMPOSER_STRUCTURAL_FIXES**: Composer suggestions must be structural prompt engineering fixes ("add anchoring rule for table boundaries"), not surface-level ("extract the table correctly"). If a suggestion lacks a concrete mechanism, it is rejected.
+*   **¶INV_RE_REVIEW_AFTER_EDIT**: After each edit, the next iteration's RUN+REVIEW step provides fresh evaluation. Do not compare old reviews to new outputs.
+*   **¶INV_EXPECTED_OPTIONAL**: `expectedPaths` in the manifest is optional. The loop must work from evaluation critiques alone.
+*   **¶INV_MANIFEST_COLOCATED**: Manifests live with workload code, not in a central registry.
+*   **¶INV_NO_SILENT_REGRESSION**: Regressions are detected and surfaced to the user with options. Never silently accepted.
+*   **¶INV_VALIDATE_BEFORE_ITERATE**: Single-case calibration before the full loop.

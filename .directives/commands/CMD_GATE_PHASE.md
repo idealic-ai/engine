@@ -1,4 +1,4 @@
-### §CMD_GATE_PHASE
+### ¶CMD_GATE_PHASE
 **Definition**: Standardized phase boundary menu. Presents options to proceed (with proof), walk through current output, go back, or take a skill-specific action. Derives current/next/previous phases from the `phases` array in `.state.json`.
 **Concept**: "What do you want to do at this phase boundary?"
 **Trigger**: Called by skill protocols at phase boundaries.
@@ -41,48 +41,29 @@ Read `currentPhase` from `.state.json`. Look up the `phases` array to determine:
 
 ### Step 2: Present Menu
 
-Execute `AskUserQuestion` (multiSelect: false):
-
-> "Phase [currentPhase] complete. How to proceed?"
-> - **"Proceed to [nextPhase]"** — Continue to the next phase
-> - **"Walkthrough"** — Review this phase's output before moving on
-> - **"Go back to [prevPhase]"** — Return to the previous phase
-> - **"[custom label]"** *(if configured)* — [custom description]
+Invoke `§CMD_DECISION_TREE` with `§ASK_PHASE_GATE`. Use preamble context to fill in current/next/previous phase names and the custom option (if configured).
 
 **Option order**: Proceed (default forward path) > Walkthrough > Go back > Custom.
 
 ### Step 3: Execute Choice
 
-*   **"Proceed"**: Pipe proof fields via STDIN to `engine session phase` for the current phase (proving it was completed). If the current phase declares `proof` fields, you MUST provide them as `key: value` lines. See **Proof-Gated Transitions** below.
+*   **`PRC`** (Proceed): Pipe proof fields via STDIN to `engine session phase` for the current phase (proving it was completed). If the current phase declares `proof` fields, you MUST provide them as JSON. See **Proof-Gated Transitions** below.
 
-*   **"Walkthrough"**: Invoke `§CMD_WALK_THROUGH_RESULTS` ad-hoc on the current phase's artifacts. After the walk-through completes, **re-present this same menu**.
+*   **`WLK`** (Walk through): Invoke `§CMD_WALK_THROUGH_RESULTS` ad-hoc on the current phase's artifacts. After the walk-through completes, **re-present this same menu**.
 
-*   **"Go back"**: Fire `§CMD_UPDATE_PHASE` with `prevPhase` and `--user-approved "User chose 'Go back to [prevPhase]'"`. Return control to the skill protocol for the previous phase.
+*   **`BAK`** (Go back): Fire `§CMD_UPDATE_PHASE` with `prevPhase` and `--user-approved "User chose 'Go back to [prevPhase]'"`. Return control to the skill protocol for the previous phase.
 
-*   **"[custom]"**: Execute the skill-specific action described in the custom option. The skill protocol defines what this does (e.g., skip forward, launch agent, run verification).
+*   **`OTH/RST`** (Restart this phase): Re-execute the current phase from scratch (re-read inputs, redo the phase's work).
 
-*   **"Other" (free-text)**: The user typed something outside the options. Treat as new input:
-    *   If it describes new requirements -> route to interrogation phase (use `§CMD_UPDATE_PHASE` with `--user-approved`).
-    *   If it's a clarification -> answer in chat, then re-present the menu.
+*   **`OTH/SKP`** (Skip ahead): Jump past the next phase. Requires `--user-approved`.
+
+*   **`OTH/custom:*`** (free text or skill-specific custom): If it matches a configured custom action, execute it. If it describes new requirements → route to interrogation phase (use `§CMD_UPDATE_PHASE` with `--user-approved`). If it's a clarification → answer in chat, re-present the menu.
 
 ---
 
 ## Proof-Gated Transitions
 
-When the current phase (being left) declares `proof` fields in the phases array, the agent must pipe proof as `key: value` lines via STDIN to `engine session phase`. This is FROM validation — you prove what you just completed, not what you're about to start.
-
-**Example** (leaving Phase 1: Context Ingestion which declares `proof: ["context_sources_presented", "files_loaded", "user_confirmed"]`):
-```bash
-engine session phase sessions/DIR "2: Interrogation" <<'EOF'
-context_sources_presented: menu shown with 3 RAG items
-files_loaded: 5 files loaded
-user_confirmed: yes
-EOF
-```
-
-**Validation**: `engine session phase` checks that all proof fields declared on the current phase are present and non-blank. Missing or unfilled fields reject the transition (exit 1).
-
-**No proof declared**: If the current phase has no `proof` array, the transition proceeds normally without STDIN.
+When the current phase declares `proof` fields, pipe proof as JSON via STDIN to `engine session phase` (FROM validation — proving what was just completed). Missing or unfilled fields reject the transition (exit 1). No `proof` array → transition proceeds without STDIN.
 
 ---
 
@@ -97,10 +78,55 @@ EOF
 
 ---
 
-## Special Cases
+### ¶ASK_PHASE_GATE
+Trigger: at every phase boundary (except: Setup→Phase 1 auto-flow, interrogation exit gate, parallel handoff completion, synthesis sub-phase transitions)
+Extras: A: View current phase output summary | B: View remaining phases | C: Check time spent in this phase
 
-**Do NOT use this command for**:
-*   **Phase 0 -> Phase 1** -> Setup always proceeds to the next phase. No user question needed — just flow through.
-*   **`§CMD_INTERROGATE` exit gate** -> The interrogation protocol handles its own exit with depth-based gating. However, when the user selects "Proceed to next phase", fire this command for the actual transition.
-*   **`§CMD_PARALLEL_HANDOFF` boundaries** -> Plan -> Build transitions that offer agent handoff keep their specialized menu.
-*   **Synthesis phase transitions** -> Post-synthesis uses `§CMD_CLOSE_SESSION`.
+## Decision: Phase Gate
+- [PRC] Proceed to next phase
+  Continue to the next phase
+- [WLK] Walk through output
+  Review this phase's output before moving on
+- [BAK] Go back
+  Return to the previous phase
+- [OTH] Other
+  - [RST] Restart this phase
+    Redo the current phase from scratch
+  - [SKP] Skip ahead
+    Jump forward past the next phase (requires approval)
+
+---
+
+## PROOF FOR §CMD_GATE_PHASE
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "executed": {
+      "type": "string",
+      "description": "What was accomplished (3-7 word self-quote)"
+    },
+    "userChoice": {
+      "type": "string",
+      "enum": ["proceed", "walkthrough", "back", "custom", "other"],
+      "description": "The user's choice at the phase gate"
+    },
+    "phaseGated": {
+      "type": "string",
+      "description": "The phase being gated (completed phase)"
+    },
+    "nextPhase": {
+      "type": "string",
+      "description": "The next phase if user chose proceed"
+    },
+    "proofProvided": {
+      "type": "string",
+      "description": "Proof status (e.g., 'yes, 3 fields piped' or 'no proof required')"
+    }
+  },
+  "required": ["executed", "userChoice", "phaseGated"],
+  "additionalProperties": false
+}
+```

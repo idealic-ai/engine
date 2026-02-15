@@ -17,7 +17,10 @@
 #   PreToolUse: pre-tool-use-overflow-v2.sh (_deliver_allow_rules stashes here)
 #   Invariants: ¶INV_TMUX_AND_FLEET_OPTIONAL (no tmux dependency)
 
-set -euo pipefail
+set -uo pipefail
+
+# Defensive: ensure exit 0 regardless of internal failures (Pitfall #2)
+trap 'exit 0' ERR
 
 # Debug logging
 DEBUG_LOG="/tmp/hooks-debug.log"

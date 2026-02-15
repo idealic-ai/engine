@@ -1,7 +1,5 @@
-### §CMD_CHECK
+### ¶CMD_VALIDATE_ARTIFACTS
 **Definition**: Validates session artifacts before deactivation. Runs 3 validations sequentially — all must pass for `checkPassed=true` in `.state.json`.
-**Trigger**: Called during synthesis phase, before `§CMD_GENERATE_DEBRIEF`. Agents use `§CMD_RESOLVE_BARE_TAGS` and `§CMD_PROCESS_CHECKLISTS` to address failures, then re-run check.
-
 **Usage**:
 ```bash
 # Tag scan + request files only (no checklists)
@@ -69,16 +67,57 @@ Summary: [1-2 lines of what was done]
 
 ## State Fields
 
-| Field | Type | Set By | Purpose |
-|-------|------|--------|---------|
-| `tagCheckPassed` | boolean | `engine session update` | Skips Validation 1 on re-run |
-| `checkPassed` | boolean | `engine session check` | Master gate — all validations passed |
-| `requestCheckPassed` | boolean | `engine session check` | Skips Validation 3 on re-run |
-| `discoveredChecklists` | string[] | `engine session activate` | Input for Validation 2 |
-| `requestFiles` | string[] | `engine session activate` | Input for Validation 3 |
+- **`tagCheckPassed`**
+  **Type**: boolean
+  **Set By**: `engine session update`
+  **Purpose**: Skips Validation 1 on re-run
+
+- **`checkPassed`**
+  **Type**: boolean
+  **Set By**: `engine session check`
+  **Purpose**: Master gate — all validations passed
+
+- **`requestCheckPassed`**
+  **Type**: boolean
+  **Set By**: `engine session check`
+  **Purpose**: Skips Validation 3 on re-run
+
+- **`discoveredChecklists`**
+  **Type**: string[]
+  **Set By**: `engine session activate`
+  **Purpose**: Input for Validation 2
+
+- **`requestFiles`**
+  **Type**: string[]
+  **Set By**: `engine session activate`
+  **Purpose**: Input for Validation 3
+
+**Constraints**:
+*   **`¶INV_ESCAPE_BY_DEFAULT`**: Backtick-escape tag references in validation output; bare tags only on `**Tags**:` lines or intentional inline.
 
 ---
 
 ## PROOF FOR §CMD_VALIDATE_ARTIFACTS
 
-This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "executed": {
+      "type": "string",
+      "description": "What was accomplished (3-7 word self-quote)"
+    },
+    "validationsPassed": {
+      "type": "string",
+      "description": "Count and names of passing validations (e.g., '3 passed: tags, checklists, requests')"
+    },
+    "validationsFailed": {
+      "type": "string",
+      "description": "Count and details of failures (e.g., '0 failed' or '1 failed: bare tags found')"
+    }
+  },
+  "required": ["executed", "validationsPassed", "validationsFailed"],
+  "additionalProperties": false
+}
+```

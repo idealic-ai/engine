@@ -95,7 +95,7 @@ for sessions_dir in "${SESSION_DIRS[@]}"; do
   for f in "$sessions_dir"/*/.state.json; do
     [ -f "$f" ] || continue
     debug "  clearing preload state in $(basename "$(dirname "$f")")"
-    jq --argjson stds '["~/.claude/.directives/COMMANDS.md","~/.claude/.directives/INVARIANTS.md","~/.claude/.directives/TAGS.md","~/.claude/.directives/commands/CMD_DEHYDRATE.md","~/.claude/.directives/commands/CMD_RESUME_SESSION.md","~/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"]' \
+    jq --argjson stds '["~/.claude/.directives/COMMANDS.md","~/.claude/.directives/INVARIANTS.md","~/.claude/.directives/SIGILS.md","~/.claude/.directives/commands/CMD_DEHYDRATE.md","~/.claude/.directives/commands/CMD_RESUME_SESSION.md","~/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"]' \
       '.preloadedFiles = $stds | .touchedDirs = {} | .pendingPreloads = [] | .pendingAllowInjections = []' "$f" | safe_json_write "$f"
   done
 done
@@ -104,7 +104,7 @@ done
 STANDARDS_OUTPUT=""
 for std_file in "$HOME/.claude/.directives/COMMANDS.md" \
                 "$HOME/.claude/.directives/INVARIANTS.md" \
-                "$HOME/.claude/.directives/TAGS.md" \
+                "$HOME/.claude/.directives/SIGILS.md" \
                 "$HOME/.claude/.directives/commands/CMD_DEHYDRATE.md" \
                 "$HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md" \
                 "$HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"; do

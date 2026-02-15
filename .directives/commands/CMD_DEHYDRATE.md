@@ -1,4 +1,4 @@
-### §CMD_DEHYDRATE
+### ¶CMD_DEHYDRATE
 **Definition**: Captures current session context and triggers a context overflow restart. Produces a JSON payload piped to `engine session dehydrate`, which stores it in `.state.json` and restarts Claude.
 
 **Trigger**: Injected by the overflow hook as `§CMD_DEHYDRATE NOW` when context usage exceeds the threshold.
@@ -6,6 +6,14 @@
 **Preloaded**: Always — this file is injected by SessionStart hook so it's available before overflow.
 
 [!!!] CRITICAL: Context is likely near overflow. DO NOT read extra files. Use ONLY what's already in your context window.
+
+---
+
+## Context Levels (~200K tokens, no compaction)
+
+- **0–75% — Normal.** Work freely. No restrictions.
+- **75–90% — Caution.** Do NOT start a new skill — a new skill loads standards, templates, and context, which can push from 75% to overflow instantly. If the user invokes a new skill at 75%+, dehydrate first to get a fresh context window. Within the current skill, continue working — log, edit, test are low-cost operations. Avoid large file reads or bulk exploration.
+- **90%+ — Critical.** Dehydrate NOW. Execute the algorithm below immediately. No new file reads, no exploration.
 
 ---
 
@@ -37,12 +45,21 @@ This saves the current phase so the rehydrated agent knows where to resume.
   3. Skill protocol (e.g., `~/.claude/skills/implement/SKILL.md`)
 
 **Path Conventions**:
-| Prefix | Resolves To | Contains |
-|--------|-------------|----------|
-| `~/.claude/` | User home `~/.claude/` | Shared engine (skills, standards, scripts) |
-| `.claude/` | Project root `.claude/` | Project-local config |
-| `sessions/` | Project root `sessions/` | Session directories |
-| `packages/`, `apps/`, `src/` | Project root | Source code |
+- **`~/.claude/`**
+  Resolves To: User home `~/.claude/`
+  Contains: Shared engine (skills, standards, scripts)
+
+- **`.claude/`**
+  Resolves To: Project root `.claude/`
+  Contains: Project-local config
+
+- **`sessions/`**
+  Resolves To: Project root `sessions/`
+  Contains: Session directories
+
+- **`packages/`, `apps/`, `src/`**
+  Resolves To: Project root
+  Contains: Source code
 
 ### Step 3: Produce JSON and Dehydrate+Restart
 
@@ -130,7 +147,9 @@ Before the `engine session dehydrate` call, briefly announce in chat:
 - **Cap at 8 files**: `requiredFiles` max 8 entries. Prioritize session artifacts > source code > templates.
 - **Combined command**: `engine session dehydrate` both stores AND restarts. Do not call `engine session restart` separately.
 - **JSON only**: Content must be valid JSON. The engine validates before storing.
-- **Auto-injected files**: COMMANDS.md, INVARIANTS.md, TAGS.md, CMD_DEHYDRATE.md, CMD_RESUME_SESSION.md are auto-injected by SessionStart. Do NOT list them in requiredFiles.
+- **Auto-injected files**: COMMANDS.md, INVARIANTS.md, SIGILS.md, CMD_DEHYDRATE.md, CMD_RESUME_SESSION.md are auto-injected by SessionStart. Do NOT list them in requiredFiles.
+- **`¶INV_TRUST_CACHED_CONTEXT`**: Do not re-read files already in context window — use memory only.
+- **`¶INV_CONCISE_CHAT`**: Chat output is for user communication only — brief dehydration announcement, no micro-narration.
 
 ---
 
@@ -142,15 +161,15 @@ Before the `engine session dehydrate` call, briefly announce in chat:
   "type": "object",
   "properties": {
     "dehydrated": {
-      "type": "boolean",
-      "description": "Whether dehydration JSON was piped to engine session dehydrate"
+      "type": "string",
+      "description": "Dehydration outcome (e.g., 'JSON piped, restart triggered')"
     },
-    "files_listed": {
-      "type": "number",
-      "description": "Number of required files in the JSON payload"
+    "filesListed": {
+      "type": "string",
+      "description": "Count and scope of required files (e.g., '6 files: log, plan, 4 source')"
     }
   },
-  "required": ["dehydrated", "files_listed"],
+  "required": ["dehydrated", "filesListed"],
   "additionalProperties": false
 }
 ```

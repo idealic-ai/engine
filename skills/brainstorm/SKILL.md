@@ -17,38 +17,22 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
   "taskType": "BRAINSTORM",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "session_dir", "parameters_parsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"]},
     {"label": "1", "name": "Dialogue Loop",
-      "steps": ["§CMD_INTERROGATE"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION", "§CMD_APPEND_LOG"],
-      "proof": ["depth_chosen", "rounds_completed", "log_entries"]},
-    {"label": "2", "name": "Execution",
-      "steps": ["§CMD_SELECT_EXECUTION_PATH"],
-      "commands": [],
-      "proof": ["path_chosen", "paths_available"]},
-    {"label": "2.A", "name": "Inline Synthesis",
-      "steps": [],
-      "commands": [],
-      "proof": []},
-    {"label": "2.B", "name": "Agent Handoff",
-      "steps": ["§CMD_HANDOFF_TO_AGENT"],
-      "commands": [],
-      "proof": []},
-    {"label": "2.C", "name": "Parallel Agent Handoff",
-      "steps": ["§CMD_PARALLEL_HANDOFF"],
-      "commands": [],
-      "proof": []},
-    {"label": "3", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
-    {"label": "3.1", "name": "Checklists",
+      "proof": ["depthChosen", "roundsCompleted", "logEntries"]},
+    {"label": "2", "name": "Synthesis",
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+    {"label": "2.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
-    {"label": "3.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
-    {"label": "3.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
-    {"label": "3.4", "name": "Close",
+    {"label": "2.2", "name": "Debrief",
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
+    {"label": "2.3", "name": "Pipeline",
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+    {"label": "2.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/implement", "/analyze", "/document", "/fix", "/chores"],
@@ -71,9 +55,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Brainstorming ___ topic.
-> Mode: ___. Trigger: ___.
-> Focus: session activation, mode selection, context loading.
+> 0: Brainstorming ___ topic. Trigger: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.*)`
 
@@ -95,8 +79,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 *Engage in Socratic inquiry to uncover constraints and opportunities.*
 
 `§CMD_REPORT_INTENT`:
-> Exploring ___ problem space through Socratic dialogue.
-> Depth: ___. Drawing from mode-specific topics.
+> 1: Exploring ___ problem space through Socratic dialogue.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.*)`
 
@@ -181,63 +166,15 @@ Execute `§CMD_GATE_PHASE`.
 
 ---
 
-## 2. Execution
-
-`§CMD_REPORT_INTENT`:
-> Selecting execution path for convergence synthesis.
-
-`§CMD_EXECUTE_PHASE_STEPS(2.*)`
-
-This is a gateway phase. The agent presents execution path options and routes to the selected branch.
-
----
-
-## 2.A. Inline Synthesis
-*Continue convergence synthesis inline in this conversation.*
-
-Proceed directly to Phase 3: Synthesis.
-
----
-
-## 2.B. Agent Handoff
-*Only if user selected agent handoff in the execution path.*
-
-`§CMD_EXECUTE_PHASE_STEPS(2.B.*)`
-
-`§CMD_HANDOFF_TO_AGENT` with:
-```json
-{
-  "agentName": "analyzer",
-  "startAtPhase": "3: Synthesis",
-  "planOrDirective": "Synthesize brainstorming findings into BRAINSTORM.md following the template. Focus on: [key themes and decisions from dialogue]",
-  "logFile": "BRAINSTORM_LOG.md",
-  "debriefTemplate": "assets/TEMPLATE_BRAINSTORM.md",
-  "logTemplate": "assets/TEMPLATE_BRAINSTORM_LOG.md",
-  "taskSummary": "Synthesize brainstorm: [brief description from taskSummary]"
-}
-```
-
----
-
-## 2.C. Parallel Agent Handoff
-
-`§CMD_EXECUTE_PHASE_STEPS(2.C.*)`
-
-`§CMD_PARALLEL_HANDOFF` with:
-- **Agent type**: analyzer
-- **Plan file**: BRAINSTORM_LOG.md (dialogue summary as work items)
-- **Start at phase**: "3: Synthesis"
-
----
-
-## 3. Synthesis
+## 2. Synthesis
 *When the dialogue has explored the space sufficiently.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. ___ rounds of dialogue completed.
-> Producing BRAINSTORM.md with connected insights and next steps.
+> 2: Synthesizing. ___ rounds of dialogue completed.
+> Focus: ___.
+> Not: ___.
 
-`§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
+`§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
 **Debrief notes** (for `BRAINSTORM.md`):
 *   **Reflect**: Look back at the full session -- identify key takeaways.

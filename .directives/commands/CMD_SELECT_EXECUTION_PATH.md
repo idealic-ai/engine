@@ -1,4 +1,4 @@
-### §CMD_SELECT_EXECUTION_PATH
+### ¶CMD_SELECT_EXECUTION_PATH
 **Definition**: Presents a choice between mutually exclusive execution paths. This is the sole step of a **gateway phase** — a flat numbered phase (e.g., `3: Execution`) that always runs, followed by letter-labeled branch phases (`3.A`, `3.B`, `3.C`) of which exactly one is entered.
 **Rule**: Exactly one path is chosen. The unchosen paths are skipped entirely.
 
@@ -24,16 +24,7 @@ Letter suffixes are convention, not enforced. The paths are whatever the skill d
 
 ### Step 2: Present Choice
 
-Execute `AskUserQuestion` (multiSelect: false):
-
-> "How do you want to execute?"
-
-Build one option per candidate path:
-*   **Label**: The phase name from the manifest (e.g., "Build Loop", "Agent Handoff", "Parallel Agent Handoff")
-*   **Description**: Brief explanation of what the path means:
-    *   Inline: "Execute step by step in this conversation"
-    *   Agent: "Hand off to an autonomous agent"
-    *   Parallel: "Split into independent chunks for parallel agents"
+Invoke `§CMD_DECISION_TREE` with `§ASK_EXECUTION_PATH`. Use preamble context to describe the discovered paths (from Step 1) with their phase names from the manifest.
 
 **Option order**: Inline first (recommended default), then single agent, then parallel.
 
@@ -42,7 +33,7 @@ Build one option per candidate path:
 Transition to the chosen path's phase label:
 ```bash
 engine session phase sessions/DIR "N.X: Path Name" <<'EOF'
-{"path_chosen": "N.X", "paths_available": "inline,agent,parallel"}
+{"pathChosen": "N.X", "pathsAvailable": "inline,agent,parallel"}
 EOF
 ```
 
@@ -66,6 +57,25 @@ Per `¶INV_QUESTION_GATE_OVER_TEXT_GATE` empty-response rule:
 
 ---
 
+### ¶ASK_EXECUTION_PATH
+Trigger: at the gateway phase when selecting how to execute the plan (except: skills without a plan phase, e.g. /do, /chores)
+Extras: A: View plan summary before choosing | B: Estimate complexity per path | C: View agent availability
+
+## Decision: Execution Path
+- [INL] Inline execution
+  Execute step by step in this conversation
+- [AGT] Agent handoff
+  Hand off to a single autonomous agent
+- [PAR] Parallel agents
+  Split into independent chunks for parallel agents
+- [OTH] Other
+  - [PEK] Peek at plan first
+    Re-read the plan before choosing an execution path
+  - [SEQ] Sequential approval
+    Inline but with step-by-step user approval before each action
+
+---
+
 ## PROOF FOR §CMD_SELECT_EXECUTION_PATH
 
 ```json
@@ -73,16 +83,16 @@ Per `¶INV_QUESTION_GATE_OVER_TEXT_GATE` empty-response rule:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "path_chosen": {
+    "pathChosen": {
       "type": "string",
       "description": "The phase label of the chosen execution path (e.g., '3.A', '3.B')"
     },
-    "paths_available": {
+    "pathsAvailable": {
       "type": "string",
       "description": "Comma-separated list of paths offered (e.g., 'inline,agent,parallel')"
     }
   },
-  "required": ["path_chosen", "paths_available"],
+  "required": ["pathChosen", "pathsAvailable"],
   "additionalProperties": false
 }
 ```

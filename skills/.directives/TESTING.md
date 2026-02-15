@@ -38,7 +38,7 @@ Guidelines for verifying skill correctness. Skills are Markdown protocols, not c
 *   **Checks**:
     - Every `§CMD_*` reference exists in `~/.claude/.directives/COMMANDS.md` or `.directives/commands/*.md`
     - Every `¶INV_*` reference exists in `~/.claude/.directives/INVARIANTS.md` or `.claude/.directives/INVARIANTS.md`
-    - Every `§FEED_*` reference exists in `~/.claude/.directives/TAGS.md`
+    - Every `§FEED_*` reference exists in `~/.claude/.directives/SIGILS.md`
 
 ## 5. Behavioral Verification (Manual)
 
@@ -60,7 +60,7 @@ Since skills are executed by Claude, not by code, behavioral testing is done by 
 
 ## 7. Automated Validation
 
-Run `engine skill-doctor` before shipping. See `CONTRIBUTING.md` for the check category reference and workflow.
+Run `engine doctor` before shipping. See `CONTRIBUTING.md` for the check category reference and workflow.
 
 ## 8. E2E Behavioral Tests
 

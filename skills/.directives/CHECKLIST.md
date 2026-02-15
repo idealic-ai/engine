@@ -53,11 +53,11 @@ Pre-flight checks when creating or modifying skills in `engine/skills/`.
 
 ## Automated Validation
 
-- [ ] I DID run `engine skill-doctor`
-  - [ ] Exit code 0 (no FAILs) — or all FAILs are pre-existing in other skills
-  - [ ] All FAIL results addressed (DR-A through DR-I rule categories)
+- [ ] I DID run `engine doctor`
+  - [ ] Exit code 0 (no FAILs) — or all FAILs are pre-existing
+  - [ ] All FAIL results addressed (SK-A through SK-G for skills, CM-* for CMDs, SG-* for sigils)
   - [ ] WARN results reviewed (acceptable WARNs documented in commit message)
   - [ ] New skills appear in doctor output with correct tier classification
-  - [ ] JSON schema validation passes for modified skills (DR-C2)
-- [ ] I DID NOT run `engine skill-doctor`
+  - [ ] JSON schema validation passes for modified skills (SK-C2)
+- [ ] I DID NOT run `engine doctor`
   - [ ] Changes are minor enough to skip automated validation

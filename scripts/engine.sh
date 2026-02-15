@@ -196,11 +196,11 @@ GIT COMMANDS
   deploy                 Sync local engine → GDrive (rsync)
 
 TESTING & DIAGNOSTICS
-  test [args...]         Run engine test suite
-  test-e2e [N...]        Run E2E Claude hook tests (optional: specific test numbers)
+  test [--grep P] [args] Run engine test suite (--grep filters by pattern)
+  test-e2e               Run E2E tests (recursive discovery in e2e/)
   reindex                Delete and rebuild doc-search + session-search DBs
   toc                    Show engine directory tree (~/.claude/)
-  skill-doctor [name]    Validate skill definitions
+  doctor [-v] [dir]      Validate engine ecosystem health (skills, CMDs, directives, sessions, sigils)
 
 SESSION MANAGEMENT
   session <cmd>          Session lifecycle (activate, phase, deactivate, check, find)
@@ -906,14 +906,59 @@ cmd_test() {
 }
 
 cmd_test_e2e() {
-  local e2e_script="$SCRIPT_DIR/tests/test-e2e-claude-hooks.sh"
+  local e2e_dir="$SCRIPT_DIR/tests/e2e"
 
-  if [ ! -f "$e2e_script" ]; then
-    echo "ERROR: E2E test script not found at $e2e_script"
+  if [ ! -d "$e2e_dir" ]; then
+    echo "ERROR: E2E test directory not found at $e2e_dir"
     exit 1
   fi
 
-  bash "$e2e_script" "$@"
+  # Recursive discovery: find all test-*.sh in e2e/ and subdirectories
+  local RED='\033[31m' GREEN='\033[32m' RESET='\033[0m'
+
+  local files=()
+  while IFS= read -r f; do
+    files+=("$f")
+  done < <(find "$e2e_dir" -name 'test-*.sh' -type f 2>/dev/null | sort)
+
+  if [ ${#files[@]} -eq 0 ]; then
+    echo "No e2e test files found in $e2e_dir"
+    exit 0
+  fi
+
+  local total=${#files[@]}
+  local passed=0
+  local failed=0
+  local failed_names=()
+
+  echo "╔════════════════════════════════════════╗"
+  echo "║     E2E Test Runner ($total files)            ║"
+  echo "╚════════════════════════════════════════╝"
+
+  for file in "${files[@]}"; do
+    local name
+    name=$(echo "$file" | sed "s|$SCRIPT_DIR/tests/||")
+    if bash "$file" "$@" 2>&1; then
+      passed=$((passed + 1))
+      echo -e "  ${GREEN}✓${RESET} $name"
+    else
+      failed=$((failed + 1))
+      failed_names+=("$name")
+      echo -e "  ${RED}✗${RESET} $name"
+    fi
+  done
+
+  echo ""
+  if [ $failed -eq 0 ]; then
+    echo -e "${GREEN}ALL $total E2E SUITES PASSED${RESET}"
+  else
+    echo -e "${RED}$failed/$total E2E SUITES FAILED${RESET}"
+    for n in "${failed_names[@]}"; do
+      echo -e "  ${RED}✗${RESET} $n"
+    done
+  fi
+
+  [ $failed -eq 0 ] && exit 0 || exit 1
 }
 
 cmd_uninstall() {

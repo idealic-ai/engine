@@ -161,7 +161,7 @@ These fire **when the user submits a message**. They inject system messages to g
 **When it fires**: When `SESSION_REQUIRED=1` and no active session exists (or session is completed).
 
 **Behavior**: Injects a system message with boot instructions:
-1. Load COMMANDS.md, INVARIANTS.md, TAGS.md
+1. Load COMMANDS.md, INVARIANTS.md, SIGILS.md
 2. Load project INVARIANTS.md
 3. Ask the user which skill to use
 

@@ -235,7 +235,7 @@ cmd_status() {
     local found_sessions=false
     # Check default fleet socket
     if fleet_tmux "fleet" ls 2>/dev/null | grep -qE "^${USER_ID}"; then
-        fleet_tmux "fleet" ls 2>/dev/null | grep -E "^${USER_ID}" | sed 's/^/  [fleet] /'
+        fleet_tmux "fleet" ls 2>/dev/null | grep -E "^${USER_ID}" | sed 's/^/  [fleet] /' || true
         found_sessions=true
     fi
     # Check workgroup sockets
@@ -248,7 +248,7 @@ cmd_status() {
             [[ "$csuffix" == "fleet" ]] && continue  # Already checked above
             csocket="fleet-${csuffix}"
             if fleet_tmux "$csocket" ls 2>/dev/null | grep -qE "^${USER_ID}"; then
-                fleet_tmux "$csocket" ls 2>/dev/null | grep -E "^${USER_ID}" | sed "s/^/  [$csocket] /"
+                fleet_tmux "$csocket" ls 2>/dev/null | grep -E "^${USER_ID}" | sed "s/^/  [$csocket] /" || true
                 found_sessions=true
             fi
         done
@@ -528,7 +528,7 @@ cmd_notify() {
 
 # Helper: Apply data layer only (@pane_notify + window aggregate)
 # Always called synchronously so tests and queries see the state immediately.
-# §INV_AUTO_DISCONNECT_ON_STATE_CHANGE: Clears @pane_coordinator_active on any non-unchecked transition.
+# `§INV_AUTO_DISCONNECT_ON_STATE_CHANGE`: Clears @pane_coordinator_active on any non-unchecked transition.
 _apply_notify_data() {
     local target_pane="$1" state="$2"
     $TMUX_CMD set-option -p -t "$target_pane" @pane_notify "$state" 2>/dev/null || true
@@ -907,7 +907,7 @@ cmd_capture_pane() {
     # triggers after-select-pane hook → notify-check flips unchecked→checked)
     local pane_info
     pane_info=$(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_label}' 2>/dev/null \
-        | grep "^${pane_id}|" | head -1)
+        | grep "^${pane_id}|" | head -1 || true)
     local notify_state="${pane_info#*|}"
     notify_state="${notify_state%%|*}"
     local pane_label="${pane_info##*|}"
@@ -1015,7 +1015,7 @@ cmd_coordinate_wait() {
     _coordinate_sweep() {
         local focused_skipped=0
         local result=""
-        while IFS='|' read -r pane_id notify_state fleet_id label pane_focused location; do
+        while IFS='|' read -r pane_id notify_state fleet_id label pane_focused location pane_title; do
             # Filter by actionable states
             case "$notify_state" in
                 unchecked|error|done) ;;
@@ -1027,7 +1027,7 @@ cmd_coordinate_wait() {
                 local match=false
                 IFS=',' read -ra managed <<< "$panes_filter"
                 for mp in "${managed[@]}"; do
-                    if [[ "$fleet_id" == "$mp" || "$pane_id" == "$mp" || "$label" == "$mp" ]]; then
+                    if [[ "$fleet_id" == "$mp" || "$pane_id" == "$mp" || "$label" == "$mp" || "$pane_title" == "$mp" ]]; then
                         match=true
                         break
                     fi
@@ -1043,7 +1043,7 @@ cmd_coordinate_wait() {
 
             [[ -n "$result" ]] && result+=$'\n'
             result+="${pane_id}|${notify_state}|${label}|${location}"
-        done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{@pane_user_focused}|#{session_name}:#{window_name}' 2>/dev/null)
+        done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{@pane_user_focused}|#{session_name}:#{window_name}|#{pane_title}' 2>/dev/null)
 
         if [[ -z "$result" && "$focused_skipped" -gt 0 ]]; then
             echo "FOCUSED:$focused_skipped"
@@ -1089,13 +1089,13 @@ cmd_coordinate_wait() {
     # --- Status summary helper ---
     _coordinate_status() {
         local working_count=0 done_count=0 idle_count=0 focused_count=0 total_count=0
-        while IFS='|' read -r pane_id notify_state fleet_id label pane_focused location; do
+        while IFS='|' read -r pane_id notify_state fleet_id label pane_focused location pane_title; do
             # Apply same pane filter as sweep
             if [[ -n "$panes_filter" ]]; then
                 local match=false
                 IFS=',' read -ra managed <<< "$panes_filter"
                 for mp in "${managed[@]}"; do
-                    if [[ "$fleet_id" == "$mp" || "$pane_id" == "$mp" || "$label" == "$mp" ]]; then
+                    if [[ "$fleet_id" == "$mp" || "$pane_id" == "$mp" || "$label" == "$mp" || "$pane_title" == "$mp" ]]; then
                         match=true; break
                     fi
                 done
@@ -1110,7 +1110,7 @@ cmd_coordinate_wait() {
                 done) (( done_count++ )) || true ;;
                 *) (( idle_count++ )) || true ;;
             esac
-        done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{@pane_user_focused}|#{session_name}:#{window_name}' 2>/dev/null)
+        done < <(fleet_tmux "$socket" list-panes -a -F '#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{@pane_user_focused}|#{session_name}:#{window_name}|#{pane_title}' 2>/dev/null)
         echo "STATUS total=$total_count working=$working_count done=$done_count focused=$focused_count idle=$idle_count"
     }
 

@@ -16,7 +16,7 @@
 #   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_CLAIM_BEFORE_WORK — Tag swap before routing to worker
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — Fleet dependency
-#   Tags: (~/.claude/.directives/TAGS.md)
+#   Tags: (~/.claude/.directives/SIGILS.md)
 #     §TAG_DISPATCH — Tag-to-skill routing table
 #
 # Dependencies:
@@ -40,7 +40,7 @@ PIDFILE="/tmp/dispatch-daemon.pid"
 LOGFILE="/tmp/dispatch-daemon.log"
 TAG_SCRIPT="$HOME/.claude/scripts/tag.sh"
 WORKERS_DIR="$HOME/.claude/fleet/workers"
-TAGS_FILE="$HOME/.claude/.directives/TAGS.md"
+TAGS_FILE="$HOME/.claude/.directives/SIGILS.md"
 
 # Debounce: ignore rapid-fire events on same file (seconds)
 DEBOUNCE_SECS=2
@@ -62,10 +62,10 @@ die() {
 check_deps() {
   command -v fswatch >/dev/null 2>&1 || die "fswatch not found. Install: brew install fswatch"
   [ -x "$TAG_SCRIPT" ] || die "tag.sh not found at $TAG_SCRIPT"
-  [ -f "$TAGS_FILE" ] || die "TAGS.md not found at $TAGS_FILE"
+  [ -f "$TAGS_FILE" ] || die "SIGILS.md not found at $TAGS_FILE"
 }
 
-# Parse §TAG_DISPATCH table from TAGS.md to get tag->skill mapping
+# Parse §TAG_DISPATCH table from SIGILS.md to get tag->skill mapping
 # Returns: tag|skill (pipe-separated, one per line)
 parse_dispatch_table() {
   # Extract table rows from §TAG_DISPATCH section

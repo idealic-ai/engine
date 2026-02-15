@@ -101,6 +101,12 @@ The engine has both `pre-tool-use-heartbeat.sh` and `pre-tool-use-overflow-v2.sh
 **Mitigation**: Consolidate heartbeat into the unified rule engine (`overflow-v2.sh`) as a rule in `injections.json`. This eliminates the standalone heartbeat hook and the double-fire pattern.
 **Discovered**: 2026-02-11, user observation during audit session.
 
+## 17. settings.json hook paths must resolve — missing file = silent "hook error"
+`settings.json` registers hooks by file path (e.g., `~/.claude/hooks/my-hook.sh` or `~/.claude/engine/hooks/my-hook.sh`). If the file doesn't exist at that path (missing symlink, wrong directory), Claude Code gets exit 127 (file not found) and displays "PostToolUse:X hook error" or "PreToolUse:X hook error" in the terminal.
+**Trap**: The hook itself is fine — it's just not where `settings.json` says it is. The error is invisible in tests (which invoke the hook directly) and invisible in the transcript (Claude Code doesn't log it as a system-reminder). You only see it in the terminal UI. For PostToolUse hooks, the error may be masked by other hooks that succeed for the same tool — it's only visible for tools where the broken hook is the only one producing output.
+**Mitigation**: After adding or moving hooks, verify the path in `settings.json` resolves to a real file. Run `engine doctor` which checks all registered hook paths. Two path conventions exist: `~/.claude/hooks/` (symlinked, per-file override support) and `~/.claude/engine/hooks/` (direct path to engine). Don't mix them for the same hook.
+**Discovered**: 2026-02-15 — `post-tool-use-injections.sh` was registered at `~/.claude/engine/hooks/` but had no symlink at `~/.claude/hooks/`. Caused "PostToolUse:Skill hook error" on every Skill tool invocation.
+
 ## 15. Per-agent counters use transcript_path as key — don't use PID
 The heartbeat hook tracks tool call counts per agent using `transcript_path` basename as the key in `.state.json`. This isolates main agent counts from sub-agent counts.
 **Trap**: Using PID as the counter key fails because sub-agents launched via the Task tool may share the parent's PID in some execution models, or PIDs may be reused across context overflow restarts. Transcript paths are guaranteed unique per agent instance.

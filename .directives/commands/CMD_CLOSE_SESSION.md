@@ -1,7 +1,5 @@
-### §CMD_CLOSE_SESSION
+### ¶CMD_CLOSE_SESSION
 **Definition**: After synthesis is complete, transitions the session to idle state. Handles debrief gate verification, session description, keyword inference, and the idle transition. The post-idle routing menu is handled separately by `§CMD_PRESENT_NEXT_STEPS`.
-**Trigger**: Called during `§CMD_RUN_SYNTHESIS_PIPELINE` Close sub-phase, before `§CMD_PRESENT_NEXT_STEPS`.
-
 **Algorithm**:
 0.  **Debrief Gate** (`¶INV_CHECKLIST_BEFORE_CLOSE` pattern): Verify the skill's debrief file exists (e.g., `IMPLEMENTATION.md` for `/implement`, `ANALYSIS.md` for `/analyze`). This is mechanically enforced — the debrief must exist before proceeding.
     *   **When Blocked**: Write the debrief via `§CMD_GENERATE_DEBRIEF`, then retry.
@@ -32,6 +30,7 @@
 *   **Session description is REQUIRED**: `engine session idle` will ERROR if no description is piped.
 *   **Keywords are RECOMMENDED**: If omitted, idle still works but the session is less discoverable.
 *   **No routing**: This command does NOT present skill menus or handle user routing. That is `§CMD_PRESENT_NEXT_STEPS`.
+*   **`¶INV_CONCISE_CHAT`**: Chat output is for user communication only — no micro-narration of the idle transition steps.
 
 ---
 
@@ -42,16 +41,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "session_idled": {
-      "type": "boolean",
-      "description": "Whether engine session idle succeeded"
+    "sessionIdled": {
+      "type": "string",
+      "description": "Idle outcome (e.g., 'idled with 5 keywords')"
     },
-    "description_written": {
-      "type": "boolean",
-      "description": "Whether a session description was composed and piped"
+    "descriptionWritten": {
+      "type": "string",
+      "description": "Description summary (e.g., 'wrote 2-line summary')"
     }
   },
-  "required": ["session_idled", "description_written"],
+  "required": ["sessionIdled", "descriptionWritten"],
   "additionalProperties": false
 }
 ```

@@ -1,4 +1,4 @@
-### §CMD_GENERATE_DEBRIEF
+### ¶CMD_GENERATE_DEBRIEF
 **Definition**: Creates or regenerates a standardized debrief artifact.
 **Algorithm**:
 1.  **Check for Continuation**: Is this a continuation of an existing session (user chose "Continue existing" via `§CMD_MAINTAIN_SESSION_DIR`, or continued post-synthesis via `§CMD_RESUME_AFTER_CLOSE`)?
@@ -26,6 +26,11 @@
 
 **Note**: Steps 8-15 (pipeline orchestration, deactivation) have been extracted to `§CMD_RUN_SYNTHESIS_PIPELINE`. This command now only handles debrief file creation (steps 1-7).
 
+**Constraints**:
+*   **`¶INV_ESCAPE_BY_DEFAULT`**: Backtick-escape tag references in debrief body text; bare tags only on the `**Tags**:` line.
+*   **`¶INV_TERMINAL_FILE_LINKS`**: File paths in the debrief output and `§CMD_LINK_FILE` report MUST be clickable URLs.
+*   **`¶INV_TRUST_CACHED_CONTEXT`**: Do not re-read the log file or templates already in context window.
+
 ---
 
 ## PROOF FOR §CMD_GENERATE_DEBRIEF
@@ -35,16 +40,16 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "debrief_file": {
+    "debriefFile": {
       "type": "string",
       "description": "Filename of the debrief written to the session directory"
     },
-    "debrief_tags": {
+    "debriefTags": {
       "type": "string",
       "description": "Tags applied to the debrief file"
     }
   },
-  "required": ["debrief_file", "debrief_tags"],
+  "required": ["debriefFile", "debriefTags"],
   "additionalProperties": false
 }
 ```

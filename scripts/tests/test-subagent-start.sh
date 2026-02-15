@@ -5,7 +5,7 @@
 #   1. No active session → empty output
 #   2. Active session with logTemplate → injects log template
 #   3. Active session with discovered directives → injects directives
-#   4. Standards NOT injected (COMMANDS.md, INVARIANTS.md, TAGS.md excluded)
+#   4. Standards NOT injected (COMMANDS.md, INVARIANTS.md, SIGILS.md excluded)
 #   5. No logTemplate → no template injection (directives still injected)
 #
 # Run: bash ~/.claude/engine/scripts/tests/test-subagent-start.sh
@@ -157,7 +157,7 @@ test_standards_excluded() {
   mkdir -p "$FAKE_HOME/.claude/.directives"
   echo "# COMMANDS content" > "$FAKE_HOME/.claude/.directives/COMMANDS.md"
   echo "# INVARIANTS content" > "$FAKE_HOME/.claude/.directives/INVARIANTS.md"
-  echo "# TAGS content" > "$FAKE_HOME/.claude/.directives/TAGS.md"
+  echo "# TAGS content" > "$FAKE_HOME/.claude/.directives/SIGILS.md"
 
   # Create a non-standards directive
   local directive_dir="$FAKE_HOME/.claude/skills/.directives"
@@ -174,7 +174,7 @@ test_standards_excluded() {
   "preloadedFiles": [
     "$FAKE_HOME/.claude/.directives/COMMANDS.md",
     "$FAKE_HOME/.claude/.directives/INVARIANTS.md",
-    "$FAKE_HOME/.claude/.directives/TAGS.md",
+    "$FAKE_HOME/.claude/.directives/SIGILS.md",
     "$FAKE_HOME/.claude/skills/.directives/PITFALLS.md"
   ]
 }
@@ -185,7 +185,7 @@ JSON
 
   assert_not_contains "COMMANDS content" "$output" "COMMANDS.md NOT in sub-agent context"
   assert_not_contains "INVARIANTS content" "$output" "INVARIANTS.md NOT in sub-agent context"
-  assert_not_contains "TAGS content" "$output" "TAGS.md NOT in sub-agent context"
+  assert_not_contains "TAGS content" "$output" "SIGILS.md NOT in sub-agent context"
   assert_contains "Skill pitfalls" "$output" "non-standards directives ARE injected"
 }
 
@@ -222,6 +222,65 @@ JSON
 }
 
 # ======================================================================
+# Test 6: CMD_APPEND_LOG.md always injected when file exists
+# ======================================================================
+test_cmd_append_log_injection() {
+  echo "--- 6. CMD_APPEND_LOG.md always injected ---"
+
+  # Create the CMD_APPEND_LOG.md file in the expected location
+  local cmd_dir="$FAKE_HOME/.claude/engine/.directives/commands"
+  mkdir -p "$cmd_dir"
+  echo "### CMD_APPEND_LOG
+Logs are Append-Only streams.
+Use engine log to append." > "$cmd_dir/CMD_APPEND_LOG.md"
+
+  # Create a minimal active session (no logTemplate, no directives)
+  cat > "$TEST_SESSION/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "test",
+  "lifecycle": "active",
+  "logTemplate": "",
+  "preloadedFiles": []
+}
+JSON
+
+  local output
+  output=$(run_hook) || true
+
+  assert_not_empty "$output" "session with CMD_APPEND_LOG.md on disk → produces output"
+  assert_contains "CMD_APPEND_LOG" "$output" "output contains CMD_APPEND_LOG content"
+  assert_contains "Append-Only" "$output" "output contains CMD_APPEND_LOG definition text"
+  assert_contains "Preloaded:" "$output" "output uses [Preloaded:] format for CMD_APPEND_LOG"
+}
+
+# ======================================================================
+# Test 7: CMD_APPEND_LOG.md not injected when file missing
+# ======================================================================
+test_cmd_append_log_missing() {
+  echo "--- 7. CMD_APPEND_LOG.md not injected when file missing ---"
+
+  # Ensure the CMD file does NOT exist
+  rm -f "$FAKE_HOME/.claude/engine/.directives/commands/CMD_APPEND_LOG.md"
+
+  # Create a minimal active session
+  cat > "$TEST_SESSION/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "test",
+  "lifecycle": "active",
+  "logTemplate": "",
+  "preloadedFiles": []
+}
+JSON
+
+  local output
+  output=$(run_hook) || true
+
+  assert_empty "$output" "no CMD_APPEND_LOG.md on disk, no directives → empty output"
+}
+
+# ======================================================================
 # Run all tests
 # ======================================================================
 
@@ -239,6 +298,10 @@ echo ""
 run_test test_standards_excluded
 echo ""
 run_test test_no_log_template
+echo ""
+run_test test_cmd_append_log_injection
+echo ""
+run_test test_cmd_append_log_missing
 
 echo ""
 exit_with_results

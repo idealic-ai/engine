@@ -61,10 +61,10 @@
 ## 3. Architecture Sketch
 
 ### System Overview
-[High-level view of what the system looks like AFTER this project completes. Draw the target state, not the current state. Use §CMD_FLOWGRAPH notation for all diagrams.]
+[High-level view of what the system looks like AFTER this project completes. Draw the target state, not the current state. Use `§CMD_FLOWGRAPH` notation for all diagrams.]
 
 ```
-[§CMD_FLOWGRAPH — Target Architecture]
+[`§CMD_FLOWGRAPH` — Target Architecture]
 
 [Example:
 START → User Request ⟨HTTP⟩
@@ -101,10 +101,10 @@ API GATEWAY (NestJS)
 | [Component name] | [package/path] | [What it does] | [Which chapter(s)] |
 
 ### Data Flow
-[How data moves through the system. Use §CMD_FLOWGRAPH for non-trivial flows.]
+[How data moves through the system. Use `§CMD_FLOWGRAPH` for non-trivial flows.]
 
 ```
-[§CMD_FLOWGRAPH — Critical Data Path]
+[`§CMD_FLOWGRAPH` — Critical Data Path]
 
 START → [Data entry point]
   ↓
@@ -180,7 +180,7 @@ END → [Consumer / output]
 ## 6. Dependency Graph
 
 ```
-[§CMD_FLOWGRAPH — Chapter Dependencies]
+[`§CMD_FLOWGRAPH` — Chapter Dependencies]
 
 [Example:
 START → Project Kickoff

@@ -193,7 +193,7 @@ export GEMINI_API_KEY="..."
 
 ## Invariants
 
-- **§INV_EXPLICIT_INDEX**: Indexing is explicit (via CLI or skill), never automatic on query
-- **§INV_CONTENT_ADDRESSED_EMBEDDINGS**: Same content = same embedding (global dedup)
-- **§INV_PROJECT_SCOPED_QUERIES**: Queries default to current project
-- **§INV_LOCK_WITH_TIMEOUT**: Advisory locks expire after 5 minutes
+- **`¶INV_EXPLICIT_INDEX`**: Indexing is explicit (via CLI or skill), never automatic on query
+- **`¶INV_CONTENT_ADDRESSED_EMBEDDINGS`**: Same content = same embedding (global dedup)
+- **`¶INV_PROJECT_SCOPED_QUERIES`**: Queries default to current project
+- **`¶INV_LOCK_WITH_TIMEOUT`**: Advisory locks expire after 5 minutes

@@ -1,25 +1,12 @@
-### §CMD_REPORT_LEFTOVER_WORK
+### ¶CMD_REPORT_LEFTOVER_WORK
 **Definition**: At synthesis, extracts unfinished items from session artifacts and presents a concise report in chat — giving the user context before the next-skill menu.
-**Trigger**: Called by `§CMD_GENERATE_DEBRIEF` step 11, after `§CMD_CAPTURE_SIDE_DISCOVERIES` and before `§CMD_CLOSE_SESSION`.
+**Classification**: SCAN
 
 **Algorithm**:
-1.  **Identify Artifacts**: Locate the session's debrief, log, and plan files:
-    *   Debrief: `[sessionDir]/*.md` matching skill type (e.g., `IMPLEMENTATION.md`, `ANALYSIS.md`, `DOCUMENTATION.md`)
-    *   Log: `[sessionDir]/*_LOG.md`
-    *   Plan: `[sessionDir]/*_PLAN.md`
-    *   If any artifact is missing, skip that source (not all skills produce all three).
-2.  **Extract Leftover Items** (from each source):
-    *   **From Debrief**:
-        *   Tech Debt items: Lines under headings containing "Debt" or prefixed with 💸
-        *   Documentation impact: Unchecked `[ ]` items under headings containing "Documentation"
-        *   Next Steps: Items under headings containing "Next Steps" or "Recommendations"
-        *   Open questions: Items tagged with `#needs-brainstorm` or `#needs-research`
-    *   **From Log**:
-        *   Unresolved blocks: 🚧 Block entries that have no subsequent ✅ Success entry for the same item
-        *   Parking lot items: 🗑️ Parking Lot entries
-    *   **From Plan**:
-        *   Unchecked steps: `- [ ]` items (steps that were planned but not completed)
-3.  **If No Items Found**: Skip silently. Return control to the caller. Do NOT prompt the user.
+1.  **Read Debrief Scan Output**: The `engine session debrief` output (run once at the start of N.3 per `§CMD_RUN_SYNTHESIS_PIPELINE`) contains a `## §CMD_REPORT_LEFTOVER_WORK (N)` section with pre-scanned results. Read the count and line references from this section. Do NOT re-scan the artifacts yourself.
+    *   The engine scans for: unchecked `[ ]` in plan files, 🚧 Block entries in log files, and 💸 tech debt in debrief files.
+    *   If count is 0: skip silently. Return control to the caller. Do NOT prompt the user.
+2.  **If Items Found (count > 0)**: Read the referenced lines for context. Categorize into groups:
 4.  **If Items Found**: Output in chat as a structured report:
     ```markdown
     ## Leftover Work
@@ -57,14 +44,31 @@
     ```
 
 **Constraints**:
-*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
 *   **Non-blocking**: This is a read-only report. No `AskUserQuestion` — just output. The user sees it and uses it to inform their next-skill choice.
 *   **Generic extraction**: Pattern-match by emoji prefixes and heading keywords, not hardcoded section numbers. Different skill templates use different section structures.
 *   **Concise**: Max 15 items total in the chat report. If more exist, show top 15 and note "... and N more items (see debrief for full list)."
 *   **Skip silently**: If the session produced zero leftover items, output nothing. A clean session needs no report.
+*   **`¶INV_CONCISE_CHAT`**: Chat output is for user communication only — no micro-narration of the scan process.
 
 ---
 
 ## PROOF FOR §CMD_REPORT_LEFTOVER_WORK
 
-This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "executed": {
+      "type": "string",
+      "description": "What was accomplished (3-7 word self-quote)"
+    },
+    "itemsReported": {
+      "type": "string",
+      "description": "Count and categories of items reported (e.g., '4 items: 2 debt, 1 block, 1 step')"
+    }
+  },
+  "required": ["executed", "itemsReported"],
+  "additionalProperties": false
+}
+```

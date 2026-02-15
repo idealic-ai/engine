@@ -16,13 +16,9 @@ Smart assistant for the workflow engine — answers questions, invokes scripts, 
 ## 0. Setup Phase
 
 1.  **Intent**: Execute `§CMD_REPORT_INTENT`.
-    > 1. I am starting Phase 0: Setup for the Engine Assistant.
-    > 2. I will `§CMD_ASSUME_ROLE`:
-    >    **Role**: You are the **Engine Operator** — the authoritative guide to every script, skill, hook, directive, and doc in the workflow engine.
-    >    **Goal**: Answer questions about the engine accurately. Invoke engine commands with confirmation. Navigate users to the right tool for their need.
-    >    **Mindset**: "Know the engine inside-out. Be precise. Show, don't tell."
-    > 3. I will load the engine index (`engine --help` + `engine toc`) for full awareness.
-    > 4. I will obey `§CMD_NO_MICRO_NARRATION` and `¶INV_CONCISE_CHAT`.
+    > 0: Starting Engine Assistant. ___.
+    > Focus: ___.
+    > Not: ___.
 
 2.  **Load Engine Index** [UNCONDITIONAL — costs ~4% context, always worth it]:
     Run BOTH commands in parallel — no exceptions, no skipping, no deferring:
@@ -34,7 +30,7 @@ Smart assistant for the workflow engine — answers questions, invokes scripts, 
 
 3.  **Parse User Intent**: Review the user's original request (the `/engine` arguments). Classify it:
     *   **Q&A** — User is asking a question ("how does session.sh work?", "what's the tag lifecycle?", "explain §CMD_PARSE_PARAMETERS")
-    *   **Execute** — User wants to run a command ("run skill-doctor", "show status", "find sessions tagged #needs-review")
+    *   **Execute** — User wants to run a command ("run doctor", "show status", "find sessions tagged #needs-review")
     *   **Navigate** — User wants to find something ("where is the fleet config?", "which doc covers context overflow?")
     *   **Mixed** — Multiple intents, or unclear. Ask for clarification.
 
@@ -58,7 +54,7 @@ Smart assistant for the workflow engine — answers questions, invokes scripts, 
     *   **Doc questions**: Read the specific doc file (`~/.claude/docs/<name>.md` or `~/.claude/engine/docs/<name>.md`).
     *   **Skill questions**: Read `~/.claude/skills/<name>/SKILL.md` for the skill protocol.
     *   **Hook questions**: Read `~/.claude/hooks/<name>.sh` for hook behavior.
-    *   **Tag questions**: The tag system is defined in `TAGS.md` (already in context from boot).
+    *   **Tag questions**: The tag system is defined in `SIGILS.md` (already in context from boot).
 
 3.  **Answer Format**: Be precise and cite sources. When referencing files, use clickable links per `¶INV_TERMINAL_FILE_LINKS`. Include relevant command examples when helpful.
 
@@ -118,7 +114,7 @@ After handling each request, wait for the user's next message. Do NOT proactivel
 | Manage tags | `engine tag <cmd>` | add, remove, swap, find |
 | Search sessions | `engine session-search query "text"` or `engine find-sessions <filter>` | Semantic vs structured |
 | Search docs | `engine doc-search query "text"` | Semantic search |
-| Validate skills | `engine skill-doctor [name]` | Checks SKILL.md structure |
+| Validate engine | `engine doctor [-v] [dir]` | Skills, CMDs, directives, sessions, sigils |
 | View engine tree | `engine toc` | All files in ~/.claude/ |
 | Git operations | `engine push`, `engine pull`, `engine deploy` | Engine source control |
 | Switch mode | `engine local` or `engine remote` | Local dev vs GDrive |
@@ -144,4 +140,4 @@ After handling each request, wait for the user's next message. Do NOT proactivel
 | Doc indexing | DOCUMENT_INDEXING.md | ~/.claude/docs/ |
 | Commands vocabulary | COMMANDS.md | ~/.claude/.directives/ |
 | System invariants | INVARIANTS.md | ~/.claude/.directives/ |
-| Tag conventions | TAGS.md | ~/.claude/.directives/ |
+| Tag conventions | SIGILS.md | ~/.claude/.directives/ |

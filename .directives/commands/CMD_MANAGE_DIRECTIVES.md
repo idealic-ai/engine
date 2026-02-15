@@ -1,19 +1,40 @@
-### §CMD_MANAGE_DIRECTIVES
+### ¶CMD_MANAGE_DIRECTIVES
 **Definition**: After debrief creation, manages directive files discovered during the session. Three passes: AGENTS.md updates (auto-mention new directives, keep dir context current), invariant capture, and pitfall capture.
-**Trigger**: Called by `§CMD_RUN_SYNTHESIS_PIPELINE` Step 2 (Pipeline), after debrief is written.
+**Classification**: STATIC
 
 **Directive Types Managed**:
 
-| Type | File | Management |
-|------|------|------------|
-| **AGENTS** | `AGENTS.md` | **Managed** — Pass 1: Auto-update when new directive files added to a dir |
-| **Invariant** | `INVARIANTS.md` | **Managed** — Pass 2: Capture new rules/constraints discovered during session |
-| **Pitfall** | `PITFALLS.md` | **Managed** — Pass 3: Capture gotchas/traps discovered during session |
-| **Checklist** | `CHECKLIST.md` | **Not managed** — Enforced by `§CMD_PROCESS_CHECKLISTS` at deactivation |
-| **Testing** | `TESTING.md` | **Not managed** — Read-only during build (used for test guidance) |
-| **Contributing** | `CONTRIBUTING.md` | **Not managed** — Manual maintenance only |
-| **Architecture** | `ARCHITECTURE.md` | **Not managed** — Manual maintenance only |
-| **Template** | `TEMPLATE.md` | **Not managed** — Manual maintenance only |
+- **AGENTS**
+  File: `AGENTS.md`
+  Management: **Managed** — Pass 1: Auto-update when new directive files added to a dir
+
+- **Invariant**
+  File: `INVARIANTS.md`
+  Management: **Managed** — Pass 2: Capture new rules/constraints discovered during session
+
+- **Pitfall**
+  File: `PITFALLS.md`
+  Management: **Managed** — Pass 3: Capture gotchas/traps discovered during session
+
+- **Checklist**
+  File: `CHECKLIST.md`
+  Management: **Not managed** — Enforced by `§CMD_PROCESS_CHECKLISTS` at deactivation
+
+- **Testing**
+  File: `TESTING.md`
+  Management: **Not managed** — Read-only during build (used for test guidance)
+
+- **Contributing**
+  File: `CONTRIBUTING.md`
+  Management: **Not managed** — Manual maintenance only
+
+- **Architecture**
+  File: `ARCHITECTURE.md`
+  Management: **Not managed** — Manual maintenance only
+
+- **Template**
+  File: `TEMPLATE.md`
+  Management: **Not managed** — Manual maintenance only
 
 **Algorithm**:
 
@@ -30,82 +51,30 @@ AGENTS.md is a micro-README: it describes what a directory is for, what to think
     *   `options` (up to 4, batch if more):
         *   `"Update: path/to/.directives/AGENTS.md"` — description: `"Add mention of [new directive files]. Will also refresh dir description if stale."`
     *   For each selected AGENTS.md: Read it, add references to new directive files in the "Available Directives" section (or equivalent). If the AGENTS.md has no such section, add one. Refresh the directory description if it's clearly stale.
-5.  **Apply**: Use Edit tool to update. Report: "AGENTS.md updated: [list]."
+5.  **Apply**: Use Edit tool to update. Report file paths per `¶INV_TERMINAL_FILE_LINKS`: "AGENTS.md updated: [clickable paths]."
 6.  **If AGENTS.md is Missing**: If a directory received new directive files but has NO AGENTS.md at all, offer to create one from `TEMPLATE_AGENTS.md` (in `~/.claude/.directives/templates/`):
     *   `question`: "Directory [path] has directive files but no AGENTS.md. Create one?"
     *   `options`: `"Create from template"` / `"Skip"`
 
 #### Pass 2: Invariant Capture
 
-1.  **Review Conversation**: Using agent judgment, scan the session for insights that could become invariants:
-    *   Repeated corrections or clarifications from the user
-    *   "Always do X" / "Never do Y" patterns that emerged
-    *   Friction points that led to learnings
-    *   New constraints discovered during implementation
-    *   Mistakes that should be prevented in future sessions
-2.  **Check for Candidates**: Identify up to 5 potential invariants. For each, draft:
-    *   A name following the `¶INV_NAME` convention (e.g., `¶INV_CACHE_BEFORE_LOOP`)
-    *   A one-line rule summary
-    *   A reason explaining why this matters
-3.  **If No Candidates**: Skip silently.
-4.  **If Candidates Found**: For each invariant (max 5), execute `AskUserQuestion` with:
-    *   `question`: "Add this invariant? **¶INV_NAME**: [rule summary]"
-    *   `header`: "Invariant"
-    *   `options`:
-        *   `"Add to shared (~/.directives/INVARIANTS.md)"` — Universal rules across all projects
-        *   `"Add to project (.directives/INVARIANTS.md)"` — Project-specific rules
-        *   `"Skip this one"` — Do not add
-    *   `multiSelect`: false
-5.  **On Selection**:
-    *   **If "Skip"**: Continue to next invariant.
-    *   **If "shared" or "project"**: Append using Edit tool:
-        ```
-        *   **¶INV_NAME**: [One-line rule]
-            *   **Rule**: [Detailed rule description]
-            *   **Reason**: [Why this matters]
-        ```
-    *   **If project file doesn't exist**: Create with standard header.
-6.  **Report**: "Added invariants: `¶INV_X` (shared), `¶INV_Y` (project)." or skip silently if none.
+Invoke `§CMD_CAPTURE_KNOWLEDGE` with:
+*   **Type**: Invariant
+*   **Scan criteria**: Repeated corrections, "always/never" patterns, friction points, new constraints, preventable mistakes
+*   **Draft fields**: `¶INV_NAME` convention name, one-line rule summary, reason
+*   **Decision tree**: `§ASK_INVARIANT_CAPTURE`
+*   **Format**: `*   **¶INV_NAME**: [rule]` with indented `**Rule**:` and `**Reason**:` sub-bullets
+*   **Targets**: `SHR` → `~/.claude/.directives/INVARIANTS.md`, `PRJ` → `.directives/INVARIANTS.md`, `EDT` → edit+re-present, `MRG` → merge with existing
 
 #### Pass 3: Pitfall Capture
 
-1.  **Review Session**: Using agent judgment, identify "gotchas" and traps encountered during the session:
-    *   Surprising behavior that wasn't obvious from docs or code
-    *   Debugging dead ends that wasted significant time
-    *   Counterintuitive API behavior or framework quirks
-    *   Configuration traps or environment-specific issues
-    *   Common mistakes that future sessions should avoid
-2.  **Check for Candidates**: Identify up to 5 potential pitfalls. For each, draft:
-    *   A short title (e.g., "Gemini rejects schemas with .min() constraints")
-    *   A description of the pitfall (what happens, why it's surprising)
-    *   A mitigation or workaround
-3.  **If No Candidates**: Skip silently.
-4.  **If Candidates Found**: For each pitfall (max 5), execute `AskUserQuestion` with:
-    *   `question`: "Capture this pitfall? **[Title]**: [description]"
-    *   `header`: "Pitfall"
-    *   `options`:
-        *   `"Add to nearest PITFALLS.md"` — The PITFALLS.md closest to where the issue occurred (walk-up from the affected directory)
-        *   `"Add to project (.directives/PITFALLS.md)"` — Project-level pitfalls file
-        *   `"Create new PITFALLS.md here"` — Create in the most relevant directory
-        *   `"Skip this one"` — Do not capture
-    *   `multiSelect`: false
-5.  **On Selection**:
-    *   **If "Skip"**: Continue to next pitfall.
-    *   **If a destination is chosen**: Append using Edit tool. Format:
-        ```markdown
-        ### [Title]
-        **Context**: [When/where this pitfall occurs]
-        **Trap**: [What goes wrong and why it's surprising]
-        **Mitigation**: [How to avoid or work around it]
-        ```
-    *   **If file doesn't exist**: Create with standard header:
-        ```markdown
-        # Pitfalls
-
-        Known gotchas and traps in this area. Read before working here.
-
-        ```
-6.  **Report**: "Added pitfalls: [titles and destinations]." or skip silently if none.
+Invoke `§CMD_CAPTURE_KNOWLEDGE` with:
+*   **Type**: Pitfall
+*   **Scan criteria**: Surprising behavior, debugging dead ends, counterintuitive APIs, configuration traps, common mistakes
+*   **Draft fields**: Short title, description (what happens + why surprising), mitigation
+*   **Decision tree**: `§ASK_PITFALL_CAPTURE`
+*   **Format**: `### [Title]` with `**Context**:`, `**Trap**:`, `**Mitigation**:` fields
+*   **Targets**: `NRS` → nearest PITFALLS.md (walk-up), `PRJ` → `.directives/PITFALLS.md`, `NEW` → create new PITFALLS.md from template, `EDT` → edit+re-present
 
 **Constraints**:
 *   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
@@ -116,9 +85,71 @@ AGENTS.md is a micro-README: it describes what a directory is for, what to think
 *   **Order matters**: AGENTS.md first (factual/structural), then invariants (rules), then pitfalls (warnings). Each pass is independent.
 *   **Skip silently**: Each pass independently decides whether it has candidates. An empty pass produces no output and no prompt.
 *   **Template location**: Scaffolding templates for all directive types live in `~/.claude/.directives/templates/TEMPLATE_*.md`.
+*   **`¶INV_TERMINAL_FILE_LINKS`**: File paths in AGENTS.md update reports and directive references MUST be clickable URLs.
+
+---
+
+### ¶ASK_INVARIANT_CAPTURE
+Trigger: during directive management when invariant candidates are identified (except: when no candidates found — collapsible pass, echo via roll call)
+Extras: A: View existing invariants in target file | B: Search for similar invariants | C: Defer to review session
+
+## Decision: Invariant Capture
+- [SHR] Add to shared
+  Universal rule — add to ~/.directives/INVARIANTS.md
+- [PRJ] Add to project
+  Project-specific — add to .directives/INVARIANTS.md
+- [SKP] Skip this one
+  Do not add this invariant
+- [OTH] Other
+  - [EDT] Edit first
+    Refine the invariant wording before adding
+  - [MRG] Merge with existing
+    Combine with an existing invariant instead of creating new
+
+### ¶ASK_PITFALL_CAPTURE
+Trigger: during directive management when pitfall candidates are identified (except: when no candidates found — collapsible pass, echo via roll call)
+Extras: A: View existing pitfalls in target file | B: Preview the formatted entry | C: Defer to review session
+
+## Decision: Pitfall Capture
+- [NRS] Add to nearest PITFALLS.md
+  Walk-up from affected directory to closest PITFALLS.md
+- [PRJ] Add to project PITFALLS.md
+  Project-level pitfalls file
+- [SKP] Skip this one
+  Do not capture this pitfall
+- [OTH] Other
+  - [NEW] Create new PITFALLS.md
+    Create in the most relevant directory
+  - [EDT] Edit first
+    Refine the pitfall description before adding
 
 ---
 
 ## PROOF FOR §CMD_MANAGE_DIRECTIVES
 
-This command is a synthesis pipeline step. It produces no standalone proof fields — its execution is tracked by the pipeline orchestrator (`§CMD_RUN_SYNTHESIS_PIPELINE`).
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "executed": {
+      "type": "string",
+      "description": "What was accomplished (3-7 word self-quote)"
+    },
+    "agentsUpdated": {
+      "type": "string",
+      "description": "Count and targets of AGENTS.md updates (e.g., '1 updated: src/.directives')"
+    },
+    "invariantsCaptured": {
+      "type": "string",
+      "description": "Count and names of invariants added (e.g., '1 added: INV_CACHE_BEFORE_LOOP')"
+    },
+    "pitfallsCaptured": {
+      "type": "string",
+      "description": "Count and titles of pitfalls added"
+    }
+  },
+  "required": ["executed", "agentsUpdated", "invariantsCaptured", "pitfallsCaptured"],
+  "additionalProperties": false
+}
+```

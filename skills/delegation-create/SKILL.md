@@ -13,7 +13,7 @@ Routes tagged work items to workers via async, blocking, or silent delegation.
 > **Boot proof:**
 > - COMMANDS.md — §CMD spotted: `________`
 > - INVARIANTS.md — ¶INV spotted: `________`
-> - TAGS.md — §FEED spotted: `________`
+> - SIGILS.md — §FEED spotted: `________`
 
 [!!!] If ANY blank above is empty: STOP. Go back to step 1 and load the missing file. Do NOT proceed until every blank is filled.
 

@@ -185,13 +185,13 @@ if [ -f "$CMD_FILE" ]; then
   SCHEMA_FROM_CMD=$(awk '/## PROOF FOR/,0{if(/```json/){f=1;next}if(/```/){f=0;next}if(f)print}' "$CMD_FILE")
   echo "$SCHEMA_FROM_CMD" > "$TMPDIR_BASE/cmd-schema.json"
   INST="$TMPDIR_BASE/cmd-valid.json"
-  echo '{"depth_chosen": "Short", "rounds_completed": 3}' > "$INST"
+  echo '{"depthChosen": "Short", "roundsCompleted": "3 rounds: scope, deps, testing"}' > "$INST"
   STDERR="$TMPDIR_BASE/stderr11"
   "$VALIDATE" "$TMPDIR_BASE/cmd-schema.json" "$INST" 2>"$STDERR" && EC=0 || EC=$?
   assert_exit "CMD_INTERROGATE schema accepts valid proof" 0 "$EC"
 
   INST="$TMPDIR_BASE/cmd-invalid.json"
-  echo '{"depth_chosen": 42, "rounds_completed": "not-a-number"}' > "$INST"
+  echo '{"depthChosen": 42, "roundsCompleted": "not-a-number"}' > "$INST"
   STDERR="$TMPDIR_BASE/stderr11b"
   "$VALIDATE" "$TMPDIR_BASE/cmd-schema.json" "$INST" 2>"$STDERR" && EC=0 || EC=$?
   assert_exit "CMD_INTERROGATE schema rejects wrong types" 1 "$EC"

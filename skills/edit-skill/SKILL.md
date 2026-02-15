@@ -29,35 +29,35 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
   "taskType": "EDIT_SKILL",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "session_dir", "parameters_parsed", "templates_loaded"]},
+      "proof": ["mode", "sessionDir", "parametersParsed", "templatesLoaded"]},
     {"label": "1", "name": "Detection",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": [],
-      "proof": ["detection_mode", "target_location"]},
+      "proof": ["detectionMode", "targetLocation"]},
     {"label": "2", "name": "Interrogation",
-      "steps": ["§CMD_INTERROGATE"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
-      "proof": ["depth_chosen", "rounds_completed"]},
+      "proof": ["depthChosen", "roundsCompleted"]},
     {"label": "3", "name": "Scaffold",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_LINK_FILE"],
-      "proof": ["plan_presented", "log_entries"]},
+      "proof": ["planPresented", "logEntries"]},
     {"label": "4", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "4.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
     {"label": "4.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
     {"label": "4.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "4.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
   "nextSkills": ["/edit-skill", "/implement", "/analyze", "/chores"],
   "directives": [],
-  "logTemplate": "assets/TEMPLATE_IMPLEMENTATION_LOG.md",
+  "logTemplate": "assets/TEMPLATE_EDIT_SKILL_LOG.md",
   "debriefTemplate": "assets/TEMPLATE_EDIT_SKILL.md"
 }
 ```
@@ -67,9 +67,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Forging skill: ___.
-> Operation: ___. Target: ___.
-> Role: Skill Architect — every skill is a protocol.
+> 0: Forging skill: ___. Operation: ___. Target: ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
@@ -101,8 +101,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 *Determine whether this is a CREATE or EDIT operation, and where the skill should live.*
 
 `§CMD_REPORT_INTENT`:
-> Detecting skill ___ in project-local and shared engine.
-> Routing to CREATE or EDIT based on what exists.
+> 1: Detecting skill ___ in project-local and shared engine. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
@@ -147,8 +148,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 *Gather requirements through structured questioning.*
 
 `§CMD_REPORT_INTENT`:
-> Interrogating ___ skill design assumptions before scaffolding.
-> Drawing from purpose, phases, templates, and integration topics.
+> 2: Interrogating ___ skill design assumptions before scaffolding. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
@@ -218,8 +220,9 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 *Generate the v2 inline SKILL.md into the target location.*
 
 `§CMD_REPORT_INTENT`:
-> Scaffolding skill ___ into ___.
-> Generating SKILL.md and templates for ___ archetype.
+> 3: Scaffolding skill ___ into ___. Generating SKILL.md and templates for ___ archetype.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 
@@ -318,8 +321,9 @@ Execute `§CMD_LINK_FILE` for each file created.
 *When scaffolding is complete.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. Skill ___ scaffolded with ___ files.
-> Producing EDIT_SKILL.md debrief.
+> 4: Synthesizing. Skill ___ scaffolded with ___ files.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(4.0.*)`
 

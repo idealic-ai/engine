@@ -154,21 +154,21 @@ test_type_soft_filters() {
      [[ "$result" == *"INVARIANTS.md"* ]] && \
      [[ "$result" == *"TESTING.md"* ]] && \
      [[ "$result" == *"PITFALLS.md"* ]] && \
-     [[ "$result" != *"CHECKLIST.md"* ]]; then
+     [[ "$result" == *"CHECKLIST.md"* ]]; then
     pass "$test_name"
   else
-    fail "$test_name" "AGENTS.md + INVARIANTS.md + TESTING.md + PITFALLS.md, no CHECKLIST.md" "exit=$exit_code, output=$result"
+    fail "$test_name" "AGENTS.md + INVARIANTS.md + TESTING.md + PITFALLS.md + CHECKLIST.md (all soft)" "exit=$exit_code, output=$result"
   fi
 
   teardown
 }
 
 # =============================================================================
-# TEST 6: --type hard returns only CHECKLIST.md
+# TEST 6: --type hard returns nothing (HARD_FILES is empty)
 # =============================================================================
 
 test_type_hard_filters() {
-  local test_name="type hard: returns only CHECKLIST.md"
+  local test_name="type hard: returns nothing (no hard-tier files)"
   setup
 
   mkdir -p "$TEST_DIR/mydir"
@@ -180,13 +180,10 @@ test_type_hard_filters() {
   result=$(bash "$SCRIPT" "$TEST_DIR/mydir" --type hard 2>/dev/null)
   local exit_code=$?
 
-  if [ "$exit_code" -eq 0 ] && \
-     [[ "$result" == *"CHECKLIST.md"* ]] && \
-     [[ "$result" != *"README.md"* ]] && \
-     [[ "$result" != *"PITFALLS.md"* ]]; then
+  if [ -z "$result" ]; then
     pass "$test_name"
   else
-    fail "$test_name" "CHECKLIST.md only, no README.md or PITFALLS.md" "exit=$exit_code, output=$result"
+    fail "$test_name" "empty output (no hard-tier files)" "exit=$exit_code, output=$result"
   fi
 
   teardown
@@ -515,15 +512,15 @@ test_root_with_type_soft() {
   result=$(bash "$SCRIPT" "$TEST_DIR/sub/deep" --walk-up --type soft --root "$TEST_DIR/sub" 2>/dev/null)
   local exit_code=$?
 
-  # Should find AGENTS.md (soft, at target), NOT CHECKLIST.md (hard, filtered by --type soft)
+  # Should find AGENTS.md (soft, at target) and CHECKLIST.md (soft, at parent within root)
   # Should NOT find INVARIANTS.md at TEST_DIR (outside --root boundary)
   if [ "$exit_code" -eq 0 ] && \
      [[ "$result" == *"AGENTS.md"* ]] && \
-     [[ "$result" != *"CHECKLIST.md"* ]] && \
+     [[ "$result" == *"CHECKLIST.md"* ]] && \
      [[ "$result" != *"INVARIANTS.md"* ]]; then
     pass "$test_name"
   else
-    fail "$test_name" "AGENTS.md only (soft + root-capped)" "exit=$exit_code, output=$result"
+    fail "$test_name" "AGENTS.md + CHECKLIST.md (both soft, root-capped)" "exit=$exit_code, output=$result"
   fi
 
   teardown

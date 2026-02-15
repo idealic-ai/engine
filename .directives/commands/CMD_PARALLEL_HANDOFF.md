@@ -1,4 +1,4 @@
-### §CMD_PARALLEL_HANDOFF
+### ¶CMD_PARALLEL_HANDOFF
 **Definition**: Standardized parallel handoff from a parent command to multiple autonomous agents, each executing an independent chunk of the plan.
 **Rule**: Opt-in, user-initiated. The parent analyzes the plan for parallelizable chunks, presents a non-intersection proof, and offers a richer handoff menu. Extends `§CMD_HANDOFF_TO_AGENT` with multi-agent coordination.
 
@@ -192,49 +192,11 @@ After all agents complete (or fail):
 *   **Backward Compatible**: Plans without `**Depends**:` fields → single chunk → single-agent menu (identical to `§CMD_HANDOFF_TO_AGENT`).
 *   **Opt-In Only**: Never launch parallel agents without user approval.
 *   **Agents Receive INVARIANTS**: Each agent gets shared + project INVARIANTS. They do NOT receive the full skill protocol.
+*   **`¶INV_TERMINAL_FILE_LINKS`**: File paths in chunk visualization and post-agent reports MUST be clickable URLs.
 
 ---
 
-#### Examples
-
-**Example 1 — 2 independent chunks**:
-```
-## Parallel Execution Analysis
-
-**2 independent chunks detected across 1 wave.**
-
-### Wave 1 (parallel)
-| Chunk | Steps | Files | Dependencies |
-|-------|-------|-------|-------------|
-| A | 1, 2, 3 | `src/auth/login.ts`, `src/auth/login.test.ts` | None |
-| B | 4, 5 | `src/auth/register.ts`, `src/auth/register.test.ts` | None |
-
-> **Non-intersection proof (Wave 1):**
-> Chunk A files: `{src/auth/login.ts, src/auth/login.test.ts}`
-> Chunk B files: `{src/auth/register.ts, src/auth/register.test.ts}`
-> Intersection: `∅` (empty set — safe to parallelize)
-
-**Recommended**: 2 parallel agents for Wave 1.
-```
-
-> "Phase 4: Plan ready. 2 parallel chunks detected. How to proceed?"
-> - "Continue inline"
-> - "1 agent"
-> - "2 agents (recommended)"
-> - "Custom agent count"
-> - "Revise the plan"
-
-**Example 2 — No dependencies (backward compatible)**:
-Plan steps have no `**Depends**:` fields → treated as single sequential chunk → menu shows:
-
-> "Phase 4: Plan ready. How to proceed?"
-> - "Launch builder agent" — Hand off to autonomous agent
-> - "Continue inline" — Execute step by step
-> - "Revise the plan"
-
-(Identical to `§CMD_HANDOFF_TO_AGENT` behavior.)
-
-**Example 3 — Multi-wave with sequential tail**:
+#### Example — Multi-wave with sequential tail
 ```
 ## Parallel Execution Analysis
 
@@ -266,12 +228,12 @@ Plan steps have no `**Depends**:` fields → treated as single sequential chunk 
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
-    "agents_launched": {
+    "agentsLaunched": {
       "type": "string",
       "description": "Number and type of agents launched with chunk assignments"
     }
   },
-  "required": ["agents_launched"],
+  "required": ["agentsLaunched"],
   "additionalProperties": false
 }
 ```

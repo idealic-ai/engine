@@ -3,7 +3,7 @@
 #
 # Fires when a sub-agent (Task tool) starts. Injects log template and
 # discovered directives from the parent session. Does NOT inject standards
-# (COMMANDS.md, INVARIANTS.md, TAGS.md) — those are for the main agent only.
+# (COMMANDS.md, INVARIANTS.md, SIGILS.md) — those are for the main agent only.
 #
 # Input (stdin): {"agent_id":"...","agent_type":"task","session_id":"...","transcript_path":"...","cwd":"..."}
 # Output (stdout): {"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":"..."}}
@@ -33,7 +33,7 @@ LOG_TEMPLATE=$(state_read "$STATE_FILE" "logTemplate" "")
 
 # Standards paths to exclude from sub-agent injection
 # These are injected by SessionStart for the main agent only
-STANDARDS_PATTERN="/.directives/COMMANDS.md|/.directives/INVARIANTS.md|/.directives/TAGS.md"
+STANDARDS_PATTERN="/.directives/COMMANDS.md|/.directives/INVARIANTS.md|/.directives/SIGILS.md"
 
 # Build additionalContext
 ADDITIONAL_CONTEXT=""
@@ -52,7 +52,19 @@ $TEMPLATE_CONTENT
   fi
 fi
 
-# 2. Discovered directives injection (from preloadedFiles, excluding standards)
+# 2. CMD_APPEND_LOG injection — sub-agents need to know HOW to log
+CMD_APPEND_LOG_PATH="$HOME/.claude/engine/.directives/commands/CMD_APPEND_LOG.md"
+if [ -f "$CMD_APPEND_LOG_PATH" ]; then
+  CMD_CONTENT=$(cat "$CMD_APPEND_LOG_PATH" 2>/dev/null || true)
+  if [ -n "$CMD_CONTENT" ]; then
+    ADDITIONAL_CONTEXT="${ADDITIONAL_CONTEXT}[Preloaded: $CMD_APPEND_LOG_PATH]
+$CMD_CONTENT
+
+"
+  fi
+fi
+
+# 3. Discovered directives injection (from preloadedFiles, excluding standards)
 PRELOADED_COUNT=$(jq '.preloadedFiles // [] | length' "$STATE_FILE" 2>/dev/null || echo "0")
 if [ "$PRELOADED_COUNT" -gt 0 ]; then
   while IFS= read -r filepath; do

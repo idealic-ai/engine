@@ -17,43 +17,43 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
   "taskType": "DIRECT",
   "phases": [
     {"label": "0", "name": "Setup",
-      "steps": ["§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_PARSE_PARAMETERS", "§CMD_SELECT_MODE", "§CMD_INGEST_CONTEXT_BEFORE_WORK"],
       "commands": [],
-      "proof": ["mode", "session_dir", "parameters_parsed"]},
+      "proof": ["mode", "sessionDir", "parametersParsed"]},
     {"label": "1", "name": "Interrogation",
-      "steps": ["§CMD_INTERROGATE"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"],
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
-      "proof": ["depth_chosen", "rounds_completed"]},
+      "proof": ["depthChosen", "roundsCompleted"]},
     {"label": "2", "name": "Planning",
-      "steps": ["§CMD_GENERATE_PLAN"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_GENERATE_PLAN"],
       "commands": ["§CMD_LINK_FILE", "§CMD_APPEND_LOG"],
-      "proof": ["plan_written", "plan_presented"]},
+      "proof": ["planWritten", "planPresented"]},
     {"label": "3", "name": "Dependency Analysis",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG"],
-      "proof": ["graph_produced", "parallel_groups_identified"]},
+      "proof": ["graphProduced", "parallelGroupsIdentified"]},
     {"label": "4", "name": "Execution",
       "steps": ["§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
-      "proof": ["path_chosen", "paths_available"]},
+      "proof": ["pathChosen", "pathsAvailable"]},
     {"label": "4.A", "name": "Vision Writing",
-      "steps": [],
+      "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_LINK_FILE"],
-      "proof": ["vision_written", "chapters_tagged"]},
+      "proof": ["visionWritten", "chaptersTagged"]},
     {"label": "4.B", "name": "Agent Handoff",
       "steps": ["§CMD_HANDOFF_TO_AGENT"], "commands": [], "proof": []},
     {"label": "5", "name": "Synthesis",
-      "steps": ["§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": []},
     {"label": "5.1", "name": "Checklists",
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": []},
     {"label": "5.2", "name": "Debrief",
-      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debrief_file", "debrief_tags"]},
+      "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"]},
     {"label": "5.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": []},
     {"label": "5.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": []}
   ],
-  "nextSkills": ["/coordinate", "/implement", "/analyze", "/brainstorm"],
+  "nextSkills": ["/loop", "/implement", "/analyze", "/brainstorm"],
   "directives": [],
   "planTemplate": "assets/TEMPLATE_DIRECT_PLAN.md",
   "logTemplate": "assets/TEMPLATE_DIRECT_LOG.md",
@@ -74,9 +74,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 0. Setup
 
 `§CMD_REPORT_INTENT`:
-> Designing project vision for ___.
-> Mode: ___. Output: `docs/[name]_DIRECT.md`.
-> Role: Project Architect — every chapter is a contract with the coordinator.
+> 0: Designing project vision for ___. Output: `docs/[name]_DIRECT.md`.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(0.0.*)`
 
@@ -103,8 +103,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 1. Interrogation
 
 `§CMD_REPORT_INTENT`:
-> Interrogating ___ project vision assumptions.
-> Drawing from goal, constraints, chapter decomposition, and dependency topics.
+> 1: Interrogating ___ project vision assumptions. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(1.0.*)`
 
@@ -136,8 +137,9 @@ Execute `§CMD_EXECUTE_SKILL_PHASES`.
 ## 2. Planning
 
 `§CMD_REPORT_INTENT`:
-> Planning ___ vision structure. ___ chapters identified.
-> Producing DIRECT_PLAN.md with chapter outline and dependency sketch.
+> 2: Planning ___ vision structure. ___ chapters identified.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(2.0.*)`
 
@@ -170,8 +172,9 @@ If any items are flagged for revision, return to the plan for edits before proce
 ## 3. Dependency Analysis
 
 `§CMD_REPORT_INTENT`:
-> Analyzing dependencies across ___ chapters.
-> Producing dependency graph and identifying parallel execution groups.
+> 3: Analyzing dependencies across ___ chapters. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(3.0.*)`
 
@@ -213,7 +216,9 @@ Execute `§CMD_GATE_PHASE`.
 ## 4. Execution
 
 `§CMD_REPORT_INTENT`:
-> Selecting execution path for vision document.
+> 4: Selecting execution path for vision document. ___.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(4.*)`
 
@@ -225,8 +230,9 @@ Execute `§CMD_GATE_PHASE`.
 *Produce the final vision document.*
 
 `§CMD_REPORT_INTENT`:
-> Writing vision document: `docs/[name]_DIRECT.md`.
-> ___ chapters across ___ parallel groups.
+> 4.A: Writing vision document: `docs/[name]_DIRECT.md`. ___ chapters across ___ parallel groups.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(4.A.*)`
 
@@ -304,8 +310,9 @@ Execute `§CMD_GATE_PHASE`.
 *When the vision document is complete.*
 
 `§CMD_REPORT_INTENT`:
-> Synthesizing. Vision document written with ___ chapters.
-> Producing DIRECT.md debrief.
+> 5: Synthesizing. Vision document written with ___ chapters.
+> Focus: ___.
+> Not: ___.
 
 `§CMD_EXECUTE_PHASE_STEPS(5.0.*)`
 

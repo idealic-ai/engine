@@ -1,4 +1,4 @@
-### §CMD_SELECT_MODE
+### ¶CMD_SELECT_MODE
 **Definition**: Present skill mode selection via `AskUserQuestion`, load the selected mode file, handle Custom mode, and record the mode configuration. Generic command — each skill provides its own modes via the `modes` parameter object.
 **Trigger**: Called during Phase 0 (Setup) of modal skills, after `§CMD_PARSE_PARAMETERS`.
 
