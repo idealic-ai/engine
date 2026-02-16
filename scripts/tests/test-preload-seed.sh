@@ -211,5 +211,57 @@ test_log_delivery_writes_when_set() {
   assert_eq "direct-deliver" "$event" "event field correct"
 }
 
+test_continue_replaces_stale_preloaded_with_seed() {
+  # After context overflow restart:
+  # 1. SessionStart creates seed with 6 boot files
+  # 2. session.sh continue should REPLACE session's stale preloadedFiles with seed's
+  # This prevents the templates hook from skipping deps it thinks are "already loaded"
+  local pid="${CLAUDE_SUPERVISOR_PID:-99999999}"
+
+  # Create a seed (simulating SessionStart on fresh Claude)
+  find_preload_state "$pid" > /dev/null
+  local seed_file="$TMP_DIR/sessions/.seeds/${pid}.json"
+  assert_file_exists "$seed_file" "seed exists before continue"
+  local seed_count
+  seed_count=$(jq '.preloadedFiles | length' "$seed_file")
+  assert_eq "6" "$seed_count" "seed has 6 boot files"
+
+  # Create session with STALE preloadedFiles (12 files from old process)
+  mkdir -p "$TMP_DIR/sessions/test_continue"
+  jq -n --argjson pid "$pid" '{
+    pid: $pid,
+    lifecycle: "active",
+    skill: "implement",
+    currentPhase: "3.A: Build Loop",
+    preloadedFiles: [
+      "/old/COMMANDS.md", "/old/INVARIANTS.md", "/old/SIGILS.md",
+      "/old/CMD_DEHYDRATE.md", "/old/CMD_RESUME.md", "/old/CMD_PARSE.md",
+      "/old/stale/CMD_REPORT_INTENT.md", "/old/stale/CMD_SELECT_MODE.md",
+      "/old/stale/SKILL.md", "/old/stale/TEMPLATE_LOG.md",
+      "/old/stale/TEMPLATE_DEBRIEF.md", "/old/stale/TEMPLATE_PLAN.md"
+    ],
+    pendingPreloads: ["/old/stale/pending1.md"],
+    touchedDirs: {"/old/dir": true}
+  }' > "$TMP_DIR/sessions/test_continue/.state.json"
+
+  # Run session.sh continue
+  local output
+  output=$(cd "$TMP_DIR" && "$FAKE_HOME/.claude/scripts/session.sh" continue "sessions/test_continue" 2>&1) || true
+
+  # After continue: preloadedFiles should be the seed's 6, not the stale 12
+  local state_file="$TMP_DIR/sessions/test_continue/.state.json"
+  local post_count
+  post_count=$(jq '.preloadedFiles | length' "$state_file")
+  assert_eq "6" "$post_count" "preloadedFiles replaced with seed's 6 (not stale 12)"
+
+  # pendingPreloads should be cleared (seed's are empty)
+  local pending_count
+  pending_count=$(jq '.pendingPreloads // [] | length' "$state_file")
+  assert_eq "0" "$pending_count" "pendingPreloads cleared"
+
+  # Seed file should be deleted after merge
+  assert_file_not_exists "$seed_file" "seed deleted after merge"
+}
+
 # --- Run ---
 run_discovered_tests

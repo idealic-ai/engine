@@ -26,15 +26,11 @@ PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' 2>/dev/null)
 # Find session once (used by gate check)
 SESSION_DIR=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
 
-# --- Skill signal: detect /skill-name at start of prompt (ignoring whitespace) ---
+# --- Skill signal removed ---
+# Previously emitted "Dont forget to activate /X as a tool call, IMPORTANT" but this is
+# no longer needed: post-tool-use-templates.sh now loads Phase 0 CMDs + SKILL.md refs
+# on engine session activate/continue regardless of whether the Skill tool was used.
 SKILL_ADDITIONAL_CONTEXT=""
-if [ -n "$PROMPT" ]; then
-  # Strip leading whitespace, then check for /skill-name at start
-  SKILL_NAME=$(echo "$PROMPT" | sed 's/^[[:space:]]*//' | sed -n 's|^/\([a-z][a-z-]*\).*|\1|p' 2>/dev/null || true)
-  if [ -n "$SKILL_NAME" ] && [ -d "$HOME/.claude/skills/$SKILL_NAME" ]; then
-    SKILL_ADDITIONAL_CONTEXT="Dont forget to activate /$SKILL_NAME as a tool call, IMPORTANT"
-  fi
-fi
 
 # --- Session gate: inject boot instructions if no active session ---
 GATE_MESSAGE=""

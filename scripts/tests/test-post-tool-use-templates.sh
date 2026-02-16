@@ -476,7 +476,7 @@ setup_bash_trigger() {
 }
 
 test_bash_activate_delivers_skill_md_and_templates() {
-  local test_name="bash activate: delivers SKILL.md + templates via additionalContext"
+  local test_name="bash activate: delivers templates (not SKILL.md) via additionalContext"
   setup
 
   create_skill_with_templates "fake-impl" LOG DEBRIEF
@@ -488,22 +488,23 @@ test_bash_activate_delivers_skill_md_and_templates() {
   local has_context
   has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
 
+  # Bash path: SKILL.md NOT delivered (arrives via command expansion), but templates are
   local has_skill_md has_log has_debrief
   has_skill_md=$(echo "$has_context" | grep -c "SKILL.md" || true)
   has_log=$(echo "$has_context" | grep -c "TEMPLATE_FAKE_IMPL_LOG.md" || true)
   has_debrief=$(echo "$has_context" | grep -c "TEMPLATE_FAKE_IMPL.md" || true)
 
-  if [ "$has_skill_md" -ge 1 ] && [ "$has_log" -ge 1 ] && [ "$has_debrief" -ge 1 ]; then
+  if [ "$has_skill_md" -eq 0 ] && [ "$has_log" -ge 1 ] && [ "$has_debrief" -ge 1 ]; then
     pass "$test_name"
   else
-    fail "$test_name" "SKILL.md + LOG + DEBRIEF" "skill_md=$has_skill_md, log=$has_log, debrief=$has_debrief"
+    fail "$test_name" "no SKILL.md + LOG + DEBRIEF" "skill_md=$has_skill_md, log=$has_log, debrief=$has_debrief"
   fi
 
   teardown
 }
 
 test_bash_continue_delivers_skill_md_and_templates() {
-  local test_name="bash continue: delivers SKILL.md + templates via additionalContext"
+  local test_name="bash continue: delivers templates (not SKILL.md) via additionalContext"
   setup
 
   create_skill_with_templates "fake-impl" LOG DEBRIEF PLAN
@@ -515,15 +516,16 @@ test_bash_continue_delivers_skill_md_and_templates() {
   local has_context
   has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
 
+  # Bash path: SKILL.md NOT delivered (arrives via dehydration requiredFiles), but templates are
   local has_skill_md has_log has_plan
   has_skill_md=$(echo "$has_context" | grep -c "SKILL.md" || true)
   has_log=$(echo "$has_context" | grep -c "TEMPLATE_FAKE_IMPL_LOG.md" || true)
   has_plan=$(echo "$has_context" | grep -c "TEMPLATE_FAKE_IMPL_PLAN.md" || true)
 
-  if [ "$has_skill_md" -ge 1 ] && [ "$has_log" -ge 1 ] && [ "$has_plan" -ge 1 ]; then
+  if [ "$has_skill_md" -eq 0 ] && [ "$has_log" -ge 1 ] && [ "$has_plan" -ge 1 ]; then
     pass "$test_name"
   else
-    fail "$test_name" "SKILL.md + LOG + PLAN" "skill_md=$has_skill_md, log=$has_log, plan=$has_plan"
+    fail "$test_name" "no SKILL.md + LOG + PLAN" "skill_md=$has_skill_md, log=$has_log, plan=$has_plan"
   fi
 
   teardown
@@ -604,7 +606,7 @@ test_bash_exits_0_no_skill_in_state() {
 }
 
 test_bash_skill_md_content_appears() {
-  local test_name="bash content: SKILL.md file content appears in additionalContext"
+  local test_name="bash activate: SKILL.md tracked in preloadedFiles but not delivered"
   setup
 
   create_skill_with_templates "fake-impl" LOG
@@ -616,18 +618,168 @@ test_bash_skill_md_content_appears() {
   local has_context
   has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
 
-  # SKILL.md contains "Test skill fake-impl" (from create_skill_with_templates)
+  # SKILL.md should NOT be in additionalContext (not delivered on Bash path)
   local has_content
   has_content=$(echo "$has_context" | grep -c "Test skill fake-impl" || true)
 
-  if [ "$has_content" -ge 1 ]; then
+  # But SKILL.md SHOULD be tracked in preloadedFiles (marked as loaded)
+  local state_file="$SESSION_DIR/.state.json"
+  local skill_tracked
+  skill_tracked=$(jq '[.preloadedFiles // [] | .[] | select(contains("SKILL.md"))] | length' "$state_file" 2>/dev/null || echo "0")
+
+  if [ "$has_content" -eq 0 ] && [ "$skill_tracked" -ge 1 ]; then
     pass "$test_name"
   else
-    fail "$test_name" "contains SKILL.md content" "content not found"
+    fail "$test_name" "not in context + tracked in state" "in_context=$has_content, tracked=$skill_tracked"
   fi
 
   teardown
 }
+
+# =============================================================================
+# BASH PATH: IMMEDIATE DELIVERY OF ALL DEPS (Phase 0 CMDs + prose refs + templates)
+# These tests verify that on Bash(engine session activate/continue), all SKILL.md
+# dependencies are delivered immediately via additionalContext — NOT queued to
+# pendingPreloads for later delivery by overflow-v2.
+# =============================================================================
+
+# Helper: create a SKILL.md with Phase 0 CMDs, prose refs, and templates
+create_skill_with_deps() {
+  local skill_name="$1"
+  local skill_dir="$HOME/.claude/skills/$skill_name"
+  local assets_dir="$skill_dir/assets"
+  local cmd_dir="$HOME/.claude/engine/.directives/commands"
+  local fmt_dir="$HOME/.claude/engine/.directives/formats"
+  mkdir -p "$assets_dir" "$cmd_dir" "$fmt_dir"
+
+  # Create CMD files that Phase 0 references
+  echo "# CMD_REPORT_INTENT definition" > "$cmd_dir/CMD_REPORT_INTENT.md"
+  echo "# CMD_SELECT_MODE definition" > "$cmd_dir/CMD_SELECT_MODE.md"
+  # Create CMD file referenced in prose (orchestrator)
+  echo "# CMD_EXECUTE_SKILL_PHASES definition" > "$cmd_dir/CMD_EXECUTE_SKILL_PHASES.md"
+  # Create FMT file referenced in prose
+  echo "# FMT_CONTEXT_BLOCK definition" > "$fmt_dir/FMT_CONTEXT_BLOCK.md"
+
+  # Create template
+  echo "# Log template for $skill_name" > "$assets_dir/TEMPLATE_DEPTEST_LOG.md"
+
+  # SKILL.md with Phase 0 steps + prose refs to orchestrator CMD and FMT
+  cat > "$skill_dir/SKILL.md" <<'SKILLEOF'
+---
+description: "Test skill with deps"
+---
+
+# deptest
+
+Invoke §CMD_EXECUTE_SKILL_PHASES to run all phases.
+
+Use §FMT_CONTEXT_BLOCK for context blocks.
+
+```json
+{
+  "taskType": "DEPTEST",
+  "logTemplate": "assets/TEMPLATE_DEPTEST_LOG.md",
+  "phases": [
+    {
+      "major": 0, "minor": 0, "name": "Setup",
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_SELECT_MODE"]
+    },
+    {
+      "major": 1, "minor": 0, "name": "Work"
+    }
+  ]
+}
+```
+SKILLEOF
+}
+
+test_bash_activate_delivers_all_deps_immediately() {
+  local test_name="bash activate: delivers Phase 0 CMDs + prose refs + templates immediately"
+  setup
+
+  create_skill_with_deps "deptest"
+  setup_bash_trigger "deptest"
+
+  local output
+  output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine session activate sessions/test-session deptest <<'\''EOF'\''\n{}\nEOF"}}')
+
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
+
+  # All deps should be in additionalContext (immediate delivery)
+  local has_report_intent has_select_mode has_execute_phases has_fmt_block has_template
+  has_report_intent=$(echo "$has_context" | grep -c "CMD_REPORT_INTENT" || true)
+  has_select_mode=$(echo "$has_context" | grep -c "CMD_SELECT_MODE" || true)
+  has_execute_phases=$(echo "$has_context" | grep -c "CMD_EXECUTE_SKILL_PHASES" || true)
+  has_fmt_block=$(echo "$has_context" | grep -c "FMT_CONTEXT_BLOCK" || true)
+  has_template=$(echo "$has_context" | grep -c "TEMPLATE_DEPTEST_LOG" || true)
+
+  # SKILL.md itself should NOT be delivered (arrives via skill expansion)
+  local has_skill_md
+  has_skill_md=$(echo "$has_context" | grep -c "Test skill with deps" || true)
+
+  local all_ok=true
+  [ "$has_report_intent" -ge 1 ] || { all_ok=false; }
+  [ "$has_select_mode" -ge 1 ] || { all_ok=false; }
+  [ "$has_execute_phases" -ge 1 ] || { all_ok=false; }
+  [ "$has_fmt_block" -ge 1 ] || { all_ok=false; }
+  [ "$has_template" -ge 1 ] || { all_ok=false; }
+  [ "$has_skill_md" -eq 0 ] || { all_ok=false; }
+
+  if [ "$all_ok" = "true" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "all deps immediate, no SKILL.md" \
+      "report_intent=$has_report_intent select_mode=$has_select_mode execute_phases=$has_execute_phases fmt=$has_fmt_block template=$has_template skill_md=$has_skill_md"
+  fi
+
+  # Also verify nothing left in pendingPreloads
+  local pending_count
+  pending_count=$(jq '.pendingPreloads // [] | length' "$SESSION_DIR/.state.json" 2>/dev/null || echo "0")
+  assert_eq "0" "$pending_count" "$test_name — pendingPreloads empty"
+
+  teardown
+}
+
+test_bash_continue_delivers_all_deps_immediately() {
+  local test_name="bash continue: delivers Phase 0 CMDs + prose refs + templates immediately"
+  setup
+
+  create_skill_with_deps "deptest"
+  setup_bash_trigger "deptest"
+
+  local output
+  output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine session continue sessions/test-session"}}')
+
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
+
+  # Phase 0 CMDs + prose refs + templates all immediate
+  local has_report_intent has_execute_phases has_template
+  has_report_intent=$(echo "$has_context" | grep -c "CMD_REPORT_INTENT" || true)
+  has_execute_phases=$(echo "$has_context" | grep -c "CMD_EXECUTE_SKILL_PHASES" || true)
+  has_template=$(echo "$has_context" | grep -c "TEMPLATE_DEPTEST_LOG" || true)
+
+  local all_ok=true
+  [ "$has_report_intent" -ge 1 ] || { all_ok=false; }
+  [ "$has_execute_phases" -ge 1 ] || { all_ok=false; }
+  [ "$has_template" -ge 1 ] || { all_ok=false; }
+
+  if [ "$all_ok" = "true" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "all deps immediate" \
+      "report_intent=$has_report_intent execute_phases=$has_execute_phases template=$has_template"
+  fi
+
+  # pendingPreloads should be empty
+  local pending_count
+  pending_count=$(jq '.pendingPreloads // [] | length' "$SESSION_DIR/.state.json" 2>/dev/null || echo "0")
+  assert_eq "0" "$pending_count" "$test_name — pendingPreloads empty"
+
+  teardown
+}
+
 
 # =============================================================================
 # RUN ALL TESTS
@@ -659,5 +811,9 @@ test_bash_ignores_non_matching_commands
 test_bash_dedup_skips_already_preloaded
 test_bash_exits_0_no_skill_in_state
 test_bash_skill_md_content_appears
+
+# Bash path: immediate delivery of all deps
+test_bash_activate_delivers_all_deps_immediately
+test_bash_continue_delivers_all_deps_immediately
 
 exit_with_results

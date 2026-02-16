@@ -241,6 +241,158 @@ test_dehydrate_command_one_missing() {
   assert_contains "COMMANDS content" "$output" "standards still present when command file missing"
 }
 
+# --- Test 10: Active session → skill deps delivered on clear ---
+test_active_session_delivers_skill_deps_on_clear() {
+  # Create an active session with a known skill
+  local session_dir="$PROJECT_DIR/sessions/test_skill_deps"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "3: Build Loop",
+  "preloadedFiles": []
+}
+JSON
+
+  # Create a minimal SKILL.md with Phase 0 CMDs + templates
+  local skill_dir="$FAKE_HOME/.claude/skills/implement"
+  local assets_dir="$skill_dir/assets"
+  mkdir -p "$assets_dir"
+  mkdir -p "$FAKE_HOME/.claude/.directives/commands"
+
+  echo "# CMD_DEHYDRATE" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
+  echo "# CMD_RESUME_SESSION" > "$FAKE_HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md"
+  echo "# CMD_PARSE_PARAMETERS" > "$FAKE_HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"
+
+  # Phase 0 CMD files (engine path — where resolve_phase_cmds looks)
+  mkdir -p "$FAKE_HOME/.claude/engine/.directives/commands"
+  echo "# CMD_SELECT_MODE content" > "$FAKE_HOME/.claude/engine/.directives/commands/CMD_SELECT_MODE.md"
+  echo "# CMD_REPORT_INTENT content" > "$FAKE_HOME/.claude/engine/.directives/commands/CMD_REPORT_INTENT.md"
+
+  # Template files
+  echo "# Log template for implement" > "$assets_dir/TEMPLATE_IMPLEMENTATION_LOG.md"
+  echo "# Debrief template for implement" > "$assets_dir/TEMPLATE_IMPLEMENTATION.md"
+
+  # SKILL.md with JSON block referencing Phase 0 CMDs + templates
+  cat > "$skill_dir/SKILL.md" <<'SKILLEOF'
+---
+description: "Test implement skill"
+---
+
+# implement
+
+```json
+{
+  "taskType": "IMPLEMENTATION",
+  "logTemplate": "assets/TEMPLATE_IMPLEMENTATION_LOG.md",
+  "debriefTemplate": "assets/TEMPLATE_IMPLEMENTATION.md",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup", "steps": ["§CMD_SELECT_MODE", "§CMD_REPORT_INTENT"]},
+    {"major": 3, "minor": 0, "name": "Build Loop"}
+  ]
+}
+```
+SKILLEOF
+
+  local output
+  output=$(run_hook "clear") || true
+
+  # SKILL.md content should be in output
+  assert_contains "Test implement skill" "$output" "clear source with active session → SKILL.md delivered"
+
+  # Phase 0 CMD files should be in output
+  assert_contains "CMD_SELECT_MODE content" "$output" "clear source with active session → Phase 0 CMD delivered"
+  assert_contains "CMD_REPORT_INTENT content" "$output" "clear source with active session → Phase 0 CMD delivered"
+
+  # Template files should be in output
+  assert_contains "TEMPLATE_IMPLEMENTATION_LOG.md" "$output" "clear source with active session → log template path in output"
+  assert_contains "TEMPLATE_IMPLEMENTATION.md" "$output" "clear source with active session → debrief template path in output"
+
+  # Boot standards should still be present
+  assert_contains "COMMANDS content" "$output" "standards still present alongside skill deps"
+}
+
+# --- Test 11: No active session → no skill deps on clear ---
+test_no_active_session_no_skill_deps_on_clear() {
+  # No active session — just standards
+  local output
+  output=$(run_hook "clear") || true
+
+  assert_contains "COMMANDS content" "$output" "standards present without active session"
+  assert_not_contains "SKILL.md" "$output" "no SKILL.md without active session"
+}
+
+# --- Test 12: Active session skill deps tracked in seed preloadedFiles ---
+test_skill_deps_tracked_in_seed() {
+  # Create an active session with a known skill
+  local session_dir="$PROJECT_DIR/sessions/test_seed_tracking"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "brainstorm",
+  "lifecycle": "active",
+  "currentPhase": "1: Interrogation",
+  "preloadedFiles": []
+}
+JSON
+
+  # Create a minimal SKILL.md
+  local skill_dir="$FAKE_HOME/.claude/skills/brainstorm"
+  local assets_dir="$skill_dir/assets"
+  mkdir -p "$assets_dir"
+  mkdir -p "$FAKE_HOME/.claude/.directives/commands"
+  echo "# CMD_DEHYDRATE" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
+  echo "# CMD_RESUME_SESSION" > "$FAKE_HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md"
+  echo "# CMD_PARSE_PARAMETERS" > "$FAKE_HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"
+
+  echo "# Log template for brainstorm" > "$assets_dir/TEMPLATE_BRAINSTORM_LOG.md"
+  cat > "$skill_dir/SKILL.md" <<'SKILLEOF'
+---
+description: "Test brainstorm skill"
+---
+
+# brainstorm
+
+```json
+{
+  "taskType": "BRAINSTORM",
+  "logTemplate": "assets/TEMPLATE_BRAINSTORM_LOG.md",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup"},
+    {"major": 1, "minor": 0, "name": "Interrogation"}
+  ]
+}
+```
+SKILLEOF
+
+  run_hook "clear" > /dev/null || true
+
+  # Seed file should exist and track skill deps
+  local seed_file="$PROJECT_DIR/sessions/.seeds/$$.json"
+  if [ ! -f "$seed_file" ]; then
+    fail "seed file exists after clear with active session" "file at $seed_file" "file not found"
+    return
+  fi
+
+  local seed_count
+  seed_count=$(jq '.preloadedFiles | length' "$seed_file" 2>/dev/null || echo "0")
+
+  # Should have 6 boot seeds + SKILL.md + at least 1 template = 8+
+  if [ "$seed_count" -gt 6 ]; then
+    pass "seed preloadedFiles includes skill deps (count=$seed_count > 6 boot seeds)"
+  else
+    fail "seed preloadedFiles includes skill deps" ">6 entries" "count=$seed_count"
+  fi
+
+  # SKILL.md path should be in seed
+  local has_skill_md
+  has_skill_md=$(jq '[.preloadedFiles[] | select(contains("SKILL.md"))] | length' "$seed_file" 2>/dev/null || echo "0")
+  assert_eq "1" "$has_skill_md" "seed preloadedFiles includes SKILL.md"
+}
+
 echo "======================================"
 echo "Session Start Restore Hook Tests"
 echo "======================================"
@@ -255,5 +407,8 @@ run_test test_standards_before_dehydrated
 run_test test_preloaded_files_recorded
 run_test test_dehydrate_command_files_preloaded
 run_test test_dehydrate_command_one_missing
+run_test test_active_session_delivers_skill_deps_on_clear
+run_test test_no_active_session_no_skill_deps_on_clear
+run_test test_skill_deps_tracked_in_seed
 
 exit_with_results

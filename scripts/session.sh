@@ -1567,6 +1567,27 @@ case "$ACTION" in
       '.pid = $pid | .lifecycle = "active" | del(.loading) | .toolCallsByTranscript = {} | .lastHeartbeat = $ts | .contextUsage = 0 | .overflowed = false | .killRequested = false' \
       "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
+    # --- Seed File Merge (continue-specific) ---
+    # After context overflow restart, SessionStart created a seed with 6 boot files.
+    # The session's preloadedFiles are stale (from the OLD process). Replace them
+    # with the seed's preloadedFiles so the templates hook doesn't skip deps.
+    SESSIONS_BASE=$(dirname "$DIR")
+    SEED_FILE="$SESSIONS_BASE/.seeds/${TARGET_PID}.json"
+    if [ -f "$SEED_FILE" ]; then
+      SEED_LIFECYCLE=$(jq -r '.lifecycle // ""' "$SEED_FILE" 2>/dev/null || echo "")
+      if [ "$SEED_LIFECYCLE" = "seeding" ]; then
+        # REPLACE (not union) — seed has the truth of what this process has seen
+        jq -s '
+          (.[1].preloadedFiles // []) as $seedp |
+          (.[1].pendingPreloads // []) as $seedpp |
+          .[0] |
+          .preloadedFiles = $seedp |
+          .pendingPreloads = $seedpp
+        ' "$STATE_FILE" "$SEED_FILE" | safe_json_write "$STATE_FILE"
+        rm -f "$SEED_FILE"
+      fi
+    fi
+
     # Read state for rich output
     SKILL=$(jq -r '.skill // "unknown"' "$STATE_FILE")
     CURRENT_PHASE=$(jq -r '.currentPhase // "unknown"' "$STATE_FILE")

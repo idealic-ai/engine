@@ -57,23 +57,59 @@ ACTIVE_SKILL=""
 ACTIVE_PHASE=""
 ACTIVE_HEARTBEAT=""
 
-# Find active session: .state.json with lifecycle=active and live PID
-for sessions_dir in "${SESSION_DIRS[@]}"; do
-  for f in "$sessions_dir"/*/.state.json; do
-    [ -f "$f" ] || continue
-    S_LIFECYCLE=$(jq -r '.lifecycle // ""' "$f" 2>/dev/null)
-    S_PID=$(jq -r '.pid // 0' "$f" 2>/dev/null)
-    if [ "$S_LIFECYCLE" = "active" ] && pid_exists "$S_PID"; then
-      ACTIVE_SESSION=$(basename "$(dirname "$f")")
-      ACTIVE_SKILL=$(jq -r '.skill // "unknown"' "$f" 2>/dev/null)
-      ACTIVE_PHASE=$(jq -r '.currentPhase // "unknown"' "$f" 2>/dev/null)
-      S_HEARTBEAT=$(jq -r '.toolCallsSinceLastLog // 0' "$f" 2>/dev/null)
-      S_HEARTBEAT_MAX=$(jq -r '.toolUseWithoutLogsBlockAfter // 10' "$f" 2>/dev/null)
-      ACTIVE_HEARTBEAT="${S_HEARTBEAT}/${S_HEARTBEAT_MAX}"
-      break 2
-    fi
+# Find active session — fleet pane match first, then PID fallback.
+# In fleet mode (TMUX_PANE set), match fleetPaneId in .state.json against
+# the current pane's window:label from tmux. Falls back to first alive PID.
+FLEET_LABEL=""
+if [ -n "${TMUX_PANE:-}" ]; then
+  FLEET_LABEL=$(tmux display -p -t "$TMUX_PANE" '#{window_name}:#{@pane_label}' 2>/dev/null || echo "")
+  debug "fleet label: '$FLEET_LABEL'"
+fi
+
+# Helper: extract session fields from .state.json into ACTIVE_* vars
+_set_active_session() {
+  local f="$1"
+  ACTIVE_SESSION=$(basename "$(dirname "$f")")
+  ACTIVE_SKILL=$(jq -r '.skill // "unknown"' "$f" 2>/dev/null)
+  ACTIVE_PHASE=$(jq -r '.currentPhase // "unknown"' "$f" 2>/dev/null)
+  S_HEARTBEAT=$(jq -r '.toolCallsSinceLastLog // 0' "$f" 2>/dev/null)
+  S_HEARTBEAT_MAX=$(jq -r '.toolUseWithoutLogsBlockAfter // 10' "$f" 2>/dev/null)
+  ACTIVE_HEARTBEAT="${S_HEARTBEAT}/${S_HEARTBEAT_MAX}"
+}
+
+# Pass 1: Fleet pane match (if in tmux)
+if [ -n "$FLEET_LABEL" ]; then
+  for sessions_dir in "${SESSION_DIRS[@]}"; do
+    for f in "$sessions_dir"/*/.state.json; do
+      [ -f "$f" ] || continue
+      S_LIFECYCLE=$(jq -r '.lifecycle // ""' "$f" 2>/dev/null)
+      { [ "$S_LIFECYCLE" = "active" ] || [ "$S_LIFECYCLE" = "resuming" ]; } || continue
+      S_FLEET=$(jq -r '.fleetPaneId // ""' "$f" 2>/dev/null)
+      # Match: fleetPaneId ends with the current pane's window:label
+      if [ -n "$S_FLEET" ] && [[ "$S_FLEET" == *"$FLEET_LABEL" ]]; then
+        _set_active_session "$f"
+        debug "fleet match: $ACTIVE_SESSION (paneId=$S_FLEET)"
+        break 2
+      fi
+    done
   done
-done
+fi
+
+# Pass 2: PID fallback (if no fleet match found)
+if [ -z "$ACTIVE_SESSION" ]; then
+  for sessions_dir in "${SESSION_DIRS[@]}"; do
+    for f in "$sessions_dir"/*/.state.json; do
+      [ -f "$f" ] || continue
+      S_LIFECYCLE=$(jq -r '.lifecycle // ""' "$f" 2>/dev/null)
+      S_PID=$(jq -r '.pid // 0' "$f" 2>/dev/null)
+      if { [ "$S_LIFECYCLE" = "active" ] || [ "$S_LIFECYCLE" = "resuming" ]; } && pid_exists "$S_PID"; then
+        _set_active_session "$f"
+        debug "pid match: $ACTIVE_SESSION (pid=$S_PID)"
+        break 2
+      fi
+    done
+  done
+fi
 
 CONTEXT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 WORKSPACE_INFO=""
@@ -127,6 +163,86 @@ for sessions_dir in "${SESSION_DIRS[@]}"; do
   debug "  created seed: $SEED_FILE"
 done
 
+# --- Active skill dep delivery (when active session detected) ---
+# After /clear, the agent needs SKILL.md + Phase 0 CMDs + templates immediately.
+# Without this, they only arrive on the next PostToolUse (templates hook), which
+# requires a tool call — leaving the agent without skill context after /clear.
+SKILL_DEPS_OUTPUT=""
+if [ -n "$ACTIVE_SKILL" ]; then
+  debug "active skill detected: $ACTIVE_SKILL — delivering skill deps"
+
+  # SKILL.md
+  skill_md="$HOME/.claude/skills/$ACTIVE_SKILL/SKILL.md"
+  if [ -f "$skill_md" ]; then
+    skill_md_content=$(cat "$skill_md" 2>/dev/null || true)
+    if [ -n "$skill_md_content" ]; then
+      SKILL_DEPS_OUTPUT="[Preloaded: $skill_md]
+$skill_md_content
+
+"
+      debug "  delivered SKILL.md"
+    fi
+  fi
+
+  # Phase 0 CMDs + templates (via extract_skill_preloads), deduped against boot standards
+  phase0_paths=$(extract_skill_preloads "$ACTIVE_SKILL" 2>/dev/null || true)
+  if [ -n "$phase0_paths" ]; then
+    while IFS= read -r dep_path; do
+      [ -n "$dep_path" ] || continue
+      resolved="${dep_path/#\~/$HOME}"
+      # Skip if already delivered as a boot standard
+      resolved_real=$(cd "$(dirname "$resolved")" 2>/dev/null && echo "$(pwd -P)/$(basename "$resolved")")
+      if echo "$PRELOAD_SEEDS" | jq -e --arg p "$resolved_real" 'index($p) != null' >/dev/null 2>&1; then
+        debug "  skip dedup: $(basename "$resolved") (boot standard)"
+        continue
+      fi
+      if [ -f "$resolved" ]; then
+        dep_content=$(cat "$resolved" 2>/dev/null || true)
+        if [ -n "$dep_content" ]; then
+          SKILL_DEPS_OUTPUT="${SKILL_DEPS_OUTPUT}[Preloaded: $dep_path]
+$dep_content
+
+"
+          debug "  delivered Phase 0 dep: $(basename "$resolved")"
+        fi
+      fi
+    done <<< "$phase0_paths"
+  fi
+
+  # Track skill deps in seed preloadedFiles
+  if [ -n "$SKILL_DEPS_OUTPUT" ]; then
+    # Build JSON array of delivered skill dep paths
+    SKILL_DEP_PATHS=""
+    skill_md_norm=$(normalize_preload_path "$skill_md" 2>/dev/null || true)
+    [ -n "$skill_md_norm" ] && SKILL_DEP_PATHS="$skill_md_norm"
+    if [ -n "$phase0_paths" ]; then
+      while IFS= read -r dep_path; do
+        [ -n "$dep_path" ] || continue
+        SKILL_DEP_PATHS="${SKILL_DEP_PATHS}${SKILL_DEP_PATHS:+
+}$dep_path"
+      done <<< "$phase0_paths"
+    fi
+
+    # Update seed files with skill dep paths
+    for sessions_dir in "${SESSION_DIRS[@]}"; do
+      SEED_FILE="$sessions_dir/.seeds/$PPID.json"
+      if [ -f "$SEED_FILE" ]; then
+        # Add each path to preloadedFiles
+        while IFS= read -r add_path; do
+          [ -n "$add_path" ] || continue
+          jq --arg p "$add_path" '
+            (.preloadedFiles //= []) |
+            if (.preloadedFiles | index($p)) then .
+            else .preloadedFiles += [$p]
+            end
+          ' "$SEED_FILE" | safe_json_write "$SEED_FILE"
+        done <<< "$SKILL_DEP_PATHS"
+        debug "  updated seed with $(echo "$SKILL_DEP_PATHS" | wc -l | tr -d ' ') skill dep paths"
+      fi
+    done
+  fi
+fi
+
 # Preload core standards — available to agent from first message
 STANDARDS_OUTPUT=""
 for std_file in "$HOME/.claude/.directives/COMMANDS.md" \
@@ -149,9 +265,9 @@ $STD_CONTENT
   fi
 done
 
-# Prepend session context line to standards output (fires on every source)
+# Prepend session context line, append skill deps after standards
 STANDARDS_OUTPUT="${SESSION_CONTEXT_LINE}
-${STANDARDS_OUTPUT}"
+${STANDARDS_OUTPUT}${SKILL_DEPS_OUTPUT}"
 
 # Dehydrated context restore — startup only (other sources: user didn't restart)
 if [ "$SOURCE" != "startup" ]; then

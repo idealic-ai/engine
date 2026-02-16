@@ -803,8 +803,8 @@ match_whitelist() {
 #     FMT → formats/
 #     INV → invariants/
 #
-#   SKILL.md files are excluded from CMD preloading (preserves lazy per-phase loading).
-#   SKILL.md CAN trigger FMT preloading.
+#   Code fences (``` blocks) are stripped before scanning, so refs inside JSON
+#   schemas (e.g. phases steps/commands arrays) are never extracted.
 #   Only § (section sign) references are resolved, not ¶ (pilcrow) definitions.
 #
 #   Returns: 0 always. Empty output = no refs found or all already loaded.
@@ -816,14 +816,6 @@ resolve_refs() {
   [ -n "$file_path" ] || return 0
   [ -f "$file_path" ] || return 0
   [ "$depth" -gt 0 ] 2>/dev/null || return 0
-
-  # Determine if this is a SKILL.md file (excluded from CMD preloading)
-  local basename_file
-  basename_file="${file_path##*/}"
-  local is_skill_md=false
-  if [ "$basename_file" = "SKILL.md" ]; then
-    is_skill_md=true
-  fi
 
   # Two-pass regex: strip code fences + backtick spans, then extract § references
   # Pass 1: awk skips lines inside ``` code fences AND strips inline `code` spans
@@ -1110,22 +1102,19 @@ _auto_expand_refs() {
   local resolved="${file/#\~/$HOME}"
   [ -f "$resolved" ] || return 0
 
-  local skip_cmd=false
-  [[ "$file" == */SKILL.md ]] && skip_cmd=true
-
   local already_loaded
   already_loaded=$(jq -c '.preloadedFiles // []' "$state_file" 2>/dev/null || echo '[]')
 
   # depth=1: no explicit recursion — pipeline handles it naturally
+  # resolve_refs() already strips code fences (``` blocks), so CMD refs inside
+  # JSON schemas (phases steps/commands arrays) are never extracted.
+  # All remaining refs are legitimate prose references — allow them all through.
   local refs
   refs=$(resolve_refs "$resolved" 1 "$already_loaded") || true
   [ -n "$refs" ] || return 0
 
   while IFS= read -r ref_path; do
     [ -z "$ref_path" ] && continue
-    if [ "$skip_cmd" = true ] && [[ "$ref_path" == */CMD_* ]]; then
-      continue
-    fi
     _log_delivery "${HOOK_NAME:-unknown}" "auto-expand" "$ref_path" "auto-expand($file)"
     # Queue the ref — don't deliver immediately (pipeline recursion)
     local old_result="$_PRELOAD_RESULT"

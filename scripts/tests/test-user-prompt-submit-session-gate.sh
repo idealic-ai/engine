@@ -80,14 +80,16 @@ run_ups_hook() {
 }
 
 # ============================================================
-# S1: Skill signal emitted for /skill-name at prompt start
+# S1: No skill signal (removed — deps loaded by templates hook on engine session activate)
 # ============================================================
-test_signal_emitted_for_valid_skill() {
+test_no_signal_for_valid_skill() {
   local output
   output=$(run_ups_hook "/mtest implement something" 2>/dev/null || true)
-  local has_base_dir
-  has_base_dir=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null | grep -c "Dont forget to activate" || true)
-  assert_gt "$has_base_dir" 0 "S1: signal contains 'Dont forget to activate'"
+  local ac
+  ac=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null || echo "")
+  local has_signal
+  has_signal=$(echo "$ac" | grep -c "Dont forget to activate" || true)
+  assert_eq "0" "$has_signal" "S1: no skill signal (removed)"
 }
 
 # ============================================================
@@ -104,14 +106,16 @@ test_no_signal_for_mid_prompt_skill() {
 }
 
 # ============================================================
-# S3: Signal works with leading whitespace
+# S3: No signal even with leading whitespace (signal removed)
 # ============================================================
-test_signal_with_leading_whitespace() {
+test_no_signal_with_leading_whitespace() {
   local output
   output=$(run_ups_hook "  /mtest do something" 2>/dev/null || true)
-  local has_base_dir
-  has_base_dir=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null | grep -c "Dont forget to activate" || true)
-  assert_gt "$has_base_dir" 0 "S3: signal emitted with leading whitespace"
+  local ac
+  ac=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null || echo "")
+  local has_signal
+  has_signal=$(echo "$ac" | grep -c "Dont forget to activate" || true)
+  assert_eq "0" "$has_signal" "S3: no skill signal with leading whitespace (removed)"
 }
 
 # ============================================================
@@ -177,18 +181,18 @@ test_no_gate_when_active() {
 }
 
 # ============================================================
-# S8: Skill signal + gate message combined
+# S8: Gate message only (no skill signal — signal removed)
 # ============================================================
-test_signal_plus_gate_combined() {
+test_gate_only_no_signal() {
   echo '{"pid":99999,"skill":"implement","lifecycle":"completed","currentPhase":"5: Done"}' > "$SESSION_DIR/.state.json"
   local output
   output=$(run_ups_hook "/mtest implement" 2>/dev/null || true)
   local ac
   ac=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null || echo "")
-  local has_base_dir has_gate
-  has_base_dir=$(echo "$ac" | grep -c "Dont forget to activate" || true)
+  local has_signal has_gate
+  has_signal=$(echo "$ac" | grep -c "Dont forget to activate" || true)
   has_gate=$(echo "$ac" | grep -c "is completed" || true)
-  assert_gt "$has_base_dir" 0 "S8: skill signal present"
+  assert_eq "0" "$has_signal" "S8: no skill signal (removed)"
   assert_gt "$has_gate" 0 "S8: gate message present"
 }
 
@@ -223,14 +227,14 @@ test_no_output_without_session_required() {
 echo "=== UserPromptSubmit Session Gate Tests ==="
 echo ""
 
-run_test test_signal_emitted_for_valid_skill
+run_test test_no_signal_for_valid_skill
 run_test test_no_signal_for_mid_prompt_skill
-run_test test_signal_with_leading_whitespace
+run_test test_no_signal_with_leading_whitespace
 run_test test_no_signal_for_unknown_skill
 run_test test_gate_no_session
 run_test test_gate_completed_session
 run_test test_no_gate_when_active
-run_test test_signal_plus_gate_combined
+run_test test_gate_only_no_signal
 run_test test_no_state_modification
 run_test test_no_output_without_session_required
 
