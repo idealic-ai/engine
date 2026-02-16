@@ -346,6 +346,38 @@ start_watchdog() {
   echo $!
 }
 
+# Detect context exhaustion from JSONL tail and trigger session restart
+# This is the defense-in-depth path — runs unconditionally after Claude exits.
+# The Stop hook (stop-notify.sh) also checks, but may not fire on context exhaustion.
+detect_context_exhaustion() {
+  # Find the current conversation JSONL (same logic as stop-notify.sh)
+  local project_slug=$(echo "$PWD" | sed 's|/|-|g')
+  local projects_dir="$HOME/.claude/projects/$project_slug"
+  local jsonl_file=""
+
+  if [ -d "$projects_dir" ]; then
+    jsonl_file=$(ls -t "$projects_dir"/*.jsonl 2>/dev/null | head -1) || true
+  fi
+
+  [ -n "$jsonl_file" ] && [ -f "$jsonl_file" ] || return 0
+
+  local tail_content
+  tail_content=$(tail -50 "$jsonl_file" 2>/dev/null || true)
+
+  if echo "$tail_content" | grep -qiE 'prompt is too long|conversation is too long|context_length_exceeded'; then
+    echo "[run.sh] Context exhaustion detected in JSONL"
+    # Find active session and trigger restart
+    local session_dir
+    session_dir=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
+    if [ -n "$session_dir" ]; then
+      echo "[run.sh] Triggering session restart for $session_dir"
+      "$HOME/.claude/scripts/session.sh" restart "$session_dir" 2>/dev/null || true
+    else
+      echo "[run.sh] Context exhaustion detected but no active session found" >&2
+    fi
+  fi
+}
+
 # Find .state.json ready for restart (scoped by fleet pane in fleet mode)
 find_restart_agent_json() {
   local sessions_dir="$PWD/sessions"
@@ -641,6 +673,12 @@ while true; do
 
   # Brief settle time
   sleep 0.5
+
+  # ─── Context exhaustion detection (defense-in-depth) ───────────────────
+  # The Stop hook (stop-notify.sh) also checks for this, but Stop may not
+  # fire on context exhaustion (it fires on "agent stops", not "agent exits").
+  # This check runs unconditionally after Claude exits — most reliable path.
+  detect_context_exhaustion
 
   # Check if restart was requested
   RESTART_AGENT_FILE=$(find_restart_agent_json || true)

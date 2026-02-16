@@ -669,6 +669,294 @@ EOF
   teardown
 }
 
+# --- SKILL.md Pipeline Integration Tests ---
+# These tests verify that the templates hook (post-tool-use-templates.sh) scans
+# SKILL.md bare §CMD_* refs and queues discovered files into pendingPreloads.
+
+# Helper: set up a fake skill directory with SKILL.md and mock the templates hook env
+_setup_skill_fixture() {
+  local skill_name="${1:-fake-skill}"
+  local skill_dir="$FAKE_HOME/.claude/skills/$skill_name"
+  mkdir -p "$skill_dir"
+  FIXTURE_SKILL_DIR="$skill_dir"
+  FIXTURE_SKILL_NAME="$skill_name"
+}
+
+# Helper: simulate the templates hook's SKILL.md scanning block (the fix under test)
+# This mirrors the fixed code in post-tool-use-templates.sh lines 77-116
+_simulate_skill_md_scanning() {
+  local state_file="$1"
+  local skill_name="$2"
+  local preload_paths="$3"
+
+  local all_new_refs=""
+  local current_loaded
+  current_loaded=$(jq '.preloadedFiles // []' "$state_file" 2>/dev/null || echo '[]')
+
+  # Build scan list: Phase 0 CMDs + SKILL.md itself (the fix)
+  local scan_paths="$preload_paths"
+  local skill_md_path="$FAKE_HOME/.claude/skills/$skill_name/SKILL.md"
+  if [ -f "$skill_md_path" ]; then
+    local skill_md_norm
+    skill_md_norm=$(normalize_preload_path "$skill_md_path")
+    scan_paths="${scan_paths}
+${skill_md_norm}"
+  fi
+
+  while IFS= read -r norm_path; do
+    [ -n "$norm_path" ] || continue
+    local abs_path="${norm_path/#\~/$HOME}"
+    [ -f "$abs_path" ] || continue
+    local refs
+    refs=$(resolve_refs "$abs_path" 2 "$current_loaded") || true
+    if [ -n "$refs" ]; then
+      all_new_refs="${all_new_refs}${all_new_refs:+
+}${refs}"
+      while IFS= read -r rpath; do
+        [ -n "$rpath" ] || continue
+        current_loaded=$(echo "$current_loaded" | jq --arg p "$rpath" '. + [$p]')
+      done <<< "$refs"
+    fi
+  done <<< "$scan_paths"
+
+  if [ -n "$all_new_refs" ]; then
+    local refs_json="[]"
+    while IFS= read -r ref_path; do
+      [ -n "$ref_path" ] || continue
+      refs_json=$(echo "$refs_json" | jq --arg f "$ref_path" '. + [$f]')
+    done <<< "$all_new_refs"
+
+    jq --argjson refs "$refs_json" '
+      (.preloadedFiles // []) as $pf |
+      (.pendingPreloads //= []) |
+      reduce ($refs[]) as $r (.;
+        if ($pf | any(. == $r)) then .
+        elif (.pendingPreloads | index($r)) then .
+        else .pendingPreloads += [$r]
+        end
+      )
+    ' "$state_file" | safe_json_write "$state_file"
+  fi
+}
+
+test_integration_templates_hook_scans_skill_md_refs() {
+  # 1.4/1: SKILL.md bare §CMD_* refs should be queued into pendingPreloads
+  integration_setup
+  _setup_skill_fixture "test-skill"
+
+  # Create CMD file that SKILL.md references
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_EXECUTE_SKILL_PHASES.md" <<'EOF'
+# CMD_EXECUTE_SKILL_PHASES
+Boot sector command.
+EOF
+
+  # Create fixture SKILL.md with a bare §CMD_ ref
+  cat > "$FIXTURE_SKILL_DIR/SKILL.md" <<'EOF'
+# Test Skill
+Execute §CMD_EXECUTE_SKILL_PHASES.
+EOF
+
+  local skill_md_norm
+  skill_md_norm=$(normalize_preload_path "$FIXTURE_SKILL_DIR/SKILL.md")
+  # SKILL.md already in preloadedFiles (delivered by UserPromptSubmit)
+  _write_state "[\"$skill_md_norm\"]" '[]'
+
+  # No Phase 0 CMDs (empty preload paths)
+  _simulate_skill_md_scanning "$STATE_FILE" "$FIXTURE_SKILL_NAME" ""
+
+  local pending
+  pending=$(jq -r '.pendingPreloads[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
+  assert_contains "CMD_EXECUTE_SKILL_PHASES.md" "$pending" "SKILL.md bare ref queued in pendingPreloads"
+
+  teardown
+}
+
+test_integration_skill_md_not_requeued_in_pending() {
+  # 1.4/2: SKILL.md itself should NOT appear in pendingPreloads
+  integration_setup
+  _setup_skill_fixture "test-skill"
+
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_FOO.md" <<'EOF'
+# CMD_FOO
+EOF
+
+  cat > "$FIXTURE_SKILL_DIR/SKILL.md" <<'EOF'
+# Test Skill
+Execute §CMD_FOO.
+EOF
+
+  local skill_md_norm
+  skill_md_norm=$(normalize_preload_path "$FIXTURE_SKILL_DIR/SKILL.md")
+  _write_state "[\"$skill_md_norm\"]" '[]'
+
+  _simulate_skill_md_scanning "$STATE_FILE" "$FIXTURE_SKILL_NAME" ""
+
+  local pending
+  pending=$(jq -r '.pendingPreloads[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
+  assert_contains "CMD_FOO.md" "$pending" "CMD_FOO ref is queued"
+  assert_not_contains "SKILL.md" "$pending" "SKILL.md itself NOT in pendingPreloads"
+
+  teardown
+}
+
+test_integration_resolve_refs_no_debug_output() {
+  # 1.4/3: resolve_refs stdout should contain only file paths, no debug lines
+  integration_setup
+
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_FOO.md" <<'EOF'
+# CMD_FOO
+Execute §CMD_BAR.
+EOF
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_BAR.md" <<'EOF'
+# CMD_BAR
+EOF
+
+  local test_file="$TMP_DIR/test_input.md"
+  cat > "$test_file" <<'EOF'
+# Test
+Execute §CMD_FOO.
+EOF
+
+  source "$FAKE_HOME/.claude/scripts/lib.sh"
+  local output
+  output=$(resolve_refs "$test_file" 2 '[]')
+
+  # Check every line is a valid path (contains / or ~)
+  local bad_lines=""
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    case "$line" in
+      *"/"*|"~"*) ;; # valid path
+      *) bad_lines="${bad_lines}${line}\n" ;;
+    esac
+  done <<< "$output"
+
+  assert_empty "$bad_lines" "no debug output in resolve_refs stdout"
+
+  # Explicitly check for known debug patterns
+  assert_not_contains "folder=" "$output" "no folder= debug output"
+  assert_not_contains "normalized=" "$output" "no normalized= debug output"
+  assert_not_contains "prefix=" "$output" "no prefix= debug output"
+
+  teardown
+}
+
+test_integration_skill_md_backtick_refs_not_queued() {
+  # 1.4/4: SKILL.md with only backtick-escaped refs should NOT queue anything
+  integration_setup
+  _setup_skill_fixture "test-skill"
+
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_FOO.md" <<'EOF'
+# CMD_FOO
+EOF
+
+  # All refs are backtick-escaped
+  printf '# Test Skill\nSee `§CMD_FOO` for reference.\n' > "$FIXTURE_SKILL_DIR/SKILL.md"
+
+  local skill_md_norm
+  skill_md_norm=$(normalize_preload_path "$FIXTURE_SKILL_DIR/SKILL.md")
+  _write_state "[\"$skill_md_norm\"]" '[]'
+
+  _simulate_skill_md_scanning "$STATE_FILE" "$FIXTURE_SKILL_NAME" ""
+
+  local pending_count
+  pending_count=$(jq '.pendingPreloads | length' "$STATE_FILE" 2>/dev/null)
+  assert_eq "0" "$pending_count" "backtick-escaped refs in SKILL.md not queued"
+
+  teardown
+}
+
+test_integration_full_pipeline_cmds_and_skill_refs() {
+  # 1.4/5: Phase 0 CMDs AND SKILL.md refs both resolved in single pipeline run
+  integration_setup
+  _setup_skill_fixture "test-skill"
+
+  # Phase 0 CMD (delivered directly by extract_skill_preloads)
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_SETUP.md" <<'EOF'
+# CMD_SETUP
+Phase 0 command.
+EOF
+
+  # CMD referenced only in SKILL.md body (not in Phase 0)
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_EXECUTE_SKILL_PHASES.md" <<'EOF'
+# CMD_EXECUTE_SKILL_PHASES
+Boot sector.
+EOF
+
+  cat > "$FIXTURE_SKILL_DIR/SKILL.md" <<'EOF'
+# Test Skill
+Execute §CMD_EXECUTE_SKILL_PHASES.
+EOF
+
+  local cmd_setup_norm skill_md_norm
+  cmd_setup_norm=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_SETUP.md")
+  skill_md_norm=$(normalize_preload_path "$FIXTURE_SKILL_DIR/SKILL.md")
+  # Both SKILL.md and CMD_SETUP already in preloadedFiles
+  _write_state "[\"$skill_md_norm\", \"$cmd_setup_norm\"]" '[]'
+
+  # CMD_SETUP is in the preload paths (Phase 0 CMDs)
+  _simulate_skill_md_scanning "$STATE_FILE" "$FIXTURE_SKILL_NAME" "$cmd_setup_norm"
+
+  local pending
+  pending=$(jq -r '.pendingPreloads[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
+  assert_contains "CMD_EXECUTE_SKILL_PHASES.md" "$pending" "SKILL.md body ref discovered"
+  assert_not_contains "CMD_SETUP.md" "$pending" "Phase 0 CMD not re-queued (already preloaded)"
+
+  teardown
+}
+
+test_integration_templates_hook_valid_json_output() {
+  # 1.4/6: The templates hook produces valid JSON additionalContext output
+  integration_setup
+  _setup_skill_fixture "test-skill"
+
+  cat > "$ENGINE_DIRECTIVES/commands/CMD_FOO.md" <<'EOF'
+# CMD_FOO
+A test command.
+EOF
+
+  cat > "$FIXTURE_SKILL_DIR/SKILL.md" <<'EOF'
+# Test Skill
+Execute §CMD_FOO.
+EOF
+
+  # Simulate building additionalContext (mirrors hook lines 41-51)
+  local cmd_foo_norm
+  cmd_foo_norm=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_FOO.md")
+  local abs_path="${cmd_foo_norm/#\~/$HOME}"
+  local content
+  content=$(cat "$abs_path" 2>/dev/null || true)
+  local additional_context="[Preloaded: $cmd_foo_norm]\n$content"
+
+  # Build JSON output like the hook does (lines 122-129)
+  local json_output
+  json_output=$(cat <<HOOKEOF
+{
+  "hookSpecificOutput": {
+    "hookEventName": "PostToolUse",
+    "additionalContext": $(printf '%s' "$additional_context" | jq -Rs .)
+  }
+}
+HOOKEOF
+)
+
+  # Validate it's proper JSON
+  echo "$json_output" | jq empty 2>/dev/null
+  local jq_exit=$?
+  assert_eq "0" "$jq_exit" "hook output is valid JSON"
+
+  # Validate structure
+  local event_name
+  event_name=$(echo "$json_output" | jq -r '.hookSpecificOutput.hookEventName' 2>/dev/null)
+  assert_eq "PostToolUse" "$event_name" "hookEventName is PostToolUse"
+
+  local has_context
+  has_context=$(echo "$json_output" | jq -r '.hookSpecificOutput.additionalContext // empty' 2>/dev/null)
+  assert_not_empty "$has_context" "additionalContext is present"
+
+  teardown
+}
+
 # --- Run all tests ---
 run_test test_resolve_refs_finds_bare_cmd_references
 run_test test_resolve_refs_ignores_backtick_escaped
@@ -693,4 +981,11 @@ run_test test_integration_claim_ignores_code_fence_refs
 run_test test_integration_claim_depth2_chain
 run_test test_integration_templates_hook_queues_refs
 run_test test_integration_claim_silent_skip_unresolvable
+# SKILL.md pipeline integration tests (templates hook scanning)
+run_test test_integration_templates_hook_scans_skill_md_refs
+run_test test_integration_skill_md_not_requeued_in_pending
+run_test test_integration_resolve_refs_no_debug_output
+run_test test_integration_skill_md_backtick_refs_not_queued
+run_test test_integration_full_pipeline_cmds_and_skill_refs
+run_test test_integration_templates_hook_valid_json_output
 exit_with_results

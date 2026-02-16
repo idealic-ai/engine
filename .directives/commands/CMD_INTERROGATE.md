@@ -55,16 +55,16 @@ Trigger: when starting any skill's interrogation phase (except: when depth was a
 Extras: A: Show example questions before choosing | B: Start with 1 warm-up round first | C: Use depth from previous session
 
 ## Decision: Interrogation Depth
-- [SHT] Short (4+ rounds)
+- [SHRT] Short (4+ rounds)
   Findings are clear, just confirm direction
-- [MED] Medium (8+ rounds)
+- [MEDM] Medium (8+ rounds)
   Moderate complexity, some findings need input
-- [LNG] Long (12+ rounds)
+- [LONG] Long (12+ rounds)
   Complex analysis, many open questions
-- [OTH] Other
-  - [ABS] Absolute (until resolved)
+- [MORE] Other
+  - [ABSL] Absolute (until resolved)
     Zero ambiguity tolerance — no minimum, no exit gate until all questions resolved
-  - [CUS] Custom depth
+  - [CSTM] Custom depth
     Specify a custom minimum round count
 
 ### ¶ASK_INTERROGATION_EXIT
@@ -72,17 +72,21 @@ Trigger: after minimum interrogation rounds are met (except: when exit gate was 
 Extras: A: Walk through findings so far | B: Go back to a previous topic | C: Skip to planning
 
 ## Decision: Interrogation Exit
-- [PRC] [ ] Proceed to next phase
+- [NEXT] [ ] Next phase
   Done interrogating — move on
-- [MOR] [ ] More interrogation (4 more rounds)
+- [MORE] [ ] More interrogation (4 more rounds)
   Standard topic rounds, then re-present this gate
-- [DVL] [ ] Devil's advocate round
+- [DEVL] [ ] Devil's advocate round
   1 round challenging assumptions and decisions made so far
-- [OTH] [ ] Other
-  - [WIF] What-if scenarios round
+- [OTHR] [ ] Other
+  - [WHIF] What-if scenarios round
     1 round exploring hypotheticals and edge cases
-  - [DPD] Deep dive round
+  - [DEEP] Deep dive round
     1 round drilling into a specific prior topic in detail
+  - [GAPS] Gaps round
+    1 round identifying what hasn't been asked yet — unknown unknowns
+  - [OTHR] Other
+    More suggestions
 
 ---
 

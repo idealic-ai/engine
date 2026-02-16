@@ -19,6 +19,10 @@
 #   B13. Allow when no session directory
 #   B14. Non-whitelisted engine subcommand denied during overflow
 #   B15. Adversarial engine-like command denied during overflow
+#   B16. All files stale (already preloaded) — pendingPreloads cleaned
+#   B17. Mixed new + stale files — stale removed, new claimed
+#   B18. Non-existent file in pendingPreloads — removed, not added
+#   B19. Empty pendingPreloads — no-op, no crash
 #
 # Run: bash ~/.claude/engine/scripts/tests/test-overflow-v2.sh
 
@@ -348,6 +352,123 @@ jq '.contextUsage = 0.80' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.js
 OUTPUT=$(run_hook "Bash" '{"command":"engineering-tool log sessions/test/LOG.md"}')
 DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
 assert_eq "deny" "$DECISION" "B15: adversarial engine-like command denied during overflow"
+
+# ============================================================
+# B16: All files stale (already preloaded) — pendingPreloads cleaned
+# pendingPreloads has 2 files, both already in preloadedFiles.
+# _claim_and_preload should remove them from pendingPreloads without
+# adding duplicates to preloadedFiles.
+# ============================================================
+reset_state
+# Create real files on disk
+mkdir -p "$FAKE_HOME/.claude/test-directives"
+echo "# Commands" > "$FAKE_HOME/.claude/test-directives/COMMANDS.md"
+echo "# Invariants" > "$FAKE_HOME/.claude/test-directives/INVARIANTS.md"
+
+PRELOAD_PATH1="~/.claude/test-directives/COMMANDS.md"
+PRELOAD_PATH2="~/.claude/test-directives/INVARIANTS.md"
+
+jq --arg p1 "$PRELOAD_PATH1" --arg p2 "$PRELOAD_PATH2" '
+  .pendingPreloads = [$p1, $p2] |
+  .preloadedFiles = [$p1, $p2] |
+  .contextUsage = 0.30
+' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+run_hook "Read" '{"file_path":"/some/file.ts"}' > /dev/null
+
+PENDING=$(jq '.pendingPreloads // []' "$TEST_SESSION/.state.json")
+PENDING_LEN=$(echo "$PENDING" | jq 'length')
+PRELOADED_LEN=$(jq '.preloadedFiles | length' "$TEST_SESSION/.state.json")
+if [ "$PENDING_LEN" -eq 0 ]; then
+  pass "B16: all-stale pendingPreloads cleaned to empty"
+else
+  fail "B16: all-stale pendingPreloads should be empty" "0" "$PENDING_LEN"
+fi
+
+# ============================================================
+# B17: Mixed new + stale files — stale removed, new claimed
+# pendingPreloads has 3 files: 1 already preloaded (stale), 2 new.
+# _claim_and_preload should claim the 2 new, remove all 3 from pending.
+# ============================================================
+reset_state
+mkdir -p "$FAKE_HOME/.claude/test-directives"
+echo "# Commands" > "$FAKE_HOME/.claude/test-directives/COMMANDS.md"
+echo "# New File A" > "$FAKE_HOME/.claude/test-directives/NEW_A.md"
+echo "# New File B" > "$FAKE_HOME/.claude/test-directives/NEW_B.md"
+
+STALE_PATH="~/.claude/test-directives/COMMANDS.md"
+NEW_PATH_A="~/.claude/test-directives/NEW_A.md"
+NEW_PATH_B="~/.claude/test-directives/NEW_B.md"
+
+jq --arg s "$STALE_PATH" --arg a "$NEW_PATH_A" --arg b "$NEW_PATH_B" '
+  .pendingPreloads = [$s, $a, $b] |
+  .preloadedFiles = [$s] |
+  .contextUsage = 0.30
+' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+OUTPUT=$(run_hook "Read" '{"file_path":"/some/file.ts"}')
+
+PENDING_LEN=$(jq '.pendingPreloads | length' "$TEST_SESSION/.state.json")
+# New files should be in preloadedFiles now
+HAS_NEW_A=$(jq --arg a "$NEW_PATH_A" '.preloadedFiles | any(. == $a)' "$TEST_SESSION/.state.json")
+HAS_NEW_B=$(jq --arg b "$NEW_PATH_B" '.preloadedFiles | any(. == $b)' "$TEST_SESSION/.state.json")
+
+if [ "$PENDING_LEN" -eq 0 ] && [ "$HAS_NEW_A" = "true" ] && [ "$HAS_NEW_B" = "true" ]; then
+  pass "B17: mixed stale+new — stale removed, new claimed"
+else
+  fail "B17: mixed stale+new" "pending=0, newA=true, newB=true" "pending=$PENDING_LEN, newA=$HAS_NEW_A, newB=$HAS_NEW_B"
+fi
+
+# ============================================================
+# B18: Non-existent file in pendingPreloads — removed, not added
+# pendingPreloads has 1 file that doesn't exist on disk.
+# _claim_and_preload should remove it from pendingPreloads and NOT
+# add it to preloadedFiles.
+# ============================================================
+reset_state
+GHOST_PATH="~/.claude/test-directives/DOES_NOT_EXIST.md"
+
+jq --arg g "$GHOST_PATH" '
+  .pendingPreloads = [$g] |
+  .preloadedFiles = [] |
+  .contextUsage = 0.30
+' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+run_hook "Read" '{"file_path":"/some/file.ts"}' > /dev/null
+
+PENDING_LEN=$(jq '.pendingPreloads | length' "$TEST_SESSION/.state.json")
+HAS_GHOST=$(jq --arg g "$GHOST_PATH" '.preloadedFiles | any(. == $g)' "$TEST_SESSION/.state.json")
+
+if [ "$PENDING_LEN" -eq 0 ] && [ "$HAS_GHOST" = "false" ]; then
+  pass "B18: non-existent file removed from pending, not added to preloaded"
+else
+  fail "B18: non-existent file" "pending=0, ghost=false" "pending=$PENDING_LEN, ghost=$HAS_GHOST"
+fi
+
+# ============================================================
+# B19: Empty pendingPreloads — no-op, no crash
+# pendingPreloads is []. Normal state. Hook should not crash or
+# corrupt state.
+# ============================================================
+reset_state
+jq '.pendingPreloads = [] | .preloadedFiles = ["existing.md"] | .contextUsage = 0.30' \
+  "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+OUTPUT=$(run_hook "Read" '{"file_path":"/some/file.ts"}')
+EXIT_CODE=$?
+
+PENDING_LEN=$(jq '.pendingPreloads | length' "$TEST_SESSION/.state.json")
+PRELOADED=$(jq -r '.preloadedFiles[0]' "$TEST_SESSION/.state.json")
+
+if [ "$EXIT_CODE" -eq 0 ] && [ "$PENDING_LEN" -eq 0 ] && [ "$PRELOADED" = "existing.md" ]; then
+  pass "B19: empty pendingPreloads — no-op, no crash, state preserved"
+else
+  fail "B19: empty pendingPreloads" "exit=0, pending=0, preloaded=existing.md" "exit=$EXIT_CODE, pending=$PENDING_LEN, preloaded=$PRELOADED"
+fi
 
 # ============================================================
 # Results

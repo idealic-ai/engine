@@ -107,6 +107,28 @@ The engine has both `pre-tool-use-heartbeat.sh` and `pre-tool-use-overflow-v2.sh
 **Mitigation**: After adding or moving hooks, verify the path in `settings.json` resolves to a real file. Run `engine doctor` which checks all registered hook paths. Two path conventions exist: `~/.claude/hooks/` (symlinked, per-file override support) and `~/.claude/engine/hooks/` (direct path to engine). Don't mix them for the same hook.
 **Discovered**: 2026-02-15 — `post-tool-use-injections.sh` was registered at `~/.claude/engine/hooks/` but had no symlink at `~/.claude/hooks/`. Caused "PostToolUse:Skill hook error" on every Skill tool invocation.
 
+## 18. `local` keyword is illegal inside subshells — use plain variables
+Bash `local` is only valid inside functions. A `( ... )` subshell is NOT a function — `local` inside it triggers `local: can only be used in a function` under `set -euo pipefail` (and silently fails with `|| true`). Variables in subshells are already scoped — they don't leak to the parent.
+**Bug found 2026-02-15**: `post-tool-use-templates.sh` lines 81-93 used `local` inside a `( ... ) || true` subshell. `set -u` caught unbound variables after `local` failed, subshell crashed, `|| true` silenced everything. `pendingPreloads` and `§` ref scanning never ran. Fix: remove all `local` keywords from the subshell block.
+**Mitigation**: Audit any `( ... )` blocks for `local` usage. If you need scoped variables in a subshell, just assign them — subshell scoping handles it. Only use `local` inside `function_name() { ... }` bodies.
+
+## 19. `pendingPreloads` entries persist forever if file is already in `preloadedFiles`
+`_claim_and_preload` in `pre-tool-use-overflow-v2.sh` skips files already in `preloadedFiles` (dedup) — but the skip path never removes the file from `pendingPreloads`. When one hook adds to both `preloadedFiles` AND `pendingPreloads` simultaneously (e.g., `post-tool-use-templates.sh` line 73), the preload rule fires every tool call, finds nothing to claim, and the stale entries remain forever — causing repeated re-delivery of the same CMD files.
+**Bug found 2026-02-15**: Caused by the subshell fix (#18). Before the fix, the subshell crashed silently so `pendingPreloads` was never populated. After the fix, it populated correctly — but exposed this pre-existing race in the claim logic.
+**Fix**: `_claim_and_preload` now tracks `stale_pending` files (already preloaded but still in pendingPreloads) and removes them even when nothing new is claimed.
+
+## 20. Hook files lose +x permission when overwritten — Claude Code can't execute them
+Claude Code executes hooks as commands (not via `zsh <file>`). If a hook file is overwritten (e.g., by the Write tool, which creates files with `644` permissions), the execute bit is lost. Claude Code gets `EACCES` or exit 126/127 and displays "{event}:{tool} hook error" on every matching tool call.
+**Trap**: Manual testing via `zsh ~/.claude/hooks/my-hook.sh` PASSES because the interpreter is specified explicitly — the file doesn't need +x. The error only manifests in production (Claude Code executing the hook directly). This makes the bug invisible during development.
+**Mitigation**: After editing hook files, run `chmod +x <file>`. Or use Edit tool (preserves permissions) instead of Write tool (resets to 644). Add a `chmod +x` step to any hook-creation workflow.
+**Discovered**: 2026-02-16 — `post-tool-use-templates.sh` was overwritten during implementation, lost +x. "PostToolUse:Bash hook error" appeared on every Bash call. Debug traces never appeared because the hook was never invoked.
+
+## 21. PostToolUse hooks receive data via stdin JSON, not env vars
+PostToolUse hooks receive a JSON object on stdin with `tool_name`, `tool_input`, `tool_response` fields. The env vars `TOOL_NAME` and `TOOL_INPUT` are NOT set for PostToolUse hooks (they may be set for PreToolUse).
+**Trap**: A hook that reads `${TOOL_NAME:-}` from env gets empty string, misclassifies the tool, and exits early. The hook appears to work (exits 0, no errors) but never processes any tool calls. Combined with pitfall #20 (lost +x), the hook silently does nothing — no errors, no output, no effect.
+**Mitigation**: Read tool info from stdin: `INPUT=$(cat); TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""')`. See `post-tool-use-phase-commands.sh` for the correct pattern.
+**Discovered**: 2026-02-16 — `post-tool-use-templates.sh` used env vars. After fixing +x, the hook fired but `TOOL` was always empty. Fixed by reading from stdin.
+
 ## 15. Per-agent counters use transcript_path as key — don't use PID
 The heartbeat hook tracks tool call counts per agent using `transcript_path` basename as the key in `.state.json`. This isolates main agent counts from sub-agent counts.
 **Trap**: Using PID as the counter key fails because sub-agents launched via the Task tool may share the parent's PID in some execution models, or PIDs may be reused across context overflow restarts. Transcript paths are guaranteed unique per agent instance.

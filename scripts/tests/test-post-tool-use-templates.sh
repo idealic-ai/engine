@@ -57,13 +57,10 @@ teardown() {
   fi
 }
 
-# Helper: run the hook with env vars, capture stdout
+# Helper: run the hook with stdin JSON, capture stdout
 run_hook() {
   local input="$1"
-  local tool_name tool_input
-  tool_name=$(echo "$input" | jq -r '.tool_name // ""')
-  tool_input=$(echo "$input" | jq -c '.tool_input // {}')
-  TOOL_NAME="$tool_name" TOOL_INPUT="$tool_input" bash "$HOME/.claude/hooks/post-tool-use-templates.sh" 2>/dev/null
+  echo "$input" | bash "$HOME/.claude/hooks/post-tool-use-templates.sh" 2>/dev/null
 }
 
 # Helper: read .state.json
@@ -373,7 +370,7 @@ test_exits_0_with_corrupted_state_json() {
   local output exit_code
   output=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}') || true
   # Re-run to capture exit code cleanly
-  TOOL_NAME=Skill TOOL_INPUT='{"skill":"brainstorm"}' bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
+  echo '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}' | bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
   exit_code=$?
 
   assert_eq "0" "$exit_code" "$test_name — exit code"
@@ -401,7 +398,7 @@ test_exits_0_with_empty_state_json() {
   > "$SESSION_DIR/.state.json"
 
   local exit_code
-  TOOL_NAME=Skill TOOL_INPUT='{"skill":"brainstorm"}' bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
+  echo '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}' | bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
   exit_code=$?
 
   assert_eq "0" "$exit_code" "$test_name"
@@ -420,7 +417,7 @@ test_exits_0_with_missing_preloaded_fields() {
 
   local output exit_code
   output=$(run_hook '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}') || true
-  TOOL_NAME=Skill TOOL_INPUT='{"skill":"brainstorm"}' bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
+  echo '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}' | bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
   exit_code=$?
 
   assert_eq "0" "$exit_code" "$test_name — exit code"
@@ -442,7 +439,7 @@ test_exits_0_with_state_json_deleted_mid_run() {
   rm -f "$SESSION_DIR/.state.json"
 
   local exit_code
-  TOOL_NAME=Skill TOOL_INPUT='{"skill":"brainstorm"}' bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
+  echo '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}' | bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
   exit_code=$?
 
   assert_eq "0" "$exit_code" "$test_name"
@@ -460,10 +457,174 @@ test_exits_0_with_state_json_array_instead_of_object() {
   echo '["not", "an", "object"]' > "$SESSION_DIR/.state.json"
 
   local exit_code
-  TOOL_NAME=Skill TOOL_INPUT='{"skill":"brainstorm"}' bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
+  echo '{"tool_name":"Skill","tool_input":{"skill":"brainstorm"}}' | bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
   exit_code=$?
 
   assert_eq "0" "$exit_code" "$test_name"
+
+  teardown
+}
+
+# =============================================================================
+# BASH TRIGGER PATH TESTS — engine session activate/continue
+# =============================================================================
+
+# Helper: set up .state.json with a skill name for Bash trigger tests
+setup_bash_trigger() {
+  local skill_name="$1"
+  jq -n --arg s "$skill_name" '{pid: 1, skill: $s, loading: false}' > "$SESSION_DIR/.state.json"
+}
+
+test_bash_activate_delivers_skill_md_and_templates() {
+  local test_name="bash activate: delivers SKILL.md + templates via additionalContext"
+  setup
+
+  create_skill_with_templates "fake-impl" LOG DEBRIEF
+  setup_bash_trigger "fake-impl"
+
+  local output
+  output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine session activate sessions/test-session fake-impl <<'\''EOF'\''\n{}\nEOF"}}')
+
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
+
+  local has_skill_md has_log has_debrief
+  has_skill_md=$(echo "$has_context" | grep -c "SKILL.md" || true)
+  has_log=$(echo "$has_context" | grep -c "TEMPLATE_FAKE_IMPL_LOG.md" || true)
+  has_debrief=$(echo "$has_context" | grep -c "TEMPLATE_FAKE_IMPL.md" || true)
+
+  if [ "$has_skill_md" -ge 1 ] && [ "$has_log" -ge 1 ] && [ "$has_debrief" -ge 1 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "SKILL.md + LOG + DEBRIEF" "skill_md=$has_skill_md, log=$has_log, debrief=$has_debrief"
+  fi
+
+  teardown
+}
+
+test_bash_continue_delivers_skill_md_and_templates() {
+  local test_name="bash continue: delivers SKILL.md + templates via additionalContext"
+  setup
+
+  create_skill_with_templates "fake-impl" LOG DEBRIEF PLAN
+  setup_bash_trigger "fake-impl"
+
+  local output
+  output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine session continue sessions/test-session"}}')
+
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
+
+  local has_skill_md has_log has_plan
+  has_skill_md=$(echo "$has_context" | grep -c "SKILL.md" || true)
+  has_log=$(echo "$has_context" | grep -c "TEMPLATE_FAKE_IMPL_LOG.md" || true)
+  has_plan=$(echo "$has_context" | grep -c "TEMPLATE_FAKE_IMPL_PLAN.md" || true)
+
+  if [ "$has_skill_md" -ge 1 ] && [ "$has_log" -ge 1 ] && [ "$has_plan" -ge 1 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "SKILL.md + LOG + PLAN" "skill_md=$has_skill_md, log=$has_log, plan=$has_plan"
+  fi
+
+  teardown
+}
+
+test_bash_ignores_non_matching_commands() {
+  local test_name="bash non-matching: ignores engine log, engine tag, etc."
+  setup
+
+  create_skill_with_templates "fake-impl" LOG
+  setup_bash_trigger "fake-impl"
+
+  local output1 output2 output3
+  output1=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine log sessions/test/LOG.md"}}')
+  output2=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine tag find #needs-review"}}')
+  output3=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}')
+
+  if [ -z "$output1" ] && [ -z "$output2" ] && [ -z "$output3" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "(empty output for all 3)" "out1='$output1' out2='$output2' out3='$output3'"
+  fi
+
+  teardown
+}
+
+test_bash_dedup_skips_already_preloaded() {
+  local test_name="bash dedup: second run skips already-preloaded files"
+  setup
+
+  create_skill_with_templates "fake-impl" LOG
+
+  # First: Skill tool path preloads templates
+  run_hook '{"tool_name":"Skill","tool_input":{"skill":"fake-impl"}}' > /dev/null
+
+  # Set up .state.json with skill field (session.sh find returns this dir)
+  # Preserve preloadedFiles from first run, add skill field
+  local current_state
+  current_state=$(cat "$SESSION_DIR/.state.json")
+  echo "$current_state" | jq '.skill = "fake-impl"' > "$SESSION_DIR/.state.json"
+
+  # Second: Bash trigger path — SKILL.md is new (not preloaded by Skill path), but templates should dedup
+  local output
+  output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine session activate sessions/test fake-impl < /dev/null"}}')
+
+  # Should still have output (SKILL.md is new for Bash path), but templates should be deduped in state
+  local preloaded_count
+  preloaded_count=$(jq '.preloadedFiles | length' "$SESSION_DIR/.state.json" 2>/dev/null || echo "0")
+
+  # preloadedFiles should not have duplicates
+  local unique_count
+  unique_count=$(jq '.preloadedFiles | unique | length' "$SESSION_DIR/.state.json" 2>/dev/null || echo "0")
+
+  if [ "$preloaded_count" = "$unique_count" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "no duplicates (count=$unique_count)" "total=$preloaded_count unique=$unique_count"
+  fi
+
+  teardown
+}
+
+test_bash_exits_0_no_skill_in_state() {
+  local test_name="bash resilience: exits 0 when .state.json has no skill field"
+  setup
+
+  # .state.json without skill field
+  echo '{"pid": 1, "loading": false}' > "$SESSION_DIR/.state.json"
+
+  local exit_code
+  echo '{"tool_name":"Bash","tool_input":{"command":"engine session activate sessions/x test < /dev/null"}}' \
+    | bash "$HOME/.claude/hooks/post-tool-use-templates.sh" > /dev/null 2>&1
+  exit_code=$?
+
+  assert_eq "0" "$exit_code" "$test_name"
+
+  teardown
+}
+
+test_bash_skill_md_content_appears() {
+  local test_name="bash content: SKILL.md file content appears in additionalContext"
+  setup
+
+  create_skill_with_templates "fake-impl" LOG
+  setup_bash_trigger "fake-impl"
+
+  local output
+  output=$(run_hook '{"tool_name":"Bash","tool_input":{"command":"engine session activate sessions/x fake-impl < /dev/null"}}')
+
+  local has_context
+  has_context=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext // ""' 2>/dev/null)
+
+  # SKILL.md contains "Test skill fake-impl" (from create_skill_with_templates)
+  local has_content
+  has_content=$(echo "$has_context" | grep -c "Test skill fake-impl" || true)
+
+  if [ "$has_content" -ge 1 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "contains SKILL.md content" "content not found"
+  fi
 
   teardown
 }
@@ -474,7 +635,7 @@ test_exits_0_with_state_json_array_instead_of_object() {
 
 echo "=== test-post-tool-use-templates.sh ==="
 
-# Core functionality
+# Core functionality (Skill tool path)
 test_fires_on_skill_tool
 test_ignores_non_skill_tools
 test_derives_correct_template_paths
@@ -490,5 +651,13 @@ test_exits_0_with_empty_state_json
 test_exits_0_with_missing_preloaded_fields
 test_exits_0_with_state_json_deleted_mid_run
 test_exits_0_with_state_json_array_instead_of_object
+
+# Bash trigger path (engine session activate/continue)
+test_bash_activate_delivers_skill_md_and_templates
+test_bash_continue_delivers_skill_md_and_templates
+test_bash_ignores_non_matching_commands
+test_bash_dedup_skips_already_preloaded
+test_bash_exits_0_no_skill_in_state
+test_bash_skill_md_content_appears
 
 exit_with_results

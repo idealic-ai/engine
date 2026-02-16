@@ -42,12 +42,17 @@
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "$SCRIPT_DIR/lib.sh"
+
 ACTION="${1:?Usage: tag.sh add|remove|swap|find <args>}"
 
 case "$ACTION" in
   add)
     FILE="${2:?Missing file argument}"
     TAG="${3:?Missing tag argument}"
+    validate_tag "$TAG" > /dev/null
+    validate_path "$FILE"
     # Ensure **Tags**: line exists after H1 (line 1)
     grep -q '^\*\*Tags\*\*:' "$FILE" || printf '1a\n**Tags**:\n.\nw\nq\n' | ed -s "$FILE"
     # Append tag if not already present on Tags line
@@ -57,6 +62,8 @@ case "$ACTION" in
   remove)
     FILE="${2:?Missing file argument}"
     TAG="${3:?Missing tag argument}"
+    validate_tag "$TAG" > /dev/null
+    validate_path "$FILE"
     if [[ "${4:-}" == "--inline" ]]; then
       LINE="${5:?Missing line number for --inline}"
       # Verify tag exists at the specified line
@@ -76,6 +83,13 @@ case "$ACTION" in
     FILE="${2:?Missing file argument}"
     OLD="${3:?Missing old-tag argument}"
     NEW="${4:?Missing new-tag argument}"
+    validate_path "$FILE"
+    # Validate each tag in comma-separated OLD list
+    IFS=',' read -ra _OLD_VALIDATE <<< "$OLD"
+    for _otag in "${_OLD_VALIDATE[@]}"; do
+      validate_tag "$_otag" > /dev/null
+    done
+    validate_tag "$NEW" > /dev/null
     if [[ "${5:-}" == "--inline" ]]; then
       LINE="${6:?Missing line number for --inline}"
       # Support comma-separated old tags
@@ -116,6 +130,14 @@ case "$ACTION" in
 
   find)
     TAG="${2:?Missing tag argument}"
+    # find supports glob patterns (e.g., #needs-*) — validate without rejecting *
+    raw_tag="${TAG#\#}"
+    if [[ "$raw_tag" == *'*'* ]]; then
+      # Glob pattern: convert shell glob * to grep regex .* for matching
+      ESCAPED_TAG=$(echo "#${raw_tag}" | sed 's/\*/[a-z0-9-]*/g')
+    else
+      validate_tag "$TAG" > /dev/null
+    fi
     # Parse remaining args: [path] [--context] [--tags-only]
     SEARCH_PATH="sessions/"
     CONTEXT_MODE=0
@@ -134,7 +156,8 @@ case "$ACTION" in
     [[ "$SEARCH_PATH" != */ ]] && SEARCH_PATH="${SEARCH_PATH}/"
 
     # Escape tag for grep (# is literal, not special in grep)
-    ESCAPED_TAG="$TAG"
+    # ESCAPED_TAG may already be set by glob pattern handling above
+    ESCAPED_TAG="${ESCAPED_TAG:-$TAG}"
 
     # Pass 1: Tags-line matches (high precision — NEVER filtered by file type)
     TAGS_LINE_FILES=$(grep -rl --exclude='*.db' --exclude='*.db.bak' \

@@ -8,32 +8,32 @@
 The algorithm below is parameterized. These mode-specific values fill the placeholders:
 
 *   **results**
-  *   **Context labels**: "What this is about" + "The finding"
+  *   **Context labels**: "[ID]: What this is about" + "The finding"
   *   **Decision command**: §CMD_TAG_TRIAGE (dynamic tag options from `SRC_DELEGATION_TARGETS`)
   *   **On result**: tag → `§CMD_HANDLE_INLINE_TAG` + tag proof output; dismiss → no tag; custom → execute instruction
   *   **Summary fields**: Tagged: N, Dismissed: N — includes inline tag verification report
   *   **Plan Review tree**: Not used
 
 *   **plan**
-  *   **Context labels**: "What this step does" + "Scope"
-  *   **Decision command**: §CMD_DECISION_TREE with `Plan Review` tree (OK/INF/RWK/CHG/REM)
-  *   **On result**: OK → next; INF → detail + re-present; RWK → mark `[!]` + log; CHG → flag rework + log; REM → mark removal + log
+  *   **Context labels**: "[ID]: What this step does" + "Scope"
+  *   **Decision command**: §CMD_DECISION_TREE with `Plan Review` tree (LGTM/INFO/RWRK/SWAP/DROP)
+  *   **On result**: LGTM → next; INFO → detail + re-present; RWRK → mark `[!]` + log; SWAP → flag rework + log; DROP → mark removal + log
   *   **Summary fields**: Approved: N, Feedback: N, Flagged: N
   *   **Plan Review tree**: (see below)
 
 **Plan Review Tree** (plan mode only):
 ```
 ## Decision: Plan Review
-- [OK] Looks good
+- [LGTM] Looks good
   No changes needed to this step
-- [INF] More info needed
+- [INFO] More info needed
   I have questions about this step's approach
-- [OTH] Other
-  - [RWK] Rework this step
+- [MORE] Other
+  - [RWRK] Rework this step
     Rewrite with a different approach
-  - [CHG] Change approach
+  - [SWAP] Change approach
     Fundamental direction change needed
-  - [REM] Remove from plan
+  - [DROP] Remove from plan
     This step is not needed
 ```
 
@@ -46,11 +46,11 @@ The algorithm below is parameterized. These mode-specific values fill the placeh
 Invoke §CMD_DECISION_TREE with `§ASK_WALKTHROUGH_GRANULARITY`. Use the `gateQuestion` from config as preamble context.
 
 **Behavior by granularity**:
-*   **`EAC`** (Each item): Extract all items (Step 2), present one-by-one (Step 3).
-*   **`GRP`** (Groups): Extract items (Step 2), chunk into fixed groups of 4. Present each item's context block in one message, then one `AskUserQuestion` with up to 4 questions. Last group may have 1-3 items.
-*   **`SMT`** (Smart): Auto-determine: ≤4 items → Each, 5-12 → Groups, 13+ → Groups with batch shortcuts.
-*   **`OTH/NON`** (None): Return control. No walk-through performed.
-*   **`OTH/TOP`** (Top N only): Walk through the N most important items, skip the rest.
+*   **`EACH`** (Each item): Extract all items (Step 2), present one-by-one (Step 3).
+*   **`GRPS`** (Groups): Extract items (Step 2), chunk into fixed groups of 4. Present each item's context block in one message, then one `AskUserQuestion` with up to 4 questions. Last group may have 1-3 items.
+*   **`AUTO`** (Smart): Auto-determine: ≤4 items → Each, 5-12 → Groups, 13+ → Groups with batch shortcuts.
+*   **`MORE/NONE`** (None): Return control. No walk-through performed.
+*   **`MORE/TOPN`** (Top N only): Walk through the N most important items, skip the rest.
 
 ### Step 2: Extract Items
 
@@ -134,17 +134,19 @@ Trigger: before any walk-through of results or plan items (except: when collapsi
 Extras: A: Preview item count before deciding | B: Walk through only flagged items | C: Export items to clipboard
 
 ## Decision: Walk-Through Granularity
-- [EAC] Each item
+- [EACH] Each item
   Walk through every item individually — finest control
-- [GRP] Groups
+- [GRPS] Groups
   Walk through items grouped in batches of 4 — balanced
-- [SMT] Smart
+- [AUTO] Smart
   Auto-determine: ≤4 items → Each, 5-12 → Groups, 13+ → Groups with batch shortcuts
-- [OTH] Other
-  - [NON] None
+- [MORE] Other
+  - [NONE] None
     Skip the walk-through entirely
-  - [TOP] Top N only
+  - [TOPN] Top N only
     Walk through the N most important items, skip the rest
+  - [RAND] Random N
+    Walk through N randomly sampled items
 
 ---
 

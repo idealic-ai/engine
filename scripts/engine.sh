@@ -406,6 +406,7 @@ fi
 # Source libraries (functions become available for all subcommands)
 source "$SCRIPT_DIR/setup-lib.sh"
 source "$SCRIPT_DIR/setup-migrations.sh"
+source "$SCRIPT_DIR/lib.sh"
 
 # Extract email from GDrive mount path or cache
 EMAIL=$(echo "$SCRIPT_DIR" | grep -o 'GoogleDrive-[^/]*' | sed 's/GoogleDrive-//' || true)
@@ -1686,6 +1687,7 @@ esac
 
 # 2. Auto-dispatch: check if scripts/<subcmd>.sh exists
 if [ -n "$SUBCMD" ]; then
+  validate_subcmd "$SUBCMD"
   SUBCMD_SCRIPT="$SCRIPT_DIR/${SUBCMD}.sh"
   if [ -x "$SUBCMD_SCRIPT" ]; then
     # Pure passthrough: exec replaces this process

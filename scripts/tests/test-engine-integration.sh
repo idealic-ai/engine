@@ -43,6 +43,7 @@ create_sandbox() {
   cp "$ENGINE_DIR/engine.sh" "$GDRIVE_BASE/engine/scripts/"
   cp "$ENGINE_DIR/setup-lib.sh" "$GDRIVE_BASE/engine/scripts/"
   cp "$ENGINE_DIR/setup-migrations.sh" "$GDRIVE_BASE/engine/scripts/"
+  cp "$ENGINE_DIR/lib.sh" "$GDRIVE_BASE/engine/scripts/"
   chmod +x "$GDRIVE_BASE/engine/scripts/"*.sh
 
   # Create engine content in the GDrive engine
@@ -354,6 +355,7 @@ STABLE_SETUP="$TEST_ROOT/stable-engine.sh"
 cp "$ENGINE_SH" "$STABLE_SETUP"
 cp "$(dirname "$ENGINE_SH")/setup-lib.sh" "$TEST_ROOT/setup-lib.sh"
 cp "$(dirname "$ENGINE_SH")/setup-migrations.sh" "$TEST_ROOT/setup-migrations.sh"
+cp "$(dirname "$ENGINE_SH")/lib.sh" "$TEST_ROOT/lib.sh"
 chmod +x "$STABLE_SETUP"
 
 # Remove the GDrive shared drive parent dir to simulate inaccessible GDrive

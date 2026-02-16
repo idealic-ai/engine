@@ -64,7 +64,7 @@ Extras: A: View existing artifacts before deciding | B: Diff with previous sessi
   Resume with full context: RAG search, directive discovery, alert surfacing
 - [NEW] New session
   Create a new session directory with distinguishing suffix
-- [OTH] Other
+- [MORE] Other
   - [SKP] Skip artifacts check
     Proceed as if no artifacts exist — start fresh in same directory
   - [MRG] Merge sessions

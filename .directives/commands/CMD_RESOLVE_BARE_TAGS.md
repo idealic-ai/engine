@@ -8,8 +8,8 @@
     *   **`PRO`** (Promote): (a) Read the skill's `TEMPLATE_*_REQUEST.md` from `~/.claude/skills/[tag-noun]/assets/`. (b) Populate the template with context from the inline tag's surrounding text. (c) Write the request file to the session directory. (d) Backtick-escape the inline tag in the source file.
     *   **`ACK`** (Acknowledge): Log the acknowledgment to `_LOG.md`. No file changes.
     *   **`ESC`** (Escape): Backtick-escape the tag in the source file. No request file.
-    *   **`OTH/DEL`** (Delete): Remove the tag and surrounding context entirely.
-    *   **`OTH/MOV`** (Move to Tags line): Remove inline tag, add to the file's `**Tags**:` line via `§CMD_TAG_FILE`.
+    *   **`MORE/DEL`** (Delete): Remove the tag and surrounding context entirely.
+    *   **`MORE/MOV`** (Move to Tags line): Remove inline tag, add to the file's `**Tags**:` line via `§CMD_TAG_FILE`.
 5.  **Mark complete**: After all tags are processed, execute `engine session update [sessionDir] tagCheckPassed true`.
 6.  **Re-run check**: Execute `engine session check [sessionDir]` again (with stdin for checklists if applicable). Should now pass.
 
@@ -33,7 +33,7 @@ Extras: A: View tag context with surrounding lines | B: Batch-process all tags w
   Tag is intentional — leave it bare, log acknowledgment
 - [ESC] Escape
   Backtick-escape it — was a reference, not a work item
-- [OTH] Other
+- [MORE] Other
   - [DEL] Delete tag entirely
     Remove the tag and surrounding context
   - [MOV] Move to Tags line

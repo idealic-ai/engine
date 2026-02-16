@@ -134,7 +134,10 @@ JSON
 
   local first_preload
   first_preload=$(jq -r '.pendingPreloads[0] // ""' "$SESSION_DIR/.state.json" 2>/dev/null || echo "")
-  assert_eq "~/.claude/skills/mtest/SKILL.md" "$first_preload" "M2.2: pendingPreloads[0] is SKILL.md (budget-aware preload)"
+  # Hook stores absolute paths via normalize_preload_path (resolves /var → /private/var on macOS)
+  local expected_skill_dir
+  expected_skill_dir=$(cd "$HOME/.claude/skills/mtest" 2>/dev/null && pwd -P)
+  assert_eq "$expected_skill_dir/SKILL.md" "$first_preload" "M2.2: pendingPreloads[0] is SKILL.md (exact absolute path)"
 }
 
 # ============================================================

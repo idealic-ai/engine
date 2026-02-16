@@ -462,12 +462,16 @@ case "$ACTION" in
     # Create fresh .state.json (skip if already handled via same-PID or idle path)
     if [ "$ACTIVATED" = false ]; then
       NOW=$(timestamp)
+      # Build preload seeds with absolute paths (resolved through symlinks)
+      ACTIVATE_ENGINE_DIR=$(cd "$HOME/.claude/.directives" 2>/dev/null && pwd -P) || ACTIVATE_ENGINE_DIR="$HOME/.claude/.directives"
+      ACTIVATE_SEEDS=$(jq -n --arg d "$ACTIVATE_ENGINE_DIR" '[$d+"/COMMANDS.md",$d+"/INVARIANTS.md",$d+"/SIGILS.md",$d+"/commands/CMD_DEHYDRATE.md",$d+"/commands/CMD_RESUME_SESSION.md",$d+"/commands/CMD_PARSE_PARAMETERS.md"]')
       # Build base JSON and conditionally add optional fields
       BASE_JSON=$(jq -n \
         --argjson pid "$TARGET_PID" \
         --arg skill "$SKILL" \
         --arg startedAt "$NOW" \
         --arg lastHeartbeat "$NOW" \
+        --argjson seeds "$ACTIVATE_SEEDS" \
         '{
           pid: $pid,
           skill: $skill,
@@ -482,7 +486,7 @@ case "$ACTION" in
           toolUseWithoutLogsBlockAfter: 10,
           startedAt: $startedAt,
           lastHeartbeat: $lastHeartbeat,
-          preloadedFiles: ["~/.claude/.directives/COMMANDS.md","~/.claude/.directives/INVARIANTS.md","~/.claude/.directives/SIGILS.md","~/.claude/.directives/commands/CMD_DEHYDRATE.md","~/.claude/.directives/commands/CMD_RESUME_SESSION.md","~/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"],
+          preloadedFiles: $seeds,
           touchedDirs: {},
           pendingPreloads: [],
           pendingAllowInjections: []
@@ -863,6 +867,7 @@ case "$ACTION" in
 
   phase)
     PHASE="${3:?Missing phase name (e.g., '3: Execution')}"
+    validate_phase "$PHASE"
 
     if [ ! -f "$STATE_FILE" ]; then
       echo "§CMD_REQUIRE_ACTIVE_SESSION: No .state.json in $DIR — is the session active?" >&2
@@ -1310,7 +1315,7 @@ case "$ACTION" in
     fi
 
     # --- Populate pendingPreloads for CMD file preloading ---
-    # Resolve §CMD_X step/command names to CMD_X.md file paths (normalized tilde-prefix).
+    # Resolve §CMD_X step/command names to CMD_X.md file paths (absolute, symlink-resolved).
     # The preload rule in guards.json fires when pendingPreloads is non-empty.
     if [ "$HAS_PHASES" = "true" ]; then
       CMD_DIR="$HOME/.claude/.directives/commands"
@@ -1329,7 +1334,7 @@ case "$ACTION" in
               cmd_name="${cmd_ref#§CMD_}"
               cmd_file="$CMD_DIR/CMD_${cmd_name}.md"
               if [ -f "$cmd_file" ]; then
-                # Normalize to tilde-prefix and add if not already in the list
+                # Normalize to absolute path and add if not already in the list
                 norm_file=$(normalize_preload_path "$cmd_file")
                 PENDING_CMDS=$(echo "$PENDING_CMDS" | jq --arg f "$norm_file" \
                   'if any(. == $f) then . else . + [$f] end')
@@ -1495,8 +1500,9 @@ case "$ACTION" in
 
   continue)
     # Resume session after context overflow restart (used by /session continue).
-    # Clears loading flag, resets heartbeat counters — does NOT touch phase state.
-    # The saved phase in .state.json is the single source of truth.
+    # Registers PID, sets lifecycle=active, clears loading flag, resets heartbeat counters.
+    # Does NOT touch phase state — the saved phase in .state.json is the single source of truth.
+    # Subsumes what `activate` does for resume scenarios — agent needs only this one command.
     #
     # Usage: session.sh continue [path]
     # If path omitted: auto-detect via fleet pane ID (tmux) or PID fallback
@@ -1516,9 +1522,24 @@ case "$ACTION" in
       exit 1
     fi
 
-    # Clear loading flag, reset heartbeat counters, reset context usage, update timestamp
-    jq --arg ts "$(timestamp)" \
-      'del(.loading) | .toolCallsByTranscript = {} | .lastHeartbeat = $ts | .contextUsage = 0' \
+    # Check lifecycle — completed sessions should not be resumed
+    LIFECYCLE=$(jq -r '.lifecycle // "active"' "$STATE_FILE")
+    if [ "$LIFECYCLE" = "completed" ]; then
+      echo "Session already completed. Nothing to resume." >&2
+      # Still output next skills so the agent can route
+      NEXT_SKILLS_C=$(jq -r '(.nextSkills // []) | .[]' "$STATE_FILE" 2>/dev/null || echo "")
+      if [ -n "$NEXT_SKILLS_C" ]; then
+        echo ""
+        echo "## Next Skills"
+        echo "$NEXT_SKILLS_C"
+      fi
+      exit 1
+    fi
+
+    # Register PID + set lifecycle=active + clear loading + reset heartbeat + reset context usage
+    TARGET_PID="${CLAUDE_SUPERVISOR_PID:-$PPID}"
+    jq --argjson pid "$TARGET_PID" --arg ts "$(timestamp)" \
+      '.pid = $pid | .lifecycle = "active" | del(.loading) | .toolCallsByTranscript = {} | .lastHeartbeat = $ts | .contextUsage = 0 | .overflowed = false | .killRequested = false' \
       "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
     # Read state for rich output

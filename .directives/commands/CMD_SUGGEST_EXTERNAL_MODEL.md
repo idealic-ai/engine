@@ -16,8 +16,8 @@
     *   `PRO` → `externalModel = "gemini-3-pro-preview"`
     *   `FLS` → `externalModel = "gemini-3-flash-preview"`
     *   `CLD` → `externalModel = "claude"`
-    *   `OTH/CUS` → Parse as a model name string, otherwise default to `"claude"`
-    *   `OTH/SKP` → `externalModel = "claude"`
+    *   `MORE/CUS` → Parse as a model name string, otherwise default to `"claude"`
+    *   `MORE/SKP` → `externalModel = "claude"`
 
 3.  **Effect**: The recorded `externalModel` value is used by §CMD_EXECUTE_EXTERNAL_MODEL in the skill's execution phase. When `externalModel = "claude"`, the skill proceeds normally (Claude writes inline). When set to a Gemini model, the skill gathers context file paths instead of reading files into context, and delegates writing to §CMD_EXECUTE_EXTERNAL_MODEL.
 
@@ -39,7 +39,7 @@ Extras: A: Compare model capabilities | B: View estimated costs | C: Use same mo
   Faster and cheaper, good for straightforward tasks
 - [CLD] Claude (default)
   Stay in context. Better for interactive refinement
-- [OTH] Other
+- [MORE] Other
   - [CUS] Custom model
     Specify a model name manually (e.g., a fine-tuned variant)
   - [SKP] Skip model selection

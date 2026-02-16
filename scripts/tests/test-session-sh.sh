@@ -1524,10 +1524,13 @@ test_phase_skips_already_preloaded_commands() {
   echo "# APPEND_LOG" > "$cmd_dir/CMD_APPEND_LOG.md"
   echo "# TRACK_PROGRESS" > "$cmd_dir/CMD_TRACK_PROGRESS.md"
 
-  create_state "$TEST_DIR/sessions/PHASE_PRELOADED" "$(jq -n '{
+  # Use resolved HOME path for consistent dedup with normalize_preload_path output
+  local resolved_home
+  resolved_home=$(cd "$HOME" 2>/dev/null && pwd -P) || resolved_home="$HOME"
+  create_state "$TEST_DIR/sessions/PHASE_PRELOADED" "$(jq -n --arg h "$resolved_home" '{
     pid: 99999999, skill: "fix", lifecycle: "active", loading: true,
     currentPhase: "2: Triage Walk-Through",
-    preloadedFiles: ["~/.claude/.directives/commands/CMD_APPEND_LOG.md"],
+    preloadedFiles: [($h + "/.claude/.directives/commands/CMD_APPEND_LOG.md")],
     phases: [
       {major: 2, minor: 0, name: "Triage Walk-Through"},
       {major: 3, minor: 0, name: "Fix Loop",

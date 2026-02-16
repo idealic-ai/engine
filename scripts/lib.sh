@@ -47,7 +47,9 @@ rotation_log() {
 notify_fleet() {
   [ -n "${TMUX:-}" ] || return 0
   local socket
-  socket=$(echo "$TMUX" | cut -d, -f1 | xargs basename 2>/dev/null || echo "")
+  local tmux_path
+  tmux_path=$(echo "$TMUX" | cut -d, -f1)
+  socket="${tmux_path##*/}"
   [[ "$socket" == "fleet" || "$socket" == fleet-* ]] || return 0
   "$HOME/.claude/scripts/fleet.sh" notify "$1" 2>/dev/null || true
 }
@@ -112,16 +114,50 @@ is_engine_glob_cmd()    { is_engine_cmd "$1" "glob"; }
 
 # --- Path normalization utilities ---
 
-# normalize_preload_path PATH → tilde-prefix path on stdout
-#   Replaces $HOME prefix with ~ for consistent dedup in preloadedFiles/pendingPreloads.
-#   Paths already using ~ are passed through unchanged.
+# normalize_preload_path PATH → canonical absolute path on stdout
+#   1. Resolves ~ to $HOME
+#   2. Resolves directory symlinks (e.g., ~/.claude/.directives/ → ~/.claude/engine/.directives/)
+#   Outputs absolute paths for consistent dedup in preloadedFiles/pendingPreloads.
 normalize_preload_path() {
   local path="$1"
-  if [[ "$path" == "$HOME/"* ]]; then
-    echo "~/${path#$HOME/}"
-  else
-    echo "$path"
+  local resolved="${path/#\~/$HOME}"
+  # Resolve directory symlinks (macOS compatible: cd + pwd -P)
+  # Use parameter expansion instead of dirname/basename for zsh compatibility
+  if [ -f "$resolved" ]; then
+    local dir_part="${resolved%/*}"
+    local base_part="${resolved##*/}"
+    local real_dir
+    real_dir=$(cd "$dir_part" 2>/dev/null && pwd -P) || real_dir="$dir_part"
+    resolved="$real_dir/$base_part"
   fi
+  echo "$resolved"
+}
+
+# get_session_start_seeds → JSON array of canonical seed paths on stdout
+#   Returns the same 6 paths that SessionStart seeds into preloadedFiles.
+#   Deterministic — any hook can call this to know what SessionStart injected.
+get_session_start_seeds() {
+  local engine_dir
+  engine_dir=$(cd "$HOME/.claude/.directives" 2>/dev/null && pwd -P) || engine_dir="$HOME/.claude/.directives"
+  jq -n --arg d "$engine_dir" '[$d+"/COMMANDS.md",$d+"/INVARIANTS.md",$d+"/SIGILS.md",$d+"/commands/CMD_DEHYDRATE.md",$d+"/commands/CMD_RESUME_SESSION.md",$d+"/commands/CMD_PARSE_PARAMETERS.md"]'
+}
+
+# filter_preseeded_paths PATHS_NEWLINE_DELIMITED → filtered paths on stdout
+#   Removes any path that matches a SessionStart seed. Use when no active session
+#   exists and preloadedFiles can't be checked in .state.json.
+filter_preseeded_paths() {
+  local input="$1"
+  [ -n "$input" ] || return 0
+  local seeds_json
+  seeds_json=$(get_session_start_seeds)
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    local is_seed
+    is_seed=$(echo "$seeds_json" | jq -r --arg f "$p" 'any(. == $f)' 2>/dev/null || echo "false")
+    if [ "$is_seed" = "false" ]; then
+      echo "$p"
+    fi
+  done <<< "$input"
 }
 
 # extract_skill_preloads SKILL_NAME
@@ -227,7 +263,7 @@ is_excluded_dir() {
   local dir_path="$1"
   local excluded="${2:-$STANDARD_EXCLUDED_DIRS}"
   local dir_name
-  dir_name=$(basename "$dir_path")
+  dir_name="${dir_path##*/}"
   for excl in $excluded; do
     if [ "$dir_name" = "$excl" ]; then
       return 0
@@ -312,6 +348,81 @@ safe_json_write() {
     rm -f "$tmp_file"
     rmdir "$lock_dir" 2>/dev/null || true
     echo "ERROR: safe_json_write: write failed for $file" >&2
+    return 1
+  fi
+}
+
+# --- Input validation functions ---
+# Boundary validation for user/LLM-provided strings.
+# All validators exit 1 with stderr on failure (fail-hard).
+
+# validate_tag TAG
+#   Strips leading # if present. Validates: ^[a-z][a-z0-9-]*$
+#   Outputs the clean tag (without #) on stdout.
+#   Exit 1 on invalid input.
+validate_tag() {
+  local raw="${1:-}"
+  # Strip leading #
+  local tag="${raw#\#}"
+  if [ -z "$tag" ]; then
+    echo "ERROR: validate_tag: empty tag" >&2
+    return 1
+  fi
+  if ! [[ "$tag" =~ ^[a-z][a-z0-9-]*$ ]]; then
+    echo "ERROR: validate_tag: invalid tag '$raw' (must match ^[a-z][a-z0-9-]*$)" >&2
+    return 1
+  fi
+  echo "$tag"
+}
+
+# validate_subcmd SUBCMD
+#   Validates: ^[a-z][a-z0-9-]+$ (minimum 2 chars)
+#   Exit 1 on invalid input.
+validate_subcmd() {
+  local subcmd="${1:-}"
+  if [ -z "$subcmd" ]; then
+    echo "ERROR: validate_subcmd: empty subcommand" >&2
+    return 1
+  fi
+  if ! [[ "$subcmd" =~ ^[a-z][a-z0-9-]+$ ]]; then
+    echo "ERROR: validate_subcmd: invalid subcommand '$subcmd' (must match ^[a-z][a-z0-9-]+$)" >&2
+    return 1
+  fi
+}
+
+# validate_path PATH
+#   Rejects ".." traversal components. Checks file or directory exists.
+#   Exit 1 on invalid input.
+validate_path() {
+  local path="${1:-}"
+  if [ -z "$path" ]; then
+    echo "ERROR: validate_path: empty path" >&2
+    return 1
+  fi
+  # Reject ".." path components
+  if [[ "$path" == *".."* ]]; then
+    echo "ERROR: validate_path: path traversal detected in '$path'" >&2
+    return 1
+  fi
+  # Check existence (file or directory)
+  if [ ! -e "$path" ]; then
+    echo "ERROR: validate_path: path does not exist: '$path'" >&2
+    return 1
+  fi
+}
+
+# validate_phase PHASE_LABEL
+#   Rejects sed metacharacters (/, &, \) and newlines.
+#   Exit 1 on invalid input.
+validate_phase() {
+  local phase="${1:-}"
+  if [ -z "$phase" ]; then
+    echo "ERROR: validate_phase: empty phase label" >&2
+    return 1
+  fi
+  # Reject sed metacharacters and newlines
+  if [[ "$phase" == *"/"* ]] || [[ "$phase" == *"&"* ]] || [[ "$phase" == *"\\"* ]] || [[ "$phase" == *$'\n'* ]]; then
+    echo "ERROR: validate_phase: invalid characters in phase label '$phase' (no /, &, \\, or newlines)" >&2
     return 1
   fi
 }
@@ -766,7 +877,7 @@ resolve_refs() {
 
   # Determine if this is a SKILL.md file (excluded from CMD preloading)
   local basename_file
-  basename_file=$(basename "$file_path")
+  basename_file="${file_path##*/}"
   local is_skill_md=false
   if [ "$basename_file" = "SKILL.md" ]; then
     is_skill_md=true
@@ -782,7 +893,7 @@ resolve_refs() {
 
   # Resolve the starting directory for walk-up
   local start_dir
-  start_dir=$(cd "$(dirname "$file_path")" && pwd)
+  start_dir=$(cd "${file_path%/*}" && pwd)
 
   # Project root detection (stop walk-up here)
   local project_root="${PROJECT_ROOT:-$(pwd)}"
@@ -820,13 +931,13 @@ resolve_refs() {
         break
       fi
 
-      # Stop at project root
-      if [ "$search_dir" = "$project_root" ] || [ "$search_dir" = "/" ]; then
+      # Stop at project root or filesystem root
+      if [ "$search_dir" = "$project_root" ] || [ "$search_dir" = "/" ] || [ -z "$search_dir" ]; then
         break
       fi
 
       # Move up one level
-      search_dir=$(dirname "$search_dir")
+      search_dir="${search_dir%/*}"
     done
 
     # Fallback to engine .directives/

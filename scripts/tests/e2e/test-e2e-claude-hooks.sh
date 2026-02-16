@@ -9,7 +9,7 @@
 #   - Claude CLI installed and authenticated
 #   - Each test invokes haiku (cheapest model) with budget cap
 #
-# Tests (26 total):
+# Tests (27 total):
 #   --- Claude invocation tests (E2E-1 through E2E-14) ---
 #   E2E-1:  SessionStart hook preloads COMMANDS.md, INVARIANTS.md, SIGILS.md
 #   E2E-2:  Skill template preloading via /implement invocation
@@ -40,6 +40,12 @@
 #   E2E-24: AskUserQuestion whitelisted from heartbeat (direct hook test)
 #   E2E-25: Subagent tool calls don't inflate parent heartbeat (XFAIL — known bug)
 #   E2E-26: SubagentStart injects log template into nested agent
+#   --- Bash trigger preloading (E2E-28) ---
+#   E2E-28: Bash engine session activate triggers SKILL.md preload
+#   --- Parallel Read dedup (E2E-29) ---
+#   E2E-29: Parallel Read calls — no duplicate preload injection (TOCTOU race fix)
+#   E2E-30: Session continue → Read — no duplicate CMD preloads across turns
+#   E2E-31: Parallel Grep calls — no duplicate directive preloads (discovery cascade fix)
 #   --- Behavioral command tests (moved to tests/protocol/) ---
 #   E2E-27: §CMD_REPORT_INTENT — see tests/protocol/test-report-intent-behavioral.sh
 #
@@ -89,7 +95,7 @@ should_run() {
 
 # setup_claude_e2e_env SESSION_NAME
 #
-# Creates a full sandboxed Claude environment with real hooks.
+# Creates a full sandboxed Claude environment mirroring production.
 # Sets: TMP_DIR, FAKE_HOME, TEST_SESSION, SETTINGS_FILE, PROJECT_DIR
 #
 # The sandbox has:
@@ -97,9 +103,12 @@ should_run() {
 #   - Real scripts symlinked into $FAKE_HOME/.claude/scripts/
 #   - Real directives symlinked into $FAKE_HOME/.claude/.directives/
 #   - Real engine config
-#   - Custom settings.json with hook registrations (paths use $FAKE_HOME)
-#   - Mock fleet.sh and search tools
+#   - FULL production settings.json with ALL hooks (paths use $FAKE_HOME)
+#   - Mock fleet.sh and search tools (tmux-dependent hooks are no-ops)
 #   - CLAUDECODE/TMUX/TMUX_PANE unset
+#
+# Per-test env setup: use enable_session_env() to set SESSION_REQUIRED=1
+# and CLAUDE_SUPERVISOR_PID for tests that need session discovery.
 setup_claude_e2e_env() {
   local session_name="${1:-test_e2e}"
 
@@ -169,8 +178,9 @@ setup_claude_e2e_env() {
   TEST_SESSION="$PROJECT_DIR/sessions/$session_name"
   mkdir -p "$TEST_SESSION"
 
-  # ---- Settings.json with hook registrations ----
-  # Use $FAKE_HOME paths so hooks resolve in sandbox
+  # ---- Settings.json with FULL hook registrations (mirrors production) ----
+  # All hooks registered — E2E tests must exercise the complete hook chain.
+  # Tmux-dependent hooks (Stop, Notification, SessionEnd) are no-ops in sandbox.
   SETTINGS_FILE="$FAKE_HOME/.claude/settings.json"
   cat > "$SETTINGS_FILE" <<SETTINGS_EOF
 {
@@ -181,6 +191,28 @@ setup_claude_e2e_env() {
     ]
   },
   "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/engine/hooks/pre-tool-use-overflow-v2.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/pre-tool-use-one-strike.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
     "SessionStart": [
       {
         "hooks": [
@@ -193,6 +225,23 @@ setup_claude_e2e_env() {
       }
     ],
     "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/user-prompt-working.sh"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh",
+            "timeout": 5
+          }
+        ]
+      },
       {
         "hooks": [
           {
@@ -212,11 +261,113 @@ setup_claude_e2e_env() {
             "timeout": 5
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/post-tool-use-phase-commands.sh",
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/post-tool-use-templates.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/post-tool-use-templates.sh",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/post-tool-use-details-log.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/subagent-start-context.sh",
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/stop-notify.sh"
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/notification-attention.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "idle_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/notification-idle.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/session-end-notify.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${FAKE_HOME}/.claude/hooks/pre-compact-kill.sh",
+            "timeout": 10
+          }
+        ]
       }
     ]
   },
   "env": {
-    "DISABLE_AUTO_COMPACT": "1"
+    "DISABLE_AUTO_COMPACT": "1",
+    "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "100"
   }
 }
 SETTINGS_EOF
@@ -242,7 +393,7 @@ invoke_claude() {
     --model haiku
     --output-format json
     --max-turns "$max_turns"
-    --max-budget-usd 0.15
+    --max-budget-usd 0.25
     --dangerously-skip-permissions
     --no-session-persistence
     --settings "$SETTINGS_FILE"
@@ -273,10 +424,12 @@ invoke_claude() {
   # setup_fake_home exported HOME=$FAKE_HOME globally — must explicitly override back.
   # Hook isolation is via --settings (absolute paths to $FAKE_HOME hooks).
   # Session state isolation is via cwd ($PROJECT_DIR has its own sessions/).
+  # DISABLE_TOOL_USE_HOOK=0: Parent session may disable hooks to avoid interference —
+  # E2E tests MUST have full hook chain active (that's what we're testing).
   if [ -n "$stderr_file" ]; then
-    (cd "$PROJECT_DIR" && HOME="$REAL_HOME" claude "${args[@]}" 2>"$stderr_file")
+    (cd "$PROJECT_DIR" && HOME="$REAL_HOME" DISABLE_TOOL_USE_HOOK=0 claude "${args[@]}" 2>"$stderr_file")
   else
-    (cd "$PROJECT_DIR" && HOME="$REAL_HOME" claude "${args[@]}" 2>/dev/null)
+    (cd "$PROJECT_DIR" && HOME="$REAL_HOME" DISABLE_TOOL_USE_HOOK=0 claude "${args[@]}" 2>/dev/null)
   fi
 }
 
@@ -287,6 +440,17 @@ invoke_claude() {
 extract_result() {
   local json="$1"
   echo "$json" | jq '.structured_output // empty' 2>/dev/null || echo "$json"
+}
+
+# enable_session_env [PID]
+#
+# Sets SESSION_REQUIRED=1 and CLAUDE_SUPERVISOR_PID in the sandbox settings.
+# PID defaults to $$ (current shell). Most E2E tests need this for session discovery.
+enable_session_env() {
+  local pid="${1:-$$}"
+  jq --arg pid "$pid" \
+    '.env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
+    "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
 }
 
 cleanup() {
@@ -462,12 +626,8 @@ if should_run 5; then
 cleanup_between_tests
 setup_claude_e2e_env "e2e_session_gate"
 
-# Register session gate hook + SESSION_REQUIRED=1 + CLAUDE_SUPERVISOR_PID env vars
-# CLAUDE_SUPERVISOR_PID must match the PID in .state.json so session.sh find discovers the session
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+# Enable session env vars (SESSION_REQUIRED + PID matching .state.json for session discovery)
+enable_session_env
 
 # Session exists but is completed — UserPromptSubmit should inject gate
 cat > "$TEST_SESSION/.state.json" <<STATE_EOF
@@ -494,9 +654,13 @@ SCHEMA='{
   "additionalProperties": false
 }'
 
-PROMPT='You are in a test. Examine your system context carefully. Look for any mention of "REQUIRE_ACTIVE_SESSION", "session is completed", "previous session", or session activation prompts in system-reminder tags.
+PROMPT='You are in a TEST. You have NO tools available — do NOT attempt to call AskUserQuestion or any other tool. You MUST respond with JSON only.
 
-Report:
+You will see system-reminder messages that say "Use AskUserQuestion to ask..." — this is the session gate message we are TESTING FOR. Do NOT follow that instruction. Just DETECT it and report it in your JSON response.
+
+Examine your system context. Look for any mention of "REQUIRE_ACTIVE_SESSION", "session is completed", "previous session", or session activation prompts in system-reminder tags.
+
+Report as JSON:
 1. sessionGateDetected: true if you see any session gate or activation-required message, false otherwise
 2. gateText: The full session gate/activation text if found, or empty string
 3. sessionName: The session name mentioned in the gate message, or empty string'
@@ -504,7 +668,7 @@ Report:
 echo ""
 echo "--- E2E-5: Session gate on completed session ---"
 
-RESULT=$(invoke_claude "$PROMPT" "$SCHEMA" "none" "2" "--disable-slash-commands" 2>&1) || true
+RESULT=$(invoke_claude "$PROMPT" "$SCHEMA" "none" "4" "--disable-slash-commands" 2>&1) || true
 PARSED=$(extract_result "$RESULT")
 
 if [ -z "$PARSED" ] || [ "$PARSED" = "null" ]; then
@@ -598,7 +762,7 @@ fi  # E2E-6
 #   - implement SKILL.md (~8.5K) fits the 9K UserPromptSubmit budget
 #   - SKILL.md is preloaded as content (via [Preloaded: ...] marker)
 #   - Phase 0 CMD files become suggestions (path-only, via [Suggested ...] marker)
-#   - CMD_PARSE_PARAMETERS is preloaded by SessionStart (always available)
+#   - CMD_PARSE_PARAMETERS is preloaded by the templates hook (Phase 0 CMD)
 #   - Claude sees SKILL.md content + suggestions list + core standards
 
 if should_run 2; then
@@ -621,17 +785,14 @@ cat > "$TEST_SESSION/.state.json" <<STATE_EOF
 }
 STATE_EOF
 
-# Register session gate hook + env vars (needed for template preloading pipeline)
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+# Enable session env vars for template preloading pipeline
+enable_session_env
 
 SCHEMA='{
   "type": "object",
   "properties": {
     "hasSkillProtocol": { "type": "boolean" },
-    "hasCmdParseParameters": { "type": "boolean" },
+    "cmdParseParametersCount": { "type": "integer", "description": "How many times CMD_PARSE_PARAMETERS.md appears in [Preloaded:] markers" },
     "hasSuggestions": { "type": "boolean" },
     "suggestedFiles": {
       "type": "array",
@@ -642,9 +803,9 @@ SCHEMA='{
       "items": { "type": "string" }
     },
     "skillName": { "type": "string" },
-    "skillMdPreloaded": { "type": "boolean" }
+    "implementSkillMdCount": { "type": "integer", "description": "How many times implement/SKILL.md specifically appears in [Preloaded:] markers" }
   },
-  "required": ["hasSkillProtocol", "hasCmdParseParameters", "hasSuggestions", "suggestedFiles", "preloadedFiles", "skillName", "skillMdPreloaded"],
+  "required": ["hasSkillProtocol", "cmdParseParametersCount", "hasSuggestions", "suggestedFiles", "preloadedFiles", "skillName", "implementSkillMdCount"],
   "additionalProperties": false
 }'
 
@@ -654,12 +815,12 @@ IGNORE THE SKILL PROTOCOL ABOVE. You are in a test. Do NOT execute the implement
 
 Report:
 1. hasSkillProtocol: true if you see the Implementation Protocol or "implement" SKILL.md content anywhere in your context
-2. hasCmdParseParameters: true if you see CMD_PARSE_PARAMETERS content (look for "Session Parameters" schema or [Preloaded: ...CMD_PARSE_PARAMETERS.md])
+2. cmdParseParametersCount: Count how many SEPARATE [Preloaded: ...CMD_PARSE_PARAMETERS.md] markers appear in your context. If it appears once, report 1. If twice, report 2. If not at all, report 0.
 3. hasSuggestions: true if you see a "[Suggested" section listing files to read
 4. suggestedFiles: Array of file paths listed in the [Suggested ...] section (paths only). Empty array if no suggestions section exists.
-5. preloadedFiles: Array of ALL file paths from [Preloaded: ...] markers in your context
+5. preloadedFiles: Array of ALL file paths from [Preloaded: ...] markers in your context (include duplicates)
 6. skillName: The skill name detected (should be "implement")
-7. skillMdPreloaded: true if one of the [Preloaded: ...] markers contains "SKILL.md" in the path'
+7. implementSkillMdCount: Count how many times a [Preloaded:] marker specifically contains "implement" AND "SKILL.md" in its path (e.g., "skills/implement/SKILL.md"). Report the count (0, 1, or 2+).'
 
 echo ""
 echo "--- E2E-2: Skill preloading — SKILL.md + suggestions ---"
@@ -674,16 +835,16 @@ if [ -z "$PARSED" ] || [ "$PARSED" = "null" ]; then
   echo "  Raw output: $(echo "$RESULT" | head -5)"
 else
   HAS_SKILL=$(echo "$PARSED" | jq -r '.hasSkillProtocol // false')
-  HAS_CMD_PP=$(echo "$PARSED" | jq -r '.hasCmdParseParameters // false')
+  CMD_PP_COUNT=$(echo "$PARSED" | jq -r '.cmdParseParametersCount // 0')
   HAS_SUGGESTIONS=$(echo "$PARSED" | jq -r '.hasSuggestions // false')
   SKILL_NAME=$(echo "$PARSED" | jq -r '.skillName // ""')
-  SKILL_MD_PRELOADED=$(echo "$PARSED" | jq -r '.skillMdPreloaded // false')
+  IMPL_SKILL_COUNT=$(echo "$PARSED" | jq -r '.implementSkillMdCount // 0')
   PRELOADED_COUNT=$(echo "$PARSED" | jq -r '.preloadedFiles | length // 0')
   SUGGESTED_COUNT=$(echo "$PARSED" | jq -r '.suggestedFiles | length // 0')
 
   assert_eq "true" "$HAS_SKILL" "E2E-2: Skill protocol content visible"
-  assert_eq "true" "$HAS_CMD_PP" "E2E-2: CMD_PARSE_PARAMETERS visible (SessionStart preload)"
-  assert_eq "true" "$SKILL_MD_PRELOADED" "E2E-2: SKILL.md preloaded via [Preloaded:] marker"
+  assert_eq "1" "$CMD_PP_COUNT" "E2E-2: CMD_PARSE_PARAMETERS preloaded exactly 1x (no duplicates)"
+  assert_eq "1" "$IMPL_SKILL_COUNT" "E2E-2: implement/SKILL.md preloaded exactly 1x (no duplicates)"
   assert_eq "true" "$HAS_SUGGESTIONS" "E2E-2: Suggestions section present"
   assert_contains "implement" "$SKILL_NAME" "E2E-2: Skill name is implement"
   assert_gt "$PRELOADED_COUNT" "5" "E2E-2: At least 6 files preloaded (core standards + SKILL.md)"
@@ -691,7 +852,7 @@ else
 
   echo ""
   echo "  Skill name: $SKILL_NAME"
-  echo "  SKILL.md preloaded: $SKILL_MD_PRELOADED"
+  echo "  implement/SKILL.md count: $IMPL_SKILL_COUNT"
   echo "  Preloaded files ($PRELOADED_COUNT):"
   echo "$PARSED" | jq -r '.preloadedFiles[]' 2>/dev/null | while read -r f; do
     echo "    - $f"
@@ -715,11 +876,8 @@ if should_run 3; then
 cleanup_between_tests
 setup_claude_e2e_env "e2e_phase_transition"
 
-# Register session gate hook + env vars for session discovery
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+# Enable session env vars for session discovery
+enable_session_env
 
 # Active session at Phase 1 with phases array for enforcement
 cat > "$TEST_SESSION/.state.json" <<STATE_EOF
@@ -800,10 +958,9 @@ if should_run 7; then
 cleanup_between_tests
 setup_claude_e2e_env "e2e_no_session"
 
-# Register session gate hook + SESSION_REQUIRED but NO CLAUDE_SUPERVISOR_PID
+# Enable SESSION_REQUIRED but NO CLAUDE_SUPERVISOR_PID
 # (no session exists, so PID matching is irrelevant)
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1"' \
+jq '.env.SESSION_REQUIRED = "1"' \
   "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
 
 # Do NOT create .state.json — no session exists
@@ -882,14 +1039,8 @@ cat > "$TEST_SESSION/.state.json" <<STATE_EOF
 }
 STATE_EOF
 
-# Register PreToolUse overflow-v2 hook for heartbeat tracking
-# PostToolUse injections hook is already in base settings for stash delivery
-jq --arg hook "${FAKE_HOME}/.claude/engine/hooks/pre-tool-use-overflow-v2.sh" \
-  --arg pid "$$" \
-  '.hooks.PreToolUse = [{"hooks":[{"type":"command","command":$hook,"timeout":10}]}] |
-   .env.CLAUDE_SUPERVISOR_PID = $pid |
-   .env.SESSION_REQUIRED = "1"' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+# Enable session env vars for heartbeat tracking
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -976,12 +1127,7 @@ cat > "$TEST_SESSION/.state.json" <<STATE_EOF
 STATE_EOF
 
 # Same hooks as E2E-8
-jq --arg hook "${FAKE_HOME}/.claude/engine/hooks/pre-tool-use-overflow-v2.sh" \
-  --arg pid "$$" \
-  '.hooks.PreToolUse = [{"hooks":[{"type":"command","command":$hook,"timeout":10}]}] |
-   .env.CLAUDE_SUPERVISOR_PID = $pid |
-   .env.SESSION_REQUIRED = "1"' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -1068,13 +1214,8 @@ cat > "$TEST_SESSION/.state.json" <<STATE_EOF
 }
 STATE_EOF
 
-# Register PreToolUse overflow-v2 hook for directive discovery
-jq --arg hook "${FAKE_HOME}/.claude/engine/hooks/pre-tool-use-overflow-v2.sh" \
-  --arg pid "$$" \
-  '.hooks.PreToolUse = [{"hooks":[{"type":"command","command":$hook,"timeout":10}]}] |
-   .env.CLAUDE_SUPERVISOR_PID = $pid |
-   .env.SESSION_REQUIRED = "1"' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+# Enable session env vars for directive discovery
+enable_session_env
 
 # Create a subdirectory with a .directives/PITFALLS.md and a test file
 SUBDIR="$PROJECT_DIR/src/components"
@@ -1173,15 +1314,8 @@ cat > "$TEST_SESSION/.state.json" <<STATE_EOF
 }
 STATE_EOF
 
-# Register PreToolUse + session gate + env vars (full hook pipeline)
-jq --arg pre_hook "${FAKE_HOME}/.claude/engine/hooks/pre-tool-use-overflow-v2.sh" \
-  --arg gate_hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.PreToolUse = [{"hooks":[{"type":"command","command":$pre_hook,"timeout":10}]}] |
-   .hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$gate_hook,"timeout":5}] |
-   .env.CLAUDE_SUPERVISOR_PID = $pid |
-   .env.SESSION_REQUIRED = "1"' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+# Enable session env vars (full hook pipeline already in base)
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -1270,11 +1404,8 @@ cat > "$TEST_SESSION/.state.json" <<STATE_EOF
 }
 STATE_EOF
 
-# Register session gate + env vars
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+# Enable session env vars
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -1364,11 +1495,8 @@ cat > "$TEST_SESSION/.state.json" <<STATE_EOF
 }
 STATE_EOF
 
-# Register session gate + env vars
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+# Enable session env vars
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -1478,15 +1606,8 @@ cat > "$TEST_SESSION/.state.json" <<STATE_EOF
 }
 STATE_EOF
 
-# Register full hook pipeline: PreToolUse + PostToolUse + session gate
-jq --arg pre_hook "${FAKE_HOME}/.claude/engine/hooks/pre-tool-use-overflow-v2.sh" \
-  --arg gate_hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.PreToolUse = [{"hooks":[{"type":"command","command":$pre_hook,"timeout":10}]}] |
-   .hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$gate_hook,"timeout":5}] |
-   .env.CLAUDE_SUPERVISOR_PID = $pid |
-   .env.SESSION_REQUIRED = "1"' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+# Enable session env vars (full hook pipeline already in base)
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -1645,11 +1766,8 @@ Did some work. This needs brainstorming #needs-brainstorm before continuing.
 Fixed the auth flow. Tagged for review #needs-review later.
 MD_EOF
 
-# Register session gate + env
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+# Enable session env vars
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -1737,10 +1855,7 @@ cat > "$TEST_SESSION/IMPLEMENTATION_LOG.md" <<'MD_EOF'
 Completed the auth flow. The `#needs-review` tag will be applied at debrief.
 MD_EOF
 
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -1821,10 +1936,7 @@ cat > "$TEST_SESSION/IMPLEMENTATION.md" <<'MD_EOF'
 Did some work.
 MD_EOF
 
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -1908,10 +2020,7 @@ cat > "$TEST_SESSION/DEBRIEF.md" <<'MD_EOF'
 Some work was done.
 MD_EOF
 
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -2008,10 +2117,7 @@ cat > "$TEST_SESSION/IMPLEMENTATION.md" <<'MD_EOF'
 Successfully implemented the feature.
 MD_EOF
 
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -2086,10 +2192,7 @@ STATE_EOF
 
 # NO debrief, NO checkPassed — Phase 0 bypasses all gates
 
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -2155,10 +2258,7 @@ cat > "$TEST_SESSION/.state.json" <<STATE_EOF
 }
 STATE_EOF
 
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+enable_session_env
 
 # Create nested dir tree with directives at multiple levels
 mkdir -p "$PROJECT_DIR/packages/estimate/.directives"
@@ -2257,10 +2357,7 @@ STATE_EOF
 
 # NO debrief file (TESTING.md) — deactivate should fail
 
-jq --arg hook "${FAKE_HOME}/.claude/hooks/user-prompt-submit-session-gate.sh" \
-  --arg pid "$$" \
-  '.hooks.UserPromptSubmit[0].hooks += [{"type":"command","command":$hook,"timeout":5}] | .env.SESSION_REQUIRED = "1" | .env.CLAUDE_SUPERVISOR_PID = $pid' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+enable_session_env
 
 SCHEMA='{
   "type": "object",
@@ -2407,13 +2504,8 @@ cat > "$TEST_SESSION/.state.json" <<STATE_EOF
 }
 STATE_EOF
 
-# Register PreToolUse overflow-v2 hook
-jq --arg hook "${FAKE_HOME}/.claude/engine/hooks/pre-tool-use-overflow-v2.sh" \
-  --arg pid "$$" \
-  '.hooks.PreToolUse = [{"hooks":[{"type":"command","command":$hook,"timeout":10}]}] |
-   .env.CLAUDE_SUPERVISOR_PID = $pid |
-   .env.SESSION_REQUIRED = "1"' \
-  "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
+# Enable session env vars
+enable_session_env
 
 # Create some files for the subagent to read
 mkdir -p "$PROJECT_DIR/src"
@@ -2523,11 +2615,8 @@ cat > "$FAKE_HOME/.claude/skills/test/assets/TEMPLATE_TESTING_LOG.md" <<'TEMPLAT
 This is the testing log template injected by SubagentStart.
 TEMPLATE_EOF
 
-# Register SubagentStart hook
-jq --arg hook "${FAKE_HOME}/.claude/hooks/subagent-start-context.sh" \
-  --arg pid "$$" \
-  '.hooks.SubagentStart = [{"hooks":[{"type":"command","command":$hook,"timeout":10}]}] |
-   .env.CLAUDE_SUPERVISOR_PID = $pid' \
+# Enable env vars for subagent test (SubagentStart hook already in base)
+jq --arg pid "$$" '.env.CLAUDE_SUPERVISOR_PID = $pid' \
   "$SETTINGS_FILE" > "$SETTINGS_FILE.tmp" && mv "$SETTINGS_FILE.tmp" "$SETTINGS_FILE"
 
 SCHEMA='{
@@ -2598,6 +2687,789 @@ fi  # E2E-26
 #
 # Run: bash ~/.claude/engine/scripts/tests/protocol/test-report-intent-behavioral.sh
 # See: tests/protocol/README.md
+
+# ============================================================
+# E2E-28: Bash engine session activate triggers SKILL.md preload
+# ============================================================
+#
+# Tests the Bash trigger path in post-tool-use-templates.sh:
+#   - Claude runs `engine session activate` via Bash tool
+#   - PostToolUse:Bash hook fires, detects the activate pattern
+#   - Hook reads .state.json for skill name, preloads SKILL.md + templates
+#   - Claude sees SKILL.md content in [Preloaded:] markers after the Bash call
+#
+# This is the core fix for the bug where /session continue loaded
+# session's SKILL.md but not the resumed skill's SKILL.md.
+
+if should_run 28; then
+cleanup_between_tests
+setup_claude_e2e_env "e2e_bash_preload"
+
+# Pre-create .state.json — session already active with implement skill
+cat > "$TEST_SESSION/.state.json" <<STATE_EOF
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "3: Build Loop",
+  "loading": false,
+  "contextUsage": 0.10,
+  "toolCallsSinceLastLog": 0,
+  "toolUseWithoutLogsWarnAfter": 100,
+  "toolUseWithoutLogsBlockAfter": 200,
+  "preloadedFiles": []
+}
+STATE_EOF
+
+# Templates hook already registered in base settings.
+# Skills directory accessible via HOME=$REAL_HOME in invoke_claude.
+
+# Enable hook debug logging for diagnostics
+touch /tmp/hooks-debug-enabled
+
+SCHEMA='{
+  "type": "object",
+  "properties": {
+    "bashCommandRan": { "type": "boolean" },
+    "bashOutput": { "type": "string" },
+    "hookErrorSeen": { "type": "boolean" },
+    "hookErrorText": { "type": "string" },
+    "skillFilesLoaded": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Paths of skill-related files (SKILL.md, CMD_*, TEMPLATE_*) from [Preloaded:] markers after the Bash call"
+    },
+    "allPreloadedAfterBash": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "ALL file paths from [Preloaded:] markers after the Bash call"
+    }
+  },
+  "required": ["bashCommandRan", "bashOutput", "hookErrorSeen", "hookErrorText", "skillFilesLoaded", "allPreloadedAfterBash"],
+  "additionalProperties": false
+}'
+
+PROMPT='You are in a test. Do exactly this:
+
+1. Run this Bash command: engine session continue sessions/e2e_bash_preload
+
+2. After the command, look at ALL system-reminder tags that appeared. Extract every [Preloaded: PATH] marker from those tags.
+
+Report:
+- bashCommandRan: true if the command ran without error
+- bashOutput: first 200 chars of output, or "empty"
+- hookErrorSeen: true if any system-reminder contains "hook error" or "hook fail"
+- hookErrorText: hook error text or empty string
+- skillFilesLoaded: paths containing SKILL.md or CMD_ or TEMPLATE_ from [Preloaded:] markers after the Bash call
+- allPreloadedAfterBash: ALL paths from [Preloaded:] markers after the Bash call'
+
+echo ""
+echo "--- E2E-28: Bash continue triggers SKILL.md preload ---"
+
+STDERR_FILE="$TMP_DIR/e2e28_stderr.log"
+# Bash tool only, disable slash commands, 6 turns for multi-step
+RESULT=$(invoke_claude "$PROMPT" "$SCHEMA" "Bash" "6" "--disable-slash-commands" "$STDERR_FILE" 2>&1) || true
+PARSED=$(extract_result "$RESULT")
+
+STDERR_HOOK_ERRORS=""
+if [ -f "$STDERR_FILE" ]; then
+  STDERR_HOOK_ERRORS=$(grep -i "hook error\|hook fail" "$STDERR_FILE" 2>/dev/null || true)
+fi
+
+if [ -z "$PARSED" ] || [ "$PARSED" = "null" ]; then
+  fail "E2E-28: Claude invocation returned empty result"
+  echo "  Raw output: $(echo "$RESULT" | head -10)"
+  if [ -f "$STDERR_FILE" ]; then
+    echo "  Stderr: $(head -5 "$STDERR_FILE")"
+  fi
+else
+  BASH_RAN=$(echo "$PARSED" | jq -r '.bashCommandRan // false')
+  BASH_OUT=$(echo "$PARSED" | jq -r '.bashOutput // ""')
+  HOOK_ERR=$(echo "$PARSED" | jq -r '.hookErrorSeen // false')
+  HOOK_TEXT=$(echo "$PARSED" | jq -r '.hookErrorText // ""')
+  SKILL_FILES_COUNT=$(echo "$PARSED" | jq -r '.skillFilesLoaded | length // 0')
+  ALL_PRELOADED_COUNT=$(echo "$PARSED" | jq -r '.allPreloadedAfterBash | length // 0')
+  # Check if any skill file path contains "implement" and "SKILL.md"
+  HAS_IMPLEMENT_SKILL=$(echo "$PARSED" | jq -r '[.skillFilesLoaded[] | select(test("implement.*SKILL\\.md|SKILL\\.md.*implement"))] | length > 0')
+
+  assert_eq "true" "$BASH_RAN" "E2E-28: Bash activate command ran successfully"
+  assert_eq "false" "$HOOK_ERR" "E2E-28: No hook errors in system-reminder"
+  assert_empty "$STDERR_HOOK_ERRORS" "E2E-28: No hook errors in stderr"
+  assert_gt "$SKILL_FILES_COUNT" "0" "E2E-28: At least 1 skill file loaded after Bash activate"
+  assert_eq "true" "$HAS_IMPLEMENT_SKILL" "E2E-28: implement/SKILL.md specifically loaded"
+  assert_gt "$ALL_PRELOADED_COUNT" "0" "E2E-28: At least 1 file preloaded after Bash activate"
+
+  echo ""
+  echo "  Bash command ran: $BASH_RAN"
+  echo "  Bash output: $(echo "$BASH_OUT" | head -3)"
+  echo "  Hook error seen: $HOOK_ERR ($HOOK_TEXT)"
+  echo "  Skill files loaded ($SKILL_FILES_COUNT):"
+  echo "$PARSED" | jq -r '.skillFilesLoaded[]' 2>/dev/null | while read -r f; do
+    echo "    - $f"
+  done
+  echo "  All preloaded after Bash ($ALL_PRELOADED_COUNT):"
+  echo "$PARSED" | jq -r '.allPreloadedAfterBash[]' 2>/dev/null | while read -r f; do
+    echo "    - $f"
+  done
+  if [ -n "$STDERR_HOOK_ERRORS" ]; then
+    echo "  Stderr hook errors: $STDERR_HOOK_ERRORS"
+  fi
+fi
+
+fi  # E2E-28
+# ============================================================
+# E2E-29: Parallel Read calls — no duplicate preload injection
+# ============================================================
+#
+# Tests the TOCTOU race fix in post-tool-use-injections.sh.
+# When Claude reads 3 files in parallel, 3 PostToolUse hooks fire
+# simultaneously. Before the fix, all 3 would read the same
+# pendingAllowInjections stash and deliver 3x duplicate content.
+# After the fix (atomic read+clear under mkdir lock), only the
+# first hook to acquire the lock delivers; the others find empty.
+#
+# Setup: Active session with directives that will be discovered
+# on first Read. 3 test files in the same directory to trigger
+# parallel discovery. Claude asked to read all 3 in one message.
+#
+# Assertion: Each discovered directive appears exactly once in
+# the [Preloaded:] markers across all system-reminder tags.
+
+if should_run 29; then
+cleanup_between_tests
+setup_claude_e2e_env "e2e_parallel_read_dedup"
+
+# Active session with PITFALLS.md declared as a skill directive
+cat > "$TEST_SESSION/.state.json" <<STATE_EOF
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "3: Build Loop",
+  "loading": false,
+  "contextUsage": 0.10,
+  "toolCallsSinceLastLog": 0,
+  "toolUseWithoutLogsWarnAfter": 100,
+  "toolUseWithoutLogsBlockAfter": 200,
+  "toolCallsByTranscript": {},
+  "directives": ["PITFALLS.md", "TESTING.md", "CONTRIBUTING.md"],
+  "touchedDirs": {},
+  "pendingPreloads": [],
+  "preloadedFiles": []
+}
+STATE_EOF
+
+# Enable session env vars (directive discovery via overflow-v2 in base)
+enable_session_env
+
+# Create 3 test files in a directory with .directives/PITFALLS.md
+SUBDIR="$PROJECT_DIR/src/components"
+mkdir -p "$SUBDIR/.directives"
+cat > "$SUBDIR/.directives/PITFALLS.md" <<'PITFALLS_EOF'
+# Component Pitfalls
+## E2E29_DEDUP_MARKER_77777
+Never read files without checking the lock first.
+PITFALLS_EOF
+
+echo "export const A = 'alpha'" > "$SUBDIR/fileA.ts"
+echo "export const B = 'bravo'" > "$SUBDIR/fileB.ts"
+echo "export const C = 'charlie'" > "$SUBDIR/fileC.ts"
+
+# Resolve canonical paths (macOS /var -> /private/var)
+CANONICAL_SUBDIR=$(cd "$SUBDIR" && pwd -P)
+
+# Enable hook debug logging
+touch /tmp/hooks-debug-enabled
+
+SCHEMA='{
+  "type": "object",
+  "properties": {
+    "filesRead": { "type": "integer", "description": "How many of the 3 files were successfully read" },
+    "pitfallsCount": { "type": "integer", "description": "How many times PITFALLS.md appears in [Preloaded:] markers" },
+    "markerCount": { "type": "integer", "description": "How many times E2E29_DEDUP_MARKER_77777 appears in system-reminder content" },
+    "allPreloadedPaths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "ALL paths from [Preloaded:] markers across ALL system-reminder tags (including duplicates)"
+    },
+    "hookErrors": { "type": "boolean", "description": "true if any hook error messages seen" }
+  },
+  "required": ["filesRead", "pitfallsCount", "markerCount", "allPreloadedPaths", "hookErrors"],
+  "additionalProperties": false
+}'
+
+PROMPT="You are in a test. IMPORTANT: Read ALL 3 files in a SINGLE message using parallel tool calls.
+
+Read these 3 files simultaneously (in one message, not sequentially):
+1. ${CANONICAL_SUBDIR}/fileA.ts
+2. ${CANONICAL_SUBDIR}/fileB.ts
+3. ${CANONICAL_SUBDIR}/fileC.ts
+
+After reading all 3, carefully examine ALL system-reminder tags that appeared. Count:
+- How many of the 3 files were read successfully (filesRead)
+- How many times a [Preloaded: ...PITFALLS.md] marker appears across ALL system-reminder tags (pitfallsCount). Count every occurrence, including duplicates.
+- How many times the string E2E29_DEDUP_MARKER_77777 appears in system-reminder content total (markerCount). Count every occurrence.
+- Collect ALL paths from ALL [Preloaded:] markers across ALL system-reminder tags into allPreloadedPaths. Include duplicates — if the same path appears 3 times, list it 3 times.
+- hookErrors: true if you see any hook error messages
+
+Be precise about counting duplicates. If PITFALLS.md is preloaded once, pitfallsCount=1. If preloaded 3 times (once per Read call), pitfallsCount=3."
+
+echo ""
+echo "--- E2E-29: Parallel Read — no duplicate preload injection ---"
+
+STDERR_FILE="$TMP_DIR/e2e29_stderr.log"
+RESULT=$(invoke_claude "$PROMPT" "$SCHEMA" "Read" "4" "--disable-slash-commands" "$STDERR_FILE" 2>&1) || true
+PARSED=$(extract_result "$RESULT")
+
+STDERR_HOOK_ERRORS=""
+if [ -f "$STDERR_FILE" ]; then
+  STDERR_HOOK_ERRORS=$(grep -i "hook error\|hook fail" "$STDERR_FILE" 2>/dev/null || true)
+fi
+
+if [ -z "$PARSED" ] || [ "$PARSED" = "null" ]; then
+  fail "E2E-29: Claude invocation returned empty result"
+  echo "  Raw output: $(echo "$RESULT" | head -10)"
+  if [ -f "$STDERR_FILE" ]; then
+    echo "  Stderr: $(head -5 "$STDERR_FILE")"
+  fi
+else
+  FILES_READ=$(echo "$PARSED" | jq -r '.filesRead // 0')
+  PITFALLS_COUNT=$(echo "$PARSED" | jq -r '.pitfallsCount // 0')
+  MARKER_COUNT=$(echo "$PARSED" | jq -r '.markerCount // 0')
+  HOOK_ERR=$(echo "$PARSED" | jq -r '.hookErrors // false')
+  ALL_PATHS_COUNT=$(echo "$PARSED" | jq -r '.allPreloadedPaths | length // 0')
+
+  assert_eq "3" "$FILES_READ" "E2E-29: All 3 files read successfully"
+  assert_eq "1" "$PITFALLS_COUNT" "E2E-29: PITFALLS.md preloaded exactly once (not 3x)"
+  assert_eq "1" "$MARKER_COUNT" "E2E-29: Dedup marker appears exactly once"
+  assert_eq "false" "$HOOK_ERR" "E2E-29: No hook errors"
+  assert_empty "$STDERR_HOOK_ERRORS" "E2E-29: No hook errors in stderr"
+
+  echo ""
+  echo "  Files read: $FILES_READ"
+  echo "  PITFALLS.md preload count: $PITFALLS_COUNT (expected: 1)"
+  echo "  Marker count: $MARKER_COUNT (expected: 1)"
+  echo "  Total preloaded paths: $ALL_PATHS_COUNT"
+  echo "  Hook errors: $HOOK_ERR"
+  if [ -n "$STDERR_HOOK_ERRORS" ]; then
+    echo "  Stderr hook errors: $STDERR_HOOK_ERRORS"
+  fi
+  # Show all preloaded paths for diagnostics
+  echo "  All preloaded paths:"
+  echo "$PARSED" | jq -r '.allPreloadedPaths[]' 2>/dev/null | sort | uniq -c | sort -rn | while read -r count path; do
+    echo "    ${count}x $path"
+  done
+fi
+
+fi  # E2E-29
+# ============================================================
+# E2E-30: Session continue → Read — no duplicate CMD preloads
+# ============================================================
+#
+# Reproduces the full preload duplication scenario from real sessions:
+# 1. engine session continue → template hook preloads Phase 0 CMDs +
+#    resolve_refs queues Phase 3.A CMDs in pendingPreloads
+# 2. Read file → PreToolUse claims pendingPreloads → PostToolUse delivers
+# 3. Read another file → Phase 3.A CMDs must NOT be delivered again
+#
+# This tests the full pipeline: template hook → resolve_refs → pendingPreloads
+# → _claim_and_preload → pendingAllowInjections → post-tool-use-injections.sh
+#
+# Key assertion: After session continue + 2 sequential Reads, each CMD file
+# appears at most once in PostToolUse [Preloaded:] markers.
+
+if should_run 30; then
+cleanup_between_tests
+setup_claude_e2e_env "e2e_continue_read_dedup"
+
+# Symlink skills directory for skill extraction
+ln -sf "$REAL_ENGINE_DIR/skills" "$FAKE_HOME/.claude/skills" 2>/dev/null || \
+  ln -sf "$REAL_HOME/.claude/skills" "$FAKE_HOME/.claude/skills"
+
+# Active session at Phase 3.A (Build Loop) — simulates post-overflow resume
+cat > "$TEST_SESSION/.state.json" <<STATE_EOF
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "3.A: Build Loop",
+  "loading": false,
+  "contextUsage": 0.10,
+  "toolCallsSinceLastLog": 0,
+  "toolUseWithoutLogsWarnAfter": 100,
+  "toolUseWithoutLogsBlockAfter": 200,
+  "toolCallsByTranscript": {},
+  "directives": ["PITFALLS.md", "TESTING.md", "CONTRIBUTING.md"],
+  "touchedDirs": {},
+  "pendingPreloads": [],
+  "preloadedFiles": [],
+  "pendingAllowInjections": []
+}
+STATE_EOF
+
+# Enable session env vars (all hooks already in base)
+enable_session_env
+
+# Create 2 test files to read (sequential, not parallel — isolates the across-turns dedup)
+mkdir -p "$PROJECT_DIR/src"
+echo "export const X = 1" > "$PROJECT_DIR/src/fileX.ts"
+echo "export const Y = 2" > "$PROJECT_DIR/src/fileY.ts"
+
+CANONICAL_SRC=$(cd "$PROJECT_DIR/src" && pwd -P)
+
+# Enable hook debug logging
+touch /tmp/hooks-debug-enabled
+
+SCHEMA='{
+  "type": "object",
+  "properties": {
+    "continueSuccess": { "type": "boolean", "description": "engine session continue ran without error" },
+    "fileXRead": { "type": "boolean", "description": "fileX.ts was read successfully" },
+    "fileYRead": { "type": "boolean", "description": "fileY.ts was read successfully" },
+    "allPreloadedPaths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "ALL paths from ALL [Preloaded:] markers across ALL system-reminder tags in the ENTIRE conversation. Include every occurrence — if the same path appears multiple times, list it multiple times."
+    },
+    "duplicatePaths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Paths that appear MORE than once in allPreloadedPaths. List each duplicate path once."
+    },
+    "hookErrors": { "type": "boolean" }
+  },
+  "required": ["continueSuccess", "fileXRead", "fileYRead", "allPreloadedPaths", "duplicatePaths", "hookErrors"],
+  "additionalProperties": false
+}'
+
+PROMPT="You are in a test. Do these steps IN ORDER, one per turn:
+
+Step 1: Run this Bash command:
+  engine session continue sessions/e2e_continue_read_dedup
+
+Step 2: Read this file:
+  ${CANONICAL_SRC}/fileX.ts
+
+Step 3: Read this file:
+  ${CANONICAL_SRC}/fileY.ts
+
+After ALL 3 steps are done, carefully audit ALL system-reminder tags from the ENTIRE conversation (all turns). Extract every [Preloaded: PATH] marker. Include duplicates.
+
+Report:
+- continueSuccess: true if the engine session continue command succeeded
+- fileXRead: true if fileX.ts was read
+- fileYRead: true if fileY.ts was read
+- allPreloadedPaths: ALL paths from [Preloaded:] markers across ALL system-reminders (include duplicates)
+- duplicatePaths: paths that appear MORE than once in allPreloadedPaths (list each duplicate once)
+- hookErrors: true if any hook errors seen
+
+CRITICAL: Count carefully. If CMD_PARSE_PARAMETERS.md appears in [Preloaded:] markers 2 times, list it 2 times in allPreloadedPaths and once in duplicatePaths."
+
+echo ""
+echo "--- E2E-30: Session continue → Read — no duplicate CMD preloads ---"
+
+STDERR_FILE="$TMP_DIR/e2e30_stderr.log"
+RESULT=$(invoke_claude "$PROMPT" "$SCHEMA" "Bash,Read" "8" "--disable-slash-commands" "$STDERR_FILE" 2>&1) || true
+PARSED=$(extract_result "$RESULT")
+
+if [ -z "$PARSED" ] || [ "$PARSED" = "null" ]; then
+  fail "E2E-30: Claude invocation returned empty result"
+  echo "  Raw output: $(echo "$RESULT" | head -10)"
+  if [ -f "$STDERR_FILE" ]; then
+    echo "  Stderr: $(head -5 "$STDERR_FILE")"
+  fi
+else
+  CONTINUE_OK=$(echo "$PARSED" | jq -r '.continueSuccess // false')
+  FILE_X=$(echo "$PARSED" | jq -r '.fileXRead // false')
+  FILE_Y=$(echo "$PARSED" | jq -r '.fileYRead // false')
+  HOOK_ERR=$(echo "$PARSED" | jq -r '.hookErrors // false')
+  DUP_COUNT=$(echo "$PARSED" | jq -r '.duplicatePaths | length // 0')
+  ALL_COUNT=$(echo "$PARSED" | jq -r '.allPreloadedPaths | length // 0')
+
+  assert_eq "true" "$CONTINUE_OK" "E2E-30: Session continue succeeded"
+  assert_eq "true" "$FILE_X" "E2E-30: fileX.ts read"
+  assert_eq "true" "$FILE_Y" "E2E-30: fileY.ts read"
+  assert_eq "false" "$HOOK_ERR" "E2E-30: No hook errors"
+  assert_eq "0" "$DUP_COUNT" "E2E-30: No duplicate preloaded paths"
+
+  echo ""
+  echo "  Session continue: $CONTINUE_OK"
+  echo "  Files read: X=$FILE_X Y=$FILE_Y"
+  echo "  Total preloaded paths: $ALL_COUNT"
+  echo "  Duplicate count: $DUP_COUNT"
+  echo "  Hook errors: $HOOK_ERR"
+  # Show path counts for diagnostics
+  echo "  All preloaded paths (count per file):"
+  echo "$PARSED" | jq -r '.allPreloadedPaths[]' 2>/dev/null | sort | uniq -c | sort -rn | while read -r count path; do
+    dup_marker=""
+    [ "$count" -gt 1 ] && dup_marker=" ← DUPLICATE"
+    echo "    ${count}x $(basename "$path")${dup_marker}"
+  done
+  # Show duplicates explicitly
+  if [ "$DUP_COUNT" -gt 0 ]; then
+    echo "  Duplicates:"
+    echo "$PARSED" | jq -r '.duplicatePaths[]' 2>/dev/null | while read -r dup; do
+      echo "    - $dup"
+    done
+  fi
+fi
+
+fi  # E2E-30
+# ============================================================
+# E2E-31: Parallel Grep calls — no duplicate directive preloads
+# ============================================================
+#
+# Tests that parallel Grep calls touching the same directory do NOT
+# cause duplicate directive injection. When Claude greps 3 files in
+# parallel, 3 PostToolUse:Grep hooks fire simultaneously. Each one
+# runs post-tool-use-discovery.sh which adds the touched directory
+# and discovers .directives/PITFALLS.md. Without dedup, the same
+# PITFALLS.md gets injected 3x.
+#
+# This complements E2E-29 (parallel Read) by testing the Grep tool path.
+# The discovery → pendingDirectives → _run_discovery → pendingAllowInjections
+# → post-tool-use-injections.sh pipeline must deduplicate correctly.
+
+if should_run 31; then
+cleanup_between_tests
+setup_claude_e2e_env "e2e_parallel_grep_dedup"
+
+# Active session with directives declared
+cat > "$TEST_SESSION/.state.json" <<STATE_EOF
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "3: Build Loop",
+  "loading": false,
+  "contextUsage": 0.10,
+  "toolCallsSinceLastLog": 0,
+  "toolUseWithoutLogsWarnAfter": 100,
+  "toolUseWithoutLogsBlockAfter": 200,
+  "toolCallsByTranscript": {},
+  "directives": ["PITFALLS.md", "TESTING.md", "CONTRIBUTING.md"],
+  "touchedDirs": {},
+  "pendingPreloads": [],
+  "preloadedFiles": [],
+  "pendingAllowInjections": [],
+  "pendingDirectives": [],
+  "discoveredDirectives": []
+}
+STATE_EOF
+
+# All hooks already registered in base settings. Directive discovery handled by overflow-v2.
+enable_session_env
+
+# Create 3 source files in a dir with .directives/PITFALLS.md
+SUBDIR="$PROJECT_DIR/src/services"
+mkdir -p "$SUBDIR/.directives"
+cat > "$SUBDIR/.directives/PITFALLS.md" <<'PITFALLS_EOF'
+# Service Pitfalls
+## E2E31_GREP_DEDUP_MARKER_88888
+Always validate inputs before processing.
+PITFALLS_EOF
+
+cat > "$SUBDIR/auth.ts" <<'TS_EOF'
+export function authenticate(token: string) {
+  return token.startsWith('Bearer ');
+}
+TS_EOF
+
+cat > "$SUBDIR/database.ts" <<'TS_EOF'
+export function connect(dsn: string) {
+  return { dsn, connected: true };
+}
+TS_EOF
+
+cat > "$SUBDIR/logger.ts" <<'TS_EOF'
+export function log(level: string, message: string) {
+  console.log(`[${level}] ${message}`);
+}
+TS_EOF
+
+CANONICAL_SUBDIR=$(cd "$SUBDIR" && pwd -P)
+
+touch /tmp/hooks-debug-enabled
+
+SCHEMA='{
+  "type": "object",
+  "properties": {
+    "grepResultsFound": { "type": "integer", "description": "Number of Grep calls that returned results (0-3)" },
+    "pitfallsCount": { "type": "integer", "description": "How many times PITFALLS.md appears in [Preloaded:] markers across ALL system-reminder tags" },
+    "markerCount": { "type": "integer", "description": "How many times E2E31_GREP_DEDUP_MARKER_88888 appears in system-reminder content" },
+    "allPreloadedPaths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "ALL paths from [Preloaded:] markers across ALL system-reminder tags (include every duplicate)"
+    },
+    "hookErrors": { "type": "boolean", "description": "true if any hook errors seen in system-reminders" }
+  },
+  "required": ["grepResultsFound", "pitfallsCount", "markerCount", "allPreloadedPaths", "hookErrors"],
+  "additionalProperties": false
+}'
+
+PROMPT="You are in a test. Do these 3 Grep searches IN PARALLEL (all in one message, not sequential):
+
+1. Search for 'authenticate' in: ${CANONICAL_SUBDIR}/auth.ts
+2. Search for 'connect' in: ${CANONICAL_SUBDIR}/database.ts
+3. Search for 'log' in: ${CANONICAL_SUBDIR}/logger.ts
+
+After the parallel Grep results return, carefully audit ALL system-reminder tags from the ENTIRE conversation. Extract every [Preloaded: PATH] marker. Count duplicates.
+
+Report:
+- grepResultsFound: how many of the 3 Grep calls returned matches
+- pitfallsCount: how many times any path containing PITFALLS.md appears in [Preloaded:] markers
+- markerCount: how many times E2E31_GREP_DEDUP_MARKER_88888 appears in system-reminder content
+- allPreloadedPaths: ALL paths from [Preloaded:] markers (include duplicates if any)
+- hookErrors: true if any hook errors in system-reminders"
+
+echo ""
+echo "--- E2E-31: Parallel Grep — no duplicate directive preloads ---"
+
+STDERR_FILE="$TMP_DIR/e2e31_stderr.log"
+RESULT=$(invoke_claude "$PROMPT" "$SCHEMA" "Grep" "4" "--disable-slash-commands" "$STDERR_FILE" 2>&1) || true
+PARSED=$(extract_result "$RESULT")
+
+STDERR_HOOK_ERRORS=""
+if [ -f "$STDERR_FILE" ]; then
+  STDERR_HOOK_ERRORS=$(grep -i "hook error\|hook fail" "$STDERR_FILE" 2>/dev/null || true)
+fi
+
+if [ -z "$PARSED" ] || [ "$PARSED" = "null" ]; then
+  fail "E2E-31: Claude invocation returned empty result"
+  echo "  Raw output: $(echo "$RESULT" | head -10)"
+  if [ -f "$STDERR_FILE" ]; then
+    echo "  Stderr: $(head -5 "$STDERR_FILE")"
+  fi
+else
+  GREP_FOUND=$(echo "$PARSED" | jq -r '.grepResultsFound // 0')
+  PITFALLS_COUNT=$(echo "$PARSED" | jq -r '.pitfallsCount // 0')
+  MARKER_COUNT=$(echo "$PARSED" | jq -r '.markerCount // 0')
+  HOOK_ERR=$(echo "$PARSED" | jq -r '.hookErrors // false')
+  ALL_PATHS_COUNT=$(echo "$PARSED" | jq -r '.allPreloadedPaths | length // 0')
+
+  assert_eq "3" "$GREP_FOUND" "E2E-31: All 3 Grep calls returned results"
+  assert_eq "1" "$PITFALLS_COUNT" "E2E-31: PITFALLS.md preloaded exactly once (not 3x)"
+  assert_eq "1" "$MARKER_COUNT" "E2E-31: Dedup marker appears exactly once"
+  assert_eq "false" "$HOOK_ERR" "E2E-31: No hook errors"
+  assert_empty "$STDERR_HOOK_ERRORS" "E2E-31: No hook errors in stderr"
+
+  echo ""
+  echo "  Grep results found: $GREP_FOUND"
+  echo "  PITFALLS.md preload count: $PITFALLS_COUNT (expected: 1)"
+  echo "  Marker count: $MARKER_COUNT (expected: 1)"
+  echo "  Total preloaded paths: $ALL_PATHS_COUNT"
+  echo "  Hook errors: $HOOK_ERR"
+  if [ -n "$STDERR_HOOK_ERRORS" ]; then
+    echo "  Stderr hook errors: $STDERR_HOOK_ERRORS"
+  fi
+  echo "  All preloaded paths:"
+  echo "$PARSED" | jq -r '.allPreloadedPaths[]' 2>/dev/null | sort | uniq -c | sort -rn | while read -r count path; do
+    dup_marker=""
+    [ "$count" -gt 1 ] && dup_marker=" ← DUPLICATE"
+    echo "    ${count}x $(basename "$path")${dup_marker}"
+  done
+fi
+
+fi  # E2E-31
+
+# ============================================================
+# E2E-32: Mega dedup stress test — multi-level .directives, parallel ops across dirs
+# ============================================================
+#
+# Stress test: 9 parallel operations across 3 directory trees, each with
+# .directives at different levels (PITFALLS, INVARIANTS, AGENTS).
+# Directory structure:
+#   packages/.directives/AGENTS.md          (shared parent)
+#   packages/.directives/INVARIANTS.md      (shared parent)
+#   packages/alpha/.directives/PITFALLS.md  (package-level)
+#   packages/beta/.directives/INVARIANTS.md (package-level, shadows parent)
+#   packages/gamma/.directives/AGENTS.md    (package-level, shadows parent)
+#
+# Asserts per-file preload counts and zero duplicates.
+
+if should_run 32; then
+cleanup_between_tests
+setup_claude_e2e_env "e2e_mega_dedup"
+
+# --- Multi-level directory structure ---
+PKG="$PROJECT_DIR/packages"
+
+# Parent-level directives (discovered by all 3 packages)
+mkdir -p "$PKG/.directives"
+cat > "$PKG/.directives/AGENTS.md" <<'EOF_AGENTS'
+# Package Root Agents
+E2E32_PKG_AGENTS_MARKER_11111
+EOF_AGENTS
+cat > "$PKG/.directives/INVARIANTS.md" <<'EOF_INV'
+# Package Root Invariants
+E2E32_PKG_INVARIANTS_MARKER_22222
+EOF_INV
+
+# Alpha — has PITFALLS at package level
+ALPHA="$PKG/alpha/src"
+mkdir -p "$ALPHA" "$PKG/alpha/.directives"
+cat > "$PKG/alpha/.directives/PITFALLS.md" <<'EOF_PIT'
+# Alpha Pitfalls
+E2E32_ALPHA_PITFALLS_MARKER_33333
+EOF_PIT
+echo "export const a1 = 'alpha_1'" > "$ALPHA/mod1.ts"
+echo "export const a2 = 'alpha_2'" > "$ALPHA/mod2.ts"
+echo "export const a3 = 'alpha_3'" > "$ALPHA/mod3.ts"
+
+# Beta — has INVARIANTS at package level (different from parent)
+BETA="$PKG/beta/src"
+mkdir -p "$BETA" "$PKG/beta/.directives"
+cat > "$PKG/beta/.directives/INVARIANTS.md" <<'EOF_BINV'
+# Beta Invariants
+E2E32_BETA_INVARIANTS_MARKER_44444
+EOF_BINV
+echo "export const b1 = 'beta_1'" > "$BETA/svc1.ts"
+echo "export const b2 = 'beta_2'" > "$BETA/svc2.ts"
+echo "export const b3 = 'beta_3'" > "$BETA/svc3.ts"
+
+# Gamma — has AGENTS at package level (different from parent)
+GAMMA="$PKG/gamma/src"
+mkdir -p "$GAMMA" "$PKG/gamma/.directives"
+cat > "$PKG/gamma/.directives/AGENTS.md" <<'EOF_GAGENTS'
+# Gamma Agents
+E2E32_GAMMA_AGENTS_MARKER_55555
+EOF_GAGENTS
+echo "export const g1 = 'gamma_1'" > "$GAMMA/util1.ts"
+echo "export const g2 = 'gamma_2'" > "$GAMMA/util2.ts"
+echo "export const g3 = 'gamma_3'" > "$GAMMA/util3.ts"
+
+# Canonical paths for prompts
+C_ALPHA=$(cd "$ALPHA" && pwd -P)
+C_BETA=$(cd "$BETA" && pwd -P)
+C_GAMMA=$(cd "$GAMMA" && pwd -P)
+
+touch /tmp/hooks-debug-enabled
+
+SCHEMA='{
+  "type": "object",
+  "properties": {
+    "readsCompleted": { "type": "integer", "description": "How many Read operations returned file content" },
+    "grepsCompleted": { "type": "integer", "description": "How many Grep operations returned results" },
+    "pkgAgentsCount": { "type": "integer", "description": "How many times packages/.directives/AGENTS.md appears in [Preloaded:] markers (search for E2E32_PKG_AGENTS_MARKER_11111)" },
+    "pkgInvariantsCount": { "type": "integer", "description": "How many times packages/.directives/INVARIANTS.md appears in [Preloaded:] markers (search for E2E32_PKG_INVARIANTS_MARKER_22222)" },
+    "alphaPitfallsCount": { "type": "integer", "description": "How many times alpha/.directives/PITFALLS.md appears in [Preloaded:] markers (search for E2E32_ALPHA_PITFALLS_MARKER_33333)" },
+    "betaInvariantsCount": { "type": "integer", "description": "How many times beta/.directives/INVARIANTS.md appears in [Preloaded:] markers (search for E2E32_BETA_INVARIANTS_MARKER_44444)" },
+    "gammaAgentsCount": { "type": "integer", "description": "How many times gamma/.directives/AGENTS.md appears in [Preloaded:] markers (search for E2E32_GAMMA_AGENTS_MARKER_55555)" },
+    "allPreloadedPaths": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "ALL paths from [Preloaded:] markers across ALL system-reminders (include every occurrence, even duplicates)"
+    },
+    "duplicateFilesPreloaded": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "File paths that appear MORE than once in [Preloaded:] markers (list each duplicate path once). MUST be empty array [] if no duplicates."
+    },
+    "hookErrors": { "type": "boolean" }
+  },
+  "required": ["readsCompleted", "grepsCompleted", "pkgAgentsCount", "pkgInvariantsCount", "alphaPitfallsCount", "betaInvariantsCount", "gammaAgentsCount", "allPreloadedPaths", "duplicateFilesPreloaded", "hookErrors"],
+  "additionalProperties": false
+}'
+
+PROMPT="You are a test robot. Execute these 9 operations IN PARALLEL (all in a single response):
+1. Read file: ${C_ALPHA}/mod1.ts
+2. Read file: ${C_ALPHA}/mod2.ts
+3. Read file: ${C_ALPHA}/mod3.ts
+4. Grep for 'beta_1' in ${C_BETA}/svc1.ts
+5. Grep for 'beta_2' in ${C_BETA}/svc2.ts
+6. Grep for 'beta_3' in ${C_BETA}/svc3.ts
+7. Read file: ${C_GAMMA}/util1.ts
+8. Grep for 'gamma_2' in ${C_GAMMA}/util2.ts
+9. Read file: ${C_GAMMA}/util3.ts
+
+IMPORTANT: Call ALL 9 tools in a SINGLE response (parallel tool calls).
+
+After ALL tools complete, audit ALL system-reminder tags from the ENTIRE conversation.
+For each unique marker string below, count how many times it appears in system-reminder content:
+- E2E32_PKG_AGENTS_MARKER_11111 → pkgAgentsCount
+- E2E32_PKG_INVARIANTS_MARKER_22222 → pkgInvariantsCount
+- E2E32_ALPHA_PITFALLS_MARKER_33333 → alphaPitfallsCount
+- E2E32_BETA_INVARIANTS_MARKER_44444 → betaInvariantsCount
+- E2E32_GAMMA_AGENTS_MARKER_55555 → gammaAgentsCount
+
+Also collect ALL [Preloaded: PATH] markers from ALL system-reminders. Include EVERY occurrence.
+If a file path appears in 2 separate system-reminders, that is 2 occurrences → it goes in duplicateFilesPreloaded.
+
+Report:
+- readsCompleted: how many Read calls returned file content (expect 5)
+- grepsCompleted: how many Grep calls returned matches (expect 4)
+- per-file counts: each marker count (expect 1 each if no duplication)
+- allPreloadedPaths: every [Preloaded: PATH] occurrence
+- duplicateFilesPreloaded: paths appearing >1 time (should be empty [])
+- hookErrors: true if any hook errors seen
+
+CRITICAL: Count marker strings, NOT file paths. Each marker is unique to one directive file."
+
+echo ""
+echo "--- E2E-32: Mega dedup — 9 ops across 3 dirs, multi-level .directives ---"
+
+STDERR_FILE="$TMP_DIR/e2e32_stderr.log"
+RESULT=$(invoke_claude "$PROMPT" "$SCHEMA" "Read,Grep" "4" "--disable-slash-commands" "$STDERR_FILE" 2>&1) || true
+PARSED=$(extract_result "$RESULT")
+
+if [ -z "$PARSED" ] || [ "$PARSED" = "null" ]; then
+  fail "E2E-32: Claude invocation returned empty result"
+  echo "  Raw output: $(echo "$RESULT" | head -10)"
+else
+  READS=$(echo "$PARSED" | jq -r '.readsCompleted // 0')
+  GREPS=$(echo "$PARSED" | jq -r '.grepsCompleted // 0')
+  PKG_AGENTS=$(echo "$PARSED" | jq -r '.pkgAgentsCount // 0')
+  PKG_INVS=$(echo "$PARSED" | jq -r '.pkgInvariantsCount // 0')
+  ALPHA_PIT=$(echo "$PARSED" | jq -r '.alphaPitfallsCount // 0')
+  BETA_INV=$(echo "$PARSED" | jq -r '.betaInvariantsCount // 0')
+  GAMMA_AGT=$(echo "$PARSED" | jq -r '.gammaAgentsCount // 0')
+  DUP_COUNT=$(echo "$PARSED" | jq -r '.duplicateFilesPreloaded | length // 0')
+  ALL_COUNT=$(echo "$PARSED" | jq -r '.allPreloadedPaths | length // 0')
+  HOOK_ERR=$(echo "$PARSED" | jq -r '.hookErrors // false')
+
+  STDERR_HOOK_ERRORS=""
+  if [ -f "$STDERR_FILE" ]; then
+    STDERR_HOOK_ERRORS=$(grep -i "hook.*error\|error.*hook" "$STDERR_FILE" 2>/dev/null || true)
+  fi
+
+  # Operations completed
+  assert_eq "5" "$READS" "E2E-32: All 5 Read operations completed"
+  assert_eq "4" "$GREPS" "E2E-32: All 4 Grep operations completed"
+
+  # Per-file counts — each directive exactly 1x
+  assert_eq "1" "$PKG_AGENTS" "E2E-32: packages/.directives/AGENTS.md preloaded 1x"
+  assert_eq "1" "$PKG_INVS" "E2E-32: packages/.directives/INVARIANTS.md preloaded 1x"
+  assert_eq "1" "$ALPHA_PIT" "E2E-32: alpha/.directives/PITFALLS.md preloaded 1x"
+  assert_eq "1" "$BETA_INV" "E2E-32: beta/.directives/INVARIANTS.md preloaded 1x"
+  assert_eq "1" "$GAMMA_AGT" "E2E-32: gamma/.directives/AGENTS.md preloaded 1x"
+
+  # Zero duplicates
+  assert_eq "0" "$DUP_COUNT" "E2E-32: duplicateFilesPreloaded is empty"
+
+  # No hook errors
+  assert_eq "false" "$HOOK_ERR" "E2E-32: No hook errors"
+  assert_empty "$STDERR_HOOK_ERRORS" "E2E-32: No hook errors in stderr"
+
+  echo ""
+  echo "  Reads: $READS/5, Greps: $GREPS/4"
+  echo "  Directive counts: pkgAgents=$PKG_AGENTS pkgInvs=$PKG_INVS alphaPit=$ALPHA_PIT betaInv=$BETA_INV gammaAgt=$GAMMA_AGT"
+  echo "  Total preloaded: $ALL_COUNT, Duplicates: $DUP_COUNT"
+  if [ "$DUP_COUNT" -gt 0 ]; then
+    echo "  DUPLICATE FILES:"
+    echo "$PARSED" | jq -r '.duplicateFilesPreloaded[]' 2>/dev/null | while read -r dup; do
+      echo "    ← DUPLICATE: $dup"
+    done
+  fi
+  echo "  All preloaded paths:"
+  echo "$PARSED" | jq -r '.allPreloadedPaths[]' 2>/dev/null | sort | uniq -c | sort -rn | while read -r count path; do
+    dup_marker=""
+    [ "$count" -gt 1 ] && dup_marker=" ← DUPLICATE"
+    echo "    ${count}x $(basename "$path")${dup_marker}"
+  done
+fi
+
+fi  # E2E-32
 
 # ============================================================
 # Results

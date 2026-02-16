@@ -899,18 +899,18 @@ check_ask_trees_in_file() {
     local top_options
     top_options=$(echo "$decision_block" | grep -cE '^- \[[A-Z]+\]' || true)
     if [ "$top_options" -eq 4 ]; then
-      pass "ASK-04" "$tree_name: width = $top_options (3+OTH)"
+      pass "ASK-04" "$tree_name: width = $top_options (3+MORE)"
     elif [ "$top_options" -eq 0 ]; then
       warn "ASK-04" "$tree_name: no top-level options found"
     else
-      warn "ASK-04" "$tree_name: width = $top_options (expected 4: 3 named + OTH)"
+      warn "ASK-04" "$tree_name: width = $top_options (expected 4: 3 named + MORE)"
     fi
 
-    # Check OTH presence
-    if echo "$decision_block" | grep -qE '^- \[OTH\]'; then
-      pass "ASK-04b" "$tree_name: has [OTH] option"
+    # Check MORE presence
+    if echo "$decision_block" | grep -qE '^- \[MORE\]'; then
+      pass "ASK-04b" "$tree_name: has [MORE] option"
     else
-      warn "ASK-04b" "$tree_name: missing [OTH] option"
+      warn "ASK-04b" "$tree_name: missing [MORE] option"
     fi
 
     # ASK-05: Depth — count max indent on option lines (2 spaces per level)

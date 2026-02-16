@@ -71,9 +71,9 @@ Invoke §CMD_CAPTURE_KNOWLEDGE with:
 Invoke §CMD_CAPTURE_KNOWLEDGE with:
 *   **Type**: Pitfall
 *   **Scan criteria**: Surprising behavior, debugging dead ends, counterintuitive APIs, configuration traps, common mistakes
-*   **Draft fields**: Short title, description (what happens + why surprising), mitigation
+*   **Draft fields**: `¶PTF_NAME` convention name, one-line trap summary, context, trap description, mitigation
 *   **Decision tree**: `§ASK_PITFALL_CAPTURE`
-*   **Format**: `### [Title]` with `**Context**:`, `**Trap**:`, `**Mitigation**:` fields
+*   **Format**: `*   **¶PTF_NAME**: [one-line trap summary]` with indented `**Context**:`, `**Trap**:`, `**Mitigation**:` sub-bullets
 *   **Targets**: `NRS` → nearest PITFALLS.md (walk-up), `PRJ` → `.directives/PITFALLS.md`, `NEW` → create new PITFALLS.md from template, `EDT` → edit+re-present
 
 **Constraints**:
@@ -100,7 +100,7 @@ Extras: A: View existing invariants in target file | B: Search for similar invar
   Project-specific — add to .directives/INVARIANTS.md
 - [SKP] Skip this one
   Do not add this invariant
-- [OTH] Other
+- [MORE] Other
   - [EDT] Edit first
     Refine the invariant wording before adding
   - [MRG] Merge with existing
@@ -117,7 +117,7 @@ Extras: A: View existing pitfalls in target file | B: Preview the formatted entr
   Project-level pitfalls file
 - [SKP] Skip this one
   Do not capture this pitfall
-- [OTH] Other
+- [MORE] Other
   - [NEW] Create new PITFALLS.md
     Create in the most relevant directory
   - [EDT] Edit first

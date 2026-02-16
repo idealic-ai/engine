@@ -57,12 +57,13 @@ After SKILL.md prose completes, check whether gating is enabled for this phase. 
     **Option order**: Proceed (default forward path) > Walkthrough > Go back > Custom.
 
 3.  **Execute Choice**:
-    *   **`PRC`** (Proceed): Pipe proof fields via STDIN to `engine session phase` for the current phase (proving it was completed). If the current phase declares `proof` fields, you MUST provide them as JSON.
-    *   **`WLK`** (Walk through): Invoke §CMD_WALK_THROUGH_RESULTS ad-hoc on the current phase's artifacts. After the walk-through completes, **re-present this same menu**.
-    *   **`BAK`** (Go back): Fire `§CMD_UPDATE_PHASE` with `prevPhase` and `--user-approved "User chose 'Go back to [prevPhase]'"`. Return control to the skill protocol for the previous phase.
-    *   **`OTH/RST`** (Restart this phase): Re-execute the current phase from scratch.
-    *   **`OTH/SKP`** (Skip ahead): Jump past the next phase. Requires `--user-approved`.
-    *   **`OTH/custom:*`** (free text or skill-specific custom): If it matches a configured custom action, execute it. If it describes new requirements → route to interrogation phase (use `§CMD_UPDATE_PHASE` with `--user-approved`). If it's a clarification → answer in chat, re-present the menu.
+    *   **`NEXT`**: Pipe proof fields via STDIN to `engine session phase` for the current phase (proving it was completed). If the current phase declares `proof` fields, you MUST provide them as JSON.
+    *   **`VIEW`**: Invoke §CMD_WALK_THROUGH_RESULTS ad-hoc on the current phase's artifacts. After the walk-through completes, **re-present this same menu**.
+    *   **`PREV`**: Fire `§CMD_UPDATE_PHASE` with `prevPhase` and `--user-approved "User chose 'Go back to [prevPhase]'"`. Return control to the skill protocol for the previous phase.
+    *   **`MORE/REDO`**: Re-execute the current phase from scratch.
+    *   **`MORE/JUMP`**: Jump past the next phase. Requires `--user-approved`.
+    *   **`MORE/XTRA`**: Add more work items to the current phase before moving on. Agent asks for the new items, logs them, and re-enters the phase execution loop.
+    *   **`MORE/custom:*`** (free text or skill-specific custom): If it matches a configured custom action, execute it. If it describes new requirements → route to interrogation phase (use `§CMD_UPDATE_PHASE` with `--user-approved`). If it's a clarification → answer in chat, re-present the menu.
 
 **Proof-Gated Transitions**: When the current phase declares `proof` fields, pipe proof as JSON via STDIN to `engine session phase` (FROM validation). Missing or unfilled fields reject the transition (exit 1). No `proof` array → transition proceeds without STDIN.
 
@@ -71,17 +72,19 @@ Trigger: at every phase boundary where `Gate: true` (default)
 Extras: A: View current phase output summary | B: View remaining phases | C: Check time spent in this phase
 
 ## Decision: Phase Gate
-- [PRC] Proceed to next phase
+- [NEXT] Next phase
   Continue to the next phase
-- [WLK] Walk through output
+- [VIEW] See output
   Review this phase's output before moving on
-- [BAK] Go back
+- [PREV] Previous
   Return to the previous phase
-- [OTH] Other
-  - [RST] Restart this phase
+- [MORE] Other
+  - [REDO] Again
     Redo the current phase from scratch
-  - [SKP] Skip ahead
+  - [JUMP] Jump ahead
     Jump forward past the next phase (requires approval)
+  - [XTRA] Extend phase
+    Add more work items to current phase before moving on
 
 ---
 

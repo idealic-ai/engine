@@ -31,11 +31,11 @@
             *   **`APR`**: `engine tag swap [file] '#needs-[noun]' '#delegated-[noun]'`
             *   **`CLM`**: `engine tag swap [file] '#needs-[noun]' '#next-[noun]'`. Execute state passing (step 5a) after batch.
             *   **`DEF`**: No action. Tag remains as `#needs-X`.
-            *   **`OTH/DIS`**: Remove tag entirely via `engine tag remove [file] '#needs-[noun]'`.
-            *   **`OTH/SPL`**: Follow-up to define sub-items, then create REQUEST files for each.
-    *   **`OTH` path**:
-        *   **`OTH/DEF` (Defer all)**: No action. Tags remain as `#needs-X`.
-        *   **`OTH/DIS` (Dismiss all)**: Remove tags entirely from all files in the group.
+            *   **`MORE/DIS`**: Remove tag entirely via `engine tag remove [file] '#needs-[noun]'`.
+            *   **`MORE/SPL`**: Follow-up to define sub-items, then create REQUEST files for each.
+    *   **`MORE` path**:
+        *   **`MORE/DEF` (Defer all)**: No action. Tags remain as `#needs-X`.
+        *   **`MORE/DIS` (Dismiss all)**: Remove tags entirely from all files in the group.
 5a. **State Passing** (after any "Claim for next skill" selections): Write claimed items to DETAILS.md so they survive in the context window for the next skill to pick up:
     ```bash
     engine log [sessionDir]/DETAILS.md <<'EOF'
@@ -75,7 +75,7 @@ Extras: A: Show item details before deciding | B: Split group by priority | C: V
   Mark all for immediate execution in next skill session
 - [REV] Review individually
   Walk through each item to approve/claim/defer/dismiss
-- [OTH] Other
+- [MORE] Other
   - [DEF] Defer all
     Leave as #needs-X for future triage
   - [DIS] Dismiss all
@@ -92,7 +92,7 @@ Extras: A: View item context in source file | B: View related sessions | C: Chan
   Mark for immediate execution in next skill session
 - [DEF] Defer
   Leave as #needs-X for future triage
-- [OTH] Other
+- [MORE] Other
   - [DIS] Dismiss
     Remove tag entirely — work is not needed
   - [SPL] Split item

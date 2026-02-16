@@ -68,7 +68,7 @@ Extras: A: View plan summary before choosing | B: Estimate complexity per path |
   Hand off to a single autonomous agent
 - [PAR] Parallel agents
   Split into independent chunks for parallel agents
-- [OTH] Other
+- [MORE] Other
   - [PEK] Peek at plan first
     Re-read the plan before choosing an execution path
   - [SEQ] Sequential approval

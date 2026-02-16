@@ -157,23 +157,27 @@ _claim_and_preload() {
   done < <(echo "$current_preloaded" | jq -r '.[]')
 
   local claimed_files=()
+  local stale_pending=()  # Files already in preloadedFiles but still in pendingPreloads
   while IFS= read -r pfile; do
     [ -z "$pfile" ] && continue
     local resolved="${pfile/#\~/$HOME}"
-    # Skip if already preloaded (check path strings)
+    # Skip if already preloaded (check path strings) — but track for pendingPreloads cleanup
     if echo "$current_preloaded" | jq -e --arg p "$pfile" --arg r "$resolved" \
       'any(. == $p or . == $r)' >/dev/null 2>&1; then
+      stale_pending+=("$pfile")
       continue
     fi
     # Skip if file doesn't exist
     if [ ! -f "$resolved" ]; then
       echo "Warning: preload file not found, skipping: $resolved" >&2
+      stale_pending+=("$pfile")
       continue
     fi
     # Skip if same inode already preloaded (hardlink dedup)
     local file_inode
     file_inode=$(stat -f "%i" "$resolved" 2>/dev/null || echo "")
     if [ -n "$file_inode" ] && [[ " $preloaded_inodes" == *" $file_inode "* ]]; then
+      stale_pending+=("$pfile")
       continue
     fi
     claimed_files+=("$pfile")
@@ -181,17 +185,23 @@ _claim_and_preload() {
     [ -n "$file_inode" ] && preloaded_inodes="${preloaded_inodes}${file_inode} "
   done <<< "$preload_files"
 
-  if [ ${#claimed_files[@]} -eq 0 ]; then
-    rmdir "$lock_dir" 2>/dev/null || true
-    return 0
-  fi
-
-  # Build removal paths (both original and resolved forms)
+  # Build removal paths for pendingPreloads cleanup (claimed + stale)
   local remove_paths="[]"
-  for pfile in "${claimed_files[@]}"; do
+  for pfile in ${claimed_files[@]+"${claimed_files[@]}"} ${stale_pending[@]+"${stale_pending[@]}"}; do
     local resolved="${pfile/#\~/$HOME}"
     remove_paths=$(echo "$remove_paths" | jq --arg p "$pfile" --arg r "$resolved" '. + [$p, $r]')
   done
+
+  if [ ${#claimed_files[@]} -eq 0 ]; then
+    # No new files to claim, but still clean stale entries from pendingPreloads
+    if [ ${#stale_pending[@]} -gt 0 ]; then
+      jq --argjson paths "$remove_paths" '
+        (.pendingPreloads //= []) | .pendingPreloads -= $paths
+      ' "$state_file" > "$tmp_file" && mv "$tmp_file" "$state_file"
+    fi
+    rmdir "$lock_dir" 2>/dev/null || true
+    return 0
+  fi
 
   # Atomically update state: claim files (add to preloaded, remove from pending)
   jq --argjson paths "$remove_paths" '
@@ -337,6 +347,10 @@ _run_discovery() {
   if [ -n "$soft_files" ]; then
     while IFS= read -r file; do
       [ -n "$file" ] || continue
+      # Normalize path: resolve directory symlinks + tilde prefix
+      # Prevents dupes when SessionStart uses ~/.claude/.directives/X (symlink)
+      # and discovery finds ~/.claude/engine/.directives/X (canonical)
+      file=$(normalize_preload_path "$file")
       local local_basename
       local_basename=$(basename "$file")
 
@@ -401,6 +415,9 @@ _run_discovery() {
         checklists_json=$(echo "$checklists_json" | jq --arg f "$f" '. + [$f]')
       fi
     done
+    # Read .preloadedFiles inside jq to avoid stale snapshot (TOCTOU fix)
+    # Both preloadedFiles entries and new_soft_files are already normalized
+    # by normalize_preload_path(), so direct comparison works.
     jq --argjson files "$files_json" --argjson checklists "$checklists_json" '
       (.preloadedFiles // []) as $pf |
       (.pendingPreloads //= []) |

@@ -70,8 +70,19 @@ See `¶INV_SIGIL_SEMANTICS` in INVARIANTS.md for the authoritative rule.
 
 *   **`¶` (pilcrow)** marks a **definition** — the heading where a command, invariant, feed, or tag section is declared.
 *   **`§` (section sign)** marks a **reference** — a citation of something defined elsewhere.
-*   **Applies to**: All sigiled nouns — `CMD_`, `INV_`, `FEED_`, `TAG_`. (`SRC_` uses no sigil prefix — it is self-identifying.)
+*   **Applies to**: All sigiled nouns — `CMD_`, `INV_`, `FEED_`, `TAG_`, `PTF_`. (`SRC_` uses no sigil prefix — it is self-identifying.)
 *   **Discovery**: `grep '¶CMD_'` finds definition sites; `grep '§CMD_'` finds usage sites.
+
+### `PTF_` — Pitfall Identifiers
+
+Named pitfall entries in `.directives/PITFALLS.md` files. Each pitfall gets a stable identifier for cross-referencing.
+
+*   **Format**: `PTF_UPPER_SNAKE_CASE` (e.g., `PTF_HOOK_EXIT_AFTER_ALLOW`, `PTF_BASH32_COMPATIBILITY`)
+*   **Semantics**: `¶PTF_NAME` = definition (in the PITFALLS.md file where the pitfall is declared). `§PTF_NAME` = reference (citations from other files).
+*   **Definition site**: `.directives/PITFALLS.md` files at any directory level.
+*   **Reference site**: Body text in logs, debriefs, other directives. Always backtick-escaped when used as a mention (`` `§PTF_NAME` ``).
+*   **Naming**: Derive from the pitfall's trap essence — capture what goes wrong in UPPER_SNAKE_CASE. No scope prefix (file location provides scope).
+*   **Discovery**: `grep '¶PTF_'` finds all pitfall definitions; `grep '§PTF_'` finds all references.
 
 ### `@` — Epic and Chapter Slugs
 

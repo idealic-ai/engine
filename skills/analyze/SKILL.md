@@ -122,54 +122,26 @@ For *every* significant thought, execute `§CMD_APPEND_LOG`. **Logging is the co
 
 **Action**: Present the findings summary, then ask the user to choose calibration depth. Then execute rounds.
 
-### Calibration Depth Selection
+### Calibration Topics
+*Draw from the **Calibration Topics** defined in the selected mode preset. Universal repeatable topics (Followup, Devil's advocate, What-if, Deep dive) are available in all modes.*
 
-**Before asking any questions**, present this choice via `AskUserQuestion` (multiSelect: false):
+### ¶ASK_CALIBRATION_EXIT
+Extends: §ASK_INTERROGATION_EXIT
+Trigger: after minimum calibration rounds are met
+Extras: A: Walk through findings so far | B: Go back to a previous topic | C: Skip to synthesis
 
-> "How deep should calibration go?"
+## Decision: Calibration Exit
+- [NEXT]
+- [MORE]
+- [RTRN] [ ] Return to Research Loop
+  Go back to Phase 1 for more autonomous exploration based on calibration insights, then re-enter Calibration
+- [OTHR]
+  - [DEVL] Devil's advocate round
+    1 round challenging assumptions and decisions made so far
+  - [WHIF]
+  - [DEEP]
 
-| Depth | Minimum Rounds | When to Use |
-|-------|---------------|-------------|
-| **Short** | 3+ | Findings are clear, user just needs to confirm direction |
-| **Medium** | 6+ | Moderate complexity, some findings need user input |
-| **Long** | 9+ | Complex analysis, many open questions, need deep alignment |
-| **Absolute** | Until ALL questions resolved | Critical research, zero ambiguity tolerance |
-
-Record the user's choice. This sets the **minimum** — the agent can always ask more, and the user can always say "proceed" after the minimum is met.
-
-### Calibration Protocol (Rounds)
-
-**Round counter**: Output it on every round: "**Round N / {depth_minimum}+**"
-
-**Topic selection**: Pick from the **Calibration Topics** defined in the selected mode preset. Do NOT follow a fixed sequence — choose the most relevant uncovered topic based on what you've learned so far.
-
-**Repeatable topics** (available in all modes, can be selected any number of times):
-- **Followup** — Clarify or revisit answers from previous rounds
-- **Devil's advocate** — Challenge assumptions and decisions made so far
-- **What-if scenarios** — Explore hypotheticals, edge cases, and alternative futures
-- **Deep dive** — Drill into a specific topic from a previous round in much more detail
-
-**Each round**:
-1. Pick an uncovered topic (or a repeatable topic).
-2. Execute `§CMD_ASK_ROUND` via `AskUserQuestion` (3-5 targeted questions on that topic).
-3. On response: Execute `§CMD_LOG_INTERACTION` immediately.
-4. If the user asks a counter-question: ANSWER it, verify understanding, then resume.
-
-### Calibration Exit Gate
-
-**After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
-
-> "Round N complete (minimum met). What next?"
-> - **"Proceed to Phase 3: Synthesis"** — *(terminal: if selected, skip all others and move on)*
-> - **"Return to Research Loop"** — Go back to Phase 1 for more autonomous exploration based on calibration insights, then re-enter Calibration
-> - **"More calibration (3 more rounds)"** — Standard topic rounds, then this gate re-appears
-> - **"Devil's advocate round"** — 1 round challenging assumptions, then this gate re-appears
-> - **"What-if scenarios round"** — 1 round exploring hypotheticals, then this gate re-appears
-> - **"Deep dive round"** — 1 round drilling into a prior topic, then this gate re-appears
-
-**Execution order** (when multiple selected): Return to Research first (if selected, ignore all others — jump to Phase 1) -> Standard rounds -> Devil's advocate -> What-ifs -> Deep dive -> re-present exit gate.
-
-**For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Ask: "Round N complete. I still have questions about [X]. Continuing..."
+**On [RTRN]**: Phase transition back to Phase 1 via `engine session phase` with `--user-approved`. Ignore all other selections — jump immediately. After Phase 1 completes, re-enter Phase 2 normally.
 
 ---
 

@@ -67,7 +67,7 @@ Extras: A: Describe the work in more detail | B: Check existing sessions for ove
   Explore the idea before committing to implementation
 - [NTE] Just note it
   Log to DETAILS.md and stay idle
-- [OTH] Other
+- [MORE] Other
   - [RSC] Start /research
     Research the topic before any action
   - [FIX] Start /fix

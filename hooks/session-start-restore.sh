@@ -91,11 +91,12 @@ debug "session context: $SESSION_CONTEXT_LINE"
 # the PREVIOUS context window. A new Claude process = new context = must re-inject.
 # Clears: preloadedFiles (re-seeds standards), touchedDirs, pendingPreloads, pendingAllowInjections.
 debug "clearing preload state for fresh context"
+PRELOAD_SEEDS=$(get_session_start_seeds)
 for sessions_dir in "${SESSION_DIRS[@]}"; do
   for f in "$sessions_dir"/*/.state.json; do
     [ -f "$f" ] || continue
     debug "  clearing preload state in $(basename "$(dirname "$f")")"
-    jq --argjson stds '["~/.claude/.directives/COMMANDS.md","~/.claude/.directives/INVARIANTS.md","~/.claude/.directives/SIGILS.md","~/.claude/.directives/commands/CMD_DEHYDRATE.md","~/.claude/.directives/commands/CMD_RESUME_SESSION.md","~/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"]' \
+    jq --argjson stds "$PRELOAD_SEEDS" \
       '.preloadedFiles = $stds | .touchedDirs = {} | .pendingPreloads = [] | .pendingAllowInjections = []' "$f" | safe_json_write "$f"
   done
 done

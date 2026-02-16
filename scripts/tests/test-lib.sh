@@ -613,23 +613,23 @@ test_resolve_payload_refs_no_collision() {
 # =============================================================================
 
 test_normalize_preload_path_home_prefix() {
-  local test_name="normalize_preload_path: HOME prefix → tilde-prefix"
+  local test_name="normalize_preload_path: HOME prefix → absolute path"
   setup
 
   local result
   result=$(normalize_preload_path "$HOME/.claude/skills/implement/SKILL.md")
-  assert_eq "~/.claude/skills/implement/SKILL.md" "$result" "$test_name"
+  assert_eq "$HOME/.claude/skills/implement/SKILL.md" "$result" "$test_name"
 
   teardown
 }
 
 test_normalize_preload_path_tilde_passthrough() {
-  local test_name="normalize_preload_path: already tilde-prefixed → unchanged"
+  local test_name="normalize_preload_path: tilde-prefixed → expanded to absolute"
   setup
 
   local result
   result=$(normalize_preload_path "~/.claude/foo.md")
-  assert_eq "~/.claude/foo.md" "$result" "$test_name"
+  assert_eq "$HOME/.claude/foo.md" "$result" "$test_name"
 
   teardown
 }

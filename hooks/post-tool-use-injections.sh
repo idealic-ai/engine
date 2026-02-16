@@ -19,6 +19,9 @@
 
 set -uo pipefail
 
+# Global kill switch: DISABLE_TOOL_USE_HOOK=1 skips all post-tool-use hooks
+[ "${DISABLE_TOOL_USE_HOOK:-}" = "1" ] && exit 0
+
 # Defensive: ensure exit 0 regardless of internal failures (Pitfall #2)
 trap 'exit 0' ERR
 
@@ -39,23 +42,50 @@ if [ -z "$session_dir" ] || [ ! -f "$session_dir/.state.json" ]; then
 fi
 
 state_file="$session_dir/.state.json"
+lock_dir="${state_file}.lock"
 
-# Read pending allow injections
+# Atomic read+clear under lock (fixes TOCTOU race when parallel PostToolUse hooks fire)
+# Without this, N parallel hooks all read the same stash before any clears it → N× duplicate injection.
+retries=0
+max_retries=100
+while ! mkdir "$lock_dir" 2>/dev/null; do
+  retries=$((retries + 1))
+  if [ "$retries" -ge "$max_retries" ]; then
+    debug "lock timeout"
+    exit 0
+  fi
+  if [ -d "$lock_dir" ]; then
+    lock_mtime=$(stat -f "%m" "$lock_dir" 2>/dev/null || echo "0")
+    now_epoch=$(date +%s)
+    lock_age=$((now_epoch - lock_mtime))
+    if [ "$lock_age" -gt 10 ]; then
+      rmdir "$lock_dir" 2>/dev/null || true
+      continue
+    fi
+  fi
+  sleep 0.01
+done
+
+# --- Under lock: read + clear atomically ---
 pending=$(jq -r '.pendingAllowInjections // [] | length' "$state_file" 2>/dev/null || echo "0")
 
 if [ "$pending" -eq 0 ]; then
+  rmdir "$lock_dir" 2>/dev/null || true
   exit 0
 fi
 
-# Join all stashed content entries with double newlines
 context=$(jq -r '[.pendingAllowInjections // [] | .[].content] | join("\n\n")' "$state_file" 2>/dev/null || echo "")
 
 if [ -z "$context" ]; then
+  rmdir "$lock_dir" 2>/dev/null || true
   exit 0
 fi
 
-# Clear the stash
-jq '.pendingAllowInjections = []' "$state_file" | safe_json_write "$state_file"
+# Clear stash and write atomically (under same lock)
+tmp_file="${state_file}.tmp.$$"
+jq '.pendingAllowInjections = []' "$state_file" > "$tmp_file" && mv "$tmp_file" "$state_file"
+rmdir "$lock_dir" 2>/dev/null || true
+# --- End locked section ---
 
 # Deliver via PostToolUse additionalContext
 cat <<HOOKEOF
