@@ -41,6 +41,7 @@ source "$HOME/.claude/scripts/lib.sh"
 source "$HOME/.claude/engine/config.sh" 2>/dev/null || true
 OVERFLOW_THRESHOLD="${OVERFLOW_THRESHOLD:-0.76}"
 
+HOOK_NAME="overflow-v2"
 GUARDS_FILE="$HOME/.claude/engine/guards.json"
 
 # Read hook input from stdin
@@ -101,186 +102,9 @@ _clear_preloaded() {
     "$state_file" | safe_json_write "$state_file"
 }
 
-# _claim_and_preload STATE_FILE <<< "file1\nfile2\n..."
-#   Atomically claims files for preloading under the .state.json lock.
-#   Prevents parallel hooks from preloading the same files (race condition fix).
-#   Flow: acquire lock → check preloadedFiles → claim unclaimed → write state → release → read files.
-#   Sets globals: _CLAIMED_CONTENT (injection string), _CLAIMED_PATHS (newline-sep paths)
-_claim_and_preload() {
-  local state_file="$1"
-  local preload_files
-  preload_files=$(cat)
-
-  _CLAIMED_CONTENT=""
-  _CLAIMED_PATHS=""
-
-  [ -n "$preload_files" ] || return 0
-  [ -n "$state_file" ] && [ -f "$state_file" ] || return 0
-
-  local lock_dir="${state_file}.lock"
-  local tmp_file="${state_file}.tmp.$$"
-
-  # Acquire lock (same mechanism as safe_json_write)
-  local retries=0
-  local max_retries=100
-  while ! mkdir "$lock_dir" 2>/dev/null; do
-    retries=$((retries + 1))
-    if [ "$retries" -ge "$max_retries" ]; then
-      echo "ERROR: _claim_and_preload: lock timeout for $state_file" >&2
-      return 1
-    fi
-    if [ -d "$lock_dir" ]; then
-      local lock_mtime now_epoch lock_age
-      lock_mtime=$(stat -f "%m" "$lock_dir" 2>/dev/null || echo "0")
-      now_epoch=$(date +%s)
-      lock_age=$((now_epoch - lock_mtime))
-      if [ "$lock_age" -gt 10 ]; then
-        rmdir "$lock_dir" 2>/dev/null || true
-        continue
-      fi
-    fi
-    sleep 0.01
-  done
-
-  # --- Under lock: read state, filter unclaimed, update state ---
-  local current_preloaded
-  current_preloaded=$(jq '.preloadedFiles // []' "$state_file" 2>/dev/null || echo '[]')
-
-  # Build inode set from current preloaded files (hardlink dedup)
-  local preloaded_inodes=""
-  while IFS= read -r existing; do
-    [ -z "$existing" ] && continue
-    local existing_resolved="${existing/#\~/$HOME}"
-    local inode
-    inode=$(stat -f "%i" "$existing_resolved" 2>/dev/null || echo "")
-    [ -n "$inode" ] && preloaded_inodes="${preloaded_inodes} ${inode} "
-  done < <(echo "$current_preloaded" | jq -r '.[]')
-
-  local claimed_files=()
-  local stale_pending=()  # Files already in preloadedFiles but still in pendingPreloads
-  while IFS= read -r pfile; do
-    [ -z "$pfile" ] && continue
-    local resolved="${pfile/#\~/$HOME}"
-    # Skip if already preloaded (check path strings) — but track for pendingPreloads cleanup
-    if echo "$current_preloaded" | jq -e --arg p "$pfile" --arg r "$resolved" \
-      'any(. == $p or . == $r)' >/dev/null 2>&1; then
-      stale_pending+=("$pfile")
-      continue
-    fi
-    # Skip if file doesn't exist
-    if [ ! -f "$resolved" ]; then
-      echo "Warning: preload file not found, skipping: $resolved" >&2
-      stale_pending+=("$pfile")
-      continue
-    fi
-    # Skip if same inode already preloaded (hardlink dedup)
-    local file_inode
-    file_inode=$(stat -f "%i" "$resolved" 2>/dev/null || echo "")
-    if [ -n "$file_inode" ] && [[ " $preloaded_inodes" == *" $file_inode "* ]]; then
-      stale_pending+=("$pfile")
-      continue
-    fi
-    claimed_files+=("$pfile")
-    # Track inode for intra-batch dedup
-    [ -n "$file_inode" ] && preloaded_inodes="${preloaded_inodes}${file_inode} "
-  done <<< "$preload_files"
-
-  # Build removal paths for pendingPreloads cleanup (claimed + stale)
-  local remove_paths="[]"
-  for pfile in ${claimed_files[@]+"${claimed_files[@]}"} ${stale_pending[@]+"${stale_pending[@]}"}; do
-    local resolved="${pfile/#\~/$HOME}"
-    remove_paths=$(echo "$remove_paths" | jq --arg p "$pfile" --arg r "$resolved" '. + [$p, $r]')
-  done
-
-  if [ ${#claimed_files[@]} -eq 0 ]; then
-    # No new files to claim, but still clean stale entries from pendingPreloads
-    if [ ${#stale_pending[@]} -gt 0 ]; then
-      jq --argjson paths "$remove_paths" '
-        (.pendingPreloads //= []) | .pendingPreloads -= $paths
-      ' "$state_file" > "$tmp_file" && mv "$tmp_file" "$state_file"
-    fi
-    rmdir "$lock_dir" 2>/dev/null || true
-    return 0
-  fi
-
-  # Atomically update state: claim files (add to preloaded, remove from pending)
-  jq --argjson paths "$remove_paths" '
-    (.pendingPreloads //= []) | .pendingPreloads -= $paths |
-    (.preloadedFiles //= []) | .preloadedFiles = (.preloadedFiles + $paths | unique)
-  ' "$state_file" > "$tmp_file" && mv "$tmp_file" "$state_file"
-
-  # Release lock — state is updated, other parallel hooks will now see files as preloaded
-  rmdir "$lock_dir" 2>/dev/null || true
-
-  # --- Outside lock: read file contents (safe — we've claimed them) ---
-  for pfile in "${claimed_files[@]}"; do
-    local resolved="${pfile/#\~/$HOME}"
-    local content
-    content=$(cat "$resolved")
-
-    # Override detection: if this is a CMD file and a global CMD with the same basename
-    # is already preloaded, add [Override] header so the LLM knows local takes precedence
-    local pfile_basename
-    pfile_basename=$(basename "$pfile")
-    local override_header=""
-    if [[ "$pfile_basename" == CMD_*.md ]]; then
-      local existing
-      while IFS= read -r existing; do
-        [ -z "$existing" ] && continue
-        local existing_basename
-        existing_basename=$(basename "$existing")
-        if [ "$existing_basename" = "$pfile_basename" ] && [ "$existing" != "$pfile" ]; then
-          override_header="[Override: shadows $pfile_basename from $existing]\n"
-          break
-        fi
-      done < <(echo "$current_preloaded" | jq -r '.[]')
-    fi
-
-    _CLAIMED_CONTENT="${_CLAIMED_CONTENT}${_CLAIMED_CONTENT:+\n\n}${override_header}[Preloaded: $resolved]\n$content"
-    _CLAIMED_PATHS="${_CLAIMED_PATHS}${_CLAIMED_PATHS:+
-}$pfile"
-  done
-
-  # --- Resolve § references in claimed files (recursive preloading) ---
-  # Discovered refs are queued in pendingPreloads for lazy loading on next tool call.
-  local all_new_refs=""
-  local current_loaded
-  current_loaded=$(jq '.preloadedFiles // []' "$state_file" 2>/dev/null || echo '[]')
-  for pfile in "${claimed_files[@]}"; do
-    local resolved="${pfile/#\~/$HOME}"
-    local refs
-    refs=$(resolve_refs "$resolved" 2 "$current_loaded") || true
-    if [ -n "$refs" ]; then
-      all_new_refs="${all_new_refs}${all_new_refs:+
-}${refs}"
-      # Update loaded list so subsequent files dedup against earlier refs
-      while IFS= read -r rpath; do
-        [ -n "$rpath" ] || continue
-        current_loaded=$(echo "$current_loaded" | jq --arg p "$rpath" '. + [$p]')
-      done <<< "$refs"
-    fi
-  done
-
-  if [ -n "$all_new_refs" ]; then
-    local refs_json="[]"
-    while IFS= read -r ref_path; do
-      [ -n "$ref_path" ] || continue
-      refs_json=$(echo "$refs_json" | jq --arg f "$ref_path" '. + [$f]')
-    done <<< "$all_new_refs"
-
-    jq --argjson refs "$refs_json" '
-      (.preloadedFiles // []) as $pf |
-      (.pendingPreloads //= []) |
-      reduce ($refs[]) as $r (.;
-        if ($pf | any(. == $r)) then .
-        elif (.pendingPreloads | index($r)) then .
-        else .pendingPreloads += [$r]
-        end
-      )
-    ' "$state_file" | safe_json_write "$state_file"
-  fi
-}
-
+# NOTE: _claim_and_preload() removed — replaced by preload_ensure() in lib.sh
+# preload_ensure() handles dedup, atomic tracking, delivery, and auto-expansion
+# of § references via _auto_expand_refs(). See steps 2/1–2/5.
 # _run_discovery STATE_FILE
 #   Runs directive discovery for Read/Edit/Write tools BEFORE evaluate_rules().
 #   Extracts file_path from TOOL_INPUT, discovers directives in the directory,
@@ -706,11 +530,26 @@ _process_rules() {
           block_reason="${block_reason}${block_reason:+\n}$command"
           ;;
         preload)
-          local preload_files
+          local preload_files preload_content="" processed_json="[]"
           preload_files=$(echo "$injection" | jq -r '.payload.preload // [] | .[]')
-          _claim_and_preload "$state_file" <<< "$preload_files"
-          if [ -n "$_CLAIMED_CONTENT" ]; then
-            block_reason="${block_reason}${block_reason:+\n}$_CLAIMED_CONTENT"
+          while IFS= read -r pfile; do
+            [ -n "$pfile" ] || continue
+            local norm_pfile
+            norm_pfile=$(normalize_preload_path "$pfile")
+            processed_json=$(echo "$processed_json" | jq --arg p "$pfile" --arg n "$norm_pfile" '. + [$p, $n] | unique')
+            preload_ensure "$pfile" "overflow($rule_id)" "immediate"
+            if [ "$_PRELOAD_RESULT" = "delivered" ] && [ -n "$_PRELOAD_CONTENT" ]; then
+              preload_content="${preload_content}${preload_content:+\n\n}$_PRELOAD_CONTENT"
+            fi
+          done <<< "$preload_files"
+          # Clean processed files from pendingPreloads (delivered, skipped-dedup, or missing)
+          if [ -n "$state_file" ] && [ -f "$state_file" ]; then
+            jq --argjson proc "$processed_json" '
+              (.pendingPreloads //= []) | .pendingPreloads -= $proc
+            ' "$state_file" | safe_json_write "$state_file"
+          fi
+          if [ -n "$preload_content" ]; then
+            block_reason="${block_reason}${block_reason:+\n}$preload_content"
           fi
           ;;
       esac
@@ -791,10 +630,25 @@ _deliver_allow_rules() {
         entry_content="$command"
         ;;
       preload)
-        local preload_files
+        local preload_files preload_content="" processed_json="[]"
         preload_files=$(echo "$injection" | jq -r '.payload.preload // [] | .[]')
-        _claim_and_preload "$state_file" <<< "$preload_files"
-        entry_content="$_CLAIMED_CONTENT"
+        while IFS= read -r pfile; do
+          [ -n "$pfile" ] || continue
+          local norm_pfile
+          norm_pfile=$(normalize_preload_path "$pfile")
+          processed_json=$(echo "$processed_json" | jq --arg p "$pfile" --arg n "$norm_pfile" '. + [$p, $n] | unique')
+          preload_ensure "$pfile" "overflow($rule_id)" "immediate"
+          if [ "$_PRELOAD_RESULT" = "delivered" ] && [ -n "$_PRELOAD_CONTENT" ]; then
+            preload_content="${preload_content}${preload_content:+\n\n}$_PRELOAD_CONTENT"
+          fi
+        done <<< "$preload_files"
+        # Clean processed files from pendingPreloads
+        if [ -n "$state_file" ] && [ -f "$state_file" ]; then
+          jq --argjson proc "$processed_json" '
+            (.pendingPreloads //= []) | .pendingPreloads -= $proc
+          ' "$state_file" | safe_json_write "$state_file"
+        fi
+        entry_content="$preload_content"
         ;;
     esac
 

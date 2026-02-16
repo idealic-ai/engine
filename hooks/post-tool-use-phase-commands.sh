@@ -2,15 +2,10 @@
 # ~/.claude/hooks/post-tool-use-phase-commands.sh — PostToolUse hook for §CMD_ command file autoloading
 #
 # When `engine session phase` runs and outputs "Phase: N: Name", discovers which
-# §CMD_ command files the new phase's proof fields reference and queues them for injection.
+# §CMD_ command files the new phase needs and queues them via preload_ensure(next).
 #
-# Name resolution:
-#   §CMD_GENERATE_DEBRIEF_file → strip §CMD_ → GENERATE_DEBRIEF_file
-#   → strip lowercase suffix → GENERATE_DEBRIEF → CMD_GENERATE_DEBRIEF.md
-#
-# State in .state.json:
-#   pendingPreloads: ["~/.claude/.directives/commands/CMD_FOO.md", ...]  — files awaiting injection
-#   preloadedFiles: ["/abs/path/CMD_FOO.md", ...]   — Already-injected files (dedup)
+# Uses resolve_phase_cmds() for unified Phase 0/N CMD extraction, and
+# preload_ensure() for dedup + atomic tracking + auto-expand.
 
 set -euo pipefail
 
@@ -25,6 +20,8 @@ debug() {
 # Source shared utilities
 source "$HOME/.claude/scripts/lib.sh"
 
+HOOK_NAME="phase-cmds"
+
 # Read hook input from stdin
 INPUT=$(cat)
 
@@ -36,7 +33,6 @@ if [ "$TOOL_NAME" != "Bash" ]; then
 fi
 
 # Get tool output — extract stdout from Bash tool_response object
-# Claude Code sends Bash tool_response as {stdout, stderr, interrupted, isImage, noOutputExpected}
 STDOUT=$(echo "$INPUT" | jq -r '
   if .tool_response | type == "object" then .tool_response.stdout // ""
   else .tool_response // ""
@@ -59,104 +55,38 @@ SESSION_DIR=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
 STATE_FILE="$SESSION_DIR/.state.json"
 [ -f "$STATE_FILE" ] || exit 0
 
-# Read currentPhase from .state.json (already updated by engine session phase)
+# Read skill and currentPhase from .state.json
+SKILL_NAME=$(jq -r '.skill // ""' "$STATE_FILE" 2>/dev/null || echo "")
+[ -n "$SKILL_NAME" ] || exit 0
+
 CURRENT_PHASE=$(jq -r '.currentPhase // ""' "$STATE_FILE" 2>/dev/null || echo "")
 [ -n "$CURRENT_PHASE" ] || exit 0
 
-# Extract major number from phase label (e.g., "4: Build Loop" → 4)
-PHASE_MAJOR=$(echo "$CURRENT_PHASE" | sed -E 's/^([0-9]+).*/\1/')
-[ -n "$PHASE_MAJOR" ] || exit 0
+# Extract phase label from "N: Name" or "N.M: Name" format
+PHASE_LABEL=$(echo "$CURRENT_PHASE" | sed -E 's/^([0-9]+(\.[0-9]+)?[A-Z]?):.*$/\1/')
+[ -n "$PHASE_LABEL" ] || exit 0
 
-# Read proof fields for this phase from .state.json phases array
-PROOF_FIELDS=$(jq -r --argjson major "$PHASE_MAJOR" \
-  '[.phases // [] | .[] | select(.major == $major) | .proof // [] | .[]] | unique | .[]' \
-  "$STATE_FILE" 2>/dev/null || echo "")
+debug "skill=$SKILL_NAME phase_label=$PHASE_LABEL"
 
-# Read steps array for this phase (all entries are §CMD_ — no filtering needed)
-STEP_FIELDS=$(jq -r --argjson major "$PHASE_MAJOR" \
-  '[.phases // [] | .[] | select(.major == $major) | .steps // [] | .[]] | unique | .[]' \
-  "$STATE_FILE" 2>/dev/null || echo "")
+# Get CMD file paths for this phase via unified resolution
+CMD_PATHS=$(resolve_phase_cmds "$SKILL_NAME" "$PHASE_LABEL")
+[ -n "$CMD_PATHS" ] || exit 0
 
-# Read commands array for this phase (preloads — all entries are §CMD_)
-COMMAND_FIELDS=$(jq -r --argjson major "$PHASE_MAJOR" \
-  '[.phases // [] | .[] | select(.major == $major) | .commands // [] | .[]] | unique | .[]' \
-  "$STATE_FILE" 2>/dev/null || echo "")
+debug "CMD paths: $(echo "$CMD_PATHS" | tr '\n' ', ')"
 
-# Combine all §CMD_ sources: proof fields + steps + commands
-ALL_FIELDS=$(printf '%s\n%s\n%s' "$PROOF_FIELDS" "$STEP_FIELDS" "$COMMAND_FIELDS" | sort -u)
-
-[ -n "$ALL_FIELDS" ] || exit 0
-debug "all CMD fields: $(echo "$ALL_FIELDS" | tr '\n' ', ')"
-
-# CMD files directory
-CMD_DIR="$HOME/.claude/engine/.directives/commands"
-
-# Already preloaded files (for dedup)
-ALREADY_PRELOADED=$(jq -r '(.preloadedFiles // []) | .[]' "$STATE_FILE" 2>/dev/null || echo "")
-
-# Process all fields (proof + steps + commands): filter §CMD_ prefixed, resolve to file paths, dedup
-SEEN_CMDS=""
-NEW_COMMANDS=()
-
-while IFS= read -r field; do
-  [ -n "$field" ] || continue
-
-  # Skip non-§CMD_ prefixed fields (data fields like "depth_chosen" from proof arrays)
-  case "$field" in
-    '§CMD_'*) ;;
-    *) debug "skip field: $field (no §CMD_ prefix)"; continue ;;
-  esac
-
-  # Strip §CMD_ prefix: §CMD_GENERATE_DEBRIEF_file → GENERATE_DEBRIEF_file
-  name="${field#§CMD_}"
-
-  # Strip lowercase suffix (proof sub-field): GENERATE_DEBRIEF_file → GENERATE_DEBRIEF
-  name=$(echo "$name" | sed -E 's/_[a-z][a-z_]*$//')
-
-  # Build CMD file path
-  cmd_file="$CMD_DIR/CMD_${name}.md"
-
-  # Dedup: skip if already seen this CMD name in this invocation
-  case "$SEEN_CMDS" in
-    *"|${name}|"*) debug "skip: CMD_${name}.md (dedup)"; continue ;;
-  esac
-  SEEN_CMDS="${SEEN_CMDS}|${name}|"
-
-  # Skip if file doesn't exist on disk
-  if [ ! -f "$cmd_file" ]; then
-    debug "skip: $cmd_file (not found)"
-    continue
+# Queue each CMD file via preload_ensure(next) — handles dedup + atomic tracking
+QUEUED=0
+while IFS= read -r cmd_path; do
+  [ -n "$cmd_path" ] || continue
+  preload_ensure "$cmd_path" "phase-cmds($PHASE_LABEL)" "next"
+  if [ "$_PRELOAD_RESULT" = "queued" ]; then
+    QUEUED=$((QUEUED + 1))
+    debug "QUEUED: $cmd_path"
+  else
+    debug "SKIP: $cmd_path (result=$_PRELOAD_RESULT)"
   fi
+done <<< "$CMD_PATHS"
 
-  # Normalize to tilde-prefix for dedup and storage
-  norm_file=$(normalize_preload_path "$cmd_file")
-
-  # Skip if already in preloadedFiles (tilde-prefix comparison)
-  is_preloaded=false
-  if [ -n "$ALREADY_PRELOADED" ]; then
-    while IFS= read -r preloaded; do
-      if [ "$preloaded" = "$norm_file" ]; then
-        is_preloaded=true
-        break
-      fi
-    done <<< "$ALREADY_PRELOADED"
-  fi
-  if [ "$is_preloaded" = "true" ]; then
-    debug "skip: $norm_file (already in preloadedFiles)"
-    continue
-  fi
-  NEW_COMMANDS+=("$norm_file")
-  debug "ADD: $norm_file"
-done <<< "$ALL_FIELDS"
-
-# Write new commands to pendingPreloads in .state.json
-if [ ${#NEW_COMMANDS[@]} -gt 0 ]; then
-  for cmd in "${NEW_COMMANDS[@]}"; do
-    jq --arg file "$cmd" \
-      '(.pendingPreloads //= []) | if (.pendingPreloads | index($file)) then . else .pendingPreloads += [$file] end' \
-      "$STATE_FILE" | safe_json_write "$STATE_FILE"
-  done
-  debug "wrote ${#NEW_COMMANDS[@]} to pendingPreloads"
-fi
+debug "queued $QUEUED CMD files for phase $PHASE_LABEL"
 
 exit 0

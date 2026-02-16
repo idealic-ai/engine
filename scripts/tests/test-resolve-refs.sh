@@ -416,20 +416,22 @@ _extract_function() {
   ' "$file"
 }
 
-# Integration setup: extends base setup with .state.json and hook functions.
+# Integration setup: extends base setup with .state.json and preload_ensure.
 integration_setup() {
   setup
 
-  # Source lib.sh for resolve_refs, safe_json_write, normalize_preload_path
+  # Source lib.sh for resolve_refs, safe_json_write, normalize_preload_path, preload_ensure
   source "$FAKE_HOME/.claude/scripts/lib.sh"
-
-  # Extract _claim_and_preload from the real overflow hook
-  eval "$(_extract_function "$_REAL_OVERFLOW_HOOK" "_claim_and_preload")"
 
   # Create a session directory with .state.json
   TEST_SESSION="$TMP_DIR/sessions/test_session"
   mkdir -p "$TEST_SESSION"
   STATE_FILE="$TEST_SESSION/.state.json"
+
+  # Override find_preload_state to return our test state file
+  find_preload_state() { echo "$STATE_FILE"; return 0; }
+
+  export HOOK_NAME="test"
 }
 
 # Helper: create a .state.json with given preloadedFiles and pendingPreloads
@@ -463,14 +465,14 @@ EOF
   cmd_a_path=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_A.md")
   _write_state '[]' '[]'
 
-  _claim_and_preload "$STATE_FILE" <<< "$cmd_a_path"
+  preload_ensure "$cmd_a_path" "test" "immediate"
 
   # CMD_A should be in preloadedFiles
   local preloaded
   preloaded=$(jq -r '.preloadedFiles[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
   assert_contains "CMD_A.md" "$preloaded" "CMD_A is in preloadedFiles"
 
-  # CMD_B should be in pendingPreloads (queued by resolve_refs)
+  # CMD_B should be in pendingPreloads (queued by _auto_expand_refs)
   local pending
   pending=$(jq -r '.pendingPreloads[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
   assert_contains "CMD_B.md" "$pending" "CMD_B queued in pendingPreloads"
@@ -498,7 +500,7 @@ EOF
   # Pre-populate preloadedFiles with CMD_B
   _write_state "[\"$cmd_b_path\"]" '[]'
 
-  _claim_and_preload "$STATE_FILE" <<< "$cmd_a_path"
+  preload_ensure "$cmd_a_path" "test" "immediate"
 
   # pendingPreloads should be empty — CMD_B is already loaded
   local pending_count
@@ -539,7 +541,7 @@ CMDEOF
   pipeline_path=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_PIPELINE.md")
   _write_state '[]' '[]'
 
-  _claim_and_preload "$STATE_FILE" <<< "$pipeline_path"
+  preload_ensure "$pipeline_path" "test" "immediate"
 
   local pending
   pending=$(jq -r '.pendingPreloads[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
@@ -554,7 +556,9 @@ CMDEOF
 }
 
 test_integration_claim_depth2_chain() {
-  # 3.A.1/4: CMD_A → CMD_B → CMD_C should queue both B and C
+  # 3.A.1/4: CMD_A → CMD_B → CMD_C — pipeline recursion via depth=1
+  # First preload_ensure: CMD_A delivered, CMD_B queued (depth=1 auto-expand)
+  # Second preload_ensure: CMD_B delivered, CMD_C queued (pipeline recursion)
   integration_setup
 
   cat > "$ENGINE_DIRECTIVES/commands/CMD_A.md" <<'EOF'
@@ -570,16 +574,23 @@ EOF
 Leaf command.
 EOF
 
-  local cmd_a_path
+  local cmd_a_path cmd_b_path
   cmd_a_path=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_A.md")
+  cmd_b_path=$(normalize_preload_path "$ENGINE_DIRECTIVES/commands/CMD_B.md")
   _write_state '[]' '[]'
 
-  _claim_and_preload "$STATE_FILE" <<< "$cmd_a_path"
+  # Pass 1: deliver CMD_A, auto-expand queues CMD_B
+  preload_ensure "$cmd_a_path" "test" "immediate"
 
   local pending
   pending=$(jq -r '.pendingPreloads[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
   assert_contains "CMD_B.md" "$pending" "depth-1 ref CMD_B queued"
-  assert_contains "CMD_C.md" "$pending" "depth-2 ref CMD_C queued"
+
+  # Pass 2: deliver CMD_B (simulating next tool call), auto-expand queues CMD_C
+  preload_ensure "$cmd_b_path" "test" "immediate"
+
+  pending=$(jq -r '.pendingPreloads[]' "$STATE_FILE" 2>/dev/null | tr '\n' ' ')
+  assert_contains "CMD_C.md" "$pending" "depth-2 ref CMD_C queued (pipeline recursion)"
 
   teardown
 }
@@ -656,7 +667,7 @@ EOF
   _write_state '[]' '[]'
 
   # Should not fail
-  _claim_and_preload "$STATE_FILE" <<< "$cmd_path"
+  preload_ensure "$cmd_path" "test" "immediate"
   local exit_code=$?
 
   assert_eq "0" "$exit_code" "no error on unresolvable ref"

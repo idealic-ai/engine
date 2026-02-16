@@ -1,40 +1,48 @@
 # Fleet System Documentation
 
-The Fleet system manages multiple Claude Code agents in a tmux workspace with session persistence, context overflow recovery, and coordinated dispatch.
+The Fleet system manages multiple Claude Code agents in a tmux workspace with capability-based identity, unified blocking primitives, session persistence, and coordinated dispatch.
 
-**Related**: `~/.claude/docs/SESSION_LIFECYCLE.md` (session state machine), `~/.claude/docs/CONTEXT_GUARDIAN.md` (overflow protection), `~/.claude/docs/DIRECTIVES_SYSTEM.md` (behavioral specification — commands, invariants, tags), `ORCHESTRATION.md` (multi-chapter project orchestration), `COORDINATE.md` (single-session coordinator mechanics)
+**Related**: `SESSION_LIFECYCLE.md` (session state machine), `CONTEXT_GUARDIAN.md` (overflow protection), `DIRECTIVES_SYSTEM.md` (behavioral specification — commands, invariants, tags), `ORCHESTRATION.md` (multi-chapter project orchestration), `COORDINATE.md` (single-session coordinator mechanics)
+**Invariants**: `tools/fleet/.directives/INVARIANTS.md` (6 fleet-specific invariants)
 
 ## Overview
 
 Fleet provides:
 - **Multi-agent workspace**: Multiple Claude instances in tmux panes
+- **Capability-based identity**: Agents defined by what they claim and manage (`FLEET_CLAIMS`, `FLEET_MANAGES`), not role enums (`¶INV_CAPABILITY_OVER_ROLE`)
+- **Unified blocking primitive**: `await-next` — every agent (director, coordinator, worker) blocks on the same command for work and child events
+- **Dual-channel signals**: Child-wake (tmux signals for pane state changes) + fswatch (file-system watcher for tag discovery)
 - **Session persistence**: Resume Claude conversations after restart
-- **Context overflow recovery**: Automatic dehydration and restart at 90% context
-- **Coordinated dispatch**: Route work to agents via tags
+- **Context overflow recovery**: Automatic dehydration and restart
+- **Coordinated dispatch**: Route work to agents via tags with `%pane-label` targeting
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│  Fleet Architecture                                                         │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   tmux session (socket: fleet)                                              │
-│   ┌─────────────┬─────────────┬─────────────┐                              │
-│   │ Main        │ Research    │ SDK         │  ← pane labels               │
-│   │             │             │             │                              │
-│   │ Claude Code │ Claude Code │ Claude Code │  ← Claude instances          │
-│   │             │             │             │                              │
-│   │ .state.json │ .state.json │ .state.json │  ← workflow sessions         │
-│   │ sessionId:  │ sessionId:  │ sessionId:  │  ← Claude session IDs        │
-│   │ abc123...   │ def456...   │ ghi789...   │                              │
-│   └─────────────┴─────────────┴─────────────┘                              │
-│                                                                             │
-│   statusline.sh ─────────────────────────────────────────────────────────  │
-│   ↓ captures session_id from Claude, writes to .state.json                  │
-│                                                                             │
-│   overflow hook ─────────────────────────────────────────────────────────  │
-│   ↓ at 90% context: dehydrate → kill → restart with --resume <sessionId>    │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Fleet Architecture                                                          │
+├──────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   tmux session (socket: fleet)                                               │
+│   ┌─────────────────┬─────────────────┬─────────────────┐                   │
+│   │ main:Director   │ auth:Coord      │ auth:Worker-1   │  ← FLEET_PANE    │
+│   │                 │                 │                 │                   │
+│   │ CLAIMS:         │ CLAIMS:         │ CLAIMS:         │                   │
+│   │   direct        │   implementation│   implementation│                   │
+│   │ MANAGES:        │   fix           │   fix,chores    │                   │
+│   │   auth:Coord    │ MANAGES:        │ MANAGES: (none) │                   │
+│   │                 │   auth:Worker-1 │                 │                   │
+│   │ await-next      │ await-next      │ await-next      │  ← same primitive│
+│   │ ┌───────────┐  │ ┌───────────┐  │ ┌───────────┐  │                   │
+│   │ │child-wake │  │ │child-wake │  │ │fswatch    │  │                   │
+│   │ │+ fswatch  │  │ │+ fswatch  │  │ │only       │  │                   │
+│   │ └───────────┘  │ └───────────┘  │ └───────────┘  │                   │
+│   └─────────────────┴─────────────────┴─────────────────┘                   │
+│                                                                              │
+│   fleet.yml → fleet.sh start → @pane_* tmux options → run.sh → FLEET_* env │
+│                                                                              │
+│   statusline.sh ──── captures session_id, writes to .state.json              │
+│   overflow hook ──── dehydrate → kill → restart with --resume <sessionId>    │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Components
@@ -71,7 +79,7 @@ Each Claude instance is tied to a workflow session in `sessions/YYYY_MM_DD_TOPIC
   "contextUsage": 0.42,
   "lastHeartbeat": "2026-02-06T15:30:00Z",
   "sessionId": "c92ac34d-94a2-48b4-b3a5-87bbe1d0f5a9",
-  "fleetPaneId": "Main"
+  "fleetPaneId": "auth:Worker-1"
 }
 ```
 
@@ -81,7 +89,7 @@ Each Claude instance is tied to a workflow session in `sessions/YYYY_MM_DD_TOPIC
 - `currentPhase`: Phase within the skill protocol
 - `contextUsage`: 0.0-1.0 (raw from Claude, ~0.80 = 100% effective)
 - `sessionId`: **Claude Code's internal session UUID** (for resume)
-- `fleetPaneId`: **Fleet pane name** (for finding last session per pane)
+- `fleetPaneId`: **Fleet pane label** (`window:label` format, e.g., `auth:Worker-1`) — matches `FLEET_PANE` env var
 
 ### 3. Statusline Script
 
@@ -114,6 +122,140 @@ Each Claude instance is tied to a workflow session in `sessions/YYYY_MM_DD_TOPIC
    - Blocks the tool call
    - Triggers `/session dehydrate` → saves state to `DEHYDRATED_CONTEXT.md`
    - Triggers `engine session restart` → kills Claude, relaunches with recovery
+
+## Agent Identity (Capability Model)
+
+Agent identity is defined by capabilities, not roles (`¶INV_CAPABILITY_OVER_ROLE`). Five `FLEET_*` env vars define what a pane IS and DOES:
+
+| Env Var | Purpose | Example |
+|---------|---------|---------|
+| `FLEET_PANE` | Self-identity (`window:label`) | `auth:Coordinator` |
+| `FLEET_PARENT` | Parent for escalation signaling | `main:Director` |
+| `FLEET_CLAIMS` | Untargeted skill types to accept | `documentation,chores` |
+| `FLEET_TARGETED_CLAIMS` | Targeted assignments with `%pane-id` | `implementation,fix` |
+| `FLEET_MANAGES` | Child panes to monitor | `auth:Worker-1,auth:Worker-2` |
+
+**Role is emergent**:
+- A "worker" is `FLEET_CLAIMS` + no `FLEET_MANAGES`
+- A "coordinator" is `FLEET_CLAIMS` + `FLEET_MANAGES`
+- A "director" is `FLEET_MANAGES` + higher-level `FLEET_CLAIMS`
+- No role enum exists. Mixed capabilities are natural (e.g., a coordinator that also accepts untargeted documentation work)
+
+### Env Var Pipeline
+
+```
+fleet.yml                    Source of truth (human-authored)
+    ↓
+fleet.sh start               Reads yml, creates tmux panes
+    ↓
+@pane_* tmux options          Stored on each pane (@pane_label, @pane_claims, etc.)
+    ↓
+run.sh                        Reads tmux options, exports env vars
+    ↓
+FLEET_* env vars              Available to Claude and skills
+    ↓
+Claude / await-next           Consumes env vars for identity and work matching
+```
+
+### Pane Label Uniqueness
+
+Every `window:label` in `fleet.yml` must be globally unique across the fleet (`¶INV_SCOPED_LABEL_UNIQUE`). `fleet.sh start` validates this mechanically — duplicate labels are blocked before any routing can break. The `window:label` format (e.g., `auth:Coordinator`) is human-readable, matches how users think about tabs, and is stable across restarts (unlike tmux pane IDs).
+
+## Signal Architecture
+
+`await-next` blocks on two event channels in a parallel race — first to fire wins:
+
+### Channel 1: Child-Wake (tmux signals)
+
+For agents with `FLEET_MANAGES` — monitors managed panes for state changes. Uses `tmux wait-for` on a named signal. Workers automatically fire the wake signal when `engine fleet notify` changes any managed pane to `unchecked`, `error`, or `done`.
+
+### Channel 2: fswatch (file-system watcher)
+
+For agents with `FLEET_CLAIMS` or `FLEET_TARGETED_CLAIMS` — watches `sessions/` for tag-based work discovery. Uses `fswatch --include '*.md'` to detect file changes, then scans for matching delegation tags.
+
+### Channel Priority
+
+When `await-next` detects events on both channels simultaneously, children come first (`¶INV_CHILDREN_FIRST`). Escalations from stuck or errored workers are more time-sensitive than new assignments from parents.
+
+### Work Discovery
+
+Work is file-based, not signal-based (`¶INV_FILE_BASED_WORK`). There is no `work-wake` tmux signal. Tag discovery happens on scan (fswatch-triggered or timeout-triggered), not on signal. The tmux signal layer is ONLY for pane state changes.
+
+## await-next (Unified Blocking Primitive)
+
+Every agent in the hierarchy — director, coordinator, worker — calls `await-next` to block until work is available. It replaces the previous `coordinate-wait` command with a unified model.
+
+### Behavior
+
+```
+await-next:
+  1. Scan children (if FLEET_MANAGES is set)
+     - Check managed panes for unchecked/error/done states
+     - Priority: error > unchecked > done
+  2. Scan tags (if FLEET_CLAIMS or FLEET_TARGETED_CLAIMS is set)
+     - Grep sessions/ for matching #delegated-{noun} tags
+     - For targeted claims: also match %{FLEET_PANE} modifier
+  3. If events found → auto-claim and return
+  4. If nothing found → block on parallel race:
+     - child-wake signal (tmux wait-for)
+     - fswatch file change
+     - timeout (configurable)
+  5. On wake → re-scan → return results or TIMEOUT
+```
+
+### Auto-Claim
+
+`await-next` auto-claims work before returning to the LLM (`¶INV_AUTO_CLAIM_ON_FIND`). The shell script atomically swaps `#delegated-X` → `#claimed-X` in the source file. Worker Claude receives already-claimed work — no race window between discovery and claiming.
+
+### Modular Composition
+
+`await-next` is composed of independently testable helpers (`¶INV_AWAIT_NEXT_MODULAR`):
+- `_scan_children` — Check managed pane states
+- `_scan_tags` — Grep for matching delegation tags
+- `_block_parallel` — Race child-wake + fswatch + timeout
+- `_read_transcript` — Read worker's conversation JSONL for the last AskUserQuestion call
+
+### Return Values
+
+| Return | Meaning | Agent Action |
+|--------|---------|-------------|
+| `CHILD pane_id\|state\|label` + capture JSON | Managed pane needs attention | Process: assess → decide → respond |
+| `WORK file\|tag\|noun` + claim info | Tagged work found and claimed | Execute the claimed skill |
+| `TIMEOUT` + status summary | No events within timeout | Heartbeat, check completion |
+
+### Worker vs Coordinator Behavior
+
+- **Pure workers** (no `FLEET_MANAGES`): `await-next` blocks on fswatch only. Returns `WORK` events.
+- **Coordinators** (`FLEET_MANAGES` + `FLEET_CLAIMS`): `await-next` blocks on both channels. Returns `CHILD` or `WORK` events with children prioritized.
+- **Directors** (`FLEET_MANAGES` only): `await-next` blocks on child-wake only. Returns `CHILD` events.
+
+## Worker Lifecycle
+
+Workers run as skill-driven loops launched by `run.sh`. The old `worker.sh` (fswatch queue + worker registration files) is replaced.
+
+### The Worker Loop
+
+```
+run.sh detects FLEET_CLAIMS from env vars
+    ↓
+Launches Claude with worker skill (/work-loop)
+    ↓
+Worker skill drives the cycle:
+    await-next → claim → execute skill → repeat
+    ↓
+On completion: notify unchecked → parent sees via child-wake
+```
+
+### Lifecycle Concerns
+
+No new mechanisms needed — everything maps to existing infrastructure:
+
+| Concern | Mechanism |
+|---------|-----------|
+| **Termination** | Parent kills the pane. Workers are passive. |
+| **Observability** | Pane notify states (working, done, unchecked, error) |
+| **Errors** | Escalate to parent via child-wake with error state. Parent decides retry/reassign/dismiss. |
+| **Context overflow** | Standard dehydrate + `run.sh` restarts. SessionStart hook detects `FLEET_CLAIMS`, re-enters worker skill. |
 
 ## Session Persistence
 
@@ -221,9 +363,9 @@ The new Claude reads this to understand where it was.
 ```
 ~/.claude/
 ├── scripts/
-│   ├── fleet.sh              # Fleet CLI commands
+│   ├── fleet.sh              # Fleet CLI (start, stop, await-next, notify)
 │   ├── session.sh            # Session management (activate, restart, phase)
-│   ├── user-info.sh          # User identity from Google Drive path
+│   ├── run.sh                # Claude launcher (FLEET_* env var export pipeline)
 │   └── ...
 ├── tools/
 │   └── statusline.sh         # Status line renderer (captures session_id)
@@ -234,8 +376,14 @@ The new Claude reads this to understand where it was.
 │       ├── references/FLEET.md   # Skill protocol (interview)
 │       └── assets/
 │           └── tmux.conf         # Fleet tmux config
-└── docs/
-    └── FLEET.md              # This document
+├── docs/
+│   └── FLEET.md              # This document
+└── ...
+
+{project}/
+└── tools/fleet/
+    └── .directives/
+        └── INVARIANTS.md     # Fleet-specific invariants (6 rules)
 ```
 
 ### Fleet Configs (Google Drive)
@@ -278,29 +426,30 @@ fleet.sh config-path [group]  # Output path to fleet yml config
 fleet.sh pane-id              # Output composite pane ID (session:window:label)
 ```
 
-### Coordination
+### Coordination & Work Discovery
 
-Commands used by the `/coordinate` skill. See `COORDINATE.md` for full decision engine details and `ORCHESTRATION.md` for multi-chapter orchestration.
+Commands used by `await-next`, the `/coordinate` skill, and worker loops. See `COORDINATE.md` for full decision engine details and `ORCHESTRATION.md` for multi-chapter orchestration.
 
 ```bash
-# Core loop primitive — blocks until a pane needs attention
-fleet.sh coordinate-wait [timeout_seconds]              # Auto-discovers managed panes from @pane_manages
-fleet.sh coordinate-wait [timeout_seconds] --panes ID1,ID2  # Explicit pane list
+# Unified blocking primitive — blocks until work or child events arrive
+fleet.sh await-next [timeout_seconds]                   # Uses FLEET_* env vars for identity
+fleet.sh await-next [timeout_seconds] --panes ID1,ID2   # Override managed panes
 
-# Lifecycle (internal to coordinate-wait — callers should NOT use directly)
+# Pane engagement (internal to await-next — callers should NOT use directly)
 fleet.sh coordinator-connect <pane_id>      # Set @pane_coordinator_active=1, apply purple bg
 fleet.sh coordinator-disconnect <pane_id>   # Clear @pane_coordinator_active, revert bg
 
 # Pane capture
-fleet.sh capture-pane <pane_id>             # Structured JSON: question, options, preamble, terminal content
+fleet.sh capture-pane <pane_id>             # Terminal context: progress, errors (supplementary — not for question detection)
 ```
 
-**coordinate-wait v2 behavior**: Each call auto-disconnects the previous pane, sweeps for actionable panes (skip focused, skip already-managed), picks highest priority (`error` > `unchecked` > `done`), auto-connects the selected pane (purple bg), captures content, and returns. Callers never call `coordinator-connect`/`coordinator-disconnect` directly (`§INV_COORDINATE_WAIT_LIFECYCLE`).
+**await-next behavior**: Scans children (if `FLEET_MANAGES` set) and tags (if `FLEET_CLAIMS`/`FLEET_TARGETED_CLAIMS` set). Children have priority (`¶INV_CHILDREN_FIRST`). Auto-claims tag-based work before returning (`¶INV_AUTO_CLAIM_ON_FIND`). If nothing found, blocks on dual-channel race (child-wake + fswatch). For coordinator use: auto-disconnects previous pane, auto-connects new pane (purple bg), captures content — callers never call `coordinator-connect`/`coordinator-disconnect` directly (`§INV_AWAIT_NEXT_LIFECYCLE`).
 
 **Return values**:
 
-*   **Normal** — `pane_id|state|label|location` on line 1, capture JSON on line 2+
-*   **`TIMEOUT`** — No actionable panes within timeout. Second line: `STATUS total=N working=N done=N idle=N`
+*   **Child event** — `CHILD pane_id|state|label` on line 1, capture JSON on line 2+
+*   **Work event** — `WORK file|tag|noun` on line 1, claim details on line 2+
+*   **`TIMEOUT`** — No events within timeout. Second line: `STATUS total=N working=N done=N idle=N`
 *   **`FOCUSED`** — All actionable panes are user-focused. Second line: `STATUS total=N working=N done=N focused=N`
 
 ### session.sh
@@ -318,6 +467,13 @@ engine session restart <dir>                         # Kill and relaunch Claude
 run.sh                   # Plain Claude (auto-detects fleet pane if in fleet tmux)
 run.sh --agent operator  # With agent persona
 ```
+
+**Fleet detection**: When running inside a fleet tmux socket, `run.sh`:
+1. Reads `@pane_label`, `@pane_claims`, `@pane_targeted_claims`, `@pane_manages`, `@pane_parent` from tmux
+2. Composes `FLEET_PANE` as `window:label` from tmux window name + `@pane_label`
+3. Exports all `FLEET_*` env vars
+4. If `FLEET_CLAIMS` is set, launches Claude into the worker skill loop
+5. Searches for last session matching `fleetPaneId` for `--resume`
 
 ## Notification States
 
@@ -354,8 +510,8 @@ checked → working      # Agent starts new work (fleet.sh notify working)
 
 The coordinator adds two orthogonal state dimensions on top of the notify state. Together with notify, they form a three-dimensional state model (see `COORDINATE.md` §3 for the full interaction matrix).
 
-*   **`@pane_coordinator_active`** — Set to `1` when `coordinate-wait` auto-connects a pane (purple bg applied). Cleared on the next `coordinate-wait` call (auto-disconnect) or on focus override. Callers never set this directly.
-*   **`@pane_user_focused`** — Set to `1` by the `pane-focus-in` tmux hook when the user focuses a pane. Cleared on `pane-focus-out`. `coordinate-wait` skips focused panes — the user has priority.
+*   **`@pane_coordinator_active`** — Set to `1` when `await-next` auto-connects a pane (purple bg applied). Cleared on the next `await-next` call (auto-disconnect) or on focus override. Callers never set this directly.
+*   **`@pane_user_focused`** — Set to `1` by the `pane-focus-in` tmux hook when the user focuses a pane. Cleared on `pane-focus-out`. `await-next` skips focused panes — the user has priority.
 
 **Purple visual**: When `@pane_coordinator_active = 1`, the pane background turns dark purple (`#1a0a2e`), indicating the coordinator is actively processing it. Reverts to the notify-state color on disconnect.
 
@@ -422,17 +578,21 @@ Placeholder panes show a dim "Reserved slot" message and wait for activation:
 - `.state.json` is the bridge between workflow state and Claude session ID
 - `statusline.sh` continuously syncs Claude's session ID to workflow state
 
-### With Dispatch Daemon
+### With Delegation System
 
-The dispatch daemon (if running) routes tagged work to fleet workers:
+Work routing uses tags with optional `%pane-label` targeting:
 
 ```bash
-# Tag appears in a session artifact
-#needs-implementation
+# Untargeted — any worker with matching FLEET_CLAIMS picks it up
+#delegated-implementation
 
-# Daemon detects, routes to worker with matching accepts list
-# Worker claims work by swapping: #needs-implementation → #claimed-implementation
+# Targeted — only the specified pane picks it up (via FLEET_TARGETED_CLAIMS)
+#delegated-implementation %auth:Worker-1
 ```
+
+**Hybrid delegation**: Parents decide per-item whether to use `/delegation-create` (complex work — REQUEST files with full context) or direct tag writing (simple work — the artifact itself is the work description).
+
+Workers discover tags via `await-next`'s fswatch channel. `await-next` auto-claims before returning — `#delegated-X` → `#claimed-X` swap happens atomically in shell.
 
 ### With /session continue
 
@@ -443,11 +603,27 @@ On context overflow restart:
 
 ## Invariants
 
+**Canonical source**: `tools/fleet/.directives/INVARIANTS.md` — 6 fleet-specific invariants.
+
+### Identity & Capabilities
+- **`¶INV_CAPABILITY_OVER_ROLE`**: Identity is capabilities, not roles. Role is emergent.
+- **`¶INV_SCOPED_LABEL_UNIQUE`**: Every `window:label` must be globally unique. Validated at start.
+
+### Signal & Events
+- **`¶INV_FILE_BASED_WORK`**: Work via files (tags), not tmux signals. No `work-wake` signal.
+- **`¶INV_CHILDREN_FIRST`**: Child escalations before parent work when both detected.
+
+### Claiming & Lifecycle
+- **`¶INV_AUTO_CLAIM_ON_FIND`**: `await-next` auto-claims before returning. No race window.
+
+### Implementation
+- **`¶INV_AWAIT_NEXT_MODULAR`**: `await-next` composed of testable helpers, not monolithic.
+
+### Infrastructure (unchanged)
 - **Session ID binding**: `sessionId` in `.state.json` must match the running Claude's session
 - **PID ownership**: Only the Claude with matching PID owns the `.state.json`
-- **Fleet socket naming**: Default fleet uses `fleet` socket; workgroups use `fleet-{name}` sockets. Detection via `is_fleet_socket()`: `fleet` or `fleet-*`
+- **Fleet socket naming**: Default fleet uses `fleet` socket; workgroups use `fleet-{name}` sockets
 - **Socket isolation**: Each fleet config runs on its own tmux socket for full process isolation
-- **Config loading**: `tmux source-file` in `on_project_start` ensures config applies
 
 ## Troubleshooting
 

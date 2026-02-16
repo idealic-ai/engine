@@ -142,74 +142,16 @@ get_session_start_seeds() {
   jq -n --arg d "$engine_dir" '[$d+"/COMMANDS.md",$d+"/INVARIANTS.md",$d+"/SIGILS.md",$d+"/commands/CMD_DEHYDRATE.md",$d+"/commands/CMD_RESUME_SESSION.md",$d+"/commands/CMD_PARSE_PARAMETERS.md"]'
 }
 
-# filter_preseeded_paths PATHS_NEWLINE_DELIMITED → filtered paths on stdout
-#   Removes any path that matches a SessionStart seed. Use when no active session
-#   exists and preloadedFiles can't be checked in .state.json.
-filter_preseeded_paths() {
-  local input="$1"
-  [ -n "$input" ] || return 0
-  local seeds_json
-  seeds_json=$(get_session_start_seeds)
-  while IFS= read -r p; do
-    [ -n "$p" ] || continue
-    local is_seed
-    is_seed=$(echo "$seeds_json" | jq -r --arg f "$p" 'any(. == $f)' 2>/dev/null || echo "false")
-    if [ "$is_seed" = "false" ]; then
-      echo "$p"
-    fi
-  done <<< "$input"
-}
+# NOTE: filter_preseeded_paths() removed — replaced by seed file infrastructure.
+# preload_ensure() + find_preload_state() handle pre-session dedup via seed files.
 
 # extract_skill_preloads SKILL_NAME
+#   Wrapper around resolve_phase_cmds for Phase 0.
 #   Reads SKILL.md, extracts Phase 0 CMD files + template files.
 #   Outputs normalized tilde-prefix paths (one per line) to stdout.
 #   Does NOT check dedup — caller handles that.
-#   Fails silently on malformed JSON or missing files.
 extract_skill_preloads() {
-  local skill_name="$1"
-  local skill_dir="$HOME/.claude/skills/$skill_name"
-  local skill_file="$skill_dir/SKILL.md"
-  [ -f "$skill_file" ] || return 0
-
-  # Extract JSON block from SKILL.md
-  local params_json
-  params_json=$(sed -n '/^```json$/,/^```$/p' "$skill_file" | sed '1d;$d' 2>/dev/null || echo "")
-  [ -n "$params_json" ] || return 0
-
-  # Phase 0 CMD files
-  local phase0_cmds
-  phase0_cmds=$(echo "$params_json" | jq -r '
-    (.phases // [])[0] |
-    ((.steps // []) + (.commands // [])) |
-    .[] | select(startswith("§CMD_"))
-  ' 2>/dev/null || echo "")
-
-  local cmd_dir="$HOME/.claude/engine/.directives/commands"
-  local seen_cmds=""
-  if [ -n "$phase0_cmds" ]; then
-    while IFS= read -r field; do
-      [ -n "$field" ] || continue
-      local name="${field#§CMD_}"
-      name=$(echo "$name" | sed -E 's/_[a-z][a-z_]*$//')
-      case "$seen_cmds" in *"|${name}|"*) continue ;; esac
-      seen_cmds="${seen_cmds}|${name}|"
-      local cmd_file="$cmd_dir/CMD_${name}.md"
-      [ -f "$cmd_file" ] || continue
-      normalize_preload_path "$cmd_file"
-    done <<< "$phase0_cmds"
-  fi
-
-  # Template files (logTemplate, debriefTemplate, planTemplate)
-  local template_paths
-  template_paths=$(echo "$params_json" | jq -r '[.logTemplate, .debriefTemplate, .planTemplate] | .[] // empty' 2>/dev/null || echo "")
-  if [ -n "$template_paths" ]; then
-    while IFS= read -r rel_path; do
-      [ -n "$rel_path" ] || continue
-      local candidate="$skill_dir/$rel_path"
-      [ -f "$candidate" ] || continue
-      normalize_preload_path "$candidate"
-    done <<< "$template_paths"
-  fi
+  resolve_phase_cmds "$1" "0"
 }
 
 # --- Workspace path resolution utilities ---
@@ -992,6 +934,267 @@ resolve_refs() {
   done <<< "$refs"
 
   return 0
+}
+
+# --- Preload pipeline utilities ---
+
+# _log_delivery HOOK EVENT FILE SOURCE
+#   Structured delivery event logging, gated by PRELOAD_TEST_LOG env var.
+#   Zero cost when env var is unset. Appends one JSON line per event.
+#   Events: seed, direct-deliver, queue-pending, claim-deliver, skip-dedup, skip-inode, auto-expand
+_log_delivery() {
+  [ -n "${PRELOAD_TEST_LOG:-}" ] || return 0
+  local hook="${1:-unknown}" event="${2:-unknown}" file="${3:-}" source="${4:-}"
+  printf '{"hook":"%s","event":"%s","file":"%s","source":"%s","ts":"%s"}\n' \
+    "$hook" "$event" "$file" "$source" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    >> "$PRELOAD_TEST_LOG"
+}
+
+# find_preload_state [PID]
+#   Returns the path to the preload tracking state file — seed or session.
+#   Checks: 1) active session .state.json (by PID), 2) seed file, 3) creates seed.
+#   PID defaults to $PPID (hooks are children of Claude).
+#   Outputs path on stdout, returns 0. Returns 1 only if creation fails.
+find_preload_state() {
+  local target_pid="${1:-$PPID}"
+  local sessions_dir
+  sessions_dir=$(resolve_sessions_dir)
+
+  # 1. Active session .state.json (by PID) — check if session.sh find works
+  local session_dir
+  session_dir=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
+  if [ -n "$session_dir" ] && [ -f "$session_dir/.state.json" ]; then
+    echo "$session_dir/.state.json"
+    return 0
+  fi
+
+  # 2. Seed file: sessions/.seeds/{pid}.json
+  local seed_file="$sessions_dir/.seeds/${target_pid}.json"
+  if [ -f "$seed_file" ]; then
+    echo "$seed_file"
+    return 0
+  fi
+
+  # 3. Create seed if neither exists
+  mkdir -p "$sessions_dir/.seeds"
+  local seeds_json
+  seeds_json=$(get_session_start_seeds)
+  jq -n --argjson pid "$target_pid" --argjson seeds "$seeds_json" '{
+    pid: $pid,
+    lifecycle: "seeding",
+    preloadedFiles: $seeds,
+    pendingPreloads: [],
+    touchedDirs: {}
+  }' > "$seed_file"
+  echo "$seed_file"
+  return 0
+}
+
+# _is_already_preloaded NORMALIZED_PATH STATE_FILE
+#   Checks path + inode dedup against preloadedFiles in state.
+#   Returns 0 if already preloaded, 1 if not.
+_is_already_preloaded() {
+  local normalized="$1" state_file="$2"
+  [ -f "$state_file" ] || return 1
+
+  local resolved="${normalized/#\~/$HOME}"
+
+  # Path check
+  local path_match
+  path_match=$(jq -r --arg p "$normalized" --arg r "$resolved" \
+    '(.preloadedFiles // []) | any(. == $p or . == $r)' "$state_file" 2>/dev/null || echo "false")
+  if [ "$path_match" = "true" ]; then
+    return 0
+  fi
+
+  # Inode check
+  if [ -f "$resolved" ]; then
+    local file_inode
+    file_inode=$(stat -f "%i" "$resolved" 2>/dev/null || echo "")
+    if [ -n "$file_inode" ]; then
+      local inode_match
+      inode_match=$(jq -r --arg inode "$file_inode" '
+        (.preloadedFiles // []) | any(. as $p |
+          ($p | sub("^~"; env.HOME)) as $resolved |
+          (try (input | .inode) catch "") == $inode
+        )' "$state_file" 2>/dev/null || echo "false")
+      # Fallback: check inodes by iterating (jq can't stat files)
+      # This is the slow path — only reached if path dedup missed
+      local existing
+      while IFS= read -r existing; do
+        [ -z "$existing" ] && continue
+        local existing_resolved="${existing/#\~/$HOME}"
+        [ -f "$existing_resolved" ] || continue
+        local existing_inode
+        existing_inode=$(stat -f "%i" "$existing_resolved" 2>/dev/null || echo "")
+        if [ "$existing_inode" = "$file_inode" ]; then
+          return 0
+        fi
+      done < <(jq -r '(.preloadedFiles // []) | .[]' "$state_file" 2>/dev/null)
+    fi
+  fi
+
+  return 1
+}
+
+# preload_ensure PATH SOURCE URGENCY
+#   Single entry point for preloading. Handles normalize, dedup, deliver-or-queue, tracking.
+#   URGENCY: "immediate" (atomic state update + return content) or "next" (queue to pendingPreloads)
+#   Sets global _PRELOAD_RESULT: "delivered" | "queued" | "skipped"
+#   For immediate: sets global _PRELOAD_CONTENT with [Preloaded: path]\ncontent
+preload_ensure() {
+  local path="$1" source="${2:-unknown}" urgency="${3:-next}"
+  local state_file normalized
+  _PRELOAD_RESULT="skipped"
+  _PRELOAD_CONTENT=""
+
+  # 1. Normalize path
+  normalized=$(normalize_preload_path "$path")
+
+  # 2. Find state (seed or session)
+  state_file=$(find_preload_state)
+
+  # 3. Check dedup (path + inode)
+  if _is_already_preloaded "$normalized" "$state_file"; then
+    _log_delivery "${HOOK_NAME:-unknown}" "skip-dedup" "$normalized" "$source"
+    _PRELOAD_RESULT="skipped"
+    return 0
+  fi
+
+  # 4. Deliver or queue
+  if [ "$urgency" = "immediate" ]; then
+    local resolved="${normalized/#\~/$HOME}"
+    if [ ! -f "$resolved" ]; then
+      _PRELOAD_RESULT="skipped"
+      return 0
+    fi
+    local content
+    content=$(cat "$resolved" 2>/dev/null || true)
+    [ -n "$content" ] || { _PRELOAD_RESULT="skipped"; return 0; }
+
+    # Atomic state update under lock — add to preloadedFiles
+    jq --arg p "$normalized" '
+      (.preloadedFiles //= []) |
+      if (.preloadedFiles | index($p)) then .
+      else .preloadedFiles += [$p]
+      end
+    ' "$state_file" | safe_json_write "$state_file"
+
+    _PRELOAD_CONTENT="[Preloaded: $normalized]\n$content"
+    _PRELOAD_RESULT="delivered"
+    _log_delivery "${HOOK_NAME:-unknown}" "direct-deliver" "$normalized" "$source"
+  else
+    # Queue to pendingPreloads
+    jq --arg p "$normalized" '
+      (.pendingPreloads //= []) |
+      if (.pendingPreloads | index($p)) then .
+      else .pendingPreloads += [$p]
+      end
+    ' "$state_file" | safe_json_write "$state_file"
+
+    _PRELOAD_RESULT="queued"
+    _log_delivery "${HOOK_NAME:-unknown}" "queue-pending" "$normalized" "$source"
+  fi
+
+  # 5. Auto-expand: scan for § refs and queue them
+  _auto_expand_refs "$normalized" "$state_file" "$source"
+
+  return 0
+}
+
+# _auto_expand_refs NORMALIZED_PATH STATE_FILE SOURCE
+#   Scans a file for § references and queues discovered refs via preload_ensure(next).
+#   SKILL.md: allows FMT/INV refs but skips CMD refs (preserves lazy per-phase loading).
+_auto_expand_refs() {
+  local file="$1" state_file="$2" source="${3:-}"
+  local resolved="${file/#\~/$HOME}"
+  [ -f "$resolved" ] || return 0
+
+  local skip_cmd=false
+  [[ "$file" == */SKILL.md ]] && skip_cmd=true
+
+  local already_loaded
+  already_loaded=$(jq -c '.preloadedFiles // []' "$state_file" 2>/dev/null || echo '[]')
+
+  # depth=1: no explicit recursion — pipeline handles it naturally
+  local refs
+  refs=$(resolve_refs "$resolved" 1 "$already_loaded") || true
+  [ -n "$refs" ] || return 0
+
+  while IFS= read -r ref_path; do
+    [ -z "$ref_path" ] && continue
+    if [ "$skip_cmd" = true ] && [[ "$ref_path" == */CMD_* ]]; then
+      continue
+    fi
+    _log_delivery "${HOOK_NAME:-unknown}" "auto-expand" "$ref_path" "auto-expand($file)"
+    # Queue the ref — don't deliver immediately (pipeline recursion)
+    local old_result="$_PRELOAD_RESULT"
+    preload_ensure "$ref_path" "auto-expand($file)" "next"
+    _PRELOAD_RESULT="$old_result"
+  done <<< "$refs"
+}
+
+# resolve_phase_cmds SKILL_NAME PHASE_LABEL
+#   Unified CMD resolution for any phase. Reads SKILL.md JSON block,
+#   finds the phase matching PHASE_LABEL, extracts steps[] + commands[] arrays.
+#   Resolves each §CMD_* to a normalized file path.
+#   Also outputs template paths for Phase 0 (logTemplate, debriefTemplate, planTemplate).
+#   Outputs one path per line to stdout.
+resolve_phase_cmds() {
+  local skill_name="$1" phase_label="$2"
+  local skill_dir="$HOME/.claude/skills/$skill_name"
+  local skill_file="$skill_dir/SKILL.md"
+  [ -f "$skill_file" ] || return 0
+
+  # Extract JSON block from SKILL.md
+  local params_json
+  params_json=$(sed -n '/^```json$/,/^```$/p' "$skill_file" | sed '1d;$d' 2>/dev/null || echo "")
+  [ -n "$params_json" ] || return 0
+
+  # Find the phase entry matching phase_label
+  # Phase labels can be "0", "1", "3.A", etc.
+  local phase_cmds
+  phase_cmds=$(echo "$params_json" | jq -r --arg label "$phase_label" '
+    (.phases // []) as $phases |
+    (($phases | map(select(.label == $label)) | first) //
+     ($phases | map(select(
+       (.label | tostring) == $label or
+       (if .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end) == $label
+     )) | first) // null) |
+    if . == null then empty
+    else ((.steps // []) + (.commands // [])) | .[] | select(startswith("§CMD_"))
+    end
+  ' 2>/dev/null || echo "")
+
+  local cmd_dir="$HOME/.claude/engine/.directives/commands"
+  local seen_cmds=""
+  if [ -n "$phase_cmds" ]; then
+    while IFS= read -r field; do
+      [ -n "$field" ] || continue
+      local name="${field#§CMD_}"
+      # Strip lowercase suffix (proof sub-field): GENERATE_DEBRIEF_file → GENERATE_DEBRIEF
+      name=$(echo "$name" | sed -E 's/_[a-z][a-z_]*$//')
+      case "$seen_cmds" in *"|${name}|"*) continue ;; esac
+      seen_cmds="${seen_cmds}|${name}|"
+      local cmd_file="$cmd_dir/CMD_${name}.md"
+      [ -f "$cmd_file" ] || continue
+      normalize_preload_path "$cmd_file"
+    done <<< "$phase_cmds"
+  fi
+
+  # For Phase 0 (or label "0"): also output template files
+  if [ "$phase_label" = "0" ]; then
+    local template_paths
+    template_paths=$(echo "$params_json" | jq -r '[.logTemplate, .debriefTemplate, .planTemplate] | .[] // empty' 2>/dev/null || echo "")
+    if [ -n "$template_paths" ]; then
+      while IFS= read -r rel_path; do
+        [ -n "$rel_path" ] || continue
+        local candidate="$skill_dir/$rel_path"
+        [ -f "$candidate" ] || continue
+        normalize_preload_path "$candidate"
+      done <<< "$template_paths"
+    fi
+  fi
 }
 
 # clear_agent_context SESSION_DIR

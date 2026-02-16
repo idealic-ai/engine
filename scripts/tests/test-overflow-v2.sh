@@ -356,8 +356,7 @@ assert_eq "deny" "$DECISION" "B15: adversarial engine-like command denied during
 # ============================================================
 # B16: All files stale (already preloaded) — pendingPreloads cleaned
 # pendingPreloads has 2 files, both already in preloadedFiles.
-# _claim_and_preload should remove them from pendingPreloads without
-# adding duplicates to preloadedFiles.
+# preload_ensure should skip them and cleanup removes from pendingPreloads.
 # ============================================================
 reset_state
 # Create real files on disk
@@ -365,8 +364,9 @@ mkdir -p "$FAKE_HOME/.claude/test-directives"
 echo "# Commands" > "$FAKE_HOME/.claude/test-directives/COMMANDS.md"
 echo "# Invariants" > "$FAKE_HOME/.claude/test-directives/INVARIANTS.md"
 
-PRELOAD_PATH1="~/.claude/test-directives/COMMANDS.md"
-PRELOAD_PATH2="~/.claude/test-directives/INVARIANTS.md"
+# Pre-expand to absolute paths (no tilde forms in state)
+PRELOAD_PATH1=$(cd "$FAKE_HOME/.claude/test-directives" && pwd -P)/COMMANDS.md
+PRELOAD_PATH2=$(cd "$FAKE_HOME/.claude/test-directives" && pwd -P)/INVARIANTS.md
 
 jq --arg p1 "$PRELOAD_PATH1" --arg p2 "$PRELOAD_PATH2" '
   .pendingPreloads = [$p1, $p2] |
@@ -379,7 +379,6 @@ run_hook "Read" '{"file_path":"/some/file.ts"}' > /dev/null
 
 PENDING=$(jq '.pendingPreloads // []' "$TEST_SESSION/.state.json")
 PENDING_LEN=$(echo "$PENDING" | jq 'length')
-PRELOADED_LEN=$(jq '.preloadedFiles | length' "$TEST_SESSION/.state.json")
 if [ "$PENDING_LEN" -eq 0 ]; then
   pass "B16: all-stale pendingPreloads cleaned to empty"
 else
@@ -389,7 +388,7 @@ fi
 # ============================================================
 # B17: Mixed new + stale files — stale removed, new claimed
 # pendingPreloads has 3 files: 1 already preloaded (stale), 2 new.
-# _claim_and_preload should claim the 2 new, remove all 3 from pending.
+# preload_ensure delivers the 2 new, cleanup removes all 3 from pending.
 # ============================================================
 reset_state
 mkdir -p "$FAKE_HOME/.claude/test-directives"
@@ -397,9 +396,11 @@ echo "# Commands" > "$FAKE_HOME/.claude/test-directives/COMMANDS.md"
 echo "# New File A" > "$FAKE_HOME/.claude/test-directives/NEW_A.md"
 echo "# New File B" > "$FAKE_HOME/.claude/test-directives/NEW_B.md"
 
-STALE_PATH="~/.claude/test-directives/COMMANDS.md"
-NEW_PATH_A="~/.claude/test-directives/NEW_A.md"
-NEW_PATH_B="~/.claude/test-directives/NEW_B.md"
+# Pre-expand to absolute paths
+TEST_DIR_ABS=$(cd "$FAKE_HOME/.claude/test-directives" && pwd -P)
+STALE_PATH="$TEST_DIR_ABS/COMMANDS.md"
+NEW_PATH_A="$TEST_DIR_ABS/NEW_A.md"
+NEW_PATH_B="$TEST_DIR_ABS/NEW_B.md"
 
 jq --arg s "$STALE_PATH" --arg a "$NEW_PATH_A" --arg b "$NEW_PATH_B" '
   .pendingPreloads = [$s, $a, $b] |
@@ -411,7 +412,6 @@ jq --arg s "$STALE_PATH" --arg a "$NEW_PATH_A" --arg b "$NEW_PATH_B" '
 OUTPUT=$(run_hook "Read" '{"file_path":"/some/file.ts"}')
 
 PENDING_LEN=$(jq '.pendingPreloads | length' "$TEST_SESSION/.state.json")
-# New files should be in preloadedFiles now
 HAS_NEW_A=$(jq --arg a "$NEW_PATH_A" '.preloadedFiles | any(. == $a)' "$TEST_SESSION/.state.json")
 HAS_NEW_B=$(jq --arg b "$NEW_PATH_B" '.preloadedFiles | any(. == $b)' "$TEST_SESSION/.state.json")
 
@@ -424,11 +424,10 @@ fi
 # ============================================================
 # B18: Non-existent file in pendingPreloads — removed, not added
 # pendingPreloads has 1 file that doesn't exist on disk.
-# _claim_and_preload should remove it from pendingPreloads and NOT
-# add it to preloadedFiles.
+# preload_ensure skips it and cleanup removes from pendingPreloads.
 # ============================================================
 reset_state
-GHOST_PATH="~/.claude/test-directives/DOES_NOT_EXIST.md"
+GHOST_PATH="$FAKE_HOME/.claude/test-directives/DOES_NOT_EXIST.md"
 
 jq --arg g "$GHOST_PATH" '
   .pendingPreloads = [$g] |

@@ -132,19 +132,30 @@ preloadedFiles = [6     pendingPreloads += [      _claim_and_preload()    preloa
 2. **Unified rule evaluation**: All guards (overflow, session-gate, heartbeat, preload) are evaluated in one pass by `evaluate_rules()`. The preload rule shares the same evaluation engine — separating it into PostToolUse would mean two evaluation passes.
 3. **Atomic claiming**: `_claim_and_preload()` needs to run before any PostToolUse hooks fire (templates hook, phase-commands hook could also be writing to `.state.json`). Claiming in PreToolUse happens in a single, controlled context before the tool call's PostToolUse hooks scatter.
 
-### Reference Resolution (Recursive Preloading)
+### Reference Resolution (Auto-Expansion)
 
 **Function**: `resolve_refs()` in `lib.sh`
 
-When a file is preloaded (either directly by the templates hook or via the preload rule), its content is scanned for `§CMD_*`, `§FMT_*`, `§INV_*` references. Each reference is resolved to a file path using:
+Every preloaded file is automatically scanned for `§CMD_*`, `§FMT_*`, `§INV_*` references. Discovered refs are queued for preloading, which triggers their own scanning when delivered — creating a natural recursive expansion through the pipeline.
+
+**Current architecture** (fragmented): `resolve_refs()` is called from 3 places (templates hook, overflow-v2 preload rule, UPS hook) with `depth=2`. Each caller independently manages the results.
+
+**Target architecture** (centralized): `resolve_refs()` is called from ONE place — `_auto_expand_refs()` inside `preload_ensure()` — with `depth=1`. Recursion happens naturally: when a queued ref gets delivered on the next tool call, `preload_ensure()` fires again, scans THAT file, queues ITS refs. The recursion is implicit via the preload pipeline, not explicit via a depth parameter.
+
+**Scanning algorithm** (unchanged):
 
 1. **Two-pass regex**: First strip code fences and backtick spans (inert per `INV_BACKTICK_INERT_SIGIL`), then extract bare `§PREFIX_NAME` patterns.
 2. **Walk-up resolution**: Starting from the file's directory, check `.directives/{prefix_folder}/` at each ancestor level up to the project root, then fall back to `~/.claude/engine/.directives/`.
 3. **Prefix-to-folder mapping**: `CMD → commands/`, `FMT → formats/`, `INV → invariants/`.
-4. **Recursion**: Resolved files are themselves scanned (up to depth 2 by default), building a transitive closure of references.
-5. **SKILL.md exception**: SKILL.md files are excluded from CMD preloading (preserves lazy per-phase loading). SKILL.md CAN trigger FMT preloading.
+4. **SKILL.md exception**: SKILL.md files are excluded from CMD preloading (preserves lazy per-phase loading). SKILL.md CAN trigger FMT/INV preloading.
 
-Resolved paths are queued in `pendingPreloads` for delivery on the next tool call.
+**What changes**: No explicit recursion or depth parameter. Each file is scanned once (depth=1) when it enters the pipeline. Its refs get queued, delivered, scanned, and their refs queued — the pipeline IS the recursion. No hook needs to know about reference resolution. `resolve_refs()` calls are removed from templates hook, overflow-v2, and UPS hook.
+
+**What to remove after migration**:
+*   `resolve_refs()` calls from `post-tool-use-templates.sh`
+*   `resolve_refs()` calls from `_claim_and_preload()` in `pre-tool-use-overflow-v2.sh`
+*   `resolve_refs()` calls from `user-prompt-submit-session-gate.sh`
+*   The `depth` parameter in `resolve_refs()` (always 1 — pipeline handles recursion)
 
 ---
 
@@ -445,26 +456,50 @@ preload_ensure() {
   # 3. Check dedup (path + inode) against preloadedFiles
   if _is_already_preloaded "$normalized" "$state_file"; then
     _log_delivery "$HOOK_NAME" "skip-dedup" "$normalized" "$source"
-    echo "skipped"
     return 0
   fi
 
   # 4. Deliver or queue
   if [ "$urgency" = "immediate" ]; then
-    # Direct delivery + atomic state update (under lock, not best-effort)
     _atomic_deliver_and_track "$normalized" "$state_file"
     _log_delivery "$HOOK_NAME" "direct-deliver" "$normalized" "$source"
-    echo "delivered"
   else
-    # Queue to pendingPreloads
     _queue_pending "$normalized" "$state_file"
     _log_delivery "$HOOK_NAME" "queue-pending" "$normalized" "$source"
-    echo "queued"
   fi
+
+  # 5. Auto-expand: scan for § refs and queue them
+  _auto_expand_refs "$normalized" "$state_file"
+}
+
+_auto_expand_refs() {
+  local file="$1" state_file="$2"
+
+  # SKILL.md: allow FMT/INV refs but skip CMD refs (preserve lazy per-phase loading)
+  local skip_cmd=false
+  [[ "$file" == */SKILL.md ]] && skip_cmd=true
+
+  local already_loaded
+  already_loaded=$(jq -c '.preloadedFiles // []' "$state_file" 2>/dev/null || echo '[]')
+
+  # depth=1: no explicit recursion — pipeline handles it naturally
+  # (queued refs get delivered → preload_ensure fires → _auto_expand_refs fires → ...)
+  local refs
+  refs=$(resolve_refs "$file" 1 "$already_loaded")
+
+  while IFS= read -r ref_path; do
+    [ -z "$ref_path" ] && continue
+    [ "$skip_cmd" = true ] && [[ "$ref_path" == */CMD_* ]] && continue
+    preload_ensure "$ref_path" "auto-expand($file)" "next"
+  done <<< "$refs"
 }
 ```
 
-**Key change**: The `immediate` path does an atomic state update under lock — not the current best-effort `( ... ) || true` subshell. This eliminates the dedup gap that causes re-delivery.
+**Key changes**:
+
+*   The `immediate` path does an atomic state update under lock — not the current best-effort `( ... ) || true` subshell. This eliminates the dedup gap that causes re-delivery.
+*   **Auto-expansion** (step 5): Every preloaded file is automatically scanned for `§` references. Discovered refs are queued via `preload_ensure()` itself — recursion through the pipeline, not through a depth parameter. No hook needs to call `resolve_refs()` directly.
+*   **SKILL.md CMD exclusion** preserved: SKILL.md `§CMD_*` refs are skipped (lazy per-phase loading). `§FMT_*` and `§INV_*` refs from SKILL.md are expanded normally.
 
 Hooks are reduced to two responsibilities:
 *   **When to fire** (trigger conditions — unchanged)

@@ -530,6 +530,31 @@ case "$ACTION" in
       SHOULD_SCAN=true
     fi
 
+    # --- Seed File Merge ---
+    # If a pre-session seed file exists for this PID, merge its tracking fields
+    # into the session .state.json and delete the seed.
+    SESSIONS_BASE=$(dirname "$DIR")
+    SEED_FILE="$SESSIONS_BASE/.seeds/${TARGET_PID}.json"
+    if [ -f "$SEED_FILE" ]; then
+      SEED_LIFECYCLE=$(jq -r '.lifecycle // ""' "$SEED_FILE" 2>/dev/null || echo "")
+      if [ "$SEED_LIFECYCLE" = "seeding" ]; then
+        # Merge: seed preloadedFiles + pendingPreloads + touchedDirs into session state
+        jq -s '
+          (.[0].preloadedFiles // []) as $sp |
+          (.[1].preloadedFiles // []) as $seedp |
+          (.[0].pendingPreloads // []) as $pp |
+          (.[1].pendingPreloads // []) as $seedpp |
+          (.[0].touchedDirs // {}) as $td |
+          (.[1].touchedDirs // {}) as $seedtd |
+          .[0] |
+          .preloadedFiles = ($sp + $seedp | unique) |
+          .pendingPreloads = ($pp + $seedpp | unique) |
+          .touchedDirs = ($td * $seedtd)
+        ' "$STATE_FILE" "$SEED_FILE" | safe_json_write "$STATE_FILE"
+        rm -f "$SEED_FILE"
+      fi
+    fi
+
     # --- Fast-Track Override ---
     # --fast-track forces SHOULD_SCAN=false regardless of which code path set it.
     # Stores fastTrack: true in .state.json (informational — not read on restart).

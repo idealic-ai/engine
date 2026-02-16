@@ -30,8 +30,8 @@ Six sigils encode distinct semantic namespaces. Each is greppable and non-collid
 
 *   **`%`**
   *   **Name**: Percent
-  *   **Semantics**: **Pane ID** — tmux pane identifiers in the fleet system
-  *   **Examples**: `%0`, `%12`, `%999`
+  *   **Semantics**: **Fleet pane target** — pane identifiers for routing and coordination
+  *   **Examples**: `%0`, `%12` (numeric tmux IDs), `%auth:Coordinator`, `%data:Worker-1` (named fleet labels)
 
 ### `SRC_` — Engine Data Sources
 
@@ -94,13 +94,54 @@ Epic and chapter references use path-based semantic slugs mirroring project stru
 *   **Usage**: Chapter headings, dependency graphs, inline references, workspace arguments.
 *   **Discovery**: `grep '@app/' docs/` finds all epics in the `app` scope.
 
-### `%` — Tmux Pane IDs
+### `%` — Fleet Pane Targets
 
-Tmux assigns numeric pane identifiers prefixed with `%`. Used throughout the fleet system for pane coordination.
+The `%` sigil identifies fleet panes. Two formats exist:
 
-*   **Format**: `%N` where N is a non-negative integer (e.g., `%0`, `%12`)
-*   **Scope**: Fleet coordination — `@pane_last_coordinated`, `--panes` filters, pane state tracking.
-*   **Not a sigil in documents**: Unlike `§`, `¶`, `#`, and `@`, the `%` sigil does not appear in Markdown artifacts. It exists only in tmux state and fleet scripts.
+*   **Numeric** (`%N`): Raw tmux pane IDs (e.g., `%0`, `%12`). Used internally by tmux and fleet scripts for pane state tracking.
+*   **Named** (`%window:label`): Human-readable fleet pane labels (e.g., `%auth:Coordinator`, `%data:Worker-1`). Used in tags for targeted delegation — `#delegated-implementation %auth:Worker-1` routes work to a specific pane.
+
+**Scope**:
+*   Numeric `%N` — tmux internals, `--panes` filters, `@pane_last_coordinated`.
+*   Named `%window:label` — tag targeting (`FLEET_TARGETED_CLAIMS`), fleet.yml pane identity, `FLEET_PANE` env var values.
+*   `await-next` matches named `%` targets in tags via literal string grep against the pane's `FLEET_PANE` value.
+*   **Not a sigil in documents**: Unlike `§`, `¶`, `#`, and `@`, the `%` sigil does not appear in Markdown prose. It exists in tmux state, fleet scripts, and as inline modifiers on delegation tags.
+
+### `FLEET_*` — Capability Env Vars
+
+Five environment variables define a fleet agent's identity and responsibilities. Sourced by `run.sh` from tmux pane options (which are set by `fleet.sh start` from `fleet.yml`). Identity is capability-based, not role-based — a "worker" is `FLEET_CLAIMS` + no `FLEET_MANAGES`; a "coordinator" is `FLEET_CLAIMS` + `FLEET_MANAGES`. No role enum exists (`¶INV_CAPABILITY_OVER_ROLE`).
+
+**Sourcing pipeline**: `fleet.yml` → `fleet.sh start` writes tmux `@pane_*` options → `run.sh` reads tmux options → exports `FLEET_*` env vars → launches Claude.
+
+*   **`FLEET_PANE`**
+  *   **Semantics**: Self-identity. The `window:label` of this pane.
+  *   **Format**: `window:label` (e.g., `auth:Coordinator`, `data:Worker-1`)
+  *   **Set by**: `run.sh` from `@pane_label` + tmux window name
+  *   **Used by**: `await-next` tag matching — matches `%window:label` targets in delegation tags
+
+*   **`FLEET_PARENT`**
+  *   **Semantics**: Parent pane label for escalation signaling.
+  *   **Format**: `window:label` (e.g., `main:Director`)
+  *   **Set by**: `run.sh` from `@pane_parent`
+  *   **Used by**: Child-wake signal routing — `tmux wait-for -S` to wake parent on state change
+
+*   **`FLEET_CLAIMS`**
+  *   **Semantics**: Untargeted skill types this agent accepts.
+  *   **Format**: Comma-separated nouns (e.g., `documentation,chores`)
+  *   **Set by**: `run.sh` from `@pane_claims`
+  *   **Used by**: `await-next` tag scanning — matches `#delegated-{noun}` tags without a `%` target
+
+*   **`FLEET_TARGETED_CLAIMS`**
+  *   **Semantics**: Targeted assignments with `%pane-id`.
+  *   **Format**: Comma-separated nouns (e.g., `implementation,fix`)
+  *   **Set by**: `run.sh` from `@pane_targeted_claims`
+  *   **Used by**: `await-next` tag scanning — matches `#delegated-{noun} %{FLEET_PANE}` tags
+
+*   **`FLEET_MANAGES`**
+  *   **Semantics**: Child panes this agent monitors.
+  *   **Format**: Comma-separated `window:label` values (e.g., `auth:Worker-1,auth:Worker-2`)
+  *   **Set by**: `run.sh` from `@pane_manages`
+  *   **Used by**: `await-next` child-wake channel — monitors managed panes for state changes
 
 ### `#` — Tags
 

@@ -99,6 +99,32 @@ for sessions_dir in "${SESSION_DIRS[@]}"; do
     jq --argjson stds "$PRELOAD_SEEDS" \
       '.preloadedFiles = $stds | .touchedDirs = {} | .pendingPreloads = [] | .pendingAllowInjections = []' "$f" | safe_json_write "$f"
   done
+
+  # Clean stale seed files (dead PIDs) and create fresh seed for this process
+  SEEDS_DIR="$sessions_dir/.seeds"
+  if [ -d "$SEEDS_DIR" ]; then
+    for seed_file in "$SEEDS_DIR"/*.json; do
+      [ -f "$seed_file" ] || continue
+      SEED_PID=$(jq -r '.pid // 0' "$seed_file" 2>/dev/null || echo "0")
+      if [ "$SEED_PID" != "0" ] && ! pid_exists "$SEED_PID"; then
+        debug "  cleaning stale seed: $(basename "$seed_file") (PID $SEED_PID dead)"
+        rm -f "$seed_file"
+      fi
+    done
+  fi
+
+  # Create fresh seed for this Claude process
+  mkdir -p "$sessions_dir/.seeds"
+  SEED_FILE="$sessions_dir/.seeds/$PPID.json"
+  jq -n --argjson pid "$PPID" --argjson seeds "$PRELOAD_SEEDS" '{
+    pid: $pid,
+    lifecycle: "seeding",
+    preloadedFiles: $seeds,
+    pendingPreloads: [],
+    touchedDirs: {}
+  }' > "$SEED_FILE"
+  _log_delivery "session-start" "seed" "$SEED_FILE" "create-seed(pid=$PPID)"
+  debug "  created seed: $SEED_FILE"
 done
 
 # Preload core standards — available to agent from first message

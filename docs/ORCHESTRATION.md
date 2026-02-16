@@ -28,7 +28,7 @@ The orchestration system has three layers, each with a distinct lifecycle and ow
 │  Lifecycle: One per /coordinate session            │
 ├─────────────────────────────────────────────────┤
 │  Coordinator Loop (SKILL.md runtime)               │
-│  Event-driven pane processing — coordinate-wait,   │
+│  Event-driven pane processing — await-next,   │
 │  state model, focus detection, serial processing│
 │  Defined in: coordinate/SKILL.md                   │
 │  Lifecycle: Runs continuously within a session  │
@@ -54,9 +54,9 @@ The separation addresses three distinct concerns that change at different rates:
 
 ---
 
-## 2. coordinate-wait v2
+## 2. await-next v2
 
-The core loop primitive. Replaces the previous multi-call pattern (`coordinate-wait` + `coordinator-connect` + `capture-pane` + `coordinator-disconnect`) with a single blocking call per iteration.
+The core loop primitive. A single blocking call per iteration that handles pane engagement, transcript reading, and lifecycle management.
 
 For full loop mechanics, state model, and decision engine details, see `COORDINATE.md`.
 
@@ -72,11 +72,11 @@ Call N:
   3. Pick highest priority:
      - error > unchecked > done
   4. Auto-connect (set @pane_coordinator_active = 1, purple bg)
-  5. Capture pane content (capture-pane internally)
+  5. Read worker transcript (JSONL) for last AskUserQuestion
   6. Return to caller
 ```
 
-The key insight (from brainstorm Round 3): disconnect should be automatic on the *next* call, not explicit after processing. This means `coordinate-wait` call N auto-disconnects whatever call N-1 connected, then sweeps and connects a new pane. The loop body becomes truly single-command: just keep calling `coordinate-wait`.
+The key insight (from brainstorm Round 3): disconnect should be automatic on the *next* call, not explicit after processing. This means `await-next` call N auto-disconnects whatever call N-1 connected, then sweeps and connects a new pane. The loop body becomes truly single-command: just keep calling `await-next`.
 
 ### Output Format
 
@@ -86,7 +86,7 @@ pane_id|state|label|location
 {capture JSON}
 ```
 
-The first line provides routing metadata. The JSON blob contains structured `capture-pane` output: `paneId`, `paneLabel`, `notifyState`, `hasQuestion`, `questionText`, `options`, `preamble`, and raw terminal content.
+The first line provides routing metadata. The JSON blob contains the `AskUserQuestion` call extracted from the worker's conversation transcript — questions, options, descriptions, and headers as exact structured data.
 
 **Timeout** (no actionable panes within timeout period):
 ```
@@ -104,7 +104,7 @@ The `FOCUSED` return is distinct from `TIMEOUT` — it tells the coordinator "th
 
 ### Lifecycle Management
 
-The caller never calls `coordinator-connect` or `coordinator-disconnect` directly (`§INV_COORDINATE_WAIT_LIFECYCLE`). `coordinate-wait` manages the full lifecycle:
+The caller never calls `coordinator-connect` or `coordinator-disconnect` directly (`§INV_AWAIT_NEXT_LIFECYCLE`). `await-next` manages the full lifecycle:
 
 - **Call 1**: No previous pane. Sweep → connect → return.
 - **Call N**: Disconnect call N-1's pane → sweep → connect → return.
@@ -113,7 +113,7 @@ The caller never calls `coordinator-connect` or `coordinator-disconnect` directl
 
 ### Blocking Mechanics
 
-When no actionable panes exist, `coordinate-wait` blocks efficiently using `tmux wait-for coordinator-wake` rather than polling. Workers automatically fire the wake signal when `engine fleet notify` sets `unchecked`/`error`/`done` on any pane. After wake, `coordinate-wait` re-sweeps to get current state (the wake signal just says "something changed," not what changed).
+When no actionable panes exist, `await-next` blocks efficiently using `tmux wait-for coordinator-wake` rather than polling. Workers automatically fire the wake signal when `engine fleet notify` sets `unchecked`/`error`/`done` on any pane. After wake, `await-next` re-sweeps to get current state (the wake signal just says "something changed," not what changed).
 
 ### Inputs
 
@@ -129,7 +129,7 @@ Pane state is three orthogonal dimensions. This model emerged from brainstorm Ro
 | Dimension | Variable | Values | Set By | Meaning |
 |-----------|----------|--------|--------|---------|
 | **Notify** | `@pane_notify` | working, unchecked, error, done, checked | `fleet.sh notify` | WHAT happened in the pane |
-| **Coordinator** | `@pane_coordinator_active` | 0/1 | `coordinate-wait` (auto) | WHO:bot — coordinator is processing |
+| **Coordinator** | `@pane_coordinator_active` | 0/1 | `await-next` (auto) | WHO:bot — coordinator is processing |
 | **User Focus** | `@pane_user_focused` | 0/1 | tmux focus hook | WHO:human — user is looking at it |
 
 ### Why Three Dimensions?
@@ -143,7 +143,7 @@ The three-dimension model separates concerns cleanly:
 
 ### Dimension Interactions
 
-- `coordinate-wait` filters: skip panes where `@pane_user_focused = 1` OR `@pane_coordinator_active = 1`
+- `await-next` filters: skip panes where `@pane_user_focused = 1` OR `@pane_coordinator_active = 1`
 - When user focuses a managed pane (`coordinator_active=1`): coordinator detects, aborts, disconnects, sets notify back to `unchecked`
 - When user focuses out: `@pane_user_focused` clears, pane re-enters coordinator eligibility
 - `notify-check` (existing): transitions `unchecked → checked` on focus. This is orthogonal to `@pane_user_focused`.
@@ -173,7 +173,7 @@ The coordinator must detect mid-processing that the user focused its current pan
 2. **tmux hook notification**: The focus hook writes to a signal file or sends a tmux signal. More responsive.
 3. **Combined**: Focus hook sets the flag + sends a wake signal to a named pipe the coordinator monitors.
 
-The interrupt behavior: abort current processing → disconnect → set notify to `unchecked` → return to `coordinate-wait`.
+The interrupt behavior: abort current processing → disconnect → set notify to `unchecked` → return to `await-next`.
 
 For full details on the state model, focus mechanics, and interrupt handling, see `COORDINATE.md` §Three-Dimensional State Model and §Focus & Interrupt Mechanics.
 
@@ -370,7 +370,7 @@ This is the core "self-driving" behavior (brainstorm Round 8). The user produces
 **Execution flow**:
 1. User invokes `/coordinate` with the vision doc path. Coordinator claims Chapter 1.
 2. Coordinator creates `sessions/2026_02_15_CHAPTER_1_SEPARATE_CONCERNS/`, populates chapter plan.
-3. Coordinator dispatches work items to API group workers via `tmux send-keys`.
+3. Coordinator dispatches work items to API group workers via delegation tags.
 4. Workers ask questions → coordinator answers autonomously or escalates.
 5. All checkboxes checked, completion criteria met → coordinator marks `#done-coordinate` on Chapter 1.
 6. Coordinator synthesizes Chapter 1 session, scans vision, claims Chapter 2.
@@ -384,7 +384,7 @@ Total human interaction: vision creation + occasional escalations. Potentially h
 | Failure | What Happens | Recovery |
 |---------|-------------|----------|
 | **Context overflow mid-chapter** | Dehydrate → restart → resume at saved phase. Chapter plan checkboxes preserved. | Automatic via `§CMD_DEHYDRATE` / `§CMD_RESUME_SESSION`. The coordinator resumes its event loop with the same chapter plan. |
-| **Worker crashes** | Worker's pane shows error state. Coordinator detects via `coordinate-wait` (`error` priority). | Coordinator escalates to human. `§INV_COORDINATOR_NEVER_RESTARTS_WORKERS` — the coordinator never kills or restarts workers. |
+| **Worker crashes** | Worker's pane shows error state. Coordinator detects via `await-next` (`error` priority). | Coordinator escalates to human. `§INV_COORDINATOR_NEVER_RESTARTS_WORKERS` — the coordinator never kills or restarts workers. |
 | **Vision changes mid-chapter** | Coordinator doesn't see changes until next chapter boundary. | By design. Mid-chapter stability prevents half-completed chapters from drifting. User can force a chapter restart by manually swapping `#claimed-coordinate` → `#needs-coordinate`. |
 | **Chapter fails (criteria never met)** | Coordinator keeps waiting. After consecutive timeouts, escalates to human. | Human can: (a) fix the blocking issue, (b) relax completion criteria in the chapter plan, (c) skip the chapter via manual tag swap. |
 | **All workers stuck** | All managed panes show `unchecked` or `error`. Coordinator escalates each one. | Human intervention required. The coordinator surfaces the situation but cannot resolve stuck workers. |
@@ -513,7 +513,7 @@ Between session activation and the main loop:
 
 ```
 while true:
-  result = coordinate-wait(--timeout T --managed PANES)
+  result = await-next(--timeout T --managed PANES)
 
   if TIMEOUT:
     check chapter completion criteria
@@ -636,7 +636,7 @@ Comprehensive catalog of edge cases and their expected behavior.
 |-----------|----------|
 | **Two coordinators claim the same chapter** | `engine tag swap` is not race-safe across processes (unlike `tag.sh swap` for daemon claims). This is a known gap — serial chapter execution and single-coordinator design make it unlikely. Future multi-coordinator work must address this. |
 | **Worker makes a git conflict** | The coordinator doesn't manage git. Workers commit independently. Git conflicts are resolved by the workers or escalated to the human. |
-| **Fleet restarts during chapter** | Workers lose their Claude sessions. The coordinator detects changed pane states on the next `coordinate-wait` sweep. Workers' `#unchecked` notifications trigger re-engagement. |
+| **Fleet restarts during chapter** | Workers lose their Claude sessions. The coordinator detects changed pane states on the next `await-next` sweep. Workers' `#unchecked` notifications trigger re-engagement. |
 
 ---
 
@@ -645,7 +645,7 @@ Comprehensive catalog of edge cases and their expected behavior.
 Recommended split (from brainstorm Round 9):
 
 ### Phase 1: Infrastructure (`fleet.sh`)
-- `coordinate-wait` v2 (auto-connect, auto-disconnect, capture inline, priority selection)
+- `await-next` v2 (auto-connect, auto-disconnect, capture inline, priority selection)
 - `@pane_user_focused` flag + tmux focus hook wiring
 - Focus-based interrupt mechanism
 - Tests for all new behavior
@@ -674,9 +674,9 @@ Recommended split (from brainstorm Round 9):
 | `¶INV_SERIAL_PROCESSING` (existing) | One pane at a time. No background signals. | coordinate/SKILL.md |
 | `¶INV_STRICT_CHAPTER_GATES` (new) | Chapter boundaries are sync points. All groups complete before any start next. | Brainstorm Round 6 |
 | `¶INV_VISION_IS_EVERGREEN` (new) | Vision doc is a living document. Coordinator reads latest at chapter start. | Brainstorm Round 8 |
-| `¶INV_COORDINATE_WAIT_LIFECYCLE` (new) | `coordinate-wait` manages connect/disconnect. Caller never calls them directly. | Brainstorm Round 3 |
+| `¶INV_AWAIT_NEXT_LIFECYCLE` (new) | `await-next` manages connect/disconnect. Caller never calls them directly. | Brainstorm Round 3 |
 | `¶INV_AUTO_DISCONNECT_ON_STATE_CHANGE` (existing) | Clears coordinator_active on non-unchecked transition. | fleet.sh |
-| `¶INV_TERMINAL_IS_API` (existing) | Worker communication through TUI only. No custom protocols. | coordinate/SKILL.md |
+| `¶INV_TRANSCRIPT_IS_API` (new) | Worker questions read from transcripts; answers via send-keys. | coordinate/SKILL.md |
 | `¶INV_COORDINATOR_NEVER_RESTARTS_WORKERS` (existing) | Coordinator sends keystrokes only. Stuck workers escalated to human. | coordinate/SKILL.md |
 
 ---

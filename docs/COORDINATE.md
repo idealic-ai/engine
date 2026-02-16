@@ -13,13 +13,13 @@ This document defines the single-session mechanics of the coordinator — everyt
 
 The coordinator is a persistent Claude Code agent that monitors a fleet of worker agents, answering their questions autonomously when confident and escalating to the human when uncertain. It runs as a long-lived event loop within a single `/coordinate` session.
 
-**The mental model**: A manager who reads terminals. The coordinator sits in its own tmux pane, watches worker panes for activity, reads what workers are asking, decides whether to answer or escalate, and types responses into worker panes via `tmux send-keys`. It never runs worker code, never restarts workers, never touches the filesystem on workers' behalf. It only sends keystrokes.
+**The mental model**: A manager who reads transcripts. The coordinator sits in its own tmux pane, watches worker panes for state changes, reads worker questions directly from their conversation transcripts (JSONL), decides whether to answer or escalate, and types responses into worker panes via `tmux send-keys`. It never runs worker code, never restarts workers, never touches the filesystem on workers' behalf.
 
 ### Key Properties
 
-- **Event-driven, not polling**: The coordinator blocks on `coordinate-wait` until a worker needs attention. Zero CPU cost while idle.
+- **Event-driven, not polling**: The coordinator blocks on `await-next` until a worker needs attention. Zero CPU cost while idle.
 - **Serial processing**: One worker at a time (`§INV_SERIAL_PROCESSING`). The coordinator finishes with one pane before moving to the next. No parallel decision-making.
-- **TUI-only communication** (`§INV_TERMINAL_IS_API`): Worker communication happens through the existing terminal UI. No custom protocols, no file-based handshakes, no signals. The coordinator reads terminal output and types responses.
+- **Transcript-based reading** (`§INV_TRANSCRIPT_IS_API`): Worker questions are read from conversation transcripts (JSONL), where `AskUserQuestion` calls are structured data. No terminal parsing or heuristic question detection. Answers are typed via `tmux send-keys`.
 - **Never restarts workers** (`§INV_COORDINATOR_NEVER_RESTARTS_WORKERS`): The coordinator sends keystrokes only. If a worker is stuck, the coordinator escalates to the human. It never kills or restarts worker processes.
 - **Long-running**: The coordinator is designed to run for hours. Context overflow is expected and handled via dehydration/restart.
 
@@ -35,7 +35,7 @@ The coordinator runs in a dedicated tmux pane (configured in fleet.yml). This pa
 
 ## 2. The Event Loop
 
-The coordinator's main loop is built on `coordinate-wait` v2 — a single blocking call that handles the full lifecycle of pane engagement.
+The coordinator's main loop is built on `await-next` v2 — a single blocking call that handles the full lifecycle of pane engagement.
 
 ### Loop Structure
 
@@ -46,11 +46,11 @@ The coordinator's main loop is built on `coordinate-wait` v2 — a single blocki
 │                                                      │
 │  while true:                                         │
 │    │                                                 │
-│    ├─► coordinate-wait(timeout, managed_panes)          │
+│    ├─► await-next(timeout, managed_panes)               │
 │    │     [blocks until pane needs attention]          │
 │    │     [auto-disconnects previous pane]             │
 │    │     [auto-connects new pane (purple)]            │
-│    │     [captures pane content]                      │
+│    │     [reads worker transcript for question]       │
 │    │                                                 │
 │    ├─► Parse return value                            │
 │    │     TIMEOUT → idle heartbeat, check completion  │
@@ -65,8 +65,8 @@ The coordinator's main loop is built on `coordinate-wait` v2 — a single blocki
 │    │     Category match → escalate immediately       │
 │    │                                                 │
 │    ├─► Execute                                       │
-│    │     tmux send-keys (answer)                     │
-│    │     or escalate to human in chat                │
+│    │     tmux send-keys (answer to worker)           │
+│    │     or escalate to human in coordinator chat    │
 │    │                                                 │
 │    └─► Log (if in alwaysLog categories)              │
 │                                                      │
@@ -78,15 +78,15 @@ The coordinator's main loop is built on `coordinate-wait` v2 — a single blocki
 └──────────────────────────────────────────────────────┘
 ```
 
-### coordinate-wait v2 in Detail
+### await-next in Detail (Coordinator Mode)
 
-The core primitive. Each call to `coordinate-wait` performs a complete engagement cycle:
+The core primitive. Each call to `await-next` (when `FLEET_MANAGES` is set) performs a complete engagement cycle:
 
 **Step 1 — Auto-disconnect previous pane**
-If the previous call returned a pane (stored internally as the "last connected" pane), `coordinate-wait` disconnects it: clears `@pane_coordinator_active`, reverts the purple background. This happens at the START of the new call, not at the end of the previous processing.
+If the previous call returned a pane (stored internally as the "last connected" pane), `await-next` disconnects it: clears `@pane_coordinator_active`, reverts the purple background. This happens at the START of the new call, not at the end of the previous processing.
 
 **Step 2 — Sweep for actionable panes**
-Iterates through all managed panes (from `@pane_manages` or `--panes` flag). For each pane, reads `@pane_notify`, `@pane_coordinator_active`, and `@pane_user_focused`. Filters:
+Iterates through all managed panes (from `FLEET_MANAGES` or `--panes` flag). For each pane, reads `@pane_notify`, `@pane_coordinator_active`, and `@pane_user_focused`. Filters:
 - Skip if `@pane_user_focused = 1` (human is looking at it)
 - Skip if `@pane_coordinator_active = 1` (shouldn't happen after disconnect, but defensive)
 - Include if `@pane_notify` is `unchecked`, `error`, or `done`
@@ -104,23 +104,25 @@ After wake (or after the `--timeout` expires), re-sweep to get current state. Th
 **Step 5 — Auto-connect**
 Set `@pane_coordinator_active = 1` on the selected pane. Apply the purple background tint (visual indicator that the coordinator is engaged).
 
-**Step 6 — Capture**
-Run `engine fleet capture-pane` on the selected pane. Returns structured JSON with terminal content, question detection, and AskUserQuestion metadata.
+**Step 6 — Read transcript**
+Look up the worker's `sessionId` from its `.state.json` (via `fleetPaneId` match). Read the conversation transcript JSONL at `~/.claude/projects/-*/conversations/{sessionId}.jsonl`. Extract the last `AskUserQuestion` tool call — the question, options, descriptions, and headers are available as exact structured JSON. No terminal parsing needed.
+
+Supplementary: `capture-pane` may still be called for terminal context (progress, errors, non-question state) but is NOT the primary question detection mechanism.
 
 **Step 7 — Return**
-Output `pane_id|state|label|location` on the first line, followed by the capture JSON on subsequent lines.
+Output `CHILD pane_id|state|label` on the first line, followed by the transcript-extracted question JSON on subsequent lines.
 
 ### Return Values
 
 | Return | Meaning | Coordinator Action |
 |--------|---------|-----------------|
-| `pane_id\|state\|label\|location` + JSON | Worker needs attention | Process: assess → decide → execute |
+| `CHILD pane_id\|state\|label` + transcript JSON | Worker needs attention | Process: assess → decide → execute |
 | `TIMEOUT` + `STATUS ...` | No activity within timeout | Idle heartbeat, check chapter completion |
 | `FOCUSED` + `STATUS ...` | All panes user-focused | Skip cycle, log if needed |
 
 ### The "Sweep-First" Optimization
 
-`coordinate-wait` sweeps BEFORE blocking. This handles the common case where a worker fired `notify unchecked` while the coordinator was processing the previous pane. Without sweep-first, the coordinator would block on `wait-for` even though actionable panes already exist. With sweep-first, it detects them immediately and returns without blocking.
+`await-next` sweeps BEFORE blocking. This handles the common case where a worker fired `notify unchecked` while the coordinator was processing the previous pane. Without sweep-first, the coordinator would block on `wait-for` even though actionable panes already exist. With sweep-first, it detects them immediately and returns without blocking.
 
 ---
 
@@ -133,7 +135,7 @@ Pane state is three orthogonal boolean/enum dimensions that together describe th
 | Dimension | Variable | Values | Set By | Answers |
 |-----------|----------|--------|--------|---------|
 | **Notify** | `@pane_notify` | working, unchecked, error, done, checked | `engine fleet notify` | WHAT happened? |
-| **Coordinator** | `@pane_coordinator_active` | 0 / 1 | `coordinate-wait` (auto-connect/disconnect) | Is the bot handling it? |
+| **Coordinator** | `@pane_coordinator_active` | 0 / 1 | `await-next` (auto-connect/disconnect) | Is the bot handling it? |
 | **User Focus** | `@pane_user_focused` | 0 / 1 | tmux focus hook (`pane-focus-in` / `pane-focus-out`) | Is the human looking at it? |
 
 ### Why Three Dimensions?
@@ -160,13 +162,13 @@ The notify dimension is set by workers (via `engine fleet notify`) and the focus
 ### Coordinator Active Transitions
 
 ```
-0 ──► 1    coordinate-wait auto-connects (purple bg applied)
-1 ──► 0    coordinate-wait auto-disconnects on next call
+0 ──► 1    await-next auto-connects (purple bg applied)
+1 ──► 0    await-next auto-disconnects on next call
 1 ──► 0    Focus override: user focuses managed pane, coordinator aborts
 1 ──► 0    §INV_AUTO_DISCONNECT_ON_STATE_CHANGE: non-unchecked notify transition
 ```
 
-The coordinator dimension is managed entirely by `coordinate-wait` and the abort mechanism. Workers and users never set it directly.
+The coordinator dimension is managed entirely by `await-next` and the abort mechanism. Workers and users never set it directly.
 
 ### User Focus Transitions
 
@@ -201,7 +203,7 @@ How the coordinator assesses worker questions and decides whether to answer auto
 ### Assessment Flow
 
 ```
-Question arrives (from capture-pane JSON)
+Question arrives (from worker transcript)
   │
   ├─► Category Check (from config alwaysEscalate)
   │     Match? → ESCALATE (category rule override)
@@ -283,28 +285,43 @@ Example: A worker asks "Should I write tests for this utility function?" The con
 
 ## 5. Worker Communication
 
-All worker communication follows the TUI-only constraint (`§INV_TERMINAL_IS_API`).
+Worker communication uses a split model (`§INV_TRANSCRIPT_IS_API`): questions are read from conversation transcripts; answers are written via `tmux send-keys`.
 
-### Reading Worker Output
+### Reading Worker Questions (Transcript)
 
-The coordinator reads worker state via `engine fleet capture-pane`, which returns structured JSON:
+The coordinator reads worker questions from the Claude Code conversation transcript (JSONL). When a worker calls `AskUserQuestion`, the exact call appears in the transcript:
 
 ```json
 {
-  "paneId": "Main",
-  "paneLabel": "Main",
-  "notifyState": "unchecked",
-  "hasQuestion": true,
-  "questionText": "Which database migration strategy should we use?",
-  "options": [
-    {"label": "Incremental migrations", "description": "Add new columns, keep old ones"},
-    {"label": "Full schema rewrite", "description": "Drop and recreate tables"}
-  ],
-  "preamble": "I've analyzed the current schema and found 3 tables that need updating..."
+  "type": "tool_use",
+  "name": "AskUserQuestion",
+  "input": {
+    "questions": [
+      {
+        "question": "Which database migration strategy should we use?",
+        "header": "Strategy",
+        "multiSelect": false,
+        "options": [
+          {"label": "Incremental migrations", "description": "Add new columns, keep old ones"},
+          {"label": "Full schema rewrite", "description": "Drop and recreate tables"}
+        ]
+      }
+    ]
+  }
 }
 ```
 
-The `hasQuestion` flag indicates whether an `AskUserQuestion` prompt is active. When `true`, the coordinator can parse the question, options, and preamble to make an informed decision.
+**Discovery path**: Worker's `fleetPaneId` in `.state.json` → `sessionId` → `~/.claude/projects/-*/conversations/{sessionId}.jsonl` → last `AskUserQuestion` tool call.
+
+**Timing**: The STOP hook (when Claude pauses for user input) fires `notify unchecked` after a small delay, ensuring the transcript JSONL has been flushed before the coordinator reads it. No race between write and read.
+
+**Advantages over terminal parsing**:
+- Questions, options, descriptions, headers — exact structured data, no parsing loss
+- `multiSelect` flag available (terminal parsing couldn't detect this)
+- No false positives from terminal rendering artifacts
+- No edge case from partial renders or mid-typing captures
+
+**Supplementary context**: `capture-pane` may still be called for non-question context (worker progress, error messages, tool output) but is NOT the primary question detection mechanism.
 
 ### Sending Responses
 
@@ -324,9 +341,9 @@ tmux -L fleet send-keys -t [pane_id] "[response text]" Enter
 
 ### Communication Constraints
 
-- **No file-based handshakes**: The coordinator doesn't write files for workers to read. Communication is terminal-only.
+- **Read via transcript, write via terminal**: Split model. No file-based handshakes between coordinator and worker — transcripts are read-only, send-keys is write-only.
 - **No custom signals**: The coordinator doesn't send tmux signals or write to named pipes. Just keystrokes.
-- **One response per engagement**: The coordinator sends one response per `coordinate-wait` cycle. If the worker needs follow-up, it will fire another `unchecked` notification, and the coordinator will pick it up on the next cycle.
+- **One response per engagement**: The coordinator sends one response per `await-next` cycle. If the worker needs follow-up, it will fire another `unchecked` notification, and the coordinator will pick it up on the next cycle.
 - **No streaming**: The coordinator types the complete response at once. It doesn't stream characters one by one.
 
 ---
@@ -358,7 +375,7 @@ The user can override the coordinator at any time by focusing a worker pane.
 6. Coordinator sets notify back to unchecked
      - The pane re-enters the queue when user focuses away
 
-7. Coordinator returns to coordinate-wait
+7. Coordinator returns to await-next
      - Next call handles lifecycle normally
 ```
 
@@ -366,7 +383,7 @@ The user can override the coordinator at any time by focusing a worker pane.
 
 When the user focuses away from a managed pane:
 1. `pane-focus-out` hook fires → `@pane_user_focused = 0`
-2. The pane becomes eligible for `coordinate-wait` pickup again
+2. The pane becomes eligible for `await-next` pickup again
 3. If the pane's notify state is still `unchecked`, the coordinator will process it on the next sweep
 
 This creates a natural handoff: user looks at a pane → coordinator yields. User looks away → coordinator can pick it back up.
@@ -375,16 +392,16 @@ This creates a natural handoff: user looks at a pane → coordinator yields. Use
 
 | Race | Scenario | Resolution |
 |------|----------|------------|
-| **Focus during block** | User focuses a pane while `coordinate-wait` is blocking on `tmux wait-for` | Irrelevant — `coordinate-wait` filters focused panes on sweep. If the user focuses and then focuses away before the sweep, the pane is eligible. If still focused during sweep, it's skipped. |
-| **Focus during capture** | User focuses the pane between `coordinator-connect` and `capture-pane` | The capture still succeeds (tmux captures regardless of focus). The coordinator detects the focus flag during assessment and aborts. |
+| **Focus during block** | User focuses a pane while `await-next` is blocking on `tmux wait-for` | Irrelevant — `await-next` filters focused panes on sweep. If the user focuses and then focuses away before the sweep, the pane is eligible. If still focused during sweep, it's skipped. |
+| **Focus during transcript read** | User focuses the pane while coordinator is reading the transcript | The transcript read still succeeds (file read is independent of tmux focus). The coordinator detects the focus flag during assessment and aborts. |
 | **Focus during send-keys** | User focuses the pane while the coordinator is typing a response | The keystrokes are still sent (tmux send-keys works regardless of focus). The user sees the coordinator's partial response in the terminal. The coordinator detects the focus after typing and aborts. |
-| **Rapid focus toggle** | User quickly focuses in and out of a managed pane | The flag toggles. If the coordinator is between cycles (in `coordinate-wait`), it filters correctly. If mid-processing, it detects the current state at the next poll point. Rapid toggles may cause the coordinator to abort and then re-pick-up on the next cycle. |
+| **Rapid focus toggle** | User quickly focuses in and out of a managed pane | The flag toggles. If the coordinator is between cycles (in `await-next`), it filters correctly. If mid-processing, it detects the current state at the next poll point. Rapid toggles may cause the coordinator to abort and then re-pick-up on the next cycle. |
 
 ### ESC Interrupt (Coordinator's Own Pane)
 
-The user can press ESC (or Ctrl+C) at any time in the coordinator's pane. This kills the `coordinate-wait` Bash process and returns control to the coordinator.
+The user can press ESC (or Ctrl+C) at any time in the coordinator's pane. This kills the `await-next` Bash process and returns control to the coordinator.
 
-**On ESC detection** (the `coordinate-wait` call exits abnormally):
+**On ESC detection** (the `await-next` call exits abnormally):
 
 The coordinator presents an interaction menu via `AskUserQuestion`:
 > "Oversight interrupted. What would you like to do?"
@@ -444,7 +461,7 @@ The coordinator's behavior is configured via `coordinate.config.json`, which liv
 | `alwaysLog` | string[] | [] | Category descriptions that always get logged |
 | `preEscalation.enabled` | bool | true | Whether to probe before escalating |
 | `preEscalation.probeMessage` | string | "..." | Message sent to worker for clarification |
-| `timeouts.waitTimeout` | int | 300 | Seconds before `coordinate-wait` returns TIMEOUT |
+| `timeouts.waitTimeout` | int | 300 | Seconds before `await-next` returns TIMEOUT |
 | `timeouts.consecutiveTimeoutLimit` | int | 10 | Timeouts before notifying human of idle fleet |
 | `timeouts.idleHeartbeatInterval` | int | 3 | Log heartbeat every N consecutive timeouts |
 | `logging.logAutonomousDecisions` | bool | true | Log autonomous answers |
@@ -505,7 +522,7 @@ The dehydrated JSON includes:
 ### What Gets Lost
 
 - **LLM conversation history**: The new Claude starts fresh. It reads the dehydrated context but doesn't have the full reasoning chain from previous decisions.
-- **In-flight assessment**: If overflow hits mid-assessment, the current pane is abandoned. It will be `unchecked` on the next sweep (the auto-disconnect didn't happen, but the pane's `@pane_coordinator_active` will be stale — the new Claude's first `coordinate-wait` call handles this).
+- **In-flight assessment**: If overflow hits mid-assessment, the current pane is abandoned. It will be `unchecked` on the next sweep (the auto-disconnect didn't happen, but the pane's `@pane_coordinator_active` will be stale — the new Claude's first `await-next` call handles this).
 - **Accumulated context**: The coordinator builds up understanding of each worker's task over many cycles. This is partially preserved in the log but not as rich as the live context.
 
 ### Restart Behavior
@@ -515,7 +532,7 @@ After restart, the new Claude:
 2. Resumes tracking (`engine session continue`)
 3. Reads the chapter plan (checkboxes show progress)
 4. Enters the event loop at Phase 1 (Oversight Loop)
-5. The first `coordinate-wait` call handles any stale `@pane_coordinator_active` flags
+5. The first `await-next` call handles any stale `@pane_coordinator_active` flags
 
 ### Minimizing Overflow Frequency
 
@@ -533,18 +550,18 @@ Detailed handling of unusual situations within a single session.
 
 | Edge Case | What Happens | Resolution |
 |-----------|-------------|------------|
-| **Worker is mid-typing when coordinator captures** | `capture-pane` captures the current terminal state, including partial input. The coordinator may see an incomplete question. | The coordinator should wait for `hasQuestion: true` in the capture JSON. If the capture shows no active question, the pane may have been `unchecked` for a different reason (e.g., tool output). Skip and re-check on next cycle. |
-| **Worker fires `unchecked` but then resolves itself** | The worker's `AskUserQuestion` gets answered by the user or by the worker's own logic before the coordinator reaches it. | `coordinate-wait` captures the pane. The capture shows `hasQuestion: false`. The coordinator disconnects and moves on. No wasted work. |
+| **Worker fires `unchecked` but then resolves itself** | The worker's `AskUserQuestion` gets answered by the user before the coordinator reaches it. | `await-next` reads the transcript — if no pending `AskUserQuestion` (tool result already exists), the coordinator disconnects and moves on. No wasted work. |
 | **Worker fires `error` then recovers** | The worker hits an error, fires `error` state, then self-recovers and fires `working`. | If the coordinator picks up the `error` before recovery, it sees the error state. If the worker recovered first, the sweep sees `working` and skips. The state model is eventually consistent. |
-| **All workers error simultaneously** | Every managed pane is in `error` state. | `coordinate-wait` picks them up one at a time (serial processing). The coordinator escalates each one. The human sees multiple escalation messages in the coordinator's chat. |
+| **All workers error simultaneously** | Every managed pane is in `error` state. | `await-next` picks them up one at a time (serial processing). The coordinator escalates each one. The human sees multiple escalation messages in the coordinator's chat. |
+| **Transcript not yet flushed** | The STOP hook fires `notify unchecked` before the JSONL is fully written. | Mitigated by the small delay in the STOP hook before sending the notify signal. The delay ensures the transcript has the `AskUserQuestion` call before the coordinator reads it. |
 
 ### Timing Edge Cases
 
 | Edge Case | What Happens | Resolution |
 |-----------|-------------|------------|
-| **ESC fires during capture** | The user presses ESC while `capture-pane` is running inside `coordinate-wait`. | `coordinate-wait` exits abnormally. The coordinator presents the ESC menu. The pane may or may not have been captured — the coordinator doesn't use the partial result. |
-| **Timeout fires at the same instant as a wake signal** | `tmux wait-for` returns (either from timeout or signal — unclear which). | `coordinate-wait` re-sweeps regardless of the return reason. If a pane is actionable, it's returned. If not (false wake), TIMEOUT is returned. The re-sweep is the source of truth, not the wake reason. |
-| **Worker sends `notify unchecked` while coordinator is processing another pane** | The wake signal fires but the coordinator is busy. | The signal is "lost" (tmux wait-for is edge-triggered, not queued). But `coordinate-wait`'s sweep-first behavior catches it: the next call sweeps before blocking, finding the unchecked pane. |
+| **ESC fires during await-next** | The user presses ESC while `await-next` is blocking. | `await-next` exits abnormally. The coordinator presents the ESC menu. |
+| **Timeout fires at the same instant as a wake signal** | `tmux wait-for` returns (either from timeout or signal — unclear which). | `await-next` re-sweeps regardless of the return reason. If a pane is actionable, it's returned. If not (false wake), TIMEOUT is returned. The re-sweep is the source of truth, not the wake reason. |
+| **Worker sends `notify unchecked` while coordinator is processing another pane** | The wake signal fires but the coordinator is busy. | The signal is "lost" (tmux wait-for is edge-triggered, not queued). But `await-next`'s sweep-first behavior catches it: the next call sweeps before blocking, finding the unchecked pane. |
 
 ### Config Edge Cases
 
@@ -565,11 +582,12 @@ The coordinator depends on the fleet system (`FLEET.md`) for its infrastructure.
 
 | Component | Used By Coordinator | Purpose |
 |-----------|-----------------|---------|
-| `fleet.yml` config | Pane layout, `@pane_manages` | Defines which panes the coordinator monitors |
-| `engine fleet coordinate-wait` | Event loop | Blocking wait for actionable panes |
-| `engine fleet coordinator-connect` | `coordinate-wait` internal | Purple engagement indicator |
-| `engine fleet coordinator-disconnect` | `coordinate-wait` internal | Clear engagement indicator |
-| `engine fleet capture-pane` | `coordinate-wait` internal | Structured terminal capture |
+| `fleet.yml` config | Pane layout, `FLEET_MANAGES` | Defines which panes the coordinator monitors |
+| `engine fleet await-next` | Event loop | Blocking wait for actionable panes + transcript read |
+| `engine fleet coordinator-connect` | `await-next` internal | Purple engagement indicator |
+| `engine fleet coordinator-disconnect` | `await-next` internal | Clear engagement indicator |
+| `engine fleet capture-pane` | Supplementary | Terminal context (progress, errors) — not for question detection |
+| Worker transcript (JSONL) | Question reading | `AskUserQuestion` calls as structured data |
 | `engine fleet notify` | Workers (not coordinator) | State change signals |
 | `engine fleet status` | Setup validation | Verify fleet is running |
 | tmux `send-keys` | Worker communication | Type responses |
@@ -580,15 +598,16 @@ The coordinator depends on the fleet system (`FLEET.md`) for its infrastructure.
 panes:
   - label: "Coordinator"
     agent: operator
-    manages: ["Main", "Research", "SDK"]  # Sets @pane_manages
+    manages: ["auth:Worker-1", "auth:Worker-2", "data:Worker-1"]  # Sets FLEET_MANAGES
+    claims: ["coordination"]  # Sets FLEET_CLAIMS
     # No 'project' or 'skill' — the coordinator is invoked manually
 ```
 
-The `manages` field is the critical configuration. It defines which panes the coordinator monitors. `coordinate-wait` reads `@pane_manages` from the calling pane to discover its managed set.
+The `manages` field is the critical configuration. It defines which panes the coordinator monitors. `await-next` reads `FLEET_MANAGES` to discover its managed set.
 
 ### Fleet Socket
 
-The coordinator runs within a fleet tmux socket (e.g., `fleet` or `fleet-project`). All `tmux send-keys` commands use the `-L` flag with the fleet socket name. The coordinator auto-detects its socket from the environment (`TMUX` variable).
+The coordinator runs within a fleet tmux socket (e.g., `fleet` or `fleet-project`). All `tmux send-keys` commands use the `-L` flag with the fleet socket name. The coordinator auto-detects its socket from the environment (`TMUX` variable). Transcript reads use `sessionId` from workers' `.state.json` files — no tmux dependency for the read path.
 
 ---
 
