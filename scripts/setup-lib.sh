@@ -390,33 +390,14 @@ configure_hooks() {
       else . + [entry]
       end;
 
-    # PreToolUse: overflow + heartbeat + session-gate
+    # PreToolUse: overflow-v2 (consolidates overflow + heartbeat + directive-gate)
     .hooks.PreToolUse = ((.hooks.PreToolUse // [])
       | add_if_missing({
           "matcher": "*",
           "hooks": [{
             "type": "command",
-            "command": "~/.claude/hooks/pre-tool-use-overflow.sh",
-            "timeout": 5,
-            "statusMessage": "Checking context..."
-          }]
-        })
-      | add_if_missing({
-          "matcher": "*",
-          "hooks": [{
-            "type": "command",
-            "command": "~/.claude/hooks/pre-tool-use-heartbeat.sh",
-            "timeout": 10,
-            "statusMessage": "Checking logging..."
-          }]
-        })
-      | add_if_missing({
-          "matcher": "*",
-          "hooks": [{
-            "type": "command",
-            "command": "~/.claude/hooks/pre-tool-use-session-gate.sh",
-            "timeout": 5,
-            "statusMessage": "Checking session..."
+            "command": "~/.claude/hooks/pre-tool-use-overflow-v2.sh",
+            "timeout": 5
           }]
         })
     )
@@ -461,23 +442,11 @@ configure_hooks() {
         })
     )
 
-    # PostToolUse: complete-notify + discovery
+    # PostToolUseSuccess → PostToolUse migration (legacy compat)
     | (if .hooks.PostToolUseSuccess then
         .hooks.PostToolUse = ((.hooks.PostToolUse // []) + .hooks.PostToolUseSuccess | unique_by(.hooks[0].command))
         | del(.hooks.PostToolUseSuccess)
        else . end)
-    | .hooks.PostToolUse = ((.hooks.PostToolUse // [])
-      | add_if_missing({
-          "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-complete-notify.sh"}]
-        })
-    )
-
-    # PostToolUseFailure
-    | .hooks.PostToolUseFailure = ((.hooks.PostToolUseFailure // [])
-      | add_if_missing({
-          "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-failure-notify.sh"}]
-        })
-    )
   ' 2>/dev/null) || return 1
 
   echo "$merged" > "$settings_file"
