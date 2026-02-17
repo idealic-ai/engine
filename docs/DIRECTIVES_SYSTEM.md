@@ -153,7 +153,7 @@ All 45+ `§CMD_` commands in COMMANDS.md, organized by layer. Each command has a
 - **`§CMD_SUGGEST_EXTERNAL_MODEL`** — External model selection (Gemini)
 - **`§CMD_EXECUTE_EXTERNAL_MODEL`** — Execute via external model with fallback
 - **`§CMD_REPORT_INTENT`** — Phase transition intent blockquote
-- **`§CMD_LOG_INTERACTION`** — Record Q&A to DETAILS.md
+- **`§CMD_LOG_INTERACTION`** — Record Q&A to DIALOGUE.md
 - **`§CMD_INTERROGATE`** — Multi-round Ask-Log loop
 - **`§CMD_EXECUTE_SKILL_PHASES`** — Top-level phase orchestrator
 - **`§CMD_EXECUTE_PHASE_STEPS`** — Per-phase step runner

@@ -45,7 +45,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
     {"label": "5.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "5.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/implement", "/analyze", "/edit-skill", "/chores"],
   "directives": ["PITFALLS.md", "CONTRIBUTING.md"],
@@ -125,7 +125,7 @@ Parse the user's arguments to determine input type:
 
 **Session ID**: Read the session's artifacts in order:
 1.  `*_LOG.md` -- The raw work stream. Look for friction, repeated blocks, skipped steps.
-2.  `DETAILS.md` -- Q&A interactions. Look for misunderstandings, unclear questions.
+2.  `DIALOGUE.md` -- Q&A interactions. Look for misunderstandings, unclear questions.
 3.  `*_PLAN.md` -- If present. Check plan quality, step clarity.
 4.  Debrief (`*.md` matching debrief template) -- Check completeness, quality.
 

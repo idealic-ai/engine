@@ -75,7 +75,7 @@ Invoke §CMD_DECISION_TREE with `§ASK_WALKTHROUGH_GRANULARITY`. Use the `gateQu
 
 ### Step 4: Batch Shortcuts
 
-If the user gives a batch instruction ("dismiss the rest", "delegate all remaining to /implement"), obey immediately. Apply batch action to all remaining items. Log to DETAILS.md. Proceed to Step 5.
+If the user gives a batch instruction ("dismiss the rest", "delegate all remaining to /implement"), obey immediately. Apply batch action to all remaining items. Log to DIALOGUE.md. Proceed to Step 5.
 
 ### Step 5: Summary
 
@@ -123,7 +123,7 @@ Each skill provides inline configuration in its SKILL.md:
 *   **Group size**: Fixed at 4 (matching `AskUserQuestion` max). Last group gets remainder.
 *   **Decision commands**: Results → §CMD_TAG_TRIAGE. Plan → §CMD_DECISION_TREE.
 *   **Idempotent**: If called multiple times, present unprocessed items only.
-*   **Logging**: Every decision logged to DETAILS.md. Summary to session log.
+*   **Logging**: Every decision logged to DIALOGUE.md. Summary to session log.
 *   **`¶INV_ESCAPE_BY_DEFAULT`**: Backtick-escape tag references in chat output and context blocks; bare tags only on `**Tags**:` lines or intentional inline placement.
 *   **`¶INV_TERMINAL_FILE_LINKS`**: File paths in the inline tag verification and summary MUST be clickable URLs.
 
@@ -136,17 +136,16 @@ Extras: A: Preview item count before deciding | B: Walk through only flagged ite
 ## Decision: Walk-Through Granularity
 - [EACH] Each item
   Walk through every item individually — finest control
-- [GRPS] Groups
+- Groups
   Walk through items grouped in batches of 4 — balanced
 - [AUTO] Smart
   Auto-determine: ≤4 items → Each, 5-12 → Groups, 13+ → Groups with batch shortcuts
-- [MORE] Other
-  - [NONE] None
-    Skip the walk-through entirely
-  - [TOPN] Top N only
-    Walk through the N most important items, skip the rest
-  - [RAND] Random N
-    Walk through N randomly sampled items
+- [NONE] None
+  Skip the walk-through entirely
+- Top N only
+  Walk through the N most important items, skip the rest
+- Random sample
+  Walk through N randomly sampled items
 
 ---
 

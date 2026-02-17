@@ -1435,7 +1435,7 @@ A typical session contains:
 - **LOG.md** — Stream-of-consciousness record of decisions, blocks, and progress
 - **PLAN.md** — Step-by-step execution plan (for implementation/testing sessions)
 - **Debrief** (e.g. `IMPLEMENTATION.md`, `BRAINSTORM.md`) — Final summary with outcomes, deviations, and next steps
-- **DETAILS.md** — Verbatim Q&A capture from interrogation phases
+- **DIALOGUE.md** — Verbatim Q&A and free-form chat capture from sessions
 
 Sessions are stored on Google Drive and symlinked into each project. Browse anyone's sessions from the Shared Drive.
 SESSREADME

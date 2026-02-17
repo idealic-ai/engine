@@ -17,7 +17,7 @@
     *   `FLS` → `externalModel = "gemini-3-flash-preview"`
     *   `CLD` → `externalModel = "claude"`
     *   `MORE/CUS` → Parse as a model name string, otherwise default to `"claude"`
-    *   `MORE/SKP` → `externalModel = "claude"`
+    *   `MORE/SKIP` → `externalModel = "claude"`
 
 3.  **Effect**: The recorded `externalModel` value is used by §CMD_EXECUTE_EXTERNAL_MODEL in the skill's execution phase. When `externalModel = "claude"`, the skill proceeds normally (Claude writes inline). When set to a Gemini model, the skill gathers context file paths instead of reading files into context, and delegates writing to §CMD_EXECUTE_EXTERNAL_MODEL.
 
@@ -33,17 +33,16 @@ Trigger: during setup of skills that support external model delegation (except: 
 Extras: A: Compare model capabilities | B: View estimated costs | C: Use same model as last session
 
 ## Decision: External Model
-- [PRO] Gemini 3 Pro
+- Gemini 3 Pro
   Best for quality-critical synthesis from many files
-- [FLS] Gemini 3 Flash
+- Gemini 3 Flash
   Faster and cheaper, good for straightforward tasks
-- [CLD] Claude (default)
+- Claude (default)
   Stay in context. Better for interactive refinement
-- [MORE] Other
-  - [CUS] Custom model
-    Specify a model name manually (e.g., a fine-tuned variant)
-  - [SKP] Skip model selection
-    Stay with Claude default — don't ask again this session
+- Custom model
+  Specify a model name manually (e.g., a fine-tuned variant)
+- [SKIP] Skip model selection
+  Stay with Claude default — don't ask again this session
 
 ---
 

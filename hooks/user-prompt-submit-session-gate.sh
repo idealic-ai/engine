@@ -41,11 +41,11 @@ if [ -n "$SESSION_DIR" ] && [ -f "$SESSION_DIR/.state.json" ] && jq empty "$SESS
     # Completed session — inject continuation prompt
     SKILL=$(jq -r '.skill // ""' "$SESSION_DIR/.state.json" 2>/dev/null || echo "")
     SESSION_NAME=$(basename "$SESSION_DIR")
-    GATE_MESSAGE="§CMD_REQUIRE_ACTIVE_SESSION: Previous session '$SESSION_NAME' (skill: $SKILL) is completed.\nUse AskUserQuestion to ask: 'Your previous session ($SESSION_NAME / $SKILL) is complete. Continue it, start a new session (/do for quick tasks, or /implement, /analyze, etc.), or describe new work?'"
+    GATE_MESSAGE="§CMD_REQUIRE_ACTIVE_SESSION: Previous session '$SESSION_NAME' (skill: $SKILL) is completed.\nActivate a new session before proceeding. If the user's message specifies a skill or task, activate it directly. Otherwise use AskUserQuestion to ask: 'Your previous session ($SESSION_NAME / $SKILL) is complete. Continue it, start a new session (/do for quick tasks, or /implement, /analyze, etc.), or describe new work?'"
   fi
 else
   # No session at all — inject skill selection instruction
-  GATE_MESSAGE="§CMD_REQUIRE_ACTIVE_SESSION: No active session.\nUse AskUserQuestion to ask: 'No active session. Use /do for quick tasks, or pick a skill (/implement, /analyze, /fix, /test), or describe new work.'"
+  GATE_MESSAGE="§CMD_REQUIRE_ACTIVE_SESSION: No active session.\nActivate a session before proceeding. If the user's message specifies a skill or task, activate it directly. Otherwise use AskUserQuestion to ask: 'No active session. Use /do for quick tasks, or pick a skill (/implement, /analyze, /fix, /test), or describe new work.'"
 fi
 
 # --- Output: combine skill signal + gate message ---

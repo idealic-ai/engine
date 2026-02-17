@@ -48,13 +48,13 @@
 4. Ask 1-2 questions about emphasis and framing via `AskUserQuestion`:
    - "Anything to highlight or downplay in the report?"
    - "Any context the audience needs that isn't in the sessions?"
-5. Log responses to `DETAILS.md`.
+5. Log responses to `DIALOGUE.md`.
 
 #### Proof Override
 > **Phase 2 proof:**
 > - Timeline presented: `________`
 > - Framing questions asked: `________`
-> - DETAILS.md entries: `________`
+> - DIALOGUE.md entries: `________`
 
 ### Phase 3: Synthesis — Template Override
 *Use the progress report template instead of the default review template.*

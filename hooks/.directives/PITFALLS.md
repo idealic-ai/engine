@@ -33,7 +33,7 @@ PreToolUse and PostToolUse hooks run in `settings.json` array order. Earlier hoo
 **PostToolUse** (current order):
 1. `post-tool-use-injections` — delivers stashed allow-urgency content via `additionalContext`
 2. `post-tool-use-discovery` — directive file discovery for touched directories
-3. `post-tool-use-details-log` — auto-logs AskUserQuestion interactions to DETAILS.md
+3. `post-tool-use-details-log` — auto-logs AskUserQuestion interactions to DIALOGUE.md
 4. `post-tool-use-heartbeat` — heartbeat counter increment
 
 **Implication**: PreToolUse hook 2 (overflow-v2) consolidates heartbeat, directive-gate, and overflow into a single rule engine. It can block BEFORE session-gate runs. Skills MUST activate before loading standards (so `loading=true` is set before overflow-v2 fires).

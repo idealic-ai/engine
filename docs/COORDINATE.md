@@ -531,7 +531,7 @@ After restart, the new Claude:
 1. Re-activates the session (`engine session activate`)
 2. Resumes tracking (`engine session continue`)
 3. Reads the chapter plan (checkboxes show progress)
-4. Enters the event loop at Phase 1 (Oversight Loop)
+4. Enters the event loop at Phase 3 (Oversight Loop)
 5. The first `await-next` call handles any stale `@pane_coordinator_active` flags
 
 ### Minimizing Overflow Frequency

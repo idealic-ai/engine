@@ -14,7 +14,7 @@
   "debriefTemplate": "[path to debrief template, e.g. ~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION.md]",
   "logTemplate": "[path to log entry template, e.g. ~/.claude/skills/implement/assets/TEMPLATE_IMPLEMENTATION_LOG.md]",
   "contextFiles": ["[files loaded during Phase 2]"],
-  "detailsFile": "[path to DETAILS.md]",
+  "detailsFile": "[path to DIALOGUE.md]",
   "taskSummary": "[one-line description]"
 }
 ```

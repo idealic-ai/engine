@@ -2,6 +2,9 @@
 **Definition**: Structured interrogation with depth selection, topic-driven rounds, between-rounds context, and exit gating. The skill provides a **standard topics list** (under `### Interrogation Topics` in its SKILL.md); the command owns all mechanics.
 **Trigger**: Called by skill protocols during their interrogation/pre-flight phase.
 
+**Step 0 — Prior Context Scan** (skill switches only):
+If the session has artifacts from a prior skill (check `## SRC_SESSION_ARTIFACTS` and `## SRC_PRIOR_SKILL_CONTEXT` from activate output), read the prior skill's log and DIALOGUE.md BEFORE starting interrogation. Extract topics already covered — these should be skipped or condensed in interrogation rounds. Do NOT re-ask questions whose answers are already established in prior logs.
+
 **Step 1 — Depth Selection**: Invoke §CMD_DECISION_TREE with `§ASK_INTERROGATION_DEPTH`.
 
 Record the user's choice. This sets the **minimum** — the agent can always ask more, and the user can always say "proceed" after the minimum is met.
@@ -12,7 +15,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 **Round counter**: Output on every round: "**Round N / {depth_minimum}+**"
 
-**Item IDs**: Questions use hierarchical IDs per the Item IDs convention (SIGILS.md § Item IDs). Format: `{phase}.{round}/{question}`. Example: Phase 2, Round 3, Question 2 = `2.3/2`. Use the item ID as the `header` field in `AskUserQuestion`. IDs are assigned at creation and persisted in both chat headers and DETAILS.md.
+**Item IDs**: Questions use hierarchical IDs per the Item IDs convention (SIGILS.md § Item IDs). Format: `{phase}.{round}/{question}`. Example: Phase 2, Round 3, Question 2 = `2.3/2`. Use the item ID as the `header` field in `AskUserQuestion`. IDs are assigned at creation and persisted in both chat headers and DIALOGUE.md.
 
 **Topic selection**: Pick from the skill's standard topics or the universal repeatable topics below. Do NOT follow a fixed sequence — choose the most relevant uncovered topic based on what you've learned so far.
 
@@ -26,7 +29,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 1.  **Between-rounds context** (`§FMT_CONTEXT_BLOCK` — MANDATORY, skip for Round 1): Context label = "Round N-1 recap" (what was learned). Content label = "Round N — [Topic]" (what's next and why).
 2.  **Ask**: Execute `§CMD_ASK_ROUND` via `AskUserQuestion` (up to 4 targeted questions on the chosen topic — the tool maximum).
 3.  **Handle response**:
-    *   **User provided answers**: Auto-logged to DETAILS.md by `post-tool-use-details-log.sh` hook. Continue to next round.
+    *   **User provided answers**: Auto-logged to DIALOGUE.md by `post-tool-use-details-log.sh` hook. Continue to next round.
     *   **User asked a counter-question**: PAUSE. Answer in chat. Ask "Does this clarify? Ready to resume?" Once confirmed, resume.
 
 **Step 3 — Exit Gate**: After reaching minimum rounds, invoke §CMD_DECISION_TREE with `§ASK_INTERROGATION_EXIT`.
@@ -44,7 +47,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 *   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
 *   Minimum rounds are mandatory. No self-authorized skips — fire `§CMD_REFUSE_OFF_COURSE` if tempted.
 *   Between-rounds context is mandatory after Round 1. No bare question dumps.
-*   Every round logged to DETAILS.md. No unlogged rounds.
+*   Every round logged to DIALOGUE.md. No unlogged rounds.
 *   Counter-questions don't count as rounds.
 *   **`¶INV_CONCISE_CHAT`**: Chat output is for user communication only — no micro-narration between rounds.
 
@@ -55,17 +58,16 @@ Trigger: when starting any skill's interrogation phase (except: when depth was a
 Extras: A: Show example questions before choosing | B: Start with 1 warm-up round first | C: Use depth from previous session
 
 ## Decision: Interrogation Depth
-- [SHRT] Short (4+ rounds)
+- [LITE] Short (4+ rounds)
   Findings are clear, just confirm direction
 - [MEDM] Medium (8+ rounds)
   Moderate complexity, some findings need input
-- [LONG] Long (12+ rounds)
+- [FULL] Long (12+ rounds)
   Complex analysis, many open questions
-- [MORE] Other
-  - [ABSL] Absolute (until resolved)
-    Zero ambiguity tolerance — no minimum, no exit gate until all questions resolved
-  - [CSTM] Custom depth
-    Specify a custom minimum round count
+- Absolute (until resolved)
+  Zero ambiguity tolerance — no minimum, no exit gate until all questions resolved
+- Custom depth
+  Specify a custom minimum round count
 
 ### ¶ASK_INTERROGATION_EXIT
 Trigger: after minimum interrogation rounds are met (except: when exit gate was merged with phase gate per interrogation double-tap fix)
@@ -76,17 +78,14 @@ Extras: A: Walk through findings so far | B: Go back to a previous topic | C: Sk
   Done interrogating — move on
 - [MORE] [ ] More interrogation (4 more rounds)
   Standard topic rounds, then re-present this gate
-- [DEVL] [ ] Devil's advocate round
+- [DEEP] [ ] Deep dive round
+  1 round drilling into a specific prior topic in detail
+- [ ] Devil's advocate round
   1 round challenging assumptions and decisions made so far
-- [OTHR] [ ] Other
-  - [WHIF] What-if scenarios round
-    1 round exploring hypotheticals and edge cases
-  - [DEEP] Deep dive round
-    1 round drilling into a specific prior topic in detail
-  - [GAPS] Gaps round
-    1 round identifying what hasn't been asked yet — unknown unknowns
-  - [OTHR] Other
-    More suggestions
+- [ ] What-if scenarios round
+  1 round exploring hypotheticals and edge cases
+- [ ] Gaps round
+  1 round identifying what hasn't been asked yet — unknown unknowns
 
 ---
 

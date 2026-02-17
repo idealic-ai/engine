@@ -64,7 +64,7 @@ Invoke §CMD_CAPTURE_KNOWLEDGE with:
 *   **Draft fields**: `¶INV_NAME` convention name, one-line rule summary, reason
 *   **Decision tree**: `§ASK_INVARIANT_CAPTURE`
 *   **Format**: `*   **¶INV_NAME**: [rule]` with indented `**Rule**:` and `**Reason**:` sub-bullets
-*   **Targets**: `SHR` → `~/.claude/.directives/INVARIANTS.md`, `PRJ` → `.directives/INVARIANTS.md`, `EDT` → edit+re-present, `MRG` → merge with existing
+*   **Targets**: `WIDE` → `~/.claude/.directives/INVARIANTS.md`, `HERE` → `.directives/INVARIANTS.md`, `EDIT` → edit+re-present, `MERG` → merge with existing
 
 #### Pass 3: Pitfall Capture
 
@@ -74,7 +74,7 @@ Invoke §CMD_CAPTURE_KNOWLEDGE with:
 *   **Draft fields**: `¶PTF_NAME` convention name, one-line trap summary, context, trap description, mitigation
 *   **Decision tree**: `§ASK_PITFALL_CAPTURE`
 *   **Format**: `*   **¶PTF_NAME**: [one-line trap summary]` with indented `**Context**:`, `**Trap**:`, `**Mitigation**:` sub-bullets
-*   **Targets**: `NRS` → nearest PITFALLS.md (walk-up), `PRJ` → `.directives/PITFALLS.md`, `NEW` → create new PITFALLS.md from template, `EDT` → edit+re-present
+*   **Targets**: `NRS` → nearest PITFALLS.md (walk-up), `HERE` → `.directives/PITFALLS.md`, `NEW` → create new PITFALLS.md from template, `EDIT` → edit+re-present
 
 **Constraints**:
 *   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
@@ -94,34 +94,32 @@ Trigger: during directive management when invariant candidates are identified (e
 Extras: A: View existing invariants in target file | B: Search for similar invariants | C: Defer to review session
 
 ## Decision: Invariant Capture
-- [SHR] Add to shared
+- [WIDE] Add to shared
   Universal rule — add to ~/.directives/INVARIANTS.md
-- [PRJ] Add to project
+- [HERE] Add to project
   Project-specific — add to .directives/INVARIANTS.md
-- [SKP] Skip this one
+- [SKIP] Skip this one
   Do not add this invariant
-- [MORE] Other
-  - [EDT] Edit first
-    Refine the invariant wording before adding
-  - [MRG] Merge with existing
-    Combine with an existing invariant instead of creating new
+- [EDIT] Edit first
+  Refine the invariant wording before adding
+- [MERG] Merge with existing
+  Combine with an existing invariant instead of creating new
 
 ### ¶ASK_PITFALL_CAPTURE
 Trigger: during directive management when pitfall candidates are identified (except: when no candidates found — collapsible pass, echo via roll call)
 Extras: A: View existing pitfalls in target file | B: Preview the formatted entry | C: Defer to review session
 
 ## Decision: Pitfall Capture
-- [NRS] Add to nearest PITFALLS.md
+- Nearest PITFALLS.md
   Walk-up from affected directory to closest PITFALLS.md
-- [PRJ] Add to project PITFALLS.md
+- [HERE] Add to project PITFALLS.md
   Project-level pitfalls file
-- [SKP] Skip this one
+- [SKIP] Skip this one
   Do not capture this pitfall
-- [MORE] Other
-  - [NEW] Create new PITFALLS.md
-    Create in the most relevant directory
-  - [EDT] Edit first
-    Refine the pitfall description before adding
+- [NEW] Create new PITFALLS.md
+  Create in the most relevant directory
+- [EDIT] Edit first
+  Refine the pitfall description before adding
 
 ---
 

@@ -58,17 +58,16 @@ Trigger: when existing skill artifacts are found in the session directory (excep
 Extras: A: View existing artifacts before deciding | B: Diff with previous session | C: Archive existing and start fresh
 
 ## Decision: Session Reuse
-- [FTK] Continue (fast-track)
+- [LITE] Continue (fast-track)
   Resume with existing log, skip RAG/directive scans
-- [FUL] Continue (full ceremony)
+- [FULL] Continue (full ceremony)
   Resume with full context: RAG search, directive discovery, alert surfacing
 - [NEW] New session
   Create a new session directory with distinguishing suffix
-- [MORE] Other
-  - [SKP] Skip artifacts check
-    Proceed as if no artifacts exist — start fresh in same directory
-  - [MRG] Merge sessions
-    Load artifacts from another session into this one
+- [SKIP] Skip artifacts check
+  Proceed as if no artifacts exist — start fresh in same directory
+- [MERG] Merge sessions
+  Load artifacts from another session into this one
 
 **Constraints**:
 *   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`.

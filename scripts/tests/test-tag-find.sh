@@ -69,8 +69,8 @@ EOF
 Working on #needs-implementation item from plan.
 EOF
 
-  # DETAILS.md with inline tag (now FOUND — no blacklist, escape-by-default)
-  cat > "$S/DETAILS.md" << 'EOF'
+  # DIALOGUE.md with inline tag (now FOUND — no blacklist, escape-by-default)
+  cat > "$S/DIALOGUE.md" << 'EOF'
 # Q&A Record
 ## Round 1
 User mentioned #needs-implementation for the auth module.
@@ -102,12 +102,12 @@ EOF
 Reference to `#needs-implementation` should not match.
 EOF
 
-  # File with Tags-line on DETAILS.md (Tags-line should be found via Pass 1)
+  # File with Tags-line on DIALOGUE.md (Tags-line should be found via Pass 1)
   cat > "$TEST_DIR/sessions/2026_TEST_SESSION_2/placeholder" << 'EOF'
 placeholder
 EOF
   mkdir -p "$TEST_DIR/sessions/2026_TEST_TAGS_LINE_DETAILS"
-  cat > "$TEST_DIR/sessions/2026_TEST_TAGS_LINE_DETAILS/DETAILS.md" << 'EOF'
+  cat > "$TEST_DIR/sessions/2026_TEST_TAGS_LINE_DETAILS/DIALOGUE.md" << 'EOF'
 # Q&A Record
 **Tags**: #needs-implementation
 ## Round 1
@@ -148,7 +148,7 @@ test_finds_log_files() {
 test_finds_details_inline() {
   local results
   results=$("$TAG_SH" find '#needs-implementation' "$TEST_DIR/sessions/" 2>/dev/null)
-  assert_found "find discovers DETAILS.md inline tags" "2026_TEST_SESSION/DETAILS.md" "$results"
+  assert_found "find discovers DIALOGUE.md inline tags" "2026_TEST_SESSION/DIALOGUE.md" "$results"
 }
 
 test_excludes_state_json() {
@@ -172,11 +172,11 @@ test_keeps_debrief_files() {
 }
 
 test_tags_line_never_filtered() {
-  # DETAILS.md is excluded from inline Pass 2, but if it has a Tags-line with the tag,
+  # DIALOGUE.md is excluded from inline Pass 2, but if it has a Tags-line with the tag,
   # it should still be found via Pass 1
   local results
   results=$("$TAG_SH" find '#needs-implementation' "$TEST_DIR/sessions/" 2>/dev/null)
-  assert_found "find keeps DETAILS.md when tag is on Tags line" "2026_TEST_TAGS_LINE_DETAILS/DETAILS.md" "$results"
+  assert_found "find keeps DIALOGUE.md when tag is on Tags line" "2026_TEST_TAGS_LINE_DETAILS/DIALOGUE.md" "$results"
 }
 
 test_backtick_escaped_excluded() {

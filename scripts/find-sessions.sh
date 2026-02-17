@@ -82,7 +82,7 @@ list_debriefs_in_dirs() {
     find "$dir" -maxdepth 1 -type f -name "*.md" \
       ! -name "*_LOG.md" \
       ! -name "*_PLAN.md" \
-      ! -name "DETAILS.md" \
+      ! -name "DIALOGUE.md" \
       ! -name "REQUEST_*" \
       ! -name "RESPONSE_*" \
       ! -name "DELEGATION_REQUEST_*" \

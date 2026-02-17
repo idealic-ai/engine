@@ -1072,7 +1072,20 @@ preload_ensure() {
       end
     ' "$state_file" | safe_json_write "$state_file"
 
-    _PRELOAD_CONTENT="[Preloaded: $normalized]\n$content"
+    # Override detection: local CMD shadows a global CMD with same basename
+    local override_header=""
+    local basename_file
+    basename_file=$(basename "$resolved")
+    if [[ "$basename_file" == CMD_*.md ]] && [[ "$resolved" != *"engine/.directives/commands/"* ]]; then
+      local global_match
+      global_match=$(jq -r --arg bn "$basename_file" '.preloadedFiles // [] | .[] | select(endswith($bn)) | select(contains("engine/.directives/commands/"))' "$state_file" 2>/dev/null || echo "")
+      if [ -n "$global_match" ]; then
+        override_header="[Override: shadows $global_match]\n"
+        _log_delivery "${HOOK_NAME:-unknown}" "override-detect" "$normalized" "shadows $global_match"
+      fi
+    fi
+
+    _PRELOAD_CONTENT="${override_header}[Preloaded: $normalized]\n$content"
     _PRELOAD_RESULT="delivered"
     _log_delivery "${HOOK_NAME:-unknown}" "direct-deliver" "$normalized" "$source"
   else

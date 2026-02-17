@@ -19,13 +19,15 @@ The pipeline (N.3) maintains system hygiene through scans that are cheap to run 
 All protocol-tier skills declare synthesis as four sub-phases. N is the skill's synthesis phase number (e.g., 4 for implement, 5 for analyze).
 
 ```json
-{"major": N, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
-{"major": N, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
-{"major": N, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
-{"major": N, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"]}
+{"major": N, "minor": 1, "name": "Checklists",
+  "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "proof": [], "gate": false},
+{"major": N, "minor": 2, "name": "Debrief",
+  "steps": ["§CMD_GENERATE_DEBRIEF"], "proof": ["debriefFile", "debriefTags"], "gate": false},
+{"major": N, "minor": 3, "name": "Pipeline",
+  "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "proof": [], "gate": false},
+{"major": N, "minor": 4, "name": "Close",
+  "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "proof": [], "gate": false}
 ```
-
-**Proof key naming**: Every proof field is a `§CMD_` reference. This creates a direct link: proof field → command → debrief scanner output heading. The `engine session debrief` command reads these proof fields to determine which scans to run.
 
 [!!!] **WORK → PROVE pattern**: Each sub-phase follows the same sequence — execute the commands first, then transition the phase with proof. The phase transition is the LAST action of each sub-phase, not the first. After context overflow recovery, the agent resumes AT the saved sub-phase and must complete its work before transitioning.
 
@@ -97,7 +99,7 @@ When a step has actionable items, the roll call line precedes the interaction (e
 STATIC steps (`§CMD_MANAGE_DIRECTIVES` AGENTS.md pass, `§CMD_RESOLVE_CROSS_SESSION_TAGS`, `§CMD_MANAGE_BACKLINKS`, `§CMD_MANAGE_ALERTS`) always execute regardless — they perform actions, not triage. The collapsibility classification applies only to steps that would otherwise present an empty or trivial `AskUserQuestion`.
 
 ### N.4: Close
-Execute in order: `§CMD_REPORT_ARTIFACTS` (list files), `§CMD_REPORT_SUMMARY` (2-paragraph narrative), `§CMD_WALK_THROUGH_RESULTS` (skill-specific), `§CMD_CLOSE_SESSION` (debrief gate + deactivate), `§CMD_PRESENT_NEXT_STEPS` (routing menu).
+Execute in order: `§CMD_REPORT_ARTIFACTS` (list files), `§CMD_REPORT_SUMMARY` (2-paragraph narrative), `§CMD_SURFACE_OPPORTUNITIES` (concrete improvement suggestions from loaded context), `§CMD_CLOSE_SESSION` (debrief gate + idle transition), `§CMD_PRESENT_NEXT_STEPS` (routing menu).
 
 ---
 

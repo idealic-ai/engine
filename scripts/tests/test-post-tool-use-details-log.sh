@@ -1,6 +1,6 @@
 #!/bin/bash
 # ~/.claude/engine/scripts/tests/test-post-tool-use-details-log.sh
-# Tests for the PostToolUse DETAILS.md auto-logging hook (post-tool-use-details-log.sh)
+# Tests for the PostToolUse DIALOGUE.md auto-logging hook (post-tool-use-details-log.sh)
 #
 # Tests: single question, multi-question, no session, structured answers,
 # preamble extraction from transcript, missing transcript, "Other" free-text,
@@ -70,10 +70,10 @@ run_hook() {
   echo "$input" | bash "$HOME/.claude/engine/hooks/post-tool-use-details-log.sh" 2>/dev/null
 }
 
-# Helper: read DETAILS.md content
+# Helper: read DIALOGUE.md content
 read_details() {
-  if [ -f "$SESSION_DIR/DETAILS.md" ]; then
-    cat "$SESSION_DIR/DETAILS.md"
+  if [ -f "$SESSION_DIR/DIALOGUE.md" ]; then
+    cat "$SESSION_DIR/DIALOGUE.md"
   else
     echo ""
   fi
@@ -106,7 +106,7 @@ test_single_question() {
   local details
   details=$(read_details)
 
-  assert_contains "## " "$details" "T1: DETAILS.md has heading"
+  assert_contains "## " "$details" "T1: DIALOGUE.md has heading"
   assert_contains "Depth" "$details" "T1: Header appears in heading"
   assert_contains "How deep should interrogation go?" "$details" "T1: Question text present"
   assert_contains "Short (3+)" "$details" "T1: Option labels present"
@@ -178,7 +178,7 @@ SCRIPT
     "tool_use_id": "toolu_03ABC"
   }'
 
-  assert_file_not_exists "$SESSION_DIR/DETAILS.md" "T3: No DETAILS.md when no session"
+  assert_file_not_exists "$SESSION_DIR/DIALOGUE.md" "T3: No DIALOGUE.md when no session"
 }
 
 # ============================================================
@@ -193,7 +193,7 @@ test_non_ask_tool() {
     "tool_use_id": "toolu_04ABC"
   }'
 
-  assert_file_not_exists "$SESSION_DIR/DETAILS.md" "T4: No DETAILS.md for non-AskUserQuestion"
+  assert_file_not_exists "$SESSION_DIR/DIALOGUE.md" "T4: No DIALOGUE.md for non-AskUserQuestion"
 }
 
 # ============================================================
@@ -322,8 +322,8 @@ test_heredoc_preserves_dollar_vars() {
   local details
   details=$(read_details)
 
-  assert_contains '$HOME' "$details" "H1.1: Literal \$HOME preserved in DETAILS.md"
-  assert_contains '$USER' "$details" "H1.1: Literal \$USER preserved in DETAILS.md"
+  assert_contains '$HOME' "$details" "H1.1: Literal \$HOME preserved in DIALOGUE.md"
+  assert_contains '$USER' "$details" "H1.1: Literal \$USER preserved in DIALOGUE.md"
   assert_not_contains "$ORIGINAL_HOME" "$details" "H1.1: \$HOME was NOT expanded to real path"
 }
 
@@ -349,8 +349,8 @@ test_heredoc_preserves_command_substitution() {
   local details
   details=$(read_details)
 
-  assert_contains '$(date)' "$details" "H1.2: Literal \$(date) preserved in DETAILS.md"
-  assert_contains 'whoami' "$details" "H1.2: Backtick-whoami text preserved in DETAILS.md"
+  assert_contains '$(date)' "$details" "H1.2: Literal \$(date) preserved in DIALOGUE.md"
+  assert_contains 'whoami' "$details" "H1.2: Backtick-whoami text preserved in DIALOGUE.md"
   # If $(date) was expanded, it would produce output like "Thu Feb 13 ..." in the user response line.
   # We check the User response line specifically for the literal form.
   local user_line
@@ -394,7 +394,7 @@ test_heredoc_preserves_backslashes() {
 # ============================================================
 # Run all tests
 # ============================================================
-echo "=== PostToolUse DETAILS.md Auto-Logger Tests ==="
+echo "=== PostToolUse DIALOGUE.md Auto-Logger Tests ==="
 echo ""
 
 run_test test_single_question

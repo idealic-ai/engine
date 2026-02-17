@@ -68,8 +68,8 @@
 *   **Non-blocking on empty**: Skip silently if no discovered checklists. Only process when checklists exist.
 *   **Strict text diff**: The engine compares the normalized original against the normalized agent content. Any non-checkbox text difference causes failure. This prevents agents from omitting items, changing text, or fabricating content.
 *   **Branching validation**: For checklists with nested items (2-space indented children), exactly one parent branch must be checked, and all children of the checked parent must also be checked.
-*   **Belt-and-suspenders**: This command is the "belt" (protocol-level). The `engine session deactivate` gate is the "suspenders" (infrastructure-level). Both exist because agents skip protocol steps — the gate catches failures.
-*   **Session state**: `checkPassed` (boolean) in `.state.json` is the source of truth. The deactivate gate checks `checkPassed == true` when `discoveredChecklists` is non-empty.
+*   **Belt-and-suspenders**: This command is the "belt" (protocol-level). The `engine session idle`/`deactivate` gate is the "suspenders" (infrastructure-level). Both exist because agents skip protocol steps — the gate catches failures.
+*   **Session state**: `checkPassed` (boolean) in `.state.json` is the source of truth. The idle/deactivate gate checks `checkPassed == true` when `discoveredChecklists` is non-empty.
 *   **Idempotent**: Safe to run multiple times. If `checkPassed` is already true, skips (step 2).
 *   **`¶INV_CONCISE_CHAT`**: Chat output is for user communication only — brief checklist summary, no micro-narration of the validation steps.
 

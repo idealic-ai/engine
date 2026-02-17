@@ -40,7 +40,7 @@ Agent-facing context files in `.directives/` subfolders at any level of the proj
 - **Core** (always discovered): `AGENTS.md`, `INVARIANTS.md`, `ARCHITECTURE.md`
 - **Skill-filtered** (loaded when skill declares them): `TESTING.md`, `PITFALLS.md`, `CONTRIBUTING.md`, `TEMPLATE.md`, `CHECKLIST.md`
 
-`CHECKLIST.md` is skill-filtered but has a **hard gate** at deactivation: when discovered, `§CMD_PROCESS_CHECKLISTS` must pass before `engine session deactivate` succeeds. Skills that declare it: `/implement`, `/fix`, `/test`.
+`CHECKLIST.md` is skill-filtered but has a **hard gate** at deactivation: when discovered, `§CMD_PROCESS_CHECKLISTS` must pass before `engine session idle`/`deactivate` succeeds. Skills that declare it: `/implement`, `/fix`, `/test`.
 
 **Checklist submission format**: `engine session check` expects JSON on stdin: `{"<absolute-path-to-CHECKLIST.md>": "<full original markdown with only [ ] → [x] changes>"}`. Three common mistakes: (1) passing raw markdown instead of JSON, (2) using `~/.claude/` instead of the absolute path, (3) abbreviating/truncating checklist content. The engine compares against the original file — content must be exact.
 

@@ -11,9 +11,10 @@
 
 ## Context Levels (~200K tokens, no compaction)
 
-- **0–75% — Normal.** Work freely. No restrictions.
-- **75–90% — Caution.** Do NOT start a new skill — a new skill loads standards, templates, and context, which can push from 75% to overflow instantly. If the user invokes a new skill at 75%+, dehydrate first to get a fresh context window. Within the current skill, continue working — log, edit, test are low-cost operations. Avoid large file reads or bulk exploration.
-- **90%+ — Critical.** Dehydrate NOW. Execute the algorithm below immediately. No new file reads, no exploration.
+- **0–75% — Normal.** All activities unrestricted. Work freely.
+- **75–80% — No new skills.** Starting a skill loads SKILL.md + templates + standards + RAG (~30-50K tokens) — this can push from 75% to overflow instantly. If the user invokes a new skill at 75%+, dehydrate first. Interrogation, planning, editing, testing, logging all OK.
+- **80–90% — No new skills, no document writing.** Debriefs, plans, and multi-section artifacts consume ~10-20K tokens (template reads + composition). Interrogation, planning, code editing, testing, logging still OK.
+- **90%+ — Dehydrate NOW.** Execute the algorithm below immediately. No new file reads, no exploration.
 
 ---
 
@@ -38,9 +39,9 @@ This saves the current phase so the rehydrated agent knows where to resume.
 - **Last Action**: What you were doing when overflow hit. Outcome (succeed/fail/in-progress).
 - **Next Steps**: Ordered list of immediate tasks. For proof-gated phases, include the proof fields needed.
 - **Handover Instructions**: Anything the next agent must know that isn't in the artifacts.
-- **User History**: Sentiment, key directives, recent feedback quotes.
+- **User History**: Sentiment, key directives, recent feedback. See **Verbatim user message** constraint.
 - **Required Files**: All files the next agent needs. Cap at 8. Prioritize:
-  1. Session artifacts: `_LOG.md`, `_PLAN.md`, `DETAILS.md`
+  1. Session artifacts: `_LOG.md`, `_PLAN.md`, `DIALOGUE.md`
   2. Source code being modified
   3. Skill protocol (e.g., `~/.claude/skills/implement/SKILL.md`)
 
@@ -61,9 +62,14 @@ This saves the current phase so the rehydrated agent knows where to resume.
   Resolves To: Project root
   Contains: Source code
 
-### Step 3: Produce JSON and Dehydrate+Restart
+### Step 3: Announce and Dehydrate
 
-Pipe the JSON to `engine session dehydrate`. This stores the content AND triggers restart.
+Briefly announce in chat, then pipe JSON to `engine session dehydrate`. The dehydrate command stores the content AND triggers restart — it is the LAST command you execute.
+
+> Dehydrating session. Restart imminent.
+> - **Session**: `[SESSION_DIR]`
+> - **Phase**: `[CURRENT_PHASE]`
+> - **Files preserved**: [N] required files
 
 ```bash
 engine session dehydrate sessions/[CURRENT_SESSION] <<'EOF'
@@ -76,11 +82,11 @@ engine session dehydrate sessions/[CURRENT_SESSION] <<'EOF'
     "[Step 3]"
   ],
   "handoverInstructions": "[Specific guidance for next agent]",
-  "userHistory": "[Sentiment, key directives, recent feedback]",
+  "userHistory": "[Sentiment, key directives, recent feedback — see Constraints]",
   "requiredFiles": [
     "sessions/[SESSION]/IMPLEMENTATION_LOG.md",
     "sessions/[SESSION]/IMPLEMENTATION_PLAN.md",
-    "sessions/[SESSION]/DETAILS.md",
+    "sessions/[SESSION]/DIALOGUE.md",
     "~/.claude/skills/[SKILL]/SKILL.md"
   ]
 }
@@ -88,14 +94,6 @@ EOF
 ```
 
 [!!!] WARNING: This command will kill the current Claude process. It is the LAST command you execute.
-
-### Step 4: Display Summary (Before Restart)
-
-Before the `engine session dehydrate` call, briefly announce in chat:
-> Dehydrating session. Restart imminent.
-> - **Session**: `[SESSION_DIR]`
-> - **Phase**: `[CURRENT_PHASE]`
-> - **Files preserved**: [N] required files
 
 ---
 
@@ -127,7 +125,7 @@ Before the `engine session dehydrate` call, briefly announce in chat:
   "userHistory": {
     "type": "string",
     "required": false,
-    "description": "User sentiment, key directives, recent feedback"
+    "description": "User sentiment, key directives, recent feedback. See Verbatim constraint."
   },
   "requiredFiles": {
     "type": "array",
@@ -150,6 +148,7 @@ Before the `engine session dehydrate` call, briefly announce in chat:
 - **Auto-injected files**: COMMANDS.md, INVARIANTS.md, SIGILS.md, CMD_DEHYDRATE.md, CMD_RESUME_SESSION.md are auto-injected by SessionStart. Do NOT list them in requiredFiles.
 - **`¶INV_TRUST_CACHED_CONTEXT`**: Do not re-read files already in context window — use memory only.
 - **`¶INV_CONCISE_CHAT`**: Chat output is for user communication only — brief dehydration announcement, no micro-narration.
+- **Verbatim user message**: If the user's last message/request has not been fully handled (overflow interrupted work), include it **verbatim** in `userHistory`. Do not paraphrase — the next agent needs the exact wording to continue without re-asking the user.
 
 ---
 

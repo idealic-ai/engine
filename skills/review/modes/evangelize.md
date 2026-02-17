@@ -49,13 +49,13 @@
    - "What tone? (Enthusiastic / Professional / Technical)"
    - "Any wins to highlight or limitations to frame carefully?"
    - "Preferred format? (Narrative / Changelog / Talking Points)"
-5. Log responses to `DETAILS.md`.
+5. Log responses to `DIALOGUE.md`.
 
 #### Proof Override
 > **Phase 2 proof:**
 > - Highlights presented: `________`
 > - Framing questions asked: `________`
-> - DETAILS.md entries: `________`
+> - DIALOGUE.md entries: `________`
 
 ### Phase 3: Synthesis — Template Override
 *Use the evangelize template instead of the default review template.*

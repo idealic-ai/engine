@@ -8,13 +8,15 @@
 
 ### Step 1: Read Next Skills
 
-Read `nextSkills` from the `## Next Skills` section of `engine session idle` (or `engine session deactivate`) output. These commands output nextSkills directly in their stdout after transitioning the session lifecycle.
+Read `nextSkills` from the `## Next Skills` section of `engine session idle` output. (`engine session deactivate` also outputs this, but standard skill close uses `idle` — see `§CMD_SESSION_CLI`.) These commands output nextSkills directly in their stdout after transitioning the session lifecycle.
 
 **Fallback**: If the engine output doesn't include `## Next Skills` (older engine version), read `nextSkills` from `.state.json` via `jq -r '.nextSkills // [] | .[]'`. If still empty, use the `SRC_DELEGATION_TARGETS` table to derive options (pick the 3 most commonly recommended skills + "Done and clear").
 
 ### Step 2: Contextualize Options
 
 **Preamble (REQUIRED)**: Before the menu, output a blockquote explaining what each skill would concretely do *for this session's work*. Tailor to actual changes — no generic descriptions.
+
+**Incorporate Opportunities**: If `§CMD_SURFACE_OPPORTUNITIES` ran earlier in N.4 Close and produced opportunity bullets, use them to drive the preamble and option descriptions. Each opportunity maps to a skill — use those mappings to make the menu options concrete. Example: instead of `/implement — Continue building features`, write `/implement — Add rate limiting to auth guard (opportunity 5.4.3/1)`. If no opportunities were surfaced, fall back to general session-aware contextualization.
 
 ### Step 3: Present Menu
 
@@ -61,17 +63,16 @@ Trigger: when user describes new work via Other in the next-steps menu (except: 
 Extras: A: Describe the work in more detail | B: Check existing sessions for overlap | C: Tag for later instead
 
 ## Decision: New Work Routing
-- [IMP] Start /implement
+- Start /implement
   Scope and implement the described work
-- [BRS] Start /brainstorm
+- Start /brainstorm
   Explore the idea before committing to implementation
-- [NTE] Just note it
-  Log to DETAILS.md and stay idle
-- [MORE] Other
-  - [RSC] Start /research
-    Research the topic before any action
-  - [FIX] Start /fix
-    This sounds like a bug — investigate and fix
+- [KEEP] Just note it
+  Log to DIALOGUE.md and stay idle
+- Start /research
+  Research the topic before any action
+- Start /fix
+  This sounds like a bug — investigate and fix
 
 ---
 

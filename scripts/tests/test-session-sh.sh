@@ -982,6 +982,79 @@ PARAMS
   teardown
 }
 
+test_activate_same_pid_same_skill_merges_seed() {
+  local test_name="activate: same-PID same-skill merges seed file before early exit"
+  setup
+
+  create_mock_skill "test-skill" '{
+    "taskType": "TEST",
+    "phases": [{"label": "0", "name": "Setup"}]
+  }'
+
+  export CLAUDE_SUPERVISOR_PID=$$
+  "$SESSION_SH" activate "$TEST_DIR/sessions/SEED_MERGE" test-skill <<'PARAMS' > /dev/null 2>&1
+{
+  "taskSummary": "First activation",
+  "scope": "Full",
+  "directoriesOfInterest": [],
+  "contextPaths": [],
+  "requestFiles": [],
+  "extraInfo": ""
+}
+PARAMS
+
+  local sf="$TEST_DIR/sessions/SEED_MERGE/.state.json"
+
+  # Simulate /clear: SessionStart resets preloadedFiles to 6 seeds
+  jq '.preloadedFiles = ["/boot/a.md", "/boot/b.md"]' "$sf" | tee "$sf.tmp" > /dev/null && mv "$sf.tmp" "$sf"
+
+  # Create seed file with additional entries (as SessionStart + templates hook would)
+  mkdir -p "$TEST_DIR/sessions/.seeds"
+  local seed="$TEST_DIR/sessions/.seeds/$$.json"
+  cat > "$seed" <<SEED
+{
+  "pid": $$,
+  "lifecycle": "seeding",
+  "preloadedFiles": ["/boot/a.md", "/boot/b.md", "/skill/SKILL.md", "/skill/CMD_FOO.md"],
+  "pendingPreloads": ["/pending/directive.md"],
+  "touchedDirs": {"/some/dir": true}
+}
+SEED
+
+  # Re-activate same skill, same PID — should merge seed before exit
+  local output
+  output=$("$SESSION_SH" activate "$TEST_DIR/sessions/SEED_MERGE" test-skill < /dev/null 2>&1) || true
+
+  # Seed should be deleted
+  if [ -f "$seed" ]; then
+    fail "$test_name — seed deleted" "seed file removed" "seed still exists"
+  else
+    pass "$test_name — seed deleted"
+  fi
+
+  # preloadedFiles should include seed entries
+  local has_skill_md
+  has_skill_md=$(jq -r '.preloadedFiles | index("/skill/SKILL.md") != null' "$sf" 2>/dev/null)
+  if [ "$has_skill_md" = "true" ]; then
+    pass "$test_name — seed preloadedFiles merged"
+  else
+    local pf
+    pf=$(jq -c '.preloadedFiles' "$sf")
+    fail "$test_name — seed preloadedFiles merged" "/skill/SKILL.md in preloadedFiles" "preloadedFiles=$pf"
+  fi
+
+  # pendingPreloads should include seed entries
+  local has_pending
+  has_pending=$(jq -r '.pendingPreloads | index("/pending/directive.md") != null' "$sf" 2>/dev/null)
+  if [ "$has_pending" = "true" ]; then
+    pass "$test_name — seed pendingPreloads merged"
+  else
+    fail "$test_name — seed pendingPreloads merged" "/pending/directive.md in pendingPreloads" "missing"
+  fi
+
+  teardown
+}
+
 test_activate_setup_copies_session_sh() {
   local test_name="activate: setup() copies session.sh instead of symlinking"
   setup
@@ -2076,6 +2149,92 @@ EOF
 }
 
 # =============================================================================
+# DISABLE_CLEAR TESTS
+# =============================================================================
+
+test_restart_disable_clear_skips_tmux() {
+  local test_name="restart: DISABLE_CLEAR=1 skips tmux /clear path"
+  setup
+
+  create_state "$TEST_DIR/sessions/DC_RESTART" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "3: Build", "sessionId": "sess-dc1"
+  }'
+
+  # Simulate tmux present but DISABLE_CLEAR=1
+  unset WATCHDOG_PID 2>/dev/null || true
+  local output
+  output=$(TMUX=fake TMUX_PANE=%99 DISABLE_CLEAR=1 TEST_MODE=1 "$SESSION_SH" restart "$TEST_DIR/sessions/DC_RESTART" 2>&1) || true
+
+  # TEST_MODE skips tmux injection regardless, but the output message changes
+  # When DISABLE_CLEAR=1, it should NOT mention "/clear"
+  local sf="$TEST_DIR/sessions/DC_RESTART/.state.json"
+  local kill_req
+  kill_req=$(jq -r '.killRequested' "$sf")
+
+  if [ "$kill_req" = "true" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "killRequested=true" "kill=$kill_req, output=$output"
+  fi
+
+  teardown
+}
+
+test_clear_disable_clear_skips_tmux() {
+  local test_name="clear: DISABLE_CLEAR=1 skips tmux /clear path"
+  setup
+
+  create_state "$TEST_DIR/sessions/DC_CLEAR" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "3: Build", "sessionId": "sess-dc2"
+  }'
+
+  unset WATCHDOG_PID 2>/dev/null || true
+  local output
+  output=$(TMUX=fake TMUX_PANE=%99 DISABLE_CLEAR=1 TEST_MODE=1 "$SESSION_SH" clear "$TEST_DIR/sessions/DC_CLEAR" 2>&1) || true
+
+  local sf="$TEST_DIR/sessions/DC_CLEAR/.state.json"
+  local kill_req
+  kill_req=$(jq -r '.killRequested' "$sf")
+
+  if [ "$kill_req" = "true" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "killRequested=true" "kill=$kill_req, output=$output"
+  fi
+
+  teardown
+}
+
+test_dehydrate_disable_clear_skips_tmux() {
+  local test_name="dehydrate: DISABLE_CLEAR=1 skips tmux /clear path"
+  setup
+
+  create_state "$TEST_DIR/sessions/DC_DEHY" '{
+    "pid": 99999999, "skill": "analyze", "lifecycle": "active",
+    "currentPhase": "2: Research", "sessionId": "sess-dc3", "contextUsage": 0.92
+  }'
+
+  unset WATCHDOG_PID 2>/dev/null || true
+  local output
+  output=$(echo '{"summary":"Test dehydrate with DISABLE_CLEAR","lastAction":"Testing","nextSteps":["Verify"],"requiredFiles":[]}' | TMUX=fake TMUX_PANE=%99 DISABLE_CLEAR=1 TEST_MODE=1 "$SESSION_SH" dehydrate "$TEST_DIR/sessions/DC_DEHY" 2>&1) || true
+
+  local sf="$TEST_DIR/sessions/DC_DEHY/.state.json"
+  local kill_req dehy_summary
+  kill_req=$(jq -r '.killRequested' "$sf")
+  dehy_summary=$(jq -r '.dehydratedContext.summary // "missing"' "$sf")
+
+  if [ "$kill_req" = "true" ] && [ "$dehy_summary" = "Test dehydrate with DISABLE_CLEAR" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "kill=true, dehy stored" "kill=$kill_req, dehy=$dehy_summary, output=$output"
+  fi
+
+  teardown
+}
+
+# =============================================================================
 # FIND TESTS
 # =============================================================================
 
@@ -2609,6 +2768,7 @@ main() {
   test_activate_idle_reactivation_extracts
   test_activate_resolves_modes_paths
   test_activate_same_pid_same_skill_no_remerge
+  test_activate_same_pid_same_skill_merges_seed
   test_activate_setup_copies_session_sh
   test_activate_invalid_json_graceful
   test_activate_no_json_block_graceful
@@ -2669,6 +2829,12 @@ main() {
   echo "--- Dehydrate ---"
   test_dehydrate_stores_context_and_sets_restart
   test_dehydrate_missing_state_file
+
+  echo ""
+  echo "--- DISABLE_CLEAR ---"
+  test_restart_disable_clear_skips_tmux
+  test_clear_disable_clear_skips_tmux
+  test_dehydrate_disable_clear_skips_tmux
 
   echo ""
   echo "--- Find ---"

@@ -24,7 +24,7 @@ The orchestration system has three layers, each with a distinct lifecycle and ow
 │  Per-chapter execution plan — checkboxes,       │
 │  worker assignments, completion criteria        │
 │  Created by: /coordinate on chapter start          │
-│  Template: TEMPLATE_COORDINATOR_CHAPTER.md         │
+│  Template: TEMPLATE_COORDINATION_PLAN.md         │
 │  Lifecycle: One per /coordinate session            │
 ├─────────────────────────────────────────────────┤
 │  Coordinator Loop (SKILL.md runtime)               │
@@ -278,40 +278,35 @@ If the coordinator dies mid-project (context overflow with no restart, user aban
 
 ## 5. Chapter Plan Spec
 
-The per-chapter execution plan. Lives in the session directory as an `/coordinate` session artifact.
+The per-chapter execution plan. Lives in the session directory as an `/coordinate` session artifact. Created during Phase 2 (Chapter Planning) after the coordinator interrogates the vision doc and other context sources.
 
-### Template: `TEMPLATE_COORDINATOR_CHAPTER.md`
+### Template: `TEMPLATE_COORDINATION_PLAN.md`
 
-```markdown
-# Chapter [N]: [Name]
-**Tags**: [lifecycle tags]
-**Vision**: [path to vision document]
-**Previous Chapter**: [session path or "None"]
+A rich worker guidance document with 9 required sections. The chapter plan is the PRIMARY context for workers — rich enough that workers rarely need to escalate to the coordinator.
 
-## Objective
-[What this chapter achieves. Derived from vision.]
+**Sections**:
 
-## Work Items
-- [ ] [Work item 1 — assigned to Group: X]
-- [ ] [Work item 2 — assigned to Group: Y]
-- [ ] [Work item 3 — assigned to Group: X]
-
-## Completion Criteria
-- [ ] [All work items checked]
-- [ ] [Integration test passes]
-- [ ] [No open #needs-fix tags]
-
-## Notes
-[Context the coordinator needs during execution]
-```
+1. **Provenance** — Vision doc path, previous chapter, chapter number, requesting session
+2. **Objective & Context** — What this chapter achieves, how it fits the larger vision, scope boundaries
+3. **Decision Principles** — Named `RUL_` rules inherited from vision doc (by reference) + chapter-specific additions. Workers load the vision doc too, so principles only need to be referenced, not duplicated.
+4. **Architecture & Design Notes** — Technical decisions with rationale, patterns to follow, constraints
+5. **Work Items** — Two formats: Big Task (description, acceptance criteria, dependencies, key files, sub-checklist, hints) and Small Task (description, assigned group, key files, criteria). Prefer fewer bigger tasks with sub-checklists over many small tickets.
+6. **Worker Briefing** — Per-group briefings with dedicated context (assigned items, skills expected, files to load, group-specific guidance)
+7. **Open Questions & Gaps** — Tagged with `#needs-*` for deferred resolution. Each includes impact assessment and suggested resolution path.
+8. **Completion Criteria** — Functional, quality, and process criteria. ALL must pass before chapter is marked `#done-coordination`.
+9. **References & Context Sources** — Vision doc, prior chapters, relevant docs, code paths, analysis sessions
 
 ### Properties
 
+- **Rich guidance**: The plan is conceptually a "groomed ticket" — the coordinator enriches it with details, understanding, philosophy, and decisions during Chapter Planning. Workers should be able to work independently from the chapter plan alone.
+- **`RUL_` convention**: Decision principles use named `RUL_UPPER_SNAKE` identifiers for cross-document referencing. Vision doc defines rules; chapter plan references them by name. Same pattern as `INV_` and `PTF_`.
+- **Two task formats**: Big tasks have full acceptance criteria and sub-checklists. Small tasks are lightweight. The coordinator chooses the format during planning based on task complexity.
 - **Checkboxes**: Progress tracking inline. Coordinator checks items as workers complete them. Checkbox state is the ground truth for chapter completion — not worker self-reports.
 - **Group assignments**: Work items assigned to worker groups, not individual workers. The coordinator dispatches to groups; individual worker selection within a group is opportunistic (whoever is idle).
 - **Completion criteria**: Must ALL pass before chapter is marked done and next chapter starts. This is the enforcement mechanism for `§INV_STRICT_CHAPTER_GATES`.
 - **Session-scoped**: Each chapter = one `/coordinate` session in `sessions/`. The session gets its own log, debrief, and artifact trail. Cross-chapter continuity comes from the vision doc and `**Previous Chapter**` reference.
 - **Vision link**: The `**Vision**` field creates a two-way reference — the vision doc lists chapters with tags, and each chapter plan links back to the vision.
+- **Backward compat**: The coordinator can consume any structured document (brainstorm, analysis, etc.) as input — not limited to `/direct` vision docs. Works best with vision docs but adapts to varied document structures.
 
 ---
 
@@ -441,7 +436,7 @@ For simple chapters, the coordinator can skip directly to execution. For complex
 ### Template Ownership
 
 - `TEMPLATE_DIRECT_VISION.md` — owned by `/direct` skill, in `skills/direct/assets/`. The vision template lives upstream of `/coordinate` because `/direct` creates the vision.
-- `TEMPLATE_COORDINATOR_CHAPTER.md` — owned by `/coordinate` skill, in `skills/coordinate/assets/`. Chapter plans are execution artifacts created by the coordinator at chapter start.
+- `TEMPLATE_COORDINATION_PLAN.md` — owned by `/coordinate` skill, in `skills/coordinate/assets/`. Chapter plans are execution artifacts created by the coordinator at chapter start.
 - Behavior config (`coordinate.config.json`) — separate, unchanged. HOW the coordinator operates, not WHAT.
 
 ---
@@ -652,7 +647,7 @@ Recommended split (from brainstorm Round 9):
 
 ### Phase 2: Plan System
 - `TEMPLATE_DIRECT_VISION.md` (owned by `/direct` skill)
-- `TEMPLATE_COORDINATOR_CHAPTER.md` (owned by `/coordinate` skill)
+- `TEMPLATE_COORDINATION_PLAN.md` (owned by `/coordinate` skill)
 - `/direct` skill — vision creation with dependency analysis (serial/parallel chunks)
 - Plan loading and parsing logic in `/coordinate` (read vision, find chapters, create session)
 - Chapter progress tracking (checkbox management via file edits)

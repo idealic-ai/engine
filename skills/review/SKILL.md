@@ -1,7 +1,7 @@
 ---
 name: review
 description: "Reviews and validates work across sessions for consistency and correctness. Triggers: \"review session work\", \"validate debriefs\", \"approve session reports\", \"end-of-day review\"."
-version: 3.0
+version: 4.0
 tier: protocol
 ---
 
@@ -34,10 +34,12 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
       "steps": ["§CMD_VALIDATE_ARTIFACTS", "§CMD_RESOLVE_BARE_TAGS", "§CMD_PROCESS_CHECKLISTS"], "commands": [], "proof": [], "gate": false},
     {"label": "3.2", "name": "Debrief",
       "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
-    {"label": "3.3", "name": "Pipeline",
+    {"label": "3.3", "name": "Finding Triage",
+      "steps": ["§CMD_WALK_THROUGH_RESULTS"], "commands": [], "proof": ["findingsTriaged", "delegated", "deferred", "dismissed"], "gate": false},
+    {"label": "3.4", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
-    {"label": "3.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
+    {"label": "3.5", "name": "Close",
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/implement", "/document", "/brainstorm", "/analyze", "/chores"],
   "directives": [],
@@ -116,7 +118,17 @@ Records `externalModel` (model name or `"claude"`).
     *   **Schema/Interface Conflicts**: Did sessions make incompatible changes to shared types?
     *   **Contradictory Decisions**: Did session A decide X while session B decided not-X?
     *   **Dependency Order**: Did any session depend on another session's unvalidated output?
-5.  **Log Conflicts**: For each finding, execute `§CMD_APPEND_LOG` with the `Cross-Session Conflict` schema.
+5.  **Log Findings**: For each finding, execute `§CMD_APPEND_LOG`. **Logging is the core activity of discovery** — without rich log entries, downstream triage and the final report will be shallow and uninformative.
+    *   **High Volume**: Aim for **1-3 log entries per debrief** plus cross-session entries. More is better.
+    *   **Variety**: Use varied entry types to produce richer analysis:
+        *   **Debrief Card** — Per-debrief summary (goal, what was done, files touched, risk flags)
+        *   **Cross-Session Conflict** — File overlaps, schema conflicts, contradictory decisions
+        *   **Discovery** — Interesting patterns, noteworthy achievements, positive outcomes
+        *   **Weakness** — Risk flags, buried concerns, gaps in coverage
+        *   **Connection** — Links between sessions, shared themes, dependency chains
+        *   **Spark** — Ideas triggered by the review, improvement opportunities
+        *   **Gap** — Missing tests, undocumented changes, incomplete work
+    *   A thin log leads to a thin report. The log IS the raw material for the debrief, finding triage, and action items. Every unlogged thought is a lost insight.
 
 Do NOT present findings to the user yet. Complete the full analysis first.
 
@@ -124,15 +136,33 @@ Do NOT present findings to the user yet. Complete the full analysis first.
 
 ## 2. Dashboard & Per-Debrief Interrogation
 
-### Phase 2a: The Dashboard
-*Present the global picture first.*
+### Phase 2a: Findings Summary
+*Present the global picture before per-debrief review begins.*
 
 §CMD_REPORT_INTENT:
-> 2: Presenting dashboard for ___ debriefs and ___ cross-session findings. ___.
+> 2: Presenting ___ findings from ___ debriefs and cross-session analysis. ___.
 > Focus: ___.
 > Not: ___.
 
 §CMD_EXECUTE_PHASE_STEPS(2.0.*)
+
+**Findings Summary**: Before the dashboard, present a condensed numbered list of key findings from Phase 1. Group by type (cross-session conflicts, discoveries, weaknesses, connections, gaps). This gives the user context to calibrate their per-debrief review — they can't evaluate individual sessions without understanding the cross-cutting picture.
+
+**Format**: Numbered list, one line per finding, grouped by type:
+```
+**Cross-Session Findings** (N total):
+1. [CONFLICT] Sessions A and B both modified schema X — incompatible field renames
+2. [CONNECTION] Sessions C and D are building the same feature from different angles
+3. [DISCOVERY] Session E introduced a pattern that could simplify Session F's approach
+
+**Per-Debrief Highlights** (N debriefs):
+4. [WEAKNESS] Session A: 3 tests skipped without explanation
+5. [GAP] Session B: no documentation updates despite API change
+6. [SPARK] Session C: novel approach to caching worth adopting elsewhere
+```
+
+### Phase 2b: The Dashboard
+*Present the per-debrief summary cards.*
 
 **Action**:
 1.  **Present Cross-Session Findings**: Output the cross-session analysis (file overlaps, conflicts, contradictions, dependencies). If none found, say "No cross-session conflicts detected."
@@ -149,9 +179,9 @@ Do NOT present findings to the user yet. Complete the full analysis first.
 Execute `AskUserQuestion` (multiSelect: false):
 > "Dashboard presented. How to proceed?"
 > - **"Proceed to per-debrief review"** -- Walk through each debrief individually
-> - **"Discuss dashboard first"** -- I want to talk about the cross-session findings
+> - **"Discuss findings first"** -- I want to talk about the findings summary and cross-session analysis
 
-### Phase 2b: Per-Debrief Interrogation
+### Phase 2c: Per-Debrief Interrogation
 *Walk through each debrief and REQUEST file with the user.*
 
 ### Interrogation Depth Selection
@@ -301,7 +331,7 @@ This is YOUR internal rubric -- do NOT present it as a form. Use it to generate 
 **Debrief generation**:
 
 **If `externalModel` is not "claude"** (external model path):
-1.  **Gather context file paths**: Collect paths to all reviewed debriefs, their logs, REVIEW_LOG.md, DETAILS.md, and TEMPLATE_REVIEW.md. Do NOT read them into context.
+1.  **Gather context file paths**: Collect paths to all reviewed debriefs, their logs, REVIEW_LOG.md, DIALOGUE.md, and TEMPLATE_REVIEW.md. Do NOT read them into context.
 2.  **Compose prompt**: Describe the review template structure, all verdicts, cross-session findings, and leftover work items.
 3.  **Execute `§CMD_EXECUTE_EXTERNAL_MODEL`** with:
     *   `prompt`: The composed review synthesis instructions
@@ -318,10 +348,40 @@ This is YOUR internal rubric -- do NOT present it as a form. Use it to generate 
     *   **Complex tasks** (feature rework, bug investigation, test gaps): Recommend a command (`/implement`, `/fix`, `/test`, `/analyze`) with a self-contained prompt referencing the review report and original session.
     *   Enough context for the user to copy-paste and immediately act.
 
+### 3.3. Finding Triage (Action Planning)
+*Convert review findings into action. Walk through each finding with the user and decide its fate.*
+
+§CMD_REPORT_INTENT:
+> 3.3: Triaging ___ findings into action items.
+> Focus: cross-session conflicts, risk flags, discoveries, gaps, and sparks from Phase 1 discovery.
+> Not: re-reviewing individual debriefs — verdicts are final from Phase 2.
+
+§CMD_EXECUTE_PHASE_STEPS(3.3.*)
+
+Execute `§CMD_WALK_THROUGH_RESULTS` with the **Walk-Through Config** below.
+
 **Walk-through config**:
 ```
 §CMD_WALK_THROUGH_RESULTS Configuration:
-  mode: "results"
-  gateQuestion: "Review complete. Walk through the verdicts?"
+  mode: "findings"
+  gateQuestion: "Review findings ready for triage. Walk through them?"
   debriefFile: "REVIEW.md"
+  sourceArtifact: "REVIEW_LOG.md"
+  itemSource: "Log entries from Phase 1 Discovery (Debrief Cards, Cross-Session Conflicts, Discoveries, Weaknesses, Connections, Sparks, Gaps)"
+  triageOptions:
+    - "Act now — create follow-up task"
+    - "Defer — tag for future session"
+    - "Dismiss — not actionable"
+    - "Discuss — need more context"
 ```
+
+**What gets triaged**: All findings logged during Phase 1 Discovery — cross-session conflicts, risk flags, buried alternatives, noteworthy patterns, gaps, and sparks. Per-debrief verdicts (approve/rework) are NOT retriaged — those are final from Phase 2.
+
+**Triage outcomes**:
+*   **Act now**: The finding becomes a concrete follow-up task. The agent generates a micro-dehydrated prompt recommending a skill (`/implement`, `/fix`, `/test`, `/analyze`, `/brainstorm`) with enough context to immediately act.
+*   **Defer**: Tag with appropriate `#needs-X` for future dispatch. The finding is recorded in REVIEW.md's Leftovers section.
+*   **Dismiss**: Acknowledged but no action needed. Recorded as "Dismissed" in the triage log.
+*   **Discuss**: User wants more context before deciding. Agent provides additional analysis, then re-presents the triage options.
+
+**Post-triage summary**: After all findings are triaged, output a condensed summary:
+*   N findings triaged: X acted on, Y deferred, Z dismissed

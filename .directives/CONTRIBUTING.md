@@ -216,7 +216,7 @@ hook_deny "title" "message" "detail"    # from lib.sh
 
 - **`post-tool-use-details-log.sh`**
   Event: PostToolUse
-  Purpose: Auto-logs AskUserQuestion interactions to DETAILS.md
+  Purpose: Auto-logs AskUserQuestion interactions to DIALOGUE.md
 
 - **`post-tool-use-templates.sh`**
   Event: PostToolUse

@@ -37,7 +37,7 @@ For each item's answer:
 
 ### Step 5: Return
 
-Return `chosen_items[]` — array of `{item, decision, tagNoun, explanation}` objects. No side effects — caller handles tag placement (`§CMD_HANDLE_INLINE_TAG`), Tags-line updates (`§CMD_TAG_FILE`), and DETAILS.md logging.
+Return `chosen_items[]` — array of `{item, decision, tagNoun, explanation}` objects. No side effects — caller handles tag placement (`§CMD_HANDLE_INLINE_TAG`), Tags-line updates (`§CMD_TAG_FILE`), and DIALOGUE.md logging.
 
 ---
 

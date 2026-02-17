@@ -37,6 +37,16 @@ Known gotchas and traps when working with engine scripts. Read before modifying 
 **Trap**: `new-window` returns exit 0 (window created successfully), but if the command fails immediately after, the window is destroyed before the next tmux query runs. `list-panes` returns empty, `list-windows` may not find it — a race condition with no error message. Combined with `sleep infinity` on macOS, this produces "ghost windows" that exist for milliseconds.
 **Mitigation**: Placeholder panes must use a command that blocks indefinitely: `read`, `cat`, or `while true; do sleep 3600; done`. Test by running `list-panes` immediately after `new-window` to verify the pane persists.
 
+### `local` at hook script top level silently exits via ERR trap
+**Context**: Hook scripts run under `set -euo pipefail`. The `local` keyword is only valid inside functions — using it at script top level is a syntax error in strict mode.
+**Trap**: `local var="value"` at hook script scope returns exit code 1, which triggers the ERR trap and silently kills the script. No error message is printed — the hook just stops executing. Subsequent code (including state writes and output) never runs.
+**Mitigation**: Use plain variable assignment (`var="value"`) at hook script top level. Reserve `local` for inside functions only.
+
+### jq `//` (alternative) operator has lower precedence than `|` (pipe)
+**Context**: jq's `//` (alternative) operator provides a fallback when the left side is null/false. It's often used in patterns like `(.a | first) // (.b | first)`.
+**Trap**: In `(.a | map(...) | first) // (.b | map(...) | first)`, the `//` binds after the first `|` chain completes, but the second alternative receives the output of the first chain as input — NOT the original root input. This means `.b` is searched inside the Phase object, not the root SKILL.md JSON.
+**Mitigation**: Use explicit binding with `as $var` or parenthesize both alternatives: `(($x | map(...) | first) // ($x | map(...) | first))` where `$x` is bound to the input via `as $x`.
+
 ### lib.sh functions are sourced — they share the caller's shell state
 **Context**: `lib.sh` provides shared functions (`ensure_jq`, `read_state`, `write_state`, etc.) that are sourced via `. lib.sh` into other scripts.
 **Trap**: Variables set in `lib.sh` functions (like `$SESSION_DIR`, `$STATE_FILE`) persist in the caller's scope and can collide with the caller's own variables. Similarly, `set -e` in `lib.sh` affects the caller's error handling.

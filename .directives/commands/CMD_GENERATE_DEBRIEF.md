@@ -22,7 +22,7 @@
     *   Only include sessions (not code files). Link to the debrief or most relevant artifact.
     *   This creates a knowledge graph — future sessions can trace lineage.
 6.  **Report**: `§CMD_LINK_FILE`. If this was a regeneration, say "Updated `[path]`" not "Created".
-7.  **Reindex Search DBs**: *Handled automatically by `engine session deactivate`.* No manual action needed.
+7.  **Reindex Search DBs**: *Handled automatically by `engine session idle` (or `engine session deactivate`).* No manual action needed.
 
 **Note**: Steps 8-15 (pipeline orchestration, deactivation) have been extracted to `§CMD_RUN_SYNTHESIS_PIPELINE`. This command now only handles debrief file creation (steps 1-7).
 

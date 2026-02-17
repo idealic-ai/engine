@@ -13,7 +13,7 @@
 
 2.  **Filter Already-Delegated**: Remove tags that:
     *   Appear on REQUEST files (already delegated earlier in the session)
-    *   Were placed by `§CMD_WALK_THROUGH_RESULTS` AND the walkthrough's own triage already handled them (check DETAILS.md for walk-through triage decisions)
+    *   Were placed by `§CMD_WALK_THROUGH_RESULTS` AND the walkthrough's own triage already handled them (check DIALOGUE.md for walk-through triage decisions)
     *   Match `#done-X` tags also present (already resolved)
 
 3.  **Present Summary**: If unresolved tags remain, show count:

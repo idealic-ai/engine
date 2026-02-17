@@ -251,7 +251,7 @@ test_active_session_delivers_skill_deps_on_clear() {
   "pid": $$,
   "skill": "implement",
   "lifecycle": "active",
-  "currentPhase": "3: Build Loop",
+  "currentPhase": "0: Setup",
   "preloadedFiles": []
 }
 JSON

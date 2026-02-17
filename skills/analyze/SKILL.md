@@ -40,7 +40,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
     {"label": "3.4", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "3.5", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/brainstorm", "/implement", "/document", "/fix", "/chores"],
   "directives": [],
@@ -133,13 +133,12 @@ Extras: A: Walk through findings so far | B: Go back to a previous topic | C: Sk
 ## Decision: Calibration Exit
 - [NEXT]
 - [MORE]
-- [RTRN] [ ] Return to Research Loop
+- [DEEP]
+- Devil's advocate round
+- What-if scenarios round
+- Gaps round
+- [ ] Return to Research Loop
   Go back to Phase 1 for more autonomous exploration based on calibration insights, then re-enter Calibration
-- [OTHR]
-  - [DEVL] Devil's advocate round
-    1 round challenging assumptions and decisions made so far
-  - [WHIF]
-  - [DEEP]
 
 **On [RTRN]**: Phase transition back to Phase 1 via `engine session phase` with `--user-approved`. Ignore all other selections — jump immediately. After Phase 1 completes, re-enter Phase 2 normally.
 

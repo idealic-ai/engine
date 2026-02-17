@@ -1,19 +1,19 @@
 #!/bin/bash
 # ~/.claude/hooks/post-tool-use-details-log.sh — PostToolUse hook for auto-logging AskUserQuestion
 #
-# Automatically logs every AskUserQuestion interaction to the session's DETAILS.md.
+# Automatically logs every AskUserQuestion interaction to the session's DIALOGUE.md.
 # Captures: agent's preamble (from transcript), questions, options, and user's answers.
 # Removes the agent's burden of manual §CMD_LOG_INTERACTION for Q&A logging.
 #
 # Input (stdin): PostToolUse JSON with tool_name, tool_input, tool_response, transcript_path
-# Output: Appends formatted entry to [sessionDir]/DETAILS.md via engine log
+# Output: Appends formatted entry to [sessionDir]/DIALOGUE.md via engine log
 #
 # Matcher: "AskUserQuestion" in settings.json (only fires for this tool)
 #
 # Related:
 #   Commands: (~/.claude/.directives/COMMANDS.md)
 #     §CMD_LOG_INTERACTION — Manual logging this hook replaces
-#   Templates: (~/.claude/skills/_shared/TEMPLATE_DETAILS.md)
+#   Templates: (~/.claude/skills/_shared/TEMPLATE_DIALOGUE.md)
 #   Hooks: (~/.claude/engine/hooks/)
 #     post-tool-use-discovery.sh — Reference PostToolUse pattern
 
@@ -62,7 +62,7 @@ if [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
 fi
 
 # --- Extract questions and answers ---
-# Get the first question's header for the DETAILS.md heading
+# Get the first question's header for the DIALOGUE.md heading
 HEADER=$(echo "$INPUT" | jq -r '.tool_input.questions[0].header // "Q&A"' 2>/dev/null || echo "Q&A")
 
 # Get first question text, truncated for heading
@@ -128,7 +128,7 @@ USER_RESPONSE=$(printf '%s' "$USER_RESPONSE" | escape_tags)
 HEADER=$(printf '%s' "$HEADER" | escape_tags)
 FIRST_Q_SHORT=$(printf '%s' "$FIRST_Q_SHORT" | escape_tags)
 
-# --- Build the DETAILS.md entry ---
+# --- Build the DIALOGUE.md entry ---
 ENTRY="## ${HEADER} — ${FIRST_Q_SHORT}"$'\n'
 ENTRY="${ENTRY}**Type**: Q&A (auto-logged)"$'\n'
 ENTRY="${ENTRY}"$'\n'
@@ -151,7 +151,7 @@ ENTRY="${ENTRY}${USER_QUOTED}"$'\n'
 ENTRY="${ENTRY}"$'\n'
 ENTRY="${ENTRY}---"
 
-# Append to DETAILS.md via engine log
-printf '%s\n' "$ENTRY" | "$HOME/.claude/scripts/log.sh" "$SESSION_DIR/DETAILS.md"
+# Append to DIALOGUE.md via engine log
+printf '%s\n' "$ENTRY" | "$HOME/.claude/scripts/log.sh" "$SESSION_DIR/DIALOGUE.md"
 
 exit 0

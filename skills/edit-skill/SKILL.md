@@ -53,7 +53,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
     {"label": "4.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "4.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/edit-skill", "/implement", "/analyze", "/chores"],
   "directives": [],
@@ -294,8 +294,8 @@ Each phase MUST reference appropriate `§CMD_` commands:
 *   Final phase uses `§CMD_RUN_SYNTHESIS_PIPELINE` for synthesis.
 *   Skills with interrogation get: depth selection table, round counter, custom topics (standard + repeatable), exit gate.
 
-**DETAILS.md integration (automatic for non-utility archetypes)**:
-Any skill that has an Interrogation phase or interactive dialogue MUST include DETAILS.md logging.
+**DIALOGUE.md integration (automatic for non-utility archetypes)**:
+Any skill that has an Interrogation phase or interactive dialogue MUST include DIALOGUE.md logging.
 
 **Question Bank (if requested during interrogation)**:
 If the user requested an angles-of-view checklist, generate a `### The Question Bank` section in the protocol's work/strategy phase.

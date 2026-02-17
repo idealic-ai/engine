@@ -34,9 +34,9 @@ create_session() {
   echo "# Implementation" > "$dir/IMPLEMENTATION.md"
   echo "## Log" > "$dir/IMPLEMENTATION_LOG.md"
   echo "## Plan" > "$dir/IMPLEMENTATION_PLAN.md"
-  echo "## Details" > "$dir/DETAILS.md"
+  echo "## Details" > "$dir/DIALOGUE.md"
   if [[ -n "$mtime" ]]; then
-    touch -t "$mtime" "$dir/IMPLEMENTATION.md" "$dir/IMPLEMENTATION_LOG.md" "$dir/IMPLEMENTATION_PLAN.md" "$dir/DETAILS.md"
+    touch -t "$mtime" "$dir/IMPLEMENTATION.md" "$dir/IMPLEMENTATION_LOG.md" "$dir/IMPLEMENTATION_PLAN.md" "$dir/DIALOGUE.md"
   fi
 }
 
@@ -321,7 +321,7 @@ test_debriefs_mode_filters_correctly() {
   if [[ "$output" == *"IMPLEMENTATION.md"* ]] \
     && [[ "$output" != *"_LOG.md"* ]] \
     && [[ "$output" != *"_PLAN.md"* ]] \
-    && [[ "$output" != *"DETAILS.md"* ]]; then
+    && [[ "$output" != *"DIALOGUE.md"* ]]; then
     pass "MODE-02: --debriefs includes debrief, excludes LOG/PLAN/DETAILS"
   else
     fail "MODE-02: --debriefs includes debrief, excludes LOG/PLAN/DETAILS" \

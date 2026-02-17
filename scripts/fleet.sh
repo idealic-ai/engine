@@ -936,6 +936,9 @@ cmd_list_panes() {
 }
 
 cmd_coordinate_wait() {
+    # DEPRECATED: Use `engine await-next` instead (TS tool with dual-channel blocking).
+    # coordinate-wait is kept as a thin wrapper for backward compatibility.
+    echo "WARNING: coordinate-wait is deprecated. Use 'engine await-next' instead." >&2
     # Block until actionable panes appear or timeout.
     # V2: Auto-disconnect previous → sweep (skip focused) → auto-connect → capture → return
     # Usage: fleet.sh coordinate-wait [timeout_seconds] [--panes pane1,pane2,...] [--socket <socket>]

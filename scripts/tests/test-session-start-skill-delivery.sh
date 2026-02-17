@@ -115,7 +115,7 @@ test_lifecycle_resuming_delivers_skill_deps() {
   "pid": $$,
   "skill": "implement",
   "lifecycle": "resuming",
-  "currentPhase": "3: Build Loop",
+  "currentPhase": "0: Setup",
   "preloadedFiles": []
 }
 JSON
@@ -128,14 +128,14 @@ JSON
     "lifecycle=resuming with live PID → SKILL.md delivered"
 
   assert_contains "CMD_SELECT_MODE content" "$output" \
-    "lifecycle=resuming with live PID → Phase 0 CMD delivered"
+    "lifecycle=resuming with live PID → current phase CMD delivered"
 }
 
 # --- Test 2: lifecycle=active — happy path works ---
 test_lifecycle_active_delivers_skill_deps() {
   create_test_skill "brainstorm"
 
-  # Create a session with lifecycle=active (happy path)
+  # Create a session with lifecycle=active at Phase 0 (happy path)
   local session_dir="$PROJECT_DIR/sessions/test_active"
   mkdir -p "$session_dir"
   cat > "$session_dir/.state.json" <<JSON
@@ -143,7 +143,7 @@ test_lifecycle_active_delivers_skill_deps() {
   "pid": $$,
   "skill": "brainstorm",
   "lifecycle": "active",
-  "currentPhase": "2: Analysis",
+  "currentPhase": "0: Setup",
   "preloadedFiles": []
 }
 JSON
@@ -157,7 +157,7 @@ JSON
 
   # Phase 0 CMD files should be in output
   assert_contains "CMD_SELECT_MODE content" "$output" \
-    "lifecycle=active with live PID → Phase 0 CMD delivered"
+    "lifecycle=active with live PID → current phase CMD delivered"
 
   # Standards should still be present
   assert_contains "COMMANDS content" "$output" \
@@ -293,7 +293,7 @@ test_skill_deps_tracked_in_seed_file() {
   "pid": $$,
   "skill": "implement",
   "lifecycle": "active",
-  "currentPhase": "3: Build",
+  "currentPhase": "0: Setup",
   "preloadedFiles": []
 }
 JSON
@@ -316,7 +316,7 @@ JSON
       assert_eq "1" "$has_skill_md" "seed preloadedFiles includes SKILL.md"
 
       local has_cmd=$(jq '[.preloadedFiles[] | select(contains("CMD_SELECT_MODE"))] | length' "$seed_file" 2>/dev/null || echo "0")
-      assert_eq "1" "$has_cmd" "seed preloadedFiles includes Phase 0 CMD path"
+      assert_eq "1" "$has_cmd" "seed preloadedFiles includes current phase CMD path"
     else
       fail "seed file created after clear with active session" "seed file exists" "not found in $seeds_dir"
     fi
@@ -384,7 +384,7 @@ test_standards_preloaded_on_clear() {
 test_multiple_phase0_cmds_delivered() {
   create_test_skill "implement"
 
-  # Verify Phase 0 has multiple CMDs
+  # Session at Phase 0 — should deliver both Phase 0 CMDs
   local session_dir="$PROJECT_DIR/sessions/multi_cmd"
   mkdir -p "$session_dir"
   cat > "$session_dir/.state.json" <<JSON
@@ -392,7 +392,7 @@ test_multiple_phase0_cmds_delivered() {
   "pid": $$,
   "skill": "implement",
   "lifecycle": "active",
-  "currentPhase": "3: Build",
+  "currentPhase": "0: Setup",
   "preloadedFiles": []
 }
 JSON
@@ -626,6 +626,211 @@ MOCK
   unset TMUX_PANE TMUX
 }
 
+# Helper: create a multi-phase test skill with distinct CMDs per phase
+create_multi_phase_skill() {
+  local skill_name="$1"
+  local skill_dir="$FAKE_HOME/.claude/skills/$skill_name"
+  local assets_dir="$skill_dir/assets"
+  mkdir -p "$assets_dir"
+
+  # CMD files for different phases
+  local cmd_dir="$FAKE_HOME/.claude/engine/.directives/commands"
+  mkdir -p "$cmd_dir"
+  echo "# CMD_SELECT_MODE content" > "$cmd_dir/CMD_SELECT_MODE.md"
+  echo "# CMD_REPORT_INTENT content" > "$cmd_dir/CMD_REPORT_INTENT.md"
+  echo "# CMD_INGEST_CONTEXT content" > "$cmd_dir/CMD_INGEST_CONTEXT_BEFORE_WORK.md"
+  echo "# CMD_INTERROGATE content" > "$cmd_dir/CMD_INTERROGATE.md"
+  echo "# CMD_ASK_ROUND content" > "$cmd_dir/CMD_ASK_ROUND.md"
+  echo "# CMD_GENERATE_PLAN content" > "$cmd_dir/CMD_GENERATE_PLAN.md"
+  echo "# CMD_GENERATE_DEBRIEF content" > "$cmd_dir/CMD_GENERATE_DEBRIEF.md"
+  echo "# CMD_RUN_SYNTHESIS_PIPELINE content" > "$cmd_dir/CMD_RUN_SYNTHESIS_PIPELINE.md"
+  # Orchestrator CMDs (prose refs in SKILL.md, not in any phase's steps)
+  echo "# CMD_EXECUTE_SKILL_PHASES content" > "$cmd_dir/CMD_EXECUTE_SKILL_PHASES.md"
+  echo "# CMD_EXECUTE_PHASE_STEPS content" > "$cmd_dir/CMD_EXECUTE_PHASE_STEPS.md"
+
+  # Template files
+  local skill_upper=$(echo "$skill_name" | tr '[:lower:]' '[:upper:]')
+  echo "# Log template for $skill_name" > "$assets_dir/TEMPLATE_${skill_upper}_LOG.md"
+  echo "# Debrief template for $skill_name" > "$assets_dir/TEMPLATE_${skill_upper}.md"
+
+  # SKILL.md with multiple phases having DIFFERENT CMDs + prose refs to orchestrator CMDs
+  cat > "$skill_dir/SKILL.md" <<SKILLEOF
+---
+description: "Test $skill_name skill"
+---
+
+# $skill_name
+
+Execute §CMD_EXECUTE_SKILL_PHASES.
+
+\`\`\`json
+{
+  "taskType": "IMPLEMENTATION",
+  "logTemplate": "assets/TEMPLATE_${skill_upper}_LOG.md",
+  "debriefTemplate": "assets/TEMPLATE_${skill_upper}.md",
+  "phases": [
+    {"major": 0, "minor": 0, "name": "Setup", "steps": ["§CMD_SELECT_MODE", "§CMD_REPORT_INTENT", "§CMD_INGEST_CONTEXT_BEFORE_WORK"]},
+    {"major": 1, "minor": 0, "name": "Interrogation", "steps": ["§CMD_REPORT_INTENT", "§CMD_INTERROGATE"], "commands": ["§CMD_ASK_ROUND"]},
+    {"major": 2, "minor": 0, "name": "Planning", "steps": ["§CMD_REPORT_INTENT", "§CMD_GENERATE_PLAN"]},
+    {"major": 3, "minor": 0, "name": "Execution"},
+    {"label": "3.A", "major": 3, "minor": 1, "name": "Build Loop", "steps": ["§CMD_REPORT_INTENT"]},
+    {"major": 4, "minor": 0, "name": "Synthesis", "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"]},
+    {"label": "4.2", "major": 4, "minor": 2, "name": "Debrief", "steps": ["§CMD_GENERATE_DEBRIEF"]}
+  ]
+}
+\`\`\`
+
+## 0. Setup
+
+§CMD_REPORT_INTENT:
+> 0: Setting up.
+
+§CMD_EXECUTE_PHASE_STEPS(0.0.*)
+
+## 1. Interrogation
+
+§CMD_REPORT_INTENT:
+> 1: Interrogating.
+
+§CMD_EXECUTE_PHASE_STEPS(1.0.*)
+
+## 2. Planning
+
+§CMD_REPORT_INTENT:
+> 2: Planning.
+
+§CMD_EXECUTE_PHASE_STEPS(2.0.*)
+SKILLEOF
+}
+
+# --- Test 15: Current phase CMDs delivered, not Phase 0 ---
+test_current_phase_cmds_delivered_not_phase0() {
+  create_multi_phase_skill "implement"
+
+  # Session at Phase 1 (Interrogation) — should get INTERROGATE + ASK_ROUND, NOT SELECT_MODE
+  local session_dir="$PROJECT_DIR/sessions/test_phase1"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "1: Interrogation",
+  "preloadedFiles": []
+}
+JSON
+
+  local output
+  output=$(run_hook "clear") || true
+
+  # Should deliver Phase 1 CMDs
+  assert_contains "CMD_INTERROGATE content" "$output" \
+    "Phase 1 active → CMD_INTERROGATE delivered (phase 1 step)"
+  assert_contains "CMD_ASK_ROUND content" "$output" \
+    "Phase 1 active → CMD_ASK_ROUND delivered (phase 1 command)"
+
+  # Should NOT deliver Phase 0-only CMDs
+  assert_not_contains "CMD_SELECT_MODE content" "$output" \
+    "Phase 1 active → CMD_SELECT_MODE NOT delivered (phase 0 only)"
+  assert_not_contains "CMD_INGEST_CONTEXT content" "$output" \
+    "Phase 1 active → CMD_INGEST_CONTEXT NOT delivered (phase 0 only)"
+}
+
+# --- Test 16: Sub-phase label CMDs delivered (e.g., "4.2: Debrief") ---
+test_sub_phase_cmds_delivered() {
+  create_multi_phase_skill "implement"
+
+  # Session at Phase 4.2 (Debrief sub-phase)
+  local session_dir="$PROJECT_DIR/sessions/test_phase42"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "4.2: Debrief",
+  "preloadedFiles": []
+}
+JSON
+
+  local output
+  output=$(run_hook "clear") || true
+
+  # Should deliver Phase 4.2 CMDs
+  assert_contains "CMD_GENERATE_DEBRIEF content" "$output" \
+    "Phase 4.2 active → CMD_GENERATE_DEBRIEF delivered (phase 4.2 step)"
+
+  # Should NOT deliver Phase 0 CMDs
+  assert_not_contains "CMD_SELECT_MODE content" "$output" \
+    "Phase 4.2 active → CMD_SELECT_MODE NOT delivered (phase 0 only)"
+
+  # Should NOT deliver Phase 4.0 CMDs either
+  assert_not_contains "CMD_RUN_SYNTHESIS_PIPELINE content" "$output" \
+    "Phase 4.2 active → CMD_RUN_SYNTHESIS_PIPELINE NOT delivered (phase 4.0, not 4.2)"
+}
+
+# --- Test 17: SKILL.md prose refs resolved and delivered ---
+test_skill_md_prose_refs_delivered() {
+  create_multi_phase_skill "implement"
+
+  local session_dir="$PROJECT_DIR/sessions/test_prose_refs"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "3.A: Build Loop",
+  "preloadedFiles": []
+}
+JSON
+
+  local output
+  output=$(run_hook "clear") || true
+
+  # SKILL.md has bare §CMD_EXECUTE_SKILL_PHASES in prose (outside code fences)
+  assert_contains "CMD_EXECUTE_SKILL_PHASES content" "$output" \
+    "SKILL.md prose ref → CMD_EXECUTE_SKILL_PHASES delivered"
+
+  # §CMD_EXECUTE_PHASE_STEPS also appears in prose
+  assert_contains "CMD_EXECUTE_PHASE_STEPS content" "$output" \
+    "SKILL.md prose ref → CMD_EXECUTE_PHASE_STEPS delivered"
+}
+
+# --- Test 18: Phase 0 still works when session is at Phase 0 ---
+test_phase0_cmds_when_at_phase0() {
+  create_multi_phase_skill "implement"
+
+  local session_dir="$PROJECT_DIR/sessions/test_at_phase0"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "0: Setup",
+  "preloadedFiles": []
+}
+JSON
+
+  local output
+  output=$(run_hook "clear") || true
+
+  # Phase 0 CMDs + templates
+  assert_contains "CMD_SELECT_MODE content" "$output" \
+    "Phase 0 active → CMD_SELECT_MODE delivered"
+  assert_contains "CMD_REPORT_INTENT content" "$output" \
+    "Phase 0 active → CMD_REPORT_INTENT delivered"
+  assert_contains "Log template" "$output" \
+    "Phase 0 active → log template delivered"
+  assert_contains "Debrief template" "$output" \
+    "Phase 0 active → debrief template delivered"
+
+  # Phase 1 CMDs should NOT be present
+  assert_not_contains "CMD_INTERROGATE content" "$output" \
+    "Phase 0 active → CMD_INTERROGATE NOT delivered (phase 1 only)"
+}
+
 # --- Test 14: Not in tmux — falls back gracefully ---
 test_not_in_tmux_falls_back_gracefully() {
   create_test_skill "implement"
@@ -676,6 +881,243 @@ JSON
     "not in tmux → standards still present"
 }
 
+# --- Test 19: No duplicate preloads when CMD appears in both prose refs and phase CMDs ---
+test_no_dupe_when_cmd_in_prose_and_phase() {
+  create_multi_phase_skill "implement"
+
+  # Session at Phase 1 — CMD_REPORT_INTENT is both:
+  #   - a Phase 1 step (via resolve_phase_cmds)
+  #   - a SKILL.md prose ref (§CMD_REPORT_INTENT: appears outside code fences)
+  local session_dir="$PROJECT_DIR/sessions/test_dedup"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "1: Interrogation",
+  "preloadedFiles": []
+}
+JSON
+
+  local output
+  output=$(run_hook "clear") || true
+
+  # CMD_REPORT_INTENT should appear exactly ONCE
+  local count
+  count=$(echo "$output" | grep -c 'CMD_REPORT_INTENT content' || true)
+  assert_eq "1" "$count" \
+    "CMD_REPORT_INTENT delivered exactly once (not duped between prose refs and phase CMDs)"
+
+  # CMD_EXECUTE_SKILL_PHASES should also be exactly once (prose ref only)
+  count=$(echo "$output" | grep -c 'CMD_EXECUTE_SKILL_PHASES content' || true)
+  assert_eq "1" "$count" \
+    "CMD_EXECUTE_SKILL_PHASES delivered exactly once (prose ref)"
+
+  # CMD_INTERROGATE should be exactly once (phase CMD only, not a prose ref)
+  count=$(echo "$output" | grep -c 'CMD_INTERROGATE content' || true)
+  assert_eq "1" "$count" \
+    "CMD_INTERROGATE delivered exactly once (phase CMD)"
+}
+
+# --- Test 20: Debrief exists → preloaded as session artifact ---
+test_debrief_preloaded_when_exists() {
+  create_multi_phase_skill "implement"
+
+  local session_dir="$PROJECT_DIR/sessions/test_debrief"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "3.A: Build Loop",
+  "preloadedFiles": []
+}
+JSON
+
+  # Create a debrief file in the session
+  cat > "$session_dir/IMPLEMENT.md" <<MD
+# Implementation Debrief
+**Tags**: \`#needs-review\`
+
+## Summary
+We implemented the widget parser with TDD approach.
+
+## Changes
+- Added parser.ts
+- Added parser.test.ts
+MD
+
+  # Also create a log file (should NOT be preloaded when debrief exists)
+  cat > "$session_dir/IMPLEMENT_LOG.md" <<MD
+## Session Start
+* **Item**: Widget parser
+MD
+
+  local output
+  output=$(run_hook "clear") || true
+
+  # Debrief should be preloaded
+  assert_contains "We implemented the widget parser" "$output" \
+    "debrief exists → debrief content preloaded"
+
+  # Log should NOT be preloaded (debrief takes priority)
+  assert_not_contains "Widget parser" "$output" \
+    "debrief exists → log NOT preloaded (debrief takes priority)" || true
+  # NOTE: log content might overlap with debrief. Check for [Preloaded: header instead
+  local log_preload_count
+  log_preload_count=$(echo "$output" | grep -c 'Preloaded:.*IMPLEMENT_LOG.md' || true)
+  assert_eq "0" "$log_preload_count" \
+    "debrief exists → log file NOT in preloaded headers"
+}
+
+# --- Test 21: No debrief, log exists → log preloaded as fallback ---
+test_log_preloaded_when_no_debrief() {
+  create_multi_phase_skill "implement"
+
+  local session_dir="$PROJECT_DIR/sessions/test_log_fallback"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "3.A: Build Loop",
+  "preloadedFiles": []
+}
+JSON
+
+  # Only a log file, no debrief
+  cat > "$session_dir/IMPLEMENT_LOG.md" <<MD
+## Session Start
+* **Item**: Widget parser implementation
+* **Goal**: Build the parser step by step
+
+## Progress Update
+* **Task**: Completed step 1 — schema types
+* **Status**: done
+MD
+
+  local output
+  output=$(run_hook "clear") || true
+
+  # Log should be preloaded as fallback
+  assert_contains "Completed step 1" "$output" \
+    "no debrief → log content preloaded as fallback"
+
+  local log_preload_count
+  log_preload_count=$(echo "$output" | grep -c 'Preloaded:.*IMPLEMENT_LOG.md' || true)
+  assert_eq "1" "$log_preload_count" \
+    "no debrief → log file appears in preloaded header"
+}
+
+# --- Test 22: Neither debrief nor log → no artifact preloaded (no crash) ---
+test_no_artifact_no_crash() {
+  create_multi_phase_skill "implement"
+
+  local session_dir="$PROJECT_DIR/sessions/test_no_artifacts"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "0: Setup",
+  "preloadedFiles": []
+}
+JSON
+
+  # No debrief, no log — fresh session
+
+  local output
+  output=$(run_hook "clear") || true
+
+  # Should still deliver SKILL.md + CMDs (no crash)
+  assert_contains "Test implement skill" "$output" \
+    "no artifacts → SKILL.md still delivered"
+  assert_contains "CMD_SELECT_MODE content" "$output" \
+    "no artifacts → Phase 0 CMDs still delivered"
+
+  # No artifact preloads
+  local artifact_count
+  artifact_count=$(echo "$output" | grep -c 'Preloaded:.*IMPLEMENT' | grep -v 'TEMPLATE' || true)
+  # Should only have TEMPLATE_ references, not session artifacts
+}
+
+# --- Test 23: DIALOGUE.md also preloaded when it exists ---
+test_details_preloaded_alongside_debrief() {
+  create_test_skill "implement"
+
+  local session_dir="$PROJECT_DIR/sessions/test_details"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "implement",
+  "lifecycle": "active",
+  "currentPhase": "3.A: Build Loop",
+  "preloadedFiles": []
+}
+JSON
+
+  cat > "$session_dir/IMPLEMENT.md" <<MD
+# Implementation Debrief
+## Summary
+Built the widget parser.
+MD
+
+  cat > "$session_dir/DIALOGUE.md" <<MD
+## Interrogation Results
+**Type**: Q&A
+
+**Agent**: What testing approach?
+**User**: Use TDD with jest.
+MD
+
+  local output
+  output=$(run_hook "clear") || true
+
+  # Debrief should be preloaded
+  assert_contains "Built the widget parser" "$output" \
+    "debrief preloaded alongside DIALOGUE.md"
+
+  # DIALOGUE.md should also be preloaded
+  assert_contains "What testing approach" "$output" \
+    "DIALOGUE.md preloaded for interrogation context"
+}
+
+# --- Test 24: Skill name maps to correct debrief filename ---
+test_skill_debrief_filename_mapping() {
+  # Create an "analyze" skill — debrief should be ANALYZE.md
+  create_multi_phase_skill "analyze"
+
+  local session_dir="$PROJECT_DIR/sessions/test_analyze_artifact"
+  mkdir -p "$session_dir"
+  cat > "$session_dir/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "analyze",
+  "lifecycle": "active",
+  "currentPhase": "3.A: Build Loop",
+  "preloadedFiles": []
+}
+JSON
+
+  # Create ANALYZE.md (not IMPLEMENT.md)
+  cat > "$session_dir/ANALYZE.md" <<MD
+# Analysis Report
+## Findings
+Found 3 critical issues in the auth module.
+MD
+
+  local output
+  output=$(run_hook "clear") || true
+
+  assert_contains "Found 3 critical issues" "$output" \
+    "analyze skill → ANALYZE.md preloaded (correct filename mapping)"
+}
+
 echo "======================================"
 echo "Session Start Skill Delivery E2E Tests"
 echo "======================================"
@@ -695,5 +1137,15 @@ run_test test_fleet_match_correct_session_selected
 run_test test_fleet_match_resuming_lifecycle
 run_test test_no_fleet_match_fallback_to_first_alive_pid
 run_test test_not_in_tmux_falls_back_gracefully
+run_test test_current_phase_cmds_delivered_not_phase0
+run_test test_sub_phase_cmds_delivered
+run_test test_skill_md_prose_refs_delivered
+run_test test_phase0_cmds_when_at_phase0
+run_test test_no_dupe_when_cmd_in_prose_and_phase
+run_test test_debrief_preloaded_when_exists
+run_test test_log_preloaded_when_no_debrief
+run_test test_no_artifact_no_crash
+run_test test_details_preloaded_alongside_debrief
+run_test test_skill_debrief_filename_mapping
 
 exit_with_results

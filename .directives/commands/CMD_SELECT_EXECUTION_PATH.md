@@ -62,17 +62,16 @@ Trigger: at the gateway phase when selecting how to execute the plan (except: sk
 Extras: A: View plan summary before choosing | B: Estimate complexity per path | C: View agent availability
 
 ## Decision: Execution Path
-- [INL] Inline execution
+- [HERE] Inline execution
   Execute step by step in this conversation
-- [AGT] Agent handoff
+- [SEND] Agent handoff
   Hand off to a single autonomous agent
-- [PAR] Parallel agents
+- [MANY] Parallel agents
   Split into independent chunks for parallel agents
-- [MORE] Other
-  - [PEK] Peek at plan first
-    Re-read the plan before choosing an execution path
-  - [SEQ] Sequential approval
-    Inline but with step-by-step user approval before each action
+- [VIEW] Peek at plan first
+  Re-read the plan before choosing an execution path
+- [EACH] Sequential approval
+  Inline but with step-by-step user approval before each action
 
 ---
 

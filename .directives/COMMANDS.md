@@ -73,7 +73,7 @@ Start a background watcher that blocks until a specific tag appears on a file or
 ### ¶CMD_REQUIRE_ACTIVE_SESSION
 **Definition**: All tool use requires an active session. Mechanically enforced by `pre-tool-use-session-gate.sh`.
 **Rule**: The session gate blocks all non-whitelisted tools until `engine session activate` succeeds. Whitelisted: `Read(~/.claude/*)`, `Bash(engine session)`, `AskUserQuestion`, `Skill`.
-**When Blocked**: Use `AskUserQuestion` to ask the user which skill to activate. Suggest `/do` for quick ad-hoc tasks, or a structured skill (`/implement`, `/analyze`, `/fix`, etc.) for larger work. Then invoke the skill via the Skill tool.
+**When Blocked**: Activate a session before proceeding. If the user's message already specifies a skill or task, activate it directly via the Skill tool or `engine session activate`. If the user's intent is unclear, use `AskUserQuestion` to ask which skill to activate. Suggest `/do` for quick ad-hoc tasks, or a structured skill (`/implement`, `/analyze`, `/fix`, etc.) for larger work.
 **Related**: `¶INV_SKILL_PROTOCOL_MANDATORY` (skills require formal session activation), `§CMD_MAINTAIN_SESSION_DIR` (session directory lifecycle).
 
 ### ¶CMD_NO_MICRO_NARRATION
@@ -187,36 +187,59 @@ Start a background watcher that blocks until a specific tag appears on a file or
     > → [AskUserQuestion with 5 options]
 
 ### ¶CMD_SESSION_CLI
-**CRITICAL**: 
-    * These are the exact command formats. Do NOT invent flags (e.g., `--description`). Description and parameters are always piped via stdin heredoc.
-    * Use `engine` command directly, dont attempt to resolve the symlink or add `.sh`, per §INV_ENGINE_COMMAND_DISPATCH
+**CRITICAL**:
+*   These are the exact command formats. Do NOT invent flags (e.g., `--session`, `--description`, `--path`).
+*   Use `engine` command directly, dont attempt to resolve the symlink or add `.sh`, per §INV_ENGINE_COMMAND_DISPATCH
 
+**Universal pattern** — ALL session subcommands follow this:
+```
+engine session <SUBCOMMAND> <SESSION_PATH> [flags] [<<stdin]
+```
+*   `<SESSION_PATH>` is always the **first positional argument** after the subcommand. It is NEVER a flag. Do NOT write `--session`, `--path`, or `--dir`.
+*   Flags (e.g., `--keywords`) come AFTER the session path.
+*   Large content (descriptions, JSON params) is piped via stdin heredoc.
+
+**Subcommands**:
 
 ```bash
-# Activate (with parameters — first activation)
-# Remember to pass COMPLETE §CMD_PARSE_PARAMETERS json schema with all required fields
+# ── activate ──────────────────────────────────────────────
+# First activation (with JSON parameters on stdin):
 engine session activate sessions/YYYY_MM_DD_TOPIC skill-name <<'EOF'
-{ "taskSummary": "...", "taskType": "...", ... }
+{ "taskSummary": "...", "scope": "...", ... }
 EOF
 
-# Activate (re-activation — no new parameters)
+# Re-activation (no new parameters — pipe /dev/null to avoid stdin hang):
 engine session activate sessions/YYYY_MM_DD_TOPIC skill-name < /dev/null
 
-# Deactivate (description via stdin, keywords via flag)
-engine session deactivate sessions/YYYY_MM_DD_TOPIC --keywords "kw1,kw2" <<'EOF'
-What was done in this session (1-3 lines)
+# ── idle (standard session close — use this in §CMD_CLOSE_SESSION) ──
+# Sets lifecycle=idle, clears PID. Session remains reactivatable.
+engine session idle sessions/YYYY_MM_DD_TOPIC --keywords "kw1,kw2" <<'EOF'
+What was accomplished (1-3 lines)
 EOF
 
-# Phase transition (sequential)
+# ── deactivate (permanent close — rare, use idle instead for normal flow) ──
+# Sets lifecycle=completed. Session cannot be reactivated without --user-approved.
+engine session deactivate sessions/YYYY_MM_DD_TOPIC --keywords "kw1,kw2" <<'EOF'
+What was accomplished (1-3 lines)
+EOF
+
+# ── phase ─────────────────────────────────────────────────
+# Sequential transition (next phase in order):
 engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name"
 
-# Phase transition (non-sequential — requires user approval)
+# Non-sequential transition (requires user approval):
 engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name" --user-approved "Reason"
 
-# Continue session after context overflow restart (used by /session continue)
+# With proof (pipe JSON when leaving a proof-gated phase):
+engine session phase sessions/YYYY_MM_DD_TOPIC "N: Phase Name" <<'EOF'
+{"fieldA": "value", "fieldB": "value"}
+EOF
+
+# ── continue ──────────────────────────────────────────────
+# Resume after context overflow restart (used by /session continue):
 engine session continue sessions/YYYY_MM_DD_TOPIC
 
-# Find sessions (subcommands: today, yesterday, recent, date, range, topic, tag, active, since, window, all)
+# ── find-sessions (separate command, not a session subcommand) ──
 engine find-sessions recent
 engine find-sessions today
 engine find-sessions topic <NAME>
@@ -224,7 +247,21 @@ engine find-sessions tag '#needs-review'
 engine find-sessions active
 ```
 
-**Activate flags** (the ONLY valid flags — do NOT invent others): `--fleet-pane`, `--target-file`, `--user-approved`, `--fast-track`.
+**Valid flags per subcommand** (do NOT invent others):
+*   **activate**: `--fleet-pane`, `--target-file`, `--user-approved`, `--fast-track`
+*   **idle**: `--keywords`
+*   **deactivate**: `--keywords`
+*   **phase**: `--user-approved`
+*   **continue**, **find-sessions**: no flags
+
+**`engine log`** — Append-only log writing (same positional pattern):
+```bash
+engine log <FILE_PATH> <<'EOF'
+## Heading (timestamp auto-injected)
+*   **Item**: ...
+EOF
+```
+*   `<FILE_PATH>` is a positional argument (e.g., `sessions/DIR/LOG.md`). Not a flag.
 
 **Workspace-aware path resolution**: Session paths accept 3 forms:
 1. **Bare name**: `2026_02_14_X` → resolved via `$WORKSPACE/sessions/` or `sessions/`
@@ -373,7 +410,7 @@ Creates a standardized plan artifact using the `_PLAN.md` template from context.
 Display-only 3-line blockquote (What / How / Not-what) at phase entry. Serves as user progress signal + agent cognitive anchoring. Called as first step of each applicable phase; SKILL.md provides per-phase content templates with `___` placeholders. Boolean proof: `intent_reported`.
 
 ### ¶CMD_LOG_INTERACTION
-**Definition**: Records a User Assertion or Discussion into the session's high-fidelity `DETAILS.md`.
+**Definition**: Records a User Assertion or Discussion into the session's high-fidelity `DIALOGUE.md`.
 **Usage**: Execute this immediately after receiving an important User Assertion or Discussion that was NOT triggered by `AskUserQuestion`.
 
 **Auto-Logging**: Q&A entries from `AskUserQuestion` are **automatically logged** by the `post-tool-use-details-log.sh` PostToolUse hook. The hook captures the agent's preamble (from transcript), questions, options, and user answers. **Do NOT manually log AskUserQuestion interactions** — the hook handles it. Manual `§CMD_LOG_INTERACTION` is only needed for:
@@ -381,13 +418,13 @@ Display-only 3-line blockquote (What / How / Not-what) at phase entry. Serves as
 *   **Discussions**: Non-AskUserQuestion back-and-forth that establishes important context.
 
 **Algorithm**:
-1.  **Construct**: Prepare the Markdown block following `~/.claude/skills/_shared/TEMPLATE_DETAILS.md`.
+1.  **Construct**: Prepare the Markdown block following `~/.claude/skills/_shared/TEMPLATE_DIALOGUE.md`.
     *   **Agent**: Quote your question or the context (keep nuance/options).
     *   **User**: VERBATIM quote of the user's answer.
     *   **Action**: Paraphrase your decision/action (e.g., "Updated Plan").
 2.  **Execute**:
     ```bash
-    engine log sessions/[YYYY_MM_DD]_[TOPIC]/DETAILS.md <<'EOF'
+    engine log sessions/[YYYY_MM_DD]_[TOPIC]/DIALOGUE.md <<'EOF'
     ## [Topic Summary]
     **Type**: [Assertion / Discussion]
 

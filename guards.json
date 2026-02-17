@@ -27,7 +27,7 @@
       "condition": { "noActiveSession": true }
     },
     "payload": {
-      "text": "[block: session] §CMD_REQUIRE_ACTIVE_SESSION — no active session (found: $sessionDir, lifecycle: $lifecycle). Use AskUserQuestion to pick a skill. Popular: /do, /implement, /analyze, /fix, /test"
+      "text": "[block: session] §CMD_REQUIRE_ACTIVE_SESSION — no active session (lifecycle: $lifecycle). Activate a session before proceeding. If the user already specified a skill or task, activate it directly via Skill tool or `engine session activate`. If unclear, use AskUserQuestion to ask. Popular: /do, /implement, /analyze, /fix, /test"
     },
     "mode": "inline",
     "urgency": "block",

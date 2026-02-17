@@ -385,7 +385,30 @@ case "$ACTION" in
                 "$STATE_FILE" | safe_json_write "$STATE_FILE"
             fi
           else
-            # Same skill, same PID — brief confirmation, no scans
+            # Same skill, same PID — merge seed (if any) before early exit.
+            # After /clear, SessionStart resets preloadedFiles to 6 seeds and creates
+            # a new seed file. Without this merge, the seed's accumulated entries are
+            # lost — causing discovery hook to re-queue directives that were already loaded.
+            SESSIONS_BASE=$(dirname "$DIR")
+            SEED_FILE="$SESSIONS_BASE/.seeds/${TARGET_PID}.json"
+            if [ -f "$SEED_FILE" ]; then
+              SEED_LIFECYCLE=$(jq -r '.lifecycle // ""' "$SEED_FILE" 2>/dev/null || echo "")
+              if [ "$SEED_LIFECYCLE" = "seeding" ]; then
+                jq -s '
+                  (.[0].preloadedFiles // []) as $sp |
+                  (.[1].preloadedFiles // []) as $seedp |
+                  (.[0].pendingPreloads // []) as $pp |
+                  (.[1].pendingPreloads // []) as $seedpp |
+                  (.[0].touchedDirs // {}) as $td |
+                  (.[1].touchedDirs // {}) as $seedtd |
+                  .[0] |
+                  .preloadedFiles = ($sp + $seedp | unique) |
+                  .pendingPreloads = ($pp + $seedpp | unique) |
+                  .touchedDirs = ($td * $seedtd)
+                ' "$STATE_FILE" "$SEED_FILE" | safe_json_write "$STATE_FILE"
+                rm -f "$SEED_FILE"
+              fi
+            fi
             echo "Session re-activated: $DIR (skill: $SKILL, pid: $TARGET_PID)"
             exit 0
           fi
@@ -838,6 +861,53 @@ case "$ACTION" in
           fi
         fi
       fi
+    fi
+
+    # SRC_SESSION_ARTIFACTS (runs unconditionally — shows all files in session dir)
+    echo ""
+    echo "## SRC_SESSION_ARTIFACTS"
+    if [ -d "$DIR" ]; then
+      ARTIFACT_LIST=$(ls -1 "$DIR" 2>/dev/null | grep -v '\.state\.json$' | grep -v '^\.' || true)
+      if [ -n "$ARTIFACT_LIST" ]; then
+        echo "$ARTIFACT_LIST"
+      else
+        echo "(empty session)"
+      fi
+    else
+      echo "(session dir not yet created)"
+    fi
+
+    # SRC_PRIOR_SKILL_CONTEXT (preloads last skill's debrief or log on skill change)
+    # When switching skills within the same session, the prior skill's decisions
+    # are critical context — especially for interrogation deduplication.
+    if [ "$SHOULD_SCAN" = true ] && [ -d "$DIR" ]; then
+      echo ""
+      echo "## SRC_PRIOR_SKILL_CONTEXT"
+      # Find the most recent log (contains interrogation decisions and build progress)
+      PRIOR_LOG=$(ls -1t "$DIR"/*_LOG.md 2>/dev/null | head -1 || true)
+      if [ -n "$PRIOR_LOG" ] && [ -f "$PRIOR_LOG" ]; then
+        echo "Prior log: $PRIOR_LOG"
+        echo "[Suggested — read this file for prior skill decisions and interrogation answers]"
+      fi
+      # Find the most recent debrief (synthesized summary, if one exists)
+      PRIOR_DEBRIEF=$(ls -1t "$DIR"/*.md 2>/dev/null \
+        | grep -v '_LOG\.md$' | grep -v '_PLAN\.md$' | grep -v 'DETAILS\.md$' \
+        | grep -v 'TEMPLATE' | grep -v 'CHECKLIST' | grep -v 'REQUEST' | grep -v 'RESPONSE' \
+        | head -1 || true)
+      if [ -n "$PRIOR_DEBRIEF" ] && [ -f "$PRIOR_DEBRIEF" ]; then
+        echo "Prior debrief: $PRIOR_DEBRIEF"
+        echo "[Suggested — read this file for prior skill synthesis]"
+      fi
+      if [ -z "$PRIOR_LOG" ] && [ -z "$PRIOR_DEBRIEF" ]; then
+        echo "(no prior skill artifacts)"
+      fi
+      # Always suggest DIALOGUE.md if it exists (cross-skill Q&A history)
+      if [ -f "$DIR/DIALOGUE.md" ]; then
+        echo "Cross-skill Q&A: $DIR/DIALOGUE.md"
+        echo "[Suggested — read for prior interrogation answers]"
+      fi
+      echo ""
+      echo "⚠️  Prior skill decisions may overlap with interrogation topics. Check before re-asking."
     fi
 
     # SRC_DELEGATION_TARGETS (runs unconditionally — fresh context needs this)
@@ -1743,7 +1813,7 @@ case "$ACTION" in
         [ -f "$debrieffile" ] || continue
         # Skip LOG and PLAN files (already scanned above)
         case "$(basename "$debrieffile")" in
-          *_LOG.md|*_PLAN.md|DETAILS.md) continue ;;
+          *_LOG.md|*_PLAN.md|DIALOGUE.md) continue ;;
         esac
         DEBT=$(grep -n '💸' "$debrieffile" 2>/dev/null || echo "")
         if [ -n "$DEBT" ]; then
@@ -2203,7 +2273,7 @@ case "$ACTION" in
       echo "TEST: Would send tmux keystroke injection to restart session"
       echo "TEST: Prompt: $PROMPT"
       echo "TEST: Restart mode: $RESTART_MODE"
-    elif [ -n "${TMUX:-}" ]; then
+    elif [ -n "${TMUX:-}" ] && [ "${DISABLE_CLEAR:-}" != "1" ]; then
       target_flag=""
       if [ -n "${TMUX_PANE:-}" ]; then
         target_flag="-t $TMUX_PANE"
@@ -2268,7 +2338,7 @@ case "$ACTION" in
       echo "TEST: Would send tmux keystroke injection to restart session"
       echo "TEST: Prompt: $PROMPT"
       echo "TEST: Restart mode: $RESTART_MODE"
-    elif [ -n "${TMUX:-}" ]; then
+    elif [ -n "${TMUX:-}" ] && [ "${DISABLE_CLEAR:-}" != "1" ]; then
       # tmux path: send Esc → 1s delay → Esc → /clear → Enter
       target_flag=""
       if [ -n "${TMUX_PANE:-}" ]; then
@@ -2325,7 +2395,7 @@ case "$ACTION" in
 
     if [ "${TEST_MODE:-}" = "1" ]; then
       echo "TEST: Would clear context (tmux /clear or watchdog kill)"
-    elif [ -n "${TMUX:-}" ]; then
+    elif [ -n "${TMUX:-}" ] && [ "${DISABLE_CLEAR:-}" != "1" ]; then
       # tmux path: send /clear to reset context without killing process
       target_flag=""
       if [ -n "${TMUX_PANE:-}" ]; then
@@ -2346,8 +2416,7 @@ case "$ACTION" in
       echo "Signaling watchdog (PID $WATCHDOG_PID) to restart fresh..."
       kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
     else
-      echo "No tmux/watchdog available. To clear manually, run:"
-      echo "  /clear"
+      echo "No tmux/watchdog available. Restart manually."
     fi
     exit 0
     ;;

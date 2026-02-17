@@ -29,7 +29,7 @@
 **Algorithm**:
 
 1.  **Detect Relationships**: From the current session's context, identify:
-    *   **Continuations**: Was this session created via `/session continue`? Check `phaseHistory` for `♻️ Context Overflow Restart` or `♻️ Manual Session Resume` entries. Check `DETAILS.md` for continuation references.
+    *   **Continuations**: Was this session created via `/session continue`? Check `phaseHistory` for `♻️ Context Overflow Restart` or `♻️ Manual Session Resume` entries. Check `DIALOGUE.md` for continuation references.
     *   **Derived work**: Does the session's `contextPaths` or `ragDiscoveredPaths` reference another session's debrief? Did the user mention a prior session during interrogation?
     *   **Delegations**: Are there REQUEST files in this session pointing to other sessions? Are there RESPONSE files written by this session for other sessions' requests?
     *   **Related**: Do RAG search results from activation suggest topically similar sessions?

@@ -13,9 +13,9 @@
 3.  **Group**: Organize results by tag type (e.g., all `#needs-implementation` together, all `#needs-chores` together).
 4.  **Present**: For each group, invoke §CMD_DECISION_TREE with `§ASK_DISPATCH_GROUP`. Use preamble context to describe the group (`#needs-[noun]`, item count, and brief context per item).
 5.  **Execute** (based on `§ASK_DISPATCH_GROUP` path):
-    *   **`APR` (Approve all)**: For each file in the group, `engine tag swap [file] '#needs-[noun]' '#delegated-[noun]'`.
-    *   **`CLM` (Claim all for next skill)**: For each file in the group, `engine tag swap [file] '#needs-[noun]' '#next-[noun]'`. Then execute **state passing** (step 5a).
-    *   **`REV` (Review individually)**: Chunk files in the group into batches of **4** (matching `AskUserQuestion`'s max of 4 questions per call). Last batch gets the remainder (1-3 files). For each batch:
+    *   **`LGTM` (Approve all)**: For each file in the group, `engine tag swap [file] '#needs-[noun]' '#delegated-[noun]'`.
+    *   **`GRAB` (Claim all for next skill)**: For each file in the group, `engine tag swap [file] '#needs-[noun]' '#next-[noun]'`. Then execute **state passing** (step 5a).
+    *   **`VIEW` (Review individually)**: Chunk files in the group into batches of **4** (matching `AskUserQuestion`'s max of 4 questions per call). Last batch gets the remainder (1-3 files). For each batch:
 
         1.  **Context Blocks (per-file, single chat message)**: Output ALL files' context in one message. Each file gets an ID per the Item IDs convention (SIGILS.md § Item IDs). Format: `{phase}/{file}` — e.g., if dispatch runs during synthesis sub-phase 5.3, the first file is `5.3/1`:
 
@@ -28,17 +28,17 @@
         2.  **Present Options**: Invoke §CMD_DECISION_TREE with `§ASK_DISPATCH_ITEM` in batch mode (up to 4 items per batch). Use per-item context blocks from step 1 as preamble context. Item IDs are passed through to §CMD_DECISION_TREE for use in `AskUserQuestion` headers.
 
         3.  **On Selection** (based on `§ASK_DISPATCH_ITEM` path): Process each file's answer independently:
-            *   **`APR`**: `engine tag swap [file] '#needs-[noun]' '#delegated-[noun]'`
-            *   **`CLM`**: `engine tag swap [file] '#needs-[noun]' '#next-[noun]'`. Execute state passing (step 5a) after batch.
-            *   **`DEF`**: No action. Tag remains as `#needs-X`.
-            *   **`MORE/DIS`**: Remove tag entirely via `engine tag remove [file] '#needs-[noun]'`.
-            *   **`MORE/SPL`**: Follow-up to define sub-items, then create REQUEST files for each.
+            *   **`LGTM`**: `engine tag swap [file] '#needs-[noun]' '#delegated-[noun]'`
+            *   **`GRAB`**: `engine tag swap [file] '#needs-[noun]' '#next-[noun]'`. Execute state passing (step 5a) after batch.
+            *   **`HOLD`**: No action. Tag remains as `#needs-X`.
+            *   **`MORE/DROP`**: Remove tag entirely via `engine tag remove [file] '#needs-[noun]'`.
+            *   **`MORE/SPLT`**: Follow-up to define sub-items, then create REQUEST files for each.
     *   **`MORE` path**:
-        *   **`MORE/DEF` (Defer all)**: No action. Tags remain as `#needs-X`.
-        *   **`MORE/DIS` (Dismiss all)**: Remove tags entirely from all files in the group.
-5a. **State Passing** (after any "Claim for next skill" selections): Write claimed items to DETAILS.md so they survive in the context window for the next skill to pick up:
+        *   **`MORE/HOLD` (Defer all)**: No action. Tags remain as `#needs-X`.
+        *   **`MORE/DROP` (Dismiss all)**: Remove tags entirely from all files in the group.
+5a. **State Passing** (after any "Claim for next skill" selections): Write claimed items to DIALOGUE.md so they survive in the context window for the next skill to pick up:
     ```bash
-    engine log [sessionDir]/DETAILS.md <<'EOF'
+    engine log [sessionDir]/DIALOGUE.md <<'EOF'
     ## Claimed for Next Skill
     **Type**: State Passing
 
@@ -69,34 +69,32 @@ Trigger: during dispatch approval when presenting a group of same-type `#needs-X
 Extras: A: Show item details before deciding | B: Split group by priority | C: View related sessions
 
 ## Decision: Dispatch Group
-- [APR] Approve all for daemon
+- [LGTM] Approve all for daemon
   Flip all items to #delegated-X for async daemon processing
-- [CLM] Claim all for next skill
+- [GRAB] Claim all for next skill
   Mark all for immediate execution in next skill session
-- [REV] Review individually
+- [VIEW] Review individually
   Walk through each item to approve/claim/defer/dismiss
-- [MORE] Other
-  - [DEF] Defer all
-    Leave as #needs-X for future triage
-  - [DIS] Dismiss all
-    Remove tags entirely — work is not needed
+- [HOLD] Defer all
+  Leave as #needs-X for future triage
+- [DROP] Dismiss all
+  Remove tags entirely — work is not needed
 
 ### ¶ASK_DISPATCH_ITEM
 Trigger: during per-item review of `#needs-X` items (except: when group-level decision was Approve all, Claim all, or Defer all)
 Extras: A: View item context in source file | B: View related sessions | C: Change priority tag
 
 ## Decision: Dispatch Item
-- [APR] Approve for daemon
+- [LGTM] Approve for daemon
   Flip to #delegated-X for async daemon processing
-- [CLM] Claim for next skill
+- [GRAB] Claim for next skill
   Mark for immediate execution in next skill session
-- [DEF] Defer
+- [HOLD] Defer
   Leave as #needs-X for future triage
-- [MORE] Other
-  - [DIS] Dismiss
-    Remove tag entirely — work is not needed
-  - [SPL] Split item
-    Break into multiple smaller work items
+- [DROP] Dismiss
+  Remove tag entirely — work is not needed
+- [SPLT] Split item
+  Break into multiple smaller work items
 
 ---
 

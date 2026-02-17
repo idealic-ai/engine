@@ -104,7 +104,7 @@ Then present via `AskUserQuestion` (multiSelect: false):
 
 **Execute choices**:
 *   **Approve all**: For each file, `engine tag swap [file] '#needs-[noun]' '#delegated-[noun]'`.
-*   **Claim all for next skill**: For each file, `engine tag swap [file] '#needs-[noun]' '#next-[noun]'`. Then write state passing to DETAILS.md (per `§CMD_DISPATCH_APPROVAL` step 5a) if a session is active.
+*   **Claim all for next skill**: For each file, `engine tag swap [file] '#needs-[noun]' '#next-[noun]'`. Then write state passing to DIALOGUE.md (per `§CMD_DISPATCH_APPROVAL` step 5a) if a session is active.
 *   **Review individually**: For each file, present: Approve (`#delegated-X`) / Claim for next skill (`#next-X`) / Defer (keep `#needs-X`) / Dismiss (remove tag entirely).
 *   **Defer all**: No action. Tags remain as `#needs-X`.
 

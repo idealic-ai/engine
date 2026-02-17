@@ -19,7 +19,7 @@
   "debriefTemplate": "[path to debrief template]",
   "logTemplate": "[path to log entry template]",
   "contextFiles": ["[files loaded during context ingestion]"],
-  "detailsFile": "[path to DETAILS.md]",
+  "detailsFile": "[path to DIALOGUE.md]",
   "taskSummary": "[one-line description]"
 }
 ```

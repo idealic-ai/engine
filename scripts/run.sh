@@ -61,6 +61,7 @@ export SESSION_REQUIRED=1
 
 # Context management: disable auto-compaction, use full context window
 export DISABLE_AUTO_COMPACT=1
+export DISABLE_CLEAR=1
 export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=100
 export CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=197000
 export DISABLE_COMPACT=1
@@ -166,6 +167,29 @@ fi
 
 # Fleet pane ID is used locally by run.sh for find_fleet_session()
 # Not exported — session.sh find and statusline.sh call fleet.sh pane-id directly
+
+# Export FLEET_* env vars from tmux @pane_* options (capability-based identity)
+# await-next and other fleet tools read these to determine what work to accept
+if [ -n "$FLEET_PANE_ID" ] && [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
+  _read_pane_opt() { tmux display -p -t "$TMUX_PANE" "#{$1}" 2>/dev/null || true; }
+  _pane_label=$(_read_pane_opt "@pane_label")
+  _window_name=$(tmux display -p -t "$TMUX_PANE" "#{window_name}" 2>/dev/null || true)
+  if [ -n "$_pane_label" ] && [ -n "$_window_name" ]; then
+    export FLEET_PANE="${_window_name}:${_pane_label}"
+  fi
+  _pane_parent=$(_read_pane_opt "@pane_parent")
+  [ -n "$_pane_parent" ] && export FLEET_PARENT="$_pane_parent"
+  _pane_claims=$(_read_pane_opt "@pane_claims")
+  [ -n "$_pane_claims" ] && export FLEET_CLAIMS="$_pane_claims"
+  _pane_targeted=$(_read_pane_opt "@pane_targeted_claims")
+  [ -n "$_pane_targeted" ] && export FLEET_TARGETED_CLAIMS="$_pane_targeted"
+  _pane_manages=$(_read_pane_opt "@pane_manages")
+  [ -n "$_pane_manages" ] && export FLEET_MANAGES="$_pane_manages"
+  if [ -n "${FLEET_PANE:-}" ]; then
+    echo "[run.sh] Fleet env: FLEET_PANE=$FLEET_PANE"
+  fi
+  unset _read_pane_opt _pane_label _window_name _pane_parent _pane_claims _pane_targeted _pane_manages
+fi
 
 # Load agent file and append to system prompt (instead of passing --agent to Claude)
 # This preserves the full toolset while still loading the agent persona

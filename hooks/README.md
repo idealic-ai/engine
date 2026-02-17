@@ -36,7 +36,7 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 | Hook | Purpose |
 |------|---------|
 | `post-tool-use-discovery.sh` | Tracks directories touched by tool calls. Discovers directive files (README, CHECKLIST, PITFALLS, INVARIANTS, TESTING) via walk-up search. |
-| `post-tool-use-details-log.sh` | Auto-logs every AskUserQuestion interaction to the session's DETAILS.md. Captures agent preamble (from transcript), questions, options, and user answers. Matcher: `AskUserQuestion`. |
+| `post-tool-use-details-log.sh` | Auto-logs every AskUserQuestion interaction to the session's DIALOGUE.md. Captures agent preamble (from transcript), questions, options, and user answers. Matcher: `AskUserQuestion`. |
 | `post-tool-complete-notify.sh` | No-op placeholder — agent is still working between tool calls, so no notification state change. |
 | `post-tool-failure-notify.sh` | No-op placeholder — tool failure doesn't stop the agent, so no notification state change. |
 

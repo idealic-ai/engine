@@ -56,7 +56,7 @@ ARGUMENTS: Accepts optional flags:
     {"label": "6.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "6.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
   ],
   "nextSkills": ["/loop", "/test", "/implement", "/analyze", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md"],
@@ -359,6 +359,13 @@ If the user doesn't have existing agent prompts:
 3.  **Present All 3 Options**: Always show the recommended fix AND both alternatives to the user.
 4.  **Log**: Append Composer analysis entry.
 
+5.  **Write Iteration Report**: After the Composer analysis, generate a failure mode report using `assets/TEMPLATE_LOOP_REPORT.md`.
+    *   **Filename**: `LOOP_REPORT_NNN.md` where NNN is the zero-padded iteration number (e.g., `LOOP_REPORT_001.md`).
+    *   **Location**: Session directory (alongside `LOOP_LOG.md`).
+    *   **Content**: The Composer populates all 6 sections — Iteration Summary, Failure Modes (categorized with affected cases), Root Cause Analysis, Fix Options, Regression Risks, and Case-by-Case Breakdown.
+    *   **Case-specific**: Each failing case is listed by path/name with its specific symptom and failure mode classification.
+    *   **Announce**: Link the report file to the user: "Iteration report written: `[clickable path]`"
+
 #### Step E: DECIDE
 
 1.  **Present**: Show the 3 options to the user:
@@ -413,6 +420,7 @@ If the user doesn't have existing agent prompts:
 *   List all edits made with impact and hypothesis outcomes.
 *   Document remaining failures with root cause analysis.
 *   Capture Composer insights and generalizable learnings.
+*   Reference iteration reports: list all `LOOP_REPORT_NNN.md` files generated during the session.
 
 **Walk-through config**:
 ```

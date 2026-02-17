@@ -70,6 +70,7 @@ fi
 _set_active_session() {
   local f="$1"
   ACTIVE_SESSION=$(basename "$(dirname "$f")")
+  ACTIVE_SESSION_DIR=$(dirname "$f")
   ACTIVE_SKILL=$(jq -r '.skill // "unknown"' "$f" 2>/dev/null)
   ACTIVE_PHASE=$(jq -r '.currentPhase // "unknown"' "$f" 2>/dev/null)
   S_HEARTBEAT=$(jq -r '.toolCallsSinceLastLog // 0' "$f" 2>/dev/null)
@@ -181,46 +182,74 @@ $skill_md_content
 
 "
       debug "  delivered SKILL.md"
-    fi
-  fi
 
-  # Phase 0 CMDs + templates (via extract_skill_preloads), deduped against boot standards
-  phase0_paths=$(extract_skill_preloads "$ACTIVE_SKILL" 2>/dev/null || true)
-  if [ -n "$phase0_paths" ]; then
-    while IFS= read -r dep_path; do
-      [ -n "$dep_path" ] || continue
-      resolved="${dep_path/#\~/$HOME}"
-      # Skip if already delivered as a boot standard
-      resolved_real=$(cd "$(dirname "$resolved")" 2>/dev/null && echo "$(pwd -P)/$(basename "$resolved")")
-      if echo "$PRELOAD_SEEDS" | jq -e --arg p "$resolved_real" 'index($p) != null' >/dev/null 2>&1; then
-        debug "  skip dedup: $(basename "$resolved") (boot standard)"
-        continue
+      # Collect all dep paths: prose refs + current-phase CMDs + templates
+      # Deduplicate before delivery to prevent dupes (e.g., CMD_REPORT_INTENT in both)
+      ALL_DEP_PATHS=""
+      SEEN_DEPS=""
+
+      # 1. Prose refs from SKILL.md (orchestrator CMDs, FMTs, INVs outside code fences)
+      skill_prose_refs=$(resolve_refs "$skill_md" 1 "$PRELOAD_SEEDS" 2>/dev/null || true)
+      if [ -n "$skill_prose_refs" ]; then
+        while IFS= read -r ref_path; do
+          [ -n "$ref_path" ] || continue
+          case "$SEEN_DEPS" in *"|$ref_path|"*) continue ;; esac
+          SEEN_DEPS="${SEEN_DEPS}|${ref_path}|"
+          ALL_DEP_PATHS="${ALL_DEP_PATHS}${ALL_DEP_PATHS:+
+}$ref_path"
+        done <<< "$skill_prose_refs"
       fi
-      if [ -f "$resolved" ]; then
-        dep_content=$(cat "$resolved" 2>/dev/null || true)
-        if [ -n "$dep_content" ]; then
-          SKILL_DEPS_OUTPUT="${SKILL_DEPS_OUTPUT}[Preloaded: $dep_path]
+
+      # 2. Current phase CMDs + templates (phase-aware)
+      PHASE_LABEL=$(echo "$ACTIVE_PHASE" | sed 's/:.*//' | tr -d ' ')
+      debug "  phase label: '$PHASE_LABEL'"
+      phase_paths=$(resolve_phase_cmds "$ACTIVE_SKILL" "$PHASE_LABEL" 2>/dev/null || true)
+      if [ -n "$phase_paths" ]; then
+        while IFS= read -r dep_path; do
+          [ -n "$dep_path" ] || continue
+          # Normalize for dedup comparison
+          local_norm=$(normalize_preload_path "${dep_path/#\~/$HOME}" 2>/dev/null || echo "$dep_path")
+          case "$SEEN_DEPS" in *"|$local_norm|"*) debug "  skip dedup: $(basename "$dep_path") (already in prose refs)"; continue ;; esac
+          SEEN_DEPS="${SEEN_DEPS}|${local_norm}|"
+          ALL_DEP_PATHS="${ALL_DEP_PATHS}${ALL_DEP_PATHS:+
+}$dep_path"
+        done <<< "$phase_paths"
+      fi
+
+      # Deliver all unique deps, deduped against boot standards
+      if [ -n "$ALL_DEP_PATHS" ]; then
+        while IFS= read -r dep_path; do
+          [ -n "$dep_path" ] || continue
+          resolved="${dep_path/#\~/$HOME}"
+          resolved_real=$(cd "$(dirname "$resolved")" 2>/dev/null && echo "$(pwd -P)/$(basename "$resolved")")
+          if echo "$PRELOAD_SEEDS" | jq -e --arg p "$resolved_real" 'index($p) != null' >/dev/null 2>&1; then
+            debug "  skip dedup: $(basename "$resolved") (boot standard)"
+            continue
+          fi
+          if [ -f "$resolved" ]; then
+            dep_content=$(cat "$resolved" 2>/dev/null || true)
+            if [ -n "$dep_content" ]; then
+              SKILL_DEPS_OUTPUT="${SKILL_DEPS_OUTPUT}[Preloaded: $dep_path]
 $dep_content
 
 "
-          debug "  delivered Phase 0 dep: $(basename "$resolved")"
-        fi
+              debug "  delivered dep: $(basename "$resolved")"
+            fi
+          fi
+        done <<< "$ALL_DEP_PATHS"
       fi
-    done <<< "$phase0_paths"
+    fi
   fi
 
   # Track skill deps in seed preloadedFiles
   if [ -n "$SKILL_DEPS_OUTPUT" ]; then
-    # Build JSON array of delivered skill dep paths
+    # Build list of delivered skill dep paths (SKILL.md + all unique deps)
     SKILL_DEP_PATHS=""
     skill_md_norm=$(normalize_preload_path "$skill_md" 2>/dev/null || true)
     [ -n "$skill_md_norm" ] && SKILL_DEP_PATHS="$skill_md_norm"
-    if [ -n "$phase0_paths" ]; then
-      while IFS= read -r dep_path; do
-        [ -n "$dep_path" ] || continue
-        SKILL_DEP_PATHS="${SKILL_DEP_PATHS}${SKILL_DEP_PATHS:+
-}$dep_path"
-      done <<< "$phase0_paths"
+    if [ -n "${ALL_DEP_PATHS:-}" ]; then
+      SKILL_DEP_PATHS="${SKILL_DEP_PATHS}${SKILL_DEP_PATHS:+
+}${ALL_DEP_PATHS}"
     fi
 
     # Update seed files with skill dep paths
@@ -241,6 +270,94 @@ $dep_content
       fi
     done
   fi
+fi
+
+# --- Session artifact delivery (debrief or log fallback) ---
+# After /clear or restart, preload the session's debrief (or log as fallback)
+# so the agent has full context about what happened in this session.
+ARTIFACT_OUTPUT=""
+if [ -n "$ACTIVE_SKILL" ] && [ -n "${ACTIVE_SESSION_DIR:-}" ] && [ -f "${skill_md:-}" ]; then
+  debug "checking session artifacts in $ACTIVE_SESSION_DIR"
+
+  # Extract debrief and log filenames from SKILL.md JSON block
+  # debriefTemplate: "assets/TEMPLATE_IMPLEMENTATION.md" → IMPLEMENTATION.md
+  # logTemplate: "assets/TEMPLATE_IMPLEMENTATION_LOG.md" → IMPLEMENTATION_LOG.md
+  SKILL_JSON=$(sed -n '/^```json$/,/^```$/p' "$skill_md" 2>/dev/null | sed '1d;$d' || true)
+  DEBRIEF_TEMPLATE=$(echo "$SKILL_JSON" | jq -r '.debriefTemplate // ""' 2>/dev/null || true)
+  LOG_TEMPLATE=$(echo "$SKILL_JSON" | jq -r '.logTemplate // ""' 2>/dev/null || true)
+
+  DEBRIEF_NAME=""
+  LOG_NAME=""
+  if [ -n "$DEBRIEF_TEMPLATE" ]; then
+    DEBRIEF_NAME=$(basename "$DEBRIEF_TEMPLATE" | sed 's/^TEMPLATE_//')
+  fi
+  if [ -n "$LOG_TEMPLATE" ]; then
+    LOG_NAME=$(basename "$LOG_TEMPLATE" | sed 's/^TEMPLATE_//')
+  fi
+
+  debug "  debrief=$DEBRIEF_NAME log=$LOG_NAME"
+
+  ARTIFACT_PATH=""
+  if [ -n "$DEBRIEF_NAME" ] && [ -f "$ACTIVE_SESSION_DIR/$DEBRIEF_NAME" ]; then
+    ARTIFACT_PATH="$ACTIVE_SESSION_DIR/$DEBRIEF_NAME"
+    debug "  found debrief: $DEBRIEF_NAME"
+  elif [ -n "$LOG_NAME" ] && [ -f "$ACTIVE_SESSION_DIR/$LOG_NAME" ]; then
+    ARTIFACT_PATH="$ACTIVE_SESSION_DIR/$LOG_NAME"
+    debug "  no debrief, using log fallback: $LOG_NAME"
+  fi
+
+  # Collect artifact paths to preload (debrief or log, plus DIALOGUE.md)
+  ARTIFACT_PATHS=""
+  if [ -n "$ARTIFACT_PATH" ]; then
+    ARTIFACT_PATHS="$ARTIFACT_PATH"
+  fi
+  # Always include DIALOGUE.md if it exists (interrogation context)
+  if [ -f "$ACTIVE_SESSION_DIR/DIALOGUE.md" ]; then
+    ARTIFACT_PATHS="${ARTIFACT_PATHS}${ARTIFACT_PATHS:+
+}$ACTIVE_SESSION_DIR/DIALOGUE.md"
+  fi
+
+  if [ -n "$ARTIFACT_PATHS" ]; then
+    while IFS= read -r art_path; do
+      [ -n "$art_path" ] || continue
+      ART_CONTENT=$(cat "$art_path" 2>/dev/null || true)
+      if [ -n "$ART_CONTENT" ]; then
+        ARTIFACT_OUTPUT="${ARTIFACT_OUTPUT}[Preloaded: $art_path]
+$ART_CONTENT
+
+"
+        debug "  preloaded session artifact: $(basename "$art_path")"
+
+        # Track in seed preloadedFiles
+        ART_NORM=$(normalize_preload_path "$art_path" 2>/dev/null || echo "$art_path")
+        for sessions_dir in "${SESSION_DIRS[@]}"; do
+          SEED_FILE="$sessions_dir/.seeds/$PPID.json"
+          if [ -f "$SEED_FILE" ]; then
+            jq --arg p "$ART_NORM" '
+              (.preloadedFiles //= []) |
+              if (.preloadedFiles | index($p)) then .
+              else .preloadedFiles += [$p]
+              end
+            ' "$SEED_FILE" | safe_json_write "$SEED_FILE"
+          fi
+        done
+      fi
+    done <<< "$ARTIFACT_PATHS"
+  fi
+
+  # Session directory listing — agent can see what artifacts exist
+  SESSION_DIR_LISTING=""
+  if [ -d "$ACTIVE_SESSION_DIR" ]; then
+    FILE_LIST=$(ls -1 "$ACTIVE_SESSION_DIR" 2>/dev/null | grep -v '^\.' || true)
+    if [ -n "$FILE_LIST" ]; then
+      SESSION_DIR_LISTING="[Session Files: $ACTIVE_SESSION_DIR]
+$FILE_LIST
+
+"
+      debug "  session dir listing: $(echo "$FILE_LIST" | wc -l | tr -d ' ') files"
+    fi
+  fi
+  ARTIFACT_OUTPUT="${ARTIFACT_OUTPUT}${SESSION_DIR_LISTING}"
 fi
 
 # Preload core standards — available to agent from first message
@@ -265,9 +382,9 @@ $STD_CONTENT
   fi
 done
 
-# Prepend session context line, append skill deps after standards
+# Prepend session context line, append skill deps + session artifact after standards
 STANDARDS_OUTPUT="${SESSION_CONTEXT_LINE}
-${STANDARDS_OUTPUT}${SKILL_DEPS_OUTPUT}"
+${STANDARDS_OUTPUT}${SKILL_DEPS_OUTPUT}${ARTIFACT_OUTPUT}"
 
 # Dehydrated context restore — startup only (other sources: user didn't restart)
 if [ "$SOURCE" != "startup" ]; then

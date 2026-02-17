@@ -406,7 +406,7 @@ Each config's `tmux_command` specifies its socket: `tmux -L fleet-{workgroup} -f
     ├── .state.json           # Session state (pid, skill, phase, sessionId)
     ├── IMPLEMENTATION_LOG.md # Work log
     ├── IMPLEMENTATION.md     # Debrief
-    ├── DETAILS.md            # Q&A record
+    ├── DIALOGUE.md            # Q&A record
     └── DEHYDRATED_CONTEXT.md # Overflow recovery state
 ```
 
