@@ -82,7 +82,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
 #### Step 2: Clarify (if needed)
 *   **Gate**: Is the task clear enough to execute?
     *   *Yes*: Skip to Step 3.
-    *   *No*: Ask 1-3 targeted questions. Do NOT use the full `§CMD_INTERROGATE` (no depth selection, no 3-round minimum). This is quick clarification, not deep interrogation.
+    *   *No*: Ask up to 4 targeted questions via `AskUserQuestion`. Do NOT use the full `§CMD_INTERROGATE`. This is quick clarification, not deep interrogation.
 *   **Log**: `Clarification` entry with Q&A.
 *   **Log**: Execute `§CMD_LOG_INTERACTION` to capture the exchange.
 *   If the user's answer introduces a new task or shifts scope, treat it as a NEW task. Log the current one as deferred and start a fresh `Task Received`.

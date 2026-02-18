@@ -160,6 +160,8 @@ Within the interrogation rounds, build the manifest from these fields:
 2.  "Where should output be written?" -> `outputPath`
 3.  "What command evaluates quality?" -> `evaluateCommand`
 4.  "Alternative review command?" -> `reviewCommand` (optional)
+5.  "Build command before running?" -> `buildCommand` (optional — run once before each iteration's run phase)
+6.  "Cache strategy?" -> `cacheStrategy` (optional — `"force"` recomputes everything, `"smart"` lets workload caching decide; default: `"smart"`)
 
 **Agent Configuration**:
 1.  "Composer agent prompt file?" -> `agents.composer.promptFile` (or auto-generate)

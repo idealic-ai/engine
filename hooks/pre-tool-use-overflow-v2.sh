@@ -56,13 +56,23 @@ TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null || 
 TRANSCRIPT_KEY=$(basename "$TRANSCRIPT_PATH" 2>/dev/null || echo "unknown")
 TOOL_INPUT=$(echo "$INPUT" | jq '.tool_input // {}' 2>/dev/null || echo '{}')
 
-# --- Step 2: Hardcoded critical bypass ---
+# --- Step 2: Find session directory (once, reuse throughout) ---
+# Cached in _CACHED_SESSION_DIR to avoid redundant session.sh find calls.
+_CACHED_SESSION_DIR=""
+find_session_dir() {
+  if [ -z "$_CACHED_SESSION_DIR" ]; then
+    _CACHED_SESSION_DIR=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
+  fi
+  echo "$_CACHED_SESSION_DIR"
+}
+
+# --- Step 3: Hardcoded critical bypass ---
 # engine log and engine session MUST always pass through.
 # engine log also resets the per-transcript counter.
 if [ "$TOOL_NAME" = "Bash" ]; then
   if is_engine_log_cmd "$BASH_CMD"; then
     # Reset counter on log command (same as heartbeat-v2)
-    session_dir=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
+    session_dir=$(find_session_dir)
     if [ -n "$session_dir" ] && [ -f "$session_dir/.state.json" ]; then
       jq --arg key "$TRANSCRIPT_KEY" \
         '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = 0 | .toolCallsSinceLastLog = 0' \
@@ -74,11 +84,6 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     hook_allow
   fi
 fi
-
-# --- Step 3: Find session directory ---
-find_session_dir() {
-  "$HOME/.claude/scripts/session.sh" find 2>/dev/null
-}
 
 # _clear_preloaded STATE_FILE PRELOADED_PATHS
 #   Remove successfully preloaded files from pendingPreloads,
@@ -105,6 +110,58 @@ _clear_preloaded() {
 # NOTE: _claim_and_preload() removed — replaced by preload_ensure() in lib.sh
 # preload_ensure() handles dedup, atomic tracking, delivery, and auto-expansion
 # of § references via _auto_expand_refs(). See steps 2/1–2/5.
+
+# _atomic_claim_dir DIR_PATH STATE_FILE
+#   Atomically checks if a directory is tracked in touchedDirs and claims it if not.
+#   Uses the same mkdir lock as safe_json_write for mutual exclusion.
+#   Prevents TOCTOU race when parallel tool calls touch the same directory.
+#   Echoes "claimed" if newly claimed, "already" if already tracked.
+_atomic_claim_dir() {
+  local dir_path="$1" state_file="$2"
+  local lock_dir="${state_file}.lock"
+
+  # Acquire lock (same mechanism as safe_json_write)
+  local retries=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    retries=$((retries + 1))
+    if [ "$retries" -ge 100 ]; then
+      echo "already"  # Timeout — treat as claimed to avoid duplicate discovery
+      return 0
+    fi
+    if [ -d "$lock_dir" ]; then
+      local lock_mtime now_epoch
+      lock_mtime=$(stat -f "%m" "$lock_dir" 2>/dev/null || echo "0")
+      now_epoch=$(date +%s)
+      if [ $((now_epoch - lock_mtime)) -gt 10 ]; then
+        rmdir "$lock_dir" 2>/dev/null || true
+        continue
+      fi
+    fi
+    sleep 0.01
+  done
+
+  # Under lock: check + claim
+  local already
+  already=$(jq -r --arg dir "$dir_path" \
+    '(.touchedDirs // {}) | has($dir)' "$state_file" 2>/dev/null || echo "false")
+
+  if [ "$already" = "true" ]; then
+    rmdir "$lock_dir" 2>/dev/null || true
+    echo "already"
+    return 0
+  fi
+
+  # Claim: register directory in touchedDirs
+  jq --arg dir "$dir_path" \
+    '(.touchedDirs //= {}) | .touchedDirs[$dir] = []' \
+    "$state_file" > "${state_file}.tmp.$$"
+  mv "${state_file}.tmp.$$" "$state_file"
+
+  rmdir "$lock_dir" 2>/dev/null || true
+  echo "claimed"
+  return 0
+}
+
 # _run_discovery STATE_FILE
 #   Runs directive discovery for Read/Edit/Write tools BEFORE evaluate_rules().
 #   Extracts file_path from TOOL_INPUT, discovers directives in the directory,
@@ -136,18 +193,14 @@ _run_discovery() {
   fi
   [ -n "$dir_path" ] || return 0
 
-  # Check if this directory is already tracked in touchedDirs
-  local already_tracked
-  already_tracked=$(jq -r --arg dir "$dir_path" \
-    '(.touchedDirs // {}) | has($dir)' "$state_file" 2>/dev/null || echo "false")
-  if [ "$already_tracked" = "true" ]; then
+  # Atomic claim: check + register directory in one locked operation.
+  # Prevents TOCTOU race when parallel tool calls touch the same directory —
+  # only the winning hook proceeds with discovery.
+  local claim_result
+  claim_result=$(_atomic_claim_dir "$dir_path" "$state_file")
+  if [ "$claim_result" = "already" ]; then
     return 0
   fi
-
-  # New directory — register it in touchedDirs with empty array
-  jq --arg dir "$dir_path" \
-    '(.touchedDirs //= {}) | .touchedDirs[$dir] = []' \
-    "$state_file" | safe_json_write "$state_file"
 
   # Multi-root: if path is under ~/.claude/, pass --root to cap walk-up
   local root_arg=""
@@ -205,10 +258,21 @@ _run_discovery() {
         fi
       fi
 
-      # Check if this exact file (full path) was already suggested via any other touchedDir
+      # Check if file was already suggested via any touchedDir
+      # Handles two value formats:
+      #   Full path (from _run_discovery): "/abs/path/.directives/AGENTS.md" → direct compare
+      #   Basename (from session activate): "AGENTS.md" → reconstruct as key/basename, compare
+      # strip_private handles macOS /var → /private/var symlink normalization mismatch
       local already_suggested
       already_suggested=$(jq -r --arg file "$file" \
-        '[(.touchedDirs // {}) | to_entries[] | .value[] | select(. == $file)] | length > 0' \
+        'def sp: if startswith("/private") then ltrimstr("/private") else . end;
+        [(.touchedDirs // {}) | to_entries[] |
+          (.key | sp) as $dir | .value[] |
+          if startswith("/") then (. | sp) == ($file | sp)
+          else ($dir + "/" + .) == ($file | sp)
+          end |
+          select(.)
+        ] | length > 0' \
         "$state_file" 2>/dev/null || echo "false")
       if [ "$already_suggested" != "true" ]; then
         new_soft_files+=("$file")
@@ -385,10 +449,21 @@ main() {
     skip_heartbeat=true
   fi
 
+  # --- Step 4b: Detect subagent ---
+  # Subagent detection: the first transcript key to increment a counter after
+  # session activation is the primary (parent). All other keys are subagents.
+  # primaryTranscriptKey is set on first increment; cleared by session continue/activate.
+  local is_subagent=false
+  local primary_key
+  primary_key=$(jq -r '.primaryTranscriptKey // ""' "$state_file" 2>/dev/null || echo "")
+  if [ -n "$primary_key" ] && [ "$TRANSCRIPT_KEY" != "$primary_key" ]; then
+    is_subagent=true
+  fi
+
   # --- Step 5: Per-transcript counter increment ---
   if [ "$skip_heartbeat" = "false" ]; then
     # Task tool bypasses counter
-    if [ "$TOOL_NAME" != "Task" ]; then
+    if [ "$TOOL_NAME" != "Task" ] && [ "$TOOL_NAME" != "TaskOutput" ]; then
       local counter
       counter=$(jq -r --arg key "$TRANSCRIPT_KEY" '(.toolCallsByTranscript // {})[$key] // 0' "$state_file" 2>/dev/null || echo "0")
 
@@ -413,9 +488,23 @@ main() {
 
       if [ "$suppress_increment" = "false" ]; then
         local new_counter=$((counter + 1))
-        jq --arg key "$TRANSCRIPT_KEY" --argjson tc "$new_counter" \
-          '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = $tc | .toolCallsSinceLastLog = $tc' \
-          "$state_file" | safe_json_write "$state_file"
+        if [ "$is_subagent" = "true" ]; then
+          # Subagent: only update per-transcript counter, not global
+          jq --arg key "$TRANSCRIPT_KEY" --argjson tc "$new_counter" \
+            '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = $tc' \
+            "$state_file" | safe_json_write "$state_file"
+        else
+          # Set primaryTranscriptKey on first increment (parent identification)
+          if [ -z "$primary_key" ]; then
+            jq --arg key "$TRANSCRIPT_KEY" --argjson tc "$new_counter" \
+              '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = $tc | .toolCallsSinceLastLog = $tc | .primaryTranscriptKey = $key' \
+              "$state_file" | safe_json_write "$state_file"
+          else
+            jq --arg key "$TRANSCRIPT_KEY" --argjson tc "$new_counter" \
+              '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = $tc | .toolCallsSinceLastLog = $tc' \
+              "$state_file" | safe_json_write "$state_file"
+          fi
+        fi
       fi
     fi
   fi
@@ -430,6 +519,15 @@ main() {
   local matched_rules="[]"
   if [ -f "$GUARDS_FILE" ]; then
     matched_rules=$(evaluate_rules "$state_file" "$GUARDS_FILE" "$TRANSCRIPT_KEY" "$TOOL_NAME")
+  fi
+
+  # --- Step 6b: Subagent heartbeat downgrade ---
+  # Subagents get heartbeat-warn (allow nudge) but never heartbeat-block (deny).
+  # Downgrade heartbeat-block urgency from "block" to "allow" for subagents.
+  if [ "$is_subagent" = "true" ]; then
+    matched_rules=$(echo "$matched_rules" | jq '
+      [.[] | if .ruleId == "heartbeat-block" then .urgency = "allow" else . end]
+    ')
   fi
 
   # --- Steps 7-11: Process matched rules ---

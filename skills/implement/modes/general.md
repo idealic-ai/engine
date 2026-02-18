@@ -6,7 +6,7 @@
 **Mindset**: "Good enough is good enough." Balance quality with velocity. Test what matters.
 
 ## Interrogation Depth
-Medium (6+ rounds) — focus on scope and risks.
+Medium — focus on scope and risks.
 
 ## Build Approach
 Write code and tests in natural order. Test critical paths and edge cases, skip trivial tests. Refactor as needed.

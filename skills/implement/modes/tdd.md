@@ -6,7 +6,7 @@
 **Mindset**: "Measure Twice, Cut Once." But when you cut, record *every* move.
 
 ## Interrogation Depth
-Medium (6+ rounds).
+Medium.
 
 ## Build Approach
 Red-Green-Refactor cycle. Tests before code. Every code change starts with a failing test.

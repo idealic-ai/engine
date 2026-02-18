@@ -78,39 +78,44 @@ _set_active_session() {
   ACTIVE_HEARTBEAT="${S_HEARTBEAT}/${S_HEARTBEAT_MAX}"
 }
 
-# Pass 1: Fleet pane match (if in tmux)
-if [ -n "$FLEET_LABEL" ]; then
-  for sessions_dir in "${SESSION_DIRS[@]}"; do
-    for f in "$sessions_dir"/*/.state.json; do
-      [ -f "$f" ] || continue
-      S_LIFECYCLE=$(jq -r '.lifecycle // ""' "$f" 2>/dev/null)
-      { [ "$S_LIFECYCLE" = "active" ] || [ "$S_LIFECYCLE" = "resuming" ]; } || continue
-      S_FLEET=$(jq -r '.fleetPaneId // ""' "$f" 2>/dev/null)
-      # Match: fleetPaneId ends with the current pane's window:label
-      if [ -n "$S_FLEET" ] && [[ "$S_FLEET" == *"$FLEET_LABEL" ]]; then
-        _set_active_session "$f"
-        debug "fleet match: $ACTIVE_SESSION (paneId=$S_FLEET)"
-        break 2
-      fi
-    done
-  done
-fi
+# Single-pass scan: extract lifecycle + fleetPaneId + pid + dehydratedContext in one jq call per file.
+# Checks fleet match first, then PID fallback. Also notes dehydratedContext for later use.
+# Replaces the former 3-pass approach (fleet, PID, dehydration — each with separate jq calls).
+DEHYDRATED_STATE_FILE=""
+for sessions_dir in "${SESSION_DIRS[@]}"; do
+  for f in "$sessions_dir"/*/.state.json; do
+    [ -f "$f" ] || continue
+    # Single jq call extracts all needed fields
+    S_JSON=$(jq -r '[.lifecycle // "", .fleetPaneId // "", (.pid // 0 | tostring), (.dehydratedContext // null | type)]
+      | join("\t")' "$f" 2>/dev/null) || continue
+    S_LIFECYCLE=$(echo "$S_JSON" | cut -f1)
+    S_FLEET=$(echo "$S_JSON" | cut -f2)
+    S_PID=$(echo "$S_JSON" | cut -f3)
+    S_DEHY_TYPE=$(echo "$S_JSON" | cut -f4)
 
-# Pass 2: PID fallback (if no fleet match found)
-if [ -z "$ACTIVE_SESSION" ]; then
-  for sessions_dir in "${SESSION_DIRS[@]}"; do
-    for f in "$sessions_dir"/*/.state.json; do
-      [ -f "$f" ] || continue
-      S_LIFECYCLE=$(jq -r '.lifecycle // ""' "$f" 2>/dev/null)
-      S_PID=$(jq -r '.pid // 0' "$f" 2>/dev/null)
-      if { [ "$S_LIFECYCLE" = "active" ] || [ "$S_LIFECYCLE" = "resuming" ]; } && pid_exists "$S_PID"; then
-        _set_active_session "$f"
-        debug "pid match: $ACTIVE_SESSION (pid=$S_PID)"
-        break 2
-      fi
-    done
+    # Note dehydrated context (for startup restore later)
+    if [ "$S_DEHY_TYPE" = "object" ] && [ -z "$DEHYDRATED_STATE_FILE" ]; then
+      DEHYDRATED_STATE_FILE="$f"
+    fi
+
+    # Only match active/resuming sessions
+    { [ "$S_LIFECYCLE" = "active" ] || [ "$S_LIFECYCLE" = "resuming" ]; } || continue
+
+    # Fleet match (if in tmux)
+    if [ -n "$FLEET_LABEL" ] && [ -n "$S_FLEET" ] && [[ "$S_FLEET" == *"$FLEET_LABEL" ]]; then
+      _set_active_session "$f"
+      debug "fleet match: $ACTIVE_SESSION (paneId=$S_FLEET)"
+      break 2
+    fi
+
+    # PID fallback (if no fleet match yet)
+    if [ -z "$ACTIVE_SESSION" ] && [ "$S_PID" != "0" ] && pid_exists "$S_PID"; then
+      _set_active_session "$f"
+      debug "pid match: $ACTIVE_SESSION (pid=$S_PID)"
+      break 2
+    fi
   done
-fi
+done
 
 CONTEXT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 WORKSPACE_INFO=""
@@ -124,19 +129,19 @@ else
 fi
 debug "session context: $SESSION_CONTEXT_LINE"
 
-# Clear stale preload state on every fresh startup — these track what was injected into
-# the PREVIOUS context window. A new Claude process = new context = must re-inject.
-# Clears: preloadedFiles (re-seeds standards), touchedDirs, pendingPreloads, pendingAllowInjections.
+# Clear stale preload state for the active session only — these track what was injected
+# into the PREVIOUS context window. A new Claude process = new context = must re-inject.
+# Only the active session matters; dead sessions' state is never read by PostToolUse hooks.
 debug "clearing preload state for fresh context"
 PRELOAD_SEEDS=$(get_session_start_seeds)
-for sessions_dir in "${SESSION_DIRS[@]}"; do
-  for f in "$sessions_dir"/*/.state.json; do
-    [ -f "$f" ] || continue
-    debug "  clearing preload state in $(basename "$(dirname "$f")")"
-    jq --argjson stds "$PRELOAD_SEEDS" \
-      '.preloadedFiles = $stds | .touchedDirs = {} | .pendingPreloads = [] | .pendingAllowInjections = []' "$f" | safe_json_write "$f"
-  done
+if [ -n "${ACTIVE_SESSION_DIR:-}" ] && [ -f "$ACTIVE_SESSION_DIR/.state.json" ]; then
+  debug "  clearing preload state in $ACTIVE_SESSION (active)"
+  jq --argjson stds "$PRELOAD_SEEDS" \
+    '.preloadedFiles = $stds | .touchedDirs = {} | .pendingPreloads = [] | .pendingAllowInjections = []' \
+    "$ACTIVE_SESSION_DIR/.state.json" | safe_json_write "$ACTIVE_SESSION_DIR/.state.json"
+fi
 
+for sessions_dir in "${SESSION_DIRS[@]}"; do
   # Clean stale seed files (dead PIDs) and create fresh seed for this process
   SEEDS_DIR="$sessions_dir/.seeds"
   if [ -d "$SEEDS_DIR" ]; then
@@ -320,7 +325,27 @@ if [ -n "$ACTIVE_SKILL" ] && [ -n "${ACTIVE_SESSION_DIR:-}" ] && [ -f "${skill_m
   if [ -n "$ARTIFACT_PATHS" ]; then
     while IFS= read -r art_path; do
       [ -n "$art_path" ] || continue
-      ART_CONTENT=$(cat "$art_path" 2>/dev/null || true)
+      # Smart truncation for DIALOGUE.md — last ~100 lines, aligned to entry boundary
+      if [[ "$(basename "$art_path")" == "DIALOGUE.md" ]]; then
+        TOTAL_LINES=$(wc -l < "$art_path" 2>/dev/null || echo "0")
+        TOTAL_LINES=$(echo "$TOTAL_LINES" | tr -d ' ')
+        if [ "$TOTAL_LINES" -gt 100 ]; then
+          # Find the nearest ## heading at or after the 100-lines-from-end mark
+          START_LINE=$((TOTAL_LINES - 100))
+          # Search forward from START_LINE for the next ## heading to avoid cutting mid-entry
+          HEADING_LINE=$(tail -n +"$START_LINE" "$art_path" 2>/dev/null | grep -n '^## ' | head -n 1 | cut -d: -f1 || echo "")
+          if [ -n "$HEADING_LINE" ]; then
+            ACTUAL_START=$((START_LINE + HEADING_LINE - 1))
+            ART_CONTENT=$(tail -n +"$ACTUAL_START" "$art_path" 2>/dev/null || true)
+          else
+            ART_CONTENT=$(tail -n 100 "$art_path" 2>/dev/null || true)
+          fi
+        else
+          ART_CONTENT=$(cat "$art_path" 2>/dev/null || true)
+        fi
+      else
+        ART_CONTENT=$(cat "$art_path" 2>/dev/null || true)
+      fi
       if [ -n "$ART_CONTENT" ]; then
         ARTIFACT_OUTPUT="${ARTIFACT_OUTPUT}[Preloaded: $art_path]
 $ART_CONTENT
@@ -393,20 +418,9 @@ if [ "$SOURCE" != "startup" ]; then
   exit 0
 fi
 
-# Scan for .state.json with dehydratedContext
-# Use find through the symlink (sessions/ may be symlinked)
-STATE_FILE=""
-for sessions_dir in "${SESSION_DIRS[@]}"; do
-  [ -n "$STATE_FILE" ] && break
-  for f in "$sessions_dir"/*/.state.json; do
-    [ -f "$f" ] || continue
-    HAS_CTX=$(jq -r '.dehydratedContext // null | type' "$f" 2>/dev/null)
-    if [ "$HAS_CTX" = "object" ]; then
-      STATE_FILE="$f"
-      break 2
-    fi
-  done
-done
+# Dehydrated context was already detected during the single-pass scan above.
+# DEHYDRATED_STATE_FILE is set if any .state.json had dehydratedContext of type "object".
+STATE_FILE="${DEHYDRATED_STATE_FILE:-}"
 
 if [ -z "$STATE_FILE" ]; then
   # No dehydrated context found — still output standards if present

@@ -96,21 +96,6 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
 
 §CMD_EXECUTE_PHASE_STEPS(1.*)
 
-### Interrogation Depth Selection
-
-**Before asking any questions**, present this choice via `AskUserQuestion` (multiSelect: false):
-
-> "How deep should the testing strategy interrogation go?"
-
-| Depth | Minimum Rounds | When to Use |
-|-------|---------------|-------------|
-| **Short** | 3+ | Well-understood code, small scope, clear test targets |
-| **Medium** | 6+ | Moderate complexity, some unknowns, multi-module testing |
-| **Long** | 9+ | Complex system testing, many edge cases, architectural impact |
-| **Absolute** | Until ALL questions resolved | Critical system, zero tolerance for gaps, comprehensive coverage required |
-
-Record the user's choice. This sets the **minimum** -- the agent can always ask more, and the user can always say "proceed" after the minimum is met.
-
 ### The Question Bank (20 Questions for Coverage)
 
 **Data Integrity**
@@ -141,12 +126,6 @@ Record the user's choice. This sets the **minimum** -- the agent can always ask 
 19. "What if the input payload is shorter/smaller than expected?"
 20. "Does the system recover gracefully from transient failures?"
 
-### Interrogation Protocol (Rounds)
-
-**Round counter**: Output it on every round: "**Round N / {depth_minimum}+**"
-
-**Topic selection**: Use the **Interrogation Topics from the loaded mode file** (`modes/{mode}.md`) as the primary source for each round. The standard/repeatable topics below are available for all modes as supplementary material. Do NOT follow a fixed sequence -- choose the most relevant uncovered topic based on what you've learned so far. Use the Question Bank above as inspiration for specific questions within each topic.
-
 ### Interrogation Topics (Testing)
 *The mode file topics (from `modes/{mode}.md`) are your primary source. These standard topics are available for all modes as supplementary material. Adapt to the task -- skip irrelevant ones, invent new ones as needed.*
 
@@ -167,27 +146,6 @@ Record the user's choice. This sets the **minimum** -- the agent can always ask 
 - **Devil's advocate** -- Challenge assumptions and decisions made so far
 - **What-if scenarios** -- Explore hypotheticals, edge cases, and alternative futures
 - **Deep dive** -- Drill into a specific topic from a previous round in much more detail
-
-**Each round**:
-1. Pick an uncovered topic (or a repeatable topic).
-2. Execute `§CMD_ASK_ROUND` via `AskUserQuestion` (3-5 targeted questions on that topic).
-3. On response: Execute `§CMD_LOG_INTERACTION` immediately.
-4. If the user asks a counter-question: ANSWER it, verify understanding, then resume.
-
-### Interrogation Exit Gate
-
-**After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
-
-> "Round N complete (minimum met). What next?"
-> - **"Proceed to create TESTING_PLAN.md"** -- *(terminal: if selected, skip all others and move on)*
-> - **"More interrogation (3 more rounds)"** -- Standard topic rounds, then this gate re-appears
-> - **"Devil's advocate round"** -- 1 round challenging assumptions, then this gate re-appears
-> - **"What-if scenarios round"** -- 1 round exploring hypotheticals, then this gate re-appears
-> - **"Deep dive round"** -- 1 round drilling into a prior topic, then this gate re-appears
-
-**Execution order** (when multiple selected): Standard rounds first -> Devil's advocate -> What-ifs -> Deep dive -> re-present exit gate.
-
-**For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Ask: "Round N complete. I still have questions about [X]. Continuing..."
 
 ### Plan Creation
 

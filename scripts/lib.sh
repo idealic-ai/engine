@@ -982,6 +982,60 @@ find_preload_state() {
   return 0
 }
 
+# _atomic_claim_preload NORMALIZED_PATH STATE_FILE
+#   Atomically checks if a file is in preloadedFiles and claims it if not.
+#   Uses the same mkdir lock as safe_json_write for mutual exclusion.
+#   Prevents TOCTOU race when parallel hooks try to deliver the same file.
+#   Echoes "claimed" if newly claimed, "already" if already present.
+_atomic_claim_preload() {
+  local normalized="$1" state_file="$2"
+  local resolved="${normalized/#\~/$HOME}"
+  local lock_dir="${state_file}.lock"
+
+  # Acquire lock (same mechanism as safe_json_write)
+  local retries=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    retries=$((retries + 1))
+    if [ "$retries" -ge 100 ]; then
+      echo "already"  # Timeout — treat as claimed to avoid duplicate delivery
+      return 0
+    fi
+    if [ -d "$lock_dir" ]; then
+      local lock_mtime now_epoch
+      lock_mtime=$(stat -f "%m" "$lock_dir" 2>/dev/null || echo "0")
+      now_epoch=$(date +%s)
+      if [ $((now_epoch - lock_mtime)) -gt 10 ]; then
+        rmdir "$lock_dir" 2>/dev/null || true
+        continue
+      fi
+    fi
+    sleep 0.01
+  done
+
+  # Under lock: check preloadedFiles only (NOT pendingPreloads — files move
+  # from pendingPreloads to preloadedFiles during normal delivery flow)
+  local already
+  already=$(jq -r --arg p "$normalized" --arg r "$resolved" '
+    (.preloadedFiles // []) | any(. == $p or . == $r)
+  ' "$state_file" 2>/dev/null || echo "false")
+
+  if [ "$already" = "true" ]; then
+    rmdir "$lock_dir" 2>/dev/null || true
+    echo "already"
+    return 0
+  fi
+
+  # Claim: add to preloadedFiles
+  jq --arg p "$normalized" '
+    (.preloadedFiles //= []) | .preloadedFiles += [$p]
+  ' "$state_file" > "${state_file}.tmp.$$"
+  mv "${state_file}.tmp.$$" "$state_file"
+
+  rmdir "$lock_dir" 2>/dev/null || true
+  echo "claimed"
+  return 0
+}
+
 # _is_already_preloaded NORMALIZED_PATH STATE_FILE
 #   Checks path + inode dedup against preloadedFiles in state.
 #   Returns 0 if already preloaded, 1 if not.

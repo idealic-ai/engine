@@ -81,21 +81,21 @@ for ((i=0; i<Q_COUNT; i++)); do
   # Build options list: "label1 / label2 / label3"
   OPTIONS=$(echo "$INPUT" | jq -r ".tool_input.questions[$i].options[]?.label // empty" 2>/dev/null | awk '{printf "%s%s", sep, $0; sep=" / "}' || echo "")
 
+  # Build compact **A**: line with options inline
+  Q_LINE=""
   if [ "$Q_COUNT" -gt 1 ]; then
-    QUESTIONS_BLOCK="${QUESTIONS_BLOCK}> Q$((i+1)): ${Q_TEXT}"$'\n'
+    Q_LINE="**A$((i+1))**: ${Q_TEXT}"
   else
-    QUESTIONS_BLOCK="${QUESTIONS_BLOCK}> ${Q_TEXT}"$'\n'
+    Q_LINE="**A**: ${Q_TEXT}"
   fi
 
   if [ -n "$OPTIONS" ]; then
-    QUESTIONS_BLOCK="${QUESTIONS_BLOCK}> Options: ${OPTIONS}"$'\n'
+    Q_LINE="${Q_LINE} — ${OPTIONS}"
   fi
   if [ "$Q_MULTI" = "true" ]; then
-    QUESTIONS_BLOCK="${QUESTIONS_BLOCK}> *(multi-select)*"$'\n'
+    Q_LINE="${Q_LINE} *(multi)*"
   fi
-  if [ "$i" -lt $((Q_COUNT - 1)) ]; then
-    QUESTIONS_BLOCK="${QUESTIONS_BLOCK}>"$'\n'
-  fi
+  QUESTIONS_BLOCK="${QUESTIONS_BLOCK}${Q_LINE}"$'\n'
 done
 
 # Extract user response — answers only, with fallback chain
@@ -128,28 +128,20 @@ USER_RESPONSE=$(printf '%s' "$USER_RESPONSE" | escape_tags)
 HEADER=$(printf '%s' "$HEADER" | escape_tags)
 FIRST_Q_SHORT=$(printf '%s' "$FIRST_Q_SHORT" | escape_tags)
 
-# --- Build the DIALOGUE.md entry ---
-ENTRY="## ${HEADER} — ${FIRST_Q_SHORT}"$'\n'
-ENTRY="${ENTRY}**Type**: Q&A (auto-logged)"$'\n'
-ENTRY="${ENTRY}"$'\n'
+# --- Build the DIALOGUE.md entry (compact format) ---
+ENTRY="##"$'\n'
 
-# Add premise if available
+# Add premise if available (blockquote)
 if [ -n "$PREAMBLE" ]; then
-  # Prefix each line with > for blockquote
   PREMISE_QUOTED=$(echo "$PREAMBLE" | sed 's/^/> /')
-  ENTRY="${ENTRY}**Premise**:"$'\n'
   ENTRY="${ENTRY}${PREMISE_QUOTED}"$'\n'
-  ENTRY="${ENTRY}"$'\n'
 fi
 
-ENTRY="${ENTRY}**Agent**:"$'\n'
+# Agent questions with options inline
 ENTRY="${ENTRY}${QUESTIONS_BLOCK}"$'\n'
-ENTRY="${ENTRY}**User**:"$'\n'
-# Quote user response
-USER_QUOTED=$(echo "$USER_RESPONSE" | sed 's/^/> /')
-ENTRY="${ENTRY}${USER_QUOTED}"$'\n'
-ENTRY="${ENTRY}"$'\n'
-ENTRY="${ENTRY}---"
+
+# User response
+ENTRY="${ENTRY}**U**: ${USER_RESPONSE}"
 
 # Append to DIALOGUE.md via engine log
 printf '%s\n' "$ENTRY" | "$HOME/.claude/scripts/log.sh" "$SESSION_DIR/DIALOGUE.md"

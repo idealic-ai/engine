@@ -383,7 +383,7 @@ Standard protocol for information gathering — formulate 3-5 targeted questions
 ## 4. Composite Workflow Commands (The "Shortcuts")
 
 ### [¶CMD_INGEST_CONTEXT_BEFORE_WORK](commands/CMD_INGEST_CONTEXT_BEFORE_WORK.md)
-Present discovered context (alerts, RAG sessions/docs, delegations) as a multichoice menu before work begins.
+Present discovered context as a category-level multi-select menu (Sessions, Docs, Operational) via `§CMD_DECISION_TREE` with `§ASK_CONTEXT_INGESTION`.
 
 ### [¶CMD_GENERATE_DEBRIEF](commands/CMD_GENERATE_DEBRIEF.md)
 Creates or regenerates a standardized debrief artifact with continuation detection, template population, and `#needs-review` tagging.
@@ -418,29 +418,15 @@ Display-only 3-line blockquote (What / How / Not-what) at phase entry. Serves as
 *   **Discussions**: Non-AskUserQuestion back-and-forth that establishes important context.
 
 **Algorithm**:
-1.  **Construct**: Prepare the Markdown block following `~/.claude/skills/_shared/TEMPLATE_DIALOGUE.md`.
-    *   **Agent**: Quote your question or the context (keep nuance/options).
-    *   **User**: VERBATIM quote of the user's answer.
-    *   **Action**: Paraphrase your decision/action (e.g., "Updated Plan").
+1.  **Construct**: Prepare the compact Markdown block following `~/.claude/skills/_shared/TEMPLATE_DIALOGUE.md`.
+    *   Premise blockquote: Your question or context (keep nuance).
+    *   `**U**:`: VERBATIM user response on a single line.
 2.  **Execute**:
     ```bash
     engine log sessions/[YYYY_MM_DD]_[TOPIC]/DIALOGUE.md <<'EOF'
-    ## [Topic Summary]
-    **Type**: [Assertion / Discussion]
-
-    **Agent**:
-    > [My Prompt/Question or Context]
-
-    **User**:
-    > [User Response Verbatim]
-
-    **Agent Action/Decision**:
-    > [My Reaction]
-
-    **Context/Nuance** (Optional):
-    > [Thoughts]
-
-    ---
+    ##
+    > [My context or what prompted the user's message]
+    **U**: [User Response Verbatim]
     EOF
     ```
 

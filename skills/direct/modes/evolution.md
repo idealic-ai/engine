@@ -19,7 +19,7 @@ Respect what's been done. Completed chapters (`#done-coordinate`) represent real
 - **Context**: Understand what prompted the evolution — new requirements, scope change, lessons from completed chapters
 
 ### Interrogation
-- **Recommended depth**: Short (3+ rounds) — the existing vision provides context
+- **Recommended depth**: Short — the existing vision provides context
 - **Key topics**: What changed since v1, why the evolution is needed, which chapters are affected, new constraints
 - **Focus**: Delta understanding — what's different, not what's the same
 

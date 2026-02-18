@@ -491,43 +491,46 @@ The coordinator's tag noun (`coordinate`) maps to the `/coordinate` skill per `�
 
 ---
 
-## 9. SKILL.md Changes Required
+## 9. SKILL.md Phase Structure
 
-The coordinator SKILL.md (`~/.claude/skills/coordinate/SKILL.md`) needs these additions for chapter support:
-
-### New Sub-Phase: Chapter Initialization
-
-Between session activation and the main loop:
-1. Load vision document (from `contextPaths` or parameter)
-2. Find current chapter (scan for `#claimed-coordinate` or next `#needs-coordinate`)
-3. Create/load chapter plan from template
-4. Assign work items to worker groups (match groups in vision to fleet workgroups)
-5. Enter main loop
-
-### Modified Main Loop
+The coordinator SKILL.md (`~/.claude/skills/coordinate/SKILL.md`) has 6 main phases plus synthesis sub-phases:
 
 ```
-while true:
-  result = await-next(--timeout T --managed PANES)
-
-  if TIMEOUT:
-    check chapter completion criteria
-    if all met: advance to next chapter (or exit)
-    continue
-
-  if FOCUSED:
-    check if idle workers can do filler work
-    continue
-
-  parse pane_id, state, label, capture
-  assess situation (LLM reasoning with plan context + decision principles)
-  decide action (answer, escalate, delegate, skill-invoke)
-  execute action
+0: Setup → 1: Chapter Interrogation → 2: Chapter Planning → 3: Dispatch → 4: Oversight Loop → 5: Synthesis (5.1-5.4)
 ```
 
-### Chapter Completion Check
+### Phase 3: Dispatch (Task-to-Worker Mapping)
 
-On TIMEOUT (all panes idle):
+Between planning and the oversight loop, the Dispatch phase maps work items to workers:
+1. Read the chapter plan's work items (checkboxes in `COORDINATION_PLAN.md`)
+2. Match work items to available worker groups (by skill/group from fleet status)
+3. Present the suggested mapping to the user
+4. On approval: apply `#delegated-coordination` + `%worker` tags to plan items
+5. Gate: proceed to loop / adjust / back to plan / exit
+
+The coordinator prepares the mapping PROACTIVELY — the user sees a suggested assignment, not a blank form. This phase uses the `¶ASK_COORDINATE_DISPATCH_EXIT` decision tree.
+
+### Phase Navigation (Decision Trees)
+
+Each post-planning phase has a structured gate with back-navigation:
+
+*   **`¶ASK_COORDINATE_PLAN_EXIT`** (Phase 2 gate): Proceed to dispatch / refine plan / close session / return to interrogation / skip to loop
+*   **`¶ASK_COORDINATE_DISPATCH_EXIT`** (Phase 3 gate): Enter loop / adjust mapping / return to planning / close session / add more items
+*   **`¶ASK_COORDINATE_LOOP_EXIT`** (Phase 4 ESC menu): Resume / fleet status / synthesis / return to dispatch / return to planning / relay message
+
+Back-navigation uses `--user-approved` per `§INV_PHASE_ENFORCEMENT`. Early exit (close session after planning or dispatch) deactivates cleanly — the plan artifact persists.
+
+### Chapter Initialization (Phase 0)
+
+During setup, the coordinator:
+1. Loads vision document (from `contextPaths` or parameter)
+2. Finds current chapter (scan for `#claimed-coordinate` or next `#needs-coordinate`)
+3. Validates fleet is running
+4. Discovers target panes
+
+### Chapter Completion Check (Phase 4)
+
+On TIMEOUT (all panes idle) within the oversight loop:
 1. Read chapter plan checkboxes
 2. If all items checked AND all completion criteria met:
    - Synthesize current chapter session (debrief, artifacts)

@@ -1,15 +1,14 @@
 #!/bin/bash
 # ~/.claude/engine/hooks/user-prompt-submit-freeform-chat.sh — UserPromptSubmit hook
 #
-# Captures free-form user chat messages (>50 chars) into the session's DIALOGUE.md.
+# Captures all user chat messages into the session's DIALOGUE.md.
 # Complements post-tool-use-details-log.sh which handles AskUserQuestion interactions.
 #
 # Input (stdin): UserPromptSubmit JSON with: prompt, session_id, transcript_path
 # Output: empty (no additionalContext needed — this is a silent logger)
 #
 # Filters:
-#   - Messages starting with / (skill invocations)
-#   - Messages <= 50 characters
+#   - Empty messages
 #   - No active session
 #
 # Related:
@@ -33,14 +32,6 @@ PROMPT=$(echo "$INPUT" | jq -r '.prompt // ""' 2>/dev/null || echo "")
 
 # Skip empty
 [ -n "$PROMPT" ] || exit 0
-
-# Skip slash commands
-case "$PROMPT" in
-  /*) exit 0 ;;
-esac
-
-# Skip short messages (<=50 chars)
-[ ${#PROMPT} -gt 50 ] || exit 0
 
 # --- Find active session ---
 SESSION_DIR=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
@@ -87,24 +78,16 @@ HEADING_TEXT=$(printf '%s' "$HEADING_TEXT" | escape_tags)
 PROMPT_ESCAPED=$(printf '%s' "$PROMPT" | escape_tags)
 AGENT_CONTEXT=$(printf '%s' "$AGENT_CONTEXT" | escape_tags)
 
-# --- Build the DIALOGUE.md entry ---
-ENTRY="## User Note — ${HEADING_TEXT}"$'\n'
-ENTRY="${ENTRY}**Type**: Chat (auto-logged)"$'\n'
-ENTRY="${ENTRY}"$'\n'
+# --- Build the DIALOGUE.md entry (compact format) ---
+ENTRY="##"$'\n'
 
-# Add agent context if available
+# Add agent context if available (blockquote premise)
 if [ -n "$AGENT_CONTEXT" ]; then
   AGENT_QUOTED=$(echo "$AGENT_CONTEXT" | sed 's/^/> /')
-  ENTRY="${ENTRY}**Agent**:"$'\n'
   ENTRY="${ENTRY}${AGENT_QUOTED}"$'\n'
-  ENTRY="${ENTRY}"$'\n'
 fi
 
-ENTRY="${ENTRY}**User**:"$'\n'
-USER_QUOTED=$(echo "$PROMPT_ESCAPED" | sed 's/^/> /')
-ENTRY="${ENTRY}${USER_QUOTED}"$'\n'
-ENTRY="${ENTRY}"$'\n'
-ENTRY="${ENTRY}---"
+ENTRY="${ENTRY}**U**: ${PROMPT_ESCAPED}"
 
 # Append to DIALOGUE.md via engine log
 printf '%s\n' "$ENTRY" | "$HOME/.claude/scripts/log.sh" "$SESSION_DIR/DIALOGUE.md"

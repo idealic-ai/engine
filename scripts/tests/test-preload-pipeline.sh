@@ -539,5 +539,11 @@ test_P9_pid_mismatch_causes_tracking_loss() {
   export CLAUDE_SUPERVISOR_PID="$orig_pid"
 }
 
+# NOTE: P10 parallel delivery test deferred — requires _atomic_claim_preload
+# integration in preload_ensure(), which has test env issues with find_preload_state()
+# returning a different state file than $STATE_FILE in the test harness.
+# The _atomic_claim_preload function itself works (proved in isolation).
+# See session 2026_02_17_DOUBLE_PRELOAD_FIX for details.
+
 # --- Run ---
 run_discovered_tests

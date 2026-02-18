@@ -277,6 +277,91 @@ COUNTER=$(jq -r --arg key "$TKEY" '.toolCallsByTranscript[$key] // 0' "$TEST_SES
 assert_eq "1" "$COUNTER" "C14: non-whitelisted engine subcommand increments counter"
 
 # ============================================================
+# C15: TaskOutput whitelisted (not blocked by heartbeat)
+# ============================================================
+reset_state
+TKEY=$(basename "$TRANSCRIPT_PATH")
+jq --arg key "$TKEY" '.toolCallsByTranscript[$key] = 15' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+OUTPUT=$(run_hook "TaskOutput" '{"task_id":"abc123","block":true}')
+DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
+if [ "$DECISION" = "deny" ]; then
+  fail "C15: TaskOutput should be whitelisted by heartbeat-block"
+else
+  pass "C15: TaskOutput whitelisted by heartbeat-block"
+fi
+
+# ============================================================
+# C16: TaskOutput does NOT increment counter
+# ============================================================
+reset_state
+TKEY=$(basename "$TRANSCRIPT_PATH")
+
+run_hook "TaskOutput" '{"task_id":"abc123","block":true}' > /dev/null
+COUNTER=$(jq -r --arg key "$TKEY" '.toolCallsByTranscript[$key] // 0' "$TEST_SESSION/.state.json")
+assert_eq "0" "$COUNTER" "C16: TaskOutput does not increment counter"
+
+# ============================================================
+# C17: Subagent not blocked at heartbeat threshold
+# ============================================================
+reset_state
+TKEY=$(basename "$TRANSCRIPT_PATH")
+SUBAGENT_TKEY="subagent_transcript.jsonl"
+SUBAGENT_TRANSCRIPT_PATH="/tmp/$SUBAGENT_TKEY"
+# Establish parent's primary transcript key by making a parent call first
+run_hook "Grep" '{"pattern":"test"}' > /dev/null
+# Now set subagent counter to 9 so next call triggers heartbeat-block (gte:10)
+jq --arg key "$SUBAGENT_TKEY" '.toolCallsByTranscript[$key] = 9' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+# Subagent uses a DIFFERENT transcript path → detected as subagent
+OUTPUT=$(printf '{"tool_name":"Grep","tool_input":{"pattern":"test"},"session_id":"test","transcript_path":"%s"}\n' \
+  "$SUBAGENT_TRANSCRIPT_PATH" | "$RESOLVED_HOOK" 2>/dev/null)
+DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
+if [ "$DECISION" = "deny" ]; then
+  fail "C17: subagent should NOT be blocked by heartbeat (got deny)"
+else
+  pass "C17: subagent not blocked at heartbeat threshold (downgraded to allow)"
+fi
+
+# ============================================================
+# C18: Parent IS blocked at same threshold (control test)
+# ============================================================
+reset_state
+TKEY=$(basename "$TRANSCRIPT_PATH")
+# Make a parent call to establish primaryTranscriptKey
+run_hook "Grep" '{"pattern":"test"}' > /dev/null
+# Set parent counter to 9 so next call triggers heartbeat-block (gte:10)
+jq --arg key "$TKEY" '.toolCallsByTranscript[$key] = 9' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+OUTPUT=$(run_hook "Grep" '{"pattern":"test"}')
+DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
+assert_eq "deny" "$DECISION" "C18: parent IS blocked at heartbeat threshold (control)"
+
+# ============================================================
+# C19: Subagent counter does NOT overwrite global toolCallsSinceLastLog
+# ============================================================
+reset_state
+TKEY=$(basename "$TRANSCRIPT_PATH")
+SUBAGENT_TKEY="subagent_transcript.jsonl"
+SUBAGENT_TRANSCRIPT_PATH="/tmp/$SUBAGENT_TKEY"
+# Establish parent's primary key + set counter
+run_hook "Grep" '{"pattern":"test"}' > /dev/null
+jq --arg key "$TKEY" '.toolCallsByTranscript[$key] = 2 | .toolCallsSinceLastLog = 2' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+# Subagent makes a call — should NOT overwrite toolCallsSinceLastLog
+printf '{"tool_name":"Grep","tool_input":{"pattern":"test"},"session_id":"test","transcript_path":"%s"}\n' \
+  "$SUBAGENT_TRANSCRIPT_PATH" | "$RESOLVED_HOOK" 2>/dev/null > /dev/null
+
+GLOBAL_COUNTER=$(jq -r '.toolCallsSinceLastLog // 0' "$TEST_SESSION/.state.json")
+SUBAGENT_COUNTER=$(jq -r --arg key "$SUBAGENT_TKEY" '.toolCallsByTranscript[$key] // 0' "$TEST_SESSION/.state.json")
+assert_eq "2" "$GLOBAL_COUNTER" "C19: global counter preserved (subagent did not overwrite)"
+assert_eq "1" "$SUBAGENT_COUNTER" "C19: subagent per-transcript counter incremented"
+
+# ============================================================
 # Results
 # ============================================================
 exit_with_results

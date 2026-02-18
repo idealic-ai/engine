@@ -70,19 +70,17 @@ Creates semi-permanent situational documents for reference. Writeups describe a 
 
 **Intent**: Gather structured input for each section of the writeup.
 
-### Interrogation Depth Selection
+### ¶ASK_WRITEUP_DEPTH
+Extends: §ASK_INTERROGATION_DEPTH
+Trigger: when starting writeup clarification phase
 
-**Before asking questions**, present this choice via `AskUserQuestion` (multiSelect: false):
-
-> "How detailed should the clarification be?"
-
-| Depth | Rounds | When to Use |
-|-------|--------|-------------|
-| **Short** | 1 round | Simple writeup, you already have context |
-| **Medium** | 2 rounds | Standard writeup, some unknowns |
-| **Long** | 3+ rounds | Complex topic, multiple perspectives |
-
-Record the user's choice.
+## Decision: Writeup Depth
+- [LITE] Short (1 round)
+  Simple writeup, you already have context
+- [MEDM] Medium (2 rounds)
+  Standard writeup, some unknowns
+- [FULL] Long (3+ rounds)
+  Complex topic, multiple perspectives
 
 ### Interrogation Topics (Writeup)
 *Themes to explore during clarification.*
@@ -118,15 +116,19 @@ Use `AskUserQuestion` to clarify the writeup content.
 3.  **Recommendation**: "Do you have a preferred recommendation, or should I analyze and suggest?"
     *   Options: "I have a recommendation" / "Analyze and suggest" / "No recommendation yet"
 
-### Interrogation Exit Gate
+### ¶ASK_WRITEUP_EXIT
+Extends: §ASK_INTERROGATION_EXIT
+Trigger: after minimum writeup clarification rounds are met
 
-**After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
-
-> "Clarification complete (minimum met). What next?"
-> - **"Proceed to Phase 3: Writing"** — *(terminal: if selected, skip all others and move on)*
-> - **"More clarification (1 more round)"** — Additional questions, then this gate re-appears
-> - **"Devil's advocate round"** — 1 round challenging the framing
-> - **"Deep dive round"** — 1 round drilling into a specific aspect
+## Decision: Writeup Exit
+- [NEXT] Proceed to Writing
+  Done clarifying — start writing
+- [MORE] More clarification (1 more round)
+  Additional questions, then this gate re-appears
+- [DEEP] Deep dive round
+  1 round drilling into a specific aspect
+- Devil's advocate round
+  1 round challenging the framing
 
 ---
 

@@ -6,7 +6,7 @@
 
 ## Configuration
 
-**Interrogation Depth**: Medium (6+ rounds) — cover symptoms, hypotheses, and blast radius
+**Interrogation Depth**: Medium — cover symptoms, hypotheses, and blast radius
 **Fix Approach**: Investigate → Triage → Fix → Verify. Standard depth on all phases.
 **When to Use**: Most fix tasks. The default when neither extreme rigor nor speed is the priority.
 

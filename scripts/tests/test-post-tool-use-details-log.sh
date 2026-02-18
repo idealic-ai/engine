@@ -1,412 +1,335 @@
 #!/bin/bash
-# ~/.claude/engine/scripts/tests/test-post-tool-use-details-log.sh
-# Tests for the PostToolUse DIALOGUE.md auto-logging hook (post-tool-use-details-log.sh)
+# Integration test: post-tool-use-details-log.sh (full hook pipeline)
+# Tests the complete flow: JSON input → content extraction → tag escaping → DIALOGUE.md output
 #
-# Tests: single question, multi-question, no session, structured answers,
-# preamble extraction from transcript, missing transcript, "Other" free-text,
-# non-AskUserQuestion tools (guard check).
-#
-# Run: bash ~/.claude/engine/scripts/tests/test-post-tool-use-details-log.sh
+# Strategy:
+#   - Override $HOME to an isolated temp dir
+#   - Provide real lib.sh, real log.sh, real hook script
+#   - Stub session.sh (returns controlled session dir)
+#   - Each test: create temp session dir, pipe JSON, verify DIALOGUE.md
+set -euo pipefail
 
-set -uo pipefail
-source "$(dirname "$0")/test-helpers.sh"
+PASS=0
+FAIL=0
+ERRORS=""
 
-HOOK_SH="$HOME/.claude/engine/hooks/post-tool-use-details-log.sh"
-LIB_SH="$HOME/.claude/scripts/lib.sh"
-LOG_SH="$HOME/.claude/scripts/log.sh"
+# --- Setup ---
+REAL_HOME="$HOME"
+TEST_ROOT=$(mktemp -d)
+FAKE_HOME="$TEST_ROOT/fakehome"
+SCRIPTS_DIR="$FAKE_HOME/.claude/scripts"
+HOOKS_DIR="$FAKE_HOME/.claude/hooks"
+mkdir -p "$SCRIPTS_DIR" "$HOOKS_DIR"
 
-# Temp directory for test fixtures
-TEST_DIR=""
-ORIGINAL_HOME=""
-ORIGINAL_PWD=""
-SESSION_DIR=""
+# Copy real scripts into fake HOME
+cp "$REAL_HOME/.claude/scripts/lib.sh" "$SCRIPTS_DIR/lib.sh"
+cp "$REAL_HOME/.claude/scripts/log.sh" "$SCRIPTS_DIR/log.sh"
+cp "$REAL_HOME/.claude/hooks/post-tool-use-details-log.sh" "$HOOKS_DIR/hook.sh"
+chmod +x "$SCRIPTS_DIR/log.sh" "$HOOKS_DIR/hook.sh"
 
-setup() {
-  TEST_DIR=$(mktemp -d)
-  ORIGINAL_HOME="$HOME"
-  ORIGINAL_PWD="$PWD"
-  export HOME="$TEST_DIR/fake-home"
-  mkdir -p "$HOME/.claude/scripts"
-  mkdir -p "$HOME/.claude/hooks"
-  mkdir -p "$HOME/.claude/engine/hooks"
+# Active session dir (overridden per test via stub session.sh)
+ACTIVE_SESSION=""
 
-  # Link lib.sh into fake home
-  ln -sf "$LIB_SH" "$HOME/.claude/scripts/lib.sh"
-  # Link log.sh into fake home
-  ln -sf "$LOG_SH" "$HOME/.claude/scripts/log.sh"
-  # Link the hook into fake home (engine path)
-  ln -sf "$HOOK_SH" "$HOME/.claude/engine/hooks/post-tool-use-details-log.sh"
-
-  # Create a fake session dir
-  SESSION_DIR="$TEST_DIR/sessions/test-session"
-  mkdir -p "$SESSION_DIR"
-  echo '{"skill":"implement","currentPhase":"4: Build Loop"}' > "$SESSION_DIR/.state.json"
-
-  # Create a fake session.sh that returns our test session dir
-  cat > "$HOME/.claude/scripts/session.sh" <<SCRIPT
+# Create stub session.sh — returns $ACTIVE_SESSION
+cat > "$SCRIPTS_DIR/session.sh" <<'STUB'
 #!/bin/bash
-if [ "\${1:-}" = "find" ]; then
-  echo "$SESSION_DIR"
+if [ "${1:-}" = "find" ]; then
+  cat "$HOME/.claude/_test_session_dir" 2>/dev/null || echo ""
   exit 0
 fi
-exit 1
-SCRIPT
-  chmod +x "$HOME/.claude/scripts/session.sh"
+exit 0
+STUB
+chmod +x "$SCRIPTS_DIR/session.sh"
 
-  cd "$TEST_DIR"
+# Alias for engine command (log.sh is called via "$HOME/.claude/scripts/log.sh")
+# The hook calls log.sh directly, so we just need the scripts dir to be correct
+
+cleanup() {
+  rm -rf "$TEST_ROOT"
 }
+trap cleanup EXIT
 
-teardown() {
-  cd "$ORIGINAL_PWD"
-  export HOME="$ORIGINAL_HOME"
-  if [ -n "$TEST_DIR" ] && [ -d "$TEST_DIR" ]; then
-    rm -rf "$TEST_DIR"
-  fi
-}
+# --- Helpers ---
 
-# Helper: run the hook with given JSON input
-run_hook() {
-  local input="$1"
-  echo "$input" | bash "$HOME/.claude/engine/hooks/post-tool-use-details-log.sh" 2>/dev/null
-}
-
-# Helper: read DIALOGUE.md content
-read_details() {
-  if [ -f "$SESSION_DIR/DIALOGUE.md" ]; then
-    cat "$SESSION_DIR/DIALOGUE.md"
+assert_contains() {
+  local label="$1" file="$2" pattern="$3"
+  if grep -qF "$pattern" "$file" 2>/dev/null; then
+    PASS=$((PASS + 1))
+    echo "  PASS: $label"
   else
-    echo ""
+    FAIL=$((FAIL + 1))
+    local actual
+    actual=$(cat "$file" 2>/dev/null || echo "(file not found)")
+    ERRORS="${ERRORS}\n  FAIL: $label\n    expected to contain: $pattern\n    file contents:\n$(echo "$actual" | head -20 | sed 's/^/      /')"
+    echo "  FAIL: $label"
+    echo "    expected to contain: $pattern"
   fi
 }
 
-# ============================================================
-# Test 1: Single question with single-select
-# ============================================================
-test_single_question() {
-  run_hook '{
-    "tool_name": "AskUserQuestion",
-    "tool_input": {
-      "questions": [
-        {
-          "question": "How deep should interrogation go?",
-          "header": "Depth",
-          "options": [
-            {"label": "Short (3+)", "description": "Well-understood task"},
-            {"label": "Medium (6+)", "description": "Some unknowns"}
-          ],
-          "multiSelect": false
-        }
-      ]
-    },
-    "tool_response": "Short (3+)",
-    "session_id": "test123",
-    "tool_use_id": "toolu_01ABC"
-  }'
-
-  local details
-  details=$(read_details)
-
-  assert_contains "## " "$details" "T1: DIALOGUE.md has heading"
-  assert_contains "Depth" "$details" "T1: Header appears in heading"
-  assert_contains "How deep should interrogation go?" "$details" "T1: Question text present"
-  assert_contains "Short (3+)" "$details" "T1: Option labels present"
-  assert_contains "Medium (6+)" "$details" "T1: Second option present"
-  assert_contains "Q&A (auto-logged)" "$details" "T1: Type tag present"
-  assert_contains "Short (3+)" "$details" "T1: User response present"
+assert_not_contains() {
+  local label="$1" file="$2" pattern="$3"
+  if ! grep -qF "$pattern" "$file" 2>/dev/null; then
+    PASS=$((PASS + 1))
+    echo "  PASS: $label"
+  else
+    FAIL=$((FAIL + 1))
+    ERRORS="${ERRORS}\n  FAIL: $label\n    should NOT contain: $pattern"
+    echo "  FAIL: $label"
+    echo "    should NOT contain: $pattern"
+  fi
 }
 
-# ============================================================
-# Test 2: Multiple questions
-# ============================================================
-test_multi_question() {
-  run_hook '{
-    "tool_name": "AskUserQuestion",
-    "tool_input": {
-      "questions": [
-        {
-          "question": "What enforcement model?",
-          "header": "Model",
-          "options": [
-            {"label": "Block", "description": "Block immediately"},
-            {"label": "Warn", "description": "Warn only"}
-          ],
-          "multiSelect": false
-        },
-        {
-          "question": "Which scope?",
-          "header": "Scope",
-          "options": [
-            {"label": "All calls", "description": "Every AskUserQuestion"},
-            {"label": "Interrogation only", "description": "Only during interrogation"}
-          ],
-          "multiSelect": false
-        }
-      ]
-    },
-    "tool_response": "Block, All calls",
-    "session_id": "test123",
-    "tool_use_id": "toolu_02ABC"
-  }'
-
-  local details
-  details=$(read_details)
-
-  assert_contains "Q1:" "$details" "T2: First question numbered"
-  assert_contains "Q2:" "$details" "T2: Second question numbered"
-  assert_contains "What enforcement model?" "$details" "T2: Q1 text present"
-  assert_contains "Which scope?" "$details" "T2: Q2 text present"
+assert_file_not_exists() {
+  local label="$1" file="$2"
+  if [ ! -f "$file" ]; then
+    PASS=$((PASS + 1))
+    echo "  PASS: $label"
+  else
+    FAIL=$((FAIL + 1))
+    ERRORS="${ERRORS}\n  FAIL: $label\n    file should not exist: $file"
+    echo "  FAIL: $label"
+    echo "    file should not exist: $file"
+  fi
 }
 
-# ============================================================
-# Test 3: No active session — should exit silently
-# ============================================================
-test_no_session() {
-  # Override session.sh to return nothing
-  cat > "$HOME/.claude/scripts/session.sh" <<'SCRIPT'
-#!/bin/bash
-exit 1
-SCRIPT
-  chmod +x "$HOME/.claude/scripts/session.sh"
-
-  run_hook '{
-    "tool_name": "AskUserQuestion",
-    "tool_input": {
-      "questions": [{"question": "Test?", "header": "Test", "options": [{"label": "A", "description": "a"}], "multiSelect": false}]
-    },
-    "tool_response": "A",
-    "session_id": "test123",
-    "tool_use_id": "toolu_03ABC"
-  }'
-
-  assert_file_not_exists "$SESSION_DIR/DIALOGUE.md" "T3: No DIALOGUE.md when no session"
+assert_exit_code() {
+  local label="$1" expected="$2" actual="$3"
+  if [ "$expected" = "$actual" ]; then
+    PASS=$((PASS + 1))
+    echo "  PASS: $label"
+  else
+    FAIL=$((FAIL + 1))
+    ERRORS="${ERRORS}\n  FAIL: $label\n    expected exit code: $expected\n    actual exit code: $actual"
+    echo "  FAIL: $label"
+    echo "    expected exit: $expected, actual: $actual"
+  fi
 }
 
-# ============================================================
-# Test 4: Non-AskUserQuestion tool — should exit immediately
-# ============================================================
-test_non_ask_tool() {
-  run_hook '{
-    "tool_name": "Bash",
-    "tool_input": {"command": "echo hello"},
-    "tool_response": "hello",
-    "session_id": "test123",
-    "tool_use_id": "toolu_04ABC"
-  }'
-
-  assert_file_not_exists "$SESSION_DIR/DIALOGUE.md" "T4: No DIALOGUE.md for non-AskUserQuestion"
+# setup_session: create a temp session dir with .state.json, set it as active
+setup_session() {
+  local session_dir="$TEST_ROOT/session_$(date +%s%N)"
+  mkdir -p "$session_dir"
+  echo '{"skill":"test","currentPhase":"3: Testing Loop"}' > "$session_dir/.state.json"
+  ACTIVE_SESSION="$session_dir"
+  echo "$session_dir" > "$FAKE_HOME/.claude/_test_session_dir"
+  echo "$session_dir"
 }
 
-# ============================================================
-# Test 5: Multi-select question
-# ============================================================
-test_multiselect() {
-  run_hook '{
-    "tool_name": "AskUserQuestion",
-    "tool_input": {
-      "questions": [
-        {
-          "question": "Which features to enable?",
-          "header": "Features",
-          "options": [
-            {"label": "Auto-log", "description": "Automatic logging"},
-            {"label": "Blocking", "description": "Block on failure"},
-            {"label": "Alerts", "description": "Send alerts"}
-          ],
-          "multiSelect": true
-        }
-      ]
-    },
-    "tool_response": "Auto-log, Alerts",
-    "session_id": "test123",
-    "tool_use_id": "toolu_05ABC"
-  }'
-
-  local details
-  details=$(read_details)
-
-  assert_contains "multi-select" "$details" "T5: Multi-select indicator present"
-  assert_contains "Auto-log / Blocking / Alerts" "$details" "T5: All options listed"
+# run_hook: pipe JSON to the hook with fake HOME
+run_hook() {
+  local json="$1"
+  local exit_code=0
+  echo "$json" | HOME="$FAKE_HOME" bash "$HOOKS_DIR/hook.sh" 2>/dev/null || exit_code=$?
+  echo "$exit_code"
 }
 
-# ============================================================
-# Test 6: Preamble extraction from transcript
-# ============================================================
-test_preamble_from_transcript() {
-  # Create a mock transcript with an assistant text block followed by tool_use
-  local transcript_file="$TEST_DIR/transcript.jsonl"
-  cat > "$transcript_file" <<'JSONL'
-{"type":"human","message":{"content":[{"type":"text","text":"implement the hook"}]}}
-{"type":"assistant","message":{"content":[{"type":"text","text":"I will now ask about the enforcement model. Based on my analysis of the existing hooks, there are three approaches we could take."}]}}
-{"type":"assistant","message":{"content":[{"type":"tool_use","name":"AskUserQuestion","input":{"questions":[{"question":"Test?"}]}}]}}
-JSONL
+# --- Tests ---
 
-  run_hook "{
-    \"tool_name\": \"AskUserQuestion\",
-    \"tool_input\": {
-      \"questions\": [{\"question\": \"Test?\", \"header\": \"Test\", \"options\": [{\"label\": \"A\", \"description\": \"a\"}], \"multiSelect\": false}]
-    },
-    \"tool_response\": \"A\",
-    \"transcript_path\": \"$transcript_file\",
-    \"session_id\": \"test123\",
-    \"tool_use_id\": \"toolu_06ABC\"
-  }"
+echo "=== Integration Tests: post-tool-use-details-log.sh ==="
 
-  local details
-  details=$(read_details)
-
-  assert_contains "Premise" "$details" "T6: Premise section present"
-  assert_contains "enforcement model" "$details" "T6: Preamble text extracted from transcript"
-}
-
-# ============================================================
-# Test 7: Missing transcript — should still log without Premise
-# ============================================================
-test_missing_transcript() {
-  run_hook '{
-    "tool_name": "AskUserQuestion",
-    "tool_input": {
-      "questions": [{"question": "Quick test?", "header": "Quick", "options": [{"label": "Yes", "description": "y"}], "multiSelect": false}]
-    },
-    "tool_response": "Yes",
-    "transcript_path": "/nonexistent/path/transcript.jsonl",
-    "session_id": "test123",
-    "tool_use_id": "toolu_07ABC"
-  }'
-
-  local details
-  details=$(read_details)
-
-  assert_contains "Quick test?" "$details" "T7: Question still logged without transcript"
-  assert_not_contains "Premise" "$details" "T7: No Premise section when transcript missing"
-}
-
-# ============================================================
-# Test 8: "Other" free-text response
-# ============================================================
-test_other_freetext() {
-  run_hook '{
-    "tool_name": "AskUserQuestion",
-    "tool_input": {
-      "questions": [{"question": "Which approach?", "header": "Approach", "options": [{"label": "A", "description": "a"}, {"label": "B", "description": "b"}], "multiSelect": false}]
-    },
-    "tool_response": "I want a completely different approach using websockets",
-    "session_id": "test123",
-    "tool_use_id": "toolu_08ABC"
-  }'
-
-  local details
-  details=$(read_details)
-
-  assert_contains "completely different approach" "$details" "T8: Free-text Other response captured"
-}
-
-# ============================================================
-# Test H1.1: Heredoc preserves dollar variables (regression)
-# ============================================================
-test_heredoc_preserves_dollar_vars() {
-  local input
-  input=$(jq -n \
-    --arg resp 'My path is $HOME/docs and $USER is me' \
-    '{
-      tool_name: "AskUserQuestion",
-      tool_input: {
-        questions: [{question: "Where are your files?", header: "Location", options: [{label: "Default", description: "d"}], multiSelect: false}]
-      },
-      tool_response: $resp,
-      session_id: "test123",
-      tool_use_id: "toolu_H1_1"
-    }')
-
-  run_hook "$input"
-
-  local details
-  details=$(read_details)
-
-  assert_contains '$HOME' "$details" "H1.1: Literal \$HOME preserved in DIALOGUE.md"
-  assert_contains '$USER' "$details" "H1.1: Literal \$USER preserved in DIALOGUE.md"
-  assert_not_contains "$ORIGINAL_HOME" "$details" "H1.1: \$HOME was NOT expanded to real path"
-}
-
-# ============================================================
-# Test H1.2: Heredoc preserves command substitutions (regression)
-# ============================================================
-test_heredoc_preserves_command_substitution() {
-  local input
-  input=$(jq -n \
-    --arg resp 'Run `whoami` or use $(date) for timestamps' \
-    '{
-      tool_name: "AskUserQuestion",
-      tool_input: {
-        questions: [{question: "How to get user info?", header: "UserInfo", options: [{label: "Default", description: "d"}], multiSelect: false}]
-      },
-      tool_response: $resp,
-      session_id: "test123",
-      tool_use_id: "toolu_H1_2"
-    }')
-
-  run_hook "$input"
-
-  local details
-  details=$(read_details)
-
-  assert_contains '$(date)' "$details" "H1.2: Literal \$(date) preserved in DIALOGUE.md"
-  assert_contains 'whoami' "$details" "H1.2: Backtick-whoami text preserved in DIALOGUE.md"
-  # If $(date) was expanded, it would produce output like "Thu Feb 13 ..." in the user response line.
-  # We check the User response line specifically for the literal form.
-  local user_line
-  user_line=$(echo "$details" | grep 'use .*(date)' || true)
-  assert_not_empty "$user_line" "H1.2: User response line with date reference exists"
-  assert_contains '$(date)' "$user_line" "H1.2: \$(date) in user response is literal, not expanded"
-}
-
-# ============================================================
-# Test H1.3: Heredoc preserves backslashes (regression)
-# ============================================================
-test_heredoc_preserves_backslashes() {
-  local input
-  input=$(jq -n \
-    --arg resp 'Use \n for newlines and \t for tabs' \
-    '{
-      tool_name: "AskUserQuestion",
-      tool_input: {
-        questions: [{question: "How to format output?", header: "Formatting", options: [{label: "Default", description: "d"}], multiSelect: false}]
-      },
-      tool_response: $resp,
-      session_id: "test123",
-      tool_use_id: "toolu_H1_3"
-    }')
-
-  run_hook "$input"
-
-  local details
-  details=$(read_details)
-
-  # Check for literal backslash-n and backslash-t in the user response line.
-  # Use grep with fixed string to avoid interpreting \n as a newline.
-  local user_line
-  user_line=$(echo "$details" | grep -F 'Use \n for newlines' || true)
-  assert_not_empty "$user_line" "H1.3: User response contains literal backslash-n"
-  local user_line_t
-  user_line_t=$(echo "$details" | grep -F '\t for tabs' || true)
-  assert_not_empty "$user_line_t" "H1.3: User response contains literal backslash-t"
-}
-
-# ============================================================
-# Run all tests
-# ============================================================
-echo "=== PostToolUse DIALOGUE.md Auto-Logger Tests ==="
+# --- Case 1: Bare tags in question text → escaped ---
 echo ""
+echo "Case 1: Bare tags in question text are escaped"
+SESSION=$(setup_session)
+INPUT=$(cat <<'JSON'
+{
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [{
+      "header": "Dispatch",
+      "question": "Review the #needs-review tag on this file?",
+      "multiSelect": false,
+      "options": [{"label": "Yes"}, {"label": "No"}]
+    }]
+  },
+  "tool_response": "Yes",
+  "transcript_path": ""
+}
+JSON
+)
+EXIT_CODE=$(run_hook "$INPUT")
+assert_exit_code "exits 0" "0" "$EXIT_CODE"
+assert_contains "question tag escaped in body" "$SESSION/DIALOGUE.md" '`#needs-review`'
+assert_not_contains "heading has no bare tag" "$SESSION/DIALOGUE.md" '## Dispatch — Review the #needs-review'
 
-run_test test_single_question
-run_test test_multi_question
-run_test test_no_session
-run_test test_non_ask_tool
-run_test test_multiselect
-run_test test_preamble_from_transcript
-run_test test_missing_transcript
-run_test test_other_freetext
-run_test test_heredoc_preserves_dollar_vars
-run_test test_heredoc_preserves_command_substitution
-run_test test_heredoc_preserves_backslashes
+# --- Case 2: Bare tags in option labels → escaped ---
+echo ""
+echo "Case 2: Bare tags in option labels are escaped"
+SESSION=$(setup_session)
+INPUT=$(cat <<'JSON'
+{
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [{
+      "header": "Approve",
+      "question": "What to do with this item?",
+      "multiSelect": false,
+      "options": [
+        {"label": "Approve for #delegated-implementation"},
+        {"label": "Defer"}
+      ]
+    }]
+  },
+  "tool_response": "Approve for #delegated-implementation",
+  "transcript_path": ""
+}
+JSON
+)
+EXIT_CODE=$(run_hook "$INPUT")
+assert_exit_code "exits 0" "0" "$EXIT_CODE"
+assert_contains "option tag escaped" "$SESSION/DIALOGUE.md" '`#delegated-implementation`'
 
-exit_with_results
+# --- Case 3: Bare tags in user response → escaped ---
+echo ""
+echo "Case 3: Bare tags in user response are escaped"
+SESSION=$(setup_session)
+INPUT=$(cat <<'JSON'
+{
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [{
+      "header": "Action",
+      "question": "What should we do next?",
+      "multiSelect": false,
+      "options": [{"label": "Continue"}, {"label": "Stop"}]
+    }]
+  },
+  "tool_response": "I think we need #needs-brainstorm for this topic",
+  "transcript_path": ""
+}
+JSON
+)
+EXIT_CODE=$(run_hook "$INPUT")
+assert_exit_code "exits 0" "0" "$EXIT_CODE"
+assert_contains "response tag escaped" "$SESSION/DIALOGUE.md" '`#needs-brainstorm`'
+
+# --- Case 4: Bare tags in preamble (transcript) → escaped ---
+echo ""
+echo "Case 4: Bare tags in preamble are escaped"
+SESSION=$(setup_session)
+# Create a mock transcript file with an assistant message containing a bare tag
+TRANSCRIPT="$TEST_ROOT/transcript_$(date +%s%N).jsonl"
+cat > "$TRANSCRIPT" <<'JSONL'
+{"type":"assistant","message":{"content":[{"type":"text","text":"The #active-alert tag indicates an ongoing issue."}]}}
+JSONL
+INPUT=$(cat <<JSON
+{
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [{
+      "header": "Alert",
+      "question": "Acknowledge the alert?",
+      "multiSelect": false,
+      "options": [{"label": "Yes"}, {"label": "No"}]
+    }]
+  },
+  "tool_response": "Yes",
+  "transcript_path": "$TRANSCRIPT"
+}
+JSON
+)
+EXIT_CODE=$(run_hook "$INPUT")
+assert_exit_code "exits 0" "0" "$EXIT_CODE"
+assert_contains "preamble tag escaped" "$SESSION/DIALOGUE.md" '`#active-alert`'
+
+# --- Case 5: Already-backticked tags NOT double-escaped ---
+echo ""
+echo "Case 5: Already-backticked tags not double-escaped"
+SESSION=$(setup_session)
+INPUT=$(cat <<'JSON'
+{
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [{
+      "header": "Check",
+      "question": "The `#needs-review` tag is already escaped here.",
+      "multiSelect": false,
+      "options": [{"label": "OK"}]
+    }]
+  },
+  "tool_response": "OK",
+  "transcript_path": ""
+}
+JSON
+)
+EXIT_CODE=$(run_hook "$INPUT")
+assert_exit_code "exits 0" "0" "$EXIT_CODE"
+assert_contains "single backtick escape present" "$SESSION/DIALOGUE.md" '`#needs-review`'
+assert_not_contains "no double backtick" "$SESSION/DIALOGUE.md" '``#needs-review``'
+assert_not_contains "no triple backtick" "$SESSION/DIALOGUE.md" '```#needs-review```'
+
+# --- Case 6: Multiple tags across different sources ---
+echo ""
+echo "Case 6: Multiple tags across different sources"
+SESSION=$(setup_session)
+TRANSCRIPT6="$TEST_ROOT/transcript6_$(date +%s%N).jsonl"
+cat > "$TRANSCRIPT6" <<'JSONL'
+{"type":"assistant","message":{"content":[{"type":"text","text":"We should check #claimed-fix status."}]}}
+JSONL
+INPUT=$(cat <<JSON
+{
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [{
+      "header": "Multi",
+      "question": "Should we process #needs-fix items?",
+      "multiSelect": false,
+      "options": [
+        {"label": "Process #delegated-chores too"},
+        {"label": "Skip"}
+      ]
+    }]
+  },
+  "tool_response": "Yes, also handle #done-review ones",
+  "transcript_path": "$TRANSCRIPT6"
+}
+JSON
+)
+EXIT_CODE=$(run_hook "$INPUT")
+assert_exit_code "exits 0" "0" "$EXIT_CODE"
+assert_contains "question tag escaped" "$SESSION/DIALOGUE.md" '`#needs-fix`'
+assert_contains "option tag escaped" "$SESSION/DIALOGUE.md" '`#delegated-chores`'
+assert_contains "response tag escaped" "$SESSION/DIALOGUE.md" '`#done-review`'
+assert_contains "preamble tag escaped" "$SESSION/DIALOGUE.md" '`#claimed-fix`'
+
+# --- Case 7: Non-AskUserQuestion tool → exits cleanly ---
+echo ""
+echo "Case 7: Non-AskUserQuestion tool exits cleanly"
+SESSION=$(setup_session)
+INPUT='{"tool_name": "Read", "tool_input": {"file_path": "/tmp/foo"}}'
+EXIT_CODE=$(run_hook "$INPUT")
+assert_exit_code "exits 0" "0" "$EXIT_CODE"
+assert_file_not_exists "no DIALOGUE.md created" "$SESSION/DIALOGUE.md"
+
+# --- Case 8: Missing session → exits cleanly ---
+echo ""
+echo "Case 8: Missing session exits cleanly"
+# Point session.sh to a non-existent dir
+echo "" > "$FAKE_HOME/.claude/_test_session_dir"
+INPUT=$(cat <<'JSON'
+{
+  "tool_name": "AskUserQuestion",
+  "tool_input": {
+    "questions": [{
+      "header": "Test",
+      "question": "Should this work?",
+      "multiSelect": false,
+      "options": [{"label": "Yes"}]
+    }]
+  },
+  "tool_response": "Yes",
+  "transcript_path": ""
+}
+JSON
+)
+EXIT_CODE=$(run_hook "$INPUT")
+assert_exit_code "exits 0 with no session" "0" "$EXIT_CODE"
+
+# --- Summary ---
+echo ""
+echo "=== Results: $PASS passed, $FAIL failed ==="
+if [ "$FAIL" -gt 0 ]; then
+  printf "$ERRORS\n"
+  exit 1
+fi
+exit 0

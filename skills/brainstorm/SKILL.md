@@ -86,45 +86,13 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
 
 §CMD_EXECUTE_PHASE_STEPS(1.*)
 
-### Dialogue Depth Selection
+### Socratic Response Style
 
-**Before asking any questions**, present this choice via `AskUserQuestion` (multiSelect: false):
-
-> "How deep should the brainstorming dialogue go?"
-
-| Depth | Minimum Rounds | When to Use |
-|-------|---------------|-------------|
-| **Short** | 3+ | Narrow topic, clear constraints, quick exploration |
-| **Medium** | 6+ | Moderate complexity, several trade-offs to explore |
-| **Long** | 9+ | Complex architecture, many stakeholders, deep design space |
-| **Absolute** | Until ALL questions resolved | Novel domain, critical decision, zero ambiguity tolerance |
-
-Record the user's choice. This sets the **minimum** -- the agent can always ask more, and the user can always say "converge" after the minimum is met.
-
-### Dialogue Protocol (Rounds)
-
-**Round counter**: Output it on every round: "**Round N / {depth_minimum}+**"
-
-**Topic selection**: Pick from the topic menu below each round. Do NOT follow a fixed sequence -- choose the most relevant uncovered topic based on what you've learned so far.
-
-**Each round follows the Socratic pattern**:
-
-#### Step A: Listen & Analyze
-*   **Input**: Read the user's latest message.
-*   **Check**: Did they answer a question? Did they pose a new constraint?
-*   **Action**: Execute `§CMD_LOG_INTERACTION` immediately to capture this interaction.
-
-#### Step B: Log Internal Thoughts
-*   **Action**: Execute `§CMD_APPEND_LOG` to `BRAINSTORM_LOG.md`.
-*   **Scope**: Log *internal* decisions, alternatives, and risks.
-
-#### Step C: The Socratic Response
-*   **Action**: Reply to the user with questions on the next topic.
-*   **Style**:
-    1.  **Validate**: "I see why you want X..."
-    2.  **Challenge**: "...but have you considered the latency cost?"
-    3.  **Propose**: "What if we did Z instead?"
-    4.  **Explore**: "How would that handle edge case Q?"
+**Each round follows this pattern**:
+1.  **Validate**: "I see why you want X..."
+2.  **Challenge**: "...but have you considered the latency cost?"
+3.  **Propose**: "What if we did Z instead?"
+4.  **Explore**: "How would that handle edge case Q?"
 
 ### Dialogue Topics (Brainstorm)
 *Examples of themes to explore. Adapt to the task -- skip irrelevant ones, invent new ones as needed.*
@@ -147,20 +115,6 @@ Record the user's choice. This sets the **minimum** -- the agent can always ask 
 - **What-if scenarios** -- Explore hypotheticals, edge cases, and alternative futures
 - **Deep dive** -- Drill into a specific topic from a previous round in much more detail
 
-### Dialogue Exit Gate
-
-**After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
-
-> "Round N complete (minimum met). What next?"
-> - **"Proceed to Synthesis"** -- *(terminal: if selected, skip all others and move on)*
-> - **"More dialogue (3 more rounds)"** -- Standard topic rounds, then this gate re-appears
-> - **"Devil's advocate round"** -- 1 round challenging assumptions, then this gate re-appears
-> - **"What-if scenarios round"** -- 1 round exploring hypotheticals, then this gate re-appears
-> - **"Deep dive round"** -- 1 round drilling into a prior topic, then this gate re-appears
-
-**Execution order** (when multiple selected): Standard rounds first -> Devil's advocate -> What-ifs -> Deep dive -> re-present exit gate.
-
-**For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Ask: "Round N complete. I still have questions about [X]. Continuing..."
 
 ---
 

@@ -731,6 +731,141 @@ test_skips_already_preloaded_files() {
 }
 
 # =============================================================================
+# SIBLING DIRECTORY DEDUP TESTS (double preload bug)
+# =============================================================================
+
+test_sibling_dirs_no_duplicate_pendingPreloads() {
+  local test_name="sibling dedup: two sibling leaf dirs don't duplicate ancestor directives in pendingPreloads"
+  setup
+
+  mkdir -p "$PROJECT_DIR/pkg/.directives"
+  mkdir -p "$PROJECT_DIR/pkg/src/workflows/process-estimate"
+  mkdir -p "$PROJECT_DIR/pkg/src/workflows/annotate-estimate"
+  echo "# Pkg AGENTS" > "$PROJECT_DIR/pkg/.directives/AGENTS.md"
+  echo "# Pkg INVARIANTS" > "$PROJECT_DIR/pkg/.directives/INVARIANTS.md"
+
+  rm -rf "$PROJECT_DIR/.directives"
+
+  # Touch leaf A
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/pkg/src/workflows/process-estimate/foo.ts\"},\"transcript_path\":\"/tmp/test\"}"
+  # Touch leaf B (sibling)
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/pkg/src/workflows/annotate-estimate/bar.ts\"},\"transcript_path\":\"/tmp/test\"}"
+
+  local state
+  state=$(read_state)
+
+  local agents_count
+  agents_count=$(echo "$state" | jq \
+    '[(.pendingPreloads // [])[] | select(endswith("pkg/.directives/AGENTS.md"))] | length')
+
+  assert_eq "1" "$agents_count" "$test_name"
+
+  teardown
+}
+
+test_activation_seeded_dirs_prevent_runtime_requeue() {
+  # THE ACTUAL BUG: session activation seeds touchedDirs with basenames ("AGENTS.md"),
+  # but _run_discovery stores full normalized paths ("/abs/path/.directives/AGENTS.md").
+  # The already_suggested check compares full paths against basenames → no match → re-queued.
+  local test_name="activation dedup: activation-seeded touchedDirs prevents runtime re-discovery"
+  setup
+
+  mkdir -p "$PROJECT_DIR/pkg/.directives"
+  mkdir -p "$PROJECT_DIR/pkg/src/a"
+  echo "# Pkg AGENTS" > "$PROJECT_DIR/pkg/.directives/AGENTS.md"
+
+  rm -rf "$PROJECT_DIR/.directives"
+
+  # Simulate what session.sh activate does: seed touchedDirs with BASENAMES
+  # (session.sh line 854: .touchedDirs[$dir] = ["AGENTS.md"] — basenames, not full paths)
+  local directives_dir="$PROJECT_DIR/pkg/.directives"
+  jq --arg dir "$directives_dir" \
+    '(.touchedDirs //= {}) | .touchedDirs[$dir] = ["AGENTS.md"]' \
+    "$SESSION_DIR/.state.json" | tee "$SESSION_DIR/.state.json.tmp" > /dev/null \
+    && mv "$SESSION_DIR/.state.json.tmp" "$SESSION_DIR/.state.json"
+
+  # Now touch a file under pkg/ — _run_discovery walks up, finds same AGENTS.md
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/pkg/src/a/foo.ts\"},\"transcript_path\":\"/tmp/test\"}"
+
+  local state
+  state=$(read_state)
+
+  # AGENTS.md should NOT be in pendingPreloads — it was already seeded by activation
+  local agents_count
+  agents_count=$(echo "$state" | jq \
+    '[(.pendingPreloads // [])[] | select(endswith("pkg/.directives/AGENTS.md"))] | length')
+
+  assert_eq "0" "$agents_count" "$test_name"
+
+  teardown
+}
+
+test_three_sibling_dirs_single_preload() {
+  local test_name="sibling dedup: three sibling leaf dirs — ancestor directive queued exactly once"
+  setup
+
+  mkdir -p "$PROJECT_DIR/pkg/.directives"
+  mkdir -p "$PROJECT_DIR/pkg/src/x"
+  mkdir -p "$PROJECT_DIR/pkg/src/y"
+  mkdir -p "$PROJECT_DIR/pkg/src/z"
+  echo "# Pkg AGENTS" > "$PROJECT_DIR/pkg/.directives/AGENTS.md"
+
+  rm -rf "$PROJECT_DIR/.directives"
+
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/pkg/src/x/foo.ts\"},\"transcript_path\":\"/tmp/test\"}"
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/pkg/src/y/bar.ts\"},\"transcript_path\":\"/tmp/test\"}"
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/pkg/src/z/baz.ts\"},\"transcript_path\":\"/tmp/test\"}"
+
+  local state
+  state=$(read_state)
+
+  local agents_count
+  agents_count=$(echo "$state" | jq \
+    '[(.pendingPreloads // [])[] | select(endswith("pkg/.directives/AGENTS.md"))] | length')
+
+  assert_eq "1" "$agents_count" "$test_name"
+
+  teardown
+}
+
+# =============================================================================
+# PARALLEL RACE CONDITION TESTS (atomic claim)
+# =============================================================================
+
+test_parallel_hooks_single_discovery() {
+  local test_name="parallel race: concurrent hooks on same dir — only one discovers"
+  setup
+
+  mkdir -p "$PROJECT_DIR/pkg/.directives"
+  mkdir -p "$PROJECT_DIR/pkg/src/a"
+  echo "# Pkg AGENTS" > "$PROJECT_DIR/pkg/.directives/AGENTS.md"
+
+  rm -rf "$PROJECT_DIR/.directives"
+
+  # Simulate parallel hooks: launch two hook invocations for the SAME directory concurrently.
+  # Both touch pkg/src/a/ — only one should claim the directory and discover AGENTS.md.
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/pkg/src/a/foo.ts\"},\"transcript_path\":\"/tmp/test\"}" &
+  local pid1=$!
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/pkg/src/a/bar.ts\"},\"transcript_path\":\"/tmp/test\"}" &
+  local pid2=$!
+
+  wait "$pid1" 2>/dev/null || true
+  wait "$pid2" 2>/dev/null || true
+
+  local state
+  state=$(read_state)
+
+  # AGENTS.md should appear exactly once in pendingPreloads (not twice)
+  local agents_count
+  agents_count=$(echo "$state" | jq \
+    '[(.pendingPreloads // [])[] | select(endswith("pkg/.directives/AGENTS.md"))] | length')
+
+  assert_eq "1" "$agents_count" "$test_name"
+
+  teardown
+}
+
+# =============================================================================
 # RUN ALL TESTS
 # =============================================================================
 
@@ -787,5 +922,13 @@ test_allows_when_no_session
 
 # Preloaded files dedup
 test_skips_already_preloaded_files
+
+# Sibling directory dedup (double preload bug)
+test_sibling_dirs_no_duplicate_pendingPreloads
+test_activation_seeded_dirs_prevent_runtime_requeue
+test_three_sibling_dirs_single_preload
+
+# Parallel race condition (atomic claim)
+test_parallel_hooks_single_discovery
 
 exit_with_results

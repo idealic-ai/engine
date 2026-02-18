@@ -6,7 +6,7 @@
 **Mindset**: "Make it work first." Speed over polish. Throwaway is fine.
 
 ## Interrogation Depth
-Short (3+ rounds).
+Short.
 
 ## Build Approach
 Code first, add key tests after. Skip edge case tests. Explore multiple approaches.

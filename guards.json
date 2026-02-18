@@ -118,6 +118,7 @@
       "Read(*/.claude/*)",
       "Read(*/TEMPLATE_*_LOG.md)",
       "Task",
+      "TaskOutput",
       "Write",
       "AskUserQuestion"
     ]
@@ -142,6 +143,7 @@
       "Read(*/.claude/*)",
       "Read(*/TEMPLATE_*_LOG.md)",
       "Task",
+      "TaskOutput",
       "Write",
       "AskUserQuestion"
     ]

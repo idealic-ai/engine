@@ -74,6 +74,16 @@
       "items": { "type": "string" },
       "description": "Paths to domain context documents that the Composer should read for deep understanding (architecture docs, specs, READMEs)"
     },
+    "buildCommand": {
+      "type": "string",
+      "description": "Optional shell command to rebuild dependencies before running. Executed once before each iteration's run phase (e.g., 'yarn workspace @finch/estimate build')"
+    },
+    "cacheStrategy": {
+      "type": "string",
+      "enum": ["force", "smart"],
+      "default": "smart",
+      "description": "Cache behavior for run phase. 'force' recomputes everything (passes --force to runCommand). 'smart' only recomputes affected chunks (default — lets the workload's own caching decide)"
+    },
     "maxIterations": {
       "type": "integer",
       "minimum": 1,

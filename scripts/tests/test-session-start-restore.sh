@@ -1,414 +1,442 @@
 #!/bin/bash
-# tests/test-session-start-restore.sh — Tests for session-start-restore.sh hook
+# Test: SessionStart hook rehydration system — Hardening
 #
-# Tests standards preloading on SessionStart (all sources):
-#   1. Standards files present → output contains all 3 standards
-#   2. One standards file missing → skips it, includes others
-#   3. All standards files missing → no standards in output (no crash)
-#   4. Non-startup sources → standards preloaded, no dehydration
-#   5. Standards output uses [Preloaded: path] format
-#   6. Standards come before dehydrated context
+# Tests three components:
+#   1. Dehydrate command (session.sh dehydrate) — D1-D5
+#   2. Hook script (session-start-restore.sh) — H1-H10
+#   3. Restart mode detection (session.sh restart) — R1-R3
 #
-# Run: bash ~/.claude/engine/scripts/tests/test-session-start-restore.sh
+# Per ¶INV_TEST_SANDBOX_ISOLATION: Uses temp sandbox, no real session writes.
 
-set -uo pipefail
-source "$(dirname "$0")/test-helpers.sh"
+set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-# session-start-restore.sh is project-local (not in engine/hooks/)
-HOOK_SCRIPT="$HOME/.claude/hooks/session-start-restore.sh"
+PASS=0
+FAIL=0
+ERRORS=""
 
-TMP_DIR=""
+# --- Setup sandbox ---
+SANDBOX=$(mktemp -d)
+trap 'rm -rf "$SANDBOX"' EXIT
 
-setup() {
-  TMP_DIR=$(mktemp -d)
-  setup_fake_home "$TMP_DIR"
-  mock_fleet_sh "$FAKE_HOME"
-  mock_search_tools "$FAKE_HOME"
-  disable_fleet_tmux
+# Prevent tmux keystroke injection during tests (session.sh dehydrate/restart)
+export TEST_MODE=1
 
-  # Symlink the hook and its dependencies
-  ln -sf "$HOOK_SCRIPT" "$FAKE_HOME/.claude/hooks/session-start-restore.sh"
-  ln -sf "$SCRIPT_DIR/scripts/lib.sh" "$FAKE_HOME/.claude/scripts/lib.sh"
-  ln -sf "$SCRIPT_DIR/scripts/session.sh" "$FAKE_HOME/.claude/scripts/session.sh"
+# Source lib.sh for shared utilities (safe_json_write, timestamp)
+source "$HOME/.claude/scripts/lib.sh"
 
-  # Create project dir with sessions/
-  export PROJECT_DIR="$TMP_DIR/project"
-  mkdir -p "$PROJECT_DIR/sessions"
+SESSION_SH="$HOME/.claude/scripts/session.sh"
+HOOK_SH="$HOME/.claude/hooks/session-start-restore.sh"
 
-  # Create standards files in fake home
-  mkdir -p "$FAKE_HOME/.claude/.directives"
-  echo "# COMMANDS content" > "$FAKE_HOME/.claude/.directives/COMMANDS.md"
-  echo "# INVARIANTS content" > "$FAKE_HOME/.claude/.directives/INVARIANTS.md"
-  echo "# TAGS content" > "$FAKE_HOME/.claude/.directives/SIGILS.md"
-
-  RESOLVED_HOOK="$FAKE_HOME/.claude/hooks/session-start-restore.sh"
+# --- Assert helpers ---
+assert_eq() {
+  local label="$1" expected="$2" actual="$3"
+  if [ "$expected" = "$actual" ]; then
+    PASS=$((PASS + 1))
+    echo "  PASS: $label"
+  else
+    FAIL=$((FAIL + 1))
+    ERRORS="${ERRORS}\n  FAIL: $label\n    expected: $expected\n    actual:   $actual"
+    echo "  FAIL: $label"
+    echo "    expected: $expected"
+    echo "    actual:   $actual"
+  fi
 }
 
-teardown() {
-  teardown_fake_home
-  rm -rf "$TMP_DIR"
+assert_contains() {
+  local label="$1" needle="$2" haystack="$3"
+  if grep -qF "$needle" <<< "$haystack"; then
+    PASS=$((PASS + 1))
+    echo "  PASS: $label"
+  else
+    FAIL=$((FAIL + 1))
+    ERRORS="${ERRORS}\n  FAIL: $label\n    expected to contain: $needle\n    actual: $(head -5 <<< "$haystack")"
+    echo "  FAIL: $label"
+    echo "    expected to contain: $needle"
+    echo "    actual: $(head -5 <<< "$haystack")"
+  fi
 }
 
-# Helper: run the hook with a given source
+assert_not_contains() {
+  local label="$1" needle="$2" haystack="$3"
+  if grep -qF "$needle" <<< "$haystack"; then
+    FAIL=$((FAIL + 1))
+    ERRORS="${ERRORS}\n  FAIL: $label\n    should NOT contain: $needle"
+    echo "  FAIL: $label"
+    echo "    should NOT contain: $needle"
+  else
+    PASS=$((PASS + 1))
+    echo "  PASS: $label"
+  fi
+}
+
+# --- Helper: create a minimal .state.json ---
+create_state() {
+  local dir="$1"
+  mkdir -p "$dir"
+  cat > "$dir/.state.json" <<'JSON'
+{
+  "pid": 99999,
+  "skill": "test",
+  "lifecycle": "active",
+  "loading": false,
+  "overflowed": false,
+  "killRequested": false,
+  "contextUsage": 0.5,
+  "currentPhase": "3: Testing Loop",
+  "startedAt": "2026-02-12T00:00:00Z",
+  "lastHeartbeat": "2026-02-12T00:00:00Z"
+}
+JSON
+}
+
+# --- Helper: clear ALL dehydratedContext from sandbox sessions ---
+# Prevents cross-test pollution (hook finds first match alphabetically)
+clear_all_dehydrated() {
+  for f in "$SANDBOX"/sessions/*/.state.json; do
+    [ -f "$f" ] || continue
+    local has_ctx
+    has_ctx=$(jq -r '.dehydratedContext // null | type' "$f" 2>/dev/null || echo "null")
+    if [ "$has_ctx" = "object" ]; then
+      jq 'del(.dehydratedContext)' "$f" | safe_json_write "$f"
+    fi
+  done
+}
+
+# --- Helper: deactivate ALL sessions in sandbox ---
+# Sets lifecycle=completed so they aren't found as "active"
+deactivate_all_sessions() {
+  for f in "$SANDBOX"/sessions/*/.state.json; do
+    [ -f "$f" ] || continue
+    jq '.lifecycle = "completed"' "$f" | safe_json_write "$f"
+  done
+}
+
+# --- Helper: run the hook with simulated stdin ---
 run_hook() {
-  local source="${1:-startup}"
-  local cwd="${2:-$PROJECT_DIR}"
-  echo "{\"hook_event_name\":\"SessionStart\",\"source\":\"$source\",\"cwd\":\"$cwd\"}" \
-    | "$RESOLVED_HOOK" 2>/dev/null
+  local source="$1" cwd="$2"
+  local input
+  input=$(jq -n --arg src "$source" --arg cwd "$cwd" '{hook_event_name:"SessionStart",source:$src,cwd:$cwd}')
+  echo "$input" | bash "$HOOK_SH" 2>/dev/null
 }
 
-# --- Test 1: Standards files present ---
-test_standards_all_present() {
-  local output
-  output=$(run_hook "startup") || true
-
-  assert_contains "COMMANDS content" "$output" "output contains COMMANDS.md content"
-  assert_contains "INVARIANTS content" "$output" "output contains INVARIANTS.md content"
-  assert_contains "TAGS content" "$output" "output contains SIGILS.md content"
-}
-
-# --- Test 2: One standards file missing ---
-test_standards_one_missing() {
-  rm -f "$FAKE_HOME/.claude/.directives/SIGILS.md"
-
-  local output
-  output=$(run_hook "startup") || true
-
-  assert_contains "COMMANDS content" "$output" "output contains COMMANDS.md when TAGS missing"
-  assert_contains "INVARIANTS content" "$output" "output contains INVARIANTS.md when TAGS missing"
-  assert_not_contains "TAGS content" "$output" "output skips missing SIGILS.md"
-}
-
-# --- Test 3: All standards files missing ---
-test_standards_all_missing() {
-  rm -f "$FAKE_HOME/.claude/.directives/COMMANDS.md"
-  rm -f "$FAKE_HOME/.claude/.directives/INVARIANTS.md"
-  rm -f "$FAKE_HOME/.claude/.directives/SIGILS.md"
-
-  local output
-  output=$(run_hook "startup") || true
-
-  assert_not_contains "COMMANDS" "$output" "no COMMANDS when file missing"
-  assert_not_contains "INVARIANTS" "$output" "no INVARIANTS when file missing"
-  assert_not_contains "TAGS" "$output" "no TAGS when file missing"
-}
-
-# --- Test 4: Non-startup sources → standards preloaded, no dehydration ---
-test_non_startup_preloads_standards() {
-  local output
-
-  output=$(run_hook "resume") || true
-  assert_contains "COMMANDS content" "$output" "resume source → standards preloaded"
-  assert_not_contains "Session Recovery" "$output" "resume source → no dehydrated context"
-
-  output=$(run_hook "compact") || true
-  assert_contains "COMMANDS content" "$output" "compact source → standards preloaded"
-  assert_not_contains "Session Recovery" "$output" "compact source → no dehydrated context"
-
-  output=$(run_hook "clear") || true
-  assert_contains "COMMANDS content" "$output" "clear source → standards preloaded"
-  assert_not_contains "Session Recovery" "$output" "clear source → no dehydrated context"
-}
-
-# --- Test 5: Standards output uses [Preloaded: path] format ---
-test_standards_preloaded_format() {
-  local output
-  output=$(run_hook "startup") || true
-
-  assert_contains "[Preloaded:" "$output" "output uses [Preloaded:] format marker"
-  assert_contains "COMMANDS.md]" "$output" "preloaded marker includes COMMANDS.md filename"
-  assert_contains "INVARIANTS.md]" "$output" "preloaded marker includes INVARIANTS.md filename"
-  assert_contains "SIGILS.md]" "$output" "preloaded marker includes SIGILS.md filename"
-}
-
-# --- Test 6: Standards come before dehydrated context ---
-test_standards_before_dehydrated() {
-  # Create a session with dehydrated context
-  local session_dir="$PROJECT_DIR/sessions/test_session"
-  mkdir -p "$session_dir"
-  cat > "$session_dir/.state.json" <<JSON
-{
-  "pid": $$,
-  "skill": "test",
-  "lifecycle": "active",
-  "dehydratedContext": {
-    "summary": "Test dehydrated context",
-    "lastAction": "testing",
-    "nextSteps": ["verify"],
-    "handoverInstructions": "none"
-  }
-}
-JSON
-
-  local output
-  output=$(run_hook "startup") || true
-
-  # Both standards and dehydrated context should be present
-  assert_contains "COMMANDS content" "$output" "standards present alongside dehydrated context"
-  assert_contains "Test dehydrated context" "$output" "dehydrated context still present"
-
-  # Standards should appear before dehydrated context
-  local standards_pos dehydrated_pos
-  standards_pos=$(echo "$output" | grep -n "Preloaded:" | head -1 | cut -d: -f1)
-  dehydrated_pos=$(echo "$output" | grep -n "Session Recovery" | head -1 | cut -d: -f1)
-
-  if [ -n "$standards_pos" ] && [ -n "$dehydrated_pos" ] && [ "$standards_pos" -lt "$dehydrated_pos" ]; then
-    pass "standards appear before dehydrated context"
-  else
-    fail "standards appear before dehydrated context" "standards_line < dehydrated_line" "standards=$standards_pos, dehydrated=$dehydrated_pos"
-  fi
-}
-
-# --- Test 7: Preloaded files recorded in .state.json ---
-test_preloaded_files_recorded() {
-  # Create an active session with a .state.json that has preloadedFiles
-  local session_dir="$PROJECT_DIR/sessions/test_preloaded"
-  mkdir -p "$session_dir"
-  cat > "$session_dir/.state.json" <<JSON
-{
-  "pid": $$,
-  "skill": "test",
-  "lifecycle": "active",
-  "preloadedFiles": ["old_file.md"]
-}
-JSON
-
-  # Create CMD_DEHYDRATE.md, CMD_RESUME_SESSION.md, and CMD_PARSE_PARAMETERS.md so all 6 paths exist
-  mkdir -p "$FAKE_HOME/.claude/.directives/commands"
-  echo "# CMD_DEHYDRATE" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
-  echo "# CMD_RESUME_SESSION" > "$FAKE_HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md"
-  echo "# CMD_PARSE_PARAMETERS" > "$FAKE_HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"
-
-  run_hook "startup" > /dev/null || true
-
-  # After hook, .state.json should have preloadedFiles with the 6 standard+command paths
-  local count
-  count=$(jq '.preloadedFiles | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
-  assert_eq "6" "$count" "preloadedFiles has 6 entries after startup"
-
-  # Check specific paths are present
-  local has_commands has_invariants has_tags has_dehydrate has_rehydrate has_parse_params
-  has_commands=$(jq '[.preloadedFiles[] | select(contains("COMMANDS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
-  has_invariants=$(jq '[.preloadedFiles[] | select(contains("INVARIANTS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
-  has_tags=$(jq '[.preloadedFiles[] | select(contains("SIGILS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
-  has_dehydrate=$(jq '[.preloadedFiles[] | select(contains("CMD_DEHYDRATE.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
-  has_rehydrate=$(jq '[.preloadedFiles[] | select(contains("CMD_RESUME_SESSION.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
-  has_parse_params=$(jq '[.preloadedFiles[] | select(contains("CMD_PARSE_PARAMETERS.md"))] | length' "$session_dir/.state.json" 2>/dev/null || echo "0")
-
-  assert_eq "1" "$has_commands" "preloadedFiles includes COMMANDS.md"
-  assert_eq "1" "$has_invariants" "preloadedFiles includes INVARIANTS.md"
-  assert_eq "1" "$has_tags" "preloadedFiles includes SIGILS.md"
-  assert_eq "1" "$has_dehydrate" "preloadedFiles includes CMD_DEHYDRATE.md"
-  assert_eq "1" "$has_rehydrate" "preloadedFiles includes CMD_RESUME_SESSION.md"
-  assert_eq "1" "$has_parse_params" "preloadedFiles includes CMD_PARSE_PARAMETERS.md"
-}
-
-# --- Test 8: Dehydrate command files preloaded in output ---
-test_dehydrate_command_files_preloaded() {
-  # Create command files (new location after refactor)
-  mkdir -p "$FAKE_HOME/.claude/.directives/commands"
-  echo "# CMD_DEHYDRATE content" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
-  echo "# CMD_RESUME_SESSION content" > "$FAKE_HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md"
-  echo "# CMD_PARSE_PARAMETERS content" > "$FAKE_HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"
-
-  local output
-  output=$(run_hook "startup") || true
-
-  assert_contains "CMD_DEHYDRATE content" "$output" "output contains CMD_DEHYDRATE.md content"
-  assert_contains "CMD_RESUME_SESSION content" "$output" "output contains CMD_RESUME_SESSION.md content"
-  assert_contains "CMD_PARSE_PARAMETERS content" "$output" "output contains CMD_PARSE_PARAMETERS.md content"
-  assert_contains "[Preloaded:" "$output" "command files use [Preloaded:] format"
-  assert_contains "CMD_DEHYDRATE.md]" "$output" "preloaded marker includes CMD_DEHYDRATE.md"
-  assert_contains "CMD_RESUME_SESSION.md]" "$output" "preloaded marker includes CMD_RESUME_SESSION.md"
-  assert_contains "CMD_PARSE_PARAMETERS.md]" "$output" "preloaded marker includes CMD_PARSE_PARAMETERS.md"
-}
-
-# --- Test 9: One dehydrate command file missing, other still preloaded ---
-test_dehydrate_command_one_missing() {
-  # Only create one of the two command files
-  mkdir -p "$FAKE_HOME/.claude/.directives/commands"
-  echo "# CMD_DEHYDRATE only" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
-  # Do NOT create CMD_RESUME_SESSION.md
-
-  local output
-  output=$(run_hook "startup") || true
-
-  assert_contains "CMD_DEHYDRATE only" "$output" "output contains CMD_DEHYDRATE.md when CMD_RESUME_SESSION missing"
-  assert_not_contains "CMD_RESUME_SESSION" "$output" "output skips missing CMD_RESUME_SESSION.md file"
-
-  # Standards should still be present
-  assert_contains "COMMANDS content" "$output" "standards still present when command file missing"
-}
-
-# --- Test 10: Active session → skill deps delivered on clear ---
-test_active_session_delivers_skill_deps_on_clear() {
-  # Create an active session with a known skill
-  local session_dir="$PROJECT_DIR/sessions/test_skill_deps"
-  mkdir -p "$session_dir"
-  cat > "$session_dir/.state.json" <<JSON
-{
-  "pid": $$,
-  "skill": "implement",
-  "lifecycle": "active",
-  "currentPhase": "0: Setup",
-  "preloadedFiles": []
-}
-JSON
-
-  # Create a minimal SKILL.md with Phase 0 CMDs + templates
-  local skill_dir="$FAKE_HOME/.claude/skills/implement"
-  local assets_dir="$skill_dir/assets"
-  mkdir -p "$assets_dir"
-  mkdir -p "$FAKE_HOME/.claude/.directives/commands"
-
-  echo "# CMD_DEHYDRATE" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
-  echo "# CMD_RESUME_SESSION" > "$FAKE_HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md"
-  echo "# CMD_PARSE_PARAMETERS" > "$FAKE_HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"
-
-  # Phase 0 CMD files (engine path — where resolve_phase_cmds looks)
-  mkdir -p "$FAKE_HOME/.claude/engine/.directives/commands"
-  echo "# CMD_SELECT_MODE content" > "$FAKE_HOME/.claude/engine/.directives/commands/CMD_SELECT_MODE.md"
-  echo "# CMD_REPORT_INTENT content" > "$FAKE_HOME/.claude/engine/.directives/commands/CMD_REPORT_INTENT.md"
-
-  # Template files
-  echo "# Log template for implement" > "$assets_dir/TEMPLATE_IMPLEMENTATION_LOG.md"
-  echo "# Debrief template for implement" > "$assets_dir/TEMPLATE_IMPLEMENTATION.md"
-
-  # SKILL.md with JSON block referencing Phase 0 CMDs + templates
-  cat > "$skill_dir/SKILL.md" <<'SKILLEOF'
----
-description: "Test implement skill"
----
-
-# implement
-
-```json
-{
-  "taskType": "IMPLEMENTATION",
-  "logTemplate": "assets/TEMPLATE_IMPLEMENTATION_LOG.md",
-  "debriefTemplate": "assets/TEMPLATE_IMPLEMENTATION.md",
-  "phases": [
-    {"major": 0, "minor": 0, "name": "Setup", "steps": ["§CMD_SELECT_MODE", "§CMD_REPORT_INTENT"]},
-    {"major": 3, "minor": 0, "name": "Build Loop"}
-  ]
-}
-```
-SKILLEOF
-
-  local output
-  output=$(run_hook "clear") || true
-
-  # SKILL.md content should be in output
-  assert_contains "Test implement skill" "$output" "clear source with active session → SKILL.md delivered"
-
-  # Phase 0 CMD files should be in output
-  assert_contains "CMD_SELECT_MODE content" "$output" "clear source with active session → Phase 0 CMD delivered"
-  assert_contains "CMD_REPORT_INTENT content" "$output" "clear source with active session → Phase 0 CMD delivered"
-
-  # Template files should be in output
-  assert_contains "TEMPLATE_IMPLEMENTATION_LOG.md" "$output" "clear source with active session → log template path in output"
-  assert_contains "TEMPLATE_IMPLEMENTATION.md" "$output" "clear source with active session → debrief template path in output"
-
-  # Boot standards should still be present
-  assert_contains "COMMANDS content" "$output" "standards still present alongside skill deps"
-}
-
-# --- Test 11: No active session → no skill deps on clear ---
-test_no_active_session_no_skill_deps_on_clear() {
-  # No active session — just standards
-  local output
-  output=$(run_hook "clear") || true
-
-  assert_contains "COMMANDS content" "$output" "standards present without active session"
-  assert_not_contains "SKILL.md" "$output" "no SKILL.md without active session"
-}
-
-# --- Test 12: Active session skill deps tracked in seed preloadedFiles ---
-test_skill_deps_tracked_in_seed() {
-  # Create an active session with a known skill
-  local session_dir="$PROJECT_DIR/sessions/test_seed_tracking"
-  mkdir -p "$session_dir"
-  cat > "$session_dir/.state.json" <<JSON
-{
-  "pid": $$,
-  "skill": "brainstorm",
-  "lifecycle": "active",
-  "currentPhase": "1: Interrogation",
-  "preloadedFiles": []
-}
-JSON
-
-  # Create a minimal SKILL.md
-  local skill_dir="$FAKE_HOME/.claude/skills/brainstorm"
-  local assets_dir="$skill_dir/assets"
-  mkdir -p "$assets_dir"
-  mkdir -p "$FAKE_HOME/.claude/.directives/commands"
-  echo "# CMD_DEHYDRATE" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
-  echo "# CMD_RESUME_SESSION" > "$FAKE_HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md"
-  echo "# CMD_PARSE_PARAMETERS" > "$FAKE_HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"
-
-  echo "# Log template for brainstorm" > "$assets_dir/TEMPLATE_BRAINSTORM_LOG.md"
-  cat > "$skill_dir/SKILL.md" <<'SKILLEOF'
----
-description: "Test brainstorm skill"
----
-
-# brainstorm
-
-```json
-{
-  "taskType": "BRAINSTORM",
-  "logTemplate": "assets/TEMPLATE_BRAINSTORM_LOG.md",
-  "phases": [
-    {"major": 0, "minor": 0, "name": "Setup"},
-    {"major": 1, "minor": 0, "name": "Interrogation"}
-  ]
-}
-```
-SKILLEOF
-
-  run_hook "clear" > /dev/null || true
-
-  # Seed file should exist and track skill deps
-  local seed_file="$PROJECT_DIR/sessions/.seeds/$$.json"
-  if [ ! -f "$seed_file" ]; then
-    fail "seed file exists after clear with active session" "file at $seed_file" "file not found"
-    return
-  fi
-
-  local seed_count
-  seed_count=$(jq '.preloadedFiles | length' "$seed_file" 2>/dev/null || echo "0")
-
-  # Should have 6 boot seeds + SKILL.md + at least 1 template = 8+
-  if [ "$seed_count" -gt 6 ]; then
-    pass "seed preloadedFiles includes skill deps (count=$seed_count > 6 boot seeds)"
-  else
-    fail "seed preloadedFiles includes skill deps" ">6 entries" "count=$seed_count"
-  fi
-
-  # SKILL.md path should be in seed
-  local has_skill_md
-  has_skill_md=$(jq '[.preloadedFiles[] | select(contains("SKILL.md"))] | length' "$seed_file" 2>/dev/null || echo "0")
-  assert_eq "1" "$has_skill_md" "seed preloadedFiles includes SKILL.md"
-}
-
-echo "======================================"
-echo "Session Start Restore Hook Tests"
-echo "======================================"
+# ============================================================
+# TEST GROUP 1: Dehydrate Command (session.sh dehydrate) — D1-D5
+# ============================================================
 echo ""
+echo "=== Test Group 1: Dehydrate Command ==="
 
-run_test test_standards_all_present
-run_test test_standards_one_missing
-run_test test_standards_all_missing
-run_test test_non_startup_preloads_standards
-run_test test_standards_preloaded_format
-run_test test_standards_before_dehydrated
-run_test test_preloaded_files_recorded
-run_test test_dehydrate_command_files_preloaded
-run_test test_dehydrate_command_one_missing
-run_test test_active_session_delivers_skill_deps_on_clear
-run_test test_no_active_session_no_skill_deps_on_clear
-run_test test_skill_deps_tracked_in_seed
+# D1: Should merge valid JSON into .state.json under dehydratedContext key
+echo ""
+echo "D1: Valid JSON merge"
+D1_DIR="$SANDBOX/sessions/D1_TEST"
+create_state "$D1_DIR"
+echo '{"summary":"Test summary","lastAction":"Did something","nextSteps":["step1","step2"],"requiredFiles":["file.md"]}' \
+  | bash "$SESSION_SH" dehydrate "$D1_DIR" > /dev/null 2>&1
+D1_SUMMARY=$(jq -r '.dehydratedContext.summary' "$D1_DIR/.state.json" 2>/dev/null || echo "missing")
+assert_eq "D1: dehydratedContext.summary exists" "Test summary" "$D1_SUMMARY"
+D1_STEPS=$(jq -r '.dehydratedContext.nextSteps | length' "$D1_DIR/.state.json" 2>/dev/null || echo "0")
+assert_eq "D1: nextSteps has 2 items" "2" "$D1_STEPS"
+# Verify original fields preserved
+D1_SKILL=$(jq -r '.skill' "$D1_DIR/.state.json" 2>/dev/null || echo "missing")
+assert_eq "D1: original .skill preserved" "test" "$D1_SKILL"
 
-exit_with_results
+# D2: Should reject empty stdin
+echo ""
+echo "D2: Empty stdin rejected"
+D2_DIR="$SANDBOX/sessions/D2_TEST"
+create_state "$D2_DIR"
+cp "$D2_DIR/.state.json" "$D2_DIR/.state.json.before"
+D2_EXIT=0
+bash "$SESSION_SH" dehydrate "$D2_DIR" < /dev/null > /dev/null 2>&1 || D2_EXIT=$?
+assert_eq "D2: exit code 1 on empty stdin" "1" "$D2_EXIT"
+D2_DIFF=$(diff "$D2_DIR/.state.json" "$D2_DIR/.state.json.before" 2>&1 || true)
+assert_eq "D2: .state.json unchanged" "" "$D2_DIFF"
+
+# D3: Should reject malformed JSON
+echo ""
+echo "D3: Malformed JSON rejected"
+D3_DIR="$SANDBOX/sessions/D3_TEST"
+create_state "$D3_DIR"
+cp "$D3_DIR/.state.json" "$D3_DIR/.state.json.before"
+D3_EXIT=0
+echo '{broken json' | bash "$SESSION_SH" dehydrate "$D3_DIR" > /dev/null 2>&1 || D3_EXIT=$?
+assert_eq "D3: exit code 1 on malformed JSON" "1" "$D3_EXIT"
+D3_DIFF=$(diff "$D3_DIR/.state.json" "$D3_DIR/.state.json.before" 2>&1 || true)
+assert_eq "D3: .state.json unchanged" "" "$D3_DIFF"
+
+# D4: Should reject when no .state.json exists
+echo ""
+echo "D4: No .state.json"
+D4_DIR="$SANDBOX/sessions/D4_NOSTATE"
+mkdir -p "$D4_DIR"
+D4_EXIT=0
+echo '{"summary":"test"}' | bash "$SESSION_SH" dehydrate "$D4_DIR" > /dev/null 2>&1 || D4_EXIT=$?
+assert_eq "D4: exit code 1 when no .state.json" "1" "$D4_EXIT"
+
+# D5: Should handle large JSON payload (1MB)
+echo ""
+echo "D5: Large JSON payload (1MB)"
+D5_DIR="$SANDBOX/sessions/D5_TEST"
+create_state "$D5_DIR"
+# Generate ~1MB string
+D5_BIG=$(python3 -c "print('x' * 1000000)")
+D5_EXIT=0
+jq -n --arg s "$D5_BIG" '{"summary":$s,"requiredFiles":[]}' \
+  | bash "$SESSION_SH" dehydrate "$D5_DIR" > /dev/null 2>&1 || D5_EXIT=$?
+assert_eq "D5: exit code 0 for 1MB payload" "0" "$D5_EXIT"
+D5_LEN=$(jq -r '.dehydratedContext.summary | length' "$D5_DIR/.state.json" 2>/dev/null || echo "0")
+assert_eq "D5: summary length is 1000000" "1000000" "$D5_LEN"
+
+# ============================================================
+# TEST GROUP 2: Hook Script (session-start-restore.sh) — H1-H10
+# ============================================================
+echo ""
+echo "=== Test Group 2: Hook Script ==="
+
+# H1: Should output formatted context when dehydratedContext exists
+echo ""
+echo "H1: Happy path — formatted output"
+clear_all_dehydrated
+H1_DIR="$SANDBOX/sessions/H1_TEST"
+create_state "$H1_DIR"
+jq '.dehydratedContext = {
+  "summary": "Two-part session. Built the thing.",
+  "lastAction": "Phase 3 entered.",
+  "nextSteps": ["Write tests", "Run tests"],
+  "handoverInstructions": "Resume at Phase 3.",
+  "requiredFiles": [],
+  "userHistory": "User is engaged."
+}' "$H1_DIR/.state.json" | safe_json_write "$H1_DIR/.state.json"
+H1_OUTPUT=$(run_hook "startup" "$SANDBOX")
+assert_contains "H1: output contains Session Recovery header" "Session Recovery" "$H1_OUTPUT"
+assert_contains "H1: output contains summary" "Two-part session" "$H1_OUTPUT"
+assert_contains "H1: output contains next steps" "Write tests" "$H1_OUTPUT"
+assert_contains "H1: output contains handover" "Resume at Phase 3" "$H1_OUTPUT"
+assert_contains "H1: output contains user history" "User is engaged" "$H1_OUTPUT"
+
+# H2: Should clear dehydratedContext after consumption
+echo ""
+echo "H2: dehydratedContext cleared after consumption"
+# H1 already consumed it — check
+H2_CTX=$(jq -r '.dehydratedContext // "null"' "$H1_DIR/.state.json" 2>/dev/null)
+assert_eq "H2: dehydratedContext is null after hook" "null" "$H2_CTX"
+
+# H3: Non-startup sources → standards preloaded, dehydration skipped
+echo ""
+echo "H3: source=resume preloads standards, skips dehydration"
+clear_all_dehydrated
+H3_DIR="$SANDBOX/sessions/H3_TEST"
+create_state "$H3_DIR"
+jq '.dehydratedContext = {"summary":"should not appear in resume","requiredFiles":[]}' \
+  "$H3_DIR/.state.json" | safe_json_write "$H3_DIR/.state.json"
+H3_OUTPUT=$(run_hook "resume" "$SANDBOX")
+assert_not_contains "H3: no dehydrated context on resume" "should not appear in resume" "$H3_OUTPUT"
+# Verify dehydratedContext NOT cleared (dehydration didn't run)
+H3_CTX=$(jq -r '.dehydratedContext.summary // "missing"' "$H3_DIR/.state.json" 2>/dev/null)
+assert_eq "H3: dehydratedContext preserved on resume" "should not appear in resume" "$H3_CTX"
+
+# H4: source=compact preloads standards, skips dehydration
+echo ""
+echo "H4: source=compact preloads standards, skips dehydration"
+H4_OUTPUT=$(run_hook "compact" "$SANDBOX")
+assert_not_contains "H4: no dehydrated context on compact" "### Summary" "$H4_OUTPUT"
+
+# H5: Should handle missing requiredFiles gracefully
+echo ""
+echo "H5: Missing files get [MISSING] marker"
+clear_all_dehydrated
+H5_DIR="$SANDBOX/sessions/H5_TEST"
+create_state "$H5_DIR"
+jq '.dehydratedContext = {
+  "summary": "Test missing files",
+  "requiredFiles": ["/nonexistent/path/that/does/not/exist.md"]
+}' "$H5_DIR/.state.json" | safe_json_write "$H5_DIR/.state.json"
+H5_OUTPUT=$(run_hook "startup" "$SANDBOX")
+assert_contains "H5: output contains MISSING marker" "MISSING" "$H5_OUTPUT"
+assert_contains "H5: output shows the file path" "/nonexistent/path" "$H5_OUTPUT"
+
+# H6: Should resolve ~ prefix paths correctly
+echo ""
+echo "H6: ~ prefix path resolution"
+clear_all_dehydrated
+H6_DIR="$SANDBOX/sessions/H6_TEST"
+create_state "$H6_DIR"
+# Use a file we know exists in ~/.claude/
+jq '.dehydratedContext = {
+  "summary": "Test tilde resolution",
+  "requiredFiles": ["~/.claude/scripts/lib.sh"]
+}' "$H6_DIR/.state.json" | safe_json_write "$H6_DIR/.state.json"
+H6_OUTPUT=$(run_hook "startup" "$SANDBOX")
+assert_contains "H6: output contains lib.sh content" "safe_json_write" "$H6_OUTPUT"
+
+# H7: Should resolve sessions/ prefix paths correctly
+echo ""
+echo "H7: sessions/ prefix path resolution"
+clear_all_dehydrated
+H7_DIR="$SANDBOX/sessions/H7_TEST"
+create_state "$H7_DIR"
+# Create a test file in the sandbox sessions dir
+echo "H7 test content marker" > "$SANDBOX/sessions/H7_TEST/testfile.md"
+jq '.dehydratedContext = {
+  "summary": "Test sessions prefix",
+  "requiredFiles": ["sessions/H7_TEST/testfile.md"]
+}' "$H7_DIR/.state.json" | safe_json_write "$H7_DIR/.state.json"
+H7_OUTPUT=$(run_hook "startup" "$SANDBOX")
+assert_contains "H7: output contains sessions/ file content" "H7 test content marker" "$H7_OUTPUT"
+
+# H8: No dehydratedContext — should still output session context + standards
+echo ""
+echo "H8: No dehydratedContext — context line + standards only"
+clear_all_dehydrated
+H8_DIR="$SANDBOX/sessions/H8_TEST"
+create_state "$H8_DIR"
+# No dehydratedContext in state — hook should output context line + standards, no recovery block
+H8_OUTPUT=$(run_hook "startup" "$SANDBOX")
+assert_contains "H8: has Session Context line" "[Session Context]" "$H8_OUTPUT"
+assert_not_contains "H8: no dehydrated summary block" "### Summary" "$H8_OUTPUT"
+
+# H9: Should handle empty requiredFiles array
+echo ""
+echo "H9: Empty requiredFiles — no file blocks"
+clear_all_dehydrated
+H9_DIR="$SANDBOX/sessions/H9_TEST"
+create_state "$H9_DIR"
+jq '.dehydratedContext = {
+  "summary": "Empty files test",
+  "requiredFiles": []
+}' "$H9_DIR/.state.json" | safe_json_write "$H9_DIR/.state.json"
+H9_OUTPUT=$(run_hook "startup" "$SANDBOX")
+assert_contains "H9: output contains summary" "Empty files test" "$H9_OUTPUT"
+assert_not_contains "H9: output has no Required Files section" "### Required Files (Auto-Loaded)" "$H9_OUTPUT"
+
+# H10: Should be idempotent — re-run after restore re-outputs and clears
+echo ""
+echo "H10: Idempotency — re-run after restoring dehydratedContext"
+clear_all_dehydrated
+H10_DIR="$SANDBOX/sessions/H10_TEST"
+create_state "$H10_DIR"
+jq '.dehydratedContext = {
+  "summary": "Idempotency test",
+  "requiredFiles": []
+}' "$H10_DIR/.state.json" | safe_json_write "$H10_DIR/.state.json"
+# First run
+H10_OUT1=$(run_hook "startup" "$SANDBOX")
+assert_contains "H10: first run has summary" "Idempotency test" "$H10_OUT1"
+# Verify cleared
+H10_CTX1=$(jq -r '.dehydratedContext // "null"' "$H10_DIR/.state.json" 2>/dev/null)
+assert_eq "H10: cleared after first run" "null" "$H10_CTX1"
+# Restore dehydratedContext (simulating crash recovery)
+clear_all_dehydrated
+jq '.dehydratedContext = {
+  "summary": "Idempotency test",
+  "requiredFiles": []
+}' "$H10_DIR/.state.json" | safe_json_write "$H10_DIR/.state.json"
+# Second run
+H10_OUT2=$(run_hook "startup" "$SANDBOX")
+assert_contains "H10: second run produces same output" "Idempotency test" "$H10_OUT2"
+H10_CTX2=$(jq -r '.dehydratedContext // "null"' "$H10_DIR/.state.json" 2>/dev/null)
+assert_eq "H10: cleared after second run" "null" "$H10_CTX2"
+
+# ============================================================
+# TEST GROUP 2B: Session Context Block — C1-C3
+# ============================================================
+echo ""
+echo "=== Test Group 2B: Session Context Block ==="
+
+# C1: Should include Session Context line with active session details
+echo ""
+echo "C1: Active session shows details in context line"
+clear_all_dehydrated
+C1_DIR="$SANDBOX/sessions/C1_TEST"
+create_state "$C1_DIR"
+# Make it look active with PID matching current process
+jq --arg pid "$$" '.pid = ($pid | tonumber) | .lifecycle = "active" | .skill = "test" | .currentPhase = "2: Testing Loop" | .toolCallsSinceLastLog = 3 | .toolUseWithoutLogsBlockAfter = 10' \
+  "$C1_DIR/.state.json" | safe_json_write "$C1_DIR/.state.json"
+C1_OUTPUT=$(run_hook "startup" "$SANDBOX")
+assert_contains "C1: has Session Context header" "[Session Context]" "$C1_OUTPUT"
+assert_contains "C1: shows session name" "C1_TEST" "$C1_OUTPUT"
+assert_contains "C1: shows skill" "Skill: test" "$C1_OUTPUT"
+assert_contains "C1: shows phase" "Phase: 2: Testing Loop" "$C1_OUTPUT"
+assert_contains "C1: shows heartbeat" "Heartbeat: 3/10" "$C1_OUTPUT"
+
+# C2: Should show Session: (none) when no active session
+echo ""
+echo "C2: No active session shows (none)"
+clear_all_dehydrated
+deactivate_all_sessions
+C2_DIR="$SANDBOX/sessions/C2_TEST"
+create_state "$C2_DIR"
+# PID 99999 from create_state is unlikely to be alive; all others deactivated
+C2_OUTPUT=$(run_hook "startup" "$SANDBOX")
+assert_contains "C2: has Session Context header" "[Session Context]" "$C2_OUTPUT"
+assert_contains "C2: shows (none)" "Session: (none)" "$C2_OUTPUT"
+
+# C3: Context line appears on non-startup sources too (resume, compact)
+echo ""
+echo "C3: Context line on resume source"
+clear_all_dehydrated
+deactivate_all_sessions
+C3_DIR="$SANDBOX/sessions/C3_TEST"
+create_state "$C3_DIR"
+jq --arg pid "$$" '.pid = ($pid | tonumber) | .lifecycle = "active"' \
+  "$C3_DIR/.state.json" | safe_json_write "$C3_DIR/.state.json"
+C3_OUTPUT=$(run_hook "resume" "$SANDBOX")
+assert_contains "C3: resume source has Session Context" "[Session Context]" "$C3_OUTPUT"
+assert_contains "C3: resume source shows session" "C3_TEST" "$C3_OUTPUT"
+
+# ============================================================
+# TEST GROUP 3: Restart Mode Detection (session.sh restart) — R1-R3
+# ============================================================
+echo ""
+echo "=== Test Group 3: Restart Mode Detection ==="
+
+# CRITICAL: Unset WATCHDOG_PID so restart tests don't signal the real watchdog
+# (which would kill the actual Claude process running these tests)
+unset WATCHDOG_PID 2>/dev/null || true
+
+# R1: Should set restartMode=hook when dehydratedContext exists
+echo ""
+echo "R1: restartMode=hook with dehydratedContext"
+R1_DIR="$SANDBOX/sessions/R1_TEST"
+create_state "$R1_DIR"
+# First dehydrate, then restart
+echo '{"summary":"test","requiredFiles":[]}' \
+  | bash "$SESSION_SH" dehydrate "$R1_DIR" > /dev/null 2>&1
+# Run restart (sandbox-safe — WATCHDOG_PID unset above)
+bash "$SESSION_SH" restart "$R1_DIR" > /dev/null 2>&1 || true
+R1_MODE=$(jq -r '.restartMode' "$R1_DIR/.state.json" 2>/dev/null || echo "missing")
+assert_eq "R1: restartMode is hook" "hook" "$R1_MODE"
+
+# R2: Should set restartMode=prompt when no dehydratedContext
+echo ""
+echo "R2: restartMode=prompt without dehydratedContext"
+R2_DIR="$SANDBOX/sessions/R2_TEST"
+create_state "$R2_DIR"
+# No dehydrate — just restart
+bash "$SESSION_SH" restart "$R2_DIR" > /dev/null 2>&1 || true
+R2_MODE=$(jq -r '.restartMode' "$R2_DIR/.state.json" 2>/dev/null || echo "missing")
+assert_eq "R2: restartMode is prompt" "prompt" "$R2_MODE"
+
+# R3: Should still write restartPrompt regardless of mode
+echo ""
+echo "R3: restartPrompt written in both modes"
+R3_PROMPT_HOOK=$(jq -r '.restartPrompt' "$R1_DIR/.state.json" 2>/dev/null || echo "")
+R3_PROMPT_NOHOOK=$(jq -r '.restartPrompt' "$R2_DIR/.state.json" 2>/dev/null || echo "")
+R3_HAS_HOOK=$( [ -n "$R3_PROMPT_HOOK" ] && echo "yes" || echo "no" )
+R3_HAS_NOHOOK=$( [ -n "$R3_PROMPT_NOHOOK" ] && echo "yes" || echo "no" )
+assert_eq "R3: restartPrompt exists with hook mode" "yes" "$R3_HAS_HOOK"
+assert_eq "R3: restartPrompt exists with prompt mode" "yes" "$R3_HAS_NOHOOK"
+# Both should contain /session continue
+assert_contains "R3: hook mode prompt has /session continue" "/session continue" "$R3_PROMPT_HOOK"
+assert_contains "R3: prompt mode prompt has /session continue" "/session continue" "$R3_PROMPT_NOHOOK"
+
+# --- Summary ---
+echo ""
+echo "======================================="
+echo "Results: $PASS passed, $FAIL failed"
+echo "======================================="
+if [ "$FAIL" -gt 0 ]; then
+  printf "$ERRORS\n"
+  exit 1
+fi
+exit 0

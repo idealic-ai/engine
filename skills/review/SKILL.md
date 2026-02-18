@@ -184,20 +184,19 @@ Execute `AskUserQuestion` (multiSelect: false):
 ### Phase 2c: Per-Debrief Interrogation
 *Walk through each debrief and REQUEST file with the user.*
 
-### Interrogation Depth Selection
+### ¶ASK_REVIEW_DEPTH
+Extends: §ASK_INTERROGATION_DEPTH
+Trigger: when starting per-debrief review phase
 
-**Before starting per-debrief review**, present this choice via `AskUserQuestion` (multiSelect: false):
-
-> "How thorough should the per-debrief review be?"
-
-| Depth | Minimum Rounds Per Debrief | When to Use |
-|-------|---------------------------|-------------|
-| **Short** | 1 round | Quick validation, trusted agent, small scope |
-| **Medium** | 2 rounds | Standard review, moderate complexity |
-| **Long** | 3+ rounds | Deep audit, critical changes, untrusted work |
-| **Absolute** | Until ALL concerns resolved | High-risk sessions, production changes, security-sensitive |
-
-Record the user's choice. This sets the **minimum** per debrief -- the agent can always ask more, and the user can always say "approve" after the minimum is met.
+## Decision: Review Depth
+- [LITE] Short (1 round)
+  Quick validation, trusted agent, small scope
+- [MEDM] Medium (2 rounds)
+  Standard review, moderate complexity
+- [FULL] Long (3+ rounds)
+  Deep audit, critical changes, untrusted work
+- Absolute (until resolved)
+  High-risk sessions, production changes, security-sensitive
 
 ### Topics (Review)
 *Examples of themes to explore per debrief. Adapt to the session -- skip irrelevant ones, invent new ones as needed.*
@@ -301,20 +300,21 @@ This is YOUR internal rubric -- do NOT present it as a form. Use it to generate 
     *   Validated: `engine tag swap [REQUEST_FILE] '#needs-review' '#done-review'`
     *   Needs rework: `engine tag swap [REQUEST_FILE] '#needs-review' '#needs-rework'`
 
-### Interrogation Exit Gate
+### ¶ASK_REVIEW_DEBRIEF_EXIT
+Extends: §ASK_INTERROGATION_EXIT
+Trigger: after reaching minimum review rounds for a debrief
 
-**After reaching minimum rounds for a debrief**, present this choice via `AskUserQuestion` (multiSelect: true):
-
-> "Debrief review round complete (minimum met). What next?"
-> - **"Approve and move to next debrief"** -- *(terminal: if selected, skip all others and proceed)*
-> - **"More review (1 more round)"** -- Standard review round, then this gate re-appears
-> - **"Devil's advocate round"** -- 1 round challenging the session's decisions, then this gate re-appears
-> - **"What-if scenarios round"** -- 1 round exploring hypotheticals, then this gate re-appears
-> - **"Deep dive round"** -- 1 round drilling into a prior topic, then this gate re-appears
-
-**Execution order** (when multiple selected): Standard round first -> Devil's advocate -> What-ifs -> Deep dive -> re-present exit gate.
-
-**For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining concerns. Ask: "Round N complete. I still have concerns about [X]. Continuing..."
+## Decision: Debrief Review Exit
+- [NEXT] Approve and move to next debrief
+  Done reviewing this debrief — proceed to the next one
+- [MORE] More review (1 more round)
+  Standard review round, then this gate re-appears
+- [DEEP] Deep dive round
+  1 round drilling into a prior topic in detail
+- Devil's advocate round
+  1 round challenging the session's decisions
+- What-if scenarios round
+  1 round exploring hypotheticals
 
 ---
 

@@ -71,27 +71,6 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
 
 §CMD_EXECUTE_PHASE_STEPS(1.0.*)
 
-### Interrogation Depth Selection
-
-**Before asking any questions**, present this choice via `AskUserQuestion` (multiSelect: false):
-
-> "How deep should query refinement go?"
-
-| Depth | Minimum Rounds | When to Use |
-|-------|---------------|-------------|
-| **Short** | 3+ | Question is mostly clear, just needs minor sharpening |
-| **Medium** | 6+ | Moderate ambiguity, multiple angles to consider |
-| **Long** | 9+ | Complex multi-faceted topic, many constraints |
-| **Absolute** | Until ALL questions resolved | Novel domain, high-stakes research, zero ambiguity tolerance |
-
-Record the user's choice. This sets the **minimum** — the agent can always ask more, and the user can always say "proceed" after the minimum is met.
-
-### Interrogation Protocol (Rounds)
-
-**Round counter**: Output it on every round: "**Round N / {depth_minimum}+**"
-
-**Topic selection**: Pick from the topic menu below each round. Do NOT follow a fixed sequence — choose the most relevant uncovered topic based on what you've learned so far.
-
 ### Topics (Research)
 *Adapt to the task — skip irrelevant ones, invent new ones as needed.*
 
@@ -113,29 +92,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 - **What-if scenarios** — Explore hypotheticals, edge cases, and alternative futures
 - **Deep dive** — Drill into a specific topic from a previous round in much more detail
 
-**Each round**:
-1. Pick an uncovered topic (or a repeatable topic).
-2. Execute `§CMD_ASK_ROUND` via `AskUserQuestion` (3-5 targeted questions on that topic).
-3. On response: Execute `§CMD_LOG_INTERACTION` immediately.
-4. Also log a Query Refinement entry to the session log via `§CMD_APPEND_LOG`.
-5. If the user asks a counter-question: ANSWER it, verify understanding, then resume.
-
 **If this is a follow-up**: Also ask which previous response to continue from. Read it to extract the Interaction ID.
-
-### Interrogation Exit Gate
-
-**After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
-
-> "Round N complete (minimum met). What next?"
-> - **"Proceed to Phase 2: Execute Research"** — *(terminal: if selected, skip all others and move on)*
-> - **"More interrogation (3 more rounds)"** — Standard topic rounds, then this gate re-appears
-> - **"Devil's advocate round"** — 1 round challenging assumptions, then this gate re-appears
-> - **"What-if scenarios round"** — 1 round exploring hypotheticals, then this gate re-appears
-> - **"Deep dive round"** — 1 round drilling into a prior topic, then this gate re-appears
-
-**Execution order** (when multiple selected): Standard rounds first -> Devil's advocate -> What-ifs -> Deep dive -> re-present exit gate.
-
-**For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions. Ask: "Round N complete. I still have questions about [X]. Continuing..."
 
 ---
 

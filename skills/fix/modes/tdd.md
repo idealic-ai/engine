@@ -6,7 +6,7 @@
 
 ## Configuration
 
-**Interrogation Depth**: Medium (6+ rounds) — focus on reproduction and test strategy
+**Interrogation Depth**: Medium — focus on reproduction and test strategy
 **Fix Approach**: Write failing test → Fix until green → Refactor. Every fix MUST have a corresponding regression test before the code change.
 **When to Use**: When you want regression-proof fixes. For bugs that have recurred, or in codebases where test coverage matters.
 

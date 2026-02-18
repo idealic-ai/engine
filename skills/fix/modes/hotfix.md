@@ -6,7 +6,7 @@
 
 ## Configuration
 
-**Interrogation Depth**: Short (3+ rounds) — just enough to understand the symptom and blast radius
+**Interrogation Depth**: Short — just enough to understand the symptom and blast radius
 **Fix Approach**: Shortest path to stable. Skip deep investigation. Accept tech debt if it buys stability now. Document what was skipped for follow-up.
 **When to Use**: Production is down, users are affected, or the system is in a degraded state. "The server is down" situations.
 
@@ -37,6 +37,6 @@
 ```
 
 ### Hotfix-Specific Rules
-*   **Abbreviated Investigation**: Phase 3 can be as short as 3 rounds. Don't over-investigate when the system is down.
+*   **Abbreviated Investigation**: Keep Phase 3 brief. Don't over-investigate when the system is down.
 *   **Tech Debt Accepted**: Log every shortcut as `💸 Tech Debt` in the fix log. These MUST be addressed in a follow-up `/fix` (General mode) or `/implement` session.
 *   **Post-Mortem Required**: After stabilization, tag the debrief `#needs-fix` for a deeper investigation session.

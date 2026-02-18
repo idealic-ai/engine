@@ -19,7 +19,7 @@ A chapter that's too large for one coordinator session needs decomposition. The 
 - **Validate**: Confirm the target chapter exists and is in `#needs-coordinate` state (not already in progress)
 
 ### Interrogation
-- **Recommended depth**: Short (3+ rounds)
+- **Recommended depth**: Short
 - **Key topics**: Why the chapter needs splitting, natural sub-boundaries, sub-chapter dependencies
 - **Focus**: Decomposition strategy — where are the natural seams?
 

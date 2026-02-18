@@ -14,7 +14,7 @@ Think big, then chunk ruthlessly. Every chapter must be independently coordinata
 ## Configuration
 
 ### Interrogation
-- **Recommended depth**: Medium (5+ rounds)
+- **Recommended depth**: Medium
 - **Key topics**: Project goal, constraints, chapter decomposition, dependency mapping, decision principles
 - **Focus**: Breadth first — understand the full project before decomposing into chapters
 

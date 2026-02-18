@@ -578,6 +578,11 @@ case "$ACTION" in
       fi
     fi
 
+    # --- PID Cache: write on activate ---
+    # All activation paths (fresh, same-PID, idle→active) converge here.
+    # Write cache so session.sh find can skip the sweep.
+    echo "$DIR" > "/tmp/claude-session-cache-$TARGET_PID" 2>/dev/null || true
+
     # --- Fast-Track Override ---
     # --fast-track forces SHOULD_SCAN=false regardless of which code path set it.
     # Stores fastTrack: true in .state.json (informational — not read on restart).
@@ -845,8 +850,10 @@ case "$ACTION" in
               [ -n "$discovered_file" ] || continue
               discovered_dir=$(dirname "$discovered_file")
               discovered_name=$(basename "$discovered_file")
-              # Add to touchedDirs
-              jq --arg dir "$discovered_dir" --arg name "$discovered_name" \
+              # Normalize path to match _run_discovery() format (full path, symlinks resolved)
+              norm_file=$(normalize_preload_path "$discovered_file")
+              # Add to touchedDirs (full normalized path, not basename)
+              jq --arg dir "$discovered_dir" --arg name "$norm_file" \
                 '(.touchedDirs //= {}) | .touchedDirs[$dir] = ((.touchedDirs[$dir] // []) + [$name] | unique)' \
                 "$STATE_FILE" | safe_json_write "$STATE_FILE"
               # Add CHECKLIST.md to discoveredChecklists
@@ -1401,11 +1408,11 @@ case "$ACTION" in
     if [ "$PROOF_JSON" != "{}" ] && [ -n "$PROOF_INPUT" ]; then
       # Store phase + proof in phaseHistory as an object
       jq --arg phase "$PHASE" --arg ts "$(timestamp)" --argjson proof "$PROOF_JSON" \
-        '.currentPhase = $phase | .lastHeartbeat = $ts | del(.loading) | .toolCallsByTranscript = {} | .phaseHistory = ((.phaseHistory // []) + [{"phase": $phase, "ts": $ts, "proof": $proof}])' \
+        '.currentPhase = $phase | .lastHeartbeat = $ts | del(.loading) | .toolCallsByTranscript = {} | del(.primaryTranscriptKey) | .phaseHistory = ((.phaseHistory // []) + [{"phase": $phase, "ts": $ts, "proof": $proof}])' \
         "$STATE_FILE" | safe_json_write "$STATE_FILE"
     else
       jq --arg phase "$PHASE" --arg ts "$(timestamp)" \
-        '.currentPhase = $phase | .lastHeartbeat = $ts | del(.loading) | .toolCallsByTranscript = {} | .phaseHistory = ((.phaseHistory // []) + [$phase])' \
+        '.currentPhase = $phase | .lastHeartbeat = $ts | del(.loading) | .toolCallsByTranscript = {} | del(.primaryTranscriptKey) | .phaseHistory = ((.phaseHistory // []) + [$phase])' \
         "$STATE_FILE" | safe_json_write "$STATE_FILE"
     fi
 
@@ -1634,8 +1641,11 @@ case "$ACTION" in
     # Register PID + set lifecycle=active + clear loading + reset heartbeat + reset context usage
     TARGET_PID="${CLAUDE_SUPERVISOR_PID:-$PPID}"
     jq --argjson pid "$TARGET_PID" --arg ts "$(timestamp)" \
-      '.pid = $pid | .lifecycle = "active" | del(.loading) | .toolCallsByTranscript = {} | .lastHeartbeat = $ts | .contextUsage = 0 | .overflowed = false | .killRequested = false' \
+      '.pid = $pid | .lifecycle = "active" | del(.loading) | .toolCallsByTranscript = {} | del(.primaryTranscriptKey) | .lastHeartbeat = $ts | .contextUsage = 0 | .overflowed = false | .killRequested = false' \
       "$STATE_FILE" | safe_json_write "$STATE_FILE"
+
+    # PID Cache: write on continue (same as activate)
+    echo "$DIR" > "/tmp/claude-session-cache-$TARGET_PID" 2>/dev/null || true
 
     # --- Seed File Merge (continue-specific) ---
     # After context overflow restart, SessionStart created a seed with 6 boot files.
@@ -1946,6 +1956,12 @@ case "$ACTION" in
       EARLY_PHASE=true
     fi
 
+    # PID Cache: invalidate before deactivation
+    DEACTIVATE_PID=$(jq -r '.pid // empty' "$STATE_FILE" 2>/dev/null)
+    if [ -n "$DEACTIVATE_PID" ]; then
+      rm -f "/tmp/claude-session-cache-$DEACTIVATE_PID" 2>/dev/null || true
+    fi
+
     # --- Collect all validation errors before exiting ---
     # All gates append to DEACTIVATE_ERRORS instead of exiting immediately.
     # This lets the agent see ALL issues at once and fix them in a single pass.
@@ -2174,6 +2190,12 @@ case "$ACTION" in
     if [ -z "$DESCRIPTION" ]; then
       echo "§CMD_CLOSE_SESSION: Description is required. Pipe 1-3 lines via stdin." >&2
       exit 1
+    fi
+
+    # PID Cache: invalidate before clearing PID
+    IDLE_PID=$(jq -r '.pid // empty' "$STATE_FILE" 2>/dev/null)
+    if [ -n "$IDLE_PID" ]; then
+      rm -f "/tmp/claude-session-cache-$IDLE_PID" 2>/dev/null || true
     fi
 
     # Set lifecycle=idle, preserve PID as lastKnownPid, clear active PID, store description/keywords
@@ -2447,6 +2469,38 @@ case "$ACTION" in
     CLAUDE_PID="${CLAUDE_SUPERVISOR_PID:-$PPID}"
     FOUND_DIR=""
 
+    # --- PID Cache: fast path ---
+    # Cache written by activate/continue, keyed by PID. Avoids full sweep.
+    CACHE_FILE="/tmp/claude-session-cache-$CLAUDE_PID"
+    if [ -f "$CACHE_FILE" ]; then
+      CACHED_DIR=$(cat "$CACHE_FILE" 2>/dev/null) || CACHED_DIR=""
+      if [ -n "$CACHED_DIR" ] && [ -f "$CACHED_DIR/.state.json" ]; then
+        # Validate: PID or fleet pane must still match
+        cached_pid=$(jq -r '.pid // empty' "$CACHED_DIR/.state.json" 2>/dev/null)
+        if [ "$cached_pid" = "$CLAUDE_PID" ]; then
+          echo "$CACHED_DIR"
+          exit 0
+        fi
+        # Fleet fallback: check fleetPaneId match
+        FLEET_PANE_CHECK=$(get_fleet_pane_id)
+        if [ -n "$FLEET_PANE_CHECK" ]; then
+          cached_fleet=$(jq -r '.fleetPaneId // ""' "$CACHED_DIR/.state.json" 2>/dev/null)
+          if [ "$cached_fleet" = "$FLEET_PANE_CHECK" ]; then
+            # PID guard: reject if a different alive PID holds the session
+            if [ -n "$cached_pid" ] && [ "$cached_pid" != "$CLAUDE_PID" ]; then
+              if kill -0 "$cached_pid" 2>/dev/null; then
+                exit 1
+              fi
+            fi
+            echo "$CACHED_DIR"
+            exit 0
+          fi
+        fi
+      fi
+      # Cache stale — remove and fall through to sweep
+      rm -f "$CACHE_FILE" 2>/dev/null || true
+    fi
+
     # Strategy 1: Fleet mode — lookup by fleetPaneId
     FLEET_PANE=$(get_fleet_pane_id)
     if [ -n "$FLEET_PANE" ]; then
@@ -2510,6 +2564,9 @@ case "$ACTION" in
     if [ -z "$FOUND_DIR" ]; then
       exit 1
     fi
+
+    # Write cache for future calls (best-effort, silent on failure)
+    echo "$FOUND_DIR" > "$CACHE_FILE" 2>/dev/null || true
 
     echo "$FOUND_DIR"
     ;;

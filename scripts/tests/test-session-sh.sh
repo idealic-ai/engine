@@ -2308,6 +2308,182 @@ test_find_rejects_alive_different_pid() {
 }
 
 # =============================================================================
+# PID CACHE TESTS
+# =============================================================================
+
+test_find_creates_cache_file() {
+  local test_name="find-cache: creates cache file on successful find"
+  setup
+
+  export CLAUDE_SUPERVISOR_PID=99999999
+  create_state "$TEST_DIR/sessions/CACHED" '{
+    "pid": 99999999, "skill": "brainstorm", "lifecycle": "active"
+  }'
+
+  local cache_file="/tmp/claude-session-cache-99999999"
+  rm -f "$cache_file" 2>/dev/null || true
+
+  local output
+  output=$("$SESSION_SH" find 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ] && [ -f "$cache_file" ]; then
+    local cached
+    cached=$(cat "$cache_file")
+    if [[ "$cached" == *"sessions/CACHED"* ]]; then
+      pass "$test_name"
+    else
+      fail "$test_name" "cache contains sessions/CACHED" "cache=$cached"
+    fi
+  else
+    fail "$test_name" "exit 0 + cache file exists" "exit=$exit_code, cache_exists=$([ -f "$cache_file" ] && echo yes || echo no)"
+  fi
+
+  rm -f "$cache_file" 2>/dev/null || true
+  teardown
+}
+
+test_find_uses_cache_on_second_call() {
+  local test_name="find-cache: uses cache on second call"
+  setup
+
+  export CLAUDE_SUPERVISOR_PID=99999999
+  create_state "$TEST_DIR/sessions/CACHED2" '{
+    "pid": 99999999, "skill": "brainstorm", "lifecycle": "active"
+  }'
+
+  local cache_file="/tmp/claude-session-cache-99999999"
+  rm -f "$cache_file" 2>/dev/null || true
+
+  # First call — creates cache via sweep
+  "$SESSION_SH" find > /dev/null 2>&1
+
+  # Second call — should use cache (verify by checking it returns same result)
+  local output
+  output=$("$SESSION_SH" find 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ] && [[ "$output" == *"sessions/CACHED2"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0, output contains sessions/CACHED2" "exit=$exit_code, output=$output"
+  fi
+
+  rm -f "$cache_file" 2>/dev/null || true
+  teardown
+}
+
+test_find_invalidates_stale_cache() {
+  local test_name="find-cache: falls through when cached .state.json is missing"
+  setup
+
+  export CLAUDE_SUPERVISOR_PID=99999999
+  local cache_file="/tmp/claude-session-cache-99999999"
+
+  # Write a cache pointing to a non-existent session
+  echo "$TEST_DIR/sessions/GHOST" > "$cache_file"
+
+  "$SESSION_SH" find > /dev/null 2>&1
+  local exit_code=$?
+
+  if [ $exit_code -ne 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 1 (stale cache, no real session)" "exit $exit_code"
+  fi
+
+  rm -f "$cache_file" 2>/dev/null || true
+  teardown
+}
+
+test_find_ignores_cache_wrong_pid() {
+  local test_name="find-cache: ignores cache when PID doesn't match"
+  setup
+
+  export CLAUDE_SUPERVISOR_PID=99999999
+  local cache_file="/tmp/claude-session-cache-99999999"
+
+  # Create session with DIFFERENT PID, point cache at it
+  create_state "$TEST_DIR/sessions/WRONGPID" '{
+    "pid": 88888888, "skill": "brainstorm", "lifecycle": "active"
+  }'
+  echo "$TEST_DIR/sessions/WRONGPID" > "$cache_file"
+
+  # Also create matching session so sweep finds it
+  create_state "$TEST_DIR/sessions/RIGHTPID" '{
+    "pid": 99999999, "skill": "brainstorm", "lifecycle": "active"
+  }'
+
+  local output
+  output=$("$SESSION_SH" find 2>&1)
+  local exit_code=$?
+
+  if [ $exit_code -eq 0 ] && [[ "$output" == *"sessions/RIGHTPID"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0, finds RIGHTPID via sweep" "exit=$exit_code, output=$output"
+  fi
+
+  rm -f "$cache_file" 2>/dev/null || true
+  teardown
+}
+
+test_idle_removes_cache() {
+  local test_name="find-cache: idle removes cache file"
+  setup
+
+  export CLAUDE_SUPERVISOR_PID=$$
+  local cache_file="/tmp/claude-session-cache-$$"
+  local DIR="$TEST_DIR/sessions/IDLE_CACHE"
+
+  valid_activate_json '{}' | "$SESSION_SH" activate "$DIR" brainstorm 2>&1 > /dev/null
+
+  # Verify cache was created by activate
+  if [ ! -f "$cache_file" ]; then
+    fail "$test_name" "cache created by activate" "cache not found after activate"
+    teardown
+    return
+  fi
+
+  echo "Done" | "$SESSION_SH" idle "$DIR" 2>&1 > /dev/null
+
+  if [ ! -f "$cache_file" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "cache removed after idle" "cache still exists"
+  fi
+
+  rm -f "$cache_file" 2>/dev/null || true
+  teardown
+}
+
+test_deactivate_removes_cache() {
+  local test_name="find-cache: deactivate removes cache file"
+  setup
+
+  export CLAUDE_SUPERVISOR_PID=$$
+  local cache_file="/tmp/claude-session-cache-$$"
+  local DIR="$TEST_DIR/sessions/DEACT_CACHE"
+
+  valid_activate_json '{}' | "$SESSION_SH" activate "$DIR" brainstorm 2>&1 > /dev/null
+
+  # Create a fake debrief so deactivate doesn't block
+  touch "$DIR/BRAINSTORM.md"
+  jq '.debriefTemplate = "assets/TEMPLATE_BRAINSTORM.md"' "$DIR/.state.json" | safe_json_write "$DIR/.state.json"
+
+  echo "Done" | "$SESSION_SH" deactivate "$DIR" 2>&1 > /dev/null
+
+  if [ ! -f "$cache_file" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "cache removed after deactivate" "cache still exists"
+  fi
+
+  rm -f "$cache_file" 2>/dev/null || true
+  teardown
+}
+
+# =============================================================================
 # TERMINAL PROOF INTEGRATION TESTS
 # =============================================================================
 
@@ -2841,6 +3017,15 @@ main() {
   test_find_by_pid
   test_find_no_match
   test_find_rejects_alive_different_pid
+
+  echo ""
+  echo "--- PID Cache ---"
+  test_find_creates_cache_file
+  test_find_uses_cache_on_second_call
+  test_find_invalidates_stale_cache
+  test_find_ignores_cache_wrong_pid
+  test_idle_removes_cache
+  test_deactivate_removes_cache
 
   echo ""
   echo "--- Terminal Proof Integration ---"

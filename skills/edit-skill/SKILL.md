@@ -164,24 +164,6 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
 **If CREATE MODE**:
 *   No files to read. Proceed directly to interrogation rounds.
 
-### Interrogation Depth Selection
-
-**Before asking any questions**, present this choice via `AskUserQuestion` (multiSelect: false):
-
-> "How deep should the skill design interrogation go?"
-
-| Depth | Minimum Rounds | When to Use |
-|-------|---------------|-------------|
-| **Short** | 3+ | Simple utility skill, clear requirements, small scope |
-| **Medium** | 5+ | Multi-phase skill, some design decisions, moderate complexity |
-| **Long** | 8+ | Complex protocol, many phases, integration-heavy, architectural skill |
-| **Absolute** | Until ALL questions resolved | Novel pattern, critical workflow, zero ambiguity tolerance |
-
-Record the user's choice. This sets the **minimum** — the agent can always ask more, and the user can always say "proceed" after the minimum is met.
-
-**CREATE mode**: 3 rounds minimum regardless of depth choice.
-**EDIT mode**: 2 rounds minimum regardless of depth choice.
-
 ### Topics (Skill Design)
 *Standard topics for the command to draw from. Adapt to the task -- skip irrelevant ones, invent new ones as needed.*
 
@@ -199,20 +181,6 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 - **What-if scenarios** — Explore hypotheticals, edge cases, and alternative futures
 - **Deep dive** — Drill into a specific topic from a previous round in much more detail
 
-### Interrogation Exit Gate
-
-**After reaching minimum rounds**, present this choice via `AskUserQuestion` (multiSelect: true):
-
-> "Round N complete (minimum met). What next?"
-> - **"Proceed to Phase 3: Scaffold"** — *(terminal: if selected, skip all others and move on)*
-> - **"More interrogation (3 more rounds)"** — Standard topic rounds, then this gate re-appears
-> - **"Devil's advocate round"** — 1 round challenging assumptions, then this gate re-appears
-> - **"What-if scenarios round"** — 1 round exploring hypotheticals, then this gate re-appears
-> - **"Deep dive round"** — 1 round drilling into a prior topic, then this gate re-appears
-
-**Execution order** (when multiple selected): Standard rounds first -> Devil's advocate -> What-ifs -> Deep dive -> re-present exit gate.
-
-**For `Absolute` depth**: Do NOT offer the exit gate until you have zero remaining questions.
 
 ---
 
@@ -292,7 +260,7 @@ Each phase MUST reference appropriate `§CMD_` commands:
 *   Phase transitions managed by §CMD_EXECUTE_PHASE_STEPS (automatic gating).
 *   `---` between phases.
 *   Final phase uses `§CMD_RUN_SYNTHESIS_PIPELINE` for synthesis.
-*   Skills with interrogation get: depth selection table, round counter, custom topics (standard + repeatable), exit gate.
+*   Skills with interrogation get: custom topics (standard + repeatable). Depth selection and exit gates are handled by `§CMD_INTERROGATE`.
 
 **DIALOGUE.md integration (automatic for non-utility archetypes)**:
 Any skill that has an Interrogation phase or interactive dialogue MUST include DIALOGUE.md logging.
