@@ -351,14 +351,14 @@ Options are matched by `[CODE]` (coded items) or exact label text (codeless item
 
 Base: `§ASK_INTERROGATION_EXIT` has [NEXT], [MORE], [DEEP] (coded) + Devil's advocate round, What-if scenarios round, Gaps round (codeless)
 
-Derived: `¶ASK_CALIBRATION_EXIT` — adds Return to Research Loop, drops Gaps round:
+Derived: `¶ASK_SKILL_SPECIFIC_EXIT` — adds Return to Research Loop, drops Gaps round:
 
 ```
-### ¶ASK_CALIBRATION_EXIT
-Extends: §ASK_INTERROGATION_EXIT
-Trigger: after minimum calibration rounds are met
+### ASK_SKILL_SPECIFIC_EXIT
+Extends: ASK_INTERROGATION_EXIT
+Trigger: after minimum skill-specific rounds are met
 
-## Decision: Calibration Exit
+## Decision: Skill-Specific Exit
 - [NEXT]
 - [MORE]
 - [DEEP]

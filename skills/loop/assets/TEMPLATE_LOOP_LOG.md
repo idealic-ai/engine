@@ -18,15 +18,19 @@
 *   **Duration**: "~2 minutes"
 *   **Errors**: [None / "3 cases failed to execute: ..."]
 
-## 👁️ Critique (REVIEW)
+## 👁️ Critique (REVIEW + CLASSIFY)
 *   **Iteration**: `N`
 *   **Evaluation Method**: [evaluateCommand / Composer / Visual / Manual]
-*   **Passing**: 14/15
-*   **Failing**: 1/15
-*   **Observations**:
-    *   "Scope 'Kitchen' bounding box is too tall — includes the next scope header"
-    *   "Line item 4 is missing entirely — OCR shows text is present"
-    *   "Total value extracted as '$1,234' but overlay shows '$1,234.56'"
+*   **Classification**:
+    *   Real errors: N — [brief list]
+    *   Evaluator false positives: N — [brief list]
+    *   Evaluator miscalibration: N — [brief list]
+    *   Infrastructure bugs: N — [brief list]
+*   **Qualitative Observations**:
+    *   "Scope 'Kitchen' bounding box is too tall — includes the next scope header" (real error)
+    *   "Line item 4 is missing entirely — OCR shows text is present" (real error)
+    *   "Total value extracted as '$1,234' but overlay shows '$1,234.56'" (evaluator miscalibration — rounding)
+*   **Aggregate Context**: Passing: 14/15, Failing: 1/15
 *   **Severity**: [Blocking / Degraded / Minor]
 
 ## 🎯 Composer Analysis (ANALYZE)
@@ -53,24 +57,27 @@
 
 ## 📊 Iteration Result
 *   **Iteration**: `N`
-*   **Cases Run**: 15
-*   **Passing**: 14 (+2 from baseline)
-*   **Failing**: 1 (-2 from baseline)
-*   **New Failures**: 0
-*   **Regressions**: 0
+*   **Problem Targeted**: "The model doesn't separate recap totals from table content"
 *   **Hypothesis Outcome**: [Confirmed / Rejected / Partially Confirmed]
-*   **Verdict**: [Improved / Degraded / Neutral]
+*   **Classification Summary**: X real errors (was Y), Z evaluator issues (was W)
+*   **Evaluator Changes**: [None / "Fixed N false positives by updating reviewer checklist"]
+*   **Cases Run**: 15
+*   **Aggregate Context**: Passing: 14/15 (+2), Failing: 1/15 (-2)
+*   **Verdict**: [Problem solved / Partially solved / Not solved / Wrong hypothesis]
 
 ## 📈 Metrics Snapshot
 *   **Iteration**: `N`
-*   **Pass Rate**: `93.3%` (14/15 cases)
-*   **Delta from Baseline**: `+13.3%` (was 80%)
-*   **Delta from Previous**: `+6.7%` (was 86.7%)
-*   **Error Categories**:
+*   **Classification Breakdown**:
+    *   Real errors: N (was M) — [trend direction]
+    *   Evaluator false positives: N (was M) — [evaluator quality trend]
+    *   Evaluator miscalibrations fixed this iteration: N
+*   **Error Categories** (real errors only):
     *   Bounding box drift: 0 (was 2)
     *   Missing fields: 1 (unchanged)
     *   Wrong values: 0 (was 1)
+*   **Aggregate Context**: Pass rate: `93.3%` (14/15), Delta: `+13.3%` from baseline
 *   **Artifact Changes**: +3 lines in `prompts.ts`
+*   **Evaluator Changes**: [None / "Updated N checks in reviewer checklist"]
 
 ## 🏁 Iteration Complete
 *   **Iteration**: `N`
@@ -80,11 +87,16 @@
 *   **Hypothesis**: [Confirmed / Rejected / Partially Confirmed]
 *   **Continue?**: [Yes — more to improve / No — converged / No — max iterations / No — plateau]
 
-## ⚠️ Regression Detected
+## ⚠️ Score Change Detected
 *   **Iteration**: `N`
-*   **Metric**: "Passing cases dropped from 14 to 12"
-*   **Likely Cause**: "The new guidance is too broad — now over-detecting headers"
-*   **Action**: [Accept Tradeoff / Different Hypothesis Next / Stop and Analyze]
+*   **Observation**: "Aggregate score changed: 14 → 12 passing"
+*   **Classification** (MANDATORY before action):
+    *   Real regressions: N — [which cases and why]
+    *   Evaluator miscalibration: N — [evaluator flagging correct behavior]
+    *   Expected tradeoffs: N — [known side-effects of the change]
+    *   Infrastructure noise: N — [stale cache, empty output, etc.]
+*   **Verdict**: [Real regression / Evaluator needs fixing / Acceptable tradeoff / Noise]
+*   **Action**: [Fix evaluator / Accept tradeoff / Different hypothesis / Investigate further]
 
 ## 🛑 Calibration Failure
 *   **Phase**: Calibration

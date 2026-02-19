@@ -338,8 +338,8 @@ configure_hooks "$TEST_DIR/claude/settings.json"
 jq -e '.hooks.Notification' "$TEST_DIR/claude/settings.json" >/dev/null 2>&1 && pass "HOOKS-01: Adds Notification hooks" || fail "HOOKS-01" "present" "missing"
 jq -e '.hooks.PreToolUse' "$TEST_DIR/claude/settings.json" >/dev/null 2>&1 && pass "HOOKS-02: Adds PreToolUse hooks" || fail "HOOKS-02" "present" "missing"
 # Check new hooks are present
-hb=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-heartbeat.sh")] | length' "$TEST_DIR/claude/settings.json")
-[ "$hb" = "1" ] && pass "HOOKS-02b: Adds heartbeat hook" || fail "HOOKS-02b" "1" "$hb"
+hb=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-overflow-v2.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$hb" = "1" ] && pass "HOOKS-02b: Adds overflow-v2 hook" || fail "HOOKS-02b" "1" "$hb"
 # discovery hook removed (moved to PreToolUse _run_discovery)
 teardown
 
@@ -362,7 +362,7 @@ custom_ptu=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/h
 [ "$custom_ptu" = "1" ] && pass "HOOKS-03: Deep-merge preserves user's custom PreToolUse hook" || fail "HOOKS-03" "1" "$custom_ptu"
 custom_notif=$(jq '[.hooks.Notification[] | select(.hooks[0].command == "~/.claude/hooks/my-notifier.sh")] | length' "$TEST_DIR/claude/settings.json")
 [ "$custom_notif" = "1" ] && pass "HOOKS-03b: Deep-merge preserves user's custom Notification hook" || fail "HOOKS-03b" "1" "$custom_notif"
-engine_overflow=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-overflow.sh")] | length' "$TEST_DIR/claude/settings.json")
+engine_overflow=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-overflow-v2.sh")] | length' "$TEST_DIR/claude/settings.json")
 [ "$engine_overflow" = "1" ] && pass "HOOKS-03c: Deep-merge adds engine hooks alongside custom" || fail "HOOKS-03c" "1" "$engine_overflow"
 teardown
 
@@ -371,7 +371,7 @@ setup
 echo '{}' > "$TEST_DIR/claude/settings.json"
 configure_hooks "$TEST_DIR/claude/settings.json"
 configure_hooks "$TEST_DIR/claude/settings.json"
-overflow_count=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-overflow.sh")] | length' "$TEST_DIR/claude/settings.json")
+overflow_count=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.claude/hooks/pre-tool-use-overflow-v2.sh")] | length' "$TEST_DIR/claude/settings.json")
 [ "$overflow_count" = "1" ] && pass "HOOKS-04: Idempotent — no duplicates after second run" || fail "HOOKS-04" "1" "$overflow_count"
 teardown
 

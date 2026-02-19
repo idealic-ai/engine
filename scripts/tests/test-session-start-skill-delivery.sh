@@ -245,14 +245,11 @@ test_no_active_session_no_skill_deps() {
   assert_not_empty "$output" "no active session → exit cleanly with standards"
 }
 
-# --- Test 5: Active session but pid=null — skips in pid_exists check ---
-test_active_session_null_pid_finds_skill_deps() {
+# --- Test 5: Active session but pid=null — pid_exists correctly rejects null/0 ---
+test_active_session_null_pid_no_skill_deps() {
   create_test_skill "implement"
 
-  # Create a session with lifecycle=active but pid=null
-  # Note: pid=null in JSON is treated as "no PID", so pid_exists should fail.
-  # However, the hook reads it as 0 (via jq), and pid_exists may not check 0 properly.
-  # This test documents the bug: null PID sessions still deliver skill deps.
+  # pid=null in JSON → jq reads as 0 → pid_exists rejects (guards against PID 0)
   local session_dir="$PROJECT_DIR/sessions/null_pid_session"
   mkdir -p "$session_dir"
   cat > "$session_dir/.state.json" <<JSON
@@ -268,16 +265,13 @@ JSON
   local output
   output=$(run_hook "clear") || true
 
-  # Standards should be present
   assert_contains "COMMANDS content" "$output" \
     "null PID → standards present"
 
-  # BUG: Skill deps ARE delivered even though pid=null (should not be)
-  # This test documents the bug — the hook delivers skill deps for null PIDs
-  assert_contains "Test implement skill" "$output" \
-    "null PID with lifecycle=active → BUG: SKILL.md still delivered (pid_exists doesn't reject null/0)"
+  # FIXED: pid_exists rejects PID 0 — no skill deps for null PID sessions
+  assert_not_contains "Test implement skill" "$output" \
+    "null PID with lifecycle=active → no SKILL.md delivered (pid_exists rejects null/0)"
 
-  # No crash
   assert_not_empty "$output" "null PID → exit cleanly with standards"
 }
 
@@ -967,7 +961,8 @@ MD
     "debrief exists → log NOT preloaded (debrief takes priority)" || true
   # NOTE: log content might overlap with debrief. Check for [Preloaded: header instead
   local log_preload_count
-  log_preload_count=$(echo "$output" | grep -c 'Preloaded:.*IMPLEMENT_LOG.md' || true)
+  # Exclude TEMPLATE_ matches — the log template is expected at all phases
+  log_preload_count=$(echo "$output" | grep 'Preloaded:.*IMPLEMENT_LOG.md' | grep -cv 'TEMPLATE_' || true)
   assert_eq "0" "$log_preload_count" \
     "debrief exists → log file NOT in preloaded headers"
 }
@@ -1007,7 +1002,8 @@ MD
     "no debrief → log content preloaded as fallback"
 
   local log_preload_count
-  log_preload_count=$(echo "$output" | grep -c 'Preloaded:.*IMPLEMENT_LOG.md' || true)
+  # Exclude TEMPLATE_ matches — the log template is expected at all phases
+  log_preload_count=$(echo "$output" | grep 'Preloaded:.*IMPLEMENT_LOG.md' | grep -cv 'TEMPLATE_' || true)
   assert_eq "1" "$log_preload_count" \
     "no debrief → log file appears in preloaded header"
 }
@@ -1127,7 +1123,7 @@ run_test test_lifecycle_resuming_delivers_skill_deps
 run_test test_lifecycle_active_delivers_skill_deps
 run_test test_multiple_active_sessions_finds_correct_one
 run_test test_no_active_session_no_skill_deps
-run_test test_active_session_null_pid_finds_skill_deps
+run_test test_active_session_null_pid_no_skill_deps
 run_test test_skill_deps_tracked_in_seed_file
 run_test test_skill_deps_only_when_active_session
 run_test test_session_context_line_included

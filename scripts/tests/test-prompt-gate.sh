@@ -26,6 +26,9 @@ TMP_DIR=$(mktemp -d)
 export CLAUDE_SUPERVISOR_PID=99999999
 unset SESSION_REQUIRED 2>/dev/null || true
 
+# Clean stale PID cache to prevent cross-test pollution
+rm -f /tmp/claude-session-cache-99999999 2>/dev/null || true
+
 # Create fake HOME to isolate session.sh find from real sessions
 setup_fake_home "$TMP_DIR"
 disable_fleet_tmux

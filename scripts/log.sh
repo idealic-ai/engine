@@ -35,7 +35,14 @@ fi
 
 FILE="${1:?Usage: log.sh [--overwrite] <file> (reads content from stdin)}"
 
-mkdir -p "$(dirname "$FILE")"
+# No mkdir -p: if the directory doesn't exist, fail loudly.
+# This prevents silent misdirection when CWD changes (e.g., agent runs cd).
+if [ ! -d "$(dirname "$FILE")" ]; then
+  echo "ERROR: log.sh: directory does not exist: $(dirname "$FILE")" >&2
+  echo "  CWD: $(pwd)" >&2
+  echo "  Hint: Use absolute path or ensure you're in the project root." >&2
+  exit 1
+fi
 
 # Read all stdin into variable
 CONTENT=$(cat)
@@ -47,7 +54,7 @@ else
   # Append mode: auto-inject timestamp into first ## heading
 
   # Check that content has a ## heading
-  if ! printf '%s\n' "$CONTENT" | grep -q '^## '; then
+  if ! printf '%s\n' "$CONTENT" | grep -q '^##'; then
     echo "ERROR: log.sh append mode requires a ## heading in the content." >&2
     echo "  Got:" >&2
     printf '%s\n' "$CONTENT" | head -3 >&2
@@ -62,9 +69,12 @@ else
   INJECTED=false
   RESULT=""
   while IFS= read -r line || [ -n "$line" ]; do
-    if [ "$INJECTED" = false ] && [[ "$line" == "## "* ]]; then
+    if [ "$INJECTED" = false ] && [[ "$line" == "##"* ]]; then
       AFTER_HASH="${line#\#\# }"
-      if [[ "$AFTER_HASH" == "["* ]]; then
+      if [ "$line" = "##" ]; then
+        # Bare ## heading (no text) — inject timestamp only
+        RESULT="${RESULT}## [${TIMESTAMP}]"$'\n'
+      elif [[ "$AFTER_HASH" == "["* ]]; then
         # Already has timestamp-like prefix — skip injection
         RESULT="${RESULT}${line}"$'\n'
       else

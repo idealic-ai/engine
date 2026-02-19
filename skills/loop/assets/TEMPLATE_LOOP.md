@@ -37,14 +37,12 @@
 | 3 | "OCR fallback hint missing" | "Case 15 improves" | Confirmed (+1) | Negative example |
 
 ## 4. Iteration History
-*Condensed view of each iteration's quantitative outcome.*
+*What problem was solved each iteration, with hypothesis outcomes.*
 
-| Iter | Passing | Change | Key Edit | Verdict |
-|------|---------|--------|----------|---------|
-| 0 (baseline) | 12/15 | — | — | — |
-| 1 | 14/15 | +2 | Multi-line header guidance | Improved |
-| 2 | 14/15 | 0 | Coordinate bounds | Neutral |
-| 3 | 15/15 | +1 | OCR fallback hint | Converged |
+*   **Iter 0 (baseline)** — Establishing starting point. 12/15 passing.
+*   **Iter 1** — Problem: multi-line headers split into separate scopes. Fix: header guidance. Hypothesis: Confirmed (+2 cases). 14/15 passing.
+*   **Iter 2** — Problem: coordinate drift on page 2+. Fix: explicit bounds. Hypothesis: Partially confirmed (+0 net, 1 evaluator false positive fixed). 14/15 passing.
+*   **Iter 3** — Problem: OCR degraded input not handled. Fix: fallback hint. Hypothesis: Confirmed (+1). 15/15 passing — converged.
 
 ## 5. Key Edits Made
 *The artifact changes that drove improvement.*

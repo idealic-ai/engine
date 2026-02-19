@@ -124,8 +124,8 @@ test_resolve_phase_1_no_templates() {
   assert_contains "CMD_ASK_ROUND" "$output" "Phase 1 includes CMD_ASK_ROUND"
   assert_contains "CMD_LOG_INTERACTION" "$output" "Phase 1 includes CMD_LOG_INTERACTION"
 
-  # Should NOT include templates (Phase 0 only)
-  assert_not_contains "TEMPLATE_" "$output" "Phase 1 excludes templates"
+  # Templates are included at all phases (needed for logging, debriefs, plans)
+  assert_contains "TEMPLATE_" "$output" "Phase 1 includes templates"
 }
 
 test_resolve_phase_2() {
@@ -146,10 +146,12 @@ test_resolve_sub_phase() {
 }
 
 test_resolve_nonexistent_phase() {
-  # Non-existent phase returns empty
+  # Non-existent phase returns no CMDs but still outputs templates
   local output
   output=$(resolve_phase_cmds "test-skill" "99")
-  assert_empty "$output" "non-existent phase returns empty"
+  assert_not_contains "CMD_" "$output" "non-existent phase has no CMDs"
+  # Templates are always output (phase-independent)
+  assert_contains "TEMPLATE_" "$output" "non-existent phase still includes templates"
 }
 
 test_resolve_nonexistent_skill() {

@@ -66,8 +66,9 @@ timestamp() {
 }
 
 # pid_exists PID — Returns 0 if PID is running, 1 otherwise
+# Guard: PID must be a positive integer. kill -0 0 signals the entire process group.
 pid_exists() {
-  kill -0 "$1" 2>/dev/null
+  [ "$1" -gt 0 ] 2>/dev/null && kill -0 "$1" 2>/dev/null
 }
 
 # hook_allow — Outputs PreToolUse allow JSON and exits 0
@@ -1045,7 +1046,7 @@ _is_already_preloaded() {
 
   local resolved="${normalized/#\~/$HOME}"
 
-  # Path check
+  # Path check (preloadedFiles only — pendingPreloads excluded so delivery path can consume queued files)
   local path_match
   path_match=$(jq -r --arg p "$normalized" --arg r "$resolved" \
     '(.preloadedFiles // []) | any(. == $p or . == $r)' "$state_file" 2>/dev/null || echo "false")
@@ -1238,18 +1239,17 @@ resolve_phase_cmds() {
     done <<< "$phase_cmds"
   fi
 
-  # For Phase 0 (or label "0"): also output template files
-  if [ "$phase_label" = "0" ]; then
-    local template_paths
-    template_paths=$(echo "$params_json" | jq -r '[.logTemplate, .debriefTemplate, .planTemplate] | .[] // empty' 2>/dev/null || echo "")
-    if [ -n "$template_paths" ]; then
-      while IFS= read -r rel_path; do
-        [ -n "$rel_path" ] || continue
-        local candidate="$skill_dir/$rel_path"
-        [ -f "$candidate" ] || continue
-        normalize_preload_path "$candidate"
-      done <<< "$template_paths"
-    fi
+  # Always output template files — templates are needed throughout the session
+  # (log template for logging, debrief template for synthesis, plan template for planning)
+  local template_paths
+  template_paths=$(echo "$params_json" | jq -r '[.logTemplate, .debriefTemplate, .planTemplate] | .[] // empty' 2>/dev/null || echo "")
+  if [ -n "$template_paths" ]; then
+    while IFS= read -r rel_path; do
+      [ -n "$rel_path" ] || continue
+      local candidate="$skill_dir/$rel_path"
+      [ -f "$candidate" ] || continue
+      normalize_preload_path "$candidate"
+    done <<< "$template_paths"
   fi
 }
 

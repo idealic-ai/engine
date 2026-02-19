@@ -50,7 +50,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
   "modes": {
     "quality": {"label": "Quality", "description": "Thorough validation, evidence-driven", "file": "modes/quality.md"},
     "progress": {"label": "Progress", "description": "Cross-session status reporting", "file": "modes/progress.md"},
-    "evangelize": {"label": "Evangelize", "description": "Stakeholder communication, narrative", "file": "modes/evangelize.md"},
+    "daily": {"label": "Daily", "description": "Gemini-first daily report — bundles files, skips Claude reading", "file": "modes/daily.md"},
     "custom": {"label": "Custom", "description": "User-defined", "file": "modes/custom.md"}
   }
 }
@@ -78,7 +78,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
 
 **On selection**: Read the corresponding `modes/{mode}.md` file. It defines Role, Goal, Mindset, and Review Strategy.
 
-**On "Custom"**: Read ALL 3 named mode files first (`modes/quality.md`, `modes/progress.md`, `modes/evangelize.md`), then accept user's framing. Parse into role/goal/mindset.
+**On "Custom"**: Read ALL 3 named mode files first (`modes/quality.md`, `modes/progress.md`, `modes/daily.md`), then accept user's framing. Parse into role/goal/mindset.
 
 **Record**: Store the selected mode. It configures:
 *   Phase 0 role (from mode file)

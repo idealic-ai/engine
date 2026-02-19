@@ -79,7 +79,7 @@ PROMPT_ESCAPED=$(printf '%s' "$PROMPT" | escape_tags)
 AGENT_CONTEXT=$(printf '%s' "$AGENT_CONTEXT" | escape_tags)
 
 # --- Build the DIALOGUE.md entry (compact format) ---
-ENTRY="##"$'\n'
+ENTRY="## "$'\n'
 
 # Add agent context if available (blockquote premise)
 if [ -n "$AGENT_CONTEXT" ]; then

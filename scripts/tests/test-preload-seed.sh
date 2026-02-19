@@ -38,8 +38,10 @@ setup() {
 }
 
 teardown() {
-  # Nothing — cleanup_test_env handles it
-  :
+  # Clean up any active sessions created by tests (prevents state leakage)
+  rm -rf "$TMP_DIR/sessions/test_active" 2>/dev/null || true
+  # Clean up seeds so each test starts fresh
+  rm -rf "$TMP_DIR/sessions/.seeds" 2>/dev/null || true
 }
 
 trap cleanup_test_env EXIT

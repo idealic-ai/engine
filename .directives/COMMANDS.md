@@ -142,49 +142,62 @@ Start a background watcher that blocks until a specific tag appears on a file or
 **Algorithm**:
 1.  **Detect**: You are about to skip a protocol step, or the user asked for off-protocol work.
 2.  **State the Conflict**: In one sentence, explain what you were about to skip or what the user asked for, and why it conflicts with the active protocol.
-3.  **Route**: Execute `AskUserQuestion` with these options:
-
-    *   **Option 1 — "Continue protocol"**
-        *   **Description**: Resume the current step as specified. No deviation.
-
-    *   **Option 2 — "Switch to /[skill]"**
-        *   **Description**: Explicitly change skill. The agent will propose the appropriate skill name.
-
-    *   **Option 3 — "Tag & defer"**
-        *   **Description**: Tag the item with `#needs-X` (e.g., `#needs-implementation`, `#needs-research`) and continue the current protocol.
-
-    *   **Option 4 — "One-time deviation"**
-        *   **Description**: Allow the deviation this once. The agent logs it and returns to the protocol after.
-
-    *   **Option 5 — "Inline quick action"**
-        *   **Description**: For trivial asks (e.g., "what's the file path?", "what time is it"). No logging, no session overhead.
-
-4.  **Execute**: Follow the user's choice. If "One-time deviation", log it to the active `_LOG.md` before executing.
+3.  **Route**: Invoke §CMD_DECISION_TREE with `§ASK_REFUSE_OFF_COURSE`.
+4.  **Execute**: Follow the user's choice:
+    *   **"Continue protocol"**: Resume the current step. No deviation.
+    *   **"Switch to /[skill]"**: Explicitly change skill. The agent proposes the appropriate skill name.
+    *   **"Tag & defer"**: Tag the item with `#needs-X` and continue the current protocol.
+    *   **"One-time deviation"**: Log it to the active `_LOG.md`, execute the deviation, then return to protocol.
+    *   **"Inline quick action"**: For trivial asks. No logging, no session overhead.
+    *   **"Debrief and switch"** (`¶INV_NO_ORPHANED_SESSIONS`): Write a debrief for the current session, idle it, then activate the new skill/task. If already in synthesis, finish the full pipeline. If in a work phase, write a fast debrief + idle only. The user's switch request is already in DIALOGUE.md (captured by `user-prompt-submit-freeform-chat.sh` hook) — use it as the breadcrumb after the debrief to route to the next task.
 5.  **Return**: After any deviation (options 4 or 5), explicitly state which protocol step you're resuming.
+
+### ¶ASK_REFUSE_OFF_COURSE
+Trigger: when the agent or user wants to deviate from the active skill protocol
+Extras: A: Show what work would be lost | B: Show current phase progress | C: Quick status of session
+
+## Decision: Off-Course Resolution
+- [KEEP] Continue protocol
+  Resume the current step as specified. No deviation.
+- [SWAP] Switch to /[skill]
+  Explicitly change skill. Agent proposes the appropriate skill name.
+- [HOLD] Tag & defer
+  Tag with `#needs-X` and continue current protocol
+- Debrief and switch
+  Write debrief for current session, idle it, then switch to new work
+- One-time deviation
+  Allow the deviation this once. Agent logs it and returns to protocol after.
+- Inline quick action
+  For trivial asks (file path, time, quick lookup). No logging overhead.
 
 **Constraints**:
 *   **No Silent Skips**: If you skip a step without firing this command, you have violated the protocol. There is no "too simple" exception.
 *   **No Self-Authorization**: You cannot choose an option yourself. The user always decides.
 *   **Scope**: A "deviation" means skipping a protocol STEP or performing work that belongs to a different SKILL. Individual tool calls within a step (e.g., reading an extra file for context) are not deviations.
 *   **User Priority**: The user's explicit requests always take priority over the session type. If the user directly asks for analysis during an implementation session, that is not a deviation — do it, then return to the protocol. Only fire this command when the agent itself wants to go off-course, or when the user's request would skip a protocol step. "This is an implementation task, not an analysis task" is NEVER a valid refusal when the user directly asked for analysis.
+*   **`¶INV_NO_ORPHANED_SESSIONS`**: When the deviation involves switching skills or starting new work, and the current session has progressed past Phase 0 with no debrief, the "Debrief and switch" option MUST be surfaced. The agent should proactively note that work would be lost without a debrief.
 
 **Examples**:
 
 *   **Example 1 — Model wants to skip RAG during `/implement`**:
     > "Phase 2 requires RAG search (`§CMD_INGEST_CONTEXT_BEFORE_WORK`), but I think the context is already sufficient from the brainstorm session. This conflicts with the protocol."
-    > → [AskUserQuestion with 5 options]
+    > → [AskUserQuestion via `§ASK_REFUSE_OFF_COURSE`]
 
 *   **Example 2 — User asks to make a code change during `/analyze`**:
     > "You asked me to fix the bug I found, but we're in an `/analyze` session (read-only). Making changes belongs to `/implement`."
-    > → [AskUserQuestion with 5 options]
+    > → [AskUserQuestion via `§ASK_REFUSE_OFF_COURSE`]
 
 *   **Example 3 — User asks to brainstorm alternatives during `/implement`**:
     > "You want to explore alternative approaches, but we're in Phase 5 (Build Loop) of `/implement`. Exploration belongs to `/brainstorm`."
-    > → [AskUserQuestion with 5 options]
+    > → [AskUserQuestion via `§ASK_REFUSE_OFF_COURSE`]
 
 *   **Example 4 — Model judges interrogation as overkill**:
     > "Phase 3 requires a minimum of 3 interrogation rounds, but the task feels straightforward. I'm tempted to skip to planning. This conflicts with the protocol."
-    > → [AskUserQuestion with 5 options]
+    > → [AskUserQuestion via `§ASK_REFUSE_OFF_COURSE`]
+
+*   **Example 5 — User invokes `/implement` while mid-work in `/analyze`**:
+    > "You want to switch to `/implement`, but we're in Phase 3 (Analysis Loop) of `/analyze` with 5 findings logged. This session has work that would be lost without a debrief (`¶INV_NO_ORPHANED_SESSIONS`)."
+    > → [AskUserQuestion via `§ASK_REFUSE_OFF_COURSE` — "Debrief and switch" surfaced prominently]
 
 ### ¶CMD_SESSION_CLI
 **CRITICAL**:

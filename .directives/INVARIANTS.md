@@ -45,6 +45,15 @@ This document defines the system physics — rules about how sessions, phases, t
     *   **Redirection**: Instead of self-authoring a reason, call `AskUserQuestion` with the phase transition as an option. The user's response becomes the valid reason.
     *   **Reason**: Agents systematically invent plausible-sounding justifications for non-sequential phase transitions. Text-based prohibition lists are ineffective because agents rephrase around them. Requiring a tool call creates a mechanical audit trail — no `AskUserQuestion` in the transcript means the `--user-approved` is invalid.
 
+*   **¶INV_NO_ORPHANED_SESSIONS**: Sessions with work done must not be abandoned without a debrief.
+    *   **Rule**: When the agent detects a topic change, skill switch, or new task request while an active session has progressed past Phase 0 (Setup), it MUST fire `§CMD_REFUSE_OFF_COURSE` before proceeding. The agent writes a debrief (abbreviated or full, depending on current phase) and idles the session before activating the new work.
+    *   **Detection**: `currentPhase` in `.state.json` is past `"0: Setup"` — this means work was started. No debrief file exists in the session directory.
+    *   **Exempt**: `/do` sessions — lightweight ad-hoc work where debrief friction exceeds value.
+    *   **Contextual synthesis**: If the session is already in a synthesis sub-phase (N.1+), finish the full synthesis pipeline. If the session is in a work phase (before synthesis), write a fast debrief + idle only (skip checklists, pipeline, close ceremony).
+    *   **On user skip**: If the user explicitly says "skip debrief" via the decision tree, log the skip reason to the session log, then idle the session without debrief. The audit trail is preserved.
+    *   **Overflow during debrief**: Dehydrate with "finish debrief then switch" as the next step. The user's switch request is captured in DIALOGUE.md by the `user-prompt-submit-freeform-chat.sh` hook — this serves as the breadcrumb for post-debrief routing.
+    *   **Reason**: Agents systematically prioritize the user's new request over session hygiene. Without this invariant, sessions accumulate with work done but no debrief — losing the audit trail, RAG discoverability, and knowledge capture that debriefs provide.
+
 ## 3. Tag Physics
 
 *   **¶INV_ESCAPE_BY_DEFAULT**: All lifecycle tags in body text MUST be backtick-escaped unless intentional.

@@ -138,5 +138,65 @@ assert_file_contains "$FILE" 'Obstacle.*TypeScript Error 2322' "Bullet 1 preserv
 assert_file_contains "$FILE" 'Context.*Missing type' "Bullet 2 preserved"
 assert_file_contains "$FILE" 'Severity.*Blocking' "Bullet 3 preserved"
 
+# --- Test 7: Append works after cd to different directory ---
+echo ""
+echo "Test 7: sessions/ path resolves correctly even after cd"
+# Simulate project root with sessions dir
+PROJECT="$TMPDIR/project7"
+mkdir -p "$PROJECT/sessions/TEST_SESSION"
+mkdir -p "$PROJECT/subdir"
+FILE="$PROJECT/sessions/TEST_SESSION/LOG.md"
+echo "# Log" > "$FILE"
+
+# cd into a subdirectory (simulates agent running `cd packages/sdk && tsup`)
+(
+  cd "$PROJECT"
+  "$LOG_SH" "sessions/TEST_SESSION/LOG.md" <<'EOF'
+## Entry Before CD
+*   **Status**: Written from project root
+EOF
+)
+
+# Now cd away and try to log — this is the bug scenario
+(
+  cd "$PROJECT/subdir"
+  "$LOG_SH" "$PROJECT/sessions/TEST_SESSION/LOG.md" <<'EOF'
+## Entry With Absolute Path
+*   **Status**: Written with absolute path (always works)
+EOF
+)
+
+assert_file_contains "$FILE" 'Entry Before CD' "Entry from project root persisted"
+assert_file_contains "$FILE" 'Entry With Absolute Path' "Entry with absolute path persisted"
+
+# The real bug: relative path after cd
+# Agent runs: engine log sessions/DIR/LOG.md but CWD is /subdir
+# log.sh should NOT mkdir -p and silently create dirs — it should error
+set +e
+CD_OUTPUT=$(cd "$PROJECT/subdir" && "$LOG_SH" "sessions/TEST_SESSION/LOG.md" <<'EOF' 2>&1
+## Entry After CD
+*   **Status**: Written from wrong CWD
+EOF
+)
+CD_RESULT=$?
+set -e
+
+# The entry should NOT silently create sessions/TEST_SESSION/LOG.md under subdir/
+if [ -f "$PROJECT/subdir/sessions/TEST_SESSION/LOG.md" ]; then
+  fail "Relative path after cd: no silent misdirection" \
+    "file NOT created under subdir/" \
+    "file created at $PROJECT/subdir/sessions/TEST_SESSION/LOG.md"
+else
+  pass "Relative path after cd: no silent misdirection"
+fi
+# It should have errored (dir doesn't exist, no mkdir -p to save it)
+if [ "$CD_RESULT" -ne 0 ]; then
+  pass "Relative path after cd: errors when dir doesn't exist (exit $CD_RESULT)"
+else
+  fail "Relative path after cd: errors when dir doesn't exist" \
+    "non-zero exit" \
+    "exit 0 (silent success)"
+fi
+
 # --- Summary ---
 exit_with_results

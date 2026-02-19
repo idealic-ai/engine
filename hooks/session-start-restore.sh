@@ -78,10 +78,12 @@ _set_active_session() {
   ACTIVE_HEARTBEAT="${S_HEARTBEAT}/${S_HEARTBEAT_MAX}"
 }
 
-# Single-pass scan: extract lifecycle + fleetPaneId + pid + dehydratedContext in one jq call per file.
-# Checks fleet match first, then PID fallback. Also notes dehydratedContext for later use.
-# Replaces the former 3-pass approach (fleet, PID, dehydration — each with separate jq calls).
+# Two-pass scan: fleet match has priority, PID fallback only if no fleet match.
+# Single jq call per file extracts all needed fields. Also notes dehydratedContext.
+# Pass 1: full scan — fleet match breaks immediately, PID candidate is remembered.
+# Pass 2: if no fleet match found, use the remembered PID candidate.
 DEHYDRATED_STATE_FILE=""
+PID_FALLBACK_FILE=""
 for sessions_dir in "${SESSION_DIRS[@]}"; do
   for f in "$sessions_dir"/*/.state.json; do
     [ -f "$f" ] || continue
@@ -101,21 +103,26 @@ for sessions_dir in "${SESSION_DIRS[@]}"; do
     # Only match active/resuming sessions
     { [ "$S_LIFECYCLE" = "active" ] || [ "$S_LIFECYCLE" = "resuming" ]; } || continue
 
-    # Fleet match (if in tmux)
+    # Fleet match (if in tmux) — immediate win, break out
     if [ -n "$FLEET_LABEL" ] && [ -n "$S_FLEET" ] && [[ "$S_FLEET" == *"$FLEET_LABEL" ]]; then
       _set_active_session "$f"
       debug "fleet match: $ACTIVE_SESSION (paneId=$S_FLEET)"
       break 2
     fi
 
-    # PID fallback (if no fleet match yet)
-    if [ -z "$ACTIVE_SESSION" ] && [ "$S_PID" != "0" ] && pid_exists "$S_PID"; then
-      _set_active_session "$f"
-      debug "pid match: $ACTIVE_SESSION (pid=$S_PID)"
-      break 2
+    # PID candidate — remember first match, don't break (fleet may match later)
+    if [ -z "$PID_FALLBACK_FILE" ] && [ "$S_PID" != "0" ] && pid_exists "$S_PID"; then
+      PID_FALLBACK_FILE="$f"
+      debug "pid candidate: $(basename "$(dirname "$f")") (pid=$S_PID)"
     fi
   done
 done
+
+# Pass 2: PID fallback only if no fleet match was found
+if [ -z "$ACTIVE_SESSION" ] && [ -n "$PID_FALLBACK_FILE" ]; then
+  _set_active_session "$PID_FALLBACK_FILE"
+  debug "pid fallback: $ACTIVE_SESSION"
+fi
 
 CONTEXT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
 WORKSPACE_INFO=""

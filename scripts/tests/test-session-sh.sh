@@ -399,6 +399,64 @@ test_activate_cleans_dead_pid() {
   teardown
 }
 
+test_activate_preserves_dehydrated_session() {
+  local test_name="activate: preserves .state.json when dead PID has dehydration markers"
+  setup
+
+  # Create state with dead PID + dehydration markers (killRequested + dehydratedContext)
+  create_state "$TEST_DIR/sessions/DEHYDRATED" '{
+    "pid": 99999998,
+    "skill": "fix",
+    "lifecycle": "active",
+    "killRequested": true,
+    "currentPhase": "3.A: Fix Loop",
+    "dehydratedContext": {
+      "summary": "Fixing status line bug",
+      "lastAction": "Applied first fix",
+      "nextSteps": ["Apply second fix"],
+      "requiredFiles": []
+    },
+    "phaseHistory": [{"phase": "0: Setup", "ts": "2026-02-18T12:00:00"}]
+  }'
+
+  export CLAUDE_SUPERVISOR_PID=99999999
+  local output
+  output=$("$SESSION_SH" activate "$TEST_DIR/sessions/DEHYDRATED" fix < /dev/null 2>&1)
+  local exit_code=$?
+
+  local sf="$TEST_DIR/sessions/DEHYDRATED/.state.json"
+
+  # .state.json must still exist (not deleted)
+  if [ ! -f "$sf" ]; then
+    fail "$test_name — .state.json exists" "file exists" "DELETED"
+    teardown
+    return
+  fi
+  pass "$test_name — .state.json exists"
+
+  # PID must be updated to new process
+  local new_pid
+  new_pid=$(jq -r '.pid' "$sf" 2>/dev/null)
+  assert_eq "99999999" "$new_pid" "$test_name — PID updated"
+
+  # Dehydrated context must be preserved
+  local dehydrated_summary
+  dehydrated_summary=$(jq -r '.dehydratedContext.summary // "MISSING"' "$sf" 2>/dev/null)
+  assert_eq "Fixing status line bug" "$dehydrated_summary" "$test_name — dehydratedContext preserved"
+
+  # Phase must be preserved (not reset)
+  local phase
+  phase=$(jq -r '.currentPhase // "MISSING"' "$sf" 2>/dev/null)
+  assert_eq "3.A: Fix Loop" "$phase" "$test_name — currentPhase preserved"
+
+  # Phase history must be preserved
+  local history_len
+  history_len=$(jq '.phaseHistory | length' "$sf" 2>/dev/null)
+  assert_eq "1" "$history_len" "$test_name — phaseHistory preserved"
+
+  teardown
+}
+
 test_activate_claims_pid_from_other_sessions() {
   local test_name="activate: clears PID from other sessions"
   setup
@@ -2914,6 +2972,7 @@ main() {
   echo "--- Activate: PID Conflicts ---"
   test_activate_rejects_alive_pid
   test_activate_cleans_dead_pid
+  test_activate_preserves_dehydrated_session
   test_activate_claims_pid_from_other_sessions
 
   echo ""

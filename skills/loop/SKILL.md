@@ -66,9 +66,9 @@ ARGUMENTS: Accepts optional flags:
   "requestTemplate": "assets/TEMPLATE_LOOP_REQUEST.md",
   "responseTemplate": "assets/TEMPLATE_LOOP_RESPONSE.md",
   "modes": {
-    "precision": {"label": "Precision", "description": "Surgical iteration, isolate variables", "file": "modes/precision.md"},
+    "convergence": {"label": "Convergence", "description": "Correctness-driven, co-evolve evaluator, problem-first", "file": "modes/convergence.md"},
+    "precision": {"label": "Precision", "description": "Surgical iteration, isolate variables, classify changes", "file": "modes/precision.md"},
     "exploration": {"label": "Exploration", "description": "Bold changes, seek breakthroughs", "file": "modes/exploration.md"},
-    "convergence": {"label": "Convergence", "description": "Tighten tolerances, harden edges", "file": "modes/convergence.md"},
     "custom": {"label": "Custom", "description": "User-defined", "file": "modes/custom.md"}
   }
 }
@@ -313,7 +313,14 @@ If the user doesn't have existing agent prompts:
 ---
 
 ## 5. Iteration Loop (The Core Cycle)
-*HYPOTHESIZE -> RUN -> REVIEW -> ANALYZE -> DECIDE -> EDIT*
+*UNDERSTAND -> DESIGN -> IMPLEMENT -> VERIFY -> CO-EVOLVE*
+
+### The Problem-First Manifesto
+1.  **Correctness over numbers** — The goal is to make the artifact CORRECT, not to satisfy the evaluator. Aggregate scores are signals, not targets. A "regression" in score might mean the evaluator is wrong.
+2.  **Collaborative design** — Never reject user proposals. The user has domain knowledge the agent lacks. When the user suggests a change, the agent's job is to ask "What problem does this solve?" and work together on the solution — not to list reasons it might fail.
+3.  **Co-evolve the evaluator** — The evaluator/reviewer is itself a work-in-progress. When it flags correct behavior, fix the evaluator. When it misses real issues, strengthen it. Both artifacts improve together.
+4.  **Qualitative over quantitative** — After every run, classify failures as: real extraction error, evaluator false positive, evaluator miscalibration, or infrastructure bug. Only real errors drive changes.
+5.  **Never revert based on numbers alone** — Investigate what actually changed. A drop in aggregate score with architecturally correct changes means the evaluator needs updating, not the change needs reverting.
 
 §CMD_REPORT_INTENT:
 > 5: Entering iteration loop for ___ workload. ___.
@@ -324,12 +331,13 @@ If the user doesn't have existing agent prompts:
 
 ### For Each Iteration (1 to maxIterations):
 
-#### Step A: HYPOTHESIZE
+#### Step A: UNDERSTAND (Problem-First)
 
-1.  **Review**: What did the previous iteration reveal? (Skip for iteration 1 -- use baseline findings.)
-2.  **Hypothesize**: "The artifact lacks [X], causing [Y] failures. Adding [Z] should improve [W]."
-3.  **Predict**: State the expected outcome explicitly. "After this change, cases A, B, C should improve."
-4.  **Log**: Append hypothesis entry to LOOP_LOG.md with prediction.
+1.  **Ask**: "What is the problem we are solving?" — State the specific parsing/extraction/quality failure in concrete terms. Not "numbers dropped" but "the model doesn't separate recap totals from table content."
+2.  **Collaborate**: Present the problem to the user. Ask for their diagnosis and domain insight. The user sees things the agent cannot.
+3.  **Hypothesize**: Together with the user, form a hypothesis: "The artifact lacks [X], causing [Y] because [Z mechanism]."
+4.  **Predict**: State the expected outcome. "After this change, [specific pages/cases] should improve because [reason]."
+5.  **Log**: Append hypothesis entry to LOOP_LOG.md with problem statement and prediction.
 
 #### Step B: RUN
 
@@ -337,17 +345,26 @@ If the user doesn't have existing agent prompts:
 2.  **Collect Output**: Store results at `outputPath`.
 3.  **Log**: Append experiment entry.
 
-#### Step C: REVIEW
+#### Step C: REVIEW + CLASSIFY
 
-1.  **Evaluate**: Run `evaluateCommand` to get quality assessment.
-    *   If `expectedPaths` configured: also compute diff-based metrics.
-2.  **Log**: Append critique entry with evaluation results.
+1.  **Collect data**: Run `evaluateCommand` to gather per-case results.
+    *   If `expectedPaths` configured: also compute diff-based data.
+2.  **Examine per-case results qualitatively** BEFORE looking at aggregates. For each case, ask: what changed from baseline? Is the change correct?
+3.  **Classify every failure** (MANDATORY before drawing conclusions):
+    *   **Real error** — the artifact produced wrong output
+    *   **Evaluator false positive** — the evaluator flagged correct behavior
+    *   **Evaluator miscalibration** — the evaluator is applying wrong rules
+    *   **Infrastructure bug** — empty output, stale data, schema validation failure
+4.  **Report by classification first**: "X real errors, Y evaluator false positives, Z infrastructure bugs." Aggregate scores are secondary context.
+5.  **Co-evolve**: If evaluator false positives or miscalibrations are found, fix the evaluator NOW — don't defer. Both artifacts improve in the same iteration.
+6.  **Log**: Append critique entry with classification breakdown, then aggregate numbers as supporting context.
 
 #### Step D: ANALYZE (Composer Subagent)
 
 1.  **Invoke Composer**: Launch the Composer subagent via Task tool with:
+    *   The problem statement and user diagnosis from Step A (the collaborative understanding)
     *   Full prompt/schema text from `artifactPaths`
-    *   All evaluation critiques from this iteration
+    *   Classified evaluation results from Step C (not raw scores — the qualitative breakdown)
     *   Complete iteration history (hypothesis records from LOOP_LOG.md)
     *   Domain docs from `domainDocs`
     *   The Composer prompt template from `agents.composer.promptFile`
@@ -390,20 +407,32 @@ If the user doesn't have existing agent prompts:
 
 #### Convergence Check (End of Each Iteration)
 
-*   **If all cases passing**: Log iteration complete (converged), exit loop.
-*   **If max iterations reached**: Log iteration complete (max reached), exit loop.
-*   **If no improvement for 2 iterations**: Present choice to user:
-    *   "Continue with different approach" -- Try a fundamentally different hypothesis
-    *   "Stop -- accept current state" -- Exit to synthesis
-*   **If regression detected**:
-    1.  Log regression detected.
-    2.  DO NOT auto-revert. The failed experiment is valuable data.
-    3.  Present choice:
-        *   "Accept tradeoff and continue" -- The improvement elsewhere outweighs the regression
-        *   "Try different hypothesis next" -- The approach was wrong, form new hypothesis
-        *   "Stop and analyze" -- Exit to synthesis with regression analysis
+Evaluate the iteration hypothesis-first, then use metrics as supporting evidence:
 
-*   **Otherwise**: Continue to next iteration (loop back to Step A).
+1.  **Did we solve the stated problem?** Review Step A's problem statement and prediction.
+    *   If yes: Log hypothesis confirmed. Check if broader goals are met.
+    *   If partially: Log what worked and what didn't. Refine hypothesis for next iteration.
+    *   If no: Log hypothesis rejected. Form new hypothesis for next iteration.
+
+2.  **Did the prediction hold?** Compare Step A's specific prediction to classified results from Step C.
+    *   Prediction matched → hypothesis confirmed, high confidence in the change.
+    *   Prediction partially matched → mechanism is right but scope was off.
+    *   Prediction wrong → root cause analysis was incorrect, revisit understanding.
+
+3.  **What do the numbers say?** Use aggregate metrics as supporting evidence, not as the verdict.
+    *   All cases passing → converged, exit loop.
+    *   Max iterations reached → exit to synthesis with remaining issues documented.
+    *   No hypothesis confirmed for 2 iterations → present choice: different approach or accept current state.
+
+4.  **Classify any unexpected changes.** If cases that weren't targeted by the hypothesis changed:
+    *   Classify each change: real regression / evaluator miscalibration / expected side-effect / infrastructure noise.
+    *   NEVER revert based on numbers alone. Present the classified analysis to the user.
+    *   Present choice:
+        *   "Fix evaluator and re-measure" -- The evaluator is miscalibrated
+        *   "Accept tradeoff and continue" -- The improvement elsewhere outweighs the real change
+        *   "Try different approach" -- The change caused real regressions, form new hypothesis
+
+5.  **Otherwise**: Continue to next iteration (loop back to Step A).
 
 ---
 
@@ -445,5 +474,9 @@ The protocol respects these invariants:
 *   **¶INV_RE_REVIEW_AFTER_EDIT**: After each edit, the next iteration's RUN+REVIEW step provides fresh evaluation. Do not compare old reviews to new outputs.
 *   **¶INV_EXPECTED_OPTIONAL**: `expectedPaths` in the manifest is optional. The loop must work from evaluation critiques alone.
 *   **¶INV_MANIFEST_COLOCATED**: Manifests live with workload code, not in a central registry.
-*   **¶INV_NO_SILENT_REGRESSION**: Regressions are detected and surfaced to the user with options. Never silently accepted.
+*   **¶INV_NO_SILENT_REGRESSION**: Score drops are investigated and classified before any action. Never silently reverted.
 *   **¶INV_VALIDATE_BEFORE_ITERATE**: Single-case calibration before the full loop.
+*   **¶INV_CORRECTNESS_OVER_SCORE**: The goal is correct output, not high scores. Evaluator scores are signals, not targets. When the evaluator disagrees with correct output, fix the evaluator.
+*   **¶INV_CO_EVOLVE_EVALUATOR**: The evaluator/reviewer is a co-evolving artifact. False positives and miscalibrations are fixed in the same iteration they're discovered, not deferred.
+*   **¶INV_COLLABORATIVE_DESIGN**: Never reject user proposals. Ask "What problem does this solve?" and work together on the solution. The user has domain knowledge the agent lacks.
+*   **¶INV_CLASSIFY_BEFORE_CONCLUDE**: Every failure must be classified (real error / evaluator false positive / evaluator miscalibration / infrastructure bug) before any conclusion is drawn about an iteration's outcome.

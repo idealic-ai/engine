@@ -118,13 +118,13 @@ echo "=== Idle Path Unification ==="
 # Verify idle path no longer hardcodes SHOULD_SCAN=false
 # The old line was: SHOULD_SCAN=false  # Fast-track: skip RAG scans
 # The new line should be: SHOULD_SCAN=true  # Unified: --fast-track override applied later if set
-IDLE_SCAN_LINE=$(grep -A30 'EXISTING_LIFECYCLE.*=.*idle' "$SESSION_SH" | grep 'SHOULD_SCAN=' | head -1 || echo "")
+IDLE_SCAN_LINE=$(grep -A50 'EXISTING_LIFECYCLE.*=.*idle' "$SESSION_SH" | grep 'SHOULD_SCAN=' | head -1 || echo "")
 echo ""
 echo "Case 5: Idle path sets SHOULD_SCAN=true (unified)"
 assert_contains "idle path SHOULD_SCAN=true" "SHOULD_SCAN=true" "$IDLE_SCAN_LINE"
 
 # Verify old hardcoded false is gone
-IDLE_HARDCODED_FALSE=$(grep -A30 'EXISTING_LIFECYCLE.*=.*idle' "$SESSION_SH" | grep -c 'SHOULD_SCAN=false' 2>/dev/null; true)
+IDLE_HARDCODED_FALSE=$(grep -A50 'EXISTING_LIFECYCLE.*=.*idle' "$SESSION_SH" | grep -c 'SHOULD_SCAN=false' 2>/dev/null; true)
 echo ""
 echo "Case 6: Idle path has no hardcoded SHOULD_SCAN=false"
 assert_eq "no hardcoded SHOULD_SCAN=false in idle path" "0" "$IDLE_HARDCODED_FALSE"
@@ -173,7 +173,7 @@ ACTIVATE_OUTPUT=$(CLAUDE_SUPERVISOR_PID=$$ engine session activate "$SESSION_DIR
   "nextSkills": [],
   "extraInfo": "",
   "directives": [],
-  "phases": [{"label": "0", "name": "Setup"}]
+  "phases": [{"major": 0, "minor": 0, "name": "Setup"}]
 }
 EOF
 )
@@ -215,7 +215,7 @@ ACTIVATE_CONTROL=$(CLAUDE_SUPERVISOR_PID=$$ engine session activate "$SESSION_DI
   "nextSkills": [],
   "extraInfo": "",
   "directives": [],
-  "phases": [{"label": "0", "name": "Setup"}]
+  "phases": [{"major": 0, "minor": 0, "name": "Setup"}]
 }
 EOF
 )

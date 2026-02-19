@@ -16,6 +16,8 @@
 - **80–90% — No new skills, no document writing.** Debriefs, plans, and multi-section artifacts consume ~10-20K tokens (template reads + composition). Interrogation, planning, code editing, testing, logging still OK.
 - **90%+ — Dehydrate NOW.** Execute the algorithm below immediately. No new file reads, no exploration.
 
+**Aim to dehydrate at 90%** - the sweet spot. 80% is too early, since  alot of the time, it takes 50% just to load all context.
+
 ---
 
 ## Algorithm

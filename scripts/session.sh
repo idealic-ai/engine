@@ -417,9 +417,30 @@ case "$ACTION" in
           echo "§CMD_MAINTAIN_SESSION_DIR: Session has active agent (PID $EXISTING_PID). Choose another folder." >&2
           exit 1
         else
-          # Stale PID, process dead — clean up
-          echo "Cleaning up stale .state.json (PID $EXISTING_PID no longer running)"
-          rm "$STATE_FILE"
+          # PID dead — check if dehydrated (awaiting continue) vs truly abandoned
+          IS_DEHYDRATED=$(jq -r 'if (.dehydratedContext != null) or (.killRequested == true) then "true" else "false" end' "$STATE_FILE" 2>/dev/null || echo "false")
+          if [ "$IS_DEHYDRATED" = "true" ]; then
+            # Dehydrated session — preserve state, update PID for reactivation
+            echo "Dehydrated session detected (PID $EXISTING_PID dead). Preserving state and reactivating."
+            JQ_EXPR='.pid = $pid | .lifecycle = "active" | .loading = true | .killRequested = false | .lastHeartbeat = $ts'
+            JQ_ARGS=(--argjson pid "$TARGET_PID" --arg ts "$(timestamp)")
+            if [ -n "$FLEET_PANE" ]; then
+              JQ_EXPR="$JQ_EXPR | .fleetPaneId = \$pane"
+              JQ_ARGS+=(--arg pane "$FLEET_PANE")
+            fi
+            if [ -n "${WORKSPACE:-}" ]; then
+              JQ_EXPR="$JQ_EXPR | .workspace = \$ws"
+              JQ_ARGS+=(--arg ws "$WORKSPACE")
+            fi
+            jq "${JQ_ARGS[@]}" "$JQ_EXPR" "$STATE_FILE" | safe_json_write "$STATE_FILE"
+            ACTIVATED=true
+            SHOULD_SCAN=true
+            echo "Session reactivated (dehydrated → active): $DIR (skill: $SKILL, pid: $TARGET_PID)"
+          else
+            # Truly stale PID, no dehydration markers — clean up
+            echo "Cleaning up stale .state.json (PID $EXISTING_PID no longer running)"
+            rm "$STATE_FILE"
+          fi
         fi
       else
         # PID is null/empty — check if this is an idle session (reactivatable)
@@ -993,9 +1014,13 @@ case "$ACTION" in
     done
 
     # Read proof from STDIN (if available)
+    # Timeout prevents hang when called without heredoc and without < /dev/null
     PROOF_INPUT=""
     if [ ! -t 0 ]; then
-      PROOF_INPUT=$(cat)
+      if IFS= read -r -t 1 _first_line 2>/dev/null; then
+        _rest=$(cat)
+        PROOF_INPUT="${_first_line}${_rest:+$'\n'${_rest}}"
+      fi
     fi
 
     # --- Phase Enforcement ---
@@ -1643,6 +1668,26 @@ case "$ACTION" in
     jq --argjson pid "$TARGET_PID" --arg ts "$(timestamp)" \
       '.pid = $pid | .lifecycle = "active" | del(.loading) | .toolCallsByTranscript = {} | del(.primaryTranscriptKey) | .lastHeartbeat = $ts | .contextUsage = 0 | .overflowed = false | .killRequested = false' \
       "$STATE_FILE" | safe_json_write "$STATE_FILE"
+
+    # Claim fleet pane: clear fleetPaneId from any OTHER session that has it (same as activate)
+    FLEET_PANE_C=$(jq -r '.fleetPaneId // ""' "$STATE_FILE" 2>/dev/null)
+    if [ -z "$FLEET_PANE_C" ]; then
+      FLEET_PANE_C=$(get_fleet_pane_id 2>/dev/null || echo "")
+    fi
+    if [ -n "$FLEET_PANE_C" ]; then
+      SESSIONS_DIR_C=$(dirname "$DIR")
+      grep -l "\"fleetPaneId\": \"$FLEET_PANE_C\"" "$SESSIONS_DIR_C"/*/.state.json 2>/dev/null | while read -r other_file; do
+        [ "$other_file" = "$STATE_FILE" ] && continue
+        jq 'del(.fleetPaneId)' "$other_file" | safe_json_write "$other_file"
+      done || true
+    fi
+
+    # Claim PID: clear our PID from any OTHER session that has it (same as activate)
+    SESSIONS_DIR_C=$(dirname "$DIR")
+    grep -l "\"pid\": $TARGET_PID" "$SESSIONS_DIR_C"/*/.state.json 2>/dev/null | while read -r other_file; do
+      [ "$other_file" = "$STATE_FILE" ] && continue
+      jq 'del(.pid)' "$other_file" | safe_json_write "$other_file"
+    done || true
 
     # PID Cache: write on continue (same as activate)
     echo "$DIR" > "/tmp/claude-session-cache-$TARGET_PID" 2>/dev/null || true
