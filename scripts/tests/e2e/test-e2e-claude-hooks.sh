@@ -3431,7 +3431,7 @@ echo ""
 echo "--- E2E-32: Mega dedup — 9 ops across 3 dirs, multi-level .directives ---"
 
 STDERR_FILE="$TMP_DIR/e2e32_stderr.log"
-RESULT=$(invoke_claude "$PROMPT" "$SCHEMA" "Read,Grep" "6" "--disable-slash-commands" "$STDERR_FILE" 2>&1) || true
+RESULT=$(invoke_claude "$PROMPT" "$SCHEMA" "Read,Grep" "8" "--disable-slash-commands" "$STDERR_FILE" 2>&1) || true
 PARSED=$(extract_result "$RESULT")
 
 if [ -z "$PARSED" ] || [ "$PARSED" = "null" ]; then

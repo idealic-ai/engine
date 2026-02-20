@@ -4,7 +4,7 @@ import type { Database } from "sql.js";
  * Schema version — bump when table structure changes.
  * On open, if PRAGMA user_version doesn't match, tables are dropped and recreated.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 /**
  * Apply the engine v3 daemon schema to a database.
@@ -46,6 +46,8 @@ export function applySchema(db: Database): void {
       cmd_dependencies JSONB,
       next_skills     JSONB,
       directives      JSONB,
+      version         TEXT,
+      description     TEXT,
       updated_at      TEXT DEFAULT (datetime('now')),
       UNIQUE(project_id, name)
     )

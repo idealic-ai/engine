@@ -14,13 +14,20 @@
  *   db.skills.*   — cached SKILL.md parse
  *   db.effort.*   — skill invocations (the core v3 entity)
  *   db.session.*  — ephemeral context windows
+ *   db.agents.*   — fleet agent identity
+ *   db.messages.* — conversation transcripts
  */
 
 // v3 RPCs — project, task, skills, effort, session namespaces
 import "./db-project-upsert.js";
 import "./db-task-upsert.js";
+import "./db-task-list.js";
+import "./db-task-find.js";
 import "./db-skills-upsert.js";
 import "./db-skills-get.js";
+import "./db-skills-list.js";
+import "./db-skills-delete.js";
+import "./db-skills-find.js";
 import "./db-effort-start.js";
 import "./db-effort-finish.js";
 import "./db-effort-phase.js";
@@ -31,3 +38,8 @@ import "./db-session-heartbeat.js";
 import "./db-session-update-context.js";
 import "./db-session-update-files.js";
 import "./db-session-find.js";
+import "./db-agents-register.js";
+import "./db-agents-get.js";
+import "./db-agents-list.js";
+import "./db-messages-append.js";
+import "./db-messages-list.js";

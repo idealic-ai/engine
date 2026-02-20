@@ -295,6 +295,67 @@ safe_json_write() {
   fi
 }
 
+# safe_json_update FILE [JQ_ARGS...] JQ_FILTER
+#   Atomic read-modify-write: acquires lock, reads FILE, applies jq filter, writes result.
+#   Prevents TOCTOU race where `jq ... FILE | safe_json_write FILE` reads before locking.
+#   All args after FILE are passed directly to jq (--arg, --argjson, then filter last).
+safe_json_update() {
+  local file="${1:?safe_json_update requires FILE as arg 1}"
+  shift
+  # remaining args: [jq_flags...] jq_filter
+
+  local lock_dir="${file}.lock"
+  local tmp_file="${file}.tmp.$$"
+
+  # Acquire lock (mkdir is atomic)
+  local retries=0
+  local max_retries=100
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    retries=$((retries + 1))
+    if [ "$retries" -ge "$max_retries" ]; then
+      echo "ERROR: safe_json_update: lock timeout for $file" >&2
+      return 1
+    fi
+    if [ -d "$lock_dir" ]; then
+      local lock_mtime now_epoch lock_age
+      lock_mtime=$(stat -f "%m" "$lock_dir" 2>/dev/null || echo "0")
+      now_epoch=$(date +%s)
+      lock_age=$((now_epoch - lock_mtime))
+      if [ "$lock_age" -gt 10 ]; then
+        rmdir "$lock_dir" 2>/dev/null || true
+        continue
+      fi
+    fi
+    sleep 0.01
+  done
+
+  # Read + transform + write under lock
+  local result
+  if ! result=$(jq "$@" "$file" 2>/dev/null); then
+    rmdir "$lock_dir" 2>/dev/null || true
+    echo "ERROR: safe_json_update: jq transform failed for $file" >&2
+    return 1
+  fi
+
+  # Validate result
+  if ! echo "$result" | jq empty 2>/dev/null; then
+    rmdir "$lock_dir" 2>/dev/null || true
+    echo "ERROR: safe_json_update: invalid JSON result for $file" >&2
+    return 1
+  fi
+
+  # Write atomically: temp file + mv
+  if echo "$result" > "$tmp_file" && mv "$tmp_file" "$file"; then
+    rmdir "$lock_dir" 2>/dev/null || true
+    return 0
+  else
+    rm -f "$tmp_file"
+    rmdir "$lock_dir" 2>/dev/null || true
+    echo "ERROR: safe_json_update: write failed for $file" >&2
+    return 1
+  fi
+}
+
 # --- Input validation functions ---
 # Boundary validation for user/LLM-provided strings.
 # All validators exit 1 with stderr on failure (fail-hard).
@@ -1120,12 +1181,12 @@ preload_ensure() {
     [ -n "$content" ] || { _PRELOAD_RESULT="skipped"; return 0; }
 
     # Atomic state update under lock — add to preloadedFiles
-    jq --arg p "$normalized" '
+    safe_json_update "$state_file" --arg p "$normalized" '
       (.preloadedFiles //= []) |
       if (.preloadedFiles | index($p)) then .
       else .preloadedFiles += [$p]
       end
-    ' "$state_file" | safe_json_write "$state_file"
+    '
 
     # Override detection: local CMD shadows a global CMD with same basename
     local override_header=""
@@ -1145,12 +1206,12 @@ preload_ensure() {
     _log_delivery "${HOOK_NAME:-unknown}" "direct-deliver" "$normalized" "$source"
   else
     # Queue to pendingPreloads
-    jq --arg p "$normalized" '
+    safe_json_update "$state_file" --arg p "$normalized" '
       (.pendingPreloads //= []) |
       if (.pendingPreloads | index($p)) then .
       else .pendingPreloads += [$p]
       end
-    ' "$state_file" | safe_json_write "$state_file"
+    '
 
     _PRELOAD_RESULT="queued"
     _log_delivery "${HOOK_NAME:-unknown}" "queue-pending" "$normalized" "$source"

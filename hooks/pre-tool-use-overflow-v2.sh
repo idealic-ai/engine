@@ -100,11 +100,10 @@ _clear_preloaded() {
     remove_paths=$(echo "$remove_paths" | jq --arg p "$ppath" --arg r "$resolved" '. + [$p, $r]')
   done <<< "$preloaded_paths"
 
-  # Single atomic write: remove from pendingPreloads + add to preloadedFiles
-  jq --argjson paths "$remove_paths" \
+  # Atomic read-modify-write: remove from pendingPreloads + add to preloadedFiles
+  safe_json_update "$state_file" --argjson paths "$remove_paths" \
     '(.pendingPreloads //= []) | .pendingPreloads -= $paths |
-     (.preloadedFiles //= []) | .preloadedFiles = (.preloadedFiles + $paths | unique)' \
-    "$state_file" | safe_json_write "$state_file"
+     (.preloadedFiles //= []) | .preloadedFiles = (.preloadedFiles + $paths | unique)'
 }
 
 # NOTE: _claim_and_preload() removed — replaced by preload_ensure() in lib.sh
@@ -280,33 +279,30 @@ _run_discovery() {
     done <<< "$soft_files"
   fi
 
-  # Update touchedDirs with the files we're about to suggest
+  # Atomic combined update: touchedDirs + pendingPreloads + discoveredChecklists
+  # Uses safe_json_update (read-inside-lock) to prevent TOCTOU race when
+  # parallel tool calls trigger concurrent _run_discovery invocations.
   if [ ${#new_soft_files[@]} -gt 0 ]; then
     local filenames_json="[]"
-    local f
-    for f in "${new_soft_files[@]}"; do
-      filenames_json=$(echo "$filenames_json" | jq --arg name "$f" '. + [$name] | unique')
-    done
-    jq --arg dir "$dir_path" --argjson names "$filenames_json" \
-      '(.touchedDirs //= {}) | .touchedDirs[$dir] = $names' \
-      "$state_file" | safe_json_write "$state_file"
-  fi
-
-  # Add new soft files to pendingPreloads + discoveredChecklists (batched single write)
-  if [ ${#new_soft_files[@]} -gt 0 ]; then
     local files_json="[]"
     local checklists_json="[]"
     local f
     for f in "${new_soft_files[@]}"; do
+      filenames_json=$(echo "$filenames_json" | jq --arg name "$f" '. + [$name] | unique')
       files_json=$(echo "$files_json" | jq --arg f "$f" '. + [$f]')
       if [[ "$(basename "$f")" == "CHECKLIST.md" ]]; then
         checklists_json=$(echo "$checklists_json" | jq --arg f "$f" '. + [$f]')
       fi
     done
-    # Read .preloadedFiles inside jq to avoid stale snapshot (TOCTOU fix)
-    # Both preloadedFiles entries and new_soft_files are already normalized
-    # by normalize_preload_path(), so direct comparison works.
-    jq --argjson files "$files_json" --argjson checklists "$checklists_json" '
+    safe_json_update "$state_file" \
+      --arg dir "$dir_path" \
+      --argjson names "$filenames_json" \
+      --argjson files "$files_json" \
+      --argjson checklists "$checklists_json" \
+      '
+      # Update touchedDirs
+      (.touchedDirs //= {}) | .touchedDirs[$dir] = $names |
+      # Add to pendingPreloads (dedup against preloadedFiles + existing pending)
       (.preloadedFiles // []) as $pf |
       (.pendingPreloads //= []) |
       (.discoveredChecklists //= []) |
@@ -322,7 +318,7 @@ _run_discovery() {
         end
       ) |
       .directiveReadsWithoutClearing = 0
-    ' "$state_file" | safe_json_write "$state_file"
+      '
   fi
 
   return 0
@@ -740,11 +736,10 @@ _deliver_allow_rules() {
             preload_content="${preload_content}${preload_content:+\n\n}$_PRELOAD_CONTENT"
           fi
         done <<< "$preload_files"
-        # Clean processed files from pendingPreloads
+        # Clean processed files from pendingPreloads (atomic to prevent TOCTOU race)
         if [ -n "$state_file" ] && [ -f "$state_file" ]; then
-          jq --argjson proc "$processed_json" '
-            (.pendingPreloads //= []) | .pendingPreloads -= $proc
-          ' "$state_file" | safe_json_write "$state_file"
+          safe_json_update "$state_file" --argjson proc "$processed_json" \
+            '(.pendingPreloads //= []) | .pendingPreloads -= $proc'
         fi
         entry_content="$preload_content"
         ;;

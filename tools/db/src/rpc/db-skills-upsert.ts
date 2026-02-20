@@ -28,6 +28,8 @@ const schema = z.object({
   cmdDependencies: z.unknown().optional(),
   nextSkills: z.unknown().optional(),
   directives: z.unknown().optional(),
+  version: z.string().optional(),
+  description: z.string().optional(),
 });
 
 type Args = z.infer<typeof schema>;
@@ -41,8 +43,8 @@ function handler(args: Args, db: Database): RpcResponse {
   db.exec("BEGIN");
   try {
     db.run(
-      `INSERT INTO skills (project_id, name, phases, modes, templates, cmd_dependencies, next_skills, directives, updated_at)
-       VALUES (?, ?, jsonb(?), jsonb(?), jsonb(?), jsonb(?), jsonb(?), jsonb(?), datetime('now'))
+      `INSERT INTO skills (project_id, name, phases, modes, templates, cmd_dependencies, next_skills, directives, version, description, updated_at)
+       VALUES (?, ?, jsonb(?), jsonb(?), jsonb(?), jsonb(?), jsonb(?), jsonb(?), ?, ?, datetime('now'))
        ON CONFLICT(project_id, name) DO UPDATE SET
          phases = COALESCE(jsonb(excluded.phases), skills.phases),
          modes = COALESCE(jsonb(excluded.modes), skills.modes),
@@ -50,6 +52,8 @@ function handler(args: Args, db: Database): RpcResponse {
          cmd_dependencies = COALESCE(jsonb(excluded.cmd_dependencies), skills.cmd_dependencies),
          next_skills = COALESCE(jsonb(excluded.next_skills), skills.next_skills),
          directives = COALESCE(jsonb(excluded.directives), skills.directives),
+         version = COALESCE(excluded.version, skills.version),
+         description = COALESCE(excluded.description, skills.description),
          updated_at = datetime('now')`,
       [
         args.projectId,
@@ -60,6 +64,8 @@ function handler(args: Args, db: Database): RpcResponse {
         toJsonb(args.cmdDependencies),
         toJsonb(args.nextSkills),
         toJsonb(args.directives),
+        args.version ?? null,
+        args.description ?? null,
       ]
     );
 

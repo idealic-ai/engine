@@ -33,6 +33,8 @@ const JSONB_COLUMNS = [
   "directives",
 ];
 
+const TEXT_COLUMNS = ["version", "description"];
+
 function handler(args: Args, db: Database): RpcResponse {
   // Use json() to convert JSONB columns to readable JSON text
   const jsonSelects = JSONB_COLUMNS.map(
@@ -40,7 +42,7 @@ function handler(args: Args, db: Database): RpcResponse {
   ).join(", ");
 
   const result = db.exec(
-    `SELECT id, project_id, name, ${jsonSelects}, updated_at
+    `SELECT id, project_id, name, ${jsonSelects}, version, description, updated_at
      FROM skills WHERE project_id = ? AND name = ?`,
     [args.projectId, args.name]
   );

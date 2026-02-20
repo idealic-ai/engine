@@ -66,6 +66,8 @@ describe("applySchema v3", () => {
     expect(sql).toContain("name");
     expect(sql).toContain("phases");
     expect(sql).toContain("modes");
+    expect(sql).toContain("version");
+    expect(sql).toContain("description");
     expect(sql).toContain("UNIQUE(project_id, name)");
   });
 
@@ -432,12 +434,12 @@ describe("applySchema v3", () => {
 
   // ── Schema version ──────────────────────────────────────
 
-  it("should set schema version to 3", () => {
+  it("should set schema version to 4", () => {
     applySchema(db);
 
     const result = db.exec("PRAGMA user_version");
     expect(result[0].values[0][0]).toBe(SCHEMA_VERSION);
-    expect(SCHEMA_VERSION).toBe(3);
+    expect(SCHEMA_VERSION).toBe(4);
   });
 
   // ── Idempotency ──────────────────────────────────────────
