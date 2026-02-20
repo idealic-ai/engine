@@ -134,6 +134,8 @@ setup_claude_e2e_env() {
   chmod +x "$FAKE_HOME/.claude/scripts/session.sh"
   # Symlink read-only scripts
   ln -sf "$REAL_SCRIPTS_DIR/lib.sh" "$FAKE_HOME/.claude/scripts/lib.sh"
+  # discover-directives.sh needed by _run_discovery() in pre-tool-use-overflow-v2.sh
+  ln -sf "$REAL_SCRIPTS_DIR/discover-directives.sh" "$FAKE_HOME/.claude/scripts/discover-directives.sh"
 
   # ---- Engine config ----
   mkdir -p "$FAKE_HOME/.claude/engine"
@@ -3290,6 +3292,27 @@ if should_run 32; then
 cleanup_between_tests
 setup_claude_e2e_env "e2e_mega_dedup"
 
+# Active session with directives declared (discovery requires active session)
+cat > "$TEST_SESSION/.state.json" <<STATE_EOF
+{
+  "pid": $$,
+  "skill": "test",
+  "lifecycle": "active",
+  "currentPhase": "2: Testing Loop",
+  "loading": false,
+  "contextUsage": 0.10,
+  "toolCallsSinceLastLog": 0,
+  "toolUseWithoutLogsWarnAfter": 100,
+  "toolUseWithoutLogsBlockAfter": 200,
+  "toolCallsByTranscript": {},
+  "directives": ["PITFALLS.md", "AGENTS.md", "INVARIANTS.md", "TESTING.md", "CONTRIBUTING.md"],
+  "touchedDirs": {},
+  "pendingPreloads": [],
+  "preloadedFiles": []
+}
+STATE_EOF
+enable_session_env
+
 # --- Multi-level directory structure ---
 PKG="$PROJECT_DIR/packages"
 
@@ -3408,7 +3431,7 @@ echo ""
 echo "--- E2E-32: Mega dedup — 9 ops across 3 dirs, multi-level .directives ---"
 
 STDERR_FILE="$TMP_DIR/e2e32_stderr.log"
-RESULT=$(invoke_claude "$PROMPT" "$SCHEMA" "Read,Grep" "4" "--disable-slash-commands" "$STDERR_FILE" 2>&1) || true
+RESULT=$(invoke_claude "$PROMPT" "$SCHEMA" "Read,Grep" "6" "--disable-slash-commands" "$STDERR_FILE" 2>&1) || true
 PARSED=$(extract_result "$RESULT")
 
 if [ -z "$PARSED" ] || [ "$PARSED" = "null" ]; then

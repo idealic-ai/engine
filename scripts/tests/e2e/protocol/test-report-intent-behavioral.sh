@@ -226,19 +226,19 @@ else
     echo "  Got (first 400 chars): $(echo "$RESULT_TEXT" | head -c 400)"
   fi
 
-  # Numbered steps in ACTUAL text output
-  STEP_LINES=$(echo "$RESULT_TEXT" | grep -cE '^\s*>?\s*[0-9]+\.' 2>/dev/null || true)
-  if [ "$STEP_LINES" -gt 1 ]; then
-    pass "Pass A: Real output has numbered steps ($STEP_LINES lines)"
+  # Structured intent in ACTUAL text output (3-line blockquote: What/How/Not-what)
+  INTENT_LINES=$(echo "$RESULT_TEXT" | grep -cE '^\s*>' 2>/dev/null || true)
+  if [ "$INTENT_LINES" -ge 3 ]; then
+    pass "Pass A: Real output has structured intent ($INTENT_LINES blockquote lines)"
   else
-    fail "Pass A: Real output has numbered steps"
-    echo "  Expected: 2+ lines matching N. pattern"
+    fail "Pass A: Real output has structured intent"
+    echo "  Expected: 3+ blockquote lines (> prefix)"
     echo "  Got (first 400 chars): $(echo "$RESULT_TEXT" | head -c 400)"
   fi
 
   echo ""
   echo "  Blockquote lines: $BQ_COUNT"
-  echo "  Numbered step lines: $STEP_LINES"
+  echo "  Intent blockquote lines: $INTENT_LINES"
   echo "  Real text (first 500 chars):"
   echo "  $(echo "$RESULT_TEXT" | head -c 500)"
 fi
@@ -367,18 +367,19 @@ else
     pass "S2 Pass A: Output does NOT mention Phase 3/Planning (no cross-contamination)"
   fi
 
-  # Numbered steps
-  S2_STEP_LINES=$(echo "$RESULT_S2_TEXT" | grep -cE '^\s*>?\s*[0-9]+\.' 2>/dev/null || true)
-  if [ "$S2_STEP_LINES" -gt 1 ]; then
-    pass "S2 Pass A: Real output has numbered steps ($S2_STEP_LINES lines)"
+  # Structured intent (3-line blockquote: What/How/Not-what)
+  S2_INTENT_LINES=$(echo "$RESULT_S2_TEXT" | grep -cE '^\s*>' 2>/dev/null || true)
+  if [ "$S2_INTENT_LINES" -ge 3 ]; then
+    pass "S2 Pass A: Real output has structured intent ($S2_INTENT_LINES blockquote lines)"
   else
-    fail "S2 Pass A: Real output has numbered steps"
+    fail "S2 Pass A: Real output has structured intent"
+    echo "  Expected: 3+ blockquote lines (> prefix)"
     echo "  Got (first 400 chars): $(echo "$RESULT_S2_TEXT" | head -c 400)"
   fi
 
   echo ""
   echo "  Blockquote lines: $S2_BQ_COUNT"
-  echo "  Numbered step lines: $S2_STEP_LINES"
+  echo "  Intent blockquote lines: $S2_INTENT_LINES"
   echo "  Real text (first 500 chars):"
   echo "  $(echo "$RESULT_S2_TEXT" | head -c 500)"
 fi

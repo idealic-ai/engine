@@ -2748,6 +2748,11 @@ case "$ACTION" in
       if [ -z "$CHECK_INPUT" ]; then
         echo "§CMD_PROCESS_CHECKLISTS: Checklists discovered but no results provided on stdin." >&2
         echo "" >&2
+        echo "  Discovered checklists:" >&2
+        while IFS= read -r f; do
+          echo "    - $f" >&2
+        done < <(echo "$DISCOVERED_JSON" | jq -r '.[]')
+        echo "" >&2
         echo "  JSON format required. Schema:" >&2
         echo '  {"path/to/CHECKLIST.md": "full markdown with [x] filled"}' >&2
         exit 1

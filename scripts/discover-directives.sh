@@ -39,6 +39,10 @@ while [ $# -gt 0 ]; do
       ;;
     --root)
       ROOT_DIR="${2:-}"
+      # Canonicalize to resolve symlinks (macOS: /var → /private/var)
+      if [ -n "$ROOT_DIR" ] && [ -d "$ROOT_DIR" ]; then
+        ROOT_DIR=$(cd "$ROOT_DIR" && pwd -P 2>/dev/null || echo "$ROOT_DIR")
+      fi
       shift 2
       ;;
     --include-shared)
@@ -61,6 +65,11 @@ fi
 # Resolve to absolute path
 if [[ "$TARGET_DIR" != /* ]]; then
   TARGET_DIR="$PWD/$TARGET_DIR"
+fi
+
+# Canonicalize to resolve symlinks (macOS: /var → /private/var, /tmp → /private/tmp)
+if [ -d "$TARGET_DIR" ]; then
+  TARGET_DIR=$(cd "$TARGET_DIR" && pwd -P)
 fi
 
 # Normalize (remove trailing slash)
@@ -141,7 +150,7 @@ scan_dir "$TARGET_DIR"
 
 # Walk up to ancestors if requested
 if [ "$WALK_UP" = true ]; then
-  BOUNDARY="$PWD"
+  BOUNDARY=$(cd "$PWD" && pwd -P 2>/dev/null || echo "$PWD")
   if [ -n "${ROOT_DIR:-}" ]; then
     # Use --root as boundary when target is under --root (cross-tree case).
     # PWD is only relevant when the target is under PWD.

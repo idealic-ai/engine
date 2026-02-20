@@ -57,8 +57,8 @@ else
   echo "  $OLD_HITS" | head -3
 fi
 
-# --- New name defined in COMMANDS.md ---
-if grep -q "### ¶CMD_REPORT_INTENT" "$REAL_DIRECTIVES_DIR/COMMANDS.md" 2>/dev/null; then
+# --- New name defined in COMMANDS.md (link or bare heading) ---
+if grep -qE "### (\[¶|¶)CMD_REPORT_INTENT" "$REAL_DIRECTIVES_DIR/COMMANDS.md" 2>/dev/null; then
   pass "§CMD_REPORT_INTENT defined in COMMANDS.md"
 else
   fail "§CMD_REPORT_INTENT NOT found as heading in COMMANDS.md"
@@ -80,11 +80,14 @@ else
   fail "$OLD_REFS SKILL.md files still reference old name"
 fi
 
-# --- Definition has correct structure ---
-if grep -A2 "### ¶CMD_REPORT_INTENT" "$REAL_DIRECTIVES_DIR/COMMANDS.md" 2>/dev/null | grep -q "Definition"; then
-  pass "§CMD_REPORT_INTENT has **Definition** field"
+# --- Definition has correct structure (in COMMANDS.md inline or extracted CMD file) ---
+CMD_FILE="$REAL_ENGINE_DIR/.directives/commands/CMD_REPORT_INTENT.md"
+if grep -A2 "CMD_REPORT_INTENT" "$REAL_DIRECTIVES_DIR/COMMANDS.md" 2>/dev/null | grep -q "Definition"; then
+  pass "§CMD_REPORT_INTENT has **Definition** field (inline in COMMANDS.md)"
+elif [ -f "$CMD_FILE" ] && grep -q "Definition" "$CMD_FILE" 2>/dev/null; then
+  pass "§CMD_REPORT_INTENT has **Definition** field (in extracted CMD file)"
 else
-  fail "Missing **Definition** field in COMMANDS.md"
+  fail "Missing **Definition** field in COMMANDS.md or CMD file"
 fi
 
 echo ""

@@ -1,0 +1,11 @@
+{
+  "name": "engine-tools",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "session-search",
+    "doc-search",
+    "db",
+    "shared"
+  ]
+}
