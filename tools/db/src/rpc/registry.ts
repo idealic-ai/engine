@@ -18,8 +18,12 @@
  *   db.messages.* — conversation transcripts
  */
 
+// Context augmentation — adds ctx.db: DbConnection to RpcContext
+import "./namespace.js";
+
 // v3 RPCs — project, task, skills, effort, session namespaces
 import "./db-project-upsert.js";
+import "./db-project-find.js";
 import "./db-task-upsert.js";
 import "./db-task-list.js";
 import "./db-task-find.js";
@@ -28,12 +32,17 @@ import "./db-skills-get.js";
 import "./db-skills-list.js";
 import "./db-skills-delete.js";
 import "./db-skills-find.js";
+import "./db-effort-get.js";
+import "./db-effort-get-metadata.js";
+import "./db-effort-update-metadata.js";
+import "./db-effort-find-active.js";
 import "./db-effort-start.js";
 import "./db-effort-finish.js";
 import "./db-effort-phase.js";
 import "./db-effort-list.js";
 import "./db-session-start.js";
 import "./db-session-finish.js";
+import "./db-session-get.js";
 import "./db-session-heartbeat.js";
 import "./db-session-update-context.js";
 import "./db-session-update-files.js";
@@ -41,5 +50,9 @@ import "./db-session-find.js";
 import "./db-agents-register.js";
 import "./db-agents-get.js";
 import "./db-agents-list.js";
+import "./db-agents-update-status.js";
+import "./db-agents-find-by-effort.js";
 import "./db-messages-append.js";
 import "./db-messages-list.js";
+import "./db-messages-upsert.js";
+import "./db-session-set-transcript.js";

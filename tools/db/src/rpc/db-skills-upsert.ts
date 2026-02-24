@@ -14,10 +14,11 @@
  *
  * Callers: bash `engine effort start` after parsing SKILL.md from FS.
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
-import { getSkillRow } from "./row-helpers.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { SkillRow } from "./types.js";
 
 const schema = z.object({
   projectId: z.number(),
@@ -39,19 +40,18 @@ function toJsonb(value: unknown): string | null {
   return JSON.stringify(value);
 }
 
-function handler(args: Args, db: Database): RpcResponse {
-  db.exec("BEGIN");
-  try {
-    db.run(
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ skill: SkillRow }>> {
+  const db = ctx.db;
+    await db.run(
       `INSERT INTO skills (project_id, name, phases, modes, templates, cmd_dependencies, next_skills, directives, version, description, updated_at)
-       VALUES (?, ?, jsonb(?), jsonb(?), jsonb(?), jsonb(?), jsonb(?), jsonb(?), ?, ?, datetime('now'))
+       VALUES (?, ?, json(?), json(?), json(?), json(?), json(?), json(?), ?, ?, datetime('now'))
        ON CONFLICT(project_id, name) DO UPDATE SET
-         phases = COALESCE(jsonb(excluded.phases), skills.phases),
-         modes = COALESCE(jsonb(excluded.modes), skills.modes),
-         templates = COALESCE(jsonb(excluded.templates), skills.templates),
-         cmd_dependencies = COALESCE(jsonb(excluded.cmd_dependencies), skills.cmd_dependencies),
-         next_skills = COALESCE(jsonb(excluded.next_skills), skills.next_skills),
-         directives = COALESCE(jsonb(excluded.directives), skills.directives),
+         phases = COALESCE(json(excluded.phases), skills.phases),
+         modes = COALESCE(json(excluded.modes), skills.modes),
+         templates = COALESCE(json(excluded.templates), skills.templates),
+         cmd_dependencies = COALESCE(json(excluded.cmd_dependencies), skills.cmd_dependencies),
+         next_skills = COALESCE(json(excluded.next_skills), skills.next_skills),
+         directives = COALESCE(json(excluded.directives), skills.directives),
          version = COALESCE(excluded.version, skills.version),
          description = COALESCE(excluded.description, skills.description),
          updated_at = datetime('now')`,
@@ -69,12 +69,17 @@ function handler(args: Args, db: Database): RpcResponse {
       ]
     );
 
-    const skill = getSkillRow(db, args.projectId, args.name);
-    db.exec("COMMIT");
-    return { ok: true, data: { skill } };
-  } catch (err: unknown) {
-    db.exec("ROLLBACK");
-    throw err;
+    const skill = await db.get<SkillRow>(
+      "SELECT * FROM skills WHERE project_id = ? AND name = ?",
+      [args.projectId, args.name]
+    );
+    return { ok: true, data: { skill: skill! } };
+
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.skills.upsert": typeof handler;
   }
 }
 

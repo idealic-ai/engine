@@ -7,38 +7,45 @@
  *
  * Callers: fleet.sh start (registers pane agents), run.sh (self-register).
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { AgentRow } from "./types.js";
 
 const schema = z.object({
   id: z.string(),
   label: z.string().optional(),
   claims: z.string().optional(),
+  targetedClaims: z.string().optional(),
+  manages: z.string().optional(),
+  parent: z.string().optional(),
   effortId: z.number().optional(),
+  status: z.string().optional(),
 });
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  db.run(
-    `INSERT OR REPLACE INTO agents (id, label, claims, effort_id)
-     VALUES (?, ?, ?, ?)`,
-    [args.id, args.label ?? null, args.claims ?? null, args.effortId ?? null]
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ agent: AgentRow }>> {
+  const db = ctx.db;
+  await db.run(
+    `INSERT OR REPLACE INTO agents (id, label, claims, targeted_claims, manages, parent, effort_id, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [args.id, args.label ?? null, args.claims ?? null, args.targetedClaims ?? null, args.manages ?? null, args.parent ?? null, args.effortId ?? null, args.status ?? null]
   );
 
-  const result = db.exec("SELECT * FROM agents WHERE id = ?", [args.id]);
-  if (result.length === 0 || result[0].values.length === 0) {
+  const agent = await db.get<AgentRow>("SELECT * FROM agents WHERE id = ?", [args.id]);
+  if (!agent) {
     return { ok: false, error: "HANDLER_ERROR", message: "Agent not found after insert" };
   }
 
-  const { columns, values } = result[0];
-  const agent: Record<string, unknown> = {};
-  for (let i = 0; i < columns.length; i++) {
-    agent[columns[i]] = values[0][i];
-  }
-
   return { ok: true, data: { agent } };
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.agents.register": typeof handler;
+  }
 }
 
 registerCommand("db.agents.register", { schema, handler });

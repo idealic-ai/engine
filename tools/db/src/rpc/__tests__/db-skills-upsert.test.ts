@@ -1,39 +1,40 @@
+import type { RpcContext } from "engine-shared/context";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import type { Database } from "sql.js";
+import type { DbConnection } from "../../db-wrapper.js";
 import { dispatch } from "../dispatch.js";
 import "../db-project-upsert.js";
 import "../db-skills-upsert.js";
 import "../db-skills-get.js";
 import { createTestDb, queryRow, queryCount } from "../../__tests__/helpers.js";
 
-let db: Database;
+let db: DbConnection;
 beforeEach(async () => {
   db = await createTestDb();
-  dispatch({ cmd: "db.project.upsert", args: { path: "/proj" } }, db);
+  await dispatch({ cmd: "db.project.upsert", args: { path: "/proj" } },  { db } as unknown as RpcContext);
 });
-afterEach(() => {
-  db.close();
+afterEach(async () => {
+  await db.close();
 });
 
 describe("db.skills.upsert", () => {
-  it("should create a skill with name only", () => {
-    const result = dispatch(
+  it("should create a skill with name only", async () => {
+    const result = await dispatch(
       {
         cmd: "db.skills.upsert",
         args: { projectId: 1, name: "implement" },
       },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const skill = result.data.skill as Record<string, unknown>;
     expect(skill.name).toBe("implement");
-    expect(skill.project_id).toBe(1);
+    expect(skill.projectId).toBe(1);
     expect(skill.id).toBe(1);
   });
 
-  it("should create a skill with JSONB fields", () => {
+  it("should create a skill with JSONB fields", async () => {
     const phases = [
       { label: "0", name: "Setup" },
       { label: "1", name: "Interrogation" },
@@ -42,7 +43,7 @@ describe("db.skills.upsert", () => {
     const nextSkills = ["/test", "/document"];
     const directives = ["TESTING.md", "PITFALLS.md"];
 
-    const result = dispatch(
+    const result = await dispatch(
       {
         cmd: "db.skills.upsert",
         args: {
@@ -54,45 +55,46 @@ describe("db.skills.upsert", () => {
           directives,
         },
       },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const skill = result.data.skill as Record<string, unknown>;
     // JSONB columns are stored as binary — read back via json()
-    const row = queryRow(
+    const row = await queryRow(
       db,
       "SELECT json(phases) as phases, json(modes) as modes, json(next_skills) as next_skills, json(directives) as directives FROM skills WHERE id = 1"
     );
-    expect(JSON.parse(row!.phases as string)).toEqual(phases);
-    expect(JSON.parse(row!.modes as string)).toEqual(modes);
-    expect(JSON.parse(row!.next_skills as string)).toEqual(nextSkills);
-    expect(JSON.parse(row!.directives as string)).toEqual(directives);
+    const parse = (v: unknown) => typeof v === "string" ? JSON.parse(v) : v;
+    expect(parse(row!.phases)).toEqual(phases);
+    expect(parse(row!.modes)).toEqual(modes);
+    expect(parse(row!.nextSkills)).toEqual(nextSkills);
+    expect(parse(row!.directives)).toEqual(directives);
   });
 
-  it("should be idempotent — upsert same (projectId, name)", () => {
-    dispatch(
+  it("should be idempotent — upsert same (projectId, name)", async () => {
+    await dispatch(
       {
         cmd: "db.skills.upsert",
         args: { projectId: 1, name: "implement" },
       },
-      db
+      { db } as unknown as RpcContext
     );
-    const result = dispatch(
+    const result = await dispatch(
       {
         cmd: "db.skills.upsert",
         args: { projectId: 1, name: "implement" },
       },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(true);
-    expect(queryCount(db, "SELECT COUNT(*) FROM skills")).toBe(1);
+    expect(await queryCount(db, "SELECT COUNT(*) FROM skills")).toBe(1);
   });
 
-  it("should update JSONB fields on re-upsert", () => {
-    dispatch(
+  it("should update JSONB fields on re-upsert", async () => {
+    await dispatch(
       {
         cmd: "db.skills.upsert",
         args: {
@@ -101,59 +103,61 @@ describe("db.skills.upsert", () => {
           phases: [{ label: "0", name: "Setup" }],
         },
       },
-      db
+      { db } as unknown as RpcContext
     );
 
     const newPhases = [
       { label: "0", name: "Setup" },
       { label: "1", name: "Build" },
     ];
-    dispatch(
+    await dispatch(
       {
         cmd: "db.skills.upsert",
         args: { projectId: 1, name: "implement", phases: newPhases },
       },
-      db
+      { db } as unknown as RpcContext
     );
 
-    const row = queryRow(
+    const row = await queryRow(
       db,
       "SELECT json(phases) as phases FROM skills WHERE id = 1"
     );
-    expect(JSON.parse(row!.phases as string)).toEqual(newPhases);
+    const parse = (v: unknown) => typeof v === "string" ? JSON.parse(v) : v;
+    expect(parse(row!.phases)).toEqual(newPhases);
   });
 
-  it("should preserve JSONB fields when re-upsert omits them", () => {
+  it("should preserve JSONB fields when re-upsert omits them", async () => {
     const phases = [{ label: "0", name: "Setup" }];
-    dispatch(
+    await dispatch(
       {
         cmd: "db.skills.upsert",
         args: { projectId: 1, name: "implement", phases },
       },
-      db
+      { db } as unknown as RpcContext
     );
-    dispatch(
+    await dispatch(
       {
         cmd: "db.skills.upsert",
         args: { projectId: 1, name: "implement" },
       },
-      db
+      { db } as unknown as RpcContext
     );
 
-    const row = queryRow(
+    const row = await queryRow(
       db,
       "SELECT json(phases) as phases FROM skills WHERE id = 1"
     );
-    expect(JSON.parse(row!.phases as string)).toEqual(phases);
+    const parse = (v: unknown) => typeof v === "string" ? JSON.parse(v) : v;
+    expect(parse(row!.phases)).toEqual(phases);
   });
 
-  it("should reject non-existent projectId (FK)", () => {
-    const result = dispatch(
+  it("should reject non-existent projectId (FK)", async () => {
+    const result = await dispatch(
       {
         cmd: "db.skills.upsert",
         args: { projectId: 999, name: "implement" },
       },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(false);
@@ -161,23 +165,23 @@ describe("db.skills.upsert", () => {
     expect(result.error).toBe("HANDLER_ERROR");
   });
 
-  it("should allow different skills for same project", () => {
-    dispatch(
+  it("should allow different skills for same project", async () => {
+    await dispatch(
       { cmd: "db.skills.upsert", args: { projectId: 1, name: "implement" } },
-      db
+      { db } as unknown as RpcContext
     );
-    dispatch(
+    await dispatch(
       { cmd: "db.skills.upsert", args: { projectId: 1, name: "brainstorm" } },
-      db
+      { db } as unknown as RpcContext
     );
 
-    expect(queryCount(db, "SELECT COUNT(*) FROM skills")).toBe(2);
+    expect(await queryCount(db, "SELECT COUNT(*) FROM skills")).toBe(2);
   });
 });
 
 describe("db.skills.get", () => {
-  it("should return skill by projectId and name", () => {
-    dispatch(
+  it("should return skill by projectId and name", async () => {
+    await dispatch(
       {
         cmd: "db.skills.upsert",
         args: {
@@ -186,25 +190,25 @@ describe("db.skills.get", () => {
           phases: [{ label: "0", name: "Setup" }],
         },
       },
-      db
+      { db } as unknown as RpcContext
     );
 
-    const result = dispatch(
+    const result = await dispatch(
       { cmd: "db.skills.get", args: { projectId: 1, name: "implement" } },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const skill = result.data.skill as Record<string, unknown>;
     expect(skill.name).toBe("implement");
-    expect(skill.project_id).toBe(1);
+    expect(skill.projectId).toBe(1);
   });
 
-  it("should return null for non-existent skill", () => {
-    const result = dispatch(
+  it("should return null for non-existent skill", async () => {
+    const result = await dispatch(
       { cmd: "db.skills.get", args: { projectId: 1, name: "nonexistent" } },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(true);
@@ -212,19 +216,19 @@ describe("db.skills.get", () => {
     expect(result.data.skill).toBeNull();
   });
 
-  it("should return JSONB fields as parsed JSON", () => {
+  it("should return JSONB fields as parsed JSON", async () => {
     const phases = [{ label: "0", name: "Setup" }];
-    dispatch(
+    await dispatch(
       {
         cmd: "db.skills.upsert",
         args: { projectId: 1, name: "implement", phases },
       },
-      db
+      { db } as unknown as RpcContext
     );
 
-    const result = dispatch(
+    const result = await dispatch(
       { cmd: "db.skills.get", args: { projectId: 1, name: "implement" } },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(true);

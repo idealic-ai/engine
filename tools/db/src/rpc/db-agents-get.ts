@@ -5,9 +5,11 @@
  *
  * Callers: fleet coordination, session activation (agent lookup).
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { AgentRow } from "./types.js";
 
 const schema = z.object({
   id: z.string(),
@@ -15,20 +17,16 @@ const schema = z.object({
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  const result = db.exec("SELECT * FROM agents WHERE id = ?", [args.id]);
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ agent: AgentRow | null }>> {
+  const db = ctx.db;
+  const agent = await db.get<AgentRow>("SELECT * FROM agents WHERE id = ?", [args.id]);
+  return { ok: true, data: { agent: agent ?? null } };
+}
 
-  if (result.length === 0 || result[0].values.length === 0) {
-    return { ok: true, data: { agent: null } };
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.agents.get": typeof handler;
   }
-
-  const { columns, values } = result[0];
-  const agent: Record<string, unknown> = {};
-  for (let i = 0; i < columns.length; i++) {
-    agent[columns[i]] = values[0][i];
-  }
-
-  return { ok: true, data: { agent } };
 }
 
 registerCommand("db.agents.get", { schema, handler });

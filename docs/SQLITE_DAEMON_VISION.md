@@ -4,22 +4,22 @@
 > Supersedes v2 architecture (2-layer tasks+sessions model).
 > Sources: v3 brainstorm + prior sessions (`SQLITE_DAEMON_BRAINSTORM`, `SQLITE_HOOK_MIGRATION`, `DAEMON_RPC_FRAMEWORK`).
 
-### Implementation Status (Snapshot: 2026-02-20, updated by audit)
+### Implementation Status (Snapshot: 2026-02-23)
 
-*   **v3 Schema**: COMPLETE — 9 tables, 4 views, 3 indexes. `SCHEMA_VERSION = 3`. All tables from vision implemented.
-*   **v3 RPCs**: 14 of 27 daemon RPCs built (~52%), 128 tests passing across 14 test files (606ms).
-    *   `db.project.upsert` (1 RPC)
-    *   `db.task.upsert` (1 RPC)
-    *   `db.skills.upsert`, `db.skills.get` (2 RPCs)
-    *   `db.effort.start`, `db.effort.finish`, `db.effort.phase`, `db.effort.list` (4 RPCs)
-    *   `db.session.start`, `db.session.finish`, `db.session.heartbeat`, `db.session.find`, `db.session.updateContextUsage`, `db.session.updateLoadedFiles` (6 RPCs)
-*   **Missing RPCs** (13): `db.task.find/list`, `db.effort.validate`, `db.skills.list`, `db.messages.append/list`, `db.agents.register/update/list`, `search.sessions/docs/directives`
-*   **Hook RPCs**: 0 of 4 built. `hooks.sessionStart/preToolUse/postToolUse/userPrompt` — all unbuilt.
-*   **Bash compound commands**: 0 of 3 built. `engine effort start`, `engine session continue`, `engine log` — all unbuilt.
-*   **Integration**: Zero bash callers — daemon is shadow-only. No RPC CLI entry point (cli.ts has raw SQL query only). session.sh (3064 lines, 14 subcommands) is the production system.
-*   **Code Location**: `~/.claude/engine/tools/db/src/`
-*   **Architecture Quality**: Excellent — consistent Zod validation, transaction discipline (`¶INV_RPC_TRANSACTION_WRAP`), guard-before-mutate pattern, self-registering handlers, clean row-helpers marshalling layer.
-*   **Planned**: Extract SKILL.md JSON manifests to standalone `skill.json` files (simplifies `db.skills.upsert` pipeline).
+*   **v3 Schema**: COMPLETE — 9 tables, 4 views, 3 indexes. `SCHEMA_VERSION = 3`.
+*   **v3 RPCs**: 57 RPCs built across 8 namespaces (+1 planned), 386+ tests passing across 52 test files.
+    *   `db.*` (24 built, 1 planned): project(1), task(3), skills(5), effort(4 + validate planned), session(6), agents(3), messages(2)
+    *   `hooks.*` (15 RPCs): session-start, pre/post-tool-use, user-prompt, plus 11 lifecycle hooks — COMPLETE
+    *   `commands.*` (3 RPCs): effort.start, session.continue, log.append — COMPLETE (with rollback + hardening)
+    *   `search.*` (5 RPCs): upsert, query, delete, status, reindex — COMPLETE
+    *   `fs.*` (3 RPCs): files.read, files.append, paths.resolve — COMPLETE
+    *   `ai.*` (2 RPCs): generate, embed — COMPLETE (provider-agnostic, raw HTTP)
+    *   `agent.*` (5 RPCs): directives.discover/dereference/resolve, skills.parse/list — COMPLETE
+*   **Hook RPCs**: COMPLETE — 4 core hooks (sessionStart, preToolUse, postToolUse, userPrompt) plus 11 lifecycle hooks.
+*   **Bash compound commands**: COMPLETE — `commands.effort.start` (with rollback on failure), `commands.session.continue`, `commands.log.append` (refactored to use `fs.files.append` RPC).
+*   **Code Location**: `~/.claude/engine/tools/` (workspace monorepo: db, commands, fs, shared, agent, ai, daemon, search packages)
+*   **Architecture Quality**: Excellent — consistent Zod validation, transaction discipline, self-registering handlers, RpcContext typed dispatch, provider-agnostic AI namespace.
+*   **Hardening**: Compound commands tested with adversarial edge cases (null skill degradation, rollback verification, corrupt JSON, Zod validation, zero-effort recovery).
 
 ---
 
@@ -291,29 +291,35 @@ CREATE INDEX idx_messages_session_ts ON messages(session_id, timestamp);
 
 All RPCs are Zod-validated and return JSON. The daemon touches ONLY SQLite.
 
+**Project RPCs (1)**:
+*   `db.project.upsert(path, name?)` — Idempotent create or update project by absolute path.
+
 **Task RPCs (3)**:
 *   `db.task.upsert(dir_path, workspace?, title?)` — Idempotent create or update. Resolves project_id from dir_path prefix.
 *   `db.task.find(query)` — Search tasks by keyword, workspace, project.
 *   `db.task.list(project?)` — List all tasks, optionally filtered by project.
 
-**Effort RPCs (5)**:
+**Effort RPCs (4 built, 1 planned)**:
 *   `db.effort.start(task_id, skill, mode?, metadata?)` — Create effort row. Assigns ordinal atomically (MAX+1). Returns effort row including artifact prefix (e.g., `"1_BRAINSTORM"`).
 *   `db.effort.finish(effort_id, keywords?)` — Set lifecycle='finished', finished_at=now. Update task keywords if provided.
 *   `db.effort.phase(effort_id, label, proof?)` — Atomic phase transition: sequential enforcement against skill's phases array, proof validation and storage in phase_history, heartbeat reset. Sub-phase auto-append. Re-enter same phase = no-op.
-*   `db.effort.validate(effort_id)` — Validate effort artifacts: bare tag scan, checklist processing, request file verification. Returns pass/fail per check.
 *   `db.effort.list(task_id)` — List all efforts for a task, ordered by ordinal.
+*   `db.effort.validate(effort_id)` — *(planned)* Validate effort artifacts: bare tag scan, checklist processing, request file verification. Returns pass/fail per check.
 
-**Session RPCs (5)**:
+**Session RPCs (6)**:
 *   `db.session.start(task_id, effort_id, pid?, prev_session_id?)` — Create session row. End any previous active session for the same agent. Session ID derived from Claude's native session ID.
 *   `db.session.finish(session_id, dehydration_payload?)` — Set ended_at. Store dehydration payload if context overflow.
 *   `db.session.heartbeat(session_id)` — Increment heartbeat_counter, update last_heartbeat.
 *   `db.session.updateContextUsage(session_id, usage)` — Update context_usage float. Pushed by status line.
 *   `db.session.updateLoadedFiles(session_id, files)` — Update loaded_files JSON array. Called when Read tool is used.
+*   `db.session.find(query)` — Search sessions by task, effort, or agent criteria.
 
-**Skills RPCs (3)**:
+**Skills RPCs (5)**:
 *   `db.skills.upsert(name, project_id, phases, modes, templates, ...)` — Insert or update skill definition. Called by bash after parsing SKILL.md.
 *   `db.skills.get(name, project_id)` — Get skill definition by name and project.
 *   `db.skills.list(project_id)` — List all skills for a project.
+*   `db.skills.delete(name, project_id)` — Remove a skill definition.
+*   `db.skills.find(query, project_id?)` — Search skills by name or keyword.
 
 **Messages RPCs (2)**:
 *   `db.messages.append(session_id, role, content, tool_name?)` — Append message to transcript. Real-time streaming.
@@ -321,13 +327,15 @@ All RPCs are Zod-validated and return JSON. The daemon touches ONLY SQLite.
 
 **Agents RPCs (3)**:
 *   `db.agents.register(id, label, claims)` — Register or update agent identity.
-*   `db.agents.update(id, effort_id?)` — Update agent's current effort assignment.
+*   `db.agents.get(id)` — Get agent by ID with current effort assignment.
 *   `db.agents.list()` — List all registered agents with their current effort assignments.
 
-**Search RPCs (3)**:
-*   `search.sessions(query, project_id)` — Semantic search over session artifacts. Project-scoped.
-*   `search.docs(query, project_id)` — Semantic search over project documentation. Project-scoped.
-*   `search.directives(query, project_id)` — Semantic search over directive files. Project-scoped.
+**Search RPCs (5)**:
+*   `search.upsert(source_type, source_path, chunk_text)` — Insert or update embedding for a content chunk.
+*   `search.query(query, source_type?, project_id?)` — Semantic search over embeddings. Filterable by source type and project.
+*   `search.delete(source_path)` — Remove embeddings for a source path.
+*   `search.status(project_id?)` — Get embedding index statistics.
+*   `search.reindex(source_type?, project_id?)` — Rebuild embeddings for a source type or project.
 
 ### 4.2 Hook RPCs (`hooks.*`) — Batched Hook Operations
 
@@ -583,7 +591,7 @@ No ALTER TABLE logic. Schema change = drop and recreate. Acceptable for pre-prod
 *   **Fleet event model**: Polling vs event-driven notification when efforts finish. Polling is sufficient for now.
 *   **Embeddings for messages**: Whether messages table content should be indexed. Evaluate after messages table is populated with real data.
 *   **Schema migration tooling**: No ALTER TABLE logic. Drop and recreate. Acceptable for pre-production.
-*   **fs.* RPC cluster**: Whether filesystem scanning operations get their own RPC namespace or stay as internal bash functions. The scanning logic lives in bash regardless.
+*   **fs.* RPC cluster**: RESOLVED — `fs.files.read`, `fs.files.append`, `fs.paths.resolve` built as workspace package `tools/fs/`. `commands.log.append` refactored to use `fs.files.append` via dispatch.
 
 ---
 

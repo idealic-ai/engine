@@ -6,12 +6,26 @@ Each tool lives in its own directory with a shell wrapper, TypeScript source, an
 
 ## Reference
 
-| Tool | Type | Purpose |
-|------|------|---------|
-| `statusline.sh` | Shell script | Status line renderer for tmux. Displays session name, skill/phase, and context usage percentage |
-| `dispatch-daemon/` | Service (deprecated) | Tag-based work router. Watches `sessions/` for `#delegated-*` tags and spawns Claude agents. Superseded by `run.sh --monitor-tags` |
-| `doc-search/` | CLI + SQLite | Semantic search over project documentation. Indexes markdown files, queries via Gemini embeddings |
-| `session-search/` | CLI + SQLite | Semantic search over session history. Indexes session artifacts, queries via Gemini embeddings |
+## Standalone Tools
+
+*   **`statusline.sh`** — Shell script. Status line renderer for tmux. Displays session name, skill/phase, and context usage percentage.
+*   **`dispatch-daemon/`** — Service (deprecated). Tag-based work router. Superseded by `run.sh --monitor-tags`.
+*   **`doc-search/`** — CLI + SQLite. Semantic search over project documentation via Gemini embeddings.
+*   **`session-search/`** — CLI + SQLite. Semantic search over session history via Gemini embeddings.
+
+## Workspace Packages (v3 Daemon)
+
+These packages form the daemon RPC system. They share dependencies via a workspace monorepo (`tools/package.json` workspaces) and use `engine-shared` for dispatch infrastructure.
+
+*   **`shared/`** — Shared RPC dispatch infrastructure (`engine-shared`). Exports `dispatch()`, `registerCommand()`, `RpcContext` types.
+*   **`db/`** — Core database RPCs (`engine-db`). 25 RPCs across project, task, skills, effort, session, agents, messages namespaces. Uses sql.js (WASM SQLite).
+  *   **`db/hooks/`** — Hook RPCs. 15 RPCs for session-start, pre/post-tool-use, user-prompt, and lifecycle events.
+  *   **`db/search/`** — Search RPCs. 5 RPCs for embedding-based semantic search (upsert, query, delete, status, reindex).
+*   **`commands/`** — Compound command RPCs (`engine-commands`). 3 RPCs that orchestrate DB + FS operations: `commands.effort.start`, `commands.session.continue`, `commands.log.append`.
+*   **`fs/`** — Filesystem RPCs (`engine-fs`). 3 RPCs: `fs.files.read`, `fs.files.append`, `fs.paths.resolve`.
+*   **`agent/`** — Agent RPCs (`engine-agent`). 5 RPCs for directive discovery/resolution and skill parsing.
+*   **`ai/`** — AI RPCs (`engine-ai`). 2 RPCs: `ai.generate` (text + structured output), `ai.embed` (batch embeddings). Provider-agnostic via raw HTTP.
+*   **`daemon/`** — Daemon entry point. Unix socket server, NDJSON protocol, dispatches to registered RPCs.
 
 ## Shared Patterns
 
@@ -23,16 +37,20 @@ Both `doc-search` and `session-search` use `sql.js` (SQLite compiled to WASM) to
 
 Both search tools call the Gemini embedding API to vectorize text chunks at index time and queries at search time. The API key is loaded from `$GEMINI_API_KEY` or falls back to the project `.env` file.
 
-### TypeScript + Shell Wrapper
+### TypeScript + Shell Wrapper (Standalone Tools)
 
-Each tool follows the same invocation pattern:
+Each standalone tool follows the same invocation pattern:
 
 ```bash
 # Shell wrapper resolves symlinks, sets env, delegates to tsx
 exec npx --prefix "$TOOL_DIR" tsx "$TOOL_DIR/src/cli.ts" "$@"
 ```
 
-Tools manage their own `node_modules` via a local `package.json` — they do not depend on the monorepo's workspace packages.
+Standalone tools manage their own `node_modules` via a local `package.json`.
+
+### Workspace Monorepo (v3 Daemon Packages)
+
+The v3 daemon packages use a workspace monorepo pattern. `tools/package.json` declares workspaces (`db`, `commands`, `fs`, `shared`, `agent`, `ai`, `daemon`). Packages reference each other via `"engine-shared": "*"`, `"engine-db": "*"` etc. with ESM `exports` maps for subpath imports (e.g., `engine-shared/dispatch`). Tests run via `vitest` from the `tools/` root, resolving all workspace packages.
 
 ### Fleet-Optional Design (`¶INV_TMUX_AND_FLEET_OPTIONAL`)
 

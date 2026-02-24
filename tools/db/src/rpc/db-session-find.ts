@@ -10,10 +10,11 @@
  *
  * Callers: effort.phase (heartbeat reset), bash compound commands (session lookup).
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
-import { getActiveSession } from "./row-helpers.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { SessionRow } from "./types.js";
 
 const schema = z.object({
   effortId: z.number(),
@@ -21,9 +22,19 @@ const schema = z.object({
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  const session = getActiveSession(db, args.effortId);
-  return { ok: true, data: { session } };
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ session: SessionRow | null }>> {
+  const db = ctx.db;
+  const session = await db.get<SessionRow>(
+    "SELECT * FROM sessions WHERE effort_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1",
+    [args.effortId]
+  );
+  return { ok: true, data: { session: session ?? null } };
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.session.find": typeof handler;
+  }
 }
 
 registerCommand("db.session.find", { schema, handler });

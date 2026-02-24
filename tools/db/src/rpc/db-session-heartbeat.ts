@@ -16,31 +16,50 @@
  *
  * Callers: PreToolUse hook (hooks.preToolUse batched RPC).
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
-import { getSessionRow } from "./row-helpers.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { SessionRow } from "./types.js";
 
 const schema = z.object({
   sessionId: z.number(),
+  action: z.enum(["increment", "reset"]).optional(),
 });
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  const session = getSessionRow(db, args.sessionId);
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ session: SessionRow }>> {
+  const db = ctx.db;
+  const session = await db.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", [args.sessionId]);
   if (!session) {
     return { ok: false, error: "NOT_FOUND", message: `Session ${args.sessionId} not found` };
   }
 
-  db.run(
-    `UPDATE sessions SET heartbeat_counter = heartbeat_counter + 1, last_heartbeat = datetime('now')
-     WHERE id = ?`,
-    [args.sessionId]
-  );
+  const action = args.action ?? "increment";
 
-  const updated = getSessionRow(db, args.sessionId);
-  return { ok: true, data: { session: updated } };
+  if (action === "reset") {
+    await db.run(
+      `UPDATE sessions SET heartbeat_counter = 0, last_heartbeat = datetime('now')
+       WHERE id = ?`,
+      [args.sessionId]
+    );
+  } else {
+    await db.run(
+      `UPDATE sessions SET heartbeat_counter = heartbeat_counter + 1, last_heartbeat = datetime('now')
+       WHERE id = ?`,
+      [args.sessionId]
+    );
+  }
+
+  const updated = await db.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", [args.sessionId]);
+  return { ok: true, data: { session: updated! } };
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.session.heartbeat": typeof handler;
+  }
 }
 
 registerCommand("db.session.heartbeat", { schema, handler });

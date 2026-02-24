@@ -1,0 +1,108 @@
+#!/bin/bash
+# engine-daemon — Start/stop/status for the engine RPC daemon.
+#
+# Usage:
+#   engine-daemon start   # Start daemon (background)
+#   engine-daemon stop    # Stop daemon
+#   engine-daemon status  # Check if running
+#
+# The daemon is a Node.js process running tools/daemon/src/main.ts,
+# listening on a Unix socket for NDJSON RPC requests.
+
+set -euo pipefail
+
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+TOOLS_DIR="$PLUGIN_ROOT"
+
+# Socket path: per-project
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+PROJECT_HASH=$(echo -n "$PROJECT_DIR" | md5sum 2>/dev/null | cut -c1-8 || md5 -q -s "$PROJECT_DIR" 2>/dev/null | cut -c1-8 || echo "default")
+SOCKET_DIR="/tmp/engine-daemon"
+SOCKET_PATH="$SOCKET_DIR/engine-${PROJECT_HASH}.sock"
+DB_PATH="$SOCKET_DIR/engine-${PROJECT_HASH}.db"
+PID_FILE="$SOCKET_DIR/engine-${PROJECT_HASH}.pid"
+LOG_FILE="$SOCKET_DIR/daemon-${PROJECT_HASH}.log"
+
+start_daemon() {
+  if [[ -S "$SOCKET_PATH" ]]; then
+    echo "Daemon already running (socket exists: $SOCKET_PATH)"
+    return 0
+  fi
+
+  mkdir -p "$SOCKET_DIR"
+
+  local entry="$TOOLS_DIR/daemon/src/main.ts"
+
+  echo "Starting engine daemon..."
+  echo "  Socket: $SOCKET_PATH"
+  echo "  DB: $DB_PATH"
+  echo "  Entry: $entry"
+
+  cd "$TOOLS_DIR"
+  nohup npx --yes tsx "$entry" \
+    --socket "$SOCKET_PATH" \
+    --db "$DB_PATH" \
+    > "$LOG_FILE" 2>&1 &
+  local pid=$!
+  echo "$pid" > "$PID_FILE"
+
+  # Wait for socket
+  local attempts=0
+  while [[ ! -S "$SOCKET_PATH" ]] && (( attempts < 50 )); do
+    sleep 0.1
+    (( attempts++ ))
+  done
+
+  if [[ -S "$SOCKET_PATH" ]]; then
+    echo "Daemon started (PID: $pid)"
+  else
+    echo "WARNING: Daemon may not have started (socket not found after 5s)"
+    echo "Check log: $LOG_FILE"
+  fi
+}
+
+stop_daemon() {
+  if [[ -f "$PID_FILE" ]]; then
+    local pid
+    pid=$(cat "$PID_FILE")
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "Stopping daemon (PID: $pid)..."
+      kill "$pid"
+      rm -f "$PID_FILE" "$SOCKET_PATH"
+      echo "Daemon stopped."
+    else
+      echo "Daemon not running (stale PID file)."
+      rm -f "$PID_FILE" "$SOCKET_PATH"
+    fi
+  elif [[ -S "$SOCKET_PATH" ]]; then
+    echo "Socket exists but no PID file. Removing stale socket."
+    rm -f "$SOCKET_PATH"
+  else
+    echo "Daemon not running."
+  fi
+}
+
+status_daemon() {
+  if [[ -S "$SOCKET_PATH" ]]; then
+    echo "Daemon is running"
+    echo "  Socket: $SOCKET_PATH"
+    echo "  DB: $DB_PATH"
+    if [[ -f "$PID_FILE" ]]; then
+      echo "  PID: $(cat "$PID_FILE")"
+    fi
+    echo "  Log: $LOG_FILE"
+  else
+    echo "Daemon is not running"
+    return 1
+  fi
+}
+
+case "${1:-status}" in
+  start)  start_daemon ;;
+  stop)   stop_daemon ;;
+  status) status_daemon ;;
+  *)
+    echo "Usage: engine-daemon {start|stop|status}"
+    exit 1
+    ;;
+esac

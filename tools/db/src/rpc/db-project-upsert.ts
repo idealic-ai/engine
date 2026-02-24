@@ -12,10 +12,11 @@
  *
  * Callers: bash `engine effort start` → db.task.upsert depends on project_id.
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
-import { getProjectByPath, getLastInsertId } from "./row-helpers.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { ProjectRow } from "./types.js";
 
 const schema = z.object({
   path: z.string(),
@@ -24,10 +25,9 @@ const schema = z.object({
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  db.exec("BEGIN");
-  try {
-    db.run(
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ project: ProjectRow }>> {
+  const db = ctx.db;
+    await db.run(
       `INSERT INTO projects (path, name)
        VALUES (?, ?)
        ON CONFLICT(path) DO UPDATE SET
@@ -35,12 +35,14 @@ function handler(args: Args, db: Database): RpcResponse {
       [args.path, args.name ?? null]
     );
 
-    const project = getProjectByPath(db, args.path);
-    db.exec("COMMIT");
-    return { ok: true, data: { project } };
-  } catch (err: unknown) {
-    db.exec("ROLLBACK");
-    throw err;
+    const project = await db.get<ProjectRow>("SELECT * FROM projects WHERE path = ?", [args.path]);
+    return { ok: true, data: { project: project! } };
+
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.project.upsert": typeof handler;
   }
 }
 

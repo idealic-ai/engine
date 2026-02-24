@@ -16,10 +16,11 @@
  * Callers: bash `engine effort start` (initial), `engine session continue`
  * (overflow recovery — creates new session with prev_session_id link).
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
-import { getSessionRow, getActiveSession, getLastInsertId } from "./row-helpers.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { SessionRow } from "./types.js";
 
 const schema = z.object({
   taskId: z.string(),
@@ -30,38 +31,50 @@ const schema = z.object({
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  db.exec("BEGIN");
-  try {
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ session: SessionRow }>> {
+  const db = ctx.db;
     // Auto-end previous session for same effort, preserving dehydration payload
-    const prevSession = getActiveSession(db, args.effortId);
+    const prevSession = await db.get<SessionRow>(
+      "SELECT * FROM sessions WHERE effort_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1",
+      [args.effortId]
+    );
     let prevId = args.prevSessionId ?? null;
 
     if (prevSession) {
-      db.run(
+      await db.run(
         "UPDATE sessions SET ended_at = datetime('now') WHERE id = ?",
-        [prevSession.id as number]
+        [prevSession.id]
       );
-      // Link to previous session if not explicitly provided
       if (!prevId) {
-        prevId = prevSession.id as number;
+        prevId = prevSession.id;
       }
     }
 
-    db.run(
-      `INSERT INTO sessions (task_id, effort_id, prev_session_id, pid, last_heartbeat)
-       VALUES (?, ?, ?, ?, datetime('now'))`,
-      [args.taskId, args.effortId, prevId, args.pid ?? null]
+    // Inherit discovered_directives/directories from previous session (rehydration continuity)
+    let inheritedDirectives: string | null = null;
+    let inheritedDirectories: string | null = null;
+    if (prevSession) {
+      const directives = prevSession.discoveredDirectives;
+      const directories = prevSession.discoveredDirectories;
+      if (directives) inheritedDirectives = JSON.stringify(directives);
+      if (directories) inheritedDirectories = JSON.stringify(directories);
+    }
+
+    const { lastID } = await db.run(
+      `INSERT INTO sessions (task_id, effort_id, prev_session_id, pid, last_heartbeat, discovered_directives, discovered_directories)
+       VALUES (?, ?, ?, ?, datetime('now'), json(?), json(?))`,
+      [args.taskId, args.effortId, prevId, args.pid ?? null, inheritedDirectives, inheritedDirectories]
     );
 
-    const sessionId = getLastInsertId(db);
-    const session = getSessionRow(db, sessionId);
+    const session = await db.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", [lastID]);
 
-    db.exec("COMMIT");
-    return { ok: true, data: { session } };
-  } catch (err: unknown) {
-    db.exec("ROLLBACK");
-    throw err;
+    return { ok: true, data: { session: session! } };
+
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.session.start": typeof handler;
   }
 }
 

@@ -11,10 +11,11 @@
  *
  * Callers: bash `engine effort start` (cross-effort context discovery).
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
-import { getEffortRows } from "./row-helpers.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { EffortRow } from "./types.js";
 
 const schema = z.object({
   taskId: z.string(),
@@ -22,9 +23,19 @@ const schema = z.object({
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  const efforts = getEffortRows(db, args.taskId);
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ efforts: EffortRow[] }>> {
+  const db = ctx.db;
+  const efforts = await db.all<EffortRow>(
+    "SELECT * FROM efforts WHERE task_id = ? ORDER BY ordinal",
+    [args.taskId]
+  );
   return { ok: true, data: { efforts } };
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.effort.list": typeof handler;
+  }
 }
 
 registerCommand("db.effort.list", { schema, handler });

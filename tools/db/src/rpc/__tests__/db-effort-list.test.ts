@@ -1,5 +1,6 @@
+import type { RpcContext } from "engine-shared/context";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import type { Database } from "sql.js";
+import type { DbConnection } from "../../db-wrapper.js";
 import { dispatch } from "../dispatch.js";
 import "../db-project-upsert.js";
 import "../db-task-upsert.js";
@@ -7,33 +8,33 @@ import "../db-effort-start.js";
 import "../db-effort-list.js";
 import { createTestDb } from "../../__tests__/helpers.js";
 
-let db: Database;
+let db: DbConnection;
 beforeEach(async () => {
   db = await createTestDb();
-  dispatch({ cmd: "db.project.upsert", args: { path: "/proj" } }, db);
-  dispatch({ cmd: "db.task.upsert", args: { dirPath: "sessions/test", projectId: 1 } }, db);
+  await dispatch({ cmd: "db.project.upsert", args: { path: "/proj" } },  { db } as unknown as RpcContext);
+  await dispatch({ cmd: "db.task.upsert", args: { dirPath: "sessions/test", projectId: 1 } },  { db } as unknown as RpcContext);
 });
-afterEach(() => { db.close(); });
+afterEach(async () => { await db.close(); });
 
 describe("db.effort.list", () => {
-  it("should return empty array for task with no efforts", () => {
-    const result = dispatch(
+  it("should return empty array for task with no efforts", async () => {
+    const result = await dispatch(
       { cmd: "db.effort.list", args: { taskId: "sessions/test" } },
-      db
+      { db } as unknown as RpcContext
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.data.efforts).toEqual([]);
   });
 
-  it("should return efforts ordered by ordinal", () => {
-    dispatch({ cmd: "db.effort.start", args: { taskId: "sessions/test", skill: "brainstorm" } }, db);
-    dispatch({ cmd: "db.effort.start", args: { taskId: "sessions/test", skill: "implement" } }, db);
-    dispatch({ cmd: "db.effort.start", args: { taskId: "sessions/test", skill: "test" } }, db);
+  it("should return efforts ordered by ordinal", async () => {
+    await dispatch({ cmd: "db.effort.start", args: { taskId: "sessions/test", skill: "brainstorm" } },  { db } as unknown as RpcContext);
+    await dispatch({ cmd: "db.effort.start", args: { taskId: "sessions/test", skill: "implement" } },  { db } as unknown as RpcContext);
+    await dispatch({ cmd: "db.effort.start", args: { taskId: "sessions/test", skill: "test" } },  { db } as unknown as RpcContext);
 
-    const result = dispatch(
+    const result = await dispatch(
       { cmd: "db.effort.list", args: { taskId: "sessions/test" } },
-      db
+      { db } as unknown as RpcContext
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;
@@ -47,10 +48,10 @@ describe("db.effort.list", () => {
     expect(efforts[2].ordinal).toBe(3);
   });
 
-  it("should return empty array for non-existent task", () => {
-    const result = dispatch(
+  it("should return empty array for non-existent task", async () => {
+    const result = await dispatch(
       { cmd: "db.effort.list", args: { taskId: "nonexistent" } },
-      db
+      { db } as unknown as RpcContext
     );
     expect(result.ok).toBe(true);
     if (!result.ok) return;

@@ -3,7 +3,7 @@ import * as net from "node:net";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { startDaemon, stopDaemon } from "../daemon.js";
+import { startDaemon, stopDaemon } from "../../../daemon/src/daemon.js";
 
 const TEST_DIR = path.join(os.tmpdir(), `engine-db-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
 const SOCKET_PATH = path.join(TEST_DIR, "test.sock");

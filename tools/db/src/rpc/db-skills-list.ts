@@ -6,9 +6,10 @@
  *
  * Callers: bash `engine skills list`, fleet coordinator (skill availability).
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
 
 const schema = z.object({
   projectId: z.number(),
@@ -16,46 +17,25 @@ const schema = z.object({
 
 type Args = z.infer<typeof schema>;
 
-const JSONB_COLUMNS = [
-  "phases",
-  "modes",
-  "templates",
-  "cmd_dependencies",
-  "next_skills",
-  "directives",
-];
-
-function handler(args: Args, db: Database): RpcResponse {
-  const jsonSelects = JSONB_COLUMNS.map(
-    (col) => `json(${col}) as ${col}`
-  ).join(", ");
-
-  const result = db.exec(
-    `SELECT id, project_id, name, ${jsonSelects}, version, description, updated_at
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ skills: Record<string, unknown>[] }>> {
+  const db = ctx.db;
+  // db-wrapper auto-parses JSON strings and camelCases keys
+  const rows = await db.all<Record<string, unknown>>(
+    `SELECT id, project_id, name,
+       json(phases) as phases, json(modes) as modes, json(templates) as templates,
+       json(cmd_dependencies) as cmd_dependencies, json(next_skills) as next_skills,
+       json(directives) as directives, version, description, updated_at
      FROM skills WHERE project_id = ? ORDER BY name`,
     [args.projectId]
   );
 
-  if (result.length === 0) {
-    return { ok: true, data: { skills: [] } };
+  return { ok: true, data: { skills: rows } };
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.skills.list": typeof handler;
   }
-
-  const { columns, values } = result[0];
-  const skills = values.map((row) => {
-    const obj: Record<string, unknown> = {};
-    for (let i = 0; i < columns.length; i++) {
-      const col = columns[i];
-      const val = row[i];
-      if (JSONB_COLUMNS.includes(col) && typeof val === "string") {
-        obj[col] = JSON.parse(val);
-      } else {
-        obj[col] = val;
-      }
-    }
-    return obj;
-  });
-
-  return { ok: true, data: { skills } };
 }
 
 registerCommand("db.skills.list", { schema, handler });

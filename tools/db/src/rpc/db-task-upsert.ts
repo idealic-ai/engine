@@ -14,10 +14,11 @@
  *
  * Callers: bash `engine effort start` compound flow.
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
-import { getTaskRow } from "./row-helpers.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { TaskRow } from "./types.js";
 
 const schema = z.object({
   dirPath: z.string(),
@@ -25,35 +26,40 @@ const schema = z.object({
   workspace: z.string().optional(),
   title: z.string().optional(),
   description: z.string().optional(),
+  keywords: z.string().optional(),
 });
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  db.exec("BEGIN");
-  try {
-    db.run(
-      `INSERT INTO tasks (dir_path, project_id, workspace, title, description)
-       VALUES (?, ?, ?, ?, ?)
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ task: TaskRow }>> {
+  const db = ctx.db;
+    await db.run(
+      `INSERT INTO tasks (dir_path, project_id, workspace, title, description, keywords)
+       VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(dir_path) DO UPDATE SET
+         project_id = excluded.project_id,
          workspace = COALESCE(excluded.workspace, tasks.workspace),
          title = COALESCE(excluded.title, tasks.title),
-         description = COALESCE(excluded.description, tasks.description)`,
+         description = COALESCE(excluded.description, tasks.description),
+         keywords = COALESCE(excluded.keywords, tasks.keywords)`,
       [
         args.dirPath,
         args.projectId,
         args.workspace ?? null,
         args.title ?? null,
         args.description ?? null,
+        args.keywords ?? null,
       ]
     );
 
-    const task = getTaskRow(db, args.dirPath);
-    db.exec("COMMIT");
-    return { ok: true, data: { task } };
-  } catch (err: unknown) {
-    db.exec("ROLLBACK");
-    throw err;
+    const task = await db.get<TaskRow>("SELECT * FROM tasks WHERE dir_path = ?", [args.dirPath]);
+    return { ok: true, data: { task: task! } };
+
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.task.upsert": typeof handler;
   }
 }
 

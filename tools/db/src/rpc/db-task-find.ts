@@ -6,9 +6,11 @@
  *
  * Callers: bash `engine task find`, session activation (task lookup).
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { TaskRow } from "./types.js";
 
 const schema = z.object({
   dirPath: z.string(),
@@ -16,23 +18,20 @@ const schema = z.object({
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  const result = db.exec(
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ task: TaskRow | null }>> {
+  const db = ctx.db;
+  const task = await db.get<TaskRow>(
     "SELECT * FROM task_summary WHERE dir_path = ?",
     [args.dirPath]
   );
 
-  if (result.length === 0 || result[0].values.length === 0) {
-    return { ok: true, data: { task: null } };
-  }
+  return { ok: true, data: { task: task ?? null } };
+}
 
-  const { columns, values } = result[0];
-  const task: Record<string, unknown> = {};
-  for (let i = 0; i < columns.length; i++) {
-    task[columns[i]] = values[0][i];
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.task.find": typeof handler;
   }
-
-  return { ok: true, data: { task } };
 }
 
 registerCommand("db.task.find", { schema, handler });

@@ -13,10 +13,11 @@
  *
  * Callers: bash `engine session idle`/`deactivate` during synthesis close.
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
-import { getEffortRow } from "./row-helpers.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { EffortRow } from "./types.js";
 
 const schema = z.object({
   effortId: z.number(),
@@ -25,8 +26,9 @@ const schema = z.object({
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  const effort = getEffortRow(db, args.effortId);
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ effort: EffortRow }>> {
+  const db = ctx.db;
+  const effort = await db.get<EffortRow>("SELECT * FROM efforts WHERE id = ?", [args.effortId]);
   if (!effort) {
     return {
       ok: false,
@@ -43,9 +45,7 @@ function handler(args: Args, db: Database): RpcResponse {
     };
   }
 
-  db.exec("BEGIN");
-  try {
-    db.run(
+    await db.run(
       `UPDATE efforts SET lifecycle = 'finished', finished_at = datetime('now')
        WHERE id = ?`,
       [args.effortId]
@@ -53,18 +53,20 @@ function handler(args: Args, db: Database): RpcResponse {
 
     // Propagate keywords to task if provided
     if (args.keywords) {
-      db.run(
+      await db.run(
         "UPDATE tasks SET keywords = ? WHERE dir_path = ?",
-        [args.keywords, effort.task_id as string]
+        [args.keywords, effort.taskId]
       );
     }
 
-    const updated = getEffortRow(db, args.effortId);
-    db.exec("COMMIT");
-    return { ok: true, data: { effort: updated } };
-  } catch (err: unknown) {
-    db.exec("ROLLBACK");
-    throw err;
+    const updated = await db.get<EffortRow>("SELECT * FROM efforts WHERE id = ?", [args.effortId]);
+    return { ok: true, data: { effort: updated! } };
+
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.effort.finish": typeof handler;
   }
 }
 

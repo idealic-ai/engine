@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { startDaemon, stopDaemon } from "../daemon.js";
+import { startDaemon, stopDaemon } from "../../../daemon/src/daemon.js";
 import { sendQuery, type QueryResult } from "../query-client.js";
 
 const TEST_DIR = path.join(os.tmpdir(), `edb-int-${process.pid}`);
@@ -49,7 +49,7 @@ describe("integration: v3 lifecycle via raw SQL", () => {
     await q("INSERT INTO projects (path) VALUES (?)", ["/test"]);
     await q("INSERT INTO tasks (dir_path, project_id) VALUES (?, ?)", ["t1", 1]);
     const metadata = JSON.stringify({ taskSummary: "Build daemon", scope: "Code Changes" });
-    await q("INSERT INTO efforts (task_id, skill, ordinal, metadata) VALUES (?, ?, ?, jsonb(?))", ["t1", "impl", 1, metadata]);
+    await q("INSERT INTO efforts (task_id, skill, ordinal, metadata) VALUES (?, ?, ?, ?)", ["t1", "impl", 1, metadata]);
 
     const result = await q(
       "SELECT json_extract(metadata, '$.taskSummary') as summary FROM efforts WHERE task_id = ?",

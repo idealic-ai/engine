@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import type { Database } from "sql.js";
+import type { DbConnection } from "../../db-wrapper.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
 import {
   dispatch,
@@ -9,20 +10,20 @@ import {
 } from "../dispatch.js";
 import { createTestDb } from "../../__tests__/helpers.js";
 
-let db: Database;
+let db: DbConnection;
 
 beforeEach(async () => {
   clearRegistry();
   db = await createTestDb();
 });
 
-afterEach(() => {
-  db.close();
+afterEach(async () => {
+  await db.close();
 });
 
 describe("dispatch", () => {
-  it("should return UNKNOWN_COMMAND for unregistered commands", () => {
-    const result = dispatch({ cmd: "nonexistent.command" }, db);
+  it("should return UNKNOWN_COMMAND for unregistered commands", async () => {
+    const result = await dispatch({ cmd: "nonexistent.command" }, { db } as unknown as RpcContext);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -31,26 +32,26 @@ describe("dispatch", () => {
     }
   });
 
-  it("should dispatch to registered command handler", () => {
+  it("should dispatch to registered command handler", async () => {
     registerCommand("test.echo", {
       schema: z.object({ value: z.string() }),
       handler: (args) => ({ ok: true, data: { echoed: args.value } }),
     });
 
-    const result = dispatch({ cmd: "test.echo", args: { value: "hello" } }, db);
+    const result = await dispatch({ cmd: "test.echo", args: { value: "hello" } },  { db } as unknown as RpcContext);
 
     expect(result).toEqual({ ok: true, data: { echoed: "hello" } });
   });
 
-  it("should validate args with Zod and reject invalid input", () => {
+  it("should validate args with Zod and reject invalid input", async () => {
     registerCommand("test.strict", {
       schema: z.object({ count: z.number() }),
       handler: (args) => ({ ok: true, data: { count: args.count } }),
     });
 
-    const result = dispatch(
+    const result = await dispatch(
       { cmd: "test.strict", args: { count: "not-a-number" } },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(false);
@@ -60,15 +61,15 @@ describe("dispatch", () => {
     }
   });
 
-  it("should reject missing required fields", () => {
+  it("should reject missing required fields", async () => {
     registerCommand("test.required", {
       schema: z.object({ name: z.string(), age: z.number() }),
       handler: (args) => ({ ok: true, data: args }),
     });
 
-    const result = dispatch(
+    const result = await dispatch(
       { cmd: "test.required", args: { name: "Alice" } },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(false);
@@ -77,18 +78,18 @@ describe("dispatch", () => {
     }
   });
 
-  it("should default to empty object when args omitted", () => {
+  it("should default to empty object when args omitted", async () => {
     registerCommand("test.noargs", {
       schema: z.object({}),
       handler: () => ({ ok: true, data: { worked: true } }),
     });
 
-    const result = dispatch({ cmd: "test.noargs" }, db);
+    const result = await dispatch({ cmd: "test.noargs" }, { db } as unknown as RpcContext);
 
     expect(result).toEqual({ ok: true, data: { worked: true } });
   });
 
-  it("should catch handler exceptions and return HANDLER_ERROR", () => {
+  it("should catch handler exceptions and return HANDLER_ERROR", async () => {
     registerCommand("test.throw", {
       schema: z.object({}),
       handler: () => {
@@ -96,7 +97,7 @@ describe("dispatch", () => {
       },
     });
 
-    const result = dispatch({ cmd: "test.throw", args: {} }, db);
+    const result = await dispatch({ cmd: "test.throw", args: {} },  { db } as unknown as RpcContext);
 
     expect(result.ok).toBe(false);
     if (!result.ok) {
@@ -105,32 +106,32 @@ describe("dispatch", () => {
     }
   });
 
-  it("should pass db to handler", () => {
+  it("should pass ctx to handler", async () => {
     registerCommand("test.dbcheck", {
       schema: z.object({}),
-      handler: (_args, handlerDb) => {
-        // Verify we can query the DB
-        const result = handlerDb.exec("SELECT COUNT(*) FROM tasks");
-        const count = result[0].values[0][0] as number;
+      handler: async (_args, ctx: RpcContext) => {
+        // Verify we can query the DB via ctx.db
+        const row = await ctx.db.get<{ count: number }>("SELECT COUNT(*) as count FROM tasks");
+        const count = row?.count ?? 0;
         return { ok: true, data: { taskCount: count } };
       },
     });
 
-    const result = dispatch({ cmd: "test.dbcheck", args: {} }, db) as RpcResponse & { ok: true };
+    const result = await dispatch({ cmd: "test.dbcheck", args: {} },  { db } as unknown as RpcContext) as RpcResponse & { ok: true };
 
     expect(result.ok).toBe(true);
     expect(result.data.taskCount).toBe(0);
   });
 
-  it("should include details in validation errors", () => {
+  it("should include details in validation errors", async () => {
     registerCommand("test.details", {
       schema: z.object({ x: z.number(), y: z.number() }),
       handler: (args) => ({ ok: true, data: args }),
     });
 
-    const result = dispatch(
+    const result = await dispatch(
       { cmd: "test.details", args: { x: "bad", y: "also bad" } },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(false);

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { startDaemon, stopDaemon } from "../daemon.js";
+import { startDaemon, stopDaemon } from "../../../daemon/src/daemon.js";
 import { sendQuery } from "../query-client.js";
 
 const TEST_DIR = path.join(os.tmpdir(), `engine-query-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);

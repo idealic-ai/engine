@@ -14,10 +14,11 @@
  * Callers: overflow hook (with dehydration payload), natural session end
  * (without payload), session.start auto-cleanup (ends previous session).
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
-import { getSessionRow } from "./row-helpers.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { SessionRow } from "./types.js";
 
 const schema = z.object({
   sessionId: z.number(),
@@ -26,33 +27,34 @@ const schema = z.object({
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  const session = getSessionRow(db, args.sessionId);
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ session: SessionRow }>> {
+  const db = ctx.db;
+  const session = await db.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", [args.sessionId]);
   if (!session) {
     return { ok: false, error: "NOT_FOUND", message: `Session ${args.sessionId} not found` };
   }
-  if (session.ended_at) {
+  if (session.endedAt) {
     return { ok: false, error: "ALREADY_ENDED", message: `Session ${args.sessionId} is already ended` };
   }
 
-  db.exec("BEGIN");
-  try {
     const dehydJson = args.dehydrationPayload
       ? JSON.stringify(args.dehydrationPayload)
       : null;
 
-    db.run(
-      `UPDATE sessions SET ended_at = datetime('now'), dehydration_payload = jsonb(?)
+    await db.run(
+      `UPDATE sessions SET ended_at = datetime('now'), dehydration_payload = json(?)
        WHERE id = ?`,
       [dehydJson, args.sessionId]
     );
 
-    const updated = getSessionRow(db, args.sessionId);
-    db.exec("COMMIT");
-    return { ok: true, data: { session: updated } };
-  } catch (err: unknown) {
-    db.exec("ROLLBACK");
-    throw err;
+    const updated = await db.get<SessionRow>("SELECT * FROM sessions WHERE id = ?", [args.sessionId]);
+    return { ok: true, data: { session: updated! } };
+
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.session.finish": typeof handler;
   }
 }
 

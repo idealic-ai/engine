@@ -1,22 +1,23 @@
+import type { RpcContext } from "engine-shared/context";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import type { Database } from "sql.js";
+import type { DbConnection } from "../../db-wrapper.js";
 import { dispatch } from "../dispatch.js";
 import "../db-project-upsert.js";
 import { createTestDb, queryRow, queryCount } from "../../__tests__/helpers.js";
 
-let db: Database;
+let db: DbConnection;
 beforeEach(async () => {
   db = await createTestDb();
 });
-afterEach(() => {
-  db.close();
+afterEach(async () => {
+  await db.close();
 });
 
 describe("db.project.upsert", () => {
-  it("should create a project with path", () => {
-    const result = dispatch(
+  it("should create a project with path", async () => {
+    const result = await dispatch(
       { cmd: "db.project.upsert", args: { path: "/home/user/myproject" } },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(true);
@@ -25,16 +26,16 @@ describe("db.project.upsert", () => {
     const project = result.data.project as Record<string, unknown>;
     expect(project.path).toBe("/home/user/myproject");
     expect(project.id).toBe(1);
-    expect(project.created_at).toBeTruthy();
+    expect(project.createdAt).toBeTruthy();
   });
 
-  it("should create a project with path and name", () => {
-    const result = dispatch(
+  it("should create a project with path and name", async () => {
+    const result = await dispatch(
       {
         cmd: "db.project.upsert",
         args: { path: "/home/user/myproject", name: "My Project" },
       },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(true);
@@ -44,37 +45,37 @@ describe("db.project.upsert", () => {
     expect(project.name).toBe("My Project");
   });
 
-  it("should be idempotent — upsert same path returns same project", () => {
-    dispatch(
+  it("should be idempotent — upsert same path returns same project", async () => {
+    await dispatch(
       { cmd: "db.project.upsert", args: { path: "/home/user/proj" } },
-      db
+      { db } as unknown as RpcContext
     );
-    const result = dispatch(
+    const result = await dispatch(
       { cmd: "db.project.upsert", args: { path: "/home/user/proj" } },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     const project = result.data.project as Record<string, unknown>;
     expect(project.id).toBe(1);
-    expect(queryCount(db, "SELECT COUNT(*) FROM projects")).toBe(1);
+    expect(await queryCount(db, "SELECT COUNT(*) FROM projects")).toBe(1);
   });
 
-  it("should update name on re-upsert", () => {
-    dispatch(
+  it("should update name on re-upsert", async () => {
+    await dispatch(
       {
         cmd: "db.project.upsert",
         args: { path: "/proj", name: "Old Name" },
       },
-      db
+      { db } as unknown as RpcContext
     );
-    const result = dispatch(
+    const result = await dispatch(
       {
         cmd: "db.project.upsert",
         args: { path: "/proj", name: "New Name" },
       },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(true);
@@ -83,17 +84,17 @@ describe("db.project.upsert", () => {
     expect(project.name).toBe("New Name");
   });
 
-  it("should preserve name when re-upsert omits it", () => {
-    dispatch(
+  it("should preserve name when re-upsert omits it", async () => {
+    await dispatch(
       {
         cmd: "db.project.upsert",
         args: { path: "/proj", name: "Keep Me" },
       },
-      db
+      { db } as unknown as RpcContext
     );
-    const result = dispatch(
+    const result = await dispatch(
       { cmd: "db.project.upsert", args: { path: "/proj" } },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(true);
@@ -102,23 +103,23 @@ describe("db.project.upsert", () => {
     expect(project.name).toBe("Keep Me");
   });
 
-  it("should create distinct projects for different paths", () => {
-    dispatch(
+  it("should create distinct projects for different paths", async () => {
+    await dispatch(
       { cmd: "db.project.upsert", args: { path: "/proj1" } },
-      db
+      { db } as unknown as RpcContext
     );
-    dispatch(
+    await dispatch(
       { cmd: "db.project.upsert", args: { path: "/proj2" } },
-      db
+      { db } as unknown as RpcContext
     );
 
-    expect(queryCount(db, "SELECT COUNT(*) FROM projects")).toBe(2);
+    expect(await queryCount(db, "SELECT COUNT(*) FROM projects")).toBe(2);
   });
 
-  it("should reject missing path", () => {
-    const result = dispatch(
+  it("should reject missing path", async () => {
+    const result = await dispatch(
       { cmd: "db.project.upsert", args: {} },
-      db
+      { db } as unknown as RpcContext
     );
 
     expect(result.ok).toBe(false);

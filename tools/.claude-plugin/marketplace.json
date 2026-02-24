@@ -1,0 +1,24 @@
+{
+  "name": "idealic-marketplace",
+  "owner": {
+    "name": "Idealic",
+    "url": "https://idealic.ai"
+  },
+  "metadata": {
+    "description": "Ideas plugin marketplace by Idealic",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "ideas",
+      "source": "./",
+      "description": "Ideas — AI development engine for Claude Code",
+      "version": "3.0.0",
+      "author": { "name": "Idealic", "url": "https://idealic.ai" },
+      "license": "MIT",
+      "keywords": ["ideas", "workflow", "skills", "hooks", "fleet"],
+      "category": "productivity",
+      "strict": true
+    }
+  ]
+}

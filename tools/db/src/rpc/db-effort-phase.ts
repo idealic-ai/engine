@@ -27,10 +27,11 @@
  *
  * Callers: bash `engine session phase` compound command.
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
-import { getEffortRow, getActiveSession, getSkillRow } from "./row-helpers.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { EffortRow, SkillRow, SessionRow } from "./types.js";
 
 const schema = z.object({
   effortId: z.number(),
@@ -46,8 +47,9 @@ interface PhaseEntry {
   name: string;
 }
 
-function handler(args: Args, db: Database): RpcResponse {
-  const effort = getEffortRow(db, args.effortId);
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ effort: EffortRow; session: SessionRow | null }>> {
+  const db = ctx.db;
+  const effort = await db.get<EffortRow>("SELECT * FROM efforts WHERE id = ?", [args.effortId]);
   if (!effort) {
     return {
       ok: false,
@@ -64,45 +66,50 @@ function handler(args: Args, db: Database): RpcResponse {
     };
   }
 
-  const currentPhase = effort.current_phase as string | null;
+  const currentPhase = effort.currentPhase;
 
   // Re-entering the same phase = true no-op
   if (currentPhase === args.phase) {
-    const session = getActiveSession(db, args.effortId);
-    return { ok: true, data: { effort, session } };
+    const session = await db.get<SessionRow>(
+      "SELECT * FROM sessions WHERE effort_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1",
+      [args.effortId]
+    );
+    return { ok: true, data: { effort: effort!, session: session ?? null } };
   }
 
   // Phase enforcement: read phases from skills table
-  const taskId = effort.task_id as string;
-  const task = db.exec("SELECT project_id FROM tasks WHERE dir_path = ?", [taskId]);
-  if (task.length === 0 || task[0].values.length === 0) {
+  const taskId = effort.taskId;
+  const taskRow = await db.get<{ projectId: number }>("SELECT project_id as project_id FROM tasks WHERE dir_path = ?", [taskId]);
+  if (!taskRow) {
     return { ok: false, error: "TASK_NOT_FOUND", message: `Task ${taskId} not found` };
   }
-  const projectId = task[0].values[0][0] as number;
-  const skillName = effort.skill as string;
-  const skillRow = getSkillRow(db, projectId, skillName);
+  const projectId = taskRow.projectId;
+  const skillName = effort.skill;
+  const skillRow = await db.get<SkillRow>(
+    "SELECT * FROM skills WHERE project_id = ? AND name = ?",
+    [projectId, skillName]
+  );
 
   let phases: PhaseEntry[] | undefined;
   if (skillRow && skillRow.phases) {
-    // JSONB — read via json()
-    const phasesResult = db.exec(
+    // JSONB — read via json(); db-wrapper auto-parses the JSON string
+    const phasesRow = await db.get<{ phases: unknown }>(
       "SELECT json(phases) as phases FROM skills WHERE id = ?",
-      [skillRow.id as number]
+      [skillRow.id]
     );
-    if (phasesResult.length > 0 && phasesResult[0].values[0][0]) {
-      phases = JSON.parse(phasesResult[0].values[0][0] as string);
+    if (phasesRow?.phases) {
+      phases = phasesRow.phases as PhaseEntry[];
     }
   }
 
   // Also check effort metadata for phases (fallback)
   if (!phases && effort.metadata) {
-    const metaResult = db.exec(
+    const metaRow = await db.get<{ metadata: Record<string, unknown> | null }>(
       "SELECT json(metadata) as metadata FROM efforts WHERE id = ?",
       [args.effortId]
     );
-    if (metaResult.length > 0 && metaResult[0].values[0][0]) {
-      const meta = JSON.parse(metaResult[0].values[0][0] as string);
-      phases = meta.phases;
+    if (metaRow?.metadata) {
+      phases = metaRow.metadata.phases as PhaseEntry[] | undefined;
     }
   }
 
@@ -143,17 +150,15 @@ function handler(args: Args, db: Database): RpcResponse {
     }
   }
 
-  db.exec("BEGIN");
-  try {
     // Update effort phase
-    db.run(
+    await db.run(
       "UPDATE efforts SET current_phase = ? WHERE id = ?",
       [args.phase, args.effortId]
     );
 
     // Append to phase_history (FK → efforts)
-    db.run(
-      "INSERT INTO phase_history (effort_id, phase_label, proof) VALUES (?, ?, jsonb(?))",
+    await db.run(
+      "INSERT INTO phase_history (effort_id, phase_label, proof) VALUES (?, ?, json(?))",
       [
         args.effortId,
         args.phase,
@@ -162,7 +167,7 @@ function handler(args: Args, db: Database): RpcResponse {
     );
 
     // Reset heartbeat counter on active session for this effort
-    db.run(
+    await db.run(
       `UPDATE sessions SET heartbeat_counter = 0, last_heartbeat = datetime('now')
        WHERE effort_id = ? AND ended_at IS NULL`,
       [args.effortId]
@@ -170,21 +175,20 @@ function handler(args: Args, db: Database): RpcResponse {
 
     // Update skill phases if auto-appended
     if (phasesModified && skillRow) {
-      db.run(
-        "UPDATE skills SET phases = jsonb(?), updated_at = datetime('now') WHERE id = ?",
-        [JSON.stringify(phases), skillRow.id as number]
+      await db.run(
+        "UPDATE skills SET phases = json(?), updated_at = datetime('now') WHERE id = ?",
+        [JSON.stringify(phases), skillRow.id]
       );
     }
 
-    const updatedEffort = getEffortRow(db, args.effortId);
-    const session = getActiveSession(db, args.effortId);
+    const updatedEffort = await db.get<EffortRow>("SELECT * FROM efforts WHERE id = ?", [args.effortId]);
+    const session = await db.get<SessionRow>(
+      "SELECT * FROM sessions WHERE effort_id = ? AND ended_at IS NULL ORDER BY id DESC LIMIT 1",
+      [args.effortId]
+    );
 
-    db.exec("COMMIT");
-    return { ok: true, data: { effort: updatedEffort, session } };
-  } catch (err: unknown) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
+    return { ok: true, data: { effort: updatedEffort!, session: session ?? null } };
+
 }
 
 // ── Phase label utilities ───────────────────────────────
@@ -263,6 +267,12 @@ function isAllowedSubPhaseSkip(
   if (targetParts.major === currentParts.major + 1 && targetParts.minor === 0) return true;
   if (currentParts.minor === 0 && targetParts.major === currentParts.major + 1 && targetParts.minor === 0) return true;
   return false;
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.effort.phase": typeof handler;
+  }
 }
 
 registerCommand("db.effort.phase", { schema, handler });

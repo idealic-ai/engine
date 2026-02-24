@@ -1,0 +1,119 @@
+#!/bin/bash
+# engine-rpc — Thin RPC invoker for the engine daemon.
+#
+# Usage: echo '{"key":"val"}' | engine-rpc hooks.sessionStart
+#        engine-rpc db.task.list '{"projectId":1}'
+#
+# Reads JSON from stdin (or $2), wraps as {"cmd":"$1","args":<json>},
+# sends to daemon over Unix socket, returns response on stdout.
+#
+# If daemon socket doesn't exist, auto-starts it.
+
+set -euo pipefail
+
+# ── Config ──────────────────────────────────────────────────
+
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+TOOLS_DIR="$PLUGIN_ROOT"
+
+# Socket path: per-project to avoid cross-project conflicts
+PROJECT_DIR="${CLAUDE_PROJECT_DIR:-$(pwd)}"
+PROJECT_HASH=$(echo -n "$PROJECT_DIR" | md5sum 2>/dev/null | cut -c1-8 || md5 -q -s "$PROJECT_DIR" 2>/dev/null | cut -c1-8 || echo "default")
+SOCKET_DIR="/tmp/engine-daemon"
+SOCKET_PATH="$SOCKET_DIR/engine-${PROJECT_HASH}.sock"
+DB_PATH="$SOCKET_DIR/engine-${PROJECT_HASH}.db"
+
+# ── Helpers ─────────────────────────────────────────────────
+
+die() { echo "{\"ok\":false,\"error\":\"$*\"}" >&2; exit 1; }
+
+# Ensure daemon is running. Start if not.
+ensure_daemon() {
+  if [[ -S "$SOCKET_PATH" ]]; then
+    return 0
+  fi
+
+  mkdir -p "$SOCKET_DIR"
+
+  # Start daemon in background via tsx
+  nohup npx --yes tsx "$TOOLS_DIR/daemon/src/main.ts" \
+    --socket "$SOCKET_PATH" \
+    --db "$DB_PATH" \
+    > "$SOCKET_DIR/daemon-${PROJECT_HASH}.log" 2>&1 &
+
+  # Wait for socket to appear (max 5s)
+  local attempts=0
+  while [[ ! -S "$SOCKET_PATH" ]] && (( attempts < 50 )); do
+    sleep 0.1
+    (( attempts++ ))
+  done
+
+  if [[ ! -S "$SOCKET_PATH" ]]; then
+    die "Daemon failed to start (socket not found after 5s)"
+  fi
+}
+
+# Send NDJSON request to daemon, read one-line response
+rpc_call() {
+  local payload="$1"
+
+  # Use socat if available (fastest), fall back to nc, then bash
+  if command -v socat >/dev/null 2>&1; then
+    printf '%s\n' "$payload" | socat -t5 - UNIX-CONNECT:"$SOCKET_PATH"
+  elif command -v nc >/dev/null 2>&1; then
+    printf '%s\n' "$payload" | nc -U -w5 "$SOCKET_PATH"
+  else
+    # Pure bash fallback (requires bash 4+ with /dev/unix support)
+    exec 3<>/dev/tcp/localhost/0 2>/dev/null || die "No socat, nc, or bash socket support"
+    printf '%s\n' "$payload" >&3
+    local response
+    read -r response <&3
+    exec 3>&-
+    echo "$response"
+  fi
+}
+
+# ── Main ────────────────────────────────────────────────────
+
+CMD="${1:-}"
+if [[ -z "$CMD" ]]; then
+  die "Usage: engine-rpc <command> [json-args]"
+fi
+
+# Read args: from $2 if provided, otherwise from stdin
+if [[ -n "${2:-}" ]]; then
+  ARGS="$2"
+elif [[ ! -t 0 ]]; then
+  ARGS=$(cat)
+else
+  ARGS="{}"
+fi
+
+# Ensure daemon is running
+ensure_daemon
+
+# Build NDJSON request
+PAYLOAD=$(printf '{"cmd":"%s","args":%s}' "$CMD" "$ARGS")
+
+# Send request and get response
+RESPONSE=$(rpc_call "$PAYLOAD")
+
+# For hook commands (hooks.*), Claude Code expects hookSpecificOutput at top level.
+# The daemon returns {ok, data: {..., hookSpecificOutput: {...}}}.
+# Extract hookSpecificOutput from data and output it directly.
+if [[ "$CMD" == hooks.* ]]; then
+  # Try to extract hookSpecificOutput from data using lightweight jq-free parsing
+  # If jq is available, use it; otherwise output raw response (backward compat)
+  if command -v jq >/dev/null 2>&1; then
+    HSO=$(echo "$RESPONSE" | jq -c '.data.hookSpecificOutput // empty' 2>/dev/null)
+    if [[ -n "$HSO" && "$HSO" != "null" ]]; then
+      echo "{\"hookSpecificOutput\":$HSO}"
+    else
+      echo "$RESPONSE"
+    fi
+  else
+    echo "$RESPONSE"
+  fi
+else
+  echo "$RESPONSE"
+fi

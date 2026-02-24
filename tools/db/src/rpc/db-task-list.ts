@@ -7,9 +7,11 @@
  *
  * Callers: bash `engine task list`, session search, fleet overview.
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { TaskRow } from "./types.js";
 
 const schema = z.object({
   projectId: z.number().optional(),
@@ -18,7 +20,8 @@ const schema = z.object({
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ tasks: TaskRow[] }>> {
+  const db = ctx.db;
   const conditions: string[] = [];
   const params: (string | number)[] = [];
 
@@ -31,25 +34,18 @@ function handler(args: Args, db: Database): RpcResponse {
   const limit = args.limit !== undefined ? `LIMIT ?` : "";
   if (args.limit !== undefined) params.push(args.limit);
 
-  const result = db.exec(
+  const tasks = await db.all<TaskRow>(
     `SELECT * FROM task_summary ${where} ORDER BY last_activity DESC NULLS LAST ${limit}`,
     params
   );
 
-  if (result.length === 0) {
-    return { ok: true, data: { tasks: [] } };
-  }
-
-  const { columns, values } = result[0];
-  const tasks = values.map((row) => {
-    const obj: Record<string, unknown> = {};
-    for (let i = 0; i < columns.length; i++) {
-      obj[columns[i]] = row[i];
-    }
-    return obj;
-  });
-
   return { ok: true, data: { tasks } };
+}
+
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.task.list": typeof handler;
+  }
 }
 
 registerCommand("db.task.list", { schema, handler });

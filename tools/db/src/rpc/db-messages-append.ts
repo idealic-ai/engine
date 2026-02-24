@@ -7,9 +7,11 @@
  *
  * Callers: hook scripts (transcript capture), session logging.
  */
-import type { Database } from "sql.js";
+import type { RpcContext } from "engine-shared/context";
 import { z } from "zod/v4";
-import { registerCommand, type RpcResponse } from "./dispatch.js";
+import { registerCommand } from "./dispatch.js";
+import type { TypedRpcResponse } from "engine-shared/rpc-types";
+import type { MessageRow } from "./types.js";
 
 const schema = z.object({
   sessionId: z.number(),
@@ -20,23 +22,22 @@ const schema = z.object({
 
 type Args = z.infer<typeof schema>;
 
-function handler(args: Args, db: Database): RpcResponse {
-  db.run(
+async function handler(args: Args, ctx: RpcContext): Promise<TypedRpcResponse<{ message: MessageRow }>> {
+  const db = ctx.db;
+  const { lastID } = await db.run(
     `INSERT INTO messages (session_id, role, content, tool_name)
      VALUES (?, ?, ?, ?)`,
     [args.sessionId, args.role, args.content, args.toolName ?? null]
   );
 
-  const id = db.exec("SELECT last_insert_rowid() AS id")[0].values[0][0] as number;
-  const result = db.exec("SELECT * FROM messages WHERE id = ?", [id]);
+  const message = await db.get<MessageRow>("SELECT * FROM messages WHERE id = ?", [lastID]);
+  return { ok: true, data: { message: message! } };
+}
 
-  const { columns, values } = result[0];
-  const message: Record<string, unknown> = {};
-  for (let i = 0; i < columns.length; i++) {
-    message[columns[i]] = values[0][i];
+declare module "engine-shared/rpc-types" {
+  interface Registered {
+    "db.messages.append": typeof handler;
   }
-
-  return { ok: true, data: { message } };
 }
 
 registerCommand("db.messages.append", { schema, handler });
