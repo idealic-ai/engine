@@ -447,6 +447,34 @@ esac
 assert_eq "B2: output begins with banner border" "yes" "$B2_FIRST"
 
 # ============================================================
+# TEST GROUP 2E: Seed keyed to Claude's PID (H1) — S1-S2
+# ============================================================
+echo ""
+echo "=== Test Group 2E: Seed PID keying ==="
+
+# S1: when invoked via the chunker, the generator keys its seed to CLAUDE_HOOK_PPID
+# (Claude's PID) rather than its own transient $PPID, so PostToolUse dedup finds it.
+echo ""
+echo "S1: generator keys seed to CLAUDE_HOOK_PPID when set"
+S1_DIR=$(mktemp -d); mkdir -p "$S1_DIR/sessions"
+printf '{"hook_event_name":"SessionStart","source":"resume","session_id":"s1","cwd":"%s"}' "$S1_DIR" \
+  | CLAUDE_HOOK_PPID=987654 bash "$HOOK_SH" >/dev/null 2>&1
+[ -f "$S1_DIR/sessions/.seeds/987654.json" ] && S1_OK=yes || S1_OK=no
+assert_eq "S1: seed filename == CLAUDE_HOOK_PPID" "yes" "$S1_OK"
+rm -rf "$S1_DIR"
+
+# S2: without CLAUDE_HOOK_PPID it falls back to $PPID (backward compatible)
+echo ""
+echo "S2: seed falls back to \$PPID when CLAUDE_HOOK_PPID unset"
+S2_DIR=$(mktemp -d); mkdir -p "$S2_DIR/sessions"
+printf '{"hook_event_name":"SessionStart","source":"resume","session_id":"s2","cwd":"%s"}' "$S2_DIR" \
+  | bash "$HOOK_SH" >/dev/null 2>&1
+S2_SEED=$(ls "$S2_DIR/sessions/.seeds/" 2>/dev/null)
+case "$S2_SEED" in [0-9]*.json) S2_OK=yes ;; *) S2_OK=no ;; esac
+assert_eq "S2: seed created with numeric PID fallback" "yes" "$S2_OK"
+rm -rf "$S2_DIR"
+
+# ============================================================
 # TEST GROUP 3: Restart Mode Detection (session.sh restart) — R1-R3
 # ============================================================
 echo ""

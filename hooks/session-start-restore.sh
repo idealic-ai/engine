@@ -49,6 +49,11 @@ fi
 # Source lib.sh for safe_json_write, pid_exists
 source "$HOME/.claude/scripts/lib.sh"
 
+# Seeds are keyed to Claude's process so PostToolUse (a direct child of Claude)
+# can find them. When invoked via the chunker, our own $PPID is the chunker's
+# transient PID, so the chunker passes Claude's PID as CLAUDE_HOOK_PPID.
+CLAUDE_PID="${CLAUDE_HOOK_PPID:-$PPID}"
+
 # --- Session Context Block (fires on every source) ---
 # Gather ambient context: time, active session, skill, phase, heartbeat
 SESSION_CONTEXT_LINE=""
@@ -151,15 +156,15 @@ for sessions_dir in "${SESSION_DIRS[@]}"; do
 
   # Create fresh seed for this Claude process
   mkdir -p "$sessions_dir/.seeds"
-  SEED_FILE="$sessions_dir/.seeds/$PPID.json"
-  jq -n --argjson pid "$PPID" --argjson seeds "$PRELOAD_SEEDS" '{
+  SEED_FILE="$sessions_dir/.seeds/$CLAUDE_PID.json"
+  jq -n --argjson pid "$CLAUDE_PID" --argjson seeds "$PRELOAD_SEEDS" '{
     pid: $pid,
     lifecycle: "seeding",
     preloadedFiles: $seeds,
     pendingPreloads: [],
     touchedDirs: {}
   }' > "$SEED_FILE"
-  _log_delivery "session-start" "seed" "$SEED_FILE" "create-seed(pid=$PPID)"
+  _log_delivery "session-start" "seed" "$SEED_FILE" "create-seed(pid=$CLAUDE_PID)"
   debug "  created seed: $SEED_FILE"
 done
 
@@ -253,7 +258,7 @@ $dep_content
 
     # Update seed files with skill dep paths
     for sessions_dir in "${SESSION_DIRS[@]}"; do
-      SEED_FILE="$sessions_dir/.seeds/$PPID.json"
+      SEED_FILE="$sessions_dir/.seeds/$CLAUDE_PID.json"
       if [ -f "$SEED_FILE" ]; then
         # Add each path to preloadedFiles
         while IFS= read -r add_path; do
@@ -350,7 +355,7 @@ $ART_CONTENT
         # Track in seed preloadedFiles
         ART_NORM=$(normalize_preload_path "$art_path" 2>/dev/null || echo "$art_path")
         for sessions_dir in "${SESSION_DIRS[@]}"; do
-          SEED_FILE="$sessions_dir/.seeds/$PPID.json"
+          SEED_FILE="$sessions_dir/.seeds/$CLAUDE_PID.json"
           if [ -f "$SEED_FILE" ]; then
             jq --arg p "$ART_NORM" '
               (.preloadedFiles //= []) |

@@ -390,22 +390,47 @@ configure_hooks() {
       else . + [entry]
       end;
 
-    # PreToolUse: overflow-v2 (consolidates overflow + heartbeat + directive-gate)
+    # PreToolUse: overflow-v2 (overflow + heartbeat + directive-gate) + one-strike
+    # destructive-command guard.
     .hooks.PreToolUse = ((.hooks.PreToolUse // [])
       | add_if_missing({
           "matcher": "*",
-          "hooks": [{
-            "type": "command",
-            "command": "~/.claude/hooks/pre-tool-use-overflow-v2.sh",
-            "timeout": 5
-          }]
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/pre-tool-use-overflow-v2.sh", "timeout": 5}]
+        })
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/pre-tool-use-one-strike.sh", "timeout": 5}]
         })
     )
 
-    # Stop
+    # PostToolUse: injection delivery, phase-CMD autoload, skill-template preload,
+    # AskUserQuestion dialogue logging.
+    | .hooks.PostToolUse = ((.hooks.PostToolUse // [])
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-use-injections.sh", "timeout": 5}]
+        })
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-use-phase-commands.sh", "timeout": 5}]
+        })
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-use-templates.sh", "timeout": 10}]
+        })
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-use-details-log.sh", "timeout": 5}]
+        })
+    )
+
+    # Stop: engine notifier + terminal bell.
     | .hooks.Stop = ((.hooks.Stop // [])
       | add_if_missing({
-          "hooks": [{"type": "command", "command": "~/.claude/hooks/stop-notify.sh"}]
+          "hooks": [
+            {"type": "command", "command": "~/.claude/hooks/stop-notify.sh"},
+            {"type": "command", "command": "afplay /System/Library/Sounds/Glass.aiff"}
+          ]
         })
     )
 
@@ -425,13 +450,27 @@ configure_hooks() {
         })
     )
 
-    # UserPromptSubmit: working + session-gate
+    # UserPromptSubmit: working spinner, session-gate, per-prompt state injection,
+    # freeform-chat dialogue logging.
     | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // [])
       | add_if_missing({
           "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-working.sh"}]
         })
       | add_if_missing({
           "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-session-gate.sh", "timeout": 5}]
+        })
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-state-injector.sh", "timeout": 5}]
+        })
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-freeform-chat.sh", "timeout": 5}]
+        })
+    )
+
+    # SubagentStart: inject log template + discovered directives into sub-agents.
+    | .hooks.SubagentStart = ((.hooks.SubagentStart // [])
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/subagent-start-context.sh", "timeout": 10}]
         })
     )
 
@@ -441,6 +480,21 @@ configure_hooks() {
           "hooks": [{"type": "command", "command": "~/.claude/hooks/session-end-notify.sh"}]
         })
     )
+
+    # SessionStart: chunked preload. Claude Code truncates any single hook stdout
+    # over ~9000 chars to ~2000, so the preload is split across 24 slice commands
+    # (session-start-chunk.sh <i> 24) that Claude concatenates back inline. Rebuild
+    # the entry idempotently: drop any prior session-start-restore/chunk wiring
+    # (migrates the legacy single restore hook), then append the canonical block.
+    | .hooks.SessionStart = (
+        [ (.hooks.SessionStart // [])[]
+          | select([ (.hooks // [])[]?.command // "" | test("session-start-(restore|chunk)\\.sh") ] | any | not) ]
+        + [ { "hooks": [ range(0;24) | {
+              "type": "command",
+              "command": ("~/.claude/hooks/session-start-chunk.sh \(.) 24"),
+              "timeout": 30
+            } ] } ]
+      )
 
     # PostToolUseSuccess → PostToolUse migration (legacy compat)
     | (if .hooks.PostToolUseSuccess then
