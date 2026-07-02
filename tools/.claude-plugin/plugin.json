@@ -1,6 +1,0 @@
-{
-  "name": "engine",
-  "version": "3.0.0",
-  "description": "Workflow engine plugin — session management, hooks, effort tracking, and daemon RPC",
-  "hooks": "./hooks.json"
-}

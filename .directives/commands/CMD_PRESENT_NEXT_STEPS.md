@@ -58,20 +58,19 @@ AskUserQuestion:
 
 ---
 
-### ¶ASK_NEW_WORK_ROUTING
+## ¶ASK_NEW_WORK_ROUTING: Choose one: New Work Routing
 Trigger: when user describes new work via Other in the next-steps menu (except: when user's text clearly matches a skill name — route directly)
 Extras: A: Describe the work in more detail | B: Check existing sessions for overlap | C: Tag for later instead
 
-## Decision: New Work Routing
-- Start /implement
+- [ ] Start /implement
   Scope and implement the described work
-- Start /brainstorm
+- [ ] Start /brainstorm
   Explore the idea before committing to implementation
-- [KEEP] Just note it
+- [ ] [KEEP] Just note it
   Log to DIALOGUE.md and stay idle
-- Start /research
+- [ ] Start /research
   Research the topic before any action
-- Start /fix
+- [ ] Start /fix
   This sounds like a bug — investigate and fix
 
 ---

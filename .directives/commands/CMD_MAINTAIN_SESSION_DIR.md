@@ -53,20 +53,19 @@
 
 ---
 
-### ¶ASK_SESSION_REUSE
+## ¶ASK_SESSION_REUSE: Choose one: Session Reuse
 Trigger: when existing skill artifacts are found in the session directory (except: first activation of any skill on a fresh session)
 Extras: A: View existing artifacts before deciding | B: Diff with previous session | C: Archive existing and start fresh
 
-## Decision: Session Reuse
-- [LITE] Continue (fast-track)
+- [ ] [LITE] Continue (fast-track)
   Resume with existing log, skip RAG/directive scans
-- [FULL] Continue (full ceremony)
+- [ ] [FULL] Continue (full ceremony)
   Resume with full context: RAG search, directive discovery, alert surfacing
-- [NEW] New session
+- [ ] [NEW] New session
   Create a new session directory with distinguishing suffix
-- [SKIP] Skip artifacts check
+- [ ] [SKIP] Skip artifacts check
   Proceed as if no artifacts exist — start fresh in same directory
-- [MERG] Merge sessions
+- [ ] [MERG] Merge sessions
   Load artifacts from another session into this one
 
 **Constraints**:

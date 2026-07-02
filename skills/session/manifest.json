@@ -1,0 +1,7 @@
+{
+  "name": "session",
+  "version": "4",
+  "description": "Smart assistant for session management \u2014 search sessions, check status, restart, continue after overflow. Triggers: \\\"session status\\\", \\\"search sessions\\\", \\\"session find\\\".",
+  "tier": "lightweight",
+  "args": "[subcommand] [args]"
+}

@@ -23,17 +23,18 @@ The algorithm below is parameterized. These mode-specific values fill the placeh
 
 **Plan Review Tree** (plan mode only):
 ```
-## Decision: Plan Review
-- [LGTM] Looks good
+## Choose one: Plan Review
+
+- [ ] [LGTM] Looks good
   No changes needed to this step
-- [INFO] More info needed
+- [ ] [INFO] More info needed
   I have questions about this step's approach
-- [MORE] Other
-  - [RWRK] Rework this step
+- [ ] [MORE] Other
+  - [ ] [RWRK] Rework this step
     Rewrite with a different approach
-  - [SWAP] Change approach
+  - [ ] [SWAP] Change approach
     Fundamental direction change needed
-  - [DROP] Remove from plan
+  - [ ] [DROP] Remove from plan
     This step is not needed
 ```
 
@@ -129,22 +130,21 @@ Each skill provides inline configuration in its SKILL.md:
 
 ---
 
-### ¶ASK_WALKTHROUGH_GRANULARITY
+## ¶ASK_WALKTHROUGH_GRANULARITY: Choose one: Walk-Through Granularity
 Trigger: before any walk-through of results or plan items (except: when collapsible-pass logic auto-skips the walk-through)
 Extras: A: Preview item count before deciding | B: Walk through only flagged items | C: Export items to clipboard
 
-## Decision: Walk-Through Granularity
-- [EACH] Each item
+- [ ] [EACH] Each item
   Walk through every item individually — finest control
-- Groups
+- [ ] Groups
   Walk through items grouped in batches of 4 — balanced
-- [AUTO] Smart
+- [ ] [AUTO] Smart
   Auto-determine: ≤4 items → Each, 5-12 → Groups, 13+ → Groups with batch shortcuts
-- [NONE] None
+- [ ] [NONE] None
   Skip the walk-through entirely
-- Top N only
+- [ ] Top N only
   Walk through the N most important items, skip the rest
-- Random sample
+- [ ] Random sample
   Walk through N randomly sampled items
 
 ---

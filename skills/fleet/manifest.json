@@ -1,0 +1,6 @@
+{
+  "name": "fleet",
+  "version": "3",
+  "description": "Interactive agent fleet designer - configure your multi-agent workspace. Triggers: \\\"configure fleet\\\", \\\"setup agents\\\", \\\"multi-agent workspace\\\", \\\"fleet layout\\\".",
+  "tier": "lightweight"
+}

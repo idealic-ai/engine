@@ -22,20 +22,19 @@
 
 ---
 
-### ¶ASK_BARE_TAG_TRIAGE
+## ¶ASK_BARE_TAG_TRIAGE: Choose one: Bare Tag Triage
 Trigger: when bare inline lifecycle tags are found during synthesis check (except: when no bare tags found — check passes automatically)
 Extras: A: View tag context with surrounding lines | B: Batch-process all tags with same action | C: Show which file each tag is in
 
-## Decision: Bare Tag Triage
-- [SEND] Promote
+- [ ] [SEND] Promote
   Create a REQUEST file from the tag + backtick-escape inline
-- [KEEP] Acknowledge
+- [ ] [KEEP] Acknowledge
   Tag is intentional — leave it bare, log acknowledgment
-- Escape
+- [ ] Escape
   Backtick-escape it — was a reference, not a work item
-- [DROP] Delete tag entirely
+- [ ] [DROP] Delete tag entirely
   Remove the tag and surrounding context
-- Move to Tags line
+- [ ] Move to Tags line
   Relocate from inline to the file's Tags line
 
 ---

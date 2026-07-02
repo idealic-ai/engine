@@ -1,11 +1,15 @@
 #!/bin/bash
-# Test: Fleet match priority over PID fallback in SessionStart hook
+# Test: SessionStart hook delegates session resolution to `session.sh find`
 #
-# Bug: Single-pass scan with break 2 on PID fallback causes alphabetically
-# earlier sessions with alive PIDs to preempt fleet-matching sessions.
-# Also: engine session continue doesn't claim fleet pane (no stale cleanup).
+# The hook no longer scans/selects sessions itself. It calls the canonical
+# resolver (fleet-exact match, then strict PID == this process, with a
+# PID-guard). Regression guarded here: a stale, alphabetically-first session
+# owned by a DIFFERENT live PID must NOT be attached to this pane — the old
+# loose "any alive PID" fallback picked exactly that. Fleet-vs-PID priority
+# proper is covered in test-session-sh.sh (find_by_pid / find_no_match /
+# find_rejects_alive_different_pid).
 #
-# Red-first: these tests FAIL against the current implementation.
+# Non-fleet (PID) path keeps these hermetic (¶INV_TMUX_AND_FLEET_OPTIONAL).
 
 set -euo pipefail
 
@@ -75,100 +79,76 @@ create_state_fleet() {
     }' > "$dir/.state.json"
 }
 
-# --- Helper: create mock tmux that returns a specific fleet label ---
-setup_mock_tmux() {
-  local fleet_label="$1"
-  mkdir -p "$SANDBOX/bin"
-  cat > "$SANDBOX/bin/tmux" <<MOCK
-#!/bin/bash
-# Mock tmux: return fleet label for display commands
-if [[ "\$*" == *"display"* ]]; then
-  echo "$fleet_label"
-  exit 0
-fi
-exit 0
-MOCK
-  chmod +x "$SANDBOX/bin/tmux"
-}
-
-# --- Helper: run hook with mock tmux ---
-run_hook_fleet() {
-  local source="$1" cwd="$2" fleet_label="$3"
-  setup_mock_tmux "$fleet_label"
+# --- Helper: run hook resolving as a specific process (non-fleet/PID path) ---
+# Unsets TMUX/TMUX_PANE so `session.sh find` skips fleet and matches by
+# CLAUDE_SUPERVISOR_PID only. Cleans the per-PID find cache after each run.
+run_hook_pid() {
+  local source="$1" cwd="$2" pid="$3"
   local input
   input=$(jq -n --arg src "$source" --arg cwd "$cwd" '{hook_event_name:"SessionStart",source:$src,cwd:$cwd}')
-  # Set TMUX_PANE to trigger fleet detection path, prepend mock tmux to PATH
-  # Note: env vars must be on the right side of pipe to reach the hook process
-  echo "$input" | TMUX_PANE="%99" PATH="$SANDBOX/bin:$PATH" \
+  echo "$input" | env -u TMUX -u TMUX_PANE CLAUDE_SUPERVISOR_PID="$pid" \
     bash "$HOOK_SH" 2>/dev/null
+  rm -f "/tmp/claude-session-cache-$pid" 2>/dev/null || true
 }
 
-# --- Helper: deactivate all sessions ---
+# --- Helper: reset the sandbox to a clean slate between tests ---
+# Full wipe (not just lifecycle=completed): `session.sh find` matches by PID
+# regardless of lifecycle, so a leftover dir sharing a test PID would collide.
 deactivate_all() {
-  for f in "$SANDBOX"/sessions/*/.state.json; do
-    [ -f "$f" ] || continue
-    jq '.lifecycle = "completed"' "$f" | safe_json_write "$f"
-  done
+  rm -rf "$SANDBOX"/sessions
+  mkdir -p "$SANDBOX"/sessions
 }
 
+# A real, alive PID distinct from $$ — the "owning" process for these tests.
+sleep 300 &
+OWNER_PID=$!
+trap 'kill "$OWNER_PID" 2>/dev/null; rm -rf "$SANDBOX"' EXIT
+
 # ============================================================
-# TEST GROUP: Fleet Priority (F1-F3)
+# TEST GROUP: Delegation to session.sh find (F1-F3)
 # ============================================================
 echo ""
-echo "=== Fleet Priority: SessionStart Hook ==="
+echo "=== SessionStart Hook: delegates to session.sh find ==="
 
-# F1: Fleet match should win over PID fallback when PID session sorts first
+# F1: hook attaches the session owned by THIS process (exact PID match)
 echo ""
-echo "F1: Fleet match wins over earlier-sorting PID match"
+echo "F1: attaches the session owned by this process"
 deactivate_all
 
-# Session AAA sorts first alphabetically, has alive PID, WRONG fleet pane
-F1_AAA="$SANDBOX/sessions/AAA_OLD_TEST"
-create_state_fleet "$F1_AAA" "test" "fleet:other:Pane" "$$"
-# $$ = current shell PID — guaranteed alive
+F1_OWNED="$SANDBOX/sessions/ZZZ_OWNED_LOOP"
+create_state_fleet "$F1_OWNED" "loop" "" "$OWNER_PID"
 
-# Session ZZZ sorts last, has dead PID (99999), CORRECT fleet pane
-F1_ZZZ="$SANDBOX/sessions/ZZZ_NEW_LOOP"
-create_state_fleet "$F1_ZZZ" "loop" "fleet:target:Worker" "99999"
-# PID 99999 very likely dead
+F1_OUTPUT=$(run_hook_pid "resume" "$SANDBOX" "$OWNER_PID")
+assert_contains "F1: attaches owned session (loop skill)" "Skill: loop" "$F1_OUTPUT"
+assert_contains "F1: attaches owned session name" "ZZZ_OWNED_LOOP" "$F1_OUTPUT"
 
-F1_OUTPUT=$(run_hook_fleet "startup" "$SANDBOX" "target:Worker")
-# The hook should pick ZZZ (fleet match), not AAA (PID match)
-assert_contains "F1: picks fleet-matching session (loop skill)" "Skill: loop" "$F1_OUTPUT"
-assert_contains "F1: picks ZZZ session name" "ZZZ_NEW_LOOP" "$F1_OUTPUT"
-
-# F2: Fleet match should win even when PID-matching session has dehydratedContext
+# F2: REGRESSION — a stale, alphabetically-first session owned by a DIFFERENT
+# alive PID must NOT be attached. The old loose fallback picked AAA; the fixed
+# hook resolves by exact PID and picks ZZZ.
 echo ""
-echo "F2: Fleet match wins over PID match with dehydratedContext"
+echo "F2: stale alive-PID session does not preempt the owned session"
 deactivate_all
 
-F2_AAA="$SANDBOX/sessions/AAA_DEHYDRATED"
-create_state_fleet "$F2_AAA" "test" "fleet:other:Pane" "$$"
-jq '.dehydratedContext = {"summary":"wrong session","requiredFiles":[]}' \
-  "$F2_AAA/.state.json" | safe_json_write "$F2_AAA/.state.json"
+F2_STALE="$SANDBOX/sessions/AAA_STALE_ALIVE"
+create_state_fleet "$F2_STALE" "test" "" "$$"     # $$ alive, but not our process
+F2_OWNED="$SANDBOX/sessions/ZZZ_OWNED"
+create_state_fleet "$F2_OWNED" "analyze" "" "$OWNER_PID"
 
-F2_ZZZ="$SANDBOX/sessions/ZZZ_FLEET_MATCH"
-create_state_fleet "$F2_ZZZ" "loop" "fleet:target:Worker" "99999"
+F2_OUTPUT=$(run_hook_pid "resume" "$SANDBOX" "$OWNER_PID")
+assert_contains "F2: attaches owned session, not stale AAA" "ZZZ_OWNED" "$F2_OUTPUT"
+assert_contains "F2: correct skill (analyze)" "Skill: analyze" "$F2_OUTPUT"
 
-F2_OUTPUT=$(run_hook_fleet "startup" "$SANDBOX" "target:Worker")
-# Fleet match (ZZZ) should still win — dehydrated context on AAA is irrelevant
-assert_contains "F2: picks fleet-matching session" "ZZZ_FLEET_MATCH" "$F2_OUTPUT"
-assert_contains "F2: correct skill (loop)" "Skill: loop" "$F2_OUTPUT"
-
-# F3: When fleet matches, context line shows correct session even if PID session sorts first
+# F3: when this process owns no session, the context line is (none) even though
+# other sessions have alive PIDs — never attach an unrelated session.
 echo ""
-echo "F3: Context line shows fleet-matched session, not PID-matched"
+echo "F3: owns nothing -> Session: (none) despite alive-PID sessions"
 deactivate_all
 
-F3_EARLY="$SANDBOX/sessions/AAA_PID_ALIVE"
-create_state_fleet "$F3_EARLY" "implement" "fleet:build:Builder" "$$"
+F3_OTHER="$SANDBOX/sessions/AAA_OTHER_ALIVE"
+create_state_fleet "$F3_OTHER" "implement" "" "$$"   # alive, belongs to a different process
 
-F3_CORRECT="$SANDBOX/sessions/ZZZ_CORRECT"
-create_state_fleet "$F3_CORRECT" "analyze" "fleet:data:Analyst" "99999"
-
-F3_OUTPUT=$(run_hook_fleet "resume" "$SANDBOX" "data:Analyst")
-assert_contains "F3: context line shows correct session" "ZZZ_CORRECT" "$F3_OUTPUT"
-assert_contains "F3: context line shows correct skill" "Skill: analyze" "$F3_OUTPUT"
+F3_OUTPUT=$(run_hook_pid "resume" "$SANDBOX" "424242")  # a PID no session owns
+assert_contains "F3: reports no active session" "Session: (none)" "$F3_OUTPUT"
 
 # ============================================================
 # TEST GROUP: Continue Fleet Claim (CF1-CF2)

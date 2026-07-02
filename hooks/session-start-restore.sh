@@ -57,15 +57,6 @@ ACTIVE_SKILL=""
 ACTIVE_PHASE=""
 ACTIVE_HEARTBEAT=""
 
-# Find active session — fleet pane match first, then PID fallback.
-# In fleet mode (TMUX_PANE set), match fleetPaneId in .state.json against
-# the current pane's window:label from tmux. Falls back to first alive PID.
-FLEET_LABEL=""
-if [ -n "${TMUX_PANE:-}" ]; then
-  FLEET_LABEL=$(tmux display -p -t "$TMUX_PANE" '#{window_name}:#{@pane_label}' 2>/dev/null || echo "")
-  debug "fleet label: '$FLEET_LABEL'"
-fi
-
 # Helper: extract session fields from .state.json into ACTIVE_* vars
 _set_active_session() {
   local f="$1"
@@ -78,50 +69,34 @@ _set_active_session() {
   ACTIVE_HEARTBEAT="${S_HEARTBEAT}/${S_HEARTBEAT_MAX}"
 }
 
-# Two-pass scan: fleet match has priority, PID fallback only if no fleet match.
-# Single jq call per file extracts all needed fields. Also notes dehydratedContext.
-# Pass 1: full scan — fleet match breaks immediately, PID candidate is remembered.
-# Pass 2: if no fleet match found, use the remembered PID candidate.
+# Resolve the active session via the canonical resolver (`session.sh find`):
+# fleet-pane exact match first, then strict PID (== this Claude process), with a
+# PID-guard that rejects sessions held by a different live process. No match =>
+# this pane owns no session (correct for scratch/meta panes and fresh startups).
+# Single source of truth — never attaches an unrelated session because "some
+# other agent's PID happens to be alive".
+FOUND_DIR=$(cd "$CWD" 2>/dev/null && "$HOME/.claude/scripts/session.sh" find 2>/dev/null || true)
+if [ -n "$FOUND_DIR" ] && [ -f "$FOUND_DIR/.state.json" ]; then
+  _set_active_session "$FOUND_DIR/.state.json"
+  debug "active session (session find): $ACTIVE_SESSION"
+else
+  debug "no active session for this process (session find: none)"
+fi
+
+# Dehydrated-context detection — startup-only restore. Scan for the first session
+# carrying a dehydratedContext object, independent of active-session resolution.
 DEHYDRATED_STATE_FILE=""
-PID_FALLBACK_FILE=""
-for sessions_dir in "${SESSION_DIRS[@]}"; do
-  for f in "$sessions_dir"/*/.state.json; do
-    [ -f "$f" ] || continue
-    # Single jq call extracts all needed fields
-    S_JSON=$(jq -r '[.lifecycle // "", .fleetPaneId // "", (.pid // 0 | tostring), (.dehydratedContext // null | type)]
-      | join("\t")' "$f" 2>/dev/null) || continue
-    S_LIFECYCLE=$(echo "$S_JSON" | cut -f1)
-    S_FLEET=$(echo "$S_JSON" | cut -f2)
-    S_PID=$(echo "$S_JSON" | cut -f3)
-    S_DEHY_TYPE=$(echo "$S_JSON" | cut -f4)
-
-    # Note dehydrated context (for startup restore later)
-    if [ "$S_DEHY_TYPE" = "object" ] && [ -z "$DEHYDRATED_STATE_FILE" ]; then
-      DEHYDRATED_STATE_FILE="$f"
-    fi
-
-    # Only match active/resuming sessions
-    { [ "$S_LIFECYCLE" = "active" ] || [ "$S_LIFECYCLE" = "resuming" ]; } || continue
-
-    # Fleet match (if in tmux) — immediate win, break out
-    if [ -n "$FLEET_LABEL" ] && [ -n "$S_FLEET" ] && [[ "$S_FLEET" == *"$FLEET_LABEL" ]]; then
-      _set_active_session "$f"
-      debug "fleet match: $ACTIVE_SESSION (paneId=$S_FLEET)"
-      break 2
-    fi
-
-    # PID candidate — remember first match, don't break (fleet may match later)
-    if [ -z "$PID_FALLBACK_FILE" ] && [ "$S_PID" != "0" ] && pid_exists "$S_PID"; then
-      PID_FALLBACK_FILE="$f"
-      debug "pid candidate: $(basename "$(dirname "$f")") (pid=$S_PID)"
-    fi
+if [ "$SOURCE" = "startup" ]; then
+  for sessions_dir in "${SESSION_DIRS[@]}"; do
+    for f in "$sessions_dir"/*/.state.json; do
+      [ -f "$f" ] || continue
+      S_DEHY_TYPE=$(jq -r '.dehydratedContext // null | type' "$f" 2>/dev/null) || continue
+      if [ "$S_DEHY_TYPE" = "object" ]; then
+        DEHYDRATED_STATE_FILE="$f"
+        break 2
+      fi
+    done
   done
-done
-
-# Pass 2: PID fallback only if no fleet match was found
-if [ -z "$ACTIVE_SESSION" ] && [ -n "$PID_FALLBACK_FILE" ]; then
-  _set_active_session "$PID_FALLBACK_FILE"
-  debug "pid fallback: $ACTIVE_SESSION"
 fi
 
 CONTEXT_TIME=$(date '+%Y-%m-%d %H:%M:%S')
@@ -141,6 +116,18 @@ debug "session context: $SESSION_CONTEXT_LINE"
 # Only the active session matters; dead sessions' state is never read by PostToolUse hooks.
 debug "clearing preload state for fresh context"
 PRELOAD_SEEDS=$(get_session_start_seeds)
+
+# Project docs index — when the repo follows the docs/TOC.md convention, treat it
+# as a session-start preload: register it in the seeds (so PostToolUse dedup won't
+# re-inject it) and inject its content alongside the standards below. No-op when absent.
+PROJECT_DOCS_INDEX=""
+if [ -f "$CWD/docs/TOC.md" ]; then
+  PROJECT_DOCS_INDEX="$CWD/docs/TOC.md"
+  TOC_NORM=$(normalize_preload_path "$PROJECT_DOCS_INDEX" 2>/dev/null || echo "$PROJECT_DOCS_INDEX")
+  PRELOAD_SEEDS=$(echo "$PRELOAD_SEEDS" | jq --arg p "$TOC_NORM" 'if index($p) then . else . + [$p] end')
+  debug "project docs index registered: $TOC_NORM"
+fi
+
 if [ -n "${ACTIVE_SESSION_DIR:-}" ] && [ -f "$ACTIVE_SESSION_DIR/.state.json" ]; then
   debug "  clearing preload state in $ACTIVE_SESSION (active)"
   jq --argjson stds "$PRELOAD_SEEDS" \
@@ -414,8 +401,35 @@ $STD_CONTENT
   fi
 done
 
-# Prepend session context line, append skill deps + session artifact after standards
-STANDARDS_OUTPUT="${SESSION_CONTEXT_LINE}
+# Inject the project docs index (registered in PRELOAD_SEEDS above)
+if [ -n "$PROJECT_DOCS_INDEX" ]; then
+  TOC_CONTENT=$(cat "$PROJECT_DOCS_INDEX" 2>/dev/null || true)
+  if [ -n "$TOC_CONTENT" ]; then
+    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Preloaded: docs/TOC.md]
+$TOC_CONTENT
+
+"
+    debug "  preloaded project docs index: docs/TOC.md"
+  fi
+fi
+
+# Mandatory-preload banner — MUST be the first bytes so it survives Claude Code's
+# ~2KB additionalContext preview when large hook stdout is spilled to a file.
+PRELOAD_BANNER="════════════════════════════════════════════════════════════════════
+⚠️  MANDATORY PRELOAD — DO NOT SKIP  ⚠️
+EVERYTHING BELOW IS PRELOADED CONTEXT AND MUST BE LOADED IN FULL.
+Claude Code truncates large SessionStart hook output to a file and shows you
+only a small preview from the top (COMMANDS.md). If you see a notice like
+\"Output too large … Full output saved to: <path>\" with only a preview, you are
+seeing ONLY THE FIRST CHUNK. BEFORE you plan, answer, or call any tool, READ
+THAT ENTIRE FILE end-to-end so every [Preloaded: …] block below (standards,
+skill deps, session artifacts, docs/TOC.md, dehydrated recovery context) is
+actually in your context. Acting on the preview alone is a protocol violation.
+════════════════════════════════════════════════════════════════════"
+
+# Prepend banner + session context line, append skill deps + session artifact after standards
+STANDARDS_OUTPUT="${PRELOAD_BANNER}
+${SESSION_CONTEXT_LINE}
 ${STANDARDS_OUTPUT}${SKILL_DEPS_OUTPUT}${ARTIFACT_OUTPUT}"
 
 # Dehydrated context restore — startup only (other sources: user didn't restart)

@@ -1459,11 +1459,15 @@ REPREADME
   fi
 
   # ---- Step 7: Configure Claude Code settings ----
-  # Engine config (hooks, statusLine, permissions) lives in PROJECT-LOCAL .claude/settings.json.
+  # statusLine + permissions live in the shared PROJECT-LOCAL .claude/settings.json.
+  # Hooks live in .claude/settings.local.json (gitignored) — hook commands are
+  # engine-version-specific absolute paths and must never be committed to a shared
+  # file, or teammates on a different engine version get "No such file" on every tool.
   # Global ~/.claude/settings.json is for non-engine user config only.
   log_step "Step 7: Configure settings"
   local GLOBAL_SETTINGS="$CLAUDE_DIR/settings.json"
   local PROJECT_SETTINGS="$PROJECT_ROOT/.claude/settings.json"
+  local PROJECT_LOCAL_SETTINGS="$PROJECT_ROOT/.claude/settings.local.json"
   mkdir -p "$PROJECT_ROOT/.claude"
 
   # All engine permissions — combined global + project scope
@@ -1519,9 +1523,26 @@ PERMS
     log_verbose "  checking statusLine hook..."
     configure_statusline "$PROJECT_SETTINGS"
 
-    # Engine hooks (project-local, deep-merge via setup-lib.sh)
-    log_verbose "  checking engine hooks..."
-    configure_hooks "$PROJECT_SETTINGS"
+    # Engine hooks go in settings.local.json (gitignored), NOT the shared
+    # settings.json. settings.local.json merges over settings.json at runtime.
+    log_verbose "  checking engine hooks (settings.local.json)..."
+    if [ ! -f "$PROJECT_LOCAL_SETTINGS" ] || [ ! -s "$PROJECT_LOCAL_SETTINGS" ]; then
+      echo '{}' > "$PROJECT_LOCAL_SETTINGS"
+    fi
+    configure_hooks "$PROJECT_LOCAL_SETTINGS"
+
+    # Defuse any hooks still sitting in the shared settings.json so they don't
+    # double-fire alongside settings.local.json. Idempotent: empties the arrays in
+    # place; no-ops (byte-identical, no git churn) if already empty or absent.
+    if [ -f "$PROJECT_SETTINGS" ] && jq -e 'has("hooks")' "$PROJECT_SETTINGS" >/dev/null 2>&1; then
+      local SETTINGS_BEFORE SETTINGS_AFTER
+      SETTINGS_BEFORE=$(cat "$PROJECT_SETTINGS")
+      SETTINGS_AFTER=$(echo "$SETTINGS_BEFORE" | jq '.hooks |= map_values([])')
+      if [ "$SETTINGS_BEFORE" != "$SETTINGS_AFTER" ]; then
+        echo "$SETTINGS_AFTER" > "$PROJECT_SETTINGS"
+        ACTIONS+=("Cleared engine hooks from shared .claude/settings.json (moved to settings.local.json)")
+      fi
+    fi
 
     # ---- Global settings (strip engine config) ----
     # Ensure global settings.json exists but has no engine-owned config

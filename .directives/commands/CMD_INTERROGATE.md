@@ -53,32 +53,30 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 ---
 
-### ¶ASK_INTERROGATION_DEPTH
+## ¶ASK_INTERROGATION_DEPTH: Choose one: Interrogation Depth
 Trigger: when starting any skill's interrogation phase (except: when depth was already set by dehydrated context from a previous overflow)
 Extras: A: Show example questions before choosing | B: Start with 1 warm-up round first | C: Use depth from previous session
 
-## Decision: Interrogation Depth
-- [LITE] Short (4+ rounds)
+- [ ] [LITE] Short (4+ rounds)
   Findings are clear, just confirm direction
-- [MEDM] Medium (8+ rounds)
+- [ ] [MEDM] Medium (8+ rounds)
   Moderate complexity, some findings need input
-- [FULL] Long (12+ rounds)
+- [ ] [FULL] Long (12+ rounds)
   Complex analysis, many open questions
-- Absolute (until resolved)
+- [ ] Absolute (until resolved)
   Zero ambiguity tolerance — no minimum, no exit gate until all questions resolved
-- Custom depth
+- [ ] Custom depth
   Specify a custom minimum round count
 
-### ¶ASK_INTERROGATION_EXIT
+## ¶ASK_INTERROGATION_EXIT: Choose: Interrogation Exit
 Trigger: after minimum interrogation rounds are met (except: when exit gate was merged with phase gate per interrogation double-tap fix)
 Extras: A: Walk through findings so far | B: Go back to a previous topic | C: Skip to planning
 
-## Decision: Interrogation Exit
-- [NEXT] [ ] Next phase
+- [ ] [NEXT] Next phase
   Done interrogating — move on
-- [MORE] [ ] More interrogation (4 more rounds)
+- [ ] [MORE] More interrogation (4 more rounds)
   Standard topic rounds, then re-present this gate
-- [DEEP] [ ] Deep dive round
+- [ ] [DEEP] Deep dive round
   1 round drilling into a specific prior topic in detail
 - [ ] Devil's advocate round
   1 round challenging assumptions and decisions made so far

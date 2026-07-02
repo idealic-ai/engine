@@ -1,0 +1,6 @@
+{
+  "name": "delegation-create",
+  "version": "3",
+  "description": "Routes tagged work items to workers via async, blocking, or silent delegation. Triggers: \\\"delegate this\\\", \\\"route this work\\\", \\\"hand off this task\\\", \\\"delegation create\\\".",
+  "tier": "lightweight"
+}

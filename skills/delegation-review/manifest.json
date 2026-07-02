@@ -1,0 +1,6 @@
+{
+  "name": "delegation-review",
+  "version": "3",
+  "description": "Standalone dispatch approval \u2014 scans #needs-X tags, presents grouped approval menu, executes tag transitions. Triggers: \\\"review delegations\\\", \\\"dispatch approval\\\", \\\"what needs dispatching\\\", \\\"delegation review\\\".",
+  "tier": "lightweight"
+}

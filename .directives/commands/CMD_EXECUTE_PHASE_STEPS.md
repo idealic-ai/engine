@@ -67,22 +67,21 @@ After SKILL.md prose completes, check whether gating is enabled for this phase. 
 
 **Proof-Gated Transitions**: When the current phase declares `proof` fields, pipe proof as JSON via STDIN to `engine session phase` (FROM validation). Missing or unfilled fields reject the transition (exit 1). No `proof` array → transition proceeds without STDIN.
 
-### ¶ASK_PHASE_GATE
+## ¶ASK_PHASE_GATE: Choose one: Phase Gate
 Trigger: at every phase boundary where `Gate: true` (default)
 Extras: A: View current phase output summary | B: View remaining phases | C: Check time spent in this phase
 
-## Decision: Phase Gate
-- [NEXT] Next phase
+- [ ] [NEXT] Next phase
   Continue to the next phase
-- [VIEW] See output
+- [ ] [VIEW] See output
   Review this phase's output before moving on
-- [BACK] Previous
+- [ ] [BACK] Previous
   Return to the previous phase
-- [REDO] Again
+- [ ] [REDO] Again
   Redo the current phase from scratch
-- [JUMP] Jump ahead
+- [ ] [JUMP] Jump ahead
   Jump forward past the next phase (requires approval)
-- Extend phase
+- [ ] Extend phase
   Add more work items to current phase before moving on
 
 ---

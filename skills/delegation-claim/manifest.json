@@ -1,0 +1,6 @@
+{
+  "name": "delegation-claim",
+  "version": "3",
+  "description": "Worker-side claiming of delegated work items. Scans #delegated-X tags, presents items for claiming, routes to target skills. Triggers: \\\"claim work\\\", \\\"pick up delegated items\\\", \\\"what's available to work on\\\", \\\"delegation claim\\\".",
+  "tier": "lightweight"
+}

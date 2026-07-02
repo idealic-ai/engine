@@ -1,0 +1,219 @@
+{
+  "name": "loop",
+  "version": "3",
+  "description": "Hypothesis-driven iteration engine for LLM workloads \u2014 runs cycles of hypothesize, execute, review, analyze, decide, edit. Triggers: \\\"iterate on this\\\", \\\"run a loop\\\", \\\"hypothesis-driven refinement\\\", \\\"improve the prompt\\\", \\\"tune the model\\\".",
+  "tier": "protocol",
+  "taskType": "CHANGESET",
+  "templates": {
+    "plan": "assets/TEMPLATE_LOOP_PLAN.md",
+    "log": "assets/TEMPLATE_LOOP_LOG.md",
+    "debrief": "assets/TEMPLATE_LOOP.md",
+    "request": "assets/TEMPLATE_LOOP_REQUEST.md",
+    "response": "assets/TEMPLATE_LOOP_RESPONSE.md"
+  },
+  "phases": [
+    {
+      "label": "0",
+      "name": "Setup",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_PARSE_PARAMETERS",
+        "\u00a7CMD_SELECT_MODE",
+        "\u00a7CMD_INGEST_CONTEXT_BEFORE_WORK"
+      ],
+      "commands": [],
+      "proof": [
+        "mode",
+        "sessionDir",
+        "parametersParsed",
+        "flagsParsed",
+        "routing"
+      ],
+      "gate": false
+    },
+    {
+      "label": "1",
+      "name": "Interrogation",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_INTERROGATE"
+      ],
+      "commands": [
+        "\u00a7CMD_ASK_ROUND",
+        "\u00a7CMD_LOG_INTERACTION"
+      ],
+      "proof": [
+        "depthChosen",
+        "roundsCompleted",
+        "manifestValidated"
+      ]
+    },
+    {
+      "label": "2",
+      "name": "Planning",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_GENERATE_PLAN"
+      ],
+      "commands": [],
+      "proof": [
+        "failureContext",
+        "hypothesesRanked",
+        "experimentsDesigned",
+        "casesSelected",
+        "successCriteria",
+        "planWritten",
+        "userApproved"
+      ]
+    },
+    {
+      "label": "3",
+      "name": "Calibration",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT"
+      ],
+      "commands": [
+        "\u00a7CMD_APPEND_LOG"
+      ],
+      "proof": [
+        "testFixture",
+        "pipelineResult",
+        "manifestSaved",
+        "calibrationLogged"
+      ]
+    },
+    {
+      "label": "4",
+      "name": "Baseline",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT"
+      ],
+      "commands": [
+        "\u00a7CMD_APPEND_LOG"
+      ],
+      "proof": [
+        "casesExecuted",
+        "baselineMetrics",
+        "baselinePresented",
+        "userApproved"
+      ]
+    },
+    {
+      "label": "5",
+      "name": "Iteration Loop",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT"
+      ],
+      "commands": [
+        "\u00a7CMD_APPEND_LOG",
+        "\u00a7CMD_TRACK_PROGRESS"
+      ],
+      "proof": [
+        "iterationsCompleted",
+        "logEntries",
+        "exitCondition"
+      ]
+    },
+    {
+      "label": "6",
+      "name": "Synthesis",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_RUN_SYNTHESIS_PIPELINE"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "6.1",
+      "name": "Checklists",
+      "steps": [
+        "\u00a7CMD_VALIDATE_ARTIFACTS",
+        "\u00a7CMD_RESOLVE_BARE_TAGS",
+        "\u00a7CMD_PROCESS_CHECKLISTS"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "6.2",
+      "name": "Debrief",
+      "steps": [
+        "\u00a7CMD_GENERATE_DEBRIEF"
+      ],
+      "commands": [],
+      "proof": [
+        "debriefFile",
+        "debriefTags"
+      ],
+      "gate": false
+    },
+    {
+      "label": "6.3",
+      "name": "Pipeline",
+      "steps": [
+        "\u00a7CMD_MANAGE_DIRECTIVES",
+        "\u00a7CMD_PROCESS_DELEGATIONS",
+        "\u00a7CMD_DISPATCH_APPROVAL",
+        "\u00a7CMD_CAPTURE_SIDE_DISCOVERIES",
+        "\u00a7CMD_RESOLVE_CROSS_SESSION_TAGS",
+        "\u00a7CMD_MANAGE_BACKLINKS",
+        "\u00a7CMD_MANAGE_ALERTS",
+        "\u00a7CMD_REPORT_LEFTOVER_WORK"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "6.4",
+      "name": "Close",
+      "steps": [
+        "\u00a7CMD_REPORT_ARTIFACTS",
+        "\u00a7CMD_REPORT_SUMMARY",
+        "\u00a7CMD_SURFACE_OPPORTUNITIES",
+        "\u00a7CMD_CLOSE_SESSION",
+        "\u00a7CMD_PRESENT_NEXT_STEPS"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    }
+  ],
+  "modes": {
+    "convergence": {
+      "label": "Convergence",
+      "description": "Correctness-driven, co-evolve evaluator, problem-first",
+      "file": "modes/convergence.md"
+    },
+    "precision": {
+      "label": "Precision",
+      "description": "Surgical iteration, isolate variables, classify changes",
+      "file": "modes/precision.md"
+    },
+    "exploration": {
+      "label": "Exploration",
+      "description": "Bold changes, seek breakthroughs",
+      "file": "modes/exploration.md"
+    },
+    "custom": {
+      "label": "Custom",
+      "description": "User-defined",
+      "file": "modes/custom.md"
+    }
+  },
+  "nextSkills": [
+    "/loop",
+    "/test",
+    "/implement",
+    "/analyze",
+    "/chores"
+  ],
+  "directives": [
+    "TESTING.md",
+    "PITFALLS.md",
+    "CONTRIBUTING.md"
+  ]
+}

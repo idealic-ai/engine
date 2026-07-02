@@ -28,20 +28,19 @@
 
 ---
 
-### ¶ASK_MODEL_SELECTION
+## ¶ASK_MODEL_SELECTION: Choose one: External Model
 Trigger: during setup of skills that support external model delegation (except: skills that don't invoke §CMD_SUGGEST_EXTERNAL_MODEL — opt-in only)
 Extras: A: Compare model capabilities | B: View estimated costs | C: Use same model as last session
 
-## Decision: External Model
-- Gemini 3 Pro
+- [ ] Gemini 3 Pro
   Best for quality-critical synthesis from many files
-- Gemini 3 Flash
+- [ ] Gemini 3 Flash
   Faster and cheaper, good for straightforward tasks
-- Claude (default)
+- [ ] Claude (default)
   Stay in context. Better for interactive refinement
-- Custom model
+- [ ] Custom model
   Specify a model name manually (e.g., a fine-tuned variant)
-- [SKIP] Skip model selection
+- [ ] [SKIP] Skip model selection
   Stay with Claude default — don't ask again this session
 
 ---

@@ -22,18 +22,17 @@
 
 ---
 
-### ¶ASK_CONTEXT_INGESTION
+## ¶ASK_CONTEXT_INGESTION: Choose: Context Ingestion
 Trigger: after session activation when RAG discovers non-empty context categories
 Extras: [agent-generated contextual suggestion packages — combos of categories based on what's available and the task type]
 
-## Decision: Context Ingestion
 - [ ] Sessions
   Top 3 RAG session matches by relevance (curated from SRC_PRIOR_SESSIONS)
 - [ ] Docs
   Top 3 RAG doc matches by relevance (curated from SRC_RELEVANT_DOCS)
 - [ ] Operational
   All active alerts + open delegations (SRC_ACTIVE_ALERTS + SRC_OPEN_DELEGATIONS)
-- [SKIP] [ ] Skip context
+- [ ] [SKIP] Skip context
   Don't load any RAG results — work with contextPaths only
 
 **Dynamic behavior**: Categories with zero curated results are hidden from the presented options. `[SKIP]` is always shown. Agent populates labels with counts at runtime. The `@` universal prefix works in the Other field for adding specific file paths.

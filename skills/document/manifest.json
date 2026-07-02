@@ -1,0 +1,203 @@
+{
+  "name": "document",
+  "version": "3",
+  "description": "Keeps documentation in sync with code changes and project state. Triggers: \\\"update documentation\\\", \\\"patch the docs\\\", \\\"sync docs with code changes\\\", \\\"update architecture docs\\\".",
+  "tier": "protocol",
+  "taskType": "DOCUMENT_UPDATE",
+  "templates": {
+    "plan": "assets/TEMPLATE_DOCUMENTATION_PLAN.md",
+    "log": "assets/TEMPLATE_DOCUMENTATION_LOG.md",
+    "debrief": "assets/TEMPLATE_DOCUMENTATION.md",
+    "request": "assets/TEMPLATE_DOCUMENTATION_REQUEST.md",
+    "response": "assets/TEMPLATE_DOCUMENTATION_RESPONSE.md"
+  },
+  "phases": [
+    {
+      "label": "0",
+      "name": "Setup",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_PARSE_PARAMETERS",
+        "\u00a7CMD_SELECT_MODE",
+        "\u00a7CMD_INTERROGATE",
+        "\u00a7CMD_INGEST_CONTEXT_BEFORE_WORK"
+      ],
+      "commands": [
+        "\u00a7CMD_ASK_ROUND",
+        "\u00a7CMD_LOG_INTERACTION"
+      ],
+      "proof": [
+        "mode",
+        "sessionDir",
+        "parametersParsed"
+      ],
+      "gate": false
+    },
+    {
+      "label": "1",
+      "name": "Diagnosis & Planning",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_GENERATE_PLAN"
+      ],
+      "commands": [
+        "\u00a7CMD_LINK_FILE"
+      ],
+      "proof": [
+        "contextSourcesPresented",
+        "documentationDriftAssessed",
+        "planWritten",
+        "planPresented",
+        "userApproved"
+      ]
+    },
+    {
+      "label": "2",
+      "name": "Execution",
+      "steps": [
+        "\u00a7CMD_SELECT_EXECUTION_PATH"
+      ],
+      "commands": [],
+      "proof": [
+        "pathChosen",
+        "pathsAvailable"
+      ],
+      "gate": false
+    },
+    {
+      "label": "2.A",
+      "name": "Operation",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT"
+      ],
+      "commands": [
+        "\u00a7CMD_APPEND_LOG",
+        "\u00a7CMD_TRACK_PROGRESS"
+      ],
+      "proof": [
+        "planStepsCompleted",
+        "logEntries",
+        "unresolvedBlocks"
+      ]
+    },
+    {
+      "label": "2.B",
+      "name": "Agent Handoff",
+      "steps": [
+        "\u00a7CMD_HANDOFF_TO_AGENT"
+      ],
+      "commands": [],
+      "proof": []
+    },
+    {
+      "label": "2.C",
+      "name": "Parallel Agent Handoff",
+      "steps": [
+        "\u00a7CMD_PARALLEL_HANDOFF"
+      ],
+      "commands": [],
+      "proof": []
+    },
+    {
+      "label": "3",
+      "name": "Synthesis",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_RUN_SYNTHESIS_PIPELINE"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "3.1",
+      "name": "Checklists",
+      "steps": [
+        "\u00a7CMD_VALIDATE_ARTIFACTS",
+        "\u00a7CMD_RESOLVE_BARE_TAGS",
+        "\u00a7CMD_PROCESS_CHECKLISTS"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "3.2",
+      "name": "Debrief",
+      "steps": [
+        "\u00a7CMD_GENERATE_DEBRIEF"
+      ],
+      "commands": [],
+      "proof": [
+        "debriefFile",
+        "debriefTags"
+      ],
+      "gate": false
+    },
+    {
+      "label": "3.3",
+      "name": "Pipeline",
+      "steps": [
+        "\u00a7CMD_MANAGE_DIRECTIVES",
+        "\u00a7CMD_PROCESS_DELEGATIONS",
+        "\u00a7CMD_DISPATCH_APPROVAL",
+        "\u00a7CMD_CAPTURE_SIDE_DISCOVERIES",
+        "\u00a7CMD_RESOLVE_CROSS_SESSION_TAGS",
+        "\u00a7CMD_MANAGE_BACKLINKS",
+        "\u00a7CMD_MANAGE_ALERTS",
+        "\u00a7CMD_REPORT_LEFTOVER_WORK"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "3.4",
+      "name": "Close",
+      "steps": [
+        "\u00a7CMD_REPORT_ARTIFACTS",
+        "\u00a7CMD_REPORT_SUMMARY",
+        "\u00a7CMD_SURFACE_OPPORTUNITIES",
+        "\u00a7CMD_CLOSE_SESSION",
+        "\u00a7CMD_PRESENT_NEXT_STEPS"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    }
+  ],
+  "modes": {
+    "surgical": {
+      "label": "Surgical",
+      "description": "Fix specific stale/incorrect docs",
+      "file": "modes/surgical.md"
+    },
+    "audit": {
+      "label": "Audit",
+      "description": "Read-only verification pass",
+      "file": "modes/audit.md"
+    },
+    "refine": {
+      "label": "Refine",
+      "description": "Improve clarity, examples, structure",
+      "file": "modes/refine.md"
+    },
+    "custom": {
+      "label": "Custom",
+      "description": "User-defined",
+      "file": "modes/custom.md"
+    }
+  },
+  "nextSkills": [
+    "/review",
+    "/implement",
+    "/analyze",
+    "/brainstorm",
+    "/chores"
+  ],
+  "directives": [
+    "TESTING.md",
+    "PITFALLS.md",
+    "CONTRIBUTING.md"
+  ]
+}

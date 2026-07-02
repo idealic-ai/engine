@@ -1,1 +1,0 @@
-/Users/invizko/.claude/engine/agents/tester.md

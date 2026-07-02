@@ -1,0 +1,147 @@
+{
+  "name": "brainstorm",
+  "version": "3",
+  "description": "Structured ideation and trade-off analysis for design and architecture decisions. Triggers: \\\"brainstorm ideas\\\", \\\"explore this problem\\\", \\\"think through trade-offs\\\", \\\"challenge assumptions\\\", \\\"discuss architecture\\\".",
+  "tier": "protocol",
+  "taskType": "BRAINSTORM",
+  "templates": {
+    "log": "assets/TEMPLATE_BRAINSTORM_LOG.md",
+    "debrief": "assets/TEMPLATE_BRAINSTORM.md",
+    "request": "assets/TEMPLATE_BRAINSTORM_REQUEST.md",
+    "response": "assets/TEMPLATE_BRAINSTORM_RESPONSE.md"
+  },
+  "phases": [
+    {
+      "label": "0",
+      "name": "Setup",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_PARSE_PARAMETERS",
+        "\u00a7CMD_SELECT_MODE",
+        "\u00a7CMD_INGEST_CONTEXT_BEFORE_WORK"
+      ],
+      "commands": [],
+      "proof": [
+        "mode",
+        "sessionDir",
+        "parametersParsed"
+      ],
+      "gate": false
+    },
+    {
+      "label": "1",
+      "name": "Dialogue Loop",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_INTERROGATE"
+      ],
+      "commands": [
+        "\u00a7CMD_ASK_ROUND",
+        "\u00a7CMD_LOG_INTERACTION",
+        "\u00a7CMD_APPEND_LOG"
+      ],
+      "proof": [
+        "depthChosen",
+        "roundsCompleted",
+        "logEntries"
+      ]
+    },
+    {
+      "label": "2",
+      "name": "Synthesis",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_RUN_SYNTHESIS_PIPELINE"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "2.1",
+      "name": "Checklists",
+      "steps": [
+        "\u00a7CMD_VALIDATE_ARTIFACTS",
+        "\u00a7CMD_RESOLVE_BARE_TAGS",
+        "\u00a7CMD_PROCESS_CHECKLISTS"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "2.2",
+      "name": "Debrief",
+      "steps": [
+        "\u00a7CMD_GENERATE_DEBRIEF"
+      ],
+      "commands": [],
+      "proof": [
+        "debriefFile",
+        "debriefTags"
+      ],
+      "gate": false
+    },
+    {
+      "label": "2.3",
+      "name": "Pipeline",
+      "steps": [
+        "\u00a7CMD_MANAGE_DIRECTIVES",
+        "\u00a7CMD_PROCESS_DELEGATIONS",
+        "\u00a7CMD_DISPATCH_APPROVAL",
+        "\u00a7CMD_CAPTURE_SIDE_DISCOVERIES",
+        "\u00a7CMD_RESOLVE_CROSS_SESSION_TAGS",
+        "\u00a7CMD_MANAGE_BACKLINKS",
+        "\u00a7CMD_MANAGE_ALERTS",
+        "\u00a7CMD_REPORT_LEFTOVER_WORK"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "2.4",
+      "name": "Close",
+      "steps": [
+        "\u00a7CMD_REPORT_ARTIFACTS",
+        "\u00a7CMD_REPORT_SUMMARY",
+        "\u00a7CMD_SURFACE_OPPORTUNITIES",
+        "\u00a7CMD_CLOSE_SESSION",
+        "\u00a7CMD_PRESENT_NEXT_STEPS"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    }
+  ],
+  "modes": {
+    "explore": {
+      "label": "Explore",
+      "description": "Wide ideation, divergent, creative",
+      "file": "modes/explore.md"
+    },
+    "focused": {
+      "label": "Focused",
+      "description": "Decision-oriented, trade-off analysis",
+      "file": "modes/focused.md"
+    },
+    "adversarial": {
+      "label": "Adversarial",
+      "description": "Stress-test assumptions, devil's advocate",
+      "file": "modes/adversarial.md"
+    },
+    "custom": {
+      "label": "Custom",
+      "description": "User provides framing, agent blends modes",
+      "file": "modes/custom.md"
+    }
+  },
+  "nextSkills": [
+    "/implement",
+    "/analyze",
+    "/document",
+    "/fix",
+    "/chores"
+  ],
+  "directives": []
+}

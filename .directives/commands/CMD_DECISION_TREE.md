@@ -7,27 +7,29 @@
 ## Markdown Tree Format
 
 ```
-### ¶ASK_[NAME]
+## ¶ASK_[NAME]: Choose one: [Title]
 Trigger: [when this ask pattern is useful — prose description]
+Extras: A: ... | B: ... | C: ...
 
-## Decision: [Name]
-- [CODE] Label text
+- [ ] [CODE] Label text
   Description text (-> AskUserQuestion description)
-- [CODE] Label text
+- [ ] [CODE] Label text
   Description text
-- Label text without code
+- [ ] Label text without code
   Description text
 ```
 
-- **Heading** — `### ¶ASK_[NAME]` — UPPER_SNAKE, unique across all CMD/SKILL files
-- **Trigger** — `Trigger: [description]` — prose line after heading, before `## Decision:`. Describes when this ask pattern is useful.
+- **Heading** — `## ¶ASK_[NAME]: Choose one: [Title]` — single heading combining the tree identifier and title. UPPER_SNAKE name, unique across all CMD/SKILL files. Use `Choose one:` for single-select, `Choose:` for multi-select.
+- **Trigger** — `Trigger: [description]` — metadata line after heading, before options. Describes when this ask pattern is useful.
 - **Extras** — `Extras: A: ... | B: ... | C: ...` — agent-generated smart extras shown in the preamble legend. Optional.
 - **Identifier** — `[CODE]` — OPTIONAL. 3-4 uppercase letters from the Standard Label Vocabulary ONLY. Items that don't map to a standard code have no `[CODE]` prefix — just the label. Do NOT invent new codes.
-- **Multi-select** — `- [CODE] [ ] Label` or `- [ ] Label` — `[ ]` turns the tree into multiSelect. Works with or without code prefix.
+- **Hidden identifier** — `[_CODE]` — Machine-readable key NOT shown to the user. The underscore prefix means "internal." In the answer store, the underscore is stripped: `[_REASON]` → store key `REASON`. Use hidden codes when a question needs to be queryable by conditions but shouldn't display a code badge visually.
+- **Checkbox prefix** — `- [ ]` — ALL options get a checkbox prefix. This is universal formatting, not a multi-select signal. Multi-select vs single-select is determined by the heading (`Choose:` vs `Choose one:`).
 - **Flat peers** — ALL items are declared at the same indent level. No nesting hierarchy. The agent surfaces the top 4 by relevance; the rest are accessible via `/` in the Other field.
 - **Width** — Declare any number of items (typically 5-10). Agent surfaces the top 4 for AskUserQuestion (`¶INV_ASK_SURFACE_FOUR`). No upper limit on declaration.
 - **Description** — Indented line below label
 - **Label text** — Max 3-4 words. Prefer verbs or adjectives over domain-specific nouns. Put detail in the description line, not the label.
+- **Anonymous trees** — Trees without a `¶ASK_` name use just `## Choose one: [Title]` or `## Choose: [Title]`.
 
 **Path format**: Codes or labels tracing the selection path. Multi-select uses commas.
 
@@ -145,7 +147,7 @@ Before calling `AskUserQuestion`, output a **preamble** in chat. The preamble ha
 For each surfaced option:
 *   **Label**: `[CODE] ` prefix + Node's label text. The code prefix makes tree codes visible to the user, enabling smart parse (typed code matching). Auto-append `...` if node has children. Example: `[LGTM] Looks good`, `[RWRK] Rework this step...`.
 *   **Description**: Node's description text.
-*   **multiSelect**: `true` if the tree has the `[ ]` flag.
+*   **multiSelect**: `true` if the heading uses `Choose:` (multi-select) instead of `Choose one:` (single-select).
 
 ### Step 4: Resolve — Smart Parse
 
@@ -304,15 +306,14 @@ A derived tree can extend a base tree and only specify the delta. Items are matc
 ### Overlay Syntax
 
 ```
-### ¶ASK_[DERIVED_NAME]
+## ¶ASK_[DERIVED_NAME]: Choose one: [Name]
 Extends: §ASK_[BASE_NAME]
 Trigger: [override — replaces base trigger]
 Extras: [override — replaces base extras]
 
-## Decision: [Name]
-- [NEXT]
-- Devil's advocate round
-- [NEW] New option label
+- [ ] [NEXT]
+- [ ] Devil's advocate round
+- [ ] [NEW] New option label
   New option description
 ```
 
@@ -354,17 +355,16 @@ Base: `§ASK_INTERROGATION_EXIT` has [NEXT], [MORE], [DEEP] (coded) + Devil's ad
 Derived: `¶ASK_SKILL_SPECIFIC_EXIT` — adds Return to Research Loop, drops Gaps round:
 
 ```
-### ASK_SKILL_SPECIFIC_EXIT
-Extends: ASK_INTERROGATION_EXIT
+## ¶ASK_SKILL_SPECIFIC_EXIT: Choose: Skill-Specific Exit
+Extends: §ASK_INTERROGATION_EXIT
 Trigger: after minimum skill-specific rounds are met
 
-## Decision: Skill-Specific Exit
-- [NEXT]
-- [MORE]
-- [DEEP]
-- Devil's advocate round
-- What-if scenarios round
-- Return to Research Loop
+- [ ] [NEXT]
+- [ ] [MORE]
+- [ ] [DEEP]
+- [ ] Devil's advocate round
+- [ ] What-if scenarios round
+- [ ] Return to Research Loop
   Go back to Phase 1 for more autonomous exploration
 ```
 
@@ -374,39 +374,349 @@ Resolved: [NEXT]*(inherited)*, [MORE]*(inherited)*, [DEEP]*(inherited)*, Devil's
 
 ## Example Trees
 
-**Plan Review (7 items — agent surfaces top 4):**
+### Static: Plan Review (7 items — agent surfaces top 4)
 ```
-## Decision: Plan Review
-- [LGTM] Looks good
+## Choose one: Plan Review
+
+- [ ] [LGTM] Looks good
   No changes needed to this step
-- [INFO] More info needed
+- [ ] [INFO] More info needed
   I have questions about this step's approach
-- [RWRK] Rework this step
+- [ ] [RWRK] Rework this step
   Rewrite with a different approach
-- [SWAP] Change approach
+- [ ] [SWAP] Change approach
   Fundamental direction change needed
-- [DROP] Remove from plan
+- [ ] [DROP] Remove from plan
   This step is not needed
-- [SPLT] Split this step
+- [ ] [SPLT] Split this step
   Break into smaller sub-steps
-- [MERG] Merge with another step
+- [ ] [MERG] Merge with another step
   Combine this step with an adjacent one
 ```
 
-**Approve/Reject (5 items — agent surfaces top 4):**
+### Static: Approve/Reject (5 items — agent surfaces top 4)
 ```
-## Decision: Approval
-- [LGTM] Approve
+## Choose one: Approval
+
+- [ ] [LGTM] Approve
   Accept as-is
-- [RWRK] Reject
+- [ ] [RWRK] Reject
   Send back for revision
-- [HOLD] Defer
+- [ ] [HOLD] Defer
   Not ready to decide yet
-- [EDIT] Conditional approve
+- [ ] [EDIT] Conditional approve
   Approve with noted conditions
-- [SEND] Escalate
+- [ ] [SEND] Escalate
   Needs someone else's input
 ```
+
+### Conditional: Review with Follow-Up Questions
+
+Shows `(if:)` for dependent questions, `(Recommended if:)` for conditional recommendations, `[_CODE]` for hidden codes, and multi-select `[ ]`.
+
+```
+## Choose one: Review
+- [VERDICT] Overall verdict
+  - [APR] Approve (Recommended)
+    No changes needed
+  - [REJ] Reject
+    Send back for revision
+  - [DEF] Defer
+    Not ready to decide
+- [_REASON] Why reject? (if: VERDICT == 'REJ')
+  - [QUA] Quality issues (Recommended if: VERDICT == 'REJ')
+    Code quality or correctness problems
+  - [SCO] Out of scope
+    This work doesn't belong here
+  - [INC] Incomplete
+    Missing required elements
+- [NEXT] Next action (if: VERDICT == 'REJ')
+  - [RWK] Rework (Recommended if: REASON == 'QUA')
+    Author revises and resubmits
+  - [ESC] Escalate (Recommended if: REASON == 'SCO')
+    Route to appropriate owner
+  - [BLK] Block
+    Cannot proceed until resolved
+- [TAGS] [ ] Tag this item (if: VERDICT != 'DEF')
+  - [URG] Urgent
+  - [BKR] Blocker
+  - [FYI] Info only
+- [PRI] Priority (if: VERDICT != 'DEF')
+  - [HI] High
+  - [MED] Medium (Recommended)
+  - [LO] Low
+```
+
+**What happens**: User sees VERDICT first. If they pick REJ, REASON and NEXT appear. If they pick APR or REJ, TAGS (multi-select) and PRI appear. DEF hides everything else. `[_REASON]` is queryable by NEXT's recommendations but the code badge isn't shown to the user.
+
+### Conditional: Cross-Item Batch Shortcut
+
+Shows `$` queries for cross-item state — options that appear based on what happened in prior items.
+
+```
+## Choose one: Batch Review
+- [VERDICT] Overall verdict
+  - [APR] Approve (Recommended)
+    No changes needed
+  - [REJ] Reject
+    Send back for revision
+- [BULK] Apply to all remaining (if: $[?@.VERDICT == 'APR'].length > 3)
+  - [YES] Yes, approve the rest
+    Skip review for remaining items
+  - [NO] No, keep reviewing
+    Continue one by one
+```
+
+**What happens**: BULK only appears after 3+ items have been approved across the batch. The `$[?@.VERDICT == 'APR'].length > 3` query counts all prior items where VERDICT was APR.
+
+### Checklist: Mutually Exclusive Branches
+
+Shows the checklist interpretation mode — top-level branches are select-one, nested items are select-all. The LLM fills `[x]` marks.
+
+```markdown
+## Structure
+
+- [ ] I DID create or modify SKILL.md
+  - [ ] YAML frontmatter has `name`, `description`, `version`, `tier`
+  - [ ] Boot sector present at top
+  - [ ] JSON manifest block is valid
+  - [ ] `assets/` directory exists with log and debrief templates
+- [ ] I DID NOT create or modify SKILL.md
+  - [ ] Confirmed changes don't affect skill structure
+
+## Modes
+
+- [ ] I DID create or modify mode files
+  - [ ] `modes/` directory has 3 named modes + custom
+  - [ ] Each mode file has Role, Goal, Mindset, and Approach sections
+- [ ] I DID NOT create or modify mode files
+  - [ ] Confirmed no mode changes needed
+```
+
+**LLM fills it as** (example — did modify SKILL.md, did not modify modes):
+```markdown
+## Structure
+
+- [x] I DID create or modify SKILL.md
+  - [x] YAML frontmatter has `name`, `description`, `version`, `tier`
+  - [x] Boot sector present at top
+  - [x] JSON manifest block is valid
+  - [x] `assets/` directory exists with log and debrief templates
+- [ ] I DID NOT create or modify SKILL.md
+  - [ ] Confirmed changes don't affect skill structure
+
+## Modes
+
+- [ ] I DID create or modify mode files
+  - [ ] `modes/` directory has 3 named modes + custom
+  - [ ] Each mode file has Role, Goal, Mindset, and Approach sections
+- [x] I DID NOT create or modify mode files
+  - [x] Confirmed no mode changes needed
+```
+
+**Validation rules**: Exactly one top-level branch per `##` section. All nested items under the selected branch must be `[x]`. Evaluator rejects if both branches checked, or if any nested item under the selected branch is unchecked.
+
+### Conditional: Hidden Code with Static Recommendation
+
+Shows `[_CODE]` for a question that doesn't need a visible badge but is referenced by later conditions.
+
+```
+## Choose one: Deployment
+- [_ENV] Target environment
+  - [STG] Staging (Recommended)
+    Deploy to staging first
+  - [PRD] Production
+    Direct production deploy
+- [_CONFIRM] Confirm production? (if: ENV == 'PRD')
+  - [YES] Yes, deploy to prod
+    I understand the risks
+  - [NO] No, switch to staging
+    Changed my mind
+- [NOTIFY] Notify team? (if: ENV == 'PRD')
+  - [YES] Yes, send alert
+    Post in #deploys channel
+  - [NO] No, silent deploy
+    Skip notification
+```
+
+**What happens**: ENV and CONFIRM are hidden codes — no badge shown to the user, but the questions still appear and their answers are queryable. Selecting PRD triggers both CONFIRM and NOTIFY follow-ups.
+
+---
+
+## Conditional Syntax
+
+Trees support conditional visibility and conditional recommendations via inline attributes. Conditions use expressions evaluated against the current scope (merged data object in data-driven trees, answer store in static trees).
+
+### Condition Attributes
+
+```
+(if: EXPR)                    — Show this question/option only when EXPR is true
+(Recommended)                 — Static recommendation (always shown as first option)
+(Recommended if: EXPR)        — Conditional recommendation (shown as first when EXPR is true)
+```
+
+Attributes are parenthetical, placed after the label on the same line. Multiple attributes can coexist: `- [RWK] Rework (if: VERDICT == 'REJ') (Recommended if: REASON == 'QUA')`.
+
+### Expression Patterns
+
+Conditions use two namespaces:
+
+- **Bare name** — Current scope (current item inside `each`, root outside). Use for intra-tree conditions.
+- **`$`** — Data root. Use for cross-item conditions and root-level data access.
+
+*   `CODE == 'VAL'` — Current scope's answer equals value. Example: `VERDICT == 'REJ'`
+*   `CODE != 'VAL'` — Current scope's answer not equal. Example: `VERDICT != 'DEF'`
+*   `CODE[?@ == 'VAL']` — Multi-select membership (truthy if non-empty). Example: `TAGS[?@ == 'urgent']`
+*   `CODE.length > N` — Multi-select count. Example: `TAGS.length > 2`
+*   `$[*].CODE` — All items' answers for CODE. Example: `$[*].VERDICT`
+*   `$[?@.CODE == 'VAL']` — Filter items by answer (JSONPath filter). Example: `$[?@.VERDICT == 'REJ']`
+*   `$[?@.CODE == 'VAL'].length > N` — Count items matching. Example: `$[?@.VERDICT == 'APR'].length > 3`
+
+**`@` in filters**: Inside JSONPath filter expressions `[?...]`, `@` is the standard JSONPath filter variable (the element being tested). This is distinct from the top-level bare name syntax. Top-level conditions use bare names (`VERDICT == 'REJ'`); filter expressions use `@` per JSONPath spec (`$[?@.VERDICT == 'APR']`).
+
+**Backward compatibility**: The evaluator accepts both bare `CODE` and legacy `@.CODE` at the top level. `@.CODE` is treated as equivalent to bare `CODE` (the `@.` prefix is stripped). New trees should use bare names exclusively.
+
+### Conditional Example
+
+```
+## Choose one: Review
+- [VERDICT] Overall verdict
+  - [APR] Approve (Recommended)
+    No changes needed
+  - [REJ] Reject
+    Send back for revision
+  - [DEF] Defer
+    Not ready to decide
+- [_REASON] Why reject? (if: VERDICT == 'REJ')
+  - [QUA] Quality issues (Recommended if: VERDICT == 'REJ')
+    Code quality or correctness problems
+  - [SCO] Out of scope
+    This work doesn't belong here
+  - [INC] Incomplete
+    Missing required elements
+- [NEXT] Next action (if: VERDICT == 'REJ')
+  - [RWK] Rework (Recommended if: REASON == 'QUA')
+    Author revises and resubmits
+  - [ESC] Escalate (Recommended if: REASON == 'SCO')
+    Route to appropriate owner
+  - [BLK] Block
+    Cannot proceed until resolved
+- [TAGS] [ ] Tag this item (if: VERDICT != 'DEF')
+  - [URG] Urgent
+  - [BKR] Blocker
+  - [FYI] Info only
+- [PRI] Priority (if: VERDICT != 'DEF')
+  - [HI] High
+  - [MED] Medium (Recommended)
+  - [LO] Low
+- [BULK] Apply to all remaining (if: $[?@.VERDICT == 'APR'].length > 3)
+  - [YES] Yes, approve rest
+  - [NO] No, continue one by one
+```
+
+---
+
+## Data-Driven Trees (`each` Directive)
+
+Trees support data-driven batching via the `each` directive. Questions bound to a data array repeat per item; unbound questions appear once. Answers merge into data items — the data object IS the state.
+
+### Sigil Model
+
+*   **`$`** — Data root. `$.bugs` accesses the root array. `$.bugs[0].title` for deep access.
+*   **Bare name** — Current scope. Inside `each`: item field or answer code. Outside `each`: root field.
+*   **`@`** — DEPRECATED at top level. Backward compatible (treated as bare name). Only valid inside JSONPath `[?...]` filters.
+
+### `each` Directive Syntax
+
+```
+## Choose one: Bug Triage
+(each: $.bugs, label: title, if: status == 'critical')
+
+- [VERDICT] What's the verdict?
+  - [APR] Approve
+  - [REJ] Reject
+- [_REASON] Why reject? (if: VERDICT == 'REJ')
+  - [QUA] Quality
+  - [SCO] Scope
+```
+
+**Directive parameters** (parenthetical, on the tree heading or question line):
+*   `(each: $.bugs)` — Iterate over data array, bind answers to items
+*   `(each: $.bugs, label: title)` — Iterate with auto-header from data field
+*   `(each: $.bugs, if: status == 'critical')` — Iterate with filter on item fields
+*   All three combine: `(each: $.bugs, label: title, if: status == 'critical')`
+
+### Data Flow
+
+1.  **Agent sends data**: `{ bugs: [{title: "Login crash", status: "critical"}, ...] }`
+2.  **Expansion**: `each` multiplies bound questions × data items. Unbound questions appear once.
+3.  **Answer merge**: User answers write back to data items: `$.bugs[0].VERDICT = 'APR'`
+4.  **Response**: Merged data object returned — `{ bugs: [{title: "Login crash", status: "critical", VERDICT: "APR"}, ...], CONFIRM: "YES" }`
+
+### Visual Grouping
+
+Questions bound via `each` render with group headers (bold label from `label:` parameter) and dividers between item groups. Example with `(each: $.bugs, label: title)`:
+
+```
+──────────────────────
+LOGIN CRASH
+──────────────────────
+What's the verdict? [APR] [REJ]
+──────────────────────
+CSS GLITCH
+──────────────────────
+What's the verdict? [APR] [REJ]
+```
+
+### Interpolation
+
+Template interpolation in labels and descriptions via `{{field}}`:
+*   `{{title}}` — Current scope field (item field inside `each`, root field outside)
+*   `{{$.totalCount}}` — Root data field (explicit `$` prefix)
+
+### Unbound Questions
+
+Questions outside any `each` block are unbound. Their answers live at the data root: `$.CONFIRM = 'YES'`.
+
+### Staggered Guards
+
+Inside an `each` block, guards reference the current item's merged state. After answering VERDICT for bug 0, `(if: VERDICT == 'REJ')` checks bug 0's VERDICT — enabling staggered reveal per item.
+
+### Schema
+
+The agent provides a JSON Schema for the initial data shape. Use `additionalProperties: true` to allow answer fields to be merged in. The schema MAY optionally constrain answer values.
+
+### Constraints
+
+*   **Single level**: Nested `each` is not supported (v1). One level of iteration only.
+*   **Empty arrays**: `(each: $.bugs)` with `$.bugs = []` produces zero questions (no error).
+*   **Convention**: Answer codes are UPPER (`[VERDICT]`), data fields are camelCase (`title`, `status`). No runtime ambiguity — same object namespace.
+
+---
+
+## Checklist Mode
+
+Checklists ARE decision trees. The same markdown format is used, with specific interpretation rules for LLM-driven filling:
+
+- **Top-level items** (separated by `##` section headers) are **select-one** — mutually exclusive branches. The LLM selects exactly one branch per section by marking it `[x]`.
+- **Nested items** under the selected branch are **select-all** — the LLM must check ALL nested items with `[x]`.
+- **Validation**: Evaluator enforces exactly one top-level branch checked per section, all nested items under that branch checked.
+
+**LLM interaction protocol**:
+1. Agent sends the tree markdown (with `[ ]` checkboxes) to the LLM or processes it itself.
+2. LLM returns the same markdown with `[ ]` → `[x]` for selected options.
+3. Evaluator validates: one branch per section, all children checked.
+
+This is the pattern used by `§CMD_PROCESS_CHECKLISTS`.
+
+---
+
+## Conditional Constraints
+
+- **`¶INV_TREE_JSONPATH`**: Condition expressions use bare names for current scope and `$` for root/cross-item access. JSONPath `@` only inside `[?...]` filters.
+- **`¶INV_TREE_BACKWARD_COMPAT`**: Static trees (no `(if:)` or `(Recommended if:)`) produce identical behavior to the current system. Conditional syntax is purely additive.
+
+See `docs/DECISION_TREE_PIPELINE.md` for implementation details (answer store shape, TypeScript types, interpreter pipeline stages).
 
 ---
 
@@ -419,7 +729,7 @@ Resolved: [NEXT]*(inherited)*, [MORE]*(inherited)*, [DEEP]*(inherited)*, Devil's
   "properties": {
     "treeName": {
       "type": "string",
-      "description": "Name of the decision tree (from ## Decision: [Name])"
+      "description": "Name of the decision tree (from the heading title)"
     },
     "chosenItems": {
       "type": "array",

@@ -103,20 +103,26 @@ clear_all_dehydrated() {
 }
 
 # --- Helper: deactivate ALL sessions in sandbox ---
-# Sets lifecycle=completed so they aren't found as "active"
+# Sets lifecycle=completed and drops the PID — the hook now resolves the active
+# session via `session.sh find` (exact PID match, lifecycle-agnostic), so a
+# deactivated session must not keep a live PID (mirrors real idle/deactivate).
 deactivate_all_sessions() {
   for f in "$SANDBOX"/sessions/*/.state.json; do
     [ -f "$f" ] || continue
-    jq '.lifecycle = "completed"' "$f" | safe_json_write "$f"
+    jq 'del(.pid) | .lifecycle = "completed"' "$f" | safe_json_write "$f"
   done
 }
 
 # --- Helper: run the hook with simulated stdin ---
+# Declares this test process as the session owner (CLAUDE_SUPERVISOR_PID=$$),
+# which is what `session.sh find` matches on; unsets TMUX so the real fleet
+# pane can't interfere; clears the per-PID find cache so runs stay independent.
 run_hook() {
   local source="$1" cwd="$2"
   local input
   input=$(jq -n --arg src "$source" --arg cwd "$cwd" '{hook_event_name:"SessionStart",source:$src,cwd:$cwd}')
-  echo "$input" | bash "$HOOK_SH" 2>/dev/null
+  echo "$input" | env -u TMUX -u TMUX_PANE CLAUDE_SUPERVISOR_PID="$$" bash "$HOOK_SH" 2>/dev/null
+  rm -f "/tmp/claude-session-cache-$$" 2>/dev/null || true
 }
 
 # ============================================================
@@ -383,6 +389,62 @@ jq --arg pid "$$" '.pid = ($pid | tonumber) | .lifecycle = "active"' \
 C3_OUTPUT=$(run_hook "resume" "$SANDBOX")
 assert_contains "C3: resume source has Session Context" "[Session Context]" "$C3_OUTPUT"
 assert_contains "C3: resume source shows session" "C3_TEST" "$C3_OUTPUT"
+
+# ============================================================
+# TEST GROUP 2C: Project docs index preload (docs/TOC.md) — P1-P3
+# ============================================================
+echo ""
+echo "=== Test Group 2C: Project docs index preload ==="
+
+# P1: docs/TOC.md present → injected under [Preloaded: docs/TOC.md] with content
+echo ""
+echo "P1: docs/TOC.md preloaded when present"
+clear_all_dehydrated
+mkdir -p "$SANDBOX/docs"
+printf '# Documentation Index\n\nTOC_SENTINEL_TOKEN_42\n' > "$SANDBOX/docs/TOC.md"
+P1_OUTPUT=$(run_hook "resume" "$SANDBOX")
+assert_contains "P1: TOC preload header present" "[Preloaded: docs/TOC.md]" "$P1_OUTPUT"
+assert_contains "P1: TOC content injected" "TOC_SENTINEL_TOKEN_42" "$P1_OUTPUT"
+
+# P2: TOC.md registered in a seed's preloadedFiles (PostToolUse dedup)
+echo ""
+echo "P2: docs/TOC.md registered in seed preloadedFiles"
+P2_HIT="no"
+for sf in "$SANDBOX"/sessions/.seeds/*.json; do
+  [ -f "$sf" ] || continue
+  if jq -e '.preloadedFiles[]? | select(test("docs/TOC.md"))' "$sf" >/dev/null 2>&1; then
+    P2_HIT="yes"; break
+  fi
+done
+assert_eq "P2: seed preloadedFiles includes docs/TOC.md" "yes" "$P2_HIT"
+
+# P3: docs/TOC.md absent → no TOC preload header (no-op)
+echo ""
+echo "P3: no TOC preload when docs/TOC.md absent"
+rm -rf "$SANDBOX/docs"
+P3_OUTPUT=$(run_hook "resume" "$SANDBOX")
+assert_not_contains "P3: no TOC header when absent" "[Preloaded: docs/TOC.md]" "$P3_OUTPUT"
+
+# ============================================================
+# TEST GROUP 2D: Mandatory-preload banner — B1-B2
+# ============================================================
+echo ""
+echo "=== Test Group 2D: Mandatory-preload banner ==="
+
+# B1: banner text present
+echo ""
+echo "B1: banner present in output"
+B1_OUTPUT=$(run_hook "resume" "$SANDBOX")
+assert_contains "B1: banner text present" "MANDATORY PRELOAD" "$B1_OUTPUT"
+
+# B2: banner is at the very top (survives the ~2KB preview truncation)
+echo ""
+echo "B2: output begins with the banner"
+case "$B1_OUTPUT" in
+  "════"*) B2_FIRST="yes" ;;
+  *)       B2_FIRST="no" ;;
+esac
+assert_eq "B2: output begins with banner border" "yes" "$B2_FIRST"
 
 # ============================================================
 # TEST GROUP 3: Restart Mode Detection (session.sh restart) — R1-R3

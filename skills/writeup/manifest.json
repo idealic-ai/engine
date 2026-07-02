@@ -1,0 +1,6 @@
+{
+  "name": "writeup",
+  "version": "3",
+  "description": "Creates semi-permanent situational documents in project docs folders. Lightweight skill \u2014 no session, no logs, just focused writing. Triggers: \\\"write up\\\", \\\"writeup\\\".",
+  "tier": "lightweight"
+}

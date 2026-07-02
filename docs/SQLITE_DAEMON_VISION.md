@@ -1,5 +1,7 @@
 # SQLite Daemon: Engine v3 Architecture
 
+> **Current implementation reference**: [ENGINE_DAEMON.md](ENGINE_DAEMON.md) — full architecture doc with 73 RPC commands, DB schema (10 tables, SCHEMA_VERSION=11), HTTP API, and CLI reference.
+
 > Vision document synthesizing the three-layer data model design from `sessions/2026_02_20_DAEMON_SQL_SCHEMA_BRAINSTORM/` (20 rounds, 14 sections).
 > Supersedes v2 architecture (2-layer tasks+sessions model).
 > Sources: v3 brainstorm + prior sessions (`SQLITE_DAEMON_BRAINSTORM`, `SQLITE_HOOK_MIGRATION`, `DAEMON_RPC_FRAMEWORK`).

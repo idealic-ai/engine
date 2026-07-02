@@ -1,0 +1,6 @@
+{
+  "name": "graph",
+  "version": "3",
+  "description": "Creates ASCII flowgraph diagrams using the `\u00a7CMD_FLOWGRAPH` notation. Lightweight skill for rendering complex flows as structured visual diagrams. Triggers: \\\"draw a flowgraph\\\", \\\"create a flow diagram\\\", \\\"visualize this flow\\\", \\\"graph this process\\\".",
+  "tier": "suggest"
+}

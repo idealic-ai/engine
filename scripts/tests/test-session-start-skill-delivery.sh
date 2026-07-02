@@ -56,12 +56,34 @@ teardown() {
   rm -rf "$TMP_DIR"
 }
 
-# Helper: run the hook with a given source
+# Helper: run the hook with a given source.
+# The hook resolves the active session via `session.sh find`, which matches on
+# CLAUDE_SUPERVISOR_PID. Tests stamp their "owned" session with $$, so default
+# the owner to $$ (a test may pre-set CLAUDE_SUPERVISOR_PID to override). Clears
+# the per-PID find cache afterward so runs stay independent.
 run_hook() {
   local source="${1:-startup}"
   local cwd="${2:-$PROJECT_DIR}"
+  # Force the owner to this test process ($$); do not inherit an ambient
+  # CLAUDE_SUPERVISOR_PID from the real session running the suite.
+  local owner=$$
   echo "{\"hook_event_name\":\"SessionStart\",\"source\":\"$source\",\"cwd\":\"$cwd\"}" \
-    | "$RESOLVED_HOOK" 2>/dev/null
+    | CLAUDE_SUPERVISOR_PID="$owner" "$RESOLVED_HOOK" 2>/dev/null
+  rm -f "/tmp/claude-session-cache-$owner" 2>/dev/null || true
+}
+
+# Helper: make the fake fleet.sh report a specific pane id, so `session.sh find`
+# resolves fleet ownership deterministically (mirrors mock_fleet_pane elsewhere).
+set_fleet_pane() {
+  local pane_id="$1"
+  cat > "$HOME/.claude/scripts/fleet.sh" <<MOCK
+#!/bin/bash
+case "\${1:-}" in
+  pane-id) echo "$pane_id"; exit 0 ;;
+  *)       exit 0 ;;
+esac
+MOCK
+  chmod +x "$HOME/.claude/scripts/fleet.sh"
 }
 
 # Helper: create a minimal SKILL.md with Phase 0 CMDs + templates
@@ -171,8 +193,8 @@ test_multiple_active_sessions_finds_correct_one() {
   create_test_skill "refine"
 
   local dead_pid=9999999
-  local other_live_pid=$$
-  local current_ppid=$PPID
+  local other_live_pid=$PPID   # a different, live process (not us)
+  local owner_pid=$$           # this process (CLAUDE_SUPERVISOR_PID)
 
   # Session 1: completed (dead PID) — should be skipped
   local session_1="$PROJECT_DIR/sessions/completed_session"
@@ -187,7 +209,8 @@ test_multiple_active_sessions_finds_correct_one() {
 }
 JSON
 
-  # Session 2: active but DIFFERENT live PID — should be skipped if current PPID doesn't match
+  # Session 2: active but a DIFFERENT live PID — must NOT be picked (regression:
+  # the old loose fallback grabbed any alive-PID session)
   local session_2="$PROJECT_DIR/sessions/other_session"
   mkdir -p "$session_2"
   cat > "$session_2/.state.json" <<JSON
@@ -200,12 +223,12 @@ JSON
 }
 JSON
 
-  # Session 3: active with CURRENT PPID — should be found and used
+  # Session 3: active and owned by THIS process — should be found and used
   local session_3="$PROJECT_DIR/sessions/current_session"
   mkdir -p "$session_3"
   cat > "$session_3/.state.json" <<JSON
 {
-  "pid": $current_ppid,
+  "pid": $owner_pid,
   "skill": "implement",
   "lifecycle": "active",
   "currentPhase": "3: Build",
@@ -216,9 +239,10 @@ JSON
   local output
   output=$(run_hook "clear") || true
 
-  # Should find the one with current PPID and deliver its SKILL.md (implement, not brainstorm)
+  # Should find the session owned by this process and deliver its SKILL.md
+  # (implement), not the different-live-PID session (brainstorm)
   assert_contains "Test implement skill" "$output" \
-    "multiple active sessions → finds correct one by matching PPID"
+    "multiple active sessions → finds the one owned by this process (exact PID)"
 
   # Should NOT contain brainstorm SKILL.md
   assert_not_contains "Test brainstorm skill" "$output" \
@@ -445,27 +469,13 @@ JSON
 }
 JSON
 
-  # Create mock tmux in PATH that returns main:Beta
-  mkdir -p "$TMP_DIR/bin"
-  cat > "$TMP_DIR/bin/tmux" <<'MOCK'
-#!/bin/bash
-if [[ "$*" == *"display"* ]] && [[ "$*" == *"window_name"* ]]; then
-  echo "main:Beta"
-  exit 0
-fi
-exit 1
-MOCK
-  chmod +x "$TMP_DIR/bin/tmux"
-
-  # Set tmux env vars
-  export TMUX_PANE="test:0.0"
-  export TMUX="test"
-  export PATH="$TMP_DIR/bin:$PATH"
+  # Fleet resolves to Beta's pane
+  set_fleet_pane "test-fleet:main:Beta"
 
   local output
   output=$(run_hook "clear") || true
 
-  # Should find analyze (Beta matches main:Beta), NOT implement (Alpha is alphabetically first)
+  # Should find analyze (Beta), NOT implement (Alpha is alphabetically first)
   assert_contains "Test analyze skill" "$output" \
     "fleet match → correct session selected (analyze, not implement)"
 
@@ -475,9 +485,6 @@ MOCK
   # brainstorm should not appear either
   assert_not_contains "Test brainstorm skill" "$output" \
     "fleet match → doesn't deliver unmatched session SKILL.md (brainstorm)"
-
-  # Cleanup
-  unset TMUX_PANE TMUX
 }
 
 # --- Test 12: Fleet match with resuming lifecycle ---
@@ -526,26 +533,13 @@ JSON
 }
 JSON
 
-  # Create mock tmux that returns data:Gamma
-  mkdir -p "$TMP_DIR/bin"
-  cat > "$TMP_DIR/bin/tmux" <<'MOCK'
-#!/bin/bash
-if [[ "$*" == *"display"* ]] && [[ "$*" == *"window_name"* ]]; then
-  echo "data:Gamma"
-  exit 0
-fi
-exit 1
-MOCK
-  chmod +x "$TMP_DIR/bin/tmux"
-
-  export TMUX_PANE="test:0.0"
-  export TMUX="test"
-  export PATH="$TMP_DIR/bin:$PATH"
+  # Fleet resolves to Gamma's pane (a resuming session)
+  set_fleet_pane "test-fleet:data:Gamma"
 
   local output
   output=$(run_hook "clear") || true
 
-  # Should find brainstorm (Gamma matches data:Gamma) with resuming lifecycle
+  # Should find brainstorm (Gamma) with resuming lifecycle
   assert_contains "Test brainstorm skill" "$output" \
     "fleet match resuming → correct session selected (brainstorm)"
 
@@ -555,21 +549,20 @@ MOCK
 
   assert_not_contains "Test analyze skill" "$output" \
     "fleet match resuming → doesn't deliver analyze"
-
-  unset TMUX_PANE TMUX
 }
 
-# --- Test 13: No fleet match — falls back to first alive PID ---
-test_no_fleet_match_fallback_to_first_alive_pid() {
+# --- Test 13: No fleet match — resolves by owner PID, not by alphabetical order ---
+test_no_fleet_match_resolves_by_owner_pid() {
   create_test_skill "implement"
   create_test_skill "analyze"
 
-  # Create 2 sessions with different fleetPaneIds that won't match
+  # session_alpha sorts first AND has a different live PID ($PPID) — the old loose
+  # fallback would have grabbed it. It must NOT be selected.
   local session_alpha="$PROJECT_DIR/sessions/session_alpha"
   mkdir -p "$session_alpha"
   cat > "$session_alpha/.state.json" <<JSON
 {
-  "pid": $$,
+  "pid": $PPID,
   "skill": "implement",
   "lifecycle": "active",
   "currentPhase": "3: Build",
@@ -578,6 +571,7 @@ test_no_fleet_match_fallback_to_first_alive_pid() {
 }
 JSON
 
+  # session_beta is owned by THIS process ($$) — it should be the one selected.
   local session_beta="$PROJECT_DIR/sessions/session_beta"
   mkdir -p "$session_beta"
   cat > "$session_beta/.state.json" <<JSON
@@ -591,33 +585,19 @@ JSON
 }
 JSON
 
-  # Create mock tmux that returns a non-existent pane
-  mkdir -p "$TMP_DIR/bin"
-  cat > "$TMP_DIR/bin/tmux" <<'MOCK'
-#!/bin/bash
-if [[ "$*" == *"display"* ]] && [[ "$*" == *"window_name"* ]]; then
-  echo "data:Nonexistent"
-  exit 0
-fi
-exit 1
-MOCK
-  chmod +x "$TMP_DIR/bin/tmux"
-
-  export TMUX_PANE="test:0.0"
-  export TMUX="test"
-  export PATH="$TMP_DIR/bin:$PATH"
+  # Fleet reports a pane that matches neither session → resolution falls to PID.
+  set_fleet_pane "test-fleet:data:Nonexistent"
 
   local output
   output=$(run_hook "clear") || true
 
-  # Should fall back to first alphabetical alive session (session_alpha with implement)
-  assert_contains "Test implement skill" "$output" \
-    "no fleet match → falls back to first alive PID (implement)"
+  # Resolves the session owned by this process (analyze), NOT the alphabetically
+  # first session held by a different live PID (implement).
+  assert_contains "Test analyze skill" "$output" \
+    "no fleet match → resolves by owner PID (analyze)"
 
-  assert_not_contains "Test analyze skill" "$output" \
-    "no fleet match → doesn't deliver second session (analyze)"
-
-  unset TMUX_PANE TMUX
+  assert_not_contains "Test implement skill" "$output" \
+    "no fleet match → does not grab a different live-PID session (implement)"
 }
 
 # Helper: create a multi-phase test skill with distinct CMDs per phase
@@ -830,12 +810,12 @@ test_not_in_tmux_falls_back_gracefully() {
   create_test_skill "implement"
   create_test_skill "analyze"
 
-  # Create 2 sessions with fleet pane IDs (but we won't be in tmux)
+  # session_alpha sorts first but is owned by a different live PID ($PPID).
   local session_alpha="$PROJECT_DIR/sessions/session_alpha"
   mkdir -p "$session_alpha"
   cat > "$session_alpha/.state.json" <<JSON
 {
-  "pid": $$,
+  "pid": $PPID,
   "skill": "implement",
   "lifecycle": "active",
   "currentPhase": "3: Build",
@@ -844,6 +824,7 @@ test_not_in_tmux_falls_back_gracefully() {
 }
 JSON
 
+  # session_beta is owned by THIS process ($$).
   local session_beta="$PROJECT_DIR/sessions/session_beta"
   mkdir -p "$session_beta"
   cat > "$session_beta/.state.json" <<JSON
@@ -857,19 +838,21 @@ JSON
 }
 JSON
 
-  # Ensure we're NOT in tmux
+  # Not in tmux → fleet reports no pane; resolution falls to PID.
   unset TMUX_PANE
   unset TMUX
+  set_fleet_pane ""
 
   local output
   output=$(run_hook "clear") || true
 
-  # Should not crash and should deliver first alphabetical session (implement)
-  assert_contains "Test implement skill" "$output" \
-    "not in tmux → no crash, falls back to first alive session"
+  # No crash, and resolves the session owned by this process (analyze), not the
+  # alphabetically-first session held by a different live PID (implement).
+  assert_contains "Test analyze skill" "$output" \
+    "not in tmux → no crash, resolves by owner PID (analyze)"
 
-  assert_not_contains "Test analyze skill" "$output" \
-    "not in tmux → doesn't deliver second session"
+  assert_not_contains "Test implement skill" "$output" \
+    "not in tmux → does not grab a different live-PID session (implement)"
 
   assert_contains "COMMANDS content" "$output" \
     "not in tmux → standards still present"
@@ -1131,7 +1114,7 @@ run_test test_standards_preloaded_on_clear
 run_test test_multiple_phase0_cmds_delivered
 run_test test_fleet_match_correct_session_selected
 run_test test_fleet_match_resuming_lifecycle
-run_test test_no_fleet_match_fallback_to_first_alive_pid
+run_test test_no_fleet_match_resolves_by_owner_pid
 run_test test_not_in_tmux_falls_back_gracefully
 run_test test_current_phase_cmds_delivered_not_phase0
 run_test test_sub_phase_cmds_delivered

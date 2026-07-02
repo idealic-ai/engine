@@ -64,36 +64,34 @@
 
 ---
 
-### ¶ASK_DISPATCH_GROUP
+## ¶ASK_DISPATCH_GROUP: Choose one: Dispatch Group
 Trigger: during dispatch approval when presenting a group of same-type `#needs-X` items (except: when no `#needs-X` items exist — pipeline skips silently)
 Extras: A: Show item details before deciding | B: Split group by priority | C: View related sessions
 
-## Decision: Dispatch Group
-- [LGTM] Approve all for daemon
+- [ ] [LGTM] Approve all for daemon
   Flip all items to #delegated-X for async daemon processing
-- [GRAB] Claim all for next skill
+- [ ] [GRAB] Claim all for next skill
   Mark all for immediate execution in next skill session
-- [VIEW] Review individually
+- [ ] [VIEW] Review individually
   Walk through each item to approve/claim/defer/dismiss
-- [HOLD] Defer all
+- [ ] [HOLD] Defer all
   Leave as #needs-X for future triage
-- [DROP] Dismiss all
+- [ ] [DROP] Dismiss all
   Remove tags entirely — work is not needed
 
-### ¶ASK_DISPATCH_ITEM
+## ¶ASK_DISPATCH_ITEM: Choose one: Dispatch Item
 Trigger: during per-item review of `#needs-X` items (except: when group-level decision was Approve all, Claim all, or Defer all)
 Extras: A: View item context in source file | B: View related sessions | C: Change priority tag
 
-## Decision: Dispatch Item
-- [LGTM] Approve for daemon
+- [ ] [LGTM] Approve for daemon
   Flip to #delegated-X for async daemon processing
-- [GRAB] Claim for next skill
+- [ ] [GRAB] Claim for next skill
   Mark for immediate execution in next skill session
-- [HOLD] Defer
+- [ ] [HOLD] Defer
   Leave as #needs-X for future triage
-- [DROP] Dismiss
+- [ ] [DROP] Dismiss
   Remove tag entirely — work is not needed
-- [SPLT] Split item
+- [ ] [SPLT] Split item
   Break into multiple smaller work items
 
 ---

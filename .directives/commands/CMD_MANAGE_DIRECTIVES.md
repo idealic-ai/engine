@@ -89,36 +89,34 @@ Invoke §CMD_CAPTURE_KNOWLEDGE with:
 
 ---
 
-### ¶ASK_INVARIANT_CAPTURE
+## ¶ASK_INVARIANT_CAPTURE: Choose one: Invariant Capture
 Trigger: during directive management when invariant candidates are identified (except: when no candidates found — collapsible pass, echo via roll call)
 Extras: A: View existing invariants in target file | B: Search for similar invariants | C: Defer to review session
 
-## Decision: Invariant Capture
-- [WIDE] Add to shared
+- [ ] [WIDE] Add to shared
   Universal rule — add to ~/.directives/INVARIANTS.md
-- [HERE] Add to project
+- [ ] [HERE] Add to project
   Project-specific — add to .directives/INVARIANTS.md
-- [SKIP] Skip this one
+- [ ] [SKIP] Skip this one
   Do not add this invariant
-- [EDIT] Edit first
+- [ ] [EDIT] Edit first
   Refine the invariant wording before adding
-- [MERG] Merge with existing
+- [ ] [MERG] Merge with existing
   Combine with an existing invariant instead of creating new
 
-### ¶ASK_PITFALL_CAPTURE
+## ¶ASK_PITFALL_CAPTURE: Choose one: Pitfall Capture
 Trigger: during directive management when pitfall candidates are identified (except: when no candidates found — collapsible pass, echo via roll call)
 Extras: A: View existing pitfalls in target file | B: Preview the formatted entry | C: Defer to review session
 
-## Decision: Pitfall Capture
-- Nearest PITFALLS.md
+- [ ] Nearest PITFALLS.md
   Walk-up from affected directory to closest PITFALLS.md
-- [HERE] Add to project PITFALLS.md
+- [ ] [HERE] Add to project PITFALLS.md
   Project-level pitfalls file
-- [SKIP] Skip this one
+- [ ] [SKIP] Skip this one
   Do not capture this pitfall
-- [NEW] Create new PITFALLS.md
+- [ ] [NEW] Create new PITFALLS.md
   Create in the most relevant directory
-- [EDIT] Edit first
+- [ ] [EDIT] Edit first
   Refine the pitfall description before adding
 
 ---

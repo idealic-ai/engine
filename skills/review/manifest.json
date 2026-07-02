@@ -1,0 +1,184 @@
+{
+  "name": "review",
+  "version": "4",
+  "description": "Reviews and validates work across sessions for consistency and correctness. Triggers: \\\"review session work\\\", \\\"validate debriefs\\\", \\\"approve session reports\\\", \\\"end-of-day review\\\".",
+  "tier": "protocol",
+  "taskType": "RESOLVE",
+  "templates": {
+    "log": "assets/TEMPLATE_REVIEW_LOG.md",
+    "debrief": "assets/TEMPLATE_REVIEW.md",
+    "request": "assets/TEMPLATE_REVIEW_REQUEST.md",
+    "response": "assets/TEMPLATE_REVIEW_RESPONSE.md"
+  },
+  "phases": [
+    {
+      "label": "0",
+      "name": "Setup",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_PARSE_PARAMETERS",
+        "\u00a7CMD_SELECT_MODE",
+        "\u00a7CMD_INGEST_CONTEXT_BEFORE_WORK"
+      ],
+      "commands": [
+        "\u00a7CMD_FIND_TAGGED_FILES"
+      ],
+      "proof": [
+        "mode",
+        "sessionDir",
+        "parametersParsed",
+        "debriefsDiscovered"
+      ],
+      "gate": false
+    },
+    {
+      "label": "1",
+      "name": "Discovery",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT"
+      ],
+      "commands": [
+        "\u00a7CMD_APPEND_LOG"
+      ],
+      "proof": [
+        "debriefsRead",
+        "siblingLogsPlansRead",
+        "debriefCardsLogged",
+        "crossSessionChecks",
+        "conflictsFound"
+      ]
+    },
+    {
+      "label": "2",
+      "name": "Dashboard & Interrogation",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_INTERROGATE"
+      ],
+      "commands": [
+        "\u00a7CMD_ASK_ROUND",
+        "\u00a7CMD_LOG_INTERACTION"
+      ],
+      "proof": [
+        "dashboardPresented",
+        "depthChosen",
+        "roundsCompleted",
+        "debriefsReviewed",
+        "verdictsTagged",
+        "logEntries"
+      ]
+    },
+    {
+      "label": "3",
+      "name": "Synthesis",
+      "steps": [
+        "\u00a7CMD_REPORT_INTENT",
+        "\u00a7CMD_RUN_SYNTHESIS_PIPELINE"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "3.1",
+      "name": "Checklists",
+      "steps": [
+        "\u00a7CMD_VALIDATE_ARTIFACTS",
+        "\u00a7CMD_RESOLVE_BARE_TAGS",
+        "\u00a7CMD_PROCESS_CHECKLISTS"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "3.2",
+      "name": "Debrief",
+      "steps": [
+        "\u00a7CMD_GENERATE_DEBRIEF"
+      ],
+      "commands": [],
+      "proof": [
+        "debriefFile",
+        "debriefTags"
+      ],
+      "gate": false
+    },
+    {
+      "label": "3.3",
+      "name": "Finding Triage",
+      "steps": [
+        "\u00a7CMD_WALK_THROUGH_RESULTS"
+      ],
+      "commands": [],
+      "proof": [
+        "findingsTriaged",
+        "delegated",
+        "deferred",
+        "dismissed"
+      ],
+      "gate": false
+    },
+    {
+      "label": "3.4",
+      "name": "Pipeline",
+      "steps": [
+        "\u00a7CMD_MANAGE_DIRECTIVES",
+        "\u00a7CMD_PROCESS_DELEGATIONS",
+        "\u00a7CMD_DISPATCH_APPROVAL",
+        "\u00a7CMD_CAPTURE_SIDE_DISCOVERIES",
+        "\u00a7CMD_RESOLVE_CROSS_SESSION_TAGS",
+        "\u00a7CMD_MANAGE_BACKLINKS",
+        "\u00a7CMD_MANAGE_ALERTS",
+        "\u00a7CMD_REPORT_LEFTOVER_WORK"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    },
+    {
+      "label": "3.5",
+      "name": "Close",
+      "steps": [
+        "\u00a7CMD_REPORT_ARTIFACTS",
+        "\u00a7CMD_REPORT_SUMMARY",
+        "\u00a7CMD_SURFACE_OPPORTUNITIES",
+        "\u00a7CMD_CLOSE_SESSION",
+        "\u00a7CMD_PRESENT_NEXT_STEPS"
+      ],
+      "commands": [],
+      "proof": [],
+      "gate": false
+    }
+  ],
+  "modes": {
+    "quality": {
+      "label": "Quality",
+      "description": "Thorough validation, evidence-driven",
+      "file": "modes/quality.md"
+    },
+    "progress": {
+      "label": "Progress",
+      "description": "Cross-session status reporting",
+      "file": "modes/progress.md"
+    },
+    "daily": {
+      "label": "Daily",
+      "description": "Gemini-first daily report \u2014 bundles files, skips Claude reading",
+      "file": "modes/daily.md"
+    },
+    "custom": {
+      "label": "Custom",
+      "description": "User-defined",
+      "file": "modes/custom.md"
+    }
+  },
+  "nextSkills": [
+    "/implement",
+    "/document",
+    "/brainstorm",
+    "/analyze",
+    "/chores"
+  ],
+  "directives": []
+}

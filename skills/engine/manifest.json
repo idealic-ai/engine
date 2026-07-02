@@ -1,0 +1,6 @@
+{
+  "name": "engine",
+  "version": "3",
+  "description": "Smart assistant for the workflow engine \u2014 answers questions, invokes scripts, and navigates docs. Triggers: \\\"engine help\\\", \\\"how does the engine work\\\", \\\"run an engine command\\\", \\\"what scripts are available\\\".",
+  "tier": "lightweight"
+}

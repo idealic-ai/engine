@@ -152,22 +152,21 @@ Start a background watcher that blocks until a specific tag appears on a file or
     *   **"Debrief and switch"** (`¶INV_NO_ORPHANED_SESSIONS`): Write a debrief for the current session, idle it, then activate the new skill/task. If already in synthesis, finish the full pipeline. If in a work phase, write a fast debrief + idle only. The user's switch request is already in DIALOGUE.md (captured by `user-prompt-submit-freeform-chat.sh` hook) — use it as the breadcrumb after the debrief to route to the next task.
 5.  **Return**: After any deviation (options 4 or 5), explicitly state which protocol step you're resuming.
 
-### ¶ASK_REFUSE_OFF_COURSE
+## ¶ASK_REFUSE_OFF_COURSE: Choose one: Off-Course Resolution
 Trigger: when the agent or user wants to deviate from the active skill protocol
 Extras: A: Show what work would be lost | B: Show current phase progress | C: Quick status of session
 
-## Decision: Off-Course Resolution
-- [KEEP] Continue protocol
+- [ ] [KEEP] Continue protocol
   Resume the current step as specified. No deviation.
-- [SWAP] Switch to /[skill]
+- [ ] [SWAP] Switch to /[skill]
   Explicitly change skill. Agent proposes the appropriate skill name.
-- [HOLD] Tag & defer
+- [ ] [HOLD] Tag & defer
   Tag with `#needs-X` and continue current protocol
-- Debrief and switch
+- [ ] Debrief and switch
   Write debrief for current session, idle it, then switch to new work
-- One-time deviation
+- [ ] One-time deviation
   Allow the deviation this once. Agent logs it and returns to protocol after.
-- Inline quick action
+- [ ] Inline quick action
   For trivial asks (file path, time, quick lookup). No logging overhead.
 
 **Constraints**:
