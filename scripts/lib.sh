@@ -157,15 +157,32 @@ extract_skill_preloads() {
 
 # --- Workspace path resolution utilities ---
 
-# resolve_sessions_dir — Returns the sessions directory path
-# Without WORKSPACE: returns "sessions"
-# With WORKSPACE: returns "$WORKSPACE/sessions"
+# find_project_root [START_DIR] — Walk up from START_DIR (default $PWD) to the
+# nearest ancestor containing a .claude/ directory (the engine's per-repo marker).
+# Echoes the root and returns 0; returns 1 if none found (caller falls back to PWD).
+# Anchors session resolution to the repo/worktree root so `cd` into a subfolder
+# doesn't fork a stray sessions/ dir or break the statusline. A git worktree /
+# agent worktree has its own .claude, so it correctly anchors to itself.
+find_project_root() {
+  local dir="${1:-$PWD}"
+  dir=$(cd "$dir" 2>/dev/null && pwd -P) || return 1
+  while [ "$dir" != "/" ]; do
+    if [ -d "$dir/.claude" ]; then
+      echo "$dir"
+      return 0
+    fi
+    dir=$(dirname "$dir")
+  done
+  return 1
+}
+
+# resolve_sessions_dir — Absolute path to the project's sessions/ dir, anchored to
+# the nearest .claude/ ancestor so it's stable regardless of the current subfolder.
+# Falls back to $PWD/sessions when no .claude marker is found (pre-setup dir).
 resolve_sessions_dir() {
-  if [ -n "${WORKSPACE:-}" ]; then
-    echo "${WORKSPACE}/sessions"
-  else
-    echo "sessions"
-  fi
+  local root
+  root=$(find_project_root) || root="$PWD"
+  echo "$root/sessions"
 }
 
 # resolve_session_path — Normalizes a session path argument

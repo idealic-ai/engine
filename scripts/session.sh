@@ -75,6 +75,11 @@ fi
 
 STATE_FILE="$DIR/.state.json"
 
+# Directory for the per-PID session-resolution cache. Overridable so tests (which
+# use a fixed fake CLAUDE_SUPERVISOR_PID) can isolate it in their sandbox instead
+# of leaking a shared /tmp cache across runs.
+SESSION_CACHE_DIR="${CLAUDE_SESSION_CACHE_DIR:-/tmp}"
+
 # Helper: Auto-detect fleet pane ID from tmux
 # Returns composite fleetPaneId (session:window:pane) if inside fleet, empty otherwise
 get_fleet_pane_id() {
@@ -602,7 +607,7 @@ case "$ACTION" in
     # --- PID Cache: write on activate ---
     # All activation paths (fresh, same-PID, idle→active) converge here.
     # Write cache so session.sh find can skip the sweep.
-    echo "$DIR" > "/tmp/claude-session-cache-$TARGET_PID" 2>/dev/null || true
+    echo "$DIR" > "$SESSION_CACHE_DIR/claude-session-cache-$TARGET_PID" 2>/dev/null || true
 
     # --- Fast-Track Override ---
     # --fast-track forces SHOULD_SCAN=false regardless of which code path set it.
@@ -1690,7 +1695,7 @@ case "$ACTION" in
     done || true
 
     # PID Cache: write on continue (same as activate)
-    echo "$DIR" > "/tmp/claude-session-cache-$TARGET_PID" 2>/dev/null || true
+    echo "$DIR" > "$SESSION_CACHE_DIR/claude-session-cache-$TARGET_PID" 2>/dev/null || true
 
     # --- Seed File Merge (continue-specific) ---
     # After context overflow restart, SessionStart created a seed with 6 boot files.
@@ -2004,7 +2009,7 @@ case "$ACTION" in
     # PID Cache: invalidate before deactivation
     DEACTIVATE_PID=$(jq -r '.pid // empty' "$STATE_FILE" 2>/dev/null)
     if [ -n "$DEACTIVATE_PID" ]; then
-      rm -f "/tmp/claude-session-cache-$DEACTIVATE_PID" 2>/dev/null || true
+      rm -f "$SESSION_CACHE_DIR/claude-session-cache-$DEACTIVATE_PID" 2>/dev/null || true
     fi
 
     # --- Collect all validation errors before exiting ---
@@ -2240,7 +2245,7 @@ case "$ACTION" in
     # PID Cache: invalidate before clearing PID
     IDLE_PID=$(jq -r '.pid // empty' "$STATE_FILE" 2>/dev/null)
     if [ -n "$IDLE_PID" ]; then
-      rm -f "/tmp/claude-session-cache-$IDLE_PID" 2>/dev/null || true
+      rm -f "$SESSION_CACHE_DIR/claude-session-cache-$IDLE_PID" 2>/dev/null || true
     fi
 
     # Set lifecycle=idle, preserve PID as lastKnownPid, clear active PID, store description/keywords
@@ -2499,13 +2504,12 @@ case "$ACTION" in
     # PID guard: if a different alive PID holds the session, return 1
     # Output: session directory path (one line) or exit 1
 
-    # Build search paths: workspace sessions first, then global fallback
+    # Search the project's sessions dir, anchored to the nearest .claude/ ancestor
+    # so a `cd` into a subfolder still resolves the repo-root sessions/.
     SEARCH_PATHS=()
-    if [ -n "${WORKSPACE:-}" ] && [ -d "$PWD/${WORKSPACE}/sessions" ]; then
-      SEARCH_PATHS+=("$PWD/${WORKSPACE}/sessions")
-    fi
-    if [ -d "$PWD/sessions" ]; then
-      SEARCH_PATHS+=("$PWD/sessions")
+    _SESSIONS_DIR=$(resolve_sessions_dir)
+    if [ -d "$_SESSIONS_DIR" ]; then
+      SEARCH_PATHS+=("$_SESSIONS_DIR")
     fi
     if [ ${#SEARCH_PATHS[@]} -eq 0 ]; then
       exit 1
@@ -2516,7 +2520,7 @@ case "$ACTION" in
 
     # --- PID Cache: fast path ---
     # Cache written by activate/continue, keyed by PID. Avoids full sweep.
-    CACHE_FILE="/tmp/claude-session-cache-$CLAUDE_PID"
+    CACHE_FILE="$SESSION_CACHE_DIR/claude-session-cache-$CLAUDE_PID"
     if [ -f "$CACHE_FILE" ]; then
       CACHED_DIR=$(cat "$CACHE_FILE" 2>/dev/null) || CACHED_DIR=""
       if [ -n "$CACHED_DIR" ] && [ -f "$CACHED_DIR/.state.json" ]; then

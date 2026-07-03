@@ -9,7 +9,6 @@
 #   --description TEXT        Agent description injected into system prompt
 #   --focus TEXT              Focus areas (comma-separated) injected into system prompt
 #   --monitor-tags TAGS       Daemon mode: watch for files with these tags (comma-separated)
-#   --workspace PATH          Set WORKSPACE env var for workspace-scoped sessions
 #
 # Examples:
 #   ~/.claude/scripts/run.sh                      # Plain Claude
@@ -66,6 +65,9 @@ export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=100
 export CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=997000
 export DISABLE_COMPACT=1
 
+# Don't treat long-lived fleet agents as away/idle (24h AFK timeout)
+export CLAUDE_AFK_TIMEOUT_MS=86400000
+
 AGENTS_DIR="$HOME/.claude/agents"
 SCRIPTS_DIR="$HOME/.claude/scripts"
 
@@ -98,7 +100,6 @@ AGENT_NAME=""
 AGENT_DESCRIPTION=""
 AGENT_FOCUS=""
 MONITOR_TAGS=""
-WORKSPACE_ARG=""
 REMAINING_ARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -134,26 +135,12 @@ while [ $# -gt 0 ]; do
       MONITOR_TAGS="${2:?--monitor-tags requires a value}"
       shift 2
       ;;
-    --workspace=*)
-      WORKSPACE_ARG="${1#--workspace=}"
-      shift
-      ;;
-    --workspace)
-      WORKSPACE_ARG="${2:?--workspace requires a value}"
-      shift 2
-      ;;
     *)
       REMAINING_ARGS+=("$1")
       shift
       ;;
   esac
 done
-
-# Export WORKSPACE env var if --workspace flag was provided
-if [ -n "$WORKSPACE_ARG" ]; then
-  export WORKSPACE="$WORKSPACE_ARG"
-  echo "[run.sh] Workspace: $WORKSPACE"
-fi
 
 # Setup is handled by engine CLI (auto-setup on first run).
 # run.sh no longer invokes engine.sh directly — callers should use `engine` entrypoint.
@@ -230,7 +217,7 @@ fi
 # Returns sessionId if found and PID is dead, error if PID is alive
 find_fleet_session() {
   local pane_id="$1"
-  local sessions_dir="$PWD/sessions"
+  local sessions_dir="$(resolve_sessions_dir)"
 
   echo "[run.sh DEBUG] Looking for pane_id: '$pane_id'" >&2
   echo "[run.sh DEBUG] PWD: $PWD" >&2
@@ -404,7 +391,7 @@ detect_context_exhaustion() {
 
 # Find .state.json ready for restart (scoped by fleet pane in fleet mode)
 find_restart_agent_json() {
-  local sessions_dir="$PWD/sessions"
+  local sessions_dir="$(resolve_sessions_dir)"
   [ -d "$sessions_dir" ] || return 1
 
   find -L "$sessions_dir" -name ".state.json" -type f 2>/dev/null | while read -r f; do
@@ -466,7 +453,7 @@ daemon_tag_to_skill() {
 DAEMON_DEBOUNCE_SEC=3
 
 daemon_scan_for_work() {
-  local sessions_dir="$PWD/sessions/"
+  local sessions_dir="$(resolve_sessions_dir)/"
   [ -d "$sessions_dir" ] || return 1
 
   local results=""
@@ -550,7 +537,7 @@ DAEMON_MODE: You were spawned by the daemon (run.sh --monitor-tags). Run /delega
 
 # Main daemon loop: scan for work, process, wait, repeat
 daemon_main_loop() {
-  local sessions_dir="$PWD/sessions"
+  local sessions_dir="$(resolve_sessions_dir)"
 
   echo "[run.sh] Daemon mode: monitoring $MONITOR_TAGS"
   echo "[run.sh] Watching: $sessions_dir"

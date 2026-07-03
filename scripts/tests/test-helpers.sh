@@ -327,6 +327,9 @@ setup_test_env() {
 
   TMP_DIR=$(mktemp -d)
   export CLAUDE_SUPERVISOR_PID=99999999
+  # Isolate session.sh's per-PID resolution cache in the sandbox so the fixed fake
+  # PID above can't leak a shared /tmp cache across tests/runs.
+  export CLAUDE_SESSION_CACHE_DIR="$TMP_DIR"
 
   # Capture real paths before HOME switch
   REAL_SCRIPTS_DIR="$HOME/.claude/scripts"

@@ -33,21 +33,20 @@ if [ -z "$CWD" ]; then
   exit 0
 fi
 
-# Build list of session directories to scan (workspace first, then global)
+# Source lib.sh for safe_json_write, pid_exists, find_project_root
+source "$HOME/.claude/scripts/lib.sh"
+
+# Anchor the sessions dir to the nearest .claude/ ancestor of the hook's cwd, so a
+# `cd` into a subfolder still resolves the repo-root sessions/ (no stray dirs).
+PROJECT_ROOT=$(find_project_root "$CWD" 2>/dev/null || echo "$CWD")
 SESSION_DIRS=()
-if [ -n "${WORKSPACE:-}" ] && [ -d "$CWD/$WORKSPACE/sessions" ]; then
-  SESSION_DIRS+=("$CWD/$WORKSPACE/sessions")
-fi
-if [ -d "$CWD/sessions" ]; then
-  SESSION_DIRS+=("$CWD/sessions")
+if [ -d "$PROJECT_ROOT/sessions" ]; then
+  SESSION_DIRS+=("$PROJECT_ROOT/sessions")
 fi
 
 if [ ${#SESSION_DIRS[@]} -eq 0 ]; then
   exit 0
 fi
-
-# Source lib.sh for safe_json_write, pid_exists
-source "$HOME/.claude/scripts/lib.sh"
 
 # Seeds are keyed to Claude's process so PostToolUse (a direct child of Claude)
 # can find them. When invoked via the chunker, our own $PPID is the chunker's
