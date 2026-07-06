@@ -218,6 +218,17 @@ LOGGING & TAGS
     remove <file> '#tag'      Remove tag from file
     swap <file> '#old' '#new' Swap one tag for another
     find '#tag' [path]        Find files with tag
+  ticket <cmd>           Ticket subscribe/notify (cross-session updates)
+    subscribe <KEY>           Subscribe this session to a Linear ticket
+    unsubscribe <KEY>         Drop a subscription
+    notify <KEY> [note]       Flag subscribers that <KEY> changed
+    read [KEY] [--since <dt>]  Drain updates → {ticket, since} for MCP fetch
+    list [KEY] [--json]       Peek at pending updates (non-destructive)
+    watch [KEY] [--timeout N]  Block until a watched ticket updates, then exit (0=update). Unbounded by default (no fake-wakes); --timeout N bounds it (124=timeout)
+                              Self-registers .state.json:watchTaskId {pid,startedAt,keys}; a PreToolUse
+                              hard gate forces an armed background watcher whenever tickets[] is non-empty
+                              (spawn cmd / AskUserQuestion / Skill / engine bookkeeping stay allowed).
+                              Use the /communicate skill to drive a full ask/reply ticket-discussion turn.
 
 SEARCH & DISCOVERY
   session-search <cmd>   Session search via embeddings

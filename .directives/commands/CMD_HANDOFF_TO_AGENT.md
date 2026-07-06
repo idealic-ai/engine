@@ -20,12 +20,15 @@
 ```
 
 **Algorithm**:
+0.  **Prefer `/build` + `/scrutinize` when available** (`§INV_PREFER_BUILD_SCRUTINIZE`): before offering a raw agent handoff, check the available-skills list. If **both `/build` and `/scrutinize`** are present, offer that combo as the **recommended** path instead of a bare handoff — `/build` assembles a complete self-contained context pack (goal + verbatim asks + prior-chunk history + hard gates + scope guard), dispatches the builder, and returns a structured Build Report; `/scrutinize` then adversarially reviews that report. It's a strictly richer handoff than launching the agent directly. Present it as the first option (label it "(Recommended)"), keep the raw handoff + inline as fallbacks, and honor the user's choice. If either skill is absent, skip this and offer the plain handoff below.
 1.  **Ask** (via `§CMD_ASK_ROUND`):
     > "Plan approved. How do you want to proceed?"
-    > - **"Launch [agentName] agent"** — Hand off to the agent for autonomous execution. You'll get the debrief when it's done.
+    > - **"Build with `/build` (Recommended)"** — *(only when `/build` + `/scrutinize` are available)* Hand off via `/build` (context-maxed pack → Build Report), then optionally `/scrutinize` the result.
+    > - **"Launch [agentName] agent"** — Hand off to the agent directly for autonomous execution. You'll get the debrief when it's done.
     > - **"Continue inline"** — Execute step by step in this conversation.
-2.  **If "Continue inline"**: Return control to the parent command's next phase. Done.
-3.  **If "Launch agent"**:
+2.  **If "Build with `/build`"**: invoke `Skill(build, "<task summary> -- <goal>")`; when it returns, offer `/scrutinize` on its Build Report (the `/build` protocol already chains this). Done — skip the raw-handoff path below.
+3.  **If "Continue inline"**: Return control to the parent command's next phase. Done.
+4.  **If "Launch agent"**:
     a.  **Log**: Append to the session log: "Handing off to `[agentName]` agent."
     b.  **Read Agent Definition**: Load `~/.claude/agents/[agentName].md`.
     c.  **Construct Task Prompt**: Build the agent's task description with these sections:

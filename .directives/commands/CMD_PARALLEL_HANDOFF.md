@@ -94,6 +94,7 @@ Execute `AskUserQuestion` (multiSelect: false):
 
 *   The recommended option shows the actual chunk count (capped at 5).
 *   If chunk count is 1, omit the "[N] agents" option (only show inline / 1 agent / revise).
+*   **Prefer `/build` + `/scrutinize` when available** (`§INV_PREFER_BUILD_SCRUTINIZE`): the **"1 agent"** path runs `§CMD_HANDOFF_TO_AGENT`, which already offers the `/build` combo when those skills are present. For the **"[N] agents"** path, prefer running `Skill(build, "<chunk> -- <goal>")` **per independent chunk** (each chunk gets its own context pack + Build Report), then a single `/scrutinize` pass over the combined reports — a richer parallel handoff than bare per-chunk `builder` agents. Fall back to raw parallel agents only when `/build`/`/scrutinize` aren't available.
 
 ##### Step 5: Execute Based on User Choice
 

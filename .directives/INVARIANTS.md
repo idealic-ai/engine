@@ -123,6 +123,12 @@ This document defines the system physics — rules about how sessions, phases, t
     *   **Rule**: `engine session request-template '#needs-xxx'` resolves the tag noun to a skill, finds the template, and outputs it to stdout. This is the canonical lookup path.
     *   **Reason**: Static maps rot. Dynamic discovery is self-maintaining — adding a REQUEST template to a skill automatically makes it dispatchable. Removing the template removes the capability.
 
+*   **¶INV_PREFER_BUILD_SCRUTINIZE**: When offering to hand a scoped task to an autonomous agent, prefer the `/build` + `/scrutinize` combo if both skills are available.
+    *   **Rule**: Any point that offers a raw agent handoff (`§CMD_HANDOFF_TO_AGENT`, `§CMD_SELECT_EXECUTION_PATH`'s agent path, `§CMD_PARALLEL_HANDOFF`) MUST first check the available-skills list. If **both `/build` and `/scrutinize`** are present, present the combo as the recommended option instead of a bare `Agent`/`Task` handoff: `/build` assembles a complete self-contained context pack (goal + verbatim asks + prior-chunk history + hard gates + scope guard), dispatches the builder, and returns a structured Build Report; `/scrutinize` then adversarially reviews that report. For a parallel handoff, prefer `/build` per independent chunk + one `/scrutinize` over the combined reports.
+    *   **Fallback**: If either skill is unavailable, offer the plain handoff. Never block on their absence.
+    *   **User owns the choice**: This biases the *recommended* option; the user may still pick a raw handoff or inline. The preference is presented, not forced.
+    *   **Reason**: A `/build` handoff is strictly richer than a bare agent launch — the agent gets a self-contained context pack (so its output quality isn't bounded by the orchestrator's working memory, per `§INV_REQUEST_IS_SELF_CONTAINED`), leaves a reviewable paper trail, and chains into an adversarial review. Defaulting to it raises handoff quality wherever the skills exist.
+
 ## 6. Directive Physics
 
 *   **¶INV_DIRECTIVE_STACK**: Agents must load the full stack of directive files (child-to-root ancestor chain) when working in a directory. Enforcement is escalating.

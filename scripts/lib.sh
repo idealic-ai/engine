@@ -104,7 +104,12 @@ hook_deny() {
 # The anchor prevents false positives from heredoc bodies.
 is_engine_cmd() {
   local cmd="$1" subcmd="$2"
-  [[ "$cmd" =~ ^engine[[:space:]]+"$subcmd"([[:space:]]|$) ]]
+  local nl=$'\n'
+  # Match `engine <subcmd>` at the start OR as a segment separated by &&, ;, |, or a
+  # newline — so `cd path && engine log ...` and multi-line `cd path⏎engine log ...`
+  # both count (heartbeat reset / hook whitelist). A newline is a command terminator,
+  # so this stays as safe against quoted false positives as the other separators.
+  [[ "$cmd" =~ (^|&&|;|[|]|$nl)[[:space:]]*engine[[:space:]]+"$subcmd"([[:space:]]|$) ]]
 }
 
 # Convenience wrappers for specific engine subcommands
@@ -182,7 +187,12 @@ find_project_root() {
 resolve_sessions_dir() {
   local root
   root=$(find_project_root) || root="$PWD"
-  echo "$root/sessions"
+  # WORKSPACE (e.g. apps/viewer/extraction) nests sessions under that subtree.
+  if [ -n "${WORKSPACE:-}" ]; then
+    echo "$root/$WORKSPACE/sessions"
+  else
+    echo "$root/sessions"
+  fi
 }
 
 # resolve_session_path — Normalizes a session path argument

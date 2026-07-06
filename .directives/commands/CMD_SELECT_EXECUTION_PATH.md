@@ -28,6 +28,8 @@ Invoke §CMD_DECISION_TREE with `§ASK_EXECUTION_PATH`. Use preamble context to 
 
 **Option order**: Inline first (recommended default), then single agent, then parallel.
 
+**Prefer `/build` + `/scrutinize` for the agent path** (`§INV_PREFER_BUILD_SCRUTINIZE`): when presenting the agent-handoff option, first check the available-skills list. If **both `/build` and `/scrutinize`** are present, frame the single-agent path as "**Build with `/build`** (context-maxed pack → Build Report → optional `/scrutinize`)" rather than a bare `builder` handoff — it's a strictly richer handoff (self-contained context pack + structured report + adversarial review). If the user picks it, invoke `Skill(build, "<task> -- <goal>")` instead of transitioning to the `N.B` agent phase (then offer `/scrutinize` on the report). Fall back to the raw agent phase only when those skills aren't available.
+
 ### Step 3: Transition to Chosen Path
 
 Transition to the chosen path's phase label:
@@ -64,7 +66,7 @@ Extras: A: View plan summary before choosing | B: Estimate complexity per path |
 - [ ] [HERE] Inline execution
   Execute step by step in this conversation
 - [ ] [SEND] Agent handoff
-  Hand off to a single autonomous agent
+  Hand off to a single autonomous agent. When `/build` + `/scrutinize` are available, offer this as "Build with /build" (context-maxed pack → Build Report → optional adversarial /scrutinize) instead of a bare handoff.
 - [ ] [MANY] Parallel agents
   Split into independent chunks for parallel agents
 - [ ] [VIEW] Peek at plan first

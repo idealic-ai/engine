@@ -814,13 +814,13 @@ SKILLEOF
 # =============================================================================
 
 test_resolve_sessions_dir_no_workspace() {
-  local test_name="resolve_sessions_dir: no WORKSPACE → 'sessions'"
+  local test_name="resolve_sessions_dir: no WORKSPACE → '<root>/sessions'"
   setup
   unset WORKSPACE
 
   local result
   result=$(resolve_sessions_dir)
-  assert_eq "sessions" "$result" "$test_name"
+  assert_eq "$(find_project_root)/sessions" "$result" "$test_name"
 
   teardown
 }
@@ -832,20 +832,20 @@ test_resolve_sessions_dir_with_workspace() {
 
   local result
   result=$(resolve_sessions_dir)
-  assert_eq "apps/estimate-viewer/extraction/sessions" "$result" "$test_name"
+  assert_eq "$(find_project_root)/apps/estimate-viewer/extraction/sessions" "$result" "$test_name"
 
   unset WORKSPACE
   teardown
 }
 
 test_resolve_sessions_dir_empty_workspace() {
-  local test_name="resolve_sessions_dir: WORKSPACE='' → 'sessions'"
+  local test_name="resolve_sessions_dir: WORKSPACE='' → '<root>/sessions'"
   setup
   export WORKSPACE=""
 
   local result
   result=$(resolve_sessions_dir)
-  assert_eq "sessions" "$result" "$test_name"
+  assert_eq "$(find_project_root)/sessions" "$result" "$test_name"
 
   unset WORKSPACE
   teardown
@@ -862,7 +862,7 @@ test_resolve_session_path_bare_no_workspace() {
 
   local result
   result=$(resolve_session_path "2026_02_14_TEST")
-  assert_eq "sessions/2026_02_14_TEST" "$result" "$test_name"
+  assert_eq "$(find_project_root)/sessions/2026_02_14_TEST" "$result" "$test_name"
 
   teardown
 }
@@ -874,7 +874,7 @@ test_resolve_session_path_bare_with_workspace() {
 
   local result
   result=$(resolve_session_path "2026_02_14_TEST")
-  assert_eq "apps/viewer/extraction/sessions/2026_02_14_TEST" "$result" "$test_name"
+  assert_eq "$(find_project_root)/apps/viewer/extraction/sessions/2026_02_14_TEST" "$result" "$test_name"
 
   unset WORKSPACE
   teardown
@@ -887,7 +887,7 @@ test_resolve_session_path_sessions_prefix_no_workspace() {
 
   local result
   result=$(resolve_session_path "sessions/2026_02_14_TEST")
-  assert_eq "sessions/2026_02_14_TEST" "$result" "$test_name"
+  assert_eq "$(find_project_root)/sessions/2026_02_14_TEST" "$result" "$test_name"
 
   teardown
 }
@@ -899,7 +899,7 @@ test_resolve_session_path_sessions_prefix_with_workspace() {
 
   local result
   result=$(resolve_session_path "sessions/2026_02_14_TEST")
-  assert_eq "apps/viewer/extraction/sessions/2026_02_14_TEST" "$result" "$test_name"
+  assert_eq "$(find_project_root)/apps/viewer/extraction/sessions/2026_02_14_TEST" "$result" "$test_name"
 
   unset WORKSPACE
   teardown
@@ -988,6 +988,58 @@ test_extract_skill_preloads_nonexistent
 test_extract_skill_preloads_no_json
 test_extract_skill_preloads_dedup
 test_extract_skill_preloads_missing_template
+
+# is_engine_cmd (segment-aware — heartbeat reset must fire on compound commands)
+test_is_engine_cmd_plain() {
+  setup
+  if is_engine_cmd "engine log foo.md" "log"; then pass "is_engine_cmd: plain 'engine log' matches"; else fail "is_engine_cmd: plain 'engine log' matches" "match" "no match"; fi
+  teardown
+}
+test_is_engine_cmd_compound_cd() {
+  setup
+  if is_engine_cmd "cd /tmp/x && engine log foo.md" "log"; then pass "is_engine_cmd: 'cd && engine log' matches"; else fail "is_engine_cmd: 'cd && engine log' matches" "match" "no match"; fi
+  teardown
+}
+test_is_engine_cmd_semicolon_session() {
+  setup
+  if is_engine_cmd "cd /tmp; engine session activate a b" "session"; then pass "is_engine_cmd: '; engine session' matches"; else fail "is_engine_cmd: '; engine session' matches" "match" "no match"; fi
+  teardown
+}
+test_is_engine_cmd_no_false_positive() {
+  setup
+  if is_engine_cmd 'echo "engine log is great"' "log"; then fail "is_engine_cmd: quoted 'engine log' not matched" "no match" "matched"; else pass "is_engine_cmd: quoted 'engine log' not matched"; fi
+  teardown
+}
+test_is_engine_cmd_newline_log() {
+  setup
+  local nl=$'\n'
+  if is_engine_cmd "cd /tmp/x${nl}engine log foo.md" "log"; then pass "is_engine_cmd: 'cd<newline>engine log' matches"; else fail "is_engine_cmd: 'cd<newline>engine log' matches" "match" "no match"; fi
+  teardown
+}
+test_is_engine_cmd_newline_mid_line_no_match() {
+  setup
+  local nl=$'\n'
+  if is_engine_cmd "echo hi${nl}echo 'engine log is great'" "log"; then fail "is_engine_cmd: mid-line 'engine log' after newline not matched" "no match" "matched"; else pass "is_engine_cmd: mid-line 'engine log' after newline not matched"; fi
+  teardown
+}
+# Pins the ACCEPTED behavior: a newline (like ; and |) is a bare separator, so
+# `engine log` immediately after one matches even inside another command's payload.
+# The whitelist consumers (heartbeat/overflow bypass) are anti-drift, not a sandbox,
+# so this fail-open is intentional — pinned so a future narrowing is a deliberate
+# choice, not a silent regression.
+test_is_engine_cmd_newline_payload_pinned() {
+  setup
+  local nl=$'\n'
+  if is_engine_cmd "python3 -c \$'${nl}engine log junk${nl}'" "log"; then pass "is_engine_cmd: newline-adjacent 'engine log' in payload matches (accepted)"; else fail "is_engine_cmd: newline-adjacent 'engine log' in payload matches (accepted)" "match" "no match"; fi
+  teardown
+}
+test_is_engine_cmd_plain
+test_is_engine_cmd_compound_cd
+test_is_engine_cmd_semicolon_session
+test_is_engine_cmd_no_false_positive
+test_is_engine_cmd_newline_log
+test_is_engine_cmd_newline_mid_line_no_match
+test_is_engine_cmd_newline_payload_pinned
 
 # resolve_sessions_dir
 test_resolve_sessions_dir_no_workspace

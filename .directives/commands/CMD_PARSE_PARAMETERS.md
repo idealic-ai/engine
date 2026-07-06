@@ -95,6 +95,12 @@
       "title": "Request Files",
       "description": "Request files this session is fulfilling. Supports two types: formal REQUEST files (filename contains 'REQUEST') and inline-tag source files (any other file with #needs-* tags). Validated by `engine session check` Validation 3 (¶INV_REQUEST_BEFORE_CLOSE)."
     },
+    "tickets": {
+      "type": "array",
+      "items": { "type": "string" },
+      "title": "Ticket Subscriptions",
+      "description": "Linear ticket keys (e.g. 'FIN-2712') this session is working. On activation the engine auto-subscribes the session to each via `engine ticket subscribe`, so cross-session `engine ticket notify` updates surface on this session's status line. Optional."
+    },
     "nextSkills": {
       "type": "array",
       "items": { "type": "string" },

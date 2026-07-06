@@ -23,6 +23,7 @@ The alias is the preferred invocation method — it's shorter and whitelisted vi
 | `session.sh` | Session lifecycle: activate, phase tracking, deactivate, restart, context scans | `engine session activate <path> <skill>` |
 | `log.sh` | Append content to any file. Creates parent dirs. Auto-injects timestamps into `## ` headings | `log.sh <file> <<'EOF'` |
 | `tag.sh` | Manage semantic tags on markdown files. Subcommands: `add`, `remove`, `swap`, `find` | `tag.sh add <file> '#tag'` |
+| `ticket.sh` | Cross-session Linear-ticket updates (dirty-flag + watermark). Subcommands: `subscribe`, `unsubscribe`, `notify`, `read`, `list`, `watch` (fswatch, blocks until a watched ticket updates; self-registers `watchTaskId` so the auto-watch hard gate can force a live background watcher). The `/communicate` skill drives a full ask/reply discussion turn | `ticket.sh watch FIN-123` (unbounded; `--timeout N` to bound) |
 | `lib.sh` | Shared utilities for hooks: fleet notification, tmux guards, JSON helpers | Sourced by hooks, not invoked directly |
 | `find-sessions.sh` | Find sessions by date, topic, tag, or date range | `find-sessions.sh recent --files` |
 | `glob.sh` | Symlink-aware file globbing. Fallback when Glob tool can't traverse symlinks | `glob.sh '**/*.ts' sessions/` |

@@ -732,6 +732,21 @@ case "$ACTION" in
       fi
     fi
 
+    # Seed ticket subscriptions from params.tickets[] (bare keys → subscription objects).
+    # The param-merge injects .tickets as bare strings; we store {key,subscribedAt,lastReadAt}
+    # objects, so strip the string form and (re)subscribe each via ticket.sh.
+    if [ -n "$STDIN_JSON" ] && [ -f "$STATE_FILE" ]; then
+      SEED_TICKETS=$(echo "$STDIN_JSON" | jq -r '(.tickets // [])[]? | select(type == "string")' 2>/dev/null || echo "")
+      if jq -e '(.tickets // []) | any(type == "string")' "$STATE_FILE" >/dev/null 2>&1; then
+        jq 'del(.tickets)' "$STATE_FILE" | safe_json_write "$STATE_FILE"
+      fi
+      if [ -n "$SEED_TICKETS" ]; then
+        while IFS= read -r TKEY; do
+          [ -n "$TKEY" ] && "$(dirname "$0")/ticket.sh" subscribe "$TKEY" "$DIR" >/dev/null 2>&1 || true
+        done <<< "$SEED_TICKETS"
+      fi
+    fi
+
     # Context scanning (only on fresh activation or skill change)
     if [ "$SHOULD_SCAN" = true ]; then
       SESSION_SEARCH="$HOME/.claude/tools/session-search/session-search.sh"
@@ -2510,6 +2525,15 @@ case "$ACTION" in
     _SESSIONS_DIR=$(resolve_sessions_dir)
     if [ -d "$_SESSIONS_DIR" ]; then
       SEARCH_PATHS+=("$_SESSIONS_DIR")
+    fi
+    # WORKSPACE fallback: when a workspace is active, also search the global
+    # (workspace-less) sessions dir so a session created outside the workspace
+    # is still found. Workspace is searched first (preferred), global second.
+    if [ -n "${WORKSPACE:-}" ]; then
+      _GLOBAL_SESSIONS_DIR=$(WORKSPACE="" resolve_sessions_dir)
+      if [ "$_GLOBAL_SESSIONS_DIR" != "$_SESSIONS_DIR" ] && [ -d "$_GLOBAL_SESSIONS_DIR" ]; then
+        SEARCH_PATHS+=("$_GLOBAL_SESSIONS_DIR")
+      fi
     fi
     if [ ${#SEARCH_PATHS[@]} -eq 0 ]; then
       exit 1

@@ -69,6 +69,8 @@ find_session_dir() {
 # --- Step 3: Hardcoded critical bypass ---
 # engine log and engine session MUST always pass through.
 # engine log also resets the per-transcript counter.
+# is_engine_*_cmd treats &&/;/|/newline as segment separators, so multi-line forms
+# (`cd path<newline>engine log ...`) bypass + reset here too, same as single-line.
 if [ "$TOOL_NAME" = "Bash" ]; then
   if is_engine_log_cmd "$BASH_CMD"; then
     # Reset counter on log command (same as heartbeat-v2)
