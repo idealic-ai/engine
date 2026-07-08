@@ -2043,6 +2043,60 @@ test_restart_missing_state_file() {
   teardown
 }
 
+test_dehydrate_kills_lingering_watchdog() {
+  local test_name="dehydrate: kills lingering watchdog in tmux path (releases bg-shell hang)"
+  setup
+
+  create_state "$TEST_DIR/sessions/WD" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "4: Build", "sessionId": "sess-wd", "contextUsage": 0.9
+  }'
+
+  # A dummy stand-in for the watchdog bg co-process.
+  sleep 30 & local wd=$!
+
+  # Enter the tmux branch (NOT TEST_MODE, so the real branch runs). Fake TMUX → the
+  # backgrounded `tmux send-keys` fails silently (no server); the watchdog kill runs.
+  WATCHDOG_PID="$wd" TMUX="fake-session" TMUX_PANE="" DISABLE_CLEAR="" \
+    "$SESSION_SH" dehydrate "$TEST_DIR/sessions/WD" <<< '{"summary":"x","requiredFiles":[]}' > /dev/null 2>&1 || true
+  sleep 0.3
+
+  if kill -0 "$wd" 2>/dev/null; then
+    kill "$wd" 2>/dev/null || true
+    fail "$test_name" "watchdog PID $wd killed" "watchdog $wd still alive after dehydrate"
+  else
+    pass "$test_name"
+  fi
+
+  teardown
+}
+
+test_dehydrate_no_watchdog_is_noop() {
+  local test_name="dehydrate: no WATCHDOG_PID → clean no-op (¶INV_TMUX_AND_FLEET_OPTIONAL)"
+  setup
+
+  create_state "$TEST_DIR/sessions/WDN" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active",
+    "currentPhase": "4: Build", "sessionId": "sess-wdn", "contextUsage": 0.9
+  }'
+
+  unset WATCHDOG_PID 2>/dev/null || true
+  local out
+  out=$(TEST_MODE=1 "$SESSION_SH" dehydrate "$TEST_DIR/sessions/WDN" <<< '{"summary":"x","requiredFiles":[]}' 2>&1) || true
+
+  # dehydratedContext must be written and no watchdog error surfaced
+  local sf="$TEST_DIR/sessions/WDN/.state.json"
+  local ctx
+  ctx=$(jq -r '.dehydratedContext.summary // "MISSING"' "$sf" 2>/dev/null)
+  if [ "$ctx" = "x" ] && [[ "$out" != *"Killing lingering watchdog"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "dehydratedContext written, no watchdog-kill line" "ctx=$ctx, out=$out"
+  fi
+
+  teardown
+}
+
 # =============================================================================
 # CLEAR TESTS
 # =============================================================================
@@ -3052,6 +3106,8 @@ main() {
   echo "--- Restart ---"
   test_restart_sets_kill_requested
   test_restart_missing_state_file
+  test_dehydrate_kills_lingering_watchdog
+  test_dehydrate_no_watchdog_is_noop
 
   echo ""
   echo "--- Clear ---"

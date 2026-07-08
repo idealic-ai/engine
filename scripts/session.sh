@@ -2381,6 +2381,10 @@ case "$ACTION" in
       ) &
       disown
       echo "Dehydrated and restart prepared. Sending /clear + prompt via tmux."
+      # In tmux, /clear handles the restart, so the watchdog is now dead weight whose
+      # lingering background shell hangs the session. Kill it (run.sh relaunches a fresh
+      # one on the next real process restart). Non-tmux keeps it — there USR1 is the restart.
+      [ -n "${WATCHDOG_PID:-}" ] && { echo "Killing lingering watchdog (PID $WATCHDOG_PID)."; kill "$WATCHDOG_PID" 2>/dev/null || true; }
     elif [ -n "${WATCHDOG_PID:-}" ]; then
       echo "Dehydrated. Signaling watchdog (PID $WATCHDOG_PID) to restart..."
       kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
@@ -2450,6 +2454,10 @@ case "$ACTION" in
       ) &
       disown
       echo "Restart prepared. Sending /clear + prompt via tmux keystroke injection (backgrounded)."
+      # In tmux, /clear handles the restart, so the watchdog is now dead weight whose
+      # lingering background shell hangs the session. Kill it (run.sh relaunches a fresh
+      # one on the next real process restart). Non-tmux keeps it — there USR1 is the restart.
+      [ -n "${WATCHDOG_PID:-}" ] && { echo "Killing lingering watchdog (PID $WATCHDOG_PID)."; kill "$WATCHDOG_PID" 2>/dev/null || true; }
     elif [ -n "${WATCHDOG_PID:-}" ]; then
       echo "Restart prepared. Signaling watchdog (PID $WATCHDOG_PID) to kill Claude..."
       kill -USR1 "$WATCHDOG_PID" 2>/dev/null || true
