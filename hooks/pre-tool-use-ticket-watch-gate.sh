@@ -76,5 +76,5 @@ fi
 ticket_list=$(jq -r '[(.tickets // [])[].key] | join(", ")' "$state" 2>/dev/null || echo "")
 hook_deny \
   "[block: ticket-watch] This session subscribes to ticket(s) ${ticket_list} but has no live background watcher — cross-agent notifies would be missed." \
-  "Arm one now: run \`engine ticket watch\` via Bash with run_in_background:true, then retry. It blocks until a real update (no timeout by default, so no fake-wakes). (AskUserQuestion, Skill, and engine ticket/session/log stay allowed.)" \
+  "Arm one now: run \`engine ticket watch\` via the Bash tool's run_in_background:true parameter — NOT a shell \`&\` (a shell \`&\` detaches from the harness so the watcher fires but never wakes you, and trips the background-command warning). Then retry. It blocks until a real update (no timeout by default, so no fake-wakes). (AskUserQuestion, Skill, and engine ticket/session/log stay allowed.)" \
   "watchTaskId pid absent/dead; grace ${count}/${GRACE_MAX} exhausted for pid ${SUPERVISOR_PID}"

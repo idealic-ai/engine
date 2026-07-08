@@ -9,14 +9,16 @@
 
 ---
 
-## Context Levels (~200K tokens, no compaction)
+## Context Levels
 
-- **0–75% — Normal.** All activities unrestricted. Work freely.
-- **75–80% — No new skills.** Starting a skill loads SKILL.md + templates + standards + RAG (~30-50K tokens) — this can push from 75% to overflow instantly. If the user invokes a new skill at 75%+, dehydrate first. Interrogation, planning, editing, testing, logging all OK.
-- **80–90% — No new skills, no document writing.** Debriefs, plans, and multi-section artifacts consume ~10-20K tokens (template reads + composition). Interrogation, planning, code editing, testing, logging still OK.
-- **90%+ — Dehydrate NOW.** Execute the algorithm below immediately. No new file reads, no exploration.
+The status-line `Context: X%` is **already normalized so 100% = the dehydration point** (raw window usage is scaled against the overflow threshold). So the percentages below are "% of the way to dehydration," not raw window fill — a displayed 60% has plenty of headroom. Treat the number as informational, not a warning; do NOT self-dehydrate or curtail work early out of context anxiety (`§INV_CONTEXT_BUDGET`).
 
-**Aim to dehydrate at 90%** - the sweet spot. 80% is too early, since  alot of the time, it takes 50% just to load all context.
+- **0–80% — Normal.** All activities unrestricted. Work freely. This is the ordinary working range — 40–70% is nothing to manage.
+- **80–85% — No new sessions.** Starting a new session (any skill invocation) loads SKILL.md + templates + standards + RAG (~30-50K tokens) — this can spike toward overflow. If the user invokes a skill at 80%+, dehydrate first. Interrogation, planning, editing, testing, logging all OK.
+- **85–95% — No new sessions, no document writing.** Debriefs, plans, and multi-section artifacts consume ~10-20K tokens (template reads + composition). Interrogation, planning, code editing, testing, logging still OK.
+- **95%+ — Dehydrate NOW.** Execute the algorithm below immediately. No new file reads, no exploration.
+
+**Aim to dehydrate at 95%** — the sweet spot. 85% is too early, since a lot of the time it takes ~50% just to load all context.
 
 ---
 

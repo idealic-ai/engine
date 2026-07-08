@@ -94,7 +94,12 @@ Execute `AskUserQuestion` (multiSelect: false):
 
 *   The recommended option shows the actual chunk count (capped at 5).
 *   If chunk count is 1, omit the "[N] agents" option (only show inline / 1 agent / revise).
-*   **Prefer `/build` + `/scrutinize` when available** (`§INV_PREFER_BUILD_SCRUTINIZE`): the **"1 agent"** path runs `§CMD_HANDOFF_TO_AGENT`, which already offers the `/build` combo when those skills are present. For the **"[N] agents"** path, prefer running `Skill(build, "<chunk> -- <goal>")` **per independent chunk** (each chunk gets its own context pack + Build Report), then a single `/scrutinize` pass over the combined reports — a richer parallel handoff than bare per-chunk `builder` agents. Fall back to raw parallel agents only when `/build`/`/scrutinize` aren't available.
+*   **Prefer `/build` + `/scrutinize` when available** (`§INV_PREFER_BUILD_SCRUTINIZE`): the **"1 agent"** path runs `§CMD_HANDOFF_TO_AGENT`, which already offers the `/build` combo when those skills are present. For the **"[N] agents"** path — **this is the multi-chunk `/build` + `/scrutinize` path; do NOT merge independent chunks into one `/build`**. Because the Skill tool is sequential (two `Skill(build,…)` calls can't overlap), real parallelism is at the **agent** level — reuse this command's fan-out, but make each chunk-agent a **/build-grade** handoff, then critique each in parallel:
+    1.  Per independent chunk, assemble a `/build`-quality Context Pack (goal + verbatim asks + that chunk's plan slice + `inScopeFiles` + hard gates + return contract; see the `/build` skill's §2) and spawn one builder agent — **all chunk-agents in parallel** (one message, multiple `Task`/`Agent` calls). Each writes a Build Report to the trail.
+    2.  Independent-verify each report (re-run its exact gate commands).
+    3.  Spawn **one critiquer per Build Report, in parallel** (`/scrutinize`-grade adversarial review, scoped to that chunk's `filesTouched`) → each writes a Critique.
+    4.  Run **one combined triage** with the user over all findings (per-finding fix/skip/defer), then dispatch fixers.
+    *   Fall back to bare parallel `builder` agents only when `/build`/`/scrutinize` aren't available. Merge chunks into a single `/build` only when they're genuinely one cohesive unit (shared files / an unsplittable `Depends` chain).
 
 ##### Step 5: Execute Based on User Choice
 

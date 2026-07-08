@@ -275,6 +275,9 @@ cmd_watch() {
 
   # Self-register as the live watcher so the auto-watch gate can confirm this session
   # is armed (liveness = kill -0 on this pid; the trap below is the graceful fast-path).
+  # Capture any previous watcher BEFORE we overwrite the field, so we can supersede it.
+  local prev_pid
+  prev_pid=$(jq -r '.watchTaskId.pid // empty' "$state" 2>/dev/null || echo "")
   local watched_keys
   watched_keys=$(jq -r --arg k "$key" '(.tickets // []) as $s | (if $k != "" then [$k] else [ $s[].key ] end) | join(",")' "$state" 2>/dev/null || echo "")
   safe_json_update "$state" --argjson pid "$$" --arg started "$(_now)" --arg keys "$watched_keys" '
@@ -285,6 +288,14 @@ cmd_watch() {
   # scope. INT/TERM route through `exit` so a signalled teardown still runs the cleanup.
   trap "_watch_unregister $(printf '%q' "$state") $$" EXIT
   trap 'exit' INT TERM
+
+  # Supersede the previous live watcher — only ONE watcher per session, so re-arming
+  # (on wake / after a nudge) can't stack multiple blocked `fswatch` shells. Register
+  # first (above) so watchTaskId already points at us; the old watcher's pid-guarded
+  # EXIT cleanup then sees our pid and leaves our registration intact.
+  if [ -n "$prev_pid" ] && [ "$prev_pid" != "$$" ] && kill -0 "$prev_pid" 2>/dev/null; then
+    kill "$prev_pid" 2>/dev/null || true
+  fi
 
   # A non-matching fs event re-checks and re-blocks WITHOUT exiting, so the agent is
   # only re-invoked (a background-task exit) on a real match — never on churn.
@@ -307,16 +318,23 @@ cmd_watch() {
     return 124
   fi
 
-  # Unbounded (default): block until a real matching update. With no deadline the
-  # process only exits on a match, so a long-idle watch never fake-wakes the agent
-  # (no re-invocation, no token churn) and watchTaskId stays live for the gate.
+  # Unbounded (default): block until a real matching update. A modest internal
+  # re-check tick re-evaluates the condition even with zero fs events, so an entry
+  # landing in the check-then-block window (between the race-guard and fswatch
+  # starting) is caught deterministically — not left to incidental .state.json
+  # writes. The tick NEVER exits the process (only a real match does), so there are
+  # still no fake-wakes and watchTaskId stays live for the gate.
+  local recheck="${WATCH_RECHECK_SECS:-30}" rc
   while :; do
-    if fswatch -1 "$dir" >/dev/null 2>&1; then
+    timeout "$recheck" fswatch -1 "$dir" >/dev/null 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ]; then
+      # 0 = fs event, 124 = internal re-check tick — either way, re-evaluate.
       matched=$(jq -r --arg k "$key" "$match_filter" "$state" 2>/dev/null)
       if [ -n "$matched" ]; then echo "$matched"; return 0; fi
     else
-      # No deadline here, so a non-zero fswatch is a genuine backend failure — surface
-      # it (exit 2) rather than hot-spinning the loop.
+      # Not a tick and not an event — a genuine fswatch backend failure. Surface it
+      # (exit 2) rather than hot-spinning the loop.
       echo "ticket: watch backend (fswatch) exited unexpectedly" >&2
       return 2
     fi

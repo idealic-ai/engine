@@ -243,6 +243,13 @@ _run_discovery() {
       done
 
       if [ "$is_core" = "false" ]; then
+        # Read-only ops (loading prose for reference) surface CORE directives only.
+        # Skill-typed directives (PITFALLS/CONTRIBUTING/TESTING/TEMPLATE/CHECKLIST) —
+        # including the checklist hard-gate — float up only when you MUTATE code in the
+        # area (Edit/Write), not from merely reading a file there.
+        case "$TOOL_NAME" in
+          Read|Glob|Grep) continue ;;
+        esac
         # Skill directive — check if declared
         local is_declared=false
         if [ -n "$skill_directives" ]; then

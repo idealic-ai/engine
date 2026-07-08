@@ -245,6 +245,29 @@ test_watch_unbounded_default_wakes_on_notify() {
   assert_eq "0" "$(cat "$ecfile" 2>/dev/null)" "unbounded watch wakes and exits 0 on a real notify (no deadline)"
 }
 
+test_watch_unbounded_poll_tick_does_not_wake() {
+  # The internal re-check tick (WATCH_RECHECK_SECS) must NOT exit the process — only a
+  # real match does. With a 1s tick and no pending update, the watch survives many
+  # ticks (stays live), then exits 0 only when a genuine notify lands.
+  mkstate A '{}'
+  mkstate B '{"tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z","lastReadAt":"2020-01-01T00:00:00Z"}]}'
+  local ecfile="$TEST_DIR/watch-poll.ec"
+  ( WATCH_RECHECK_SECS=1 tk watch FIN-9 "$TEST_DIR/sessions/B" >/dev/null 2>&1; echo $? > "$ecfile" ) &
+  local wpid=$!
+  sleep 4  # ~4 re-check ticks with no match
+  if kill -0 "$wpid" 2>/dev/null; then
+    pass "unbounded watch survives internal re-check ticks without exiting (no fake-wake)"
+  else
+    fail "unbounded watch survives internal re-check ticks without exiting (no fake-wake)" "still blocking" "exited (code $(cat "$ecfile" 2>/dev/null))"
+  fi
+  tk notify FIN-9 "reply" --from "$TEST_DIR/sessions/A" >/dev/null 2>&1
+  local i
+  for i in 1 2 3 4 5 6 7 8; do kill -0 "$wpid" 2>/dev/null || break; sleep 1; done
+  kill "$wpid" 2>/dev/null
+  wait "$wpid" 2>/dev/null
+  assert_eq "0" "$(cat "$ecfile" 2>/dev/null)" "unbounded watch still exits 0 on a real notify after surviving ticks"
+}
+
 # ---- watchTaskId self-registration (auto-watch hard-gate liveness source) ----
 
 test_watch_self_registers_live_pid() {
@@ -283,6 +306,36 @@ test_watch_trap_pid_guard_preserves_newer() {
   # Race guard returns 0 immediately (pending update) — must not touch a foreign watchTaskId.
   tk watch FIN-9 --timeout 5 "$TEST_DIR/sessions/B" >/dev/null 2>&1
   assert_eq "999999" "$(sget B '.watchTaskId.pid // empty')" "race-guard exit leaves a foreign watchTaskId untouched (pid-guarded trap)"
+}
+
+test_watch_supersedes_previous_watcher() {
+  # Arming a new watcher kills the previous live one — only ONE watcher per session,
+  # so re-arming can't stack multiple blocked fswatch shells.
+  mkstate B '{"tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z","lastReadAt":"2020-01-01T00:00:00Z"}]}'
+  ( tk watch FIN-9 "$TEST_DIR/sessions/B" >/dev/null 2>&1 ) &
+  local w1=$!
+  sleep 2
+  local pid1; pid1=$(sget B '.watchTaskId.pid // empty')
+  ( tk watch FIN-9 "$TEST_DIR/sessions/B" >/dev/null 2>&1 ) &
+  local w2=$!
+  sleep 2
+  local pid2; pid2=$(sget B '.watchTaskId.pid // empty')
+
+  if [ -n "$pid1" ] && [ -n "$pid2" ] && [ "$pid1" != "$pid2" ]; then
+    pass "re-arm registers a new watcher pid (supersede)"
+  else
+    fail "re-arm registers a new watcher pid (supersede)" "pid1 != pid2 (both set)" "pid1=$pid1 pid2=$pid2"
+  fi
+  # The superseded watcher's process is dead; the new one is still live and registered.
+  if kill -0 "$pid1" 2>/dev/null; then
+    fail "previous watcher killed when a new one arms" "pid1 dead" "pid1 alive"
+  else
+    pass "previous watcher killed when a new one arms"
+  fi
+  assert_eq "$pid2" "$(sget B '.watchTaskId.pid // empty')" "watchTaskId points at the surviving (newest) watcher"
+
+  kill "$pid1" "$pid2" "$w1" "$w2" 2>/dev/null
+  wait "$w1" "$w2" 2>/dev/null
 }
 
 run_discovered_tests

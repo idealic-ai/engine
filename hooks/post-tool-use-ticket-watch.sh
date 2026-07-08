@@ -42,7 +42,7 @@ if [ -n "$watch_pid" ] && pid_exists "$watch_pid"; then
 fi
 
 ticket_list=$(jq -r '[(.tickets // [])[].key] | join(", ")' "$state" 2>/dev/null || echo "")
-context="[Auto-watch] This session subscribes to ticket(s) ${ticket_list}. Arm a background watcher now so cross-agent replies wake you: run \`engine ticket watch\` via Bash with run_in_background:true. It blocks until a real update (no timeout by default, so it won't fake-wake you). The hard gate will block ordinary tools until it is armed."
+context="[Auto-watch] This session subscribes to ticket(s) ${ticket_list}. Arm a background watcher now so cross-agent replies wake you: run \`engine ticket watch\` via the Bash tool's run_in_background:true parameter — NOT a shell \`&\` (a shell \`&\` detaches from the harness so the watcher never wakes you, and trips the background-command warning). It blocks until a real update (no timeout by default, so it won't fake-wake you). The hard gate will block ordinary tools until it is armed."
 
 cat <<HOOKEOF
 {

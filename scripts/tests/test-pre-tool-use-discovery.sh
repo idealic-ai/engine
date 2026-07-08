@@ -244,6 +244,49 @@ test_processes_write_tool() {
   teardown
 }
 
+# Read-only ops (loading prose) surface CORE directives only; skill-typed ones
+# (PITFALLS/CONTRIBUTING/TESTING/TEMPLATE/CHECKLIST) + checklist tracking float up
+# only on mutation (Edit/Write). src/utils has a CHECKLIST.md (skill-typed, declared)
+# and walk-up finds AGENTS/INVARIANTS (core).
+test_read_surfaces_core_not_skilltyped() {
+  local test_name="read: core surfaces, skill-typed (CHECKLIST) suppressed, checklist not armed"
+  setup
+
+  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/utils/x.ts\"},\"transcript_path\":\"/tmp/test\"}"
+  local state has_checklist dc has_core
+  state=$(read_state)
+  has_checklist=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(endswith("CHECKLIST.md"))] | length')
+  dc=$(echo "$state" | jq '(.discoveredChecklists // []) | length')
+  has_core=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(endswith("AGENTS.md") or endswith("INVARIANTS.md"))] | length')
+
+  if [ "$has_checklist" = "0" ] && [ "$dc" = "0" ] && [ "$has_core" != "0" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "checklist=0 dc=0 core>0" "checklist=$has_checklist dc=$dc core=$has_core"
+  fi
+
+  teardown
+}
+
+test_edit_surfaces_skilltyped_and_arms_checklist() {
+  local test_name="edit: skill-typed (CHECKLIST) surfaces + checklist armed"
+  setup
+
+  run_hook "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/utils/x.ts\"},\"transcript_path\":\"/tmp/test\"}"
+  local state has_checklist dc
+  state=$(read_state)
+  has_checklist=$(echo "$state" | jq '[(.pendingPreloads // [])[] | select(endswith("CHECKLIST.md"))] | length')
+  dc=$(echo "$state" | jq '(.discoveredChecklists // []) | length')
+
+  if [ "$has_checklist" != "0" ] && [ "$dc" != "0" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "checklist>0 dc>0" "checklist=$has_checklist dc=$dc"
+  fi
+
+  teardown
+}
+
 # =============================================================================
 # TOUCHED DIRS TRACKING TESTS
 # =============================================================================
@@ -409,7 +452,8 @@ test_includes_declared_skill_directives() {
   # Create TESTING.md in src/lib (declared in .state.json directives array)
   echo "# Lib TESTING" > "$PROJECT_DIR/src/lib/TESTING.md"
 
-  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/lib/test.ts\"},\"transcript_path\":\"/tmp/test\"}"
+  # Skill-typed directives surface on mutation (Edit), not read-only reference
+  run_hook "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/lib/test.ts\"},\"transcript_path\":\"/tmp/test\"}"
   local state
   state=$(read_state)
   local has_testing
@@ -526,7 +570,8 @@ test_discovers_checklist_adds_to_state() {
   local test_name="hard discovery: adds CHECKLIST.md to discoveredChecklists"
   setup
 
-  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/utils/test.ts\"},\"transcript_path\":\"/tmp/test\"}"
+  # CHECKLIST arms only on mutation (Edit), not read-only reference
+  run_hook "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/utils/test.ts\"},\"transcript_path\":\"/tmp/test\"}"
   local state
   state=$(read_state)
   local checklist_count
@@ -541,14 +586,14 @@ test_checklist_not_duplicated() {
   local test_name="hard discovery: CHECKLIST.md not duplicated on re-discovery"
   setup
 
-  # Touch utils dir (has CHECKLIST.md)
-  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/utils/test.ts\"},\"transcript_path\":\"/tmp/test\"}"
+  # Mutate utils dir (has CHECKLIST.md) — checklist arms on Edit, not read
+  run_hook "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/utils/test.ts\"},\"transcript_path\":\"/tmp/test\"}"
 
   # Manually reset touchedDirs to force re-discovery
   jq '.touchedDirs = {}' "$SESSION_DIR/.state.json" | tee "$SESSION_DIR/.state.json.tmp" > /dev/null && mv "$SESSION_DIR/.state.json.tmp" "$SESSION_DIR/.state.json"
 
-  # Touch same dir again
-  run_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/utils/other.ts\"},\"transcript_path\":\"/tmp/test\"}"
+  # Mutate same dir again
+  run_hook "{\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"$PROJECT_DIR/src/utils/other.ts\"},\"transcript_path\":\"/tmp/test\"}"
   local state
   state=$(read_state)
   local count
@@ -930,5 +975,9 @@ test_three_sibling_dirs_single_preload
 
 # Parallel race condition (atomic claim)
 test_parallel_hooks_single_discovery
+
+# Read=core-only vs mutate=full directive gating
+test_read_surfaces_core_not_skilltyped
+test_edit_surfaces_skilltyped_and_arms_checklist
 
 exit_with_results
