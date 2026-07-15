@@ -92,3 +92,9 @@
     *   **Context**: When test calls `session.sh activate` with a skill name matching a real SKILL.md file (e.g., `"analyze"`, `"implement"`)
     *   **Trap**: `session.sh` parses that SKILL.md and injects its `phases`, `nextSkills`, `directives`, and template paths into `.state.json` via SKILL_STATIC_FIELDS. This overwrites any stub phases or test data the test set up.
     *   **Mitigation**: Use non-existent skill names (e.g., `"fake-skill"`, `"test-skill"`) when the test needs full control over session parameters. Use real skill names only when testing the actual skill integration path.
+
+*   **¶PTF_STUB_DISABLES_ENFORCEMENT**: A pass-through stub or dropped implementation silently disables a whole subsystem
+    *   **Context**: A tool/helper that other code depends on gets replaced by a no-op stub (`exit 0`), or a function quietly loses a feature, while callers + tests still assume the real behavior.
+    *   **Trap**: The failure is invisible — an `exit 0` validator makes schema validation a silent no-op (params/proof enforcement off despite `¶INV_JSONSCHEMA_COMPLIANCE`); a deleted `shared/parse-time-arg.ts` crashes RAG search but the crash is swallowed by `2>/dev/null || echo ""` so it just "returns nothing"; a `resolve_sessions_dir` that dropped `WORKSPACE` resolves to the wrong dir. All three surfaced this way in one session.
+    *   **Symptom signature**: a suite failing "expected reject, got accept", or a feature that "never returns anything" / "always passes". Suspect a stubbed/missing implementation before hunting a logic bug.
+    *   **Mitigation**: When a subsystem behaves as a no-op, `cat` the actual tool/helper it delegates to (is it a stub?) and check for silent-failure masking (`|| true`, `exit 0`, `&>/dev/null`) between the crash and the caller. Restore the real impl; keep enforcement loud. Cross-ref `§INV_SILENT_FAILURE_AUDIT`.
