@@ -21,6 +21,19 @@
 #  17.  git push -f also caught
 #  18.  git clean -fd also caught
 #  19.  git stash pop also caught
+#  H1-H6. Heredoc false-positive hardening; B1-B4. boundary hardening
+#  G1.  git checkout [<rev>] -- <paths> denied (THE incident vector)
+#  G2.  git restore forms (worktree denied, --staged-only allowed)
+#  G3.  git reset --merge/--keep denied; bare/--mixed warned; --soft allowed
+#  G4.  git clean -x/-d denied; -n (dry-run) allowed
+#  G5.  git rm / git rm --cached denied
+#  G6.  git branch -d/-D denied; create/--list allowed
+#  G7.  git add -A/-u/./-p denied; git add -- <path> / add <path> allowed
+#  G8.  git checkout -f / switch --force/--discard-changes denied; safe switch allowed
+#  G9.  git stash list/show allowed (read-only inspection)
+#  G10. read-only git (show/rev-parse/reflog/fsck/diff) allowed
+#  G11. robust matching: git -C <dir>, cd && chain, env prefix
+#  G12. deny message names command + safe alternative
 #
 # Run: bash ~/.claude/engine/scripts/tests/test-one-strike.sh
 
@@ -128,7 +141,7 @@ clear_warnings
 
 OUT=$(run_hook "Bash" '{"command":"git push --force origin main"}')
 assert_contains '"deny"' "$OUT" "git push --force denied on first attempt"
-assert_contains 'INV_NO_GIT_STATE_COMMANDS' "$OUT" "deny mentions invariant"
+assert_contains 'INV_NO_DESTRUCTIVE_GIT' "$OUT" "deny mentions invariant"
 
 echo ""
 
@@ -138,7 +151,7 @@ clear_warnings
 
 OUT=$(run_hook "Bash" '{"command":"git reset --hard HEAD~1"}')
 assert_contains '"deny"' "$OUT" "git reset --hard denied on first attempt"
-assert_contains 'INV_NO_GIT_STATE_COMMANDS' "$OUT" "deny mentions invariant"
+assert_contains 'INV_NO_DESTRUCTIVE_GIT' "$OUT" "deny mentions invariant"
 
 echo ""
 
@@ -148,7 +161,7 @@ clear_warnings
 
 OUT=$(run_hook "Bash" '{"command":"git clean -f"}')
 assert_contains '"deny"' "$OUT" "git clean -f denied on first attempt"
-assert_contains 'INV_NO_GIT_STATE_COMMANDS' "$OUT" "deny mentions invariant"
+assert_contains 'INV_NO_DESTRUCTIVE_GIT' "$OUT" "deny mentions invariant"
 
 echo ""
 
@@ -158,7 +171,7 @@ clear_warnings
 
 OUT=$(run_hook "Bash" '{"command":"git checkout ."}')
 assert_contains '"deny"' "$OUT" "git checkout . denied on first attempt"
-assert_contains 'INV_NO_GIT_STATE_COMMANDS' "$OUT" "deny mentions invariant"
+assert_contains 'INV_NO_DESTRUCTIVE_GIT' "$OUT" "deny mentions invariant"
 
 echo ""
 
@@ -168,7 +181,7 @@ clear_warnings
 
 OUT=$(run_hook "Bash" '{"command":"git restore ."}')
 assert_contains '"deny"' "$OUT" "git restore . denied on first attempt"
-assert_contains 'INV_NO_GIT_STATE_COMMANDS' "$OUT" "deny mentions invariant"
+assert_contains 'INV_NO_DESTRUCTIVE_GIT' "$OUT" "deny mentions invariant"
 
 echo ""
 
@@ -178,7 +191,7 @@ clear_warnings
 
 OUT=$(run_hook "Bash" '{"command":"git stash"}')
 assert_contains '"deny"' "$OUT" "git stash denied on first attempt"
-assert_contains 'INV_NO_GIT_STATE_COMMANDS' "$OUT" "deny mentions invariant"
+assert_contains 'INV_NO_DESTRUCTIVE_GIT' "$OUT" "deny mentions invariant"
 
 echo ""
 
@@ -460,6 +473,235 @@ clear_warnings
 MULTI_CMD="$(printf 'echo foo\ngit reset --hard')"
 OUT=$(make_bash_json "$MULTI_CMD" | "$HOOK" 2>/dev/null)
 assert_contains '"deny"' "$OUT" "multi-line command with git reset --hard -> denied"
+
+echo ""
+
+# ============================================
+# DESTRUCTIVE-GIT FAMILY — extended coverage (¶INV_NO_DESTRUCTIVE_GIT)
+# ============================================
+
+# --- G1. git checkout [<rev>] -- <paths> (THE incident vector) ---
+echo "--- G1. git checkout -- <paths> ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git checkout HEAD -- foo.ts bar.ts"}')
+assert_contains '"deny"' "$OUT" "git checkout HEAD -- <paths> denied (incident vector)"
+assert_contains 'INV_NO_DESTRUCTIVE_GIT' "$OUT" "incident deny mentions invariant"
+assert_contains 'checkout -- <paths>' "$OUT" "deny names the offending command"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git checkout -- foo.ts"}')
+assert_contains '"deny"' "$OUT" "git checkout -- <path> denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git checkout abc123 -- src/"}')
+assert_contains '"deny"' "$OUT" "git checkout <rev> -- <path> denied"
+
+echo ""
+
+# --- G2. git restore forms ---
+echo "--- G2. git restore forms ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git restore foo.ts"}')
+assert_contains '"deny"' "$OUT" "git restore <path> (worktree) denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git restore ."}')
+assert_contains '"deny"' "$OUT" "git restore . denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git restore --staged --worktree foo.ts"}')
+assert_contains '"deny"' "$OUT" "git restore --staged --worktree denied (touches worktree)"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git restore -W foo.ts"}')
+assert_contains '"deny"' "$OUT" "git restore -W denied"
+
+# --staged-only unstage stays allowed
+OUT=$(run_hook "Bash" '{"command":"git restore --staged bar.ts"}')
+assert_contains '"allow"' "$OUT" "git restore --staged <path> allowed (index-only)"
+
+echo ""
+
+# --- G3. git reset extended (--merge/--keep block, bare/--mixed warn, --soft allow) ---
+echo "--- G3. git reset extended ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git reset --merge"}')
+assert_contains '"deny"' "$OUT" "git reset --merge denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git reset --keep HEAD"}')
+assert_contains '"deny"' "$OUT" "git reset --keep denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git reset"}')
+assert_contains '"deny"' "$OUT" "bare git reset warned (risky index move)"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git reset --mixed HEAD~1"}')
+assert_contains '"deny"' "$OUT" "git reset --mixed warned"
+
+# --soft is safe (moves HEAD only) — allowed
+OUT=$(run_hook "Bash" '{"command":"git reset --soft HEAD~1"}')
+assert_contains '"allow"' "$OUT" "git reset --soft allowed"
+
+echo ""
+
+# --- G4. git clean -x / -d variants + dry-run allowed ---
+echo "--- G4. git clean variants ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git clean -x"}')
+assert_contains '"deny"' "$OUT" "git clean -x denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git clean -d"}')
+assert_contains '"deny"' "$OUT" "git clean -d denied"
+
+# dry-run preview is safe — allowed
+OUT=$(run_hook "Bash" '{"command":"git clean -n"}')
+assert_contains '"allow"' "$OUT" "git clean -n (dry-run) allowed"
+
+echo ""
+
+# --- G5. git rm ---
+echo "--- G5. git rm ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git rm foo.ts"}')
+assert_contains '"deny"' "$OUT" "git rm denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git rm --cached foo.ts"}')
+assert_contains '"deny"' "$OUT" "git rm --cached denied"
+
+echo ""
+
+# --- G6. git branch -d/-D (deletion) ---
+echo "--- G6. git branch deletion ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git branch -D feature"}')
+assert_contains '"deny"' "$OUT" "git branch -D denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git branch -d old-branch"}')
+assert_contains '"deny"' "$OUT" "git branch -d denied"
+
+# branch create / list stay allowed
+OUT=$(run_hook "Bash" '{"command":"git branch feature"}')
+assert_contains '"allow"' "$OUT" "git branch <name> (create) allowed"
+
+OUT=$(run_hook "Bash" '{"command":"git branch --list"}')
+assert_contains '"allow"' "$OUT" "git branch --list allowed"
+
+echo ""
+
+# --- G7. git add sweep forms blocked; git add -- <path> allowed ---
+echo "--- G7. git add forms ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git add -A"}')
+assert_contains '"deny"' "$OUT" "git add -A denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git add -u"}')
+assert_contains '"deny"' "$OUT" "git add -u denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git add ."}')
+assert_contains '"deny"' "$OUT" "git add . denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git add -p"}')
+assert_contains '"deny"' "$OUT" "git add -p denied"
+
+# The ONE allowed write, plus a plain targeted add
+OUT=$(run_hook "Bash" '{"command":"git add -- src/foo.ts"}')
+assert_contains '"allow"' "$OUT" "git add -- <path> allowed (the one safe write)"
+
+OUT=$(run_hook "Bash" '{"command":"git add -- src/a.ts src/b.ts"}')
+assert_contains '"allow"' "$OUT" "git add -- <multiple paths> allowed"
+
+OUT=$(run_hook "Bash" '{"command":"git add src/foo.ts"}')
+assert_contains '"allow"' "$OUT" "git add <path> (targeted, no sweep flag) allowed"
+
+echo ""
+
+# --- G8. force branch switch blocked; safe switch allowed ---
+echo "--- G8. checkout -f / switch --force ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git checkout -f main"}')
+assert_contains '"deny"' "$OUT" "git checkout -f denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git switch --force main"}')
+assert_contains '"deny"' "$OUT" "git switch --force denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git switch --discard-changes"}')
+assert_contains '"deny"' "$OUT" "git switch --discard-changes denied"
+
+# Safe (non-force) switches: git refuses to clobber a dirty tree, so allow
+OUT=$(run_hook "Bash" '{"command":"git switch main"}')
+assert_contains '"allow"' "$OUT" "git switch <branch> (safe) allowed"
+
+echo ""
+
+# --- G9. git stash list/show read-only inspection allowed ---
+echo "--- G9. git stash inspection ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git stash list"}')
+assert_contains '"allow"' "$OUT" "git stash list allowed (read-only)"
+
+OUT=$(run_hook "Bash" '{"command":"git stash show -p"}')
+assert_contains '"allow"' "$OUT" "git stash show allowed (read-only)"
+
+echo ""
+
+# --- G10. Read-only git never blocked ---
+echo "--- G10. read-only git allowed ---"
+clear_warnings
+
+for cmd in "git show HEAD:src/foo.ts" "git rev-parse HEAD" "git reflog" "git fsck" "git diff --stat"; do
+  OUT=$(make_bash_json "$cmd" | "$HOOK" 2>/dev/null)
+  assert_contains '"allow"' "$OUT" "read-only '$cmd' allowed"
+done
+
+echo ""
+
+# --- G11. Robust matching: git -C <dir>, cd && chain, env prefix ---
+echo "--- G11. robust prefix/chain matching ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git -C /repo checkout HEAD -- foo.ts"}')
+assert_contains '"deny"' "$OUT" "git -C <dir> checkout -- <path> denied"
+
+clear_warnings
+OUT=$(make_bash_json 'cd /repo && git checkout -- foo.ts' | "$HOOK" 2>/dev/null)
+assert_contains '"deny"' "$OUT" "cd && git checkout -- <path> denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"env FOO=1 git reset --hard"}')
+assert_contains '"deny"' "$OUT" "env-prefixed git reset --hard denied"
+
+# git -C <dir> status must still pass (read-only, not false-positive)
+OUT=$(run_hook "Bash" '{"command":"git -C /repo status"}')
+assert_contains '"allow"' "$OUT" "git -C <dir> status allowed (read-only)"
+
+echo ""
+
+# --- G12. Deny message names the specific command + safe alternative ---
+echo "--- G12. deny message quality ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git stash push -m wip"}')
+assert_contains 'git show HEAD' "$OUT" "deny points to git show HEAD:<path> for baselines"
+assert_contains 'git add -- ' "$OUT" "deny points to git add -- <path> as the only write"
 
 echo ""
 

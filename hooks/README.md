@@ -27,7 +27,7 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 | `pre-tool-use-session-gate.sh` | Blocks non-whitelisted tools when no session is active. Forces `engine session activate` before work begins. |
 | `pre-tool-use-overflow.sh` | Blocks all tools when context usage exceeds the overflow threshold. Triggers `§CMD_DEHYDRATE` to save state. |
 | `pre-tool-use-heartbeat.sh` | Tracks tool calls per agent via per-transcript counters. Warns, then blocks, if the agent hasn't logged recently. |
-| `pre-tool-use-one-strike.sh` | Blocks destructive bash commands on first attempt with an educational warning. Allows on retry (same pattern type) within the session. |
+| `pre-tool-use-one-strike.sh` | Blocks the tree/index-destructive git family (`stash`, `checkout`/`switch`/`restore` of paths or branches, `reset --hard`, `clean`, `rm`, `branch -d/-D`, `push --force`, `add -A/-u/./-p`) plus `rm -rf` on first attempt with an educational warning; allows on retry (same pattern type) within the session. Read-only git and `git add -- <path>` always pass. See `¶INV_NO_DESTRUCTIVE_GIT`. |
 | `pre-tool-use-directive-gate.sh` | Enforces reading of directive files discovered by `post-tool-use-discovery.sh`. Blocks after N tool calls if pending directives remain unread. |
 | _installed order_ | session-gate → overflow → heartbeat → one-strike → directive-gate |
 
@@ -112,7 +112,7 @@ Hook tests live in `~/.claude/engine/scripts/tests/`:
 
 | Test File | Hook | Tests |
 |-----------|------|-------|
-| `test-one-strike.sh` | `pre-tool-use-one-strike.sh` | 66 tests — destructive patterns, heredoc false-positives, boundary conditions |
+| `test-one-strike.sh` | `pre-tool-use-one-strike.sh` | 114 tests — destructive git family, heredoc false-positives, boundary conditions, read-only/`add -- <path>` allow-list |
 | `test-state-injector.sh` | `user-prompt-state-injector.sh` | 18 tests — context injection, fleet detection |
 | `test-session-gate.sh` | `pre-tool-use-session-gate.sh` | 30 tests — whitelisting, blocking, session lifecycle |
 | `test-post-tool-use-discovery.sh` | `post-tool-use-discovery.sh` | 17 tests — tool filtering, dir tracking, soft/hard discovery, dedup |
@@ -121,7 +121,7 @@ Hook tests live in `~/.claude/engine/scripts/tests/`:
 | `test-precompact-hook.sh` | `pre-compact-kill.sh` | 10 tests — mini-dehydration, preservation, restart delegation, no-op, manual bypass |
 | `test-rule-engine.sh` | `pre-tool-use-overflow-v2.sh` | 81 tests — whitelist, per-transcript, session-gate, heartbeat, rule evaluation, composition, preload |
 
-Total: 272 tests across 8 hook/engine suites.
+Total: 320 tests across 8 hook/engine suites.
 
 ## Related Files
 

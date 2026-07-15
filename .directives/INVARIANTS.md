@@ -74,8 +74,15 @@ This document defines the system physics — rules about how sessions, phases, t
 
 ## 4. Multi-Agent Safety
 
-*   **¶INV_NO_GIT_STATE_COMMANDS**: Agents in multi-agent scenarios MUST NOT run git state-changing commands.
-    *   **Rule**: Reserved for future implementation. When multi-agent support is active, agents must coordinate git operations through the engine, not directly.
+*   **¶INV_NO_DESTRUCTIVE_GIT**: Agents MUST NOT run tree/index-destructive git commands. The working tree is ALWAYS dirty with parallel-agent churn — a destructive git command can silently erase another agent's uncommitted work with **no git-recoverable trace** (no stash, no commit).
+    *   **Rule**: The following are forbidden by default — `git stash` (any mutating subcommand), `git checkout [<rev>] -- <paths>` / `git checkout .` / `git checkout -f`, `git switch --force`/`--discard-changes`, `git restore` (any working-tree form), `git reset --hard`/`--merge`/`--keep` (and bare `git reset`/`--mixed` as risky), `git clean -f`/`-d`/`-x`, `git rm`, `git branch -d`/`-D`, `git push --force`, and index sweeps `git add -A`/`-u`/`.`/`-p`. NEVER stash/checkout/reset/restore/clean to "clean up" or to capture a baseline.
+    *   **The only allowed tree/index write** is `git add -- <explicit path>` (whole-file staging of a file you own). To read a committed version use `git show HEAD:<path>`; to read the working file, open it by explicit path. Read-only git (`status`, `log`, `diff`, `show`, `rev-parse`, `reflog`, `fsck`, `stash list`/`show`, `branch --list`) is always fine.
+    *   **If you believe you genuinely must** run a forbidden command, STOP and ask the user — only the user can authorize it. Never self-authorize.
+    *   **Committing is `/snapshot`'s job**, not a worker's. See the `/snapshot` "HARD RULE — NO GIT GYMNASTICS" prose (`.claude/skills/snapshot/SKILL.md`) — this invariant is the single-source statement of that rule.
+    *   **Enforcement**: The `pre-tool-use-one-strike.sh` PreToolUse hook blocks each forbidden command on first attempt with this guidance (one-strike: allowed on a deliberate retry within the session). The hook is the mechanical net; this invariant is the reason.
+    *   **Reason**: Captured from a real incident — a builder sub-agent ran `git stash push` (failed), a bare `git stash pop` (hit an unrelated stash), then `git checkout HEAD -- <paths>` to "clean up", reverting 8 off-lane files it did not own. Unstaged reverts leave zero git trace.
+
+*   **¶INV_NO_GIT_STATE_COMMANDS**: Superseded by `§INV_NO_DESTRUCTIVE_GIT`, which states and enforces the multi-agent git-state rule concretely. Retained as an alias for existing cross-references.
 
 ## 5. Delegation Physics
 
