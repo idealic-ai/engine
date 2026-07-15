@@ -92,8 +92,13 @@ The most consequential behavioral change in v2, and the reason step 6 above is m
 
 ### What changed
 
-*   **v1:** `configure_hooks "$PROJECT_SETTINGS"` → engine hooks written into **`.claude/settings.json`** — the **committed** file. This pollutes the shared repo with per-user hook wiring.
-*   **v2:** `configure_hooks "$PROJECT_LOCAL_SETTINGS"` → **`.claude/settings.local.json`** (gitignored), plus it defuses leftovers in `settings.json` and strips engine config from global `~/.claude/settings.json` (`migration_006`).
+There are **three** eras, and it is easy to collapse two of them. The global cleanup already happened in v1 — **v2's only change is committed → gitignored**:
+
+*   **v0:** engine hooks lived in the **global** `~/.claude/settings.json`.
+*   **v1:** `configure_hooks "$PROJECT_SETTINGS"` → hooks moved to the **project's `.claude/settings.json`** — the **committed** file. This pollutes the shared repo with per-user hook wiring. **v1 also strips engine config from the global settings** (`migration_006`) — that is v1 behavior, not new in v2.
+*   **v2:** `configure_hooks "$PROJECT_LOCAL_SETTINGS"` → **`.claude/settings.local.json`** (gitignored), plus it defuses the leftovers still sitting in the committed `settings.json`.
+
+So **the only v1 → v2 delta is committed → gitignored.** If you are auditing a machine and find engine hooks in the *global* `~/.claude/settings.json`, that box predates v1 — it is not a v2 migration gap.
 
 ### Where things live in v2
 
@@ -119,7 +124,7 @@ The most consequential behavioral change in v2, and the reason step 6 above is m
           .claude/settings.json | grep -v "~/.claude/hooks/"
         ```
         Anything printed is a custom hook that setup will wipe. Migrate it into `settings.local.json` by hand.
-3.  **`migration_006`** deletes `.hooks` and `.statusLine` from global `~/.claude/settings.json` outright.
+3.  **`migration_006`** deletes `.hooks` and `.statusLine` from global `~/.claude/settings.json` outright. (Not a v2 change — v1 does this too; listed here because it is destructive, not because it is new.)
 
 ### Current state of the `finch` repo — NOT yet migrated
 
