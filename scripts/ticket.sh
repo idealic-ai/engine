@@ -13,6 +13,12 @@
 #   engine ticket notify      <KEY> [note] [--from <session>]
 #   engine ticket read        [KEY] [--since <dt>] [--json] [session]
 #   engine ticket list        [KEY] [--since <dt>] [--json] [session]
+#   engine ticket watch       [KEY] [--timeout <s>] [session]   # block until an update; run via run_in_background:true
+#
+# `watch` blocks (via fswatch) until a subscribed ticket has a pending update, then
+# exits: 0 = update waiting (run `read` to drain, THEN re-arm — else it re-fires
+# instantly on the same undrained entry), 124 = --timeout deadline, 2 = fswatch
+# missing, 1 = nothing subscribed.
 #
 # Data model (per session .state.json):
 #   tickets:        [ {key, subscribedAt, lastReadAt} ]        # subscriptions

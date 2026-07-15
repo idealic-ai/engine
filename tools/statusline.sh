@@ -243,7 +243,12 @@ else
     fi
   fi
 
-  # Assemble: [workspace ·] SESSION · skill · phase · agent · $cost · %
+  # Ticket updates → distinct dirty ticket keys from updatedTickets[] ("engine ticket read" to drain)
+  TICKETS_DISPLAY=""
+  DIRTY_TICKETS=$(jq -r '([.updatedTickets[]?.ticket] | unique) as $t | if ($t | length) > 0 then "🎟 " + ($t | join(",")) else "" end' "$SESSION_DIR/.state.json" 2>/dev/null || echo "")
+  [ -n "$DIRTY_TICKETS" ] && TICKETS_DISPLAY="$DIRTY_TICKETS"
+
+  # Assemble: [workspace ·] SESSION · skill · phase · tickets · agent · $cost · %
   # Only include non-empty segments
   OUTPUT=""
   if [ -n "$SESSION_WORKSPACE" ]; then
@@ -252,5 +257,6 @@ else
   OUTPUT="${OUTPUT}${SESSION_LINK}"
   [ -n "$SKILL_DISPLAY" ] && OUTPUT="$OUTPUT · $SKILL_DISPLAY"
   [ -n "$PHASE_DISPLAY" ] && OUTPUT="$OUTPUT · $PHASE_DISPLAY"
+  [ -n "$TICKETS_DISPLAY" ] && OUTPUT="$OUTPUT · $TICKETS_DISPLAY"
   printf '%s · %s' "$OUTPUT" "$RIGHT_SIDE"
 fi
