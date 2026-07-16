@@ -254,6 +254,23 @@ setup_engine_symlinks() {
     done
   fi
 
+  # Root-level shared config files (config.sh, guards.json). Unlike the subdirs
+  # above, these loose files live at the engine root — a consumer whose
+  # ~/.claude/engine is NOT the active engine never receives them, so every hook
+  # that sources $HOME/.claude/engine/config.sh fails. Link them from the active
+  # engine when it lives elsewhere (remote/consumer). In local mode the active
+  # engine IS ~/.claude/engine, so they are already the real files. engine.db
+  # (gitignored) and .migrations (machine-specific state) are deliberately NOT
+  # linked — they must stay per-machine.
+  if [ "$engine_dir" != "$claude_dir/engine" ]; then
+    mkdir -p "$claude_dir/engine"
+    for root_file in config.sh guards.json; do
+      if [ -f "$engine_dir/$root_file" ]; then
+        link_if_needed "$engine_dir/$root_file" "$claude_dir/engine/$root_file" "engine/$root_file" "0"
+      fi
+    done
+  fi
+
   # Fix permissions (GDrive sync often strips +x)
   fix_script_permissions "$engine_dir"
 }

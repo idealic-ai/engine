@@ -37,8 +37,11 @@ set -euo pipefail
 # tmux_*, evaluate_rules, match_whitelist)
 source "$HOME/.claude/scripts/lib.sh"
 
-# Source config (OVERFLOW_THRESHOLD)
-source "$HOME/.claude/engine/config.sh" 2>/dev/null || true
+# Source config (OVERFLOW_THRESHOLD) if present. Test-before-source: under bash
+# 3.2 a failed `source` exits the shell under `set -e` before `|| true` runs.
+if [ -f "$HOME/.claude/engine/config.sh" ]; then
+  source "$HOME/.claude/engine/config.sh"
+fi
 OVERFLOW_THRESHOLD="${OVERFLOW_THRESHOLD:-0.76}"
 
 HOOK_NAME="overflow-v2"

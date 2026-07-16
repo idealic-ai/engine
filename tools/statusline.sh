@@ -27,10 +27,13 @@ set -u
 # Source shared utilities
 source "$HOME/.claude/scripts/lib.sh"
 
-# Source shared config (threshold constant)
+# Source shared config (threshold constant) if present. Test-before-source:
+# under bash 3.2 a failed `source` exits under `set -e` before `|| true` runs.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=../engine/config.sh
-source "$HOME/.claude/engine/config.sh" 2>/dev/null || true
+if [ -f "$HOME/.claude/engine/config.sh" ]; then
+  source "$HOME/.claude/engine/config.sh"
+fi
 OVERFLOW_THRESHOLD="${OVERFLOW_THRESHOLD:-0.76}"
 
 # Read input from stdin

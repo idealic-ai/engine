@@ -557,8 +557,11 @@ evaluate_rules() {
     return 0
   fi
 
-  # Source config for OVERFLOW_THRESHOLD (may already be sourced but safe to re-source)
-  source "$HOME/.claude/engine/config.sh" 2>/dev/null || true
+  # Source config for OVERFLOW_THRESHOLD if present. Test-before-source: under
+  # bash 3.2 a failed `source` exits under `set -e` before `|| true` runs.
+  if [ -f "$HOME/.claude/engine/config.sh" ]; then
+    source "$HOME/.claude/engine/config.sh"
+  fi
   local overflow_threshold="${OVERFLOW_THRESHOLD:-0.76}"
 
   # Read current state
