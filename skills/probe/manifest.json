@@ -1,0 +1,6 @@
+{
+  "name": "probe",
+  "version": "1",
+  "description": "Quick, read-only investigation delegated to a subagent: state an INTENT (a question you need answered) and it goes and finds out — sweeping the codebase, the database (read-only SELECTs), and tickets (Linear) as the question demands, thinking in the /analyze notebook schemas, then writing an answer-first Probe Report of ranked, evidence-backed findings. You then walk the findings and decide each one's fate (capture / dig deeper / defer / dismiss). The lightweight delegated counterpart to /analyze. A building block: it investigates and reports, never edits code, writes data, or files tickets. Triggers: \\\"probe this\\\", \\\"go find out about X\\\", \\\"quick investigation\\\", \\\"what's the story with Y\\\", \\\"scope this out before I decide\\\", \\\"dig up what we know about Z\\\".",
+  "tier": "lightweight"
+}

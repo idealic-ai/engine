@@ -1,0 +1,6 @@
+{
+  "name": "experiment",
+  "version": "1",
+  "description": "Hands-on hypothesis probe — actually TRY something to answer a question rather than just read about it: reproduce a suspected behavior, hack a proof-of-concept, test whether an approach is feasible. A subagent runs the experiment in-tree (uncommitted, flagged, every touched file tracked), then reports a VERDICT (proved / disproved / inconclusive) + confidence — and you revert it or keep it for /implement. A building block: it probes and stops, never fixes, ships, or files. Triggers: \\\"let me try…\\\", \\\"see if I can reproduce\\\", \\\"hack a POC\\\", \\\"proof of concept\\\", \\\"is X feasible\\\", \\\"does Y actually happen\\\", \\\"spike this\\\".",
+  "tier": "lightweight"
+}

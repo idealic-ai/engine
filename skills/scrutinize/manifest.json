@@ -1,0 +1,6 @@
+{
+  "name": "scrutinize",
+  "version": "1",
+  "description": "Adversarially critique a body of work with a sub-agent, triage each finding with the user (fix / skip / defer), then apply the approved fixes inline or via a fixer sub-agent that knows the original goal + the critique + the resolution plan. Triggers: \\\"scrutinize this\\\", \\\"critique and fix\\\", \\\"adversarial review\\\", \\\"poke holes then fix\\\", \\\"review-triage-fix\\\".",
+  "tier": "lightweight"
+}

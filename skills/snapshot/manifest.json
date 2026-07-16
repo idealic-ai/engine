@@ -1,0 +1,6 @@
+{
+  "name": "snapshot",
+  "version": "1",
+  "description": "Checkpoint a body of work: a reviewer subagent actively VERIFIES the work read-only (runs gates to confirm 'done' claims), checks it's ON-DIRECTION with the ticket's intent, and finds LEFTOVERS. Then, on your confirm, the orchestrator COMMITS the work scoped (only the reviewed files, gated on green) and posts a substantive status update to the ticket: a thorough comment, a status transition, and (only on material drift) an evergreen description rewrite with append-only Change history. Commit + comment + status + description all land under one batch confirm; nothing auto-posts. A building block: it verifies + commits the checkpoint + reports, never fixes code or files followups. Triggers: \\\"snapshot this\\\", \\\"checkpoint the work\\\", \\\"commit and update the ticket\\\", \\\"snapshot progress\\\", \\\"post a ticket update\\\", \\\"update the ticket\\\", \\\"status update\\\", \\\"report progress to the ticket\\\", \\\"update ticket status/description\\\".",
+  "tier": "lightweight"
+}

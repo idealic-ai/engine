@@ -1,0 +1,6 @@
+{
+  "name": "ticket",
+  "version": "1",
+  "description": "Turn in-context work into one OR MORE well-framed tickets. A background agent analyzes the scope and drafts PREMISE-FIRST issues (problem, intent/why, constraints, non-goals, acceptance signals — NOT an algorithm), you calibrate each via questions, then it posts to Linear as a sub-issue of the current ticket (inheriting labels/assignee/project/team/cycle) or a new issue — chosen from context. Triggers: \\\"file a ticket\\\", \\\"make tickets\\\", \\\"open an issue for this\\\", \\\"ticket this up\\\", \\\"capture this as a ticket\\\", \\\"split this into tickets\\\".",
+  "tier": "lightweight"
+}

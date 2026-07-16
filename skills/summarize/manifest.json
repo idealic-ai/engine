@@ -1,0 +1,6 @@
+{
+  "name": "summarize",
+  "version": "1",
+  "description": "Catch yourself up on a body of work and review it. This is an inward, read-only report over a dynamically-scoped chunk OR the whole session. A reader subagent digests the trail (log / plan / DIALOGUE / builds / git) into a distilled, intent-oriented report: a header line, a top stat strip (files · LOC · commits · tests · plan-steps · leftovers), goal-vs-actual, the moves, leftovers, and a confidence read — TRUSTING the recorded numbers, never re-running gates. Then, a two-way review: the agent surfaces its genuine uncertainties for you to confirm, and hands you a 4×4 inverse-ask palette (16 curated questions YOU can fire back at it about its own work), answers them, and offers to save the report. A building block: it reports and reviews, never commits, posts, hunts bugs, or fixes. Triggers: \\\"summarize this\\\", \\\"summarize the chunk\\\", \\\"summarize the session\\\", \\\"catch me up\\\", \\\"recap what happened\\\", \\\"review this chunk\\\", \\\"what did we just do\\\", \\\"give me the numbers on this work\\\".",
+  "tier": "lightweight"
+}

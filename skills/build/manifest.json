@@ -1,0 +1,6 @@
+{
+  "name": "build",
+  "version": "1",
+  "description": "Hand a scoped implementation task to a builder sub-agent with a COMPLETE context pack assembled from the active session (goal, verbatim asks, plan slice, prior-chunk history, the whys, hard gates, scope guard), get back a structured Build Report to the session folder, then optionally chain into /scrutinize. Triggers: \\\"build this with an agent\\\", \\\"agent-build this chunk\\\", \\\"delegate this build\\\", \\\"context-rich handoff\\\".",
+  "tier": "lightweight"
+}
