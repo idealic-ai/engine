@@ -59,6 +59,22 @@ TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // ""' 2>/dev/null || 
 TRANSCRIPT_KEY=$(basename "$TRANSCRIPT_PATH" 2>/dev/null || echo "unknown")
 TOOL_INPUT=$(echo "$INPUT" | jq '.tool_input // {}' 2>/dev/null || echo '{}')
 
+# --- Sub-agent identity (global; used by the engine-log reset, the counter, and rule scoping) ---
+# A sub-agent's tool call fires this hook under the PARENT's transcript_path, so the transcript
+# key cannot tell parent from child. The reliable discriminator is the input's `agent_id`
+# (a platform-provided field): populated on a sub-agent's tool calls, absent on the parent's.
+# Sub-agent state is namespaced `sub:<agent_id>` so it never touches the parent's budget.
+# A rename upstream reverts to full parent bleed — pinned by the contract-canary test.
+# See §PTF_SESSION_HOOK_STATE_BLEEDS_TO_SUBAGENTS.
+agent_id=$(echo "$INPUT" | jq -r '.agent_id // ""' 2>/dev/null || echo "")
+if [ -n "$agent_id" ]; then
+  is_subagent=true
+  counter_key="sub:$agent_id"
+else
+  is_subagent=false
+  counter_key="$TRANSCRIPT_KEY"
+fi
+
 # --- Step 2: Find session directory (once, reuse throughout) ---
 # Cached in _CACHED_SESSION_DIR to avoid redundant session.sh find calls.
 _CACHED_SESSION_DIR=""
@@ -79,9 +95,18 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     # Reset counter on log command (same as heartbeat-v2)
     session_dir=$(find_session_dir)
     if [ -n "$session_dir" ] && [ -f "$session_dir/.state.json" ]; then
-      jq --arg key "$TRANSCRIPT_KEY" \
-        '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = 0 | .toolCallsSinceLastLog = 0' \
-        "$session_dir/.state.json" | safe_json_write "$session_dir/.state.json"
+      # A sub-agent's log resets ONLY its own namespaced counter — never the parent's
+      # global (toolCallsSinceLastLog), so a sub-agent logging can't relieve the parent's
+      # heartbeat pressure, and a blocked sub-agent can escape by logging (no infinite loop).
+      if [ "$is_subagent" = "true" ]; then
+        jq --arg key "$counter_key" \
+          '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = 0' \
+          "$session_dir/.state.json" | safe_json_write "$session_dir/.state.json"
+      else
+        jq --arg key "$counter_key" \
+          '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = 0 | .toolCallsSinceLastLog = 0' \
+          "$session_dir/.state.json" | safe_json_write "$session_dir/.state.json"
+      fi
     fi
     hook_allow
   fi
@@ -457,30 +482,25 @@ main() {
     skip_heartbeat=true
   fi
 
-  # --- Step 4b: Detect subagent ---
-  # Subagent detection: the first transcript key to increment a counter after
-  # session activation is the primary (parent). All other keys are subagents.
-  # primaryTranscriptKey is set on first increment; cleared by session continue/activate.
-  local is_subagent=false
+  # --- Step 4b: Parent identification ---
+  # is_subagent / agent_id / counter_key are computed globally near the top (sub-agent
+  # identity). primaryTranscriptKey still tracks the parent transcript for the parent branch.
   local primary_key
   primary_key=$(jq -r '.primaryTranscriptKey // ""' "$state_file" 2>/dev/null || echo "")
-  if [ -n "$primary_key" ] && [ "$TRANSCRIPT_KEY" != "$primary_key" ]; then
-    is_subagent=true
-  fi
 
   # --- Step 5: Per-transcript counter increment ---
   if [ "$skip_heartbeat" = "false" ]; then
     # Task tool bypasses counter
     if [ "$TOOL_NAME" != "Task" ] && [ "$TOOL_NAME" != "TaskOutput" ]; then
       local counter
-      counter=$(jq -r --arg key "$TRANSCRIPT_KEY" '(.toolCallsByTranscript // {})[$key] // 0' "$state_file" 2>/dev/null || echo "0")
+      counter=$(jq -r --arg key "$counter_key" '(.toolCallsByTranscript // {})[$key] // 0' "$state_file" 2>/dev/null || echo "0")
 
       # Same-file edit suppression
       local suppress_increment=false
       if [ "$TOOL_NAME" = "Edit" ]; then
         local edit_file
         edit_file=$(echo "$INPUT" | jq -r '.tool_input.file_path // ""' 2>/dev/null || echo "")
-        local last_edit_key="lastEditFile_${TRANSCRIPT_KEY}"
+        local last_edit_key="lastEditFile_${counter_key}"
         local last_edit_file
         last_edit_file=$(jq -r --arg key "$last_edit_key" '.[$key] // ""' "$state_file" 2>/dev/null || echo "")
         jq --arg key "$last_edit_key" --arg val "$edit_file" \
@@ -489,7 +509,7 @@ main() {
           suppress_increment=true
         fi
       else
-        local last_edit_key="lastEditFile_${TRANSCRIPT_KEY}"
+        local last_edit_key="lastEditFile_${counter_key}"
         jq --arg key "$last_edit_key" 'del(.[$key])' \
           "$state_file" | safe_json_write "$state_file"
       fi
@@ -497,8 +517,9 @@ main() {
       if [ "$suppress_increment" = "false" ]; then
         local new_counter=$((counter + 1))
         if [ "$is_subagent" = "true" ]; then
-          # Subagent: only update per-transcript counter, not global
-          jq --arg key "$TRANSCRIPT_KEY" --argjson tc "$new_counter" \
+          # Subagent: track only its own namespaced counter — never the parent's
+          # global (toolCallsSinceLastLog) or primaryTranscriptKey.
+          jq --arg key "$counter_key" --argjson tc "$new_counter" \
             '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = $tc' \
             "$state_file" | safe_json_write "$state_file"
         else
@@ -519,22 +540,36 @@ main() {
 
   # --- Step 5b: Run directive discovery BEFORE rule evaluation ---
   # This populates pendingPreloads so the preload rule fires same-call.
-  if [ "$skip_heartbeat" = "false" ] && [ "$loading" != "true" ]; then
+  # Directive autoload is a parent-session concern: an ephemeral sub-agent must not claim
+  # dirs in the shared touchedDirs (a sub-agent Read would otherwise pre-claim a dir and
+  # suppress the parent's later directive autoload there). See
+  # §PTF_SESSION_HOOK_STATE_BLEEDS_TO_SUBAGENTS.
+  if [ "$skip_heartbeat" = "false" ] && [ "$loading" != "true" ] && [ "$is_subagent" = "false" ]; then
     _run_discovery "$state_file"
   fi
 
   # --- Step 6: Evaluate ALL rules ---
   local matched_rules="[]"
   if [ -f "$GUARDS_FILE" ]; then
-    matched_rules=$(evaluate_rules "$state_file" "$GUARDS_FILE" "$TRANSCRIPT_KEY" "$TOOL_NAME")
+    matched_rules=$(evaluate_rules "$state_file" "$GUARDS_FILE" "$counter_key" "$TOOL_NAME")
   fi
 
-  # --- Step 6b: Subagent heartbeat downgrade ---
-  # Subagents get heartbeat-warn (allow nudge) but never heartbeat-block (deny).
-  # Downgrade heartbeat-block urgency from "block" to "allow" for subagents.
+  # --- Step 6b: Subagent rule scoping ---
+  # A sub-agent KEEPS its own heartbeat (heartbeat-block/heartbeat-warn), evaluated against its
+  # own `sub:<agent_id>` counter, so it is forced to log its reasoning on its own cadence. A
+  # heartbeat block is a synchronous deny to the sub-agent's OWN tool call, so it targets the
+  # sub-agent and never leaks to the parent; the warn nudge is agent-namespaced in the
+  # pendingAllowInjections queue. Only the context-lifecycle rules are dropped — an ephemeral
+  # sub-agent can't dehydrate and reads the PARENT's contextUsage, not its own
+  # (overflow-dehydration/read-throttle). See §PTF_SESSION_HOOK_STATE_BLEEDS_TO_SUBAGENTS.
   if [ "$is_subagent" = "true" ]; then
     matched_rules=$(echo "$matched_rules" | jq '
-      [.[] | if .ruleId == "heartbeat-block" then .urgency = "allow" else . end]
+      [ .[]
+        | select(
+            (.ruleId // "") != "overflow-dehydration"
+            and (.ruleId // "") != "read-throttle"
+          )
+      ]
     ')
   fi
 
@@ -758,8 +793,11 @@ _deliver_allow_rules() {
     esac
 
     if [ -n "$entry_content" ]; then
-      stash_entries=$(echo "$stash_entries" | jq --arg id "$rule_id" --arg c "$entry_content" \
-        '. + [{"ruleId": $id, "content": $c}]')
+      # Tag each nudge with the agent it was produced for ("" = parent) so the PostToolUse
+      # delivery hook drains only the current agent's entries — a sub-agent's nudge is never
+      # swept into the parent's context. See §PTF_SESSION_HOOK_STATE_BLEEDS_TO_SUBAGENTS.
+      stash_entries=$(echo "$stash_entries" | jq --arg id "$rule_id" --arg c "$entry_content" --arg aid "$agent_id" \
+        '. + [{"ruleId": $id, "content": $c, "agentId": $aid}]')
     fi
   done
 

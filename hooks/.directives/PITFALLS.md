@@ -129,7 +129,13 @@ PostToolUse hooks receive a JSON object on stdin with `tool_name`, `tool_input`,
 **Mitigation**: Read tool info from stdin: `INPUT=$(cat); TOOL=$(echo "$INPUT" | jq -r '.tool_name // ""')`. See `post-tool-use-phase-commands.sh` for the correct pattern.
 **Discovered**: 2026-02-16 — `post-tool-use-templates.sh` used env vars. After fixing +x, the hook fired but `TOOL` was always empty. Fixed by reading from stdin.
 
-## 15. Per-agent counters use transcript_path as key — don't use PID
-The heartbeat hook tracks tool call counts per agent using `transcript_path` basename as the key in `.state.json`. This isolates main agent counts from sub-agent counts.
-**Trap**: Using PID as the counter key fails because sub-agents launched via the Task tool may share the parent's PID in some execution models, or PIDs may be reused across context overflow restarts. Transcript paths are guaranteed unique per agent instance.
-**Mitigation**: Always key per-agent state on `transcript_path`, not PID or session_id.
+## 15. ¶PTF_SESSION_HOOK_STATE_BLEEDS_TO_SUBAGENTS — detect sub-agents by `agent_id`, never by transcript_path
+Session-scoped hook state (the heartbeat counter; the context/overflow + read-throttle rules) must key on the individual agent — or run only for the top-level session — never on a counter or figure the parent and its sub-agents silently share.
+
+**The trap**: a sub-agent's tool call fires the PreToolUse hook under the PARENT's `transcript_path` (identical to `primaryTranscriptKey`), NOT the sub-agent's own transcript. So transcript_path cannot tell parent from child, and any counter keyed on it lumps sub-agent calls into the parent's budget. The reliable discriminator is the input's `agent_id` (+ `agent_type`): populated on a sub-agent's tool calls, absent on the parent's. (A sub-agent DOES have its own transcript file — SubagentStart reports it — but that path is not what the tool-call hook receives.)
+
+**Two symptoms, one cause**: (1) a parallel fan-out burns the parent's heartbeat counter and clips a dispatch (blocked at N/M mid-launch); (2) a sub-agent reads the parent's `contextUsage` and throttles/dehydrates against a number that isn't its own.
+
+**Mitigation**: in `pre-tool-use-overflow-v2.sh`, set `is_subagent` from a non-empty `agent_id`; namespace the sub-agent counter as `sub:<agent_id>`; never touch `toolCallsSinceLastLog`/`primaryTranscriptKey` for a sub-agent; drop context-lifecycle rules (`overflow-dehydration`, `read-throttle`) and downgrade `heartbeat-block`→allow for sub-agents. Regression guard: `scripts/tests/test-overflow-v2-subagent.sh`.
+
+**Discovered**: 2026-07-17 — a `/council` 5-way fan-out tripped heartbeat at 16/10 mid-launch and a sub-agent read-throttled at the parent's 90%. A live hook-tap experiment proved sub-agent tool calls carry the parent's transcript_path plus a populated `agent_id`. Supersedes the earlier belief that transcript_path basename isolates sub-agent counts. (PID/session_id remain wrong keys — sub-agents may share the parent's PID and PIDs recycle across restarts.)

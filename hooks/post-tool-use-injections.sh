@@ -35,6 +35,12 @@ debug() {
 
 source "$HOME/.claude/scripts/lib.sh"
 
+# Read this call's identity from stdin. `agent_id` is populated on a sub-agent's PostToolUse
+# input, absent ("") for the parent — the same discriminator PreToolUse stashes each nudge
+# with, so each agent drains only its own. See §PTF_SESSION_HOOK_STATE_BLEEDS_TO_SUBAGENTS.
+INPUT=$(cat 2>/dev/null || echo '{}')
+THIS_AGENT=$(echo "$INPUT" | jq -r '.agent_id // ""' 2>/dev/null || echo "")
+
 # Find active session
 session_dir=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
 if [ -z "$session_dir" ] || [ ! -f "$session_dir/.state.json" ]; then
@@ -66,24 +72,31 @@ while ! mkdir "$lock_dir" 2>/dev/null; do
   sleep 0.01
 done
 
-# --- Under lock: read + clear atomically ---
-pending=$(jq -r '.pendingAllowInjections // [] | length' "$state_file" 2>/dev/null || echo "0")
+# --- Under lock: deliver THIS agent's entries, keep the rest, atomically ---
+# Backward-compat: entries with no agentId field are treated as the parent's ("").
+mine=$(jq --arg aid "$THIS_AGENT" \
+  '[(.pendingAllowInjections // [])[] | select((.agentId // "") == $aid)] | length' \
+  "$state_file" 2>/dev/null || echo "0")
 
-if [ "$pending" -eq 0 ]; then
+if [ "$mine" -eq 0 ]; then
   rmdir "$lock_dir" 2>/dev/null || true
   exit 0
 fi
 
-context=$(jq -r '[.pendingAllowInjections // [] | .[].content] | join("\n\n")' "$state_file" 2>/dev/null || echo "")
+context=$(jq -r --arg aid "$THIS_AGENT" \
+  '[(.pendingAllowInjections // [])[] | select((.agentId // "") == $aid) | .content] | join("\n\n")' \
+  "$state_file" 2>/dev/null || echo "")
 
 if [ -z "$context" ]; then
   rmdir "$lock_dir" 2>/dev/null || true
   exit 0
 fi
 
-# Clear stash and write atomically (under same lock)
+# Keep entries owned by OTHER agents; drain only this agent's.
 tmp_file="${state_file}.tmp.$$"
-jq '.pendingAllowInjections = []' "$state_file" > "$tmp_file" && mv "$tmp_file" "$state_file"
+jq --arg aid "$THIS_AGENT" \
+  '.pendingAllowInjections = [(.pendingAllowInjections // [])[] | select((.agentId // "") != $aid)]' \
+  "$state_file" > "$tmp_file" && mv "$tmp_file" "$state_file"
 rmdir "$lock_dir" 2>/dev/null || true
 # --- End locked section ---
 
