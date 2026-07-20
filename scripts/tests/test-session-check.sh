@@ -191,6 +191,44 @@ test_check_passes_no_checklists() {
   fi
 }
 
+test_check_no_checklists_no_block_on_open_stdin() {
+  local test_name="check: no-checklist path does not block on an open-but-silent stdin"
+
+  write_state '{
+    "pid": 99999,
+    "skill": "test",
+    "lifecycle": "active"
+  }'
+
+  # Open-but-silent stdin: a FIFO whose writer holds it open ~8s sending nothing,
+  # then closes (EOF). An unconditional `cat` on stdin blocks the full lifetime of
+  # the pipe — the latent ~2-minute synthesis hang. With no checklists discovered,
+  # check must not read stdin at all and must return immediately.
+  local fifo="$TEST_DIR/open_stdin.fifo"
+  mkfifo "$fifo"
+  ( exec 9>"$fifo"; sleep 8; exec 9>&- ) &
+  local writer_pid=$!
+
+  local start end elapsed output exit_code=0
+  start=$(date +%s)
+  output=$("$HOME/.claude/scripts/session.sh" check "$SESSION_DIR" < "$fifo" 2>&1) || exit_code=$?
+  end=$(date +%s)
+  elapsed=$((end - start))
+
+  kill "$writer_pid" 2>/dev/null
+  rm -f "$fifo"
+
+  local check_passed
+  check_passed=$(jq -r '.checkPassed' "$SESSION_DIR/.state.json" 2>/dev/null || echo "false")
+
+  # Fixed: returns in ~0s (well under the 8s pipe lifetime). Bug: blocks ~8s.
+  if [ "$exit_code" -eq 0 ] && [ "$elapsed" -lt 4 ] && [ "$check_passed" = "true" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0, elapsed <4s, checkPassed=true" "exit=$exit_code, elapsed=${elapsed}s, checkPassed=$check_passed"
+  fi
+}
+
 # =============================================================================
 # session.sh check — STRICT DIFF TESTS
 # =============================================================================
@@ -1438,6 +1476,7 @@ run_test test_check_fails_no_stdin
 run_test test_check_fails_invalid_json
 run_test test_check_fails_missing_key
 run_test test_check_passes_no_checklists
+run_test test_check_no_checklists_no_block_on_open_stdin
 
 # Strict diff
 run_test test_diff_passes_happy_path

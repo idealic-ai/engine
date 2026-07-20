@@ -2996,6 +2996,70 @@ test_debrief_empty_proof_still_finds_steps() {
   teardown
 }
 
+# ── Non-blocking stdin regression (held-open stdin must not hang) ──
+# An unconditional `cat` on non-tty stdin blocks the full lifetime of a held-open
+# (no-EOF) pipe inside a compound command — the latent multi-minute timeout. The
+# bounded `read -t` must cap the wait. Each test holds stdin open ~6s sending nothing;
+# fixed code returns in ~2s (the read cap), the bug blocks the full 6s.
+_open_stdin_elapsed() {
+  # Runs "$@" with a silent held-open FIFO on stdin; echoes elapsed whole seconds.
+  local fifo; fifo="$TEST_DIR/open_stdin.$$.fifo"
+  mkfifo "$fifo"
+  ( exec 9>"$fifo"; sleep 6; exec 9>&- ) &
+  local wpid=$! start end
+  start=$(date +%s)
+  "$@" < "$fifo" > /dev/null 2>&1 || true
+  end=$(date +%s)
+  kill "$wpid" 2>/dev/null
+  rm -f "$fifo"
+  echo $((end - start))
+}
+
+test_activate_no_block_on_open_stdin() {
+  local test_name="activate: does not block on an open-but-silent stdin"
+  setup
+  local elapsed
+  elapsed=$(_open_stdin_elapsed "$SESSION_SH" activate "$TEST_DIR/sessions/OPEN_ACT" brainstorm)
+  if [ "$elapsed" -lt 4 ] && [ -f "$TEST_DIR/sessions/OPEN_ACT/.state.json" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "elapsed <4s + state.json created" "elapsed=${elapsed}s"
+  fi
+  teardown
+}
+
+test_deactivate_no_block_on_open_stdin() {
+  local test_name="deactivate: does not block on an open-but-silent stdin"
+  setup
+  create_state "$TEST_DIR/sessions/OPEN_DEACT" '{
+    "pid": 99999999, "skill": "brainstorm", "lifecycle": "active"
+  }'
+  local elapsed
+  elapsed=$(_open_stdin_elapsed "$SESSION_SH" deactivate "$TEST_DIR/sessions/OPEN_DEACT")
+  if [ "$elapsed" -lt 4 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "elapsed <4s" "elapsed=${elapsed}s"
+  fi
+  teardown
+}
+
+test_idle_no_block_on_open_stdin() {
+  local test_name="idle: does not block on an open-but-silent stdin"
+  setup
+  create_state "$TEST_DIR/sessions/OPEN_IDLE" '{
+    "pid": 99999999, "skill": "brainstorm", "lifecycle": "active"
+  }'
+  local elapsed
+  elapsed=$(_open_stdin_elapsed "$SESSION_SH" idle "$TEST_DIR/sessions/OPEN_IDLE")
+  if [ "$elapsed" -lt 4 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "elapsed <4s" "elapsed=${elapsed}s"
+  fi
+  teardown
+}
+
 # =============================================================================
 # Run all tests
 # =============================================================================
@@ -3094,6 +3158,12 @@ main() {
   test_deactivate_stores_keywords
   test_deactivate_outputs_all_errors
   test_deactivate_single_error_only
+
+  echo ""
+  echo "--- Non-blocking stdin (held-open regression) ---"
+  test_activate_no_block_on_open_stdin
+  test_deactivate_no_block_on_open_stdin
+  test_idle_no_block_on_open_stdin
 
   echo ""
   echo "--- Terminal Proof ---"

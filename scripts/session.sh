@@ -214,10 +214,10 @@ case "$ACTION" in
     # Read optional JSON from stdin (session parameters)
     # Heredoc usage: session.sh activate path skill <<'EOF' ... EOF
     # No-JSON usage: session.sh activate path skill < /dev/null
-    # WARNING: calling without heredoc AND without < /dev/null will hang on non-terminal stdin
+    # Bounded read so a held-open (no-EOF) stdin in a compound command can't hang indefinitely.
     STDIN_JSON=""
     if [ ! -t 0 ]; then
-      STDIN_JSON=$(cat)
+      IFS= read -r -d '' -t 2 STDIN_JSON || true
       if [ -n "$STDIN_JSON" ]; then
         if ! echo "$STDIN_JSON" | jq empty 2>/dev/null; then
           echo "§CMD_PARSE_PARAMETERS: Invalid JSON on stdin" >&2
@@ -1992,10 +1992,13 @@ case "$ACTION" in
       esac
     done
 
-    # Read stdin (description or proof, depending on lifecycle — see below)
+    # Read stdin (description or proof, depending on lifecycle — see below).
+    # Bounded read so a held-open (no-EOF) stdin in a compound command can't hang indefinitely.
+    # read -d '' keeps a trailing newline that $(cat) stripped — strip it back to preserve behavior.
     STDIN_INPUT=""
     if [ ! -t 0 ]; then
-      STDIN_INPUT=$(cat)
+      IFS= read -r -d '' -t 2 STDIN_INPUT || true
+      STDIN_INPUT="${STDIN_INPUT%$'\n'}"
     fi
 
     # --- Lifecycle-aware stdin interpretation ---
@@ -2247,10 +2250,13 @@ case "$ACTION" in
       esac
     done
 
-    # Read description from stdin
+    # Read description from stdin.
+    # Bounded read so a held-open (no-EOF) stdin in a compound command can't hang indefinitely.
+    # read -d '' keeps a trailing newline that $(cat) stripped — strip it back to preserve behavior.
     DESCRIPTION=""
     if [ ! -t 0 ]; then
-      DESCRIPTION=$(cat)
+      IFS= read -r -d '' -t 2 DESCRIPTION || true
+      DESCRIPTION="${DESCRIPTION%$'\n'}"
     fi
     if [ -z "$DESCRIPTION" ]; then
       echo "§CMD_CLOSE_SESSION: Description is required. Pipe 1-3 lines via stdin." >&2
@@ -2757,16 +2763,17 @@ case "$ACTION" in
     fi
 
     # ─── Validation 2: Checklist Processing (¶INV_CHECKLIST_BEFORE_CLOSE) ───
-    # Read checklist results from stdin (JSON format)
-    # Schema: {"path/to/CHECKLIST.md": "full markdown with [x] filled", ...}
-    CHECK_INPUT=""
-    if [ ! -t 0 ]; then
-      CHECK_INPUT=$(cat)
-    fi
-
     # Get discovered checklists from .state.json
     DISCOVERED_JSON=$(jq -r '(.discoveredChecklists // [])' "$STATE_FILE" 2>/dev/null || echo "[]")
     DISCOVERED_COUNT=$(echo "$DISCOVERED_JSON" | jq 'length')
+
+    # Checklist results arrive on stdin as JSON {"CHECKLIST.md path": "markdown with [x] filled"}.
+    # Read it ONLY when checklists were discovered, and bound the read: an unconditional cat on a
+    # held-open stdin inside a compound command blocks forever (surfaces as a multi-minute timeout).
+    CHECK_INPUT=""
+    if [ "$DISCOVERED_COUNT" -gt 0 ] && [ ! -t 0 ]; then
+      IFS= read -r -d '' -t 2 CHECK_INPUT || true
+    fi
 
     # Helper: normalize content for checkbox-blind comparison
     # 1. Normalize CRLF→LF
