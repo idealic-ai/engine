@@ -1,0 +1,6 @@
+{
+  "name": "council",
+  "version": "1",
+  "description": "Convene a diverse expert panel over an explicitly targeted body of work — plan, diff, PR, commit, files, build-report, doc, brainstorm, or session — via a self-contained Council Brief, fan out N independent expert sub-agents IN PARALLEL (generatively selected from a 20-persona palette spanning domain expertise + temperament), refute the panel's own MUST FIX findings, then write a consensus-tagged Council Report. Read-only: it reviews and reports, never fixes, commits, or files. Triggers: \"council this\", \"convene a panel\", \"get diverse expert eyes on this\", \"panel review\", \"multi-perspective review\", \"what would a panel say about this\".",
+  "tier": "lightweight"
+}
