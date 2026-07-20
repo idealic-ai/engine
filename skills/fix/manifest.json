@@ -185,11 +185,15 @@
         "\u00a7CMD_REPORT_ARTIFACTS",
         "\u00a7CMD_REPORT_SUMMARY",
         "\u00a7CMD_SURFACE_OPPORTUNITIES",
+        "\u00a7CMD_OFFER_COUNCIL_REVIEW",
         "\u00a7CMD_CLOSE_SESSION",
         "\u00a7CMD_PRESENT_NEXT_STEPS"
       ],
       "commands": [],
-      "proof": [],
+      "proof": [
+        "reviewOffered",
+        "decision"
+      ],
       "gate": false
     }
   ],

@@ -25,9 +25,9 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
       "proof": ["depthChosen", "roundsCompleted"]},
     {"label": "2", "name": "Planning",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS", "§CMD_OFFER_COUNCIL_REVIEW"],
       "commands": ["§CMD_LINK_FILE"],
-      "proof": ["planWritten", "planPresented", "userApproved"]},
+      "proof": ["planWritten", "planPresented", "userApproved", "reviewOffered", "decision"]},
     {"label": "3", "name": "Execution",
       "steps": ["§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
@@ -49,7 +49,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
     {"label": "4.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "4.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_OFFER_COUNCIL_REVIEW", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": ["reviewOffered", "decision"], "gate": false}
   ],
   "nextSkills": ["/test", "/document", "/analyze", "/fix", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md", "CHECKLIST.md"],
@@ -145,6 +145,8 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
 
 If any items are flagged for revision, return to the plan for edits before proceeding.
 
+Once the plan is approved, offer a `/council` panel review on the plan `<IMPLEMENTATION_PLAN.md>` via `§CMD_OFFER_COUNCIL_REVIEW` (offer, not force) -- catch a bad plan before any code exists.
+
 ---
 
 ## 3. Execution
@@ -238,3 +240,5 @@ If any items are flagged for revision, return to the plan for edits before proce
   gateQuestion: "Implementation complete. Walk through the changes?"
   debriefFile: "IMPLEMENTATION.md"
 ```
+
+Before closing, offer a `/council` panel review on the built session `<dir>` via `§CMD_OFFER_COUNCIL_REVIEW` (offer, not force) -- diverse expert eyes on what was actually built.

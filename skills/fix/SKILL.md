@@ -51,7 +51,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
     {"label": "5.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "5.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_OFFER_COUNCIL_REVIEW", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": ["reviewOffered", "decision"], "gate": false}
   ],
   "nextSkills": ["/test", "/implement", "/analyze", "/document", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md", "CHECKLIST.md"],
@@ -321,3 +321,5 @@ If any items are flagged for revision, update the plan before proceeding.
   gateQuestion: "Fixes complete. Walk through the changes?"
   debriefFile: "FIX.md"
 ```
+
+Before closing, offer a `/council` panel review on the fix session `<dir>` via `§CMD_OFFER_COUNCIL_REVIEW` (offer, not force) -- diverse expert eyes on the fix and its blast radius.

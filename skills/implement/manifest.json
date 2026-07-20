@@ -51,7 +51,8 @@
       "steps": [
         "\u00a7CMD_REPORT_INTENT",
         "\u00a7CMD_GENERATE_PLAN",
-        "\u00a7CMD_WALK_THROUGH_RESULTS"
+        "\u00a7CMD_WALK_THROUGH_RESULTS",
+        "\u00a7CMD_OFFER_COUNCIL_REVIEW"
       ],
       "commands": [
         "\u00a7CMD_LINK_FILE"
@@ -59,7 +60,9 @@
       "proof": [
         "planWritten",
         "planPresented",
-        "userApproved"
+        "userApproved",
+        "reviewOffered",
+        "decision"
       ]
     },
     {
@@ -171,11 +174,15 @@
         "\u00a7CMD_REPORT_ARTIFACTS",
         "\u00a7CMD_REPORT_SUMMARY",
         "\u00a7CMD_SURFACE_OPPORTUNITIES",
+        "\u00a7CMD_OFFER_COUNCIL_REVIEW",
         "\u00a7CMD_CLOSE_SESSION",
         "\u00a7CMD_PRESENT_NEXT_STEPS"
       ],
       "commands": [],
-      "proof": [],
+      "proof": [
+        "reviewOffered",
+        "decision"
+      ],
       "gate": false
     }
   ],

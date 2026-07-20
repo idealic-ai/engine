@@ -34,7 +34,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
     {"label": "2.3", "name": "Pipeline",
       "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "2.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": [], "gate": false}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_OFFER_COUNCIL_REVIEW", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": ["reviewOffered", "decision"], "gate": false}
   ],
   "nextSkills": ["/implement", "/analyze", "/document", "/fix", "/chores"],
   "directives": [],
@@ -140,3 +140,5 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
   gateQuestion: "Brainstorm complete. Walk through ideas?"
   debriefFile: "BRAINSTORM.md"
 ```
+
+Before closing, offer a `/council` panel review on the brainstorm `<BRAINSTORM.md>` via `§CMD_OFFER_COUNCIL_REVIEW` (offer, not force) -- diverse expert eyes on the ideas before you act on them.

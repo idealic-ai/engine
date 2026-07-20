@@ -460,6 +460,9 @@ Standardized handoff from a parent command to an autonomous agent (opt-in, foreg
 ### [¶CMD_PARALLEL_HANDOFF](commands/CMD_PARALLEL_HANDOFF.md)
 Parallel agent handoff — analyzes plan dependencies, derives independent chunks, and launches multiple agents in parallel.
 
+### [¶CMD_OFFER_COUNCIL_REVIEW](commands/CMD_OFFER_COUNCIL_REVIEW.md)
+Offers a `/council` panel review on the artifact a skill just produced (plan/diff/report/vision/brainstorm) — the one reusable step any artifact-producing skill declares to compose council in. Offers, never forces (`¶INV_OFFER_DONT_FORCE_SKILLS`); on accept dispatches `/council` in the background (report-only), waits within a bounded ceiling, relays the verdict.
+
 ### [¶CMD_DESIGN_E2E_TEST](commands/CMD_DESIGN_E2E_TEST.md)
 Designs and runs e2e reproduction tests — creates a sandbox, reproduces "before" behavior, applies fix, demonstrates "after" behavior.
 
