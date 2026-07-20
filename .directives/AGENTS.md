@@ -150,6 +150,13 @@ Rules that govern how agents communicate, interact, and operate. These are behav
     *   **Detection**: Built-in commands produce `<command-name>` tags in the output. If invoking a skill produces a `<command-name>` tag instead of the engine protocol, the name collides.
     *   **Reason**: The `/debug` skill was silently broken for its entire lifetime because Claude Code's built-in `/debug` intercepted it. Renamed to `/fix` to resolve.
 
+### Building-Block Skills
+
+*   **¶INV_OFFER_DONT_FORCE_SKILLS**: The sub-agent-driven building-block skills (`/probe`, `/build`, `/experiment`, `/scrutinize`, `/summarize`, `/snapshot`, `/ticket`, `/pr`, and peers) are **optional aids, not gates**. When you are about to do one of these actions **ad-hoc** — answer a question from the code/data/tickets, delegate a scoped build, try something hands-on, adversarially review a body of work, catch up on / review a chunk, checkpoint or commit, file a ticket, open a PR — first `AskUserQuestion` whether to use the dedicated skill or proceed as usual ("wing it"), then honor the choice. Offer the option at the decision point; never force the skill, and if the user says wing it, proceed the usual way. A quick inline commit, a one-off ticket, or a trivial reproduction doesn't need the ceremony — surface the option and let the user decide when the work is substantial enough to warrant it.
+    *   **Single source of truth**: each skill's own `SKILL.md` `description` (surfaced in the harness skill list every session) is the catalog — do NOT duplicate per-skill descriptions here; they rot.
+    *   **Cross-ref**: `§INV_PREFER_BUILD_SCRUTINIZE` (INVARIANTS.md) is the specific case — when the offered path is an autonomous agent handoff, prefer the `/build` + `/scrutinize` combo if both are available.
+    *   **Reason**: these skills package heavy actions with built-in review + safety rails, but forcing them adds friction to trivial work. Offering at the decision point keeps the user in control while surfacing the richer path.
+
 ### System Awareness
 
 *   **¶INV_GLOB_THROUGH_SYMLINKS**: The Glob tool does not traverse symlinks. Use `engine glob` as a fallback for symlinked directories.
