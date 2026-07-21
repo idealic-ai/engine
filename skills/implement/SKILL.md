@@ -25,9 +25,9 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
       "commands": ["§CMD_ASK_ROUND", "§CMD_LOG_INTERACTION"],
       "proof": ["depthChosen", "roundsCompleted"]},
     {"label": "2", "name": "Planning",
-      "steps": ["§CMD_REPORT_INTENT", "§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS", "§CMD_OFFER_COUNCIL_REVIEW"],
+      "steps": ["§CMD_REPORT_INTENT", "§CMD_GENERATE_PLAN", "§CMD_WALK_THROUGH_RESULTS", "§CMD_OFFER_COUNCIL_REVIEW", "§CMD_OFFER_GRAPH_VIZ"],
       "commands": ["§CMD_LINK_FILE"],
-      "proof": ["planWritten", "planPresented", "userApproved", "reviewOffered", "decision"]},
+      "proof": ["planWritten", "planPresented", "userApproved", "reviewOffered", "decision", "graphOffered"]},
     {"label": "3", "name": "Execution",
       "steps": ["§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
@@ -145,7 +145,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
 
 If any items are flagged for revision, return to the plan for edits before proceeding.
 
-Once the plan is approved, offer a `/council` panel review on the plan `<IMPLEMENTATION_PLAN.md>` via `§CMD_OFFER_COUNCIL_REVIEW` (offer, not force) -- catch a bad plan before any code exists.
+Once the plan is approved, offer a `/council` panel review on the plan `<IMPLEMENTATION_PLAN.md>` via `§CMD_OFFER_COUNCIL_REVIEW` (offer, not force) -- catch a bad plan before any code exists. Then offer a `/graph` flowgraph of the plan's step-dependency graph (from the Depends/Files fields) via `§CMD_OFFER_GRAPH_VIZ` (offer, context-gated -- skips linear artifacts).
 
 ---
 

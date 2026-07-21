@@ -157,6 +157,11 @@ Rules that govern how agents communicate, interact, and operate. These are behav
     *   **Cross-ref**: `§INV_PREFER_BUILD_SCRUTINIZE` (INVARIANTS.md) is the specific case — when the offered path is an autonomous agent handoff, prefer the `/build` + `/scrutinize` combo if both are available.
     *   **Reason**: these skills package heavy actions with built-in review + safety rails, but forcing them adds friction to trivial work. Offering at the decision point keeps the user in control while surfacing the richer path.
 
+*   **¶INV_VISUALIZE_STRUCTURE_WITH_GRAPH**: When a body of work has non-trivial structure — a branching algorithm, a dependency graph, a state/lifecycle, a decision tree, a multi-path flow — reach for `/graph` to render it as an ASCII flowgraph. Offer it, contextually, not as a mandate. A plan's step dependencies, an analyzed control flow, a design's decision tree, a chapter graph, a bug's failure-paths all read far faster as a diagram than as prose, and seeing the structure surfaces missing branches, cycles, and dead ends that prose hides.
+    *   **Context-gate it**: only when the flow actually branches / loops / depends. A linear `1 → 2 → 3` sequence is clearer as a numbered list — a flowgraph of it is noise (`/graph`'s own "when NOT to use"). Assess first; stay silent when there's nothing to draw.
+    *   **Wired vs ad-hoc**: skills that produce such artifacts declare `§CMD_OFFER_GRAPH_VIZ` at their plan-review / synthesis phase; ad-hoc, just offer `/graph` when you notice structure worth drawing. Never force it.
+    *   **Reason**: structure is easier to verify and critique when you can SEE it — but a diagram of a flat list wastes attention. Gate on real structure.
+
 ### System Awareness
 
 *   **¶INV_GLOB_THROUGH_SYMLINKS**: The Glob tool does not traverse symlinks. Use `engine glob` as a fallback for symlinked directories.

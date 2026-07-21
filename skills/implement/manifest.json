@@ -52,7 +52,8 @@
         "\u00a7CMD_REPORT_INTENT",
         "\u00a7CMD_GENERATE_PLAN",
         "\u00a7CMD_WALK_THROUGH_RESULTS",
-        "\u00a7CMD_OFFER_COUNCIL_REVIEW"
+        "\u00a7CMD_OFFER_COUNCIL_REVIEW",
+        "\u00a7CMD_OFFER_GRAPH_VIZ"
       ],
       "commands": [
         "\u00a7CMD_LINK_FILE"
@@ -62,7 +63,8 @@
         "planPresented",
         "userApproved",
         "reviewOffered",
-        "decision"
+        "decision",
+        "graphOffered"
       ]
     },
     {
