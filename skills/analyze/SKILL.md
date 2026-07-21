@@ -111,6 +111,8 @@ For *every* significant thought, execute `§CMD_APPEND_LOG`. **Logging is the co
 ## 2. Calibration (Interactive)
 *After you have logged a significant batch of findings (8+), STOP and turn to the user.*
 
+**Calibration is a fork, not a terminus.** Its job is not merely to polish the write-up — it is to decide *whether the analysis is done, or whether open gaps deserve another research pass.* Treat the `openGaps` from Phase 1 as live: calibration either closes them (with the user) or routes them into a deepen loop (see `§ASK_CALIBRATION_EXIT`). Do not drift to Synthesis by default.
+
 §CMD_REPORT_INTENT:
 > 2: Calibrating with ___ findings logged. ___.
 > Focus: ___.
@@ -128,19 +130,26 @@ For *every* significant thought, execute `§CMD_APPEND_LOG`. **Logging is the co
 ### ¶ASK_CALIBRATION_EXIT
 Extends: §ASK_INTERROGATION_EXIT
 Trigger: after minimum calibration rounds are met
-Extras: A: Walk through findings so far | B: Go back to a previous topic | C: Skip to synthesis
+Extras: A: Walk through findings so far | B: Go back to a previous topic | C: Show the open gaps
+
+**A forward fork, not a default-to-write-up.** The real question here is: *is the analysis done, or are there open gaps worth pursuing?* Recommend by the state of `openGaps` (from Phase 1 proof + anything calibration surfaced) — gaps remain → recommend [DEEPEN]; gaps closed → recommend [NEXT]. Synthesizing is a deliberate "we've answered the question," never the lazy default. The old flow buried "more analysis" as a backward jump; here it is a first-class forward path.
 
 ## Decision: Calibration Exit
-- [NEXT]
+- [ ] [NEXT] Synthesize now
+  The analysis answers the question and no material gaps remain — proceed to Synthesis (write-up). Recommended only when `openGaps` is empty (or the user explicitly waives them).
+- [ ] [DEEPEN] Pursue the open gaps
+  Return to the Research Loop to investigate the outstanding `openGaps`, then re-enter Calibration. The forward path to more analysis — recommended when `openGaps` is non-empty.
+- [ ] [COUNCIL] Panel on the analysis so far
+  Convene a `/council` panel on the analysis-so-far to surface holes neither you nor the user caught. Its findings feed the DEEPEN loop, not the write-up.
 - [MORE]
 - [DEEP]
 - Devil's advocate round
 - What-if scenarios round
 - Gaps round
-- [ ] Return to Research Loop
-  Go back to Phase 1 for more autonomous exploration based on calibration insights, then re-enter Calibration
 
-**On [RTRN]**: Phase transition back to Phase 1 via `engine session phase` with `--user-approved`. Ignore all other selections — jump immediately. After Phase 1 completes, re-enter Phase 2 normally.
+**On [NEXT]**: transition to Phase 3 (Synthesis). In `roundsCompleted`, record the exit decision + the disposition of any open gaps (e.g. "exit=SYNTH; gaps: none outstanding" or "exit=SYNTH; 1 gap explicitly waived by user").
+**On [DEEPEN]**: transition back to Phase 1 via `engine session phase --user-approved` (the reason MUST quote the user's choice, per `¶INV_USER_APPROVED_REQUIRES_TOOL`). Carry the outstanding gaps forward as the Research Loop's focus. After Phase 1 completes, re-enter Phase 2 (Calibration) — **re-calibration before Synthesis is mandatory; the deepen loop cannot skip it.**
+**On [COUNCIL]**: invoke `§CMD_OFFER_COUNCIL_REVIEW` with subject `session <dir>` (the analysis-so-far — its log IS the findings record), `report-only`, offered not forced. When the panel's verdict lands, **merge** its MUST FIX / SHOULD FIX findings + `blind_spots` into `openGaps`, then **re-present this same calibration exit** — now with the panel's gaps in hand ([DEEPEN] will typically be recommended). Council drives reanalysis but never routes to Synthesis directly; it always returns here to re-gate. (This is distinct from the end-of-flow council in 3.5 Close, which QAs the *finished* report.)
 
 ---
 
