@@ -1,6 +1,6 @@
 ---
 name: pr
-description: "Open a pull request for the current branch with a CONTEXT-MAXED body. A PR-writer subagent reads the branch commits + diff, the linked ticket(s), and the full builds/ trail (build reports, critiques, verdicts, decisions) to draft a rich PR description — Summary, linked ticket + acceptance checklist, Changes + Verification, Decisions/Risks/CI-gates. Context-aware about the branch: on a MIXED branch it offers to cherry-pick just the target ticket's commits onto a fresh branch (never rewriting the shared branch); on a clean branch it pushes as-is. One confirm → push → gh pr create (base branch from the project's § Tracker config — dev for finch — draft or ready), then requests an automated Copilot code review and polls for it in the background, relaying the findings when they land. A building block: it opens the PR and surfaces the review, never addresses feedback or merges. Triggers: \"open a PR\", \"create a pull request\", \"PR this\", \"raise a PR\", \"ship this for review\"."
+description: "Open a pull request for the current branch with a CONTEXT-MAXED body. A PR-writer subagent reads the branch commits + diff, the linked ticket(s), and the full builds/ trail (build reports, critiques, verdicts, decisions) to draft a rich PR description — Summary, linked ticket + acceptance checklist, Changes + Verification, Decisions/Risks/CI-gates. Context-aware about the branch: on a MIXED branch it offers to cherry-pick just the target ticket's commits onto a fresh branch (never rewriting the shared branch); on a clean branch it pushes as-is. One confirm → push → gh pr create (base branch from the project's § Tracker config — dev for finch — draft or ready), then requests an automated Copilot review and polls the background for both Copilot and the Codex connector (the latter gated on its 👀 reaction), relaying the findings when they land. A building block: it opens the PR and surfaces the review, never addresses feedback or merges. Triggers: \"open a PR\", \"create a pull request\", \"PR this\", \"raise a PR\", \"ship this for review\"."
 version: 1.0
 tier: lightweight
 args: "[<base branch override, default: CLAUDE.md § Tracker PR base — dev for finch>] [--dry-run] [-- <PR title / framing override>]"
@@ -127,40 +127,50 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
      - *Conflict handling:* On ANY conflict, run `git -C <tmp-path> cherry-pick --abort`, then `git worktree remove --force <tmp-path>`, and **STOP**. Never force-resolve, never `-X`. The live checkout stays on the original branch throughout.
      - *Fallback if `git worktree` is unavailable:* This REQUIRES a clean working tree. If the tree is dirty, STOP and tell the user to `/snapshot` or commit their edits first (never `git stash`, never `git switch -c` a dirty tree). Only on a clean tree may you fall back to `git switch -c <prefix>-<ticket>-<slug> <base>`, cherry-pick, push, and then **`git switch <original-branch>`** as the absolute final step to restore the checkout. The live checkout stays on the original branch throughout.
    - Capture the resulting **PR URL**.
-4. **Request an automated Copilot review (async, non-blocking):** Once the PR exists, request a GitHub Copilot code review and poll for it in the *background* so the run isn't blocked. This is a generic GitHub feature (not project-specific); if the repo doesn't have Copilot review enabled it degrades to a no-op.
+4. **Request automated reviews + poll (async, non-blocking):** Once the PR exists, request a GitHub Copilot review and poll in the *background* for BOTH Copilot **and** the Codex connector, so the run isn't blocked. Generic GitHub features; each degrades to a no-op where unavailable.
    - **Derive `<owner>` / `<repo>` / `<n>`** from the PR URL captured above (`github.com/<owner>/<repo>/pull/<n>`).
-   - **Request the review:** prefer the GitHub MCP tool `request_copilot_review(owner, repo, pullNumber)` (load via `ToolSearch github`). If the MCP is unavailable, fall back to `gh api --method POST repos/<owner>/<repo>/pulls/<n>/requested_reviewers -f 'reviewers[]=copilot-pull-request-reviewer[bot]'` (best-effort). If neither is available (standalone / no `gh`), skip this step and note it.
-   - **Poll in the background** — launch this with the Bash tool's `run_in_background: true` so the harness re-invokes you when it lands; it exits 0 on ready OR timeout so you are always re-woken:
+   - **Request Copilot** (only Copilot is *request-able*): prefer the GitHub MCP tool `request_copilot_review(owner, repo, pullNumber)` (load via `ToolSearch github`). Else `gh api --method POST repos/<owner>/<repo>/pulls/<n>/requested_reviewers -f 'reviewers[]=copilot-pull-request-reviewer[bot]'` (best-effort). If neither is available (standalone / no `gh`), skip + note it.
+   - **Codex is NOT requested** — the `chatgpt-codex-connector[bot]` is an opt-in connector that reviews on its own and **signals via a 👀 reaction on the PR body** (present while reviewing, *removed* when it posts). So `/pr` can't request it; it detects engagement and waits only when codex is actually engaged.
+   - **Poll both in the background** — `run_in_background: true`; exits 0 on settle OR timeout so you're always re-woken:
      ```bash
      OWNER=<owner>; REPO=<repo>; N=<n>
+     RXN="Accept: application/vnd.github.squirrel-girl-preview+json"
      for i in $(seq 1 40); do
-       ready=$(gh api "repos/$OWNER/$REPO/pulls/$N/reviews" \
-         --jq '[.[] | select(.user.login=="copilot-pull-request-reviewer[bot]")] | length' 2>/dev/null || echo 0)
-       [ "${ready:-0}" -gt 0 ] && { echo "COPILOT_REVIEW_READY pr=$N"; exit 0; }
+       cop=$(gh api "repos/$OWNER/$REPO/pulls/$N/reviews" --jq '[.[]|select(.user.login=="copilot-pull-request-reviewer[bot]")]|length' 2>/dev/null || echo 0)
+       cdx=$(gh api "repos/$OWNER/$REPO/pulls/$N/reviews" --jq '[.[]|select(.user.login=="chatgpt-codex-connector[bot]")]|length' 2>/dev/null || echo 0)
+       eyes=$(gh api "repos/$OWNER/$REPO/issues/$N/reactions" -H "$RXN" --jq '[.[]|select(.content=="eyes" and .user.login=="chatgpt-codex-connector[bot]")]|length' 2>/dev/null || echo 0)
+       ok=$(gh api "repos/$OWNER/$REPO/issues/$N/reactions" -H "$RXN" --jq '[.[]|select(.content=="+1" and .user.login=="chatgpt-codex-connector[bot]")]|length' 2>/dev/null || echo 0)
+       codex_settled=0; if [ "$cdx" -gt 0 ] || [ "$ok" -gt 0 ]; then codex_settled=1; fi   # posted a review, or a clean +1
+       codex_idle=0;    if [ "$eyes" -eq 0 ] && [ "$cdx" -eq 0 ] && [ "$ok" -eq 0 ] && [ "$i" -ge 3 ]; then codex_idle=1; fi  # never engaged after ~1min
+       if [ "$cop" -gt 0 ] && { [ "$codex_settled" -eq 1 ] || [ "$codex_idle" -eq 1 ]; }; then
+         echo "REVIEWS_SETTLED pr=$N copilot=$cop codex_review=$cdx codex_ok=$ok"; exit 0
+       fi
        sleep 20
      done
-     echo "COPILOT_REVIEW_TIMEOUT pr=$N"; exit 0
+     echo "REVIEWS_TIMEOUT pr=$N copilot=$cop codex_review=$cdx codex_ok=$ok"; exit 0
      ```
-     (~13-min ceiling; Copilot typically lands in 1–3 min.) Give that Bash call a wake-instruction `description` — e.g. `Copilot review poll PR <n> — on wake, fetch + relay the review (§4)` — so the completion notice carries the next step, not an opaque exit code.
+     (~13-min ceiling; Copilot lands in 1–3 min.) **The 👀 gate**: while codex's eyes reaction is present the loop keeps waiting for its review; if codex never reacts within ~1 min (no eyes, no review, no +1) the loop stops waiting on codex — it isn't engaged on this PR. Give the Bash call a wake `description` — e.g. `Review poll PR <n> — on wake, relay Copilot + Codex (§4)`.
 5. **Report & Trail:** Stamp `<trailDir>/<slug>_PR.md` with the final outcome (PR URL, branch, base, draft/ready, gate flags). Provide the link to the user; note the Copilot poll is running and you'll relay it when it lands (§4). **Offer council (optional, `§CMD_OFFER_COUNCIL_REVIEW`):** offer a `/council` panel on the PR diff (`subject: pr <n>` — immutable via `gh pr diff`), dispatched in the background report-only so it runs parallel with the Copilot poll and is relayed when it lands. Offer, never force. **Feed the ledger:** append one terse bullet to `<trailDir>/LESSONS.md` (e.g., "PR opened, URL, closes `<PREFIX>-NNNN`") — `engine log` under a session, else a plain file append (`printf '## …\n…\n' >> <trailDir>/LESSONS.md`). **Then stop** (the background poll re-wakes you for §4). Reviewing, addressing feedback, and merging are your call, not this skill's. **Never merge.**
 
-## 4. Relay the Copilot Review (on background-poll completion)
+## 4. Relay the Automated Reviews (on background-poll completion)
 
-When the §3 background poll re-wakes you, act on its result — and only relay; `/pr` opens the PR, it never addresses feedback or merges.
-- **`COPILOT_REVIEW_READY`:** Fetch and relay the review as a compact list — the summary body plus each inline finding as `file:line — essence`:
+When the §3 poll re-wakes you (`REVIEWS_SETTLED` / `REVIEWS_TIMEOUT`, carrying `copilot=`/`codex_review=`/`codex_ok=` counts), fetch + relay whatever landed — only relay; `/pr` opens the PR, it never addresses feedback or merges. Relay both as ONE compact list, **labeled by reviewer**.
+- **Copilot** (`copilot=`>0): summary body + inline findings (`file:line — essence`):
   ```bash
-  # review summary body
-  gh api "repos/<owner>/<repo>/pulls/<n>/reviews" \
-    --jq '.[] | select(.user.login=="copilot-pull-request-reviewer[bot]") | .body'
-  # inline, file:line-anchored comments
-  gh api "repos/<owner>/<repo>/pulls/<n>/comments" \
-    --jq '.[] | select(.user.login=="Copilot") | "\(.path):\(.line) — \(.body)"'
+  gh api "repos/<owner>/<repo>/pulls/<n>/reviews"  --jq '.[]|select(.user.login=="copilot-pull-request-reviewer[bot]")|.body'
+  gh api "repos/<owner>/<repo>/pulls/<n>/comments" --jq '.[]|select(.user.login=="Copilot")|"\(.path):\(.line) — \(.body)"'
   ```
-  Then **stop** — offer, don't auto-run: `/scrutinize` to triage the findings or `/fix` to address them. Whether to act on Copilot's review is the user's call.
-- **`COPILOT_REVIEW_TIMEOUT`:** Note that no Copilot review appeared within the window (it may be slow, or Copilot review isn't enabled on this repo). The PR is open regardless; don't block on it.
+- **Codex** (`codex_review=`>0): its review is a formal PR review (body starts `### 💡 Codex Review`) + inline findings:
+  ```bash
+  gh api "repos/<owner>/<repo>/pulls/<n>/reviews"  --jq '.[]|select(.user.login=="chatgpt-codex-connector[bot]")|.body'
+  gh api "repos/<owner>/<repo>/pulls/<n>/comments" --jq '.[]|select(.user.login=="chatgpt-codex-connector[bot]")|"\(.path):\(.line) — \(.body)"'
+  ```
+  - **Codex clean pass** (`codex_ok=`>0 with `codex_review=0`): no written review — relay "Codex reviewed and approved (👍, no written findings)."
+- Then **stop** — offer, don't auto-run: `/scrutinize` to triage the findings or `/fix` to address them. Acting on either review is the user's call.
+- **`REVIEWS_TIMEOUT`:** relay whatever DID land (per the signal's counts) and note any reviewer that didn't appear in the window (slow, not enabled, or — for Codex — never engaged). The PR is open regardless; don't block on it.
 
 ## Constraints (Summary)
-- **Copilot review is requested + polled, never acted on:** after the PR opens, `/pr` requests an automated Copilot review and polls for it in the background (re-woken via `run_in_background`), then RELAYS the findings — it never addresses or merges them. Degrades to a no-op where Copilot review isn't enabled or `gh`/MCP is unavailable.
+- **Automated reviews are requested/detected + polled, never acted on:** after the PR opens, `/pr` requests a Copilot review and polls in the background (re-woken via `run_in_background`) for BOTH Copilot (requested) and the Codex connector (opt-in — detected via its 👀 reaction on the PR, gated so `/pr` only waits when codex is actually engaged), then RELAYS both sets of findings — it never addresses or merges them. Each degrades to a no-op where that reviewer isn't enabled or `gh`/MCP is unavailable.
 - **Base from § Tracker (`dev` for finch), never `main` directly:** Resolve the PR base from CLAUDE.md § Tracker (defaulting to `dev` when absent). Overridable only by explicit arguments.
 - **No history rewriting / no live-tree mutation:** No `rebase`, `reset`, `amend`, `push --force`, `stash`, or `switch -c` on the live tree. **The cherry-pick mechanism is `git worktree`** — a focused pick builds a NEW branch off base in a throwaway worktree and never touches the source branch or the working checkout. Abort (`--abort` + `worktree remove --force`) on any cherry-pick conflict; never force-resolve. The worktree-unavailable fallback requires a clean tree and restores the original branch as its last step.
 - **Push is fast-forward-only:** Fetch and check ahead/behind before confirming. Surface divergence; a plain push (never `--force`) is rejected non-fast-forward if behind — let the user reconcile or take the clean fresh-branch path; never auto-`pull`/`rebase`.
