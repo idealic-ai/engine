@@ -739,6 +739,21 @@ Overlay: [overlay-3.png](file:///Users/me/proj/out/overlay-3.png).
 
 **Anti-pattern**: a bare `cursor://file/…` URL dumped in text; a non-clickable relative path (`sessions/X/foo.md`); `file://` for a code file (opens Finder, not the editor).
 
+### ¶FMT_TICKET_LINK
+
+**When to use**: EVERY mention of a tracker issue key — in chat or in a `.md` artifact — renders as a **labeled link** to the issue, never a bare key. The file-link sibling (`¶FMT_FILE_LINK`) for tickets.
+
+**Rules** (config-driven — do NOT hardcode the tracker):
+*   Source the **issue-key prefix** and the **issue-URL template** from the project's `## Tracker` config (the project `CLAUDE.md`) — e.g. Finch: prefix `FIN`, URL `https://linear.app/finchclaims/issue/<KEY>`. Other projects set their own; this format never bakes in a specific tracker.
+*   Render `[<KEY>](<issue-url-with-KEY-substituted>)` — e.g. `[FIN-3141](https://linear.app/finchclaims/issue/FIN-3141)`.
+*   Applies to keys matching the project's prefix (`FIN-3141`). A bare key with no `## Tracker` config configured → leave as plain text (nothing to link to).
+
+```markdown
+Fixed in [FIN-3141](https://linear.app/finchclaims/issue/FIN-3141); follow-up is [FIN-3200](https://linear.app/finchclaims/issue/FIN-3200).
+```
+
+**Anti-pattern**: a bare `FIN-3141` in prose when a `## Tracker` issue-URL is configured; hardcoding a tracker URL in the engine instead of sourcing it from the project config.
+
 ### ¶FMT_DECISION_CARD
 
 **When to use**: The richer successor to `§FMT_CONTEXT_BLOCK` for disclosing the agent's own judgment per item. Used by `§CMD_ELICIT` (and, via it, `§CMD_WALK_THROUGH_RESULTS` results mode) — front-loading what the user reliably asks for next so they judge from context instead of interrogating. **The fields are generalized off the fix-shape** so one card fits a proposed **fix**, a raw **idea**, or a neutral **observation** — not only findings-to-fix. One card per item.
