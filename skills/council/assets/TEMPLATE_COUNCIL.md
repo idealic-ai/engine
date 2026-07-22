@@ -56,23 +56,38 @@
 ---
 
 ## Per-Expert Findings
-*The distinct lens each expert brought, before reconciliation. Full detail in `<slug>_council/<lens>.md`.*
+*The distinct lens each expert brought, before reconciliation. Each finding is a read-only Decision Card (`§FMT_DECISION_CARD`): options + what's-at-stake/severity + trade-off + complexity + how-to-verify + confidence + the defeasible `my lean` + tier-as-engagement — the report discloses what a reader would otherwise ask for, but council does NOT triage interactively (there is no gate; the reader decides). Field names are generalized off the fix-shape so the card fits findings, ideas, and observations alike. Full detail in `<slug>_council/<lens>.md`.*
 
 ### Architect
-- <tier> — <title> — `file:line` — <one-line essence>. **Verdict:** <lens verdict>.
+- **<tier> — <title>** — `file:line`
+  - **Options:** <framed trade-offs, incl. the honest do-nothing> · **What's at stake:** <the concrete scenario + severity>
+  - **Trade-off:** <what acting costs / loses> · **Complexity / cost to act:** <does it add surface / muddy the design?> · **How to verify:** <the low-cost confirm/size check> · **Confidence:** <high | medium | low>
+  - **My lean:** <the direction — a POV, not a patch; note the strongest case against it> · **Verdict:** <lens verdict>
 
 ### Operator
-- <tier> — <title> — `file:line` — <one-line essence>. **Verdict:** <lens verdict>.
+- **<tier> — <title>** — `file:line`
+  - **Options:** <framed trade-offs, incl. the honest do-nothing> · **What's at stake:** <the concrete scenario + severity>
+  - **Trade-off:** <what acting costs / loses> · **Complexity / cost to act:** <does it add surface / muddy the design?> · **How to verify:** <the low-cost confirm/size check> · **Confidence:** <high | medium | low>
+  - **My lean:** <the direction — a POV, not a patch; note the strongest case against it> · **Verdict:** <lens verdict>
 
 ### Skeptic
-- <tier> — <title> — `file:line` — <one-line essence>. **Verdict:** <lens verdict>.
+- **<tier> — <title>** — `file:line`
+  - **Options:** <framed trade-offs, incl. the honest do-nothing> · **What's at stake:** <the concrete scenario + severity>
+  - **Trade-off:** <what acting costs / loses> · **Complexity / cost to act:** <does it add surface / muddy the design?> · **How to verify:** <the low-cost confirm/size check> · **Confidence:** <high | medium | low>
+  - **My lean:** <the direction — a POV, not a patch; note the strongest case against it> · **Verdict:** <lens verdict>
 
 <!-- At 5, add the adaptive pair: -->
 ### Specialist
-- <tier> — <title> — `file:line` — <one-line essence>. **Verdict:** <lens verdict>.
+- **<tier> — <title>** — `file:line`
+  - **Options:** <framed trade-offs, incl. the honest do-nothing> · **What's at stake:** <the concrete scenario + severity>
+  - **Trade-off:** <what acting costs / loses> · **Complexity / cost to act:** <does it add surface / muddy the design?> · **How to verify:** <the low-cost confirm/size check> · **Confidence:** <high | medium | low>
+  - **My lean:** <the direction — a POV, not a patch; note the strongest case against it> · **Verdict:** <lens verdict>
 
 ### Wildcard (<Schema-Purist | Security | Product-UX>)
-- <tier> — <title> — `file:line` — <one-line essence>. **Verdict:** <lens verdict>.
+- **<tier> — <title>** — `file:line`
+  - **Options:** <framed trade-offs, incl. the honest do-nothing> · **What's at stake:** <the concrete scenario + severity>
+  - **Trade-off:** <what acting costs / loses> · **Complexity / cost to act:** <does it add surface / muddy the design?> · **How to verify:** <the low-cost confirm/size check> · **Confidence:** <high | medium | low>
+  - **My lean:** <the direction — a POV, not a patch; note the strongest case against it> · **Verdict:** <lens verdict>
 
 ---
 

@@ -109,7 +109,7 @@ Once the critiquer returns, relay its **returned ranked summary** to the user as
 
 The interactive **`AskUserQuestion` walkthrough is the core of `/scrutinize`**. The user, not the model, decides fix/skip/defer per finding. Run it explicitly. NEVER dump findings as bare text and assume the user's intent.
 
-If under the engine, this is `§CMD_WALK_THROUGH_RESULTS`. If standalone, run the exact routine below directly with `AskUserQuestion`. Do NOT use the `§CMD_TAG_TRIAGE` default; use the specific review decision set below.
+**Disclose findings as Decision Cards before you triage (`§CMD_ELICIT` — disclosure only).** Findings carry the fields the user reliably asks for next — the trade-off of the fix, what's at stake, the complexity it adds, how to verify it cheaply — so front-load them per `¶INV_DISCLOSE_AND_TRIAGE`. If under the engine, this is `§CMD_WALK_THROUGH_RESULTS` (results mode), which uses `§CMD_ELICIT` to render **cards-then-summary** before the triage. If standalone, render the same disclosure directly: a `§FMT_DECISION_CARD` per finding (depth scaling with the severity×complexity triage — `Your-call`s get the full card, clean-and-clear lows collapse to one-liners), then the compact triaged summary, THEN the per-finding `AskUserQuestion` below. `§CMD_ELICIT` **only discloses and classifies attention** — its `I've-got-this` verdict is *advisory* (a "this one's clear-cut" recommendation), **never an auto-fix**. **The user still decides fix/skip/defer per finding** (scrutinize's core invariant — the user, not the model, decides). Do NOT use the `§CMD_TAG_TRIAGE` default; use the specific review decision set below.
 
 **The Walkthrough Routine:**
 
@@ -122,11 +122,12 @@ If under the engine, this is `§CMD_WALK_THROUGH_RESULTS`. If standalone, run th
    - **Top-N:** By severity (e.g., just CRITICAL+HIGH).
    - **None:** Accept the critiquer's verdict as-is.
 
-2. **Per-Finding Evaluation (Context Block + `AskUserQuestion`):**
-   For each finding (or batch), present a mandatory 2-part context block in chat (`§FMT_CONTEXT_BLOCK`):
-   *   `Line 1:` `[#]: <title> — <file:line>, <severity>`
-   *   `Line 2:` `<The defect> | <Concrete failing scenario> | <Suggested fix>`
-   *(Illustrative — adapt, don't copy: `[1]: Null pointer in parser — src/parse.ts:42, CRITICAL` | `Fails when payload lacks 'user' object. Fix: Add optional chaining user?.id.`)*
+2. **Per-Finding Evaluation (Decision Card + `AskUserQuestion`):**
+   For each finding (or batch), present its `§FMT_DECISION_CARD` in chat (from the disclosure pass above — full card for a `Your-call`, one-liner where the triage collapsed it). At minimum the card carries:
+   *   `Options + my lean:` framed trade-offs (incl. the honest do-nothing), with the fix POV stated *after* the options as the defeasible lean (anti-anchor).
+   *   `What's at stake / severity:` `[#]: <title> — <file:line>, <severity>` — `<the defect> | <concrete failing scenario>`.
+   *   `Trade-off · Complexity · How to verify · Confidence:` the fields the user would otherwise interrogate for.
+   *(Illustrative — adapt, don't copy: `[1]: Null pointer in parser — src/parse.ts:42, CRITICAL`. Options: add `user?.id` chaining → risk none, or validate upstream → risk broader refactor. My lean: the chain, but it hides a malformed payload. How to verify: the saved repro test goes RED. Confidence: high.)*
 
    Then, call `AskUserQuestion` with the finding number as the header and this option tree:
    - **Fix:** Include in the resolution plan.

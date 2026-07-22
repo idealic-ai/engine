@@ -8,10 +8,11 @@
 The algorithm below is parameterized. These mode-specific values fill the placeholders:
 
 *   **results**
-  *   **Context labels**: "[ID]: What this is about" + "The finding"
-  *   **Decision command**: §CMD_TAG_TRIAGE (dynamic tag options from `SRC_DELEGATION_TARGETS`)
+  *   **Disclosure engine**: §CMD_ELICIT — builds a `§FMT_DECISION_CARD` per item, triages on severity × complexity into advisory `I've-got-this` / `Your-call` / `FYI`, and renders **cards-then-summary**. It DISCLOSES only — it makes no decision. Replaces the thin `§FMT_CONTEXT_BLOCK` disclosure (that under-briefed the user, who then had to interrogate each item). Card depth scales with the bucket, so simple/clean results stay light (one-liners) and cost concentrates on the few `Your-call`s.
+  *   **Context labels**: "[ID]: What this is about" + "The finding" (the Decision Card subsumes this — the labels remain for any item ELICIT renders as a light one-liner)
+  *   **Decision command**: §CMD_TAG_TRIAGE (dynamic tag options from `SRC_DELEGATION_TARGETS`) — **ELICIT discloses the cards; §CMD_TAG_TRIAGE makes the decision**, informed by them. After the disclosure pass, fall through to the tag loop: each `Your-call` gets individual tag attention, the `I've-got-this`/`FYI` sets can be batched — tag placements exactly as before.
   *   **On result**: tag → `§CMD_HANDLE_INLINE_TAG` + tag proof output; dismiss → no tag; custom → execute instruction
-  *   **Summary fields**: Tagged: N, Dismissed: N — includes inline tag verification report
+  *   **Summary fields**: Tagged: N, Dismissed: N — includes inline tag verification report (ELICIT's triaged summary — `N Your-calls · M I'll-handle · K FYI` — leads it)
   *   **Plan Review tree**: Not used
 
 *   **plan**
@@ -63,11 +64,13 @@ Invoke §CMD_DECISION_TREE with `§ASK_WALKTHROUGH_GRANULARITY`. Use the `gateQu
 
 ### Step 3: Per-Item Walk-Through
 
-**For each item** (or group of up to 4). Use the item's ID (from Step 2) as the `header` field in `AskUserQuestion`:
+**results mode — `§CMD_ELICIT` is the *briefing*, then the loop below places the tags.** First call `§CMD_ELICIT` over the extracted items purely to **disclose**: it builds a `§FMT_DECISION_CARD` per item, triages severity × complexity, and renders **cards-then-summary** (all cards skimmable first, ordered so `Your-call`s lead; then the `N Your-calls · M I'll-handle · K FYI` summary; card depth scales with the bucket, so simple/clean results stay light). ELICIT does **not** make the decision — it discloses and orders attention. **Then run the per-item loop below — do NOT skip it.** The decision command stays `§CMD_TAG_TRIAGE` (a `#needs-X` delegation tag), now *informed by* the cards + triage (Your-calls get individual attention; I've-got-this/FYI can be batched via Step 4). The tag-placement, tag-proof, and Step-5 verification mechanics are preserved unchanged.
 
-1.  **Context Block** (`§FMT_CONTEXT_BLOCK` — MANDATORY): Use mode context labels (see Mode Deltas). Reference the item by its ID (e.g., `> **4.2.3/2**: [Title]`). For groups, output ALL items' context blocks in one chat message, then one `AskUserQuestion` with up to 4 questions.
+**plan mode (and results mode's tag-placement bookkeeping) — the per-item loop.** For each item (or group of up to 4). Use the item's ID (from Step 2) as the `header` field in `AskUserQuestion`:
 
-2.  **Collect Decision**: Call the mode's **decision command** (see Mode Deltas). Results mode: §CMD_TAG_TRIAGE. Plan mode: §CMD_DECISION_TREE with Plan Review tree.
+1.  **Context Block** (`§FMT_CONTEXT_BLOCK` — MANDATORY in **plan mode**; in **results mode** the Decision Card from `§CMD_ELICIT` above IS the briefing — do not re-render a thin block): Use mode context labels (see Mode Deltas). Reference the item by its ID (e.g., `> **4.2.3/2**: [Title]`). For groups, output ALL items' context blocks in one chat message, then one `AskUserQuestion` with up to 4 questions.
+
+2.  **Collect Decision**: Call the mode's **decision command** (see Mode Deltas). Results mode: `§CMD_TAG_TRIAGE` (the `#needs-X` delegation-tag choice), informed by the ELICIT cards rendered above. Plan mode: §CMD_DECISION_TREE with Plan Review tree.
 
 3.  **On Result**: Execute mode-specific result handling (see Mode Deltas). For results mode, output tag proof per item:
     > **Tag proof [{itemId}]:** The tag `____` for item `____` was placed at `____` in `____`
@@ -122,7 +125,7 @@ Each skill provides inline configuration in its SKILL.md:
 *   **Non-blocking**: "None" at gate → no walk-through, session continues.
 *   **Batch respect**: Honor batch instructions immediately.
 *   **Group size**: Fixed at 4 (matching `AskUserQuestion` max). Last group gets remainder.
-*   **Decision commands**: Results → §CMD_TAG_TRIAGE. Plan → §CMD_DECISION_TREE.
+*   **Decision commands**: Results → §CMD_TAG_TRIAGE (the decision), preceded by §CMD_ELICIT disclosure (the cards). Plan → §CMD_DECISION_TREE.
 *   **Idempotent**: If called multiple times, present unprocessed items only.
 *   **Logging**: Every decision logged to DIALOGUE.md. Summary to session log.
 *   **`¶INV_ESCAPE_BY_DEFAULT`**: Backtick-escape tag references in chat output and context blocks; bare tags only on `**Tags**:` lines or intentional inline placement.

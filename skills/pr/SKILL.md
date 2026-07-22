@@ -154,7 +154,7 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
 
 ## 4. Relay the Automated Reviews (on background-poll completion)
 
-When the §3 poll re-wakes you (`REVIEWS_SETTLED` / `REVIEWS_TIMEOUT`, carrying `copilot=`/`codex_review=`/`codex_ok=` counts), fetch + relay whatever landed — only relay; `/pr` opens the PR, it never addresses feedback or merges. Relay both as ONE compact list, **labeled by reviewer**.
+When the §3 poll re-wakes you (`REVIEWS_SETTLED` / `REVIEWS_TIMEOUT`, carrying `copilot=`/`codex_review=`/`codex_ok=` counts), fetch whatever landed (queries below), then **disclose it through `§CMD_ELICIT` (standalone) rather than dumping a flat list** — automated reviewers are indiscriminate, so render each finding as a Decision Card (what's-at-stake · complexity · how-to-verify · advisory engagement, with a defeasible `my lean`) and lead with the triaged summary ("N worth addressing, M FYI") so the user sees which findings actually matter vs. noise. Label each card by reviewer (Copilot / Codex). `/pr` stays read-only — `§CMD_ELICIT` only **discloses + classifies attention**; the address/ignore choice (and any `/scrutinize`·`/fix` chain) is the caller's own, offered after the disclosure — it never addresses or merges.
 - **Copilot** (`copilot=`>0): summary body + inline findings (`file:line — essence`):
   ```bash
   gh api "repos/<owner>/<repo>/pulls/<n>/reviews"  --jq '.[]|select(.user.login=="copilot-pull-request-reviewer[bot]")|.body'

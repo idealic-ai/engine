@@ -702,3 +702,32 @@ Three named list density levels that replace markdown tables. Referenced via `§
 
 **Anti-pattern**: Bare questions without context. The user should always understand *what* they're being asked about and *why* before seeing options.
 
+### ¶FMT_DECISION_CARD
+
+**When to use**: The richer successor to `§FMT_CONTEXT_BLOCK` for disclosing the agent's own judgment per item. Used by `§CMD_ELICIT` (and, via it, `§CMD_WALK_THROUGH_RESULTS` results mode) — front-loading what the user reliably asks for next so they judge from context instead of interrogating. **The fields are generalized off the fix-shape** so one card fits a proposed **fix**, a raw **idea**, or a neutral **observation** — not only findings-to-fix. One card per item.
+
+**Rules**: A named-list card (never a table — `¶INV_LISTS_INSTEAD_OF_TABLES`). Card **depth scales with the triage bucket**: `FYI` = a one-liner (what + why-no-action); `I've-got-this` = a one-line what + why (never a bare count); `Your-call` = the full card, every field below. Lead the item line with its ID. On a `Your-call`, order the body **options-first-neutral, then the defeasible lean** (`§CMD_ELICIT` anti-anchor rule) — the POV lives in the lean, never in a separate recommendation-first field.
+
+Full-card fields (a `Your-call`):
+*   **Options** — 2–4 framed trade-offs: *A → risk X; B → risk Y, gain Z*; **always the honest do-nothing / defer** where it's real. Neutral, before the lean.
+*   **What's at stake** — the concrete consequence if left unaddressed: who/what it hits, how widely (a fix's failure, an idea's missed upside, an observation's implication).
+*   **Trade-off / cost of the recommendation** — what acting on the lean *costs or loses* (always paired with the lean, never omitted).
+*   **Complexity / cost to act** — does acting add surface / muddy the design / bloat the build? (orthogonal to correctness).
+*   **How to verify / validate** — the low-cost check that confirms or *sizes* it (a read-only count, a one-line repro, a grep, a quick spike).
+*   **Confidence** — the agent's honest confidence in its own read (load-bearing — gates the triage).
+*   **Engagement** — the advisory triage verdict: `I've-got-this` | `Your-call` | `FYI`.
+*   **My lean** — the agent's defeasible POV, *after* the options: what it recommends + the strongest case against it (the anti-anchor rule; this is where the POV lives).
+*   **Why you'd want to understand this** — one line, on `Your-call`s: a one-way door? a load-bearing assumption? a domain rule?
+
+```markdown
+> **[itemId]: [Title]** — `[file:line or scope]`
+> - **Options**: A → [risk X]; B → [risk Y, gain Z]; C → do nothing → [what stays unaddressed]
+> - **What's at stake**: [the concrete consequence, who/how widely] · **severity**: [low | real | high]
+> - **Trade-off**: [what acting costs / loses] · **Complexity / cost to act**: [low | real — adds/muddies X]
+> - **How to verify**: [the low-cost confirm/size check] · **Confidence**: [high | medium | low]
+> - **My lean**: B, because […] — but the strongest case against it is […]
+> - **Engagement**: Your-call — [one line: why it's worth your attention]
+```
+
+**Anti-pattern**: A neutral dump with no lean; a recommendation-first framing that anchors before the options; a lean stated without its paired trade-off; a bare count for the `I've-got-this` / `FYI` buckets; a full expensive card spent on an `FYI`.
+

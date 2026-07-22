@@ -564,4 +564,7 @@ Domain-specific tag-based triage. Presents dynamically-selected delegation targe
 ### [¶CMD_WALK_THROUGH_RESULTS](commands/CMD_WALK_THROUGH_RESULTS.md)
 Walks the user through skill outputs or plan items with configurable granularity (None / Groups / Each item).
 
+### [¶CMD_ELICIT](commands/CMD_ELICIT.md)
+Pure disclosure layer — the mirror of `§CMD_INTERROGATE` (pulls the agent's judgment out). Builds a `§FMT_DECISION_CARD` per item (fields generalized off the fix-shape — fits findings, ideas, observations), triages on severity × complexity into an advisory `I've-got-this` / `Your-call` / `FYI`, and renders cards-then-summary. Then **hands off to the caller's own decision command** (`§CMD_TAG_TRIAGE` / fix-skip-defer / address-ignore) — it never collects the final decision and never auto-acts. Invoked by `§CMD_WALK_THROUGH_RESULTS` results mode or standalone (ad-hoc).
+
 
