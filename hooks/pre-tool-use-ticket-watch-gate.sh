@@ -27,6 +27,11 @@ source "$HOME/.claude/scripts/lib.sh"
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || echo "")
 
+# Sub-agents don't babysit the orchestrator's ticket watcher — watching/draining is the
+# orchestrator's job (§CMD_DRAIN_TICKET_QUEUE_ON_WAKE). A sub-agent's tool call carries a non-empty
+# `agent_id` (absent on the parent's); exempt it. Signal per pre-tool-use-overflow-v2.sh.
+[ -n "$(echo "$INPUT" | jq -r '.agent_id // ""' 2>/dev/null || echo "")" ] && exit 0
+
 # No active session → truly idle; stay silent (INV_HOOKS_NOOP_WHEN_IDLE).
 session_dir=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
 { [ -n "$session_dir" ] && [ -f "$session_dir/.state.json" ]; } || exit 0
@@ -76,5 +81,5 @@ fi
 ticket_list=$(jq -r '[(.tickets // [])[].key] | join(", ")' "$state" 2>/dev/null || echo "")
 hook_deny \
   "[block: ticket-watch] This session subscribes to ticket(s) ${ticket_list} but has no live background watcher — cross-agent notifies would be missed." \
-  "Arm one now: run \`engine ticket watch\` via the Bash tool's run_in_background:true parameter — NOT a shell \`&\` (a shell \`&\` detaches from the harness so the watcher fires but never wakes you, and trips the background-command warning). Give that Bash call a wake-instruction description like 'Ticket watcher fired — run engine ticket read to drain, then fetch new comments via Linear MCP' so the completion notice tells you what to do (not an opaque 'exit code 0'). Then retry. It blocks until a real update (no timeout by default, so no fake-wakes); on wake, exit 0 means an update is queued — run \`engine ticket read\` to drain it BEFORE re-arming, or it re-fires instantly. (AskUserQuestion, Skill, and engine ticket/session/log stay allowed.)" \
+  "Arm one: run \`engine ticket watch\` via the Bash tool's run_in_background:true parameter — NOT a shell \`&\` (a shell \`&\` detaches from the harness so the watcher fires but never wakes you). Give that Bash call a wake-instruction description that cites \`§CMD_DRAIN_TICKET_QUEUE_ON_WAKE\` so the completion notice tells you what to do. On wake, follow \`§CMD_DRAIN_TICKET_QUEUE_ON_WAKE\`: read the drained \`{ticket, since}\` from the wake output (or its persisted-output file, if the harness truncated it), fetch that ticket's new Linear comments since \`since\`, then re-arm. (AskUserQuestion, Skill, and engine ticket/session/log stay allowed.)" \
   "watchTaskId pid absent/dead; grace ${count}/${GRACE_MAX} exhausted for pid ${SUPERVISOR_PID}"

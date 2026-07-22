@@ -573,4 +573,7 @@ Pure disclosure layer — the mirror of `§CMD_INTERROGATE` (pulls the agent's j
 ### [¶CMD_POST_TICKET_COMMENT](commands/CMD_POST_TICKET_COMMENT.md)
 The ONE canonical path for posting a comment to a Linear ticket: subscribe-check (`engine ticket subscribe`) → post (`save_comment`) → notify siblings (`engine ticket notify`), so the sibling-notify can never be forgotten. `/snapshot`, `/communicate`, `/pr`, and any ad-hoc post route their comment through it (`¶INV_TICKET_COMMENT_VIA_CMD`).
 
+### [¶CMD_DRAIN_TICKET_QUEUE_ON_WAKE](commands/CMD_DRAIN_TICKET_QUEUE_ON_WAKE.md)
+What to do when a background `engine ticket watch` wakes you: read the drained `{ticket, since}` the watcher wrote to its output (or the persisted-output file, if the harness truncated it), fetch that ticket's new Linear comments since `since`, act, then re-arm the watcher. Cited by `pre-tool-use-ticket-watch-gate.sh` and the watcher's wake-description so the wake protocol lives in one place.
+
 

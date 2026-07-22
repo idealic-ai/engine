@@ -231,11 +231,33 @@ _watch_unregister() {
   safe_json_update "$state" 'del(.watchTaskId)' 2>/dev/null || true
 }
 
-# Block (via fswatch) until a watched ticket has a pending update, then exit 0
-# printing the matched key(s). KEY narrows to one ticket; omitted watches all
-# subscribed. Non-destructive — the caller runs `read` afterward to drain + get
-# `since`. Designed for Bash(run_in_background): the harness re-invokes the agent
-# on exit. Exit: 0 update, 124 timeout, 2 fswatch missing, 1 nothing to watch.
+# On wake, drain the matched tickets (advance lastReadAt) and emit the matched key(s)
+# + per-ticket `since` (the prior watermark) to stdout, so the background-task wake
+# notification carries the update directly — no separate `read` step, and the advanced
+# watermark means a re-arm can't re-fire on the same entry. `since` is captured BEFORE
+# advancing so the agent fetches exactly the new-comment window via Linear MCP.
+_watch_drain_emit() {
+  local state="$1" matched="$2" now since_json
+  now=$(_now)
+  since_json=$(jq -c --arg keys "$matched" '
+    ($keys | split(" ")) as $m
+    | [ (.tickets // [])[] | select(.key as $k | $m | index($k))
+        | {ticket: .key, since: (.lastReadAt // .subscribedAt // "")} ]
+  ' "$state" 2>/dev/null || echo "[]")
+  safe_json_update "$state" --arg keys "$matched" --arg now "$now" '
+    ($keys | split(" ")) as $m
+    | .tickets = [ (.tickets // [])[] | if (.key as $k | $m | index($k)) then .lastReadAt = $now else . end ]
+    | .updatedTickets = [ (.updatedTickets // [])[] | select(.ticket as $t | ($m | index($t)) | not) ]
+  ' || true
+  printf 'ticket update — %s\n%s\n' "$matched" "$since_json"
+}
+
+# Block (via fswatch) until a watched ticket has a pending update, then AUTO-DRAIN and
+# exit 0 emitting the matched key(s) + per-ticket `since` to stdout (via _watch_drain_emit)
+# — the wake notification carries the update directly (§CMD_DRAIN_TICKET_QUEUE_ON_WAKE), no separate
+# `read`. KEY narrows to one ticket; omitted watches all subscribed. Designed for
+# Bash(run_in_background): the harness re-invokes the agent on exit. Exit: 0 update,
+# 124 timeout, 2 fswatch missing, 1 nothing to watch.
 cmd_watch() {
   if ! command -v fswatch >/dev/null 2>&1; then
     echo "ticket: fswatch is required for 'watch' but not installed. Install: brew install fswatch" >&2
@@ -277,7 +299,7 @@ cmd_watch() {
 
   local matched
   matched=$(jq -r --arg k "$key" "$match_filter" "$state" 2>/dev/null)   # race guard
-  if [ -n "$matched" ]; then echo "$matched"; return 0; fi
+  if [ -n "$matched" ]; then _watch_drain_emit "$state" "$matched"; return 0; fi
 
   # Self-register as the live watcher so the auto-watch gate can confirm this session
   # is armed (liveness = kill -0 on this pid; the trap below is the graceful fast-path).
@@ -315,7 +337,7 @@ cmd_watch() {
       # Watch the session dir (not the file) so the atomic mv-write from safe_json_update is caught.
       if timeout "$remaining" fswatch -1 "$dir" >/dev/null 2>&1; then
         matched=$(jq -r --arg k "$key" "$match_filter" "$state" 2>/dev/null)
-        if [ -n "$matched" ]; then echo "$matched"; return 0; fi
+        if [ -n "$matched" ]; then _watch_drain_emit "$state" "$matched"; return 0; fi
       else
         break  # fswatch hit the deadline
       fi
@@ -337,7 +359,7 @@ cmd_watch() {
     if [ "$rc" -eq 0 ] || [ "$rc" -eq 124 ]; then
       # 0 = fs event, 124 = internal re-check tick — either way, re-evaluate.
       matched=$(jq -r --arg k "$key" "$match_filter" "$state" 2>/dev/null)
-      if [ -n "$matched" ]; then echo "$matched"; return 0; fi
+      if [ -n "$matched" ]; then _watch_drain_emit "$state" "$matched"; return 0; fi
     else
       # Not a tick and not an event — a genuine fswatch backend failure. Surface it
       # (exit 2) rather than hot-spinning the loop.
