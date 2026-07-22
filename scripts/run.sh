@@ -65,8 +65,8 @@ export CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=100
 export CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE=997000
 export DISABLE_COMPACT=1
 
-# Don't treat long-lived fleet agents as away/idle (24h AFK timeout)
-export CLAUDE_AFK_TIMEOUT_MS=86400000
+# Don't treat long-lived fleet agents as away/idle (365d AFK timeout — effectively disabled)
+export CLAUDE_AFK_TIMEOUT_MS=31536000000
 
 AGENTS_DIR="$HOME/.claude/agents"
 SCRIPTS_DIR="$HOME/.claude/scripts"
