@@ -10,11 +10,6 @@ Translate a body of in-context work into one or more well-framed tickets. A back
 
 This is distinct from just calling the tracker MCP directly. It front-loads a **premise-first draft** derived from actual work (so the ticket captures *why* and *what*, not a half-baked solution), runs an interactive **per-ticket calibration gate** (you own title, scope, labels, and placement), and makes the **sub-issue-vs-new** decision from context — inheriting the parent's metadata when it files under an existing ticket.
 
-### Execution Mode: Engine vs. Standalone
-Before proceeding, determine your environment. You are running under the workflow engine **if and only if `COMMANDS.md`** (the engine's core command standards, containing `§CMD_*` / `§INV_*` definitions) **is preloaded in your context** (the SessionStart hook injects it). This single check dictates every fallback below:
-- **Engine Mode (`COMMANDS.md` present):** Active session. Use `engine log`, `<sessionDir>`, and `<trailDir> = <sessionDir>/builds/`. Draw scope/intent from the session's `DIALOGUE.md`, plan, and log. The `§CMD_*` references (e.g., `§CMD_WALK_THROUGH_RESULTS`) resolve to their engine definitions.
-- **Standalone Mode (`COMMANDS.md` absent):** No session (teammate without the engine). Use the global `/tmp` trail dir and plain file appends (defined in §5). Draw scope/intent from the conversation and args. Treat every `§CMD_*`/`§FMT_*` reference as plain-English guidance (the surrounding prose describes the behavior: the calibration walk-through and the batch-confirm gate are spelled out in §3–§4). **Standalone limitations:** No session-slug parent source (parent detection falls back to branch + conversation only) and no session log/plan/`builds/` trail. Grounding comes from the git diff and the conversation digest the orchestrator inlines; expect thinner context.
-
 **Tracker Note (Linear):**
 This project files to **Linear**, via the `linear-server` MCP tools (`list_teams`, `list_issue_labels`, `list_issue_statuses`, `get_issue`, `list_issues`, `save_issue`) — the tracker and its tool set are constant; only the **issue-key prefix** and **team** vary per project and come from CLAUDE.md § Tracker (resolve them in §1, inject into the subagent prompt). Tickets use that prefix — `<PREFIX>-NNNN` (finch: `FIN`, so keys look like `FIN-3141`). `save_issue` both creates and updates. On create, it takes **human names/identifiers, not UUIDs** — `team`, `parentId` (accepts `"<PREFIX>-NNNN"` directly), `labels` (label NAMES), `assignee` (name/email/`"me"`), `project`, `cycle`, `state`, `priority` (int), `title`, `description` (Markdown). There is no separate ID-resolution step. Load tool schemas on demand (ToolSearch `linear`). If no Linear MCP is connected, degrade gracefully: draft and calibrate as usual, then hand the user the finalized ticket bodies in chat to copy-paste, noting that posting was skipped.
 
@@ -24,7 +19,7 @@ This project files to **Linear**, via the `linear-server` MCP tools (`list_teams
 
 Establish the two anchors the run depends on: **what work** the ticket(s) come from, and **the intent** behind it.
 
-**Resolve the tracker config (do this first):** Read CLAUDE.md's `## Tracker` block (the orchestrator sees CLAUDE.md; the subagent will NOT, so you must resolve here and inject in §2). Resolve: the **issue-key prefix** — `<PREFIX>` uppercase for keys (`<PREFIX>-NNNN`) and its lowercase form for branches (`<prefix>-NNNN-…`) — and the **team**. Finch's block gives prefix `FIN` / team `Finchclaims`. **Fallback — no `## Tracker` block** (unconfigured project, or standalone mode): keep today's behavior — detect a `FIN`-style key (an uppercase-alpha prefix + `-NNNN`) from the branch/slug/conversation at lower confidence. The config is never a hard requirement; absent it, degrade to detection, don't error.
+**Resolve the tracker config (do this first):** Read CLAUDE.md's `## Tracker` block (the orchestrator sees CLAUDE.md; the subagent will NOT, so you must resolve here and inject in §2). Resolve: the **issue-key prefix** — `<PREFIX>` uppercase for keys (`<PREFIX>-NNNN`) and its lowercase form for branches (`<prefix>-NNNN-…`) — and the **team**. Finch's block gives prefix `FIN` / team `Finchclaims`. **Fallback — no `## Tracker` block** (unconfigured project): keep today's behavior — detect a `FIN`-style key (an uppercase-alpha prefix + `-NNNN`) from the branch/slug/conversation at lower confidence. The config is never a hard requirement; absent it, degrade to detection, don't error.
 
 **Scope** — the body of work to turn into ticket(s). Resolve from args, else infer and confirm:
 - *(bare)* / a descriptor → the active session's log/plan/`DIALOGUE.md` (the current chunk / what we just did), else the recent conversation.
@@ -33,15 +28,17 @@ Establish the two anchors the run depends on: **what work** the ticket(s) come f
 - text after `--` → an intent/framing override (what these tickets are really *for*).
 *If scope is ambiguous, present the candidates via `AskUserQuestion`.*
 
-**Detect the context ticket** (drives placement in §3): Scan for a parent key `<PREFIX>-NNNN` (prefix from § Tracker) in the **session slug** (finch example, prefix=FIN: `2026_07_02_FIN_2737_...` → `FIN-2737`), the **git branch** (lowercase prefix: `<prefix>-2712-...` → `<PREFIX>-2712`), or the conversation. Standalone (no engine) has no session slug, so detection falls back to branch + conversation only — lower confidence, so lean harder on the §3 pick. Call `get_issue` now to resolve enough to display the parent's **title · state · team** at placement (and to read its labels/project/cycle for inheritance in §4). Note the confidence: a **branch-derived** key that contradicts a **slug-derived** key, or a parent that is **Done/Canceled/archived**, is a low-confidence CANDIDATE, not a default — §3 forces a pick in that case.
+**Detect the context ticket** (drives placement in §3): Scan for a parent key `<PREFIX>-NNNN` (prefix from § Tracker) in the **session slug** (finch example, prefix=FIN: `2026_07_02_FIN_2737_...` → `FIN-2737`), the **git branch** (lowercase prefix: `<prefix>-2712-...` → `<PREFIX>-2712`), or the conversation. Call `get_issue` now to resolve enough to display the parent's **title · state · team** at placement (and to read its labels/project/cycle for inheritance in §4). Note the confidence: a **branch-derived** key that contradicts a **slug-derived** key, or a parent that is **Done/Canceled/archived**, is a low-confidence CANDIDATE, not a default — §3 forces a pick in that case.
 
-**Resolve the trail** (used in §2/§5): `<trailDir> = <sessionDir>/builds/` under an engine session, else `${TMPDIR:-/tmp}/finch-build-trail/<repo-basename>/` (`mkdir -p`). Pick a `<slug>` once — a short kebab-case string of the scope (e.g., `identity-model-fix`, `recap-flat-followups`). If this run follows a `/build` or `/experiment`, reuse that run's slug so the tickets sit beside its report. Otherwise, before minting a fresh slug, `ls <trailDir>` — if an existing `<slug>_*.md` clearly matches this work (same chunk / ticket / topic), REUSE that slug so the trail clusters under one name; only mint a new one for genuinely new work.
+**Resolve the trail** (used in §2/§5): `<trailDir> = <sessionDir>/builds/`. Pick a `<slug>` once — a short kebab-case string of the scope (e.g., `identity-model-fix`, `recap-flat-followups`). If this run follows a `/build` or `/experiment`, reuse that run's slug so the tickets sit beside its report. Otherwise, before minting a fresh slug, `ls <trailDir>` — if an existing `<slug>_*.md` clearly matches this work (same chunk / ticket / topic), REUSE that slug so the trail clusters under one name; only mint a new one for genuinely new work.
 
 **Echo back in one line:** `Ticketing <scope> — intent: <intent>; context ticket: <<PREFIX>-NNNN "title" · state · team | none>; trail: <trailDir>/<slug>_TICKETS.md.`
 
 ## 2. Draft — Spawn the Drafting Agent (Background)
 
 **Backgroundable & parallelizable.** This sub-agent dispatch is a composable building block: it can run in the background (`run_in_background: true`) so the orchestrator keeps working while it runs, and when the work splits into independent chunks, several such sub-agents can be fanned out in parallel and reconciled.
+
+> **Before dispatching — `§CMD_LOG_SKILL_INVOCATION`**: log this dispatch to the session log (why + context-pack pointer + one-line re-tread) so a restarted session can re-tread it. Fire it as the last step before the `Task`/`Agent` handoff.
 
 Spawn **one** background agent (a `general-purpose`/`analyzer`) to analyze the scope and draft the ticket(s). It does the heavy reading and framing; you keep the thread for calibration. Build its prompt so it is entirely self-contained. Use the exact prompt structure below:
 
@@ -64,7 +61,7 @@ Prefer background execution (`run_in_background: true`) so the user can keep wor
 
 ## 3. Calibrate — Walk the Drafts with the User
 
-The interactive **calibration gate is the core of `/ticket`** — the user, not the model, finalizes each ticket before anything is posted. Run it explicitly; never post a draft as-is. Under the engine, this is `§CMD_WALK_THROUGH_RESULTS`; **standalone, run the routine below directly with `AskUserQuestion`**.
+The interactive **calibration gate is the core of `/ticket`** — the user, not the model, finalizes each ticket before anything is posted. Run it explicitly; never post a draft as-is. This is `§CMD_WALK_THROUGH_RESULTS`.
 
 1. **Granularity Gate (One `AskUserQuestion`):** "How do you want to walk the N draft ticket(s)?"
    - **Each** (one at a time)
@@ -124,11 +121,11 @@ Reconcile, dedup, confirm once, then create — and wire dependencies in a secon
 
 ## 5. Report
 
-Summarize in chat: what was filed (each `<PREFIX>-NNNN` + URL + placement), what was dropped/merged, and any create that failed. Link the drafts trail (`§CMD_LINK_FILE`, or just state the path when standalone).
+Summarize in chat: what was filed (each `<PREFIX>-NNNN` + URL + placement), what was dropped/merged, and any create that failed. Link the drafts trail (`§CMD_LINK_FILE`).
 
-**Paper Trail** (Engine-optional): Update `<trailDir>/<slug>_TICKETS.md` — mark each draft with its outcome (`→ filed <PREFIX>-NNNN <url>` / `merged into #` / `dropped`). Append across the run so a killed/resumed run keeps the record.
+**Paper Trail:** Update `<trailDir>/<slug>_TICKETS.md` — mark each draft with its outcome (`→ filed <PREFIX>-NNNN <url>` / `merged into #` / `dropped`). Append across the run so a killed/resumed run keeps the record.
 
-**Feed the Ledger** (Compounding memory, same as `/build`+`/scrutinize`): Append the durable outcome to `<trailDir>/LESSONS.md` — one terse bullet: what was filed, the identifiers, and any framing decision worth carrying (e.g., *"Split the cutover into `<PREFIX>-A` identity + `<PREFIX>-B` reader-swap; `<PREFIX>-B` blocked on `<PREFIX>-A`"*). Under a session use `engine log`, else `printf … >> <trailDir>/LESSONS.md`. The next `/build`/`/scrutinize` reads these, so the tickets you filed shape the next handoff. Do NOT commit anything.
+**Feed the Ledger** (Compounding memory, same as `/build`+`/scrutinize`): Append the durable outcome to `<trailDir>/LESSONS.md` — one terse bullet: what was filed, the identifiers, and any framing decision worth carrying (e.g., *"Split the cutover into `<PREFIX>-A` identity + `<PREFIX>-B` reader-swap; `<PREFIX>-B` blocked on `<PREFIX>-A`"*). Use `engine log`. The next `/build`/`/scrutinize` reads these, so the tickets you filed shape the next handoff. Do NOT commit anything.
 
 ## Constraints
 - **Premise, not algorithm.** Every ticket states the problem + boundaries + acceptance, never a prescribed implementation. If the work implies a solution, it's an optional one-liner at most — the ticket must survive a different approach.
@@ -136,7 +133,7 @@ Summarize in chat: what was filed (each `<PREFIX>-NNNN` + URL + placement), what
 - **The user owns every ticket.** The drafter proposes; title, scope, labels, placement, and the decision to file are all the user's via `AskUserQuestion`. Never post an un-calibrated draft.
 - **Placement is context-driven, always confirmable.** A high-confidence parent (open, same team) → sub-issue inheriting labels+assignee+team+project+cycle; a low-confidence one → an explicit candidate pick, never a silent default; no parent → new issue posted with `state: "backlog"` (the baseline is *enforced*, not assumed — omitting `state` lets Linear fall to the team default), offering inferred labels/project. Placement is never swept up by "approve all"; the user confirms it explicitly and overrides either way.
 - **One batch confirm before posting.** Posting is outward-facing and hard to undo — a single explicit confirm of the whole set is mandatory; there is no auto-post.
-- **Paper trail always** (engine-optional). The drafts + outcomes persist to `<trailDir>/<slug>_TICKETS.md` and feed `LESSONS.md`, mirroring `/build`+`/scrutinize` — unless truly standalone with no tracker, where it degrades to chat-only.
+- **Paper trail always.** The drafts + outcomes persist to `<trailDir>/<slug>_TICKETS.md` and feed `LESSONS.md`, mirroring `/build`+`/scrutinize`.
 - **Attach ready evidence, not process artifacts.** When the agent already has supporting screenshots/images or a well-made standalone artifact (evidence doc, important report, writeup) in hand, attach it to the filed issue (under the batch confirm, best-effort). NEVER attach session debriefs/logs/plans/build-trail files, and never fabricate a screenshot to fill the slot.
 - **Sessionless + read-only on code.** `/ticket` owns no session dir and changes no code — it reads work and writes tickets. No commit unless the user asks.
 - **Graceful without the tracker.** No Linear MCP → still draft + calibrate, hand over the finalized bodies to paste, note posting was skipped.

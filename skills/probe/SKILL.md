@@ -12,13 +12,6 @@ This is the **fast, hands-off, read-only counterpart to `/analyze`**. Where `/an
 
 *Crucial constraint:* `/probe` does NOT own a session. It reads the *active* session's context and writes its paper trail directly into that session's folder.
 
-### Execution Mode: Engine vs. Standalone
-Before proceeding, determine your environment. You are running under the workflow engine **if and only if `COMMANDS.md`** (the engine's core command standards, containing `§CMD_*` / `§INV_*` definitions) **is preloaded in your context** (the SessionStart hook injects it). This single check dictates every fallback below:
-- **Engine Mode (`COMMANDS.md` present):** An active session exists. Use `engine log`, `<sessionDir>`, and set `<trailDir> = <sessionDir>/builds/`. Draw starting pointers from the session's `DIALOGUE.md`, plan, and log. All `§CMD_*` references resolve to their engine definitions.
-- **Standalone Mode (`COMMANDS.md` absent):** You are assisting a teammate without the engine. No session exists. Use the global `/tmp` trail directory and plain file appends (defined in §1.C). Draw starting pointers directly from the conversation, and treat any `§CMD_*`/`§FMT_*` reference below as plain-English guidance (the surrounding prose describes the behavior).
-
-The rest of the protocol is identical either way — the Task/AskUserQuestion/Skill mechanics need no engine.
-
 # /probe Protocol
 
 ## 1. Frame the Intent, Sources & Trail
@@ -38,8 +31,8 @@ Decide which sources the intent actually needs — this drives §2's dispatch:
 Name the in-scope sources explicitly, and state the **read-only boundary**: no code edits, no DB writes, no ticket writes, no commits.
 
 **C. The Trail**
-Set `<trailDir> = <sessionDir>/builds/` (Engine mode) or `${TMPDIR:-/tmp}/finch-build-trail/<repo-basename>/` (Standalone mode; `mkdir -p`). Mint a short, kebab-case `<slug>` from the intent (e.g. `snapshot-missing-coverages`, `flat-detector-multipage`).
-*Crucial:* Before minting a new slug, run `ls <trailDir>`. If an existing `<slug>_*.md` clearly matches this work (same chunk / ticket / topic), REUSE that slug so the probe clusters with the `/build`, `/scrutinize`, and `/experiment` artifacts for the same work. Ledger/log appends (§5) use `engine log` under a session, else a plain file append (`printf '## …\n…\n' >> <trailDir>/LESSONS.md`).
+Set `<trailDir> = <sessionDir>/builds/`. Mint a short, kebab-case `<slug>` from the intent (e.g. `snapshot-missing-coverages`, `flat-detector-multipage`).
+*Crucial:* Before minting a new slug, run `ls <trailDir>`. If an existing `<slug>_*.md` clearly matches this work (same chunk / ticket / topic), REUSE that slug so the probe clusters with the `/build`, `/scrutinize`, and `/experiment` artifacts for the same work. Ledger/log appends (§5) use `engine log`.
 
 **Acknowledge:** Echo back your setup in exactly one line:
 `Probing: <intent> — sources: <code|db|tickets>; trail: <trailDir>/<slug>_PROBE.md.`
@@ -87,9 +80,9 @@ Build the subagent's prompt to be entirely self-contained — it cannot see your
 
 **Substituting `<REPORT_PATH>`:** single agent → `<trailDir>/<slug>_PROBE.md`. Fanned out → each agent gets its own `<trailDir>/<slug>-<source>_PROBE.md`, per the topology rule above. Always hand the agent the **fully-substituted absolute path**, never a placeholder to fill.
 
-**Substituting `<LOGGING>`:**
-- **Engine Mode:** replace it with the concrete command — append your thinking stream via `engine log <the active session's log path>` every ~5 tool calls, using the notebook schemas in this skill's `assets/TEMPLATE_PROBE_LOG.md` (Discovery / Weakness / Connection / Spark / Gap / Pattern / Tradeoff / Assumption / Strength). Tell the agent plainly: **a heartbeat hook BLOCKS after 10 tool calls without a log**, and the notebook is the raw material the report synthesizes — a thin log makes a thin report.
-- **Standalone Mode:** there is no heartbeat and no session log — OMIT the line entirely; the Probe Report is the trail.
+**Substituting `<LOGGING>`:** replace it with the concrete command — append your thinking stream via `engine log <the active session's log path>` every ~5 tool calls, using the notebook schemas in this skill's `assets/TEMPLATE_PROBE_LOG.md` (Discovery / Weakness / Connection / Spark / Gap / Pattern / Tradeoff / Assumption / Strength). Tell the agent plainly: **a heartbeat hook BLOCKS after 10 tool calls without a log**, and the notebook is the raw material the report synthesizes — a thin log makes a thin report.
+
+**Before dispatching — `§CMD_LOG_SKILL_INVOCATION`**: log this dispatch to the session log (why + context-pack pointer + one-line re-tread) so a restarted session can re-tread it. Fire it as the last step before the `Task`/`Agent` handoff.
 
 Dispatch to the background by default (`run_in_background: true`) so you keep working while it runs and are notified when it lands. Run it in the **foreground** only if you need the answer before your very next step.
 
@@ -105,7 +98,7 @@ Read the report. If you fanned out, **reconcile** the parallel reports into one 
 
 The interactive `AskUserQuestion` walkthrough is where a probe turns into a decision. The user, not the model, decides each finding's fate. Run it explicitly. NEVER dump findings as bare text and assume the user's intent.
 
-Under the engine this is `§CMD_WALK_THROUGH_RESULTS`; standalone, run the routine below directly with `AskUserQuestion`. Do NOT use the `§CMD_TAG_TRIAGE` default — use the probe decision set below.
+This is `§CMD_WALK_THROUGH_RESULTS`. Do NOT use the `§CMD_TAG_TRIAGE` default — use the probe decision set below.
 
 **The Walkthrough Routine:**
 
@@ -144,9 +137,9 @@ Under the engine this is `§CMD_WALK_THROUGH_RESULTS`; standalone, run the routi
 
 *Crucial:* keep the human gate. Do NOT auto-execute a chain.
 
-**Append to the trail.** APPEND the triage outcome (per-finding fate + reason) to `<trailDir>/<slug>_PROBE.md`. Append rather than rewrite, so a killed or resumed run never loses history. The report persists even on a partial or blocked probe. Link the files in chat (`§CMD_LINK_FILE`). *(Truly standalone with no writable trail: stay chat-only.)*
+**Append to the trail.** APPEND the triage outcome (per-finding fate + reason) to `<trailDir>/<slug>_PROBE.md`. Append rather than rewrite, so a killed or resumed run never loses history. The report persists even on a partial or blocked probe. Link the files in chat (`§CMD_LINK_FILE`).
 
-**Feed the ledger (compounding loop).** Append the durable answers to `<trailDir>/LESSONS.md` as terse bullets — the settled facts, not the narrative — via `engine log` under a session, else a plain file append (`printf '## …\n…\n' >> <trailDir>/LESSONS.md`).
+**Feed the ledger (compounding loop).** Append the durable answers to `<trailDir>/LESSONS.md` as terse bullets — the settled facts, not the narrative — via `engine log`.
 *(Illustrative — adapt, don't copy: "Empty-coverage snapshots are all pre-cutover phantoms (412 rows, none post-2026-01) — cleanup command already exists.")*
 The next `/build`, `/probe`, or `/analyze` reads these, so a settled answer shapes the next handoff instead of evaporating.
 

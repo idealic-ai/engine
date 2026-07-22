@@ -44,6 +44,8 @@ Write down what **you** (the orchestrator) currently believe the state to be, fr
 
 ## 3. Spawn the transcript-scanning subagent (file handoff)
 
+> **Before dispatching — `§CMD_LOG_SKILL_INVOCATION`**: log this dispatch to the session log (why + context-pack pointer + one-line re-tread) so a restarted session can re-tread it. Fire it as the last step before the `Task`/`Agent` handoff.
+
 Spawn **one** subagent (`general-purpose` or `analyzer`) to reconstruct the state from `<transcript>`. **File handoff** (`¶INV_REPORT_FILE_HANDOFF`): it WRITES its full digest to `<trailDir>/REPORT_DIGEST.md` and RETURNS only a 6–10 line summary — keeping the orchestrator lean and leaving a durable artifact beside the other `builds/` files. Run it **foreground** (§4–§8 need it).
 
 **Guard:** if neither `<transcript>` nor `DIALOGUE.md`/`*_LOG.md` exists, skip the subagent — the orchestrator does git + ticket directly.

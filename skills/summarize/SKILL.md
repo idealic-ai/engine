@@ -12,13 +12,6 @@ A reader subagent digests the paper trail into a tight, intent-oriented report. 
 
 **Hard Boundaries & Hand-offs:** This is **not `/snapshot`** (it never commits, posts to a ticket, or re-runs a gate to verify). This is **not `/scrutinize`** (it does not hunt for bugs or fix code). It reads what happened, explains it clearly, and helps you interrogate it. If it happens to notice a bug or risk, that becomes a line item in the report, not a trigger for a repair. As a report engine, its output can optionally be consumed by `/snapshot` to draft ticket updates. It consumes the artifacts produced by its siblings (`_BUILD`, `_CRITIQUE`, `_EXPERIMENT`, `_FIX`) and `LESSONS.md`.
 
-### Execution Mode: Engine vs. Standalone
-
-Before proceeding, determine your environment. You are running under the workflow engine **if and only if `COMMANDS.md`** (the engine's core command standards, containing `§CMD_*` / `§INV_*` definitions) **is preloaded in your context** (the SessionStart hook injects it). This single check dictates every fallback below:
-
-- **Engine Mode (`COMMANDS.md` present):** An active session exists. Use `engine log`, `<sessionDir>`, and set `<trailDir> = <sessionDir>/builds/`. Draw the narrative from the session's log, plan, build-reports, critiques, `DIALOGUE.md`, and git history.
-- **Standalone Mode (`COMMANDS.md` absent):** You are assisting a teammate without the engine. No session exists. Use the global `/tmp` trail directory and plain file appends (defined in §1). Draw the narrative from the git diff and the conversation history. Treat any `§CMD_*`/`§FMT_*` reference below as plain-English guidance (the surrounding prose describes the behavior). *Note: Standalone reports will be thinner, relying heavily on the diff and conversation digest rather than a rich `builds/` trail.*
-
 # /summarize Protocol
 
 ## 1. Resolve scope & target
@@ -30,9 +23,7 @@ Establish **what to summarize** (a specific chunk or the entire session) and det
   - **Session:** The entire log / plan / `DIALOGUE.md` arc.
   - **Argument Overrides:** If the user provides an argument (e.g., a named plan step, a `builds/<slug>`, a git range like `HEAD~5..`, a time window, or literally types `session` / `chunk`), this overrides auto-detection.
 - **Confirmation Rule:** Ask: *"Summarize **chunk: `<detected>`** (detected), or the **whole session**?"* **Skip this question ONLY** if the user provided an unambiguous argument that pinned the scope.
-**Resolve the Artifact Location (`<trailDir>`) & report path.** Also bind `<reportPath>` — the report's save target — once, and hand the subagent (§2) the fully-substituted absolute path (never the placeholder): `<trailDir>/<slug>_SUMMARY.md` for a chunk scope, else `<sessionDir>/SESSION_SUMMARY.md` for a session scope (standalone: `<trailDir>/<repo>_SESSION_SUMMARY.md`). Determine `<trailDir>` once and use it everywhere below:
-- **Engine Mode:** `<trailDir> = <sessionDir>/builds/`.
-- **Standalone Mode:** `<trailDir> = ${TMPDIR:-/tmp}/finch-build-trail/<repo-basename>/`. Run `mkdir -p <trailDir>`.
+**Resolve the Artifact Location (`<trailDir>`) & report path.** Also bind `<reportPath>` — the report's save target — once, and hand the subagent (§2) the fully-substituted absolute path (never the placeholder): `<trailDir>/<slug>_SUMMARY.md` for a chunk scope, else `<sessionDir>/SESSION_SUMMARY.md` for a session scope. `<trailDir> = <sessionDir>/builds/` — determine it once and use it everywhere below.
 
 **Mint the `<slug>`.** For a chunk scope, the orchestrator owns the slug.
 1. Run `ls <trailDir>`.
@@ -42,11 +33,13 @@ Establish **what to summarize** (a specific chunk or the entire session) and det
 
 - **Resolve Git Range:** Deterministically find the commit range for the stat strip. For a chunk, use `<base>..HEAD` or the provided arg range. For a session, use the session's full commit span. Record this range so the reader subagent can use it for `git diff --numstat` and `git log`.
 
-**Echo back one line:** `Summarizing <chunk: "<slug>" | the session> (<git-range>) from <trailDir | conversation>; report → chat<, savable as <name>>.`
+**Echo back one line:** `Summarizing <chunk: "<slug>" | the session> (<git-range>) from <trailDir>; report → chat<, savable as <name>>.`
 
 ## 2. Read — spawn the reader subagent (read-only digest)
 
 **Backgroundable & parallelizable.** This sub-agent dispatch is a composable building block: it can run in the background (`run_in_background: true`) so the orchestrator keeps working while it runs, and when the work splits into independent chunks, several such sub-agents can be fanned out in parallel and reconciled.
+
+> **Before dispatching — `§CMD_LOG_SKILL_INVOCATION`**: log this dispatch to the session log (why + context-pack pointer + one-line re-tread) so a restarted session can re-tread it. Fire it as the last step before the `Task`/`Agent` handoff.
 
 Spawn **one** subagent (using a `general-purpose` or `analyzer` profile) to digest the scope and return a **distilled report**.
 
@@ -58,9 +51,7 @@ Construct the subagent's prompt to be entirely self-contained. Use the following
 >
 > **SCOPE:** `<chunk "<slug>" | the whole session>` — git range `<range>`.
 >
-> **SOURCES:** Read the trail SCOPED to this work, not just the diff.
-> - *Engine mode:* In `<trailDir>`, read this work's `<slug>_*.md` files (`_BUILD`, `_CONTEXT_PACK`, `_CRITIQUE`, `_FIX`, `_EXPERIMENT`, `_TICKETS`), PLUS the session `*_LOG.md`, the plan, `DIALOGUE.md`, and `LESSONS.md`. For a full session scope, read the entire arc.
-> - *Standalone mode:* Read the `${TMPDIR}/finch-build-trail/<repo>/` trail for this slug + its `LESSONS.md` + the conversation digest provided below.
+> **SOURCES:** Read the trail SCOPED to this work, not just the diff. In `<trailDir>`, read this work's `<slug>_*.md` files (`_BUILD`, `_CONTEXT_PACK`, `_CRITIQUE`, `_FIX`, `_EXPERIMENT`, `_TICKETS`), PLUS the session `*_LOG.md`, the plan, `DIALOGUE.md`, and `LESSONS.md`. For a full session scope, read the entire arc.
 > - *Note:* In a long session, `builds/` holds many unrelated slugs. Only skim artifacts from other slugs if they are directly relevant to this specific work.
 >
 > **TRUST, DON'T VERIFY (HARD FENCE):** Read test results, pass counts, and "green" claims from the LOG / git exactly as recorded. **Do NOT run** `tsc`, `test`, `build`, `lint`, `db:*`, or anything else. Label the numbers with their source and recorded time (e.g., *"tests 53→53 as recorded 14:33"*). If a claim is unclear or unverifiable from the artifacts, state that plainly. **Never assert a green you can't source.**
@@ -128,7 +119,7 @@ The user may pick any subset of questions. The orchestrator agent then **answers
 
 Offer to persist the report (via `AskUserQuestion` or a one-line confirm):
 - **Chunk scope:** Save as `<trailDir>/<slug>_SUMMARY.md`. (This uses the same `<slug>_*` convention as `_BUILD.md` or `_SNAPSHOT.md`, ensuring it clusters cleanly with the chunk's other artifacts).
-- **Session scope:** Save as `<sessionDir>/SESSION_SUMMARY.md` at the session root. (In standalone mode: `<trailDir>/<repo>_SESSION_SUMMARY.md`).
+- **Session scope:** Save as `<sessionDir>/SESSION_SUMMARY.md` at the session root.
 
 The report subagent already wrote a draft file to `<reportPath>` during §2.
 - If the user **declines** the save, note the ephemeral path in the chat (it lives in the trail either way) or leave it as the working draft.
@@ -144,5 +135,5 @@ Then **stop**. A saved summary can later feed `/snapshot`'s comment body or a PR
 - **Always a read-only reader subagent.** The digest runs in a subagent (full trail in → tight report out) to keep the orchestrator's context lean. The interactive review (§4–§5) stays with the orchestrator because it requires user interaction.
 - **Two-way review, in order.** Report → agent-asks-you (agent's uncertainties) → inverse-ask 4×4 palette (user's questions) → offer to save. One pass, no loop.
 - **Chat first, save on offer.** Render in chat by default; offer to persist. No auto-save.
-- **Building block, dual-mode.** It reports + reviews and then stops — it never commits, posts, files followups, or fixes. Runs in engine mode (session trail) or standalone (`/tmp` trail + diff). Its report engine is factored so downstream skills (like `/snapshot`) can call it to generate bodies.
-- **Lightweight + sessionless.** Runs within the active session (or standalone) — resolve scope → read → report → review → offer to save, then stop.
+- **Building block.** It reports + reviews and then stops — it never commits, posts, files followups, or fixes. Its report engine is factored so downstream skills (like `/snapshot`) can call it to generate bodies.
+- **Lightweight + sessionless.** Runs within the active session — resolve scope → read → report → review → offer to save, then stop.

@@ -460,6 +460,9 @@ Standardized handoff from a parent command to an autonomous agent (opt-in, foreg
 ### [¶CMD_PARALLEL_HANDOFF](commands/CMD_PARALLEL_HANDOFF.md)
 Parallel agent handoff — analyzes plan dependencies, derives independent chunks, and launches multiple agents in parallel.
 
+### [¶CMD_LOG_SKILL_INVOCATION](commands/CMD_LOG_SKILL_INVOCATION.md)
+Crash-recovery breadcrumb — before a sub-agentic skill dispatches its subagent, the orchestrator writes ONE curated log entry (why + context-pack pointer + how to re-dispatch), fired immediately before the `Task`/`Agent` call. Agent-authored, not a raw-prompt dump. Enforced by `§INV_LOG_SKILL_INVOCATION_BEFORE_DISPATCH`; cited by the sub-agent dispatchers.
+
 ### [¶CMD_OFFER_COUNCIL_REVIEW](commands/CMD_OFFER_COUNCIL_REVIEW.md)
 Offers a `/council` panel review on the artifact a skill just produced (plan/diff/report/vision/brainstorm) — the one reusable step any artifact-producing skill declares to compose council in. Offers, never forces (`¶INV_OFFER_DONT_FORCE_SKILLS`); on accept dispatches `/council` in the background (report-only), waits within a bounded ceiling, relays the verdict.
 

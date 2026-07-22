@@ -10,11 +10,6 @@ Stop guessing; start knowing. Use `/experiment` to actually TRY something to ans
 
 This is the **hands-on counterpart to `/analyze`**: where `/analyze` reads and reasons, `/experiment` writes and runs. Reach for it when the honest answer is "I'd have to try it to know." As a **building block**, it produces a *verdict*, not a fix. It never repairs the bug, ships the POC, or files a ticket. It runs within the active session, reports its findings, cleans up (or flags seeds), and stops. You decide what happens next: a repair via `/fix`, a full build via `/implement`, or capturing the work via `/ticket`.
 
-### Execution Mode: Engine vs. Standalone
-Before proceeding, determine your environment. You are running under the workflow engine **if and only if `COMMANDS.md`** (the engine's core command standards, containing `§CMD_*` / `§INV_*` definitions) **is preloaded in your context** (the SessionStart hook injects it). This single check dictates every fallback below:
-- **Engine Mode (`COMMANDS.md` present):** An active session exists. Use `engine log`, `<sessionDir>`, and set `<trailDir> = <sessionDir>/builds/`. All `§CMD_*` references resolve to their strict engine definitions.
-- **Standalone Mode (`COMMANDS.md` absent):** You are assisting a teammate without the engine. No session exists. Use the global `/tmp` trail directory and plain file appends (defined in §1). Treat any `§CMD_*`/`§FMT_*` reference below as plain-English guidance (the surrounding prose describes the behavior). *Standalone loses the session log/plan/`builds/` trail — the baseline snapshot + experiment report live in the global `/tmp` trail, and grounding relies entirely on the git diff plus the orchestrator's conversation digest. Expect thinner context.*
-
 # /experiment Protocol
 
 ## 1. Hypothesis & Success Criteria
@@ -26,8 +21,8 @@ Establish — lightweight — exactly what you are testing and what evidence wil
 - **Sandbox Boundaries:** This experiment writes throwaway code **in-tree, uncommitted**. Note anything it MUST NOT touch (e.g., "Do not run migrations", "Do not hit real external/prod services").
 
 **Resolve the Trail** (used in §2/§3):
-Set `<trailDir> = <sessionDir>/builds/` (Engine mode) or `${TMPDIR:-/tmp}/finch-build-trail/<repo-basename>/` (Standalone mode; `mkdir -p`). Mint a short, kebab-case `<slug>` from the hypothesis (e.g., `flat-detector-continuation`, `recap-from-entities`).
-*Crucial:* Before minting a new slug, run `ls <trailDir>`. If an existing `<slug>_*.md` clearly matches this work (same chunk / ticket / topic), REUSE that slug to cluster the trail. Only mint a new slug for genuinely new work. Ledger/log appends (§3) use `engine log` under a session, else a plain file append (`printf '## …\n…\n' >> <trailDir>/LESSONS.md`).
+Set `<trailDir> = <sessionDir>/builds/`. Mint a short, kebab-case `<slug>` from the hypothesis (e.g., `flat-detector-continuation`, `recap-from-entities`).
+*Crucial:* Before minting a new slug, run `ls <trailDir>`. If an existing `<slug>_*.md` clearly matches this work (same chunk / ticket / topic), REUSE that slug to cluster the trail. Only mint a new slug for genuinely new work. Ledger/log appends (§3) use `engine log`.
 
 **Snapshot the Baseline (BEFORE spawning the subagent):**
 Record the parent session's pre-existing uncommitted state: `git status --porcelain=v1 > <trailDir>/<slug>_BASELINE.txt`.
@@ -68,6 +63,8 @@ Spawn **one** subagent to execute the hands-on work. Use the `debugger` persona 
 > **4. Output Contract**
 > WRITE your report to `<trailDir>/<slug>_EXPERIMENT.md` using the Experiment template (this skill's `assets/TEMPLATE_EXPERIMENT.md` — path provided; do not hardcode `~/.claude`). Include: hypothesis, success criteria, environment/setup (branch@shortsha, fixtures/seed, versions if relevant), method (what you tried and why that vehicle), observations (exact commands/inputs → actual output — evidence, not claims) with a **repro command** (one exact line to re-run the decisive probe), **verdict** (proved / disproved / inconclusive) + **confidence** (high/medium/low), **scope of verdict / not tried**, a neutral "threads left open" pointer, and the complete **touched-files** list (Created / Modified-clean-at-baseline / Modified-dirty-at-baseline / Ran). Then return a 4–6 line summary + the report path.
 
+> **Before dispatching — `§CMD_LOG_SKILL_INVOCATION`**: log this dispatch to the session log (why + context-pack pointer + one-line re-tread) so a restarted session can re-tread it. Fire it as the last step before the `Task`/`Agent` handoff.
+
 Dispatch the subagent to the background by default (`run_in_background: true`) so you keep working while it runs and are notified when it lands; relay the summary then. Run it in the **foreground** only if you need its verdict before your next step.
 
 ## 3. Verdict & Disposition
@@ -94,9 +91,9 @@ Dispatch the subagent to the background by default (`run_in_background: true`) s
 
 3. **Report & Trail:**
    - Stamp the report's `Disposition` line (`reverted` / `kept` / `kept-selective`).
-   - Link the report (`§CMD_LINK_FILE`, or just state the path when standalone).
+   - Link the report (`§CMD_LINK_FILE`).
    - **Flag kept code concretely** so `/implement`'s handoff knows exactly what the seed is: kept NEW files use an obvious `*.experiment.*` / scratch name; any kept EDIT to real source is recorded with its `file:line` in the stamped Disposition line AND the `LESSONS.md` bullet (an UNVERIFIED SEED per step 2 if fix-shaped), since an unflagged source edit is otherwise invisible to the next agent.
-   - **Append to memory:** Append the durable outcome to `<trailDir>/LESSONS.md` as one terse bullet — the hypothesis and its verdict (e.g., *"CONFIRMED: flat detector drops continuation rows on >1-page rooms — repro in flat-detector-continuation.experiment.test.ts"*) — via `engine log` under a session, else a plain file append (`printf '## …\n…\n' >> <trailDir>/LESSONS.md`). The next `/build`/`/analyze` reads these, so a settled verdict shapes the next handoff instead of evaporating.
+   - **Append to memory:** Append the durable outcome to `<trailDir>/LESSONS.md` as one terse bullet — the hypothesis and its verdict (e.g., *"CONFIRMED: flat detector drops continuation rows on >1-page rooms — repro in flat-detector-continuation.experiment.test.ts"*) — via `engine log`. The next `/build`/`/analyze` reads these, so a settled verdict shapes the next handoff instead of evaporating.
 
 Then **stop**. `/experiment` reports and ends. What comes next (repair via `/fix`, build via `/implement`, capture via `/ticket`, deeper study via `/analyze`) is the user's call, not this skill's.
 
@@ -106,5 +103,5 @@ Then **stop**. `/experiment` reports and ends. What comes next (repair via `/fix
 - **In-tree but never silently polluting.** The experiment writes uncommitted throwaway code in the real tree; every touched file is tracked and the run ends on a revert-or-keep gate. The working tree is either cleanly reverted or knowingly kept — **never left in an unknown state**.
 - **Never a repo-wide git command (`¶INV_NO_DESTRUCTIVE_GIT`).** The tree is ALWAYS dirty here with the parent session's uncommitted work. Cleanup operates ONLY on the experiment's own touched files, per exact path (`rm <path>` / `git checkout -- <path>` / restore-from-backup) against the §1 baseline — NEVER `git clean`, `git checkout .`, `git stash`, `git reset`, or `git add -A`, which would destroy the parent's work. The one-strike hook enforces this: a per-path `git checkout -- <path>` of your own file is the narrow sanctioned exception (retry-to-confirm is fine); a repo-wide git command is not.
 - **Honest verdicts.** Proved / disproved / **inconclusive** are all valid — and DISPROVED is a full success, not a failure. Never manufacture a green result; an ill-posed hypothesis reports inconclusive with the reason.
-- **Lightweight + sessionless.** Runs within the active session — frame → run → report, then stop. No debrief, no phases, no commit.
+- **Lightweight.** Runs within the active session — frame → run → report, then stop. No debrief, no phases, no commit.
 - **Subagent does the work.** The orchestrator frames the hypothesis and owns the disposition gate; one experimenter subagent runs it and reports.

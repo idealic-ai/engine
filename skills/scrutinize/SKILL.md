@@ -10,11 +10,6 @@ Adversarially review a body of work, decide finding-by-finding with the user wha
 
 This is distinct from a standard `/code-review`. It runs an interactive **per-finding triage round** and dispatches a **goal-aware fixer**. The fixer receives the original intent, the critique, and the user's resolution decisions. This guarantees fixes are made in service of what the work was *for*, rather than in isolated, context-free vacuums. As a **building block**, it sits between `/build` (which implements) and `/snapshot` (which verifies and commits) — hardening the work before it is checkpointed.
 
-### Execution Mode: Engine vs. Standalone
-Before proceeding, determine your environment. You are running under the workflow engine **if and only if `COMMANDS.md`** (the engine's core command standards, containing `§CMD_*` / `§INV_*` definitions) **is preloaded in your context** (the SessionStart hook injects it). This single check dictates every fallback below:
-- **Engine Mode (`COMMANDS.md` present):** An active session exists. Use `engine log`, `<sessionDir>`, and set `<trailDir> = <sessionDir>/builds/`. The `§CMD_*` references (e.g., `§CMD_WALK_THROUGH_RESULTS`) resolve to their engine definitions.
-- **Standalone Mode (`COMMANDS.md` absent):** You are assisting a teammate without the engine. No session exists. Use the global `/tmp` trail directory and plain file appends (defined in Step 1). Treat every `§CMD_*`/`§FMT_*` reference as plain-English guidance (e.g., the granularity gate and Fix/Skip/Defer tree are fully spelled out in §3).
-
 # /scrutinize Protocol
 
 ## 1. Scope, Goal & Trail
@@ -52,11 +47,8 @@ Take the goal from the text after `--`, or extract it from the active session's 
 
 **C. Resolve the Artifact Location (`<trailDir>`) & Slug.**
 Determine this once and use it everywhere below so the trail clusters correctly:
-- **From a `build-report`:** `<trailDir>` is the report's directory (session `builds/` or global `${TMPDIR:-/tmp}/finch-build-trail/<repo-basename>/`). `<slug>` is the report's slug (strip `_BUILD.md` from its filename).
-- **Other scopes:**
-  - *Engine Mode:* `<trailDir> = <sessionDir>/builds/`.
-  - *Standalone Mode:* `<trailDir> = ${TMPDIR:-/tmp}/finch-build-trail/<repo-basename>/` (`mkdir -p`).
-  - *Minting:* Mint `<slug> = <short-kebab-of-scope>` (e.g., `pr-1400`). *Crucial:* Before minting, `ls <trailDir>`. If an existing `<slug>_*.md` matches this work, REUSE that slug to cluster the trail.
+- **From a `build-report`:** `<trailDir>` is the report's directory (`<sessionDir>/builds/`). `<slug>` is the report's slug (strip `_BUILD.md` from its filename).
+- **Other scopes:** `<trailDir> = <sessionDir>/builds/`. Mint `<slug> = <short-kebab-of-scope>` (e.g., `pr-1400`). *Crucial:* Before minting, `ls <trailDir>`. If an existing `<slug>_*.md` matches this work, REUSE that slug to cluster the trail.
 
 **Acknowledge:** Echo back your setup in exactly one line:
 `Scrutinizing <scope> — goal: <goal>; trail: <trailDir>/<slug>_CRITIQUE.md.`
@@ -66,6 +58,8 @@ Determine this once and use it everywhere below so the trail clusters correctly:
 **Backgroundable & parallelizable.** This sub-agent dispatch is a composable building block: it can run in the background (`run_in_background: true`) so the orchestrator keeps working while it runs, and when the work splits into independent chunks, several such sub-agents can be fanned out in parallel and reconciled.
 
 **Use the wait — don't idle.** When you background the critiquer, spend that time getting a step ahead so the moment findings land you move straight into action rather than starting cold. Concretely, while it runs: (a) **anticipate the triage** — from the goal + the leads (self-flagged risks, likely traps), predict the probable findings and pre-think a fix direction for each; (b) **surface open questions to the user now** (`AskUserQuestion`) — anything about scope, intent, acceptable trade-offs, or which classes of finding they'd fix vs skip — so their answers are in hand when triage starts; (c) **prep the next move** — line up the fix approach, the branch/checkpoint plan, or the follow-up work that likely comes after. Don't block waiting; the completion notification will bring you back to §3 with momentum.
+
+> **Before dispatching — `§CMD_LOG_SKILL_INVOCATION`**: log this dispatch to the session log (why + context-pack pointer + one-line re-tread) so a restarted session can re-tread it. Fire it as the last step before the `Task`/`Agent` handoff.
 
 Spawn **one** `critiquer` sub-agent — **prefer the background** (`run_in_background: true`) so you keep working while it runs and are notified when it lands; run it in the **foreground** only if you need its findings before your next step. Give it a strong, adversarial, self-contained prompt built exactly from this template:
 
@@ -109,7 +103,7 @@ Once the critiquer returns, relay its **returned ranked summary** to the user as
 
 The interactive **`AskUserQuestion` walkthrough is the core of `/scrutinize`**. The user, not the model, decides fix/skip/defer per finding. Run it explicitly. NEVER dump findings as bare text and assume the user's intent.
 
-**Disclose findings as Decision Cards before you triage (`§CMD_ELICIT` — disclosure only).** Findings carry the fields the user reliably asks for next — the trade-off of the fix, what's at stake, the complexity it adds, how to verify it cheaply — so front-load them per `¶INV_DISCLOSE_AND_TRIAGE`. If under the engine, this is `§CMD_WALK_THROUGH_RESULTS` (results mode), which uses `§CMD_ELICIT` to render **cards-then-summary** before the triage. If standalone, render the same disclosure directly: a `§FMT_DECISION_CARD` per finding (depth scaling with the severity×complexity triage — `Your-call`s get the full card, clean-and-clear lows collapse to one-liners), then the compact triaged summary, THEN the per-finding `AskUserQuestion` below. `§CMD_ELICIT` **only discloses and classifies attention** — its `I've-got-this` verdict is *advisory* (a "this one's clear-cut" recommendation), **never an auto-fix**. **The user still decides fix/skip/defer per finding** (scrutinize's core invariant — the user, not the model, decides). Do NOT use the `§CMD_TAG_TRIAGE` default; use the specific review decision set below.
+**Disclose findings as Decision Cards before you triage (`§CMD_ELICIT` — disclosure only).** Findings carry the fields the user reliably asks for next — the trade-off of the fix, what's at stake, the complexity it adds, how to verify it cheaply — so front-load them per `¶INV_DISCLOSE_AND_TRIAGE`. This is `§CMD_WALK_THROUGH_RESULTS` (results mode), which uses `§CMD_ELICIT` to render **cards-then-summary** before the triage: a `§FMT_DECISION_CARD` per finding (depth scaling with the severity×complexity triage — `Your-call`s get the full card, clean-and-clear lows collapse to one-liners), then the compact triaged summary, THEN the per-finding `AskUserQuestion` below. `§CMD_ELICIT` **only discloses and classifies attention** — its `I've-got-this` verdict is *advisory* (a "this one's clear-cut" recommendation), **never an auto-fix**. **The user still decides fix/skip/defer per finding** (scrutinize's core invariant — the user, not the model, decides). Do NOT use the `§CMD_TAG_TRIAGE` default; use the specific review decision set below.
 
 **The Walkthrough Routine:**
 
@@ -185,17 +179,17 @@ The `<trailDir>/<slug>_CRITIQUE.md` (resolved in §1.C, initially written by the
 1. The per-finding triage decision + reason.
 2. The fixer outcome + gate result for each.
 
-Appending ensures a killed/resumed run doesn't lose history. Link the files in chat (`§CMD_LINK_FILE`) — including any `<trailDir>/<slug>_repro/` reproduction tests the critiquer saved (each finding's red proof + run command). *(Truly standalone with no writable trail: stay chat-only.)*
+Appending ensures a killed/resumed run doesn't lose history. Link the files in chat (`§CMD_LINK_FILE`) — including any `<trailDir>/<slug>_repro/` reproduction tests the critiquer saved (each finding's red proof + run command).
 
 **Feed the Ledger (Compounding Loop):**
 Append the durable outcomes of this review to `<trailDir>/LESSONS.md`. Capture confirmed facts and resolved design decisions as terse bullets.
 *(Illustrative — adapt, don't copy: "Type is prefix-authoritative — rule X removed as inert.")*
-Use `engine log` under a session, else a plain file append (`printf '## …\n…\n' >> <trailDir>/LESSONS.md`). The next `/build` reads these, ensuring conclusions shape the next handoff instead of evaporating.
+Use `engine log` to append. The next `/build` reads these, ensuring conclusions shape the next handoff instead of evaporating.
 
 ## Constraints
 - **Mandatory Inputs:** Never run the critiquer without a stated goal + concrete scope.
 - **User Ownership:** Severity is advice; fix/skip/defer is the user's call via `AskUserQuestion`.
 - **Scoped Fixes:** The fixer touches only approved findings and must re-run the gate. Skipped/deferred findings are strictly off-limits. It MAY repair secondary breakage its own approved change introduced, provided the repair does not touch the goal, a skipped/deferred finding, or unrelated behavior.
-- **Sessionless & Engine-Optional:** `/scrutinize` manages no session. It writes to `<trailDir>` but works entirely via Task/AskUserQuestion/Skill mechanics. If tracking is needed, suggest a session skill.
+- **Sessionless:** `/scrutinize` manages no session. It writes to `<trailDir>` but works entirely via Task/AskUserQuestion/Skill mechanics. If tracking is needed, suggest a session skill.
 - **No Silent Changes:** A fixer that must alter the goal, another finding, or unrelated behavior to implement a fix must escalate instead of deciding silently.
 - **Reproduce over assert:** where a test can demonstrate a finding, the critiquer writes a RED repro test (saved to `<trailDir>/<slug>_repro/`, in-tree file reverted) so the fixer runs red→green instead of re-deriving the bug; worthy repros are promoted to permanent regression tests at the user's choice. A described-only Failing Scenario is the fallback for genuinely test-infeasible findings.

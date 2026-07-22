@@ -13,22 +13,13 @@ A **building block**: it delegates the build, verifies the gates, and reports th
 
 This is fundamentally different from a vanilla agent handoff ("read this plan, start coding"). `/build` front-loads the **goal, the whys, prior-chunk history, strict scope boundaries, hard gates, and a return contract**. This ensures the sub-agent makes the decisions *you* would make, respects prior work, and leaves a durable paper trail the reviewer can start warm from. Remember the guiding law: *an agent's output quality is strictly bounded by the completeness of its context* (`§INV_REQUEST_IS_SELF_CONTAINED`).
 
-### Execution Mode: Engine vs. Standalone
-Before proceeding, determine your environment. You are running under the workflow engine **if and only if `COMMANDS.md`** (the engine's core command standards, containing `§CMD_*` / `§INV_*` definitions) **is preloaded in your context** (the SessionStart hook injects it). This single check dictates every fallback below:
-- **Engine Mode (`COMMANDS.md` present):** An active session exists. Use `engine log`, `<sessionDir>`, and set `<trailDir> = <sessionDir>/builds/`. Draw context from the session's `DIALOGUE.md`, plan, and log.
-- **Standalone Mode (`COMMANDS.md` absent):** You are assisting a teammate without the engine. No session exists. Use the global `/tmp` trail directory and plain file appends (defined in Step 1). Draw context directly from the conversation history, and treat any `§CMD_*`/`§FMT_*` reference below as plain-English guidance (the surrounding prose describes the behavior).
-
-The rest of the protocol is identical either way — the Task/AskUserQuestion/Skill mechanics need no engine.
-
 # /build Protocol
 
 ## 1. Anchor the Scope & Goal
 
 First, establish the two anchors of the build. Resolve the **task** from the provided arguments, or fall back to the active session's plan (the current chunk). Define the **goal** in 1–3 clear sentences (text after `--` in the args overrides). Explicitly lock down the task boundary: which files / subsystems this build touches, and what it must absolutely NOT touch.
 
-**Resolve the Artifact Location (`<trailDir>`).** Determine this once and use it everywhere below for the paper trail (`<trailDir>/<CHUNK>_BUILD.md`, `LESSONS.md`, etc.):
-- **Engine Mode:** If `.state.json` has `sessionDir`, then `<trailDir> = <sessionDir>/builds/`. Ledger/log appends use `engine log`.
-- **Standalone Mode:** If no engine/session, `<trailDir> = ${TMPDIR:-/tmp}/finch-build-trail/<repo-basename>/`. This is a STABLE global directory — the same across `/build` + `/scrutinize` runs so the ledger + report→pack coupling still work, and no repo pollution. Run `mkdir -p <trailDir>`. Ledger/log appends use a plain file append (e.g. `printf '## …\n…\n' >> <trailDir>/LESSONS.md`) instead of `engine log`, and **every** pack field draws from the conversation + the user's stated goal/args (no `DIALOGUE.md`/plan/log to read).
+**Resolve the Artifact Location (`<trailDir>`).** Determine this once and use it everywhere below for the paper trail (`<trailDir>/<CHUNK>_BUILD.md`, `LESSONS.md`, etc.): from the active session's `sessionDir`, `<trailDir> = <sessionDir>/builds/`. Ledger/log appends use `engine log`.
 
 **Mint the `<CHUNK>` Slug.** The orchestrator (you) owns the slug, not the sub-agent. All three trail files (`<CHUNK>_CONTEXT_PACK.md`, `<CHUNK>_BUILD.md`, and `/scrutinize`'s `<CHUNK>_CRITIQUE.md`) MUST share one slug, **or the coupling silently breaks (`/scrutinize` won't find the pack and degrades to report-only)**.
 1. Run `ls <trailDir>`.
@@ -67,6 +58,8 @@ Every field must earn its place — quality + structure, not volume. A "mirror t
 
 **Backgroundable & parallelizable.** This sub-agent dispatch is a composable building block: it can run in the background (`run_in_background: true`) so the orchestrator keeps working while it runs, and when the work splits into independent chunks, several such sub-agents can be fanned out in parallel and reconciled.
 
+> **Before dispatching — `§CMD_LOG_SKILL_INVOCATION`**: log this dispatch to the session log (why + context-pack pointer + one-line re-tread) so a restarted session can re-tread it. Fire it as the last step before the `Task`/`Agent` handoff.
+
 Spawn **one** `builder` sub-agent — **prefer the background** (`run_in_background: true`) so you keep working (and can fan out other agents) while it runs and you're notified when it lands; run it in the **foreground** only if you need its Build Report before your next step. Construct its prompt from the Context Pack. The prompt MUST be entirely self-contained — the sub-agent cannot see your memory or session history. Use this exact template:
 
 > You are executing ONE tightly-scoped build task as an autonomous agent. Do ONLY what's in scope; read the rest for context; do not wander, do not commit.
@@ -86,7 +79,7 @@ Spawn **one** `builder` sub-agent — **prefer the background** (`run_in_backgro
 > - **Likely traps (you'll be tempted to do these — don't):** `<likelyTraps>`
 > - **Parity oracle (behavior-preserving work — this test IS the contract):** `<parityOracle>`
 > - **Hard gates (must all pass before you finish):** `<gates>` — run them; paste the EXACT command + exit code + summary.
-> - **Logging discipline (engine mode only):** `<LOGGING>` — under an engine session the orchestrator substitutes the concrete session-log command here (`engine log <the active session's log path>`, appended every ~5 tool calls, **because a heartbeat hook BLOCKS after 10 tool calls without a log**). In standalone mode there is no heartbeat — OMIT this line entirely; the Build Report is the trail.
+> - **Logging discipline:** `<LOGGING>` — the orchestrator substitutes the concrete session-log command here (`engine log <the active session's log path>`, appended every ~5 tool calls, **because a heartbeat hook BLOCKS after 10 tool calls without a log**).
 > - **Return contract:** when done, WRITE your report to `<trailDir>/<CHUNK>_BUILD.md` using the Build Report template (in THIS skill's `assets/TEMPLATE_BUILD_REPORT.md` — the orchestrator gives you its base dir; do not hardcode `~/.claude`) — fill EVERY field: approach + deviations, dead ends, authoritative `filesTouched`, autonomous decisions, self-flagged risks, **assumptionsThatCouldBeWrong**, **parityEvidence** (how you proved behavior held), **reusableFacts** (durable facts later chunks need), gate results as **exact-command→exit-code**, out-of-scope-noticed, blockers. Then return a 4–6 line summary + the report path.
 > - **Escalate, don't paper over:** if an approved approach conflicts with the goal / a prior decision, or **would force `any` / a behavior change**, STOP and report the blocker with options rather than guessing.
 
@@ -96,9 +89,7 @@ Spawn **one** `builder` sub-agent — **prefer the background** (`run_in_backgro
 
 When the sub-agent returns, read the Build Report. **You must re-run the gates yourself** (`§ verify, don't trust`) — re-run the **exact commands** the report lists under Gate results (not paraphrases), so you catch "green on my machine" drift. Do not take the agent's "all green" on faith.
 
-**Feed the ledger.** Append the report's `reusableFacts` (and any hard-won correction to a wrong pack premise) to `<trailDir>/LESSONS.md`:
-- Use `engine log` under a session, else a plain file append (`printf '## …\n…\n' >> <trailDir>/LESSONS.md`).
-- Format as one terse bullet per fact. Keep it distilled (facts + rulings, not narrative). This is what makes the next `/build` smarter.
+**Feed the ledger.** Append the report's `reusableFacts` (and any hard-won correction to a wrong pack premise) to `<trailDir>/LESSONS.md` via `engine log`. Format as one terse bullet per fact. Keep it distilled (facts + rulings, not narrative). This is what makes the next `/build` smarter.
 
 **Relay a concise summary:** approach + key deviations, files touched, verified gate results, and any self-flagged risks, assumptions, or blockers. Link the report (`§CMD_LINK_FILE`).
 
