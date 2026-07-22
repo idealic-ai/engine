@@ -421,10 +421,10 @@ check_single_skill() {
           pass "SK-D1" "modes/ directory exists"
           local mode_count
           mode_count=$(find "$skill_dir/modes" -name '*.md' -maxdepth 1 | wc -l | tr -d ' ')
-          if [ "$mode_count" -eq 4 ]; then
-            pass "SK-D2" "Correct mode count: 4"
+          if [ "$mode_count" -ge 4 ]; then
+            pass "SK-D2" "Mode count OK: $mode_count (3+ named + custom)"
           else
-            fail "SK-D2" "Expected 4 mode files, found $mode_count"
+            fail "SK-D2" "Expected >= 4 mode files (3+ named + custom), found $mode_count"
           fi
           if [ -f "$skill_dir/modes/custom.md" ]; then
             pass "SK-D2b" "custom.md exists"
@@ -687,6 +687,13 @@ check_sigils() {
   [ -d "$HOME/.claude/.directives" ] && search_dirs+=("$HOME/.claude/.directives")
   [ -d "$HOME/.claude/skills" ] && search_dirs+=("$HOME/.claude/skills")
 
+  # Pedagogical placeholders + template examples that intentionally don't resolve
+  # (format illustrations like §CMD_X, PRELOADS doc examples, template "e.g." refs).
+  # Historical docs/writeups are excluded from the finds below (stale refs to
+  # proposed/old commands are not live protocol to validate).
+  local SIGIL_EXAMPLE_CMDS="X Y Z A B N SOMETHING REAL_REF MENTION_ONLY"
+  local SIGIL_EXAMPLE_INVS="PURE_AUDIO GEMINI_SCHEMA_SIMPLICITY"
+
   # --- §CMD_ cross-reference ---
   local cmd_refs_file
   cmd_refs_file=$(mktemp /tmp/doctor-refs-XXXXXX.txt)
@@ -696,7 +703,7 @@ check_sigils() {
   # (Contrast with tag discovery in tag.sh, where backtick-escaping IS semantic.)
   for search_dir in "${search_dirs[@]}"; do
     [ -d "$search_dir" ] || continue
-    find "$search_dir" -type f \( -name '*.md' -o -name '*.sh' \) -print0 2>/dev/null | \
+    find "$search_dir" -type f \( -name '*.md' -o -name '*.sh' \) -not -path '*/writeups/*' -print0 2>/dev/null | \
       xargs -0 grep -ohE '§CMD_[A-Z_]+' 2>/dev/null || true
   done | sort -u > "$cmd_refs_file"
 
@@ -707,6 +714,8 @@ check_sigils() {
     [ -n "$ref" ] || continue
     total_refs=$((total_refs + 1))
     local cmd_name="${ref#§CMD_}"
+    cmd_name="${cmd_name%_}"   # strip trailing _ from proof-field refs (§CMD_X_file -> X)
+    case " $SIGIL_EXAMPLE_CMDS " in *" $cmd_name "*) continue ;; esac
     if ! resolve_cmd "$cmd_name" ""; then
       broken_refs=$((broken_refs + 1))
       broken_list="${broken_list}${ref} "
@@ -728,7 +737,7 @@ check_sigils() {
   # (Contrast with tag discovery in tag.sh, where backtick-escaping IS semantic.)
   for search_dir in "${search_dirs[@]}"; do
     [ -d "$search_dir" ] || continue
-    find "$search_dir" -type f \( -name '*.md' -o -name '*.sh' \) -print0 2>/dev/null | \
+    find "$search_dir" -type f \( -name '*.md' -o -name '*.sh' \) -not -path '*/writeups/*' -print0 2>/dev/null | \
       xargs -0 grep -ohE '§INV_[A-Z_]+' 2>/dev/null || true
   done | sort -u > "$inv_refs_file"
 
@@ -748,6 +757,7 @@ check_sigils() {
     [ -n "$ref" ] || continue
     total_inv_refs=$((total_inv_refs + 1))
     local inv_name="${ref#§INV_}"
+    case " $SIGIL_EXAMPLE_INVS " in *" $inv_name "*) continue ;; esac
     if ! grep -q "¶INV_${inv_name}" "$inv_defs_file" 2>/dev/null; then
       broken_inv_refs=$((broken_inv_refs + 1))
       broken_inv_list="${broken_inv_list}${ref} "
