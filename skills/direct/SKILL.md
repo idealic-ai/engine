@@ -233,6 +233,8 @@ Present the dependency analysis via `AskUserQuestion`:
 
 §CMD_EXECUTE_PHASE_STEPS(4.A.*)
 
+**Keep the vision live (`¶INV_KEEP_PLAN_LIVE`)**: the `_DIRECT.md` vision IS the plan the coordinator and later sessions execute against — when execution *deviates* from it (a chapter re-scoped, a dependency re-cut, a superseded principle), proactively reconcile it: append a dated `## 🔄 STATUS RECONCILIATION (YYYY-MM-DD)` section (preserving the original vision as history; surgical edits only for the most-wrong parts — Evolution mode's v2/diff flow below is the heavier variant) and offer to log the course change to the tracking ticket via `/snapshot` (skip-the-commit mode: description touch + a comment through `§CMD_POST_TICKET_COMMENT`). A stale vision misleads every downstream session and loses the decision trail.
+
 ### Output Path
 
 The vision document is written directly to `docs/`:

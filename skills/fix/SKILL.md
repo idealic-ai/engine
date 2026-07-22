@@ -206,6 +206,8 @@ If any items are flagged for revision, update the plan before proceeding.
 
 §CMD_EXECUTE_PHASE_STEPS(3.A.*)
 
+**Keep the plan live (`¶INV_KEEP_PLAN_LIVE`)**: when the fix work *deviates* from the plan mid-loop — a new root cause, a re-tiered issue, a superseded repair — proactively append a dated `## 🔄 STATUS RECONCILIATION (YYYY-MM-DD)` section (preserving the original plan; surgical checkbox edits only) and offer to log the course change to the ticket via `/snapshot` (skip-the-commit mode: description touch + a comment through `§CMD_POST_TICKET_COMMENT`). A stale plan misleads the next session and loses the decision trail.
+
 ### Sub-Phase: Quick Wins (Tier 1)
 1.  **Action**: Apply Tier 1 fixes.
 2.  **Verify**: Run relevant verification (tests, reproduction steps, metrics).

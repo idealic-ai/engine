@@ -567,4 +567,7 @@ Walks the user through skill outputs or plan items with configurable granularity
 ### [¶CMD_ELICIT](commands/CMD_ELICIT.md)
 Pure disclosure layer — the mirror of `§CMD_INTERROGATE` (pulls the agent's judgment out). Builds a `§FMT_DECISION_CARD` per item (fields generalized off the fix-shape — fits findings, ideas, observations), triages on severity × complexity into an advisory `I've-got-this` / `Your-call` / `FYI`, and renders cards-then-summary. Then **hands off to the caller's own decision command** (`§CMD_TAG_TRIAGE` / fix-skip-defer / address-ignore) — it never collects the final decision and never auto-acts. Invoked by `§CMD_WALK_THROUGH_RESULTS` results mode or standalone (ad-hoc).
 
+### [¶CMD_POST_TICKET_COMMENT](commands/CMD_POST_TICKET_COMMENT.md)
+The ONE canonical path for posting a comment to a Linear ticket: subscribe-check (`engine ticket subscribe`) → post (`save_comment`) → notify siblings (`engine ticket notify`), so the sibling-notify can never be forgotten. `/snapshot`, `/communicate`, `/pr`, and any ad-hoc post route their comment through it (`¶INV_TICKET_COMMENT_VIA_CMD`).
+
 

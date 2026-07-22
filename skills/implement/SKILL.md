@@ -178,6 +178,8 @@ Once the plan is approved, offer a `/council` panel review on the plan `<IMPLEME
 3.  **Log**: `§CMD_APPEND_LOG` to `IMPLEMENTATION_LOG.md`.
 4.  **Tick**: Mark `[x]` in `IMPLEMENTATION_PLAN.md`.
 
+**Keep the plan live (`¶INV_KEEP_PLAN_LIVE`)**: when build work *deviates* from `IMPLEMENTATION_PLAN.md` mid-loop — a new discovery, a scope shift, re-cut chunks, a superseded step — proactively append a dated `## 🔄 STATUS RECONCILIATION (YYYY-MM-DD)` section (preserving the original plan; surgical checkbox edits only) and offer to log the course change to the ticket via `/snapshot` (skip-the-commit mode: description touch + a comment through `§CMD_POST_TICKET_COMMENT`). A stale plan misleads the next session.
+
 **On "Other" (free-text) at phase transition**: The user is describing new requirements or additional work. Route to Phase 1 (Interrogation) to scope it before building -- do NOT stay in Phase 3.A or jump to synthesis.
 
 ---
