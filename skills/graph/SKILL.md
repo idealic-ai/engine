@@ -1,7 +1,7 @@
 ---
 name: graph
-description: "Creates ASCII flowgraph diagrams using the `§CMD_FLOWGRAPH` notation. Lightweight skill for rendering complex flows as structured visual diagrams. Triggers: \"draw a flowgraph\", \"create a flow diagram\", \"visualize this flow\", \"graph this process\"."
-version: 3.0
+description: "Creates ASCII flowgraph diagrams using the `§CMD_FLOWGRAPH` notation — control-flow (decisions, branches, loops) AND trajectory/timeline graphs (status-annotated nodes: done/upcoming/dropped/stale, checkpoints, current-position). The single canonical ASCII-diagram vocabulary for the engine. Triggers: \"draw a flowgraph\", \"create a flow diagram\", \"visualize this flow\", \"graph this process\", \"trajectory graph\", \"session-state diagram\"."
+version: 3.1
 tier: suggest
 ---
 
@@ -74,6 +74,23 @@ Creates ASCII flowgraph diagrams. Lightweight skill for rendering complex flows 
 **Glyph Sets** (visual disambiguation):
 *   **Single-line** (`│ ├ ╰`): Sequential flow and branches. "This is a step."
 *   **Double-line** (`║ ╠ ╚`): Decision/conditional flow. "This is a choice."
+
+---
+
+### Status & Trajectory Glyphs
+
+A **closed** set for the *trajectory* genre — a timeline of status-annotated nodes (session/work state, plan progress, a project's arc), as opposed to control-flow. Prefix a node with its status; keep the flow glyphs above for structure. This is the whole set — do NOT invent alternatives:
+
+*   **`✓`** — done / completed
+*   **`○`** — upcoming / open / not yet reached
+*   **`✗`** — dropped / cancelled / rejected
+*   **`⚠`** — stale / anomaly / needs attention
+*   **`◄ HERE`** — current position ("you are here"), used exactly once
+*   **`▣ <sha>`** — checkpoint / snapshot (a commit)
+
+**Reuse from the flow vocabulary** (don't duplicate): `◆` for decisions — annotate the outcome inline (`◆ … → chose X`, or `◆ (OPEN)` when unresolved); `├► / ╰►` for nested sub-branches; `⟨branched-off⟩` / `⟨text⟩` for divergences and behavioral notes.
+
+**Do NOT freehand equivalents**: `●`→`▣`, `♦`→`◆`, `★`→**bold** text, `←—`/prose "YOU ARE HERE"→`◄ HERE`, `〈 〉`→`⟨ ⟩`, `┌►`/`└►`→`├►`/`╰►`, `[ ]`/`[x]` checkboxes→`○`/`✓`.
 
 ---
 
@@ -226,3 +243,21 @@ END → Complete
 ```
 
 *Key*: Convergence (`╭───╯`) and loop-back (`╰► Loop back to`) can coexist in the same graph. Convergence merges branches forward; loop-back returns to an earlier block.
+
+**Pattern 8 — Trajectory / Timeline (status-annotated nodes)**
+```
+START → FIN-2849 filed
+  │ ✓ S1  RED — room-identity test
+  │ ✓ S2  GREEN — 10-symbol rename
+  │   ╰► ⟨branched-off⟩ scope 18→89 files — back-compat aliases dropped
+  │ ⚠ S3/2b checkbox STALE — marked done, text falsified
+  ▣ 68a3ba91 — snapshot (89 files)
+  │
+  ◆ DECISION (OPEN): /pr cherry-pick vs /fix   ◄ HERE
+  │
+  ○ /fix FIN-3035 — upcoming
+  ↓
+END → Done
+```
+
+*Key*: the spine is a **timeline**, not control-flow. Node status rides as a prefix glyph (`✓ ○ ✗ ⚠`); `▣` marks a checkpoint with its sha; `◄ HERE` marks the current position exactly once; decisions keep `◆` with the outcome annotated; divergences hang off the spine with `╰► ⟨branched-off⟩`. This is the genre `/report` renders for session state.
