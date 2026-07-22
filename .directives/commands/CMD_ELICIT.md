@@ -131,6 +131,6 @@ ELICIT deliberately has **no** `AskUserQuestion` tree of its own. After the card
   "required": ["itemsDisclosed", "yourCalls", "handled", "fyi", "handoff"],
   "additionalProperties": false
 }
+```
 
 *A caller MAY surface ELICIT's proof (`yourCalls` / `handled` / `fyi`) into its own synthesis proof — the disclosure is reusable evidence, not throwaway.*
-```
