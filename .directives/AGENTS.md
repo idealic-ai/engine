@@ -77,20 +77,11 @@ Rules that govern how agents communicate, interact, and operate. These are behav
     *   **Reason**: It consumes tokens, confuses the user, and creates "infinite loop" risks where the agent talks about doing something instead of doing it.
     *   **Mechanism**: If you need to think, write to the `_LOG.md` file. If you need to act, just call the tool.
 
-*   **¶INV_TERMINAL_FILE_LINKS**: File path references in chat output MUST use full clickable URLs.
-    *   **Rule**: When referencing a file path in chat, output the full `protocol://file/ABSOLUTE_PATH` URL. Resolve `~` to the actual home directory. Every file path the user sees MUST be clickable.
-    *   **Format**: `cursor://file/ABSOLUTE_PATH` (or `vscode://file/ABSOLUTE_PATH`)
-        *   Example: `cursor://file/Users/name/project/src/lib/audio.ts`
-        *   With line number: `cursor://file/Users/name/project/src/lib/audio.ts:42`
-    *   **URL Encoding**: Spaces and special characters in paths MUST be percent-encoded.
-        *   Space → `%20`
-        *   Example: `cursor://file/Users/name/Shared%20drives/project/file.ts`
-    *   **Protocol Source**: Read from "Terminal link protocol: X" in system prompt. Default: `cursor://file`.
-    *   **Prohibited**: Backtick-wrapped paths (`` `~/.claude/file.md` ``), tilde paths (`~/.claude/...`), plain relative paths (`sessions/dir/FILE.md`), or any file reference that is not a clickable URL.
-    *   **Bad**: `File: ~/.claude/engine/scripts/lib.sh — 1 change`
-    *   **Good**: `File: cursor://file/Users/name/.claude/engine/scripts/lib.sh — 1 change`
-    *   **Note**: OSC 8 escape sequences and markdown link syntax do not render custom display text in Claude Code's terminal — full URLs are the only reliable clickable format.
-    *   **Reason**: Clickable links improve navigation. Full URLs are verbose but functional. Unencoded spaces break URL parsing.
+*   **¶INV_TERMINAL_FILE_LINKS**: Every file-path reference the user sees MUST be a **labeled clickable link** per `§FMT_FILE_LINK` — never a bare URL, never a dead relative path.
+    *   **Rule**: Render file references as `[<label>](<url>)` — labeled markdown links now render clickable in-terminal, so the old bare-URL requirement is retired. Smart-by-type (`§FMT_FILE_LINK`): editable files (code, `.md`, session artifacts, configs) → `cursor://file/<ABS>` (opens the editor); view-only kinds (images, `.pdf`, `.html`) → `file:///<ABS>` (opens the default viewer). Resolve `~`/relative to an absolute path; percent-encode spaces (`%20`). Line number → append `:42` to the path.
+    *   **Format**: `[EDIT_SKILL.md](cursor://file/Users/name/proj/sessions/X/EDIT_SKILL.md)` · image: `[overlay-3.png](file:///Users/name/proj/out/overlay-3.png)`. Label = basename or a short description.
+    *   **Prohibited**: a bare `cursor://…`/`file://…` blob in prose (wrap it in a label), backtick-wrapped paths, tilde/relative paths, `file://` for an editable file (opens Finder, not the editor), or any non-clickable reference.
+    *   **Reason**: a labeled basename beats a 90-char raw URL — it declutters every artifact report — and labeled links now render clickable, which is why the bare-URL mandate (a workaround for the old non-rendering) is gone.
 
 *   **¶INV_SKILL_VIA_TOOL**: Slash commands (skills) MUST be invoked via the Skill tool, NEVER via Bash.
     *   **Rule**: When instructed to run `/session`, `/commit`, `/review`, or any `/skill-name`, you MUST use the Skill tool with `skill: "skill-name"`. Do NOT use Bash to call scripts.
@@ -101,7 +92,7 @@ Rules that govern how agents communicate, interact, and operate. These are behav
 *   **¶INV_QUESTION_GATE_OVER_TEXT_GATE**: User-facing gates and option menus in ALL agent interactions MUST use `AskUserQuestion` (tool-based blocking), never bare text.
     *   **Rule**: When the agent needs user confirmation before proceeding, it must use `AskUserQuestion` with structured options. Text-based "STOP" instructions are unreliable — they depend on agent compliance. Tool-based gates are mechanically enforced.
     *   **Rule**: When presenting choices, options, or menus to the user, the agent MUST use the `AskUserQuestion` tool. It MUST NOT render the options as a Markdown table, bullet list, or plain text in chat and then wait for the user to type a response. **This applies everywhere** — inside active skill protocols, between sessions, before skill activation, during ad-hoc chat, and after session close. Any time you present 2+ choices to the user, use `AskUserQuestion`.
-    *   **Rule**: Before calling `AskUserQuestion`, the agent MUST output enough context in chat for the user to understand what the options mean and why they are being asked. A bare question with options but no surrounding explanation is a violation — the user cannot make an informed choice without context. The **last line** of chat text before the `AskUserQuestion` call MUST be an empty line (`\n`), because the question UI element overlaps the bottom of the preceding text. Without the trailing blank line, the user cannot read the agent's final sentence.
+    *   **Rule**: Every `AskUserQuestion` MUST carry its **complete context inside the question body** (`§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`) — what's being decided and why, so the user chooses in place. Do NOT split context into a separate chat block rendered before a terse question (the old duality, retired now that bodies have no length limit). Option labels lead with `§FMT_ANSWER_GRADATION` tags where they differentiate the set. A one-line lead-in sentence is fine; keep ONE trailing blank line before the call so the last line stays visible above the UI overlay.
     *   **Rule**: `AskUserQuestion` option labels and descriptions MUST be descriptive and actionable. Labels explain *what* happens; descriptions explain *why* it matters. When an option triggers tagging, include the `#needs-X` tag in the label. No vague labels — every word must carry information.
         *   **Bad**: label=`"Delegate to /implement"`, description=`"Code change needed"`
         *   **Good**: label=`"#needs-implementation: add auth validation"`, description=`"Prevents unauthenticated access to the payment endpoint"`

@@ -688,23 +688,75 @@ Three named list density levels that replace markdown tables. Referenced via `§
 
 ### ¶FMT_CONTEXT_BLOCK
 
-**When to use**: Before presenting questions or items to the user — provides the 2-paragraph context needed for informed decisions. Used by `§CMD_INTERROGATE` (between-rounds context) and `§CMD_WALK_THROUGH_RESULTS` (per-item context).
+**When to use**: The complete context that goes **inside** an `AskUserQuestion` question body — what the user needs to decide, framed so the body stands alone. Consumed by `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT` (every question), `§CMD_INTERROGATE` (each round's body), `§CMD_WALK_THROUGH_RESULTS` (per-item body).
 
-**Rules**: Exactly 2 paragraphs in blockquote format. First paragraph establishes context (recap, scope, or area). Second paragraph presents the specific content (topic, finding, or item details). Both paragraphs must be substantive — no single-line stubs. MANDATORY before any `AskUserQuestion` call that presents items or asks topic-specific questions.
+**Rules**: The context lives **in the question body**, NOT in a separate chat block rendered before it — that duality (context up top, terse options below) is exactly what `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT` kills. Frame the decision completely: what's being decided, why it matters, whatever's needed to choose in-place. Substantive, not stubs. **No length cap** — AskUserQuestion bodies render long content fine; the old "exactly 2 paragraphs" existed only for a removed length limit. Two well-framed paragraphs is a good default; a rich decision uses a full `§FMT_DECISION_CARD` as the body.
 
 ```markdown
-> **[Context label]**: [1 paragraph — establishes what the user needs to know.
-> Background, recap of prior decisions, or area/scope description.]
->
-> **[Content label]**: [1 paragraph — the specific item, topic, or finding.
-> Concrete details, not vague summaries. The user decides based on this.]
+[in the AskUserQuestion `question` field:]
+**[Context]**: what the user needs to know — background / recap / scope.
+**[The decision]**: the specific choice with concrete details. The user decides from THIS, in place.
 ```
 
-**Anti-pattern**: Bare questions without context. The user should always understand *what* they're being asked about and *why* before seeing options.
+**Anti-pattern**: a separate context block in chat followed by a terse `AskUserQuestion` — the user then has to map options back to context above. Put the context in the body.
+
+### ¶FMT_ANSWER_GRADATION
+
+**When to use**: compact, at-a-glance gradation tags leading an `AskUserQuestion` **option label** — so the user reads risk / data-certainty / effort / recommendation right on the choice. Generalizes the old "(Recommended)" suffix. A **closed** set (like the `§CMD_FLOWGRAPH` glyphs — defined once, never freehand). Show **only the 1–2 dimensions that actually differentiate this answer set**; omit any dimension uniform across all options.
+
+**The set** (fixed row order, packed — no spaces inside the cluster, one space before the label):
+*   **risk** — `△` low · `◭` med · `▲` high  *(triangle = caution)*
+*   **confidence** — `○` thin · `◑` med · `●` solid  *(certainty in the GATHERED DATA behind the call — "how much more analysis to verify"; fullness = evidence completeness)*
+*   **effort** — `Ⓢ` small · `Ⓜ` med · `Ⓛ` large
+*   **★** — the agent's recommendation, **last** in the row, ≤1 per set
+*   *(rare optional)* `‡` — one-way / irreversible; appended only when genuinely relevant, not part of the default row
+
+**Row order**: `risk · confidence · effort · ★` → e.g. `△●Ⓢ★ `, then the label text.
+
+```markdown
+[AskUserQuestion option labels:]
+"△●Ⓢ★ Cherry-pick onto a fresh branch"    (low risk · solid data · small · recommended)
+"▲◑Ⓢ Push the mixed branch as-is"          (high risk · medium data · small)
+"◭○Ⓜ Rebase after a spike"                 (med risk · thin data—verify first · med effort)
+```
+
+**Anti-pattern**: tagging every dimension even when uniform across options (soup); freehand emoji/glyphs outside the closed set; putting the tags in the option `description` instead of leading the `label`.
+
+### ¶FMT_FILE_LINK
+
+**When to use**: EVERY reference to a file/artifact — in chat or in a `.md` artifact — renders as a **labeled clickable link**, never a bare URL and never a dead relative path. Labeled links now render clickable in-terminal (the old bare-URL mandate existed only because they didn't).
+
+**Rules** (smart-by-type):
+*   **Editable** (code, `.md`, `.ts`/`.js`, `.json`, session artifacts, configs) → `[<label>](cursor://file/<abs-path>)` — opens in the editor.
+*   **Viewable** (images `.png`/`.jpg`, `.pdf`, `.html`) → `[<label>](file:///<abs-path>)` — opens in the default viewer (Preview, browser). (`file://` opens Finder for editable files — so only use it for view-only kinds.)
+*   **Label** = the basename or a short description (`[EDIT_SKILL.md]`, `[the debrief]`).
+*   **Absolute path always** (resolve `~`/relative). Never a bare `cursor://…` / `file://…` blob in the prose.
+
+```markdown
+See [EDIT_SKILL.md](cursor://file/Users/me/proj/sessions/X/EDIT_SKILL.md).
+Overlay: [overlay-3.png](file:///Users/me/proj/out/overlay-3.png).
+```
+
+**Anti-pattern**: a bare `cursor://file/…` URL dumped in text; a non-clickable relative path (`sessions/X/foo.md`); `file://` for a code file (opens Finder, not the editor).
 
 ### ¶FMT_DECISION_CARD
 
 **When to use**: The richer successor to `§FMT_CONTEXT_BLOCK` for disclosing the agent's own judgment per item. Used by `§CMD_ELICIT` (and, via it, `§CMD_WALK_THROUGH_RESULTS` results mode) — front-loading what the user reliably asks for next so they judge from context instead of interrogating. **The fields are generalized off the fix-shape** so one card fits a proposed **fix**, a raw **idea**, or a neutral **observation** — not only findings-to-fix. One card per item.
+
+**Rendering as the question body (plain text — NO markdown)**: the card renders **as the `AskUserQuestion` question body** (via `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`), not as separate chat text before a terse question. **AskUserQuestion bodies do not render markdown** — `**bold**`, `` `code` ``, `####` show literally. So in the body use **plain text with whitespace-aligned columns**: field name on the left (padded to a consistent width), value to its right; multi-line values indent under the value column. Unicode renders fine (`·`, the `§FMT_ANSWER_GRADATION` glyphs `△●Ⓢ★`). The markdown card layout above is for **chat** rendering only.
+
+**Drop the Options field in the body** — the `AskUserQuestion`'s **answers ARE the options**, so re-listing them in the body is redundant. The body carries only the *analysis*: What's-at-stake, How-to-verify, My-lean, Confidence, plus any context/subtitle (`itemId · Title`, `scope · △●Ⓜ`). Each **answer** is a disposition whose label leads with `§FMT_ANSWER_GRADATION` (`△●Ⓢ★ short action`) and whose **description carries that option's trade-off**; **My lean** becomes the `★` on the recommended answer. The user reads the analysis and picks in one place — no scroll, no redundancy.
+
+```
+[3.2/1]  Update the sticky PR comment on failing tests
+scope: comment-builder · △ low · ● solid · Ⓜ med
+
+At stake   failing tests are invisible in the PR summary — reviewers miss them
+Verify     grep the comment builder for the failures block
+My lean    add a failures section — one comment stays clean · cost: builder branches
+Confidence high — verified against the real comment output, not a fixture
+```
+*(answers, carrying the options: `△●Ⓢ★ Add a failures section` · `◭●Ⓜ Separate comment per failure` · `△●Ⓢ Leave the summary as-is`)*
 
 **Rules**: A named-list card (never a table — `¶INV_LISTS_INSTEAD_OF_TABLES`). Card **depth scales with the triage bucket**: `FYI` = a one-liner (what + why-no-action); `I've-got-this` = a one-line what + why (never a bare count); `Your-call` = the full card, every required field below. On a `Your-call`, order the body **options-first-neutral, then the defeasible lean** (`§CMD_ELICIT` anti-anchor rule) — the POV lives in the lean, never in a separate recommendation-first field.
 

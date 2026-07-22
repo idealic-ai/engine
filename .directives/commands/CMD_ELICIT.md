@@ -1,14 +1,14 @@
 ### ¶CMD_ELICIT
-**Definition**: The **pure disclosure layer** — the mirror of `§CMD_INTERROGATE`. Where `§CMD_INTERROGATE` pulls information **out of the user** in structured rounds, `§CMD_ELICIT` pulls the **agent's own judgment out** and lays it on the table: for each item (a finding, an idea, an observation, an option-set) it builds a **Decision Card** (`§FMT_DECISION_CARD`), triages it on **severity × complexity** into an **advisory** attention class — `I've-got-this` / `Your-call` / `FYI` — and renders **cards-then-summary**. It then **hands off to the caller's own decision command** — it never collects the final decision and never auto-acts. The goal is to **kill the follow-up interrogation loop**: disclose up front what the user reliably asks for next (the trade-off of a recommendation, the scope, what's at stake, how to verify it cheaply) so the user judges from context instead of extracting it. INTERROGATE ends by collecting the user's input; ELICIT ends by disclosing the agent's — the *choice* that follows is the caller's, in the caller's own vocabulary.
+**Definition**: The **pure disclosure layer** — the mirror of `§CMD_INTERROGATE`. Where `§CMD_INTERROGATE` pulls information **out of the user** in structured rounds, `§CMD_ELICIT` pulls the **agent's own judgment out** and lays it on the table: for each item (a finding, an idea, an observation, an option-set) it builds a **Decision Card** (`§FMT_DECISION_CARD`), triages it on **severity × complexity** into an **advisory** attention class — `I've-got-this` / `Your-call` / `FYI` — and renders each card **as its item's `AskUserQuestion` question body** (`§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`), with the caller's dispositions as that question's options (each leading with `§FMT_ANSWER_GRADATION`). It **still collects no final decision and never auto-acts** — the caller's own decision command owns what the pick *means*. The goal is to **kill the follow-up interrogation loop**: disclose up front what the user reliably asks for next (the trade-off of a recommendation, the scope, what's at stake, how to verify it cheaply) so the user judges from context instead of extracting it. INTERROGATE ends by collecting the user's input; ELICIT ends by disclosing the agent's — the *choice* that follows is the caller's, in the caller's own vocabulary.
 **Trigger**: Called as a sub-step of `§CMD_WALK_THROUGH_RESULTS` (results mode) to disclose findings/results before the caller's triage; OR invoked directly (ad-hoc) whenever an agent is about to hand the user a set of findings, ideas, or decisions and wants to disclose-and-triage rather than dump a flat list. See `¶INV_DISCLOSE_AND_TRIAGE`.
 
 **What ELICIT owns vs. what the caller owns:**
-*   **ELICIT owns disclosure**: build the Decision Cards, run the severity×complexity triage, render **cards-then-summary**. The card's options and lean are disclosed *context* — *what you're weighing* — not the choice mechanism.
-*   **The caller owns the decision**: after disclosure, the CALLER runs its **own** decision command in its **own** vocabulary — a `#needs-X` tag (`§CMD_TAG_TRIAGE` in the delegation walkthrough), fix/skip/defer (`/scrutinize`), address/ignore (`/pr`). ELICIT never maps its card options onto the `AskUserQuestion` choices and never auto-applies an `I've-got-this`.
+*   **ELICIT owns disclosure**: build the Decision Cards, run the severity×complexity triage, render each card **as its item's `AskUserQuestion` question body** (`§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`), and frame that question's answer options — the caller's dispositions — with `§FMT_ANSWER_GRADATION` (`★` carrying **My lean**, `○◑●` the card's **Confidence**). The card body and the gradation-tagged framing are disclosed *context* — *what you're weighing* and *how the agent reads it* — not the choice's meaning.
+*   **The caller owns the decision**: the answer options are the CALLER's **own** vocabulary — a `#needs-X` tag (`§CMD_TAG_TRIAGE` in the delegation walkthrough), fix/skip/defer (`/scrutinize`), address/ignore (`/pr`). ELICIT frames those options inside its card body; the caller's command **interprets what the pick means** (places the tag, runs the fix, records the address). ELICIT never auto-applies an `I've-got-this`.
 
 **Invocation contexts** (same algorithm both ways — disclose, then hand off):
-*   **Walkthrough sub-step**: `§CMD_WALK_THROUGH_RESULTS` (results mode) calls ELICIT to render the Decision Cards + triaged summary in place of the thin `§FMT_CONTEXT_BLOCK`. ELICIT produces the *content* (cards + framed options + triage); it then **falls through** to the walkthrough's own `§CMD_TAG_TRIAGE` loop, which places the tags. The walkthrough stays the orchestrator (granularity, looping, item extraction, tag placement + proof).
-*   **Standalone (ad-hoc)**: run Build → Triage → Render directly, then hand the disclosure to whatever decision the agent's own flow makes next. No session, no markers, no tag placement required — the cards + triaged summary are the disclosure deliverable; the decision is made by the caller (or reported, if there's no interactive decision to collect).
+*   **Walkthrough sub-step**: `§CMD_WALK_THROUGH_RESULTS` (results mode) calls ELICIT to render each Decision Card **as its item's `AskUserQuestion` question body** (`§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`) in place of the thin `§FMT_CONTEXT_BLOCK` — the walkthrough's `§CMD_TAG_TRIAGE` tags become that same question's answer options. ELICIT produces the *content* (card body + gradation-tagged option framing + triage); the walkthrough still **owns the tag placement + proof**. The walkthrough stays the orchestrator (granularity, looping, item extraction, tag placement + proof).
+*   **Standalone (ad-hoc)**: run Build → Triage → Render directly — cards render as the question bodies — then let whatever decision the agent's own flow makes next interpret the picks. No session, no markers, no tag placement required — the cards (as question bodies) + the triaged summary lead-in are the disclosure deliverable; the decision's meaning is the caller's (or, if there's no interactive decision to collect, just report the cards).
 
 ---
 
@@ -45,16 +45,16 @@ Triage is **severity × cost-to-act/complexity**, NOT severity alone. The catch 
 
 **Confidence is the backstop.** Agent self-confidence is unreliable (proven: an agent can walk back things it personally endorsed one round earlier). So **low confidence never earns the `I've-got-this` recommendation**, regardless of how low the severity or complexity looks — it goes to `Your-call`. The triple gate on the advisory verdict exists because the only real danger in the two-axis rating is a false-*low* complexity or severity call; the confidence gate catches it.
 
-### Step 3 — Render cards-then-summary (the disclosure)
+### Step 3 — Render each card as its question body (the disclosure)
 
-Never assume the user read the artifact files — **brief them**. Emit in this exact order:
+Never assume the user read the artifact files — **brief them**. The card no longer lands as chat text before a terse popup; it lands **inside** the question via `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`:
 
-1.  **All Decision Cards, written out and skimmable first** — the pre-decision briefing (a readable written pass beats expand-on-demand). Ordered by engagement then severity so **`Your-call`s lead**, then `I've-got-this`, then `FYI`. Card depth per Step 1 (FYI/handled are one-liners; Your-calls are full).
-2.  **A compact triaged summary** — one line: `N Your-calls to weigh · M clear-cut (batch-able) · K FYI`.
+1.  **A compact triaged summary lead-in** — one line before the call: `N Your-calls to weigh · M clear-cut (batch-able) · K FYI`, then the visible one-liner lists for the `I've-got-this` and `FYI` buckets (see *No hidden items*).
+2.  **Each `Your-call` card AS an `AskUserQuestion` question body** (`§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`) — one item = one question, batched up to 4 per call, `Your-call`s leading. The body carries the full card (stakes, options, how-to-verify, lean); the answer options are the caller's dispositions, each leading with `§FMT_ANSWER_GRADATION` (Step 4). Card depth per Step 1 (FYI/handled stay one-liners; `Your-call`s are full).
 
-That is the whole ELICIT deliverable — cards + summary, in text. ELICIT **does not** render a decision `AskUserQuestion` of its own; the pickable choice belongs to the caller's decision command (Step 5). What ELICIT emits is disclosure the caller then decides *from*.
+ELICIT now **does** render the card AS the `AskUserQuestion` body — but the answer options are the caller's decision vocabulary (Step 5), and the caller's command still owns what a pick *means*. What ELICIT emits is disclosure the caller then decides *from*, now fused into one prompt instead of cards-in-chat then a separate terse popup.
 
-**No hidden items.** The collapsed `I've-got-this` and `FYI` buckets are **always visible** as titled one-liner lists — never a bare count, never silently hidden. A glance must be able to catch a mislabel *before* the caller acts on the advisory, and a systematic agent bias (e.g. always "simpler, skip it") must be able to surface and be challenged. Escalate-by-exception ≠ hide-by-default.
+**No hidden items.** The `I've-got-this` and `FYI` buckets are **always visible** as titled one-liner lists in the lead-in — never a bare count, never silently hidden. A glance must be able to catch a mislabel *before* the caller acts on the advisory, and a systematic agent bias (e.g. always "simpler, skip it") must be able to surface and be challenged. Escalate-by-exception ≠ hide-by-default.
 
 ### Step 4 — Anti-anchor on `Your-call`
 
@@ -64,11 +64,13 @@ Leading with your recommendation invites rubber-stamping — the opposite of wan
 
 You still commit to a POV (a spineless "you decide" is not disclosure) — but the user's independent judgment stays engaged because the options and the counter-case are on the table before your lean is.
 
+In the rendered question, the lean surfaces as the single **`★`** on the recommended answer option (`§FMT_ANSWER_GRADATION`), and the card's **Confidence** surfaces as `○◑●` — the anti-anchor holds because the option order is neutral and the body's counter-case is read before the `★` is acted on.
+
 ### Step 5 — Hand off to the caller's decision command
 
-Disclosure done, **ELICIT hands off — it does not collect the final decision and does not auto-act.** The CALLER now runs its **own** decision command, informed by the cards + triage:
+**ELICIT hands off the choice's *meaning* — it does not collect the final decision and does not auto-act.** The card is the question body and the caller's dispositions are that same question's answer options (no separate popup follows); the CALLER's **own** decision command still interprets the pick, informed by the cards + triage:
 
-*   **Under `§CMD_WALK_THROUGH_RESULTS` (results mode)**: **fall through** to the walkthrough's `§CMD_TAG_TRIAGE` loop — the `Your-call`s get individual `#needs-X` tag attention; the `I've-got-this`/`FYI` sets can be batched per the walkthrough's Step 4. ELICIT rendered the cards; the walkthrough places the tags + emits tag proof.
+*   **Under `§CMD_WALK_THROUGH_RESULTS` (results mode)**: the `§CMD_TAG_TRIAGE` `#needs-X` tags ARE the answer options on ELICIT's card-body questions — the `Your-call`s get individual tag attention; the `I've-got-this`/`FYI` sets can be batched per the walkthrough's Step 4. ELICIT rendered the cards + framed the options; the walkthrough places the tags + emits tag proof.
 *   **Under `/scrutinize`**: the user still decides **fix / skip / defer** per finding (`/scrutinize`'s invariant — *the user, not the model, decides*). The `I've-got-this` verdict is a suggestion the user may honor by fixing, never an auto-fix.
 *   **Under `/pr`**: the disclosure feeds the **address / ignore** offer + the downstream `/scrutinize`·`/fix` chains. Read-only — no action taken.
 *   **Standalone with no interactive decision**: the cards + summary are the deliverable — report them.
@@ -79,7 +81,7 @@ Emit the `## PROOF FOR` fields either way (they describe the *disclosure*, not a
 
 ## Constraints
 
-*   **Disclosure, not decision.** ELICIT discloses cards + triaged summary and classifies attention (advisory). It never collects the final decision and never auto-acts — the caller's own decision command does that (Step 5). When that caller collects the pickable decision it hands off to, that decision block MUST use `AskUserQuestion` per `¶INV_QUESTION_GATE_OVER_TEXT_GATE` — but the block is the caller's, in the caller's vocabulary, not ELICIT's.
+*   **Disclosure, not decision.** ELICIT discloses cards (as `AskUserQuestion` question bodies per `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`) + a triaged summary lead-in and classifies attention (advisory). It never collects the final decision's *meaning* and never auto-acts — the caller's own decision command does that (Step 5). The question satisfies `¶INV_QUESTION_GATE_OVER_TEXT_GATE`, but its answer options are the caller's vocabulary (tag / fix-skip-defer / address-ignore), framed by ELICIT and interpreted by the caller — not ELICIT's own choice.
 *   **`¶INV_DISCLOSE_AND_TRIAGE`** (AGENTS.md): ELICIT is the wired expression of the disclosure philosophy — have a POV, front-load what's-at-stake / trade-off / complexity / how-to-verify, triage by severity×complexity, escalate by exception, brief with cards before the caller decides.
 *   **Have a POV.** Every card carries a defeasible `my lean` (stated after the options). Neutral-findings dumps are the failure mode this command exists to kill — but the lean is disclosed *context*, never the choice mechanism.
 *   **Never omit the paired trade-off.** A lean without its "what acting costs" is an under-brief — the user will just ask for it.
@@ -90,13 +92,13 @@ Emit the `## PROOF FOR` fields either way (they describe the *disclosure*, not a
 *   **Card depth scales with bucket.** Don't spend a full card on an FYI; don't shortchange a `Your-call`.
 *   **`¶INV_LISTS_INSTEAD_OF_TABLES`**: Cards and summaries render as named lists, never markdown tables.
 *   **`¶INV_ESCAPE_BY_DEFAULT`**: Backtick-escape sigil/tag references in chat output.
-*   **Hands off, doesn't own the choice.** ELICIT produces content (cards + framed options + triage); the caller's `§CMD_TAG_TRIAGE` / fix-skip-defer / address-ignore command is the choice-collection mechanic it hands off to — ELICIT does not drive or replace it.
+*   **Hands off, doesn't own the choice.** ELICIT produces content (card-as-question-body + gradation-tagged option framing + triage); the caller's `§CMD_TAG_TRIAGE` / fix-skip-defer / address-ignore command supplies the answer vocabulary and interprets what the pick *means* — ELICIT frames the options but does not own or apply the decision.
 
 ---
 
-## Hand-off — ELICIT owns no decision ask
+## Hand-off — ELICIT renders the ask, the caller owns its meaning
 
-ELICIT deliberately has **no** `AskUserQuestion` tree of its own. After the cards-then-summary (Step 3), the caller runs its own decision command (Step 5): `§CMD_TAG_TRIAGE` in the delegation walkthrough, fix/skip/defer in `/scrutinize`, address/ignore in `/pr`. The caller's block presents *its* vocabulary as the choices — ELICIT's card options are disclosed context that *inform* those choices, never the choices themselves. Natural-language shortcuts ("skip the FYIs", "hold the whole set") are honored by the caller's command, not here.
+ELICIT renders the `AskUserQuestion` — the card IS the question body (`§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`) — but it owns **no decision meaning**. The answer options are the caller's vocabulary (Step 5): `§CMD_TAG_TRIAGE` in the delegation walkthrough, fix/skip/defer in `/scrutinize`, address/ignore in `/pr`. ELICIT frames those options (`§FMT_ANSWER_GRADATION`, `★`=lean) inside the card body; the caller's command interprets the pick — places the tag, runs the fix, records the address. There is no longer a cards-in-chat pass followed by a separate terse popup: disclosure and choice are one prompt. Natural-language shortcuts ("skip the FYIs", "hold the whole set") are honored by the caller's command, not here.
 
 ---
 
@@ -109,7 +111,7 @@ ELICIT deliberately has **no** `AskUserQuestion` tree of its own. After the card
   "properties": {
     "itemsDisclosed": {
       "type": "string",
-      "description": "Count of items disclosed as Decision Cards, and the field-completeness (all Your-calls carry every card field)"
+      "description": "Count of items disclosed as Decision Cards rendered as AskUserQuestion question bodies, and the field-completeness (all Your-calls carry every card field)"
     },
     "yourCalls": {
       "type": "string",

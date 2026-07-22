@@ -21,7 +21,7 @@ Extras: A: ... | B: ... | C: ...
 
 - **Heading** — `## ¶ASK_[NAME]: Choose one: [Title]` — single heading combining the tree identifier and title. UPPER_SNAKE name, unique across all CMD/SKILL files. Use `Choose one:` for single-select, `Choose:` for multi-select.
 - **Trigger** — `Trigger: [description]` — metadata line after heading, before options. Describes when this ask pattern is useful.
-- **Extras** — `Extras: A: ... | B: ... | C: ...` — agent-generated smart extras shown in the preamble legend. Optional.
+- **Extras** — `Extras: A: ... | B: ... | C: ...` — agent-generated smart extras shown in the in-body legend (`§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`). Optional.
 - **Identifier** — `[CODE]` — OPTIONAL. 3-4 uppercase letters from the Standard Label Vocabulary ONLY. Items that don't map to a standard code have no `[CODE]` prefix — just the label. Do NOT invent new codes.
 - **Hidden identifier** — `[_CODE]` — Machine-readable key NOT shown to the user. The underscore prefix means "internal." In the answer store, the underscore is stripped: `[_REASON]` → store key `REASON`. Use hidden codes when a question needs to be queryable by conditions but shouldn't display a code badge visually.
 - **Checkbox prefix** — `- [ ]` — ALL options get a checkbox prefix. This is universal formatting, not a multi-select signal. Multi-select vs single-select is determined by the heading (`Choose:` vs `Choose one:`).
@@ -104,22 +104,22 @@ Extras: A: ... | B: ... | C: ...
 
 Extract all items from the tree definition: codes (`[CODE]`), labels, descriptions, multi-select flags, and any nested children.
 
-### Step 2: Preamble (Context + Legend)
+### Step 2: Compose Question Bodies (Complete Context) + Legend
 
-Before calling `AskUserQuestion`, output a **preamble** in chat. The preamble has two parts: (1) context explaining WHAT and WHY, (2) extended options legend. Always shown — consistent UX. The user does NOT read log files or artifacts — the preamble IS their context window for making this decision.
+DECISION_TREE routes through `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`: there is **no separate preamble rendered in chat before the popup**. Each tree question's **body carries its own complete context** (`§FMT_CONTEXT_BLOCK` — the context that goes IN the body): WHAT is being decided, WHY it matters, and everything needed to choose without reading any files, log, or artifact. In batch mode, each of the up to 4 questions is a **self-complete body** — no shared block above them to map back to.
 
-**Format**:
-> [1-2 paragraphs: WHAT decision is being made, WHY it matters, and enough context for the user to choose without reading any files. In batch mode, include per-item context blocks before the legend.]
+**Format** — compose per-question `question` bodies, then one `AskUserQuestion`:
+> [Body: complete context for THIS question — as long as it needs to be, `§FMT_CONTEXT_BLOCK`. For a rich judgment call the body IS a `§FMT_DECISION_CARD` via `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`. File references are labeled links `[name](url)` per `§FMT_FILE_LINK`, never bare URLs.]
 >
+> The A/B/C smart extras + `Try:` affordances ride along inside the body (or a compact shared lead-in line), not as a separate preamble:
 > **Also:** A: [smart extra 1] | B: [smart extra 2] | C: [smart extra 3]
 > **Try:** /: more | Q: ask a question | ?: explain | !: skip
->
->
-> *(two trailing blank lines — UI overlay workaround, required per `¶INV_QUESTION_GATE_OVER_TEXT_GATE`)*
 
-**Context requirement** (`¶INV_QUESTION_GATE_OVER_TEXT_GATE`): The context paragraphs are NOT optional. A bare A/B/C legend without explanation is a violation. The user must understand what they're deciding and why from the preamble alone.
+Option **labels** lead with `§FMT_ANSWER_GRADATION` tags (`△●Ⓢ★ …`) — showing only the 1–2 dimensions that differentiate this option set; the `★` marks the recommended option (see Step 3).
 
-**Trailing blank lines**: The last TWO lines of chat text before the `AskUserQuestion` call MUST be empty lines (`\n\n`). The question UI element overlaps the bottom of preceding text — a single blank line is insufficient padding. Two blank lines ensure the Try: line and final context sentence remain visible above the UI overlay. This applies to ALL preambles before `AskUserQuestion`, not just decision tree preambles.
+**Context requirement** (`¶INV_QUESTION_GATE_OVER_TEXT_GATE`): The in-body context is NOT optional. A bare A/B/C legend without explanation is a violation. The user must understand what they're deciding and why from the question body alone.
+
+**Lead-in + UI overlay**: The `AskUserQuestion` UI element overlaps the bottom of any preceding chat text. Since the context now lives in the body, at most a **one-line lead-in sentence** precedes the call — keep **ONE trailing blank line** after it so that last line stays visible above the overlay. (This replaces the old two-blank-line padding rule, which existed to protect a full context preamble that no longer sits in chat.)
 
 **A/B/C smart extras**: Agent-generated options based on current context — not from the tree definition. These are creative alternatives the agent thinks are relevant. Examples:
 *   During tag triage: `A: #needs-brainstorm + #needs-implementation | B: Defer to next session | C: Split into 2 items`
@@ -145,7 +145,7 @@ Before calling `AskUserQuestion`, output a **preamble** in chat. The preamble ha
 **Question text convention**: At root level, the question text is a plain contextual question. At deeper levels (follow-ups after `/` or branch selection), prefix the question with a breadcrumb path in brackets: `[/]: More options` or `[//]: Even more options`. This shows the user where they are in the pagination.
 
 For each surfaced option:
-*   **Label**: `[CODE] ` prefix + Node's label text. The code prefix makes tree codes visible to the user, enabling smart parse (typed code matching). Auto-append `...` if node has children. Example: `[LGTM] Looks good`, `[RWRK] Rework this step...`.
+*   **Label**: optional `§FMT_ANSWER_GRADATION` cluster (`△●Ⓢ★ …` — only the dimensions that differentiate this set; `★` on the recommended option) + `[CODE] ` prefix + Node's label text. The code prefix makes tree codes visible to the user, enabling smart parse (typed code matching). Auto-append `...` if node has children. Example: `[LGTM] Looks good`, `●Ⓢ★ [LGTM] Looks good`, `[RWRK] Rework this step...`.
 *   **Description**: Node's description text.
 *   **multiSelect**: `true` if the heading uses `Choose:` (multi-select) instead of `Choose one:` (single-select).
 
@@ -206,7 +206,7 @@ When a follow-up is triggered for ONE item in a batch (branch selection, prefix 
 
 1.  **Preserve resolved items**: Other items in the batch that already have answers are PRESERVED. Do NOT re-ask them.
 2.  **Re-present only the triggering item**: Fire a NEW `AskUserQuestion` with a SINGLE question for the unresolved item. Header: same `ID. Label` as the original batch (stable — never changes). Question text: prefixed with breadcrumb path.
-3.  **Include follow-up context**: In the preamble before re-presenting, explain what triggered the follow-up.
+3.  **Include follow-up context**: Explain what triggered the follow-up INSIDE the re-presented question's body (`§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`), not in a separate chat preamble.
 4.  **Continue the batch**: After the follow-up resolves, merge the result into `chosen_items[]` alongside the preserved answers.
 
 **Follow-up header convention**: The header for follow-up questions MUST be identical to the original batch header (`ID. Label`). Navigation context goes in the question text as a breadcrumb prefix, not in the header.
@@ -261,7 +261,7 @@ These work in the Other text field across all `¶ASK_*` patterns. Resolved at pr
 
 The caller provides:
 *   **Tree definition**: Markdown tree block (inline or by reference).
-*   **Items**: 1-4 items, each with `title` (used in question text and result), `itemId` (hierarchical ID per SIGILS.md § Item IDs — tracked internally in `chosen_items[]` output, NOT used as headers), `label` (short descriptive label for the `AskUserQuestion` header — up to 20 chars, e.g., `"Auth Design"`), and `context` (displayed in chat before the question — caller generates context blocks, not this command).
+*   **Items**: 1-4 items, each with `title` (used in question text and result), `itemId` (hierarchical ID per SIGILS.md § Item IDs — tracked internally in `chosen_items[]` output, NOT used as headers), `label` (short descriptive label for the `AskUserQuestion` header — up to 20 chars, e.g., `"Auth Design"`), and `context` (composed INTO the question body per `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`, never rendered in chat before the popup — caller generates the context, not this command).
 
 ---
 

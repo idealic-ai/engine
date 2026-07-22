@@ -2,7 +2,7 @@
 **Definition**: The standard protocol for information gathering (Brainstorming, Debugging, Deep Dives).
 **Algorithm**:
 1.  **Formulate**: Generate up to 4 targeted questions based on the Session Goal (the `AskUserQuestion` tool maximum).
-2.  **Execute**: Call the `AskUserQuestion` tool.
+2.  **Execute**: Ask them via `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT` — each question's BODY carries its complete context (no separate chat preamble), and option labels lead with `§FMT_ANSWER_GRADATION` sigils wherever they differentiate.
     *   **Constraint**: Provide distinct options for each question (e.g., Yes/No, Multiple Choice).
     *   **Goal**: Gather structured data to inform the next steps.
 3.  **Wait**: The tool will pause execution until the user responds.

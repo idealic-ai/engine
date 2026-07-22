@@ -1,5 +1,5 @@
 ### ¶CMD_TAG_TRIAGE
-**Definition**: Domain-specific tag-based triage. Presents dynamically-selected delegation targets per item, collects `#needs-[tag]` selections. Supports single-item and batch (up to 4 items) invocation. Returns `chosen_items[]` — no side effects. Separated from `§CMD_DECISION_TREE` because tags have domain-specific semantics (delegation targets, `nextSkills` bias, tag placement).
+**Definition**: Domain-specific tag-based triage. Presents dynamically-selected delegation targets per item, collects `#needs-[tag]` selections. Supports single-item and batch (up to 4 items) invocation. Returns `chosen_items[]` — no side effects. Separated from `§CMD_DECISION_TREE` because tags have domain-specific semantics (delegation targets, `nextSkills` bias, tag placement). Routes through `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`: the item's decision card renders AS the question body (via `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`) and the `#needs-X` tags are the disposition options — one self-complete unit, never a card in chat above a terse question.
 **Trigger**: Called by `§CMD_WALK_THROUGH_RESULTS` in results mode, or any protocol step routing work items to skills via tags.
 
 ---
@@ -19,14 +19,14 @@ For each item, pick the **2 most relevant tags**:
 
 ### Step 3: Present
 
-**Single item** (1 item): One `AskUserQuestion` (multiSelect: false) with 3 options:
-*   2 dynamic tags + Dismiss.
+Render each item via `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT` — **the item's decision card IS the `AskUserQuestion` question body**, the 2 tags + Dismiss are the options. No separate card in chat above the popup; the walk-through no longer relies on the caller having rendered the item's context first.
 
-**Batch** (2-4 items): One `AskUserQuestion` with N questions (one per item, single-select each):
-*   Per question: 2 dynamic tags (selected independently for THAT item) + Dismiss.
-*   Header: the item's ID per the Item IDs convention (SIGILS.md § Item IDs). Inherited from the caller (e.g., `§CMD_WALK_THROUGH_RESULTS` provides the debrief item ID).
+**Single item** (1 item): One `AskUserQuestion` (multiSelect: false). `question` = the item's card (`§FMT_DECISION_CARD`: heading, `file:line`/scope + confidence, what's-at-stake, how-to-verify, lean). 3 options: 2 dynamic tags + Dismiss.
 
-**Label format** (per `¶INV_QUESTION_GATE_OVER_TEXT_GATE`): Labels MUST include the `#needs-X` tag and describe the specific action. Example: `"#needs-implementation: add rate limiting to /api/extract"`.
+**Batch** (2-4 items): One `AskUserQuestion` with N questions (one per item, single-select each). Each question's body = THAT item's card; options = 2 tags selected independently for that item + Dismiss.
+*   `header` per question: the item's ID (SIGILS.md § Item IDs). Inherited from the caller (e.g., `§CMD_WALK_THROUGH_RESULTS` provides the debrief item ID).
+
+**Label format** (per `¶INV_QUESTION_GATE_OVER_TEXT_GATE`): Labels MUST include the `#needs-X` tag and describe the specific action, and MAY lead with a `§FMT_ANSWER_GRADATION` cluster where a dimension differentiates the routings (e.g. the effort/risk of `#needs-fix` vs `#needs-brainstorm`) — closed-set glyphs only (`△◭▲` risk · `○◑●` confidence · `ⓈⓂⓁ` effort · `★` lean), only differentiating dims. Example: `"Ⓢ #needs-fix: add rate limiting to /api/extract"` · `"Ⓛ #needs-brainstorm: decide the throttle strategy"`.
 
 ### Step 4: Process Selections
 
@@ -44,7 +44,9 @@ Return `chosen_items[]` — array of `{item, decision, tagNoun, explanation}` ob
 ## Constraints
 
 *   **`¶INV_ASK_RETURNS_PATH`**: Pure decision collector — no side effects.
-*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All interactions via `AskUserQuestion`. Descriptive labels required.
+*   **Complete context in body**: routes through `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT` / `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT` — the card lives in the question body, never a preceding chat block.
+*   **`§FMT_ANSWER_GRADATION` is a closed set**: gradation sigils on tag labels use only the defined glyphs, only where a dimension differentiates the options — never freehand, never sigil-soup.
+*   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All interactions via `AskUserQuestion`. Descriptive `#needs-X` labels required.
 *   **`¶INV_1_TO_1_TAG_SKILL`**: Only offer tags with corresponding skills.
 *   **2 tags + Dismiss**: 3 options per question (within `AskUserQuestion`'s 4-option limit with Other).
 *   **Batch limit**: Max 4 items per invocation. Caller chunks larger sets.

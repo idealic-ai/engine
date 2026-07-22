@@ -558,8 +558,14 @@ Creates and maintains cross-document links between related sessions (continuatio
 ### [¶CMD_REPORT_LEFTOVER_WORK](commands/CMD_REPORT_LEFTOVER_WORK.md)
 Extracts unfinished items from session artifacts and presents a concise report in chat before the next-skill menu.
 
+### [¶CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT](commands/CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT.md)
+The canonical `AskUserQuestion` invocation — every question carries its **complete context in the body** (no separate chat context-block before it; the name is the rule), and option labels lead with `§FMT_ANSWER_GRADATION` tags. The base primitive `§CMD_DECISION_TREE` / `§CMD_TAG_TRIAGE` / `§CMD_INTERROGATE` / `§CMD_WALK_THROUGH_RESULTS` route through. Kills the question↔context duality.
+
+### [¶CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT](commands/CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT.md)
+Specialization of `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT` for decision-card items: renders a full `§FMT_DECISION_CARD` **as** the `AskUserQuestion` question body (up to 4 cards = 4 questions), card Options → gradation-tagged options, My-lean → the `★`. One self-complete unit; no scroll between card and choice.
+
 ### [¶CMD_DECISION_TREE](commands/CMD_DECISION_TREE.md)
-General-purpose declarative decision collector. Navigates markdown-defined trees via `AskUserQuestion`. Supports single-item and batch (up to 4 items) invocation.
+General-purpose declarative decision collector. Navigates markdown-defined trees via `AskUserQuestion` (through `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`). Supports single-item and batch (up to 4 items) invocation.
 
 ### [¶CMD_TAG_TRIAGE](commands/CMD_TAG_TRIAGE.md)
 Domain-specific tag-based triage. Presents dynamically-selected delegation targets per item, collects `#needs-[tag]` selections. Separated from `§CMD_DECISION_TREE` because tags have domain-specific semantics.
