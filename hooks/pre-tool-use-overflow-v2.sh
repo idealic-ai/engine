@@ -47,6 +47,24 @@ OVERFLOW_THRESHOLD="${OVERFLOW_THRESHOLD:-0.76}"
 HOOK_NAME="overflow-v2"
 GUARDS_FILE="$HOME/.claude/engine/guards.json"
 
+# Closed checkpoint-reason vocabulary (mirrors log.sh VALID_REASONS). The hook owns
+# the per-type counters (log.sh stays out of .state.json).
+CHECKPOINT_VALID_REASONS="step section plan found-issue divergence interruption decision block"
+
+# _parse_checkpoint_reason CMD → a valid --reason <type> on stdout, else empty.
+# Tolerant: the flag may precede OR follow the log file. Anything outside the closed
+# vocabulary is ignored (degrades to a bare log with no counter change).
+_parse_checkpoint_reason() {
+  local cmd="$1" r=""
+  if [[ "$cmd" =~ --reason[[:space:]]+([A-Za-z-]+) ]]; then
+    r="${BASH_REMATCH[1]}"
+  fi
+  case " $CHECKPOINT_VALID_REASONS " in
+    *" $r "*) [ -n "$r" ] && echo "$r" ;;
+  esac
+  return 0
+}
+
 # Read hook input from stdin
 INPUT=$(cat)
 
@@ -95,16 +113,32 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     # Reset counter on log command (same as heartbeat-v2)
     session_dir=$(find_session_dir)
     if [ -n "$session_dir" ] && [ -f "$session_dir/.state.json" ]; then
+      # A `--reason <type>` checkpoint (piece 1) also bumps the per-type counter and
+      # stamps lastCheckpoint, so the contract-aware warn can measure adherence. A bare
+      # `engine log` leaves the counters untouched — empty $reason makes the jq branch a
+      # no-op, keeping the reset byte-identical to the pre-checkpoint behavior.
+      reason=$(_parse_checkpoint_reason "$BASH_CMD")
+      at=$(timestamp)
       # A sub-agent's log resets ONLY its own namespaced counter — never the parent's
       # global (toolCallsSinceLastLog), so a sub-agent logging can't relieve the parent's
       # heartbeat pressure, and a blocked sub-agent can escape by logging (no infinite loop).
       if [ "$is_subagent" = "true" ]; then
-        jq --arg key "$counter_key" \
-          '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = 0' \
+        jq --arg key "$counter_key" --arg reason "$reason" --arg at "$at" \
+          '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = 0
+           | if $reason != "" then
+               (.checkpointCounters //= {})
+               | .checkpointCounters[$reason] = ((.checkpointCounters[$reason] // 0) + 1)
+               | .lastCheckpoint = {reason: $reason, at: $at}
+             else . end' \
           "$session_dir/.state.json" | safe_json_write "$session_dir/.state.json"
       else
-        jq --arg key "$counter_key" \
-          '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = 0 | .toolCallsSinceLastLog = 0' \
+        jq --arg key "$counter_key" --arg reason "$reason" --arg at "$at" \
+          '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = 0 | .toolCallsSinceLastLog = 0
+           | if $reason != "" then
+               (.checkpointCounters //= {})
+               | .checkpointCounters[$reason] = ((.checkpointCounters[$reason] // 0) + 1)
+               | .lastCheckpoint = {reason: $reason, at: $at}
+             else . end' \
           "$session_dir/.state.json" | safe_json_write "$session_dir/.state.json"
       fi
     fi
@@ -361,6 +395,33 @@ _run_discovery() {
   return 0
 }
 
+# _checkpoint_contract_line STATE_FILE → contract-restatement line on stdout, else empty.
+#   Emits the committed cadence + the current gap ONLY when a checkpointStrategy is present
+#   (piece 3 writes it; absent is the common case). Any read miss / malformed strategy
+#   degrades to empty so the caller stays byte-identical to the generic warn.
+_checkpoint_contract_line() {
+  local state_file="$1"
+  [ -n "$state_file" ] && [ -f "$state_file" ] || return 0
+
+  local has_strategy
+  has_strategy=$(jq -r 'if (.checkpointStrategy | type) == "object" then "yes" else "no" end' \
+    "$state_file" 2>/dev/null || echo "no")
+  [ "$has_strategy" = "yes" ] || return 0
+
+  jq -r '
+    (.checkpointStrategy.progressLadder // {}) as $lad
+    | (.checkpointCounters // {}) as $c
+    | ($c.step // 0) as $steps
+    | ($c.section // 0) as $sections
+    | ([ (if (($lad.step // []) | length) > 0 then "log+tick per step" else null end),
+         (if (($lad.section // []) | any(. == "run-tests")) then "tests per section" else null end) ]
+       | map(select(. != null)) | join(", ")) as $contract
+    | (if ($steps > 0 and $sections == 0) then " → section overdue" else "" end) as $gap
+    | "contract: " + (if $contract == "" then "checkpoint per step" else $contract end)
+      + " · steps " + ($steps | tostring) + " / sections " + ($sections | tostring) + $gap
+  ' "$state_file" 2>/dev/null || return 0
+}
+
 # _enrich_heartbeat_message TEXT STATE_FILE SESSION_DIR
 #   Enriches a heartbeat message with counter (N/M) and log path.
 #   Falls back to original text if no session context available.
@@ -412,10 +473,21 @@ _enrich_heartbeat_message() {
   fi
 
   # Output: §CMD_APPEND_LOG (N/M) [HH:MM | Context: XX%] + engine log command with heredoc template hint
+  local base
   if [ -n "$template_name" ]; then
-    printf "%s (%s/%s) [%s | Context: %s%%]\n    $ engine log %s <<'EOF' [Template: %s] ... EOF" "$text" "$counter" "$block_threshold" "$current_time" "$context_pct" "$display_log_path" "$template_name"
+    base=$(printf "%s (%s/%s) [%s | Context: %s%%]\n    $ engine log %s <<'EOF' [Template: %s] ... EOF" "$text" "$counter" "$block_threshold" "$current_time" "$context_pct" "$display_log_path" "$template_name")
   else
-    printf '%s (%s/%s) [%s | Context: %s%%]\n    $ engine log %s' "$text" "$counter" "$block_threshold" "$current_time" "$context_pct" "$display_log_path"
+    base=$(printf '%s (%s/%s) [%s | Context: %s%%]\n    $ engine log %s' "$text" "$counter" "$block_threshold" "$current_time" "$context_pct" "$display_log_path")
+  fi
+
+  # Contract-aware suffix: only when a checkpointStrategy is committed (piece 3 writes it).
+  # Absent — the common case — appends nothing, so the warn is byte-identical to today.
+  local contract_line
+  contract_line=$(_checkpoint_contract_line "$state_file")
+  if [ -n "$contract_line" ]; then
+    printf '%s\n    %s' "$base" "$contract_line"
+  else
+    printf '%s' "$base"
   fi
 }
 

@@ -303,27 +303,24 @@ COUNTER=$(jq -r --arg key "$TKEY" '.toolCallsByTranscript[$key] // 0' "$TEST_SES
 assert_eq "0" "$COUNTER" "C16: TaskOutput does not increment counter"
 
 # ============================================================
-# C17: Subagent not blocked at heartbeat threshold
+# C17: Subagent IS blocked at heartbeat threshold — on its OWN sub:<agent_id> counter.
+# A sub-agent keeps its own heartbeat discipline (§PTF_SESSION_HOOK_STATE_BLEEDS_TO_SUBAGENTS);
+# detection is by the `agent_id` field, NOT the transcript_path (which is the parent's).
 # ============================================================
 reset_state
-TKEY=$(basename "$TRANSCRIPT_PATH")
-SUBAGENT_TKEY="subagent_transcript.jsonl"
-SUBAGENT_TRANSCRIPT_PATH="/tmp/$SUBAGENT_TKEY"
+SUBAGENT_ID="agent-c17"
+SUBAGENT_CKEY="sub:$SUBAGENT_ID"
 # Establish parent's primary transcript key by making a parent call first
 run_hook "Grep" '{"pattern":"test"}' > /dev/null
-# Now set subagent counter to 9 so next call triggers heartbeat-block (gte:10)
-jq --arg key "$SUBAGENT_TKEY" '.toolCallsByTranscript[$key] = 9' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+# Set the subagent's OWN namespaced counter to 9 so its next call triggers heartbeat-block (gte:10)
+jq --arg key "$SUBAGENT_CKEY" '.toolCallsByTranscript[$key] = 9' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-# Subagent uses a DIFFERENT transcript path → detected as subagent
-OUTPUT=$(printf '{"tool_name":"Grep","tool_input":{"pattern":"test"},"session_id":"test","transcript_path":"%s"}\n' \
-  "$SUBAGENT_TRANSCRIPT_PATH" | "$RESOLVED_HOOK" 2>/dev/null)
+# Subagent identified by agent_id (fires under the PARENT's transcript_path) → namespaced sub:<agent_id>
+OUTPUT=$(printf '{"tool_name":"Grep","tool_input":{"pattern":"test"},"session_id":"test","transcript_path":"%s","agent_id":"%s"}\n' \
+  "$TRANSCRIPT_PATH" "$SUBAGENT_ID" | "$RESOLVED_HOOK" 2>/dev/null)
 DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
-if [ "$DECISION" = "deny" ]; then
-  fail "C17: subagent should NOT be blocked by heartbeat (got deny)"
-else
-  pass "C17: subagent not blocked at heartbeat threshold (downgraded to allow)"
-fi
+assert_eq "deny" "$DECISION" "C17: subagent IS blocked at heartbeat threshold on its own sub:<agent_id> counter"
 
 # ============================================================
 # C18: Parent IS blocked at same threshold (control test)
@@ -341,25 +338,176 @@ DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""'
 assert_eq "deny" "$DECISION" "C18: parent IS blocked at heartbeat threshold (control)"
 
 # ============================================================
-# C19: Subagent counter does NOT overwrite global toolCallsSinceLastLog
+# C19: Subagent (agent_id) counter does NOT overwrite global toolCallsSinceLastLog.
+# A sub-agent increments ONLY its own sub:<agent_id> counter — never the parent's global.
 # ============================================================
 reset_state
 TKEY=$(basename "$TRANSCRIPT_PATH")
-SUBAGENT_TKEY="subagent_transcript.jsonl"
-SUBAGENT_TRANSCRIPT_PATH="/tmp/$SUBAGENT_TKEY"
+SUBAGENT_ID="agent-c19"
+SUBAGENT_CKEY="sub:$SUBAGENT_ID"
 # Establish parent's primary key + set counter
 run_hook "Grep" '{"pattern":"test"}' > /dev/null
 jq --arg key "$TKEY" '.toolCallsByTranscript[$key] = 2 | .toolCallsSinceLastLog = 2' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
-# Subagent makes a call — should NOT overwrite toolCallsSinceLastLog
-printf '{"tool_name":"Grep","tool_input":{"pattern":"test"},"session_id":"test","transcript_path":"%s"}\n' \
-  "$SUBAGENT_TRANSCRIPT_PATH" | "$RESOLVED_HOOK" 2>/dev/null > /dev/null
+# Subagent (agent_id) makes a call — increments only sub:<id>, must NOT touch toolCallsSinceLastLog
+printf '{"tool_name":"Grep","tool_input":{"pattern":"test"},"session_id":"test","transcript_path":"%s","agent_id":"%s"}\n' \
+  "$TRANSCRIPT_PATH" "$SUBAGENT_ID" | "$RESOLVED_HOOK" 2>/dev/null > /dev/null
 
 GLOBAL_COUNTER=$(jq -r '.toolCallsSinceLastLog // 0' "$TEST_SESSION/.state.json")
-SUBAGENT_COUNTER=$(jq -r --arg key "$SUBAGENT_TKEY" '.toolCallsByTranscript[$key] // 0' "$TEST_SESSION/.state.json")
+SUBAGENT_COUNTER=$(jq -r --arg key "$SUBAGENT_CKEY" '.toolCallsByTranscript[$key] // 0' "$TEST_SESSION/.state.json")
 assert_eq "2" "$GLOBAL_COUNTER" "C19: global counter preserved (subagent did not overwrite)"
-assert_eq "1" "$SUBAGENT_COUNTER" "C19: subagent per-transcript counter incremented"
+assert_eq "1" "$SUBAGENT_COUNTER" "C19: subagent per-agent_id counter incremented"
+
+# ============================================================
+# Contract-aware heartbeat (piece 2)
+# ============================================================
+# Helper: strip the checkpoint fields this feature owns so cases don't leak.
+# Also drains pendingAllowInjections (append-only across tool calls) so a warn
+# assertion reads THIS case's fresh entry at [0], not a stale one from an earlier case.
+clear_checkpoint_state() {
+  jq 'del(.checkpointCounters) | del(.lastCheckpoint) | del(.checkpointStrategy) |
+      .pendingAllowInjections = []' \
+    "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+    && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+}
+
+# ============================================================
+# C20: engine log --reason step bumps checkpointCounters.step + lastCheckpoint
+# ============================================================
+reset_state
+clear_checkpoint_state
+
+run_hook "Bash" '{"command":"engine log sessions/test/LOG.md --reason step <<EOF\n## Step\nEOF"}' > /dev/null
+
+STEP=$(jq -r '.checkpointCounters.step // 0' "$TEST_SESSION/.state.json")
+LR=$(jq -r '.lastCheckpoint.reason // ""' "$TEST_SESSION/.state.json")
+LAT=$(jq -r '.lastCheckpoint.at // ""' "$TEST_SESSION/.state.json")
+assert_eq "1" "$STEP" "C20: --reason step bumps checkpointCounters.step to 1"
+assert_eq "step" "$LR" "C20: lastCheckpoint.reason = step"
+assert_neq "" "$LAT" "C20: lastCheckpoint.at is stamped"
+
+# ============================================================
+# C21: bare engine log resets counter but does NOT touch checkpointCounters
+# ============================================================
+reset_state
+clear_checkpoint_state
+TKEY=$(basename "$TRANSCRIPT_PATH")
+jq --arg key "$TKEY" '.toolCallsByTranscript[$key] = 5' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+run_hook "Bash" '{"command":"engine log sessions/test/LOG.md <<EOF\n## Plain\nEOF"}' > /dev/null
+
+COUNTER=$(jq -r --arg key "$TKEY" '.toolCallsByTranscript[$key] // 0' "$TEST_SESSION/.state.json")
+HAS_CC=$(jq -r 'has("checkpointCounters")' "$TEST_SESSION/.state.json")
+HAS_LC=$(jq -r 'has("lastCheckpoint")' "$TEST_SESSION/.state.json")
+assert_eq "0" "$COUNTER" "C21: bare engine log resets no-log counter (existing behavior)"
+assert_eq "false" "$HAS_CC" "C21: bare engine log leaves checkpointCounters untouched"
+assert_eq "false" "$HAS_LC" "C21: bare engine log leaves lastCheckpoint untouched"
+
+# ============================================================
+# C22: non-log tool call does not touch checkpointCounters
+# ============================================================
+reset_state
+clear_checkpoint_state
+
+run_hook "Grep" '{"pattern":"test"}' > /dev/null
+
+HAS_CC=$(jq -r 'has("checkpointCounters")' "$TEST_SESSION/.state.json")
+HAS_LC=$(jq -r 'has("lastCheckpoint")' "$TEST_SESSION/.state.json")
+assert_eq "false" "$HAS_CC" "C22: non-log tool leaves checkpointCounters untouched"
+assert_eq "false" "$HAS_LC" "C22: non-log tool leaves lastCheckpoint untouched"
+
+# ============================================================
+# C23: two --reason logs accumulate counters correctly
+# ============================================================
+reset_state
+clear_checkpoint_state
+
+run_hook "Bash" '{"command":"engine log sessions/test/LOG.md --reason step <<EOF\n## S1\nEOF"}' > /dev/null
+run_hook "Bash" '{"command":"engine log sessions/test/LOG.md --reason step <<EOF\n## S2\nEOF"}' > /dev/null
+run_hook "Bash" '{"command":"engine log sessions/test/LOG.md --reason section <<EOF\n## Sec\nEOF"}' > /dev/null
+
+STEP=$(jq -r '.checkpointCounters.step // 0' "$TEST_SESSION/.state.json")
+SECTION=$(jq -r '.checkpointCounters.section // 0' "$TEST_SESSION/.state.json")
+LR=$(jq -r '.lastCheckpoint.reason // ""' "$TEST_SESSION/.state.json")
+assert_eq "2" "$STEP" "C23: two --reason step logs accumulate to 2"
+assert_eq "1" "$SECTION" "C23: one --reason section log counts as 1"
+assert_eq "section" "$LR" "C23: lastCheckpoint tracks the most recent reason"
+
+# ============================================================
+# C24: warn WITH checkpointStrategy restates the contract + names the gap
+# ============================================================
+reset_state
+clear_checkpoint_state
+TKEY=$(basename "$TRANSCRIPT_PATH")
+jq --arg key "$TKEY" '
+  .toolCallsByTranscript[$key] = 2 |
+  .checkpointStrategy = {
+    "progressLadder": {
+      "step": ["log","plan-tick"],
+      "section": ["log","plan-tick","run-tests"],
+      "planComplete": ["scrutinize","snapshot"]
+    }
+  } |
+  .checkpointCounters = {"step": 4, "section": 0}
+' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+OUTPUT=$(run_hook "Grep" '{"pattern":"test"}')
+DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
+STASHED=$(jq -r '.pendingAllowInjections // [] | .[0].content // ""' "$TEST_SESSION/.state.json")
+assert_eq "allow" "$DECISION" "C24: warns but allows at warn threshold with strategy"
+assert_contains "contract:" "$STASHED" "C24: warn restates the committed contract"
+assert_contains "steps 4" "$STASHED" "C24: warn names the step count from counters"
+assert_contains "overdue" "$STASHED" "C24: warn names the gap (section overdue)"
+
+# ============================================================
+# C25: warn WITHOUT checkpointStrategy is generic (byte-compat back-guard)
+# ============================================================
+reset_state
+clear_checkpoint_state
+TKEY=$(basename "$TRANSCRIPT_PATH")
+jq --arg key "$TKEY" '.toolCallsByTranscript[$key] = 2' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+OUTPUT=$(run_hook "Grep" '{"pattern":"test"}')
+DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
+STASHED=$(jq -r '.pendingAllowInjections // [] | .[0].content // ""' "$TEST_SESSION/.state.json")
+assert_eq "allow" "$DECISION" "C25: warns but allows at warn threshold (no strategy)"
+assert_contains "CMD_APPEND_LOG" "$STASHED" "C25: generic warn still delivered"
+assert_not_contains "contract:" "$STASHED" "C25: no contract line without a strategy"
+assert_not_contains "overdue" "$STASHED" "C25: no gap line without a strategy"
+
+# ============================================================
+# C26: malformed checkpointStrategy degrades to generic (no crash)
+# ============================================================
+reset_state
+clear_checkpoint_state
+TKEY=$(basename "$TRANSCRIPT_PATH")
+jq --arg key "$TKEY" '.toolCallsByTranscript[$key] = 2 | .checkpointStrategy = "garbage-not-an-object"' \
+  "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+OUTPUT=$(run_hook "Grep" '{"pattern":"test"}')
+DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
+STASHED=$(jq -r '.pendingAllowInjections // [] | .[0].content // ""' "$TEST_SESSION/.state.json")
+assert_eq "allow" "$DECISION" "C26: malformed strategy does not crash the hook"
+assert_contains "CMD_APPEND_LOG" "$STASHED" "C26: malformed strategy degrades to generic warn"
+assert_not_contains "contract:" "$STASHED" "C26: malformed strategy emits no contract line"
+
+# ============================================================
+# C27: block-tier floor still fires unchanged (no strategy)
+# ============================================================
+reset_state
+clear_checkpoint_state
+TKEY=$(basename "$TRANSCRIPT_PATH")
+jq --arg key "$TKEY" '.toolCallsByTranscript[$key] = 9' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+OUTPUT=$(run_hook "Grep" '{"pattern":"test"}')
+DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
+assert_eq "deny" "$DECISION" "C27: block-tier floor still fires unchanged"
 
 # ============================================================
 # Results
