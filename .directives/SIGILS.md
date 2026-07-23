@@ -758,18 +758,21 @@ Fixed in [FIN-3141](https://linear.app/finchclaims/issue/FIN-3141); follow-up is
 
 **When to use**: The richer successor to `§FMT_CONTEXT_BLOCK` for disclosing the agent's own judgment per item. Used by `§CMD_ELICIT` (and, via it, `§CMD_WALK_THROUGH_RESULTS` results mode) — front-loading what the user reliably asks for next so they judge from context instead of interrogating. **The fields are generalized off the fix-shape** so one card fits a proposed **fix**, a raw **idea**, or a neutral **observation** — not only findings-to-fix. One card per item.
 
-**Rendering as the question body (plain text — NO markdown)**: the card renders **as the `AskUserQuestion` question body** (via `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`), not as separate chat text before a terse question. **AskUserQuestion bodies do not render markdown** — `**bold**`, `` `code` ``, `####` show literally. So in the body use **plain text with whitespace-aligned columns**: field name on the left (padded to a consistent width), value to its right; multi-line values indent under the value column. Unicode renders fine (`·`, the `§FMT_ANSWER_GRADATION` glyphs `△●Ⓢ★`). The markdown card layout above is for **chat** rendering only.
+**Rendering as the question body (plain text — NO markdown)**: the card renders **as the `AskUserQuestion` question body** (via `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`), not as separate chat text before a terse question. **AskUserQuestion bodies do not render markdown** — `**bold**`, `` `code` ``, `####` show literally. So in the body use **plain text, one field per section as `Label: value`** — the field label, a colon, then its value **inline** — and **separate sections with a blank line**. Do **not** whitespace-align into columns (the padding gap is hard to scan); wrap multi-line values under the label with no column alignment. Labels stay plain (`My lean:`), never bold. Unicode renders fine (`·`, the `§FMT_ANSWER_GRADATION` glyphs `△●Ⓢ★`). The markdown card layout above is for **chat** rendering only.
 
 **Drop the Options field in the body** — the `AskUserQuestion`'s **answers ARE the options**, so re-listing them in the body is redundant. The body carries only the *analysis*: What's-at-stake, How-to-verify, My-lean, Confidence, plus any context/subtitle (`itemId · Title`, `scope · △●Ⓜ`). Each **answer** is a disposition whose label leads with `§FMT_ANSWER_GRADATION` (`△●Ⓢ★ short action`) and whose **description carries that option's trade-off**; **My lean** becomes the `★` on the recommended answer. The user reads the analysis and picks in one place — no scroll, no redundancy.
 
 ```
-[3.2/1]  Update the sticky PR comment on failing tests
+[3.2/1] · Update the sticky PR comment on failing tests
 scope: comment-builder · △ low · ● solid · Ⓜ med
 
-At stake   failing tests are invisible in the PR summary — reviewers miss them
-Verify     grep the comment builder for the failures block
-My lean    add a failures section — one comment stays clean · cost: builder branches
-Confidence high — verified against the real comment output, not a fixture
+At stake: failing tests are invisible in the PR summary — reviewers miss them
+
+Verify: grep the comment builder for the failures block
+
+My lean: add a failures section — one comment stays clean · cost: builder branches
+
+Confidence: high — verified against the real comment output, not a fixture
 ```
 *(answers, carrying the options: `△●Ⓢ★ Add a failures section` · `◭●Ⓜ Separate comment per failure` · `△●Ⓢ Leave the summary as-is`)*
 
