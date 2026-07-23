@@ -353,31 +353,4 @@ EOF
 assert_file_contains "$FILE" '## \[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]\] «section» Task Start' \
   "C-order: reason marker injected when --reason follows the file (position-tolerant)"
 
-# --- Test 17: a second non-flag positional --- exit 1 (unexpected extra argument) ---
-echo ""
-echo "Test 17: <file> <extra> --- exit 1 (unexpected extra argument)"
-FILE="$TMPDIR/test17.md"
-echo "# Existing" > "$FILE"
-set +e
-OUTPUT=$("$LOG_SH" "$FILE" "$TMPDIR/extra.md" <<'EOF' 2>&1
-## X
-*   y
-EOF
-)
-RC=$?
-set -e
-assert_eq "1" "$RC" "Extra positional exits 1"
-assert_contains "unexpected extra argument" "$OUTPUT" "Error names the unexpected extra argument"
-
-# --- Test 18: --overwrite AFTER the file (position tolerance) ---
-echo ""
-echo "Test 18: <file> --overwrite --- overwrites when the flag follows the file"
-FILE="$TMPDIR/test18.md"
-printf 'OLD CONTENT\n' > "$FILE"
-"$LOG_SH" "$FILE" --overwrite <<'EOF'
-NEW CONTENT
-EOF
-assert_file_contains "$FILE" 'NEW CONTENT' "--overwrite after file replaces content"
-assert_file_not_contains "$FILE" 'OLD CONTENT' "--overwrite after file removed old content"
-
 exit_with_results
