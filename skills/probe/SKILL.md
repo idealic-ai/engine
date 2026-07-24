@@ -134,6 +134,7 @@ This is `§CMD_WALK_THROUGH_RESULTS`. Do NOT use the `§CMD_TAG_TRIAGE` default 
 - **Captured** → `Skill(ticket, "<the findings to file>")` — one `/ticket` run can carry several findings.
 - **Dig deeper** → `Skill(analyze, "<the open question>")` or `Skill(experiment, "<the hypothesis>")`.
 - **Deferred** → apply the tag / note it in the session artifact.
+- **Provable** → when a captured/kept finding carries **renderable evidence** (a rendered artifact, a before/after, code, a log, real output) that a reviewer or stakeholder should *see*, offer `Skill(prove, "<the finding to visualize>")` to compile it into a shareable visual proof. `/prove` trusts this probe's verdict — it presents the evidence, it does not re-investigate. Skip the offer when the finding has nothing to show.
 
 *Crucial:* keep the human gate. Do NOT auto-execute a chain.
 

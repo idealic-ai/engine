@@ -95,7 +95,7 @@ Dispatch the subagent to the background by default (`run_in_background: true`) s
    - **Flag kept code concretely** so `/implement`'s handoff knows exactly what the seed is: kept NEW files use an obvious `*.experiment.*` / scratch name; any kept EDIT to real source is recorded with its `file:line` in the stamped Disposition line AND the `LESSONS.md` bullet (an UNVERIFIED SEED per step 2 if fix-shaped), since an unflagged source edit is otherwise invisible to the next agent.
    - **Append to memory:** Append the durable outcome to `<trailDir>/LESSONS.md` as one terse bullet — the hypothesis and its verdict (e.g., *"CONFIRMED: flat detector drops continuation rows on >1-page rooms — repro in flat-detector-continuation.experiment.test.ts"*) — via `engine log`. The next `/build`/`/analyze` reads these, so a settled verdict shapes the next handoff instead of evaporating.
 
-Then **stop**. `/experiment` reports and ends. What comes next (repair via `/fix`, build via `/implement`, capture via `/ticket`, deeper study via `/analyze`) is the user's call, not this skill's.
+Then **stop**. `/experiment` reports and ends. What comes next (repair via `/fix`, build via `/implement`, capture via `/ticket`, deeper study via `/analyze`, or a shareable visual proof of the verdict via `/prove` — when the run produced **renderable evidence** worth showing a reviewer, e.g. a reproduction render, a before/after, captured output; `/prove` trusts the verdict and presents it, never re-runs it) is the user's call, not this skill's.
 
 ## Constraints
 - **Building block — probes, never advances.** `/experiment` produces a verdict, not a fix. It must not repair the bug, build the feature for real, commit, or file a ticket. A revealed fix is a *finding*, not an action.

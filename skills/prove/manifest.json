@@ -1,0 +1,6 @@
+{
+  "name": "prove",
+  "version": "1",
+  "description": "Compile the detective evidence for a resolved body of work into a self-contained, shareable visual PROOF — the real artifacts (code blocks, PDF pages, screenshots, logs, CLI output, overlays, diagrams), a structure that makes the claim legible at a glance, and a short honest written summary. The visual capstone offered at the synthesis of /probe, /analyze, /fix, /experiment, /implement WHEN there is renderable evidence to show: it TRUSTS the upstream finding and re-presents it as an Artifact — it never re-investigates or re-litigates. Spine: it verifies only from the angle that serves the presentation — every rendered asset is REAL (from the actual source, never mocked) and FAITHFULLY shows what its caption claims, and provenance is honest (trusted-from-upstream vs. checked-here). Nothing fabricated, nothing oversold. A subagent assembles + renders the real assets + composes the draft; the orchestrator owns the presentation-integrity pass and the publish. A building block: it proves and reports, never fixes, commits, files, or re-investigates. Triggers: \"prove this\", \"make a proof artifact\", \"build the evidence page\", \"visualize this finding\", \"before/after proof\", \"dossier this\", \"exhibit this defect\", \"show me the proof of X\".",
+  "tier": "lightweight"
+}

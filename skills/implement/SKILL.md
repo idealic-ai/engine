@@ -51,7 +51,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
     {"label": "4.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_OFFER_COUNCIL_REVIEW", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": ["reviewOffered", "decision"], "gate": false}
   ],
-  "nextSkills": ["/test", "/document", "/analyze", "/fix", "/chores"],
+  "nextSkills": ["/test", "/document", "/analyze", "/fix", "/prove", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md", "CHECKLIST.md"],
   "planTemplate": "assets/TEMPLATE_IMPLEMENTATION_PLAN.md",
   "logTemplate": "assets/TEMPLATE_IMPLEMENTATION_LOG.md",

@@ -53,7 +53,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
     {"label": "5.4", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_OFFER_COUNCIL_REVIEW", "§CMD_OFFER_GRAPH_VIZ", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": ["reviewOffered", "decision", "graphOffered"], "gate": false}
   ],
-  "nextSkills": ["/test", "/implement", "/analyze", "/document", "/chores"],
+  "nextSkills": ["/test", "/prove", "/implement", "/analyze", "/document", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md", "CHECKLIST.md"],
   "planTemplate": "assets/TEMPLATE_FIX_PLAN.md",
   "logTemplate": "assets/TEMPLATE_FIX_LOG.md",

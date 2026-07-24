@@ -42,7 +42,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
     {"label": "3.5", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_OFFER_COUNCIL_REVIEW", "§CMD_OFFER_GRAPH_VIZ", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": ["reviewOffered", "decision", "graphOffered"], "gate": false}
   ],
-  "nextSkills": ["/brainstorm", "/implement", "/document", "/fix", "/chores"],
+  "nextSkills": ["/brainstorm", "/prove", "/implement", "/document", "/fix", "/chores"],
   "directives": [],
   "logTemplate": "assets/TEMPLATE_ANALYSIS_LOG.md",
   "debriefTemplate": "assets/TEMPLATE_ANALYSIS.md",

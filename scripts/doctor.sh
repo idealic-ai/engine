@@ -209,16 +209,26 @@ check_installation() {
     ' "$settings_file" 2>/dev/null || echo "")
     local broken_hooks=""
     local hooks_checked=0
-    while IFS='|' read -r event cmd_path; do
-      [ -n "$cmd_path" ] || continue
+    while IFS='|' read -r event cmd_str; do
+      [ -n "$cmd_str" ] || continue
       hooks_checked=$((hooks_checked + 1))
-      # Resolve tilde
-      local resolved="${cmd_path/#\~/$HOME}"
-      if [ -f "$resolved" ]; then
-        pass "IN-07" "$event: $(basename "$cmd_path")"
+      # A hook command is "executable [args...]" — check only argv[0], not the
+      # whole string (args would make any command look like a missing file).
+      local exe="${cmd_str%%[[:space:]]*}"
+      local resolved="${exe/#\~/$HOME}"
+      local ok=0
+      if [[ "$resolved" == */* ]]; then
+        # Path-like (has a slash): must resolve to an existing file (-f follows symlinks)
+        [ -f "$resolved" ] && ok=1
       else
-        broken_hooks="${broken_hooks}${event}:$(basename "$cmd_path") "
-        fail "IN-07" "$event: $cmd_path does not exist"
+        # Bare command: must be found on PATH (e.g. afplay, node)
+        command -v "$exe" >/dev/null 2>&1 && ok=1
+      fi
+      if [ "$ok" -eq 1 ]; then
+        pass "IN-07" "$event: $(basename "$exe")"
+      else
+        broken_hooks="${broken_hooks}${event}:$(basename "$exe") "
+        fail "IN-07" "$event: $exe does not exist"
       fi
     done <<< "$hook_paths"
     if [ -n "$broken_hooks" ]; then
