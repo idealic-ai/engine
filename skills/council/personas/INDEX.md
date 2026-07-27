@@ -1,12 +1,14 @@
 # Council Persona Index
 
-`roster_version: 2` — the version of this roster. Bump it whenever personas are added, removed, or materially reworded. Council stamps the version a report was selected against (`SKILL.md` §5.C/§5.D), so a report stays auditable against a specific roster state.
+`roster_version: 3` — the version of this roster. Bump it whenever personas are added, removed, or materially reworded. Council stamps the version a report was selected against (`SKILL.md` §5.C/§5.D), so a report stays auditable against a specific roster state.
 
 The seatable roster for `/council`. The compose step (§2) reads THIS file — the cheap one-liners — to generatively pick the N most relevant personas, then loads only the seated few's full profiles. **This index is the authoritative roster**; personas are added/removed here, not in `SKILL.md`.
 
-Each entry: **name** · `domain`|`temperament` · *Good for … / Bad for …* · `→ file`. The **`domain`/`temperament` tag is load-bearing** — the hard diversity rule (any 3+ panel seats ≥1 `temperament`) keys off it. Every persona here is project-neutral; a project can add its own local personas by dropping a profile in `personas/` and an entry in this index.
+Each entry: **name** · `domain`|`temperament`|`engine:<name>` · *Good for … / Bad for …* · `→ file`. The **`domain`/`temperament` tag is load-bearing** — the hard diversity rule (any 3+ panel seats ≥1 `temperament`) keys off it. Every persona here is project-neutral; a project can add its own local personas by dropping a profile in `personas/` and an entry in this index.
 
-**13 domain** (what you know) · **7 temperament** (how you think). A healthy panel mixes both.
+**13 domain** (what you know) · **7 temperament** (how you think) · **1 external-engine** (a different model entirely). A healthy panel mixes the first two; the third is an independent cross-check when the subject is code.
+
+**The `engine:<name>` axis (external-engine seats).** Most personas are a *lens* injected into a Claude sub-agent — same engine, different viewpoint. An `engine:<name>` persona is different in kind: it is dispatched to a **different model** (e.g. `engine:codex` → the OpenAI Codex CLI via `codex exec`), so its findings are model-independent from the rest of the panel. `SKILL.md` §4 routes these seats through their external-engine dispatch path instead of a Task sub-agent, and they **degrade gracefully** — if the external engine is missing/unauthenticated, the seat becomes a named Panel Blind Spot and the rest of the panel proceeds. For the hard diversity rule they count as their stated primary tag (`domain` for Codex Reviewer — it does NOT satisfy the ≥1-`temperament` requirement).
 
 ## Domain personas
 
@@ -33,3 +35,7 @@ Each entry: **name** · `domain`|`temperament` · *Good for … / Bad for …* �
 *   **Minimalist** · `temperament` · Good for: PRs that add surface (new flags, options, params, abstractions, deps), feature specs, configs, plans that grew mid-flight, APIs · Bad for: subjects that genuinely must grow — a deliberately extensible platform, an under-specified spec, a first draft that needs more before less · `→ minimalist.md`
 *   **Historian** · `temperament` · Good for: changes resembling past incidents, reintroduced patterns, migrations, retries/idempotency, auth, a "we tried this before" smell, plans in well-trodden territory · Bad for: genuinely novel greenfield with no precedent, throwaway spikes, subjects where the past offers no analog · `→ historian.md`
 *   **Naive Newcomer** · `temperament` · Good for: docs, onboarding, READMEs, public/user-facing APIs, error messages, plans meant for others to execute, any surface a stranger must understand cold · Bad for: deep-internals infra diffs where domain expertise IS the point, hot-path perf tuning, expert-only tooling · `→ naive-newcomer.md`
+
+## External-engine personas
+
+*   **Codex Reviewer** · `domain` `engine:codex` · Good for: code subjects (pr/diff/commit/files/build-report/session) where a genuinely independent model's eyes add signal — an OpenAI Codex panel reviewing the same code across five runtime-quality angles (security, DX/API, testing, domain, perf/reliability) in one `codex exec` pass · Bad for: plan/doc/brainstorm (argument, not code); any run where the `codex` CLI is absent/unauthenticated (degrades to a named Panel Blind Spot — never fakes a review) · `→ codex-reviewer.md`
