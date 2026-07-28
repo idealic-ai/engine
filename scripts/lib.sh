@@ -266,10 +266,60 @@ is_path_excluded() {
   return 1
 }
 
+# _acquire_lock LOCK_DIR [MAX_RETRIES] [STALE_SECS]
+#   mkdir-based spinlock. On contention, reclaims when the recorded holder PID is
+#   dead (deterministic — covers SIGKILL, since a dead PID can never release) OR
+#   the lock is older than STALE_SECS (backstop for PID reuse, or a holder that
+#   died before writing its pid). Records $$ in LOCK_DIR/pid on acquire.
+#   Returns 0 on acquire, 1 on timeout.
+_acquire_lock() {
+  local lock_dir="$1"
+  local max_retries="${2:-100}"
+  local stale_secs="${3:-10}"
+  local retries=0
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    retries=$((retries + 1))
+    if [ "$retries" -ge "$max_retries" ]; then
+      return 1
+    fi
+    # PID-aware reclaim: a dead holder can never release, so take it back now.
+    local holder=""
+    holder=$(cat "$lock_dir/pid" 2>/dev/null || echo "")
+    if [ -n "$holder" ] && ! pid_exists "$holder"; then
+      rm -f "$lock_dir/pid" 2>/dev/null || true
+      rmdir "$lock_dir" 2>/dev/null || true
+      continue
+    fi
+    # Age backstop: covers the pre-pid-write window and PID reuse.
+    # Uses stat instead of find -mmin (macOS find has no fractional -mmin).
+    if [ -d "$lock_dir" ]; then
+      local lock_mtime now_epoch lock_age
+      lock_mtime=$(stat -f "%m" "$lock_dir" 2>/dev/null || echo "0")
+      now_epoch=$(date +%s)
+      lock_age=$((now_epoch - lock_mtime))
+      if [ "$lock_age" -gt "$stale_secs" ]; then
+        rm -f "$lock_dir/pid" 2>/dev/null || true
+        rmdir "$lock_dir" 2>/dev/null || true
+        continue
+      fi
+    fi
+    sleep 0.01
+  done
+  echo "$$" > "$lock_dir/pid" 2>/dev/null || true
+  return 0
+}
+
+# _release_lock LOCK_DIR — release a lock taken via _acquire_lock.
+#   Removes the pid file first: the dir is non-empty, so a bare rmdir would fail.
+_release_lock() {
+  local lock_dir="$1"
+  rm -f "$lock_dir/pid" 2>/dev/null || true
+  rmdir "$lock_dir" 2>/dev/null || true
+}
+
 # safe_json_write FILE
 #   Reads JSON from stdin, validates with `jq empty`, writes atomically.
-#   Uses mkdir-based spinlock for concurrency safety.
-#   Stale locks (>10s) are force-removed.
+#   Uses a PID-aware mkdir spinlock (_acquire_lock) for concurrency safety.
 #   Exit 1 on invalid JSON or write failure.
 safe_json_write() {
   local file="${1:?safe_json_write requires FILE as arg 1}"
@@ -286,37 +336,19 @@ safe_json_write() {
     return 1
   fi
 
-  # Acquire lock (mkdir is atomic)
-  local retries=0
-  local max_retries=100
-  while ! mkdir "$lock_dir" 2>/dev/null; do
-    retries=$((retries + 1))
-    if [ "$retries" -ge "$max_retries" ]; then
-      echo "ERROR: safe_json_write: lock timeout for $file" >&2
-      return 1
-    fi
-    # Stale lock detection: if lock dir is older than 10 seconds, force-remove
-    # Uses stat instead of find -mmin (macOS find doesn't support fractional -mmin)
-    if [ -d "$lock_dir" ]; then
-      local lock_mtime now_epoch lock_age
-      lock_mtime=$(stat -f "%m" "$lock_dir" 2>/dev/null || echo "0")
-      now_epoch=$(date +%s)
-      lock_age=$((now_epoch - lock_mtime))
-      if [ "$lock_age" -gt 10 ]; then
-        rmdir "$lock_dir" 2>/dev/null || true
-        continue
-      fi
-    fi
-    sleep 0.01
-  done
+  # Acquire lock (PID-aware + age-based stale reclaim)
+  if ! _acquire_lock "$lock_dir"; then
+    echo "ERROR: safe_json_write: lock timeout for $file" >&2
+    return 1
+  fi
 
   # Write atomically: temp file + mv
   if echo "$json" > "$tmp_file" && mv "$tmp_file" "$file"; then
-    rmdir "$lock_dir" 2>/dev/null || true
+    _release_lock "$lock_dir"
     return 0
   else
     rm -f "$tmp_file"
-    rmdir "$lock_dir" 2>/dev/null || true
+    _release_lock "$lock_dir"
     echo "ERROR: safe_json_write: write failed for $file" >&2
     return 1
   fi
@@ -334,50 +366,34 @@ safe_json_update() {
   local lock_dir="${file}.lock"
   local tmp_file="${file}.tmp.$$"
 
-  # Acquire lock (mkdir is atomic)
-  local retries=0
-  local max_retries=100
-  while ! mkdir "$lock_dir" 2>/dev/null; do
-    retries=$((retries + 1))
-    if [ "$retries" -ge "$max_retries" ]; then
-      echo "ERROR: safe_json_update: lock timeout for $file" >&2
-      return 1
-    fi
-    if [ -d "$lock_dir" ]; then
-      local lock_mtime now_epoch lock_age
-      lock_mtime=$(stat -f "%m" "$lock_dir" 2>/dev/null || echo "0")
-      now_epoch=$(date +%s)
-      lock_age=$((now_epoch - lock_mtime))
-      if [ "$lock_age" -gt 10 ]; then
-        rmdir "$lock_dir" 2>/dev/null || true
-        continue
-      fi
-    fi
-    sleep 0.01
-  done
+  # Acquire lock (PID-aware + age-based stale reclaim)
+  if ! _acquire_lock "$lock_dir"; then
+    echo "ERROR: safe_json_update: lock timeout for $file" >&2
+    return 1
+  fi
 
   # Read + transform + write under lock
   local result
   if ! result=$(jq "$@" "$file" 2>/dev/null); then
-    rmdir "$lock_dir" 2>/dev/null || true
+    _release_lock "$lock_dir"
     echo "ERROR: safe_json_update: jq transform failed for $file" >&2
     return 1
   fi
 
   # Validate result
   if ! echo "$result" | jq empty 2>/dev/null; then
-    rmdir "$lock_dir" 2>/dev/null || true
+    _release_lock "$lock_dir"
     echo "ERROR: safe_json_update: invalid JSON result for $file" >&2
     return 1
   fi
 
   # Write atomically: temp file + mv
   if echo "$result" > "$tmp_file" && mv "$tmp_file" "$file"; then
-    rmdir "$lock_dir" 2>/dev/null || true
+    _release_lock "$lock_dir"
     return 0
   else
     rm -f "$tmp_file"
-    rmdir "$lock_dir" 2>/dev/null || true
+    _release_lock "$lock_dir"
     echo "ERROR: safe_json_update: write failed for $file" >&2
     return 1
   fi
@@ -1084,25 +1100,12 @@ _atomic_claim_preload() {
   local resolved="${normalized/#\~/$HOME}"
   local lock_dir="${state_file}.lock"
 
-  # Acquire lock (same mechanism as safe_json_write)
-  local retries=0
-  while ! mkdir "$lock_dir" 2>/dev/null; do
-    retries=$((retries + 1))
-    if [ "$retries" -ge 100 ]; then
-      echo "already"  # Timeout — treat as claimed to avoid duplicate delivery
-      return 0
-    fi
-    if [ -d "$lock_dir" ]; then
-      local lock_mtime now_epoch
-      lock_mtime=$(stat -f "%m" "$lock_dir" 2>/dev/null || echo "0")
-      now_epoch=$(date +%s)
-      if [ $((now_epoch - lock_mtime)) -gt 10 ]; then
-        rmdir "$lock_dir" 2>/dev/null || true
-        continue
-      fi
-    fi
-    sleep 0.01
-  done
+  # Acquire lock (PID-aware + age-based stale reclaim). Fail-safe: on timeout,
+  # treat as claimed to avoid duplicate delivery.
+  if ! _acquire_lock "$lock_dir"; then
+    echo "already"
+    return 0
+  fi
 
   # Under lock: check preloadedFiles only (NOT pendingPreloads — files move
   # from pendingPreloads to preloadedFiles during normal delivery flow)
@@ -1112,7 +1115,7 @@ _atomic_claim_preload() {
   ' "$state_file" 2>/dev/null || echo "false")
 
   if [ "$already" = "true" ]; then
-    rmdir "$lock_dir" 2>/dev/null || true
+    _release_lock "$lock_dir"
     echo "already"
     return 0
   fi
@@ -1123,7 +1126,7 @@ _atomic_claim_preload() {
   ' "$state_file" > "${state_file}.tmp.$$"
   mv "${state_file}.tmp.$$" "$state_file"
 
-  rmdir "$lock_dir" 2>/dev/null || true
+  _release_lock "$lock_dir"
   echo "claimed"
   return 0
 }

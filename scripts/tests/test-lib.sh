@@ -355,6 +355,103 @@ test_safe_json_write_stale_lock_cleanup() {
   teardown
 }
 
+test_safe_json_write_dead_holder_reclaimed() {
+  local test_name="safe_json_write: lock held by a dead PID is reclaimed (no timeout wait)"
+  setup
+
+  local target="$TEST_DIR/dead-holder.json"
+  local lock_dir="${target}.lock"
+
+  # A definitely-dead PID: spawn a child and reap it.
+  sleep 0.1 &
+  local dead_pid=$!
+  wait "$dead_pid" 2>/dev/null || true
+
+  # Leaked lock with a FRESH mtime (so the age sweep must NOT be what saves us)
+  # and the dead holder's PID recorded inside.
+  mkdir "$lock_dir"
+  echo "$dead_pid" > "$lock_dir/pid"
+
+  local exit_code=0
+  echo '{"reclaimed":true}' | safe_json_write "$target" || exit_code=$?
+
+  local content
+  content=$(cat "$target" 2>/dev/null || echo "")
+
+  if [ "$exit_code" -eq 0 ] && [ "$content" = '{"reclaimed":true}' ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 + reclaimed content (dead holder)" "exit=$exit_code, content=$content"
+  fi
+
+  teardown
+}
+
+test_safe_json_write_live_holder_not_stolen() {
+  local test_name="safe_json_write: lock held by a LIVE PID is not stolen (mutual exclusion)"
+  setup
+
+  local target="$TEST_DIR/live-holder.json"
+  echo '{"orig":true}' > "$target"
+  local lock_dir="${target}.lock"
+
+  # A live holder that outlives the writer's spin window.
+  sleep 3 &
+  local live_pid=$!
+
+  mkdir "$lock_dir"
+  echo "$live_pid" > "$lock_dir/pid"
+
+  local exit_code=0
+  echo '{"stolen":true}' | safe_json_write "$target" || exit_code=$?
+
+  local content
+  content=$(cat "$target" 2>/dev/null || echo "")
+
+  kill "$live_pid" 2>/dev/null || true
+  wait "$live_pid" 2>/dev/null || true
+
+  # Writer must NOT acquire: it times out, original content untouched.
+  if [ "$exit_code" -ne 0 ] && [ "$content" = '{"orig":true}' ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit!=0 + original content preserved" "exit=$exit_code, content=$content"
+  fi
+
+  rm -rf "$lock_dir"
+  teardown
+}
+
+test_safe_json_update_dead_holder_reclaimed() {
+  local test_name="safe_json_update: lock held by a dead PID is reclaimed (no timeout wait)"
+  setup
+
+  local target="$TEST_DIR/update-dead-holder.json"
+  echo '{"n":0}' > "$target"
+  local lock_dir="${target}.lock"
+
+  sleep 0.1 &
+  local dead_pid=$!
+  wait "$dead_pid" 2>/dev/null || true
+
+  mkdir "$lock_dir"
+  echo "$dead_pid" > "$lock_dir/pid"
+
+  local exit_code=0
+  safe_json_update "$target" '.n = 1' || exit_code=$?
+
+  local n
+  n=$(jq -r '.n' "$target" 2>/dev/null || echo "")
+
+  if [ "$exit_code" -eq 0 ] && [ "$n" = "1" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 + n=1 (dead holder)" "exit=$exit_code, n=$n"
+  fi
+
+  teardown
+}
+
 # =============================================================================
 # NOTIFY_FLEET TESTS
 # =============================================================================
@@ -958,6 +1055,9 @@ test_safe_json_write_concurrent
 test_safe_json_write_stale_lock
 test_safe_json_write_concurrent_data_loss
 test_safe_json_write_stale_lock_cleanup
+test_safe_json_write_dead_holder_reclaimed
+test_safe_json_write_live_holder_not_stolen
+test_safe_json_update_dead_holder_reclaimed
 
 # notify_fleet
 test_notify_fleet_no_tmux
