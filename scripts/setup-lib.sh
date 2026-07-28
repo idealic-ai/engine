@@ -474,13 +474,13 @@ configure_hooks() {
           "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-working.sh"}]
         })
       | add_if_missing({
-          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-session-gate.sh", "timeout": 5}]
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-session-gate.sh", "timeout": 20}]
         })
       | add_if_missing({
-          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-state-injector.sh", "timeout": 5}]
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-state-injector.sh", "timeout": 20}]
         })
       | add_if_missing({
-          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-freeform-chat.sh", "timeout": 5}]
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-freeform-chat.sh", "timeout": 20}]
         })
     )
 

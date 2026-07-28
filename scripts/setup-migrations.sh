@@ -198,7 +198,7 @@ migration_005_add_hooks_to_settings() {
           "hooks": [{
             "type": "command",
             "command": "~/.claude/hooks/user-prompt-submit-session-gate.sh",
-            "timeout": 5
+            "timeout": 20
           }]
         })
     )
