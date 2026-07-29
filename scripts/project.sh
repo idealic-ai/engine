@@ -157,22 +157,22 @@ GQL
 
 _q_issues() {
   cat <<'GQL'
-query($projectId: String!, $since: DateTimeOrDuration, $after: String) {
+query($projectId: String!, $filter: IssueFilter, $after: String) {
   project(id: $projectId) {
     id name url
     projectMilestones(first: 100) { nodes { id name } }
-    issues(first: 250, after: $after, orderBy: createdAt, filter: { updatedAt: { gt: $since } }) {
+    issues(first: 25, after: $after, orderBy: createdAt, filter: $filter) {
       pageInfo { hasNextPage endCursor }
       nodes {
         id identifier title url createdAt updatedAt priority
         state { name }
         projectMilestone { name }
-        comments(first: 250) {
+        comments(first: 40) {
           pageInfo { hasNextPage endCursor }
           nodes { id body createdAt parent { id } user { name } botActor { name } }
         }
-        history(first: 250) {
-          pageInfo { hasNextPage }
+        history(first: 20) {
+          pageInfo { hasNextPage endCursor }
           nodes {
             createdAt actor { name }
             fromState { name } toState { name }
@@ -181,8 +181,8 @@ query($projectId: String!, $since: DateTimeOrDuration, $after: String) {
             fromProjectMilestone { name } toProjectMilestone { name }
           }
         }
-        attachments(first: 250) {
-          pageInfo { hasNextPage }
+        attachments(first: 20) {
+          pageInfo { hasNextPage endCursor }
           nodes { id title url }
         }
       }
@@ -199,6 +199,40 @@ query($issueId: String!, $after: String) {
     comments(first: 250, after: $after) {
       pageInfo { hasNextPage endCursor }
       nodes { id body createdAt parent { id } user { name } botActor { name } }
+    }
+  }
+}
+GQL
+}
+
+# Per-issue follow-up queries. Flat (single issue → one connection), so first:250 is safe here —
+# only the NESTED first: values in _q_issues multiply into Linear's query-complexity cap.
+_q_history() {
+  cat <<'GQL'
+query($issueId: String!, $after: String) {
+  issue(id: $issueId) {
+    history(first: 250, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes {
+        createdAt actor { name }
+        fromState { name } toState { name }
+        fromPriority toPriority
+        fromAssignee { name } toAssignee { name }
+        fromProjectMilestone { name } toProjectMilestone { name }
+      }
+    }
+  }
+}
+GQL
+}
+
+_q_attachments() {
+  cat <<'GQL'
+query($issueId: String!, $after: String) {
+  issue(id: $issueId) {
+    attachments(first: 250, after: $after) {
+      pageInfo { hasNextPage endCursor }
+      nodes { id title url }
     }
   }
 }
@@ -236,7 +270,7 @@ _fetch_all() {
   while :; do
     resp=$(_graphql "$(_q_issues)" \
       "$(jq -n --arg p "$pid" --arg s "$since" --argjson a "$after" \
-        '{projectId: $p, since: (if $s == "" then null else $s end), after: $a}')") || return 1
+        '{projectId: $p, filter: (if $s == "" then {} else {updatedAt: {gt: $s}} end), after: $a}')") || return 1
     page=$(printf '%s' "$resp" | jq '.data.project // null')
     if [ "$page" = "null" ]; then echo "project: project not found: $pid" >&2; return 1; fi
     if [ -z "$meta" ]; then
@@ -260,24 +294,28 @@ _fetch_all() {
   local all
   all=$(jq -s 'add // []' "$issues_file")
 
-  # Nested comment pagination: any issue whose first comment page is truncated gets its
-  # remaining comments fetched and appended (a firehose channel can exceed 250 in one delta).
-  # History/attachments overflow is implausible in a delta window → fail-closed rather than
-  # silently truncate (never emit a tree/list missing rows).
-  local overflow
-  overflow=$(printf '%s' "$all" | jq -r '[.[] | select((.history.pageInfo.hasNextPage // false) or (.attachments.pageInfo.hasNextPage // false)) | .identifier] | join(", ")')
-  if [ -n "$overflow" ]; then
-    echo "project: delta too large — issue(s) [$overflow] have >250 new history/attachment rows; narrow --since" >&2
-    return 1
-  fi
-
-  local trunc iid
+  # Per-issue child pagination: any issue whose first inline page (comments / history / attachments)
+  # is truncated gets its remaining rows fetched and appended. _q_issues keeps the per-issue child
+  # page small to stay under Linear's query-complexity cap; the overflow is paginated here per-issue
+  # (flat follow-up queries, cheap) so a firehose channel or a long-history epic is never truncated.
+  local trunc iid more
   for iid in $(printf '%s' "$all" | jq -r '.[] | select(.comments.pageInfo.hasNextPage // false) | .id'); do
     trunc=$(printf '%s' "$all" | jq -r --arg id "$iid" '.[] | select(.id==$id) | .comments.pageInfo.endCursor')
-    local more
     more=$(_fetch_remaining_comments "$iid" "$trunc") || return 1
     all=$(printf '%s' "$all" | jq --arg id "$iid" --argjson more "$more" \
       'map(if .id == $id then .comments.nodes = (.comments.nodes + $more) else . end)')
+  done
+  for iid in $(printf '%s' "$all" | jq -r '.[] | select(.history.pageInfo.hasNextPage // false) | .id'); do
+    trunc=$(printf '%s' "$all" | jq -r --arg id "$iid" '.[] | select(.id==$id) | .history.pageInfo.endCursor')
+    more=$(_fetch_remaining_history "$iid" "$trunc") || return 1
+    all=$(printf '%s' "$all" | jq --arg id "$iid" --argjson more "$more" \
+      'map(if .id == $id then .history.nodes = (.history.nodes + $more) else . end)')
+  done
+  for iid in $(printf '%s' "$all" | jq -r '.[] | select(.attachments.pageInfo.hasNextPage // false) | .id'); do
+    trunc=$(printf '%s' "$all" | jq -r --arg id "$iid" '.[] | select(.id==$id) | .attachments.pageInfo.endCursor')
+    more=$(_fetch_remaining_attachments "$iid" "$trunc") || return 1
+    all=$(printf '%s' "$all" | jq --arg id "$iid" --argjson more "$more" \
+      'map(if .id == $id then .attachments.nodes = (.attachments.nodes + $more) else . end)')
   done
 
   printf '%s' "$all" | jq --argjson meta "$meta" --argjson ms "${milestones:-[]}" \
@@ -294,6 +332,34 @@ _fetch_remaining_comments() {
     has=$(printf '%s' "$resp" | jq -r '.data.issue.comments.pageInfo.hasNextPage')
     [ "$has" = "true" ] || break
     after=$(printf '%s' "$resp" | jq -r '.data.issue.comments.pageInfo.endCursor')
+  done
+  printf '%s' "$acc"
+}
+
+# _fetch_remaining_history ISSUE_ID AFTER_CURSOR → array of remaining history nodes.
+_fetch_remaining_history() {
+  local iid="$1" after="$2" acc="[]" resp
+  while :; do
+    resp=$(_graphql "$(_q_history)" "$(jq -n --arg id "$iid" --arg a "$after" '{issueId: $id, after: $a}')") || return 1
+    acc=$(printf '%s' "$acc" | jq --argjson n "$(printf '%s' "$resp" | jq '[.data.issue.history.nodes[]?]')" '. + $n')
+    local has
+    has=$(printf '%s' "$resp" | jq -r '.data.issue.history.pageInfo.hasNextPage')
+    [ "$has" = "true" ] || break
+    after=$(printf '%s' "$resp" | jq -r '.data.issue.history.pageInfo.endCursor')
+  done
+  printf '%s' "$acc"
+}
+
+# _fetch_remaining_attachments ISSUE_ID AFTER_CURSOR → array of remaining attachment nodes.
+_fetch_remaining_attachments() {
+  local iid="$1" after="$2" acc="[]" resp
+  while :; do
+    resp=$(_graphql "$(_q_attachments)" "$(jq -n --arg id "$iid" --arg a "$after" '{issueId: $id, after: $a}')") || return 1
+    acc=$(printf '%s' "$acc" | jq --argjson n "$(printf '%s' "$resp" | jq '[.data.issue.attachments.nodes[]?]')" '. + $n')
+    local has
+    has=$(printf '%s' "$resp" | jq -r '.data.issue.attachments.pageInfo.hasNextPage')
+    [ "$has" = "true" ] || break
+    after=$(printf '%s' "$resp" | jq -r '.data.issue.attachments.pageInfo.endCursor')
   done
   printf '%s' "$acc"
 }

@@ -168,6 +168,69 @@ JSON
   ]}
 }}}
 JSON
+
+  # Overflow fixtures: an issue whose first child page is truncated (hasNextPage:true) →
+  # the per-issue follow-up query (shape {"data":{"issue":{<conn>:...}}}) returns the rest.
+  # comments-overflow: c1 first page + c2 follow-up.
+  cat > "$FXDIR/co-main.json" <<'JSON'
+{"data":{"project":{
+  "id":"11111111-1111-1111-1111-111111111111","name":"CO","url":"u",
+  "projectMilestones":{"nodes":[{"id":"m1","name":"Inboxes"}]},
+  "issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+    {"id":"i1","identifier":"FIN-CO","title":"co","url":"u","createdAt":"2026-06-01T00:00:00Z","updatedAt":"2026-07-28T00:00:00Z","priority":0,"state":{"name":"Backlog"},"projectMilestone":{"name":"Inboxes"},
+     "comments":{"pageInfo":{"hasNextPage":true,"endCursor":"CC1"},"nodes":[
+       {"id":"c1","body":"first page","createdAt":"2026-07-28T00:00:00Z","parent":null,"user":{"name":"A"},"botActor":null}
+     ]},
+     "history":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]},
+     "attachments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}
+  ]}
+}}}
+JSON
+  cat > "$FXDIR/co-page2.json" <<'JSON'
+{"data":{"issue":{"comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+  {"id":"c2","body":"second page","createdAt":"2026-07-28T01:00:00Z","parent":null,"user":{"name":"B"},"botActor":null}
+]}}}}
+JSON
+
+  # history-overflow: h1 (state) first page + h2 (priority) follow-up.
+  cat > "$FXDIR/ho-main.json" <<'JSON'
+{"data":{"project":{
+  "id":"11111111-1111-1111-1111-111111111111","name":"HO","url":"u",
+  "projectMilestones":{"nodes":[{"id":"m1","name":"Inboxes"}]},
+  "issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+    {"id":"i1","identifier":"FIN-HO","title":"ho","url":"u","createdAt":"2026-06-01T00:00:00Z","updatedAt":"2026-07-28T00:00:00Z","priority":0,"state":{"name":"Done"},"projectMilestone":{"name":"Inboxes"},
+     "comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]},
+     "history":{"pageInfo":{"hasNextPage":true,"endCursor":"HC1"},"nodes":[
+       {"createdAt":"2026-07-28T00:00:00Z","actor":{"name":"Y"},"fromState":{"name":"Backlog"},"toState":{"name":"Done"},"fromPriority":null,"toPriority":null,"fromAssignee":null,"toAssignee":null,"fromProjectMilestone":null,"toProjectMilestone":null}
+     ]},
+     "attachments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}}
+  ]}
+}}}
+JSON
+  cat > "$FXDIR/ho-page2.json" <<'JSON'
+{"data":{"issue":{"history":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+  {"createdAt":"2026-07-28T02:00:00Z","actor":{"name":"Y"},"fromState":null,"toState":null,"fromPriority":4,"toPriority":3,"fromAssignee":null,"toAssignee":null,"fromProjectMilestone":null,"toProjectMilestone":null}
+]}}}}
+JSON
+
+  # attachments-overflow: a1 first page + a2 follow-up.
+  cat > "$FXDIR/ao-main.json" <<'JSON'
+{"data":{"project":{
+  "id":"11111111-1111-1111-1111-111111111111","name":"AO","url":"u",
+  "projectMilestones":{"nodes":[{"id":"m1","name":"Inboxes"}]},
+  "issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+    {"id":"i1","identifier":"FIN-AO","title":"ao","url":"u","createdAt":"2026-06-01T00:00:00Z","updatedAt":"2026-07-28T00:00:00Z","priority":0,"state":{"name":"Backlog"},"projectMilestone":{"name":"Inboxes"},
+     "comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]},
+     "history":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]},
+     "attachments":{"pageInfo":{"hasNextPage":true,"endCursor":"AC1"},"nodes":[{"id":"a1","title":"one","url":"https://f/1"}]}}
+  ]}
+}}}
+JSON
+  cat > "$FXDIR/ao-page2.json" <<'JSON'
+{"data":{"issue":{"attachments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+  {"id":"a2","title":"two","url":"https://f/2"}
+]}}}}
+JSON
 }
 
 setup() {
@@ -377,6 +440,37 @@ test_project_cursor_progress_guard() {
   PROJECT_FETCH_FIXTURE="$FXDIR/cursor-stuck.json" "$PROJ" fetch "$UUID" --out="$out" >/dev/null 2>&1; rc=$?
   assert_neq "0" "$rc" "stuck pagination cursor → non-zero exit (no infinite loop)"
   assert_file_not_exists "$out" "no payload written on stuck-cursor abort"
+}
+
+test_project_comments_overflow_paginated() {
+  # A comment beyond the first inline page is fetched via the per-issue follow-up, not dropped.
+  local out; out=$(_fetch_out "$FXDIR/co-main.json:$FXDIR/co-page2.json" "$UUID" --since="$SINCE")
+  assert_json "$out" '.tickets[0].comments | length' "2" "both comment pages present (follow-up paginated)"
+  assert_json "$out" '[.tickets[0].comments[].id] | sort | join(",")' "c1,c2" "first + second page comments merged"
+}
+
+test_project_history_overflow_paginated() {
+  # History beyond the first inline page must paginate (previously fail-closed → abort).
+  local out; out=$(_fetch_out "$FXDIR/ho-main.json:$FXDIR/ho-page2.json" "$UUID" --since="$SINCE")
+  assert_json "$out" '.tickets[0].lifecycle | length' "2" "both history pages produce events (follow-up paginated)"
+  assert_json "$out" '[.tickets[0].lifecycle[].type] | sort | join(",")' "priority,state" "state (pg1) + priority (pg2) both present"
+}
+
+test_project_attachments_overflow_paginated() {
+  # Attachments beyond the first inline page must paginate (previously fail-closed → abort).
+  local out; out=$(_fetch_out "$FXDIR/ao-main.json:$FXDIR/ao-page2.json" "$UUID" --since="$SINCE")
+  assert_json "$out" '.tickets[0].attachments | length' "2" "both attachment pages present (follow-up paginated)"
+  assert_json "$out" '[.tickets[0].attachments[].id] | sort | join(",")' "a1,a2" "first + second page attachments merged"
+}
+
+test_project_blank_since_fetches_all() {
+  # First fetch: no --since, no stored waterline → the updatedAt filter is OMITTED ({}), never gt:null.
+  # Offline the fixture ignores the filter, so this guards the blank-since assembly path (normTs("")
+  # is "" → every comment passes the cutoff); the live gt:null→{} fix is verified against Linear.
+  local out; out=$(_fetch_out "$FXDIR/main.json" "$UUID")
+  assert_json "$out" '.tickets | length' "2" "blank since still returns tickets"
+  assert_json "$out" '.since' "" "payload records empty since (first fetch)"
+  assert_json "$out" '.summary.activity[] | select(.identifier=="FIN-3447") | .comments' "4" "blank since includes all comments (no cutoff)"
 }
 
 run_discovered_tests
