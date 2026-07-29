@@ -1,0 +1,86 @@
+{
+  "data": {
+    "issue": {
+      "history": {
+        "pageInfo": {
+          "hasNextPage": false,
+          "endCursor": "a6e642ab-63d2-4bd6-9457-a6c4c9afaf0d"
+        },
+        "nodes": [
+          {
+            "createdAt": "2026-06-01T08:53:17.827Z",
+            "actor": {
+              "name": "Redacted User"
+            },
+            "fromState": null,
+            "toState": null,
+            "fromPriority": null,
+            "toPriority": null,
+            "fromAssignee": null,
+            "toAssignee": null,
+            "fromProjectMilestone": null,
+            "toProjectMilestone": null
+          },
+          {
+            "createdAt": "2026-05-29T08:57:15.939Z",
+            "actor": {
+              "name": "Redacted User"
+            },
+            "fromState": null,
+            "toState": null,
+            "fromPriority": null,
+            "toPriority": null,
+            "fromAssignee": null,
+            "toAssignee": null,
+            "fromProjectMilestone": null,
+            "toProjectMilestone": null
+          },
+          {
+            "createdAt": "2026-05-27T13:55:23.763Z",
+            "actor": {
+              "name": "Redacted User"
+            },
+            "fromState": null,
+            "toState": null,
+            "fromPriority": null,
+            "toPriority": null,
+            "fromAssignee": null,
+            "toAssignee": {
+              "name": "Redacted User"
+            },
+            "fromProjectMilestone": null,
+            "toProjectMilestone": null
+          },
+          {
+            "createdAt": "2026-05-26T16:11:30.714Z",
+            "actor": {
+              "name": "Redacted User"
+            },
+            "fromState": null,
+            "toState": null,
+            "fromPriority": null,
+            "toPriority": null,
+            "fromAssignee": null,
+            "toAssignee": null,
+            "fromProjectMilestone": null,
+            "toProjectMilestone": null
+          },
+          {
+            "createdAt": "2026-05-26T15:57:09.605Z",
+            "actor": {
+              "name": "Redacted User"
+            },
+            "fromState": null,
+            "toState": null,
+            "fromPriority": null,
+            "toPriority": null,
+            "fromAssignee": null,
+            "toAssignee": null,
+            "fromProjectMilestone": null,
+            "toProjectMilestone": null
+          }
+        ]
+      }
+    }
+  }
+}

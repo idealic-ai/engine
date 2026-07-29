@@ -1,0 +1,2325 @@
+{
+  "data": {
+    "project": {
+      "id": "0d1c3330-0cf2-41a6-ab46-733784e580f9",
+      "name": "Product: Claims & Policies",
+      "url": "https://linear.app/x/project/claims",
+      "projectMilestones": {
+        "nodes": [
+          {
+            "id": "fcd3efa0-3436-40d8-a058-187d75773927",
+            "name": "Cancelled"
+          },
+          {
+            "id": "3ff067d1-fea4-4cb0-8f1e-561f32900ac1",
+            "name": "Archived"
+          },
+          {
+            "id": "ea1113f4-19f8-4784-9581-bb48fd418ca1",
+            "name": "Ready for action"
+          },
+          {
+            "id": "07a1c9a2-ff44-4767-a4e0-e758f0cc1e03",
+            "name": "Needs research"
+          },
+          {
+            "id": "e1717ecc-ed32-449e-b0b0-e40a87390755",
+            "name": "Needs decision"
+          },
+          {
+            "id": "ad304ec2-8622-48c6-b860-b12a345acc34",
+            "name": "Uncategorized"
+          },
+          {
+            "id": "8ce4f377-f406-4e50-a077-37d7fb5ae5a9",
+            "name": "Inboxes"
+          }
+        ]
+      },
+      "channels": {
+        "nodes": [
+          {
+            "id": "9a34b2d2-3ead-485c-af0d-2599a034fb42",
+            "identifier": "FIN-3479",
+            "title": "🟦 Documentation",
+            "projectMilestone": {
+              "name": "Inboxes"
+            }
+          },
+          {
+            "id": "65317cc7-95dd-49b1-a9ba-8daa520077ee",
+            "identifier": "FIN-3459",
+            "title": "🟡 Researches & Fixtures",
+            "projectMilestone": {
+              "name": "Inboxes"
+            }
+          },
+          {
+            "id": "866909c8-a653-4524-b8da-a4929b4bb2c0",
+            "identifier": "FIN-3458",
+            "title": "🟤 Priorities & Deadlines",
+            "projectMilestone": {
+              "name": "Inboxes"
+            }
+          },
+          {
+            "id": "9e38c479-8e9f-4cec-813e-abdb5011358e",
+            "identifier": "FIN-3457",
+            "title": "🟣 Feedback & Transcripts",
+            "projectMilestone": {
+              "name": "Inboxes"
+            }
+          },
+          {
+            "id": "4f23572f-cba4-4e67-a18e-07f5865853b4",
+            "identifier": "FIN-3456",
+            "title": "🟢 Potential solutions",
+            "projectMilestone": {
+              "name": "Inboxes"
+            }
+          },
+          {
+            "id": "dae19720-5ed1-4add-a97b-a4270537dfbb",
+            "identifier": "FIN-3455",
+            "title": "🔵 Feature & capability requirements",
+            "projectMilestone": {
+              "name": "Inboxes"
+            }
+          },
+          {
+            "id": "5a45bcd5-ffab-4f8b-9dbc-b015e7356cc7",
+            "identifier": "FIN-3454",
+            "title": "🟠 Identified shortcomings",
+            "projectMilestone": {
+              "name": "Inboxes"
+            }
+          },
+          {
+            "id": "eee119d5-ff17-415e-bf22-d15c7881446f",
+            "identifier": "FIN-3453",
+            "title": "🔴 Observed problems",
+            "projectMilestone": {
+              "name": "Inboxes"
+            }
+          }
+        ]
+      },
+      "issues": {
+        "pageInfo": {
+          "hasNextPage": false,
+          "endCursor": "de34ef4a-edae-4187-b85e-937352fad9bb"
+        },
+        "nodes": [
+          {
+            "id": "9a34b2d2-3ead-485c-af0d-2599a034fb42",
+            "identifier": "FIN-3479",
+            "title": "Ticket FIN-3479",
+            "url": "https://linear.app/x/issue/fin-3479",
+            "createdAt": "2026-07-29T13:53:24.574Z",
+            "updatedAt": "2026-07-29T13:53:24.574Z",
+            "priority": 0,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": {
+              "name": "Inboxes"
+            },
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "9331ea78-f6dc-4520-90ed-8da398c7a0cc",
+            "identifier": "FIN-3477",
+            "title": "Ticket FIN-3477",
+            "url": "https://linear.app/x/issue/fin-3477",
+            "createdAt": "2026-07-29T13:04:46.978Z",
+            "updatedAt": "2026-07-29T13:30:21.703Z",
+            "priority": 2,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": {
+              "name": "Needs decision"
+            },
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "e6c0fd4b-9f18-4551-9c73-36a3ccb5414b"
+              },
+              "nodes": [
+                {
+                  "id": "1eb75b91-aeef-4ce5-8113-67fdb65e0a33",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-29T13:30:22.347Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "e6c0fd4b-9f18-4551-9c73-36a3ccb5414b",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-29T13:25:30.213Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                }
+              ]
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "a00aafe8-9683-4586-86a5-927c80f97949"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-29T13:30:22.931Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:30:18.537Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:25:30.413Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:23:50.615Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:23:50.243Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:23:50.232Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:23:50.230Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:23:50.215Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:23:48.911Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:04:46.978Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:04:46.978Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:04:46.978Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:04:46.978Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:04:46.978Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:04:46.978Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "65317cc7-95dd-49b1-a9ba-8daa520077ee",
+            "identifier": "FIN-3459",
+            "title": "Ticket FIN-3459",
+            "url": "https://linear.app/x/issue/fin-3459",
+            "createdAt": "2026-07-28T12:33:39.016Z",
+            "updatedAt": "2026-07-29T13:53:03.459Z",
+            "priority": 0,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": {
+              "name": "Inboxes"
+            },
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "ba063f72-1c5f-41ce-8693-93535b742a6a"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-29T13:53:03.373Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T12:10:02.803Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T17:02:32.706Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "866909c8-a653-4524-b8da-a4929b4bb2c0",
+            "identifier": "FIN-3458",
+            "title": "Ticket FIN-3458",
+            "url": "https://linear.app/x/issue/fin-3458",
+            "createdAt": "2026-07-28T12:33:36.775Z",
+            "updatedAt": "2026-07-29T13:52:49.028Z",
+            "priority": 0,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": {
+              "name": "Inboxes"
+            },
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "838a7303-29fb-4b3e-8000-40580e1e24e9"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-29T13:52:48.955Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T12:09:30.534Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T17:02:22.032Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "9e38c479-8e9f-4cec-813e-abdb5011358e",
+            "identifier": "FIN-3457",
+            "title": "Ticket FIN-3457",
+            "url": "https://linear.app/x/issue/fin-3457",
+            "createdAt": "2026-07-28T12:33:29.064Z",
+            "updatedAt": "2026-07-29T13:52:33.397Z",
+            "priority": 0,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": {
+              "name": "Inboxes"
+            },
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "e3b45fac-aee8-4df1-8ce6-400b01227ef7"
+              },
+              "nodes": [
+                {
+                  "id": "8eb3ec05-438e-4bc8-8968-3379a3823698",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T16:54:43.800Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "e3b45fac-aee8-4df1-8ce6-400b01227ef7"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "2d0c403a-38de-4d3c-85f3-90c838ea72aa",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T13:39:57.238Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "e3b45fac-aee8-4df1-8ce6-400b01227ef7"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "8a9441e8-454f-405b-ae16-ea574415548a",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T13:39:11.337Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "e3b45fac-aee8-4df1-8ce6-400b01227ef7",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T13:38:59.245Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                }
+              ]
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "02e4ebb9-6611-4939-9026-e30d734b16e9"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-29T13:52:33.434Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T18:03:46.241Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T17:01:53.430Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T16:53:44.514Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "4f23572f-cba4-4e67-a18e-07f5865853b4",
+            "identifier": "FIN-3456",
+            "title": "Ticket FIN-3456",
+            "url": "https://linear.app/x/issue/fin-3456",
+            "createdAt": "2026-07-28T12:33:13.151Z",
+            "updatedAt": "2026-07-29T13:52:00.648Z",
+            "priority": 0,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": {
+              "name": "Inboxes"
+            },
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "a4b13a3f-6d93-4884-9aab-89c41faa07da"
+              },
+              "nodes": [
+                {
+                  "id": "362c8390-b0fa-4281-bdb9-8c65be92cfc8",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-29T13:05:08.544Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "a4b13a3f-6d93-4884-9aab-89c41faa07da"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "c6380832-48ff-4f35-b6ed-3d3f68db502c",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T19:35:23.952Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "a4b13a3f-6d93-4884-9aab-89c41faa07da"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "31b18fdd-1e39-41fa-9bce-ed33b98ada17",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T13:40:04.699Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "a4b13a3f-6d93-4884-9aab-89c41faa07da"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "489a15ee-8659-417c-a692-ba0c0dafa39e",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T13:39:54.176Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "a4b13a3f-6d93-4884-9aab-89c41faa07da",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T13:39:31.561Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                }
+              ]
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "a001b329-9e07-49a3-8724-018b1a635d02"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-29T13:52:00.761Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T12:08:31.069Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T19:35:24.312Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T18:09:22.270Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T17:01:32.190Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T13:39:31.684Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "dae19720-5ed1-4add-a97b-a4270537dfbb",
+            "identifier": "FIN-3455",
+            "title": "Ticket FIN-3455",
+            "url": "https://linear.app/x/issue/fin-3455",
+            "createdAt": "2026-07-28T12:33:07.585Z",
+            "updatedAt": "2026-07-29T13:51:43.504Z",
+            "priority": 0,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": {
+              "name": "Inboxes"
+            },
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "08b13217-e908-45f8-b9df-da8beb21a821"
+              },
+              "nodes": [
+                {
+                  "id": "08b13217-e908-45f8-b9df-da8beb21a821",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-29T10:48:10.066Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                }
+              ]
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "a2099307-09e9-4028-9f0a-160a960e65b3"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-29T13:51:43.432Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T12:06:39.943Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T17:01:27.184Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "5a45bcd5-ffab-4f8b-9dbc-b015e7356cc7",
+            "identifier": "FIN-3454",
+            "title": "Ticket FIN-3454",
+            "url": "https://linear.app/x/issue/fin-3454",
+            "createdAt": "2026-07-28T12:33:02.506Z",
+            "updatedAt": "2026-07-29T13:51:24.114Z",
+            "priority": 0,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": {
+              "name": "Inboxes"
+            },
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "c7391694-ffa2-4c0f-bdf9-f836705df885"
+              },
+              "nodes": [
+                {
+                  "id": "fc076645-57ac-4b3b-9a2a-37dd911d1b83",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-29T11:32:49.920Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "c7391694-ffa2-4c0f-bdf9-f836705df885"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "efef0ff0-25e0-4883-98b5-9a6ce0cc9ce9",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T17:25:15.633Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "8ac915f9-ef8c-47fa-a3bd-9410e4f55aa1",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T16:54:32.770Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "aad7b15a-dd2d-46c2-b461-f160f1c62865",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T16:54:10.963Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "c7391694-ffa2-4c0f-bdf9-f836705df885",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T13:39:40.075Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                }
+              ]
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "419a2a8d-95e2-4232-b256-6a59869a85c2"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-29T13:51:24.019Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T12:06:02.270Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T18:09:14.602Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T17:01:02.281Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T16:54:11.210Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T13:39:40.929Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "eee119d5-ff17-415e-bf22-d15c7881446f",
+            "identifier": "FIN-3453",
+            "title": "Ticket FIN-3453",
+            "url": "https://linear.app/x/issue/fin-3453",
+            "createdAt": "2026-07-28T12:32:57.988Z",
+            "updatedAt": "2026-07-29T13:50:50.232Z",
+            "priority": 0,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": {
+              "name": "Inboxes"
+            },
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "90b370a2-a09f-4acc-a567-72a377aabb93"
+              },
+              "nodes": [
+                {
+                  "id": "5c5a9983-be5a-4425-80c0-7e73aa87e33c",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-29T13:05:10.604Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "90b370a2-a09f-4acc-a567-72a377aabb93"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "4160a6d1-b969-4ce9-b897-5f91f1ab48f6",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T19:34:44.437Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "90b370a2-a09f-4acc-a567-72a377aabb93"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "9ea3980b-c30d-44b9-8f44-5da33cbb5795",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T18:08:09.608Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "90b370a2-a09f-4acc-a567-72a377aabb93"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "51c0b859-106e-405d-a62e-fa72fb1ab2c2",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T18:01:56.697Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "90b370a2-a09f-4acc-a567-72a377aabb93"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "f34c8270-d2f1-4d47-abec-cce3e6cbd5bb",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T16:53:56.450Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "f21d502b-d9f3-4851-8cfa-eb292c2846e2",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T16:53:44.191Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "90b370a2-a09f-4acc-a567-72a377aabb93",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-07-28T13:39:35.120Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                }
+              ]
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "f30607ff-4f76-4aa8-a8a6-3c9946f0588a"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-29T13:50:50.162Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T13:04:46.978Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-29T12:03:15.308Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T19:34:45.027Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T18:08:09.940Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T18:03:46.241Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T17:00:58.512Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T16:53:44.514Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T13:39:35.605Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "d3c22828-9bed-4e7c-8439-9bd1e49f4532",
+            "identifier": "FIN-2008",
+            "title": "Ticket FIN-2008",
+            "url": "https://linear.app/x/issue/fin-2008",
+            "createdAt": "2026-06-08T11:08:41.391Z",
+            "updatedAt": "2026-07-28T18:09:22.270Z",
+            "priority": 2,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": null,
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "9c8655dd-1a6b-48ea-a654-5e24c55ea804"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-28T18:09:22.270Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T14:00:33.232Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-27T10:25:14.352Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-23T08:12:58.999Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-13T16:16:23.795Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-13T16:16:22.581Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-09T11:33:12.375Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-08T11:18:15.710Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "62c2bb80-e2c5-42cb-abfe-1cbe89a46594",
+            "identifier": "FIN-2006",
+            "title": "Ticket FIN-2006",
+            "url": "https://linear.app/x/issue/fin-2006",
+            "createdAt": "2026-06-08T10:44:55.559Z",
+            "updatedAt": "2026-07-28T18:09:22.270Z",
+            "priority": 2,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": null,
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "d0a51088-69ae-4ead-b9e9-d0adeda14134"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-28T18:09:22.270Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T14:00:23.956Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-27T10:25:34.766Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-05T18:43:06.211Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-23T08:12:58.999Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-13T16:17:26.927Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-13T16:16:23.676Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-13T16:16:22.581Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-09T10:35:12.696Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-08T11:47:48.441Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "35ac05f3-6695-4a5c-9147-42ba14b7b462",
+            "identifier": "FIN-2002",
+            "title": "Ticket FIN-2002",
+            "url": "https://linear.app/x/issue/fin-2002",
+            "createdAt": "2026-06-08T10:33:32.548Z",
+            "updatedAt": "2026-07-28T18:09:22.270Z",
+            "priority": 2,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": null,
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "d514117c-7d03-4b8c-9ffe-26726fa8631a"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-28T18:09:22.270Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T16:54:33.067Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T14:00:17.314Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-27T10:22:47.538Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-23T08:12:58.999Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-13T16:16:56.524Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-13T16:16:22.581Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-09T11:33:12.375Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-08T12:02:16.932Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-08T10:44:05.920Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          },
+          {
+            "id": "de34ef4a-edae-4187-b85e-937352fad9bb",
+            "identifier": "FIN-1623",
+            "title": "Ticket FIN-1623",
+            "url": "https://linear.app/x/issue/fin-1623",
+            "createdAt": "2026-05-26T15:50:45.367Z",
+            "updatedAt": "2026-07-29T13:04:46.978Z",
+            "priority": 0,
+            "state": {
+              "name": "Backlog"
+            },
+            "projectMilestone": {
+              "name": "Uncategorized"
+            },
+            "comments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": "33f46f16-287c-4249-8174-63257341a4ff"
+              },
+              "nodes": [
+                {
+                  "id": "9c6208d5-697d-4697-a133-a1db8a0fd5d0",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-06-29T18:21:14.771Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "761301bf-1526-47a3-845d-7e9c6da2f6dd",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-06-29T18:21:05.458Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "19a169d1-9c1f-47ef-944c-07bee78f8ea3",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-06-05T15:19:29.009Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "00323497-41d1-464b-86cd-485b37f1845c",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-06-05T15:12:26.915Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "33f46f16-287c-4249-8174-63257341a4ff"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "046162e1-48ee-4b6e-8401-3185721bc65e",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-05-26T17:46:57.676Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "33f46f16-287c-4249-8174-63257341a4ff"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "bd7bd32e-0cfe-4548-be0b-8e588aa62eb5",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-05-26T16:53:45.914Z",
+                  "quotedText": null,
+                  "parent": {
+                    "id": "33f46f16-287c-4249-8174-63257341a4ff"
+                  },
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                },
+                {
+                  "id": "33f46f16-287c-4249-8174-63257341a4ff",
+                  "body": "[redacted body]",
+                  "createdAt": "2026-05-26T16:06:46.543Z",
+                  "quotedText": null,
+                  "parent": null,
+                  "user": {
+                    "name": "Redacted User"
+                  },
+                  "botActor": null
+                }
+              ]
+            },
+            "history": {
+              "pageInfo": {
+                "hasNextPage": true,
+                "endCursor": "76d412df-1e61-4dd9-8bd5-8355427e6f7c"
+              },
+              "nodes": [
+                {
+                  "createdAt": "2026-07-29T13:04:46.978Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T17:46:22.960Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T15:04:41.178Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-28T13:39:31.684Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": {
+                    "name": "Uncategorized"
+                  }
+                },
+                {
+                  "createdAt": "2026-07-27T18:36:53.586Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-27T10:24:46.421Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-07-17T09:45:35.719Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-29T18:19:52.717Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-28T02:48:04.693Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-23T08:05:06.826Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-13T16:16:23.626Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-13T16:16:22.581Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-12T15:03:12.900Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": 2,
+                  "toPriority": 0,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-09T11:33:12.375Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-08T12:04:04.548Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-08T10:38:19.853Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-05T16:08:50.453Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-05T15:19:26.399Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-05T15:12:13.555Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                },
+                {
+                  "createdAt": "2026-06-05T09:11:10.588Z",
+                  "actor": {
+                    "name": "Redacted User"
+                  },
+                  "fromState": null,
+                  "toState": null,
+                  "fromPriority": null,
+                  "toPriority": null,
+                  "fromAssignee": null,
+                  "toAssignee": null,
+                  "fromProjectMilestone": null,
+                  "toProjectMilestone": null
+                }
+              ]
+            },
+            "attachments": {
+              "pageInfo": {
+                "hasNextPage": false,
+                "endCursor": null
+              },
+              "nodes": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}

@@ -232,9 +232,10 @@ LOGGING & TAGS
 
 LINEAR DATA
   project <cmd>          Linear project data (read-only GraphQL; needs LINEAR_API_KEY)
-    fetch <project> [--since=<ISO>] [--out=<path>]  One JSON payload of everything new
-                          in a project since a durable per-project waterline
-    waterline get|list|reset <project>              Inspect/clear the stored waterline
+    fetch <project> [--since=<ISO>] [--out=<path>]  One JSON payload of everything
+                          in a project at/after an optional --since cutoff (bare = full
+                          snapshot). Read-only; stateless — --since is caller-owned, no
+                          stored waterline.
   ticket-search "<text>" [--team <KEY>] [--include-closed] [--limit <N>] [--json]
                           Rank Linear tickets related to a free-text query (read-only GraphQL;
                           needs LINEAR_API_KEY). Stateless. Feeds ## SRC_RELATED_TICKETS at startup.

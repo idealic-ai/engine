@@ -15,15 +15,16 @@ write_fixtures() {
 {"data":{"project":{
   "id":"11111111-1111-1111-1111-111111111111","name":"Product: Intake System","url":"https://linear.app/x/project/p",
   "projectMilestones":{"nodes":[{"id":"m1","name":"Inboxes"},{"id":"m2","name":"Ready for action"}]},
+  "channels":{"nodes":[{"id":"i1","identifier":"FIN-3447","title":"Feature requirements","projectMilestone":{"name":"Inboxes"}}]},
   "issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
     {"id":"i1","identifier":"FIN-3447","title":"Feature requirements","url":"u1",
      "createdAt":"2026-07-01T00:00:00Z","updatedAt":"2026-07-29T01:00:00Z","priority":2,
      "state":{"name":"Backlog"},"projectMilestone":{"name":"Inboxes"},
      "comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
-       {"id":"c1","body":"root","createdAt":"2026-07-28T00:00:00Z","parent":null,"user":{"name":"Yarik"},"botActor":null},
-       {"id":"c2","body":"reply","createdAt":"2026-07-28T01:00:00Z","parent":{"id":"c1"},"user":{"name":"Alice"},"botActor":null},
-       {"id":"c3","body":"nested","createdAt":"2026-07-28T02:00:00Z","parent":{"id":"c2"},"user":null,"botActor":{"name":"Zapier"}},
-       {"id":"c0","body":"OLD","createdAt":"2026-07-10T00:00:00Z","parent":null,"user":{"name":"Old"},"botActor":null}
+       {"id":"c1","body":"root","createdAt":"2026-07-28T00:00:00Z","quotedText":null,"parent":null,"user":{"name":"Yarik"},"botActor":null},
+       {"id":"c2","body":"reply","createdAt":"2026-07-28T01:00:00Z","quotedText":null,"parent":{"id":"c1"},"user":{"name":"Alice"},"botActor":null},
+       {"id":"c3","body":"nested","createdAt":"2026-07-28T02:00:00Z","quotedText":null,"parent":{"id":"c2"},"user":null,"botActor":{"name":"Zapier"}},
+       {"id":"c0","body":"OLD","createdAt":"2026-07-10T00:00:00Z","quotedText":null,"parent":null,"user":{"name":"Old"},"botActor":null}
      ]},
      "history":{"pageInfo":{"hasNextPage":false},"nodes":[
        {"createdAt":"2026-07-28T03:00:00Z","actor":{"name":"Yarik"},"fromState":{"name":"Backlog"},"toState":{"name":"Done"},"fromPriority":null,"toPriority":null,"fromAssignee":null,"toAssignee":null,"fromProjectMilestone":null,"toProjectMilestone":null},
@@ -125,22 +126,6 @@ JSON
 }}}
 JSON
 
-  # F3 regression: mixed ISO precision — since without fraction, comments straddling the boundary with ms.
-  # Council S1 regression: waterline advance must normalize before max (raw lexicographic
-  # max would pick "…05Z" over the chronologically-later "…05.500Z").
-  cat > "$FXDIR/wm-precision.json" <<'JSON'
-{"data":{"project":{
-  "id":"11111111-1111-1111-1111-111111111111","name":"WM","url":"u",
-  "projectMilestones":{"nodes":[]},
-  "issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
-    {"id":"i1","identifier":"FIN-A","title":"a","url":"u","createdAt":"2026-07-20T00:00:00Z","updatedAt":"2026-07-20T00:00:05Z","priority":0,"state":{"name":"Todo"},"projectMilestone":null,
-     "comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]},"history":{"pageInfo":{"hasNextPage":false},"nodes":[]},"attachments":{"pageInfo":{"hasNextPage":false},"nodes":[]}},
-    {"id":"i2","identifier":"FIN-B","title":"b","url":"u","createdAt":"2026-07-20T00:00:00Z","updatedAt":"2026-07-20T00:00:05.500Z","priority":0,"state":{"name":"Todo"},"projectMilestone":null,
-     "comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]},"history":{"pageInfo":{"hasNextPage":false},"nodes":[]},"attachments":{"pageInfo":{"hasNextPage":false},"nodes":[]}}
-  ]}
-}}}
-JSON
-
   # Council #9 regression: hasNextPage:true with a non-advancing (null) endCursor → abort, not loop.
   cat > "$FXDIR/cursor-stuck.json" <<'JSON'
 {"data":{"project":{
@@ -230,6 +215,52 @@ JSON
 {"data":{"issue":{"attachments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
   {"id":"a2","title":"two","url":"https://f/2"}
 ]}}}}
+JSON
+
+  # A2 (finding #5): a quiet channel — present in the aliased `channels` catalog but with
+  # NO delta activity (its updatedAt < since, so it's absent from the delta `issues` nodes).
+  # It must STILL enumerate in structure.channels (channels are independent of the delta).
+  cat > "$FXDIR/channels-quiet.json" <<'JSON'
+{"data":{"project":{
+  "id":"11111111-1111-1111-1111-111111111111","name":"Quiet","url":"u",
+  "projectMilestones":{"nodes":[{"id":"m1","name":"Inboxes"}]},
+  "channels":{"nodes":[
+    {"id":"ch1","identifier":"FIN-QUIET","title":"Observed problems","projectMilestone":{"name":"Inboxes"}}
+  ]},
+  "issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]}
+}}}
+JSON
+
+  # A3 (finding #6): one anchored comment (quotedText set) + one thread comment (quotedText null)
+  # → both surface, distinguishable by quotedText, so /intake can skip anchored annotations.
+  cat > "$FXDIR/quoted.json" <<'JSON'
+{"data":{"project":{
+  "id":"11111111-1111-1111-1111-111111111111","name":"QT","url":"u",
+  "projectMilestones":{"nodes":[{"id":"m1","name":"Inboxes"}]},
+  "channels":{"nodes":[{"id":"i1","identifier":"FIN-QT","title":"c","projectMilestone":{"name":"Inboxes"}}]},
+  "issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+    {"id":"i1","identifier":"FIN-QT","title":"qt","url":"u","createdAt":"2026-06-01T00:00:00Z","updatedAt":"2026-07-28T00:00:00Z","priority":0,"state":{"name":"Backlog"},"projectMilestone":{"name":"Inboxes"},
+     "comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+       {"id":"cAnchor","body":"anchored note","createdAt":"2026-07-28T00:00:00Z","quotedText":"the quoted description text","parent":null,"user":{"name":"A"},"botActor":null},
+       {"id":"cThread","body":"thread comment","createdAt":"2026-07-28T01:00:00Z","quotedText":null,"parent":null,"user":{"name":"B"},"botActor":null}
+     ]},
+     "history":{"pageInfo":{"hasNextPage":false},"nodes":[]},
+     "attachments":{"pageInfo":{"hasNextPage":false},"nodes":[]}}
+  ]}
+}}}
+JSON
+
+  # A4 (C5-flag): a project whose milestones do NOT include the inbox milestone → channelsResolved:false.
+  cat > "$FXDIR/no-inbox.json" <<'JSON'
+{"data":{"project":{
+  "id":"11111111-1111-1111-1111-111111111111","name":"NI","url":"u",
+  "projectMilestones":{"nodes":[{"id":"m1","name":"Ready for action"}]},
+  "channels":{"nodes":[]},
+  "issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+    {"id":"i1","identifier":"FIN-NI","title":"ni","url":"u","createdAt":"2026-07-25T00:00:00Z","updatedAt":"2026-07-25T00:00:00Z","priority":0,"state":{"name":"Todo"},"projectMilestone":null,
+     "comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]},"history":{"pageInfo":{"hasNextPage":false},"nodes":[]},"attachments":{"pageInfo":{"hasNextPage":false},"nodes":[]}}
+  ]}
+}}}
 JSON
 }
 
@@ -328,22 +359,19 @@ test_project_pagination_merges_pages() {
   assert_json "$out" '[.tickets[].identifier] | sort | join(",")' "FIN-1,FIN-2" "issues from both pages present"
 }
 
-test_project_waterline_advances_after_write() {
-  local out; out=$(_fetch_out "$FXDIR/main.json" "$UUID" --since="$SINCE")
-  assert_file_exists "$out" "payload written first"
-  local wm; wm=$("$PROJ" waterline get "$UUID" 2>/dev/null)
-  assert_eq "2026-07-29T01:00:00.000Z" "$wm" "waterline advanced to normalized max updatedAt"
+test_project_no_waterline_subcommand() {
+  # The stored waterline is removed — `waterline` is no longer a subcommand (errors like any bogus one).
+  local out rc
+  out=$("$PROJ" waterline get "$UUID" 2>&1); rc=$?
+  assert_neq "0" "$rc" "waterline subcommand now exits non-zero"
+  assert_contains "unknown subcommand" "$out" "waterline reported as unknown subcommand"
 }
 
 test_project_fail_closed_on_graphql_error() {
-  local wf="$PROJECT_FETCH_STATE_DIR/waterlines.json"
-  mkdir -p "$PROJECT_FETCH_STATE_DIR"
-  printf '{"%s":{"waterline":"2026-07-15T00:00:00Z","updatedAt":"x"}}' "$UUID" > "$wf"
   local out="$TMP_DIR/err-out.json" rc
   PROJECT_FETCH_FIXTURE="$FXDIR/errors.json" "$PROJ" fetch "$UUID" --out="$out" >/dev/null 2>&1; rc=$?
   assert_neq "0" "$rc" "graphql error → non-zero exit"
   assert_file_not_exists "$out" "no payload written on error"
-  assert_json "$wf" ".\"$UUID\".waterline" "2026-07-15T00:00:00Z" "waterline untouched on error"
 }
 
 test_project_fail_closed_on_missing_key() {
@@ -355,15 +383,13 @@ test_project_fail_closed_on_missing_key() {
   assert_file_not_exists "$out" "no payload without key"
 }
 
-test_project_since_override_beats_stored() {
-  # stored waterline is late; --since is early → early comment c0 must reappear (count 4)
-  local wf="$PROJECT_FETCH_STATE_DIR/waterlines.json"
-  mkdir -p "$PROJECT_FETCH_STATE_DIR"
-  printf '{"%s":{"waterline":"2026-07-27T00:00:00Z","updatedAt":"x"}}' "$UUID" > "$wf"
+test_project_since_sets_window() {
+  # --since is the sole window source (no stored waterline). An early --since widens the
+  # window so the old comment c0 (2026-07-10) is included → tree count 4.
   local out="$TMP_DIR/ov.json"
   PROJECT_FETCH_FIXTURE="$FXDIR/main.json" "$PROJ" fetch "$UUID" --since="2026-01-01T00:00:00Z" --out="$out" >/dev/null 2>&1
-  assert_json "$out" '.since' "2026-01-01T00:00:00Z" "payload records the override since"
-  assert_json "$out" '.summary.activity[] | select(.identifier=="FIN-3447") | .comments' "4" "override widens window → old comment included"
+  assert_json "$out" '.since' "2026-01-01T00:00:00Z" "payload records the since window"
+  assert_json "$out" '.summary.activity[] | select(.identifier=="FIN-3447") | .comments' "4" "early since widens window → old comment included"
 }
 
 test_project_empty_delta() {
@@ -392,15 +418,32 @@ test_project_bot_comment_author() {
   assert_json "$out" '.tickets[0].comments[0].children[0].children[0].author' "Zapier" "bot comment author = botActor.name"
 }
 
-test_project_waterline_get_list_reset() {
-  _fetch_out "$FXDIR/main.json" "$UUID" --since="$SINCE" >/dev/null
-  local wm; wm=$("$PROJ" waterline get "$UUID" 2>/dev/null)
-  assert_eq "2026-07-29T01:00:00.000Z" "$wm" "get echoes stored (normalized) waterline"
-  local list; list=$("$PROJ" waterline list 2>/dev/null)
-  assert_contains "$UUID" "$list" "list shows the project"
-  "$PROJ" waterline reset "$UUID" >/dev/null 2>&1
-  local after; after=$("$PROJ" waterline get "$UUID" 2>/dev/null)
-  assert_empty "$after" "reset clears the waterline"
+test_project_channels_live_catalog() {
+  # A2 (finding #5): a channel with no delta activity still enumerates in structure.channels —
+  # channels come from the aliased inbox-milestone catalog, not from the delta tickets.
+  local out; out=$(_fetch_out "$FXDIR/channels-quiet.json" "$UUID" --since="$SINCE")
+  assert_json "$out" '.tickets | length' "0" "quiet channel has no delta activity"
+  assert_json "$out" '.structure.channels | length' "1" "quiet channel still enumerates (catalog independent of delta)"
+  assert_json "$out" '.structure.channels[0].identifier' "FIN-QUIET" "the catalog channel is present"
+  assert_json "$out" '.structure.channels[0].milestone' "Inboxes" "channel carries its milestone"
+}
+
+test_project_comment_quotedText() {
+  # A3 (finding #6): anchored comments carry quotedText; thread comments have quotedText null —
+  # both surface, distinguishable, so /intake can skip anchored annotations on rewire.
+  local out; out=$(_fetch_out "$FXDIR/quoted.json" "$UUID" --since="$SINCE")
+  assert_json "$out" '.tickets[0].comments | length' "2" "both comments surface"
+  assert_json "$out" '.tickets[0].comments[0].quotedText' "the quoted description text" "anchored comment carries quotedText"
+  assert_json "$out" '.tickets[0].comments[1].quotedText' "null" "thread comment has quotedText null"
+}
+
+test_project_channels_resolved_flag() {
+  # A4 (C5-flag): channelsResolved reflects whether the inbox milestone name resolved.
+  local main; main=$(_fetch_out "$FXDIR/main.json" "$UUID" --since="$SINCE")
+  assert_json "$main" '.channelsResolved' "true" "inbox milestone present → channelsResolved true"
+  local ni; ni=$(_fetch_out "$FXDIR/no-inbox.json" "$UUID" --since="$SINCE")
+  assert_json "$ni" '.channelsResolved' "false" "no inbox milestone → channelsResolved false"
+  assert_json "$ni" '.structure.channels | length' "0" "no inbox milestone → empty channels"
 }
 
 test_project_orphan_reply_not_dropped() {
@@ -425,13 +468,6 @@ test_project_mixed_iso_precision() {
   local out; out=$(_fetch_out "$FXDIR/precision.json" "$UUID" --since="2026-07-20T00:00:00Z")
   assert_json "$out" '.tickets[0].comments | length' "1" "only the post-boundary comment kept"
   assert_json "$out" '.tickets[0].comments[0].id' "cAfter" "millisecond comparison is correct"
-}
-
-test_project_waterline_max_normalized() {
-  # Council S1: raw max would undershoot to …05Z; normTs max must pick …05.500Z.
-  _fetch_out "$FXDIR/wm-precision.json" "$UUID" --since="$SINCE" >/dev/null
-  local wm; wm=$("$PROJ" waterline get "$UUID" 2>/dev/null)
-  assert_eq "2026-07-20T00:00:05.500Z" "$wm" "waterline max normalizes precision (no undershoot)"
 }
 
 test_project_cursor_progress_guard() {
@@ -461,6 +497,21 @@ test_project_attachments_overflow_paginated() {
   local out; out=$(_fetch_out "$FXDIR/ao-main.json:$FXDIR/ao-page2.json" "$UUID" --since="$SINCE")
   assert_json "$out" '.tickets[0].attachments | length' "2" "both attachment pages present (follow-up paginated)"
   assert_json "$out" '[.tickets[0].attachments[].id] | sort | join(",")' "a1,a2" "first + second page attachments merged"
+}
+
+test_project_real_shape_fixture() {
+  # FIN-3475 Part 3: replay REAL (PII-sanitized) Linear responses to lock the live payload shape.
+  # Chain exercises all three captured fixtures: resolve (name→id) → main issues (channels alias +
+  # quotedText) → FIN-1623 history follow-up (its inline history page was truncated live).
+  local rd="$SRC_DIR/tests/fixtures/project-real"
+  local out; out=$(_fetch_out "$rd/resolve.json:$rd/issues.json:$rd/history-followup.json" "Product: Claims & Policies")
+  assert_file_exists "$out" "real-shape payload written"
+  assert_json "$out" '(has("channelsResolved") and has("structure") and has("summary") and has("since") and has("fetchedAt"))' "true" "envelope keys present on real shape"
+  assert_json "$out" '.channelsResolved' "true" "real project resolves the Inboxes milestone"
+  assert_json "$out" '.structure.channels | length' "8" "all 8 real inbox channels enumerate (delta-independent)"
+  assert_json "$out" '[.structure.channels[].milestone] | unique | join(",")' "Inboxes" "every real channel sits under Inboxes"
+  assert_json "$out" '[.tickets[].comments | .. | objects | select(has("body"))] | all(has("quotedText"))' "true" "every real comment carries a quotedText key"
+  assert_json "$out" '.tickets[] | select(.identifier=="FIN-1623") | (.lifecycle | length) > 0' "true" "FIN-1623 history follow-up merged (real follow-up fixture consumed)"
 }
 
 test_project_blank_since_fetches_all() {

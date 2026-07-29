@@ -2,28 +2,33 @@
 # project.sh — engine project fetch: one Linear-project delta as a single JSON payload
 #
 # `engine project fetch <project> [--since=<ISO>] [--out=<path>]` queries Linear's
-# GraphQL API and writes ONE payload of everything new in a Project since a durable
-# per-project waterline: inbox-channel comment TREES, new comments on ordinary tickets,
+# GraphQL API and writes ONE payload of everything in a Project at/after a caller-supplied
+# --since cutoff: inbox-channel comment TREES, new comments on ordinary tickets,
 # new tickets, attachment URLs, normalized lifecycle events (who/when/from→to), a live
-# structure catalog, and a summary layer. Read-only toward Linear.
+# structure catalog (channels enumerated independent of the delta), and a summary layer.
+# Read-only toward Linear.
 #
-# The waterline advances ONLY after the payload is durably written (¶INV_WRITE_BEFORE_WATERMARK):
-# any failure leaves it un-advanced + exits non-zero, so an interrupted run re-fetches cleanly.
+# The CLI is STATELESS: --since is the caller's responsibility (¶INV_LINEAR_IS_TRUTH).
+# A bare `engine project fetch <project>` is a full snapshot (no cutoff); --since=<ISO>
+# makes it incremental. The consumer (/intake) owns its own watermark in its own doc —
+# there is no CLI-side stored waterline.
+#
+# The payload is the terminal durable step (¶INV_WRITE_BEFORE_WATERMARK): any failure
+# exits non-zero with no payload written, so an interrupted run re-fetches cleanly and the
+# caller's watermark (advanced only after the payload lands) never leaps past unseen data.
 #
 # Usage:
 #   engine project fetch <project> [--since=<ISO8601>] [--out=<path>]
-#   engine project waterline get   <project>
-#   engine project waterline list
-#   engine project waterline reset <project>
 #
 #   <project> : Linear project UUID (used directly) or name (resolved via a projects query).
-#   --since   : override the stored waterline for this run (stored waterline still advances after).
+#   --since   : ISO8601 cutoff for this run; omit for a full snapshot.
 #   --out     : payload destination (default $STATE_DIR/payloads/<projectId>-<epoch>.json).
 #               The written path is always printed as the last stdout line.
 #
 # Auth (live path only): LINEAR_API_KEY from env or .env (repo root or ~/.claude/engine/.env).
-# Env: PROJECT_FETCH_STATE_DIR (default ~/.claude/engine/.project-fetch) — waterline + default payloads.
+# Env: PROJECT_FETCH_STATE_DIR (default ~/.claude/engine/.project-fetch) — default payload dir.
 #      PROJECT_FETCH_FIXTURE (test-only) — file or colon-separated file list; short-circuits _graphql.
+#      PROJECT_FETCH_INBOX_MILESTONE (default Inboxes) — the milestone naming the inbox channels.
 #      LINEAR_API_URL (default https://api.linear.app/graphql).
 set -uo pipefail
 
@@ -48,34 +53,12 @@ usage() {
   awk '/^# Usage:/{p=1} p{ if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"
 }
 
-# ---- State dir + waterline store ----
+# ---- State dir (default payload destination only — no stored waterline) ----
 
 _state_dir() {
   local d="${PROJECT_FETCH_STATE_DIR:-$HOME/.claude/engine/.project-fetch}"
   mkdir -p "$d" 2>/dev/null || true
   printf '%s' "$d"
-}
-
-_waterlines_file() {
-  local f
-  f="$(_state_dir)/waterlines.json"
-  [ -f "$f" ] || echo '{}' > "$f"
-  printf '%s' "$f"
-}
-
-# _waterline_get PROJECT_ID → stored ISO waterline (empty if none)
-_waterline_get() {
-  local pid="$1" f
-  f="$(_waterlines_file)"
-  jq -r --arg p "$pid" '(.[$p].waterline // "")' "$f" 2>/dev/null || echo ""
-}
-
-# _waterline_set PROJECT_ID ISO — atomic under lib.sh lock
-_waterline_set() {
-  local pid="$1" wm="$2" f
-  f="$(_waterlines_file)"
-  safe_json_update "$f" --arg p "$pid" --arg w "$wm" --arg ts "$(timestamp)" \
-    '.[$p] = {waterline: $w, updatedAt: $ts}'
 }
 
 # ---- GraphQL seam (the single injectable HTTP call) ----
@@ -157,10 +140,13 @@ GQL
 
 _q_issues() {
   cat <<'GQL'
-query($projectId: String!, $filter: IssueFilter, $after: String) {
+query($projectId: String!, $filter: IssueFilter, $after: String, $inbox: String!) {
   project(id: $projectId) {
     id name url
     projectMilestones(first: 100) { nodes { id name } }
+    channels: issues(first: 100, filter: { projectMilestone: { name: { eq: $inbox } } }) {
+      nodes { id identifier title projectMilestone { name } }
+    }
     issues(first: 25, after: $after, orderBy: createdAt, filter: $filter) {
       pageInfo { hasNextPage endCursor }
       nodes {
@@ -169,7 +155,7 @@ query($projectId: String!, $filter: IssueFilter, $after: String) {
         projectMilestone { name }
         comments(first: 40) {
           pageInfo { hasNextPage endCursor }
-          nodes { id body createdAt parent { id } user { name } botActor { name } }
+          nodes { id body createdAt quotedText parent { id } user { name } botActor { name } }
         }
         history(first: 20) {
           pageInfo { hasNextPage endCursor }
@@ -198,7 +184,7 @@ query($issueId: String!, $after: String) {
   issue(id: $issueId) {
     comments(first: 250, after: $after) {
       pageInfo { hasNextPage endCursor }
-      nodes { id body createdAt parent { id } user { name } botActor { name } }
+      nodes { id body createdAt quotedText parent { id } user { name } botActor { name } }
     }
   }
 }
@@ -259,9 +245,11 @@ _resolve_project_id() {
   printf '%s' "$nodes" | jq -r '.[0].id'
 }
 
-# _fetch_all INPUT_ID SINCE → {project, milestones, issues} on stdout (fully paginated).
+# _fetch_all INPUT_ID SINCE INBOX → {project, milestones, channels, issues} on stdout (paginated).
+# Channels are enumerated from the aliased inbox-milestone connection (independent of the delta
+# filter), so a quiet channel with no new activity still appears in structure.channels.
 _fetch_all() {
-  local pid="$1" since="$2" after="null" resp page meta="" milestones="" prev_cursor=""
+  local pid="$1" since="$2" inbox="${3:-Inboxes}" after="null" resp page meta="" milestones="" channels="" prev_cursor=""
   # Accumulate pages to a temp FILE (one compact node-array per line), never to a shell var
   # passed via `jq --argjson` — a first-full-drain accumulator would blow ARG_MAX/E2BIG
   # (single-arg exec caps at ~1MB on macOS, 128KB per arg on Linux).
@@ -269,13 +257,14 @@ _fetch_all() {
   trap 'rm -f "$issues_file"' RETURN
   while :; do
     resp=$(_graphql "$(_q_issues)" \
-      "$(jq -n --arg p "$pid" --arg s "$since" --argjson a "$after" \
-        '{projectId: $p, filter: (if $s == "" then {} else {updatedAt: {gt: $s}} end), after: $a}')") || return 1
+      "$(jq -n --arg p "$pid" --arg s "$since" --argjson a "$after" --arg ib "$inbox" \
+        '{projectId: $p, filter: (if $s == "" then {} else {updatedAt: {gt: $s}} end), after: $a, inbox: $ib}')") || return 1
     page=$(printf '%s' "$resp" | jq '.data.project // null')
     if [ "$page" = "null" ]; then echo "project: project not found: $pid" >&2; return 1; fi
     if [ -z "$meta" ]; then
       meta=$(printf '%s' "$page" | jq '{id, name, url}')
       milestones=$(printf '%s' "$page" | jq '[.projectMilestones.nodes[]? | {id, name}]')
+      channels=$(printf '%s' "$page" | jq '[.channels.nodes[]? | {id, identifier, title, milestone: (.projectMilestone.name // null)}]')
     fi
     printf '%s' "$page" | jq -c '[.issues.nodes[]?]' >> "$issues_file"
     local has end
@@ -318,8 +307,8 @@ _fetch_all() {
       'map(if .id == $id then .attachments.nodes = (.attachments.nodes + $more) else . end)')
   done
 
-  printf '%s' "$all" | jq --argjson meta "$meta" --argjson ms "${milestones:-[]}" \
-    '{project: $meta, milestones: $ms, issues: .}'
+  printf '%s' "$all" | jq --argjson meta "$meta" --argjson ms "${milestones:-[]}" --argjson ch "${channels:-[]}" \
+    '{project: $meta, milestones: $ms, channels: $ch, issues: .}'
 }
 
 # _fetch_remaining_comments ISSUE_ID AFTER_CURSOR → array of remaining comment nodes.
@@ -385,10 +374,10 @@ _assemble() {
     # (pre-since). Re-rooting orphans means a NEW reply to an OLD thread is never dropped.
     def buildTree($cs; $ids):
       def kids($pid): [ $cs[] | select((.parent.id // null) == $pid)
-        | { id, author: author, createdAt, body, orphanReply: false, children: kids(.id) } ];
+        | { id, author: author, createdAt, body, quotedText: (.quotedText // null), orphanReply: false, children: kids(.id) } ];
       [ $cs[]
         | select((.parent.id // null) as $p | ($p == null) or (($ids | index($p)) == null))
-        | { id, author: author, createdAt, body,
+        | { id, author: author, createdAt, body, quotedText: (.quotedText // null),
             orphanReply: ((.parent.id // null) != null), children: kids(.id) } ];
     def treeCount: reduce .[] as $c (0; . + 1 + ($c.children | treeCount));
     # One IssueHistory node → ALL its applicable normalized transitions (a single edit can
@@ -403,6 +392,8 @@ _assemble() {
     ($since | normTs) as $sn
     | .project as $project
     | .milestones as $milestones
+    | (.channels // []) as $channels
+    | (([$milestones[].name] | index($inbox)) != null) as $channelsResolved
     | ( [ .issues[]
           | ( [ (.comments.nodes // [])[] | select((.createdAt | normTs) > $sn) ] ) as $cs
           | ( $cs | map(.id) ) as $ids
@@ -427,10 +418,10 @@ _assemble() {
         project: $project,
         since: $since,
         fetchedAt: $fetchedAt,
+        channelsResolved: $channelsResolved,
         structure: {
           milestones: $milestones,
-          channels: [ $tickets[] | select(.isChannel)
-                      | { id, identifier, title, milestone } ]
+          channels: $channels
         },
         tickets: [ $tickets[] | del(._commentCount) ],
         summary: {
@@ -463,26 +454,30 @@ cmd_fetch() {
   done
   [ -n "$input" ] || { echo "project: fetch requires <project>" >&2; return 1; }
 
-  local pid since
+  # --since is the caller's responsibility; no stored waterline. Omitted → full snapshot.
+  local pid since=""
   pid=$(_resolve_project_id "$input") || return 1
-  if [ "$have_since" = "1" ]; then since="$since_override"; else since="$(_waterline_get "$pid")"; fi
+  if [ "$have_since" = "1" ]; then since="$since_override"; fi
+
+  # Which milestone designates the inbox channels (default "Inboxes"). Passed to the channels
+  # query so a quiet channel still enumerates; channelsResolved in the payload is the machine
+  # signal, and a missing milestone gets a human-readable stderr note.
+  local inbox="${PROJECT_FETCH_INBOX_MILESTONE:-Inboxes}"
 
   local raw
-  raw=$(_fetch_all "$pid" "$since") || return 1
+  raw=$(_fetch_all "$pid" "$since" "$inbox") || return 1
 
-  # Which milestone designates the inbox channels (default "Inboxes"). A project whose intake
-  # milestone is named differently would otherwise return silently-empty channels — warn.
-  local inbox="${PROJECT_FETCH_INBOX_MILESTONE:-Inboxes}"
   if ! printf '%s' "$raw" | jq -e --arg ib "$inbox" '[.milestones[]?.name] | index($ib)' >/dev/null 2>&1; then
-    echo "project: note — no milestone named '$inbox' in this project; structure.channels will be empty (override with PROJECT_FETCH_INBOX_MILESTONE)" >&2
+    echo "project: note — no milestone named '$inbox' in this project; structure.channels will be empty (channelsResolved:false; override with PROJECT_FETCH_INBOX_MILESTONE)" >&2
   fi
 
   local fetched_at payload
   fetched_at="$(timestamp)"
   payload=$(_assemble "$raw" "$since" "$fetched_at" "$inbox") || { echo "project: transform failed" >&2; return 1; }
 
-  # Durable write BEFORE waterline advance. Any failure above already returned non-zero
-  # with the waterline untouched.
+  # The payload write is the terminal durable step (¶INV_WRITE_BEFORE_WATERMARK): any failure
+  # above already returned non-zero with nothing written, and there is no CLI-side watermark to
+  # advance — the consumer advances its own only after this path prints the payload location.
   if [ -z "$out" ]; then
     local pdir
     pdir="$(_state_dir)/payloads"
@@ -496,44 +491,12 @@ cmd_fetch() {
     return 1
   fi
 
-  # Payload is durable — NOW advance the waterline to the max updatedAt seen (idempotent
-  # re-runs: next fetch filters updatedAt > this). No issues → keep the effective since.
-  # Normalize before max so mixed ISO precision (.SSS vs plain Z) can't undershoot the
-  # high-water mark and re-emit a boundary issue next run (parity with _assemble's normTs).
-  local new_wm
-  new_wm=$(printf '%s' "$raw" | jq -r '
-    def normTs: (. // "") | if . == "" then "" else (sub("Z$"; "")) as $b
-      | ($b | split(".")) as $p
-      | $p[0] + "." + (((if ($p | length) > 1 then $p[1] else "" end) + "000")[0:3]) + "Z" end;
-    ([.issues[].updatedAt | normTs] | max) // empty')
-  [ -n "$new_wm" ] || new_wm="$since"
-  if [ -n "$new_wm" ]; then _waterline_set "$pid" "$new_wm" || true; fi
-
   printf '%s\n' "$out"
-}
-
-# ---- waterline subcommand ----
-
-cmd_waterline() {
-  case "${1:-}" in
-    get)
-      [ -n "${2:-}" ] || { echo "project: waterline get requires <project>" >&2; return 1; }
-      local pid; pid=$(_resolve_project_id "$2") || return 1
-      _waterline_get "$pid"; echo ;;
-    list)
-      jq '.' "$(_waterlines_file)" ;;
-    reset)
-      [ -n "${2:-}" ] || { echo "project: waterline reset requires <project>" >&2; return 1; }
-      local pid; pid=$(_resolve_project_id "$2") || return 1
-      safe_json_update "$(_waterlines_file)" --arg p "$pid" 'del(.[$p])' && echo "project: reset waterline for $pid" ;;
-    *) echo "project: waterline <get|list|reset> [project]" >&2; return 1 ;;
-  esac
 }
 
 # ---- Dispatch ----
 case "${1:-}" in
   fetch)     shift; cmd_fetch "$@" ;;
-  waterline) shift; cmd_waterline "$@" ;;
   ""|-h|--help|help) usage ;;
   *) echo "project: unknown subcommand '$1'" >&2; usage; exit 1 ;;
 esac
