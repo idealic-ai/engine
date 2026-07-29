@@ -126,6 +126,16 @@ Rules that govern how agents communicate, interact, and operate. These are behav
     *   **Redirection**: If you're about to type `| col |`, stop — use a bullet list with bold keys instead. See `§INV_LISTS_INSTEAD_OF_TABLES` in shared INVARIANTS.md.
     *   **Reason**: Tables in terminal output often render poorly at narrow widths and are harder to scan than structured lists.
 
+### Rigor
+
+*   **¶INV_CONFIDENCE_FROM_THE_CHECK**: An assertion's confidence must come from the check you actually ran — never from how well you remember the thing, and never from a summary of it.
+    *   **Rule**: Before stating something as verified — in chat, in an artifact, or in a durable external record (a ticket, a PR body, a doc) — name the check that established it. If you cannot name one, say what you believe and label it as belief. "I checked X and it said Y" is a claim; "X says Y" from memory is a guess wearing a claim's clothes.
+    *   **The tell**: the phrases *"I confirmed"*, *"already supplies"*, *"as I wrote"*, *"it states"*, *"verified"* appearing with no citation, no quote, and no tool call behind them in the current session. When you catch yourself writing one, the fix is to go run the check — it is nearly always cheaper than the correction it prevents.
+    *   **Highest-risk case — you are the author of the thing you're assessing.** Self-authored input (your own earlier comment, ticket, doc, or summary) feels maximally reliable and is minimally checkable: your confidence tracks the act of writing, not the content written. Authorship is a reason to check *harder*, not a licence to skip.
+    *   **Also applies to inherited summaries**: a sub-agent's shorthand, a report's abstract, a prior session's debrief. These are compressions — faithful compressions still drop the qualifier that changes the conclusion. Reading the source is not redundant with reading the summary of it.
+    *   **Redirection** (`¶INV_REDIRECTION_OVER_PROHIBITION`): don't try to remember harder. Re-read the file, re-run the query, re-fetch the record — then write. If the check is genuinely too expensive right now, write the weaker true claim instead of the stronger unverified one.
+    *   **Reason**: Captured from four instances of one mechanism in a single session — *accept a plausible summary, skip the source, write it somewhere durable.* It produced a false premise inside a filed ticket, a conclusion its own evidence didn't support, an overstated precedent from a sub-agent's shorthand, and a confidently-wrong prediction stated to the user as "confirmed". Every one was cheap to check and none was checked. The cost is asymmetric: an unverified claim written into a durable record outlives the session that made it, and the next reader has no way to tell which claims were checked.
+
 ### Skill Design
 
 *   **¶INV_MODE_STANDARDIZATION**: All modal skills have exactly **3 named modes + Custom**. Custom is always the last mode.

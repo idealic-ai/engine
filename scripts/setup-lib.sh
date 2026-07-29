@@ -499,16 +499,16 @@ configure_hooks() {
     )
 
     # SessionStart: chunked preload. Claude Code truncates any single hook stdout
-    # over ~9000 chars to ~2000, so the preload is split across 24 slice commands
-    # (session-start-chunk.sh <i> 24) that Claude concatenates back inline. Rebuild
+    # over ~9000 chars to ~2000, so the preload is split across 48 slice commands
+    # (session-start-chunk.sh <i> 48) that Claude concatenates back inline. Rebuild
     # the entry idempotently: drop any prior session-start-restore/chunk wiring
     # (migrates the legacy single restore hook), then append the canonical block.
     | .hooks.SessionStart = (
         [ (.hooks.SessionStart // [])[]
           | select([ (.hooks // [])[]?.command // "" | test("session-start-(restore|chunk)\\.sh") ] | any | not) ]
-        + [ { "hooks": [ range(0;24) | {
+        + [ { "hooks": [ range(0;48) | {
               "type": "command",
-              "command": ("~/.claude/hooks/session-start-chunk.sh \(.) 24"),
+              "command": ("~/.claude/hooks/session-start-chunk.sh \(.) 48"),
               "timeout": 30
             } ] } ]
       )

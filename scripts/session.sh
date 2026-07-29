@@ -751,6 +751,7 @@ case "$ACTION" in
     if [ "$SHOULD_SCAN" = true ]; then
       SESSION_SEARCH="$HOME/.claude/tools/session-search/session-search.sh"
       DOC_SEARCH="$HOME/.claude/tools/doc-search/doc-search.sh"
+      TICKET_SEARCH="$(dirname "$0")/ticket-search.sh"
 
       # Extract taskSummary for thematic search
       TASK_SUMMARY=""
@@ -803,6 +804,26 @@ case "$ACTION" in
       fi
       if [ -n "${RECALL_DOCS:-}" ]; then
         echo "$RECALL_DOCS"
+      else
+        echo "(none)"
+      fi
+
+      # SRC_RELATED_TICKETS (related Linear tickets via ticket-search.sh)
+      # FAIL-SOFT: ticket-search must NEVER block or slow activation. The CLI exits
+      # non-zero with no LINEAR_API_KEY (and curl --max-time caps a slow Linear); we
+      # swallow stderr + non-zero → (none). TICKET_SEARCH_DISABLED short-circuits it.
+      echo ""
+      echo "## SRC_RELATED_TICKETS"
+      if [ -n "$TASK_SUMMARY" ] && [ -z "${TICKET_SEARCH_DISABLED:-}" ] && [ -x "$TICKET_SEARCH" ]; then
+        RECALL_TICKETS=$("$TICKET_SEARCH" "$TASK_SUMMARY" 2>/dev/null || true)
+      fi
+      if [ -n "${RECALL_TICKETS:-}" ]; then
+        echo "$RECALL_TICKETS"
+      elif [ -n "$TASK_SUMMARY" ] && [ -z "${TICKET_SEARCH_DISABLED:-}" ] \
+           && [ -z "${LINEAR_API_KEY:-}" ] \
+           && ! grep -qs '^LINEAR_API_KEY=' .env "$HOME/.claude/engine/.env"; then
+        # Distinguish "no key configured" from "key set, zero hits" so a silent (none) isn't puzzling.
+        echo "(none — set LINEAR_API_KEY (env or .env) to enable ticket search)"
       else
         echo "(none)"
       fi

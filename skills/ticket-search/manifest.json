@@ -1,0 +1,6 @@
+{
+  "name": "ticket-search",
+  "version": "1",
+  "description": "Surface RELATED and DUPLICATE Linear tickets for the work in front of you, before you build. A read-only subagent runs `engine ticket-search` (standalone) or navigates the startup SRC_RELATED_TICKETS candidates (session-startup), deep-reads each promising ticket via §CMD_READ_RELATED_TICKET (full body + state + comments, kept inside the subagent so ticket bodies never flood the main loop), then writes a two-goal report — related-for-context AND a loud duplicate/overlapping-work callout split by Linear state (completed=already built · canceled=deliberately dropped · everything-else=open, may be duplicating). You then triage each ticket (read / subscribe / fold-into-scope / dismiss). A building block: it investigates + reports + triages, then STOPS — it never fixes, files, subscribes, or commits automatically. Triggers: \"ticket-search\", \"find related tickets\", \"any tickets like this\", \"am I duplicating work\", \"search linear for related work\".",
+  "tier": "lightweight"
+}

@@ -29,7 +29,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
       "commands": ["§CMD_LINK_FILE"],
       "proof": ["planWritten", "planPresented", "userApproved", "reviewOffered", "decision", "graphOffered"]},
     {"label": "3", "name": "Execution",
-      "steps": ["§CMD_SELECT_EXECUTION_PATH"],
+      "steps": ["§CMD_SET_TICKET_IN_PROGRESS", "§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
       "proof": ["pathChosen", "pathsAvailable"], "gate": false},
     {"label": "3.A", "name": "Build Loop",
@@ -158,7 +158,7 @@ Once the plan is approved, offer a `/council` panel review on the plan `<IMPLEME
 
 §CMD_EXECUTE_PHASE_STEPS(3.0.*)
 
-*Gateway phase — presents inline/agent/parallel choice, then enters the selected branch.*
+*Gateway phase — first flips an associated ticket to In Progress (`§CMD_SET_TICKET_IN_PROGRESS` — silent no-op when no ticket is attached), then presents the inline/agent/parallel choice and enters the selected branch. The flip runs here, before the branch split, so every execution path is covered.*
 
 ---
 

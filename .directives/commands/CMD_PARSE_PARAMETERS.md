@@ -146,10 +146,10 @@ Static fields (`taskType`, `phases`, `nextSkills`, `directives`, `modes`, `logTe
 1.  **Analyze**: Review the user's prompt and current context to extract the parameters.
 2.  **Construct**: Create the JSON object matching the schema. Only dynamic fields are required.
 3.  **Activate Session**: Pipe the JSON to `engine session activate` via heredoc (see `§CMD_SESSION_CLI` for exact syntax). The JSON is stored in `.state.json` (merged with runtime fields) and activate returns context (alerts, delegations, RAG suggestions). Do NOT output the JSON to chat — it is stored by activate.
-    *   The agent reads activate's stdout for context sections (`## SRC_ACTIVE_ALERTS`, `## SRC_PRIOR_SESSIONS`, `## SRC_RELEVANT_DOCS`, `## SRC_DELEGATION_TARGETS`).
+    *   The agent reads activate's stdout for context sections (`## SRC_ACTIVE_ALERTS`, `## SRC_PRIOR_SESSIONS`, `## SRC_RELEVANT_DOCS`, `## SRC_RELATED_TICKETS`, `## SRC_DELEGATION_TARGETS`).
     *   activate uses `taskSummary` from the JSON to run thematic searches via session-search and doc-search automatically.
     *   **No-JSON calls** (e.g., re-activation without new params): use `< /dev/null` to avoid stdin hang.
-4.  **Process Context Output**: Parse activate's Markdown output to identify the context categories (Alerts, RAG:Sessions, RAG:Docs). These are consumed by `§CMD_INGEST_CONTEXT_BEFORE_WORK`, which curates the best results and builds the multichoice menu in Phase 1.
+4.  **Process Context Output**: Parse activate's Markdown output to identify the context categories (Alerts, RAG:Sessions, RAG:Docs, Related Tickets). These are consumed by `§CMD_INGEST_CONTEXT_BEFORE_WORK`, which curates the best results and builds the multichoice menu in Phase 1.
 
 ---
 

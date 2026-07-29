@@ -9,6 +9,30 @@
 *   **Inbox ticket** (under `Inboxes` milestone): [URL/ID] · **Watermark**: [last-synced comment timestamp]
 *   **Status**: [Active / Checkpointed]
 
+### Ticketing Strategy (loaded verbatim from the Project description — `¶INV_TICKETING_STRATEGY_IN_PROJECT`)
+*How much ticketing this project wants. Project-level only — no channel override. Gates graduate-vs-fold-vs-marinate at Outcomes, AFTER ripeness passes. Mandatory: if the project has none, say so explicitly here and name the default as applied — a defaulted project must be visible as defaulted.*
+
+*   **Volume**: [verbatim bullet, or "default applied — none set on the project"]
+*   **Size**: [verbatim bullet, or "default applied"]
+*   **Substance**: [verbatim bullet, or "default applied"]
+*   **Changed since last wave**: [what changed · **which already-filed tickets it re-opens** — or "none". Unlike Directions, a changed ticketing policy invalidates past graduations, not just pending judgment.]
+
+### Stakeholders (loaded from the Project description — optional, absence is normal)
+*Facts about people, never assignment rules. Triage carries the relevant names into handoff prompts (who to ask); Outcomes infers assignee/reviewer and who an update should reach. Inference only — never authority.*
+
+*   **Owns what**: [person → area/decision, or "none set"]
+*   **Ask about what**: [person → the questions they can close]
+*   **Cares about outcomes**: [who to notify · who to consult before shipping]
+*   **Expiring**: [interim owners, leave, handovers in progress — or "none"]
+
+### Directions (loaded verbatim from Linear — `¶INV_DIRECTIONS_IN_DESCRIPTIONS`)
+*The project's own steer, copied from the `## Directions` sections. Channel > project > skill default. Every phase and every dispatched sub-agent reads THIS copy, so it must be verbatim. Note anything that changed since the last wave — a changed steer re-opens judgments made under the old one.*
+
+*   **Project-wide**: [verbatim from the Project description's `## Directions`, or "none set"]
+*   **[🔴 channel name]**: [verbatim, or "none set"]
+*   **[🟠 channel name]**: [verbatim, or "none set"]
+*   **Changed since last wave**: [which channels · what changed · what it re-opens — or "none"]
+
 ## 2. Cross-Scope Understanding
 *The larger picture: how the threads relate, where the leverage is, what's blocked on what. This is the part that makes "where do I start" answerable.*
 

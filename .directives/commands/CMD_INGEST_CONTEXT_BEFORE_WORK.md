@@ -2,23 +2,25 @@
 **Definition**: Present discovered context as a category-level multi-select menu before work begins. Uses `§CMD_DECISION_TREE` with `§ASK_CONTEXT_INGESTION`.
 **Rule**: STOP after init. Enter this phase. Do NOT load files until user responds.
 
-**Source sections**: Activate outputs: `## SRC_ACTIVE_ALERTS`, `## SRC_OPEN_DELEGATIONS`, `## SRC_PRIOR_SESSIONS`, `## SRC_RELEVANT_DOCS`, `## SRC_DELEGATION_TARGETS`. Each contains file paths with distance scores (one per line) or `(none)`, except delegation targets which outputs a table.
+**Source sections**: Activate outputs: `## SRC_ACTIVE_ALERTS`, `## SRC_OPEN_DELEGATIONS`, `## SRC_PRIOR_SESSIONS`, `## SRC_RELEVANT_DOCS`, `## SRC_RELATED_TICKETS`, `## SRC_DELEGATION_TARGETS`. Each contains file paths with distance scores (one per line) or `(none)`, except `SRC_RELATED_TICKETS` (ticket excerpt lines `[KEY] title · state · score`) and delegation targets (a table).
 
 **Algorithm**:
 1.  Auto-load `contextPaths` from session parameters (explicitly requested — no menu needed).
-2.  Parse activate's sections. Group into **3 categories**:
+2.  Parse activate's sections. Group into **4 categories**:
     *   **Sessions**: `SRC_PRIOR_SESSIONS` results
     *   **Docs**: `SRC_RELEVANT_DOCS` results
     *   **Operational**: `SRC_ACTIVE_ALERTS` + `SRC_OPEN_DELEGATIONS` combined
-3.  **Curate** — For each non-empty category, select the **top 3** results by distance score (lower = more similar). Drop results that are clearly off-topic despite low distance. No discretionary expansion — fixed top 3.
-4.  **All-empty check** — If all 3 categories are empty after curation, skip the menu: announce "No context discovered. Working with contextPaths only." and return.
+    *   **Tickets**: `SRC_RELATED_TICKETS` results — related/duplicate Linear tickets. **Load-action differs**: selecting Tickets does NOT load a file (the other 3 do); it **dispatches the `/ticket-search` skill in startup mode** (see step 6), which navigates the SRC_RELATED_TICKETS candidates via its read-only subagent and returns the related/duplicate report.
+3.  **Curate** — For each non-empty category, select the **top 3** results by distance score (lower = more similar; for Tickets, higher relevance score = better — take the top 3). Drop results that are clearly off-topic despite a good score. No discretionary expansion — fixed top 3.
+4.  **All-empty check** — If all 4 categories are empty after curation, skip the menu: announce "No context discovered. Working with contextPaths only." and return.
 5.  **Present** — Invoke §CMD_DECISION_TREE with `§ASK_CONTEXT_INGESTION`:
     *   **Hide empty categories** — Only include categories that have curated results. `[SKIP]` is always shown (ensures minimum 2 options).
-    *   **Dynamic labels** — Agent appends counts to labels at runtime: `"Sessions (3 found)"`, `"Docs (2 found)"`, `"Operational (1 alert, 2 delegations)"`.
+    *   **Dynamic labels** — Agent appends counts to labels at runtime: `"Sessions (3 found)"`, `"Docs (2 found)"`, `"Operational (1 alert, 2 delegations)"`, `"Tickets (2 found)"`.
     *   **Compact preamble** — Counts only per category. No expanded file lists in the preamble.
     *   **ABC extras** — Agent-generated contextual suggestion packages (combos of categories). Examples: `A: Sessions + Operational | B: Just sessions | C: Pick individual files`. These are convenience bundles — overlap with checkbox options is fine.
 6.  **Load** — For each selected category, load all curated items within it. Also load any `@path` inputs from the Other field. If `[SKIP]` is the only selection, load nothing.
     *   **Multi-select priority**: If `[SKIP]` is selected alongside categories, categories win — `[SKIP]` is ignored. `[SKIP]` only takes effect as the sole selection.
+    *   **Tickets is a dispatch, not a file-load**: if **Tickets** is selected, do NOT read files — invoke `Skill(skill: "ticket-search")` with **no args**. The skill auto-detects **startup mode** from the `SRC_RELATED_TICKETS` block already in context (and frames its search from the session's `taskSummary`); do NOT pass `"startup"` or any query string as args — the skill reads args as the search *topic*, so an arg would mis-frame the navigation. The `/ticket-search` subagent then navigates the curated `SRC_RELATED_TICKETS` candidates (deep-reads each via `§CMD_READ_RELATED_TICKET`), writes its related/duplicate report to `builds/`, and you then triage. Load the other selected categories' files as usual alongside it.
 
 ---
 
@@ -32,6 +34,8 @@ Extras: [agent-generated contextual suggestion packages — combos of categories
   Top 3 RAG doc matches by relevance (curated from SRC_RELEVANT_DOCS)
 - [ ] Operational
   All active alerts + open delegations (SRC_ACTIVE_ALERTS + SRC_OPEN_DELEGATIONS)
+- [ ] Tickets
+  Related/duplicate Linear tickets (from SRC_RELATED_TICKETS) — selecting this dispatches the `/ticket-search` skill (not a file-load)
 - [ ] [SKIP] Skip context
   Don't load any RAG results — work with contextPaths only
 
@@ -57,7 +61,7 @@ Extras: [agent-generated contextual suggestion packages — combos of categories
   "properties": {
     "contextSourcesPresented": {
       "type": "string",
-      "description": "Summary of context sources offered to the user (e.g., '3 categories: Sessions (3), Docs (2), Operational (1)')"
+      "description": "Summary of context sources offered to the user (e.g., '4 categories: Sessions (3), Docs (2), Operational (1), Tickets (2)')"
     },
     "filesLoaded": {
       "type": "string",

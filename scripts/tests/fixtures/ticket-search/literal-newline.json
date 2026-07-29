@@ -1,0 +1,5 @@
+{ "data": { "searchIssues": { "nodes": [
+  { "identifier": "FIN-900", "title": "Escaped newline in body", "url": "https://linear.app/x/issue/FIN-900",
+    "priority": 2, "state": { "name": "Backlog", "type": "backlog" }, "project": { "name": "X" },
+    "description": "First line.\\nSecond line after a literal backslash-n.\\n\\nThird." }
+] } } }

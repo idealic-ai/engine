@@ -29,7 +29,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
       "commands": ["§CMD_LINK_FILE"],
       "proof": ["planWritten", "issuesTriaged", "userApproved"]},
     {"label": "3", "name": "Execution",
-      "steps": ["§CMD_SELECT_EXECUTION_PATH"],
+      "steps": ["§CMD_SET_TICKET_IN_PROGRESS", "§CMD_SELECT_EXECUTION_PATH"],
       "commands": [],
       "proof": ["pathChosen", "pathsAvailable"], "gate": false},
     {"label": "3.A", "name": "Fix Loop",
@@ -185,7 +185,7 @@ If any items are flagged for revision, update the plan before proceeding.
 ---
 
 ## 3. Execution
-*Gateway: select execution path before entering a branch.*
+*Gateway: first flip an associated ticket to In Progress (`§CMD_SET_TICKET_IN_PROGRESS` — silent no-op when no ticket is attached), then select the execution path before entering a branch. The flip runs here, before the branch split, so every fix path is covered.*
 
 §CMD_REPORT_INTENT:
 > 3: Selecting execution path for ___ fixes. ___.

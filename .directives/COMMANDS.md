@@ -579,7 +579,13 @@ Pure disclosure layer — the mirror of `§CMD_INTERROGATE` (pulls the agent's j
 ### [¶CMD_POST_TICKET_COMMENT](commands/CMD_POST_TICKET_COMMENT.md)
 The ONE canonical path for posting a comment to a Linear ticket: subscribe-check (`engine ticket subscribe`) → post (`save_comment`) → notify siblings (`engine ticket notify`), so the sibling-notify can never be forgotten. `/snapshot`, `/communicate`, `/pr`, and any ad-hoc post route their comment through it (`¶INV_TICKET_COMMENT_VIA_CMD`).
 
+### [¶CMD_READ_RELATED_TICKET](commands/CMD_READ_RELATED_TICKET.md)
+The ONE canonical READ-ONLY path for reading a related Linear ticket for triage: resolve + read the issue (`get_issue`) → read its `state`/`stateType` → pull the thread (`list_comments`), returning a normalized `{ key, title, url, state, stateType, …, comments[] }` the caller classifies (related-for-context vs duplicate/overlapping-work). Never writes (subscribe is a separate action). `/ticket-search` and inline triage callers (intake sweep, inbox-triage, ticket dedup) route their ticket read through it.
+
 ### [¶CMD_DRAIN_TICKET_QUEUE_ON_WAKE](commands/CMD_DRAIN_TICKET_QUEUE_ON_WAKE.md)
 What to do when a background `engine ticket watch` wakes you: read the drained `{ticket, since}` the watcher wrote to its output (or the persisted-output file, if the harness truncated it), fetch that ticket's new Linear comments since `since`, act, then re-arm the watcher. Cited by `pre-tool-use-ticket-watch-gate.sh` and the watcher's wake-description so the wake protocol lives in one place.
+
+### [¶CMD_SET_TICKET_IN_PROGRESS](commands/CMD_SET_TICKET_IN_PROGRESS.md)
+When the active session has an explicitly-associated Linear ticket (`.state.json:tickets[]`), advance it to **In Progress** as execution begins — a non-regressing, silent status flip (`get_issue` → `list_issue_statuses` type-check → `save_issue`), never a comment/notify/backlink. Only moves an unstarted-type state forward; no-op on started/done/canceled and when no ticket is attached. Fired as a step at the Execution gateway of `/fix` and `/implement`.
 
 

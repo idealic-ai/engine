@@ -1,0 +1,5 @@
+{"data":{"searchIssues":{"nodes":[
+  {"identifier":"FIN-100","title":"Unrelated infra cleanup","url":"https://linear.app/x/issue/FIN-100","priority":3,"state":{"name":"Backlog","type":"backlog"},"project":{"name":"Platform"},"description":"Some infra work that has nothing to do with the query at all."},
+  {"identifier":"FIN-300","title":"Detector tuning","url":"https://linear.app/x/issue/FIN-300","priority":2,"state":{"name":"Done","type":"completed"},"project":{"name":"Extraction"},"description":"Tune the detector thresholds so precision improves on edge cases."},
+  {"identifier":"FIN-200","title":"Flat detector for recap","url":"https://linear.app/x/issue/FIN-200","priority":1,"state":{"name":"In Progress","type":"started"},"project":{"name":"Extraction"},"description":"Adds a flat detector to the recap table extraction pipeline.\nHandles the flat layout variant."}
+]}}}

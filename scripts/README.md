@@ -25,6 +25,7 @@ The alias is the preferred invocation method — it's shorter and whitelisted vi
 | `tag.sh` | Manage semantic tags on markdown files. Subcommands: `add`, `remove`, `swap`, `find` | `tag.sh add <file> '#tag'` |
 | `ticket.sh` | Cross-session Linear-ticket updates (dirty-flag + watermark). Subcommands: `subscribe`, `unsubscribe`, `notify`, `read`, `list`, `watch` (fswatch, blocks until a watched ticket updates; self-registers `watchTaskId` so the auto-watch hard gate can force a live background watcher). The `/communicate` skill drives a full ask/reply discussion turn | `ticket.sh watch FIN-123` (unbounded; `--timeout N` to bound) |
 | `project.sh` | Fetch a Linear **project** delta as one JSON payload since a durable per-project waterline (comment trees, new tickets, attachments, lifecycle events, structure catalog, summary). Read-only GraphQL. Subcommands: `fetch`, `waterline get/list/reset`. Needs `LINEAR_API_KEY` (env/.env). Consumed by `/intake` | `engine project fetch "<project>" [--since=<ISO>]` |
+| `ticket-search.sh` | Rank **related Linear tickets** for a free-text query (read-only `searchIssues` GraphQL). Emits `SRC_RELATED_TICKETS` at session startup + backs the `/ticket-search` skill. Needs `LINEAR_API_KEY` (env/.env); fail-soft to `(none)` without it. Flags: `--team`, `--include-closed`/`--open-only`, `--limit`, `--json` | `engine ticket-search "<text>" [--open-only] [--json]` |
 | `lib.sh` | Shared utilities for hooks: fleet notification, tmux guards, JSON helpers | Sourced by hooks, not invoked directly |
 | `find-sessions.sh` | Find sessions by date, topic, tag, or date range | `find-sessions.sh recent --files` |
 | `glob.sh` | Symlink-aware file globbing. Fallback when Glob tool can't traverse symlinks | `glob.sh '**/*.ts' sessions/` |
@@ -45,6 +46,19 @@ The alias is the preferred invocation method — it's shorter and whitelisted vi
 | `worker.sh` | Daemon worker process. Picks up tagged work items and dispatches to skills | `worker.sh` |
 | `account-switch.sh` | Claude account credential rotation — save, switch, rotate profiles via macOS Keychain | `engine account-switch save user@gmail.com` |
 | `migrate-fleet-pane-ids.sh` | One-time migration for fleet pane ID format changes | `migrate-fleet-pane-ids.sh` |
+
+## LINEAR_API_KEY (enables `project.sh` + `ticket-search.sh`)
+
+Both Linear-GraphQL tools resolve the key the same way (first hit wins):
+
+*   **`$LINEAR_API_KEY`** already exported in the environment.
+*   **`./.env`** — the current working directory, which at `engine session activate` time is the **project root** (e.g. `finch/.env`). Same file `session-search`/`doc-search` read `GEMINI_API_KEY` from.
+*   **`~/.claude/engine/.env`** — the engine's own env (project-agnostic; use this to enable ticket-search across every project).
+
+Both `.env` files are gitignored. To enable: paste a Linear personal API key (`lin_api_…`) as `LINEAR_API_KEY=…` into whichever file matches your scope. Without a key, `ticket-search` is **fail-soft** — `engine session activate` emits `## SRC_RELATED_TICKETS → (none — set LINEAR_API_KEY …)` and never blocks; the `/ticket-search` skill falls back to reading tickets via the Linear MCP.
+
+*   **Disable at startup**: set `TICKET_SEARCH_DISABLED=1` to skip the emit entirely.
+*   **Scope**: project-root `.env` → that project only; `~/.claude/engine/.env` → all projects. The project-root file wins when both define it.
 
 ## find-sessions.sh
 

@@ -24,6 +24,7 @@
 *   **Notify is not optional.** The whole point of this atom is that the notify fires whenever a comment posts — bundling it with the post is what stops it being forgotten. It is a **local dirty-flag, not an outward post**: no separate confirm, best-effort, always after the post lands.
 *   **Never overwrite the caller's confirm.** This atom is the *mechanism*; the caller owns whether to post at all (e.g. `/snapshot`'s batch confirm). Don't add a second gate — post when the caller says post.
 *   **Single source of the subscribe+notify behavior.** `/communicate`, `/snapshot`, `/pr` and any ad-hoc post reference this atom so the three steps stay identical across callers. This operationalizes AGENTS.md §"Notify when you post a ticket comment" at the exact operative step.
+*   **Comment cross-references in the body use `§FMT_TICKET_COMMENT_LINK`.** When the `body` references another ticket comment (a provenance source, a prior triage/corroboration), render it as a labeled deep-link (`<issue-url>#comment-<shortId>`), never a bare comment id — the comment-level counterpart of `§FMT_TICKET_LINK` for issue keys.
 
 ---
 

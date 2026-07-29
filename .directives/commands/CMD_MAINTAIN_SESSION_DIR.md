@@ -25,6 +25,7 @@
         *   `engine tag find '#next-*' [sessionDir]` → `## SRC_OPEN_DELEGATIONS` section (scans current session for `#next-*` items claimed for immediate next-skill execution)
         *   `engine session-search query` → `## SRC_PRIOR_SESSIONS` section
         *   `engine doc-search query` → `## SRC_RELEVANT_DOCS` section
+        *   `engine ticket-search` → `## SRC_RELATED_TICKETS` section (related Linear tickets; fail-soft — a missing key / slow Linear yields `(none)`, never blocks activation; set `TICKET_SEARCH_DISABLED=1` to skip it entirely, or `LINEAR_API_KEY` in env/`.env` to enable it)
         *   `SRC_DELEGATION_TARGETS` runs unconditionally (outside SHOULD_SCAN guard)
     *   If the same Claude (same PID) and same skill: brief re-activation, no scans.
     *   If the same Claude but different skill: updates skill, runs scans.

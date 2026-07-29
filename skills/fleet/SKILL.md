@@ -169,10 +169,10 @@ Execute `AskUserQuestion` (multiSelect: false):
 > - **"Separate tmux sessions"** — Independent tmux sessions per workgroup (launch separately)
 
 Execute `AskUserQuestion` (multiSelect: false):
-> "Add a delegation pool for background tasks?"
-> - **"Yes (4 workers)"** — Full pool with 4 background workers
-> - **"Yes (2 workers)"** — Small pool with 2 background workers
-> - **"No"** — No delegation pool
+> "Add an Intakes tab for per-project inbox grooming (`/intake`)?"
+> - **"Yes — one pane per project"** — An Intakes tab with one agent pane per Linear project (you name them); invoke `/intake` in a pane to groom that project's feedback inbox
+> - **"Yes — projects + a spare"** — Same, plus one `Future` placeholder pane to activate for a new project later
+> - **"No"** — No Intakes tab
 
 ---
 
@@ -273,19 +273,21 @@ For areas mentioned as "might work on soon" — no agent, no description, just `
     - engine fleet wait
 ```
 
-### Pool Workers
+### Intake Panes
 
-Pool workers use `run.sh --monitor-tags` (daemon mode). They receive `--agent`, `--description`, and `--monitor-tags` (delegation tags):
+Intake panes are ordinary interactive agent panes — one per Linear project — where the user invokes `/intake` to run an inbox-grooming wave for that project. They use `run.sh --agent operator` (the operator runs the `/intake` protocol); no daemon, no `--monitor-tags`.
 
 ```yaml
-- pool-worker-1:
-    - export TMUX_PANE_TITLE="pool-worker-1"
-    - export AGENT_DESCRIPTION="{worker description}"
-    - tmux set-option -p -t $TMUX_PANE @pane_label "Worker 1"
-    - clear && engine run --monitor-tags "#needs-delegation,#needs-implementation" --agent operator --description "$AGENT_DESCRIPTION"
+- intakes-{project-slug}:
+    - export TMUX_PANE_TITLE="intakes-{project-slug}"
+    - export AGENT_DESCRIPTION="Intake grooming for the '{Project}' Linear project. Drain the inbox, organize + consolidate feedback, triage each signal toward an outcome, graduate ripe items to tickets. Run /intake to start a wave."
+    - tmux set-option -p -t $TMUX_PANE @pane_label "{Short Label}"
+    - clear && ~/.claude/scripts/run.sh --agent operator --description "$AGENT_DESCRIPTION"
 ```
 
-`--monitor-tags` takes comma-separated `#needs-*` tags that this worker will watch for and auto-dispatch.
+Generate one such pane per project the user names, and (if they chose "projects + a spare") a trailing `intakes-future-1` placeholder that runs `~/.claude/scripts/fleet.sh wait`. See `/intake` for what a grooming wave does.
+
+> **Legacy — Delegation Pool**: earlier fleets had a `pool` tab of `worker.sh --accepts` daemon workers that auto-picked up `#delegated-*` work. That feature is deprecated; new fleets use the Intakes tab instead. If a user explicitly wants background daemon workers, the old `worker.sh --pane-id … --accepts "#needs-delegation,#needs-implementation" --agent operator` form still works.
 
 ### Activating or Updating a Pane
 
@@ -409,13 +411,13 @@ Show the proposed layout with workgroup organization:
 │ Engine      │ Future      │
 └─────────────┴─────────────┘
 
-### Delegation Pool
-**Tab: Pool** (2x2 grid)
-┌─────────────┬─────────────┐
-│ Worker 1    │ Worker 2    │
-├─────────────┼─────────────┤
-│ Worker 3    │ Worker 4    │
-└─────────────┴─────────────┘
+### Intakes
+**Tab: Intakes** (2x3 grid) — one pane per Linear project, invoke `/intake` per pane
+┌─────────────┬─────────────┬─────────────┐
+│ Intake Sys  │ Differ      │ Email Class │
+├─────────────┼─────────────┼─────────────┤
+│ Doc Extract │ Claims & Pol│ Future      │
+└─────────────┴─────────────┴─────────────┘
 
 Adjust anything? (Add/remove/rename/reorder)
 ```
@@ -435,7 +437,7 @@ Adjust anything? (Add/remove/rename/reorder)
    - Workgroup fleet: `tmux_command: tmux -L fleet-{workgroup} -f ~/.claude/engine/skills/fleet/assets/tmux.conf`
    - Each active pane exports `AGENT_DESCRIPTION` and calls `run.sh --agent {type} --description "$AGENT_DESCRIPTION"`
    - Placeholder panes call `engine fleet wait` (no agent, no description)
-   - Pool workers use `run.sh --monitor-tags` with delegation tags, `--agent`, and `--description`
+   - Intake panes use `run.sh --agent operator` — one per Linear project, invoke `/intake` to groom that project's inbox
 
 3. **Report**:
    ```
@@ -483,31 +485,19 @@ For easy reordering:
 
 ---
 
-## Integration with Daemon Mode
+## The Intakes Tab
 
-Pool workers run in daemon mode (`run.sh --monitor-tags`), which handles work distribution:
+The Intakes tab holds one interactive agent pane per Linear project. Each pane runs an `operator` agent; the user invokes `/intake` in it to run an inbox-grooming wave for that project (drain new feedback → organize + consolidate → triage each signal → graduate ripe items to tickets → debrief). Panes are ordinary `run.sh --agent operator` panes — no daemon, no tag monitoring. Add a trailing `intakes-future-1` placeholder (`fleet.sh wait`) as a cheap slot for a new project.
 
-```bash
-# Workers scan sessions/ for tagged files
-engine run --monitor-tags "#needs-implementation,#needs-chores"
-
-# Files with matching tags are auto-dispatched
-sessions/*/REQUEST.md  # with #needs-implementation tag
-```
-
-Tag-based routing:
-- Pool workers specify `--monitor-tags "#needs-implementation"` in yml
-- Each worker scans `sessions/` for files with matching tags
-- On match: claim tag (`#needs-*` → `#active-*`), spawn Claude with the resolving skill per `§TAG_DISPATCH`
-- Clean Ctrl+C exit (no more zombie processes)
+> **Legacy — Daemon Mode**: earlier fleets ran a `pool` tab of daemon workers (`worker.sh --accepts` / `run.sh --monitor-tags`) that scanned `sessions/` for `#delegated-*` tags and auto-spawned the resolving skill per `§TAG_DISPATCH`. Deprecated in favor of the Intakes tab. Still available on request for background delegation workloads.
 
 ---
 
 ## Invariants
 
 - **¶INV_YML_IS_SOURCE_OF_TRUTH**: The fleet yml config is the single source of truth. No separate metadata files.
-- **¶INV_POOL_TAB_LAST**: Pool worker tab is always last.
+- **¶INV_INTAKES_TAB_LAST**: The Intakes tab (formerly the pool tab) is always last.
 - **¶INV_UNIQUE_AGENT_IDS**: Agent IDs must be unique across all tabs.
 - **¶INV_DISCOVER_DONT_PRESCRIBE**: Interview discovers subprojects; don't force generic categories.
 - **¶INV_PLACEHOLDERS_ARE_CHEAP**: Encourage "Future" slots — easy to convert later.
-- **¶INV_WORKERS_SELF_MONITOR**: Pool workers use daemon mode (`run.sh --monitor-tags`) to self-schedule work.
+- **¶INV_INTAKE_PANE_PER_PROJECT**: An Intakes tab has one interactive `/intake` pane per Linear project (plus an optional spare) — not daemon workers.

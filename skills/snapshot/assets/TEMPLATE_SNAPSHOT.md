@@ -125,3 +125,4 @@
 - **Comment:** <posted <url> (done) | edited then posted (done) | failed (<reason>) | skipped>
 - **Status:** <moved <from>→<to> (done) | failed (<reason>) | skipped | n/a>
 - **Description:** <replaced with full body, history preserved (done) | failed (<reason>) | skipped | no drift>
+- **Debrief attachment:** <attached `<debrief filename>` (done) | skipped (not a closing snapshot) | skipped (no debrief yet) | failed (<reason>) | n/a>
