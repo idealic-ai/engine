@@ -4,3 +4,5 @@ node_modules/
 .mode
 .user.json
 *.bak
+.env
+.project-fetch/

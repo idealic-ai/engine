@@ -230,6 +230,15 @@ LOGGING & TAGS
                               (spawn cmd / AskUserQuestion / Skill / engine bookkeeping stay allowed).
                               Use the /communicate skill to drive a full ask/reply ticket-discussion turn.
 
+LINEAR DATA
+  project <cmd>          Linear project data (read-only GraphQL; needs LINEAR_API_KEY)
+    fetch <project> [--since=<ISO>] [--out=<path>]  One JSON payload of everything new
+                          in a project since a durable per-project waterline
+    waterline get|list|reset <project>              Inspect/clear the stored waterline
+  ticket-search "<text>" [--team <KEY>] [--include-closed] [--limit <N>] [--json]
+                          Rank Linear tickets related to a free-text query (read-only GraphQL;
+                          needs LINEAR_API_KEY). Stateless. Feeds ## SRC_RELATED_TICKETS at startup.
+
 SEARCH & DISCOVERY
   session-search <cmd>   Session search via embeddings
     index [path]              Index session artifacts

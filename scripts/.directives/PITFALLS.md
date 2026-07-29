@@ -2,6 +2,16 @@
 
 Known gotchas and traps when working with engine scripts. Read before modifying any script.
 
+### ¶PTF_SUBSHELL_STATE_LOST — shell-var state set inside `$(...)` is discarded; EXIT traps don't fire there
+**Context**: A script keeps mutable state (a call counter, an accumulator) in a shell variable, and reads/mutates it from functions invoked inside command substitution — e.g. `pid=$(_resolve …)` where `_resolve` calls `_graphql` which bumps a counter.
+**Trap**: A command substitution `$(...)` runs in a **subshell**. Any variable increment inside it is lost when the subshell exits — the parent never sees it. So a "process-global" counter bumped inside `$(_resolve …)` resets for the next `$(_fetch …)`, silently re-serving stale state (in project.sh's fixture seam this re-served fixture #1 and looked like "project not found"). Conversely, an `EXIT` trap set in the top-level shell does **not** fire in those subshells (they reset traps) — which is what makes a single top-level cleanup trap safe.
+**Mitigation**: For state that must persist across command-substitution boundaries, back it with a **file** (path in an exported var set once at top level), not a shell variable — every subshell reads/writes the same file. Set cleanup traps only in the top-level shell.
+
+### ¶PTF_ISO_LEXICOGRAPHIC_COMPARE — string-comparing ISO8601 timestamps breaks across mixed precision
+**Context**: Filtering/sorting Linear (or any API) timestamps with a raw `>` / `<` string compare in jq or bash.
+**Trap**: Lexicographic order only equals chronological order when both strings are the **same width**. `"…00:00:00.000Z"` vs a fraction-less `"…00:00:00Z"` compare on the char after the seconds: `'.'` (0x2E) < `'Z'` (0x5A), so the millisecond form sorts BEFORE the plain form — a boundary item is mis-included/excluded. Bites whenever a human-supplied `--since` (no ms) meets API values that carry `.SSS`.
+**Mitigation**: Normalize both sides to a fixed-width canonical form before comparing (strip `Z`, split on `.`, pad/truncate the fraction to exactly 3 digits, re-append `Z`) — then a lexicographic compare is chronologically correct. See `normTs` in `project.sh`.
+
 ### engine session activate reads stdin — pipe JSON or use `< /dev/null`
 **Context**: `engine session activate` accepts optional JSON parameters on stdin (piped via heredoc). It uses this to populate `.state.json` with session parameters.
 **Trap**: Calling `engine session activate path skill` without explicit stdin causes it to hang waiting for input. This is especially insidious in hooks or other scripts that call activate programmatically — the hang looks like a freeze, not an error.
