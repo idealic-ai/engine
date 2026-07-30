@@ -6,3 +6,4 @@ node_modules/
 *.bak
 .env
 .project-fetch/
+.ticket-fetch/
