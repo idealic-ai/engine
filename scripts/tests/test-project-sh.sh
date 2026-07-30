@@ -21,7 +21,7 @@ write_fixtures() {
      "createdAt":"2026-07-01T00:00:00Z","updatedAt":"2026-07-29T01:00:00Z","priority":2,
      "state":{"name":"Backlog"},"projectMilestone":{"name":"Inboxes"},
      "comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
-       {"id":"c1","body":"root","createdAt":"2026-07-28T00:00:00Z","quotedText":null,"parent":null,"user":{"name":"Yarik"},"botActor":null},
+       {"id":"c1","body":"root","createdAt":"2026-07-28T00:00:00Z","quotedText":null,"parent":null,"user":{"name":"Yarik"},"botActor":null,"reactions":[{"emoji":"👀","createdAt":"2026-07-28T00:05:00Z","user":null,"externalUser":{"name":"Codex"}}]},
        {"id":"c2","body":"reply","createdAt":"2026-07-28T01:00:00Z","quotedText":null,"parent":{"id":"c1"},"user":{"name":"Alice"},"botActor":null},
        {"id":"c3","body":"nested","createdAt":"2026-07-28T02:00:00Z","quotedText":null,"parent":{"id":"c2"},"user":null,"botActor":{"name":"Zapier"}},
        {"id":"c0","body":"OLD","createdAt":"2026-07-10T00:00:00Z","quotedText":null,"parent":null,"user":{"name":"Old"},"botActor":null}
@@ -270,6 +270,7 @@ setup() {
   disable_fleet_tmux
   ln -sf "$SRC_DIR/project.sh" "$FAKE_HOME/.claude/scripts/project.sh"
   ln -sf "$SRC_DIR/lib.sh" "$FAKE_HOME/.claude/scripts/lib.sh"
+  ln -sf "$SRC_DIR/linear-lib.sh" "$FAKE_HOME/.claude/scripts/linear-lib.sh"
   PROJ="$FAKE_HOME/.claude/scripts/project.sh"
   export PROJECT_FETCH_STATE_DIR="$TMP_DIR/state"
   FXDIR="$TMP_DIR/fx"; mkdir -p "$FXDIR"
@@ -314,6 +315,17 @@ test_project_comment_trees() {
   assert_json "$out" '.tickets[0].comments | length' "1" "one root comment (replies nested)"
   assert_json "$out" '.tickets[0].comments[0].children[0].id' "c2" "reply nested under root"
   assert_json "$out" '.tickets[0].comments[0].children[0].children[0].id' "c3" "depth-2 reply nested"
+}
+
+test_project_comment_reactions() {
+  local out; out=$(_fetch_out "$FXDIR/main.json" "$UUID" --since="$SINCE")
+  # c1 (root) carries a 👀 reaction from an externalUser (bot/integration) — actor falls back
+  # user → externalUser, mirroring the botActor author path.
+  assert_json "$out" '.tickets[0].comments[0].reactions | length' "1" "reaction carried onto comment node"
+  assert_json "$out" '.tickets[0].comments[0].reactions[0].emoji' "👀" "reaction emoji surfaced"
+  assert_json "$out" '.tickets[0].comments[0].reactions[0].by' "Codex" "reaction actor falls back to externalUser"
+  # a comment with no reactions → empty array (never null/crash)
+  assert_json "$out" '.tickets[0].comments[0].children[0].reactions | length' "0" "no reactions → empty array"
 }
 
 test_project_lifecycle_normalization() {

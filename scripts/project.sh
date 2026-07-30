@@ -35,18 +35,10 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib.sh"
-
-LINEAR_API_URL="${LINEAR_API_URL:-https://api.linear.app/graphql}"
-
-# Fixture mode (tests): a per-invocation file-backed call counter shared across subshells.
-# Command-substitution subshells reset EXIT traps, so this trap fires only when the top-level
-# shell exits — cleaning up the temp counter without a subshell deleting it mid-run.
-if [ -n "${PROJECT_FETCH_FIXTURE:-}" ]; then
-  _FIX_COUNTER="${_FIX_COUNTER:-$(mktemp -t projfetch.XXXXXX)}"
-  export _FIX_COUNTER
-  [ -s "$_FIX_COUNTER" ] || echo 0 > "$_FIX_COUNTER"
-  trap 'rm -f "$_FIX_COUNTER" 2>/dev/null' EXIT
-fi
+# The Linear GraphQL seam (_graphql/_load_key/_next_fixture + fixture counter), LINEAR_API_URL,
+# and the shared jq transform ($LINEAR_JQ_DEFS/issueToTicket) live here — shared with ticket.sh.
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/linear-lib.sh"
 
 usage() {
   # Print the header's "# Usage:" block through to the first non-comment line.
@@ -59,71 +51,6 @@ _state_dir() {
   local d="${PROJECT_FETCH_STATE_DIR:-$HOME/.claude/engine/.project-fetch}"
   mkdir -p "$d" 2>/dev/null || true
   printf '%s' "$d"
-}
-
-# ---- GraphQL seam (the single injectable HTTP call) ----
-
-# _load_key — source LINEAR_API_KEY from .env if unset (live path only), mirroring gemini.sh.
-_load_key() {
-  if [ -z "${LINEAR_API_KEY:-}" ]; then
-    local envfile
-    for envfile in ".env" "$HOME/.claude/engine/.env"; do
-      if [ -f "$envfile" ] && grep -q '^LINEAR_API_KEY=' "$envfile" 2>/dev/null; then
-        LINEAR_API_KEY=$(grep '^LINEAR_API_KEY=' "$envfile" | head -1 | cut -d= -f2-)
-        export LINEAR_API_KEY
-        break
-      fi
-    done
-  fi
-  : "${LINEAR_API_KEY:?LINEAR_API_KEY is required — set it in your environment or .env file}"
-}
-
-# _next_fixture — pop the next fixture path from the colon-separated PROJECT_FETCH_FIXTURE list.
-# The call counter is FILE-backed (not a shell var) so it survives the command-substitution
-# subshells that wrap _resolve_project_id / _fetch_all — otherwise a subshell's increment is lost
-# and the next call re-serves fixture #1. The last fixture repeats once the list is exhausted.
-_next_fixture() {
-  local n pick
-  n=$(( $(cat "$_FIX_COUNTER" 2>/dev/null || echo 0) + 1 ))
-  echo "$n" > "$_FIX_COUNTER"
-  # Exhaustion is an ERROR, not repeat-the-last — an unexpected extra GraphQL call must
-  # surface loudly in tests rather than being fed a stale (valid-looking) response.
-  pick=$(printf '%s' "$PROJECT_FETCH_FIXTURE" | awk -F: -v n="$n" '{ if (n<=NF) print $n; else exit 1 }')
-  if [ -z "$pick" ]; then
-    echo "project: fixture list exhausted at call $n — unexpected extra GraphQL call" >&2
-    return 1
-  fi
-  printf '%s' "$pick"
-}
-
-# _graphql QUERY VARS_JSON → raw response JSON on stdout, or return 1 on any failure.
-# Fixture-backed when PROJECT_FETCH_FIXTURE is set; else a live curl POST. GraphQL-level
-# errors (Linear returns HTTP 200 + errors[]) are treated as FAILURE for BOTH paths.
-_graphql() {
-  local query="$1" vars="${2:-null}" resp
-  if [ -n "${PROJECT_FETCH_FIXTURE:-}" ]; then
-    local fx
-    fx="$(_next_fixture)"
-    if [ ! -f "$fx" ]; then echo "project: fixture not found: $fx" >&2; return 1; fi
-    resp="$(cat "$fx")"
-  else
-    _load_key || return 1
-    local body
-    body=$(jq -n --arg q "$query" --argjson v "$vars" '{query: $q, variables: $v}')
-    resp=$(curl -s --connect-timeout 15 --max-time 300 -X POST "$LINEAR_API_URL" \
-      -H "Authorization: $LINEAR_API_KEY" \
-      -H "Content-Type: application/json" \
-      -d "$body") || { echo "project: network error/timeout calling Linear" >&2; return 1; }
-  fi
-  if printf '%s' "$resp" | jq -e '(.errors // []) | length > 0' >/dev/null 2>&1; then
-    echo "project: GraphQL error: $(printf '%s' "$resp" | jq -c '.errors' 2>/dev/null)" >&2
-    return 1
-  fi
-  if ! printf '%s' "$resp" | jq -e . >/dev/null 2>&1; then
-    echo "project: invalid JSON response from Linear" >&2
-    return 1
-  fi
-  printf '%s' "$resp"
 }
 
 # ---- GraphQL queries ----
@@ -155,7 +82,7 @@ query($projectId: String!, $filter: IssueFilter, $after: String, $inbox: String!
         projectMilestone { name }
         comments(first: 40) {
           pageInfo { hasNextPage endCursor }
-          nodes { id body createdAt quotedText parent { id } user { name } botActor { name } }
+          nodes { id body createdAt quotedText parent { id } user { name } botActor { name } reactions { emoji createdAt user { name } externalUser { name } } }
         }
         history(first: 20) {
           pageInfo { hasNextPage endCursor }
@@ -178,54 +105,9 @@ query($projectId: String!, $filter: IssueFilter, $after: String, $inbox: String!
 GQL
 }
 
-_q_comments() {
-  cat <<'GQL'
-query($issueId: String!, $after: String) {
-  issue(id: $issueId) {
-    comments(first: 250, after: $after) {
-      pageInfo { hasNextPage endCursor }
-      nodes { id body createdAt quotedText parent { id } user { name } botActor { name } }
-    }
-  }
-}
-GQL
-}
-
-# Per-issue follow-up queries. Flat (single issue → one connection), so first:250 is safe here —
-# only the NESTED first: values in _q_issues multiply into Linear's query-complexity cap.
-_q_history() {
-  cat <<'GQL'
-query($issueId: String!, $after: String) {
-  issue(id: $issueId) {
-    history(first: 250, after: $after) {
-      pageInfo { hasNextPage endCursor }
-      nodes {
-        createdAt actor { name }
-        fromState { name } toState { name }
-        fromPriority toPriority
-        fromAssignee { name } toAssignee { name }
-        fromProjectMilestone { name } toProjectMilestone { name }
-      }
-    }
-  }
-}
-GQL
-}
-
-_q_attachments() {
-  cat <<'GQL'
-query($issueId: String!, $after: String) {
-  issue(id: $issueId) {
-    attachments(first: 250, after: $after) {
-      pageInfo { hasNextPage endCursor }
-      nodes { id title url }
-    }
-  }
-}
-GQL
-}
-
 # ---- Fetch ----
+# Per-issue follow-up queries (_q_comments/_q_history/_q_attachments) + their pagination
+# (_fetch_remaining_* / _paginate_issue_children) are shared machinery in linear-lib.sh.
 
 # _resolve_project_id INPUT → project UUID on stdout. UUID passed through; name resolved.
 _resolve_project_id() {
@@ -283,74 +165,11 @@ _fetch_all() {
   local all
   all=$(jq -s 'add // []' "$issues_file")
 
-  # Per-issue child pagination: any issue whose first inline page (comments / history / attachments)
-  # is truncated gets its remaining rows fetched and appended. _q_issues keeps the per-issue child
-  # page small to stay under Linear's query-complexity cap; the overflow is paginated here per-issue
-  # (flat follow-up queries, cheap) so a firehose channel or a long-history epic is never truncated.
-  local trunc iid more
-  for iid in $(printf '%s' "$all" | jq -r '.[] | select(.comments.pageInfo.hasNextPage // false) | .id'); do
-    trunc=$(printf '%s' "$all" | jq -r --arg id "$iid" '.[] | select(.id==$id) | .comments.pageInfo.endCursor')
-    more=$(_fetch_remaining_comments "$iid" "$trunc") || return 1
-    all=$(printf '%s' "$all" | jq --arg id "$iid" --argjson more "$more" \
-      'map(if .id == $id then .comments.nodes = (.comments.nodes + $more) else . end)')
-  done
-  for iid in $(printf '%s' "$all" | jq -r '.[] | select(.history.pageInfo.hasNextPage // false) | .id'); do
-    trunc=$(printf '%s' "$all" | jq -r --arg id "$iid" '.[] | select(.id==$id) | .history.pageInfo.endCursor')
-    more=$(_fetch_remaining_history "$iid" "$trunc") || return 1
-    all=$(printf '%s' "$all" | jq --arg id "$iid" --argjson more "$more" \
-      'map(if .id == $id then .history.nodes = (.history.nodes + $more) else . end)')
-  done
-  for iid in $(printf '%s' "$all" | jq -r '.[] | select(.attachments.pageInfo.hasNextPage // false) | .id'); do
-    trunc=$(printf '%s' "$all" | jq -r --arg id "$iid" '.[] | select(.id==$id) | .attachments.pageInfo.endCursor')
-    more=$(_fetch_remaining_attachments "$iid" "$trunc") || return 1
-    all=$(printf '%s' "$all" | jq --arg id "$iid" --argjson more "$more" \
-      'map(if .id == $id then .attachments.nodes = (.attachments.nodes + $more) else . end)')
-  done
+  # Per-issue child pagination (comments/history/attachments overflow) — shared with ticket fetch.
+  all=$(_paginate_issue_children "$all") || return 1
 
   printf '%s' "$all" | jq --argjson meta "$meta" --argjson ms "${milestones:-[]}" --argjson ch "${channels:-[]}" \
     '{project: $meta, milestones: $ms, channels: $ch, issues: .}'
-}
-
-# _fetch_remaining_comments ISSUE_ID AFTER_CURSOR → array of remaining comment nodes.
-_fetch_remaining_comments() {
-  local iid="$1" after="$2" acc="[]" resp
-  while :; do
-    resp=$(_graphql "$(_q_comments)" "$(jq -n --arg id "$iid" --arg a "$after" '{issueId: $id, after: $a}')") || return 1
-    acc=$(printf '%s' "$acc" | jq --argjson n "$(printf '%s' "$resp" | jq '[.data.issue.comments.nodes[]?]')" '. + $n')
-    local has
-    has=$(printf '%s' "$resp" | jq -r '.data.issue.comments.pageInfo.hasNextPage')
-    [ "$has" = "true" ] || break
-    after=$(printf '%s' "$resp" | jq -r '.data.issue.comments.pageInfo.endCursor')
-  done
-  printf '%s' "$acc"
-}
-
-# _fetch_remaining_history ISSUE_ID AFTER_CURSOR → array of remaining history nodes.
-_fetch_remaining_history() {
-  local iid="$1" after="$2" acc="[]" resp
-  while :; do
-    resp=$(_graphql "$(_q_history)" "$(jq -n --arg id "$iid" --arg a "$after" '{issueId: $id, after: $a}')") || return 1
-    acc=$(printf '%s' "$acc" | jq --argjson n "$(printf '%s' "$resp" | jq '[.data.issue.history.nodes[]?]')" '. + $n')
-    local has
-    has=$(printf '%s' "$resp" | jq -r '.data.issue.history.pageInfo.hasNextPage')
-    [ "$has" = "true" ] || break
-    after=$(printf '%s' "$resp" | jq -r '.data.issue.history.pageInfo.endCursor')
-  done
-  printf '%s' "$acc"
-}
-
-# _fetch_remaining_attachments ISSUE_ID AFTER_CURSOR → array of remaining attachment nodes.
-_fetch_remaining_attachments() {
-  local iid="$1" after="$2" acc="[]" resp
-  while :; do
-    resp=$(_graphql "$(_q_attachments)" "$(jq -n --arg id "$iid" --arg a "$after" '{issueId: $id, after: $a}')") || return 1
-    acc=$(printf '%s' "$acc" | jq --argjson n "$(printf '%s' "$resp" | jq '[.data.issue.attachments.nodes[]?]')" '. + $n')
-    local has
-    has=$(printf '%s' "$resp" | jq -r '.data.issue.attachments.pageInfo.hasNextPage')
-    [ "$has" = "true" ] || break
-    after=$(printf '%s' "$resp" | jq -r '.data.issue.attachments.pageInfo.endCursor')
-  done
-  printf '%s' "$acc"
 }
 
 # ---- Transform (pure jq) ----
@@ -358,61 +177,20 @@ _fetch_remaining_attachments() {
 # _assemble RAW SINCE FETCHED_AT INBOX → the envelope. RAW = {project, milestones, issues}.
 _assemble() {
   local raw="$1" since="$2" fetched_at="$3" inbox="${4:-Inboxes}"
+  # The per-issue defs (author/normTs/buildTree/treeCount/lifeEvents/issueToTicket) come from
+  # the shared $LINEAR_JQ_DEFS (linear-lib.sh); only the project envelope is assembled here.
   printf '%s' "$raw" | jq \
-    --arg since "$since" --arg fetchedAt "$fetched_at" --arg inbox "$inbox" '
-    def author: (.user.name // .botActor.name // "(bot)");
-    # Normalize ISO8601 to fixed-width millisecond form so a lexicographic compare is
-    # chronologically correct across mixed precision (plain vs .SSS, Z-optional).
-    def normTs:
-      (. // "") as $t
-      | if $t == "" then "" else
-          ($t | sub("Z$"; "")) as $b
-          | ($b | split(".")) as $p
-          | $p[0] + "." + (((if ($p | length) > 1 then $p[1] else "" end) + "000")[0:3]) + "Z"
-        end;
-    # Comment forest: a root is parentless OR its parent was filtered out by the since-cutoff
-    # (pre-since). Re-rooting orphans means a NEW reply to an OLD thread is never dropped.
-    def buildTree($cs; $ids):
-      def kids($pid): [ $cs[] | select((.parent.id // null) == $pid)
-        | { id, author: author, createdAt, body, quotedText: (.quotedText // null), orphanReply: false, children: kids(.id) } ];
-      [ $cs[]
-        | select((.parent.id // null) as $p | ($p == null) or (($ids | index($p)) == null))
-        | { id, author: author, createdAt, body, quotedText: (.quotedText // null),
-            orphanReply: ((.parent.id // null) != null), children: kids(.id) } ];
-    def treeCount: reduce .[] as $c (0; . + 1 + ($c.children | treeCount));
-    # One IssueHistory node → ALL its applicable normalized transitions (a single edit can
-    # change several fields at once; emit each, not just the first).
-    def lifeEvents:
-      . as $h
-      | [ (if $h.toState != null then {type:"state", actor:($h.actor.name // "(unknown)"), at:$h.createdAt, from:($h.fromState.name // null), to:$h.toState.name} else empty end),
-          (if ($h.toProjectMilestone != null or $h.fromProjectMilestone != null) then {type:"milestone", actor:($h.actor.name // "(unknown)"), at:$h.createdAt, from:($h.fromProjectMilestone.name // null), to:($h.toProjectMilestone.name // null)} else empty end),
-          (if ($h.toAssignee != null or $h.fromAssignee != null) then {type:"assignee", actor:($h.actor.name // "(unknown)"), at:$h.createdAt, from:($h.fromAssignee.name // null), to:($h.toAssignee.name // null)} else empty end),
-          (if $h.toPriority != null then {type:"priority", actor:($h.actor.name // "(unknown)"), at:$h.createdAt, from:$h.fromPriority, to:$h.toPriority} else empty end) ];
-
+    --arg since "$since" --arg fetchedAt "$fetched_at" --arg inbox "$inbox" "$LINEAR_JQ_DEFS"'
     ($since | normTs) as $sn
     | .project as $project
     | .milestones as $milestones
     | (.channels // []) as $channels
     | (([$milestones[].name] | index($inbox)) != null) as $channelsResolved
     | ( [ .issues[]
-          | ( [ (.comments.nodes // [])[] | select((.createdAt | normTs) > $sn) ] ) as $cs
-          | ( $cs | map(.id) ) as $ids
-          | ( [ (.history.nodes // [])[] | select((.createdAt | normTs) > $sn) | lifeEvents[] ] ) as $life
-          | ( [ (.attachments.nodes // [])[] | { id, title, url } ] ) as $att
-          | ( buildTree($cs; $ids) ) as $tree
-          | {
-              id, identifier, title, url,
-              state: (.state.name // null),
-              priority,
-              milestone: (.projectMilestone.name // null),
-              isChannel: ((.projectMilestone.name // "") == $inbox),
-              createdAt, updatedAt,
-              isNew: ((.createdAt | normTs) > $sn),
-              comments: $tree,
-              lifecycle: $life,
-              attachments: $att,
-              _commentCount: ($tree | treeCount)
-            }
+          | . as $issue
+          | issueToTicket($sn)
+          | . + { isChannel: (($issue.projectMilestone.name // "") == $inbox),
+                  _commentCount: (.comments | treeCount) }
         ] ) as $tickets
     | {
         project: $project,

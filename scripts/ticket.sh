@@ -28,6 +28,11 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib.sh"
+# The Linear GraphQL seam + shared per-issue transform (shared with project.sh) — powers
+# `ticket fetch`, the Linear pull. subscribe/notify/read/watch don't need it, but sourcing
+# once at the top keeps the dependency explicit.
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/linear-lib.sh"
 
 usage() {
   sed -n '3,20p' "$0" | sed 's/^# \{0,1\}//'
@@ -369,9 +374,151 @@ cmd_watch() {
   done
 }
 
+# ---- ticket fetch (Linear pull — the per-ticket analog of `project fetch`) ----
+#
+# `engine ticket fetch K1 K2 … [--since <ISO>] [--out <path>]` pulls a delta of the given
+# tickets from Linear as ONE JSON payload (comment trees w/ reactions + normalized lifecycle
+# + attachments), reusing project.sh's transform via linear-lib.sh. STATELESS: --since is the
+# caller's (the shared session cursor W lives in the watch path, not here). No --since = the
+# full ticket (cold-read / context load). Payload → file; the path is the last stdout line
+# (never the payload itself — shell stdout truncates; the file does not).
+
+# Root issues query filtered to an id-set of tickets (vs project.sh's project-scoped _q_issues).
+_q_tickets() {
+  cat <<'GQL'
+query($filter: IssueFilter, $after: String) {
+  issues(first: 25, after: $after, orderBy: createdAt, filter: $filter) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      id identifier title url createdAt updatedAt priority
+      state { name }
+      projectMilestone { name }
+      comments(first: 40) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id body createdAt quotedText parent { id } user { name } botActor { name } reactions { emoji createdAt user { name } externalUser { name } } }
+      }
+      history(first: 20) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          createdAt actor { name }
+          fromState { name } toState { name }
+          fromPriority toPriority
+          fromAssignee { name } toAssignee { name }
+          fromProjectMilestone { name } toProjectMilestone { name }
+        }
+      }
+      attachments(first: 20) {
+        pageInfo { hasNextPage endCursor }
+        nodes { id title url }
+      }
+    }
+  }
+}
+GQL
+}
+
+# _ticket_fetch_all FILTER_JSON → array of raw issue nodes (paginated + children drained).
+_ticket_fetch_all() {
+  local filter="$1" after="null" resp page prev_cursor=""
+  local issues_file; issues_file=$(mktemp -t ticketfetch-issues.XXXXXX)
+  trap 'rm -f "$issues_file"' RETURN
+  while :; do
+    resp=$(_graphql "$(_q_tickets)" "$(jq -n --argjson f "$filter" --argjson a "$after" '{filter: $f, after: $a}')") || return 1
+    page=$(printf '%s' "$resp" | jq '.data.issues // null')
+    if [ "$page" = "null" ]; then echo "ticket: fetch — unexpected response shape from Linear" >&2; return 1; fi
+    printf '%s' "$page" | jq -c '[.nodes[]?]' >> "$issues_file"
+    local has end
+    has=$(printf '%s' "$page" | jq -r '.pageInfo.hasNextPage')
+    [ "$has" = "true" ] || break
+    end=$(printf '%s' "$page" | jq -r '.pageInfo.endCursor')
+    if [ -z "$end" ] || [ "$end" = "null" ] || [ "$end" = "$prev_cursor" ]; then
+      echo "ticket: fetch pagination cursor did not advance — aborting to avoid an infinite loop" >&2; return 1
+    fi
+    prev_cursor="$end"
+    after=$(jq -n --arg c "$end" '$c')
+  done
+  local all; all=$(jq -s 'add // []' "$issues_file")
+  _paginate_issue_children "$all" || return 1
+}
+
+# _ticket_assemble ISSUES SINCE FETCHED_AT KEYS_JSON → the thin ticket-fetch envelope.
+_ticket_assemble() {
+  local issues="$1" since="$2" fetched_at="$3" keys="$4"
+  printf '%s' "$issues" | jq \
+    --arg since "$since" --arg fetchedAt "$fetched_at" --argjson keys "$keys" "$LINEAR_JQ_DEFS"'
+    ($since | normTs) as $sn
+    | { since: $since,
+        fetchedAt: $fetchedAt,
+        keys: $keys,
+        tickets: [ .[] | issueToTicket($sn) ],
+        summary: {
+          ticketCount: length,
+          requested: ($keys | length)
+        } }
+  '
+}
+
+cmd_fetch() {
+  local since="" out="" ; local -a keys=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --since) since="${2:-}"; shift 2 ;;
+      --since=*) since="${1#*=}"; shift ;;
+      --out) out="${2:-}"; shift 2 ;;
+      --out=*) out="${1#*=}"; shift ;;
+      -*) echo "ticket: fetch: unknown flag '$1'" >&2; return 1 ;;
+      *) keys+=("$(normalize_key "$1")"); shift ;;
+    esac
+  done
+  [ "${#keys[@]}" -gt 0 ] || { echo "ticket: fetch requires at least one KEY (e.g. FIN-3473)" >&2; return 1; }
+  local k
+  for k in "${keys[@]}"; do
+    printf '%s' "$k" | grep -qE '^[A-Z]+-[0-9]+$' || { echo "ticket: fetch: '$k' is not a valid Linear key (expected TEAM-NUM)" >&2; return 1; }
+  done
+
+  # Keys are Linear identifiers (FIN-3473), not UUIDs. IssueFilter honors {team, or:[{number}…]}
+  # but SILENTLY IGNORES a compound {team, number} nested inside an `or` (verified live) — so a
+  # naive per-key OR returns the whole workspace. Group by team → one filter+fetch per team
+  # ({team.key} AND (n1 OR n2 …) AND updatedAt). The common single-team case is one query.
+  local keys_json teams_json
+  keys_json=$(printf '%s\n' "${keys[@]}" | jq -R . | jq -s .)
+  teams_json=$(jq -n -c --argjson keys "$keys_json" '
+    $keys | map(capture("^(?<t>[A-Z]+)-(?<n>[0-9]+)$"))
+    | group_by(.t) | map({ team: .[0].t, numbers: [.[].n | tonumber] })')
+
+  local issues="[]" fetched_at payload
+  local tcount i filter part
+  tcount=$(printf '%s' "$teams_json" | jq 'length')
+  for i in $(seq 0 $(( tcount - 1 )) ); do
+    filter=$(printf '%s' "$teams_json" | jq -c --argjson i "$i" --arg since "$since" '
+      .[$i] as $g
+      | ({ team: { key: { eq: $g.team } }, or: [ $g.numbers[] | { number: { eq: . } } ] })
+        + (if $since == "" then {} else { updatedAt: { gt: $since } } end)')
+    part=$(_ticket_fetch_all "$filter") || return 1
+    issues=$(jq -n --argjson a "$issues" --argjson b "$part" '$a + $b')
+  done
+  fetched_at="$(timestamp)"
+  payload=$(_ticket_assemble "$issues" "$since" "$fetched_at" "$keys_json") || { echo "ticket: fetch transform failed" >&2; return 1; }
+
+  # Payload write is the terminal durable step (¶INV_WRITE_BEFORE_WATERMARK) — any failure above
+  # already returned non-zero with nothing written; the caller advances its cursor only after this.
+  if [ -z "$out" ]; then
+    local pdir="${TICKET_FETCH_STATE_DIR:-$HOME/.claude/engine/.ticket-fetch}/payloads"
+    mkdir -p "$pdir"
+    out="$pdir/tickets-$(date +%s)-$$.json"
+  else
+    mkdir -p "$(dirname "$out")" 2>/dev/null || true
+  fi
+  if ! printf '%s' "$payload" | safe_json_write "$out"; then
+    echo "ticket: failed to write payload to $out" >&2; return 1
+  fi
+  printf '%s\n' "$out"
+}
+
 # ---- Dispatch ----
 case "${1:-}" in
   subscribe)   shift; cmd_subscribe "$@" ;;
+  fetch)       shift; cmd_fetch "$@" ;;
   unsubscribe) shift; cmd_unsubscribe "$@" ;;
   notify)      shift; cmd_notify "$@" ;;
   read)        shift; cmd_read "$@" ;;
