@@ -4,12 +4,18 @@ Pre-flight checks when creating or modifying skills in `engine/skills/`.
 
 ## Structure
 
-- [ ] I DID create or modify SKILL.md
+*Pick the ONE branch matching the skill you authored. The validator requires **exactly one** branch parent per section and **every child** of a checked parent to be checked — so a branch you cannot answer truthfully is the wrong branch. Editing a protocol skill's `steps` array is not authoring a protocol skill; that belongs under Protocol Compliance below.*
+
+- [ ] I DID create or modify a **protocol-tier** SKILL.md
   - [ ] YAML frontmatter has `name`, `description`, `version`, `tier`
-  - [ ] Boot sector (`§CMD_EXECUTE_SKILL_PHASES`) present at top (protocol-tier)
+  - [ ] Boot sector (`§CMD_EXECUTE_SKILL_PHASES`) present at top
   - [ ] JSON manifest block is valid and passes `skill-manifest.json` schema
   - [ ] `assets/` directory exists with log and debrief templates
   - [ ] Phase labels in JSON match `## N.` section headers
+- [ ] I DID create or modify a **lightweight / utility / suggest-tier** SKILL.md
+  - [ ] YAML frontmatter has `name`, `description`, `version`, `tier`
+  - [ ] No boot sector, phases, or modes — the skill is genuinely sessionless
+  - [ ] Every `assets/` file the protocol references exists at the path it names
 - [ ] I DID NOT create or modify SKILL.md
   - [ ] Confirmed changes don't affect skill structure
 
@@ -35,11 +41,14 @@ Pre-flight checks when creating or modifying skills in `engine/skills/`.
 
 ## Templates
 
-- [ ] I DID create or modify templates
+- [ ] I DID create or modify **protocol** templates (log / debrief / plan / request-response)
   - [ ] Log template schemas match the log types used in the Operation phase
   - [ ] Debrief template has `**Tags**: #needs-review` on line 2
   - [ ] Plan template (if applicable) has `**Depends**:` and `**Files**:` fields per operation
   - [ ] Request/Response templates exist if the skill supports delegation (`¶INV_DELEGATION_VIA_TEMPLATES`)
+- [ ] I DID create or modify **skill-specific asset** templates (a notebook, a proposal shape, a reference table)
+  - [ ] Each template is referenced from the SKILL.md at the step that fills it
+  - [ ] Placeholder names match what the protocol instructs the agent to write
 - [ ] I DID NOT create or modify templates
   - [ ] Confirmed no template changes needed
 

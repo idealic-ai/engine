@@ -21,14 +21,15 @@ Triage is **light** — gather detail, reproduce, find related tickets — enoug
 - [ ] [e.g. any existing related/duplicate tickets]
 
 **From the project's Inbox Handbook** (`¶INV_CHANNEL_MACHINERY_IN_ONE_DOC` — the shared machinery, held once per project)
-- […paste the parts that bear on this triage: the generic triage recipe, what a ripe item looks like here, how a comment becomes a ticket. Or "no handbook on this project yet — the recipe below is the default."]
+- […paste the parts that bear on this triage: **this project's `## What triage will chase`** (its own recipe — it names the tools that actually identify a subject here, so paste it in full and never substitute another project's), what a ripe item looks like here, how a comment becomes a ticket. Or "no handbook on this project yet — the generic recipe below is the fallback."]
 - Pasted, not linked: **you cannot read the project**, so anything not in this prompt does not reach you.
 
 **Recipe** (do what's reachable; degrade gracefully when a source is missing)
-- **Identify** account/org, claim, page URL from the screenshots/description via the **read-only staging DB** — connect to the shared tunnel at `localhost:15432` as `data_ro` (SELECT-only by grant; already open for the wave — do NOT open your own).
+- **Branch by report shape first** — a single failure needing a *cause* → start from the most detailed per-incident record (workflow history / the failed row); a recurring "keeps happening" report needing the *pattern* → start from an aggregate/histogram query (rate, onset, breadth), then drill into whichever incidents are still recoverable. The aggregate is what reveals a "recurring" report is often several different failures, not one bug.
+- **Identify** account/org, claim, page URL from the screenshots/description via the **read-only staging DB** — connect to the shared tunnel at `127.0.0.1:15432` (use `127.0.0.1`, not `localhost`) as `data_ro` (SELECT-only by grant; already open for the wave — do NOT open your own).
 - **PostHog** — if the report is PostHog-sourced (session link / event), pull the session + surrounding events.
 - **Reproduce** — attempt a repro; note steps + frequency.
-- **Related tickets** — search existing issues (`list_issues` query) for duplicates / the same root cause; list FIN-keys.
+- **Related tickets** — search existing issues (`list_issues` query) for duplicates / the same root cause; list FIN-keys. **When the reporter is a repeat filer in this channel, run this first** — check their own recent drops before investigating, so you don't re-derive facts they already wrote down.
 
 **Directions** (the project's own steer — verbatim from the channel's / project's `## Directions`; `¶INV_DIRECTIONS_IN_DESCRIPTIONS`)
 - […paste verbatim, or "none set — skill defaults apply"]
@@ -48,6 +49,7 @@ Triage is **light** — gather detail, reproduce, find related tickets — enoug
 **Deliverable**
 - A **triage report** written to `builds/inbox-triage-<origin-id>.md`: what was found (account/claim/URL/repro/related), with evidence.
 - A **recommendation**: ripe to graduate? → which milestone (`Needs decision` / `Needs research` / `Ready for action` / `Uncategorized`)? or still-needs-X (name it)?
+- A **steering read** (`¶INV_STEERING_NOT_SOLUTIONS`) — process-steering, NOT solutions: a legitimacy/confidence read + the still-open questions + concrete *what to measure/triage next* + 3–5 suggested board options (`{key,label}`), all oriented by the Directions above. This feeds the Decision Board's steering widgets (the orchestrator polishes your options). Options to react to, never a manufactured answer — you stay read-only and light.
 - A **1-line headline** the orchestrator can post inline (or attach the report if long).
 
 **Constraints**

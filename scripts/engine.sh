@@ -222,9 +222,16 @@ LOGGING & TAGS
     subscribe <KEY>           Subscribe this session to a Linear ticket
     unsubscribe <KEY>         Drop a subscription
     notify <KEY> [note]       Flag subscribers that <KEY> changed
-    read [KEY] [--since <dt>]  Drain updates → {ticket, since} for MCP fetch
+    read [KEY] [--since <dt>]  Drain the local dirty queue + advance the shared cursor W (KEY/--since are display filters only — always drains the whole set)
     list [KEY] [--json]       Peek at pending updates (non-destructive)
-    watch [KEY] [--timeout N]  Block until a watched ticket updates, then exit (0=update). Unbounded by default (no fake-wakes); --timeout N bounds it (124=timeout)
+    fetch <KEY...> [--since <ISO>] [--out <path>]  Pull a delta of the given tickets from Linear as ONE
+                              JSON payload (comment trees w/ reactions + lifecycle + attachments), reusing
+                              project fetch's transform. Stateless; no --since = the full current thread.
+                              Payload → file; path on stdout. Needs LINEAR_API_KEY.
+    watch [KEY] [--timeout N]  Block until a watched ticket updates, then AUTO-DRAIN (fetch the delta since W
+                              into a payload file, advance W) and exit 0 emitting the payload path. Unbounded
+                              by default (no fake-wakes); --timeout N bounds it (124=timeout). Fail-closed:
+                              a failed fetch leaves W un-advanced (re-arm retries).
                               Self-registers .state.json:watchTaskId {pid,startedAt,keys}; a PreToolUse
                               hard gate forces an armed background watcher whenever tickets[] is non-empty
                               (spawn cmd / AskUserQuestion / Skill / engine bookkeeping stay allowed).

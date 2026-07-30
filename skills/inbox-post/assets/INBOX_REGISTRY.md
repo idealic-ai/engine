@@ -8,11 +8,21 @@ Not a fixed set in practice — channel titles vary slightly per project (Claims
 
 ## The handbook
 
-Every channel is **thin**: it says what belongs in it, links the one shared handbook, and (where it has one) carries its own `## Directions`. The report template, what-happens-next, and the correction policy live in a single team-level document — not in the channels.
+Every channel is **thin**: it says what belongs in it, links **its own project's** handbook, and (where it has one) carries its own `## Directions`. The report template, what-happens-next, and the correction policy live in the handbook — not in the channels.
 
-**[Inbox Handbook — how the intake inboxes work](https://linear.app/finchclaims/document/inbox-handbook-how-the-intake-inboxes-work-7f5f9c302585)** · doc id `1292d6ee-5819-4354-9892-49f0d3d388a6` · attached to team Finchclaims.
+Each intake project carries its **own complete copy**, attached to the project so it appears in that project's sidebar. All titled `Inbox Handbook — how this project's intake inboxes work`. There is **no inheritance and no parent document**: sections 1–6 and 8 are kept in sync by hand, and `## What triage will chase` is deliberately different in each one (it names that project's actual tools — Temporal for Differ, the staging DB + PostHog for Email Classification, the CDV + source PDF for Document Extraction).
 
-The five per-project handbook documents it replaced are retired. If you find a channel still linking one of the slugs `28d8ea1b998f`, `313413476400`, `99082b673fbd`, `e92601c17dde`, `2f42ecf566ae`, repoint it at the team handbook above.
+| Project | Handbook | doc id · slugId |
+|---|---|---|
+| Claims & Policies | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-313413476400) | `b41bd7cf-8ef4-447b-acda-b332c257cb98` · `313413476400` |
+| Document Extraction | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-99082b673fbd) | `ae065799-e661-4505-9692-fd1cd7312d30` · `99082b673fbd` |
+| Email Classification | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-e92601c17dde) | `9d0018c5-5cae-4ed5-8789-0bd63cdb51b4` · `e92601c17dde` |
+| Differ | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-2f42ecf566ae) | `b2b87f75-2d21-4de2-99d6-de2c4c29d931` · `2f42ecf566ae` |
+| Intake System | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-28d8ea1b998f) | `6b718963-5fbc-4372-b108-d18407dd6c47` · `28d8ea1b998f` |
+
+The short-lived team-level handbook (`1292d6ee-5819-4354-9892-49f0d3d388a6`, slug `7f5f9c302585`) is **retired** — a team-attached document has no home in the Linear UI, so nothing surfaced it from a project. If you find a channel still linking slug `7f5f9c302585`, repoint it at its own project's handbook above.
+
+Match a handbook by **slugId**, not by the words in the URL: retitling a Linear document re-slugs the human-readable segment while the 12-hex slugId stays put.
 
 ---
 

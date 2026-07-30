@@ -52,7 +52,8 @@ test_subscribe_adds_object() {
   tk subscribe fin-2712 "$TEST_DIR/sessions/S1" >/dev/null 2>&1
   assert_eq "FIN-2712" "$(sget S1 '.tickets[0].key')" "subscribe normalizes+stores key"
   assert_not_empty "$(sget S1 '.tickets[0].subscribedAt')" "subscribe stamps subscribedAt"
-  assert_not_empty "$(sget S1 '.tickets[0].lastReadAt')" "subscribe stamps lastReadAt"
+  assert_eq "null" "$(sget S1 '.tickets[0].lastReadAt')" "subscribe no longer stamps per-ticket lastReadAt"
+  assert_not_empty "$(sget S1 '.ticketCursor')" "subscribe seeds the shared ticketCursor when absent"
 }
 
 test_subscribe_idempotent_case_insensitive() {
@@ -96,27 +97,29 @@ test_notify_no_subscribers_is_noop() {
 }
 
 test_read_drains_and_reports_since() {
-  mkstate B '{"tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z","lastReadAt":"2020-01-01T00:00:00Z"}],"updatedTickets":[{"ticket":"FIN-9","notifiedAt":"2024-05-05T00:00:00Z","from":"A","note":"n"}]}'
+  mkstate B '{"ticketCursor":"2020-01-01T00:00:00Z","tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z"}],"updatedTickets":[{"ticket":"FIN-9","notifiedAt":"2024-05-05T00:00:00Z","from":"A","note":"n"}]}'
   local out
   out=$(tk read --json "$TEST_DIR/sessions/B" 2>/dev/null)
-  assert_eq "2020-01-01T00:00:00Z" "$(echo "$out" | jq -r '.[0].since')" "read reports since = prior lastReadAt"
+  assert_eq "2020-01-01T00:00:00Z" "$(echo "$out" | jq -r '.[0].since')" "read reports since = the shared cursor W (captured before advance)"
   assert_eq "FIN-9" "$(echo "$out" | jq -r '.[0].ticket')" "read reports the ticket"
   assert_eq "0" "$(sget B '.updatedTickets | length')" "read drains the queue"
-  assert_neq "2020-01-01T00:00:00Z" "$(sget B '.tickets[0].lastReadAt')" "read advances lastReadAt off the old value"
+  assert_neq "2020-01-01T00:00:00Z" "$(sget B '.ticketCursor')" "read advances the shared cursor off the old value"
 }
 
 test_list_is_non_destructive() {
-  mkstate B '{"tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z","lastReadAt":"2020-01-01T00:00:00Z"}],"updatedTickets":[{"ticket":"FIN-9","notifiedAt":"2024-05-05T00:00:00Z","from":"A","note":"n"}]}'
+  mkstate B '{"ticketCursor":"2020-01-01T00:00:00Z","tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z"}],"updatedTickets":[{"ticket":"FIN-9","notifiedAt":"2024-05-05T00:00:00Z","from":"A","note":"n"}]}'
   tk list "$TEST_DIR/sessions/B" >/dev/null 2>&1
   assert_eq "1" "$(sget B '.updatedTickets | length')" "list leaves the queue intact"
-  assert_eq "2020-01-01T00:00:00Z" "$(sget B '.tickets[0].lastReadAt')" "list leaves lastReadAt intact"
+  assert_eq "2020-01-01T00:00:00Z" "$(sget B '.ticketCursor')" "list leaves the shared cursor intact"
 }
 
-test_read_since_filters() {
-  mkstate B '{"tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z","lastReadAt":"2020-01-01T00:00:00Z"}],"updatedTickets":[{"ticket":"FIN-9","notifiedAt":"2022-01-01T00:00:00Z","from":"A","note":"old"},{"ticket":"FIN-9","notifiedAt":"2024-01-01T00:00:00Z","from":"A","note":"new"}]}'
+test_read_drains_whole_set_display_filter_only() {
+  # KEY/--since are DISPLAY filters only under the single cursor — `read` always drains the whole
+  # set + advances W (a partial drain would desync the one cursor). This is the deliberate change
+  # from the old per-ticket-lastReadAt partial-drain behavior.
+  mkstate B '{"ticketCursor":"2020-01-01T00:00:00Z","tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z"}],"updatedTickets":[{"ticket":"FIN-9","notifiedAt":"2022-01-01T00:00:00Z","from":"A","note":"old"},{"ticket":"FIN-9","notifiedAt":"2024-01-01T00:00:00Z","from":"A","note":"new"}]}'
   tk read --since 2023-01-01T00:00:00Z --json "$TEST_DIR/sessions/B" >/dev/null 2>&1
-  assert_eq "1" "$(sget B '.updatedTickets | length')" "read --since drains only newer entry"
-  assert_eq "old" "$(sget B '.updatedTickets[0].note')" "older entry survives the filtered drain"
+  assert_eq "0" "$(sget B '.updatedTickets | length')" "read drains the whole set (--since is display-only, not a partial drain)"
 }
 
 test_read_empty_is_clean() {
@@ -183,12 +186,12 @@ test_watch_no_watchable_exits_1() {
 }
 
 test_watch_ignores_already_read_entry() {
-  # An updatedTickets entry OLDER than the ticket's lastReadAt watermark (already seen,
-  # left un-drained by a keyed/--since read or a re-arm-without-drain) must NOT re-wake.
-  mkstate B '{"tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z","lastReadAt":"2024-06-01T00:00:00Z"}],"updatedTickets":[{"ticket":"FIN-9","notifiedAt":"2024-01-01T00:00:00Z","from":"A","note":"stale"}]}'
+  # An updatedTickets entry OLDER than the shared cursor W (already drained, lingering after a
+  # re-arm) must NOT re-wake the agent.
+  mkstate B '{"ticketCursor":"2024-06-01T00:00:00Z","tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z"}],"updatedTickets":[{"ticket":"FIN-9","notifiedAt":"2024-01-01T00:00:00Z","from":"A","note":"stale"}]}'
   local ec
   tk watch FIN-9 --timeout 1 "$TEST_DIR/sessions/B" >/dev/null 2>&1; ec=$?
-  assert_eq "124" "$ec" "watch ignores an already-read (notifiedAt <= lastReadAt) entry — no stale re-wake"
+  assert_eq "124" "$ec" "watch ignores an entry older than the shared cursor W — no stale re-wake"
 }
 
 test_watch_fires_on_fresh_entry_past_watermark() {
@@ -336,6 +339,121 @@ test_watch_supersedes_previous_watcher() {
 
   kill "$pid1" "$pid2" "$w1" "$w2" 2>/dev/null
   wait "$w1" "$w2" 2>/dev/null
+}
+
+# ---- resolve-comment (Linear comment-thread resolution via linear-lib.sh _graphql) ----
+# Fixture-backed: LINEAR_FIXTURE short-circuits the live GraphQL call (no network in tests).
+
+# mkfixture <name> <json> — write a fixture file under TEST_DIR, echo its absolute path.
+mkfixture() {
+  local f="$TEST_DIR/$1.json"
+  printf '%s' "$2" > "$f"
+  printf '%s' "$f"
+}
+
+# tkfx <fixture> <args...> — run ticket.sh with LINEAR_FIXTURE pointed at <fixture>.
+tkfx() {
+  local fx="$1"; shift
+  ( cd "$TEST_DIR" && LINEAR_FIXTURE="$fx" "$TICKET_SH" "$@" )
+}
+
+test_resolve_comment_human_success() {
+  local fx out rc
+  fx=$(mkfixture rc_resolve '{"data":{"commentResolve":{"success":true,"comment":{"id":"c1","resolvedAt":"2026-07-31T10:00:00.000Z"}}}}')
+  out=$(tkfx "$fx" resolve-comment c1 2>&1); rc=$?
+  assert_eq "0" "$rc" "resolve-comment exits 0 on success"
+  assert_contains "resolved c1" "$out" "human output names the resolved comment"
+  assert_contains "2026-07-31T10:00:00.000Z" "$out" "human output shows resolvedAt"
+}
+
+test_resolve_comment_json_success() {
+  local fx out rc
+  fx=$(mkfixture rc_resolve '{"data":{"commentResolve":{"success":true,"comment":{"id":"c1","resolvedAt":"2026-07-31T10:00:00.000Z"}}}}')
+  out=$(tkfx "$fx" resolve-comment c1 --json 2>&1); rc=$?
+  assert_eq "0" "$rc" "--json exits 0"
+  assert_eq "c1" "$(printf '%s' "$out" | jq -r '.id')" "--json emits the comment id"
+  assert_eq "2026-07-31T10:00:00.000Z" "$(printf '%s' "$out" | jq -r '.resolvedAt')" "--json emits resolvedAt"
+}
+
+test_resolve_comment_reopen_human() {
+  local fx out rc
+  fx=$(mkfixture rc_reopen '{"data":{"commentUnresolve":{"success":true,"comment":{"id":"c1","resolvedAt":null}}}}')
+  out=$(tkfx "$fx" resolve-comment c1 --reopen 2>&1); rc=$?
+  assert_eq "0" "$rc" "--reopen exits 0"
+  assert_contains "reopened c1" "$out" "reopen output names the comment"
+}
+
+test_resolve_comment_reopen_clears_resolvedat() {
+  local fx out rc
+  fx=$(mkfixture rc_reopen '{"data":{"commentUnresolve":{"success":true,"comment":{"id":"c1","resolvedAt":null}}}}')
+  out=$(tkfx "$fx" resolve-comment c1 --reopen --json 2>&1); rc=$?
+  assert_eq "0" "$rc" "--reopen --json exits 0"
+  assert_eq "null" "$(printf '%s' "$out" | jq -r '.resolvedAt')" "reopen reports resolvedAt cleared (null)"
+}
+
+test_resolve_comment_missing_id() {
+  # Guard fires before _graphql — no fixture / no network needed.
+  local out rc
+  out=$( ( cd "$TEST_DIR" && "$TICKET_SH" resolve-comment ) 2>&1); rc=$?
+  assert_neq "0" "$rc" "missing commentId exits non-zero"
+  assert_contains "requires a <commentId>" "$out" "missing id surfaces a usage error"
+}
+
+test_resolve_comment_graphql_error() {
+  local fx out rc
+  fx=$(mkfixture rc_err '{"errors":[{"message":"Entity not found: Comment"}]}')
+  out=$(tkfx "$fx" resolve-comment c1 2>&1); rc=$?
+  assert_neq "0" "$rc" "GraphQL errors[] exits non-zero (fails closed)"
+  assert_contains "GraphQL error" "$out" "surfaces the GraphQL error"
+}
+
+test_resolve_comment_success_false() {
+  local fx out rc
+  fx=$(mkfixture rc_false '{"data":{"commentResolve":{"success":false,"comment":null}}}')
+  out=$(tkfx "$fx" resolve-comment c1 2>&1); rc=$?
+  assert_neq "0" "$rc" "success=false exits non-zero"
+  assert_contains "success=false" "$out" "reports the false success flag"
+}
+
+test_resolve_comment_unknown_flag() {
+  local out rc
+  out=$( ( cd "$TEST_DIR" && "$TICKET_SH" resolve-comment c1 --bogus ) 2>&1); rc=$?
+  assert_neq "0" "$rc" "unknown flag exits non-zero"
+  assert_contains "unknown flag" "$out" "reports the unknown flag"
+}
+
+# ---- watch auto-drain (Section 5: wake fetches from Linear → payload file) ----
+
+test_watch_auto_drain_fetches_and_advances() {
+  # A matching entry is present at watch time → immediate auto-drain. With a valid Linear fixture
+  # the drain fetches, advances W, clears the acked queue, and emits a payload path.
+  mkstate B '{"ticketCursor":"2020-01-01T00:00:00Z","tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z"}],"updatedTickets":[{"ticket":"FIN-9","notifiedAt":"2024-01-01T00:00:00Z","from":"A","note":"q"}]}'
+  local fx="$TEST_DIR/fx.json"
+  cat > "$fx" <<'JSON'
+{"data":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
+  {"id":"i1","identifier":"FIN-9","title":"T","url":"u","createdAt":"2020-01-01T00:00:00Z","updatedAt":"2024-01-01T00:00:00Z","priority":1,"state":{"name":"Todo"},"projectMilestone":null,
+   "comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[]},"history":{"pageInfo":{"hasNextPage":false},"nodes":[]},"attachments":{"pageInfo":{"hasNextPage":false},"nodes":[]}}
+]}}}
+JSON
+  local out ppath
+  out=$( ( cd "$TEST_DIR" && LINEAR_FIXTURE="$fx" "$TICKET_SH" watch FIN-9 --timeout 1 "$TEST_DIR/sessions/B" ) 2>/dev/null)
+  assert_contains "payload" "$out" "wake emits a payload reference"
+  assert_neq "2020-01-01T00:00:00Z" "$(sget B '.ticketCursor')" "auto-drain advanced the shared cursor"
+  assert_eq "0" "$(sget B '.updatedTickets | length')" "auto-drain cleared the acked queue"
+  ppath=$(printf '%s' "$out" | tail -1 | jq -r '.payload' 2>/dev/null)
+  assert_file_exists "$ppath" "auto-drain wrote the payload file"
+}
+
+test_watch_auto_drain_fail_closed_on_fetch_error() {
+  # No fixture + no key → the drain's ticket fetch fails. Fail-closed: cursor NOT advanced, queue
+  # NOT cleared, "FETCH FAILED" surfaced, still exit 0 so the agent re-arms and retries.
+  mkstate B '{"ticketCursor":"2020-01-01T00:00:00Z","tickets":[{"key":"FIN-9","subscribedAt":"2020-01-01T00:00:00Z"}],"updatedTickets":[{"ticket":"FIN-9","notifiedAt":"2024-01-01T00:00:00Z","from":"A","note":"q"}]}'
+  local out ec
+  out=$( ( cd "$TEST_DIR" && env -u LINEAR_API_KEY -u LINEAR_FIXTURE "$TICKET_SH" watch FIN-9 --timeout 1 "$TEST_DIR/sessions/B" ) 2>/dev/null); ec=$?
+  assert_eq "0" "$ec" "watch exits 0 on fetch failure (agent re-arms)"
+  assert_contains "FETCH FAILED" "$out" "fetch failure surfaced on stdout"
+  assert_eq "2020-01-01T00:00:00Z" "$(sget B '.ticketCursor')" "cursor NOT advanced on fetch failure (¶INV_WRITE_BEFORE_WATERMARK)"
+  assert_eq "1" "$(sget B '.updatedTickets | length')" "queue NOT cleared on fetch failure"
 }
 
 run_discovered_tests

@@ -116,7 +116,11 @@ test_ticketsearch_graphql_error_fails_closed() {
 test_ticketsearch_missing_key_fails() {
   local out err rc
   unset LINEAR_API_KEY
-  out=$(HOME="$TMP_DIR/nohome" "$TS" "flat detector" 2>"$TMP_DIR/err"); rc=$?
+  mkdir -p "$TMP_DIR/nohome"
+  # Run from an empty dir so _load_key's CWD `.env` probe finds nothing (the HOME override
+  # covers ~/.claude/engine/.env; without the cd, the repo-root .env supplies a real key and
+  # this "missing key" case would spuriously succeed).
+  out=$( cd "$TMP_DIR/nohome" && HOME="$TMP_DIR/nohome" "$TS" "flat detector" 2>"$TMP_DIR/err"); rc=$?
   err=$(cat "$TMP_DIR/err")
   assert_neq "0" "$rc" "missing key → non-zero exit"
   assert_empty "$out" "no stdout without key"

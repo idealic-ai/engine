@@ -24,7 +24,7 @@ All protocol-tier skills declare synthesis as four sub-phases. N is the skill's 
 {"major": N, "minor": 2, "name": "Debrief",
   "steps": ["§CMD_GENERATE_DEBRIEF"], "proof": ["debriefFile", "debriefTags"], "gate": false},
 {"major": N, "minor": 3, "name": "Pipeline",
-  "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "proof": [], "gate": false},
+  "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_OFFER_HANDBOOK_CAPTURE", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "proof": [], "gate": false},
 {"major": N, "minor": 4, "name": "Close",
   "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "proof": [], "gate": false}
 ```
@@ -44,33 +44,39 @@ Run `engine session debrief sessions/DIR` once to get scan results. Process each
   **Type**: STATIC
   **Behavior**: Always execute. Three passes: AGENTS.md, invariants, pitfalls.
 
-**2. `§CMD_PROCESS_DELEGATIONS`**
+**2. `§CMD_OFFER_HANDBOOK_CAPTURE`**
+  **Type**: COLLAPSIBLE
+  **Behavior**: Relevance scan. Offers to feed what the session learned about an intake **handbook recipe** back into that handbook, via `/inbox-handbook`. Silent skip unless the session actually followed or contradicted a documented recipe. Sibling of step 1 — that one captures engine rules (`¶INV_*`) and traps (`¶PTF_*`); this one captures intake procedure.
+
+**3. `§CMD_PROCESS_DELEGATIONS`**
   **Type**: SCAN
   **Behavior**: Use debrief scan results. Process bare inline tags.
 
-**3. `§CMD_DISPATCH_APPROVAL`**
+**4. `§CMD_DISPATCH_APPROVAL`**
   **Type**: CONSUMER
-  **Behavior**: Consumes step 2 output (REQUEST files) + agent's pre-existing knowledge of Tags-line `#needs-*` tags. No independent scan. User triage walkthrough.
+  **Behavior**: Consumes step 3 output (REQUEST files) + agent's pre-existing knowledge of Tags-line `#needs-*` tags. No independent scan. User triage walkthrough.
 
-**4. `§CMD_CAPTURE_SIDE_DISCOVERIES`**
+**5. `§CMD_CAPTURE_SIDE_DISCOVERIES`**
   **Type**: SCAN
   **Behavior**: Use debrief scan results. Multichoice tagging menu.
 
-**5. `§CMD_RESOLVE_CROSS_SESSION_TAGS`**
+**6. `§CMD_RESOLVE_CROSS_SESSION_TAGS`**
   **Type**: STATIC
   **Behavior**: Always execute. Find tags resolved by this session's work.
 
-**6. `§CMD_MANAGE_BACKLINKS`**
+**7. `§CMD_MANAGE_BACKLINKS`**
   **Type**: STATIC
   **Behavior**: Always execute. Create cross-session links.
 
-**7. `§CMD_MANAGE_ALERTS`**
+**8. `§CMD_MANAGE_ALERTS`**
   **Type**: STATIC
   **Behavior**: Always execute. Check for alert raise/resolve.
 
-**8. `§CMD_REPORT_LEFTOVER_WORK`**
+**9. `§CMD_REPORT_LEFTOVER_WORK`**
   **Type**: SCAN
   **Behavior**: Use debrief scan results. Report incomplete items.
+
+**Adoption note** — step 2 is the newest member of this pipeline and is **not yet universally declared**. It is live in `/implement` (4.3), `/fix` (5.3) and `/analyze` (**3.4** — that skill has an extra Walk-Through sub-phase, so its Pipeline is not the third; read the label rather than assuming N.3); the other twelve protocol skills that carry this array (brainstorm, chores, direct, do, document, edit-skill, improve-protocol, intake, loop, research, review, test) still declare the 8-step form and are pending propagation (`#needs-implementation`). **A skill array with 8 steps is therefore not a defect to be "fixed" by guess** — it is an un-adopted skill. Propagating means adding the step in the same position, after `§CMD_MANAGE_DIRECTIVES`.
 
 **Type semantics**: STATIC commands always run (reminder + action). SCAN commands use `engine session debrief` output as their task list. CONSUMER commands receive their input from a prior step's output rather than scanning independently. DEPENDENT commands only run when their prerequisite produced results.
 
@@ -80,16 +86,17 @@ Run `engine session debrief sessions/DIR` once to get scan results. Process each
 
 **Examples**:
 *   `5.3.1: §CMD_MANAGE_DIRECTIVES — no updates needed.`
-*   `5.3.2: §CMD_PROCESS_DELEGATIONS — 2 bare tags found, processing.`
-*   `5.3.4: §CMD_CAPTURE_SIDE_DISCOVERIES — scanned log, none found.`
-*   `5.3.8: §CMD_REPORT_LEFTOVER_WORK — 3 items reported.`
+*   `5.3.2: §CMD_OFFER_HANDBOOK_CAPTURE — no recipe-relevant learning, skipped.`
+*   `5.3.3: §CMD_PROCESS_DELEGATIONS — 2 bare tags found, processing.`
+*   `5.3.5: §CMD_CAPTURE_SIDE_DISCOVERIES — scanned log, none found.`
+*   `5.3.9: §CMD_REPORT_LEFTOVER_WORK — 3 items reported.`
 
 When a step has actionable items, the roll call line precedes the interaction (e.g., `AskUserQuestion`). When a step finds nothing, the roll call line IS the full output — no follow-up.
 
 **Collapsibility classification**: Pipeline steps fall into two categories based on whether they can be silently skipped when they produce no actionable items:
 
 **COLLAPSIBLE**
-  **Steps**: `§CMD_MANAGE_DIRECTIVES` (invariant + pitfall passes), `§CMD_CAPTURE_SIDE_DISCOVERIES`, `§CMD_REPORT_LEFTOVER_WORK`
+  **Steps**: `§CMD_MANAGE_DIRECTIVES` (invariant + pitfall passes), `§CMD_OFFER_HANDBOOK_CAPTURE`, `§CMD_CAPTURE_SIDE_DISCOVERIES`, `§CMD_REPORT_LEFTOVER_WORK`
   **Behavior when empty**: Roll call line only. No `AskUserQuestion`.
 
 **NOT COLLAPSIBLE**

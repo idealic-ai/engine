@@ -38,7 +38,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
     {"label": "3.3", "name": "Finding Triage",
       "steps": ["§CMD_WALK_THROUGH_RESULTS"], "commands": [], "proof": ["findingsTriaged", "delegated", "deferred", "dismissed"]},
     {"label": "3.4", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_OFFER_HANDBOOK_CAPTURE", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "3.5", "name": "Close",
       "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_OFFER_COUNCIL_REVIEW", "§CMD_OFFER_GRAPH_VIZ", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": ["reviewOffered", "decision", "graphOffered"], "gate": false}
   ],

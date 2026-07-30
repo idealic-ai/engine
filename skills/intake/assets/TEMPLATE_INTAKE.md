@@ -8,6 +8,7 @@
 *   **Linear Project**: [URL/ID] — goal: [the interrogated domain goal]
 *   **Inbox ticket** (under `Inboxes` milestone): [URL/ID] · **Watermark**: [last-synced comment timestamp]
 *   **Status**: [Active / Checkpointed]
+*   **Project Update** (this wave's two-event `§PASS_HEARTBEAT` state — the pinned home so Close can find it after a rehydrate): **id**: [the `save_status_update` id captured when event 1 posts the Update, for the Close in-place edit — or "not yet posted"] · **Decision Board**: [S3 url] · **Outcomes Board**: [S3 url, set at Close]
 
 ### Ticketing Strategy (loaded verbatim from the Project description — `¶INV_TICKETING_STRATEGY_IN_PROJECT`)
 *How much ticketing this project wants. Project-level only — no channel override. Gates graduate-vs-fold-vs-marinate at Outcomes, AFTER ripeness passes. Mandatory: if the project has none, say so explicitly here and name the default as applied — a defaulted project must be visible as defaulted.*

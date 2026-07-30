@@ -31,3 +31,8 @@ Known gotchas and traps when creating or modifying skills. Read before working h
 **Context**: Templates use `[PLACEHOLDER]` patterns that agents populate via `§CMD_WRITE_FROM_TEMPLATE`. The debrief template's structure defines the debrief's structure.
 **Trap**: Renaming a section heading in a template without updating the skill protocol (which references specific section names for walk-through configuration or content instructions) creates silent mismatches. The agent writes content that doesn't align with the template structure.
 **Mitigation**: Template sections and skill protocol references must stay in sync. Search the SKILL.md for any quoted section names from the template after modifications.
+
+### Asset shell scripts: macOS bash 3.2 crashes on `"${empty_array[@]}"` under `set -u`
+**Context**: Skill asset scripts (`assets/*.sh`) often use `set -euo pipefail` and build optional CLI args as arrays (e.g. `cond=()`, `profile_arg=()`). macOS ships **bash 3.2** as `/usr/bin/env bash`; the engine runs there.
+**Trap**: In bash 3.2, expanding an *empty* array with `"${arr[@]}"` while `nounset` (`set -u`) is on throws `unbound variable` and aborts the script — silently masking the real work (a conditional PUT never ran, an object "was never created"). Bash 4.4+ does not have this bug, so it passes on Linux/CI and fails only on a Mac.
+**Mitigation**: Guard every array expansion with `${arr[@]+"${arr[@]}"}` — expands to nothing when empty instead of crashing. Applies to any optional-args array. Verify with `bash --version` + `bash -c 'set -u; a=(); printf "%s" "${a[@]}"'` (crashes on 3.2).

@@ -1,0 +1,87 @@
+/* Decision Board widget kit — minimal, theme-aware base styles.
+   Deliberately lean: the render agent owns presentation (¶INV_BOARD_HANDOFF_IS_FIXED_PRESENTATION_IS_FREE)
+   and freely overrides these. Only the functional bits (option rows, copy bar, payload box) are styled. */
+
+.fb-item { margin: 0.5rem 0; }
+.fb-options { display: flex; flex-direction: column; gap: 0.35rem; margin: 0.4rem 0; }
+.fb-options.fb-inline { flex-direction: row; flex-wrap: wrap; gap: 0.75rem; }
+.fb-opt { display: flex; align-items: flex-start; gap: 0.5rem; cursor: pointer; line-height: 1.4; }
+.fb-opt input { margin-top: 0.2rem; flex: 0 0 auto; }
+.fb-note { display: block; width: 100%; box-sizing: border-box; margin-top: 0.4rem;
+           min-height: 2.2rem; padding: 0.4rem; border-radius: 6px;
+           border: 1px solid rgba(128,128,128,0.4); background: transparent; color: inherit;
+           font: inherit; resize: vertical; }
+.fb-field { margin: 0.3rem 0.5rem 0.3rem 0; padding: 0.3rem; border-radius: 6px;
+            border: 1px solid rgba(128,128,128,0.4); background: transparent; color: inherit; font: inherit; }
+
+/* Copy bar — pinned affordance so a voter always finds it. */
+.fb-copybar { position: sticky; bottom: 0; margin-top: 1.5rem; padding: 0.75rem 1rem;
+              display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem;
+              border-top: 1px solid rgba(128,128,128,0.35);
+              background: rgba(127,127,127,0.08); backdrop-filter: blur(4px); }
+.fb-voter { padding: 0.4rem 0.6rem; border-radius: 6px; border: 1px solid rgba(128,128,128,0.4);
+            background: transparent; color: inherit; font: inherit; }
+.fb-copybtn { padding: 0.5rem 1rem; border-radius: 6px; border: 1px solid rgba(128,128,128,0.5);
+              background: rgba(90,140,255,0.15); color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.fb-copybtn:hover { background: rgba(90,140,255,0.28); }
+.fb-copied { font-size: 0.85rem; opacity: 0; transition: opacity 0.2s; }
+.fb-copied.fb-show { opacity: 0.85; }
+
+/* Payload box — always visible so copy works even if the clipboard API is blocked. */
+.fb-payload { width: 100%; box-sizing: border-box; margin-top: 0.75rem; max-height: 40vh; overflow: auto;
+              padding: 0.75rem; border-radius: 8px; border: 1px solid rgba(128,128,128,0.4);
+              background: rgba(127,127,127,0.10); color: inherit;
+              font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem;
+              white-space: pre; }
+
+@media (prefers-color-scheme: dark) {
+  .fb-copybtn { background: rgba(120,160,255,0.22); }
+  .fb-copybtn:hover { background: rgba(120,160,255,0.34); }
+}
+:root[data-theme="light"] .fb-copybtn { background: rgba(90,140,255,0.15); }
+:root[data-theme="dark"] .fb-copybtn { background: rgba(120,160,255,0.22); }
+
+/* Marks — who took a position on an option.
+   Three separations, each doing one job and none doing two:
+     FORM   says which CLASS — an icon is a council expert, initials are a person.
+            Categorical, so it survives any size, theme, or projector.
+     COLOUR says which CLASS too, reinforcing form. It never encodes WHICH persona:
+            colour alone excludes readers who can't distinguish it, and the icon
+            already carries identity.
+     SIZE   says conviction (council `weight` 1-5) — the only per-mark gradient. */
+.fb-panel { display: inline-flex; align-items: center; gap: 0.25rem; margin-left: 0.5rem; vertical-align: middle; }
+.fb-mark { display: inline-flex; align-items: center; justify-content: center;
+           min-width: 1.35rem; height: 1.35rem; padding: 0 0.25rem; border-radius: 999px;
+           font: inherit; font-size: 0.78rem; line-height: 1; cursor: pointer;
+           border: 1px solid rgba(128,128,128,0.45); background: transparent; color: inherit; }
+.fb-mark-council { border-style: dashed; background: rgba(140,110,220,0.14); }
+.fb-mark-human   { font-weight: 600; letter-spacing: 0.02em; background: rgba(90,140,255,0.16); }
+.fb-mark:hover, .fb-mark:focus-visible { border-color: rgba(128,128,128,0.9); }
+.fb-mark:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+
+/* Conviction, from the council vote's self-reported weight. A 5 reads as heavier than
+   a 1 without the renderer taking a side on WHICH option is right. */
+.fb-mark-council[data-fb-panel-weight="1"] { opacity: 0.5; }
+.fb-mark-council[data-fb-panel-weight="2"] { opacity: 0.68; }
+.fb-mark-council[data-fb-panel-weight="4"] { font-size: 0.9rem; min-width: 1.55rem; height: 1.55rem; }
+.fb-mark-council[data-fb-panel-weight="5"] { font-size: 1rem; min-width: 1.75rem; height: 1.75rem; border-width: 2px; }
+
+/* A vote whose expert said the grounds were too thin to rule. Visible as such, never hidden —
+   a thin-grounds vote that looks identical to a confident one is worse than no vote. */
+.fb-mark-council[data-fb-panel-thin="true"] { border-style: dotted; opacity: 0.55; }
+
+/* The comment. Reachable by click and by keyboard focus, not hover alone:
+   hover fires on neither touch nor tab, and a mark whose reasoning cannot be reached
+   is a judgement presented at a decision point with its audit trail hidden. */
+.fb-mark-note { position: absolute; z-index: 20; max-width: min(32rem, 88vw); margin-top: 0.35rem;
+                padding: 0.55rem 0.7rem; border-radius: 8px; font-size: 0.85rem; line-height: 1.45;
+                border: 1px solid rgba(128,128,128,0.45); background: Canvas; color: inherit;
+                box-shadow: 0 6px 20px rgba(0,0,0,0.18); display: none; text-align: left; white-space: normal; }
+.fb-markwrap { position: relative; display: inline-flex; }
+.fb-markwrap:hover .fb-mark-note,
+.fb-mark:focus-visible + .fb-mark-note,
+.fb-mark[data-fb-panel-open="true"] + .fb-mark-note { display: block; }
+
+/* Legend — names what the forms mean, so a first-time reader isn't decoding. */
+.fb-legend { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;
+             margin: 0.5rem 0 1rem; font-size: 0.82rem; opacity: 0.85; }

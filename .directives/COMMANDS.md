@@ -537,6 +537,9 @@ Unified end-of-session directive management — AGENTS.md updates, invariant cap
 ### [¶CMD_CAPTURE_KNOWLEDGE](commands/CMD_CAPTURE_KNOWLEDGE.md)
 Parameterized capture loop for extracting session learnings (invariants, pitfalls) into directive files.
 
+### [¶CMD_OFFER_HANDBOOK_CAPTURE](commands/CMD_OFFER_HANDBOOK_CAPTURE.md)
+The intake-side sibling of `§CMD_MANAGE_DIRECTIVES`: offers to feed what the session learned about a **handbook recipe** back into that handbook, via `/inbox-handbook`. Offers, never forces; skips silently unless the session actually followed or contradicted a documented recipe.
+
 ### [¶CMD_CAPTURE_SIDE_DISCOVERIES](commands/CMD_CAPTURE_SIDE_DISCOVERIES.md)
 Scans the session log for side-discovery entries and presents a multichoice menu to tag them for future dispatch.
 

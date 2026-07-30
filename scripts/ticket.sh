@@ -14,6 +14,7 @@
 #   engine ticket read        [KEY] [--since <dt>] [--json] [session]
 #   engine ticket list        [KEY] [--since <dt>] [--json] [session]
 #   engine ticket watch       [KEY] [--timeout <s>] [session]   # block until an update; run via run_in_background:true
+#   engine ticket resolve-comment <commentId> [--reopen] [--json]  # resolve (or --reopen: unresolve) a Linear comment thread
 #
 # `watch` blocks (via fswatch) until a subscribed ticket has a pending update, then
 # exits: 0 = update waiting (run `read` to drain, THEN re-arm — else it re-fires
@@ -21,8 +22,11 @@
 # missing, 1 = nothing subscribed.
 #
 # Data model (per session .state.json):
-#   tickets:        [ {key, subscribedAt, lastReadAt} ]        # subscriptions
+#   tickets:        [ {key, subscribedAt} ]                    # subscriptions
 #   updatedTickets: [ {ticket, notifiedAt, from, note} ]       # dirty queue
+#   ticketCursor:   "<ISO8601>"                                # ONE shared read watermark W over
+#                                                              # the whole watched set (the session
+#                                                              # drains all its tickets together)
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -92,7 +96,8 @@ cmd_subscribe() {
     (.tickets // []) as $cur
     | .tickets = ( if ($cur | any(.key == $k))
                    then $cur
-                   else $cur + [{key: $k, subscribedAt: $ts, lastReadAt: $ts}] end )
+                   else $cur + [{key: $k, subscribedAt: $ts}] end )
+    | .ticketCursor = (.ticketCursor // $ts)
   ' || return 1
   echo "ticket: subscribed $(basename "$dir") → $key"
 }
@@ -156,13 +161,13 @@ cmd_notify() {
 _build_view() {
   local state="$1" key="$2" since="$3"
   jq --arg k "$key" --arg since "$since" '
-    (.tickets // []) as $subs
+    (.ticketCursor // "") as $W
     | [ (.updatedTickets // [])[]
         | select( ($k == "" or .ticket == $k) and ($since == "" or .notifiedAt >= $since) ) ]
     | group_by(.ticket)
     | map( .[0].ticket as $tk | {
         ticket: $tk,
-        since: ( ([ $subs[] | select(.key == $tk) | (.lastReadAt // .subscribedAt) ] | first) // "" ),
+        since: $W,
         notifiedAt: ( max_by(.notifiedAt).notifiedAt ),
         count: length,
         notes: [ .[] | {notifiedAt, from, note} ]
@@ -215,12 +220,12 @@ cmd_read() {
 
   view=$(_build_view "$state" "$V_KEY" "$V_SINCE")
 
-  # Drain the shown entries and advance lastReadAt for each drained ticket.
-  safe_json_update "$state" --arg k "$V_KEY" --arg since "$V_SINCE" --arg now "$now" '
-    (.updatedTickets // []) as $all
-    | ( [ $all[] | select( ($k == "" or .ticket == $k) and ($since == "" or .notifiedAt >= $since) ) | .ticket ] | unique ) as $drained
-    | .updatedTickets = [ $all[] | select( ($k != "" and .ticket != $k) or ($since != "" and .notifiedAt < $since) ) ]
-    | .tickets = [ (.tickets // [])[] | (.key) as $kk | if ($drained | index($kk)) then .lastReadAt = $now else . end ]
+  # Drain the WHOLE set and advance the single shared cursor W (KEY/since were display filters
+  # only — a partial drain would desync the one cursor). Entries newer than `now` (arrived
+  # mid-read) are preserved so a concurrent notify is never lost.
+  safe_json_update "$state" --arg now "$now" '
+    .ticketCursor = $now
+    | .updatedTickets = [ (.updatedTickets // [])[] | select(.notifiedAt > $now) ]
   ' || return 1
 
   if [ "$V_JSON" -eq 1 ]; then printf '%s\n' "$view"; else printf '%s\n' "$view" | _render_human; fi
@@ -236,25 +241,40 @@ _watch_unregister() {
   safe_json_update "$state" 'del(.watchTaskId)' 2>/dev/null || true
 }
 
-# On wake, drain the matched tickets (advance lastReadAt) and emit the matched key(s)
-# + per-ticket `since` (the prior watermark) to stdout, so the background-task wake
-# notification carries the update directly — no separate `read` step, and the advanced
-# watermark means a re-arm can't re-fire on the same entry. `since` is captured BEFORE
-# advancing so the agent fetches exactly the new-comment window via Linear MCP.
+# On wake, AUTO-DRAIN: fetch the matched tickets from Linear since the shared cursor W into a
+# payload FILE, then advance W and clear the acked queue, and emit the matched key(s) + the
+# payload PATH to stdout — so the background-task wake notification carries the update directly
+# (§CMD_DRAIN_TICKET_QUEUE_ON_WAKE reads the file), with no separate fetch step. The payload rides
+# a FILE, never stdout, because the harness truncates large tool stdout but not a file the agent
+# then reads. Fetch BEFORE advancing W (¶INV_WRITE_BEFORE_WATERMARK): a failed fetch leaves W +
+# the dirty queue untouched, so the next re-arm re-drains the same window rather than leaping
+# past unseen comments.
 _watch_drain_emit() {
-  local state="$1" matched="$2" now since_json
+  local state="$1" matched="$2" now W dir payload_out drain_json
+  W=$(jq -r '.ticketCursor // ""' "$state" 2>/dev/null || echo "")
+  dir=$(dirname "$state")
+  payload_out="$dir/.ticket-drain/drain-$(date +%s)-$$.json"
+  mkdir -p "$dir/.ticket-drain" 2>/dev/null || true
+
+  # Split $matched (space-separated keys) into cmd_fetch args; omit --since when W is empty (a
+  # full read — e.g. before the first cold-read seeds the cursor).
+  local -a fargs; fargs=($matched)
+  [ -n "$W" ] && fargs+=(--since "$W")
+  fargs+=(--out "$payload_out")
+  if ! cmd_fetch "${fargs[@]}" >/dev/null 2>&1; then
+    # Fail-closed: cursor NOT advanced, queue NOT cleared — the agent re-arms and retries.
+    printf 'ticket update — %s\nFETCH FAILED (since=%s) — cursor NOT advanced; re-arm to retry\n' "$matched" "$W"
+    return 0
+  fi
+
   now=$(_now)
-  since_json=$(jq -c --arg keys "$matched" '
-    ($keys | split(" ")) as $m
-    | [ (.tickets // [])[] | select(.key as $k | $m | index($k))
-        | {ticket: .key, since: (.lastReadAt // .subscribedAt // "")} ]
-  ' "$state" 2>/dev/null || echo "[]")
-  safe_json_update "$state" --arg keys "$matched" --arg now "$now" '
-    ($keys | split(" ")) as $m
-    | .tickets = [ (.tickets // [])[] | if (.key as $k | $m | index($k)) then .lastReadAt = $now else . end ]
-    | .updatedTickets = [ (.updatedTickets // [])[] | select(.ticket as $t | ($m | index($t)) | not) ]
+  safe_json_update "$state" --arg now "$now" '
+    .ticketCursor = $now
+    | .updatedTickets = [ (.updatedTickets // [])[] | select(.notifiedAt > $now) ]
   ' || true
-  printf 'ticket update — %s\n%s\n' "$matched" "$since_json"
+  drain_json=$(jq -n -c --arg keys "$matched" --arg since "$W" --arg path "$payload_out" '
+    { keys: ($keys | split(" ")), since: $since, payload: $path }')
+  printf 'ticket update — %s\n%s\n' "$matched" "$drain_json"
 }
 
 # Block (via fswatch) until a watched ticket has a pending update, then AUTO-DRAIN and
@@ -284,15 +304,15 @@ cmd_watch() {
   state="$dir/.state.json"
 
   # jq printing the matched pending ticket keys (space-separated) for the watched set.
-  # Watermark-authoritative: an entry fires the watch only if notifiedAt > that ticket's
-  # lastReadAt — so an already-read entry that lingers (a keyed/`--since` partial drain,
-  # or a re-arm without a full `read`) can never re-wake the agent on an old notify.
+  # Watermark-authoritative against the SINGLE shared cursor W: an entry fires the watch only if
+  # notifiedAt > W — so an already-drained entry that lingers (a re-arm without a fresh notify)
+  # can never re-wake the agent on an old notify.
   local match_filter='
-    (.tickets // []) as $subs
+    (.ticketCursor // "") as $W
+    | (.tickets // []) as $subs
     | (if $k != "" then [$k] else [ $subs[].key ] end) as $w
-    | ( [ $subs[] | {key: .key, value: (.lastReadAt // .subscribedAt // "")} ] | from_entries ) as $wm
     | [ (.updatedTickets // [])[]
-        | select( (.ticket as $t | $w | index($t)) and (.notifiedAt > ($wm[.ticket] // "")) )
+        | select( (.ticket as $t | $w | index($t)) and (.notifiedAt > $W) )
         | .ticket ] | unique | join(" ")'
 
   local watched_count
@@ -515,6 +535,62 @@ cmd_fetch() {
   printf '%s\n' "$out"
 }
 
+# ---- resolve-comment (Linear comment-thread resolution via GraphQL) ----
+#
+# `engine ticket resolve-comment <commentId> [--reopen] [--json]` resolves (or, with --reopen,
+# unresolves) a Linear issue-comment thread — the affordance the MCP does not expose (it has only
+# resolve_diff_thread, for diff reviews). Reuses linear-lib.sh's _graphql seam (fixture-backed via
+# LINEAR_FIXTURE in tests). Idempotent: commentResolve on an already-resolved comment still returns
+# success with resolvedAt set. Default prints a human line; --json emits {id, resolvedAt}.
+cmd_resolve_comment() {
+  local cid="" reopen=0 json=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --reopen) reopen=1; shift ;;
+      --json)   json=1; shift ;;
+      -*) echo "ticket: resolve-comment: unknown flag '$1'" >&2; return 1 ;;
+      *) if [ -z "$cid" ]; then cid="$1"; else echo "ticket: resolve-comment: unexpected extra arg '$1'" >&2; return 1; fi; shift ;;
+    esac
+  done
+  [ -n "$cid" ] || { echo "ticket: resolve-comment requires a <commentId>" >&2; return 1; }
+
+  local field mut
+  if [ "$reopen" -eq 1 ]; then
+    field="commentUnresolve"
+    mut='mutation($id: String!) { commentUnresolve(id: $id) { success comment { id resolvedAt } } }'
+  else
+    field="commentResolve"
+    mut='mutation($id: String!) { commentResolve(id: $id) { success comment { id resolvedAt } } }'
+  fi
+
+  local vars resp
+  vars=$(jq -n --arg id "$cid" '{id: $id}')
+  resp=$(_graphql "$mut" "$vars") || return 1   # _graphql fails closed on network / GraphQL errors[] / bad JSON
+
+  local ok
+  ok=$(printf '%s' "$resp" | jq -r --arg f "$field" '.data[$f].success // false')
+  if [ "$ok" != "true" ]; then
+    echo "ticket: resolve-comment: Linear reported success=false for $cid" >&2
+    return 1
+  fi
+
+  local rid resolved_at
+  rid=$(printf '%s' "$resp" | jq -r --arg f "$field" --arg c "$cid" '.data[$f].comment.id // $c')
+  resolved_at=$(printf '%s' "$resp" | jq -r --arg f "$field" '.data[$f].comment.resolvedAt // null')
+
+  if [ "$json" -eq 1 ]; then
+    if [ "$resolved_at" = "null" ]; then
+      jq -n --arg id "$rid" '{id: $id, resolvedAt: null}'
+    else
+      jq -n --arg id "$rid" --arg ra "$resolved_at" '{id: $id, resolvedAt: $ra}'
+    fi
+  elif [ "$reopen" -eq 1 ]; then
+    echo "🎟 reopened $rid"
+  else
+    echo "🎟 resolved $rid at $resolved_at"
+  fi
+}
+
 # ---- Dispatch ----
 case "${1:-}" in
   subscribe)   shift; cmd_subscribe "$@" ;;
@@ -524,6 +600,7 @@ case "${1:-}" in
   read)        shift; cmd_read "$@" ;;
   list)        shift; cmd_list "$@" ;;
   watch)       shift; cmd_watch "$@" ;;
+  resolve-comment) shift; cmd_resolve_comment "$@" ;;
   ""|-h|--help|help) usage ;;
   *) echo "ticket: unknown subcommand '$1'" >&2; usage; exit 1 ;;
 esac

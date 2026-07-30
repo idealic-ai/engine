@@ -23,8 +23,9 @@ The alias is the preferred invocation method — it's shorter and whitelisted vi
 | `session.sh` | Session lifecycle: activate, phase tracking, deactivate, restart, context scans | `engine session activate <path> <skill>` |
 | `log.sh` | Append content to any file. Creates parent dirs. Auto-injects timestamps into `## ` headings | `log.sh <file> <<'EOF'` |
 | `tag.sh` | Manage semantic tags on markdown files. Subcommands: `add`, `remove`, `swap`, `find` | `tag.sh add <file> '#tag'` |
-| `ticket.sh` | Cross-session Linear-ticket updates (dirty-flag + watermark). Subcommands: `subscribe`, `unsubscribe`, `notify`, `read`, `list`, `watch` (fswatch, blocks until a watched ticket updates; self-registers `watchTaskId` so the auto-watch hard gate can force a live background watcher). The `/communicate` skill drives a full ask/reply discussion turn | `ticket.sh watch FIN-123` (unbounded; `--timeout N` to bound) |
+| `ticket.sh` | Cross-session Linear-ticket updates + the per-ticket Linear pull. Signal subcommands (`subscribe`, `unsubscribe`, `notify`, `read`, `list`) track a dirty queue + ONE shared read cursor `.ticketCursor` (W) over the watched set. `watch` (fswatch) blocks until a watched ticket updates, then **auto-drains** — `ticket fetch`es the delta since W into a payload file, advances W, emits the path (self-registers `watchTaskId` for the auto-watch hard gate). `fetch <KEY...> [--since] [--out]` is the stateless multi-key Linear pull (comment trees w/ reactions + lifecycle + attachments), grouped by team; needs `LINEAR_API_KEY`. The `/communicate` skill drives a full ask/reply discussion turn | `ticket.sh fetch FIN-123 FIN-456 --since=<ISO>` · `ticket.sh watch FIN-123` |
 | `project.sh` | Fetch a Linear **project** as one JSON payload of everything at/after an optional `--since` cutoff — bare fetch = full snapshot (comment trees, new tickets, attachments, lifecycle events, structure catalog, summary). Read-only GraphQL; stateless — `--since` is caller-owned, no stored waterline. Subcommand: `fetch`. Needs `LINEAR_API_KEY` (env/.env). Consumed by `/intake` | `engine project fetch "<project>" [--since=<ISO>]` |
+| `linear-lib.sh` | Shared Linear GraphQL seam (`_graphql`/`_load_key`/fixture mechanism) + the per-issue jq transform (comment tree w/ reactions, normalized lifecycle, attachments) + child-pagination. Sourced by both `project.sh` and `ticket.sh` so a field added for one is added for both (`¶INV_SHARED_TRANSFORM_NO_DIVERGE`). Fixture var: `LINEAR_FIXTURE` (or the `PROJECT_FETCH_FIXTURE` back-compat alias) | sourced, not run directly |
 | `ticket-search.sh` | Rank **related Linear tickets** for a free-text query (read-only `searchIssues` GraphQL). Emits `SRC_RELATED_TICKETS` at session startup + backs the `/ticket-search` skill. Needs `LINEAR_API_KEY` (env/.env); fail-soft to `(none)` without it. Flags: `--team`, `--include-closed`/`--open-only`, `--limit`, `--json` | `engine ticket-search "<text>" [--open-only] [--json]` |
 | `lib.sh` | Shared utilities for hooks: fleet notification, tmux guards, JSON helpers | Sourced by hooks, not invoked directly |
 | `find-sessions.sh` | Find sessions by date, topic, tag, or date range | `find-sessions.sh recent --files` |
@@ -47,7 +48,7 @@ The alias is the preferred invocation method — it's shorter and whitelisted vi
 | `account-switch.sh` | Claude account credential rotation — save, switch, rotate profiles via macOS Keychain | `engine account-switch save user@gmail.com` |
 | `migrate-fleet-pane-ids.sh` | One-time migration for fleet pane ID format changes | `migrate-fleet-pane-ids.sh` |
 
-## LINEAR_API_KEY (enables `project.sh` + `ticket-search.sh`)
+## LINEAR_API_KEY (enables `project.sh`, `ticket.sh fetch`/`watch` auto-drain + `ticket-search.sh`)
 
 Both Linear-GraphQL tools resolve the key the same way (first hit wins):
 

@@ -7,8 +7,13 @@
 #
 # Usage:
 #   engine slack-post [--channel <id|#name>] [--title <text>] [--text <str>] \
-#                     [--env-file <path>] [--dry-run]
+#                     [--env-file <path>] [--update-ts <ts>] [--dry-run]
 #   (message read from STDIN when --text is omitted)
+#
+# Post vs edit: without --update-ts it sends chat.postMessage (a new message).
+# With --update-ts <ts> it sends chat.update to EDIT the message with that ts
+# (channel + ts required). On success the message ts is printed to stdout, so a
+# caller can capture the ts of a post and later edit that same message in place.
 #
 # Auth: bot token, resolved in order —
 #   1. $SLACK_INTAKE_TOKEN   2. $SLACK_BOT_TOKEN
@@ -51,6 +56,7 @@ channel=""
 title=""
 text=""
 env_file="./.env.local"
+update_ts=""
 dry_run=0
 
 while [ $# -gt 0 ]; do
@@ -59,6 +65,7 @@ while [ $# -gt 0 ]; do
     --title)    title="${2:-}"; shift 2 ;;
     --text)     text="${2:-}"; shift 2 ;;
     --env-file) env_file="${2:-}"; shift 2 ;;
+    --update-ts) update_ts="${2:-}"; [ -n "$update_ts" ] || die "--update-ts requires a message ts value (got empty/none)"; shift 2 ;;
     --dry-run)  dry_run=1; shift ;;
     -h|--help)  usage 0 ;;
     *)          die "unknown argument: $1 (see --help)" ;;
@@ -93,6 +100,11 @@ else
      ]}') || die "failed to build request body"
 fi
 
+# --- update mode: add the target message ts (chat.update edits it in place) ---
+if [ -n "$update_ts" ]; then
+  body=$(printf '%s' "$body" | jq --arg ts "$update_ts" '. + {ts:$ts}') || die "failed to add ts to request body"
+fi
+
 # --- dry run: print body (token never lives here) and stop ---
 if [ "$dry_run" -eq 1 ]; then
   printf '%s\n' "$body"
@@ -107,16 +119,22 @@ if [ -z "$token" ]; then
 fi
 [ -n "$token" ] || die "no Slack token (set \$SLACK_INTAKE_TOKEN or add it to $env_file)"
 
+# --- endpoint: chat.update when editing an existing message, else chat.postMessage ---
+endpoint="chat.postMessage"
+[ -n "$update_ts" ] && endpoint="chat.update"
+
 # --- send (body via stdin so the token stays out of argv) ---
 response=$(printf '%s' "$body" | curl -sS -X POST \
   -H "Authorization: Bearer $token" \
   -H "Content-type: application/json; charset=utf-8" \
   --data @- \
-  "https://slack.com/api/chat.postMessage") || die "network error calling Slack"
+  "https://slack.com/api/$endpoint") || die "network error calling Slack"
 
 ok=$(printf '%s' "$response" | jq -r '.ok // false' 2>/dev/null || echo "false")
 if [ "$ok" = "true" ]; then
+  # Print the message ts so a caller can capture it (to edit this message later).
+  printf '%s\n' "$(printf '%s' "$response" | jq -r '.ts // empty' 2>/dev/null || true)"
   exit 0
 fi
 err=$(printf '%s' "$response" | jq -r '.error // "unknown_error"' 2>/dev/null || echo "unknown_error")
-die "chat.postMessage failed: $err"
+die "$endpoint failed: $err"

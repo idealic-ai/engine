@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shared-state demo — /prove multiplayer</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fff; --fg:#111; --mut:#666; --line:#e3e3e3; --up:#16a34a; --down:#dc2626; --card:#fafafa; }
+  @media (prefers-color-scheme: dark){ :root{ --bg:#0f0f10; --fg:#eee; --mut:#9a9a9a; --line:#2a2a2c; --card:#171719; } }
+  * { box-sizing:border-box; } body{ margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 system-ui,-apple-system,sans-serif; }
+  main{ max-width:640px; margin:0 auto; padding:24px 18px 64px; }
+  h1{ font-size:19px; margin:0 0 2px; } .sub{ color:var(--mut); font-size:13px; margin:0 0 20px; }
+  .tally{ display:flex; gap:14px; margin:18px 0; }
+  .stat{ flex:1; border:1px solid var(--line); border-radius:10px; padding:14px; text-align:center; background:var(--card); }
+  .stat b{ font-size:26px; display:block; } .up b{ color:var(--up); } .down b{ color:var(--down); }
+  .stat span{ color:var(--mut); font-size:12px; text-transform:uppercase; letter-spacing:.04em; }
+  .row{ display:flex; gap:8px; margin:16px 0; flex-wrap:wrap; }
+  button{ font:inherit; padding:9px 16px; border:1px solid var(--line); border-radius:8px; background:var(--card); color:var(--fg); cursor:pointer; }
+  button:hover{ border-color:var(--mut); } button.up:hover{ border-color:var(--up); } button.down:hover{ border-color:var(--down); }
+  input{ font:inherit; padding:9px 12px; border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--fg); flex:1; min-width:160px; }
+  .notes{ margin-top:22px; border-top:1px solid var(--line); padding-top:14px; }
+  .note{ padding:8px 0; border-bottom:1px solid var(--line); font-size:14px; }
+  .note .who{ color:var(--mut); font-size:12px; } .badge{ font-weight:600; } .badge.up{ color:var(--up); } .badge.down{ color:var(--down); }
+  .status{ color:var(--mut); font-size:12px; margin-top:10px; min-height:1em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Shared-state demo <span style="color:var(--mut);font-weight:400">· /prove multiplayer</span></h1>
+  <p class="sub">Reactions land in an S3 events inbox (presigned POST); an agent-run <code>prove-sync</code> folds them into one CAS state doc this page polls. Open in two tabs, react in one, run <code>prove-sync</code>, watch the other update.</p>
+
+  <div class="tally">
+    <div class="stat up"><b id="c-up">0</b><span>👍 up</span></div>
+    <div class="stat down"><b id="c-down">0</b><span>👎 down</span></div>
+    <div class="stat"><b id="c-total">0</b><span>reactions</span></div>
+  </div>
+
+  <div class="row">
+    <input id="who" placeholder="your name (optional)" autocomplete="off">
+    <input id="note" placeholder="a note (optional)" autocomplete="off">
+  </div>
+  <div class="row">
+    <button class="up" onclick="react('up')">👍 Agree</button>
+    <button class="down" onclick="react('down')">👎 Disagree</button>
+  </div>
+  <div class="status" id="status"></div>
+
+  <div class="notes" id="notes"></div>
+</main>
+
+<!-- The publish step injects the real config here. -->
+<script id="prove-state-config" type="application/json">__PROVE_STATE_CONFIG__</script>
+<script>
+(function(){
+  var cfg;
+  try { cfg = JSON.parse(document.getElementById('prove-state-config').textContent); }
+  catch(e){ document.getElementById('status').textContent = 'demo not configured (no injected config)'; return; }
+
+  function setStatus(m){ document.getElementById('status').textContent = m; }
+
+  // Conditional GET: track the doc's ETag and send If-None-Match. Every CAS fold rewrites the
+  // doc (new ETag), so an unchanged poll returns 304 + no body — near-free. Same-origin against
+  // the S3 host, so the ETag response header is readable.
+  var lastEtag = null;
+  async function poll(){
+    try {
+      var headers = {};
+      if (lastEtag) headers['If-None-Match'] = lastEtag;
+      var r = await fetch(cfg.stateUrl, { cache:'no-store', headers: headers });
+      if (r.status === 304){ setStatus('· up to date (' + new Date().toLocaleTimeString() + ')'); return; }  // unchanged — 0 bytes
+      if (r.status === 404){ lastEtag = null; render([]); return; }        // no events folded yet
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      lastEtag = r.headers.get('ETag');                    // remember for the next conditional poll
+      var doc = await r.json();
+      render(doc.events || []);
+      setStatus('· updated (' + new Date().toLocaleTimeString() + ')');
+    } catch(e){ setStatus('poll error: ' + e.message); }
+  }
+
+  function render(events){
+    var up=0, down=0, notes=[];
+    events.forEach(function(ev){
+      (ev.items||[]).forEach(function(it){
+        if (it.kind !== 'reaction') return;
+        var v = (it.selected||[])[0];
+        if (v === 'up') up++; else if (v === 'down') down++;
+        if (it.note) notes.push({who: ev.voter||'anon', v:v, note: it.note});
+      });
+    });
+    document.getElementById('c-up').textContent = up;
+    document.getElementById('c-down').textContent = down;
+    document.getElementById('c-total').textContent = up+down;
+    document.getElementById('notes').innerHTML = notes.slice(-30).reverse().map(function(n){
+      return '<div class="note"><span class="badge '+(n.v||'')+'">'+(n.v==='up'?'👍':'👎')+'</span> '+
+             escapeHtml(n.note)+' <span class="who">— '+escapeHtml(n.who)+'</span></div>';
+    }).join('');
+  }
+  function escapeHtml(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  window.react = async function(dir){
+    var who = document.getElementById('who').value.trim() || 'anon';
+    var note = document.getElementById('note').value.trim();
+    var ev = { board: cfg.doc, class: 'reader', voter: who, ts: new Date().toISOString(),
+               items: [{ id: cfg.claimId || 'claim-1', kind: 'reaction', selected: [dir], note: note }] };
+    var fd = new FormData();
+    Object.keys(cfg.fields).forEach(function(k){ fd.append(k, cfg.fields[k]); });   // signed policy fields
+    fd.append('key', cfg.keyPrefix + Date.now() + '-' + Math.random().toString(16).slice(2,10) + '.json');
+    fd.append('Content-Type', 'application/json');
+    fd.append('file', new Blob([JSON.stringify(ev)], {type:'application/json'}));    // file LAST
+    try {
+      var r = await fetch(cfg.postUrl, { method:'POST', body: fd });
+      if (r.status === 204 || r.ok){ setStatus('submitted ✓ — visible after the next prove-sync fold'); document.getElementById('note').value=''; }
+      else setStatus('submit failed: HTTP ' + r.status);
+    } catch(e){ setStatus('submit error: ' + e.message); }
+  };
+
+  poll(); setInterval(poll, (cfg.pollMs || 4000));
+})();
+</script>
+</body>
+</html>

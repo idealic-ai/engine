@@ -108,4 +108,51 @@ test_slack_post_happy_path() {
   assert_eq "0" "$rc" "ok:true → exit 0"
 }
 
+# Case 7 — --update-ts targets chat.update, puts ts in the body, prints ts on stdout.
+test_slack_post_update_endpoint() {
+  export MOCK_CURL_RESPONSE='{"ok":true,"ts":"999.111"}'
+  local out rc args stdin
+  out=$(printf '%s' "edited" | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --channel "C1" --update-ts "999.111" 2>/dev/null)
+  rc=$?
+  args=$(cat "$MOCK_CURL_ARGS" 2>/dev/null)
+  stdin=$(cat "$MOCK_CURL_STDIN" 2>/dev/null)
+  assert_eq "0" "$rc" "update: ok:true → exit 0"
+  assert_contains "chat.update" "$args" "update: hits chat.update endpoint"
+  assert_eq "999.111" "$(printf '%s' "$stdin" | jq -r '.ts')" "update: ts in request body"
+  assert_eq "999.111" "$out" "update: prints message ts on stdout"
+}
+
+# Case 7b — without --update-ts, the endpoint stays chat.postMessage.
+test_slack_post_default_endpoint() {
+  export MOCK_CURL_RESPONSE='{"ok":true,"ts":"1.2"}'
+  printf '%s' "new" | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --channel "C1" >/dev/null 2>&1
+  local args; args=$(cat "$MOCK_CURL_ARGS" 2>/dev/null)
+  assert_contains "chat.postMessage" "$args" "default: hits chat.postMessage"
+  assert_not_contains "chat.update" "$args" "default: not chat.update"
+}
+
+# Case 7c — --update-ts dry-run: ts in the body, token still absent, no curl call.
+test_slack_post_update_dry_run() {
+  local out
+  out=$(SLACK_INTAKE_TOKEN="xoxb-secret" "$SLACK_POST" --dry-run --channel "C1" --text "hi" --update-ts "42.7" 2>&1)
+  assert_eq "42.7" "$(printf '%s' "$out" | jq -r '.ts')" "update dry-run: ts in body"
+  assert_not_contains "xoxb-secret" "$out" "update dry-run: token absent"
+  assert_file_not_exists "$MOCK_CURL_ARGS" "update dry-run: no curl call"
+}
+
+# Case 7d — a normal post prints the returned message ts on stdout (for later editing).
+test_slack_post_prints_ts() {
+  export MOCK_CURL_RESPONSE='{"ok":true,"ts":"555.222"}'
+  local out; out=$(printf '%s' "m" | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --channel "C1" 2>/dev/null)
+  assert_eq "555.222" "$out" "post: prints message ts on stdout"
+}
+
+# Case 7e — --update-ts with no value → clear error, exit 1 (no silent postMessage downgrade, no hang).
+test_slack_post_update_ts_empty() {
+  local rc
+  printf '%s' "m" | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --channel "C1" --update-ts >/dev/null 2>&1
+  rc=$?
+  assert_eq "1" "$rc" "trailing --update-ts (no value) → exit 1, no hang/downgrade"
+}
+
 run_discovered_tests
