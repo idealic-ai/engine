@@ -53,7 +53,7 @@ Infer the mode from the args and the context. If it is genuinely ambiguous, reso
 
 Invoked directly, or by `§CMD_OFFER_HANDBOOK_CAPTURE` at a skill's synthesis.
 
-1.  **Fetch the recipe the session actually followed** (`show --recipe`). Without it there is nothing to measure against, and the output degrades into generic advice.
+1.  **Re-fetch the recipe immediately before reducing** (`show --recipe`) — not at the start of the session, and never from a cached read. Without it there is nothing to measure against, and the output degrades into generic advice. **Check `updatedAt`**: Linear has been observed serving a stale document *with a stale timestamp*, so a copy read earlier in the same session can silently predate an edit that already landed. A proposal that adds facts the handbook already states is worse than no proposal — it costs a reviewer real time to work out that it is a no-op.
 2.  **Fill the seven buckets** of `assets/TEMPLATE_FRICTION_LOG.md` from the session's own evidence — log, DIALOGUE, `builds/`, the commands actually run. Every line must be traceable to something that happened; **no speculative recipe advice**.
 3.  **Reduce to a Keep/Add/Cut delta** (`assets/TEMPLATE_RECIPE_DELTA.md`). This is the payload — buckets 1–6 are its evidence, bucket 7 is the proposal. A capture that reports friction without a delta is not applicable and should not be posted.
     *   **Keep is not politeness.** Naming what was right is what stops the next editor cutting the parts that are working.

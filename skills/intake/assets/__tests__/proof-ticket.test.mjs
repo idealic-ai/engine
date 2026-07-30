@@ -450,4 +450,121 @@ function shadow(el) { return el.shadowRoot; }
   check(!/navigator\.sendBeacon/.test(proofSrc), "source sends no beacon");
 }
 
-console.log("proof-ticket.test: PASS — " + COUNT + " assertions (iter-1: key/href, tooltip+a11y, dated status, link-only, XSS-escape, scanner wrap/skip/idempotent, co-delivery non-interference, SVG-anchor skip, hyphen-boundary; iter-2: freshness bucketing+dot+a11y, choosePlacement below/flip/clamp, card dialog+aria-expanded+Escape/outside-click+return-focus, tabs+roving+activity last-5 comment/state, relation re-anchor, back-compat, XSS on desc/comment/author, zero-request grep)");
+/* ── 21. [#1] baked meta.url of a non-http scheme never becomes a live href (javascript: sink) ── */
+{
+  const dom = runProof(newDom(
+    blobTag({ bakedAt: "2026-07-31T12:00:00Z", tickets: { "FIN-100": {
+      title: "T", status: "In Progress", statusType: "started",
+      url: "javascript:alert(document.domain)"
+    } } }) +
+    '<prove-ticket key="FIN-100">FIN-100</prove-ticket>'
+  ));
+  const a = shadow($(dom, "prove-ticket")).querySelector("a");
+  a.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  const keylink = shadow($(dom, "prove-ticket-card")).querySelector(".keylink");
+  const href = keylink.getAttribute("href");
+  check(!/^javascript:/i.test(href), "javascript: url is rejected as an href");
+  eq(href, BASE + "FIN-100", "unsafe baked url falls back to the constructed tracker permalink");
+  // a legit https permalink is preserved verbatim
+  const dom2 = runProof(newDom(
+    blobTag({ bakedAt: "2026-07-31T12:00:00Z", tickets: { "FIN-100": {
+      title: "T", status: "Done", url: "https://linear.app/finchclaims/issue/FIN-100/some-slug"
+    } } }) +
+    '<prove-ticket key="FIN-100">FIN-100</prove-ticket>'
+  ));
+  const a2 = shadow($(dom2, "prove-ticket")).querySelector("a");
+  a2.dispatchEvent(new dom2.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  eq(shadow($(dom2, "prove-ticket-card")).querySelector(".keylink").getAttribute("href"),
+    "https://linear.app/finchclaims/issue/FIN-100/some-slug", "a valid https permalink is preserved");
+  // a data: scheme is likewise rejected
+  const dom3 = runProof(newDom(
+    blobTag({ bakedAt: "2026-07-31T12:00:00Z", tickets: { "FIN-100": { title: "T", url: "data:text/html,<script>1</script>" } } }) +
+    '<prove-ticket key="FIN-100">FIN-100</prove-ticket>'
+  ));
+  const a3 = shadow($(dom3, "prove-ticket")).querySelector("a");
+  a3.dispatchEvent(new dom3.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  eq(shadow($(dom3, "prove-ticket-card")).querySelector(".keylink").getAttribute("href"), BASE + "FIN-100", "data: url falls back to the safe permalink");
+}
+
+/* ── 22. [#2/#3] focusables()/trap exclude controls in the hidden panel; trap wraps (no escape) ── */
+{
+  const dom = runProof(newDom(
+    blobTag({ bakedAt: "2026-07-31T12:00:00Z", tickets: {
+      "FIN-100": { title: "Origin", status: "In Progress", statusType: "started",
+        relations: [{ key: "FIN-200", type: "related", title: "Other" }] }
+    } }) +
+    '<prove-ticket key="FIN-100">FIN-100</prove-ticket>'
+  ));
+  const a = shadow($(dom, "prove-ticket")).querySelector("a");
+  a.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  const card = $(dom, "prove-ticket-card");
+  const root = shadow(card);
+  const relPanel = root.querySelector("#pt-panel-relations");
+  const chip = root.querySelector(".pt-rel");
+  check(relPanel.hidden === true, "relations panel is hidden while Overview is active");
+  // the REAL focusables() method must exclude the chip inside the display:none panel
+  const f = card.focusables();
+  check(f.indexOf(chip) === -1, "focusables() excludes the relation chip inside the hidden panel");
+  check(!relPanel.contains(f[f.length - 1]), "focusables() 'last' is a genuinely reachable control, not a hidden-panel chip");
+  // trap must WRAP at the last visible control (Tab from the selected tab → preventDefault), not escape
+  const overviewTab = root.querySelector("#pt-tab-overview");
+  overviewTab.focus();
+  const tabEv = new dom.window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
+  dom.window.document.dispatchEvent(tabEv);
+  check(tabEv.defaultPrevented, "Tab at the last visible control wraps inside the card (trap holds, no escape via hidden chips)");
+  // after switching to Relations, the chip becomes reachable → included again
+  root.querySelector("#pt-tab-relations").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  const f2 = card.focusables();
+  check(f2.indexOf(chip) !== -1, "after switching to the Relations tab, the chip is included in focusables()");
+}
+
+/* ── 23. [#4] the shipped source carries no literal </script> (only the loss-free escaped form) ── */
+{
+  check(proofSrc.indexOf("</" + "script>") === -1, "source contains no literal close-script token (inline-embed safe)");
+  check(proofSrc.indexOf("<\\/script>") !== -1, "the header example uses the escaped <\\/script> form");
+}
+
+/* ── 24. [#5] activity sorts newest-first before capping → oldest-first bake shows the NEWEST 5 ── */
+{
+  // baked OLDEST-first: e0 (oldest) … e5 (newest); 6 events, cap 5 → e0 must drop, e5 shows first
+  const acts = [];
+  for (let i = 0; i < 6; i++) acts.push({ author: "u" + i, ts: "2026-07-31T0" + i + ":00:00Z", kind: "comment", text: "e" + i });
+  const dom = runProof(newDom(
+    blobTag({ bakedAt: "2026-07-31T12:00:00Z", tickets: { "FIN-100": { title: "T", status: "In Progress", statusType: "started", activity: acts } } }) +
+    '<prove-ticket key="FIN-100">FIN-100</prove-ticket>'
+  ));
+  const a = shadow($(dom, "prove-ticket")).querySelector("a");
+  a.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+  const root = shadow($(dom, "prove-ticket-card"));
+  root.querySelector("#pt-tab-activity").dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+  const texts = Array.from(root.querySelectorAll(".pt-evt-text")).map((n) => n.textContent);
+  eq(texts.length, 5, "activity still capped at 5");
+  eq(texts[0], "e5", "newest event (e5) renders first despite oldest-first bake");
+  check(texts.indexOf("e0") === -1, "the oldest event (e0) is dropped, not shown as 'recent'");
+  check(texts.indexOf("e1") !== -1, "the 5 newest (e1..e5) are the ones shown");
+}
+
+/* ── 25. [#6] missing/unparseable bakedAt → freshness degrades to unknown (never wall-clock) ── */
+{
+  const F = runProof(newDom("")).window.ProveTicket.freshnessOf;
+  const A = runProof(newDom("")).window.ProveTicket.ageString;
+  const entry = { lastActivityAt: "2026-05-01T00:00:00Z" }; // real activity date, far in the past
+  eq(F(entry, ""), "unknown", "missing bakedAt → freshness unknown (no wall-clock bucketing)");
+  eq(F(entry, "not-a-date"), "unknown", "unparseable bakedAt → freshness unknown");
+  eq(A(entry, ""), "", "missing bakedAt → no confident age string");
+  eq(A(entry, "garbage"), "", "unparseable bakedAt → no age string");
+  // a real bakedAt still buckets normally (guard didn't over-fire)
+  eq(F(entry, "2026-05-01T05:00:00Z"), "fresh", "a valid bakedAt still buckets (5h gap → fresh)");
+}
+
+/* ── 26. [#6] rendered card with a garbage bakedAt shows the unknown dot, not a false 'stale' ── */
+{
+  const dom = runProof(newDom(
+    blobTag({ bakedAt: "garbage", tickets: { "FIN-100": { title: "T", status: "In Progress", statusType: "started", lastActivityAt: "2026-01-01T00:00:00Z" } } }) +
+    '<prove-ticket key="FIN-100">FIN-100</prove-ticket>'
+  ));
+  const root = shadow($(dom, "prove-ticket"));
+  check(root.querySelector(".dot").classList.contains("dot-unknown"), "garbage bakedAt → inline dot is unknown, not a wall-clock 'stale'");
+}
+
+console.log("proof-ticket.test: PASS — " + COUNT + " assertions (iter-1: key/href, tooltip+a11y, dated status, link-only, XSS-escape, scanner wrap/skip/idempotent, co-delivery non-interference, SVG-anchor skip, hyphen-boundary; iter-2: freshness bucketing+dot+a11y, choosePlacement below/flip/clamp, card dialog+aria-expanded+Escape/outside-click+return-focus, tabs+roving+activity last-5 comment/state, relation re-anchor, back-compat, XSS on desc/comment/author, zero-request grep; iter-2-hardening: href scheme allow-list, focus-trap ancestor-visibility, no-literal-close-script source, activity newest-first sort, bakedAt→unknown freshness)");

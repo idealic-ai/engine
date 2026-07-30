@@ -65,7 +65,18 @@ The problem map to render as a diagram (nodes = problems/solutions; edges = stan
 
 **2. Widget markup** — wire each decision with `data-fb-*` attributes; the kit reads them and emits the payload in `PAYLOAD_SCHEMA.md`:
 - Board metadata (once, e.g. on `<body>`): `data-fb-board="<wave-slug>" data-fb-wave="<project> wave <n>"`
-- A steering widget (multi-select): a container `data-fb-item="<id>" data-fb-kind="steer"`, with one `<input type="checkbox" data-fb-key="<option-key>">` per option, an optional `<textarea data-fb-note>`.
+- A steering widget (multi-select): a container `data-fb-item="<id>" data-fb-kind="steer"`, with one option row per choice and an optional `<textarea class="fb-note" data-fb-note>`. **Every option carries a one-line description** — the option keys are terse machine ids and the labels are short, so a picker with labels alone is a picker that gets guessed at. Put the *why-you'd-pick-this* on the row, not in a tooltip:
+  ```html
+  <label class="fb-opt">
+    <input type="checkbox" data-fb-key="do-it-now">
+    <span class="fb-opt-body">
+      <span class="fb-opt-label">Do it now</span>
+      <span class="fb-opt-desc">The four numbers are one query; every wave that runs first turns the baseline into a reconstruction.</span>
+    </span>
+    <span class="fb-panel"><!-- panel marks, if any --></span>
+  </label>
+  ```
+  The description is the orchestrator's, drawn from the triage steering read — not invented by the render agent (`¶INV_BOARD_TRUSTS_ORCHESTRATOR_CURATION`). If the handoff gave an option no description, render the label alone rather than writing one.
 - A consolidation widget: `data-fb-item="<op-id>" data-fb-kind="consolidation"` with two radios `<input type="radio" name="<op-id>" data-fb-key="approve">` / `data-fb-key="reject"`.
 - An adopt-cancel widget: `data-fb-item="<FIN-key>" data-fb-kind="adopt-cancel"` with radios `data-fb-key="adopt"` / `data-fb-key="cancel"`, a `<select data-fb-field="milestone">…</select>` (adopt target), and `<input data-fb-field="reason">` (cancel reason).
 - A copy bar (or let the kit auto-inject one): a `<button data-fb-copy>Copy answers</button>`, a `<input data-fb-voter>` for the voter name, a `<span data-fb-copied></span>`, and a `<pre data-fb-payload></pre>` (the always-visible payload, so copy works even if the clipboard API is blocked).
@@ -79,6 +90,8 @@ The problem map to render as a diagram (nodes = problems/solutions; edges = stan
 - **Never give a panel mark the same visual weight as a human's.** Icons are the council namespace; initials (`fb-mark-human`) are the human one. They must be distinguishable at a glance and by form, not by shade.
 
 Design the widgets to look like whatever fits your layout — the kit only reads the `data-fb-*` attributes.
+
+**Restyling: override the `--fb-*` variables, don't fight the kit.** The kit owns what must *work* (geometry, hit targets, focus, reachability, and the states that carry meaning — checked, conviction, thin-grounds); you own what must look *good*. The seam is a set of custom properties on `:root` — `--fb-fg`, `--fb-muted`, `--fb-border`, `--fb-surface`, `--fb-accent`, `--fb-council`, `--fb-human`, `--fb-note-bg`, `--fb-radius`, `--fb-shadow`, `--fb-mark-size` — each with a light and dark default. Override them in your `<style>` to restyle the whole widget set coherently. You may also override kit rules outright, but **do not remove** the reachability behaviours (focus reveal, click toggle) or the state distinctions: those are the parts a reader depends on, not decoration.
 
 ## Presentation (yours — load `Skill(artifact-design)`)
 - **Required coverage** (present all, in whatever structure reads best): thesis line · `/prove` scope block (*evidence shows / out of scope / **rests on trusted upstream triage***) · **a "where the signals came from & how" provenance section** (per-channel counts of what drained this wave, how items were drained + triaged, the Directions in force) · ranked candidates each with the number behind the call + its steering widget · consolidation ops as approve/reject with reasoning + evidence · stray adopt/cancel widgets · the dependency graph · a closing "nothing is executed — these are decisions" note (`¶INV_INTAKE_DISPATCHES_NEVER_EXECUTES`). **When the handoff carries panel votes, also required**: a **legend** naming each seated expert's icon and lens, stating plainly that this is an AI panel's advisory read — one layer further from authority than a teammate's vote — and telling the reader that hovering, focusing or tapping a mark shows that expert's reasoning. A mark whose reasoning a reader cannot reach is a judgement delivered at a decision point with its audit trail hidden, which is worse than showing no panel at all; the reachability is not a nicety to trade away for a tidier layout.

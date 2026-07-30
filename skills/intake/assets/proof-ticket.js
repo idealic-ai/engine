@@ -31,7 +31,7 @@
  *         "relations": [ { "key": "FIN-3518", "type": "related", "title": "…" } ],
  *         "activity": [ { "author": "…", "ts": "2026-07-30T18:24:00Z", "kind": "comment"|"state", "text": "…" } ]
  *       } } }
- *   </script>
+ *   <\/script>
  * BAKE CONTRACT (agent-side, publish-time — reuse §CMD_READ_RELATED_TICKET, never a browser fetch):
  *   per distinct FIN key on the page: get_issue + list_comments → normalize to the entry above.
  *   lastActivityAt = max(updatedAt, newest comment ts). activity = LAST 5 events only (comments +
@@ -108,6 +108,16 @@
     return KEY_RE.test(k) ? k : null;
   }
 
+  // A baked string in a link context needs scheme allow-listing, not just HTML-escaping. Accept only
+  // the tracker permalink prefix or an http(s) URL; anything else (javascript:, data:, …) falls back
+  // to the constructed, KEY_RE-validated permalink so a compromised bake can't emit a live script sink.
+  function safeHref(url, key) {
+    var fallback = TRACKER_ISSUE_BASE + key;
+    if (typeof url !== "string" || !url) return fallback;
+    if (url.indexOf(TRACKER_ISSUE_BASE) === 0) return url;
+    return /^https?:\/\//i.test(url) ? url : fallback;
+  }
+
   // ── freshness (pure) ─────────────────────────────────────────────────────────
   function lastActivityMs(entry) {
     if (!entry) return NaN;
@@ -116,16 +126,20 @@
     var t = Date.parse(d);
     return isNaN(t) ? NaN : t;
   }
+  // Missing/unparseable bakedAt → NaN, NOT Date.now(): freshness must degrade to "unknown" rather
+  // than silently measure against the viewer's wall-clock (a confident-but-wrong bucket).
   function refMs(bakedAt) {
     var r = bakedAt ? Date.parse(bakedAt) : NaN;
-    return isNaN(r) ? Date.now() : r;
+    return isNaN(r) ? NaN : r;
   }
   // Bucket the gap between the baked reference time and the ticket's last activity. No date → unknown
   // (never claims a freshness it can't back). Activity "after" bake (clock skew) clamps to freshest.
   function freshnessOf(entry, bakedAt) {
     var last = lastActivityMs(entry);
     if (isNaN(last)) return "unknown";
-    var diff = refMs(bakedAt) - last;
+    var ref = refMs(bakedAt);
+    if (isNaN(ref)) return "unknown";
+    var diff = ref - last;
     if (diff < 0) diff = 0;
     if (diff < FRESH_24H) return "fresh";
     if (diff <= FRESH_7D) return "recent";
@@ -136,7 +150,9 @@
   function ageString(entry, bakedAt) {
     var last = lastActivityMs(entry);
     if (isNaN(last)) return "";
-    var diff = refMs(bakedAt) - last;
+    var ref = refMs(bakedAt);
+    if (isNaN(ref)) return "";
+    var diff = ref - last;
     if (diff < 0) diff = 0;
     var mins = Math.round(diff / 60000);
     if (mins < 60) return mins <= 1 ? "just now" : mins + "m ago";
@@ -372,6 +388,18 @@
     return n;
   }
 
+  // Real focusability needs ancestor visibility, not just the element's own `hidden`. A tab-panel
+  // widget hides inactive panels on the ancestor [role=tabpanel][hidden] (→ display:none), so a
+  // control inside a hidden panel is unreachable even though its own `hidden` is false.
+  function inHiddenPanel(n) {
+    var p = n;
+    while (p && p.nodeType === 1) {
+      if (p.getAttribute && p.getAttribute("role") === "tabpanel" && p.hidden) return true;
+      p = p.parentNode;
+    }
+    return false;
+  }
+
   var ProveTicketCard = class extends HTMLElement {
     connectedCallback() {
       if (this._built) return;
@@ -457,9 +485,8 @@
     buildHeader(key, meta, bakedAt, titleId) {
       var hd = el("div", "hd");
       var top = el("div", "hd-top");
-      var url = (meta && typeof meta.url === "string" && meta.url) || (TRACKER_ISSUE_BASE + key);
       var link = el("a", "keylink", key + " ↗");
-      link.setAttribute("href", url);
+      link.setAttribute("href", safeHref(meta && meta.url, key));
       link.setAttribute("target", "_blank");
       link.setAttribute("rel", "noopener noreferrer");
       top.appendChild(link);
@@ -575,7 +602,15 @@
 
     buildActivity(meta, bakedAt) {
       var p = this.makePanel("activity");
-      var acts = meta && Array.isArray(meta.activity) ? meta.activity.slice(0, ACTIVITY_CAP) : [];
+      // Sort newest-first by ts before capping, so the last-5 are the NEWEST 5 regardless of bake
+      // order. Stable: equal/missing ts keep their relative order (missing sorts oldest).
+      var acts = meta && Array.isArray(meta.activity)
+        ? meta.activity.slice().sort(function (a, b) {
+            var ta = a && a.ts ? Date.parse(a.ts) : NaN;
+            var tb = b && b.ts ? Date.parse(b.ts) : NaN;
+            return (isNaN(tb) ? -Infinity : tb) - (isNaN(ta) ? -Infinity : ta);
+          }).slice(0, ACTIVITY_CAP)
+        : [];
       if (!acts.length) {
         p.appendChild(el("div", "empty", "No recent activity baked."));
         return p;
@@ -641,7 +676,10 @@
       if (!this._content) return [];
       return Array.prototype.slice.call(
         this._content.querySelectorAll('a[href],button,[role=tab][tabindex="0"],[tabindex]:not([tabindex="-1"])')
-      ).filter(function (n) { return !n.hidden && n.getAttribute("tabindex") !== "-1" || n.getAttribute("role") === "tab" && n.getAttribute("tabindex") === "0"; });
+      ).filter(function (n) {
+        if (inHiddenPanel(n)) return false;
+        return (!n.hidden && n.getAttribute("tabindex") !== "-1") || (n.getAttribute("role") === "tab" && n.getAttribute("tabindex") === "0");
+      });
     }
 
     focusFirst() {
@@ -706,6 +744,7 @@
         this._content ? this._content.querySelectorAll('a[href],button,[role=tab],[tabindex]') : []
       ).filter(function (n) {
         if (n.hidden) return false;
+        if (inHiddenPanel(n)) return false;
         if (n.getAttribute("tabindex") === "-1" && n.getAttribute("role") !== "tab") return false;
         if (n.getAttribute("role") === "tab" && n.getAttribute("aria-selected") !== "true") return false;
         return true;
