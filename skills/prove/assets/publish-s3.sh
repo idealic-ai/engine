@@ -189,6 +189,12 @@ if presign and presign.get("postUrl"):
     cfg["keyPrefix"] = presign["keyPrefix"]
     cfg["fields"] = presign["fields"]
     cfg["expiresAt"] = presign["expiresAt"]
+    # Why the window is the length it is, carried on the page rather than left on the signer's
+    # stdout. A board that says "closes in 12 minutes" without saying "because it was signed with
+    # a temporary credential" reproduces the confusion this whole config exists to end. .get() so
+    # an older signer's output degrades to null instead of failing the publish.
+    for k in ("expirySeconds", "expiryRequested", "expiryClampedBy"):
+        cfg[k] = presign.get(k)
 else:
     # Read-only config. The kit shows the reason on the submit control rather than a dead button.
     cfg["submitDisabledReason"] = os.environ["SIGN_ERROR"]

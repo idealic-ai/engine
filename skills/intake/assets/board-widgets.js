@@ -23,7 +23,11 @@
  * behaves exactly as it did before this existed: copy-back only, and no network request at all.
  *   [data-fb-state-config]  — a <script type="application/json"> whose text is the publish-injected
  *      config {docId, stateUrl, pollMs, postUrl?, keyPrefix?, fields?, expiresAt?,
- *      submitDisabledReason?}. Unresolved/absent/unparseable ⇒ not configured ⇒ today's board.
+ *      expirySeconds?, expiryRequested?, expiryClampedBy?, submitDisabledReason?}.
+ *      expiryClampedBy says WHY the window is the length it is — "credential" when the signing
+ *      credential dies before the requested window (a session token yields minutes, not days),
+ *      "s3-max" when the request exceeded S3's 7-day ceiling, null when nothing shortened it.
+ *      Unresolved/absent/unparseable ⇒ not configured ⇒ today's board.
  *   [data-fb-submit] [data-fb-state-status]  — submit control + status line (auto-created if absent)
  *   [data-fb-marks="<option-key>"]  — where OTHER people's marks are appended for that option
  *   [data-fb-presence]              — fallback marks container for boards with no per-key slots
