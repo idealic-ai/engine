@@ -19,8 +19,13 @@ events/<doc>/<ts>-<rand>.json # append inbox — presigned-POST writes (authoriz
 ## Config (reuses the `.env` seam)
 `PROVE_S3_BUCKET` / `PROVE_S3_REGION` / `PROVE_S3_PROFILE` (existing) + `PROVE_S3_STATE_PREFIX` (default `state`), `PROVE_S3_EVENTS_PREFIX` (default `events`). `PROVE_S3_CAS_ATTEMPTS` (default 30) tunes the retry budget.
 
-## Data shape
-Reader events use the coordinated `PAYLOAD_SCHEMA.md` **reader class**: `{board, class:"reader", voter, ts, items:[{id, kind:"reaction", selected:["up"|"down"], note}]}`. The state doc is `{docId, events:[…]}`; ingest/render tallies by `(class, item.id)`.
+## Data shape — owned by `PAYLOAD_SCHEMA.md`, not restated here
+**The event shape, the `actor.kind` enum, the id grammar, and the dedupe / supersede / tally rules live in `~/.claude/engine/skills/intake/assets/PAYLOAD_SCHEMA.md`.** Read it there. This file used to restate them and the restatement went stale — it still described a pre-v2 record keyed by a top-level `class` field wrapping a nested per-item array, long after the contract moved to `actor.kind` and one self-contained event per record. A second copy of a contract is a second contract; there is now one.
+
+What the **transport** owns, and all it owns:
+- **One event per object.** Each key under `events/<doc>/` holds exactly ONE event object — `state-append.sh` takes a single `<event.json>` and appends that one object. A writer with N events posts N objects.
+- **The state doc envelope** is `{"docId": "<doc>", "events": [ … ]}` — a flat array of whatever event objects the fold has appended, in append order.
+- **The doc is an append-only LOG, not a reconciled view.** The fold is a blind append (`state-append.sh` does `events.append(ev)` and inspects nothing), so duplicates and superseded events are both *expected* to be present. **Every reader applies `PAYLOAD_SCHEMA.md`'s rules at read time** — dedupe by `id`, then greatest-`ts` per `(actor, item)` — the widget when it renders, the wave when it ingests. Do not teach the fold these rules: a shell script cannot import a markdown contract, which is exactly how the second drifting rule-set above was born.
 
 ## Security posture
 - **No anonymous public write.** Writes are authorized by the SigV4 presigned-POST signature (the signer's own creds), not a public-write bucket policy. The bucket grants public **read** on `state/*` and `proofs/*` only; `events/*` is private (verified: `events/*` GET → **403**).

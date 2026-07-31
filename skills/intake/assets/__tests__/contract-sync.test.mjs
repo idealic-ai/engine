@@ -26,6 +26,8 @@ const renderSpec = read(path.join(intake, "TEMPLATE_DECISION_BOARD_PROMPT.md"));
 const intakeSkill = read(path.join(intake, "..", "SKILL.md"));
 const schema = read(path.join(intake, "PAYLOAD_SCHEMA.md"));
 const publishSh = read(path.join(intake, "..", "..", "prove", "assets", "publish-s3.sh"));
+const publishKitSh = read(path.join(intake, "..", "..", "prove", "assets", "publish-kit.sh"));
+const transport = read(path.join(intake, "..", "..", "prove", "assets", "STATE_TRANSPORT.md"));
 const brief = read(path.join(council, "assets", "TEMPLATE_COUNCIL_BRIEF.md"));
 const councilSkill = read(path.join(council, "SKILL.md"));
 const personas = read(path.join(council, "personas", "INDEX.md"));
@@ -157,8 +159,71 @@ check("the render spec references the kit rather than inlining it", () => {
     "the spec still claims self-contained — a board now depends on its host");
 });
 
+/* ---- 11 (T1). The transport doc POINTS at the payload contract instead of restating it ----
+   STATE_TRANSPORT.md carried its own copy of the event shape and a tally rule. The copy went
+   stale — it still described a pre-v2 record while the contract had moved to actor.kind — and a
+   stale copy is worse than no copy, because a reader who finds it stops looking. The fix is
+   REMOVAL plus a pointer, never a correction: a corrected restatement is a restatement, and
+   drifts again on the next revision. So this asserts the restatement is GONE, not that it agrees. */
+check("STATE_TRANSPORT.md does not restate the payload shape", () => {
+  assert.ok(!/class\s*:\s*"reader"/.test(transport),
+    'STATE_TRANSPORT.md still restates a `class:"reader"` record — the contract is actor.kind, and this copy drifted once already');
+  assert.ok(!/items\s*:\s*\[\s*\{/.test(transport),
+    "STATE_TRANSPORT.md still restates the pre-v2 nested items[] shape");
+  assert.ok(!/tallies by/.test(transport),
+    "STATE_TRANSPORT.md still states a tally rule — the tally rule belongs to PAYLOAD_SCHEMA.md alone");
+  assert.ok(/PAYLOAD_SCHEMA\.md/.test(transport),
+    "STATE_TRANSPORT.md removed the shape but points nowhere — a reader now has no route to the contract");
+});
+
+check("STATE_TRANSPORT.md states the two facts the TRANSPORT actually owns", () => {
+  assert.ok(/One event per object/i.test(transport),
+    "the one-event-per-object rule is unstated — it is what makes N events N POSTs, and only the transport knows it");
+  assert.ok(/append-only/i.test(transport) && /blind append/i.test(transport),
+    "the doc does not say the fold is a blind append, so a reader cannot know duplicates are expected");
+  assert.ok(/dedupe by `id`, then greatest-`ts` per `\(actor, item\)`/.test(transport),
+    "the doc does not say the READER applies the rules — which is the whole reason the fold may stay blind");
+});
+
+/* ---- 12. The state-config placeholder means the same thing on both sides ----
+   Same hazard as the kit token (check 9), one layer down: the render agent writes the
+   placeholder, publish substitutes it. Disagree and the substitution silently no-ops, the board
+   falls back to copy-back, and nothing errors — the multiplayer layer just never turns on. */
+check("the state-config placeholder token agrees between spec and publish step", () => {
+  const TOKEN = "__PROVE_STATE_CONFIG__";
+  assert.ok(renderSpec.includes(TOKEN), "the render spec does not name the state-config placeholder token");
+  assert.ok(publishSh.includes(TOKEN), "publish-s3.sh does not know the token the spec tells agents to write");
+  /* Naming a token is not substituting it — check 9 already carries this lesson for the kit
+     token. A publish step that merely mentions the token ships the raw placeholder, the board
+     silently degrades to copy-back, and nothing anywhere errors. */
+  assert.ok(new RegExp("replace\\(\"" + TOKEN + "\"").test(publishSh),
+    "publish-s3.sh names the state-config token but never replaces it");
+  assert.ok(/data-fb-state-config/.test(renderSpec),
+    "the spec names the token but not the attribute the kit reads it through");
+});
+
+/* ---- 13. publish-kit.sh delivers every file the render spec tells a board to reference ----
+   A spec line pointing at an object nothing publishes is a guaranteed 404 with no error anywhere. */
+check("every kit file the render spec references is actually published", () => {
+  /* Assert the UPLOAD, not a mention: publish-kit.sh naming a file in a comment while never
+     copying it is exactly the state that produces a silent 404 on every board. */
+  const uploads = publishKitSh.match(/aws s3 cp "\$kitDir\/[a-z.-]+"/g) || [];
+  for (const f of ["board-widgets.js", "board-widgets.css", "proof-ticket.js"]) {
+    assert.ok(uploads.includes(`aws s3 cp "$kitDir/${f}"`),
+      `publish-kit.sh never uploads ${f} — a board referencing it 404s with nothing in any log`);
+  }
+  assert.ok(/board-widgets\.v\$\{ver\}\.js/.test(publishKitSh),
+    "the board-widgets key is not version-stamped from the source's own SCHEMA_VERSION");
+  assert.ok(/proof-ticket\.v\$\{ticketVer\}\.js/.test(publishKitSh),
+    "proof-ticket.js is published at an unversioned key — a breaking change would overwrite every live board's copy");
+  assert.ok(/proof-ticket\.v\d+\.js/.test(renderSpec),
+    "the render spec does not name the versioned proof-ticket file it tells agents to reference");
+});
+
 console.log(`contract-sync.test: PASS — ${checks} cross-file checks `
   + "(brief_version, panel sizes, removed-Wildcard, report_path, poll on both sides, "
   + "kit attributes vs render spec, persona icon uniqueness, ingest single-sourcing, "
   + "contract count, v1+v2 both documented, reader enumerated+scoped, contributor filter complete, "
-  + "kit-token agreement, spec references rather than inlines)");
+  + "kit-token agreement, spec references rather than inlines, transport doc points-not-restates, "
+  + "transport owns one-event-per-object + blind-append, state-config token agreement, "
+  + "every referenced kit file is published)");

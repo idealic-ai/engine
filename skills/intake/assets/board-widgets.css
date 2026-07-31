@@ -19,7 +19,7 @@
   --fb-accent-soft: rgba(61,107,229,0.10);
   --fb-council:     #7a52c9;      /* the panel's class colour — never a persona's */
   --fb-council-soft:rgba(122,82,201,0.12);
-  --fb-human:       #2f7d68;      /* reserved for the multiplayer human-presence layer */
+  --fb-human:       #2f7d68;      /* the human-presence layer: teammates' marks + the submit bar */
   --fb-human-soft:  rgba(47,125,104,0.12);
   --fb-note-bg:     #ffffff;
   --fb-radius:      10px;
@@ -170,7 +170,37 @@
               font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.76rem;
               line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
 
+/* ── Shared state: other people's marks + the submit bar ──────────────
+   Every rule here reads the same --fb-* seam as the rest of the kit, so a board that restyled
+   the widgets already restyled these. --fb-human is no longer "reserved for the multiplayer
+   human-presence layer" — this IS that layer, and .fb-mark-human above is its mark. */
+.fb-humanmarks { display: inline-flex; align-items: center; gap: 0.22rem; }
+.fb-humanmarks:not(:empty) { margin-left: 0.3rem; }
+
+/* The fallback for boards with no per-key mark slots. Deliberately plain: it is the degraded
+   presentation, and looking as good as the real slot would remove the reason to emit slots. */
+.fb-presence { margin-top: 0.5rem; font-size: 0.82rem; color: var(--fb-muted); }
+.fb-presence-row { display: flex; align-items: center; gap: 0.35rem; padding: 0.15rem 0; flex-wrap: wrap; }
+.fb-presence-key { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.74rem; }
+
+/* Sits below the copy bar, never in place of it: with an hours-long write window, expired-on-
+   arrival is the ordinary case and the copy bar is what still works then. */
+.fb-statebar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem;
+               margin: 0.5rem 0 1rem; padding: 0.6rem 0.75rem;
+               border: 1px solid var(--fb-border); border-radius: var(--fb-radius);
+               background: var(--fb-surface); }
+.fb-submitbtn { padding: 0.45rem 0.95rem; border-radius: var(--fb-radius-sm);
+                border: 1px solid var(--fb-human); background: var(--fb-human-soft);
+                color: inherit; font: inherit; font-weight: 650; cursor: pointer; }
+.fb-submitbtn:hover:not(:disabled) { filter: brightness(1.06); }
+.fb-submitbtn:focus-visible { outline: 2px solid var(--fb-accent); outline-offset: 2px; }
+/* A dead-looking button with no stated reason is the worst version of expiry. The button dims,
+   and .fb-statestatus beside it always says why and points at the copy bar. */
+.fb-submitbtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.fb-statestatus { flex: 1 1 14rem; min-width: 0; font-size: 0.83rem; color: var(--fb-muted);
+                  line-height: 1.45; overflow-wrap: anywhere; }
+
 @media (prefers-reduced-motion: reduce) {
-  .fb-opt, .fb-mark, .fb-mark-note, .fb-copybtn { transition: none; }
+  .fb-opt, .fb-mark, .fb-mark-note, .fb-copybtn, .fb-submitbtn { transition: none; }
   .fb-mark:hover { transform: none; }
 }

@@ -64,11 +64,22 @@ It is also why panel answers are events rather than a block nested on an item: t
 - **Council events are static** — rendered into the board, identical in every reader's copy. Every paste therefore carries them, and their deterministic ids collapse the duplicates exactly. No divergence logic is needed: one wave publishes one board, from one render.
 - **Supersede rule**: for each `(actor, item)`, keep only the events carrying that pair's **greatest `ts`**. A voter who changes their mind and copies again supersedes their own earlier answers for that item wholesale — which is what makes an unchecked box actually retract.
 
-### Ingestion (orchestrator, Phase 6)
+### Ingestion (orchestrator, Phase 6) — **two sources, one rule-set**
 
-1. Parse each pasted line. **Malformed → say so and ask for a re-paste; never silently mis-tally.**
+Answers reach the wave by **two** routes, and the rules below apply identically to both. Which route a board used is a delivery detail; it must never change how an answer is counted.
+
+1. **A pasted payload** — the kit's *Copy answers* button, newline-delimited, handed over in chat. Always available; it is the path that still works when the board's write window has expired, when signing was unavailable at publish, or when a POST failed.
+2. **A fetched state doc** — `state/<docId>.json`, when the board carried a shared-state config and teammates voted **in the page**. Its envelope is `{"docId": …, "events": [ … ]}`; take `events` and treat each entry exactly like a pasted line. Its URL is recorded beside the board URL in `INTAKE.md` (Phase 5).
+
+**The state doc is an append-only LOG, not a settled view.** The fold that writes it appends blindly and reconciles nothing, so duplicates and superseded answers are *expected to be present*. That is not a defect to route around — it is why steps 2's rules below are a **read-side** obligation for every reader, this ingest included. A reader that skips them will double-count and will resurrect answers their author already retracted. Transport detail: `~/.claude/engine/skills/prove/assets/STATE_TRANSPORT.md`.
+
+**Both routes may deliver the same answer.** A teammate who voted in the page *and* pasted produces two copies of the same events, with the same `id`s — step 2 collapses them exactly, which is the whole reason the ids are deterministic. Merge the two sources into one list and run the rules **once over the union**; never tally them separately and add the totals.
+
+**A `reader` reaction may appear in a fetched doc and never in a pasted one.** Exclude it from the human tally and from the council's, per the contributor filter above — do not treat its presence as a malformed doc.
+
+1. Parse each line (pasted) / each `events[]` entry (fetched). **Malformed → say so and ask for a re-paste; never silently mis-tally.**
 2. Dedupe by `id`; apply the supersede rule.
-3. Group by `item`. Tally **human** votes by `key` — that is the teammate tally, and panel votes never enter it. A `reader` event reaching a pasted payload is out of place (the copy path cannot produce one): say so rather than tallying it, and never bucket it as human or council.
+3. Group by `item`. Tally **human** votes by `key` — that is the teammate tally, and panel votes never enter it. A `reader` event is normal in a **fetched** doc and out of place in a **pasted** payload (the copy path cannot produce one): in either case never bucket it as human or council; in the pasted case, say so.
 4. Present the panel separately: per `key`, **which lenses picked it and at what weight** — never a bare count, which flattens a 3–2 split into "3 for this one" and hides the more informative outcome. Surface dissent, any `alternative` an expert named (feedback on whether the option set itself was right), and any `thinGrounds` vote as such.
 5. Both are an **advisory leaning** at the chat confirm. Every disposition / consolidation / adopt / cancel still passes the human confirm (`¶INV_TICKET_EARNED_BY_CONFIRM`). A panel vote is one layer further from authority than a teammate's, and nothing in how it is presented may imply otherwise.
 6. Any `measure:*` key → queue/re-open triage on that item (unbounded re-open; the operator closes).

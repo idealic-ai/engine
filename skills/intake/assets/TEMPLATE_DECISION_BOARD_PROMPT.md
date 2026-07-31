@@ -63,6 +63,32 @@ The problem map to render as a diagram (nodes = problems/solutions; edges = stan
 
 **The trade, stated so nobody reverses it by accident**: a board is no longer a single file that works anywhere. It works **from the S3 host**. Opened from disk it renders and does not function. That was accepted deliberately in exchange for updatability.
 
+Boards that render `FIN-` keys may additionally reference the ticket-preview kit, at its own
+version (it is deliberately versioned apart from the widget kit — they share nothing):
+- `<script src="__FB_KIT_BASE__/proof-ticket.v1.js"></script>`
+
+Both files are uploaded by `publish-kit.sh`. Reference only files that script publishes: a `src`
+pointing at an object nobody uploads is a 404 with no error anywhere and silently dead tooltips.
+
+**1b. The shared-state config — copy this block verbatim when the wave wants in-page voting.**
+Teammates then vote **in the page** instead of copying a payload into chat. Write exactly:
+```html
+<script id="prove-state-config" data-fb-state-config type="application/json">__PROVE_STATE_CONFIG__</script>
+```
+`publish-s3.sh` replaces `__PROVE_STATE_CONFIG__` with the real config (state-doc URL + a presigned
+write grant) at publish time — the same reason as the kit token: it is the only moment the bucket,
+the doc id and a signable credential all exist together.
+
+**Omitting this block is a supported, complete board** — the kit then does exactly what it does
+today: copy-back only, and it issues no network request at all. Do not add the block "just in
+case"; add it when the wave wants live voting.
+
+**The write grant expires, and expiry is the normal state, not the exception.** It is bounded by
+the publishing session's own credential — hours, not days — so most visitors arrive after it has
+lapsed. That is why **the copy bar stays on every board**: it is the path that still works when
+the presign is dead, when signing was unavailable at publish, or when a POST fails. Never remove
+the copy bar because a board has a state config.
+
 **2. Widget markup** — wire each decision with `data-fb-*` attributes; the kit reads them and emits the payload in `PAYLOAD_SCHEMA.md`:
 - Board metadata (once, e.g. on `<body>`): `data-fb-board="<wave-slug>" data-fb-wave="<project> wave <n>"`
 - A steering widget (multi-select): a container `data-fb-item="<id>" data-fb-kind="steer"`, with one option row per choice and an optional `<textarea class="fb-note" data-fb-note>`. **Every option carries a one-line description** — the option keys are terse machine ids and the labels are short, so a picker with labels alone is a picker that gets guessed at. Put the *why-you'd-pick-this* on the row, not in a tooltip:
@@ -80,6 +106,8 @@ The problem map to render as a diagram (nodes = problems/solutions; edges = stan
 - A consolidation widget: `data-fb-item="<op-id>" data-fb-kind="consolidation"` with two radios `<input type="radio" name="<op-id>" data-fb-key="approve">` / `data-fb-key="reject"`.
 - An adopt-cancel widget: `data-fb-item="<FIN-key>" data-fb-kind="adopt-cancel"` with radios `data-fb-key="adopt"` / `data-fb-key="cancel"`, a `<select data-fb-field="milestone">…</select>` (adopt target), and `<input data-fb-field="reason">` (cancel reason).
 - A copy bar (or let the kit auto-inject one): a `<button data-fb-copy>Copy answers</button>`, a `<input data-fb-voter>` for the voter name, a `<span data-fb-copied></span>`, and a `<pre data-fb-payload></pre>` (the always-visible payload, so copy works even if the clipboard API is blocked).
+- **Only when the board carries the state-config block (1b)**, optionally place these yourself; the kit injects its own bar if you don't: `<button data-fb-submit>Submit</button>` (posts this voter's answers to the shared doc) and `<span data-fb-state-status></span>` (where the kit writes submit / poll / expiry status). Placing them yourself is how you get them inside your own layout instead of appended to `<body>`.
+- **Where other people's marks land**: give each option row a slot `<span class="fb-panel" data-fb-marks="<option-key>"></span>` — the *same* span that holds the council marks for that key. The kit appends teammates' initials there and **never touches a `[data-fb-panel]` node**, so a poll cannot disturb the panel's read. Boards with no slots still work: the kit falls back to a `[data-fb-presence]` block it appends to the item container. Per-option slots read far better — put them in.
 
 **3. Panel marks** (only when the orchestrator's handoff carries panel votes — omit entirely otherwise). One mark per expert per option, rendered **directly on the option picker**, never collapsed behind a control and never in a separate block. Each mark is a **focusable control** (`<button type="button">`), not a `<span>`:
 - `data-fb-panel="<item-id>"` `data-fb-panel-key="<option-key>"` `data-fb-panel-lens="<persona name>"` `data-fb-panel-icon="<persona icon>"` `data-fb-panel-kind="<itemKind>"` `data-fb-panel-weight="1..5"` `data-fb-panel-why="<one line>"` `data-fb-panel-alt="<alternative, may be empty>"` `data-fb-panel-thin="true|false"`.
