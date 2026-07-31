@@ -87,6 +87,21 @@ function bodyEvent(post) {
 }
 const tick = () => new Promise((r) => setTimeout(r, 0));   // host realm — lets the kit's promises settle
 
+/* A localStorage stand-in. A submit receipt only earns its keep if it survives a reload, and a
+ * reload IS a fresh sandbox over the SAME store — which is exactly how the reload scenarios below
+ * simulate one, rather than by poking a module variable that no reload would have preserved.
+ * Each runKit gets its own store unless a scenario hands one in, so nothing inherits a receipt. */
+function makeStore(seed = {}) {
+  const map = Object.create(null);
+  for (const k of Object.keys(seed)) map[k] = String(seed[k]);
+  return {
+    getItem(k) { return Object.prototype.hasOwnProperty.call(map, k) ? map[k] : null; },
+    setItem(k, v) { map[k] = String(v); },
+    removeItem(k) { delete map[k]; },
+    keys: () => Object.keys(map)
+  };
+}
+
 function runKit(body, opts = {}) {
   const documentShim = {
     readyState: "complete", body,
@@ -98,13 +113,15 @@ function runKit(body, opts = {}) {
   };
   const sandbox = { document: documentShim, navigator: {}, Date, JSON, setTimeout: () => {}, console, window: {} };
   if (opts.net) { sandbox.fetch = opts.net.fetchShim; sandbox.FormData = FormDataShim; sandbox.Blob = BlobShim; }
+  const store = opts.store || makeStore();
+  sandbox.localStorage = store;
   sandbox.window = sandbox; sandbox.self = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(kitSrc, sandbox);
   const text = sandbox.window.FinchBoard.payloadText();
   return {
     text, events: text.split("\n").filter(Boolean).map((l) => JSON.parse(l)),
-    board: sandbox.window.FinchBoard, doc: documentShim, body
+    board: sandbox.window.FinchBoard, doc: documentShim, body, store
   };
 }
 
@@ -396,14 +413,14 @@ assert.strictEqual(collided.length, 1,
   "two blank names ARE one actor to the supersede rule — the first voter's answer is destroyed, which is exactly why submit refuses");
 
 /* ---- T6 — every degraded path leaves copy-back working and states a reason ---- */
-function degradedBoard(cfg, net) {
+function degradedBoard(cfg, net, store) {
   return runKit(linkParents(node("body", BOARD, [
     ...stateBarNodes(), stateConfigNode(cfg),
     node("input", { "data-fb-voter": "", _value: "dana" }),
     node("div", { "data-fb-item": "cmt-abc", "data-fb-kind": "steer" }, [
       node("input", { "data-fb-key": "needs-research", _checked: true })
     ])
-  ])), { net });
+  ])), { net, store });
 }
 /* 6a. EXPIRED-ON-ARRIVAL — the modal state, not an edge case: the write window is the publishing
    session's own credential, so most visitors arrive after it lapsed. */
@@ -425,6 +442,23 @@ await tick();
 assert.strictEqual(await t6b.board.submit(), false, "a failed POST reports failure rather than a false success");
 assert.ok(/did not post/.test(stateStatus(t6b)) && /503/.test(stateStatus(t6b)), "…names the count and the HTTP status");
 assert.ok(/Copy answers/.test(stateStatus(t6b)), "…and routes the voter to copy-back");
+
+/* 6d. S3 names the cause in the body; the status alone does not. Observed live: a board whose
+   expiresAt claimed seven days posted into a credential that had already died with its session,
+   and the voter was shown "HTTP 400" — exactly the "the page knows and won't say" failure this
+   ticket exists to end. */
+const t6dNet = makeNet({ post: () => ({
+  ok: false, status: 400, headers: { get: () => null },
+  text: () => Promise.resolve('<?xml version="1.0"?><Error><Code>ExpiredToken</Code>'
+    + '<Message>The provided token has expired.</Message></Error>'),
+}) });
+const t6d = degradedBoard(LIVE, t6dNet);
+await tick();
+assert.strictEqual(await t6d.board.submit(), false, "an expired token is still a failed submit");
+assert.ok(/write window closed early/.test(stateStatus(t6d)),
+  "…and the voter is told the window closed, not shown a bare status code");
+assert.ok(!/HTTP 400/.test(stateStatus(t6d)), "…the uninformative status does not survive the mapping");
+assert.ok(/Copy answers/.test(stateStatus(t6d)), "…and copy-back is still offered");
 
 /* 6c. Publish happened while signing was unavailable — a READ-ONLY config. */
 const t6cNet = makeNet();
@@ -508,6 +542,174 @@ t9.doc.querySelector("[data-fb-key]").checked = true;
 t9.board.render();
 assert.strictEqual(t9slot.children[0].children.length, 1, "…and it reveals the moment they make their own pick");
 
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+   THE RELOAD — T10…T18.
+
+   The bug, verbatim from the operator on a live board: "i submitted answers, but didnt see them
+   on page reload". Five events had landed correctly; the reloaded page said "Could not read the
+   shared board (HTTP 403)". NOTHING below is about the transport, which was verified live against
+   S3. It is entirely about what the page SAYS after the page that said it is gone.
+
+   Two facts the scenarios encode rather than re-derive:
+   1. S3 answers a MISSING key with 403, not 404, when the bucket grants no public ListBucket. So
+      the pre-fold state — the most ordinary state a board has — arrives as a 403, and the kit's
+      404 branch is effectively dead code on a real board.
+   2. The fold is AGENT-RUN. Nothing schedules it; polling detects it and never causes it. The
+      wait is unbounded BY DESIGN, so the job here is to make it legible, never to imply a clock.
+   ══════════════════════════════════════════════════════════════════════════════════════════ */
+const RKEY = "fb:receipt:" + LIVE.docId;
+const err403 = () => ({ ok: false, status: 403, headers: { get: () => null } });
+const storedReceipt = (store) => { const raw = store.getItem(RKEY); return raw ? JSON.parse(raw) : null; };
+const DANA_NR = "v:h:dana:cmt-abc:needs-research";
+
+/* A board as it is AFTER a reload: nothing ticked and no name typed, because a reload restores
+   neither. Anything this voter is shown therefore has to come from what SURVIVED the reload. */
+function reloadBoard(net, store, checked = false) {
+  const slot = node("span", { "data-fb-marks": "needs-research" });
+  const slotST = node("span", { "data-fb-marks": "seems-like-a-ticket" });
+  const r = runKit(linkParents(node("body", BOARD, [
+    ...stateBarNodes(), stateConfigNode(LIVE),
+    node("input", { "data-fb-voter": "", _value: "" }),
+    node("div", { "data-fb-item": "cmt-abc", "data-fb-kind": "steer" }, [
+      node("label", {}, [node("input", { "data-fb-key": "needs-research", _checked: checked }), slot]),
+      node("label", {}, [node("input", { "data-fb-key": "seems-like-a-ticket", _checked: false }), slotST])
+    ])
+  ])), { net, store });
+  return { ...r, slot, slotST };
+}
+const marksIn = (slot) => slot.children[0].children.length;
+
+/* ---- T10 — a 403 with no doc yet is the PRE-FOLD state, not a failure ---- */
+const t10net = makeNet({ get: err403 });
+const t10 = reloadBoard(t10net, makeStore());
+await tick();
+assert.strictEqual(t10net.gets().length, 1, "the board really did poll — otherwise every assertion below is vacuous");
+assert.ok(!/Could not read the shared board/.test(stateStatus(t10)),
+  "THE BUG: a missing state doc comes back 403, so 'nobody has folded this board yet' rendered as an error");
+assert.ok(/not folded yet/.test(stateStatus(t10)),
+  "…it must read as the not-folded-yet state, which the kit already had words for and could not reach");
+/* The copy BUTTON is unassertable here — ensureCopyBar() injects it via innerHTML and the shim
+   stores innerHTML as an unparsed string, so no node ever appears. What is assertable is the
+   thing the button copies, which is the part that could actually have broken. */
+t10.doc.querySelector("[data-fb-key]").checked = true;
+assert.ok(/"type":"vote"/.test(t10.board.payloadText()),
+  "…and copy-back, the path that always works, still builds its payload under a 403");
+
+/* ---- T11 — a 403 AFTER a doc HAS been read is a genuine permissions failure ---- */
+const t11net = makeNet({ get: (n) => (n === 1 ? ok200(t4doc, '"e-403"') : err403()) });
+const t11 = reloadBoard(t11net, makeStore());
+await tick();
+assert.ok(!/Could not read/.test(stateStatus(t11)), "the first poll read the doc fine");
+await t11.board.poll(); await tick();
+assert.ok(/Could not read the shared board/.test(stateStatus(t11)) && /403/.test(stateStatus(t11)),
+  "a read that worked and then stopped is a REAL failure — blanket-forgiving 403 would render a broken board as a calm wait, forever");
+
+/* ---- T12 — the 404 branch still works (it is not dead everywhere, only on S3-without-ListBucket) ---- */
+const t12net = makeNet();                                   // the shim's default answer is 404
+const t12 = reloadBoard(t12net, makeStore());
+await tick();
+assert.strictEqual(t12net.gets()[0].url, LIVE.stateUrl, "the poll went to the configured stateUrl");
+assert.ok(!/Could not read/.test(stateStatus(t12)) && /not folded yet/.test(stateStatus(t12)),
+  "a 404 still reads as not-folded-yet — the 403 fix is additive, it did not replace the branch");
+
+/* ---- T13 — a successful submit leaves a receipt, and the receipt holds ONLY the voter's own ids ---- */
+const t13net = makeNet({ post: () => ({ ok: true, status: 204, headers: { get: () => null } }) });
+const t13store = makeStore();
+const t13 = degradedBoard(LIVE, t13net, t13store);
+await tick();
+assert.strictEqual(storedReceipt(t13store), null, "nothing is written to the device by merely opening the board");
+assert.strictEqual(await t13.board.submit(), true, "the submit succeeds");
+await tick();
+const t13rec = storedReceipt(t13store);
+assert.ok(t13rec, "…and leaves a receipt behind, which is the only thing about this submit that survives the page");
+assert.deepStrictEqual(t13rec.ids, t13net.posts().map((p) => bodyEvent(p).event.id),
+  "the receipt holds EXACTLY the ids that were posted — which is what later lets it check itself against the folded doc");
+assert.strictEqual(t13rec.pending, true, "…and claims, for now, that they have not been folded in");
+assert.ok(t13rec.ts, "…and records when they were sent: with nothing scheduling the fold, elapsed time is the only honest staleness signal");
+assert.deepStrictEqual(Object.keys(t13rec).sort(), ["ids", "pending", "ts"],
+  "…and NOTHING else: FIN-3569's escalation trigger fires on storing anything beyond the voter's own answers on their own device");
+assert.deepStrictEqual(t13store.keys(), [RKEY], "one key, scoped to this docId — a receipt cannot leak across boards");
+
+/* ---- T14 — the reload: a brand-new sandbox over the SAME store ---- */
+const t14net = makeNet({ get: () => ok200({ docId: LIVE.docId, events: [] }, '"empty"') });
+const t14 = reloadBoard(t14net, t13store);
+await tick();
+assert.ok(/posted/.test(stateStatus(t14)) && /fold/.test(stateStatus(t14)),
+  "THE FIX: the in-page 'Submitted N ✓' died with the page; the receipt did not, so the reloaded page can still say what happened");
+assert.ok(/Copy answers/.test(stateStatus(t14)), "…and still routes to copy-back rather than presenting the wait as the only option");
+assert.strictEqual(storedReceipt(t13store).pending, true,
+  "…and because the fetched doc does not carry the ids, the receipt is RETAINED");
+
+/* ---- T15 — self-expiry: the doc carries the ids ⇒ the CLAIM retires, the ids stay ---- */
+const t15store = makeStore({ [RKEY]: JSON.stringify({ ids: [DANA_NR], ts: "2026-07-31T10:00:00Z", pending: true }) });
+const t15net = makeNet({ get: () => ok200(t4doc, '"e15"') });
+const t15 = reloadBoard(t15net, t15store);
+await tick();
+const t15rec = storedReceipt(t15store);
+assert.strictEqual(t15rec.pending, false,
+  "every stored id is in the doc, so 'still waiting' has become false — a receipt that outlives its truth is the same class of lie as the 403 was");
+assert.deepStrictEqual(t15rec.ids, [DANA_NR],
+  "…but the ids are KEPT: they are how this device still knows it voted on the NEXT reload, and dropping them would blank the tally for someone who demonstrably voted");
+assert.ok(!/posted/.test(stateStatus(t15)), "…and the page stops claiming anything is queued");
+assert.strictEqual(marksIn(t15.slot), 1,
+  "THE OTHER HALF: a voter who ticked nothing this page-life still sees the marks — a stored receipt IS having taken a position");
+assert.strictEqual(marksIn(t15.slotST), 1, "…on every option, not only the one they picked");
+
+/* ---- T16 — one id missing from the doc keeps the whole receipt pending ---- */
+const t16store = makeStore({ [RKEY]: JSON.stringify({
+  ids: [DANA_NR, "v:h:dana:cmt-abc:seems-like-a-ticket"], ts: "2026-07-31T10:00:00Z", pending: true }) });
+const t16net = makeNet({ get: () => ok200(t4doc, '"e16"') });
+const t16 = reloadBoard(t16net, t16store);
+await tick();
+assert.strictEqual(storedReceipt(t16store).pending, true,
+  "the doc carries one of the two ids, so the answer is still 'not all of them are in' — the fold landing without your events is the failure this receipt exists to surface");
+assert.deepStrictEqual(storedReceipt(t16store).ids, [DANA_NR, "v:h:dana:cmt-abc:seems-like-a-ticket"],
+  "…and a partial match rewrites nothing");
+assert.ok(/posted/.test(stateStatus(t16)), "…and the page keeps saying so");
+
+/* ---- T17 — the invariant: no receipt and no picks ⇒ NO tally ---- */
+const t17net = makeNet({ get: () => ok200(t4doc, '"e17"') });
+const t17store = makeStore();
+const t17 = reloadBoard(t17net, t17store);
+await tick();
+assert.strictEqual(marksIn(t17.slot), 0,
+  "¶INV_PANEL_VOTES_ARE_A_READ_NOT_A_VERDICT SURVIVES THE FIX: someone who has not voted sees no tally — a live tally converts an independent read into an anchored, sequential one");
+assert.strictEqual(marksIn(t17.slotST), 0, "…on every option, so the gate was widened for receipts, not removed");
+assert.ok(!/\b[0-9]+ (votes?|teammates?)\b/.test(stateStatus(t17)), "…and no bare count either — the count IS the anchor");
+assert.deepStrictEqual(t17store.keys(), [], "…and reading a board still writes nothing to the reader's device");
+
+/* ---- T18 — only a well-formed receipt for THIS doc opens the gate ---- */
+const t18store = makeStore({
+  [RKEY]: "{not json",
+  "fb:receipt:some-other-board": JSON.stringify({ ids: [DANA_NR], ts: "2026-07-31T10:00:00Z", pending: true })
+});
+const t18net = makeNet({ get: () => ok200(t4doc, '"e18"') });
+const t18 = reloadBoard(t18net, t18store);
+await tick();
+assert.strictEqual(marksIn(t18.slot), 0,
+  "a corrupt receipt is no receipt — it must fail closed, to the invariant's side, not open the tally");
+assert.deepStrictEqual(JSON.parse(t18store.getItem("fb:receipt:some-other-board")).ids, [DANA_NR],
+  "…and another board's receipt is left exactly as it was: receipts are keyed by docId, so one board can never open another's gate");
+assert.strictEqual(t18store.getItem(RKEY), "{not json", "…and the unreadable value is not silently overwritten either");
+assert.ok(!/posted/.test(stateStatus(t18)), "…and nothing is claimed on its behalf");
+
+/* ---- A no-config board is inert STRUCTURALLY, not just in its payload ----
+   Publish now injects the config into every board, so "no config" stops being the ordinary case
+   and becomes the one nobody looks at: a board opened off disk, a compose that was never
+   published, a page published before the injection existed. T2 above proves the payload text and
+   the absence of a submit control — it does not prove the rest of the tree was left alone, so a
+   kit that quietly grew a status node, a marks host or an innerHTML write on an unconfigured board
+   would sail through it. This compares the WHOLE rendered tree (tag, every attribute, text and
+   innerHTML, recursively) against the same board run with no network in the sandbox at all. */
+const fpNorm = (s) => s.replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, "TS");   // event ts differ per run
+const t2tokenBase = runKit(plainBoard([stateConfigNode(null, "__PROVE_STATE_CONFIG__")]));
+assert.strictEqual(fpNorm(fingerprint(t2none.body)), fpNorm(fingerprint(t2base.body)),
+  "a no-config board renders a tree byte-identical to one with no network available at all — the transport leaves no trace on a board it does not run for");
+assert.strictEqual(fpNorm(fingerprint(t2token.body)), fpNorm(fingerprint(t2tokenBase.body)),
+  "…and so does an unpublished board, whose config node still holds the raw token");
+assert.strictEqual(t2none.doc.querySelector("[data-fb-state-status]"), null,
+  "no config ⇒ no status node either: there is no submit, poll or expiry message that could ever be written into one");
+
 console.log("board-widgets.test: PASS — 32 assertions (v2 event shape, actor.kind on every event, "
   + "council marks incl. an untouched item, incomplete-mark skip, human-only tally, id dedupe, "
   + "shared ts, no-panel board, older-markup compat, v1/v2 discrimination) "
@@ -515,4 +717,11 @@ console.log("board-widgets.test: PASS — 32 assertions (v2 event shape, actor.k
   + "POSTs, file-last, signed prefix · T4 read-side dedupe+supersede, conditional GET, 304 no-op · "
   + "T5 blank-name refusal + the collision it prevents · T6 expired / failed-POST / no-write-grant "
   + "all degrade to copy-back with a reason · T7 polled text inert, zero innerHTML writes · "
-  + "T8 council marks byte-identical across two poll cycles · no-tally-before-you-vote)");
+  + "T8 council marks byte-identical across two poll cycles · no-tally-before-you-vote) "
+  + "+ 34 reload assertions (T10 a 403 with no doc yet reads as pre-fold, not an error · T11 a 403 "
+  + "AFTER a successful read is still a real failure · T12 the 404 branch survives · T13 a clean "
+  + "submit writes a docId-scoped receipt of {ids,ts,pending} and nothing else · T14 a fresh sandbox "
+  + "over the same store — a reload — says what happened · T15 self-expiry: the claim retires, the "
+  + "ids stay, and the marks render for a voter who ticked nothing this page-life · T16 one missing "
+  + "id keeps the whole receipt pending · T17 no receipt + no picks ⇒ no marks, no count, no writes "
+  + "· T18 a corrupt or foreign receipt fails closed)");

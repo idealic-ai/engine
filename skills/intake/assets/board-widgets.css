@@ -199,6 +199,11 @@
 .fb-submitbtn:disabled { opacity: 0.5; cursor: not-allowed; }
 .fb-statestatus { flex: 1 1 14rem; min-width: 0; font-size: 0.83rem; color: var(--fb-muted);
                   line-height: 1.45; overflow-wrap: anywhere; }
+/* "Your answers posted, the fold has not run yet" is the one line here that is ABOUT the reader,
+   and muted grey is how the board says "ambient". It reads as their receipt, not as chrome —
+   still calm, because the wait is normal and unbounded by design, not an alarm. */
+.fb-statestatus.fb-pending { color: inherit; font-weight: 550;
+                             border-left: 3px solid var(--fb-human); padding-left: 0.55rem; }
 
 @media (prefers-reduced-motion: reduce) {
   .fb-opt, .fb-mark, .fb-mark-note, .fb-copybtn, .fb-submitbtn { transition: none; }

@@ -31,6 +31,7 @@ const transport = read(path.join(intake, "..", "..", "prove", "assets", "STATE_T
 const brief = read(path.join(council, "assets", "TEMPLATE_COUNCIL_BRIEF.md"));
 const councilSkill = read(path.join(council, "SKILL.md"));
 const personas = read(path.join(council, "personas", "INDEX.md"));
+const templateIntake = read(path.join(intake, "TEMPLATE_INTAKE.md"));
 
 let checks = 0;
 const check = (msg, fn) => { fn(); checks++; };
@@ -220,10 +221,88 @@ check("every kit file the render spec references is actually published", () => {
     "the render spec does not name the versioned proof-ticket file it tells agents to reference");
 });
 
+/* ---- 14. The state config reaches EVERY board, not only the ones whose render agent volunteered
+   the token ----
+   The token used to be the request: no token, no config, and a board with no config has nowhere
+   for a vote — or a council-seeded record — to land. Nothing in the wave ever asked for it, so the
+   answer was always "no" and the multiplayer layer was unreachable by construction. The read half
+   is therefore unconditional now and the token is a PLACEMENT hint, not a want.
+   A str.replace cannot inject into a page that carries no token, so "unconditional" has to mean
+   INSERTION — and that is what this asserts. Naming the token (check 12) proves substitution;
+   it does not prove a token-less board gets anything at all. */
+check("publish-s3.sh gives every board a state config, token or not", () => {
+  assert.ok(!/if grep -q '__PROVE_STATE_CONFIG__' "\$upload"; then/.test(publishSh),
+    "publish-s3.sh still gates the whole config block on the render agent having volunteered the token — a board it forgot publishes mute, which is the bug");
+  assert.ok(/data-fb-state-config/.test(publishSh),
+    "publish-s3.sh never authors the element itself, so a token-less board still gets no config — substitution alone cannot inject into a page with no placeholder");
+  assert.ok(/data-fb-state-config/.test(kitJs),
+    "the kit does not read the attribute publish-s3.sh authors — the injected element would be invisible to it");
+  assert.ok(/<\/body/.test(publishSh),
+    "publish-s3.sh has no insertion point for the element it authors");
+  assert.ok(/isBoard/.test(publishSh),
+    "publish-s3.sh does not decide board-ness anywhere — an ordinary /prove proof would receive a presigned credential it has no code to use");
+});
+
+/* ---- 15 (T7). Publishing never depends on the signer ----
+   Now that every board carries a config, the temptation is to make signing failure fatal — it is
+   not, and must not become so. A signer that is missing, or credentials that cannot be exported,
+   degrade to a READ-ONLY config: stateUrl present (public-read, free, no credential), no write
+   grant, and the verbatim reason on the submit control. Publishing a board is strictly more
+   valuable than publishing a board that can be written to. */
+check("a signing failure degrades to a read-only config and still publishes", () => {
+  const from = publishSh.indexOf("Mint + inject the shared-state config");
+  const to = publishSh.indexOf("aws s3 cp");
+  assert.ok(from > -1 && to > from, "the state-config block is no longer locatable in publish-s3.sh");
+  const block = publishSh.slice(from, to);
+  assert.ok(!/\bexit [0-9]/.test(block),
+    "a path inside the state-config block exits non-zero — publishing must never fail because the signer did");
+  assert.ok(/"stateUrl": os\.environ\["STATE_URL"\]/.test(block),
+    "stateUrl is not unconditional in the emitted config — the read half is the half that always works");
+  assert.ok(/cfg\["submitDisabledReason"\] = os\.environ\["SIGN_ERROR"\]/.test(block),
+    "the no-write-grant branch no longer carries the verbatim reason, so the board shows a dead control with no explanation");
+  assert.ok(/elif ! signed=/.test(block),
+    "the signer is invoked outside an if-guard — under `set -e` its failure would abort the publish");
+});
+
+/* ---- 16. The render spec describes the config block as standard markup ----
+   Same hazard as an opt-in publish step, one file up: prose that says "add it when the wave wants
+   voting" is prose a render agent reads as "usually don't". The spec and the publish step have to
+   agree on WHETHER the block ships, not only on the token's spelling. */
+check("the render spec makes the state-config block standard, not opt-in", () => {
+  assert.ok(!/when the wave wants in-page voting/.test(renderSpec),
+    "the render spec still frames the state-config block as opt-in while publish injects it unconditionally");
+  assert.ok(!/Omitting this block is a supported, complete board/.test(renderSpec),
+    "the render spec still tells agents omitting the block is complete — that is the state this fixes");
+  assert.ok(/Write it on every board/.test(renderSpec),
+    "the render spec does not say the block goes on every board");
+  /* The copy bar is the path that still works after the write grant lapses (hours), which is the
+     modal state for a visitor. "Every board can submit now" is exactly the reasoning that would
+     delete it, so the sentence is pinned. */
+  assert.ok(/copy bar stays on every board/.test(renderSpec),
+    "the render spec dropped the copy-bar guarantee — the write grant expires in hours and copy-back is what still works");
+});
+
+/* ---- 17. The State doc slot the wave writes and reads is actually DEFINED ----
+   Phase 5 captures the state-doc URL + docId into INTAKE.md's pinned `State doc:` slot and Phase 6
+   fetches it before tallying — but the working-doc template defined no such slot, so the slot only
+   existed in two instructions pointing at it. A wave then records nothing, Phase 6 fetches nothing,
+   and the tally reads a silent zero that looks exactly like apathy. The docId is the board key's
+   random stem: unrecorded, it is not reconstructible. */
+check("INTAKE.md's template defines the State doc slot Phases 5 and 6 depend on", () => {
+  assert.ok(/pinned `State doc:` slot/.test(intakeSkill),
+    "intake/SKILL.md no longer names the pinned State doc slot");
+  assert.ok(/\*\*State doc\*\*:/.test(templateIntake),
+    "TEMPLATE_INTAKE.md defines no State doc slot — Phase 5 writes to a slot that does not exist and Phase 6 reads one that never holds anything");
+  assert.ok(/docId/.test(templateIntake),
+    "the State doc slot does not ask for the docId — the URL alone cannot be re-derived into a fold target");
+});
+
 console.log(`contract-sync.test: PASS — ${checks} cross-file checks `
   + "(brief_version, panel sizes, removed-Wildcard, report_path, poll on both sides, "
   + "kit attributes vs render spec, persona icon uniqueness, ingest single-sourcing, "
   + "contract count, v1+v2 both documented, reader enumerated+scoped, contributor filter complete, "
   + "kit-token agreement, spec references rather than inlines, transport doc points-not-restates, "
   + "transport owns one-event-per-object + blind-append, state-config token agreement, "
-  + "every referenced kit file is published)");
+  + "every referenced kit file is published, state config on every board, "
+  + "signing-failure degrades read-only, spec block is standard not opt-in, "
+  + "State doc slot defined where Phases 5+6 use it)");

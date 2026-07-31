@@ -101,6 +101,13 @@ trap 'rm -rf "$work"' EXIT
 upload="${work}/board.html"
 cp "$proofPath" "$upload"
 
+# Board-ness is decided HERE, before the kit token is substituted away: a board is a page that
+# references the shared widget kit, and that is the only durable marker of one. It gates the state
+# config below, so an ordinary /prove proof never receives a presigned credential it has no code to
+# use — the config's write half is a real grant, not decoration.
+isBoard=0
+if grep -q '__FB_KIT_BASE__' "$upload"; then isBoard=1; fi
+
 # --- Resolve the shared widget kit reference, if this page uses one ---
 # A board references the kit as __FB_KIT_BASE__/board-widgets.v<N>.js rather than inlining it,
 # so a published board can receive fixes. Publish time is the only moment bucket, region and
@@ -113,17 +120,20 @@ if grep -q '__FB_KIT_BASE__' "$upload"; then
   echo "publish-s3: kit reference resolved → ${kitBase}" >&2
 fi
 
-# --- Mint + inject the shared-state config, if this page asks for one ---
-# A board that wants in-page voting carries a placeholder script tag; publish is the only moment
-# the bucket, the doc id and a signable credential all exist at once. A page with no placeholder
-# is untouched and stays exactly what it is today: copy-back only, no fetch, no state.
+# --- Mint + inject the shared-state config on every board ---
+# Publish is the only moment the bucket, the doc id and a signable credential all exist at once,
+# so the config is minted here. EVERY board gets one: nothing upstream ever asked for it, so a
+# board that depended on being asked was mute by construction — teammates had no way to vote in it
+# and a council run had nowhere to seed records. The placeholder is a PLACEMENT hint, not a
+# request; a board that carries none gets the element appended. Pages that are not boards (no kit
+# reference — an ordinary /prove proof) are untouched: no config, no credential, byte-identical.
 #
 # THE SIGNER IS NEVER LOAD-BEARING FOR PUBLISHING. `set -e` is on, so every failure path here is
 # explicitly caught: a missing signer, unavailable credentials, or a python error all degrade to
 # a config that carries the READ url but no write grant. The board then polls (state/* is public
 # read) and routes submissions to the copy bar with a stated reason. Publishing a broken board
 # because signing broke would be strictly worse than publishing today's board.
-if grep -q '__PROVE_STATE_CONFIG__' "$upload"; then
+if [ "$isBoard" = 1 ] || grep -q '__PROVE_STATE_CONFIG__' "$upload"; then
   statePrefix="${PROVE_S3_STATE_PREFIX:-state}"
   eventsPrefix="${PROVE_S3_EVENTS_PREFIX:-events}"
   # docId inherits the board's own entropy rather than being re-derived from the slug: a
@@ -150,7 +160,7 @@ if grep -q '__PROVE_STATE_CONFIG__' "$upload"; then
   printf '%s' "${signed:-}" > "${work}/signed.json"
   STATE_DOC_ID="$docId" STATE_URL="$stateUrl" SIGN_ERROR="$signError" \
     python3 - "$upload" "${work}/signed.json" > "${work}/state.html" <<'PY'
-import json, os, sys
+import json, os, re, sys
 
 page = open(sys.argv[1], encoding="utf-8").read()
 raw = open(sys.argv[2], encoding="utf-8").read().strip()
@@ -172,7 +182,23 @@ else:
 # json.dumps, not sed: the policy field is base64 and the signature is hex, and sed's replacement
 # text gives `&` and `\` their own meanings. `</` is split so the JSON can never close the
 # <script> element that carries it.
-sys.stdout.write(page.replace("__PROVE_STATE_CONFIG__", json.dumps(cfg).replace("</", "<\\/")))
+blob = json.dumps(cfg).replace("</", "<\\/")
+
+# The token stays a literal on both lines: the cross-file contract check greps publish-s3.sh for
+# this exact replace() call, because naming a token is not substituting one.
+if "__PROVE_STATE_CONFIG__" in page:
+    page = page.replace("__PROVE_STATE_CONFIG__", blob)
+else:
+    # No placeholder: author the element the kit looks for, verbatim as the render spec writes it,
+    # so an appended board is indistinguishable from an authored one. Position is not load-bearing
+    # — the kit reads the config at DOMContentLoaded, by which point the whole document is parsed.
+    el = ('<script id="prove-state-config" data-fb-state-config type="application/json">'
+          + blob + "</script>\n")
+    ends = list(re.finditer(r"</body\s*>", page, re.I))
+    page = (page[:ends[-1].start()] + el + page[ends[-1].start():]) if ends else (page + el)
+    sys.stderr.write("publish-s3: the board carried no placeholder — state config element appended\n")
+
+sys.stdout.write(page)
 PY
   mv "${work}/state.html" "$upload"
   if [ -n "$signed" ]; then

@@ -193,6 +193,8 @@
   var lastEtag = null;       // conditional-GET token; a matching poll is 304 + zero bytes
   var lastEvents = null;     // last polled event log, kept so a local pick can re-render cheaply
   var submitted = false;
+  var docSeen = false;       // a state doc was READ for this board — turns a later 403 into an error
+  var receipt = null;        // this voter's own submit receipt, restored from localStorage on load
   /* The fold is AGENT-RUN and lands a few times a day. Polling at the reference demo's 1.5s
      would buy nothing and cost a request every 1.5s forever, so: a slow floor, and back off both
      on error AND on an unchanged doc. A landed change resets to the floor, which is when a
@@ -211,14 +213,83 @@
     return cfg;
   }
 
-  function setStateStatus(msg) {
+  /* The kit toggles .fb-pending on this element and every style it needs hangs off
+     .fb-statestatus — so the kit owns that class rather than trusting the board to supply it.
+     A board that places its own status element (the render spec invites exactly that) otherwise
+     gets an unstyled one AND suppresses ensureStateBar's properly-classed injection, so the
+     status renders invisibly. Found the hard way: it made a working fix look like a failure. */
+  function statusEl() {
     var el = document.querySelector("[data-fb-state-status]");
+    if (el && el.classList) el.classList.add("fb-statestatus");
+    return el;
+  }
+
+  function setStateStatus(msg) {
+    var el = statusEl();
     if (el) el.textContent = msg;
   }
 
   function voterName() {
     var el = document.querySelector("[data-fb-voter]");
     return el ? txt(el) : "";
+  }
+
+  /* ── The voter's own receipt ─────────────────────────────────────────────────────────
+     A submit lands in events/<docId>/ and reaches the board only when an agent runs the fold.
+     NOTHING schedules that fold — polling detects it, it never causes it — so the wait is
+     unbounded by design. Across a reload the in-page "Submitted N ✓" is gone and the board is
+     still empty, which is how a successful submit came to look like a failure.
+
+     So it is written down, keyed by docId, and holds ONLY this voter's own event ids and when
+     they were sent: nothing about anyone else, on nobody else's device. `pending` is the CLAIM
+     — "sent, not folded in yet" — and it is the part that can become a lie, so it is retired the
+     moment every stored id appears in a fetched doc. The ids themselves are KEPT: they are how
+     this device still recognises its own position on the next reload, and dropping them would
+     blank the tally for someone who demonstrably voted. */
+  function storageArea() {
+    try { return window.localStorage || null; } catch (e) { return null; }   // private mode / file:// throw
+  }
+  function receiptKey() { return STATE && STATE.docId ? "fb:receipt:" + STATE.docId : null; }
+
+  function readReceipt() {
+    var area = storageArea(), key = receiptKey(), raw = null, r = null;
+    if (!area || !key) return null;
+    try { raw = area.getItem(key); } catch (e) { return null; }
+    if (!raw) return null;
+    try { r = JSON.parse(raw); } catch (e) { return null; }   // unreadable ⇒ no receipt, gate stays shut
+    if (!r || typeof r !== "object" || !Array.isArray(r.ids) || !r.ids.length) return null;
+    return { ids: r.ids.slice(), ts: typeof r.ts === "string" ? r.ts : "", pending: r.pending !== false };
+  }
+  function writeReceipt(r) {
+    var area = storageArea(), key = receiptKey();
+    if (!area || !key) return;
+    try { area.setItem(key, JSON.stringify(r)); } catch (e) { /* full or blocked: the page still works */ }
+  }
+  function recordReceipt(ids) {
+    if (!ids || !ids.length) return;
+    receipt = { ids: ids.slice(), ts: new Date().toISOString(), pending: true };
+    writeReceipt(receipt);
+  }
+  function reconcileReceipt(doc) {
+    if (!receipt || !receipt.pending) return;
+    var seen = Object.create(null), evs = (doc && doc.events) || [], i;
+    for (i = 0; i < evs.length; i++) if (evs[i] && evs[i].id) seen[evs[i].id] = true;
+    for (i = 0; i < receipt.ids.length; i++) {
+      if (!Object.prototype.hasOwnProperty.call(seen, receipt.ids[i])) return;   // still waiting on one
+    }
+    receipt.pending = false;
+    writeReceipt(receipt);
+  }
+  /* States a fact and names the reason. No countdown: there is no schedule to count down to, and
+     inventing one would be a second lie on top of the one this replaces. */
+  function receiptNote() {
+    if (!receipt || !receipt.pending) return "";
+    var n = receipt.ids.length, one = n === 1;
+    return "Your " + n + (one ? " answer" : " answers") + " posted ✓"
+      + (receipt.ts ? " at " + receipt.ts : "")
+      + (one ? " and is" : " and are") + " not on the shared board yet — "
+      + (one ? "it appears" : "they appear") + " once an agent runs the fold. Nothing "
+      + "schedules it, so there is no countdown; if this is still here much later, ask the wave to run it.";
   }
 
   /* Expiry is a first-class rendered state, not a warning banner. */
@@ -242,21 +313,31 @@
 
   var COPY_BACK = " — use “Copy answers” below and paste into the wave; that path always works.";
 
+  function withNote(note, msg) { return note ? note + " " + msg : msg; }
+
   function refreshLiveness() {
     if (!STATE) return;
+    /* The voter's own outcome leads. A closed write window matters, but not more than "the
+       answers you already sent are safe" — that is the sentence whose absence filed this bug. */
+    var note = receiptNote();
+    var el = statusEl();
+    if (el && el.classList) {
+      if (note) el.classList.add("fb-pending"); else el.classList.remove("fb-pending");
+    }
     var gate = submitGate();
     var btn = document.querySelector("[data-fb-submit]");
     if (btn) {
       btn.disabled = !gate.ok;
       if (btn.setAttribute) btn.setAttribute("aria-disabled", gate.ok ? "false" : "true");
     }
-    if (!gate.ok) { setStateStatus(gate.reason + COPY_BACK); return; }
+    if (!gate.ok) { setStateStatus(withNote(note, gate.reason + COPY_BACK)); return; }
     var exp = expiryMs();
     var left = exp == null ? null : exp - Date.now();
     if (left != null && left < 1800000) {
-      setStateStatus("Heads up: this board stops accepting answers at " + STATE.expiresAt + COPY_BACK);
+      setStateStatus(withNote(note, "Heads up: this board stops accepting answers at " + STATE.expiresAt + COPY_BACK));
       return;
     }
+    if (note) { setStateStatus(note + COPY_BACK); return; }
     setStateStatus("Answers post to the shared board. Other people's marks appear after an agent "
       + "runs the fold — a few times a day — so an empty board means \"not folded yet\", not \"broken\".");
   }
@@ -274,9 +355,34 @@
     fd.append("Content-Type", "application/json");
     fd.append("file", new Blob([JSON.stringify(ev)], { type: "application/json" }));  // file LAST
     return fetch(STATE.postUrl, { method: "POST", body: fd }).then(function (r) {
-      if (!(r.status === 204 || r.ok)) throw new Error("HTTP " + r.status);
-      return true;
+      if (r.status === 204 || r.ok) return true;
+      /* S3 names the cause in the body and the status alone does not: a 400 carrying
+         ExpiredToken means "the write window closed", which the voter can act on, whereas
+         "HTTP 400" is noise. Observed live — a board whose expiresAt claimed seven days
+         posting into a credential that had already died with its session.
+         The status is always the fallback: a body we cannot read must never cost the voter
+         the one fact we do have. */
+      var fallback = "HTTP " + r.status;
+      if (typeof r.text !== "function") throw new Error(fallback);
+      return r.text().then(function (body) {
+        var m = /<Code>([^<]+)<\/Code>/.exec(body || "");
+        throw new Error(m ? m[1] : fallback);
+      }, function () { throw new Error(fallback); });
     });
+  }
+
+  /* The write grant can die before the clock the board was told about — expiresAt is signed
+     for the nominal maximum, but a session-scoped credential expires with the session. So an
+     expiry can arrive as a rejection rather than as a deadline, and it must read the same way. */
+  var POST_ERRORS = {
+    ExpiredToken: "the write window closed early (the board's own expiry date was optimistic)",
+    TokenRefreshRequired: "the write window closed early (the board's own expiry date was optimistic)",
+    AccessDenied: "this board's write grant was refused",
+    EntityTooLarge: "that answer was too large for this board",
+    RequestTimeout: "the connection timed out"
+  };
+  function explainPostError(code) {
+    return POST_ERRORS[code] || (/^HTTP /.test(code) ? code : code);
   }
 
   function submit() {
@@ -305,10 +411,14 @@
       return postOne(ev).then(null, function (e) { failed++; if (!firstErr) firstErr = e && e.message ? e.message : String(e); });
     })).then(function () {
       if (failed) {
-        setStateStatus(failed + " of " + events.length + " answers did not post (" + firstErr + ")" + COPY_BACK);
+        setStateStatus(failed + " of " + events.length + " answers did not post — "
+          + explainPostError(firstErr) + COPY_BACK);
         return false;
       }
       submitted = true;
+      /* Only on a clean sweep: a partial failure means the doc will legitimately never carry
+         every id, and a receipt that can never retire would sit there claiming "waiting" forever. */
+      recordReceipt(events.map(function (ev) { return ev.id; }));
       setStateStatus("Submitted " + events.length + " ✓ — they show up here once the fold runs (agent-run, a few times a day).");
       renderState();
       pollDelay = POLL_MIN;
@@ -370,11 +480,16 @@
     return (clean[0].charAt(0) + clean[clean.length - 1].charAt(0)).toUpperCase();
   }
 
-  /* The local voter's own picks — a running tally shown BEFORE someone has answered turns an
+  /* Has this person taken a position yet? A running tally shown BEFORE they have turns an
      independent read into an anchored one, which leaves ¶INV_PANEL_VOTES_ARE_A_READ_NOT_A_VERDICT
-     literally true while hollowing it out. So: no marks, and no count either, until they pick. */
-  function hasLocalPicks() {
+     literally true while hollowing it out. So: no marks, and no count either, until they answer.
+
+     Deliberately NOT "is a checkbox ticked right now": a reload restores no ticks, so that reading
+     hides the tally from someone who has already voted — the gate firing on the wrong question.
+     A stored receipt is this person having answered; it is not a weakening of the gate. */
+  function hasTakenAPosition() {
     if (submitted) return true;
+    if (receipt && receipt.ids.length) return true;
     var containers = document.querySelectorAll("[data-fb-item]");
     for (var i = 0; i < containers.length; i++) {
       var inputs = containers[i].querySelectorAll("[data-fb-key]");
@@ -404,7 +519,7 @@
   function renderState() {
     if (!STATE || !lastEvents) return;
     var folded = foldEvents(lastEvents);
-    var reveal = hasLocalPicks();
+    var reveal = hasTakenAPosition();
     var byItemKey = Object.create(null);
     for (var i = 0; i < folded.length; i++) {
       var ev = folded[i];
@@ -476,13 +591,20 @@
     if (lastEtag) headers["If-None-Match"] = lastEtag;
     return fetch(STATE.stateUrl, { cache: "no-store", headers: headers }).then(function (r) {
       if (r.status === 304) { slower(1.6); return null; }        // unchanged — nothing transferred
-      if (r.status === 404) { lastEtag = null; slower(1.6); return null; }  // nothing folded yet
+      /* Nothing folded yet. A bucket with no public ListBucket answers a MISSING key with 403,
+         not 404, so on a real board the 404 arm below is unreachable and 403 is the ordinary
+         pre-fold state — the first thing every voter sees. It stops being ordinary once a doc
+         HAS been read here: a read that worked and then stopped is a genuine failure, and
+         forgiving it would render a broken board as a calm wait forever. */
+      if (r.status === 404 || (r.status === 403 && !docSeen)) { lastEtag = null; slower(1.6); return null; }
       if (!r.ok) throw new Error("HTTP " + r.status);
+      docSeen = true;
       lastEtag = (r.headers && r.headers.get) ? r.headers.get("ETag") : null;
       return r.json();
     }).then(function (doc) {
       if (doc) {
         lastEvents = (doc && doc.events) || [];
+        reconcileReceipt(doc);
         pollDelay = POLL_MIN;                                    // it moved — look again sooner
         renderState();
       }
@@ -506,6 +628,7 @@
   function wireState() {
     STATE = readStateConfig();
     if (!STATE) return;                 // no config ⇒ no bar, no listener, no fetch, no behaviour change
+    receipt = readReceipt();            // …and no storage read either: a board that did not opt in stays untouched
     ensureStateBar();
     var btn = document.querySelector("[data-fb-submit]");
     if (btn) btn.addEventListener("click", submit);
