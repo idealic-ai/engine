@@ -12,7 +12,12 @@
 #   PROVE_S3_BUCKET   (required) target bucket, e.g. staging-finch-proofs
 #   PROVE_S3_REGION   (default us-east-2) region for the virtual-hosted URL
 #   PROVE_S3_PREFIX   (default proofs)    key prefix; MUST match the bucket's public-read policy prefix
-#   PROVE_S3_PROFILE  (optional) AWS CLI profile, e.g. finch-staging
+#   PROVE_S3_PROFILE  (optional) AWS CLI profile for the upload, e.g. finch-staging
+#   PROVE_S3_SIGNER_PROFILE (optional) profile used ONLY to sign the board's write grant; defaults
+#                     to PROVE_S3_PROFILE. Point it at a narrow long-lived key (PutObject on the
+#                     events prefix only) to get a board that still accepts votes days from now —
+#                     a presign expires with the credential that signed it, so a session token
+#                     yields a board that is write-dead within the hour.
 #   PROVE_S3_USER     (optional) per-user key segment; else derived from the AWS caller identity
 #
 # Contract: the composed proof lands at
@@ -70,6 +75,15 @@ prefix="${PROVE_S3_PREFIX:-proofs}"
 
 profile_arg=()
 [ -n "${PROVE_S3_PROFILE:-}" ] && profile_arg=(--profile "$PROVE_S3_PROFILE")
+
+# Publishing and signing want DIFFERENT identities. The upload is a person putting a page in a
+# bucket; the presign mints a write grant that is handed to strangers and lives for up to a week.
+# A presign cannot outlive its signer, so a durable board needs a long-lived key — and a long-lived
+# key that could also write PROVE_S3_PREFIX could overwrite any published board with anything.
+# Hence a separate profile for signing only, defaulting to the publishing one so a config that
+# sets neither behaves exactly as before.
+signer_profile_arg=(${profile_arg[@]+"${profile_arg[@]}"})
+[ -n "${PROVE_S3_SIGNER_PROFILE:-}" ] && signer_profile_arg=(--profile "$PROVE_S3_SIGNER_PROFILE")
 
 # Per-user key segment: explicit override, else the last segment of the caller ARN
 # (arn:aws:iam::…:user/yarik -> yarik ; assumed-role/…/<session> -> <session>), else "shared".
@@ -147,7 +161,7 @@ if [ "$isBoard" = 1 ] || grep -q '__PROVE_STATE_CONFIG__' "$upload"; then
   signError="signing was not attempted"
   if [ ! -f "$signer" ]; then
     signError="sign-post.py not found beside publish-s3.sh"
-  elif ! creds="$(aws configure export-credentials ${profile_arg[@]+"${profile_arg[@]}"} --format env 2>"${work}/cred.err")"; then
+  elif ! creds="$(aws configure export-credentials ${signer_profile_arg[@]+"${signer_profile_arg[@]}"} --format env 2>"${work}/cred.err")"; then
     signError="could not export AWS credentials for the presign ($(tr -d '\n' < "${work}/cred.err" | cut -c1-160))"
   elif ! signed="$( set +u; eval "$creds"; \
         PROVE_S3_BUCKET="$PROVE_S3_BUCKET" PROVE_S3_REGION="$region" \

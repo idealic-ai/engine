@@ -710,6 +710,62 @@ assert.strictEqual(fpNorm(fingerprint(t2token.body)), fpNorm(fingerprint(t2token
 assert.strictEqual(t2none.doc.querySelector("[data-fb-state-status]"), null,
   "no config ⇒ no status node either: there is no submit, poll or expiry message that could ever be written into one");
 
+/* ---- T19…T21 — the latch: a refused grant closes the board ONCE, and only the right codes do it.
+
+   Each case makes the SECOND post succeed in the shim. So a second submit that still fails proves
+   the gate refused before the network — not that the network refused again. Asserting on posts()
+   rather than on a disabled button is deliberate: ensureStateBar() injects controls via innerHTML,
+   which the shim stores as an unparsed string, so `[data-fb-submit]` is not a node here. What the
+   board DOES is testable; what it renders is not. ---- */
+const s3err = (code) => ({
+  ok: false, status: 400, headers: { get: () => null },
+  text: () => Promise.resolve('<?xml version="1.0"?><Error><Code>' + code + "</Code></Error>"),
+});
+const OK204 = () => ({ ok: true, status: 204, headers: { get: () => null } });
+/* Counts POSTs, not fetches: makeNet hands the handler calls.length, which includes the poll GETs,
+   so an `n === 1` test would misidentify which attempt is the first write. */
+const failFirstPost = (make) => { let n = 0; return () => (++n === 1 ? make() : OK204()); };
+const thenOk = (code) => failFirstPost(() => s3err(code));
+
+/* 19. ExpiredToken is authoritative: the grant will not work again, so stop offering it. */
+const t19net = makeNet({ post: thenOk("ExpiredToken") });
+const t19 = degradedBoard(LIVE, t19net);
+await tick();
+assert.strictEqual(await t19.board.submit(), false, "an expired token fails the first submit");
+assert.strictEqual(t19net.posts().length, 1, "…which did reach the network");
+assert.strictEqual(await t19.board.submit(), false,
+  "a latched board refuses the NEXT submit even though the network would now accept it");
+assert.strictEqual(t19net.posts().length, 1,
+  "…and no second POST was attempted — the gate closed, not the service");
+assert.ok(/write window closed early/.test(stateStatus(t19)),
+  "…and the latched reason is the mapped one, not a bare status code");
+assert.ok(/Copy answers/.test(stateStatus(t19)), "…with copy-back still offered");
+
+/* 20. AccessDenied is equally authoritative — a refused grant, not a transient. */
+const t20net = makeNet({ post: thenOk("AccessDenied") });
+const t20 = degradedBoard(LIVE, t20net);
+await tick();
+assert.strictEqual(await t20.board.submit(), false, "a refused grant fails the first submit");
+assert.strictEqual(await t20.board.submit(), false, "…and latches like an expiry");
+assert.strictEqual(t20net.posts().length, 1, "…no retry against a grant that was refused");
+
+/* 21. EntityTooLarge is about THAT answer, not the grant. Latching here would close voting for the
+   wrong reason — the board would go silent because someone wrote a long note. Same for a bare
+   status with no code: an unrecognised failure is not evidence of a dead grant. */
+for (const [code, label] of [["EntityTooLarge", "an oversized answer"], ["RequestTimeout", "a timeout"]]) {
+  const net = makeNet({ post: thenOk(code) });
+  const b = degradedBoard(LIVE, net);
+  await tick();
+  assert.strictEqual(await b.board.submit(), false, label + " fails its own submit");
+  assert.strictEqual(await b.board.submit(), true, "…but the board did NOT latch — a retry succeeds");
+  assert.strictEqual(net.posts().length, 2, "…because the second attempt actually reached the network");
+}
+const t21net = makeNet({ post: failFirstPost(() => ({ ok: false, status: 503, headers: { get: () => null } })) });
+const t21 = degradedBoard(LIVE, t21net);
+await tick();
+assert.strictEqual(await t21.board.submit(), false, "a bare 503 fails its own submit");
+assert.strictEqual(await t21.board.submit(), true, "…and does not latch — an unknown failure is not a dead grant");
+
 console.log("board-widgets.test: PASS — 32 assertions (v2 event shape, actor.kind on every event, "
   + "council marks incl. an untouched item, incomplete-mark skip, human-only tally, id dedupe, "
   + "shared ts, no-panel board, older-markup compat, v1/v2 discrimination) "
@@ -724,4 +780,8 @@ console.log("board-widgets.test: PASS — 32 assertions (v2 event shape, actor.k
   + "over the same store — a reload — says what happened · T15 self-expiry: the claim retires, the "
   + "ids stay, and the marks render for a voter who ticked nothing this page-life · T16 one missing "
   + "id keeps the whole receipt pending · T17 no receipt + no picks ⇒ no marks, no count, no writes "
-  + "· T18 a corrupt or foreign receipt fails closed)");
+  + "· T18 a corrupt or foreign receipt fails closed) "
+  + "+ 13 latch assertions (T19 an ExpiredToken closes the board and the NEXT submit never reaches "
+  + "the network even though it would now succeed · T20 AccessDenied latches the same way · "
+  + "T21 EntityTooLarge, RequestTimeout and a bare 503 do NOT latch — a retry still posts, because "
+  + "closing voting over one oversized answer or one blip would shut the board for the wrong reason)");

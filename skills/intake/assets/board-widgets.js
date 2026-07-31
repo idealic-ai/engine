@@ -301,6 +301,7 @@
 
   function submitGate() {
     if (!STATE) return { ok: false, reason: "this board has no shared-state config" };
+    if (writeClosed) return { ok: false, reason: writeClosed };
     if (!STATE.postUrl || !STATE.fields || !STATE.keyPrefix) {
       return { ok: false, reason: STATE.submitDisabledReason || "this board was published without a write grant" };
     }
@@ -385,6 +386,21 @@
     return POST_ERRORS[code] || (/^HTTP /.test(code) ? code : code);
   }
 
+  /* A rejection from S3 outranks the board's own expiry claim: expiresAt is a prediction made at
+     publish, the rejection is the service answering now. Once the grant is refused the board says
+     so ONCE and routes to copy-back, rather than leaving a live-looking button that fails per click.
+     Only codes that mean "this grant will not work again" latch — a too-large answer or a timed-out
+     connection is about THAT attempt, and closing voting for either would shut the board for the
+     wrong reason. Unknown codes do not latch: an unrecognised failure is not evidence of a dead grant. */
+  var LATCH_CODES = { ExpiredToken: 1, TokenRefreshRequired: 1, AccessDenied: 1 };
+  var writeClosed = null;
+
+  function latchIfAuthoritative(code) {
+    if (writeClosed || !LATCH_CODES[code]) return false;
+    writeClosed = explainPostError(code);
+    return true;
+  }
+
   function submit() {
     var gate = submitGate();
     if (!gate.ok) { setStateStatus(gate.reason + COPY_BACK); return Promise.resolve(false); }
@@ -411,6 +427,10 @@
       return postOne(ev).then(null, function (e) { failed++; if (!firstErr) firstErr = e && e.message ? e.message : String(e); });
     })).then(function () {
       if (failed) {
+        /* Latch first, then render: refreshLiveness() disables the control off the new gate, and
+           the specific "N of M" line then replaces its generic reason — the voter gets the precise
+           outcome now, and every later render reads the latch. */
+        if (latchIfAuthoritative(firstErr)) refreshLiveness();
         setStateStatus(failed + " of " + events.length + " answers did not post — "
           + explainPostError(firstErr) + COPY_BACK);
         return false;
