@@ -300,6 +300,19 @@ check_single_skill() {
   tier=$(frontmatter_field "$skill_dir/SKILL.md" "tier")
   if [ -z "$tier" ]; then tier="unknown"; fi
 
+  # SK-L: surface skill-local commands so the shadowing set (skill-local vs shared) is discoverable.
+  # resolve_cmd_file() prefers a skill's assets/commands/CMD_X.md over the shared directory; a local
+  # command silently shadowing a shared one is convenient but also a way to break a skill unnoticed.
+  local local_cmd_dir="$skill_dir/assets/commands"
+  if [ -d "$local_cmd_dir" ]; then
+    local local_cmds
+    local_cmds=$(find "$local_cmd_dir" -maxdepth 1 -name 'CMD_*.md' -exec basename {} \; 2>/dev/null \
+      | sed 's/^CMD_//; s/\.md$//' | sort | paste -sd ',' -)
+    if [ -n "$local_cmds" ]; then
+      pass "SK-L" "carries skill-local command(s): $local_cmds"
+    fi
+  fi
+
   SECTION_HEADER=$(printf "${BOLD}--- %s (%s) ---${NC}" "$name" "$tier")
   if [ "$VERBOSE" -eq 1 ]; then printf "%s\n" "$SECTION_HEADER"; SECTION_HEADER=""; fi
 

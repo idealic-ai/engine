@@ -117,6 +117,38 @@ extract_proof_schema() {
   awk '/## PROOF FOR/,0{if(/```json/){f=1;next}if(/```/){f=0;next}if(f)print}' "$cmd_file" 2>/dev/null || echo ""
 }
 
+# Helper: resolve a §CMD_ name to its .md file. Skill-local FIRST, then shared.
+# Usage: cmd_file=$(resolve_cmd_file <cmd_name> [<skill>]) || continue
+# A skill owning a command only IT uses keeps it in its own assets/commands/ rather
+# than leaking an entry into the shared namespace every skill preloads from.
+# Warns ONLY when the command is defined NOWHERE (no CMD_X.md file AND no ¶CMD_X definition in a
+# top-level directive): such a §CMD_ silently contributes no proof schema, so the caller believes
+# it has structural validation it does not have. A command defined inline (COMMANDS.md/SIGILS.md,
+# no standalone file) skips quietly — it legitimately carries no proof schema.
+resolve_cmd_file() {
+  local cmd_name="$1"
+  local skill="${2:-}"
+  [ -z "$skill" ] && [ -n "${SKILL:-}" ] && skill="$SKILL"
+  if [ -z "$skill" ] && [ -n "${STATE_FILE:-}" ] && [ -f "${STATE_FILE:-}" ]; then
+    skill=$(jq -r '.skill // empty' "$STATE_FILE" 2>/dev/null || true)
+  fi
+  if [ -n "$skill" ]; then
+    local local_cmd="$HOME/.claude/engine/skills/$skill/assets/commands/CMD_${cmd_name}.md"
+    if [ -f "$local_cmd" ]; then printf '%s' "$local_cmd"; return 0; fi
+  fi
+  local shared_cmd="$HOME/.claude/engine/.directives/commands/CMD_${cmd_name}.md"
+  if [ -f "$shared_cmd" ]; then printf '%s' "$shared_cmd"; return 0; fi
+  # Defined inline (¶CMD_X in a top-level directive — COMMANDS.md / SIGILS.md) legitimately has no
+  # standalone proof file: skip silently, exactly as before this lookup change. Warn ONLY when the
+  # command is defined NOWHERE — the genuine silent-failure this guard exists to surface. (Match
+  # allows the ¶CMD_ name at end-of-line, e.g. a `### ¶CMD_X` heading.)
+  if grep -qE "¶CMD_${cmd_name}([^A-Za-z0-9_]|\$)" "$HOME"/.claude/engine/.directives/*.md 2>/dev/null; then
+    return 1
+  fi
+  echo "session: WARNING §CMD_${cmd_name} resolves to no CMD file and no ¶CMD_${cmd_name} definition — looked in ${skill:+skills/$skill/assets/commands/ then }.directives/commands/. It contributes NO proof schema." >&2
+  return 1
+}
+
 # Static fields extracted from SKILL.md — engine-authoritative
 # These fields are defined in the skill's SKILL.md JSON block and cannot be overridden by agents
 SKILL_STATIC_FIELDS='["taskType","phases","nextSkills","directives","modes","logTemplate","debriefTemplate","planTemplate","requestTemplate","responseTemplate"]'
@@ -671,14 +703,12 @@ case "$ACTION" in
       # Build combined proof schema (same logic as phase subcommand lines 1319-1381)
       ACT_PROPS="{}"
       ACT_REQ="[]"
-      ACT_CMD_DIR="$HOME/.claude/engine/.directives/commands"
 
       # Merge from steps[]
       if [ -n "${ACT_INIT_STEPS:-}" ] && [ "${ACT_INIT_STEPS:-}" != "null" ]; then
         for step_cmd in $(echo "$ACT_INIT_STEPS" | jq -r '.[]'); do
           cmd_name="${step_cmd#§CMD_}"
-          cmd_file="$ACT_CMD_DIR/CMD_${cmd_name}.md"
-          [ -f "$cmd_file" ] || continue
+          cmd_file=$(resolve_cmd_file "$cmd_name") || continue
           json_block=$(extract_proof_schema "$cmd_file")
           if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
             sp=$(echo "$json_block" | jq -r '.properties // empty' 2>/dev/null || echo "")
@@ -693,8 +723,7 @@ case "$ACTION" in
       if [ -n "${ACT_INIT_COMMANDS:-}" ] && [ "${ACT_INIT_COMMANDS:-}" != "null" ]; then
         for cmd_ref in $(echo "$ACT_INIT_COMMANDS" | jq -r '.[]'); do
           cmd_name="${cmd_ref#§CMD_}"
-          cmd_file="$ACT_CMD_DIR/CMD_${cmd_name}.md"
-          [ -f "$cmd_file" ] || continue
+          cmd_file=$(resolve_cmd_file "$cmd_name") || continue
           json_block=$(extract_proof_schema "$cmd_file")
           if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
             sp=$(echo "$json_block" | jq -r '.properties // empty' 2>/dev/null || echo "")
@@ -1360,12 +1389,10 @@ case "$ACTION" in
                 # Build combined schema from CMD file PROOF schemas
                 COMBINED_PROPERTIES="{}"
                 COMBINED_REQUIRED="[]"
-                CMD_DIR="$HOME/.claude/engine/.directives/commands"
                 for step_cmd in $(echo "$CUR_STEPS_JSON" | jq -r '.[]'); do
                   # Strip §CMD_ prefix to get CMD file name
                   cmd_name="${step_cmd#§CMD_}"
-                  cmd_file="$CMD_DIR/CMD_${cmd_name}.md"
-                  [ -f "$cmd_file" ] || continue
+                  cmd_file=$(resolve_cmd_file "$cmd_name") || continue
                   # Extract JSON Schema from ## PROOF FOR section
                   json_block=$(extract_proof_schema "$cmd_file")
                   if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
@@ -1391,8 +1418,7 @@ case "$ACTION" in
                 if [ -n "$CUR_COMMANDS_JSON" ] && [ "$CUR_COMMANDS_JSON" != "null" ]; then
                   for cmd_ref in $(echo "$CUR_COMMANDS_JSON" | jq -r '.[]'); do
                     cmd_name="${cmd_ref#§CMD_}"
-                    cmd_file="$CMD_DIR/CMD_${cmd_name}.md"
-                    [ -f "$cmd_file" ] || continue
+                    cmd_file=$(resolve_cmd_file "$cmd_name") || continue
                     json_block=$(extract_proof_schema "$cmd_file")
                     if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
                       step_props=$(echo "$json_block" | jq -r '.properties // empty' 2>/dev/null || echo "")
@@ -1486,7 +1512,6 @@ case "$ACTION" in
     # Resolve §CMD_X step/command names to CMD_X.md file paths (absolute, symlink-resolved).
     # The preload rule in guards.json fires when pendingPreloads is non-empty.
     if [ "$HAS_PHASES" = "true" ]; then
-      CMD_DIR="$HOME/.claude/.directives/commands"
       PENDING_CMDS="[]"
 
       # Collect from both steps and commands arrays for the new phase
@@ -1500,8 +1525,8 @@ case "$ACTION" in
             for cmd_ref in $(echo "$ARRAY_JSON" | jq -r '.[]'); do
               # Strip §CMD_ prefix → CMD_X.md
               cmd_name="${cmd_ref#§CMD_}"
-              cmd_file="$CMD_DIR/CMD_${cmd_name}.md"
-              if [ -f "$cmd_file" ]; then
+              cmd_file=$(resolve_cmd_file "$cmd_name" || true)
+              if [ -n "$cmd_file" ] && [ -f "$cmd_file" ]; then
                 # Normalize to absolute path and add if not already in the list
                 norm_file=$(normalize_preload_path "$cmd_file")
                 PENDING_CMDS=$(echo "$PENDING_CMDS" | jq --arg f "$norm_file" \
@@ -1582,14 +1607,12 @@ case "$ACTION" in
       # Build the same combined schema used during FROM validation so agents see ALL required fields at entry
       ENTRY_PROPS="{}"
       ENTRY_REQ="[]"
-      ENTRY_CMD_DIR="$HOME/.claude/engine/.directives/commands"
 
       # Merge proof from steps[] (reuses $NEW_STEPS already read above)
       if [ -n "${NEW_STEPS:-}" ] && [ "${NEW_STEPS:-}" != "null" ]; then
         for step_cmd in $(echo "$NEW_STEPS" | jq -r '.[]'); do
           cmd_name="${step_cmd#§CMD_}"
-          cmd_file="$ENTRY_CMD_DIR/CMD_${cmd_name}.md"
-          [ -f "$cmd_file" ] || continue
+          cmd_file=$(resolve_cmd_file "$cmd_name") || continue
           json_block=$(extract_proof_schema "$cmd_file")
           if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
             sp=$(echo "$json_block" | jq -r '.properties // empty' 2>/dev/null || echo "")
@@ -1604,8 +1627,7 @@ case "$ACTION" in
       if [ -n "${NEW_COMMANDS:-}" ] && [ "${NEW_COMMANDS:-}" != "null" ]; then
         for cmd_ref in $(echo "$NEW_COMMANDS" | jq -r '.[]'); do
           cmd_name="${cmd_ref#§CMD_}"
-          cmd_file="$ENTRY_CMD_DIR/CMD_${cmd_name}.md"
-          [ -f "$cmd_file" ] || continue
+          cmd_file=$(resolve_cmd_file "$cmd_name") || continue
           json_block=$(extract_proof_schema "$cmd_file")
           if [ -n "$json_block" ] && echo "$json_block" | jq empty 2>/dev/null; then
             sp=$(echo "$json_block" | jq -r '.properties // empty' 2>/dev/null || echo "")

@@ -1610,7 +1610,7 @@ test_phase_populates_pending_commands() {
   setup
 
   # Create CMD files in the fake HOME so session.sh can resolve them
-  local cmd_dir="$HOME/.claude/.directives/commands"
+  local cmd_dir="$HOME/.claude/engine/.directives/commands"
   mkdir -p "$cmd_dir"
   echo "# APPEND_LOG" > "$cmd_dir/CMD_APPEND_LOG.md"
   echo "# TRACK_PROGRESS" > "$cmd_dir/CMD_TRACK_PROGRESS.md"
@@ -1650,7 +1650,7 @@ test_phase_skips_already_preloaded_commands() {
   local test_name="phase: filters already-preloaded files from pendingPreloads"
   setup
 
-  local cmd_dir="$HOME/.claude/.directives/commands"
+  local cmd_dir="$HOME/.claude/engine/.directives/commands"
   mkdir -p "$cmd_dir"
   echo "# APPEND_LOG" > "$cmd_dir/CMD_APPEND_LOG.md"
   echo "# TRACK_PROGRESS" > "$cmd_dir/CMD_TRACK_PROGRESS.md"
@@ -1661,7 +1661,7 @@ test_phase_skips_already_preloaded_commands() {
   create_state "$TEST_DIR/sessions/PHASE_PRELOADED" "$(jq -n --arg h "$resolved_home" '{
     pid: 99999999, skill: "fix", lifecycle: "active", loading: true,
     currentPhase: "2: Triage Walk-Through",
-    preloadedFiles: [($h + "/.claude/.directives/commands/CMD_APPEND_LOG.md")],
+    preloadedFiles: [($h + "/.claude/engine/.directives/commands/CMD_APPEND_LOG.md")],
     phases: [
       {major: 2, minor: 0, name: "Triage Walk-Through"},
       {major: 3, minor: 0, name: "Fix Loop",
@@ -1683,6 +1683,135 @@ test_phase_skips_already_preloaded_commands() {
       "count=$pending_count, track=$pending_has_track"
   fi
 
+  teardown
+}
+
+# =============================================================================
+# FIN-3570: resolve_cmd_file — skill-local proof, loud-on-truly-missing, silent-on-inline
+# =============================================================================
+
+# Helper: write a CMD_<name>.md carrying a PROOF FOR schema that requires <field>.
+_mk_cmd_with_proof() {  # <path> <cmd_name> <required_field> [<json_type=string>]
+  local typ="${4:-string}"
+  mkdir -p "$(dirname "$1")"
+  cat > "$1" <<CMDEOF
+### ¶CMD_$2
+Test command for FIN-3570.
+
+## PROOF FOR §CMD_$2
+\`\`\`json
+{
+  "\$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": { "$3": { "type": "$typ" } },
+  "required": ["$3"]
+}
+\`\`\`
+CMDEOF
+}
+
+# Wire the real JSON-schema validator into the fake HOME (the merge path validates through it).
+_wire_validator() {
+  mkdir -p "$HOME/.claude/tools"
+  ln -sf "$ORIGINAL_HOME/.claude/tools/json-schema-validate" "$HOME/.claude/tools/json-schema-validate"
+}
+
+# The two skill-local phase fixtures share a phases array: phase 1 has a §CMD_FIN3570X step.
+_skill_local_state() {  # <session-dir>
+  create_state "$1" '{
+    "pid": 99999999, "skill": "fin3570test", "lifecycle": "active",
+    "currentPhase": "1: Work",
+    "phases": [
+      {"major": 1, "minor": 0, "name": "Work", "steps": ["§CMD_FIN3570X"], "proof": ["fooProof"]},
+      {"major": 2, "minor": 0, "name": "Next"}
+    ]
+  }'
+}
+
+test_resolve_cmd_skill_local_preferred() {
+  local test_name="phase FROM-validation: skill-local CMD schema is PREFERRED over a shared same-name and enforced"
+  setup
+  _wire_validator
+  # skill-local requires fooProof; shared same-name requires sharedOnly (decoy that must NOT win)
+  # skill-local requires fooProof as a STRING; the shared same-name decoy requires it as a NUMBER.
+  _mk_cmd_with_proof "$HOME/.claude/engine/skills/fin3570test/assets/commands/CMD_FIN3570X.md" FIN3570X fooProof string
+  _mk_cmd_with_proof "$HOME/.claude/engine/.directives/commands/CMD_FIN3570X.md" FIN3570X fooProof number
+  _skill_local_state "$TEST_DIR/sessions/SKILL_LOCAL"
+
+  # Pipe a NUMBER for fooProof. Skill-local (string) preferred → its schema rejects 42. Had the
+  # shared decoy (number) won, 42 would validate and the transition would pass — so a rejection
+  # proves the skill-local schema was the one merged.
+  local out ec
+  out=$(echo '{"fooProof":42}' | "$SESSION_SH" phase "$TEST_DIR/sessions/SKILL_LOCAL" "2: Next" 2>&1); ec=$?
+  if [ "$ec" -ne 0 ] && echo "$out" | grep -q "CMD schemas"; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit≠0 + 'Proof validation failed against CMD schemas' (skill-local string rejects 42)" "exit=$ec, out=$out"
+  fi
+  teardown
+}
+
+test_resolve_cmd_skill_local_accepts_with_field() {
+  local test_name="phase FROM-validation: skill-local proof accepted when its field is provided"
+  setup
+  _wire_validator
+  _mk_cmd_with_proof "$HOME/.claude/engine/skills/fin3570test/assets/commands/CMD_FIN3570X.md" FIN3570X fooProof
+  _skill_local_state "$TEST_DIR/sessions/SKILL_LOCAL_OK"
+
+  local out ec
+  out=$(echo '{"fooProof":"done"}' | "$SESSION_SH" phase "$TEST_DIR/sessions/SKILL_LOCAL_OK" "2: Next" 2>&1); ec=$?
+  if [ "$ec" -eq 0 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 (fooProof satisfied)" "exit=$ec, out=$out"
+  fi
+  teardown
+}
+
+test_resolve_cmd_truly_missing_warns_nonfatal() {
+  local test_name="phase: a §CMD_ defined NOWHERE warns to stderr and does NOT abort the transition"
+  setup
+  # No CMD file, no ¶CMD_ definition anywhere → genuine silent-failure the guard must surface.
+  create_state "$TEST_DIR/sessions/MISSING_CMD" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active", "currentPhase": "1: Work",
+    "phases": [
+      {"major": 1, "minor": 0, "name": "Work"},
+      {"major": 2, "minor": 0, "name": "Next", "steps": ["§CMD_FIN3570_NOWHERE"]}
+    ]
+  }'
+  # Entering phase 2 (whose step references the missing CMD) builds its entry-schema, which drives
+  # resolve_cmd_file → warns. Entry-schema warnings are non-fatal, so the transition still succeeds.
+  local out ec
+  out=$("$SESSION_SH" phase "$TEST_DIR/sessions/MISSING_CMD" "2: Next" 2>&1); ec=$?
+  if [ "$ec" -eq 0 ] && echo "$out" | grep -q "WARNING §CMD_FIN3570_NOWHERE" && echo "$out" | grep -q ".directives/commands/"; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 + WARNING naming the missing cmd + both dirs" "exit=$ec, out=$out"
+  fi
+  teardown
+}
+
+test_resolve_cmd_inline_defined_is_silent() {
+  local test_name="phase: a §CMD_ defined inline in COMMANDS.md (no file) resolves SILENTLY (no warning)"
+  setup
+  # Defined inline (¶CMD_ in COMMANDS.md) but no standalone file → legitimately no proof, no warning.
+  mkdir -p "$HOME/.claude/engine/.directives"
+  printf '### ¶CMD_FIN3570INLINE\nInline utility command; no standalone proof file.\n' \
+    > "$HOME/.claude/engine/.directives/COMMANDS.md"
+  create_state "$TEST_DIR/sessions/INLINE_CMD" '{
+    "pid": 99999999, "skill": "implement", "lifecycle": "active", "currentPhase": "1: Work",
+    "phases": [
+      {"major": 1, "minor": 0, "name": "Work"},
+      {"major": 2, "minor": 0, "name": "Next", "steps": ["§CMD_FIN3570INLINE"]}
+    ]
+  }'
+  local out ec
+  out=$("$SESSION_SH" phase "$TEST_DIR/sessions/INLINE_CMD" "2: Next" 2>&1); ec=$?
+  if [ "$ec" -eq 0 ] && ! echo "$out" | grep -q "WARNING §CMD_FIN3570INLINE"; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 + NO warning for the inline-defined cmd" "exit=$ec, out=$out"
+  fi
   teardown
 }
 
@@ -3145,6 +3274,13 @@ main() {
   test_phase_no_enforcement_without_phases_array
   test_phase_populates_pending_commands
   test_phase_skips_already_preloaded_commands
+
+  echo ""
+  echo "--- FIN-3570: skill-local proof + loud-on-missing + silent-on-inline ---"
+  test_resolve_cmd_skill_local_preferred
+  test_resolve_cmd_skill_local_accepts_with_field
+  test_resolve_cmd_truly_missing_warns_nonfatal
+  test_resolve_cmd_inline_defined_is_silent
 
   echo ""
   echo "--- Target ---"
