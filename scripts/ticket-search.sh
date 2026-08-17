@@ -29,7 +29,7 @@
 #   --limit <N>        : max hits (default 10).
 #   --json             : emit structured rows [{identifier,title,url,state,stateType,project,score,snippet}].
 #
-# Auth (live path only): LINEAR_API_KEY from env or .env (repo root or ~/.claude/engine/.env).
+# Auth (live path only): LINEAR_API_KEY from env, else ./.env.local then ./.env (env-lib.sh).
 # Env: TICKET_SEARCH_FIXTURE (test-only) — file or colon-separated file list; short-circuits _graphql.
 #      TICKET_SEARCH_DEBUG (test-only) — echo the reduced term string to stderr.
 #      LINEAR_API_URL (default https://api.linear.app/graphql).
@@ -38,6 +38,24 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/lib.sh"
+
+# env-lib.sh owns the ONE dotfile-precedence rule, shared with linear-lib.sh — otherwise
+# `engine ticket-search` and `engine project fetch` answer the same key differently in the
+# same directory. Resolved from this script's OWN dir, walking the link chain first: the
+# test suite symlinks this script into a fake HOME that holds no sibling libs.
+_TS_SRC="${BASH_SOURCE[0]:-$0}"
+while [ -L "$_TS_SRC" ]; do
+  _TS_DIR="$(cd -P "$(dirname "$_TS_SRC")" && pwd)"
+  _TS_SRC="$(readlink "$_TS_SRC")"
+  case "$_TS_SRC" in /*) ;; *) _TS_SRC="$_TS_DIR/$_TS_SRC" ;; esac
+done
+_TS_DIR="$(cd -P "$(dirname "$_TS_SRC")" && pwd)"
+if [ -f "$_TS_DIR/env-lib.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$_TS_DIR/env-lib.sh"
+else
+  echo "ticket-search: missing required $_TS_DIR/env-lib.sh" >&2; exit 1
+fi
 
 LINEAR_API_URL="${LINEAR_API_URL:-https://api.linear.app/graphql}"
 DEFAULT_LIMIT=10
@@ -60,19 +78,18 @@ usage() {
 
 # ---- GraphQL seam (the single injectable HTTP call) ----
 
-# _load_key — source LINEAR_API_KEY from .env if unset (live path only), mirroring project.sh.
+# _load_key — resolve LINEAR_API_KEY from a project dotfile if unset (live path only)
+# through the SHARED env-lib precedence, identical to linear-lib.sh's copy: one key, one
+# answer, whichever command asks. Values are trimmed and one quote layer is stripped.
 _load_key() {
   if [ -z "${LINEAR_API_KEY:-}" ]; then
-    local envfile
-    for envfile in ".env" "$HOME/.claude/engine/.env"; do
-      if [ -f "$envfile" ] && grep -q '^LINEAR_API_KEY=' "$envfile" 2>/dev/null; then
-        LINEAR_API_KEY=$(grep '^LINEAR_API_KEY=' "$envfile" | head -1 | cut -d= -f2-)
-        export LINEAR_API_KEY
-        break
-      fi
-    done
+    local val
+    if val="$(resolve_env_key LINEAR_API_KEY)"; then
+      LINEAR_API_KEY="$val"
+      export LINEAR_API_KEY
+    fi
   fi
-  : "${LINEAR_API_KEY:?LINEAR_API_KEY is required — set it in your environment or .env file}"
+  : "${LINEAR_API_KEY:?LINEAR_API_KEY is required — set it in your environment or .env.local/.env}"
 }
 
 # _next_fixture — pop the next fixture path from the colon-separated TICKET_SEARCH_FIXTURE list.

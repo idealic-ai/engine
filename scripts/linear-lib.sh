@@ -10,10 +10,30 @@
 # Fixture (tests): LINEAR_FIXTURE (canonical) or PROJECT_FETCH_FIXTURE (back-compat alias)
 #   — a file or colon-separated file list that short-circuits _graphql. File-backed call
 #   counter survives the command-substitution subshells; list exhaustion is a loud error.
-# Auth (live): LINEAR_API_KEY from env or .env (cwd or ~/.claude/engine/.env).
+# Auth (live): LINEAR_API_KEY from env, else the first PROJECT dotfile that has it —
+#   ./.env.local → ./.env (the shared precedence in env-lib.sh; `.env` still works, and
+#   a key present in both resolves to the `.env.local` one, announced once on stderr).
 # Env: LINEAR_API_URL (default https://api.linear.app/graphql).
 
 LINEAR_API_URL="${LINEAR_API_URL:-https://api.linear.app/graphql}"
+
+# Resolved from the script's OWN directory: project.sh / ticket.sh run from any cwd, and
+# the test suites SYMLINK this lib into a fake HOME — so the link chain is walked first,
+# otherwise the sibling lookup lands in a directory that holds only the symlink.
+_LINEAR_LIB_SRC="${BASH_SOURCE[0]:-$0}"
+while [ -L "$_LINEAR_LIB_SRC" ]; do
+  _LINEAR_LIB_DIR="$(cd -P "$(dirname "$_LINEAR_LIB_SRC")" && pwd)"
+  _LINEAR_LIB_SRC="$(readlink "$_LINEAR_LIB_SRC")"
+  case "$_LINEAR_LIB_SRC" in /*) ;; *) _LINEAR_LIB_SRC="$_LINEAR_LIB_DIR/$_LINEAR_LIB_SRC" ;; esac
+done
+_LINEAR_LIB_DIR="$(cd -P "$(dirname "$_LINEAR_LIB_SRC")" && pwd)"
+if [ -f "$_LINEAR_LIB_DIR/env-lib.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$_LINEAR_LIB_DIR/env-lib.sh"
+else
+  echo "linear-lib: missing required $_LINEAR_LIB_DIR/env-lib.sh" >&2
+  return 1 2>/dev/null || exit 1
+fi
 
 # Canonical fixture var, with the original project-scoped name kept as a back-compat alias
 # so the existing project.sh test corpus (which sets PROJECT_FETCH_FIXTURE) keeps working.
@@ -29,19 +49,18 @@ if [ -n "${LINEAR_FIXTURE:-}" ]; then
   trap 'rm -f "$_FIX_COUNTER" 2>/dev/null' EXIT
 fi
 
-# _load_key — source LINEAR_API_KEY from .env if unset (live path only), mirroring gemini.sh.
+# _load_key — resolve LINEAR_API_KEY from a dotfile if unset (live path only), through
+# the shared env-lib precedence. Unlike the old inline grep, the value is whitespace-
+# trimmed and one layer of surrounding quotes is stripped, so a quoted key works.
 _load_key() {
   if [ -z "${LINEAR_API_KEY:-}" ]; then
-    local envfile
-    for envfile in ".env" "$HOME/.claude/engine/.env"; do
-      if [ -f "$envfile" ] && grep -q '^LINEAR_API_KEY=' "$envfile" 2>/dev/null; then
-        LINEAR_API_KEY=$(grep '^LINEAR_API_KEY=' "$envfile" | head -1 | cut -d= -f2-)
-        export LINEAR_API_KEY
-        break
-      fi
-    done
+    local val
+    if val="$(resolve_env_key LINEAR_API_KEY)"; then
+      LINEAR_API_KEY="$val"
+      export LINEAR_API_KEY
+    fi
   fi
-  : "${LINEAR_API_KEY:?LINEAR_API_KEY is required — set it in your environment or .env file}"
+  : "${LINEAR_API_KEY:?LINEAR_API_KEY is required — set it in your environment or .env.local/.env}"
 }
 
 # _next_fixture — pop the next fixture path from the colon-separated LINEAR_FIXTURE list.
@@ -98,13 +117,26 @@ _graphql() {
 # flat single-issue follow-up queries. Both `project fetch` and `ticket fetch` run their fetched
 # issues array through _paginate_issue_children so a firehose thread is never silently truncated.
 
+# ---- Comment field selection (single source) ----
+#
+# Three queries need the same comment selection: this file's per-issue pagination, project.sh's
+# project-scoped list, and ticket.sh's id-set list. All three emit GraphQL from QUOTED heredocs so
+# that GraphQL's own $variables survive unexpanded — which is exactly why the shared text is
+# injected by token substitution instead of shell interpolation. An unsubstituted token fails loudly
+# at the API rather than silently dropping fields.
+LINEAR_COMMENT_FIELDS='id body createdAt resolvedAt resolvingUser { name } quotedText parent { id } user { name } botActor { name } reactions { emoji createdAt user { name } externalUser { name } }'
+
+_sub_comment_fields() {
+  sed "s|@COMMENT_FIELDS@|${LINEAR_COMMENT_FIELDS}|g"
+}
+
 _q_comments() {
-  cat <<'GQL'
+  cat <<'GQL' | _sub_comment_fields
 query($issueId: String!, $after: String) {
   issue(id: $issueId) {
     comments(first: 250, after: $after) {
       pageInfo { hasNextPage endCursor }
-      nodes { id body createdAt quotedText parent { id } user { name } botActor { name } reactions { emoji createdAt user { name } externalUser { name } } }
+      nodes { @COMMENT_FIELDS@ }
     }
   }
 }
@@ -237,10 +269,14 @@ LINEAR_JQ_DEFS='
   # (pre-since). Re-rooting orphans means a NEW reply to an OLD thread is never dropped.
   def buildTree($cs; $ids):
     def kids($pid): [ $cs[] | select((.parent.id // null) == $pid)
-      | { id, author: author, createdAt, body, quotedText: (.quotedText // null), reactions: reactionsOf, orphanReply: false, children: kids(.id) } ];
+      | { id, author: author, createdAt, body, quotedText: (.quotedText // null),
+          resolvedAt: (.resolvedAt // null), resolvedBy: (.resolvingUser.name // null),
+          reactions: reactionsOf, orphanReply: false, children: kids(.id) } ];
     [ $cs[]
       | select((.parent.id // null) as $p | ($p == null) or (($ids | index($p)) == null))
-      | { id, author: author, createdAt, body, quotedText: (.quotedText // null), reactions: reactionsOf,
+      | { id, author: author, createdAt, body, quotedText: (.quotedText // null),
+          resolvedAt: (.resolvedAt // null), resolvedBy: (.resolvingUser.name // null),
+          reactions: reactionsOf,
           orphanReply: ((.parent.id // null) != null), children: kids(.id) } ];
   def treeCount: reduce .[] as $c (0; . + 1 + ($c.children | treeCount));
   # One IssueHistory node → ALL its applicable normalized transitions (a single edit can

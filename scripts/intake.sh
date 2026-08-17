@@ -24,17 +24,20 @@
 #                                                 stdout (secret NAMES with empty values, non-
 #                                                 secret defaults filled). Redirect to a file.
 #
-# The engine config-loading split is load-bearing and NOT changed here: Slack keys live in
-# `.env.local`, Linear/S3/Temporal in `.env`; the doctor checks the RIGHT dotfile per key.
+# `.env.local` is the one file an operator needs for the keys the manifest homes there,
+# and the ONLY file a secret is ever written to. A key is READ from `.env.local` first and
+# `.env` second (env-lib.sh owns the rule), so setups that keep keys in `.env` keep
+# working. Rows the manifest pins to `.env` must stay there — their reader is out-of-band.
 #
 # Test seams:
 #   INTAKE_MANIFEST         override the manifest path (default: the assets copy).
 #   INTAKE_MCP_LIST_OUTPUT  when SET (even empty), used verbatim instead of `claude mcp list`
 #                           (empty string = "command unavailable" → degrade to WARN).
+#   (resolution is project-scoped: no global engine-home dotfile is ever consulted.)
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-# extract_env_key() — grep a KEY=value out of a dotfile WITHOUT sourcing it (untrusted).
+# extract_env_key / resolve_env_key — grep a KEY=value out of a dotfile WITHOUT sourcing it.
 # shellcheck source=/dev/null
 source "$SCRIPT_DIR/slack-lib.sh"
 
@@ -72,23 +75,53 @@ manifest_rows() {
 
 # True if a KEY= line exists in the dotfile (even with an empty value). Presence
 # is line existence, NOT a non-empty value — so seeding stays idempotent.
+# An optional `export ` prefix counts (env-lib.sh's reader accepts it too) — otherwise
+# the seed path treats "I could not parse it" as "it is not there" and appends a second,
+# conflicting definition of a key the operator already set.
 key_line_present() {
   local dotfile="$1" key="$2"
-  [ -n "$dotfile" ] && [ -f "$dotfile" ] && grep -qE "^[[:space:]]*${key}[[:space:]]*=" "$dotfile"
+  [ -n "$dotfile" ] && [ -f "$dotfile" ] && grep -qE "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" "$dotfile"
 }
 
 # Replace the value of the FIRST existing KEY= line in a dotfile, in place —
-# fills a present-but-empty key without appending a duplicate.
+# fills a present-but-empty key without appending a duplicate. An `export ` prefix is
+# matched (mirroring key_line_present) and preserved, so filling a value does not
+# silently strip the operator's export.
 fill_env_key() {
   local dotfile="$1" key="$2" value="$3" tmp rc
   tmp="$(mktemp)" || return 1
   awk -v k="$key" -v v="$value" '
-    !filled && $0 ~ ("^[[:space:]]*" k "[[:space:]]*=") { print k "=" v; filled = 1; next }
+    !filled && $0 ~ ("^[[:space:]]*(export[[:space:]]+)?" k "[[:space:]]*=") {
+      pre = ($0 ~ ("^[[:space:]]*export[[:space:]]+")) ? "export " : ""
+      print pre k "=" v; filled = 1; next
+    }
     { print }
   ' "$dotfile" > "$tmp" || { rm -f "$tmp"; return 1; }
   cat "$tmp" > "$dotfile"; rc=$?
   rm -f "$tmp"
   return $rc
+}
+
+# Dotfiles the doctor/wizard may WRITE to, most-preferred first: the row's manifest
+# home and ./.env.local. `./.env` is NOT a write target — a secret row's home is always
+# .env.local, so a live token can never be written into a file that may be committed.
+# (`.env` stays fully READABLE; only the rows the manifest pins there — PROVE_S3_*,
+# whose out-of-band reader opens nothing else — are ever seeded into it.)
+writable_dotfiles() {
+  local preferred="$1"
+  { [ -n "$preferred" ] && printf '%s\n' "$preferred"
+    printf '%s\n' "./.env.local"; } | awk 'NF && !seen[$0]++'
+}
+
+# locate_key_line KEY PREFERRED → the first writable dotfile that already carries a
+# KEY= line (even an empty one), else non-zero. Fills happen where the line actually
+# is, so a blank key in .env is never orphaned by a value written to .env.local.
+locate_key_line() {
+  local key="$1" preferred="$2" f
+  while IFS= read -r f; do
+    if key_line_present "$f" "$key"; then printf '%s' "$f"; return 0; fi
+  done < <(writable_dotfiles "$preferred")
+  return 1
 }
 
 # --- Presence check (shared by doctor + setup) ---
@@ -97,8 +130,9 @@ key_present() {
   local key="$1" dotfile="$2" check="$3"
   case "$check" in
     file-key)
-      [ -n "${!key:-}" ] && return 0
-      [ -n "$dotfile" ] && extract_env_key "$dotfile" "$key" >/dev/null 2>&1 && return 0
+      # The manifest's dotfile is the PREFERRED home, not the only one searched:
+      # resolve_env_key falls through to .env.local / .env / the engine-home pair.
+      resolve_env_key "$key" "$dotfile" >/dev/null 2>&1 && return 0
       return 1 ;;
     env-present)
       [ -n "${!key:-}" ] && return 0
@@ -152,8 +186,13 @@ gen_env_example() {
 # .env.example — intake operator credentials. GENERATED from CREDENTIALS.manifest
 # (engine intake env-example). Do not hand-edit; regenerate after a manifest change.
 #
-# Copy the keys you need into the gitignored dotfiles. The engine config split is
-# load-bearing: Slack keys are read from .env.local; Linear / S3 / Temporal from .env.
+# Each `--- <file> ---` group below names the file its keys belong in. They are NOT
+# interchangeable, so copy each group into the file it names:
+#   .env.local  — read from .env.local first and .env second (so an existing .env setup
+#                 keeps working, and a key in both files resolves to the .env.local one),
+#                 and the only file `engine intake doctor|setup` ever writes.
+#   .env        — the home for those keys, and PROVE_S3_* are REQUIRED there: their
+#                 reader (skills/prove/assets/_prove-s3-env.sh) never opens .env.local.
 # Secrets carry an empty value here (never a real token). Non-secret defaults are filled.
 #
 # NOT dotfile keys (documented, set up out-of-band):
@@ -169,9 +208,18 @@ HDR
   while IFS= read -r row; do
     check="${row##*|}"; IFS='|' read -r key service required secret default dotfile how <<< "${row%|*}"
     case "$check" in file-key|env-present) ;; *) continue ;; esac
-    [ -n "$dotfile" ] || dotfile="(exported env)"
+    # The "read from .env.local first" promise is only true for rows homed THERE; the
+    # .env group has an out-of-band reader (skills/prove/assets/_prove-s3-env.sh walks
+    # to the nearest .env and never opens .env.local), so it is labelled REQUIRED.
+    local label
+    case "$dotfile" in
+      .env.local) label="$dotfile (read here first, then .env; fresh values are written here)" ;;
+      .env)       label="$dotfile (home for these keys; PROVE_S3_* are REQUIRED here — _prove-s3-env.sh reads the nearest .env, never .env.local)" ;;
+      "")         dotfile="(exported env)"; label="$dotfile" ;;
+      *)          label="$dotfile (preferred home)" ;;
+    esac
     if [ "$dotfile" != "$last_dotfile" ]; then
-      printf '\n# --- %s ---\n' "$dotfile"
+      printf '\n# --- %s ---\n' "$label"
       last_dotfile="$dotfile"
     fi
     printf '# how: %s\n' "$how"
@@ -212,7 +260,7 @@ cmd_doctor() {
     case "$1" in
       --env-example) env_example="${2:-}"; shift 2 ;;
       --env-example=*) env_example="${1#*=}"; shift ;;
-      -h|--help) sed -n '11,33p' "$0"; return 0 ;;
+      -h|--help) sed -n '11,36p' "$0"; return 0 ;;
       *) echo "intake doctor: unknown flag '$1'" >&2; return 1 ;;
     esac
   done
@@ -236,9 +284,10 @@ cmd_doctor() {
     # Seed a missing non-secret default into its dotfile, then it is present.
     # A present-but-empty KEY= line is filled in place — never duplicated.
     if [ "$check" = "file-key" ] && [ "$secret" != "true" ] && [ -n "$default" ] && [ -n "$dotfile" ]; then
-      if key_line_present "$dotfile" "$key"; then
-        fill_env_key "$dotfile" "$key" "$default" && seed "$key" "filled empty default '$default' → $dotfile" \
-          || warn "$key" "could not fill empty default in $dotfile — $how"
+      local target
+      if target="$(locate_key_line "$key" "$dotfile")"; then
+        fill_env_key "$target" "$key" "$default" && seed "$key" "filled empty default '$default' → $target" \
+          || warn "$key" "could not fill empty default in $target — $how"
       else
         printf '%s=%s\n' "$key" "$default" >> "$dotfile" && seed "$key" "seeded default '$default' → $dotfile" \
           || warn "$key" "could not seed default into $dotfile — $how"
@@ -282,7 +331,7 @@ cmd_setup() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --non-interactive|--dry-run) dry=1; shift ;;
-      -h|--help) sed -n '11,33p' "$0"; return 0 ;;
+      -h|--help) sed -n '11,36p' "$0"; return 0 ;;
       *) echo "intake setup: unknown flag '$1'" >&2; return 1 ;;
     esac
   done
@@ -315,11 +364,11 @@ cmd_setup() {
     [ -n "$val" ] || { printf "        skipped.\n"; continue; }
     # Quote on write so extract_env_key round-trips the value exactly (its read
     # strips one quote layer AFTER trimming, so surrounding/internal spaces survive).
-    local quoted="\"$val\""
-    if key_line_present "$dotfile" "$key"; then
-      # A KEY= line already exists (present-but-empty, else key_present passed and
-      # we never reached here) — fill it in place rather than appending a duplicate.
-      fill_env_key "$dotfile" "$key" "$quoted" && { printf "        wrote %s → %s (filled in place)\n" "$key" "$dotfile"; wrote=$((wrote + 1)); } \
+    local quoted="\"$val\"" target
+    if target="$(locate_key_line "$key" "$dotfile")"; then
+      # A KEY= line already exists (present-but-empty, else key_present passed and we
+      # never reached here) — fill it WHERE IT IS rather than appending a duplicate.
+      fill_env_key "$target" "$key" "$quoted" && { printf "        wrote %s → %s (filled in place)\n" "$key" "$target"; wrote=$((wrote + 1)); } \
         || printf "        ${RED}failed${NC} to write %s\n" "$key"
     else
       printf '%s=%s\n' "$key" "$quoted" >> "$dotfile" && { printf "        wrote %s → %s\n" "$key" "$dotfile"; wrote=$((wrote + 1)); } \
@@ -340,6 +389,6 @@ case "${1:-}" in
   doctor)      shift; cmd_doctor "$@" ;;
   setup)       shift; cmd_setup "$@" ;;
   env-example) shift; gen_env_example ;;
-  ""|-h|--help|help) sed -n '11,33p' "$0" ;;
-  *) echo "intake: unknown subcommand '$1'" >&2; sed -n '11,33p' "$0"; exit 1 ;;
+  ""|-h|--help|help) sed -n '11,36p' "$0" ;;
+  *) echo "intake: unknown subcommand '$1'" >&2; sed -n '11,36p' "$0"; exit 1 ;;
 esac

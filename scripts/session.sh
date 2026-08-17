@@ -62,6 +62,21 @@ set -euo pipefail
 # Source shared utilities (timestamp, pid_exists, safe_json_write)
 source "$HOME/.claude/scripts/lib.sh"
 
+# env-lib.sh — the shared dotfile-precedence rule, so the SRC_RELATED_TICKETS hint below
+# agrees with what ticket-search.sh will actually resolve. Best-effort: if it is absent
+# the hint degrades to "no key configured", which is what it printed before.
+_SESSION_SRC="${BASH_SOURCE[0]:-$0}"
+while [ -L "$_SESSION_SRC" ]; do
+  _SESSION_DIR="$(cd -P "$(dirname "$_SESSION_SRC")" && pwd)"
+  _SESSION_SRC="$(readlink "$_SESSION_SRC")"
+  case "$_SESSION_SRC" in /*) ;; *) _SESSION_SRC="$_SESSION_DIR/$_SESSION_SRC" ;; esac
+done
+_SESSION_DIR="$(cd -P "$(dirname "$_SESSION_SRC")" && pwd)"
+if [ -f "$_SESSION_DIR/env-lib.sh" ]; then
+  # shellcheck source=/dev/null
+  . "$_SESSION_DIR/env-lib.sh"
+fi
+
 ACTION="${1:?Usage: session.sh <init|activate|update|find|restart> <path> [args...]}"
 
 # DIR is required for all commands except 'find' and 'request-template'
@@ -503,9 +518,13 @@ case "$ACTION" in
           jq "${JQ_ARGS[@]}" "$JQ_EXPR" \
             "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
-          # Wipe phase state for new skill
-          jq 'del(.phases) | .phaseHistory = []' \
-            "$STATE_FILE" | safe_json_write "$STATE_FILE"
+          # Wipe phase state ONLY on a genuine skill change. A same-skill idle→active
+          # reactivation (continuing after idle) must preserve currentPhase + phaseHistory,
+          # or the session snaps back to phase 0 and enforcement rejects the real next transition.
+          if [ "$EXISTING_SKILL" != "$SKILL" ]; then
+            jq 'del(.phases) | .phaseHistory = []' \
+              "$STATE_FILE" | safe_json_write "$STATE_FILE"
+          fi
 
           # Merge stdin JSON if provided
           if [ -n "$STDIN_JSON" ]; then
@@ -522,17 +541,20 @@ case "$ACTION" in
           ACTIVATED=true
           SHOULD_SCAN=true  # Unified: --fast-track override applied later if set
 
-          # Derive currentPhase from new phases array
-          HAS_NEW_PHASES=$(jq 'has("phases") and (.phases | length > 0)' "$STATE_FILE" 2>/dev/null || echo "false")
-          if [ "$HAS_NEW_PHASES" = "true" ]; then
-            jq '
-              def phase_lbl: if has("label") then .label elif .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end;
-              def sort_key: phase_lbl | split(".") | map(if test("^[0-9]+$") then ("000" + .)[-3:] else . end) | join(".");
-              .currentPhase = (.phases | sort_by(sort_key) | first | "\(phase_lbl): \(.name)")
-            ' "$STATE_FILE" | safe_json_write "$STATE_FILE"
-          else
-            jq '.currentPhase = "Phase 1: Setup"' \
-              "$STATE_FILE" | safe_json_write "$STATE_FILE"
+          # Derive currentPhase from the new phases array ONLY on a skill change;
+          # a same-skill reactivation keeps the saved currentPhase (see the wipe guard above).
+          if [ "$EXISTING_SKILL" != "$SKILL" ]; then
+            HAS_NEW_PHASES=$(jq 'has("phases") and (.phases | length > 0)' "$STATE_FILE" 2>/dev/null || echo "false")
+            if [ "$HAS_NEW_PHASES" = "true" ]; then
+              jq '
+                def phase_lbl: if has("label") then .label elif .minor == 0 then "\(.major)" else "\(.major).\(.minor)" end;
+                def sort_key: phase_lbl | split(".") | map(if test("^[0-9]+$") then ("000" + .)[-3:] else . end) | join(".");
+                .currentPhase = (.phases | sort_by(sort_key) | first | "\(phase_lbl): \(.name)")
+              ' "$STATE_FILE" | safe_json_write "$STATE_FILE"
+            else
+              jq '.currentPhase = "Phase 1: Setup"' \
+                "$STATE_FILE" | safe_json_write "$STATE_FILE"
+            fi
           fi
 
           echo "Session reactivated (idle → active): $DIR (skill: $SKILL, pid: $TARGET_PID)"
@@ -850,9 +872,10 @@ case "$ACTION" in
         echo "$RECALL_TICKETS"
       elif [ -n "$TASK_SUMMARY" ] && [ -z "${TICKET_SEARCH_DISABLED:-}" ] \
            && [ -z "${LINEAR_API_KEY:-}" ] \
-           && ! grep -qs '^LINEAR_API_KEY=' .env "$HOME/.claude/engine/.env"; then
+           && ! resolve_env_key LINEAR_API_KEY >/dev/null 2>&1; then
         # Distinguish "no key configured" from "key set, zero hits" so a silent (none) isn't puzzling.
-        echo "(none — set LINEAR_API_KEY (env or .env) to enable ticket search)"
+        # Same resolver ticket-search uses, so the hint cannot contradict the search.
+        echo "(none — set LINEAR_API_KEY (env, .env.local or .env) to enable ticket search)"
       else
         echo "(none)"
       fi
