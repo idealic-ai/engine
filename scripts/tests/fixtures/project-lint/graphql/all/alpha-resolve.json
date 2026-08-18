@@ -1,0 +1,13 @@
+{
+  "data": {
+    "projects": {
+      "nodes": [
+        {
+          "id": "p1",
+          "name": "Product: Alpha",
+          "url": "https://x"
+        }
+      ]
+    }
+  }
+}

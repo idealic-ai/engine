@@ -1,0 +1,206 @@
+{
+  "data": {
+    "project": {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "name": "Product: Intake System",
+      "url": "https://linear.app/finchclaims/project/intake",
+      "projectMilestones": {
+        "nodes": [
+          {
+            "id": "m1",
+            "name": "Ready for action",
+            "sortOrder": 0
+          },
+          {
+            "id": "m2",
+            "name": "Quick wins",
+            "sortOrder": 1
+          }
+        ]
+      },
+      "issues": {
+        "pageInfo": {
+          "hasNextPage": false,
+          "endCursor": null
+        },
+        "nodes": [
+          {
+            "id": "i903",
+            "identifier": "FIN-903",
+            "title": "Quick win chore",
+            "url": "https://linear.app/x/FIN-903",
+            "priority": 1,
+            "state": {
+              "name": "Todo",
+              "type": "unstarted"
+            },
+            "projectMilestone": {
+              "name": "Quick wins",
+              "sortOrder": 1
+            },
+            "labels": {
+              "nodes": [
+                {
+                  "name": "chore"
+                }
+              ]
+            },
+            "inverseRelations": {
+              "nodes": []
+            },
+            "estimate": 2
+          },
+          {
+            "id": "i901",
+            "identifier": "FIN-901",
+            "title": "Fix the crop guard",
+            "url": "https://linear.app/x/FIN-901",
+            "priority": 2,
+            "state": {
+              "name": "Todo",
+              "type": "unstarted"
+            },
+            "projectMilestone": {
+              "name": "Ready for action",
+              "sortOrder": 0
+            },
+            "labels": {
+              "nodes": [
+                {
+                  "name": "Bug"
+                }
+              ]
+            },
+            "inverseRelations": {
+              "nodes": [
+                {
+                  "type": "blocks",
+                  "issue": {
+                    "identifier": "FIN-990",
+                    "state": {
+                      "type": "completed"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "i902",
+            "identifier": "FIN-902",
+            "title": "Wire the ingest onto project fetch",
+            "url": "https://linear.app/x/FIN-902",
+            "priority": 1,
+            "state": {
+              "name": "Todo",
+              "type": "unstarted"
+            },
+            "projectMilestone": {
+              "name": "Ready for action",
+              "sortOrder": 0
+            },
+            "labels": {
+              "nodes": [
+                {
+                  "name": "Feature"
+                }
+              ]
+            },
+            "inverseRelations": {
+              "nodes": [
+                {
+                  "type": "related",
+                  "issue": {
+                    "identifier": "FIN-980",
+                    "state": {
+                      "type": "started"
+                    }
+                  }
+                }
+              ]
+            },
+            "estimate": 5
+          },
+          {
+            "id": "i904",
+            "identifier": "FIN-904",
+            "title": "Blocked bug in the crop path",
+            "url": "https://linear.app/x/FIN-904",
+            "priority": 2,
+            "state": {
+              "name": "Todo",
+              "type": "unstarted"
+            },
+            "projectMilestone": {
+              "name": "Ready for action",
+              "sortOrder": 0
+            },
+            "labels": {
+              "nodes": [
+                {
+                  "name": "Bug"
+                }
+              ]
+            },
+            "inverseRelations": {
+              "nodes": [
+                {
+                  "type": "blocks",
+                  "issue": {
+                    "identifier": "FIN-999",
+                    "state": {
+                      "type": "started"
+                    }
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "i906",
+            "identifier": "FIN-906",
+            "title": "No priority item",
+            "url": "https://linear.app/x/FIN-906",
+            "priority": 0,
+            "state": {
+              "name": "Backlog",
+              "type": "backlog"
+            },
+            "projectMilestone": {
+              "name": "Ready for action",
+              "sortOrder": 0
+            },
+            "labels": {
+              "nodes": []
+            },
+            "inverseRelations": {
+              "nodes": []
+            }
+          },
+          {
+            "id": "i905",
+            "identifier": "FIN-905",
+            "title": "Orphan low doc task",
+            "url": "https://linear.app/x/FIN-905",
+            "priority": 4,
+            "state": {
+              "name": "Backlog",
+              "type": "backlog"
+            },
+            "projectMilestone": null,
+            "labels": {
+              "nodes": [
+                {
+                  "name": "docs"
+                }
+              ]
+            },
+            "inverseRelations": {
+              "nodes": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}

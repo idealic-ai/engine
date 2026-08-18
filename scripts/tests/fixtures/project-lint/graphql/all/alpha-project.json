@@ -1,0 +1,12 @@
+{
+  "data": {
+    "project": {
+      "id": "p1",
+      "name": "Product: Alpha",
+      "url": "https://x",
+      "slugId": "s-alpha",
+      "description": "one-liner",
+      "content": "Lead sentence naming the product.\n\nProse one, this product's own voice.\nProse two.\n\n## Directions\n\nIDENTICAL STEER TEXT ACROSS BOTH PROJECTS\n\n## Operators & cadence\n\nIDENTICAL UNDECLARED BOILERPLATE ACROSS BOTH PROJECTS\n\n> 📘 [**How this project's inbox works**](<https://x>) — y.\n"
+    }
+  }
+}

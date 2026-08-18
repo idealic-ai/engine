@@ -1,0 +1,18 @@
+{
+  "data": {
+    "issue": {
+      "identifier": "FIN-A1", "title": "Anchor one",
+      "state": { "name": "Todo", "type": "unstarted" },
+      "project": { "name": "Relations Project" },
+      "parent": { "identifier": "FIN-A0", "title": "Parent zero", "state": { "name": "Todo", "type": "unstarted" }, "project": { "name": "Relations Project" } },
+      "children": { "nodes": [
+        { "identifier": "FIN-A5", "title": "Child five", "state": { "name": "Backlog", "type": "backlog" }, "project": { "name": "Relations Project" } }
+      ] },
+      "relations": { "nodes": [
+        { "type": "related", "relatedIssue": { "identifier": "FIN-A2", "title": "Related two", "state": { "name": "Todo", "type": "unstarted" }, "project": { "name": "Other Project" } } },
+        { "type": "blocks", "relatedIssue": { "identifier": "FIN-A3", "title": "Blocked three", "state": { "name": "Backlog", "type": "backlog" }, "project": { "name": "Relations Project" } } }
+      ] },
+      "inverseRelations": { "nodes": [] }
+    }
+  }
+}

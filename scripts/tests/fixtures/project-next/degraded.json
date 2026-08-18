@@ -1,0 +1,36 @@
+{
+  "data": {
+    "project": {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "name": "Estimate Structural Wins",
+      "url": "https://linear.app/finchclaims/project/estimate",
+      "projectMilestones": { "nodes": [] },
+      "issues": {
+        "pageInfo": { "hasNextPage": false, "endCursor": null },
+        "nodes": [
+          {
+            "id": "i801", "identifier": "FIN-801", "title": "High bug no milestone", "url": "https://linear.app/x/FIN-801",
+            "priority": 2, "state": { "name": "Todo", "type": "unstarted" },
+            "projectMilestone": null,
+            "labels": { "nodes": [ { "name": "Bug" } ] },
+            "inverseRelations": { "nodes": [] }
+          },
+          {
+            "id": "i802", "identifier": "FIN-802", "title": "Urgent feature no milestone", "url": "https://linear.app/x/FIN-802",
+            "priority": 1, "state": { "name": "Todo", "type": "unstarted" },
+            "projectMilestone": null,
+            "labels": { "nodes": [ { "name": "Feature" } ] },
+            "inverseRelations": { "nodes": [] }
+          },
+          {
+            "id": "i803", "identifier": "FIN-803", "title": "Low chore no milestone", "url": "https://linear.app/x/FIN-803",
+            "priority": 4, "state": { "name": "Backlog", "type": "backlog" },
+            "projectMilestone": null,
+            "labels": { "nodes": [] },
+            "inverseRelations": { "nodes": [] }
+          }
+        ]
+      }
+    }
+  }
+}

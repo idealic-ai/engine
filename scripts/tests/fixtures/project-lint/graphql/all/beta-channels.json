@@ -1,0 +1,19 @@
+{
+  "data": {
+    "issues": {
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      },
+      "nodes": [
+        {
+          "id": "i1",
+          "identifier": "FIN-1",
+          "title": "🔴 Observed problems",
+          "url": "https://x",
+          "description": "Lead line.\n\n> 📘 [**How this project's inbox works**](<https://x>) — y.\n"
+        }
+      ]
+    }
+  }
+}

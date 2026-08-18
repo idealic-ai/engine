@@ -1,0 +1,61 @@
+{
+  "data": {
+    "project": {
+      "id": "44444444-4444-4444-4444-444444444444",
+      "name": "Relations Project",
+      "url": "https://linear.app/x/relations",
+      "projectMilestones": { "nodes": [ { "id": "m1", "name": "Ready for action", "sortOrder": 0 } ] },
+      "issues": {
+        "pageInfo": { "hasNextPage": false, "endCursor": null },
+        "nodes": [
+          {
+            "id": "iA1", "identifier": "FIN-A1", "title": "Anchor one", "url": "https://linear.app/x/FIN-A1",
+            "priority": 1, "state": { "name": "Todo", "type": "unstarted" },
+            "projectMilestone": { "name": "Ready for action", "sortOrder": 0 },
+            "labels": { "nodes": [ { "name": "Feature" } ] },
+            "parent": { "identifier": "FIN-A0" },
+            "relations": { "nodes": [
+              { "type": "related", "relatedIssue": { "identifier": "FIN-A2" } },
+              { "type": "blocks", "relatedIssue": { "identifier": "FIN-A3" } }
+            ] },
+            "inverseRelations": { "nodes": [] }
+          },
+          {
+            "id": "iA2", "identifier": "FIN-A2", "title": "Related two", "url": "https://linear.app/x/FIN-A2",
+            "priority": 2, "state": { "name": "Todo", "type": "unstarted" },
+            "projectMilestone": { "name": "Ready for action", "sortOrder": 0 },
+            "labels": { "nodes": [ { "name": "Bug" } ] },
+            "parent": null,
+            "relations": { "nodes": [] },
+            "inverseRelations": { "nodes": [
+              { "type": "related", "issue": { "identifier": "FIN-A1", "state": { "type": "unstarted" } } },
+              { "type": "blocks", "issue": { "identifier": "FIN-A9", "state": { "type": "started" } } }
+            ] }
+          },
+          {
+            "id": "iA3", "identifier": "FIN-A3", "title": "Blocked three", "url": "https://linear.app/x/FIN-A3",
+            "priority": 3, "state": { "name": "Backlog", "type": "backlog" },
+            "projectMilestone": { "name": "Ready for action", "sortOrder": 0 },
+            "labels": { "nodes": [ { "name": "chore" } ] },
+            "parent": null,
+            "relations": { "nodes": [] },
+            "inverseRelations": { "nodes": [
+              { "type": "blocks", "issue": { "identifier": "FIN-A1", "state": { "type": "unstarted" } } }
+            ] }
+          },
+          {
+            "id": "iA4", "identifier": "FIN-A4", "title": "Duplicate four", "url": "https://linear.app/x/FIN-A4",
+            "priority": 4, "state": { "name": "Backlog", "type": "backlog" },
+            "projectMilestone": { "name": "Ready for action", "sortOrder": 0 },
+            "labels": { "nodes": [] },
+            "parent": null,
+            "relations": { "nodes": [
+              { "type": "duplicate", "relatedIssue": { "identifier": "FIN-A2" } }
+            ] },
+            "inverseRelations": { "nodes": [] }
+          }
+        ]
+      }
+    }
+  }
+}

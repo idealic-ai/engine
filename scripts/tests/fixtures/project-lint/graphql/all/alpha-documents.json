@@ -1,0 +1,20 @@
+{
+  "data": {
+    "documents": {
+      "pageInfo": {
+        "hasNextPage": false,
+        "endCursor": null
+      },
+      "nodes": [
+        {
+          "id": "d-alpha",
+          "title": "Inbox Handbook",
+          "slugId": "aaa000000001",
+          "url": "https://x",
+          "updatedAt": "2026-07-31T00:00:00Z",
+          "content": "Lead.\n\n## Dropping something\n\na\n\n## The channels\n\nc\n\n## 📋 Report template\n\nt\n\n## What happens next\n\nn\n\n## How a comment becomes a ticket\n\nb\n\n## What triage will chase\n\nper-project\n\n## Ticketing Strategy\n\nper-project\n"
+        }
+      ]
+    }
+  }
+}

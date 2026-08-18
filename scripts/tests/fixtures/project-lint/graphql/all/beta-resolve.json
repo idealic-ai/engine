@@ -1,0 +1,13 @@
+{
+  "data": {
+    "projects": {
+      "nodes": [
+        {
+          "id": "p2",
+          "name": "Product: Beta",
+          "url": "https://x"
+        }
+      ]
+    }
+  }
+}
