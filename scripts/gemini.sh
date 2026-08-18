@@ -9,7 +9,7 @@
 #
 # Options:
 #   --temperature <float>   Generation temperature (default: 0.3)
-#   --model <name>          Model name (default: gemini-3-pro-preview)
+#   --model <name>          Model name (default: gemini-3.1-pro-preview)
 #   --system <text>         System instruction prepended to prompt
 #
 # Stdin:
@@ -28,14 +28,27 @@
 #   - GEMINI_API_KEY environment variable (or in .env)
 #   - curl, jq
 
-# Source .env if GEMINI_API_KEY not already set
+# --- GEMINI_API_KEY via the shared engine resolver ---------------------------------
+# ONE rule for every consumer: a real env var, then the current session's project root
+# (.env.local, then .env). There is deliberately NO $HOME dotfile in the chain — a
+# per-project credential comes from the project, never from a global file that would let
+# one project's wave authenticate as another's. (Measured before removal: neither
+# ~/.env nor ~/.claude/.env exists here, so that branch was dead code.)
 if [ -z "${GEMINI_API_KEY:-}" ]; then
-  for envfile in .env "$HOME/.env" "$HOME/.claude/.env"; do
-    if [ -f "$envfile" ] && grep -q '^GEMINI_API_KEY=' "$envfile" 2>/dev/null; then
-      export GEMINI_API_KEY
-      GEMINI_API_KEY=$(grep '^GEMINI_API_KEY=' "$envfile" | head -1 | cut -d= -f2-)
-      break
-    fi
+  _gem_self="${BASH_SOURCE[0]:-$0}"
+  while [ -L "$_gem_self" ]; do
+    _gem_d="$(cd -P "$(dirname "$_gem_self")" && pwd)"; _gem_self="$(readlink "$_gem_self")"
+    case "$_gem_self" in /*) ;; *) _gem_self="$_gem_d/$_gem_self" ;; esac
+  done
+  _gem_d="$(cd -P "$(dirname "$_gem_self")" && pwd)"
+  for _gem_lib in "${ENGINE_SCRIPTS:-}/env-lib.sh" "$_gem_d/env-lib.sh" \
+                  "$_gem_d/../../scripts/env-lib.sh" "$HOME/.claude/engine/scripts/env-lib.sh"; do
+    [ -f "$_gem_lib" ] || continue
+    # shellcheck source=/dev/null
+    . "$_gem_lib"
+    GEMINI_API_KEY="$(resolve_env_key GEMINI_API_KEY 2>/dev/null)" || GEMINI_API_KEY=""
+    export GEMINI_API_KEY
+    break
   done
 fi
 
@@ -46,7 +59,7 @@ set -euo pipefail
 
 # ---- Defaults ----
 TEMPERATURE="0.3"
-MODEL="gemini-3-pro-preview"
+MODEL="gemini-3.1-pro-preview"
 SYSTEM_INSTRUCTION=""
 CONTEXT_FILES=()
 
@@ -59,7 +72,7 @@ if [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ]; then
   echo ""
   echo "Options:"
   echo "  --temperature <float>   Generation temperature (default: 0.3)"
-  echo "  --model <name>          Model name (default: gemini-3-pro-preview)"
+  echo "  --model <name>          Model name (default: gemini-3.1-pro-preview)"
   echo "  --system <text>         System instruction prepended to prompt"
   echo ""
   echo "Examples:"

@@ -194,6 +194,102 @@ CMD
 # CATEGORY 1: INSTALLATION
 # ============================================================
 
+# ============================================================
+# EP — the ONE-PARSER regression gate (6/4)
+# ============================================================
+# Five duplicate credential parsers accumulated because nothing looked for them, and
+# each audit that DID look undercounted: a dependency-walk missed publish-s3.sh (it
+# joined no chain), a shape search missed doc-search/session-search (they quoted the
+# delimiter as -d'='), and a scripts/-scoped sweep missed the two copies under tools/.
+# The gate must therefore catch BOTH evasions, which is what these tests pin.
+
+# Plant a file containing a duplicate parser in the sandboxed engine, run doctor, return output.
+_plant_and_run() {
+  local relpath="$1" body="$2" out
+  mkdir -p "$(dirname "$ENGINE_DIR/$relpath")"
+  printf '%s\n' "$body" > "$ENGINE_DIR/$relpath"
+  # ANSI must be stripped: doctor writes `${RED}FAIL${NC}  EP-01`, so a naive
+  # `grep 'FAIL +EP-01'` never matches and every assertion below reads as a real failure.
+  out=$("$DOCTOR_SH" -v 2>&1 | sed 's/\x1b\[[0-9;]*m//g') || true
+  /bin/rm -f "$ENGINE_DIR/$relpath"
+  printf '%s' "$out"
+}
+
+test_env_parser_gate_clean_tree_passes() {
+  local output
+  output=$("$DOCTOR_SH" -v 2>&1 | sed 's/\x1b\[[0-9;]*m//g') || true
+  assert_contains "EP-01" "$output" "the one-parser gate runs"
+  # The sandbox engine has no duplicate parsers planted, so the gate must be green.
+  if printf '%s' "$output" | grep -qE 'FAIL +EP-01'; then
+    fail "clean tree passes the parser gate" "no EP-01 failure" "$(printf '%s' "$output" | grep -A2 'EP-01')"
+  else
+    pass "clean tree passes the parser gate"
+  fi
+}
+
+test_env_parser_gate_catches_cut_shape() {
+  # EVASION 1 — the `cut` shape, in BOTH spellings that exist in the wild:
+  # `cut -d= -f2-` (gemini.sh/research.sh) and `cut -d'=' -f2-` (doc-search/session-search).
+  local out1 out2
+  out1=$(_plant_and_run "scripts/planted-a.sh" \
+    'TOKEN=$(grep "^MY_TOKEN=" .env | head -1 | cut -d= -f2-)')
+  out2=$(_plant_and_run "scripts/planted-b.sh" \
+    "TOKEN=\$(grep -E '^MY_TOKEN=' .env | cut -d'=' -f2- | tr -d '\"')")
+  if printf '%s' "$out1" | grep -qE 'FAIL +EP-01' && printf '%s' "$out1" | grep -q 'planted-a.sh'; then
+    pass "gate catches the cut shape (-d=) and names the file"
+  else
+    fail "gate catches cut -d=" "FAIL EP-01 naming planted-a.sh" "$(printf '%s' "$out1" | grep -A3 'EP-01')"
+  fi
+  if printf '%s' "$out2" | grep -qE 'FAIL +EP-01' && printf '%s' "$out2" | grep -q 'planted-b.sh'; then
+    pass "gate catches the QUOTED cut shape (-d'=') — the spelling that evaded the last audit"
+  else
+    fail "gate catches cut -d'='" "FAIL EP-01 naming planted-b.sh" "$(printf '%s' "$out2" | grep -A3 'EP-01')"
+  fi
+}
+
+test_env_parser_gate_catches_grep_shape() {
+  # EVASION 2 — the anchored-grep shape with no `cut` at all (sed/awk do the extraction).
+  local out
+  out=$(_plant_and_run "scripts/planted-c.sh" \
+    "TOKEN=\$(grep '^MY_TOKEN=' .env | sed -e 's/^MY_TOKEN=//')")
+  if printf '%s' "$out" | grep -qE 'FAIL +EP-01' && printf '%s' "$out" | grep -q 'planted-c.sh'; then
+    pass "gate catches the anchored-grep shape with no cut involved"
+  else
+    fail "gate catches anchored grep" "FAIL EP-01 naming planted-c.sh" "$(printf '%s' "$out" | grep -A3 'EP-01')"
+  fi
+}
+
+test_env_parser_gate_scans_tools_and_skills() {
+  # EVASION 3 — a scripts/-only sweep is how the two tools/ copies were missed.
+  local out1 out2
+  out1=$(_plant_and_run "tools/planted-tool/planted.sh" \
+    'K=$(grep "^SOME_KEY=" .env | cut -d= -f2-)')
+  out2=$(_plant_and_run "skills/planted-skill/assets/planted.sh" \
+    'K=$(grep "^SOME_KEY=" .env | cut -d= -f2-)')
+  if printf '%s' "$out1" | grep -qE 'FAIL +EP-01'; then
+    pass "gate scans tools/ (where two copies hid from a scripts/-scoped sweep)"
+  else
+    fail "gate scans tools/" "FAIL EP-01" "$(printf '%s' "$out1" | grep -A3 'EP-01')"
+  fi
+  if printf '%s' "$out2" | grep -qE 'FAIL +EP-01'; then
+    pass "gate scans skills/ (where publish-s3.sh hid from the dependency walk)"
+  else
+    fail "gate scans skills/" "FAIL EP-01" "$(printf '%s' "$out2" | grep -A3 'EP-01')"
+  fi
+}
+
+test_env_parser_gate_exempts_the_one_parser() {
+  # env-lib.sh IS the parser; it must not flag itself, or the gate ships red.
+  local out
+  out=$(_plant_and_run "scripts/env-lib.sh" \
+    'extract_env_key() { grep -E "^${2}=" "$1" | cut -d= -f2-; }')
+  if printf '%s' "$out" | grep -qE 'FAIL +EP-01'; then
+    fail "env-lib.sh is exempt" "no EP-01 failure for env-lib.sh" "$(printf '%s' "$out" | grep -A3 'EP-01')"
+  else
+    pass "env-lib.sh — THE parser — is exempt from its own gate"
+  fi
+}
+
 test_installation_engine_on_path() {
   local output
   output=$("$DOCTOR_SH" -v 2>&1) || true
@@ -610,5 +706,12 @@ run_test test_summary_line_present
 
 # Verbose flag
 run_test test_verbose_shows_pass
+
+# EP — the one-parser regression gate
+run_test test_env_parser_gate_clean_tree_passes
+run_test test_env_parser_gate_catches_cut_shape
+run_test test_env_parser_gate_catches_grep_shape
+run_test test_env_parser_gate_scans_tools_and_skills
+run_test test_env_parser_gate_exempts_the_one_parser
 
 exit_with_results

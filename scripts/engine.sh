@@ -119,6 +119,16 @@ log_step() {
 
 SCRIPT_PATH="$(readlink -f "$0" 2>/dev/null || realpath "$0" 2>/dev/null || echo "$0")"
 SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+
+# Exported so ANY script — under skills/, tools/, anywhere — imports a shared engine lib
+# in ONE line (`. "$ENGINE_SCRIPTS/env-lib.sh"`) instead of a six-line symlink chain-walk
+# plus ../../../ . That cost asymmetry is why duplicate credential parsers kept appearing:
+# rewriting eight lines of grep was genuinely cheaper than importing. Every subcommand is
+# reached by `exec`, so these propagate. Consumers must still keep a chain-walk fallback —
+# the test suites source those files directly, bypassing this dispatcher entirely.
+export ENGINE_SCRIPTS="$SCRIPT_DIR"
+export ENGINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 CLAUDE_DIR="$HOME/.claude"
 LOCAL_ENGINE="$HOME/.claude/engine"
 MODE_FILE="$HOME/.claude/engine/.mode"
@@ -243,6 +253,21 @@ LINEAR DATA
                           in a project at/after an optional --since cutoff (bare = full
                           snapshot). Read-only; stateless — --since is caller-owned, no
                           stored waterline.
+    next [<project>] [--query "<text>"] [--tickets K1,K2] [--all] [--limit N] [--json] [--team KEY]
+                          Advisory "what's next here": open work ranked milestone→priority→
+                          blocked, three never-blended lists — importance (always), adjacency
+                          (--query, fuzzy), linked (--tickets, the exact Linear relation cluster:
+                          related/parent/child/blocks, cross-project resolved). Proposes, never
+                          starts. <project> defaults from the branch ticket key; --all widens team-wide.
+    lint <project> | --all | --stdin --container <c> [--target NAME]
+         [--schema <path>] [--inbox <milestone>] [--json] [--strict]
+                          Container conformance: checks a project's description, its Inbox
+                          Handbook and its channel tickets against the section schema
+                          (skills/intake/assets/project-schema.json). --all lints every project
+                          in the schema's own scope block and adds the cross-project peer
+                          comparison; --stdin lints text the caller already holds (a wave's
+                          pre-write gate) and has no peers, so it says so. Read-only.
+                          Exit 0 clean-or-warnings · 1 failures · 2 could-not-run OR partial coverage.
   ticket-search "<text>" [--team <KEY>] [--include-closed] [--limit <N>] [--json]
                           Rank Linear tickets related to a free-text query (read-only GraphQL;
                           needs LINEAR_API_KEY). Stateless. Feeds ## SRC_RELATED_TICKETS at startup.
@@ -622,8 +647,14 @@ USERJSON
   if [ -L "$resolved_sessions_dir" ]; then
     resolved_sessions_dir="$(readlink "$resolved_sessions_dir")"
   fi
-  local doc_db="$resolved_sessions_dir/.doc-search.db"
-  local session_db="$resolved_sessions_dir/.session-search.db"
+  # Seed the LOCAL cache, not sessions/ — the tools read the local path now
+  # (see scripts/search-db-lib.sh). Seeding sessions/ would plant a file that
+  # nothing reads and that syncs to Drive on every write.
+  source "$SCRIPT_DIR/search-db-lib.sh"
+  local doc_db session_db
+  doc_db=$(search_db_local_path ".doc-search.db" "$resolved_sessions_dir")
+  session_db=$(search_db_local_path ".session-search.db" "$resolved_sessions_dir")
+  mkdir -p "$(dirname "$doc_db")" "$(dirname "$session_db")" 2>/dev/null || true
 
   if [ -d "$GDRIVE_ROOT" ] 2>/dev/null; then
     local gdrive_sessions="$GDRIVE_ROOT/$USER_NAME/$PROJECT_NAME/sessions"
@@ -631,13 +662,20 @@ USERJSON
     local gdrive_session_db="$gdrive_sessions/.session-search.db"
     local gdrive_tool_doc_db="$GDRIVE_ENGINE/tools/doc-search/.doc-search.db"
 
-    if [ -f "$gdrive_doc_db" ]; then
-      cp_if_different "$gdrive_doc_db" "$doc_db" "doc-search DB from GDrive sessions/"
-    elif [ -f "$gdrive_tool_doc_db" ]; then
-      cp_if_different "$gdrive_tool_doc_db" "$doc_db" "doc-search DB from GDrive tool dir"
+    # Seed ONLY when there is no local DB yet. `cp_if_different` skips solely on
+    # source/destination inode identity — which used to hold (sessions/ symlinks
+    # into this very Drive folder) but can never hold for a cache destination.
+    # Unguarded, the seed would fire on every run and overwrite a current local
+    # index with whatever was last uploaded to Drive.
+    if [ ! -f "$doc_db" ]; then
+      if [ -f "$gdrive_doc_db" ]; then
+        cp_if_different "$gdrive_doc_db" "$doc_db" "doc-search DB from GDrive sessions/"
+      elif [ -f "$gdrive_tool_doc_db" ]; then
+        cp_if_different "$gdrive_tool_doc_db" "$doc_db" "doc-search DB from GDrive tool dir"
+      fi
     fi
 
-    if [ -f "$gdrive_session_db" ]; then
+    if [ ! -f "$session_db" ] && [ -f "$gdrive_session_db" ]; then
       cp_if_different "$gdrive_session_db" "$session_db" "session-search DB from GDrive"
     fi
   else
@@ -1643,9 +1681,16 @@ cmd_reindex() {
   echo "Reindexing search databases..."
   echo ""
 
-  # Remove existing DB files
+  # Remove existing DB files.
+  # Resolve through search-db-lib so this still finds the DB after it has been
+  # migrated to the local cache — a hardcoded sessions/ path would delete
+  # nothing and reindex would silently no-op.
+  source "$SCRIPT_DIR/search-db-lib.sh"
   local removed=0
-  for db_file in "$sessions_dir/.doc-search.db" "$sessions_dir/.session-search.db"; do
+  local db_file
+  for db_file in \
+    "$(search_db_active_path ".doc-search.db" "$sessions_dir")" \
+    "$(search_db_active_path ".session-search.db" "$sessions_dir")"; do
     if [ -f "$db_file" ]; then
       rm "$db_file"
       echo "  Deleted: $(basename "$db_file")"
@@ -1653,8 +1698,11 @@ cmd_reindex() {
     fi
   done
 
-  # Also remove lock files
-  for lock_file in "$sessions_dir/.doc-search.lock"; do
+  # Also remove lock files. doc-search derives its lock from the DB path, so the
+  # lock moved with the DB — clear the current location AND any sessions/ orphan.
+  for lock_file in \
+    "$(dirname "$(search_db_active_path ".doc-search.db" "$sessions_dir")")/.doc-search.lock" \
+    "$sessions_dir/.doc-search.lock"; do
     if [ -f "$lock_file" ]; then
       rm "$lock_file"
       echo "  Deleted: $(basename "$lock_file")"

@@ -86,7 +86,7 @@ SCHEMA_FILE="$ENGINE_DIR/tools/json-schema-validate/schemas/skill-manifest.json"
 VALIDATE_SH="$ENGINE_DIR/tools/json-schema-validate/validate.sh"
 
 # Temp file for JSON extraction (cleaned up on exit)
-TMP_JSON=$(mktemp /tmp/doctor-XXXXXX.json)
+TMP_JSON=$(mktemp /tmp/doctor-json-XXXXXX)
 trap 'rm -f "$TMP_JSON"' EXIT
 
 # ============================================================
@@ -719,7 +719,7 @@ check_sigils() {
 
   # --- §CMD_ cross-reference ---
   local cmd_refs_file
-  cmd_refs_file=$(mktemp /tmp/doctor-refs-XXXXXX.txt)
+  cmd_refs_file=$(mktemp /tmp/doctor-refs-XXXXXX)
 
   # For sigil cross-references, every §CMD_ occurrence is a real reference —
   # backtick-escaping and code fences are purely typographic, not semantic.
@@ -753,7 +753,7 @@ check_sigils() {
 
   # --- §INV_ cross-reference ---
   local inv_refs_file
-  inv_refs_file=$(mktemp /tmp/doctor-inv-refs-XXXXXX.txt)
+  inv_refs_file=$(mktemp /tmp/doctor-inv-refs-XXXXXX)
 
   # For sigil cross-references, every §INV_ occurrence is a real reference —
   # backtick-escaping and code fences are purely typographic, not semantic.
@@ -766,7 +766,7 @@ check_sigils() {
 
   # Collect all ¶INV_ definitions
   local inv_defs_file
-  inv_defs_file=$(mktemp /tmp/doctor-inv-defs-XXXXXX.txt)
+  inv_defs_file=$(mktemp /tmp/doctor-inv-defs-XXXXXX)
 
   for search_dir in "${search_dirs[@]}"; do
     [ -d "$search_dir" ] || continue
@@ -795,7 +795,7 @@ check_sigils() {
 
   # --- Orphaned definitions (defined but never referenced) ---
   local cmd_defs_file
-  cmd_defs_file=$(mktemp /tmp/doctor-cmd-defs-XXXXXX.txt)
+  cmd_defs_file=$(mktemp /tmp/doctor-cmd-defs-XXXXXX)
 
   for search_dir in "${search_dirs[@]}"; do
     [ -d "$search_dir" ] || continue
@@ -823,7 +823,7 @@ check_sigils() {
   # Markdown headings like "### §CMD_FOO" or "### §INV_FOO" are definition sites
   # and should use ¶ not §. Detect these mismatches.
   local wrong_sigil_file
-  wrong_sigil_file=$(mktemp /tmp/doctor-wrong-sigil-XXXXXX.txt)
+  wrong_sigil_file=$(mktemp /tmp/doctor-wrong-sigil-XXXXXX)
 
   for search_dir in "${search_dirs[@]}"; do
     [ -d "$search_dir" ] || continue
@@ -971,6 +971,100 @@ check_ask_trees_in_file() {
 }
 
 # ============================================================
+# CATEGORY 8: GENERATED ARTIFACT DRIFT
+# ============================================================
+
+# Generated artifacts rot silently: their sources move under them and nothing notices.
+# kit-digest.mjs ships a --check mode that regenerates to memory and byte-diffs; this is its runner.
+#
+# WARN, never FAIL, on purpose. Three of the digest's five sources still live in a session folder,
+# so a moved path makes the generator exit FATAL — and a FAIL turns the mandated pre-ship gate in
+# skills/.directives/CHECKLIST.md red for every unrelated change, which is how a check gets deleted.
+# A cannot-verify (no node, missing source, generator crash) is a WARN too, never a silent pass.
+# ─── EP: exactly ONE KEY= extractor in the engine ───────────────────────────────
+# Five duplicate credential parsers accumulated because nothing looked for them, and
+# every audit that DID look undercounted:
+#   * a dependency walk cannot see a parser that joins no chain (publish-s3.sh);
+#   * a single literal shape search misses a quoted delimiter (`cut -d'='`, in
+#     doc-search/session-search);
+#   * a scripts/-scoped sweep misses copies under tools/.
+# So this looks for the SHAPES, in both spellings, across the WHOLE engine. Divergent
+# copies are not a tidiness problem: publish-s3.sh's used `tail -1` (last-match) while
+# the shared rule is first-non-empty, so /prove answered differently depending on which
+# script you entered through.
+check_env_parsers() {
+  section "Credential parsers"
+  local f rel violations=""
+  # Shape 1: a `cut` splitting on `=`, in either spelling (`-d=` and `-d'='`).
+  # Shape 2: an anchored `grep '^SOME_KEY='`, which extracts via sed/awk with no cut.
+  # Both are ASSEMBLED from a trailing `$_ep_eq` rather than written literally, so this
+  # file does not match its own check. Exempting doctor.sh instead would have made the
+  # one file nobody re-reads into the one place a duplicate parser could hide.
+  local _ep_eq="="
+  local _ep_cut="cut +-d *['\"]?$_ep_eq"
+  local _ep_grep="grep [^|]*['\"]\^[A-Za-z_][A-Za-z0-9_]*$_ep_eq"
+  while IFS= read -r f; do
+    rel="${f#"$ENGINE_DIR"/}"
+    case "$rel" in
+      scripts/env-lib.sh)          continue ;;  # THE parser — exempt by definition
+      scripts/tests/*|*__tests__/*) continue ;; # suites legitimately grep dotfiles to assert on them
+      */node_modules/*|node_modules/*) continue ;;
+    esac
+    # WHOLE-LINE comments are dropped first: prose that documents these shapes (this
+    # file's own does) is not an extraction, and a real duplicate parser has to be
+    # executable code, so nothing can hide behind the filter.
+    if grep -vE '^[[:space:]]*#' "$f" 2>/dev/null | grep -qE "$_ep_cut" \
+       || grep -vE '^[[:space:]]*#' "$f" 2>/dev/null | grep -qE "$_ep_grep"; then
+      violations="$violations $rel"
+    fi
+  done < <(find "$ENGINE_DIR" -name '*.sh' -type f 2>/dev/null | sort)
+
+  if [ -z "$violations" ]; then
+    pass "EP-01" "exactly one KEY= extractor (scripts/env-lib.sh)"
+  else
+    fail "EP-01" "duplicate KEY= extraction outside env-lib.sh:$violations — route it through extract_env_key / env_load_domain"
+  fi
+  section_end
+}
+
+check_generated_artifacts() {
+  local gen="$ENGINE_SKILLS/intake/assets/kit-digest.mjs"
+  [ -f "$gen" ] || return 0
+
+  section "Generated Artifacts"
+
+  if ! command -v node >/dev/null 2>&1; then
+    warn "GA-01" "node not on PATH — kit digest drift UNVERIFIED ($gen --check)"
+    section_end
+    return 0
+  fi
+
+  local out rc=0
+  out=$(node "$gen" --check 2>&1) || rc=$?
+
+  if [ "$rc" -eq 0 ]; then
+    pass "GA-01" "KIT_DIGEST{,_RECIPES,_MARKUP}.md match a fresh extraction of their sources"
+  else
+    local named=0 line
+    while IFS= read -r line; do
+      case "$line" in
+        *DRIFT\ *|*MISSING\ *|*FATAL\ *)
+          named=$((named + 1))
+          warn "GA-01" "kit digest: ${line#kit-digest.mjs: }"
+          ;;
+      esac
+    done <<< "$out"
+    [ "$named" -eq 0 ] && warn "GA-01" "kit digest: --check exited $rc with no named diff — $(printf '%s' "$out" | tail -1)"
+    local snip
+    snip=$(printf '%s\n' "$out" | grep -m1 'regenerated:' | sed 's/^ *//' | cut -c1-140 || true)
+    [ -n "$snip" ] && warn "GA-02" "kit digest: $snip"
+    warn "GA-03" "kit digest: fix with  node $gen"
+  fi
+
+  section_end
+}
+
+# ============================================================
 # AUTO-DETECTION & MAIN
 # ============================================================
 
@@ -1051,6 +1145,8 @@ else
   check_sessions
   check_sigils
   check_ask_trees
+  check_generated_artifacts
+  check_env_parsers
 fi
 
 # --- Summary ---
