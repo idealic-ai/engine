@@ -147,12 +147,14 @@ assert_eq "1" "$SUB" "S2a: sub-agent counter under sub:agentA"
 assert_eq "0" "$PARENTKEY" "S2b: parent transcript counter untouched by sub-agent"
 
 # ============================================================
-# S3: sub-agent IS heartbeat-blocked at its OWN count 10+ (own-counter heartbeat — forces it to log)
+# S3: sub-agent is NOT heartbeat-blocked even at its OWN count 10+ — sub-agents are exempt
+# from heartbeat (never force-logged; the parent synthesizes, and forced log writes are
+# expensive output tokens). heartbeat-block/heartbeat-warn are dropped for sub-agents.
 # ============================================================
 reset_state
 set_state '.toolCallsByTranscript["sub:agentA"] = 10'
 OUT=$(run_hook_sub "agentA" "Bash" '{"command":"echo hi"}')
-assert_eq "deny" "$(decision_of "$OUT")" "S3: sub-agent IS heartbeat-blocked at its own count 10+"
+assert_eq "allow" "$(decision_of "$OUT")" "S3: sub-agent NOT heartbeat-blocked at its own count 10+ (exempt)"
 
 # S3b: a DIFFERENT sub-agent is not blocked by agentA's count (independent counters)
 reset_state
@@ -229,13 +231,14 @@ assert_eq "5" "$(json_get '.toolCallsSinceLastLog // 0')" "S9b: sub-agent log di
 assert_eq "5" "$(json_get '.toolCallsByTranscript["test.jsonl"] // 0')" "S9c: sub-agent log did NOT reset the parent transcript counter"
 
 # ============================================================
-# S10: a sub-agent's heartbeat-warn nudge (fires at count==3) is stashed tagged with its agent_id
+# S10: a sub-agent gets NO heartbeat-warn nudge — sub-agents are exempt from heartbeat
+# entirely (heartbeat-warn is dropped for sub-agents, so nothing is stashed to nudge them).
 # ============================================================
 reset_state
 set_state '.toolCallsByTranscript["sub:agentA"] = 2'
 OUT=$(run_hook_sub "agentA" "Bash" '{"command":"echo hi"}')
 assert_eq "allow" "$(decision_of "$OUT")" "S10: sub-agent warn is allow (not blocked)"
-assert_eq "agentA" "$(json_get '.pendingAllowInjections[0].agentId // ""')" "S10a: sub-agent nudge tagged with its own agentId"
+assert_eq "0" "$(json_get '.pendingAllowInjections | length')" "S10a: sub-agent gets NO heartbeat-warn nudge (exempt)"
 
 # ============================================================
 # S11: PostToolUse drain is agent-scoped — a sub-agent's nudge is not swept into the parent
@@ -276,5 +279,38 @@ if grep -qE '\.agent_id' "$REAL_HOOK"; then
 else
   fail "S14: hook no longer references .agent_id — isolation reverts to full bleed (see PTF_SESSION_HOOK_STATE_BLEEDS_TO_SUBAGENTS)"
 fi
+
+# ============================================================
+# S15-S19: sub-agent session-ownership gate.
+# A sub-agent shares the PARENT's session (find resolves to the parent via the shared
+# supervisor PID). It must NOT mint/claim its own session: `engine session activate|continue`
+# runs the single-holder claim under the shared CLAUDE_SUPERVISOR_PID and evicts the parent
+# from its own live session. Deny those two subcommands for sub-agents; leave everything else
+# (parent activate, other engine session subcommands) allowed.
+# ============================================================
+reset_state
+OUT=$(run_hook_sub "agentA" "Bash" '{"command":"engine session activate sessions/throwaway do <<EOF\n{}\nEOF"}')
+assert_eq "deny" "$(decision_of "$OUT")" "S15: sub-agent 'engine session activate' is DENIED"
+
+reset_state
+OUT=$(run_hook_sub "agentA" "Bash" '{"command":"engine session continue sessions/throwaway"}')
+assert_eq "deny" "$(decision_of "$OUT")" "S16: sub-agent 'engine session continue' is DENIED"
+
+reset_state
+OUT=$(run_hook "Bash" '{"command":"engine session activate sessions/real do <<EOF\n{}\nEOF"}')
+assert_eq "allow" "$(decision_of "$OUT")" "S17: PARENT 'engine session activate' is ALLOWED (never gated)"
+
+reset_state
+OUT=$(run_hook_sub "agentA" "Bash" '{"command":"engine session find"}')
+assert_eq "allow" "$(decision_of "$OUT")" "S18: sub-agent 'engine session find' is ALLOWED (read-only; only activate/continue blocked)"
+
+reset_state
+OUT=$(run_hook_sub "agentA" "Bash" '{"command":"engine session phase sessions/x \"1: X\""}')
+assert_eq "allow" "$(decision_of "$OUT")" "S19: sub-agent 'engine session phase' is ALLOWED (not activate/continue)"
+
+# S20: a compound command (cd && engine session activate) from a sub-agent is still caught.
+reset_state
+OUT=$(run_hook_sub "agentA" "Bash" '{"command":"cd /tmp && engine session activate sessions/throwaway do <<EOF\n{}\nEOF"}')
+assert_eq "deny" "$(decision_of "$OUT")" "S20: sub-agent compound 'cd && engine session activate' is DENIED"
 
 exit_with_results

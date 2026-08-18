@@ -111,6 +111,24 @@ if [ "$TOOL_NAME" = "Bash" ]; then
     hook_allow
   fi
   if is_engine_session_cmd "$BASH_CMD"; then
+    # Sub-agent session-ownership gate: a sub-agent SHARES the parent's session — `find`
+    # resolves it to the parent via the shared CLAUDE_SUPERVISOR_PID, and SubagentStart
+    # injects the parent's log. It must not mint/claim its own session: `engine session
+    # activate|continue` runs the single-holder claim under that shared supervisor PID and
+    # would evict the PARENT from its own live session (strip .pid/.fleetPaneId, hijack the
+    # pid-cache `find` trusts). Deny those two subcommands for sub-agents; the parent (no
+    # agent_id) is never gated, and every other `engine session` subcommand still passes.
+    # The agent_id exemption pre-tool-use-ticket-watch-gate.sh has, at the layer that holds it.
+    if [ "$is_subagent" = "true" ]; then
+      _sess_head="${BASH_CMD%%<<*}"
+      if printf '%s' "$_sess_head" | grep -qE 'engine[[:space:]]+session[[:space:]]+(activate|continue)([[:space:]]|$)'; then
+        _parent_sess=$(find_session_dir)
+        hook_deny \
+          "[block: subagent-session] You are a sub-agent — you already share the parent's session${_parent_sess:+ at $_parent_sess}. Do not \`engine session activate\`/\`continue\` your own; that evicts the parent from its own live session." \
+          "Log into the parent session directly with \`engine log ${_parent_sess:-<parent-session-dir>}/<LOG>.md\` and write any reports under its folder. Session ownership belongs to the parent orchestrator — per §CMD_HANDOFF_TO_AGENT, activation already happened before your start point. (engine session find/phase and all other engine commands stay allowed.)" \
+          "is_subagent=true agent_id=$agent_id cmd=$_sess_head"
+      fi
+    fi
     hook_allow
   fi
 fi
@@ -528,9 +546,17 @@ main() {
             jq --arg key "$TRANSCRIPT_KEY" --argjson tc "$new_counter" \
               '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = $tc | .toolCallsSinceLastLog = $tc | .primaryTranscriptKey = $key' \
               "$state_file" | safe_json_write "$state_file"
-          else
+          elif [ "$TRANSCRIPT_KEY" = "$primary_key" ]; then
             jq --arg key "$TRANSCRIPT_KEY" --argjson tc "$new_counter" \
               '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = $tc | .toolCallsSinceLastLog = $tc' \
+              "$state_file" | safe_json_write "$state_file"
+          else
+            # A SECOND parent transcript against this session dir (a restart, or another
+            # instance) advances only its own key. Writing the global here REWINDS the
+            # primary's displayed count instead of advancing it — enforcement reads
+            # toolCallsByTranscript, so this is display-correctness, not a missed block.
+            jq --arg key "$TRANSCRIPT_KEY" --argjson tc "$new_counter" \
+              '(.toolCallsByTranscript //= {}) | .toolCallsByTranscript[$key] = $tc' \
               "$state_file" | safe_json_write "$state_file"
           fi
         fi
@@ -555,19 +581,21 @@ main() {
   fi
 
   # --- Step 6b: Subagent rule scoping ---
-  # A sub-agent KEEPS its own heartbeat (heartbeat-block/heartbeat-warn), evaluated against its
-  # own `sub:<agent_id>` counter, so it is forced to log its reasoning on its own cadence. A
-  # heartbeat block is a synchronous deny to the sub-agent's OWN tool call, so it targets the
-  # sub-agent and never leaks to the parent; the warn nudge is agent-namespaced in the
-  # pendingAllowInjections queue. Only the context-lifecycle rules are dropped — an ephemeral
-  # sub-agent can't dehydrate and reads the PARENT's contextUsage, not its own
-  # (overflow-dehydration/read-throttle). See §PTF_SESSION_HOOK_STATE_BLEEDS_TO_SUBAGENTS.
+  # A sub-agent is EXEMPT from heartbeat (heartbeat-block/heartbeat-warn): it shares the
+  # parent's session and the parent synthesizes, so forcing a sub-agent to `engine log` on a
+  # cadence only burns expensive output tokens for no durable value. Its `sub:<agent_id>`
+  # counter is still tracked (bookkeeping) but never enforced. The context-lifecycle rules are
+  # also dropped — an ephemeral sub-agent can't dehydrate and reads the PARENT's contextUsage,
+  # not its own (overflow-dehydration/read-throttle). Parent enforcement is untouched.
+  # See §PTF_SESSION_HOOK_STATE_BLEEDS_TO_SUBAGENTS.
   if [ "$is_subagent" = "true" ]; then
     matched_rules=$(echo "$matched_rules" | jq '
       [ .[]
         | select(
             (.ruleId // "") != "overflow-dehydration"
             and (.ruleId // "") != "read-throttle"
+            and (.ruleId // "") != "heartbeat-block"
+            and (.ruleId // "") != "heartbeat-warn"
           )
       ]
     ')
