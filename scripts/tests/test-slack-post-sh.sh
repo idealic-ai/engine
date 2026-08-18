@@ -12,6 +12,19 @@ source "$(dirname "$0")/test-helpers.sh"
 
 SLACK_POST="$HOME/.claude/engine/scripts/slack-post.sh"
 
+# mksession DIR — make DIR a project with an ACTIVE session.
+# The DEFAULTED token chain is anchored to the current session's project root, so a
+# case that exercises it must have one; without it the resolver refuses to look at all
+# and the assertion below would pass or fail for the wrong reason.
+export CLAUDE_SUPERVISOR_PID="$$"
+mksession() {
+  local d="$1"
+  mkdir -p "$d/.claude" "$d/sessions/t" "$d/.session-cache"
+  printf '{"pid": %s}\n' "$CLAUDE_SUPERVISOR_PID" > "$d/sessions/t/.state.json"
+  export CLAUDE_SESSION_CACHE_DIR="$d/.session-cache"
+  rm -f "$d/.session-cache"/* 2>/dev/null || true
+}
+
 setup() {
   ORIG_PATH="$PATH"
   TMP=$(mktemp -d)
@@ -81,12 +94,12 @@ test_slack_post_env_file_missing_key() {
   assert_eq "1" "$rc" "env-file without key → exit 1"
 }
 
-# Case 3c — with NO --env-file the post walks the same chain `engine intake doctor`
+# Case 3c — with NO --env-file the post walks the same chain `engine env doctor`
 # verifies (./.env.local then ./.env), so a doctor PASS means the announce works.
 test_slack_post_default_chain_reads_dotenv() {
   MOCK_CURL_RESPONSE='{"ok":true}'
   local rc
-  mkdir -p "$TMP/proj"
+  mksession "$TMP/proj"
   printf 'SLACK_INTAKE_TOKEN=xoxb-fromdotenv\n' > "$TMP/proj/.env"
   ( cd "$TMP/proj" && printf '%s' "body" | "$SLACK_POST" --channel "C01ABCDEF" >/dev/null 2>&1 )
   rc=$?
@@ -98,7 +111,9 @@ test_slack_post_default_chain_reads_dotenv() {
 # falling through to the cwd's dotfile (which may belong to a different workspace).
 test_slack_post_env_file_no_fallthrough() {
   local rc
-  mkdir -p "$TMP/proj2"
+  # A session here too: otherwise this asserts "no anchor", not "no fallthrough",
+  # and would stay green even if the fallthrough rule were broken.
+  mksession "$TMP/proj2"
   printf 'SLACK_INTAKE_TOKEN=xoxb-other-workspace\n' > "$TMP/proj2/.env.local"
   ( cd "$TMP/proj2" && printf '%s' "body" | "$SLACK_POST" --channel "C01ABCDEF" --env-file "$ENV_NO_KEY" >/dev/null 2>&1 )
   rc=$?
@@ -177,6 +192,92 @@ test_slack_post_update_ts_empty() {
   printf '%s' "m" | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --channel "C01ABCDEF" --update-ts >/dev/null 2>&1
   rc=$?
   assert_eq "1" "$rc" "trailing --update-ts (no value) → exit 1, no hang/downgrade"
+}
+
+# --- thread replies (--thread-ts) -----------------------------------------
+# --thread-ts routes a NEW message into an existing thread. It is the sibling of
+# --update-ts (an optional ts that modifies the body) but NOT of its endpoint
+# switch: a reply is still chat.postMessage.
+
+# Case 9 — --thread-ts puts thread_ts in the body and STAYS on chat.postMessage.
+test_slack_post_thread_ts_stays_on_post_message() {
+  export MOCK_CURL_RESPONSE='{"ok":true,"ts":"888.222"}'
+  local out rc args stdin
+  out=$(printf '%s' "reply" | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --channel "C01ABCDEF" --thread-ts "777.111" 2>/dev/null)
+  rc=$?
+  args=$(cat "$MOCK_CURL_ARGS" 2>/dev/null)
+  stdin=$(cat "$MOCK_CURL_STDIN" 2>/dev/null)
+  assert_eq "0" "$rc" "thread: ok:true → exit 0"
+  assert_contains "chat.postMessage" "$args" "thread: a reply is still chat.postMessage"
+  assert_not_contains "chat.update" "$args" "thread: never switches to chat.update"
+  assert_eq "777.111" "$(printf '%s' "$stdin" | jq -r '.thread_ts')" "thread: thread_ts reaches the wire"
+  assert_eq "888.222" "$out" "thread: prints the REPLY's own ts on stdout"
+}
+
+# Case 9b — --thread-ts dry-run: thread_ts in the body, token absent, no curl call.
+test_slack_post_thread_ts_dry_run() {
+  local out
+  out=$(SLACK_INTAKE_TOKEN="xoxb-secret" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --text "hi" --thread-ts "42.7" 2>&1)
+  assert_eq "42.7" "$(printf '%s' "$out" | jq -r '.thread_ts')" "thread dry-run: thread_ts in body"
+  assert_not_contains "xoxb-secret" "$out" "thread dry-run: token absent"
+  assert_file_not_exists "$MOCK_CURL_ARGS" "thread dry-run: no curl call"
+}
+
+# Case 9c — the injection sits AFTER the body-build branches, so every layout
+# threads: --blocks keeps its 4 blocks verbatim AND gains thread_ts. This is the
+# case a per-branch injection would silently lose.
+test_slack_post_thread_ts_with_blocks() {
+  local out
+  out=$(printf '%s' "$BLOCKS_FIXTURE_JSON" \
+    | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --blocks - --thread-ts "1.5" 2>&1)
+  assert_eq "1.5" "$(printf '%s' "$out" | jq -r '.thread_ts')" "thread + blocks: thread_ts survives the blocks path"
+  assert_eq "header,context,divider,section" \
+    "$(printf '%s' "$out" | jq -r '[.blocks[].type] | join(",")')" "thread + blocks: layout untouched"
+}
+
+# Case 9d — ditto for the --title layout (the third body-build branch).
+test_slack_post_thread_ts_with_title() {
+  local out
+  out=$(SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --title "T" --text "body" --thread-ts "2.5" 2>&1)
+  assert_eq "2.5" "$(printf '%s' "$out" | jq -r '.thread_ts')" "thread + title: thread_ts survives the title path"
+  assert_eq "header,section" "$(printf '%s' "$out" | jq -r '[.blocks[].type] | join(",")')" "thread + title: layout untouched"
+}
+
+# Case 9e — --thread-ts and --update-ts are mutually exclusive (chat.update has
+# no thread_ts; passing both is an incoherent request, not a merge).
+test_slack_post_thread_ts_update_ts_conflict() {
+  local rc out
+  out=$(printf '%s' "m" | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --thread-ts "1.1" --update-ts "2.2" 2>&1)
+  rc=$?
+  assert_eq "1" "$rc" "--thread-ts + --update-ts → exit 1"
+  assert_contains "mutually exclusive" "$out" "--thread-ts + --update-ts → explains why"
+}
+
+# Case 9f — trailing --thread-ts with no value → clear error, exit 1 (no silent
+# top-level downgrade, which is exactly the failure this flag exists to prevent).
+test_slack_post_thread_ts_empty() {
+  local rc out
+  out=$(printf '%s' "m" | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --channel "C01ABCDEF" --thread-ts 2>&1)
+  rc=$?
+  assert_eq "1" "$rc" "trailing --thread-ts (no value) → exit 1, no hang/downgrade"
+  assert_contains "thread-ts requires" "$out" "empty --thread-ts → names the flag"
+}
+
+# Case 9g — PARITY: without --thread-ts the key is absent entirely, on every
+# layout. An always-present null/empty thread_ts would change what Slack sees.
+test_slack_post_no_thread_ts_key_when_absent() {
+  local out
+  out=$(SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --text "body" 2>&1)
+  assert_eq "false" "$(printf '%s' "$out" | jq -r 'has("thread_ts")')" "no --thread-ts: key absent on the default path"
+  out=$(printf '%s' "$BLOCKS_FIXTURE_JSON" \
+    | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --blocks - 2>&1)
+  assert_eq "false" "$(printf '%s' "$out" | jq -r 'has("thread_ts")')" "no --thread-ts: key absent on the blocks path"
+}
+
+# Case 9h — --help documents the flag (this header is the script's only docs).
+test_slack_post_thread_ts_documented() {
+  local out; out=$("$SLACK_POST" --help 2>&1)
+  assert_contains "thread-ts <ts>" "$out" "help: --thread-ts is documented in the usage header"
 }
 
 # --- block structure ------------------------------------------------------

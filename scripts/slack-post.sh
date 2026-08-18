@@ -7,7 +7,8 @@
 #
 # Usage:
 #   engine slack-post [--channel <id|#name>] [--title <text>] [--text <str>] \
-#                     [--blocks <path|->] [--env-file <path>] [--update-ts <ts>] [--dry-run]
+#                     [--blocks <path|->] [--env-file <path>] [--thread-ts <ts>] \
+#                     [--update-ts <ts>] [--dry-run]
 #   engine slack-post --verify [--channel <id>] [--env-file <path>]
 #   (message read from STDIN when --text is omitted)
 #
@@ -31,10 +32,17 @@
 # (channel + ts required). On success the message ts is printed to stdout, so a
 # caller can capture the ts of a post and later edit that same message in place.
 #
+# Threading: --thread-ts <ts> posts the message as a REPLY inside the thread whose
+# ROOT message has that ts (a reply's ts threads under its root, not under itself).
+# It stays on chat.postMessage and applies to every layout — default, --title and
+# --blocks alike. Mutually exclusive with --update-ts: chat.update edits one
+# existing message and has no thread_ts. Same flag spelling as `engine slack-read
+# --thread-ts`, which reads the replies this writes.
+#
 # Auth: bot token, resolved in order —
 #   1. $SLACK_INTAKE_TOKEN   2. $SLACK_BOT_TOKEN
 #   3. SLACK_INTAKE_TOKEN from ./.env.local, then ./.env — the same chain
-#      `engine intake doctor` verifies, so a PASS there means a post here works.
+#      `engine env doctor --domain intake` verifies, so a PASS there means a post works.
 #      An explicit --env-file replaces step 3 entirely: only that file is read, and a
 #      miss fails loudly rather than falling through to another workspace's token.
 # The token is only ever sent in the Authorization header — never printed to
@@ -72,6 +80,7 @@ blocks_src=""
 env_file="./.env.local"
 env_file_arg=""            # set only by an EXPLICIT --env-file — then that file is authoritative
 update_ts=""
+thread_ts=""
 dry_run=0
 verify=0
 
@@ -83,6 +92,7 @@ while [ $# -gt 0 ]; do
     --blocks)   blocks_src="${2:-}"; [ -n "$blocks_src" ] || die "--blocks requires a path (or - for stdin)"; shift 2 ;;
     --env-file) env_file="${2:-}"; env_file_arg="$env_file"; shift 2 ;;
     --update-ts) update_ts="${2:-}"; [ -n "$update_ts" ] || die "--update-ts requires a message ts value (got empty/none)"; shift 2 ;;
+    --thread-ts) thread_ts="${2:-}"; [ -n "$thread_ts" ] || die "--thread-ts requires a thread root ts value (got empty/none)"; shift 2 ;;
     --dry-run)  dry_run=1; shift ;;
     --verify)   verify=1; shift ;;
     -h|--help)  usage 0 ;;
@@ -92,6 +102,9 @@ done
 
 [ -n "$blocks_src" ] && [ -n "$title" ] && \
   die "--blocks and --title are mutually exclusive: --title builds a layout, --blocks supplies one"
+
+[ -n "$thread_ts" ] && [ -n "$update_ts" ] && \
+  die "--thread-ts and --update-ts are mutually exclusive: --thread-ts posts a new reply into a thread, --update-ts edits an existing message (chat.update takes no thread_ts)"
 
 # --- verify: preflight the setup, self-heal what can be self-healed ---
 # Ordered so each step's failure explains the next one's absence. Runs before
@@ -259,6 +272,14 @@ else
     '{channel:$ch, text:$txt, blocks:[
        {type:"section", text:{type:"mrkdwn", text:$txt}}
      ]}') || die "failed to build request body"
+fi
+
+# --- thread reply: route the message INTO an existing thread ---
+# One merge AFTER all three body-build branches, so --blocks, --title and the
+# default layout thread alike; BEFORE the dry-run print, so --dry-run cannot
+# claim a body different from the one that would be sent.
+if [ -n "$thread_ts" ]; then
+  body=$(printf '%s' "$body" | jq --arg tts "$thread_ts" '. + {thread_ts:$tts}') || die "failed to add thread_ts to request body"
 fi
 
 # --- update mode: add the target message ts (chat.update edits it in place) ---
