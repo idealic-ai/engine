@@ -752,12 +752,23 @@ _provision_reconcile() {
 
   # Everything else on the user is surfaced, never touched. An operator who cannot see
   # a hand-attached grant cannot reason about what the agent can actually do.
-  local other
+  local other stale=0
   other="$(aws iam list-user-policies --user-name "$user" --output json 2>/dev/null \
            | jq -r --arg p "$policy_name" '(.PolicyNames // [])[] | select(. != $p)' 2>/dev/null)"
   while IFS= read -r other_name; do
     [ -n "$other_name" ] || continue
-    printf "  ${CYAN}unmanaged${NC}  inline policy '%s' — reported, never modified\n" "$other_name"
+    case "$other_name" in
+      "$policy_name"-*)
+        # OURS, from when the tier was part of the name. Not unmanaged — but still not
+        # deleted here: this command does not remove grants, so it names the one command
+        # that does and leaves the decision with a human.
+        stale=1
+        printf "  ${YELLOW}STALE${NC}    inline policy '%s' is an OLD policy of this tool, from when the tier was part of the name.\n" "$other_name"
+        printf "           It is still in force and AWS UNIONS inline policies, so it keeps granting whatever it grants.\n"
+        printf "           Remove it by hand:  aws iam delete-user-policy --user-name %s --policy-name %s\n" "$user" "$other_name" ;;
+      *)
+        printf "  ${CYAN}unmanaged${NC}  inline policy '%s' — reported, never modified\n" "$other_name" ;;
+    esac
   done <<< "$other"
   other="$(aws iam list-attached-user-policies --user-name "$user" --output json 2>/dev/null \
            | jq -r '(.AttachedPolicies // [])[].PolicyName' 2>/dev/null)"
@@ -767,6 +778,12 @@ _provision_reconcile() {
   done <<< "$other"
 
   if [ "$drift" -eq 0 ]; then
+    if [ "$stale" -eq 1 ]; then
+      # The owned policy matches, but the EFFECTIVE grant is the union with the stale one.
+      # Reporting "in sync" here would be the exact false green this command exists to end.
+      printf "${YELLOW}not clean:${NC} the owned policy matches the manifest, but a STALE policy above is still attached — the agent's effective grant is the union of both.\n" >&2
+      return 1
+    fi
     [ "$apply" -eq 1 ] && printf "${BOLD}nothing to apply.${NC}\n"
     return 0
   fi
@@ -785,19 +802,32 @@ _provision_reconcile() {
     return 1
   fi
 
-  local pfile rc_put
+  local pfile perr rc_put
   pfile="$(mktemp "${TMPDIR:-/tmp}/engine-reconcile-policy.XXXXXX")" || return 2
+  perr="$(mktemp "${TMPDIR:-/tmp}/engine-reconcile-err.XXXXXX")" || { rm -f "$pfile"; return 2; }
   chmod 600 "$pfile" 2>/dev/null
-  printf '%s\n' "$d_norm" > "$pfile"
+  # COMPACT, not pretty. IAM caps the AGGREGATE inline-policy size for a user at 2048
+  # bytes, and whitespace counts — pretty-printing this document costs ~530 of them,
+  # which is a third of the budget spent on indentation.
+  printf '%s\n' "$d_norm" | jq -c . > "$pfile" 2>/dev/null || printf '%s\n' "$d_norm" > "$pfile"
   # put-user-policy REPLACES the document wholesale, which is exactly why reconcile can
   # shrink a grant — there is no per-statement delete to get wrong.
   aws iam put-user-policy --user-name "$user" --policy-name "$policy_name" \
-      --policy-document "file://$pfile" >/dev/null 2>&1; rc_put=$?
+      --policy-document "file://$pfile" >/dev/null 2>"$perr"; rc_put=$?
   rm -f "$pfile"
   if [ "$rc_put" -ne 0 ]; then
     echo "env provision --reconcile: could not replace $policy_name. The previous policy is still in force." >&2
+    # The cause, not just the failure. A swallowed AWS error sent an operator looking in
+    # the wrong place three times over in this subsystem alone.
+    sed 's/^/       /' "$perr" >&2
+    if grep -qi 'LimitExceeded\|policy size' "$perr" 2>/dev/null; then
+      echo "       This is the AGGREGATE inline-policy cap for an IAM user (2048 bytes), not the size of this one document." >&2
+      [ "$stale" -eq 1 ] && echo "       A STALE policy above is still attached and counts against that budget — remove it first, then re-run." >&2
+    fi
+    rm -f "$perr"
     return 2
   fi
+  rm -f "$perr"
 
   # Re-read rather than trust the write: a silent partial apply would leave the operator
   # believing a grant was removed when it was not.
@@ -934,7 +964,12 @@ cmd_provision() {
   done
   printf "  ${CYAN}note${NC}  the minted profile gets NO ~/.aws/config entry — the ABSENCE of login_session is what makes an agent key never expire.\n"
 
-  local policy_name="engine-${DOMAIN}-${tier}"
+  # ⚠️ THE TIER IS NOT IN THE NAME. It is CONTENT, and naming it made a downgrade
+  # impossible: `engine-<domain>-engineer` and `engine-<domain>-triage` are two policies,
+  # AWS unions inline policies, so reconciling downward ADDED a second grant and left the
+  # S3 write in place. One name per domain means reconcile replaces one document, and a
+  # downgrade shrinks by construction.
+  local policy_name="engine-${DOMAIN}"
 
   if [ "$reconcile" -eq 1 ]; then
     if [ "${#underivable[@]}" -gt 0 ]; then

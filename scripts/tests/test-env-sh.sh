@@ -2352,11 +2352,55 @@ echo "Test 40: provision --reconcile"
 # (a) THE SAFETY INVARIANT. Reconcile replaces ONE inline policy it owns; it must never
 #     delete or detach anything. A hand-attached grant it quietly removed would be a
 #     worse failure than the drift it exists to fix.
-DESTRUCTIVE=$(grep -nE 'iam (delete-user-policy|detach-user-policy|delete-user|remove-user-from-group)' "$ENV_SRC" || true)
+# Printed GUIDANCE naming the command is not the same as CALLING it — the invariant is
+# that env.sh never executes a deletion, while still telling the operator how to.
+DESTRUCTIVE=$(grep -vE '^[[:space:]]*#' "$ENV_SRC" | grep -vE 'printf|echo ' \
+              | grep -nE 'aws iam (delete-user-policy|detach-user-policy|delete-user|remove-user-from-group)' || true)
 if [ -z "$DESTRUCTIVE" ]; then
-  pass "env.sh never deletes or detaches an IAM policy (reconcile replaces only what it owns)"
+  pass "env.sh never EXECUTES an IAM policy deletion (reconcile replaces only what it owns)"
 else
-  fail "no policy deletion" "no delete-user-policy / detach-user-policy" "$DESTRUCTIVE"
+  fail "no policy deletion" "no executed delete-user-policy / detach-user-policy" "$DESTRUCTIVE"
+fi
+if grep -q 'Remove it by hand' "$ENV_SRC"; then
+  pass "…but it does print the exact removal command, so the operator is not left guessing"
+else
+  fail "removal guidance" "a by-hand removal command" "absent"
+fi
+
+# THE TIER IS NOT IN THE POLICY NAME. Naming it made a downgrade impossible: two tiers
+# are two policies, AWS unions inline policies, and reconciling downward ADDED a grant
+# while leaving the S3 write in force.
+if grep -q 'local policy_name="engine-${DOMAIN}"' "$ENV_SRC" \
+   && ! grep -q 'policy_name="engine-${DOMAIN}-${tier}"' "$ENV_SRC"; then
+  pass "the policy name carries the domain only — the tier is content, so a downgrade shrinks"
+else
+  fail "tierless policy name" 'engine-${DOMAIN}' "$(grep -n 'policy_name=' "$ENV_SRC")"
+fi
+
+# A leftover tier-suffixed policy is OURS, not "unmanaged" — and while it is attached the
+# effective grant is the union, so an otherwise-matching document is NOT in sync.
+if grep -q '"$policy_name"-\*)' "$ENV_SRC" && grep -q 'STALE' "$ENV_SRC"; then
+  pass "a leftover tier-suffixed policy is classed STALE-ours, not unmanaged"
+else
+  fail "stale classified" "a $policy_name-* branch reporting STALE" "absent"
+fi
+if grep -q 'not clean' "$ENV_SRC"; then
+  pass "a stale policy blocks the in-sync verdict (the effective grant is the union)"
+else
+  fail "stale blocks in-sync" "a not-clean verdict" "absent"
+fi
+
+# IAM caps the AGGREGATE inline-policy size for a user at 2048 bytes and whitespace
+# counts — pretty-printing this document spends a third of the budget on indentation.
+if grep -q 'jq -c . > "$pfile"' "$ENV_SRC"; then
+  pass "the policy is written COMPACT (whitespace counts against the 2048-byte cap)"
+else
+  fail "compact policy" "jq -c before put-user-policy" "absent"
+fi
+if grep -q 'AGGREGATE inline-policy cap' "$ENV_SRC"; then
+  pass "a LimitExceeded is explained as the aggregate cap, naming the stale policy as the cause"
+else
+  fail "cap explained" "an aggregate-cap hint" "absent"
 fi
 
 # (b) Statement ORDER and key order are not semantics, and IAM preserves neither. If the
