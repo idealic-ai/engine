@@ -1977,9 +1977,9 @@ else
   fail "underivable reported" "an 'underivable' note naming the SSM target" "$PVNB"
 fi
 PVA=$(cd "$PROVD" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
-      "$ENV_SH" provision --domain core --person rob --tier triage --account 924609080826 --apply 2>&1 | strip)
+      "$ENV_SH" provision --domain core --person rob --tier triage --account 924609080826 --apply </dev/null 2>&1 | strip)
 PVAC=$(cd "$PROVD" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
-      "$ENV_SH" provision --domain core --person rob --tier triage --account 924609080826 --apply >/dev/null 2>&1; echo $?)
+      "$ENV_SH" provision --domain core --person rob --tier triage --account 924609080826 --apply </dev/null >/dev/null 2>&1; echo $?)
 if [ "$PVAC" -ne 0 ] && printf '%s' "$PVA" | grep -qi 'underivable\|not derivable\|confirm'; then
   pass "--apply refuses while the derivation is incomplete (it never mints a partial policy)"
 else
@@ -2082,7 +2082,7 @@ else
 fi
 # …and --apply is no longer refused FOR THAT REASON (it still stops at the typed confirm).
 PVA5=$(cd "$PROVR5" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
-       "$ENV_SH" provision --person rob --tier triage --account 924609080826 --apply 2>&1 | strip)
+       "$ENV_SH" provision --person rob --tier triage --account 924609080826 --apply </dev/null 2>&1 | strip)
 if ! printf '%s' "$PVA5" | grep -qi 'underivable' && printf '%s' "$PVA5" | grep -qi 'confirm'; then
   pass "--apply now stops at the typed confirmation, not at an incomplete derivation"
 else
@@ -2184,5 +2184,161 @@ if ! printf '%s' "$CLEANOUT" | grep -qi 'seam-influenced'; then
 else
   fail "banner only when seams set" "no marker" "$CLEANOUT"
 fi
+
+# ══ 38. provision --apply actually mints (5/2c) ═══════════════════════════════
+#
+# The mint itself cannot be driven here: provision REFUSES outright when any seam is
+# set (pinned in Test 33), and that refusal is the point — a real IAM mutation must
+# never run against faked inputs. So the sequence is pinned two ways: BEHAVIOURALLY at
+# the confirmation boundary, which is reachable without AWS, and STRUCTURALLY on the
+# rollback and no-config-block guarantees, which are the parts whose absence would only
+# show up as a leaked credential.
+echo "Test 38: provision --apply"
+APPD="$WORK/applyd"; mkcase "$APPD"
+ENV_SRC="$HOME/.claude/engine/scripts/env.sh"
+
+# (a) A WRONG typed confirmation aborts, and says so — it must never fall through to a
+#     mint on a near-miss.
+AWRONG=$(cd "$APPD" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
+         "$ENV_SH" provision --person rob --tier triage --account 924609080826 --apply \
+         <<<'000000000000' 2>&1 | strip)
+AWRONGC=$(cd "$APPD" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
+          "$ENV_SH" provision --person rob --tier triage --account 924609080826 --apply \
+          <<<'000000000000' >/dev/null 2>&1; echo $?)
+if [ "$AWRONGC" -ne 0 ] && printf '%s' "$AWRONG" | grep -qi 'nothing was created'; then
+  pass "a mistyped account id aborts --apply and states that nothing was created"
+else
+  fail "wrong confirm aborts" "non-zero + 'nothing was created'" "code=$AWRONGC out=$AWRONG"
+fi
+
+# (b) EOF on stdin — the automated case — aborts with the same non-zero. This is what
+#     stops a blanket-allowed `Bash(engine *)` call from minting.
+AEOFC=$(cd "$APPD" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
+        "$ENV_SH" provision --person rob --tier triage --account 924609080826 --apply \
+        </dev/null >/dev/null 2>&1; echo $?)
+if [ "$AEOFC" -ne 0 ]; then
+  pass "--apply with no stdin (the automated case) aborts rather than minting"
+else
+  fail "EOF aborts" "non-zero" "$AEOFC"
+fi
+
+# (c) There must be NO flag that supplies the confirmation. A `--yes` would reopen
+#     exactly the hole the seam refusal closes.
+if ! grep -nE '^\s*--(yes|confirm|force|confirm-account)\)' "$ENV_SRC" >/dev/null 2>&1; then
+  pass "no flag can supply the typed confirmation (it is read, never passed)"
+else
+  fail "no confirm flag" "none" "$(grep -nE '^\s*--(yes|confirm|force|confirm-account)\)' "$ENV_SRC")"
+fi
+
+# (d) ROLLBACK. Every failure after the key exists must delete it — an access key that
+#     is minted and then abandoned is a live credential nobody knows about.
+NDEL=$(grep -c 'iam delete-access-key' "$ENV_SRC" || true)
+if [ "${NDEL:-0}" -ge 2 ]; then
+  pass "both post-mint failure paths delete the access key ($NDEL rollback sites)"
+else
+  fail "key rollback" ">=2 delete-access-key sites" "$NDEL"
+fi
+if grep -q '_agent_profile_remove' "$ENV_SRC"; then
+  pass "a profile that never authenticated is removed, not left looking installed"
+else
+  fail "profile rollback" "_agent_profile_remove called" "absent"
+fi
+
+# (e) THE NO-CONFIG-BLOCK GUARANTEE. The absence of ~/.aws/config is the whole mechanism
+#     by which an agent key never expires; a write to it would silently reintroduce
+#     login_session. Nothing in env.sh may write that path.
+CFGWRITE=$(grep -vE '^[[:space:]]*#' "$ENV_SRC" \
+           | grep -nE '>[[:space:]]*"?[^"]*\.aws/config|aws configure' || true)
+if [ -z "$CFGWRITE" ]; then
+  pass "env.sh never writes ~/.aws/config (the absence IS the no-expiry mechanism)"
+else
+  fail "no config write" "no write to ~/.aws/config" "$CFGWRITE"
+fi
+
+# (f) The two key-installing paths share ONE implementation. Duplicated credential
+#     handling is the exact defect this whole change exists to remove.
+if grep -q '_agent_profile_write' "$ENV_SRC" && \
+   [ "$(grep -c '_agent_profile_write' "$ENV_SRC")" -ge 3 ]; then
+  pass "setup --aws-key and provision --apply install a key through one shared primitive"
+else
+  fail "shared primitive" "_agent_profile_write defined and used by both" "$(grep -c '_agent_profile_write' "$ENV_SRC")"
+fi
+
+
+# ══ 39. <person> resolves to the AGENT, through the resolver (5/2d) ═══════════
+#
+# Both defects here were found by running the thing end to end, not by reading it:
+# the fetcher expanded `<person>` to the PERSON while provision granted on the AGENT,
+# so the policy could never permit the read; and it consulted the raw environment for a
+# profile name that is recorded in .env.local, which an unexported lookup cannot see.
+echo "Test 39: <person> expansion"
+PSND="$WORK/persond"; mkcase "$PSND"
+PSN_MF="$WORK/person.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"AGENT_PW", service:"App", required:"optional", secret:true, default:null,
+   dotfile:".env.local", how:"per-person login",
+   check:{type:"file-key"},
+   source:{type:"aws-secret", name:"staging/finch/agent-login/<person>", field:"password"}}]}' > "$PSN_MF"
+
+# (a) The profile is recorded in .env.local and NOT exported. Reading it proves the
+#     resolver is in the path — a raw ${FINCH_AGENT_AWS_PROFILE} lookup returns nothing.
+printf 'FINCH_AGENT_AWS_PROFILE=t-agent\n' >> "$PSND/.env.local"
+PSNA=$(cd "$PSND" && env -u FINCH_AGENT_AWS_PROFILE ENV_MANIFEST="$PSN_MF" \
+       "$ENV_SH" setup --non-interactive </dev/null 2>&1 | strip)
+if printf '%s' "$PSNA" | grep -q 'agent-login/t-agent'; then
+  pass "<person> resolves through the resolver, so a profile recorded only in .env.local is used"
+else
+  fail "resolver in the path" "agent-login/t-agent" "$PSNA"
+fi
+if ! printf '%s' "$PSNA" | grep -q '<person>'; then
+  pass "the dry-run prints the path it would actually read, not the manifest template"
+else
+  fail "resolved path shown" "no literal <person>" "$PSNA"
+fi
+
+# (b) With nothing recorded, the fallback must still name an AGENT. The person's own
+#     name would be a path the agent policy does not cover.
+if grep -q 'who="${who}-agent"' "$ENV_SRC"; then
+  pass "the identity fallback appends -agent (it never names the bare person)"
+else
+  fail "agent suffix" 'who="${who}-agent"' "absent"
+fi
+
+# (c) An agent profile has no ~/.aws/config, so it carries no region and the CLI
+#     refuses. The fetch must supply one FROM THE RESOLVER, not a hardcoded default.
+if grep -q 'region="$(resolve_env_key AWS_REGION' "$HOME/.claude/engine/scripts/env-lib.sh"; then
+  pass "the secret fetch falls back to the resolver for AWS_REGION (agent profiles carry none)"
+else
+  fail "region fallback" "resolve_env_key AWS_REGION in env_fetch_aws_secret" "absent"
+fi
+
+# (d) ONE implementation of the expansion, shared by the dry-run and the real fetch —
+#     a second copy is how the dry-run came to advertise a path the fetch never read.
+if [ "$(grep -c '_resolve_person_secret_name' "$ENV_SRC")" -ge 3 ]; then
+  pass "the dry-run and the real fetch expand <person> through one shared function"
+else
+  fail "shared expansion" ">=3 references" "$(grep -c '_resolve_person_secret_name' "$ENV_SRC")"
+fi
+
+
+# (e) A NON-SECRET row sourced from Secrets Manager still needs fetching. `secret` says
+#     how sensitive a value is; `source` says where it comes from. Conflating them left
+#     FINCH_AGENT_APP_EMAIL with no writer at all — the doctor seeds non-secret DEFAULTS
+#     and an aws-secret row has none.
+NSD="$WORK/nonsecret"; mkcase "$NSD"
+NS_MF="$WORK/nonsecret.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"AGENT_EMAIL", service:"App", required:"optional", secret:false, default:null,
+   dotfile:".env.local", how:"the agent login email",
+   check:{type:"file-key"},
+   source:{type:"aws-secret", name:"staging/finch/agent-login/x", field:"email"}}]}' > "$NS_MF"
+NSOUT=$(cd "$NSD" && ENV_MANIFEST="$NS_MF" ENV_AWS_SECRET_OUTPUT='{"SecretString":"{\"email\":\"a@b.c\"}"}' \
+        "$ENV_SH" setup </dev/null 2>&1 | strip)
+if grep -q '^AGENT_EMAIL=' "$NSD/.env.local" 2>/dev/null; then
+  pass "a NON-secret row sourced from Secrets Manager is still fetched and written"
+else
+  fail "non-secret fetched" "AGENT_EMAIL written to .env.local" "$NSOUT"
+fi
+
 
 exit_with_results

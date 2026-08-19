@@ -524,6 +524,79 @@ check_aws_agent_profile() {
   return 0
 }
 
+# ── agent-profile primitives ──────────────────────────────────────────────────
+#
+# Shared by `setup --aws-key` (a key minted FOR you and delivered) and `provision
+# --apply` (a key you mint yourself). Both end in the same place, so they share one
+# implementation rather than two that drift.
+#
+# ⚠️ NEITHER writes ~/.aws/config. The ABSENCE of a config block is the mechanism: no
+# block means no `login_session`, which is what makes an agent profile never expire and
+# never prompt for MFA.
+
+_agent_profile_exists() {
+  local profile="$1" home="${ENV_AWS_HOME:-$HOME}"
+  [ -f "$home/.aws/credentials" ] && grep -qE "^\[$profile\]" "$home/.aws/credentials"
+}
+
+_agent_profile_write() {
+  local profile="$1" akid="$2" secret="$3" home="${ENV_AWS_HOME:-$HOME}"
+  local creds="$home/.aws/credentials"
+  mkdir -p "$home/.aws" || return 1
+  local before=""; [ -f "$creds" ] && before="$(cat "$creds")"
+  { [ -n "$before" ] && printf '%s\n' "$before"
+    printf '[%s]\naws_access_key_id = %s\naws_secret_access_key = %s\n' "$profile" "$akid" "$secret"; } > "$creds.tmp" || return 1
+  chmod 600 "$creds.tmp" 2>/dev/null
+  mv "$creds.tmp" "$creds" || return 1
+  chmod 600 "$creds" 2>/dev/null
+  return 0
+}
+
+_agent_profile_remove() {
+  # Undoes a write. A profile that never authenticated must not be left behind — the
+  # operator would read it as installed and the failure would resurface days later.
+  local profile="$1" home="${ENV_AWS_HOME:-$HOME}" creds
+  creds="$home/.aws/credentials"
+  [ -f "$creds" ] || return 0
+  awk -v p="[$profile]" '$0==p{skip=1;next} /^\[/{skip=0} !skip' "$creds" > "$creds.tmp" \
+    && mv "$creds.tmp" "$creds"
+  chmod 600 "$creds" 2>/dev/null
+  return 0
+}
+
+_agent_profile_verify() {
+  # → caller ARN on stdout; non-zero when it never authenticated. A freshly minted key
+  # is eventually consistent in IAM, so ONE call reports a working key as broken —
+  # hence the retry, which callers minting a key pass a count for.
+  local profile="$1" tries="${2:-1}" arn="" i=0
+  if [ -n "${ENV_STS_ARN+set}" ]; then
+    echo "env: ⚠️  TEST SEAM ACTIVE — ENV_STS_ARN is set (no AWS call was made)" >&2
+    printf '%s' "$ENV_STS_ARN"; return 0
+  fi
+  command -v aws >/dev/null 2>&1 || return 1
+  while [ "$i" -lt "$tries" ]; do
+    arn="$(AWS_PROFILE="$profile" aws sts get-caller-identity --profile "$profile" --query Arn --output text 2>/dev/null || true)"
+    [ -n "$arn" ] && { printf '%s' "$arn"; return 0; }
+    i=$((i + 1))
+    [ "$i" -lt "$tries" ] && sleep 2
+  done
+  return 1
+}
+
+_agent_profile_record() {
+  # The profile NAME, never the key — no credential material enters the engine's storage.
+  local profile="$1" target
+  target="$(env_anchored_path ".env.local")" || target=""
+  [ -n "$target" ] || return 0
+  if grep -qE '^[[:space:]]*(export[[:space:]]+)?FINCH_AGENT_AWS_PROFILE[[:space:]]*=' "$target" 2>/dev/null; then
+    fill_env_key "$target" FINCH_AGENT_AWS_PROFILE "$profile"
+  else
+    printf 'FINCH_AGENT_AWS_PROFILE=%s\n' "$profile" >> "$target"
+  fi
+  printf "  ${GREEN}ok${NC}    recorded FINCH_AGENT_AWS_PROFILE=%s → %s\n" "$profile" "$target"
+  return 0
+}
+
 # ── 5/2b: provision ───────────────────────────────────────────────────────────
 #
 # THE POLICY IS DERIVED FROM THE MANIFEST'S `required` TIERS, never hand-written.
@@ -678,9 +751,96 @@ cmd_provision() {
     echo "env provision: refusing --apply while part of the policy is UNDERIVABLE from the manifest (see above). Minting a partial policy would silently under-grant." >&2
     return 1
   fi
-  echo "env provision: --apply requires a typed confirmation of the account id ($account)." >&2
-  echo "               Re-run interactively; this build never mints in an automated context." >&2
-  return 1
+  # THE CONFIRMATION IS READ, NEVER FLAGGED. A `--yes`-shaped flag would make minting
+  # reachable from any automated `Bash(engine *)` call, which is the same hole the seam
+  # refusal above closes. A read gets EOF in that context and aborts on its own.
+  printf "${BOLD}About to mint IAM user %s in account %s.${NC}\n" "$user" "$account"
+  printf "Type the account id to confirm: "
+  local typed=""
+  IFS= read -r typed || typed=""
+  printf "\n"
+  if [ "$typed" != "$account" ]; then
+    echo "env provision: --apply requires a typed confirmation of the account id ($account). Nothing was created." >&2
+    return 1
+  fi
+
+  command -v aws >/dev/null 2>&1 || { echo "env provision: the aws CLI is not on PATH. Nothing was created." >&2; return 1; }
+  command -v jq  >/dev/null 2>&1 || { echo "env provision: jq is not on PATH. Nothing was created." >&2; return 1; }
+
+  # Refuse BEFORE anything is minted. A key created for a profile we then decline to
+  # write is an orphan credential the operator has no way to see.
+  if _agent_profile_exists "$user"; then
+    echo "env provision: profile [$user] already exists in ~/.aws/credentials — remove it first if you are rotating the key. Nothing was created." >&2
+    return 1
+  fi
+
+  local policy_name="engine-${DOMAIN}-${tier}"
+
+  if aws iam get-user --user-name "$user" >/dev/null 2>&1; then
+    printf "  ${CYAN}note${NC}  IAM user %s already exists — reusing it; the policy and key are applied to it.\n" "$user"
+  elif aws iam create-user --user-name "$user" \
+         --tags "Key=managed-by,Value=engine-env-provision" "Key=tier,Value=$tier" >/dev/null 2>&1; then
+    printf "  ${GREEN}ok${NC}    created IAM user %s\n" "$user"
+  else
+    echo "env provision: could not create IAM user $user. Nothing was created." >&2
+    return 1
+  fi
+
+  # The policy goes through a 0600 temp file rather than a pipe: `file://` is the only
+  # form the CLI reads identically across versions, and the document is not secret but
+  # is worth not leaving world-readable.
+  local pfile rc_put
+  pfile="$(mktemp "${TMPDIR:-/tmp}/engine-provision-policy.XXXXXX")" || return 1
+  chmod 600 "$pfile" 2>/dev/null
+  printf '%s\n' "$policy" > "$pfile"
+  aws iam put-user-policy --user-name "$user" --policy-name "$policy_name" \
+      --policy-document "file://$pfile" >/dev/null 2>&1; rc_put=$?
+  rm -f "$pfile"
+  if [ "$rc_put" -ne 0 ]; then
+    echo "env provision: could not attach inline policy $policy_name to $user. The user exists but is UNGRANTED." >&2
+    return 1
+  fi
+  printf "  ${GREEN}ok${NC}    attached inline policy %s\n" "$policy_name"
+
+  # AWS caps a user at two access keys and fails the third with an error that does not
+  # say so. Check first, so the operator gets the real reason.
+  local nkeys
+  nkeys="$(aws iam list-access-keys --user-name "$user" --query 'length(AccessKeyMetadata)' --output text 2>/dev/null || echo 0)"
+  case "$nkeys" in ''|*[!0-9]*) nkeys=0 ;; esac
+  if [ "$nkeys" -ge 2 ]; then
+    echo "env provision: $user already holds $nkeys access keys and AWS allows 2. Delete one, then re-run." >&2
+    return 1
+  fi
+
+  local keyjson akid skey
+  keyjson="$(aws iam create-access-key --user-name "$user" --output json 2>/dev/null)" || keyjson=""
+  akid="$(printf '%s' "$keyjson" | jq -r '.AccessKey.AccessKeyId // empty' 2>/dev/null)"
+  skey="$(printf '%s' "$keyjson" | jq -r '.AccessKey.SecretAccessKey // empty' 2>/dev/null)"
+  keyjson=""
+  if [ -z "$akid" ] || [ -z "$skey" ]; then
+    echo "env provision: could not mint an access key for $user." >&2
+    return 1
+  fi
+  printf "  ${GREEN}ok${NC}    minted access key %s\n" "$akid"
+
+  if ! _agent_profile_write "$user" "$akid" "$skey"; then
+    aws iam delete-access-key --user-name "$user" --access-key-id "$akid" >/dev/null 2>&1
+    echo "env provision: could not write ~/.aws/credentials — the key just minted was DELETED so it cannot leak. Nothing usable was left behind." >&2
+    return 1
+  fi
+  skey=""
+
+  local arn
+  if ! arn="$(_agent_profile_verify "$user" 6)"; then
+    _agent_profile_remove "$user"
+    aws iam delete-access-key --user-name "$user" --access-key-id "$akid" >/dev/null 2>&1
+    echo "env provision: [$user] never authenticated. The key was deleted and the profile removed; the IAM user and its policy remain." >&2
+    return 1
+  fi
+  printf "  ${GREEN}ok${NC}    profile ${BOLD}%s${NC} authenticates as %s\n" "$user" "$arn"
+  _agent_profile_record "$user"
+  printf "${BOLD}done:${NC} %s is provisioned at the %s tier. Re-run 'engine env doctor --domain %s' to watch the FAIL clear.\n" "$user" "$tier" "$DOMAIN"
+  return 0
 }
 
 # ── install_aws_key <delivered-file> [person] ─────────────────────────────────
@@ -716,29 +876,18 @@ install_aws_key() {
 
   person="$(env_infer_person "$person")" || return 1
   local profile="${person}-agent" creds="$home/.aws/credentials"
-  mkdir -p "$home/.aws" || return 1
 
-  if [ -f "$creds" ] && grep -qE "^\[$profile\]" "$creds"; then
+  if _agent_profile_exists "$profile"; then
     echo "env setup --aws-key: profile [$profile] already exists in $creds — remove it first if you are rotating the key. Nothing was written." >&2
     return 1
   fi
 
-  local before=""; [ -f "$creds" ] && before="$(cat "$creds")"
-  { [ -n "$before" ] && printf '%s\n' "$before"
-    printf '[%s]\naws_access_key_id = %s\naws_secret_access_key = %s\n' "$profile" "$akid" "$secret"; } > "$creds.tmp" || return 1
-  chmod 600 "$creds.tmp" 2>/dev/null
-  mv "$creds.tmp" "$creds" || return 1
-  chmod 600 "$creds" 2>/dev/null
+  _agent_profile_write "$profile" "$akid" "$secret" || return 1
 
   # Verify BEFORE shredding — an unverified key plus a deleted source is unrecoverable.
-  local arn=""
-  if [ -n "${ENV_STS_ARN+set}" ]; then
-    echo "env: ⚠️  TEST SEAM ACTIVE — ENV_STS_ARN is set (no AWS call was made)" >&2
-    arn="$ENV_STS_ARN"
-  elif command -v aws >/dev/null 2>&1; then
-    arn="$(AWS_PROFILE="$profile" aws sts get-caller-identity --profile "$profile" --query Arn --output text 2>/dev/null || true)"
-  fi
-  if [ -z "$arn" ]; then
+  # One try: a DELIVERED key is minutes old at least, so IAM consistency is not in play.
+  local arn
+  if ! arn="$(_agent_profile_verify "$profile" 1)" || [ -z "$arn" ]; then
     echo "env setup --aws-key: wrote [$profile] but it did not authenticate. The key may be wrong or already revoked — your delivered file has been KEPT so you can retry." >&2
     return 1
   fi
@@ -749,16 +898,7 @@ install_aws_key() {
     warn "$profile" "a ~/.aws/config block exists for this profile — if it carries login_session the profile WILL expire; remove it"
   fi
 
-  # Record the profile NAME (never the key) so the doctor can check it.
-  local target; target="$(env_anchored_path ".env.local")" || target=""
-  if [ -n "$target" ]; then
-    if grep -qE '^[[:space:]]*(export[[:space:]]+)?FINCH_AGENT_AWS_PROFILE[[:space:]]*=' "$target" 2>/dev/null; then
-      fill_env_key "$target" FINCH_AGENT_AWS_PROFILE "$profile"
-    else
-      printf 'FINCH_AGENT_AWS_PROFILE=%s\n' "$profile" >> "$target"
-    fi
-    printf "  ${GREEN}ok${NC}    recorded FINCH_AGENT_AWS_PROFILE=%s → %s\n" "$profile" "$target"
-  fi
+  _agent_profile_record "$profile"
 
   # Shred: the key must stop living in ~/Downloads. `rm -P` overwrites on macOS.
   rm -P "$src" 2>/dev/null || { : > "$src"; rm -f "$src"; }
@@ -771,6 +911,30 @@ install_aws_key() {
 # fail in different ways, and a half-written .env.local is worse than an unwritten one:
 # the operator cannot tell which rows landed. So nothing touches disk until every row
 # has produced a value.
+# ── _resolve_person_secret_name <manifest-secret-name> ────────────────────────
+#
+# `<person>` makes a login secret PER-PERSON: the manifest is static, the path is not.
+# ⚠️ IT EXPANDS TO THE AGENT NAME (`<person>-agent`), NOT the person — provision derives
+# its grant the same way, and a bare person name names a path the agent's own policy
+# does not cover, so the fetch could not succeed even where the secret exists.
+#
+# The profile comes through the RESOLVER, never a raw env var: it is recorded in
+# .env.local, which an unexported variable lookup cannot see.
+_resolve_person_secret_name() {
+  local sname="$1" who=""
+  case "$sname" in
+    *"<person>"*) ;;
+    *) printf '%s' "$sname"; return 0 ;;
+  esac
+  who="$(resolve_env_key FINCH_AGENT_AWS_PROFILE 2>/dev/null || true)"
+  if [ -z "$who" ]; then
+    who="$(env_infer_person "" 2>/dev/null || true)"
+    [ -n "$who" ] && who="${who}-agent"
+  fi
+  [ -n "$who" ] || return 1
+  printf '%s' "${sname//<person>/$who}"
+}
+
 gitignore_verdict() {
   # → "ok" | "unprotected" | "no-repo".  A secret must not be written where git would
   # happily commit it; outside a repo there is nothing to commit to, so that WARNS.
@@ -809,15 +973,20 @@ cmd_setup() {
   # The manifest is read on fd 3 so the loop body's interactive `read -rs val`
   # reads the operator's input from stdin — not the next manifest row.
   while IFS=$'\037' read -r key service required secret default dotfile how check arg src sname sfield sregion sprofile <&3; do
-    [ "$secret" = "true" ] || continue
-    [ "$check" = "file-key" ] || continue   # only dotfile-backed secrets are wizard-writable
+    # `secret` says how SENSITIVE a value is; `source` says where it COMES FROM. A
+    # non-secret row sourced from Secrets Manager still has to be fetched — the doctor
+    # only seeds non-secret DEFAULTS, and an aws-secret row has none, so skipping it
+    # here left the row with no writer at all.
+    [ "$secret" = "true" ] || [ "$src" = "aws-secret" ] || continue
+    [ "$check" = "file-key" ] || continue   # only dotfile-backed rows are wizard-writable
     if key_present "$key" "$dotfile" "$check" "$arg"; then
       printf "  ${GREEN}have${NC}  %-22s (already set)\n" "$key"
       continue
     fi
     if [ "$dry" -eq 1 ]; then
       if [ "$src" = "aws-secret" ]; then
-        printf "  ${CYAN}would-fetch${NC}  %-22s ← aws-secret %s → %s\n" "$key" "$sname" "$dotfile"
+        printf "  ${CYAN}would-fetch${NC}  %-22s ← aws-secret %s → %s\n" "$key" \
+          "$(_resolve_person_secret_name "$sname" 2>/dev/null || printf '%s' "$sname")" "$dotfile"
       else
         printf "  ${CYAN}would-write${NC}  %-22s → %s\n" "$key" "$dotfile"
       fi
@@ -829,20 +998,14 @@ cmd_setup() {
     if [ "$src" = "aws-secret" ]; then
       # FETCHED, never prompted — the operator cannot type a value that lives in
       # Secrets Manager, and asking them to would invite them to invent one.
-      printf "  ${CYAN}fetch${NC}  %-22s ← aws-secret %s\n" "$key" "$sname"
-      # `<person>` makes a login secret PER-PERSON: the manifest is static, the path is not.
-      local resolved_name="$sname" who=""
-      case "$sname" in
-        *"<person>"*)
-          who="${FINCH_AGENT_AWS_PROFILE:-}"
-          [ -n "$who" ] || who="$(env_infer_person "" 2>/dev/null || true)"
-          if [ -z "$who" ]; then
-            printf "  ${RED}abort${NC}  %s needs a per-person secret path but who you are could not be determined. Nothing has been written.\n" "$key" >&2
-            return 1
-          fi
-          resolved_name="${sname//<person>/$who}" ;;
-      esac
-      val="$(env_fetch_aws_secret "$resolved_name" "$sfield" "$sregion" "${sprofile:-${FINCH_AGENT_AWS_PROFILE:-}}")"; rc=$?
+      local resolved_name agent_profile
+      if ! resolved_name="$(_resolve_person_secret_name "$sname")"; then
+        printf "  ${RED}abort${NC}  %s needs a per-person secret path but who you are could not be determined. Nothing has been written.\n" "$key" >&2
+        return 1
+      fi
+      printf "  ${CYAN}fetch${NC}  %-22s ← aws-secret %s\n" "$key" "$resolved_name"
+      agent_profile="$(resolve_env_key FINCH_AGENT_AWS_PROFILE 2>/dev/null || true)"
+      val="$(env_fetch_aws_secret "$resolved_name" "$sfield" "$sregion" "${sprofile:-$agent_profile}")"; rc=$?
       if [ "$rc" -ne 0 ]; then
         printf "  ${RED}abort${NC}  %s could not be fetched — nothing has been written.\n" "$key" >&2
         return "$rc"

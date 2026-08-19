@@ -348,6 +348,11 @@ env_fetch_aws_secret() {
     out="$ENV_AWS_SECRET_OUTPUT"
   else
     command -v aws >/dev/null 2>&1 || { echo "env: the aws CLI is required to fetch '$name'" >&2; return 1; }
+    # An agent profile has NO ~/.aws/config block — that absence is what stops it
+    # expiring — so it carries no region either, and the CLI refuses without one. Fall
+    # back to the resolver rather than a hardcoded default, so the region stays a
+    # manifest-owned value.
+    [ -n "$region" ] || region="$(resolve_env_key AWS_REGION 2>/dev/null || true)"
     local args=(secretsmanager get-secret-value --secret-id "$name" --output json)
     [ -n "$region" ]  && args+=(--region "$region")
     [ -n "$profile" ] && args+=(--profile "$profile")
