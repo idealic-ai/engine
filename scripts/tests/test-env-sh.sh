@@ -2341,4 +2341,186 @@ else
 fi
 
 
+# ══ 40. provision --reconcile (6/1) ═══════════════════════════════════════════
+#
+# A policy minted yesterday did not shrink when a manifest row went away — provision
+# only ever wrote. Like the mint, the IAM half cannot be driven here (provision refuses
+# with any seam set), so the invariants that matter are pinned structurally and the
+# comparison logic is pinned directly.
+echo "Test 40: provision --reconcile"
+
+# (a) THE SAFETY INVARIANT. Reconcile replaces ONE inline policy it owns; it must never
+#     delete or detach anything. A hand-attached grant it quietly removed would be a
+#     worse failure than the drift it exists to fix.
+DESTRUCTIVE=$(grep -nE 'iam (delete-user-policy|detach-user-policy|delete-user|remove-user-from-group)' "$ENV_SRC" || true)
+if [ -z "$DESTRUCTIVE" ]; then
+  pass "env.sh never deletes or detaches an IAM policy (reconcile replaces only what it owns)"
+else
+  fail "no policy deletion" "no delete-user-policy / detach-user-policy" "$DESTRUCTIVE"
+fi
+
+# (b) Statement ORDER and key order are not semantics, and IAM preserves neither. If the
+#     canonicaliser did not sort, every reconcile would report drift that is not there
+#     and the command would be ignored inside a week.
+CANON='{Version:"2012-10-17", Statement: ((.Statement // []) | sort_by(.Sid // ""))}'
+P1='{"Version":"2012-10-17","Statement":[{"Sid":"B","Effect":"Allow","Action":["s3:PutObject"]},{"Sid":"A","Effect":"Allow","Action":["secretsmanager:GetSecretValue"]}]}'
+P2='{"Statement":[{"Action":["secretsmanager:GetSecretValue"],"Effect":"Allow","Sid":"A"},{"Action":["s3:PutObject"],"Effect":"Allow","Sid":"B"}],"Version":"2012-10-17"}'
+if [ "$(printf '%s' "$P1" | jq -S "$CANON")" = "$(printf '%s' "$P2" | jq -S "$CANON")" ]; then
+  pass "reordered statements and keys normalise equal (formatting never reads as drift)"
+else
+  fail "canonical compare" "equal after normalisation" "differed"
+fi
+# …and a genuinely different policy must still differ.
+P3='{"Version":"2012-10-17","Statement":[{"Sid":"A","Effect":"Allow","Action":["secretsmanager:GetSecretValue"]}]}'
+if [ "$(printf '%s' "$P1" | jq -S "$CANON")" != "$(printf '%s' "$P3" | jq -S "$CANON")" ]; then
+  pass "a dropped statement still registers as drift (the normaliser is not blind)"
+else
+  fail "real drift detected" "different" "equal"
+fi
+
+# (c) An expired session and a missing user demand OPPOSITE actions. Collapsing them
+#     told an operator whose session merely lapsed to re-provision — which then trips the
+#     profile-exists refusal and hands them a second wrong answer.
+if grep -q 'unauthenticated)' "$ENV_SRC" && grep -q '_iam_user_state' "$ENV_SRC"; then
+  pass "an expired AWS session is distinguished from a genuinely absent IAM user"
+else
+  fail "state distinguished" "_iam_user_state with an unauthenticated branch" "absent"
+fi
+
+# (d) Reconcile must refuse while anything is UNDERIVABLE. Reconciling to a partial
+#     derivation would REMOVE a grant that is merely underived — the one way this
+#     command could destroy access.
+RECU=$(cd "$WORK" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
+       "$ENV_SH" provision --domain core --person rob --tier triage --account 924609080826 \
+       --reconcile </dev/null 2>&1 | strip)
+RECUC=$(cd "$WORK" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
+        "$ENV_SH" provision --domain core --person rob --tier triage --account 924609080826 \
+        --reconcile </dev/null >/dev/null 2>&1; echo $?)
+if [ "$RECUC" -ne 0 ] && printf '%s' "$RECU" | grep -qi 'underivable'; then
+  pass "--reconcile refuses while any statement is UNDERIVABLE (it would remove a live grant)"
+else
+  fail "reconcile underivable guard" "non-zero + underivable" "code=$RECUC out=$RECU"
+fi
+
+# (e) The exit contract is what makes a dry run usable as a gate.
+if grep -q 'Exit: 0 in sync (or applied), 1 drifted, 2 could not run' "$ENV_SRC"; then
+  pass "the 0-in-sync / 1-drifted / 2-cannot-run exit contract is stated at the source"
+else
+  fail "exit contract" "documented" "absent"
+fi
+
+
+# ══ 41. domain-less `env setup` walks every domain (6/2) ══════════════════════
+#
+# Asking a new teammate to name a domain before they know what domains exist is the same
+# shape of problem this command was built to remove.
+echo "Test 41: domain-less setup"
+# Driven WITHOUT a seam on purpose: a pinned ENV_MANIFEST collapses every domain onto
+# one file, so the walk can only be observed against the real manifests. --non-interactive
+# keeps it read-only.
+ALLD="$WORK/alldomains"; mkcase "$ALLD"
+ALLOUT=$(cd "$ALLD" && env -u ENV_MANIFEST "$ENV_SH" setup --non-interactive </dev/null 2>&1 | strip)
+ALLN=$(printf '%s\n' "$ALLOUT" | grep -c '^── ' || true)
+if [ "${ALLN:-0}" -ge 2 ]; then
+  pass "setup with no --domain walks every domain that has a manifest ($ALLN visited)"
+else
+  fail "walks all domains" ">=2 domain headers" "$ALLN headers in: $ALLOUT"
+fi
+if printf '%s' "$ALLOUT" | grep -q '^── core ──'; then
+  pass "core is visited first (it composes into every other domain)"
+else
+  fail "core first" "a core header" "$ALLOUT"
+fi
+
+# THE GUARD MUST NOT MOVE. The doctor stays per-domain: that scoping is what stops a
+# design operator being blocked on a Slack token only an intake wave needs.
+DOCOUT=$(cd "$ALLD" && env -u ENV_MANIFEST "$ENV_SH" doctor </dev/null 2>&1 | strip)
+if ! printf '%s' "$DOCOUT" | grep -q '^── '; then
+  pass "the DOCTOR still runs one domain, not all (the per-domain guard is intact)"
+else
+  fail "doctor stays scoped" "no multi-domain walk" "$DOCOUT"
+fi
+
+# An explicit --domain must still mean exactly that one.
+ONEOUT=$(cd "$ALLD" && env -u ENV_MANIFEST "$ENV_SH" setup --domain intake --non-interactive </dev/null 2>&1 | strip)
+if ! printf '%s' "$ONEOUT" | grep -q '^── '; then
+  pass "an explicit --domain still runs exactly that domain"
+else
+  fail "explicit domain scoped" "no walk" "$ONEOUT"
+fi
+
+# A pinned manifest collapses the walk — otherwise a seam would drive the same rows once
+# per domain, and every existing single-domain setup test would silently become a 4x run.
+SEAMONE="$WORK/seamone.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"SEAM_OPT", service:"S", required:"optional", secret:true, default:null,
+   dotfile:".env.local", how:"h", check:{type:"file-key"}, source:{type:"prompt"}}]}' > "$SEAMONE"
+SEAMOUT=$(cd "$ALLD" && ENV_MANIFEST="$SEAMONE" "$ENV_SH" setup --non-interactive </dev/null 2>&1 | strip)
+if ! printf '%s' "$SEAMOUT" | grep -q '^── '; then
+  pass "a pinned ENV_MANIFEST collapses the walk (one manifest means one domain)"
+else
+  fail "seam collapses walk" "no domain headers" "$SEAMOUT"
+fi
+
+# Domain discovery reads DISK, never a hardcoded list — a list in code is a second
+# source of truth that goes stale the day someone adds a manifest.
+if grep -q 'env_list_domains' "$HOME/.claude/engine/scripts/env-lib.sh" \
+   && ! grep -qE 'DOMAINS=\(|for d in core intake prove design' "$ENV_SRC"; then
+  pass "the domain list is discovered from disk, not hardcoded in env.sh"
+else
+  fail "discovered domains" "env_list_domains, no hardcoded list" "hardcoded list present"
+fi
+
+
+# ══ 42. a PLACEHOLDER value must never read as green (6/3) ════════════════════
+#
+# Seeding a stand-in so a path can be exercised end-to-end is legitimate; letting the
+# doctor call it PASS is not. Same principle as the seam banner: a check that passes for
+# the wrong reason stops the whole output being evidence.
+echo "Test 42: placeholder values"
+PHD="$WORK/placeholder"; mkcase "$PHD"
+PH_MF="$WORK/placeholder.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"PH_OPT", service:"S", required:"optional", secret:true, default:null,
+   dotfile:".env.local", how:"h", check:{type:"file-key"}, source:{type:"prompt"}},
+  {key:"PH_REQ", service:"S", required:"req", secret:true, default:null,
+   dotfile:".env.local", how:"h", check:{type:"file-key"}, source:{type:"prompt"}}]}' > "$PH_MF"
+printf 'PH_OPT=PLACEHOLDER-not-real\nPH_REQ=PLACEHOLDER-not-real\n' >> "$PHD/.env.local"
+
+PHOUT=$(cd "$PHD" && ENV_MANIFEST="$PH_MF" "$ENV_SH" doctor </dev/null 2>&1 | strip)
+PHC=$(cd "$PHD" && ENV_MANIFEST="$PH_MF" "$ENV_SH" doctor </dev/null >/dev/null 2>&1; echo $?)
+if printf '%s' "$PHOUT" | grep -qi 'PLACEHOLDER value'; then
+  pass "a present-but-placeholder value is reported, not silently passed"
+else
+  fail "placeholder reported" "a PLACEHOLDER notice" "$PHOUT"
+fi
+if ! printf '%s' "$PHOUT" | grep -qE '^  PASS +PH_(OPT|REQ)'; then
+  pass "neither placeholder row is reported as PASS"
+else
+  fail "no false green" "no PASS for a placeholder row" "$PHOUT"
+fi
+# Severity follows `required`, exactly as a miss does — a placeholder IS a miss that
+# happens to occupy the line.
+if [ "$PHC" -ne 0 ]; then
+  pass "a REQUIRED row holding a placeholder blocks (non-zero), it does not merely warn"
+else
+  fail "req placeholder blocks" "non-zero" "$PHC"
+fi
+# …and a real value on the same row still passes, so the rule is not just "always warn".
+REALD="$WORK/placeholder-real"; mkcase "$REALD"
+printf 'PH_OPT=actual-value\nPH_REQ=actual-value\n' >> "$REALD/.env.local"
+REALC=$(cd "$REALD" && ENV_MANIFEST="$PH_MF" "$ENV_SH" doctor </dev/null >/dev/null 2>&1; echo $?)
+if [ "$REALC" -eq 0 ]; then
+  pass "a real value on the same rows still passes (the prefix is the only trigger)"
+else
+  fail "real value passes" "0" "$REALC"
+fi
+# The prefix lives in the shared lib, so a seeder and the checker cannot disagree on it.
+if grep -q 'ENV_PLACEHOLDER_PREFIX' "$HOME/.claude/engine/scripts/env-lib.sh"; then
+  pass "the placeholder prefix is defined once, in the shared lib"
+else
+  fail "shared prefix" "ENV_PLACEHOLDER_PREFIX in env-lib.sh" "absent"
+fi
+
+
 exit_with_results

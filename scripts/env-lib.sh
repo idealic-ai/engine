@@ -76,6 +76,31 @@ env_manifest_path() {
 #   secret     → the literal "true"/"false" (a shell string, not a JSON bool)
 #   default    → "" when null
 #   check_arg  → check.server (mcp) or check.name (binary); "" otherwise
+# ── env_list_domains ──────────────────────────────────────────────────────────
+#
+# Every domain that HAS a manifest, discovered from disk rather than a hardcoded list —
+# a list in code is a second source of truth that goes stale the day someone adds a
+# manifest and forgets it, which is the exact drift this whole subsystem exists to end.
+# `core` sorts first: it is composed into every other domain.
+# A value carrying this prefix is a stand-in, not a credential. It exists so a seeded
+# placeholder can never read as a green check — the same principle as the seam banner:
+# a check that passes for the wrong reason is worse than one that fails.
+ENV_PLACEHOLDER_PREFIX="PLACEHOLDER-"
+
+env_is_placeholder() {
+  case "${1:-}" in "$ENV_PLACEHOLDER_PREFIX"*) return 0 ;; *) return 1 ;; esac
+}
+
+env_list_domains() {
+  local d name
+  [ -f "$_ENV_LIB_DIR/credentials.json" ] && printf 'core\n'
+  for d in "$_ENV_LIB_DIR"/../skills/*/assets/credentials.json; do
+    [ -f "$d" ] || continue
+    name="${d%/assets/credentials.json}"; name="${name##*/}"
+    printf '%s\n' "$name"
+  done
+}
+
 env_manifest_rows() {
   local domain="${1:-intake}" mf
   env_require_jq || return 1

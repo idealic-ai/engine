@@ -23,9 +23,31 @@
 #                                                 write it to its gitignored dotfile.
 #                                                 --non-interactive (alias --dry-run) echoes
 #                                                 what it WOULD write, writes nothing.
+#                                                 WITH NO --domain it walks EVERY domain that
+#                                                 has a manifest — a new teammate does not
+#                                                 know they are an "intake person". One
+#                                                 domain failing does not strand the rest.
+#                                                 The DOCTOR deliberately does NOT do this:
+#                                                 its per-domain scoping is the guard that
+#                                                 keeps a design operator from being blocked
+#                                                 by a credential only intake needs.
 #   engine env env-example [--domain <name>]      Print the manifest-derived `.env.example` to
 #                                                 stdout (secret NAMES with empty values, non-
 #                                                 secret defaults filled). Redirect to a file.
+#   engine env provision --tier <triage|engineer> [--person <name>] [--account <id>]
+#                        [--apply] [--reconcile]
+#                                                 Derive the agent's IAM policy FROM THE
+#                                                 MANIFEST's `required` tiers and mint the
+#                                                 operator's own <name>-agent user.
+#                                                 --reconcile compares the attached policy
+#                                                 against what the manifest now derives and
+#                                                 (with --apply) replaces it, so a grant
+#                                                 SHRINKS when a manifest row goes away.
+#                                                 Exit 0 in sync / 1 drifted / 2 cannot run,
+#                                                 so a dry run is usable as a gate. Anything
+#                                                 else on the user is reported, never touched.
+#                                                 --apply always reads a typed confirmation
+#                                                 of the account id; there is no flag for it.
 #   engine env resolve <KEY> [--show-value]       Say WHERE a credential resolves from and
 #                                                 whether it is present. The VALUE is not
 #                                                 printed unless --show-value is passed, so
@@ -167,8 +189,11 @@ key_present() {
     file-key)
       # The manifest's dotfile is the PREFERRED home, not the only one searched:
       # resolve_env_key falls through to <anchor>/.env.local / <anchor>/.env.
-      local rc
-      resolve_env_key "$key" "$dotfile" >/dev/null 2>&1; rc=$?
+      local rc _v
+      _v="$(resolve_env_key "$key" "$dotfile" 2>/dev/null)"; rc=$?
+      # Only the PREFIX is inspected; the value itself never leaves this branch.
+      [ "$rc" -eq 0 ] && env_is_placeholder "$_v" && { _v=""; return 4; }
+      _v=""
       [ "$rc" -eq 0 ] && return 0
       [ "$rc" -eq "$ENV_NO_ANCHOR_RC" ] && return 3
       return 1 ;;
@@ -380,6 +405,14 @@ cmd_doctor() {
     if [ "$rc" -eq 3 ] || { [ "$no_anchor" -eq 1 ] && [ "$check" = "file-key" ]; }; then
       # Distinct from "missing": we did not look, so we do not know.
       note "$key" "not checked (no session anchor)"
+      continue
+    fi
+    if [ "$rc" -eq 4 ]; then
+      # PRESENT BUT A STAND-IN. Reporting this green would mean the doctor's whole
+      # output stops being evidence: the row is set, and set to something that cannot work.
+      # Severity follows `required`, exactly as a miss does: a placeholder IS a miss that
+      # happens to occupy the line, so a `req` row holding one must block, not warn.
+      report_miss "$required" "$key" "holds a PLACEHOLDER value, not a real credential — it is present but cannot work. Replace it, then re-run. ($service)"
       continue
     fi
     if [ "$rc" -eq 0 ]; then
@@ -620,8 +653,167 @@ _arn_allowed() {
   return 1
 }
 
+# ── _provision_reconcile <user> <policy-name> <desired-policy> <apply> <account> ──
+#
+# A policy minted yesterday does not shrink when a manifest row is removed — `provision`
+# only ever wrote. Reconcile closes that: it re-derives from the manifest and compares
+# against what IAM actually holds.
+#
+# ⚠️ It reconciles ONE inline policy — the one this tool owns. Anything else on the user,
+# inline or managed, is REPORTED AND LEFT ALONE. Silently deleting a grant someone
+# attached by hand would be a worse failure than the drift it is fixing.
+#
+# Exit: 0 in sync (or applied), 1 drifted, 2 could not run. So a dry run is usable as a gate.
+# ── _iam_user_state <user> ────────────────────────────────────────────────────
+#
+# → "present" | "absent" | "unauthenticated" | "error <msg>"
+#
+# `aws iam get-user` fails for reasons that demand opposite actions, and treating every
+# failure as "absent" tells an operator whose session merely lapsed to re-provision —
+# which then trips the profile-exists refusal and leaves them with two wrong answers.
+_iam_user_state() {
+  local user="$1" err out rc
+  err="$(mktemp "${TMPDIR:-/tmp}/engine-iam-err.XXXXXX")" || { printf 'error mktemp failed'; return 0; }
+  out="$(aws iam get-user --user-name "$user" 2>"$err")"; rc=$?
+  if [ "$rc" -eq 0 ]; then rm -f "$err"; printf 'present'; return 0; fi
+  if grep -qi 'NoSuchEntity\|cannot be found' "$err"; then rm -f "$err"; printf 'absent'; return 0; fi
+  if grep -qi 'session has expired\|ExpiredToken\|Unable to locate credentials\|InvalidClientTokenId\|reauthenticate' "$err"; then
+    rm -f "$err"; printf 'unauthenticated'; return 0
+  fi
+  printf 'error %s' "$(tr -d '\n' < "$err" | cut -c1-200)"
+  rm -f "$err"
+  return 0
+}
+
+_iam_state_complain() {
+  # One phrasing for the two states neither caller can act on, so they cannot drift.
+  local state="$1" what="$2"
+  case "$state" in
+    unauthenticated)
+      echo "$what: your AWS session has expired — IAM cannot be read. Run 'aws login' (this is the HUMAN profile; an agent profile never lapses) and retry." >&2 ;;
+    error*)
+      echo "$what: could not read IAM — ${state#error }" >&2 ;;
+  esac
+}
+
+_provision_reconcile() {
+  local user="$1" policy_name="$2" desired="$3" apply="$4" account="$5"
+  command -v aws >/dev/null 2>&1 || { echo "env provision --reconcile: the aws CLI is not on PATH." >&2; return 2; }
+  command -v jq  >/dev/null 2>&1 || { echo "env provision --reconcile: jq is not on PATH." >&2; return 2; }
+
+  local state; state="$(_iam_user_state "$user")"
+  case "$state" in
+    present) ;;
+    absent)
+      echo "env provision --reconcile: IAM user $user does not exist — there is nothing to reconcile. Provision it first with --tier <tier> --apply." >&2
+      return 2 ;;
+    *) _iam_state_complain "$state" "env provision --reconcile"; return 2 ;;
+  esac
+
+  local live=""
+  live="$(aws iam get-user-policy --user-name "$user" --policy-name "$policy_name" \
+          --query 'PolicyDocument' --output json 2>/dev/null)" || live=""
+
+  # Normalise BOTH sides before comparing. Statement order and key order are not
+  # semantics, and IAM does not preserve either — without this every reconcile would
+  # report drift that is not there, and the command would be ignored within a week.
+  local canon='{Version:"2012-10-17", Statement: ((.Statement // []) | sort_by(.Sid // ""))}'
+  local d_norm l_norm
+  d_norm="$(printf '%s' "$desired" | jq -S "$canon" 2>/dev/null)" || d_norm=""
+  [ -n "$d_norm" ] || { echo "env provision --reconcile: could not read the derived policy." >&2; return 2; }
+  if [ -n "$live" ]; then
+    l_norm="$(printf '%s' "$live" | jq -S "$canon" 2>/dev/null)" || l_norm=""
+  fi
+
+  printf "${BOLD}=== reconcile %s / %s ===${NC}\n" "$user" "$policy_name"
+
+  local drift=0
+  if [ -z "$l_norm" ]; then
+    printf "  ${YELLOW}absent${NC}   the policy is not attached at all — every statement below is missing\n"
+    drift=1
+    printf '%s' "$d_norm" | jq -r '.Statement[] | "  + " + (.Sid // "(no Sid)")'
+  elif [ "$d_norm" = "$l_norm" ]; then
+    printf "  ${GREEN}in sync${NC}  the attached policy matches what the manifest derives\n"
+  else
+    drift=1
+    local sid
+    while IFS= read -r sid; do
+      [ -n "$sid" ] || continue
+      local d_stmt l_stmt
+      d_stmt="$(printf '%s' "$d_norm" | jq -S --arg s "$sid" '.Statement[] | select((.Sid // "") == $s)')"
+      l_stmt="$(printf '%s' "$l_norm" | jq -S --arg s "$sid" '.Statement[] | select((.Sid // "") == $s)')"
+      if   [ -z "$l_stmt" ]; then printf "  ${YELLOW}+ add${NC}     %s\n" "$sid"
+      elif [ -z "$d_stmt" ]; then printf "  ${YELLOW}- remove${NC}  %s — the manifest no longer derives it\n" "$sid"
+      elif [ "$d_stmt" != "$l_stmt" ]; then printf "  ${YELLOW}~ change${NC}  %s\n" "$sid"
+      fi
+    done < <( { printf '%s' "$d_norm" | jq -r '.Statement[].Sid // "(no Sid)"'
+                printf '%s' "$l_norm" | jq -r '.Statement[].Sid // "(no Sid)"'; } | sort -u )
+  fi
+
+  # Everything else on the user is surfaced, never touched. An operator who cannot see
+  # a hand-attached grant cannot reason about what the agent can actually do.
+  local other
+  other="$(aws iam list-user-policies --user-name "$user" --output json 2>/dev/null \
+           | jq -r --arg p "$policy_name" '(.PolicyNames // [])[] | select(. != $p)' 2>/dev/null)"
+  while IFS= read -r other_name; do
+    [ -n "$other_name" ] || continue
+    printf "  ${CYAN}unmanaged${NC}  inline policy '%s' — reported, never modified\n" "$other_name"
+  done <<< "$other"
+  other="$(aws iam list-attached-user-policies --user-name "$user" --output json 2>/dev/null \
+           | jq -r '(.AttachedPolicies // [])[].PolicyName' 2>/dev/null)"
+  while IFS= read -r other_name; do
+    [ -n "$other_name" ] || continue
+    printf "  ${CYAN}unmanaged${NC}  attached managed policy '%s' — reported, never modified\n" "$other_name"
+  done <<< "$other"
+
+  if [ "$drift" -eq 0 ]; then
+    [ "$apply" -eq 1 ] && printf "${BOLD}nothing to apply.${NC}\n"
+    return 0
+  fi
+  if [ "$apply" -eq 0 ]; then
+    printf "${BOLD}dry-run:${NC} nothing was changed. Re-run with --apply to make IAM match the manifest.\n"
+    return 1
+  fi
+
+  printf "${BOLD}About to replace inline policy %s on %s in account %s.${NC}\n" "$policy_name" "$user" "$account"
+  printf "Type the account id to confirm: "
+  local typed=""
+  IFS= read -r typed || typed=""
+  printf "\n"
+  if [ "$typed" != "$account" ]; then
+    echo "env provision --reconcile: --apply requires a typed confirmation of the account id ($account). Nothing was changed." >&2
+    return 1
+  fi
+
+  local pfile rc_put
+  pfile="$(mktemp "${TMPDIR:-/tmp}/engine-reconcile-policy.XXXXXX")" || return 2
+  chmod 600 "$pfile" 2>/dev/null
+  printf '%s\n' "$d_norm" > "$pfile"
+  # put-user-policy REPLACES the document wholesale, which is exactly why reconcile can
+  # shrink a grant — there is no per-statement delete to get wrong.
+  aws iam put-user-policy --user-name "$user" --policy-name "$policy_name" \
+      --policy-document "file://$pfile" >/dev/null 2>&1; rc_put=$?
+  rm -f "$pfile"
+  if [ "$rc_put" -ne 0 ]; then
+    echo "env provision --reconcile: could not replace $policy_name. The previous policy is still in force." >&2
+    return 2
+  fi
+
+  # Re-read rather than trust the write: a silent partial apply would leave the operator
+  # believing a grant was removed when it was not.
+  local after
+  after="$(aws iam get-user-policy --user-name "$user" --policy-name "$policy_name" \
+           --query 'PolicyDocument' --output json 2>/dev/null | jq -S "$canon" 2>/dev/null)"
+  if [ "$after" = "$d_norm" ]; then
+    printf "  ${GREEN}ok${NC}    %s now matches the manifest\n" "$policy_name"
+    return 0
+  fi
+  echo "env provision --reconcile: wrote $policy_name but re-reading it does not match the manifest." >&2
+  return 2
+}
+
 cmd_provision() {
-  local person="" tier="" apply=0 account=""
+  local person="" tier="" apply=0 account="" reconcile=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --person) person="${2:-}"; shift 2 ;;
@@ -632,6 +824,7 @@ cmd_provision() {
       --account=*) account="${1#*=}"; shift ;;
       --domain) DOMAIN="${2:-}"; shift 2 ;;
       --apply) apply=1; shift ;;
+      --reconcile) reconcile=1; shift ;;
       -h|--help) sed -n "$USAGE_LINES" "$0"; return 0 ;;
       *) echo "env provision: unknown flag '$1'" >&2; return 1 ;;
     esac
@@ -739,8 +932,18 @@ cmd_provision() {
   while [ "$i" -lt "${#underivable[@]}" ]; do
     printf "  ${YELLOW}UNDERIVABLE${NC}  %s\n" "${underivable[$i]}"; i=$((i + 1))
   done
-  printf "  ${CYAN}note${NC}  reconcile is NOT implemented: a policy minted today does NOT shrink when a manifest row is removed. Re-run provision and replace the policy by hand, or track '--reconcile' as a follow-up.\n"
   printf "  ${CYAN}note${NC}  the minted profile gets NO ~/.aws/config entry — the ABSENCE of login_session is what makes an agent key never expire.\n"
+
+  local policy_name="engine-${DOMAIN}-${tier}"
+
+  if [ "$reconcile" -eq 1 ]; then
+    if [ "${#underivable[@]}" -gt 0 ]; then
+      echo "env provision --reconcile: refusing while part of the policy is UNDERIVABLE from the manifest (see above) — reconciling to a partial derivation would REMOVE a grant that is merely underived." >&2
+      return 2
+    fi
+    _provision_reconcile "$user" "$policy_name" "$policy" "$apply" "$account"
+    return $?
+  fi
 
   if [ "$apply" -eq 0 ]; then
     printf "${BOLD}dry-run:${NC} nothing was created. Review the policy above, then re-run with --apply.\n"
@@ -774,17 +977,23 @@ cmd_provision() {
     return 1
   fi
 
-  local policy_name="engine-${DOMAIN}-${tier}"
-
-  if aws iam get-user --user-name "$user" >/dev/null 2>&1; then
-    printf "  ${CYAN}note${NC}  IAM user %s already exists — reusing it; the policy and key are applied to it.\n" "$user"
-  elif aws iam create-user --user-name "$user" \
-         --tags "Key=managed-by,Value=engine-env-provision" "Key=tier,Value=$tier" >/dev/null 2>&1; then
-    printf "  ${GREEN}ok${NC}    created IAM user %s\n" "$user"
-  else
-    echo "env provision: could not create IAM user $user. Nothing was created." >&2
-    return 1
-  fi
+  local state; state="$(_iam_user_state "$user")"
+  case "$state" in
+    present)
+      printf "  ${CYAN}note${NC}  IAM user %s already exists — reusing it; the policy and key are applied to it.\n" "$user" ;;
+    absent)
+      if aws iam create-user --user-name "$user" \
+           --tags "Key=managed-by,Value=engine-env-provision" "Key=tier,Value=$tier" >/dev/null 2>&1; then
+        printf "  ${GREEN}ok${NC}    created IAM user %s\n" "$user"
+      else
+        echo "env provision: could not create IAM user $user. Nothing was created." >&2
+        return 1
+      fi ;;
+    *)
+      _iam_state_complain "$state" "env provision"
+      echo "               Nothing was created." >&2
+      return 1 ;;
+  esac
 
   # The policy goes through a 0600 temp file rather than a pipe: `file://` is the only
   # form the CLI reads identically across versions, and the document is not secret but
@@ -945,11 +1154,11 @@ gitignore_verdict() {
 }
 
 cmd_setup() {
-  local dry=0 aws_key="" person=""
+  local dry=0 aws_key="" person="" domain_given=0
   while [ $# -gt 0 ]; do
     case "$1" in
-      --domain) DOMAIN="${2:-}"; shift 2 ;;
-      --domain=*) DOMAIN="${1#*=}"; shift ;;
+      --domain) DOMAIN="${2:-}"; domain_given=1; shift 2 ;;
+      --domain=*) DOMAIN="${1#*=}"; domain_given=1; shift ;;
       --aws-key) aws_key="${2:-}"; shift 2 ;;
       --aws-key=*) aws_key="${1#*=}"; shift ;;
       --person) person="${2:-}"; shift 2 ;;
@@ -960,6 +1169,32 @@ cmd_setup() {
     esac
   done
   [ -n "$aws_key" ] && { install_aws_key "$aws_key" "$person"; return $?; }
+
+  # WITH NO --domain, WALK EVERY DOMAIN. A new teammate does not know they are an
+  # "intake person", and asking them to name a domain before they know what domains are
+  # is the same shape of problem this command exists to remove.
+  #
+  # ⚠️ The DOCTOR deliberately does NOT do this. Its per-domain scoping IS the guard that
+  # keeps a design operator from being blocked by a Slack token an intake wave needs.
+  # Setup has no such hazard: a row it cannot fill is skipped, not a gate.
+  # A pinned ENV_MANIFEST means there IS exactly one manifest — every domain would
+  # resolve to the same file, so walking would ask the same questions four times.
+  if [ "$domain_given" -eq 0 ] && [ -z "${ENV_MANIFEST:-}" ]; then
+    local d rc_all=0 rc_one failed=""
+    for d in $(env_list_domains); do
+      printf "${BOLD}── %s ──${NC}\n" "$d"
+      # One domain's failure must not strand the others — the operator would be left
+      # having set up an arbitrary prefix of their environment with no way to tell which.
+      cmd_setup --domain "$d" ${dry:+--non-interactive} ${person:+--person "$person"}
+      rc_one=$?
+      [ "$rc_one" -eq 0 ] || { rc_all=1; failed="$failed $d"; }
+      printf "\n"
+    done
+    if [ -n "$failed" ]; then
+      printf "${YELLOW}incomplete:${NC} these domains did not finish:%s — re-run with --domain <name> to see why.\n" "$failed" >&2
+    fi
+    return "$rc_all"
+  fi
 
   printf "${BOLD}$DOMAIN setup${NC} — writes missing SECRET credentials to their gitignored dotfile.\n"
   [ "$dry" -eq 1 ] && printf "${YELLOW}(dry-run: nothing will be written)${NC}\n"
