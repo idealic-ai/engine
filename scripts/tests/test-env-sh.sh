@@ -2110,20 +2110,56 @@ if jq -e '[.credentials[] | select((.key|startswith("FINCH_AGENT_APP_")) and (.s
 else
   fail "per-person secret path" "source.name under staging/finch/agent-login/" "$(jq -c '[.credentials[]|select(.key|startswith("FINCH_AGENT_APP_"))|.source]' "$MANIFEST")"
 fi
-# ⚠️ The `how` must SAY it is a super-admin credential and a temporary bridge. The
-# manifest is what people read at setup; describing a production super-admin credential
-# in neutral terms would be a defect in a ticket about manifests telling the truth.
-if jq -e '[.credentials[] | select((.key|startswith("FINCH_AGENT_APP_")) and (.how|test("super.admin";"i")) and (.how|test("temporar|bridge";"i")))] | length >= 2' "$MANIFEST" >/dev/null 2>&1; then
-  pass "the how text states plainly that this is a SUPER-ADMIN credential and a temporary bridge"
+# ⚠️ The `how` is what a person reads at setup, so it must describe the account that will
+# actually be created. That is no longer a super-admin bridge: no such account was ever
+# made, so the restricted role is the target and the bridge is skipped, not dismantled.
+# The OLD assertion here (that the text says "super-admin" and "bridge") still passed
+# against the corrected text — "NOT super_admin" and "the bridge can be SKIPPED" both
+# match — which is a check passing for the wrong reason. Assert the meaning instead.
+if jq -e '[.credentials[] | select((.key|startswith("FINCH_AGENT_APP_"))
+      and (.how|test("NO SUCH APP ACCOUNT EXISTS"))
+      and (.how|test("NOT super_admin")))] | length >= 2' "$MANIFEST" >/dev/null 2>&1; then
+  pass "the how text says the account does not exist yet and must NOT be created at super_admin"
 else
-  fail "how states super_admin + bridge" "both words in every app-login how" "$(jq -r '[.credentials[]|select(.key|startswith("FINCH_AGENT_APP_"))|.how]|@json' "$MANIFEST")"
+  fail "how names the real target" "no-account-yet + NOT super_admin" "$(jq -r '[.credentials[]|select(.key|startswith("FINCH_AGENT_APP_"))|.how]|@json' "$MANIFEST")"
 fi
-# They land OPTIONAL: the per-person secrets do not exist yet, and 5/5 blocks on any
-# `req` miss — shipping them `req` would block every operator on nothing.
-if jq -e '[.credentials[] | select((.key|startswith("FINCH_AGENT_APP_")) and .required != "optional")] | length == 0' "$MANIFEST" >/dev/null 2>&1; then
-  pass "the app-login rows are OPTIONAL (the secrets do not exist yet; 5/5 must not block on them)"
+# ⚠️ "Read-only" means the account cannot use a write VERB — not that it cannot write. A
+# few GET endpoints write as a side effect, so a flat "it cannot write" in the manifest
+# would be a confident falsehood at exactly the moment someone is deciding what to trust.
+if jq -e '[.credentials[] | select((.key|startswith("FINCH_AGENT_APP_"))
+      and (.how|test("POST/PUT/PATCH/DELETE"))
+      and (.how|test("side effect")))] | length >= 2' "$MANIFEST" >/dev/null 2>&1; then
+  pass "the how text distinguishes 'refused on write verbs' from 'cannot write'"
 else
-  fail "app-login rows optional" "every row optional" "$(jq -r '[.credentials[]|select(.key|startswith("FINCH_AGENT_APP_"))|{key,required}]|@json' "$MANIFEST")"
+  fail "write-verb caveat" "the verb list plus the side-effect caveat" "$(jq -r '[.credentials[]|select(.key|startswith("FINCH_AGENT_APP_"))|.how]|@json' "$MANIFEST")"
+fi
+# ⚠️ These credentials are shaped for a HUMAN holder. The manifest is the last thing read
+# before someone hands them over, so the non-human caveat belongs here rather than only in
+# a ticket nobody opens at that moment.
+if jq -e '[.credentials[] | select((.key|startswith("FINCH_AGENT_APP_"))
+      and (.how|test("NON-HUMAN";"i")))] | length >= 2' "$MANIFEST" >/dev/null 2>&1; then
+  pass "the how text warns that a non-human holder needs the deferred controls first"
+else
+  fail "non-human caveat" "a NON-HUMAN warning" "$(jq -r '[.credentials[]|select(.key|startswith("FINCH_AGENT_APP_"))|.how]|@json' "$MANIFEST")"
+fi
+# They land TRIAGE, grouped with the credentials they are actually used alongside — the
+# read-only DB secret, the bastion tunnel, the AWS profile. Only `req` blocks, so this is
+# the same WARN as `optional` and changes no behaviour; it stops the row being labelled
+# take-it-or-leave-it when triage against a specific org's screens is the whole point of
+# the account. Promotion to `req` waits for a real account: the secret holds a placeholder,
+# and a placeholder inherits `required` severity, so `req` today would stop every wave.
+if jq -e '[.credentials[] | select((.key|startswith("FINCH_AGENT_APP_")) and .required != "triage")] | length == 0' "$MANIFEST" >/dev/null 2>&1; then
+  pass "the app-login rows are TRIAGE (labelled with their peers; still WARN, since only req blocks)"
+else
+  fail "app-login rows triage" "every row triage" "$(jq -r '[.credentials[]|select(.key|startswith("FINCH_AGENT_APP_"))|{key,required}]|@json' "$MANIFEST")"
+fi
+# The claim above is only true while `req` is the sole blocking tier — if that changes,
+# this relabel silently becomes a behaviour change.
+ENV_SRC_FILE="$HOME/.claude/engine/scripts/env.sh"
+if grep -q 'req) fail "$key" "$how" ;;' "$ENV_SRC_FILE" && grep -q '\*)   warn "$key" "$how" ;;' "$ENV_SRC_FILE"; then
+  pass "only req blocks — triage/boards/optional all warn (what makes the relabel behaviour-free)"
+else
+  fail "severity mapping" "req fails, everything else warns" "$(sed -n '/^report_miss()/,/^}/p' "$ENV_SRC_FILE")"
 fi
 # provision grants GetSecretValue on the person's OWN login secret, never a wildcard.
 if printf '%s' "$PV5" | grep -q 'staging/finch/agent-login/rob-agent' \
