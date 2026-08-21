@@ -2603,4 +2603,96 @@ else
 fi
 
 
+# ══ 43. delivery sender + Clerk app login (7/1) ═══════════════════════════════
+#
+# `setup --aws-key` could always RECEIVE a delivered credentials file — validate it,
+# install it, shred it. Nothing ever produced one, so provisioning for someone else had
+# nowhere to put their key except the provisioner's own machine. A receiver with no sender.
+echo "Test 43: delivery + app login"
+DELD="$WORK/delivery"; mkcase "$DELD"
+
+# (a) The sender writes the exact three fields the receiver greps for. This is the
+#     contract between the two halves; drift here is silent until a handover fails.
+if grep -q '_agent_key_deliver' "$ENV_SRC" \
+   && grep -q "aws_access_key_id = %s" "$ENV_SRC" \
+   && grep -q "aws_secret_access_key = %s" "$ENV_SRC"; then
+  pass "the delivery sender emits the profile block that setup --aws-key parses"
+else
+  fail "sender format" "a deliver fn writing both key fields" "absent"
+fi
+# It must refuse to clobber: an existing file may be a key that was never delivered.
+if grep -q 'an undelivered key may be sitting there' "$ENV_SRC"; then
+  pass "the sender refuses to overwrite an existing delivery file"
+else
+  fail "no clobber" "an overwrite refusal" "absent"
+fi
+
+# (b) ⚠️ FINCH_AGENT_AWS_PROFILE answers "who am I to the engine". Writing someone else's
+#     there while provisioning FOR them repoints the provisioner's own doctor, setup and
+#     secret fetches at that person. Retaining their key is fine; adopting it is not.
+if grep -q 'is not your own agent profile, so FINCH_AGENT_AWS_PROFILE was left alone' "$ENV_SRC"; then
+  pass "provisioning for someone else does not adopt their profile as your own identity"
+else
+  fail "no identity adoption" "a caller-vs-person guard around the record" "absent"
+fi
+
+# (c) VERIFY BEFORE INSTALL. Writing a profile in order to test it leaves a dead key in a
+#     file someone has to find and clean up.
+VLINE=$(grep -n '_agent_key_verify_env "$akid"' "$ENV_SRC" | head -1 | cut -d: -f1)
+WLINE=$(grep -n '_agent_profile_write "$user" "$akid"' "$ENV_SRC" | head -1 | cut -d: -f1)
+if [ -n "$VLINE" ] && [ -n "$WLINE" ] && [ "$VLINE" -lt "$WLINE" ]; then
+  pass "a minted key is verified through the environment BEFORE any profile is written"
+else
+  fail "verify before install" "verify line < write line" "verify=$VLINE write=$WLINE"
+fi
+
+# (d) THE PASSWORD IS NEVER PRINTED, and the Clerk key is shown only far enough to name
+#     the instance. An earlier draft interpolated ${key#*_}, which is nearly the whole key.
+if ! grep -nE 'printf.*\$(pw|\{pw)' "$ENV_SRC" >/dev/null 2>&1; then
+  pass "the generated app password is never printed"
+else
+  fail "password never printed" "no printf of \$pw" "$(grep -nE 'printf.*\$(pw|\{pw)' "$ENV_SRC")"
+fi
+if grep -q 'cut -c1-7' "$ENV_SRC" && ! grep -q 'key#\*_' "$ENV_SRC"; then
+  pass "only the sk_test / sk_live instance prefix of the Clerk key is ever shown"
+else
+  fail "key prefix only" "cut -c1-7 and no \${key#*_}" "$(grep -n 'key#\*_' "$ENV_SRC")"
+fi
+
+# (e) An existing Clerk user must NOT have its password rotated. Someone already holds
+#     the current one, and a silent reset locks them out of the account being provisioned.
+if grep -q 'rotating it would lock out whoever holds the current one' "$ENV_SRC"; then
+  pass "an existing Clerk user is left untouched rather than silently re-passworded"
+else
+  fail "no silent rotation" "an exists-branch that writes no password" "absent"
+fi
+
+# (f) Clerk puts the actionable half of a 422 in long_message — `message` alone said only
+#     "missing data" while long_message named the two fields the instance required.
+if grep -q 'long_message // .message' "$ENV_SRC"; then
+  pass "a Clerk error reports long_message, which is where the actionable half lives"
+else
+  fail "long_message surfaced" ".long_message // .message" "absent"
+fi
+
+# (g) --clerk-only exists because the mint refuses early once a profile is present, which
+#     would otherwise take the app-login half down with it. It is still gated.
+COD=$(cd "$DELD" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
+      "$ENV_SH" provision --person rob --tier triage --account 924609080826 --clerk-only \
+      </dev/null 2>&1 | strip)
+if printf '%s' "$COD" | grep -qi 'dry-run'; then
+  pass "--clerk-only is dry-run by default"
+else
+  fail "clerk-only dry-run" "a dry-run notice" "$COD"
+fi
+COC=$(cd "$DELD" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
+      "$ENV_SH" provision --person rob --tier triage --account 924609080826 --clerk-only --apply \
+      <<<'wrong-account' >/dev/null 2>&1; echo $?)
+if [ "$COC" -ne 0 ]; then
+  pass "--clerk-only --apply still requires the typed account confirmation"
+else
+  fail "clerk-only gated" "non-zero on a wrong confirmation" "$COC"
+fi
+
+
 exit_with_results

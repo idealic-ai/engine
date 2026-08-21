@@ -35,7 +35,8 @@
 #                                                 stdout (secret NAMES with empty values, non-
 #                                                 secret defaults filled). Redirect to a file.
 #   engine env provision --tier <triage|engineer> [--person <name>] [--account <id>]
-#                        [--apply] [--reconcile]
+#                        [--apply] [--reconcile] [--clerk-only] [--no-clerk]
+#                        [--email <addr>] [--out <path>]
 #                                                 Derive the agent's IAM policy FROM THE
 #                                                 MANIFEST's `required` tiers and mint the
 #                                                 operator's own <name>-agent user.
@@ -48,6 +49,17 @@
 #                                                 else on the user is reported, never touched.
 #                                                 --apply always reads a typed confirmation
 #                                                 of the account id; there is no flag for it.
+#                                                 --apply ALSO creates the app login in the
+#                                                 Clerk instance CLERK_SECRET_KEY points at
+#                                                 and stores its password in Secrets Manager;
+#                                                 --no-clerk skips that half, --clerk-only
+#                                                 does only it (the mint refuses early once a
+#                                                 profile exists, which would otherwise take
+#                                                 the app login down with it).
+#                                                 Provisioning for SOMEONE ELSE writes a 0600
+#                                                 delivery file (--out) in the format
+#                                                 `setup --aws-key` consumes, and leaves your
+#                                                 own FINCH_AGENT_AWS_PROFILE alone.
 #   engine env resolve <KEY> [--show-value]       Say WHERE a credential resolves from and
 #                                                 whether it is present. The VALUE is not
 #                                                 printed unless --show-value is passed, so
@@ -616,6 +628,45 @@ _agent_profile_verify() {
   return 1
 }
 
+_agent_key_verify_env() {
+  # → caller ARN on stdout. Verifies a key through the ENVIRONMENT, touching no file.
+  # Installing a key in order to check it is what silently left another person's
+  # credential in the provisioner's ~/.aws/credentials.
+  local akid="$1" secret="$2" tries="${3:-1}" arn="" i=0
+  if [ -n "${ENV_STS_ARN+set}" ]; then
+    echo "env: ⚠️  TEST SEAM ACTIVE — ENV_STS_ARN is set (no AWS call was made)" >&2
+    printf '%s' "$ENV_STS_ARN"; return 0
+  fi
+  command -v aws >/dev/null 2>&1 || return 1
+  while [ "$i" -lt "$tries" ]; do
+    arn="$(AWS_ACCESS_KEY_ID="$akid" AWS_SECRET_ACCESS_KEY="$secret" \
+           AWS_SESSION_TOKEN="" AWS_PROFILE="" \
+           aws sts get-caller-identity --query Arn --output text 2>/dev/null || true)"
+    [ -n "$arn" ] && { printf '%s' "$arn"; return 0; }
+    i=$((i + 1))
+    [ "$i" -lt "$tries" ] && sleep 2
+  done
+  return 1
+}
+
+_agent_key_deliver() {
+  # The SENDER half of the delivery pair. `setup --aws-key` has always been able to
+  # RECEIVE a delivered credentials file, validate it, install it and shred it — but
+  # nothing produced one, so provisioning for someone else had nowhere to put the key
+  # except the provisioner's own machine.
+  local user="$1" akid="$2" secret="$3" out="$4"
+  [ -n "$out" ] || out="$HOME/${user}.credentials"
+  if [ -e "$out" ]; then
+    echo "env provision: $out already exists — an undelivered key may be sitting there. Move it aside, then re-run." >&2
+    return 1
+  fi
+  ( umask 077; printf '[%s]\naws_access_key_id = %s\naws_secret_access_key = %s\n' \
+      "$user" "$akid" "$secret" > "$out" ) || return 1
+  chmod 600 "$out" 2>/dev/null
+  printf '%s' "$out"
+  return 0
+}
+
 _agent_profile_record() {
   # The profile NAME, never the key — no credential material enters the engine's storage.
   local profile="$1" target
@@ -842,8 +893,97 @@ _provision_reconcile() {
   return 2
 }
 
+# ── _provision_clerk_account <agent-user> <email> <secret-id> ─────────────────
+#
+# Creates the app login and puts it straight into Secrets Manager. The person never
+# types a password and never receives one: they get an AWS key by hand, and the app
+# credential arrives through `engine env setup`, readable only by their own agent policy.
+#
+# ⚠️ The identity is created in whichever Clerk instance CLERK_SECRET_KEY points at. That
+# key is not necessarily environment-scoped — where one key is shared across environments,
+# an account made "for QA" can sign in to production. The instance is printed so the
+# operator sees which one they are writing to.
+#
+# Never fails the run: the AWS half is already applied by this point, and losing it over
+# an identity-provider hiccup would leave a minted key with no record of why.
+_provision_clerk_account() {
+  local user="$1" email="$2" secret_id="$3" region="${4:-us-east-2}"
+  local key; key="$(resolve_env_key CLERK_SECRET_KEY 2>/dev/null || true)"
+  if [ -z "$key" ]; then
+    printf "  ${CYAN}note${NC}  no CLERK_SECRET_KEY resolves, so no app login was created. Add it and re-run, or create the account by hand.\n"
+    return 0
+  fi
+  command -v curl >/dev/null 2>&1 || { printf "  ${YELLOW}warn${NC}  curl is not on PATH — no app login was created.\n"; return 0; }
+
+  # Only the instance-kind prefix (sk_test / sk_live) is ever shown. Anything longer
+  # starts revealing the key itself.
+  printf "  ${CYAN}clerk${NC}  creating %s in the Clerk instance for key %s…\n" "$email" "$(printf '%s' "$key" | cut -c1-7)"
+
+  local pw
+  pw="$(openssl rand -base64 30 2>/dev/null | tr -d '\n' | tr '/+=' 'xyz')" || pw=""
+  [ -n "$pw" ] || { printf "  ${YELLOW}warn${NC}  could not generate a password — no app login was created.\n"; return 0; }
+  pw="${pw}Aa1!"
+
+  local body resp code
+  body="$(mktemp "${TMPDIR:-/tmp}/engine-clerk-body.XXXXXX")" || return 0
+  chmod 600 "$body" 2>/dev/null
+  # first/last name are required by instance configuration, not by the API in general —
+  # so this payload is shaped by what the instance asks for, and the error path below
+  # reports `long_message`, which is where Clerk says WHICH field it wanted.
+  local given family
+  given="$(printf '%s' "${user%-agent}" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
+  family="Agent"
+  jq -nc --arg e "$email" --arg p "$pw" --arg f "$given" --arg l "$family" \
+     '{email_address:[$e], password:$p, skip_password_checks:true,
+       first_name:$f, last_name:$l}' > "$body" 2>/dev/null
+  resp="$(curl -sS -o - -w '\n%{http_code}' -X POST 'https://api.clerk.com/v1/users' \
+          -H "Authorization: Bearer $key" -H 'Content-Type: application/json' \
+          --data @"$body" 2>/dev/null)"
+  rm -f "$body"
+  code="$(printf '%s' "$resp" | tail -1)"
+  resp="$(printf '%s' "$resp" | sed '$d')"
+
+  case "$code" in
+    200|201)
+      printf "  ${GREEN}ok${NC}    created Clerk user %s\n" "$(printf '%s' "$resp" | jq -r '.id // "?"' 2>/dev/null)" ;;
+    422)
+      # Already there. Do NOT reset the password — another provisioning run, or the
+      # person themselves, may already hold it, and a silent rotation locks them out.
+      if printf '%s' "$resp" | grep -q 'form_identifier_exists'; then
+        printf "  ${CYAN}note${NC}  a Clerk user already exists for %s — left untouched, and no password was written (rotating it would lock out whoever holds the current one).\n" "$email"
+        return 0
+      fi
+      printf "  ${YELLOW}warn${NC}  Clerk refused the request (422): %s\n" "$(printf '%s' "$resp" | jq -r '[.errors[]? | (.long_message // .message)] | join("; ") // "unknown"' 2>/dev/null)"
+      return 0 ;;
+    *)
+      printf "  ${YELLOW}warn${NC}  Clerk returned %s — no app login was created. %s\n" "$code" \
+        "$(printf '%s' "$resp" | jq -r '[.errors[]? | (.long_message // .message)] | join("; ") // ""' 2>/dev/null)"
+      return 0 ;;
+  esac
+
+  # The password exists in exactly one durable place, and it is not this machine.
+  local sfile
+  sfile="$(mktemp "${TMPDIR:-/tmp}/engine-clerk-secret.XXXXXX")" || return 0
+  chmod 600 "$sfile" 2>/dev/null
+  jq -nc --arg e "$email" --arg p "$pw" '{email:$e, password:$p}' > "$sfile" 2>/dev/null
+  if aws secretsmanager create-secret --region "$region" --name "$secret_id" \
+       --description "Agent app login for $user (engine env provision)" \
+       --secret-string "file://$sfile" >/dev/null 2>&1; then
+    printf "  ${GREEN}ok${NC}    wrote the app login to %s\n" "$secret_id"
+  elif aws secretsmanager put-secret-value --region "$region" --secret-id "$secret_id" \
+       --secret-string "file://$sfile" >/dev/null 2>&1; then
+    printf "  ${GREEN}ok${NC}    updated the app login at %s\n" "$secret_id"
+  else
+    printf "  ${RED}warn${NC}  the Clerk user was created but its password could NOT be stored at %s.\n" "$secret_id" >&2
+    printf "           Nobody can retrieve it — delete the Clerk user and re-run rather than leaving an unusable account.\n" >&2
+  fi
+  rm -f "$sfile"
+  pw=""
+  return 0
+}
+
 cmd_provision() {
-  local person="" tier="" apply=0 account="" reconcile=0
+  local person="" tier="" apply=0 account="" reconcile=0 out="" email="" want_clerk=1 clerk_only=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --person) person="${2:-}"; shift 2 ;;
@@ -855,6 +995,12 @@ cmd_provision() {
       --domain) DOMAIN="${2:-}"; shift 2 ;;
       --apply) apply=1; shift ;;
       --reconcile) reconcile=1; shift ;;
+      --out) out="${2:-}"; shift 2 ;;
+      --out=*) out="${1#*=}"; shift ;;
+      --email) email="${2:-}"; shift 2 ;;
+      --email=*) email="${1#*=}"; shift ;;
+      --no-clerk) want_clerk=0; shift ;;
+      --clerk-only) clerk_only=1; shift ;;
       -h|--help) sed -n "$USAGE_LINES" "$0"; return 0 ;;
       *) echo "env provision: unknown flag '$1'" >&2; return 1 ;;
     esac
@@ -897,6 +1043,33 @@ cmd_provision() {
     esac
   done < <(manifest_rows)
   region="${region:-us-east-2}"
+
+  # The app login on its own. Without this, the Clerk half is unreachable for anyone who
+  # already has an AWS profile — the mint refuses early to avoid orphaning a key, and
+  # that refusal would take the app login down with it.
+  if [ "$clerk_only" -eq 1 ]; then
+    [ -n "$email" ] || email="${user}@finchclaims.com"
+    local target="${login_secret//<person>/$user}"
+    if [ -z "$login_secret" ]; then
+      echo "env provision --clerk-only: no manifest row declares the agent login secret, so there is nowhere to store the password." >&2
+      return 2
+    fi
+    printf "${BOLD}=== app login for %s ===${NC}\n" "$user"
+    printf "  email   %s\n  secret  %s\n" "$email" "$target"
+    if [ "$apply" -eq 0 ]; then
+      printf "${BOLD}dry-run:${NC} nothing was created. Re-run with --apply.\n"
+      return 0
+    fi
+    printf "${BOLD}About to create an app login in the Clerk instance your CLERK_SECRET_KEY points at, and store its password in Secrets Manager.${NC}\n"
+    printf "Type the account id to confirm: "
+    local typed=""; IFS= read -r typed || typed=""; printf "\n"
+    if [ "$typed" != "$account" ]; then
+      echo "env provision --clerk-only: requires a typed confirmation of the account id ($account). Nothing was created." >&2
+      return 1
+    fi
+    _provision_clerk_account "$user" "$email" "$target" "$region"
+    return $?
+  fi
 
   local -a stmts=() dropped=() underivable=()
   local arn
@@ -993,6 +1166,7 @@ cmd_provision() {
   # reachable from any automated `Bash(engine *)` call, which is the same hole the seam
   # refusal above closes. A read gets EOF in that context and aborts on its own.
   printf "${BOLD}About to mint IAM user %s in account %s.${NC}\n" "$user" "$account"
+  [ "$want_clerk" -eq 1 ] && printf "${BOLD}This ALSO creates an app login in the Clerk instance your CLERK_SECRET_KEY points at, and stores its password in Secrets Manager.${NC} Pass --no-clerk to skip that half.\n"
   printf "Type the account id to confirm: "
   local typed=""
   IFS= read -r typed || typed=""
@@ -1067,22 +1241,49 @@ cmd_provision() {
   fi
   printf "  ${GREEN}ok${NC}    minted access key %s\n" "$akid"
 
+  # VERIFY BEFORE INSTALLING, through the environment. Writing a profile in order to
+  # test it means a key that never worked still lands in a file someone must clean up.
+  local arn
+  if ! arn="$(_agent_key_verify_env "$akid" "$skey" 6)"; then
+    aws iam delete-access-key --user-name "$user" --access-key-id "$akid" >/dev/null 2>&1
+    echo "env provision: the minted key for $user never authenticated. It was DELETED; the IAM user and its policy remain. Nothing was written to disk." >&2
+    return 1
+  fi
+
   if ! _agent_profile_write "$user" "$akid" "$skey"; then
     aws iam delete-access-key --user-name "$user" --access-key-id "$akid" >/dev/null 2>&1
     echo "env provision: could not write ~/.aws/credentials — the key just minted was DELETED so it cannot leak. Nothing usable was left behind." >&2
     return 1
   fi
+  printf "  ${GREEN}ok${NC}    profile ${BOLD}%s${NC} authenticates as %s\n" "$user" "$arn"
+
+  # ⚠️ RECORD THE PROFILE ONLY WHEN IT IS YOUR OWN. FINCH_AGENT_AWS_PROFILE is the
+  # answer to "who am I to the engine" — writing someone else's there while provisioning
+  # FOR them repoints the provisioner's own doctor, setup and secret fetches at that
+  # person's identity. Retaining their key is fine; adopting it is not.
+  local caller; caller="$(env_infer_person "" 2>/dev/null || true)"
+  if [ -n "$caller" ] && [ "${caller}-agent" = "$user" ]; then
+    _agent_profile_record "$user"
+  else
+    printf "  ${CYAN}note${NC}  %s is not your own agent profile, so FINCH_AGENT_AWS_PROFILE was left alone.\n" "$user"
+    local dfile
+    if dfile="$(_agent_key_deliver "$user" "$akid" "$skey" "$out")"; then
+      printf "  ${GREEN}ok${NC}    delivery file written: ${BOLD}%s${NC} (0600)\n" "$dfile"
+      printf "           Send it to them, then have them run:  engine env setup --aws-key <path>\n"
+      printf "           That command validates the key, installs it, and SHREDS the file. Delete your copy once they confirm.\n"
+    else
+      printf "  ${YELLOW}warn${NC}  no delivery file was written — the key is installed locally as [%s] but you have nothing to send.\n" "$user"
+    fi
+  fi
   skey=""
 
-  local arn
-  if ! arn="$(_agent_profile_verify "$user" 6)"; then
-    _agent_profile_remove "$user"
-    aws iam delete-access-key --user-name "$user" --access-key-id "$akid" >/dev/null 2>&1
-    echo "env provision: [$user] never authenticated. The key was deleted and the profile removed; the IAM user and its policy remain." >&2
-    return 1
+  if [ "$want_clerk" -eq 1 ]; then
+    [ -n "$email" ] || email="${user}@finchclaims.com"
+    _provision_clerk_account "$user" "$email" "${login_secret//<person>/$user}" "$region"
+  else
+    printf "  ${CYAN}note${NC}  --no-clerk: no app login was created, so the agent-login secret stays as it was.\n"
   fi
-  printf "  ${GREEN}ok${NC}    profile ${BOLD}%s${NC} authenticates as %s\n" "$user" "$arn"
-  _agent_profile_record "$user"
+
   printf "${BOLD}done:${NC} %s is provisioned at the %s tier. Re-run 'engine env doctor --domain %s' to watch the FAIL clear.\n" "$user" "$tier" "$DOMAIN"
   return 0
 }
