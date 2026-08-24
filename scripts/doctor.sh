@@ -1027,6 +1027,41 @@ check_env_parsers() {
   section_end
 }
 
+# EB-01 — one way to REACH the resolver, not just one resolver.
+#
+# EP-01 gates duplicate KEY= parsers. Nothing gated duplicate BOOTSTRAPS, so six
+# byte-identical symlink chain-walks accumulated in gemini.sh, research.sh, doc-search.sh,
+# session-search.sh and both tools/ wrappers, each rediscovering how to find env-lib.sh.
+# One resolver reached fifteen ways fails the same way several resolvers do — later, and
+# in one caller at a time. env-boot.sh is that one way; this stops a seventh appearing.
+check_env_bootstraps() {
+  section "Resolver bootstraps"
+  local f rel violations=""
+  # The SHAPE of a hand-rolled bootstrap: a readlink loop that then sources env-lib.sh.
+  # Assembled rather than written literally so this file does not match its own check.
+  local _eb_lnk="read""link" _eb_tgt="env-""lib.sh"
+  while IFS= read -r f; do
+    rel="${f#"$ENGINE_DIR"/}"
+    case "$rel" in
+      scripts/env-boot.sh) continue ;;   # THE bootstrap — exempt by definition
+      scripts/env-lib.sh)  continue ;;   # the library itself does not bootstrap to itself
+      scripts/engine.sh)   continue ;;   # the dispatcher resolves its own dir to EXPORT it
+      scripts/tests/*|*__tests__/*) continue ;;
+      */node_modules/*|node_modules/*)  continue ;;
+    esac
+    grep -vE '^[[:space:]]*#' "$f" 2>/dev/null | grep -q "$_eb_lnk" || continue
+    grep -vE '^[[:space:]]*#' "$f" 2>/dev/null | grep -q "$_eb_tgt" || continue
+    violations="$violations $rel"
+  done < <(find "$ENGINE_DIR" -name '*.sh' -type f 2>/dev/null | sort)
+
+  if [ -z "$violations" ]; then
+    pass "EB-01" "one shared resolver bootstrap (scripts/env-boot.sh)"
+  else
+    fail "EB-01" "hand-rolled resolver bootstrap outside env-boot.sh:$violations — source scripts/env-boot.sh instead"
+  fi
+  section_end
+}
+
 check_generated_artifacts() {
   local gen="$ENGINE_SKILLS/intake/assets/kit-digest.mjs"
   [ -f "$gen" ] || return 0
@@ -1147,6 +1182,7 @@ else
   check_ask_trees
   check_generated_artifacts
   check_env_parsers
+  check_env_bootstraps
 fi
 
 # --- Summary ---

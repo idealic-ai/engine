@@ -15,18 +15,16 @@
 # obtain extract_env_key by sourcing THIS file, and must keep doing so.
 # The link chain is walked first: a test suite may symlink this lib into a fake HOME,
 # where the sibling env-lib.sh does not exist.
-_SLACK_LIB_SRC="${BASH_SOURCE[0]:-$0}"
-while [ -L "$_SLACK_LIB_SRC" ]; do
-  _SLACK_LIB_DIR="$(cd -P "$(dirname "$_SLACK_LIB_SRC")" && pwd)"
-  _SLACK_LIB_SRC="$(readlink "$_SLACK_LIB_SRC")"
-  case "$_SLACK_LIB_SRC" in /*) ;; *) _SLACK_LIB_SRC="$_SLACK_LIB_DIR/$_SLACK_LIB_SRC" ;; esac
-done
-_SLACK_LIB_DIR="$(cd -P "$(dirname "$_SLACK_LIB_SRC")" && pwd)"
-if [ -f "$_SLACK_LIB_DIR/env-lib.sh" ]; then
+# ONE shared bootstrap (scripts/env-boot.sh) rather than a private chain-walk. `engine
+# doctor` gates this as EB-01 — one resolver reached many ways fails like many resolvers.
+for _slack_lib_boot in "${ENGINE_SCRIPTS:-}/env-boot.sh" "$HOME/.claude/engine/scripts/env-boot.sh"; do
+  [ -f "$_slack_lib_boot" ] || continue
   # shellcheck source=/dev/null
-  . "$_SLACK_LIB_DIR/env-lib.sh"
-else
-  echo "slack-lib: missing required $_SLACK_LIB_DIR/env-lib.sh" >&2
+  . "$_slack_lib_boot"
+  break
+done
+if ! type resolve_env_key >/dev/null 2>&1; then
+  echo "slack-lib: could not load the engine resolver via env-boot.sh" >&2
   return 1 2>/dev/null || exit 1
 fi
 

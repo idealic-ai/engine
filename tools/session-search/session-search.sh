@@ -11,17 +11,13 @@ set -euo pipefail
 # one project's wave authenticate as another's. (Measured before removal: neither
 # ~/.env nor ~/.claude/.env exists here, so that branch was dead code.)
 if [ -z "${GEMINI_API_KEY:-}" ]; then
-  _gem_self="${BASH_SOURCE[0]:-$0}"
-  while [ -L "$_gem_self" ]; do
-    _gem_d="$(cd -P "$(dirname "$_gem_self")" && pwd)"; _gem_self="$(readlink "$_gem_self")"
-    case "$_gem_self" in /*) ;; *) _gem_self="$_gem_d/$_gem_self" ;; esac
-  done
-  _gem_d="$(cd -P "$(dirname "$_gem_self")" && pwd)"
-  for _gem_lib in "${ENGINE_SCRIPTS:-}/env-lib.sh" "$_gem_d/env-lib.sh" \
-                  "$_gem_d/../../scripts/env-lib.sh" "$HOME/.claude/engine/scripts/env-lib.sh"; do
-    [ -f "$_gem_lib" ] || continue
+  # ONE bootstrap, shared. This used to be a byte-identical twelve-line symlink chain-walk
+  # repeated in six files; it lives in env-boot.sh now and `engine doctor` gates (EB-01)
+  # against a seventh appearing.
+  for _gem_boot in "${ENGINE_SCRIPTS:-}/env-boot.sh" "$HOME/.claude/engine/scripts/env-boot.sh"; do
+    [ -f "$_gem_boot" ] || continue
     # shellcheck source=/dev/null
-    . "$_gem_lib"
+    . "$_gem_boot"
     GEMINI_API_KEY="$(resolve_env_key GEMINI_API_KEY 2>/dev/null)" || GEMINI_API_KEY=""
     export GEMINI_API_KEY
     break

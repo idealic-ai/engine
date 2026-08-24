@@ -20,18 +20,16 @@ LINEAR_API_URL="${LINEAR_API_URL:-https://api.linear.app/graphql}"
 # Resolved from the script's OWN directory: project.sh / ticket.sh run from any cwd, and
 # the test suites SYMLINK this lib into a fake HOME — so the link chain is walked first,
 # otherwise the sibling lookup lands in a directory that holds only the symlink.
-_LINEAR_LIB_SRC="${BASH_SOURCE[0]:-$0}"
-while [ -L "$_LINEAR_LIB_SRC" ]; do
-  _LINEAR_LIB_DIR="$(cd -P "$(dirname "$_LINEAR_LIB_SRC")" && pwd)"
-  _LINEAR_LIB_SRC="$(readlink "$_LINEAR_LIB_SRC")"
-  case "$_LINEAR_LIB_SRC" in /*) ;; *) _LINEAR_LIB_SRC="$_LINEAR_LIB_DIR/$_LINEAR_LIB_SRC" ;; esac
-done
-_LINEAR_LIB_DIR="$(cd -P "$(dirname "$_LINEAR_LIB_SRC")" && pwd)"
-if [ -f "$_LINEAR_LIB_DIR/env-lib.sh" ]; then
+# ONE shared bootstrap (scripts/env-boot.sh) rather than a private chain-walk. `engine
+# doctor` gates this as EB-01 — one resolver reached many ways fails like many resolvers.
+for _linear_lib_boot in "${ENGINE_SCRIPTS:-}/env-boot.sh" "$HOME/.claude/engine/scripts/env-boot.sh"; do
+  [ -f "$_linear_lib_boot" ] || continue
   # shellcheck source=/dev/null
-  . "$_LINEAR_LIB_DIR/env-lib.sh"
-else
-  echo "linear-lib: missing required $_LINEAR_LIB_DIR/env-lib.sh" >&2
+  . "$_linear_lib_boot"
+  break
+done
+if ! type resolve_env_key >/dev/null 2>&1; then
+  echo "linear-lib: could not load the engine resolver via env-boot.sh" >&2
   return 1 2>/dev/null || exit 1
 fi
 

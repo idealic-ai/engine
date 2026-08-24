@@ -10,24 +10,20 @@
 # chain-walk below is the FALLBACK for a direct source — which is how the test suites
 # reach this file — and for a bogus ENGINE_SCRIPTS, so a stale export degrades rather
 # than breaking resolution outright.
-_prove_env_lib=""
-[ -n "${ENGINE_SCRIPTS:-}" ] && [ -f "$ENGINE_SCRIPTS/env-lib.sh" ] && _prove_env_lib="$ENGINE_SCRIPTS/env-lib.sh"
-if [ -z "$_prove_env_lib" ]; then
-  _prove_env_src="${BASH_SOURCE[0]:-$0}"
-  while [ -L "$_prove_env_src" ]; do
-    _prove_env_dir="$(cd -P "$(dirname "$_prove_env_src")" && pwd)"
-    _prove_env_src="$(readlink "$_prove_env_src")"
-    case "$_prove_env_src" in /*) ;; *) _prove_env_src="$_prove_env_dir/$_prove_env_src" ;; esac
-  done
-  _prove_env_dir="$(cd -P "$(dirname "$_prove_env_src")" && pwd)"
-  [ -f "$_prove_env_dir/../../../scripts/env-lib.sh" ] && _prove_env_lib="$_prove_env_dir/../../../scripts/env-lib.sh"
-fi
-if [ -z "$_prove_env_lib" ]; then
-  echo "_prove-s3-env: cannot find the engine resolver (env-lib.sh) via \$ENGINE_SCRIPTS or a sibling walk" >&2
+# ONE shared bootstrap (scripts/env-boot.sh) rather than a private chain-walk — the walk
+# itself now lives there, so a symlinked source still finds the library. `engine doctor`
+# gates this as EB-01.
+for _prove_boot in "${ENGINE_SCRIPTS:-}/env-boot.sh" "$HOME/.claude/engine/scripts/env-boot.sh" \
+                   "$(cd -P "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)/../../../scripts/env-boot.sh"; do
+  [ -f "$_prove_boot" ] || continue
+  # shellcheck source=/dev/null
+  . "$_prove_boot"
+  break
+done
+if ! type env_load_domain >/dev/null 2>&1; then
+  echo "_prove-s3-env: cannot find the engine resolver via env-boot.sh" >&2
   return 1
 fi
-# shellcheck source=/dev/null
-. "$_prove_env_lib"
 # PROVE_S3_ENV pins ONE authoritative env file (the /prove tests use it to guarantee the
 # operator's real bucket and profile cannot leak into a publish under test). Same rule as
 # slack-post's --env-file: explicit means only-that-file, never a fallthrough.

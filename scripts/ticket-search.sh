@@ -43,19 +43,15 @@ source "$SCRIPT_DIR/lib.sh"
 # `engine ticket-search` and `engine project fetch` answer the same key differently in the
 # same directory. Resolved from this script's OWN dir, walking the link chain first: the
 # test suite symlinks this script into a fake HOME that holds no sibling libs.
-_TS_SRC="${BASH_SOURCE[0]:-$0}"
-while [ -L "$_TS_SRC" ]; do
-  _TS_DIR="$(cd -P "$(dirname "$_TS_SRC")" && pwd)"
-  _TS_SRC="$(readlink "$_TS_SRC")"
-  case "$_TS_SRC" in /*) ;; *) _TS_SRC="$_TS_DIR/$_TS_SRC" ;; esac
-done
-_TS_DIR="$(cd -P "$(dirname "$_TS_SRC")" && pwd)"
-if [ -f "$_TS_DIR/env-lib.sh" ]; then
+# ONE shared bootstrap (scripts/env-boot.sh) rather than a private chain-walk. `engine
+# doctor` gates this as EB-01 — one resolver reached many ways fails like many resolvers.
+for _ts_boot in "${ENGINE_SCRIPTS:-}/env-boot.sh" "$HOME/.claude/engine/scripts/env-boot.sh"; do
+  [ -f "$_ts_boot" ] || continue
   # shellcheck source=/dev/null
-  . "$_TS_DIR/env-lib.sh"
-else
-  echo "ticket-search: missing required $_TS_DIR/env-lib.sh" >&2; exit 1
-fi
+  . "$_ts_boot"
+  break
+done
+type resolve_env_key >/dev/null 2>&1 || { echo "ticket-search: could not load the engine resolver via env-boot.sh" >&2; exit 1; }
 
 LINEAR_API_URL="${LINEAR_API_URL:-https://api.linear.app/graphql}"
 DEFAULT_LIMIT=10

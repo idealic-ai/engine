@@ -247,6 +247,27 @@ LOGGING & TAGS
                               (spawn cmd / AskUserQuestion / Skill / engine bookkeeping stay allowed).
                               Use the /communicate skill to drive a full ask/reply ticket-discussion turn.
 
+CREDENTIALS & ENVIRONMENT
+  env <cmd>              Per-domain credentials, from one manifest per domain.
+    doctor [--domain <name>]      Red/green line per credential. Exits non-zero ONLY when a
+                                  `req` one is missing, so a caller can gate on it. Seeds
+                                  missing non-secret defaults; never writes a secret. Stays
+                                  per-domain on purpose — that scoping is what stops one
+                                  domain blocking on another's credentials.
+    setup [--domain <name>]       Fill what is missing: fetch what can be fetched, prompt only
+                                  for what a person must obtain. WITH NO --domain it walks
+                                  every domain, so a newcomer need not know which they are.
+    setup --aws-key <path>        Install a delivered agent key, verify it, and shred the file.
+    resolve <KEY> [--show-value]  Say WHERE a credential resolves from. The value is withheld
+                                  unless asked for, so the default is safe in a screenshare.
+    env-example [--domain <name>] Print the manifest-derived .env.example.
+    provision --tier <triage|member> [--person <n>] [--apply] [--reconcile]
+                                  Mint someone's agent account: IAM user + policy DERIVED FROM
+                                  THE MANIFEST, app login, and the app row that makes it real.
+                                  Dry-run by default; --apply reads a typed confirmation that
+                                  no flag can supply. --reconcile re-derives an existing grant
+                                  and shows the difference before changing anything.
+
 LINEAR DATA
   project <cmd>          Linear project data (read-only GraphQL; needs LINEAR_API_KEY)
     fetch <project> [--since=<ISO>] [--out=<path>]  One JSON payload of everything
