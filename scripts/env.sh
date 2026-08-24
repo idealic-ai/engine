@@ -1094,6 +1094,31 @@ _provision_clerk_account() {
 }
 
 # ── _slack_api <token> <method> [curl args...] ────────────────────────────────
+# ── _agent_login_email <agent-user> ───────────────────────────────────────────
+#
+# PLUS, NOT DASH. `rob-agent@finchclaims.com` requires a mailbox that does not exist;
+# `rob+agent@finchclaims.com` is sub-addressing and lands in Rob's existing inbox. The
+# identity provider sends verification and password-reset mail, so an address nobody
+# receives makes the account unrecoverable the first time it matters.
+#
+# The DASH form is correct everywhere it is an identifier rather than an address — the
+# IAM user, the AWS profile, the Secrets Manager path — because none of those deliver
+# mail and `+` reads badly in an ARN.
+# ── _agent_login_local <agent-user> ───────────────────────────────────────────
+#
+# The local-part of the login identity: `yarik-agent` → `yarik+agent`. The agent-login
+# SECRET is keyed on this rather than on the identifier, because what it holds is a
+# login. Keeping the two spellings straight is the whole point: the IAM user, the AWS
+# profile and the ARN are identifiers and stay dashed; anything naming the login —
+# the address and the secret that holds it — is plus-addressed.
+_agent_login_local() {
+  printf '%s+agent' "${1%-agent}"
+}
+
+_agent_login_email() {
+  printf '%s@finchclaims.com' "$(_agent_login_local "$1")"
+}
+
 _slack_api() {
   local token="$1" method="$2"; shift 2
   curl -sS "https://slack.com/api/${method}" -H "Authorization: Bearer $token" "$@" 2>/dev/null
@@ -1345,7 +1370,7 @@ cmd_provision() {
   if [ "$approw_only" -eq 1 ]; then
     # For an account that already exists: the Clerk id is not returned again, so it is
     # looked up by the email the account was created under.
-    [ -n "$email" ] || email="${user}@finchclaims.com"
+    [ -n "$email" ] || email="$(_agent_login_email "$user")"
     local tok cid given
     tok="$(resolve_env_key CLERK_SECRET_KEY 2>/dev/null || true)"
     if [ -z "$tok" ]; then echo "env provision --app-row-only: no CLERK_SECRET_KEY resolves, so the Clerk id cannot be looked up." >&2; return 2; fi
@@ -1362,8 +1387,8 @@ cmd_provision() {
   fi
 
   if [ "$clerk_only" -eq 1 ]; then
-    [ -n "$email" ] || email="${user}@finchclaims.com"
-    local target="${login_secret//<person>/$user}"
+    [ -n "$email" ] || email="$(_agent_login_email "$user")"
+    local target="${login_secret//<person>/$(_agent_login_local "$user")}"
     if [ -z "$login_secret" ]; then
       echo "env provision --clerk-only: no manifest row declares the agent login secret, so there is nowhere to store the password." >&2
       return 2
@@ -1463,7 +1488,9 @@ cmd_provision() {
   # The agent's OWN login secret — never a wildcard across everyone's. That scoping is
   # most of why per-person accounts beat a shared one.
   if [ -n "$login_secret" ]; then
-    arn="arn:aws:secretsmanager:${region}:${account}:secret:${login_secret//<person>/$user}-*"
+    # Same plus form the fetcher asks for. These two disagreeing is precisely the defect
+    # that made the read impossible before: a grant on a path nothing ever requests.
+    arn="arn:aws:secretsmanager:${region}:${account}:secret:${login_secret//<person>/$(_agent_login_local "$user")}-*"
     if _arn_allowed "$arn"; then
       stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" '{Sid:"ReadOwnAgentLogin",Effect:"Allow",Action:["secretsmanager:GetSecretValue"],Resource:[$r]}')"
     else
@@ -1633,8 +1660,8 @@ cmd_provision() {
   skey=""
 
   if [ "$want_clerk" -eq 1 ]; then
-    [ -n "$email" ] || email="${user}@finchclaims.com"
-    _provision_clerk_account "$user" "$email" "${login_secret//<person>/$user}" "$region"
+    [ -n "$email" ] || email="$(_agent_login_email "$user")"
+    _provision_clerk_account "$user" "$email" "${login_secret//<person>/$(_agent_login_local "$user")}" "$region"
     # The row that turns an identity into an account the application recognises.
     _provision_app_row "$user" "${PROVISION_CLERK_USER_ID:-}" "$email" \
       "$(printf '%s' "${user%-agent}" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')" "Agent"
@@ -1748,6 +1775,11 @@ _resolve_person_secret_name() {
     [ -n "$who" ] && who="${who}-agent"
   fi
   [ -n "$who" ] || return 1
+  # An agent-login secret is named for the LOGIN it holds, not for the profile that
+  # reads it — so the path carries the plus form even though the profile is dashed.
+  case "$sname" in
+    *agent-login*) who="$(_agent_login_local "$who")" ;;
+  esac
   printf '%s' "${sname//<person>/$who}"
 }
 

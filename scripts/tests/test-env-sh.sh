@@ -2120,12 +2120,15 @@ fi
 # The OLD assertion here (that the text says "super-admin" and "bridge") still passed
 # against the corrected text — "NOT super_admin" and "the bridge can be SKIPPED" both
 # match — which is a check passing for the wrong reason. Assert the meaning instead.
+# The account IS created by provisioning now, so "no such account exists yet" stopped
+# being true — a stale claim in the text a person reads at the moment they decide what
+# to trust. What must hold is the ROLE it is created at, and the address shape.
 if jq -e '[.credentials[] | select((.key|startswith("FINCH_AGENT_APP_"))
-      and (.how|test("NO SUCH APP ACCOUNT EXISTS"))
-      and (.how|test("NOT super_admin")))] | length >= 2' "$MANIFEST" >/dev/null 2>&1; then
-  pass "the how text says the account does not exist yet and must NOT be created at super_admin"
+      and (.how|test("PLUS-ADDRESSED"))
+      and (.how|test("NEVER super_admin")))] | length >= 2' "$MANIFEST" >/dev/null 2>&1; then
+  pass "the how text pins the plus-addressed login and the restricted role"
 else
-  fail "how names the real target" "no-account-yet + NOT super_admin" "$(jq -r '[.credentials[]|select(.key|startswith("FINCH_AGENT_APP_"))|.how]|@json' "$MANIFEST")"
+  fail "how names the real target" "PLUS-ADDRESSED + NEVER super_admin" "$(jq -r '[.credentials[]|select(.key|startswith("FINCH_AGENT_APP_"))|.how[0:120]]|@json' "$MANIFEST")"
 fi
 # ⚠️ "Read-only" means the account cannot use a write VERB — not that it cannot write. A
 # few GET endpoints write as a side effect, so a flat "it cannot write" in the manifest
@@ -2166,11 +2169,11 @@ else
   fail "severity mapping" "req fails, everything else warns" "$(sed -n '/^report_miss()/,/^}/p' "$ENV_SRC_FILE")"
 fi
 # provision grants GetSecretValue on the person's OWN login secret, never a wildcard.
-if printf '%s' "$PV5" | grep -q 'staging/finch/agent-login/rob-agent' \
+if printf '%s' "$PV5" | grep -q 'staging/finch/agent-login/rob+agent' \
    && ! printf '%s' "$PV5" | grep -q 'staging/finch/agent-login/\*'; then
   pass "the agent policy scopes to its OWN login secret, never a wildcard across all of them"
 else
-  fail "own-login scoping" "agent-login/rob-agent*, no wildcard" "$(printf '%s' "$PV5" | grep agent-login)"
+  fail "own-login scoping" "agent-login/rob+agent*, no wildcard" "$(printf '%s' "$PV5" | grep agent-login)"
 fi
 
 # ══ 37. the preflight flip (5/5) ═════════════════════════════════════════════
@@ -2325,10 +2328,10 @@ jq -n '{version:1, domain:"test", credentials:[
 printf 'FINCH_AGENT_AWS_PROFILE=t-agent\n' >> "$PSND/.env.local"
 PSNA=$(cd "$PSND" && env -u FINCH_AGENT_AWS_PROFILE ENV_MANIFEST="$PSN_MF" \
        "$ENV_SH" setup --non-interactive </dev/null 2>&1 | strip)
-if printf '%s' "$PSNA" | grep -q 'agent-login/t-agent'; then
+if printf '%s' "$PSNA" | grep -q 'agent-login/t+agent'; then
   pass "<person> resolves through the resolver, so a profile recorded only in .env.local is used"
 else
-  fail "resolver in the path" "agent-login/t-agent" "$PSNA"
+  fail "resolver in the path" "agent-login/t+agent" "$PSNA"
 fi
 if ! printf '%s' "$PSNA" | grep -q '<person>'; then
   pass "the dry-run prints the path it would actually read, not the manifest template"
@@ -2790,6 +2793,40 @@ if grep -q 'env -u AWS_PROFILE -u AWS_SESSION_TOKEN' "$ENV_SRC"; then
   pass "the key-verification probe unsets the ambient profile before using explicit keys"
 else
   fail "verify unsets profile" "env -u AWS_PROFILE -u AWS_SESSION_TOKEN" "absent"
+fi
+
+
+# ══ 47. the login is PLUS-addressed, identifiers stay dashed (8/4) ════════════
+#
+# `<name>-agent@finchclaims.com` needs a mailbox that does not exist. `<name>+agent@` is
+# sub-addressing and lands in the person's existing inbox. The identity provider sends
+# verification and reset mail, so a dash address makes the account unrecoverable the
+# first time that matters — and the ticket said `+` before this was "corrected" to `-`.
+echo "Test 47: plus-addressed login"
+if grep -q "printf '%s+agent'" "$ENV_SRC" && grep -q '_agent_login_local' "$ENV_SRC"; then
+  pass "the plus form is decided in ONE helper (_agent_login_local), not spelled at each site"
+else
+  fail "plus-addressed login" "_agent_login_local building a +agent local-part" "absent"
+fi
+# The SECRET is named for the login it holds, not for the profile that reads it — and the
+# derived grant must name the same path, or the grant covers something nothing requests.
+if grep -q '\*agent-login\*) who="$(_agent_login_local "$who")"' "$ENV_SRC"; then
+  pass "an agent-login secret path carries the login (plus) form, matching the grant"
+else
+  fail "secret path plus form" "the fetcher mapping agent-login paths through _agent_login_local" "absent"
+fi
+# No site may build the login from the DASHED agent user directly.
+DASHMAIL=$(grep -vE '^[[:space:]]*#' "$ENV_SRC" | grep -nE '\$\{user\}@finchclaims|\$\{person\}-agent@' || true)
+if [ -z "$DASHMAIL" ]; then
+  pass "no site builds the login address from the dashed identifier"
+else
+  fail "no dashed login" "none" "$DASHMAIL"
+fi
+# …but the dash MUST survive where it is an identifier, not an address.
+if grep -q 'local user="${person}-agent"' "$ENV_SRC" && grep -q 'local profile="${person}-agent"' "$ENV_SRC"; then
+  pass "the IAM user and AWS profile keep the dashed form (they deliver no mail)"
+else
+  fail "identifiers stay dashed" "person-agent for the IAM user and profile" "changed"
 fi
 
 
