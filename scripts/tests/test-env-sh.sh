@@ -152,7 +152,11 @@ awsok_init() {
 awsok_seed() { printf 'FINCH_AGENT_AWS_PROFILE=t-agent\n' >> "$1/.env.local"; }
 
 # A fully-Connected mcp-list stub so MCP req rows pass unless a test overrides it.
-MCP_ALL_CONNECTED=$'notion: https://mcp.notion.com/mcp (HTTP) - ✔ Connected\nlinear-server: https://mcp.linear.app/mcp (HTTP) - ✔ Connected'
+# EVERY MCP server intake declares — the fixture means "all required servers are
+# connected", so it has to track the manifest. When posthog and github were promoted to
+# `req`, a fixture listing only two servers stopped meaning that and the exit-0 cases
+# started failing for the right reason.
+MCP_ALL_CONNECTED=$'notion: https://mcp.notion.com/mcp (HTTP) - ✔ Connected\nlinear-server: https://mcp.linear.app/mcp (HTTP) - ✔ Connected\nposthog: https://mcp.posthog.com/mcp (HTTP) - ✔ Connected\ngithub: https://api.githubcopilot.com/mcp (HTTP) - ✔ Connected'
 
 # ── 1. Manifest exists and parses (JSON; every row typed, no bad rows) ──
 # STRUCTURAL assertions about the real manifest file — deliberately NOT routed through
@@ -472,7 +476,7 @@ fi
 echo "Test 11: MCP 'connected' matched case-insensitively"
 CASE_L="$WORK/l"; mkcase "$CASE_L"; printf 'SLACK_INTAKE_TOKEN=xoxb-x\n' > "$CASE_L/.env.local"
 awsok_init; awsok_seed "$CASE_L"
-LOWER=$'linear-server: https://mcp.linear.app/mcp (HTTP) - ✔ connected\nnotion: https://mcp.notion.com/mcp (HTTP) - ✔ Connected'
+LOWER=$'linear-server: https://mcp.linear.app/mcp (HTTP) - ✔ connected\nnotion: https://mcp.notion.com/mcp (HTTP) - ✔ Connected\nposthog: https://mcp.posthog.com/mcp (HTTP) - ✔ Connected\ngithub: https://api.githubcopilot.com/mcp (HTTP) - ✔ Connected'
 CODE=$(cd "$CASE_L" && ENV_AWS_HOME="$AWSOK_HOME" ENV_STS_ARN="arn:aws:iam::1:user/t-agent" ENV_MCP_LIST_OUTPUT="$LOWER" "$ENV_SH" doctor >/dev/null 2>&1; echo $?)
 OUT=$(cd "$CASE_L" && ENV_MCP_LIST_OUTPUT="$LOWER" "$ENV_SH" doctor 2>&1 | strip)
 if printf '%s' "$OUT" | grep -qE 'PASS +linear-server' && [ "$CODE" -eq 0 ]; then
@@ -2693,6 +2697,30 @@ if [ "$COC" -ne 0 ]; then
 else
   fail "clerk-only gated" "non-zero on a wrong confirmation" "$COC"
 fi
+
+
+# ══ 44. every intake MCP gates the wave (8/1) ═════════════════════════════════
+#
+# A wave that cannot read Linear, write its handbook to Notion, pull product-analytics
+# signal from PostHog or look up code on GitHub is not degraded, it is blind. All four
+# are `req`, and `req` is the ONLY tier that blocks — triage/boards/optional are the
+# same WARN, so labelling alone would have changed nothing.
+echo "Test 44: intake MCP tiering"
+NONREQ=$(jq -r '[.credentials[] | select(.check.type=="mcp" and .required != "req") | .check.server] | join(",")' "$MANIFEST")
+if [ -z "$NONREQ" ]; then
+  pass "every MCP server intake declares is req (a missing one stops Phase 0)"
+else
+  fail "all intake MCP req" "no non-req mcp rows" "still non-req: $NONREQ"
+fi
+# The fixture that means "all required connected" must list them all, or the exit-0
+# cases pass for the wrong reason.
+for _srv in $(jq -r '.credentials[] | select(.check.type=="mcp") | .check.server' "$MANIFEST"); do
+  case "$MCP_ALL_CONNECTED" in
+    *"$_srv"*) ;;
+    *) fail "fixture covers $_srv" "MCP_ALL_CONNECTED lists every declared server" "missing $_srv"; _fixgap=1 ;;
+  esac
+done
+[ -z "${_fixgap:-}" ] && pass "the all-connected fixture lists every server the manifest declares"
 
 
 exit_with_results
