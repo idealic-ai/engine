@@ -1089,8 +1089,115 @@ _provision_clerk_account() {
   return 0
 }
 
+# ── _slack_api <token> <method> [curl args...] ────────────────────────────────
+_slack_api() {
+  local token="$1" method="$2"; shift 2
+  curl -sS "https://slack.com/api/${method}" -H "Authorization: Bearer $token" "$@" 2>/dev/null
+}
+
+# ── _deliver_via_slack <agent-user> <person> <key-file> ───────────────────────
+#
+# Hands the key to its owner over a Slack DM: a short message saying what to run, the
+# key as a file, and the setup guide.
+#
+# ⚠️ THIS PUTS A CREDENTIAL IN CHAT HISTORY. A file attachment is not a pasted secret,
+# but it is still retained by workspace policy, downloadable by anyone with access to
+# the conversation, and present in exports. It is an accepted trade for a key that is
+# narrowly scoped, revocable per person, and shredded by the receiving command — not a
+# general licence to send secrets over Slack.
+#
+# Never fails the run. By the time this is reached the account exists and the key file
+# is written; losing that over a chat API would be the worst possible trade.
+_deliver_via_slack() {
+  local user="$1" person="$2" keyfile="$3"
+  local token; token="$(resolve_env_key SLACK_INTAKE_TOKEN 2>/dev/null || true)"
+  if [ -z "$token" ]; then
+    printf "  ${CYAN}note${NC}  no Slack token resolves — the key file was not sent, hand it over yourself.\n"
+    return 0
+  fi
+  command -v curl >/dev/null 2>&1 || return 0
+
+  # The WORK address is the join key, even where someone's chat account is registered
+  # to a personal one — an agent identity is a work identity.
+  local email="${person}@finchclaims.com" resp uid=""
+  resp="$(_slack_api "$token" "users.lookupByEmail?email=${email}")"
+  uid="$(printf '%s' "$resp" | jq -r '.user.id // empty' 2>/dev/null)"
+
+  if [ -z "$uid" ]; then
+    local err; err="$(printf '%s' "$resp" | jq -r '.error // "unknown"' 2>/dev/null)"
+    case "$err" in
+      missing_scope)
+        printf "  ${YELLOW}warn${NC}  the Slack app lacks ${BOLD}users:read.email${NC} — cannot look anyone up. Key NOT sent.\n"
+        return 0 ;;
+    esac
+    printf "  ${YELLOW}note${NC}  no Slack user for %s (%s).\n" "$email" "$err"
+    printf "        Enter the Slack email to send to (blank to skip and hand the file over yourself): "
+    local typed=""; IFS= read -r typed || typed=""
+    [ -n "$typed" ] || { printf "        skipped — the key file is still on disk.\n"; return 0; }
+    resp="$(_slack_api "$token" "users.lookupByEmail?email=${typed}")"
+    uid="$(printf '%s' "$resp" | jq -r '.user.id // empty' 2>/dev/null)"
+    [ -n "$uid" ] || { printf "  ${YELLOW}warn${NC}  no Slack user for %s either — key NOT sent.\n" "$typed"; return 0; }
+    email="$typed"
+  fi
+
+  local chan
+  resp="$(_slack_api "$token" "conversations.open" -H 'Content-Type: application/json' \
+          --data "$(jq -nc --arg u "$uid" '{users:$u}')")"
+  chan="$(printf '%s' "$resp" | jq -r '.channel.id // empty' 2>/dev/null)"
+  if [ -z "$chan" ]; then
+    printf "  ${YELLOW}warn${NC}  could not open a DM (%s) — key NOT sent. Missing ${BOLD}im:write${NC}?\n" \
+      "$(printf '%s' "$resp" | jq -r '.error // "unknown"' 2>/dev/null)"
+    return 0
+  fi
+
+  # Slack's upload is three calls: reserve a URL, PUT the bytes, then share it into the
+  # conversation. Sharing is what makes it visible; an uploaded-but-unshared file is
+  # invisible to the recipient and easy to mistake for success.
+  local size url fid
+  size="$(wc -c < "$keyfile" | tr -d ' ')"
+  resp="$(_slack_api "$token" "files.getUploadURLExternal?filename=$(basename "$keyfile")&length=${size}")"
+  url="$(printf '%s' "$resp" | jq -r '.upload_url // empty' 2>/dev/null)"
+  fid="$(printf '%s' "$resp" | jq -r '.file_id // empty' 2>/dev/null)"
+  if [ -z "$url" ] || [ -z "$fid" ]; then
+    printf "  ${YELLOW}warn${NC}  cannot upload (%s) — missing ${BOLD}files:write${NC}? Key NOT sent.\n" \
+      "$(printf '%s' "$resp" | jq -r '.error // "unknown"' 2>/dev/null)"
+    return 0
+  fi
+  curl -sS -X POST "$url" -F "file=@${keyfile}" >/dev/null 2>&1 || {
+    printf "  ${YELLOW}warn${NC}  the upload PUT failed — key NOT sent.\n"; return 0; }
+
+  local doc; doc="$(resolve_env_key FINCH_SETUP_DOC_URL 2>/dev/null || true)"
+  local msg
+  msg="Here is your Finch agent key for \`${user}\`.
+
+*Install it, then let it fetch everything else:*
+\`\`\`
+engine env setup --aws-key ~/Downloads/$(basename "$keyfile")
+engine env setup
+\`\`\`
+The first command checks the key works, installs it, and deletes the file. The second fetches the rest, including your app password — you will never need to type one.
+
+Then check it: \`engine env doctor --domain intake\`${doc:+
+
+Full guide: ${doc}}
+
+Delete this message once you have installed it."
+
+  resp="$(_slack_api "$token" "files.completeUploadExternal" -H 'Content-Type: application/json' \
+          --data "$(jq -nc --arg id "$fid" --arg t "Finch agent key — ${user}" --arg c "$chan" --arg m "$msg" \
+                    '{files:[{id:$id,title:$t}], channel_id:$c, initial_comment:$m}')")"
+  if [ "$(printf '%s' "$resp" | jq -r '.ok // false' 2>/dev/null)" = "true" ]; then
+    printf "  ${GREEN}ok${NC}    sent the key to %s on Slack (%s)\n" "$email" "$chan"
+    printf "        ${YELLOW}That credential now lives in Slack history.${NC} Ask them to delete the message once installed.\n"
+  else
+    printf "  ${YELLOW}warn${NC}  upload completed but sharing failed (%s) — key NOT delivered.\n" \
+      "$(printf '%s' "$resp" | jq -r '.error // "unknown"' 2>/dev/null)"
+  fi
+  return 0
+}
+
 cmd_provision() {
-  local person="" tier="" apply=0 account="" reconcile=0 out="" email="" want_clerk=1 clerk_only=0
+  local person="" tier="" apply=0 account="" reconcile=0 out="" email="" want_clerk=1 clerk_only=0 want_slack=1
   while [ $# -gt 0 ]; do
     case "$1" in
       --person) person="${2:-}"; shift 2 ;;
@@ -1108,6 +1215,7 @@ cmd_provision() {
       --email=*) email="${1#*=}"; shift ;;
       --no-clerk) want_clerk=0; shift ;;
       --clerk-only) clerk_only=1; shift ;;
+      --no-slack) want_slack=0; shift ;;
       -h|--help) sed -n "$USAGE_LINES" "$0"; return 0 ;;
       *) echo "env provision: unknown flag '$1'" >&2; return 1 ;;
     esac
@@ -1421,8 +1529,13 @@ cmd_provision() {
     local dfile
     if dfile="$(_agent_key_deliver "$user" "$akid" "$skey" "$out")"; then
       printf "  ${GREEN}ok${NC}    delivery file written: ${BOLD}%s${NC} (0600)\n" "$dfile"
-      printf "           Send it to them, then have them run:  engine env setup --aws-key <path>\n"
-      printf "           That command validates the key, installs it, and SHREDS the file. Delete your copy once they confirm.\n"
+      printf "           That file is what they feed to:  engine env setup --aws-key <path>\n"
+      printf "           It validates the key, installs it, and SHREDS the file. Delete your copy once they confirm.\n"
+      if [ "$want_slack" -eq 1 ]; then
+        _deliver_via_slack "$user" "$person" "$dfile"
+      else
+        printf "  ${CYAN}note${NC}  --no-slack: nothing was sent; hand the file over yourself.\n"
+      fi
     else
       printf "  ${YELLOW}warn${NC}  no delivery file was written — the key is installed locally as [%s] but you have nothing to send.\n" "$user"
     fi
