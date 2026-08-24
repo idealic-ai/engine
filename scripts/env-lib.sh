@@ -206,7 +206,7 @@ env_anchor_dir() {
     root="$d"
     while [ -n "$d" ] && [ "$d" != "/" ]; do
       if [ -d "$d/.claude" ]; then root="$d"; break; fi
-      d="$(dirname "$d")"
+      d="${d%/*}"; [ -n "$d" ] || d="/"   # parameter expansion, not a dirname exec
     done
   fi
   _ENV_ANCHOR_CACHE="$root"
@@ -229,16 +229,23 @@ env_anchored_path() {
 # Emits nothing and returns ENV_NO_ANCHOR_RC when there is no session.
 # Dedup is exact-string on the resolved absolute path.
 env_key_files() {
-  local f root
+  # NO EXEC. This runs for every credential in the manifest, and the awk that used to
+  # dedupe it was a process spawn per row — the single largest remaining cost where
+  # exec is expensive. A subshell is a fork; awk is a fork AND an exec, and it is the
+  # exec that gets scanned. The list is never more than a handful of paths, so a string
+  # membership test beats a hash table that has to be launched.
+  local f root seen="" out=""
   root="$(env_anchor_dir)" || return "$ENV_NO_ANCHOR_RC"
-  {
-    for f in "$@"; do
-      [ -n "$f" ] || continue
-      case "$f" in /*) printf '%s\n' "$f" ;; *) printf '%s/%s\n' "$root" "${f#./}" ;; esac
-    done
-    printf '%s/%s\n' "$root" ".env.local"
-    printf '%s/%s\n' "$root" ".env"
-  } | awk 'NF && !seen[$0]++'
+  for f in "$@" "$root/.env.local" "$root/.env"; do
+    [ -n "$f" ] || continue
+    case "$f" in /*) ;; *) f="$root/${f#./}" ;; esac
+    case "$seen" in *"|$f|"*) continue ;; esac
+    seen="$seen|$f|"
+    out="$out$f
+"
+  done
+  [ -n "$out" ] && printf '%s' "$out"
+  return 0
 }
 
 # One stderr line when a key resolves from .env.local while the SIBLING .env — the one
