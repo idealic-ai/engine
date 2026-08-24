@@ -171,6 +171,22 @@ extract_env_key() {
 # IN-PROCESS during `activate`; an exit-shaped throw there kills activation mid-flight.
 ENV_NO_ANCHOR_RC=3
 
+# ── env_anchor_prime ──────────────────────────────────────────────────────────
+#
+# Populates the anchor cache IN THE CALLER'S SHELL. Every call site resolves the anchor
+# through `$(env_anchor_dir)`, and a command substitution is a subshell — so the cache
+# `env_anchor_dir` sets is discarded the moment it returns, and the next caller re-runs
+# `session.sh find`. The cache was never wrong, merely unreachable: one exec per
+# credential row, invisible where exec is cheap (~20ms) and the entire runtime where it
+# is not (~1.1s × every row).
+#
+# Call this ONCE, unsubstituted, before any loop that resolves credentials. Subshells
+# forked afterwards inherit the variable and never spawn the finder.
+env_anchor_prime() {
+  env_anchor_dir >/dev/null 2>&1 || true
+  return 0
+}
+
 env_anchor_dir() {
   if [ -n "${_ENV_ANCHOR_CACHE+set}" ]; then
     [ -n "$_ENV_ANCHOR_CACHE" ] || return "$ENV_NO_ANCHOR_RC"

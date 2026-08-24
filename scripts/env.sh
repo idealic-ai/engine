@@ -433,6 +433,7 @@ normalize_env_kv() {
 
 # --- doctor ---
 cmd_doctor() {
+  env_anchor_prime   # resolve the anchor ONCE; every later subshell inherits it
   local env_example=""
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -1532,6 +1533,7 @@ gitignore_verdict() {
 }
 
 cmd_setup() {
+  env_anchor_prime   # resolve the anchor ONCE; every later subshell inherits it
   local dry=0 aws_key="" person="" domain_given=0
   while [ $# -gt 0 ]; do
     case "$1" in
@@ -1685,6 +1687,7 @@ cmd_setup() {
 
 # --- env-example ---
 cmd_env_example() {
+  env_anchor_prime   # resolve the anchor ONCE; every later subshell inherits it
   while [ $# -gt 0 ]; do
     case "$1" in
       --domain) DOMAIN="${2:-}"; shift 2 ;;
@@ -1701,6 +1704,7 @@ cmd_env_example() {
 # Walks the SAME chain resolve_env_key walks (env var → env_key_files) through the same
 # extract_env_key, so the answer cannot contradict what a consumer will actually read.
 cmd_resolve() {
+  env_anchor_prime   # resolve the anchor ONCE; every later subshell inherits it
   local key="" show=0
   while [ $# -gt 0 ]; do
     case "$1" in
