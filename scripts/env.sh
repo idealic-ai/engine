@@ -1196,8 +1196,74 @@ Delete this message once you have installed it."
   return 0
 }
 
+# ── _provision_app_row <agent-user> <clerk-id> <email> <given> <family> ───────
+#
+# The last step that makes an account usable. AWS gives it credentials and Clerk gives
+# it an identity, but until a `user` row exists the application does not know the person
+# — no row, no role, nothing works.
+#
+# ⚠️ This is the one place the engine writes to the APPLICATION database, and it does so
+# with a credential it never hands to an agent (`provisioner` tier). The database is not
+# reachable directly; it goes through the SSM tunnel.
+#
+# Idempotent by clerk_user_id, which is unique: re-running adopts the existing row rather
+# than failing or duplicating.
+_provision_app_row() {
+  local user="$1" clerk_id="$2" email="$3" given="$4" family="$5"
+  [ -n "$clerk_id" ] || { printf "  ${CYAN}note${NC}  no Clerk id, so no app row was created.\n"; return 0; }
+  command -v psql >/dev/null 2>&1 || { printf "  ${YELLOW}warn${NC}  psql is not on PATH — app row NOT created.\n"; return 0; }
+
+  local org secret_name port url local_url
+  org="$(resolve_env_key FINCH_AGENT_HOME_ORG 2>/dev/null || true)"
+  port="$(resolve_env_key FINCH_DB_TUNNEL_PORT 2>/dev/null || true)"; port="${port:-15432}"
+  secret_name="$(manifest_rows 2>/dev/null | awk -F'\037' '$1=="FINCH_DB_RW_SECRET"{print ($11!=""?$11:$5); exit}')"
+  if [ -z "$org" ] || [ -z "$secret_name" ]; then
+    printf "  ${YELLOW}warn${NC}  the manifest does not declare the home org or the read-write DB secret — app row NOT created.\n"
+    return 0
+  fi
+
+  url="$(env_fetch_aws_secret "$secret_name" "" "" "" 2>/dev/null)" || url=""
+  [ -n "$url" ] || { printf "  ${YELLOW}warn${NC}  could not read %s — app row NOT created.\n" "$secret_name"; return 0; }
+  # The host in the secret is the private RDS endpoint; reachable only through the tunnel.
+  local_url="$(printf '%s' "$url" | sed -E "s#@[^/:]+(:[0-9]+)?/#@127.0.0.1:${port}/#")"
+  url=""
+
+  if ! psql "$local_url" -tAc 'select 1' >/dev/null 2>&1; then
+    printf "  ${YELLOW}warn${NC}  the database is not reachable on 127.0.0.1:%s — is the SSM tunnel up?\n" "$port"
+    printf "           Start it (scripts/staging-db-tunnel.sh) and re-run with --app-row-only. App row NOT created.\n"
+    local_url=""; return 0
+  fi
+
+  local existing
+  existing="$(psql "$local_url" -tAc "select role from \"user\" where clerk_user_id = '${clerk_id}'" 2>/dev/null | tr -d ' ')"
+  if [ -n "$existing" ]; then
+    printf "  ${CYAN}note${NC}  an app row already exists for %s (role=%s) — left untouched.\n" "$user" "$existing"
+    PROVISION_APP_ROW_OK=1
+    local_url=""; return 0
+  fi
+
+  # ON CONFLICT on the unique clerk_user_id: a concurrent run cannot duplicate the person.
+  if psql "$local_url" -v ON_ERROR_STOP=1 -tAc \
+      "insert into \"user\" (clerk_user_id, role, organization_id, email, first_name, last_name)
+       values ('${clerk_id}', 'agent', '${org}', '${email}', '${given}', '${family}')
+       on conflict (clerk_user_id) do nothing" >/dev/null 2>&1; then
+    local got
+    got="$(psql "$local_url" -tAc "select role from \"user\" where clerk_user_id = '${clerk_id}'" 2>/dev/null | tr -d ' ')"
+    if [ "$got" = "agent" ]; then
+      printf "  ${GREEN}ok${NC}    app row created — %s is role=agent in org %s\n" "$user" "$org"
+      PROVISION_APP_ROW_OK=1
+    else
+      printf "  ${YELLOW}warn${NC}  the insert reported success but the row reads role=%s\n" "${got:-<missing>}"
+    fi
+  else
+    printf "  ${RED}warn${NC}  the app row could not be created. The AWS and Clerk halves are done; this person still cannot use the app.\n" >&2
+  fi
+  local_url=""
+  return 0
+}
+
 cmd_provision() {
-  local person="" tier="" apply=0 account="" reconcile=0 out="" email="" want_clerk=1 clerk_only=0 want_slack=1
+  local person="" tier="" apply=0 account="" reconcile=0 out="" email="" want_clerk=1 clerk_only=0 want_slack=1 approw_only=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --person) person="${2:-}"; shift 2 ;;
@@ -1216,6 +1282,7 @@ cmd_provision() {
       --no-clerk) want_clerk=0; shift ;;
       --clerk-only) clerk_only=1; shift ;;
       --no-slack) want_slack=0; shift ;;
+      --app-row-only) approw_only=1; shift ;;
       -h|--help) sed -n "$USAGE_LINES" "$0"; return 0 ;;
       *) echo "env provision: unknown flag '$1'" >&2; return 1 ;;
     esac
@@ -1271,6 +1338,25 @@ cmd_provision() {
   # The app login on its own. Without this, the Clerk half is unreachable for anyone who
   # already has an AWS profile — the mint refuses early to avoid orphaning a key, and
   # that refusal would take the app login down with it.
+  if [ "$approw_only" -eq 1 ]; then
+    # For an account that already exists: the Clerk id is not returned again, so it is
+    # looked up by the email the account was created under.
+    [ -n "$email" ] || email="${user}@finchclaims.com"
+    local tok cid given
+    tok="$(resolve_env_key CLERK_SECRET_KEY 2>/dev/null || true)"
+    if [ -z "$tok" ]; then echo "env provision --app-row-only: no CLERK_SECRET_KEY resolves, so the Clerk id cannot be looked up." >&2; return 2; fi
+    cid="$(curl -sS "https://api.clerk.com/v1/users?email_address=${email}" -H "Authorization: Bearer $tok" 2>/dev/null | jq -r '.[0].id // empty' 2>/dev/null)"
+    if [ -z "$cid" ]; then echo "env provision --app-row-only: no Clerk user found for $email." >&2; return 2; fi
+    given="$(printf '%s' "${user%-agent}" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
+    printf "${BOLD}=== app row for %s ===${NC}\n  clerk %s\n  email %s\n" "$user" "$cid" "$email"
+    if [ "$apply" -eq 0 ]; then printf "${BOLD}dry-run:${NC} nothing was written. Re-run with --apply.\n"; return 0; fi
+    printf "${BOLD}About to INSERT a row into the app database.${NC}\nType the account id to confirm: "
+    local typed=""; IFS= read -r typed || typed=""; printf "\n"
+    [ "$typed" = "$account" ] || { echo "env provision --app-row-only: requires a typed confirmation of the account id ($account). Nothing was written." >&2; return 1; }
+    _provision_app_row "$user" "$cid" "$email" "$given" "Agent"
+    return $?
+  fi
+
   if [ "$clerk_only" -eq 1 ]; then
     [ -n "$email" ] || email="${user}@finchclaims.com"
     local target="${login_secret//<person>/$user}"
@@ -1545,12 +1631,15 @@ cmd_provision() {
   if [ "$want_clerk" -eq 1 ]; then
     [ -n "$email" ] || email="${user}@finchclaims.com"
     _provision_clerk_account "$user" "$email" "${login_secret//<person>/$user}" "$region"
+    # The row that turns an identity into an account the application recognises.
+    _provision_app_row "$user" "${PROVISION_CLERK_USER_ID:-}" "$email" \
+      "$(printf '%s' "${user%-agent}" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')" "Agent"
   else
     printf "  ${CYAN}note${NC}  --no-clerk: no app login was created, so the agent-login secret stays as it was.\n"
   fi
 
   printf "${BOLD}done:${NC} %s is provisioned at the %s tier. Re-run 'engine env doctor --domain %s' to watch the FAIL clear.\n" "$user" "$tier" "$DOMAIN"
-  if [ -n "${PROVISION_CLERK_USER_ID:-}" ]; then
+  if [ -n "${PROVISION_CLERK_USER_ID:-}" ] && [ "${PROVISION_APP_ROW_OK:-0}" -ne 1 ]; then
     # ⚠️ NOT USABLE YET, and saying so here is the point: AWS and the identity provider
     # are done, the application still does not know this person. The row needs write
     # access to the app database, which nothing in this system provisions — the only DB
