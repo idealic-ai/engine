@@ -1056,12 +1056,14 @@ _provision_clerk_account() {
       # KEEP THE ID. The app `user` row is keyed on clerk_user_id (NOT NULL, unique), so
       # whoever creates that row needs this value — and it is returned exactly once, here.
       PROVISION_CLERK_USER_ID="$(printf '%s' "$resp" | jq -r '.id // ""' 2>/dev/null)"
-      printf "  ${GREEN}ok${NC}    created Clerk user %s\n" "${PROVISION_CLERK_USER_ID:-?}" ;;
+      printf "  ${GREEN}ok${NC}    created Clerk user %s\n" "${PROVISION_CLERK_USER_ID:-?}"
+      PROVISION_CLERK_OK=1 ;;
     422)
       # Already there. Do NOT reset the password — another provisioning run, or the
       # person themselves, may already hold it, and a silent rotation locks them out.
       if printf '%s' "$resp" | grep -q 'form_identifier_exists'; then
         printf "  ${CYAN}note${NC}  a Clerk user already exists for %s — left untouched, and no password was written (rotating it would lock out whoever holds the current one).\n" "$email"
+        PROVISION_CLERK_OK=1
         return 0
       fi
       printf "  ${YELLOW}warn${NC}  Clerk refused the request (422): %s\n" "$(printf '%s' "$resp" | jq -r '[.errors[]? | (.long_message // .message)] | join("; ") // "unknown"' 2>/dev/null)"
@@ -1216,6 +1218,7 @@ Delete this message once you have installed it."
           --data "$(jq -nc --arg id "$fid" --arg t "Finch agent key — ${user}" --arg c "$chan" --arg m "$msg" \
                     '{files:[{id:$id,title:$t}], channel_id:$c, initial_comment:$m}')")"
   if [ "$(printf '%s' "$resp" | jq -r '.ok // false' 2>/dev/null)" = "true" ]; then
+    PROVISION_SLACK_OK=1
     printf "  ${GREEN}ok${NC}    sent the key to %s on Slack (%s)\n" "$email" "$chan"
     printf "        ${YELLOW}That credential now lives in Slack history.${NC} Ask them to delete the message once installed.\n"
   else
@@ -1374,7 +1377,13 @@ cmd_provision() {
     local tok cid given
     tok="$(resolve_env_key CLERK_SECRET_KEY 2>/dev/null || true)"
     if [ -z "$tok" ]; then echo "env provision --app-row-only: no CLERK_SECRET_KEY resolves, so the Clerk id cannot be looked up." >&2; return 2; fi
-    cid="$(curl -sS "https://api.clerk.com/v1/users?email_address=${email}" -H "Authorization: Bearer $tok" 2>/dev/null | jq -r '.[0].id // empty' 2>/dev/null)"
+    # ⚠️ PERCENT-ENCODE THE `+`. In a query string a literal `+` decodes to a SPACE, so
+    # `leonardo+agent@…` reaches the API as `leonardo agent@…` and matches nobody — the
+    # account is found to be missing seconds after being created. Only this one character
+    # matters here (the local part is otherwise an identifier), so encode it directly
+    # rather than pulling in a general encoder.
+    local email_q="${email//+/%2B}"
+    cid="$(curl -sS "https://api.clerk.com/v1/users?email_address=${email_q}" -H "Authorization: Bearer $tok" 2>/dev/null | jq -r '.[0].id // empty' 2>/dev/null)"
     if [ -z "$cid" ]; then echo "env provision --app-row-only: no Clerk user found for $email." >&2; return 2; fi
     given="$(printf '%s' "${user%-agent}" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')"
     printf "${BOLD}=== app row for %s ===${NC}\n  clerk %s\n  email %s\n" "$user" "$cid" "$email"
@@ -1669,7 +1678,33 @@ cmd_provision() {
     printf "  ${CYAN}note${NC}  --no-clerk: no app login was created, so the agent-login secret stays as it was.\n"
   fi
 
-  printf "${BOLD}done:${NC} %s is provisioned at the %s tier. Re-run 'engine env doctor --domain %s' to watch the FAIL clear.\n" "$user" "$tier" "$DOMAIN"
+  # ⚠️ REPORT WHAT HAPPENED, NOT WHAT WAS ATTEMPTED. Every half below degrades rather
+  # than aborting — deliberately, because losing a minted IAM key to a chat-API hiccup
+  # would be the worst trade available. The cost of that choice is that a run can leave
+  # an account that exists and cannot be used, so the summary has to say so. It once
+  # printed "provisioned" while the app login, the app row and the delivery had all
+  # silently no-opped on a mis-resolved credential path: three of four halves missing,
+  # reported as success.
+  local _p_ok=1
+  printf "\n${BOLD}=== %s ===${NC}\n" "$user"
+  printf "  %s  cloud account + policy + key\n" "$([ -n "$akid" ] && printf "${GREEN}yes${NC}" || { _p_ok=0; printf "${RED}NO ${NC}"; })"
+  if [ "$want_clerk" -eq 1 ]; then
+    printf "  %s  app login\n" "$([ "${PROVISION_CLERK_OK:-0}" -eq 1 ] && printf "${GREEN}yes${NC}" || { _p_ok=0; printf "${RED}NO ${NC}"; })"
+    printf "  %s  app row (role=agent) — without it the application does not know them\n" \
+      "$([ "${PROVISION_APP_ROW_OK:-0}" -eq 1 ] && printf "${GREEN}yes${NC}" || { _p_ok=0; printf "${RED}NO ${NC}"; })"
+  fi
+  if [ -n "${dfile:-}" ]; then
+    printf "  %s  delivered on Slack%s\n" \
+      "$([ "${PROVISION_SLACK_OK:-0}" -eq 1 ] && printf "${GREEN}yes${NC}" || printf "${YELLOW}no ${NC}")" \
+      "$([ "${PROVISION_SLACK_OK:-0}" -eq 1 ] || printf " — the key file is on disk; hand it over yourself")"
+  fi
+  if [ "$_p_ok" -eq 1 ]; then
+    printf "${BOLD}done:${NC} %s is usable at the %s tier. Have them run 'engine env setup --aws-key <path>', then 'engine env setup'.\n" "$user" "$tier"
+  else
+    printf "${YELLOW}PARTIAL:${NC} %s is NOT usable yet — the NO lines above did not happen.\n" "$user"
+    printf "         Fix what they name and re-run; each half is idempotent, so nothing is duplicated.\n"
+    return 1
+  fi
   if [ -n "${PROVISION_CLERK_USER_ID:-}" ] && [ "${PROVISION_APP_ROW_OK:-0}" -ne 1 ]; then
     # ⚠️ NOT USABLE YET, and saying so here is the point: AWS and the identity provider
     # are done, the application still does not know this person. The row needs write

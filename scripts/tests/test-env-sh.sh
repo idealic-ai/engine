@@ -2830,4 +2830,62 @@ else
 fi
 
 
+# ══ 48. the summary reports OUTCOMES, not intent (8/5) ════════════════════════
+#
+# Provisioning printed "done: <user> is provisioned" while the app login, the app row
+# and the delivery had all silently no-opped — three of four halves missing, reported as
+# success. Every half degrades rather than aborting, deliberately (losing a minted key to
+# a chat-API hiccup would be the worst trade available), so the SUMMARY is the only thing
+# standing between that design and an account that exists and cannot be used.
+echo "Test 48: outcome-reporting summary"
+if grep -q 'PARTIAL:' "$ENV_SRC" && grep -q 'is NOT usable yet' "$ENV_SRC"; then
+  pass "a run that did not complete every half says PARTIAL and NOT usable"
+else
+  fail "partial verdict" "a PARTIAL / not-usable branch" "absent"
+fi
+# It must EXIT non-zero on a partial, or a caller cannot gate on it and the operator is
+# the only safeguard.
+if grep -A2 'is NOT usable yet' "$ENV_SRC" | grep -q 'return 1'; then
+  pass "a partial provision exits non-zero, so a caller can gate on it"
+else
+  fail "partial exits non-zero" "return 1 after the PARTIAL branch" "absent"
+fi
+# Each half is tracked by a flag set at its REAL success point, not assumed.
+MISSING=""
+for _f in PROVISION_CLERK_OK PROVISION_APP_ROW_OK PROVISION_SLACK_OK; do
+  grep -q "${_f}=1" "$ENV_SRC" || MISSING="$MISSING $_f"
+done
+if [ -z "$MISSING" ]; then
+  pass "each half sets its own success flag (clerk, app row, delivery)"
+else
+  fail "per-half flags" "all three set" "missing:$MISSING"
+fi
+# The app row gets called out by consequence, not just by name — "no row" is meaningless
+# to a reader who does not know it is what makes the account work at all.
+if grep -q 'without it the application does not know them' "$ENV_SRC"; then
+  pass "the summary says what a missing app row COSTS, not merely that it is missing"
+else
+  fail "consequence stated" "the app-row line naming its consequence" "absent"
+fi
+
+
+# ══ 49. the plus in a login address survives the query string (8/6) ═══════════
+#
+# A literal `+` in a query string decodes to a SPACE. So looking a login up by its own
+# address sent `leonardo agent@…` and matched nobody — the account read as missing
+# seconds after being created, on the very run that created it. The plus-addressing
+# change introduced this; the lookup is the only place it bites.
+echo "Test 49: plus survives the query string"
+if grep -q 'email_q="${email//+/%2B}"' "$ENV_SRC"; then
+  pass "the Clerk lookup percent-encodes the + before putting it in a query string"
+else
+  fail "plus encoded" 'email//+/%2B before the request' "absent"
+fi
+if ! grep -q 'email_address=\${email}"' "$ENV_SRC"; then
+  pass "no request interpolates the raw address into a query string"
+else
+  fail "no raw address in query" "none" "$(grep -n 'email_address=\${email}"' "$ENV_SRC")"
+fi
+
+
 exit_with_results
