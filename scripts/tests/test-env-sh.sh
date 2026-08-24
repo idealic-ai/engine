@@ -2770,4 +2770,27 @@ else
 fi
 
 
+# ══ 46. credentials are isolated by UNSETTING, never by emptying (8/3) ════════
+#
+# Found by provisioning a real person. `AWS_PROFILE=""` does not mean "no profile" to
+# the AWS CLI — it means a profile whose name is the empty string, and the call dies
+# with "The config profile () could not be found". Verification therefore failed for
+# every operator with a profile exported, the freshly minted key looked dead, and the
+# rollback deleted it. The safety design worked; the check did not.
+echo "Test 46: credential isolation"
+# Comments ABOUT the trap are not the trap. A substring check cannot tell code from
+# prose describing code — the first version of this test failed on its own explanation.
+EMPTYSET=$(grep -vE '^[[:space:]]*#' "$ENV_SRC" | grep -nE 'AWS_PROFILE=""|AWS_SESSION_TOKEN=""' || true)
+if [ -z "$EMPTYSET" ]; then
+  pass "no AWS variable is isolated by setting it to the empty string"
+else
+  fail "unset not empty" "env -u, not VAR=\"\"" "$EMPTYSET"
+fi
+if grep -q 'env -u AWS_PROFILE -u AWS_SESSION_TOKEN' "$ENV_SRC"; then
+  pass "the key-verification probe unsets the ambient profile before using explicit keys"
+else
+  fail "verify unsets profile" "env -u AWS_PROFILE -u AWS_SESSION_TOKEN" "absent"
+fi
+
+
 exit_with_results

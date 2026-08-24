@@ -743,8 +743,12 @@ _agent_key_verify_env() {
   fi
   command -v aws >/dev/null 2>&1 || return 1
   while [ "$i" -lt "$tries" ]; do
-    arn="$(AWS_ACCESS_KEY_ID="$akid" AWS_SECRET_ACCESS_KEY="$secret" \
-           AWS_SESSION_TOKEN="" AWS_PROFILE="" \
+    # UNSET, not emptied. `AWS_PROFILE=""` makes the CLI look for a profile *named*
+    # empty and fail with "The config profile () could not be found" — so verification
+    # could never succeed whenever a profile was exported, which is the normal case for
+    # the operator running this. The key looked dead and was deleted as a precaution.
+    arn="$(env -u AWS_PROFILE -u AWS_SESSION_TOKEN \
+           AWS_ACCESS_KEY_ID="$akid" AWS_SECRET_ACCESS_KEY="$secret" \
            aws sts get-caller-identity --query Arn --output text 2>/dev/null || true)"
     [ -n "$arn" ] && { printf '%s' "$arn"; return 0; }
     i=$((i + 1))
