@@ -131,13 +131,31 @@ env_manifest_rows() {
 # lines are scanned in order and the FIRST NON-EMPTY one wins, so a blank `KEY=`
 # placeholder above a real value (copy-the-template-then-append) does not mask it.
 extract_env_key() {
-  local file="$1" key="$2" line val
+  # FORK-FREE ON PURPOSE. This runs for every credential against every candidate file,
+  # so its cost is multiplied by the whole manifest. The previous version spawned a grep
+  # per file plus a subshell, printf and sed per matching line — 10-15 processes for one
+  # row. That is invisible where exec is cheap and dominant where it is not: on a machine
+  # scanning every exec, the doctor took ~1.15s PER ROW and ~30s overall, which is what
+  # stopped it being runnable at skill startup. Bash does all of this built-in.
+  local file="$1" key="$2" line val re
   [ -f "$file" ] || return 1
-  while IFS= read -r line; do
-    val="${line#*=}"
-    val="$(printf '%s' "$val" | sed -E 's/^[[:space:]]*//; s/[[:space:]]*$//; s/^"(.*)"$/\1/; s/^'\''(.*)'\''$/\1/')"
+  # Same shape the grep matched: optional leading space, optional `export `, the key,
+  # optional space, `=`, then the rest of the line as the value.
+  re="^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=(.*)$"
+  while IFS= read -r line || [ -n "$line" ]; do
+    [[ $line =~ $re ]] || continue
+    val="${BASH_REMATCH[2]}"
+    val="${val#"${val%%[![:space:]]*}"}"      # trim leading
+    val="${val%"${val##*[![:space:]]}"}"      # trim trailing
+    # Strip ONE layer of surrounding quotes, after trimming, so an intentionally spaced
+    # value inside quotes survives — matching what the sed did.
+    case "$val" in
+      '"'*'"') val="${val:1:${#val}-2}" ;;
+      "'"*"'") val="${val:1:${#val}-2}" ;;
+    esac
+    # First NON-EMPTY wins; a present-but-empty line keeps looking, as it always has.
     [ -n "$val" ] && { printf '%s' "$val"; return 0; }
-  done < <(grep -E "^[[:space:]]*(export[[:space:]]+)?${key}[[:space:]]*=" "$file" 2>/dev/null)
+  done < "$file"
   return 1
 }
 
@@ -228,8 +246,10 @@ env_key_files() {
 # The VALUE is never printed, only the fact that the two files disagree.
 notice_shadowed_env_key() {
   local key="$1" from="$2" val="$3" other dir
-  [ "$(basename "$from")" = ".env.local" ] || return 0
-  dir="$(dirname "$from")"
+  # Parameter expansion rather than basename/dirname: two more forks on a path that runs
+  # once per resolved credential.
+  [ "${from##*/}" = ".env.local" ] || return 0
+  dir="${from%/*}"
   other="$(extract_env_key "$dir/.env" "$key")" || return 0
   [ "$other" = "$val" ] && return 0
   printf '%s: using %s (a different value exists in %s)\n' "$key" "$from" "$dir/.env" >&2

@@ -223,8 +223,7 @@ key_present() {
             return 0
           fi
           command -v aws >/dev/null 2>&1 || return 0   # cannot check ≠ broken; BIN_AWS owns that
-          AWS_PROFILE="${!key}" aws sts get-caller-identity --profile "${!key}" \
-            --query Arn --output text >/dev/null 2>&1 && return 0
+          _sts_probe_cached "${!key}" >/dev/null 2>&1 && return 0
           return 5 ;;
       esac
       return 0 ;;
@@ -625,7 +624,10 @@ check_aws_agent_profile() {
     echo "env: ⚠️  TEST SEAM ACTIVE — ENV_STS_ARN is set (no AWS call was made)" >&2
     arn="$ENV_STS_ARN"
   elif command -v aws >/dev/null 2>&1; then
-    arn="$(aws sts get-caller-identity --profile "$profile" --query Arn --output text 2>/dev/null || true)"
+    # Through the cache: this single call was the doctor's largest remaining cost on a
+    # machine where spawning a process is expensive. A success is remembered briefly; a
+    # failure never is, because a revoked key must surface on the next run.
+    arn="$(_sts_probe_cached "$profile" 2>/dev/null || true)"
   fi
   if [ -z "$arn" ]; then
     fail "AWS agent profile" "[$profile] exists but does not authenticate — the key is wrong or has been revoked. Ask for a fresh one and install it with 'engine env setup --aws-key <path>'. (If this is your HUMAN profile whose session lapsed, that one is fixed with 'aws login' — but an agent profile never lapses, so this is not that.)"
@@ -692,6 +694,41 @@ _agent_profile_verify() {
     [ "$i" -lt "$tries" ] && sleep 2
   done
   return 1
+}
+
+# ── _sts_probe_cached <profile> ───────────────────────────────────────────────
+#
+# An `aws sts` call is a process spawn plus a network round trip — on a machine that
+# scans every exec it measured 4.5s, which alone would keep the doctor off a skill
+# startup path. A session's validity does not change second to second, so a SUCCESS is
+# remembered briefly.
+#
+# ⚠️ Success only, and only in the DOCTOR. A failure is never cached: an expired session
+# is the thing this is here to notice, and a sticky failure would keep reporting one
+# after `aws login` fixed it. Provisioning and key installation always probe live —
+# there, a cached yes about a rotated key would be a wrong answer with consequences.
+_sts_probe_cached() {
+  local profile="$1" ttl="${ENV_STS_CACHE_TTL:-300}" cdir cfile now mtime age
+  if [ -n "${ENV_STS_ARN+set}" ]; then printf '%s' "$ENV_STS_ARN"; return 0; fi
+  command -v aws >/dev/null 2>&1 || return 1
+  cdir="${XDG_CACHE_HOME:-$HOME/.cache}/engine"
+  mkdir -p "$cdir" 2>/dev/null && cfile="$cdir/sts-${profile//[^A-Za-z0-9_.-]/_}"
+  if [ -n "$cfile" ] && [ -z "${ENV_STS_NO_CACHE:-}" ] && [ -f "$cfile" ] && [ "$ttl" -gt 0 ] 2>/dev/null; then
+    now="$(date +%s)"
+    mtime="$(stat -f %m "$cfile" 2>/dev/null || stat -c %Y "$cfile" 2>/dev/null || echo 0)"
+    age=$(( now - mtime ))
+    if [ "$age" -ge 0 ] && [ "$age" -lt "$ttl" ]; then
+      local cached; cached="$(cat "$cfile" 2>/dev/null)"
+      [ -n "$cached" ] && { printf '%s' "$cached"; return 0; }
+    fi
+  fi
+  local arn
+  arn="$(AWS_PROFILE="$profile" aws sts get-caller-identity --profile "$profile" \
+         --query Arn --output text 2>/dev/null || true)"
+  [ -n "$arn" ] || return 1
+  [ -n "$cfile" ] && ( umask 077; printf '%s' "$arn" > "$cfile" ) 2>/dev/null || true
+  printf '%s' "$arn"
+  return 0
 }
 
 _agent_key_verify_env() {
