@@ -34,7 +34,7 @@
 #   engine env env-example [--domain <name>]      Print the manifest-derived `.env.example` to
 #                                                 stdout (secret NAMES with empty values, non-
 #                                                 secret defaults filled). Redirect to a file.
-#   engine env provision --tier <triage|engineer> [--person <name>] [--account <id>]
+#   engine env provision --tier <triage|member> [--person <name>] [--account <id>]
 #                        [--apply] [--reconcile] [--clerk-only] [--no-clerk]
 #                        [--email <addr>] [--out <path>]
 #                                                 Derive the agent's IAM policy FROM THE
@@ -210,8 +210,24 @@ key_present() {
       [ "$rc" -eq "$ENV_NO_ANCHOR_RC" ] && return 3
       return 1 ;;
     env-present)
-      [ -n "${!key:-}" ] && return 0
-      return 1 ;;
+      [ -n "${!key:-}" ] || return 1
+      # An AWS profile NAME being set says nothing about whether it still authenticates,
+      # and a human profile carries login_session — it expires daily by design. Reporting
+      # the name as PASS meant pointing at a DEAD profile scored better than leaving it
+      # unset: 23 PASS/4 WARN became 24 PASS/3 WARN. Same shape as a placeholder value.
+      # The agent-profile check already makes this call; this is the same probe, reused.
+      case "$key" in
+        AWS_PROFILE|*_AWS_PROFILE)
+          if [ -n "${ENV_STS_ARN+set}" ]; then
+            echo "env: ⚠️  TEST SEAM ACTIVE — ENV_STS_ARN is set (no AWS call was made)" >&2
+            return 0
+          fi
+          command -v aws >/dev/null 2>&1 || return 0   # cannot check ≠ broken; BIN_AWS owns that
+          AWS_PROFILE="${!key}" aws sts get-caller-identity --profile "${!key}" \
+            --query Arn --output text >/dev/null 2>&1 && return 0
+          return 5 ;;
+      esac
+      return 0 ;;
     binary)
       command -v "$arg" >/dev/null 2>&1 && return 0
       return 1 ;;
@@ -250,6 +266,7 @@ MCP_PROBE_CAUSE=""
 MCP_SECONDS_PER_SERVER=8
 MCP_LIST_OUT=""
 MCP_UNBOUNDED=""
+MCP_CACHE_AGE=""
 _MCP_PROBED=""
 _MCP_FS=$'\037'
 
@@ -280,9 +297,46 @@ mcp_list_output() {
   else MCP_UNBOUNDED=1; fi
 
   anchor="$(env_anchor_dir 2>/dev/null)" || anchor="$PWD"
+  # ── cache ──────────────────────────────────────────────────────────────────
+  # `claude mcp list` is essentially the entire runtime of this command — ~9s against
+  # ~2s for everything else — which is what stops the doctor being runnable at skill
+  # startup. MCP auth state changes only when someone completes an OAuth consent, so it
+  # is worth remembering for a short while.
+  #
+  # ⚠️ Only a SUCCESSFUL probe is cached. Remembering a timeout would make one transient
+  # hiccup stick for the whole TTL, and the doctor treats unverifiable as failing — so a
+  # cached failure would block a wave that is actually fine.
+  local cache_ttl="${ENV_MCP_CACHE_TTL:-300}" cache_file="" cache_age=""
+  if [ "$cache_ttl" -gt 0 ] 2>/dev/null; then
+    local akey
+    akey="$(printf '%s' "${anchor:-.}" | shasum -a 256 2>/dev/null | cut -c1-16)"
+    # A STABLE directory, not $TMPDIR. Some shells and sandboxes hand out a fresh TMPDIR
+    # per invocation, and a cache that moves is a cache that never hits — it would look
+    # like caching had simply not worked.
+    local cdir="${XDG_CACHE_HOME:-$HOME/.cache}/engine"
+    mkdir -p "$cdir" 2>/dev/null || cdir="${TMPDIR:-/tmp}"
+    [ -n "$akey" ] && cache_file="${cdir}/mcp-probe-${akey}"
+  fi
+  if [ -n "$cache_file" ] && [ -z "${ENV_MCP_NO_CACHE:-}" ] && [ -f "$cache_file" ]; then
+    local now mtime
+    now="$(date +%s)"
+    mtime="$(stat -f %m "$cache_file" 2>/dev/null || stat -c %Y "$cache_file" 2>/dev/null || echo 0)"
+    cache_age=$(( now - mtime ))
+    if [ "$cache_age" -ge 0 ] && [ "$cache_age" -lt "$cache_ttl" ]; then
+      MCP_LIST_OUT="$(cat "$cache_file" 2>/dev/null)"
+      if [ -n "$MCP_LIST_OUT" ]; then
+        MCP_CACHE_AGE="$cache_age"
+        return 0
+      fi
+    fi
+  fi
+
   MCP_LIST_OUT="$(cd "$anchor" 2>/dev/null && $t claude mcp list 2>/dev/null)"; rc=$?
   if [ "$rc" -ne 0 ] && [ -n "$t" ]; then MCP_PROBE_CAUSE="timed-out"; MCP_LIST_OUT=""; return 0; fi
   [ -z "$MCP_LIST_OUT" ] && MCP_PROBE_CAUSE="empty"
+  if [ -n "$MCP_LIST_OUT" ] && [ -n "$cache_file" ]; then
+    ( umask 077; printf '%s' "$MCP_LIST_OUT" > "$cache_file" ) 2>/dev/null || true
+  fi
   return 0
 }
 
@@ -419,6 +473,12 @@ cmd_doctor() {
       note "$key" "not checked (no session anchor)"
       continue
     fi
+    if [ "$rc" -eq 5 ]; then
+      # Severity follows `required`, as every other miss does. A lapsed HUMAN profile is
+      # expected and routine, so on a triage row this warns rather than blocking.
+      report_miss "$required" "$key" "is set to '${!key:-?}', but that profile does not authenticate — the session has expired or the profile is gone. Run 'aws login' (an agent profile never lapses; a human one does). ($service)"
+      continue
+    fi
     if [ "$rc" -eq 4 ]; then
       # PRESENT BUT A STAND-IN. Reporting this green would mean the doctor's whole
       # output stops being evidence: the row is set, and set to something that cannot work.
@@ -494,6 +554,12 @@ cmd_doctor() {
   # ⚠️ A SEAM-INFLUENCED RUN MUST NEVER LOOK GREEN. The seams are settable by anyone and
   # `Bash(engine *)` is blanket-allowed, so an unmarked green here would be a bypass of
   # the very gate Phase 0 relies on.
+  # A cached MCP verdict is still a verdict about a moment that has passed. Say so, so a
+  # green nobody re-probed cannot be mistaken for one that was just checked.
+  if [ -n "${MCP_CACHE_AGE:-}" ]; then
+    printf "${CYAN}note:${NC} MCP state was read from cache (%ss old, TTL %ss). Re-run with ENV_MCP_NO_CACHE=1 to probe live.\n" \
+      "$MCP_CACHE_AGE" "${ENV_MCP_CACHE_TTL:-300}"
+  fi
   local _seams; _seams="$(env_active_seams)"
   if [ -n "$_seams" ]; then
     printf "${YELLOW}⚠️  SEAM-INFLUENCED RUN — this result was produced with test seams set:%s${NC}\n" "$_seams"
@@ -534,7 +600,7 @@ check_aws_agent_profile() {
 
   profile="$(resolve_env_key FINCH_AGENT_AWS_PROFILE 2>/dev/null)" || profile=""
   if [ -z "$profile" ]; then
-    fail "AWS agent profile" "FINCH_AGENT_AWS_PROFILE is not set — install your delivered key with 'engine env setup --aws-key <path>', or self-provision with 'engine env provision --person <you> --tier <triage|engineer>'"
+    fail "AWS agent profile" "FINCH_AGENT_AWS_PROFILE is not set — install your delivered key with 'engine env setup --aws-key <path>', or self-provision with 'engine env provision --person <you> --tier <triage|member>'"
     return 1
   fi
 
@@ -1016,9 +1082,9 @@ cmd_provision() {
   fi
 
   case "$tier" in
-    triage|engineer) ;;
-    "") echo "env provision: --tier <triage|engineer> is required (triage = reader: DB secret + SSM tunnel; engineer = that plus S3 write for boards)" >&2; return 1 ;;
-    *)  echo "env provision: unknown tier '$tier' — use triage or engineer" >&2; return 1 ;;
+    triage|member) ;;
+    "") echo "env provision: --tier <triage|member> is required (member = the normal tier: read the DB secret, tunnel, AND publish boards; triage = the reduced one, no publishing)" >&2; return 1 ;;
+    *)  echo "env provision: unknown tier '$tier' — use member or triage. ('engineer' was renamed: publishing a board is not an engineering act, and everyone who triages needs it.)" >&2; return 1 ;;
   esac
 
   person="$(env_infer_person "$person")" || return 1
@@ -1032,14 +1098,17 @@ cmd_provision() {
   # ---- derive resources FROM THE MANIFEST ----
   local key service required secret default dotfile how check arg src sname sfield sregion sprofile
   local db_secret="" region="" bucket="" prefix="" bastion_tag="" login_secret=""
+  local state_prefix="" events_prefix=""
   while IFS=$'\037' read -r key service required secret default dotfile how check arg src sname sfield sregion sprofile; do
     case "$key" in
       FINCH_DB_RO_SECRET) db_secret="${sname:-$default}" ;;
       FINCH_BASTION_TAG)  bastion_tag="$default" ;;
       FINCH_AGENT_APP_*)  login_secret="$sname" ;;
       AWS_REGION)         region="$default" ;;
-      PROVE_S3_BUCKET)    [ "$tier" = "engineer" ] && bucket="$default" ;;
-      PROVE_S3_PREFIX)    [ "$tier" = "engineer" ] && prefix="$default" ;;
+      PROVE_S3_BUCKET)        [ "$tier" = "member" ] && bucket="$default" ;;
+      PROVE_S3_PREFIX)        [ "$tier" = "member" ] && prefix="$default" ;;
+      PROVE_S3_STATE_PREFIX)  [ "$tier" = "member" ] && state_prefix="$default" ;;
+      PROVE_S3_EVENTS_PREFIX) [ "$tier" = "member" ] && events_prefix="$default" ;;
     esac
   done < <(manifest_rows)
   region="${region:-us-east-2}"
@@ -1082,11 +1151,47 @@ cmd_provision() {
     fi
   fi
   if [ -n "$bucket" ]; then
+    # A published board is not one upload. The page lands under the board prefix; viewers
+    # append events; the agent folds those into state under compare-and-swap (get the ETag,
+    # put with --if-match) and deletes the event it folded. Granting only the upload made
+    # the tier look like it could publish while the interactive half died on AccessDenied.
     arn="arn:aws:s3:::${bucket}/${prefix:-proofs}/*"
     if _arn_allowed "$arn"; then
       stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" '{Sid:"PublishBoards",Effect:"Allow",Action:["s3:PutObject","s3:PutObjectAcl"],Resource:[$r]}')"
     else
       dropped[${#dropped[@]}]="$arn"
+    fi
+    if [ -n "$state_prefix" ]; then
+      arn="arn:aws:s3:::${bucket}/${state_prefix}/*"
+      if _arn_allowed "$arn"; then
+        stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" '{Sid:"FoldBoardState",Effect:"Allow",Action:["s3:GetObject","s3:PutObject"],Resource:[$r]}')"
+      else
+        dropped[${#dropped[@]}]="$arn"
+      fi
+    else
+      underivable[${#underivable[@]}]="board state — no manifest row declares the state prefix (PROVE_S3_STATE_PREFIX), so the CAS fold cannot be granted."
+    fi
+    if [ -n "$events_prefix" ]; then
+      # No PutObject: events are written by VIEWERS through a presigned URL, not by this
+      # key. It reads each event, folds it, and deletes it.
+      arn="arn:aws:s3:::${bucket}/${events_prefix}/*"
+      if _arn_allowed "$arn"; then
+        stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" '{Sid:"DrainBoardEvents",Effect:"Allow",Action:["s3:GetObject","s3:DeleteObject"],Resource:[$r]}')"
+      else
+        dropped[${#dropped[@]}]="$arn"
+      fi
+      # ListBucket is a BUCKET-level action — it takes the bucket ARN, not an object ARN,
+      # and is confined to the event prefix by condition rather than by resource.
+      arn="arn:aws:s3:::${bucket}"
+      if _arn_allowed "$arn"; then
+        stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" --arg p "${events_prefix}/" \
+          '{Sid:"ListBoardEvents",Effect:"Allow",Action:["s3:ListBucket"],Resource:[$r],
+            Condition:{StringLike:{"s3:prefix":[($p + "*")]}}}')"
+      else
+        dropped[${#dropped[@]}]="$arn"
+      fi
+    else
+      underivable[${#underivable[@]}]="board events — no manifest row declares the events prefix (PROVE_S3_EVENTS_PREFIX), so the drain cannot be granted."
     fi
   fi
   # The tunnel's bastion is discovered BY TAG, so the grant CONDITIONS on that tag rather

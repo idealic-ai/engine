@@ -1921,12 +1921,12 @@ fi
 
 # (c) engineer adds s3:PutObject on the manifest's bucket+prefix, still derived.
 PVE=$(cd "$PROVD" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
-      "$ENV_SH" provision --person rob --tier engineer --account 924609080826 2>&1 | strip)
+      "$ENV_SH" provision --person rob --tier member --account 924609080826 2>&1 | strip)
 if printf '%s' "$PVE" | grep -q 's3:PutObject' && printf '%s' "$PVE" | grep -q 'staging-finch-proofs' \
    && printf '%s' "$PVE" | grep -q 'staging/finch/db-ro-url'; then
-  pass "--tier engineer adds s3:PutObject on the manifest's bucket, keeping the triage grants"
+  pass "--tier member adds s3:PutObject on the manifest's bucket, keeping the triage grants"
 else
-  fail "engineer tier" "s3:PutObject on staging-finch-proofs + the db secret" "$PVE"
+  fail "member tier" "s3:PutObject on staging-finch-proofs + the db secret" "$PVE"
 fi
 
 # (d) the ARN ALLOWLIST is a constant in env.sh — a manifest edit cannot widen the grant.
