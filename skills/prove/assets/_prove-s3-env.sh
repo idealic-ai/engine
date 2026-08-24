@@ -42,6 +42,21 @@ PROFILE_ARG=()
 # false branch of an && list here makes the SOURCE fail, and the sourcing script dies at its
 # `. _prove-s3-env.sh` line having printed nothing at all. PROVE_S3_PROFILE is optional (a config
 # on instance credentials sets none), so that false branch is a supported config, not an edge case.
-if [ -n "${PROVE_S3_PROFILE:-}" ]; then
-  PROFILE_ARG=(--profile "$PROVE_S3_PROFILE")
+# ONE source of AWS identity. PROVE_S3_PROFILE is an explicit override; with it unset the
+# profile is the one the doctor provisioned (FINCH_AGENT_AWS_PROFILE) — the same per-person
+# agent credential everything else uses, attributable and revocable per person and carrying
+# no login_session to expire. Two ways to name an identity was the duplication, and the
+# hand-set one had been seeded to an SSO profile that lapsed daily, so publishing broke
+# every morning while a perfectly good credential sat unused.
+#
+# Both branches are `if`s and this stays the LAST statement in the file: every sourcing
+# script runs `set -e`, and `.` returns the status of its last command, so a false `&&`
+# here would kill the caller at its source line having printed nothing. Naming no profile
+# is a supported config (instance credentials), not an edge case.
+_prove_profile="${PROVE_S3_PROFILE:-}"
+if [ -z "$_prove_profile" ]; then
+  _prove_profile="$(resolve_env_key FINCH_AGENT_AWS_PROFILE 2>/dev/null || true)"
+fi
+if [ -n "$_prove_profile" ]; then
+  PROFILE_ARG=(--profile "$_prove_profile")
 fi
