@@ -1049,7 +1049,10 @@ _provision_clerk_account() {
 
   case "$code" in
     200|201)
-      printf "  ${GREEN}ok${NC}    created Clerk user %s\n" "$(printf '%s' "$resp" | jq -r '.id // "?"' 2>/dev/null)" ;;
+      # KEEP THE ID. The app `user` row is keyed on clerk_user_id (NOT NULL, unique), so
+      # whoever creates that row needs this value — and it is returned exactly once, here.
+      PROVISION_CLERK_USER_ID="$(printf '%s' "$resp" | jq -r '.id // ""' 2>/dev/null)"
+      printf "  ${GREEN}ok${NC}    created Clerk user %s\n" "${PROVISION_CLERK_USER_ID:-?}" ;;
     422)
       # Already there. Do NOT reset the password — another provisioning run, or the
       # person themselves, may already hold it, and a silent rotation locks them out.
@@ -1428,6 +1431,19 @@ cmd_provision() {
   fi
 
   printf "${BOLD}done:${NC} %s is provisioned at the %s tier. Re-run 'engine env doctor --domain %s' to watch the FAIL clear.\n" "$user" "$tier" "$DOMAIN"
+  if [ -n "${PROVISION_CLERK_USER_ID:-}" ]; then
+    # ⚠️ NOT USABLE YET, and saying so here is the point: AWS and the identity provider
+    # are done, the application still does not know this person. The row needs write
+    # access to the app database, which nothing in this system provisions — the only DB
+    # credential it hands out is read-only, deliberately.
+    printf "\n${YELLOW}STILL REQUIRED — the app does not know %s yet.${NC}\n" "$user"
+    printf "  An app 'user' row must exist before the account can do anything:\n"
+    printf "    clerk_user_id   %s\n" "$PROVISION_CLERK_USER_ID"
+    printf "    email           %s\n" "$email"
+    printf "    role            agent\n"
+    printf "    organization_id <required, NOT NULL — an agent redirects org per request, so this is its home org>\n"
+    printf "  This needs DB WRITE access. It is not part of provisioning yet.\n"
+  fi
   return 0
 }
 
