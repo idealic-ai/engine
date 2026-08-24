@@ -1141,6 +1141,12 @@ cmd_provision() {
   local db_secret="" region="" bucket="" prefix="" bastion_tag="" login_secret=""
   local state_prefix="" events_prefix=""
   while IFS=$'\037' read -r key service required secret default dotfile how check arg src sname sfield sregion sprofile; do
+    # ⚠️ A `provisioner` ROW IS NEVER GRANTED. These are credentials the person running
+    # this command needs and the agent must never hold — the read-write database URL
+    # above all. Skipping them here, before any key is examined, makes that structural:
+    # a new provisioner-only row cannot reach a policy by being forgotten in the case
+    # below, which is the only way it could have leaked.
+    [ "$required" = "provisioner" ] && continue
     case "$key" in
       FINCH_DB_RO_SECRET) db_secret="${sname:-$default}" ;;
       FINCH_BASTION_TAG)  bastion_tag="$default" ;;

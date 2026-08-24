@@ -2723,4 +2723,51 @@ done
 [ -z "${_fixgap:-}" ] && pass "the all-connected fixture lists every server the manifest declares"
 
 
+# ══ 45. the `provisioner` tier is never granted (8/2) ═════════════════════════
+#
+# Some credentials the PROVISIONER needs, the agent must never hold — the read-write
+# database URL above all, since an agent holding it could rewrite the data it is only
+# meant to read. Every other tier in the vocabulary describes something an agent MAY be
+# granted, so this one had to be excluded structurally rather than by remembering.
+echo "Test 45: provisioner tier"
+PROVT=$(jq -r '[.credentials[] | select(.required=="provisioner") | .key] | join(",")' "$MANIFEST")
+if [ -n "$PROVT" ]; then
+  pass "the manifest declares provisioner-only rows ($PROVT)"
+else
+  fail "provisioner rows exist" "at least one" "none"
+fi
+
+# (a) STRUCTURAL: the derivation skips them before any key is examined, so a new
+#     provisioner row cannot reach a policy by being forgotten in the case below.
+if grep -q '\[ "$required" = "provisioner" \] && continue' "$ENV_SRC"; then
+  pass "the policy derivation skips provisioner rows before matching any key"
+else
+  fail "structural exclusion" "an early continue on required=provisioner" "absent"
+fi
+
+# (b) BEHAVIOURAL: neither tier's derived policy may name a provisioner row's value.
+PROV_LEAK=0
+for _t in triage member; do
+  _out=$(cd "$WORK" && env -u ENV_MANIFEST -u ENV_STS_ARN -u ENV_DRIVE_ROOT -u ENV_AWS_HOME \
+         "$ENV_SH" provision --person rob --tier "$_t" --account 924609080826 </dev/null 2>&1 | strip)
+  for _k in $(jq -r '.credentials[] | select(.required=="provisioner") | .default // empty' "$MANIFEST"); do
+    case "$_out" in *"$_k"*) PROV_LEAK=1 ;; esac
+  done
+done
+if [ "$PROV_LEAK" -eq 0 ]; then
+  pass "no provisioner-only value appears in any derived policy (triage or member)"
+else
+  fail "no provisioner leak" "no provisioner value in a policy" "leaked"
+fi
+
+# (c) The read-write URL must never be written to a dotfile. It is a `note` row, so the
+#     wizard skips it — but the property is worth asserting, not inferring from a type.
+RWD=$(jq -r '.credentials[] | select(.key=="FINCH_DB_RW_SECRET") | "\(.check.type)|\(.dotfile)"' "$MANIFEST")
+if [ "$RWD" = "note|" ]; then
+  pass "the read-write DB url is a note with no dotfile — fetched at runtime, never stored"
+else
+  fail "rw url never stored" "note| (no dotfile)" "$RWD"
+fi
+
+
 exit_with_results
