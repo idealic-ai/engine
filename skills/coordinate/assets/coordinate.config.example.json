@@ -1,0 +1,33 @@
+{
+  "confidenceThreshold": 0.7,
+  "alwaysEscalate": [
+    "git operations",
+    "file deletion",
+    "database changes",
+    "security decisions",
+    "architecture changes",
+    "PR creation",
+    "deployment",
+    "dependency changes"
+  ],
+  "alwaysLog": [
+    "architecture decisions",
+    "dependency changes",
+    "test strategy"
+  ],
+  "preEscalation": {
+    "enabled": true,
+    "probeMessage": "Before I decide, can you briefly explain what led to this question and what you'd recommend?"
+  },
+  "timeouts": {
+    "waitTimeout": 300,
+    "consecutiveTimeoutLimit": 10,
+    "idleHeartbeatInterval": 3
+  },
+  "logging": {
+    "logAutonomousDecisions": true,
+    "logEscalations": true,
+    "logProbes": true,
+    "logRoutineSkips": false
+  }
+}
