@@ -88,9 +88,19 @@ rewrite it as a property of the defect. Rank by value if there are more than thr
 [📄 <name>-dossier.md](<assetUrl>)
 ```
 
-**Evidence rides the comment** (`¶INV_CHANNEL_EVIDENCE_RIDES_THE_COMMENT`): the dossier link must be **alone in its own block with nothing after it on that line**, or Linear renders it as plain text instead of a preview card. **One link, not several** — bundle the *prose* workings into a single dossier rather than competing for the reader's attention with four cards.
+**Evidence rides the comment** (`¶INV_CHANNEL_EVIDENCE_RIDES_THE_COMMENT`): every attachment link must be **alone in its own block with nothing after it on that line**, or Linear renders it as plain text instead of a preview card.
 
-**A repro script is the one exception, and it is not really an exception.** The rule above is about prose competing for one reader's attention. An executable repro is read by a *different person for a different purpose* — whoever takes the fix runs it — so it uploads as **its own attachment, one per triage run that wrote one**, each named for its run and angle. Fenced inside the dossier it would have to be found, extracted, un-fenced and re-named before it could run, which is precisely the cost the attachment exists to remove.
+**ONE CARD PER KIND OF READER — not one card total.** The old wording said *"one link, not several"*, and it was already false in practice: triangulated runs have been shipping a readable report beside the dossier for a while, and nobody flagged it because the extra card reads better than the rule. A count nothing obeys is worse than no rule. What actually matters is that each card answers a different person's question:
+
+| card | who opens it | what they want |
+| --- | --- | --- |
+| **the synthesis** — `inbox-triage-<origin-id>.md` | the person who owns the bug, after reading the comment | the findings in full, without the method |
+| **the dossier** — `…-dossier.md` | whoever audits or maintains the method | everything: adjudication, both angle reports, the context pack |
+| **the repro** — `…-repro.<ext>`, one per angle that wrote one | whoever takes the fix | something they can run |
+
+**Do not bundle across rows of that table, and do not duplicate within one.** Two reports for the same reader is the failure the old rule was reaching for; a script fenced inside a 130 KB dossier is a different failure, because the person who needs it has to extract it before it runs. If you are about to add a card, name the reader it is for — if that reader already has one, it belongs *inside* theirs.
+
+The canonical invariant is permissive about count on purpose: it governs the *mechanism* — comment-level via `prepare_attachment_upload`, never a ticket-level attachment — and says outright that **every** file attaches that way. The count was only ever presentation guidance, and the table above is what that guidance was trying to say.
 
 Ticket keys render via `§FMT_TICKET_LINK`; specific comments via `§FMT_TICKET_COMMENT_LINK`.
 
