@@ -30,6 +30,8 @@ Triangulation is the established name for the fix: check a finding from **differ
 
 Invoke when the item is heading for **a ticket, a decision, or a claim in a Project Update** — the three places a wrong finding becomes expensive and durable. A signal that will marinate does not need it.
 
+**One standing exception, and it is not a contradiction: `/inbox-post` runs this on every drop it posts** that has something checkable in it. The warning above is about sweeping a backlog nobody will act on, where two matching answers manufacture agreement theatre. A drop someone has just written is the opposite — it is an item with a person behind it, waiting. **Measured**: two drops on [FIN-3445](https://linear.app/finchclaims/issue/FIN-3445) sat 17 days unanswered while the answer already existed on the record, folded into a ticket the reporter could not see from their thread. **Per item, by judgement** still governs everything else; a fresh drop is where the judgement has already been made.
+
 ---
 
 ## 1. Inputs — everything `/inbox-triage` takes, plus the angles

@@ -1,6 +1,6 @@
 ---
 name: inbox-post
-description: "Post an item into a project's intake inbox — resolves the Linear Project, classifies the item into the best-fit inbox channel, fills that channel's reporter template, and posts it as a comment. The quick front-door companion to /intake (which then organizes, marinates, and promotes). Triggers: \"drop this into the inbox\", \"post an inbox item\", \"file this to observed problems\", \"report this bug to intake\", \"inbox-post\"."
+description: "Post an item into a project's intake inbox — resolves the Linear Project, classifies the item into the best-fit inbox channel, fills that channel's reporter template, and posts it as a comment — then triangulates what it posted and replies to the drop with the finding, so an item arrives with an answer under it instead of waiting for the next wave. The front-door companion to /intake (which then organizes, marinates, and promotes). Triggers: \"drop this into the inbox\", \"post an inbox item\", \"file this to observed problems\", \"report this bug to intake\", \"inbox-post\"."
 version: 1.0
 tier: lightweight
 args: "[item text or hint]"
@@ -15,7 +15,8 @@ Quick front-door for the intake system: drops one well-formed item into the righ
 ## What it does (and does not)
 
 *   **It does**: post one item into the correct intake **Inboxes** channel of the correct Linear Project — resolve the project, classify the item into the best-fit channel, fill that channel's reporter template from `assets/CHANNEL_TEMPLATES.md`, and post it as a comment via `§CMD_POST_TICKET_COMMENT`.
-*   **It does NOT**: promote to a tracked ticket (that's `/intake`'s ripeness gate), organize/dedup, or execute the work. It just drops a clean, template-shaped item into the inbox for `/intake` to pick up.
+*   **It also**: triangulates what it just posted, by default, and replies to the drop with the finding (step 5). The drop lands first and is never blocked on the investigation.
+*   **It does NOT**: promote to a tracked ticket (that's `/intake`'s ripeness gate), organize/dedup, or execute the work. It drops a clean, template-shaped item into the inbox for `/intake` to pick up — now with an answer already under it.
 
 ## Reference assets (read at boot)
 
@@ -66,8 +67,27 @@ Quick front-door for the intake system: drops one well-formed item into the righ
     *   If the evidence is a `/prove` proof with a public **S3 URL**, referencing that URL in the body is also fine (`§INV_PROVE_S3_URL_IS_SHAREABLE`) — the point is the reader can open it without the author's session.
 *   Post the filled template as a comment via `§CMD_POST_TICKET_COMMENT` — the canonical path (subscribe-check → `save_comment` → sibling-notify), so the post is never a bare `save_comment`.
 
-### 5. Report
-*   Output the posted comment as a labeled link (`§FMT_TICKET_LINK`) + which project/channel it landed in. Done — no session ceremony.
+### 5. Triangulate what you just posted — the default, not the exception
+
+**The drop is already safe.** It was posted in step 4 and nothing below can undo it. Everything here is additive: if the investigation is skipped, interrupted or fails, the item still stands in the channel exactly as dropped.
+
+**Run it when the drop has something checkable in it** — it asserts something about the product, reports a defect, or is too thin to act on. **Skip it, and say so in one line**, for a pure feature idea with no claim in it, a documentation request, or an item the thread has already answered. The skip line matters: *"not triangulated — a feature request, nothing to check"* tells the next reader the silence was a decision.
+
+**Why the default is ON, against `/inbox-triangulate`'s own "never universally".** That warning is aimed at running it over a backlog nobody will act on, where matching answers manufacture agreement theatre. A drop someone just took the trouble to write is the opposite case. **Measured, on this project**: two drops on [FIN-3445](https://linear.app/finchclaims/issue/FIN-3445) sat **17 days with no reply**, and the triage that eventually ran found the answer had existed the whole time — folded into a ticket the reporter had no way to learn about. A sibling drop on another channel got its answer in 5½ hours. The cost of the second angle is real; the cost of a drop nobody answers is a reporter who stops dropping.
+
+**How:**
+1.  **Dispatch `/inbox-triangulate` on the comment you just posted**, passing its **comment id** and the channel ticket. It runs the two angles and, if they need reconciling, the adjudicator.
+2.  **The result posts as a REPLY on your drop** — `parentId` = the comment you just created — never as a new top-level comment on the channel. A channel is a frozen collector of hundreds of drops; an answer that lands at the top is severed from its question.
+3.  **Wait for it, and say you are waiting.** Today `/inbox-post` runs in the main loop, so the sub-agents are children of this live session and die with it. Blocking is what makes the reply reliable. Report progress rather than going silent for ten minutes — the runs are ~10–15 minutes and ~2× a single triage in tokens, and a reader who does not know that will assume something hung.
+4.  **If the user interrupts, say plainly what survived**: the drop is posted, the reply is not. Never imply an investigation landed when it did not (`¶INV_TERMINAL_PRODUCER_POSTS`).
+
+**Two things to pass the run, because they change what it should conclude:**
+*   **The thread has no replies yet — you just created it.** `¶INV_REPLIES_ARE_SIGNAL` tells a triage run that a body without its replies means the caller withheld material. Here there are none to withhold, so say so; otherwise the run reports a gap that does not exist.
+*   **Relate is the highest-value step on a fresh drop**, and it is the one that would have closed the 17-day gap: the answer may already be on the record, in a ticket the reporter cannot see from their own thread.
+
+### 6. Report
+*   Output the posted comment as a labeled link (`§FMT_TICKET_LINK`) + which project/channel it landed in.
+*   Then the investigation's outcome: the reply's link if it posted, the one-line reason if it was skipped, or what survived if it was interrupted. **Both facts, always** — a report that names only the drop reads as though nothing was ever going to follow it.
 
 ## Keeping the registry fresh
 
