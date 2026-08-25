@@ -69,6 +69,29 @@ This is the **announce** destination only — one per project, where a completed
 
 Verify a project's Slack setup before its first announce: `engine slack-post --verify --channel '#name'` checks token, scopes, channel and bot membership, and self-joins when `channels:join` is granted.
 
+## Initiatives — the domain a project belongs to
+
+🔴 **NOT YET CREATED, and not yet creatable by any agent.** Initiatives are disabled in the Finchclaims workspace — a probe returns *"Initiative status updates are not enabled for this workspace… enable roadmaps to use initiatives."* Someone has to switch them on (Settings → Initiatives) and create the four **by hand in the UI**, because the MCP has **no `list_initiatives`, no `get_initiative`, no `save_initiative`**. Until that happens, treat every row below as a plan, not a fact.
+
+**What a wave CAN do once they exist**: attach a project — `save_project(addInitiatives: ["Platform"])` — and comment on, document, or post status updates against one. Attach-only: a wave joins an initiative whose name it is given, and can neither enumerate nor create one. **So the attach step fails soft and never blocks a scaffold.**
+
+**Why an initiative rather than a saved view**: a view is a *filter*, and a domain is not filterable — no field on a Linear project says "this is a Platform concern". An initiative is a **curated** set, which is exactly the shape of a judgement call. Views remain the right tool for anything derivable from a property (status, health, lead, name prefix).
+
+The cut below covers the 15 `Product: *` projects; owners were read off existing project leads rather than assigned. Decided 2026-08-26 (Yarik Fedin).
+
+| Initiative | Owner | Projects |
+|---|---|---|
+| **Platform** | Bruno Gomes | API · Console · Intake System · Report Design System |
+| **Claim Data** | Yarik Fedin | Document Extraction · Claims & Policies · Email Classification · Ask Finch |
+| **Adjuster Surfaces** | Thomas McLaughlin | Mobile · Dates & Notifications · Session QA · Differ |
+| **New Markets** | Thomas McLaughlin | Leads · Preloss B2B · Claims Data Consortium |
+
+*Three judgement calls, recorded so they are not silently re-litigated:* **Ask Finch → Claim Data** (filed by its hard problem, grounding and trust in the data, not by the fact that it is user-facing) · **Session QA → Adjuster Surfaces** (filed by its subject, what a customer hit, not by how it is built, which is internal machinery) · **Differ → Adjuster Surfaces "for now"** (it would otherwise be an initiative of one; expect it to graduate back out when Differ PLG and Standalone Differ GTM come into scope, which is a reversible move).
+
+⚠️ **Name-collision trap**: *Product: Claims Data Consortium* is a **business** — a pooled industry data product — and belongs to **New Markets**, not to Claim Data. The names actively invite the wrong grouping.
+
+⚠️ **Two axes considered and dropped**: **Integrations** would be empty under a `Product: *` scope (Gmail generalization, ClaimWizard migration and Weather Event all live outside it; the MCP surface sits inside Console), and **Differ** as its own initiative held exactly one project. Both become viable if the scope widens past `Product: *` — recorded so the next person does not re-derive them.
+
 ---
 
 ## Product: Claims & Policies
