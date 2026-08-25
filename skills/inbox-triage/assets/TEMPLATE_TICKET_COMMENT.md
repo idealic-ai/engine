@@ -88,7 +88,9 @@ rewrite it as a property of the defect. Rank by value if there are more than thr
 [📄 <name>-dossier.md](<assetUrl>)
 ```
 
-**Evidence rides the comment** (`¶INV_CHANNEL_EVIDENCE_RIDES_THE_COMMENT`): the dossier link must be **alone in its own block with nothing after it on that line**, or Linear renders it as plain text instead of a preview card. **One link, not several** — bundle the workings into a single dossier rather than competing for the reader's attention with four cards.
+**Evidence rides the comment** (`¶INV_CHANNEL_EVIDENCE_RIDES_THE_COMMENT`): the dossier link must be **alone in its own block with nothing after it on that line**, or Linear renders it as plain text instead of a preview card. **One link, not several** — bundle the *prose* workings into a single dossier rather than competing for the reader's attention with four cards.
+
+**A repro script is the one exception, and it is not really an exception.** The rule above is about prose competing for one reader's attention. An executable repro is read by a *different person for a different purpose* — whoever takes the fix runs it — so it uploads as **its own attachment, one per triage run that wrote one**, each named for its run and angle. Fenced inside the dossier it would have to be found, extracted, un-fenced and re-named before it could run, which is precisely the cost the attachment exists to remove.
 
 Ticket keys render via `§FMT_TICKET_LINK`; specific comments via `§FMT_TICKET_COMMENT_LINK`.
 
