@@ -372,7 +372,6 @@ All handoff-related commands are defined in `~/.claude/.directives/COMMANDS.md`.
 **`§CMD_TAG_FILE`** — Add tag to file's Tags line
 **`§CMD_UNTAG_FILE`** — Remove tag from file's Tags line
 **`§CMD_SWAP_TAG_IN_FILE`** — Atomically swap one tag for another
-**`§CMD_MANAGE_ALERTS`** — Raise/resolve alerts during synthesis
 
 ---
 

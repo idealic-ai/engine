@@ -621,6 +621,15 @@ _process_rules() {
     return 0
   fi
 
+  # --- Step 6d: appliesTo scoping ---
+  # A rule may declare `appliesTo` (a tool-name array); it then fires ONLY for those tools.
+  # null/absent → fires for every tool (default). Scopes the heartbeat gate to reads
+  # (Read/Grep/Glob) so writes, every MCP tool (now and future), Bash, etc. are never blocked
+  # — robust where a bypass whitelist can't be (the matcher can't glob tool names like mcp__*).
+  matched_rules=$(echo "$matched_rules" | jq --arg t "$TOOL_NAME" '
+    [ .[] | select((.appliesTo == null) or ((.appliesTo | type == "array") and (.appliesTo | index($t) != null))) ]
+  ')
+
   # --- Step 7: Separate blocking vs allow ---
   local blocking_rules allow_rules
   blocking_rules=$(echo "$matched_rules" | jq '[.[] | select(.urgency == "block" or .urgency == "interrupt")]')

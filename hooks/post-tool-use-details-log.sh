@@ -23,10 +23,10 @@ set -euo pipefail
 source "$HOME/.claude/scripts/lib.sh"
 
 # Escape lifecycle tag references to prevent tag.sh find pollution (¶INV_ESCAPE_BY_DEFAULT)
-# Wraps bare #needs-*, #delegated-*, #next-*, #claimed-*, #done-*, #active-alert in backticks.
+# Wraps bare #needs-*, #delegated-*, #next-*, #claimed-*, #done-* in backticks.
 # Skips already-backticked tags. Uses perl for negative lookbehind (BSD sed lacks it).
 escape_tags() {
-  perl -pe 's/(?<!`)#((?:needs|delegated|next|claimed|done)-\w+|active-alert)(?![\w-])(?!`)/`#$1`/g'
+  perl -pe 's/(?<!`)#((?:needs|delegated|next|claimed|done)-\w+)(?![\w-])(?!`)/`#$1`/g'
 }
 
 # Read hook input from stdin

@@ -64,7 +64,6 @@ This document provides the operational reference for the tag system's complete l
 | 11 | `§CMD_RESOLVE_CROSS_SESSION_TAGS` | Synthesis of a completing session | Scans OTHER sessions, swaps `#needs-X` → `#done-X` |
 | 12 | `/review` | Manual invocation | `#needs-review` → `#done-review` (or `#needs-rework`) |
 | 13 | `/document` | Manual invocation | `#needs-documentation` → `#done-documentation` |
-| 14 | `§CMD_MANAGE_ALERTS` | Synthesis step | Raises `#active-alert` / resolves → `#done-alert` |
 
 ---
 

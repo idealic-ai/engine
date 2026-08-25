@@ -2,14 +2,14 @@
 **Definition**: Present discovered context as a category-level multi-select menu before work begins. Uses `§CMD_DECISION_TREE` with `§ASK_CONTEXT_INGESTION`.
 **Rule**: STOP after init. Enter this phase. Do NOT load files until user responds.
 
-**Source sections**: Activate outputs: `## SRC_ACTIVE_ALERTS`, `## SRC_OPEN_DELEGATIONS`, `## SRC_PRIOR_SESSIONS`, `## SRC_RELEVANT_DOCS`, `## SRC_RELATED_TICKETS`, `## SRC_DELEGATION_TARGETS`. Each contains file paths with distance scores (one per line) or `(none)`, except `SRC_RELATED_TICKETS` (ticket excerpt lines `[KEY] title · state · score`) and delegation targets (a table).
+**Source sections**: Activate outputs: `## SRC_OPEN_DELEGATIONS`, `## SRC_PRIOR_SESSIONS`, `## SRC_RELEVANT_DOCS`, `## SRC_RELATED_TICKETS`, `## SRC_DELEGATION_TARGETS`. Each contains file paths with distance scores (one per line) or `(none)`, except `SRC_RELATED_TICKETS` (ticket excerpt lines `[KEY] title · state · score`) and delegation targets (a table).
 
 **Algorithm**:
 1.  Auto-load `contextPaths` from session parameters (explicitly requested — no menu needed).
 2.  Parse activate's sections. Group into **5 categories**:
     *   **Sessions**: `SRC_PRIOR_SESSIONS` results
     *   **Docs**: `SRC_RELEVANT_DOCS` results
-    *   **Operational**: `SRC_ACTIVE_ALERTS` + `SRC_OPEN_DELEGATIONS` combined
+    *   **Operational**: `SRC_OPEN_DELEGATIONS`
     *   **Tickets**: `SRC_RELATED_TICKETS` results — related/duplicate Linear tickets. **Load-action differs**: selecting Tickets does NOT load a file (the other 3 do); it **dispatches the `/ticket-search` skill in startup mode** (see step 6), which navigates the SRC_RELATED_TICKETS candidates via its read-only subagent and returns the related/duplicate report.
     *   **Subscribed**: the session's own tickets from `.state.json:tickets[]` (auto-subscribed at activation from the `tickets` param). **Load-action = a cold read**: `engine ticket fetch <all subscribed keys>` with **no `--since`** (the full current thread — comment trees with reactions + lifecycle + attachments), written to a payload file you then read into context. Richer than the shallow `SRC_RELATED_TICKETS` snippet — it's the *complete* state of the tickets you're actually working. The cursor `W` is already seeded (subscribe stamped `.ticketCursor` at activation), so subsequent wake-drains ride this baseline (`¶INV_FULL_READ_SEEDS_CURSOR`). **Pre-select this category** when `.state.json:tickets[]` is non-empty — the user can prune it (`¶INV_OFFER_DONT_FORCE_SKILLS`).
 3.  **Curate** — For each non-empty category, select the **top 3** results by distance score (lower = more similar; for Tickets, higher relevance score = better — take the top 3). Drop results that are clearly off-topic despite a good score. No discretionary expansion — fixed top 3.
@@ -35,7 +35,7 @@ Extras: [agent-generated contextual suggestion packages — combos of categories
 - [ ] Docs
   Top 3 RAG doc matches by relevance (curated from SRC_RELEVANT_DOCS)
 - [ ] Operational
-  All active alerts + open delegations (SRC_ACTIVE_ALERTS + SRC_OPEN_DELEGATIONS)
+  Open delegations (SRC_OPEN_DELEGATIONS)
 - [ ] Tickets
   Related/duplicate Linear tickets (from SRC_RELATED_TICKETS) — selecting this dispatches the `/ticket-search` skill (not a file-load)
 - [ ] Subscribed

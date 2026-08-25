@@ -42,6 +42,8 @@
       "Bash(engine find-sessions *)",
       "Bash(engine doc-search *)",
       "Bash(engine discover-directives *)",
+      "Bash(engine project next)",
+      "Bash(engine project next *)",
       "Read(*/.claude/*)",
       "Read(*/CLAUDE.md)",
       "Read(*/memory/*)",
@@ -73,6 +75,8 @@
       "Bash(engine find-sessions *)",
       "Bash(engine doc-search *)",
       "Bash(engine discover-directives *)",
+      "Bash(engine project next)",
+      "Bash(engine project next *)",
       "Bash(engine log *)"
     ]
   },
@@ -101,6 +105,7 @@
   {
     "id": "heartbeat-warn",
     "description": "Warn agent to log progress (§CMD_LOG_BETWEEN_TOOL_USES) at warn threshold",
+    "appliesTo": ["Read", "Grep", "Glob"],
     "trigger": {
       "type": "perTranscriptToolCount",
       "condition": { "eq": 3 }
@@ -126,6 +131,7 @@
   {
     "id": "heartbeat-block",
     "description": "Block agent until it logs progress (§CMD_LOG_BETWEEN_TOOL_USES) at block threshold",
+    "appliesTo": ["Read", "Grep", "Glob"],
     "trigger": {
       "type": "perTranscriptToolCount",
       "condition": { "gte": 10 }

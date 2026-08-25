@@ -276,7 +276,6 @@ The `#needs-X` → `#delegated-X` transition requires human approval via `§CMD_
 
 ### The Three Feed Types
 
-*   **`§FEED_ALERTS`** — 2-state lifecycle (`#active-alert` → `#done-alert`). Active alerts are loaded into every new session. Managed by `§CMD_MANAGE_ALERTS`.
 
 *   **`§FEED_REVIEWS`** — 2-state lifecycle (`#needs-review` → `#done-review` or `#needs-rework`). Quality gate for debriefs. Auto-applied at debrief creation. Processed by `/review`.
 

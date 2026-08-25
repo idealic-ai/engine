@@ -21,7 +21,7 @@ source "$HOME/.claude/scripts/lib.sh"
 
 # Escape lifecycle tag references (¶INV_ESCAPE_BY_DEFAULT)
 escape_tags() {
-  perl -pe 's/(?<!`)#((?:needs|delegated|next|claimed|done)-\w+|active-alert)(?![\w-])(?!`)/`#$1`/g'
+  perl -pe 's/(?<!`)#((?:needs|delegated|next|claimed|done)-\w+)(?![\w-])(?!`)/`#$1`/g'
 }
 
 # Read hook input

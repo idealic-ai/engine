@@ -8,14 +8,25 @@ The engine provides two indexing tools for RAG-style context retrieval:
 
 | Tool | Purpose | Scope | Database |
 |------|---------|-------|----------|
-| `session-search` | Search session history | `sessions/**/*.md` | `sessions/.session-search.db` |
-| `doc-search` | Search project documentation | `docs/**/*.md`, `{apps,packages}/*/docs/**/*.md` | `tools/doc-search/.doc-search.db` |
+| `session-search` | Search session history | `sessions/**/*.md` | `~/.claude/cache/search-db/<namespace>/.session-search.db` |
+| `doc-search` | Search project documentation | `docs/**/*.md`, `{apps,packages}/*/docs/**/*.md` | `~/.claude/cache/search-db/<namespace>/.doc-search.db` |
+
+Both DBs live on **local disk**, outside any repo, so no `.gitignore` entry is
+needed anywhere. `<namespace>` comes from the sessions path — `yarik/finch/sessions`
+on a shared drive, `<project>-<checksum>/sessions` otherwise — so two projects
+never share a file. Override the cache root with `ENGINE_SEARCH_DB_DIR`.
+
+A DB left in `sessions/` from before this change is migrated automatically the
+next time you run `index`, and the old copy is removed. Migration never happens
+on `query`: `sessions/` is frequently a Google Drive mount where a single read
+can return nothing for minutes. The wrapper scripts own the path (via
+`scripts/search-db-lib.sh`) and pass it to the CLIs as `ENGINE_SEARCH_DB_PATH` —
+the TypeScript never re-derives it.
 
 Both tools share the same architecture:
 - **Gemini embeddings** (`gemini-embedding-001`, 3072 dimensions)
 - **SQLite + sqlite-vec** for vector storage and KNN search
 - **Content-addressed deduplication** (same content = same embedding)
-- **Google Drive sync** for multiplayer access
 
 ## doc-search
 
@@ -165,10 +176,13 @@ export GEMINI_API_KEY="..."
 ## File Locations
 
 ```
+~/.claude/cache/search-db/<namespace>/
+├── .doc-search.db              # SQLite database (local, never synced)
+└── .session-search.db          # SQLite database (local, never synced)
+
 ~/.claude/tools/
 ├── doc-search/
 │   ├── doc-search.sh           # Wrapper script
-│   ├── .doc-search.db          # SQLite database
 │   ├── .doc-search.lock        # Advisory lock file
 │   └── src/
 │       ├── cli.ts              # CLI interface

@@ -90,15 +90,26 @@ Two SQLite databases power the search tools:
 
 | Database | File | Indexed content | Tool |
 |----------|------|-----------------|------|
-| Doc search | `sessions/.doc-search.db` | Project documentation files | `doc-search.sh` |
-| Session search | `sessions/.session-search.db` | Session debriefs and logs | `session-search.sh` |
+| Doc search | `~/.claude/cache/search-db/<namespace>/.doc-search.db` | Project documentation files | `doc-search.sh` |
+| Session search | `~/.claude/cache/search-db/<namespace>/.session-search.db` | Session debriefs and logs | `session-search.sh` |
 
 ### Location
-Both DBs live inside `sessions/` — they index project-specific content and belong near it.
+Both DBs live on **local disk**, outside any repo — so no project needs a
+`.gitignore` entry for them. `<namespace>` is derived from the sessions path
+(`yarik/finch/sessions` on a shared drive, `<project>-<checksum>/sessions`
+otherwise) so projects never collide. `ENGINE_SEARCH_DB_DIR` overrides the root.
+
+They used to live inside `sessions/`, which is frequently a symlink into a
+Google Drive shared drive. Both tools rewrite their entire SQLite image on every
+save, so each index run re-uploaded the whole file — and reads faulted over the
+network. `scripts/search-db-lib.sh` now owns path resolution and migrates any
+leftover `sessions/` DB on the next `index` (never on `query`, where a stalled
+Drive read would hang the caller with no output). The wrapper exports the
+resolved path as `ENGINE_SEARCH_DB_PATH`; the CLIs only read it.
 
 ### Bootstrapping
 When switching to local mode (`engine local`):
-1. If GDrive is accessible, copies the DBs from GDrive `sessions/` to local `sessions/`
+1. If GDrive is accessible, copies the DBs from GDrive `sessions/` into the local cache
 2. If GDrive is unavailable, the DBs start empty. Run `doc-search.sh index && session-search.sh index` to rebuild.
 
 ### Schema Changes

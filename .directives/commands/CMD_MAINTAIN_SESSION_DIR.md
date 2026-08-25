@@ -21,7 +21,6 @@
     *   Auto-detect fleet pane ID if running in fleet tmux (no manual `--fleet-pane` needed).
     *   Enable context overflow protection (PreToolUse hook will block at 90%).
     *   Run context scans (on fresh activation or skill change) — all use `taskSummary` for thematic relevance:
-        *   `SRC_ACTIVE_ALERTS` — alerts are surfaced automatically (no agent action needed)
         *   `engine tag find '#next-*' [sessionDir]` → `## SRC_OPEN_DELEGATIONS` section (scans current session for `#next-*` items claimed for immediate next-skill execution)
         *   `engine session-search query` → `## SRC_PRIOR_SESSIONS` section
         *   `engine doc-search query` → `## SRC_RELEVANT_DOCS` section

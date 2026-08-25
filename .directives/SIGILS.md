@@ -11,7 +11,7 @@ Six sigils encode distinct semantic namespaces. Each is greppable and non-collid
 *   **`§`**
   *   **Name**: Section sign
   *   **Semantics**: **Reference** — cites something defined elsewhere
-  *   **Examples**: `§CMD_APPEND_LOG`, `§INV_SIGIL_SEMANTICS`, `§FEED_ALERTS`
+  *   **Examples**: `§CMD_APPEND_LOG`, `§INV_SIGIL_SEMANTICS`, `§FEED_REVIEWS`
 
 *   **`¶`**
   *   **Name**: Pilcrow
@@ -43,10 +43,6 @@ Engine-internal data sources produced by scripts at runtime. Not commands (CMD_)
 *   **Reference site**: Docs that describe what the agent will see (e.g., CMD files)
 *   **Discovery**: `grep 'SRC_'` finds all references
 *   **Current sources**:
-
-*   **`SRC_ACTIVE_ALERTS`**
-  *   Produced by: `engine session activate`
-  *   Contains: Active alert files (thematic search)
 
 *   **`SRC_OPEN_DELEGATIONS`**
   *   Produced by: `engine session activate`
@@ -220,15 +216,10 @@ Immediate path (next-skill):
   *   **Tag Noun**: review
   *   **Lifecycle Tags**: `#needs-review` -> `#done-review` (or `#needs-rework`)
 
-*   **`§CMD_MANAGE_ALERTS`**
-  *   **Tag Noun**: alert
-  *   **Lifecycle Tags**: `#active-alert` -> `#done-alert`
-
 **Exceptions**:
-*   **Alerts** (`#active-alert` / `#done-alert`): 2-state lifecycle. Alerts use different semantics ("ongoing situation" vs "resolved"), not the delegation lifecycle.
 *   **Reviews** (`#needs-review` / `#done-review`): 2-state lifecycle. Reviews are processed by `/review` directly, not via daemon dispatch.
 
-**Immediate path**: Any tag noun above (except alerts and reviews) also supports the immediate path: `#needs-X` → `#next-X` → `#claimed-X` → `#done-X`. The `#next-X` state is set during `§CMD_DISPATCH_APPROVAL` when the user selects "Claim for next skill." The next skill auto-claims matching `#next-X` items on activation.
+**Immediate path**: Any tag noun above (except reviews) also supports the immediate path: `#needs-X` → `#next-X` → `#claimed-X` → `#done-X`. The `#next-X` state is set during `§CMD_DISPATCH_APPROVAL` when the user selects "Claim for next skill." The next skill auto-claims matching `#next-X` items on activation.
 
 ---
 
@@ -330,7 +321,7 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 ### ¶CMD_FIND_TAGGED_FILES
 **Definition**: To locate files carrying specific semantic tags (on the Tags line or as intentional inline tags), filtering out backtick-escaped references.
 **Algorithm**:
-1.  **Identify**: Determine the target tag (e.g., `#active-alert`).
+1.  **Identify**: Determine the target tag (e.g., `#needs-review`).
 2.  **Execute**:
     ```bash
     engine tag find '#tag-name'
@@ -395,13 +386,6 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 
 **Note**: All feeds below use `sessions/` as their location. When `WORKSPACE` is set, this resolves to `$WORKSPACE/sessions/`. Tag discovery (`engine tag find`) searches both workspace and global sessions directories.
 
-## ¶FEED_ALERTS
-*   **Tags**: `#active-alert`, `#done-alert`
-*   **Location**: `sessions/`
-*   **Lifecycle**:
-    *   `#active-alert` — Active. Created by `§CMD_MANAGE_ALERTS` during synthesis. Any document with this tag is considered "Active" and must be loaded into the context of every new agent session (unless explicitly reset).
-    *   `#done-alert` — Resolved. Swapped by `§CMD_MANAGE_ALERTS` after the work is verified and aligned.
-
 ## ¶FEED_REVIEWS
 *   **Tags**: `#needs-review`, `#done-review`, `#needs-rework`
 *   **Location**: `sessions/`
@@ -410,7 +394,6 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
     *   `#done-review` — User-approved via `/review`. No further action needed.
     *   `#needs-rework` — User-rejected via `/review`. Contains `## Rework Notes` with rejection context. Re-presented on next review run.
 
-*   **Independence**: This feed is fully independent from `§FEED_ALERTS`. The two systems are parallel — a file (e.g., `ALERT_RAISE.md`) may carry both `#active-alert` and `#needs-review` simultaneously, resolved by different commands.
 *   **Review Command**: `/review` discovers all `#needs-review` and `#needs-rework` files, performs cross-session analysis, and walks the user through structured approval.
 *   **Note**: Reviews use a 2-state lifecycle (no `#delegated-review` or `#claimed-review`) because `/review` is always invoked directly by the user, not via daemon dispatch.
 

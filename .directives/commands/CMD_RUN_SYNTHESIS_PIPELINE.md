@@ -24,7 +24,7 @@ All protocol-tier skills declare synthesis as four sub-phases. N is the skill's 
 {"major": N, "minor": 2, "name": "Debrief",
   "steps": ["§CMD_GENERATE_DEBRIEF"], "proof": ["debriefFile", "debriefTags"], "gate": false},
 {"major": N, "minor": 3, "name": "Pipeline",
-  "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_OFFER_HANDBOOK_CAPTURE", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "proof": [], "gate": false},
+  "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_OFFER_HANDBOOK_CAPTURE", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_REPORT_LEFTOVER_WORK"], "proof": [], "gate": false},
 {"major": N, "minor": 4, "name": "Close",
   "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "proof": [], "gate": false}
 ```
@@ -68,15 +68,11 @@ Run `engine session debrief sessions/DIR` once to get scan results. Process each
   **Type**: STATIC
   **Behavior**: Always execute. Create cross-session links.
 
-**8. `§CMD_MANAGE_ALERTS`**
-  **Type**: STATIC
-  **Behavior**: Always execute. Check for alert raise/resolve.
-
-**9. `§CMD_REPORT_LEFTOVER_WORK`**
+**8. `§CMD_REPORT_LEFTOVER_WORK`**
   **Type**: SCAN
   **Behavior**: Use debrief scan results. Report incomplete items.
 
-**Adoption note** — step 2 is the newest member of this pipeline and is **not yet universally declared**. It is live in `/implement` (4.3), `/fix` (5.3) and `/analyze` (**3.4** — that skill has an extra Walk-Through sub-phase, so its Pipeline is not the third; read the label rather than assuming N.3); the other twelve protocol skills that carry this array (brainstorm, chores, direct, do, document, edit-skill, improve-protocol, intake, loop, research, review, test) still declare the 8-step form and are pending propagation (`#needs-implementation`). **A skill array with 8 steps is therefore not a defect to be "fixed" by guess** — it is an un-adopted skill. Propagating means adding the step in the same position, after `§CMD_MANAGE_DIRECTIVES`.
+**Adoption note** — step 2 is the newest member of this pipeline and is **not yet universally declared**. It is live in `/implement` (4.3), `/fix` (5.3) and `/analyze` (**3.4** — that skill has an extra Walk-Through sub-phase, so its Pipeline is not the third; read the label rather than assuming N.3); the other twelve protocol skills that carry this array (brainstorm, chores, direct, do, document, edit-skill, improve-protocol, intake, loop, research, review, test) still declare the 7-step form and are pending propagation (`#needs-implementation`). **A skill array with 7 steps is therefore not a defect to be "fixed" by guess** — it is an un-adopted skill. Propagating means adding the step in the same position, after `§CMD_MANAGE_DIRECTIVES`.
 
 **Type semantics**: STATIC commands always run (reminder + action). SCAN commands use `engine session debrief` output as their task list. CONSUMER commands receive their input from a prior step's output rather than scanning independently. DEPENDENT commands only run when their prerequisite produced results.
 
@@ -103,7 +99,7 @@ When a step has actionable items, the roll call line precedes the interaction (e
   **Steps**: `§CMD_RESOLVE_BARE_TAGS`, `§CMD_DISPATCH_APPROVAL`, `§CMD_PRESENT_NEXT_STEPS`
   **Behavior when empty**: Require per-item user decisions. Always present even with few items.
 
-STATIC steps (`§CMD_MANAGE_DIRECTIVES` AGENTS.md pass, `§CMD_RESOLVE_CROSS_SESSION_TAGS`, `§CMD_MANAGE_BACKLINKS`, `§CMD_MANAGE_ALERTS`) always execute regardless — they perform actions, not triage. The collapsibility classification applies only to steps that would otherwise present an empty or trivial `AskUserQuestion`.
+STATIC steps (`§CMD_MANAGE_DIRECTIVES` AGENTS.md pass, `§CMD_RESOLVE_CROSS_SESSION_TAGS`, `§CMD_MANAGE_BACKLINKS`) always execute regardless — they perform actions, not triage. The collapsibility classification applies only to steps that would otherwise present an empty or trivial `AskUserQuestion`.
 
 ### N.4: Close
 Execute in order: `§CMD_REPORT_ARTIFACTS` (list files), `§CMD_REPORT_SUMMARY` (2-paragraph narrative), `§CMD_SURFACE_OPPORTUNITIES` (concrete improvement suggestions from loaded context), `§CMD_CLOSE_SESSION` (debrief gate + idle transition), `§CMD_PRESENT_NEXT_STEPS` (routing menu).
