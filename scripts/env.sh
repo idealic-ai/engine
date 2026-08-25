@@ -1587,6 +1587,21 @@ cmd_provision() {
   # refusal above closes. A read gets EOF in that context and aborts on its own.
   printf "${BOLD}About to mint IAM user %s in account %s.${NC}\n" "$user" "$account"
   [ "$want_clerk" -eq 1 ] && printf "${BOLD}This ALSO creates an app login in the Clerk instance your CLERK_SECRET_KEY points at, and stores its password in Secrets Manager.${NC} Pass --no-clerk to skip that half.\n"
+  # ⚠️ The app row is the half people do not expect, and the half that silently does not
+  # happen. It needs YOUR OWN full access — an agent profile cannot write the database,
+  # and a personal cloud session expires daily — plus the SSM tunnel already listening.
+  # Saying so BEFORE the confirm is the point: discovering it afterwards leaves a person
+  # holding a cloud account and an app login that the application does not recognise,
+  # which is exactly the state an earlier run shipped someone in.
+  if [ "$want_clerk" -eq 1 ]; then
+    printf "${BOLD}It ALSO creates their app row at role=agent${NC} — without it the application authenticates the account and still does not know who it is.\n"
+    printf "  That half needs YOUR OWN access, not an agent profile: be logged in, and have the DB tunnel up (scripts/staging-db-tunnel.sh).\n"
+    if ! (exec 3<>/dev/tcp/127.0.0.1/${FINCH_DB_TUNNEL_PORT:-15432}) 2>/dev/null; then
+      printf "  ${YELLOW}warn${NC}  nothing is listening on 127.0.0.1:${FINCH_DB_TUNNEL_PORT:-15432} — the app row WILL fail and you will have to re-run with --app-row-only.\n"
+      printf "        Start the tunnel in another shell now, or continue and finish that half afterwards.\n"
+    fi
+    printf "  Setup guide: https://app.notion.com/p/3c0c52348d1381d2ac12c85b44b30d20\n"
+  fi
   printf "Type the account id to confirm: "
   local typed=""
   IFS= read -r typed || typed=""
