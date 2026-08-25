@@ -1460,10 +1460,13 @@ fi
 # `req` row composed into every domain would hard-block a design operator on a Slack app
 # they will never create — the anti-pattern per-domain manifests exist to prevent.
 CORE_KEYS=$(jq -r '.credentials[].key' "$CORE_MF" 2>/dev/null | sort | tr '\n' ' ')
-if [ "$CORE_KEYS" = "GEMINI_API_KEY LINEAR_API_KEY " ]; then
+# The exact list is deliberate, not brittle: adding a core row composes it into EVERY
+# domain, so the guard forces that to be a decision someone made rather than a side effect.
+# Update it when you add one, and say why in the commit.
+if [ "$CORE_KEYS" = "GEMINI_API_KEY GEMINI_PROJECT LINEAR_API_KEY " ]; then
   pass "core declares exactly the engine-lifecycle credentials (LINEAR + GEMINI)"
 else
-  fail "core rows" "GEMINI_API_KEY LINEAR_API_KEY" "$CORE_KEYS"
+  fail "core rows" "GEMINI_API_KEY GEMINI_PROJECT LINEAR_API_KEY" "$CORE_KEYS"
 fi
 if jq -e '[.credentials[] | select(.required == "req")] | length == 0' "$CORE_MF" >/dev/null 2>&1; then
   pass "no core row is 'req' — composing one into every domain would block on a credential that domain never uses"

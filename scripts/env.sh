@@ -1329,7 +1329,7 @@ _provision_app_row() {
 }
 
 cmd_provision() {
-  local person="" tier="" apply=0 account="" reconcile=0 out="" email="" want_clerk=1 clerk_only=0 want_slack=1 approw_only=0
+  local person="" tier="" apply=0 account="" reconcile=0 out="" email="" want_clerk=1 clerk_only=0 want_slack=1 approw_only=0 want_gemini=1 gemini_only=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --person) person="${2:-}"; shift 2 ;;
@@ -1348,6 +1348,10 @@ cmd_provision() {
       --no-clerk) want_clerk=0; shift ;;
       --clerk-only) clerk_only=1; shift ;;
       --no-slack) want_slack=0; shift ;;
+      --no-gemini) want_gemini=0; shift ;;
+      # Mirrors --clerk-only / --app-row-only: backfill just this half for someone who
+      # already exists, without touching a key or a login that is already installed.
+      --gemini-only) gemini_only=1; shift ;;
       --app-row-only) approw_only=1; shift ;;
       -h|--help) sed -n "$USAGE_LINES" "$0"; return 0 ;;
       *) echo "env provision: unknown flag '$1'" >&2; return 1 ;;
@@ -1380,7 +1384,7 @@ cmd_provision() {
   # ---- derive resources FROM THE MANIFEST ----
   local key service required secret default dotfile how check arg src sname sfield sregion sprofile
   local db_secret="" region="" bucket="" prefix="" bastion_tag="" login_secret=""
-  local gemini_secret=""; local -a shared_secrets=()
+  local gemini_secret="" gemini_project=""; local -a shared_secrets=()
   local state_prefix="" events_prefix=""
   while IFS=$'\037' read -r key service required secret default dotfile how check arg src sname sfield sregion sprofile; do
     # ⚠️ A `provisioner` ROW IS NEVER GRANTED. These are credentials the person running
@@ -1394,6 +1398,7 @@ cmd_provision() {
       FINCH_BASTION_TAG)  bastion_tag="$default" ;;
       FINCH_AGENT_APP_*)  login_secret="$sname" ;;
       GEMINI_API_KEY)     gemini_secret="$sname" ;;
+      GEMINI_PROJECT)     gemini_project="$default" ;;
       # SHARED secrets: one ARN everyone reads. Collected as a list rather than a case
       # per key, because this set grows every time a credential turns out to be one
       # nobody can self-serve — which is how SLACK_INTAKE_TOKEN got here.
@@ -1407,6 +1412,37 @@ cmd_provision() {
     esac
   done < <(manifest_rows)
   region="${region:-us-east-2}"
+
+  # The Gemini key on its own — for someone already provisioned before this half existed.
+  # Returns before the IAM mint, which refuses once a profile exists and would otherwise
+  # take the backfill down with it.
+  if [ "$gemini_only" -eq 1 ]; then
+    if [ -z "$gemini_secret" ]; then
+      echo "env provision: no manifest row declares a Gemini secret path, so there is nothing to mint." >&2; return 1
+    fi
+    local gsec="${gemini_secret//<person>/$user}"
+    if aws secretsmanager describe-secret --secret-id "$gsec" --region "${region:-us-east-2}" >/dev/null 2>&1; then
+      printf "  ${GREEN}ok${NC}    %s already has a Gemini key at %s — left alone.\n" "$user" "$gsec"; return 0
+    fi
+    if [ "$apply" -ne 1 ]; then
+      printf "dry-run: would mint a Gemini key for %s on %s and store it at %s.\n" "$user" "${gemini_project:-<no GEMINI_PROJECT row>}" "$gsec"; return 0
+    fi
+    command -v gcloud >/dev/null 2>&1 || { echo "env provision: gcloud is not on PATH." >&2; return 2; }
+    [ -n "$gemini_project" ] || { echo "env provision: no GEMINI_PROJECT row in the manifest." >&2; return 2; }
+    local gkey=""
+    gkey="$(gcloud services api-keys create --project="$gemini_project" --display-name="$user" \
+              --api-target=service=generativelanguage.googleapis.com \
+              --format='value(response.keyString)' 2>/dev/null | tail -1)"
+    [ -n "$gkey" ] || { echo "env provision: could not mint a key on $gemini_project — check gcloud auth and apikeys.keys.create." >&2; return 2; }
+    if aws secretsmanager create-secret --name "$gsec" --region "${region:-us-east-2}" \
+         --description "Gemini API key for ${user}. Per-person: attribution and revocation. Restricted to generativelanguage.googleapis.com. Quota and billing are per PROJECT (${gemini_project}), so this carries no spend ceiling of its own." \
+         --secret-string "$gkey" >/dev/null 2>&1; then
+      gkey=""
+      printf "  ${GREEN}ok${NC}    minted a Gemini key for %s and stored it at %s\n" "$user" "$gsec"; return 0
+    fi
+    gkey=""
+    echo "env provision: minted a key but could not store it — it exists on $gemini_project under display name $user and is unreachable. Delete it there." >&2; return 2
+  fi
 
   # The app login on its own. Without this, the Clerk half is unreachable for anyone who
   # already has an AWS profile — the mint refuses early to avoid orphaning a key, and
@@ -1773,13 +1809,70 @@ cmd_provision() {
   # printed "provisioned" while the app login, the app row and the delivery had all
   # silently no-opped on a mis-resolved credential path: three of four halves missing,
   # reported as success.
+  # ── the agent's own Gemini key ───────────────────────────────────────────────
+  # PER-PERSON so spend is attributable and one key can be revoked alone. Restricted to
+  # generativelanguage.googleapis.com at creation, so a leak reaches nothing else on the
+  # project. FAIL-SOFT like every other half: a missing gcloud must not cost a minted IAM
+  # key. The key string is written straight to Secrets Manager and never printed, never
+  # put in the delivery file — the holder fetches it with the grant they already have.
+  PROVISION_GEMINI_OK=0
+  if [ -n "$gemini_secret" ] && [ "$apply" -eq 1 ] && [ "$want_gemini" -eq 1 ]; then
+    local gsec="${gemini_secret//<person>/$user}"
+    if aws secretsmanager describe-secret --secret-id "$gsec" --region "$region" >/dev/null 2>&1; then
+      # Idempotent, and for the same reason the app login is: re-minting would strand
+      # whatever is already installed on their machine.
+      printf "  ${GREEN}ok${NC}    gemini key already provisioned at %s — left alone\n" "$gsec"
+      PROVISION_GEMINI_OK=1
+    elif ! command -v gcloud >/dev/null 2>&1; then
+      printf "  ${YELLOW}warn${NC}  gcloud is not on PATH — no Gemini key minted. Install it and re-run; nothing else is affected.\n"
+    elif [ -z "$gemini_project" ]; then
+      printf "  ${YELLOW}warn${NC}  no manifest row declares GEMINI_PROJECT, so the key cannot be minted. Add it and re-run.\n"
+    else
+      local gkey=""
+      gkey="$(gcloud services api-keys create --project="$gemini_project" \
+                --display-name="$user" \
+                --api-target=service=generativelanguage.googleapis.com \
+                --format='value(response.keyString)' 2>/dev/null | tail -1)"
+      if [ -z "$gkey" ]; then
+        printf "  ${YELLOW}warn${NC}  could not mint a Gemini key on project %s — check 'gcloud auth login' and that you hold apikeys.keys.create there.\n" "$gemini_project"
+      elif aws secretsmanager create-secret --name "$gsec" --region "$region" \
+             --description "Gemini API key for ${user}. Per-person: attribution and revocation. Restricted to generativelanguage.googleapis.com. Quota and billing are per PROJECT (${gemini_project}), so this does NOT carry its own spend ceiling." \
+             --secret-string "$gkey" >/dev/null 2>&1; then
+        printf "  ${GREEN}ok${NC}    minted a Gemini key on %s and stored it at %s\n" "$gemini_project" "$gsec"
+        PROVISION_GEMINI_OK=1
+      else
+        printf "  ${RED}FAIL${NC}  minted a Gemini key but could NOT store it — it exists on %s under display name %s and is unreachable. Delete it there.\n" "$gemini_project" "$user"
+      fi
+      gkey=""
+    fi
+  elif [ -n "$gemini_secret" ]; then
+    printf "  ${CYAN}note${NC}  dry-run: would mint a Gemini key on %s and store it at %s\n" "${gemini_project:-<no GEMINI_PROJECT row>}" "${gemini_secret//<person>/$user}"
+  fi
+
+  # ⚠️ THE FLAGS ARE COMPUTED BEFORE THEY ARE PRINTED, and that is the whole point.
+  # They used to be set inside the `$( … )` that rendered each line — a SUBSHELL, so every
+  # `_p_ok=0` was discarded on the way out and the verdict below read 1 no matter how many
+  # halves had failed. That is exactly how a run printed "NO app row" and "done: usable"
+  # in the same breath, which is the failure this summary exists to prevent. Same subshell
+  # trap that made the MCP probe re-exec per row; it is worth suspecting `$( … )` whenever
+  # a variable will not stay set.
   local _p_ok=1
-  printf "\n${BOLD}=== %s ===${NC}\n" "$user"
-  printf "  %s  cloud account + policy + key\n" "$([ -n "$akid" ] && printf "${GREEN}yes${NC}" || { _p_ok=0; printf "${RED}NO ${NC}"; })"
+  [ -n "$akid" ] || _p_ok=0
   if [ "$want_clerk" -eq 1 ]; then
-    printf "  %s  app login\n" "$([ "${PROVISION_CLERK_OK:-0}" -eq 1 ] && printf "${GREEN}yes${NC}" || { _p_ok=0; printf "${RED}NO ${NC}"; })"
+    [ "${PROVISION_CLERK_OK:-0}" -eq 1 ] || _p_ok=0
+    [ "${PROVISION_APP_ROW_OK:-0}" -eq 1 ] || _p_ok=0
+  fi
+  [ -z "${gemini_secret:-}" ] || [ "${PROVISION_GEMINI_OK:-0}" -eq 1 ] || _p_ok=0
+
+  printf "\n${BOLD}=== %s ===${NC}\n" "$user"
+  printf "  %s  cloud account + policy + key\n" "$([ -n "$akid" ] && printf "${GREEN}yes${NC}" || printf "${RED}NO ${NC}")"
+  if [ "$want_clerk" -eq 1 ]; then
+    printf "  %s  app login\n" "$([ "${PROVISION_CLERK_OK:-0}" -eq 1 ] && printf "${GREEN}yes${NC}" || printf "${RED}NO ${NC}")"
     printf "  %s  app row (role=agent) — without it the application does not know them\n" \
-      "$([ "${PROVISION_APP_ROW_OK:-0}" -eq 1 ] && printf "${GREEN}yes${NC}" || { _p_ok=0; printf "${RED}NO ${NC}"; })"
+      "$([ "${PROVISION_APP_ROW_OK:-0}" -eq 1 ] && printf "${GREEN}yes${NC}" || printf "${RED}NO ${NC}")"
+  fi
+  if [ -n "${gemini_secret:-}" ]; then
+    printf "  %s  own Gemini key\n" "$([ "${PROVISION_GEMINI_OK:-0}" -eq 1 ] && printf "${GREEN}yes${NC}" || printf "${RED}NO ${NC}")"
   fi
   if [ -n "${dfile:-}" ]; then
     printf "  %s  delivered on Slack%s\n" \
