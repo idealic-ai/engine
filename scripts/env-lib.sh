@@ -101,16 +101,43 @@ env_list_domains() {
   done
 }
 
+# ENV_ACTIVE_TIER — the CONSUMER asking. Empty (the default) means "no filter": every row
+# is emitted at its own `required`, which is exactly the behaviour before tiers existed.
+#
+# Set, it does two things, both inside the jq below so the \037 row stream keeps its shape
+# and the six sites that destructure it with a fixed-arity `read` stay untouched:
+#   1. FILTER — keep only rows this consumer needs. A row with NO `consumers` serves every
+#      consumer, so an unmigrated manifest behaves exactly as it does today.
+#   2. RESOLVE SEVERITY — `consumers` as an ARRAY means "these consumers, at `required`'s
+#      severity". As an OBJECT it maps consumer -> severity, because severity is genuinely
+#      per-consumer: FINCH_AGENT_APP_PASSWORD warns for an intake wave (which only
+#      dispatches triage) and blocks for a triage run (which cannot open a screen without
+#      it). One `required` value cannot be both.
+#
+# ⚠️ `required: "provisioner"` is NOT a severity and is never rewritten. It is a
+# fail-closed guard: env.sh skips those rows before the policy derivation examines any
+# key, so a forgotten provisioner row cannot reach a derived IAM policy by omission.
 env_manifest_rows() {
   local domain="${1:-intake}" mf
   env_require_jq || return 1
   mf="$(env_manifest_path "$domain")"
   [ -f "$mf" ] || { echo "env: manifest not found at $mf" >&2; return 1; }
-  jq -r '
+  jq -r --arg tier "${ENV_ACTIVE_TIER:-}" '
     .credentials[]
+    | . as $c
+    | ($c.consumers // null) as $cons
+    | (($tier == "")
+       or ($cons == null)
+       or (($cons | type) == "array"  and (($cons | index($tier)) != null))
+       or (($cons | type) == "object" and ($cons | has($tier)))) as $serves
+    | select($serves)
+    | (if ($tier != "") and ($cons | type) == "object" and ($cons[$tier] // "") != ""
+       then $cons[$tier]
+       elif (($c.required // "") == "") then "optional"
+       else $c.required end) as $req
     | [ .key,
         (.service // ""),
-        (if (.required // "") == "" then "optional" else .required end),
+        $req,
         (if .secret then "true" else "false" end),
         (.default // ""),
         (.dotfile // ""),

@@ -9,8 +9,16 @@
 # operator is never blocked on a credential only an intake wave needs.
 #
 # Usage:
-#   engine env doctor [--domain <name>] [--env-example <path>]
+#   engine env doctor [--domain <name>] [--tier <consumer>] [--env-example <path>]
 #                                                 Red/green preflight of every credential.
+#                                                 --tier names the CONSUMER asking (intake,
+#                                                 triage, boards, provisioner): only rows
+#                                                 that consumer needs are evaluated, at the
+#                                                 severity declared FOR it. A triage run is
+#                                                 not stopped by a Slack token it never
+#                                                 uses, and IS stopped by an app login it
+#                                                 cannot work without. Omit it and every
+#                                                 row is evaluated at its own `required`.
 #                                                 Exits non-zero iff a REQUIRED cred is missing
 #                                                 (so a caller can gate). Reads no API secrets;
 #                                                 the only network touch is the timed
@@ -462,10 +470,15 @@ cmd_doctor() {
       --domain=*) DOMAIN="${1#*=}"; shift ;;
       --env-example) env_example="${2:-}"; shift 2 ;;
       --env-example=*) env_example="${1#*=}"; shift ;;
+      --tier) ENV_ACTIVE_TIER="${2:-}"; shift 2 ;;
+      --tier=*) ENV_ACTIVE_TIER="${1#*=}"; shift ;;
       -h|--help) sed -n "$USAGE_LINES" "$0"; return 0 ;;
       *) echo "env doctor: unknown flag '$1'" >&2; return 1 ;;
     esac
   done
+  # The tier is a GLOBAL because manifest_rows is reached through several subshells;
+  # env_manifest_rows reads it and does the filtering + severity resolution in jq.
+  export ENV_ACTIVE_TIER
 
   # A manifest that yields no rows is a broken setup, not a clean bill of health — the
   # doctor would otherwise print a header and exit 0 having verified nothing at all.

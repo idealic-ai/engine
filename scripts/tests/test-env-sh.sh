@@ -2065,10 +2065,12 @@ fi
 # so the manifest carries the TAG and the policy conditions on it — an instance id would
 # have been wrong anyway, since the id changes when the bastion is replaced.
 echo "Test 35: SSM target derives from the manifest"
-if jq -e '[.credentials[] | select(.key=="FINCH_BASTION_TAG" and .secret==false and .required=="triage")] | length == 1' "$MANIFEST" >/dev/null 2>&1; then
-  pass "FINCH_BASTION_TAG is a non-secret triage row"
+# `triage` moved out of `required` (a severity) into `consumers` (who needs it, and at
+# what severity) — a row can be optional for an intake wave and required for a triage run.
+if jq -e '[.credentials[] | select(.key=="FINCH_BASTION_TAG" and .secret==false and (.consumers.triage // "") == "req")] | length == 1' "$MANIFEST" >/dev/null 2>&1; then
+  pass "FINCH_BASTION_TAG is a non-secret row the triage consumer requires"
 else
-  fail "bastion tag row" "one non-secret triage row" "$(jq -c '[.credentials[]|select(.key=="FINCH_BASTION_TAG")]' "$MANIFEST")"
+  fail "bastion tag row" "one non-secret row with consumers.triage=req" "$(jq -c '[.credentials[]|select(.key=="FINCH_BASTION_TAG")]' "$MANIFEST")"
 fi
 
 PROVR5="$WORK/provr5"; mkcase "$PROVR5"
@@ -2155,10 +2157,10 @@ fi
 # take-it-or-leave-it when triage against a specific org's screens is the whole point of
 # the account. Promotion to `req` waits for a real account: the secret holds a placeholder,
 # and a placeholder inherits `required` severity, so `req` today would stop every wave.
-if jq -e '[.credentials[] | select((.key|startswith("FINCH_AGENT_APP_")) and .required != "triage")] | length == 0' "$MANIFEST" >/dev/null 2>&1; then
+if jq -e '[.credentials[] | select((.key|startswith("FINCH_AGENT_APP_")) and (.consumers.triage // "") != "req")] | length == 0' "$MANIFEST" >/dev/null 2>&1; then
   pass "the app-login rows are TRIAGE (labelled with their peers; still WARN, since only req blocks)"
 else
-  fail "app-login rows triage" "every row triage" "$(jq -r '[.credentials[]|select(.key|startswith("FINCH_AGENT_APP_"))|{key,required}]|@json' "$MANIFEST")"
+  fail "app-login rows triage" "every row required by the triage consumer" "$(jq -r '[.credentials[]|select(.key|startswith("FINCH_AGENT_APP_"))|{key,required,consumers}]|@json' "$MANIFEST")"
 fi
 # The claim above is only true while `req` is the sole blocking tier — if that changes,
 # this relabel silently becomes a behaviour change.
@@ -2970,6 +2972,104 @@ if grep -q 'MCP_UNHEALTHY_RE=' "$ENV_SRC" \
 else
   fail "one pattern" "MCP_UNHEALTHY_RE defined once, read by both" \
        "$(grep -n 'MCP_UNHEALTHY_RE' "$ENV_SRC")"
+fi
+
+
+# ══ 51. --tier: WHO is asking decides which rows apply, and how hard ══════════
+#
+# `required` used to answer two questions at once — how badly is this needed
+# (req/optional) and who needs it (triage/boards/provisioner). Fine while /intake was
+# the only caller, since `req` could quietly mean "required for intake". The moment
+# /inbox-triage calls the same manifest the two come apart: linear-server is req and
+# triage genuinely needs it, SLACK_INTAKE_TOKEN is also req and triage never posts to
+# Slack, and the app-login rows triage cannot work without only WARN.
+#
+# So `consumers` answers WHO, `required` stays the default severity, and severity may be
+# stated per consumer where it genuinely differs.
+echo "Test 51: --tier scopes the manifest to the consumer asking"
+TIERD="$WORK/tierd"; mkcase "$TIERD"
+TIER_MF="$WORK/tier.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"SHARED_KEY", service:"Shared", required:"req", secret:false, default:"x",
+   dotfile:".env", how:"both need it", check:{type:"file-key"}, source:{type:"prompt"},
+   consumers:["intake","triage"]},
+  {key:"INTAKE_ONLY", service:"Intake only", required:"req", secret:false, default:"y",
+   dotfile:".env", how:"only intake", check:{type:"file-key"}, source:{type:"prompt"},
+   consumers:["intake"]},
+  {key:"SPLIT_SEVERITY", service:"Split", required:"optional", secret:false, default:null,
+   dotfile:".env", how:"warns for intake, blocks for triage", check:{type:"file-key"},
+   source:{type:"prompt"}, consumers:{intake:"optional", triage:"req"}},
+  {key:"NO_CONSUMERS", service:"Unmigrated", required:"optional", secret:false, default:null,
+   dotfile:".env", how:"declares no consumers", check:{type:"file-key"}, source:{type:"prompt"}}]}' > "$TIER_MF"
+
+tierdoc() { ( cd "$TIERD" && ENV_MANIFEST="$TIER_MF" "$ENV_SH" doctor ${1:+--tier "$1"} 2>&1 | strip ); }
+tiercode() { ( cd "$TIERD" && ENV_MANIFEST="$TIER_MF" "$ENV_SH" doctor ${1:+--tier "$1"} >/dev/null 2>&1; echo $? ); }
+
+# (a) no --tier is the pre-tier behaviour: every row is evaluated, severity as written.
+NOTIER=$(tierdoc)
+if printf '%s' "$NOTIER" | grep -q 'INTAKE_ONLY' && printf '%s' "$NOTIER" | grep -q 'SHARED_KEY' \
+   && printf '%s' "$NOTIER" | grep -q 'SPLIT_SEVERITY'; then
+  pass "no --tier evaluates every row (the behaviour before tiers existed)"
+else
+  fail "no tier = all rows" "all four keys present" "$NOTIER"
+fi
+
+# (b) THE POINT: a row this consumer does not need is not its problem. A triage run must
+#     not be stopped by a Slack token it never uses.
+TRI=$(tierdoc triage)
+if ! printf '%s' "$TRI" | grep -q 'INTAKE_ONLY'; then
+  pass "--tier triage drops a row that names only another consumer"
+else
+  fail "tier filters" "INTAKE_ONLY absent" "$(printf '%s' "$TRI" | grep INTAKE_ONLY)"
+fi
+if printf '%s' "$TRI" | grep -q 'SHARED_KEY'; then
+  pass "an array consumers list keeps the row for every consumer it names"
+else
+  fail "array form" "SHARED_KEY present under --tier triage" "$TRI"
+fi
+
+# (c) severity is PER CONSUMER. The same missing row warns for one and blocks the other —
+#     which is the whole reason an array alone could not express this.
+if printf '%s' "$NOTIER" | grep -qE 'WARN +SPLIT_SEVERITY'; then
+  pass "a split-severity row WARNs for the consumer that only dispatches"
+else
+  fail "split warns" "WARN SPLIT_SEVERITY with no tier" "$(printf '%s' "$NOTIER" | grep SPLIT_SEVERITY)"
+fi
+if printf '%s' "$TRI" | grep -qE 'FAIL +SPLIT_SEVERITY'; then
+  pass "the same row BLOCKS for the consumer that cannot work without it"
+else
+  fail "split blocks" "FAIL SPLIT_SEVERITY under --tier triage" "$(printf '%s' "$TRI" | grep SPLIT_SEVERITY)"
+fi
+# Every row except SPLIT_SEVERITY is satisfiable (defaults get seeded), so the ONLY thing
+# separating the two exit codes is the per-consumer severity — which is what is under test.
+if [ "$(tiercode triage)" != "0" ] && [ "$(tiercode)" = "0" ]; then
+  pass "the exit code follows the resolved severity, so a caller can gate on it"
+else
+  fail "tier exit code" "non-zero with --tier triage, zero without" "tier=$(tiercode triage) none=$(tiercode)"
+fi
+
+# (d) BACK-COMPAT: a row declaring no consumers serves every consumer, so an unmigrated
+#     manifest behaves exactly as it does today rather than silently emptying out.
+if printf '%s' "$TRI" | grep -q 'NO_CONSUMERS'; then
+  pass "a row with no consumers still serves every tier (unmigrated manifests keep working)"
+else
+  fail "no-consumers row" "NO_CONSUMERS present under --tier triage" "$TRI"
+fi
+
+# (e) ⚠️ `required: "provisioner"` is NOT a severity and must survive the split untouched:
+#     env.sh skips those rows BEFORE the policy derivation reads any key, so a forgotten
+#     provisioner row cannot reach a derived IAM policy. Rewriting it into a severity
+#     would turn a fail-closed guard into a fail-open one.
+if jq -e '[.credentials[] | select(.required=="provisioner")] | length >= 1' "$MANIFEST" >/dev/null 2>&1; then
+  pass "provisioner rows keep required=provisioner after the consumers split"
+else
+  fail "provisioner preserved" "at least one required=provisioner row" \
+       "$(jq -c '[.credentials[]|select(.consumers|tostring|test("provisioner"))|{key,required}]' "$MANIFEST")"
+fi
+if grep -q '\[ "\$required" = "provisioner" \] && continue' "$ENV_SRC"; then
+  pass "the fail-closed policy guard still keys on required=provisioner"
+else
+  fail "policy guard intact" 'the provisioner continue-guard in env.sh' "absent"
 fi
 
 
