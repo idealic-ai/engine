@@ -21,9 +21,9 @@ write_fixtures() {
      "createdAt":"2026-07-01T00:00:00Z","updatedAt":"2026-07-29T01:00:00Z","priority":2,
      "state":{"name":"Backlog"},"projectMilestone":{"name":"Inboxes"},
      "comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
-       {"id":"c1","body":"root","createdAt":"2026-07-28T00:00:00Z","quotedText":null,"parent":null,"user":{"name":"Yarik"},"botActor":null,"reactions":[{"emoji":"👀","createdAt":"2026-07-28T00:05:00Z","user":null,"externalUser":{"name":"Codex"}}]},
+       {"id":"c1","body":"root","createdAt":"2026-07-28T00:00:00Z","quotedText":null,"resolvedAt":"2026-07-28T06:00:00Z","resolvingUser":{"name":"Rob"},"parent":null,"user":{"name":"Yarik"},"botActor":null,"reactions":[{"emoji":"👀","createdAt":"2026-07-28T00:05:00Z","user":null,"externalUser":{"name":"Codex"}}]},
        {"id":"c2","body":"reply","createdAt":"2026-07-28T01:00:00Z","quotedText":null,"parent":{"id":"c1"},"user":{"name":"Alice"},"botActor":null},
-       {"id":"c3","body":"nested","createdAt":"2026-07-28T02:00:00Z","quotedText":null,"parent":{"id":"c2"},"user":null,"botActor":{"name":"Zapier"}},
+       {"id":"c3","body":"nested","createdAt":"2026-07-28T02:00:00Z","quotedText":null,"resolvedAt":"2026-07-28T07:00:00Z","resolvingUser":{"name":"Yarik"},"parent":{"id":"c2"},"user":null,"botActor":{"name":"Zapier"}},
        {"id":"c0","body":"OLD","createdAt":"2026-07-10T00:00:00Z","quotedText":null,"parent":null,"user":{"name":"Old"},"botActor":null}
      ]},
      "history":{"pageInfo":{"hasNextPage":false},"nodes":[
@@ -524,6 +524,24 @@ test_project_real_shape_fixture() {
   assert_json "$out" '[.structure.channels[].milestone] | unique | join(",")' "Inboxes" "every real channel sits under Inboxes"
   assert_json "$out" '[.tickets[].comments | .. | objects | select(has("body"))] | all(has("quotedText"))' "true" "every real comment carries a quotedText key"
   assert_json "$out" '.tickets[] | select(.identifier=="FIN-1623") | (.lifecycle | length) > 0' "true" "FIN-1623 history follow-up merged (real follow-up fixture consumed)"
+}
+
+test_project_comment_resolution() {
+  # A wave can only report how much of its inbox is closed if the fetch carries resolution state.
+  # Both tree branches are asserted deliberately: roots and replies are built by SEPARATE jq paths
+  # (the root map and kids()), so patching one and not the other is the exact failure this pins.
+  local out; out=$(_fetch_out "$FXDIR/main.json" "$UUID")
+  assert_json "$out" '[.tickets[0].comments | .. | objects | select(.id=="c1")][0].resolvedAt' "2026-07-28T06:00:00Z" "resolved ROOT carries resolvedAt"
+  assert_json "$out" '[.tickets[0].comments | .. | objects | select(.id=="c1")][0].resolvedBy' "Rob" "resolved root carries the resolver name"
+  assert_json "$out" '[.tickets[0].comments | .. | objects | select(.id=="c3")][0].resolvedAt' "2026-07-28T07:00:00Z" "resolved REPLY carries resolvedAt (kids branch)"
+  assert_json "$out" '[.tickets[0].comments | .. | objects | select(.id=="c3")][0].resolvedBy' "Yarik" "resolved reply carries the resolver name"
+  # c2 has no resolution keys in the fixture at all → must normalize to an explicit null, not vanish.
+  # A missing key and a null value read very differently to jq: has("resolvedAt") is the only way a
+  # caller can tell "unresolved" from "this payload predates the field".
+  assert_json "$out" '[.tickets[0].comments | .. | objects | select(.id=="c2")][0].resolvedAt' "null" "unresolved comment → resolvedAt null"
+  assert_json "$out" '[.tickets[0].comments | .. | objects | select(.id=="c2")][0].resolvedBy' "null" "unresolved comment → resolvedBy null"
+  assert_json "$out" '[.tickets[0].comments | .. | objects | select(.id=="c2")][0] | has("resolvedAt")' "true" "absent input keys still produce an explicit resolvedAt key"
+  assert_json "$out" '[.tickets[].comments | .. | objects | select(has("body"))] | all(has("resolvedAt"))' "true" "every comment carries a resolvedAt key"
 }
 
 test_project_blank_since_fetches_all() {

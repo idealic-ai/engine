@@ -20,6 +20,7 @@
 # Usage:
 #   engine project fetch <project> [--since=<ISO8601>] [--out=<path>]
 #   engine project next  [<project>] [--query "<text>"] [--tickets K1,K2] [--all] [--limit N] [--json] [--team KEY]
+#                        [--done-states "In Review,Undeployed"]
 #   engine project lint  <project> | --all | --stdin --container <c> [--target NAME]
 #                        [--schema <path>] [--inbox <milestone>] [--json] [--strict]
 #
@@ -34,6 +35,13 @@
 #   related/parent/child/blocks/blockedBy/duplicate, cross-project resolved). Each importance row
 #   also carries its own relatedTo/parent/blocks/blockedBy keys. Proposes; never starts. <project>
 #   defaults from the branch's ticket key; --all widens to team-wide (priority-ranked).
+#   Linear's own open-filter drops only `completed`/`canceled` TYPES, so a state a team uses to
+#   mean finished — In Review, Undeployed — still types as `started` and would rank as open work.
+#   --done-states (or PROJECT_NEXT_DONE_STATES) names those states so they are dropped; the
+#   envelope reports `excludedDoneStates` + `excludedCount` so the drop is never silent. Empty
+#   default = Linear's own notion of open. `next` ALSO drops every `started`-type state
+#   (In Progress) — already-in-flight work is *current*, not *next* — reported as
+#   `excludedInProgress`. So `next` surfaces only not-yet-started work (Backlog / Todo).
 #
 # `lint` — read-only container conformance: checks a project's description, its Inbox Handbook and
 #   its channel tickets against the section schema (skills/intake/assets/project-schema.json).
@@ -42,10 +50,14 @@
 #   gate) and has no peers to compare against, so it says so rather than reporting a clean one.
 #   Exit 0 clean-or-warnings · 1 failures · 2 could-not-run OR partial coverage.
 #
-# Auth (live path only): LINEAR_API_KEY from env or .env (repo root or ~/.claude/engine/.env).
+# Auth (live path only): LINEAR_API_KEY via scripts/env-lib.sh — the env var, else the current
+#   session's project root .env.local then .env. NOT ~/.claude/engine/.env: resolution is
+#   project-scoped so one project's wave cannot authenticate as another's.
 # Env: PROJECT_FETCH_STATE_DIR (default ~/.claude/engine/.project-fetch) — default payload dir.
 #      PROJECT_FETCH_FIXTURE (test-only) — file or colon-separated file list; short-circuits _graphql.
 #      PROJECT_FETCH_INBOX_MILESTONE (default Inboxes) — the milestone naming the inbox channels.
+#      PROJECT_NEXT_DONE_STATES (default empty) — comma-separated state NAMES `next` treats as
+#        finished; resolved from env, else the project .env.local/.env.
 #      LINEAR_API_URL (default https://api.linear.app/graphql).
 set -uo pipefail
 
@@ -462,12 +474,19 @@ _fetch_next_team() {
 # Importance = flat rank milestone→priority→blocked. Adjacency (only when QUERY non-empty) =
 # term-overlap on title+labels. The two lists are NEVER merged into one score.
 _rank_next() {
-  local raw="$1" types_str="$2" query="$3" limit="$4" linked_json="${5:-[]}" types_json
+  local raw="$1" types_str="$2" query="$3" limit="$4" linked_json="${5:-[]}" done_str="${6:-}" types_json done_json
   local inbox="${PROJECT_FETCH_INBOX_MILESTONE:-Inboxes}"
   types_json=$(printf '%s' "$types_str" | jq -R 'split(" ")')
+  # State NAMES a team treats as finished even though Linear types them `started`
+  # (e.g. In Review / Undeployed). Linear's type filter cannot see this — a team's
+  # done-state is a naming convention — so these are dropped here, after the fetch.
+  # ALSO dropped below: every `started`-type state (In Progress). `next` = work not yet
+  # started, so already-in-flight tickets are current work, not next — reported as
+  # `excludedInProgress` in the envelope so the drop is never silent.
+  done_json=$(jq -n --arg s "$done_str" '$s | split(",") | map(gsub("^\\s+|\\s+$";"")) | map(select(length > 0))')
   printf '%s' "$raw" | jq \
     --argjson types "$types_json" --arg query "$query" --argjson limit "$limit" --arg inbox "$inbox" \
-    --argjson linked "$linked_json" '
+    --argjson linked "$linked_json" --argjson doneStates "$done_json" '
     def relatedKeys:
       ( [ (.relations.nodes // [])[] | select(.type == "related") | .relatedIssue.identifier ]
       + [ (.inverseRelations.nodes // [])[] | select(.type == "related") | .issue.identifier ] ) | unique;
@@ -488,6 +507,8 @@ _rank_next() {
     | ((.milestones | length) == 0) as $degraded
     | [ .issues[]
         | select((.projectMilestone.name // "") != $inbox)
+        | select(((.state.name // "") | IN($doneStates[])) | not)
+        | select((.state.type // "") != "started")
         | {
             identifier, title, url,
             priority: (.priority // 0),
@@ -524,7 +545,10 @@ _rank_next() {
         importance: [ $imp[0:$limit][] | clean ],
         adjacency:  [ $adj[0:$limit][] | clean ],
         linked: $linked,
-        overlap: [ $impTop[] | select(. as $x | ($relatedTop | index($x)) != null) ]
+        overlap: [ $impTop[] | select(. as $x | ($relatedTop | index($x)) != null) ],
+        excludedDoneStates: $doneStates,
+        excludedCount: ([ .issues[] | select(((.state.name // "") | IN($doneStates[]))) ] | length),
+        excludedInProgress: ([ .issues[] | select(((.state.type // "") == "started") and (((.state.name // "") | IN($doneStates[])) | not)) ] | length)
       }
   '
 }
@@ -561,7 +585,7 @@ _format_next() {
 }
 
 cmd_next() {
-  local input="" query="" all=0 limit=10 mode="human" team="" tickets=""
+  local input="" query="" all=0 limit=10 mode="human" team="" tickets="" done_states="__UNSET__"
   while [ $# -gt 0 ]; do
     case "$1" in
       --query) query="${2:-}"; shift 2 ;;
@@ -573,6 +597,8 @@ cmd_next() {
       --team=*) team="${1#*=}"; shift ;;
       --limit) limit="${2:-}"; shift 2 ;;
       --limit=*) limit="${1#*=}"; shift ;;
+      --done-states) done_states="${2:-}"; shift 2 ;;
+      --done-states=*) done_states="${1#*=}"; shift ;;
       --json) mode="json"; shift ;;
       -h|--help) usage; return 0 ;;
       -*) echo "project: unknown flag '$1'" >&2; return 1 ;;
@@ -609,7 +635,16 @@ cmd_next() {
   fi
 
   local envelope
-  envelope=$(_rank_next "$raw" "$_PROJECT_NEXT_WORKTYPES" "$query" "$limit" "$linked") || { echo "project: ranking failed" >&2; return 1; }
+  # Done-states: explicit --done-states wins; else PROJECT_NEXT_DONE_STATES from env or the
+  # project dotfile. Empty (the default) keeps every non-completed/canceled state, which is
+  # Linear's own notion of open.
+  if [ "$done_states" = "__UNSET__" ]; then
+    done_states="${PROJECT_NEXT_DONE_STATES:-}"
+    if [ -z "$done_states" ]; then
+      done_states="$(resolve_env_key PROJECT_NEXT_DONE_STATES 2>/dev/null || true)"
+    fi
+  fi
+  envelope=$(_rank_next "$raw" "$_PROJECT_NEXT_WORKTYPES" "$query" "$limit" "$linked" "$done_states") || { echo "project: ranking failed" >&2; return 1; }
   _format_next "$envelope" "$mode"
 }
 
