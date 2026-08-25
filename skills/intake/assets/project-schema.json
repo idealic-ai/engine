@@ -28,61 +28,208 @@
     "peerCompare": "`same` = 5 independent products, so identical text is the smell. `differ` = 5 hand-synced copies of one document, so divergence is the smell. `none` = no peer axis.",
     "sharedTextAllowlist": "Section ids whose text is identical across peers BY CONSTRUCTION (peerCompare=same only)."
   },
-
   "scope": {
     "projects": [
-      { "name": "Product: Claims & Policies",    "handbookSlug": "313413476400" },
-      { "name": "Product: Document Extraction",  "handbookSlug": "99082b673fbd" },
-      { "name": "Product: Email Classification", "handbookSlug": "e92601c17dde" },
-      { "name": "Product: Differ",               "handbookSlug": "2f42ecf566ae" },
-      { "name": "Product: Intake System",        "handbookSlug": "28d8ea1b998f" }
-    ]
+      {
+        "name": "Product: Claims & Policies",
+        "handbookSlug": "313413476400"
+      },
+      {
+        "name": "Product: Document Extraction",
+        "handbookSlug": "99082b673fbd"
+      },
+      {
+        "name": "Product: Email Classification",
+        "handbookSlug": "e92601c17dde"
+      },
+      {
+        "name": "Product: Differ",
+        "handbookSlug": "2f42ecf566ae"
+      },
+      {
+        "name": "Product: Intake System",
+        "handbookSlug": "28d8ea1b998f"
+      },
+      {
+        "name": "Product: Preloss B2B",
+        "handbookSlug": "b22ffd52d65e"
+      },
+      {
+        "name": "Product: Report Design System",
+        "handbookSlug": "011d57aa819b"
+      },
+      {
+        "name": "Product: Ask Finch",
+        "handbookSlug": "b80ae6140797"
+      },
+      {
+        "name": "Product: Session QA",
+        "handbookSlug": "47c325f31985"
+      },
+      {
+        "name": "Product: Dates & Notifications",
+        "handbookSlug": "4abc5a4b5743"
+      },
+      {
+        "name": "Product: Mobile",
+        "handbookSlug": "a95a9113c370"
+      },
+      {
+        "name": "Product: Claims Data Consortium",
+        "handbookSlug": "41b9992d4887"
+      }
+    ],
+    "$note": "The authoritative membership test is a live one: a project belongs here iff it carries an `Inboxes` milestone. This list is that test's answer as of 2026-08-26 and is hand-maintained, which is a known weakness — it read five for weeks while twelve existed, so `engine project lint` silently skipped every project scaffolded in the last month. DERIVE IT if you touch this file: list_projects(includeMilestones) client-filtered on an `Inboxes` milestone is the same query the /inbox-post discovery fallback runs. A project missing from here is not linted, and an unlinted project is indistinguishable from a clean one in the output."
   },
-
   "containers": {
     "description": {
       "peerCompare": "same",
       "sections": [
-        { "id": "lead",    "heading": null, "locator": "preamble", "minLines": 1, "required": true },
-        { "id": "prose",   "heading": null, "locator": "preamble", "minLines": 2, "required": true, "freeform": true },
-        { "id": "kb",      "heading": "Knowledge base" },
-        { "id": "steer",   "heading": "Directions" },
-        { "id": "people",  "heading": "Stakeholders" },
-        { "id": "pointer", "heading": null, "locator": "match", "match": "^> 📘 \\[", "required": true }
+        {
+          "id": "lead",
+          "heading": null,
+          "locator": "preamble",
+          "minLines": 1,
+          "required": true
+        },
+        {
+          "id": "prose",
+          "heading": null,
+          "locator": "preamble",
+          "minLines": 2,
+          "required": true,
+          "freeform": true
+        },
+        {
+          "id": "kb",
+          "heading": "Knowledge base"
+        },
+        {
+          "id": "steer",
+          "heading": "Directions"
+        },
+        {
+          "id": "people",
+          "heading": "Stakeholders"
+        },
+        {
+          "id": "pointer",
+          "heading": null,
+          "locator": "match",
+          "match": "^> 📘 \\[",
+          "required": true
+        }
       ],
-      "sharedTextAllowlist": ["pointer", "people"]
+      "sharedTextAllowlist": [
+        "pointer",
+        "people"
+      ]
     },
-
     "handbook": {
       "peerCompare": "differ",
       "sections": [
-        { "id": "dropping",   "heading": "Dropping something",           "required": true },
-        { "id": "channels",   "heading": "The channels",                 "required": true },
-        { "id": "template",   "heading": "📋 Report template",           "required": true },
-        { "id": "next",       "heading": "What happens next",            "required": true },
-        { "id": "becomes",    "heading": "How a comment becomes a ticket", "required": true },
-        { "id": "data",       "heading": "Data handling" },
-        { "id": "recipe",     "heading": "What triage will chase",       "required": true, "perProject": true },
-        { "id": "why",        "heading": "Why it works this way" },
-        { "id": "problemmap", "heading": "The problem map" },
-        { "id": "memory",     "heading": "Research memory" },
-        { "id": "rules",      "heading": "The four operating rules" },
-        { "id": "notdo",      "heading": "What this does *not* do" },
-        { "id": "ticketing",  "heading": "Ticketing Strategy",           "required": true, "perProject": true },
-        { "id": "lifecycle",  "heading": "The lifecycle — bounded waves" },
-        { "id": "cadence",    "heading": "Cadence and the pass heartbeat" },
-        { "id": "inboxes",    "heading": "The intake projects", "perProject": true },
-        { "id": "slack",      "heading": "Related Slack Channels",       "perProject": true }
+        {
+          "id": "dropping",
+          "heading": "Dropping something",
+          "required": true
+        },
+        {
+          "id": "channels",
+          "heading": "The channels",
+          "required": true
+        },
+        {
+          "id": "template",
+          "heading": "📋 Report template",
+          "required": true
+        },
+        {
+          "id": "next",
+          "heading": "What happens next",
+          "required": true
+        },
+        {
+          "id": "becomes",
+          "heading": "How a comment becomes a ticket",
+          "required": true
+        },
+        {
+          "id": "data",
+          "heading": "Data handling"
+        },
+        {
+          "id": "recipe",
+          "heading": "What triage will chase",
+          "required": true,
+          "perProject": true
+        },
+        {
+          "id": "why",
+          "heading": "Why it works this way"
+        },
+        {
+          "id": "problemmap",
+          "heading": "The problem map"
+        },
+        {
+          "id": "memory",
+          "heading": "Research memory"
+        },
+        {
+          "id": "rules",
+          "heading": "The four operating rules"
+        },
+        {
+          "id": "notdo",
+          "heading": "What this does *not* do"
+        },
+        {
+          "id": "ticketing",
+          "heading": "Ticketing Strategy",
+          "required": true,
+          "perProject": true
+        },
+        {
+          "id": "lifecycle",
+          "heading": "The lifecycle — bounded waves"
+        },
+        {
+          "id": "cadence",
+          "heading": "Cadence and the pass heartbeat"
+        },
+        {
+          "id": "inboxes",
+          "heading": "The intake projects",
+          "perProject": true
+        },
+        {
+          "id": "slack",
+          "heading": "Related Slack Channels",
+          "perProject": true
+        }
       ]
     },
-
     "channel": {
       "peerCompare": "none",
       "sections": [
-        { "id": "lead",    "heading": null, "locator": "preamble", "minLines": 1, "required": true },
-        { "id": "steer",   "heading": "Directions" },
-        { "id": "pointer", "heading": null, "locator": "match", "match": "^> 📘 \\[",
-          "$why": "NOT required. The handbook is per PROJECT and is reached from the project sidebar; the per-channel pointer has zero machine consumers (/intake fetches the handbook by slugId, never via a channel). It is declared so a channel that carries one is not flagged as un-schema'd — never so its absence fails. Ruled 2026-08-17 after this rule failed 9 channels created in one batch: nine independent omissions of one rule is evidence the rule is not real, not evidence of nine mistakes." }
+        {
+          "id": "lead",
+          "heading": null,
+          "locator": "preamble",
+          "minLines": 1,
+          "required": true
+        },
+        {
+          "id": "steer",
+          "heading": "Directions"
+        },
+        {
+          "id": "pointer",
+          "heading": null,
+          "locator": "match",
+          "match": "^> 📘 \\[",
+          "$why": "NOT required. The handbook is per PROJECT and is reached from the project sidebar; the per-channel pointer has zero machine consumers (/intake fetches the handbook by slugId, never via a channel). It is declared so a channel that carries one is not flagged as un-schema'd — never so its absence fails. Ruled 2026-08-17 after this rule failed 9 channels created in one batch: nine independent omissions of one rule is evidence the rule is not real, not evidence of nine mistakes."
+        }
       ]
     }
   }
