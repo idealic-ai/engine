@@ -346,11 +346,24 @@ fi
 # ── 5. setup dry-run ──
 echo "Test 5: setup --non-interactive dry-run"
 CASE_S="$WORK/s"; mkcase "$CASE_S"
-OUT=$(cd "$CASE_S" && "$ENV_SH" setup --non-interactive 2>&1 | strip)
-if printf '%s' "$OUT" | grep -qE 'would-write +SLACK_INTAKE_TOKEN' && printf '%s' "$OUT" | grep -qE 'would-write +LINEAR_API_KEY'; then
-  pass "dry-run lists both secret rows as would-write"
+# ⚠️ SLACK_INTAKE_TOKEN and LINEAR_API_KEY are no longer prompted — both moved to
+# `source: aws-secret`, so the wizard FETCHES them and there is nothing to type. This case
+# therefore uses its own fixture with a genuinely prompt-sourced row: asserting against the
+# real manifest would only re-assert whatever it happens to say today, and would have gone
+# green again the moment someone added a new typed secret for an unrelated reason.
+SETUP_MF="$WORK/setup-prompt.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"TYPED_SECRET", service:"Typed", required:"req", secret:true, default:null,
+   dotfile:".env.local", how:"a secret a person must go and obtain",
+   check:{type:"file-key"}, source:{type:"prompt"}},
+  {key:"FETCHED_SECRET", service:"Fetched", required:"req", secret:true, default:null,
+   dotfile:".env.local", how:"a secret the wizard fetches",
+   check:{type:"file-key"}, source:{type:"aws-secret", name:"staging/finch/whatever"}}]}' > "$SETUP_MF"
+OUT=$(cd "$CASE_S" && ENV_MANIFEST="$SETUP_MF" "$ENV_SH" setup --non-interactive 2>&1 | strip)
+if printf '%s' "$OUT" | grep -qE 'would-write +TYPED_SECRET'; then
+  pass "dry-run lists a PROMPT-sourced secret as would-write"
 else
-  fail "dry-run lists secrets" "would-write SLACK + LINEAR" "$OUT"
+  fail "dry-run lists secrets" "would-write TYPED_SECRET" "$OUT"
 fi
 # Dry-run writes NOTHING.
 if [ ! -f "$CASE_S/.env.local" ] && [ ! -f "$CASE_S/.env" ]; then

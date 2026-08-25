@@ -1380,6 +1380,7 @@ cmd_provision() {
   # ---- derive resources FROM THE MANIFEST ----
   local key service required secret default dotfile how check arg src sname sfield sregion sprofile
   local db_secret="" region="" bucket="" prefix="" bastion_tag="" login_secret=""
+  local gemini_secret=""; local -a shared_secrets=()
   local state_prefix="" events_prefix=""
   while IFS=$'\037' read -r key service required secret default dotfile how check arg src sname sfield sregion sprofile; do
     # ⚠️ A `provisioner` ROW IS NEVER GRANTED. These are credentials the person running
@@ -1392,6 +1393,12 @@ cmd_provision() {
       FINCH_DB_RO_SECRET) db_secret="${sname:-$default}" ;;
       FINCH_BASTION_TAG)  bastion_tag="$default" ;;
       FINCH_AGENT_APP_*)  login_secret="$sname" ;;
+      GEMINI_API_KEY)     gemini_secret="$sname" ;;
+      # SHARED secrets: one ARN everyone reads. Collected as a list rather than a case
+      # per key, because this set grows every time a credential turns out to be one
+      # nobody can self-serve — which is how SLACK_INTAKE_TOKEN got here.
+      SLACK_INTAKE_TOKEN|LINEAR_API_KEY)
+        [ "$src" = "aws-secret" ] && [ -n "$sname" ] && shared_secrets[${#shared_secrets[@]}]="$sname" ;;
       AWS_REGION)         region="$default" ;;
       PROVE_S3_BUCKET)        [ "$tier" = "member" ] && bucket="$default" ;;
       PROVE_S3_PREFIX)        [ "$tier" = "member" ] && prefix="$default" ;;
@@ -1538,6 +1545,38 @@ cmd_provision() {
       stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" '{Sid:"ReadOwnAgentLogin",Effect:"Allow",Action:["secretsmanager:GetSecretValue"],Resource:[$r]}')"
     else
       dropped[${#dropped[@]}]="$arn"
+    fi
+  fi
+
+  # The agent's OWN Gemini key. PER-PERSON, and scoped exactly like the login above —
+  # that scoping is what turns "someone burned the quota" into "this person's agent did".
+  # ⚠️ DASHED here, unlike agent-login: that path carries the plus form because it names a
+  # LOGIN, and the fetcher only plus-converts a path containing `agent-login`. A grant on
+  # a path the fetcher never requests is the exact defect this branch already paid for.
+  if [ -n "$gemini_secret" ]; then
+    arn="arn:aws:secretsmanager:${region}:${account}:secret:${gemini_secret//<person>/$user}-*"
+    if _arn_allowed "$arn"; then
+      stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" '{Sid:"ReadOwnGeminiKey",Effect:"Allow",Action:["secretsmanager:GetSecretValue"],Resource:[$r]}')"
+    else
+      dropped[${#dropped[@]}]="$arn"
+    fi
+  fi
+
+  # SHARED secrets — the same ARN for everyone, deliberately. A Slack bot token is ONE
+  # bot and a Linear read key carries no attribution, so per-person copies would be
+  # theatre; rotation happens once, here, rather than in four dotfiles. Contrast the two
+  # blocks above: per-person where the credential identifies someone, shared where it
+  # does not. Both of these were typed by hand until today, which asked a new teammate
+  # for credentials they had no way to obtain.
+  if [ "${#shared_secrets[@]}" -gt 0 ]; then
+    local -a shared_arns=()
+    local sec
+    for sec in "${shared_secrets[@]}"; do
+      arn="arn:aws:secretsmanager:${region}:${account}:secret:${sec}-*"
+      if _arn_allowed "$arn"; then shared_arns[${#shared_arns[@]}]="$arn"; else dropped[${#dropped[@]}]="$arn"; fi
+    done
+    if [ "${#shared_arns[@]}" -gt 0 ]; then
+      stmts[${#stmts[@]}]="$(printf '%s\n' "${shared_arns[@]}" | jq -R . | jq -sc '{Sid:"ReadSharedTokens",Effect:"Allow",Action:["secretsmanager:GetSecretValue"],Resource:.}')"
     fi
   fi
 
