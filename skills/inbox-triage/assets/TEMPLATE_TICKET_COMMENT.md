@@ -96,7 +96,7 @@ rewrite it as a property of the defect. Rank by value if there are more than thr
 | --- | --- | --- |
 | **the synthesis** — `inbox-triage-<origin-id>.md` | the person who owns the bug, after reading the comment | the findings in full, without the method |
 | **the dossier** — `…-dossier.md` | whoever audits or maintains the method | everything: adjudication, both angle reports, the context pack |
-| **the repro** — `…-repro.<ext>`, one per angle that wrote one | whoever takes the fix | something they can run |
+| **the repro** — `…-repro.ts`, one per angle that wrote one | whoever takes the fix | something they can run |
 
 **Do not bundle across rows of that table, and do not duplicate within one.** Two reports for the same reader is the failure the old rule was reaching for; a script fenced inside a 130 KB dossier is a different failure, because the person who needs it has to extract it before it runs. If you are about to add a card, name the reader it is for — if that reader already has one, it belongs *inside* theirs.
 

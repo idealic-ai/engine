@@ -2,9 +2,9 @@
 
 Fast-path navigation map for `/inbox-post`. Project → its `Inboxes` channel tickets (FIN-key + URL). A **cache**, not the source of truth — Linear is. When it's stale or missing a target, the skill falls back to live discovery (`list_projects(includeMilestones)` → client-filter `Inboxes`; channel tickets by title) and self-heals this file.
 
-*Channels:* 🔴 Observed problems · 🟠 Identified shortcomings · 🔵 Feature requirements · 🟢 Potential solutions · 🟣 Feedback & Transcripts · 🟤 Priorities & Deadlines · 🟡 Researches & Fixtures · 🟦 Documentation · 🟪 Inquiries · 📣 Announcements · 🟩 Chores & tracker hygiene
+*Channels:* 🔴 Observed problems · 🟠 Identified shortcomings · 🔵 Feature requirements · 🟢 Potential solutions · 🟣 Feedback & Transcripts · 🟤 Priorities & Deadlines · 🟡 Researches & Fixtures · 🟦 Documentation · 🟪 Inquiries · 📣 Announcements · 🟩 Chores & tracker hygiene · ⚖️ Legal and counsel questions · 🤝 Partner signal
 
-Not a fixed set in practice — channel titles vary slightly per project (Claims & Policies uses "Feature **& capability** requirements"). Match by intent, not by exact title. **The discovery fallback filters issue titles by these emojis — extend that list whenever a channel is added, or the new one is invisible to discovery.** It also matches an **`Inbox:` title prefix**, which is a second live convention rather than a legacy one: *Product: Claims Data Consortium* names its channels `Inbox: <what>` with no emoji at all, so an emoji-only filter finds none of them. Squares twin circles by design (🟦 with 🔵, 🟩 with 🟢, 🟪 with 🟣): every color was already taken by a circle, so a twin is the convention rather than a collision. 🟪 twins 🟣 because both are raw human voice arriving unprocessed — 🟣 is what someone **said**, 🟪 is what someone **asked**.
+Not a fixed set in practice — channel titles vary slightly per project (Claims & Policies uses "Feature **& capability** requirements"). Match by intent, not by exact title. **The discovery fallback filters issue titles by these emojis — extend that list whenever a channel is added, or the new one is invisible to discovery.** **Two of the glyphs are project-specific, not shared**: ⚖️ Legal and counsel questions and 🤝 Partner signal exist only on *Product: Claims Data Consortium*, whose subject makes them real channels rather than a convenience — a question needing a lawyer, and a thing a named partner said, have no honest home in the standard set. Discovery must still know them or that project loses two channels. *(The `Inbox: <what>` naming that project used until 2026-08-26 is **retired** — its four channels were renamed to the emoji convention. If you find a channel still titled `Inbox: …`, it is a project the standardisation missed.)* Squares twin circles by design (🟦 with 🔵, 🟩 with 🟢, 🟪 with 🟣): every color was already taken by a circle, so a twin is the convention rather than a collision. 🟪 twins 🟣 because both are raw human voice arriving unprocessed — 🟣 is what someone **said**, 🟪 is what someone **asked**.
 
 **🟪 Inquiries is universal by nature, and a deliberate exception to how every other channel is chosen.** The others earn their place per project — an empty one is a cost, not a completeness win — so a project's set is decided, never defaulted. Inquiries is different because **any project can be asked a question**, including one with nothing shipped and nothing yet to observe: not knowing is the whole content, so it cannot sit empty for want of subject matter. It was created on **all twelve** intake projects on 2026-08-25 (decided: Yarik Fedin) rather than seeded on one and replicated as it earned its way. A project scaffolding an inbox from here on gets it in the initial set.
 
@@ -32,11 +32,13 @@ Each intake project carries its **own complete copy**, attached to the project s
 | Session QA | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-47c325f31985) | `d1661668-d2a5-4487-be5f-fef06eb9d772` · `47c325f31985` |
 | Dates & Notifications | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-4abc5a4b5743) | `997c3fcb-a86a-4351-8649-9e6786091d66` · `4abc5a4b5743` |
 | Mobile | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-a95a9113c370) | `fc361581-1e2b-4563-b7a8-4e120009d1f0` · `a95a9113c370` |
-| Claims Data Consortium | **none** | — |
+| Claims Data Consortium | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-41b9992d4887) | `0ea46cbb-9a4b-49d2-9cf8-f240d5e7abac` · `41b9992d4887` |
+| API | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-83fea83a335e) | `f7457ce0-416d-444f-9c36-595e395fedde` · `83fea83a335e` |
+| Console | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-90d47f725806) | `3f47b2af-762b-435f-bc4d-f24637772323` · `90d47f725806` |
 
 The short-lived team-level handbook (`1292d6ee-5819-4354-9892-49f0d3d388a6`, slug `7f5f9c302585`) is **retired** — a team-attached document has no home in the Linear UI, so nothing surfaced it from a project. If you find a channel still linking slug `7f5f9c302585`, repoint it at its own project's handbook above.
 
-**Claims Data Consortium has no handbook.** Its channels link to nothing, so a `/inbox-post` run there has no shared machinery to read and its 🟪 ticket ships without the usual blockquote. That project was scaffolded outside the intake conventions and has drifted from all of them at once — naming, handbook, discoverability. Writing it one is real work, not a patch.
+**Every project now has a handbook.** Claims Data Consortium's was written on 2026-08-26, closing the last gap — that project had been scaffolded by hand outside the conventions and had drifted from all of them at once (naming, handbook, discoverability). Its recipe is unlike any other: no claim id, no Temporal, no failing job, because the subject is a data pool, a set of governing documents, a group of partners and a printed report with a hard date.
 
 Match a handbook by **slugId**, not by the words in the URL: retitling a Linear document re-slugs the human-readable segment while the 12-hex slugId stays put.
 
@@ -49,15 +51,17 @@ The wave's `§PASS_HEARTBEAT` announce is **per-project** — pass the name belo
 *   **Email Classification** — `#engineering-alerts`
 *   **Differ** — `#engineering-alerts`
 *   **Intake System** — `#engineering-alerts`
-*   **Preloss B2B** — `#intake-alerts`
+*   **Preloss B2B** — `#intake-alerts` *(confirmed 2026-08-26)*
 *   **Report Design System** — `#intake-alerts`
 *   **Ask Finch** — **UNSET**
 *   **Session QA** — **UNSET**
 *   **Dates & Notifications** — **UNSET**
 *   **Mobile** — **UNSET**
-*   **Claims Data Consortium** — **UNSET**
+*   **Claims Data Consortium** — `#intake-alerts`
+*   **API** — `#intake-alerts` *(chosen at scaffold, 2026-08-26, Yarik Fedin)*
+*   **Console** — `#intake-alerts` *(chosen at scaffold, 2026-08-26, Yarik Fedin)*
 
-The first five were moved from `#intake-alerts` to `#engineering-alerts` on 2026-08-17 (decided: Yarik Fedin) — intake heartbeats belong with the rest of the engineering alerting rather than in a channel of their own. **The rows below it are unresolved because nobody has said where those projects belong** — they are newer than that decision, and a guess here would silently send a project's heartbeat somewhere nobody watches. Preloss B2B and Report Design System still name `#intake-alerts` from their bootstrap; the five marked **UNSET** have never had a destination chosen at all, and a pass on one of them should ask rather than default. Extending the 2026-08-17 `#engineering-alerts` decision to them is a reasonable guess and is still a guess.
+The first five were moved from `#intake-alerts` to `#engineering-alerts` on 2026-08-17 (decided: Yarik Fedin) — intake heartbeats belong with the rest of the engineering alerting rather than in a channel of their own. **The rows below it are unresolved because nobody has said where those projects belong** — they are newer than that decision, and a guess here would silently send a project's heartbeat somewhere nobody watches. **Preloss B2B and Claims Data Consortium were decided on 2026-08-26 (Yarik Fedin): both announce to `#intake-alerts`.** Preloss B2B's row had been a bootstrap leftover nobody had chosen; it is now a recorded choice at the same value. Report Design System still names `#intake-alerts` from its bootstrap, and the rows marked **UNSET** have never had a destination chosen at all — a pass on one of them should ask rather than default. **The 2026-08-26 answer suggests `#intake-alerts` is the intended default for newer projects, but that is an inference and the four UNSET rows are deliberately not filled from it.** Extending the 2026-08-17 `#engineering-alerts` decision to them is a reasonable guess and is still a guess.
 
 This is the **announce** destination only — one per project, where a completed pass posts its heartbeat. It is a different thing from the channels a wave *reads* for ambient context, which are per-project and live in each project's Inbox Handbook under `## Related Slack Channels` (`¶INV_CHANNEL_MACHINERY_IN_ONE_DOC`). A project may read several channels and announces to exactly one.
 
@@ -140,8 +144,12 @@ Verify a project's Slack setup before its first announce: `engine slack-post --v
 - 🟤 Priorities & Deadlines — [FIN-3667](https://linear.app/finchclaims/issue/FIN-3667)
 - 🟦 Documentation — [FIN-3668](https://linear.app/finchclaims/issue/FIN-3668)
 - 🟪 Inquiries — [FIN-4181](https://linear.app/finchclaims/issue/FIN-4181)
+- 🔴 Observed problems — [FIN-4188](https://linear.app/finchclaims/issue/FIN-4188)
+- 🟡 Researches & Fixtures — [FIN-4189](https://linear.app/finchclaims/issue/FIN-4189)
 
-*🔴 Observed problems and 🟡 Researches & Fixtures were deliberately NOT created — the project is in discovery with no product in front of customers, so both would sit empty, and an empty channel makes a dropper hesitate over an irrelevant choice every time. Create them when a design partner is live and there is something to observe. 🟣 Feedback & Transcripts is the primary channel here, not a secondary one: most drops are whole discovery calls.*
+*🔴 Observed problems and 🟡 Researches & Fixtures were deliberately withheld at bootstrap — the project was in discovery with no product in front of customers, so both would have sat empty, and an empty channel makes a dropper hesitate over an irrelevant choice every time. **The stated trigger — "when a design partner is live and there is something to observe" — fired, and both were created on 2026-08-26 (decided: Yarik Fedin).** 🟡 is scoped to this project's actual subject: a **market fact we got wrong** (a mis-sized segment, a mis-read buyer type, a competitor claim that does not hold), rather than corrected AI output, because there is no AI workload here to correct. 🟣 Feedback & Transcripts remains the primary channel, not a secondary one: most drops are whole discovery calls.*
+
+*Worth keeping as a pattern: the withholding decision was recorded **with the condition that would end it**, and that is the only reason anyone could tell the condition had been met. A deliberate omission with no stated trigger is indistinguishable from an oversight a month later.*
 
 ## Product: Report Design System
 - **Project id**: `6cd804e9-02a3-4a52-bb59-937a03d3a374` · **Inboxes milestone**: `b2c91cc5-cc27-4233-a5e2-abd292281532`
@@ -211,10 +219,42 @@ Verify a project's Slack setup before its first announce: `engine slack-post --v
 
 ## Product: Claims Data Consortium
 - **Project id**: `466aecae-8b2c-4ee6-ab2e-594b08d7f83b` · **Inboxes milestone**: `f92a6c89-97f4-4b87-be4f-2ef63f84f8ce`
-- Inbox: Observed problems — [FIN-4117](https://linear.app/finchclaims/issue/FIN-4117)
-- Inbox: Report and data-cut ideas — [FIN-4116](https://linear.app/finchclaims/issue/FIN-4116)
-- Inbox: Legal and counsel questions — [FIN-4115](https://linear.app/finchclaims/issue/FIN-4115)
-- Inbox: Partner signal (Brian, Phil, founding firms) — [FIN-4114](https://linear.app/finchclaims/issue/FIN-4114)
+- 🔴 Observed problems — [FIN-4117](https://linear.app/finchclaims/issue/FIN-4117)
+- 🟠 Identified shortcomings — [FIN-4190](https://linear.app/finchclaims/issue/FIN-4190)
+- 🟢 Report and data-cut ideas — [FIN-4116](https://linear.app/finchclaims/issue/FIN-4116)
+- ⚖️ Legal and counsel questions — [FIN-4115](https://linear.app/finchclaims/issue/FIN-4115)
+- 🤝 Partner signal — [FIN-4114](https://linear.app/finchclaims/issue/FIN-4114)
+- 🟣 Feedback & Transcripts — [FIN-4191](https://linear.app/finchclaims/issue/FIN-4191)
+- 🟤 Priorities & Deadlines — [FIN-4192](https://linear.app/finchclaims/issue/FIN-4192)
+- 🟦 Documentation — [FIN-4193](https://linear.app/finchclaims/issue/FIN-4193)
 - 🟪 Inquiries — [FIN-4187](https://linear.app/finchclaims/issue/FIN-4187)
 
-*The exception on every axis. Its four original channels are named `Inbox: <what>` with **no emoji**, so the emoji-only discovery filter finds none of them — match the `Inbox:` prefix too. It has **no Inbox Handbook**, so its channels link to nothing. Its channel set is hand-designed for a specific effort (a printed report and a founding-member product) rather than scaffolded from the default. 🟪 Inquiries was created here in the **standard** emoji form deliberately, to start pulling the project toward the shared convention; it also has to earn its place against two neighbours that already look like question channels — `Inbox: Legal and counsel questions` (needs a lawyer, carries legal risk) and `Inbox: Partner signal` (what a partner told us, not what we want to ask).*
+*Standardised 2026-08-26. It **keeps two channels of its own** — ⚖️ Legal and counsel questions and 🤝 Partner signal — because its subject genuinely produces those kinds and the standard set has no honest home for either; forcing the default eight would have deleted real design. The four original `Inbox: <what>` titles were renamed to the emoji convention, so the project is discoverable for the first time. Two collisions the bespoke pair creates are resolved in the channel descriptions and the handbook: 🟠 vs ⚖️ is **can you assert the gap, or are you asking whether it is allowed**; 🟣 vs 🤝 is **the whole artifact vs one attributed thing a partner said** — a 40-minute call goes to 🟣, the objection inside it to 🤝.*
+
+---
+
+## Product: API
+- **Project id**: `d515309d-e846-47f9-b20c-e5672f856a07` · **Inboxes milestone**: `63526ea7-d318-4a2d-97e3-6c893d999919`
+- 🔴 Observed problems — [FIN-4196](https://linear.app/finchclaims/issue/FIN-4196)
+- 🟠 Identified shortcomings — [FIN-4197](https://linear.app/finchclaims/issue/FIN-4197)
+- 🔵 Feature requirements — [FIN-4198](https://linear.app/finchclaims/issue/FIN-4198)
+- 🟢 Potential solutions — [FIN-4199](https://linear.app/finchclaims/issue/FIN-4199)
+- 🟣 Feedback & Transcripts — [FIN-4200](https://linear.app/finchclaims/issue/FIN-4200)
+- 🟤 Priorities & Deadlines — [FIN-4201](https://linear.app/finchclaims/issue/FIN-4201)
+- 🟦 Documentation — [FIN-4202](https://linear.app/finchclaims/issue/FIN-4202)
+- 🟪 Inquiries — [FIN-4203](https://linear.app/finchclaims/issue/FIN-4203)
+
+*Scaffolded 2026-08-26. **Platform scope only** (ruled by Yarik Fedin): identity and tenancy, request safety, queues, events, data and migrations, contracts, observability, deploy. **Not the product logic** — `apps/api` implements every product capability, so without that boundary the project would be unroutable. The test a drop is sorted by: **is the fix about how the system serves a request, or about what the answer should have been?** The second belongs to Claims & Policies, Document Extraction, Email Classification, Differ or Ask Finch. 🟡 Researches & Fixtures is deliberately absent — human-ratified AI oracles belong to the product projects.*
+
+## Product: Console
+- **Project id**: `1f8da919-6e79-4013-8c0f-a70623715ad9` · **Inboxes milestone**: `0492234f-1294-4f6c-89e6-4f71d981c594`
+- 🔴 Observed problems — [FIN-4204](https://linear.app/finchclaims/issue/FIN-4204)
+- 🟠 Identified shortcomings — [FIN-4205](https://linear.app/finchclaims/issue/FIN-4205)
+- 🔵 Feature requirements — [FIN-4206](https://linear.app/finchclaims/issue/FIN-4206)
+- 🟢 Potential solutions — [FIN-4207](https://linear.app/finchclaims/issue/FIN-4207)
+- 🟣 Feedback & Transcripts — [FIN-4208](https://linear.app/finchclaims/issue/FIN-4208)
+- 🟤 Priorities & Deadlines — [FIN-4209](https://linear.app/finchclaims/issue/FIN-4209)
+- 🟦 Documentation — [FIN-4210](https://linear.app/finchclaims/issue/FIN-4210)
+- 🟪 Inquiries — [FIN-4211](https://linear.app/finchclaims/issue/FIN-4211)
+
+*Scaffolded 2026-08-26. **Back-office ops including the MCP surface** (ruled by Yarik Fedin): onboarding, per-org views, claims and document health, the data funnel, integrations, members, the staff access model, and the agent-facing MCP/OAuth flow that lives in the same app. The app is `apps/console` on `origin/dev` and **may not exist on a given branch** — read it with `git show origin/dev:`. The discriminator that decides most drops: **open the network call behind the page — if the wrong value is already in the API response, it is not a Console item.** Beware the funnel trap: that surface exists to reveal OTHER projects' losses, so a funnel finding is usually a high-quality report for someone else. 🟡 Researches & Fixtures deliberately absent, same reasoning as API.*
