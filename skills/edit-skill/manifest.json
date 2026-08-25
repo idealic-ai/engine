@@ -115,7 +115,6 @@
         "\u00a7CMD_CAPTURE_SIDE_DISCOVERIES",
         "\u00a7CMD_RESOLVE_CROSS_SESSION_TAGS",
         "\u00a7CMD_MANAGE_BACKLINKS",
-        "\u00a7CMD_MANAGE_ALERTS",
         "\u00a7CMD_REPORT_LEFTOVER_WORK"
       ],
       "commands": [],

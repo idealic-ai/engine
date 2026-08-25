@@ -47,9 +47,9 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
     {"label": "4.2", "name": "Debrief",
       "steps": ["§CMD_GENERATE_DEBRIEF"], "commands": [], "proof": ["debriefFile", "debriefTags"], "gate": false},
     {"label": "4.3", "name": "Pipeline",
-      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_OFFER_HANDBOOK_CAPTURE", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
+      "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_OFFER_HANDBOOK_CAPTURE", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_RESOLVE_CROSS_SESSION_TAGS", "§CMD_MANAGE_BACKLINKS", "§CMD_REPORT_LEFTOVER_WORK"], "commands": [], "proof": [], "gate": false},
     {"label": "4.4", "name": "Close",
-      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_OFFER_COUNCIL_REVIEW", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": ["reviewOffered", "decision"], "gate": false}
+      "steps": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY", "§CMD_SURFACE_OPPORTUNITIES", "§CMD_OFFER_COUNCIL_REVIEW", "§CMD_OFFER_CLOSING_SNAPSHOT", "§CMD_CLOSE_SESSION", "§CMD_PRESENT_NEXT_STEPS"], "commands": [], "proof": ["reviewOffered", "decision"], "gate": false}
   ],
   "nextSkills": ["/test", "/document", "/analyze", "/fix", "/prove", "/chores"],
   "directives": ["TESTING.md", "PITFALLS.md", "CONTRIBUTING.md", "CHECKLIST.md"],
@@ -244,3 +244,5 @@ Once the plan is approved, offer a `/council` panel review on the plan `<IMPLEME
 ```
 
 Before closing, offer a `/council` panel review on the built session `<dir>` via `§CMD_OFFER_COUNCIL_REVIEW` (offer, not force) -- diverse expert eyes on what was actually built.
+
+Then, still before the idle transition, offer a closing `/snapshot` on the session's ticket via `§CMD_OFFER_CLOSING_SNAPSHOT` (offer, not force) -- a session can otherwise land commits, write a debrief and close while the tracker still reads the state the work started from. `/snapshot` owns the writes; this step reads the live state and routes.

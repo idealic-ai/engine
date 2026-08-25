@@ -71,8 +71,9 @@ Start a background watcher that blocks until a specific tag appears on a file or
 **Related**: `§CMD_APPEND_LOG` (the logging mechanism), `§CMD_THINK_IN_LOG` (the logging rationale).
 
 ### ¶CMD_REQUIRE_ACTIVE_SESSION
-**Definition**: All tool use requires an active session. Mechanically enforced by `pre-tool-use-session-gate.sh`.
-**Rule**: The session gate blocks all non-whitelisted tools until `engine session activate` succeeds. Whitelisted: `Read(~/.claude/*)`, `Bash(engine session)`, `AskUserQuestion`, `Skill`.
+**Definition**: All tool use requires an active session. Mechanically enforced by the `session-gate` and `idle-gate` rules in `engine/guards.json`, evaluated by `pre-tool-use-overflow-v2.sh`.
+**Rule**: The gate blocks all non-whitelisted tools until `engine session activate` succeeds. Whitelisted: `AskUserQuestion`, `Skill`, the read-only engine commands (`engine session`, `session-search`, `doc-search`, `tag`, `find-sessions`, `discover-directives`, `project next`), and — for `session-gate` only — reads of `.claude/`, `CLAUDE.md`, `memory/`, `sessions/*.md`, `.state.json`.
+**Why `project next` is allowed**: choosing what to work on is what you do *before* you have a session, so requiring one is circular. Its siblings `engine project fetch` / `lint` remain gated — the exemption is for the picker, not the whole namespace. The whitelist is the source of truth; edit `guards.json`, not this line.
 **When Blocked**: Activate a session before proceeding. If the user's message already specifies a skill or task, activate it directly via the Skill tool or `engine session activate`. If the user's intent is unclear, use `AskUserQuestion` to ask which skill to activate. Suggest `/do` for quick ad-hoc tasks, or a structured skill (`/implement`, `/analyze`, `/fix`, etc.) for larger work.
 **Related**: `¶INV_SKILL_PROTOCOL_MANDATORY` (skills require formal session activation), `§CMD_MAINTAIN_SESSION_DIR` (session directory lifecycle).
 
@@ -468,6 +469,9 @@ Offers a `/council` panel review on the artifact a skill just produced (plan/dif
 
 ### [¶CMD_OFFER_GRAPH_VIZ](commands/CMD_OFFER_GRAPH_VIZ.md)
 Offers a `/graph` flowgraph visualization of the algorithm/structure/steps a skill just produced (plan step-deps, control flow, decision tree, chapter graph, failure-path). Offers, never forces (`¶INV_OFFER_DONT_FORCE_SKILLS`); **context-gated** — silently auto-skips when the artifact is linear (a flowgraph would add nothing). Inline (no background/wait, unlike council): on accept, invokes `/graph` in-chat.
+
+### [¶CMD_OFFER_CLOSING_SNAPSHOT](commands/CMD_OFFER_CLOSING_SNAPSHOT.md)
+Offers a closing `/snapshot` on the session's ticket immediately before the session goes idle, so the tracker learns the outcome (status transition + debrief attach + closing comment) instead of being left at whatever state the work started from. Offers, never forces (`¶INV_OFFER_DONT_FORCE_SKILLS`); writes nothing to the tracker itself — every mutation happens inside `/snapshot` under its batch confirm. Declared BEFORE `§CMD_CLOSE_SESSION`, because the idle gate blocks the commit and the post.
 
 ### [¶CMD_DESIGN_E2E_TEST](commands/CMD_DESIGN_E2E_TEST.md)
 Designs and runs e2e reproduction tests — creates a sandbox, reproduces "before" behavior, applies fix, demonstrates "after" behavior.
