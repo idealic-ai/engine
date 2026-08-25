@@ -3089,4 +3089,71 @@ else
 fi
 
 
+# ══ 52. --refresh: a fetched value is a CACHE, a typed one is a SOURCE ═══════
+#
+# `setup` skips any row the dotfile already holds. Correct for a `prompt` row — rewriting
+# it could only discard something a person went and obtained. Wrong for an `aws-secret`
+# row, where the local copy is a cache of an authoritative upstream: a per-person key can
+# be provisioned, granted, and never used, while the doctor reports PASS because a value
+# is present rather than because it is the right one. Found the hard way — every machine
+# already set up kept its old Gemini key and nothing said so.
+echo "Test 52: --refresh re-fetches a cache, never a typed value"
+CASE_RF="$WORK/rf"; mkcase "$CASE_RF"
+RF_MF="$WORK/refresh.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"FETCHED_ONE", service:"Fetched", required:"optional", secret:true, default:null,
+   dotfile:".env.local", how:"has an upstream", check:{type:"file-key"},
+   source:{type:"aws-secret", name:"staging/finch/whatever"}},
+  {key:"TYPED_ONE", service:"Typed", required:"optional", secret:true, default:null,
+   dotfile:".env.local", how:"a person went and got this", check:{type:"file-key"},
+   source:{type:"prompt"}}]}' > "$RF_MF"
+
+# Both already present, with values that are recognisably OLD.
+printf 'FETCHED_ONE="stale-cache"\nTYPED_ONE="hand-typed"\n' > "$CASE_RF/.env.local"
+
+rf() { ( cd "$CASE_RF" && ENV_MANIFEST="$RF_MF" ENV_AWS_SECRET_OUTPUT='{"SecretString":"fresh-from-upstream"}' \
+          "$ENV_SH" setup ${1:-} </dev/null 2>&1 | strip ); }
+
+# (a) WITHOUT --refresh nothing moves — the pre-existing contract.
+rf >/dev/null 2>&1
+if grep -q 'stale-cache' "$CASE_RF/.env.local" && grep -q 'hand-typed' "$CASE_RF/.env.local"; then
+  pass "without --refresh both rows are left exactly as they were"
+else
+  fail "no-refresh leaves both" "stale-cache + hand-typed intact" "$(cat "$CASE_RF/.env.local")"
+fi
+
+# (b) WITH --refresh the CACHE is replaced …
+rf --refresh >/dev/null 2>&1
+if grep -q 'fresh-from-upstream' "$CASE_RF/.env.local"; then
+  pass "--refresh re-fetches an aws-secret row that was already present"
+else
+  fail "refresh re-fetches" "fresh-from-upstream in the dotfile" "$(cat "$CASE_RF/.env.local")"
+fi
+
+# (c) … and the TYPED value is untouched. This is the half that makes --refresh safe to
+#     run habitually: it can only ever discard a copy, never an original.
+if grep -q 'hand-typed' "$CASE_RF/.env.local"; then
+  pass "--refresh does NOT touch a prompt-sourced row (no upstream to refresh from)"
+else
+  fail "refresh spares typed rows" "hand-typed still present" "$(cat "$CASE_RF/.env.local")"
+fi
+
+# (d) filled IN PLACE, not appended — a second definition would shadow unpredictably
+#     depending on which reader wins.
+if [ "$(grep -c '^FETCHED_ONE' "$CASE_RF/.env.local")" = "1" ]; then
+  pass "the refreshed row is filled in place, not duplicated"
+else
+  fail "no duplicate line" "exactly one FETCHED_ONE line" "$(grep -c '^FETCHED_ONE' "$CASE_RF/.env.local")"
+fi
+
+# (e) the skip message TELLS you the door exists. A silent skip is how the stale cache
+#     survived unnoticed in the first place.
+NORF=$(rf)
+if printf '%s' "$NORF" | grep -q -- '--refresh'; then
+  pass "the 'already set' line names --refresh, so the skip is discoverable"
+else
+  fail "skip names the remedy" "a --refresh hint on the have line" "$NORF"
+fi
+
+
 exit_with_results

@@ -26,11 +26,20 @@
 #                                                 Seeds missing non-secret defaults into their
 #                                                 dotfile. --env-example asserts a committed
 #                                                 .env.example agrees with the manifest.
-#   engine env setup [--domain <name>] [--non-interactive]
+#   engine env setup [--domain <name>] [--non-interactive] [--refresh]
 #                                                 Wizard: prompt for each missing SECRET row,
 #                                                 write it to its gitignored dotfile.
 #                                                 --non-interactive (alias --dry-run) echoes
 #                                                 what it WOULD write, writes nothing.
+#                                                 --refresh re-fetches rows sourced from
+#                                                 Secrets Manager even when the dotfile
+#                                                 already holds a value — that copy is a
+#                                                 CACHE, and a stale one is invisible since
+#                                                 the doctor passes on presence, not on
+#                                                 correctness. Prompted rows are never
+#                                                 touched: they have no upstream, so
+#                                                 rewriting one only discards what a person
+#                                                 went and obtained.
 #                                                 WITH NO --domain it walks EVERY domain that
 #                                                 has a manifest — a new teammate does not
 #                                                 know they are an "intake person". One
@@ -2010,7 +2019,7 @@ gitignore_verdict() {
 
 cmd_setup() {
   env_anchor_prime   # resolve the anchor ONCE; every later subshell inherits it
-  local dry=0 aws_key="" person="" domain_given=0
+  local dry=0 aws_key="" person="" domain_given=0 refresh=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --domain) DOMAIN="${2:-}"; domain_given=1; shift 2 ;;
@@ -2020,6 +2029,9 @@ cmd_setup() {
       --person) person="${2:-}"; shift 2 ;;
       --person=*) person="${1#*=}"; shift ;;
       --non-interactive|--dry-run) dry=1; shift ;;
+      # Re-fetch rows whose value has an authoritative upstream (aws-secret), even when
+      # the dotfile already holds one. Never touches a `prompt` row — see the loop below.
+      --refresh) refresh=1; shift ;;
       -h|--help) sed -n "$USAGE_LINES" "$0"; return 0 ;;
       *) echo "env setup: unknown flag '$1'" >&2; return 1 ;;
     esac
@@ -2070,9 +2082,25 @@ cmd_setup() {
     # here left the row with no writer at all.
     [ "$secret" = "true" ] || [ "$src" = "aws-secret" ] || continue
     [ "$check" = "file-key" ] || continue   # only dotfile-backed rows are wizard-writable
+    # --refresh re-fetches rows that have an AUTHORITATIVE UPSTREAM, even when the dotfile
+    # already holds a value. For an `aws-secret` row the local copy is a CACHE, not a
+    # source, and a stale cache is invisible: the doctor reports PASS because a value is
+    # present, never because it is the right one. That is how a per-person key can be
+    # provisioned, granted and never used — the machine keeps whatever was typed months
+    # ago and nothing says so.
+    #
+    # ⚠️ It deliberately does NOT touch `prompt` rows. Those have no upstream to refresh
+    # FROM, so re-writing one could only mean discarding a value a person went and
+    # obtained. Refreshing a cache and clobbering a source are different acts.
     if key_present "$key" "$dotfile" "$check" "$arg"; then
-      printf "  ${GREEN}have${NC}  %-22s (already set)\n" "$key"
-      continue
+      if [ "$refresh" -eq 1 ] && [ "$src" = "aws-secret" ]; then
+        printf "  ${CYAN}refresh${NC}  %-22s (re-fetching from %s)\n" "$key" \
+          "$(_resolve_person_secret_name "$sname" 2>/dev/null || printf '%s' "$sname")"
+      else
+        printf "  ${GREEN}have${NC}  %-22s (already set%s)\n" "$key" \
+          "$([ "$src" = "aws-secret" ] && [ "$refresh" -ne 1 ] && printf " — pass --refresh to re-fetch")"
+        continue
+      fi
     fi
     if [ "$dry" -eq 1 ]; then
       if [ "$src" = "aws-secret" ]; then
