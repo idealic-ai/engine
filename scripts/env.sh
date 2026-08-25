@@ -844,7 +844,7 @@ _agent_profile_record() {
 # carries AdministratorAccess, so anyone there can hand-write any policy. Its value is
 # preventing an ACCIDENTAL over-grant, and scoping the AGENT precisely because the human
 # account is admin: the agent must not inherit that power.
-ENV_PROVISION_ARN_ALLOWLIST='arn:aws:secretsmanager:*:*:secret:staging/finch/*|arn:aws:s3:::staging-finch-*|arn:aws:ec2:*:*:instance/*|arn:aws:ssm:*::document/AWS-StartPortForwardingSessionToRemoteHost|arn:aws:ssm:*:*:session/*'
+ENV_PROVISION_ARN_ALLOWLIST='arn:aws:secretsmanager:*:*:secret:staging/finch/*|arn:aws:s3:::staging-finch-*|arn:aws:ec2:*:*:instance/*|arn:aws:ssm:*::document/AWS-StartPortForwardingSessionToRemoteHost|arn:aws:ssm:*:*:session/*|arn:aws:rds:*:*:db:staging-finch-*'
 
 _arn_allowed() {
   local arn="$1" pat
@@ -1251,8 +1251,6 @@ engine env setup
 \`\`\`
 The first command checks the key works, installs it, and deletes the file. The second fetches the rest, including your app password — you will never need to type one.
 
-*If it says* \`Unknown command 'env'\`*:* your engine is in **local mode**, so it is running your own copy from install day and Drive updates never reach it — Drive will happily say \"Up to date\" the whole time. Run \`engine remote\` first (\`engine status\` shows which mode you are in), then the two commands above.
-
 Then check it: \`engine env doctor --domain intake\`${doc:+
 
 Full guide: ${doc}}
@@ -1394,7 +1392,7 @@ cmd_provision() {
 
   # ---- derive resources FROM THE MANIFEST ----
   local key service required secret default dotfile how check arg src sname sfield sregion sprofile
-  local db_secret="" region="" bucket="" prefix="" bastion_tag="" login_secret=""
+  local db_secret="" region="" bucket="" prefix="" bastion_tag="" login_secret="" db_identifier=""
   local gemini_secret="" gemini_project=""; local -a shared_secrets=()
   local state_prefix="" events_prefix=""
   while IFS=$'\037' read -r key service required secret default dotfile how check arg src sname sfield sregion sprofile; do
@@ -1407,6 +1405,7 @@ cmd_provision() {
     case "$key" in
       FINCH_DB_RO_SECRET) db_secret="${sname:-$default}" ;;
       FINCH_BASTION_TAG)  bastion_tag="$default" ;;
+      FINCH_DB_IDENTIFIER) db_identifier="$default" ;;
       FINCH_AGENT_APP_*)  login_secret="$sname" ;;
       GEMINI_API_KEY)     gemini_secret="$sname" ;;
       GEMINI_PROJECT)     gemini_project="$default" ;;
@@ -1567,11 +1566,32 @@ cmd_provision() {
   if [ -n "$bastion_tag" ]; then
     arn="arn:aws:ec2:${region}:${account}:instance/*"
     if _arn_allowed "$arn"; then
-      stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" --arg tag "$bastion_tag" \
-        --arg doc "arn:aws:ssm:${region}::document/AWS-StartPortForwardingSessionToRemoteHost" '
-        {Sid:"TunnelToBastion",Effect:"Allow",Action:["ssm:StartSession"],Resource:[$r,$doc],
+      # TWO statements, deliberately. A Condition applies to EVERY resource in its
+      # statement, and the SSM document is an AWS-managed public document carrying no
+      # tags at all — so a single statement covering instance+document under a
+      # resourceTag condition can never authorise the document, and StartSession is
+      # denied naming the DOCUMENT arn. Measured: that is exactly what it did.
+      # The tag condition stays on the INSTANCE, which is where the scoping matters;
+      # a grant on the document widens nothing, because it names no target.
+      stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" --arg tag "$bastion_tag" '
+        {Sid:"TunnelToBastion",Effect:"Allow",Action:["ssm:StartSession"],Resource:[$r],
          Condition:{StringEquals:{"ssm:resourceTag/Name":$tag}}}')"
+      stmts[${#stmts[@]}]="$(jq -nc \
+        --arg doc "arn:aws:ssm:${region}::document/AWS-StartPortForwardingSessionToRemoteHost" '
+        {Sid:"TunnelDocument",Effect:"Allow",Action:["ssm:StartSession"],Resource:[$doc]}')"
       stmts[${#stmts[@]}]="$(jq -nc '{Sid:"DiscoverBastionByTag",Effect:"Allow",Action:["ec2:DescribeInstances"],Resource:["*"]}')"
+      # The tunnel turns DB_IDENTIFIER into an endpoint hostname and passes it to
+      # start-session. That lookup is the ONLY thing this grant buys.
+      if [ -n "$db_identifier" ]; then
+        arn="arn:aws:rds:${region}:${account}:db:${db_identifier}"
+        if _arn_allowed "$arn"; then
+          stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" '{Sid:"ResolveDbEndpoint",Effect:"Allow",Action:["rds:DescribeDBInstances"],Resource:[$r]}')"
+        else
+          dropped[${#dropped[@]}]="$arn"
+        fi
+      else
+        underivable[${#underivable[@]}]="rds:DescribeDBInstances — no manifest row declares the DB identifier (FINCH_DB_IDENTIFIER), so the endpoint lookup cannot be derived."
+      fi
       stmts[${#stmts[@]}]="$(jq -nc --arg r "arn:aws:ssm:${region}:${account}:session/*" '{Sid:"ManageOwnSession",Effect:"Allow",Action:["ssm:TerminateSession","ssm:ResumeSession"],Resource:[$r]}')"
     else
       dropped[${#dropped[@]}]="$arn"
@@ -1628,7 +1648,27 @@ cmd_provision() {
   fi
 
   local policy
-  policy="$(printf '%s\n' "${stmts[@]+"${stmts[@]}"}" | jq -s '{Version:"2012-10-17", Statement: .}')"
+  # MERGE unconditioned statements that share an Effect+Action into one, unioning their
+  # Resources. IAM caps a user's AGGREGATE inline policy at 2048 bytes and the four
+  # secretsmanager:GetSecretValue grants cost ~300 of them in per-statement scaffolding
+  # alone — splitting TunnelToBastion pushed the document to 2271 and IAM refused it.
+  # Semantics are identical: same Effect, same Action, no Condition on either side, so
+  # unioning Resources cannot widen or narrow what is allowed.
+  # ⚠️ The cost is real and is NOT free: the per-grant Sids (ReadOnlyDbSecret,
+  # ReadOwnAgentLogin, ReadOwnGeminiKey, ReadSharedTokens) collapse into one, so the
+  # ARNs become the only record of why each secret is granted. They are self-describing
+  # enough to carry that. Statements WITH a Condition are never merged.
+  policy="$(printf '%s\n' "${stmts[@]+"${stmts[@]}"}" | jq -s '
+    [ .[] | select(has("Condition") | not) ]
+      | group_by(.Effect + "\u0000" + (.Action | sort | join(",")))
+      | map(if length == 1 then .[0]
+            else { Sid: (.[0].Sid), Effect: .[0].Effect, Action: .[0].Action,
+                   Resource: ([ .[].Resource[] ] | unique) }
+            end)
+      | . as $merged
+      | { Version:"2012-10-17",
+          Statement: ($merged + [ $ARGS.positional[0][] | select(has("Condition")) ]) }
+    ' --jsonargs "$(printf '%s\n' "${stmts[@]+"${stmts[@]}"}" | jq -sc .)")"
 
   printf "${BOLD}=== provision %s (tier: %s, account: %s) ===${NC}\n" "$user" "$tier" "$account"
   printf "${CYAN}Policy derived from the manifest's '%s' rows:${NC}\n" "$tier"
