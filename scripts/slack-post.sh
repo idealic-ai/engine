@@ -158,6 +158,17 @@ run_verify() {
     echo "✗ history     MISSING channels:history — thread replies cannot be read"
     echo "  → add the scope at api.slack.com/apps, then REINSTALL (scopes need a reinstall)"; rc=1
   fi
+  # files:read is a WARNING, never a failure — it is exactly what slack-read does at
+  # runtime, where a missing scope degrades a file to metadata + permalink rather than
+  # breaking the read. A verifier that failed here would fail every workspace that
+  # reads Slack and does not care about attachments; one that stayed silent would pass
+  # a setup whose every attachment comes back undownloadable.
+  if has_scope "$scopes" "files:read"; then
+    echo "✓ files:read  granted (attachments download to a temp dir)"
+  else
+    echo "⚠ files:read  MISSING — attachments will be listed but not downloaded"
+    echo "  → optional; add it at api.slack.com/apps and REINSTALL if you want the bytes"
+  fi
   has_scope "$scopes" "channels:join" || joinable=0
 
   # 4. channel — the env file carries the TOKEN only, so a channel left there reads as empty

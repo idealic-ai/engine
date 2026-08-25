@@ -5,6 +5,8 @@ Canonical per-channel report templates for the intake **Inboxes** channels. Sing
 Each template = a **shared core** (identical on every channel) + **channel-specific fields**. Fill what you know — half-formed is fine, and **attach anything that grounds it** (transcripts, screenshots, debriefs, logs, sample files) rather than describing it from memory.
 
 > **⚠️ This file is incomplete — 8 of 10 channels.** 🟤 **Priorities & Deadlines** and 🟦 **Documentation** have live channel tickets but no template here, so `/inbox-post` filling from this file alone drops their channel-specific fields silently. Take those two from the **project's Inbox Handbook**, which is canonical Linear-side (`¶INV_CHANNEL_MACHINERY_IN_ONE_DOC`), and reconcile them back into this file rather than inventing them here. Noted rather than guessed: writing a plausible template for a channel whose real one already exists elsewhere is how two documents start disagreeing.
+>
+> **That rule does not bind a channel being created for the first time.** A brand-new channel has no prior copy anywhere, so this file is its point of origin and the handbook copy is derived from it — the opposite direction of travel. 🟪 **Inquiries** was written here first for exactly that reason.
 
 ---
 
@@ -97,4 +99,15 @@ Each template = a **shared core** (identical on every channel) + **channel-speci
 **Corrected answer — the oracle**: (what the output should be)
 **Evidence**: (annotated screenshots / signals proving it)
 **Suspected root cause** (optional):
+```
+
+## 🟪 Inquiries
+
+*A question, not a report. Most of the shared core does not apply — there is usually nothing to reproduce, nothing blocked and no severity, and saying so is better than padding the fields. **One sentence is a complete drop.** You get an answer back as a reply on your own comment.*
+
+```
+**The question**: (ask it plainly, in your own words)
+**What I'm trying to do**: (the task behind the question — an answer to the real goal beats an answer to the literal question)
+**What I already looked at**: (docs read, screens opened, people asked — stops the answer repeating what you already know)
+**What the answer would unblock**: (optional — "just curious" is a fine reason and a useful signal)
 ```

@@ -35,9 +35,16 @@ setup() {
   export MOCK_CURL_RESPONSE='{"ok":true}'
   cat > "$MOCK_BIN/curl" <<'STUB'
 #!/bin/bash
-# mock curl: record argv + stdin, emit canned Slack JSON
+# mock curl: record argv + stdin, emit canned Slack JSON. Honours -D <file> by
+# writing $MOCK_SCOPES as the x-oauth-scopes header — that header is where
+# --verify reads the app's granted scopes from.
 printf '%s\n' "$*" >> "$MOCK_CURL_ARGS"
 cat > "$MOCK_CURL_STDIN" 2>/dev/null || true
+_prev=""
+for _a in "$@"; do
+  case "$_prev" in -D|--dump-header) printf 'HTTP/1.1 200 OK\r\nx-oauth-scopes: %s\r\n' "${MOCK_SCOPES-}" > "$_a" ;; esac
+  _prev="$_a"
+done
 printf '%s' "${MOCK_CURL_RESPONSE}"
 STUB
   chmod +x "$MOCK_BIN/curl"
@@ -54,7 +61,7 @@ STUB
 teardown() {
   export PATH="$ORIG_PATH"
   rm -rf "$TMP"
-  unset MOCK_CURL_ARGS MOCK_CURL_STDIN MOCK_CURL_RESPONSE
+  unset MOCK_CURL_ARGS MOCK_CURL_STDIN MOCK_CURL_RESPONSE MOCK_SCOPES
 }
 
 # Case 1 — dry-run prints a valid JSON body with channel+text, no network call.
@@ -390,6 +397,42 @@ test_slack_post_blocks_reach_the_wire() {
   local sent; sent=$(cat "$MOCK_CURL_STDIN" 2>/dev/null)
   assert_eq "header,context,divider,section" \
     "$(printf '%s' "$sent" | jq -r '[.blocks[].type] | join(",")')" "wire: block types as sent to Slack"
+}
+
+# --- --verify reports files:read, and reports it as a WARNING.
+# A verifier that failed on a missing files:read would fail every workspace that reads
+# Slack and does not care about attachments; one that stayed silent would certify a
+# setup whose every attachment comes back undownloadable. Both are the failure mode in
+# scripts/.directives/PITFALLS.md — a checker disagreeing with its consumer.
+# `< /dev/null` is load-bearing, not tidiness. run_discovered_tests drives its loop
+# from a process substitution, so the loop's stdin IS the remaining list of test names.
+# --verify reads nothing from stdin, so the mock curl's `cat` would inherit that list,
+# swallow it, and silently end the run — every test after this one would vanish without
+# a failure. Suites that pipe a message into slack-post never notice.
+verify_out() { # $1 = granted scope list
+  MOCK_SCOPES="$1" MOCK_CURL_RESPONSE='{"ok":true,"user":"bot","team":"T"}' \
+    SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --verify < /dev/null 2>&1
+}
+
+test_verify_reports_files_read_granted() {
+  local out
+  out=$(verify_out "chat:write,channels:history,channels:read,users:read,files:read")
+  assert_contains "files:read  granted" "$out" "--verify names files:read when granted"
+}
+
+test_verify_warns_on_missing_files_read() {
+  local out
+  out=$(verify_out "chat:write,channels:history,channels:read,users:read")
+  assert_contains "files:read  MISSING" "$out" "--verify names files:read when absent"
+  assert_contains "listed but not downloaded" "$out" "and says what is actually lost"
+  assert_not_contains "✗ files:read" "$out" "as a warning, not a failure marker"
+}
+
+test_verify_files_read_does_not_change_exit_code() {
+  local rc_with rc_without
+  verify_out "chat:write,channels:history,channels:read,users:read,files:read" >/dev/null 2>&1; rc_with=$?
+  verify_out "chat:write,channels:history,channels:read,users:read"            >/dev/null 2>&1; rc_without=$?
+  assert_eq "$rc_with" "$rc_without" "a missing files:read leaves the verdict unchanged"
 }
 
 run_discovered_tests

@@ -1,6 +1,6 @@
 ---
 name: inbox-handbook
-description: "Manage the intake projects' Inbox Handbook documents — the per-project guides whose `## What triage will chase` section IS the triage recipe. Four modes: show (fetch a handbook or just its recipe), capture (turn what a session learned into a Keep/Add/Cut proposal dropped into 🟦 Documentation), reconcile (diff the five hand-synced copies and repair drift), audit (check a handbook's claims against Linear). The read/repair companion to /inbox-post, which only drops items in. Triggers: \"show me the triage recipe\", \"what does the handbook say\", \"the recipe was wrong\", \"capture what we learned into the handbook\", \"are the handbooks out of sync\", \"inbox-handbook\"."
+description: "Manage the intake projects' Inbox Handbook documents — the per-project guides whose `## What triage will chase` section IS the triage recipe. Four modes: show (fetch a handbook or just its recipe), capture (turn what a session learned into a Keep/Add/Cut proposal dropped into 🟦 Documentation), reconcile (diff the hand-synced copies and repair drift), audit (check a handbook's claims against Linear). The read/repair companion to /inbox-post, which only drops items in. Triggers: \"show me the triage recipe\", \"what does the handbook say\", \"the recipe was wrong\", \"capture what we learned into the handbook\", \"are the handbooks out of sync\", \"inbox-handbook\"."
 version: 1.0
 tier: lightweight
 args: "[show|capture|reconcile|audit] [project] [--recipe]"
@@ -66,29 +66,29 @@ Invoked directly, or by `§CMD_OFFER_HANDBOOK_CAPTURE` at a skill's synthesis.
     *   **Keep is not politeness.** Naming what was right is what stops the next editor cutting the parts that are working.
     *   **Cut is mandatory, not optional.** The delta must state its net effect on handbook length, and a handbook that only ever grows stops being read.
 4.  **Write the trail** to the active session's `builds/` (`§CMD_LINK_FILE`). If there is no active session, write nothing to disk and present the delta in chat.
-5.  **Post** the delta as a comment to that project's 🟦 **Documentation** channel via `§CMD_POST_TICKET_COMMENT`. Reference tickets with `§FMT_TICKET_LINK` and specific comments with `§FMT_TICKET_COMMENT_LINK`.
-6.  **Cross-project learnings go to the current project's handbook only**, with their breadth flagged in the proposal ("this likely applies to the other four"). **Never fan out** — a human decides whether one learning becomes five edits.
+5.  **Post** the delta as a comment to that project's 🟦 **Documentation** channel via `§CMD_POST_TICKET_COMMENT`. 🟦 is right for a delta because a delta **asserts** the handbook is wrong and proposes the correction. A *question* about the recipe — "what does this step actually mean", "which of these two applies to me" — is not a delta and belongs in 🟪 **Inquiries**, which answers it under the drop. **Do not route a question through `capture`**: it will manufacture a proposal where the honest output was an answer. Reference tickets with `§FMT_TICKET_LINK` and specific comments with `§FMT_TICKET_COMMENT_LINK`.
+6.  **Cross-project learnings go to the current project's handbook only**, with their breadth flagged in the proposal ("this likely applies to the other copies"). **Never fan out** — a human decides whether one learning becomes five edits.
 
 **Direct handbook edit is an escalation, not the default.** Offer it as an explicit per-run confirm after the delta exists and the user has seen it; the default door is the Documentation drop, because the intake system's own rule is that it proposes and a human confirms.
 
 ### `reconcile` — diff the copies, repair drift (writes on one confirm)
 
-1.  Fetch all five handbooks and **derive each one's section set from its own headings**. Do not diff against a remembered list of sections — the set is one of the things that drifts.
+1.  Fetch every handbook the registry lists and **derive each one's section set from its own headings**. **Resolve the set from the registry or from `list_documents`, never from a remembered count** — it was five, then seven, then eleven, and each time a hardcoded number silently excluded the newest projects from a sync. Do not diff against a remembered list of sections — the set is one of the things that drifts.
 2.  Report **set-level drift first**: sections present in some copies and absent in others. This is the failure mode a within-section diff cannot see, and it is the more consequential one — an absent section means a reader of that copy never learns the thing at all. A section that appears in only one copy is **not automatically a gap to fill**: it may be deliberately project-specific, like the recipe. Surface it for a human call; never auto-propagate a section.
 3.  Then diff the **shared sections** copy-to-copy. Exclude `## What triage will chase` and state that you excluded it — a reader who sees five different recipes in a "drift" report will not trust the rest. Report per section: which copies agree, which lag, what the difference is. **Zero drift is a valid result** — say "in sync" and write nothing.
 4.  Ask the user to designate the source-of-truth copy, and confirm **once**, having shown the diff.
 5.  Write only the sections that actually differ, only to the copies that lag, via `save_document`. **Before each write, verify the fetched document's `project.name` matches the intended project** — a stale registry row must never redirect a write.
 6.  Capture each target's pre-edit content into the session trail (or chat, if sessionless) so a manual revert is possible without Linear's history.
 
-This is the highest-blast-radius action in the skill: up to four document writes on one confirm. The diff-then-single-confirm shape is deliberate — routing a mechanical sync through five review queues creates five chances to apply it differently, which re-creates the drift it was repairing.
+This is the highest-blast-radius action in the skill: a write to every lagging copy on one confirm. The diff-then-single-confirm shape is deliberate — routing a mechanical sync through one review queue per project creates one chance per project to apply it differently, which re-creates the drift it was repairing.
 
 ### `audit` — check a handbook against reality (read-only)
 
-For one project or all five, verify what the handbook and registry claim:
+For one project or all of them, verify what the handbook and registry claim:
 
 *   Every channel ticket referenced still resolves, and its title still matches its channel.
 *   No channel description still links the **retired** team-level handbook slug `7f5f9c302585` — if one does, it should be repointed at its own project's handbook.
-*   The handbook's channel list matches the project's actual `Inboxes` milestone (the set is contextual per project — a project may not have all eight, and that is correct).
+*   The handbook's channel list matches the project's actual `Inboxes` milestone (the set is contextual per project — a project may not have all of them, and that is correct). **🟪 Inquiries is the one channel that should be present everywhere**; its absence is a real finding rather than a legitimate per-project choice.
 *   Registry rows agree with Linear; self-heal the ones that don't.
 
 Report findings; propose fixes through the normal doors. `audit` never writes a handbook itself.
