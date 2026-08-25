@@ -2578,31 +2578,19 @@ case "$ACTION" in
     # PID guard: if a different alive PID holds the session, return 1
     # Output: session directory path (one line) or exit 1
 
-    # Search the project's sessions dir, anchored to the nearest .claude/ ancestor
-    # so a `cd` into a subfolder still resolves the repo-root sessions/.
-    SEARCH_PATHS=()
-    _SESSIONS_DIR=$(resolve_sessions_dir)
-    if [ -d "$_SESSIONS_DIR" ]; then
-      SEARCH_PATHS+=("$_SESSIONS_DIR")
-    fi
-    # WORKSPACE fallback: when a workspace is active, also search the global
-    # (workspace-less) sessions dir so a session created outside the workspace
-    # is still found. Workspace is searched first (preferred), global second.
-    if [ -n "${WORKSPACE:-}" ]; then
-      _GLOBAL_SESSIONS_DIR=$(WORKSPACE="" resolve_sessions_dir)
-      if [ "$_GLOBAL_SESSIONS_DIR" != "$_SESSIONS_DIR" ] && [ -d "$_GLOBAL_SESSIONS_DIR" ]; then
-        SEARCH_PATHS+=("$_GLOBAL_SESSIONS_DIR")
-      fi
-    fi
-    if [ ${#SEARCH_PATHS[@]} -eq 0 ]; then
-      exit 1
-    fi
-
     CLAUDE_PID="${CLAUDE_SUPERVISOR_PID:-$PPID}"
     FOUND_DIR=""
 
     # --- PID Cache: fast path ---
     # Cache written by activate/continue, keyed by PID. Avoids full sweep.
+    #
+    # ⚠️ THIS RUNS BEFORE THE SEARCH_PATHS BUILD, and the order is the point. The cache is
+    # keyed on the pid and validates itself against the cached .state.json, so it owes
+    # nothing to $PWD. It used to sit below the SEARCH_PATHS emptiness guard — which IS
+    # derived from $PWD — so from any directory outside a project, `find` exited 1 before
+    # the cache was ever read. The answer sat on disk and went unconsulted, and
+    # `engine env doctor` then reported "no session anchor" on 23 rows from /tmp, $HOME or
+    # the engine dir: a run that reads as checked and checked nothing.
     CACHE_FILE="$SESSION_CACHE_DIR/claude-session-cache-$CLAUDE_PID"
     if [ -f "$CACHE_FILE" ]; then
       CACHED_DIR=$(cat "$CACHE_FILE" 2>/dev/null) || CACHED_DIR=""
@@ -2631,6 +2619,27 @@ case "$ACTION" in
       fi
       # Cache stale — remove and fall through to sweep
       rm -f "$CACHE_FILE" 2>/dev/null || true
+    fi
+
+    # Search the project's sessions dir, anchored to the nearest .claude/ ancestor
+    # so a `cd` into a subfolder still resolves the repo-root sessions/.
+    # Only the SWEEP strategies below need these; the cache above deliberately does not.
+    SEARCH_PATHS=()
+    _SESSIONS_DIR=$(resolve_sessions_dir)
+    if [ -d "$_SESSIONS_DIR" ]; then
+      SEARCH_PATHS+=("$_SESSIONS_DIR")
+    fi
+    # WORKSPACE fallback: when a workspace is active, also search the global
+    # (workspace-less) sessions dir so a session created outside the workspace
+    # is still found. Workspace is searched first (preferred), global second.
+    if [ -n "${WORKSPACE:-}" ]; then
+      _GLOBAL_SESSIONS_DIR=$(WORKSPACE="" resolve_sessions_dir)
+      if [ "$_GLOBAL_SESSIONS_DIR" != "$_SESSIONS_DIR" ] && [ -d "$_GLOBAL_SESSIONS_DIR" ]; then
+        SEARCH_PATHS+=("$_GLOBAL_SESSIONS_DIR")
+      fi
+    fi
+    if [ ${#SEARCH_PATHS[@]} -eq 0 ]; then
+      exit 1
     fi
 
     # Strategy 1: Fleet mode — lookup by fleetPaneId

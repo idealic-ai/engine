@@ -2758,6 +2758,44 @@ test_find_ignores_cache_wrong_pid() {
   teardown
 }
 
+# ⚠️ The PID cache exists so a session resolves WITHOUT depending on $PWD — it is keyed
+# on the pid and validates itself against .state.json. It used to sit BELOW the
+# SEARCH_PATHS emptiness guard, which is derived from $PWD, so from any directory outside
+# a project `find` exited 1 before the cache was ever read. The answer was on disk and
+# never consulted: `engine env doctor` then reported "no session anchor" on 23 rows from
+# /tmp, $HOME or the engine dir, which reads as a checked run that checked nothing.
+test_find_cache_resolves_from_foreign_cwd() {
+  local test_name="find-cache: resolves from a CWD with no project (cache beats \$PWD)"
+  setup
+
+  export CLAUDE_SUPERVISOR_PID=99999999
+  create_state "$TEST_DIR/sessions/FOREIGN" '{
+    "pid": 99999999, "skill": "brainstorm", "lifecycle": "active"
+  }'
+  local cache_file="/tmp/claude-session-cache-99999999"
+  rm -f "$cache_file" 2>/dev/null || true
+
+  # Populate the cache from inside the project (setup already cd'd here).
+  "$SESSION_SH" find > /dev/null 2>&1
+
+  # Now stand somewhere with no .claude marker and no sessions/ at all.
+  local elsewhere
+  elsewhere=$(mktemp -d)
+  local output exit_code
+  output=$(cd "$elsewhere" && "$SESSION_SH" find 2>&1)
+  exit_code=$?
+  rmdir "$elsewhere" 2>/dev/null || true
+
+  if [ $exit_code -eq 0 ] && [[ "$output" == *"sessions/FOREIGN"* ]]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "exit 0 + sessions/FOREIGN from a foreign cwd" "exit=$exit_code, output=$output"
+  fi
+
+  rm -f "$cache_file" 2>/dev/null || true
+  teardown
+}
+
 test_idle_removes_cache() {
   local test_name="find-cache: idle removes cache file"
   setup
@@ -3436,6 +3474,7 @@ main() {
   test_find_uses_cache_on_second_call
   test_find_invalidates_stale_cache
   test_find_ignores_cache_wrong_pid
+  test_find_cache_resolves_from_foreign_cwd
   test_idle_removes_cache
   test_deactivate_removes_cache
 
