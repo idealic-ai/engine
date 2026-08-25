@@ -1,0 +1,6 @@
+{
+  "name": "remix",
+  "version": "1",
+  "description": "Remix — a config-driven engine for converging a visual/renderable design system by orchestrated iteration where the artifact IS the test, the gate is a human eye, and work is ADJUDICATED into rulings — not completed. The protocol is system-agnostic; a specific design system is a loadable config manifest (--config <name-or-path>, default warm-print — the /loop engine+workload pattern). Four modes: orchestrate (the dispatch → review → rule → re-dispatch loop across isolated page-builders), page (build or fix ONE artifact, verified by looking at it across the config's render matrix), tend (lint/reconcile kit↔docs↔corpus and regenerate the digest, leaving a number behind), critique (validate a page's RESOLVED styles + geometry and class each defect geometry/glyph/semantic). Every mode reads a durable DIGEST (rules preamble + FACTS ledger + vocabulary registry) at dispatch instead of re-deriving the corpus. Triggers: \"remix\", \"remix the design system\", \"converge the design vocabulary\", \"orchestrate the design\", \"build a proof page\", \"tend the kit\", \"critique this page's geometry\", \"reconcile the kit against its docs\".",
+  "tier": "protocol"
+}
