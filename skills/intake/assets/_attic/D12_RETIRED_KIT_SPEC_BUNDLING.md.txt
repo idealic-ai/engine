@@ -1,0 +1,371 @@
+# KIT_SPEC_BUNDLING.md
+
+**When to bundle, what a bundle may be, and how patches ride on top.**
+
+Scope: the concatenation of already-published stylesheets into a single fetchable object, the `@layer` contract that makes such an object patchable, and the conditions under which bundling is the wrong answer. Eighteen numbered rules, each marked **MEASURED** or **REASONED**, each traced in the appendix to the measurement or the defect that produced it.
+
+It does **not** specify how any of this is checked — counting, censusing, linting and browser-side verification are `KIT_SPEC_CHECKING.md`'s subject. It does not specify what a unit *is*, how it declares itself, or how it isolates its own styles — that is `KIT_SPEC_IDEA.md`. It does not specify publishing: how bytes get an address, how the content hash is bound, what the upload set contains — **that is `KIT_SPEC_PUBLISHING.md`**. **This one states the boundary from the bundling side only** and leaves the publisher's rules to the publisher.
+
+> **⬛ Corrected 2026-08-04.** This paragraph read *"Publishing gets its own document once the pipeline exists"*, and §"Out of scope" repeated it as *"→ its own document, once the pipeline is built."* **`KIT_SPEC_PUBLISHING.md` was written 40 minutes before the edit that left those sentences standing**, and it opens by quoting them: *"…`KIT_SPEC_BUNDLING.md`, which explicitly deferred this document: 'Publishing gets its own document once the pipeline exists.' **The pipeline exists; this is that document.**"* It cites this one six times; this one named it zero times. **Read PUBLISHING before acting on any origin, upload-set or status-code claim below** — it holds the newer readings, and where the two disagree about the publisher, it wins.
+
+No figure in this document is copied from a sibling spec, and none appears twice here. Three stale corpus summaries exist in this session precisely because the same figures were copied into four places. *(That invariant was originally stated as "no number in this document appears in either of the other two" — a **three**-document world. There are now seven `KIT_SPEC_*` files, and whether the no-duplication property still holds across the expanded set is **unmeasured**. It is asserted for this document's own figures only.)*
+
+> **🔴 NAME COLLISION, recorded 2026-08-03 17:3x by `[DOC-LOADER]` — read this before any rule below.** The word **bundle** now names **two unrelated operations**, and every rule in this document is about the first one only.
+> *   **This document's *bundle*** — concatenating already-published **stylesheets** into one fetchable object, entered through an inline import map, on the **published HTTP path**. An optimisation for a transport.
+> *   **`idea bundle`'s *bundle*** — a **composed proof page**: the tool walks an idea's `requires` closure and writes the definitions into one HTML artifact. A composition, not a transport optimisation, and it targets `file://`.
+>
+> The collision is dangerous in exactly one place and it is worth naming: **Rule 3 says "no bundle is produced for, or consumed at, `file://`", and that remains true of a stylesheet bundle** — the ESM import map it is entered through is dead at `file://`. It says **nothing** about `idea bundle`, which produces `file://` artifacts as its entire purpose. Read Rule 3 as scoped to its own subject.
+>
+> **Nothing in this document is changed by the owner's shared-loader ruling of the same evening.** That ruling ("bundles are 1-file pages, only publishing deals with dirs, CSS always inline, the loader is behaviour-only") governs `idea bundle` and the runtime; its contract is `KIT_SPEC_LOADER.md`. **Rules 1–18 here stand untouched.**
+
+---
+
+## The idea
+
+### Publishing and bundling are two different things, and they got confused
+
+**Publishing** gives a sequence of bytes a permanent, immutable address. You publish `proof-theme.css`, it becomes a URL, and that URL never means anything else again. That is the whole job: identity.
+
+**Bundling** takes several already-published files and glues them into one file, so a browser fetches one object instead of five. That is also the whole job: an optimisation, made for a transport, discarded when the transport changes.
+
+These have nothing to do with each other, and everything went wrong when they were treated as one step. If publishing *is* bundling, then you cannot publish a new stylesheet without deciding a bundling strategy, and you cannot change your bundling strategy without republishing every byte you have ever shipped. The owner ruled that they must stay separable, and the rest of this document is what separability costs and what it requires.
+
+It is not free — that was measured, and it is worth knowing the number. A page that resolves its stylesheets through an import map can be pointed at three separate files or at one bundle **by changing the map and nothing else**. The two versions of the page are not byte-identical, because the map literal itself differs. But the difference is **7 bytes**, entirely inside that literal; blank the literal out and the two pages are md5-identical. Everything the separation was *for* survives intact: the rendered result is identical on all 295 elements with zero geometry difference and pixel-identical screenshots, and three specifiers pointing at one bundle URL collapse to **one `CSSStyleSheet` object and one request**. So the honest statement is: the separation holds, it costs one JSON literal on one line, and it is not free.
+
+### Bundling is optional, and the measurements often say don't
+
+The instinct is that fewer files is always faster. On this origin, at the sizes real pages actually are, that instinct is wrong often enough that bundling has to be a decision rather than a default.
+
+The origin was re-measured today. It speaks **HTTP/1.1 only**, so the browser's ~6-connections-per-origin cap is a live design constraint. It returns **no compression at all** — `Accept-Encoding: gzip, br` goes out, no `Content-Encoding` comes back, and `Content-Length` equals the stored object size. And it sets **`Cache-Control: no-cache` on versioned filenames**, so every file costs a revalidation round-trip on every load. Three facts, and each one changes the arithmetic in a different direction.
+
+The zero-compression fact is the one that reorders everything. There is a well-known argument that splitting a design system into many files is expensive because compression dictionaries do not span file boundaries — and it was measured here at **+42.2% gzip / +44.9% brotli** for a 62-way split. That measurement is correct. The arithmetic is right and the mechanism is real. **It does not describe this origin, because this origin compresses nothing.** A penalty you are not paying is not a reason to do anything. The experiment that produced the figure called it "the one number that survives every other answer"; that framing is superseded, and the number now has a precondition attached.
+
+What is left, once compression is off the table, is request count against bytes — and that trade has a crossover, not a winner. Below the connection cap, a page carrying only the units it uses is smaller *and* lands in the same connection wave: strictly better, nothing to argue about. Past the cap, each extra file is a full round-trip against an origin that will not let you reuse a connection, and a lighter page can be **slower** to first paint than a heavier one. That is the whole case for bundling, and it is narrower than it sounds.
+
+There is a fourth fact that looks like it belongs here and does not. Deeply nested `@import` chains are strictly serial — depth 12 measured **1,329 ms** against **308 ms** for the same twelve as siblings. It is tempting to reach for a bundle to flatten that. But an ESM module graph of the same depth cost **1,541 ms** — *worse*. The rule is **flat versus deep**, not `@import` versus ESM, and the fix for a deep graph is to make it flat, which is free and which bundling does not do for you.
+
+### The durable fix is the origin, not the bundle
+
+This document carries a disagreement rather than smoothing it. The orchestrator's framing treated the six-unit cap as the design constraint to build around. The builder who derived the cap concluded the opposite: the cap and the byte cost are both artifacts of an origin serving HTTP/1.1 with compression switched off, and putting a CDN in front of the bucket makes both disappear. **The cap is cheap now; the origin fix is the durable answer.** That disagreement is recorded because it decides how much engineering a bundler deserves — and the answer is: not much, and none of it load-bearing.
+
+### Patches ride on top, and there is one thing they can never do
+
+A bundle is a frozen assertion. A remix needs to change some of what it asserts without republishing it. The mechanism is `@layer`: put the bundle in one layer, put the patch in a later one, and the later layer wins **regardless of specificity**. That works, and it works better than it has any right to — a patch written as a bare `.p1`, specificity **(0,1,0)**, cleanly beats a bundle rule written as `#h2 .box .inner .p1`, specificity **(1,3,0)**, with no `!important` and no specificity escalation. The whole value proposition of patch-over-bundle rests on that, and it holds.
+
+Two hard limits sit on it, and both are the kind that kill a design if you find them late.
+
+**First: the bundler must emit layered output.** If the bundle is a plain concatenation with no `@layer` wrapper, unlayered author rules outrank every layer, and the patch mechanism is dead on arrival — measured, **5 of 7** probe cases reverted to bundle values. This is a hard requirement on the bundler, not a nicety.
+
+**Second: a patch can override, but it can never delete.** `revert-layer` is the keyword that sounds correct and is precisely wrong: it reverts *to* the previous layer, which is the bundle, so by construction it can never remove anything the bundle says. The only keyword that reproduces the no-rule value is `revert`, and it reverts past *every* author layer, discarding legitimate non-bundle declarations along with the target. A bundle `!important` is unreachable from a later layer entirely, because layer order inverts for important declarations. **If a remix must remove something the bundle asserts, layers cannot do it.** The removal has to be a change to what goes into the bundle.
+
+And a note on the mechanism's boundary, because it is easy to reach for the wrong tool: `@layer` is right *here* and wrong for isolation. It **cannot partition**. Two versions of the kit, each in its own layer, applied to two separate subtrees, resolved *identical* tokens in both subtrees — and reversing one layer's declaration order flipped both subtrees together. Layers order precedence across a document; they do not scope matching to a region. Unit-level isolation is `@scope`'s job and `KIT_SPEC_IDEA.md`'s subject.
+
+### Duplication, and why the two sides need different strictness
+
+Bundling makes duplication easy, so it is worth being precise about what duplication actually costs — and the answer is completely different for the two file types.
+
+**CSS duplication is nearly harmless.** The same rules appearing twice produce the same cascade result. You waste bytes. That is all. It is legal, it should be reported, and it should never fail a build.
+
+**JS duplication is a real bug, and it is asymmetric in a way that makes it hard to spot.** A script that *reassigns* a global survives a double-load unchanged and looks fine. A script that *accumulates* — binds a listener, appends a node, pushes to an array — does not. The measured cases and their counts belong to **`KIT_SPEC_IDEA.md`'s idempotency rule**, which owns the requirement; they are not repeated here. *(Cited by what the rule says rather than by number: this line read "Rule 15" — the variation-specificity rule — and was corrected once to "Rule 17" in one of three places. IDEA's numbering is under revision; resolve it with `grep -n '^\*\*[0-9]\+\.' KIT_SPEC_IDEA.md | grep -i 'idempot'`.)*
+
+The owner ruled for **idempotent components, not a registry protocol**: a bundle need not announce what it provides, and components must simply be safe to load twice. That ruling's rationale is recorded in `KIT_SPEC_CHECKING.md`. The bundling-side half — the part no other document can state — is this: **bundling dedupes at build time, and only for the published path.** Dev and remix run unbundled, so a bundler's dedupe never sees them. Idempotency covers exactly that gap. The two together are complete; neither one alone is.
+
+### Pruning: the clean story is disproved
+
+The attractive idea was that a bundle could ship only the rules a page needs, because each unit declares the selectors it owns — so pruning would be a set intersection rather than static-analysis guesswork.
+
+It does not work, and it fails badly rather than marginally. **All 27 modules under-declare their selectors**, every single one. Two instruments measured the gap and they disagree, so both are reported rather than one being quietly picked: a render-time census put the shortfall at **1,428 rules**, and a later AST re-measurement put it at **3,443** (27 modules declaring one selector each against 3,470 lifted declaration blocks). Different denominators, different definitions of "rule", same verdict in the same direction. The declaration names a module's *own* block and never the structural and generic rules it also depends on, so a declared-set prune would ship one module with 3 of the 85 rules it needs.
+
+Pruning itself is still worth having — **57–74%** of the kit's serialized bytes for a realistic 5-to-10-unit page. But the basis has to be **rendered matching**, which is heavier than a declared-set intersection and is a different piece of machinery. Until that machinery exists and has been verified against a re-render, a bundle does not prune.
+
+---
+
+## Spec
+
+Each rule is marked **MEASURED** or **REASONED**. MEASURED means a number in this corpus produced it and the appendix names the instrument. REASONED means it follows from a defect, a constraint or a ruling, but the general claim has not itself been measured — the appendix says what would settle it.
+
+### The boundary
+
+**1. Publishing and bundling are SEPARATE operations. Neither may require the other.** `(MEASURED)`
+Publishing binds bytes to an immutable address. Bundling concatenates already-published bytes into one object for transport. A file must be publishable with no bundling strategy chosen, and the bundling strategy must be changeable without republishing anything.
+*Why: conflated, you cannot publish without bundling nor change bundling without republishing. Measured cost of keeping them separable: 7 bytes.*
+
+**2. Bundling is OPTIONAL and OFF by default. A bundle is produced only when a named measurement says the page needs one.** `(MEASURED)`
+The default artifact is the unbundled set. Rules 14–17 say when the measurement is met; if none of them is met, do not bundle.
+*Why: on the measured origin, below the connection cap the unbundled page is smaller AND lands in the same wave — strictly better on every axis. Bundling is a remedy for one specific condition, not a build step.*
+
+**3. Bundling exists ONLY on the published HTTP path. The dev path and the remix path load unbundled, always.** `(MEASURED)`
+No bundle is produced for, or consumed at, `file://`.
+*Why: the resolution mechanism a bundle is entered through is ESM-based, and ESM is dead at `file://` — `KIT_SPEC_IDEA.md` Rule 18. There is no `file://` mechanism to bundle *for*. This is also what makes Rule 13 necessary.*
+
+### What a bundle may be
+
+**4. A bundle is a byte concatenation of WHOLE published units, in declared order, joined by a newline. It MUST NOT prune, minify, rewrite selectors, reorder rules, or transform bytes in any way.** `(MEASURED)`
+The bundle's content is a pure function of its input list. Any two bundlers given the same list produce the same bytes.
+*Why: measured — a bundle of the three kit sheets is 338,713 B against 338,711 B for the sum of its parts. The entire delta is 2 bytes of joining newline. That identity is the property that makes a bundle auditable against its inputs, and every transformation listed above destroys it.*
+
+**5. The bundler MUST emit `@layer`-wrapped output. An unlayered bundle is a HARD defect, not a warning.** `(MEASURED)`
+The wrapper is applied at bundle time, around the whole concatenation. A bundle shipped without it must fail, not degrade.
+*Why: unlayered author rules outrank every `@layer`. With the bundle unlayered — which is what a naive concatenation produces — **5 of 7** patch cases reverted to bundle values. The patch mechanism is not merely weakened, it is absent.*
+
+**6. `@layer` is the ORDERING mechanism between bundle and patch. It is NEVER an isolation mechanism.** `(MEASURED)`
+No bundle, patch or remix may use layers to confine rules to a region of the document. Unit isolation is `@scope` (`KIT_SPEC_IDEA.md` Rule 9).
+*Why: measured directly — two kit versions in two layers on two separate subtrees resolved identical values in both subtrees, and reversing one layer's order flipped both together. `@layer` also does not partition the `@font-face` and `@keyframes` namespaces: both bodies coexist, one wins page-wide, and `@font-face` was not reordered by layer at all.*
+
+**7. A declaration that a patch may need to reach MUST NOT be `!important` in any bundled unit.** `(MEASURED)`
+`!important` inside a bundle is a hole no later layer can reach. Treat every `!important` in a bundle-eligible sheet as a permanent, unpatchable assertion, and write it only when that is what you mean.
+*Why: measured — a bundle `!important` beat the later patch layer. Layer order is reversed for important declarations, so the mechanism that makes patching work is the same mechanism that makes this unreachable.*
+
+**8. A page enters a bundle through its INLINE import map. The map literal is the ONLY region of the page permitted to differ between bundled and unbundled modes.** `(MEASURED)`
+External import maps MUST NOT be used. Everything outside the literal — markup, links, scripts, order — is byte-identical across both modes, and that is assertable.
+*Why: measured in Chrome 150 — an external import map (`<script type="importmap" src=…>`) is **never even fetched** and no bare specifier resolves. With the map inline, the two modes differ by 7 B, all of it inside the literal; blank the literal and the pages are md5-identical.*
+
+**9. A bundle announces NOTHING about its contents. No manifest, no registry, no provides-list, no runtime handshake.** `(OWNER'S RULING, MEASURED corroboration)`
+Safety against double-loading is the component's property, not the bundle's. See `KIT_SPEC_IDEA.md` **Rule 17** for the requirement and `KIT_SPEC_CHECKING.md` for why the registry alternative was rejected. *(Cross-reference corrected 2026-08-03 17:3x by `[DOC-LOADER]` — this read "Rule 15", which is the variation-specificity rule. Idempotency is Rule 17; the `define` guard is Rule 19. MEASURED: `grep -n '^\*\*\(15\|17\|19\)\.' KIT_SPEC_IDEA.md`.)*
+*Why: the owner ruled idempotent components over a registry protocol. A registry requires every participant to cooperate before it works at all; idempotency is local, needs no protocol and no load-order guarantee, and degrades gracefully when a bundle says nothing — which, under this rule, is always.*
+> **Not contradicted by the loader's registry — recorded 2026-08-03 17:3x.** `KIT_SPEC_LOADER.md` describes two things called a registry, and **neither is the registry this rule forbids.** The loader's `R.needs` is a **per-page map of URL → Promise**, private to one document, that makes a file asked for twice execute once; it announces nothing and no participant cooperates with it. The **iframe registry channel** is components announcing **themselves** to a loader over `postMessage`; it is a component-to-loader channel, not a bundle-to-page manifest. What this rule forbids is a **bundle declaring its own contents** so consumers can skip work — a protocol every participant must honour before it works at all. **That is still forbidden, and idempotency is still the answer**: `KIT_SPEC_LOADER.md` Rule 9 restates the requirement loader-side and measures it (`unguardedDefine "DOMException: NotSupportedError"` against a guarded second define's silent `+1 skip, +0 errors`).
+
+### How patches ride
+
+**10. A patch is a later `@layer` carrying whole declarations. It MAY override anything the bundle asserts, and MUST do so without `!important` and without specificity escalation.** `(MEASURED)`
+A patch that needs `!important` or a raised specificity to land is evidence the bundle is unlayered (Rule 5) or the target is `!important` (Rule 7). Diagnose those rather than escalating.
+*Why: this is the value proposition, and it was measured at the hardest case available — a bare `.p1` at **(0,1,0)** beat `#h2 .box .inner .p1` at **(1,3,0)**. Custom properties on `:root` and rules inside `@media` patched cleanly on the same terms.*
+
+**11. A patch can OVERRIDE but can NEVER DELETE. `revert-layer` MUST NOT be used to remove a bundle declaration.** `(MEASURED)`
+`revert-layer` from the patch layer reverts *to* the bundle layer and is a guaranteed no-op against the thing you are trying to remove. `revert` does reproduce the no-rule value but reverts past **all** author layers, discarding unrelated legitimate declarations; use it only when that blast radius is intended and stated. `initial` is not removal for inherited properties. Pseudo-element content is the one easy case: `content: normal` removes a bundle's `::before`.
+*Why: measured — against a bundle `color: rgb(4,0,0)`, `revert-layer` returned exactly the unpatched value, byte for byte identical to applying no patch at all. Only `revert` reached the no-rule value. This is structural, not a browser quirk: the keyword's definition is "revert to the previous layer", and the previous layer is the bundle.*
+
+**12. A REMOVAL is a change to the bundle's INPUT LIST, never a patch.** `(REASONED)`
+If a remix must remove something the bundle asserts, the correct operation is to rebuild the bundle from a different input list and republish — which Rule 1 makes cheap, because the page changes by one map value.
+*Why: follows directly from Rule 11. Layers cannot express removal, so removal must live where the content is decided. Stated as a rule rather than left implicit because "patch it out" is the first thing anyone will try, and Rule 11 guarantees it fails silently — the patch is present, well-formed, and has no effect.*
+
+### Duplication
+
+**13. Duplicated CSS inside a bundle is LEGAL, is REPORTED, and NEVER fails. Duplicated JS is the component's problem, not the bundle's.** `(MEASURED)`
+A bundler MUST NOT dedupe CSS by rewriting (Rule 4 forbids it); it may only decline to include the same unit twice. It performs no JS deduplication of any kind.
+*Why: the same CSS rules twice produce the same cascade result — the cost is wasted bytes and nothing else, which is a report, not a failure. JS is asymmetric: a script that reassigns a global survives a double-load, one that accumulates does not, and the difference is invisible from outside the file. Bundling dedupes at build time and only on the published path, so it cannot cover the dev and remix paths at all. Idempotency (`KIT_SPEC_IDEA.md` **Rule 17** — corrected from "Rule 15", see Rule 9) covers exactly that gap. Neither mechanism alone is complete.*
+> **A third mechanism now covers part of the same gap — recorded 2026-08-03 17:3x.** The shared loader's `need(url)` deduplicates by absolute URL at **runtime**, on **every** path including `file://`, which is where this rule says bundling cannot reach. It is still not a substitute for idempotency: it covers one document's own calls and cannot cover a second loader, a re-ingest, or a page assembled from two sources. The measurement that makes it worth having anyway: **raw tag injection of the same `src` FETCHES ONCE BUT EXECUTES TWICE** — the browser deduplicates the request, never the execution. `KIT_SPEC_LOADER.md` Rules 6–9.
+
+### When NOT to bundle
+
+**14. A page loads AT MOST SIX units. At or below the cap, DO NOT bundle.** `(MEASURED · figures RE-DERIVED 2026-08-04)`
+Six is the HTTP/1.1 connection cap read as a design rule. Below it the unbundled page wins on every axis; there is no latency trade to argue.
+*Why: measured against the full monolith — a six-unit page is **14.0× lighter than the monolith in the same connection wave**, and the crossover is **7.9 Mbit/s at 100 ms RTT** (**26.5 Mbit/s at 30 ms**): below that link speed a 19-unit split wins, above it the monolith wins. **The rule does not turn on the figure.** At or below six units the split is better on every axis at every link speed, so the cap holds under either arithmetic; the crossover only sizes how much worse a large page gets. See the appendix.*
+
+> **🔴 THE FIGURES REVERTED. Read this before quoting a ratio — the number this rule carried was the result of a correction that has itself expired.**
+> **Recorded 2026-08-04, re-derived byte-exactly from disk.**
+>
+> This rule carried **10.2× / 5.3 Mbit/s** and branded **14.0× / 7.9 Mbit/s** *"superseded… computed against a monolith that included two sheets which cannot be delivered."* **Both halves of that are now false**, and the mechanism is worth stating because it is a trap the whole corpus is exposed to: **Correction 1 dropped `proof-creative.css` and `proof-module.css` from the monolith on the ground that the publisher could not deliver them. The publisher was rewritten on 2026-08-03 01:28 and now can.** Correction 1's arithmetic was right; its premise was deleted underneath it, and the "corrected" number silently became the wrong one while the "superseded" number silently became right.
+>
+> Re-summed from the live kit tonight (`ls -l ~/.claude/engine/skills/intake/assets/*.css`), and this reproduces Correction 1's own "as published" `M` **exactly**, to the byte:
+> ```
+> proof-theme.css     30,561
+> proof-blocks.css   236,995
+> proof-creative.css  71,155
+> proof-module.css    28,101
+> ──────────────────────────
+> M                  366,812        ← the full monolith; Correction 1's own "as published" figure
+> Mc                 267,556        ← theme+blocks only; what Correction 1 substituted
+> M − Mc              99,256        ← exactly creative + module, the two files it dropped
+> ```
+> ```
+> $ python3 -c "M=366812; Mc=30561+236995; P=69005; page=26232
+>   for n,x in (('full ',M),('Corr1',Mc)):
+>     print('%s: %.1fx  %.1f Mbit/s @100ms  %.1f Mbit/s @30ms'
+>           % (n, x/page, (x-P)*8/0.3/1e6, (x-P)*8/0.09/1e6))"
+>   full : 14.0x  7.9 Mbit/s @100ms  26.5 Mbit/s @30ms      ← Rule 14 now carries these
+>   Corr1: 10.2x  5.3 Mbit/s @100ms  17.6 Mbit/s @30ms      ← withdrawn
+> ```
+> **Why the premise died.** Correction 1's evidence was `grep -nE 'proof-' publish-kit.sh` → *"proof-module appears NOWHERE"*, plus three `403`s. The hardcoded upload list that grep was reading **no longer exists**: `publish-kit.sh` is 179 lines, the twelve hand-written `aws s3 cp` stanzas are gone, and the upload set is derived from the kit directory by `kit-manifest.sh` — which carries a `proof-module.css|PROOF_MODULE_VERSION` row at `:68`. `KIT_SPEC_PUBLISHING.md` Appendix B, written 40 minutes before this document was last edited, states the other side: **`proof-module.v1.css` is now published (200 · 28,101 B — exactly the local size)**, and rules `proof-creative.v2.css`'s 403 *"correct and deliberate"* because the sheet declares version **1**, so **`v1` is the resolvable name**. A 403 on a name nothing mints is not an undeliverable file.
+> **What is still inherited and what is not.** The byte sums and the arithmetic are **checked-here** tonight. Whether the origin serves those two names **today** is **TRUSTED-UPSTREAM** from PUBLISHING, which is itself trusted-upstream from `DISPATCH.md`. **No `curl` was run for this repair.** Two `curl -sI` calls against `<kit>/proof-module.v1.css` and `<kit>/proof-creative.v1.css` would close it, and they are the only network reads this rule wants.
+> **The lesson worth more than the number.** A correction is a measurement with a premise, and the premise expires like any other reading. Correction 1 was marked *"Load-bearing figures were re-derived rather than transcribed"* — which was true, and did not save it, because what rotted was not the transcription but the fact underneath. **A correction needs a re-run date exactly as much as the thing it corrects.**
+
+**15. Do NOT bundle to buy compression. This origin returns none.** `(MEASURED)`
+The split-file compression penalty is real arithmetic and is not currently being paid. If and when the origin serves compression, re-measure before treating the penalty as a cost.
+*Why: measured today — `Accept-Encoding: gzip, br` sent, no `Content-Encoding` returned, `Content-Length` equal to the stored object size. The +42.2% gzip / +44.9% brotli figure for a 62-way split is correct arithmetic about a mechanism that this origin does not run. Its author called it "the one number that survives every other answer"; that framing is superseded.*
+
+**16. Do NOT bundle to fix a waterfall. Flatten the graph instead.** `(MEASURED)`
+Serial loading is caused by DEPTH, and a bundle is not the cheapest way to remove depth — restructuring to siblings is free.
+*Why: measured — a nested `@import` chain at depth 12 took **1,329 ms** against **308 ms** for the same twelve as siblings, with peak simultaneous requests of exactly 1. An ESM module graph at the same depth was **worse**, at **1,541 ms**. The rule is FLAT vs DEEP, in both mechanisms, by the same factor.*
+
+**17. A bundle MUST NOT prune. Declared selectors are NOT a prune input.** `(MEASURED)`
+Pruning by rendered matching is permitted as a separate, later mechanism — and only once a pruned sheet has been built and verified to render identically to the full kit. That verification does not exist yet.
+*Why: measured — **all 27 modules under-declare**, by **1,428 rules** on a render-time census and by **3,443** on a later AST re-measurement. Both instruments are named in the appendix; neither is picked over the other. A declared-set prune would ship one module with 3 of the 85 rules it needs. Pruning by rendered matching is worth **57–74%** of serialized bytes for a 5–10 unit page, but is heavier machinery and is unverified.*
+
+**18. Every bundle is PROVISIONAL. Removing it MUST cost exactly one map-value change and zero page edits.** `(REASONED)`
+No page may name a bundle anywhere except in the import map. No bundle may become a dependency of anything.
+*Why: the durable fix for this origin's cost is the ORIGIN — HTTP/2 plus compression, which removes both the connection cap and the byte penalty and makes the unbundled split win unconditionally. That is the tier-example builder's conclusion and it disagrees with the framing that treated the cap as permanent; the disagreement is carried rather than smoothed. A bundle built to be un-buildable in one edit costs nothing when that day comes; one that pages depend on becomes a migration.*
+
+---
+
+## Out of scope
+
+*   **Checking, linting, counting, censusing, browser-side verification** → `KIT_SPEC_CHECKING.md`. Where a rule above says a thing "must fail" or "is assertable", the shape of that check is defined there and not here.
+*   **What a unit is, how it declares itself, how it isolates its own styles, how its behaviour loads, and the idempotency requirement** → `KIT_SPEC_IDEA.md`. Referenced by rule number above, never restated.
+*   **Publishing** — how bytes get an address, the content-hash binding, the upload set, versioning, republish semantics → **`KIT_SPEC_PUBLISHING.md`**, which exists and is current. *(Corrected 2026-08-04: this read "→ its own document, once the pipeline is built.")* This document states only the boundary, and only from the bundling side: Rules 1, 3 and 12 constrain what bundling may assume about publishing, and nothing here constrains the publisher. **Where this document and PUBLISHING disagree about the publisher, PUBLISHING wins** — Rule 14's reverted figures are the worked example of what happens otherwise.
+*   **`idea bundle`, the loader, `need()`, `data-component`/`data-needs`, the iframe registry channel, and the CSS-inline-always rule** → `KIT_SPEC_LOADER.md`. A different operation wearing this document's word — see the name-collision box at the top. Nothing there changes anything here. *(Note, 2026-08-04: LOADER's own delivery model was rewritten — the runtime is now **carried inline** in a bundled page rather than referenced from a shared address. That change is entirely inside `idea bundle`'s subject and touches **no rule here**; it is flagged only so a reader who knows LOADER's old shape does not go looking for a consequence in this document.)*
+
+---
+
+## Appendix — where each rule came from
+
+Every entry names the measurement, the defect or the ruling behind its rule. **Run date: 2026-08-02.** Sources: `dev-bundle_EXPERIMENT.md` (the primary; H1–H6, Chrome 150 via puppeteer-core 23.11.1, DPR 1) · `css-split_EXPERIMENT.md` (marked PARTIAL by its own author) · `publishing_PROBE.md` · `tier-example_BUILD.md` · `modernization-inventory-modules_PROBE.md`, all under `sessions/2026_07_31_PROVE_THEME/builds/`. Origin facts were re-taken live against `https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/kit`.
+
+**Load-bearing figures were re-derived rather than transcribed. Four results are recorded below as corrections rather than repeated: one superseded pair of headline numbers, one figure that two instruments disagree on, one framing that a later measurement invalidated, and one claim of novelty that was mine and was wrong.**
+
+---
+
+### The four corrections, first
+
+**CORRECTION 1 — ~~the six-unit cap's headline figures. `14.0×` and `7.9 Mbit/s` are superseded by `10.2×` and `5.3 Mbit/s`.~~ WITHDRAWN 2026-08-04. The correction reverted itself: its premise was deleted on 2026-08-03 and its "superseded" pair is the correct one. Rule 14 now carries `14.0×` / `7.9 Mbit/s`.**
+
+> **Read Rule 14's own 🔴 box for the full re-derivation.** This entry is kept, struck rather than deleted, because *how* it failed is the most transferable thing in this appendix.
+
+`tier-example_BUILD.md` derived the cap from `BW = (M − P) / (3 · RTT)`, where `M` is the monolith a page pays today, `P` is a projected 19-unit split, and the split costs 3 extra connection waves. Its `M` was `366,812 B` = theme + blocks + creative + module. **This correction dropped two of those four as undeliverable**, on this evidence, taken 2026-08-02:
+
+```
+$ curl -s -o /dev/null -w 'http=%{http_code} ver=%{http_version}\n' <kit>/proof-creative.v2.css   → http=403 ver=1.1
+$ curl -s -o /dev/null -w 'http=%{http_code}\n'                    <kit>/proof-module.v1.css      → http=403
+$ curl -s -o /dev/null -w 'http=%{http_code}\n'                    <kit>/proof-module.v2.css      → http=403
+$ grep -nE 'proof-' skills/prove/assets/publish-kit.sh   → upload list names theme, ticket.js,
+                                                            ticket.css, blocks, creative, icons.
+                                                            proof-module appears NOWHERE.
+```
+
+**Every line of that block is now dead, and they died for two different reasons — which is why the whole block is shown rather than summarised:**
+
+*   **The `grep` reads a file that no longer contains what it was reading.** `publish-kit.sh` was rewritten **2026-08-03 01:28**: 179 lines, the twelve hand-written `aws s3 cp` stanzas gone, the upload set **derived from the kit directory by `kit-manifest.sh`** (which carries `proof-module.css|PROOF_MODULE_VERSION|proof-module.css|text/css` at `:68`), and an unclassified kit file is now a **hard error at publish time**. The one surviving `proof-module` mention in `publish-kit.sh` is its epitaph, at `:14`.
+*   **The `proof-creative.v2.css` 403 was never evidence of undeliverability.** The sheet declares `PROOF_CREATIVE_VERSION = 1`, so nothing mints a `v2` key and no page hrefs one. `KIT_SPEC_PUBLISHING.md` Rule 13 rules the 403 *"correct and deliberate"*. **`v1` is the resolvable name**, and it was never tested here.
+*   **`proof-module.v1.css` now returns 200 at 28,101 B** — `KIT_SPEC_PUBLISHING.md` Appendix B, which notes that 28,101 B is exactly the local size. **TRUSTED-UPSTREAM; no `curl` was run for this repair.**
+
+So the deliverable monolith is the full `M = 366,812 B` after all, and `M − Mc = 99,256 B` is exactly the two files this correction subtracted. Both readings, recomputed tonight against the build's own arithmetic:
+
+```
+$ python3 -c "M=366812; Mc=30561+236995; P=69005; page=26232;
+  print('full monolith : %.1fx  %.1f Mbit/s @100ms  %.1f Mbit/s @30ms' % (M/page,  (M-P)*8/0.3/1e6,  (M-P)*8/0.09/1e6));
+  print('Correction 1  : %.1fx  %.1f Mbit/s @100ms  %.1f Mbit/s @30ms' % (Mc/page, (Mc-P)*8/0.3/1e6, (Mc-P)*8/0.09/1e6))"
+  full monolith : 14.0x  7.9 Mbit/s @100ms  26.5 Mbit/s @30ms   ← Rule 14 carries these
+  Correction 1  : 10.2x  5.3 Mbit/s @100ms  17.6 Mbit/s @30ms   ← WITHDRAWN
+```
+
+**The reasoning that made this hard to catch, recorded deliberately.** The correction moved in the *conservative* direction — it weakened the split's advantage and lowered the crossover — and was argued as costing nothing to adopt. That is true of a correction that is right, and it is exactly what disarms review of one that is wrong: a number that makes your own case weaker reads as trustworthy. It also sat in an appendix headed *"Load-bearing figures were re-derived rather than transcribed"*, which was **true and did not help**, because what rotted was not a transcription but a fact underneath a correctly-performed calculation. **A correction carries a premise, and a premise expires like any other point-in-time reading. Date your corrections.**
+
+`P = 69,005 B` is carried forward unchanged from the build; it was not re-derived on either date, and if that projection is wrong every figure above moves.
+
+**CORRECTION 2 — the under-declaration figure. Two instruments, 1,428 and 3,443. Both are reported; neither is picked.**
+
+> **Corpus note, recorded 2026-08-04 — this correction and Rule 17 are about a RETIRED format, and that makes them stronger, not weaker.** Both instruments measured the **27 `data-mod` modules**, and the `data-mod` family — `data-mod-css`, `data-mod-sel`, `data-unit`, `@unit` — is being retired along with `KIT_SPEC_MODULE.md`. Read the numbers as a **closed historical corpus**: they are not going to move again, which is unusual and useful here, and they are also not re-derivable against the live library, which no longer carries the attribute the prune proposal was built on. **Rule 17's claim survives the retirement intact**, because what it forbids is *using a unit's own declared selectors as a prune input* — a proposal that was disproved on its own corpus and has never been re-proposed on a new one. If a prune input is ever proposed for the idea format, **it is a new proposal and needs its own measurement**; nothing below transfers to it.
+
+*   **1,428** — `dev-bundle_EXPERIMENT.md` H4. Each of the 27 fragments was **rendered with the real kit attached**, and a rule counted as "needed" iff some element in the module's own subtree actually matched it. Denominator: 1,732 rules visible to the browser. Worst offenders `ca-map` (82) · `db-options` (68) · `claim-verdict` (62).
+*   **3,443** — a later AST re-measurement (`DOCUMENTATION_LOG.md` §`[SPEC-MODULE]`), which explicitly failed to reproduce the first and substituted its own. It counted **declaration blocks** in the 27 `sealed/*.lifted.css` sheets — **3,470**, mean 128.5, max 177 — against **27** declared selectors, one per module.
+
+These are not the same measurement. Different corpora (rendered fragments vs sealed lifted sheets), different units (matched rules vs declaration blocks), different denominators. **Reporting one silently would launder a choice as a fact.** They agree on everything Rule 17 actually rests on: the gap is universal (27/27), it is large in both instruments, and it is far too large for a declared-set intersection to be safe. Neither number was re-derived by me; both are trusted-upstream, and I did not attempt to reconcile them because reconciling them requires re-running both harnesses.
+
+**CORRECTION 3 — the compression penalty's framing. The number stands; "survives every other answer" does not.**
+
+`css-split_EXPERIMENT.md` measured a 62-way split at **+42.2% gzip / +44.9% brotli** and closed with *"that cost survives every other answer"*. It also — correctly, in its own "NOT measured" section — flagged that it had never checked what the real origin negotiates. It does not compress. Re-verified today:
+
+```
+$ curl -sI -H 'Accept-Encoding: gzip, br' <kit>/proof-theme.v2.css
+  HTTP/1.1 200 OK
+  Cache-Control: no-cache
+  Content-Length: 20004          ← downloaded 20,004 B. No Content-Encoding header at all.
+```
+
+The penalty is real, transport-independent arithmetic and would return the moment compression is switched on. It is currently **not being paid**, so it cannot justify a bundle today. Rule 15 states both halves. `publishing_PROBE.md` independently narrowed the same figure at kit granularity: **+3.7% brotli / +2.2% gzip for 3 files** — the penalty scales with file count, not with the decision to split.
+
+**CORRECTION 4 — a claim of novelty that was mine and was wrong. *(And its own conclusion has since been overtaken — 2026-08-04.)***
+
+I logged the stale-published-bytes finding as new. It is not. `KIT_SPEC_IDEA.md` already records `proof-blocks.css` as "236,995 B local (113,188 B published)". My `curl` reproduced **113,188 B** exactly, and `proof-theme.v2.css` serves **20,004 B** against a local **30,561 B**. Recorded as corroborated, not discovered. It matters as a scope limit on every byte figure in this document: **all of them are arithmetic over the LOCAL kit and describe what would be published, not what is served today.**
+
+> **⬛ The closing sentence — *"The served kit is smaller, so Rule 14's cap is if anything conservative"* — is WITHDRAWN.** `KIT_SPEC_PUBLISHING.md` Appendix B records that **the aliases serving different bytes than local have been healed**, with `proof-blocks.v2.css` now serving **236,995 B matching local**. If served and local have converged, the safety margin this sentence claimed is gone: the local-kit arithmetic is no longer an over-estimate of what a page pays, it is the estimate. **The scope limit above still stands** — every figure here is arithmetic over the local kit — but it is no longer a conservative one. **TRUSTED-UPSTREAM from PUBLISHING; no `curl` was run for this repair**, and the 113,188 B / 20,004 B readings above are the 2026-08-02 ones, kept as the historical pair rather than refreshed.
+> This is the *third* place in this appendix where a stale publisher fact propagated (Correction 1, Rule 9's citation, here). They share one root: **the publisher was rewritten on 2026-08-03 01:28 and this document was edited on 2026-08-03 17:38 without reconciling against it.**
+
+---
+
+### Rule by rule
+
+**Rule 1 — publishing and bundling are separable — MEASURED.**
+`dev-bundle_EXPERIMENT.md` H3 tested the strong form (byte-identical pages across both modes) and **disproved it as stated**: 23,433 B vs 23,440 B. The disproof is the useful part. The entire delta is inside the import-map literal — 107 B dev vs 114 B publish — and with the literal blanked the two pages are md5-identical at 22,938 B each. Rendering: **0 of 295 elements differ, 0 geometry differs**, and the two stripe screenshots are md5-identical. Three specifiers resolving to one bundle URL yield `{total:3, distinct:1, adopted:1}` — one `CSSStyleSheet`, one request. The rule states separability, which holds; the appendix states its price, which is 7 bytes.
+
+**Rule 2 — bundling is optional — MEASURED.**
+Falls out of Rule 14's corrected arithmetic (Correction 1) plus `tier-example_BUILD.md`'s reading: at six units the split is *"strictly better on every axis"* with *"no latency trade to argue about at that size"*. The default follows the measurement rather than the intuition.
+
+**Rule 3 — published path only — MEASURED, inherited.**
+`KIT_SPEC_IDEA.md` Rule 18: ESM is unavailable at `file://` — Chrome refuses on **origin**, Firefox 142 and WebKit 26 refuse on **type**; and at origin `null`, `fetch`, `XHR` and `iframe.contentDocument` are dead. The import-map mechanism Rule 8 depends on therefore cannot exist at `file://`. Trusted-upstream; not re-measured here.
+
+**Rule 4 — concatenation only — MEASURED.**
+`dev-bundle_EXPERIMENT.md` H3 step 5: `kit-bundle.css` = **338,713 B** against **338,711 B** for the sum of the three sheets. Delta = 2 bytes, the joining newlines. The prohibition on transformation is REASONED from that identity — it is the property that makes a bundle auditable, and every listed transformation destroys it. I did not test a transforming bundler.
+
+**Rule 5 — layered output is mandatory — MEASURED. The hard one.**
+`dev-bundle_EXPERIMENT.md` H2, arm `h2b-unlayered-bundle`. Countable directly off the printed table: `p1`, `p2_accent`, `p3`, `p4_pseudo` and `p6` all resolve to bundle values under the unlayered bundle and to patch values under the layered one — **5 of 7**. (`p4`/`p5` are bundle wins in both arms; `p7` is a patch win in both.) The mechanism is that unlayered author rules outrank every `@layer`, so this is not a tuning problem — the patch layer is unreachable. "Hard defect, not a warning" is REASONED from the failure mode: an unlayered bundle renders perfectly and silently ignores every patch, so nothing downstream will notice.
+
+**Rule 6 — `@layer` is not isolation — MEASURED.**
+`dev-bundle_EXPERIMENT.md` H1, the purest test in the run: two genuinely conflicting kit versions, each wrapped in its own layer, applied to two subtrees, **with no selector rewriting anywhere**. Both halves resolved identical values on all six sampled tokens; half A — carrying version A's sheet — rendered **pixel-identical to version B's standalone baseline** (`md5 eab8f9dc…`), and reversing only the `@layer` declaration order flipped both halves together to A's baseline (`md5 b30cf02c…`). The `@font-face`/`@keyframes` note is from the same run: `@keyframes` *is* ordered by layer but still yields one page-wide winner, and `@font-face` was **not reordered at all** (the v2 cut won under both orders).
+
+**Rule 7 — no `!important` in a patchable declaration — MEASURED.**
+`dev-bundle_EXPERIMENT.md` H2 case `p5`: a bundle `!important` beat the later patch layer in both arms. Layer order inverts for important declarations, by specification.
+
+**Rule 8 — the inline map is the only difference — MEASURED, Chrome 150 only.**
+H3 step 1: an external import map was **never fetched** — the page requested only `/page.html`, `window.__identity` was `undefined`, `adoptedStyleSheets=0`. The experiment marks this explicitly as a Chrome-150 fact, not a spec fact; Firefox and Safari are untested. The "only region permitted to differ" clause is the byte-diff from Rule 1's entry, promoted to a requirement so it stays assertable.
+
+**Rule 9 — a bundle announces nothing — OWNER'S RULING, MEASURED corroboration.**
+The ruling is the owner's: idempotent components, not a registry protocol. Its rationale lives in `KIT_SPEC_CHECKING.md` (a registry needs universal cooperation; idempotency is local and degrades gracefully). Corroborating measurements — the double-load listener counts — belong to **`KIT_SPEC_IDEA.md`'s idempotency rule** and are deliberately not repeated here. What I add is only the negative obligation on the bundler.
+
+> **⬛ Corrected 2026-08-04 — an uncorrected survivor of this document's own correction.** This entry said *"`KIT_SPEC_IDEA.md` Rule 15"*. Rule 9's body corrected exactly that citation on 2026-08-03 17:3x (*"this read 'Rule 15', which is the variation-specificity rule. Idempotency is Rule 17; the `define` guard is Rule 19"*) and the appendix entry was missed — the correction landed in one of the two places the number lived, which is the two-pointers defect this corpus keeps re-committing, committed inside a correction *about* a mis-citation.
+> **The repair is not a third number.** `KIT_SPEC_IDEA.md` is being revised and its rule numbering is in motion, so **no IDEA rule number is written here any more** — cite the rule by what it *says*. Resolve the current number by command when you need it:
+> ```
+> grep -n '^\*\*[0-9]\+\.' KIT_SPEC_IDEA.md | grep -i 'idempot\|define'
+> ```
+> The same substitution has been applied to Rule 13's appendix entry. Rule 9's and Rule 13's rule *bodies* still name Rule 17 inline; **treat those as the 2026-08-03 reading, not as current**, and prefer the command.
+
+**Rule 10 — patches override without escalation — MEASURED.**
+`dev-bundle_EXPERIMENT.md` H2, case `p1`, verified against the source specificities: bundle `#h2 .box .inner .p1` = **(1,3,0)**, patch `.p1` = **(0,1,0)**, patch wins with no `!important`. `p2` patches a `:root` custom property; `p3` patches inside `@media`. Scope limit, stated by the experiment: the bundle rules for `p1` and `p3`–`p7` are **deliberately invented** so their specificity is known; only `p2` uses a real kit token. Untested: `@container`, `@supports`, and any patch needing to *reorder* rather than override.
+
+**Rule 11 — override but never delete — MEASURED. The other hard one.**
+`dev-bundle_EXPERIMENT.md` H2 P4, five arms against a bundle `color: rgb(4,0,0)` + `border-left: 7px`, body `color: rgb(9,9,9)`:
+
+| patch | result | reading |
+|---|---|---|
+| none | `rgb(4,0,0)` · `7px solid` | baseline |
+| `revert-layer` | `rgb(4,0,0)` · `7px solid` | **identical to no patch — no effect** |
+| `revert` | `rgb(9,9,9)` · `0px none` | matches "no rule ever existed" |
+| `unset` | `rgb(9,9,9)` · `0px none` | same |
+| `initial` | `rgb(0,0,0)` · `0px none` | **not** the no-rule value |
+| no bundle rule at all | `rgb(9,9,9)` · `0px none` | the oracle |
+
+This is structural rather than a browser quirk — `revert-layer`'s definition is "revert to the previous layer", and the previous layer is the bundle. `content: normal` removing a `::before` is from the same arm.
+
+**Rule 12 — removal is an input-list change — REASONED.**
+Follows from Rule 11 with no independent measurement. It is stated as a rule rather than left implicit because "patch it out" is the first thing anyone tries and Rule 11 guarantees it fails *silently*. What would settle it: nothing to measure — it is a definition of where the removal operation lives. What could make it wrong: a future CSS mechanism that expresses cross-layer removal.
+
+**Rule 13 — CSS duplication legal, JS duplication not the bundler's job — MEASURED.**
+The CSS half is the cascade's own semantics: identical rules twice produce an identical result, so the cost is bytes. Corroborated by an independent build's ruling — duplicated CSS is *"legal, reported, never failed"*, with the lint counting byte-identical rule bodies and not failing. The JS half is asymmetric: reassignment survives a double-load, accumulation does not; the measured counts belong to **`KIT_SPEC_IDEA.md`'s idempotency rule** *(number deliberately omitted — see the correction box under Rule 9's entry; IDEA's numbering is in motion, so cite by what the rule says and resolve the number by command)*. The load-bearing bundling-side observation — that a build-time dedupe only ever sees the published path, while dev and remix run unbundled — follows from Rule 3.
+
+**Rule 14 — the six-unit cap — MEASURED, with corrected figures.**
+See Correction 1 for the derivation and the recomputation. Provenance note: this cap was `KIT_SPEC_MODULE.md` Rule 3, which `KIT_SPEC_IDEA.md` supersedes without carrying the cap forward. It is a pure transport fact, so it lives here now — **once**, and nowhere else.
+
+**Rule 15 — do not bundle for compression — MEASURED, framing corrected.**
+See Correction 3. Origin re-verified live today: HTTP/1.1, `Cache-Control: no-cache` on a versioned filename, `Content-Length` equal to the bytes downloaded, no `Content-Encoding`.
+
+**Rule 16 — flat vs deep — MEASURED.**
+`publishing_PROBE.md`: a true nested `@import` chain at depth 12 / 100 ms latency took **1,329 ms** with **peak simultaneous CSS requests of exactly 1** — the waterfall measured directly rather than inferred from wall-clock — against **308 ms** for 12 sibling `<link>`s, with siblings tracking links to within 2 ms at every latency. An ESM module graph of the same depth cost **1,541 ms** across 25 requests, *worse*, because it also pays the `.mjs` hops. This corrected `css-split_EXPERIMENT.md`, whose own Finding 3 honestly reported that its 62 sibling `@import`s had measured the wrong shape and that the waterfall claim was **untested, not disproved**. A related trap from `dev-bundle` H3: a `for (…) await import(…)` loop serialises fetches regardless of graph shape — **1,965 ms vs 966 ms** for the same five requests. Flatness in the graph does not save you from serialism in the code.
+
+**Rule 17 — no pruning, and declarations are not the input — MEASURED.**
+See Correction 2 for the two instruments. Concrete failure from `dev-bundle` H4: `ca-map` declares `.covwrap`, needs **85** rules, and its declaration covers **3**; `shell` declares `:root` and covers **0** of the 58 it needs. Over-declaration exists too — `giant-hero` declares 78 rules' worth and matches 19, over-declaring by 59 *while still* under-declaring by 47. The permitted alternative is worth **57–74%** of 218,392 serialized bytes for a 5–10 unit page. Two scope limits the experiment states about its own numbers: the per-module figures are summed as an **upper bound** on cost (shared rules counted once per module), so the true saving is *better* than 57–74%; and **no pruned sheet was ever built and re-rendered.** That is why Rule 17 requires the verification before permitting the mechanism. The experiment also flags, fairly, that `data-mod-sel` may never have been *intended* as a prune key — in which case 27/27 under-declaration is not a defect in the corpus, only a disproof of the prune proposal. Rule 17 makes exactly that narrower claim.
+
+**Rule 18 — every bundle is provisional — REASONED, and it carries a disagreement.**
+`tier-example_BUILD.md` concluded: *"the real fix for the large-page case is not bundling — it is the origin. Enable compression and HTTP/2 (CloudFront in front of the bucket) and both the cap and the byte cost disappear, at which point the split wins unconditionally."* That disagrees with the framing that treated the six-unit cap as a permanent design constraint, and it is carried here unsmoothed. The "one map-value change" requirement is REASONED from Rule 1 and Rule 8 — the mechanism already makes removal a one-line edit, so the rule's only job is to forbid anything that would make it more than that. What would settle it: `curl --http2` returning `2` against this origin, at which point Rules 14–15 should both be re-measured before anything else in this document is trusted.
+
+---
+
+### What this document does not know
+
+*   **One engine.** Every browser measurement behind Rules 5, 6, 7, 8, 10 and 11 is Chrome 150. Rule 8's external-import-map result is explicitly a Chrome fact, not a spec fact. Firefox and Safari are untested for all of them.
+*   **The bundler does not exist.** Every rule constraining it (4, 5, 9, 13, 17) is written against measurements of hand-built bundles in an experiment harness. No rule here has been enforced by a real tool.
+*   **The origin measurements are one point in time**, taken 2026-08-02 against a staging bucket. `css-split_EXPERIMENT.md`'s central lesson is that a loopback measurement said "+20 ms, basically free" and was an artifact of RTT ≈ 0. Every conditional in Rules 14–16 inherits that hazard.
+*   **H3's origin was synthetic** — it models HTTP/1.1, no compression, `no-cache` and a fixed 100 ms latency. It does not model TLS, S3 variance or connection reuse. The *shapes* are robust (3 vs 5 requests, 1 vs 3 sheet objects, serial vs parallel); the absolute milliseconds are not S3 numbers.
+*   **The `P = 69,005 B` projection in Correction 1 was not re-derived.** If the projected 19-unit page is wrong, both the ratio and the crossover move.
+*   **The two under-declaration instruments were never reconciled**, and reconciling them needs both harnesses re-run.
+*   **No pruned sheet has ever been built and rendered.** Rule 17 permits a mechanism that has not been demonstrated to work.
+*   **`P4`'s bundle rules were invented** so their specificity would be known. Rule 10 is proved against a synthetic probe block appended to a real bundle, not against a real conflict in the shipped kit.

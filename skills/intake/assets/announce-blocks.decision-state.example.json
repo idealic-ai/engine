@@ -1,0 +1,175 @@
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "🟠 Email Classification — grooming pass 3",
+        "emoji": true
+      }
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "Yarik  ·  *11* drained  ·  `07-28 → 07-31`  ·  previous pass *4d ago*"
+        }
+      ]
+    },
+    {
+      "type": "callout",
+      "background_color": "orange",
+      "child_blocks": [
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*8 decisions open — nothing filed yet.* Every one still needs a human confirm. This message is edited in place when the wave closes."
+          }
+        },
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "🗳️  <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html|*Open the Decision Board — steer / vote*>"
+          }
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*What's in this pass* — three weeks of accumulated classifier signal drained in one sitting, and the shape is unusual: only two of the eleven items are fresh reports. The rest are things we already knew that have *changed status*, which is why six are folding into existing tickets rather than becoming new ones — this pass mostly changed what we believe about work already tracked. Two threads moved because someone answered in the channel after the last announce; one has now been open across two waves and is the reason the cadence slipped to four days. Nothing here blocks the resync itself. The fabrication cap is the single item that could, and it needs a *decision* rather than more investigation."
+      }
+    },
+    {
+      "type": "table",
+      "column_settings": [
+        {
+          "is_wrapped": true
+        },
+        {
+          "align": "right"
+        }
+      ],
+      "rows": [
+        [
+          {
+            "type": "raw_text",
+            "text": "Outcome"
+          },
+          {
+            "type": "raw_text",
+            "text": "Count"
+          }
+        ],
+        [
+          {
+            "type": "raw_text",
+            "text": "Items in (10 drained + 1 stray)"
+          },
+          {
+            "type": "raw_text",
+            "text": "11"
+          }
+        ],
+        [
+          {
+            "type": "raw_text",
+            "text": "New tickets proposed"
+          },
+          {
+            "type": "raw_text",
+            "text": "4"
+          }
+        ],
+        [
+          {
+            "type": "raw_text",
+            "text": "Folding into existing work"
+          },
+          {
+            "type": "raw_text",
+            "text": "6"
+          }
+        ],
+        [
+          {
+            "type": "raw_text",
+            "text": "Parked / marinating"
+          },
+          {
+            "type": "raw_text",
+            "text": "1"
+          }
+        ]
+      ]
+    },
+    {
+      "type": "container",
+      "is_collapsible": false,
+      "default_collapsed": false,
+      "title": {
+        "type": "plain_text",
+        "text": "Pull these first"
+      },
+      "child_blocks": [
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "<https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html#finding:FIN-3297|*[1]*  Fabrication cap reads as covered but is not>  ·  _2,583 emails stay unlinked_\n<https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html#finding:FIN-3461|*[2]*  Baseline numbers before the resync>  ·  _one query; every wave that runs first makes it a reconstruction_\n<https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html#finding:endorsement-line|*[3]*  Contingent endorsement renders flat>  ·  _3 orgs, reported twice_\n<https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html#finding:recap-cover|*[4]*  Recap cover misattributed>  ·  _blocks 2 tickets_\n<https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html#op:merge-3361|*[5]*  Merge FIN-3361 into FIN-3297?>  ·  _destination already owns the problem_"
+          }
+        },
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "_+ 3 more_  ·  <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html|all 8 on the board →>"
+          }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "is_collapsible": false,
+      "default_collapsed": false,
+      "title": {
+        "type": "plain_text",
+        "text": "Waiting on"
+      },
+      "child_blocks": [
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "<@SLACK_ID:justin>  —  <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html?user=justin|*3 decisions to make*>\nYarik Fedin  —  <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html?user=yarik|*1 decision to make*>"
+          }
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "*Signal in* — <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html?inbox=observed-problems|🔴 `2`>   <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html?inbox=shortcomings|🟠 `8`>   <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html?inbox=feedback|🟣 `1`>    _five of eight channels quiet_"
+        }
+      ]
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "Watermark `2026-07-31T09:38:06Z`  ·  <https://linear.app/finchclaims/project/product-email-classification-ca5ade5ee5a0/activity|Project Update →>"
+        }
+      ]
+    }
+  ]
+}

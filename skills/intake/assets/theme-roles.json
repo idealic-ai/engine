@@ -1,0 +1,575 @@
+{
+  "version": 1,
+  "measuredAgainst": "themes-frozen-20260801T2010 (byte-copy snapshot) + proof-theme.css @ 2026-08-01 19:36",
+  "_comment": [
+    "THE TOKEN ROLE CONTRACT for /prove page themes. It is EMPIRICAL, not editorial: every role in",
+    "here is here because one or more of three INDEPENDENTLY-authored themes (NERV, AKIRA, WIRE) built",
+    "a token for it. Nothing was added because it seemed like a good idea. Where a theme's author",
+    "stated in their own :root comment which contract gap they were filling, that sentence is quoted",
+    "verbatim in `citation` — that is the authority for the role existing.",
+    "",
+    "HOW A ROLE IS GRADED (mechanical — theme-roles.mjs recomputes it, this file never states a tier):",
+    "  roleEvidence = how many of the 3 graded themes declared a token for the role, ANY spelling.",
+    "    3 -> required   2 -> emerging   0..1 -> proposed",
+    "  nameEvidence = how many of them spelled it `canonical`. The gap between roleEvidence and",
+    "    nameEvidence IS the convergence debt — it is the answer to 'what do we do with the prefixes'.",
+    "",
+    "HOW `canonical` IS PICKED (mechanical, so nobody's taste decides a name):",
+    "  1. kit-incumbent   — the kit (proof-theme.css) already has the role; its spelling wins, because",
+    "                       the cheapest convergence is the one that renames the fewest live files.",
+    "  2. theme-consensus — the kit has no such role, but >=2 graded themes chose the SAME spelling",
+    "                       (after stripping their namespace prefix).",
+    "  3. sole-author     — the kit has no such role and exactly ONE graded theme built it, so that",
+    "                       theme's spelling stands unopposed. Weak authority: it is one proposal.",
+    "  4. undecided       — >=2 themes built the role and no two agreed on a name. `canonical` is null",
+    "                       ON PURPOSE. Naming it would be an editorial act, and for the roles that",
+    "                       land here (absence, chrome ground, provenance, radius, texture) the name",
+    "                       carries a design ruling. These are listed for a HUMAN to rule on; the gate",
+    "                       reports them loudly and never fails on them.",
+    "",
+    "WHAT `spellings` IS: the observed token name in each theme, PREFIX ALREADY STRIPPED (NERV's",
+    "--nv-focus is recorded as --focus; the prefix map lives in theme-roles.sources.json). null means",
+    "that theme built no token for the role. theme-roles.mjs RE-DERIVES this from the files and errors",
+    "if it disagrees — this file is a recorded observation, not an unchecked promise.",
+    "",
+    "WHAT THIS CONTRACT DELIBERATELY DOES NOT DO: it never compares VALUES. NERV's spacing ladder is",
+    "derived from a 22px mono line box and the kit's from a 27.5px rhythm, so the SAME role carries",
+    "DIFFERENT values and any value-matcher mis-pairs them silently. Roles are matched by the author's",
+    "declared role comment and by name, and by nothing else.",
+    "",
+    "ROLES CONSIDERED AND DELIBERATELY OMITTED (could not be mapped without guessing, see the build",
+    "report): depth/shadow recipes (NERV --lift/--sink vs AKIRA --depth-once vs WIRE --plane/--recess",
+    "vs kit --shadow-card are four different SHAPES of value, not four spellings of one role); the",
+    "recessed/second ground (NERV --well is 'imported material only', AKIRA --stock-2 is 'a pressed",
+    "region', kit --card-2 is just a second card — three different meanings)."
+  ],
+  "mandates": [
+    {
+      "id": "INV_DS_NON_COLOUR_CHANNEL",
+      "statement": "Wherever colour carries meaning, a non-colour channel must carry it too.",
+      "satisfiedByAnyOf": [
+        "texture-pitch",
+        "areal-coverage",
+        "encoded-mark-shape",
+        "rule-weight-scale"
+      ],
+      "note": "No single role is 3-of-3 here, and that is the finding: all three themes met the mandate, each with a DIFFERENT mechanism (NERV varies hatch pitch, AKIRA varies areal ink coverage, WIRE swaps mark shape). The mandate is therefore a disjunction over roles, not a role. A theme satisfying none of them fails the mandate."
+    },
+    {
+      "id": "INV_DS_MISSING_NOT_EMPTY",
+      "statement": "An absent fact renders visibly distinct from a false one and from a zero.",
+      "satisfiedByAnyOf": [
+        "absence"
+      ],
+      "note": "The kit's --unknown does NOT satisfy this: it is a freshness bucket ('no date'), not 'no reading was taken'. It is recorded under the freshness-ramp role, where it belongs."
+    }
+  ],
+  "roles": [
+    {
+      "id": "ink",
+      "what": "Primary text ink.",
+      "channel": "colour",
+      "canonical": "--ink",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--ink",
+      "spellings": {
+        "nerv": "--ink",
+        "akira": "--ink",
+        "wire": "--ink"
+      }
+    },
+    {
+      "id": "ink-secondary",
+      "what": "Second text luminance — supporting content, still body-grade.",
+      "channel": "colour",
+      "canonical": "--ink-soft",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--ink-soft",
+      "spellings": {
+        "nerv": "--ink-2",
+        "akira": "--ink-2",
+        "wire": "--ink-soft"
+      },
+      "note": "NERV and AKIRA independently chose --ink-2 over the kit's --ink-soft. Two-thirds of the graded set spell it the losing way; the kit-incumbent rule still wins because renaming one kit file is cheaper than renaming two theme pages plus every consumer of --ink-soft."
+    },
+    {
+      "id": "ink-meta",
+      "what": "AA-measured small-text metadata ink. Contrast is a measured property of this token, not a guess.",
+      "channel": "colour",
+      "canonical": "--ink-meta",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--ink-meta",
+      "spellings": {
+        "nerv": "--meta",
+        "akira": "--ink-meta",
+        "wire": "--ink-meta"
+      },
+      "citation": "AKIRA: '--ink-meta: AA small-text ink on --stock (6.60:1, measured)'; WIRE: '--ink-meta: AA metadata token, measured on all 4 grounds'; NERV: '--nv-meta: AA small-text token — primary chrome text. measured, §06'"
+    },
+    {
+      "id": "ink-nontext",
+      "what": "Ink that is NEVER allowed to carry text — hairlines, ticks, grids, dots.",
+      "channel": "colour",
+      "canonical": "--ink-faint",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--ink-faint",
+      "spellings": {
+        "nerv": "--faint",
+        "akira": null,
+        "wire": "--ink-faint"
+      },
+      "citation": "NERV: '--nv-faint: NON-TEXT, EVER: hairlines, ticks, grid, redaction ground'; WIRE: '--ink-faint: NON-TEXT ONLY — rules, rings, ticks'",
+      "note": "AKIRA has no separate non-text ink; it draws rules in --ink-2, the same token it uses for secondary TEXT. That is the exact confusion the role exists to prevent, so AKIRA's absence is a gap, not a style choice."
+    },
+    {
+      "id": "page-ground",
+      "what": "The ground of the page itself, outside any plate or card.",
+      "channel": "colour",
+      "canonical": "--paper",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--paper",
+      "spellings": {
+        "nerv": "--void",
+        "akira": "--stock",
+        "wire": "--void"
+      },
+      "citation": "NERV: '--nv-void: the canvas outside any plate'; WIRE: 'GROUNDS — depth by light level'; AKIRA: '--stock: newsprint white — the only page ground'",
+      "note": "NAME COLLISION, and the sharpest argument for this contract existing: --void means PAGE GROUND in NERV and WIRE, while AKIRA's --void-edge means ABSENCE. One spelling, two unrelated roles, across three files written the same week."
+    },
+    {
+      "id": "plate-ground",
+      "what": "The ground of a content plate/card sitting on the page ground.",
+      "channel": "colour",
+      "canonical": "--card",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--card",
+      "spellings": {
+        "nerv": "--deck",
+        "akira": null,
+        "wire": "--panel"
+      },
+      "note": "AKIRA has no card ground on purpose — the riso aesthetic puts content directly on --stock and frames it with rule weight instead."
+    },
+    {
+      "id": "chrome-ground",
+      "what": "The ground of CHROME — head/foot strips, rails, furniture. Distinct from a content plate so that 'this region holds no fact' is a token-level decision.",
+      "channel": "colour",
+      "canonical": null,
+      "canonicalBy": "undecided",
+      "kit": null,
+      "spellings": {
+        "nerv": "--band",
+        "akira": "--mass",
+        "wire": "--panel-chrome"
+      },
+      "citation": "NERV: '--nv-band: strip ground — head + foot chrome bands'; AKIRA: '--mass: the black mass — chrome ground'; WIRE: '--panel-chrome: chrome plane — matte, never lit'"
+    },
+    {
+      "id": "rule-ink",
+      "what": "The colour of a hairline/rule.",
+      "channel": "colour",
+      "canonical": "--rule",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--rule",
+      "spellings": {
+        "nerv": "--hair",
+        "akira": null,
+        "wire": "--rule"
+      },
+      "note": "AKIRA draws every rule in currentColor / --ink-2 and varies WEIGHT instead of colour — see rule-weight-scale."
+    },
+    {
+      "id": "rule-width-base",
+      "what": "The base hairline width, as a token rather than a literal 1px.",
+      "channel": "geometry",
+      "canonical": "--rule-w",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--rule-w",
+      "spellings": {
+        "nerv": "--rule-w",
+        "akira": "--w-hair",
+        "wire": "--rule-w"
+      }
+    },
+    {
+      "id": "rule-weight-scale",
+      "what": "A LADDER of border widths (>=3 steps), so weight can be a meaning-bearing channel.",
+      "channel": "geometry",
+      "canonical": null,
+      "canonicalBy": "undecided",
+      "kit": null,
+      "spellings": {
+        "nerv": null,
+        "akira": "--w-rule",
+        "wire": "--rule-w-2"
+      },
+      "family": true,
+      "citation": "AKIRA: 'ROLE: RULE WEIGHT [NEW — the contract has no border-width scale]'",
+      "note": "AKIRA ships 4 steps (--w-hair/--w-rule/--w-bar/--w-mass), WIRE 3 (--rule-w/-2/-spine). NERV has exactly one width and is counted as NOT having the scale."
+    },
+    {
+      "id": "type-mono",
+      "what": "Monospace family.",
+      "channel": "typography",
+      "canonical": "--mono",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--mono",
+      "spellings": {
+        "nerv": "--mono",
+        "akira": "--mono",
+        "wire": "--mono"
+      }
+    },
+    {
+      "id": "type-sans",
+      "what": "Sans family.",
+      "channel": "typography",
+      "canonical": "--sans",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--sans",
+      "spellings": {
+        "nerv": null,
+        "akira": "--sans",
+        "wire": "--sans"
+      },
+      "note": "NERV is mono-only by design (terminal-bureaucratic). Its absence here is a deliberate aesthetic ruling, not an oversight — which is why this role sits at 2/3 and can never be a hard requirement without an exemption, and exemptions are forbidden here."
+    },
+    {
+      "id": "type-size-scale",
+      "what": "A named type-size ladder, so a size is a role rather than a literal.",
+      "channel": "typography",
+      "canonical": null,
+      "canonicalBy": "undecided",
+      "kit": null,
+      "spellings": {
+        "nerv": "--body-size",
+        "akira": "--t-body",
+        "wire": null
+      },
+      "family": true,
+      "citation": "AKIRA: 'ROLE: TYPE SCALE [NEW — the contract ships only --maxw / --readw]'",
+      "note": "NERV ships 4 (--chrome-size/--body-size/--lede-size + a hard chrome ceiling), AKIRA 6 (--t-mega..--t-micro). WIRE ships none and sets sizes inline."
+    },
+    {
+      "id": "measure-page",
+      "what": "Maximum page width.",
+      "channel": "space",
+      "canonical": "--maxw",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--maxw",
+      "spellings": {
+        "nerv": "--maxw",
+        "akira": "--maxw",
+        "wire": "--maxw"
+      }
+    },
+    {
+      "id": "measure-prose",
+      "what": "Prose measure (reading column width).",
+      "channel": "space",
+      "canonical": "--readw",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--readw",
+      "spellings": {
+        "nerv": "--readw",
+        "akira": "--readw",
+        "wire": "--readw"
+      }
+    },
+    {
+      "id": "rail-width",
+      "what": "Width of the gutter rail / furniture column.",
+      "channel": "space",
+      "canonical": "--railw",
+      "canonicalBy": "theme-consensus",
+      "kit": null,
+      "spellings": {
+        "nerv": "--railw",
+        "akira": null,
+        "wire": "--railw"
+      },
+      "note": "AKIRA has a .rail but sizes it from the grid with no token."
+    },
+    {
+      "id": "space-scale-base",
+      "what": "Base step of the spacing ladder.",
+      "channel": "space",
+      "canonical": "--sp-1",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--sp-1",
+      "spellings": {
+        "nerv": "--u1",
+        "akira": "--s1",
+        "wire": "--sp-1"
+      },
+      "family": true,
+      "citation": "AKIRA: 'ROLE: SPACE [NEW — the contract has no spacing scale]'",
+      "note": "The kit's --sp-* landed MID-SESSION, after NERV and AKIRA were written — at authoring time the contract genuinely had no spacing scale, so NERV's --u* and AKIRA's --s* are independent inventions, not divergence from an incumbent. WIRE, written after, adopted --sp-* verbatim. This is the one role with 3/3 role evidence AND an independent-adoption receipt."
+    },
+    {
+      "id": "corner-radius",
+      "what": "Corner radius as a declared decision. All three authors argue that a radius of zero must still be a token, so that flatness is a choice rather than a default.",
+      "channel": "geometry",
+      "canonical": null,
+      "canonicalBy": "undecided",
+      "kit": null,
+      "spellings": {
+        "nerv": "--r",
+        "akira": "--radius",
+        "wire": "--radius-0"
+      },
+      "family": true,
+      "citation": "NERV: 'RADIUS — zero, everywhere. A token, so it is a DECISION not a default'; AKIRA: 'ROLE: RADIUS [NEW]. AKIRA's value is zero everywhere — but it is a value'; WIRE lists --radius-* under 'ROLES THE ORIGINAL CONTRACT NEVER NAMED'"
+    },
+    {
+      "id": "focus-ring",
+      "what": "The focus indicator. A keyboard affordance.",
+      "channel": "colour",
+      "canonical": "--focus",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--focus",
+      "spellings": {
+        "nerv": "--focus",
+        "akira": "--focus",
+        "wire": "--focus"
+      },
+      "citation": "AKIRA: 'ROLE: FOCUS [NEW — the contract has no focus token at all]'; WIRE lists --focus/--focus-w/--focus-off under 'ROLES THE ORIGINAL CONTRACT NEVER NAMED'",
+      "note": "The strongest row in the contract: 3/3 role evidence AND 3/3 name evidence, and for a while the only required role the kit did not have. Nobody could have inherited this spelling — three agents independently reached for the same word, which is why this was the one required gap that needed no human ruling to close. The kit now declares --focus, so canonicalBy re-derives as kit-incumbent; the WORD is unchanged, and was never in question."
+    },
+    {
+      "id": "focus-width",
+      "what": "Focus ring thickness.",
+      "channel": "geometry",
+      "canonical": "--focus-w",
+      "canonicalBy": "theme-consensus",
+      "kit": null,
+      "spellings": {
+        "nerv": "--focus-w",
+        "akira": null,
+        "wire": "--focus-w"
+      },
+      "note": "AKIRA folds width into a shorthand (--focus: 3px solid currentColor), so its focus ring cannot be re-themed independently of its width. Counted as not having the role, which is the honest reading."
+    },
+    {
+      "id": "z-scale",
+      "what": "A named stacking ladder, so layer order is a declared contract rather than an emergent accident.",
+      "channel": "layer",
+      "canonical": null,
+      "canonicalBy": "undecided",
+      "kit": null,
+      "spellings": {
+        "nerv": "--z-ground",
+        "akira": null,
+        "wire": "--z-content"
+      },
+      "family": true,
+      "note": "NERV 3 steps (ground/plate/strip), WIRE 5 (atmos/vignette/content/chrome/pop). AKIRA has no z tokens."
+    },
+    {
+      "id": "absence",
+      "what": "MISSING — no reading was taken. Must render distinct from a zero AND from a false. The role INV_DS_MISSING_NOT_EMPTY depends on.",
+      "channel": "colour",
+      "canonical": null,
+      "canonicalBy": "undecided",
+      "kit": null,
+      "spellings": {
+        "nerv": "--null",
+        "akira": "--void-edge",
+        "wire": "--absent"
+      },
+      "citation": "AKIRA: 'ROLE: ABSENCE [NEW — there is no MISSING role in the contract. --unknown is a freshness bucket]'; NERV: '--nv-null: NO SIGNAL — deliberately desaturated. an absence is not a hue'; WIRE: '--absent: grey — verdict: MISSING (never null)'",
+      "note": "3/3 role evidence, 0/3 name agreement, and the kit has nothing. Naming this one is a design ruling (AKIRA's answer is a dashed EDGE, not a colour at all), so canonical stays null pending a human call."
+    },
+    {
+      "id": "provenance-channel",
+      "what": "Checked-here vs trusted-upstream, encoded at token level.",
+      "channel": "colour",
+      "canonical": null,
+      "canonicalBy": "undecided",
+      "kit": null,
+      "spellings": {
+        "nerv": "--up",
+        "akira": "--prov-upstream-edge",
+        "wire": "--sig-mag"
+      },
+      "citation": "AKIRA: 'ROLE: PROVENANCE [NEW — the contract mandates the distinction and gives it no token]'; NERV: '--nv-up: TRUSTED-UPSTREAM. CHECKED-HERE carries NO hue, by design'; WIRE: '--sig-mag: magenta — provenance: trusted-upstream'",
+      "note": "The context pack tiers --prov-* as AKIRA-only. By NAME that is right (1/3). By ROLE it is 3/3 — NERV encodes it as a hue, AKIRA as a border-style pair, WIRE as a second isoluminant hue. This row is the clearest demonstration of why the contract carries two separate evidence counts."
+    },
+    {
+      "id": "texture-pitch",
+      "what": "Ruling frequency of a hatch/screen — a non-colour channel expressed as a token.",
+      "channel": "texture",
+      "canonical": null,
+      "canonicalBy": "undecided",
+      "kit": null,
+      "spellings": {
+        "nerv": "--pitch-half",
+        "akira": "--pitch",
+        "wire": "--scan-pitch"
+      },
+      "family": true,
+      "citation": "NERV: 'TEXTURE — the mandatory non-colour channel, AS TOKENS / the role the WARM PRINT contract has no name for'; AKIRA: 'ROLE: TEXTURE PITCH [NEW — the contract mandates a non-colour channel]'",
+      "note": "SEMANTICS DIVERGE and the contract records it rather than smoothing it: NERV VARIES pitch to encode (half/dense/void); AKIRA FIXES one page-wide ruling ('never varied for effect') and encodes with coverage instead; WIRE's --scan-pitch is atmosphere only ('Decoration; encodes nothing') — its encoding hatch pitches are hardcoded literals at 4px/5px/6px, i.e. WIRE meets the non-colour mandate through mark shape, not through this role. Three tokens with the same role NAME and three different jobs."
+    },
+    {
+      "id": "areal-coverage",
+      "what": "Ink coverage percentage declared as data, so tone steps are countable rather than eyeballed.",
+      "channel": "texture",
+      "canonical": "--cover-nil",
+      "canonicalBy": "sole-author",
+      "kit": null,
+      "spellings": {
+        "nerv": null,
+        "akira": "--cover-nil",
+        "wire": null
+      },
+      "family": true,
+      "citation": "AKIRA: '--cover-full: 100; declared as data, drawn by the .tone-* recipes'",
+      "note": "AKIRA-only. One agent's proposal, not convergence — but it is a BUILT proposal, and it is one of the three mechanisms satisfying INV_DS_NON_COLOUR_CHANNEL."
+    },
+    {
+      "id": "encoded-mark-shape",
+      "what": "Mark SHAPE carried as a token (mask image), so shape can encode meaning independently of the hue painted through it.",
+      "channel": "shape",
+      "canonical": "--m-disc",
+      "canonicalBy": "sole-author",
+      "kit": null,
+      "spellings": {
+        "nerv": null,
+        "akira": null,
+        "wire": "--m-disc"
+      },
+      "family": true,
+      "citation": "WIRE: 'ENCODED MARKS — mask carries SHAPE, token carries COLOUR'",
+      "note": "WIRE-only, 10 marks. NERV reaches the same idea in CSS ('mask-image for SHAPE + background-color for COLOUR — a custom property cannot be...') but does NOT tokenize the shapes, so it is counted as not having the role."
+    },
+    {
+      "id": "verdict-signal-set",
+      "what": "One token per verdict state (holds / partial / broke), so a verdict is a role lookup rather than a colour literal.",
+      "channel": "colour",
+      "canonical": null,
+      "canonicalBy": "undecided",
+      "kit": null,
+      "spellings": {
+        "nerv": "--ok",
+        "akira": null,
+        "wire": "--holds"
+      },
+      "family": true,
+      "note": "AKIRA deliberately refuses a verdict colour set — 'verdict plate — 4 STRUCTURALLY DIFFERENT OBJECTS, not 4 colours' — and encodes verdict entirely through structure. Recorded as absent because there is no token, but the absence is a ruling, not a gap. The kit's --defect/--fixed pair is a different axis (defect vs fixed, not holds/partial/broke) and is NOT mapped here."
+    },
+    {
+      "id": "motion-duration",
+      "what": "Transition duration as a token, so motion is a declared decision and there is a seam a prefers-reduced-motion rule can turn.",
+      "channel": "motion",
+      "canonical": "--dur",
+      "canonicalBy": "sole-author",
+      "kit": null,
+      "spellings": {
+        "nerv": "--dur",
+        "akira": null,
+        "wire": null
+      },
+      "citation": "NERV: 'MOTION — declared at zero. This artifact does not animate.' (--nv-dur: 0ms)",
+      "note": "CORRECTS THE PRIOR CENSUS. A substring probe for 'motion' returned 0 across all four files and the role was written off as 'declared missing by AKIRA, built by nobody'. NERV built one and spelled it --dur. The probe measured a spelling and reported it as a role — which is precisely the failure mode this contract exists to end."
+    },
+    {
+      "id": "geometry-tilt",
+      "what": "The single rotation angle a theme is allowed to use.",
+      "channel": "geometry",
+      "canonical": "--tilt",
+      "canonicalBy": "sole-author",
+      "kit": null,
+      "spellings": {
+        "nerv": null,
+        "akira": "--tilt",
+        "wire": null
+      },
+      "citation": "AKIRA: 'ROLE: GEOMETRY / TILT [NEW]. Exactly ONE angle exists.'"
+    },
+    {
+      "id": "scrim",
+      "what": "Overlay wash behind popovers/modals.",
+      "channel": "colour",
+      "canonical": "--scrim",
+      "canonicalBy": "sole-author",
+      "kit": null,
+      "spellings": {
+        "nerv": null,
+        "akira": null,
+        "wire": "--scrim"
+      }
+    },
+    {
+      "id": "selection",
+      "what": "::selection ground and ink.",
+      "channel": "colour",
+      "canonical": "--select-bg",
+      "canonicalBy": "sole-author",
+      "kit": null,
+      "spellings": {
+        "nerv": null,
+        "akira": null,
+        "wire": "--select-bg"
+      },
+      "citation": "WIRE lists --select-bg/--select-ink under 'ROLES THE ORIGINAL CONTRACT NEVER NAMED'"
+    },
+    {
+      "id": "opacity-steps",
+      "what": "Named opacity grades, so 'quieter' is a role rather than a magic decimal.",
+      "channel": "colour",
+      "canonical": "--dim",
+      "canonicalBy": "sole-author",
+      "kit": null,
+      "spellings": {
+        "nerv": null,
+        "akira": null,
+        "wire": "--dim"
+      }
+    },
+    {
+      "id": "atmosphere-vignette",
+      "what": "Vignette pooling parameters for the page atmosphere.",
+      "channel": "texture",
+      "canonical": "--vig-edge",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--vig-edge",
+      "spellings": {
+        "nerv": null,
+        "akira": null,
+        "wire": "--vig-edge"
+      },
+      "family": true,
+      "note": "NERV and AKIRA both HAVE an atmosphere (scanline field / paper tooth) but neither tokenizes it — the values are literals in the body::before rules. Counted as absent, because the role is 'a token exists', not 'the page does the thing'."
+    },
+    {
+      "id": "freshness-ramp",
+      "what": "Age buckets for a dated reading (fresh / recent / moderate / stale / undated).",
+      "channel": "colour",
+      "canonical": "--fresh",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--fresh",
+      "spellings": {
+        "nerv": null,
+        "akira": null,
+        "wire": "--fresh"
+      },
+      "family": true,
+      "note": "The kit's --unknown lives in THIS role ('no date'), not in `absence` ('no reading was taken'). Conflating them is the specific error this contract is built to stop."
+    },
+    {
+      "id": "accent",
+      "what": "The single non-encoding accent hue (links, emphasis).",
+      "channel": "colour",
+      "canonical": "--accent",
+      "canonicalBy": "kit-incumbent",
+      "kit": "--accent",
+      "spellings": {
+        "nerv": null,
+        "akira": null,
+        "wire": "--accent"
+      },
+      "note": "NERV has no accent at all (its only hue, --nv-up, is a legended provenance signal). AKIRA's --red is explicitly 'ROLE: SIGNAL — the ONE hue. Never decorative' and is NOT mapped to accent."
+    }
+  ]
+}

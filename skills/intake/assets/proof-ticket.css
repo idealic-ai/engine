@@ -1,0 +1,214 @@
+/* proof-ticket.css — light-DOM styles for the /prove ticket-preview component (proof-ticket.js).
+ *
+ * THE SOLE source of the component's CSS. proof-ticket.js is BEHAVIOR-ONLY — it ships no CSS and
+ * injects no <style>; this file is the real, linkable asset the page must provide. A contract test
+ * (proof-ticket.test.mjs, test 39) asserts the JS carries no embedded stylesheet and that the
+ * component still renders + functions when the page supplies this file.
+ *
+ * Every color is a WARM PRINT design token from proof-theme.css — NO hardcoded palette. The /prove
+ * compose step links or inlines this file into the page <head>. Selectors are namespaced under the
+ * element tags so nothing leaks onto the host page. The freshness dot carries a NON-COLOR
+ * fill-fraction channel (data-fill) so it stays legible in greyscale / for colorblind readers.
+ */
+
+/* ── inline ref + teaser ── */
+prove-ticket { display: inline; }
+prove-ticket .pt-wrap { position: relative; display: inline-block; }
+prove-ticket .pt-link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+prove-ticket .pt-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: .15rem; }
+prove-ticket .pt-tip {
+  position: absolute; left: 0; top: 1.4em; z-index: 2147483646; max-width: 22rem;
+  padding: .4rem .55rem; border: 1px solid var(--rule); border-radius: .35rem;
+  background: var(--card); color: var(--ink); font: 400 .8rem/1.35 var(--sans);
+  white-space: normal; box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+prove-ticket .pt-tip[hidden] { display: none; }
+prove-ticket .pt-tip-title { font-weight: 600; display: block; }
+prove-ticket .pt-tip-status { color: var(--ink-soft); display: block; margin-top: .15rem; }
+prove-ticket .pt-tip-age { color: var(--ink-faint); display: block; margin-top: .1rem; font-size: .92em; }
+
+/* ── freshness dot — shared by inline ref, card header, and legend ──
+   Non-color channel = data-fill fill-fraction pie (full/¾/½/¼) with an always-present ink ring;
+   unknown = ring only. Color per fraction is a proof-theme token. */
+.pt-dot {
+  display: inline-block; width: .62em; height: .62em; border-radius: 50%; margin-right: .3em;
+  vertical-align: baseline; border: 1px solid var(--ink-faint); box-sizing: border-box;
+}
+.pt-dot[data-fill="full"] { background: var(--fresh); }
+.pt-dot[data-fill="three-quarter"] { background: conic-gradient(var(--recent) 270deg,transparent 0); }
+.pt-dot[data-fill="half"] { background: conic-gradient(var(--moderate) 180deg,transparent 0); }
+.pt-dot[data-fill="quarter"] { background: conic-gradient(var(--stale) 90deg,transparent 0); }
+.pt-dot[data-fill="ring"] { background: transparent; border-color: var(--unknown); opacity: .75; }
+
+/* ── SVG freshness dot ──
+   CSS `fill` wins over a presentation attr, so color lives here as a token. Non-color channel = the
+   `r` size ramp set in JS; unknown = ring (no fill, token stroke). */
+circle.pt-svg-dot { stroke: var(--ink-faint); stroke-width: 1; }
+circle.pt-svg-dot.pt-dot-fresh { fill: var(--fresh); }
+circle.pt-svg-dot.pt-dot-recent { fill: var(--recent); }
+circle.pt-svg-dot.pt-dot-moderate { fill: var(--moderate); }
+circle.pt-svg-dot.pt-dot-stale { fill: var(--stale); }
+circle.pt-svg-dot.pt-dot-unknown { fill: none; stroke: var(--unknown); }
+
+/* ── the shared anchored card ── */
+prove-ticket-card { position: fixed; z-index: 2147483647; }
+prove-ticket-card[hidden] { display: none; }
+prove-ticket-card .pt-card {
+  width: min(24rem,92vw); max-height: 80vh; overflow: auto; box-sizing: border-box;
+  border: 1px solid var(--rule); border-radius: .6rem; background: var(--card); color: var(--ink);
+  font: 400 .82rem/1.4 var(--sans); box-shadow: 0 8px 30px rgba(0,0,0,.35);
+}
+prove-ticket-card :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: .2rem; }
+prove-ticket-card .pt-hd { padding: .6rem .7rem; border-bottom: 1px solid var(--rule); }
+prove-ticket-card .pt-hd-top { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; }
+prove-ticket-card .pt-keylink { font-weight: 700; color: var(--accent); text-decoration: none; }
+prove-ticket-card .pt-keylink:hover { text-decoration: underline; }
+
+/* status pill: color comes from a --status-<type> token via a per-type class — never an inline hex */
+prove-ticket-card .pt-pill {
+  font-size: .7rem; font-weight: 700; color: #fff; padding: .05rem .4rem;
+  border-radius: 1rem; white-space: nowrap; background: var(--ink-soft);
+}
+prove-ticket-card .pt-pill-started { background: var(--status-started); }
+prove-ticket-card .pt-pill-completed { background: var(--status-completed); }
+prove-ticket-card .pt-pill-canceled { background: var(--status-canceled); }
+prove-ticket-card .pt-pill-backlog { background: var(--status-backlog); }
+prove-ticket-card .pt-pill-unstarted { background: var(--status-unstarted); }
+prove-ticket-card .pt-pill-triage { background: var(--status-triage); }
+
+prove-ticket-card .pt-title { font-weight: 600; margin: .35rem 0 .25rem; display: block; }
+prove-ticket-card .pt-metarow { display: flex; gap: .5rem; flex-wrap: wrap; color: var(--ink-soft); font-size: .74rem; }
+prove-ticket-card .pt-fresh {
+  display: inline-flex; align-items: center; gap: .3rem; font-size: .72rem;
+  color: var(--ink-soft); margin-top: .3rem;
+}
+prove-ticket-card .pt-close {
+  position: absolute; top: .4rem; right: .5rem; border: 0; background: transparent;
+  color: var(--ink-soft); font-size: 1.1rem; line-height: 1; cursor: pointer; padding: .1rem .3rem; border-radius: .3rem;
+}
+prove-ticket-card .pt-close:hover { background: var(--card-2); }
+prove-ticket-card [role=tablist] { display: flex; gap: .2rem; padding: .35rem .5rem 0; }
+prove-ticket-card [role=tab] {
+  border: 0; background: transparent; color: var(--ink-soft); cursor: pointer;
+  font: inherit; padding: .3rem .55rem; border-radius: .35rem .35rem 0 0;
+}
+prove-ticket-card [role=tab][aria-selected=true] {
+  color: var(--ink); font-weight: 700; box-shadow: inset 0 -2px 0 var(--accent);
+}
+prove-ticket-card [role=tabpanel] { padding: .6rem .7rem; }
+prove-ticket-card [role=tabpanel][hidden] { display: none; }
+prove-ticket-card .pt-desc { white-space: pre-wrap; color: var(--ink); }
+prove-ticket-card .pt-grid {
+  display: grid; grid-template-columns: auto 1fr; gap: .15rem .6rem;
+  margin-top: .5rem; font-size: .76rem;
+}
+prove-ticket-card .pt-grid b { color: var(--ink-faint); font-weight: 600; }
+prove-ticket-card .pt-evts { list-style: none; margin: 0; padding: 0; max-height: 14rem; overflow: auto; }
+prove-ticket-card .pt-evt { padding: .35rem 0; border-bottom: 1px solid var(--rule-soft); }
+prove-ticket-card .pt-evt-hd { display: flex; gap: .4rem; align-items: baseline; font-size: .72rem; color: var(--ink-soft); }
+prove-ticket-card .pt-evt-kind {
+  font-weight: 700; text-transform: uppercase; font-size: .62rem; letter-spacing: .03em;
+  padding: .02rem .3rem; border-radius: .25rem; border: 1px solid var(--rule);
+}
+prove-ticket-card .pt-evt--state .pt-evt-kind { color: var(--status-blue); }
+prove-ticket-card .pt-evt--comment .pt-evt-kind { color: var(--ink-soft); }
+prove-ticket-card .pt-evt-text { margin-top: .15rem; white-space: pre-wrap; }
+prove-ticket-card .pt-rels { display: flex; flex-wrap: wrap; gap: .35rem; }
+prove-ticket-card .pt-rel {
+  border: 1px solid var(--rule); background: transparent; color: var(--ink);
+  cursor: pointer; font: inherit; font-size: .74rem; padding: .2rem .5rem; border-radius: 1rem;
+}
+prove-ticket-card .pt-rel:hover { background: var(--card-2); }
+prove-ticket-card .pt-empty { color: var(--ink-faint); font-style: italic; }
+prove-ticket-card .pt-legend {
+  padding: .4rem .7rem; border-top: 1px solid var(--rule); font-size: .66rem;
+  color: var(--ink-soft); display: flex; flex-wrap: wrap; gap: .5rem;
+}
+prove-ticket-card .pt-legend span { display: inline-flex; align-items: center; gap: .25rem; }
+prove-ticket-card .pt-legend .pt-dot { width: .55em; height: .55em; margin-right: 0; }
+
+/* ── v4: internal item references ──
+ * Same vocabulary as a ticket ref (leading mark, underlined link, teaser) with a different leading
+ * glyph, because the two kinds must not be confusable: a § points INTO this page, a freshness dot
+ * points OUT to the tracker. The glyph is CSS content so the JS stays behavior-only. */
+prove-ref { display: inline; }
+prove-ref .pt-wrap-ref { position: relative; display: inline-block; }
+prove-ref .pt-link.pt-ref { color: var(--accent); text-decoration: underline; text-decoration-style: dotted; text-underline-offset: 2px; cursor: pointer; }
+prove-ref .pt-link.pt-ref:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: .15rem; }
+prove-ref .pt-tip {
+  position: absolute; left: 0; top: 1.4em; z-index: 2147483646; max-width: 22rem;
+  padding: .4rem .55rem; border: 1px solid var(--rule); border-radius: .35rem;
+  background: var(--card); color: var(--ink); font: 400 .8rem/1.35 var(--sans);
+  white-space: normal; box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+prove-ref .pt-tip[hidden] { display: none; }
+prove-ref .pt-tip-title { font-weight: 600; display: block; }
+prove-ref .pt-tip-status { color: var(--ink-soft); display: block; margin-top: .15rem; }
+prove-ref .pt-tip-age { color: var(--ink-faint); display: block; margin-top: .1rem; font-size: .92em; }
+.pt-mark {
+  appearance: none; border: 0; background: transparent; padding: 0 .12em 0 0; margin: 0;
+  color: var(--ink-faint); font: inherit; line-height: 1; cursor: pointer; vertical-align: baseline;
+}
+.pt-mark::before { content: "§"; font-size: .85em; }
+.pt-mark:hover { color: var(--accent); }
+.pt-mark:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: .15rem; }
+
+/* The jump target's confirmation that the page moved for a reason. Honors reduced-motion by
+ * degrading to a static tint rather than nothing — the reader still needs to see WHERE they landed. */
+[data-pt-flash] { animation: pt-flash 1.3s ease-out 1; outline: 2px solid var(--accent); outline-offset: 3px; }
+@keyframes pt-flash { from { background: var(--card-2); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { [data-pt-flash] { animation: none; } }
+
+prove-ticket-card .pt-actions { padding: .55rem .7rem; }
+prove-ticket-card .pt-go {
+  appearance: none; cursor: pointer; font: 600 .78rem/1 var(--sans);
+  padding: .38rem .6rem; border: 1px solid var(--rule); border-radius: .3rem;
+  background: var(--card-2); color: var(--ink);
+}
+prove-ticket-card .pt-go:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ── v4: the loud-failure surface ──
+ * A page whose ticket data failed to load must not read as "these tickets have nothing to show".
+ * The banner is the card's half of that; `[data-prove-tickets-status]` on the page is the other. */
+/* Column, not row: the close × is absolutely positioned in the same top-right corner, so a Retry
+ * sitting on the banner's first line lands underneath it. Stacking puts Retry below the sentence
+ * and clear of the ×, and the right padding reserves the corner. */
+prove-ticket-card .pt-alert {
+  display: flex; flex-direction: column; align-items: flex-start; gap: .4rem;
+  padding: .6rem .7rem; padding-right: 2.1rem; border-bottom: 1px solid var(--rule);
+  background: var(--card-2); color: var(--ink-soft); font: 400 .74rem/1.35 var(--sans);
+}
+/* Ink is --ink, never the defect token: a defect colour is a GROUND and a RAIL here. This is the one
+ * surface a reader must be able to read while something is already wrong, so it takes the highest-
+ * contrast ink the theme has and lets the tinted ground carry the alarm. */
+prove-ticket-card .pt-alert[data-state="error"] {
+  color: var(--ink); background: var(--defect-bg); border-left: 3px solid var(--defect); font-weight: 500;
+}
+prove-ticket-card .pt-alert-text { display: block; }
+prove-ticket-card .pt-retry {
+  appearance: none; cursor: pointer; flex: 0 0 auto; font: 600 .72rem/1 var(--sans);
+  padding: .28rem .5rem; border: 1px solid var(--rule); border-radius: .25rem;
+  background: var(--card); color: var(--ink);
+}
+prove-ticket-card .pt-retry:hover { border-color: var(--accent); color: var(--accent); }
+prove-ticket .pt-tip-warn { color: var(--defect); display: block; margin-top: .1rem; font-size: .92em; }
+
+/* The page-level status host. Invisible when there is nothing worth saying: a page does not need a
+ * banner to announce that its data loaded, only to announce that it did not. */
+[data-prove-tickets-status] {
+  display: block; font: 400 .74rem/1.4 var(--sans); color: var(--ink-faint); margin: .4rem 0;
+}
+[data-prove-tickets-status][data-state="inline"],
+[data-prove-tickets-status][data-state="fetched"],
+[data-prove-tickets-status][data-state="absent"] { display: none; }
+/* Loud means SHORT and HIGH-CONTRAST, not long and grey. The ground carries the alarm (--defect-bg
+ * + a 4px --defect rail, the kit's own banner idiom) and the text takes --ink, the highest-contrast
+ * ink the theme has — the defect colour never becomes prose. Padding is the kit's block rhythm
+ * (12px 18px, the .exp-banner / .callout family) so the banner sits IN the card it interrupts
+ * rather than beside it; at .35rem/.6rem it read as a stray fragment inside a 16px/18px body. */
+[data-prove-tickets-status][data-state="error"] {
+  display: block; color: var(--ink); background: var(--defect-bg);
+  border-left: 4px solid var(--defect); border-radius: 0 .25rem .25rem 0;
+  padding: .75rem 1.125rem; margin: .8rem 0;
+  font-size: .82rem; font-weight: 500; line-height: 1.45;
+}

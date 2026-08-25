@@ -1,0 +1,185 @@
+/* board-swipe.css — appearance for the binary-decision drag accelerator.
+ *
+ * Rides board-swipe.js's BOARD_SWIPE_VERSION (behaviour + appearance ship as one
+ * component; the JS injects no <style>, so this file is the ONLY source of its look).
+ *
+ * EVERY rule is scoped under `html.board-swipe-on`, a class only board-swipe.js sets,
+ * and every element it styles is injected only by board-swipe.js. Script off ⇒ this
+ * stylesheet is inert and the kit's option rows render exactly as board-widgets ships
+ * them. Nothing here touches a `.fb-opt`, a `.fb-note` or any other kit-owned selector.
+ *
+ * It paints from the kit's own `--fb-*` seam, so a board that loads
+ * board-warm-overrides.css restyles this along with everything else.
+ */
+
+.board-swipe-on .bswipe {
+  --bsw-yes: var(--fb-human, #2f7d68);
+  --bsw-no: #c0453a;
+  --bsw-yes-soft: color-mix(in srgb, var(--bsw-yes) 14%, transparent);
+  --bsw-no-soft: color-mix(in srgb, var(--bsw-no) 14%, transparent);
+
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .board-swipe-on .bswipe { --bsw-no: #e8776b; }
+}
+
+/* ── the handle ───────────────────────────────────────────────────────────────
+   A DEFINED handle region, not the whole block. A decision item is a ~1000px
+   argument; a drag surface spanning it would fight text selection, and its own
+   feedback would sit wherever the reader is not. Confining the grab to one 46px
+   strip puts the gesture and its feedback in the same place — the place your
+   finger already is — so neither can scroll away from the other.
+
+   `touch-action: pan-y` — horizontal only, and declared on this strip alone. The
+   page keeps vertical scrolling everywhere, including over the strip. `none` was
+   measured at 0px of page scroll over a card and is never correct here. */
+.board-swipe-on .bswipe-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  overflow: hidden;
+  border: 1px dashed var(--fb-border-firm, rgba(20, 22, 30, 0.3));
+  border-radius: var(--fb-radius, 10px);
+  background: var(--fb-surface, rgba(20, 22, 30, 0.025));
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: grab;
+}
+.board-swipe-on .bswipe-track:active { cursor: grabbing; }
+
+/* the directional wash — a fixed edge, never a transform on the body */
+.board-swipe-on .bswipe-track::before,
+.board-swipe-on .bswipe-track::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.14s ease;
+}
+.board-swipe-on .bswipe-track::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bsw-no-soft), transparent);
+}
+.board-swipe-on .bswipe-track::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bsw-yes-soft), transparent);
+}
+.board-swipe-on .bswipe[data-bswipe-dir="l"] .bswipe-track::before,
+.board-swipe-on .bswipe[data-bswipe-dir="r"] .bswipe-track::after { opacity: 1; }
+
+.board-swipe-on .bswipe[data-bswipe-dir="l"] .bswipe-track { border-color: var(--bsw-no); border-style: solid; }
+.board-swipe-on .bswipe[data-bswipe-dir="r"] .bswipe-track { border-color: var(--bsw-yes); border-style: solid; }
+
+.board-swipe-on .bswipe-end {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 38%;
+  font: 600 10.5px/1 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fb-muted, #5c6270);
+  opacity: 0.62;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: opacity 0.14s ease, color 0.14s ease;
+}
+.board-swipe-on .bswipe-endlab { overflow: hidden; text-overflow: ellipsis; }
+.board-swipe-on .bswipe-arrow { font-size: 12px; }
+.board-swipe-on .bswipe[data-bswipe-dir="l"] .bswipe-end-l { opacity: 1; color: var(--bsw-no); }
+.board-swipe-on .bswipe[data-bswipe-dir="r"] .bswipe-end-r { opacity: 1; color: var(--bsw-yes); }
+
+/* ── the thumb ────────────────────────────────────────────────────────────────
+   The only thing that moves, and it moves at most 44px. NO ROTATION: rotation is
+   borrowed from photo cards and is exactly what slides prose out of the viewport
+   on a tall block. The item itself never translates by a single pixel. */
+.board-swipe-on .bswipe-thumb {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 2;
+  transform-origin: 50% 50%;
+  translate: -50% -50%;
+  width: min(140px, 44%);
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border: 1px solid var(--fb-border-firm, rgba(20, 22, 30, 0.3));
+  border-radius: 999px;
+  background: var(--fb-note-bg, #fff);
+  box-shadow: 0 1px 2px rgba(15, 18, 30, 0.14);
+  pointer-events: none;
+  transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1), border-color 0.14s ease, background 0.14s ease;
+}
+.board-swipe-on .bswipe[data-bswipe-live] .bswipe-thumb { transition: border-color 0.14s ease, background 0.14s ease; }
+
+.board-swipe-on .bswipe-status {
+  font: 600 10.5px/1 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.05em;
+  color: var(--fb-muted, #5c6270);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* the committed read-out, derived from the checked input — never a parallel store */
+.board-swipe-on .bswipe[data-bswipe-state="r"] .bswipe-thumb { border-color: var(--bsw-yes); background: var(--bsw-yes-soft); }
+.board-swipe-on .bswipe[data-bswipe-state="r"] .bswipe-status { color: var(--bsw-yes); }
+.board-swipe-on .bswipe[data-bswipe-state="l"] .bswipe-thumb { border-color: var(--bsw-no); background: var(--bsw-no-soft); }
+.board-swipe-on .bswipe[data-bswipe-state="l"] .bswipe-status { color: var(--bsw-no); }
+
+/* mid-drag the thumb shows the PENDING direction and must outrank the standing one */
+.board-swipe-on .bswipe[data-bswipe-live]:not([data-bswipe-dir]) .bswipe-thumb { border-color: var(--fb-border-firm, rgba(20, 22, 30, 0.3)); background: var(--fb-note-bg, #fff); }
+.board-swipe-on .bswipe[data-bswipe-live]:not([data-bswipe-dir]) .bswipe-status { color: var(--fb-muted, #5c6270); }
+.board-swipe-on .bswipe[data-bswipe-live][data-bswipe-dir="r"] .bswipe-thumb { border-color: var(--bsw-yes); background: var(--bsw-yes-soft); }
+.board-swipe-on .bswipe[data-bswipe-live][data-bswipe-dir="r"] .bswipe-status { color: var(--bsw-yes); }
+.board-swipe-on .bswipe[data-bswipe-live][data-bswipe-dir="l"] .bswipe-thumb { border-color: var(--bsw-no); background: var(--bsw-no-soft); }
+.board-swipe-on .bswipe[data-bswipe-live][data-bswipe-dir="l"] .bswipe-status { color: var(--bsw-no); }
+
+/* ── the note tap target ──────────────────────────────────────────────────────
+   You cannot type while dragging, and a reject is exactly when a note matters
+   most. The kit's textarea is left fully rendered and reachable at all times —
+   this only shortens the trip to it after a one-gesture decision. */
+.board-swipe-on .bswipe-note {
+  flex: 0 0 auto;
+  padding: 0 12px;
+  font: 600 10.5px/1 var(--mono, ui-monospace, monospace);
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--fb-muted, #5c6270);
+  background: transparent;
+  border: 1px dashed var(--fb-border, rgba(20, 22, 30, 0.14));
+  border-radius: var(--fb-radius-sm, 7px);
+  cursor: pointer;
+}
+.board-swipe-on .bswipe-note:hover { color: var(--fb-fg, #17181c); border-color: var(--fb-border-firm, rgba(20, 22, 30, 0.3)); }
+.board-swipe-on .bswipe-note:focus-visible { outline: 2px solid var(--fb-accent, #3d6be5); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .board-swipe-on .bswipe-thumb,
+  .board-swipe-on .bswipe-track::before,
+  .board-swipe-on .bswipe-track::after,
+  .board-swipe-on .bswipe-end { transition: none; }
+}
+
+/* A pointer accelerator is meaningless on paper and meaningless without a pointer. */
+@media print { .board-swipe-on .bswipe { display: none; } }

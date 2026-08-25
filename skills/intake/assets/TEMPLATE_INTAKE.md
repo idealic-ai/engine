@@ -8,12 +8,13 @@
 *   **Linear Project**: [URL/ID] — goal: [the interrogated domain goal]
 *   **Inbox ticket** (under `Inboxes` milestone): [URL/ID] · **Watermark**: [last-synced comment timestamp]
 *   **Status**: [Active / Checkpointed]
-*   **Project Update** (this wave's two-event `§PASS_HEARTBEAT` state — the pinned home so Close can find it after a rehydrate): **id**: [the `save_status_update` id captured when event 1 posts the Update, for the Close in-place edit — or "not yet posted"] · **Decision Board**: [S3 url] · **Outcomes Board**: [S3 url, set at Close]
+*   **Project Update** (this wave's two-event `§PASS_HEARTBEAT` state — the pinned home so Close can find it after a rehydrate): **id**: [the `save_status_update` id captured when event 1 posts the Update, for the Close in-place edit — or "not yet posted"] · **Decision Board**: [S3 url] · **State doc**: [state/<docId>.json url + its docId, captured at publish — only knowable then; a wave that doesn't record it can't find the doc its teammates voted into] · **Outcomes Board**: [S3 url, set at Close]
+*   **Slack announce** (the thread the NEXT wave's Ingest reads — a thread's `thread_ts` IS its parent's `ts`, so an uncaptured announce is permanently unreadable): **channel**: [#name] · **Slack announce ts**: [the ts `slack-post` prints on event 1 — or "not yet posted"] · **Slack read ts**: [greatest reply ts drained so far; passed as `slack-read --since` next wave — empty on a first read]
 
-### Ticketing Strategy (loaded verbatim from the Project description — `¶INV_TICKETING_STRATEGY_IN_PROJECT`)
-*How much ticketing this project wants. Project-level only — no channel override. Gates graduate-vs-fold-vs-marinate at Outcomes, AFTER ripeness passes. Mandatory: if the project has none, say so explicitly here and name the default as applied — a defaulted project must be visible as defaulted.*
+### Ticketing Strategy (loaded verbatim from the Inbox Handbook — `¶INV_TICKETING_STRATEGY_IN_HANDBOOK`)
+*How much ticketing this project wants. One per project — no channel override. Gates graduate-vs-fold-vs-marinate at Outcomes, AFTER ripeness passes. Mandatory: if the handbook has none, say so explicitly here and name the default as applied — a defaulted project must be visible as defaulted. On a project predating the move it may still sit on the Project description; note the old location here if that is where it was found.*
 
-*   **Volume**: [verbatim bullet, or "default applied — none set on the project"]
+*   **Volume**: [verbatim bullet, or "default applied — none set on the handbook"]
 *   **Size**: [verbatim bullet, or "default applied"]
 *   **Substance**: [verbatim bullet, or "default applied"]
 *   **Changed since last wave**: [what changed · **which already-filed tickets it re-opens** — or "none". Unlike Directions, a changed ticketing policy invalidates past graduations, not just pending judgment.]
@@ -64,7 +65,7 @@
 *   **Maturity**: [raw / shaped / ripe / filed]
 *   **Ripeness**: [ ] crisp problem · [ ] next-action · [ ] brief type · [ ] non-self corroboration
 *   **Brief**: [the drafted brief + type — #needs-research etc.]
-*   **Origin**: [Inbox comment ref] · **State**: [candidate / seems-like-X / filed as FIN-XXX]
+*   **Origin**: [Inbox comment ref] · **State**: [candidate / seems-like-X / filed as FIN-XXX / shipped in FIN-XXX]
 
 ## 5. What's Marinating vs Ripe vs Filed
 *   **Marinating** ([N]): [short list — not yet ripe, and why]

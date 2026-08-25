@@ -1,0 +1,443 @@
+/* proof-theme.css — WARM PRINT design tokens + the fine-press ATMOSPHERE for /prove pages (FIN-3566).
+ *
+ * THE SINGLE SOURCE OF TRUTH for the design system's palette + type + measure + material depth.
+ * Everything else consumes these custom properties: the static block catalog (PROOF_BLOCKS), the
+ * light-DOM widget components (proof-ticket.js), and the board-widgets restyle
+ * (board-warm-overrides.css maps --fb-* onto these). No component hardcodes a hex.
+ *
+ * Theme-aware two ways: prefers-color-scheme for the OS default, and :root[data-theme=…]
+ * for an explicit in-page toggle (the toggle wins). Keep all four blocks in lockstep.
+ *
+ * Delivery: a /prove page LINKS this file from the published kit prefix (same-origin, so the
+ * page loads no third-party host); the publish step may instead inline it for a zero-request
+ * reader path. Either way it is never hand-copied into a page — one source, one address.
+ *
+ * PROOF_ICONS_VERSION = 2
+ * The subsetted monochrome icon font's version, declared HERE because a .woff2 cannot carry a
+ * constant and this is the only file that binds it. publish-kit.sh reads it to mint
+ * proof-icons.v<n>.woff2, and the @font-face src below names the same file relative to THIS
+ * stylesheet — so it resolves to <kit>/proof-icons.v<n>.woff2 published and to the sibling file
+ * on disk locally, with the bucket hardcoded nowhere. Bump it when the SUBSET changes (a
+ * codepoint added or dropped); re-cutting the same subset republishes v1 in place.
+ * Deliberately NOT bound to PROOF_THEME_VERSION — see the note under that constant.
+ *
+ * PROOF_THEME_VERSION = 2
+ * Its own version, decoupled from the board kit: this is the token layer the whole system
+ * consumes, so it turns over on its own cadence. publish-kit.sh reads this constant to mint
+ * proof-theme.v<n>.css; bump it here on a breaking token change (a rename or a removal), not
+ * on a retint. The iconset did NOT bump it, for exactly the reason a retint does not: a bump
+ * mints v3, every published page stays pinned to v2, and the one property the iconset exists
+ * to deliver — reaching already-composed pages without recomposing them — is destroyed by the
+ * bump itself. Adding an @font-face renames and removes nothing, so the v2 contract holds.
+ *   v1 — palette + type + measure only (tokens, zero rules).
+ *   v2 — the fine-press ATMOSPHERE lands here, where the architecture says it belongs:
+ *        · material-depth tokens (--emboss-*, --shadow-plate/card/deep, --letterpress)
+ *          MOVED UP from proof-blocks.css — that file still consumes them by name.
+ *        · atmosphere tokens (--grain-op, --grain-blend, --vignette-op, --vig-glow/pool/edge).
+ *        · the two rules those tokens drive: body::before (fibrous feTurbulence paper grain)
+ *          and body::after (layered vignette), plus the typographic baseline
+ *          (font-feature-settings, antialiasing, border-box).
+ *        No token was renamed or removed, so a v1 page linked against v2 keeps its markup
+ *        contract — it only gains the atmosphere.
+ *        · ELEVATION (republished at v2, in place): `--inset-well` joins the material-depth
+ *          set. It is the ONE debossed grade — the recipe for a region pressed INTO a plate,
+ *          the counterpart of --shadow-plate/card/deep which all press UP off the paper.
+ *          Additive: no token renamed or removed, so a page already linked against v2
+ *          retro-fits the inset system on its next load.
+ *        · RHYTHM (republished at v2, in place): the vertical unit --rhythm and the --sp-*
+ *          spacing ladder join the file — the first spacing tokens it has ever carried, and
+ *          the reason `padding` had 263 declarations across 170 distinct values. Derived, not
+ *          picked: the unit IS the body line box (17px x ~1.62). Additive; nothing renamed.
+ *
+ * WHY LIGHT AND DARK ARE DESIGNED, NOT INVERTED (--inset-well):
+ *   On light stock a deboss is read from the TOP: the cut edge throws a short brown pool
+ *   downward, and the sheet climbs back out at the bottom on an --emboss-hi lip. Inverting
+ *   that recipe for dark stock produces a HOLE — a black pool on near-black paper reads as a
+ *   punched-through void, not as pressed paper, because there is no lower luminance left for
+ *   the shadow to travel into. So the dark grade re-assigns the work: the top cut line is a
+ *   thin low-alpha hairline with almost no falloff, and the BOTTOM LIP carries the form at a
+ *   deliberately stronger alpha (.11) than --emboss-hi's own .06 — light catching the edge
+ *   where the sheet returns is the only cue that survives on dark stock. Light leans on the
+ *   shadow; dark leans on the lip. Same physics, opposite dominant term.
+ *
+ * WHY THE GRAIN BLENDS `overlay`, AND WHY THE SHEET IS SELF-CONTAINED:
+ *   Multiply is a one-way darkener. Measured on the light palette it drags the paper's mean
+ *   from #efe7d6 to ~#ded6c6 — and --ink-meta on bare paper only carries 4.67:1 to begin with,
+ *   so the whole AA headroom goes to decoration. Overlay is luminance-preserving (it lightens
+ *   above the noise midpoint and darkens below), so the tooth survives at a high opacity while
+ *   the paper keeps its token luminance. The sheet blends its OWN layers (background-blend-mode
+ *   over its own background-color) rather than the backdrop, so the effect never depends on what
+ *   the host page painted underneath. The vignette is gentle in light (where darkening costs
+ *   contrast) and strong in dark (where it buys it).
+ *   MEASURED (9 viewport regions, real pixels, --ink-meta on paper): light worst pixel 4.54:1,
+ *   region means 4.71–4.84; dark worst pixel 4.70:1, means 5.26–5.63. Both clear the 4.5 floor
+ *   per PIXEL, not merely on average. Re-measure before changing --grain-op or any --vig-*.
+ *
+ * ATMOSPHERE CONTRACT (read before composing a page):
+ *   Both layers paint at negative z-index behind content, which requires the page's background
+ *   to reach the canvas the normal way: set the background on `body` (as every kit page does)
+ *   and DO NOT set one on `html`. An `html` background paints over the layers and the
+ *   atmosphere silently disappears.
+ *
+ * Honest-presentation contract (§INV_PROVE_FAITHFUL_PRESENTATION): every color here encodes
+ * a real fact and is paired with an on-page legend. Freshness + status hues are tokens so the
+ * component can never silently diverge from the legend. The atmosphere layers are decoration
+ * only — they sit BEHIND content, encode nothing, and never tint an evidence surface.
+ */
+
+/* ══════════ THE ICONSET — monochrome Noto Emoji, claimed by codepoint ══════════
+   A regular font, so its glyphs are INK: they inherit `color` and take --ink / --accent /
+   --ink-meta, and they flip with the theme. Colour emoji fundamentally cannot do that, which
+   on one-ink stock is the whole reason this file exists.
+
+   The unicode-range is an EXPLICIT ENUMERATION, never a block range, and that is load-bearing.
+   A block range would swallow correctly-rendering text glyphs and replace them with worse ones.
+   Two in particular are load-bearing and absent below on purpose: ↗ U+2197 (the external-link
+   arrow) and ⚠ U+26A0 are used bare, in their hundreds, and render as type today. Do not add them.
+
+   THE FOUR VERDICT MARKS ARE CLAIMED ON PURPOSE — ✓ U+2713 ◐ U+25D0 ✕ U+2715 ⌀ U+2300. They are
+   not inherited from the emoji source; they are DRAWN for this kit on its own 2048upem grid, at
+   ink centre 700 — the same vertical centre every other glyph in the face holds. Before, all four
+   fell to the platform: five different system faces across the three type tokens, and 0.708px of
+   mutual centring dispersion at .verdict's real 10.5px. Now they sit at one identical offset and
+   the dispersion is 0.000px. Their advance is 1233 (0.602em), matched to the --mono fallback, so
+   the font-display:swap window costs them no reflow.
+
+   NINE MORE ENCODING MARKS SHIP IN THE FACE BUT ARE NOT CLAIMED HERE — ▸ ▾ ▴ ↑ ↓ → ⛓ ✎ ›. The
+   face covers them so the conformance gate's coverage arm passes on the asset rather than on a
+   promise; enumerating them above would repaint every arrow and chevron in running prose, which
+   is the same hazard the block-range rule exists to prevent. Widening to them is a separate,
+   reviewable change: extend the list, then re-run the gate.
+
+   THE CHANNEL DOTS ARE EXCLUDED ON PURPOSE — from this range AND from the subset itself, so a
+   careless widening still cannot reach them. 🔴🟠🔵🟢🟣🟤🟡 are SEVEN IDENTICAL CIRCLES; only
+   🟦 differs. Colour is not decorating the channel, it is the entire discriminator for seven of
+   the eight. Monochrome would not dim that meaning, it would map seven channels onto one glyph.
+   §INV_PROVE_FAITHFUL_PRESENTATION protects it: the colour encodes a fact.
+
+   KNOWN GAP — nine codepoints do not convert: ▶️ ⚖️ ⚙️ ✂️ 🕰️ 🕸️ 🖨️ 🗂️ 🗳️. Each is authored
+   with a trailing U+FE0F (VS16), and Chrome reads that as an explicit demand for emoji
+   presentation and goes to the system colour font, ignoring this @font-face. Measured, not
+   assumed: claiming U+FE0F in the range does not help, and `font-variant-emoji: text` reports
+   supported and does nothing (per spec it yields to an explicit selector). The only lever is
+   the character sequence — compose these BARE or with U+FE0E, and they convert. */
+@font-face{
+  font-family:"Kit Icons";
+  src:url("./proof-icons.v2.woff2") format("woff2");
+  font-weight:300 700;
+  font-style:normal;
+  font-display:swap;
+  /* The ONLY safe place to set the weight axis. As a DESCRIPTOR it binds to this face alone.
+     MEASURED TRAP: the same declaration on `body` inherits into every element and overrides
+     `font-weight` for any variable TEXT font — system-ui is SF Pro, so bold/semibold/light all
+     collapse to one weight across the kit, silently, with the icons looking fine. Retune this
+     number to restyle the icons; never lift it to a shared selector. */
+  font-variation-settings:"wght" 400;
+  unicode-range:
+    U+2300, U+2713, U+2715, U+25D0,
+    U+25B6, U+2696, U+2699, U+2702, U+2705, U+1F3AB, U+1F440, U+1F4A1, U+1F4C4,
+    U+1F4CA-1F4CB, U+1F4CE, U+1F4D8, U+1F4DC, U+1F4E5, U+1F504, U+1F50D-1F50E,
+    U+1F517, U+1F52D, U+1F570, U+1F578, U+1F5A8, U+1F5C2, U+1F5F3,
+    U+1F9E9-1F9EA, U+1F9ED, U+1F9F1, U+1F9FE;
+}
+
+:root {
+  --paper:#efe7d6; --paper-edge:#e7dcc6; --card:#faf5ea; --card-2:#f4ecdc;
+  --ink:#2a2016; --ink-soft:#6a5d4c; --ink-faint:#9c8f79;
+  /* --ink-meta: AA-passing (>=4.5:1) small-text token; --ink-faint stays for rules/dots only */
+  --ink-meta:#73644d;
+  --rule:#ddd0b8; --rule-soft:#e6dcc7;
+  --accent:#b0472b; --accent-ink:#8f3620; --accent-soft:#f0dcc9;
+  --fresh:#2d8f47; --recent:#778e29; --moderate:#d97706; --stale:#9ca3af; --unknown:#9c8f79;
+  /* --defect is small-text ink on FOUR grounds, not just --defect-bg: it also lands on --paper,
+     --card-2, and a `color-mix(--defect 11%)` wash. The binding one is the wash (4.53:1); clearing
+     only --defect-bg would still leave the other three short. Re-measure all four before retinting. */
+  --defect:#ba3527; --defect-bg:#f6e3dd; --fixed:#2f7d4f; --fixed-bg:#e6eede;
+  --status-blue:#2f66a8; --status-blue-soft:#dde7f2;
+  /* --status-canceled is GROUND-ONLY in dark, never ink: as text it carries 2.71:1 on --card. */
+  --status-started:#585d74; --status-completed:#307e54; --status-canceled:#686155;
+  --status-backlog:#7a7262; --status-unstarted:#75627f; --status-triage:#9b6127;
+  --seal:#2f7d4f;
+  /* "Kit Icons" leads all three stacks. Because its unicode-range claims 30 codepoints and
+     nothing else, it is inert for every character of actual text — the stack behind it is
+     unchanged. Leading it is what makes the substitution reach composed pages that were
+     authored against these tokens, with no markup and no per-icon class. An element that
+     HARDCODES a font-family instead of consuming these tokens opts itself out. */
+  --serif:"Kit Icons",Georgia,"Charter","Iowan Old Style",serif;
+  --sans:"Kit Icons",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Kit Icons",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --maxw:1040px; --readw:30em;
+  /* material depth — the pressed-paper relief every surface reads from */
+  --emboss-hi:rgba(255,252,244,.85); --emboss-lo:rgba(74,54,32,.18);
+  --shadow-plate:0 1px 0 var(--emboss-hi) inset, 0 8px 18px -14px rgba(60,40,20,.42);
+  --shadow-card:0 1px 0 var(--emboss-hi) inset, 0 16px 34px -20px rgba(60,40,20,.46), 0 2px 6px -3px rgba(60,40,20,.24);
+  --shadow-deep:0 1px 0 var(--emboss-hi) inset, 0 22px 48px -22px rgba(60,40,20,.5), 0 3px 9px -4px rgba(60,40,20,.3);
+  --letterpress:0 1px 0 var(--emboss-hi);
+  /* the ONE debossed grade — a region pressed INTO a plate (top cut · short pool · bottom lip) */
+  --inset-well:inset 0 1px 0 rgba(74,54,32,.13), inset 0 3px 6px -3px rgba(74,54,32,.30), inset 0 -1px 0 var(--emboss-hi);
+  /* atmosphere — grain sheet + vignette, consumed by the body::before/::after rules below */
+  --grain-op:.85; --grain-blend:overlay;
+  --vignette-op:1; --vig-glow:5%; --vig-pool:3%; --vig-edge:3%;
+}
+@media (prefers-color-scheme:dark) {
+  :root {
+    --paper:#211c16; --paper-edge:#2b251d; --card:#29231b; --card-2:#312a20;
+    --ink:#ece3d3; --ink-soft:#b0a48f; --ink-faint:#7d7362;
+    /* --ink-meta: AA-passing (>=4.5:1) small-text token; --ink-faint stays for rules/dots only */
+    --ink-meta:#a2957f;
+    --rule:#3a3327; --rule-soft:#332d23;
+    --accent:#e08b5c; --accent-ink:#eea277; --accent-soft:#3a2a1f;
+    --fresh:#58bb76; --recent:#a6bb58; --moderate:#e0a04a; --stale:#8a8272; --unknown:#7d7362;
+    --defect:#e8917f; --defect-bg:#3a221c; --fixed:#6fc48d; --fixed-bg:#1e2c1f;
+    --status-blue:#6f9dd4; --status-blue-soft:#22303f;
+    /* --status-canceled is GROUND-ONLY here, never ink: as text it carries 2.71:1 on --card. */
+    --status-started:#5c6178; --status-completed:#33835a; --status-canceled:#6d6558;
+    --status-backlog:#7c7363; --status-unstarted:#7a6684; --status-triage:#a06326;
+    --seal:#6fc48d;
+    --emboss-hi:rgba(255,240,220,.06); --emboss-lo:rgba(0,0,0,.5);
+    --shadow-plate:0 1px 0 var(--emboss-hi) inset, 0 8px 20px -14px rgba(0,0,0,.7);
+    --shadow-card:0 1px 0 var(--emboss-hi) inset, 0 18px 38px -20px rgba(0,0,0,.72), 0 2px 8px -3px rgba(0,0,0,.55);
+    --shadow-deep:0 1px 0 var(--emboss-hi) inset, 0 24px 52px -22px rgba(0,0,0,.82), 0 3px 10px -4px rgba(0,0,0,.6);
+    --letterpress:0 1px 0 rgba(0,0,0,.5);
+    /* dark deboss: the LIP carries the form (.11 > --emboss-hi's .06); the top cut barely pools */
+    --inset-well:inset 0 1px 0 rgba(0,0,0,.30), inset 0 2px 4px -3px rgba(0,0,0,.38), inset 0 -1px 0 rgba(255,240,220,.11);
+    --grain-op:.7; --grain-blend:overlay;
+    --vignette-op:1; --vig-glow:9%; --vig-pool:14%; --vig-edge:10%;
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --paper:#efe7d6; --paper-edge:#e7dcc6; --card:#faf5ea; --card-2:#f4ecdc;
+  --ink:#2a2016; --ink-soft:#6a5d4c; --ink-faint:#9c8f79;
+  /* --ink-meta: AA-passing (>=4.5:1) small-text token; --ink-faint stays for rules/dots only */
+  --ink-meta:#73644d;
+  --rule:#ddd0b8; --rule-soft:#e6dcc7;
+  --accent:#b0472b; --accent-ink:#8f3620; --accent-soft:#f0dcc9;
+  --fresh:#2d8f47; --recent:#778e29; --moderate:#d97706; --stale:#9ca3af; --unknown:#9c8f79;
+  /* --defect is small-text ink on FOUR grounds, not just --defect-bg: it also lands on --paper,
+     --card-2, and a `color-mix(--defect 11%)` wash. The binding one is the wash (4.53:1); clearing
+     only --defect-bg would still leave the other three short. Re-measure all four before retinting. */
+  --defect:#ba3527; --defect-bg:#f6e3dd; --fixed:#2f7d4f; --fixed-bg:#e6eede;
+  --status-blue:#2f66a8; --status-blue-soft:#dde7f2;
+  /* --status-canceled is GROUND-ONLY in dark, never ink: as text it carries 2.71:1 on --card. */
+  --status-started:#585d74; --status-completed:#307e54; --status-canceled:#686155;
+  --status-backlog:#7a7262; --status-unstarted:#75627f; --status-triage:#9b6127; --seal:#2f7d4f;
+  --emboss-hi:rgba(255,252,244,.85); --emboss-lo:rgba(74,54,32,.18);
+  --shadow-plate:0 1px 0 var(--emboss-hi) inset, 0 8px 18px -14px rgba(60,40,20,.42);
+  --shadow-card:0 1px 0 var(--emboss-hi) inset, 0 16px 34px -20px rgba(60,40,20,.46), 0 2px 6px -3px rgba(60,40,20,.24);
+  --shadow-deep:0 1px 0 var(--emboss-hi) inset, 0 22px 48px -22px rgba(60,40,20,.5), 0 3px 9px -4px rgba(60,40,20,.3);
+  --letterpress:0 1px 0 var(--emboss-hi);
+  /* the ONE debossed grade — a region pressed INTO a plate (top cut · short pool · bottom lip) */
+  --inset-well:inset 0 1px 0 rgba(74,54,32,.13), inset 0 3px 6px -3px rgba(74,54,32,.30), inset 0 -1px 0 var(--emboss-hi);
+  --grain-op:.85; --grain-blend:overlay;
+  --vignette-op:1; --vig-glow:5%; --vig-pool:3%; --vig-edge:3%;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper:#211c16; --paper-edge:#2b251d; --card:#29231b; --card-2:#312a20;
+  --ink:#ece3d3; --ink-soft:#b0a48f; --ink-faint:#7d7362;
+  /* --ink-meta: AA-passing (>=4.5:1) small-text token; --ink-faint stays for rules/dots only */
+  --ink-meta:#a2957f;
+  --rule:#3a3327; --rule-soft:#332d23;
+  --accent:#e08b5c; --accent-ink:#eea277; --accent-soft:#3a2a1f;
+  --fresh:#58bb76; --recent:#a6bb58; --moderate:#e0a04a; --stale:#8a8272; --unknown:#7d7362;
+  --defect:#e8917f; --defect-bg:#3a221c; --fixed:#6fc48d; --fixed-bg:#1e2c1f;
+  --status-blue:#6f9dd4; --status-blue-soft:#22303f;
+  --status-started:#5c6178; --status-completed:#33835a; --status-canceled:#6d6558;
+  --status-backlog:#7c7363; --status-unstarted:#7a6684; --status-triage:#a06326; --seal:#6fc48d;
+  --emboss-hi:rgba(255,240,220,.06); --emboss-lo:rgba(0,0,0,.5);
+  --shadow-plate:0 1px 0 var(--emboss-hi) inset, 0 8px 20px -14px rgba(0,0,0,.7);
+  --shadow-card:0 1px 0 var(--emboss-hi) inset, 0 18px 38px -20px rgba(0,0,0,.72), 0 2px 8px -3px rgba(0,0,0,.55);
+  --shadow-deep:0 1px 0 var(--emboss-hi) inset, 0 24px 52px -22px rgba(0,0,0,.82), 0 3px 10px -4px rgba(0,0,0,.6);
+  --letterpress:0 1px 0 rgba(0,0,0,.5);
+  /* dark deboss: the LIP carries the form (.11 > --emboss-hi's .06); the top cut barely pools */
+  --inset-well:inset 0 1px 0 rgba(0,0,0,.30), inset 0 2px 4px -3px rgba(0,0,0,.38), inset 0 -1px 0 rgba(255,240,220,.11);
+  --grain-op:.7; --grain-blend:overlay;
+  --vignette-op:1; --vig-glow:9%; --vig-pool:14%; --vig-edge:10%;
+}
+
+/* Typographic constants — identical in both themes, so they sit outside the lockstep quad. */
+:root{
+  --text-features:"kern" 1,"liga" 1;
+  --display-features:"kern" 1,"liga" 1,"dlig" 1;
+}
+
+/* THE FOCUS RING — the one required role in theme-roles.json whose NAME needed no ruling: nerv,
+   akira and wire independently reached for --focus, so the contract grades it theme-consensus and
+   the gate can drive it the moment the token exists.
+
+   A BINDING, not a value, so it sits outside the lockstep quad with the channel answers below:
+   every :focus-visible rule the kit already ships paints `outline:2px solid var(--accent)`, so
+   this names what they already do rather than inventing a second answer. Those sites still spell
+   --accent; repointing them at --focus is a byte-identical retrofit, and it is what makes the
+   ring retintable in one place instead of thirty. */
+:root{ --focus:var(--accent); }
+
+/* ══════════ ROLE ANSWERS — the seam a theme redefines ══════════
+   A channel class names a ROLE. This block is WARM PRINT's ANSWER to it. The rules in
+   proof-blocks.css / proof-creative.css no longer name a token — they ask `var(--chan-g-ink)`,
+   so how a role renders is decided HERE and nowhere else.
+
+   OUTSIDE THE LOCKSTEP QUAD ON PURPOSE: these are BINDINGS, not values. `--chan-g-ink:var(--seal)`
+   resolves --seal in the consuming element's own context, so the four theme blocks retint every
+   channel for free. A fifth copy would only ever be somewhere to drift.
+
+   FOUR SLOTS PER ROLE, because a hue alone cannot answer a role that has to survive greyscale:
+     -ink     the hue
+     -ground  a background wash         · default transparent          (declines the slot)
+     -edge    a border-bottom SHAPE     · default 0 none currentColor  (the initial values exactly,
+              so declining the slot computes byte-identically to never having had it)
+     -weight  font-weight — consumed ONLY where the kit already emits one. `.stripe .n` inherits
+              700 while `.codewrap pre .g` sets 600, so a uniform weight answer would move pixels.
+   `-edge` generalizes `.fam-narrative .step-state.pending`: the one rule in this kit whose answer
+   already carries a shape as well as a hue, and the only one of its four sibling states that
+   survives grayscale(1).
+
+   ONE ROLE ANSWERS WITH A SHAPE — `z`, and only `z`. Not a taste call: --ink-faint measures
+   2.58:1 on --paper in light and 3.62:1 in dark, so the `z` hue fails AA body text in BOTH
+   themes and a reader who cannot separate those luminances has nothing left. --chan-a-ink
+   (--accent-ink) measures 7.11:1 / 7.46:1 and --chan-g-ink already answers a second slot
+   (--chan-g-weight), so neither is starved the way `z` is. `a` and `g` keep the decline value
+   until a human rules on them: answering all three would move pixels on every composed page for
+   two roles whose hue is already legible, and that is a design ruling, not a fix.
+
+   THE EDGE COSTS 1px OF VERTICAL DIMENSION where the host is a block box (`.stripe .n.z` is a
+   div, so its label drops 1px and the stripe grows 1px). That is the price of the channel, paid
+   deliberately — see the RHYTHM note below: "Borders are vertical dimension."
+
+   OVERRIDE GLOBALLY: redeclare the slot on :root after this file.
+   OVERRIDE PER BLOCK: redeclare it on the block. Custom-property inheritance resolves from the
+   nearest ancestor that declares it, so a block answer beats :root with no specificity contest —
+   no !important, no id. A seam you can only win with !important is a seam nobody downstream can
+   reopen, which is the opposite of what this block exists for. */
+:root{
+  --chan-g-ink:var(--seal);       --chan-g-ground:transparent; --chan-g-edge:0 none currentColor; --chan-g-weight:600;
+  --chan-a-ink:var(--accent-ink); --chan-a-ground:transparent; --chan-a-edge:0 none currentColor;
+  --chan-z-ink:var(--ink-faint);  --chan-z-ground:transparent; --chan-z-edge:1px dashed currentColor;
+}
+/* Block-scoped answers. Both already existed in the kit as hardcoded selector overrides; carrying
+   them here is what turns them from kit facts into theme decisions. */
+.codewrap.term{--chan-g-ink:var(--fresh)}
+.fam-provenance .rc-tot{--chan-g-weight:700}
+
+/* ══════════ THE RHYTHM — the vertical unit, and the spacing scale that quantizes to it ══════════
+   Additive, and theme-invariant, so it sits outside the lockstep quad with the type constants.
+   Renames nothing, removes nothing: the v2 markup contract holds.
+
+   WHY THIS EXISTS: this file carried 51 tokens of colour, material and type and ZERO spacing,
+   so every author invented their own. Measured across the kit: 263 `padding` declarations
+   resolving to 170 distinct values. A vertical rhythm is not a property of one widget — it is
+   a spacing scale, or it survives exactly until the next edit.
+
+   THE DERIVATION. The unit is not chosen, it is the body line box. The kit's prose is 17px at
+   ~1.62 leading, and 17 x 1.6176 = 27.5px. Everything below is that number, its quarters, or
+   its multiples.
+
+   THE ONE RULE THAT MAKES IT WORK: set line-height FROM the unit, as a LENGTH
+   (`line-height:var(--rhythm)`), never as a ratio. A unitless 1.62 re-scales for every child
+   that changes font-size, and a line box that re-scales per child cannot be a rhythm. As a
+   length it INHERITS AS A LENGTH, so a 19px figure and a 9.5px annotation on the same row keep
+   the row exactly one unit tall — and, being on one line box, they already share one baseline.
+
+   WHAT THE SCALE CANNOT ABSORB — a rhythm quantizes BOXES; baselines are a font fact:
+     · Any block whose own strut differs (a different family, size or both) puts its baseline at
+       a different offset inside the unit. Give a surface ONE strut and let every deviation ride
+       INLINE at `line-height:0` — a zero-height inline box contributes nothing to the line box
+       and hangs off the line's single shared baseline.
+     · Borders are vertical dimension. See --rule-w and the -b paddings below, or draw the
+       separator as a background/box-shadow so it takes no layout height at all.
+     · Anything sized in a unit the scale does not control — `em` padding, a percentage, an
+       intrinsic replaced element, a `gap` typed as a literal — leaves the grid silently. */
+:root{
+  /* the unit, and the only fractions/multiples anyone should type */
+  --rhythm:27.5px;
+  --rhythm-1-4:calc(var(--rhythm) / 4);      /*  6.875px */
+  --rhythm-1-2:calc(var(--rhythm) / 2);      /* 13.75px  */
+  --rhythm-3-4:calc(var(--rhythm) * 3 / 4);  /* 20.625px */
+  --rhythm-3-2:calc(var(--rhythm) * 3 / 2);  /* 41.25px  */
+  --rhythm-2:calc(var(--rhythm) * 2);        /* 55px     */
+  --rhythm-3:calc(var(--rhythm) * 3);        /* 82.5px   */
+  --rhythm-4:calc(var(--rhythm) * 4);        /* 110px    */
+
+  /* SPACING — ONE family, numbered in QUARTER-units, so the name carries the arithmetic:
+     --sp-4 is exactly one rule, --sp-8 two, --sp-2 a half. Nothing off this ladder may be
+     typed for a vertical dimension — padding, margin AND gap all leave the grid the moment
+     they do not quantize. */
+  --sp-0:0;
+  --sp-1:var(--rhythm-1-4);                  /*  6.875px */
+  --sp-2:var(--rhythm-1-2);                  /* 13.75px  */
+  --sp-3:var(--rhythm-3-4);                  /* 20.625px */
+  --sp-4:var(--rhythm);                      /* 27.5px   */
+  --sp-5:calc(var(--rhythm) * 5 / 4);        /* 34.375px */
+  --sp-6:var(--rhythm-3-2);                  /* 41.25px  */
+  --sp-8:var(--rhythm-2);                    /* 55px     */
+  --sp-10:calc(var(--rhythm) * 5 / 2);       /* 68.75px  */
+  --sp-12:var(--rhythm-3);                   /* 82.5px   */
+  --sp-16:var(--rhythm-4);                   /* 110px    */
+
+  /* BORDERS EAT THE UNIT. One width, plus the two paddings that already have it subtracted,
+     so a box that carries a rule top-and-bottom still measures a whole number of units. */
+  --rule-w:1px;
+  --sp-2-b:calc(var(--sp-2) - var(--rule-w));  /* 12.75px */
+  --sp-4-b:calc(var(--sp-4) - var(--rule-w));  /* 26.5px  */
+
+  /* THE BASELINE INSIDE THE UNIT — where the ink actually lands. ONE token, MEASURED per strut,
+     and the only value in this block that is not arithmetic.
+
+     Blink snaps a line's baseline to a WHOLE pixel below the line-box top:
+         baseline = round((lineHeight - ascent - descent) / 2) + ascent
+     It is NOT `lineHeight/2 + (ascent-descent)/2`. That closed form is exact only when the
+     leading happens to be even, and it is exactly what a probe run at a convenient line-height
+     will report — measured at 60px it gives --sans@17 a shift of 6px, i.e. 19.75px, and the
+     whole surface then sits a quarter-pixel out of phase at EVERY line. MEASURE AT THE
+     RHYTHM'S OWN LINE-HEIGHT. And do not give an element a 2-unit line-height: the rounding
+     re-runs at the larger leading and lands 0.5px elsewhere. A 2-unit heading is a 1-unit
+     line-height plus one unit of margin.
+
+     Measured at line-height:27.5px (system fallbacks; serif / sans / mono):
+       9.5-10.5px -> 17 · 11-12px -> 17/18/17 · 12.5px -> 17/18/18 · 13.5px -> 18
+       14px -> 18/19/18 · 15px -> 19/19/18 · 16-17px -> 19 · 19px -> 20 · 24px -> 22/22/21
+     Root default is --sans at 17px. A surface with a different strut sets this ONE token. */
+  --rhythm-baseline:19px;
+}
+
+/* ══════════ THE PRESS BASELINE ══════════ */
+*{box-sizing:border-box}
+body{
+  font-feature-settings:var(--text-features);
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+
+/* OPTICAL CORRECTION — opt-in, for the two glyphs the weight axis cannot reach.
+   Noto draws ✅ U+2705 and 🔄 U+1F504 as SOLID FILLED tiles with the mark knocked out, while
+   its neighbours (🔍 🔗 👀 🧩) are open outlines. Measured side by side they read as ink blots,
+   and worse on dark stock where a solid fill becomes a bright block. `wght` thins strokes; it
+   cannot unfill a solid, so the fix is areal: shrink the em box and lift the glyph back onto
+   the baseline. Wrap the glyph — `<span class="ik-solid">✅</span>`. Not automatic, because a
+   stylesheet cannot select a codepoint; these two are the named-SVG layer's first candidates. */
+.ik-solid{ font-size:.86em; line-height:1; vertical-align:-.02em; }
+
+/* ══════════ THE ATMOSPHERE — fibrous paper grain + layered vignette ══════════
+   Two fixed decoration sheets behind all content. The grain is an inline SVG
+   feTurbulence tile (no request, no third-party host, CSP-safe) blended over the paper
+   colour inside the sheet itself; --grain-op scales the tooth. Both layers are
+   pointer-transparent and print-suppressed. */
+body::before{
+  content:""; position:fixed; inset:0; z-index:-2; pointer-events:none;
+  opacity:var(--grain-op);
+  background-color:var(--paper);
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.86' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+  background-size:200px 200px;
+  background-blend-mode:var(--grain-blend);
+}
+body::after{
+  content:""; position:fixed; inset:0; z-index:-1; pointer-events:none;
+  opacity:var(--vignette-op);
+  background:
+    radial-gradient(120% 78% at 50% -8%, color-mix(in srgb,var(--accent) var(--vig-glow),transparent), transparent 44%),
+    radial-gradient(150% 130% at 50% 120%, color-mix(in srgb,black var(--vig-pool),transparent), transparent 52%),
+    radial-gradient(115% 100% at 50% 50%, transparent 62%, color-mix(in srgb,black var(--vig-edge),transparent) 100%);
+}
+@media print{ body::before,body::after{display:none} }

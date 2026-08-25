@@ -1,0 +1,2006 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Warm Print &mdash; Creative Layouts (25 remixable exemplars)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>&#127912;</text></svg>">
+<style>
+  /* ═══════════════════════════════════════════════════════════════════════════
+     TOKEN CONTRACT — the four :root blocks from proof-theme.css, inlined verbatim
+     so this file opens correctly straight off disk with no kit server. Consume
+     these var(--…) names; never hardcode a hex. Theme-aware two ways:
+     prefers-color-scheme for the OS default, :root[data-theme=…] for an explicit
+     wrapper override.
+     ═══════════════════════════════════════════════════════════════════════════ */
+:root {
+  --paper:#efe7d6; --paper-edge:#e7dcc6; --card:#faf5ea; --card-2:#f4ecdc;
+  --ink:#2a2016; --ink-soft:#6a5d4c; --ink-faint:#9c8f79;
+  /* --ink-meta: AA-passing (>=4.5:1) small-text token; --ink-faint stays for rules/dots only */
+  --ink-meta:#73644d;
+  --rule:#ddd0b8; --rule-soft:#e6dcc7;
+  --accent:#b0472b; --accent-ink:#8f3620; --accent-soft:#f0dcc9;
+  --fresh:#2d8f47; --recent:#778e29; --moderate:#d97706; --stale:#9ca3af; --unknown:#9c8f79;
+  --defect:#ba3527; --defect-bg:#f6e3dd; --fixed:#2f7d4f; --fixed-bg:#e6eede;
+  --status-blue:#2f66a8; --status-blue-soft:#dde7f2;
+  --status-started:#585d74; --status-completed:#307e54; --status-canceled:#686155;
+  --status-backlog:#7a7262; --status-unstarted:#75627f; --status-triage:#9b6127;
+  --seal:#2f7d4f;
+  --serif:Georgia,"Charter","Iowan Old Style",serif;
+  --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --maxw:1040px; --readw:66ch;
+}
+@media (prefers-color-scheme:dark) {
+  :root {
+    --paper:#211c16; --paper-edge:#2b251d; --card:#29231b; --card-2:#312a20;
+    --ink:#ece3d3; --ink-soft:#b0a48f; --ink-faint:#7d7362;
+    /* --ink-meta: AA-passing (>=4.5:1) small-text token; --ink-faint stays for rules/dots only */
+    --ink-meta:#a2957f;
+    --rule:#3a3327; --rule-soft:#332d23;
+    --accent:#e08b5c; --accent-ink:#eea277; --accent-soft:#3a2a1f;
+    --fresh:#58bb76; --recent:#a6bb58; --moderate:#e0a04a; --stale:#8a8272; --unknown:#7d7362;
+    --defect:#e8917f; --defect-bg:#3a221c; --fixed:#6fc48d; --fixed-bg:#1e2c1f;
+    --status-blue:#6f9dd4; --status-blue-soft:#22303f;
+    --status-started:#5c6178; --status-completed:#33835a; --status-canceled:#6d6558;
+    --status-backlog:#7c7363; --status-unstarted:#7a6684; --status-triage:#a06326;
+    --seal:#6fc48d;
+  }
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --paper:#efe7d6; --paper-edge:#e7dcc6; --card:#faf5ea; --card-2:#f4ecdc;
+  --ink:#2a2016; --ink-soft:#6a5d4c; --ink-faint:#9c8f79;
+  /* --ink-meta: AA-passing (>=4.5:1) small-text token; --ink-faint stays for rules/dots only */
+  --ink-meta:#73644d;
+  --rule:#ddd0b8; --rule-soft:#e6dcc7;
+  --accent:#b0472b; --accent-ink:#8f3620; --accent-soft:#f0dcc9;
+  --fresh:#2d8f47; --recent:#778e29; --moderate:#d97706; --stale:#9ca3af; --unknown:#9c8f79;
+  --defect:#ba3527; --defect-bg:#f6e3dd; --fixed:#2f7d4f; --fixed-bg:#e6eede;
+  --status-blue:#2f66a8; --status-blue-soft:#dde7f2;
+  --status-started:#585d74; --status-completed:#307e54; --status-canceled:#686155;
+  --status-backlog:#7a7262; --status-unstarted:#75627f; --status-triage:#9b6127; --seal:#2f7d4f;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper:#211c16; --paper-edge:#2b251d; --card:#29231b; --card-2:#312a20;
+  --ink:#ece3d3; --ink-soft:#b0a48f; --ink-faint:#7d7362;
+  /* --ink-meta: AA-passing (>=4.5:1) small-text token; --ink-faint stays for rules/dots only */
+  --ink-meta:#a2957f;
+  --rule:#3a3327; --rule-soft:#332d23;
+  --accent:#e08b5c; --accent-ink:#eea277; --accent-soft:#3a2a1f;
+  --fresh:#58bb76; --recent:#a6bb58; --moderate:#e0a04a; --stale:#8a8272; --unknown:#7d7362;
+  --defect:#e8917f; --defect-bg:#3a221c; --fixed:#6fc48d; --fixed-bg:#1e2c1f;
+  --status-blue:#6f9dd4; --status-blue-soft:#22303f;
+  --status-started:#5c6178; --status-completed:#33835a; --status-canceled:#6d6558;
+  --status-backlog:#7c7363; --status-unstarted:#7a6684; --status-triage:#a06326; --seal:#6fc48d;
+}
+
+  /* ── page scaffold (authored once for the gallery; the six sources each shipped
+        their own near-copy of this — those copies are dropped in the merge) ── */
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%; scroll-behavior:smooth}
+  body{
+    margin:0; color:var(--ink); background:var(--paper);
+    font-family:var(--sans); font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(circle at 15% 8%, color-mix(in srgb,var(--accent) 4%,transparent), transparent 42%),
+      radial-gradient(circle at 90% 88%, color-mix(in srgb,var(--accent) 3%,transparent), transparent 46%);
+    background-attachment:fixed;
+  }
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 32px}
+  a{color:var(--accent-ink); text-decoration:none; text-underline-offset:2px}
+  a:hover{text-decoration:underline}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:2px}
+  code,.mono{font-family:var(--mono)}
+  code{font-size:.86em; background:var(--card-2); padding:.08em .34em; border-radius:3px; color:var(--ink)}
+  h2,h3,h4{text-wrap:balance}
+  img,svg{max-width:100%}
+  pre{overflow-x:auto}
+
+  .runhead{
+    display:flex; justify-content:space-between; align-items:center; gap:16px;
+    padding:20px 0 16px; border-bottom:1px solid var(--rule);
+    font-family:var(--mono); font-size:11.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-soft);
+  }
+  .runhead .folio{color:var(--accent-ink); font-weight:600}
+
+  /* ── sticky family nav — 25 patterns need a spine you can always reach ── */
+  .famnav{
+    position:sticky; top:0; z-index:40; display:flex; flex-wrap:wrap; gap:2px 4px; align-items:center;
+    padding:9px 0; margin:0 -32px; padding-left:32px; padding-right:32px;
+    background:color-mix(in srgb,var(--paper) 92%,transparent);
+    -webkit-backdrop-filter:saturate(1.4) blur(9px); backdrop-filter:saturate(1.4) blur(9px);
+    border-bottom:1px solid var(--rule);
+  }
+  .famnav a{
+    font-family:var(--mono); font-size:11px; letter-spacing:.09em; text-transform:uppercase;
+    color:var(--ink-soft); padding:5px 10px; border:1px solid transparent; border-radius:20px;
+    display:inline-flex; align-items:center; gap:7px; white-space:nowrap;
+  }
+  .famnav a:hover,.famnav a:focus-visible{color:var(--accent-ink); border-color:var(--rule); background:var(--card); text-decoration:none}
+  .famnav .nno{color:var(--accent-ink); font-weight:700}
+  .famnav .nct{color:var(--ink-meta); font-size:10px}
+  .famnav .home{margin-left:auto; color:var(--accent-ink)}
+
+  header.masthead{padding:48px 0 34px; border-bottom:2px solid var(--ink)}
+  .kicker{
+    font-family:var(--mono); font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--accent-ink); display:flex; align-items:center; gap:12px; margin-bottom:24px;
+  }
+  .kicker::before,.kicker::after{content:""; height:1px; flex:0 0 30px; background:var(--accent); opacity:.55}
+  .kicker::after{flex:1}
+  .masthead h1{
+    font-family:var(--serif); font-weight:700; font-size:clamp(30px,5vw,50px);
+    line-height:1.06; letter-spacing:-.015em; text-wrap:balance; margin:0; color:var(--ink);
+  }
+  .masthead h1 em{font-style:italic; color:var(--accent-ink)}
+  .masthead .lede{margin:26px 0 0; max-width:64ch; font-size:17px; color:var(--ink-soft); line-height:1.58}
+  .masthead .lede b{color:var(--ink); font-weight:600}
+  .masthead .byline{margin-top:22px; font-family:var(--mono); font-size:12px; letter-spacing:.05em; color:var(--ink-meta); display:flex; flex-wrap:wrap; gap:8px 16px; align-items:center}
+  .sample{
+    font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--moderate); border:1px dashed color-mix(in srgb,var(--moderate) 55%,transparent);
+    padding:3px 9px; border-radius:20px; display:inline-block;
+  }
+
+  section{padding:44px 0 40px; border-bottom:1px solid var(--rule); scroll-margin-top:56px}
+  .sechead{display:flex; align-items:baseline; gap:16px; margin-bottom:10px}
+  .sechead .no{font-family:var(--mono); font-size:13px; letter-spacing:.1em; color:var(--accent-ink); font-weight:600; padding-top:4px; flex:0 0 auto}
+  .sechead h2{font-family:var(--serif); font-weight:700; font-size:clamp(22px,3.4vw,32px); letter-spacing:-.01em; margin:0; color:var(--ink)}
+  .sechead .fill{flex:1; height:1px; align-self:center; background:var(--rule)}
+  .sec-sub{font-size:14.5px; color:var(--ink-soft); max-width:66ch; margin:0 0 26px; line-height:1.58}
+  .sec-sub b{color:var(--ink); font-weight:600}
+
+  /* ── the per-pattern frame (one per exemplar; the source's own section head is
+        replaced by this so 25 patterns number and anchor consistently) ── */
+  .pat{padding:26px 0 8px; border-top:1px solid var(--rule-soft); scroll-margin-top:56px}
+  .pat:first-of-type{border-top:0; padding-top:6px}
+  .pathead{display:flex; align-items:baseline; gap:14px; margin-bottom:14px}
+  .pathead .pno{
+    font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--accent-ink); background:var(--accent-soft); border:1px solid color-mix(in srgb,var(--accent) 32%,transparent);
+    padding:2px 8px; border-radius:2px; flex:0 0 auto;
+  }
+  .pathead h3{font-family:var(--serif); font-weight:700; font-size:clamp(18px,2.4vw,23px); margin:0; color:var(--ink); letter-spacing:-.005em}
+  .pathead .fill{flex:1; height:1px; align-self:center; background:var(--rule-soft)}
+  .pathead .perma{font-family:var(--mono); font-size:13px; color:var(--ink-meta); opacity:0; transition:opacity .14s; flex:0 0 auto}
+  .pat:hover .perma,.pat:focus-within .perma{opacity:1}
+  .perma:hover{color:var(--accent-ink); text-decoration:none}
+  .famkey{margin-top:12px}
+  .famkey .pno{background:transparent; color:var(--ink-meta); border-color:var(--rule)}
+  .famlegend{margin:0 0 26px}
+
+  /* ── the index (all 25, grouped by family) ── */
+  .picker{border:1px solid var(--rule); border-radius:3px; overflow:hidden; background:var(--card)}
+  .picker .prow{display:grid; grid-template-columns:1fr auto; gap:10px 22px; align-items:baseline; padding:11px 20px; border-top:1px solid var(--rule-soft)}
+  .picker .prow:first-child{border-top:0}
+  .picker .phead{background:var(--card-2); border-top:1px solid var(--rule)}
+  .picker .phead .pneed{font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; color:var(--accent-ink)}
+  .picker .pneed{font-size:14.5px; color:var(--ink); line-height:1.4}
+  .picker .pneed .lead{font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-meta); display:block; margin-bottom:3px}
+  .picker .preach{font-family:var(--mono); font-size:12.5px; color:var(--accent-ink); text-align:right}
+  .picker .preach a{font-weight:600}
+
+  .a11y-note{margin-top:20px; font-size:13.5px; color:var(--ink-soft); border-left:3px solid var(--accent); padding:12px 18px; background:var(--card); border-radius:2px; max-width:72ch; line-height:1.58}
+  .a11y-note b{color:var(--ink); font-weight:600}
+  .fdot{width:15px; height:15px; display:inline-block; vertical-align:middle; flex:0 0 auto}
+  .freshwrap{overflow-x:auto}
+  .freshrow{display:flex; flex-wrap:wrap; gap:0; border:1px solid var(--rule); border-radius:2px; overflow:hidden; min-width:520px}
+  .freshrow .fc{flex:1 1 0; padding:14px 12px; text-align:center; border-right:1px solid var(--rule); background:var(--card-2)}
+  .freshrow .fc:last-child{border-right:0}
+  .freshrow .fk{font-family:var(--serif); font-weight:700; font-size:13.5px; color:var(--ink); margin-top:9px}
+  .freshrow .fs{font-family:var(--mono); font-size:10px; letter-spacing:.04em; color:var(--ink-meta); margin-top:4px}
+
+  .pagefoot{
+    padding:34px 0 56px; font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase;
+    color:var(--ink-meta); display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px;
+  }
+  .pagefoot .folio{color:var(--accent-ink)}
+
+  @media (max-width:760px){
+    .wrap{padding:0 20px}
+    .famnav{margin:0 -20px; padding-left:20px; padding-right:20px}
+    .picker .prow{grid-template-columns:1fr; gap:5px}
+    .picker .preach{text-align:left}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important; scroll-behavior:auto!important}}
+
+  /* ═══════ The 25 PATTERNS themselves are no longer inlined here — they live in
+     proof-creative.css beside this file, which the <link> below pulls in. One source,
+     one address: this gallery renders the same CSS a real proof page links from the
+     published kit, so a pattern cannot drift between the reference and the product.
+     Everything above stays local — the inlined proof-theme.css tokens and the gallery's
+     own furniture — so this file still opens correctly straight off disk. ═══════ */
+</style>
+<link rel="stylesheet" href="./proof-creative.css">
+</head>
+<body>
+
+<div class="wrap">
+
+  <div class="runhead">
+    <span>Creative Layouts &nbsp;&middot;&nbsp; <span class="folio">Warm Print</span> &nbsp;&middot;&nbsp; the companion to KIT_README &sect;3e</span>
+    <span>25 patterns &middot; 6 families</span>
+  </div>
+
+  <nav class="famnav" aria-label="Pattern families">
+    <a href="#fam-hero"><span class="nno">01</span> Hero <span class="nct">4</span></a>
+    <a href="#fam-comparison"><span class="nno">02</span> Comparison <span class="nct">4</span></a>
+    <a href="#fam-dataviz"><span class="nno">03</span> Data-as-visual <span class="nct">5</span></a>
+    <a href="#fam-annotated"><span class="nno">04</span> Annotated evidence <span class="nct">4</span></a>
+    <a href="#fam-narrative"><span class="nno">05</span> Narrative <span class="nct">4</span></a>
+    <a href="#fam-provenance"><span class="nno">06</span> Provenance <span class="nct">4</span></a>
+    <a class="home" href="#index">&uarr; index</a>
+  </nav>
+
+  <header class="masthead">
+    <div class="kicker">Layout exemplars &nbsp;&middot;&nbsp; for /prove evidence pages</div>
+    <h1>Twenty-five layouts to <em>adapt</em> &mdash; the shapes a proof page can take.</h1>
+    <p class="lede">The static block catalog (<a href="./PROOF_BLOCKS.html">PROOF_BLOCKS.html</a>) answers <b>which part</b>; this gallery answers <b>what shape</b>. Every pattern below is real, rendered markup on the <code>.mod</code> grammar &mdash; open the source, lift the snippet, swap the content. These are <b>inspiration to remix, not a closed set</b>: the pattern is the geometry plus the when-to-use, never any final CSS. Each carries its <b>name</b>, <b>when to reach for it</b>, and <b>how to remix it</b> in the words of the exemplar it came from.</p>
+    <p class="byline">
+      <span class="sample">Sample content</span>
+      <span>Every figure is illustrative &mdash; it demonstrates the layout, not a live finding.</span>
+      <span>Zero-JS &middot; CSP-safe &middot; theme-aware &middot; system fonts &middot; inline SVG only.</span>
+    </p>
+  </header>
+
+  <section id="index">
+    <div class="sechead"><span class="no">&sect;&nbsp;00</span><h2>The index &mdash; twenty-five patterns, six families</h2><span class="fill"></span></div>
+    <p class="sec-sub">Start from the job. Name what the page needs to do; reach for the pattern on the right. The prose reference for this catalog is <b>&sect;3e of KIT_README</b> &mdash; the entries there and the captions here are the same catalog; where they differ, <b>the exemplar wins</b>.</p>
+    <div class="picker">
+      <div class="prow phead"><div class="pneed">Hero / opener</div><div class="preach"><a href="#fam-hero">§&nbsp;01</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>the finding collapses to one headline figure</div><div class="preach"><a href="#p-giant-number-hero">Giant-number hero</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>the finding is a sentence, not a number</div><div class="preach"><a href="#p-thesis-pull-quote-opener">Thesis pull-quote opener</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>a gate or claim resolves to a categorical verdict</div><div class="preach"><a href="#p-verdict-hero-card">Verdict hero card</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>a statement pairs with exactly one supporting visual</div><div class="preach"><a href="#p-split-hero">Split hero</a></div></div>
+      <div class="prow phead"><div class="pneed">Comparison / before &rarr; after</div><div class="preach"><a href="#fam-comparison">§&nbsp;02</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>one exhibit changed, and you want the eye to cross a seam</div><div class="preach"><a href="#p-diagonal-split">Diagonal split before / after</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>the change is a small, precise textual edit</div><div class="preach"><a href="#p-overlay-diff">Overlay diff — was X, now Y</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>each row&#x27;s direction of movement is the point</div><div class="preach"><a href="#p-delta-gutter">Side-by-side columns with a delta gutter</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>a compact one-line A → transform → B headline</div><div class="preach"><a href="#p-was-now-strip">&quot;Was → Now&quot; transformation strip</a></div></div>
+      <div class="prow phead"><div class="pneed">Data-as-visual</div><div class="preach"><a href="#fam-dataviz">§&nbsp;03</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>one metric with a known uncertainty interval</div><div class="preach"><a href="#p-confidence-band">Confidence band</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>one comparable value across two categorical axes</div><div class="preach"><a href="#p-coverage-heatmap">Coverage heatmap</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>the SHAPE of the data matters more than its mean</div><div class="preach"><a href="#p-distribution-histogram">Distribution / histogram</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>a ranked list needing exact figures AND relative magnitude</div><div class="preach"><a href="#p-bars-in-table">Bars-in-table</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>a header strip of 2–4 headline KPIs against thresholds</div><div class="preach"><a href="#p-gauge-meter-row">Gauge / meter row</a></div></div>
+      <div class="prow phead"><div class="pneed">Annotated evidence</div><div class="preach"><a href="#fam-annotated">§&nbsp;04</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>a busy exhibit where several spots each need a sentence</div><div class="preach"><a href="#p-callout-pins">Callout-pins overlay</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>a tall exhibit where notes want room to breathe</div><div class="preach"><a href="#p-leader-lines">Leader-line margin annotations</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>the proof lives in small print</div><div class="preach"><a href="#p-crop-zoom">Highlighted-region crop + zoom</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>the exhibit IS a measurement and the numbers are the proof</div><div class="preach"><a href="#p-spec-rail">Spec-rail annotated exhibit</a></div></div>
+      <div class="prow phead"><div class="pneed">Narrative / timeline</div><div class="preach"><a href="#fam-narrative">§&nbsp;05</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>a chronology where how recently each event fired matters</div><div class="preach"><a href="#p-vertical-timeline">Vertical timeline — dated events down a spine</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>a run or repro where the reader needs to see where it stands</div><div class="preach"><a href="#p-step-flow">Step-flow with state — a run, step by step</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>the finding has a twist that reframes the fix</div><div class="preach"><a href="#p-story-arc">Story arc — expected, discovered, therefore</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>the current position and the blockers, at a glance</div><div class="preach"><a href="#p-phase-pipeline">Horizontal phase pipeline — how the work moved</a></div></div>
+      <div class="prow phead"><div class="pneed">Provenance</div><div class="preach"><a href="#fam-provenance">§&nbsp;06</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>3–8 discrete claims, each with its own verdict</div><div class="preach"><a href="#p-claim-ledger">The claim-ledger, as a designed object</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>a load-bearing claim shown as over-determined</div><div class="preach"><a href="#p-evidence-stack">Layered evidence-stack — one claim, many sources</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>many small line-items where COMPLETENESS is the point</div><div class="preach"><a href="#p-receipt-manifest">The receipt — audit trail as artifact</a></div></div>
+      <div class="prow"><div class="pneed"><span class="lead">Reach for it when</span>mixed prose where checked-here and upstream interleave</div><div class="preach"><a href="#p-provenance-ribbon">Trusted-vs-checked provenance ribbon</a></div></div>
+    </div>
+    <p class="a11y-note"><b>Honest presentation is not optional</b> (<code>&sect;INV_PROVE_FAITHFUL_PRESENTATION</code>). Every hue in every pattern below encodes a <b>real fact</b> and travels with a legend on the same screen &mdash; before/after, verdict, recency, provenance. Small text uses <code>--ink-meta</code> (AA-passing), never <code>--ink-faint</code>, which is reserved for rules and dots. And where a freshness bucket appears, it ramps by <b>fill fraction</b> as well as hue, so it survives grayscale, color-vision deficiency, and a screen reader:</p>
+    <div class="freshwrap" style="margin-top:16px">
+      <div class="freshrow">
+        <div class="fc">
+          <svg class="fdot" viewBox="0 0 14 14" role="img" aria-label="Fresh — active in the last 24 hours"><circle cx="7" cy="7" r="6" fill="none" stroke="var(--rule)" stroke-width="1"/><circle cx="7" cy="7" r="5" fill="var(--fresh)"/></svg>
+          <div class="fk">Fresh</div><div class="fs">filled &middot; &lt; 24h</div>
+        </div>
+        <div class="fc">
+          <svg class="fdot" viewBox="0 0 14 14" role="img" aria-label="Recent — active in the last 7 days"><circle cx="7" cy="7" r="6" fill="none" stroke="var(--rule)" stroke-width="1"/><path d="M7 7 L7 2 A5 5 0 1 1 2 7 Z" fill="var(--recent)"/></svg>
+          <div class="fk">Recent</div><div class="fs">three-quarter &middot; &lt; 7d</div>
+        </div>
+        <div class="fc">
+          <svg class="fdot" viewBox="0 0 14 14" role="img" aria-label="Moderate — no activity for over a week"><circle cx="7" cy="7" r="6" fill="none" stroke="var(--rule)" stroke-width="1"/><path d="M7 7 L7 2 A5 5 0 0 1 7 12 Z" fill="var(--moderate)"/></svg>
+          <div class="fk">Moderate</div><div class="fs">half &middot; &lt; 30d</div>
+        </div>
+        <div class="fc">
+          <svg class="fdot" viewBox="0 0 14 14" role="img" aria-label="Stale — no activity for over a month"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--stale)" stroke-width="2"/></svg>
+          <div class="fk">Stale</div><div class="fs">ring &middot; &gt; 30d</div>
+        </div>
+        <div class="fc">
+          <svg class="fdot" viewBox="0 0 14 14" role="img" aria-label="Unknown — activity date unknown"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--unknown)" stroke-width="1.5" stroke-dasharray="2 2"/></svg>
+          <div class="fk">Unknown</div><div class="fs">dashed &middot; no date</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="fam-hero" class="fam fam-hero">
+    <div class="sechead"><span class="no">&sect;&nbsp;01</span><h2>Hero / opener</h2><span class="fill"></span></div>
+    <p class="sec-sub">How the page opens. One of these four is the first thing the reader sees — pick by what the finding <i>is</i>: a number, a sentence, a verdict, or a statement that needs one visual beside it. &mdash; <b>4 patterns</b>.</p>
+
+    <article class="pat" id="p-giant-number-hero">
+      <div class="pathead">
+        <span class="pno">01.1</span>
+        <h3>Giant-number hero</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-giant-number-hero" aria-label="Permalink to the Giant-number hero pattern">&para;</a>
+      </div>
+<div class="caption">
+      <span class="k">Pattern</span><span class="v"><b>Giant-number hero</b> — the ONE number that <i>is</i> the finding, set huge in serif, with a one-line meaning + a supporting micro-stat row.</span>
+      <span class="k">When</span><span class="v">The finding collapses to a single headline figure — a pass count, a dollar total, a percentage. Lead with the number, not the prose.</span>
+      <span class="k">Remix</span><span class="v">Swap <code>.num</code> + <code>.unit</code> for your figure; recolor <code>.num</code> to <code>--defect</code> if the number is bad news; keep the micro row to 2–4 supporting stats or drop it entirely.</span>
+    </div>
+
+    <div class="giant">
+      <div class="eyebrow">Headline finding <span class="chip proven">Proven</span></div>
+      <div class="figure">
+        <div class="num">227</div>
+        <div class="unit">assertions <em>pass</em> — the whole suite, green.</div>
+      </div>
+      <p class="means">Every claim on this page is backed by a real assertion in <code>proof-ticket.test.mjs</code>, re-run from the repo root at publish time. <b>Zero skips, zero known-fails.</b></p>
+      <div class="micro" role="group" aria-label="Supporting figures">
+        <div class="cell"><div class="m-n g">227 / 227</div><div class="m-l">Assertions green</div></div>
+        <div class="cell"><div class="m-n g">2 / 2</div><div class="m-l">HIGH findings closed</div></div>
+        <div class="cell"><div class="m-n">5</div><div class="m-l">Claims on the ledger</div></div>
+        <div class="cell"><div class="m-n">0</div><div class="m-l">Requests at view time</div></div>
+      </div>
+    </div>
+    </article>
+
+    <article class="pat" id="p-thesis-pull-quote-opener">
+      <div class="pathead">
+        <span class="pno">01.2</span>
+        <h3>Thesis pull-quote opener</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-thesis-pull-quote-opener" aria-label="Permalink to the Thesis pull-quote opener pattern">&para;</a>
+      </div>
+<div class="caption">
+      <span class="k">Pattern</span><span class="v"><b>Thesis pull-quote opener</b> — the finding stated as a large serif claim (drop-cap), with a verdict chip and a dated as-of line.</span>
+      <span class="k">When</span><span class="v">The finding is a sentence, not a number — a claim you want the reader to accept at a glance before scrolling into the evidence.</span>
+      <span class="k">Remix</span><span class="v">Rewrite the <code>.claim</code> sentence; italicize the load-bearing phrase with <code>&lt;em&gt;</code>; swap the chip to <code>CONFIRMED</code> / <code>REFUTED</code>; keep the as-of line honest — it dates the claim.</span>
+    </div>
+
+    <div class="thesis-hero">
+      <div class="topline">
+        <span class="lab">The thesis</span>
+        <span class="chip proven">Proven</span>
+      </div>
+      <p class="claim">Color on this page is never decorative — every freshness dot is bucketed by the ticket's <em>real</em> activity recency, and the same hue always carries a text label beside it.</p>
+      <div class="asof">
+        <span>As of <b style="color:var(--ink)">2026-07-31</b> · baked at publish</span>
+        <span class="up">✓ /prove trusts the upstream finding</span>
+        <span>Presentation-only · zero external requests</span>
+      </div>
+    </div>
+    </article>
+
+    <article class="pat" id="p-verdict-hero-card">
+      <div class="pathead">
+        <span class="pno">01.3</span>
+        <h3>Verdict hero card</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-verdict-hero-card" aria-label="Permalink to the Verdict hero card pattern">&para;</a>
+      </div>
+<div class="caption">
+      <span class="k">Pattern</span><span class="v"><b>Verdict hero card</b> — a bold PASS / FAIL / PROVEN card carrying the key metric + a one-line ruling; color encodes the real verdict.</span>
+      <span class="k">When</span><span class="v">A gate, check, or claim resolves to a categorical verdict. Use one card for a single verdict, or a row to compare several gates side by side.</span>
+      <span class="k">Remix</span><span class="v">Set the <code>.vcard</code> class to <code>pass</code>/<code>fail</code>/<code>proven</code>; swap the <code>.n</code> metric + <code>.ruling</code>; the legend below is mandatory whenever color carries meaning (<code>§INV_PROVE_FAITHFUL_PRESENTATION</code>).</span>
+    </div>
+
+    <div class="verdicts">
+      <div class="vcard pass">
+        <div class="band">Pass <span class="dot" aria-hidden="true"></span></div>
+        <div class="metric"><div class="n">0.4%</div><div class="ml">Truncation rate</div></div>
+        <div class="ruling"><b>Under the 2% gate.</b> Extraction truncation held below threshold across the seeded sample — resync check #4 clears.</div>
+      </div>
+      <div class="vcard fail">
+        <div class="band">Fail <span class="dot" aria-hidden="true"></span></div>
+        <div class="metric"><div class="n">7</div><div class="ml">Duplicate property clusters</div></div>
+        <div class="ruling"><b>Above the max of 0.</b> Adjuster-edited fields exist while clobber-guards are unverified — check #2 blocks the resync.</div>
+      </div>
+      <div class="vcard proven">
+        <div class="band">Proven <span class="dot" aria-hidden="true"></span></div>
+        <div class="metric"><div class="n">2 / 2</div><div class="ml">HIGH findings closed</div></div>
+        <div class="ruling"><b>Both red → green.</b> The <code>safeHref()</code> sink and the focus-trap leak are fixed and re-asserted in the suite.</div>
+      </div>
+    </div>
+    <div class="vlegend" role="img" aria-label="Verdict color legend">
+      <span class="row"><span class="sw" style="background:var(--fixed)"></span><b>Pass</b> — metric within gate</span>
+      <span class="row"><span class="sw" style="background:var(--defect)"></span><b>Fail</b> — metric breaches gate</span>
+      <span class="row"><span class="sw" style="background:var(--accent)"></span><b>Proven</b> — claim backed by evidence</span>
+    </div>
+    </article>
+
+    <article class="pat" id="p-split-hero">
+      <div class="pathead">
+        <span class="pno">01.4</span>
+        <h3>Split hero</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-split-hero" aria-label="Permalink to the Split hero pattern">&para;</a>
+      </div>
+<div class="caption">
+      <span class="k">Pattern</span><span class="v"><b>Split hero</b> — claim/thesis in the left column, a key visual docked right (inline-SVG spark, a stat, or a freshness-dot cluster); the magazine "opener spread" feel.</span>
+      <span class="k">When</span><span class="v">The finding pairs a statement with one supporting visual — a trend, a distribution, a headline stat. Best when the visual earns its place beside the words.</span>
+      <span class="k">Remix</span><span class="v">Keep the left <code>.claim</code>; drop ANY one of the three right-hand blocks (spark / bignum / dot-cluster) — they're independent. Hand-author the SVG with <code>currentColor</code> + tokens; never a chart lib.</span>
+    </div>
+
+    <div class="split">
+      <div class="left">
+        <div class="eyebrow">Opener spread <span class="chip proven">Proven</span></div>
+        <p class="claim">Reply latency to carriers fell <em>by more than half</em> once intake auto-routed the inbox.</p>
+        <p class="lede">Median first-touch dropped from <b>18.6h</b> to <b>7.9h</b> over the eight weeks after go-live — measured on real <code>message.from_email</code> attribution, not a projection.</p>
+      </div>
+      <div class="right">
+        <div>
+          <div class="viz-lab">Median reply latency · 8 weeks</div>
+          <div class="svgwrap">
+            <svg class="spark" viewBox="0 0 260 90" role="img" aria-label="Downward sparkline: median reply latency falling from 18.6 hours to 7.9 hours over eight weeks">
+              <polyline points="6,20 42,30 78,26 114,44 150,52 186,64 222,70 254,76"
+                fill="none" stroke="var(--accent)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+              <circle cx="6" cy="20" r="3.4" fill="var(--accent)"/>
+              <circle cx="254" cy="76" r="4" fill="var(--seal)"/>
+              <line x1="6" y1="84" x2="254" y2="84" stroke="var(--rule)" stroke-width="1"/>
+            </svg>
+          </div>
+        </div>
+        <div>
+          <div class="bignum">−57%<small>Median latency, 8-week delta</small></div>
+        </div>
+        <div>
+          <div class="viz-lab" style="margin-bottom:11px">Threads by recency · at bake</div>
+          <div class="dotcluster" role="img" aria-label="Thread recency distribution: 12 fresh, 8 recent, 3 moderate, 1 unknown">
+            <div class="dc-row"><span class="dc-dot" style="background:var(--fresh)"></span> Fresh &lt; 24h <span class="dc-n">12</span></div>
+            <div class="dc-row"><span class="dc-dot" style="background:var(--recent)"></span> Recent &lt; 7d <span class="dc-n">8</span></div>
+            <div class="dc-row"><span class="dc-dot" style="background:var(--moderate)"></span> Moderate &lt; 30d <span class="dc-n">3</span></div>
+            <div class="dc-row"><span class="dc-dot outline"></span> Unknown <span class="dc-n">1</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    </article>
+  </section>
+  <section id="fam-comparison" class="fam fam-comparison">
+    <div class="sechead"><span class="no">&sect;&nbsp;02</span><h2>Comparison / before &rarr; after</h2><span class="fill"></span></div>
+    <p class="sec-sub">Four ways to typeset a change. All four code the same two facts the same way — <b>before is the defect hue, after is the fixed hue</b> — and every one pairs the color with a text label. &mdash; <b>4 patterns</b>.</p>
+
+    <div class="famlegend"><div class="lgnd" role="img" aria-label="Shared color legend">
+      <span class="li"><span class="sw b"></span><b>Before</b> — the defect / prior state</span>
+      <span class="li"><span class="sw a"></span><b>After</b> — the fixed / current state</span>
+      <span class="li"><span class="sw up"></span><b>↑ improvement</b></span>
+      <span class="li"><span class="sw dn"></span><b>↓ regression</b></span>
+    </div></div>
+
+    <article class="pat" id="p-diagonal-split">
+      <div class="pathead">
+        <span class="pno">02.1</span>
+        <h3>Diagonal split before / after</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-diagonal-split" aria-label="Permalink to the Diagonal split before / after pattern">&para;</a>
+      </div>
+<div class="caption">
+      <div class="cn"><span>Pattern</span><span class="pat">Diagonal split</span></div>
+      <p><span class="use">Use when</span> one exhibit reads as a single object that changed — a rendered overlay, a screenshot, a scorecard — and you want the eye to cross a seam rather than compare two boxes.</p>
+      <p class="remix"><b>Remix:</b> two absolutely-positioned <code>.side</code> layers, each <code>clip-path</code>'d to complementary polygons; drop a <code>.deltabadge</code> at the seam with the headline number.</p>
+    </div>
+
+    <div class="diag" role="img" aria-label="Extraction overlay before and after the header-band fix: 61 percent field accuracy on a distorted layout, versus 94 percent after — a plus 33 point delta.">
+      <div class="side before">
+        <div class="tag"><span class="dot"></span>Before &nbsp;·&nbsp; pre-fix layout</div>
+        <div class="big">61%</div>
+        <div class="cap-t">field-level accuracy on stapled multi-doc PDFs</div>
+        <div class="rows">
+          <div class="r"><span class="mk">✕</span> header band merged into row 1</div>
+          <div class="r"><span class="mk">✕</span> 14 cells shifted one column</div>
+          <div class="r"><span class="mk">✕</span> totals row read as line item</div>
+        </div>
+      </div>
+      <div class="side after">
+        <div class="tag"><span class="dot"></span>After &nbsp;·&nbsp; header-band fix</div>
+        <div class="big">94%</div>
+        <div class="cap-t">field-level accuracy, same 40-doc sample</div>
+        <div class="rows">
+          <div class="r">header detected, rows aligned <span class="mk">✓</span></div>
+          <div class="r">column offset corrected <span class="mk">✓</span></div>
+          <div class="r">totals row classified <span class="mk">✓</span></div>
+        </div>
+      </div>
+      <div class="seam" aria-hidden="true"></div>
+      <div class="deltabadge" aria-hidden="true">
+        <span class="dl">Delta</span>
+        <span class="dv">+33</span>
+        <span class="dn">points accuracy</span>
+      </div>
+    </div>
+    </article>
+
+    <article class="pat" id="p-overlay-diff">
+      <div class="pathead">
+        <span class="pno">02.2</span>
+        <h3>Overlay diff — was X, now Y</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-overlay-diff" aria-label="Permalink to the Overlay diff — was X, now Y pattern">&para;</a>
+      </div>
+<div class="caption">
+      <div class="cn"><span>Pattern</span><span class="pat">Overlay diff</span></div>
+      <p><span class="use">Use when</span> the change is a small, precise edit to code, config, or a data value — the reader should see the old token struck through and the new token lit up in place, so the exact delta is unmissable.</p>
+      <p class="remix"><b>Remix:</b> wrap the removed token in <code>.was</code> (strike-through, defect hue) and the replacement in <code>.now</code> (highlight, fixed hue); lift the change into a serif <code>.quotable</code> line for the headline.</p>
+    </div>
+
+    <div class="odiff">
+      <div class="obar"><span class="dot"></span> normalizeClaimNumberForMatch — layer-4 rule bump</div>
+      <div class="odiffwrap">
+<pre><span class="c">// strip separators, then case-fold the claim number</span>
+<span class="k">const</span> LAYER4_NORMALIZER_RULE_VERSION = <span class="was">7</span> <span class="now">8</span>;
+
+<span class="k">function</span> normalizeClaimNumberForMatch(raw) {
+  <span class="k">return</span> raw
+    .replace(<span class="was">/[\s-]/g</span> <span class="now">/[\s\-–—./]+/g</span>, <span class="c">""</span>)  <span class="c">// now folds en/em-dash + dots</span>
+    .<span class="was">toLowerCase()</span> <span class="now">toUpperCase()</span>;              <span class="c">// canonical case = UPPER</span>
+}</pre>
+      </div>
+    </div>
+
+    <p class="quotable">
+      Claim numbers were matched <span class="qw">case-insensitively but dash-blind</span> — now they are
+      <span class="qn">separator-normalized across five dash variants and folded to a single canonical case</span>,
+      so <code>CLM–2291.A</code> and <code>clm 2291 a</code> collapse to one key.
+      <span class="attr">The one-line delta — quotable in a standup</span>
+    </p>
+    </article>
+
+    <article class="pat" id="p-delta-gutter">
+      <div class="pathead">
+        <span class="pno">02.3</span>
+        <h3>Side-by-side columns with a delta gutter</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-delta-gutter" aria-label="Permalink to the Side-by-side columns with a delta gutter pattern">&para;</a>
+      </div>
+<div class="caption">
+      <div class="cn"><span>Pattern</span><span class="pat">Delta gutter</span></div>
+      <p><span class="use">Use when</span> you have several metrics that each moved — a benchmark table, a cost sheet — and the story is the <em>per-row</em> direction and size of change, not one headline number.</p>
+      <p class="remix"><b>Remix:</b> a 3-column grid (before · gutter · after); tag each gutter cell <code>.better</code> or <code>.worse</code> to color the ↑/↓ and Δ by whether the move is an improvement.</p>
+    </div>
+
+    <div class="sbswrap">
+      <div class="sbs" role="table" aria-label="Classifier metrics before and after the escalation-tier change, with per-row delta">
+        <div class="colhead bh" role="columnheader">Before &nbsp;·&nbsp; single-pass</div>
+        <div class="colhead gh" role="columnheader">Δ</div>
+        <div class="colhead ah" role="columnheader">After &nbsp;·&nbsp; escalation tier</div>
+
+        <div class="cell" role="cell"><div class="metric">claim recall</div><div class="bval">86.2%</div></div>
+        <div class="gcol better" role="cell"><span class="arr" aria-hidden="true">↑</span><span class="dnum">+7.1</span></div>
+        <div class="cell acol" role="cell"><div class="metric">claim recall</div><div class="bval">93.3%</div></div>
+
+        <div class="cell" role="cell"><div class="metric">false-positive rate</div><div class="bval">3.4%</div></div>
+        <div class="gcol better" role="cell"><span class="arr" aria-hidden="true">↓</span><span class="dnum">−1.6</span></div>
+        <div class="cell acol" role="cell"><div class="metric">false-positive rate</div><div class="bval">1.8%</div></div>
+
+        <div class="cell" role="cell"><div class="metric">auto-approval accuracy</div><div class="bval">91.0%</div></div>
+        <div class="gcol better" role="cell"><span class="arr" aria-hidden="true">↑</span><span class="dnum">+4.4</span></div>
+        <div class="cell acol" role="cell"><div class="metric">auto-approval accuracy</div><div class="bval">95.4%</div></div>
+
+        <div class="cell" role="cell"><div class="metric">p95 latency</div><div class="bval">2.1s</div></div>
+        <div class="gcol worse" role="cell"><span class="arr" aria-hidden="true">↑</span><span class="dnum">+0.9s</span></div>
+        <div class="cell acol" role="cell"><div class="metric">p95 latency</div><div class="bval">3.0s</div></div>
+
+        <div class="cell" role="cell"><div class="metric">cost / 1k emails</div><div class="bval">$1.12</div></div>
+        <div class="gcol worse" role="cell"><span class="arr" aria-hidden="true">↑</span><span class="dnum">+$0.38</span></div>
+        <div class="cell acol" role="cell"><div class="metric">cost / 1k emails</div><div class="bval">$1.50</div></div>
+      </div>
+    </div>
+    <div class="lgnd" role="img" aria-label="Delta gutter legend">
+      <span class="li"><span class="sw up"></span><b>Δ improvement</b> — moved the right way</span>
+      <span class="li"><span class="sw dn"></span><b>Δ regression</b> — the accepted cost (latency, spend)</span>
+    </div>
+    </article>
+
+    <article class="pat" id="p-was-now-strip">
+      <div class="pathead">
+        <span class="pno">02.4</span>
+        <h3>&quot;Was → Now&quot; transformation strip</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-was-now-strip" aria-label="Permalink to the &quot;Was → Now&quot; transformation strip pattern">&para;</a>
+      </div>
+<div class="caption">
+      <div class="cn"><span>Pattern</span><span class="pat">Was → Now strip</span></div>
+      <p><span class="use">Use when</span> you need a compact, single-line headline before/after near the top of a page — state A, a transform marker, state B — that a reader grasps in one glance without reading a table.</p>
+      <p class="remix"><b>Remix:</b> a 3-column strip (A · transform · B); label the transform with a mono pill for the mechanism and an inline SVG arrow; stacks vertically with a rotated arrow on narrow screens.</p>
+    </div>
+
+    <div class="stripwrap">
+      <div class="strip" role="img" aria-label="Phantom contacts: was 1,284 orphaned rows across 6 orgs, transformed by the contact-phantom-migrate CLI, now zero phantom rows — fully migrated.">
+        <div class="st a">
+          <span class="lab"><span class="dot"></span>Was</span>
+          <span class="headline">1,284 phantom contacts</span>
+          <span class="sub">personId = NULL, orphaned across 6 orgs</span>
+        </div>
+        <div class="xform" aria-hidden="true">
+          <span class="mk">contact-phantom-migrate</span>
+          <svg class="arrsvg" viewBox="0 0 56 26" fill="none">
+            <path d="M2 13 H48" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            <path d="M40 6 L50 13 L40 20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+          <span class="mk" style="background:transparent;color:var(--ink-meta)">Phase 3 · FIN-882</span>
+        </div>
+        <div class="st b">
+          <span class="lab"><span class="dot"></span>Now</span>
+          <span class="headline">0 phantom rows</span>
+          <span class="sub">rewritten to claim_company, audited, reversible</span>
+        </div>
+      </div>
+    </div>
+    </article>
+  </section>
+  <section id="fam-dataviz" class="fam fam-dataviz">
+    <div class="sechead"><span class="no">&sect;&nbsp;03</span><h2>Data-as-visual</h2><span class="fill"></span></div>
+    <p class="sec-sub">Five hand-authored inline-SVG charts. No library, no CDN, no script for the marks: length, position and hue carry the numbers, and each states its scale in a legend. &mdash; <b>5 patterns</b>.</p>
+
+    <article class="pat" id="p-confidence-band">
+      <div class="pathead">
+        <span class="pno">03.1</span>
+        <h3>Confidence band</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-confidence-band" aria-label="Permalink to the Confidence band pattern">&para;</a>
+      </div>
+<p class="lead-p">A single estimate on a bounded scale, with its <b>uncertainty interval</b> shaded and the point estimate marked. Reads at a glance: where the value sits, and how sure we are.</p>
+    <figure class="chartcard">
+      <div class="bar"><span class="dot"></span> classifier-precision.svg &nbsp;·&nbsp; point estimate + 95% interval</div>
+      <div class="body">
+        <div class="scroll">
+          <svg viewBox="0 0 720 150" width="100%" style="min-width:560px" role="img" aria-label="Precision estimate 0.923 with 95 percent confidence interval from 0.897 to 0.945 on a 0.80 to 1.00 scale, above the 0.90 target threshold">
+            <!-- scale domain 0.80 .. 1.00 mapped to x 60 .. 680 -->
+            <!-- gradient track -->
+            <defs>
+              <linearGradient id="cb-track" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="var(--defect)"/>
+                <stop offset="0.5" stop-color="var(--moderate)"/>
+                <stop offset="1" stop-color="var(--fresh)"/>
+              </linearGradient>
+            </defs>
+            <!-- track -->
+            <rect x="60" y="58" width="620" height="20" rx="10" fill="url(#cb-track)" opacity="0.28"/>
+            <rect x="60" y="58" width="620" height="20" rx="10" fill="none" stroke="var(--rule)"/>
+            <!-- target threshold at 0.90 -> x = 60 + (0.90-0.80)/0.20*620 = 370 -->
+            <line x1="370" y1="44" x2="370" y2="92" stroke="var(--accent)" stroke-width="2" stroke-dasharray="4 3"/>
+            <text x="370" y="36" text-anchor="middle" class="svg-mono" font-size="11" fill="var(--accent-ink)" font-weight="600">target 0.90</text>
+            <!-- confidence interval 0.897 .. 0.945 -> x 360.7 .. 509.5 -->
+            <rect x="360.7" y="53" width="148.8" height="30" rx="4" fill="var(--accent)" opacity="0.16"/>
+            <rect x="360.7" y="53" width="148.8" height="30" rx="4" fill="none" stroke="var(--accent)" stroke-opacity="0.5"/>
+            <!-- interval end caps -->
+            <line x1="360.7" y1="50" x2="360.7" y2="86" stroke="var(--accent-ink)" stroke-width="1.5"/>
+            <line x1="509.5" y1="50" x2="509.5" y2="86" stroke="var(--accent-ink)" stroke-width="1.5"/>
+            <!-- point estimate 0.923 -> x = 60 + (0.923-0.80)/0.20*620 = 441.3 -->
+            <circle cx="441.3" cy="68" r="8" fill="var(--accent)" stroke="var(--card)" stroke-width="2.5"/>
+            <text x="441.3" y="112" text-anchor="middle" class="svg-mono" font-size="13" fill="var(--ink)" font-weight="700">0.923</text>
+            <text x="441.3" y="128" text-anchor="middle" class="svg-mono" font-size="10.5" fill="var(--ink-meta)">95% CI 0.897–0.945</text>
+            <!-- axis ticks -->
+            <g class="svg-mono" font-size="10.5" fill="var(--ink-meta)">
+              <line x1="60" y1="88" x2="60" y2="94" stroke="var(--rule)"/>
+              <text x="60" y="107" text-anchor="middle">0.80</text>
+              <line x1="215" y1="88" x2="215" y2="94" stroke="var(--rule)"/>
+              <text x="215" y="107" text-anchor="middle">0.85</text>
+              <line x1="525" y1="88" x2="525" y2="94" stroke="var(--rule)"/>
+              <text x="525" y="107" text-anchor="middle">0.95</text>
+              <line x1="680" y1="88" x2="680" y2="94" stroke="var(--rule)"/>
+              <text x="680" y="107" text-anchor="middle">1.00</text>
+            </g>
+          </svg>
+        </div>
+        <div class="legend" role="list">
+          <span class="item"><span class="sw round" style="background:var(--accent)"></span><b>Point estimate</b> — the measured value</span>
+          <span class="item"><span class="sw" style="background:var(--accent);opacity:.28"></span><b>95% CI</b> — plausible range</span>
+          <span class="item"><span class="sw" style="background:var(--accent)"></span>dashed = <b>target threshold</b></span>
+          <span class="item">track: <span class="sw" style="background:var(--defect)"></span>low → <span class="sw" style="background:var(--fresh)"></span>high (0.80–1.00)</span>
+        </div>
+      </div>
+    </figure>
+    <figcaption><span class="cn">Confidence band</span> · <b>When to use:</b> one metric with a known uncertainty (precision/recall ± CI, an estimate ± error bar, a rate vs. an SLO). <b>How to remix:</b> set the domain (here 0.80–1.00), map value→x with <code>x = x0 + (v−min)/(max−min)·W</code>, move the CI rect + point <code>cx</code>, and reposition the dashed threshold. Swap <code>--defect→--fresh</code> gradient if higher isn't better.</figcaption>
+    </article>
+
+    <article class="pat" id="p-coverage-heatmap">
+      <div class="pathead">
+        <span class="pno">03.2</span>
+        <h3>Coverage heatmap</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-coverage-heatmap" aria-label="Permalink to the Coverage heatmap pattern">&para;</a>
+      </div>
+<p class="lead-p">A grid of <b>rows × checks</b> where each cell is tinted by a real value and prints the number. The eye finds the cold column and the weak row before reading a single digit.</p>
+    <figure class="chartcard">
+      <div class="bar"><span class="dot"></span> module-coverage.svg &nbsp;·&nbsp; % lines covered per module × suite</div>
+      <div class="body">
+        <div class="scroll">
+          <svg viewBox="0 0 720 300" width="100%" style="min-width:600px" role="img" aria-label="Heatmap of percent line coverage for five modules across four test suites; cells tinted from stale for low to fresh for high">
+            <!-- column headers -->
+            <g class="svg-mono" font-size="11" fill="var(--ink-meta)" font-weight="600">
+              <text x="270" y="30" text-anchor="middle">UNIT</text>
+              <text x="378" y="30" text-anchor="middle">INTEG</text>
+              <text x="486" y="30" text-anchor="middle">E2E</text>
+              <text x="594" y="30" text-anchor="middle">SMOKE</text>
+            </g>
+            <!-- rows: y start 44, row height 44, cell width 104 gap 4 -->
+            <!-- helper: cell fill via inline; tints hand-picked from scale -->
+            <!-- Row 1: classifier -->
+            <g font-size="12" class="svg-mono">
+              <text x="204" y="72" text-anchor="end" fill="var(--ink)" font-weight="600">classifier</text>
+              <rect x="218" y="48" width="104" height="40" rx="3" fill="var(--fresh)" opacity="0.85"/><text x="270" y="73" text-anchor="middle" fill="#fff">96</text>
+              <rect x="326" y="48" width="104" height="40" rx="3" fill="var(--fresh)" opacity="0.62"/><text x="378" y="73" text-anchor="middle" fill="var(--ink)">88</text>
+              <rect x="434" y="48" width="104" height="40" rx="3" fill="var(--recent)" opacity="0.6"/><text x="486" y="73" text-anchor="middle" fill="var(--ink)">74</text>
+              <rect x="542" y="48" width="104" height="40" rx="3" fill="var(--moderate)" opacity="0.55"/><text x="594" y="73" text-anchor="middle" fill="var(--ink)">61</text>
+            </g>
+            <!-- Row 2: extraction -->
+            <g font-size="12" class="svg-mono">
+              <text x="204" y="116" text-anchor="end" fill="var(--ink)" font-weight="600">extraction</text>
+              <rect x="218" y="92" width="104" height="40" rx="3" fill="var(--fresh)" opacity="0.7"/><text x="270" y="117" text-anchor="middle" fill="var(--ink)">91</text>
+              <rect x="326" y="92" width="104" height="40" rx="3" fill="var(--recent)" opacity="0.6"/><text x="378" y="117" text-anchor="middle" fill="var(--ink)">72</text>
+              <rect x="434" y="92" width="104" height="40" rx="3" fill="var(--moderate)" opacity="0.55"/><text x="486" y="117" text-anchor="middle" fill="var(--ink)">58</text>
+              <rect x="542" y="92" width="104" height="40" rx="3" fill="var(--stale)" opacity="0.6"/><text x="594" y="117" text-anchor="middle" fill="var(--ink)">34</text>
+            </g>
+            <!-- Row 3: routing -->
+            <g font-size="12" class="svg-mono">
+              <text x="204" y="160" text-anchor="end" fill="var(--ink)" font-weight="600">routing</text>
+              <rect x="218" y="136" width="104" height="40" rx="3" fill="var(--fresh)" opacity="0.85"/><text x="270" y="161" text-anchor="middle" fill="#fff">97</text>
+              <rect x="326" y="136" width="104" height="40" rx="3" fill="var(--fresh)" opacity="0.8"/><text x="378" y="161" text-anchor="middle" fill="#fff">94</text>
+              <rect x="434" y="136" width="104" height="40" rx="3" fill="var(--fresh)" opacity="0.62"/><text x="486" y="161" text-anchor="middle" fill="var(--ink)">85</text>
+              <rect x="542" y="136" width="104" height="40" rx="3" fill="var(--recent)" opacity="0.6"/><text x="594" y="161" text-anchor="middle" fill="var(--ink)">70</text>
+            </g>
+            <!-- Row 4: contacts -->
+            <g font-size="12" class="svg-mono">
+              <text x="204" y="204" text-anchor="end" fill="var(--ink)" font-weight="600">contacts</text>
+              <rect x="218" y="180" width="104" height="40" rx="3" fill="var(--fresh)" opacity="0.6"/><text x="270" y="205" text-anchor="middle" fill="var(--ink)">83</text>
+              <rect x="326" y="180" width="104" height="40" rx="3" fill="var(--moderate)" opacity="0.55"/><text x="378" y="205" text-anchor="middle" fill="var(--ink)">55</text>
+              <rect x="434" y="180" width="104" height="40" rx="3" fill="var(--moderate)" opacity="0.7"/><text x="486" y="205" text-anchor="middle" fill="var(--ink)">49</text>
+              <rect x="542" y="180" width="104" height="40" rx="3" fill="var(--stale)" opacity="0.55"/><text x="594" y="205" text-anchor="middle" fill="var(--ink)">28</text>
+            </g>
+            <!-- Row 5: playbooks -->
+            <g font-size="12" class="svg-mono">
+              <text x="204" y="248" text-anchor="end" fill="var(--ink)" font-weight="600">playbooks</text>
+              <rect x="218" y="224" width="104" height="40" rx="3" fill="var(--fresh)" opacity="0.62"/><text x="270" y="249" text-anchor="middle" fill="var(--ink)">86</text>
+              <rect x="326" y="224" width="104" height="40" rx="3" fill="var(--recent)" opacity="0.55"/><text x="378" y="249" text-anchor="middle" fill="var(--ink)">67</text>
+              <rect x="434" y="224" width="104" height="40" rx="3" fill="var(--moderate)" opacity="0.55"/><text x="486" y="249" text-anchor="middle" fill="var(--ink)">52</text>
+              <rect x="542" y="224" width="104" height="40" rx="3" fill="var(--moderate)" opacity="0.75"/><text x="594" y="249" text-anchor="middle" fill="var(--ink)">44</text>
+            </g>
+            <!-- scale gradient legend bottom -->
+            <defs>
+              <linearGradient id="hm-leg" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="var(--stale)"/>
+                <stop offset="0.4" stop-color="var(--moderate)"/>
+                <stop offset="0.7" stop-color="var(--recent)"/>
+                <stop offset="1" stop-color="var(--fresh)"/>
+              </linearGradient>
+            </defs>
+            <rect x="218" y="276" width="200" height="12" rx="6" fill="url(#hm-leg)"/>
+            <text x="214" y="286" text-anchor="end" class="svg-mono" font-size="10.5" fill="var(--ink-meta)">0%</text>
+            <text x="424" y="286" text-anchor="start" class="svg-mono" font-size="10.5" fill="var(--ink-meta)">100% line coverage</text>
+          </svg>
+        </div>
+        <div class="legend">
+          <span class="item"><span class="sw" style="background:var(--stale)"></span><b>&lt;40%</b> cold</span>
+          <span class="item"><span class="sw" style="background:var(--moderate)"></span><b>40–60%</b></span>
+          <span class="item"><span class="sw" style="background:var(--recent)"></span><b>60–80%</b></span>
+          <span class="item"><span class="sw" style="background:var(--fresh)"></span><b>80%+</b> covered</span>
+          <span class="item">number printed in every cell (color is never the only channel)</span>
+        </div>
+      </div>
+    </figure>
+    <figcaption><span class="cn">Coverage heatmap</span> · <b>When to use:</b> a matrix of one comparable value across two categorical axes (module × suite, endpoint × status, cohort × week). <b>How to remix:</b> each cell is a <code>&lt;rect&gt;</code> + a centered <code>&lt;text&gt;</code>; tint by mapping the value to a scale token (<code>--stale→--fresh</code>) and modulate <code>opacity</code> for magnitude. Always print the number so it degrades to a table for the color-blind.</figcaption>
+    </article>
+
+    <article class="pat" id="p-distribution-histogram">
+      <div class="pathead">
+        <span class="pno">03.3</span>
+        <h3>Distribution / histogram</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-distribution-histogram" aria-label="Permalink to the Distribution / histogram pattern">&para;</a>
+      </div>
+<p class="lead-p">Warm-toned bars over binned buckets, with a labeled x-axis and a marked median. Shows the <b>shape</b> of the data &mdash; the long tail the average hides.</p>
+    <figure class="chartcard">
+      <div class="bar"><span class="dot"></span> latency-distribution.svg &nbsp;·&nbsp; n=1,284 classifier calls</div>
+      <div class="body">
+        <div class="scroll">
+          <svg viewBox="0 0 720 280" width="100%" style="min-width:600px" role="img" aria-label="Histogram of classifier call latency across eight buckets from under 200 ms to over 2 s; median marked at 640 ms">
+            <!-- plot area: x 56..690, y 30..220 baseline 220 -->
+            <!-- y grid + labels; max count 340 -> full height 190 -->
+            <g class="svg-mono" font-size="10.5" fill="var(--ink-meta)">
+              <line x1="56" y1="220" x2="690" y2="220" stroke="var(--rule)"/>
+              <line x1="56" y1="164.4" x2="690" y2="164.4" stroke="var(--rule-soft)"/>
+              <line x1="56" y1="108.8" x2="690" y2="108.8" stroke="var(--rule-soft)"/>
+              <line x1="56" y1="53.2" x2="690" y2="53.2" stroke="var(--rule-soft)"/>
+              <text x="50" y="224" text-anchor="end">0</text>
+              <text x="50" y="168" text-anchor="end">100</text>
+              <text x="50" y="112" text-anchor="end">200</text>
+              <text x="50" y="57" text-anchor="end">300</text>
+              <text x="26" y="130" text-anchor="middle" transform="rotate(-90 26 130)" fill="var(--ink-meta)">calls</text>
+            </g>
+            <!-- bars: 8 buckets, slot width 74 from x=64, bar width 58, gap; heights from counts (max 340 -> 190px) -->
+            <!-- counts: 118,214,340,286,158,92,48,28 -> h = c/340*190 -->
+            <g fill="var(--accent)">
+              <rect x="70"  y="154.0" width="58" height="66.0"  rx="2" opacity="0.55"/>
+              <rect x="150" y="100.4" width="58" height="119.6" rx="2" opacity="0.7"/>
+              <rect x="230" y="30.0"  width="58" height="190.0" rx="2" opacity="0.9"/>
+              <rect x="310" y="60.2"  width="58" height="159.8" rx="2" opacity="0.8"/>
+              <rect x="390" y="131.7" width="58" height="88.3"  rx="2" opacity="0.62"/>
+              <rect x="470" y="168.6" width="58" height="51.4"  rx="2" opacity="0.5"/>
+              <rect x="550" y="193.2" width="58" height="26.8"  rx="2" opacity="0.42"/>
+              <rect x="630" y="204.4" width="58" height="15.6"  rx="2" opacity="0.36"/>
+            </g>
+            <!-- count labels atop bars -->
+            <g class="svg-mono" font-size="10.5" fill="var(--ink-soft)" text-anchor="middle">
+              <text x="99"  y="147">118</text>
+              <text x="179" y="93">214</text>
+              <text x="259" y="23" fill="var(--accent-ink)" font-weight="700">340</text>
+              <text x="339" y="53">286</text>
+              <text x="419" y="125">158</text>
+              <text x="499" y="162">92</text>
+              <text x="579" y="186">48</text>
+              <text x="659" y="197">28</text>
+            </g>
+            <!-- median marker at 640ms -> inside bucket 3 (500-750), approx x=339 -->
+            <line x1="345" y1="30" x2="345" y2="232" stroke="var(--fresh)" stroke-width="2" stroke-dasharray="3 3"/>
+            <text x="345" y="248" text-anchor="middle" class="svg-mono" font-size="10.5" fill="var(--fresh)" font-weight="700">median 640ms</text>
+            <!-- x axis labels -->
+            <g class="svg-mono" font-size="10" fill="var(--ink-meta)" text-anchor="middle">
+              <text x="99"  y="266">&lt;200</text>
+              <text x="179" y="266">350</text>
+              <text x="259" y="266">500</text>
+              <text x="339" y="266">750</text>
+              <text x="419" y="266">1.0k</text>
+              <text x="499" y="266">1.4k</text>
+              <text x="579" y="266">1.8k</text>
+              <text x="659" y="266">2k+</text>
+              <text x="373" y="280" fill="var(--ink-meta)">latency bucket (ms)</text>
+            </g>
+          </svg>
+        </div>
+        <div class="legend">
+          <span class="item"><span class="sw" style="background:var(--accent)"></span><b>call count</b> per latency bucket — opacity tracks height</span>
+          <span class="item"><span class="sw" style="background:var(--fresh)"></span>dashed = <b>median</b> (640ms)</span>
+          <span class="item">n = 1,284 calls · right skew, long tail past 1s</span>
+        </div>
+      </div>
+    </figure>
+    <figcaption><span class="cn">Distribution / histogram</span> · <b>When to use:</b> the spread of one continuous variable (latency, cost per call, doc page-count, score) where the shape matters more than a mean. <b>How to remix:</b> bin your data, set <code>maxCount</code>, compute each bar <code>height = count/maxCount·H</code> and <code>y = baseline−height</code>. Keep the median/threshold line — it stops the average from lying about a skewed tail.</figcaption>
+    </article>
+
+    <article class="pat" id="p-bars-in-table">
+      <div class="pathead">
+        <span class="pno">03.4</span>
+        <h3>Bars-in-table</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-bars-in-table" aria-label="Permalink to the Bars-in-table pattern">&para;</a>
+      </div>
+<p class="lead-p">A real table where one column carries an <b>inline mini-bar</b> beside the number. You get the exact digits <em>and</em> the visual ranking in the same row &mdash; no separate chart to cross-reference.</p>
+    <figure class="chartcard">
+      <div class="bar"><span class="dot"></span> rejection-domains.svg &nbsp;·&nbsp; top human-rejected sender domains (28d)</div>
+      <div class="body">
+        <div class="scroll">
+          <table class="bars">
+            <thead>
+              <tr>
+                <th>Sender domain</th>
+                <th class="barcell">Rejections &nbsp;·&nbsp; share of total</th>
+                <th class="num">Count</th>
+                <th class="num">Junk&nbsp;%</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="name">mailer.leadgenpro.com</td>
+                <td class="barcell">
+                  <svg viewBox="0 0 240 20" width="100%" height="20" preserveAspectRatio="none" role="img" aria-label="247 rejections, 100 percent of the max bar">
+                    <rect x="0" y="4" width="240" height="12" rx="3" fill="var(--card-2)"/>
+                    <rect x="0" y="4" width="240" height="12" rx="3" fill="var(--accent)" opacity="0.85"/>
+                  </svg>
+                </td>
+                <td class="num">247</td>
+                <td class="num">98</td>
+              </tr>
+              <tr>
+                <td class="name">notify.contractorhub.io</td>
+                <td class="barcell">
+                  <svg viewBox="0 0 240 20" width="100%" height="20" preserveAspectRatio="none" role="img" aria-label="181 rejections, 73 percent of the max bar">
+                    <rect x="0" y="4" width="240" height="12" rx="3" fill="var(--card-2)"/>
+                    <rect x="0" y="4" width="175.4" height="12" rx="3" fill="var(--accent)" opacity="0.75"/>
+                  </svg>
+                </td>
+                <td class="num">181</td>
+                <td class="num">95</td>
+              </tr>
+              <tr>
+                <td class="name">deals.roofingmarket.net</td>
+                <td class="barcell">
+                  <svg viewBox="0 0 240 20" width="100%" height="20" preserveAspectRatio="none" role="img" aria-label="134 rejections, 54 percent of the max bar">
+                    <rect x="0" y="4" width="240" height="12" rx="3" fill="var(--card-2)"/>
+                    <rect x="0" y="4" width="130.2" height="12" rx="3" fill="var(--accent)" opacity="0.68"/>
+                  </svg>
+                </td>
+                <td class="num">134</td>
+                <td class="num">91</td>
+              </tr>
+              <tr>
+                <td class="name">alerts.claimwatch.co</td>
+                <td class="barcell">
+                  <svg viewBox="0 0 240 20" width="100%" height="20" preserveAspectRatio="none" role="img" aria-label="88 rejections, 36 percent of the max bar, mixed domain">
+                    <rect x="0" y="4" width="240" height="12" rx="3" fill="var(--card-2)"/>
+                    <rect x="0" y="4" width="85.4" height="12" rx="3" fill="var(--moderate)" opacity="0.8"/>
+                  </svg>
+                </td>
+                <td class="num">88</td>
+                <td class="num">54</td>
+              </tr>
+              <tr>
+                <td class="name">no-reply.insureco.com</td>
+                <td class="barcell">
+                  <svg viewBox="0 0 240 20" width="100%" height="20" preserveAspectRatio="none" role="img" aria-label="52 rejections, 21 percent of the max bar, mixed domain">
+                    <rect x="0" y="4" width="240" height="12" rx="3" fill="var(--card-2)"/>
+                    <rect x="0" y="4" width="50.5" height="12" rx="3" fill="var(--moderate)" opacity="0.7"/>
+                  </svg>
+                </td>
+                <td class="num">52</td>
+                <td class="num">38</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="legend">
+          <span class="item"><span class="sw" style="background:var(--accent)"></span><b>junk-dominant</b> domain (≥80% junk-reason)</span>
+          <span class="item"><span class="sw" style="background:var(--moderate)"></span><b>mixed</b> domain — has legit mail too</span>
+          <span class="item">bar length = count ÷ max (247) · <b>Count</b> column gives exact value</span>
+        </div>
+      </div>
+    </figure>
+    <figcaption><span class="cn">Bars-in-table</span> · <b>When to use:</b> a ranked list where readers need both the exact figure and the relative magnitude (top offenders, per-item cost, leaderboard). <b>How to remix:</b> one inline <code>&lt;svg&gt;</code> per row with <code>preserveAspectRatio="none"</code> so a single track rect stretches; bar width = <code>value/max·240</code>. Color the bar by a category flag (<code>--accent</code> vs <code>--moderate</code>). Keep the number column for exactness.</figcaption>
+    </article>
+
+    <article class="pat" id="p-gauge-meter-row">
+      <div class="pathead">
+        <span class="pno">03.5</span>
+        <h3>Gauge / meter row</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-gauge-meter-row" aria-label="Permalink to the Gauge / meter row pattern">&para;</a>
+      </div>
+<p class="lead-p">A row of small radial gauges, each a <b>single KPI against its threshold</b> &mdash; green when it clears the target, amber when it's close, red when it fails. Built for a dashboard header strip.</p>
+    <figure class="chartcard">
+      <div class="bar"><span class="dot"></span> pipeline-kpis.svg &nbsp;·&nbsp; classifier gate — three targets</div>
+      <div class="body">
+        <div class="scroll">
+          <svg viewBox="0 0 720 230" width="100%" style="min-width:600px" role="img" aria-label="Three gauges: pass rate 94.2 percent passing its 90 percent target; false-positive rate 1.4 percent passing its under-2 percent target; auto-approve rate 71 percent below its 80 percent target">
+            <defs>
+              <!-- gauge track path reused via <use> would need id per; inline each -->
+            </defs>
+            <!-- GAUGE 1: PASS RATE 94.2% target >=90 -> PASS (fresh) -->
+            <!-- center 130,120 radius 66, semicircle 180deg from left(180) to right(0) -->
+            <g>
+              <!-- track: semicircle -->
+              <path d="M 64 120 A 66 66 0 0 1 196 120" fill="none" stroke="var(--card-2)" stroke-width="16" stroke-linecap="round"/>
+              <!-- value arc 94.2% of 180deg = 169.6deg. end angle from 180 down to 180-169.6=10.4deg -->
+              <!-- endpoint: cx+r*cos(10.4)= 130+66*0.9836=194.9 ; cy - r*sin(10.4)=120-66*0.1805=108.1 -->
+              <path d="M 64 120 A 66 66 0 0 1 194.9 108.1" fill="none" stroke="var(--fresh)" stroke-width="16" stroke-linecap="round"/>
+              <!-- target tick at 90% -> angle 180-162=18deg from left; point on outer: cos/sin -->
+              <!-- 90% -> 162deg swept, remaining angle=18 ; x=130+66*cos(18)=130+62.8=192.8? cos18=0.951*66=62.8 ->192.8 ; y=120-66*sin18=120-20.4=99.6. tick spans radius 58..76 -->
+              <line x1="180.8" y1="102.7" x2="204.7" y2="96.5" stroke="var(--accent)" stroke-width="2.5"/>
+              <text x="130" y="112" text-anchor="middle" class="svg-mono" font-size="30" font-weight="700" fill="var(--ink)">94.2%</text>
+              <text x="130" y="136" text-anchor="middle" class="svg-mono" font-size="12" fill="var(--ink-meta)">pass rate</text>
+              <!-- PASS badge -->
+              <rect x="96" y="150" width="68" height="22" rx="11" fill="none" stroke="var(--fresh)" stroke-width="1.5"/>
+              <text x="130" y="165" text-anchor="middle" class="svg-mono" font-size="11" font-weight="700" fill="var(--fresh)">PASS</text>
+              <text x="130" y="196" text-anchor="middle" class="svg-mono" font-size="10.5" fill="var(--ink-meta)">target ≥ 90%</text>
+            </g>
+            <!-- GAUGE 2: FP RATE 1.4% target <2 -> PASS. scale 0..5%, value 1.4/5=28% of arc -->
+            <g>
+              <path d="M 294 120 A 66 66 0 0 1 426 120" fill="none" stroke="var(--card-2)" stroke-width="16" stroke-linecap="round"/>
+              <!-- 28% of 180 = 50.4deg swept ; remaining=129.6 ; endpoint x=360+66*cos(129.6)=360+66*(-0.6374)=317.9 ; y=120-66*sin(129.6)=120-66*0.7705=69.1 -->
+              <path d="M 294 120 A 66 66 0 0 1 317.9 69.1" fill="none" stroke="var(--fresh)" stroke-width="16" stroke-linecap="round"/>
+              <!-- target 2% -> 40% of arc =72deg swept ; remaining=108 ; x=360+66*cos108=360+66*(-0.309)=339.6 ; y=120-66*sin108=120-66*0.951=57.2 ; tick radius 58..76 -->
+              <line x1="342.1" y1="63.4" x2="337.1" y2="51.0" stroke="var(--accent)" stroke-width="2.5"/>
+              <text x="360" y="112" text-anchor="middle" class="svg-mono" font-size="30" font-weight="700" fill="var(--ink)">1.4%</text>
+              <text x="360" y="136" text-anchor="middle" class="svg-mono" font-size="12" fill="var(--ink-meta)">false-positive</text>
+              <rect x="326" y="150" width="68" height="22" rx="11" fill="none" stroke="var(--fresh)" stroke-width="1.5"/>
+              <text x="360" y="165" text-anchor="middle" class="svg-mono" font-size="11" font-weight="700" fill="var(--fresh)">PASS</text>
+              <text x="360" y="196" text-anchor="middle" class="svg-mono" font-size="10.5" fill="var(--ink-meta)">target &lt; 2%</text>
+            </g>
+            <!-- GAUGE 3: AUTO-APPROVE 71% target >=80 -> FAIL (moderate, close) scale 0..100 -->
+            <g>
+              <path d="M 524 120 A 66 66 0 0 1 656 120" fill="none" stroke="var(--card-2)" stroke-width="16" stroke-linecap="round"/>
+              <!-- 71% of 180=127.8 swept ; remaining=52.2 ; endpoint x=590+66*cos52.2=590+66*0.6129=630.5 ; y=120-66*sin52.2=120-66*0.7902=67.8 -->
+              <path d="M 524 120 A 66 66 0 0 1 630.5 67.8" fill="none" stroke="var(--moderate)" stroke-width="16" stroke-linecap="round"/>
+              <!-- target 80% -> 144 swept ; remaining=36 ; x=590+66*cos36=590+53.4=643.4 ; y=120-66*sin36=120-38.8=81.2 -->
+              <line x1="640.9" y1="88.5" x2="653.3" y2="81.4" stroke="var(--accent)" stroke-width="2.5"/>
+              <text x="590" y="112" text-anchor="middle" class="svg-mono" font-size="30" font-weight="700" fill="var(--ink)">71%</text>
+              <text x="590" y="136" text-anchor="middle" class="svg-mono" font-size="12" fill="var(--ink-meta)">auto-approve</text>
+              <rect x="552" y="150" width="76" height="22" rx="11" fill="none" stroke="var(--defect)" stroke-width="1.5"/>
+              <text x="590" y="165" text-anchor="middle" class="svg-mono" font-size="11" font-weight="700" fill="var(--defect)">BELOW</text>
+              <text x="590" y="196" text-anchor="middle" class="svg-mono" font-size="10.5" fill="var(--ink-meta)">target ≥ 80%</text>
+            </g>
+          </svg>
+        </div>
+        <div class="legend">
+          <span class="item"><span class="sw round" style="background:var(--fresh)"></span><b>PASS</b> — clears its target</span>
+          <span class="item"><span class="sw round" style="background:var(--moderate)"></span><b>close</b> — within margin</span>
+          <span class="item"><span class="sw round" style="background:var(--defect)"></span><b>BELOW</b> — fails target</span>
+          <span class="item"><span class="sw" style="background:var(--accent)"></span>tick = <b>threshold</b> on each dial</span>
+        </div>
+      </div>
+    </figure>
+    <figcaption><span class="cn">Gauge / meter row</span> · <b>When to use:</b> a header strip of 2–4 headline KPIs each judged against a fixed target (pass rate, FP rate, auto-approve, SLA). <b>How to remix:</b> each gauge is a 180° track path + a value arc; sweep angle = <code>value/scaleMax·180°</code>, compute the arc endpoint with <code>cos/sin</code>, drop a threshold tick at the target angle, and pick the arc color by comparing value to target (<code>--fresh</code>/<code>--moderate</code>/<code>--defect</code>). Print the number big — the dial is the context, the digit is the fact.</figcaption>
+    </article>
+  </section>
+  <section id="fam-annotated" class="fam fam-annotated">
+    <div class="sechead"><span class="no">&sect;&nbsp;04</span><h2>Annotated evidence</h2><span class="fill"></span></div>
+    <p class="sec-sub">Four ways to point at the part of an exhibit that carries the proof. The shared discipline: every cross-reference is anchored by a <b>shared number</b> or by in-<code>viewBox</code> geometry, never by a page coordinate that reflow can break. &mdash; <b>4 patterns</b>.</p>
+
+    <article class="pat" id="p-callout-pins">
+      <div class="pathead">
+        <span class="pno">04.1</span>
+        <h3>Callout-pins overlay</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-callout-pins" aria-label="Permalink to the Callout-pins overlay pattern">&para;</a>
+      </div>
+<p class="patname">Numbered pins → keyed list</p>
+    <p class="principle"><span class="lead">Principle</span>Drop numbered pins on the regions that matter, then decode each below in a keyed list. Pins and list <b>share their numbers by construction</b> (CSS counters, one per list) and are <b>two-way linked</b>: click a pin to highlight its note, click a note badge to jump back to its pin. Percentage-positioned pins ride the image on any width.</p>
+
+    <div class="exhibit">
+      <div class="pinstage">
+        <!-- placeholder exhibit: a mock "claim detail" screenshot -->
+        <svg class="figsvg" viewBox="0 0 800 460" role="img" aria-label="Placeholder screenshot of a claim detail screen with four annotated regions">
+          <rect width="800" height="460" fill="var(--card-2)"/>
+          <!-- window title bar -->
+          <rect x="0" y="0" width="800" height="34" fill="var(--card)"/>
+          <circle cx="20" cy="17" r="5" fill="var(--stale)"/><circle cx="38" cy="17" r="5" fill="var(--stale)"/><circle cx="56" cy="17" r="5" fill="var(--stale)"/>
+          <rect x="86" y="10" width="360" height="14" rx="7" fill="var(--card-2)"/>
+          <line x1="0" y1="34" x2="800" y2="34" stroke="var(--rule)" stroke-width="1"/>
+          <!-- left nav -->
+          <rect x="0" y="34" width="150" height="426" fill="var(--card)"/>
+          <rect x="18" y="58" width="110" height="10" rx="5" fill="var(--rule)"/>
+          <rect x="18" y="82" width="88" height="10" rx="5" fill="var(--rule)"/>
+          <rect x="18" y="106" width="100" height="10" rx="5" fill="var(--accent-soft)"/>
+          <rect x="18" y="130" width="76" height="10" rx="5" fill="var(--rule)"/>
+          <line x1="150" y1="34" x2="150" y2="460" stroke="var(--rule)" stroke-width="1"/>
+          <!-- header block (region 1: carrier badge) -->
+          <rect x="176" y="58" width="220" height="18" rx="4" fill="var(--rule)"/>
+          <rect x="620" y="54" width="150" height="26" rx="13" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="1"/>
+          <rect x="636" y="63" width="118" height="9" rx="4" fill="var(--accent)" opacity="0.55"/>
+          <!-- key facts strip (region 2) -->
+          <rect x="176" y="104" width="594" height="70" rx="4" fill="var(--card)" stroke="var(--rule)"/>
+          <rect x="192" y="120" width="70" height="9" rx="4" fill="var(--ink-faint)" opacity="0.5"/>
+          <rect x="192" y="140" width="120" height="12" rx="4" fill="var(--rule)"/>
+          <rect x="360" y="120" width="70" height="9" rx="4" fill="var(--ink-faint)" opacity="0.5"/>
+          <rect x="360" y="140" width="120" height="12" rx="4" fill="var(--rule)"/>
+          <rect x="540" y="120" width="70" height="9" rx="4" fill="var(--ink-faint)" opacity="0.5"/>
+          <rect x="540" y="140" width="120" height="12" rx="4" fill="var(--rule)"/>
+          <!-- table (region 3: coverage row) -->
+          <rect x="176" y="196" width="594" height="240" rx="4" fill="var(--card)" stroke="var(--rule)"/>
+          <line x1="176" y1="230" x2="770" y2="230" stroke="var(--rule)" stroke-width="1"/>
+          <rect x="192" y="209" width="90" height="9" rx="4" fill="var(--ink-faint)" opacity="0.55"/>
+          <rect x="420" y="209" width="90" height="9" rx="4" fill="var(--ink-faint)" opacity="0.55"/>
+          <rect x="640" y="209" width="90" height="9" rx="4" fill="var(--ink-faint)" opacity="0.55"/>
+          <!-- highlighted coverage row -->
+          <rect x="177" y="231" width="592" height="34" fill="var(--accent-soft)" opacity="0.6"/>
+          <rect x="192" y="243" width="150" height="10" rx="4" fill="var(--rule)"/>
+          <rect x="420" y="243" width="90" height="10" rx="4" fill="var(--rule)"/>
+          <rect x="640" y="243" width="70" height="10" rx="4" fill="var(--accent)" opacity="0.5"/>
+          <rect x="192" y="279" width="150" height="10" rx="4" fill="var(--rule)"/><rect x="420" y="279" width="90" height="10" rx="4" fill="var(--rule)"/><rect x="640" y="279" width="70" height="10" rx="4" fill="var(--rule)"/>
+          <rect x="192" y="313" width="150" height="10" rx="4" fill="var(--rule)"/><rect x="420" y="313" width="90" height="10" rx="4" fill="var(--rule)"/><rect x="640" y="313" width="70" height="10" rx="4" fill="var(--rule)"/>
+          <rect x="192" y="347" width="150" height="10" rx="4" fill="var(--rule)"/><rect x="420" y="347" width="90" height="10" rx="4" fill="var(--rule)"/><rect x="640" y="347" width="70" height="10" rx="4" fill="var(--rule)"/>
+          <!-- footer total (region 4) -->
+          <rect x="540" y="398" width="216" height="26" rx="4" fill="var(--card-2)" stroke="var(--rule)"/>
+          <rect x="556" y="406" width="80" height="10" rx="4" fill="var(--ink-faint)" opacity="0.5"/>
+          <rect x="676" y="406" width="64" height="10" rx="4" fill="var(--accent)" opacity="0.5"/>
+        </svg>
+        <!-- pin overlay: percentage-positioned so it rides the image at any width -->
+        <div class="pinlayer">
+          <a class="pin" id="pin-1" href="#co-1" style="left:87.5%; top:14.5%" aria-label="Pin 1 — carrier badge"></a>
+          <a class="pin" id="pin-2" href="#co-2" style="left:35%; top:30.5%" aria-label="Pin 2 — key facts strip"></a>
+          <a class="pin" id="pin-3" href="#co-3" style="left:24%; top:54%" aria-label="Pin 3 — matched coverage row"></a>
+          <a class="pin" id="pin-4" href="#co-4" style="left:88%; top:89%" aria-label="Pin 4 — computed total"></a>
+        </div>
+      </div>
+      <div class="exhibit-cap"><span class="ph">Placeholder</span> ‹ real render goes here — swap for a <code>data:</code>-URI screenshot / PDF page › &nbsp;·&nbsp; mock of a claim-detail screen</div>
+    </div>
+
+    <ol class="keyed" aria-label="Pin key">
+      <li id="co-1"><a class="kbadge" href="#pin-1" aria-label="Back to pin 1"></a>
+        <span class="kt">Carrier badge resolved from the NAIC entity</span>
+        <span class="kd">The pill top-right renders only when a <code>claimCompany</code> carrier row exists — proof the extraction wired the entity, not just stored text.</span></li>
+      <li id="co-2"><a class="kbadge" href="#pin-2" aria-label="Back to pin 2"></a>
+        <span class="kt">Key-facts strip is fully populated</span>
+        <span class="kd">Date of loss, policy number, and peril all landed — no <code>—</code> placeholders, meaning the snapshot materialized cleanly.</span></li>
+      <li id="co-3"><a class="kbadge" href="#pin-3" aria-label="Back to pin 3"></a>
+        <span class="kt">Matched coverage row (tinted)</span>
+        <span class="kd">The Layer-4 identifier match highlights the exact row; the tint colour is keyed in the colophon legend below.</span></li>
+      <li id="co-4"><a class="kbadge" href="#pin-4" aria-label="Back to pin 4"></a>
+        <span class="kt">Total recomputed on the client</span>
+        <span class="kd">The footer figure is summed from visible rows, not read from the PDF — the regression this exhibit proves fixed.</span></li>
+    </ol>
+
+    <div class="remix">
+      <p><span class="rk">When to use</span>A busy exhibit where <b>several separate spots</b> each need a sentence — a full screen, a dense form, a multi-region PDF page.</p>
+      <p><span class="rk">How to remix</span>Swap the placeholder <code>&lt;svg&gt;</code> for your real <code>&lt;img src="data:…"&gt;</code> render (keep it inside <code>.pinstage</code>). Move each <code>.pin</code> by editing its <code>left/top</code> percentages — they track the image on reflow. Add or drop a pin + its <code>&lt;li&gt;</code> together; the counters renumber both automatically.</p>
+    </div>
+    </article>
+
+    <article class="pat" id="p-leader-lines">
+      <div class="pathead">
+        <span class="pno">04.2</span>
+        <h3>Leader-line margin annotations</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-leader-lines" aria-label="Permalink to the Leader-line margin annotations pattern">&para;</a>
+      </div>
+<p class="patname">In-SVG leaders → margin notes, tied by number</p>
+    <p class="principle"><span class="lead">Principle</span>Annotations sit in the margin, connected to the exhibit by leader lines. The durable lesson from the composition page: <b>fixed-coordinate leader lines break on reflow</b>. So the lines are drawn <b>inside the exhibit SVG</b> (viewBox coordinates — they scale with the image, never desync), ending at numbered tabs at the edge. The margin note carries the <b>same number badge</b> — that badge is the real anchor. Stack the layout and the notes still map by number; nothing dangles.</p>
+
+    <div class="marginlay">
+      <div class="exwrap">
+        <div class="exhibit">
+          <svg class="figsvg" viewBox="0 0 640 460" role="img" aria-label="Placeholder PDF page with three in-SVG leader lines pointing to numbered edge tabs">
+            <rect width="640" height="460" fill="var(--card)"/>
+            <!-- page frame -->
+            <rect x="40" y="24" width="470" height="412" rx="2" fill="var(--card-2)" stroke="var(--rule)"/>
+            <!-- doc title -->
+            <rect x="66" y="52" width="240" height="16" rx="4" fill="var(--rule)"/>
+            <rect x="66" y="80" width="150" height="9" rx="4" fill="var(--ink-faint)" opacity="0.45"/>
+            <!-- body paragraphs -->
+            <rect x="66" y="118" width="418" height="8" rx="4" fill="var(--rule)"/>
+            <rect x="66" y="134" width="418" height="8" rx="4" fill="var(--rule)"/>
+            <rect x="66" y="150" width="360" height="8" rx="4" fill="var(--rule)"/>
+            <!-- region A: a signature / date block -->
+            <rect x="66" y="182" width="200" height="44" rx="3" fill="var(--card)" stroke="var(--accent)" stroke-dasharray="4 3"/>
+            <rect x="80" y="196" width="120" height="9" rx="4" fill="var(--accent)" opacity="0.5"/>
+            <rect x="80" y="211" width="70" height="7" rx="3" fill="var(--ink-faint)" opacity="0.5"/>
+            <!-- more body -->
+            <rect x="66" y="250" width="418" height="8" rx="4" fill="var(--rule)"/>
+            <rect x="66" y="266" width="418" height="8" rx="4" fill="var(--rule)"/>
+            <!-- region B: a stamped number -->
+            <rect x="300" y="298" width="184" height="28" rx="3" fill="var(--accent-soft)"/>
+            <rect x="314" y="308" width="120" height="9" rx="4" fill="var(--accent)" opacity="0.55"/>
+            <!-- region C: footer total -->
+            <rect x="66" y="360" width="418" height="8" rx="4" fill="var(--rule)"/>
+            <rect x="330" y="392" width="154" height="24" rx="3" fill="var(--card)" stroke="var(--rule)"/>
+            <rect x="344" y="400" width="60" height="9" rx="4" fill="var(--ink-faint)" opacity="0.5"/>
+            <rect x="430" y="400" width="42" height="9" rx="4" fill="var(--accent)" opacity="0.5"/>
+
+            <!-- ── leader lines: viewBox coordinates → scale with the image, reflow-safe ── -->
+            <g stroke="var(--accent)" stroke-width="1.4" fill="none" opacity="0.6">
+              <path d="M266 204 C 400 204, 470 60, 566 60" stroke-dasharray="2 3"/>
+              <path d="M484 312 C 520 312, 536 210, 566 210" stroke-dasharray="2 3"/>
+              <path d="M484 404 C 520 404, 540 360, 566 360" stroke-dasharray="2 3"/>
+            </g>
+            <!-- anchor dots on each region -->
+            <circle cx="266" cy="204" r="3.2" fill="var(--accent)"/>
+            <circle cx="484" cy="312" r="3.2" fill="var(--accent)"/>
+            <circle cx="484" cy="404" r="3.2" fill="var(--accent)"/>
+            <!-- numbered edge tabs -->
+            <g font-family="ui-monospace,Menlo,monospace" font-size="14" font-weight="700" text-anchor="middle">
+              <circle cx="566" cy="60" r="14" fill="var(--accent)" stroke="var(--card)" stroke-width="2"/>
+              <text x="566" y="65" fill="#fff5ee">1</text>
+              <circle cx="566" cy="210" r="14" fill="var(--accent)" stroke="var(--card)" stroke-width="2"/>
+              <text x="566" y="215" fill="#fff5ee">2</text>
+              <circle cx="566" cy="360" r="14" fill="var(--accent)" stroke="var(--card)" stroke-width="2"/>
+              <text x="566" y="365" fill="#fff5ee">3</text>
+            </g>
+          </svg>
+          <div class="exhibit-cap"><span class="ph">Placeholder</span> ‹ real render goes here › &nbsp;·&nbsp; mock of a PDF page; leader lines drawn <b>in-SVG</b> so they can't desync</div>
+        </div>
+        <p class="reflownote">↕ Narrow the window: notes drop below, leaders stay pinned to the page. The <b>number</b> is the anchor.</p>
+      </div>
+
+      <div class="mnotes" aria-label="Margin annotations">
+        <div class="mnote"><span class="mb">1</span><div>
+          <div class="mt">Signed &amp; dated in ink</div>
+          <div class="md">The LOR block carries a handwritten signature and a date within the loss window — the manual-review gate this page clears.</div>
+        </div></div>
+        <div class="mnote"><span class="mb">2</span><div>
+          <div class="mt">Carrier claim # stamped</div>
+          <div class="md">Matches <code>claim.claim_number</code> exactly (not a fabricated <code>CLM-…</code> placeholder) — a real carrier-assigned value.</div>
+        </div></div>
+        <div class="mnote"><span class="mb">3</span><div>
+          <div class="mt">Total ties to the coverage snapshot</div>
+          <div class="md">Footer figure equals the sum on the Policies tab to the cent — extraction and UI agree.</div>
+        </div></div>
+      </div>
+    </div>
+
+    <div class="remix">
+      <p><span class="rk">When to use</span>A tall exhibit (a full PDF page, a long form) where notes want room to breathe in the margin rather than crammed on the image.</p>
+      <p><span class="rk">How to remix</span>Author the leader lines <b>inside your exhibit SVG</b> in its own <code>viewBox</code> units — never as absolute page pixels — so they ride the image forever. End each at a numbered tab; give the margin <code>.mnote</code> the matching <code>.mb</code> number. If your real render is a raster <code>&lt;img&gt;</code>, keep a thin transparent <code>&lt;svg&gt;</code> overlay on top for the leaders and drop the tabs onto it.</p>
+    </div>
+    </article>
+
+    <article class="pat" id="p-crop-zoom">
+      <div class="pathead">
+        <span class="pno">04.3</span>
+        <h3>Highlighted-region crop + zoom</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-crop-zoom" aria-label="Permalink to the Highlighted-region crop + zoom pattern">&para;</a>
+      </div>
+<p class="patname">Tinted region of interest → magnified detail call</p>
+    <p class="principle"><span class="lead">Principle</span>Show the whole exhibit for context, tint the <b>one region</b> that carries the proof, then re-draw that region enlarged as a <b>detail call</b> beside it — the way a field guide crops a wing. The tint is a keyed colour (see legend); the detail inset repeats the exact region so the reader can verify the small print without squinting.</p>
+
+    <div class="cropwrap">
+      <div class="exwrap">
+        <div class="exhibit">
+          <svg class="figsvg" viewBox="0 0 620 440" role="img" aria-label="Placeholder estimate render with one region of interest tinted">
+            <rect width="620" height="440" fill="var(--card-2)"/>
+            <rect x="0" y="0" width="620" height="32" fill="var(--card)"/>
+            <circle cx="18" cy="16" r="4.5" fill="var(--stale)"/><circle cx="34" cy="16" r="4.5" fill="var(--stale)"/><circle cx="50" cy="16" r="4.5" fill="var(--stale)"/>
+            <line x1="0" y1="32" x2="620" y2="32" stroke="var(--rule)"/>
+            <!-- estimate lines -->
+            <rect x="34" y="58" width="260" height="14" rx="4" fill="var(--rule)"/>
+            <rect x="34" y="96" width="552" height="8" rx="4" fill="var(--rule)"/>
+            <rect x="34" y="114" width="552" height="8" rx="4" fill="var(--rule)"/>
+            <rect x="34" y="132" width="430" height="8" rx="4" fill="var(--rule)"/>
+            <!-- a line-item table -->
+            <rect x="34" y="168" width="552" height="150" rx="3" fill="var(--card)" stroke="var(--rule)"/>
+            <line x1="34" y1="198" x2="586" y2="198" stroke="var(--rule)"/>
+            <rect x="50" y="178" width="120" height="8" rx="4" fill="var(--ink-faint)" opacity="0.5"/>
+            <rect x="430" y="178" width="90" height="8" rx="4" fill="var(--ink-faint)" opacity="0.5"/>
+            <rect x="50" y="212" width="180" height="8" rx="4" fill="var(--rule)"/><rect x="430" y="212" width="90" height="8" rx="4" fill="var(--rule)"/>
+            <rect x="50" y="240" width="180" height="8" rx="4" fill="var(--rule)"/><rect x="430" y="240" width="90" height="8" rx="4" fill="var(--rule)"/>
+            <rect x="50" y="268" width="180" height="8" rx="4" fill="var(--rule)"/><rect x="430" y="268" width="90" height="8" rx="4" fill="var(--rule)"/>
+            <!-- region of interest: the mismatched subtotal near the bottom -->
+            <rect x="360" y="352" width="226" height="58" rx="4"
+                  fill="color-mix(in srgb,var(--accent) 16%,transparent)"
+                  stroke="var(--accent)" stroke-width="2"/>
+            <rect x="376" y="366" width="90" height="9" rx="4" fill="var(--ink-faint)" opacity="0.55"/>
+            <rect x="486" y="366" width="84" height="9" rx="4" fill="var(--accent)" opacity="0.6"/>
+            <rect x="376" y="388" width="70" height="8" rx="4" fill="var(--ink-faint)" opacity="0.45"/>
+            <rect x="486" y="388" width="84" height="9" rx="4" fill="var(--defect)" opacity="0.55"/>
+            <!-- ROI corner label -->
+            <circle cx="360" cy="352" r="11" fill="var(--accent)" stroke="var(--card)" stroke-width="2"/>
+            <text x="360" y="356" font-family="ui-monospace,Menlo,monospace" font-size="11" font-weight="700" fill="#fff5ee" text-anchor="middle">★</text>
+          </svg>
+          <div class="exhibit-cap"><span class="ph">Placeholder</span> ‹ real render goes here › &nbsp;·&nbsp; full estimate; ★ marks the region magnified at right</div>
+        </div>
+      </div>
+
+      <div class="detailcol">
+        <p class="detail-h">★ Detail · 3.2×</p>
+        <div class="exhibit">
+          <svg class="figsvg" viewBox="0 0 300 210" role="img" aria-label="Magnified detail of the tinted region showing the subtotal mismatch">
+            <rect width="300" height="210" fill="color-mix(in srgb,var(--accent) 10%,var(--card))"/>
+            <rect x="1" y="1" width="298" height="208" fill="none" stroke="var(--accent)" stroke-width="2"/>
+            <!-- enlarged rows -->
+            <rect x="24" y="34" width="150" height="16" rx="4" fill="var(--ink-faint)" opacity="0.5"/>
+            <rect x="196" y="34" width="80" height="16" rx="4" fill="var(--ink)" opacity="0.55"/>
+            <line x1="24" y1="74" x2="276" y2="74" stroke="var(--rule)"/>
+            <!-- the mismatch -->
+            <rect x="24" y="96" width="120" height="15" rx="4" fill="var(--ink-faint)" opacity="0.5"/>
+            <rect x="196" y="94" width="80" height="20" rx="4" fill="var(--defect-bg)" stroke="var(--defect)"/>
+            <text x="236" y="109" font-family="ui-monospace,Menlo,monospace" font-size="13" font-weight="700" fill="var(--defect)" text-anchor="middle">≠</text>
+            <rect x="24" y="140" width="150" height="12" rx="4" fill="var(--ink-faint)" opacity="0.4"/>
+            <rect x="196" y="140" width="80" height="14" rx="4" fill="var(--accent)" opacity="0.5"/>
+            <text x="150" y="188" font-family="ui-monospace,Menlo,monospace" font-size="12" fill="var(--defect)" text-anchor="middle">line sum ≠ printed subtotal</text>
+          </svg>
+          <div class="exhibit-cap"><span class="ph">Placeholder</span> ‹ magnified crop of the same region ›</div>
+        </div>
+        <div class="roilegend">
+          <span><span class="sw" style="background:color-mix(in srgb,var(--accent) 22%,transparent); border:1px solid var(--accent)"></span><b>region of interest</b></span>
+          <span><span class="sw" style="background:var(--defect-bg); border:1px solid var(--defect)"></span><b>defect value</b></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="remix">
+      <p><span class="rk">When to use</span>The proof lives in <b>small print</b> — a subtotal, a timestamp, a single mismatched cell — that would be illegible at full-page scale.</p>
+      <p><span class="rk">How to remix</span>Tint the ROI with a keyed colour (<code>color-mix(… var(--accent) …)</code>) and legend it. For the detail call, crop the <b>same</b> region of your real render (a second <code>data:</code>-URI cropped tighter, or an SVG <code>viewBox</code> that windows into the region) — never a re-drawn fake. State the magnification (<code>3.2×</code>) so the crop stays honest.</p>
+    </div>
+    </article>
+
+    <article class="pat" id="p-spec-rail">
+      <div class="pathead">
+        <span class="pno">04.4</span>
+        <h3>Spec-rail annotated exhibit</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-spec-rail" aria-label="Permalink to the Spec-rail annotated exhibit pattern">&para;</a>
+      </div>
+<p class="patname">Exhibit + docked apparatus rail of facts &amp; measurements</p>
+    <p class="principle"><span class="lead">Principle</span>The exhibit holds the main column; a docked <b>apparatus rail</b> runs the measurements beside it — dimensions, extracted values, thresholds, provenance — set in recessive mono so it reads like the margin of an engineering drawing. Small anchor marks on the exhibit key into the rail rows. Provenance is honest per row: <span class="prov here">checked-here</span> vs <span class="prov up">trusted-upstream</span>.</p>
+
+    <div class="specstage">
+      <div class="exwrap">
+        <div class="exhibit">
+          <svg class="figsvg" viewBox="0 0 560 440" role="img" aria-label="Placeholder overlay render with dimension anchors keyed to a spec rail">
+            <rect width="560" height="440" fill="var(--card-2)"/>
+            <!-- the render subject: a bounding-box overlay on a floor plan -->
+            <rect x="40" y="36" width="480" height="368" rx="2" fill="var(--card)" stroke="var(--rule)"/>
+            <!-- detected region box (the extraction result) -->
+            <rect x="120" y="110" width="300" height="180" fill="none" stroke="var(--accent)" stroke-width="2" stroke-dasharray="6 4"/>
+            <rect x="120" y="110" width="300" height="180" fill="color-mix(in srgb,var(--accent) 7%,transparent)"/>
+            <!-- inner detected cells -->
+            <rect x="140" y="132" width="120" height="60" rx="2" fill="var(--card-2)" stroke="var(--rule)"/>
+            <rect x="280" y="132" width="120" height="60" rx="2" fill="var(--card-2)" stroke="var(--rule)"/>
+            <rect x="140" y="210" width="260" height="60" rx="2" fill="var(--card-2)" stroke="var(--rule)"/>
+            <!-- width dimension line (anchor A) -->
+            <g stroke="var(--accent-ink)" stroke-width="1.2">
+              <line x1="120" y1="322" x2="420" y2="322"/>
+              <line x1="120" y1="316" x2="120" y2="328"/>
+              <line x1="420" y1="316" x2="420" y2="328"/>
+            </g>
+            <circle cx="270" cy="322" r="11" fill="var(--accent)" stroke="var(--card)" stroke-width="2"/>
+            <text x="270" y="326" font-family="ui-monospace,Menlo,monospace" font-size="12" font-weight="700" fill="#fff5ee" text-anchor="middle">A</text>
+            <!-- height dimension line (anchor B) -->
+            <g stroke="var(--accent-ink)" stroke-width="1.2">
+              <line x1="446" y1="110" x2="446" y2="290"/>
+              <line x1="440" y1="110" x2="452" y2="110"/>
+              <line x1="440" y1="290" x2="452" y2="290"/>
+            </g>
+            <circle cx="446" cy="200" r="11" fill="var(--accent)" stroke="var(--card)" stroke-width="2"/>
+            <text x="446" y="204" font-family="ui-monospace,Menlo,monospace" font-size="12" font-weight="700" fill="#fff5ee" text-anchor="middle">B</text>
+            <!-- confidence anchor C on the box corner -->
+            <circle cx="120" cy="110" r="11" fill="var(--accent)" stroke="var(--card)" stroke-width="2"/>
+            <text x="120" y="114" font-family="ui-monospace,Menlo,monospace" font-size="12" font-weight="700" fill="#fff5ee" text-anchor="middle">C</text>
+          </svg>
+          <div class="exhibit-cap"><span class="ph">Placeholder</span> ‹ real render goes here › &nbsp;·&nbsp; detected-region overlay; A/B/C key into the rail →</div>
+        </div>
+      </div>
+
+      <aside class="apparatus" aria-label="Apparatus rail — measurements and provenance">
+        <div class="app-head"><span class="dot"></span> Apparatus rail</div>
+        <div class="specrail">
+          <div class="sr"><span class="sk"><span class="amark">A</span>width</span><span class="sv"><b>300 px</b> · 24.6 ft @ scale</span></div>
+          <div class="sr"><span class="sk"><span class="amark">B</span>height</span><span class="sv"><b>180 px</b> · 14.8 ft @ scale</span></div>
+          <div class="sr"><span class="sk"><span class="amark">C</span>confidence</span><span class="sv"><b>0.94</b> · above 0.70 gate</span></div>
+          <div class="sr"><span class="sk">cells</span><span class="sv"><b>3</b> detected · 3 expected</span></div>
+          <div class="sr"><span class="sk">iou</span><span class="sv"><b>0.91</b> vs golden bbox</span></div>
+          <div class="sr"><span class="sk">source</span><span class="sv"><code>extract-layout.ts:212</code></span></div>
+          <div class="sr"><span class="sk">measured</span><span class="sv"><span class="prov here">checked-here</span></span></div>
+          <div class="sr"><span class="sk">scale</span><span class="sv"><span class="prov up">trusted-upstream</span></span></div>
+          <div class="sr"><span class="sk">as-of</span><span class="sv"><b>2026-07-31</b></span></div>
+        </div>
+      </aside>
+    </div>
+
+    <div class="remix">
+      <p><span class="rk">When to use</span>The exhibit <b>is</b> a measurement — a bounding-box overlay, a layout extraction, a diff render — and the numbers behind it are the proof.</p>
+      <p><span class="rk">How to remix</span>Drop <code>A/B/C</code> anchor marks on your real render at the points being measured, and give each a matching <code>.sr</code> row in the rail. Keep the rail in mono so it recedes. Tag every row's provenance honestly — a re-measured value is <span class="prov here">checked-here</span>; a value carried from the finding is <span class="prov up">trusted-upstream</span>. On narrow screens the rail simply drops below the exhibit.</p>
+    </div>
+    </article>
+
+    <article class="pat famkey" id="key-annotated">
+      <div class="pathead">
+        <span class="pno">key</span>
+        <h3>Colophon — reading the annotations</h3>
+        <span class="fill"></span>
+      </div>
+<div class="colo-grid">
+      <div class="legend">
+        <h3>Legend — every mark encodes a fact</h3>
+        <div class="row"><span class="sw round" style="background:var(--accent)"></span><b>numbered pin / tab / anchor</b> — points to a keyed note</div>
+        <div class="row"><span class="sw" style="background:color-mix(in srgb,var(--accent) 22%,transparent); border:1px solid var(--accent)"></span><b>region of interest</b> — the area under discussion</div>
+        <div class="row"><span class="sw" style="background:var(--defect-bg); border:1px solid var(--defect)"></span><b>defect value</b> — the thing shown wrong</div>
+        <div class="row"><span class="sw" style="background:var(--accent-soft); border:1px solid var(--accent)"></span><b>match / resolved</b> — a positive result</div>
+        <div class="row" style="margin-top:8px; padding-top:12px; border-top:1px solid var(--rule)"><span class="sw round" style="background:var(--accent)"></span><b>checked-here</b> — re-verified on this page</div>
+        <div class="row"><span class="sw round outline"></span><b>trusted-upstream</b> — carried from the finding</div>
+      </div>
+      <div class="honesty">
+        <h3>Honesty summary</h3>
+        <p><b>Every exhibit here is a placeholder.</b> The gray-box renders are hand-authored <code>&lt;svg&gt;</code> mocks, each captioned <code>‹ real render goes here ›</code> — they show <b>where</b> the real asset sits and <b>how</b> the annotation system attaches, nothing more. Never ship a faked screenshot; swap in the actual <code>data:</code>-URI render.</p>
+        <p><b>The annotations are the deliverable.</b> Pins, leader lines, region crops, and the spec rail are production-ready — they inherit Warm Print at the token level and work zero-JS in any browser.</p>
+        <p class="note"><b>Reflow discipline:</b> pins ride the image on percentages; leader lines live inside the exhibit <code>viewBox</code>; every cross-reference is anchored by a <b>shared number</b>, not a page coordinate. Stack the layout on a phone and nothing dangles.</p>
+      </div>
+    </div>
+    </article>
+  </section>
+  <section id="fam-narrative" class="fam fam-narrative">
+    <div class="sechead"><span class="no">&sect;&nbsp;05</span><h2>Narrative / timeline</h2><span class="fill"></span></div>
+    <p class="sec-sub">Four ways to walk the reader through a sequence — a chronology, a run, a three-beat story, or a left-to-right march through named phases. &mdash; <b>4 patterns</b>.</p>
+
+    <article class="pat" id="p-vertical-timeline">
+      <div class="pathead">
+        <span class="pno">05.1</span>
+        <h3>Vertical timeline — dated events down a spine</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-vertical-timeline" aria-label="Permalink to the Vertical timeline — dated events down a spine pattern">&para;</a>
+      </div>
+<div class="cap">
+      <span class="ck">Name</span><span class="cv name">The Recency Spine</span>
+      <span class="ck">When</span><span class="cv">A chronology where <b>how recently</b> each event fired matters — an incident history, a ticket's life, a data-drift trail. Milestones punctuate the run.</span>
+      <span class="ck">Remix</span><span class="cv">Swap dates + copy; set each node/card class to a recency bucket (<code>fresh</code>…<code>stale</code>, <code>unknown</code>) or drop recency and use <code>milestone</code> only. Node = <code>&lt;svg&gt;</code> or CSS circle; the spine is a pseudo-element.</span>
+    </div>
+
+    <div class="tl-legend" role="img" aria-label="Recency legend: fresh under 24 hours, recent under 7 days, moderate under 30 days, stale over 30 days, unknown, and milestone">
+      <span class="li"><span class="dot" style="background:var(--fresh)"></span><b>Fresh</b>&nbsp;<span class="lgd-lbl">&lt;24h</span></span>
+      <span class="li"><span class="dot" style="background:var(--recent)"></span><b>Recent</b>&nbsp;<span class="lgd-lbl">&lt;7d</span></span>
+      <span class="li"><span class="dot" style="background:var(--moderate)"></span><b>Moderate</b>&nbsp;<span class="lgd-lbl">&lt;30d</span></span>
+      <span class="li"><span class="dot" style="background:var(--stale)"></span><b>Stale</b>&nbsp;<span class="lgd-lbl">&gt;30d</span></span>
+      <span class="li"><span class="dot outline"></span><b>Unknown</b>&nbsp;<span class="lgd-lbl">no date</span></span>
+      <span class="li"><span class="dot" style="background:var(--accent)"></span><b>Milestone</b></span>
+    </div>
+
+    <div class="timeline">
+      <div class="tl-item">
+        <div class="tl-date">Apr 3, 09:12<span class="yr">2026</span></div>
+        <div class="tl-spine"><span class="tl-node stale"></span></div>
+        <div class="tl-card stale">
+          <div class="tl-what"><span class="h">First thread-sibling auto-link lands</span><span class="tl-fresh-lbl">stale · &gt;30d</span></div>
+          <p class="tl-so"><span class="lead">what</span>A reply on a shared email thread auto-attached to claim <code>CLM-4471</code> with <code>reviewedBy = NULL</code>. <b>So what:</b> the seed of the pollution — invisible at the time.</p>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-date">May 21, 14:40<span class="yr">2026</span></div>
+        <div class="tl-spine"><span class="tl-node stale"></span></div>
+        <div class="tl-card stale">
+          <div class="tl-what"><span class="h">Adjuster flags a stranger contact</span><span class="tl-fresh-lbl">stale · &gt;30d</span></div>
+          <p class="tl-so"><span class="lead">what</span>Support ticket: a contact from an unrelated claim appears on <code>CLM-4471</code>'s people tab. <b>So what:</b> first human-visible symptom, filed as a one-off.</p>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-date">Jun 30, 11:05<span class="yr">2026</span></div>
+        <div class="tl-spine"><span class="tl-node moderate"></span></div>
+        <div class="tl-card moderate">
+          <div class="tl-what"><span class="h">Pattern found across 6 orgs</span><span class="tl-fresh-lbl">moderate · &lt;30d</span></div>
+          <p class="tl-so"><span class="lead">what</span>A read-only audit counts 214 lineage-only links on ordinary claims the artifact axis never flagged. <b>So what:</b> not a one-off — a class of bug.</p>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-date">Jul 18, 16:22<span class="yr">2026</span></div>
+        <div class="tl-spine"><span class="tl-node milestone milestone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg></span></div>
+        <div class="tl-card milestone">
+          <div class="tl-what"><span class="h">Root cause confirmed</span><span class="tl-badge milestone">Milestone</span></div>
+          <p class="tl-so"><span class="lead">what</span><code>propagation_eligibility</code> stayed <code>eligible</code> after a Layer-4 downgrade, re-seeding thread propagation. <b>So what:</b> the fix target is now a single column, not the whole linker.</p>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-date">Jul 29, 08:47<span class="yr">2026</span></div>
+        <div class="tl-spine"><span class="tl-node recent"></span></div>
+        <div class="tl-card recent">
+          <div class="tl-what"><span class="h">Backfill dry-run clears staging</span><span class="tl-fresh-lbl">recent · &lt;7d</span></div>
+          <p class="tl-so"><span class="lead">what</span><code>magnet-unwind --mode thread-siblings</code> re-decides 214 links; 211 detach, 3 held for review. <b>So what:</b> repair path validated before any write.</p>
+        </div>
+      </div>
+      <div class="tl-item">
+        <div class="tl-date">Jul 31, 12:00<span class="yr">2026</span></div>
+        <div class="tl-spine"><span class="tl-node fresh"></span></div>
+        <div class="tl-card fresh">
+          <div class="tl-what"><span class="h">Fix + guard shipped to dev</span><span class="tl-fresh-lbl">fresh · &lt;24h</span></div>
+          <p class="tl-so"><span class="lead">what</span>Eligibility recompute wired live in the linker + a policy-version guard. <b>So what:</b> forward-going links can't inherit a stale verdict.</p>
+        </div>
+      </div>
+    </div>
+    </article>
+
+    <article class="pat" id="p-step-flow">
+      <div class="pathead">
+        <span class="pno">05.2</span>
+        <h3>Step-flow with state — a run, step by step</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-step-flow" aria-label="Permalink to the Step-flow with state — a run, step by step pattern">&para;</a>
+      </div>
+<div class="cap">
+      <span class="ck">Name</span><span class="cv name">The Numbered Ledger</span>
+      <span class="ck">When</span><span class="cv">A reproduction, a pipeline run, or a checklist where each step <b>succeeded, failed, is running, or is pending</b> — and the reader needs to see exactly where it stands.</span>
+      <span class="ck">Remix</span><span class="cv">One <code>.step</code> per row; set its state class (<code>done</code> / <code>failed</code> / <code>running</code> / <code>pending</code>). Each state pairs a color with a <b>glyph</b> (✓ / ✗ / ⟳ / …) and a labeled pill — never color alone. Drop the <code>.step-cmd</code> if there's no console line to show.</span>
+    </div>
+
+    <div class="sf-legend" role="img" aria-label="Step state legend: done, failed, running, pending">
+      <span class="li"><span class="glyph done" aria-hidden="true">✓</span><b>Done</b> — step passed</span>
+      <span class="li"><span class="glyph failed" aria-hidden="true">✗</span><b>Failed</b> — step errored</span>
+      <span class="li"><span class="glyph running" aria-hidden="true">⟳</span><b>Running</b> — in progress</span>
+      <span class="li"><span class="glyph pending" aria-hidden="true">…</span><b>Pending</b> — not started</span>
+    </div>
+
+    <div class="stepflow">
+      <div class="step done">
+        <div class="step-rail"><span class="step-num">1</span></div>
+        <div class="step-body">
+          <div class="step-head"><span class="t">Reproduce the polluted claim locally</span>
+            <span class="step-state done"><span class="g" aria-hidden="true">✓</span>Done</span></div>
+          <p class="step-desc">Seeded <code>CLM-4471</code> from the staging snapshot; the stranger contact reappears on the people tab as reported.</p>
+          <div class="step-cmd"><span class="c">$ yarn workspace @finch/api db:seed --fixture magnet-4471</span>
+seeded 1 claim · 38 message links · <span class="err">1 lineage-only sibling</span></div>
+        </div>
+      </div>
+      <div class="step done">
+        <div class="step-rail"><span class="step-num">2</span></div>
+        <div class="step-body">
+          <div class="step-head"><span class="t">Write the failing assertion</span>
+            <span class="step-state done"><span class="g" aria-hidden="true">✓</span>Done</span></div>
+          <p class="step-desc">A test asserts a downgraded link's <code>propagation_eligibility</code> must recompute to <b>ineligible</b>. It goes red — proving the bug.</p>
+          <div class="step-cmd"><span class="c"># expected 'ineligible', received 'eligible'</span>
+propagation-policy.spec.ts › re-derive on downgrade  <span class="err">✗ FAIL</span></div>
+        </div>
+      </div>
+      <div class="step failed">
+        <div class="step-rail"><span class="step-num">3</span></div>
+        <div class="step-body">
+          <div class="step-head"><span class="t">First fix attempt — rewrite in the linker</span>
+            <span class="step-state failed"><span class="g" aria-hidden="true">✗</span>Failed</span></div>
+          <p class="step-desc">Recomputing inside <code>ClaimLinker</code> broke two golden fixtures that <b>depend</b> on the advisory-versioned column staying immutable. Reverted.</p>
+          <div class="step-cmd"><span class="c">$ yarn workspace @finch/api test propagation</span>
+Tests: <span class="err">2 failed</span>, 46 passed  <span class="err">✗</span></div>
+        </div>
+      </div>
+      <div class="step running">
+        <div class="step-rail"><span class="step-num">4</span></div>
+        <div class="step-body">
+          <div class="step-head"><span class="t">Second fix — recompute in the backfill, guard the write</span>
+            <span class="step-state running"><span class="g" aria-hidden="true">⟳</span>Running</span></div>
+          <p class="step-desc">Move the recompute into <code>propagation-eligibility-backfill</code> under an optimistic <code>= &lt;before&gt;</code> guard; the immutable column stays immutable at write time. Suite currently green in watch.</p>
+          <div class="step-cmd"><span class="c">$ yarn workspace @finch/api test:watch propagation</span>
+Tests: 48 passed  <span class="ok">✓</span>  <span class="c">(watching…)</span></div>
+        </div>
+      </div>
+      <div class="step pending">
+        <div class="step-rail"><span class="step-num">5</span></div>
+        <div class="step-body">
+          <div class="step-head"><span class="t">Apply the backfill to staging</span>
+            <span class="step-state pending"><span class="g" aria-hidden="true">…</span>Pending</span></div>
+          <p class="step-desc">Blocked on step 4 landing. Will run <code>--apply</code> behind the typed-host confirm once the full suite passes in CI.</p>
+        </div>
+      </div>
+    </div>
+    </article>
+
+    <article class="pat" id="p-story-arc">
+      <div class="pathead">
+        <span class="pno">05.3</span>
+        <h3>Story arc — expected, discovered, therefore</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-story-arc" aria-label="Permalink to the Story arc — expected, discovered, therefore pattern">&para;</a>
+      </div>
+<div class="cap">
+      <span class="ck">Name</span><span class="cv name">The Three-Beat Feature</span>
+      <span class="ck">When</span><span class="cv">The finding has a <b>twist</b> — what you expected wasn't what you found, and that reframes the fix. Give it magazine drama: a setup, a turning point, a resolution.</span>
+      <span class="ck">Remix</span><span class="cv">Three <code>.beat</code> blocks — <code>setup</code>, <code>turn</code>, <code>resolve</code>. The turn is tinted <code>--defect</code>, the resolve <code>--seal</code>. Lean on the oversized numeral, the eyebrow lead, and one pull-line per beat; keep prose at reading measure.</span>
+    </div>
+
+    <div class="arc">
+      <div class="beat setup">
+        <div class="beat-mark"><div class="beat-stage">Setup</div><div class="beat-no">1</div></div>
+        <div class="beat-body">
+          <div class="beat-lead">We expected</div>
+          <h4 class="beat-h">A handful of <em>magnet claims</em> — a known shape, a known detector.</h4>
+          <p>The artifact-axis detector had cleaned magnet pollution before: a few high-fanout claims accreting attachments they shouldn't. We assumed the stranger-contact report was one more of those, and reached for the same tool.</p>
+          <div class="beat-pull">"Run the magnet detector, detach the outliers, close the ticket. We'd done it twice before."</div>
+        </div>
+      </div>
+      <div class="beat turn">
+        <div class="beat-mark"><div class="beat-stage">Turning point</div><div class="beat-no">2</div></div>
+        <div class="beat-body">
+          <div class="beat-lead">But we discovered</div>
+          <h4 class="beat-h">The detector found <em>nothing</em> — yet the pollution was everywhere.</h4>
+          <p>The artifact axis flagged zero claims. But a lineage query found <b>214 auto-approved thread-sibling links</b> on perfectly ordinary claims — no fanout, no magnet shape. The pollution wasn't accreting on outliers; it was seeping along email threads, one reply at a time.</p>
+          <p>The real culprit was upstream: a <code>propagation_eligibility</code> that had been stamped <code>eligible</code> and then <b>never re-evaluated</b> after a Layer-4 verification downgrade.</p>
+          <div class="beat-pull">"The tool that had worked twice was blind to the actual mechanism. We'd been treating the symptom's shape, not its cause."</div>
+        </div>
+      </div>
+      <div class="beat resolve">
+        <div class="beat-mark"><div class="beat-stage">Resolution</div><div class="beat-no">3</div></div>
+        <div class="beat-body">
+          <div class="beat-lead">Therefore</div>
+          <h4 class="beat-h">A new axis, a recompute, and a guard that can't drift.</h4>
+          <p>We added a <b>lineage axis</b> to the unwind tool, recomputed eligibility from each row's own rationale codes, and wired a policy-version guard so a downgraded link can never keep a stale verdict. The repair detached 211 of 214 links; the guard stops the next one at the source.</p>
+          <div class="beat-stat"><span class="n">214</span> links found &nbsp;·&nbsp; <span class="n">211</span> detached &nbsp;·&nbsp; <span class="n">3</span> held for review</div>
+        </div>
+      </div>
+    </div>
+    </article>
+
+    <article class="pat" id="p-phase-pipeline">
+      <div class="pathead">
+        <span class="pno">05.4</span>
+        <h3>Horizontal phase pipeline — how the work moved</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-phase-pipeline" aria-label="Permalink to the Horizontal phase pipeline — how the work moved pattern">&para;</a>
+      </div>
+<div class="cap">
+      <span class="ck">Name</span><span class="cv name">The Progress Strip</span>
+      <span class="ck">When</span><span class="cv">A left-to-right march through <b>named phases</b> — investigate → repro → fix → verify → ship — where the reader wants the current position and what's blocked at a glance.</span>
+      <span class="ck">Remix</span><span class="cv">One <code>.phase</code> per stage, state class <code>done</code> / <code>active</code> / <code>blocked</code> / <code>upcoming</code>. The strip lives in an <code>overflow-x:auto</code> wrapper so it scrolls on narrow screens instead of shoving the page sideways. Connectors are CSS bars + inline <code>&lt;svg&gt;</code> chevrons.</span>
+    </div>
+
+    <div class="pipewrap">
+      <div class="pipeline">
+        <div class="phase done">
+          <div class="phase-top"><span class="phase-node">1</span><span class="phase-conn"><svg viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 1l3 3-3 3"/></svg></span></div>
+          <div class="phase-card">
+            <div class="phase-name">Investigate</div>
+            <div class="phase-status"><span class="sg" aria-hidden="true">✓</span>Done</div>
+            <div class="phase-meta">Read-only audit across 6 orgs; scoped the lineage axis.</div>
+            <div class="phase-when meta">Jun 30 – Jul 18</div>
+          </div>
+        </div>
+        <div class="phase done">
+          <div class="phase-top"><span class="phase-node">2</span><span class="phase-conn"><svg viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 1l3 3-3 3"/></svg></span></div>
+          <div class="phase-card">
+            <div class="phase-name">Reproduce</div>
+            <div class="phase-status"><span class="sg" aria-hidden="true">✓</span>Done</div>
+            <div class="phase-meta">Seeded <code>CLM-4471</code>; failing assertion pins the bug.</div>
+            <div class="phase-when meta">Jul 22</div>
+          </div>
+        </div>
+        <div class="phase active">
+          <div class="phase-top"><span class="phase-node">3</span><span class="phase-conn"><svg viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 1l3 3-3 3"/></svg></span></div>
+          <div class="phase-card">
+            <div class="phase-name">Fix</div>
+            <div class="phase-status"><span class="sg" aria-hidden="true">⟳</span>Active</div>
+            <div class="phase-meta">Recompute moved to the backfill under an optimistic guard.</div>
+            <div class="phase-when meta">Jul 29 – now</div>
+          </div>
+        </div>
+        <div class="phase blocked">
+          <div class="phase-top"><span class="phase-node">4</span><span class="phase-conn"><svg viewBox="0 0 8 8" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2 1l3 3-3 3"/></svg></span></div>
+          <div class="phase-card">
+            <div class="phase-name">Verify</div>
+            <div class="phase-status"><span class="sg" aria-hidden="true">✗</span>Blocked</div>
+            <div class="phase-meta">Staging <code>--apply</code> waits on the fix landing in CI.</div>
+            <div class="phase-when meta">blocked on ③</div>
+          </div>
+        </div>
+        <div class="phase upcoming">
+          <div class="phase-top"><span class="phase-node">5</span><span class="phase-conn"></span></div>
+          <div class="phase-card">
+            <div class="phase-name">Ship</div>
+            <div class="phase-status"><span class="sg" aria-hidden="true">…</span>Upcoming</div>
+            <div class="phase-meta">Merge to <code>dev</code>, then roll the backfill to production.</div>
+            <div class="phase-when meta">planned</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pipe-legend" role="img" aria-label="Phase status legend: done, active, blocked, upcoming">
+      <span class="li"><span class="sg" style="color:var(--fixed);background:var(--fixed-bg)" aria-hidden="true">✓</span><b>Done</b> — phase complete</span>
+      <span class="li"><span class="sg" style="color:var(--status-blue);background:var(--status-blue-soft)" aria-hidden="true">⟳</span><b>Active</b> — in progress now</span>
+      <span class="li"><span class="sg" style="color:var(--defect);background:var(--defect-bg)" aria-hidden="true">✗</span><b>Blocked</b> — waiting on a dep</span>
+      <span class="li"><span class="sg" style="color: var(--ink-meta);border-style:dashed" aria-hidden="true">…</span><b>Upcoming</b> — not started</span>
+    </div>
+    </article>
+
+    <article class="pat famkey" id="key-narrative">
+      <div class="pathead">
+        <span class="pno">key</span>
+        <h3>How to read the color</h3>
+        <span class="fill"></span>
+      </div>
+<div class="colo-grid">
+      <div class="legend">
+        <h3>Legend — every hue encodes a fact</h3>
+        <div class="row"><span class="sw" style="background:var(--fresh)"></span><b>Fresh</b> — event / activity &lt; 24h</div>
+        <div class="row"><span class="sw" style="background:var(--recent)"></span><b>Recent</b> — &lt; 7 days</div>
+        <div class="row"><span class="sw" style="background:var(--moderate)"></span><b>Moderate</b> — &lt; 30 days</div>
+        <div class="row"><span class="sw" style="background:var(--stale)"></span><b>Stale</b> — &gt; 30 days</div>
+        <div class="row"><span class="sw outline"></span><b>Unknown</b> — no date</div>
+        <div class="row" style="margin-top:8px; padding-top:12px; border-top:1px solid var(--rule)"><span class="sw" style="background:var(--fixed)"></span><b>Done</b> / <span style="color:var(--defect)">&nbsp;<b>Failed</b>&nbsp;</span> / <b style="color:var(--status-blue)">Running</b> — each also carries a glyph (✓ / ✗ / ⟳ / …)</div>
+        <div class="row"><span class="sw" style="background:var(--accent)"></span><b>Milestone</b> / turning point — narrative accent</div>
+      </div>
+      <div class="honesty">
+        <h3>Honesty summary</h3>
+        <p><b>Sample content.</b> The thread-sibling investigation is an illustrative scenario built to exercise the four patterns — realistic to the finch domain, not a live finding. Ticket ids, counts, and dates are invented for the demo.</p>
+        <p><b>Honest encoding.</b> In a real proof page, each recency dot and each state pill would encode a fact from the actual trail — and would always pair its color with a glyph and a legend, exactly as shown here. No fact rides on color alone.</p>
+        <p class="note"><b>Self-contained:</b> zero external requests, system fonts only, CSS-only interactivity. Theme-aware at the token level for both light and dark; the horizontal pipeline scrolls inside its own container so the page body never scrolls sideways.</p>
+      </div>
+    </div>
+    </article>
+  </section>
+  <section id="fam-provenance" class="fam fam-provenance">
+    <div class="sechead"><span class="no">&sect;&nbsp;06</span><h2>Provenance</h2><span class="fill"></span></div>
+    <p class="sec-sub">Four ways to make the <i>sourcing</i> the design. Each carries the same honesty vocabulary: what was <b>checked-here</b> versus what is <b>trusted-upstream</b>, declared per row, per card, per line. &mdash; <b>4 patterns</b>.</p>
+
+    <article class="pat" id="p-claim-ledger">
+      <div class="pathead">
+        <span class="pno">06.1</span>
+        <h3>The claim-ledger, as a designed object</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-claim-ledger" aria-label="Permalink to the The claim-ledger, as a designed object pattern">&para;</a>
+      </div>
+<p class="caption"><span class="lead">Pattern</span><b>Claim-Ledger.</b> Each row is one claim: its evidence, a verdict chip, and a provenance tag. A double-ruled cap and foot frame it as a bound register, not a spreadsheet. <b>When to use:</b> a resolved investigation with 3–8 discrete claims you can each attach a verdict to. <b>How to remix:</b> swap the verdict vocabulary (<code>Proven / Partial / Refuted</code>) for your domain; the provenance tag column is fixed — every row must declare one.</p>
+
+    <div class="ledger">
+      <div class="ledger-cap">
+        <span class="tt">Evidence Ledger</span>
+        <span class="sub">FIN-3518 · prove-ticket-card</span>
+        <span class="as-of">as of 2026-07-31</span>
+      </div>
+      <div class="ledger-scroll">
+        <div class="ledger-row">
+          <div class="lnum">01</div>
+          <div class="lg-claim">
+            <div class="ct">The card renders from data baked at publish.</div>
+            <div class="cm">zero external requests at view time</div>
+          </div>
+          <div class="lg-ev">
+            <div class="e"><span class="ei">▤</span><span>zero-request grep · <code>ok</code></span></div>
+            <div class="e"><span class="ei">📄</span><span><code>proof-ticket.js:840</code></span></div>
+          </div>
+          <div><span class="verdict proven">✓ Proven</span></div>
+          <div class="lg-prov"><span class="prov here">checked-here</span></div>
+        </div>
+
+        <div class="ledger-row">
+          <div class="lnum">02</div>
+          <div class="lg-claim">
+            <div class="ct">Freshness dots bucket inline refs by real recency.</div>
+            <div class="cm">colour paired with a dated title on every dot</div>
+          </div>
+          <div class="lg-ev">
+            <div class="e"><span class="ei">▤</span><span>135 assertions · <code>pass</code></span></div>
+            <div class="e"><span class="ei">📄</span><span><code>freshnessOf() :148</code></span></div>
+          </div>
+          <div><span class="verdict proven">✓ Proven</span></div>
+          <div class="lg-prov"><span class="prov here">checked-here</span></div>
+        </div>
+
+        <div class="ledger-row">
+          <div class="lnum">03</div>
+          <div class="lg-claim">
+            <div class="ct">Keyboard focus stays trapped in a card with relations.</div>
+            <div class="cm">precondition proven in jsdom; browser tab-order pending</div>
+          </div>
+          <div class="lg-ev">
+            <div class="e"><span class="ei">📄</span><span><code>inHiddenPanel() :394</code></span></div>
+            <div class="e"><span class="ei">🧪</span><span>jsdom precondition only</span></div>
+          </div>
+          <div><span class="verdict partial">◑ Partial</span></div>
+          <div class="lg-prov"><span class="prov here">checked-here</span></div>
+        </div>
+
+        <div class="ledger-row">
+          <div class="lnum">04</div>
+          <div class="lg-claim">
+            <div class="ct">Both HIGH review findings are fixed.</div>
+            <div class="cm">safeHref scheme allow-list · hidden-panel trap</div>
+          </div>
+          <div class="lg-ev">
+            <div class="e"><span class="ei">🎫</span><span>FIN-3518 · <code>_FIX.md</code></span></div>
+            <div class="e"><span class="ei">▤</span><span>red → green diff</span></div>
+          </div>
+          <div><span class="verdict proven">✓ Proven</span></div>
+          <div class="lg-prov"><span class="prov up">trusted-upstream</span></div>
+        </div>
+
+        <div class="ledger-row">
+          <div class="lnum">05</div>
+          <div class="lg-claim">
+            <div class="ct">Schema drift was silently dropping a vote class.</div>
+            <div class="cm">root cause carried from the escalation ticket</div>
+          </div>
+          <div class="lg-ev">
+            <div class="e"><span class="ei">🎫</span><span>FIN-3531 · Backlog</span></div>
+            <div class="e"><span class="ei">🔗</span><span><code>PAYLOAD_SCHEMA.md</code></span></div>
+          </div>
+          <div><span class="verdict refuted">✕ Open risk</span></div>
+          <div class="lg-prov"><span class="prov up">trusted-upstream</span></div>
+        </div>
+      </div>
+      <div class="ledger-foot">
+        <span><b>5</b> claims</span>
+        <span><b>3</b> checked-here</span>
+        <span><b>2</b> trusted-upstream</span>
+        <span class="fseal">✓ ledger balanced</span>
+      </div>
+    </div>
+    </article>
+
+    <article class="pat" id="p-evidence-stack">
+      <div class="pathead">
+        <span class="pno">06.2</span>
+        <h3>Layered evidence-stack — one claim, many sources</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-evidence-stack" aria-label="Permalink to the Layered evidence-stack — one claim, many sources pattern">&para;</a>
+      </div>
+<p class="caption"><span class="lead">Pattern</span><b>Evidence-Stack.</b> A claim sits above a stack of overlapping source cards — a doc, a log line, a query result — so the reader sees the claim is backed by <b>multiple independent sources</b>, not one. The offset + shadow convey depth. <b>When to use:</b> a load-bearing claim you want to show is over-determined (converging evidence). <b>How to remix:</b> keep 2–4 cards per stack; each card names its source <i>kind</i> and provenance; the convergence line at the foot states what all sources agree on.</p>
+
+    <div class="stackgrid">
+      <!-- stack A -->
+      <div class="stackitem">
+        <div class="stack-claim">
+          <span class="qn">“</span>
+          <div>
+            <div class="qt">The component issues zero network requests at view time.</div>
+            <div class="qmeta">
+              <span class="prov here">checked-here</span>
+              <span class="srcs">3 independent sources</span>
+            </div>
+          </div>
+        </div>
+        <div class="thestack">
+          <div class="srccard">
+            <div class="sc-head"><span class="sc-ico">📄</span><span class="sc-kind">Source · code</span><span class="sc-ref">proof-ticket.js:840</span></div>
+            <div class="sc-body">The whole <code>window.ProveTicket</code> public surface — <b>no <code>fetch</code>, <code>XHR</code>, <code>eval</code>, or <code>import()</code></b> primitive present.</div>
+          </div>
+          <div class="srccard">
+            <div class="sc-head"><span class="sc-ico">▤</span><span class="sc-kind">Source · log</span><span class="sc-ref">smoke.test.mjs</span></div>
+            <div class="sc-quote">§20 zero-request grep .......... ok</div>
+          </div>
+          <div class="srccard">
+            <div class="sc-head"><span class="sc-ico">◈</span><span class="sc-kind">Source · query</span><span class="sc-ref">grep -rn</span></div>
+            <div class="sc-body"><code>0</code> matches for the transport primitives across the inlined bundle.</div>
+          </div>
+        </div>
+        <div class="stack-conv">
+          <span class="cvi">⋔</span>
+          <div>All three converge: <b>zero-request holds by construction</b>, not by config.</div>
+        </div>
+      </div>
+
+      <!-- stack B -->
+      <div class="stackitem">
+        <div class="stack-claim">
+          <span class="qn">“</span>
+          <div>
+            <div class="qt">FIN-3518's card shows real, current Linear data.</div>
+            <div class="qmeta">
+              <span class="prov up">trusted-upstream</span>
+              <span class="srcs">2 sources · 1 re-rendered</span>
+            </div>
+          </div>
+        </div>
+        <div class="thestack">
+          <div class="srccard">
+            <div class="sc-head"><span class="sc-ico">🎫</span><span class="sc-kind">Source · ticket</span><span class="sc-ref">FIN-3518</span></div>
+            <div class="sc-body"><b>“Show the expert panel's vote on each Decision Board option”</b> — status <i>In Progress</i>, baked from <code>get_issue</code>.</div>
+          </div>
+          <div class="srccard">
+            <div class="sc-head"><span class="sc-ico">▦</span><span class="sc-kind">Source · render</span><span class="sc-ref">card-hero.png</span></div>
+            <div class="sc-body">Headless still of the hardened component, Activity tab open, <b>re-rendered here</b> from the smoke fixture blob.</div>
+          </div>
+        </div>
+        <div class="stack-conv">
+          <span class="cvi">⋔</span>
+          <div>Ticket text is <b>trusted-upstream</b>; the render was <b>checked-here</b> against it.</div>
+        </div>
+      </div>
+    </div>
+    </article>
+
+    <article class="pat" id="p-receipt-manifest">
+      <div class="pathead">
+        <span class="pno">06.3</span>
+        <h3>The receipt — audit trail as artifact</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-receipt-manifest" aria-label="Permalink to the The receipt — audit trail as artifact pattern">&para;</a>
+      </div>
+<p class="caption"><span class="lead">Pattern</span><b>Receipt / Manifest.</b> A <code>--mono</code> itemized receipt of what was checked, with counts, a provenance column, a checksum, and a verdict footer. It reads as a printed audit trail. <b>When to use:</b> a verification pass with many small line-items (tests, greps, files) where the <i>completeness</i> of checking is the point. <b>How to remix:</b> each line carries a status glyph + a <code>here</code>/<code>up</code> tag; the checksum is a real digest of the inputs, and the total tallies the columns above it — keep them honest.</p>
+
+    <div class="receiptwrap">
+      <div class="receipt" role="group" aria-label="Verification receipt">
+        <div class="rc-top">
+          <div class="rc-mark">✦ PROOF RECEIPT ✦</div>
+          <div class="rc-tt">prove-ticket-card</div>
+          <div class="rc-sub">verification pass · /prove</div>
+        </div>
+        <div class="rc-meta">
+          <div class="m"><span>ticket</span><b>FIN-3518</b></div>
+          <div class="m"><span>run at</span><b>2026-07-31 12:00Z</b></div>
+          <div class="m"><span>host</span><b>headless-chrome · node</b></div>
+        </div>
+
+        <div class="rc-section-h">— checked here —</div>
+        <div class="rc-line"><span class="rk">✓</span><span class="rn">assertions passed</span><span class="rc-count">135</span><span class="rp here">here</span></div>
+        <div class="rc-line"><span class="rk">✓</span><span class="rn">zero-request grep</span><span class="rc-count">0 hits</span><span class="rp here">here</span></div>
+        <div class="rc-line"><span class="rk">✓</span><span class="rn">§8 non-interference</span><span class="rc-count">ok</span><span class="rp here">here</span></div>
+        <div class="rc-line"><span class="rk">✓</span><span class="rn">board-widgets byte-cmp</span><span class="rc-count">ok</span><span class="rp here">here</span></div>
+        <div class="rc-line"><span class="rk warn">◑</span><span class="rn">browser tab-order</span><span class="rc-count">pending</span><span class="rp here">here</span></div>
+
+        <div class="rc-section-h">— trusted upstream —</div>
+        <div class="rc-line"><span class="rk up">•</span><span class="rn">2 HIGH findings closed</span><span class="rc-count">_FIX.md</span><span class="rp up">up</span></div>
+        <div class="rc-line"><span class="rk up">•</span><span class="rn">schema-drift root cause</span><span class="rc-count">FIN-3531</span><span class="rp up">up</span></div>
+
+        <hr class="rc-rule">
+        <div class="rc-tot"><span>line-items</span><b>7</b></div>
+        <div class="rc-tot"><span>checked-here</span><b>5</b></div>
+        <div class="rc-tot"><span>trusted-upstream</span><b>2</b></div>
+        <div class="rc-tot"><span>failures</span><b class="g">0</b></div>
+
+        <div class="rc-foot">
+          <div class="rc-checksum">sha256 <b>4f9a1c…e07b</b> · inputs: src+fixture+log</div>
+          <svg class="rc-barcode" viewBox="0 0 240 34" width="100%" height="34" role="img" aria-label="decorative barcode">
+            <g fill="currentColor">
+              <rect x="4" y="0" width="3" height="34"/><rect x="10" y="0" width="1.5" height="34"/>
+              <rect x="15" y="0" width="4" height="34"/><rect x="22" y="0" width="1.5" height="34"/>
+              <rect x="27" y="0" width="2.5" height="34"/><rect x="33" y="0" width="4" height="34"/>
+              <rect x="41" y="0" width="1.5" height="34"/><rect x="46" y="0" width="3" height="34"/>
+              <rect x="53" y="0" width="2" height="34"/><rect x="59" y="0" width="4" height="34"/>
+              <rect x="67" y="0" width="1.5" height="34"/><rect x="72" y="0" width="3" height="34"/>
+              <rect x="79" y="0" width="4" height="34"/><rect x="87" y="0" width="1.5" height="34"/>
+              <rect x="92" y="0" width="2.5" height="34"/><rect x="98" y="0" width="1.5" height="34"/>
+              <rect x="103" y="0" width="4" height="34"/><rect x="111" y="0" width="2" height="34"/>
+              <rect x="117" y="0" width="3" height="34"/><rect x="124" y="0" width="1.5" height="34"/>
+              <rect x="129" y="0" width="4" height="34"/><rect x="137" y="0" width="2.5" height="34"/>
+              <rect x="143" y="0" width="1.5" height="34"/><rect x="148" y="0" width="3" height="34"/>
+              <rect x="155" y="0" width="4" height="34"/><rect x="163" y="0" width="1.5" height="34"/>
+              <rect x="168" y="0" width="2" height="34"/><rect x="174" y="0" width="4" height="34"/>
+              <rect x="182" y="0" width="1.5" height="34"/><rect x="187" y="0" width="3" height="34"/>
+              <rect x="194" y="0" width="2.5" height="34"/><rect x="200" y="0" width="1.5" height="34"/>
+              <rect x="205" y="0" width="4" height="34"/><rect x="213" y="0" width="2" height="34"/>
+              <rect x="219" y="0" width="3" height="34"/><rect x="226" y="0" width="1.5" height="34"/>
+              <rect x="231" y="0" width="4" height="34"/>
+            </g>
+          </svg>
+          <div class="rc-verdict">✓ Proven</div>
+          <div class="rc-thanks">— keep this receipt —</div>
+        </div>
+      </div>
+    </div>
+    </article>
+
+    <article class="pat" id="p-provenance-ribbon">
+      <div class="pathead">
+        <span class="pno">06.4</span>
+        <h3>Trusted-vs-checked provenance ribbon</h3>
+        <span class="fill"></span>
+        <a class="perma" href="#p-provenance-ribbon" aria-label="Permalink to the Trusted-vs-checked provenance ribbon pattern">&para;</a>
+      </div>
+<p class="caption"><span class="lead">Pattern</span><b>Provenance Ribbon.</b> A compact two-state visual language: a coloured left spine marks each assertion's provenance so the reader always knows, at a glance, what rests on the upstream finding versus what was verified here. <b>When to use:</b> flowing prose or a mixed narrative where claims of both kinds interleave. <b>How to remix:</b> the ribbon is the whole vocabulary — solid accent spine = <code>checked-here</code>, hatched spine = <code>trusted-upstream</code>. Keep the legend adjacent; never introduce a third state without adding it to the legend.</p>
+
+    <div class="ribbon-legend" role="group" aria-label="Provenance legend">
+      <div class="lgroup">
+        <div class="lgh">the two states</div>
+        <div class="lr"><span class="prov here">checked-here</span><span><b>Re-verified for this page.</b> A solid accent spine. The assertion was re-run, re-rendered, or re-read against source during the presentation pass.</span></div>
+        <div class="lr"><span class="prov up">trusted-upstream</span><span><b>Carried from the finding.</b> A hatched spine. Taken as given from the resolved investigation; /prove does not re-litigate it.</span></div>
+      </div>
+      <div class="lgroup">
+        <div class="lgh">why it matters</div>
+        <div class="lr" style="color:var(--ink-meta)"><span style="font-family:var(--mono);color:var(--accent-ink)">▮</span><span>A reader must never mistake a re-check for a repetition. The spine is a promise: solid means <b>we looked again</b>; hatched means <b>we did not, and say so</b>.</span></div>
+      </div>
+    </div>
+
+    <div class="ribbon-doc">
+      <div class="rb-assert here">
+        <div class="rb-spine" aria-hidden="true"></div>
+        <div class="rb-txt">
+          <p>The verification suite runs <b>green at 135 assertions</b> — re-run from the finch repo root during this pass, stdout captured verbatim.</p>
+          <div class="rb-src">source · <code>proof-ticket.test.mjs</code> · exit 0</div>
+        </div>
+        <div class="rb-mark"><span class="prov here">checked-here</span></div>
+      </div>
+
+      <div class="rb-assert here">
+        <div class="rb-spine" aria-hidden="true"></div>
+        <div class="rb-txt">
+          <p>No <code>fetch</code> / <code>XHR</code> / <code>import()</code> primitive exists in the inlined source; the zero-request grep returned <b>zero matches</b>, confirmed here.</p>
+          <div class="rb-src">source · <code>grep -rn · proof-ticket.js</code></div>
+        </div>
+        <div class="rb-mark"><span class="prov here">checked-here</span></div>
+      </div>
+
+      <div class="rb-assert up">
+        <div class="rb-spine" aria-hidden="true"></div>
+        <div class="rb-txt">
+          <p>Both HIGH findings from the adversarial review — the <code>safeHref</code> scheme sink and the hidden-panel focus trap — <b>were fixed and closed</b>.</p>
+          <div class="rb-src">carried from · <code>FIN-3518 · _FIX.md</code></div>
+        </div>
+        <div class="rb-mark"><span class="prov up">trusted-upstream</span></div>
+      </div>
+
+      <div class="rb-assert up">
+        <div class="rb-spine" aria-hidden="true"></div>
+        <div class="rb-txt">
+          <p>Three concurrent efforts each rewrote one cannot-drift contract and <b>silently dropped a vote class</b> — the root cause behind the schema-ownership escalation.</p>
+          <div class="rb-src">carried from · <code>FIN-3531 · PAYLOAD_SCHEMA.md</code></div>
+        </div>
+        <div class="rb-mark"><span class="prov up">trusted-upstream</span></div>
+      </div>
+    </div>
+
+    <p class="ribbon-note"><b>Reading the ribbon:</b> two of the four assertions above were re-checked on this page (solid spine); two are trusted from the upstream finding and were not re-litigated (hatched spine). The presentation never blurs the two.</p>
+    </article>
+
+    <article class="pat famkey" id="key-provenance">
+      <div class="pathead">
+        <span class="pno">key</span>
+        <h3>Colophon — the honesty spine</h3>
+        <span class="fill"></span>
+      </div>
+<div class="colo-grid">
+      <div class="legend">
+        <h3>Legend — provenance is the load-bearing encoding</h3>
+        <div class="row"><span class="prov here">checked-here</span><b>&nbsp;</b> re-verified for this presentation</div>
+        <div class="row"><span class="prov up">trusted-upstream</span><b>&nbsp;</b> carried unaltered from the finding</div>
+        <div class="row" style="margin-top:10px; padding-top:12px; border-top:1px solid var(--rule)"><span class="verdict proven" style="font-size:9px">✓ Proven</span><b>&nbsp;</b> claim fully established</div>
+        <div class="row"><span class="verdict partial" style="font-size:9px">◑ Partial</span><b>&nbsp;</b> precondition only / needs a human step</div>
+        <div class="row"><span class="verdict refuted" style="font-size:9px">✕ Open</span><b>&nbsp;</b> unresolved risk, surfaced honestly</div>
+      </div>
+      <div class="honesty">
+        <h3>Honesty summary</h3>
+        <p><b>Sample content.</b> The claims, verdicts, sources and counts on this page are illustrative — they demonstrate four provenance layouts, not a live finding. The ticket refs (FIN-3518 / FIN-3531) mirror real baked data from the /prove fixtures.</p>
+        <p><b>The spine is the point.</b> Every pattern makes the <b>checked-here vs trusted-upstream</b> distinction visible and legended. Colour and glyphs each encode a real fact; small text uses <code>--ink-meta</code> (AA-passing), never <code>--ink-faint</code>.</p>
+        <p class="note"><b>Contract:</b> a proof page may trust the upstream finding, but it must say so. What it re-checked and what it carried are always two visually distinct things.</p>
+      </div>
+    </div>
+    </article>
+  </section>
+
+  <div class="pagefoot">
+    <span>Warm Print &middot; creative-layouts gallery</span>
+    <span>Self-contained &middot; CSP-safe &middot; theme-aware &middot; zero-JS (native &lt;details&gt; only)</span>
+    <span class="folio">25 patterns &middot; 6 families</span>
+  </div>
+
+</div>
+</body>
+</html>

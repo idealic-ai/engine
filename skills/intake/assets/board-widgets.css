@@ -111,7 +111,7 @@
 /* ── The reasoning, reachable three ways ──────────────────────────────
    Hover fires on neither touch nor keyboard. A mark whose reasoning cannot be reached is a
    judgement delivered at a decision point with its audit trail hidden. */
-.fb-mark-note { position: absolute; z-index: 30; top: calc(100% + 0.45rem); left: 0;
+.fb-mark-note { position: absolute; z-index: 30; top: calc(100% + 0.45rem); right: 0; left: auto;
                 /* width MUST be set: an absolutely-positioned box with no left/right shrink-to-fits
                    against its containing block — a ~1.45rem wrapper — so text wraps one word per
                    line and max-width never applies. max-content sizes to content; max-width clamps. */
@@ -124,18 +124,19 @@
                 opacity: 0; visibility: hidden; transform: translateY(-3px);
                 transition: opacity 0.13s ease, transform 0.13s ease, visibility 0s linear 0.13s; }
 /* Caret, so the note is visibly attached to its mark rather than floating near it. */
-.fb-mark-note::before { content: ""; position: absolute; bottom: 100%; left: 0.7rem;
+.fb-mark-note::before { content: ""; position: absolute; bottom: 100%; right: 0.7rem;
                         border: 6px solid transparent; border-bottom-color: var(--fb-border-firm); }
-.fb-mark-note::after  { content: ""; position: absolute; bottom: calc(100% - 1px); left: 0.7rem;
+.fb-mark-note::after  { content: ""; position: absolute; bottom: calc(100% - 1px); right: 0.7rem;
                         border: 6px solid transparent; border-bottom-color: var(--fb-note-bg); }
 .fb-note-lens { display: block; font-weight: 650; color: var(--fb-council); margin-bottom: 0.2rem; }
 .fb-note-thin { display: inline-block; margin-top: 0.35rem; padding: 0.1rem 0.4rem;
                 border-radius: 999px; font-size: 0.72rem; color: var(--fb-muted);
                 border: 1px dotted var(--fb-border-firm); }
 
-/* NOT flipped by a :last-child rule — .fb-panel is always the last child of .fb-opt, so such a
-   rule fires on EVERY mark and pushes each note leftward off-screen. Anchored left, clamped by
-   max-width; genuine edge-aware flipping needs runtime measurement, not a selector. */
+/* Right-anchored (opens leftward): .fb-panel is always the last child of .fb-opt, so every mark
+   sits at the row's right edge. A left-anchored note (left:0) extends rightward and clips at the
+   viewport edge — max-width clamps the note's WIDTH but not its start POSITION. Anchoring to the
+   mark's right edge keeps the note on-screen deterministically, no runtime measurement needed. */
 .fb-markwrap:hover .fb-mark-note,
 .fb-mark:focus-visible + .fb-mark-note,
 .fb-mark[data-fb-panel-open="true"] + .fb-mark-note {

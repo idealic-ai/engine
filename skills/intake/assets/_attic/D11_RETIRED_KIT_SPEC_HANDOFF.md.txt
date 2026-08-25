@@ -1,0 +1,550 @@
+# KIT_SPEC_HANDOFF.md
+
+**The reproducibility contract for a composed proof page.**
+
+Scope: how a page records **how it was made**, so that it can be re-derived. What the record must carry, where it lives, how it survives the bundler, how paths are written, and what level of reproducibility the format honestly delivers. **Twenty-one numbered rules**, each traced to the measurement or defect that produced it.
+
+> **Denominator correction, 2026-08-03 17:3x by `[DOC-LOADER]`.** This line read *"Nineteen numbered rules"* while the spec carried **21** — rules 20 and 21 were added without the count following them. MEASURED: `grep -c '^\*\*[0-9]\+\. ' KIT_SPEC_HANDOFF.md` → **21**; highest heading → **21**. Recorded rather than silently fixed because this is the document that owns **rule 7** — *"every count states its denominator and names the set"* — and a spec that drifts on its own count is the cheapest possible demonstration of why rule 7 exists. It does **not** specify idea markup (`KIT_SPEC_IDEA.md`), the bundler's own contract (`KIT_SPEC_BUNDLING.md`), or how a claim gets checked (`KIT_SPEC_CHECKING.md`) — where this document says "a checker asserts X", read the shape of X there.
+
+---
+
+## Why the page must record itself
+
+The bundler already solved provenance — for everything except the page.
+
+Measured tonight, parsed rather than grepped: across the five proof pages composed between 15:33 and 15:55, **every single emitted definition carries its origin file and line span**. `data-bundle-source="kit-library/atoms.html#L1203-L1285"`, 32 of 32 on `bundle-prov`, 30 of 30 on `study-qas`, 30 of 30 on `vision`, 30 of 30 on `doc-prompt`, 35 of 35 on `loop-state`. **157 definitions, 157 stamps, no exceptions.** Ask any one of those pages where a given block came from and it answers with a file and two line numbers.
+
+Ask the same page where *it* came from and it says nothing. `<script>`: 0. `<template>`: 0. A complete, re-runnable bundle command: 0 of 5 — two pages mention the word `bundle` in prose, and between them they carry 4 `--source` flags where a real invocation carries 7. Absolute source paths: 0, 0, 0, 2, 0. And on disk, across **61 `_PROVE.md` dossiers**, the number that carry the command that produced their page is **zero**.
+
+So the artifact you would actually want to regenerate records less about itself than any of its parts. That asymmetry is the whole of this document. **`data-bundle-source` is idea-level provenance; the handoff is the page-level equivalent — the same mechanism, one tier up.** Nothing here is a new idea. It is a promotion of a mechanism that has already been proved 157 times in one evening.
+
+The cost of not having it is not hypothetical, and it is not about nostalgia. **The bundler was being patched while pages were being bundled against it.** In the three hours from 13:05 to 16:02 on 2026-08-03, twenty pages were bundled and the CLI was edited three times, interleaved: `lib/lint.ts` and `verbs/lint.ts` landed at 13:09–13:10, between one page and the next; `lib/parse.ts` and `verbs/bundle.ts` landed at 15:24, again between one page and the next. One page was built by the first bundler revision, thirteen by the second, six by the third. **None of the twenty can name which.** A page that cannot name its bundler cannot be meaningfully re-bundled — a re-run either reproduces it or does not, and you cannot tell which outcome you got.
+
+The library moves at the same speed. `bundle-prov`'s own dossier, written at 15:49, states **"85/85 provenance stamps hold."** Measured at 16:03 — fourteen minutes later — the library's own index declared **87** ideas. Neither number is wrong; they are different denominators (the bundler *indexed* 85 from the documents it read, the library *declared* 87 across everything it held). But a figure written without its denominator was stale inside a quarter of an hour, which is what a page-level record exists to pin.
+
+**And there is a second, better reason, which is not consolation.** Today the handoff is transient. On Path A the orchestrator writes a self-contained brief into a `Task` call and it evaporates. On Path B (inline) no brief is written at all — that is the *point* of inline: no brief means no latent-space collapse, and the agent that lived the finding writes its own captions at full fidelity. Making the handoff an **output** rather than only an input fixes both cases, and it fixes the inline case *better*: a handoff written at the end of a run records **what was actually used, not what the brief said**. Multiple agents tonight discovered mid-run that their pack was wrong — a re-scoped chunk whose work a sibling had already done, a figure that did not survive re-derivation, an eight-item list that turned out never to have existed. **A prospective brief records intent. A retrospective handoff records ground truth. Where they differ, the difference is the finding**, and rule 18 makes recording that difference mandatory rather than polite.
+
+One warning about the form this takes. `/prove` §3 already carries a page-level contract expressed as prose — five integrity readings a human is told to run. Measured today, **two of the five are wrong**, and neither has ever failed. Reading 2 ("zero external references — the count must be 0") fails two of four self-contained pages, because the four URLs it finds are `<a href>` anchors to `linear.app` and the count of actually-loaded subresources is 0 on all four. Reading 4 ("`<style>` in `<head>` = 2") reads 3 or 4 by naive grep, because one or two of them sit inside HTML comments; parsed, it is 2 everywhere, and a reader who forgets to scope to the head reads 40 to 44. **A contract expressed as prose can be wrong for months without failing once.** That is why rule 19 says the handoff must be expressed as machine-checkable clauses on a declared idea, not as a section in a skill file.
+
+**Each rule below is marked MEASURED or REASONED.** MEASURED means a number in this corpus produced it, and the appendix names the command. REASONED means it follows from a defect but the general claim has not itself been measured — the appendix says what would settle it. This is the convention `KIT_SPEC_CHECKING.md` established, and it exists because inferences get laundered into law.
+
+---
+
+## What testing this spec found — `[HANDOFF-TEST]`, MEASURED
+
+`[HANDOFF-TEST]` filled this format against a real page and reported four things. They are recorded here, at the front, rather than in the appendix, because the first of them changes what a reader should expect the document to be.
+
+**1. 🔴 This is a REPRODUCTION contract, not a REGENERATION contract.** Of the **24 fields** the format defines, **23 are reproduction machinery** — hashes, paths, commands, resolutions, matrices, counts, all of them describing *how the artifact was assembled*. **`thesis` is the only content-bearing slot.** A re-deriver handed a complete handoff can rebuild the page's *construction* exactly and has one sentence of what the page was *for*. That is a real and useful contract, and it is not the one the phrase "so that it can be re-derived" implies. **Read the whole document with that framing.** Rule 8 asks for reader and ten-second job alongside thesis, which softens the ratio but does not change it: the mass of the format is machinery.
+
+**2. 🔴 Rules 6 and 19 are in direct tension, and the tension is real.** Rule 6 says *"don't copy what already travels with the page."* Rule 19's **T2** promises a re-derivable **finding** even when everything has moved or the root is redacted. But the findings travel **in the artifact** — and a regeneration *removes the artifact*. So T2's "always delivered" is delivered by the very thing rule 6 forbids duplicating, and it is exactly what a regeneration destroys. **Not resolved here.** Both rules are left standing with this note against each, because closing it requires the owner to say whether T2 means "re-derive an equivalent page from the handoff alone" (in which case rule 6 must yield and the findings must be copied) or "re-derive it with the old artifact in hand" (in which case T2 is weaker than it reads and must say so).
+
+**3. 🔴 Rule 1 and Rules 12–13 disagree about WHEN.** Rule 1 says the handoff is written **last** on Path B. Rules 12 and 13 require hashes of the CLI and the library **at compose time**. **For hashes, "last" is already too late** — the bundler has run, and on a moving corpus the library can change between the bundle and the write-up. `KIT_SPEC_HANDOFF.md`'s own opening measures exactly this: a dossier written at 15:49 stating 85 was measured against a library declaring 87 at 16:03, fourteen minutes later. **The resolution is a split, and it is stated here as guidance rather than a renumbered rule**: **capture hash-bearing fields (10, 11, 12, 13, 16, 17) at the moment the command they describe runs; assemble and write the block last.** "Written last" governs the *document*; it must never govern the *measurement*.
+
+**4. 🔴 The corrected replacement check does not see a sidecar.** This document's own corrected replacement for `/prove` §3 reading 2 — like reading 2 itself — grades **a sidecar dependency as CLEAN**, because a relative `src` scores 0 against `^(https?:)?//`. The instrument that sees it is `KIT_SPEC_LOADER.md` **Rule 11** — count LOADED subresources of any scheme including relative, and report anchors separately. Rule 21's *"prose contracts are not checked, so they rot in place"* survives intact; what the finding adds is that **a corrected prose contract rots the same way** if the correction is a better regex rather than a better instrument.
+
+> **⬛ Updated 2026-08-04 — the blindness is real, its headline instance is not.** This finding closed on *"the architecture references a shared loader by relative path, so the check is blind to the one external reference the design deliberately has."* **`idea bundle` no longer emits that reference**: the runtime is carried inline and the emitted page loads **zero** `<script src>` (`bundle.ts:67`, `:145-146`; `KIT_SPEC_LOADER.md`'s model was rewritten to match). So the design's "one deliberate external reference" is gone from bundled output.
+> **Keep the finding.** The *check* is exactly as blind as it was — nothing about the pattern changed — and the shapes that still reference a runtime by relative path (a library page, a dev page, any hand-written page) still pass it CLEAN. What is lost is only the sharpest example. **Do not let the example's death discount the instrument's defect**, and note the live half is elsewhere and untouched: the same pattern **false-fails 17 good pages on 68 prose anchors** while passing one genuinely broken page. That half has no expiry attached to it at all.
+
+---
+
+---
+
+## Spec
+
+### The handoff's status and shape
+
+**1. The handoff is an OUTPUT, not only an input. Path A writes it first, Path B writes it last, and either way the artifact carries it.** `(REASONED)`
+On **Path A** the orchestrator's brief is the handoff; the composing agent carries it into the page. On **Path B (inline)** there is no brief by design, so the handoff is written **at the end, from the same fields**, reconstructed from what the run actually used. Inline no longer gets to skip the record; it writes it retrospectively. A page composed by either path without a handoff block is incomplete, not merely undocumented.
+*Why: every proof page in this corpus is currently unreproducible, and the two paths are unreproducible for opposite reasons — Path A's brief evaporates into a `Task` call, Path B never writes one.*
+> **🔴 CONTRADICTS rules 12–13 on timing — `[HANDOFF-TEST]`, MEASURED. See finding 3 at the top.** "Last" governs when the block is **assembled and written**, never when its values are **measured**. Hash-bearing fields (rules 10, 11, 12, 13, 16, 17) are captured **at the moment the command they describe runs**; by the time a Path B agent writes its handoff the bundler has already run and the library may have moved under it. Measured instance in this document's own opening: 85 at 15:49 against 87 at 16:03.
+
+**2. Declare the handoff as an IDEA. Not a `<script>`, and only a `<template>` if an idea is genuinely unavailable.** `(MEASURED)`
+The carrier is `data-instance="proof-handoff"`, a library idea like any other: it has a definition, a `requires` closure, `data-check` clauses, and its own `data-bundle-source` stamp. **A `<script type="application/json">` is forbidden** — it is a script element, it lands in every script census, and a library page's self-containment posture is that it loads no script from anywhere at all. `<template>` is the acceptable *fallback* — it neither renders nor executes and moves no count — but it is a bare carrier with no clauses, so it makes the handoff conventional where an idea makes it checkable.
+*Why: measured `<script>` = 0 and `<template>` = 0 on all five pages composed on 2026-08-03. A JSON `<script>` would be the first script element on any of them, and would force every future script-counting checker to special-case it.*
+
+> **⬛ The measurement moved; the rule got STRONGER. Recorded 2026-08-04.** `<script> = 0` is **no longer true of a newly bundled page.** `idea bundle` now carries its runtime **inline**, in exactly one `<script>` element — `verbs/bundle.ts:67`: *"ZERO `<script src>`: nothing here is a subresource"*, which is a claim about **subresources**, not about script elements. A bundled page today carries one inline `<script>` and no `<script src>`.
+> **This makes rule 2 more load-bearing, not less.** A JSON `<script>` would now be the **second** script element rather than the first, which is worse in the exact way the rule cares about: a script census can no longer distinguish "the carried runtime" from "a handoff someone smuggled in as data" by count alone, so the special-casing the rule was avoiding becomes ambiguous rather than merely annoying. **Declare the handoff as an idea.**
+> **Two things a checker must now keep apart** — and conflating them is how the corpus gets a green: **`document.scripts.length`** (1 on a bundled page, by design) and **`<script src>` count** (0, and that is the self-containment property). The five pages measured above predate the inline runtime; do not re-run that table's `<script>` column against a page bundled after 2026-08-03 and read a 1 as a defect.
+
+**3. The handoff lives in the `_PROOF.src.html` DECLARATION and is carried through the bundle. Never hand-edit it into the artifact.** `(MEASURED)`
+Author it in `<pagePath>`; `idea bundle` carries it into `<proofPath>` like any other instance. A correction is an edit to the source page plus a re-bundle.
+*Why: a re-bundle into the same `--out` **REFUSES at exit 1** on any hand edit — `REFUSE … (holds N B of different bytes)` — and the unchanged arm returns `same … (already there, identical)` at exit 0. Both arms are observed in this corpus. A handoff pasted into the artifact by hand is the one edit guaranteed to make the next re-bundle fail.*
+
+**4. The rendered text IS the value. Do not carry a field twice.** `(MEASURED)`
+Each field appears exactly once, as readable text inside the block, and the `data-check` predicates read that text (`text`, `filled`, `count`, `present`, `unique` all operate on it). Do not mirror a value into a `data-*` attribute "for machines" — that is a second copy that will drift.
+*Why: three separate rulings in this corpus hit the same defect — tier declared four ways; `@origin` ("promote the fact, cut the prose"); and the definition open tag carrying four metadata mechanisms, one of which was identical on every indexed idea and already stated once elsewhere. A format that adds a fifth instance of this defect has learned nothing.*
+
+**5. The block renders. It is not hidden.** `(REASONED)`
+The handoff sits in the endmatter, beside the colophon, as a collapsed disclosure a reader can open and copy. It is not `hidden`, not display-none, and not comment-wrapped.
+*Why: a hidden field is a field nobody notices is wrong. The corpus's own evidence for this is rule 19's: the `/prove` prose contract was wrong on 2 of 5 readings precisely because nobody ever executed it or read it as data.*
+
+### One fact, one owner
+
+**6. A fact that already travels with the page is REFERENCED or DERIVED, never copied. A fact that lives only in a non-travelling sibling is copied, minimally, with a pointer back.** `(MEASURED)`
+Apply the split explicitly:
+- **Per-definition origin** (`data-bundle-source`) — travels on every definition. **Never copy it into the handoff.**
+- **Emitted-idea count** — derivable from the artifact by counting `<idea-def>`. **Do not state it; state how to derive it.**
+- **The seven source paths, the resolved targets, the roots-vs-order counts** — these live in `bundle.report.json`, which sits beside the page and **does not travel with it**. **Copy the minimum** (library root + the seven basenames) and point at the report by path and hash.
+- **Library file hashes, CLI hashes** — derivable from nothing on the page. **Copy.**
+*Why: measured on `bundle-prov` — the bundle report already records all seven sources with `ok: true` and fully-resolved absolute targets, plus which ideas each provided. Every fact `/prove` §2 step 5 asks an author to restate is already machine-readable on disk. Separately measured: the artifact's `<idea-def>` count (32) equals the report's `order` length (32) equals the `data-bundle-source` count (32) — three copies of one number, of which the page needs to state zero.*
+> **🔴 IN TENSION with rule 19's T2 — `[HANDOFF-TEST]`, MEASURED. See finding 2 at the top. UNRESOLVED, deliberately.** "Already travels with the page" is only a reason not to copy **while the page exists**. T2 promises a re-derivable finding after everything has moved — and a regeneration removes the artifact, taking the untravelled facts with it. The two rules cannot both be unconditionally right. **Do not resolve this by reading one of them loosely**; it needs the owner to say what T2 is re-derived *from*.
+
+**7. Every count states its denominator and names the set.** `(MEASURED)`
+`85/85`, `30 roots → 32 emitted`, `157 stamps` — each states what it divides by and which population produced it. A count with no named set is a claim, not a measurement.
+*Why: `bundle-prov_PROVE.md` states "85/85 provenance stamps hold" at 15:49; the library declared **87** ideas at 16:03. Both figures are correct against different populations — the bundler *indexed* 85 from the documents it read, the library *declared* 87 across everything it held — and the unpinned form makes them look like a contradiction. This is `KIT_SPEC_CHECKING.md` rule 3 applied to page-level provenance.*
+
+### What the handoff must carry
+
+**8. Thesis, reader, and the ten-second job — plus decisions, or the literal word `none`.** `(REASONED)`
+One claim with a truth value. One named reader. One sentence naming what that reader must be able to see and trust in ten seconds. Then the decisions the page asks for, or `none` — the empty case is written, never omitted.
+*Why: `/prove` §1 already requires all four to scope the page; none of them survives into the artifact, so a re-deriver cannot tell whether a caption served the reader or the author.*
+
+**9. The source work, by path, with what was taken from each.** `(MEASURED)`
+Every trusted upstream report gets a line: its path (relative, per rule 15) and one clause naming what this page took from it. A path with no "what was taken" is a citation, not a source.
+*Why: `bundle-prov`'s dossier records exactly this and it is the reason its ledger can distinguish nine `checked-here` claims from one `trusted-upstream` one. The page it produced records neither the paths nor the split.*
+
+**10. The library resolution — all four paths `/prove` §2.0 resolves, each recorded as EXISTING at compose time.** `(MEASURED)`
+`library`, `cli`, `view`, `skeleton`. Each is recorded with the result of the `ls` that confirmed it, at compose time. Record **which resolution step fired** — `--kit`, `$IDEA_LIBRARY`, the `.idea-library` marker, or the stated fallback — because that is the fact most likely to be different on the next machine.
+*Why: measured now — `/Users/invizko/Projects/finch/.idea-library` **does not exist** and `$IDEA_LIBRARY` is empty, so `/prove` §2.0 resolves to nothing for this repository and step 4 fires, falling back to the deprecated warm-print escape — while the library itself sits inside this very session at `builds/kit-library`. An uninstalled `.idea-library.template.json` sits in `prove-bundle/`. "A brief naming a directory that is not there is the one failure that resolution order exists to remove" — and today the resolution order removes it by naming nothing at all.*
+> **STALE — the marker was installed. Re-measured 2026-08-03 17:2x by `[DOC-LOADER]`: `/Users/invizko/Projects/finch/.idea-library` EXISTS** (1,426 B, mtime 2026-08-03 16:38), resolving all four paths — `library` → `builds/kit-library`, `cli` → `builds/idea-cli/idea.ts`, `view` → `builds/prove-bundle`, `skeleton` → `builds/prove-bundle/skeletons/proof-page.slots.html`. **Step 3 now fires and the deprecated warm-print fallback is unreachable**, which is also the forward half of "unwire the legacy kit completely" (`KIT_SPEC_LOADER.md` Rule 14). The rule itself is unchanged and its *"record WHICH resolution step fired"* clause is now more load-bearing, not less — the answer changed within ninety minutes. **This is `§INV_POINT_IN_TIME_CHECKS_EXPIRE` caught in a spec**: the original measurement was true when it ran and false when it was next read, and it is annotated rather than overwritten so the expiry itself stays visible.
+>
+> **Third reading, 2026-08-04 — and it is the subtle one, because nothing in the record changed.** The marker still exists at 1,426 B with the same mtime, and **all four declared paths still `ls` clean**. Yet **the contents under `library` changed completely**: the tree was reorganised into directory-per-kind and its index file was ruled deleted, inside the window between the second reading and this one. **A resolution record that still passes is not a library that still matches.** That is precisely the gap this rule cannot see and the rewritten Rule 13 exists to close — record what the resolver *returned*, not only which step fired.
+> **One path needs disambiguating before anyone acts on it.** The marker's `skeleton` value points at `builds/prove-bundle/skeletons/proof-page.slots.html`, which resolves. **The kit's own `skeletons/` directory is empty — those skeletons were deleted**, in favour of `idea generate`, which is BUILT. Two different things called "the skeleton"; only one of them is gone. **What I cannot verify**: whether the marker's `skeleton` key is itself slated for removal now that `idea generate` exists. Do not compose against a skeleton on the strength of this box.
+
+**11. The exact bundle command, with every `--source` flag.** `(MEASURED)`
+Not "the bundler was run". Not the command with an ellipsis. The full invocation, re-runnable after substituting the one absolute root of rule 15. Seven `--source` flags, the `--root`, the `--out`, the `--report`.
+*Why: **0 of 61 `_PROVE.md` dossiers carry a complete command** (defined as ≥7 `--source` flags). Only 8 of 61 mention `bundle` or `--source` at all. Two `_BUILD.md` files out of 64 do carry one (`bundler_BUILD.md` with 14, `self-assembly_BUILD.md` with 10) — so the command exists on disk somewhere, just never beside the page it produced.*
+
+**12. 🔴 The CLI revision — hashes of the `idea-cli` files that were invoked.** `(MEASURED)`
+At minimum `idea.ts`, `verbs/bundle.ts`, and `lib/parse.ts`; preferably a combined digest over `idea.ts` + `verbs/*.ts` + `lib/*.ts` + **`runtime/*`**, with the recipe for computing it stated so the next agent gets a comparable number.
+
+> **⬛ `runtime/` added to the digest 2026-08-04, and it is not a nicety.** When this rule was written the CLI's output was determined by the CLI's own source. It no longer is: **`idea bundle` splices the bytes of `runtime/idea-loader.js`, `bundle-viewer.js`, `idea-def.js` and `idea-extends.js` verbatim into every emitted page.** Those files change independently of `verbs/` and `lib/` — the carried set itself grew by one entry (`idea-extends.js`) after this rule was written — so a digest over `verbs/*.ts` + `lib/*.ts` alone can be **identical across two bundlers that emit materially different pages**. A CLI-revision field that cannot distinguish them is failing at its one job.
+> **State the recipe, and take the file list from the tree rather than from this sentence** — the CLI has grown `check/` and `gates/` directories since this rule was written, and any fixed enumeration here will rot exactly as Rule 13's did. Name what you hashed.
+*Why: the interleaving above — twenty pages, three bundler revisions, three hours, `lib/parse.ts` and `verbs/bundle.ts` rewritten at 15:24 between one page at 15:17 and the next at 15:33. Not one of the twenty records which bundler built it. A page that cannot name its bundler cannot be re-bundled meaningfully.*
+
+**13. Library state at compose time — a hash over the RESOLVED DOCUMENT SET, plus the count of documents it covers and the resolution that produced it.** `(REASONED · REWRITTEN 2026-08-04, the previous form was UNCOMPUTABLE)`
+Every composing agent already resolves a library; none records what it resolved *to*. Record: the **library root** as passed, the **number of documents `resolveLibrary()` returned**, a **combined digest over exactly those documents** (sorted by path relative to the root, md5-of-md5s, and **state the recipe** so the next agent gets a comparable number), and the **count of directories the resolver reported not descending into** — because a silently under-read library is the failure this field exists to catch.
+
+> **🔴 THE PREVIOUS FORM OF THIS RULE HAS NO COMPUTABLE VALUE. Recorded 2026-08-04.**
+> It asked for md5s of **a hard-coded list of seven filenames plus the library's index file**, together with the index's declared idea count and kind breakdown — eight hashes, one combined digest — and the appendix named the exact `md5 -q …` invocation, with all eight paths spelled out in a brace expansion.
+> **Both operands are gone.** The seven grouped documents no longer exist: the library was reorganised into **directory-per-kind**, so a glob at the library root resolves to nothing and the brace expansion names eight files none of which is there. And the index was **ruled deleted** — `idea-cli/lib/library.ts` now **discovers** the library by walking the directory: *"**THE DIRECTORY IS THE REGISTRY.** A document in the library IS in the library; there is no second file that has to agree."*
+> **Why this is a RETIREMENT and not an edit.** This was a **MEASURED, mandatory** field. A mandatory field with no computable value does not degrade gracefully: the next composer either invents a value — which rule 20 forbids — or silently drops the field, which nothing catches. Renaming the filenames would only buy until the next reorganisation, and the tree renamed itself **inside a six-minute window** during the audit that found this.
+> **Why a resolved-set hash is the right replacement, and not just a working one.** The old form hashed *a list of names*, so it could only detect a change to files it already knew about; the library moving underneath a stable path was invisible to it. Tonight's proof of exactly that: the `.idea-library` marker still resolves, **every declared path still `ls`-es clean**, and the contents under `library` changed completely. Rule 10's *"record WHICH resolution step fired"* cannot see it either — only a hash over what was actually resolved can. `resolveLibrary()` already computes that set; this rule asks the composer to write down what it got.
+> **Marked `REASONED`, deliberately.** No handoff has yet been filled with a resolved-set digest, and no re-derivation has been run against one. **What would settle it**: fill one handoff this way, move a document within the library without changing any declared path, and confirm the digest moves while rule 10's resolution record does not.
+
+*Why the field exists at all, unchanged by the rewrite: a page composed against a moving library cannot be re-derived unless it says which library. The originating measurement — a dossier stating `85/85` at 15:49 against a register declaring `87` fourteen minutes later — was rule 7's denominator case and remains the reason **a hash beats a count**. The rewrite keeps the hash and drops the count-against-a-register, because the register is what got deleted.*
+
+**14. The archetype chosen, and WHY — recorded as judgement, because that is what it is.** `(MEASURED)`
+Name the archetype and give one sentence of grounds, including what was rejected. Mark it `judgement`, not `derived`.
+*Why: the library has **no recipes file** and no precondition/failure-branch table — `/prove` §2 step 3 says so in its own words — so archetype selection is unassisted judgement with nothing to check it against. `bundle-prov` recorded its reasoning ("the load-bearing figure is a pair of identical renders — a before/after whose 'after' looks exactly like its 'before'; no other archetype has a place to put that") in a dossier that does not travel with the page.*
+
+**15. The provenance ledger, as counts plus a pointer — never as a second copy of the ledger.** `(REASONED)`
+Record `N checked-here · N trusted-upstream · N unproven`, name each trusted-upstream report, and point at the dossier that holds the per-claim rows. Do not restate the rows; the page's own claim blocks already carry their labels.
+*Why: rule 6's split. The per-claim labels travel on the page; the aggregate does not, and the aggregate is what a re-deriver needs to know whether the page's confidence was earned.*
+
+**16. Assets — the actual command that produced each render, plus every `asset-failed` and its reason.** `(MEASURED)`
+`mutool draw -r 150 …`, the headless call with its viewport and DPR, the verbatim CLI capture. A failed capture is recorded with its reason, never silently absent.
+*Why: `¶INV_PROVE_REAL_ASSETS_ONLY` requires every asset to be rendered from the actual source, and there is currently no way to check that claim after the fact — the page shows the pixels and nothing else. `bundle-prov` recorded "failed captures: none, all four PNGs are real headless-Chrome element clips at DPR 1" in its dossier only.*
+
+**17. The render matrix and written-vs-opened, honestly — including the shot that was NOT taken.** `(MEASURED)`
+Per viewport × theme: document height, `bodyOverflow`, head `<style>` count, `<idea-def>` count, `pageErrors`, external requests. Then **N shots written · M shots opened**, naming the unopened ones, and recording any `fullPage` capture declined for exceeding the ~7,900 CSS px ceiling.
+*Why: one agent tonight published "40 shots opened" having opened **6 of 48**, and caught it in its own integrity pass — *"the metric about looking at things was the one that overclaimed."* And measured on `bundle-prov`: `docHeight` 7932 at 1400 — **above the ceiling**, so the full-page shot was correctly not taken, and nothing on the page records that it was declined. `KIT_SPEC_CHECKING.md` rules 9 and 10 own the underlying discipline; this rule only says the result must land in the artifact.*
+
+### Paths and portability
+
+**18. 🔴 ONE absolute path — a declared `root`. Every other path is relative to it, and `root` is marked redactable.** `(MEASURED)`
+The handoff declares exactly one absolute path, `root`, naming the directory everything else hangs from. `library`, `cli`, `view`, `skeleton`, `page`, `out`, `report`, and every source path are written **relative to `root`**. Substituting one value re-points the whole handoff.
+
+**Say what breaks, both ways, because both genuinely break:**
+- **Relative-only, no root.** The page is portable and leaks nothing, and it is *not reproducible* — an agent cannot find `kit-library` without being told where the session lives. This is the current state, dressed up.
+- **Absolute everywhere.** Reproducible on exactly one machine, and it leaks the filesystem to every reader. Measured: the real session root is `/Users/invizko/Library/CloudStorage/GoogleDrive-yarik@finchclaims.com/Shared drives/finch-os/yarik/finch/sessions/2026_07_31_PROVE_THEME` — **an email address inside a filesystem path**, plus two spaces. `bundle.report.json` records that path seven times, once per source.
+- **One declared root.** Leaks one field, greppable and redactable, and re-points with one substitution. With the root redacted the handoff degrades to a *recipe* rather than a *reproduction* — rule 19's tier T2 — and it must say so rather than pretend otherwise.
+
+**Corollary — a path that becomes a URL is `encodeURI`'d at the point of use, and a whitespace guard must test the RAW string.** A guard written against the already-encoded string is unreachable: `%20` contains no whitespace, so the guard can never fire. Measured in a prior build in this corpus.
+*Why: two spaces and an email in the one path every artifact must name. Neither extreme is acceptable and the middle is cheap.*
+
+### What this format actually delivers
+
+**19. Declare the reproducibility TIER, and make the re-deriver compute it. Reproducible ≠ re-runnable.** `(REASONED)`
+Three tiers, and the format targets the middle one:
+- **T0 — byte-identical replay. NOT delivered, and not deliverable by this format.** It would need a pinned CLI, a pinned library, a deterministic emitter, and a pinned renderer build and font stack for the assets. The sources move, the CLI moves, the model differs.
+- **T1 — re-derivable artifact.** *Delivered when the recorded hashes still match disk.* Same library state, same CLI revision, same entry ⇒ an agent re-runs the recorded command and gets the same bundle.
+  > **⬛ Corrected 2026-08-04: "same skeleton" removed from T1's conditions.** The kit's skeletons were **deleted** in favour of `idea generate`, so a skeleton hash is no longer an input a re-derivation can compare. **T1's inputs are now: the resolved-set digest (Rule 13, rewritten), the CLI digest including `runtime/` (Rule 12, extended), and the recorded command (Rule 11).** Where a page *was* composed from a skeleton, its recorded hash stays in the handoff as history and simply cannot be matched — which a re-deriver must **report as an unmatchable input**, not silently skip. A silent skip here is a silent drop from T1 to T2, which the paragraph below already forbids.
+- **T2 — re-derivable finding.** *Always delivered.* Even with everything moved or the root redacted, the handoff names the thesis, the reader, the sources, the archetype and the render matrix, so an agent can compose an equivalent page.
+
+The tier is not a property of the handoff; it is computed **at re-derivation time** by comparing the recorded hashes against disk. The handoff's obligation is to carry every input that comparison needs, and the re-deriver's obligation is to **state the tier it got and which hash mismatched**. A silent drop from T1 to T2 is the *silent and green* failure this corpus exists to kill.
+> **🔴 T2's "always delivered" IS IN TENSION with rule 6 — `[HANDOFF-TEST]`, MEASURED. See finding 2 at the top. UNRESOLVED, deliberately.** T2 is delivered by facts that travel **in the artifact**, and rule 6 forbids copying exactly those into the handoff. A regeneration removes the artifact. So **T2 as written is only reliably true with the old page in hand** — which is not what "even with everything moved" implies to a reader. Two honest closings exist and the owner picks: **widen rule 6** so T2's inputs are copied, or **narrow T2** to say what it re-derives *from*. Until then, a re-deriver claiming T2 should state whether it had the artifact.
+
+**20. Every field is MEASURED at compose time by a command, never transcribed from the brief. Where the retrospective value differs from the brief's, record BOTH.** `(MEASURED)`
+Hashes are computed, not copied from the dispatch. Paths are `ls`-confirmed, not assumed. Counts are derived, not remembered. And when the handoff written at the end disagrees with the brief written at the start — a source that was not in fact used, a figure that did not survive, a scope that was re-cut mid-run — **both values are recorded, labelled `brief` and `actual`.**
+*Why: this is the integrity gain that makes a retrospective handoff strictly better than a prospective brief, not a consolation for inline runs. Multiple agents tonight discovered mid-run that their pack was wrong. A brief records intent; a handoff records ground truth; the difference between them is a finding, and a format that overwrites one with the other destroys it. `KIT_SPEC_CHECKING.md` rule 5 is the general case — never hand-type a magnitude.*
+
+**21. Express the contract as `data-check` clauses on the `proof-handoff` idea, not as prose in a skill file.** `(MEASURED)`
+Each required field gets a clause with a `data-check` predicate over the implemented verb set (`filled`, `present`, `count`, `text`, `each`, `unique`, `implies`, `reconcile`, …). Where no machine check exists, write `data-check="human"` with a `data-why` naming what a human must look at — never invent a verb, and never leave a field enforced only by a sentence.
+**This composes with live work**: a sibling is proposing `page` as a kind with `proof-page` as one of four. **A `proof-page` idea that `requires` `proof-handoff` makes the handoff mandatory rather than conventional** — which is the difference between a rule and a habit.
+*Why: `/prove` §3 is a page-level contract expressed as five prose readings. Measured today, **two of the five are wrong and neither has ever failed**. Reading 2 fails 2 of 4 self-contained pages on `<a href>` anchors while loaded subresources are 0 on all four; reading 4 reads 3–4 by naive grep against a parsed truth of 2, and 40–44 unscoped. Prose contracts are not checked, so they rot in place.*
+> **🔴 And the CORRECTION rots too — `[HANDOFF-TEST]`, MEASURED. See finding 4 at the top.** This document's own corrected replacement for reading 2 **also grades a sidecar dependency CLEAN**, because a relative `src` scores 0 against `^(https?:)?//`. **A `data-check` clause built on the same regex inherits the same blindness** — expressing a contract as machine-checkable does not make its predicate correct. The instrument is `KIT_SPEC_LOADER.md` **Rule 11**: count LOADED subresources of any scheme including relative, and report anchors separately. *(Instance update 2026-08-04: the bundled page no longer carries the sidecar `<script src>` this was measured against — see finding 4's box. The predicate is unchanged and still blind; the point about a machine-checkable contract with a wrong predicate is the durable half and is why this note stays.)*
+>
+> **And a clause this rule can now actually be written against.** When it was authored, the closed verb set and its grader lived in `builds/kit-next/*.mjs`. Today `builds/idea-cli/lib/lint.ts` enforces the same closed set, cites `KIT_SPEC_CHECKING` rules 15 and 16 by number on the findings it emits, and grades a `data-check="human"` with no `data-why` as **HARD**. **Take the verb list from the tool, never from a document**: `node builds/idea-cli/idea.ts lint --list` prints every check this build carries with its tier and its rule. A `proof-handoff` idea's clauses are lintable today; what does not exist is the `proof-page` kind that would `require` it, which is what would make the handoff mandatory rather than conventional. **That remains unbuilt — I did not verify a `proof-page` kind exists**, and a `proof-handoff` definition existing in the library is not the same thing as a page kind requiring it.
+
+---
+
+## Worked example — the handoff for `bundle-prov_PROOF.html`, filled with its real values
+
+Not a schema with placeholders. This is the block that **would have been** carried by a page already on disk, every value measured from that page, its bundle report, its render ledger and its dossier. Two fields are marked **`reconstructed`** precisely because the page did not record them — which is the argument.
+
+> **⬛ READ THIS AS A DATED SPECIMEN, NOT AS A TEMPLATE TO COPY. Recorded 2026-08-04.**
+> Every value below was measured on **2026-08-03 around 15:47–16:03** and the example is kept at those values on purpose: it is evidence about a page that exists, and re-typing today's numbers into it would replace evidence with decoration. **Three parts of it are now unrunnable or wrong as a pattern**, and a composer copying its shape would reproduce all three:
+> *   **The `bundle command` block's seven `--source $root/builds/kit-library/<name>.html` flags name files that no longer exist.** The library is directory-per-kind; those seven grouped files are gone, and `theme.html` in particular now lives one level down at `theme/theme.html` beside seven sibling theme documents. **Today a composer passes `--library <dir>` and lets `resolveLibrary()` discover** — which is also why enumerating sources by hand is no longer the shape to imitate.
+> *   **The `library` line enumerated the library's contents — a fixed list of grouped files plus an index file.** Both halves are dead: the grouped files were reorganised away, and the index was ruled deleted. **Its value is elided in the specimen rather than reproduced**, because it is the line a composer is likeliest to copy as a pattern and there is no pattern left in it.
+> *   **The `library state` field is the retired Rule 13's output** — a set of md5s over a filename list. See Rule 13's box for what replaces it. The `declared N / bundler indexed M` reconciliation below is **still a correct illustration of rule 7's denominator point** and is worth reading as exactly that, and **not** as a live procedure: there is no second register left to reconcile against.
+> **What the example still teaches, undiminished**: the three fields marked `reconstructed` / `unrecorded`, and the word **"believed"** in the CLI digest. Those are the defect this whole document exists to close, and they are untouched by any of the above.
+
+```html
+<section data-instance="proof-handoff" class="hd">
+  <details>
+  <summary>How this page was made — handoff</summary>
+
+  <dl>
+  <dt>slug</dt>                <dd>bundle-prov</dd>
+  <dt>composed</dt>            <dd>2026-08-03 15:47:50 local</dd>
+  <dt>path</dt>                <dd>/prove Path B — INLINE, composed by the agent that lived the finding</dd>
+  <dt>published</dt>           <dd>no — D53; composed into builds/ and stopped before /prove §4</dd>
+
+  <dt>thesis</dt>              <dd>A bundle that omits a file the page will request at runtime is
+                                   pixel-identical and geometrically identical to one that does not —
+                                   so no DOM readout and no screenshot can grade self-containment.
+                                   Only the network can.</dd>
+  <dt>reader</dt>              <dd>the session coordinator, plus the sibling [BUNDLE-VIEWER] whose
+                                   provenance claim this page second-reads</dd>
+  <dt>ten-second job</dt>      <dd>is the hole closed, and did the provenance claim survive?</dd>
+  <dt>decisions</dt>           <dd>none — pure evidence page, which is also why it stays on the
+                                   library path (the library has no decision skeleton)</dd>
+
+  <dt>root</dt>                <dd data-redactable>/Users/invizko/Library/CloudStorage/GoogleDrive-yarik@finchclaims.com/Shared&#32;drives/finch-os/yarik/finch/sessions/2026_07_31_PROVE_THEME</dd>
+  <dt>source work</dt>         <dd>builds/bundle-viewer_BUILD.md — the data-bundle-source stamping
+                                   design and the viewer's three idempotence guards; not re-derived</dd>
+  <dt></dt>                    <dd>builds/bundle-prov_work/arms.json — the two-arm bundle fixture</dd>
+  <dt></dt>                    <dd>[SPLIT-EFFICACY] report — the nine contract-with-no-markup units;
+                                   corroborated here on a new axis, not re-derived</dd>
+
+  <dt>library resolution</dt>  <dd>step: <b>--kit (explicit)</b>. §2.0 step 3 would have resolved
+                                   nothing — no .idea-library at the project root, $IDEA_LIBRARY empty.</dd>
+  <dt>  library</dt>           <dd>builds/kit-library — ls ok at compose time [enumeration elided: a fixed
+                                   file list plus an index, both since deleted — see the box above]</dd>
+  <dt>  cli</dt>               <dd>builds/idea-cli/idea.ts — ls ok</dd>
+  <dt>  view</dt>              <dd>builds/prove-bundle — LIBRARY_CHOOSE.md + LIBRARY_EMIT.md, ls ok</dd>
+  <dt>  skeleton</dt>          <dd>builds/prove-bundle/skeletons/proof-page.slots.html
+                                   — ls ok, 39,670 B, md5 38ba48b12dcfd5c664fa1308169eddd5</dd>
+
+  <dt>bundle command</dt>
+  <dd><code>node $root/builds/idea-cli/idea.ts bundle \
+  $root/builds/bundle-prov_PROOF.src.html \
+  --root $root/builds \
+  --out $root/builds/bundle-prov_work/PROOF.bundle \
+  --source $root/builds/kit-library/floor.html \
+  --source $root/builds/kit-library/theme.html \
+  --source $root/builds/kit-library/channels.html \
+  --source $root/builds/kit-library/atoms.html \
+  --source $root/builds/kit-library/modifiers.html \
+  --source $root/builds/kit-library/chrome.html \
+  --source $root/builds/kit-library/blocks.html \
+  --report $root/builds/bundle-prov_work/PROOF.bundle.report.json</code>
+  <b>reconstructed</b> — the page recorded no command; the seven sources and their
+  resolved targets were recovered from PROOF.bundle.report.json (sources[].ref / .target,
+  all ok:true). This is rule 11's defect, demonstrated on its own worked example.</dd>
+
+  <dt>bundle report</dt>       <dd>builds/bundle-prov_work/PROOF.bundle.report.json — 14,501 B.
+                                   entry bundle-prov_PROOF.src.html · shape inline · indexed 85 ·
+                                   roots 30 → order 32 · missing 0 · cycles 0 · duplicates 0 ·
+                                   orderViolations 0 · sources 7 · inventedLocators 0.
+                                   The two ideas the page never named: swatch, scroll-x.</dd>
+
+  <dt>cli revision</dt>        <dd><b>reconstructed</b> — idea.ts 0c65c50aa80aeff9715a8d053101b63a ·
+                                   verbs/bundle.ts 0fc69e5e3df2ea28c2a7cab0e3715cc0 ·
+                                   lib/parse.ts ac8d82c10e2500a853edc1967fa21a03.
+                                   Combined md5-of-md5s over idea.ts + verbs/*.ts + lib/*.ts (sorted):
+                                   fb70c7377556fde1481aa8ca17863a25.
+                                   Caveat: taken at 16:03, after the page was bundled at 15:47.
+                                   verbs/bundle.ts and lib/parse.ts were last written at 15:24, before
+                                   the bundle, so the digest is believed to describe the bundler that
+                                   ran — but it was NOT captured at compose time, and rule 12 exists
+                                   so that the next page does not have to say "believed".</dd>
+
+  <dt>library state</dt>       <dd>[per-file roster elided: eight md5s over a hard-coded filename list,
+                                   none of those files still present — retired Rule 13's output]
+                                   Combined b6e8d4fde9aa0ab6c62c26d008feaa1e.
+                                   The library declared 87 ideas (2 theme · 24 atom · 4 modifier ·
+                                   35 block · 20 chrome · 1 floor · 1 channel); the bundler indexed 85
+                                   from the documents it read. Two denominators, both named.</dd>
+
+  <dt>archetype</dt>           <dd><b>BEFORE / AFTER</b> — <b>judgement</b>, not derived; the library
+                                   has no recipes file. was-now-strip as the delta spine, claim-verdict
+                                   as the ledger, card + figure-number for the two exhibits, codeblock
+                                   for verbatim runs, table + chip for Next Steps, legend for the
+                                   colophon. Rejected diagnosis: the finding is not what broke, it is
+                                   what changed and what did not, and the load-bearing figure is a pair
+                                   of identical renders — no other archetype has a place to put that.</dd>
+
+  <dt>provenance</dt>          <dd>8 checked-here · 1 trusted-upstream (bundle-viewer_BUILD.md) ·
+                                   1 unproven, rendered as an Unproven verdict rather than omitted.
+                                   Per-claim rows: builds/bundle-prov_PROVE.md §2. Per-definition
+                                   origin travels on the page as data-bundle-source (32 of 32) and is
+                                   deliberately not copied here.</dd>
+
+  <dt>assets</dt>              <dd>4 PNGs, all real headless-Chrome element clips at DPR 1 of real
+                                   bundled directories. before-1400-masthead.png and
+                                   armB-1400-masthead.png are byte-identical, md5
+                                   6068eb2a741524ddefb77506c7a8a232 — the identity IS the argument, so
+                                   the same PNG is embedded twice by design. before-390-masthead.png
+                                   9effa612… · armB-390-masthead.png 4c2b0184….
+                                   Renderer: puppeteer-core 23.11.1 (finch repo).
+                                   Capture script: builds/bundle-prov_work/proofshot.mjs.
+                                   asset-failed: none.</dd>
+
+  <dt>render matrix</dt>       <dd>1400×light docHeight 7932 · bodyOverflow 0 · head&lt;style&gt; 2 ·
+                                   idea-def 32 · stamped 32 · imgs 4/4 loaded · ink #2a2016 ·
+                                   pageErrors 0 · externalRequests 0<br>
+                                   1400×dark  docHeight 7932 · bodyOverflow 0 · ink #ece3d3 · errors 0<br>
+                                   390×light  docHeight 14151 · bodyOverflow 0 · widestRight 299 on a
+                                   CODE element that is a correctly-contained scroller · errors 0<br>
+                                   390×dark   docHeight 14151 · bodyOverflow 0 · errors 0<br>
+                                   <b>fullPage NOT taken at 1400</b> — docHeight 7932 exceeds the
+                                   ~7,900 CSS px ceiling. Element shots only.<br>
+                                   Ledger: builds/bundle-prov_work/render.json —
+                                   16 shots written across 4 combos; 23 PNGs in proofshots/.
+                                   Shots opened: <b>reconstructed as unrecorded</b> — the page states
+                                   no written-vs-opened figure, which is exactly rule 17's defect.</dd>
+
+  <dt>reproducibility</dt>     <dd>T1 (re-derivable artifact) at compose time. Re-deriver: compare the
+                                   library and cli digests above against disk, then state the tier you
+                                   actually got and which hash moved. With root redacted this degrades
+                                   to T2 (re-derivable finding) — a recipe, not a reproduction.</dd>
+
+  <dt>brief vs actual</dt>     <dd>The upstream verdict on established-by = 0 was <b>re-opened</b>
+                                   rather than inherited: a looser reader found 1; opening it showed
+                                   demo prose. Brief said trusted-upstream; actual is checked-here.
+                                   Both recorded, per rule 20.</dd>
+  </dl>
+  </details>
+</section>
+```
+
+**What this worked example proves about the format, by failing in two places.** Two fields — the bundle command and the CLI revision — are marked `reconstructed`, and the render ledger's opened-count is marked unrecorded. Those are not gaps in the example; they are the three facts a page composed *tonight* could not supply about itself, recovered afterwards from a sibling JSON and a filesystem timestamp. The CLI digest carries the word **"believed"**, and it has to, because it was taken sixteen minutes after the bundle. Rules 11, 12 and 17 exist so that the next page's handoff contains no such word.
+
+---
+
+## Appendix — where each rule came from
+
+Every entry names the measurement or defect behind the rule. Commands are the ones actually run for this document, from `sessions/2026_07_31_PROVE_THEME/builds/` unless noted. **Run date: 2026-08-03, 16:00–16:05.** Scripts live in `builds/spec-handoff_work/`.
+
+---
+
+**The framing measurement — MEASURED. `data-bundle-source` vs page self-record.**
+`node spec-handoff_work/measure-selfrecord.mjs bundle-prov_PROOF.html study-qas_PROOF.html vision_PROOF.html doc-prompt_PROOF.html loop-state_PROOF.html`
+
+Parsed with `parse5@7.3.0` — a real DOM parse, so comment nodes cannot contribute attributes or elements. This is `KIT_SPEC_CHECKING.md` rule 2 obeyed: the claim is about a *structure*, so it comes from a parse, not a grep.
+
+| page | bytes | `data-bundle-source` | `<idea-def>` | head `<style>` | `<script>` | `<template>` | abs paths (text) | `--source` (text) | md5s (text) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `bundle-prov_PROOF.html` | 467,051 | **32** | 32 | 2 | 0 | 0 | 0 | 2 | 4 |
+| `study-qas_PROOF.html` | 340,522 | **30** | 30 | 2 | 0 | 0 | 0 | 0 | 1 |
+| `vision_PROOF.html` | 239,122 | **30** | 30 | 2 | 0 | 0 | 0 | 0 | 0 |
+| `doc-prompt_PROOF.html` | 249,955 | **30** | 30 | 2 | 0 | 0 | **2** | 0 | 0 |
+| `loop-state_PROOF.html` | 319,206 | **35** | 35 | 2 | 0 | 0 | 0 | 2 | 7 |
+
+**157 definitions, 157 stamps — the stamp count equals the `<idea-def>` count on every page.** Two corrections to the figures this document was briefed with, and the measurement supersedes both: the range is **30–35**, not 30–36; and absolute paths are **0 on four pages and 2 on `doc-prompt`**, not 0 everywhere. A complete bundle command carries **7** `--source` flags; the maximum any page carries is 2, so **0 of 5 pages carry a re-runnable command**.
+
+---
+
+**Rule 1 — the handoff as output — REASONED.**
+Follows from `/prove` §2's own text: Path A's brief is written into a `Task` call (transient by construction) and Path B explicitly writes no brief ("no brief ⇒ no latent-space collapse"). Neither path leaves a durable record. What would settle the general claim: compose one page each way with the block, hand both to a fresh agent, and measure whether it re-derives an equivalent page. Not run.
+
+---
+
+**Rule 2 — idea, not `<script>` — MEASURED.** Same run as the framing measurement. `<script>` = 0 and `<template>` = 0 on all five pages. A JSON `<script>` would be the first script element on any of them. `<template>` is not counted by script censuses and does not render or execute — hence it is the sanctioned fallback rather than a forbidden form.
+
+---
+
+**Rule 3 — the block lives in the declaration — MEASURED (both arms observed in this corpus).**
+`/prove` §2 step 5 and §3 reading 1 record the anti-duplication guard: a re-bundle into the same `--out` returns `same … (already there, identical)` at exit 0 when nothing changed, and `REFUSE … (holds N B of different bytes)` at exit 1 after a single appended comment. Cited from the skill's recorded observation, **not re-run here** — `KIT_SPEC_CHECKING.md` rule 17 applies, and this is a citation.
+
+---
+
+**Rule 4 — one fact, one owner — MEASURED (three prior rulings, cited).**
+Tier declared four ways; `@origin` ("promote the fact, cut the prose"); the definition open tag carrying four metadata mechanisms, one of which held the same value on every indexed idea and was already stated once elsewhere. **Trusted-upstream from this session's rulings, not re-derived here.**
+
+---
+
+**Rule 5 — the block renders — REASONED.** Follows from rule 21's measurement (a contract nobody executes rots). What would settle it: hide the block on one page and check whether a subsequent integrity pass notices a missing field. Not run.
+
+---
+
+**Rule 6 — reference vs copy — MEASURED.**
+`node -e "…require('./bundle-prov_work/PROOF.bundle.report.json')…"`. The report records `sources` as 7 entries, each `{ref, ok:true, target, ideas[]}` with `target` fully resolved, e.g. `…/builds/kit-library/atoms.html` providing 24 named ideas. It also records `roots` 30, `order` 32, `missing` 0, `cycles` 0, `duplicates` 0, `orderViolations` 0, `indexed` 85, `inventedLocators` 0. Independently, the parse above counts **32** `<idea-def>` and **32** `data-bundle-source` on the artifact. **Three copies of one number (32), of which the page states zero and needs to state zero.** The seven resolved targets exist only in the report, and the report does not travel with the page — hence the copy-with-pointer half of the rule.
+
+---
+
+**Rule 7 — pin the denominator — MEASURED.**
+`bundle-prov_PROVE.md` (written 15:49) states "85/85 provenance stamps hold". Counting the entries the library's index declared, at 16:03, returns **87**. `PROOF.bundle.report.json` records `indexed: 85`. Both are right against different populations. This is `KIT_SPEC_CHECKING.md` rule 3 at page level. **The index arm of this pair is no longer runnable** — the library is walked, not declared — but the pair is what produced this document's central rule and is recorded as history, not as a procedure.
+
+---
+
+**Rules 8, 9 — thesis/reader/decisions and source work — REASONED, from a MEASURED absence.**
+`/prove` §1 requires all of them to scope the page; the parse above finds none of them recorded in machine-readable form on any of the five artifacts. `bundle-prov_PROVE.md` carries all of them, and that file does not travel with the page. What would settle the general claim: hand a fresh agent a page with and without these fields and measure caption fidelity. Not run.
+
+---
+
+**Rule 10 — library resolution — MEASURED.**
+```
+find /Users/invizko/Projects/finch -maxdepth 3 -name '.idea-library'   → (no output)
+echo "IDEA_LIBRARY=$IDEA_LIBRARY"                                       → IDEA_LIBRARY=
+ls builds/prove-bundle/.idea-library.template.json                      → present, 629 B, UNINSTALLED
+```
+So `/prove` §2.0 steps 2 and 3 both resolve nothing for this repository and step 4 fires — the stated fallback to the deprecated warm-print escape — while the library sits at `builds/kit-library` inside this session. The template that would fix it names all four paths absolutely and correctly and has never been copied to the project root. The four paths were confirmed present by `ls` **as of 2026-08-03**: `kit-library/` — recorded then with a three-item parenthesis enumerating what it held — plus `idea-cli/idea.ts`, `prove-bundle/{LIBRARY_CHOOSE.md,LIBRARY_EMIT.md}`, `prove-bundle/skeletons/proof-page.slots.html`.
+
+> **⬛ THE CLEANEST SPECIMEN IN THIS DOCUMENT OF WHY A PATH CHECK IS NOT A CONTENTS CHECK — 2026-08-04.** That parenthesis enumerated three things the library held. **Within a day, all three were gone**: the grouped documents were replaced by a directory-per-kind tree; the index was ruled deleted, because `lib/library.ts` discovers instead; and the compiled aggregate stylesheet was ruled deleted on the position that a stylesheet may hold nothing that is not in an idea. **The `ls` still passes and the directory still exists.** Four separate readings of the resolution record have now come back clean while the thing it points at was replaced underneath it. That is exactly the gap Rule 10 cannot see and the rewritten Rule 13 exists to close — and it is also why the enumeration is described here rather than reproduced: **the parenthesis was itself the defect**, a contents claim frozen into a path record, and re-typing it would only re-arm it.
+
+---
+
+**Rule 11 — the exact bundle command — MEASURED.**
+```
+ls *_PROVE.md | wc -l                                    → 61
+for f in *_PROVE.md; do grep -oE '\-\-source' "$f" | wc -l; done   → max 1; count with ≥7 = 0
+for f in *_BUILD.md; do … same …                                    → bundler_BUILD.md 14, self-assembly_BUILD.md 10; 2 of 64
+```
+Eight of 61 dossiers mention `bundle` or `--source` at all. **Zero carry a complete command.** Two `_BUILD.md` do, out of 64 — so the command is not unwritable, it is merely never written beside the page it made.
+
+---
+
+**Rule 12 — the CLI revision — MEASURED, and this is the sharpest number in the document.**
+Interleaving `stat -f '%Sm'` over `idea-cli/**/*.ts` (excluding `gates/`) with `stat` over every `*_PROOF.html` bundled on 2026-08-03, sorted by time, from 12:00:
+
+| time | event |
+|---|---|
+| 13:05:23 | PAGE `kit-library-overnight_PROOF.html` |
+| **13:09:20** | **CLI-PATCH `lib/lint.ts`** |
+| **13:10:10** | **CLI-PATCH `verbs/lint.ts`** |
+| 13:19–15:17 | PAGES `idea-lint-scope`, `kit-library-themes`, `prove-repoint`, `self-assembly`, `kit-library-variations`, `kit-library-studies2`, `idea-element`, `prompt-view`, `kit-library-themes-inaction`, `kit-library-qa`, `kit-library-coverage`, `spacing-study`, `bundle-viewer` — **13 pages** |
+| **15:24:20** | **CLI-PATCH `lib/parse.ts`** |
+| **15:24:58** | **CLI-PATCH `verbs/bundle.ts`** |
+| 15:33–16:02 | PAGES `vision`, `doc-prompt`, `study-qas`, `bundle-prov`, `loop-state`, `page-kind` — **6 pages** |
+
+**Twenty pages, three bundler revisions, three hours, zero records of which.** Caveat, stated rather than buried: mtime is a proxy for "the revision that ran" — it establishes that the bundler changed between bundles, which is all rule 12 needs, but a hash captured *at compose time* is what would make it exact. That is the rule.
+
+Fingerprint at 16:03: `idea.ts` `0c65c50aa80aeff9715a8d053101b63a` · `verbs/bundle.ts` `0fc69e5e3df2ea28c2a7cab0e3715cc0` · `lib/parse.ts` `ac8d82c10e2500a853edc1967fa21a03`. Combined: `for f in $(ls idea-cli/idea.ts idea-cli/verbs/*.ts idea-cli/lib/*.ts | sort); do md5 -q "$f"; done | md5 -q` → `fb70c7377556fde1481aa8ca17863a25`.
+
+---
+
+**Rule 13 — library state — ~~MEASURED~~ COMMAND DEAD, rule REWRITTEN 2026-08-04.** As run on 2026-08-03 at 16:03: an `md5 -q` over a hard-coded eight-path list — seven grouped documents plus the library's index — values as listed in the rule and the worked example; combined digest `b6e8d4fde9aa0ab6c62c26d008feaa1e`; index declared 87 ideas; skeleton `38ba48b12dcfd5c664fa1308169eddd5`, 39,670 B.
+
+> **⬛ This command cannot be run. It names eight files, none of which exists.** The library is directory-per-kind and the index is deleted — see the rewritten Rule 13's box. **The digests above are retained as a dated historical reading and MUST NOT be presented as a library identity**; they describe a file layout, and the layout is what changed. The kit's own `skeletons/` directory is likewise **empty**, though the marker's `skeleton` path (a *different* file, under `builds/prove-bundle/skeletons/`) still resolves at the recorded size and hash — do not let one "skeleton" stand in for the other.
+> **The replacement measurement has not been taken.** No resolved-set digest exists for any page in this corpus, which is why the rewritten rule is marked `REASONED`. The observation the old entry closed on survives and is now sharper: **every one of these values is computed by a composing agent already, and none of them reaches an artifact** — the defect was never that the numbers were hard to get.
+
+---
+
+**Rule 14 — archetype as judgement — MEASURED (absence of a recipes file).**
+`/prove` §2 step 3 states it in its own words: *"There is no recipes file and no precondition/failure-branch table — that half of the WARM PRINT contract has no library equivalent, so bring your own judgement and say in the dossier which archetype you picked and why."* Confirmed by `ls builds/prove-bundle/` — `LIBRARY_CHOOSE.md`, `LIBRARY_EMIT.md`, `skeletons/proof-page.slots.html`, and no recipes file. `bundle-prov_PROVE.md` §4 carries the reasoning quoted in the worked example.
+
+---
+
+**Rule 15 — provenance ledger by reference — REASONED**, from rule 6's measurement. The per-claim labels travel on the page; the aggregate (8/1/1 for `bundle-prov`) lives only in the dossier.
+
+---
+
+**Rule 16 — assets — MEASURED (absence).** `bundle-prov_PROVE.md` §3 records the renderer, the four PNGs, the shared md5 `6068eb2a741524ddefb77506c7a8a232` across the two 1400 captures, and "failed captures: none". The artifact records the pixels and nothing about their production. `¶INV_PROVE_REAL_ASSETS_ONLY` is therefore uncheckable after the fact.
+
+---
+
+**Rule 17 — render matrix and written-vs-opened — MEASURED, two ways.**
+From `bundle-prov_work/render.json`: four viewport×theme combos, `docHeight` **7932** at 1400 and **14151** at 390, `bodyOverflow` **0** on all four, `headStyles` **2**, `ideaDefs` **32**, `stamped` **32**, `imgs` 4/4, `pageErrors` `[]`, `externalRequests` `[]`, `requestFailed` `[]`, 4 shots named per combo = **16**; `ls bundle-prov_work/proofshots | wc -l` → **23**. Note `widestRight: 299` with `widest: "CODE."` at 390 *while* `bodyOverflow` is 0 — the correctly-contained-scroller case, and the reason `bodyOverflow` is the authoritative number.
+
+**7932 > ~7900**, so the full-page shot at 1400 was correctly declined — and nothing on the page or in the ledger says so, which is the half of the rule about recording the shot you did not take.
+
+The overclaim it also comes from — "40 shots opened" against 6 of 48 actually opened, caught by the agent's own integrity pass, *"the metric about looking at things was the one that overclaimed"* — is **trusted-upstream from that agent's report, not re-derived here.**
+
+---
+
+**Rule 18 — one absolute root — MEASURED.**
+```
+ls -d "/Users/invizko/Library/CloudStorage/GoogleDrive-yarik@finchclaims.com/Shared drives/finch-os/yarik/finch/sessions"  → exists
+```
+Two spaces (`Shared drives`, and the `GoogleDrive-…` segment) and **an email address as a path segment**. `PROOF.bundle.report.json` records that root **seven times**, once per `sources[].target`. The `encodeURI` corollary — a whitespace guard measured **unreachable** because it tested the already-encoded string, where `%20` contains no whitespace — is **trusted-upstream from the prior build in this corpus that hit it**; not re-derived here.
+
+---
+
+**Rule 19 — reproducibility tiers — REASONED.**
+T0 is excluded by inspection: the assets are headless-browser renders whose bytes depend on the browser build and font stack, and the emitter's determinism has not been established. What would settle T1: bundle one page twice from identical library + CLI hashes into different `--out` dirs and compare md5s. Not run — and worth running, because if the emitter is not deterministic then T1 means "same ideas, same order", not "same bytes", and the format should say so.
+
+---
+
+**Rule 20 — measure at compose time, record brief-vs-actual — MEASURED.**
+`bundle-prov_PROVE.md` §2 row 6 is the clean instance: *"`established-by = 0` stands · `checked-here` (the sibling's verdict was **re-opened**, not inherited) · a looser reader found 1; opening it showed demo prose."* The brief said trusted-upstream; the run produced checked-here; the dossier recorded both and the difference was itself a finding. The general pattern — agents discovering mid-run that their pack was wrong — is **trusted-upstream from tonight's sibling reports**, not re-derived here. `KIT_SPEC_CHECKING.md` rule 5 is the general case.
+
+---
+
+**Rule 21 — express it as clauses, not prose — MEASURED. Two live defects in `/prove` §3.**
+`node spec-handoff_work/measure-prove-gate.mjs bundle-prov_PROOF.html study-qas_PROOF.html vision_PROOF.html loop-state_PROOF.html`
+
+*Reading 2 — "Zero external references … scan for `href`/`src` matching `^(https?:)?//` and report the count — it must be 0":*
+
+| page | ext `href`/`src` total | loaded subresources | `<a>` anchors | carries the `table` def? | verdict as written |
+|---|---:|---:|---:|---|---|
+| `bundle-prov` | **4** | **0** | 4 (`linear.app`) | **yes** — `blocks.html#L4122-L4202` | **FAIL** |
+| `vision` | **4** | **0** | 4 (`linear.app`) | **yes** — same span | **FAIL** |
+| `study-qas` | 0 | 0 | 0 | no | PASS |
+| `loop-state` | 0 | 0 | 0 | no | PASS |
+| *this page* | **4** | **0** | 4 (`linear.app`) | **yes** — same span | **FAIL** |
+
+Scoped to loaded subresources, all five PASS.
+
+**And the anchors are not the author's.** Walking each anchor's ancestors to its nearest `<idea-def>`: all four sit inside the **`table` idea's own carried definition**, `kit-library/blocks.html#L4122-L4202`, as `linear.app/finchclaims/issue/FIN-3453…3479`. The correlation is 5 of 5 — every page carrying that definition has exactly 4, every page without it has 0. **A page acquires the failure by declaring `table`, not by writing a link**, so an author cannot avoid it by writing no links. Reading 2 as written can never pass on a library page that uses `table`.
+
+Correction, as a paste-able replacement for `/prove` §3 reading 2:
+
+> 2. **Zero external subresources.** Parse the page and count `href`/`src` matching `^(https?:)?//` **on loading elements only** — `link`, `script`, `img`, `iframe`, `source`, `video`, `audio`, `embed`, `object`. That count must be **0**. Anchors (`<a href>`) are content, not dependencies: report them separately, and never fail on them — the `table` idea's own definition carries four, so any page using `table` inherits them.
+
+*(An earlier draft of this appendix attributed the failure to ticket anchors in author prose. That was wrong: `node spec-handoff_work/whichdef.mjs` resolves every one of the four to the `table` definition. The briefing's original attribution was correct and this measurement confirms it.)*
+
+*Reading 4 — "`<style>` elements in `<head>` = 2":*
+
+| page | parsed head `<style>` | naive head grep | of which inside comments | naive whole-file grep |
+|---|---:|---:|---:|---:|
+| `bundle-prov` | **2** ✓ | 3 ✗ | 1 | 41 |
+| `study-qas` | **2** ✓ | 3 ✗ | 1 | 40 |
+| `vision` | **2** ✓ | 4 ✗ | 2 | 40 |
+| `loop-state` | **2** ✓ | 3 ✗ | 1 | 44 |
+
+Parsed, the reading passes 4 of 4. Grepped — which is what the prose invites — it fails 4 of 4, and a reader who forgets to scope to the head is off by a factor of twenty. Correction, as a paste-able replacement:
+
+> 4. **Head `<style>` count = 2** (`pg-shell`, `pg-page`) — **counted from a parse, never a grep.** Every `<idea-def>` carries its own `<style>`, so a whole-file `<style` grep reads 40–44, and even a head-scoped grep reads 3–4 because commented-out blocks match. Use `document.head.querySelectorAll('style').length` in the headless run you are already doing, or `parse5` in Node.
+
+*(The briefing said reading 4 "reads 5"; measured, it reads 3–4. My measurement supersedes.)*
+
+**Neither reading has ever failed a page**, because both are prose a human is asked to run by hand and neither has ever been run as a program. That is the whole argument for rule 21: a page-level contract expressed as prose can be wrong for months without failing once, and the fix is not better prose — it is `data-check` clauses on a declared idea, with `proof-page` requiring `proof-handoff` so the block cannot simply be left out.
+
+---
+
+## Proposed changes to `/prove` — paste-able, NOT applied
+
+These are stated as blocks for the skill's owner to apply. Nothing here has been written to `~/.claude/skills/prove/SKILL.md`.
+
+**(a) §2 step 5, after the bundle command** — add:
+
+> **6. RECORD THE BUNDLE.** Before you leave this step, capture into the page's `proof-handoff` block: the exact command you just ran, with every `--source` and every `--library`; md5s of `idea.ts`, `verbs/bundle.ts`, `lib/parse.ts` **and `runtime/*`**, plus the combined CLI digest and the recipe you used for it; and the **library's resolved-set digest** — the document count `resolveLibrary()` returned, a combined digest over exactly those documents, and the count of directories it reported not descending into. Compute them now — a hash taken later describes a different bundler. `KIT_SPEC_HANDOFF.md` rules 11–13.
+
+*(Block (a) updated 2026-08-04. It previously asked for md5s of a fixed seven-file list, the library's index, and the skeleton's size and hash — **none of those three operands exists**: the grouped files were reorganised away, the index was ruled deleted, and the kit's skeletons were deleted in favour of `idea generate`. **A paste-able block that names dead files is worse than no block, because it will be pasted.** `runtime/*` was added for the reason in Rule 12's box: the bundler now splices those bytes into every page.)*
+
+**(b) §2 Path B, as a new final bullet** — add:
+
+> - **Write the handoff LAST, from what you actually used.** Path A carries its brief into the page; inline has no brief, so the handoff is composed at the end from the run's own record. Where it disagrees with what you set out to do — a source you did not use, a figure that did not survive, a scope you re-cut — record **both**, labelled `brief` and `actual`. `KIT_SPEC_HANDOFF.md` rules 1 and 20.
+
+**(c) §3, replacing readings 2 and 4** — the two corrected blocks quoted in the appendix above.
+
+**(d) §3, as a sixth reading** — add:
+
+> 6. **The page carries a `proof-handoff` block, and every required field is filled.** `node <cli> lint <proofPath>` grades it via the idea's own clauses once `proof-handoff` is in the library. Until then, open the block and read it: an unfilled field is a page that cannot be re-derived. `KIT_SPEC_HANDOFF.md`.
+
+---
+
+*This document is itself an instance of what it specifies: the page that presents it carries a `proof-handoff` block filled with its own real values. If that block cannot be composed, the spec is wrong, and that is the finding.*

@@ -29,14 +29,14 @@ Triage is **light** — gather detail, reproduce, find related tickets — enoug
 - **Identify** account/org, claim, page URL from the screenshots/description via the **read-only staging DB** — connect to the shared tunnel at `127.0.0.1:15432` (use `127.0.0.1`, not `localhost`) as `data_ro` (SELECT-only by grant; already open for the wave — do NOT open your own).
 - **PostHog** — if the report is PostHog-sourced (session link / event), pull the session + surrounding events.
 - **Reproduce** — attempt a repro; note steps + frequency.
-- **Related tickets** — search existing issues (`list_issues` query) for duplicates / the same root cause; list FIN-keys. **When the reporter is a repeat filer in this channel, run this first** — check their own recent drops before investigating, so you don't re-derive facts they already wrote down.
+- **Related tickets** — search existing issues (`list_issues` query) for duplicates / the same root cause, **then OPEN each promising candidate via `§CMD_READ_RELATED_TICKET`** (`get_issue` + `list_comments` + state) — `list_issues` returns stubs, never a thread, and the thread is where prior triage and retractions live. List FIN-keys, marking which you actually opened. **When the reporter is a repeat filer in this channel, run this first** — check their own recent drops before investigating, so you don't re-derive facts they already wrote down.
 
 **Directions** (the project's own steer — verbatim from the channel's / project's `## Directions`; `¶INV_DIRECTIONS_IN_DESCRIPTIONS`)
 - […paste verbatim, or "none set — skill defaults apply"]
 - These outrank your own judgment about what's worth chasing here. If they conflict with the recipe below, follow the Directions and say so in the report.
 
-**Ticketing Strategy** (how much ticketing this project wants — verbatim from the **Project description's** `## Ticketing Strategy`; `¶INV_TICKETING_STRATEGY_IN_PROJECT`)
-- […paste verbatim, or "none set on the project — engine default applied" + the default's three bullets]
+**Ticketing Strategy** (how much ticketing this project wants — verbatim from the **Inbox Handbook's** `## Ticketing Strategy`; `¶INV_TICKETING_STRATEGY_IN_HANDBOOK`)
+- […paste verbatim, or "none set on the handbook — engine default applied" + the default's three bullets]
 - **A separate block from Directions on purpose.** Directions steer what's worth *chasing*; this steers what's worth becoming *its own ticket*. Your recommendation below is a graduation-volume call, and you cannot read the project — so if it isn't in this block, it doesn't reach you.
 - Bound your "ripe to graduate" recommendation by it. When an item is well-formed but reads as a facet of something already tracked, say **fold into &lt;parent&gt;** rather than recommending a new ticket. "Not its own ticket" never means discard.
 

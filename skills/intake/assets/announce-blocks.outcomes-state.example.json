@@ -1,0 +1,182 @@
+{
+  "blocks": [
+    {
+      "type": "header",
+      "text": {
+        "type": "plain_text",
+        "text": "✅ Email Classification — grooming pass 3",
+        "emoji": true
+      }
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "Yarik  ·  *11* drained  ·  `07-28 → 07-31`  ·  closed *07-31*"
+        }
+      ]
+    },
+    {
+      "type": "callout",
+      "background_color": "green",
+      "child_blocks": [
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*Wave closed.* 4 filed  ·  6 folded into existing work  ·  1 parked. Every disposition passed a human confirm."
+          }
+        },
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "📋  <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html|*Open the Outcomes Board — what changed*>"
+          }
+        }
+      ]
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*What came in* — three weeks of accumulated classifier signal drained in one sitting, and the shape was unusual: only two of the eleven items were fresh reports. The rest were things we already knew that had *changed status*, which is why six folded into existing tickets rather than becoming new ones."
+      }
+    },
+    {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": "*What changed* — four filed, six folded, one parked: the ratio you want from a mature area. Both questions that had been open across waves closed here, one of them because the answer arrived *in-thread* rather than on the board — that path is now worth relying on. The fabrication cap moved from unclear to decided and no longer blocks the resync. The parked item needs a measurement nobody has run yet; filing it first would have produced a ticket nobody could action."
+      }
+    },
+    {
+      "type": "table",
+      "column_settings": [
+        {
+          "is_wrapped": true
+        },
+        {
+          "align": "right"
+        }
+      ],
+      "rows": [
+        [
+          {
+            "type": "raw_text",
+            "text": "Outcome"
+          },
+          {
+            "type": "raw_text",
+            "text": "Count"
+          }
+        ],
+        [
+          {
+            "type": "raw_text",
+            "text": "Items in (10 drained + 1 stray)"
+          },
+          {
+            "type": "raw_text",
+            "text": "11"
+          }
+        ],
+        [
+          {
+            "type": "raw_text",
+            "text": "Filed as new tickets"
+          },
+          {
+            "type": "raw_text",
+            "text": "4"
+          }
+        ],
+        [
+          {
+            "type": "raw_text",
+            "text": "Folded into existing work"
+          },
+          {
+            "type": "raw_text",
+            "text": "6"
+          }
+        ],
+        [
+          {
+            "type": "raw_text",
+            "text": "Parked / marinating"
+          },
+          {
+            "type": "raw_text",
+            "text": "1"
+          }
+        ]
+      ]
+    },
+    {
+      "type": "container",
+      "is_collapsible": false,
+      "default_collapsed": false,
+      "title": {
+        "type": "plain_text",
+        "text": "What we decided"
+      },
+      "child_blocks": [
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "*[1]*  Fabrication cap  →  <https://linear.app/finchclaims/issue/FIN-3591|*FIN-3591*>  ·  _cap re-scoped, terraform flag tracked_\n*[2]*  Baseline before resync  →  <https://linear.app/finchclaims/issue/FIN-3592|*FIN-3592*>  ·  _measured first, one query_\n*[3]*  Contingent endorsement  →  <https://linear.app/finchclaims/issue/FIN-3593|*FIN-3593*>  ·  <@SLACK_ID:justin> _confirmed: own coverage line_\n*[4]*  Recap cover  →  folded into <https://linear.app/finchclaims/issue/FIN-3488|*FIN-3488*>  ·  _destination already owned it_\n*[5]*  Merge FIN-3361  →  *approved*  ·  _now a child of FIN-3297_"
+          }
+        },
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "_+ 3 more_  ·  <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html|all 8 outcomes →>"
+          }
+        }
+      ]
+    },
+    {
+      "type": "container",
+      "is_collapsible": false,
+      "default_collapsed": false,
+      "title": {
+        "type": "plain_text",
+        "text": "Who weighed in"
+      },
+      "child_blocks": [
+        {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": "<@SLACK_ID:justin>  —  answered *3*  ·  <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html?user=justin|what they picked →>\nYarik Fedin  —  answered *1*  ·  <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html?user=yarik|what they picked →>"
+          }
+        }
+      ]
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "*Signal in* — <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html?inbox=observed-problems|🔴 `2`>   <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html?inbox=shortcomings|🟠 `8`>   <https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/yarik/ec-wave1-decisions-37cab4d8.html?inbox=feedback|🟣 `1`>    _five of eight channels quiet_"
+        }
+      ]
+    },
+    {
+      "type": "divider"
+    },
+    {
+      "type": "context",
+      "elements": [
+        {
+          "type": "mrkdwn",
+          "text": "Watermark `2026-07-31T11:04:22Z`  ·  <https://linear.app/finchclaims/project/product-email-classification-ca5ade5ee5a0/activity|Project Update →>"
+        }
+      ]
+    }
+  ]
+}

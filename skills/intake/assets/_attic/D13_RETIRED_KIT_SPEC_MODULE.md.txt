@@ -1,0 +1,424 @@
+# KIT_SPEC_MODULE.md
+
+# 🔴 RETIRED — SUPERSEDED BY `KIT_SPEC_IDEA.md`. DO NOT AUTHOR AGAINST THIS DOCUMENT.
+
+**Read this banner before any rule below it.** This file is kept as the readable prior state of the format, not as a specification of anything that exists. Its identity vocabulary is **extinct** — not deprecated, not discouraged: it does not occur in the live library or in the tool that checks it.
+
+**What replaced it**
+
+| this document ruled | what exists now | where it is specified |
+|---|---|---|
+| `data-unit="<tier>/<name>"` — the namespaced identity | `<idea-def name="…">`, flat, no slash | `KIT_SPEC_IDEA.md` Rule 1 |
+| `data-unit-v` / `@unit … v<N>` — the declared version | no version field; identity is a content hash bound at publish | `KIT_SPEC_IDEA.md` Rule 2 |
+| the closed four-rung tier ladder (`theme` · `mod` · `block` · `atom` over `base`) | an **open** ladder; `kind` is free text and never fatal | `KIT_SPEC_IDEA.md` Rules 3, 31 |
+| `data-mod` / `data-mod-css` / `data-mod-sel` — the module identity trio | `data-instance`, token-separated, matched `~=`; the stylesheet is a declared property of the idea | `KIT_SPEC_IDEA.md` Rules 5, 24 |
+| `@requires` naming ids, `@import` naming URLs, a `:root` receipt | `requires` names **units only**; a remote payload proves arrival by a no-fallback binding | `KIT_SPEC_IDEA.md` Rules 24, 26 |
+| the `.mod` skeleton as base chrome (Rules 8–11) | chrome is ordinary ideas (`kind: chrome`), lifted like any other | `KIT_SPEC_IDEA.md` Rules 3, 31 |
+| Rule 3's **six-unit page cap** | **not carried forward.** It is a transport fact about one origin, and it lives in exactly one place now | `KIT_SPEC_BUNDLING.md` |
+
+**Which half is extinct and which half was inherited.** Retirement is not uniform, and anyone mining this file for salvage needs the split:
+
+*   **EXTINCT — Rules 4, 5, 6, 9, 12, 16** (the `data-unit` / `data-unit-v` / `data-mod-css` / `data-mod-sel` / `@unit` identity system). These name nothing that exists. Re-derive rather than trust this sentence — over `builds/kit-library/` **and** `builds/idea-cli/`:
+    ```bash
+    for t in data-unit data-unit-v data-mod-css data-mod-sel '@unit' mod-rules; do
+      printf '%-14s %s\n' "$t" "$(grep -rFo -- "$t" builds/kit-library builds/idea-cli | wc -l)"
+    done
+    ```
+    A non-zero on any row means this banner is out of date, not that the vocabulary came back.
+*   **INHERITED — Rule 14's sheet-header trio.** `@requires` · `@provides` · `@receipt` are alive, written as a comment header at the top of an idea's inlined `<style>`. **`@unit` did not survive** — Rules 1 and 2 of `KIT_SPEC_IDEA.md` killed the namespaced id and the version it carried. **The convention has been relocated to `KIT_SPEC_IDEA.md`, on Rule 24**, which is the rule that owns what an idea declares about itself; the `@receipt` half is Rule 26's subject. It is specified there and is not specified here. Count it with `grep -rFo -- '@provides' builds/kit-library | wc -l`; do not quote a number out of this file.
+*   **ARGUED DOWN, not extinct — Rules 1, 2, 7, 8, 10, 11, 13, 15, 17, 18.** Their *conclusions* mostly survive in `KIT_SPEC_IDEA.md` under different mechanisms (one page many specimens · self-contained means opens · an id names a specimen · the rules fold · one-way dependencies). Their *spellings* do not. Read the successor, not these.
+
+**If you arrived here from another document, check whether that route knows this file is retired.** Verified at the time of writing:
+
+*   ✅ **`KIT_SPEC_CHECKING.md`** — repaired. It carries an addressing note stating this file is retired, its footer no longer names it as the companion, and it routes to `KIT_SPEC_IDEA.md`. It was the highest-reach stale route in the kit and it is closed.
+*   ✅ **`KIT_SPEC_BUNDLING.md`** — always handled it correctly: a provenance note recording that the six-unit cap was this file's Rule 3 and was not carried forward.
+*   🔴 **`KIT_COMPOSING.md`** — **still routes here as live**, from a table row reading *"the `.mod` grammar and the module layer"*, with no retirement note. That is the one remaining live route. It is not edited from here — reported, not stripped — and it is the reason this banner is written to stand on its own for a reader who arrives without warning.
+
+Re-check with `grep -rn KIT_SPEC_MODULE ~/.claude/engine/skills/`. **Nothing below this line is normative.**
+
+---
+
+**The module format an LLM emits straight into this design system.** *(historical)*
+
+Scope: what a generated page *is*, what a module *is*, how a module declares its identity, its structure, its stylesheet and its rules. Eighteen numbered rules, each traced to the measurement or defect that produced it. It does **not** specify how any of it is checked — counting, censusing, browser-side verification, declaration linting and freshness live in `KIT_SPEC_CHECKING.md`. Where this document says "the linter asserts X", read the shape of that assertion there. Publishing and bundling have their own specs.
+
+---
+
+## The idea
+
+### One page. Many modules.
+
+A generated artifact is **one HTML page carrying several worked examples**. The page is the entry point — the thing you open, the thing you send someone. Its subject is a question ("here's how we do spacing"), and its body is the answers laid side by side ("Option A", "Option B", and the pieces they are both built from).
+
+Each of those examples is a **module**. A module is not a page and a page is not a module. A module is a framed specimen inside a page: a bordered section with a title, the thing itself rendered live, a footer of provenance, and a fold of rules stating what makes it correct. You read a page; you *pick* a module.
+
+Picking is the whole point. **Cherry-picking a module means lifting it out of the page it was born in and dropping it into another one** — cut the `<section>`, take the one stylesheet it names, paste. That is not a hypothetical: the canonical corpus is **27 files carrying only 15 distinct module ids**, so ids already travel across files today. `thesis` appears in four, `legend` in four, `claim-verdict` in three. The format's job is to make that movement safe, not to invent it.
+
+### "Self-contained" means it opens, not that it is alone
+
+This is the sentence readers trip on, so it is stated first.
+
+**Self-contained means the page opens and renders correctly from `file://` with no build step** — no bundler, no server, no npm install, no network. It does **not** mean one file with zero siblings. A module's CSS lives in a stylesheet the page `<link>`s, and it has to: a module whose styles are inlined into the page body cannot be lifted, because the styles do not travel with the `<section>`. **Inlining is the opposite of liftable.** The sibling sheet is not a compromise on self-containment — it is the mechanism that makes cherry-picking work.
+
+What "self-contained" forbids is anything the browser has to go *out* for: no CDN, no remote fonts, no remote images, no `fetch`. And on `file://` that is not a style preference. Measured in this session: against the opaque `file://` origin, `fetch`, `XHR`, ES-module `import()`, service workers and `iframe.contentDocument` are all dead. Sibling stylesheets loaded by `<link>` and `@import` are one of the few things that still work — which is why the whole dependency mechanism below is built out of them and out of nothing else.
+
+### The four tiers
+
+Everything in the system is a **unit**, and every unit sits in exactly one tier. The tiers are not a taxonomy invented for this document; they are the lines the corpus was already drawing.
+
+| tier | what it is | carries its own identity on the page? |
+|---|---|---|
+| **theme** | The token layer the others resolve against. Tokens and nothing else — zero selectors outside `:root` and its scheme variants. | no |
+| **mod** | A block plus rules, identity and declared dependencies. What `data-mod` marks: a block that can be **governed and lifted**. | **yes** |
+| **block** | A composition you pick from a catalog — the kit's twenty static blocks and twenty-five creative patterns. Named, composable geometry. | no |
+| **atom** | A styled single-purpose unit with no independent meaning and no internal structure contract. | no |
+
+Beneath all four sits **base**: the token *slots*, the reset, the `.mod` skeleton itself, and the affordance alphabet. Base is what a page may assume without declaring it. It is not a tier you author into; it is the floor.
+
+### The atom tier already exists. It is just ungoverned.
+
+**Do not read this document as inventing the atom tier.** An earlier claim in this session that "`atom` does not exist" came from grepping the *word* in `KIT_DIGEST.md`, and it was wrong in the way that matters: it reported a word-search as a structural finding.
+
+Measured in the live `proof-blocks.css` (method in the appendix, Rule 15): `.fv` · `.fk` · `.aff` · `.mod-eyebrow` · `.mod-slug` · `.mod-title` account for **24 declaration blocks / 33 selector occurrences**. Every `.mod-foot` in the corpus is built out of `.fk`/`.fv`. Atoms are the kit's **most-used tier and its only completely ungoverned one**: zero ids, zero declared dependencies, zero rules folds, zero receipts. Thirty-three occurrences of styling against nothing that can be checked.
+
+So the claim this document makes about atoms is small and defensible: **naming the tier, giving each atom an identity and a declaration, and bringing it under the same rules contract modules already have.** The CSS is lifted, not written.
+
+Two facts pin the tier's boundary in both directions, and both are worth stating because both were guessed wrong before they were measured:
+
+*   **`.mod-title` is not a module and not an atom.** It is *chrome* — part of the `.mod` skeleton every module wears. It belongs to base. A module is a specimen; its title bar is the frame around the specimen.
+*   **"date" is not an atom.** `.mod-foot` renders `<b class="fk">as-of</b><span class="fv">2026-08-01</span>`, so a date is an **instance** of the generic `fk`/`fv` field-pair atom, exactly as `prov` and `ref` are. The atom tier was already *parameterised* before anyone named it. A `.fv--date` variant class would be a regression.
+
+The corpus draws the module/part line consistently. All fifteen distinct `data-mod` ids are composite specimens — `bignum · callout · claim-verdict · coverage-map · giant-hero · legend · qa · recipe-legend · recipe-thesis · shell · stat-strip · table --delta · table --status · table --total · thesis`. Each one is *a thing you would show*. Not one is *a part you would reuse inside one*.
+
+### Tier is inferred today. This spec says declare it — once.
+
+There is **no `data-tier` field anywhere in the live kit, and none in any of the 27 canonical modules.** Zero occurrences, measured. Today a reader infers a unit's tier from its name, its file, or its shape.
+
+That is a real gap and this spec closes it — but it closes it **once**, not four times. The working artifact this spec is checked against declares the tier in four places simultaneously (`data-tier`, the `mod/` prefix of `data-unit`, a `.mod-tier` chrome span, and an `@tier` line in the stylesheet header). Rule 4 rules that down to one. The reasoning is in the appendix, and the disagreement is stated on the record rather than papered over, because **two pointers describing the same fact with no invariant tying them is this corpus's single most repeated defect.**
+
+### Three artifacts, three different facts
+
+The dependency mechanism is the part of the format most likely to be copied wrong, so its shape is stated up front. A unit declares its dependencies **three times, and each time it is declaring a different fact**:
+
+1.  **`@requires block/rail · atom/field-pair`** — the *logical* declaration. Names tiers and identities, which a URL does not. This is what a human and a linter read.
+2.  **`@import url("./block.rail.v1.css")`** — the *executable edge*. The browser resolves it by URL at load time, with native dedupe. This is CSS's own module system and it is the reason no build step is needed.
+3.  **`--u-block-rail: 1` in `:root`** — the *receipt*. A failed `@import` is silently ignored by every browser. The receipt is the only evidence a page can have that the bytes actually landed.
+
+Declaration, execution, evidence. Three jobs, no overlap. Only the first two can drift, and the linter asserts them set-equal (`KIT_SPEC_CHECKING.md`).
+
+The same principle forces the redefinition of **`data-mod-css`**: it is no longer a `+`-joined transitive closure of every sheet a module touches. It is **one entry sheet**. HTML names the *roots a page instantiates*; CSS names the *edges each unit needs*. Different facts, so they cannot contradict each other. The old form could and did — 16 of 27 modules currently carry a `data-mod-css` value that contradicts itself in a single string.
+
+---
+
+## Spec
+
+Each rule is marked **MEASURED** or **REASONED**. MEASURED means a number in this corpus produced it and the appendix names the command. REASONED means it follows from a defect or a constraint but the general claim has not itself been measured — the appendix says what would settle it.
+
+### The page
+
+**1. A generated artifact is ONE page carrying TWO OR MORE module specimens, and it opens from `file://` with no build step.** `(REASONED)`
+The page is the entry point and the unit of generation. One specimen is a fragment, not an entry point; if there is only one thing to show, it belongs inside someone else's page. The page must render correctly when double-clicked, with no server, no bundler and no install step.
+*Why: the owner's instruction is explicit — "I want multiple examples ('here's how we do with spacing' → 'Option A, B') to be the entry point generated from LLM, and then picking them is modules." The 27-file / 15-id corpus corroborates that ids already move between pages.*
+
+**2. Self-contained means "opens and renders", NOT "one file". A module's CSS MUST live in a linked sheet, never inlined into the page body.** `(MEASURED)`
+Permitted: `<link rel="stylesheet">`, `@import url(…)`, inline `<svg>`, `data:` URIs. Forbidden: any CDN, remote font, remote image, `fetch`/`XHR`/`import()`/service worker, and any `<style>` block or `style=` attribute carrying a module's *geometry*. Per-instance data (`style="--len:27.5px"`) is data, not geometry, and is allowed.
+*Why: on the `file://` opaque origin, `fetch`, `XHR`, ES-module `import()`, service workers and `iframe.contentDocument` are all dead (measured, `builds/mod-deps/`). And an inlined module cannot be lifted — the styles do not travel with the `<section>`, which defeats the entire point of the tier.*
+
+**3. A page instantiates at most SIX units. Every `<link>` is a ROOT the page instantiates, never a transitive closure.** `(MEASURED)` — **🔴 NOT CARRIED FORWARD. The cap is `KIT_SPEC_BUNDLING.md`'s and lives there once.** `KIT_SPEC_IDEA.md` supersedes this document without carrying it, on the ground that it is a pure transport fact about one origin's shape rather than a property of the format. Nothing in this rule is normative here.
+The `<link>` set is a latency hint, not a correctness statement. A redundant `<link>` dedupes to nothing; an omitted one is still fetched by the `@import` graph. **HTML can therefore only make the page slower, never wrong.** Correctness is the `@import` graph's job alone.
+*Why: the publish origin speaks HTTP/1.1 only, with zero compression and `Cache-Control: no-cache` on versioned filenames — so the ~6-connections-per-origin cap is a hard design constraint, and each extra file is a full revalidation round-trip. Six units is the cap read as a design rule. It is a cap on the ORIGIN's current shape, and it lifts the day the origin serves HTTP/2 + gzip.*
+
+### Identity and tier
+
+**4. Tier is declared EXACTLY ONCE, as the first path segment of `data-unit="<tier>/<name>"`. There is no `data-tier` attribute and no `@tier` header line.** `(REASONED)`
+`data-unit` is the canonical identity. `<tier>` ∈ `theme` | `mod` | `block` | `atom` (and `base` for the floor). A consumer that wants to select by tier uses `[data-unit^="atom/"]`. Chrome may *render* the tier, but must derive it from the id rather than carry its own copy.
+*Why: the dependency graph is already keyed on the namespaced id (`@requires block/rail`), so a second tier field can drift from the one the graph actually uses. A namespaced id makes the tier unforgeable — you cannot have a unit whose id says `atom/` and whose tier field says `module`. The working artifact declares it four times; see "Where this spec and the working artifact disagree".*
+
+**5. Every specimen carries `data-unit` and `data-unit-v`. Names are `[a-z0-9]+(-[a-z0-9]+)*`; a variant is a ` --suffix`.** `(MEASURED)`
+`data-unit-v` is a monotonic integer. The variant form is the corpus's existing one: `table --delta`, `table --status`, `table --total` are three ids sharing a stem.
+*Why: three of the fifteen canonical ids already use the ` --suffix` form. Inventing a second variant syntax would fork the id space for nothing.*
+
+**6. `data-mod` survives, for the module tier only, and MUST equal the `<name>` segment of `data-unit`.** `(MEASURED)`
+On a module, `data-unit="mod/stat-strip"` and `data-mod="stat-strip"` appear together and the equality is linted. On a theme, block or atom specimen, `data-mod` is absent. `data-mod` is retained because it is the field the existing corpus and every existing selector are built on — not because the system needs two identity fields.
+*Why: 27 files and 15 ids depend on `data-mod` today. Removing it breaks the whole corpus; leaving it undisciplined recreates the two-pointer defect. The linted equality is the only version that costs nothing.*
+
+**7. An id names a specimen you would SHOW. It never names a part you would reuse inside one.** `(MEASURED)`
+If the thing you are naming would appear *inside* another specimen as a component, it is a block or an atom and it does not get a `data-mod`.
+*Why: all 15 distinct `data-mod` ids in the canonical corpus are composite specimens. Not one is a part. The line was already being drawn consistently; it had simply never been written down.*
+
+### The module skeleton
+
+**8. A specimen is `<section class="mod" id="…">` containing, in order: `.mod-head`, `.mod-body`, `.mod-foot`, `<details class="mod-rules">`.** `(MEASURED)`
+`.mod-head` carries `.mod-eyebrow`, `h2.mod-title`, `.mod-slug`, and `.mod-aff > a.aff.mod-perma[href="#<id>"]`. The `id` and the permalink `href` must agree.
+*Why: this is the existing shipped shape, read verbatim from `frag/module-element--pilot--stat-strip.mod.html` and unchanged across all 27 canonical modules. It is lifted, not designed.*
+
+**9. The specimen itself lives in exactly one `div.mod-spec[data-spec="<name>"]` inside `.mod-body`. `data-spec` equals the `<name>` segment of `data-unit`.** `(MEASURED)`
+This is the subtree a checker evaluates clauses against and the subtree a lift operation carries.
+*Why: `data-spec` is already the anchor in both the canonical corpus and the working artifact; making it equal to the id removes the last place a module can point at the wrong subtree.*
+
+**10. The `.mod` skeleton is CHROME and belongs to base. `.mod-title`, `.mod-eyebrow`, `.mod-slug`, `.mod-head/-body/-foot` are not modules, not blocks and not atoms.** `(MEASURED)`
+No unit may claim them, and no unit sheet may restyle them.
+*Why: `.mod-title` was proposed as a module, then as an atom. It is neither — it is the frame every specimen wears, so it cannot be a member of a tier whose units are individually liftable. Measured: `.mod-title` carries 2 declaration blocks / 4 selector occurrences in `proof-blocks.css`, all of them frame styling.*
+
+**11. `.mod-foot` is a list of field pairs `<span><b class="fk">key</b><span class="fv">value</span></span>`. `prov` and `as-of` are mandatory. A key is a PARAMETER — never a new atom, never a variant class.** `(MEASURED)`
+`prov` is `checked-here`, `trusted-upstream`, or `lifted <source>`. `.fv--checked` / `.fv--trusted` / `.fv--lifted` are provenance state, which is the one axis the atom is allowed to vary on. `.fv--date` and its siblings are forbidden.
+*Why: `as-of`, `prov` and `ref` all render through the same `fk`/`fv` pair in the shipped corpus. The atom tier was parameterised before it was named; a per-field variant class would un-parameterise it.*
+
+### Declaration and dependency
+
+**12. `data-mod-css` names EXACTLY ONE existing entry sheet. No `+`, no `,`, no magic words, no version-only names that do not resolve to a file.** `(MEASURED)`
+Redefined from the transitive closure it used to be. HTML names roots; CSS names edges; they describe different facts and therefore cannot disagree.
+*Why: 16 of 27 canonical modules declare `INLINE×1 (host page links no stylesheet) + proof-blocks.css` — a string that contradicts itself, where the `INLINE` magic word short-circuits the whole declaration and silently loses `proof-blocks.css`. A further 1 declares `mod.css`, which exists nowhere; 3 more name `.v1`/`.v2` S3 object names that are not live-kit filenames — 4 of 27 unresolvable on the looser reading.*
+
+**13. `INLINE` is not a value. A module whose geometry is inlined is not a module and MUST NOT be published as one.** `(MEASURED)`
+There is no fallback spelling, no "inline for now". The correct repair is to extract the geometry into a unit sheet.
+*Why: the `INLINE` magic word is what makes 16 of 27 declarations self-contradictory, and an inlined module fails the one property the tier exists for — liftability.*
+
+**14. Every unit sheet opens with `@unit <tier>/<name> v<N>` · `@provides <selectors>` · `@requires <ids>` · `@receipt --u-<id>`, and plants `--u-<id>`, `--u-<id>-missing`, `--u-<id>-mark`, `--u-<id>-ink` in `:root`.** `(MEASURED)` — **🟡 RELOCATED, MINUS `@unit`. This is the one convention of this document that survived.** `@requires` · `@provides` · `@receipt` are live, now written at the head of an idea's **inlined** `<style>` rather than of a sibling sheet. **`@unit` is dead** — Rules 1 and 2 of `KIT_SPEC_IDEA.md` removed the namespaced id and the version it carried, so a header line whose whole content was `<tier>/<name> v<N>` had nothing left to say. **The surviving trio is specified in `KIT_SPEC_IDEA.md` on Rule 24, with the receipt half on Rule 26. Read it there.** What follows is the historical statement.
+`@requires` names logical ids; `@import url(…)` immediately below carries the same set as executable edges; the receipt is the evidence the bytes arrived. `--u-<id>` derives mechanically from the id (`/` and `.` → `-`). Arrival is verified in **pure CSS** via the receipt — never in JavaScript.
+*Why: a failed `@import` is silently ignored by every browser, and this corpus has a live instance — `proof-creative.v2.css` returns 403 at the publish origin and `proof-module.css` cannot be published at all, because `publish-kit.sh`'s hardcoded upload list omits it. Neither failure is visible to a `<link>`, to JavaScript, or to a reader. The receipt is the only instrument that reads them. JS is excluded because on `file://` it has nothing to read: CSSOM introspection is blocked and every fetch primitive is dead.*
+
+**15. Fail policy is set BY TIER, in the unit's own sheet: base fail-open loud · theme fail-open flagged · atom fail-open flagged · block fail-CLOSED · module fail-CLOSED.** `(REASONED)`
+A fail-closed unit renders its specimen visibly broken — outlined, desaturated, dimmed — driven off `var(--u-<id>-missing, 1)` with no JavaScript. A fail-open unit degrades to base's slot fallbacks and says so.
+*Why: the tiers fail differently in kind. A missing theme is a default — legible, visibly untuned. A missing atom is cosmetic: a field pair without its rule is still `key: value`. A missing block is a lie, because geometry IS the meaning — a rail without its grid is three stacked words asserting a comparison it no longer draws. A specimen that renders as if fine while the thing it specifies is gone is the worst outcome available.*
+
+**16. `data-mod-sel` is REDEFINED to ONE anchor selector resolving to the specimen root. It is NOT an inventory of used selectors and NOT a prune input.** `(MEASURED)`
+What it is good for: scoping a checker's clause evaluation, addressing the module for a lift, and pinning what "this module" means when a page holds several. Pruning must use *rendered matching*, never a declared list.
+*Why: measured across all 27 canonical modules — each declares exactly **1** selector, while its own markup carries **24–34 distinct class tokens** (707 in total) and the CSS it actually needs carries **3,470 declaration blocks** (mean 128.5, max 177). The declared list under-states reality by at least 3,443 rules. No hand-maintained selector inventory survives that gap; the honest move is to stop pretending it is one.*
+
+### The rules fold, and the tier constraints
+
+**17. Every specimen — in EVERY tier, atoms included — carries `<details class="mod-rules">` with a `<summary>` of `.rk` + `.rm`, and a `<dl class="clauses">` of `dt[data-clause]` / `dd[data-clause][data-check]`. The clause vocabulary is CLOSED: `requires`, `excludes`, `degrades to`, at least one of each.** `(MEASURED)`
+Every `dd` carries `data-check`. A clause that cannot be machine-graded uses `data-check="human"` plus `data-why="<reason>"` — the reason is not optional, because an ungraded clause with no stated reason is indistinguishable from a forgotten one. **The `data-check` verb list, the grading semantics, and the `.rm` counting rules are `KIT_SPEC_CHECKING.md`'s, not this document's.**
+*Why: the fold is the existing shipped contract, unchanged. What is new is extending it to atoms — today the kit's most-used tier has 33 selector occurrences of styling and **zero** rules folds, zero ids and zero declared dependencies. That contrast is the sharpest measurement in this document.*
+
+**18. Dependencies flow one way — module → block → atom → theme/base. No upward edges, no cycles, no cross-tier peers. A theme declares zero selectors outside `:root` and its scheme variants.** `(REASONED)`
+A block may require base, a theme and atoms. An atom may require base only. A theme requires nothing — it fills slots.
+*Why: the theme constraint is what makes a theme swappable — nothing in it can lose a specificity race, because nothing in it competes for one. The acyclicity is the condition under which "lift the section plus the one sheet it names" is a complete operation; an upward edge would make a module's sheet reachable from a block's, and a lifted block would drag a specimen with it.*
+
+### Where this spec and the working artifact disagree
+
+Checked against `builds/tier-example/spacing.tiers.html` (the six-unit, five-specimen page that opens from `file://` with no build). It satisfies **15 of the 18 rules** as written — 1, 2, 3, 5, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18. **Three rules are in tension — 4, 6 and 7 — across four places in the markup:**
+
+| | the artifact | this spec | which is wrong |
+|---|---|---|---|
+| tier field | `data-tier="module"` on all 5 specimens | no such attribute | **the artifact** |
+| tier in id | `data-unit="mod/spacing-ladder"` | same — and this is the *only* declaration | agree |
+| tier chrome | `<span class="mod-tier">module</span>` | may render, must derive | **the artifact** (carries its own copy) |
+| tier in CSS | `@unit mod/spacing-ladder` **and** `@tier module` | `@unit` only | **the artifact** |
+| `data-mod` on non-modules | `data-mod="field-pair"` on the atom specimen, `data-mod="rail"` on the block | `data-mod` is module-tier only (Rules 6, 7) | **the artifact** |
+
+The artifact is wrong in all four places, and wrong in a way that is **harmless today and structurally unsafe** — every copy currently agrees, so nothing is broken, and there is no invariant that keeps them agreeing. That is precisely the shape that produced this corpus's most repeated defect. The repair is subtractive and mechanical: delete `data-tier`, delete `@tier`, render `.mod-tier` from `[data-unit^=…]`, and drop `data-mod` from the theme, block and atom specimens.
+
+One thing the artifact gets right that this spec adopts wholesale: it is the only place in the corpus where `data-mod-css` names a single existing entry sheet, where `@requires` and `@import` are asserted set-equal, and where an atom carries a rules fold. Rules 12, 14, 16 and 17 are its findings, promoted.
+
+### Out of scope
+
+*   **Checking, linting, counting, verification, freshness** → `KIT_SPEC_CHECKING.md`. The `data-check` verb list and the `@requires ≡ @import` assertion live there and are not restated here.
+*   **Publishing, the `__FB_KIT_BASE__` token, the upload list, bundling** → the publishing spec.
+*   No fact in this document appears in another. Three stale corpus summaries exist in this session precisely because the same numbers were copied to four places.
+
+---
+
+## Appendix — where each rule came from
+
+Every entry names the measurement or defect behind the rule. Commands are the ones actually run for this document. **Run date: 2026-08-02**, against the live kit at `~/.claude/engine/skills/intake/assets/` and the canonical corpus at `sessions/2026_07_31_PROVE_THEME/builds/kit-promote/frag/` (27 files, 15 ids — the population pinned by `KIT_SPEC_CHECKING.md` Rule 3).
+
+**Three of the figures I was handed did not reproduce. All three are corrected below rather than repeated.**
+
+---
+
+**Rule 1 — one page, many modules — REASONED, corroborated.**
+The rule itself is a directive, not a measurement: the owner's instruction, verbatim — *"i dont want 1 example = 1 page. i want multiple examples ('Heres how we do with spacing' -> 'Option A, B') to be the entry point generated from llm. and then picking them is modules."* An earlier framing that posed "module OR page" as a choice was wrong; they are different scales of the same artifact.
+
+Corroboration is measured. Ids already travel across files:
+
+```bash
+$ cd builds/kit-promote/frag && ls *.mod.html | wc -l          # 27
+$ grep -ho 'data-mod="[^"]*"' *.mod.html | sort -u | wc -l     # 15
+```
+
+With the distribution `thesis`×4 · `legend`×4 · `claim-verdict`×3 · `table --status`/`stat-strip`/`giant-hero`/`bignum`×2 · nine more ×1. A format where one file held one module would show 27 distinct ids. It shows 15.
+
+**What would settle the "two or more" minimum**: nothing measured supports the specific number *two*. It follows from the word "entry point" — a page carrying one specimen is a fragment with a masthead. If a use case appears for a single-specimen entry point, the rule should be relaxed, not worked around.
+
+**Rule 2 — self-contained ≠ one file — MEASURED.**
+The `file://` half is inherited from `builds/mod-deps/` in this session, which established that against the opaque `file://` origin, `fetch`, `XHR`, ES-module `import()`, service workers and `iframe.contentDocument` are all unavailable. Marked **trusted-upstream**: I did not re-run those probes, and the source is named so a reader can.
+
+The liftability half is checked here. The lift operation for `builds/tier-example/spacing.tiers.html` is: cut the `<section class="mod">`, take the one file its `data-mod-css` names, paste both. That operation is complete only because the geometry is in the sheet. Every byte of it inlined into the page is a byte the `<section>` cannot carry with it.
+
+**Rule 3 — the six-unit cap — MEASURED, trusted-upstream.**
+The origin facts come from `sessions/2026_07_31_PROVE_THEME/.directives/DISPATCH.md §¶INV_DISPATCH_CARRIES_TODAYS_MEASUREMENTS`, measured earlier today: `https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/kit` is **HTTP/1.1 only** (`curl --http2 -I` → `http_version=1.1`), returns **no `Content-Encoding`** with `Accept-Encoding: gzip, br` sent, and carries **`Cache-Control: no-cache`** on versioned filenames. I did not re-run the curls; the figures are cited, not taken.
+
+The arithmetic on top is `builds/tier-example_BUILD.md §3`: a 6-unit page is 26,232 B in one connection wave against the 366,812 B monolith — 14.0× lighter, same wave. A projected 19-unit page is 5.3× lighter but pays **three extra waves**, and the crossover at 100 ms RTT is 7.9 Mbit/s. Above that, the split page is *slower to first paint* despite being lighter.
+
+**This is a cap on the origin, not on the design.** It disappears the day the bucket sits behind CloudFront with HTTP/2 and gzip. The rule should be re-derived, not inherited, once that changes.
+
+**Rule 4 — tier declared once — REASONED. This is the rule that disagrees with the working artifact.**
+The measured input is an absence, and it reproduces exactly:
+
+```bash
+$ grep -rl 'data-tier' ~/.claude/engine/skills/intake/assets/   # (no output)
+$ cd builds/kit-promote/frag && grep -c 'data-tier' *.mod.html | grep -v ':0' | wc -l   # 0
+```
+
+**Zero occurrences in the live kit; zero in all 27 canonical modules.** Tier is inferred today, never declared. So *some* declaration is new, and this document proposes one.
+
+The argued part is *how many*. `builds/tier-example/spacing.tiers.html` declares it four times per specimen: `data-tier="module"`, the `mod/` prefix of `data-unit`, a `.mod-tier` span, and `@tier module` in the unit sheet. All four agree today. Nothing keeps them agreeing.
+
+The choice is between (a) `data-tier` + a short `data-mod`, and (b) a namespaced `data-unit` alone. I ruled (b) for three reasons, in decreasing strength:
+
+1.  **The dependency graph is already keyed on the namespaced id.** `@requires block/rail · atom/field-pair` names units *with* their tier, and the linter's set-equality assertion runs on those strings. A separate `data-tier` is a copy of a fact the graph already carries, and copies drift.
+2.  **A namespace makes the tier unforgeable.** With two fields you can write `data-unit="atom/rail" data-tier="module"` and nothing on the page is wrong until something reads both. With one field that state is unrepresentable.
+3.  **The cost is nil.** Selecting by tier is `[data-unit^="atom/"]` instead of `[data-tier="atom"]`. That is the entire trade.
+
+The counter-argument, stated fairly: `[data-tier="atom"]` is more readable at a glance in markup, and a prefix selector is a slightly weaker contract than an exact-match one (`[data-unit^="atom/"]` would also match a hypothetical `atom/`-prefixed name in another tier — which Rule 5's name grammar forbids, but only by grammar). If a reader weights markup legibility above copy-avoidance, (a) is defensible. I do not, given that copy-avoidance is the specific thing this corpus keeps failing at.
+
+**Rules 5, 6, 7 — id shape, `data-mod` survival, ids name specimens — MEASURED.**
+The full id census, run for this document:
+
+```bash
+$ cd builds/kit-promote/frag && grep -ho 'data-mod="[^"]*"' *.mod.html | sort | uniq -c | sort -rn
+   4 thesis · 4 legend · 3 claim-verdict · 2 table --status · 2 stat-strip
+   2 giant-hero · 2 bignum · 1 table --total · 1 table --delta · 1 shell
+   1 recipe-thesis · 1 recipe-legend · 1 qa · 1 coverage-map · 1 callout
+```
+
+Three of the fifteen (`table --delta`, `table --status`, `table --total`) already use the ` --suffix` variant form, which is why Rule 5 adopts it rather than inventing one.
+
+Rule 6's retention of `data-mod` is a compatibility measurement, not a design preference: 27 files and every selector built on them depend on the attribute. Rule 7's claim — that every id is a specimen and none is a part — is read off the list above. `bignum`, `callout`, `legend`, `qa`, `stat-strip`, `thesis` are all things you would *show*; none is a thing you would reach for *inside* another one. That is a judgement about the fifteen names, made explicit here so a reader can disagree with it on the same evidence.
+
+**Rules 8, 9, 10, 11 — the skeleton — MEASURED, lifted verbatim.**
+Read in full from `builds/kit-promote/frag/module-element--pilot--stat-strip.mod.html` (3,310 B). Its axes are `data-mod` · `data-mod-v` · `data-mod-sel` · `data-mod-state` · `data-mod-uses` · `data-mod-src` · `data-mod-css` · `data-mod-scope`; its structure is `.mod-head` / `.mod-body` with `[data-spec]` / `.mod-foot` / `<details class="mod-rules">` carrying a `<dl class="clauses">` of `dt`/`dd[data-clause][data-check]`. Nothing in Rules 8–11 changes any of it.
+
+**Rule 10's boundary was guessed wrong twice before it was measured.** `.mod-title` was proposed first as a module, then as an atom. It is neither. Measured in `proof-blocks.css`: 2 declaration blocks / 4 selector occurrences, all frame styling. A frame cannot be a member of a tier whose units are individually liftable — lifting the frame is lifting nothing.
+
+**Rule 11's parameterisation claim is read straight off the shipped markup**, `module-element--pilot--stat-strip.mod.html:27–29`:
+
+```html
+<span><b class="fk">prov</b><span class="fv checked">checked-here</span></span>
+<span><b class="fk">as-of</b><span class="fv">2026-08-01</span></span>
+<span><b class="fk">ref</b><span class="fv">CREATIVE_LAYOUTS.html · proof-creative.css · zone/histogram.json</span></span>
+```
+
+Three different fields, one atom, zero per-field classes. **There is no "date atom" to define** — `as-of` is an instance. The atom tier was parameterised before anyone named it, and a `.fv--date` would be a regression from a shipped property.
+
+**Rules 12 and 13 — `data-mod-css` and `INLINE` — MEASURED. Reproduced, with one figure needing two readings.**
+
+```bash
+$ cd builds/kit-promote/frag && grep -ho 'data-mod-css="[^"]*"' *.mod.html | sort | uniq -c | sort -rn
+  16 "INLINE×1 (host page links no stylesheet) + proof-blocks.css"
+   5 "proof-theme.css + proof-blocks.css"
+   3 "proof-theme.v2.css + proof-blocks.v2.css + proof-creative.v1.css + board-widgets.v2.css + board-warm-overrides.v2.css"
+   2 "proof-theme.css + proof-creative.css + proof-blocks.css"
+   1 "proof-theme.css + mod.css + proof-blocks.css"
+```
+
+**16 of 27 self-contradictory** — reproduced exactly. The string says both "the host page links no stylesheet" and "`proof-blocks.css`", and the `INLINE` magic word short-circuits the whole declaration, so `proof-blocks.css` is silently lost. That is Rule 13's entire justification.
+
+**"4 of 27 declare stylesheets that do not exist" needs its reading stated.** Checked basename-by-basename against the live kit:
+
+```bash
+$ ls ~/.claude/engine/skills/intake/assets/*.css
+board-swipe · board-warm-overrides · board-widgets · proof-blocks
+proof-creative · proof-module · proof-theme · proof-ticket
+```
+
+*Strict reading:* exactly **1 of 27** names a sheet that exists nowhere — `mod.css`, in `module-element--modules--shell.mod.html`. This is worth flagging separately: it is the file that a prior report checked when it concluded the definition component had "zero rules across all four sheets". It checked a filename the kit does not have.
+*Looser reading:* **4 of 27**, adding the 3 rows that name `.v1`/`.v2` S3 object names which are not live-kit filenames. Both readings are true of different questions; the spec cites both rather than picking the more alarming one.
+
+**Rule 14 — the header, the import and the receipt — MEASURED.**
+The mechanism is `builds/tier-example_BUILD.md §2`, promoted here. The measured justification is the pair of live publish-path holes carried in `DISPATCH.md`: `proof-creative.v2.css` returns **403** at the origin (v1 returns 206), and **`proof-module.css` cannot be published at all** because `publish-kit.sh`'s hardcoded upload list omits it. Cited, not re-run.
+
+Neither failure is observable without a receipt. A 403 `<link>` produces no error a page can see; a failed `@import` is ignored by specification. The JS exclusion is not stylistic — on `file://` there is nothing for JS to read, since CSSOM introspection is blocked (`KIT_SPEC_CHECKING.md` Rule 8) and every fetch primitive is dead (Rule 2 above).
+
+That the mechanism holds up under load is upstream evidence I am citing, not taking: the artifact's own `lint-units.mjs` reports `12 passed, 0 failed`, and its build report records the lint catching two real defects during authoring.
+
+**Rule 15 — fail policy by tier — REASONED.**
+No measurement produces the split; it is an argument from what each tier means, and the argument is in the rule. The one measured input is the *shape* of the failure — a fail-closed unit's rendering is driven entirely by `calc(var(--u-<id>-missing, 1) * 3px)` and siblings, with no JavaScript, which the artifact demonstrates live by pointing its last `<link>` at a file that does not exist.
+
+**What would settle it**: nothing here has tested whether readers actually *notice* a fail-open flag. The split assumes a flagged degradation is read and a broken specimen is not shipped. A reader study, or one instance of a flagged page going out with a missing theme unnoticed, would move the theme and atom rows to fail-closed.
+
+**Rule 16 — `data-mod-sel` — MEASURED. The cited figure did not reproduce; a stronger one did.**
+I was handed *"all 27 under-declare their selectors by 1,428 rules."* **I could not reproduce 1,428.** No artifact under `builds/kit-promote/` contains the figure, and the obvious candidate comparison does not produce it:
+
+```bash
+# frag vs sealed, all 27 pairs, on data-mod-css
+pairs=27  disagree=0
+```
+
+That also means the related claim *"`canon` vs `frag` disagree on 19 of 27 rows"* **does not reproduce against this comparison** — on `data-mod-css`, `frag/*.mod.html` and `sealed/*.declared.mod.html` agree on all 27. Whatever the 19/27 counted, it was not that. It is cited nowhere in the spec body as a result.
+
+Two measurements I *did* take, both supporting the rule far more strongly than the figure I was given:
+
+```bash
+# 1. declared selectors vs class tokens actually present in each module's own markup
+TOTAL   declared: 27 (exactly 1 per file)   distinct classes in markup: 707 (24–34 per file)
+
+# 2. declared selectors vs the CSS each module actually needs
+$ ls builds/kit-promote/sealed/*.lifted.css | wc -l      # 27
+    total declaration blocks: 3,470   mean 128.5   max 177
+    under-declaration: 3,470 − 27 = 3,443
+```
+
+Every single canonical module declares **one** selector. The CSS it actually needs carries an average of **128**. A hand-maintained selector inventory cannot survive a gap of that size, which is why the rule stops asking it to be one and redefines the field as an anchor.
+
+**Method note**, per `KIT_SPEC_CHECKING.md` Rule 2: "declaration blocks" here means matches of `([^{}@]+)\{[^{}]*\}` after comment stripping — a block-level count, not a selector-list count. A reader who counts comma-separated selectors instead will get a larger number, and the direction is unaffected either way.
+
+**Rule 17 — the rules fold, extended to atoms — MEASURED. This is the correction that matters most, and its number was wrong in every source I was given.**
+The structural claim is right and was defended: **the atom tier exists and is the kit's most-used one.** The earlier assertion that it does not was a grep for the *word* `atom` in `KIT_DIGEST.md` reported as a finding about a *structure* — exactly the failure `KIT_SPEC_CHECKING.md` Rule 2 exists for.
+
+**The rule counts, however, do not reproduce.** I was handed `.fv 19 · .mod-title 8 · .fk 6 · .aff 6 · .mod-eyebrow 2 · .mod-slug 2` (which sums to 43), and separately the figure "38 CSS rules". Neither sums nor reproduces. Measured two ways against the live `proof-blocks.css`:
+
+| class | (A) declaration blocks | (B) selector occurrences |
+|---|---:|---:|
+| `.fv` | 15 | 19 |
+| `.fk` | 3 | 4 |
+| `.aff` | 2 | 3 |
+| `.mod-title` | 2 | 4 |
+| `.mod-eyebrow` | 1 | 2 |
+| `.mod-slug` | 1 | 1 |
+| **total** | **24** | **33** |
+
+Method A is the block-level parse above. Method B is `builds/tier-example/derive.mjs`'s own regex — `(^|[,{ >])SEL([,{: .>\[]|$)` — re-run by me against the live sheet. **The `19` everyone has been quoting for `.fv` is an occurrence count, not a rule count**, which is how a set of six classes with 24 rules got reported as 38 and as 43. All three numbers pointed the same direction; none of them was the number.
+
+The spec carries **24 / 33** with the method named. What survives untouched is the contrast the rule is built on: **33 selector occurrences of styling, against 0 ids, 0 declared dependencies, 0 receipts and 0 rules folds.** The most-used tier in the kit is the only entirely ungoverned one, and that is true at 24, at 33, at 38 and at 43.
+
+**Rule 18 — one-way dependencies — REASONED.**
+The theme constraint is lifted from `builds/tier-example/css/theme.rhythm.v1.css`, where it is already the unit's stated definition and already linted. Acyclicity is a design requirement, not a finding: it is the precondition under which "cut the `<section>`, take the one sheet it names" is a *complete* lift. An upward edge — a block sheet importing a module sheet — would make lifting a block drag a specimen along with it, and the lift would silently succeed while carrying more than intended.
+
+**What would settle it**: build a page with a deliberate upward edge and attempt a lift. Nothing in this corpus has one today, so the failure mode is argued rather than observed.
+
+---
+
+### The definition component — measured, and no rule proposed
+
+Raised in the brief, resolved here without adding a rule, because the honest answer is "leave it alone."
+
+An earlier report claimed the definition component had **zero rules across all four sheets**. That report checked `mod.css` — **a filename the kit does not have** (see Rule 12's appendix; one canonical module declares it, and it exists nowhere). Measured in `proof-module.css`, which is the sheet that actually carries it:
+
+| selector | (A) blocks | (B) occurrences |
+|---|---:|---:|
+| `.def` | 4 | 4 |
+| `.defs` | 2 | 3 |
+| `.defs-k` | 1 | 1 |
+| `.ds` | 1 | 1 |
+| `.da` | 1 | 1 |
+| `.dn` | 1 | 1 |
+| **total** | **10** | **11** |
+
+**The figure I was handed was 12, with `.defs 4`. It does not reproduce either way** — I get 10 blocks / 11 occurrences. The claim it refutes ("zero") is refuted at any of those numbers.
+
+The markup ships widely. Across the 3,423 HTML files in this session's tree: **420 carry `[data-def]`, 245 carry the `.defs` register.** (The brief's 329 / 185 is a different scope; mine is the whole session tree and the command is `grep -rl 'data-def' --include='*.html' .`)
+
+**There is no `mod-def` web component, and this spec does not propose one.** The kit defines exactly three custom elements, all in `proof-ticket.js:1317–1319`:
+
+```js
+customElements.define("prove-ticket", ProveTicket)
+customElements.define("prove-ref",    ProveRef)
+customElements.define(CARD_TAG,       ProveTicketCard)
+```
+
+The definition component is markup plus CSS with no behaviour — and for static content that is **correct, not a gap.** A custom element would add a JS dependency to a page whose entire architecture (Rule 14) is built on JavaScript being unavailable and untrustworthy on `file://`. The component works today, in 420 files, with zero script. Making it an element would buy encapsulation and cost the one property the format is organised around.
+
+*What would change this*: a definition that needs behaviour — a cross-reference that resolves at runtime, a term index that builds itself. Nothing in the corpus asks for one.

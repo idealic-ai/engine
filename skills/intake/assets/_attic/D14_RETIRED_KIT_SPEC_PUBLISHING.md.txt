@@ -1,0 +1,238 @@
+# KIT_SPEC_PUBLISHING.md
+
+**How a sequence of bytes gets a permanent address, and what a publisher must refuse.**
+
+**`[DOCS-STATE]` · 2026-08-03 · every figure below is marked `MEASURED` (I ran it; the command is named) or `TRUSTED-UPSTREAM` (the report is named). There are no unmarked numbers.**
+
+Scope: identity. What an address means, which addresses are immutable and which are allowed to move, what the upload set contains, the token a page carries until publish resolves it, and the writes a publisher must refuse rather than perform. **Sixteen numbered rules**, each marked **MEASURED** or **REASONED**, each traced in the appendix to the measurement or the defect that produced it.
+
+It does **not** specify concatenating published bytes for transport — that is `KIT_SPEC_BUNDLING.md`, which explicitly deferred this document: *"It does not specify publishing: how bytes get an address, how the content hash is bound, what the upload list contains. Publishing gets its own document once the pipeline exists."* The pipeline exists; this is that document. It does not specify what a unit is (`KIT_SPEC_IDEA.md`) or how it is checked (`KIT_SPEC_CHECKING.md`).
+
+**Nothing in this document is a publish instruction.** It describes a pipeline; it does not run one.
+
+---
+
+## The idea
+
+### Publishing is not bundling, and the whole system depends on the difference
+
+**Publishing** binds bytes to a permanent name. You publish a stylesheet, it becomes a URL, and that URL never means anything else again. The entire job is **identity**.
+
+**Bundling** concatenates already-published bytes into one object so a browser fetches fewer things. The entire job is **transport**.
+
+They are separable and must stay separable: a file has to be publishable with no bundling strategy chosen, and the bundling strategy has to be changeable without republishing anything. **Conflated, you can neither publish without bundling nor change bundling without republishing.** `KIT_SPEC_BUNDLING.md` measures the cost of keeping them apart at **7 bytes**.
+
+**This document's normative core is that sentence.** Everything below follows from it.
+
+### A library page needs no publishing at all
+
+A page assembled by `idea bundle` carries the floor and every definition it instantiates, and references nothing. **MEASURED: loaded external resources = 0 across 20 of 20 bundled pages.** Such a page has no kit dependency, no token to resolve, and no precondition to satisfy. Uploading it is an ordinary file upload; *publishing* in the sense this document means — minting an address that other artifacts point at — **does not apply to it at all.**
+
+The publishing pipeline exists for the **kit**: the shared stylesheets and scripts that the legacy `warm-print` composition path *references* rather than carries. **~142 already-published pages point at those addresses** (`TRUSTED-UPSTREAM`, `/prove` §2.0b), which is exactly why the addresses cannot casually change.
+
+### Two addresses per asset, answering two different questions
+
+Every kit asset lands at **two** keys:
+
+| key shape | what it means | mutability |
+|---|---|---|
+| `<stem>.v<N>.<ext>` | **alias** — "the current v*N*" | **mutable by design.** Republishing it is how a fix reaches pages nobody will recompose. |
+| `<stem>.v<N>.<sha12>.<ext>` | **CAS** — "exactly these bytes" | **immutable by construction.** The name derives from the content and cannot denote anything else. |
+
+Plus one index — `kit-manifest.json` — recording what each alias currently resolves to: version, sha256, byte count, CAS key, publish time.
+
+The alias is what the published corpus references. The CAS address is what a page pins when it wants the bytes it was composed against and not a later fix. **That choice is per-reference and belongs to the page**, which is why both must exist.
+
+### The defect this pipeline was built out of
+
+A version number is a **name**, and a name does not pin bytes. The publisher used to carry **twelve hand-written `aws s3 cp` stanzas** — unconditional PutObjects, no existence probe. Two consequences, both measured, both real:
+
+*   **The publisher enumerated what it knew while the directory enumerated what existed, and nothing compared the two.** `proof-module.css` sat in the kit unpublishable while **142 files referenced it**.
+*   **A declared version did not pin bytes.** Published `proof-blocks.v2.css` served **113,188 B** against **236,995 B** on disk, so **52 pages were each receiving 47.8% of the block catalog they linked** — with nothing anywhere to say so.
+
+**Both are fixed.** The hardcoded list is gone: the upload set is now derived from the kit directory, and a kit file that is neither published nor explicitly excluded is a **hard error at publish time**. And every address is probed before it is written: absent uploads, identical is a no-op, **different is REFUSED and the run stops before writing anything**. `grep -c 'aws s3 cp'` on the current publisher returns **2**.
+
+**Do not reason from the pre-repair figures.** `113,188 B published vs 236,995 B local` describes a state that no longer exists; it is preserved here only as the derivation of Rules 6–8.
+
+### The token, and the gate that must survive it
+
+A warm-print page references the kit through the literal string `__FB_KIT_BASE__`, left **unresolved on disk**. Publish substitutes the real same-origin base. Its draft therefore renders unstyled locally, and **that is the designed signal, not a defect**.
+
+The substitution has one failure mode that nothing downstream reports: if the token survives, **the page uploads fine, the browser requests a literal `__FB_KIT_BASE__/…` path, and the reader gets a page whose stylesheets and behaviour are simply absent** — no console error a sharer would see, no non-zero exit anywhere. The only defence is to assert the token's absence after substituting rather than trust `sed`. That assertion exists and exits 1.
+
+---
+
+## Spec
+
+Each rule is marked **MEASURED** or **REASONED**. MEASURED means a number in this corpus produced it and the appendix names the instrument. REASONED means it follows from a defect, a constraint or a ruling, but the general claim has not itself been measured — the appendix says what would settle it.
+
+### The boundary
+
+**1. Publishing and bundling are SEPARATE operations. Neither may require the other.** `(MEASURED)`
+Publishing binds bytes to an address. Bundling concatenates published bytes for transport. A file must be publishable with no bundling strategy chosen; the bundling strategy must be changeable without republishing anything.
+*Why: this is `KIT_SPEC_BUNDLING.md` Rule 1 restated from the publishing side, and it is the normative core of both documents. Measured cost of keeping them separable: 7 bytes.*
+
+**2. A page that carries everything MUST NOT be run through the kit publisher.** `(MEASURED)`
+A bundled library page has no kit dependency and no token to resolve. Uploading it is a file upload. `publish-kit.sh` is for the kit and only the kit.
+*Why: measured 0 loaded external resources across 20 of 20 bundled pages. Making the library a published kit asset is an open owner decision requiring a manifest row, a declared `LIBRARY_VERSION`, and a ruling on copying a session build artifact into the global kit — precisely the hand-maintained duplicate the library's own repair history rejected.*
+
+### What an address means
+
+**3. Every asset publishes to BOTH an alias key and a CAS key, in the same run.** `(MEASURED)`
+`<stem>.v<N>.<ext>` and `<stem>.v<N>.<sha12>.<ext>`. Neither is optional; a run producing one without the other is incomplete.
+*Why: they answer different questions — "the current v*N*" versus "exactly these bytes" — and the choice between them belongs to the referring page, which cannot make it unless both exist.*
+
+**4. A CAS address is IMMUTABLE. A publisher MUST refuse to overwrite one, unconditionally, with no override flag.** `(MEASURED)`
+There is no `--force` for a content address. Different bytes are a different name by construction.
+*Why: the name is derived from the content. A CAS address serving different bytes than its own hash is not a stale alias, it is a broken invariant, and no flag should be able to produce it.*
+
+**5. An ALIAS is mutable BY DESIGN. Republishing it is the supported way a fix reaches pages nobody will recompose — but only as an explicit act that names every address it moves and prints both hashes.** `(MEASURED)`
+The deliberate-replacement path stays open behind an explicit flag. It is never the silent default.
+*Why: ~142 published pages reference alias keys and will never be recomposed; without a mutable alias there is no way to fix them. The defect was never that aliases move — it was that they moved silently.*
+
+**6. Before ANY write, the publisher MUST probe the address. Absent → upload. Identical bytes → no-op. Different bytes → REFUSE, and stop the run before writing anything.** `(MEASURED)`
+Refusal is a whole-run stop, not a skipped file.
+*Why: twelve unconditional PutObjects meant a declared version did not pin bytes — published `proof-blocks.v2.css` served 113,188 B against 236,995 B local, and 52 pages each received 47.8% of the catalog they linked, silently. The guard is the fix, and a partial write is how the same class of drift returns.*
+
+**7. The publisher MUST NOT delete and MUST NOT transform. Input bytes and output bytes are identical.** `(MEASURED)`
+No minification, no rewriting, no cleanup of superseded addresses. Unpublishing is a separate, deliberate act.
+*Why: byte identity is what makes "is what I have what is published?" answerable with a checksum. And *"publish cleaned up the address I was still sharing"* is not a recoverable outcome.*
+
+**8. Exit codes are part of the contract: 0 clean · 1 refused · 2 misconfigured.** `(MEASURED)`
+"Refused" means an address holds different bytes, or a published address does not resolve. It is not an error condition to be retried; it is an answer.
+*Why: a publisher that exits 0 on a refusal turns the guard in Rule 6 into a log line.*
+
+### What gets published
+
+**9. The upload set is DERIVED from the kit directory. A hardcoded list is forbidden.** `(MEASURED)`
+The directory enumerates what exists; the publisher must read it rather than restate it.
+*Why: twelve hand-written stanzas meant the publisher enumerated what it knew while the directory enumerated what existed and nothing compared the two. `proof-module.css` sat unpublishable while 142 files referenced it.*
+
+**10. A kit file that is neither published nor EXPLICITLY excluded is a HARD ERROR at publish time.** `(MEASURED)`
+Silence is not an allowed classification. Exclusion must be written down.
+*Why: this is the only formulation under which Rule 9 detects the `proof-module.css` case rather than merely making it less likely. An unclassified file is the failure state.*
+
+**11. Each asset's version comes from a constant DECLARED IN THE FILE, defaulting to 1 with an explicit statement when absent. It is never passed in and never guessed.** `(MEASURED)`
+`PROOF_THEME_VERSION`, `PROOF_BLOCKS_VERSION`, `PROOF_CREATIVE_VERSION`, `PROOF_MODULE_VERSION`, `PROOF_ICONS_VERSION`, `PROOF_TICKET_VERSION`.
+*Why: measured today — blocks 2 · creative 1 · icons 2 · module 1 · theme 2 · ticket 4. A version read from the file cannot disagree with the file. **This rule's own documentation has already drifted: the publisher's header says theme "declares no version constant today, so this defaults to 1" and that ticket is "3 today"; the sheets now declare theme 2 and ticket 4.** The mechanism is right and its prose comment is stale — see Appendix E.*
+
+**12. An asset's version turns over on ITS OWN cadence unless it is a presentation companion of another asset.** `(REASONED)`
+`board-warm-overrides.css` is bound to `board-widgets`' major because it maps that kit's seam onto the theme tokens. `proof-theme.css` and `proof-ticket.js` carry their own, because binding them would churn every address on every unrelated fix.
+*Why: stated as a design decision in the publisher's own header, with the reason given each way. No measurement of churn frequency exists.*
+
+**13. An address returning 403 or 404 is a defect ONLY if some code path mints it or some page references it. Otherwise it is correct.** `(MEASURED)`
+Check the declared version before calling an absent address a hole.
+*Why: `proof-creative.v2.css` returns 403, and that is **correct and deliberate** — the sheet declares `PROOF_CREATIVE_VERSION = 1` (measured locally), so nothing mints a v2 key and no page hrefs it. Treating it as a hole is how a non-defect stays on a defect list.*
+
+### The token
+
+**14. A referencing page carries the literal `__FB_KIT_BASE__`, UNRESOLVED on disk. Its draft is meant to render unstyled, and that is the signal.** `(MEASURED)`
+Publish is the only moment bucket, region and prefix are all known, so substitution happens there and is never guessed by the author.
+*Why: one substitution serves both consumers, because the token resolves to the kit BASE rather than to a file. A draft that renders styled locally has had the kit hand-copied into it — a second source of truth that forks on the next kit fix.*
+
+**15. After substitution the publisher MUST assert the token is gone and exit 1 if it survives.** `(MEASURED)`
+Do not trust the substitution; check it.
+*Why: a surviving token is the one failure this step can produce that **nothing downstream reports** — the page uploads fine, the browser requests a literal `__FB_KIT_BASE__/…` path, and the reader gets a page whose stylesheets and behaviour are simply absent. No console error a sharer would see; no non-zero exit anywhere else.*
+
+**16. NEVER mix the two composition contracts. A page carrying `<idea-def>` definitions MUST NOT also reference `__FB_KIT_BASE__`.** `(REASONED)`
+A library page carries everything and links nothing; a warm-print page links four stylesheets and carries nothing. **Two contracts, two publish paths** — and the contract is a property of the page, never of the file it was started from.
+*Why: a hybrid links objects nobody published and renders half a page. Stated as a failure mode in `/prove` §2.0b; no instance has been measured in this corpus, which is why this is REASONED.*
+
+> **⬛ "Two skeletons" removed 2026-08-04 — the skeletons were deleted; the rule is untouched.** This line read *"Two contracts, two skeletons, two publish paths."* **The kit's `skeletons/` directory is now empty** — what it held was deleted in favour of **`idea generate`**, which is BUILT and composes a page for a named kind against a resolved library.
+> **Nothing about the rule changes, and the edit is this small on purpose.** Rule 16 forbids a *page* that both carries definitions and references the substitution token; it never depended on how the page was started. Naming a starting file as the thing that keeps the two contracts apart was always the weaker reading, and it is now also a dangling reference.
+> **The separation is enforceable earlier than it used to be**: a page composed by `idea generate` against a library kind carries definitions by construction, so a surviving `__FB_KIT_BASE__` in that output is a defect at generation time rather than only at publish time. **This rule nonetheless stays REASONED and stays a publish-time check** — no hybrid instance has been measured in this corpus, and `idea generate` has not been tested for producing one. Do not read the earlier enforcement point as a reason to relax the later one.
+> **The rest of this document takes no damage from the skeleton deletion**: this clause was its only skeleton reference.
+
+---
+
+## Out of scope
+
+*   **Concatenating published bytes for transport, and the `@layer` contract that makes such an object patchable.** `KIT_SPEC_BUNDLING.md`.
+*   **What a unit is and how it isolates its styles.** `KIT_SPEC_IDEA.md`.
+*   **How any of this is verified.** `KIT_SPEC_CHECKING.md`.
+*   **Origin performance.** Connection caps, compression and cache headers shape *bundling* decisions, not identity. The measured origin facts are reproduced in Appendix D as inputs to those decisions, not as rules here.
+*   **Which pages should be recomposed off the legacy path.** ~142 published pages reference the warm-print keys; re-composing them is a migration nobody has costed. Not a publishing rule.
+*   **Running a publish.** This document describes the pipeline. It does not authorize, schedule or perform an upload.
+
+---
+
+## Appendix — where each rule came from
+
+### A. The pipeline was repaired before this document was written — read this first
+
+The substrate this specification was commissioned against — `builds/publish-defects_PROBE.md`, 2026-08-02 22:06 — describes **twelve unconditional `aws s3 cp` stanzas and zero existence guard**. **That is no longer the code**, and a reader who takes the probe as current will specify a fix that already shipped.
+
+**MEASURED**: `~/.claude/skills/prove/assets/publish-kit.sh`, 12,270 B, mtime 2026-08-03 01:28. `grep -c 'aws s3 cp'` → **2**. Its own header, verbatim:
+
+> *"This script used to carry twelve hand-written `aws s3 cp` stanzas, which meant the publisher enumerated what it knew while the directory enumerated what existed and nothing compared the two. `proof-module.css` sat in the kit unpublishable while 142 files referenced it. That list is gone; a kit file that is neither published nor explicitly excluded is now a hard error at publish time."*
+>
+> *"OVERWRITE GUARD (in publish.sh — this script only stages). Before it existed, twelve unconditional PutObjects meant a declared version did not pin bytes: published proof-blocks.v2.css was 113,188 B against 236,995 B on disk, so 52 pages were each receiving 47.8% of the block catalog they linked. Now every address is probed first — absent uploads, identical is a NO-OP, different is REFUSED and the run stops before writing anything. A CAS address is never overridable. An ALIAS may be deliberately replaced with --force … an explicit act that names every address it moves and prints both hashes, rather than the silent default."*
+
+**The rules above therefore specify the pipeline as it now behaves, and record the defects as derivations rather than as open work.** → Rules 4, 5, 6, 9, 10.
+
+### B. The 403 that is not a hole
+
+**MEASURED locally**: `proof-creative.css` declares `PROOF_CREATIVE_VERSION = 1`. **TRUSTED-UPSTREAM** (session `.directives/DISPATCH.md`, corrected 2026-08-03 00:25): `proof-creative.v2.css` returns **403**, and that is *"correct and deliberate — the sheet declares `PROOF_CREATIVE_VERSION = 1`, so no code path mints a v2 key and no page hrefs it."* The same source records that **`proof-module.v1.css` is now published** (200 · 28,101 B — and 28,101 B is exactly the local size I measured), and that the six aliases found serving different bytes than local **have been healed**, `proof-blocks.v2.css` now serving 236,995 B matching local. → **Rule 13**, and the "do not reason from the pre-repair figures" warning throughout.
+
+### C. Local kit measurements taken for this document
+
+`wc -c` over `~/.claude/engine/skills/intake/assets/`:
+
+| file | bytes | declared version |
+|---|---|---|
+| `proof-blocks.css` | 236,995 | `PROOF_BLOCKS_VERSION = 2` |
+| `proof-creative.css` | 71,155 | `PROOF_CREATIVE_VERSION = 1` |
+| `proof-theme.css` | 30,561 | `PROOF_THEME_VERSION = 2` |
+| `proof-module.css` | 28,101 | `PROOF_MODULE_VERSION = 1` |
+| `proof-ticket.js` | 75,287 | `PROOF_TICKET_VERSION = 4` |
+| `board-widgets.js` | 35,860 | (kit major) |
+| `kit-behaviors.js` | 20,710 | — |
+| `board-warm-overrides.css` | 4,893 | bound to `board-widgets` |
+
+`PROOF_ICONS_VERSION = 2` is also declared. → **Rules 11, 12, 13**.
+
+### D. Origin facts — TRUSTED-UPSTREAM, carried as inputs, not as rules
+
+From session `.directives/DISPATCH.md` §`¶INV_DISPATCH_CARRIES_TODAYS_MEASUREMENTS`. **I did not re-measure these; no network call was made for this document.**
+
+*   Origin `https://staging-finch-proofs.s3.us-east-2.amazonaws.com/proofs/kit` is **HTTP/1.1 only** (`curl --http2 -I` → `http_version=1.1`), so the **~6-connections-per-origin cap applies**.
+*   **Zero compression** — with `Accept-Encoding: gzip, br` sent, no `Content-Encoding` returns and `Content-Length` equals the stored object size. Unused bytes are paid in full, every load.
+*   **`Cache-Control: no-cache` on versioned filenames** — a revalidation round-trip per file per load, on names that by construction cannot change meaning.
+*   Kit totals: **408,605 B / 2,003 top-level rules over 8 sheets**; `proof-blocks.css` alone is **58%** of both.
+
+These shape bundling decisions (`KIT_SPEC_BUNDLING.md` Rules 14–17) and are recorded here only because a publishing document that omitted them would invite someone to re-derive them. **The `no-cache`-on-immutable-names combination is the one that looks like a defect and has not been ruled on** — see below.
+
+### E. The publisher's own prose has drifted from its own mechanism
+
+**MEASURED.** `publish-kit.sh`'s header states that `proof-theme.css` *"declares no version constant today, so this defaults to 1"* and that `proof-ticket.js` *"declares `PROOF_TICKET_VERSION = <n>` (3 today)"*. The files now declare **`PROOF_THEME_VERSION = 2`** and **`PROOF_TICKET_VERSION = 4`**.
+
+**The mechanism is correct and the drift is harmless** — the script reads the constant from the file, so it picks up 2 and 4 without any change. But it is a live instance of exactly the failure this system exists to prevent: a description of the truth, written at some earlier date, sitting beside the truth. It is recorded rather than fixed because the script is outside this document's write set. → **Rule 11**'s second clause.
+
+### F. Rule by rule
+
+| # | mark | instrument |
+|---|---|---|
+| 1 | MEASURED | `KIT_SPEC_BUNDLING.md` Rule 1; measured separability cost 7 bytes. |
+| 2 | MEASURED | `builds/docs-state_work/readings-census.mjs`: loaded external resources 0 across 20 of 20 bundled pages. `/prove` §4: *"Never run `publish-kit.sh` for a library page"*, with the three preconditions an owner ruling would need. |
+| 3 | MEASURED | `publish-kit.sh` header, the two-key contract plus `kit-manifest.json` recording version, sha256, bytes, CAS key, publish time. |
+| 4 | MEASURED | Appendix A, second quote — *"A CAS address is never overridable."* |
+| 5 | MEASURED | Appendix A, second quote — the `--force` alias path, *"an explicit act that names every address it moves and prints both hashes."* Corpus size ~142 pages: TRUSTED-UPSTREAM, `/prove` §2.0b. |
+| 6 | MEASURED | Appendix A. The 113,188 / 236,995 / 52 pages / 47.8% figures are the derivation and describe the **pre-repair** state. |
+| 7 | MEASURED | `publish.sh` header — *"It never DELETES, and it never TRANSFORMS. Input bytes and output bytes are identical, which is what makes 'is what I have what is published?' answerable with a checksum."* |
+| 8 | MEASURED | `publish.sh` header — *"EXIT 0 clean · 1 refused (an address holds different bytes, or a published address does not resolve) · 2 misconfigured."* |
+| 9 | MEASURED | Appendix A, first quote. `grep -c 'aws s3 cp'` on the current script → 2. |
+| 10 | MEASURED | Appendix A, first quote — *"a kit file that is neither published nor explicitly excluded is now a hard error at publish time."* |
+| 11 | MEASURED | Appendix C (the six declared constants, read from the files) and Appendix E (the drifted prose). |
+| 12 | REASONED | `publish-kit.sh` header states the coupling and its reason for each asset. **What would settle it**: no churn-frequency measurement exists — count how often each asset's version would have moved under a shared major versus its own. |
+| 13 | MEASURED | Appendix B. Declared version read locally; the 403 and the healed aliases are TRUSTED-UPSTREAM. |
+| 14 | MEASURED | `publish-s3.sh:148–158` — the token resolves to the kit BASE, not a file, so one substitution serves both consumers; `/prove` §2.0b on the unstyled draft being the designed signal. |
+| 15 | MEASURED | `publish-s3.sh:160–166`, verbatim in "The idea" above, and the `exit 1`. |
+| 16 | REASONED | `/prove` §2.0b and §3's failure-mode list. **What would settle it**: no hybrid page has been measured in this corpus; a census of pages carrying both `<idea-def>` and `__FB_KIT_BASE__` would either find instances or confirm the rule is preventive. |
+
+### G. What this document does not know
+
+*   **Whether the guard has ever fired in anger.** Rule 6 specifies probe-then-write and the code implements it, but no run in this corpus is recorded hitting the REFUSE arm on a real alias since the repair. The guard is verified by reading, not by observing it go red — and *a number you have not seen go red is not a measurement.*
+*   **Whether `no-cache` on immutable CAS names is deliberate.** Appendix D measures the header on versioned filenames. A CAS address cannot change meaning, so revalidating it is a round-trip that buys nothing. **Nobody has ruled on this**, and it is not written as a rule because I do not know whether the bucket policy is intentional.
+*   **The incidence of Rule 16's failure.** Zero measured instances; the rule is preventive.
+*   **Anything about the ~142 published pages beyond their count**, which is TRUSTED-UPSTREAM. No page was fetched for this document.
+*   **Nothing here was executed.** No `aws` command, no network request, no publish. Every claim about the publisher's behaviour is read from its source and its own documented contract, and is labelled accordingly.

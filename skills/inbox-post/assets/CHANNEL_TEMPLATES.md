@@ -4,6 +4,8 @@ Canonical per-channel report templates for the intake **Inboxes** channels. Sing
 
 Each template = a **shared core** (identical on every channel) + **channel-specific fields**. Fill what you know — half-formed is fine, and **attach anything that grounds it** (transcripts, screenshots, debriefs, logs, sample files) rather than describing it from memory.
 
+> **⚠️ This file is incomplete — 8 of 10 channels.** 🟤 **Priorities & Deadlines** and 🟦 **Documentation** have live channel tickets but no template here, so `/inbox-post` filling from this file alone drops their channel-specific fields silently. Take those two from the **project's Inbox Handbook**, which is canonical Linear-side (`¶INV_CHANNEL_MACHINERY_IN_ONE_DOC`), and reconcile them back into this file rather than inventing them here. Noted rather than guessed: writing a plausible template for a channel whose real one already exists elsewhere is how two documents start disagreeing.
+
 ---
 
 ## Shared core (every channel)
@@ -63,6 +65,28 @@ Each template = a **shared core** (identical on every channel) + **channel-speci
 **Participants / who said it**:
 **Date of source**:
 **Raw material** (paste whole below — to be chunked into the other channels):
+```
+
+## 📣 Announcements
+
+*Outbound, not a signal. Skip the shared core's Severity/Impact framing where it doesn't apply — most announcements block nothing, and saying so plainly is the point.*
+
+```
+**What is now true**: (the new state, not what you did — "X now does Y by default", never "rewrote X")
+**Who does something differently, and when**: (usually nobody — say that explicitly)
+**How to check it**: (a URL to open, a file to read, a command to run — an unverifiable announcement can't be triaged)
+**Is this a new default?**: (yes/no — a change that happens without anyone opting in is the most valuable kind here)
+**Known gaps**: (what is true but incomplete — better learned here than by hitting it)
+```
+
+## 🟩 Chores & tracker hygiene
+
+*Ten seconds or don't bother. One key + one sentence is a complete item; batch several in one comment if you spotted them together.*
+
+```
+**Target**: (the specific FIN-key, or the exact line — a chore without one is a mood)
+**What's wrong with the record**: (misleading title / obsolete description / duplicate / already done / stale wording)
+**What it cost you** (optional but high-value): ("I filed a duplicate because the existing one was titled unrecognizably")
 ```
 
 ## 🟡 Researches & Fixtures

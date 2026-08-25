@@ -2,9 +2,14 @@
 
 Fast-path navigation map for `/inbox-post`. Project → its `Inboxes` channel tickets (FIN-key + URL). A **cache**, not the source of truth — Linear is. When it's stale or missing a target, the skill falls back to live discovery (`list_projects(includeMilestones)` → client-filter `Inboxes`; channel tickets by title) and self-heals this file.
 
-*Channels:* 🔴 Observed problems · 🟠 Identified shortcomings · 🔵 Feature requirements · 🟢 Potential solutions · 🟣 Feedback & Transcripts · 🟤 Priorities & Deadlines · 🟡 Researches & Fixtures · 🟦 Documentation
+*Channels:* 🔴 Observed problems · 🟠 Identified shortcomings · 🔵 Feature requirements · 🟢 Potential solutions · 🟣 Feedback & Transcripts · 🟤 Priorities & Deadlines · 🟡 Researches & Fixtures · 🟦 Documentation · 📣 Announcements · 🟩 Chores & tracker hygiene
 
-Not a fixed set in practice — channel titles vary slightly per project (Claims & Policies uses "Feature **& capability** requirements"). Match by intent, not by exact title.
+Not a fixed set in practice — channel titles vary slightly per project (Claims & Policies uses "Feature **& capability** requirements"). Match by intent, not by exact title. **The discovery fallback filters issue titles by these emojis — extend that list whenever a channel is added, or the new one is invisible to discovery.** Squares twin circles by design (🟦 with 🔵, 🟩 with 🟢): every color was already taken by a circle, so a twin is the convention rather than a collision.
+
+**Two of them are not inbound signals**, and a pass should treat them differently:
+
+*   **📣 Announcements** runs **outbound** — news leaving the system, not a signal entering it. It does **not** normally graduate to a ticket. It is triaged for one purpose: **verification** that the announced thing is actually deployed *and wired*. An announcement that shipped and that nothing consumes is a real finding, and routes to whichever channel fits it.
+*   **🟩 Chores & tracker hygiene** is about **the record, not the product** — a stale title, an obsolete description, two tickets that are one thing. Its work batches (one stale title isn't worth a pass; twenty are one sweep) and routes to `/chores`. Its load-bearing rule: **chase what a query cannot find** — un-triaged / unassigned / no-priority / stale counts are already measured, so a drop that restates them is waste; a drop about *meaning* is not.
 
 ## The handbook
 
@@ -19,10 +24,32 @@ Each intake project carries its **own complete copy**, attached to the project s
 | Email Classification | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-e92601c17dde) | `9d0018c5-5cae-4ed5-8789-0bd63cdb51b4` · `e92601c17dde` |
 | Differ | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-2f42ecf566ae) | `b2b87f75-2d21-4de2-99d6-de2c4c29d931` · `2f42ecf566ae` |
 | Intake System | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-28d8ea1b998f) | `6b718963-5fbc-4372-b108-d18407dd6c47` · `28d8ea1b998f` |
+| Preloss B2B | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-b22ffd52d65e) | `8a388f09-18f7-44e1-bba0-d7e67f1a1262` · `b22ffd52d65e` |
+| Report Design System | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-011d57aa819b) | `57fbc79f-7d40-4573-b793-68657e122795` · `011d57aa819b` |
 
 The short-lived team-level handbook (`1292d6ee-5819-4354-9892-49f0d3d388a6`, slug `7f5f9c302585`) is **retired** — a team-attached document has no home in the Linear UI, so nothing surfaced it from a project. If you find a channel still linking slug `7f5f9c302585`, repoint it at its own project's handbook above.
 
 Match a handbook by **slugId**, not by the words in the URL: retitling a Linear document re-slugs the human-readable segment while the 12-hex slugId stays put.
+
+## Slack announce channels
+
+The wave's `§PASS_HEARTBEAT` announce is **per-project** — pass the name below as `engine slack-post --channel '#name'`. Do **not** leave the announce to `$SLACK_INTAKE_CHANNEL`: it is a single global var, so relying on it makes every project post to one channel, and it is only read when **exported** (`--env-file` extracts the token only, and a channel left in the env file resolves to empty).
+
+*   **Claims & Policies** — `#engineering-alerts`
+*   **Document Extraction** — `#engineering-alerts`
+*   **Email Classification** — `#engineering-alerts`
+*   **Differ** — `#engineering-alerts`
+*   **Intake System** — `#engineering-alerts`
+*   **Preloss B2B** — `#intake-alerts`
+*   **Report Design System** — `#intake-alerts`
+
+The first five were moved from `#intake-alerts` to `#engineering-alerts` on 2026-08-17 (decided: Yarik Fedin) — intake heartbeats belong with the rest of the engineering alerting rather than in a channel of their own. **The last two still point at `#intake-alerts` because nobody has said where they belong yet** — they are newer than that decision, and a guess here would silently send a project's heartbeat somewhere nobody watches.
+
+This is the **announce** destination only — one per project, where a completed pass posts its heartbeat. It is a different thing from the channels a wave *reads* for ambient context, which are per-project and live in each project's Inbox Handbook under `## Related Slack Channels` (`¶INV_CHANNEL_MACHINERY_IN_ONE_DOC`). A project may read several channels and announces to exactly one.
+
+**Names, never ids.** `slack-post` resolves a name to the id Slack's API requires and keeps the id internal — no channel id belongs in config or in anything a human reads. The tradeoff is that a **rename breaks the row**: resolution fails loudly rather than guessing, so treat renaming an intake channel as a config change and update it here.
+
+Verify a project's Slack setup before its first announce: `engine slack-post --verify --channel '#name'` checks token, scopes, channel and bot membership, and self-joins when `channels:join` is granted.
 
 ---
 
@@ -47,6 +74,10 @@ Match a handbook by **slugId**, not by the words in the URL: retitling a Linear 
 - 🟤 Priorities & Deadlines — [FIN-3451](https://linear.app/finchclaims/issue/FIN-3451)
 - 🟡 Researches & Fixtures — [FIN-3450](https://linear.app/finchclaims/issue/FIN-3450)
 - 🟦 Documentation — [FIN-3476](https://linear.app/finchclaims/issue/FIN-3476)
+- 📣 Announcements — [FIN-3590](https://linear.app/finchclaims/issue/FIN-3590)
+- 🟩 Chores & tracker hygiene — [FIN-3591](https://linear.app/finchclaims/issue/FIN-3591)
+
+*Intake System is the only project carrying 📣 and 🟩 today — they were created here first, deliberately. Replicate to the other four only if they earn it there; the channel set is contextual per project (`¶INV_INBOX_IS_TICKETS`), and an empty channel is a cost, not a completeness win.*
 
 ## Product: Email Classification
 - **Project id**: `fe33cb95-67b0-4355-b096-a3ecde805757` · **Inboxes milestone**: `aeab32a5-d202-4f92-97e2-774241a7a026`
@@ -80,3 +111,27 @@ Match a handbook by **slugId**, not by the words in the URL: retitling a Linear 
 - 🟤 Priorities & Deadlines — [FIN-3444](https://linear.app/finchclaims/issue/FIN-3444)
 - 🟡 Researches & Fixtures — [FIN-3376](https://linear.app/finchclaims/issue/FIN-3376)
 - 🟦 Documentation — [FIN-3480](https://linear.app/finchclaims/issue/FIN-3480)
+
+## Product: Preloss B2B
+- **Project id**: `054224f1-4782-43f7-998d-7f31d1c12b9c` · **Inboxes milestone**: `f1ec64c8-6c28-4191-bbda-66b1f7a0c763`
+- 🟣 Feedback & Transcripts — [FIN-3663](https://linear.app/finchclaims/issue/FIN-3663)
+- 🟠 Identified shortcomings — [FIN-3664](https://linear.app/finchclaims/issue/FIN-3664)
+- 🔵 Feature requirements — [FIN-3665](https://linear.app/finchclaims/issue/FIN-3665)
+- 🟢 Potential solutions — [FIN-3666](https://linear.app/finchclaims/issue/FIN-3666)
+- 🟤 Priorities & Deadlines — [FIN-3667](https://linear.app/finchclaims/issue/FIN-3667)
+- 🟦 Documentation — [FIN-3668](https://linear.app/finchclaims/issue/FIN-3668)
+
+*Six channels, not eight. 🔴 Observed problems and 🟡 Researches & Fixtures were deliberately NOT created — the project is in discovery with no product in front of customers, so both would sit empty, and an empty channel makes a dropper hesitate over an irrelevant choice every time. Create them when a design partner is live and there is something to observe. 🟣 Feedback & Transcripts is the primary channel here, not a secondary one: most drops are whole discovery calls.*
+
+## Product: Report Design System
+- **Project id**: `6cd804e9-02a3-4a52-bb59-937a03d3a374` · **Inboxes milestone**: `b2c91cc5-cc27-4233-a5e2-abd292281532`
+- 🔴 Observed problems — [FIN-3920](https://linear.app/finchclaims/issue/FIN-3920)
+- 🟠 Identified shortcomings — [FIN-3921](https://linear.app/finchclaims/issue/FIN-3921)
+- 🔵 Feature requirements — [FIN-3922](https://linear.app/finchclaims/issue/FIN-3922)
+- 🟢 Potential solutions — [FIN-3923](https://linear.app/finchclaims/issue/FIN-3923)
+- 🟣 Feedback & Transcripts — [FIN-3924](https://linear.app/finchclaims/issue/FIN-3924)
+- 🟡 Researches & Fixtures — [FIN-3925](https://linear.app/finchclaims/issue/FIN-3925)
+- 🟤 Priorities & Deadlines — [FIN-3926](https://linear.app/finchclaims/issue/FIN-3926)
+- 🟦 Documentation — [FIN-3927](https://linear.app/finchclaims/issue/FIN-3927)
+
+*The design kit and the skills that compose from it (`/design`, `/design-request`, `/design-server`, `/prove`, `/remix`). Bootstrapped 2026-08-14. Routing test against its nearest neighbour, Intake System: **if the fix is in how a page is made or what it can express, it is Report Design System; if the fix is a step in a grooming protocol, it is Intake System.** A Decision or Outcomes Board that looks wrong is usually a kit defect wearing a costume; one that asks the wrong question is intake's. 🟢 Potential solutions doubles as the home for visual references — no separate reference channel, deliberately: it has the same consumer.*

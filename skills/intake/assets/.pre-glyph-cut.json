@@ -1,0 +1,14 @@
+{
+ "font": "proof-icons.v2.woff2",
+ "files": {
+  "KIT_README.md": {
+   "before_sha": "1f2851db2a532bf065767b60a4d7ea74f2aa99d29c2f360062008399b551726e",
+   "after_sha": "c7a88e54b0259b8f92bac0c0a862bbeff514b08c30e77c27dc3ae4d4d3fd5faf"
+  },
+  "proof-theme.css": {
+   "before_sha": "a926c06b99b55d48bd0282d13a949d46b1825e24722def090c2d5ffa2fcb6881",
+   "after_sha": "e090e29f53338d31ee27983fb7c8950cecec2f6665b93a995b41f4d812d788bb"
+  }
+ },
+ "font_sha": "fc2f03007b63167e72bbf006cf03b400b7c42d06057ead0726165bba3a5181e7"
+}

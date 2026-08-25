@@ -1,0 +1,104 @@
+/* board-warm-overrides.css — WARM PRINT restyle of the Decision-Board widget kit (FIN-3566).
+ *
+ * The "presentation is free" half of §INV_BOARD_HANDOFF_IS_FIXED_PRESENTATION_IS_FREE. It
+ * touches NOTHING in board-widgets.css / board-widgets.js (those are byte-frozen for the
+ * publish integrity pass). It only overrides the kit's `--fb-*` seam, mapping each variable
+ * onto the WARM PRINT tokens from proof-theme.css so the board wears the same paper-and-ink
+ * palette as the rest of a /prove page.
+ *
+ * MUST load AFTER board-widgets.css so these :root rules win by load order at equal
+ * specificity, and AFTER proof-theme.css so the var(--…) references resolve.
+ *
+ * Theme-aware the same two ways as proof-theme: prefers-color-scheme for the OS default and
+ * :root[data-theme=…] for the explicit in-page toggle (the toggle wins, via higher
+ * specificity). All four blocks mirror proof-theme's structure and are kept in lockstep.
+ *
+ * Notes on the non-token derivations:
+ *   --fb-surface / -hi  warm-ink rgba tint over the paper (no proof-theme token is a
+ *                       "subtle raise over paper" that scales in BOTH themes; the kit's own
+ *                       seam uses exactly this rgba-tint model, so we mirror it in warm tones).
+ *   --fb-council        a warm plum — the panel's CLASS colour. Kept deliberately distinct
+ *                       from --accent (persimmon) and --seal (green) so a council mark never
+ *                       reads as the human/accent layer; there is no violet token, so it is a
+ *                       hand-tuned warm value that sits inside the paper palette and stays
+ *                       AA-legible as .fb-note-lens text on --card.
+ *   --fb-human          var(--seal): the warm green presence layer (teammate marks + submit).
+ *   --fb-accent (dark)  a DEEPER persimmon than proof-theme's page-accent (#e08b5c). The kit
+ *                       hard-codes white text on .fb-copybtn (background:var(--fb-accent)); the
+ *                       page-accent is tuned for text/links ON dark paper, not as a button fill,
+ *                       and white on it fails AA. #b8502f keeps white text at ~4.9:1 while still
+ *                       clearing 3:1 vs dark paper for focus outlines/checked borders.
+ */
+
+:root {
+  --fb-fg:           var(--ink);
+  --fb-muted:        var(--ink-soft);
+  --fb-border:       var(--rule);
+  --fb-border-firm:  var(--ink-faint);
+  --fb-surface:      rgba(74, 54, 32, 0.045);
+  --fb-surface-hi:   rgba(74, 54, 32, 0.085);
+  --fb-accent:       var(--accent);
+  --fb-accent-soft:  var(--accent-soft);
+  --fb-council:      #834d6b;
+  --fb-council-soft: rgba(131, 77, 107, 0.14);
+  --fb-human:        var(--seal);
+  --fb-human-soft:   rgba(47, 125, 79, 0.14);
+  --fb-note-bg:      var(--card);
+  --fb-radius:       8px;
+  --fb-radius-sm:    6px;
+  --fb-shadow:       0 6px 22px rgba(74, 54, 32, 0.18), 0 1px 2px rgba(74, 54, 32, 0.12);
+  --fb-mark-size:    1.45rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fb-fg:           var(--ink);
+    --fb-muted:        var(--ink-soft);
+    --fb-border:       var(--rule);
+    --fb-border-firm:  var(--ink-faint);
+    --fb-surface:      rgba(255, 244, 224, 0.045);
+    --fb-surface-hi:   rgba(255, 244, 224, 0.085);
+    --fb-accent:       #b8502f;
+    --fb-accent-soft:  var(--accent-soft);
+    --fb-council:      #cba6c4;
+    --fb-council-soft: rgba(203, 166, 196, 0.18);
+    --fb-human:        var(--seal);
+    --fb-human-soft:   rgba(111, 196, 141, 0.18);
+    --fb-note-bg:      var(--card);
+    --fb-shadow:       0 10px 30px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.42);
+  }
+}
+
+:root[data-theme="light"] {
+  --fb-fg:           var(--ink);
+  --fb-muted:        var(--ink-soft);
+  --fb-border:       var(--rule);
+  --fb-border-firm:  var(--ink-faint);
+  --fb-surface:      rgba(74, 54, 32, 0.045);
+  --fb-surface-hi:   rgba(74, 54, 32, 0.085);
+  --fb-accent:       var(--accent);
+  --fb-accent-soft:  var(--accent-soft);
+  --fb-council:      #834d6b;
+  --fb-council-soft: rgba(131, 77, 107, 0.14);
+  --fb-human:        var(--seal);
+  --fb-human-soft:   rgba(47, 125, 79, 0.14);
+  --fb-note-bg:      var(--card);
+  --fb-shadow:       0 6px 22px rgba(74, 54, 32, 0.18), 0 1px 2px rgba(74, 54, 32, 0.12);
+}
+
+:root[data-theme="dark"] {
+  --fb-fg:           var(--ink);
+  --fb-muted:        var(--ink-soft);
+  --fb-border:       var(--rule);
+  --fb-border-firm:  var(--ink-faint);
+  --fb-surface:      rgba(255, 244, 224, 0.045);
+  --fb-surface-hi:   rgba(255, 244, 224, 0.085);
+  --fb-accent:       #b8502f;
+  --fb-accent-soft:  var(--accent-soft);
+  --fb-council:      #cba6c4;
+  --fb-council-soft: rgba(203, 166, 196, 0.18);
+  --fb-human:        var(--seal);
+  --fb-human-soft:   rgba(111, 196, 141, 0.18);
+  --fb-note-bg:      var(--card);
+  --fb-shadow:       0 10px 30px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.42);
+}

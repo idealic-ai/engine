@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Input paths for kit-digest.mjs. They are DATA, not code, because the contract-bearing pages are",
+    "mostly still in a session folder and have not been promoted into the kit. When a page is promoted,",
+    "edit its line here and re-run the generator — no code change, and the drift gate re-points with it.",
+    "~ expands to $HOME. Explicit --<key> flags override anything here."
+  ],
+  "sources": {
+    "preconditions": "~/Projects/finch/sessions/2026_07_31_PROVE_THEME/builds/precond/preconditions.html",
+    "recipes": "~/Projects/finch/sessions/2026_07_31_PROVE_THEME/builds/recipe/recipes.html",
+    "openers": "~/Projects/finch/sessions/2026_07_31_PROVE_THEME/builds/openers/openers.html",
+    "blocks": "~/.claude/engine/skills/intake/assets/PROOF_BLOCKS.html",
+    "layouts": "~/.claude/engine/skills/intake/assets/CREATIVE_LAYOUTS.html"
+  }
+}

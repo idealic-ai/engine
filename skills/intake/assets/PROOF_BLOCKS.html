@@ -1,0 +1,1137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Warm Print — Static Block Catalog (the /prove contract)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🧱</text></svg>">
+<style>
+  /* ═══════════════════════════════════════════════════════════════════════════
+     TOKEN CONTRACT — inlined :root blocks from proof-theme.css (single source of
+     truth). Consume these var(--…) names; never hardcode a hex. Theme-aware two
+     ways: prefers-color-scheme for the OS default, :root[data-theme=…] for an
+     explicit wrapper override.
+     ═══════════════════════════════════════════════════════════════════════════ */
+  :root{
+    --paper:#efe7d6; --paper-edge:#e7dcc6; --card:#faf5ea; --card-2:#f4ecdc;
+    --ink:#2a2016; --ink-soft:#6a5d4c; --ink-faint:#9c8f79;
+    --ink-meta:#73644d;
+    --rule:#ddd0b8; --rule-soft:#e6dcc7;
+    --accent:#b0472b; --accent-ink:#8f3620; --accent-soft:#f0dcc9;
+    --fresh:#2d8f47; --recent:#778e29; --moderate:#d97706; --stale:#9ca3af; --unknown:#9c8f79;
+    --defect:#ba3527; --defect-bg:#f6e3dd; --fixed:#2f7d4f; --fixed-bg:#e6eede;
+    --status-blue:#2f66a8; --status-blue-soft:#dde7f2;
+    --status-started:#585d74; --status-completed:#307e54; --status-canceled:#686155;
+    --status-backlog:#7a7262; --status-unstarted:#75627f; --status-triage:#9b6127;
+    --seal:#2f7d4f;
+    --serif:Georgia,"Charter","Iowan Old Style",serif;
+    --sans:system-ui,-apple-system,"Segoe UI",sans-serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --maxw:1040px; --readw:66ch;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --paper:#211c16; --paper-edge:#2b251d; --card:#29231b; --card-2:#312a20;
+      --ink:#ece3d3; --ink-soft:#b0a48f; --ink-faint:#7d7362;
+      --ink-meta:#a2957f;
+      --rule:#3a3327; --rule-soft:#332d23;
+      --accent:#e08b5c; --accent-ink:#eea277; --accent-soft:#3a2a1f;
+      --fresh:#58bb76; --recent:#a6bb58; --moderate:#e0a04a; --stale:#8a8272; --unknown:#7d7362;
+      --defect:#e8917f; --defect-bg:#3a221c; --fixed:#6fc48d; --fixed-bg:#1e2c1f;
+      --status-blue:#6f9dd4; --status-blue-soft:#22303f;
+      --status-started:#5c6178; --status-completed:#33835a; --status-canceled:#6d6558;
+      --status-backlog:#7c7363; --status-unstarted:#7a6684; --status-triage:#a06326;
+      --seal:#6fc48d;
+    }
+  }
+  :root[data-theme="light"]{
+    color-scheme:light;
+    --paper:#efe7d6; --paper-edge:#e7dcc6; --card:#faf5ea; --card-2:#f4ecdc;
+    --ink:#2a2016; --ink-soft:#6a5d4c; --ink-faint:#9c8f79;
+    --ink-meta:#73644d;
+    --rule:#ddd0b8; --rule-soft:#e6dcc7;
+    --accent:#b0472b; --accent-ink:#8f3620; --accent-soft:#f0dcc9;
+    --fresh:#2d8f47; --recent:#778e29; --moderate:#d97706; --stale:#9ca3af; --unknown:#9c8f79;
+    --defect:#ba3527; --defect-bg:#f6e3dd; --fixed:#2f7d4f; --fixed-bg:#e6eede;
+    --status-blue:#2f66a8; --status-blue-soft:#dde7f2;
+    --status-started:#585d74; --status-completed:#307e54; --status-canceled:#686155;
+    --status-backlog:#7a7262; --status-unstarted:#75627f; --status-triage:#9b6127; --seal:#2f7d4f;
+  }
+  :root[data-theme="dark"]{
+    color-scheme:dark;
+    --paper:#211c16; --paper-edge:#2b251d; --card:#29231b; --card-2:#312a20;
+    --ink:#ece3d3; --ink-soft:#b0a48f; --ink-faint:#7d7362;
+    --ink-meta:#a2957f;
+    --rule:#3a3327; --rule-soft:#332d23;
+    --accent:#e08b5c; --accent-ink:#eea277; --accent-soft:#3a2a1f;
+    --fresh:#58bb76; --recent:#a6bb58; --moderate:#e0a04a; --stale:#8a8272; --unknown:#7d7362;
+    --defect:#e8917f; --defect-bg:#3a221c; --fixed:#6fc48d; --fixed-bg:#1e2c1f;
+    --status-blue:#6f9dd4; --status-blue-soft:#22303f;
+    --status-started:#5c6178; --status-completed:#33835a; --status-canceled:#6d6558;
+    --status-backlog:#7c7363; --status-unstarted:#7a6684; --status-triage:#a06326; --seal:#6fc48d;
+  }
+
+  /* ── page scaffold ── */
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%; scroll-behavior:smooth}
+  body{
+    margin:0; color:var(--ink); background:var(--paper);
+    font-family:var(--sans); font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased;
+    background-image:
+      radial-gradient(circle at 15% 8%, color-mix(in srgb,var(--accent) 4%,transparent), transparent 42%),
+      radial-gradient(circle at 90% 88%, color-mix(in srgb,var(--accent) 3%,transparent), transparent 46%);
+    background-attachment:fixed;
+  }
+  .wrap{max-width:var(--maxw); margin:0 auto; padding:0 32px}
+  a{color:var(--accent-ink); text-decoration:none; text-underline-offset:2px}
+  a:hover{text-decoration:underline}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:2px}
+  code,.mono{font-family:var(--mono)}
+  code{font-size:.86em; background:var(--card-2); padding:.08em .34em; border-radius:3px; color:var(--ink)}
+  h2,h3{text-wrap:balance}
+
+  .runhead{
+    display:flex; justify-content:space-between; align-items:center; gap:16px;
+    padding:20px 0 16px; border-bottom:1px solid var(--rule);
+    font-family:var(--mono); font-size:11.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--ink-soft);
+  }
+  .runhead .folio{color:var(--accent-ink); font-weight:600}
+
+  header.masthead{padding:52px 0 34px; border-bottom:2px solid var(--ink)}
+  .kicker{
+    font-family:var(--mono); font-size:12px; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--accent-ink); display:flex; align-items:center; gap:12px; margin-bottom:24px;
+  }
+  .kicker::before,.kicker::after{content:""; height:1px; flex:0 0 30px; background:var(--accent); opacity:.55}
+  .kicker::after{flex:1}
+  .masthead h1{
+    font-family:var(--serif); font-weight:700; font-size:clamp(30px,5vw,50px);
+    line-height:1.06; letter-spacing:-.015em; text-wrap:balance; margin:0; color:var(--ink);
+  }
+  .masthead h1 em{font-style:italic; color:var(--accent-ink)}
+  .masthead .lede{margin:26px 0 0; max-width:64ch; font-size:17px; color:var(--ink-soft); line-height:1.58}
+  .masthead .lede b{color:var(--ink); font-weight:600}
+  .masthead .byline{margin-top:22px; font-family:var(--mono); font-size:12px; letter-spacing:.05em; color:var(--ink-meta)}
+  .sample{
+    font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--moderate); border:1px dashed color-mix(in srgb,var(--moderate) 55%,transparent);
+    padding:3px 9px; border-radius:20px; display:inline-block;
+  }
+
+  section{padding:46px 0 40px; border-bottom:1px solid var(--rule); scroll-margin-top:16px}
+  .sechead{display:flex; align-items:baseline; gap:16px; margin-bottom:10px}
+  .sechead .no{font-family:var(--mono); font-size:13px; letter-spacing:.1em; color:var(--accent-ink); font-weight:600; padding-top:4px; flex:0 0 auto}
+  .sechead h2{font-family:var(--serif); font-weight:700; font-size:clamp(22px,3.4vw,32px); letter-spacing:-.01em; margin:0; color:var(--ink)}
+  .sechead .fill{flex:1; height:1px; align-self:center; background:var(--rule)}
+  .sec-sub{font-size:14.5px; color:var(--ink-soft); max-width:64ch; margin:0 0 28px}
+  .sec-sub b{color:var(--ink); font-weight:600}
+  .famhead{font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink); margin:34px 0 16px; padding-bottom:8px; border-bottom:1px solid var(--rule)}
+
+  /* ── the shared module-card skeleton (.mod) — the catalog's frame ── */
+  .mod{background:var(--card); border:1px solid var(--rule); border-radius:2px; overflow:hidden; position:relative; display:flex; flex-direction:column; margin-bottom:22px}
+  .mod-head{display:flex; align-items:center; gap:9px; padding:8px 12px; border-bottom:1px solid var(--rule); background:var(--card-2); min-height:40px}
+  .mod-eyebrow{font-family:var(--serif); font-weight:700; font-size:15px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .mod-slug{font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase; color:var(--accent-ink)}
+  .mod-exp{font-family:var(--mono); font-size:9px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent-ink); background:var(--accent-soft); border:1px solid color-mix(in srgb,var(--accent) 35%,transparent); padding:2px 7px; border-radius:2px}
+  .mod-aff{margin-left:auto; display:flex; gap:1px; align-items:center; flex:0 0 auto}
+  .aff{font-family:var(--mono); font-size:13px; width:26px; height:26px; display:inline-flex; align-items:center; justify-content:center; border-radius:4px; color:var(--ink-meta); border:1px solid transparent; background:transparent; transition:color .12s, border-color .12s, background .12s; text-decoration:none}
+  .aff:hover,.aff:focus-visible{color:var(--accent-ink); border-color:var(--rule); background:var(--card)}
+  .mod-perma{opacity:0; transition:opacity .14s}
+  .mod:hover .mod-perma,.mod:focus-within .mod-perma{opacity:1}
+  .mod-use{padding:12px 16px 0; font-size:13px; color:var(--ink-soft); line-height:1.5}
+  .mod-use b{font-family:var(--mono); font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--seal); margin-right:8px}
+  .mod-body{padding:16px; color:var(--ink-soft); flex:1 1 auto}
+  .mod-foot{font-family:var(--mono); font-size:10.5px; letter-spacing:.02em; color:var(--ink-meta); padding:8px 12px; border-top:1px solid var(--rule-soft); background:color-mix(in srgb,var(--card-2) 55%,transparent); display:flex; flex-wrap:wrap; gap:6px 16px; align-items:center}
+  .mod-foot .fk{color:var(--accent-ink)}
+  .mod-foot .fv{color:var(--ink-soft)}
+
+  /* foot disclosure — scaffolding facts folded behind native <details> ⓘ */
+  details.fmeta{margin-left:auto}
+  details.fmeta>summary{list-style:none; cursor:pointer; display:inline-flex; align-items:center; gap:5px; color:var(--ink-meta); font-family:var(--mono); font-size:10.5px; letter-spacing:.04em}
+  details.fmeta>summary::-webkit-details-marker{display:none}
+  details.fmeta>summary:hover{color:var(--accent-ink)}
+  details.fmeta>summary .gl{font-size:12px}
+  details.fmeta[open]{margin-left:0; flex:1 1 100%; margin-top:8px; padding-top:8px; border-top:1px solid var(--rule-soft)}
+  .fmeta-body{display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:8px}
+
+  /* ── affordance alphabet ── */
+  .alphawrap{overflow-x:auto}
+  .alphabet{min-width:480px; display:grid; grid-template-columns:repeat(3,1fr); gap:0; border:1px solid var(--rule); border-radius:2px; overflow:hidden; background:var(--card)}
+  .alphabet .gl{padding:18px 16px 16px; border-right:1px solid var(--rule); text-align:center}
+  .alphabet .gl:last-child{border-right:0}
+  .alphabet .g{font-family:var(--mono); font-size:24px; color:var(--accent-ink); line-height:1}
+  .alphabet .nm{font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink); margin-top:11px; font-weight:700}
+  .alphabet .gd{font-size:12.5px; color:var(--ink-soft); margin-top:5px; line-height:1.4}
+  .dropped{margin-top:16px; display:flex; flex-wrap:wrap; gap:12px 22px}
+  .dropped .di{display:flex; align-items:baseline; gap:9px; font-size:13px; color:var(--ink-soft)}
+  .dropped .dg{font-family:var(--mono); font-size:16px; color:var(--ink-meta); text-decoration:line-through}
+  .dropped b{color:var(--ink); font-weight:600}
+
+  /* ── freshness dots (SVG shape ramp) ── */
+  .fdot{width:15px; height:15px; display:inline-block; vertical-align:middle; flex:0 0 auto}
+  .freshrow{display:flex; flex-wrap:wrap; gap:0; border:1px solid var(--rule); border-radius:2px; overflow:hidden; min-width:520px}
+  .freshwrap{overflow-x:auto}
+  .freshrow .fc{flex:1 1 0; padding:14px 12px; text-align:center; border-right:1px solid var(--rule); background:var(--card-2)}
+  .freshrow .fc:last-child{border-right:0}
+  .freshrow .fk{font-family:var(--serif); font-weight:700; font-size:13.5px; color:var(--ink); margin-top:9px}
+  .freshrow .fs{font-family:var(--mono); font-size:10px; letter-spacing:.04em; color:var(--ink-meta); margin-top:4px}
+  .a11y-note{margin-top:16px; font-size:13px; color:var(--ink-soft); border-left:3px solid var(--accent); padding:10px 16px; background:var(--card); border-radius:2px; max-width:70ch}
+  .a11y-note b{color:var(--ink); font-weight:600}
+  .a11y-note code{font-size:.86em}
+
+  /* ── job → block picker ── */
+  .picker{border:1px solid var(--rule); border-radius:3px; overflow:hidden; background:var(--card)}
+  .picker .prow{display:grid; grid-template-columns:1fr auto; gap:14px 22px; align-items:baseline; padding:13px 20px; border-top:1px solid var(--rule-soft)}
+  .picker .prow:first-child{border-top:0}
+  .picker .pneed{font-size:14.5px; color:var(--ink); line-height:1.4}
+  .picker .pneed .lead{font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-meta); display:block; margin-bottom:3px}
+  .picker .preach{font-family:var(--mono); font-size:12.5px; color:var(--accent-ink); white-space:nowrap; text-align:right}
+  .picker .preach a{font-weight:600}
+  @media (max-width:600px){.picker .prow{grid-template-columns:1fr; gap:6px} .picker .preach{text-align:left}}
+
+  /* `pb-` = SHOWCASE SCAFFOLDING, not kit vocabulary. This rule styles THIS catalog page only;
+     it is not in proof-blocks.css, so a kit-linked page that copies the markup renders unstyled.
+     The rules below it ARE the kit, inlined. The prefix is what tells the two apart. */
+  .pb-note{font-size:12px; color:var(--ink-meta); font-style:italic; margin:0 0 12px}
+
+  /* NUMBERS */
+  .stripe{display:flex; flex-wrap:wrap; gap:0; border:1px solid var(--rule); border-radius:2px; overflow:hidden}
+  .stripe .cell{flex:1 1 120px; padding:15px 20px; border-right:1px solid var(--rule); background:var(--card-2)}
+  .stripe .cell:last-child{border-right:0}
+  .stripe .n{font-family:var(--serif); font-size:26px; font-weight:700; font-variant-numeric:tabular-nums; letter-spacing:-.01em}
+  .stripe .n.g{color:var(--seal)}
+  .stripe .l{font-size:11.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); margin-top:4px}
+  .stripe.tiled .cell{display:flex; flex-direction:column}
+  .stripe.tiled .kh{display:flex; align-items:center; justify-content:space-between; gap:8px}
+  .stripe.tiled .kf{margin-top:6px; font-size:12px; color:var(--ink-meta)}
+  .dotstat{width:8px; height:8px; border-radius:50%; flex:0 0 auto}
+
+  .bignum{display:grid; grid-template-columns:auto 1fr; gap:2px 26px; align-items:center; border:1px solid var(--rule); border-left:4px solid var(--accent); border-radius:2px; padding:24px 28px; background:var(--card-2)}
+  .bignum .val{grid-row:1 / span 2; font-family:var(--serif); font-weight:700; font-size:clamp(44px,8vw,74px); line-height:.9; letter-spacing:-.03em; color:var(--ink); font-variant-numeric:tabular-nums}
+  .bignum .lab{font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-soft); align-self:end}
+  .bignum .sub{font-size:14px; color:var(--ink-soft); align-self:start; display:flex; flex-wrap:wrap; align-items:center; gap:10px}
+  .bignum .spark svg{display:block; width:150px; height:44px}
+  .delta{font-family:var(--mono); font-size:12px; font-weight:700; letter-spacing:.04em; display:inline-flex; align-items:center; gap:5px; padding:2px 8px; border-radius:20px}
+  .delta.up{color:var(--seal); background:color-mix(in srgb,var(--seal) 14%,transparent)}
+  .delta.down{color:var(--defect); background:var(--defect-bg)}
+  .delta svg{display:block}
+
+  .tablewrap{overflow-x:auto; border:1px solid var(--rule); border-radius:2px}
+  table.data{border-collapse:collapse; width:100%; min-width:460px; font-size:14px}
+  table.data th,table.data td{padding:10px 16px; text-align:left; border-bottom:1px solid var(--rule-soft)}
+  table.data thead th{font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-soft); background:var(--card-2); border-bottom:1px solid var(--rule); white-space:nowrap}
+  table.data tbody tr:last-child td{border-bottom:0}
+  table.data td.num,table.data th.num{text-align:right; font-family:var(--mono); font-variant-numeric:tabular-nums}
+  table.data td .cellname{font-family:var(--serif); font-weight:600; color:var(--ink)}
+  table.data td.d-up{color:var(--seal); font-weight:600}
+  table.data td.d-down{color:var(--defect); font-weight:600}
+  table.data tbody tr.total td{border-top:1px solid var(--rule); font-weight:700; background:var(--card-2)}
+  .pill{font-family:var(--mono); font-size:10px; letter-spacing:.05em; padding:2px 8px; border-radius:20px; text-transform:uppercase; white-space:nowrap}
+  .pill.ok{color:var(--seal); background:color-mix(in srgb,var(--seal) 14%,transparent)}
+  .pill.warn{color:var(--moderate); background:color-mix(in srgb,var(--moderate) 15%,transparent)}
+  .pill.bad{color:var(--defect); background:var(--defect-bg)}
+
+  .meters{display:flex; flex-direction:column; gap:16px}
+  .meter .ml{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px}
+  .meter .mn{font-size:13.5px; color:var(--ink); font-weight:600}
+  .meter .mv{font-family:var(--mono); font-size:12.5px; color:var(--ink-soft); font-variant-numeric:tabular-nums}
+  .meter svg{display:block; width:100%; height:14px}
+
+  /* SEQUENCE */
+  .timeline{position:relative; padding-left:30px}
+  .timeline::before{content:""; position:absolute; left:6px; top:6px; bottom:6px; width:1.5px; background:var(--rule)}
+  .tl-item{position:relative; padding:0 0 22px}
+  .tl-item:last-child{padding-bottom:0}
+  .tl-item::before{content:""; position:absolute; left:-30px; top:4px; width:13px; height:13px; border-radius:50%; background:var(--card); border:2px solid var(--accent)}
+  .tl-item.done::before{background:var(--accent); border-color:var(--accent)}
+  .tl-item .tl-time{font-family:var(--mono); font-size:11px; letter-spacing:.05em; color:var(--ink-meta)}
+  .tl-item .tl-t{font-family:var(--serif); font-weight:700; font-size:16px; color:var(--ink); margin:2px 0 3px}
+  .tl-item .tl-d{font-size:13.5px; color:var(--ink-soft); max-width:56ch}
+
+  .proclist{display:flex; flex-direction:column; gap:0; counter-reset:proc}
+  .proc{display:grid; grid-template-columns:auto 1fr; gap:0 18px; padding:14px 0; border-top:1px solid var(--rule-soft); align-items:baseline}
+  .proc:first-child{border-top:0}
+  .proc::before{counter-increment:proc; content:counter(proc,decimal-leading-zero); font-family:var(--mono); font-size:13px; font-weight:700; color:var(--accent-ink); border:1px solid var(--rule); border-radius:50%; width:34px; height:34px; display:flex; align-items:center; justify-content:center; align-self:start}
+  .proc .pt{font-family:var(--serif); font-weight:700; font-size:16px; color:var(--ink)}
+  .proc .pd{font-size:13.5px; color:var(--ink-soft); margin-top:3px; max-width:58ch}
+
+  .clog{display:flex; flex-direction:column; gap:0}
+  .clog-row{display:grid; grid-template-columns:auto auto 1fr; gap:0 14px; padding:11px 0; border-top:1px solid var(--rule-soft); align-items:baseline}
+  .clog-row:first-child{border-top:0}
+  .clog .ct{font-family:var(--mono); font-size:11px; color:var(--ink-meta); white-space:nowrap}
+  .clog .tag{font-family:var(--mono); font-size:9.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; padding:2px 8px; border-radius:2px; white-space:nowrap; align-self:start}
+  .clog .tag.add{color:var(--seal); background:color-mix(in srgb,var(--seal) 14%,transparent)}
+  .clog .tag.fix{color:var(--accent-ink); background:var(--accent-soft)}
+  .clog .tag.chg{color:var(--status-blue); background:var(--status-blue-soft)}
+  .clog .cx{font-size:13.5px; color:var(--ink-soft)}
+  .clog .cx b{color:var(--ink); font-weight:600; font-family:var(--serif)}
+
+  .flowwrap,.phasewrap{overflow-x:auto; padding-bottom:4px}
+  .flow{display:flex; align-items:stretch; gap:0; min-width:600px}
+  .flow .node{flex:1 1 0; border:1px solid var(--rule); border-radius:3px; background:var(--card-2); padding:14px 16px; display:flex; flex-direction:column; gap:5px}
+  .flow .node .fn-k{font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--accent-ink)}
+  .flow .node .fn-t{font-family:var(--serif); font-weight:700; font-size:15px; color:var(--ink)}
+  .flow .node .fn-d{font-size:12px; color:var(--ink-soft)}
+  .flow .conn{flex:0 0 40px; display:flex; align-items:center; justify-content:center; color:var(--accent)}
+  .flow .conn svg{display:block}
+  .phases{display:flex; gap:0; min-width:560px; border:1px solid var(--rule); border-radius:2px; overflow:hidden}
+  .phase{flex:1 1 0; padding:14px 16px; border-right:1px solid var(--rule); position:relative; background:var(--card-2)}
+  .phase:last-child{border-right:0}
+  .phase .ph-state{font-family:var(--mono); font-size:9.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; display:inline-flex; align-items:center; gap:6px; margin-bottom:8px}
+  .phase .ph-state::before{content:""; width:8px; height:8px; border-radius:50%}
+  .phase.done .ph-state{color:var(--seal)} .phase.done .ph-state::before{background:var(--seal)}
+  .phase.current{background:var(--accent-soft)}
+  .phase.current .ph-state{color:var(--accent-ink)} .phase.current .ph-state::before{background:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+  .phase.upcoming .ph-state{color:var(--ink-meta)} .phase.upcoming .ph-state::before{border:1.5px solid var(--ink-faint)}
+  .phase .ph-t{font-family:var(--serif); font-weight:700; font-size:15px; color:var(--ink)}
+  .phase .ph-d{font-size:12px; color:var(--ink-soft); margin-top:3px}
+
+  .branchwrap{overflow-x:auto}
+  .branch{display:grid; grid-template-columns:auto 44px 1fr; gap:12px 0; align-items:center; min-width:500px}
+  .branch .q{grid-column:1; border:1px solid var(--rule); border-left:3px solid var(--accent); border-radius:3px; padding:12px 16px; background:var(--card-2); align-self:stretch; display:flex; align-items:center; font-family:var(--serif); font-weight:700; font-size:15px; color:var(--ink)}
+  .branch .arm{border:1px solid var(--rule); border-radius:3px; padding:10px 15px; background:var(--card)}
+  .branch .arm .lbl{font-family:var(--mono); font-size:10px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:4px}
+  .branch .arm.yes .lbl{color:var(--seal)} .branch .arm.no .lbl{color:var(--moderate)}
+  .branch .arm .txt{font-size:13.5px; color:var(--ink-soft)}
+  .branch .link{display:flex; align-items:center; justify-content:center; color:var(--accent)}
+  .branch .link svg{display:block}
+
+  /* ARGUMENT */
+  .cpv{display:grid; grid-template-columns:1fr 1fr auto; gap:0; border:1px solid var(--rule); border-radius:3px; overflow:hidden}
+  .cpv > div{padding:16px 20px; border-right:1px solid var(--rule)}
+  .cpv > div:last-child{border-right:0}
+  .cpv .lab{font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-meta); margin-bottom:8px}
+  .cpv .claim{background:var(--card-2)}
+  .cpv .claim .txt{font-family:var(--serif); font-weight:700; font-size:16px; color:var(--ink); line-height:1.35}
+  .cpv .proof .txt{font-size:13.5px; color:var(--ink-soft)}
+  .cpv .verdict-cell{display:flex; align-items:center; background:var(--card-2)}
+  .verdict{font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:4px 11px; border-radius:2px; background:color-mix(in srgb,var(--seal) 15%,transparent); color:var(--seal); border:1px solid color-mix(in srgb,var(--seal) 40%,transparent); white-space:nowrap}
+  @media (max-width:640px){.cpv{grid-template-columns:1fr}.cpv > div{border-right:0; border-bottom:1px solid var(--rule)}}
+
+  .thesis-block{border:1px solid var(--rule); border-radius:3px; padding:24px 28px; background:var(--card-2)}
+  .thesis-block .ib-lab{font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink); margin-bottom:12px}
+  .thesis-block .ib-t{font-family:var(--serif); font-weight:700; font-size:clamp(19px,2.8vw,24px); line-height:1.25; color:var(--ink); margin:0 0 12px}
+  .thesis-block .ib-t em{font-style:italic; color:var(--accent-ink)}
+  .thesis-block .ib-d{font-size:14.5px; color:var(--ink-soft); max-width:62ch; margin:0}
+
+  .scope{display:grid; grid-template-columns:repeat(3,1fr); gap:0; border:1px solid var(--rule); border-radius:2px; overflow:hidden}
+  .scope-card{padding:20px; border-right:1px solid var(--rule); background:var(--card-2)}
+  .scope-card:last-child{border-right:0}
+  .scope-card h4{font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; margin:0 0 14px; padding-bottom:10px; border-bottom:1px solid var(--rule)}
+  .scope-card.shows h4{color:var(--seal)} .scope-card.out h4{color:var(--moderate)} .scope-card.rests h4{color:var(--accent-ink)}
+  .scope-card ul{margin:0; padding:0; list-style:none; display:flex; flex-direction:column; gap:11px}
+  .scope-card li{font-size:13px; color:var(--ink-soft); padding-left:16px; position:relative; line-height:1.45}
+  .scope-card li::before{content:""; position:absolute; left:0; top:7px; width:6px; height:6px; border-radius:50%; background:var(--accent); opacity:.6}
+  @media (max-width:640px){.scope{grid-template-columns:1fr}.scope-card{border-right:0; border-bottom:1px solid var(--rule)}}
+
+  .qa{display:flex; flex-direction:column; gap:0}
+  .qa-row{padding:16px 0; border-top:1px solid var(--rule-soft)}
+  .qa-row:first-child{border-top:0; padding-top:0}
+  .qa-q{font-family:var(--serif); font-weight:700; font-size:16px; color:var(--ink); margin-bottom:8px; display:flex; gap:12px}
+  .qa-q .mark{color:var(--accent-ink); font-style:italic}
+  .qa-a{max-width:var(--readw); color:var(--ink-soft); padding-left:28px; font-size:14px}
+  .qa-a .lead{font-family:var(--mono); font-size:11.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; color:var(--seal); margin-right:9px}
+  .qa-a .lead.warn{color:var(--moderate)} .qa-a .lead.none{color:var(--accent-ink)}
+
+  .tradeoff{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .tcol{border:1px solid var(--rule); border-radius:3px; overflow:hidden}
+  .tcol .th{font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:10px 16px; border-bottom:1px solid var(--rule)}
+  .tcol.pro .th{color:var(--seal); background:var(--fixed-bg)}
+  .tcol.con .th{color:var(--defect); background:var(--defect-bg)}
+  .tcol ul{margin:0; padding:14px 18px; list-style:none; display:flex; flex-direction:column; gap:10px}
+  .tcol li{font-size:13.5px; color:var(--ink-soft); padding-left:20px; position:relative; line-height:1.45}
+  .tcol.pro li::before{content:"+"; position:absolute; left:0; color:var(--seal); font-weight:700; font-family:var(--mono)}
+  .tcol.con li::before{content:"\2212"; position:absolute; left:0; color:var(--defect); font-weight:700; font-family:var(--mono)}
+  @media (max-width:640px){.tradeoff{grid-template-columns:1fr}}
+
+  /* EVIDENCE */
+  figure{margin:0}
+  .frame{border:1px solid var(--rule); border-radius:2px; background:var(--card-2); overflow:hidden}
+  .frame .bar{display:flex; align-items:center; gap:8px; padding:8px 13px; border-bottom:1px solid var(--rule); font-family:var(--mono); font-size:11px; letter-spacing:.06em; text-transform:uppercase; color:var(--ink-meta); background:var(--card)}
+  .frame .bar .dot{width:9px; height:9px; border-radius:50%; background:var(--accent); opacity:.7}
+  .frame .plate-render{min-height:150px; display:flex; align-items:center; justify-content:center; text-align:center; padding:30px 24px; color:var(--ink-meta); background:repeating-linear-gradient(45deg, transparent, transparent 11px, color-mix(in srgb,var(--rule) 40%,transparent) 11px, color-mix(in srgb,var(--rule) 40%,transparent) 12px)}
+  .frame .plate-render .ico{font-family:var(--serif); font-size:28px; color:var(--accent-ink); margin-bottom:8px}
+  .frame .plate-render .lab{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase}
+  figcaption{margin-top:9px; font-size:12.5px; color:var(--ink-meta); line-height:1.5; max-width:var(--readw)}
+  figcaption b{color:var(--ink-soft); font-weight:600}
+
+  .diff{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  .diffcol{border:1px solid var(--rule); border-radius:2px; overflow:hidden}
+  .diffcol .dh{font-family:var(--mono); font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding:8px 13px; border-bottom:1px solid var(--rule)}
+  .diffcol.before .dh{background:var(--defect-bg); color:var(--defect)}
+  .diffcol.after .dh{background:var(--fixed-bg); color:var(--fixed)}
+  .diffcol .cx{overflow-x:auto}
+  .diffcol pre{font-size:11.5px; background:transparent}
+  @media (max-width:640px){.diff{grid-template-columns:1fr}}
+
+  .codewrap{overflow-x:auto; border:1px solid var(--rule); border-radius:2px; background:var(--card-2)}
+  .codewrap.term{background:var(--ink); border-color:var(--ink)}
+  pre{margin:0; padding:15px 18px; font-family:var(--mono); font-size:12.5px; line-height:1.6; color:var(--ink); min-width:max-content}
+  .term pre{color:var(--paper)}
+  pre .c{color:var(--ink-meta)}
+  pre .k{color:var(--accent-ink)}
+  pre .g{color:var(--seal); font-weight:600}
+  .term pre .c{color:#b0a48f} .term pre .g{color:var(--fresh)} .term pre .k{color:var(--accent)}
+  .term .bar{display:flex; gap:6px; padding:9px 13px; border-bottom:1px solid color-mix(in srgb,var(--paper) 15%,transparent)}
+  .term .bar i{width:10px; height:10px; border-radius:50%; background:color-mix(in srgb,var(--paper) 30%,transparent)}
+
+  .cite{border:1px solid var(--rule); border-left:4px solid var(--accent); border-radius:2px; padding:18px 22px; background:var(--card-2)}
+  .cite blockquote{margin:0; font-family:var(--serif); font-size:16px; font-style:italic; line-height:1.5; color:var(--ink)}
+  .cite .src{margin-top:14px; display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-family:var(--mono); font-size:11px; letter-spacing:.04em; color:var(--ink-meta)}
+  .pull{position:relative; padding:28px 34px 28px 44px; background:var(--card-2); border:1px solid var(--rule); border-left:4px solid var(--accent); border-radius:2px}
+  .pull::before{content:"\201C"; position:absolute; left:14px; top:2px; font-family:var(--serif); font-size:66px; line-height:1; color:var(--accent); opacity:.32}
+  .pull p{margin:0; font-family:var(--serif); font-style:italic; font-size:clamp(18px,2.4vw,23px); line-height:1.38; color:var(--ink)}
+  .pull .attr{margin-top:14px; font-family:var(--mono); font-style:normal; font-size:11.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-meta)}
+
+  /* EMPHASIS & KEYS */
+  .callout{display:grid; grid-template-columns:auto 1fr; gap:14px; border:1px solid var(--rule); border-radius:3px; padding:16px 18px; background:var(--card-2)}
+  .callout + .callout{margin-top:14px}
+  .callout .ci{width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-family:var(--serif); font-weight:700; font-size:16px; flex:0 0 auto}
+  .callout .ctitle{font-family:var(--mono); font-size:10.5px; font-weight:700; letter-spacing:.1em; text-transform:uppercase; margin-bottom:4px}
+  .callout .cbody{font-size:13.5px; color:var(--ink-soft); line-height:1.5; max-width:60ch}
+  .callout.insight{border-left:3px solid var(--accent)} .callout.insight .ci{background:var(--accent-soft); color:var(--accent-ink)} .callout.insight .ctitle{color:var(--accent-ink)}
+  .callout.caution{border-left:3px solid var(--moderate)} .callout.caution .ci{background:color-mix(in srgb,var(--moderate) 18%,transparent); color:var(--moderate)} .callout.caution .ctitle{color:var(--moderate)}
+  .callout.note{border-left:3px solid var(--status-blue)} .callout.note .ci{background:var(--status-blue-soft); color:var(--status-blue)} .callout.note .ctitle{color:var(--status-blue)}
+
+  .scalewrap{overflow-x:auto}
+  .scale{min-width:520px; display:flex; gap:0; border:1px solid var(--rule); border-radius:2px; overflow:hidden}
+  .scale .sw{flex:1; padding:12px; text-align:center; border-right:1px solid var(--rule); background:var(--card-2)}
+  .scale .sw:last-child{border-right:0}
+  .scale .swatch{width:15px; height:15px; border-radius:50%; margin:0 auto 8px}
+  .scale .swatch.outline{background:transparent; border:2px dashed var(--unknown)}
+  .scale .sk{font-family:var(--serif); font-weight:700; font-size:13px; color:var(--ink)}
+  .scale .st{font-family:var(--mono); font-size:10px; color:var(--ink-meta); margin-top:3px}
+  .chip{font-family:var(--mono); font-size:11px; letter-spacing:.05em; padding:3px 9px; border-radius:20px; white-space:nowrap; display:inline-flex; align-items:center; gap:6px}
+  .chip.here{background:var(--accent-soft); color:var(--accent-ink); border:1px solid color-mix(in srgb,var(--accent) 35%,transparent)}
+  .chip.up{background:transparent; color:var(--ink-soft); border:1px dashed var(--rule)}
+  .chip::before{content:""; width:6px; height:6px; border-radius:50%}
+  .chip.here::before{background:var(--accent)} .chip.up::before{border:1.5px solid var(--ink-faint)}
+  .chiplegend{display:flex; flex-wrap:wrap; gap:16px; align-items:center; margin-top:16px}
+  .chiplegend .li{display:flex; align-items:center; gap:9px; font-size:12.5px; color:var(--ink-soft)}
+  .chiplegend .li b{color:var(--ink); font-weight:600}
+
+  /* EXPERIMENTAL ANNEX */
+  .exp-banner{display:flex; flex-wrap:wrap; align-items:center; gap:10px 14px; border:1px dashed var(--accent); border-radius:3px; padding:12px 18px; margin:0 0 26px; background:color-mix(in srgb,var(--accent) 6%,transparent)}
+  .exp-banner .tag{font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink); background:var(--accent-soft); border:1px solid color-mix(in srgb,var(--accent) 35%,transparent); padding:3px 9px; border-radius:2px}
+  .exp-banner .txt{font-size:13px; color:var(--ink-soft); flex:1 1 300px}
+  .mod.exp{border-color:color-mix(in srgb,var(--accent) 28%,var(--rule))}
+  .vdash{display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:10px}
+  .vcell{border:1px solid var(--rule); border-radius:3px; padding:11px 13px; background:var(--card-2); position:relative; overflow:hidden}
+  .vcell::before{content:""; position:absolute; left:0; top:0; bottom:0; width:4px}
+  .vcell.proven::before{background:var(--seal)} .vcell.partial::before{background:var(--moderate)} .vcell.open::before{background:var(--defect)} .vcell.upstream::before{background:var(--stale)}
+  .vcell .vc-id{font-family:var(--mono); font-size:9.5px; letter-spacing:.08em; color:var(--ink-meta); padding-left:6px}
+  .vcell .vc-t{font-family:var(--serif); font-weight:700; font-size:13px; color:var(--ink); margin:3px 0 8px; padding-left:6px; line-height:1.25}
+  .vcell .vc-s{font-family:var(--mono); font-size:9.5px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; padding-left:6px}
+  .vcell.proven .vc-s{color:var(--seal)} .vcell.partial .vc-s{color:var(--moderate)} .vcell.open .vc-s{color:var(--defect)} .vcell.upstream .vc-s{color:var(--stale)}
+  .covwrap{overflow-x:auto}
+  .covmap{min-width:520px; display:grid; grid-template-columns:repeat(6,1fr); gap:6px}
+  .cov{border-radius:3px; padding:12px 10px; min-height:64px; display:flex; flex-direction:column; justify-content:space-between; border:1px solid var(--rule)}
+  .cov .cv-t{font-family:var(--serif); font-weight:600; font-size:12.5px; line-height:1.2}
+  .cov .cv-s{font-family:var(--mono); font-size:8.5px; letter-spacing:.06em; text-transform:uppercase; margin-top:6px}
+  .cov.checked{background:color-mix(in srgb,var(--seal) 15%,transparent); border-color:color-mix(in srgb,var(--seal) 35%,transparent)}
+  .cov.checked .cv-t{color:var(--ink)} .cov.checked .cv-s{color:var(--seal)}
+  .cov.partial{background:color-mix(in srgb,var(--moderate) 15%,transparent); border-color:color-mix(in srgb,var(--moderate) 35%,transparent)}
+  .cov.partial .cv-t{color:var(--ink)} .cov.partial .cv-s{color:var(--moderate)}
+  .cov.oos{background:transparent; border-style:dashed; border-color:var(--rule)}
+  .cov.oos .cv-t{color:var(--ink-meta)} .cov.oos .cv-s{color:var(--ink-meta)}
+  .cov.gap{background:var(--defect-bg); border-color:color-mix(in srgb,var(--defect) 30%,transparent)}
+  .cov.gap .cv-t{color:var(--ink)} .cov.gap .cv-s{color:var(--defect)}
+  .cov-legend{display:flex; flex-wrap:wrap; gap:14px; margin-top:14px}
+  .cov-legend .li{display:flex; align-items:center; gap:7px; font-size:12px; color:var(--ink-soft)}
+  .cov-legend .sw{width:12px; height:12px; border-radius:3px; flex:0 0 auto}
+
+  /* colophon */
+  .colophon{padding:40px 0 60px}
+  .colo-grid{display:grid; grid-template-columns:1fr 1fr; gap:34px}
+  .legend h3,.honesty h3{font-family:var(--mono); font-size:11.5px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--accent-ink); margin:0 0 16px; padding-bottom:9px; border-bottom:1px solid var(--rule)}
+  .legend .row{display:flex; align-items:center; gap:11px; padding:5px 0; font-size:13.5px; color:var(--ink-soft)}
+  .legend .row .sw{width:13px; height:13px; border-radius:50%; flex:0 0 auto}
+  .legend .row b{color:var(--ink); font-weight:600; font-family:var(--mono); font-size:12px}
+  .honesty p{margin:0 0 12px; font-size:13.5px; color:var(--ink-soft); line-height:1.6}
+  .honesty p b{color:var(--ink); font-weight:600}
+  .collapse-map{margin-top:12px; font-family:var(--mono); font-size:12px; line-height:1.7; color:var(--ink-soft)}
+  .collapse-map .cm{display:grid; grid-template-columns:auto 1fr; gap:0 14px; padding:5px 0; border-top:1px solid var(--rule-soft)}
+  .collapse-map .cm:first-child{border-top:0}
+  .collapse-map .cn{color:var(--accent-ink); font-weight:600; white-space:nowrap}
+  .end{margin-top:40px; padding-top:22px; border-top:1px solid var(--rule); font-family:var(--mono); font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-meta); display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px}
+
+  @media (max-width:760px){.wrap{padding:0 20px} .colo-grid{grid-template-columns:1fr}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important; scroll-behavior:auto!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <div class="runhead">
+    <span>The Static Block Catalog &nbsp;·&nbsp; <span class="folio">Warm Print</span> &nbsp;·&nbsp; the zero-JS contract</span>
+    <span>18 blocks · 6 families</span>
+  </div>
+
+  <header class="masthead">
+    <div class="kicker">Block contract &nbsp;·&nbsp; for /prove evidence pages</div>
+    <h1>Eighteen blocks, <em>one skeleton</em> — the static contract a proof page is built from.</h1>
+    <p class="lede">Every block below is the <b>same part</b>: a thin head, a body, a quiet foot &mdash; the <code>.mod</code> skeleton &mdash; wearing a <b>modifier class</b> that gives it its job. This catalog is the trimmed, opinionated distillation of the 34-block gallery: near-duplicate families collapsed to one block plus documented modifiers, so every survivor is a <b>real, distinct job</b>. It is a <b>convention with defaults, not a closed set</b> &mdash; a new block is additive.</p>
+    <p class="byline"><span class="sample">Sample content</span> &nbsp; All figures are illustrative &mdash; they demonstrate the block, not a live finding. &nbsp;·&nbsp; Zero-JS · CSP-safe · theme-aware · system fonts.</p>
+  </header>
+
+  <!-- ═══════════ 3/1 · THE SKELETON CONTRACT ═══════════ -->
+  <section id="skeleton">
+    <div class="sechead"><span class="no">§ 01</span><h2>The <code>.mod</code> skeleton &mdash; head · body · foot</h2><span class="fill"></span></div>
+    <p class="sec-sub">One card skeleton underlies every block. A block <b>= one skeleton + one modifier class</b>. The head carries identity and affordances; the body carries the block's actual content; the foot carries honest provenance at rest, with scaffolding facts folded behind a <code>ⓘ</code> disclosure. The three regions are annotated on the specimen below.</p>
+
+    <article class="mod" id="b-skeleton">
+      <div class="mod-head">
+        <span class="mod-eyebrow">.mod-head</span>
+        <span class="mod-slug">— eyebrow · slug · affordances</span>
+        <span class="mod-aff">
+          <a class="aff" href="#skeleton" aria-label="Reveal source and provenance">ⓘ</a>
+          <a class="aff mod-perma" href="#b-skeleton" aria-label="Permalink to this block">¶</a>
+        </span>
+      </div>
+      <div class="mod-body">
+        <p style="margin:0 0 10px; color:var(--ink); font-family:var(--serif); font-weight:700; font-size:16px">.mod-body &mdash; the block's content lives here.</p>
+        <p style="margin:0; font-size:14px">This is where a modifier's markup renders: a table, a timeline, a pull-quote, a figure. The skeleton is agnostic about what nests inside; the modifier decides. Reading blocks hold to one measure (<code>--readw</code>) so prose stays legible.</p>
+      </div>
+      <div class="mod-foot">
+        <span><span class="fk">prov</span> <span class="fv">checked-here</span></span>
+        <span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <span><span class="fk">ref</span> <span class="fv">warm-composition.html</span></span>
+        <details class="fmeta">
+          <summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body">
+            <span><span class="fk">.mod-foot</span> <span class="fv">provenance + disclosure</span></span>
+            <span><span class="fk">slot</span> <span class="fv">main</span></span>
+            <span><span class="fk">skeleton</span> <span class="fv">head · body · foot</span></span>
+            <span><span class="fk">rule</span> <span class="fv">skeleton + 1 modifier</span></span>
+          </div>
+        </details>
+      </div>
+    </article>
+
+    <p class="sec-sub" style="margin-top:26px"><b>The slot enum</b> &mdash; a block declares where on the page it lives. Three values, closed for now (additive if a real fourth job appears):</p>
+    <div class="alphawrap">
+      <div class="alphabet">
+        <div class="gl"><div class="g">main</div><div class="nm">Main</div><div class="gd">the reading column &mdash; one measure, prose &amp; primary blocks</div></div>
+        <div class="gl"><div class="g">rail</div><div class="nm">Rail</div><div class="gd">the docked apparatus &mdash; evidence tickets, spec metadata</div></div>
+        <div class="gl"><div class="g">full-bleed</div><div class="nm">Full-bleed</div><div class="gd">spans both columns &mdash; <code>.slot-full{grid-column:1/-1}</code></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══════════ 3/4b · AFFORDANCE ALPHABET (trimmed) ═══════════ -->
+  <section id="affordances">
+    <div class="sechead"><span class="no">§ 02</span><h2>The affordance alphabet &mdash; three glyphs that work with zero JS</h2><span class="fill"></span></div>
+    <p class="sec-sub">On the static path only glyphs that need <b>no script</b> survive. Each is one meaning, used the same way everywhere, and each glyph control carries an <b>accessible name</b> (<code>aria-label</code>) &mdash; never a bare Unicode char for a screen reader to guess at.</p>
+    <div class="alphawrap">
+      <div class="alphabet">
+        <div class="gl"><div class="g">ⓘ</div><div class="nm">Detail</div><div class="gd">reveal source &amp; provenance &mdash; a native <code>&lt;details&gt;</code></div></div>
+        <div class="gl"><div class="g">↗</div><div class="nm">Open</div><div class="gd">follow an external ref &mdash; a plain <code>&lt;a href&gt;</code></div></div>
+        <div class="gl"><div class="g">¶</div><div class="nm">Anchor</div><div class="gd">permalink to this block &mdash; an in-page <code>#id</code></div></div>
+      </div>
+    </div>
+    <div class="dropped">
+      <div class="di"><span class="dg">⧉</span> <span><b>Copy</b> dropped &mdash; needs the Clipboard API (JS). Show the ref as selectable text instead.</span></div>
+      <div class="di"><span class="dg">⌄</span> <span><b>Expand</b> dropped &mdash; native <code>&lt;details&gt;</code> already discloses; the disc triangle is the affordance.</span></div>
+    </div>
+  </section>
+
+  <!-- ═══════════ 3/4a · FRESHNESS DOT A11Y RULE ═══════════ -->
+  <section id="freshness">
+    <div class="sechead"><span class="no">§ 03</span><h2>The static freshness dot &mdash; color is never the only channel</h2><span class="fill"></span></div>
+    <p class="sec-sub">Any hand-authored freshness dot in a static block MUST carry <b>three things</b>: <code>role="img"</code>, a <b>bucket-word <code>aria-label</code></b>, and a <b>non-color shape channel</b>. The shape below ramps by <b>fill fraction</b> &mdash; filled → three-quarter → half → ring → dashed &mdash; so the bucket reads without any hue at all.</p>
+    <div class="freshwrap">
+      <div class="freshrow">
+        <div class="fc">
+          <svg class="fdot" viewBox="0 0 14 14" role="img" aria-label="Fresh — active in the last 24 hours"><circle cx="7" cy="7" r="6" fill="none" stroke="var(--rule)" stroke-width="1"/><circle cx="7" cy="7" r="5" fill="var(--fresh)"/></svg>
+          <div class="fk">Fresh</div><div class="fs">filled · &lt; 24h</div>
+        </div>
+        <div class="fc">
+          <svg class="fdot" viewBox="0 0 14 14" role="img" aria-label="Recent — active in the last 7 days"><circle cx="7" cy="7" r="6" fill="none" stroke="var(--rule)" stroke-width="1"/><path d="M7 7 L7 2 A5 5 0 1 1 2 7 Z" fill="var(--recent)"/></svg>
+          <div class="fk">Recent</div><div class="fs">three-quarter · &lt; 7d</div>
+        </div>
+        <div class="fc">
+          <svg class="fdot" viewBox="0 0 14 14" role="img" aria-label="Moderate — no activity for over a week"><circle cx="7" cy="7" r="6" fill="none" stroke="var(--rule)" stroke-width="1"/><path d="M7 7 L7 2 A5 5 0 0 1 7 12 Z" fill="var(--moderate)"/></svg>
+          <div class="fk">Moderate</div><div class="fs">half · &lt; 30d</div>
+        </div>
+        <div class="fc">
+          <svg class="fdot" viewBox="0 0 14 14" role="img" aria-label="Stale — no activity for over a month"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--stale)" stroke-width="2"/></svg>
+          <div class="fk">Stale</div><div class="fs">ring · &gt; 30d</div>
+        </div>
+        <div class="fc">
+          <svg class="fdot" viewBox="0 0 14 14" role="img" aria-label="Unknown — activity date unknown"><circle cx="7" cy="7" r="5" fill="none" stroke="var(--unknown)" stroke-width="1.5" stroke-dasharray="2 2"/></svg>
+          <div class="fk">Unknown</div><div class="fs">dashed · no date</div>
+        </div>
+      </div>
+    </div>
+    <p class="a11y-note"><b>Why:</b> a reader with color-vision deficiency, a grayscale print, or a screen reader must all get the bucket. Hue (from the <code>--fresh … --unknown</code> tokens) is the fast channel for everyone else; the fill-fraction shape and the <code>aria-label</code> are the honest fallbacks. Never emit a bare colored <code>&lt;span&gt;</code> dot. Legend (§ colophon) travels with any page that uses these hues &mdash; §INV_PROVE_FAITHFUL_PRESENTATION.</p>
+  </section>
+
+  <!-- ═══════════ 3/3 · JOB → BLOCK PICKER ═══════════ -->
+  <section id="picker">
+    <div class="sechead"><span class="no">§ 04</span><h2>Which block for which job</h2><span class="fill"></span></div>
+    <p class="sec-sub">Start here. Name the job the page needs to do; reach for the block on the right. Modifiers (<code>--like-this</code>) tune a block without adding a new one.</p>
+    <div class="picker">
+      <div class="prow"><div class="pneed"><span class="lead">If you need to…</span>open on 3&ndash;5 headline figures</div><div class="preach"><a href="#b-stat-strip">stat-strip</a></div></div>
+      <div class="prow"><div class="pneed">make one figure the whole finding</div><div class="preach"><a href="#b-bignum">bignum</a></div></div>
+      <div class="prow"><div class="pneed">show a run of cases, each with a pass/fail state</div><div class="preach"><a href="#b-table">table</a> <span style="color:var(--ink-meta)">--status</span></div></div>
+      <div class="prow"><div class="pneed">show a movement across metrics (before → after)</div><div class="preach"><a href="#b-table">table</a> <span style="color:var(--ink-meta)">--delta</span></div></div>
+      <div class="prow"><div class="pneed">show shares of a whole</div><div class="preach"><a href="#b-meter">meter</a></div></div>
+      <div class="prow"><div class="pneed">walk a dated history or an ordered recipe</div><div class="preach"><a href="#b-sequence">sequence</a></div></div>
+      <div class="prow"><div class="pneed">show a pipeline moving through named stages</div><div class="preach"><a href="#b-pipeline">pipeline</a></div></div>
+      <div class="prow"><div class="pneed">show a decision that forks on a condition</div><div class="preach"><a href="#b-branch">branch</a></div></div>
+      <div class="prow"><div class="pneed">pair a claim with its evidence and a ruling</div><div class="preach"><a href="#b-claim-verdict">claim-verdict</a></div></div>
+      <div class="prow"><div class="pneed">state the one idea that frames everything</div><div class="preach"><a href="#b-thesis">thesis</a></div></div>
+      <div class="prow"><div class="pneed">draw the boundary (shown / out / upstream)</div><div class="preach"><a href="#b-scope">scope</a></div></div>
+      <div class="prow"><div class="pneed">answer the reviewer's likely questions</div><div class="preach"><a href="#b-qa">qa</a></div></div>
+      <div class="prow"><div class="pneed">weigh a decision with real costs on both sides</div><div class="preach"><a href="#b-tradeoff">tradeoff</a></div></div>
+      <div class="prow"><div class="pneed">exhibit a real rendered asset (screenshot, PDF)</div><div class="preach"><a href="#b-figure">figure</a></div></div>
+      <div class="prow"><div class="pneed">show a small, quotable source delta</div><div class="preach"><a href="#b-diff">diff</a></div></div>
+      <div class="prow"><div class="pneed">quote a source excerpt or verbatim CLI output</div><div class="preach"><a href="#b-code">code</a> <span style="color:var(--ink-meta)">--term</span></div></div>
+      <div class="prow"><div class="pneed">lift a single verbatim line, attributed</div><div class="preach"><a href="#b-quote">quote</a> <span style="color:var(--ink-meta)">--pull</span></div></div>
+      <div class="prow"><div class="pneed">step a point out of the body with intent</div><div class="preach"><a href="#b-callout">callout</a></div></div>
+      <div class="prow"><div class="pneed">decode any color you used (the mandatory key)</div><div class="preach"><a href="#b-legend">legend</a></div></div>
+    </div>
+  </section>
+
+  <!-- ═══════════ 3/2 · THE CATALOG (18 blocks) ═══════════ -->
+  <section id="catalog">
+    <div class="sechead"><span class="no">§ 05</span><h2>The catalog &mdash; eighteen blocks</h2><span class="fill"></span></div>
+    <p class="sec-sub">Each block is rendered inside the <code>.mod</code> skeleton so the contract is visible: identity + affordances in the head, the block in the body, honest provenance in the foot with scaffolding behind the <code>ⓘ</code> disclosure. Sixteen are stable; the final two are an opt-in experimental annex.</p>
+
+    <!-- ─── FAMILY: NUMBERS & MEASURES ─── -->
+    <div class="famhead">Numbers &amp; measures — 7 gallery blocks → 4</div>
+
+    <article class="mod" id="b-stat-strip">
+      <div class="mod-head"><span class="mod-eyebrow">stat-strip</span><span class="mod-slug">--tiled</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-stat-strip" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> the page opens on 3&ndash;5 headline figures of equal weight &mdash; the masthead ledger. <code>--tiled</code> gives each cell a state dot + footnote (the old KPI grid).</div>
+      <div class="mod-body">
+        <p class="pb-note">Default:</p>
+        <div class="stripe" role="group" aria-label="Headline figures">
+          <div class="cell"><div class="n g">184</div><div class="l">Assertions pass</div></div>
+          <div class="cell"><div class="n">7</div><div class="l">Claims on ledger</div></div>
+          <div class="cell"><div class="n g">3 / 3</div><div class="l">HIGH findings closed</div></div>
+          <div class="cell"><div class="n">0</div><div class="l">Requests at view</div></div>
+        </div>
+        <p class="pb-note" style="margin-top:16px">Modifier <code>--tiled</code> (per-cell state):</p>
+        <div class="stripe tiled" role="group" aria-label="KPI tiles">
+          <div class="cell"><div class="kh"><span class="l">Recall</span><span class="dotstat" style="background:var(--fresh)"></span></div><div class="n">96.8%</div><div class="kf">Target &ge; 85% · passing</div></div>
+          <div class="cell"><div class="kh"><span class="l">FP rate</span><span class="dotstat" style="background:var(--fresh)"></span></div><div class="n">1.3%</div><div class="kf">Target &lt; 2% · passing</div></div>
+          <div class="cell"><div class="kh"><span class="l">Auto-approve</span><span class="dotstat" style="background:var(--moderate)"></span></div><div class="n">91.0%</div><div class="kf">Honest subset · watch</div></div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main / full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">stat cells</span></span><span><span class="fk">modifiers</span> <span class="fv">--tiled</span></span><span><span class="fk">merged</span> <span class="fv">stat strip · KPI grid</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-bignum">
+      <div class="mod-head"><span class="mod-eyebrow">bignum</span><span class="mod-slug">--spark</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-bignum" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> one figure <em>is</em> the finding &mdash; label, movement, and an optional hand-drawn sparkline (the old metric-with-trend).</div>
+      <div class="mod-body">
+        <div class="bignum">
+          <div class="val">99.4%</div>
+          <div class="lab">Router precision, claim-as-positive</div>
+          <div class="sub">Across 2,310 human-reviewed decisions since go-live
+            <span class="delta up"><svg width="11" height="11" viewBox="0 0 11 11" aria-hidden="true"><path d="M5.5 1.5 L9 6 H6.7 V9.5 H4.3 V6 H2 Z" fill="currentColor"/></svg>+2.1 pts</span>
+            <span class="spark"><svg viewBox="0 0 150 44" role="img" aria-label="14-day trend rising"><polyline points="4,34 20,36 36,30 52,31 68,24 84,26 100,18 116,15 132,9 146,5" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/><circle cx="146" cy="5" r="3" fill="var(--accent)"/></svg></span>
+          </div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main</span></span><span><span class="fk">nests</span> <span class="fv">value · delta · sparkline</span></span><span><span class="fk">modifiers</span> <span class="fv">--spark</span></span><span><span class="fk">merged</span> <span class="fv">hero big-number · metric-trend</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-table">
+      <div class="mod-head"><span class="mod-eyebrow">table</span><span class="mod-slug">--delta · --status · --total</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-table" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> the evidence is a run of cases. <code>--delta</code> colors a signed direction column; <code>--status</code> adds a pass/warn/fail pill; <code>--total</code> a summary row. Scrolls in-container.</div>
+      <div class="mod-body">
+        <p class="pb-note"><code>--delta --total</code> (before → after):</p>
+        <div class="tablewrap">
+          <table class="data">
+            <thead><tr><th>Metric</th><th class="num">Before</th><th class="num">After</th><th class="num">&Delta;</th></tr></thead>
+            <tbody>
+              <tr><td><span class="cellname">Duplicate person rows</span></td><td class="num">1,412</td><td class="num">37</td><td class="num d-up">&minus;97%</td></tr>
+              <tr><td><span class="cellname">Phantom company clusters</span></td><td class="num">268</td><td class="num">0</td><td class="num d-up">&minus;100%</td></tr>
+              <tr class="total"><td>Net data-integrity score</td><td class="num">72</td><td class="num">94</td><td class="num d-up">+22</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="pb-note" style="margin-top:16px"><code>--status</code> (pass / warn / fail pill):</p>
+        <div class="tablewrap">
+          <table class="data">
+            <thead><tr><th>Gate check</th><th class="num">Sample</th><th class="num">Threshold</th><th>Verdict</th></tr></thead>
+            <tbody>
+              <tr><td><span class="cellname">Truncation rate</span></td><td class="num">0.6%</td><td class="num">&le; 2%</td><td><span class="pill ok">Pass</span></td></tr>
+              <tr><td><span class="cellname">Extraction failure rate</span></td><td class="num">1.9%</td><td class="num">&le; 2%</td><td><span class="pill warn">Watch</span></td></tr>
+              <tr><td><span class="cellname">Duplicate property clusters</span></td><td class="num">3</td><td class="num">0</td><td><span class="pill bad">Blocked</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main / full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">rows · pills</span></span><span><span class="fk">modifiers</span> <span class="fv">--delta · --status · --total</span></span><span><span class="fk">merged</span> <span class="fv">before/after · results table</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-meter">
+      <div class="mod-head"><span class="mod-eyebrow">meter</span><span class="mod-slug">SVG bars</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-meter" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> figures are shares of a whole and their <em>relative</em> size is the point &mdash; hand-drawn bars, value labeled in text too.</div>
+      <div class="mod-body">
+        <div class="meters">
+          <div class="meter"><div class="ml"><span class="mn">Auto-approved</span><span class="mv">64% · 1,478</span></div>
+            <svg viewBox="0 0 300 14" preserveAspectRatio="none" role="img" aria-label="Auto-approved: 64 percent"><rect x="0" y="0" width="300" height="14" rx="2" fill="var(--card)"/><rect x="0" y="0" width="192" height="14" rx="2" fill="var(--seal)"/></svg></div>
+          <div class="meter"><div class="ml"><span class="mn">Sent to human review</span><span class="mv">29% · 670</span></div>
+            <svg viewBox="0 0 300 14" preserveAspectRatio="none" role="img" aria-label="Human review: 29 percent"><rect x="0" y="0" width="300" height="14" rx="2" fill="var(--card)"/><rect x="0" y="0" width="87" height="14" rx="2" fill="var(--accent)"/></svg></div>
+          <div class="meter"><div class="ml"><span class="mn">Auto-rejected as junk</span><span class="mv">7% · 162</span></div>
+            <svg viewBox="0 0 300 14" preserveAspectRatio="none" role="img" aria-label="Auto-rejected: 7 percent"><rect x="0" y="0" width="300" height="14" rx="2" fill="var(--card)"/><rect x="0" y="0" width="21" height="14" rx="2" fill="var(--moderate)"/></svg></div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main / rail</span></span><span><span class="fk">nests</span> <span class="fv">labeled SVG bars</span></span><span><span class="fk">modifiers</span> <span class="fv">—</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <!-- ─── FAMILY: SEQUENCE & FLOW ─── -->
+    <div class="famhead">Sequence &amp; flow — 6 gallery blocks → 3</div>
+
+    <article class="mod" id="b-sequence">
+      <div class="mod-head"><span class="mod-eyebrow">sequence</span><span class="mod-slug">--timeline · --numbered · --log</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-sequence" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> order carries meaning, read top-to-bottom. <code>--timeline</code> = dated events with node states; <code>--numbered</code> = reproduction steps; <code>--log</code> = typed add/fix/chg stream.</div>
+      <div class="mod-body">
+        <p class="pb-note"><code>--timeline</code>:</p>
+        <div class="timeline">
+          <div class="tl-item done"><div class="tl-time">2026-07-28 · 09:14</div><div class="tl-t">Anomaly flagged by the resync gate</div><div class="tl-d">Duplicate-property check returned 3 clusters &mdash; above threshold. Gate exited BLOCKED.</div></div>
+          <div class="tl-item done"><div class="tl-time">2026-07-30 · 11:07</div><div class="tl-t">Fix landed, rule_version bumped</div><div class="tl-d">Normalizer patched; Layer-4 rule version 14 &rarr; 15.</div></div>
+          <div class="tl-item"><div class="tl-time">Pending</div><div class="tl-t">Re-run gate on full corpus</div><div class="tl-d">Awaiting the overnight batch.</div></div>
+        </div>
+        <p class="pb-note" style="margin-top:18px"><code>--numbered</code> and <code>--log</code>:</p>
+        <div class="proclist" style="margin-bottom:16px">
+          <div class="proc"><div><div class="pt">Seed the throwaway worktree</div><div class="pd">Check out the base revision into an isolated tree.</div></div></div>
+          <div class="proc"><div><div class="pt">Replay the gate subset</div><div class="pd">Run the eval corpus against both trees; capture verdicts.</div></div></div>
+        </div>
+        <div class="clog">
+          <div class="clog-row"><span class="ct">Jul 30</span><span class="tag fix">fix</span><span class="cx"><b>Address normalizer</b> now strips unit suffixes before matching.</span></div>
+          <div class="clog-row"><span class="ct">Jul 28</span><span class="tag add">add</span><span class="cx"><b>Resync gate</b> gained a duplicate-property integrity check.</span></div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main</span></span><span><span class="fk">nests</span> <span class="fv">ordered items</span></span><span><span class="fk">modifiers</span> <span class="fv">--timeline · --numbered · --log</span></span><span><span class="fk">merged</span> <span class="fv">timeline · process · changelog</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-pipeline">
+      <div class="mod-head"><span class="mod-eyebrow">pipeline</span><span class="mod-slug">--flow · --phases</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-pipeline" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> a process moves left-to-right through named stages. <code>--flow</code> = arrow connectors; <code>--phases</code> = a state per stage (done / current / upcoming). Scrolls in-container.</div>
+      <div class="mod-body">
+        <p class="pb-note"><code>--flow</code>:</p>
+        <div class="flowwrap" style="margin-bottom:16px">
+          <div class="flow">
+            <div class="node"><span class="fn-k">Stage 0</span><span class="fn-t">Ingest</span><span class="fn-d">Graph delta sync pulls mail</span></div>
+            <div class="conn"><svg width="30" height="16" viewBox="0 0 30 16" aria-hidden="true"><line x1="0" y1="8" x2="24" y2="8" stroke="currentColor" stroke-width="1.5"/><path d="M22 3 L29 8 L22 13" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>
+            <div class="node"><span class="fn-k">Stage 1</span><span class="fn-t">Classify</span><span class="fn-d">3-stage LLM: claim / lead / not</span></div>
+            <div class="conn"><svg width="30" height="16" viewBox="0 0 30 16" aria-hidden="true"><line x1="0" y1="8" x2="24" y2="8" stroke="currentColor" stroke-width="1.5"/><path d="M22 3 L29 8 L22 13" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>
+            <div class="node"><span class="fn-k">Stage 2</span><span class="fn-t">Route</span><span class="fn-d">Match to claim or queue</span></div>
+          </div>
+        </div>
+        <p class="pb-note"><code>--phases</code>:</p>
+        <div class="phasewrap">
+          <div class="phases">
+            <div class="phase done"><div class="ph-state">Done</div><div class="ph-t">Probe</div><div class="ph-d">Root cause found</div></div>
+            <div class="phase done"><div class="ph-state">Done</div><div class="ph-t">Fix</div><div class="ph-d">Patch landed</div></div>
+            <div class="phase current"><div class="ph-state">Current</div><div class="ph-t">Prove</div><div class="ph-d">Evidence page</div></div>
+            <div class="phase upcoming"><div class="ph-state">Upcoming</div><div class="ph-t">PR</div><div class="ph-d">Open for review</div></div>
+          </div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">stage nodes</span></span><span><span class="fk">modifiers</span> <span class="fv">--flow · --phases</span></span><span><span class="fk">merged</span> <span class="fv">horizontal flow · phase tracker</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-branch">
+      <div class="mod-head"><span class="mod-eyebrow">branch</span><span class="mod-slug">decision fork</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-branch" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> the logic forks on a condition and <em>both arms matter</em> &mdash; distinct from a linear sequence: it is a decision, not a progression.</div>
+      <div class="mod-body">
+        <div class="branchwrap">
+          <div class="branch">
+            <div class="q">Exact identifier evidence on the link?</div>
+            <div class="link"><svg width="30" height="70" viewBox="0 0 30 70" aria-hidden="true"><path d="M2 35 H14 V12 H26" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2 35 H14 V58 H26" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M22 8 L28 12 L22 16" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M22 54 L28 58 L22 62" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></div>
+            <div style="display:flex; flex-direction:column; gap:12px">
+              <div class="arm yes"><div class="lbl">Yes &rarr; eligible</div><div class="txt">Seed thread propagation to sibling messages.</div></div>
+              <div class="arm no"><div class="lbl">No &rarr; downgrade</div><div class="txt">Hold at Layer-4; mark <code>no_verifiable_evidence_tags</code>.</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main / full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">question · arms</span></span><span><span class="fk">modifiers</span> <span class="fv">—</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <!-- ─── FAMILY: ARGUMENT & STRUCTURE ─── -->
+    <div class="famhead">Argument &amp; structure — 5 distinct jobs, kept</div>
+
+    <article class="mod" id="b-claim-verdict">
+      <div class="mod-head"><span class="mod-eyebrow">claim-verdict</span><span class="mod-slug">claim → proof → verdict</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-claim-verdict" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> each assertion should show its evidence and its ruling in one row &mdash; the spine of an evidence ledger.</div>
+      <div class="mod-body">
+        <div class="cpv">
+          <div class="claim"><div class="lab">Claim</div><div class="txt">Zero network requests at view time.</div></div>
+          <div class="proof"><div class="lab">Proof</div><div class="txt">No <code>fetch</code> / <code>XHR</code> / <code>import()</code> in source; the grep is assertion 20 of the suite.</div></div>
+          <div class="verdict-cell"><span class="verdict">Proven</span></div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main / full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">claim · proof · verdict chip</span></span><span><span class="fk">modifiers</span> <span class="fv">—</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-thesis">
+      <div class="mod-head"><span class="mod-eyebrow">thesis</span><span class="mod-slug">framing premise</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-thesis" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> one idea frames everything below it &mdash; the sentence you want the reviewer to leave with. Larger and quieter than a callout.</div>
+      <div class="mod-body">
+        <div class="thesis-block">
+          <div class="ib-lab">The premise</div>
+          <p class="ib-t">Color is never decorative here &mdash; <em>every hue encodes a verifiable fact</em>, and always carries a text label beside it.</p>
+          <p class="ib-d">Freshness dots bucket real recency; verdict chips carry their ruling in words; provenance is spelled out. Remove the color and the page still reads.</p>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main / full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">label · statement · body</span></span><span><span class="fk">modifiers</span> <span class="fv">—</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-scope">
+      <div class="mod-head"><span class="mod-eyebrow">scope</span><span class="mod-slug">shown / out / upstream</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-scope" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> honesty demands drawing the boundary &mdash; what's shown, what's out of scope, what rests on an upstream verdict.</div>
+      <div class="mod-body">
+        <div class="scope">
+          <div class="scope-card shows"><h4>What the evidence shows</h4><ul><li>The patch collapses the 3 duplicate clusters to zero.</li><li>The suite runs green at 184, re-verified here.</li><li>Rule version bumped 14 &rarr; 15 per the gate.</li></ul></div>
+          <div class="scope-card out"><h4>Out of scope</h4><ul><li>Full-corpus re-run &mdash; awaits the overnight batch.</li><li>Real-browser keyboard order &mdash; human QA owns it.</li></ul></div>
+          <div class="scope-card rests"><h4>Rests on the trusted verdict</h4><ul><li>The upstream fix's red&rarr;green diff.</li><li>The gate's zero-tolerance policy.</li></ul></div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">three boundary columns</span></span><span><span class="fk">modifiers</span> <span class="fv">—</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-qa">
+      <div class="mod-head"><span class="mod-eyebrow">qa</span><span class="mod-slug">verdict-led answers</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-qa" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> you can anticipate the reviewer's questions &mdash; lead each answer with a one-word verdict they can scan.</div>
+      <div class="mod-body">
+        <div class="qa">
+          <div class="qa-row"><div class="qa-q"><span class="mark">Q.</span>Did the fix actually collapse the duplicate clusters?</div><div class="qa-a"><span class="lead">Yes.</span>Post-patch the integrity check returns zero clusters on the sample; the before count was three.</div></div>
+          <div class="qa-row"><div class="qa-q"><span class="mark">Q.</span>Any regression in match precision?</div><div class="qa-a"><span class="lead warn">Verify.</span>jsdom shows the precondition; a real-browser pass on the labeled set is the named QA step.</div></div>
+          <div class="qa-row"><div class="qa-q"><span class="mark">Q.</span>Does the normalizer touch any other call site?</div><div class="qa-a"><span class="lead none">No.</span>Imported only by the Layer-4 matcher; the rule-version gate enforces the boundary.</div></div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main</span></span><span><span class="fk">nests</span> <span class="fv">question · verdict-led answer</span></span><span><span class="fk">modifiers</span> <span class="fv">—</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-tradeoff">
+      <div class="mod-head"><span class="mod-eyebrow">tradeoff</span><span class="mod-slug">pros / cons</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-tradeoff" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> a decision has real costs on both sides &mdash; two columns, signed markers, no false balance.</div>
+      <div class="mod-body">
+        <div class="tradeoff">
+          <div class="tcol pro"><div class="th">For baking at publish</div><ul><li>Zero requests at view time &mdash; the whole security premise.</li><li>Renders identically offline and inside a strict CSP.</li></ul></div>
+          <div class="tcol con"><div class="th">Against</div><ul><li>Data is frozen at publish; freshness dots age.</li><li>Re-publish needed to reflect new activity.</li></ul></div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main / full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">pro · con columns</span></span><span><span class="fk">modifiers</span> <span class="fv">—</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <!-- ─── FAMILY: EVIDENCE ─── -->
+    <div class="famhead">Evidence — 5 gallery blocks → 4</div>
+
+    <article class="mod" id="b-figure">
+      <div class="mod-head"><span class="mod-eyebrow">figure</span><span class="mod-slug">plate frame</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-figure" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> a real rendered asset is the evidence &mdash; the hatched placeholder stands in until the real capture drops in, never a mock passed off as real.</div>
+      <div class="mod-body">
+        <figure>
+          <div class="frame">
+            <div class="bar"><span class="dot"></span> gate-report.png · resync-gate · verdict panel</div>
+            <div class="plate-render"><div><div class="ico">&#9638;</div><div class="lab">Load-bearing figure &mdash; drop real capture here</div></div></div>
+          </div>
+          <figcaption>Placeholder for a headless-Chrome still. In a real proof this frame holds the <b>actual PNG</b>; the caption states exactly what it shows and nothing it doesn't.</figcaption>
+        </figure>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">frame · caption</span></span><span><span class="fk">modifiers</span> <span class="fv">—</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-diff">
+      <div class="mod-head"><span class="mod-eyebrow">diff</span><span class="mod-slug">before / after</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-diff" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> the fix is a small, quotable source delta &mdash; red pane is the literal pre-fix line, green pane the current source.</div>
+      <div class="mod-body">
+        <div class="diff">
+          <div class="diffcol before"><div class="dh">Before &mdash; normalizer.ts 88</div><div class="cx"><pre><span class="c">// unit suffix left intact</span>
+<span class="k">return</span> addr.toLowerCase()
+  .replace(/\s+/g,<span class="g">' '</span>);</pre></div></div>
+          <div class="diffcol after"><div class="dh">After &mdash; normalizer.ts 88&ndash;91</div><div class="cx"><pre><span class="k">return</span> addr.toLowerCase()
+  .replace(UNIT_SUFFIX,<span class="g">''</span>)
+  .replace(/\s+/g,<span class="g">' '</span>);</pre></div></div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main / full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">before · after panes</span></span><span><span class="fk">modifiers</span> <span class="fv">—</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-code">
+      <div class="mod-head"><span class="mod-eyebrow">code</span><span class="mod-slug">--term</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-code" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> a quoted source excerpt is the proof. <code>--term</code> flips to dark terminal chrome for verbatim CLI output. Scrolls in-container; cited by file &amp; line.</div>
+      <div class="mod-body">
+        <p class="pb-note">Default (source):</p>
+        <div class="codewrap" style="margin-bottom:16px">
+<pre><span class="c">// resync-gate.ts:212 — the four-metric verdict</span>
+<span class="k">const</span> verdict = {
+  propertyIntegrity: dup === 0 ? <span class="g">'PASS'</span> : <span class="g">'FAIL'</span>,
+  truncationRate: rate &lt;= MAX ? <span class="g">'PASS'</span> : <span class="g">'FAIL'</span>
+};  <span class="c">// exits 0 ONLY when all PASS</span></pre>
+        </div>
+        <p class="pb-note"><code>--term</code> (verbatim CLI):</p>
+        <div class="codewrap term">
+          <div class="bar"><i></i><i></i><i></i></div>
+<pre><span class="c">$ yarn workspace @finch/api resync-gate --org acme</span>
+resync-gate: property-integrity ....... <span class="g">PASS</span>  (0 clusters)
+             truncation/error ......... <span class="g">PASS</span>  (0.6% / 1.9%)
+verdict: <span class="k">BLOCKED</span> — 2 checks not ready
+<span class="c">exit 1</span></pre>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main / full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">pre · tinted spans</span></span><span><span class="fk">modifiers</span> <span class="fv">--term</span></span><span><span class="fk">merged</span> <span class="fv">code block · terminal</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-quote">
+      <div class="mod-head"><span class="mod-eyebrow">quote</span><span class="mod-slug">--pull</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-quote" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> you lift a verbatim line and must attribute it &mdash; a provenance chip says whether it was checked here. <code>--pull</code> sets it large to interrupt the flow (the old pull-quote).</div>
+      <div class="mod-body">
+        <p class="pb-note">Default (citation + provenance):</p>
+        <div class="cite" style="margin-bottom:16px">
+          <blockquote>&ldquo;A metric we can't verify can't clear the resync &mdash; NOT_READY blocks exactly like FAIL.&rdquo;</blockquote>
+          <div class="src"><span class="chip up">trusted upstream</span><span>&mdash; gate-constants.ts header · quoted verbatim</span></div>
+        </div>
+        <p class="pb-note">Modifier <code>--pull</code> (display interrupt):</p>
+        <div class="pull">
+          <p>Baking the data at publish isn't a limitation to apologize for &mdash; it's the entire security guarantee, made visible.</p>
+          <div class="attr">The design premise, restated</div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">trusted-upstream</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main</span></span><span><span class="fk">nests</span> <span class="fv">blockquote · attribution · chip</span></span><span><span class="fk">modifiers</span> <span class="fv">--pull</span></span><span><span class="fk">merged</span> <span class="fv">citation · pull-quote (dup)</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <!-- ─── FAMILY: EMPHASIS & KEYS ─── -->
+    <div class="famhead">Emphasis &amp; keys — 5 gallery blocks → 2</div>
+
+    <article class="mod" id="b-callout">
+      <div class="mod-head"><span class="mod-eyebrow">callout</span><span class="mod-slug">--insight · --caution · --note</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-callout" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> a point needs to step out of the body with a stated intent &mdash; three tones, each with its own semantic hue and label. Absorbs the margin-note aside.</div>
+      <div class="mod-body">
+        <div class="callout insight"><div class="ci">&#9670;</div><div><div class="ctitle">Insight</div><div class="cbody">The duplicate clusters all shared a unit-suffix pattern &mdash; a single normalizer line explained every one.</div></div></div>
+        <div class="callout caution"><div class="ci">&#9888;</div><div><div class="ctitle">Caution</div><div class="cbody">The full-corpus re-run hasn't happened yet; this page proves the sample, not the whole dataset.</div></div></div>
+        <div class="callout note"><div class="ci">&#9432;</div><div><div class="ctitle">Note</div><div class="cbody">Rule version 15 is live in this branch only; staging still runs 14 until the deploy lands.</div></div></div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main / rail</span></span><span><span class="fk">nests</span> <span class="fv">icon · title · body</span></span><span><span class="fk">modifiers</span> <span class="fv">--insight · --caution · --note</span></span><span><span class="fk">merged</span> <span class="fv">3 callout tones · marginalia</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod" id="b-legend">
+      <div class="mod-head"><span class="mod-eyebrow">legend</span><span class="mod-slug">--freshness · --chips</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-legend" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> any color on the page encodes a fact &mdash; the mandatory key that decodes it, and travels with it. <code>--freshness</code> = the recency scale; <code>--chips</code> = provenance / verdict.</div>
+      <div class="mod-body">
+        <p class="pb-note"><code>--freshness</code> (recency bucket scale):</p>
+        <div class="scalewrap" style="margin-bottom:18px">
+          <div class="scale" role="img" aria-label="Freshness bucket scale from fresh under 24 hours to unknown">
+            <div class="sw"><div class="swatch" style="background:var(--fresh)"></div><div class="sk">Fresh</div><div class="st">&lt; 24h</div></div>
+            <div class="sw"><div class="swatch" style="background:var(--recent)"></div><div class="sk">Recent</div><div class="st">&lt; 7d</div></div>
+            <div class="sw"><div class="swatch" style="background:var(--moderate)"></div><div class="sk">Moderate</div><div class="st">&lt; 30d</div></div>
+            <div class="sw"><div class="swatch" style="background:var(--stale)"></div><div class="sk">Stale</div><div class="st">&gt; 30d</div></div>
+            <div class="sw"><div class="swatch outline"></div><div class="sk">Unknown</div><div class="st">no date</div></div>
+          </div>
+        </div>
+        <p class="pb-note"><code>--chips</code> (provenance &amp; verdict):</p>
+        <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center">
+          <span class="chip here">checked here</span>
+          <span class="chip up">trusted upstream</span>
+          <span class="verdict">Proven</span>
+          <span class="verdict" style="background:color-mix(in srgb,var(--moderate) 15%,transparent); color:var(--moderate); border-color:color-mix(in srgb,var(--moderate) 40%,transparent)">Partial</span>
+          <span class="verdict" style="background:var(--defect-bg); color:var(--defect); border-color:color-mix(in srgb,var(--defect) 40%,transparent)">Open</span>
+        </div>
+        <div class="chiplegend">
+          <div class="li"><span class="chip here" style="pointer-events:none"></span><b>checked here</b> &mdash; re-verified in this dossier</div>
+          <div class="li"><span class="chip up" style="pointer-events:none"></span><b>trusted upstream</b> &mdash; carried from the finding</div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">main / rail / full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">swatches · chips</span></span><span><span class="fk">modifiers</span> <span class="fv">--freshness · --chips</span></span><span><span class="fk">merged</span> <span class="fv">freshness scale · provenance chips</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <!-- ─── FAMILY: EXPERIMENTAL ANNEX ─── -->
+    <div class="famhead">Experimental annex — 6 gallery ideas → 2 (opt-in)</div>
+    <div class="exp-banner">
+      <span class="tag">Experimental</span>
+      <span class="txt">AI-proof-native ideas &mdash; a claim has a <em>state across a ledger</em> and a <em>coverage footprint</em>, not just a value. Unproven in the field; kept because a proof page genuinely uses them. The other four gallery experiments (confidence-band, provenance-ribbon, dependency-map, reasoning-trace) were dropped &mdash; re-add is additive.</span>
+    </div>
+
+    <article class="mod exp" id="b-verdict-dashboard">
+      <div class="mod-head"><span class="mod-eyebrow">verdict-dashboard</span><span class="mod-exp">experimental</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-verdict-dashboard" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> a page carries many claims and the reviewer wants <em>the whole ledger's state in one scan</em> &mdash; a severity stripe per cell.</div>
+      <div class="mod-body">
+        <div class="vdash">
+          <div class="vcell proven"><div class="vc-id">C-01</div><div class="vc-t">Zero requests at view</div><div class="vc-s">Proven</div></div>
+          <div class="vcell proven"><div class="vc-id">C-02</div><div class="vc-t">Clusters collapsed</div><div class="vc-s">Proven</div></div>
+          <div class="vcell partial"><div class="vc-id">C-03</div><div class="vc-t">Precision held</div><div class="vc-s">Partial</div></div>
+          <div class="vcell upstream"><div class="vc-id">C-04</div><div class="vc-t">Root cause</div><div class="vc-s">Upstream</div></div>
+          <div class="vcell proven"><div class="vc-id">C-05</div><div class="vc-t">Suite green &times;184</div><div class="vc-s">Proven</div></div>
+          <div class="vcell open"><div class="vc-id">C-06</div><div class="vc-t">Full-corpus re-run</div><div class="vc-s">Open</div></div>
+        </div>
+        <div class="cov-legend" style="margin-top:16px">
+          <div class="li"><span class="sw" style="background:var(--seal)"></span>Proven here</div>
+          <div class="li"><span class="sw" style="background:var(--moderate)"></span>Partial / verify</div>
+          <div class="li"><span class="sw" style="background:var(--defect)"></span>Open</div>
+          <div class="li"><span class="sw" style="background:var(--stale)"></span>Trusted upstream</div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">verdict cells + legend</span></span><span><span class="fk">status</span> <span class="fv">experimental / opt-in</span></span></div>
+        </details>
+      </div>
+    </article>
+
+    <article class="mod exp" id="b-coverage-map">
+      <div class="mod-head"><span class="mod-eyebrow">coverage-map</span><span class="mod-exp">experimental</span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-coverage-map" aria-label="Permalink to this block">¶</a></span></div>
+      <div class="mod-use"><b>Use when</b> you want the reviewer to see <em>what was checked vs. deliberately skipped</em>, spatially &mdash; solid = verified, dashed = out-of-scope by choice, red = a named gap.</div>
+      <div class="mod-body">
+        <div class="covwrap">
+          <div class="covmap">
+            <div class="cov checked"><div class="cv-t">Cluster count</div><div class="cv-s">verified</div></div>
+            <div class="cov checked"><div class="cv-t">Suite green</div><div class="cv-s">verified</div></div>
+            <div class="cov checked"><div class="cv-t">Rule bump</div><div class="cv-s">verified</div></div>
+            <div class="cov partial"><div class="cv-t">Precision</div><div class="cv-s">sampled</div></div>
+            <div class="cov oos"><div class="cv-t">Load / perf</div><div class="cv-s">out of scope</div></div>
+            <div class="cov gap"><div class="cv-t">Full corpus</div><div class="cv-s">gap &mdash; named</div></div>
+          </div>
+        </div>
+        <div class="cov-legend">
+          <div class="li"><span class="sw" style="background:color-mix(in srgb,var(--seal) 30%,transparent);border:1px solid var(--seal)"></span>Checked here</div>
+          <div class="li"><span class="sw" style="background:color-mix(in srgb,var(--moderate) 30%,transparent);border:1px solid var(--moderate)"></span>Partial / sampled</div>
+          <div class="li"><span class="sw" style="background:transparent;border:1px dashed var(--rule)"></span>Out of scope by choice</div>
+          <div class="li"><span class="sw" style="background:var(--defect-bg);border:1px solid var(--defect)"></span>Named gap</div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">prov</span> <span class="fv">checked-here</span></span><span><span class="fk">as-of</span> <span class="fv">2026-07-31</span></span>
+        <details class="fmeta"><summary aria-label="Show block scaffolding facts"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+          <div class="fmeta-body"><span><span class="fk">slot</span> <span class="fv">full-bleed</span></span><span><span class="fk">nests</span> <span class="fv">coverage tiles + legend</span></span><span><span class="fk">status</span> <span class="fv">experimental / opt-in</span></span></div>
+        </details>
+      </div>
+    </article>
+  </section>
+
+  <!-- COLOPHON -->
+  <section class="colophon" style="border-bottom:0">
+    <div class="sechead"><span class="no">§ 06</span><h2>Colophon &mdash; the key &amp; the collapse</h2><span class="fill"></span></div>
+    <div class="colo-grid">
+      <div class="legend">
+        <h3>Legend — every hue encodes a fact</h3>
+        <div class="row"><span class="sw" style="background:var(--fresh)"></span><b>Fresh</b> activity &lt; 24h</div>
+        <div class="row"><span class="sw" style="background:var(--recent)"></span><b>Recent</b> &lt; 7d</div>
+        <div class="row"><span class="sw" style="background:var(--moderate)"></span><b>Moderate</b> &lt; 30d</div>
+        <div class="row"><span class="sw" style="background:var(--stale)"></span><b>Stale</b> &gt; 30d</div>
+        <div class="row"><span class="sw" style="background:transparent;border:2px dashed var(--unknown)"></span><b>Unknown</b> — no baked date</div>
+        <div class="row" style="margin-top:8px; padding-top:12px; border-top:1px solid var(--rule)"><span class="sw" style="background:var(--accent)"></span><b>checked-here</b> — re-verified on this page</div>
+        <div class="row"><span class="sw" style="background:transparent;border:2px dashed var(--ink-faint)"></span><b>trusted-upstream</b> — carried from the finding</div>
+      </div>
+      <div class="honesty">
+        <h3>The collapse — 34 → 18</h3>
+        <p><b>Sample content.</b> Every figure demonstrates a block, not a live finding. The rule of the kit: color always carries a legend, and a placeholder frame is the honest stand-in for a real capture.</p>
+        <div class="collapse-map">
+          <div class="cm"><span class="cn">7 → 4</span><span>Numbers: stat-strip (+KPI tiles) · bignum (+metric-trend) · table (+before/after, +results) · meter</span></div>
+          <div class="cm"><span class="cn">6 → 3</span><span>Sequence: sequence (+timeline, +numbered, +changelog) · pipeline (+flow, +phases) · branch</span></div>
+          <div class="cm"><span class="cn">5 → 5</span><span>Argument: claim-verdict · thesis · scope · qa · tradeoff (distinct jobs, kept)</span></div>
+          <div class="cm"><span class="cn">5 → 4</span><span>Evidence: figure · diff · code (+terminal) · quote (+pull-quote)</span></div>
+          <div class="cm"><span class="cn">5 → 2</span><span>Emphasis: callout (+3 tones, +marginalia) · legend (+freshness, +chips)</span></div>
+          <div class="cm"><span class="cn">6 → 2</span><span>Experimental annex: verdict-dashboard · coverage-map (4 dropped)</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="end">
+      <span>Warm Print · static block catalog</span>
+      <span>Self-contained · CSP-safe · theme-aware · zero-JS (native &lt;details&gt; only)</span>
+      <span class="folio" style="color:var(--accent-ink)">18 blocks · 6 families</span>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

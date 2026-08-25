@@ -27,8 +27,15 @@ Five intake projects each carry **their own complete copy**, attached to the pro
 
 Each handbook has a stable skeleton:
 
-*   **Shared sections** — commonly Dropping something · The channels · 📋 Report template · What happens next · How a comment becomes a ticket · The intake projects, kept in sync **by hand** across the copies. **Treat that as an observation, not a fixed list**: the section SET itself drifts. A real example — the Intake System handbook carries a `## Data handling` section (standing rules, dated attributions, mirrored from the project description precisely because a dispatched sub-agent cannot read the project) that Differ's copy does not have at all. Derive the sections from the documents, never from a hardcoded list.
-*   **`## What triage will chase`** — the **recipe**, and the only genuinely per-project section: it names the tools that identify a subject in *that* project (Temporal for Differ, the staging DB + PostHog for Email Classification). Divergence here is **correct, not drift**. `reconcile` never touches it; only `capture` proposes changes to it.
+*   **Shared sections** — commonly Dropping something · The channels · 📋 Report template · What happens next · How a comment becomes a ticket · The intake projects · the wave lifecycle and the constantly-cleaned state · the cadence and pass heartbeat · `## Data handling`, kept in sync **by hand** across the copies. **Treat that as an observation, not a fixed list**: the section SET itself drifts. A real example — the Intake System handbook carries `## Data handling` (standing rules with dated attributions) that Differ's copy does not have at all. Derive the sections from the documents, never from a hardcoded list.
+*   **Per-project sections** — genuinely different per copy, and divergence here is **correct, not drift**:
+    *   **`## What triage will chase`** — the **recipe**: it names the tools that identify a subject in *that* project (Temporal for Differ, the staging DB + PostHog for Email Classification). `reconcile` never touches it; only `capture` proposes changes to it.
+    *   **`## Ticketing Strategy`** (`¶INV_TICKETING_STRATEGY_IN_HANDBOOK`) — that project's volume knob (Volume · Size · Substance). It moved here from the Project description after shipping byte-identical to all five with zero operator edits. `reconcile` may flag that a copy is missing it, but **must not** normalize the three bullets toward each other — a project that has dialed them is the whole point.
+    *   **`## Related Slack Channels`** — the channel NAMES `/intake` reads for ambient context.
+
+The handbook is now **the one companion document** per project (`¶INV_VISION_IN_COMPANION_DOC`). The older *Vision & Process* doc is retired; if `audit` finds one still live on a project, the finding is *fold its unique content in and retire it*, never *re-sync the two*.
+
+**What is NOT in a handbook**: anything that is product care rather than intake machinery — that belongs on the Project description, whose own section schema lives in `intake/INTAKE_SYSTEM.md` § *The Project description*. The two are complements, and the test that separates them runs both ways: text identical across all five copies belongs in the handbook; text about *this product* rather than *this inbox* belongs on the description.
 
 Most recipes follow an `Identify → Reproduce → Relate → Report` skeleton. Treat that skeleton as load-bearing: a correction branches a step, it does not reverse one.
 

@@ -1,0 +1,200 @@
+---
+name: make-page
+description: "Produce ONE page from the idea library, end to end, IN YOUR OWN CONTEXT — resolve the library, read the composing contract, start from a page KIND (never a blank canvas or a copied skeleton), fill it with the vocabulary the library actually advertises, wire it so it opens, optionally bundle it so it travels, and prove it renders by looking at it. It owns everything about producing a page EXCEPT what the content says: the caller supplies words and choices, the skill supplies structure and proof-of-correctness. No subagent, no handoff, no brief. The page-production primitive that /prove, /remix and any page-writing task compose on top of. Triggers: \"make a page\", \"build a page from the kit\", \"generate a proof page\", \"compose a page\", \"author a page in the library\", \"turn this into a page\", \"make-page\"."
+version: 1.0
+tier: lightweight
+args: "[<the page's subject>] [--kind <page-kind>] [--theme <name>] [--kit <library path>] [--out <file>] [--no-bundle]"
+---
+
+Produce one page. You do the work, here, in this context — **there is no subagent and no brief.** This skill hands you the sequence, the contract, the vocabulary and the gates; you supply the words.
+
+**The one thing it does not own is what the page SAYS.** Structure, resolution, wiring, bundling and proof are the skill's. Content is yours.
+
+> **Why in-context.** A page is written by whoever holds the finding. Dispatching throws that away and hands a stranger a summary, and the measured cost is a page whose captions are one abstraction level away from the evidence. `/prove` dispatches because it is *presenting* work someone else already did; `/make-page` is the act of writing, so it stays where the writer is.
+
+# /make-page Protocol
+
+## 0. Resolve the library — BEFORE anything else
+
+**A page is composed from an idea library. The page *declares* the ideas it instantiates; the tools resolve everything else.** There is exactly one composition path.
+
+**Resolve `<libDir>` in this order. Never guess a path.**
+
+1. **`--kit <path>`** — an explicit library directory. Takes precedence over everything.
+2. **`$IDEA_LIBRARY`** — an absolute path in the environment.
+3. **`<projectRoot>/.idea-library`** — a JSON marker, prescribed once per project (walk up from `$PWD`). Two absolute paths:
+   ```json
+   { "library": "…/kit-library", "cli": "…/idea-cli/idea.ts" }
+   ```
+   **Two, not four.** A page's starting artifact and a library's per-idea documentation are both **derived on demand** — `idea generate` writes the first, `idea view` prints the second — so neither is a path anyone prescribes. A marker naming a generated file goes stale the moment that file moves; a marker naming the generator cannot. Extra keys are not an error: read the two, ignore the rest.
+4. **Nothing resolved → say so in one line and STOP.** Do not improvise a path, do not compose from a directory you have not resolved, and do not reach for a second composition contract. A project without a library is a project to prescribe a marker for, not to compose differently in.
+
+**`<libDir>` is a DIRECTORY, not a register — and the CLI decides whether it resolved.** There is no manifest and no index. A library *is* its documents, discovered as the document layer's own `.html` files or — when that layer holds none of its own — the `.html` files exactly **one** level down. Do not hand-verify the layout; run the walk once and read what it reports:
+
+```
+node <cli> generate --list --library <libDir>
+```
+
+One provenance line answers the whole question — which directory it chose, how many documents, which tree shape, and (on `bundle --graph`) every subdirectory it did *not* descend into. **Read the exit code; do not re-derive the judgement behind it.** Exit **2** *is* "the library did not resolve", and the CLI names which failure in a line worth quoting verbatim when you take step 4.
+
+**Never substitute a hardcoded list of document names.** That is a second copy of the library's layout, and it goes wrong twice — stale while the tree stands still, and pointing at nothing the moment it moves.
+
+## 1. Read the composing contract
+
+These are the rules the page will be judged against, and each one cost a real page. Read them **before** you compose — all in `~/.claude/engine/skills/intake/assets/`:
+
+*   **`PILLARS.md`** — the model. The four strata and the named `¶INV_*` invariants.
+*   **`LIBRARY.md`** — what a library is and how it resolves. The four relations (`requires`, `extends`, `composes`, `presents with`), what each resolves and how hard, how a component arrives, and what a missing name does.
+*   **`PAGE.md`** — composing a page from ideas: where composition starts, what sits on the root element, the one script.
+*   **`AGENTS.md`** — the protocol. What to do, in order, and how to check what you did.
+*   **`HTML_WRITING_STANDARDS.md`** — **binds every line you author**:
+    *   a set of names is a set of **elements**, never a delimited cell
+    *   a group of things gets a **parent element that IS the group**
+    *   a separator (`·` `,` `;` `|`) is decoration and lives in CSS — never a delimiter anyone parses
+    *   **never a `style` attribute** — it outranks every rule an idea can write
+*   **`FORMS.md`** — read it the moment you need to know **where an idea lives and which forms you may edit rather than regenerate**. It owns the source-vs-artifact split that decides whether a file is yours to touch at all.
+
+**Fetch the contract; do not carry it.** The specs behind these files are far larger than any prompt can hold. This skill states the rules once and points at the contract rather than transcribing it — a transcription is a second copy that drifts.
+
+## 2. Start from a page KIND
+
+**A page kind is the unit of starting. There is no skeleton to copy and no blank canvas.**
+
+```
+node <cli> generate --list --library <libDir>              # what kinds exist, with descriptions
+node <cli> generate <kind> --library <libDir> --out <pagePath>
+```
+
+What arrives is a complete, working page of that kind: the kind and its declared host recipe on `<html data-instance>`, the kind's **own specimen** lifted verbatim as the body, and — see §3 — the loader line that makes it openable. Every byte traces to an idea someone authored who knew what that page is.
+
+**Read the report, not just the file.** `generate` prints `tokens`, `absorbed`, `imports`, `OVERFLOW` and `UNBOUND`. An `UNBOUND` token is a page that will not fully resolve; it exits 1 and still writes the file, because the page you need to look at is the one that is wrong.
+
+### The theme — `--theme <name>`
+
+**It is a flag, on both verbs.** `generate --theme` sets it at birth; `wire --theme` moves an existing page. Both run the same resolution, so a theme named at birth and a theme swapped later cannot come out different.
+
+```
+node <cli> generate <kind> --library <libDir> --theme theme-nerv --out <pagePath>
+node <cli> wire <pagePath> --library <libDir> --theme theme-nerv
+```
+
+**Never edit the token by hand.** A theme lives in its own document, so changing the token changes which file the page must import — and a page that names one theme while importing another's document renders in whichever the loader happened to fetch, with nothing checking the pairing. The flag does the swap and the re-derivation in one call, which is what makes that state unreachable.
+
+**It takes the idea's exact name** — `theme-warm-print`, not `warm` or `warm-print`. An unknown name is refused with the list the library actually declares.
+
+**Ask the library which themes exist rather than trusting a hardcoded list.** Pass a name you know is wrong and read the refusal — it names every theme the resolved library declares, derived on the spot. Do not carry a list of theme names in your head or in a prompt.
+
+**One name per axis; the theme is one name.** A theme extends its own axes — palette, rhythm, material, type, channel, atmosphere — so naming the theme brings all of them, and naming the theme *and* its axes puts a name on `<html>` beside something that already `extends` it, which `PILLARS.md` forbids as `¶INV_HTML_NAMES_ONE_INSTANCE_PER_AXIS`. The flag moves exactly one token and the outgoing theme's axes leave with it. **Check the emitted `<html>` line: one theme name, not seven.**
+
+**Then look at it.** Measured in this library, a theme can swap cleanly — token moved, imports re-derived, page opens, zero errors — and render **untuned**, because only `theme-warm-print` fills the `--t-*` slots the page kinds read (`theme-akira` fills six; `theme-nerv` and `theme-wire` fill none, using their own `--nv-*` / `--m-*` vocabularies). A green swap is not a themed page. Read `--ink` and a `--t-*` slot at `:root` in the rendered document, and open the shot.
+
+**If no kind fits, that is a finding, not a licence.** Report the gap and stop, or compose the nearest kind and say plainly what it does not cover. Do NOT invent a page shape — a synthesized scaffold is a second answer to "what is a page of this sort", and the second answer is the one that goes stale.
+
+## 3. Wire it — the step between "the page exists" and "the page opens"
+
+```
+node <cli> wire <pagePath> --library <libDir>
+```
+
+`generate` already runs this, so a generated page arrives wired. **You run it yourself whenever the page did not come from `generate`** — a page you authored, a page an LLM wrote, a page whose `<html data-instance>` you edited, or a page you moved (the paths are relative to where the file sits).
+
+It **derives** the loader line and the `data-import` file list from the tokens on `<html data-instance>` and the relations of any ideas the page defines. **Never type either by hand.** A hand-maintained path list drifts the moment a file moves and nothing checks it; the derivation cannot rot, cannot be half-updated, and cannot disagree with the tokens.
+
+It is **idempotent** — the tag's span is replaced in place, so running it twice writes the same bytes and reports `same`. Put it in a loop or a gate without tracking whether it already ran. `--check` writes nothing and exits 1 if anything would change.
+
+**A library's own documents must be wired too**, or an importing page reaches files that load and push nothing:
+
+```
+node <cli> wire --library <libDir> --all
+```
+
+A child document serializes its own `<idea-def>` elements and postMessages them **up**; without a loader line it cannot, and the reader meets the red *"N idea file(s) did not arrive"* banner. This is a property of the library, not of your page — if you did not wire it, check whether someone did.
+
+**`wire` writes the library's SOURCE documents, always — there is no layer flag and there should not be one.** A library that also carries an assembled `dist/` is stamped at its sources: a stamp on generated bytes is wiped by the next build, and the file holding it is not the one anyone opens or edits. The run prints which root it read. Two consequences worth knowing before they surprise you: a declared import naming another copy of a resolved document is **dropped and named** in the report, and a wired page therefore imports source paths — so bundle it from its own declarations plus its second hop (`--source`), not from a `--library` pointing at the other layer.
+
+## 4. Fill it with the vocabulary the library advertises
+
+The body you were handed is a **working specimen of the kind**. You replace its content with yours. Three readings tell you what you may reach for — **run them, do not guess**:
+
+```
+node <cli> view <pagePath> --library <libDir> --json    # `omitted` names every idea not yet reached — pick from here
+node <cli> view <pagePath> --library <libDir> > <file>  # the full contract: markup, CSS and clauses for what you placed
+node <cli> view <pagePath> --library <libDir> --unspent # before you call it finished: what the closure offers, unused
+```
+
+🔴 **The view resolves THIS ENTRY'S closure, not the library — so the first reading is the vocabulary of a page you have barely written.** Whatever it reports as not reachable means *not named by this page yet*, never forbidden: instantiate the token and it resolves. Pick from the `--json` `omitted` list, write the tokens, then read the contract again.
+
+🔴 **Read that file WHOLE, paging through it with `Read`.** It carries three things and you need all three: the **markup** is for pasting, never retyping (a retyped specimen is a second copy that diverges silently); the **CSS** is what the idea actually keys on; the **clauses** are what it obliges — minimum row counts, closed value vocabularies, the literal text a page owes, and what it forbids anywhere inside itself. The clauses and the CSS can disagree, and when they do the CSS is authoritative: a clause may demand a class the stylesheet abandoned, and satisfying it yields an element that paints nothing.
+
+🔴 **That size is the deal, not an accident.** You pay for the vocabulary once and compose from it instead of inventing. An agent that samples this step to save context has traded the only input that makes the page good, and the failure is silent — a thin page always looks correct.
+
+🔴 **Assert a denominator before composing.** The view prints a rules block per idea. Count them against the ideas you mean to place and stop if the first does not cover the second. Nothing else warns you.
+
+**Rules that each cost a real page:**
+
+*   **ADD A UNIT, NEVER BEND ONE.** If the content does not fit a unit, the unit is not the one you want. A margin note admitting a stretch is the defect *signed*, not remedied.
+*   **A green lint is not integrity.** The checker grades what is PRESENT — delete an entire idea and it still exits 0 and prints `clean`. **Never quote an exit code without the idea count beside it.**
+*   **Never enumerate what a relation should pull.** A hand-typed list of component names means an idea that should own the combination does not exist yet. Write the idea.
+*   **`composes` where `extends` was meant is the most expensive available mistake.** It bundles clean, lints clean, reports nothing missing, and renders **unstyled**. `extends` inherits the rules; `composes` only says a part sits inside. If the page took the base's appearance, you meant `extends`.
+*   **`HTML_WRITING_STANDARDS.md` binds every authored line.** Elements over delimiters, a parent element per group, never a `style` attribute.
+
+## 5. Bundle it — ON by default
+
+```
+node <cli> bundle <pagePath> --library <libDir> --root <root> --out <outDir>
+```
+
+**Bundling is a PUBLISH step, not a RENDER step.** A wired page already renders; the bundle makes it **travel** — one self-contained file, zero subresources, correct from any directory, correct with JavaScript off. Take it unless you have a reason not to.
+
+**`--no-bundle` — when to skip it.** Skip when the page must stay a *source* you keep editing, when it lives beside its library and will never move, or when you are iterating and the 350 KB round-trip is noise. The page still opens; it just reaches for its library at read time.
+
+> 🔴 **`--no-bundle` depends on the wiring being live.** If `wire` has not been run on the page (or on the library's documents), the unbundled page opens **structurally complete and entirely unstyled** — the measured symptom is a red *"N idea file(s) did not arrive … loaded but pushed nothing (does it carry the loader?)"* banner, or no banner at all and simply no theme. A flag that silently does not work is worse than a documented one, so: **if the page opens unstyled, the first thing to check is `wire`, not the content.**
+
+Bundling replaces the wired page's loader tag **in place** with the runtime it inlines, so the output still declares exactly one script and a re-bundle of an unchanged page reproduces its own bytes.
+
+## 6. The gates — every one of them, with the command and the number
+
+Paste the exact command and its exit code. **An exit code without a count beside it proves nothing.**
+
+1. **`node <cli> lint <libDir>`** — record exit code, **HARD count and SOFT count and file/idea count**. Compare HARD against the library's known baseline; **HARD must not rise**. A green lint on a shrunken corpus is the failure this reading exists to catch.
+2. **`node <cli> wire <pagePath> --library <libDir> --check`** — exit **0** means the wiring is current. Exit 1 means the page's declarations and its import list disagree.
+3. **`node <cli> bundle …`** — exit **0**, and the output is **ONE file** with **one script the page declares**. Count `<idea-def>` in the output and check **no name appears twice**; a duplicated name is a source that will not re-bundle.
+4. **Re-bundle byte-identity, BOTH arms.** Unchanged → `same … (already there, identical)` exit 0. One hand-edited byte in the output → `REFUSE … (holds N B of different bytes)` exit 1. Observe both; the second arm is the one that proves the first means something.
+5. 🔴 **DOES THIS PAGE ACTUALLY OPEN.** The gate nobody had. Open the page from `file://` in a real engine and read:
+    *   the red **`[data-idea-import-failed]` banner** — absent, or the page did not resolve
+    *   **`pageErrors`** — 0
+    *   **`--ink` (or the theme's own token) resolved at `:root`** — a *value*, not empty. This is the only reading that distinguishes "linked" from **"loaded"**. If you passed `--theme`, read a `--t-*` slot too: `--ink` alone falls back to the alias bridge's deliberately-ugly neutral, so it resolves to a value even when no theme loaded at all
+    *   **`idea-def` live on the page**, counted against the bundler's `walk order N`
+    *   **head `<style>` count** and **`bodyOverflow`** — 0 is the bar for overflow
+    *   run it on the **unbundled** page too if you shipped one; that is the reading that proves `--no-bundle` works
+6. 🔴 **OPEN THE SHOT AND LOOK AT IT.** Element shots at **DPR 1**; **never `fullPage` above ~7,900 CSS px** — the capture truncates or blanks past it, so measure the height first and **say on the record when you skip it**. Every rendering defect in this corpus was found by looking, never by a readout.
+
+**When a defect appears in the render, get a control before you blame your change.** Render the *other* shape — bundled if you were looking at wired, wired if you were looking at bundled — and compare. A defect present in both is the library's and belongs in a report, not in a fix you were not asked for.
+
+## 7. Report
+
+One block, and it is the artifact people read after you are gone:
+
+*   **what the page is** — kind, subject, path, and whether it is wired, bundled, or both
+*   **every gate as `exact command → exit code → the counts`**
+*   **the shot you opened and what you saw in it** — not "renders correctly", but what is on the page
+*   **what you reached for and what you did not** — the unspent vocabulary, named
+*   **every gap you met**: a kind that did not exist, a unit you wanted and had to do without, a defect present in the control
+
+## Anti-Patterns
+
+*   **Composing from a path you did not resolve.** §0 exists because a brief naming an absent directory is the failure it removes.
+*   **Retyping a specimen.** Paste it. A retyped copy diverges and nothing notices.
+*   **Hand-typing `data-import` or the loader line.** Run `wire`. If you are typing a list of file paths, you have re-created the registry this system retired.
+*   **Quoting a green exit code with no count.** The checker grades what is present.
+*   **`composes` where `extends` was meant.** Clean on every readout, unstyled on the page.
+*   **Bending a unit to fit content.** Add one, or say the vocabulary does not cover this.
+*   **Declaring victory from a readout.** The last gate is a human looking at a shot.
+*   **Dispatching this.** It is in-context by construction; a subagent gets a summary of the thing you are holding.
+
+## Constraints
+
+*   **In-context, no handoff.** No subagent, no brief, no Path-A/Path-B split.
+*   **It produces a page, not a change.** It never commits, never files a ticket, never edits the library's ideas to make a page fit — a page that needs a new unit reports that it needs one.
+*   **It never invents a page shape.** Kinds come from the library; a missing kind is a finding.
+*   **The caller supplies words and choices. The skill supplies structure and proof-of-correctness.**

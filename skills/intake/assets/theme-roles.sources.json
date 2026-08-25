@@ -1,0 +1,35 @@
+{
+  "_comment": [
+    "Input paths for theme-roles.mjs. They are DATA, not code — same reason kit-digest.sources.json",
+    "gives: the theme pages are still in a session folder and have not been promoted into the kit.",
+    "When a theme is promoted, edit its line here; the census and the gate re-point with it, no code",
+    "change. ~ expands to $HOME. Explicit --<key>=<path> flags override anything here.",
+    "",
+    "'prefix' is the theme's own namespace prefix, if it has one. It is DATA because a prefix is a",
+    "mechanical alias carrying zero role information: --nv-focus and --focus are the same role. The",
+    "gate strips it before matching and reports 'prefix-strip owed' rather than pretending the theme",
+    "is compliant. A theme with no prefix omits the key.",
+    "",
+    "'frozen' is the byte-copy snapshot the shipped contract in theme-roles.json was MEASURED against",
+    "(2026-08-01T20:10, taken because three agents were concurrently rewriting the live files). Run",
+    "with --frozen to reproduce the contract's recorded observations exactly. The default run reads",
+    "'sources' (live) on purpose: the difference between the two IS the drift signal."
+  ],
+  "sources": {
+    "nerv": "~/Projects/finch/sessions/2026_07_31_PROVE_THEME/builds/themes/nerv.html",
+    "akira": "~/Projects/finch/sessions/2026_07_31_PROVE_THEME/builds/themes/akira.html",
+    "wire": "~/Projects/finch/sessions/2026_07_31_PROVE_THEME/builds/themes/wire.html",
+    "kit": "~/.claude/engine/skills/intake/assets/proof-theme.css"
+  },
+  "frozen": {
+    "nerv": "~/Projects/finch/sessions/2026_07_31_PROVE_THEME/builds/themes-frozen-20260801T2010/nerv.html",
+    "akira": "~/Projects/finch/sessions/2026_07_31_PROVE_THEME/builds/themes-frozen-20260801T2010/akira.html",
+    "wire": "~/Projects/finch/sessions/2026_07_31_PROVE_THEME/builds/themes-frozen-20260801T2010/wire.html",
+    "kit": "~/.claude/engine/skills/intake/assets/proof-theme.css"
+  },
+  "prefix": {
+    "nerv": "--nv-"
+  },
+  "incumbent": "kit",
+  "graded": ["nerv", "akira", "wire"]
+}

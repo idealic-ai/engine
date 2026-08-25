@@ -219,6 +219,39 @@ check("every kit file the render spec references is actually published", () => {
     "proof-ticket.js is published at an unversioned key — a breaking change would overwrite every live board's copy");
   assert.ok(/proof-ticket\.v\d+\.js/.test(renderSpec),
     "the render spec does not name the versioned proof-ticket file it tells agents to reference");
+
+  /* The iconset is the one kit object referenced by another kit OBJECT rather than by a page:
+     proof-theme.css's @font-face names it with a relative src. So its 404 is doubly quiet — no
+     page mentions the font, and a missing face does not error, it silently reverts every icon to
+     platform colour emoji, which reads as "the design never landed". Assert the whole chain. */
+  const themeSrc = read(path.join(intake, "proof-theme.css"));
+  const iv = /PROOF_ICONS_VERSION\s*=\s*(\d+)/.exec(themeSrc);
+  assert.ok(iv, "proof-theme.css declares no PROOF_ICONS_VERSION — publish-kit would mint the font as v1 forever");
+  assert.ok(fs.existsSync(path.join(intake, `proof-icons.v${iv[1]}.woff2`)),
+    `proof-icons.v${iv[1]}.woff2 is declared but absent — the @font-face src resolves to a 404`);
+  assert.ok(new RegExp(`url\\("\\./proof-icons\\.v${iv[1]}\\.woff2"\\)`).test(themeSrc),
+    `proof-theme.css declares PROOF_ICONS_VERSION=${iv[1]} but its @font-face src names a different file`);
+  assert.ok(/aws s3 cp "\$iconsSrc"/.test(publishKitSh),
+    "publish-kit.sh never uploads the iconset — every published page silently falls back to colour emoji");
+  assert.ok(/--content-type 'font\/woff2'/.test(publishKitSh),
+    "the iconset is uploaded without a font/woff2 content-type");
+
+  /* The channel dots must never enter the substitution range. SEVEN of the eight channel glyphs
+     are the same shape and are told apart ONLY by colour, so a monochrome face does not dim that
+     meaning, it maps seven channels onto one glyph. Correctness, not style —
+     §INV_PROVE_FAITHFUL_PRESENTATION. */
+  const range = /unicode-range:([\s\S]*?);/.exec(themeSrc);
+  assert.ok(range, "the iconset @font-face declares no unicode-range — it would claim every codepoint it covers");
+  for (const dot of ["1F534", "1F535", "1F7E0", "1F7E1", "1F7E2", "1F7E3", "1F7E4", "1F7E6"]) {
+    assert.ok(!new RegExp(`U\\+${dot}`, "i").test(range[1]),
+      `the iconset's unicode-range claims U+${dot} — that is a channel dot whose COLOUR is its only meaning`);
+  }
+  /* Likewise the bare text-presentation glyphs: these already render as type and already theme
+     correctly, so claiming them replaces a correct glyph with a worse one. */
+  for (const [cp, what] of [["2197", "the external-link arrow"], ["26A0", "the warning sign"]]) {
+    assert.ok(!new RegExp(`U\\+${cp}`, "i").test(range[1]),
+      `the iconset's unicode-range claims U+${cp} — ${what} is authored bare and renders as type today`);
+  }
 });
 
 /* ---- 14. The state config reaches EVERY board, not only the ones whose render agent volunteered
@@ -297,6 +330,88 @@ check("INTAKE.md's template defines the State doc slot Phases 5 and 6 depend on"
     "the State doc slot does not ask for the docId — the URL alone cannot be re-derived into a fold target");
 });
 
+/* ---- 18. FIN-3577: the phase gates the ticket made unfakeable are still declared + shaped ----
+   `worklist` held because its shape forced enumeration; `triageAccounting` was fakeable (a local
+   disk path), and Phase 5 had no board/announce field at all. These assert the fields stay declared
+   in the proof arrays AND that each shape demands a resolvable pointer OR an explicit declared
+   absence — never a bare local path in between. proof-gates.test.mjs proves the engine ENFORCES
+   the arrays; this proves the spec still SHAPES the fields. */
+check("FIN-3577 gates: triageAccounting posted-not-path; Phase 5 gates panelRun/decisionBoard/announce", () => {
+  const pj = /### Session Parameters\s*```json\s*([\s\S]*?)```/.exec(intakeSkill);
+  assert.ok(pj, "intake SKILL.md has a Session Parameters json block");
+  const phases = JSON.parse(pj[1]).phases;
+  const proofOf = (name) => (phases.find((p) => p.name === name) || {}).proof || [];
+  for (const f of ["panelRun", "decisionBoard", "announce"])
+    assert.ok(proofOf("Outcomes").includes(f), `Outcomes proof array declares ${f}`);
+  assert.ok(proofOf("Triage").includes("triageAccounting"), "Triage proof array declares triageAccounting");
+
+  // triageAccounting must demand a posted comment URL + attachment ids, never a local disk path
+  const ta = /triageAccounting: \[[\s\S]*?\n```/.exec(intakeSkill);
+  assert.ok(ta, "triageAccounting shape block exists");
+  assert.ok(/commentUrl/.test(ta[0]) && /attachmentIds/.test(ta[0]),
+    "triageAccounting no longer requires a posted commentUrl + attachmentIds");
+  assert.ok(!/reportPath/.test(ta[0]),
+    "triageAccounting still admits a local reportPath as a satisfying pointer — the exact hole FIN-3577 closes");
+
+  // decisionBoard: a published url OR an explicit skip (fail-closed on silence)
+  const db = /decisionBoard: \{[\s\S]*?\n```/.exec(intakeSkill);
+  assert.ok(db && /published/.test(db[0]) && /skipped/.test(db[0]),
+    "decisionBoard shape must offer published-url OR an explicit skipped absence");
+
+  // announce: both handles + a skip escape (gates on silence, not on Slack success)
+  const an = /announce: \{[\s\S]*?\n```/.exec(intakeSkill);
+  assert.ok(an && /statusUpdateId/.test(an[0]) && /ts/.test(an[0]) && /skipped/.test(an[0]),
+    "announce shape must record the statusUpdateId + slack ts, with a skip escape");
+
+  // panelRun: recorded outcome, ran OR skipped (a no-panel wave passes)
+  const pr = /panelRun: \{[\s\S]*?\n```/.exec(intakeSkill);
+  assert.ok(pr && /ran/.test(pr[0]) && /skipped/.test(pr[0]),
+    "panelRun shape must record ran OR skipped");
+});
+
+/* ---- Every pinned kit version matches the constant its source file declares ----
+ *
+ * The skeletons, the board render spec and KIT_README all hardcode `<name>.v<N>` in their <head>
+ * blocks. publish-kit.sh mints the published key from a constant inside each kit source file, so
+ * the source constant is the only authority — a doc or skeleton pinning a version nobody publishes
+ * is a silent 404 that renders as an unstyled page with no error anywhere. This has already
+ * happened once (proof-ticket.v1 referenced while the component sat at v3), and the version bump
+ * that caused it touched five files by hand. Assert it instead.
+ */
+check("pinned kit versions match the source constants", () => {
+  const SOURCES = {
+    "proof-theme.css":   ["PROOF_THEME_VERSION",   "proof-theme"],
+    "proof-blocks.css":  ["PROOF_BLOCKS_VERSION",  "proof-blocks"],
+    "proof-creative.css":["PROOF_CREATIVE_VERSION","proof-creative"],
+    "kit-behaviors.js":  ["KIT_BEHAVIORS_VERSION", "kit-behaviors"],
+    "proof-ticket.js":   ["PROOF_TICKET_VERSION",  "proof-ticket"],   // proof-ticket.css rides it
+    "board-widgets.js":  ["SCHEMA_VERSION",        "board-widgets"],  // board-warm-overrides rides it
+    "board-swipe.js":    ["BOARD_SWIPE_VERSION",   "board-swipe"],    // board-swipe.css rides it
+  };
+  const truth = {};
+  for (const [file, [constant, stem]] of Object.entries(SOURCES)) {
+    const m = new RegExp(`${constant}\\s*=\\s*(\\d+)`).exec(read(path.join(intake, file)));
+    assert.ok(m, `${file} declares no ${constant} — publish-kit would silently mint v1 forever`);
+    truth[stem] = m[1];
+  }
+  truth["proof-ticket.css"] = truth["proof-ticket"];
+  truth["board-warm-overrides"] = truth["board-widgets"];
+
+  const consumers = ["skeletons/proof-page.skeleton.html",
+                     "skeletons/proof-decision.skeleton.html",
+                     "skeletons/decision-board.skeleton.html",
+                     "TEMPLATE_DECISION_BOARD_PROMPT.md",
+                     "KIT_README.md"];
+  for (const rel of consumers) {
+    const body = read(path.join(intake, rel));
+    for (const [, stem, ver] of body.matchAll(/\b([a-z-]+)\.v(\d+)\.(?:css|js)\b/g)) {
+      if (!(stem in truth)) continue;               // not a versioned kit object
+      assert.strictEqual(ver, truth[stem],
+        `${rel} pins ${stem}.v${ver} but its source declares v${truth[stem]} — that key is a silent 404`);
+    }
+  }
+});
+
 console.log(`contract-sync.test: PASS — ${checks} cross-file checks `
   + "(brief_version, panel sizes, removed-Wildcard, report_path, poll on both sides, "
   + "kit attributes vs render spec, persona icon uniqueness, ingest single-sourcing, "
@@ -305,4 +420,5 @@ console.log(`contract-sync.test: PASS — ${checks} cross-file checks `
   + "transport owns one-event-per-object + blind-append, state-config token agreement, "
   + "every referenced kit file is published, state config on every board, "
   + "signing-failure degrades read-only, spec block is standard not opt-in, "
-  + "State doc slot defined where Phases 5+6 use it)");
+  + "State doc slot defined where Phases 5+6 use it, "
+  + "FIN-3577 gates declared + shaped (triageAccounting posted-not-path, panelRun/decisionBoard/announce))");

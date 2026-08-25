@@ -1,0 +1,472 @@
+@charset "UTF-8";
+/* ═══════════════════════════════════════════════════════════════════════════════════════════
+   proof-module.css — THE CONTRACT LAYER, as one stylesheet.
+
+   PROOF_MODULE_VERSION = 1
+
+   The kit ships every PRESENTATIONAL module class (.mod-head .mod-body .mod-foot .mod-title
+   .mod-slug .mod-eyebrow .mod-aff .mod-perma .mod-decision .mod-exp .mod-ord .mod-pos .mod-use)
+   and ZERO machine-readable ones. A page can look like a module; it cannot be one. This file is
+   the missing half: the rules fold, the clause grid, the applicability fold, module-scope
+   definitions, the counter-specimen, and — the part that is new — a MARK ENGINE that renders a
+   clause's state from the same attributes a checker reads.
+
+   Selectors key on ATTRIBUTES and CLASSES, never on `section`. A module wearing
+   <section is="proof-module"> or any other host element styles identically.
+
+   Merged from, and superseding:
+     module/mod.css             shell + .mod-rules fold + .clauses + print force-open
+     latent-rules/latent.css    the PENDING rendering (its generated selector list is now
+                                unnecessary — see DECISION 1)
+     swing2-fallback/apply.css  the .mod-apply fold (escape | mandate | variant)
+     q-reuse/mod.css            .defs definition blocks, module scope only
+     q-veto                     data-anti, the counter-specimen, rendered BENEATH the ideal
+
+   ─────────────────────────────────────────────────────────────────────────────────────────
+   DECISION 1 — attr() carries the ASSERTION; it does NOT carry the VERDICT.
+   The incumbent drew  content:"✓ " attr(data-check)  on every non-human check. That renders the
+   assertion faithfully from the same bytes the checker runs — the good half — while implying the
+   assertion RAN. It had not. It draws a tick on a rule nobody built.
+   Here the two are separated:
+     · data-check   the assertion.  Always rendered verbatim. Never implies a result.
+     · data-ran     a verdict, stamped by a runner:  pass | fail | error | skip | unimplemented
+     · data-mod-run the receipt, on the rules body.  Without it a verdict is itself a DEFECT.
+   Default state of a clause carrying an assertion and no verdict: "▪ ASSERTED · NOT RUN".
+   A tick is now something a run buys, not something a stylesheet gives away.
+
+   DECISION 2 — ZERO backslash escapes in any `content` or custom-property value. Literal UTF-8.
+   A CSS hex escape consumes UP TO SIX hex digits, so "\00a0authoring" resolves to U+00A0AU plus
+   "thoring" and rendered "↳ਊuthoring" in this corpus for hours, in every render, past three
+   agents, found only by opening a PNG. The rule that kills the whole class is not "terminate
+   escapes with a space" — it is "do not write escapes". probe/lint.mjs FAILS this file on any
+   backslash inside a content or --mk* value, so the trap cannot be re-entered silently.
+
+   DECISION 3 — NO HUE encodes state. Four greyscale-surviving channels instead:
+   GLYPH (categorical) · WORD (categorical) · INK LEVEL (2 steps) · EDGE (3 geometric states).
+   Measured reason for two ink steps and not three (CIE L-star over 100, probe/lab.mjs).
+   NOTE — that scale was first written with a star and a slash adjacent, which CLOSED THIS COMMENT
+   mid-sentence and silently killed the page-shell block below it. Nothing in the mark checks
+   noticed: every one of them still passed, because they measure what IS rendered. regress.mjs
+   caught it as a 27.5px padding difference, and lint rule L6 now fails a comment terminator that
+   is not preceded by whitespace. Writing the note re-introduced the bug once more, and L6 caught
+   that too, which is the only reason this paragraph is spelled out in words.
+       --ink ↔ --ink-meta        ΔL 0.3008 light · 0.2828 dark   CLEARS the 0.15 floor
+       --ink-soft ↔ --ink-meta   ΔL 0.0293 light · 0.0559 dark   DEAD — a 3-step ramp is impossible
+       --accent-ink ↔ --ink-meta ΔL 0.0804 light · 0.1086 dark   DEAD, and used anyway on the two
+                                 PENDING marks as emphasis ONLY. It is not their separating
+                                 channel — glyph ○/◌, word PENDING and a dashed edge are — and it
+                                 is written down here as a null so the claim is checkable, not a
+                                 second channel that quietly is not one.
+   The weakest pair the table found: ○ PENDING (authored) vs ◌ PENDING (runner-observed) shared
+   L*, weight, edge AND their first word, leaving two nearly identical circle glyphs at 10.5px as
+   the only channel. They now read PENDING · AUTHORED and PENDING · OBSERVED, so the WORD carries
+   the pair and the glyph is corroboration rather than the whole signal.
+   Hue was refused on a structural ground, not a taste one: a colour channel owes a legend row,
+   and A STYLESHEET HAS NOWHERE TO PRINT ONE. (The pages this loads onto compose a legend module
+   that vetoes "a hue that decodes to nothing"; areal chrome coverage is separately closed by
+   [AKIRA:SCREEN].)
+
+   DECISION 4 — the mark encodes the state of the BINDING, never the value.
+   data-else="none", data-then="false", data-gate="0" are all BOUND and take the ordinary mark.
+   Only an ABSENT or EMPTY attribute renders ⌀ UNBOUND.
+
+   DECISION 5 — fail closed. Every state is assigned explicitly and the base declaration is
+   "⊠ UNCLASSIFIED", a defect at the darkest ink with a solid edge. A clause this file does not
+   understand shouts; it never goes quiet.
+   ═══════════════════════════════════════════════════════════════════════════════════════════ */
+
+
+/* ── page shell (carried unchanged from module/mod.css — the corpus pages need it) ─────────── */
+.sheet{max-width:1180px; margin:0 auto; padding:var(--sp-6) var(--sp-4) var(--sp-12)}
+
+.mast{border-bottom:2px solid var(--rule); padding-bottom:var(--sp-3); margin-bottom:var(--sp-6)}
+.mast-k{font-family:var(--mono); font-size:10.5px; letter-spacing:.15em; text-transform:uppercase;
+  color:var(--ink-meta)}
+.mast h1{font-family:var(--serif); font-size:clamp(28px,4vw,44px); line-height:1.08; margin:6px 0 10px;
+  color:var(--ink)}
+.mast-m{margin:0 0 6px; font-size:14px; color:var(--ink-soft)}
+.mast-m code{font-family:var(--mono); font-size:12px}
+.mast-n{margin:0; font-size:12.5px; color:var(--ink-meta); max-width:70ch}
+
+.mod-lede{font-size:14.5px; color:var(--ink-soft); line-height:1.55; max-width:66ch; margin:0 0 var(--sp-3)}
+
+.foot{margin-top:var(--sp-8); padding-top:var(--sp-2); border-top:1px solid var(--rule);
+  display:flex; flex-wrap:wrap; gap:6px 22px; font-family:var(--mono); font-size:10.5px;
+  color:var(--ink-meta)}
+
+
+/* ── THE SPECIMEN — deliberately a no-op ──────────────────────────────────────────────────────
+   [data-spec] gets no chrome, no border, no badge. A specimen must render exactly as it renders
+   in the wild; every pixel this file adds to it is a lie about the thing the rules are about.
+   The only two grants are non-visual: an anchor target and a scroll offset. */
+.mod-spec{margin:0}
+[data-spec]{scroll-margin-top:calc(var(--idbar-h, 0px) + 12px)}
+[data-spec]:target{outline:2px dashed var(--accent); outline-offset:6px}
+
+
+/* ── the rules fold ───────────────────────────────────────────────────────────────────────────
+   AFFORDANCE DOES NOT SURVIVE REUSE → the summary must LOOK openable every time, via an authored
+   marker plus a coloured edge; list-style alone vanishes.
+   THE SUMMARY CARRIES THE MAGNITUDE → .rm is the magnitude slot, .rk the label. Never "Details". */
+.mod-rules{
+  border-top:1px solid var(--rule);
+  background:color-mix(in srgb, var(--ink) 3%, transparent);
+}
+.mod-rules > summary,
+.mod-apply > summary{
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+  padding:10px 18px; cursor:pointer;
+  list-style:none;
+  font-family:var(--mono); font-size:11.5px; letter-spacing:.06em;
+  color:var(--ink-soft);
+  border-left:3px solid var(--accent);
+  transition:background .12s;
+}
+.mod-rules > summary::-webkit-details-marker,
+.mod-apply > summary::-webkit-details-marker{display:none}
+.mod-rules > summary::before,
+.mod-apply > summary::before{
+  content:"▸";
+  display:inline-block; width:1em; flex:0 0 auto;
+  color:var(--accent-ink); font-size:13px; line-height:1;
+  transition:transform .14s;
+}
+.mod-rules[open] > summary::before,
+.mod-apply[open] > summary::before{transform:rotate(90deg)}
+.mod-rules > summary:hover,
+.mod-apply > summary:hover{background:var(--accent-soft)}
+.mod-rules > summary:focus-visible,
+.mod-apply > summary:focus-visible{outline:2px solid var(--accent); outline-offset:-2px}
+.mod-rules > summary .rk,
+.mod-apply > summary .rk{
+  font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--accent-ink);
+  flex:0 0 auto;
+}
+.mod-rules > summary .rm,
+.mod-apply > summary .rm{
+  color:var(--ink-meta); font-variant-numeric:tabular-nums;
+  overflow-wrap:anywhere;              /* the magnitude must never be the thing that overflows */
+  min-width:0;
+}
+
+.mod-rules-body{padding:var(--sp-2) 18px var(--sp-3); border-left:3px solid var(--accent-soft)}
+
+/* THE RECEIPT. One attribute, two uses, and no desync surface between them: this ::before RENDERS
+   it, and the verdict selectors below GATE on it. A page that stamps verdicts without stamping a
+   receipt gets ⊠ UNRECEIPTED on every one of them. */
+.mod-rules-body[data-mod-run]::before,
+.mod-apply-body[data-mod-run]::before{
+  content:"≡ verdicts stamped by " attr(data-mod-run);
+  display:block; margin:0 0 8px;
+  font-family:var(--mono); font-size:10px; letter-spacing:.06em;
+  color:var(--ink-meta);
+  border-bottom:1px dotted var(--rule-soft); padding-bottom:5px;
+}
+
+
+/* ── the clause grid ─────────────────────────────────────────────────────────────────────────── */
+.clauses,.applies{margin:0; display:grid; grid-template-columns:minmax(0,7.5em) minmax(0,1fr); gap:0 18px}
+.clauses > dt,.applies > dt{
+  grid-column:1; font-family:var(--mono); font-size:10px; font-weight:700; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--seal); padding:9px 0 0; align-self:start;
+}
+.clauses > dd,.applies > dd{
+  grid-column:2; margin:0; padding:9px 0; font-size:13.5px; line-height:1.6; color:var(--ink-soft);
+  border-top:1px dotted var(--rule-soft); min-width:0; overflow-wrap:anywhere;
+}
+.clauses > dt + dd,.applies > dt + dd{border-top:0}
+.clauses > dd b,.applies > dd b{color:var(--ink); font-weight:600}
+.clauses > dd code,.applies > dd code{font-family:var(--mono); font-size:12px}
+.clauses > dd .af{font-family:var(--mono); font-size:10.5px; color:var(--ink-meta)}
+
+
+/* ═══ THE MARK ENGINE ═════════════════════════════════════════════════════════════════════════
+   ONE ::after rule renders every state. States are selected by assigning custom properties, so
+   `content` is built in exactly one place and no two rules can fight over it. Every geometric
+   consequence is var-driven too, so a state cannot set an ink and forget its edge.
+
+     --mk       the mark: GLYPH + WORD. Both channels, always. Survives greyscale outright.
+     --mk-tail  what follows — attr(data-check) by default, so display and execution read the
+                same bytes. That property of the incumbent is kept intact.
+     --mk-ink   two levels only; see DECISION 3 for why three is impossible in this theme.
+     --mk-w     weight, the second lightness-adjacent channel.
+     --mk-edge-*, --mk-pad, --mk-off   the geometric channel:
+                none = settled · dashed = owed · solid = defect.
+
+   THE BASE VALUES ARE A DEFECT. Nothing falls through this file silently. */
+.clauses > dd[data-check],
+.clauses > dd[data-ran],
+.applies > dd[data-apply]{
+  --mk:"⊠ UNCLASSIFIED — this stylesheet has no mark for this clause: ";
+  --mk-tail:attr(data-check);
+  --mk-ink:var(--ink);
+  --mk-w:700;
+  --mk-edge-w:3px; --mk-edge-s:solid; --mk-edge-c:currentColor;
+  --mk-pad:10px; --mk-off:-12px;
+  border-left:var(--mk-edge-w) var(--mk-edge-s) var(--mk-edge-c);
+  padding-left:var(--mk-pad); margin-left:var(--mk-off);
+}
+/* Repeated attribute = weight only; [x][x][x] matches exactly what [x] matches. This must
+   outrank proof-blocks.css's `.clauses > dd[data-check]:not([data-check="human"])::after` (0,3,2),
+   which otherwise resolves `content` to attr(data-check) and strips the word channel. */
+.clauses > dd[data-check][data-check][data-check]::after,
+.clauses > dd[data-ran][data-ran][data-ran]::after,
+.applies > dd[data-apply][data-apply][data-apply]::after{
+  content:var(--mk) var(--mk-tail);
+  display:block; margin-top:5px; overflow-wrap:anywhere;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.01em; line-height:1.45;
+  font-weight:var(--mk-w); color:var(--mk-ink);
+}
+
+
+/* ── ASSERTED, NOT RUN ────────────────────────────────────────────────────────────────────────
+   A clause carrying an assertion and no verdict. The assertion is SHOWN, and shown as not run.
+   This one declaration is what stops PENDING from reading as PASS, for every unimplemented verb
+   at once — no generated selector list required. */
+.clauses > dd[data-check]:not(:where([data-check="human"],[data-check="obligation"],[data-ran])){
+  --mk:"▪ ASSERTED · NOT RUN — ";
+  --mk-ink:var(--ink-meta); --mk-w:400;
+  --mk-edge-w:2px; --mk-edge-s:dashed; --mk-edge-c:var(--ink-faint);
+}
+
+
+/* ── HUMAN — the four-way split ───────────────────────────────────────────────────────────────
+   judgment 61 · unimplemented 64 · fallback 130 · note 15 across the corpus. Collapsing them to
+   one "human" label hid that the irreducible figure is 7.0%, not 31%. */
+.clauses > dd[data-check="human"]{
+  --mk-tail:"";
+  --mk-ink:var(--ink-meta); --mk-w:400;
+  --mk-edge-w:0; --mk-edge-s:solid; --mk-edge-c:transparent; --mk-pad:0; --mk-off:0;
+}
+/* an unrecognised reason, or none at all, is a defect — not a shrug */
+.clauses > dd[data-check="human"]:not(:where([data-why])){
+  --mk:"⊠ NO REASON — a human clause must carry data-why";
+  --mk-ink:var(--ink); --mk-w:700;
+  --mk-edge-w:3px; --mk-edge-s:solid; --mk-edge-c:currentColor; --mk-pad:10px; --mk-off:-12px;
+}
+.clauses > dd[data-check="human"][data-why]:not(:where([data-why="judgment"],[data-why="fallback"],[data-why="note"],[data-why="unimplemented"])){
+  --mk:"⊠ UNKNOWN REASON — data-why is not judgment | unimplemented | fallback | note: ";
+  --mk-tail:attr(data-why);
+  --mk-ink:var(--ink); --mk-w:700;
+  --mk-edge-w:3px; --mk-edge-s:solid; --mk-edge-c:currentColor; --mk-pad:10px; --mk-off:-12px;
+}
+.clauses > dd[data-check="human"][data-why="judgment"]{
+  --mk:"— human judgment, no assertion claimed";
+}
+.clauses > dd[data-check="human"][data-why="fallback"]{
+  --mk:"↳ authoring guidance, not a checkable clause";
+}
+.clauses > dd[data-check="human"][data-why="note"]{
+  --mk:"¶ note on authoring, not a rule";
+}
+/* OWED, not settled — the one member of the human family that will leave it */
+.clauses > dd[data-check="human"][data-why="unimplemented"]{
+  --mk:"○ PENDING · AUTHORED — checkable in principle, no verb yet";
+  --mk-ink:var(--accent-ink);
+  --mk-edge-w:2px; --mk-edge-s:dashed; --mk-edge-c:var(--ink-faint); --mk-pad:10px; --mk-off:-12px;
+}
+
+
+/* ── OBLIGATION — what the page owes the module ───────────────────────────────────────────────
+   Bound values of any kind, including "0" / "false" / "n/a", take the ordinary mark. */
+.clauses > dd[data-check="obligation"]{
+  --mk:"⇒ page owes module “";
+  --mk-tail:attr(data-then) "” when: " attr(data-when);
+  --mk-ink:var(--ink-meta); --mk-w:400;
+  --mk-edge-w:0; --mk-edge-s:solid; --mk-edge-c:transparent; --mk-pad:0; --mk-off:0;
+}
+.clauses > dd[data-check="obligation"]:not(:where([data-then])),
+.clauses > dd[data-check="obligation"]:not(:where([data-when])),
+.clauses > dd[data-check="obligation"][data-then=""],
+.clauses > dd[data-check="obligation"][data-when=""]{
+  --mk:"⌀ UNBOUND — an obligation needs both data-then and data-when";
+  --mk-tail:"";
+  --mk-ink:var(--ink); --mk-w:700;
+  --mk-edge-w:3px; --mk-edge-s:solid; --mk-edge-c:currentColor; --mk-pad:10px; --mk-off:-12px;
+}
+
+
+/* ── VERDICTS ─────────────────────────────────────────────────────────────────────────────────
+   Everything below needs a RECEIPT. Ungated first (the defect), gated after (the verdict). The
+   gate is the very attribute the ≡ line renders, so the claim on screen and the claim in the
+   cascade cannot come apart. */
+
+.clauses > dd[data-check][data-ran]{
+  --mk:"⊠ UNRECEIPTED VERDICT “";
+  --mk-tail:attr(data-ran) "” — no data-mod-run receipt on the rules body — " attr(data-check);
+  --mk-ink:var(--ink); --mk-w:700;
+  --mk-edge-w:3px; --mk-edge-s:solid; --mk-edge-c:currentColor; --mk-pad:10px; --mk-off:-12px;
+}
+.clauses > dd[data-ran]:not(:where([data-check])){
+  --mk:"⊠ VERDICT WITHOUT ASSERTION — data-ran with no data-check: ";
+  --mk-tail:attr(data-ran);
+  --mk-ink:var(--ink); --mk-w:700;
+  --mk-edge-w:3px; --mk-edge-s:solid; --mk-edge-c:currentColor; --mk-pad:10px; --mk-off:-12px;
+}
+
+[data-mod-run] .clauses > dd[data-check][data-ran]{
+  --mk:"⊠ UNKNOWN VERDICT “";
+  --mk-tail:attr(data-ran) "” — not pass | fail | error | skip | unimplemented";
+  --mk-ink:var(--ink); --mk-w:700;
+  --mk-edge-w:3px; --mk-edge-s:solid; --mk-edge-c:currentColor; --mk-pad:10px; --mk-off:-12px;
+}
+[data-mod-run] .clauses > dd[data-check][data-ran="pass"]{
+  --mk:"✓ PASS — ";
+  --mk-tail:attr(data-check);
+  --mk-ink:var(--ink-meta); --mk-w:400;
+  --mk-edge-w:0; --mk-edge-s:solid; --mk-edge-c:transparent; --mk-pad:0; --mk-off:0;
+}
+[data-mod-run] .clauses > dd[data-check][data-ran="fail"]{
+  --mk:"✗ FAIL — ";
+  --mk-tail:attr(data-check);
+  --mk-ink:var(--ink); --mk-w:700;
+  --mk-edge-w:3px; --mk-edge-s:solid; --mk-edge-c:currentColor; --mk-pad:10px; --mk-off:-12px;
+}
+[data-mod-run] .clauses > dd[data-check][data-ran="error"]{
+  --mk:"⊗ ERROR — the verb threw on: ";
+  --mk-tail:attr(data-check);
+  --mk-ink:var(--ink); --mk-w:700;
+  --mk-edge-w:3px; --mk-edge-s:solid; --mk-edge-c:currentColor; --mk-pad:10px; --mk-off:-12px;
+}
+[data-mod-run] .clauses > dd[data-check][data-ran="skip"]{
+  --mk:"⊘ SKIPPED — not run this pass: ";
+  --mk-tail:attr(data-check);
+  --mk-ink:var(--ink-meta); --mk-w:400;
+  --mk-edge-w:2px; --mk-edge-s:dashed; --mk-edge-c:var(--ink-faint); --mk-pad:10px; --mk-off:-12px;
+}
+/* The runner met a verb it does not implement. [LATENT-RULES]' PENDING, reached structurally:
+   the only path to a tick is a runner stamping pass, and a runner cannot stamp pass on a verb it
+   does not have. The generated selector list was a patch on a default that gave ticks away. */
+[data-mod-run] .clauses > dd[data-check][data-ran="unimplemented"]{
+  --mk:"◌ PENDING · OBSERVED — the runner has no verifier for this verb: ";
+  --mk-tail:attr(data-check);
+  --mk-ink:var(--accent-ink); --mk-w:400;
+  --mk-edge-w:2px; --mk-edge-s:dashed; --mk-edge-c:var(--ink-faint); --mk-pad:10px; --mk-off:-12px;
+}
+
+
+/* ── THE COUNTER-SPECIMEN ─────────────────────────────────────────────────────────────────────
+   A rule you have never seen fail is a rule you have never seen work. data-anti carries the
+   MUTATION that violates the clause — derived from the ideal, not hand-authored, so it cannot
+   desync from it. It renders BENEATH the assertion mark: the dd becomes a single-column flex box
+   so the two pseudo-elements can be ordered, prose as the anonymous first item. */
+.clauses > dd[data-anti]{display:flex; flex-direction:column}
+.clauses > dd[data-anti]::after{order:1}
+.clauses > dd[data-anti]::before{
+  order:2;
+  content:"▲ counter-specimen — violate it by: " attr(data-anti);
+  display:block; margin-top:4px; overflow-wrap:anywhere;
+  font-family:var(--mono); font-size:10.5px; letter-spacing:.01em; line-height:1.45;
+  color:var(--ink-meta);
+  border-left:2px dotted var(--ink-faint); padding-left:8px;
+}
+.clauses > dd[data-anti=""]::before{
+  content:"⌀ UNBOUND — data-anti present but empty"; color:var(--ink); font-weight:700;
+}
+
+
+/* ── THE APPLICABILITY FOLD — the fourth class ────────────────────────────────────────────────
+   Same ink, same glyph grammar, same mark engine. What distinguishes it is the DASHED left edge,
+   the corpus's existing mark for "carried, not derived here". A second fold is not a second
+   meaning — it is the same contract read from the other side. */
+.mod-apply{
+  border-top:1px dashed var(--rule);
+  background:color-mix(in srgb, var(--ink) 2%, transparent);
+}
+.mod-apply > summary{border-left-style:dashed}
+.mod-apply-body{padding:var(--sp-2) 18px var(--sp-3); border-left:3px dashed var(--accent-soft)}
+
+.applies > dd[data-apply="escape"]{
+  --mk:"↯ if rule ";
+  --mk-tail:attr(data-gate) " fails → ship “" attr(data-else) "”";
+  --mk-ink:var(--ink-meta); --mk-w:400;
+  --mk-edge-w:0; --mk-edge-s:solid; --mk-edge-c:transparent; --mk-pad:0; --mk-off:0;
+}
+/* "UNBOUND" as an authored data-gate VALUE is itself a binding: the author said that no rule in
+   the module encodes the precondition. Bound. It takes a mark, not a defect. */
+.applies > dd[data-apply="escape"][data-gate="UNBOUND"]{
+  --mk:"⇢ UNBOUND GATE — no rule in this module encodes the precondition; ship “";
+  --mk-tail:attr(data-else) "”";
+}
+.applies > dd[data-apply="mandate"]{
+  --mk:"∅ NO fallback exists — any page where ";
+  --mk-tail:attr(data-trigger) " owes this module";
+  --mk-ink:var(--ink-meta); --mk-w:400;
+  --mk-edge-w:0; --mk-edge-s:solid; --mk-edge-c:transparent; --mk-pad:0; --mk-off:0;
+}
+.applies > dd[data-apply="variant"]{
+  --mk:"Δ VARIANT ";
+  --mk-tail:attr(data-delta) " — derived variant keeps: " attr(data-keeps);
+  --mk-ink:var(--ink-meta); --mk-w:400;
+  --mk-edge-w:0; --mk-edge-s:solid; --mk-edge-c:transparent; --mk-pad:0; --mk-off:0;
+}
+/* absent or empty bindings — and only those */
+.applies > dd[data-apply="escape"]:not(:where([data-gate])),
+.applies > dd[data-apply="escape"]:not(:where([data-else])),
+.applies > dd[data-apply="escape"][data-gate=""],
+.applies > dd[data-apply="escape"][data-else=""],
+.applies > dd[data-apply="mandate"]:not(:where([data-trigger])),
+.applies > dd[data-apply="mandate"][data-trigger=""],
+.applies > dd[data-apply="variant"]:not(:where([data-delta])),
+.applies > dd[data-apply="variant"]:not(:where([data-keeps])),
+.applies > dd[data-apply="variant"][data-delta=""],
+.applies > dd[data-apply="variant"][data-keeps=""]{
+  --mk:"⌀ UNBOUND — an applicability clause must bind every attribute its mark reads: ";
+  --mk-tail:attr(data-apply);
+  --mk-ink:var(--ink); --mk-w:700;
+  --mk-edge-w:3px; --mk-edge-s:solid; --mk-edge-c:currentColor; --mk-pad:10px; --mk-off:-12px;
+}
+
+
+/* ── MODULE-SCOPE DEFINITIONS (from [Q-REUSE]) ────────────────────────────────────────────────
+   Module scope only. Page scope is deliberately NOT carried: [Q-REUSE] measured that flat/page
+   names moved 1 of 11 dependents on rename and left 10 silently stale, while nested module-scope
+   names moved 11 of 11, and 3 of 11 modules could not resolve a page-scope name at all. */
+.defs{margin:0 0 .9rem; padding:.55rem .7rem;
+  border:1px solid var(--rule); border-left:3px solid var(--seal);
+  background:color-mix(in srgb, var(--ink) 2%, transparent); border-radius:3px}
+.defs-k{margin:0 0 .4rem; font-family:var(--mono); font-size:10px; font-weight:700;
+  letter-spacing:.12em; text-transform:uppercase; color:var(--ink-meta)}
+.def{display:flex; gap:.45rem; align-items:baseline; padding:.12rem 0;
+  font-family:var(--mono); font-size:12px; line-height:1.45}
+.def .dn{color:var(--seal); font-weight:700}
+.def .da{color:var(--ink-meta)}
+.def .ds{color:var(--ink)}
+.defs[data-defs]:not(:where([data-defs="module"]))::after{
+  content:"⊠ page-scope definitions are not carried — [Q-REUSE] measured 1-of-11 propagation";
+  display:block; margin-top:6px; font-family:var(--mono); font-size:10px;
+  color:var(--ink); font-weight:700;
+}
+
+
+/* ── THE SEALED-FILE BANNER ([SWING5]: fragment | declared | sealed) ──────────────────────────
+   The MOD-SEED block is an HTML comment and has no CSS surface; .mod-seed is its visible twin, so
+   a reader can tell a sealed single file from a fragment by looking rather than by trusting. */
+.mod-seed{margin:0 0 var(--sp-3); padding:8px 12px;
+  border:1px dashed var(--rule); border-radius:3px;
+  font-family:var(--mono); font-size:10px; letter-spacing:.06em; color:var(--ink-meta)}
+.mod-seed::before{content:"≡ SEALED · "}
+
+
+/* ── responsive ───────────────────────────────────────────────────────────────────────────────
+   At 390 the grid folds to one column, so the edge's NEGATIVE OFFSET is dropped — it would hang
+   the rule into the viewport gutter. The edge itself stays: solid-3 for defects, dashed-2 for
+   owed, none for settled, verified by opening the 390 greyscale renders. An earlier draft of this
+   comment claimed the geometric channel folded to zero at 390; it does not, and the claim was
+   wrong until a PNG was opened. */
+@media (max-width:560px){
+  .clauses,.applies{grid-template-columns:minmax(0,1fr)}
+  .clauses > dt,.applies > dt{grid-column:1; padding:12px 0 2px}
+  .clauses > dd,.applies > dd{grid-column:1; border-top:0}
+  .clauses > dd[data-check],.clauses > dd[data-ran],.applies > dd[data-apply]{--mk-off:0}
+}
+
+/* ── PRINT: a collapsed rules block is invisible on paper, so force every fold open ──────────── */
+@media print{
+  .mod-rules > summary,.mod-apply > summary{border-left-color:#000}
+  .mod-rules > summary::before,.mod-apply > summary::before{content:"▾"}
+  details.mod-rules > *:not(summary),details.mod-apply > *:not(summary){display:block !important}
+  details.mod-rules::details-content,details.mod-apply::details-content{
+    content-visibility:visible !important; block-size:auto !important}
+  .mod-rules,.mod-apply{break-inside:avoid}
+}

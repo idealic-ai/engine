@@ -64,16 +64,22 @@ It is also why panel answers are events rather than a block nested on an item: t
 - **Council events are static** — rendered into the board, identical in every reader's copy. Every paste therefore carries them, and their deterministic ids collapse the duplicates exactly. No divergence logic is needed: one wave publishes one board, from one render.
 - **Supersede rule**: for each `(actor, item)`, keep only the events carrying that pair's **greatest `ts`**. A voter who changes their mind and copies again supersedes their own earlier answers for that item wholesale — which is what makes an unchecked box actually retract.
 
-### Ingestion (orchestrator, Phase 6) — **two sources, one rule-set**
+### Ingestion (orchestrator, Phase 6) — **three sources, one rule-set**
 
-Answers reach the wave by **two** routes, and the rules below apply identically to both. Which route a board used is a delivery detail; it must never change how an answer is counted.
+Answers reach the wave by **three** routes, and the rules below apply identically to all of them. Which route an answer arrived by is a delivery detail; it must never change how it is counted.
 
 1. **A pasted payload** — the kit's *Copy answers* button, newline-delimited, handed over in chat. Always available; it is the path that still works when the board's write window has expired, when signing was unavailable at publish, or when a POST failed.
 2. **A fetched state doc** — `state/<docId>.json`, when the board carried a shared-state config and teammates voted **in the page**. Its envelope is `{"docId": …, "events": [ … ]}`; take `events` and treat each entry exactly like a pasted line. Its URL is recorded beside the board URL in `INTAKE.md` (Phase 5).
+3. **A Slack reply** on the announce thread, drained by the *next* wave's Phase 1 Ingest (`engine slack-read`). A reply is prose, not a keyed option — it becomes a **`note` event**, never a `vote`, and it is one step *more* advisory than a board answer, not less. Mapping, all of it derived from what already exists:
+   - **`item`** — the id cited by the reply's `[n]` ref, resolved through the announce's decision-refs block (`[3]` → that ref's `<board-url>#<item-id>`). The number is display only; the anchor carries the identity.
+   - **`actor`** — `{kind:"human", name:<the Slack display name `slack-read` resolved>}`, so `actorId` is `h:<name-slug>` exactly as a board voter's is.
+   - **`ts`** — the reply's Slack `ts`. **`id`** — `n:<actorId>:<item>`, the schema's existing `note` id.
+   - **No anchor cited → it does NOT become an event.** It stays a wave-level drop in `INTAKE_DRAIN.md`, surfaced as ordinary signal. **Never infer which item an un-anchored sentence answers** — attributing prose to a decision by guesswork is worse than leaving it unattributed, because a wrong attribution is invisible once tallied.
+   - **The cross-transport dedup falls out of the existing supersede rule** with no new machinery: one person answering both in Slack and on the board is one `(actor, item)` pair, and the greater `ts` wins. **Its one dependency is the name-slug matching across transports** — a Slack display name of "Justin H." and a board voter name of "justin" slug to different actors and will silently count twice. That is a real limit, not a solved problem: check the names when a wave has answers on both transports.
 
 **The state doc is an append-only LOG, not a settled view.** The fold that writes it appends blindly and reconciles nothing, so duplicates and superseded answers are *expected to be present*. That is not a defect to route around — it is why steps 2's rules below are a **read-side** obligation for every reader, this ingest included. A reader that skips them will double-count and will resurrect answers their author already retracted. Transport detail: `~/.claude/engine/skills/prove/assets/STATE_TRANSPORT.md`.
 
-**Both routes may deliver the same answer.** A teammate who voted in the page *and* pasted produces two copies of the same events, with the same `id`s — step 2 collapses them exactly, which is the whole reason the ids are deterministic. Merge the two sources into one list and run the rules **once over the union**; never tally them separately and add the totals.
+**Any two routes may deliver the same answer.** A teammate who voted in the page *and* pasted produces two copies of the same events, with the same `id`s — step 2 collapses them exactly, which is the whole reason the ids are deterministic; a Slack reply from someone who also voted on the board collapses the same way, by `(actor, item)` under the supersede rule. Merge **all** sources into one list and run the rules **once over the union**; never tally them separately and add the totals.
 
 **A `reader` reaction may appear in a fetched doc and never in a pasted one.** Exclude it from the human tally and from the council's, per the contributor filter above — do not treat its presence as a malformed doc.
 

@@ -1,0 +1,107 @@
+# The `idea` CLI — what each verb is for
+
+A page **declares** the ideas it uses, as tokens on `<html data-instance>`. It carries no definitions and links no stylesheet. Everything else — finding the definitions, making them arrive, checking the result, moving it somewhere — is a verb's job.
+
+This document is about **which verb to reach for and why**. Ask the CLI itself for what a verb takes: `idea <verb> --help`, and `idea --help` for the list. Each flag there says what it changes, what it does *not* change, and when to reach for it. A flag transcribed here is a second copy that drifts.
+
+**Exit codes are uniform: `0` clean · `1` refused · `2` misconfigured.** A refusal is the tool declining to produce something broken, and it is a result, not a crash.
+
+---
+
+## The three states of a page
+
+Most confusion about this CLI is really confusion about which of these you are holding.
+
+**Declared.** The page names ideas and cannot find them. It opens **unstyled** — structurally complete, visually raw. This is what a generator emits before wiring, and what an author hands over.
+
+**Wired.** The page carries one derived `<script>` naming the documents that hold its ideas, and fetches them when opened. **It renders correctly.** This is the state you edit in.
+
+**Bundled.** The definitions are inlined into the page itself. It renders correctly, references nothing, and is correct from any directory and with scripting off. This is the state a page **travels** in.
+
+Wired and bundled both render. The difference is not quality — it is whether the page can leave home.
+
+---
+
+## `generate` — start from a page kind
+
+Emits an entry for a named page kind: the kind's declared host recipe on `<html>`, and the kind's **own specimen** as the body.
+
+**A page kind is the unit of starting.** There is no skeleton to copy and no blank canvas. The kind is an idea someone authored who knew what a page of that sort is, and its specimen is the worked example of one. Composing a page from a parts list instead produces the minimum arrangement that satisfies the instructions — correct, tidy, and thin.
+
+**It invents nothing.** The recipe comes from the kind's own relation rows; the body is lifted, not written. So a defect in the kind's specimen is reproduced into every page generated from it, and the fix belongs in the kind, never in the generated page.
+
+**Read its report, not only its file.** It names the tokens it resolved and the ones it could not. An unresolved token is a page that will not fully render, and it says so while still writing the file — because the page you need to look at is the one that is wrong.
+
+## `wire` — make a page able to find its ideas
+
+Derives the loader line and the list of documents to import, from the tokens the page already carries, and stamps them in.
+
+**This is the step between "the page exists" and "the page opens."** `generate` runs it, so a generated page arrives wired. Run it yourself for a page that came from anywhere else: one you authored, one a model wrote, one whose tokens you edited, one you moved.
+
+**Never write the import list by hand.** It is a lookup from the tokens, so a typed copy can be wrong while the tokens are right, and nothing in the file can tell. A derivation cannot rot, cannot be half-updated, and cannot disagree with what the page declares.
+
+**It is a writer, so it operates on sources.** A delivered copy is an output; stamping one is undone by whatever regenerates it, and the stamped file is not the one anyone edits.
+
+**Re-run it after changing tokens.** Different ideas live in different documents. Changing what a page declares without re-deriving what it fetches leaves the page reaching for the wrong file.
+
+## `bundle` — make a page travel
+
+Walks the idea graph from the page's tokens, resolves the closure, and writes a **self-contained directory** — the page with every definition it needs inlined, in dependency order, referencing nothing.
+
+**Bundling is a publish step, not a render step.** A wired page already renders. The bundle makes it correct from any directory, correct in an email, correct with scripting off, correct when the library it came from is gone.
+
+**A bigger library does not make a bigger bundle.** Naming more places to find definitions changes what *resolves*; it never changes what travels. The closure is the entry's, and pointing the walk at a whole library gives the same page with fewer gaps in it.
+
+**It refuses rather than degrade.** A cycle, a hard finding, or a name that resolves to nothing stops it. An unresolved reference is reported, never silently dropped. Refusing is not the default everywhere, though — some of what it finds it reports and carries on past, and the flag help says which.
+
+**Never hand-edit a bundled page.** Re-bundling an unchanged page reproduces its own bytes; re-bundling one that was edited by hand **refuses**, because it cannot tell your edit from corruption. Edit the source and bundle again. That refusal is the guard that makes the output trustworthy — and it is the one arm of the check that proves the other means anything.
+
+## `lint` — check the format before you rely on it
+
+Checks idea-HTML against the format. Findings come in two tiers: hard ones refuse, soft ones report.
+
+🔴 **A green run is not integrity. It grades what is PRESENT.** Delete an entire idea and the run still comes back clean, because nothing absent can be graded. **Never quote an exit code alone — quote the count of ideas graded beside it**, and compare that count against what you expected to be there.
+
+**What you pass it changes the verdict, not just the report.** A page graded alone and the same page graded alongside the library that defines its ideas are two different questions, and they can disagree — the first asks whether the file stands on its own, the second whether it resolves at all. Neither is stricter. Decide which one you are asking before you quote the result.
+
+**And it grades one layer.** It reads the declaration layer. It does not read the rendered result, and it does not know whether a page looks right. A page can satisfy every check and render wrong, and that has happened here repeatedly. **Looking at the page is a separate instrument, and there is no substitute for it.**
+
+## `view` — ask what an entry can reach
+
+Resolves an entry point and prints the vocabulary it reaches: the ideas, what each declares, the contract clauses each carries, and what the closure offers that the page has not used.
+
+**The reachable set is bounded by the entry, and that is the point.** There is no global catalogue, by design. If something you need is not reachable, that is information — either the entry is wrong, or the thing needs to be made.
+
+**Pointing it at more does not make it show more.** The documents you name are places to *look*, not things to display: the entry's own tokens decide which names get looked up, so a whole library resolves the same handful of names a single file would, and the rest are reported as out of reach. **This verb never answers "what does the library hold."** That is a different question, and nothing here answers it — which is the same design as the paragraph above, seen from the other side.
+
+**Ask it for markup rather than writing markup.** It prints the specimen each idea carries in its own definition. Paste that; never retype from memory.
+
+**Read the clauses before placing a block, not after the render looks wrong.** An idea's clauses are the contract you agree to by using it — including what it excludes, which is the half that catches authors.
+
+## `assemble` — carry a library's sources to its delivered copies
+
+The one sanctioned writer of a library's delivered documents. To a composing agent every delivered document is **read-only**; this is the verb that changes them.
+
+**If a library has no delivery step, it does not need this verb.** A library whose sources *are* its documents resolves to itself.
+
+## `publish` — move a directory to a target, versioned
+
+Moves a built directory somewhere, versioned. It never parses HTML.
+
+---
+
+## The seam, and why the verbs stay separate
+
+**`bundle` produces a directory; `publish` moves one. Neither knows about the other.** `publish` never parses HTML, `bundle` never uploads. The handoff is the directory.
+
+That separation is the pattern the whole CLI follows: each verb answers one question, and they compose through artifacts rather than through knowledge of each other. A verb that reached into another's job would need to agree with it forever, and the agreement would live nowhere.
+
+---
+
+## Choosing
+
+*   **Starting a page** — `generate` from the kind. Not a copy of another page.
+*   **A page that will not render** — check that it is wired before suspecting its content. Unstyled almost always means unwired.
+*   **A page that must leave this machine** — `bundle`. Anything else takes its library along, or fails without it.
+*   **A page you are still writing** — leave it wired. Bundling is a round trip you do not need yet.
+*   **Before trusting any of it** — `lint` for the format, and then **open the page and look at it.** They check different things, and only one of them has ever caught a page that was not rendering at all.

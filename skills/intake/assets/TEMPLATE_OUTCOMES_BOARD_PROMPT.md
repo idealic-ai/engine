@@ -1,8 +1,8 @@
 # Outcomes Board Handoff Prompt — scaffold
 
-The orchestrator fills this to dispatch the **Outcomes Board** render subagent at wave **Close** (Phase 7), after dispositions are confirmed. The board is a **static, faithful RECORD of what the wave actually did** — the actions-taken proof. No widgets (nothing left to collect; the decisions are made). It reuses `/prove`'s render discipline (real content, self-contained, honest scope block) and publishes to S3.
+The orchestrator fills this to dispatch the **Outcomes Board** render subagent in the **Final Sync** block of **Phase 9: Synthesis**, after dispositions are confirmed. The board is a **static, faithful RECORD of what the wave actually did** — the actions-taken proof. No widgets (nothing left to collect; the decisions are made). It reuses `/prove`'s render discipline (real content, self-contained, honest scope block) and publishes to S3.
 
-It is the second half of the wave's two-board arc: the interactive **Decision Board** (Phase 5) is where the wave decides; the **Outcomes Board** (Phase 7) is where the wave records. It is the "final actions-taken proof" the wave's Project Update / Slack announce links at close (`§PASS_HEARTBEAT` event 2).
+It is the second half of the wave's two-board arc: the interactive **Decision Board** (Phase 5) is where the wave decides; the **Outcomes Board** (Phase 9) is where the wave records. It is the "final actions-taken proof" the wave's Project Update / Slack announce links at close (`§PASS_HEARTBEAT` event 2).
 
 **Repeatability = this handoff pins WHAT to record; the agent is free in HOW** (`¶INV_BOARD_HANDOFF_IS_FIXED_PRESENTATION_IS_FREE`). Content is never compressed away — the full working doc + triage reports travel + pointers (`¶INV_HANDOFF_STRUCTURED_NOT_LOSSY`).
 

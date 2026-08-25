@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "$doc": "Machine-readable section schema for the intake container family. INTAKE_SYSTEM.md is the human explanation; THIS FILE is authoritative. Consumed by `engine project lint` via lint-lib.sh.",
+  "$derivation": [
+    "There is deliberately NO bad-heading -> destination map in this file, and none belongs here.",
+    "A heading found on a container that does not name it is looked up across the OTHER containers'",
+    "section lists. If a sibling container names it, the finding writes itself: 'belongs in <that container>'.",
+    "That is why `belongsIn` is DERIVED. Adding a section to one container automatically teaches every",
+    "other container's linter that the heading does not belong there — no second edit, no drift.",
+    "A heading no container names suggests NOTHING ('not named by any container'). There is no fuzzy",
+    "fallback and no nearest-name guess: the check states facts about this schema, never opinions about intent.",
+    "If you are about to add a `canonicalize` / `movedTo` / `knownBadHeadings` table here: STOP. That table",
+    "existed, was rejected, and was replaced by the cross-container lookup precisely because it rots.",
+    "NORMALIZATION IS GENERIC; ALIASING IS CURATION. Heading lookup case-folds and collapses whitespace,",
+    "so `Data Handling` resolves to `Data handling` for free — that is a rule holding for every heading",
+    "forever, stored nowhere. A rename alias (`aka`) is a maintained fact about ONE heading's history, and",
+    "one entry is all it takes to restart the table this schema refuses to carry. Normalization: yes.",
+    "Aliases: no. A heading whose words genuinely changed reports `not named by any container`, which is",
+    "the truth about this schema, and the truth is what this file is for."
+  ],
+  "$fields": {
+    "heading": "The `## ` text that identifies the section. null = the section is not heading-delimited (see `locator`). Matched case-insensitively with whitespace collapsed; there is no alias list (see $derivation).",
+    "locator": "How a headingless section is located: `preamble` (text before the first `## `) or `match` (a line matching `match`).",
+    "minLines": "For locator=preamble: how many non-empty preamble lines this section requires.",
+    "freeform": "This section absorbs `## ` headings that NO container names — the project's own prose voice (INTAKE_SYSTEM.md item 2). Absorbed headings are silent in advisory mode and surface as a non-blocking `warn` under --strict. They are never a `fail`: the wave's pre-write gate must not refuse a description whose prose headings are already live and correct.",
+    "required": "Absent -> a finding. Severity is `fail` for required sections; everything else is advisory.",
+    "perProject": "Exempt from peerCompare. The section is SUPPOSED to diverge across peers.",
+    "peerCompare": "`same` = 5 independent products, so identical text is the smell. `differ` = 5 hand-synced copies of one document, so divergence is the smell. `none` = no peer axis.",
+    "sharedTextAllowlist": "Section ids whose text is identical across peers BY CONSTRUCTION (peerCompare=same only)."
+  },
+
+  "scope": {
+    "projects": [
+      { "name": "Product: Claims & Policies",    "handbookSlug": "313413476400" },
+      { "name": "Product: Document Extraction",  "handbookSlug": "99082b673fbd" },
+      { "name": "Product: Email Classification", "handbookSlug": "e92601c17dde" },
+      { "name": "Product: Differ",               "handbookSlug": "2f42ecf566ae" },
+      { "name": "Product: Intake System",        "handbookSlug": "28d8ea1b998f" }
+    ]
+  },
+
+  "containers": {
+    "description": {
+      "peerCompare": "same",
+      "sections": [
+        { "id": "lead",    "heading": null, "locator": "preamble", "minLines": 1, "required": true },
+        { "id": "prose",   "heading": null, "locator": "preamble", "minLines": 2, "required": true, "freeform": true },
+        { "id": "kb",      "heading": "Knowledge base" },
+        { "id": "steer",   "heading": "Directions" },
+        { "id": "people",  "heading": "Stakeholders" },
+        { "id": "pointer", "heading": null, "locator": "match", "match": "^> 📘 \\[", "required": true }
+      ],
+      "sharedTextAllowlist": ["pointer", "people"]
+    },
+
+    "handbook": {
+      "peerCompare": "differ",
+      "sections": [
+        { "id": "dropping",   "heading": "Dropping something",           "required": true },
+        { "id": "channels",   "heading": "The channels",                 "required": true },
+        { "id": "template",   "heading": "📋 Report template",           "required": true },
+        { "id": "next",       "heading": "What happens next",            "required": true },
+        { "id": "becomes",    "heading": "How a comment becomes a ticket", "required": true },
+        { "id": "data",       "heading": "Data handling" },
+        { "id": "recipe",     "heading": "What triage will chase",       "required": true, "perProject": true },
+        { "id": "why",        "heading": "Why it works this way" },
+        { "id": "problemmap", "heading": "The problem map" },
+        { "id": "memory",     "heading": "Research memory" },
+        { "id": "rules",      "heading": "The four operating rules" },
+        { "id": "notdo",      "heading": "What this does *not* do" },
+        { "id": "ticketing",  "heading": "Ticketing Strategy",           "required": true, "perProject": true },
+        { "id": "lifecycle",  "heading": "The lifecycle — bounded waves" },
+        { "id": "cadence",    "heading": "Cadence and the pass heartbeat" },
+        { "id": "inboxes",    "heading": "The intake projects", "perProject": true },
+        { "id": "slack",      "heading": "Related Slack Channels",       "perProject": true }
+      ]
+    },
+
+    "channel": {
+      "peerCompare": "none",
+      "sections": [
+        { "id": "lead",    "heading": null, "locator": "preamble", "minLines": 1, "required": true },
+        { "id": "steer",   "heading": "Directions" },
+        { "id": "pointer", "heading": null, "locator": "match", "match": "^> 📘 \\[",
+          "$why": "NOT required. The handbook is per PROJECT and is reached from the project sidebar; the per-channel pointer has zero machine consumers (/intake fetches the handbook by slugId, never via a channel). It is declared so a channel that carries one is not flagged as un-schema'd — never so its absence fails. Ruled 2026-08-17 after this rule failed 9 channels created in one batch: nine independent omissions of one rule is evidence the rule is not real, not evidence of nine mistakes." }
+      ]
+    }
+  }
+}
