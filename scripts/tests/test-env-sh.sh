@@ -2888,4 +2888,89 @@ else
 fi
 
 
+# ══ 50. a degraded MCP row is never cached (the 5-minute phantom FAIL) ════════
+#
+# `engine env doctor` FAILed linear-server while linear-server was authenticated. The
+# cache held the reason, verbatim:
+#     linear-server: … (HTTP) - ! Connected · tools fetch failed — Request timed out
+# The server never lost consent — only the TOOLS fetch timed out. The cache-write guard
+# tested `[ -n "$MCP_LIST_OUT" ]`, so that well-formed line counted as a successful probe
+# and was served as fact for the full TTL, long after the server recovered. The comment
+# above the guard already promised "only a SUCCESSFUL probe is cached"; the code tested
+# something else. These cases pin the promise instead of the prose.
+#
+# ⚠️ ENV_MCP_LIST_OUTPUT returns BEFORE the cache block, so the seam cannot reach this
+# code at all. Every case here goes through a stub `claude` on PATH — the real path.
+echo "Test 50: a degraded MCP row is never cached"
+CASE_MC="$WORK/mcpcache"; mkcase "$CASE_MC"
+MCBIN="$WORK/mcpbin"; mkdir -p "$MCBIN"
+MCCACHE="$WORK/mcpcachehome"
+
+# stub_mcp OUTPUT — a `claude` whose `mcp list` prints exactly OUTPUT.
+stub_mcp() {
+  printf '%s\n' '#!/bin/bash' 'if [ "${1:-}" = "mcp" ]; then cat "$0.out"; fi' > "$MCBIN/claude"
+  chmod +x "$MCBIN/claude"
+  printf '%s' "$1" > "$MCBIN/claude.out"
+}
+# mcdoc — doctor through the stub, with a private cache home. ENV_MCP_LIST_OUTPUT is
+# UNSET so the real probe+cache path runs.
+mcdoc() {
+  ( cd "$CASE_MC" && env -u ENV_MCP_LIST_OUTPUT PATH="$MCBIN:$PATH" \
+      XDG_CACHE_HOME="$MCCACHE" ENV_MANIFEST="$MCP_MF" "$ENV_SH" doctor 2>&1 | strip )
+}
+mccache_files() { ls "$MCCACHE/engine"/mcp-probe-* 2>/dev/null; }
+
+DEGRADED=$'Checking MCP server health…\n\nlinear-server: https://mcp.linear.app/mcp (HTTP) - ! Connected \xc2\xb7 tools fetch failed — Request timed out\nnotion: x - ✔ Connected'
+HEALTHY=$'Checking MCP server health…\n\nlinear-server: https://mcp.linear.app/mcp (HTTP) - ✔ Connected\nnotion: x - ✔ Connected'
+
+# (a) THE BUG. A degraded row must leave NO cache entry behind.
+/bin/rm -rf "$MCCACHE"; stub_mcp "$DEGRADED"
+MC_A=$(mcdoc)
+if [ -z "$(mccache_files)" ]; then
+  pass "a probe carrying a degraded row writes no cache entry"
+else
+  fail "degraded not cached" "no mcp-probe-* file" "$(mccache_files) :: $(cat $(mccache_files) 2>/dev/null)"
+fi
+
+# (b) …and the very next run therefore sees the RECOVERED server, not the stale verdict.
+#     Before the fix this second run PASSED nothing: it read the cache and FAILed again.
+stub_mcp "$HEALTHY"
+MC_B=$(mcdoc)
+if printf '%s' "$MC_B" | grep -qE 'PASS +linear-server'; then
+  pass "recovery is visible on the next run, not after the TTL expires"
+else
+  fail "recovery visible" "PASS linear-server" "$(printf '%s' "$MC_B" | grep -i linear)"
+fi
+
+# (c) an ALL-HEALTHY probe is still cached — the fix must not disable the cache, which
+#     is the only reason the doctor is runnable at skill startup at all.
+if [ -n "$(mccache_files)" ]; then
+  pass "an all-healthy probe is still cached"
+else
+  fail "healthy cached" "an mcp-probe-* file" "none"
+fi
+
+# (d) a poisoned entry written by an OLDER build is dropped on read, not served. The fix
+#     heals the caches it inherits instead of making the operator wait out their TTL.
+POISON="$(mccache_files | head -1)"
+printf '%s' "$DEGRADED" > "$POISON"
+stub_mcp "$HEALTHY"
+MC_D=$(mcdoc)
+if printf '%s' "$MC_D" | grep -qE 'PASS +linear-server'; then
+  pass "an inherited poisoned cache entry is dropped, not served"
+else
+  fail "poison dropped" "PASS linear-server" "$(printf '%s' "$MC_D" | grep -i linear)"
+fi
+
+# (e) ONE definition of unhealthy. The verdict and the cache guard read the same
+#     pattern, so they cannot drift into disagreeing about what healthy means.
+if grep -q 'MCP_UNHEALTHY_RE=' "$ENV_SRC" \
+   && [ "$(grep -c 'grep -qiE "\$MCP_UNHEALTHY_RE"' "$ENV_SRC")" -ge 2 ]; then
+  pass "the verdict and the cache guard share one unhealthy-row pattern"
+else
+  fail "one pattern" "MCP_UNHEALTHY_RE defined once, read by both" \
+       "$(grep -n 'MCP_UNHEALTHY_RE' "$ENV_SRC")"
+fi
+
+
 exit_with_results

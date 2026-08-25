@@ -241,7 +241,7 @@ key_present() {
       [ -z "$server_line" ] && return 2
       # An explicit unhealthy state is a real miss (req → FAIL). Check it BEFORE the
       # connected match so "not connected"/"disconnected" don't slip through.
-      printf '%s' "$server_line" | grep -qiE 'need.? auth|authenticat|not connected|disconnect|fail|error|unreachable|timed? ?out' && return 1
+      printf '%s' "$server_line" | grep -qiE "$MCP_UNHEALTHY_RE" && return 1
       printf '%s' "$server_line" | grep -qi 'connected' && return 0
       return 2 ;;
     note)   return 0 ;;
@@ -261,6 +261,9 @@ key_present() {
 #
 # ⚠️ The budget is PER SERVER, not one shared bound: 5 servers cost ~7.5s warm, so a
 # single 15s cap is ~2x the real cost and collapses as the server count grows.
+# The row-level "explicitly unhealthy" pattern. ONE definition, read by the verdict AND
+# by the cache guard below, so the two can never disagree about what healthy means.
+MCP_UNHEALTHY_RE='need.? auth|authenticat|not connected|disconnect|fail|error|unreachable|timed? ?out'
 MCP_PROBE_CAUSE=""
 MCP_SECONDS_PER_SERVER=8
 MCP_LIST_OUT=""
@@ -268,6 +271,18 @@ MCP_UNBOUNDED=""
 MCP_CACHE_AGE=""
 _MCP_PROBED=""
 _MCP_FS=$'\037'
+
+# Cacheable ⇔ EVERY row is healthy. Non-empty output is a different fact: `claude mcp
+# list` reports a per-row degradation — a tools-fetch timeout on an otherwise-connected
+# server — in a perfectly well-formed line, and remembering that for the whole TTL keeps
+# the doctor FAILing long after the server recovered. An unhealthy state is also the one
+# state that changes the moment the operator goes and fixes it, so it must never be
+# remembered; paying the live probe until it is green is the point.
+mcp_output_cacheable() {
+  [ -n "$1" ] || return 1
+  printf '%s' "$1" | grep -qiE "$MCP_UNHEALTHY_RE" && return 1
+  return 0
+}
 
 # ⚠️ Sets GLOBALS and prints nothing. It used to print, and the caller captured it with
 # `$(mcp_list_output)` — a SUBSHELL, so every cause it recorded was discarded on the way
@@ -302,9 +317,12 @@ mcp_list_output() {
   # startup. MCP auth state changes only when someone completes an OAuth consent, so it
   # is worth remembering for a short while.
   #
-  # ⚠️ Only a SUCCESSFUL probe is cached. Remembering a timeout would make one transient
-  # hiccup stick for the whole TTL, and the doctor treats unverifiable as failing — so a
-  # cached failure would block a wave that is actually fine.
+  # ⚠️ Only an ALL-HEALTHY probe is cached (`mcp_output_cacheable`). Remembering a
+  # timeout would make one transient hiccup stick for the whole TTL, and the doctor
+  # treats unverifiable as failing — so a cached failure would block a wave that is
+  # actually fine. "The command printed something" is NOT that guarantee: it is what
+  # this guard used to test, and a `Connected · tools fetch failed` row rode straight
+  # through it into a five-minute FAIL.
   local cache_ttl="${ENV_MCP_CACHE_TTL:-300}" cache_file="" cache_age=""
   if [ "$cache_ttl" -gt 0 ] 2>/dev/null; then
     local akey
@@ -323,17 +341,20 @@ mcp_list_output() {
     cache_age=$(( now - mtime ))
     if [ "$cache_age" -ge 0 ] && [ "$cache_age" -lt "$cache_ttl" ]; then
       MCP_LIST_OUT="$(cat "$cache_file" 2>/dev/null)"
-      if [ -n "$MCP_LIST_OUT" ]; then
+      if mcp_output_cacheable "$MCP_LIST_OUT"; then
         MCP_CACHE_AGE="$cache_age"
         return 0
       fi
+      # Written by an older build that cached on non-emptiness alone. Drop it and probe
+      # live, so the fix heals the caches it inherits instead of waiting out their TTL.
+      MCP_LIST_OUT=""; rm -f "$cache_file" 2>/dev/null || true
     fi
   fi
 
   MCP_LIST_OUT="$(cd "$anchor" 2>/dev/null && $t claude mcp list 2>/dev/null)"; rc=$?
   if [ "$rc" -ne 0 ] && [ -n "$t" ]; then MCP_PROBE_CAUSE="timed-out"; MCP_LIST_OUT=""; return 0; fi
   [ -z "$MCP_LIST_OUT" ] && MCP_PROBE_CAUSE="empty"
-  if [ -n "$MCP_LIST_OUT" ] && [ -n "$cache_file" ]; then
+  if [ -n "$cache_file" ] && mcp_output_cacheable "$MCP_LIST_OUT"; then
     ( umask 077; printf '%s' "$MCP_LIST_OUT" > "$cache_file" ) 2>/dev/null || true
   fi
   return 0
