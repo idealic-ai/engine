@@ -1,6 +1,5 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 import fg from "fast-glob";
 import { initDb, saveDb, queryAll, queryOne } from "./db.js";
@@ -10,17 +9,7 @@ import { reconcileChunks, type IndexReport } from "./indexer.js";
 import { searchDocs, groupResultsByFile, type QueryFilters } from "./query.js";
 import { parseTimeArg, toUnixMs } from "../../shared/parse-time-arg.js";
 import { acquireLock, releaseLock } from "./lock.js";
-
-const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
-
-function getDbPath(): string {
-  const sessionsDir = path.join(getProjectRoot(), "sessions");
-  if (fs.existsSync(sessionsDir)) {
-    return path.join(sessionsDir, ".doc-search.db");
-  }
-  // Fallback to tool dir if sessions/ doesn't exist
-  return path.join(TOOL_DIR, "..", ".doc-search.db");
-}
+import { getDbPath, getProjectRoot } from "./db-path.js";
 
 const DB_PATH = getDbPath();
 const DEFAULT_DOCS_GLOBS = [
@@ -28,40 +17,6 @@ const DEFAULT_DOCS_GLOBS = [
   "{apps,packages}/*/docs/**/*.md",
 ];
 
-/**
- * Find the project root by looking for .claude directory.
- * Falls back to git root, then cwd.
- *
- * Priority:
- * 1. Directory containing .claude/ (Claude Code project marker)
- * 2. Git repository root
- * 3. Current working directory
- */
-function getProjectRoot(): string {
-  // 1. Walk up looking for .claude directory
-  let dir = process.cwd();
-  const root = path.parse(dir).root;
-  while (dir !== root) {
-    if (fs.existsSync(path.join(dir, ".claude"))) {
-      return dir;
-    }
-    dir = path.dirname(dir);
-  }
-
-  // 2. Fall back to git root
-  try {
-    const gitRoot = execSync("git rev-parse --show-toplevel", {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-    if (gitRoot) return gitRoot;
-  } catch {
-    // Not a git repo
-  }
-
-  // 3. Fall back to cwd
-  return process.cwd();
-}
 
 /**
  * Get the project name from the project root.

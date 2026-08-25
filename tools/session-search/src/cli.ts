@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { initDb, saveDb } from "./db.js";
-import { parseChunks, parseStateJsonChunks } from "./chunker.js";
+import { parseChunks } from "./chunker.js";
 import { scanMarkdownFiles, scanStateFiles, extractSessionPath } from "./scanner.js";
 import { createEmbeddingClient } from "./embed.js";
 import { reconcileChunks, type IndexReport } from "./indexer.js";
@@ -11,24 +11,10 @@ import {
   type QueryFilters,
 } from "./query.js";
 import { parseTimeArg, toISOString } from "../../shared/parse-time-arg.js";
+import { extractResultNamespace, resolveDbPath } from "./db-path.js";
 
 const WORKSPACE = process.env.WORKSPACE;
 const SESSIONS_DIR = WORKSPACE ? path.join(WORKSPACE, "sessions") : "sessions";
-const DB_FILENAME = ".session-search.db";
-
-/**
- * Extract the user namespace from a resolved Google Drive sessions path.
- * e.g., ".../Shared drives/finch-os/yarik/finch/sessions" -> "yarik/finch/sessions"
- * Falls back to "sessions" if the path isn't on Google Drive.
- */
-function extractNamespace(resolvedPath: string): string {
-  const marker = "finch-os/";
-  const idx = resolvedPath.indexOf(marker);
-  if (idx !== -1) {
-    return resolvedPath.slice(idx + marker.length);
-  }
-  return "sessions";
-}
 
 function usage(): void {
   console.log(`session-search — semantic search over session history
@@ -75,10 +61,6 @@ function resolveSessionsDir(customPath?: string): string {
   return resolved;
 }
 
-function resolveDbPath(sessionsDir: string): string {
-  return path.join(sessionsDir, DB_FILENAME);
-}
-
 async function runIndex(targetPath?: string): Promise<void> {
   const sessionsDir = resolveSessionsDir(targetPath);
   const dbPath = resolveDbPath(sessionsDir);
@@ -91,7 +73,7 @@ async function runIndex(targetPath?: string): Promise<void> {
   console.log(`Found ${files.length} markdown files`);
 
   // 2. Parse all markdown files into chunks, with namespace prefix for multi-user support
-  const namespace = extractNamespace(sessionsDir);
+  const namespace = extractResultNamespace(sessionsDir);
   const allChunks = [];
   for (const relativeFile of files) {
     const absolutePath = path.join(sessionsDir, relativeFile);
@@ -103,42 +85,35 @@ async function runIndex(targetPath?: string): Promise<void> {
     allChunks.push(...chunks);
   }
 
-  // 2b. Scan for .state.json files — extract timestamps and parse metadata into chunks
+  // 2b. Scan .state.json files for session TIMESTAMPS ONLY.
+  //
+  // Their contents are deliberately not indexed as searchable chunks. A state
+  // file is machine bookkeeping — pids, phase arrays, preloaded-file lists — so
+  // the chunks it produced were low-value near-duplicates that crowded result
+  // sets while inflating the database (every query loads the whole image, so
+  // index size is query latency). Timestamps still come from here because
+  // markdown chunks carry no session dates of their own.
   const stateFiles = scanStateFiles(sessionsDir);
-  console.log(`Found ${stateFiles.length} .state.json files`);
+  console.log(`Found ${stateFiles.length} .state.json files (timestamps only)`);
 
   // Build a map of sessionPath → timestamps for propagation to markdown chunks
   const sessionTimestamps = new Map<string, { startedAt?: string; completedAt?: string }>();
 
   for (const relativeFile of stateFiles) {
     const absolutePath = path.join(sessionsDir, relativeFile);
-    const rawSessionPath = extractSessionPath(relativeFile);
-    const sessionPath = `${namespace}/${rawSessionPath}`;
-    const filePath = `${namespace}/${relativeFile}`;
-    const chunks = parseStateJsonChunks(absolutePath, sessionPath, filePath);
-    allChunks.push(...chunks);
-
-    // Extract timestamps from the first chunk (all chunks from same .state.json share timestamps)
-    if (chunks.length > 0) {
-      sessionTimestamps.set(sessionPath, {
-        startedAt: chunks[0].sessionStartedAt,
-        completedAt: chunks[0].sessionCompletedAt,
-      });
-    } else {
-      // Even if no searchable chunks, try to read timestamps directly
-      try {
-        const raw = fs.readFileSync(absolutePath, "utf-8");
-        const data = JSON.parse(raw) as Record<string, unknown>;
-        const startedAt = typeof data.startedAt === "string" ? data.startedAt : undefined;
-        const completedAt =
-          typeof data.completedAt === "string" ? data.completedAt :
-          (typeof data.deactivatedAt === "string" ? data.deactivatedAt : undefined);
-        if (startedAt || completedAt) {
-          sessionTimestamps.set(sessionPath, { startedAt, completedAt });
-        }
-      } catch {
-        // Skip unreadable state files
+    const sessionPath = `${namespace}/${extractSessionPath(relativeFile)}`;
+    try {
+      const raw = fs.readFileSync(absolutePath, "utf-8");
+      const data = JSON.parse(raw) as Record<string, unknown>;
+      const startedAt = typeof data.startedAt === "string" ? data.startedAt : undefined;
+      const completedAt =
+        typeof data.completedAt === "string" ? data.completedAt :
+        (typeof data.deactivatedAt === "string" ? data.deactivatedAt : undefined);
+      if (startedAt || completedAt) {
+        sessionTimestamps.set(sessionPath, { startedAt, completedAt });
       }
+    } catch {
+      // Skip unreadable state files
     }
   }
 
@@ -158,7 +133,7 @@ async function runIndex(targetPath?: string): Promise<void> {
     return;
   }
 
-  console.log(`Parsed ${allChunks.length} total chunks from ${files.length} markdown files and ${stateFiles.length} state files`);
+  console.log(`Parsed ${allChunks.length} chunks from ${files.length} markdown files (${stateFiles.length} state files contributed timestamps only)`);
 
   // 3. Initialize DB and embedder
   const db = await initDb(dbPath);

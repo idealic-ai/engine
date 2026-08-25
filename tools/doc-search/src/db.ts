@@ -115,7 +115,20 @@ export function saveDb(db: Database, dbPath: string): void {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  fs.writeFileSync(dbPath, buffer);
+  // Write-then-rename, not a direct write. This serialises the WHOLE image, so
+  // an interrupt mid-write — Ctrl-C, sleep, ENOSPC, the backgrounded `index &`
+  // being reaped at shell exit — would otherwise leave a truncated file with a
+  // VALID SQLite header that every later run rejects as "database disk image is
+  // malformed". rename(2) is atomic within a filesystem, so a reader sees either
+  // the old image or the new one, never a partial.
+  const tmpPath = `${dbPath}.${process.pid}.tmp`;
+  try {
+    fs.writeFileSync(tmpPath, buffer);
+    fs.renameSync(tmpPath, dbPath);
+  } catch (err) {
+    try { fs.unlinkSync(tmpPath); } catch { /* nothing to clean up */ }
+    throw err;
+  }
 }
 
 /**
