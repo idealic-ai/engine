@@ -1251,6 +1251,8 @@ engine env setup
 \`\`\`
 The first command checks the key works, installs it, and deletes the file. The second fetches the rest, including your app password — you will never need to type one.
 
+*If it says* \`Unknown command 'env'\`*:* your engine is in **local mode**, so it is running your own copy from install day and Drive updates never reach it — Drive will happily say \"Up to date\" the whole time. Run \`engine remote\` first (\`engine status\` shows which mode you are in), then the two commands above.
+
 Then check it: \`engine env doctor --domain intake\`${doc:+
 
 Full guide: ${doc}}
