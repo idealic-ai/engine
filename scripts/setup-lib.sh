@@ -470,17 +470,22 @@ configure_hooks() {
     # UserPromptSubmit: working spinner, session-gate, per-prompt state injection,
     # freeform-chat dialogue logging.
     | .hooks.UserPromptSubmit = ((.hooks.UserPromptSubmit // [])
+      # Raise the ceiling on an install that already has these entries. add_if_missing
+      # matches on command alone, so an existing hook keeps whatever timeout it was
+      # first written with; without this rewrite only fresh installs get the new value.
+      | map(if ((.hooks[0].command // "") | test("user-prompt-(submit-session-gate|state-injector|submit-freeform-chat)[.]sh$"))
+            then (.hooks[0].timeout = 60) else . end)
       | add_if_missing({
           "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-working.sh"}]
         })
       | add_if_missing({
-          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-session-gate.sh", "timeout": 20}]
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-session-gate.sh", "timeout": 60}]
         })
       | add_if_missing({
-          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-state-injector.sh", "timeout": 20}]
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-state-injector.sh", "timeout": 60}]
         })
       | add_if_missing({
-          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-freeform-chat.sh", "timeout": 20}]
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-freeform-chat.sh", "timeout": 60}]
         })
     )
 
