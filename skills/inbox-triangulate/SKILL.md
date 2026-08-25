@@ -34,6 +34,14 @@ Invoke when the item is heading for **a ticket, a decision, or a claim in a Proj
 
 ## 1. Inputs — everything `/inbox-triage` takes, plus the angles
 
+**Preflight ONCE, here, before anything is dispatched:**
+
+```
+engine env doctor --domain intake --tier triage
+```
+
+**A non-zero exit is a STOP.** Fix what it names and re-run. Each angle gates on the same check when it starts, so a broken environment would be caught anyway — but it would be caught *twice, in parallel, after the spend*. Triangulation is measured at ~2× a single triage; discovering a missing credential from inside two sub-agents is the most expensive possible moment to learn it. Report the KEY the doctor names, never a capability (`¶INV_UNAVAILABLE_IS_A_CLAIM`).
+
 Assemble once; both runs receive the same pack:
 
 *   **The origin signal in full — INCLUDING THE THREAD'S REPLIES**, not just the comment body. Screenshots and attachments too. **An origin comment's replies are part of the signal, not commentary on it**: prior triage results, corrections and the reporter's own follow-ups live there, and passing in the body alone silently withholds the most-processed evidence available. *Learned expensively — a ticket was filed asserting something had never been investigated, four days after a reply on that exact thread said it had, and gave the answer.*

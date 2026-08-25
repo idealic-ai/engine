@@ -46,7 +46,21 @@ The handoff prompt (scaffold: `/intake`'s `assets/TEMPLATE_HANDOFF_PROMPT.md`) �
 
 Honor them: when the Directions and the generic recipe below disagree, follow the Directions and record which line you followed. When the Directions ask for something you could not get, say so explicitly in the Boundary rather than silently substituting the default. No Directions present → the recipe below is the default, unchanged.
 
-## Reaching the product — resolve this before the recipe
+## Credential preflight — run this FIRST, and stop on a miss
+
+```
+engine env doctor --domain intake --tier triage
+```
+
+**A non-zero exit is a STOP.** Fix what it names and re-run; do not begin investigating. `--tier triage` evaluates only the rows a triage run needs, at the severity declared for triage — so a missing Slack token or an unauthenticated Notion MCP will not stop you, and a missing app login or read-only database credential will. Under `/intake` the wave has already gated at its Phase 0, and running it again costs a second and proves it for the run that is actually about to happen.
+
+**Say the KEY, never a capability.** `¶INV_UNAVAILABLE_IS_A_CLAIM` forbids concluding a *capability* is gone from a diagnostic signal — a WARN on `AWS_PROFILE` once became *"no database"*, and the tunnel opened in twenty seconds. This gate asserts something different in kind: a named credential is absent, checked directly. So report *"`FINCH_AGENT_APP_PASSWORD` did not resolve — run `engine env setup --domain intake`"*, never *"the UI angle is unavailable"*. The first is a fact you verified; the second is an inference this protocol does not let you draw.
+
+**Resolve secrets through the resolver, never a literal**: `engine env resolve <KEY> --show-value`. You never type or paste a credential, and one that does not resolve means an unprovisioned environment — say so plainly rather than asking anyone to send you one. The KEY NAMES come from the project's access directive below; the mechanism is the engine's.
+
+**A `SEAM-INFLUENCED` run is not a verification.** Test seams (`ENV_MANIFEST`, `ENV_MCP_LIST_OUTPUT`, `ENV_STS_ARN`, …) were set, so the green says nothing about the real setup — re-run with them unset.
+
+## Reaching the product — resolve this after the preflight
 
 This skill names **no product**. Everything concrete — which hosts to open, how to sign in, how to reach a read-only database, which URL patterns build a deep link, which UI quirks will mislead you — comes from the project, in this order:
 
