@@ -14,7 +14,7 @@
 #     §CMD_ESCAPE_TAG_REFERENCES — Escaping protocol for tag references
 #
 # Tag pattern: #word-word (kebab-case with at least one hyphen)
-# Examples matched: #needs-review, #done-delegation, #active-alert, #current-debrief
+# Examples matched: #needs-review, #done-delegation, #current-debrief
 # Examples NOT matched: #123 (issue numbers), #hashtag (single word)
 
 set -euo pipefail

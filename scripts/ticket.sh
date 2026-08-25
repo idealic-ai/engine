@@ -405,7 +405,7 @@ cmd_watch() {
 
 # Root issues query filtered to an id-set of tickets (vs project.sh's project-scoped _q_issues).
 _q_tickets() {
-  cat <<'GQL'
+  cat <<'GQL' | _sub_comment_fields
 query($filter: IssueFilter, $after: String) {
   issues(first: 25, after: $after, orderBy: createdAt, filter: $filter) {
     pageInfo { hasNextPage endCursor }
@@ -415,7 +415,7 @@ query($filter: IssueFilter, $after: String) {
       projectMilestone { name }
       comments(first: 40) {
         pageInfo { hasNextPage endCursor }
-        nodes { id body createdAt quotedText parent { id } user { name } botActor { name } reactions { emoji createdAt user { name } externalUser { name } } }
+        nodes { @COMMENT_FIELDS@ }
       }
       history(first: 20) {
         pageInfo { hasNextPage endCursor }

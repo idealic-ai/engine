@@ -810,18 +810,6 @@ case "$ACTION" in
         TASK_SUMMARY=$(echo "$STDIN_JSON" | jq -r '.taskSummary // empty')
       fi
 
-      # SRC_ACTIVE_ALERTS (thematic via session-search)
-      echo ""
-      echo "## SRC_ACTIVE_ALERTS"
-      if [ -n "$TASK_SUMMARY" ]; then
-        SURFACE_ALERTS=$("$SESSION_SEARCH" query "$TASK_SUMMARY" --tag '#active-alert' --limit 10 2>/dev/null || true)
-      fi
-      if [ -n "${SURFACE_ALERTS:-}" ]; then
-        echo "$SURFACE_ALERTS"
-      else
-        echo "(none)"
-      fi
-
       # SRC_OPEN_DELEGATIONS (scan for #next-* tags in current session)
       echo ""
       echo "## SRC_OPEN_DELEGATIONS"
@@ -2005,15 +1993,6 @@ case "$ACTION" in
       echo "- Continuations: sessions that continue this work"
       echo "- Derived work: sessions spawned from this session's findings"
       echo "- Delegations: request/response relationships"
-      echo ""
-    fi
-
-    # --- STATIC: §CMD_MANAGE_ALERTS ---
-    if echo "$CMD_FIELDS" | grep -q "§CMD_MANAGE_ALERTS"; then
-      echo "## §CMD_MANAGE_ALERTS"
-      echo "Check whether to raise or resolve alerts based on session work."
-      echo "- Raise: Ongoing issues that future sessions need to know about"
-      echo "- Resolve: Previously raised alerts that this session addressed"
       echo ""
     fi
 

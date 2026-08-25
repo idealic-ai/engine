@@ -732,6 +732,13 @@ evaluate_rules() {
 
       whitelist_arr=$(echo "$rule" | jq '.whitelist // []')
 
+      # appliesTo (optional): tool names this rule fires for. null = every tool (default).
+      # Used to scope a rule to a positive tool set (e.g. heartbeat → reads only), which,
+      # unlike the bypass whitelist, keeps non-listed tools unblocked by default — so writes
+      # and every present/future MCP tool are structurally never blocked.
+      local applies_to_arr
+      applies_to_arr=$(echo "$rule" | jq '.appliesTo // null')
+
       local entry
       entry=$(jq -n \
         --arg ruleId "$rule_id" \
@@ -740,8 +747,9 @@ evaluate_rules() {
         --argjson priority "$priority" \
         --argjson payload "$payload" \
         --argjson whitelist "$whitelist_arr" \
+        --argjson appliesTo "$applies_to_arr" \
         --arg evaluatedAt "$(timestamp)" \
-        '{ruleId: $ruleId, mode: $mode, urgency: $urgency, priority: $priority, payload: $payload, whitelist: $whitelist, evaluatedAt: $evaluatedAt}')
+        '{ruleId: $ruleId, mode: $mode, urgency: $urgency, priority: $priority, payload: $payload, whitelist: $whitelist, appliesTo: $appliesTo, evaluatedAt: $evaluatedAt}')
 
       new_pending=$(echo "$new_pending" | jq --argjson entry "$entry" '. + [$entry]')
     fi
@@ -1261,6 +1269,16 @@ preload_ensure() {
 #   SKILL.md: allows FMT/INV refs but skips CMD refs (preserves lazy per-phase loading).
 _auto_expand_refs() {
   local file="$1" state_file="$2" source="${3:-}"
+  # Re-entrancy guard (fail-safe): expand each file at most once per hook
+  # process. A §-reference cycle among not-yet-delivered ("next") files would
+  # otherwise recurse forever here (preload_ensure <-> _auto_expand_refs): the
+  # queue path records to .pendingPreloads while the visited-set only checks
+  # .preloadedFiles, so a cycle is never detected. Bounds recursion to the
+  # count of distinct files. §PTF_PRELOAD_EXPAND_CYCLE
+  case "${_EXPANDED_REFS:-}" in
+    *"|${file}|"*) return 0 ;;
+  esac
+  _EXPANDED_REFS="${_EXPANDED_REFS:-}|${file}|"
   local resolved="${file/#\~/$HOME}"
   [ -f "$resolved" ] || return 0
 

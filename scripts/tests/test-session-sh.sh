@@ -314,6 +314,95 @@ test_activate_same_pid_new_skill() {
   teardown
 }
 
+test_activate_idle_same_skill_preserves_phase() {
+  local test_name="activate: idle→active with SAME skill preserves currentPhase + phaseHistory"
+  setup
+
+  create_mock_skill "resume-skill" '{
+    "taskType": "RESUME_TYPE",
+    "phases": [{"label":"1","name":"Setup"},{"label":"2","name":"Build"},{"label":"3","name":"Execution"}],
+    "nextSkills": ["/test"]
+  }'
+
+  local dir="$TEST_DIR/sessions/IDLE_SAME_SKILL"
+  mkdir -p "$dir"
+  cat > "$dir/.state.json" <<'STATE'
+{
+  "pid": null,
+  "skill": "resume-skill",
+  "lifecycle": "idle",
+  "loading": false,
+  "overflowed": false,
+  "killRequested": false,
+  "phases": [{"label":"1","name":"Setup"},{"label":"2","name":"Build"},{"label":"3","name":"Execution"}],
+  "currentPhase": "3: Execution",
+  "phaseHistory": ["1: Setup", "2: Build"]
+}
+STATE
+
+  export CLAUDE_SUPERVISOR_PID=$$
+  "$SESSION_SH" activate "$dir" resume-skill < /dev/null > /dev/null 2>&1
+
+  local sf="$dir/.state.json"
+  local phase history_len
+  phase=$(jq -r '.currentPhase' "$sf")
+  history_len=$(jq -r '.phaseHistory | length' "$sf" 2>/dev/null || echo "null")
+
+  if [ "$phase" = "3: Execution" ] && [ "$history_len" = "2" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "currentPhase='3: Execution', phaseHistory length=2 (preserved)" \
+      "currentPhase=$phase, phaseHistory length=$history_len"
+  fi
+
+  teardown
+}
+
+test_activate_idle_new_skill_wipes_phase() {
+  local test_name="activate: idle→active with DIFFERENT skill still wipes phase state"
+  setup
+
+  create_mock_skill "fresh-skill" '{
+    "taskType": "FRESH_TYPE",
+    "phases": [{"label":"0","name":"Setup"}],
+    "nextSkills": ["/fix"]
+  }'
+
+  local dir="$TEST_DIR/sessions/IDLE_NEW_SKILL"
+  mkdir -p "$dir"
+  cat > "$dir/.state.json" <<'STATE'
+{
+  "pid": null,
+  "skill": "stale-skill",
+  "lifecycle": "idle",
+  "loading": false,
+  "overflowed": false,
+  "killRequested": false,
+  "phases": [{"label":"1","name":"Setup"},{"label":"2","name":"Build"}],
+  "currentPhase": "2: Build",
+  "phaseHistory": ["1: Setup"]
+}
+STATE
+
+  export CLAUDE_SUPERVISOR_PID=$$
+  "$SESSION_SH" activate "$dir" fresh-skill < /dev/null > /dev/null 2>&1
+
+  local sf="$dir/.state.json"
+  local phase history_len
+  phase=$(jq -r '.currentPhase' "$sf")
+  history_len=$(jq -r '.phaseHistory | length' "$sf" 2>/dev/null || echo "null")
+
+  # Genuine skill change → phase state reset to the new skill's first phase, history cleared
+  if [ "$phase" = "0: Setup" ] && [ "$history_len" = "0" ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "currentPhase='0: Setup', phaseHistory length=0 (wiped)" \
+      "currentPhase=$phase, phaseHistory length=$history_len"
+  fi
+
+  teardown
+}
+
 test_activate_resets_overflow_flags() {
   local test_name="activate: clears killRequested and overflowed on re-activation"
   setup
@@ -3048,7 +3137,7 @@ test_debrief_reads_steps_and_commands_arrays() {
     "phases": [
       {
         "major": 4, "minor": 3, "name": "Pipeline",
-        "proof": ["§CMD_MANAGE_ALERTS"],
+        "proof": ["§CMD_MANAGE_BACKLINKS"],
         "steps": ["§CMD_MANAGE_DIRECTIVES"],
         "commands": ["§CMD_REPORT_LEFTOVER_WORK"]
       }
@@ -3061,7 +3150,7 @@ test_debrief_reads_steps_and_commands_arrays() {
   output=$("$SESSION_SH" debrief "$DIR" 2>&1) || true
 
   # All 3 commands should appear in output — proving all 3 arrays are read
-  assert_contains "§CMD_MANAGE_ALERTS" "$output" "$test_name — proof[] command found"
+  assert_contains "§CMD_MANAGE_BACKLINKS" "$output" "$test_name — proof[] command found"
   assert_contains "§CMD_MANAGE_DIRECTIVES" "$output" "$test_name — steps[] command found"
   assert_contains "§CMD_REPORT_LEFTOVER_WORK" "$output" "$test_name — commands[] command found"
 
@@ -3108,7 +3197,7 @@ test_debrief_empty_proof_still_finds_steps() {
       {
         "major": 4, "minor": 3, "name": "Pipeline",
         "proof": [],
-        "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"],
+        "steps": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_BACKLINKS", "§CMD_REPORT_LEFTOVER_WORK"],
         "commands": []
       }
     ]
@@ -3213,6 +3302,8 @@ main() {
   echo "--- Activate: Same PID Re-activation ---"
   test_activate_same_pid_same_skill
   test_activate_same_pid_new_skill
+  test_activate_idle_same_skill_preserves_phase
+  test_activate_idle_new_skill_wipes_phase
   test_activate_resets_overflow_flags
 
   echo ""

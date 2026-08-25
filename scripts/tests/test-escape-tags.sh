@@ -9,7 +9,7 @@ ERRORS=""
 
 # Extract escape_tags function from the hook
 escape_tags() {
-  perl -pe 's/(?<!`)#((?:needs|delegated|next|claimed|done)-\w+|active-alert)(?![\w-])(?!`)/`#$1`/g'
+  perl -pe 's/(?<!`)#((?:needs|delegated|next|claimed|done)-\w+)(?![\w-])(?!`)/`#$1`/g'
 }
 
 assert_eq() {
@@ -36,14 +36,12 @@ assert_eq "delegated-implementation" '`#delegated-implementation`' "$(printf '#d
 assert_eq "next-brainstorm" '`#next-brainstorm`' "$(printf '#next-brainstorm' | escape_tags)"
 assert_eq "claimed-fix" '`#claimed-fix`' "$(printf '#claimed-fix' | escape_tags)"
 assert_eq "done-documentation" '`#done-documentation`' "$(printf '#done-documentation' | escape_tags)"
-assert_eq "active-alert" '`#active-alert`' "$(printf '#active-alert' | escape_tags)"
 
 # --- Case 2: Already-backticked tags are NOT double-escaped ---
 echo ""
 echo "Case 2: No double-escaping"
 assert_eq "backticked needs-review" '`#needs-review`' "$(printf '`#needs-review`' | escape_tags)"
 assert_eq "backticked delegated-X" '`#delegated-chores`' "$(printf '`#delegated-chores`' | escape_tags)"
-assert_eq "backticked active-alert" '`#active-alert`' "$(printf '`#active-alert`' | escape_tags)"
 
 # --- Case 3: Multiple tags in one line ---
 echo ""
@@ -74,7 +72,7 @@ assert_eq "tag at end of line" 'apply `#needs-review`' "$(printf 'apply #needs-r
 assert_eq "empty string" '' "$(printf '' | escape_tags)"
 assert_eq "no tags" 'hello world' "$(printf 'hello world' | escape_tags)"
 assert_eq "tag with hyphenated suffix" '`#needs-brainstorm`' "$(printf '#needs-brainstorm' | escape_tags)"
-assert_eq "done-alert covered by done-*" '`#done-alert`' "$(printf '#done-alert' | escape_tags)"
+assert_eq "done-delegation covered by done-*" '`#done-delegation`' "$(printf '#done-delegation' | escape_tags)"
 
 # --- Summary ---
 echo ""

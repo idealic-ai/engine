@@ -185,12 +185,13 @@ OUT=$(run_hook_sub "agentA" "Bash" '{"command":"echo hi"}')
 assert_eq "allow" "$(decision_of "$OUT")" "S5: sub-agent not overflow-blocked at 0.80"
 
 # ============================================================
-# S6 (regression): PARENT still heartbeat-blocked at count 10+
+# S6 (regression): PARENT still heartbeat-blocked at count 10+ (on a read — the block
+# is scoped to reads; Bash is exempt, so this must use a blockable read tool).
 # ============================================================
 reset_state
 set_state '.toolCallsByTranscript["test.jsonl"] = 10'
-OUT=$(run_hook "Bash" '{"command":"echo hi"}')
-assert_eq "deny" "$(decision_of "$OUT")" "S6: parent STILL heartbeat-blocked at count 10+"
+OUT=$(run_hook "Read" '{"file_path":"/some/file.ts"}')
+assert_eq "deny" "$(decision_of "$OUT")" "S6: parent STILL heartbeat-blocked at count 10+ (on a read)"
 
 # ============================================================
 # S7 (regression): PARENT still read-throttled/overflow at high context

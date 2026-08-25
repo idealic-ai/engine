@@ -64,13 +64,21 @@ COUNT=$(jq -s '[.[].hooks.PreToolUse[]?] | map(select(.hooks[0].command|test("ov
 assert_eq "1" "$COUNT" "HLS-05: overflow-v2 present exactly once across merged settings"
 teardown
 
-# HLS-06: SessionStart is wired as 24 chunk-emitter commands (truncation workaround)
+# SessionStart is wired as N chunk-emitter commands (the stdout-truncation
+# workaround). N is read from setup-lib.sh rather than hardcoded here: it is a
+# tuning number that has already been raised once, and a literal copy of it in
+# this file silently goes stale the next time it moves — asserting the WIRING is
+# self-consistent catches real breakage, asserting a magic number catches a bump.
+CHUNK_N=$(grep -oE 'session-start-chunk\.sh \\\(\.\) [0-9]+' "$SCRIPT_DIR/../setup-lib.sh" | grep -oE '[0-9]+$' | head -1)
+
+# HLS-06: SessionStart is wired as CHUNK_N chunk-emitter commands
 setup
 echo '{}' > "$TEST_DIR/settings.local.json"
 configure_hooks "$TEST_DIR/settings.local.json"
-assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart[0].hooks | length' "24" "HLS-06: SessionStart has 24 chunk commands"
-assert_contains "session-start-chunk.sh 0 24" "$(cat "$TEST_DIR/settings.local.json")" "HLS-06b: first chunk command present"
-assert_contains "session-start-chunk.sh 23 24" "$(cat "$TEST_DIR/settings.local.json")" "HLS-06c: last chunk command present"
+assert_not_empty "$CHUNK_N" "HLS-06pre: chunk count readable from setup-lib.sh"
+assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart[0].hooks | length' "$CHUNK_N" "HLS-06: SessionStart has \$CHUNK_N chunk commands"
+assert_contains "session-start-chunk.sh 0 $CHUNK_N" "$(cat "$TEST_DIR/settings.local.json")" "HLS-06b: first chunk command present"
+assert_contains "session-start-chunk.sh $((CHUNK_N - 1)) $CHUNK_N" "$(cat "$TEST_DIR/settings.local.json")" "HLS-06c: last chunk command present"
 teardown
 
 # HLS-07: legacy single session-start-restore.sh entry is migrated to chunks
@@ -80,17 +88,17 @@ cat > "$TEST_DIR/settings.local.json" <<'JSON'
 JSON
 configure_hooks "$TEST_DIR/settings.local.json"
 assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart | length' "1" "HLS-07: one SessionStart entry after migration"
-assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart[0].hooks | length' "24" "HLS-07b: legacy restore hook replaced by 24 chunks"
+assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart[0].hooks | length' "$CHUNK_N" "HLS-07b: legacy restore hook replaced by the chunk block"
 assert_json "$TEST_DIR/settings.local.json" '[.hooks.SessionStart[].hooks[].command | select(test("restore"))] | length' "0" "HLS-07c: no session-start-restore.sh left"
 teardown
 
-# HLS-08: SessionStart wiring is idempotent (re-run keeps one entry, 24 chunks)
+# HLS-08: SessionStart wiring is idempotent (re-run keeps one entry, one chunk block)
 setup
 echo '{}' > "$TEST_DIR/settings.local.json"
 configure_hooks "$TEST_DIR/settings.local.json"
 configure_hooks "$TEST_DIR/settings.local.json"
 assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart | length' "1" "HLS-08: still one SessionStart entry after re-run"
-assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart[0].hooks | length' "24" "HLS-08b: still 24 chunks after re-run"
+assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart[0].hooks | length' "$CHUNK_N" "HLS-08b: still one chunk block after re-run"
 teardown
 
 exit_with_results

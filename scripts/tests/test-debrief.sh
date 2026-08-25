@@ -34,7 +34,7 @@ create_state_with_cmd_proof() {
     {"major": 5, "minor": 0, "name": "Synthesis"},
     {"major": 5, "minor": 1, "name": "Checklists", "proof": ["§CMD_PROCESS_CHECKLISTS"]},
     {"major": 5, "minor": 2, "name": "Debrief", "proof": ["§CMD_GENERATE_DEBRIEF_file", "§CMD_GENERATE_DEBRIEF_tags"]},
-    {"major": 5, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_ALERTS", "§CMD_REPORT_LEFTOVER_WORK"]},
+    {"major": 5, "minor": 3, "name": "Pipeline", "proof": ["§CMD_MANAGE_DIRECTIVES", "§CMD_PROCESS_DELEGATIONS", "§CMD_DISPATCH_APPROVAL", "§CMD_CAPTURE_SIDE_DISCOVERIES", "§CMD_MANAGE_BACKLINKS", "§CMD_REPORT_LEFTOVER_WORK"]},
     {"major": 5, "minor": 4, "name": "Close", "proof": ["§CMD_REPORT_ARTIFACTS", "§CMD_REPORT_SUMMARY"]}
   ],
   "phaseHistory": ["$current_phase"]
@@ -119,7 +119,7 @@ OUTPUT=$("$SESSION_SH" phase "$TEST_DIR" "5.4: Close" <<'EOF'
 §CMD_PROCESS_DELEGATIONS: ran: 2 bare tags processed
 §CMD_DISPATCH_APPROVAL: ran: 2 items dispatched
 §CMD_CAPTURE_SIDE_DISCOVERIES: skipped: none found
-§CMD_MANAGE_ALERTS: skipped: none needed
+§CMD_MANAGE_BACKLINKS: skipped: none needed
 §CMD_REPORT_LEFTOVER_WORK: ran: 1 item reported
 EOF
 2>&1)
@@ -169,7 +169,7 @@ assert_contains "§CMD_PROCESS_DELEGATIONS" "$DEBRIEF_OUTPUT" "debrief outputs d
 assert_contains "§CMD_CAPTURE_SIDE_DISCOVERIES" "$DEBRIEF_OUTPUT" "debrief outputs discoveries section"
 assert_contains "§CMD_REPORT_LEFTOVER_WORK" "$DEBRIEF_OUTPUT" "debrief outputs leftover section"
 assert_contains "§CMD_MANAGE_DIRECTIVES" "$DEBRIEF_OUTPUT" "debrief outputs directives section"
-assert_contains "§CMD_MANAGE_ALERTS" "$DEBRIEF_OUTPUT" "debrief outputs alerts section"
+assert_contains "§CMD_MANAGE_BACKLINKS" "$DEBRIEF_OUTPUT" "debrief outputs backlinks section"
 
 # Test: Minimal skill (brainstorm-like) — only declared sections appear
 create_state_minimal_proof "4: Synthesis"
@@ -178,7 +178,7 @@ assert_contains "§CMD_PROCESS_DELEGATIONS" "$DEBRIEF_OUTPUT" "minimal: delegati
 assert_not_contains "§CMD_CAPTURE_SIDE_DISCOVERIES" "$DEBRIEF_OUTPUT" "minimal: discoveries absent (not declared)"
 assert_not_contains "§CMD_REPORT_LEFTOVER_WORK" "$DEBRIEF_OUTPUT" "minimal: leftover absent (not declared)"
 assert_not_contains "§CMD_DISPATCH_APPROVAL" "$DEBRIEF_OUTPUT" "minimal: dispatch absent (not declared)"
-assert_not_contains "§CMD_MANAGE_ALERTS" "$DEBRIEF_OUTPUT" "minimal: alerts absent (not declared)"
+assert_not_contains "§CMD_MANAGE_BACKLINKS" "$DEBRIEF_OUTPUT" "minimal: backlinks absent (not declared)"
 
 # Test: No synthesis sub-phases — debrief outputs nothing (or minimal)
 create_state_no_proof
@@ -328,7 +328,7 @@ LOGEOF
 
 DEBRIEF_OUTPUT=$("$SESSION_SH" debrief "$TEST_DIR" 2>&1)
 assert_contains "§CMD_MANAGE_DIRECTIVES" "$DEBRIEF_OUTPUT" "static: directives always shown"
-assert_contains "§CMD_MANAGE_ALERTS" "$DEBRIEF_OUTPUT" "static: alerts always shown"
+assert_contains "§CMD_MANAGE_BACKLINKS" "$DEBRIEF_OUTPUT" "static: backlinks always shown"
 assert_contains "§CMD_DISPATCH_APPROVAL" "$DEBRIEF_OUTPUT" "dependent: dispatch shown when delegations > 0"
 
 # Without delegation results — dispatch should NOT appear
@@ -393,7 +393,7 @@ assert_contains "§CMD_PROCESS_DELEGATIONS" "$DEBRIEF_OUTPUT" "integration: has 
 assert_contains "§CMD_CAPTURE_SIDE_DISCOVERIES" "$DEBRIEF_OUTPUT" "integration: has discoveries"
 assert_contains "§CMD_REPORT_LEFTOVER_WORK" "$DEBRIEF_OUTPUT" "integration: has leftover"
 assert_contains "§CMD_MANAGE_DIRECTIVES" "$DEBRIEF_OUTPUT" "integration: has directives"
-assert_contains "§CMD_MANAGE_ALERTS" "$DEBRIEF_OUTPUT" "integration: has alerts"
+assert_contains "§CMD_MANAGE_BACKLINKS" "$DEBRIEF_OUTPUT" "integration: has backlinks"
 
 echo ""
 
@@ -517,7 +517,7 @@ OUTPUT=$("$SESSION_SH" phase "$TEST_DIR" "5.4: Close" <<'EOF'
 §CMD_PROCESS_DELEGATIONS: ran: 1 item
 §CMD_DISPATCH_APPROVAL: skipped
 §CMD_CAPTURE_SIDE_DISCOVERIES: skipped
-§CMD_MANAGE_ALERTS: skipped
+§CMD_MANAGE_BACKLINKS: skipped
 §CMD_REPORT_LEFTOVER_WORK: skipped
 §CMD_MANAGE_DIRECTIVES: second value (overwrites first)
 EOF

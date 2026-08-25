@@ -302,28 +302,10 @@ run_hook "TaskOutput" '{"task_id":"abc123","block":true}' > /dev/null
 COUNTER=$(jq -r --arg key "$TKEY" '.toolCallsByTranscript[$key] // 0' "$TEST_SESSION/.state.json")
 assert_eq "0" "$COUNTER" "C16: TaskOutput does not increment counter"
 
-# ============================================================
-# C17: Subagent not blocked at heartbeat threshold
-# ============================================================
-reset_state
-TKEY=$(basename "$TRANSCRIPT_PATH")
-SUBAGENT_TKEY="subagent_transcript.jsonl"
-SUBAGENT_TRANSCRIPT_PATH="/tmp/$SUBAGENT_TKEY"
-# Establish parent's primary transcript key by making a parent call first
-run_hook "Grep" '{"pattern":"test"}' > /dev/null
-# Now set subagent counter to 9 so next call triggers heartbeat-block (gte:10)
-jq --arg key "$SUBAGENT_TKEY" '.toolCallsByTranscript[$key] = 9' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
-  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
-
-# Subagent uses a DIFFERENT transcript path → detected as subagent
-OUTPUT=$(printf '{"tool_name":"Grep","tool_input":{"pattern":"test"},"session_id":"test","transcript_path":"%s"}\n' \
-  "$SUBAGENT_TRANSCRIPT_PATH" | "$RESOLVED_HOOK" 2>/dev/null)
-DECISION=$(echo "$OUTPUT" | jq -r '.hookSpecificOutput.permissionDecision // ""' 2>/dev/null || echo "")
-if [ "$DECISION" = "deny" ]; then
-  fail "C17: subagent should NOT be blocked by heartbeat (got deny)"
-else
-  pass "C17: subagent not blocked at heartbeat threshold (downgraded to allow)"
-fi
+# C17 removed: it asserted that a sub-agent is NOT heartbeat-blocked, a requirement
+# the design reversed — sub-agents get their own budget and ARE blocked against it,
+# which is what makes them log. The canonical assertion now lives in
+# test-overflow-v2-subagent.sh S3/S3b. C18 below stays as the parent-side control.
 
 # ============================================================
 # C18: Parent IS blocked at same threshold (control test)
@@ -343,23 +325,88 @@ assert_eq "deny" "$DECISION" "C18: parent IS blocked at heartbeat threshold (con
 # ============================================================
 # C19: Subagent counter does NOT overwrite global toolCallsSinceLastLog
 # ============================================================
+# A sub-agent fires this hook under the PARENT's transcript_path, so a different
+# transcript path does NOT identify one — `agent_id` is the discriminator, and
+# sub-agent state is namespaced `sub:<agent_id>`.
 reset_state
 TKEY=$(basename "$TRANSCRIPT_PATH")
-SUBAGENT_TKEY="subagent_transcript.jsonl"
-SUBAGENT_TRANSCRIPT_PATH="/tmp/$SUBAGENT_TKEY"
+SUBAGENT_ID="agentC19"
+SUBAGENT_KEY="sub:$SUBAGENT_ID"
 # Establish parent's primary key + set counter
 run_hook "Grep" '{"pattern":"test"}' > /dev/null
 jq --arg key "$TKEY" '.toolCallsByTranscript[$key] = 2 | .toolCallsSinceLastLog = 2' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
   && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
 
 # Subagent makes a call — should NOT overwrite toolCallsSinceLastLog
-printf '{"tool_name":"Grep","tool_input":{"pattern":"test"},"session_id":"test","transcript_path":"%s"}\n' \
-  "$SUBAGENT_TRANSCRIPT_PATH" | "$RESOLVED_HOOK" 2>/dev/null > /dev/null
+printf '{"tool_name":"Grep","tool_input":{"pattern":"test"},"session_id":"test","transcript_path":"%s","agent_id":"%s"}\n' \
+  "$TRANSCRIPT_PATH" "$SUBAGENT_ID" | "$RESOLVED_HOOK" 2>/dev/null > /dev/null
 
 GLOBAL_COUNTER=$(jq -r '.toolCallsSinceLastLog // 0' "$TEST_SESSION/.state.json")
-SUBAGENT_COUNTER=$(jq -r --arg key "$SUBAGENT_TKEY" '.toolCallsByTranscript[$key] // 0' "$TEST_SESSION/.state.json")
+SUBAGENT_COUNTER=$(jq -r --arg key "$SUBAGENT_KEY" '.toolCallsByTranscript[$key] // 0' "$TEST_SESSION/.state.json")
 assert_eq "2" "$GLOBAL_COUNTER" "C19: global counter preserved (subagent did not overwrite)"
 assert_eq "1" "$SUBAGENT_COUNTER" "C19: subagent per-transcript counter incremented"
+
+# ============================================================
+# C19b: A SECOND PARENT transcript does not clobber the global either
+# ============================================================
+# Distinct from C19: no agent_id, so this is a parent — a restart or a second
+# instance against the same session dir. 68/598 real sessions carry two-plus
+# parent keys, so this is common, not exotic. Writing the global from a
+# non-primary transcript REWINDS the primary's displayed count.
+# Enforcement reads toolCallsByTranscript, so this is display-correctness only.
+reset_state
+TKEY=$(basename "$TRANSCRIPT_PATH")
+SECOND_TKEY="second_parent_transcript.jsonl"
+run_hook "Grep" '{"pattern":"test"}' > /dev/null   # stamps primaryTranscriptKey
+jq --arg key "$TKEY" '.toolCallsByTranscript[$key] = 9 | .toolCallsSinceLastLog = 9' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+
+printf '{"tool_name":"Grep","tool_input":{"pattern":"test"},"session_id":"test","transcript_path":"%s"}\n' \
+  "/tmp/$SECOND_TKEY" | "$RESOLVED_HOOK" 2>/dev/null > /dev/null
+
+GLOBAL_AFTER=$(jq -r '.toolCallsSinceLastLog // 0' "$TEST_SESSION/.state.json")
+SECOND_COUNTER=$(jq -r --arg key "$SECOND_TKEY" '.toolCallsByTranscript[$key] // 0' "$TEST_SESSION/.state.json")
+PRIMARY_STILL=$(jq -r '.primaryTranscriptKey // ""' "$TEST_SESSION/.state.json")
+assert_eq "9" "$GLOBAL_AFTER" "C19b: secondary parent transcript does not rewind the global"
+assert_eq "1" "$SECOND_COUNTER" "C19b: secondary parent still advances its own counter"
+assert_eq "$TKEY" "$PRIMARY_STILL" "C19b: primaryTranscriptKey unchanged by the secondary"
+
+# ============================================================
+# C20: heartbeat block-scope — the block fires ONLY on read tools (Read/Grep/Glob).
+# Writes, Bash, and every MCP tool are NEVER blocked, even far past the threshold.
+# (appliesTo:["Read","Grep","Glob"] on heartbeat-block — robust where a bypass whitelist
+# can't be: the matcher can't glob tool names, so mcp__* is uncoverable by whitelist.)
+# ============================================================
+_dec() { echo "$1" | jq -r '.hookSpecificOutput.permissionDecision // "allow"' 2>/dev/null || echo "allow"; }
+C20_TKEY=$(basename "$TRANSCRIPT_PATH")
+set_count_high() {
+  reset_state
+  jq --arg k "$C20_TKEY" '.toolCallsByTranscript[$k] = 15' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+    && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+}
+
+set_count_high; assert_eq "deny"  "$(_dec "$(run_hook "Read"  '{"file_path":"/x/f.ts"}')")"                       "C20a: Read IS blocked past threshold"
+set_count_high; assert_eq "deny"  "$(_dec "$(run_hook "Grep"  '{"pattern":"x"}')")"                               "C20b: Grep IS blocked past threshold"
+set_count_high; assert_eq "deny"  "$(_dec "$(run_hook "Glob"  '{"pattern":"*.ts"}')")"                            "C20c: Glob IS blocked past threshold"
+set_count_high; assert_eq "allow" "$(_dec "$(run_hook "Bash"  '{"command":"echo hi"}')")"                         "C20d: Bash is NEVER blocked (exempt — can be a write)"
+set_count_high; assert_eq "allow" "$(_dec "$(run_hook "Write" '{"file_path":"/x/f.ts","content":"c"}')")"         "C20e: Write is NEVER blocked"
+set_count_high; assert_eq "allow" "$(_dec "$(run_hook "Edit"  '{"file_path":"/x/f.ts","old_string":"a","new_string":"b"}')")" "C20f: Edit is NEVER blocked"
+set_count_high; assert_eq "allow" "$(_dec "$(run_hook "mcp__github__get_me" '{}')")"                              "C20g: MCP tool is NEVER blocked (whitelist can't glob mcp__*; block-scope handles it)"
+
+# ============================================================
+# C21: the warn nudge (count 3) is scoped to reads too — no nudge on a write, nudge on a read.
+# ============================================================
+reset_state
+jq --arg k "$C20_TKEY" '.toolCallsByTranscript[$k] = 2 | .pendingAllowInjections = []' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+run_hook "Write" '{"file_path":"/x/f.ts","content":"c"}' > /dev/null
+assert_eq "" "$(jq -r '[.pendingAllowInjections[]? | select(.ruleId=="heartbeat-warn")] | (.[0].ruleId // "")' "$TEST_SESSION/.state.json" 2>/dev/null || echo "")" "C21a: no heartbeat-warn nudge on a Write (warn scoped to reads)"
+
+reset_state
+jq --arg k "$C20_TKEY" '.toolCallsByTranscript[$k] = 2 | .pendingAllowInjections = []' "$TEST_SESSION/.state.json" > "$TEST_SESSION/.state.json.tmp" \
+  && mv "$TEST_SESSION/.state.json.tmp" "$TEST_SESSION/.state.json"
+run_hook "Grep" '{"pattern":"x"}' > /dev/null
+assert_eq "heartbeat-warn" "$(jq -r '[.pendingAllowInjections[]? | select(.ruleId=="heartbeat-warn")] | (.[0].ruleId // "")' "$TEST_SESSION/.state.json" 2>/dev/null || echo "")" "C21b: warn DOES nudge on a Grep read (control)"
 
 # ============================================================
 # Results

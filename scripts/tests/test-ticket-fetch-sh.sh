@@ -13,7 +13,7 @@ write_fixtures() {
 {"data":{"issues":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
   {"id":"i1","identifier":"FIN-100","title":"First","url":"u1","createdAt":"2026-07-25T00:00:00Z","updatedAt":"2026-07-29T00:00:00Z","priority":2,"state":{"name":"Todo"},"projectMilestone":null,
    "comments":{"pageInfo":{"hasNextPage":false,"endCursor":null},"nodes":[
-     {"id":"c1","body":"root","createdAt":"2026-07-28T00:00:00Z","quotedText":null,"parent":null,"user":{"name":"Yarik"},"botActor":null,"reactions":[{"emoji":"👀","createdAt":"2026-07-28T00:05:00Z","user":null,"externalUser":{"name":"Codex"}}]},
+     {"id":"c1","body":"root","createdAt":"2026-07-28T00:00:00Z","quotedText":null,"resolvedAt":"2026-07-28T06:00:00Z","resolvingUser":{"name":"Rob"},"parent":null,"user":{"name":"Yarik"},"botActor":null,"reactions":[{"emoji":"👀","createdAt":"2026-07-28T00:05:00Z","user":null,"externalUser":{"name":"Codex"}}]},
      {"id":"c2","body":"reply","createdAt":"2026-07-28T01:00:00Z","quotedText":null,"parent":{"id":"c1"},"user":{"name":"Alice"},"botActor":null,"reactions":[]},
      {"id":"c0","body":"OLD","createdAt":"2026-07-10T00:00:00Z","quotedText":null,"parent":null,"user":{"name":"Old"},"botActor":null,"reactions":[]}
    ]},
@@ -132,6 +132,19 @@ test_ticket_fetch_rejects_bad_key() {
   assert_neq "0" "$rc" "invalid key rejected"
   "$TICKET" fetch >/dev/null 2>&1; rc=$?
   assert_neq "0" "$rc" "no keys → non-zero"
+}
+
+test_ticket_fetch_comment_resolution() {
+  # ticket.sh carried its own copy of the comment selection and now renders the shared
+  # @COMMENT_FIELDS@ token, so this asserts the token actually resolved on THIS path too — an
+  # unsubstituted token would drop the field silently from the caller's point of view.
+  local out="$TMP_DIR/res.json"
+  LINEAR_FIXTURE="$FXDIR/two.json" "$TICKET" fetch FIN-100 --out="$out" >/dev/null 2>&1
+  assert_file_exists "$out" "payload written"
+  assert_json "$out" '[.tickets[0].comments | .. | objects | select(.id=="c1")][0].resolvedAt' "2026-07-28T06:00:00Z" "resolved root carries resolvedAt"
+  assert_json "$out" '[.tickets[0].comments | .. | objects | select(.id=="c1")][0].resolvedBy' "Rob" "resolved root carries the resolver name"
+  assert_json "$out" '[.tickets[0].comments | .. | objects | select(.id=="c2")][0].resolvedAt' "null" "unresolved reply → resolvedAt null"
+  assert_json "$out" '[.tickets[].comments | .. | objects | select(has("body"))] | all(has("resolvedAt"))' "true" "every comment carries a resolvedAt key"
 }
 
 test_ticket_fetch_multi_team_grouping() {

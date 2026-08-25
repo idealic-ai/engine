@@ -183,8 +183,8 @@ echo "Case 8: Activate with --fast-track succeeds"
 assert_contains "activation succeeds" "Session activated" "$ACTIVATE_OUTPUT"
 
 echo ""
-echo "Case 9: Activate with --fast-track skips scans (no SRC_ACTIVE_ALERTS)"
-assert_not_contains "no alert scan" "SRC_ACTIVE_ALERTS" "$ACTIVATE_OUTPUT"
+echo "Case 9: Activate with --fast-track skips scans (no SRC_PRIOR_SESSIONS)"
+assert_not_contains "no RAG scan" "SRC_PRIOR_SESSIONS" "$ACTIVATE_OUTPUT"
 
 echo ""
 echo "Case 10: .state.json has fastTrack: true"
@@ -222,7 +222,7 @@ EOF
 
 echo ""
 echo "Case 11: Activate without --fast-track runs scans"
-assert_contains "scans run" "SRC_ACTIVE_ALERTS" "$ACTIVATE_CONTROL"
+assert_contains "scans run" "SRC_PRIOR_SESSIONS" "$ACTIVATE_CONTROL"
 
 # ============================================================
 # TEST GROUP 8: completedSkills + --fast-track bypasses gate

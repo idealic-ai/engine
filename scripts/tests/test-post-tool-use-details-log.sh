@@ -210,7 +210,7 @@ SESSION=$(setup_session)
 # Create a mock transcript file with an assistant message containing a bare tag
 TRANSCRIPT="$TEST_ROOT/transcript_$(date +%s%N).jsonl"
 cat > "$TRANSCRIPT" <<'JSONL'
-{"type":"assistant","message":{"content":[{"type":"text","text":"The #active-alert tag indicates an ongoing issue."}]}}
+{"type":"assistant","message":{"content":[{"type":"text","text":"The #needs-review tag indicates an ongoing issue."}]}}
 JSONL
 INPUT=$(cat <<JSON
 {
@@ -230,7 +230,7 @@ JSON
 )
 EXIT_CODE=$(run_hook "$INPUT")
 assert_exit_code "exits 0" "0" "$EXIT_CODE"
-assert_contains "preamble tag escaped" "$SESSION/DIALOGUE.md" '`#active-alert`'
+assert_contains "preamble tag escaped" "$SESSION/DIALOGUE.md" '`#needs-review`'
 
 # --- Case 5: Already-backticked tags NOT double-escaped ---
 echo ""
