@@ -18,7 +18,7 @@ The **entity rows, the app base and the deep-link patterns come from the project
 - **Finding**: <the answer in one line>
 - **Disposition**: <graduate → milestone | enrich (already owned) | still-needs-triage | marinate> · **Priority**: <Urgent/High/Med/Low>
 - **Confidence**: <high | med | low> — <one clause why>
-- **Data**: <which source — live primary, or a replica and how stale> · queried <YYYY-MM-DD HH:MMZ>
+- **Data**: <which source — the live primary, or a snapshot AND the snapshot's own date. "A replica" is not an answer: a snapshot does not track, so a count off one is as of when it was taken, not now> · queried <YYYY-MM-DD HH:MMZ>
 
 ## Entities (ids + reproduce links)
 Raw ids kept ALONGSIDE links so a re-analysis agent can pick them up without parsing prose.
