@@ -72,7 +72,7 @@ Duplicate definitions of a key in one file resolve **first-non-empty** (so a bla
 | `engine env setup --aws-key <path>` | installs a **delivered** agent AWS key: writes `~/.aws/credentials`, writes **no `login_session`**, verifies, then shreds the delivered file. |
 | `engine env resolve <KEY> [--show-value]` | says **where** a credential comes from. The value is printed only with `--show-value`. |
 | `engine env env-example --domain <name>` | the manifest-derived `.env.example`. |
-| `engine env provision --person <n> --tier <triage\|member>` | mints a `<n>-agent` IAM user with a policy **derived from the manifest**. **Dry-run by default**; `--apply` is required and refuses while any statement is underivable. |
+| `engine env provision --person <n> --tier <triage\|member>` | mints a `<n>-agent` IAM user with a policy **derived from the manifest**. **Dry-run by default**; `--apply` is required and refuses while any statement is underivable. Two documents: a **shared** customer-managed policy `engine-<domain>-<tier>` attached to every agent of that tier, plus a small per-user **inline** policy `engine-<domain>` holding only the secrets that name that person. |
 
 `engine intake <doctor|setup|env-example>` is **retired** — `scripts/intake.sh` is a tombstone that exits 2 and names the replacement. (`engine intake-announce` is a different, live command.)
 

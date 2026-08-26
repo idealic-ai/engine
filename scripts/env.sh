@@ -57,6 +57,13 @@
 #                                                 Derive the agent's IAM policy FROM THE
 #                                                 MANIFEST's `required` tiers and mint the
 #                                                 operator's own <name>-agent user.
+#                                                 TWO documents: a SHARED customer-managed
+#                                                 policy engine-<domain>-<tier> attached to
+#                                                 every agent of that tier, plus a small
+#                                                 per-user INLINE policy engine-<domain>
+#                                                 carrying only the secrets that name that
+#                                                 person. The shared half is what keeps a new
+#                                                 grant off the 2048-byte inline budget.
 #                                                 --reconcile compares the attached policy
 #                                                 against what the manifest now derives and
 #                                                 (with --apply) replaces it, so a grant
@@ -855,7 +862,276 @@ _arn_allowed() {
   return 1
 }
 
-# ── _provision_reconcile <user> <policy-name> <desired-policy> <apply> <account> ──
+# IAM's two document caps. The inline one is an AGGREGATE over every inline policy on the
+# user; the managed one is per document. Both are counted here on the MINIFIED document,
+# which is what gets written.
+ENV_PROVISION_INLINE_CAP=2048
+ENV_PROVISION_MANAGED_CAP=6144
+
+# ── _provision_policy_doc  <statement JSON, one per line, on stdin> ───────────
+#
+# → one policy document. MERGES unconditioned statements that share an Effect+Action
+# into one, unioning their Resources. IAM caps a document's size and the four
+# secretsmanager:GetSecretValue grants cost ~300 bytes in per-statement scaffolding
+# alone — splitting TunnelToBastion once pushed the document to 2271 and IAM refused it.
+# Semantics are identical: same Effect, same Action, no Condition on either side, so
+# unioning Resources cannot widen or narrow what is allowed.
+#
+# ⚠️ The cost is real and is NOT free: the per-grant Sids (ReadOnlyDbSecret,
+# ReadOwnAgentLogin, ReadOwnGeminiKey, ReadSharedTokens) collapse into one, so the ARNs
+# become the only record of why each secret is granted. They are self-describing enough
+# to carry that. Statements WITH a Condition are never merged.
+#
+# ⚠️ ONE function for BOTH documents. The shared managed policy and the per-person inline
+# policy are merged by the same code on purpose — two copies of this jq would drift, and
+# a drift here changes what an agent may do.
+_provision_policy_doc() {
+  local raw; raw="$(cat)"
+  jq -s '
+    [ .[] | select(has("Condition") | not) ]
+      | group_by(.Effect + "\u0000" + (.Action | sort | join(",")))
+      | map(if length == 1 then .[0]
+            else { Sid: (.[0].Sid), Effect: .[0].Effect, Action: .[0].Action,
+                   Resource: ([ .[].Resource[] ] | unique) }
+            end)
+      | . as $merged
+      | { Version:"2012-10-17",
+          Statement: ($merged + [ $ARGS.positional[0][] | select(has("Condition")) ]) }
+    ' --jsonargs "$(printf '%s\n' "$raw" | jq -sc .)" <<< "$raw"
+}
+
+# ── _provision_doc_size <document> ────────────────────────────────────────────
+# Bytes of the MINIFIED document — the form actually written to IAM. Sizing the pretty
+# form would over-report by ~530 bytes and send an operator hunting for a cap problem
+# that is entirely indentation.
+_provision_doc_size() {
+  printf '%s' "$1" | jq -c . 2>/dev/null | tr -d '\n' | wc -c | tr -d ' '
+}
+
+# ── _provision_report_size <document> <cap> <label> ───────────────────────────
+# Prints the size next to its cap and RETURNS 1 when it is over. The cap failure this
+# tool actually hit was discovered at PutUserPolicy, from an error naming neither the
+# document nor the number — so the number is printed on every dry run, before anyone
+# tries to write it.
+_provision_report_size() {
+  local doc="$1" cap="$2" label="$3" n
+  n="$(_provision_doc_size "$doc")"
+  case "$n" in ''|*[!0-9]*) printf "  ${YELLOW}size${NC}     could not measure the %s document.\n" "$label"; return 1 ;; esac
+  if [ "$n" -gt "$cap" ]; then
+    printf "  ${RED}OVER CAP${NC} %s is %s bytes minified against IAM's %s-byte cap — IAM will refuse it.\n" "$label" "$n" "$cap"
+    return 1
+  fi
+  printf "  ${GREEN}size${NC}     %s bytes minified, cap %s (%s to spare)\n" "$n" "$cap" "$((cap - n))"
+  return 0
+}
+
+# ── _provision_managed_arn <account> <policy-name> ────────────────────────────
+_provision_managed_arn() {
+  printf 'arn:aws:iam::%s:policy/%s' "$1" "$2"
+}
+
+# ── _provision_managed_sync <user> <name> <arn> <desired> <apply> <account> <domain> [confirmed] ──
+#
+# The SHARED half. One customer-managed policy per (domain, tier), attached to every agent
+# of that tier, so a new grant costs bytes ONCE instead of once per person — the 2048-byte
+# aggregate inline cap is what refused the last grant, and this is what takes the shared
+# statements out of that budget entirely.
+#
+# ⚠️ ACCOUNT-WIDE SHARED STATE, unlike an inline policy. Two people provisioning at the
+# same moment both mutate this one document. That is safe here only because the document
+# is DERIVED — same manifest, same account, same tier gives byte-identical output — so
+# concurrent writers converge rather than fight. The cost of a race is a wasted version,
+# not a wrong grant, and the skip-when-identical below means the common case writes
+# nothing at all. What a race CANNOT do is silently differ: the verify re-reads.
+#
+# ⚠️ IAM keeps at most FIVE versions of a managed policy and returns LimitExceeded on the
+# sixth. The oldest non-default versions are pruned before a new one is created, so an
+# update path that is run repeatedly does not brick itself.
+#
+# ⚠️ It does NOT detach anything, including a sibling tier's policy of its own name. Same
+# rule the inline reconciler follows: this command does not remove grants, it names the
+# command that does. A sibling left attached IS reported, and reported as drift.
+#
+# Exit: 0 in sync (or applied), 1 drifted, 2 could not run.
+_provision_managed_sync() {
+  local user="$1" name="$2" arn="$3" desired="$4" apply="$5" account="$6" domain="$7" confirmed="${8:-0}"
+  command -v aws >/dev/null 2>&1 || { echo "env provision: the aws CLI is not on PATH." >&2; return 2; }
+  command -v jq  >/dev/null 2>&1 || { echo "env provision: jq is not on PATH." >&2; return 2; }
+
+  local canon='{Version:"2012-10-17", Statement: ((.Statement // []) | sort_by(.Sid // ""))}'
+  local d_norm; d_norm="$(printf '%s' "$desired" | jq -S "$canon" 2>/dev/null)" || d_norm=""
+  [ -n "$d_norm" ] || { echo "env provision: could not read the derived shared policy." >&2; return 2; }
+
+  printf "${BOLD}=== shared policy %s ===${NC}\n" "$name"
+
+  local exists=0 default_ver="" l_norm=""
+  default_ver="$(aws iam get-policy --policy-arn "$arn" --query 'Policy.DefaultVersionId' --output text 2>/dev/null)" || default_ver=""
+  case "$default_ver" in ''|None) default_ver="" ;; *) exists=1 ;; esac
+  if [ "$exists" -eq 1 ]; then
+    # get-policy-version returns the document URL-ENCODED on some CLI/API paths and as an
+    # object on others. --output json plus a jq that accepts either keeps this from being
+    # a version-dependent coin flip.
+    l_norm="$(aws iam get-policy-version --policy-arn "$arn" --version-id "$default_ver" \
+              --query 'PolicyVersion.Document' --output json 2>/dev/null \
+              | jq -S 'if type == "string" then fromjson else . end | '"$canon" 2>/dev/null)" || l_norm=""
+  fi
+
+  local drift=0
+  if [ "$exists" -eq 0 ]; then
+    drift=1
+    printf "  ${YELLOW}absent${NC}   the shared policy does not exist yet — it would be created with %s statement(s)\n" \
+      "$(printf '%s' "$d_norm" | jq -r '.Statement | length')"
+  elif [ -z "$l_norm" ]; then
+    drift=1
+    printf "  ${YELLOW}unreadable${NC} %s exists but its default version %s could not be read — treating as drifted\n" "$name" "$default_ver"
+  elif [ "$d_norm" = "$l_norm" ]; then
+    printf "  ${GREEN}in sync${NC}  %s (version %s) already matches what the manifest derives — no new version would be created\n" "$name" "$default_ver"
+  else
+    drift=1
+    local sid d_stmt l_stmt
+    while IFS= read -r sid; do
+      [ -n "$sid" ] || continue
+      d_stmt="$(printf '%s' "$d_norm" | jq -S --arg s "$sid" '.Statement[] | select((.Sid // "") == $s)')"
+      l_stmt="$(printf '%s' "$l_norm" | jq -S --arg s "$sid" '.Statement[] | select((.Sid // "") == $s)')"
+      if   [ -z "$l_stmt" ]; then printf "  ${YELLOW}+ add${NC}     %s\n" "$sid"
+      elif [ -z "$d_stmt" ]; then printf "  ${YELLOW}- remove${NC}  %s — the manifest no longer derives it\n" "$sid"
+      elif [ "$d_stmt" != "$l_stmt" ]; then printf "  ${YELLOW}~ change${NC}  %s\n" "$sid"
+      fi
+    done < <( { printf '%s' "$d_norm" | jq -r '.Statement[].Sid // "(no Sid)"'
+                printf '%s' "$l_norm" | jq -r '.Statement[].Sid // "(no Sid)"'; } | sort -u )
+  fi
+
+  # Attachment is a separate fact from content. A policy whose document is perfect and
+  # whose attachment is missing grants nothing, and the two failures look identical from
+  # the agent's side — an AccessDenied.
+  local attached=0 sibling="" attached_names=""
+  attached_names="$(aws iam list-attached-user-policies --user-name "$user" --output json 2>/dev/null \
+                    | jq -r '(.AttachedPolicies // [])[].PolicyName' 2>/dev/null)"
+  local an
+  while IFS= read -r an; do
+    [ -n "$an" ] || continue
+    if [ "$an" = "$name" ]; then attached=1; continue; fi
+    case "$an" in
+      "engine-${domain}-"*) sibling="$sibling $an" ;;
+    esac
+  done <<< "$attached_names"
+
+  if [ "$attached" -eq 1 ]; then
+    printf "  ${GREEN}attached${NC} %s is attached to %s\n" "$name" "$user"
+  else
+    drift=1
+    printf "  ${YELLOW}detached${NC} %s is NOT attached to %s — the shared grants are not in force for them\n" "$name" "$user"
+  fi
+  if [ -n "$sibling" ]; then
+    drift=1
+    for an in $sibling; do
+      printf "  ${YELLOW}STALE${NC}    another tier's shared policy '%s' is still attached. AWS UNIONS policies, so %s keeps whatever it grants and this tier's downgrade has not happened.\n" "$an" "$an"
+      printf "           Detach it by hand:  aws iam detach-user-policy --user-name %s --policy-arn %s\n" "$user" "$(_provision_managed_arn "$account" "$an")"
+    done
+  fi
+
+  if [ "$drift" -eq 0 ]; then
+    [ "$apply" -eq 1 ] && printf "${BOLD}shared policy: nothing to apply.${NC}\n"
+    return 0
+  fi
+  if [ "$apply" -eq 0 ]; then
+    printf "${BOLD}dry-run:${NC} the shared policy was not created, changed or attached.\n"
+    return 1
+  fi
+  if [ -n "$sibling" ]; then
+    echo "env provision: refusing to apply while another tier's shared policy is attached to $user — detach it first (command above), or the tiers union and the downgrade does not happen." >&2
+    return 1
+  fi
+
+  # ⚠️ ONE GESTURE PER OPERATION, and the mint has already taken it. Asking a second time
+  # here would leave a freshly created IAM user ungranted whenever the operator hesitated
+  # over a prompt they had no reason to expect. --reconcile confirms here on its own,
+  # because there the shared write is a distinct decision with a wider blast radius than
+  # the per-user one that follows it.
+  if [ "$confirmed" -ne 1 ]; then
+    printf "${BOLD}About to write the SHARED policy %s in account %s. It is attached to EVERY %s agent, not just %s.${NC}\n" "$name" "$account" "${name##*-}" "$user"
+    printf "Type the account id to confirm: "
+    local typed=""; IFS= read -r typed || typed=""; printf "\n"
+    if [ "$typed" != "$account" ]; then
+      echo "env provision: writing the shared policy requires a typed confirmation of the account id ($account). Nothing was changed." >&2
+      return 1
+    fi
+  fi
+
+  local pfile perr rc
+  pfile="$(mktemp "${TMPDIR:-/tmp}/engine-managed-policy.XXXXXX")" || return 2
+  perr="$(mktemp "${TMPDIR:-/tmp}/engine-managed-err.XXXXXX")" || { rm -f "$pfile"; return 2; }
+  chmod 600 "$pfile" 2>/dev/null
+  printf '%s\n' "$d_norm" | jq -c . > "$pfile" 2>/dev/null || printf '%s\n' "$d_norm" > "$pfile"
+
+  if [ "$exists" -eq 0 ]; then
+    aws iam create-policy --policy-name "$name" --policy-document "file://$pfile" \
+        --description "Shared grants for engine ${domain} agents. DERIVED from the credentials manifest by 'engine env provision' — edit the manifest, not this policy." \
+        >/dev/null 2>"$perr"; rc=$?
+    if [ "$rc" -ne 0 ]; then
+      echo "env provision: could not create the shared policy $name." >&2
+      sed 's/^/       /' "$perr" >&2; rm -f "$pfile" "$perr"; return 2
+    fi
+    printf "  ${GREEN}ok${NC}    created shared policy %s\n" "$name"
+  elif [ "$d_norm" != "$l_norm" ] || [ -z "$l_norm" ]; then
+    # PRUNE BEFORE CREATING. IAM allows five versions and the create is what fails, so
+    # pruning afterwards is pruning after the error. Only non-default versions are
+    # deletable; the oldest go first.
+    local vers v
+    vers="$(aws iam list-policy-versions --policy-arn "$arn" --output json 2>/dev/null \
+            | jq -r '[(.Versions // [])[] | select(.IsDefaultVersion | not)]
+                     | sort_by(.CreateDate) | .[].VersionId' 2>/dev/null)"
+    local nver; nver="$(printf '%s\n' "$vers" | grep -c '[^[:space:]]' || true)"
+    case "$nver" in ''|*[!0-9]*) nver=0 ;; esac
+    while IFS= read -r v; do
+      [ -n "$v" ] || continue
+      [ "$nver" -lt 4 ] && break
+      if aws iam delete-policy-version --policy-arn "$arn" --version-id "$v" >/dev/null 2>&1; then
+        printf "  ${CYAN}pruned${NC}  old version %s of %s (IAM keeps five)\n" "$v" "$name"
+        nver=$((nver - 1))
+      else
+        break
+      fi
+    done <<< "$vers"
+    aws iam create-policy-version --policy-arn "$arn" --policy-document "file://$pfile" \
+        --set-as-default >/dev/null 2>"$perr"; rc=$?
+    if [ "$rc" -ne 0 ]; then
+      echo "env provision: could not update the shared policy $name. The previous version is still the default and still in force." >&2
+      sed 's/^/       /' "$perr" >&2
+      grep -qi 'LimitExceeded' "$perr" 2>/dev/null && echo "       IAM keeps five versions of a managed policy. Delete one: aws iam list-policy-versions --policy-arn $arn" >&2
+      rm -f "$pfile" "$perr"; return 2
+    fi
+    printf "  ${GREEN}ok${NC}    updated shared policy %s to a new default version\n" "$name"
+  fi
+  rm -f "$pfile" "$perr"
+
+  if [ "$attached" -eq 0 ]; then
+    if aws iam attach-user-policy --user-name "$user" --policy-arn "$arn" >/dev/null 2>&1; then
+      printf "  ${GREEN}ok${NC}    attached %s to %s\n" "$name" "$user"
+    else
+      echo "env provision: created or updated $name but could not attach it to $user. The shared grants are NOT in force for them." >&2
+      return 2
+    fi
+  fi
+
+  # Re-read rather than trust the writes. Believing an unverified apply is how the inline
+  # half previously reported a grant that was not there.
+  local after_ver after_doc after_attached
+  after_ver="$(aws iam get-policy --policy-arn "$arn" --query 'Policy.DefaultVersionId' --output text 2>/dev/null)"
+  after_doc="$(aws iam get-policy-version --policy-arn "$arn" --version-id "$after_ver" \
+               --query 'PolicyVersion.Document' --output json 2>/dev/null \
+               | jq -S 'if type == "string" then fromjson else . end | '"$canon" 2>/dev/null)"
+  after_attached="$(aws iam list-attached-user-policies --user-name "$user" --output json 2>/dev/null \
+                    | jq -r --arg n "$name" '[(.AttachedPolicies // [])[] | select(.PolicyName == $n)] | length' 2>/dev/null)"
+  if [ "$after_doc" = "$d_norm" ] && [ "${after_attached:-0}" = "1" ]; then
+    printf "  ${GREEN}ok${NC}    %s matches the manifest and is attached to %s\n" "$name" "$user"
+    return 0
+  fi
+  echo "env provision: wrote $name but re-reading it does not match the manifest, or it is not attached." >&2
+  return 2
+}
+
+# ── _provision_reconcile <user> <policy-name> <desired> <apply> <account> <owned-managed> <shared-desired> ──
 #
 # A policy minted yesterday does not shrink when a manifest row is removed — `provision`
 # only ever wrote. Reconcile closes that: it re-derives from the manifest and compares
@@ -899,7 +1175,15 @@ _iam_state_complain() {
 }
 
 _provision_reconcile() {
-  local user="$1" policy_name="$2" desired="$3" apply="$4" account="$5"
+  local user="$1" policy_name="$2" desired="$3" apply="$4" account="$5" owned_managed="${6:-}" shared_desired="${7:-}"
+  # Everything the agent will still be granted after this reconcile — the shared document
+  # AND the new inline one — flattened to comparable (action, resource, condition) triples.
+  # A Sid is a label; this is the grant. Used to tell MOVED from REMOVED below, and to
+  # answer the only question that matters: does anything in force today stop being granted.
+  local carried_pairs=""
+  carried_pairs="$(printf '%s\n%s\n' "$shared_desired" "$desired" | jq -sc '
+      [ .[] | .Statement[] | . as $s | $s.Action[] as $a | $s.Resource[] as $r
+        | {a:$a, r:$r, c:($s.Condition // null)} ] | unique' 2>/dev/null)" || carried_pairs=""
   command -v aws >/dev/null 2>&1 || { echo "env provision --reconcile: the aws CLI is not on PATH." >&2; return 2; }
   command -v jq  >/dev/null 2>&1 || { echo "env provision --reconcile: jq is not on PATH." >&2; return 2; }
 
@@ -945,11 +1229,40 @@ _provision_reconcile() {
       d_stmt="$(printf '%s' "$d_norm" | jq -S --arg s "$sid" '.Statement[] | select((.Sid // "") == $s)')"
       l_stmt="$(printf '%s' "$l_norm" | jq -S --arg s "$sid" '.Statement[] | select((.Sid // "") == $s)')"
       if   [ -z "$l_stmt" ]; then printf "  ${YELLOW}+ add${NC}     %s\n" "$sid"
-      elif [ -z "$d_stmt" ]; then printf "  ${YELLOW}- remove${NC}  %s — the manifest no longer derives it\n" "$sid"
+      elif [ -z "$d_stmt" ]; then
+        # MOVED IS NOT REMOVED, and conflating the two is how an operator aborts a correct
+        # migration. Every grant this tool took out of the inline document went into the
+        # shared one; a statement whose every (action, resource, condition) triple is
+        # carried there is reported as moved. Anything else really is going away.
+        if [ -n "$carried_pairs" ] && printf '%s' "$l_stmt" | jq -e --argjson shared "$carried_pairs" '
+             . as $s
+             | [ $s.Action[] as $a | $s.Resource[] as $r | {a:$a, r:$r, c:($s.Condition // null)} ]
+             | all(. as $p | $shared | any(. == $p))' >/dev/null 2>&1; then
+          printf "  ${CYAN}→ moved${NC}   %s — every grant in it is carried by the two documents above, not lost\n" "$sid"
+        else
+          printf "  ${YELLOW}- remove${NC}  %s — the manifest no longer derives it\n" "$sid"
+        fi
       elif [ "$d_stmt" != "$l_stmt" ]; then printf "  ${YELLOW}~ change${NC}  %s\n" "$sid"
       fi
     done < <( { printf '%s' "$d_norm" | jq -r '.Statement[].Sid // "(no Sid)"'
                 printf '%s' "$l_norm" | jq -r '.Statement[].Sid // "(no Sid)"'; } | sort -u )
+    # The Sid lines above are advisory — the merge pass renames statements, so a Sid
+    # appearing or vanishing is not by itself a grant appearing or vanishing. THIS is the
+    # safety question, asked on triples: does anything in force today stop being granted?
+    # Shrinking IS sometimes the point (a manifest row went away), so this is stated, not
+    # alarmed about. What it must never do is stay silent.
+    local losing
+    losing="$(printf '%s' "$l_norm" | jq -r --argjson carried "$carried_pairs" '
+        [ .Statement[] | . as $s | $s.Action[] as $a | $s.Resource[] as $r
+          | {a:$a, r:$r, c:($s.Condition // null)} ] | unique
+        | map(select(. as $p | ($carried | any(. == $p)) | not))
+        | .[] | "           " + .a + " on " + .r' 2>/dev/null)"
+    if [ -z "$losing" ]; then
+      printf "  ${GREEN}no loss${NC}  every (action, resource) in force today is still granted by the two documents above\n"
+    else
+      printf "  ${YELLOW}LOSING${NC}   these grants go away when this is applied:\n"
+      printf '%s\n' "$losing"
+    fi
   fi
 
   # Everything else on the user is surfaced, never touched. An operator who cannot see
@@ -972,8 +1285,11 @@ _provision_reconcile() {
         printf "  ${CYAN}unmanaged${NC}  inline policy '%s' — reported, never modified\n" "$other_name" ;;
     esac
   done <<< "$other"
+  # The shared policy this tool owns is handled by _provision_managed_sync and is NOT
+  # unmanaged — calling it that here would train an operator to ignore the one line that
+  # tells them a hand-attached grant exists.
   other="$(aws iam list-attached-user-policies --user-name "$user" --output json 2>/dev/null \
-           | jq -r '(.AttachedPolicies // [])[].PolicyName' 2>/dev/null)"
+           | jq -r --arg o "$owned_managed" '(.AttachedPolicies // [])[].PolicyName | select(. != $o)' 2>/dev/null)"
   while IFS= read -r other_name; do
     [ -n "$other_name" ] || continue
     printf "  ${CYAN}unmanaged${NC}  attached managed policy '%s' — reported, never modified\n" "$other_name"
@@ -1506,7 +1822,17 @@ cmd_provision() {
     return $?
   fi
 
-  local -a stmts=() dropped=() underivable=()
+  # TWO buckets, and the split is the whole design. `stmts` is what every agent of this
+  # tier gets identically — it goes into ONE customer-managed policy they all share, so
+  # the next grant stops competing for a per-user byte budget. `own_stmts` is what names a
+  # PERSON: their login secret and their Gemini key, which cannot live in a shared
+  # document. Measured, not assumed: ${aws:username} IS substituted inside a Secrets
+  # Manager resource ARN, but it resolves to the DASHED IAM user name (yarik-agent) while
+  # the login secret is PLUS-addressed (agent-login/yarik+agent-*), and IAM policy
+  # variables carry no string transform. The only shared shape that reaches it is
+  # agent-login/*, which hands every agent every other person's login and destroys the
+  # attribution per-person accounts exist for. So the person-scoped half stays inline.
+  local -a stmts=() own_stmts=() dropped=() underivable=()
   local arn
   if [ -n "$db_secret" ]; then
     arn="arn:aws:secretsmanager:${region}:${account}:secret:${db_secret}*"
@@ -1609,7 +1935,7 @@ cmd_provision() {
     # that made the read impossible before: a grant on a path nothing ever requests.
     arn="arn:aws:secretsmanager:${region}:${account}:secret:${login_secret//<person>/$(_agent_login_local "$user")}-*"
     if _arn_allowed "$arn"; then
-      stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" '{Sid:"ReadOwnAgentLogin",Effect:"Allow",Action:["secretsmanager:GetSecretValue"],Resource:[$r]}')"
+      own_stmts[${#own_stmts[@]}]="$(jq -nc --arg r "$arn" '{Sid:"ReadOwnAgentLogin",Effect:"Allow",Action:["secretsmanager:GetSecretValue"],Resource:[$r]}')"
     else
       dropped[${#dropped[@]}]="$arn"
     fi
@@ -1623,7 +1949,7 @@ cmd_provision() {
   if [ -n "$gemini_secret" ]; then
     arn="arn:aws:secretsmanager:${region}:${account}:secret:${gemini_secret//<person>/$user}-*"
     if _arn_allowed "$arn"; then
-      stmts[${#stmts[@]}]="$(jq -nc --arg r "$arn" '{Sid:"ReadOwnGeminiKey",Effect:"Allow",Action:["secretsmanager:GetSecretValue"],Resource:[$r]}')"
+      own_stmts[${#own_stmts[@]}]="$(jq -nc --arg r "$arn" '{Sid:"ReadOwnGeminiKey",Effect:"Allow",Action:["secretsmanager:GetSecretValue"],Resource:[$r]}')"
     else
       dropped[${#dropped[@]}]="$arn"
     fi
@@ -1647,32 +1973,46 @@ cmd_provision() {
     fi
   fi
 
-  local policy
-  # MERGE unconditioned statements that share an Effect+Action into one, unioning their
-  # Resources. IAM caps a user's AGGREGATE inline policy at 2048 bytes and the four
-  # secretsmanager:GetSecretValue grants cost ~300 of them in per-statement scaffolding
-  # alone — splitting TunnelToBastion pushed the document to 2271 and IAM refused it.
-  # Semantics are identical: same Effect, same Action, no Condition on either side, so
-  # unioning Resources cannot widen or narrow what is allowed.
-  # ⚠️ The cost is real and is NOT free: the per-grant Sids (ReadOnlyDbSecret,
-  # ReadOwnAgentLogin, ReadOwnGeminiKey, ReadSharedTokens) collapse into one, so the
-  # ARNs become the only record of why each secret is granted. They are self-describing
-  # enough to carry that. Statements WITH a Condition are never merged.
-  policy="$(printf '%s\n' "${stmts[@]+"${stmts[@]}"}" | jq -s '
-    [ .[] | select(has("Condition") | not) ]
-      | group_by(.Effect + "\u0000" + (.Action | sort | join(",")))
-      | map(if length == 1 then .[0]
-            else { Sid: (.[0].Sid), Effect: .[0].Effect, Action: .[0].Action,
-                   Resource: ([ .[].Resource[] ] | unique) }
-            end)
-      | . as $merged
-      | { Version:"2012-10-17",
-          Statement: ($merged + [ $ARGS.positional[0][] | select(has("Condition")) ]) }
-    ' --jsonargs "$(printf '%s\n' "${stmts[@]+"${stmts[@]}"}" | jq -sc .)")"
+  # Both documents go through the SAME merge (see _provision_policy_doc). The split
+  # happens BEFORE the merge and cannot change what is allowed: merging unions Resources
+  # within one Effect+Action group, so partitioning the statements first yields two groups
+  # whose union is the same set of (action, resource) pairs.
+  local policy="" managed_policy=""
+  if [ "${#stmts[@]}" -gt 0 ]; then
+    managed_policy="$(printf '%s\n' "${stmts[@]+"${stmts[@]}"}" | _provision_policy_doc)"
+  fi
+  if [ "${#own_stmts[@]}" -gt 0 ]; then
+    policy="$(printf '%s\n' "${own_stmts[@]+"${own_stmts[@]}"}" | _provision_policy_doc)"
+  fi
+
+  # ⚠️ THE TIER IS IN THE MANAGED NAME AND NOT IN THE INLINE ONE, and the asymmetry is
+  # deliberate. The shared document's CONTENT differs by tier — member publishes boards,
+  # triage does not — so one name across both tiers would hand triage the publisher grant
+  # the moment a member re-provisioned. The inline document is now tier-INVARIANT: two
+  # person-scoped secrets, the same set at every tier. So the old rule that kept the tier
+  # out of the inline name is not merely preserved, it has become impossible to break.
+  # The downgrade hazard that rule was written against moves to the managed side, where it
+  # is ENUMERABLE — list-attached-user-policies returns the exact attached set, so a
+  # sibling tier left attached is detected rather than invisible. Reconcile reports it.
+  local policy_name="engine-${DOMAIN}"
+  local managed_name="engine-${DOMAIN}-${tier}"
+  local managed_arn; managed_arn="$(_provision_managed_arn "$account" "$managed_name")"
 
   printf "${BOLD}=== provision %s (tier: %s, account: %s) ===${NC}\n" "$user" "$tier" "$account"
-  printf "${CYAN}Policy derived from the manifest's '%s' rows:${NC}\n" "$tier"
-  printf '%s\n' "$policy"
+  printf "${CYAN}SHARED managed policy %s — the same document for every %s agent:${NC}\n" "$managed_name" "$tier"
+  if [ -n "$managed_policy" ]; then
+    printf '%s\n' "$managed_policy"
+    _provision_report_size "$managed_policy" "$ENV_PROVISION_MANAGED_CAP" "managed policy"
+  else
+    printf "  ${YELLOW}empty${NC}    nothing shared is derivable — no managed policy would be written.\n"
+  fi
+  printf "${CYAN}PER-PERSON inline policy %s — only what names %s:${NC}\n" "$policy_name" "$user"
+  if [ -n "$policy" ]; then
+    printf '%s\n' "$policy"
+    _provision_report_size "$policy" "$ENV_PROVISION_INLINE_CAP" "inline policy"
+  else
+    printf "  ${YELLOW}empty${NC}    no manifest row declares a person-scoped secret — no inline policy would be written.\n"
+  fi
   local i=0
   while [ "$i" -lt "${#dropped[@]}" ]; do
     printf "  ${YELLOW}dropped${NC}  %s — outside the ARN allowlist in env.sh (a manifest edit cannot widen the grant)\n" "${dropped[$i]}"; i=$((i + 1))
@@ -1683,20 +2023,30 @@ cmd_provision() {
   done
   printf "  ${CYAN}note${NC}  the minted profile gets NO ~/.aws/config entry — the ABSENCE of login_session is what makes an agent key never expire.\n"
 
-  # ⚠️ THE TIER IS NOT IN THE NAME. It is CONTENT, and naming it made a downgrade
-  # impossible: `engine-<domain>-engineer` and `engine-<domain>-triage` are two policies,
-  # AWS unions inline policies, so reconciling downward ADDED a second grant and left the
-  # S3 write in place. One name per domain means reconcile replaces one document, and a
-  # downgrade shrinks by construction.
-  local policy_name="engine-${DOMAIN}"
-
   if [ "$reconcile" -eq 1 ]; then
     if [ "${#underivable[@]}" -gt 0 ]; then
       echo "env provision --reconcile: refusing while part of the policy is UNDERIVABLE from the manifest (see above) — reconciling to a partial derivation would REMOVE a grant that is merely underived." >&2
       return 2
     fi
-    _provision_reconcile "$user" "$policy_name" "$policy" "$apply" "$account"
-    return $?
+    # ⚠️ SHARED FIRST, INLINE SECOND, ALWAYS. The inline document is about to SHRINK to the
+    # two person-scoped secrets, and everything it sheds is only still granted because the
+    # shared policy now carries it. Shrinking first would leave a live agent with no
+    # tunnel and no database secret for as long as the shared half takes — and forever if
+    # it fails. In this order a failure on the shared half stops before anything is
+    # removed, which is why the exit code below is checked rather than accumulated blindly.
+    local rc_m rc_i
+    _provision_managed_sync "$user" "$managed_name" "$managed_arn" "$managed_policy" "$apply" "$account" "$DOMAIN"; rc_m=$?
+    if [ "$rc_m" -eq 2 ] || { [ "$apply" -eq 1 ] && [ "$rc_m" -ne 0 ]; }; then
+      echo "env provision --reconcile: the shared policy is not in place, so the inline policy was left alone — shrinking it now would REMOVE grants nothing else carries yet." >&2
+      return "$rc_m"
+    fi
+    if [ -z "$policy" ]; then
+      printf "  ${CYAN}note${NC}  no person-scoped secret is derivable, so there is no inline policy to reconcile.\n"
+      return "$rc_m"
+    fi
+    _provision_reconcile "$user" "$policy_name" "$policy" "$apply" "$account" "$managed_name" "$managed_policy"; rc_i=$?
+    [ "$rc_m" -gt "$rc_i" ] && return "$rc_m"
+    return "$rc_i"
   fi
 
   if [ "$apply" -eq 0 ]; then
@@ -1706,6 +2056,18 @@ cmd_provision() {
 
   if [ "${#underivable[@]}" -gt 0 ]; then
     echo "env provision: refusing --apply while part of the policy is UNDERIVABLE from the manifest (see above). Minting a partial policy would silently under-grant." >&2
+    return 1
+  fi
+  # Refuse over-cap HERE, before an IAM user is created. IAM's own refusal arrives after
+  # the user exists and names neither the document nor the number, which is how the last
+  # cap failure cost an afternoon.
+  if [ -z "$managed_policy" ] || [ -z "$policy" ]; then
+    echo "env provision: refusing --apply — one of the two documents is empty (see above). Both halves are required: the shared policy carries the tier's grants, the inline one the person's own secrets." >&2
+    return 1
+  fi
+  if ! _provision_report_size "$managed_policy" "$ENV_PROVISION_MANAGED_CAP" "managed policy" >/dev/null \
+     || ! _provision_report_size "$policy" "$ENV_PROVISION_INLINE_CAP" "inline policy" >/dev/null; then
+    echo "env provision: refusing --apply — a document is over its IAM size cap (see the size lines above). Nothing was created." >&2
     return 1
   fi
   # THE CONFIRMATION IS READ, NEVER FLAGGED. A `--yes`-shaped flag would make minting
@@ -1765,6 +2127,17 @@ cmd_provision() {
       return 1 ;;
   esac
 
+  # SHARED FIRST. Most of what the agent needs now lives in the shared policy, so a
+  # failure here means the inline half must not be written either — an agent holding only
+  # its own two secrets is a worse state to debug than one with no grants at all, because
+  # it authenticates and then fails on every real call.
+  local rc_shared
+  _provision_managed_sync "$user" "$managed_name" "$managed_arn" "$managed_policy" 1 "$account" "$DOMAIN" 1; rc_shared=$?
+  if [ "$rc_shared" -ne 0 ]; then
+    echo "env provision: the shared policy is not in place. The IAM user exists and is UNGRANTED; nothing else was created." >&2
+    return 1
+  fi
+
   # The policy goes through a 0600 temp file rather than a pipe: `file://` is the only
   # form the CLI reads identically across versions, and the document is not secret but
   # is worth not leaving world-readable.
@@ -1776,7 +2149,7 @@ cmd_provision() {
       --policy-document "file://$pfile" >/dev/null 2>&1; rc_put=$?
   rm -f "$pfile"
   if [ "$rc_put" -ne 0 ]; then
-    echo "env provision: could not attach inline policy $policy_name to $user. The user exists but is UNGRANTED." >&2
+    echo "env provision: could not attach inline policy $policy_name to $user. The shared policy is attached, but the agent cannot read its own login or Gemini key." >&2
     return 1
   fi
   printf "  ${GREEN}ok${NC}    attached inline policy %s\n" "$policy_name"
