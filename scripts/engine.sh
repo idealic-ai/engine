@@ -1517,6 +1517,45 @@ cmd_setup() {
     ACTIONS+=("Created .gitignore")
   fi
 
+  # ---- Step 5b: Install declared binary dependencies ----
+  # Manifest-driven, not a hardcoded list: a row declaring check.type=binary with an
+  # `install` command is the single source of truth, so adding a dependency is a manifest
+  # edit rather than a change here. Announced before it runs — an unexplained `brew
+  # install` scrolling past reads as the tool overstepping. Never fatal and never sudo:
+  # a machine without Homebrew, or an install that fails, prints the command and setup
+  # carries on, because a missing optional binary must not block the rest of onboarding.
+  log_step "Step 5b: Binary dependencies"
+  if command -v jq >/dev/null 2>&1; then
+    local _bin_rows _bname _bcmd
+    _bin_rows=$(cat "$ENGINE_DIR"/scripts/credentials.json "$ENGINE_DIR"/skills/*/assets/credentials.json 2>/dev/null \
+      | jq -r -s '[.[] | (.credentials // .rows // [])[]]
+                  | map(select((.check.type // "") == "binary" and (.install // "") != ""))
+                  | unique_by(.check.name)[]
+                  | "\(.check.name)\u001f\(.install)"' 2>/dev/null)
+    if [ -n "$_bin_rows" ]; then
+      while IFS=$'\037' read -r _bname _bcmd; do
+        [ -n "$_bname" ] || continue
+        if command -v "$_bname" >/dev/null 2>&1; then
+          log_verbose "binary: $_bname present"
+          continue
+        fi
+        if ! command -v brew >/dev/null 2>&1; then
+          echo "  binary: $_bname missing — no Homebrew here, install it with: $_bcmd"
+          continue
+        fi
+        echo "  binary: $_bname missing — installing ($_bcmd)"
+        if eval "$_bcmd" >/dev/null 2>&1; then
+          ACTIONS+=("Installed $_bname")
+          echo "  binary: $_bname installed"
+        else
+          echo "  binary: $_bname install FAILED — run it yourself: $_bcmd" >&2
+        fi
+      done <<< "$_bin_rows"
+    fi
+  else
+    log_verbose "binary: jq unavailable, skipping dependency check"
+  fi
+
   # ---- Step 6: Drop README files into sessions and reports ----
   log_step "Step 6: Create README files"
   if [ ! -f "$SESSION_DIR/README.md" ]; then
