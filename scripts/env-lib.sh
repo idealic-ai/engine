@@ -252,6 +252,39 @@ env_anchor_dir() {
       d="${d%/*}"; [ -n "$d" ] || d="/"   # parameter expansion, not a dirname exec
     done
   fi
+
+  # FALLBACK — no session, but the CWD is itself inside a sessions/ tree.
+  #
+  # The inversion above needs a starting path under the project root. A session supplies
+  # one; so does a $PWD that already carries a /sessions/ segment. Deriving from $PWD is
+  # safe ONLY because of that segment — it is the same structural exclusion the session
+  # path relies on, so a stray .claude inside sessions/ still cannot capture the climb.
+  #
+  # ⚠️ DELIBERATELY NOT A GENERAL $PWD WALK-UP. $HOME carries a .claude and no repo, so an
+  # unguarded climb from anywhere under ~ anchors on the home directory, writes
+  # ~/.env.local and APPEARS TO WORK — until the person opens a checkout, at which point
+  # the anchor moves and those credentials silently vanish. A loud "no anchor" beats a
+  # quiet wrong one, so a $PWD with no /sessions/ in it is left alone.
+  if [ -z "$root" ]; then
+    # LOGICAL $PWD, never `pwd -P`. `sessions/` is commonly a SYMLINK to synced storage
+    # (Google Drive here), so the physical path leaves the repo entirely and stripping
+    # /sessions/ from it lands in the sync tree — measured: it resolved credentials
+    # against .../finch-os/yarik/ instead of the checkout. The logical path is what the
+    # person actually stood in, and its parent is the repo root.
+    local cwd="${PWD:-$(pwd)}"
+    case "$cwd" in
+      */sessions/*|*/sessions)
+        d="${cwd%%/sessions/*}"
+        [ "$d" = "$cwd" ] && d="${cwd%/sessions}"
+        root="$d"
+        while [ -n "$d" ] && [ "$d" != "/" ]; do
+          if [ -d "$d/.claude" ]; then root="$d"; break; fi
+          d="${d%/*}"; [ -n "$d" ] || d="/"
+        done
+        ;;
+    esac
+  fi
+
   _ENV_ANCHOR_CACHE="$root"
   [ -n "$root" ] || return "$ENV_NO_ANCHOR_RC"
   printf '%s' "$root"
@@ -314,7 +347,7 @@ resolve_env_key() {
   local val="${!key:-}" f
   if [ -n "$val" ]; then printf '%s' "$val"; return 0; fi
   if ! env_anchor_dir >/dev/null 2>&1; then
-    echo "env: no session anchor — credentials resolve relative to the current session's project root; run inside an engine session ($key was not looked up)" >&2
+    echo "env: no session anchor — credentials resolve relative to the current session's project ROOT, so this must run inside an engine session AND inside a repo checkout, not your home folder. In the repo, type /do to start one. ($key was not looked up)" >&2
     return "$ENV_NO_ANCHOR_RC"
   fi
   while IFS= read -r f; do
@@ -384,7 +417,7 @@ env_load_domain() {
     else
       val="$(resolve_env_key "$key" "$dotfile" 2>/dev/null)"; rc=$?
       if [ "$rc" -eq "$ENV_NO_ANCHOR_RC" ]; then
-        echo "env_load_domain: no session anchor — cannot load domain '$domain'; run inside an engine session" >&2
+        echo "env_load_domain: no session anchor — cannot load domain '$domain'; run inside an engine session, started from a repo checkout rather than your home folder (type /do in the repo)" >&2
         return "$ENV_NO_ANCHOR_RC"
       fi
     fi
