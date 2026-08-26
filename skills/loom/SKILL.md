@@ -13,7 +13,7 @@ Execute §CMD_EXECUTE_SKILL_PHASES.
 
 ### What /loom is (and is not)
 
-*   **It is** a **parallel-thread orchestrator**. A *thread* is one ticket walking the full chain; many threads run at once. `/loom` composes the building-block skills — it dispatches `/inbox-triangulate`, `/ticket`, `/communicate`, `/interrogate`, `/build`, `/scrutinize`, `/snapshot`, `/pr`, `/council`, `/inbox-post` — and its own work is the conducting: partitioning files, relaying agent messages, brokering conflicts, detecting deadlocks, escalating, and keeping the ledger.
+*   **It is** a **parallel-thread orchestrator**. A *thread* is one ticket walking the full chain; many threads run at once. `/loom` composes the building-block skills — it dispatches `/inbox-triangulate`, `/ticket`, `/communicate`, `/interrogate`, `/build`, `/scrutinize`, `/snapshot`, `/pr`, `/council`, `/inbox-post`, `/inbox-next`, `/ticket-search` — and its own work is the conducting: partitioning files, relaying agent messages, brokering conflicts, detecting deadlocks, escalating, and keeping the ledger.
 *   **It is NOT** a builder or a writer. `/loom` never writes code, never posts to Linear, never touches git directly (`¶INV_LOOM_COMPOSED_WRITES`). Every mutation happens *inside* a composed skill under that skill's own confirm — `/snapshot` posts the status and commits, `/pr` opens the PR. The conductor orchestrates; the sections do the work.
 *   **`/loom` vs `/coordinate`**: `/coordinate` is a persistent fleet monitor that answers standing worker questions. `/loom` is task-scoped — it weaves a specific batch of tickets through a specific pipeline and closes when the batch is done. It reuses coordinate-grade relay/escalation mechanics without being an immortal monitor.
 *   **`/loom` vs `/do`**: `/do` is one free-form thread of work. `/loom` is *many* threads at once with a conductor between them.
@@ -24,18 +24,24 @@ A **thread** = one ticket/task through the full chain:
 
 > triangulate → interrogate → build → scrutinize → snapshot → pr → council
 
-The **interactive** front (triangulate, interrogate) and the **decision** points (triage, snapshot/pr confirms, council findings) involve you or the conductor; the **autonomous** middle (build, scrutinize) runs as parallel background agents. Not every stage fires on every thread — `/inbox-triangulate`, `/snapshot`, `/pr`, and `/council` are offered per the Setup dispositions and the offer-don't-force rule (`§INV_OFFER_DONT_FORCE_SKILLS`).
+The **interactive** front (triangulate, interrogate) and the **decision** points (triage, snapshot/pr confirms, council findings) involve you or the conductor; the **autonomous** middle (build, scrutinize) runs as parallel background agents. Not every stage fires on every thread — `/inbox-triangulate`, `/snapshot`, `/pr`, and `/council` are **offered** per the Setup dispositions and the offer-don't-force rule (`§INV_OFFER_DONT_FORCE_SKILLS`) — while the **ticket-disposition ask, interrogation** (per its disposition), and **scrutinize** are **mandatory** (`¶INV_LOOM_MANDATORY_STEPS`), never turned off by the Autonomy disposition.
 
 ### Thread identity & agent naming (`¶INV_LOOM_AGENTS_NAMED_BY_THREAD`)
 
-Every thread gets a **threadId**: the ticket key `FIN-XXXX` when there is one, else a letter `A` / `B` / `C` for a **winged** (un-ticketed) task. Every agent `/loom` spawns is **named `<threadId>:<stage>`** — `FIN-3141:build`, `FIN-3141:scrutinize`, `A:build`. This is load-bearing: the ledger, the SendMessage relay, and FleetView all identify a thread and its current step by that name. Never spawn an unnamed loom agent. A winged thread's letter threadId **upgrades to the new `FIN-XXXX`** if a ticket is filed for it — the ticket create/update step runs *after* triangulate + interrogate, before the build, so the ticket carries the scoped understanding.
+Every thread gets a **threadId**: the ticket key `FIN-XXXX` when there is one, else a short SCREAMING slug the conductor derives from the task — `FACTS`, `INTRODOC` (≤8 chars, `[A-Z0-9]`, digit-suffixed on collision: `FACTS`, `FACTS2`) — for a **winged** (un-ticketed) task. A meaningful slug beats a bare letter: `FACTS:build` tells you what the thread is; `A:build` doesn't. Every agent `/loom` spawns belongs to a thread at a stage — `FIN-3141:build`, `FIN-3141:scrutinize`, `FACTS:build`.
+
+**The fleet/status view shows the sub-agent TYPE (`builder`, `writer`, …), not a label you set — so the threadId will NOT appear on its own. You MUST push it into what the agent emits, or the threads are indistinguishable** (the exact symptom this rule exists to prevent). Two things, both required:
+*   **Lead the spawn `description` with the threadId in brackets** — `description: "[FIN-3141] build extract-totals"`, `"[FACTS] scrutinize parser"`. That bracketed prefix is what surfaces in the status row next to the `builder`/`writer` type.
+*   **Instruct the agent to prefix EVERY line it emits** — its status/progress reports, its shared-log entries, and its `SendMessage`s to the conductor — with `[<threadId>]`. A build agent's log entry reads `## [FIN-3141] tests green`, not `## tests green`. This is stated in `assets/LOOM_AGENT_DIRECTIONS.md`, which every agent's context pack carries.
+
+This prefix is load-bearing: the ledger, the SendMessage relay, and the fleet view all tell threads apart by it. **Never spawn a loom agent whose `description` and output are not threadId-prefixed.** A winged thread's slug threadId **upgrades to the new `FIN-XXXX`** if a ticket is filed for it — the ticket create/update step runs *after* triangulate + interrogate, before the build, so the ticket carries the scoped understanding.
 
 ### The four Setup dispositions
 
 Asked once at Setup (`AskUserQuestion`, one per disposition — not `§CMD_SELECT_MODE` mode files). They parameterize the whole session and the escalation/relay reference file:
 
-*   **Autonomy** — how much the conductor decides vs. asks: **Automagic** (proceed autonomously; auto-resolve conflicts where safe; escalate only on the hard floor) · **Careful** (escalate liberally; gate more) · **Allow agents to decide** (agents use judgment on when to escalate; conductor relays).
-*   **Council** — **selective before PR** · **auto after each PR** *(default)* · **none** *(not recommended)*. Council runs after the PR.
+*   **Autonomy** — how much the conductor decides vs. asks: **Automagic** (proceed autonomously; auto-resolve conflicts where safe; escalate only on the hard floor) · **Careful** (escalate liberally; gate more) · **Allow agents to decide** (agents use judgment on when to escalate; conductor relays). **Autonomy tunes how much the conductor *resolves without asking* — it NEVER licenses skipping a mandatory step.** Automagic that skips the ticket-disposition ask, the interrogation, or the scrutinize agent is a bug, not autonomy (`¶INV_LOOM_MANDATORY_STEPS`).
+*   **Council** — *when* `/council` runs, chosen once: **selective before PR** (a panel *before* the PR opens, only on threads you flag) · **auto after each PR** *(default — a panel on every thread once its PR is up)* · **none** *(not recommended)*. The timing is the whole distinction: *before PR* reviews the work before it's proposed; *after PR* reviews the proposed change.
 *   **Interrogation** — how much `/interrogate` runs per thread: **Reasonable** (a few rounds → `/interrogate --depth quick`) · **Thorough** (→ `--depth deep`) · **None** (skip the interrogate stage).
 *   **Detail importance** — how much granular detail matters, i.e. how hard over-zealous `/scrutinize`/`/council` findings get filtered before they reach you: **Low / ship-it** (downgrade nitpicks; only genuinely-blocking MUST-FIX surfaces; lean on recommended defaults) · **Balanced** *(default)* · **High / every detail** (surface everything for explicit decision). Low does NOT mean auto-accept — a blocking finding always surfaces.
 
@@ -43,9 +49,9 @@ Asked once at Setup (`AskUserQuestion`, one per disposition — not `§CMD_SELEC
 
 ### The conductor's job (`¶INV_LOOM_CONDUCTOR_RELAYS`)
 
-While threads run, the parent: computes an up-front file partition; runs a live message relay (agents `SendMessage` the parent to claim out-of-partition files and report progress); brokers file conflicts **first-claim-wins** (`¶INV_LOOM_FIRST_CLAIM_WINS`, the later thread's conflicting step defers to the next wave); maintains a *waiting-on* graph (a cycle = deadlock) and polls agent status (silence past a timeout → probe → escalate); and escalates per the hard floor. The rules live in `assets/LOOM_ESCALATION_RELAY.md`, fed **by reference** into every build agent's context pack.
+While threads run, the parent: computes an up-front file partition; runs a live message relay (agents `SendMessage` the parent to claim out-of-partition files and report progress); brokers file conflicts **first-claim-wins** (`¶INV_LOOM_FIRST_CLAIM_WINS`, the later thread's conflicting step defers to the next wave); maintains a *waiting-on* graph (a cycle = deadlock) and polls agent status (silence past a timeout → probe → escalate); and escalates per the hard floor. The rules live in `assets/LOOM_AGENT_DIRECTIONS.md`, fed **by reference** into every build agent's context pack.
 
-**Hard escalation floor (`¶INV_LOOM_HARD_ESCALATION_FLOOR`)** — these ALWAYS reach you, even under Automagic: a **cyclic deadlock** the conductor can't break by deferral · a thread's **build failing after retries** · a **scrutinize MUST-FIX** needing a fix/skip/defer call · a **thread loopback** (council/scrutinize → interrogate or build).
+**Hard escalation floor (`¶INV_LOOM_HARD_ESCALATION_FLOOR`)** — these ALWAYS reach you, even under Automagic: the **per-thread ticket-disposition question** (always asked before a thread builds — Automagic never suppresses it) · a **cyclic deadlock** the conductor can't break by deferral · a thread's **build failing after retries** · a **scrutinize MUST-FIX** needing a fix/skip/defer call · a **thread loopback** (council/scrutinize → interrogate or build).
 
 ### No rush to close (`¶INV_LOOM_NO_RUSH_TO_CLOSE`)
 
@@ -67,7 +73,7 @@ The loop gate defaults to **keep going**, never "shall we close?". A session end
     {"label": "1", "name": "Loom",
       "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
-      "proof": ["intentReported", "threadsWoven", "ledgerMaintained", "logEntries"]},
+      "proof": ["intentReported", "threadsWoven", "threadDispositions", "ledgerMaintained", "logEntries"]},
     {"label": "2", "name": "Synthesis",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "2.1", "name": "Checklists",
@@ -117,25 +123,31 @@ The loop gate defaults to **keep going**, never "shall we close?". A session end
 This phase is the whole working body. It runs a persistent loop: you **add threads** (each scoped interactively as it enters, while other threads' builds run in the background), the conductor **weaves** them, and the loop ends only when you explicitly choose to wrap up (`¶INV_LOOM_NO_RUSH_TO_CLOSE`).
 
 ### Adding a thread (whenever you add one — not a batch upfront)
-A background build agent cannot ask you questions, so a new thread is scoped here on the main thread, while other threads keep building:
-1.  **Assign a threadId** — `FIN-XXXX`, or a letter for a winged task. Open/append its ledger row (`TEMPLATE_LOOM_LOG.md`).
-2.  **Offer `/inbox-triangulate`** (`§INV_OFFER_DONT_FORCE_SKILLS`) — `Skill(inbox-triangulate, "<ticket>")` to validate real/ripe before investing a build. A not-ripe result parks the thread. Skip for an already-triaged ticket.
-3.  **Interrogate per the Interrogation disposition** — `Reasonable` → `Skill(interrogate, "<ticket> --depth quick")`; `Thorough` → `--depth deep`; `None` → skip. The digest (`builds/<slug>_INTERROGATE.md`) is the scope half of the thread's build context pack.
-4.  **Ask the thread's ticket disposition** (`AskUserQuestion`, `§INV_OFFER_DONT_FORCE_SKILLS`, composed-writes only) — asked **here, after triangulate + interrogate**, so the ticket reflects the scoped understanding before the build (a fresh ticket is framed from real findings; an existing one is updated with them). Three ways:
-    *   **Create a new ticket** — `Skill(ticket, "<task>")` for a winged task, framed from the triangulation + interrogation findings; on creation, upgrade the letter threadId to the new `FIN-XXXX`.
-    *   **Update the existing ticket** — post the scoped understanding to the thread's ticket via `/snapshot` or `/communicate`, so it's current before the build.
-    *   **Keep it here as-is** — no ticket action; the thread runs against its current ticket, or un-ticketed with its letter.
+A background build agent cannot ask you questions, so a new thread is scoped here on the main thread, while other threads keep building. **Each step is marked `[MANDATORY]` (always happens — no Autonomy disposition turns it off) or `[OFFERED]` (you or the conductor may skip).** Autonomy tunes how much the conductor *resolves without asking*; it never decides *which steps run* (`¶INV_LOOM_MANDATORY_STEPS`).
+
+**Adding several at once** — before scoping them, assess adjacency:
+*   **Very adjacent / near-duplicative** → **`[OFFERED]` group them into ONE thread** (`§INV_OFFER_DONT_FORCE_SKILLS`) instead of parallel threads — one build, one PR. Grouping collapses them; you decide.
+*   **Distinct but simultaneous** → keep separate threads, but **batch their interrogation**: run the interrogation forks in shared rounds (≤4 questions spanning threads) rather than one `/interrogate` per thread, so each thread's answers inform the others (fewer round-trips).
+
+1.  **[MANDATORY] Assign a threadId** — `FIN-XXXX`, or a conductor-derived SCREAMING slug for a winged task (≤8 chars `[A-Z0-9]`, digit-suffixed on collision: `FACTS`, `FACTS2`). Open/append its ledger row (`TEMPLATE_LOOM_LOG.md`).
+2.  **[OFFERED] `/inbox-triangulate`** (`§INV_OFFER_DONT_FORCE_SKILLS`) — `Skill(inbox-triangulate, "<ticket>")` to validate real/ripe before investing a build. A not-ripe result parks the thread. Skip for an already-triaged ticket.
+3.  **[MANDATORY per the Interrogation disposition] Interrogate** — `Reasonable` → `Skill(interrogate, "<ticket> --depth quick")`; `Thorough` → `--depth deep`; `None` → skip. The **disposition** decides whether it runs — the conductor may NOT skip it when the disposition is Reasonable/Thorough, and may NOT substitute an inline chat exchange for the dispatched `/interrogate`. The digest (`builds/<slug>_INTERROGATE.md`) is the scope half of the thread's build context pack.
+4.  **[MANDATORY — always ASK] Ticket disposition** (`AskUserQuestion`, composed-writes only) — asked **here, after triangulate + interrogate**, so the ticket reflects the scoped understanding before the build. **The question ALWAYS reaches you** (its answer may be "keep as-is"); it is never skipped by proximity to the offered steps, and Automagic never suppresses it. Three ways:
+    *   **Create a new ticket** — `Skill(ticket, "<task>")` for a winged task, framed from the findings; on creation, upgrade the slug threadId to the new `FIN-XXXX`.
+    *   **Update the existing ticket** — post the scoped understanding via `/snapshot` or `/communicate`, so it's current before the build.
+    *   **Keep it here as-is** — no ticket action; runs against its current ticket, or un-ticketed with its slug.
     Every write happens inside the composed skill under its own confirm (`¶INV_LOOM_COMPOSED_WRITES`).
-5.  **Merge into the file partition** — assign a disjoint file set (the `§CMD_PARALLEL_HANDOFF` non-intersection proof) against the currently-running threads; on overlap the thread queues until the conflicting files free (first-claim-wins).
-6.  **Fan out its build — named, background, /build-grade** — spawn `<threadId>:build` with a full `/build` context pack (goal + interrogation digest + file partition + hard gates + scope guard + `assets/LOOM_ESCALATION_RELAY.md` by reference). Prefer `/build` (`§INV_PREFER_BUILD_SCRUTINIZE`).
+5.  **[MANDATORY] Merge into the file partition** — assign a disjoint file set (the `§CMD_PARALLEL_HANDOFF` non-intersection proof) against the currently-running threads; on overlap the thread queues until the conflicting files free (first-claim-wins).
+6.  **[MANDATORY] Fan out its build — a concurrent /build-grade AGENT** — spawn a background builder **agent** (Agent/Task tool) with its `description` **leading with the bracketed threadId** (`description: "[FIN-3141] build extract-totals"`) and a full `/build`-grade context pack (goal + interrogation digest + file partition + hard gates + scope guard + `assets/LOOM_AGENT_DIRECTIONS.md` by reference, which tells it to prefix every line with `[<threadId>]`). **Never `Skill(build)`: the Skill tool is sequential, so a `Skill(build)` call blocks the loop and serializes the very parallelism loom exists for. Loom is carved OUT of `§INV_PREFER_BUILD_SCRUTINIZE`'s "prefer /build" wording — its fan-out is /build-*grade agents* run concurrently, not the /build *skill* in-line.**
 
 ### Conducting (continuous, while builds run)
 *   **Relay** agent `SendMessage`s: grant out-of-partition file claims when unclaimed; broker conflicts **first-claim-wins** (loser's step defers); maintain the *waiting-on* graph (a cycle = deadlock); poll agent status (silence past a timeout → probe). Escalate per the **hard floor**.
-*   **Scrutinize on land** — as each `<threadId>:build` finishes, spawn `<threadId>:scrutinize` (a `/scrutinize`-grade critique of its Build Report). Filter findings by the **Detail-importance** disposition before they reach you. Run a combined triage across threads (fix / skip / defer), then dispatch fixers.
+*   **[MANDATORY] Scrutinize on land** — as each thread's build finishes, spawn a concurrent **scrutinize AGENT** (`description: "[<threadId>] scrutinize …"`, threadId-prefixed like the build) — a `/scrutinize`-grade critique of its Build Report — **never `Skill(scrutinize)` (it serializes the critiques)**. Scrutinize ALWAYS runs; the **Detail-importance** disposition filters which findings reach you, never *whether* the critique happens (`¶INV_LOOM_MANDATORY_STEPS`). Run a combined triage across threads (fix / skip / defer), then dispatch fixers.
 *   **Offer `/snapshot` then `/pr`** per landed thread (`§INV_OFFER_DONT_FORCE_SKILLS`, composed-writes) — `/snapshot` posts status + commits the reviewed files; `/pr` opens the PR. Advance the ledger.
-*   **Council per policy** — after a thread's PR, run `/council` per the **Council disposition**. A council MUST-FIX is a **thread loopback** — escalate, and on confirm loop that thread back to interrogate or build.
+*   **Council per policy** — run `/council` per the **Council disposition**: *auto after each PR* runs a panel once a thread's PR is up; *selective before PR* runs one **before** the PR opens, only on threads you flag; *none* skips it. A council MUST-FIX is a **thread loopback** — escalate, and on confirm loop that thread back to interrogate or build (for a before-PR panel, that loopback happens before the PR ever opens).
 *   **Harvest good findings at thread end** (`§INV_OFFER_DONT_FORCE_SKILLS`, composed-write) — when a thread finishes its chain, read its Build Report's `## Out-of-scope noticed (not touched)` section plus any `/scrutinize` deferrals, and **offer `/inbox-post` for the genuinely notable ones only** — real bugs, concrete follow-up work worth tracking — not every incidental note. Post each via `Skill(inbox-post, "<finding>")`, which routes it to the right inbox channel. Be selective: a thread that surfaced nothing worth filing posts nothing.
-*   **Keep the ledger live** — rewrite it as threads advance; surface it at each loop gate.
+*   **Find the next thread at thread end** (`§INV_OFFER_DONT_FORCE_SKILLS`) — when a thread lands and the loom has capacity, offer to pull more work: `Skill(inbox-next)` when the batch came from a curated Linear project (ranked, in-project) or `Skill(ticket-search, "<keywords>")` to find related tickets by keyword. A chosen result becomes a new thread (the add-a-thread flow). This is how the no-rush loop refills itself.
+*   **Keep the ledger live** — rewrite it as threads advance; surface it at each loop gate. Per thread, record its **mandatory-step completion**: the ticket-disposition answer, whether interrogation ran (or was skipped because the Interrogation disposition is None), and the scrutinize agent's id. This record IS the `threadDispositions` proof that gates Loom→Synthesis (`¶INV_LOOM_MANDATORY_STEPS`) — you cannot close a loom whose threads skipped their mandatory steps.
 
 ### The loop gate (`AskUserQuestion`, defaults to keep-going per `¶INV_LOOM_NO_RUSH_TO_CLOSE`)
 Present after each unit of progress (a thread landing, a batch of builds finishing):
@@ -180,7 +192,8 @@ If the user explicitly says "done"/"close", skip the gate and proceed to Synthes
 ## Constraints
 
 *   **`¶INV_LOOM_COMPOSED_WRITES`**: `/loom` never writes code, Linear, or git directly. Every mutation goes through a composed skill (`/build`, `/snapshot`, `/pr`) under that skill's own confirm.
-*   **`¶INV_LOOM_AGENTS_NAMED_BY_THREAD`**: every spawned agent is named `<threadId>:<stage>`. No unnamed loom agents.
+*   **`¶INV_LOOM_AGENTS_NAMED_BY_THREAD`**: every spawned agent leads its Agent `description` with `[<threadId>]` AND prefixes every line it emits (status, shared-log entry, `SendMessage`) with `[<threadId>]`. The fleet view shows the sub-agent type, not a label, so the prefix is the only thing that tells threads apart — no unprefixed loom agents.
+*   **`¶INV_LOOM_MANDATORY_STEPS`**: per thread, the ticket-disposition ask, interrogation (per the Interrogation disposition), and the scrutinize agent are MANDATORY — the Autonomy disposition tunes how much the conductor resolves without asking, never *which steps run*. Build and scrutinize fan out as concurrent AGENTS, never `Skill(build)`/`Skill(scrutinize)` (which serialize the loop). The `threadDispositions` proof gates Loom→Synthesis on their completion.
 *   **`¶INV_LOOM_NO_RUSH_TO_CLOSE`**: the loop gate defaults to keep-going. The session closes only on the user's explicit choice.
 *   **`¶INV_LOOM_HARD_ESCALATION_FLOOR`**: cyclic deadlock · build-fails-after-retries · scrutinize MUST-FIX · thread loopback always reach the user, even under Automagic.
 *   **`§INV_NO_DESTRUCTIVE_GIT`**: parallel builders never run tree/index-destructive git. Committing is `/snapshot`'s job.
