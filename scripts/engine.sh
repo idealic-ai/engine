@@ -1495,7 +1495,15 @@ cmd_setup() {
   log_step "Step 5: Update .gitignore"
   local GITIGNORE="$PROJECT_ROOT/.gitignore"
   if [ -f "$GITIGNORE" ]; then
-    for entry in "sessions" "reports"; do
+    # .env.local is ignored here because the ENGINE writes it (the one dotfile the
+    # credential resolver fills), so a project that never had a secrets file gets one
+    # the moment setup runs. Asked via `git check-ignore` first: a project covering it
+    # with a pattern like `.env.*` is already safe, and appending an exact line there
+    # is noise.
+    for entry in "sessions" "reports" ".env.local"; do
+      if git -C "$PROJECT_ROOT" check-ignore -q "$entry" 2>/dev/null; then
+        continue
+      fi
       if ! grep -qx "$entry" "$GITIGNORE" && ! grep -qx "$entry/" "$GITIGNORE"; then
         log_verbose ".gitignore: adding '$entry'"
         echo "$entry" >> "$GITIGNORE"
@@ -1505,7 +1513,7 @@ cmd_setup() {
     log_verbose ".gitignore: OK"
   else
     log_verbose ".gitignore: creating"
-    printf 'sessions\nreports\n' > "$GITIGNORE"
+    printf 'sessions\nreports\n.env.local\n' > "$GITIGNORE"
     ACTIONS+=("Created .gitignore")
   fi
 
