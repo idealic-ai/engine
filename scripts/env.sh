@@ -1442,9 +1442,11 @@ _provision_clerk_account() {
        --description "Agent app login for $user (engine env provision)" \
        --secret-string "file://$sfile" >/dev/null 2>&1; then
     printf "  ${GREEN}ok${NC}    wrote the app login to %s\n" "$secret_id"
+    _deliver_password_via_slack "$user" "$email"
   elif aws secretsmanager put-secret-value --region "$region" --secret-id "$secret_id" \
        --secret-string "file://$sfile" >/dev/null 2>&1; then
     printf "  ${GREEN}ok${NC}    updated the app login at %s\n" "$secret_id"
+    _deliver_password_via_slack "$user" "$email"
   else
     printf "  ${RED}warn${NC}  the Clerk user was created but its password could NOT be stored at %s.\n" "$secret_id" >&2
     printf "           Nobody can retrieve it — delete the Clerk user and re-run rather than leaving an unusable account.\n" >&2
@@ -1498,14 +1500,31 @@ _slack_api() {
 #
 # Never fails the run. By the time this is reached the account exists and the key file
 # is written; losing that over a chat API would be the worst possible trade.
-_deliver_via_slack() {
-  local user="$1" person="$2" keyfile="$3"
+# ── _slack_dm_channel <person> ────────────────────────────────────────────────
+#
+# Resolves ONE person to ONE open DM channel id on stdout, empty on failure. Extracted
+# because the key and the app password are sent as SEPARATE messages (so either can be
+# deleted without taking the other with it) and a second copy of this lookup would mean
+# a second interactive prompt for the same human in the same run.
+#
+# MEMOISED per person: the fallback prompt reads stdin, and asking twice for one delivery
+# is how an operator ends up answering the second one blind — the second read gets EOF,
+# resolves to empty, and SILENTLY SKIPS the send. Measured: that is exactly what happened.
+#
+# ⚠️ THE RESULT COMES BACK IN `ENGINE_DM_CHANNEL`, NOT ON STDOUT, and that is the whole
+# reason the memo works. An earlier version echoed the id, so every caller wrapped it in
+# `$( )` — a SUBSHELL — and the cache assignment died with the subshell every time. A
+# function that memoises cannot also return through stdout.
+_slack_dm_channel() {
+  local person="$1"
+  ENGINE_DM_CHANNEL=""
+  local cache_var; cache_var="_ENGINE_DM_CHAN_$(printf '%s' "$person" | tr -c 'A-Za-z0-9' '_')"
+  local cached="${!cache_var:-}"
+  if [ -n "$cached" ]; then ENGINE_DM_CHANNEL="$cached"; return 0; fi
+
   local token; token="$(resolve_env_key SLACK_INTAKE_TOKEN 2>/dev/null || true)"
-  if [ -z "$token" ]; then
-    printf "  ${CYAN}note${NC}  no Slack token resolves — the key file was not sent, hand it over yourself.\n"
-    return 0
-  fi
-  command -v curl >/dev/null 2>&1 || return 0
+  [ -n "$token" ] || return 1
+  command -v curl >/dev/null 2>&1 || return 1
 
   # The WORK address is the join key, even where someone's chat account is registered
   # to a personal one — an agent identity is a work identity.
@@ -1517,17 +1536,16 @@ _deliver_via_slack() {
     local err; err="$(printf '%s' "$resp" | jq -r '.error // "unknown"' 2>/dev/null)"
     case "$err" in
       missing_scope)
-        printf "  ${YELLOW}warn${NC}  the Slack app lacks ${BOLD}users:read.email${NC} — cannot look anyone up. Key NOT sent.\n"
-        return 0 ;;
+        printf "  ${YELLOW}warn${NC}  the Slack app lacks ${BOLD}users:read.email${NC} — cannot look anyone up.\n" >&2
+        return 1 ;;
     esac
-    printf "  ${YELLOW}note${NC}  no Slack user for %s (%s).\n" "$email" "$err"
-    printf "        Enter the Slack email to send to (blank to skip and hand the file over yourself): "
+    printf "  ${YELLOW}note${NC}  no Slack user for %s (%s).\n" "$email" "$err" >&2
+    printf "        Enter the Slack email to DM (blank to skip and hand things over yourself): " >&2
     local typed=""; IFS= read -r typed || typed=""
-    [ -n "$typed" ] || { printf "        skipped — the key file is still on disk.\n"; return 0; }
+    [ -n "$typed" ] || return 1
     resp="$(_slack_api "$token" "users.lookupByEmail?email=${typed}")"
     uid="$(printf '%s' "$resp" | jq -r '.user.id // empty' 2>/dev/null)"
-    [ -n "$uid" ] || { printf "  ${YELLOW}warn${NC}  no Slack user for %s either — key NOT sent.\n" "$typed"; return 0; }
-    email="$typed"
+    [ -n "$uid" ] || { printf "  ${YELLOW}warn${NC}  no Slack user for %s either.\n" "$typed" >&2; return 1; }
   fi
 
   local chan
@@ -1535,10 +1553,90 @@ _deliver_via_slack() {
           --data "$(jq -nc --arg u "$uid" '{users:$u}')")"
   chan="$(printf '%s' "$resp" | jq -r '.channel.id // empty' 2>/dev/null)"
   if [ -z "$chan" ]; then
-    printf "  ${YELLOW}warn${NC}  could not open a DM (%s) — key NOT sent. Missing ${BOLD}im:write${NC}?\n" \
+    printf "  ${YELLOW}warn${NC}  could not open a DM (%s). Missing ${BOLD}im:write${NC}?\n" \
+      "$(printf '%s' "$resp" | jq -r '.error // "unknown"' 2>/dev/null)" >&2
+    return 1
+  fi
+  eval "$cache_var=\$chan"
+  ENGINE_DM_CHANNEL="$chan"
+  return 0
+}
+
+# ── _deliver_password_via_slack <agent-user> <login-email> ────────────────────
+#
+# A SEPARATE message from the key, deliberately. Two credentials in one message can only
+# be deleted together, and they have different lifetimes: the key file is consumed by
+# `env setup` and should be deleted immediately, while the password is the thing the
+# holder keeps.
+#
+# ⚠️ IT DOES NOT CARRY THE PASSWORD, deliberately. An earlier version did, and the
+# objection that killed it is the right one: a plaintext credential in a DM is permanent,
+# searchable, and sits in the recipient's account as well as ours — for an account that
+# reads across every organisation. The password is already in Secrets Manager and only
+# that person's own agent policy can read it, so the message carries the COMMAND instead.
+# Anything that reintroduces the secret here reintroduces the leak.
+#
+# ⚠️ AND IT MUST NOT BE CHANGED. The stored Secrets Manager value is what triage runs
+# authenticate with; a human changing the password in the app breaks every subsequent run
+# with no error, no counter and no alarm — the failure is an absence. That is why the
+# instruction is in the message rather than in a doc nobody opens.
+#
+# Never fails the run: the account exists and the password is stored by this point, so a
+# Slack hiccup costs a message, not the credential.
+_deliver_password_via_slack() {
+  local user="$1" login_email="$2"
+  local person="${user%-agent}"
+  local token; token="$(resolve_env_key SLACK_INTAKE_TOKEN 2>/dev/null || true)"
+  [ -n "$token" ] || { printf "  ${CYAN}note${NC}  no Slack token — the app password was NOT sent. It is in Secrets Manager.\n"; return 0; }
+  command -v curl >/dev/null 2>&1 || return 0
+
+  local chan; _slack_dm_channel "$person" || {
+    printf "  ${CYAN}note${NC}  app password NOT sent; it is readable with 'engine env resolve FINCH_AGENT_APP_PASSWORD --show-value'.\n"; return 0; }
+  chan="$ENGINE_DM_CHANNEL"
+  [ -n "$chan" ] || return 0
+
+  local msg
+  msg="*Your Finch agent app login* — this is the account the triage agents sign in as, and it is yours.
+
+\`${login_email}\`
+
+*The password is not in this message, on purpose.* It lives in Secrets Manager and only your own agent policy can read it. When you need it:
+\`\`\`
+engine env resolve FINCH_AGENT_APP_PASSWORD --show-value
+\`\`\`
+(Run \`engine env setup\` first if you have not — that is what fetches it to your machine.)
+
+:warning: *Do not change this password.* Agents authenticate with the stored copy, so changing it in the app breaks every triage run afterwards — silently, with no error anywhere. If it ever must be rotated, do it through \`engine env provision\` so the stored copy moves with it.
+
+*What this account can do*: it reads across organisations and is refused on writes. It is not a second personal account — it exists so an agent acting on your behalf is attributable to you.
+
+Sent separately from your key on purpose, so you can delete either message on its own."
+
+  local resp; resp="$(_slack_api "$token" "chat.postMessage" -H 'Content-Type: application/json' \
+          --data "$(jq -nc --arg c "$chan" --arg t "$msg" '{channel:$c, text:$t}')")"
+  if [ "$(printf '%s' "$resp" | jq -r '.ok // false' 2>/dev/null)" = "true" ]; then
+    printf "  ${GREEN}ok${NC}    sent the app login to %s on Slack (%s), as its own message\n" "$person" "$chan"
+  else
+    printf "  ${YELLOW}warn${NC}  app password NOT sent (%s) — it is in Secrets Manager and readable with 'engine env resolve FINCH_AGENT_APP_PASSWORD --show-value'.\n" \
       "$(printf '%s' "$resp" | jq -r '.error // "unknown"' 2>/dev/null)"
+  fi
+  return 0
+}
+
+_deliver_via_slack() {
+  local user="$1" person="$2" keyfile="$3"
+  local token; token="$(resolve_env_key SLACK_INTAKE_TOKEN 2>/dev/null || true)"
+  if [ -z "$token" ]; then
+    printf "  ${CYAN}note${NC}  no Slack token resolves — the key file was not sent, hand it over yourself.\n"
     return 0
   fi
+  command -v curl >/dev/null 2>&1 || return 0
+
+  local chan resp
+  _slack_dm_channel "$person" || {
+    printf "        key NOT sent — the file is still on disk.\n"; return 0; }
+  chan="$ENGINE_DM_CHANNEL"
+  [ -n "$chan" ] || { printf "        key NOT sent — the file is still on disk.\n"; return 0; }
 
   # Slack's upload is three calls: reserve a URL, PUT the bytes, then share it into the
   # conversation. Sharing is what makes it visible; an uploaded-but-unshared file is
@@ -1578,7 +1676,7 @@ Delete this message once you have installed it."
                     '{files:[{id:$id,title:$t}], channel_id:$c, initial_comment:$m}')")"
   if [ "$(printf '%s' "$resp" | jq -r '.ok // false' 2>/dev/null)" = "true" ]; then
     PROVISION_SLACK_OK=1
-    printf "  ${GREEN}ok${NC}    sent the key to %s on Slack (%s)\n" "$email" "$chan"
+    printf "  ${GREEN}ok${NC}    sent the key to %s on Slack (%s)\n" "$person" "$chan"
     printf "        ${YELLOW}That credential now lives in Slack history.${NC} Ask them to delete the message once installed.\n"
   else
     printf "  ${YELLOW}warn${NC}  upload completed but sharing failed (%s) — key NOT delivered.\n" \
