@@ -1,0 +1,6 @@
+{
+  "name": "interrogate",
+  "version": "1",
+  "description": "Run a structured interrogation on a subject — depth-selected rounds of targeted questions with between-round context and an exit gate — then hand back a Q&A digest. The interactive, reusable front-half of any skill's pre-flight, extracted as a building block: /loom calls it per thread to scope each build. Rides the active session (logs rounds to its DIALOGUE.md); runs standalone too. It gathers and reports, never plans, edits, or files. Triggers: \"interrogate this\", \"ask me some questions first\", \"scope this before we build\", \"interrogate the requirements\", \"pin down the assumptions\".",
+  "tier": "lightweight"
+}

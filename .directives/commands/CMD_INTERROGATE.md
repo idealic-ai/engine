@@ -17,7 +17,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 
 **Item IDs**: Questions use hierarchical IDs per the Item IDs convention (SIGILS.md § Item IDs). Format: `{phase}.{round}/{question}`. Example: Phase 2, Round 3, Question 2 = `2.3/2`. Use the item ID as the `header` field in `AskUserQuestion`. IDs are assigned at creation and persisted in both chat headers and DIALOGUE.md.
 
-**Topic selection**: Pick from the skill's standard topics or the universal repeatable topics below. Do NOT follow a fixed sequence — choose the most relevant uncovered topic based on what you've learned so far.
+**Topic selection**: Pick from the skill's standard topics or the universal repeatable topics below. Do NOT follow a fixed sequence, and do NOT bind a round to a single topic — choose the most relevant uncovered ground based on what you've learned so far, drawing a round's questions from ONE topic or MIXING several within the same round, whichever surfaces the questions most worth knowing next. Cluster questions by relevance, not by topic label; a round that spans scope + risk + a dependency in its four questions is preferred over four questions padded out of one topic.
 
 **Universal repeatable topics** (available to all skills, can be selected any number of times):
 - **Followup** — Clarify or revisit answers from previous rounds
@@ -26,7 +26,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 - **Deep dive** — Drill into a specific topic from a previous round in much more detail
 
 **Each round**:
-1.  **Ask with complete in-body context** (`§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`): the round's `AskUserQuestion` question **body** opens with the `¶FMT_CONTEXT_BLOCK` — the Round N-1 recap (what was learned) + the Round N — [Topic] framing (what's next and why) — carried INSIDE the body, never as a separate chat block rendered before the popup (skip only for Round 1, which has no prior recap). Then execute `§CMD_ASK_ROUND` (up to 4 targeted questions on the chosen topic — the tool maximum). Option labels lead with `§FMT_ANSWER_GRADATION` sigils where a dimension differentiates.
+1.  **Ask with complete in-body context** (`§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`): the round's `AskUserQuestion` question **body** opens with the `¶FMT_CONTEXT_BLOCK` — the Round N-1 recap (what was learned) + the Round N framing (what's next and why — name the topic or topics this round spans) — carried INSIDE the body, never as a separate chat block rendered before the popup (skip only for Round 1, which has no prior recap). Then execute `§CMD_ASK_ROUND` (up to 4 targeted questions — the tool maximum — drawn from the chosen topic OR a mix of several, per Topic selection above). Option labels lead with `§FMT_ANSWER_GRADATION` sigils where a dimension differentiates.
 2.  **Handle response**:
     *   **User provided answers**: Auto-logged to DIALOGUE.md by `post-tool-use-details-log.sh` hook. Continue to next round.
     *   **User asked a counter-question**: PAUSE. Answer in chat. Ask "Does this clarify? Ready to resume?" Once confirmed, resume.
