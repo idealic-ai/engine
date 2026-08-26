@@ -2444,6 +2444,16 @@ install_aws_key() {
   local src="$1" person="${2:-}" home="${ENV_AWS_HOME:-$HOME}"
   [ -f "$src" ] || { echo "env setup --aws-key: no such file: $src" >&2; return 1; }
 
+  # Checked HERE, before anything is written. _agent_profile_verify returns 1 for a
+  # missing `aws` exactly as it does for a rejected key, so without this guard a machine
+  # with no CLI is told its key "did not authenticate" — sending the reader after a
+  # credential that was fine all along. Nothing is written yet, so there is no profile
+  # to clean up either.
+  if ! command -v aws >/dev/null 2>&1 && [ -z "${ENV_STS_ARN+set}" ]; then
+    echo "env setup --aws-key: the AWS CLI is not installed, so the key cannot be verified. Install it (brew install awscli) and re-run. Nothing was written; your delivered file was NOT removed." >&2
+    return 1
+  fi
+
   local akid secret
   akid="$(grep -E '^[[:space:]]*aws_access_key_id[[:space:]]*=' "$src" 2>/dev/null | head -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//')"
   secret="$(grep -E '^[[:space:]]*aws_secret_access_key[[:space:]]*=' "$src" 2>/dev/null | head -1 | sed -E 's/^[^=]*=[[:space:]]*//; s/[[:space:]]*$//')"
