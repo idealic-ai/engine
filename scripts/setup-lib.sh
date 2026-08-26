@@ -398,6 +398,26 @@ configure_hooks() {
   if ! command -v jq &>/dev/null; then return 1; fi
   if [ ! -f "$settings_file" ]; then return 1; fi
 
+  # Drop engine hook entries whose script no longer exists. add_if_missing only ever
+  # APPENDS, so a hook renamed or deleted upstream stays wired here forever and Claude
+  # Code fails to exec a missing file on every matching tool call. Keyed on what is on
+  # disk rather than a list of dead names, so a future rename self-heals. Entries that
+  # are not engine hooks are left alone.
+  local live_hooks pruned
+  live_hooks=$(ls "$HOME/.claude/hooks"/*.sh 2>/dev/null | xargs -n1 basename | jq -R . | jq -sc . 2>/dev/null)
+  if [ -n "$live_hooks" ] && [ "$live_hooks" != "[]" ]; then
+    pruned=$(jq --argjson live "$live_hooks" '
+      def hookfile: (.command // "")
+        | if test("/hooks/[A-Za-z0-9._-]+\\.sh")
+          then capture("/hooks/(?<f>[A-Za-z0-9._-]+\\.sh)").f else null end;
+      def prune: map(.hooks = ((.hooks // [])
+                     | map(select(hookfile as $f | $f == null or ($live | index($f)) != null))))
+                 | map(select((.hooks | length) > 0));
+      if .hooks then .hooks |= with_entries(.value |= prune) else . end
+    ' "$settings_file" 2>/dev/null) || pruned=""
+    [ -n "$pruned" ] && printf '%s' "$pruned" | safe_json_write "$settings_file"
+  fi
+
   local merged
   merged=$(cat "$settings_file" | jq '
     # Helper: add entry to array if command not already present
