@@ -1,6 +1,6 @@
 ---
 name: pr
-description: "Open a pull request for the current branch with a CONTEXT-MAXED body. A PR-writer subagent reads the branch commits + diff, the linked ticket(s), and the full builds/ trail (build reports, critiques, verdicts, decisions) to draft a rich PR description — Summary, linked ticket + acceptance checklist, Changes + Verification, Decisions/Risks/CI-gates. Context-aware about the branch: on a MIXED branch it offers to cherry-pick just the target ticket's commits onto a fresh branch (never rewriting the shared branch); on a clean branch it pushes as-is. One confirm → push → gh pr create (base branch from the project's § Tracker config — dev for finch — draft or ready), then requests an automated Copilot review and polls the background for both Copilot and the Codex connector (the latter gated on its 👀 reaction), relaying the findings when they land. A building block: it opens the PR and surfaces the review, never addresses feedback or merges. Triggers: \"open a PR\", \"create a pull request\", \"PR this\", \"raise a PR\", \"ship this for review\"."
+description: "Open a pull request for the current branch with a CONTEXT-MAXED body. A PR-writer subagent reads the branch commits + diff, the linked ticket(s), and the full builds/ trail (build reports, critiques, verdicts, decisions) to draft a rich PR description — Summary, linked ticket + acceptance checklist, Changes + Verification, Decisions/Risks/CI-gates. Context-aware about the branch: on a MIXED branch it offers to cherry-pick just the target ticket's commits onto a fresh branch (never rewriting the shared branch); on a clean branch it pushes as-is. One confirm → push → gh pr create (base branch from the project's § Tracker config — dev for finch — draft or ready), then requests an automated Copilot review and runs one background watch over the reviewers (Copilot + the Codex connector, the latter gated on its 👀 reaction), the CI check runs on the head commit, and mergeability — exiting only into a named state (complete / checks-red / replies-owed / draft / blocked / stalled) and re-arming when a fix push moves the head. It relays failing check names with their annotations as path:line alongside the review findings, treats each finding as a claim to verify rather than an instruction, and posts a reply on the PR thread recording every finding's disposition — accepted, rejected with the evidence, or deferred with a destination. A PR is complete only when the gates pass AND every review comment carries a reply. A building block: it opens the PR, watches it to a named state, and records dispositions — it applies no fix on its own authority and never merges. Triggers: \"open a PR\", \"create a pull request\", \"PR this\", \"raise a PR\", \"ship this for review\"."
 version: 1.0
 tier: lightweight
 args: "[<base branch override, default: CLAUDE.md § Tracker PR base — dev for finch>] [--dry-run] [-- <PR title / framing override>]"
@@ -8,7 +8,7 @@ args: "[<base branch override, default: CLAUDE.md § Tracker PR base — dev for
 
 Open a pull request for the current branch with a **context-maxed** description. A PR-writer subagent reads *everything* — the branch commits, the diff, the linked ticket(s), and the full `builds/` trail (build reports, critiques, verdicts, and the "whys") — to draft a rich, trustworthy PR body. This allows a human reviewer to trust the work without having to re-derive it. This skill is sessionless and lightweight: it runs *within* the active session, scopes the range, drafts the body, gets one confirmation, pushes, runs `gh pr create`, and stops.
 
-This is **not `/snapshot`**. The `/snapshot` skill creates per-checkpoint commits and a ticket comment. The `/pr` skill operates at the **branch-level** — it rolls those checkpoints up into the entire slice of work for review. They compose perfectly: many `/snapshot` checkpoints culminate in one `/pr`. This is a **building block**: it opens the PR, but it *never* merges it.
+This is **not `/snapshot`**. The `/snapshot` skill creates per-checkpoint commits and a ticket comment. The `/pr` skill operates at the **branch-level** — it rolls those checkpoints up into the entire slice of work for review. They compose perfectly: many `/snapshot` checkpoints culminate in one `/pr`. This is a **building block** with a boundary worth stating precisely: it opens the PR, watches it to a named terminal state, and records each review finding's disposition on the thread — and it *never* applies a fix on its own authority and *never* merges. "Complete" therefore extends past the moment the PR opens: the gates must pass and every review comment must carry a reply.
 
 **Trail location:** The active session sets `<trailDir> = <sessionDir>/builds/`. The PR-writer subagent draws deep context from the session's `builds/` trail and log.
 
@@ -126,34 +126,138 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
      - *Conflict handling:* On ANY conflict, run `git -C <tmp-path> cherry-pick --abort`, then `git worktree remove --force <tmp-path>`, and **STOP**. Never force-resolve, never `-X`. The live checkout stays on the original branch throughout.
      - *Fallback if `git worktree` is unavailable:* This REQUIRES a clean working tree. If the tree is dirty, STOP and tell the user to `/snapshot` or commit their edits first (never `git stash`, never `git switch -c` a dirty tree). Only on a clean tree may you fall back to `git switch -c <prefix>-<ticket>-<slug> <base>`, cherry-pick, push, and then **`git switch <original-branch>`** as the absolute final step to restore the checkout. The live checkout stays on the original branch throughout.
    - Capture the resulting **PR URL**.
-4. **Request automated reviews + poll (async, non-blocking):** Once the PR exists, request a GitHub Copilot review and poll in the *background* for BOTH Copilot **and** the Codex connector, so the run isn't blocked. Generic GitHub features; each degrades to a no-op where unavailable.
+4. **Request automated reviews + watch the PR to a terminal state (async, non-blocking):** Once the PR exists, request a GitHub Copilot review and poll in the *background* for Copilot, the Codex connector, **and the CI gates** — one loop, all three, so the run isn't blocked. Generic GitHub features; each degrades to a no-op where unavailable.
    - **Derive `<owner>` / `<repo>` / `<n>`** from the PR URL captured above (`github.com/<owner>/<repo>/pull/<n>`).
-   - **Request Copilot** (only Copilot is *request-able*): prefer the GitHub MCP tool `request_copilot_review(owner, repo, pullNumber)` (load via `ToolSearch github`). Else `gh api --method POST repos/<owner>/<repo>/pulls/<n>/requested_reviewers -f 'reviewers[]=copilot-pull-request-reviewer[bot]'` (best-effort). If neither is available (no `gh`), skip + note it.
+   - **Request Copilot** (only Copilot is *request-able*): prefer the GitHub MCP tool `request_copilot_review(owner, repo, pullNumber)` (load via `ToolSearch github`). Else `gh api --method POST repos/<owner>/<repo>/pulls/<n>/requested_reviewers -f 'reviewers[]=copilot-pull-request-reviewer[bot]'` (best-effort). If neither is available (no `gh`), skip + note it. Set `COP_EXPECTED=1` in the snippet when the request succeeded, `0` when it was skipped — a `0` tells the loop not to wait for a reviewer that was never asked.
    - **Codex is NOT requested** — the `chatgpt-codex-connector[bot]` is an opt-in connector that reviews on its own and **signals via a 👀 reaction on the PR body** (present while reviewing, *removed* when it posts). So `/pr` can't request it; it detects engagement and waits only when codex is actually engaged.
-   - **Poll both in the background** — `run_in_background: true`; exits 0 on settle OR timeout so you're always re-woken:
+   - **Completeness has two conditions, not one.** A PR is complete when **the gates pass AND every review comment carries a reply recording its disposition** (§5). Green checks alone are half of it: a PR whose findings sit unanswered leaves the next reader unable to tell a considered rejection from an ignored comment. So the loop counts what is owed on the thread the same way it counts pending checks, and an owed reply keeps the PR out of `PR_COMPLETE`.
+   - **The loop runs to a terminal state, and every exit is named.** Reviews landing is not the finish line: a red gate, a merge conflict, a missing required review, or an unanswered finding each leave the PR incomplete, and a poll that stops on reviews alone hands back an unfinished PR described as done. So the loop keeps four questions live at once — did the reviewers speak, are the checks green, is every finding answered, can the PR merge — and exits only into one of these:
+     - `PR_COMPLETE` — nothing pending, nothing failing, reviewers settled, every review comment replied to, merge state clear. The only state that may be relayed as done.
+     - `PR_CHECKS_RED` — a check failed. Stop and escalate with the check names and their annotations (§4); a red gate needs a decision, not another twenty seconds of waiting.
+     - `PR_REPLIES_OWED` — gates pass, findings unanswered. Carries the owed ids (`c<id>` an inline comment, `r<id>` a review body). This is work the caller owes and can do now, which is why it is not a stall and not a block.
+     - `PR_DRAFT` — everything else is in order but the PR is still a draft. A draft cannot be complete; flipping it to ready is the caller's call.
+     - `PR_BLOCKED` — the PR cannot merge for a reason outside the caller's immediate control. The reason is named (`review_required` · `changes_requested` · `behind_base` · `merge_conflict` · `non_required_check_not_green` · `merge_state_unknown` · `unresolved:<state>`), because "blocked" on its own gives the user nothing to act on. Kept separate from `PR_REPLIES_OWED` on purpose: waiting on a human's approval is not the same obligation as owing that human an answer.
+     - `PR_STALLED` — nothing pending and nothing changing. Say that plainly and hand back what it is still waiting on.
+     - `PR_POLL_UNAVAILABLE` — no `gh`, or the API is unreachable. A no-op, never a completion.
+     There is deliberately no timeout exit: a poll that expires quietly is indistinguishable from a poll that passed, which is how a failing gate stays invisible. The wall-clock bound is a heartbeat — on hitting it the loop reports what it is still waiting on and hands back, and §4 re-arms it when the PR is legitimately still in flight.
+   - **How an owed reply is detected.** An inline review comment is answered when some comment carries its id in `in_reply_to_id`; a review *body* has no reply endpoint, so §5 answers it as an issue comment that **names the review id**, and the loop looks for that id in the PR's issue comments. Both are read off the API, so the completeness test is checked rather than asserted.
+   - **The head SHA re-arms the watch.** Each tick re-reads `.head.sha`; when it moves, the settle state resets and the loop keeps watching. Addressing findings means pushing commits, which starts a fresh CI run and can start a fresh review round — that push is the exact moment a one-shot poll stops watching, so the ordinary open → findings → fix → push flow is the one that most needs the re-arm.
+   - **Poll in the background** — `run_in_background: true`; always exits 0 so you are re-woken with a named state:
      ```bash
      OWNER=<owner>; REPO=<repo>; N=<n>
+     COP_EXPECTED=1   # 0 when the Copilot review request was skipped or failed
      RXN="Accept: application/vnd.github.squirrel-girl-preview+json"
-     for i in $(seq 1 40); do
+     BAD='.conclusion=="failure" or .conclusion=="timed_out" or .conclusion=="cancelled" or .conclusion=="action_required"'
+     CR="repos/$OWNER/$REPO/commits"
+     command -v gh >/dev/null 2>&1 || { echo "PR_POLL_UNAVAILABLE pr=$N reason=no_gh"; exit 0; }
+
+     head=""; prev=""; quiet=0; unk=0
+     for i in $(seq 1 135); do                                  # 20s ticks; the 45-min bound is a heartbeat, not a verdict
+       sha=$(gh api "repos/$OWNER/$REPO/pulls/$N" --jq '.head.sha' 2>/dev/null)
+       [ -n "$sha" ] || { echo "PR_POLL_UNAVAILABLE pr=$N reason=api_unreachable"; exit 0; }
+       if [ "$sha" != "$head" ]; then head="$sha"; quiet=0; fi  # a fix push re-arms the watch
+
+       pending=$(gh api "$CR/$sha/check-runs?per_page=100" --jq '[.check_runs[]|select(.status!="completed")]|length' 2>/dev/null || echo 0)
+       failed=$(gh api "$CR/$sha/check-runs?per_page=100" --jq "[.check_runs[]|select($BAD)]|length" 2>/dev/null || echo 0)
+       if [ "$failed" -gt 0 ]; then
+         names=$(gh api "$CR/$sha/check-runs?per_page=100" --jq "[.check_runs[]|select($BAD)|.name]|join(\", \")" 2>/dev/null)
+         ids=$(gh api "$CR/$sha/check-runs?per_page=100" --jq "[.check_runs[]|select($BAD)|.id|tostring]|join(\" \")" 2>/dev/null)
+         echo "PR_CHECKS_RED pr=$N head=$sha failing=$failed names=\"$names\" run_ids=\"$ids\" pending=$pending"; exit 0
+       fi
+
        cop=$(gh api "repos/$OWNER/$REPO/pulls/$N/reviews" --jq '[.[]|select(.user.login=="copilot-pull-request-reviewer[bot]")]|length' 2>/dev/null || echo 0)
        cdx=$(gh api "repos/$OWNER/$REPO/pulls/$N/reviews" --jq '[.[]|select(.user.login=="chatgpt-codex-connector[bot]")]|length' 2>/dev/null || echo 0)
        eyes=$(gh api "repos/$OWNER/$REPO/issues/$N/reactions" -H "$RXN" --jq '[.[]|select(.content=="eyes" and .user.login=="chatgpt-codex-connector[bot]")]|length' 2>/dev/null || echo 0)
        ok=$(gh api "repos/$OWNER/$REPO/issues/$N/reactions" -H "$RXN" --jq '[.[]|select(.content=="+1" and .user.login=="chatgpt-codex-connector[bot]")]|length' 2>/dev/null || echo 0)
-       codex_settled=0; if [ "$cdx" -gt 0 ] || [ "$ok" -gt 0 ]; then codex_settled=1; fi   # posted a review, or a clean +1
-       codex_idle=0;    if [ "$eyes" -eq 0 ] && [ "$cdx" -eq 0 ] && [ "$ok" -eq 0 ] && [ "$i" -ge 3 ]; then codex_idle=1; fi  # never engaged after ~1min
-       if [ "$cop" -gt 0 ] && { [ "$codex_settled" -eq 1 ] || [ "$codex_idle" -eq 1 ]; }; then
-         echo "REVIEWS_SETTLED pr=$N copilot=$cop codex_review=$cdx codex_ok=$ok"; exit 0
+
+       cop_done=0; if [ "$COP_EXPECTED" -eq 0 ] || [ "$cop" -gt 0 ]; then cop_done=1; fi
+       cdx_done=0
+       if [ "$cdx" -gt 0 ] || [ "$ok" -gt 0 ]; then cdx_done=1; fi                                          # posted a review, or a clean +1
+       if [ "$eyes" -eq 0 ] && [ "$cdx" -eq 0 ] && [ "$ok" -eq 0 ] && [ "$i" -ge 3 ]; then cdx_done=1; fi   # never engaged after ~1min
+
+       if [ "$pending" -eq 0 ] && [ "$cop_done" -eq 1 ] && [ "$cdx_done" -eq 1 ]; then
+         # completeness condition 2: every finding carries a reply recording its disposition
+         PC="repos/$OWNER/$REPO/pulls/$N"
+         tops=$(gh api --paginate "$PC/comments?per_page=100" --jq '.[]|select(.in_reply_to_id==null)|.id' 2>/dev/null)
+         reps=" $(gh api --paginate "$PC/comments?per_page=100" --jq '.[]|select(.in_reply_to_id!=null)|.in_reply_to_id' 2>/dev/null | tr '\n' ' ') "
+         revs=$(gh api --paginate "$PC/reviews?per_page=100" --jq '.[]|select((.body//"")!="")|.id' 2>/dev/null)
+         blob=" $(gh api --paginate "repos/$OWNER/$REPO/issues/$N/comments?per_page=100" --jq '.[].body' 2>/dev/null | tr '\n' ' ') "
+         owed=0; owed_ids=""
+         for id in $tops; do case "$reps" in *" $id "*) ;; *) owed=$((owed+1)); owed_ids="$owed_ids c$id" ;; esac; done
+         for id in $revs; do case "$blob" in *"$id"*)      ;; *) owed=$((owed+1)); owed_ids="$owed_ids r$id" ;; esac; done
+         if [ "$owed" -gt 0 ]; then                             # checked before merge state: this is work the caller owes now
+           echo "PR_REPLIES_OWED pr=$N head=$sha owed=$owed ids=\"${owed_ids# }\""; exit 0
+         fi
+
+         ms=$(gh api graphql -f query="{repository(owner:\"$OWNER\",name:\"$REPO\"){pullRequest(number:$N){mergeStateStatus mergeable reviewDecision isDraft}}}" \
+                --jq '.data.repository.pullRequest|"\(.mergeStateStatus) \(.mergeable) \(.reviewDecision) \(.isDraft)"' 2>/dev/null)
+         [ -n "$ms" ] || ms="UNKNOWN UNKNOWN UNKNOWN false"     # an unreadable merge state is never reported as complete
+         set -- $ms; state=$1; able=$2; rvw=$3; draft=$4
+         if [ "$state" = "UNKNOWN" ] && [ "$unk" -lt 3 ]; then  # GitHub computes merge state lazily; re-ask for ~1 min
+           unk=$((unk+1)); sleep 20; continue
+         fi
+
+         case "$state" in
+           CLEAN|HAS_HOOKS) echo "PR_COMPLETE pr=$N head=$sha copilot=$cop codex_review=$cdx codex_ok=$ok replies_owed=0 merge_state=$state"; exit 0 ;;
+           DRAFT) echo "PR_DRAFT pr=$N head=$sha copilot=$cop codex_review=$cdx replies_owed=0 mergeable=$able"; exit 0 ;;
+         esac
+         case "$state:$able:$rvw" in                            # first match wins; order is the priority
+           *:CONFLICTING:*)       why=merge_conflict ;;
+           BEHIND:*:*)            why=behind_base ;;
+           DIRTY:*:*)             why=merge_conflict ;;
+           UNSTABLE:*:*)          why=non_required_check_not_green ;;   # no failing check run, so: a red legacy commit status
+           *:*:CHANGES_REQUESTED) why=changes_requested ;;
+           *:*:REVIEW_REQUIRED)   why=review_required ;;                # readable even when merge state is not
+           UNKNOWN:*:*)           why=merge_state_unknown ;;            # GitHub could not compute the merge commit
+           *)                     why="unresolved:$state" ;;
+         esac
+         echo "PR_BLOCKED pr=$N head=$sha reason=$why merge_state=$state mergeable=$able review=$rvw copilot=$cop codex_review=$cdx replies_owed=0"; exit 0
+       fi
+
+       now="$sha|$pending|$failed|$cop|$cdx|$eyes|$ok"
+       if [ "$now" = "$prev" ]; then quiet=$((quiet+1)); else quiet=0; fi
+       prev="$now"
+       if [ "$pending" -eq 0 ] && [ "$quiet" -ge 15 ]; then
+         echo "PR_STALLED pr=$N head=$sha reason=no_change_5min waiting_on=reviews copilot=$cop codex_review=$cdx pending=0"; exit 0
        fi
        sleep 20
      done
-     echo "REVIEWS_TIMEOUT pr=$N copilot=$cop codex_review=$cdx codex_ok=$ok"; exit 0
+     echo "PR_STALLED pr=$N head=$head reason=heartbeat_45min pending=$pending failed=$failed copilot=$cop codex_review=$cdx"; exit 0
      ```
-     (~13-min ceiling; Copilot lands in 1–3 min.) **The 👀 gate**: while codex's eyes reaction is present the loop keeps waiting for its review; if codex never reacts within ~1 min (no eyes, no review, no +1) the loop stops waiting on codex — it isn't engaged on this PR. Give the Bash call a wake `description` — e.g. `Review poll PR <n> — on wake, relay Copilot + Codex (§4)`.
-5. **Report & Trail:** Stamp `<trailDir>/<slug>_PR.md` with the final outcome (PR URL, branch, base, draft/ready, gate flags). Provide the link to the user; note the Copilot poll is running and you'll relay it when it lands (§4). **Optionally announce the PR on the linked ticket:** when a sibling agent (or a later session) would want to know the branch shipped, offer to post a short "PR opened: `<url>` — `Closes <PREFIX>-NNNN`" comment on the ticket. If you do, route it **through `§CMD_POST_TICKET_COMMENT`** (the canonical subscribe-check → `save_comment` → `engine ticket notify` atom, per `¶INV_TICKET_COMMENT_VIA_CMD`) so the sibling-notify fires — never a bare `save_comment`. Offer, don't force; skip when no ticket is linked. **Offer council (optional, `§CMD_OFFER_COUNCIL_REVIEW`):** offer a `/council` panel on the PR diff (`subject: pr <n>` — immutable via `gh pr diff`), dispatched in the background report-only so it runs parallel with the Copilot poll and is relayed when it lands. Offer, never force. **Feed the ledger:** append one terse bullet to `<trailDir>/LESSONS.md` (e.g., "PR opened, URL, closes `<PREFIX>-NNNN`") via `engine log`. **Then stop** (the background poll re-wakes you for §4). Reviewing, addressing feedback, and merging are your call, not this skill's. **Never merge.**
+     **Sizing:** 20s ticks. The heartbeat sits at 45 min because gating on CI means outlasting a real build *and* the re-armed run a fix push starts — a full build on this repo runs around five minutes, so the bound holds several sequential rounds rather than a single one. The quiet escalation is separate and much shorter: nothing pending and nothing changing for five minutes is a stall, not a slow build. **The 👀 gate**: while codex's eyes reaction is present the loop keeps waiting for its review; if codex never reacts within ~1 min (no eyes, no review, no +1) the loop stops waiting on codex — it isn't engaged on this PR. Give the Bash call a wake `description` — e.g. `PR <n> watch — on wake, relay checks + Copilot + Codex (§4)`.
+     **Coverage note:** `check-runs` covers GitHub Actions and check-run integrations; a legacy commit *status* does not appear there. `mergeStateStatus` catches those as `UNSTABLE`, which the loop surfaces as `non_required_check_not_green` rather than as green.
+5. **Report & Trail:** Stamp `<trailDir>/<slug>_PR.md` with the final outcome (PR URL, branch, base, draft/ready, gate flags). Provide the link to the user; note the PR watch is running — checks, Copilot and Codex — and that you will relay its named state when it lands (§4). **Optionally announce the PR on the linked ticket:** when a sibling agent (or a later session) would want to know the branch shipped, offer to post a short "PR opened: `<url>` — `Closes <PREFIX>-NNNN`" comment on the ticket. If you do, route it **through `§CMD_POST_TICKET_COMMENT`** (the canonical subscribe-check → `save_comment` → `engine ticket notify` atom, per `¶INV_TICKET_COMMENT_VIA_CMD`) so the sibling-notify fires — never a bare `save_comment`. Offer, don't force; skip when no ticket is linked. **Offer council (optional, `§CMD_OFFER_COUNCIL_REVIEW`):** offer a `/council` panel on the PR diff (`subject: pr <n>` — immutable via `gh pr diff`), dispatched in the background report-only so it runs parallel with the PR watch and is relayed when it lands. Offer, never force. **Feed the ledger:** append one terse bullet to `<trailDir>/LESSONS.md` (e.g., "PR opened, URL, closes `<PREFIX>-NNNN`") via `engine log`. **Then stop** (the background watch re-wakes you for §4, and §5 records the dispositions). Deciding each finding, applying any fix, and merging are your call, not this skill's. **Never merge.**
 
-## 4. Relay the Automated Reviews (on background-poll completion)
+## 4. Relay the Checks and the Automated Reviews (on background-watch completion)
 
-When the §3 poll re-wakes you (`REVIEWS_SETTLED` / `REVIEWS_TIMEOUT`, carrying `copilot=`/`codex_review=`/`codex_ok=` counts), fetch whatever landed (queries below), then **disclose it through `§CMD_ELICIT` rather than dumping a flat list** — automated reviewers are indiscriminate, so render each finding as a Decision Card (what's-at-stake · complexity · how-to-verify · advisory engagement, with a defeasible `my lean`) and lead with the triaged summary ("N worth addressing, M FYI") so the user sees which findings actually matter vs. noise. Label each card by reviewer (Copilot / Codex). `/pr` stays read-only — `§CMD_ELICIT` only **discloses + classifies attention**; the address/ignore choice (and any `/scrutinize`·`/fix` chain) is the caller's own, offered after the disclosure — it never addresses or merges.
+When the §3 watch re-wakes you, it carries one named state. Relay **the checks and the reviews together** — a failing gate is at least as actionable as a review nit, and a relay that mentions only reviewers reproduces the blindness this section exists to close. Report the `merge_state` / `reason` in every relay so the user sees whether the PR can actually merge.
+
+**Say the state, never a word that sounds more finished than it is.** `PR_COMPLETE` is the only state that may be relayed as done. For every other state, lead with the failing, owed or blocking fact; the review findings come after it.
+
+**On `PR_CHECKS_RED` — escalate with the offending lines, not a job URL.** The signal carries `names=` and `run_ids=`. For each id, pull the annotations: a `path:line — message` list turns a fix into a two-minute edit, whereas a link to the job makes the user re-derive what the watch already knows.
+```bash
+gh api "repos/<owner>/<repo>/check-runs/<check_run_id>/annotations" \
+  --jq '.[]|"\(.path):\(.start_line) [\(.annotation_level)] \(.title) — \(.message)"'
+```
+Relay per failing check: its name, then its annotations. When a check exposes no annotations, say so and give its `details_url` (`gh api "repos/<owner>/<repo>/commits/<head>/check-runs?per_page=100" --jq '.check_runs[]|select(.id==<id>)|.details_url'`). Then offer `/fix`; re-arm the §3 watch after the fix push so the fresh CI run is watched too.
+
+**On `PR_REPLIES_OWED`** — the gates pass and findings sit unanswered. Relay the findings (below), take the caller's disposition for each, then post the replies per §5 and re-arm the watch. This is the ordinary path, not an exception: a first watch on a reviewed PR almost always lands here.
+
+**On `PR_BLOCKED`** — name the reason in the user's words: a required review is missing, the branch is behind base, the branch conflicts, changes were requested, a non-required check is not green, GitHub cannot compute the merge commit. Say what unblocks each; `/pr` does not merge, rebase, or approve.
+
+**On `PR_DRAFT`** — everything else is in order and the PR is still a draft. Offer to flip it to ready; do not flip it unasked.
+
+**On `PR_STALLED`** — say exactly that nothing has moved and what it was still waiting on. Do not present it as a pass. Offer to re-arm the watch or to stop watching.
+
+**Disclose the review findings through `§CMD_ELICIT` rather than dumping a flat list** — automated reviewers are indiscriminate, so render each finding as a Decision Card (what's-at-stake · complexity · how-to-verify · advisory engagement, with a defeasible `my lean`) and lead with the triaged summary ("N worth addressing, M FYI") so the user sees which findings matter against which are noise. Label each card by reviewer (Copilot / Codex). `§CMD_ELICIT` **discloses + classifies attention**; the address/reject/defer choice (and any `/scrutinize`·`/fix` chain) is the caller's own. `/pr` applies no fix on its own authority — what it does with the outcome is record it on the thread (§5).
+
+**A finding is a claim, not an instruction.** Automated reviewers routinely ask for handling of an edge case the application cannot reach, flag a pattern the codebase chose deliberately, or assert something about the code that is not true. So:
+- **Evaluate each finding against the code before acting on it.** A finding whose premise is false, or whose edge case is unreachable, is **rejected with the reason** — a complete and correct outcome, not a skipped task.
+- **Present "reject, because X" as a first-class option on every card**, alongside address and defer, carrying the evidence for the rejection. A reader who sees only address/defer will treat noise as work.
+- **Never apply a change solely because a reviewer asked for it.** Verify the claim first, then address it, defer it, or reject it with a reason.
+- Where a rejection is worth the reviewer knowing, replying on the PR thread with the reason is the right move — offer it, never do it automatically.
+One live run illustrates the spread: on a single PR the same reviewers produced a finding that was real and load-bearing (a header claiming a completeness the file did not have, falsified against `package.json`), a finding that was real but pre-existing and untouched by the change, and a pair that were spelling preference. Same reviewer, same run, different correct responses — a uniform to-do list destroys that distinction.
+
 - **Copilot** (`copilot=`>0): summary body + inline findings (`file:line — essence`):
   ```bash
   gh api "repos/<owner>/<repo>/pulls/<n>/reviews"  --jq '.[]|select(.user.login=="copilot-pull-request-reviewer[bot]")|.body'
@@ -164,12 +268,44 @@ When the §3 poll re-wakes you (`REVIEWS_SETTLED` / `REVIEWS_TIMEOUT`, carrying 
   gh api "repos/<owner>/<repo>/pulls/<n>/reviews"  --jq '.[]|select(.user.login=="chatgpt-codex-connector[bot]")|.body'
   gh api "repos/<owner>/<repo>/pulls/<n>/comments" --jq '.[]|select(.user.login=="chatgpt-codex-connector[bot]")|"\(.path):\(.line) — \(.body)"'
   ```
-  - **Codex clean pass** (`codex_ok=`>0 with `codex_review=0`): no written review — relay "Codex reviewed and approved (👍, no written findings)."
-- Then **stop** — offer, don't auto-run: `/scrutinize` to triage the findings or `/fix` to address them. Acting on either review is the user's call.
-- **`REVIEWS_TIMEOUT`:** relay whatever DID land (per the signal's counts) and note any reviewer that didn't appear in the window (slow, not enabled, or — for Codex — never engaged). The PR is open regardless; don't block on it.
+  - **Codex clean pass** (`codex_ok=`>0 with `codex_review=0`): no written review — relay "Codex reviewed and approved (👍, no written findings)." This speaks for the reviewer only; it says nothing about the gates.
+- **`PR_POLL_UNAVAILABLE`:** say the watch could not run and why (`no_gh` / `api_unreachable`). The PR is open; nothing was observed, so claim nothing about it.
+- Once every finding has a disposition, go to **§5** and record them on the thread. Offer, don't auto-run, the rest: `/scrutinize` to triage the findings or `/fix` to address a red gate or an accepted finding. Applying a fix is the user's call; posting the disposition is not optional.
+
+## 5. Record Each Disposition on the PR Thread
+
+Every review comment gets a reply saying what happened to it. A PR thread where some findings were fixed and others silently passed over reads identically to one where nobody looked: **silence and disagreement are indistinguishable on a PR thread**, so the reply is the only durable record that a finding was considered. This is also the second half of the completeness test in §3 — an unanswered finding keeps the PR out of `PR_COMPLETE`.
+
+**Replies go out after the caller has decided each finding, never before.** Do not invent a disposition to have something to post; where the caller has not decided, the reply is not written and the PR is not complete. Post one reply per finding, in the caller's decided terms:
+
+- **Accepted** — what changed and where: the file and line, or the commit. "Fixed in `path/to/file.ts:42`" beats "done".
+- **Rejected** — why, with the evidence that falsifies the finding: the code path that cannot be reached, the value that is already guaranteed, the deliberate choice and where it is written down. This is the highest-value reply of the three, because it is the only record that the finding was weighed rather than dropped.
+- **Deferred** — that it is deferred and where it went: the ticket key, the followup section of the PR body, the file it was noted in. A deferral with no destination is a rejection wearing a friendlier word.
+
+**Where each reply goes:**
+- **An inline review comment** (`c<id>` in the `PR_REPLIES_OWED` signal) is replied to in its own thread. Prefer the GitHub MCP tool `add_reply_to_pull_request_comment` (load via `ToolSearch github`). Else:
+  ```bash
+  gh api --method POST "repos/<owner>/<repo>/pulls/<n>/comments/<comment_id>/replies" \
+    --field body="<the disposition>"
+  ```
+- **A review body** (`r<id>`) has no reply endpoint — GitHub offers no per-review reply. Answer it as an issue comment on the PR that **names the review id**, which is what makes the answer detectable in §3's completeness count:
+  ```bash
+  gh api --method POST "repos/<owner>/<repo>/issues/<n>/comments" \
+    --field body="Answering review <review_id> — <the dispositions>"
+  ```
+  A review body carrying no findings is answered in one line saying so; it still needs the answer, because the count cannot tell an empty review from an ignored one.
+- **Body text goes through `--field`, never interpolated into the command string.** A rejection quotes code, and a body spliced inline lets backticks and `$` reach the shell — the same command-substitution hazard that makes `--body-file` mandatory in §3.
+
+**Degradation:** no `gh` and no GitHub MCP means no replies. Say so plainly, name the findings that went unanswered, and report the PR as incomplete — never as done, and never with the replies claimed as posted.
+
+**Then re-arm the §3 watch.** With the replies posted, the owed count is zero and the watch can reach `PR_COMPLETE` — or surface whatever else is still in the way.
 
 ## Constraints (Summary)
-- **Automated reviews are requested/detected + polled, never acted on:** after the PR opens, `/pr` requests a Copilot review and polls in the background (re-woken via `run_in_background`) for BOTH Copilot (requested) and the Codex connector (opt-in — detected via its 👀 reaction on the PR, gated so `/pr` only waits when codex is actually engaged), then RELAYS both sets of findings — it never addresses or merges them. Each degrades to a no-op where that reviewer isn't enabled or `gh`/MCP is unavailable.
+- **The PR is watched to a named terminal state — checks, reviewers, replies owed, mergeability:** after the PR opens, `/pr` requests a Copilot review and runs one background watch (re-woken via `run_in_background`) covering Copilot (requested), the Codex connector (opt-in — detected via its 👀 reaction, so `/pr` waits only when codex is engaged), the head commit's check runs, the unanswered-finding count, and `mergeStateStatus`. It exits only into `PR_COMPLETE`, `PR_CHECKS_RED`, `PR_REPLIES_OWED`, `PR_DRAFT`, `PR_BLOCKED`, `PR_STALLED` or `PR_POLL_UNAVAILABLE` — there is no quiet timeout, because a poll that expires reads exactly like a poll that passed. A head-SHA change re-arms the watch, so the fix push that follows a round of findings is watched rather than abandoned. `/pr` then RELAYS: failing check names with their `check-runs/<id>/annotations` as `path:line — message`, the merge state, the owed findings, and both review sets. It re-runs no gate and merges nothing. Missing `gh`/MCP or a reviewer that isn't enabled degrades to a no-op, never to a completion.
+- **A PR is complete only when the gates pass AND every review comment has a reply:** green checks are half the test. The owed count is read off the API — an inline comment is answered when a comment carries its id in `in_reply_to_id`, a review body when an issue comment names the review id — so completeness is checked, not asserted.
+- **Only `PR_COMPLETE` may be relayed as done:** a red gate, an owed reply, a draft, a blocked merge state, or a stall is reported by its named reason, leading the relay. No wording that sounds finished may cover a failing check or an unanswered finding.
+- **Every finding's disposition is posted to the thread, after the caller decides it:** accepted says what changed and where, rejected says why with the evidence, deferred says where it went. Replies go to the inline comment's own thread (`pulls/<n>/comments/<id>/replies`) or, for a review body, to an issue comment naming the review id. `/pr` invents no disposition to have something to post, and where `gh`/MCP is missing it reports the findings unanswered and the PR incomplete rather than claiming replies it did not post.
+- **A review finding is a claim to verify, not an instruction to obey:** each finding is checked against the code before anything is done with it, and one whose premise is false or whose edge case is unreachable is rejected with the reason — presented as a first-class option on the decision card alongside address and defer. Never apply a change solely because a reviewer asked; verify it, then address, defer, or reject with a reason.
 - **Base from § Tracker (`dev` for finch), never `main` directly:** Resolve the PR base from CLAUDE.md § Tracker (defaulting to `dev` when absent). Overridable only by explicit arguments.
 - **No history rewriting / no live-tree mutation:** No `rebase`, `reset`, `amend`, `push --force`, `stash`, or `switch -c` on the live tree. **The cherry-pick mechanism is `git worktree`** — a focused pick builds a NEW branch off base in a throwaway worktree and never touches the source branch or the working checkout. Abort (`--abort` + `worktree remove --force`) on any cherry-pick conflict; never force-resolve. The worktree-unavailable fallback requires a clean tree and restores the original branch as its last step.
 - **Push is fast-forward-only:** Fetch and check ahead/behind before confirming. Surface divergence; a plain push (never `--force`) is rejected non-fast-forward if behind — let the user reconcile or take the clean fresh-branch path; never auto-`pull`/`rebase`.
@@ -177,6 +313,6 @@ When the §3 poll re-wakes you (`REVIEWS_SETTLED` / `REVIEWS_TIMEOUT`, carrying 
 - **One confirm before push + PR:** Nothing pushes or opens a PR without the explicit confirm; push/PR happen only on "Create".
 - **Body via `--body-file`, NEVER inline:** The subagent writes the body to `<trailDir>/<slug>_PR.md`, the orchestrator appends the trailer to that file and creates with `--body-file`; `--title` stays a short sanitized single value. Inline `--body "…"` is forbidden (backtick/`$` shell-substitution risk).
 - **Gates flagged, not run:** `/pr` detects + flags any special CI gates the project documents (e.g. in CLAUDE.md/CONTRIBUTING.md) as a reviewer heads-up in the body; it does NOT run build/lint (CI does). It never claims a verification not present in the trail.
-- **Building block — opens, never merges:** It creates the PR (draft or ready) and stops; reviewing/merging is out of scope.
+- **Building block — opens, watches, records; never fixes on its own authority, never merges:** It creates the PR (draft or ready), watches it to a named terminal state, and posts each finding's decided disposition. Deciding a finding, applying a fix, flipping draft to ready, and merging stay the caller's.
 - **Claude Code trailer:** Must end every PR body.
-- **Lightweight + sessionless:** Scope → draft → confirm → push + create, then stop. The subagent is read-only; all git/`gh` mutations are the orchestrator's, post-confirm.
+- **Lightweight + sessionless:** Scope → draft → confirm → push + create → watch → relay → record dispositions. The PR-writer subagent stays read-only; all git/`gh` mutations are the orchestrator's, and each is gated — the push and PR on the §3 confirm, every reply on the caller's decision for that finding.
