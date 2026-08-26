@@ -38,14 +38,36 @@ setup() {
 # mock curl: record argv + stdin, emit canned Slack JSON. Honours -D <file> by
 # writing $MOCK_SCOPES as the x-oauth-scopes header — that header is where
 # --verify reads the app's granted scopes from.
+#
+# stdin is read ONLY for `--data @-`. The suite's own loop is driven from a
+# process substitution, so its stdin IS the remaining list of test names: an
+# unconditional `cat` swallows that list and every later test vanishes without a
+# failure. Every call that has no request body (users.list, conversations.open,
+# --verify) hits that path.
+#
+# The response is routed by ENDPOINT, because one resolution now spans several:
+# a directory read, a DM open, and the post. $MOCK_CURL_RESPONSE stays the
+# fallback, so every pre-existing case behaves exactly as before.
 printf '%s\n' "$*" >> "$MOCK_CURL_ARGS"
-cat > "$MOCK_CURL_STDIN" 2>/dev/null || true
-_prev=""
+case " $* " in *" --data @- "*) cat > "$MOCK_CURL_STDIN" 2>/dev/null || true ;; esac
+_prev=""; _url=""
 for _a in "$@"; do
   case "$_prev" in -D|--dump-header) printf 'HTTP/1.1 200 OK\r\nx-oauth-scopes: %s\r\n' "${MOCK_SCOPES-}" > "$_a" ;; esac
+  case "$_a" in https://slack.com/api/*) _url="$_a" ;; esac
   _prev="$_a"
 done
-printf '%s' "${MOCK_CURL_RESPONSE}"
+_resp=""
+case "$_url" in
+  *users.lookupByEmail*) _resp="${MOCK_LOOKUP_EMAIL-}" ;;
+  *conversations.open*)  _resp="${MOCK_CONV_OPEN-}" ;;
+  *users.list*)
+    case " $* " in
+      *cursor=*) _resp="${MOCK_USERS_LIST_PAGE2-}" ;;
+      *)         _resp="${MOCK_USERS_LIST-}" ;;
+    esac ;;
+esac
+[ -n "$_resp" ] || _resp="${MOCK_CURL_RESPONSE}"
+printf '%s' "$_resp"
 STUB
   chmod +x "$MOCK_BIN/curl"
   export PATH="$MOCK_BIN:$ORIG_PATH"
@@ -62,6 +84,7 @@ teardown() {
   export PATH="$ORIG_PATH"
   rm -rf "$TMP"
   unset MOCK_CURL_ARGS MOCK_CURL_STDIN MOCK_CURL_RESPONSE MOCK_SCOPES
+  unset MOCK_USERS_LIST MOCK_USERS_LIST_PAGE2 MOCK_LOOKUP_EMAIL MOCK_CONV_OPEN
 }
 
 # Case 1 — dry-run prints a valid JSON body with channel+text, no network call.
@@ -433,6 +456,367 @@ test_verify_files_read_does_not_change_exit_code() {
   verify_out "chat:write,channels:history,channels:read,users:read,files:read" >/dev/null 2>&1; rc_with=$?
   verify_out "chat:write,channels:history,channels:read,users:read"            >/dev/null 2>&1; rc_without=$?
   assert_eq "$rc_with" "$rc_without" "a missing files:read leaves the verdict unchanged"
+}
+
+
+# --- --to: posting to a PERSON ------------------------------------------------
+# --channel is a place, --to is a person. Everything below is about the second:
+# the three resolution tiers, and the fact that an ambiguous query must PRINT
+# and STOP rather than pick someone. There is no TTY to ask on.
+
+# A workspace directory covering every case the resolver has to separate:
+#   Leo Moura   — unique on 'leo' once the deleted Leo is dropped
+#   Rob Coyle   — ambiguous with Robin Vale on 'rob'
+#   Robin Vale  — no email, so the candidate row must say so rather than blank
+#   Leo Ghost   — DELETED; cannot receive a DM, so it must not create ambiguity
+#   buildbot    — no display name, no email
+DIRECTORY_JSON='{"ok":true,"members":[
+  {"id":"U0AAAAAAAA1","deleted":false,"real_name":"Leonardo Moura","profile":{"display_name":"Leo Moura","real_name":"Leonardo Moura","email":"leonardo@example.com"}},
+  {"id":"U0BBBBBBBB2","deleted":false,"real_name":"Rob Coyle","profile":{"display_name":"Rob Coyle","real_name":"Rob Coyle","email":"robcoyle@example.com"}},
+  {"id":"U0CCCCCCCC3","deleted":false,"real_name":"Robin Vale","profile":{"display_name":"Robin Vale","real_name":"Robin Vale"}},
+  {"id":"U0DDDDDDDD4","deleted":true,"real_name":"Leo Ghost","profile":{"display_name":"Leo Ghost","real_name":"Leo Ghost","email":"ghost@example.com"}},
+  {"id":"U0EEEEEEEE5","deleted":false,"is_bot":true,"real_name":"buildbot","profile":{"display_name":"","real_name":"buildbot"}}
+]}'
+
+DM_OPEN_JSON='{"ok":true,"channel":{"id":"D0RESOLVED1"}}'
+
+# Resolve + post for real: directory read, DM open, then the message.
+# Each mocked endpoint DEFAULTS here and is overridable by the caller — a case
+# that wants a failing conversations.open sets MOCK_CONV_OPEN and everything
+# else stays on the happy path. Hardcoding them would silently shadow the
+# override and leave the case asserting the happy path under a failure name.
+to_post() { # $@ = extra slack-post args
+  MOCK_USERS_LIST="${MOCK_USERS_LIST:-$DIRECTORY_JSON}" \
+  MOCK_LOOKUP_EMAIL="${MOCK_LOOKUP_EMAIL:-}" \
+  MOCK_CONV_OPEN="${MOCK_CONV_OPEN:-$DM_OPEN_JSON}" \
+  MOCK_CURL_RESPONSE='{"ok":true,"ts":"100.1"}' \
+  SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --text "hi" "$@" < /dev/null 2>&1
+}
+
+# Case T1 — a U… id is already the answer: no directory search, straight to the DM.
+test_to_user_id_skips_the_search() {
+  local out rc args
+  out=$(to_post --to "U0AAAAAAAA1"); rc=$?
+  args=$(cat "$MOCK_CURL_ARGS" 2>/dev/null)
+  assert_eq "0" "$rc" "--to <U… id>: exit 0"
+  assert_not_contains "users.list" "$args" "--to <U… id>: never searches the directory"
+  assert_contains "conversations.open" "$args" "--to <U… id>: opens the DM"
+  assert_contains "chat.postMessage" "$args" "--to <U… id>: posts"
+}
+
+# Case T1b — the DM channel, not the user id, is what reaches chat.postMessage.
+# A user id is not a channel; conversations.open is the step that makes one.
+test_to_posts_to_the_opened_dm_channel() {
+  to_post --to "U0AAAAAAAA1" >/dev/null 2>&1
+  assert_eq "D0RESOLVED1" "$(jq -r '.channel' < "$MOCK_CURL_STDIN" 2>/dev/null)" \
+    "--to: the D… channel from conversations.open is what gets posted to"
+}
+
+# Case T2 — an email goes to users.lookupByEmail: one hit or none, never ambiguous.
+test_to_email_uses_lookup_by_email() {
+  local out rc args
+  out=$(MOCK_LOOKUP_EMAIL='{"ok":true,"user":{"id":"U0AAAAAAAA1"}}' to_post --to "leonardo@example.com"); rc=$?
+  args=$(cat "$MOCK_CURL_ARGS" 2>/dev/null)
+  assert_eq "0" "$rc" "--to <email>: exit 0"
+  assert_contains "users.lookupByEmail" "$args" "--to <email>: uses users.lookupByEmail"
+  assert_not_contains "users.list" "$args" "--to <email>: never falls through to the directory search"
+}
+
+# Case T3 — a bare name is a case-insensitive SUBSTRING match, so 'leo' finds Leo Moura.
+test_to_bare_name_substring_match() {
+  local out rc
+  out=$(to_post --to "LEO"); rc=$?
+  assert_eq "0" "$rc" "--to leo: exit 0"
+  assert_eq "D0RESOLVED1" "$(jq -r '.channel' < "$MOCK_CURL_STDIN" 2>/dev/null)" "--to leo: resolves to a DM"
+  assert_contains "users.list" "$(cat "$MOCK_CURL_ARGS" 2>/dev/null)" "--to leo: searched the directory"
+}
+
+# Case T3b — a deleted account cannot receive a DM, so it is not a candidate.
+# Without this, the deleted Leo would make every 'leo' ambiguous.
+test_to_skips_deleted_accounts() {
+  local out rc
+  out=$(to_post --to "ghost"); rc=$?
+  assert_eq "1" "$rc" "--to ghost: a deleted-only match is no match"
+  assert_contains "no Slack user matches" "$out" "--to ghost: reported as absent, not ambiguous"
+}
+
+# Case T3c — the directory is paged; a person on page 2 is still found.
+test_to_pages_the_directory() {
+  local out rc
+  out=$(MOCK_USERS_LIST='{"ok":true,"members":[],"response_metadata":{"next_cursor":"c2"}}' \
+        MOCK_USERS_LIST_PAGE2="$DIRECTORY_JSON" \
+        MOCK_CONV_OPEN='{"ok":true,"channel":{"id":"D0RESOLVED1"}}' \
+        MOCK_CURL_RESPONSE='{"ok":true,"ts":"1.1"}' \
+        SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --text hi --to "leo" < /dev/null 2>&1); rc=$?
+  assert_eq "0" "$rc" "--to: follows next_cursor to page 2"
+}
+
+# Case T3d — a typed @name is a person, not an email. Without the strip it routes
+# to users.lookupByEmail and can never match.
+test_to_strips_leading_at() {
+  to_post --to "@leo" >/dev/null 2>&1
+  local args; args=$(cat "$MOCK_CURL_ARGS" 2>/dev/null)
+  assert_contains "users.list" "$args" "--to @leo: searched the directory"
+  assert_not_contains "users.lookupByEmail" "$args" "--to @leo: NOT treated as an email"
+}
+
+# --- ambiguity is a protocol, not a prompt --------------------------------
+# Case T4 — more than one match: print the candidates, post NOTHING, exit non-zero.
+test_to_ambiguous_posts_nothing() {
+  local out rc args
+  out=$(to_post --to "rob"); rc=$?
+  args=$(cat "$MOCK_CURL_ARGS" 2>/dev/null)
+  assert_eq "1" "$rc" "--to rob: ambiguous → exit 1"
+  assert_not_contains "chat.postMessage" "$args" "--to rob: nothing was posted"
+  assert_not_contains "conversations.open" "$args" "--to rob: no DM was even opened"
+}
+
+# Case T4b — the candidate rows carry what a caller needs to choose, id FIRST:
+# the id is what the re-invocation uses, and tier 1 guarantees it resolves.
+test_to_ambiguous_candidate_rows() {
+  local out
+  out=$(to_post --to "rob")
+  assert_contains "matches more than one person" "$out" "ambiguous: says why nothing happened"
+  assert_contains "USER ID" "$out" "ambiguous: column header names the id"
+  assert_contains "U0BBBBBBBB2" "$out" "ambiguous: first candidate id"
+  assert_contains "U0CCCCCCCC3" "$out" "ambiguous: second candidate id"
+  assert_contains "Rob Coyle" "$out" "ambiguous: display name"
+  assert_contains "Robin Vale" "$out" "ambiguous: the other display name"
+  assert_contains "robcoyle@example.com" "$out" "ambiguous: email where the token can see it"
+  assert_contains "no email visible" "$out" "ambiguous: and marks the column when it cannot"
+  assert_contains "lacks users:read.email" "$out" "ambiguous: says the blank may be a scope, not an absent address"
+  assert_contains "\-\-to <USER ID>" "$out" "ambiguous: names the re-invocation"
+}
+
+# Case T4c — the printed id resolves to exactly one person, so the loop terminates.
+test_to_ambiguous_id_resolves_on_reinvoke() {
+  local rc
+  to_post --to "U0BBBBBBBB2" >/dev/null 2>&1; rc=$?
+  assert_eq "0" "$rc" "the id printed by an ambiguous match posts cleanly on re-invoke"
+}
+
+# --- "not found" and "could not look" are different failures ---------------
+# Case T5 — zero matches: say what was searched and where.
+test_to_zero_matches_names_the_search() {
+  local out rc
+  out=$(to_post --to "zzzznobody"); rc=$?
+  assert_eq "1" "$rc" "--to zzzznobody: exit 1"
+  assert_contains "no Slack user matches" "$out" "zero match: says nobody matched"
+  assert_contains "display name, real name and email local-part" "$out" "zero match: says what was searched"
+  assert_contains "users.list" "$out" "zero match: says where it looked"
+  assert_contains "The lookup worked" "$out" "zero match: distinguishes itself from a failed lookup"
+}
+
+# Case T5b — an email that nobody has reads differently from a name that nobody has.
+test_to_zero_matches_email_wording() {
+  local out
+  out=$(MOCK_LOOKUP_EMAIL='{"ok":false,"error":"users_not_found"}' to_post --to "nobody@example.com")
+  assert_contains "no Slack user has the email" "$out" "email zero match: its own wording"
+  assert_not_contains "no Slack user matches" "$out" "email zero match: not the directory-search wording"
+}
+
+# Case T6 — a MISSING SCOPE is a missing wrapper, not a missing person. Reporting
+# the two the same way is how a capability we have becomes one we believe we lack.
+test_to_missing_users_read_scope() {
+  local out rc
+  out=$(MOCK_USERS_LIST='{"ok":false,"error":"missing_scope"}' to_post --to "leo"); rc=$?
+  assert_eq "1" "$rc" "missing users:read → exit 1"
+  assert_contains "users:read" "$out" "missing scope: names the scope"
+  assert_contains "missing scope, not a missing person" "$out" "missing scope: says which failure this is"
+  assert_contains "REINSTALL" "$out" "missing scope: says how to fix it"
+  assert_not_contains "no Slack user matches" "$out" "missing scope: never renders as absence"
+}
+
+# Case T6b — the email tier names ITS scope, which is a different one.
+test_to_missing_users_read_email_scope() {
+  local out
+  out=$(MOCK_LOOKUP_EMAIL='{"ok":false,"error":"missing_scope"}' to_post --to "leonardo@example.com")
+  assert_contains "users:read.email" "$out" "missing scope: the email tier names users:read.email"
+  assert_not_contains "no Slack user has the email" "$out" "missing scope: never renders as absence"
+}
+
+# Case T6c — and so does the DM open, which needs im:write.
+test_to_missing_im_write_scope() {
+  local out
+  out=$(MOCK_CONV_OPEN='{"ok":false,"error":"missing_scope"}' to_post --to "leo")
+  assert_contains "im:write" "$out" "conversations.open: names im:write when it is missing"
+  assert_contains "cannot open a DM" "$out" "conversations.open: says what failed"
+}
+
+# Case T6d — any other conversations.open error surfaces Slack's own word for it.
+test_to_open_dm_error_surfaces() {
+  local out rc
+  out=$(MOCK_CONV_OPEN='{"ok":false,"error":"user_not_found"}' to_post --to "leo"); rc=$?
+  assert_eq "1" "$rc" "conversations.open failure → exit 1"
+  assert_contains "user_not_found" "$out" "conversations.open failure: surfaces Slack's error"
+}
+
+# --- flag hygiene ---------------------------------------------------------
+# Case T7 — a place and a person are different questions; asking both is incoherent.
+test_to_and_channel_conflict() {
+  local out rc
+  out=$(printf '%s' m | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --to "leo" 2>&1); rc=$?
+  assert_eq "1" "$rc" "--channel + --to → exit 1"
+  assert_contains "mutually exclusive" "$out" "--channel + --to → explains why"
+}
+
+# Case T7b — a user id handed to --channel used to come back as "channel not
+# found", which reads as a Slack restriction and is not one. Redirect instead.
+test_channel_with_user_id_redirects() {
+  local out rc
+  out=$(printf '%s' m | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "U0AAAAAAAA1" 2>&1); rc=$?
+  assert_eq "1" "$rc" "--channel <U… id> → exit 1"
+  assert_contains "that is a person, not a place" "$out" "--channel <U… id>: names the confusion"
+  assert_contains "Use: \-\-to U0AAAAAAAA1" "$out" "--channel <U… id>: names the flag that works"
+  assert_not_contains "not found" "$out" "--channel <U… id>: never reported as a missing channel"
+}
+
+# Case T7c — resolve_channel itself now RECOGNIZES a U… id rather than hunting for
+# a channel by that name. slack-read and --verify share this resolver.
+test_resolve_channel_passes_user_ids_through() {
+  local out rc
+  out=$(bash -c '. "$HOME/.claude/engine/scripts/slack-lib.sh"; resolve_channel tok U0AAAAAAAA1'); rc=$?
+  assert_eq "0" "$rc" "resolve_channel: a U… id resolves rather than failing"
+  assert_eq "U0AAAAAAAA1" "$out" "resolve_channel: passed through as the id it is"
+  assert_file_not_exists "$MOCK_CURL_ARGS" "resolve_channel: no directory call to recognize an id"
+}
+
+# Case T7d — trailing --to with no value → named error, no hang.
+test_to_empty() {
+  local out rc
+  out=$(printf '%s' m | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --channel "C01ABCDEF" --to 2>&1); rc=$?
+  assert_eq "1" "$rc" "trailing --to (no value) → exit 1"
+  assert_contains "\-\-to requires a person" "$out" "empty --to → names the flag"
+}
+
+# Case T7e — --verify checks a channel's setup; a person has nothing to verify.
+test_to_with_verify_conflict() {
+  local out rc
+  out=$(SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --verify --to "leo" < /dev/null 2>&1); rc=$?
+  assert_eq "1" "$rc" "--verify + --to → exit 1"
+  assert_contains "nothing to verify about a person" "$out" "--verify + --to → explains why"
+}
+
+# Case T7f — --help documents the flag (this header is the script's only docs).
+test_to_documented() {
+  local out; out=$("$SLACK_POST" --help 2>&1)
+  assert_contains "\-\-to <name|email|U…>" "$out" "help: --to is documented in the usage header"
+  assert_contains "conversations.open" "$out" "help: says how a person becomes a channel"
+}
+
+# Case T8 — --dry-run --to resolves the PERSON but opens no conversation. A dry
+# run that created a DM would not be dry.
+test_to_dry_run_resolves_without_opening() {
+  local out args
+  out=$(MOCK_USERS_LIST="$DIRECTORY_JSON" SLACK_INTAKE_TOKEN="xoxb-x" \
+        "$SLACK_POST" --dry-run --to "leo" --text "hi" < /dev/null 2>/dev/null)
+  args=$(cat "$MOCK_CURL_ARGS" 2>/dev/null)
+  assert_eq "U0AAAAAAAA1" "$(printf '%s' "$out" | jq -r '.channel')" "dry-run --to: body carries the resolved user id"
+  assert_not_contains "conversations.open" "$args" "dry-run --to: no conversation opened"
+  assert_not_contains "chat.postMessage" "$args" "dry-run --to: nothing posted"
+}
+
+# Case T8b — and it says on stderr exactly how the real post would differ, so the
+# printed body is never mistaken for the one that goes on the wire.
+test_to_dry_run_states_the_difference() {
+  local err
+  err=$(MOCK_USERS_LIST="$DIRECTORY_JSON" SLACK_INTAKE_TOKEN="xoxb-x" \
+        "$SLACK_POST" --dry-run --to "leo" --text "hi" < /dev/null 2>&1 >/dev/null)
+  assert_contains "U0AAAAAAAA1" "$err" "dry-run --to: names who it resolved to"
+  assert_contains "conversations.open" "$err" "dry-run --to: names the step it skipped"
+}
+
+# --- the 3000-character section cap ---------------------------------------
+# Slack rejects a section over 3000 characters as `invalid_blocks` — an error
+# that names the block and never the length, so the cause is not discoverable
+# from the failure. Split instead.
+
+rep() { printf "%${2}s" '' | tr ' ' "$1"; }   # rep <char> <count>
+
+# Case C1 — text with NO newlines at all still splits, and no block exceeds the cap.
+test_chunker_splits_text_with_no_newlines() {
+  local out longtext
+  longtext=$(rep x 7000)
+  out=$(SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --text "$longtext" 2>&1)
+  assert_eq "3" "$(printf '%s' "$out" | jq -r '.blocks | length')" "7000 chars with no break → 3 sections"
+  assert_eq "3000" "$(printf '%s' "$out" | jq -r '[.blocks[].text.text | length] | max')" "no section exceeds 3000"
+  assert_eq "section" "$(printf '%s' "$out" | jq -r '[.blocks[].type] | unique | join(",")')" "every block is a section"
+}
+
+# Case C1b — splitting must not LOSE text: the pieces rejoin to the original.
+test_chunker_is_lossless_on_a_hard_cut() {
+  local out longtext
+  longtext=$(rep x 7000)
+  out=$(SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --text "$longtext" 2>&1)
+  assert_eq "$longtext" "$(printf '%s' "$out" | jq -r '[.blocks[].text.text] | join("")')" \
+    "a hard cut rejoins to the original text"
+}
+
+# Case C2 — a paragraph boundary is preferred over a mid-word cut, so the split
+# lands somewhere a reader can follow.
+test_chunker_breaks_on_paragraph_boundaries() {
+  local out a b
+  a=$(rep a 2500); b=$(rep b 2500)
+  out=$(SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" \
+        --text "$(printf '%s\n\n%s' "$a" "$b")" 2>&1)
+  assert_eq "2" "$(printf '%s' "$out" | jq -r '.blocks | length')" "two paragraphs over the cap → 2 sections"
+  assert_eq "$a" "$(printf '%s' "$out" | jq -r '.blocks[0].text.text')" "first section is exactly the first paragraph"
+  assert_eq "$b" "$(printf '%s' "$out" | jq -r '.blocks[1].text.text')" "second section is exactly the second paragraph"
+}
+
+# Case C2b — a line boundary is the fallback when a single paragraph is too long.
+test_chunker_falls_back_to_line_boundaries() {
+  local out a b
+  a=$(rep a 2500); b=$(rep b 2500)
+  out=$(SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" \
+        --text "$(printf '%s\n%s' "$a" "$b")" 2>&1)
+  assert_eq "2" "$(printf '%s' "$out" | jq -r '.blocks | length')" "one over-cap paragraph → split on its line break"
+  assert_eq "$a" "$(printf '%s' "$out" | jq -r '.blocks[0].text.text')" "line split: first section is the first line"
+}
+
+# Case C3 — text under the cap is untouched: still exactly one section.
+test_chunker_leaves_short_text_alone() {
+  local out
+  out=$(SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --text "$(rep y 2999)" 2>&1)
+  assert_eq "1" "$(printf '%s' "$out" | jq -r '.blocks | length')" "2999 chars → still 1 section"
+}
+
+# Case C3b — exactly at the cap is still one section (the boundary is inclusive).
+test_chunker_boundary_is_inclusive() {
+  local out
+  out=$(SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --text "$(rep y 3000)" 2>&1)
+  assert_eq "1" "$(printf '%s' "$out" | jq -r '.blocks | length')" "exactly 3000 chars → 1 section"
+  out=$(SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --text "$(rep y 3001)" 2>&1)
+  assert_eq "2" "$(printf '%s' "$out" | jq -r '.blocks | length')" "3001 chars → 2 sections"
+}
+
+# Case C4 — --title keeps ONE header and gains the extra sections after it.
+test_chunker_under_title_layout() {
+  local out
+  out=$(SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --title "T" --text "$(rep x 7000)" 2>&1)
+  assert_eq "header,section,section,section" \
+    "$(printf '%s' "$out" | jq -r '[.blocks[].type] | join(",")')" "title + long text: one header, three sections"
+  assert_eq "3000" "$(printf '%s' "$out" | jq -r '[.blocks[] | select(.type=="section") | .text.text | length] | max')" \
+    "title layout: no section exceeds 3000"
+}
+
+# Case C5 — --blocks is a caller-supplied layout and is never re-chunked.
+# Composing blocks belongs to the caller; re-cutting one would be authoring it.
+test_chunker_leaves_caller_blocks_alone() {
+  local out
+  out=$(jq -n --arg t "$(rep z 5000)" '[{type:"section",text:{type:"mrkdwn",text:$t}}]' \
+    | SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --dry-run --channel "C01ABCDEF" --blocks - --text "fallback" 2>&1)
+  assert_eq "1" "$(printf '%s' "$out" | jq -r '.blocks | length')" "--blocks: an over-cap caller section is passed through untouched"
+  assert_eq "5000" "$(printf '%s' "$out" | jq -r '.blocks[0].text.text | length')" "--blocks: length untouched"
+}
+
+# Case C6 — the split survives to the WIRE, not just to --dry-run.
+test_chunker_reaches_the_wire() {
+  export MOCK_CURL_RESPONSE='{"ok":true,"ts":"9.9"}'
+  SLACK_INTAKE_TOKEN="xoxb-x" "$SLACK_POST" --channel "C01ABCDEF" --text "$(rep x 7000)" >/dev/null 2>&1
+  local sent; sent=$(cat "$MOCK_CURL_STDIN" 2>/dev/null)
+  assert_eq "3" "$(printf '%s' "$sent" | jq -r '.blocks | length')" "wire: 3 sections as sent to Slack"
+  assert_eq "3000" "$(printf '%s' "$sent" | jq -r '[.blocks[].text.text | length] | max')" "wire: no section over the cap"
 }
 
 run_discovered_tests

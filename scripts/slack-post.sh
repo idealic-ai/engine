@@ -6,11 +6,35 @@
 # completed grooming wave, but intentionally carries no intake-specific wording.
 #
 # Usage:
-#   engine slack-post [--channel <id|#name>] [--title <text>] [--text <str>] \
-#                     [--blocks <path|->] [--env-file <path>] [--thread-ts <ts>] \
-#                     [--update-ts <ts>] [--dry-run]
+#   engine slack-post [--channel <id|#name> | --to <name|email|U…>] [--title <text>] \
+#                     [--text <str>] [--blocks <path|->] [--env-file <path>] \
+#                     [--thread-ts <ts>] [--update-ts <ts>] [--dry-run]
 #   engine slack-post --verify [--channel <id>] [--env-file <path>]
 #   (message read from STDIN when --text is omitted)
+#
+# Where it goes: --channel is a PLACE (#name, or a C…/G…/D… id). --to is a
+# PERSON, resolved through to that person's DM. They are mutually exclusive, so
+# the ambiguity a name carries lives only on the flag that can be ambiguous.
+#
+# --to resolves strictest-first, and an unambiguous selector never reaches the
+# search:
+#   1. a U… user id       — taken as given
+#   2. anything with @    — users.lookupByEmail (needs users:read.email)
+#   3. a bare name        — case-insensitive SUBSTRING over display name, real
+#                           name and the email local-part across the workspace
+#                           directory (needs users:read), so `--to leo` finds
+#                           Leo Moura. A leading @ is stripped. Deleted accounts
+#                           are skipped.
+# The resolved user id then goes through conversations.open (needs im:write) to
+# get the D… channel, and the message posts there.
+#
+# Ambiguity is a protocol, not a prompt — this script is called by agents and has
+# no TTY to ask on. MORE THAN ONE match prints the candidates (user id first,
+# then display name, real name and email where the token can see it), posts
+# NOTHING, and exits 1; re-invoke with the printed U… id, which resolves to
+# exactly one person. NO match and CANNOT LOOK (a missing scope) print different
+# errors on purpose: an absent wrapper reported as an absent capability becomes a
+# limitation nobody re-tests.
 #
 # Layout: by default the poster emits a minimal body — one mrkdwn section, plus a
 # header when --title is given. --blocks <path|-> instead sends a caller-supplied
@@ -51,6 +75,18 @@
 #
 # Channel: --channel  >  $SLACK_INTAKE_CHANNEL  (required unless --dry-run).
 #
+# Long messages: Slack caps a section block's text at 3000 characters and rejects
+# an over-long one as `invalid_blocks` — an error that names the block and never
+# the length. --text longer than that is split across successive section blocks,
+# breaking on paragraph boundaries first, then line boundaries, then mid-string
+# when a single line has nowhere else to break. --blocks is a caller-supplied
+# layout and is never re-chunked.
+#
+# --dry-run with --to: the PERSON is resolved (a directory read, needs a token),
+# and the printed body carries that U… id — but conversations.open is NOT called,
+# because a dry run must not create a conversation. The real post opens the DM
+# and sends to the D… id instead; a stderr line says so.
+#
 # Exit: 0 iff Slack responds {"ok":true}; else 1 with Slack's .error on stderr.
 #       --dry-run prints the request body (channel+text, token redacted) and exits 0.
 set -uo pipefail
@@ -74,6 +110,7 @@ usage() {
 }
 
 channel=""
+to=""
 title=""
 text=""
 blocks_src=""
@@ -87,6 +124,7 @@ verify=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --channel)  channel="${2:-}"; shift 2 ;;
+    --to)       to="${2:-}"; [ -n "$to" ] || die "--to requires a person: a name, an email, or a U… user id"; shift 2 ;;
     --title)    title="${2:-}"; shift 2 ;;
     --text)     text="${2:-}"; shift 2 ;;
     --blocks)   blocks_src="${2:-}"; [ -n "$blocks_src" ] || die "--blocks requires a path (or - for stdin)"; shift 2 ;;
@@ -102,6 +140,21 @@ done
 
 [ -n "$blocks_src" ] && [ -n "$title" ] && \
   die "--blocks and --title are mutually exclusive: --title builds a layout, --blocks supplies one"
+
+[ -n "$to" ] && [ -n "$channel" ] && \
+  die "--channel and --to are mutually exclusive: --channel is a place (#name or a C…/G…/D… id), --to is a person"
+
+[ -n "$to" ] && [ "$verify" -eq 1 ] && \
+  die "--verify checks a channel's setup and has nothing to verify about a person — drop --to, or drop --verify and post with --dry-run to see the resolution"
+
+# A user id handed to --channel is the mistake this split invites. Redirect it
+# rather than posting a person into the place-shaped path.
+[ -n "$channel" ] && printf '%s' "$channel" | grep -qE '^U[A-Z0-9]{7,}$' && \
+  die "--channel got the user id '$channel' — that is a person, not a place. Use: --to $channel"
+
+# A typed @name is a person, not an email. Strip it before the tier test, or
+# `@leo` routes to users.lookupByEmail and can never match.
+case "$to" in @*) to="${to#@}" ;; esac
 
 [ -n "$thread_ts" ] && [ -n "$update_ts" ] && \
   die "--thread-ts and --update-ts are mutually exclusive: --thread-ts posts a new reply into a thread, --update-ts edits an existing message (chat.update takes no thread_ts)"
@@ -227,6 +280,48 @@ if [ "$verify" -eq 1 ]; then
   exit $?
 fi
 
+# --- token (the shared resolver: env, then ./.env.local, then ./.env — or ONLY an
+#     explicit --env-file, so the doctor's PASS and this post agree on one search set) ---
+# A function assigning a global, NOT a command substitution: `die` inside `$( )`
+# ends the subshell and leaves the script running with an empty token.
+token=""
+ensure_token() {
+  [ -n "$token" ] && return 0
+  token="${SLACK_INTAKE_TOKEN:-${SLACK_BOT_TOKEN:-}}"
+  if [ -z "$token" ]; then
+    token="$(slack_token "$env_file_arg")" \
+      || die "no Slack token (set \$SLACK_INTAKE_TOKEN or add it to $env_file)"
+  fi
+  [ -n "$token" ] || die "no Slack token (set \$SLACK_INTAKE_TOKEN or add it to $env_file)"
+}
+
+# --- --to: resolve the person BEFORE a message exists ---
+# Ordered ahead of the blocks/message reads so an unresolvable recipient fails
+# with nothing composed, and ahead of any send so an ambiguous query can never
+# reach a human's DM.
+target_user=""
+if [ -n "$to" ]; then
+  ensure_token
+  resolution="$(resolve_user "$token" "$to")"; rc=$?
+  case "$rc" in
+    0) target_user="$resolution"
+       [ -n "$target_user" ] || die "resolved '$to' to an empty user id — Slack returned a match with no id" ;;
+    2) { echo "slack-post: '$to' matches more than one person — nothing was posted."
+         echo "  Re-run with the user id, which resolves to exactly one person: --to <USER ID>"
+         printf '  %-13s%-22s%-24s%s\n' "USER ID" "DISPLAY NAME" "REAL NAME" "EMAIL"
+         printf '%s\n' "$resolution" | sed 's/^/  /'
+         echo "  ('no email visible' means either the account has none or the token lacks users:read.email.)"
+       } >&2
+       exit 1 ;;
+    3) case "$to" in
+         *@*) die "no Slack user has the email '$to' (users.lookupByEmail found nobody). The lookup worked — the address is not on this workspace." ;;
+         *)   die "no Slack user matches '$to' — searched display name, real name and email local-part, case-insensitive substring, across the whole workspace directory (users.list), skipping deleted accounts. The lookup worked — nobody matches." ;;
+       esac ;;
+    4) die "cannot look up '$to': the bot token is missing the '$resolution' scope. This is a missing scope, not a missing person — add it at api.slack.com/apps and REINSTALL (scopes need a reinstall), then re-run." ;;
+    *) die "could not look up '$to' — Slack said: ${resolution:-unreachable}. Nobody was searched, so this says nothing about whether the person exists." ;;
+  esac
+fi
+
 # --- blocks (--blocks <path|->): a caller-supplied Block Kit array ---
 # The poster validates the SHAPE only (a JSON array) and never inspects or
 # authors the layout — composing blocks belongs to the caller, not here.
@@ -263,26 +358,71 @@ fi
 [ -n "$message" ] || die "empty message (pass --text or pipe via stdin)"
 
 # --- channel ---
-channel="${channel:-${SLACK_INTAKE_CHANNEL:-}}"
-if [ "$dry_run" -eq 0 ] && [ -z "$channel" ]; then
-  die "channel required (--channel or \$SLACK_INTAKE_CHANNEL)"
+# With --to the body carries the resolved USER id until conversations.open
+# swaps in the D… below — the same place resolve_channel rewrites it for a name.
+if [ -n "$target_user" ]; then
+  channel="$target_user"
+else
+  channel="${channel:-${SLACK_INTAKE_CHANNEL:-}}"
+  if [ "$dry_run" -eq 0 ] && [ -z "$channel" ]; then
+    die "channel required (--channel, --to, or \$SLACK_INTAKE_CHANNEL)"
+  fi
 fi
 
+# --- section chunker ---
+# Slack rejects a section whose text exceeds 3000 characters as `invalid_blocks`,
+# an error that names the block and never the length — so the cause is not
+# discoverable from the failure. Split instead: paragraph boundaries first, then
+# line boundaries, then mid-string when one line has nowhere else to break, so a
+# split lands somewhere readable. Every chunk is <= the limit by construction,
+# including for text with no newlines at all.
+# Counts jq string length (Unicode codepoints), not UTF-16 units — a message of
+# thousands of astral-plane emoji could still overshoot Slack's own count.
+SECTION_LIMIT=3000
+SECTION_CHUNKER='
+def hardslice($lim):
+  if length <= $lim then [.]
+  else [ range(0; ((length + $lim - 1) / $lim) | floor) as $i | .[($i*$lim):(($i+1)*$lim)] ]
+  end;
+def units($lim):
+  [ (split("\n\n") | to_entries[]) as $p
+    | if ($p.value | length) <= $lim
+      then { t: $p.value, s: (if $p.key == 0 then "" else "\n\n" end) }
+      else ( ($p.value | split("\n") | to_entries[]) as $l
+             | ( if ($l.value | length) <= $lim then [$l.value] else ($l.value | hardslice($lim)) end
+                 | to_entries[] )
+             | { t: .value,
+                 s: (if   .key   > 0 then ""
+                     elif $l.key > 0 then "\n"
+                     elif $p.key > 0 then "\n\n"
+                     else "" end) } )
+      end ];
+def sections($lim):
+  ( reduce (units($lim)[]) as $u ([];
+      if length == 0 then [ $u.t ]
+      elif ((.[-1] | length) + ($u.s | length) + ($u.t | length)) <= $lim
+        then .[0:-1] + [ .[-1] + $u.s + $u.t ]
+      else . + [ $u.t ] end) )
+  | if length == 0 then [""] else . end;
+def section_blocks($lim): sections($lim) | map({type:"section", text:{type:"mrkdwn", text:.}});
+'
+
 # --- request body (jq-built; --arg is injection-safe) ---
+# --blocks is a caller-supplied layout and is never re-chunked: composing blocks
+# belongs to the caller, and re-cutting one would be authoring it.
 if [ -n "$blocks_json" ]; then
   body=$(jq -n --arg ch "$channel" --arg txt "$message" --argjson bl "$blocks_json" \
     '{channel:$ch, text:$txt, blocks:$bl}') || die "failed to build request body"
 elif [ -n "$title" ]; then
-  body=$(jq -n --arg ch "$channel" --arg txt "$message" --arg t "$title" \
-    '{channel:$ch, text:$txt, blocks:[
-       {type:"header",  text:{type:"plain_text", text:$t, emoji:true}},
-       {type:"section", text:{type:"mrkdwn", text:$txt}}
-     ]}') || die "failed to build request body"
+  body=$(jq -n --arg ch "$channel" --arg txt "$message" --arg t "$title" --argjson lim "$SECTION_LIMIT" \
+    "$SECTION_CHUNKER"'{channel:$ch, text:$txt, blocks:
+       ( [{type:"header", text:{type:"plain_text", text:$t, emoji:true}}]
+         + ($txt | section_blocks($lim)) )
+     }') || die "failed to build request body"
 else
-  body=$(jq -n --arg ch "$channel" --arg txt "$message" \
-    '{channel:$ch, text:$txt, blocks:[
-       {type:"section", text:{type:"mrkdwn", text:$txt}}
-     ]}') || die "failed to build request body"
+  body=$(jq -n --arg ch "$channel" --arg txt "$message" --argjson lim "$SECTION_LIMIT" \
+    "$SECTION_CHUNKER"'{channel:$ch, text:$txt, blocks: ($txt | section_blocks($lim))}') \
+    || die "failed to build request body"
 fi
 
 # --- thread reply: route the message INTO an existing thread ---
@@ -300,24 +440,29 @@ fi
 
 # --- dry run: print body (token never lives here) and stop ---
 if [ "$dry_run" -eq 1 ]; then
+  [ -n "$target_user" ] && echo "slack-post: dry-run — '$to' resolved to $target_user; the real post opens that DM (conversations.open) and sends to the D… channel instead. No conversation was opened." >&2
   printf '%s\n' "$body"
   exit 0
 fi
 
-# --- token (the shared resolver: env, then ./.env.local, then ./.env — or ONLY an
-#     explicit --env-file, so the doctor's PASS and this post agree on one search set) ---
-token="${SLACK_INTAKE_TOKEN:-${SLACK_BOT_TOKEN:-}}"
-if [ -z "$token" ]; then
-  token="$(slack_token "$env_file_arg")" \
-    || die "no Slack token (set \$SLACK_INTAKE_TOKEN or add it to $env_file)"
-fi
-[ -n "$token" ] || die "no Slack token (set \$SLACK_INTAKE_TOKEN or add it to $env_file)"
+# --- token ---
+ensure_token
 
-# --- resolve the channel name to the id the API needs (internal only) ---
-# Done after the token because resolution is an API call, and after the body
-# build so --dry-run keeps working with no token and no network.
-resolved=$(resolve_channel "$token" "$channel") \
-  || die "channel '$channel' not found — check the name, or that the workspace still has it (a renamed channel will not resolve)"
+# --- resolve the destination to the id the API needs (internal only) ---
+# Done after the body build so a --channel --dry-run keeps working with no token
+# and no network. With --to the user id becomes a DM channel here: a user id is
+# not a channel, and this is the step that turns one into somewhere to send.
+if [ -n "$target_user" ]; then
+  resolved="$(open_dm "$token" "$target_user")"; rc=$?
+  case "$rc" in
+    0) : ;;
+    4) die "cannot open a DM with $target_user: the bot token is missing the '$resolved' scope. Add it at api.slack.com/apps and REINSTALL, then re-run." ;;
+    *) die "could not open a DM with $target_user — Slack said: ${resolved:-unreachable}" ;;
+  esac
+else
+  resolved=$(resolve_channel "$token" "$channel") \
+    || die "channel '$channel' not found — check the name, or that the workspace still has it (a renamed channel will not resolve)"
+fi
 body=$(printf '%s' "$body" | jq --arg ch "$resolved" '.channel = $ch') \
   || die "failed to set resolved channel on request body"
 
