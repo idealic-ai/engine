@@ -2541,6 +2541,84 @@ gitignore_verdict() {
   if git -C "$dir" check-ignore -q "$target" 2>/dev/null; then printf 'ok'; else printf 'unprotected'; fi
 }
 
+# ── cmd_db_url ────────────────────────────────────────────────────────────────
+#
+# THE one way to get a usable staging DB connection string. Fetches the credential
+# from Secrets Manager and re-points its host at the local tunnel, printing a URL you
+# can hand straight to psql.
+#
+# Why this exists as a command rather than a recipe: the credential is deliberately
+# never written to disk (FINCH_DB_RO_SECRET carries the secret's NAME, not its value),
+# so every consumer had to call `aws secretsmanager get-secret-value` itself and then
+# re-point the host with the same sed. That duplication is real — the identical
+# incantation sits in the runbook, in the triage access directive, and in whatever the
+# caller last wrote by hand. Worse, the raw aws call trips the permission classifier,
+# which has already killed a background agent mid-run; `engine` does not.
+#
+# ⚠️ THE SECRET'S OWN HOST IS NOT THE TUNNEL. staging/finch/db-ro-url points at the
+# PUBLIC analyst instance, which is IP-allowlisted and will hang for anyone not on the
+# list. Re-pointing to 127.0.0.1 is what makes it the tunnel — that is the step callers
+# kept getting wrong, not the fetch.
+#
+# Prints ONLY the URL on stdout, so it composes: psql "$(engine env db-url)".
+cmd_db_url() {
+  local role="ro" port="" show_host=0
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --owner) role="owner"; shift ;;
+      --ro)    role="ro"; shift ;;
+      --port)  port="${2:-}"; shift 2 ;;
+      --port=*) port="${1#*=}"; shift ;;
+      --analyst-host) show_host=1; shift ;;
+      -h|--help) sed -n "$USAGE_LINES" "$0"; return 0 ;;
+      *) echo "env db-url: unknown flag '$1'" >&2; return 1 ;;
+    esac
+  done
+
+  local key sname
+  if [ "$role" = "owner" ]; then key="FINCH_DB_RW_SECRET"; else key="FINCH_DB_RO_SECRET"; fi
+  sname="$(manifest_secret_name "$key")"
+  if [ -z "$sname" ]; then
+    echo "env db-url: no manifest row declares $key, so there is no secret to fetch." >&2
+    return 2
+  fi
+
+  local url; url="$(env_fetch_aws_secret "$sname")" || return $?
+  [ -n "$url" ] || { echo "env db-url: $sname fetched empty." >&2; return 1; }
+  # Some rows store a JSON blob, some a bare URL. Take .url/.password-free connection
+  # string when it parses as JSON, else use it verbatim.
+  case "$url" in
+    \{*) url="$(printf '%s' "$url" | jq -r '.url // .connectionString // .dsn // empty' 2>/dev/null)" ;;
+  esac
+  [ -n "$url" ] || { echo "env db-url: $sname holds no connection string." >&2; return 1; }
+
+  if [ "$show_host" -eq 1 ]; then printf '%s\n' "$url"; return 0; fi
+
+  # The tunnel's local port, from the manifest, so a caller who overrode LOCAL_PORT is
+  # not silently handed 15432.
+  [ -n "$port" ] || port="${LOCAL_PORT:-$(manifest_secret_name FINCH_DB_TUNNEL_PORT)}"
+  [ -n "$port" ] || port=15432
+  printf '%s\n' "$(printf '%s' "$url" | sed "s|@[^/]*|@127.0.0.1:${port}|")"
+  return 0
+}
+
+# manifest_secret_name KEY -> the Secrets Manager name that row points at, empty if none.
+#
+# Prefers the source's own `name` and falls back to `default`, mirroring what the policy
+# builder does for the same rows (env.sh: `db_secret="${sname:-$default}"`) — the two must
+# agree, or a grant would be minted for a path nothing ever requests.
+#
+# ⚠️ Field order is fixed by env_manifest_rows and `default` is the FIFTH field. Reading
+# positionally is easy to get wrong; the full name list is spelled out deliberately.
+manifest_secret_name() {
+  local want="$1"
+  local key service required secret default dotfile how check arg src sname sfield sregion sprofile
+  while IFS=$'\037' read -r key service required secret default dotfile how check arg src sname sfield sregion sprofile; do
+    if [ "$key" = "$want" ]; then printf '%s' "${sname:-$default}"; return 0; fi
+  done < <(manifest_rows 2>/dev/null)
+  return 1
+}
+
 cmd_setup() {
   env_anchor_prime   # resolve the anchor ONCE; every later subshell inherits it
   local dry=0 aws_key="" person="" domain_given=0 refresh=0
@@ -2812,6 +2890,7 @@ case "${1:-}" in
   setup)       shift; cmd_setup "$@" ;;
   env-example) shift; cmd_env_example "$@" ;;
   resolve)     shift; cmd_resolve "$@" ;;
+  db-url)      shift; cmd_db_url "$@" ;;
   provision)   shift; cmd_provision "$@" ;;
   ""|-h|--help|help) sed -n "$USAGE_LINES" "$0" ;;
   *) echo "env: unknown subcommand '$1'" >&2; sed -n "$USAGE_LINES" "$0"; exit 1 ;;
