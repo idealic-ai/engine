@@ -513,7 +513,7 @@ cmd_doctor() {
     note "anchor" "$anchor"
   else
     no_anchor=1
-    fail "no session anchor" "engine env resolves credentials relative to the current session's project root, and there is no session here — run inside one (engine session activate <path>). Checks that do not read the project still ran below."
+    fail "no session anchor" "engine env resolves credentials relative to the current session's project ROOT. Two things must both be true and neither is: you are in an engine session, AND you are inside a repo checkout rather than your home folder. Open the repo in Claude Code and type /do, then re-run. (Raw equivalent: engine session activate <path>, from inside the checkout.) Checks that do not read the project still ran below."
   fi
   local key service required secret default dotfile how check arg src sname sfield sregion sprofile rc
   while IFS=$'\037' read -r key service required secret default dotfile how check arg src sname sfield sregion sprofile; do
@@ -1658,14 +1658,15 @@ _deliver_via_slack() {
   local msg
   msg="Here is your Finch agent key for \`${user}\`.
 
-*Install it, then let it fetch everything else:*
+*Do this inside a Finch repo checkout — not your home folder.* Open the repo in Claude Code, then type \`/do\` and let it start a session. Everything below reads its settings relative to that checkout, so running it from \`~\` puts your credentials somewhere the tools stop finding the moment you open a project.
+
+Then, in that session, one command:
 \`\`\`
 engine env setup --aws-key ~/Downloads/$(basename "$keyfile")
-engine env setup
 \`\`\`
-The first command checks the key works, installs it, and deletes the file. The second fetches the rest, including your app password — you will never need to type one.
+It checks the key works, installs it, deletes the file, then fetches everything else it unlocks — including your app password, which you will never need to type. It finishes by checking its own work and telling you what it found.
 
-Then check it: \`engine env doctor --domain intake\`${doc:+
+If anything says *no session anchor*, that is this exact thing: you are outside a session or outside the checkout. Type \`/do\` in the repo and run it again.${doc:+
 
 Full guide: ${doc}}
 
@@ -2549,7 +2550,15 @@ cmd_setup() {
       *) echo "env setup: unknown flag '$1'" >&2; return 1 ;;
     esac
   done
-  [ -n "$aws_key" ] && { install_aws_key "$aws_key" "$person"; return $?; }
+  # INSTALL, THEN KEEP GOING. The key is precisely what unlocks the fetch, so stopping
+  # here made "you are done" and "you are half done" look identical, and left the rest
+  # behind a second command the recipient had to know to run. A failed install still
+  # stops — there is nothing to fetch with.
+  if [ -n "$aws_key" ]; then
+    install_aws_key "$aws_key" "$person" || return $?
+    printf "\n"
+    printf "  ${CYAN}next${NC}  key installed — fetching everything else it unlocks…\n"
+  fi
 
   # WITH NO --domain, WALK EVERY DOMAIN. A new teammate does not know they are an
   # "intake person", and asking them to name a domain before they know what domains are
@@ -2566,7 +2575,16 @@ cmd_setup() {
       printf "${BOLD}── %s ──${NC}\n" "$d"
       # One domain's failure must not strand the others — the operator would be left
       # having set up an arbitrary prefix of their environment with no way to tell which.
-      cmd_setup --domain "$d" ${dry:+--non-interactive} ${person:+--person "$person"}
+      # Built as an array, not `${dry:+…}`: that form expands on NON-EMPTINESS, and the
+      # default `dry=0` is a non-empty string — so the walk passed --non-interactive
+      # every time and never asked the new teammate anything. Quoting matters too; an
+      # unquoted ${person:+…} splits a name containing a space.
+      local -a walk_args=()
+      [ "$dry" -eq 1 ] && walk_args[${#walk_args[@]}]="--non-interactive"
+      if [ -n "$person" ]; then
+        walk_args[${#walk_args[@]}]="--person"; walk_args[${#walk_args[@]}]="$person"
+      fi
+      cmd_setup --domain "$d" ${walk_args[@]+"${walk_args[@]}"}
       rc_one=$?
       [ "$rc_one" -eq 0 ] || { rc_all=1; failed="$failed $d"; }
       printf "\n"
@@ -2698,7 +2716,16 @@ cmd_setup() {
   if [ "$dry" -eq 1 ]; then
     printf "${BOLD}dry-run:${NC} %d secret(s) would be prompted. Run without --non-interactive to write them.\n" "$wrote"
   else
-    printf "${BOLD}done:${NC} %d secret(s) written. Run 'engine env doctor --domain $DOMAIN' to verify.\n" "$wrote"
+    printf "${BOLD}done:${NC} %d secret(s) written.\n" "$wrote"
+    # CHECK ITS OWN WORK. "Now run the doctor" is a second thing to know, and the person
+    # who most needs the check is the one least likely to run it. Advisory only: the
+    # doctor's verdict is REPORTED, never folded into setup's exit code — setup succeeded
+    # or failed on whether it wrote the secrets, and a red doctor usually means something
+    # setup does not own (an unauthenticated MCP, a missing binary).
+    if [ "${ENV_SETUP_NO_VERIFY:-0}" != "1" ]; then
+      printf "\n${BOLD}=== checking it ===${NC}\n"
+      cmd_doctor --domain "$DOMAIN" || true
+    fi
   fi
 }
 
@@ -2747,7 +2774,7 @@ cmd_resolve() {
   if [ -n "${!key:-}" ]; then
     src="environment (exported $key)"; val="${!key}"
   elif ! env_anchor_dir >/dev/null 2>&1; then
-    echo "$key: no session anchor — engine env resolves credentials relative to the current session's project root; run inside an engine session (engine session activate <path>)" >&2
+    echo "$key: no session anchor — credentials resolve relative to the project ROOT. You must be inside a repo checkout (not your home folder) AND in an engine session: open the repo in Claude Code and type /do, or stand in that repo's sessions/ directory. (Raw equivalent: engine session activate <path>, from inside the checkout.)" >&2
     return "$ENV_NO_ANCHOR_RC"
   else
     while IFS= read -r f; do
