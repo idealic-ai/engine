@@ -162,6 +162,16 @@ check_installation() {
     fi
   done
 
+  # IN-02b: AWS CLI. Not required to run the engine, so this warns rather than fails —
+  # but `engine env provision`/`setup` and /prove's S3 publish all shell out to `aws`,
+  # and without it provisioning fails at the verify step AFTER writing a profile, which
+  # reads as a broken credential rather than a missing tool.
+  if command -v aws &>/dev/null; then
+    pass "IN-02" "aws available ($(aws --version 2>&1 | head -1))"
+  else
+    warn "IN-02" "aws not found on PATH — env provision/setup and /prove publishing will fail (brew install awscli)"
+  fi
+
   # IN-03: Engine directory exists
   if [ -d "$ENGINE_DIR" ]; then
     pass "IN-03" "Engine directory exists: $ENGINE_DIR"
