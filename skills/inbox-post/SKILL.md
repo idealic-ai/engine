@@ -1,7 +1,7 @@
 ---
 name: inbox-post
-description: "Post an item into a project's intake inbox — resolves the Linear Project, classifies the item into the best-fit inbox channel, fills that channel's reporter template, and posts it as a comment — then triangulates what it posted and replies to the drop with the finding, so an item arrives with an answer under it instead of waiting for the next wave. The front-door companion to /intake (which then organizes, marinates, and promotes). Triggers: \"drop this into the inbox\", \"post an inbox item\", \"file this to observed problems\", \"report this bug to intake\", \"inbox-post\"."
-version: 1.0
+description: "Post an item into a project's intake inbox — resolves the Linear Project, classifies the item into the best-fit inbox channel, fills that channel's reporter template, and posts it as a comment — then triangulates what it posted and replies to the drop with the finding, so an item arrives with an answer under it instead of waiting for the next wave. When that finding comes back clean on a defect channel it offers to file the item as a ticket via /ticket, gated narrowly and always confirmed by a human; everything it holds back marinates for the next wave. The front-door companion to /intake (which then organizes, marinates, and promotes the rest). Triggers: \"drop this into the inbox\", \"post an inbox item\", \"file this to observed problems\", \"report this bug to intake\", \"inbox-post\"."
+version: 1.1
 tier: lightweight
 args: "[item text or hint]"
 ---
@@ -16,7 +16,8 @@ Quick front-door for the intake system: drops one well-formed item into the righ
 
 *   **It does**: post one item into the correct intake **Inboxes** channel of the correct Linear Project — resolve the project, classify the item into the best-fit channel, fill that channel's reporter template from `assets/CHANNEL_TEMPLATES.md`, and post it as a comment via `§CMD_POST_TICKET_COMMENT`.
 *   **It also**: triangulates what it just posted, by default, and replies to the drop with the finding (step 5). The drop lands first and is never blocked on the investigation.
-*   **It does NOT**: promote to a tracked ticket (that's `/intake`'s ripeness gate), organize/dedup, or execute the work. It drops a clean, template-shaped item into the inbox for `/intake` to pick up — now with an answer already under it.
+*   **It then**: **offers** to file the item as a tracked ticket, on a narrow gated slice — a clean triangulation, on a defect channel, where the project's Ticketing Strategy allows it (step 6). The human confirms, and `/ticket` does the filing under its own confirm.
+*   **It does NOT**: promote **unilaterally**, and it does not run the wave's ripeness gate — `/intake` still owns that, and owns organize/dedup and the disposition of everything this gate holds back. Nor does it execute the work. On an item that does not clear step 6 it does exactly what it always did: drops a clean, template-shaped item into the inbox for `/intake` to pick up, now with an answer already under it.
 
 ## Reference assets (read at boot)
 
@@ -49,9 +50,9 @@ Quick front-door for the intake system: drops one well-formed item into the righ
 *   Read the item; pick the best-fit channel from the project's actual set. **Confirm via `AskUserQuestion`** — misfiling costs `/intake` an organize step, so a one-tap confirm is worth it. A single item may span channels → pick the **primary**, and note the cross-link in the comment body.
 *   **Read the channel ticket's description, the Project description, and the project's Inbox Handbook.** The steer is split across three surfaces and reading only the channel silently drops every project-level one.
     *   **`## Directions`** (`¶INV_DIRECTIONS_IN_DESCRIPTIONS` — on the channel ticket, and project-wide on the Project; absent on many projects, which is fine). They say what that project is chasing right now and what evidence it wants here — use them to break a close classification call, and to decide which optional template fields are worth asking for. Precedence: channel > project. At the project tier it is **product steer only**; the per-item triage recipe is the handbook's `## What triage will chase`.
-    *   **`## Ticketing Strategy`** (`¶INV_TICKETING_STRATEGY_IN_HANDBOOK` — the project's **Inbox Handbook**; on a project predating the move it may still sit on the Project description, so fall back there). A project that wants fewer, chunkier tickets needs richer drops, because a thin drop is the one that ends up folded or marinating rather than graduating — so let it inform **which optional fields are worth one extra question**, and mention an obviously-related existing ticket in the body so `/intake` can fold rather than duplicate.
+    *   **`## Ticketing Strategy`** (`¶INV_TICKETING_STRATEGY_IN_HANDBOOK` — the project's **Inbox Handbook**; on a project predating the move it may still sit on the Project description, so fall back there). A project that wants fewer, chunkier tickets needs richer drops, because a thin drop is the one that ends up folded or marinating rather than graduating — so let it inform **which optional fields are worth one extra question**, and mention an obviously-related existing ticket in the body so `/intake` can fold rather than duplicate. **Keep what you read — step 6 gates its ticket offer on this section**, and a project that wants fewer tickets suppresses the offer there.
     *   **`## Stakeholders`** (Project description only; optional, absence is normal). Facts about people, never assignment rules — use them to fill "who reported it" and "who should hear about this" from context instead of asking the dropper, and to name an obvious owner in the body as a *fact* ("Dana owns this area"), never as an assignment. Never @-mention or notify anyone on the strength of a Stakeholders line alone.
-    *   **Never gate the drop on any of them.** Half-formed is still welcome; a steer is not an entry fee. In particular, Ticketing Strategy governs what `/intake` *graduates*, never what a reporter is allowed to *report* — do not talk anyone out of dropping something because it looks too small.
+    *   **Never gate the drop on any of them.** Half-formed is still welcome; a steer is not an entry fee. In particular, Ticketing Strategy governs what *graduates* — what `/intake` promotes, and whether step 6 offers a ticket at all — never what a reporter is allowed to *report*. Do not talk anyone out of dropping something because it looks too small; a drop that will never clear step 6's gate is still a drop worth having, and it marinates rather than being turned away.
 
 ### 3. Fill the template
 *   Load that channel's template from `CHANNEL_TEMPLATES.md`. Pre-fill fields known from context (reporter, refs, app page URL). Ask for the **missing critical** fields in ONE `AskUserQuestion` round — app page URL, repro/expected-actual (Observed problems), who reported it, what it blocks. Optional fields left blank are fine (half-formed is welcome).
@@ -102,9 +103,87 @@ So when you already have an answer: **dispatch anyway, and pass what you found i
 *   **The thread has no replies yet — you just created it.** `¶INV_REPLIES_ARE_SIGNAL` tells a triage run that a body without its replies means the caller withheld material. Here there are none to withhold, so say so; otherwise the run reports a gap that does not exist.
 *   **Relate is the highest-value step on a fresh drop**, and it is the one that would have closed the 17-day gap: the answer may already be on the record, in a ticket the reporter cannot see from their own thread.
 
-### 6. Report
+### 6. Offer to file a ticket — only when the finding is clear-cut
+
+The triangulation has already paid the ledger's own bar for corroboration — *"at least one corroboration that isn't the system talking to itself"* (`docs/intake/INBOX_AND_LEDGER.md`). When it comes back clean on an obviously clear-cut item, making that item wait for the next `/intake` wave is latency rather than diligence: the understanding is already on the page, under the drop.
+
+So **offer** to file it, and let the human decide.
+
+**Nothing here files anything on its own.** The offer is an `AskUserQuestion`, the filing is `/ticket` under its own confirm, and an unanswered offer files nothing (`¶INV_INTAKE_DISPATCHES_NEVER_EXECUTES`). `/inbox-post` never calls `save_issue`.
+
+**Step 5 skipped → no offer.** A skipped investigation produced no verdict, so there is nothing to gate on; the skip note already explains the silence and needs no second line.
+
+#### The gate — every condition must hold
+
+Each condition reads a fact the triangulation already produced. None is a judgement you re-make. **A field that is missing rather than negative does not pass** — treat it as holding the offer back, and say which field was missing.
+
+**1 · The triage's own ripeness recommendation says ripe.** Read each angle report's `## Verdict` → **`Disposition`**: `graduate → <milestone>` is ripe; `enrich (already owned)`, `still-needs-triage` and `marinate` are not. **Both angles must say `graduate`**, and each report's `## Recommendation & Boundary` → `Recommendation` must agree with its own Verdict. Where the two angles differ on disposition there is no ripe verdict to read — the adjudicator's `On disposition` section puts the two side by side *deliberately without ruling*, and reading a ruling into it invents one.
+
+**Reuse this field; do not define ripeness a second time.** `/intake` consumes this one, and two definitions of ripeness in one system drift apart without either side noticing. Weak agreement is already excluded here: an AGREE where both runs report low confidence is *agreed but unestablished* and the item stays un-triaged (`¶INV_WEAK_AGREEMENT_IS_NOT_CORROBORATION`), so its Disposition should read `still-needs-triage`. If it reads `graduate` while both `Confidence` lines say low, the reports contradict themselves — hold the offer and say so.
+
+**2 · No hard blocker is present.** Each is a fact on the record:
+
+*   **A duplicate, or a parent the item should fold into, was found.** Read `## Related` and split what it lists **by kind — the kind decides, never the presence**:
+    *   **A duplicate** → **blocks.** The item is already on the record, and filing beside it is the duplication intake exists to prevent.
+    *   **A root-cause parent the item should fold into** → **blocks.** Fixing the path rather than each symptom is the system's core promise, and filing a symptom while its parent sits in the same report as a note is exactly the failure that promise is against.
+    *   **A plain context-sibling** — another drop or ticket in the same area, neither the same defect nor a parent → **does not block.** It rides along as a **caveat shown with the offer**, so the human sees it at the moment they decide.
+
+    **Do not soften this by re-reading a duplicate as a sibling.** The line moved from *"anything related"* to *"a duplicate or a fold-target"*. It did not move to *"only an admitted duplicate"*.
+
+    ⚠️ **`## Related` does not label its rows by kind — so this is a named approximation.** Its template asks each row for *"issue key + why related"* and for calling out *"what NOT to fold together"*, which puts the kind in the row's own clause rather than in a marking. Read the three places that **do** mark it cleanly, in this order, before falling back to that clause:
+    *   `## Steering read` → **Suggested board options** carrying `{fold-into:<KEY>, …}` — a stable machine key, and the cleanest fold signal the report produces.
+    *   `## Recommendation & Boundary` → `Recommendation: **fold into <KEY>**` — `/inbox-triage` is told to write that phrase when an item reads as a facet of already-tracked work.
+    *   `## Verdict` → `Disposition: **enrich (already owned)**` — the duplicate case, which already fails condition 1 on its own.
+
+    Absent all three, classify from each row's *why related* clause. **A row whose clause does not say which kind it is blocks the offer**, and the report names it as unclassified: an unread row is not a sibling, and fold is the cheap answer to an ambiguous relation everywhere else in this system too.
+*   **The angles needed reconciling** — the returned `disagreements` array is non-empty, or the dossier carries an adjudication instead of the short "the two angles agreed" note. A ticket asserts something; a contested finding is not yet something to assert.
+*   **The subject was not identified, or nothing was reproduced** — `## Entities` carries no account and no record, or `## Verdict` → **`Repro`** reads `couldn't` or `n/a`. `always`, `intermittent` and `confirmed-in-data` all pass; the last means the stored state was checked instead of a live repro, which is what `/inbox-triage` asks for on a data issue. A ticket nobody can reproduce from sits in a tracked queue looking like committed work.
+    **A report with no `Repro` line predates the field — fall back rather than failing it.** Read the `[confirmed]` basis tags in `## Findings` and the repro-script path the run returns: a `[confirmed]` finding establishing the defect's current state, or a returned script, passes; neither present holds the offer. **An older report must not fail this gate merely for being older**, and a report that carries the field is read on the field, never on the fallback.
+*   **Root cause is not identified, or breadth is not measured** — `## Recommendation & Boundary` → **`Boundary`** still names a root-cause question, or `## Scope` says breadth was not measured. A count whose denominator is unstated is unmeasured; the template says so itself. A ticket here describes a symptom, and fixing the path rather than each symptom is the system's core promise.
+    Expect this to be the condition that holds the offer back most often, by design: `/inbox-triage` is explicitly *light* and routes deep root-causing to a graduated `Needs research` ticket, so a triage that lands root cause is the exception.
+
+**3 · The drop is on a defect channel.** The allowlist is 🔴 **Observed problems** and 🟠 **Identified shortcomings**. Every other channel gets no offer.
+
+**Match against the allowlist, never against a list of exclusions.** Channel sets are project-specific and grow, and a blocklist silently admits every channel added later without anyone deciding it should offer. The exclusions each have their own reason, and this skill already states most of them: 🟪 **Inquiries** normally graduates to nothing — it is closed by being answered; 🟣 **Feedback & Transcripts** is raw longform meant to be chunked first; 🟡 **Researches & Fixtures** is reference material. 🔵 and 🟢 are out because a pure feature idea often carries no claim to check, so step 5 may have skipped the investigation and left no verdict to gate on.
+
+Note what this does to step 2: a misfiled defect lands off the allowlist and gets no offer, which is one more reason the channel confirm is worth its tap.
+
+**4 · The project's `## Ticketing Strategy` allows a ticket here.** You read it in step 2 (`¶INV_TICKETING_STRATEGY_IN_HANDBOOK`, in the project's Inbox Handbook; fall back to the Project description on a project predating the move). A project that deliberately wants fewer, chunkier tickets must be able to suppress this offer — **a per-drop offer is exactly the pressure that strategy exists to resist**. Where the handbook publishes no Ticketing Strategy, hold the offer and say the section is missing, rather than assuming maximum ticketing — `/inbox-triage` takes the same default on the same absence.
+
+#### When the gate holds the offer back, say which condition
+
+*"Why didn't it offer?"* is the question this step will generate, because the gate is narrow on purpose. **A silent non-offer is indistinguishable from a step that never ran** — the same failure step 5's one-line skip note exists to prevent, and the fix is the same shape.
+
+Name the condition in one line, in the run's report **and** in the reply posted under the drop: *"not offered as a ticket — `## Scope` reports no denominator, so breadth is unmeasured."* Name the first condition that fails; enumerating the rest is noise.
+
+#### The offer, and what an acceptance does
+
+Ask **after** the reply has posted, with the finding in one line and the milestone the Disposition names, so the answer is informed: file it now · leave it to marinate · leave it, with a reason.
+
+**Carry the context-siblings into the question as a caveat** — *"`## Related` also names FIN-1234, same area, not the same defect"*. They did not block the offer, and the person deciding is the one who should see them.
+
+**On accept, dispatch `Skill(ticket, …)` framed from the triangulation's findings — never from the original drop text.** Filing after the investigation is the entire value of this step: the drop was a rough note, while the finding carries the account, the record, the evidence, the breadth and whether it is still live. Pass:
+
+*   **The corroborated finding as the scope**, with the entities and deep links, the evidence, the breadth with its denominator, and the still-happening verdict — the same content the posted reply carries.
+*   **Caller-pinned placement.** `/ticket` §4 carries a branch written for this caller: pass the **project** resolved in step 1, the **milestone** the Disposition names, and *"new issue, never a sub-issue"*, and it skips parent detection entirely. **The channel ticket must never become the parent** — it is a frozen collector, and a sub-issue nested under it is parked straight back out.
+*   **The drop's comment link and the reply's**, as the ticket's provenance (`§FMT_TICKET_COMMENT_LINK`).
+
+**Let `/ticket` run its own `/ticket-search` sweep.** It is not redundant with the `## Related` condition — different method, different corpus — and a duplicate it surfaces means this offer's premise was wrong, so **fold is the default** there as everywhere. Do not suppress the sweep on the strength of the gate having passed; it is the backstop under a condition that now lets context-siblings through, and the one place a mis-read sibling gets caught.
+
+#### Name the filed ticket in the reply that already sits under the drop
+
+No new mechanism and no new state: the next `/intake` wave reads the drop's thread already, so the link belongs where it is already looking.
+
+Append a one-line footer naming the ticket (`§FMT_TICKET_LINK`) to the reply step 5 posted — resolve that reply's comment id from the URL `/inbox-triangulate` returned, or by listing the drop's replies, and update it in place through `§CMD_POST_TICKET_COMMENT` (`save_comment` updates when passed an `id`). If the id will not resolve, post the line as a **further reply on the drop** (`parentId` = the drop's comment id) — never as a new top-level comment on the channel, which severs it from the drop it belongs to.
+
+#### No answer means no ticket
+
+If the offer goes unanswered — the user moves on, the session is interrupted — nothing is filed and the item marinates exactly as it does today. **Marinating is a real outcome, not a failure.** Intake is built to prevent silent loss, and an item left on the record with a stated reason is the opposite of loss (`docs/intake/WAVES_AND_THE_MAP.md`). Report it as marinating; never as a step that failed.
+
+### 7. Report
 *   Output the posted comment as a labeled link (`§FMT_TICKET_LINK`) + which project/channel it landed in.
 *   Then the investigation's outcome: the reply's link if it posted, the one-line reason if it was skipped, or what survived if it was interrupted. **Both facts, always** — a report that names only the drop reads as though nothing was ever going to follow it.
+*   Then the ticket outcome: the filed ticket as a labeled link, or *"not offered — <the condition that held it back>"*, or *"offered, unanswered — marinating"*. **Never omit this line**: silence here reads as a step that did not run.
 
 ## Keeping the registry fresh
 
