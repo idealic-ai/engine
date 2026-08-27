@@ -1794,7 +1794,14 @@ printf '[default]\naws_access_key_id = AKIAEXAMPLEEXAMPLE12\naws_secret_access_k
 
 # Run ONCE and capture both: install is destructive (it shreds the source), so a second
 # invocation would fail on a file the first one correctly deleted.
-( export HOME="$AWSHOME" ENV_STS_ARN="arn:aws:iam::924609080826:user/rob-agent"
+# The follow-on domain walk fetches every aws-secret row, so without a seam this test
+# makes REAL AWS calls and its result tracks whether credentials happen to be live —
+# it passed or failed by the hour. env-lib.sh states the contract plainly: these seams
+# exist "so no test ever makes a real AWS call". ENV_AWS_SECRET_FAIL makes the walk fail
+# deterministically and offline, which is exactly the condition under test: the walk
+# fails, and the install still owns the exit code.
+( export HOME="$AWSHOME" ENV_STS_ARN="arn:aws:iam::924609080826:user/rob-agent" \
+    ENV_AWS_SECRET_FAIL="seam: offline by design"
   "$ENV_SH" setup --aws-key "$KEYFILE" --person rob > "$WORK/ak.out" 2>&1; echo $? > "$WORK/ak.rc" )
 AKOUT=$(strip < "$WORK/ak.out"); AKCODE=$(cat "$WORK/ak.rc")
 
