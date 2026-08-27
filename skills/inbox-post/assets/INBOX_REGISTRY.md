@@ -37,6 +37,7 @@ Each intake project carries its **own complete copy**, attached to the project s
 | Claims Data Consortium | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-41b9992d4887) | `0ea46cbb-9a4b-49d2-9cf8-f240d5e7abac` · `41b9992d4887` |
 | API | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-83fea83a335e) | `f7457ce0-416d-444f-9c36-595e395fedde` · `83fea83a335e` |
 | Console | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-90d47f725806) | `3f47b2af-762b-435f-bc4d-f24637772323` · `90d47f725806` |
+| Design | [Inbox Handbook](https://linear.app/finchclaims/document/inbox-handbook-how-this-projects-intake-inboxes-work-f94156046b9a) | `f91853bb-9793-4372-bec3-7f718ab1c96e` · `f94156046b9a` |
 
 The short-lived team-level handbook (`1292d6ee-5819-4354-9892-49f0d3d388a6`, slug `7f5f9c302585`) is **retired** — a team-attached document has no home in the Linear UI, so nothing surfaced it from a project. If you find a channel still linking slug `7f5f9c302585`, repoint it at its own project's handbook above.
 
@@ -62,6 +63,7 @@ The wave's `§PASS_HEARTBEAT` announce is **per-project** — pass the name belo
 *   **Claims Data Consortium** — `#intake-alerts`
 *   **API** — `#intake-alerts` *(chosen at scaffold, 2026-08-26, Yarik Fedin)*
 *   **Console** — `#intake-alerts` *(chosen at scaffold, 2026-08-26, Yarik Fedin)*
+*   **Design** — `#intake-alerts` *(chosen at scaffold, 2026-08-27, Yarik Fedin)*
 
 The first five were moved from `#intake-alerts` to `#engineering-alerts` on 2026-08-17 (decided: Yarik Fedin) — intake heartbeats belong with the rest of the engineering alerting rather than in a channel of their own. **The rows below it are unresolved because nobody has said where those projects belong** — they are newer than that decision, and a guess here would silently send a project's heartbeat somewhere nobody watches. **Preloss B2B, Report Design System and Claims Data Consortium were decided on 2026-08-26 (Yarik Fedin): each announces to `#intake-alerts`.** Preloss B2B's and Report Design System's rows had been bootstrap leftovers nobody had chosen; both are now recorded choices at the same value, so the value did not move but its standing did — it is answerable now, and re-asking is waste. The rows marked **UNSET** have never had a destination chosen at all — a pass on one of them should ask rather than default. **The 2026-08-26 answer suggests `#intake-alerts` is the intended default for newer projects, but that is an inference and the four UNSET rows are deliberately not filled from it.** Extending the 2026-08-17 `#engineering-alerts` decision to them is a reasonable guess and is still a guess.
 
@@ -283,3 +285,17 @@ The cut below covers the 15 `Product: *` projects; owners were read off existing
 - 🟪 Inquiries — [FIN-4211](https://linear.app/finchclaims/issue/FIN-4211)
 
 *Scaffolded 2026-08-26. **Back-office ops including the MCP surface** (ruled by Yarik Fedin): onboarding, per-org views, claims and document health, the data funnel, integrations, members, the staff access model, and the agent-facing MCP/OAuth flow that lives in the same app. The app is `apps/console` on `origin/dev` and **may not exist on a given branch** — read it with `git show origin/dev:`. The discriminator that decides most drops: **open the network call behind the page — if the wrong value is already in the API response, it is not a Console item.** Beware the funnel trap: that surface exists to reveal OTHER projects' losses, so a funnel finding is usually a high-quality report for someone else. 🟡 Researches & Fixtures deliberately absent, same reasoning as API.*
+
+## Product: Design
+- **Project id**: `a5d54950-c27d-4fce-9bf4-6317add325b0` · **Inboxes milestone**: `58ae0200-113f-488e-b5af-3df4ba0b9ec1`
+- 🔴 Observed problems — [FIN-4238](https://linear.app/finchclaims/issue/FIN-4238)
+- 🟠 Identified shortcomings — [FIN-4239](https://linear.app/finchclaims/issue/FIN-4239)
+- 🔵 Feature requirements — [FIN-4240](https://linear.app/finchclaims/issue/FIN-4240)
+- 🟢 Potential solutions — [FIN-4241](https://linear.app/finchclaims/issue/FIN-4241)
+- 🟣 Feedback & Transcripts — [FIN-4242](https://linear.app/finchclaims/issue/FIN-4242)
+- 🟤 Priorities & Deadlines — [FIN-4243](https://linear.app/finchclaims/issue/FIN-4243)
+- 🟡 Researches & Fixtures — [FIN-4244](https://linear.app/finchclaims/issue/FIN-4244)
+- 🟦 Documentation — [FIN-4245](https://linear.app/finchclaims/issue/FIN-4245)
+- 🟪 Inquiries — [FIN-4246](https://linear.app/finchclaims/issue/FIN-4246)
+
+*Scaffolded 2026-08-27. Operator **Rob Coyle** (`rob@finchclaims.com`), who authored both principles documents. **The product's design principles, vocabulary and target state** — the upstream context all design work draws on. Scope ruled by Yarik Fedin: the context layer plus typically-evergreen product design work, **mostly target state, not today's patches.** Two tests decide a drop, and both are in the handbook's `## Boundaries`: against Report Design System, **is a person using the product, or reading something an agent produced?**; against every product project, **is the screen wrong today, or is this where it should be going?** The name collides with its nearest neighbour, so expect misroutes in both directions until the tests are known. 🔴 and 🟡 were created on request but are the two the scoping argues against — a target-state project has no natural home for "this screen is wrong right now" and no fixtures to ratify; 🟡 carries its own provisionality in its Directions. Retire either if it sits empty across several passes.*

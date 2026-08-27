@@ -85,6 +85,10 @@
       {
         "name": "Product: Claims Data Consortium",
         "handbookSlug": "41b9992d4887"
+      },
+      {
+        "name": "Product: Design",
+        "handbookSlug": "f94156046b9a"
       }
     ],
     "$note": "The authoritative membership test is a live one: a project belongs here iff it carries an `Inboxes` milestone. This list is that test's answer as of 2026-08-26 and is hand-maintained, which is a known weakness — it read five for weeks while twelve existed, so `engine project lint` silently skipped every project scaffolded in the last month. DERIVE IT if you touch this file: list_projects(includeMilestones) client-filtered on an `Inboxes` milestone is the same query the /inbox-post discovery fallback runs. A project missing from here is not linted, and an unlinted project is indistinguishable from a clean one in the output."
@@ -170,6 +174,12 @@
           "heading": "What triage will chase",
           "required": true,
           "perProject": true
+        },
+        {
+          "id": "boundaries",
+          "heading": "Boundaries",
+          "perProject": true,
+          "$why": "Mandated by ¶INV_BOUNDARIES_ARE_WRITTEN_DOWN — one entry per neighbouring project, each with the one-line test that decides a borderline item. Declared here because the invariant requires the section while no container named it, so a handbook that obeyed the invariant earned a warning for doing so. perProject: a boundary set is a fact about THIS project's neighbours, so divergence is correct and peer-compare would be noise. Not required: a project with no close neighbour honestly has none to write."
         },
         {
           "id": "why",
