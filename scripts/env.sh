@@ -225,8 +225,11 @@ key_present() {
     file-key)
       # The manifest's dotfile is the PREFERRED home, not the only one searched:
       # resolve_env_key falls through to <anchor>/.env.local / <anchor>/.env.
+      # PRESENCE is a question about a FILE, so it asks the narrow form: a key that
+      # exists only as a manifest default is NOT present, and must still be seeded.
+      # Answering the broad form here made the doctor skip its own seeding.
       local rc _v
-      _v="$(resolve_env_key "$key" "$dotfile" 2>/dev/null)"; rc=$?
+      _v="$(ENV_SKIP_MANIFEST_DEFAULT=1 resolve_env_key "$key" "$dotfile" 2>/dev/null)"; rc=$?
       # Only the PREFIX is inspected; the value itself never leaves this branch.
       [ "$rc" -eq 0 ] && env_is_placeholder "$_v" && { _v=""; return 4; }
       _v=""
