@@ -1,9 +1,9 @@
 ---
 name: triangulate
-description: "Triangulated triage of any subject you need established before acting on it: dispatches TWO /triage runs in parallel from deliberately DIFFERENT leading questions and starting points (db · ui · code · artifact · execution · history · spec) — an angle is a LEAD, never a fence, so every run may use every tool — independent by construction since neither posts and both start from the same state, then — only when they need reconciling — a third adjudicator that actively RECONCILES them, running the cheap targeted checks that discriminate between their claims while never opening a line of inquiry neither angle asked. Takes a caller-provided context pack the caller does not have to predigest. Returns the corroborated finding; with `--post` it publishes ONE comment reporting the SUBJECT — what's wrong, its evidence, its breadth, whether it is still live, and what to do — with the full workings bundled into a single linked dossier rather than narrated at the reader. Use before a claim becomes a ticket, a disposition, a refactor you trust, or a line in a Project Update. Triggers: \"triangulate this\", \"two angles on this\", \"verify this before we file it\", \"is this finding real\"."
+description: "Triangulated triage of any subject you need established before acting on it: dispatches TWO /triage runs in parallel from deliberately DIFFERENT leading questions and starting points (db · ui · code · artifact · execution · history · spec) — an angle is a LEAD, never a fence, so every run may use every tool — independent by construction since neither posts and both start from the same state, then — only when they need reconciling — a third adjudicator that actively RECONCILES them, running the cheap targeted checks that discriminate between their claims while never opening a line of inquiry neither angle asked. Takes a caller-provided context pack the caller does not have to predigest. Inbox mode is inferred from the subject rather than passed — a Linear comment or an inbox channel ticket turns it on, an ordinary work ticket does not — and `--mode plain` forces it off wherever the caller owns publishing. Returns the corroborated finding; with `--post` it publishes ONE comment reporting the SUBJECT — what's wrong, its evidence, its breadth, whether it is still live, and what to do — with the full workings bundled into a single linked dossier rather than narrated at the reader. Use before a claim becomes a ticket, a disposition, a refactor you trust, or a line in a Project Update. Triggers: \"triangulate this\", \"two angles on this\", \"verify this before we file it\", \"is this finding real\"."
 version: 2.0
 tier: lightweight
-args: "[context pack — a claim, URLs, a ticket key, a comment id, file paths, or a handoff prompt path; any mix] [--mode inbox] [--post|--no-post] [--project <name>] [--angles <a>,<b>]"
+args: "[context pack — a claim, URLs, a ticket key, a comment id, file paths, or a handoff prompt path; any mix] [--mode inbox|plain] [--post|--no-post] [--project <name>] [--angles <a>,<b>]"
 ---
 
 Two independent triage runs from different vantage points, then adjudication on the record. It corroborates and reports; it never files, never decides a disposition, and never edits data.
@@ -38,6 +38,8 @@ Invoke when the subject is heading for **a ticket, a decision, a refactor you ar
 
 **The input is a context pack the caller does not have to predigest** — a claim in prose, URLs, a ticket key, a Linear comment id, local file paths, a handoff prompt, any mix. Assemble what you have; **resolving the rest is `/triage`'s job, and it will do it twice.** Do not stall on normalizing the pack.
 
+**Resolve the MODE ONCE, here, and write the answer into every dispatch string.** Inbox mode is **inferred, not remembered**: it turns ON when the subject is a Linear **comment** or a Linear **inbox channel ticket**, and stays OFF for an ordinary work ticket someone is working. `/triage` § *Inbox mode* carries the full rule and both overrides — `--mode inbox` forces it on, `--mode plain` forces it off. **This wrapper decides it and the angles never re-infer it**, because an angle is handed a handoff path and cannot see the channel behind it. **A wrapper whose caller owns publishing passes `--mode plain` and means it**: `/loom` triangulates a thread's own ticket to decide whether the build is worth investing in, and a comment on that ticket belongs to `/snapshot`, not to this run.
+
 **Resolve the owning project ONCE, here, and pass the answer to both runs.** `/triage` § *Resolve the subject* is the procedure: infer the `Product:`-prefixed Linear project from the subject, show the guess with the evidence that picked it, let the operator correct it **before** anything is dispatched, then read that project's Inbox Handbook `## What triage will chase`. Resolving it per-angle instead risks the two runs reading two different projects' recipes, which is not angle diversity — it is two investigations of two different subjects. Where no project owns the subject, say so once and let both runs use the generic recipe.
 
 **Preflight ONCE, here, before anything is dispatched — when the investigation will reach data, an MCP, a signed-in app or a cloud credential, and lean yes:**
@@ -52,7 +54,7 @@ Assemble once; both runs receive the same pack:
 
 *   **The subject in full — and where it is a thread, INCLUDING ITS REPLIES**, not just the comment body. Screenshots and attachments too. **An origin comment's replies are part of the signal, not commentary on it**: prior triage results, corrections and the reporter's own follow-ups live there, and passing in the body alone silently withholds the most-processed evidence available. *Learned expensively — a ticket was filed asserting something had never been investigated, four days after a reply on that exact thread said it had, and gave the answer.*
 *   **The resolved project**, and its handbook's `## What triage will chase` and `## Boundaries` — the per-project recipe and the neighbour tests.
-*   **Under `--mode inbox`: the origin comment id** and its channel ticket, **the channel's `## Directions` verbatim** (`¶INV_DIRECTIONS_IN_DESCRIPTIONS` — a sub-agent cannot read the project; an unpassed steer is a lost steer), and **the `## Ticketing Strategy`**, since each run recommends a milestone.
+*   **In inbox mode: the origin comment id** and its channel ticket, **the channel's `## Directions` verbatim** (`¶INV_DIRECTIONS_IN_DESCRIPTIONS` — a sub-agent cannot read the project; an unpassed steer is a lost steer), and **the `## Ticketing Strategy`**, since each run recommends a milestone.
 *   **Relevant stakeholders** — who to ask when a run hits a question it cannot close.
 *   **The Slack channel-context slice**, if the caller loaded one.
 *   **Data access**: the shared read-only connection, already open. Both runs share it; neither opens its own — **so both must be TOLD the endpoint**, in the handoff, by name.
@@ -87,7 +89,7 @@ The evidence bases. Each is named by **what it can see that the others cannot** 
 
 **Rules:**
 
-1.  **The two angles MUST come from different bases.** Two db runs are replication.
+1.  **The two angles MUST come from different bases — different in what they can SEE, not merely in what they are called.** Two db runs are replication, and so is any pair whose two runs open the same artifact under two labels. **The check is mechanical: name the file, screen, table or command each angle will actually open. Same one → they are one base; re-pick.** The pair this catches most often is `code` + `spec` on an engine protocol, where the source that ships *is* the protocol text — both runs read the same markdown, inherit the same blind spots, and return an AGREE that is replication wearing two names. On a subject like that, pair `spec` with `history` (what the text said before, and what broke when it changed) or with `execution` (run the thing the text governs and watch what it does).
 2.  **Match the angle to the claim's shape.** A rendering claim wants ui + code. An extraction claim wants artifact + db. A "we already tried this" claim wants history + code. A failing test wants execution + spec — *does it actually break*, and *was the expectation ever right*. A refactor you are about to trust wants spec + history — *what did the old thing promise*, and *what already broke the last time it was touched*.
 3.  **This list is a vocabulary, not a closed set.** A subject that needs a base not named here gets one — name it, and say in one line what it can see that the paired base cannot. What is forbidden is a pair that cannot fail differently, never a base that is missing from the list.
 4.  **Both angles must be able to SEE the claim.** Before dispatching, state in one line what each angle could find that would settle the question. **If you cannot say that for an angle, it is the wrong angle** — a pair blind to the same thing produces two "cannot answer" reports and a vacuous AGREE that looks like corroboration and is worth nothing.
@@ -99,7 +101,9 @@ The evidence bases. Each is named by **what it can see that the others cannot** 
 
 > ### 🔴 DISPATCH THE SKILL. NEVER HAND-AUTHOR A BRIEF IN ITS PLACE.
 >
-> Each angle is **a sub-agent whose job is to invoke `/triage`** — write the handoff to `builds/triage-handoff-<subject-id>-<angle>.md`, then dispatch an agent whose prompt says, in these words: *"Invoke the `/triage` skill via the Skill tool with `<handoff path> --no-post --angle <base>`. Follow that protocol exactly; do not improvise a method."*
+> Each angle is **a sub-agent whose job is to invoke `/triage`** — write the handoff to `builds/triage-handoff-<subject-id>-<angle>.md`, then dispatch an agent whose prompt says, in these words: *"Invoke the `/triage` skill via the Skill tool with `<handoff path> --no-post --angle <base> --mode <inbox|plain> --project <resolved project>`. Follow that protocol exactly; do not improvise a method."*
+>
+> **Fill every flag from the wrapper's own state; none of them is optional and none of them is conditional.** `--mode` carries the answer §1 already settled — `inbox` or `plain`, written out, never left off for the angle to re-infer from a handoff path it cannot read a channel out of. `--project` carries the name §1 resolved, or `--project none` where nothing owns the subject. **A dropped flag is a rule the angle never gets, and the run still looks normal**: without `--mode inbox` neither angle has read-all-three-surfaces, Directions-outrank-the-recipe, Ticketing-Strategy-bounds-the-recommendation or `¶INV_REPLIES_ARE_SIGNAL` in force, while the wrapper goes on to post as usual — the same invisible loss this box exists to stop, one layer down.
 >
 > **A hand-written `general-purpose` brief is NOT a substitute, however good the brief is.** `/triage` carries discipline this wrapper does not restate and must not re-derive: the report template, the resolve-the-subject procedure, the open-the-attachments rule (and the `curl` 401 trap), the read-all-three-surfaces rule under inbox mode, the Directions-outrank-the-recipe precedence, the Ticketing-Strategy-bounds-your-recommendation rule, and the branch-by-claim-shape recipe. A bespoke brief inherits **none** of it, and the loss is invisible — the reports come back long, confident and well-structured, just in the wrong shape and without the checks.
 >
@@ -107,7 +111,7 @@ The evidence bases. Each is named by **what it can see that the others cannot** 
 >
 > **Verify it happened**: the dispatched agent's transcript must show a `Skill` call for `triage`. If a run returns without one, it did not run the protocol — treat its output as an unstructured opinion, say so, and re-dispatch.
 
-Dispatch both **simultaneously**, each with `--no-post` and its assigned `--angle` (and `--mode inbox` when the wrapper is running in it). Each does an ordinary triage and returns its report.
+Dispatch both **simultaneously**, each with `--no-post`, its assigned `--angle`, the resolved `--mode` and the resolved `--project`. Each does an ordinary triage and returns its report.
 
 **Independence is structural here, not a rule either agent has to remember** (`¶INV_INDEPENDENCE_BY_CONSTRUCTION`). They start from identical state, write to different files, and **neither posts** — so there is no output of one that the other could see. Nothing needs prohibiting because nothing is reachable.
 
@@ -137,7 +141,7 @@ Be generous about what "differ" means. Different confidence, different scope, a 
 
 ## 5. Adjudicate — through the same skill, and it RECONCILES rather than shrugs
 
-**The adjudicator is dispatched exactly like the two angles: a sub-agent that invokes `/triage`**, with `--adjudicate --no-post` and the two report paths as its subject. Same skill, same discipline, same report shape — what differs is its **subject** (the two reports, not the claim) and the **shape of its evidence budget**.
+**The adjudicator is dispatched exactly like the two angles: a sub-agent that invokes `/triage`**, with `--adjudicate --no-post --mode <inbox|plain> --project <resolved project>` and the two report paths as its subject — **the same full flag set the angles got, for the same reason** (§3): it weighs a disposition against the project's Ticketing Strategy, and a modeless adjudicator weighs it against nothing. Same skill, same discipline, same report shape — what differs is its **subject** (the two reports, not the claim) and the **shape of its evidence budget**.
 
 Hand-authoring its brief instead of invoking the skill is the same mistake as doing it for an angle. **The mistake is the substituted brief, not the agent type** — every dispatch names some registered agent type (`debugger` fits triage; `analyzer` and `general-purpose` also work), because `Agent(subagent_type: "triage")` does not exist and fails at the tool boundary. Name a real type, then make `Skill(skill: "triage")` its first instruction.
 
@@ -183,7 +187,8 @@ Hand-authoring its brief instead of invoking the skill is the same mistake as do
 Return to the caller:
 
 ```
-{ subject, angles: [primary, corroborating], reports: [path, path],
+{ subject, mode: inbox | plain,   // and, when inferred rather than passed, what fired it
+  angles: [primary, corroborating], reports: [path, path],
   outcome: AGREE | RECONCILED | GENUINE_CONFLICT,
   finding,                    // the corroborated result, or null on GENUINE_CONFLICT
   disagreements: [ ... ],     // ALWAYS present; an empty array is a claim, not an omission
@@ -193,7 +198,7 @@ Return to the caller:
 
 **`disagreements` is never omitted.** If two genuinely independent angles agreed on everything, say so explicitly — that is worth a second look, not a gold star.
 
-### Publishing (`--post`; ON under `--mode inbox`)
+### Publishing (`--post`; ON by default in inbox mode)
 
 **Nothing in this sub-section binds a silent run** — a `--no-post` wrapper finishes by returning the block above.
 

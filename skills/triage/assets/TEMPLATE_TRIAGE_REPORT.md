@@ -21,6 +21,10 @@ Where this differs from how the caller framed it, say so — you investigated th
 **Project**: <the resolved `Product:`-prefixed Linear project, plus the evidence that picked it —
 or `none — generic recipe` where no project owns the subject, which is a normal outcome.>
 
+**Mode**: <`inbox — inferred: <what fired it>` | `inbox — --mode inbox` | `plain — --mode plain` |
+`plain — ordinary work ticket` | `plain — no Linear subject`. Inbox mode is inferred rather than
+passed, so it is stated here: an inference nobody can see is one nobody can correct.>
+
 ## Verdict
 - **Finding**: <the answer in one line>
 - **Disposition**: <graduate → milestone | enrich (already owned) | still-needs-triage | marinate — or, outside inbox mode, the caller's own vocabulary> · **Priority**: <Urgent/High/Med/Low>
@@ -34,7 +38,7 @@ App base and link patterns: from the project's access directive. One row per ent
 finding touches, most-specific first, each as `<name/number> \`<id>\` — [deep link](…)`.
 
 ## Signal
-- **Origin**: <issue key> (<channel / parent>) · reporter <name> · <created date> — or, where the subject came from a context pack rather than a thread, what the pack carried and who assembled it>
+- **Origin**: <issue key> (<channel / parent>) · reporter <name> · <created date> — or, where the subject came from a context pack rather than a thread, what the pack carried and who assembled it
 - **Reported**: <verbatim or tight paraphrase>
 - **Reporter hypothesis** (if any): <what they guessed — triage confirms or corrects it>
 

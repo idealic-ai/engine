@@ -1,6 +1,6 @@
 ### ¶CMD_READ_RELATED_TICKET
 **Definition**: The ONE canonical path for reading a *related* Linear ticket READ-ONLY. Given a ticket KEY, it resolves the issue, reads its state, and pulls the comment thread into a single normalized object the caller can classify (related-for-context vs duplicate/overlapping-work). Bundles the get_issue + state-read + list_comments sequence into a single atom so every caller navigates a ticket identically.
-**Rule**: Any skill or agent about to *read a candidate ticket for triage* routes it through here — never a bare `get_issue` with an ad-hoc shape. `/ticket-search` (its subagent), and inline callers (intake sweep, inbox-triage, ticket dedup — future convergence) all cite this atom so the read stays identical across sites.
+**Rule**: Any skill or agent about to *read a candidate ticket for triage* routes it through here — never a bare `get_issue` with an ad-hoc shape. `/ticket-search` (its subagent), and inline callers (intake sweep, triage, ticket dedup — future convergence) all cite this atom so the read stays identical across sites.
 **Constraint**: **READ-ONLY.** This atom NEVER writes — no create/update/comment/status-change/subscribe. Subscribing is a *separate* suggested action the caller may take via `engine ticket subscribe`; this atom does not do it and does not mutate any Linear or session state.
 
 **Prerequisites**:

@@ -19,7 +19,7 @@ Save the filled prompt to `builds/<wave-slug>-outcomes-board-handoff.md`; dispat
 
 **Full sources that travel** (record FROM these — pointers, not digests)
 - **Working doc**: `INTAKE.md` `<path>` — the item registry, dispositions as applied, ranked "pull first", root-cause map.
-- **Triage reports**: `builds/inbox-triage-<id>.md` … (for the evidence behind each call).
+- **Triage reports**: `builds/triage-<subject-id>.md` … (for the evidence behind each call).
 - **The Decision Board** (this wave's, if published): `<url>` — so the record can point back at where the decisions were made.
 
 **Required coverage** (what every Outcomes Board records — layout is yours)

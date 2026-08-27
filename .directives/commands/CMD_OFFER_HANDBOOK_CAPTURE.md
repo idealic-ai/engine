@@ -18,7 +18,7 @@ The caller declares the step and supplies **nothing**. There is only one subject
 
 Fire ONLY if the session **followed, contradicted, or materially extended a documented handbook recipe**. Positive signals — at least one required:
 
-*   The session read or executed a project's `## What triage will chase` (an intake triage, an `/intake` wave, an `/inbox-triage` run).
+*   The session read or executed a project's `## What triage will chase` (an intake triage, an `/intake` wave, a `/triage` run).
 *   It spent real effort rediscovering a fact the recipe should have stated (a table name, an id identity, an auth model, a retention window).
 *   It hit a dead end the recipe should warn about, or found a recipe instruction wrong, mis-ordered, or unnecessary for the report shape it had.
 

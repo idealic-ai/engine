@@ -52,7 +52,7 @@ Save the filled prompt to `builds/<wave-slug>-decision-board-handoff.md`; dispat
 - **The wave ranking** (`¶INV_RANKING_WITH_PROOFS`): the ordered "pull first, and why" list — carry the **number behind each call** (blast-radius / corroboration / consolidation breadth) with its proof-pointers.
 
 **Full sources that travel with this handoff** (present FROM these — pointers, not digests)
-- **Triage reports**: `builds/inbox-triage-<id>.md` … (one per triaged item — the render agent reads them for the facts)
+- **Triage reports**: `builds/triage-<subject-id>.md` … (one per triaged item — the render agent reads them for the facts)
 - **Working doc**: `INTAKE.md` `<path>` (the cross-scope understanding, root-cause map, dependency graph)
 - **Origin comments / entity links**: […app URLs + FIN-keys + comment deep-links per item]
 

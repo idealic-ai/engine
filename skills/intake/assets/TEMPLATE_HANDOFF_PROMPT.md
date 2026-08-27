@@ -1,6 +1,6 @@
 # Triage Handoff Prompt — scaffold
 
-The orchestrator fills this to dispatch a triage sub-agent (`/inbox-triage`, else `/probe`) on a not-yet-ticketable inbox signal. It must be **self-contained** (`¶INV_REQUEST_IS_SELF_CONTAINED`) — enough for the doer to start cold, with pointers to pull more. Save the filled prompt to `builds/inbox-triage-handoff-<origin-id>.md` and **attach it to the origin comment alongside the triage report** — so the full chain (question → answer) is reproducible and re-analyzable.
+The orchestrator fills this to dispatch a triage sub-agent (`/triage --mode inbox`, else `/probe`) on a not-yet-ticketable inbox signal. **The `--mode inbox` flag is what carries the intake behaviours** — origin-comment input with its replies, read all three Linear surfaces, Directions outrank the recipe, Ticketing Strategy bounds the recommendation, posting ON; a run dispatched without it skips every one of them and still returns a normal-looking report. It must be **self-contained** (`¶INV_REQUEST_IS_SELF_CONTAINED`) — enough for the doer to start cold, with pointers to pull more. Save the filled prompt to `builds/triage-handoff-<subject-id>.md` and **attach it to the origin comment alongside the triage report** — so the full chain (question → answer) is reproducible and re-analyzable.
 
 Triage is **light** — gather detail, reproduce, find related tickets — enough to make the signal ticketable. It is NOT deep research (that runs on a graduated `Needs research` ticket).
 
@@ -47,7 +47,7 @@ Triage is **light** — gather detail, reproduce, find related tickets — enoug
 - **Who to ask** (from the project's `## Stakeholders`, if set): [person → what they can answer]. Facts, not authority — if you hit a question the read-only sources cannot close, name the person to ask in your Boundary instead of guessing or silently degrading. Do not contact them yourself.
 
 **Deliverable**
-- A **triage report** written to `builds/inbox-triage-<origin-id>.md`: what was found (account/claim/URL/repro/related), with evidence.
+- A **triage report** written to `builds/triage-<subject-id>.md`: what was found (account/claim/URL/repro/related), with evidence.
 - A **recommendation**: ripe to graduate? → which milestone (`Needs decision` / `Needs research` / `Ready for action` / `Uncategorized`)? or still-needs-X (name it)?
 - A **steering read** (`¶INV_STEERING_NOT_SOLUTIONS`) — process-steering, NOT solutions: a legitimacy/confidence read + the still-open questions + concrete *what to measure/triage next* + 3–5 suggested board options (`{key,label}`), all oriented by the Directions above. This feeds the Decision Board's steering widgets (the orchestrator polishes your options). Options to react to, never a manufactured answer — you stay read-only and light.
 - A **1-line headline** the orchestrator can post inline (or attach the report if long).
