@@ -26,9 +26,15 @@ A representative pointer or two is plenty — do NOT dump exhaustive `file:line`
 *(Illustrative — adapt, don't copy: "Areas: the profile route module + the order-read repository. Symptom: latency dashboards spike in lockstep with the profile-load call. Spawning session: [URL].")*>
 
 **Constraints**
-<What must hold: invariants, backward/data compat, prior decisions that bound the solution, interfaces that can't change. The guardrails any implementation must respect.
+<What bounds the WORK: backward/data compat, prior decisions that fence the solution, interfaces that can't change, inputs it must start from. Guardrails on how the builder proceeds — they expire when the work lands.
 *Smell test: if renaming the functions / rewriting the approach would invalidate this line, it's an implementation detail — cut it.*
 *(Illustrative — adapt, don't copy: "Must keep the v1 API response schema byte-compatible. No new columns on the shared table without a migration plan.")*>
+
+**Invariants** *(properties the RESULT must have — omit if none; never pad)*
+<Rules that outlive the ticket, each stated so a violation is pointable. Not "how to work" (that's Constraints) — what must be TRUE of the built thing, still checkable a year later by someone holding the code against this line.
+Write each as: **the rule in plain words** — what it FORBIDS — the reason in one clause. Agents route around preferences, so name the forbidden thing rather than the preferred one. Optionally tag with a stable `INV_UPPER_SNAKE` identifier AFTER the sentence, so a code review or a later ticket can cite it without the reader having to learn a vocabulary to read this one.
+*Smell test: if it describes an activity rather than a property, it's a Constraint. If it can't be violated, it's not an invariant — it's a description.*
+*(Illustrative — adapt, don't copy: "**A computed value is a cache, never a source** — forbids storing a derived figure that cannot be recomputed from its inputs, because a stale derived value is indistinguishable from a read one. `INV_COMPUTED_IS_CACHED`")*>
 
 **Non-goals**
 <Explicitly out of scope — the adjacent things this ticket does NOT cover, so it doesn't sprawl. Name the sibling work that belongs elsewhere.
