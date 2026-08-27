@@ -477,30 +477,6 @@ normalize_env_kv() {
 }
 
 # --- doctor ---
-# Write a non-secret manifest default into its dotfile. Prints the destination on
-# stdout and returns 0 when written; returns 1 when it could not be.
-#
-# Shared by doctor AND setup deliberately. A non-secret row carrying a manifest default
-# needs neither a prompt nor a network fetch, so whichever command runs first should be
-# able to write it. It used to live only in the doctor, which meant AWS_REGION — the
-# region every Secrets Manager fetch needs, since an agent profile has no ~/.aws/config —
-# was written by `env doctor` and never by `env setup`, so setup's own fetches failed
-# unless doctor happened to have run first.
-#
-# A present-but-empty KEY= line is filled IN PLACE, never duplicated, so seeding is
-# idempotent.
-seed_nonsecret_default() {
-  local key="$1" default="$2" dotfile="$3" target newfile
-  if target="$(locate_key_line "$key" "$dotfile")"; then
-    fill_env_key "$target" "$key" "$default" || return 1
-    printf '%s' "$target"; return 0
-  fi
-  newfile="$(env_anchored_path "$dotfile")" || return 1
-  [ -n "$newfile" ] || return 1
-  printf '%s=%s\n' "$key" "$default" >> "$newfile" || return 1
-  printf '%s' "$newfile"; return 0
-}
-
 cmd_doctor() {
   env_anchor_prime   # resolve the anchor ONCE; every later subshell inherits it
   local env_example=""
@@ -2723,26 +2699,6 @@ cmd_setup() {
     # non-secret row sourced from Secrets Manager still has to be fetched — the doctor
     # only seeds non-secret DEFAULTS, and an aws-secret row has none, so skipping it
     # here left the row with no writer at all.
-    # Seed a non-secret manifest default FIRST, before the secret/aws-secret filter below
-    # drops the row. AWS_REGION is the case that matters: non-secret, prompt-sourced, and
-    # required by every Secrets Manager fetch this same loop is about to make. Seeding it
-    # only in the doctor meant setup could not fetch anything unless doctor had already
-    # run — an ordering nobody would guess from the command names.
-    if [ "$secret" != "true" ] && [ "$check" = "file-key" ] && [ -n "$default" ] && [ -n "$dotfile" ] \
-       && [ "$src" != "aws-secret" ]; then
-      if ! resolve_env_key "$key" >/dev/null 2>&1; then
-        if [ "$dry" -eq 1 ]; then
-          printf "  ${CYAN}would-seed${NC}   %-22s = %s → %s\n" "$key" "$default" "$dotfile"
-        else
-          local _where
-          if _where="$(seed_nonsecret_default "$key" "$default" "$dotfile")"; then
-            printf "  ${GREEN}seed${NC}  %-22s = %s → %s\n" "$key" "$default" "$_where"
-          else
-            printf "  ${YELLOW}warn${NC}  %-22s could not seed default into %s\n" "$key" "$dotfile"
-          fi
-        fi
-      fi
-    fi
     [ "$secret" = "true" ] || [ "$src" = "aws-secret" ] || continue
     [ "$check" = "file-key" ] || continue   # only dotfile-backed rows are wizard-writable
     # --refresh re-fetches rows that have an AUTHORITATIVE UPSTREAM, even when the dotfile
