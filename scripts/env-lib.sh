@@ -338,6 +338,50 @@ notice_shadowed_env_key() {
   printf '%s: using %s (a different value exists in %s)\n' "$key" "$from" "$dir/.env" >&2
 }
 
+# ── env_manifest_default KEY ──────────────────────────────────────────────────
+#
+# The manifest's own `default` for KEY, or empty when it declares none.
+#
+# Why this exists: the manifest is domain-PARTITIONED (core, plus one per skill) and
+# `resolve_env_key` is domain-LESS — it takes a key and optional files, nothing more.
+# `env_load_domain` can fall back to `default` only because its caller hands it a domain;
+# the single-key path never had one, so a row whose value is a manifest default resolved
+# NOWHERE and every consumer had to hardcode the same constant. AWS_REGION is the case
+# that exposed it: declared `default: us-east-2`, written into a dotfile by the doctor
+# alone, and therefore empty for anyone who ran anything before the doctor.
+#
+# Reads every manifest and accepts the default only when it is UNAMBIGUOUS — one
+# definition, or several that agree. Two domains disagreeing means there is no single
+# right answer for a domain-less lookup, so it yields nothing and the caller misses
+# exactly as it does today. (Measured at the time of writing: of 35 keys, 8 are declared
+# in more than one manifest and none disagree, so the guard costs nothing and exists for
+# the day that changes.)
+#
+# `secret: true` rows are skipped. For an aws-secret row `default` holds the secret's
+# NAME, not its value — serving that as a resolved credential would hand a caller a
+# pointer where it expected the thing pointed at.
+env_manifest_default() {
+  local key="$1" mf vals n
+  command -v jq >/dev/null 2>&1 || return 1
+  vals="$(
+    for mf in "$_ENV_LIB_DIR/credentials.json" "$_ENV_LIB_DIR"/../skills/*/assets/credentials.json; do
+      [ -r "$mf" ] || continue
+      jq -r --arg k "$key" '
+        .credentials[]?
+        | select(.key == $k and (.secret != true))
+        | (.default // empty)
+      ' "$mf" 2>/dev/null
+    done | grep -v '^$' | sort -u
+  )"
+  [ -n "$vals" ] || return 1
+  n="$(printf '%s\n' "$vals" | wc -l | tr -d ' ')"
+  if [ "$n" != "1" ]; then
+    echo "env: $key has conflicting defaults across manifests; not falling back to any of them" >&2
+    return 1
+  fi
+  printf '%s' "$vals"
+}
+
 # resolve_env_key KEY [preferred_file...] -> the value on stdout.
 #   0 resolved | 1 nothing resolved | ENV_NO_ANCHOR_RC (3) no session anchor
 # An empty value is NOT a resolution (mirrors extract_env_key) — presence-of-the-line
@@ -347,6 +391,11 @@ resolve_env_key() {
   local val="${!key:-}" f
   if [ -n "$val" ]; then printf '%s' "$val"; return 0; fi
   if ! env_anchor_dir >/dev/null 2>&1; then
+    # A manifest default is a constant, not a per-project value, so it needs no anchor.
+    # Answering from it here turns "no session anchor" into a hard error only for the
+    # keys that genuinely require one.
+    if [ -z "${ENV_SKIP_MANIFEST_DEFAULT:-}" ] \
+       && val="$(env_manifest_default "$key")" && [ -n "$val" ]; then printf '%s' "$val"; return 0; fi
     echo "env: no session anchor — credentials resolve relative to the current session's project ROOT, so this must run inside an engine session AND inside a repo checkout, not your home folder. In the repo, type /do to start one. ($key was not looked up)" >&2
     return "$ENV_NO_ANCHOR_RC"
   fi
@@ -356,6 +405,16 @@ resolve_env_key() {
       printf '%s' "$val"; return 0
     fi
   done < <(env_key_files "$@")
+  # Last: the manifest's own default. A declared default IS a value — requiring it to be
+  # copied into a dotfile before it can be read is what made a fully-specified row look
+  # unset.
+  #
+  # ENV_SKIP_MANIFEST_DEFAULT=1 asks the NARROWER question: "is there a REAL value —
+  # an env var or a dotfile entry?" A caller deciding whether to WRITE the default some-
+  # where needs that one, because the broad question answers yes on the strength of the
+  # very default it is about to write, and the write never happens.
+  if [ -z "${ENV_SKIP_MANIFEST_DEFAULT:-}" ] \
+     && val="$(env_manifest_default "$key")" && [ -n "$val" ]; then printf '%s' "$val"; return 0; fi
   return 1
 }
 
