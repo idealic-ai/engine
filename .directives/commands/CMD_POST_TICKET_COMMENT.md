@@ -4,7 +4,7 @@
 
 **Prerequisites**:
 *   **An active engine session** (the subscribe-check reads/writes its `.state.json:tickets[]`). Standalone (no session) → the post still lands, but the subscribe-check + notify are skipped (no local siblings to wake); say so.
-*   **Linear MCP present** (`mcp__linear-server__*`). Headless / no-MCP → cannot post; report the skipped post and stop, never hang.
+*   **Linear MCP present** (`mcp__linear__*`). Headless / no-MCP → cannot post; report the skipped post and stop, never hang.
 
 **Parameters**:
 ```json
@@ -17,7 +17,7 @@
 
 **Algorithm**:
 1.  **Subscribe-check** (idempotent): `engine ticket subscribe <ticketKey>`. This ensures the current session is in its own `tickets[]` so it hears any reply on the same ticket. Safe to run every time — a no-op if already subscribed. Skip only when standalone (no active session).
-2.  **Post**: resolve `<ticketKey>` → Linear issue id if needed (`mcp__linear-server__get_issue`), then post the body via `mcp__linear-server__save_comment({ issueId: "<ticketKey>", body })` — the same create/update-comment tool the skills use. Pin the `issueId`; capture the returned comment URL.
+2.  **Post**: resolve `<ticketKey>` → Linear issue id if needed (`mcp__linear__get_issue`), then post the body via `mcp__linear__save_comment({ issueId: "<ticketKey>", body })` — the same create/update-comment tool the skills use. Pin the `issueId`; capture the returned comment URL.
 3.  **Notify**: `engine ticket notify <ticketKey> "<note>" --from <this-session>` — wakes every *other* local session subscribed to the ticket (never yourself). **Write the note decision-grade**: on wake a sibling drains ONLY this note (no Linear fetch), so it must answer *"do I need to act?"* alone — include the **commit SHA** if one landed, the **one-phrase what-changed**, and an **affects-you verdict** (`no action` / `rebase onto <sha>` / `your files untouched` / `needs your reply`). One line, terse. E.g. `engine ticket notify FIN-2833 "2db0ecea6: entities/ scaffold committed; scope.ts left for FIN-2737 — no action for you"`. Best-effort: a notify failure is reported, never aborts the post. Skip when standalone.
 
 **Constraints**:

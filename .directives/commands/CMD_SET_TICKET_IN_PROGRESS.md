@@ -4,18 +4,18 @@
 
 **Prerequisites**:
 *   **An active engine session with a ticket association** — reads `.state.json:tickets[].key` (seeded from session-params `tickets[]` on activate, e.g. `/fix FIN-2833`). No associated ticket → silent no-op (echo the scan, skip). No git-branch / session-slug inference.
-*   **Linear MCP present** (`mcp__linear-server__*`). Headless / no-MCP → skip, report `skipped — no Linear MCP`, never hang.
+*   **Linear MCP present** (`mcp__linear__*`). Headless / no-MCP → skip, report `skipped — no Linear MCP`, never hang.
 
 **Parameters**: none — the ticket(s) come from session state.
 
 **Algorithm**:
 1.  **Resolve** the associated ticket key(s) from `.state.json:tickets[].key` (`engine ticket list --json`, or jq the state file). Empty → `ticketAdvanced = "skipped — no ticket associated"`; echo the scan and stop. For each associated key:
-2.  **Read current state**: `mcp__linear-server__get_issue({ id: "<KEY>" })` → capture the issue's current `state.name` and its `team`.
-3.  **Classify** the current state: `mcp__linear-server__list_issue_statuses({ team: "<team>" })` → each status carries a `type` (`triage | backlog | unstarted | started | completed | canceled`). Match the current state's name to find its type.
+2.  **Read current state**: `mcp__linear__get_issue({ id: "<KEY>" })` → capture the issue's current `state.name` and its `team`.
+3.  **Classify** the current state: `mcp__linear__list_issue_statuses({ team: "<team>" })` → each status carries a `type` (`triage | backlog | unstarted | started | completed | canceled`). Match the current state's name to find its type.
     *   type ∈ {`started`, `completed`, `canceled`} → **no-op** (`ticketAdvanced = "no-op — already <state>"`). Never move a ticket backward or re-open a finished one. Continue to the next key.
     *   type ∈ {`triage`, `backlog`, `unstarted`} → advance (step 4).
 4.  **Pick target**: from the same status list, choose the `started`-type state named "In Progress" if present, else the first `started`-type state. Capture its id/name.
-5.  **Advance**: `mcp__linear-server__save_issue({ id: "<KEY>", state: "<target state id or exact name>" })`.
+5.  **Advance**: `mcp__linear__save_issue({ id: "<KEY>", state: "<target state id or exact name>" })`.
 6.  **Report** one line to chat — `<KEY>: <old state> → In Progress`. No comment, no `engine ticket notify`, no link/attachment.
 
 **Constraints**:

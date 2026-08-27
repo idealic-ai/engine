@@ -73,7 +73,7 @@ _MM_EOL=$'\n'
 # _mm_emit_row OUT KEY SERVICE REQUIRED SECRET DEFAULT DOTFILE HOW CHECK
 # ⚠️ THE FORMAT EMITTER — one row appended to OUT.rows. Rewritten at step 3/1 from
 # the pipe-delimited line to a JSON object; NO behavior assertion moved with it.
-# The `check` argument keeps the compact test vocabulary (`mcp:linear-server`,
+# The `check` argument keeps the compact test vocabulary (`mcp:linear`,
 # `binary:aws`) and is expanded here into the manifest's structured `check` object.
 _mm_emit_row() {
   local out="$1" key="$2" service="$3" required="$4" secret="$5" default="$6" dotfile="$7" how="$8" check="$9"
@@ -156,7 +156,7 @@ awsok_seed() { printf 'FINCH_AGENT_AWS_PROFILE=t-agent\n' >> "$1/.env.local"; }
 # connected", so it has to track the manifest. When posthog and github were promoted to
 # `req`, a fixture listing only two servers stopped meaning that and the exit-0 cases
 # started failing for the right reason.
-MCP_ALL_CONNECTED=$'notion: https://mcp.notion.com/mcp (HTTP) - ✔ Connected\nlinear-server: https://mcp.linear.app/mcp (HTTP) - ✔ Connected\nposthog: https://mcp.posthog.com/mcp (HTTP) - ✔ Connected\ngithub: https://api.githubcopilot.com/mcp (HTTP) - ✔ Connected'
+MCP_ALL_CONNECTED=$'notion: https://mcp.notion.com/mcp (HTTP) - ✔ Connected\nlinear: https://mcp.linear.app/mcp (HTTP) - ✔ Connected\nposthog: https://mcp.posthog.com/mcp (HTTP) - ✔ Connected\ngithub: https://api.githubcopilot.com/mcp (HTTP) - ✔ Connected'
 
 # ── 1. Manifest exists and parses (JSON; every row typed, no bad rows) ──
 # STRUCTURAL assertions about the real manifest file — deliberately NOT routed through
@@ -186,7 +186,7 @@ else
   fail "every manifest row is well-formed" "key + boolean secret + known check.type" "$BAD"
 fi
 # A `binary`/`mcp` check must name its target — the structured shape replaced the old
-# `binary:aws` / `mcp:linear-server` string-smuggling, so the name field is load-bearing.
+# `binary:aws` / `mcp:linear` string-smuggling, so the name field is load-bearing.
 BADARG=$(jq -r '
   .credentials[]
   | select((.check.type == "mcp"    and (.check.server // "") == "")
@@ -203,10 +203,10 @@ if jq -e '[.credentials[] | select(.key == "SLACK_INTAKE_TOKEN" and .required ==
 else
   fail "SLACK_INTAKE_TOKEN is req + secret" "required=req secret=true" "not found"
 fi
-if jq -e '[.credentials[] | select(.key == "linear-server" and .required == "req" and .check.type == "mcp" and .check.server == "linear-server")] | length == 1' "$MANIFEST" >/dev/null 2>&1; then
-  pass "linear-server is a req mcp check"
+if jq -e '[.credentials[] | select(.key == "linear" and .required == "req" and .check.type == "mcp" and .check.server == "linear")] | length == 1' "$MANIFEST" >/dev/null 2>&1; then
+  pass "linear is a req mcp check"
 else
-  fail "linear-server is a req mcp check" "required=req check={mcp,linear-server}" "not found"
+  fail "linear is a req mcp check" "required=req check={mcp,linear}" "not found"
 fi
 
 # ── 2. env-example generation ──
@@ -228,7 +228,7 @@ else
   fail "channel-context lookback default filled" "SLACK_INTAKE_CONTEXT_LOOKBACK_DAYS=7" "$(printf '%s' "$GEN" | grep SLACK_INTAKE_CONTEXT_LOOKBACK_DAYS)"
 fi
 # MCP / binary / note rows are NOT dotfile keys → never emitted as KEY= lines.
-for nonkey in linear-server posthog github BIN_AWS FINCH_DB_RO_SECRET; do
+for nonkey in linear posthog github BIN_AWS FINCH_DB_RO_SECRET; do
   if printf '%s' "$GEN" | grep -qE "^${nonkey}="; then
     fail "non-env row '$nonkey' excluded from env-example" "no ${nonkey}= line" "present"
   else
@@ -313,27 +313,27 @@ CASE_C="$WORK/c"; mkcase "$CASE_C"; printf 'SLACK_INTAKE_TOKEN=xoxb-test\n' > "$
 awsok_init; awsok_seed "$CASE_C"
 OUT=$(cd "$CASE_C" && ENV_AWS_HOME="$AWSOK_HOME" ENV_STS_ARN="arn:aws:iam::1:user/t-agent" ENV_MCP_LIST_OUTPUT="" "$ENV_SH" doctor 2>&1 | strip)
 CODE=$(cd "$CASE_C" && ENV_AWS_HOME="$AWSOK_HOME" ENV_STS_ARN="arn:aws:iam::1:user/t-agent" ENV_MCP_LIST_OUTPUT="" "$ENV_SH" doctor >/dev/null 2>&1; echo $?)
-if printf '%s' "$OUT" | grep -qE 'FAIL +linear-server' && [ "$CODE" -ne 0 ]; then
+if printf '%s' "$OUT" | grep -qE 'FAIL +linear' && [ "$CODE" -ne 0 ]; then
   pass "CASE C: an UNVERIFIABLE required MCP now BLOCKS (reversal — was WARN)"
 else
-  fail "CASE C: unverifiable blocks" "FAIL linear-server + non-zero" "code=$CODE $(printf '%s' "$OUT" | grep linear-server)"
+  fail "CASE C: unverifiable blocks" "FAIL linear + non-zero" "code=$CODE $(printf '%s' "$OUT" | grep linear)"
 fi
 # …and the message must name the server AND /mcp, so the fix is obvious.
-if printf '%s' "$OUT" | grep -q 'linear-server' && printf '%s' "$OUT" | grep -q '/mcp'; then
+if printf '%s' "$OUT" | grep -q 'linear' && printf '%s' "$OUT" | grep -q '/mcp'; then
   pass "CASE C: the message names the server and /mcp"
 else
-  fail "CASE C: message names server + /mcp" "both" "$(printf '%s' "$OUT" | grep linear-server)"
+  fail "CASE C: message names server + /mcp" "both" "$(printf '%s' "$OUT" | grep linear)"
 fi
 
 # CASE D: MCP present but "Needs authentication" → req linear FAIL + exit 1.
 CASE_D="$WORK/d"; mkcase "$CASE_D"; printf 'SLACK_INTAKE_TOKEN=xoxb-test\n' > "$CASE_D/.env.local"
-NEEDS_AUTH=$'linear-server: https://mcp.linear.app/mcp (HTTP) - ! Needs authentication'
+NEEDS_AUTH=$'linear: https://mcp.linear.app/mcp (HTTP) - ! Needs authentication'
 CODE=$(cd "$CASE_D" && ENV_MCP_LIST_OUTPUT="$NEEDS_AUTH" "$ENV_SH" doctor >/dev/null 2>&1; echo $?)
 OUT=$(cd "$CASE_D" && ENV_MCP_LIST_OUTPUT="$NEEDS_AUTH" "$ENV_SH" doctor 2>&1 | strip)
-if printf '%s' "$OUT" | grep -qE 'FAIL +linear-server' && [ "$CODE" -eq 1 ]; then
+if printf '%s' "$OUT" | grep -qE 'FAIL +linear' && [ "$CODE" -eq 1 ]; then
   pass "CASE D: unconnected required MCP → FAIL + exit 1"
 else
-  fail "CASE D: MCP not connected fails" "FAIL linear-server + exit 1" "code=$CODE $(printf '%s' "$OUT" | grep linear-server)"
+  fail "CASE D: MCP not connected fails" "FAIL linear + exit 1" "code=$CODE $(printf '%s' "$OUT" | grep linear)"
 fi
 
 # The headless MCP-write gap note is always surfaced.
@@ -489,18 +489,18 @@ fi
 echo "Test 11: MCP 'connected' matched case-insensitively"
 CASE_L="$WORK/l"; mkcase "$CASE_L"; printf 'SLACK_INTAKE_TOKEN=xoxb-x\n' > "$CASE_L/.env.local"
 awsok_init; awsok_seed "$CASE_L"
-LOWER=$'linear-server: https://mcp.linear.app/mcp (HTTP) - ✔ connected\nnotion: https://mcp.notion.com/mcp (HTTP) - ✔ Connected\nposthog: https://mcp.posthog.com/mcp (HTTP) - ✔ Connected\ngithub: https://api.githubcopilot.com/mcp (HTTP) - ✔ Connected'
+LOWER=$'linear: https://mcp.linear.app/mcp (HTTP) - ✔ connected\nnotion: https://mcp.notion.com/mcp (HTTP) - ✔ Connected\nposthog: https://mcp.posthog.com/mcp (HTTP) - ✔ Connected\ngithub: https://api.githubcopilot.com/mcp (HTTP) - ✔ Connected'
 CODE=$(cd "$CASE_L" && ENV_AWS_HOME="$AWSOK_HOME" ENV_STS_ARN="arn:aws:iam::1:user/t-agent" ENV_MCP_LIST_OUTPUT="$LOWER" "$ENV_SH" doctor >/dev/null 2>&1; echo $?)
 OUT=$(cd "$CASE_L" && ENV_MCP_LIST_OUTPUT="$LOWER" "$ENV_SH" doctor 2>&1 | strip)
-if printf '%s' "$OUT" | grep -qE 'PASS +linear-server' && [ "$CODE" -eq 0 ]; then
+if printf '%s' "$OUT" | grep -qE 'PASS +linear' && [ "$CODE" -eq 0 ]; then
   pass "lowercase 'connected' → PASS + exit 0 (no false FAIL on format casing)"
 else
-  fail "case-insensitive connected" "PASS linear-server + exit 0" "code=$CODE $(printf '%s' "$OUT" | grep linear-server)"
+  fail "case-insensitive connected" "PASS linear + exit 0" "code=$CODE $(printf '%s' "$OUT" | grep linear)"
 fi
 # An unrecognized state (not a known-unhealthy one) degrades to WARN, never a hard FAIL.
 CASE_U="$WORK/u"; mkcase "$CASE_U"; printf 'SLACK_INTAKE_TOKEN=xoxb-x\n' > "$CASE_U/.env.local"
 awsok_init; awsok_seed "$CASE_U"
-UNKNOWN=$'linear-server: https://mcp.linear.app/mcp (HTTP) - ✔ Ready'
+UNKNOWN=$'linear: https://mcp.linear.app/mcp (HTTP) - ✔ Ready'
 CODE=$(cd "$CASE_U" && ENV_AWS_HOME="$AWSOK_HOME" ENV_STS_ARN="arn:aws:iam::1:user/t-agent" ENV_MCP_LIST_OUTPUT="$UNKNOWN" "$ENV_SH" doctor >/dev/null 2>&1; echo $?)
 OUT=$(cd "$CASE_U" && ENV_AWS_HOME="$AWSOK_HOME" ENV_STS_ARN="arn:aws:iam::1:user/t-agent" ENV_MCP_LIST_OUTPUT="$UNKNOWN" "$ENV_SH" doctor 2>&1 | strip)
 # ⚠️ DELIBERATE REVERSAL (5/3), same ruling as CASE C: an unrecognised state token is
@@ -508,10 +508,10 @@ OUT=$(cd "$CASE_U" && ENV_AWS_HOME="$AWSOK_HOME" ENV_STS_ARN="arn:aws:iam::1:use
 # the wave through on a guess. The cost — a `claude mcp list` format drift hard-blocks
 # until the parser is patched — is accepted knowingly, which is why the parser stays
 # permissive about surrounding format and strict only about the state token.
-if printf '%s' "$OUT" | grep -qE 'FAIL +linear-server' && [ "$CODE" -ne 0 ]; then
+if printf '%s' "$OUT" | grep -qE 'FAIL +linear' && [ "$CODE" -ne 0 ]; then
   pass "an unrecognised MCP state now BLOCKS for a required server (reversal — was WARN)"
 else
-  fail "format-drift blocks" "FAIL linear-server + non-zero" "code=$CODE $(printf '%s' "$OUT" | grep linear-server)"
+  fail "format-drift blocks" "FAIL linear + non-zero" "code=$CODE $(printf '%s' "$OUT" | grep linear)"
 fi
 
 # ── 12. parser robustness: a '|' in 'how' and CRLF endings ──
@@ -522,8 +522,8 @@ PIPE_MF="$WORK/pipe.manifest"
 make_manifest "$PIPE_MF" --crlf \
   row key=FOO service=Svc required=optional secret=false default=bar dotfile=.env \
       how="hint with a | pipe inside" check=file-key \
-  row key=linear-server service=Linear required=req secret=false \
-      how=OAuth check=mcp:linear-server
+  row key=linear service=Linear required=req secret=false \
+      how=OAuth check=mcp:linear
 CASE_P="$WORK/p"; mkcase "$CASE_P"
 OUT=$(cd "$CASE_P" && ENV_MANIFEST="$PIPE_MF" ENV_MCP_LIST_OUTPUT="$MCP_ALL_CONNECTED" "$ENV_SH" doctor 2>&1 | strip)
 if grep -qE '^FOO=bar$' "$CASE_P/.env" 2>/dev/null; then
@@ -531,10 +531,10 @@ if grep -qE '^FOO=bar$' "$CASE_P/.env" 2>/dev/null; then
 else
   fail "pipe-in-how parse" "FOO=bar seeded" "$(cat "$CASE_P/.env" 2>/dev/null); out=$(printf '%s' "$OUT" | grep FOO)"
 fi
-if printf '%s' "$OUT" | grep -qE 'PASS +linear-server'; then
-  pass "CRLF row parses (mcp:linear-server matched, no trailing CR)"
+if printf '%s' "$OUT" | grep -qE 'PASS +linear'; then
+  pass "CRLF row parses (mcp:linear matched, no trailing CR)"
 else
-  fail "CRLF parse" "PASS linear-server" "$(printf '%s' "$OUT" | grep linear-server)"
+  fail "CRLF parse" "PASS linear" "$(printf '%s' "$OUT" | grep linear)"
 fi
 
 # ── 13. dotfile precedence: EITHER dotfile resolves, .env.local wins ──
@@ -2019,8 +2019,8 @@ MCPD="$WORK/mcpd"; mkcase "$MCPD"; mkdir -p "$MCPD/deep"
 awsok_init; awsok_seed "$MCPD"
 MCP_MF="$WORK/mcponly.json"
 jq -n '{version:1, domain:"test", credentials:[
-  {key:"linear-server", service:"Linear (MCP)", required:"req", secret:false, default:null,
-   dotfile:"", how:"OAuth in Claude Code", check:{type:"mcp", server:"linear-server"},
+  {key:"linear", service:"Linear (MCP)", required:"req", secret:false, default:null,
+   dotfile:"", how:"OAuth in Claude Code", check:{type:"mcp", server:"linear"},
    source:{type:"oauth"}},
   {key:"notion", service:"Notion (MCP)", required:"optional", secret:false, default:null,
    dotfile:"", how:"OAuth", check:{type:"mcp", server:"notion"}, source:{type:"oauth"}}]}' > "$MCP_MF"
@@ -2029,11 +2029,11 @@ mcpdoc() { ( cd "$MCPD${2:-}" && ENV_MANIFEST="$MCP_MF" ENV_MCP_LIST_OUTPUT="$1"
 
 # (a) an OPTIONAL server that is unverifiable still only WARNs — the block follows
 #     `required`, it is not a blanket escalation.
-O=$(mcpdoc $'linear-server: x - ✔ Connected')
-if printf '%s' "$O" | grep -qE 'WARN +notion' && printf '%s' "$O" | grep -qE 'PASS +linear-server'; then
+O=$(mcpdoc $'linear: x - ✔ Connected')
+if printf '%s' "$O" | grep -qE 'WARN +notion' && printf '%s' "$O" | grep -qE 'PASS +linear'; then
   pass "an unverifiable OPTIONAL server warns while a required one blocks (severity follows 'required')"
 else
-  fail "severity follows required" "WARN notion + PASS linear-server" "$O"
+  fail "severity follows required" "WARN notion + PASS linear" "$O"
 fi
 
 # (b) THREE causes get THREE messages — they need three different actions.
@@ -2049,7 +2049,7 @@ if printf '%s' "$TO" | grep -qi 'timed out' && ! printf '%s' "$TO" | grep -qi 'r
 else
   fail "timeout cause" "a timed-out message, not an auth instruction" "$(printf '%s' "$TO" | grep -i linear)"
 fi
-UH=$(mcpdoc $'linear-server: x - ! Needs authentication')
+UH=$(mcpdoc $'linear: x - ! Needs authentication')
 if printf '%s' "$UH" | grep -qi '/mcp'; then
   pass "cause 3: an unhealthy server IS told to run /mcp"
 else
@@ -2058,7 +2058,7 @@ fi
 
 # (c) a MISSING timeout binary is an explicitly reported condition, never a silent
 #     unbounded run — on a stock mac neither timeout nor gtimeout exists.
-NT=$( cd "$MCPD" && ENV_MANIFEST="$MCP_MF" ENV_MCP_NO_TIMEOUT=1 ENV_MCP_LIST_OUTPUT=$'linear-server: x - ✔ Connected\nnotion: x - ✔ Connected' "$ENV_SH" doctor 2>&1 | strip )
+NT=$( cd "$MCPD" && ENV_MANIFEST="$MCP_MF" ENV_MCP_NO_TIMEOUT=1 ENV_MCP_LIST_OUTPUT=$'linear: x - ✔ Connected\nnotion: x - ✔ Connected' "$ENV_SH" doctor 2>&1 | strip )
 if printf '%s' "$NT" | grep -qi 'unbounded\|no timeout'; then
   pass "a missing timeout/gtimeout is REPORTED, not a silent unbounded run"
 else
@@ -2068,8 +2068,8 @@ fi
 # (d) ⚠️ CWD PINNING: `claude mcp list` is CWD-scoped (measured 1 server from the engine
 #     dir vs 5 from the finch root). The probe must pin to the ANCHOR, so the answer does
 #     not depend on which subdirectory you happen to be standing in.
-ROOTO=$(mcpdoc $'linear-server: x - ✔ Connected\nnotion: x - ✔ Connected')
-SUBO=$(mcpdoc $'linear-server: x - ✔ Connected\nnotion: x - ✔ Connected' /deep)
+ROOTO=$(mcpdoc $'linear: x - ✔ Connected\nnotion: x - ✔ Connected')
+SUBO=$(mcpdoc $'linear: x - ✔ Connected\nnotion: x - ✔ Connected' /deep)
 if [ "$ROOTO" = "$SUBO" ]; then
   pass "the MCP verdict is identical from the root and a subdirectory"
 else
@@ -2915,9 +2915,9 @@ fi
 
 # ══ 50. a degraded MCP row is never cached (the 5-minute phantom FAIL) ════════
 #
-# `engine env doctor` FAILed linear-server while linear-server was authenticated. The
+# `engine env doctor` FAILed linear while linear was authenticated. The
 # cache held the reason, verbatim:
-#     linear-server: … (HTTP) - ! Connected · tools fetch failed — Request timed out
+#     linear: … (HTTP) - ! Connected · tools fetch failed — Request timed out
 # The server never lost consent — only the TOOLS fetch timed out. The cache-write guard
 # tested `[ -n "$MCP_LIST_OUT" ]`, so that well-formed line counted as a successful probe
 # and was served as fact for the full TTL, long after the server recovered. The comment
@@ -2945,8 +2945,8 @@ mcdoc() {
 }
 mccache_files() { ls "$MCCACHE/engine"/mcp-probe-* 2>/dev/null; }
 
-DEGRADED=$'Checking MCP server health…\n\nlinear-server: https://mcp.linear.app/mcp (HTTP) - ! Connected \xc2\xb7 tools fetch failed — Request timed out\nnotion: x - ✔ Connected'
-HEALTHY=$'Checking MCP server health…\n\nlinear-server: https://mcp.linear.app/mcp (HTTP) - ✔ Connected\nnotion: x - ✔ Connected'
+DEGRADED=$'Checking MCP server health…\n\nlinear: https://mcp.linear.app/mcp (HTTP) - ! Connected \xc2\xb7 tools fetch failed — Request timed out\nnotion: x - ✔ Connected'
+HEALTHY=$'Checking MCP server health…\n\nlinear: https://mcp.linear.app/mcp (HTTP) - ✔ Connected\nnotion: x - ✔ Connected'
 
 # (a) THE BUG. A degraded row must leave NO cache entry behind.
 /bin/rm -rf "$MCCACHE"; stub_mcp "$DEGRADED"
@@ -2961,10 +2961,10 @@ fi
 #     Before the fix this second run PASSED nothing: it read the cache and FAILed again.
 stub_mcp "$HEALTHY"
 MC_B=$(mcdoc)
-if printf '%s' "$MC_B" | grep -qE 'PASS +linear-server'; then
+if printf '%s' "$MC_B" | grep -qE 'PASS +linear'; then
   pass "recovery is visible on the next run, not after the TTL expires"
 else
-  fail "recovery visible" "PASS linear-server" "$(printf '%s' "$MC_B" | grep -i linear)"
+  fail "recovery visible" "PASS linear" "$(printf '%s' "$MC_B" | grep -i linear)"
 fi
 
 # (c) an ALL-HEALTHY probe is still cached — the fix must not disable the cache, which
@@ -2981,10 +2981,10 @@ POISON="$(mccache_files | head -1)"
 printf '%s' "$DEGRADED" > "$POISON"
 stub_mcp "$HEALTHY"
 MC_D=$(mcdoc)
-if printf '%s' "$MC_D" | grep -qE 'PASS +linear-server'; then
+if printf '%s' "$MC_D" | grep -qE 'PASS +linear'; then
   pass "an inherited poisoned cache entry is dropped, not served"
 else
-  fail "poison dropped" "PASS linear-server" "$(printf '%s' "$MC_D" | grep -i linear)"
+  fail "poison dropped" "PASS linear" "$(printf '%s' "$MC_D" | grep -i linear)"
 fi
 
 # (e) ONE definition of unhealthy. The verdict and the cache guard read the same
@@ -3003,7 +3003,7 @@ fi
 # `required` used to answer two questions at once — how badly is this needed
 # (req/optional) and who needs it (triage/boards/provisioner). Fine while /intake was
 # the only caller, since `req` could quietly mean "required for intake". The moment
-# /inbox-triage calls the same manifest the two come apart: linear-server is req and
+# /inbox-triage calls the same manifest the two come apart: linear is req and
 # triage genuinely needs it, SLACK_INTAKE_TOKEN is also req and triage never posts to
 # Slack, and the app-login rows triage cannot work without only WARN.
 #

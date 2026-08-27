@@ -423,7 +423,7 @@ gen_env_example() {
 # Secrets carry an empty value here (never a real token). Non-secret defaults are filled.
 #
 # NOT dotfile keys (documented, set up out-of-band):
-#   linear-server (MCP)  — interactive OAuth in Claude Code; all /intake writes are MCP-only
+#   linear (MCP)  — interactive OAuth in Claude Code; all /intake writes are MCP-only
 #   notion (MCP)         — interactive OAuth; project-creation / KB steps only
 #   posthog (MCP)        — interactive OAuth; product-analytics signals during triage
 #   github (MCP)         — interactive OAuth; reads the PRs/issues a signal cites

@@ -64,7 +64,7 @@ Build the subagent's prompt to be entirely self-contained — it cannot see your
 > **2. Rules of Engagement (READ-ONLY — hard)**
 > - **Change nothing.** No code edits, no file writes outside your report, no `INSERT`/`UPDATE`/`DELETE`/DDL, no ticket creates/comments/status changes, no commits. If answering the question seems to require a write, that is a **finding to report**, not an action to take.
 > - **Database (if in scope):** `SELECT` only, always bounded (`LIMIT`, aggregates, explicit date windows). Prefer a read-only/analyst connection; never run destructive or shared-state commands (`db:reset`, `db:migrate`, drops/deletes); never point at prod destructively. Paste the EXACT query and the ACTUAL rows/counts it returned.
-> - **Tickets (if in scope):** read via the Linear MCP tools — load them with `ToolSearch` (e.g. `select:mcp__linear-server__list_issues,mcp__linear-server__get_issue,mcp__linear-server__list_comments`). Read only: never create, update, or comment.
+> - **Tickets (if in scope):** read via the Linear MCP tools — load them with `ToolSearch` (e.g. `select:mcp__linear__list_issues,mcp__linear__get_issue,mcp__linear__list_comments`). Read only: never create, update, or comment.
 > - **Git safety (`¶INV_NO_DESTRUCTIVE_GIT`):** the tree is ALWAYS dirty with other agents' uncommitted work. NEVER run tree/index-destructive git — no `git stash`/`checkout`/`switch`/`restore`/`reset --hard`/`clean`/`rm`/`add`. Read committed versions with `git show HEAD:<path>`; open working files by explicit path. Read-only git (`status`, `log`, `diff`, `show`) is fine. A PreToolUse hook blocks the rest — if it blocks you, do NOT retry-to-bypass; STOP and report the blocker.
 >
 > **3. How to Investigate**

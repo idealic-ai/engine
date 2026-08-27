@@ -21,7 +21,7 @@ Drive one full ticket-discussion turn over a Linear ticket's comment thread, the
 
 2.  **Confirm an active session exists**: the loop below reads/writes the current session's state. If `engine ticket subscribe` reports no active session, stop and ask the user to run inside a ticketed session.
 
-3.  **Detect Linear MCP availability**: if the `mcp__linear-server__*` tools are not present (headless / cron runs), you cannot post or fetch comments. Do the local half (subscribe + notify + watch) and tell the user clearly that the Linear post/fetch was skipped because MCP is unavailable. Never hang waiting on a missing tool.
+3.  **Detect Linear MCP availability**: if the `mcp__linear__*` tools are not present (headless / cron runs), you cannot post or fetch comments. Do the local half (subscribe + notify + watch) and tell the user clearly that the Linear post/fetch was skipped because MCP is unavailable. Never hang waiting on a missing tool.
 
 ---
 
@@ -33,9 +33,9 @@ Steps 1–4 below (subscribe-check → resolve → post → notify) **are `§CMD
 
 1.  **Subscribe-check** (idempotent, atom step 1): `engine ticket subscribe <KEY>`. This joins the current session's `tickets[]` so sibling agents' notifies reach you.
 
-2.  **Resolve KEY → Linear issue id** (part of atom step 2): `mcp__linear-server__get_issue` with the `FIN-1234` key (or search if needed). Keep the returned issue id for the comment call.
+2.  **Resolve KEY → Linear issue id** (part of atom step 2): `mcp__linear__get_issue` with the `FIN-1234` key (or search if needed). Keep the returned issue id for the comment call.
 
-3.  **Post the comment** (atom step 2): via `mcp__linear-server__save_comment` (the create/update comment tool — pass `issueId` + `body`) on that issue: your question or reply, in Markdown, plain content (no escaped `\n` — real newlines).
+3.  **Post the comment** (atom step 2): via `mcp__linear__save_comment` (the create/update comment tool — pass `issueId` + `body`) on that issue: your question or reply, in Markdown, plain content (no escaped `\n` — real newlines).
 
 4.  **Notify local siblings** (atom step 3): `engine ticket notify <KEY> "<decision-grade note>" --from <this-session>`. This flags every *other* local session subscribed to `<KEY>` (never yourself) so their watcher wakes. **Make the note decision-grade** — a reader drains only this hint (not the Linear body) on wake, so write it so they can answer *"do I need to act?"* without opening Linear. Include, when they apply: the **commit SHA(s)** if a commit landed, the **one-phrase what-changed**, and an **affects-you verdict** (`no action` / `rebase onto <sha>` / `your files X untouched` / `needs your reply`). One line, terse. The full content still lives in the Linear comment for anyone who needs detail — but a good note means they usually won't. Example: `engine ticket notify FIN-2833 "2db0ecea6: entities/ scaffold committed byte-equal; scope.ts aliases left for FIN-2737 — no action for you"`.
 
@@ -56,7 +56,7 @@ When the background `engine ticket watch` exits, the harness re-invokes you. Bra
 
 *   **Exit 0** — a watched ticket changed (stdout is the matched key(s)):
     1.  `engine ticket read` (add `--json`) — drains the local dirty queue and returns each ticket with a `since` datetime (the prior watermark) and advances it.
-    2.  Fetch the new comments from Linear via `mcp__linear-server__list_comments` on the issue, filtered to `>= since`. (`read` gives you the note/hint only; Linear holds the actual text.)
+    2.  Fetch the new comments from Linear via `mcp__linear__list_comments` on the issue, filtered to `>= since`. (`read` gives you the note/hint only; Linear holds the actual text.)
     3.  Compose your reply and post it — loop back to **§1** (post → notify → re-arm). Each turn re-arms the watcher, so the back-and-forth is self-sustaining.
 
 *   **Exit 124** — bounded timeout reached (only happens if you passed `--timeout N`; the default is unbounded and never exits this way). Re-arm (`§1` step 5) to keep listening, or stop if the discussion is done — ask the user if unsure.
