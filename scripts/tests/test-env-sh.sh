@@ -2081,6 +2081,65 @@ else
   fail "probe pins CWD" "env_anchor_dir used in mcp_list_output" "not pinned"
 fi
 
+# ══ 34b. the MCP row matches the local server name by SUBSTRING ══════════════
+#
+# An MCP server's name is whatever the person typed when adding it. Matching the manifest
+# key EXACTLY made `linear-server` a FAIL on a credential that is fine — and that FAIL is
+# a hard STOP in the triage preflight, so it blocked work that would have succeeded.
+echo "Test 34b: MCP name tolerance"
+
+# (a) the defect itself: a differently-named server satisfies its row.
+SS=$(mcpdoc $'linear-server: x - ✔ Connected')
+if printf '%s' "$SS" | grep -qE 'PASS +linear'; then
+  pass "a server named linear-server satisfies the 'linear' row (substring, not exact)"
+else
+  fail "substring match" "PASS linear" "$SS"
+fi
+
+# (b) the match stays inside the NAME field: a key appearing only in ANOTHER server's URL
+#     does not satisfy the row. The port is load-bearing in this fixture — an unguarded
+#     `^.*key.*:` needs a colon to the RIGHT of the key to misfire, and a bare
+#     https://host/path has none, so a portless URL would pass either way and prove
+#     nothing.
+UL=$(mcpdoc $'linear: x - ✔ Connected\nfoo: https://notion.example.com:443/mcp - ✔ Connected')
+if printf '%s' "$UL" | grep -qE 'WARN +notion'; then
+  pass "a key appearing only in another server's URL does not satisfy its row"
+else
+  fail "name-field guard" "WARN notion" "$UL"
+fi
+
+# (c)+(d) TWO servers match — the case that motivates the rule. A HEALTHY match must beat
+#     the FIRST match, or the verdict depends on the order `claude mcp list` happens to
+#     print them, and an intermittent answer is worse than the false FAIL being removed.
+T1=$(mcpdoc $'linear-old: x - ! Needs authentication\nlinear: x - ✔ Connected')
+T2=$(mcpdoc $'linear: x - ✔ Connected\nlinear-old: x - ! Needs authentication')
+if printf '%s' "$T1" | grep -qE 'PASS +linear' && printf '%s' "$T2" | grep -qE 'PASS +linear'; then
+  pass "with two matching servers a HEALTHY one wins over the FIRST one"
+else
+  fail "healthy beats first" "PASS linear in both orders" "unhealthy-first=$T1 --- healthy-first=$T2"
+fi
+if [ "$T1" = "$T2" ]; then
+  pass "the verdict is identical whichever order the two matches are listed in"
+else
+  fail "order-independent" "identical output" "unhealthy-first=$T1 --- healthy-first=$T2"
+fi
+
+# (e) tolerance is not a free pass: every match unhealthy is still the real miss it was.
+AU=$(mcpdoc $'linear-old: x - ! Needs authentication\nlinear-new: x - disconnected')
+if printf '%s' "$AU" | grep -qE 'FAIL +linear' && printf '%s' "$AU" | grep -qi '/mcp'; then
+  pass "when every matching server is unhealthy the row still FAILs with the /mcp action"
+else
+  fail "no free pass" "FAIL linear + an /mcp instruction" "$AU"
+fi
+
+# (f) nothing matching at all is still CANNOT-VERIFY, never a fabricated pass.
+NM=$(mcpdoc $'figma: x - ✔ Connected')
+if printf '%s' "$NM" | grep -qE '(WARN|FAIL) +linear' && ! printf '%s' "$NM" | grep -qE 'PASS +linear'; then
+  pass "a row with no matching server is still reported as a miss, never a pass"
+else
+  fail "unlisted stays a miss" "linear not PASS" "$NM"
+fi
+
 # ══ 35. the SSM tunnel target derives from the manifest (R5) ══════════════════
 #
 # Round 4 reported ssm:StartSession as UNDERIVABLE and refused to hardcode an instance
@@ -3003,7 +3062,7 @@ fi
 # `required` used to answer two questions at once — how badly is this needed
 # (req/optional) and who needs it (triage/boards/provisioner). Fine while /intake was
 # the only caller, since `req` could quietly mean "required for intake". The moment
-# /inbox-triage calls the same manifest the two come apart: linear is req and
+# /triage calls the same manifest the two come apart: linear is req and
 # triage genuinely needs it, SLACK_INTAKE_TOKEN is also req and triage never posts to
 # Slack, and the app-login rows triage cannot work without only WARN.
 #
@@ -3160,6 +3219,222 @@ if printf '%s' "$NORF" | grep -q -- '--refresh'; then
   pass "the 'already set' line names --refresh, so the skip is discoverable"
 else
   fail "skip names the remedy" "a --refresh hint on the have line" "$NORF"
+fi
+
+
+# ══ 53. the run ends by naming what closes it ════════════════════════════════
+#
+# Every failing row already prints its own `how`. The run as a whole printed nothing —
+# so a reader (and an agent especially) was left to work out which single command closed
+# the most rows, and, harder, which of the misses it could close AT ALL without a person.
+# Those are two different lists and the output has to say which is which.
+echo "Test 53: the remediation block names the command and splits it by who can run it"
+CASE_RX="$WORK/remedy"; mkcase "$CASE_RX"
+RX_MF="$WORK/remedy.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"FETCHABLE", service:"Secrets", required:"req", secret:true, default:null,
+   dotfile:".env.local", how:"lives in Secrets Manager", check:{type:"file-key"},
+   source:{type:"aws-secret", name:"staging/x"}},
+  {key:"TYPED", service:"Typed", required:"optional", secret:true, default:null,
+   dotfile:".env.local", how:"ask its owner", check:{type:"file-key"}, source:{type:"prompt"}},
+  {key:"notion", service:"Notion", required:"req", secret:false, default:null, dotfile:null,
+   how:"interactive OAuth", check:{type:"mcp", server:"notion"}, source:{type:"oauth"}},
+  {key:"BIN_NOPE", service:"nope", required:"optional", secret:false, default:null, dotfile:null,
+   how:"install it", check:{type:"binary", name:"engine-no-such-binary-xyz"}}]}' > "$RX_MF"
+
+rxdoc() { ( cd "$CASE_RX" && ENV_MANIFEST="$RX_MF" ENV_MCP_LIST_OUTPUT="" \
+              "$ENV_SH" doctor ${1:+--tier "$1"} </dev/null 2>&1 | strip ); }
+RX=$(rxdoc)
+
+# (a) the aggregate command, copy-pasteable and carrying the scope it was invoked with.
+if printf '%s' "$RX" | grep -q 'engine env doctor --domain intake --fix'; then
+  pass "the block names the exact command, scoped to the domain the doctor ran on"
+else
+  fail "names the fix command" "engine env doctor --domain intake --fix" "$RX"
+fi
+
+# (b) THE SPLIT. A row with an upstream is listed as needing no human …
+if printf '%s' "$RX" | grep -q 'no human in the loop.*FETCHABLE'; then
+  pass "an aws-secret row is listed as fetchable with no human in the loop"
+else
+  fail "unattended list" "FETCHABLE on the no-human line" "$RX"
+fi
+
+# (c) … and a browser consent, an install and a typed secret are NOT in that list.
+UNATT=$(printf '%s\n' "$RX" | grep 'no human in the loop' || true)
+if ! printf '%s' "$UNATT" | grep -qE 'notion|BIN_NOPE|TYPED'; then
+  pass "a consent, an install and a typed secret stay OUT of the unattended list"
+else
+  fail "unattended list is honest" "only FETCHABLE" "$UNATT"
+fi
+
+# (d) each human row is named WITH the action it needs — "escalate" is useless without it.
+if printf '%s' "$RX" | grep -q 'notion — a browser OAuth consent' \
+   && printf '%s' "$RX" | grep -q 'BIN_NOPE — not installed'; then
+  pass "each human row names the action it needs, not merely that it needs one"
+else
+  fail "human rows carry actions" "an OAuth line and an install line" "$RX"
+fi
+
+# (e) a typed secret has a command (setup prompts for it) but is not unattended — the
+#     middle case, and the one an agent gets wrong if the output offers only two buckets.
+if printf '%s' "$RX" | grep -q 'engine env setup --domain intake   prompts for'; then
+  pass "a prompt-sourced secret is routed to setup's wizard, separately from the fetch"
+else
+  fail "typed bucket" "a 'prompts for' line" "$RX"
+fi
+
+# (f) SILENT WHEN NOTHING IS MISSING. A doctor that ends on an instruction every run
+#     teaches its reader to stop reading the last line.
+CASE_RXC="$WORK/remedy-clean"; mkcase "$CASE_RXC"
+RXC_MF="$WORK/remedy-clean.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"HAVE_IT", service:"S", required:"req", secret:true, default:null,
+   dotfile:".env.local", how:"h", check:{type:"file-key"}, source:{type:"prompt"}}]}' > "$RXC_MF"
+printf 'HAVE_IT="present"\n' > "$CASE_RXC/.env.local"
+RXC=$( cd "$CASE_RXC" && ENV_MANIFEST="$RXC_MF" "$ENV_SH" doctor </dev/null 2>&1 | strip )
+if ! printf '%s' "$RXC" | grep -qE '^  (FIX|HUMAN) '; then
+  pass "a run with nothing missing prints no remediation block at all"
+else
+  fail "silent when clean" "no FIX/HUMAN lines" "$RXC"
+fi
+
+
+# (g) NOT EVERY SUBJECT IS AN ENV-VAR NAME. The AWS agent-profile checks report under
+#     "AWS agent profile", so a list joined on spaces rendered one row as three.
+CASE_RXW="$WORK/remedy-words"; mkcase "$CASE_RXW"
+RXW_MF="$WORK/remedy-words.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"FINCH_AGENT_AWS_PROFILE", service:"AWS", required:"optional", secret:false,
+   default:null, dotfile:".env.local", how:"your delivered key", check:{type:"file-key"},
+   source:{type:"prompt"}}]}' > "$RXW_MF"
+RXW=$( cd "$CASE_RXW" && ENV_MANIFEST="$RXW_MF" ENV_AWS_HOME="$WORK/no-such-aws-home" \
+         "$ENV_SH" doctor </dev/null 2>&1 | strip )
+if printf '%s' "$RXW" | grep -q 'AWS agent profile — a key file someone hands you' \
+   && ! printf '%s' "$RXW" | grep -q 'AWS, agent, profile'; then
+  pass "a multi-word subject is listed as ONE row, not split on its spaces"
+else
+  fail "multi-word subject" "AWS agent profile intact" "$RXW"
+fi
+
+
+# ══ 54. --fix runs setup ONCE, scoped, then measures again ═══════════════════
+#
+# ⚠️ THE HAZARD THIS TEST EXISTS FOR: `env setup` with no --domain walks EVERY domain.
+# That is right for setup and wrong for the doctor, whose per-domain scoping is the guard
+# that keeps a design operator from being prompted for a credential only intake needs. A
+# --fix that shelled out without the flag would reintroduce exactly that block.
+echo "Test 54: --fix"
+
+# (a) SOURCE-LEVEL: the flag is passed, and no bare domain-less setup call exists.
+if grep -q 'cmd_setup --domain "$DOMAIN"' "$ENV_SRC" \
+   && ! grep -qE '^\s+(ENV_SETUP_NO_VERIFY=1 )?cmd_setup\s*$' "$ENV_SRC"; then
+  pass "--fix shells out to setup WITH --domain, never domain-less"
+else
+  fail "domain passed through" 'cmd_setup --domain "$DOMAIN"' "a domain-less cmd_setup call is present"
+fi
+
+# (b) BEHAVIOURAL: setup writes the fetchable row and the re-check reports it green.
+#     No AWS call is made — ENV_AWS_SECRET_OUTPUT is the seam env-lib.sh documents.
+CASE_FX="$WORK/fix"; mkcase "$CASE_FX"
+FX_MF="$WORK/fix.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"FETCHABLE", service:"Secrets", required:"req", secret:true, default:null,
+   dotfile:".env.local", how:"lives in Secrets Manager", check:{type:"file-key"},
+   source:{type:"aws-secret", name:"staging/x"}},
+  {key:"notion", service:"Notion", required:"req", secret:false, default:null, dotfile:null,
+   how:"interactive OAuth", check:{type:"mcp", server:"notion"}, source:{type:"oauth"}}]}' > "$FX_MF"
+FX=$( cd "$CASE_FX" && ENV_MANIFEST="$FX_MF" ENV_MCP_LIST_OUTPUT="" \
+        ENV_AWS_SECRET_OUTPUT='{"SecretString":"fetched-value"}' \
+        "$ENV_SH" doctor --fix </dev/null 2>&1 | strip )
+if grep -q 'fetched-value' "$CASE_FX/.env.local" 2>/dev/null; then
+  pass "--fix runs setup, which writes the row the doctor said was fetchable"
+else
+  fail "fix writes" "fetched-value in .env.local" "$(cat "$CASE_FX/.env.local" 2>/dev/null)"
+fi
+if printf '%s' "$FX" | grep -q '=== re-check ===' \
+   && printf '%s' "$FX" | grep -q 'PASS  FETCHABLE'; then
+  pass "--fix re-runs the checks and reports the POST-fix state"
+else
+  fail "re-check runs" "a re-check section with FETCHABLE green" "$FX"
+fi
+
+# (c) ONE ATTEMPT, NOT A LOOP.
+if [ "$(printf '%s\n' "$FX" | grep -c '=== re-check ===')" = "1" ]; then
+  pass "--fix attempts once — exactly one re-check, no loop"
+else
+  fail "one attempt" "1 re-check" "$(printf '%s\n' "$FX" | grep -c '=== re-check ===')"
+fi
+
+# (d) the re-check's tally is ITS OWN. Carrying the first pass's counters forward would
+#     make a successful fix still read as failing — the one number the operator acts on.
+if printf '%s\n' "$FX" | tail -n 12 | grep -q '=== 1 PASS | 0 WARN | 1 FAIL'; then
+  pass "the re-check reports its own tally, not the two runs added together"
+else
+  fail "counters reset" "1 PASS | 0 WARN | 1 FAIL after the fix" "$(printf '%s\n' "$FX" | tail -n 12)"
+fi
+
+# (e) SETUP'S EXIT CODE IS REPORTED, NEVER GATED ON. Setup answers "did setup do its job";
+#     with --aws-key it returns 0 over a walk that did not finish. Only the doctor's own
+#     look at the environment answers "is this fixed", so a non-zero setup must still be
+#     followed by a measurement rather than an inherited verdict.
+CASE_FXE="$WORK/fix-err"; mkcase "$CASE_FXE"
+FXE=$( cd "$CASE_FXE" && ENV_MANIFEST="$FX_MF" ENV_MCP_LIST_OUTPUT="" \
+         ENV_AWS_SECRET_FAIL='AccessDenied' \
+         "$ENV_SH" doctor --fix </dev/null 2>&1 | strip )
+if printf '%s' "$FXE" | grep -qE 'setup exited [1-9][0-9]* — re-checking either way' \
+   && printf '%s' "$FXE" | grep -q '=== re-check ==='; then
+  pass "a FAILED setup still re-checks — the verdict is measured, not inherited"
+else
+  fail "re-check is ungated" "a non-zero setup followed by a re-check" "$FXE"
+fi
+
+# (f) --fix must NOT widen scope. The tier travels through the call (ENV_ACTIVE_TIER is
+#     exported and env_manifest_rows reads it), so a tier-scoped doctor cannot make setup
+#     go and fetch a row that tier never asked about.
+CASE_FXT="$WORK/fix-tier"; mkcase "$CASE_FXT"
+FXT_MF="$WORK/fix-tier.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"MINE", service:"S", required:"req", secret:true, default:null, dotfile:".env.local",
+   how:"h", check:{type:"file-key"}, source:{type:"aws-secret", name:"staging/mine"},
+   consumers:["alpha"]},
+  {key:"THEIRS", service:"S", required:"req", secret:true, default:null, dotfile:".env.local",
+   how:"h", check:{type:"file-key"}, source:{type:"aws-secret", name:"staging/theirs"},
+   consumers:["beta"]}]}' > "$FXT_MF"
+( cd "$CASE_FXT" && ENV_MANIFEST="$FXT_MF" ENV_MCP_LIST_OUTPUT="" \
+    ENV_AWS_SECRET_OUTPUT='{"SecretString":"v"}' \
+    "$ENV_SH" doctor --tier alpha --fix </dev/null >/dev/null 2>&1 )
+if grep -q '^MINE' "$CASE_FXT/.env.local" 2>/dev/null \
+   && ! grep -q '^THEIRS' "$CASE_FXT/.env.local" 2>/dev/null; then
+  pass "--fix stays inside the tier it was invoked with (it cannot widen the scope)"
+else
+  fail "tier not widened" "MINE written, THEIRS untouched" "$(cat "$CASE_FXT/.env.local" 2>/dev/null)"
+fi
+
+# (g) nothing for setup to do → it is not run. Shelling out to a wizard that would only
+#     print "0 written" reads as an attempt and wastes the operator's next move.
+CASE_FXH="$WORK/fix-human"; mkcase "$CASE_FXH"
+FXH_MF="$WORK/fix-human.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"notion", service:"Notion", required:"req", secret:false, default:null, dotfile:null,
+   how:"interactive OAuth", check:{type:"mcp", server:"notion"}, source:{type:"oauth"}}]}' > "$FXH_MF"
+FXH=$( cd "$CASE_FXH" && ENV_MANIFEST="$FXH_MF" ENV_MCP_LIST_OUTPUT="" \
+         "$ENV_SH" doctor --fix </dev/null 2>&1 | strip )
+if printf '%s' "$FXH" | grep -q "nothing here is setup's to write" \
+   && ! printf '%s' "$FXH" | grep -q '=== re-check ==='; then
+  pass "--fix declines to run setup when every miss needs a person"
+else
+  fail "declines cleanly" "a 'nothing to write' line and no re-check" "$FXH"
+fi
+
+# (h) THE DOCTOR STILL RUNS ONE DOMAIN. The guard Test 41 pins must survive --fix: a
+#     domain-less --fix must not turn into setup's every-domain walk.
+FXW=$( cd "$CASE_FXH" && env -u ENV_MANIFEST ENV_MCP_LIST_OUTPUT="" \
+         "$ENV_SH" doctor --fix </dev/null 2>&1 | strip )
+if ! printf '%s' "$FXW" | grep -q '^── '; then
+  pass "--fix never becomes setup's every-domain walk (the per-domain guard holds)"
+else
+  fail "no domain walk under --fix" "no domain headers" "$FXW"
 fi
 
 

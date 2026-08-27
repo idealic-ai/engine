@@ -9,7 +9,7 @@
 # operator is never blocked on a credential only an intake wave needs.
 #
 # Usage:
-#   engine env doctor [--domain <name>] [--tier <consumer>] [--env-example <path>]
+#   engine env doctor [--domain <name>] [--tier <consumer>] [--env-example <path>] [--fix]
 #                                                 Red/green preflight of every credential.
 #                                                 --tier names the CONSUMER asking (intake,
 #                                                 triage, boards, provisioner): only rows
@@ -26,6 +26,16 @@
 #                                                 Seeds missing non-secret defaults into their
 #                                                 dotfile. --env-example asserts a committed
 #                                                 .env.example agrees with the manifest.
+#                                                 When something is missing it ends on an
+#                                                 AGGREGATE remediation block: the one
+#                                                 command that closes the most rows, split
+#                                                 into what `env setup` fetches UNATTENDED
+#                                                 and what stops at a PERSON (a typed
+#                                                 secret, a browser consent, an install, a
+#                                                 delivered key). --fix runs that setup
+#                                                 ONCE — always scoped to this --domain and
+#                                                 --tier — then re-checks. One attempt,
+#                                                 never a loop.
 #   engine env setup [--domain <name>] [--non-interactive] [--refresh]
 #                                                 Wizard: prompt for each missing SECRET row,
 #                                                 write it to its gitignored dotfile.
@@ -123,7 +133,7 @@ else
   exit 1
 fi
 
-USAGE_LINES='11,36p'
+USAGE_LINES='11,47p'
 
 # --- Colors (mirror doctor.sh) ---
 RED='\033[0;31m'
@@ -143,6 +153,55 @@ warn()  { WARNS=$((WARNS + 1));   printf "  ${YELLOW}WARN${NC}  %-24s %s\n" "$1"
 fail()  { FAILS=$((FAILS + 1));   printf "  ${RED}FAIL${NC}  %-24s %s\n" "$1" "${2:-}"; }
 note()  {                          printf "  ${CYAN}NOTE${NC}  %-24s %s\n" "$1" "${2:-}"; }
 seed()  { PASSES=$((PASSES + 1)); printf "  ${GREEN}SEED${NC}  %-24s %s\n" "$1" "${2:-}"; }
+
+# --- Remediation ledger (doctor) ---
+#
+# Every failing row prints its own `how`, which tells a reader what THAT row needs and
+# nothing about the run. These buckets are the aggregate the run itself has to state: the
+# split between rows a command closes with NO HUMAN IN THE LOOP and rows that terminate at
+# a person. An agent reading this output self-heals the first set and escalates the second;
+# without the split it can only escalate everything or block on everything.
+FIX_AUTO=""       # env setup fetches these from their upstream, unattended
+FIX_TYPED=""      # env setup prompts for these — a person must supply the value
+FIX_OAUTH=""      # a browser consent
+FIX_BINARY=""     # an install
+FIX_EXPORTED=""   # an exported shell var, which no dotfile writer owns
+FIX_MANUAL=""     # no command writes it; the row's own line is the instruction
+FIX_LAPSED=""     # an authenticated session that expired
+FIX_DELIVERED=""  # a key file someone hands you
+
+# Entries are joined on \037 (US), never a space: not every subject is an env-var name —
+# "AWS agent profile" is one row and a space join renders it as three.
+FIX_SEP=$'\037'
+
+# Route a MISSING row into the bucket naming who can close it. The manifest already holds
+# the answer: an `aws-secret` row has an upstream `env setup` reaches on its own, and
+# `env setup` only ever writes a `file-key` row that is secret or aws-secret — every other
+# shape ends at a person. CHECK accepts two pseudo-types the manifest does not carry,
+# `lapsed` and `delivered`, for the AWS agent-profile checks that have no manifest row.
+fix_record() {
+  local key="$1" check="$2" src="${3:-}" secret="${4:-}"
+  case "$check" in
+    mcp)         FIX_OAUTH="$FIX_OAUTH$key$FIX_SEP" ;;
+    binary)      FIX_BINARY="$FIX_BINARY$key$FIX_SEP" ;;
+    env-present) FIX_EXPORTED="$FIX_EXPORTED$key$FIX_SEP" ;;
+    lapsed)      FIX_LAPSED="$FIX_LAPSED$key$FIX_SEP" ;;
+    delivered)   FIX_DELIVERED="$FIX_DELIVERED$key$FIX_SEP" ;;
+    file-key)
+      if   [ "$src" = "aws-secret" ]; then FIX_AUTO="$FIX_AUTO$key$FIX_SEP"
+      elif [ "$secret" = "true" ];    then FIX_TYPED="$FIX_TYPED$key$FIX_SEP"
+      else                                 FIX_MANUAL="$FIX_MANUAL$key$FIX_SEP"; fi ;;
+    *)           FIX_MANUAL="$FIX_MANUAL$key$FIX_SEP" ;;
+  esac
+}
+
+fix_reset() { FIX_AUTO=""; FIX_TYPED=""; FIX_OAUTH=""; FIX_BINARY=""
+              FIX_EXPORTED=""; FIX_MANUAL=""; FIX_LAPSED=""; FIX_DELIVERED=""; }
+
+fix_count() { local s="${1:-}" n=0
+              while [ -n "$s" ]; do n=$((n + 1)); s="${s#*"$FIX_SEP"}"; done
+              printf '%d' "$n"; }
+fix_list()  { local s="${1:-}"; s="${s%"$FIX_SEP"}"; printf '%s' "${s//$FIX_SEP/, }"; }
 
 # --- Domain + manifest ---
 DOMAIN="intake"
@@ -258,18 +317,28 @@ key_present() {
       command -v "$arg" >/dev/null 2>&1 && return 0
       return 1 ;;
     mcp)
-      local out server_line
+      local out server_lines
       mcp_list_output; out="$MCP_LIST_OUT"
       [ -n "${MCP_PROBE_CAUSE:-}" ] && return 2
       [ -z "$out" ] && return 2
-      server_line="$(printf '%s' "$out" | grep -E "^[[:space:]]*${arg}:" | head -1)"
+      # SUBSTRING, not exact: the configured name is whatever the person typed, so
+      # `linear`, `linear-server` and `linear-mcp` all satisfy the `linear` row. The
+      # `[^:[:space:]]*` guards keep the match inside the NAME field — without them the
+      # `github` row would match on `api.githubcopilot.com` in another server's URL.
+      # `$arg` is interpolated as a regex; every manifest key is [a-z]+ today, so a key
+      # carrying `.` or `+` would need escaping first.
+      server_lines="$(printf '%s' "$out" | grep -E "^[[:space:]]*[^:[:space:]]*${arg}[^:[:space:]]*:")"
       # Server not listed / format unrecognized → cannot verify (WARN, never a
       # hard FAIL that could false-block Phase 0 on a `claude mcp list` format drift).
-      [ -z "$server_line" ] && return 2
-      # An explicit unhealthy state is a real miss (req → FAIL). Check it BEFORE the
-      # connected match so "not connected"/"disconnected" don't slip through.
-      printf '%s' "$server_line" | grep -qiE "$MCP_UNHEALTHY_RE" && return 1
-      printf '%s' "$server_line" | grep -qi 'connected' && return 0
+      [ -z "$server_lines" ] && return 2
+      # A HEALTHY match beats the FIRST match. Substring matching admits several
+      # candidates, so picking the first would make the verdict depend on the order
+      # `claude mcp list` happens to print them — an intermittent answer is worse than
+      # the false FAIL this branch exists to remove.
+      printf '%s\n' "$server_lines" | grep -viE "$MCP_UNHEALTHY_RE" | grep -qi 'connected' && return 0
+      # An explicit unhealthy state is a real miss (req → FAIL), and it outranks an
+      # unrecognized line: "go authenticate" is actionable where "cannot verify" is not.
+      printf '%s\n' "$server_lines" | grep -qiE "$MCP_UNHEALTHY_RE" && return 1
       return 2 ;;
     note)   return 0 ;;
     *)      return 1 ;;
@@ -506,7 +575,11 @@ seed_nonsecret_default() {
 
 cmd_doctor() {
   env_anchor_prime   # resolve the anchor ONCE; every later subshell inherits it
-  local env_example=""
+  # A run reports ITS OWN tally. --fix re-enters this function, and without a reset the
+  # second pass would show the first pass's failures added to its own — the one number an
+  # operator reads to decide whether the fix worked.
+  PASSES=0; WARNS=0; FAILS=0; fix_reset
+  local env_example="" do_fix=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --domain) DOMAIN="${2:-}"; shift 2 ;;
@@ -515,10 +588,21 @@ cmd_doctor() {
       --env-example=*) env_example="${1#*=}"; shift ;;
       --tier) ENV_ACTIVE_TIER="${2:-}"; shift 2 ;;
       --tier=*) ENV_ACTIVE_TIER="${1#*=}"; shift ;;
+      --fix) do_fix=1; shift ;;
       -h|--help) sed -n "$USAGE_LINES" "$0"; return 0 ;;
       *) echo "env doctor: unknown flag '$1'" >&2; return 1 ;;
     esac
   done
+  # The scope this run was invoked with, captured BEFORE the body can widen it (the
+  # .env.example default below fills `env_example` in). --fix replays exactly this and
+  # never adds to it, so the re-check can only look at rows this run already looked at.
+  local -a recheck_args=(--domain "$DOMAIN")
+  if [ -n "${ENV_ACTIVE_TIER:-}" ]; then
+    recheck_args[${#recheck_args[@]}]="--tier"; recheck_args[${#recheck_args[@]}]="$ENV_ACTIVE_TIER"
+  fi
+  if [ -n "$env_example" ]; then
+    recheck_args[${#recheck_args[@]}]="--env-example"; recheck_args[${#recheck_args[@]}]="$env_example"
+  fi
   # The tier is a GLOBAL because manifest_rows is reached through several subshells;
   # env_manifest_rows reads it and does the filtering + severity resolution in jq.
   export ENV_ACTIVE_TIER
@@ -553,6 +637,7 @@ cmd_doctor() {
     if [ "$rc" -eq 5 ]; then
       # Severity follows `required`, as every other miss does. A lapsed HUMAN profile is
       # expected and routine, so on a triage row this warns rather than blocking.
+      fix_record "$key" lapsed
       report_miss "$required" "$key" "is set to '${!key:-?}', but that profile does not authenticate — the session has expired or the profile is gone. Run 'aws login' (an agent profile never lapses; a human one does). ($service)"
       continue
     fi
@@ -561,6 +646,7 @@ cmd_doctor() {
       # output stops being evidence: the row is set, and set to something that cannot work.
       # Severity follows `required`, exactly as a miss does: a placeholder IS a miss that
       # happens to occupy the line, so a `req` row holding one must block, not warn.
+      fix_record "$key" "$check" "$src" "$secret"
       report_miss "$required" "$key" "holds a PLACEHOLDER value, not a real credential — it is present but cannot work. Replace it, then re-run. ($service)"
       continue
     fi
@@ -577,6 +663,7 @@ cmd_doctor() {
       # Phase 5 before discovering it cannot write. Severity still follows `required`,
       # so an optional server only warns. Accepted cost: a `claude mcp list` format
       # drift hard-blocks until the parser is patched.
+      fix_record "$key" mcp
       report_miss "$required" "$key" "cannot verify $arg — $(mcp_cause_hint). Run /mcp in Claude Code to check it. ($how)"
       continue
     fi
@@ -597,6 +684,7 @@ cmd_doctor() {
       fi
       continue
     fi
+    fix_record "$key" "$check" "$src" "$secret"
     report_miss "$required" "$key" "$how"
   done < <(manifest_rows)
 
@@ -646,10 +734,78 @@ cmd_doctor() {
   printf "${GREEN}%d PASS${NC} | ${YELLOW}%d WARN${NC} | " "$PASSES" "$WARNS"
   if [ "$FAILS" -gt 0 ]; then printf "${RED}%d FAIL${NC}\n" "$FAILS"; else printf "${GREEN}%d FAIL${NC}\n" "$FAILS"; fi
 
+  # --- What closes this ---
+  #
+  # The per-row `how` says what THAT row needs. This says what the RUN needs: the single
+  # command that closes the most rows, and the split a per-row hint structurally cannot
+  # give — rows `env setup` fills with no human in the loop versus rows that stop at a
+  # person. An agent self-heals the first list and escalates the second; without the split
+  # it can only do one of those to everything.
+  #
+  # Silent on a clean run. A doctor that ends on an instruction when nothing is missing
+  # teaches the reader to skip its last line.
+  local _tier_arg=""
+  [ -n "${ENV_ACTIVE_TIER:-}" ] && _tier_arg=" --tier $ENV_ACTIVE_TIER"
+  if [ -n "$FIX_AUTO$FIX_TYPED$FIX_OAUTH$FIX_BINARY$FIX_EXPORTED$FIX_MANUAL$FIX_LAPSED$FIX_DELIVERED" ]; then
+    if [ -n "$FIX_AUTO" ]; then
+      printf "  ${CYAN}FIX${NC}    engine env doctor --domain %s%s --fix\n" "$DOMAIN" "$_tier_arg"
+      printf "         fetches %s row(s) with no human in the loop, then re-checks: %s\n" \
+        "$(fix_count "$FIX_AUTO")" "$(fix_list "$FIX_AUTO")"
+      printf "         (the fetch alone, without the re-check: engine env setup --domain %s)\n" "$DOMAIN"
+      # An aws-secret fetch AUTHENTICATES with the agent key. Running it before the key is
+      # installed spends a round trip to be told it has no credentials.
+      [ -n "$FIX_DELIVERED" ] && printf "         ${YELLOW}order matters:${NC} that fetch authenticates with the AWS key below — install it first.\n"
+    fi
+    [ -n "$FIX_TYPED" ] && printf "  ${CYAN}FIX${NC}    engine env setup --domain %s   prompts for %s secret(s) it has no upstream for: %s\n" \
+      "$DOMAIN" "$(fix_count "$FIX_TYPED")" "$(fix_list "$FIX_TYPED")"
+    [ -n "$FIX_OAUTH" ]     && printf "  ${YELLOW}HUMAN${NC}  %s — a browser OAuth consent: run /mcp in Claude Code.\n" "$(fix_list "$FIX_OAUTH")"
+    [ -n "$FIX_DELIVERED" ] && printf "  ${YELLOW}HUMAN${NC}  %s — a key file someone hands you: engine env setup --aws-key <path>.\n" "$(fix_list "$FIX_DELIVERED")"
+    [ -n "$FIX_BINARY" ]    && printf "  ${YELLOW}HUMAN${NC}  %s — not installed: install it, then re-run.\n" "$(fix_list "$FIX_BINARY")"
+    [ -n "$FIX_LAPSED" ]    && printf "  ${YELLOW}HUMAN${NC}  %s — an authenticated session that expired: run 'aws login'.\n" "$(fix_list "$FIX_LAPSED")"
+    [ -n "$FIX_EXPORTED" ]  && printf "  ${YELLOW}HUMAN${NC}  %s — exported in your shell, not written to a dotfile: no command owns it.\n" "$(fix_list "$FIX_EXPORTED")"
+    [ -n "$FIX_MANUAL" ]    && printf "  ${YELLOW}HUMAN${NC}  %s — no command writes these: follow the line each one printed above.\n" "$(fix_list "$FIX_MANUAL")"
+  fi
+
   # The structural gap this scaffolding cannot close: Linear/Notion MCP writes need
   # interactive OAuth, so a headless / cron wave can READ a project but never record the
   # outcome (save_comment / save_status_update are MCP-only). Surface it every run.
   printf "${CYAN}note:${NC} MCP writes (Linear, Notion) require an interactive OAuth session — headless/cron waves cannot post comments, status updates, or documents.\n"
+
+  # --- --fix: one attempt, then measure again ---
+  #
+  # ⚠️ ALWAYS --domain "$DOMAIN". `env setup` with NO domain walks every domain that has a
+  # manifest — right for setup, wrong here: the doctor's per-domain scoping is the guard
+  # that keeps a design operator from being prompted for a credential only an intake wave
+  # needs, and a --fix that dropped the flag would reintroduce exactly that block. The tier
+  # travels too, without being passed: ENV_ACTIVE_TIER is exported above and
+  # env_manifest_rows reads it, so a --tier run stays tier-scoped through the call. --fix
+  # can only ever act on rows this run already looked at.
+  #
+  # WHICH EXIT CODE DOES THE RE-CHECK GATE ON? None — deliberately. Setup's code answers
+  # "did setup do its job", which stopped being the same question as "did everything get
+  # written" when --aws-key started returning 0 over a walk that reported unfinished
+  # domains. Only the second question is the doctor's, and the doctor can answer it
+  # directly by looking. So setup's code is REPORTED, never gated on: the verdict below is
+  # measured from the environment rather than inherited from a claim about it — the same
+  # reason a present value is never reported as a correct one.
+  #
+  # ONE ATTEMPT, NOT A LOOP: --fix is absent from `recheck_args`, so the recursion is one
+  # level deep by construction rather than by a counter someone has to maintain.
+  if [ "$do_fix" -eq 1 ]; then
+    if [ -z "$FIX_AUTO$FIX_TYPED" ]; then
+      printf "${CYAN}--fix:${NC} nothing here is setup's to write — every row above needs a person.\n"
+    else
+      local setup_rc=0
+      printf "\n${BOLD}=== --fix: engine env setup --domain %s ===${NC}\n" "$DOMAIN"
+      # The doctor is about to re-check anyway; setup's own trailing verify would print
+      # the same report twice and make the FIRST one look like the outcome.
+      ENV_SETUP_NO_VERIFY=1 cmd_setup --domain "$DOMAIN"; setup_rc=$?
+      printf "\n${CYAN}--fix:${NC} setup exited %d — re-checking either way.\n" "$setup_rc"
+      printf "${BOLD}=== re-check ===${NC}\n"
+      cmd_doctor "${recheck_args[@]}"
+      return $?
+    fi
+  fi
 
   [ "$FAILS" -eq 0 ]
 }
@@ -677,11 +833,13 @@ check_aws_agent_profile() {
 
   profile="$(resolve_env_key FINCH_AGENT_AWS_PROFILE 2>/dev/null)" || profile=""
   if [ -z "$profile" ]; then
+    fix_record "AWS agent profile" delivered
     fail "AWS agent profile" "FINCH_AGENT_AWS_PROFILE is not set — install your delivered key with 'engine env setup --aws-key <path>', or self-provision with 'engine env provision --person <you> --tier <triage|member>'"
     return 1
   fi
 
   if [ ! -f "$creds" ] || ! grep -qE "^\[$profile\]" "$creds" 2>/dev/null; then
+    fix_record "AWS agent profile" delivered
     fail "AWS agent profile" "profile [$profile] is not in $creds — install your delivered key with 'engine env setup --aws-key <path>' (it writes the right shape; hand-copying the [default] block is what causes daily expiry)"
     return 1
   fi
@@ -693,6 +851,7 @@ check_aws_agent_profile() {
         /^\[/ { inp=0 }
         inp && /login_session/ { found=1 }
         END { exit !found }' "$conf" 2>/dev/null; then
+    fix_record "AWS agent profile" manual
     fail "AWS agent profile" "[$profile] has a login_session entry in $conf — that makes the agent key EXPIRE and prompt for MFA. Delete that config block; the profile needs no config entry at all."
     return 1
   fi
@@ -708,6 +867,7 @@ check_aws_agent_profile() {
     arn="$(_sts_probe_cached "$profile" 2>/dev/null || true)"
   fi
   if [ -z "$arn" ]; then
+    fix_record "AWS agent profile" delivered
     fail "AWS agent profile" "[$profile] exists but does not authenticate — the key is wrong or has been revoked. Ask for a fresh one and install it with 'engine env setup --aws-key <path>'. (If this is your HUMAN profile whose session lapsed, that one is fixed with 'aws login' — but an agent profile never lapses, so this is not that.)"
     return 1
   fi
