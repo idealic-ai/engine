@@ -2707,6 +2707,22 @@ cmd_setup() {
     if [ -n "$failed" ]; then
       printf "${YELLOW}incomplete:${NC} these domains did not finish:%s — re-run with --domain <name> to see why.\n" "$failed" >&2
     fi
+    # WHOSE EXIT CODE IS THIS? When --aws-key was given, the command's JOB was installing
+    # the key, and install_aws_key already returned non-zero if that failed — reaching
+    # here means it succeeded. The walk that follows is opportunistic: a convenience that
+    # fetches what the new key unlocks. A convenience must not redden a command that did
+    # its job, or a recipient whose key is installed correctly is told the whole thing
+    # failed and re-runs it looking for a break that is not there.
+    #
+    # It must not be SILENT either — the walk being a no-op is exactly how this path
+    # stayed green while doing nothing. The `incomplete:` line above is that report, and
+    # it goes to stderr, so the failure is visible without being fatal.
+    #
+    # With no --aws-key the walk IS the job, so its result is the command's result.
+    if [ -n "$aws_key" ] && [ "$rc_all" -ne 0 ]; then
+      printf "${GREEN}installed:${NC} the key itself is in place — the domains above are what still need attention.\n" >&2
+      return 0
+    fi
     return "$rc_all"
   fi
 
