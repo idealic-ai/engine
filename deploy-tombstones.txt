@@ -1,0 +1,27 @@
+# deploy-tombstones.txt — paths that `engine deploy` deletes from the shared Google Drive copy.
+#
+# The Drive copy is writable, so people author skills directly on it. `engine deploy` therefore
+# no longer lets `rsync --delete` remove anything under skills/: a skill that exists on the Drive
+# but not in your clone survives the deploy, and deploy offers to copy it into your repo instead.
+#
+# That protection is permanent, which is wrong for a path retired on purpose. Without this file a
+# retired directory would sit on the Drive forever, still registering as a skill for anyone who
+# syncs from it, and deploy would offer it back into the repo on every run — undoing the removal.
+#
+# A path listed here is exempt from both halves: deploy deletes it from the Drive, and never
+# offers to adopt it. Deploy prints every path it is about to delete before it deletes anything.
+#
+# Format — one record per line:
+#
+#     <path>  <YYYY-MM-DD>  <reason, free text to end of line>
+#
+# The path is relative to the engine root, with no leading or trailing slash and no `..`.
+# Blank lines and lines starting with `#` are ignored. A line whose path fails those rules, or
+# whose second field is not a YYYY-MM-DD date, is skipped with a warning and has no effect —
+# an unreadable tombstone must not be able to delete anything.
+#
+# To undo a retirement, delete its line. The path goes back to being protected and to being
+# offered for adoption.
+
+skills/inbox-triage        2026-08-27  Renamed to skills/triage. The old directory still registers as a skill for anyone syncing from the Drive, and runs a protocol whose callers have all moved to the new name.
+skills/inbox-triangulate   2026-08-27  Renamed to skills/triangulate. Same reason as skills/inbox-triage.

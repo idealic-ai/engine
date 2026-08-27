@@ -26,7 +26,9 @@ set -euo pipefail
 #   engine toc                      Show engine directory tree (~/.claude/)
 #   engine push [message]            Commit (if dirty) + push to origin
 #   engine pull                     git pull engine from origin
-#   engine deploy                   Sync local engine → GDrive (rsync)
+#   engine deploy [opts]            Sync local engine → GDrive (rsync)
+#     --dry-run                     Report what would change; write nothing
+#     --adopt / --no-adopt          Adopt GDrive-only skills into the repo, or don't
 #   engine test [args...]           Run engine test suite
 #   engine reindex                  Rebuild doc-search + session-search DBs
 #   engine uninstall                Remove engine symlinks
@@ -130,7 +132,7 @@ export ENGINE_SCRIPTS="$SCRIPT_DIR"
 export ENGINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 CLAUDE_DIR="$HOME/.claude"
-LOCAL_ENGINE="$HOME/.claude/engine"
+LOCAL_ENGINE="${LOCAL_ENGINE:-$HOME/.claude/engine}"
 MODE_FILE="$HOME/.claude/engine/.mode"
 ACTIONS=()
 SETUP_MARKER="$HOME/.claude/.setup-done"
@@ -203,7 +205,9 @@ MODE COMMANDS
 GIT COMMANDS
   push [message]         Commit (if dirty) + push engine to origin
   pull                   git pull engine from origin
-  deploy                 Sync local engine → GDrive (rsync)
+  deploy [--dry-run]     Sync local engine → GDrive. skills/ is protected from --delete;
+         [--adopt]       GDrive-only skills are reported and offered for adoption.
+         [--no-adopt]    Retire a path for real by listing it in deploy-tombstones.txt.
 
 TESTING & DIAGNOSTICS
   test [--grep P] [args] Run engine test suite (--grep filters by pattern)
@@ -500,7 +504,7 @@ fi
 USER_NAME="${EMAIL%%@*}"
 
 # Engine path constants
-GDRIVE_ENGINE="$HOME/Library/CloudStorage/GoogleDrive-$EMAIL/Shared drives/finch-os/engine"
+GDRIVE_ENGINE="${GDRIVE_ENGINE:-$HOME/Library/CloudStorage/GoogleDrive-$EMAIL/Shared drives/finch-os/engine}"
 GDRIVE_ROOT="$HOME/Library/CloudStorage/GoogleDrive-$EMAIL/Shared drives/finch-os"
 
 log_verbose "User: $USER_NAME ($EMAIL)"
@@ -870,7 +874,147 @@ cmd_push() {
   fi
 }
 
+# ---- Deploy: skill protection, orphan adoption, tombstones ----
+#
+# The GDrive engine copy is writable and people author skills directly on it, so it is
+# downstream of every clone and upstream of none. `rsync --delete` therefore protects
+# everything under these roots: a path present on GDrive but not in the clone survives, and
+# deploy offers to adopt it into the repo instead. deploy-tombstones.txt is the exemption
+# list for paths retired on purpose.
+DEPLOY_PROTECTED_ROOTS=(skills)
+DEPLOY_TOMBSTONE_BASENAME="deploy-tombstones.txt"
+
+# Reads the tombstone file and emits `path<TAB>date<TAB>reason` for each entry it trusts.
+# A tombstone is the only thing that can delete from a protected root, so a line that fails
+# validation is dropped with a warning on stderr rather than interpreted generously.
+deploy_read_tombstones() {
+  local file="$1"
+  [ -f "$file" ] || return 0
+
+  local line path date reason lineno=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    lineno=$((lineno + 1))
+    line="${line%$'\r'}"
+    # Skip blank lines and comments.
+    case "${line#"${line%%[![:space:]]*}"}" in
+      ''|'#'*) continue ;;
+    esac
+
+    read -r path date reason <<< "$line"
+
+    local bad=""
+    if [ -z "$path" ]; then
+      bad="empty path"
+    elif [ "${path#/}" != "$path" ] || [ "${path#\~}" != "$path" ]; then
+      bad="path must be relative to the engine root"
+    elif [ "${path%/}" != "$path" ]; then
+      bad="path must not end in /"
+    elif case "$path" in *..*) true ;; *) false ;; esac; then
+      bad="path must not contain .."
+    elif [ "$path" = "." ] || [ "${path#./}" != "$path" ]; then
+      bad="path must not start with ./"
+    elif ! printf '%s' "$date" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
+      bad="second field must be a YYYY-MM-DD retirement date"
+    else
+      # Tombstoning a protected root itself would un-protect everything beneath it and
+      # restore the destructive behaviour this whole mechanism exists to stop.
+      local root
+      for root in ${DEPLOY_PROTECTED_ROOTS[@]+"${DEPLOY_PROTECTED_ROOTS[@]}"}; do
+        if [ "$path" = "$root" ]; then
+          bad="cannot retire the protected root '$root' itself"
+          break
+        fi
+      done
+    fi
+
+    if [ -n "$bad" ]; then
+      echo "  WARNING: ignoring $DEPLOY_TOMBSTONE_BASENAME line $lineno — $bad: $line" >&2
+      continue
+    fi
+
+    printf '%s\t%s\t%s\n' "$path" "$date" "$reason"
+  done < "$file"
+}
+
+# Emits rsync filter arguments, one per line. Risk rules come first because rsync applies the
+# first matching rule, so a tombstoned path must un-protect itself before the blanket protect
+# rule for its root can catch it.
+deploy_rsync_filters() {
+  local tombstone_file="$1"; shift
+  local path root
+
+  while IFS=$'\t' read -r path _ _; do
+    [ -n "$path" ] || continue
+    printf -- '--filter=R %s\n' "$path"
+    printf -- '--filter=R %s/***\n' "$path"
+  done < <(deploy_read_tombstones "$tombstone_file" 2>/dev/null)
+
+  for root in "$@"; do
+    printf -- '--filter=P %s/**\n' "$root"
+  done
+}
+
+# Emits paths that exist on GDrive but not in the local tree, one per line.
+# Compares only the immediate children of each protected root — one directory read per root,
+# not a tree walk — because the Drive mount stalls for minutes on deep enumeration.
+# Dot-entries are skipped, so Finder droppings like .DS_Store never surface as orphans.
+deploy_find_orphans() {
+  local lroot="$1" groot="$2"; shift 2
+  local sub entry name
+
+  for sub in "$@"; do
+    [ -d "$groot/$sub" ] || continue
+    for entry in "$groot/$sub"/*; do
+      [ -e "$entry" ] || continue
+      name="$(basename "$entry")"
+      [ -e "$lroot/$sub/$name" ] && continue
+      printf '%s/%s\n' "$sub" "$name"
+    done
+  done
+}
+
+# Copies one GDrive-only path into the local tree and stages it. Never overwrites.
+deploy_adopt_path() {
+  local lroot="$1" groot="$2" rel="$3"
+
+  if [ -e "$lroot/$rel" ]; then
+    echo "    skipped $rel — already present locally."
+    return 1
+  fi
+  mkdir -p "$(dirname "$lroot/$rel")"
+  if ! cp -a "$groot/$rel" "$lroot/$rel"; then
+    echo "    ERROR: could not copy $rel into $lroot"
+    return 1
+  fi
+
+  if git -C "$lroot" rev-parse --git-dir >/dev/null 2>&1; then
+    if git -C "$lroot" add -- "$rel" >/dev/null 2>&1; then
+      echo "    adopted $rel → $lroot/$rel (staged)"
+    else
+      echo "    adopted $rel → $lroot/$rel (copied; git add failed — stage it yourself)"
+    fi
+  else
+    echo "    adopted $rel → $lroot/$rel (copied; $lroot is not a git repo)"
+  fi
+  return 0
+}
+
 cmd_deploy() {
+  local dry_run=false adopt_mode=ask
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry-run|-n) dry_run=true; shift ;;
+      --adopt)      adopt_mode=always; shift ;;
+      --no-adopt)   adopt_mode=never; shift ;;
+      *)
+        echo "ERROR: unknown option for deploy: $1"
+        echo "Usage: engine deploy [--dry-run] [--adopt|--no-adopt]"
+        exit 1
+        ;;
+    esac
+  done
+
   if [ ! -d "$LOCAL_ENGINE" ]; then
     echo "ERROR: Local engine not found at $LOCAL_ENGINE"
     echo "Nothing to deploy."
@@ -882,26 +1026,166 @@ cmd_deploy() {
     echo "Is Google Drive running and syncing?"
     exit 1
   fi
-  echo "Deploying local engine → GDrive..."
-  echo "  WARNING: This will overwrite GDrive engine. Non-dev changes on GDrive will be lost."
-  if [ -d "$GDRIVE_ENGINE" ]; then
-    echo "  Backing up GDrive → ${GDRIVE_ENGINE}.bak"
-    rm -rf "${GDRIVE_ENGINE}.bak"
-    cp -a "$GDRIVE_ENGINE" "${GDRIVE_ENGINE}.bak"
-    ACTIONS+=("Backed up $GDRIVE_ENGINE → ${GDRIVE_ENGINE}.bak")
+
+  echo "Deploying local engine → GDrive$([ "$dry_run" = true ] && echo ' (dry run — nothing will be written)')"
+  echo "  Local:  $LOCAL_ENGINE"
+  echo "  GDrive: $GDRIVE_ENGINE"
+  echo ""
+
+  local tombstone_file="$LOCAL_ENGINE/$DEPLOY_TOMBSTONE_BASENAME"
+
+  # ---- Tombstones: what deploy will delete, said before it deletes it ----
+  local tomb_paths=() tomb_lines=() tpath tdate treason
+  while IFS=$'\t' read -r tpath tdate treason; do
+    [ -n "$tpath" ] || continue
+    tomb_paths+=("$tpath")
+    tomb_lines+=("$tpath|$tdate|$treason")
+  done < <(deploy_read_tombstones "$tombstone_file")
+
+  local present_tombs=() line
+  for line in ${tomb_lines[@]+"${tomb_lines[@]}"}; do
+    tpath="${line%%|*}"
+    if [ -e "$GDRIVE_ENGINE/$tpath" ]; then
+      present_tombs+=("$line")
+    fi
+  done
+
+  if [ ${#present_tombs[@]} -gt 0 ]; then
+    echo "Retired paths present on GDrive — deploy WILL DELETE these:"
+    for line in "${present_tombs[@]}"; do
+      tpath="${line%%|*}"; local rest="${line#*|}"
+      tdate="${rest%%|*}"; treason="${rest#*|}"
+      echo "  - $tpath  (retired $tdate) $treason"
+    done
+    echo "  Listed in $tombstone_file — delete a line there to keep the path instead."
+    echo ""
   fi
-  rsync -a --delete \
+
+  # ---- Orphans: on GDrive, not in the clone. Protected from --delete, offered for adoption ----
+  local orphans=() orphan is_tomb
+  while IFS= read -r orphan; do
+    [ -n "$orphan" ] || continue
+    is_tomb=false
+    for tpath in ${tomb_paths[@]+"${tomb_paths[@]}"}; do
+      [ "$tpath" = "$orphan" ] && { is_tomb=true; break; }
+    done
+    [ "$is_tomb" = true ] && continue
+    orphans+=("$orphan")
+  done < <(deploy_find_orphans "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "${DEPLOY_PROTECTED_ROOTS[@]}")
+
+  if [ ${#orphans[@]} -gt 0 ]; then
+    echo "On GDrive but not in your clone — deploy will KEEP these (not delete them):"
+    for orphan in "${orphans[@]}"; do
+      echo "  - $orphan"
+    done
+    echo ""
+
+    if [ "$dry_run" = true ]; then
+      echo "  Dry run: not offering adoption."
+      echo ""
+    elif [ "$adopt_mode" = never ]; then
+      echo "  --no-adopt: leaving them on GDrive, unadopted."
+      echo ""
+    elif [ "$adopt_mode" = always ]; then
+      echo "  Adopting into $LOCAL_ENGINE:"
+      for orphan in "${orphans[@]}"; do
+        if deploy_adopt_path "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$orphan"; then
+          ACTIONS+=("Adopted $orphan from GDrive into $LOCAL_ENGINE")
+        fi
+      done
+      echo ""
+    elif [ -t 0 ]; then
+      # Adoption writes into the user's repo, so it is never automatic.
+      for orphan in "${orphans[@]}"; do
+        printf "  Adopt %s into %s? [y/N] " "$orphan" "$LOCAL_ENGINE"
+        local answer=""
+        read -r answer
+        case "$answer" in
+          y|Y|yes|YES)
+            if deploy_adopt_path "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$orphan"; then
+              ACTIONS+=("Adopted $orphan from GDrive into $LOCAL_ENGINE")
+            fi
+            ;;
+          *) echo "    left on GDrive, not adopted." ;;
+        esac
+      done
+      echo ""
+    else
+      echo "  Not adopted — this deploy is not interactive, and adoption writes into your repo."
+      echo "  The GDrive copies are kept. To bring them in, run 'engine deploy' from a terminal"
+      echo "  or 'engine deploy --adopt'. If a path is retired on purpose, add it to"
+      echo "  $tombstone_file."
+      echo ""
+    fi
+  fi
+
+  # ---- Backup ----
+  # Copy first, swap second. The old backup must survive a copy that fails or is interrupted,
+  # which a plain `rm -rf .bak; cp -a` does not — the copy takes minutes over the Drive mount.
+  if [ -d "$GDRIVE_ENGINE" ] && [ "$dry_run" = false ]; then
+    echo "Backing up GDrive → ${GDRIVE_ENGINE}.bak"
+    rm -rf "${GDRIVE_ENGINE}.bak.new"
+    if cp -a "$GDRIVE_ENGINE" "${GDRIVE_ENGINE}.bak.new"; then
+      rm -rf "${GDRIVE_ENGINE}.bak"
+      mv "${GDRIVE_ENGINE}.bak.new" "${GDRIVE_ENGINE}.bak"
+      ACTIONS+=("Backed up $GDRIVE_ENGINE → ${GDRIVE_ENGINE}.bak")
+    else
+      rm -rf "${GDRIVE_ENGINE}.bak.new"
+      echo "ERROR: backup failed. Refusing to deploy without one."
+      exit 1
+    fi
+  fi
+
+  # ---- Sync ----
+  local filters=()
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    filters+=("$line")
+  done < <(deploy_rsync_filters "$tombstone_file" "${DEPLOY_PROTECTED_ROOTS[@]}")
+
+  echo "Syncing local engine → GDrive..."
+  local rsync_out rsync_rc=0
+  local dry_args=()
+  [ "$dry_run" = true ] && dry_args=(--dry-run)
+
+  rsync_out=$(rsync -a --delete --itemize-changes \
+    ${dry_args[@]+"${dry_args[@]}"} \
+    ${filters[@]+"${filters[@]}"} \
     --exclude='.git' \
     --exclude='.mode' \
     --exclude='.user.json' \
     --exclude='.bak' \
     --exclude='node_modules' \
-    "$LOCAL_ENGINE/" "$GDRIVE_ENGINE/"
+    "$LOCAL_ENGINE/" "$GDRIVE_ENGINE/" 2>&1) || rsync_rc=$?
+
+  if [ "$rsync_rc" -ne 0 ]; then
+    echo "ERROR: rsync failed (exit $rsync_rc)."
+    echo "$rsync_out"
+    exit "$rsync_rc"
+  fi
+
+  # rsync reports each removal as it makes it. Outside the protected roots that is the only
+  # notice a deletion gets, so surface it rather than swallowing the transfer log.
+  local deleted
+  # openrsync (the rsync macOS ships) prints each removal twice, so collapse repeats.
+  deleted=$(printf '%s\n' "$rsync_out" | grep '^\*deleting' \
+    | sed 's/^\*deleting  *//' | awk '!seen[$0]++ { print "  - " $0 }' || true)
+  if [ -n "$deleted" ]; then
+    echo ""
+    echo "Deleted from GDrive:"
+    echo "$deleted"
+  fi
+
   ACTIONS+=("Deployed $LOCAL_ENGINE → $GDRIVE_ENGINE (no .git)")
   echo ""
-  echo "Done. GDrive engine updated from local (no .git deployed)."
+  if [ "$dry_run" = true ]; then
+    echo "Dry run complete. Nothing was written."
+  else
+    echo "Done. GDrive engine updated from local (no .git deployed)."
+  fi
   echo "  Engine: $GDRIVE_ENGINE"
   echo "  Backup: ${GDRIVE_ENGINE}.bak"
+  echo "  Protected from --delete: ${DEPLOY_PROTECTED_ROOTS[*]}"
   if [ ${#ACTIONS[@]} -gt 0 ]; then
     for action in "${ACTIONS[@]}"; do echo "  - $action"; done
   fi
@@ -1812,7 +2096,7 @@ case "$SUBCMD" in
   remote)    cmd_remote;         exit 0 ;;
   pull)      cmd_pull;           exit 0 ;;
   push)      cmd_push "$@";      exit 0 ;;
-  deploy)    cmd_deploy;         exit 0 ;;
+  deploy)    cmd_deploy "$@";   exit 0 ;;
   status)    cmd_status;         exit 0 ;;
   report)    cmd_report;         exit 0 ;;
   test)      cmd_test "$@";      exit 0 ;;
