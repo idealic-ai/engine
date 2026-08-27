@@ -1,6 +1,6 @@
 # Ticket Comment Template
 
-The fixed shape for **what gets posted to a ticket** by `/inbox-triage` (`--post`) and by `/inbox-triangulate`.
+The fixed shape for **what gets posted to a ticket** by `/triage` (`--post`) and by `/triangulate`.
 
 > ### 🔴 This is NOT the triage report. Read this before writing a comment.
 >
@@ -8,10 +8,10 @@ The fixed shape for **what gets posted to a ticket** by `/inbox-triage` (`--post
 >
 > | | **Investigation record** | **Ticket comment** |
 > | --- | --- | --- |
-> | file | `builds/inbox-triage-<origin-id>[-<angle>].md` | posted to the origin thread |
+> | file | `builds/triage-<subject-id>[-<angle>].md` | posted to the origin thread |
 > | template | `TEMPLATE_TRIAGE_REPORT.md` | **this file** |
-> | audience | the next triage pass, the adjudicator, the skill's maintainers | **the person who owns the bug** |
-> | may discuss | angles, steering reads, method boundaries, basis tags, verbatim SQL, confidence *in the investigation* | the defect, and nothing else |
+> | audience | the next triage pass, the adjudicator, the skill's maintainers | **the person who owns the subject** |
+> | may discuss | angles, steering reads, method boundaries, basis tags, verbatim SQL, confidence *in the investigation* | the subject, and nothing else |
 >
 > **The report is attached to the comment. It is never pasted as the comment.**
 >
@@ -25,7 +25,7 @@ Concretely: above the footer, these words should not appear at all —
 
 `angle` · `adjudicator` / `adjudication` · `triangulation` / `triangulate` · `the context pack` · `convergence` · `the premise` · `sub-agent` · `this triage` as a subject that does things · `Steering read` · `[DB-confirmed]` / `[inferred]` / `[needs-source]` basis tags
 
-Not because they are forbidden vocabulary, but because each one signals a sentence whose subject is the investigation rather than the defect. If you need one to make a point, the point is probably method — move it to the report.
+Not because they are forbidden vocabulary, but because each one signals a sentence whose subject is the investigation rather than the thing being triaged. If you need one to make a point, the point is probably method — move it to the report.
 
 **Fill every section. Cut a section only if genuinely N/A, and say so in one clause.** Do not pad a section to fill the shape.
 
@@ -34,12 +34,13 @@ Not because they are forbidden vocabulary, but because each one signals a senten
 ## The shape
 
 ```
-## <one-line finding — what is wrong, in the product's own vocabulary>
+## <one-line finding — what is wrong, in the subject's own vocabulary>
 
 ### What's wrong
-<The defect, stated as the product behaves. Two to five sentences. Name the screen,
-the field, the value. A reader who has never opened this ticket before should
-understand the failure from this section alone.>
+<The failure, stated as the thing behaves. Two to five sentences. Name the screen,
+the field and the value — or the file, the command and the expression. A reader who
+has never opened this ticket before should understand the failure from this section
+alone.>
 
 ### What the report got right, and wrong
 <ONLY when the origin claim was mis-stated. Correct the record so the next
@@ -49,7 +50,8 @@ discovered. Cut this section entirely when the reporter was simply right.>
 
 ### Where
 <Every entity as a raw id AND a deep link, most-specific first. Org · claim ·
-document / comparison / estimate · the exact tab. If the subject was found on
+document / comparison / estimate · the exact tab — or, where the subject is not a
+record, the `path:line`, the command or the commit. If the subject was found on
 a non-production environment, give both bases and say which one you looked at.
 Correct any id that was wrong upstream — plainly, without narrating the search.>
 
@@ -78,10 +80,10 @@ Name the ticket each step belongs to. Include corrections to OTHER tickets'
 records when this work found them stale.>
 
 ### Not established
-<Open questions ABOUT THE DEFECT — never about the investigation — each with the
+<Open questions ABOUT THE SUBJECT — never about the investigation — each with the
 cheapest single thing that would close it. "Nobody confirmed X; this one query
 settles it" is honest and useful. "Triage could not reach X" is method-talk;
-rewrite it as a property of the defect. Rank by value if there are more than three.>
+rewrite it as a property of the subject. Rank by value if there are more than three.>
 
 <sub><one line: method, code/data provenance + date, and the dossier link></sub>
 
@@ -94,7 +96,7 @@ rewrite it as a property of the defect. Rank by value if there are more than thr
 
 | card | who opens it | what they want |
 | --- | --- | --- |
-| **the synthesis** — `inbox-triage-<origin-id>.md` | the person who owns the bug, after reading the comment | the findings in full, without the method |
+| **the synthesis** — `triage-<subject-id>.md` | the person who owns the subject, after reading the comment | the findings in full, without the method |
 | **the dossier** — `…-dossier.md` | whoever audits or maintains the method | everything: adjudication, both angle reports, the context pack |
 | **the repro** — `…-repro.ts`, one per angle that wrote one | whoever takes the fix | something they can run |
 

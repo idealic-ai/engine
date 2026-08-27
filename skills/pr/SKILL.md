@@ -183,8 +183,18 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
          revs=$(gh api --paginate "$PC/reviews?per_page=100" --jq '.[]|select((.body//"")!="")|.id' 2>/dev/null)
          blob=" $(gh api --paginate "repos/$OWNER/$REPO/issues/$N/comments?per_page=100" --jq '.[].body' 2>/dev/null | tr '\n' ' ') "
          owed=0; owed_ids=""
-         for id in $tops; do case "$reps" in *" $id "*) ;; *) owed=$((owed+1)); owed_ids="$owed_ids c$id" ;; esac; done
-         for id in $revs; do case "$blob" in *"$id"*)      ;; *) owed=$((owed+1)); owed_ids="$owed_ids r$id" ;; esac; done
+         # Read line-by-line, NOT `for id in $tops`. These snippets are pasted into the
+         # agent's shell, which is zsh, and zsh does not word-split an unquoted parameter
+         # — so a multi-line capture arrives as ONE item that matches nothing and the PR
+         # can never reach PR_COMPLETE. It fails as a false negative: no error, just a
+         # count that is quietly wrong. `<<<` redirects rather than pipes, so the counters
+         # survive the loop.
+         while IFS= read -r id; do [ -n "$id" ] || continue
+           case "$reps" in *" $id "*) ;; *) owed=$((owed+1)); owed_ids="$owed_ids c$id" ;; esac
+         done <<< "$tops"
+         while IFS= read -r id; do [ -n "$id" ] || continue
+           case "$blob" in *"$id"*)  ;; *) owed=$((owed+1)); owed_ids="$owed_ids r$id" ;; esac
+         done <<< "$revs"
          if [ "$owed" -gt 0 ]; then                             # checked before merge state: this is work the caller owes now
            echo "PR_REPLIES_OWED pr=$N head=$sha owed=$owed ids=\"${owed_ids# }\""; exit 0
          fi
