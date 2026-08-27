@@ -2730,7 +2730,10 @@ cmd_setup() {
     # run — an ordering nobody would guess from the command names.
     if [ "$secret" != "true" ] && [ "$check" = "file-key" ] && [ -n "$default" ] && [ -n "$dotfile" ] \
        && [ "$src" != "aws-secret" ]; then
-      if ! resolve_env_key "$key" >/dev/null 2>&1; then
+      # The NARROW question: is there a REAL value — an env var or a dotfile entry?
+      # Plain resolve_env_key also answers from the manifest default, which is the very
+      # value about to be written, so it would always say yes and nothing would seed.
+      if ! ENV_SKIP_MANIFEST_DEFAULT=1 resolve_env_key "$key" >/dev/null 2>&1; then
         if [ "$dry" -eq 1 ]; then
           printf "  ${CYAN}would-seed${NC}   %-22s = %s → %s\n" "$key" "$default" "$dotfile"
         else
