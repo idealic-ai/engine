@@ -357,9 +357,16 @@ notice_shadowed_env_key() {
 # in more than one manifest and none disagree, so the guard costs nothing and exists for
 # the day that changes.)
 #
-# `secret: true` rows are skipped. For an aws-secret row `default` holds the secret's
-# NAME, not its value — serving that as a resolved credential would hand a caller a
-# pointer where it expected the thing pointed at.
+# `secret: true` rows are skipped, so a row whose value is genuinely sensitive can never
+# be answered from a constant. That is the whole of the guard.
+#
+# It deliberately does NOT skip `aws-secret` rows. Those are `secret: false` and their
+# `default` holds the secret's NAME — which IS what the key means (FINCH_DB_RO_SECRET is
+# "the name of the RO secret", and a name is not sensitive). manifest_secret_name reads
+# the same rows the same way, preferring source.name and falling back to default, so
+# answering from the default here agrees with it rather than inventing a second reading.
+# The case to watch for is a future row whose default is name-shaped but whose consumers
+# expect the value behind it; that row would need its own exclusion.
 env_manifest_default() {
   local key="$1" mf vals n
   command -v jq >/dev/null 2>&1 || return 1
