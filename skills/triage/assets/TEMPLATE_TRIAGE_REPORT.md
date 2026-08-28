@@ -14,6 +14,13 @@ The **entity rows, the app base and the deep-link patterns come from the project
 **Angle**: <db | ui | code | artifact | execution | history | spec | unrestricted> — the evidence base this report rests on.
 *Your angle is **where you started and what you set out to establish** — not a limit on what you were allowed to look at. **Use every tool you need**: a code-led investigation that needs one database query to settle its own claim should run it. List the instruments you actually used alongside the lead you took. **"I could not establish X" is a finding only when X was genuinely unreachable — if X was one query away, it is a bad report.***
 
+**Primed with**: <the project's known-signal recipe you were handed — a forensic checklist, a
+registry of known root causes and their recognition signatures — or `not primed`. **Filled from
+your `--primed` flag, verbatim**: the path under `--primed <path>`, `not primed` under `--primed
+none`. At most one angle of a pair is ever primed, and the wrapper resolves which from the owning
+project (`/triangulate` §1, §2c). **Stated even when the answer is `not primed`**, because a primed
+report that omits `## Ruled out` is only catchable if the priming is on the record.>
+
 **Subject**: <one sentence — what is actually being claimed, and what kind of thing it is:
 a product defect, a claim about the codebase, a failing test, a piece of tooling, a process.
 Where this differs from how the caller framed it, say so — you investigated this, not the framing.>
@@ -48,6 +55,16 @@ Tag each by basis — `[confirmed]` a query/record proves it · `[inferred]` rea
 - **[inferred]** <finding> — basis: <the reasoning>
 - **[needs-source]** <finding> — needs: <the source artifact to settle it>
 
+## Ruled out  (PRIMED RUNS ONLY — cut this section entirely under `--primed none`, i.e. whenever `**Primed with**` says `not primed`)
+**Required whenever you were primed.** One row per class in the recipe you considered and
+rejected, naming **the signal that excluded it** — the row that was absent, the value that did
+not match, the code path that does not exist here. *"Matched class 7"* alone is an oracle:
+unfalsifiable, and it leaves the other angle and the adjudicator nothing to argue with. The
+exclusions are the attackable surface, so they are the part that makes a classification
+checkable. A class you could not test gets a row saying so and what would settle it.
+- **<class id / name>** — ruled out by: <the signal, with the source that carries it> · <or
+  `untested — <what would settle it>`>
+
 ## Queries (verbatim, read-only)
 The exact queries and commands, so the report is reproducible and extensible:
 ```sql
@@ -55,6 +72,15 @@ The exact queries and commands, so the report is reproducible and extensible:
 <SELECT …>;
 ```
 → <key result rows / the number that matters>
+
+## Per-subject  (BATCH RUNS ONLY — cut this section entirely on a single-subject run)
+One row per subject in the batch, **including every subject you could not reach**. Your caller writes a
+SEPARATE comment to each subject's reporter out of these rows, so a row that would be equally true of
+every sibling is not a row — class-level facts belong in Findings. A silently dropped subject is a
+reporter who gets nothing.
+- **<subject id / name>** — <its own ids, counts, dates, sender, the value it actually showed> ·
+  group: <the cause you assign it to, or `unplaced — <why, and what would settle it>`; a subject whose
+  evidence spans classes names each> · <what its own evidence settled, and what it did not>
 
 ## Scope
 <systemic? blast radius with counts AND their denominator (e.g. "112,625/115,080 docs, 1,411 records"), or "single instance — not systemic". A count whose population is unstated is worse than no count.>
