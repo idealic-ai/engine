@@ -35,12 +35,23 @@
 #                                                 delivered key). --fix runs that setup
 #                                                 ONCE — always scoped to this --domain and
 #                                                 --tier — then re-checks. One attempt,
-#                                                 never a loop.
-#   engine env setup [--domain <name>] [--non-interactive] [--refresh]
+#                                                 never a loop. It attempts ONLY the rows
+#                                                 with an upstream (--no-prompt is passed);
+#                                                 a typed secret is NAMED and left for a
+#                                                 person, never prompted for, so an
+#                                                 unattended caller fails honestly instead
+#                                                 of blocking on a read nobody answers.
+#   engine env setup [--domain <name>] [--non-interactive] [--no-prompt] [--refresh]
 #                                                 Wizard: prompt for each missing SECRET row,
 #                                                 write it to its gitignored dotfile.
 #                                                 --non-interactive (alias --dry-run) echoes
 #                                                 what it WOULD write, writes nothing.
+#                                                 --no-prompt is NOT that: it does every
+#                                                 unattended thing — seeds defaults, fetches
+#                                                 from Secrets Manager, writes the file —
+#                                                 and only refuses to ASK. A row with no
+#                                                 upstream is reported and skipped. Use it
+#                                                 wherever no human is at the terminal.
 #                                                 --refresh re-fetches rows sourced from
 #                                                 Secrets Manager even when the dotfile
 #                                                 already holds a value — that copy is a
@@ -317,7 +328,8 @@ key_present() {
       command -v "$arg" >/dev/null 2>&1 && return 0
       return 1 ;;
     mcp)
-      local out server_lines
+      local out server_lines healthy
+      MCP_MATCHED_NAME=""   # per-row: a stale name from the previous row would mislabel this one
       mcp_list_output; out="$MCP_LIST_OUT"
       [ -n "${MCP_PROBE_CAUSE:-}" ] && return 2
       [ -z "$out" ] && return 2
@@ -335,7 +347,13 @@ key_present() {
       # candidates, so picking the first would make the verdict depend on the order
       # `claude mcp list` happens to print them — an intermittent answer is worse than
       # the false FAIL this branch exists to remove.
-      printf '%s\n' "$server_lines" | grep -viE "$MCP_UNHEALTHY_RE" | grep -qi 'connected' && return 0
+      # The winning line is KEPT, not just counted: its name field is what the caller
+      # needs to say WHICH server satisfied the row.
+      healthy="$(printf '%s\n' "$server_lines" | grep -viE "$MCP_UNHEALTHY_RE" | grep -i 'connected' | head -1)"
+      if [ -n "$healthy" ]; then
+        MCP_MATCHED_NAME="$(printf '%s' "$healthy" | sed -e 's/^[[:space:]]*//' -e 's/:.*$//')"
+        return 0
+      fi
       # An explicit unhealthy state is a real miss (req → FAIL), and it outranks an
       # unrecognized line: "go authenticate" is actionable where "cannot verify" is not.
       printf '%s\n' "$server_lines" | grep -qiE "$MCP_UNHEALTHY_RE" && return 1
@@ -361,6 +379,12 @@ key_present() {
 # by the cache guard below, so the two can never disagree about what healthy means.
 MCP_UNHEALTHY_RE='need.? auth|authenticat|not connected|disconnect|fail|error|unreachable|timed? ?out'
 MCP_PROBE_CAUSE=""
+# The server name a tolerant match actually settled on. The MCP server name and the MCP
+# TOOL NAMESPACE are the same string, so matching `linear` against a server registered as
+# `linear-server` is right for the CONFIG question and silently green over a broken
+# `mcp__linear__*` reference. The match stays tolerant — a false FAIL on a hard-STOP
+# preflight blocks work that would have succeeded — and the row reports which name it hit.
+MCP_MATCHED_NAME=""
 MCP_SECONDS_PER_SERVER=8
 MCP_LIST_OUT=""
 MCP_UNBOUNDED=""
@@ -653,6 +677,16 @@ cmd_doctor() {
     if [ "$rc" -eq 0 ]; then
       case "$check" in
         note) note "$key" "$how" ;;
+        # A name-tolerant PASS has to be visibly name-tolerant. `PASS linear` reads as
+        # "this row's name is correct"; what was established is "a server whose name
+        # CONTAINS linear is connected". Those are different claims, and the second one is
+        # the one that leaves an `mcp__linear__*` tool reference unresolvable. Silent when
+        # the two are the same word — a note on every row teaches people to skip the column.
+        mcp)  if [ -n "${MCP_MATCHED_NAME:-}" ] && [ "$MCP_MATCHED_NAME" != "$arg" ]; then
+                pass "$key" "$service (matched: $MCP_MATCHED_NAME — tool namespace is mcp__${MCP_MATCHED_NAME}__*)"
+              else
+                pass "$key" "$service"
+              fi ;;
         *)    pass "$key" "$service" ;;
       esac
       continue
@@ -791,15 +825,37 @@ cmd_doctor() {
   #
   # ONE ATTEMPT, NOT A LOOP: --fix is absent from `recheck_args`, so the recursion is one
   # level deep by construction rather than by a counter someone has to maintain.
+  # WHAT --fix IS ALLOWED TO ATTEMPT: FIX_AUTO alone — the rows with an upstream `env
+  # setup` reaches with no human in the loop. A FIX_TYPED row is a secret with no upstream:
+  # the only way to fill it is to ask a person. Gating on FIX_TYPED too sent an unattended
+  # caller into a `read` with nobody in front of it, which is worse than the failure it
+  # replaced — a failure exits and says why, a blocked read reports nothing at all while it
+  # waits. So a typed row is REPORTED here and never prompted for.
   if [ "$do_fix" -eq 1 ]; then
-    if [ -z "$FIX_AUTO$FIX_TYPED" ]; then
-      printf "${CYAN}--fix:${NC} nothing here is setup's to write — every row above needs a person.\n"
+    if [ -z "$FIX_AUTO" ]; then
+      if [ -n "$FIX_TYPED" ]; then
+        printf "${CYAN}--fix:${NC} nothing here is setup's to write unattended — %s row(s) need a person to type them: %s\n" \
+          "$(fix_count "$FIX_TYPED")" "$(fix_list "$FIX_TYPED")"
+        printf "       run: engine env setup --domain %s\n" "$DOMAIN"
+      else
+        printf "${CYAN}--fix:${NC} nothing here is setup's to write — every row above needs a person.\n"
+      fi
     else
       local setup_rc=0
+      # Say what is NOT being attempted before attempting anything, so a reader who sees
+      # the run end red knows which rows it never had a way to close.
+      [ -n "$FIX_TYPED" ] && printf "\n${CYAN}--fix:${NC} not attempted — %s row(s) need a person to type them: %s\n" \
+        "$(fix_count "$FIX_TYPED")" "$(fix_list "$FIX_TYPED")"
       printf "\n${BOLD}=== --fix: engine env setup --domain %s ===${NC}\n" "$DOMAIN"
       # The doctor is about to re-check anyway; setup's own trailing verify would print
       # the same report twice and make the FIRST one look like the outcome.
-      ENV_SETUP_NO_VERIFY=1 cmd_setup --domain "$DOMAIN"; setup_rc=$?
+      #
+      # --no-prompt is the belt to the FIX_AUTO gate's braces: the doctor and the wizard
+      # decide "is this row missing" through different code, so a row the gate did not
+      # count can still reach the wizard's prompt. NOT --non-interactive — that is a strict
+      # alias of --dry-run and would write nothing at all, turning --fix into a no-op that
+      # always fails its own re-check.
+      ENV_SETUP_NO_VERIFY=1 cmd_setup --domain "$DOMAIN" --no-prompt; setup_rc=$?
       printf "\n${CYAN}--fix:${NC} setup exited %d — re-checking either way.\n" "$setup_rc"
       printf "${BOLD}=== re-check ===${NC}\n"
       cmd_doctor "${recheck_args[@]}"
@@ -2808,7 +2864,7 @@ manifest_secret_name() {
 
 cmd_setup() {
   env_anchor_prime   # resolve the anchor ONCE; every later subshell inherits it
-  local dry=0 aws_key="" person="" domain_given=0 refresh=0
+  local dry=0 aws_key="" person="" domain_given=0 refresh=0 no_prompt=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --domain) DOMAIN="${2:-}"; domain_given=1; shift 2 ;;
@@ -2818,6 +2874,12 @@ cmd_setup() {
       --person) person="${2:-}"; shift 2 ;;
       --person=*) person="${1#*=}"; shift ;;
       --non-interactive|--dry-run) dry=1; shift ;;
+      # NOT the same as --non-interactive, which is a strict alias of --dry-run and so
+      # writes NOTHING. This does every unattended thing — seeds defaults, fetches from
+      # Secrets Manager, writes the file — and refuses only the one act that needs a human
+      # in front of the terminal. An unattended caller has nobody to answer a prompt, and a
+      # blocked read reports nothing at all while it waits.
+      --no-prompt) no_prompt=1; shift ;;
       # Re-fetch rows whose value has an authoritative upstream (aws-secret), even when
       # the dotfile already holds one. Never touches a `prompt` row — see the loop below.
       --refresh) refresh=1; shift ;;
@@ -2856,6 +2918,7 @@ cmd_setup() {
       # unquoted ${person:+…} splits a name containing a space.
       local -a walk_args=()
       [ "$dry" -eq 1 ] && walk_args[${#walk_args[@]}]="--non-interactive"
+      [ "$no_prompt" -eq 1 ] && walk_args[${#walk_args[@]}]="--no-prompt"
       if [ -n "$person" ]; then
         walk_args[${#walk_args[@]}]="--person"; walk_args[${#walk_args[@]}]="$person"
       fi
@@ -2891,7 +2954,7 @@ cmd_setup() {
   printf "\n"
 
   local key service required secret default dotfile how check arg src sname sfield sregion sprofile
-  local wrote=0 val rc target newfile verdict
+  local wrote=0 unasked=0 val rc target newfile verdict
   local -a p_keys=() p_vals=() n=0
 
   # ---- PHASE 1: resolve every row. Nothing is written in this loop. ----
@@ -2976,6 +3039,14 @@ cmd_setup() {
       fi
     else
       printf "  ${YELLOW}missing${NC}  %-22s\n        how: %s\n" "$key" "$how"
+      # This row has no upstream to fetch FROM, so asking is the only way to fill it.
+      # With nobody to ask, say so and keep going: the rows that CAN be written still get
+      # written, and the caller gets a report instead of a stalled process.
+      if [ "$no_prompt" -eq 1 ]; then
+        printf "        ${YELLOW}needs a person${NC} — not prompted.\n"
+        unasked=$((unasked + 1))
+        continue
+      fi
       printf "        enter value for %s (blank to skip): " "$key"
       val=""
       read -rs val; printf "\n"
@@ -3031,6 +3102,8 @@ cmd_setup() {
     printf "${BOLD}dry-run:${NC} %d secret(s) would be prompted. Run without --non-interactive to write them.\n" "$wrote"
   else
     printf "${BOLD}done:${NC} %d secret(s) written.\n" "$wrote"
+    # Named, not merely counted: "1 row still needs you" sends the reader looking for it.
+    [ "$unasked" -gt 0 ] && printf "${YELLOW}still needs a person:${NC} %d row(s) were not prompted for under --no-prompt — re-run 'engine env setup --domain %s' yourself to type them in.\n" "$unasked" "$DOMAIN"
     # CHECK ITS OWN WORK. "Now run the doctor" is a second thing to know, and the person
     # who most needs the check is the one least likely to run it. Advisory only: the
     # doctor's verdict is REPORTED, never folded into setup's exit code — setup succeeded

@@ -2140,6 +2140,34 @@ else
   fail "unlisted stays a miss" "linear not PASS" "$NM"
 fi
 
+# (g) A NAME-TOLERANT PASS MUST BE VISIBLY NAME-TOLERANT.
+#
+# ⚠️ THE HAZARD: an MCP server's name and its TOOL NAMESPACE are the same string. The
+# tolerance above is correct for the CONFIG question — is a Linear server connected — and
+# it is structurally unable to answer the OTHER question a reader assumes it answered:
+# does `mcp__linear__*` resolve. A bare `PASS linear` over a server registered as
+# `linear-server` reads as "the row's name is right" when what was established is "a
+# server whose name CONTAINS linear is connected". The fix is in the OUTPUT, never the
+# match: say which name was hit. Narrowing the match would restore the false FAIL on a
+# hard-STOP preflight that the tolerance exists to remove.
+if printf '%s' "$SS" | grep -q 'matched: linear-server' \
+   && printf '%s' "$SS" | grep -q 'mcp__linear-server__'; then
+  pass "a pass on a differently-named server names the server it actually matched"
+else
+  fail "tolerant pass is labelled" "PASS linear ... (matched: linear-server ...)" "$SS"
+fi
+
+# (h) and SILENT when the names are the same word. A note on every row is noise that
+#     teaches a reader to skip the column, which would cost exactly the case (g) buys.
+#     Asserted against $O — the exact-name fixture that opens Test 34a — so the negative
+#     sits beside a known-positive rather than standing on its own.
+if printf '%s' "$O" | grep -qE 'PASS +linear' \
+   && ! printf '%s' "$O" | grep -q 'matched:'; then
+  pass "an exact-name pass prints no matched-name note (the annotation is the exception)"
+else
+  fail "silent on an exact match" "PASS linear with no 'matched:' note" "$O"
+fi
+
 # ══ 35. the SSM tunnel target derives from the manifest (R5) ══════════════════
 #
 # Round 4 reported ssm:StartSession as UNDERIVABLE and refused to hardcode an instance
@@ -3429,12 +3457,158 @@ fi
 
 # (h) THE DOCTOR STILL RUNS ONE DOMAIN. The guard Test 41 pins must survive --fix: a
 #     domain-less --fix must not turn into setup's every-domain walk.
+# ENV_AWS_SECRET_FAIL is set for one reason: this case drops the manifest seam on
+# purpose, so it runs against the REAL manifest — and any aws-secret row missing on the
+# machine running the suite sends setup to Secrets Manager for real. env-lib.sh states
+# that no test makes a real AWS call; the seam holds that line without changing what this
+# case asserts (it only looks for the absence of per-domain headers).
 FXW=$( cd "$CASE_FXH" && env -u ENV_MANIFEST ENV_MCP_LIST_OUTPUT="" \
+         ENV_AWS_SECRET_FAIL='no real AWS call in tests' \
          "$ENV_SH" doctor --fix </dev/null 2>&1 | strip )
 if ! printf '%s' "$FXW" | grep -q '^── '; then
   pass "--fix never becomes setup's every-domain walk (the per-domain guard holds)"
 else
   fail "no domain walk under --fix" "no domain headers" "$FXW"
+fi
+
+
+# ══ 55. --fix attempts ONLY the known-fixable; a typed row is reported, never asked ══
+#
+# ⚠️ THE HAZARD THIS TEST EXISTS FOR: a typed secret has no upstream, so the only way to
+# fill it is to ASK. --fix used to shell out to the wizard whenever a typed row was
+# missing, and an unattended caller — a background sub-agent, a cron wave — met that
+# prompt with nobody in front of it and BLOCKED. A hang is strictly worse than the failure
+# it replaced: a failure exits and says why; a blocked read reports nothing while it waits.
+#
+# THE SEAM THESE CASES USE: stdin carries a sentinel. If the wizard ever reaches its
+# `read`, it consumes the sentinel and writes it to the dotfile — so "the sentinel is
+# absent" is a POSITIVE observation that no read happened, not a timing guess. Case (a)
+# below is the known-positive that proves the sentinel would land if a prompt occurred.
+echo "Test 55: --fix attempts only the known-fixable"
+
+SENTINEL='SHOULD-NOT-BE-READ'
+
+FX_TYPED_MF="$WORK/fix-typed.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"TYPED_ONLY", service:"S", required:"req", secret:true, default:null,
+   dotfile:".env.local", how:"a person types it", check:{type:"file-key"},
+   source:{type:"prompt"}}]}' > "$FX_TYPED_MF"
+
+# (a) KNOWN-POSITIVE FOR THE SEAM. Plain `env setup` on the same manifest DOES prompt, and
+#     with the sentinel on stdin it writes it. Without this, every "sentinel absent"
+#     assertion below could pass because the seam never worked at all.
+CASE_KP="$WORK/fix-typed-known-positive"; mkcase "$CASE_KP"
+( cd "$CASE_KP" && ENV_MANIFEST="$FX_TYPED_MF" ENV_MCP_LIST_OUTPUT="" ENV_SETUP_NO_VERIFY=1 \
+    "$ENV_SH" setup --domain intake <<< "$SENTINEL" >/dev/null 2>&1 )
+if grep -q "$SENTINEL" "$CASE_KP/.env.local" 2>/dev/null; then
+  pass "known-positive: the wizard DOES consume stdin, so an absent sentinel means no prompt"
+else
+  fail "seam works" "the sentinel written by a real prompt" "$(cat "$CASE_KP/.env.local" 2>/dev/null)"
+fi
+
+# (b) THE MOTIVATING CASE: a typed-only miss must not reach a prompt under --fix.
+CASE_FT="$WORK/fix-typed"; mkcase "$CASE_FT"
+FT=$( cd "$CASE_FT" && ENV_MANIFEST="$FX_TYPED_MF" ENV_MCP_LIST_OUTPUT="" \
+        "$ENV_SH" doctor --fix <<< "$SENTINEL" 2>&1 | strip )
+FT_RC=$( cd "$CASE_FT" && ENV_MANIFEST="$FX_TYPED_MF" ENV_MCP_LIST_OUTPUT="" \
+        "$ENV_SH" doctor --fix <<< "$SENTINEL" >/dev/null 2>&1; echo $? )
+if ! printf '%s' "$FT" | grep -q 'enter value for' \
+   && ! grep -q "$SENTINEL" "$CASE_FT/.env.local" 2>/dev/null; then
+  pass "a typed-only miss never reaches the wizard's prompt under --fix"
+else
+  fail "no prompt on a typed-only miss" "no 'enter value for', no sentinel written" "$FT"
+fi
+
+# (c) it is REPORTED instead — named, with the action a person must take.
+if printf '%s' "$FT" | grep -q 'TYPED_ONLY' \
+   && printf '%s' "$FT" | grep -q 'need a person to type them' \
+   && printf '%s' "$FT" | grep -q 'engine env setup --domain intake'; then
+  pass "the typed row is NAMED and the person's next command is stated"
+else
+  fail "typed rows reported" "TYPED_ONLY named + the setup command" "$FT"
+fi
+
+# (d) and the exit code falls out honestly — nothing was fixable, so the run is still red.
+if [ "$FT_RC" -ne 0 ]; then
+  pass "--fix with nothing fixable still exits non-zero (a failure, not a hang)"
+else
+  fail "honest exit code" "non-zero" "$FT_RC"
+fi
+
+# (e) MIXED: an auto row alongside a typed one. The auto row IS fixed; the typed row is
+#     still never asked for. This is the case the FIX_AUTO gate alone does not cover —
+#     setup runs here, so only --no-prompt keeps the prompt from being reached.
+CASE_FM="$WORK/fix-mixed"; mkcase "$CASE_FM"
+FM_MF="$WORK/fix-mixed.json"
+jq -n '{version:1, domain:"test", credentials:[
+  {key:"FETCHABLE", service:"S", required:"req", secret:true, default:null,
+   dotfile:".env.local", how:"Secrets Manager", check:{type:"file-key"},
+   source:{type:"aws-secret", name:"staging/x"}},
+  {key:"TYPED_ONLY", service:"S", required:"req", secret:true, default:null,
+   dotfile:".env.local", how:"a person types it", check:{type:"file-key"},
+   source:{type:"prompt"}}]}' > "$FM_MF"
+FM=$( cd "$CASE_FM" && ENV_MANIFEST="$FM_MF" ENV_MCP_LIST_OUTPUT="" \
+        ENV_AWS_SECRET_OUTPUT='{"SecretString":"fetched-value"}' \
+        "$ENV_SH" doctor --fix <<< "$SENTINEL" 2>&1 | strip )
+if grep -q 'fetched-value' "$CASE_FM/.env.local" 2>/dev/null \
+   && ! grep -q "$SENTINEL" "$CASE_FM/.env.local" 2>/dev/null \
+   && ! printf '%s' "$FM" | grep -q 'enter value for'; then
+  pass "a mixed run fixes the fetchable row and still never prompts for the typed one"
+else
+  fail "mixed run" "fetched-value written, sentinel absent, no prompt" "$(cat "$CASE_FM/.env.local" 2>/dev/null)"
+fi
+
+# (f) the re-check still runs on a mixed run — the verdict is measured after the attempt.
+if printf '%s' "$FM" | grep -q '=== re-check ===' \
+   && printf '%s' "$FM" | grep -q 'PASS  FETCHABLE' \
+   && printf '%s' "$FM" | grep -q 'FAIL  TYPED_ONLY'; then
+  pass "the mixed run re-checks and reports what the attempt did and did not close"
+else
+  fail "re-check after mixed fix" "a re-check with FETCHABLE green and TYPED_ONLY red" "$FM"
+fi
+
+# (g) --no-prompt IS NOT --non-interactive. The latter is a strict alias of --dry-run and
+#     writes nothing at all, so passing it from --fix would make --fix a no-op that always
+#     fails its own re-check. The pair is asserted together: same manifest, same seam, one
+#     writes and one does not.
+CASE_NP="$WORK/setup-no-prompt"; mkcase "$CASE_NP"
+( cd "$CASE_NP" && ENV_MANIFEST="$FM_MF" ENV_MCP_LIST_OUTPUT="" ENV_SETUP_NO_VERIFY=1 \
+    ENV_AWS_SECRET_OUTPUT='{"SecretString":"fetched-value"}' \
+    "$ENV_SH" setup --domain intake --no-prompt <<< "$SENTINEL" >/dev/null 2>&1 )
+CASE_NI="$WORK/setup-non-interactive"; mkcase "$CASE_NI"
+( cd "$CASE_NI" && ENV_MANIFEST="$FM_MF" ENV_MCP_LIST_OUTPUT="" ENV_SETUP_NO_VERIFY=1 \
+    ENV_AWS_SECRET_OUTPUT='{"SecretString":"fetched-value"}' \
+    "$ENV_SH" setup --domain intake --non-interactive <<< "$SENTINEL" >/dev/null 2>&1 )
+if grep -q 'fetched-value' "$CASE_NP/.env.local" 2>/dev/null \
+   && ! grep -q "$SENTINEL" "$CASE_NP/.env.local" 2>/dev/null \
+   && ! grep -q 'fetched-value' "$CASE_NI/.env.local" 2>/dev/null; then
+  pass "--no-prompt still fetches and writes; --non-interactive writes nothing (they differ)"
+else
+  fail "--no-prompt vs --non-interactive" \
+       "--no-prompt writes fetched-value and no sentinel; --non-interactive writes nothing" \
+       "no-prompt=[$(cat "$CASE_NP/.env.local" 2>/dev/null)] non-interactive=[$(cat "$CASE_NI/.env.local" 2>/dev/null)]"
+fi
+
+# (h) SOURCE-LEVEL: the gate is FIX_AUTO alone, and the belt is --no-prompt, not the
+#     dry-run alias. Pinned in source because both are one-token edits that a behavioural
+#     test would only catch in the exact scenario that motivated them.
+if grep -q 'cmd_setup --domain "\$DOMAIN" --no-prompt' "$ENV_SRC" \
+   && ! grep -q 'z "\$FIX_AUTO\$FIX_TYPED"' "$ENV_SRC" \
+   && ! grep -q 'cmd_setup --domain "\$DOMAIN" --non-interactive' "$ENV_SRC"; then
+  pass "--fix gates on FIX_AUTO alone and passes --no-prompt (never the dry-run alias)"
+else
+  fail "gate + belt in source" \
+       'cmd_setup --domain "$DOMAIN" --no-prompt, and no FIX_AUTO$FIX_TYPED gate' \
+       "$(grep -n 'FIX_AUTO\$FIX_TYPED\|cmd_setup --domain' "$ENV_SRC")"
+fi
+
+# (i) --fix must STILL not widen scope. The per-domain guard is the whole reason the
+#     doctor does not walk every domain, and the gate rewrite sits right on top of it.
+if ! grep -qE '^\s+(ENV_SETUP_NO_VERIFY=1 )?cmd_setup( --no-prompt)?\s*$' "$ENV_SRC"; then
+  pass "no domain-less cmd_setup call survived the gate rewrite"
+else
+  fail "domain still passed" "every cmd_setup call carries --domain" \
+       "$(grep -n 'cmd_setup' "$ENV_SRC")"
 fi
 
 
