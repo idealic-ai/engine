@@ -178,6 +178,57 @@ if [ -n "$FLEET_PANE_ID" ] && [ -n "${TMUX:-}" ] && [ -n "${TMUX_PANE:-}" ]; the
   unset _read_pane_opt _pane_label _window_name _pane_parent _pane_claims _pane_targeted _pane_manages
 fi
 
+# ─── Session display name ────────────────────────────────────────────────────
+# A fleet session is addressed by its `window:label` (SIGILS.md § FLEET_*), so that is
+# what `claude -n` shows — a name that survives restarts and matches how agents address
+# each other. `-n` is an unvalidated option, so anything hostile has to be caught here.
+fleet_session_name() {
+  local raw="${1:-}"
+  # The name reaches the terminal title; a newline or ESC would land in the escape sequence
+  raw=$(printf '%s' "$raw" | tr -d '\000-\037\177')
+  raw="${raw#"${raw%%[![:space:]]*}"}"
+  raw="${raw%"${raw##*[![:space:]]}"}"
+  # A leading dash parses as a flag, leaving -n without its argument and aborting startup
+  raw="${raw#"${raw%%[!-]*}"}"
+  [ "${#raw}" -gt 64 ] && raw="${raw:0:64}"
+  printf '%s' "$raw"
+}
+
+# Last -n/--name the caller passed to run.sh, if any. Claude's parser is last-flag-wins,
+# so a caller flag already beats a derived one by position; capturing it keeps the SAME
+# name on the restart and daemon paths, which do not carry REMAINING_ARGS through.
+user_session_name() {
+  local prev="" arg found=""
+  for arg in "$@"; do
+    case "$prev" in
+      -n|--name) found="$arg" ;;
+    esac
+    case "$arg" in
+      --name=*) found="${arg#--name=}" ;;
+      -n?*)     found="${arg#-n}" ;;
+    esac
+    prev="$arg"
+  done
+  printf '%s' "$found"
+}
+
+SESSION_NAME_ARGS=()
+SESSION_NAME_FROM_USER=""
+_raw_session_name=$(user_session_name ${REMAINING_ARGS[@]+"${REMAINING_ARGS[@]}"})
+if [ -n "$_raw_session_name" ]; then
+  SESSION_NAME_FROM_USER=1
+else
+  _raw_session_name="${FLEET_PANE:-}"
+fi
+SESSION_NAME=$(fleet_session_name "$_raw_session_name")
+# No fleet and no caller flag means "not in a fleet": exec exactly as before.
+# An empty -n '' is a bug rather than a no-op, so the flag is omitted entirely.
+if [ -n "$SESSION_NAME" ]; then
+  SESSION_NAME_ARGS=("--name" "$SESSION_NAME")
+  echo "[run.sh] Session name: $SESSION_NAME"
+fi
+unset _raw_session_name
+
 # Load agent file and append to system prompt (instead of passing --agent to Claude)
 # This preserves the full toolset while still loading the agent persona
 if [ -n "$AGENT_NAME" ]; then
@@ -295,6 +346,9 @@ fi
 # Build Claude args: prepend system prompt additions, add resume if available
 set +u  # Allow unbound variables for array handling (REMAINING_ARGS may be empty)
 CLAUDE_ARGS=("--append-system-prompt" "$SYSTEM_PROMPT_ADDITIONS")
+if [ -z "$SESSION_NAME_FROM_USER" ] && [ ${#SESSION_NAME_ARGS[@]} -gt 0 ]; then
+  CLAUDE_ARGS+=("${SESSION_NAME_ARGS[@]}")
+fi
 if [ -n "$RESUME_SESSION_ID" ]; then
   CLAUDE_ARGS+=("--resume" "$RESUME_SESSION_ID")
 fi
@@ -518,7 +572,7 @@ daemon_process_work() {
   local daemon_prompt="$SYSTEM_PROMPT_ADDITIONS
 DAEMON_MODE: You were spawned by the daemon (run.sh --monitor-tags). Run /delegation-claim to pick up delegated work items. After /delegation-claim routes you to a target skill and you complete it, EXIT immediately — do NOT offer a next-skill menu or ask 'What's next?'. The daemon will automatically pick up the next batch of delegated items."
   set +e
-  "$CLAUDE_BIN" --append-system-prompt "$daemon_prompt" "/delegation-claim"
+  "$CLAUDE_BIN" ${SESSION_NAME_ARGS[@]+"${SESSION_NAME_ARGS[@]}"} --append-system-prompt "$daemon_prompt" "/delegation-claim"
   set -e
 
   # Cleanup watchdog
@@ -643,9 +697,9 @@ while true; do
     set +e
     if [ -n "$RESTART_SESSION_ID" ]; then
       echo "[run.sh] Resuming Claude session: ${RESTART_SESSION_ID:0:8}..."
-      "$CLAUDE_BIN" --append-system-prompt "$SYSTEM_PROMPT_ADDITIONS" --resume "$RESTART_SESSION_ID" "$RESTART_PROMPT"
+      "$CLAUDE_BIN" ${SESSION_NAME_ARGS[@]+"${SESSION_NAME_ARGS[@]}"} --append-system-prompt "$SYSTEM_PROMPT_ADDITIONS" --resume "$RESTART_SESSION_ID" "$RESTART_PROMPT"
     else
-      "$CLAUDE_BIN" --append-system-prompt "$SYSTEM_PROMPT_ADDITIONS" "$RESTART_PROMPT"
+      "$CLAUDE_BIN" ${SESSION_NAME_ARGS[@]+"${SESSION_NAME_ARGS[@]}"} --append-system-prompt "$SYSTEM_PROMPT_ADDITIONS" "$RESTART_PROMPT"
     fi
     set -e
     RESTART_PROMPT=""
@@ -667,6 +721,9 @@ while true; do
     RESTART_PROMPT=""
     RESTART_AGENT_FILE=""
     CLAUDE_ARGS=("--append-system-prompt" "$SYSTEM_PROMPT_ADDITIONS")
+    if [ -z "$SESSION_NAME_FROM_USER" ] && [ ${#SESSION_NAME_ARGS[@]} -gt 0 ]; then
+      CLAUDE_ARGS+=("${SESSION_NAME_ARGS[@]}")
+    fi
     if [ ${#REMAINING_ARGS[@]} -gt 0 ]; then
       CLAUDE_ARGS+=("${REMAINING_ARGS[@]}")
     fi

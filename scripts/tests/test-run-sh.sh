@@ -531,6 +531,152 @@ EOF
 }
 
 # =============================================================================
+# Session display name (claude -n) — tests 12-17
+#
+# These load the real functions out of run.sh rather than re-declaring a copy, so
+# a change to run.sh that breaks naming shows up here instead of passing against
+# a stale duplicate.
+# =============================================================================
+
+RUN_SH="$SCRIPTS_DIR/run.sh"
+
+load_name_fns() {
+  eval "$(awk '/^fleet_session_name\(\) \{$/,/^\}$/' "$RUN_SH")"
+  eval "$(awk '/^user_session_name\(\) \{$/,/^\}$/' "$RUN_SH")"
+}
+
+# Build a throwaway workspace whose PATH has a `claude` that only records its argv.
+# Nothing launches: the stub exits 0 immediately.
+name_lab_setup() {
+  LAB=$(mktemp -d)
+  mkdir -p "$LAB/bin" "$LAB/cwd/sessions"
+  cat > "$LAB/bin/claude" <<'STUB'
+#!/bin/bash
+{ for a in "$@"; do echo "ARG:$a"; done; } >> "$ARGV_OUT"
+exit 0
+STUB
+  chmod +x "$LAB/bin/claude"
+}
+
+name_lab_teardown() { [ -n "${LAB:-}" ] && rm -rf "$LAB"; }
+
+# Echo the argv run.sh would hand claude. $1 = FLEET_PANE ("" for no fleet); rest = run.sh args.
+capture_argv() {
+  local pane="$1"; shift
+  export ARGV_OUT="$LAB/argv.out"; : > "$ARGV_OUT"
+  ( cd "$LAB/cwd" && env -u TMUX -u TMUX_PANE -u FLEET_PANE ${pane:+FLEET_PANE="$pane"} \
+      ARGV_OUT="$ARGV_OUT" PATH="$LAB/bin:$PATH" \
+      timeout 60 bash "$RUN_SH" "$@" ) >/dev/null 2>&1
+  grep '^ARG:' "$ARGV_OUT" | sed 's/^ARG://'
+}
+
+# --- Test 12: the colon in window:label is preserved verbatim -----------------
+test_session_name_preserves_pane_label() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="fleet_session_name keeps window:label intact (colon survives)"
+  load_name_fns
+  local got
+  got=$(fleet_session_name "meta:Commands")
+  if [ "$got" = "meta:Commands" ]; then pass "$test_name"; else fail "$test_name" "meta:Commands" "$got"; fi
+}
+
+# --- Test 13: nothing that could become a flag or an escape sequence gets out --
+test_session_name_sanitizes_hostile_input() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="fleet_session_name neutralizes empty/blank/dash/control-char labels"
+  load_name_fns
+  local problems=""
+  [ -n "$(fleet_session_name '')" ]     && problems="$problems empty->nonempty"
+  [ -n "$(fleet_session_name '   ')" ]  && problems="$problems blank->nonempty"
+  [ -n "$(fleet_session_name '---')" ]  && problems="$problems dashes->nonempty"
+  # A leading dash must not survive: claude would read it as a flag and abort startup
+  case "$(fleet_session_name '--dangerously-skip-permissions')" in
+    -*) problems="$problems leading-dash-survived" ;;
+  esac
+  # Control characters must not reach the terminal-title escape sequence
+  case "$(fleet_session_name "$(printf 'a\033]0;x')")" in
+    *$'\033'*) problems="$problems esc-survived" ;;
+  esac
+  case "$(fleet_session_name "$(printf 'a\nb')")" in
+    *$'\n'*) problems="$problems newline-survived" ;;
+  esac
+  # Bounded, because the name lands in the terminal title and the /resume picker
+  [ "$(fleet_session_name "$(printf 'x%.0s' $(seq 1 200))" | wc -c | tr -d ' ')" -gt 64 ] \
+    && problems="$problems unbounded-length"
+  if [ -z "$problems" ]; then pass "$test_name"; else fail "$test_name" "(no problems)" "$problems"; fi
+}
+
+# --- Test 14: claude's parser is last-flag-wins, so we must read the last one --
+test_user_session_name_last_wins() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="user_session_name reads all -n forms and takes the last"
+  load_name_fns
+  local problems=""
+  [ "$(user_session_name -p hi)" != "" ]                  && problems="$problems none"
+  [ "$(user_session_name -n A)" != "A" ]                  && problems="$problems short"
+  [ "$(user_session_name --name A)" != "A" ]              && problems="$problems long"
+  [ "$(user_session_name --name=A)" != "A" ]              && problems="$problems equals"
+  [ "$(user_session_name -nA)" != "A" ]                   && problems="$problems attached"
+  [ "$(user_session_name -n A -n B)" != "B" ]             && problems="$problems last-wins"
+  [ "$(user_session_name --name=A -n B)" != "B" ]         && problems="$problems mixed"
+  if [ -z "$problems" ]; then pass "$test_name"; else fail "$test_name" "(no problems)" "$problems"; fi
+}
+
+# --- Test 15: no fleet means run.sh execs exactly as it always did -------------
+# ¶INV_FLEET_GRACEFUL_OUTSIDE_TMUX. An empty -n '' would be a bug, not a no-op.
+test_no_fleet_emits_no_name_flag() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="outside a fleet run.sh passes no -n/--name at all"
+  name_lab_setup
+  local nameless blank control
+  nameless=$(capture_argv "" | grep -cE '^(--name|-n)$' || true)
+  # A blank pane label must behave the same as no pane at all
+  blank=$(capture_argv "   " | grep -cE '^(--name|-n)$' || true)
+  # Positive control: the same probe must find a flag when there IS one, otherwise
+  # the two zeros above would pass even if the probe were blind.
+  control=$(capture_argv "meta:Commands" | grep -cE '^(--name|-n)$' || true)
+  name_lab_teardown
+  if [ "$nameless" -eq 0 ] && [ "$blank" -eq 0 ] && [ "$control" -eq 1 ]; then
+    pass "$test_name"
+  else
+    fail "$test_name" "no-fleet=0, blank=0, control=1" "$nameless, $blank, $control"
+  fi
+}
+
+# --- Test 16: inside a fleet the pane label becomes the display name -----------
+test_fleet_pane_becomes_session_name() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="inside a fleet run.sh passes --name <window:label>"
+  name_lab_setup
+  local argv
+  argv=$(capture_argv "meta:Commands")
+  name_lab_teardown
+  if echo "$argv" | grep -q '^--name$' && echo "$argv" | grep -q '^meta:Commands$'; then
+    pass "$test_name"
+  else
+    fail "$test_name" "--name followed by meta:Commands" "$(echo "$argv" | tr '\n' '|')"
+  fi
+}
+
+# --- Test 17: a caller-supplied -n beats the derived one, and only once --------
+test_user_name_overrides_fleet_name() {
+  TESTS_RUN=$((TESTS_RUN + 1))
+  local test_name="caller -n overrides the fleet-derived name (exactly one name flag)"
+  name_lab_setup
+  local argv flags derived
+  argv=$(capture_argv "meta:Commands" -n Custom)
+  flags=$(echo "$argv" | grep -cE '^(-n|--name)$' || true)
+  derived=$(echo "$argv" | grep -c '^meta:Commands$' || true)
+  name_lab_teardown
+  if [ "$flags" -eq 1 ] && [ "$derived" -eq 0 ] && echo "$argv" | grep -q '^Custom$'; then
+    pass "$test_name"
+  else
+    fail "$test_name" "1 name flag, value Custom, no meta:Commands" \
+      "flags=$flags derived=$derived argv=$(echo "$argv" | tr '\n' '|')"
+  fi
+}
+
+# =============================================================================
 # Run all tests
 # =============================================================================
 main() {
@@ -550,6 +696,12 @@ main() {
   test_find_restart_agent_json_finds_kill_requested
   test_find_restart_agent_json_ignores_no_kill
   test_restart_loop_clear_state_cleanup
+  test_session_name_preserves_pane_label
+  test_session_name_sanitizes_hostile_input
+  test_user_session_name_last_wins
+  test_no_fleet_emits_no_name_flag
+  test_fleet_pane_becomes_session_name
+  test_user_name_overrides_fleet_name
 
   exit_with_results
 }
