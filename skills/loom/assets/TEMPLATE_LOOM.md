@@ -7,7 +7,7 @@
 
 *   **Batch**: [what was woven — the tickets in scope]
 *   **Threads**: [N landed] · [N parked] · [N mid-flight] across [W] waves
-*   **Dispositions**: Autonomy=[…] · Council=[…] · Interrogation=[…] · Detail=[…]
+*   **Dispositions**: Autonomy=[…] · Council=[…] · Interrogation=[…] · Detail=[…] · Run=[…]
 
 ## Related Sessions
 *Prior work that informed this session (from session-search). Omit if none.*
@@ -31,7 +31,7 @@
 *   **Deadlocks / escalations**: [what hit the hard floor, what you decided]
 
 ## 4. Dispositions in Practice
-*How the four choices played out.*
+*How the choices played out.*
 
 *   **Autonomy** ([choice]): [what the conductor auto-resolved vs. escalated]
 *   **Council** ([choice]): [councils run, MUST-FIX loopbacks]

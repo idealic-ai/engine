@@ -4,7 +4,7 @@
 
 ## ▶️ Loom Opened
 *   **Batch**: [what tickets/tasks are in scope]
-*   **Dispositions**: Autonomy=[Automagic|Careful|Allow-agents] · Council=[selective|auto-after-pr|none] · Interrogation=[Reasonable|Thorough|None] · Detail=[Low|Balanced|High]
+*   **Dispositions**: Autonomy=[Automagic|Careful|Allow-agents] · Council=[selective|auto-after-pr|none] · Interrogation=[Reasonable|Thorough|None] · Detail=[Low|Balanced|High] · Run=[Session|Long-running]
 
 ## 🧵 Ledger (live — rewrite in place as threads advance)
 *The session's spine. One row per thread. Stages: triaged → interrogated → building → scrutinized → snapshotted → pr'd → council'd.*

@@ -51,6 +51,22 @@ The session's **Autonomy** disposition sets how much you self-resolve vs. escala
 
 The **Detail-importance** disposition governs your Build Report and how findings get weighted downstream — do not inflate small issues into blockers under a low-detail session; do surface a genuinely blocking problem regardless. Note real, out-of-scope things you spot in the Build Report's `## Out-of-scope noticed` section — the conductor harvests those for `/inbox-post` at thread end.
 
+## Long-running sessions: wakes are the bill (`¶INV_LOOM_WAKES_ARE_THE_BILL`)
+
+When the session's **Run length** is Long-running, these apply to you:
+- **Waiting is free; waking is not.** When a background job returns after the prompt cache has expired, you re-read your whole context at full price. Plan for fewer, larger wakes.
+- **Batch every run.** Queue one run that carries every case, arm and control you will need next, instead of a sequence of small runs.
+- **Cap your context.** Near ~150K tokens, write your state to your LOG (what's done, what's measured with paths, the exact next step) and hand back. The conductor continues from your LOG with a fresh lane.
+- **Don't poll.** Wait on your background job's completion, not a sleep loop or repeated status checks.
+
+## Your last act: a proof page, composed while your context is hot (`¶INV_LOOM_EVERY_THREAD_PROVES`)
+
+Before you hand back, COMPOSE a proof page for what you did or established: `builds/<slug>_PROOF.html` plus a dossier `builds/<slug>_PROVE.md`, following the `/prove` skill's shape (a forward-looking investigation may use `/prove-visionary`'s `_VISION.html`). This applies to every thread: a build, a fix, a review, a measurement, an investigation, a deletion.
+- **You compose; the conductor publishes.** Do NOT run the publish script. The conductor runs the honesty gate (scope at the top, the load-bearing asset eyeballed against its source, nothing oversold, provenance labelled) and publishes.
+- **Page rules:** open with scope (what it is, what it isn't, who it's for); use real outputs (command output, diffs, screenshots), never mockups passed off as evidence; label every claim measured / trusted-from-upstream / proposed; no scripts, no external URLs or web fonts; no horizontal scroll at 390px (wrap wide tables and `<pre>` in `overflow-x:auto`); name members instead of stating counts in prose.
+- **You may not skip it on your own judgement.** "Only counts and text" is still renderable: the commands and their output are the evidence. If you genuinely believe nothing is renderable, say so in your hand-back and let the conductor decide; the conductor, not you, records `no renderable evidence`.
+- **If you are cut off before composing it** (a rate limit or an interruption), say so in your hand-back, so the conductor resumes you by name to finish it rather than re-deriving it with a fresh agent.
+
 ## The one-line summary
 
-Prefix `[<threadId>]` on every line. Own your partition; claim before you touch anything outside it. First-claim-wins — if denied, defer, don't fight. Report progress and blocks by name. Escalate up, never sideways, never to the user directly. Never destructive git.
+Prefix `[<threadId>]` on every line. Own your partition; claim before you touch anything outside it. First-claim-wins — if denied, defer, don't fight. Report progress and blocks by name. Escalate up, never sideways, never to the user directly. Never destructive git. End by composing your proof page; never publish it yourself.
