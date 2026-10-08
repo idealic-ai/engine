@@ -103,6 +103,43 @@ get_fleet_pane_id() {
   "$HOME/.claude/scripts/fleet.sh" pane-id 2>/dev/null || echo ""
 }
 
+# Helper: Release a fleet-pane or PID claim held by OTHER sessions
+# Usage: clear_stale_claims <field> <value-regex> <sessions_dir> <own_state_file> [label]
+# Only state files touched in the last ENGINE_CLAIM_SCAN_DAYS days (default 14) are read: a session
+# idle longer cannot be holding a live claim. Each read is capped at ENGINE_CLAIM_SCAN_TIMEOUT
+# seconds (default 5) so an evicted file on a synced drive cannot stall the caller. Detached unless
+# ENGINE_CLAIM_SCAN_SYNC=1 or TEST_MODE=1; detached output goes to $SESSION_CACHE_DIR/engine-claim-scan.log.
+clear_stale_claims() {
+  local field="$1" value_re="$2" sessions_dir="$3" own_state="$4" label="${5:-}"
+  local days="${ENGINE_CLAIM_SCAN_DAYS:-14}" per_file="${ENGINE_CLAIM_SCAN_TIMEOUT:-5}"
+  local to
+  to=$(command -v timeout || command -v gtimeout || true)
+  local pattern="\"$field\": $value_re([^0-9A-Za-z_:.-]|\$)"
+
+  _clear_stale_claims_scan() {
+    find "$sessions_dir" -mindepth 2 -maxdepth 2 -name .state.json ! -type d -mtime "-$days" 2>/dev/null |
+    while IFS= read -r other_file; do
+      [ "$other_file" = "$own_state" ] && continue
+      local json
+      if [ -n "$to" ]; then
+        json=$("$to" "$per_file" cat "$other_file" 2>/dev/null) || continue
+      else
+        json=$(cat "$other_file" 2>/dev/null) || continue
+      fi
+      grep -qE "$pattern" <<< "$json" || continue
+      jq "del(.$field)" <<< "$json" 2>/dev/null | safe_json_write "$other_file" || continue
+      [ -n "$label" ] && echo "Cleared stale $label from: $(basename "$(dirname "$other_file")")"
+    done
+    return 0
+  }
+
+  if [ "${ENGINE_CLAIM_SCAN_SYNC:-}" = "1" ] || [ "${TEST_MODE:-}" = "1" ]; then
+    _clear_stale_claims_scan
+  else
+    ( _clear_stale_claims_scan ) </dev/null >>"$SESSION_CACHE_DIR/engine-claim-scan.log" 2>&1 &
+  fi
+}
+
 # Helper: Validate a JSON instance against a JSON Schema
 # Usage: validate_json_schema <schema_json_string> <instance_json_string>
 # Returns: 0 if valid, 1 if invalid (errors on stderr), 2 if tool missing
@@ -320,23 +357,15 @@ case "$ACTION" in
     fi
 
     # Claim fleet pane: clear fleetPaneId from any OTHER session that has it
+    SESSIONS_DIR=$(dirname "$DIR")
     if [ -n "$FLEET_PANE" ]; then
-      SESSIONS_DIR=$(dirname "$DIR")
-      grep -l "\"fleetPaneId\": \"$FLEET_PANE\"" "$SESSIONS_DIR"/*/.state.json 2>/dev/null | while read -r other_file; do
-        [ "$other_file" = "$STATE_FILE" ] && continue
-        jq 'del(.fleetPaneId)' "$other_file" | safe_json_write "$other_file"
-        echo "Cleared stale fleetPaneId from: $(dirname "$other_file" | xargs basename)"
-      done || true
+      clear_stale_claims fleetPaneId "\"$(sed 's/[][\.*^$+?(){}|/]/\\&/g' <<< "$FLEET_PANE")\"" \
+        "$SESSIONS_DIR" "$STATE_FILE" fleetPaneId
     fi
 
     # Claim PID: clear our PID from any OTHER session that has it
     # Ensures only one session is "held" per run.sh instance
-    SESSIONS_DIR=$(dirname "$DIR")
-    grep -l "\"pid\": $TARGET_PID" "$SESSIONS_DIR"/*/.state.json 2>/dev/null | while read -r other_file; do
-      [ "$other_file" = "$STATE_FILE" ] && continue
-      jq 'del(.pid)' "$other_file" | safe_json_write "$other_file"
-      echo "Cleared stale PID from: $(dirname "$other_file" | xargs basename)"
-    done || true
+    clear_stale_claims pid "$TARGET_PID" "$SESSIONS_DIR" "$STATE_FILE" PID
 
     # Create directory if needed
     mkdir -p "$DIR"
@@ -1748,20 +1777,14 @@ case "$ACTION" in
     if [ -z "$FLEET_PANE_C" ]; then
       FLEET_PANE_C=$(get_fleet_pane_id 2>/dev/null || echo "")
     fi
+    SESSIONS_DIR_C=$(dirname "$DIR")
     if [ -n "$FLEET_PANE_C" ]; then
-      SESSIONS_DIR_C=$(dirname "$DIR")
-      grep -l "\"fleetPaneId\": \"$FLEET_PANE_C\"" "$SESSIONS_DIR_C"/*/.state.json 2>/dev/null | while read -r other_file; do
-        [ "$other_file" = "$STATE_FILE" ] && continue
-        jq 'del(.fleetPaneId)' "$other_file" | safe_json_write "$other_file"
-      done || true
+      clear_stale_claims fleetPaneId "\"$(sed 's/[][\.*^$+?(){}|/]/\\&/g' <<< "$FLEET_PANE_C")\"" \
+        "$SESSIONS_DIR_C" "$STATE_FILE" >/dev/null
     fi
 
     # Claim PID: clear our PID from any OTHER session that has it (same as activate)
-    SESSIONS_DIR_C=$(dirname "$DIR")
-    grep -l "\"pid\": $TARGET_PID" "$SESSIONS_DIR_C"/*/.state.json 2>/dev/null | while read -r other_file; do
-      [ "$other_file" = "$STATE_FILE" ] && continue
-      jq 'del(.pid)' "$other_file" | safe_json_write "$other_file"
-    done || true
+    clear_stale_claims pid "$TARGET_PID" "$SESSIONS_DIR_C" "$STATE_FILE" >/dev/null
 
     # PID Cache: write on continue (same as activate)
     echo "$DIR" > "$SESSION_CACHE_DIR/claude-session-cache-$TARGET_PID" 2>/dev/null || true

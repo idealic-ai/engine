@@ -199,6 +199,74 @@ CLAUDE_SUPERVISOR_PID=$$ bash "$SESSION_SH" continue "$CF2_ACTIVE" > /dev/null 2
 CF2_STALE_PID=$(jq -r '.pid // "cleared"' "$CF2_STALE/.state.json" 2>/dev/null)
 assert_eq "CF2: stale session PID cleared" "cleared" "$CF2_STALE_PID"
 
+# CF3: a session not touched within ENGINE_CLAIM_SCAN_DAYS is never read
+echo ""
+echo "CF3: claim scan skips state files older than the scan window"
+deactivate_all
+
+CF3_OLD="$SANDBOX/sessions/CF3_OLD"
+create_state_fleet "$CF3_OLD" "test" "fleet:target:Worker" "99997"
+touch -t 202501010000 "$CF3_OLD/.state.json"
+
+CF3_ACTIVE="$SANDBOX/sessions/CF3_ACTIVE"
+create_state_fleet "$CF3_ACTIVE" "loop" "fleet:target:Worker" "99999"
+
+ENGINE_CLAIM_SCAN_DAYS=14 CLAUDE_SUPERVISOR_PID=$$ bash "$SESSION_SH" continue "$CF3_ACTIVE" > /dev/null 2>&1 || true
+
+CF3_OLD_FLEET=$(jq -r '.fleetPaneId // "cleared"' "$CF3_OLD/.state.json" 2>/dev/null)
+assert_eq "CF3: old session left untouched" "fleet:target:Worker" "$CF3_OLD_FLEET"
+
+# CF4: a state file that stalls on read (a FIFO stands in for an evicted synced file)
+# costs at most the per-file timeout, and the other stale claims are still cleared
+echo ""
+echo "CF4: a stalled state file is skipped after the per-file timeout"
+deactivate_all
+rm -rf "$SANDBOX/sessions/CF3_OLD"
+
+CF4_STALL="$SANDBOX/sessions/CF4_STALL"
+mkdir -p "$CF4_STALL"
+mkfifo "$CF4_STALL/.state.json"
+
+CF4_STALE="$SANDBOX/sessions/CF4_STALE"
+create_state_fleet "$CF4_STALE" "test" "fleet:target:Worker" "99996"
+
+CF4_ACTIVE="$SANDBOX/sessions/CF4_ACTIVE"
+create_state_fleet "$CF4_ACTIVE" "loop" "fleet:target:Worker" "99999"
+
+CF4_START=$(date +%s)
+ENGINE_CLAIM_SCAN_TIMEOUT=1 CLAUDE_SUPERVISOR_PID=$$ bash "$SESSION_SH" continue "$CF4_ACTIVE" > /dev/null 2>&1 || true
+CF4_ELAPSED=$(( $(date +%s) - CF4_START ))
+
+assert_eq "CF4: continue finishes within 10s despite the stalled file" "yes" "$([ "$CF4_ELAPSED" -lt 10 ] && echo yes || echo "no (${CF4_ELAPSED}s)")"
+CF4_STALE_FLEET=$(jq -r '.fleetPaneId // "cleared"' "$CF4_STALE/.state.json" 2>/dev/null)
+assert_eq "CF4: other stale session still cleared" "cleared" "$CF4_STALE_FLEET"
+
+# CF5: outside TEST_MODE the scan runs in the background, so continue returns before it finishes
+echo ""
+echo "CF5: claim scan is detached from continue by default"
+deactivate_all
+
+CF5_START=$(date +%s)
+env -u TEST_MODE ENGINE_CLAIM_SCAN_TIMEOUT=20 CLAUDE_SUPERVISOR_PID=$$ bash "$SESSION_SH" continue "$CF4_ACTIVE" > /dev/null 2>&1 || true
+CF5_ELAPSED=$(( $(date +%s) - CF5_START ))
+assert_eq "CF5: continue returns without waiting on the 20s stall" "yes" "$([ "$CF5_ELAPSED" -lt 15 ] && echo yes || echo "no (${CF5_ELAPSED}s)")"
+rm -rf "$CF4_STALL"
+
+# CF6: a PID claim matches the whole number only
+echo ""
+echo "CF6: PID claim does not clear a longer PID that shares the prefix"
+deactivate_all
+
+CF6_LONGER="$SANDBOX/sessions/CF6_LONGER"
+create_state_fleet "$CF6_LONGER" "test" "fleet:other:Pane" "${$}7"
+
+CF6_ACTIVE="$SANDBOX/sessions/CF6_ACTIVE"
+create_state_fleet "$CF6_ACTIVE" "loop" "fleet:target:Worker" "99999"
+
+CLAUDE_SUPERVISOR_PID=$$ bash "$SESSION_SH" continue "$CF6_ACTIVE" > /dev/null 2>&1 || true
+CF6_PID=$(jq -r '.pid // "cleared"' "$CF6_LONGER/.state.json" 2>/dev/null)
+assert_eq "CF6: longer PID kept" "${$}7" "$CF6_PID"
+
 # --- Summary ---
 echo ""
 echo "======================================="
