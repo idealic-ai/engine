@@ -19,6 +19,7 @@ When the inventory finds a gap a Registered thread will need:
 - **Axes**: correctness (against truth or independent judges), stability (across repeats, pooled per cell), completeness (did it keep everything it should), and cost. Report them together; any one alone can be won by a regression on another.
 - **Smallest version**: one script over stored outputs that prints each axis with denominators, versioned, with its version in every output row.
 - **Its controls**: scores the gold set itself first and gets it right except listed, explained exceptions; a perturbed gold loses exactly what was perturbed.
+- **Gold is versioned**: the gold carries a version, sealed beside the design, and every score names it. A gold revision re-scores affected runs at $0 as DESCRIPTIVE ONLY (`¶INV_EXP_GOLD_IS_VERSIONED`).
 - **Reason, measured**: the first yardstick had no completeness axis, so dropping rows would have scored as improvement. One comparison measured printed strings instead of identities and reported a drift the pipeline had already joined. A scorer version absent from its output let the verdict tool mix two scoring rules. Logic copied into three places instead of imported drifted apart.
 
 ### Census over stored data
@@ -37,7 +38,8 @@ When the inventory finds a gap a Registered thread will need:
 - **Answers**: does this arm beat its control, with the controls present that make the answer mean something.
 - **Checks**: a placebo arm; a same-batch null; distinct inputs after near-duplicate clustering; derived held-out documents; a registered design whose hash matches; document-level resampling; an attainable p; guards against base. It prints one verdict word or `NO VERDICT: missing …`.
 - **Smallest version**: reads the sealed design and per-unit outputs, runs a document-level permutation test and the guard checks, and refuses rather than guesses.
-- **Its controls**: replays of finished experiments reproduce their hand verdicts; each refusal has a test.
+- **Its controls**: replays of finished experiments reproduce their hand verdicts; each refusal has a test. A change to the verdict tool replays every stored verdict and reports how many verdict lines moved (`¶INV_EXP_REPLAY_AFTER_THE_VERDICT`).
+- **Deterministic designs**: the tool accepts a sealed placebo waiver for arms that are deterministic over one shared read, and still requires a null: a second, independent paid read of the same documents with both arms applied to each read, so the null measures read-to-read noise. Re-running deterministic code over the same read is not a null (`¶INV_EXP_DETERMINISTIC_ARMS_SEAL_A_NULL`).
 - **Reason, measured**: its first review found the placebo could be the control arm, a missing guard field passed, NaN became p = 0, and the placebo rule waved regressions through. Switching to document-level resampling flipped three earlier verdicts, one LAND to NO VERDICT and one LAND to NO-EFFECT. A zero bootstrap bar from too few documents let an arm land on margin over noise. It fails closed: across four days every tooling defect cost spend or a NO VERDICT, never a false LAND.
 
 ### Touch ledger and derived held-out split
@@ -70,8 +72,15 @@ When the inventory finds a gap a Registered thread will need:
 
 ### Preflight and scaffolding
 - **Answers**: is this run allowed to start.
-- **Smallest version**: refuses `OPEN` markers, an uncommitted design, a missing `Lever:` line, and a stale registration; `new <slug>` claims the experiment number and scaffolds the folder.
-- **Reason, measured**: folders without a `Lever:` line blocked every lane's ledger regeneration twice in one evening. Experiment numbers collided more than once when lanes numbered themselves.
+- **Smallest version**: `new <slug>` claims the experiment number from the conductor's ledger and scaffolds the folder. One `register-and-launch` command registers the run and starts it, so nothing can fall between the two. Before either, preflight refuses:
+  - `OPEN` markers, an uncommitted design, or a missing `Lever:` line;
+  - a design with no held-out block or no sealed null;
+  - a built-inputs commit that does not contain the declared build script;
+  - documents from a draw the pinned ledger has never scanned;
+  - a stale registration;
+  - an experiment number not claimed through `new`;
+  - run outputs or receipts under `runs/` dated before the registration.
+- **Reason, measured**: folders without a `Lever:` line blocked every lane's ledger regeneration twice in one evening. Experiment numbers collided more than once when lanes numbered themselves, including after the rule was written. A design copied from an older one lacked its held-out block and got a procedural NO VERDICT with the data held out 46 of 46. Two built-inputs commits pointing at the product commit made all 10 documents of one run in-sample. Draws registered before the ledger had scanned them cost runs their verdicts twice. A pre-run receipt left in the folder kept a retired read alive across every ledger regeneration. Each of these was caught only by the verdict, after the money was spent.
 
 ### Proof pages and review UI
 - **Answers**: can someone who was not there see what happened and disagree with it.

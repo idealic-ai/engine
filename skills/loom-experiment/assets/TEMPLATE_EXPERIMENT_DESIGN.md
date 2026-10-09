@@ -13,19 +13,21 @@
 *   **What "solved" looks like / what leaves it open**: [...]
 *   **Rung** (lever ladder) and why the cheaper rung was ruled out: [...]
 *   **The $0 look this rests on**: [census/replay path, its numbers with denominators]
+*   **Downstream dry run**: [base arm through every stage the metric reads: documents the change can reach, k of n]
 
 ## 2. Arms
 *Each arm differs from its named control by exactly one change.*
 *   **base** — [the shipped behaviour, sent digest `<sha>`]
 *   **[arm]** vs base — [the one change]; arm file `arms/<file>` sha `<sha>`
 *   **placebo** vs base — [same channel, no information under test]; shown neutral on: [guards]
-*   **same-batch null** — [control re-runs interleaved with the arms]
+*   **same-batch null** — [control re-runs interleaved with the arms; for deterministic arms over one shared read: a second independent paid read of the same documents with both arms applied to each, and why the placebo is waived]
 
 ## 3. Metric
 *   **Primary**: [name] = [numerator] / [denominator]; unit = document; [per-read | pooled per cell]
 *   **Can it lose?** base and placebo expected at: [value] (not zero by construction)
 *   **Completeness axis**: [what stops "answer less" from winning]
 *   **Noise bar**: [same-batch null | document bootstrap, draws, seed]
+*   **Gold**: [path] version [v] sealed at [commit]
 *   **Rule**: LAND if [effect > bar and p < α on document-level permutation], α = [..]
 
 ## 4. Guards
@@ -52,7 +54,7 @@
 
 ## 8. Registration
 *   **Run id**: [id] · **Registered at**: [store time] · **Corpus pin**: [ledger commit]
-*   **First call**: [time] (within minutes of registration)
+*   **First call**: [time] (launched by register-and-launch)
 
 ## 9. Revisions (append-only, dated)
 *   [YYYY-MM-DD HH:MM] — [what changed, why, and whether it is a new arm]

@@ -54,6 +54,41 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 **Incident**: one lane's $0 built inputs burned its fourteen-document slate; another's inputs silently became reads and a $20.74 run lost its verdict.
 **Guard**: declare built inputs in the sealed design.
 
+### ¶PTF_BUILT_INPUTS_SEALED_AT_THE_WRONG_COMMIT
+**What happens**: the design's built-inputs commit points at a commit that does not contain the build script, so the tooling cannot see the inputs as built and counts them as reads.
+**Incident**: two sealing errors in one day pointed built inputs at the product commit instead of the experiment commit; one made all 10 documents in-sample after $7.89.
+**Guard**: preflight refuses a built-inputs commit that does not contain the declared build script.
+
+### ¶PTF_COPIED_DESIGN_DROPS_A_BLOCK
+**What happens**: a design copied from an earlier experiment's shape lacks a block the verdict now needs.
+**Incident**: a design copied from an older one had no held-out block; the data was held out 46 of 46, but the verdict was a procedural NO VERDICT.
+**Guard**: preflight refuses a design without a held-out block, a sealed null, or any other block the verdict reads.
+
+### ¶PTF_DRAW_NOT_IN_THE_LEDGER
+**What happens**: freshly drawn documents are registered before the ledger has scanned the draw, so the run's first store write postdates the pinned ledger and the first call cannot be vouched for.
+**Incident**: one run's verdict refused because the draw folder was not in the ledger pinned at registration; that run spent $12.71 and an earlier run had hit the same.
+**Guard**: add the draw to the ledger and regenerate before registering; preflight refuses documents the pinned ledger has never seen.
+
+### ¶PTF_PRE_RUN_FILES_IN_THE_FOLDER
+**What happens**: a file written into the experiment folder before the first call (an attempt, a probe receipt) is scanned as a read, and retiring it in the ledger does not stick.
+**Incident**: a retired pre-run read kept coming back because the folder scan re-added it from the file's modification time on every regeneration; the run stayed `NO VERDICT: held-out/cluster drift` and was recorded as descriptive only.
+**Guard**: keep pre-run attempts and probe receipts outside the experiment folder; preflight refuses run outputs or receipts under `runs/` dated before the registration.
+
+### ¶PTF_HAND_CHECK_NOT_DOWNSTREAM
+**What happens**: a hand-check of the page predicts how many documents a fix will move, but later stages never reach the fixed step on those documents.
+**Incident**: a hand-check predicted about ten movers of twelve; the paid run moved 0 of 12, because 387 of 406 scenarios were blocked before the fixed stage. The fix's earlier gain had been measured on the documents it was developed on.
+**Guard**: a $0 dry run of the base arm through every downstream stage before paying (`¶INV_EXP_DRY_RUN_DOWNSTREAM`); quote in-sample gains as ceilings.
+
+### ¶PTF_DETERMINISTIC_DESIGN_WITHOUT_A_NULL
+**What happens**: a design with deterministic arms over one shared read waives the placebo and seals no null, and the verdict tool refuses.
+**Incident**: `NO VERDICT: missing same-batch null` after $13.14, with a rule outcome of NO-EFFECT.
+**Guard**: seal a placebo waiver and a real null — a second, independent paid read of the same documents with both arms applied to each read, so the null measures read-to-read noise (`¶INV_EXP_DETERMINISTIC_ARMS_SEAL_A_NULL`).
+
+### ¶PTF_GOLD_MOVED_UNDER_THE_VERDICT
+**What happens**: the truth set changes after a verdict, and the old verdict keeps being quoted as if it were scored under the new one.
+**Incident**: a gold revision after an expert ruling turned a registered LAND into NO-EFFECT on re-score, and a running experiment was still scoring under the old rule.
+**Guard**: version the gold; re-score affected verdicts at $0 and label them descriptive (`¶INV_EXP_GOLD_IS_VERSIONED`).
+
 ### ¶PTF_SEED_COPY_COUNTED_AS_READ
 **What happens**: seeding a run by copying stored stages is ledgered as a fresh read.
 **Incident**: an arm whose rule said LAND got NO VERDICT partly on this; the fix recognised 5,573 copied stages by identical object hashes.
@@ -77,7 +112,7 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 ### ¶PTF_STALE_REGISTRATION
 **What happens**: a run is registered well before its first call, or from a checkout at an old ledger, and the verdict refuses it.
 **Incident**: a 15.8-minute gap cost a $19.49 run its verdict; another run registered with a stale corpus pin from a main checkout.
-**Guard**: register last, from the current ledger head; preflight refuses stale registrations.
+**Guard**: register last, from the current ledger head, with registration and launch in one command; preflight refuses stale registrations.
 
 ### ¶PTF_UNBALANCED_ARMS
 **What happens**: a treatment arm runs on fewer documents than the design names, and the comparison collapses.
@@ -143,6 +178,11 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 **Incident**: reviews proved the old code fails replay on post-change histories; the cutover was run with no open runs and no rollback path.
 **Guard**: version markers, worker-swap replay tests, clean cutover, never two workers.
 
+### ¶PTF_ROLLBACK_THROUGH_A_ONE_WAY_DOOR
+**What happens**: a release passes every per-change review, but a migration cannot be undone and the deploy's automatic rollback would restore code that fails on the new schema.
+**Incident**: a migration dropped a table the production code still wrote, with no one-way-door marker; only a release-level safety review saw it.
+**Guard**: a read-only production-safety review of the release as it will deploy (`¶INV_EXP_PRODUCTION_SAFETY_BEFORE_SHIPPING`).
+
 ### ¶PTF_ENV_SWITCH_LEFTOVER
 **What happens**: a feature stays behind an environment variable after it is measured, and runtime behaviour depends on how each process was started.
 **Incident**: the operator ruled env switches out; the example env file still documented the switch and needed a separate cleanup.
@@ -177,13 +217,18 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 
 ### ¶PTF_TRANSCRIPT_ONLY_ANSWER
 **What happens**: an agent answers in its reply only, and the answer dies with the context.
-**Incident**: a lane finished with no report on disk and had to be resumed to write it; a probe's answer survived only because the conductor saved it.
-**Guard**: every brief names an absolute report path.
+**Incident**: a lane finished with no report on disk and had to be resumed to write it; a probe's answer survived only because the conductor saved it. Later, the harness refused subagent report writes at least ten times, so the lane could not write the file even when told to.
+**Guard**: the brief names the report path; the lane returns the full report in its hand-back; the conductor saves it (`¶INV_EXP_ANSWERS_GO_TO_DISK`).
 
 ### ¶PTF_SAFEGUARD_KILL
 **What happens**: an API safeguard false positive kills a lane mid-build.
 **Incident**: four lanes doing ordinary build work were killed this way, one just before its paid arm.
 **Guard**: resume by id; if it recurs, relaunch on another model, told to resume from disk.
+
+### ¶PTF_IDS_LOST_ON_RESTART
+**What happens**: the harness restarts, every old lane id stops resuming, and hand-backs from lanes started before the restart arrive with no name or never arrive.
+**Incident**: after a restart, resume-by-id failed for every running lane; one finished lane's hand-back never reached the conductor, whose log could only say "lane name unknown; recover from disk".
+**Guard**: replace each lane with a fresh agent carrying a written recovery preamble; recover from disk, git and receipts before acting (`¶INV_EXP_RESUME_BY_ID`).
 
 ### ¶PTF_RELAYED_BRIEF_REFUSED
 **What happens**: a smaller model treats a relayed brief or approval as unverifiable and does nothing.
@@ -207,6 +252,11 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 **Incident**: the next review of that round found two new MUSTs before switch-on.
 **Guard**: re-review every fix round that changed code.
 
+### ¶PTF_FIX_AFTER_THE_MEASUREMENT
+**What happens**: review or integration changes code after the paid run measured it, and the landing cites a verdict for code that no longer exists.
+**Incident**: a review MUST changed a landed arm's window code after its registered run; it was caught and replayed at $0 (99 of 99 units identical) before the proof page went out.
+**Guard**: replay the measured experiment through the changed code (`¶INV_EXP_REPLAY_AFTER_THE_VERDICT`).
+
 ### ¶PTF_TEST_PASSES_ON_PARENT
 **What happens**: a new test passes on the old code, so it proves nothing about the change.
 **Incident**: a unit test for a new exclusion passed on the parent commit.
@@ -224,8 +274,8 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 
 ### ¶PTF_UNCOORDINATED_NUMBERING
 **What happens**: lanes number experiments themselves, or a folder lacks the line the ledger generator needs.
-**Incident**: experiment numbers collided more than once; folders without a `Lever:` line blocked every lane's ledger regeneration twice in one evening.
-**Guard**: the conductor assigns numbers; the `Lever:` line is in the first commit.
+**Incident**: experiment numbers collided more than once, including after the rule was written, and the same thing happened to migration and prompt-version counters shared by several branches; folders without a `Lever:` line blocked every lane's ledger regeneration twice in one evening.
+**Guard**: the conductor assigns numbers through a claiming tool that refuses a number already taken; the `Lever:` line is in the first commit.
 
 ### ¶PTF_STALE_NUMBER
 **What happens**: a figure is quoted after the thing it measured changed.
