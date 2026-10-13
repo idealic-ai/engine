@@ -6,6 +6,15 @@
 
 *Written before the first paid call. A draft may carry `OPEN` markers; a run may not start from one. Never edited after results exist — changes go under "Revisions", dated.*
 
+## 0. Prior work (quoted, not summarised)
+*   **Searches run**: the project's prior-work search (finch: `study:stoplist prior-work`) for "[lever]" and for "[field or arm name]", at [commit]
+*   **Output** (verbatim, top 10 of each search):
+    ```
+    [paste]
+    ```
+*   **Stop-listed hits**: [exp N — outcome — its reopen condition — fired? (yes, by exp M | no) — how this design differs]
+*   **None found**: [only beside the searches above that returned nothing relevant]
+
 ## 1. The question and the decision
 *   **Question** (can come out either way): [...]
 *   **Decision it changes**: if yes → [ship / turn on / build X]; if no → [park / try Y].
@@ -19,8 +28,9 @@
 *Each arm differs from its named control by exactly one change.*
 *   **base** — [the shipped behaviour, sent digest `<sha>`]
 *   **[arm]** vs base — [the one change]; arm file `arms/<file>` sha `<sha>`
-*   **placebo** vs base — [same channel, no information under test]; shown neutral on: [guards]
+*   **placebo** vs base — [same channel, no information under test]; **role**: [wording — expected inside the noise bar; outside it means NO VERDICT | label-breaking — expected worse than control]; never widens the bar; shown neutral on: [guards]
 *   **same-batch null** — [control re-runs interleaved with the arms; for deterministic arms over one shared read: a second independent paid read of the same documents with both arms applied to each, and why the placebo is waived]
+*   **Bundle components** (bundles only, `¶INV_EXP_BUNDLE_SAME_STAGE_CHANGES`; design field `components`): one row per component — `{ "id": "<b-X>", "switch": "<env or flag>", "stage": "<the one stage all components change>", "targetMetric": "<its own metric>", "targetRows": "<rows it is meant to move>", "leaveOneOut": <true|false> }`. Every component switches on in the bundle arm and off in control and placebo.
 
 ## 3. Metric
 *   **Primary**: [name] = [numerator] / [denominator]; unit = document; [per-read | pooled per cell]
@@ -33,7 +43,9 @@
 ## 4. Guards
 *   **Absolute** (judged against base; a placebo cannot excuse): cost ≤ +[x]%, output tokens ≤ +[x]%, latency ≤ +[x]%
 *   **Quality** (measured null bar): [wrong merges ≤ base + bar, completion ≥ base − bar, …]
-*   **Positive control**: [a planted or known case each absence-type guard must catch]
+*   **Positive control**: [a planted harm each quality guard must trip on, and the result]
+*   **Null check and budget**: [stored control pair; any-guard false-trip rate for the family ≤ x]
+*   **Calibrated at**: [repeats r — must equal this design's repeats, or recalibrate at $0 first]
 
 ## 5. Documents
 *   **Selection rule**: [query over the derived held-out pool, at ledger `<commit>`]
@@ -41,12 +53,14 @@
 *   **Carry the defect**: [k of n chosen documents show it in the $0 look]
 *   **Power**: [n documents × r repeats; smallest attainable p; minimum detectable effect vs claimed effect]
 *   **Built inputs** (declared so they are not counted as reads): [paths, commit]
+*   **Design contact** (design field `designContact`, `¶INV_EXP_REUSE_BY_LEVER_AND_CONTACT`): `{ "ids": ["<doc>", …], "why": "<what the lane looked at each for while writing the change>" }` — documents a lane studied to design this change. They are left out of the held-out pool even where the ledger derives them held out. The list only adds exclusions to what the tool computes; it never makes a document reusable.
 
 ## 6. Runtime
 *   **Worker / queues**: [private worker, private queue names, code pinned at `<commit>`]
 *   **Entry point and flags**: [command; flags that stop later stages]
 *   **Intervention check**: [compiled sent text contains the arm; removal restores base byte for byte; digest recorded per record]
 *   **Receipts**: [path convention]
+*   **Stages written** (design fields `levers` and `registered.stages`; `finch-sdk study preseal --stages` defaults to `registered.stages`): every store stage any call of the run writes a receipt under, including a shared base read — e.g. `"levers": ["reading", "clauses"]`, `"registered": { "stages": ["reading", "clauses"] }`. Each stage must be among `levers`, or the shared read must be a sealed screen run. Preseal also reads the folder's runner scripts (and the runners they name) for the stages their receipts land on, and refuses a lever `levers` lacks — so a shared clause read through a clause runner counts as `clauses` even when the design studies `reading`.
 
 ## 7. Money
 *   **Estimate**: $[n] ([calls] × [$/call]) · **Cap**: $[n] · **Stop rule**: [at a block boundary when …]

@@ -6,8 +6,8 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 
 ### ¶PTF_AUTHOR_DECLARED_HELD_OUT
 **What happens**: the author picks which documents are "held out", and picks in the arm's favour, usually without meaning to.
-**Incident**: an arm re-declared eight in-sample documents as held out and loosened its cluster rule; derived by tooling, 15 of its 16 documents were in-sample.
-**Guard**: held-out comes from the touch ledger and a committed cluster rule (`¶INV_EXP_HELD_OUT_IS_DERIVED`).
+**Incident**: an arm re-declared eight in-sample documents as held out and loosened its cluster rule; derived by tooling, 15 of its 16 documents were in-sample. Later a rule change proposed to reuse any document a lane's own contact file did not name — the same exemption by another route; three reviewers caught it independently.
+**Guard**: held-out and contact come from the touch ledger and committed rules; an author's list only adds exclusions (`¶INV_EXP_HELD_OUT_IS_DERIVED`).
 
 ### ¶PTF_REPEATS_COUNTED_AS_DOCUMENTS
 **What happens**: repeats of one document are treated as independent observations, and a small effect looks significant.
@@ -33,6 +33,31 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 **What happens**: a guard trips, the placebo trips too, and the rule calls it noise — letting a real cost through.
 **Incident**: a schema field cleared its token gate this way; judged directly against base it cost +8.9% against a 5% gate. Another arm excused +28.9% cost with a +50.1% placebo; elsewhere a placebo itself made 20 wrong joins.
 **Guard**: guards against base; cost, tokens and latency are absolute; a placebo must be shown neutral before it excuses anything.
+
+### ¶PTF_PLACEBO_GAP_BECOMES_THE_BAR
+**What happens**: a placebo moves the metric and its gap from control becomes the bar the arm must clear — too low when a wording placebo leaked information, impossibly high when a label-breaking placebo was used as a margin — or the failed placebo check is only printed as a flag.
+**Incident**: one run's bar became a label-breaking placebo's gap, 0.585 against a document noise bar of 0.034, and no arm could land. The tool's comparable checks were printed flags that never stopped a LAND.
+**Guard**: seal each placebo's role; a wording placebo outside the noise bar gives NO VERDICT with the reason named; a label-breaking placebo must come out worse than control and never widens the bar (`¶INV_EXP_PLACEBO_ALWAYS`).
+
+### ¶PTF_GUARD_BLIND_UNDER_THE_NULL
+**What happens**: a guard is tuned until it rarely trips on a null arm, and in the process stops seeing the harm it was built for.
+**Incident**: a calibration proposal sealed any guard that tripped at most 10% of the time under the null and named no positive control; one guard had already been redefined this way and was caught only by a critic. Budgeted per guard, five guards at 10% give about a 41% chance of a false trip on a null arm.
+**Guard**: a planted-harm positive control the guard must trip on, beside the null check; false trips budgeted per arm or guard family (`¶INV_EXP_GUARDS_HAVE_TWO_CONTROLS`).
+
+### ¶PTF_REPEATS_CHANGED_UNDER_A_CALIBRATION
+**What happens**: a design runs fewer repeats than its guard was calibrated at, and the guard's false-trip rate quietly multiplies.
+**Incident**: a guard calibrated at 3 repeats (0.003 false trips per document) would have run at 2 (0.017), about 7% against 35% per 25-document run; its label pinned values, not the repeat count, so the tool would not have noticed.
+**Guard**: the calibration records its repeat count; preseal refuses a mismatch (`¶INV_EXP_GUARD_CALIBRATION_PINS_THE_REPEATS`).
+
+### ¶PTF_VERDICT_CODE_REWRITES_SEALED_RUNS
+**What happens**: a change to how the verdict tool evaluates an existing rule value changes what every old sealed design prints on re-verdict, after its outcome is known.
+**Incident**: deleting one margin term would have rewritten re-verdicts of 128 sealed design files and moved one run's bar from 0.585 to 0.034. The tool's own revision comparison applied the same code defaults on both sides and could not see it.
+**Guard**: new statistics as new sealed values, fields or a method version; a full-output replay of every stored verdict before merging (`¶INV_EXP_SEALED_MEANING_NEVER_CHANGES`).
+
+### ¶PTF_ONE_SIDED_SCOREBOARD
+**What happens**: the programme tracks only how often runs reach a verdict, so a change that lets false LANDs through looks like progress.
+**Incident**: moves to cut procedural NO VERDICT spend were judged on that number alone; nothing recorded whether any of 16 registered LANDs had later held.
+**Guard**: track each LAND as held, reversed or untested, and gate every loosening on it (`¶INV_EXP_LANDS_HAVE_A_COUNTER_METRIC`).
 
 ### ¶PTF_METRIC_THAT_CANNOT_LOSE
 **What happens**: the primary metric is zero for base and placebo by construction, so any arm "wins".
@@ -88,6 +113,16 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 **What happens**: the truth set changes after a verdict, and the old verdict keeps being quoted as if it were scored under the new one.
 **Incident**: a gold revision after an expert ruling turned a registered LAND into NO-EFFECT on re-score, and a running experiment was still scoring under the old rule.
 **Guard**: version the gold; re-score affected verdicts at $0 and label them descriptive (`¶INV_EXP_GOLD_IS_VERSIONED`).
+
+### ¶PTF_STAGE_LEVER_MISMATCH
+**What happens**: a run writes a stage its design does not declare as a lever — often through a stage name hard-coded in the entry point — and the verdict refuses the run after the money is spent.
+**Incident**: a registered run got `NO VERDICT` with "wrote clauses, which the design does not declare"; a later run declared only the reading lever, wrote its receipts under a hard-coded clause stage, passed preseal, and was finished as descriptive only — re-registering would have made its documents in-sample on its own receipts.
+**Guard**: preseal simulates the stages the run will write, receipt paths included, against the declared levers and refuses a mismatch; the lane lists the stages in the design (`TOOLING.md`, *Preflight and scaffolding*).
+
+### ¶PTF_LEDGER_MISATTRIBUTES_STAGE
+**What happens**: the touch ledger files a run's reads under the wrong lever, so documents the run read derive as held out on the lever it actually touched.
+**Incident**: one run's fact reads were recorded as clauses-only; its 7 documents derived as held out on reading, and a lane designing a reading bundle had to exclude them by hand.
+**Guard**: attribute stages from what each run wrote, not from its declared lever; print per-run stage counts on every regeneration and check them before trusting a derived split (`¶INV_EXP_REUSE_BY_LEVER_AND_CONTACT`).
 
 ### ¶PTF_SEED_COPY_COUNTED_AS_READ
 **What happens**: seeding a run by copying stored stages is ledgered as a fresh read.
@@ -156,6 +191,11 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 **Incident**: a council over measured results found every paid lever it had proposed measured and rejected; about $75–108 had ended in procedural NO VERDICT.
 **Guard**: council the data when nulls accumulate; write a stop list; switch to $0 hardening.
 
+### ¶PTF_HEADLINE_MIXES_ERAS
+**What happens**: a waste figure pools spend from before and after the protection against that waste landed, so causes already fixed inflate today's headline and the case for the next fix.
+**Incident**: "21% of spend ended in procedural NO VERDICT" was almost all from before a preseal check landed; after it, only two runs ended that way, each for a new reason. A companion "87% tonight" rested on four runs.
+**Guard**: split spend by outcome and by NO VERDICT reason, against the date each protection landed; attribute each run by its first registered verdict; give every share its denominator.
+
 ## Execution
 
 ### ¶PTF_SHARED_QUEUE_POACHING
@@ -185,8 +225,18 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 
 ### ¶PTF_ENV_SWITCH_LEFTOVER
 **What happens**: a feature stays behind an environment variable after it is measured, and runtime behaviour depends on how each process was started.
-**Incident**: the operator ruled env switches out; the example env file still documented the switch and needed a separate cleanup.
-**Guard**: turn on in code; delete the switch and its documentation in the same change.
+**Incident**: the operator ruled env switches out; the example env file still documented the switch and needed a separate cleanup. Later the operator ruled against new flags too ("i want less flags and move movement forward"), and a fix that had been given its own flag moved onto an existing one.
+**Guard**: add no new flag or environment switch; turn on in code once reviewed and measured; where a gate is unavoidable, reuse an existing one, and delete it with its documentation in the same change that turns the behaviour on (`¶INV_EXP_SHIP_OFF_THEN_DEFAULT_IN_CODE`).
+
+### ¶PTF_ANCESTRY_MISSES_A_CHERRY_PICK
+**What happens**: "is the fix in this build?" is answered with an ancestry check on one commit id, and a cherry-picked copy of the fix under another id reads as absent.
+**Incident**: an ancestry check said a memory-release fix was missing from all three pinned trees of a run that crashed; the same patch was in both solve trees under other commit ids. The diagnosis "the pin predates the fix" was wrong, and the crash happened with the fix present.
+**Guard**: compare patch-ids (`git patch-id --stable`, or `git log --cherry-pick`), or read the fixed code at the pin; never conclude from `merge-base --is-ancestor` alone.
+
+### ¶PTF_BIGGER_BOX_FOR_A_PER_PROCESS_CAP
+**What happens**: a memory crash is blamed on the machine, and a bigger one is bought, when the limit is per process.
+**Incident**: a solver library compiled to WebAssembly declares a fixed 2 GiB memory maximum in its binary; a proposal said a larger cloud machine "fixes" its out-of-memory aborts. More RAM runs more solves at once; it never gives one solve more memory.
+**Guard**: before buying capacity for a crash, find where the limit lives (binary, runtime flag, container, host); solo-retry crashed items and log their peak allocation. Judge a bigger host on per-item time and on batch time over the longest single item, since batches are tail-bound.
 
 ### ¶PTF_WHOLE_TREE_FORMAT
 **What happens**: a formatter given an empty path list formats everything.
@@ -274,8 +324,8 @@ A catalogue to consult, not to read front to back. Each entry names a failure th
 
 ### ¶PTF_UNCOORDINATED_NUMBERING
 **What happens**: lanes number experiments themselves, or a folder lacks the line the ledger generator needs.
-**Incident**: experiment numbers collided more than once, including after the rule was written, and the same thing happened to migration and prompt-version counters shared by several branches; folders without a `Lever:` line blocked every lane's ledger regeneration twice in one evening.
-**Guard**: the conductor assigns numbers through a claiming tool that refuses a number already taken; the `Lever:` line is in the first commit.
+**Incident**: experiment numbers collided more than once, including after the rule was written, and the same thing happened to migration and prompt-version counters shared by several branches; prompt revision numbers already sealed to one experiment were reused in two other lanes' drafts; folders without a `Lever:` line blocked every lane's ledger regeneration twice in one evening.
+**Guard**: the conductor assigns numbers through a claiming tool that refuses a number already taken; revision and switch numbers come from the registry in `COMMON_BRIEF.md` (`¶INV_EXP_SWITCH_NUMBERS_FROM_ONE_REGISTRY`); the `Lever:` line is in the first commit.
 
 ### ¶PTF_STALE_NUMBER
 **What happens**: a figure is quoted after the thing it measured changed.
