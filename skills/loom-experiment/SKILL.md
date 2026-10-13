@@ -1,7 +1,7 @@
 ---
 name: loom-experiment
 description: "Run many EXPERIMENTS as parallel threads under one conductor that spends money on purpose: each question goes $0 census/replay first, then — only if money has to be spent — a pre-registered, placebo-controlled paid arm scored by a verdict tool, an adversarial review, and a landing that turns on in code once it is reviewed and measured, with no new flag. A persistent session with a budget ledger recounted from receipts, a fixed model tier, a live thread ledger, operator rulings kept verbatim, and a proof page per thread. Rigor scales with the stakes: a $0 question is just answered and written down; the full machinery runs only when money is spent or behaviour is about to change. Guides the user through building the measurement tooling (scorer, census, replay, verdict, held-out ledger, spend ledger, checks) when it is missing. The experimentation sibling of /loom. Triggers: \"loom experiments\", \"spend budget to improve X\", \"run experiments overnight\", \"measure and improve\", \"experiment loom\", \"try things and land what works\"."
-version: 1.3
+version: 1.4
 tier: protocol
 ---
 
@@ -45,7 +45,7 @@ A Light thread stops after the $0 look and its proof. Tooling appears only when 
     {"label": "1", "name": "Loom",
       "steps": ["§CMD_REPORT_INTENT"],
       "commands": ["§CMD_APPEND_LOG", "§CMD_TRACK_PROGRESS", "§CMD_ASK_USER_IF_STUCK"],
-      "proof": ["intentReported", "threadsWoven", "threadDispositions", "spendLedger", "verdictsRecorded", "ledgerMaintained", "proofPages", "logEntries"]},
+      "proof": ["intentReported", "threadsWoven", "threadDispositions", "spendLedger", "verdictsRecorded", "ledgerMaintained", "surveysRun", "proofPages", "logEntries"]},
     {"label": "2", "name": "Synthesis",
       "steps": ["§CMD_REPORT_INTENT", "§CMD_RUN_SYNTHESIS_PIPELINE"], "commands": [], "proof": [], "gate": false},
     {"label": "2.1", "name": "Checklists",
@@ -67,7 +67,7 @@ A Light thread stops after the $0 look and its proof. Tooling appears only when 
 ### Assets — load on demand
 
 *   `assets/EXPERIMENT_DIRECTIONS.md` — every lane brief carries it by reference. The lane's rules.
-*   `assets/EXPERIMENT_ORGANIZATION.md` — folder layout, phrasing a question, the ladder of checks, statistics, what an actionable finding looks like. Read before designing a Registered thread.
+*   `assets/EXPERIMENT_ORGANIZATION.md` — folder layout, phrasing a question, the ladder of checks, statistics, what an actionable finding looks like, and the survey procedure. Read before designing a Registered thread or running a survey.
 *   `assets/TOOLING.md` — the measurement instruments, their smallest useful version, and how each one went wrong. Read at Setup and whenever a thread needs an instrument.
 *   `assets/INVARIANTS.md` — every `¶INV_EXP_*` rule with its Rule, Redirection and measured reason.
 *   `assets/PITFALLS.md` — the `¶PTF_*` catalogue. Consult it when something looks odd, and before sealing a design.
@@ -136,6 +136,14 @@ A Light thread stops after the $0 look and its proof. Tooling appears only when 
 *   **Reliability** — a lane killed by a limit or a safeguard is resumed by id: "resume; check disk, store and git; don't repeat paid calls" (`¶INV_EXP_RESUME_BY_ID`). After a harness restart old ids no longer resume: write a recovery preamble in the session once (read the common brief and the log from the restart, recover worktree, build files, receipts and run outputs, count what an in-flight paid run bought, log "recovered", then continue) and spawn each lane fresh with its brief plus the preamble. A hand-back from a lane whose name is lost is recovered from disk before anyone acts on it. Never start a second agent on a lane whose first may be alive.
 *   **Infra** — when the store or runtime stops, restart it from a written recipe with the operator's OK, and ask who stopped it.
 *   **Operator loop** — rulings go into the ledger and `COMMON_BRIEF.md` verbatim (`¶INV_EXP_RULINGS_ARE_VERBATIM`). While the operator is away, questions go to `MORNING_QUESTIONS.md` (template in assets) with a lean and the default taken, blockers first. On request, write a dated `HANDOFF_<date>.md` for the next conductor; do not dehydrate unless asked.
+*   **The survey** (`¶INV_EXP_SURVEY_BEFORE_SPENDING`) — a periodic, cheap look at the whole board that finds new moves, so threads come from evidence and not from the last idea. Procedure and outputs: *The survey* in `assets/EXPERIMENT_ORGANIZATION.md`. Run it at the start of each working day, after every third verdict, when paid levers keep returning NO-EFFECT, or on request; the operator may change these defaults, and the change goes into `COMMON_BRIEF.md`. It is Light: $0 on stored outputs, light on Claude tokens.
+    1.  **Census the failures** on stored outputs by root cause and by the stage that owns it, not by surface label; keep denominators, and re-read a sample to separate structural failures (they repeat) from noise (they do not).
+    2.  **Classify the wrong answers** the same way: what is wrong, which stage made it, whether a check could have seen it.
+    3.  **Rank the avenues of attack**: what each frees (counts, with denominators), its lever class (prompt or schema · code · domain ruling · measurement fix), its cost including Claude-token burden, the risk of new wrongs, and how it would be confirmed on held-out data. Every number is in-sample until confirmed; say so on the ranking.
+    4.  **Publish one big-picture page** with real examples per cause (`/prove`, or `/prove-visionary` when it proposes a direction).
+    5.  **Spawn threads** from the top avenues, each with its question, tier and $0 look first; draft tickets per group for the operator to review; file none unasked.
+    6.  **Council, sometimes.** Every second survey, or when the ranking asks for more than the operator's set share of the remaining budget (default one quarter) or proposes a new direction, convene `/council` on the survey page, and run a refutation pass on its MUSTs before acting on any.
+    Each survey lands on disk — a plan file, a census JSON and the page URL — and gets one `## 🔭 Survey` log entry linking them.
 *   **Know when to stop buying** (`¶INV_EXP_STOP_WHEN_THE_LEVERS_RUN_DRY`) — when paid levers keep returning NO-EFFECT, offer a `/council` over the measured results and write a stop list. Systems before quality: $0 hardening of the pipeline and the instruments usually beats another paid arm.
 *   **Prove every thread** at its end, while hot, per `¶INV_LOOM_EVERY_THREAD_PROVES` and the Setup publishing disposition.
 *   **Ledger** — rewrite it in place as threads advance, keeping a dated copy of the previous one. Per thread: tier, experiment number, cap and spend, verdict word and evidence class, review state, switch state, whether a LAND has held (held · reversed · untested), proof URL.
@@ -186,6 +194,7 @@ The loop-shaping rules. The full set, each with its measured reason, is `assets/
 
 *   **`¶INV_EXP_RIGOR_SCALES_WITH_STAKES`**: Light, Registered, Landing — each thread does what its tier asks and no more.
 *   **`¶INV_EXP_FREE_BEFORE_PAID`**: a $0 look at stored data runs before any paid arm, and a small pilot before a confirmation.
+*   **`¶INV_EXP_SURVEY_BEFORE_SPENDING`**: on a schedule, census failures by root cause and owning stage, rank the avenues, and spawn threads from the ranking.
 *   **`¶INV_EXP_BUDGET_IS_A_LEDGER`**: a ceiling, lane caps, and spend recounted from receipts.
 *   **`¶INV_EXP_REGISTER_BEFORE_THE_FIRST_CALL`**: a paid arm's design is sealed and its run registered before the first call; nothing designed afterwards can land.
 *   **`¶INV_EXP_HELD_OUT_IS_DERIVED`**: tooling decides which documents are held out and which are design contact; an author's list only adds exclusions.

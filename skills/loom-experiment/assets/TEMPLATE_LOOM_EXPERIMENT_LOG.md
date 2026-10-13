@@ -32,6 +32,14 @@
 *   **Partition / claims**: [files; document clusters claimed]
 *   **Shared-state turn**: [which lane holds the ledger regeneration turn]
 
+## 🔭 Survey
+*   **Trigger**: [every third verdict | start of day | levers returning NO-EFFECT | operator request] · **Survey no.**: [n]
+*   **Census**: [failures by root cause and owning stage, denominators, structural share from the repeat check] · **File**: [census JSON path]
+*   **Top avenues**: [ranked; each with what it frees, lever class, cost, risk of new wrongs, confirmation plan; in-sample caveat stated]
+*   **Plan / page**: [plan file path] · [page URL]
+*   **Spawned**: [threadIds, tiers] · **Tickets drafted**: [groups, awaiting operator]
+*   **Council**: [convened | skipped, and why] · **Refutation of MUSTs**: [upheld | rejected, per item]
+
 ## 🔏 Registration
 *   **Thread**: [threadId] · **Design**: [path @ commit] · **Run id**: [..] · **Corpus pin**: [..] · **First call**: [time]
 

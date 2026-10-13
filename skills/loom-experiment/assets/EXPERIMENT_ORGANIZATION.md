@@ -57,6 +57,21 @@ When several prompt or schema changes touch the same stage, they ship as one re-
 - **Arms**: control, bundle and placebo, in the same batch. Leave-one-out arms only for the largest or riskiest components.
 - **Documents**: a pool rich in each component's target rows, ideally one that already has gold; report how many informative documents each component gets, and say which components are underpowered rather than claiming them.
 
+## The survey
+
+A survey is a periodic, cheap pass over everything the stored outputs already say, to find new moves. It is a Light thread: $0 on stored outputs, light on Claude tokens, no pre-registration. Its product is a ranking and the threads it spawns. It never lands anything.
+
+When: the start of each working day, after every third verdict, when paid levers keep returning NO-EFFECT, or on request. Those are defaults; a ruling can change them.
+
+1.  **Census by root cause and owning stage.** Group the current failures by why they happen and which stage owns the cause, never by the label they show on the surface. Report each group with its denominator (failures out of what was measured) and the date. Re-read a sample of the same inputs: a failure that recurs across reads is structural and needs a change; one that does not is noise and needs a larger sample, not a lever.
+2.  **Classify the wrong answers the same way.** For each: what is wrong, which stage made it, and whether an existing check could have seen it. Wrong answers that no check sees are measurement fixes first.
+3.  **Rank the avenues.** One row per avenue: what it frees (counts with denominators), lever class (prompt or schema · code · domain ruling · measurement fix), cost including the Claude-token burden of building and reviewing it, the risk of new wrongs it creates, and how it would be confirmed on held-out documents. Counts are in-sample until confirmed; say so on the ranking, and size a paid confirmation from the held-out pool, not the census documents.
+4.  **Publish one page.** A single visual big picture with real examples per cause (`/prove`, or `/prove-visionary` when the ranking proposes a direction). Real examples only; apply the Setup publishing rule.
+5.  **Spawn and draft.** Each top avenue becomes a thread with its question, tier and a $0 look first. Draft tickets per group for operator review; file none unasked.
+6.  **Council, sometimes.** Every second survey, or when the ranking asks for more than a set share of the remaining budget (default one quarter) or proposes a new direction, convene `/council` on the survey page. Refute its MUST FIX findings before acting on any.
+
+Outputs land on disk in the session, not in chat: a plan file (the ranking and the spawned threads), a census JSON (the groups, denominators and repeat check, so the next survey can diff against it), and the page URL. Log one `## 🔭 Survey` entry linking them. The next survey starts from the previous census and reports what moved.
+
 ## Recording findings
 
 - Label every claim **measured**, **inferred** or **proposed**. A claim with no measurement under it is a suspicion and says so.

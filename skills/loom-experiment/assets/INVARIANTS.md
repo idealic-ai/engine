@@ -204,5 +204,10 @@ For the conductor and lanes. Evergreen rules; the measured reasons are dated evi
 *   **¶INV_EXP_STOP_WHEN_THE_LEVERS_RUN_DRY**: When paid levers keep coming back null, stop buying quality and harden the system.
     *   **Reason, measured**: a council over the measured results found every paid lever it had proposed measured and rejected, and recommended a $0 day; the operator accepted the stop list. The operator's standing line: "systems before quality".
 
+*   **¶INV_EXP_SURVEY_BEFORE_SPENDING**: On a schedule, look at the whole board at $0 before choosing the next thread.
+    *   **Rule**: Census the current failures on stored outputs by root cause and owning stage, with denominators and a repeat-stability check; classify the wrong answers the same way; rank avenues by what each frees, lever class, cost, risk of new wrongs and confirmation plan; spawn threads from the top of the ranking. Run it at the start of each working day, after every third verdict, when paid levers keep returning NO-EFFECT, and on request. Every second survey, or when the ranking asks for a large share of the remaining budget or a new direction, a council reviews the survey page and its MUSTs are refuted before anyone acts on them.
+    *   **Redirection**: when the next idea is "vote or repeat the call", or a fix named after a surface label, census the root causes first; stability decides whether repeats can help at all.
+    *   **Reason, measured**: in one run, blocked answers repeated across independent reads at 81 to 89 percent, so they were structural and voting or repeats could not fix them; the census, not the surface label, pointed each cause at its owning stage.
+
 *   **¶INV_EXP_TOOLING_IS_WORK**: A missing instrument is a thread, built at $0, smallest first, reviewed like production code.
     *   **Reason, measured**: the verdict tool, touch ledger and registration took several review rounds each and caught real defects; once in place, the loop failed closed. The operator: "be reasonable … don't overbuild" — preflight, a locked ledger regeneration and a commit helper only.
