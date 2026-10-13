@@ -89,6 +89,19 @@ When the inventory finds a gap a Registered thread will need:
   - a run whose stages do not match its declared levers. The preseal dry-run simulates the stages the run will write — including receipt paths hard-coded in the run's entry point — and refuses any stage the design does not declare as a lever.
 - **Reason, measured**: a registered run was refused a verdict with "wrote clauses, which the design does not declare"; a later run repeated the defect — its design declared only the reading lever, but its entry point wrote receipts under a hard-coded clause stage — and preseal passed it, because it checked the stages the lane listed, not the stages the run would write. Folders without a `Lever:` line blocked every lane's ledger regeneration twice in one evening. Experiment numbers collided more than once when lanes numbered themselves, including after the rule was written. A design copied from an older one lacked its held-out block and got a procedural NO VERDICT with the data held out 46 of 46. Two built-inputs commits pointing at the product commit made all 10 documents of one run in-sample. Draws registered before the ledger had scanned them cost runs their verdicts twice. A pre-run receipt left in the folder kept a retired read alive across every ledger regeneration. Each of these was caught only by the verdict, after the money was spent.
 
+### Runner box (paid calls off the laptop)
+- **Answers**: can this registered run make its paid calls somewhere the laptop's load cannot starve them, and still have its verdict read only receipts the laptop store vouches for.
+- **Smallest version**: `finch-sdk study box run <spec>` claims the run, packs it (trees by SHA, the store objects it reads, its on-disk state), launches one small tagged instance, watches its heartbeat, syncs every receipt and output back into the laptop store, and releases. `study box status <exp>` and `study box release <spec>` cover a stopped or interrupted batch. The runner runs unchanged; only the call execution moves. Registration, ledger, gold and verdict stay on the laptop.
+- **Rules**:
+  - One claim per run. While the box holds a run, the shared paid-run lease refuses that run id on the laptop. Every laptop starter (gate, loop, resume script) is stopped before the claim is taken.
+  - The box refuses before any call on any sha, version or package-set difference. Keys reach the runner's environment only, and a file containing a key is never uploaded.
+  - Sync-back refuses everything on a sha difference, a target that already holds different bytes, or a receipt that reached the bucket before the registration. It reads every written object back.
+  - Release waits for an applied sync-back and for no live box.
+- **Reason, measured**:
+  - On the laptop at load 300–390, exp 343 had 249 of 493 calls fail, each booked at its reservation. On the box the same runner answered about 15 calls a minute with 3 retries in its first 87.
+  - A first launch would never have run: the instance's startup script lacked its leading `#!`.
+  - A bulk sync-back that listed the whole laptop store (about a million objects) took 40 minutes for 52 objects.
+
 ### Proof pages and review UI
 - **Answers**: can someone who was not there see what happened and disagree with it.
 - **Rules**: real artefacts only; numbers copied from the verdict output, never re-typed; scope at the top; the publishing channel verified by fetching the page back.
