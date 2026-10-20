@@ -1,0 +1,17 @@
+{
+  "name": "decide",
+  "version": "1",
+  "description": "Mine the live session for the decisions that are actually blocking work, frame each one so it can be decided in place, optionally convene an expert panel as input, publish a shareable Decision Board, collect the human's call per item, and record what was decided — including what was decided against and why. Replaces the ad-hoc mid-thread question round, never a dispatched /interrogate a conductor requires: a question that GATHERS INFORMATION is an interrogation (/interrogate), a question that UNBLOCKS WORK is a decision (here). Fires preemptively on a conductor's cadence so a parallel run keeps moving without the operator asking to be asked, and every item names what deciding it unblocks. A building block: it surfaces, asks, and records — it never executes the decided work, and it never tallies a vote across people.",
+  "tier": "lightweight",
+  "sibling": "interrogate",
+  "sharedAssets": {
+    "publish": "~/.claude/engine/skills/prove/assets/publish-s3.sh",
+    "publishKit": "~/.claude/engine/skills/prove/assets/publish-kit.sh",
+    "stateSync": "~/.claude/engine/skills/prove/assets/prove-sync.sh",
+    "boardHandoff": "~/.claude/engine/skills/decide/assets/TEMPLATE_DECISION_BOARD_PROMPT.md",
+    "boardSkeleton": "~/.claude/engine/skills/decide/assets/skeletons/decision-board.skeleton.html",
+    "boardPayloadSchema": "~/.claude/engine/skills/intake/assets/PAYLOAD_SCHEMA.md",
+    "stateTransport": "~/.claude/engine/skills/prove/assets/STATE_TRANSPORT.md",
+    "councilBrief": "~/.claude/engine/skills/council/assets/TEMPLATE_COUNCIL_BRIEF.md"
+  }
+}

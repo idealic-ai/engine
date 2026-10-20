@@ -1,0 +1,829 @@
+<!doctype html>
+<!--
+  ══════════════════════════════════════════════════════════════════════════════════════════
+  DECISION BOARD — the starting artifact. Copy this file; fill it; cut what this board has no
+  content for. Do not compose a board from parts, and do not open a blank file.
+
+  TWO CONSUMERS, ONE SKELETON.
+    · /intake  — a wave's decision surface. Items are triaged inbox signals.
+    · /decide  — a build loop's decision surface. Items are forks that are holding work up.
+  Nothing below is wave-only or loop-only: every section that belongs to one and not the other
+  is a SLOT that may stay empty and a section you cut. Each § head carries both readings.
+
+  HOW TO FILL
+    1. Replace every {{SLOT}}. A slot you cannot fill is a section you cut, never a slot you
+       leave on the page — `{{` must not survive into the published board.
+    2. Each item block below is ONE specimen. Duplicate it per item; delete the kinds this
+       board has none of.
+    3. Keep the frame. Fewer items means fewer specimens — not fewer margin notes, thinner
+       ornament, dropped § numbering, or no colophon. The frame IS the design.
+    4. Vary the treatment per item. `KIT_README` §2a picks the block that fits the evidence;
+       §3e picks the creative pattern. Thirteen identical cards is the shape you get by not
+       choosing, and it flattens the biggest item into the smallest.
+
+  THE CUT CHECKLIST — every conditional thing in this file, in one place.
+    [ ] proof-ticket.v4.{css,js}  — cut BOTH if this board names no tracker keys.
+    [ ] board-swipe.v1.{css,js}   — cut BOTH if you cut § 03 and § 04 (it binds binary items
+                                     only; on a steer-only board it is dead weight).
+    [ ] data-fb-panel-roster / -report on <body> — cut if no panel ran.
+    [ ] The panel legend (in § 01) and every .fb-mark — cut if no panel ran.
+    [ ] § 03 consolidations — cut if nothing is being folded together.
+    [ ] § 04 strays         — cut if there are no strays to adopt or cancel.
+    [ ] The roundel on an item — cut where the item concerns no named person.
+    [ ] Each affordance segment — cut the ones an item has not earned (and its popover with it).
+
+  WHAT MUST NOT CHANGE
+    · The five stylesheet links, in the order below. `board-warm-overrides` LAST.
+    · `__FB_KIT_BASE__` stays unresolved. Publish substitutes it. An unpublished board is
+      meant to look broken; the unresolved token is that signal.
+    · `data-fb-item` lives ON the .mod, and `id` equals it exactly. The two must not diverge.
+    · The vote is `data-fb-*`. Never the §2f decision components (.vseg / .fbopt / .dckind) —
+      they emit a different shape and silently break the ingest.
+    · `kit-behaviors.js` is NOT loaded, deliberately. Do not "complete the set".
+    · A `.mod`'s class carries `mod` plus LAYOUT and BEHAVIOR modifiers only (`flat` · `open` ·
+      `exp` · `slot-*`, and `block` where it sits in a `.specimen`). The block's KIND is NOT a
+      class — it lives in `data-mod` and in the `.mod-slug`. A kind name in `class` is an
+      ungoverned token at best and a silent collision with an unrelated catalog rule at worst.
+  ══════════════════════════════════════════════════════════════════════════════════════════
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{BOARD_TITLE}} — decisions</title>
+<meta name="description" content="{{BOARD_ONE_LINE}}">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>🗳</text></svg>">
+
+<!-- THE KIT — five sheets, this order: tokens → block catalog → layout patterns → widgets → overrides. -->
+<link rel="stylesheet" href="__FB_KIT_BASE__/proof-theme.v2.css">
+<link rel="stylesheet" href="__FB_KIT_BASE__/proof-blocks.v2.css">
+<link rel="stylesheet" href="__FB_KIT_BASE__/proof-creative.v1.css">
+<link rel="stylesheet" href="__FB_KIT_BASE__/board-widgets.v2.css">
+<link rel="stylesheet" href="__FB_KIT_BASE__/board-warm-overrides.v2.css">
+
+<!-- TICKET PREVIEW — keep both or cut both. Write a key as bare text (ENG-1234) and the
+     component builds the permalink; a key you wrap in your own <a> is skipped. Metadata comes
+     from a baked #prove-tickets blob at publish time — never hand-write one. -->
+<link rel="stylesheet" href="__FB_KIT_BASE__/proof-ticket.v4.css">
+
+<!-- SWIPE ACCELERATOR — keep both or cut both. Binds `consolidation` + `adopt-cancel` only. -->
+<link rel="stylesheet" href="__FB_KIT_BASE__/board-swipe.v1.css">
+
+<style>
+  /* ────────────────────────────────────────────────────────────────────────────────────
+     THIS BOARD'S OWN CSS. It ships EMPTY on purpose.
+
+     Everything a board normally needs is already in the five sheets above: the palette and
+     the atmosphere (proof-theme), the card chrome, affordance rail, popovers, roundels,
+     verdict pill, legends and the page frame (proof-blocks), the 25 .fam-* layout patterns
+     (proof-creative), the vote rows and marks (board-widgets), and the WARM PRINT restyle of
+     the --fb-* seam (board-warm-overrides).
+
+     ALLOWED here: a genuinely bespoke layout this board's own content demands.
+     BANNED here: re-declaring --fb-* (board-warm-overrides owns that seam), a palette, card
+     chrome, popover styling, pills, badges, or anything else the sheets above already ship.
+     A second implementation of the kit forks the moment the kit ships a fix.
+
+     Need a horizontal scroller? Use `.flowwrap` / `.tablewrap` / `.codewrap` from the catalog
+     rather than writing one. Need a layout pattern? Put the `.fam-*` wrapper class on the
+     section and write the pattern's markup — the geometry arrives with proof-creative.
+     ──────────────────────────────────────────────────────────────────────────────────── */
+</style>
+</head>
+
+<!-- data-fb-board / data-fb-wave: the board's machine slug and its human label.
+     data-fb-panel-roster / data-fb-panel-report: CUT BOTH when no panel ran.
+     ROSTER MUST BE AN INTEGER — the kit parseInt()s it, so a dated string like
+     "roster-2026-10-12" lands in every emitted event as `rosterVersion: null` and the panel's
+     read becomes unattributable to a roster. Pass the roster's number. -->
+<body data-fb-board="{{BOARD_SLUG}}"
+      data-fb-wave="{{BOARD_LABEL}}"
+      data-fb-panel-roster="{{ROSTER_VERSION}}"
+      data-fb-panel-report="{{COUNCIL_REPORT_PATH}}">
+
+<div class="sheet">
+
+  <!-- ══ RUNNING HEAD ══ the folio line that makes this read as a dossier, not a page ══ -->
+  <div class="runhead">
+    <span>{{BOARD_LABEL}} · decision board</span>
+    <span class="folio">as of {{AS_OF_DATE}}</span>
+  </div>
+  <hr class="hair">
+
+  <!-- ══ OPENER ══ masthead kicker · display claim · lede · byline ══════════════════════ -->
+  <header class="dossier-head">
+    <div class="masthead">{{MASTHEAD_KICKER}}</div>
+    <div class="thesis-wrap">
+      <h1 class="thesis">{{THESIS}}</h1>
+      <p class="lede">{{LEDE}}</p>
+      <div class="byline">{{N_DECISIONS}} decisions · {{N_CANDIDATES}} ranked · {{N_CONSOLIDATIONS}} consolidations · {{N_STRAYS}} strays · compiled {{AS_OF_DATE}}</div>
+    </div>
+  </header>
+
+  <!-- The headline ledger. Keep it to 3–5 figures of equal weight; every figure carries its
+       denominator. Swap `.n.g` onto a figure only where the green encodes a real fact. -->
+  <div class="stripe" role="group" aria-label="Headline figures">
+    <div class="cell"><div class="n">{{STAT_1_N}}</div><div class="l">{{STAT_1_LABEL}}</div></div>
+    <div class="cell"><div class="n">{{STAT_2_N}}</div><div class="l">{{STAT_2_LABEL}}</div></div>
+    <div class="cell"><div class="n">{{STAT_3_N}}</div><div class="l">{{STAT_3_LABEL}}</div></div>
+    <div class="cell"><div class="n">{{STAT_4_N}}</div><div class="l">{{STAT_4_LABEL}}</div></div>
+  </div>
+
+  <div class="flourish"><span class="fleuron">❧</span></div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════════════
+       § 01 — SCOPE & PROVENANCE
+       /intake : where the signals came from — per-channel counts, how they drained and were
+                 triaged, the Directions + Ticketing Strategy in force.
+       /decide : where the forks came from — the session log, the lane handbacks, the build
+                 reports and critiques they were mined out of, and the fork test applied.
+       ══════════════════════════════════════════════════════════════════════════════════ -->
+  <section class="sec" id="s-scope">
+    <div class="sechead"><span class="no">§ 01</span><h2>{{SEC_01_TITLE}}</h2><span class="fill"></span></div>
+    <p class="seccap"><span class="lead">Boundary</span>{{SEC_01_STANDFIRST}}</p>
+
+    <!-- The /prove scope block, unburied. Three columns, all three filled. -->
+    <article class="mod slot-full block" data-mod="scope" id="b-scope">
+      <div class="mod-head">
+        <span class="mod-title"><span class="mod-eyebrow">scope</span><span class="mod-slug">shown / out / upstream</span></span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-scope" aria-label="Permalink to the scope block">¶</a></span>
+      </div>
+      <div class="mod-body">
+        <div class="scope">
+          <div class="scope-card shows"><h4>What this board shows</h4><ul>
+            <li>{{SCOPE_SHOWS_1}}</li><li>{{SCOPE_SHOWS_2}}</li></ul></div>
+          <div class="scope-card out"><h4>Out of scope</h4><ul>
+            <li>{{SCOPE_OUT_1}}</li><li>{{SCOPE_OUT_2}}</li></ul></div>
+          <div class="scope-card rests"><h4>Rests on trusted upstream triage</h4><ul>
+            <li>{{SCOPE_RESTS_1}}</li><li>{{SCOPE_RESTS_2}}</li></ul></div>
+        </div>
+      </div>
+      <div class="mod-foot">
+        <span><span class="fk">prov</span> <span class="fv">checked-here</span></span>
+        <span><span class="fk">as-of</span> <span class="fv">{{AS_OF_DATE}}</span></span>
+      </div>
+    </article>
+
+    <div class="flourish minor"><span class="fleuron">❦</span></div>
+
+    <!-- PROVENANCE — per-source counts and how each was handled. A table, not prose.
+         /intake: one row per inbox channel. /decide: one row per mining source (session log,
+         DIALOGUE, build reports, critiques, conductor ledger, named-out-loud). -->
+    <div class="specimen">
+      <article class="mod slot-full block" data-mod="table" id="b-provenance">
+        <div class="mod-head">
+          <span class="mod-title"><span class="mod-eyebrow">provenance</span><span class="mod-slug">where these came from &amp; how</span></span>
+          <span class="mod-aff"><a class="aff mod-perma" href="#b-provenance" aria-label="Permalink to the provenance block">¶</a></span>
+        </div>
+        <div class="mod-body">
+          <div class="tablewrap">
+            <table class="data">
+              <thead><tr><th>Source</th><th class="num">In</th><th class="num">Triaged</th><th class="num">On this board</th><th>How it was handled</th></tr></thead>
+              <tbody>
+                <tr><td><span class="cellname">{{SOURCE_1}}</span></td><td class="num">{{SOURCE_1_IN}}</td><td class="num">{{SOURCE_1_TRIAGED}}</td><td class="num">{{SOURCE_1_HERE}}</td><td>{{SOURCE_1_HOW}}</td></tr>
+                <tr><td><span class="cellname">{{SOURCE_2}}</span></td><td class="num">{{SOURCE_2_IN}}</td><td class="num">{{SOURCE_2_TRIAGED}}</td><td class="num">{{SOURCE_2_HERE}}</td><td>{{SOURCE_2_HOW}}</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>{{DIRECTIONS_IN_FORCE}}</p>
+        </div>
+        <div class="mod-foot">
+          <span><span class="fk">prov</span> <span class="fv">trusted-upstream</span></span>
+          <span><span class="fk">as-of</span> <span class="fv">{{AS_OF_DATE}}</span></span>
+          <span><span class="fk">ref</span> <span class="fv">{{WORKING_DOC_PATH}}</span></span>
+        </div>
+      </article>
+      <aside class="mnote">
+        <span class="arw">▸</span>{{PROVENANCE_MARGIN_NOTE}}
+        <span class="tag">{{PROVENANCE_MARGIN_TAG}}</span>
+      </aside>
+    </div>
+
+    <!-- PANEL LEGEND — required when a panel ran; CUT THE WHOLE BLOCK otherwise.
+         One row per seated expert: the icon, the lens, and the plain statement that this is
+         an AI panel's advisory read. A mark whose reasoning a reader cannot reach is worse
+         than no panel at all, so say how to reach it. -->
+    <div class="legendbox" id="panel-legend">
+      <h3>The panel — an advisory read, one layer further from authority than a teammate's vote</h3>
+      <div class="row">
+        <span class="mk fb-mark fb-mark-council" aria-hidden="true">{{EXPERT_1_ICON}}</span>
+        <span class="rowtext"><b>{{EXPERT_1_LENS}}</b> — {{EXPERT_1_REMIT}}</span>
+      </div>
+      <div class="row">
+        <span class="mk fb-mark fb-mark-council" aria-hidden="true">{{EXPERT_2_ICON}}</span>
+        <span class="rowtext"><b>{{EXPERT_2_LENS}}</b> — {{EXPERT_2_REMIT}}</span>
+      </div>
+      <div class="row">
+        <span class="mk fb-mark fb-mark-human" aria-hidden="true">YF</span>
+        <span class="rowtext"><b>Initials</b> — a person's vote. Icons are the panel; initials are people. Never the same weight.</span>
+      </div>
+      <div class="row note"><span class="rowtext">Hover, focus or tap a mark to read that expert's reasoning. A dotted mark flagged thin grounds and still counts as having spoken. Marks are one per expert — never a tally. Roster {{ROSTER_VERSION}}; full report at {{COUNCIL_REPORT_PATH}}.</span></div>
+    </div>
+  </section>
+
+  <div class="flourish"><span class="fleuron">❧</span></div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════════════
+       § 02 — THE DECISIONS (the spine)
+       /intake : the ranked candidates — pull first, and why.
+       /decide : the forks holding work up — each naming what it unblocks.
+
+       PICK AN ARCHETYPE BEFORE FILLING THIS (KIT_README §3d), and state it in your return.
+       It decides the spine, and a flat list is almost never the right answer:
+         Diagnosis ........ `claim-verdict` ledger as spine (what's wrong and why dominates)
+         Comparison ....... side-by-side + delta gutter (X vs Y)
+         Audit / coverage . coverage heatmap of covered vs gap (consolidation-heavy)
+         Recommendation ... annotated exhibit laying out the option space (what should we do)
+         History .......... vertical timeline (something marinating across passes)
+       Then vary per item (KIT_README §3e): a giant-number hero for the one whose blast radius
+       is the headline, an evidence-stack for a claim over-determined by converging sources,
+       a timeline for the long-running one. Put the `.fam-*` wrapper on the section and the
+       geometry arrives with proof-creative.
+       ══════════════════════════════════════════════════════════════════════════════════ -->
+  <section class="sec" id="s-decisions">
+    <div class="sechead"><span class="no">§ 02</span><h2>{{SEC_02_TITLE}}</h2><span class="fill"></span></div>
+    <p class="seccap"><span class="lead">Ranked</span>{{SEC_02_STANDFIRST}}</p>
+
+    <!-- ══ THE REGISTER — the whole board at a glance, before any one decision ══════════
+         One row per decision, in rank order, each anchored at that item's own `id`. A reader
+         who stops at this block still knows what is being asked of them, what it unblocks,
+         where the lean sits and what state it is in. It is how a reader REACHES a decision
+         rather than scrolls to one: a board of thirteen items runs tens of thousands of
+         pixels, and without a register the only way to find the big one is to read all of it.
+
+         KIT-ONLY. `.fam-provenance .ledger` ships in proof-creative; this block writes no CSS.
+
+         THE WRAPPER IS TIGHT ON PURPOSE — do not move `fam-provenance` onto the <section>.
+         `.fam-provenance .verdict` is (0,2,0) and out-ranks the catalog's own `.verdict` at
+         (0,1,0), so a section-wide wrapper silently restyles every item's ruling pill below.
+         Wrap the ledger and nothing else.
+
+         AND IT SITS LOOSE ON THE SHEET, NEVER INSIDE A `.mod`. `.fam-provenance .ledger`
+         carries an outer `box-shadow`, and an outer shadow on a descendant of a plate is a
+         defect (`KIT_README` §1, §ELEV_NO_NESTED_LIFT). Like the headline `.stripe` above, the
+         register is its own surface off the paper.
+
+         THE CLAIM CELL CARRIES THE QUESTION, NOT THE FINDING'S HEADLINE. A reader scanning
+         this column is asking "what is being asked of me", not "what was found". A row whose
+         `.ct` reads like a title has lost the register its whole job.
+
+         `.ledger-row` declares `min-width:760px`, so `.ledger-scroll` scrolls it on a phone
+         rather than shoving the page sideways. That is the kit working; do not "fix" it. -->
+    <div class="fam-provenance">
+      <div class="ledger">
+        <div class="ledger-cap">
+          <span class="tt">{{REGISTER_TITLE}}</span>
+          <span class="sub">{{N_DECISIONS}} open · rank order</span>
+          <span class="as-of">as of {{AS_OF_DATE}}</span>
+        </div>
+        <div class="ledger-scroll">
+          <!-- DUPLICATE THIS ROW PER DECISION, in the same order the items appear below. -->
+          <div class="ledger-row">
+            <div class="lnum">{{ITEM_RANK}}</div>
+            <div class="lg-claim">
+              <div class="ct"><a href="#{{ITEM_ID}}">{{ITEM_QUESTION}}</a></div>
+              <div class="cm">{{ITEM_SLUG}}</div>
+            </div>
+            <div class="lg-ev">
+              <div class="e"><span class="ei">⛓</span><span>{{ITEM_UNBLOCKS_SHORT}}</span></div>
+              <div class="e"><span class="ei">◆</span><span>{{ITEM_LEAN_SHORT}}</span></div>
+            </div>
+            <div><span class="verdict partial">{{ITEM_STATE}}</span></div>
+            <!-- Bare `.prov` IS the checked-here rendering; add `up` for trusted-upstream.
+                 The word and the class must agree — the class is what a reader sees. -->
+            <div class="lg-prov"><span class="prov up">{{ITEM_PROVENANCE}}</span></div>
+          </div>
+        </div>
+        <div class="ledger-foot">
+          <span><b>{{N_DECISIONS}}</b> open</span>
+          <span><b>{{N_CONSOLIDATIONS}}</b> consolidations</span>
+          <span><b>{{N_STRAYS}}</b> strays</span>
+          <span class="fseal">{{REGISTER_SEAL}}</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="flourish minor"><span class="fleuron">❦</span></div>
+
+    <!-- ╔══ ITEM SPECIMEN — `steer`. DUPLICATE THIS PER DECISION. ═══════════════════════╗
+         The id and data-fb-item are THE SAME VALUE on THE SAME ELEMENT. That equality is
+         what makes <board-url>#<id> address this decision, and what lets a threaded reply
+         tally against it. An id that exists but disagrees is worse than a missing one.
+         Replace every occurrence of {{ITEM_ID}} in this block, including the popover ids.    -->
+    <div class="specimen">
+      <article class="mod block" data-mod="bignum" id="{{ITEM_ID}}" data-fb-item="{{ITEM_ID}}" data-fb-kind="steer">
+        <div class="mod-head">
+          <span class="mod-title"><span class="mod-eyebrow">{{ITEM_RANK}} · {{ITEM_EYEBROW}}</span>
+            <span class="mod-slug">{{ITEM_SLUG}}</span></span>
+          <span class="mod-aff" aria-label="Affordance rail">
+            <!-- Cut any segment this item has not earned, and its popover with it. It is not
+                 only tidiness: `.affgroup` is a rigid inline-flex of nowrap segments, so a
+                 full three-segment rail plus a roundel runs ~372px and is CLIPPED by the
+                 card at phone width — the ¶ perma goes with it. Two segments fit. -->
+            <!-- The head's text sits in `.mod-title` so it can shrink and let the rail wrap
+                 onto its own line instead of starving it. -->
+
+            <span class="affgroup" role="group" aria-label="Block affordances">
+              <button class="affseg" popovertarget="ev-{{ITEM_ID}}" aria-label="{{ITEM_EVIDENCE_N}} evidence pieces for this decision">
+                <span class="segico" aria-hidden="true">📎</span><span class="seglab">Evidence</span>·<span class="segn">{{ITEM_EVIDENCE_N}}</span>
+              </button>
+              <button class="affseg tk" popovertarget="tk-{{ITEM_ID}}" aria-label="{{ITEM_TICKET_N}} related tickets for this decision">
+                <span class="segico" aria-hidden="true">🎫</span><span class="seglab">Tickets</span>·<span class="segn">{{ITEM_TICKET_N}}</span>
+              </button>
+              <a class="affseg" href="{{ITEM_EXTERNAL_URL}}">↗ <span class="seglab">URL</span></a>
+            </span>
+            <!-- The badge IS the label: the name lives in `title`, never as "for X" beside it. -->
+            <span class="roundel" title="{{ITEM_STAKEHOLDER_NAME}} — {{ITEM_STAKEHOLDER_ROLE}}">{{ITEM_STAKEHOLDER_INITIALS}}</span>
+            <a class="aff mod-perma" href="#{{ITEM_ID}}" aria-label="Permalink to this decision">¶</a>
+          </span>
+        </div>
+
+        <div class="mod-body">
+          <!-- 1 · THE PROBLEM — one crisp sentence. -->
+          <p><b>{{ITEM_PROBLEM}}</b></p>
+
+          <!-- 2 · THE NUMBER BEHIND THE CALL — render the artifact, never prose where you
+                  could show it. Swap this `bignum` for whichever block fits the evidence:
+                  `table --delta` for a run of cases · `sequence --timeline` for a dated
+                  history · `code --term` for verbatim CLI · `quote` for a reporter's own
+                  words · `diff` for a source delta · `meter` for a value against a target. -->
+          <div class="bignum">
+            <div class="val">{{ITEM_BIGNUM}}</div>
+            <div class="lab">{{ITEM_BIGNUM_LABEL}}</div>
+            <div class="sub">{{ITEM_BIGNUM_DENOMINATOR}}</div>
+          </div>
+
+          <!-- 3 · THE STEERING READ — triage's full read: legitimacy / confidence, the
+                  questions still open, what to measure next. Options to react to, never
+                  manufactured solutions. -->
+          <h4>The read</h4>
+          <p>{{ITEM_STEERING_READ}}</p>
+
+          <!-- 4 · WHAT DECIDING THIS UNBLOCKS — /decide requires it on every item; on an
+                  /intake board it is the "pull first, and why". Cut neither lightly: an item
+                  with nothing named is a topic, not a decision. -->
+          <div class="callout insight">
+            <div class="ci">◆</div>
+            <div><div class="ctitle">Deciding this unblocks</div><div class="cbody">{{ITEM_UNBLOCKS}}</div></div>
+          </div>
+
+          <!-- 5 · THE RULING triage already reached, if it reached one. The pill always
+                  opens onto its grounds. Cut the pill and its popover if there is no ruling.
+                  Pick the modifier that matches the ruling — it sets the glyph and the hue:
+                  `proven`/`solved`/`good` (✓) · `partial` (◐) · `refuted`/`bad`/`unproven` (✕)
+                  · `missing` (⌀, dashed — "no ruling was reached", not "no"). -->
+          <p><button class="verdict partial" popovertarget="why-{{ITEM_ID}}" aria-label="Why triage ruled this way">{{ITEM_VERDICT}}</button></p>
+
+          <!-- 6 · THE VOTE — LAST. The reader meets the evidence first and the ask second.
+                  3–5 options. Every option carries its one-line description, written by the
+                  orchestrator from the steering read — if the handoff gave none, render the
+                  label alone rather than inventing one. Keys are stable machine ids; the
+                  payload carries keys, never labels. -->
+          <div class="fb-options">
+            <label class="fb-opt">
+              <input type="checkbox" data-fb-key="{{OPTION_1_KEY}}">
+              <span class="fb-opt-body">
+                <span class="fb-opt-label">{{OPTION_1_LABEL}}</span>
+                <span class="fb-opt-desc">{{OPTION_1_DESC}}</span>
+              </span>
+              <!-- Marks land here — the panel's now, teammates' at submit time. One mark per
+                   expert, never an aggregate. CUT the .fb-markwrap (not the .fb-panel slot)
+                   when no panel ran: the kit still needs the slot for human marks. -->
+              <span class="fb-panel" data-fb-marks="{{OPTION_1_KEY}}">
+                <span class="fb-markwrap">
+                  <button type="button" class="fb-mark fb-mark-council"
+                          data-fb-panel="{{ITEM_ID}}"
+                          data-fb-panel-key="{{OPTION_1_KEY}}"
+                          data-fb-panel-lens="{{EXPERT_1_LENS}}"
+                          data-fb-panel-icon="{{EXPERT_1_ICON}}"
+                          data-fb-panel-kind="steer"
+                          data-fb-panel-weight="{{EXPERT_1_WEIGHT}}"
+                          data-fb-panel-why="{{EXPERT_1_WHY}}"
+                          data-fb-panel-alt="{{EXPERT_1_ALT}}"
+                          data-fb-panel-thin="false"
+                          aria-label="{{EXPERT_1_LENS}} — read this expert's reasoning">{{EXPERT_1_ICON}}</button>
+                  <span class="fb-mark-note"><b class="fb-note-lens">{{EXPERT_1_LENS}}</b> {{EXPERT_1_WHY}}</span>
+                </span>
+              </span>
+            </label>
+
+            <label class="fb-opt">
+              <input type="checkbox" data-fb-key="{{OPTION_2_KEY}}">
+              <span class="fb-opt-body">
+                <span class="fb-opt-label">{{OPTION_2_LABEL}}</span>
+                <span class="fb-opt-desc">{{OPTION_2_DESC}}</span>
+              </span>
+              <span class="fb-panel" data-fb-marks="{{OPTION_2_KEY}}"></span>
+            </label>
+
+            <label class="fb-opt">
+              <input type="checkbox" data-fb-key="{{OPTION_3_KEY}}">
+              <span class="fb-opt-body">
+                <span class="fb-opt-label">{{OPTION_3_LABEL}}</span>
+                <span class="fb-opt-desc">{{OPTION_3_DESC}}</span>
+              </span>
+              <span class="fb-panel" data-fb-marks="{{OPTION_3_KEY}}"></span>
+            </label>
+          </div>
+          <textarea class="fb-note" data-fb-note placeholder="Anything the options don't capture — optional"></textarea>
+        </div>
+
+        <div class="mod-foot">
+          <span><span class="fk">prov</span> <span class="fv">{{ITEM_PROVENANCE}}</span></span>
+          <span><span class="fk">as-of</span> <span class="fv">{{AS_OF_DATE}}</span></span>
+          <span><span class="fk">ref</span> <span class="fv">{{ITEM_TRIAGE_REPORT}}</span></span>
+          <details class="fmeta">
+            <summary aria-label="Show this decision's scaffolding"><span class="gl" aria-hidden="true">ⓘ</span> scaffold</summary>
+            <div class="fmeta-body">
+              <span><span class="fk">item</span> <span class="fv">{{ITEM_ID}}</span></span>
+              <span><span class="fk">kind</span> <span class="fv">steer</span></span>
+              <span><span class="fk">rank</span> <span class="fv">{{ITEM_RANK}}</span></span>
+              <span><span class="fk">also</span> <span class="fv">{{ITEM_ALSO_WORTH_SURFACING}}</span></span>
+            </div>
+          </details>
+        </div>
+      </article>
+
+      <!-- The marginalia rail: where the page talks about its own evidence without
+           interrupting it. It is the device generated boards most consistently lack.
+           One per specimen. Do not drop it because the board is small. -->
+      <aside class="mnote">
+        <span class="arw">▸</span>{{ITEM_MARGIN_NOTE}}
+        <span class="tag">{{ITEM_MARGIN_TAG}}</span>
+        <span class="rail-mini"><span class="rm">{{ITEM_STAKEHOLDER_INITIALS}}</span></span>
+      </aside>
+    </div>
+
+    <!-- ONE popover carrying ALL of this item's evidence. Not scattered per-type icons, and
+         not a row of bare URLs under the block. Each row: type · what it is · who · when ·
+         provenance. This is where the triage report path, the origin comment deep-link and
+         the entity app-URLs belong. -->
+    <div id="ev-{{ITEM_ID}}" popover class="evpop" role="dialog" aria-label="Evidence for this decision">
+      <div class="evpop-head"><b>Evidence</b> <span class="cnt">{{ITEM_EVIDENCE_N}} items</span>
+        <button class="evpop-close" popovertarget="ev-{{ITEM_ID}}" popovertargetaction="hide" aria-label="Close">✕</button></div>
+      <ul class="evlist">
+        <li class="evrow">
+          <span class="evtype src">source</span>
+          <div class="evbody">{{EVIDENCE_1_BODY}}
+            <p class="evmeta"><span>{{EVIDENCE_1_WHO}}</span><span>{{EVIDENCE_1_WHEN}}</span><span class="prov">{{EVIDENCE_1_PROV}}</span></p></div>
+        </li>
+        <li class="evrow">
+          <span class="evtype exh">exhibit</span>
+          <div class="evbody">{{EVIDENCE_2_BODY}}
+            <p class="evmeta"><span>{{EVIDENCE_2_WHO}}</span><span>{{EVIDENCE_2_WHEN}}</span><span class="prov">{{EVIDENCE_2_PROV}}</span></p></div>
+        </li>
+        <li class="evrow">
+          <span class="evtype ref">ref</span>
+          <div class="evbody"><a href="{{EVIDENCE_3_URL}}">{{EVIDENCE_3_BODY}}</a>
+            <p class="evmeta"><span>{{EVIDENCE_3_WHO}}</span><span>{{EVIDENCE_3_WHEN}}</span><span class="prov">{{EVIDENCE_3_PROV}}</span></p></div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- The ticket popover carries the RELATION — "the ticket this came from" is a different
+         fact from "a related ticket". Write keys as bare text so the component decorates them. -->
+    <div id="tk-{{ITEM_ID}}" popover class="evpop tkpop" role="dialog" aria-label="Tickets related to this decision">
+      <div class="evpop-head"><b>Tickets</b> <span class="cnt">{{ITEM_TICKET_N}}</span>
+        <button class="evpop-close" popovertarget="tk-{{ITEM_ID}}" popovertargetaction="hide" aria-label="Close">✕</button></div>
+      <ul class="evlist">
+        <li class="evrow"><span class="tk-rel origin">Origin ticket</span><div class="evbody">{{TICKET_1_KEY}} — {{TICKET_1_TITLE}}</div></li>
+        <li class="evrow"><span class="tk-rel">Related</span><div class="evbody">{{TICKET_2_KEY}} — {{TICKET_2_TITLE}}</div></li>
+      </ul>
+    </div>
+
+    <!-- Why the verdict. A ruling that cannot be interrogated is not honest. -->
+    <div id="why-{{ITEM_ID}}" popover class="evpop whypop" role="dialog" aria-label="Why triage ruled this way">
+      <div class="evpop-head"><b>Why {{ITEM_VERDICT}}</b>
+        <button class="evpop-close" popovertarget="why-{{ITEM_ID}}" popovertargetaction="hide" aria-label="Close">✕</button></div>
+      <div class="whycard">
+        <p>{{ITEM_VERDICT_GROUNDS}}</p>
+        <p class="evmeta"><span class="prov">{{ITEM_PROVENANCE}}</span><span>{{AS_OF_DATE}}</span></p>
+        <button class="why-evlink" popovertarget="ev-{{ITEM_ID}}">📎 See the evidence ›</button>
+      </div>
+    </div>
+
+    <div class="flourish minor"><span class="fleuron">❦</span></div>
+    <!-- ╚══ END ITEM SPECIMEN — repeat from `<div class="specimen">` per decision. ═══════╝ -->
+
+  </section>
+
+  <div class="flourish"><span class="fleuron">❧</span></div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════════════
+       § 03 — CONSOLIDATIONS  ·  CUT THE WHOLE SECTION IF NOTHING IS BEING FOLDED
+       /intake : proposed merge / supersede / connect / milestone-move operations.
+       /decide : two forks that turn out to be one decision.
+
+       A merge is the highest-stakes operation on a board and the one a human confirm
+       demonstrably fails to audit — the human confirms the ACTION, not the REASONING. So
+       carry the destination's OWN PREMISE, not a one-line summary of it: what the
+       destination claims the problem IS, and why this is a facet of that rather than a
+       neighbour of it. Prefer under-merging to one wrong merge; the costs are not symmetric.
+       ══════════════════════════════════════════════════════════════════════════════════ -->
+  <section class="sec" id="s-consolidations">
+    <div class="sechead"><span class="no">§ 03</span><h2>{{SEC_03_TITLE}}</h2><span class="fill"></span></div>
+    <p class="seccap"><span class="lead">Approve or reject</span>{{SEC_03_STANDFIRST}}</p>
+
+    <div class="specimen">
+      <article class="mod block" data-mod="claim-verdict" id="{{OP_ID}}" data-fb-item="{{OP_ID}}" data-fb-kind="consolidation">
+        <div class="mod-head">
+          <span class="mod-title"><span class="mod-eyebrow">consolidation</span><span class="mod-slug">{{OP_SUMMARY}}</span></span>
+          <span class="mod-aff" aria-label="Affordance rail">
+            <span class="affgroup" role="group" aria-label="Block affordances">
+              <button class="affseg tk" popovertarget="tk-{{OP_ID}}" aria-label="{{OP_TICKET_N}} tickets affected by this operation">
+                <span class="segico" aria-hidden="true">🎫</span><span class="seglab">Tickets</span>·<span class="segn">{{OP_TICKET_N}}</span>
+              </button>
+            </span>
+            <a class="aff mod-perma" href="#{{OP_ID}}" aria-label="Permalink to this operation">¶</a>
+          </span>
+        </div>
+        <div class="mod-body">
+          <div class="cpv">
+            <div class="claim"><div class="lab">The operation</div><div class="txt">{{OP_DESCRIPTION}}</div></div>
+            <div class="proof"><div class="lab">What the destination claims the problem IS</div><div class="txt">{{OP_DESTINATION_PREMISE}}</div></div>
+            <div class="verdict-cell"><span class="verdict partial">{{OP_RECOMMENDATION}}</span></div>
+          </div>
+          <h4>Why this is a facet of that, not a neighbour of it</h4>
+          <p>{{OP_REASONING}}</p>
+          <div class="callout caution">
+            <div class="ci">⚠</div>
+            <div><div class="ctitle">What a wrong merge costs here</div><div class="cbody">{{OP_RISK}}</div></div>
+          </div>
+          <p>Affected: {{OP_AFFECTED_KEYS}}</p>
+
+          <div class="fb-options">
+            <label class="fb-opt">
+              <input type="radio" name="{{OP_ID}}" data-fb-key="approve">
+              <span class="fb-opt-body"><span class="fb-opt-label">Approve</span>
+                <span class="fb-opt-desc">{{OP_APPROVE_DESC}}</span></span>
+              <span class="fb-panel" data-fb-marks="approve"></span>
+            </label>
+            <label class="fb-opt">
+              <input type="radio" name="{{OP_ID}}" data-fb-key="reject">
+              <span class="fb-opt-body"><span class="fb-opt-label">Reject</span>
+                <span class="fb-opt-desc">{{OP_REJECT_DESC}}</span></span>
+              <span class="fb-panel" data-fb-marks="reject"></span>
+            </label>
+          </div>
+          <textarea class="fb-note" data-fb-note placeholder="Why — especially on a reject"></textarea>
+        </div>
+        <div class="mod-foot">
+          <span><span class="fk">prov</span> <span class="fv">trusted-upstream</span></span>
+          <span><span class="fk">as-of</span> <span class="fv">{{AS_OF_DATE}}</span></span>
+          <span><span class="fk">ref</span> <span class="fv">{{OP_TRIAGE_REPORT}}</span></span>
+        </div>
+      </article>
+      <aside class="mnote">
+        <span class="arw">▸</span>{{OP_MARGIN_NOTE}}
+        <span class="tag">{{OP_MARGIN_TAG}}</span>
+      </aside>
+    </div>
+
+    <div id="tk-{{OP_ID}}" popover class="evpop tkpop" role="dialog" aria-label="Tickets affected by this operation">
+      <div class="evpop-head"><b>Affected</b> <span class="cnt">{{OP_TICKET_N}}</span>
+        <button class="evpop-close" popovertarget="tk-{{OP_ID}}" popovertargetaction="hide" aria-label="Close">✕</button></div>
+      <ul class="evlist">
+        <li class="evrow"><span class="tk-rel origin">Destination</span><div class="evbody">{{OP_DESTINATION_KEY}} — {{OP_DESTINATION_TITLE}}</div></li>
+        <li class="evrow"><span class="tk-rel">Folds in</span><div class="evbody">{{OP_SOURCE_KEY}} — {{OP_SOURCE_TITLE}}</div></li>
+      </ul>
+    </div>
+
+    <div class="flourish minor"><span class="fleuron">❦</span></div>
+  </section>
+
+  <div class="flourish"><span class="fleuron">❧</span></div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════════════
+       § 04 — STRAYS  ·  CUT THE WHOLE SECTION IF THERE ARE NONE
+       /intake : a ticket lacking wave-provenance — adopt it into a milestone, or cancel it.
+       /decide : a parked thread nobody owns — pick it up, or close it out.
+       ══════════════════════════════════════════════════════════════════════════════════ -->
+  <section class="sec" id="s-strays">
+    <div class="sechead"><span class="no">§ 04</span><h2>{{SEC_04_TITLE}}</h2><span class="fill"></span></div>
+    <p class="seccap"><span class="lead">Adopt or cancel</span>{{SEC_04_STANDFIRST}}</p>
+
+    <div class="specimen">
+      <article class="mod block" data-mod="qa" id="{{STRAY_KEY}}" data-fb-item="{{STRAY_KEY}}" data-fb-kind="adopt-cancel">
+        <div class="mod-head">
+          <span class="mod-title"><span class="mod-eyebrow">stray</span><span class="mod-slug">{{STRAY_KEY}} — {{STRAY_TITLE}}</span></span>
+          <span class="mod-aff"><a class="aff mod-perma" href="#{{STRAY_KEY}}" aria-label="Permalink to this stray">¶</a></span>
+        </div>
+        <div class="mod-body">
+          <p>{{STRAY_TRIAGE_FINDING}}</p>
+          <div class="fb-options">
+            <label class="fb-opt">
+              <input type="radio" name="{{STRAY_KEY}}" data-fb-key="adopt">
+              <span class="fb-opt-body"><span class="fb-opt-label">Adopt</span>
+                <span class="fb-opt-desc">{{STRAY_ADOPT_DESC}}</span></span>
+              <span class="fb-panel" data-fb-marks="adopt"></span>
+            </label>
+            <label class="fb-opt">
+              <input type="radio" name="{{STRAY_KEY}}" data-fb-key="cancel">
+              <span class="fb-opt-body"><span class="fb-opt-label">Cancel</span>
+                <span class="fb-opt-desc">{{STRAY_CANCEL_RATIONALE}}</span></span>
+              <span class="fb-panel" data-fb-marks="cancel"></span>
+            </label>
+          </div>
+          <p>
+            <label>Adopt into
+              <select class="fb-field" data-fb-field="milestone">
+                <option value="">— pick a milestone —</option>
+                <option value="{{MILESTONE_1_ID}}">{{MILESTONE_1_LABEL}}</option>
+                <option value="{{MILESTONE_2_ID}}">{{MILESTONE_2_LABEL}}</option>
+              </select>
+            </label>
+          </p>
+          <p>
+            <label>Cancel because
+              <input class="fb-field" type="text" data-fb-field="reason" placeholder="{{STRAY_CANCEL_RATIONALE}}">
+            </label>
+          </p>
+          <textarea class="fb-note" data-fb-note placeholder="Anything else — optional"></textarea>
+        </div>
+        <div class="mod-foot">
+          <span><span class="fk">prov</span> <span class="fv">trusted-upstream</span></span>
+          <span><span class="fk">as-of</span> <span class="fv">{{AS_OF_DATE}}</span></span>
+        </div>
+      </article>
+      <aside class="mnote">
+        <span class="arw">▸</span>{{STRAY_MARGIN_NOTE}}
+        <span class="tag">{{STRAY_MARGIN_TAG}}</span>
+      </aside>
+    </div>
+
+    <div class="flourish minor"><span class="fleuron">❦</span></div>
+  </section>
+
+  <div class="flourish"><span class="fleuron">❧</span></div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════════════
+       § 05 — THE DEPENDENCY / ROOT-CAUSE GRAPH
+       Nodes are problems and solutions; edges are stands-on / blocked-by / unlocks.
+       REAL NODES ONLY — a graph with invented nodes is a diagram that lies.
+       Inline <svg>, never a diagram language: there is no renderer on this page, and
+       <pre class="mermaid"> degrades to literal source text. Keep it inside `.flowwrap` so
+       a wide graph scrolls in its own box instead of shoving the page sideways.
+       ══════════════════════════════════════════════════════════════════════════════════ -->
+  <section class="sec" id="s-graph">
+    <div class="sechead"><span class="no">§ 05</span><h2>{{SEC_05_TITLE}}</h2><span class="fill"></span></div>
+    <p class="seccap"><span class="lead">Stands on</span>{{SEC_05_STANDFIRST}}</p>
+
+    <article class="mod slot-full block" data-mod="figure" id="b-graph">
+      <div class="mod-head">
+        <span class="mod-title"><span class="mod-eyebrow">figure</span><span class="mod-slug">dependency map</span></span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-graph" aria-label="Permalink to the dependency graph">¶</a></span>
+      </div>
+      <div class="mod-body">
+        <div class="flowwrap">
+          <svg viewBox="0 0 720 220" width="720" height="220" role="img" aria-label="{{GRAPH_ARIA_LABEL}}">
+            <defs>
+              <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                <path d="M0 0 L10 5 L0 10 z" fill="var(--ink-soft)"/>
+              </marker>
+            </defs>
+            <!-- one <g> per real node; one <line> per real edge -->
+            <g>
+              <rect x="12" y="80" width="190" height="56" rx="4" fill="var(--card-2)" stroke="var(--rule)"/>
+              <text x="107" y="106" text-anchor="middle" font-size="13" fill="var(--ink)">{{GRAPH_NODE_1}}</text>
+              <text x="107" y="122" text-anchor="middle" font-size="10" fill="var(--ink-meta)">{{GRAPH_NODE_1_SUB}}</text>
+            </g>
+            <line x1="206" y1="108" x2="258" y2="108" stroke="var(--ink-soft)" stroke-width="1.4" marker-end="url(#arw)"/>
+            <text x="232" y="100" text-anchor="middle" font-size="9" fill="var(--ink-meta)">unlocks</text>
+            <g>
+              <rect x="262" y="80" width="190" height="56" rx="4" fill="var(--card-2)" stroke="var(--rule)"/>
+              <text x="357" y="106" text-anchor="middle" font-size="13" fill="var(--ink)">{{GRAPH_NODE_2}}</text>
+              <text x="357" y="122" text-anchor="middle" font-size="10" fill="var(--ink-meta)">{{GRAPH_NODE_2_SUB}}</text>
+            </g>
+            <line x1="456" y1="108" x2="508" y2="108" stroke="var(--ink-soft)" stroke-width="1.4" marker-end="url(#arw)"/>
+            <text x="482" y="100" text-anchor="middle" font-size="9" fill="var(--ink-meta)">stands on</text>
+            <g>
+              <rect x="512" y="80" width="190" height="56" rx="4" fill="var(--card-2)" stroke="var(--rule)"/>
+              <text x="607" y="106" text-anchor="middle" font-size="13" fill="var(--ink)">{{GRAPH_NODE_3}}</text>
+              <text x="607" y="122" text-anchor="middle" font-size="10" fill="var(--ink-meta)">{{GRAPH_NODE_3_SUB}}</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div class="mod-foot">
+        <span><span class="fk">prov</span> <span class="fv">trusted-upstream</span></span>
+        <span><span class="fk">as-of</span> <span class="fv">{{AS_OF_DATE}}</span></span>
+        <span><span class="fk">ref</span> <span class="fv">{{WORKING_DOC_PATH}}</span></span>
+      </div>
+    </article>
+  </section>
+
+  <div class="flourish"><span class="fleuron">❧</span></div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════════════════
+       § 06 — WHAT THIS BOARD DOES NOT DO, AND HOW TO ANSWER IT
+       The "nothing is executed" note is REQUIRED on every board, both consumers.
+       The OPTIONAL SECTIONS slot below takes only the sections the ORCHESTRATOR selected in
+       the handoff. Do not add one it did not select, and do not drop one it did.
+       ══════════════════════════════════════════════════════════════════════════════════ -->
+  <section class="sec" id="s-close">
+    <div class="sechead"><span class="no">§ 06</span><h2>Nothing here is executed</h2><span class="fill"></span></div>
+
+    <article class="mod slot-full block" data-mod="callout --note" id="b-nothing-executed">
+      <div class="mod-head">
+        <span class="mod-title"><span class="mod-eyebrow">note</span><span class="mod-slug">these are decisions, not actions</span></span>
+        <span class="mod-aff"><a class="aff mod-perma" href="#b-nothing-executed" aria-label="Permalink to this note">¶</a></span>
+      </div>
+      <div class="mod-body">
+        <div class="callout note">
+          <div class="ci">ⓘ</div>
+          <div><div class="ctitle">Nothing on this page performs work</div>
+            <div class="cbody">Answering here records a position. No ticket is filed, merged, moved or cancelled by this board; every decision is carried out afterwards, by a person, under its own confirm. {{NOTHING_EXECUTED_EXTRA}}</div></div>
+        </div>
+      </div>
+      <div class="mod-foot"><span><span class="fk">as-of</span> <span class="fv">{{AS_OF_DATE}}</span></span></div>
+    </article>
+
+    <!-- {{OPTIONAL_SECTIONS}}
+         Render ONLY what the handoff selected, each as a composed .mod block inside its own
+         `.specimen`. The palette the orchestrator picks from: numbers at a glance · what
+         changed since last pass · contested / needs-alignment · quick wins · blocked /
+         waiting-on (name who to ask) · stakeholder callouts · cross-cutting themes · aging
+         and staleness · open questions for the room · risk / one-way doors · what we're NOT
+         doing · confidence & provenance legend. Delete this comment once filled or cut. -->
+
+    <!-- ══ HOW TO ANSWER ══
+         Both controls stay on every board. The write grant in the state config expires within
+         hours of publish, so most readers arrive after it has lapsed — the copy bar is the
+         path that still works then. Never remove it because the board has a state config.
+         Keep `class="fb-statestatus"`: the kit toggles `.fb-pending` on it, and every style
+         that state needs hangs off the class. -->
+    <div class="fb-statebar">
+      <button type="button" class="fb-submitbtn" data-fb-submit>Submit my answers</button>
+      <span class="fb-statestatus" data-fb-state-status></span>
+    </div>
+
+    <div class="fb-copybar">
+      <input class="fb-voter" data-fb-voter placeholder="Your name">
+      <button class="fb-copybtn" data-fb-copy>Copy answers</button>
+      <span class="fb-copied" data-fb-copied></span>
+    </div>
+    <pre class="fb-payload" data-fb-payload></pre>
+  </section>
+
+  <!-- ══ COLOPHON ══ the key that decodes every mark this board used ══════════════════ -->
+  <section class="colophon" style="border-bottom:0">
+    <div class="sechead"><span class="no">§ 07</span><h2>Colophon — the key</h2><span class="fill"></span></div>
+    <!-- Both columns are `.legendbox`, not `.legend`. `.legend .row` and `.honesty h3` are
+         styled ONLY under a `.fam-*` wrapper in proof-creative; used bare here they render
+         unstyled. `.legendbox` is the page frame's own governed legend column and needs no
+         family. Row shape is `.row > .mk` (the mark, flex:0) + `.row > .rowtext` (one flowing
+         description) — never split the words into separate tracks. -->
+    <div class="colo-grid">
+      <div class="legendbox">
+        <h3>Every mark on this board</h3>
+        <div class="row"><span class="mk sw" style="width:14px;height:14px;border-radius:3px;background:var(--accent)"></span>
+          <span class="rowtext"><b>checked-here</b> — re-verified for this board</span></div>
+        <div class="row"><span class="mk sw" style="width:14px;height:14px;border-radius:3px;background:transparent;border:2px dashed var(--ink-faint)"></span>
+          <span class="rowtext"><b>trusted-upstream</b> — carried from triage, not re-checked</span></div>
+        <div class="row"><span class="mk verdict partial" style="pointer-events:none">Partial</span>
+          <span class="rowtext"><b>A verdict pill</b> — a ruling triage reached. Click it for the grounds and the provenance.</span></div>
+        <div class="row"><span class="mk" aria-hidden="true">📎</span>
+          <span class="rowtext"><b>The rail</b> — this item's evidence, its tickets and its external ref, each one click away.</span></div>
+        <!-- CUT the next two rows if no panel ran. -->
+        <div class="row"><span class="mk fb-mark fb-mark-council" aria-hidden="true">◆</span>
+          <span class="rowtext"><b>An icon</b> — one AI panel expert's advisory read. One mark per expert, never a tally.</span></div>
+        <div class="row"><span class="mk fb-mark fb-mark-human" aria-hidden="true">YF</span>
+          <span class="rowtext"><b>Initials</b> — a person's vote.</span></div>
+        <!-- Add a freshness scale row-set here ONLY if the board actually uses the recency hues.
+             A hue that means nothing is banned; a hue that means something ships its key. -->
+      </div>
+      <div class="legendbox">
+        <h3>What this board is, and what it is not</h3>
+        <div class="row"><span class="rowtext"><b>Dated, not live.</b> Every figure is as of {{AS_OF_DATE}} and carries its denominator. Nothing on this page refreshes.</span></div>
+        <div class="row"><span class="rowtext"><b>Trusted upstream.</b> The findings were established by {{UPSTREAM_SOURCE}}; this board presents them, it did not re-investigate them. Anything re-checked for the presentation is tagged <i>checked-here</i>.</span></div>
+        <div class="row"><span class="rowtext"><b>Advisory, not authoritative.</b> {{AUTHORITY_NOTE}}</span></div>
+      </div>
+      <div class="dictum">{{DICTUM}}</div>
+    </div>
+  </section>
+
+  <div class="endmatter">
+    <span>{{BOARD_LABEL}}</span>
+    <span class="folio">{{AS_OF_DATE}} · {{N_DECISIONS}} decisions</span>
+  </div>
+
+</div><!-- /.sheet -->
+
+<!-- Publish substitutes the real config. Both halves ship: the public read path (where a
+     panel's seeded records land) and the short-lived write grant. Omitting this element does
+     not opt out — publish appends its own — it only forfeits the choice of where it sits. -->
+<script id="prove-state-config" data-fb-state-config type="application/json">__PROVE_STATE_CONFIG__</script>
+
+<!-- THE PAYLOAD ENGINE. `kit-behaviors.js` is deliberately absent: a board votes through
+     data-fb-* and submits through data-fb-submit, and loading it would turn a styling mistake
+     (.fbopt vs .fb-opt — one hyphen apart) into a second competing vote system. -->
+<script src="__FB_KIT_BASE__/board-widgets.v2.js"></script>
+
+<!-- Ticket chips. Cut with its stylesheet if this board names no tracker keys. -->
+<script src="__FB_KIT_BASE__/proof-ticket.v4.js"></script>
+
+<!-- Swipe accelerator — AFTER board-widgets. Cut with its stylesheet if §03 and §04 are gone. -->
+<script src="__FB_KIT_BASE__/board-swipe.v1.js"></script>
+
+</body>
+</html>
