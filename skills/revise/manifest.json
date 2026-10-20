@@ -1,0 +1,6 @@
+{
+  "name": "revise",
+  "version": "1",
+  "description": "Take one landed change and make the documentation's CLAIMS about it true again. A claim-scoped documentation block: it locates every sentence in the docs that asserts something about what this change touched, rules each claim true / falsified / unverifiable against the code with a control, dispatches a writer sub-agent to repair only the falsified ones, and returns a structured Revise Report. Dispatchable as a lane — it owns one diff, never the tree.",
+  "tier": "lightweight"
+}

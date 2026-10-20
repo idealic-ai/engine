@@ -357,6 +357,14 @@ A decision board renders correctly and emits schema-correct events — a real br
 ### `@engine/durable-ledger`: The ledger becomes the inheritance
 **Tags**: #needs-coordinate
 
+**State (2026-10-20, after the hand-over lane) — the storage choice is MADE and the row grammar is written; no reader is built.** *(measured — the files exist in the working tree.)*
+*   **Storage**: one file at the **sessions root**, `<sessionsRoot>/LOOM_INHERITANCE.md`, templated by `engine/skills/loom/assets/TEMPLATE_LOOM_INHERITANCE.md`. Beside the dated session directories rather than inside one, because **a successor knows the root and does not know which predecessor to read** — the open question's real content was addressing, not persistence. Rewritten in place; the superseded copy appended to the handing-over session's log. No new tooling: a file, written by the conductor, read by its successor.
+*   **Row kinds, one grammar**: 🧵 Threads · 🗳️ Boards · **📚 Docs owed** · 🔓 Open claims · ⚙️ Standing arrangements. The doc register is a **row kind here, not a second store** — a doc owed is another open-work row that must outlive the session, so one mechanism serves both.
+*   **Authority resolved by hand-off rather than by two copies**: the session log's live blocks are authoritative while the session runs; from the moment the inheritance is written that file is authoritative for its rows and the log is history. The drift risk this chapter names is answered by there being one owner at a time.
+*   **Loud failure given a mechanism**: a field the writer could not fill reads `UNKNOWN — <why>`, never blank, and a successor finding `UNKNOWN` in a field it needs stops and reports that row.
+*   **The amendment is landed** in `loom/SKILL.md` as `¶INV_LOOM_PASS_ON_NEVER_DISCARD`, at the explicit-close path and in the Constraints list.
+*   **Still owed**: the startup read that consumes the rows (`@engine/groom-positions`), and a successor's claim-and-report demonstrated end to end. Acceptance stands unticked on both.
+
 The thread ledger and the board rows live in the session log, which ends with the session — and under this design the session ends on purpose. **The ledger is what the next loom inherits**, so it has to outlive its writer. This chapter decides where it lives and what a row must carry to be resumable by a loom that never saw the wave.
 
 #### Scope
@@ -380,7 +388,7 @@ The Synthesis gate blocks wrap-up on an unread board, with a row closing by fold
 
 #### Risks & open questions
 *   **Risk**: rows become a second source of truth that drifts from the log. → **Mitigation**: the log is narrative, the rows are state; say which is authoritative in the template itself, as was already done once for the board handles.
-*   **Open question**: **where the rows live** — the tracker, a document, or a file the tracker points at. This chapter names the requirement; the storage choice is its first task.
+*   **Settled**: **where the rows live** — a file at the sessions root, not the tracker and not a document the tracker points at. See the `State` line above for the choice and its reason; neither alternative was needed, because what a successor lacks is an address rather than a store.
 
 #### Complexity & effort
 *   **Effort**: M
@@ -552,6 +560,8 @@ These are distinct in trigger, direction and who initiates, and conflating them 
 ### `@engine/loom-cycle`: Two boundaries — the wave, and the hand-off
 **Tags**: #needs-coordinate
 
+**State (2026-10-20, after the hand-over lane) — the hand-off's CONTENT is specified; its trigger and the phase shape are not built.** *(measured — the section exists in `loom/SKILL.md`.)* What a conductor owes a successor is now written as a `### Dehydration and rehydration` section plus `¶INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID`: the rows, the live lanes **by LOG PATH rather than by agent id**, the forbidden brief forms each with a redirect, and the successor's first acts. It composes `§CMD_DEHYDRATE` and `§CMD_RESUME_SESSION` rather than restating them. **Still owed**: the conductor choosing its own moment (the open question below is untouched — the figure removes the discretion and still does not supply the self-knowledge), the wave/hand-off phase shape, and the end-to-end proof that an answer given in the gap changes what the next session does.
+
 The spine. A loom is **multi-hop by nature** — threads iterate and deviate, so it runs many waves, topping up on adjacency as capacity frees. It ends by **handing over**, not by finishing the work. This chapter lands **last** because it composes the others.
 
 #### Scope
@@ -631,6 +641,7 @@ The spine. A loom is **multi-hop by nature** — threads iterate and deviate, so
 *   🔴 **A decision board reveals the agent's recommendation for every item as soon as any one is answered** — the page-wide read gating the anti-anchoring reveal. Filed separately; it blocks the exposed pre-selected controls an operator asked for, because pre-filling any control would both emit a vote nobody cast and unblind the whole board.
 *   🔴 **The kit's publish route contradicts itself.** `publish-kit.sh` documents republishing a versioned key as *"how a fix reaches existing boards"*, and its immutability gate refuses exactly that. Shipping a fix to already-published pages requires overriding the gate the script relies on.
 *   ⚠️ **A skill the loop depends on exists in one project only.** The thread-end refill offer reaches for a picker that is not installed everywhere, so the refill leg silently loses a source depending on where the loom runs.
+*   🔴 **No chapter covers keeping documentation true across the cycle, and the gap is now partly built rather than merely named.** A disposable session that hands over also hands over whatever it made the docs wrong about, and nothing in this document says who repairs that. The loom now carries a **standing documentation lane** fed batched on a landed thread, a `📚 Docs owed` register row kind in the inheritance, and `/revise` — a `/build`-shaped, dispatchable block that repairs the **located claims** one change falsified and is forbidden the tree-wide work (index reconciliation, sweeps, count audits, housing an undocumented change) that `/document` keeps because no single diff can scope it. **Un-ticketed**: this surface has no chunk and no acceptance in this document, so it is carried here rather than claimed as a chapter's state.
 
 ### One correction to a correction
 

@@ -45,6 +45,9 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const intake = path.join(here, "..");
+/* Board skeletons live in /decide, which owns decision boards; the kit they pin lives here. This
+   lint owns rendered layout for both, so it reads across the seam. */
+const skeletonsDir = path.join(intake, "..", "..", "decide", "assets", "skeletons");
 const read = (p) => fs.readFileSync(p, "utf8");
 
 /* proof-theme.css first: it carries the tokens the others resolve against, and a rule whose
@@ -196,7 +199,7 @@ function scanHtml(file) {
 }
 
 check("kit-owned skeletons carry no doubled catalog class", () => {
-  const dir = path.join(intake, "skeletons");
+  const dir = skeletonsDir;
   for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".html"))) {
     const bad = scanHtml(path.join(dir, f));
     assert.deepStrictEqual(bad, [], `skeletons/${f} doubles a catalog class onto .mod:\n  ${bad.join("\n  ")}`);
@@ -205,7 +208,7 @@ check("kit-owned skeletons carry no doubled catalog class", () => {
 
 /* ---- 4b. Composed pages: an inline SVG inside `.mod` that declares no size ---- */
 check("kit-owned skeletons carry no unsized inline SVG inside a .mod", () => {
-  const dir = path.join(intake, "skeletons");
+  const dir = skeletonsDir;
   for (const f of fs.readdirSync(dir).filter((f) => f.endsWith(".html"))) {
     const bad = scanSvgHtml(path.join(dir, f));
     assert.deepStrictEqual(bad, [], `skeletons/${f} leaves an inline SVG unsized inside .mod:\n  ${bad.join("\n  ")}`);
@@ -217,9 +220,10 @@ check("kit-owned skeletons carry no unsized inline SVG inside a .mod", () => {
    by looking. Same approach as the elevation audit. */
 const CHROME = process.env.CHROME_PATH || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PUPPETEER = [
-  "/Users/invizko/Projects/finch/node_modules/puppeteer-core/lib/esm/puppeteer/puppeteer-core.js",
+  process.env.PUPPETEER_CORE || "",
+  process.env.KIT_NODE_ROOT ? path.join(process.env.KIT_NODE_ROOT, "node_modules", "puppeteer-core", "lib", "esm", "puppeteer", "puppeteer-core.js") : "",
   path.join(intake, "..", "..", "..", "node_modules", "puppeteer-core", "lib", "esm", "puppeteer", "puppeteer-core.js"),
-].find((p) => fs.existsSync(p));
+].find((p) => p && fs.existsSync(p));
 
 if (process.env.LAYOUT_GUARDS_NO_DOM === "1") {
   console.log("layout-guards.test: DOM checks SKIPPED by LAYOUT_GUARDS_NO_DOM=1");
@@ -489,7 +493,7 @@ function rowListOffenders(htmlFiles) {
 
 const KIT_HTML = [
   ...["PROOF_BLOCKS.html", "CREATIVE_LAYOUTS.html"].map((f) => path.join(intake, f)),
-  ...fs.readdirSync(path.join(intake, "skeletons")).filter((f) => f.endsWith(".html")).map((f) => path.join(intake, "skeletons", f)),
+  ...fs.readdirSync(skeletonsDir).filter((f) => f.endsWith(".html")).map((f) => path.join(skeletonsDir, f)),
 ].filter((p) => fs.existsSync(p));
 
 const rowOffenders = rowListOffenders(KIT_HTML);
@@ -826,10 +830,10 @@ if (process.env.LAYOUT_GUARDS_NO_DOM !== "1") {
       <a class="vch" href="#" data-rel-state="past"><span class="seq-mk"></span><span class="vlab">v1</span><i>superseded</i></a>
       <a class="vch" href="#" data-rel-state="current"><span class="seq-mk"></span><span class="vlab">v3</span><i>current</i></a>
     </span>
-    <span class="rel rel-fan inline" data-rel="fans-to"><span class="relsrc">FIN-3141</span><span class="reltgts"><span class="reltgt">FIN-3210</span></span><span class="relstate">draft</span></span>
-    <div class="dep-gate"><span class="dep-verb">blocked by</span><span class="gatekeys"><span class="dep-key is-unsatisfied"><span class="dep-pip is-unsatisfied" data-fill="quarter"></span>FIN-3390</span></span><span class="gatecount">1 of 3 clear</span></div>
+    <span class="rel rel-fan inline" data-rel="fans-to"><span class="relsrc">ENG-3141</span><span class="reltgts"><span class="reltgt">ENG-3210</span></span><span class="relstate">draft</span></span>
+    <div class="dep-gate"><span class="dep-verb">blocked by</span><span class="gatekeys"><span class="dep-key is-unsatisfied"><span class="dep-pip is-unsatisfied" data-fill="quarter"></span>ENG-3390</span></span><span class="gatecount">1 of 3 clear</span></div>
     <div class="rel rel-fan ledger" data-rel="splits-into"><details class="relfold"><summary>
-      <span class="relcount"><span class="cn">14</span>sub-issues</span><span class="relpeek">FIN-3210 · FIN-3211</span>
+      <span class="relcount"><span class="cn">14</span>sub-issues</span><span class="relpeek">ENG-3210 · ENG-3211</span>
       <span class="reltoggle"><span class="tlab-shut">show</span><span class="tlab-open">hide</span></span></summary></details></div>
   </div>
   <div class="mod-body"><div class="meters"><div class="meter">
@@ -838,7 +842,7 @@ if (process.env.LAYOUT_GUARDS_NO_DOM !== "1") {
   </div></div></div>
   <div class="mod-foot">
     <span data-foot="provenance"><span class="fk">provenance</span><span class="fv fprovpair"><span class="fsplit"><i class="c" style="width:62%"></i><i class="u" style="width:38%"></i></span><span class="fdot c">18<span class="lab">checked</span></span><span class="fdot u">11<span class="lab">unverified</span></span></span></span>
-    <span data-foot="relation"><span class="fk">relation</span><span class="fv frel"><span class="verb">follows</span><span class="dir">&#9656;</span><span class="peer">FIN-3140</span></span><span class="fv fbasis">page-order</span></span>
+    <span data-foot="relation"><span class="fk">relation</span><span class="fv frel"><span class="verb">follows</span><span class="dir">&#9656;</span><span class="peer">ENG-3140</span></span><span class="fv fbasis">page-order</span></span>
     <span data-foot="tally"><span class="fk">tally</span><span class="fpips"><i class="on"></i><i class="on"></i><i></i></span><span class="ffrac">4<span class="of">/5</span></span></span>
     <span data-foot="delta" data-foot-dir="improved"><span class="fk">defects</span><span class="fdbars"><i style="width:100%"></i><i class="after" style="width:18%"></i></span><span class="fdelta"><span class="was">11.4</span><span class="arrow">&#8594;</span><span class="now">2.1</span></span><span class="fmag">82% fewer</span></span>
     <span class="foot-when">as of 2026-08-01</span>

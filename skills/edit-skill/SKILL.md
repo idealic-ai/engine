@@ -320,6 +320,8 @@ Execute `§CMD_LINK_FILE` for each file created.
 
 **Entry**: Invoked via `/edit-skill promote <name>`. Starts after Phase 0 setup.
 
+Promoting is not a file copy. The skill is moving from a place where one project's habits are correct into a place where every project inherits them, so **P2.5 is a gate that stops the promote**, not a note on the way past. The phases: P1 inventory → P2 diff → **P2.5 project-assumption check** → P3 confirmation → P4 execute.
+
 ## P1. Inventory
 *Identify all files that belong to this skill.*
 
@@ -363,6 +365,79 @@ For each file being overwritten:
 
 ---
 
+## P2.5 Project-Assumption Check
+*A skill that worked in one project is about to become shared, where every other project inherits it. This phase finds the assumptions it is carrying and does not let them travel unexamined.*
+
+**This phase can FAIL.** An unadjudicated hit does not proceed to P3 — the promote stops and the user chooses what to do. It is not an advisory read.
+
+### Derive the source vocabulary (do this first)
+
+Do not grep for a hardcoded project name. Derive the vocabulary from the project you are promoting *out of*, so the check works for any project:
+
+*   **Issue-key prefix** and **team** and **tracker host** — from the project `CLAUDE.md`'s `## Tracker` block, when it has one.
+*   **Repo / org name** — the basename of the repo root, and any org name in the tracker URL.
+*   **Workspace paths** — the top-level app/package directory names (`ls` the repo root; e.g. `apps/<x>`, `packages/<y>`) and the npm scope from the root `package.json` `name`.
+
+Call this set `<SRCVOCAB>`. Every arm below uses it.
+
+### Arm 1 — the source project's own names, in a file about to be shared
+
+```bash
+grep -rnE "<SRCVOCAB alternation>" .claude/skills/<name>/
+```
+
+Each hit is a project assumption until the user says otherwise. The distinction that matters: a name inside an **illustrative example** that the reader will obviously substitute is legal; a name inside a **live rule, a path the skill will act on, or a command it will run** is not.
+
+### Arm 2 — a skill that handles ticket keys with no tracker-config resolve
+
+Trigger and verdict, both cheap:
+
+```bash
+# does the skill derive or construct an issue key?
+grep -coiE -- '\-NNNN|<PREFIX>|from the branch|branch.s ticket key|ticket key from' .claude/skills/<name>/SKILL.md
+# does it resolve the config that tells it the key's shape?
+grep -c 'Tracker' .claude/skills/<name>/SKILL.md
+```
+
+**Derives a key AND zero `Tracker` → this arm fires.** The skill is about to take one project's key shape into shared space.
+
+### Arm 3 — one project's measurement stated as a general truth
+
+The hardest of the three, because it can name no project, no key and no path. The mechanism is a **frequency or magnitude claim about how the world is**, whose evidence came from the single project the skill grew up in. In shared space it reads as a fact about every project.
+
+```bash
+grep -rniE '\b(usually|typically|generally|almost always|richly|tend(s)? to|often|most)\b[^.]{0,60}\b(ticket|tickets|cluster|issue|issues|PR|PRs|repo|claim|claims|comment|comments)\b' .claude/skills/<name>/
+```
+
+**Adjudicate each hit against one discriminator**: does the sentence carry a condition the next project can evaluate for itself? *"Where tickets are richly wired via `relatedTo`, a cluster is usually one decision — where the rows carry few relations, the clusters will be thin"* is legal: it names both branches and tells the reader which they are in. *"Tickets are richly wired via `relatedTo`"* is not: it is a measurement of one tracker, in the indicative, with nothing to evaluate.
+
+**Severity, stated honestly**: Arms 1 and 2 produce a mechanical verdict. Arm 3 produces a flag that a reader must rule on — and its known benign class is the correctly conditionalised generalisation above. Arm 3 blocks on an **unruled** hit, not on a hit.
+
+### The prescribed remedy — resolve the config, don't delete the behaviour
+
+For an Arm-1 or Arm-2 hit about the tracker, the fix is the convention the engine already uses. **Read how `ticket`, `pr`, `snapshot`, `release-notes` and `intake` do it and follow that**, rather than inventing a variant:
+
+*   Write keys as **`<PREFIX>-NNNN`** (uppercase for keys, lowercase for branches: `<prefix>-NNNN-…`). Never a literal key.
+*   **Resolve `<PREFIX>`, team and base branch in the skill's own first phase**, by reading the project `CLAUDE.md`'s `## Tracker` block.
+*   An orchestrator that dispatches a subagent **resolves and injects** the config — the subagent does not see `CLAUDE.md`.
+*   **Fall back to detection** when there is no `## Tracker` block: an uppercase-alpha prefix + `-NNNN` from the branch / slug / conversation, at lower confidence.
+*   **Never error on absence.** The config is an input, not a requirement.
+
+For an Arm-3 hit, the fix is to **name the condition and both of its sides**, so a project in the other branch is told which one it is in — not to delete the insight.
+
+### Outcome
+
+| Result | Action |
+|---|---|
+| All arms clean (or every hit adjudicated legal, with the reason recorded) | Proceed to P3. Carry the verdict into P3's summary. |
+| Any hit the user has not ruled on | **STOP.** Do not copy a file. Report each hit as `path:line` with its arm, and offer: fix it here (then re-run this phase) · promote as-is with the hit recorded in the summary · abort. |
+
+**Report the zeros with a control.** A clean arm is a claim about the instrument as much as about the file. Run each arm over `~/.claude/engine/skills/` and name a skill it fires on, so a zero means absence rather than a broken pattern — then **never draw the control from text you just wrote**, which confirms your edit and not your instrument (`~/.claude/.directives/INVARIANTS.md` `§INV_A_CONTROL_DRAWN_FROM_WHAT_YOU_JUST_FIXED_IS_NOT_A_CONTROL`). Exclude the skill being promoted from the control sweep.
+
+Arm 2 is the one that controls itself: the same loop prints a FIRES side (derives a key, zero `Tracker`) and a silent side (derives **and** resolves), so its silence is a reading rather than a dead pattern. For Arms 1 and 3, pick the firing example out of that sweep rather than from a list written here — a named example goes stale the moment someone fixes it, and a stale control is read as a pass.
+
+---
+
 ## P3. Confirmation Gate
 *The user MUST explicitly approve before any files are copied.*
 
@@ -377,8 +452,12 @@ Target: ~/.claude/engine/skills/<name>/
 Files to COPY (new): [list]
 Files to OVERWRITE: [list] (see diff above)
 
+Project-assumption check (P2.5): [clean | N hits adjudicated legal | N hits fixed]
+  [one path:line + arm per hit the user ruled legal, with the reason]
+
 After promote:
-  - Local .claude/skills/<name>/ will be DELETED
+  - Local .claude/skills/<name>/ will be DELETED — a tracked change in this
+    project's repo, which you will owe a commit (see P4 step 4)
   - Symlink created: ~/.claude/skills/<name> -> ~/.claude/engine/skills/<name>/
 ```
 
@@ -409,6 +488,11 @@ Execute `AskUserQuestion` (multiSelect: false):
     rm -rf .claude/skills/<name>/
     ```
 
+    **This is a tracked change in the project's repo, and it owes a commit.** `.claude/skills/` is checked in, so the deletion shows up in `git status` as removed files that nobody was told about — a later reader finds an unexplained deletion, or `git checkout` quietly restores the local copy and shadows the engine one. Do not leave it unreported:
+    *   **State the owed commit** in the P4 report, by path, with a subject that says where the skill went — e.g. `chore: <name> moves out of this project and into the shared engine`.
+    *   **Do not run the commit from this skill**, and do not stage with `-A`/`-u`/`.` — the working tree may hold other work. Hand the user the message and the explicit paths.
+    *   The engine side of the promote is a change in **`~/.claude/engine`**, which is its own repository. Report that commit as owed too; it is not the same commit.
+
 5.  **Create symlink**:
     ```bash
     ln -s ~/.claude/engine/skills/<name> ~/.claude/skills/<name>
@@ -419,7 +503,7 @@ Execute `AskUserQuestion` (multiSelect: false):
     ls -la ~/.claude/skills/<name>/SKILL.md
     ```
 
-7.  **Report**: Execute `§CMD_LINK_FILE` for each file.
+7.  **Report**: Execute `§CMD_LINK_FILE` for each file. Close with the **two owed commits** — the project repo's deletion (step 4) and the engine repo's addition — each with its paths and a suggested subject, and say plainly that this skill ran neither.
 
 Execute `§CMD_REPORT_ARTIFACTS`.
 Execute `§CMD_REPORT_SUMMARY`.

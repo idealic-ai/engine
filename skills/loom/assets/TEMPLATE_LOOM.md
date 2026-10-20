@@ -19,8 +19,13 @@
 
 | threadId | ticket | terminal stage | PR | status |
 |----------|--------|----------------|----|--------|
-| FIN-XXXX | [title] | council'd | [PR link] | shipped |
+| ENG-XXXX | [title] | council'd | [PR link] | shipped |
 | A | [title] | scrutinized | — | parked (mid-flight) |
+
+### Boards
+*Sibling to the thread rows — a board spans threads, so it has no stage of its own. One per published decision board. `read back` is the log row's cell carried over unchanged (the log's `## 🗳️ Boards` block defines the admissible forms), so a board left open arrives here with the finding from the fold that left it so.*
+
+*   **[slug]** — [board URL] — **read back**: [`gate N: folded + read` | `gate N: open — no answers yet`]
 
 ## 3. The Weave (Narrative)
 *How the threads ran together. What parallelized, what serialized and why.*

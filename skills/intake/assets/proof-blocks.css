@@ -1,4 +1,4 @@
-/* proof-blocks.css — the DECISION LAYER stylesheet for /prove evidence pages (FIN-3566).
+/* proof-blocks.css — the DECISION LAYER stylesheet for /prove evidence pages (ENG-3566).
  *
  * The standardized, reusable decision components + their affordances, extracted from the
  * locked prototype and de-duplicated. Consumes proof-theme.css tokens exclusively — no
@@ -820,16 +820,17 @@ button.verdict::after{content:"\203A"; margin-left:2px; font-size:13px; opacity:
 /* ══════════ NATIVE POPOVERS — one per affordance, zero-JS reveal (why · council · ticket · evidence) ══════════ */
 .evpop{
   margin:auto; inset:0; position:fixed;
-  width:min(600px,92vw); max-height:82vh; padding:0; overflow:hidden; color:var(--ink);
+  width:min(600px,92vw); max-height:min(72vh,540px); padding:0; overflow:hidden; color:var(--ink);
   border:1px solid var(--rule); border-radius:10px;
   background:linear-gradient(180deg,var(--card),var(--card-2)); box-shadow:var(--shadow-deep);
 }
 .evpop:popover-open{display:flex; flex-direction:column}
 .evpop::backdrop{background:color-mix(in srgb,black 42%,transparent)}
-@supports (top:anchor(bottom)){
-  .evpop{ margin:0; inset:auto; top:calc(anchor(bottom) + 8px); justify-self:anchor-center;
-    left:anchor(center); translate:-50% 0; position-try-fallbacks:flip-block; max-height:min(72vh,540px); }
-}
+/* Centred, NOT anchored to its trigger — unlike `.idpop` above. Two reasons it cannot be:
+   a popover's implicit `popovertarget` anchor does not resolve, so bare `anchor()` computes to
+   0px; and a board carries one `.affseg` trigger per block, so a single class-level
+   `anchor-name` would bind every panel to the last trigger in tree order. A 600px panel over a
+   42%-black backdrop is a modal anyway, which is what `margin:auto; inset:0` above gives it. */
 .evpop-head{
   display:flex; align-items:center; gap:10px; padding:13px 16px; border-bottom:1px solid var(--rule);
   background:color-mix(in srgb,var(--card-2) 70%,var(--card));
@@ -1948,7 +1949,7 @@ html{-webkit-text-size-adjust:100%; scroll-behavior:smooth}
   background:var(--accent); box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent);
 }
 /* THE TARGET IS A BARE TEXT NODE. No `<a href>`, no wrapper around the key — the kit's ticket
-   component wraps a bare FIN-#### into a chip, and a hand-written anchor kills that permanently.
+   component wraps a bare ENG-#### into a chip, and a hand-written anchor kills that permanently.
    The row styles the key; a `.reltitle` child carries the human string. */
 .reltgt{
   display:block; font-family:var(--mono); font-size:11.5px; font-weight:var(--relw-name);
@@ -2990,8 +2991,8 @@ details[open] > .mod-head .neg-chev{transform:rotate(180deg)}
 .dep-pip[data-rel-state="unsatisfied"],.dep-pip.is-unsatisfied{border-radius:1px}
 .dep-pip[data-rel-state="unknown"],.dep-pip.is-unknown{border-style:dashed; border-color:var(--unknown)}
 
-/* dep-key — a relation TARGET. Bare FIN-#### text, never an `<a>`. The kit's ticket auto-scanner
-   wraps a bare `FIN-\d+` text node into a live chip and explicitly SKIPS anything already inside
+/* dep-key — a relation TARGET. Bare ENG-#### text, never an `<a>`. The kit's ticket auto-scanner
+   wraps a bare `ENG-\d+` text node into a live chip and explicitly SKIPS anything already inside
    `<a>` or `<code>`, so a target is authored as plain text in a `<span>`; hand-writing an href
    forfeits the chip permanently. */
 .dep-key{

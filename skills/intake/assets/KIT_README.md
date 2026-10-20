@@ -407,20 +407,20 @@ custom elements: `<prove-ticket>` (the inline ref) and `<prove-ticket-card>` (th
 popover). `PROOF_TICKET_VERSION` is `3`.
 
 **Why/when to use it.** The JS authoring layer — for a live authoring preview where hovering a
-`FIN-` key should reveal its dated status. The shipped reader page prefers the static block; this
+`ENG-` key should reveal its dated status. The shipped reader page prefers the static block; this
 component degrades to a plain link when no metadata is baked, and never fetches.
 
 **How to compose it.** Two entry points:
 
 ```html
 <!-- 1. explicit element -->
-<prove-ticket key="FIN-3519">FIN-3519</prove-ticket>
+<prove-ticket key="ENG-3519">ENG-3519</prove-ticket>
 
-<!-- 2. auto-scanner (default ON): bare FIN-\d+ text is wrapped automatically -->
-<p>Fixed in FIN-3519, follow-up in FIN-3520.</p>
+<!-- 2. auto-scanner (default ON): bare ENG-\d+ text is wrapped automatically -->
+<p>Fixed in ENG-3519, follow-up in ENG-3520.</p>
 ```
 
-The scanner wraps bare `FIN-\d+` text, skipping `<a>/<code>/<pre>/<script>/<style>/<textarea>/
+The scanner wraps bare `ENG-\d+` text, skipping `<a>/<code>/<pre>/<script>/<style>/<textarea>/
 <input>`, its own elements, `contenteditable`, keys inside a plain-text URL, and anything under
 `[data-no-prove-ticketify]`. It is idempotent (wrapped keys live in a skip-tag) and also reaches
 bare keys inside inline SVG `<text>` (mermaid node labels), rendering an SVG-native `<a>`+`<tspan>`
@@ -433,14 +433,14 @@ zero external requests by design:
 <script id="prove-tickets" type="application/json">
 { "bakedAt": "2026-07-31T12:00:00Z",
   "tickets": {
-    "FIN-3519": {
+    "ENG-3519": {
       "title": "…", "status": "In Progress", "statusType": "started",
       "priority": "Medium", "assignee": "…", "project": "…",
-      "url": "https://linear.app/finchclaims/issue/FIN-3519",
+      "url": "https://linear.app/acme/issue/ENG-3519",
       "updatedAt": "2026-07-30T18:24:00Z",
       "lastActivityAt": "2026-07-30T18:24:00Z",
       "description": "…trimmed snippet…",
-      "relations": [ { "key": "FIN-3518", "type": "related", "title": "…" } ],
+      "relations": [ { "key": "ENG-3518", "type": "related", "title": "…" } ],
       "activity": [ { "author": "…", "ts": "2026-07-30T18:24:00Z", "kind": "comment", "text": "…" } ]
     } } }
 </script>
@@ -497,8 +497,9 @@ never demoted.
 **Authoritative contract (the deep-dives).** The full `data-fb-*` authoring contract and the return
 payload live in their own files in this dir — use them, don't reimplement from memory:
 
-- [`TEMPLATE_DECISION_BOARD_PROMPT.md`](./TEMPLATE_DECISION_BOARD_PROMPT.md) — what every wave must
-  surface + the mechanical contracts (embed the kit; render marks as the kit reads them).
+- [`TEMPLATE_DECISION_BOARD_PROMPT.md`](../../decide/assets/TEMPLATE_DECISION_BOARD_PROMPT.md) —
+  what every wave must surface + the mechanical contracts (embed the kit; render marks as the kit
+  reads them). It lives in `/decide`, which owns decision boards; this kit is what it embeds.
 - [`PAYLOAD_SCHEMA.md`](./PAYLOAD_SCHEMA.md) — the v2 event-stream payload + the ingest fold rule.
 
 The board is restyled via the `--fb-*` seam only (see §4); its files are cannot-drift (see §5). An
@@ -542,7 +543,7 @@ zero-JS; only the `¶` copy is a JS enhancement over a zero-JS jump.
 - **Tickets** — the `🎫 N` segment opens a popover carrying the ticket card plus a **relation** label
   (`.tk-rel`): Origin ticket · Related · Blocks · Blocked-by. The affordance data contract is
   `ref: {key, relation}`; the baked ticket data is fetched by the ticket-bake into `tickets.json`
-  (dependency: [FIN-3448](https://linear.app/finchclaims/issue/FIN-3448)).
+  (dependency: [ENG-3448](https://linear.app/acme/issue/ENG-3448)).
 - **URL** — the `↗` segment follows an external ref via a plain `<a href>`.
 - **Roundel** — the stakeholder badge (see §2g).
 - **`¶` perma** — copies the block's ABSOLUTE `#anchor` deep-link. Progressive: zero-JS = jump (the
@@ -660,7 +661,7 @@ are submitted.
   picker.
 - **The users roster** — the bar consumes `users=[{initials,name,email,slack,linear}]`: an org-wide
   identity cache handed off per-proof by the orchestrator (dependency:
-  [FIN-3447](https://linear.app/finchclaims/issue/FIN-3447) identity map). It resolves roundels to
+  [ENG-3447](https://linear.app/acme/issue/ENG-3447) identity map). It resolves roundels to
   names and enables submit attribution + notify.
 
 ```html
@@ -755,8 +756,10 @@ drift rather than picking one.
 
 ### (0) START FROM A SKELETON — this is the first move, not a see-also
 
-**What they are.** `./skeletons/` holds three **complete, already-composed pages with slots to
-fill**. Not blank pages with instructions, not galleries to admire, not fragments to copy out of
+**What they are.** [`../../decide/assets/skeletons/`](../../decide/assets/skeletons/) holds the
+**complete, already-composed pages with slots to fill** — `/decide` owns them, because a board
+skeleton is a decision-board artifact and `/decide` owns decision boards. Not blank pages with
+instructions, not galleries to admire, not fragments to copy out of
 — finished artifacts. Each one ships the kit `<head>` in the documented order at the current
 versions, the atmosphere honoured, the page frame composed (running head · masthead · display
 opener · section rhythm · numbered section heads · ornament breaks · marginalia rail · colophon ·
@@ -775,10 +778,10 @@ page you don't.
   per-person action bar, stakeholder roundels, and one §2f decision component inside each block
   that earns one, placed after the grounds. Loads `kit-behaviors.js`; carries
   `__PROVE_STATE_CONFIG__`.
-- **`decision-board.skeleton.html`** — the uniform triage queue whose answers fold into the intake
-  ingest. Five stylesheets, the `data-fb-*` payload engine (`board-widgets.js`), the copy bar, and
-  `data-fb-item` **on** the `.mod` so a board cannot be filled in and still come out a hand-rolled
-  look-alike.
+- **`decision-board.skeleton.html`** (in `/decide`'s assets — `../../decide/assets/skeletons/`) —
+  the uniform triage queue whose answers fold into the intake ingest. Five stylesheets, the
+  `data-fb-*` payload engine (`board-widgets.js`), the copy bar, and `data-fb-item` **on** the
+  `.mod` so a board cannot be filled in and still come out a hand-rolled look-alike.
 
 **Why three and not eight.** The seven proof archetypes do not differ in *composition* — they
 differ in one section, the evidence spine. Every proof page carries the same required contract
@@ -1210,15 +1213,17 @@ The board seam (`--fb-*`, in `board-widgets.css`, overridden by `board-warm-over
 
 ### Deep-dive docs
 
-- [`skeletons/`](./skeletons/) — **the three composed starting artifacts** (§3.0). Copy one and
-  fill it; this is where composing a page begins. `proof-page.skeleton.html` (evidence, the common
-  case) · `proof-decision.skeleton.html` (the proof that asks) ·
-  `decision-board.skeleton.html` (the triage queue). They pin the kit versions listed above — when
-  a version bumps, the skeletons' `<head>` blocks are part of what has to move.
+- [`decide/assets/skeletons/`](../../decide/assets/skeletons/) — the composed starting artifacts
+  (§3.0). Copy one and fill it; this is where composing a page begins. On disk today that is
+  `decision-board.skeleton.html` (the triage queue), which `/decide` owns along with the board
+  handoff. It pins the kit versions listed above — when a version bumps, a skeleton's `<head>`
+  block is part of what has to move. §3.0 also describes `proof-page.skeleton.html` and
+  `proof-decision.skeleton.html`; **neither exists anywhere in the engine** — treat those
+  descriptions as a spec for artifacts nobody has written, not as files to copy.
 - [`PROOF_BLOCKS.html`](./PROOF_BLOCKS.html) — the rendered, browsable gallery of every static
   block (theme-aware, standalone). The static-block reference itself is §2a of this doc.
-- [`TEMPLATE_DECISION_BOARD_PROMPT.md`](./TEMPLATE_DECISION_BOARD_PROMPT.md) — board authoring
-  (what every wave must surface + the mechanical contracts).
+- [`TEMPLATE_DECISION_BOARD_PROMPT.md`](../../decide/assets/TEMPLATE_DECISION_BOARD_PROMPT.md) —
+  board authoring (what every wave must surface + the mechanical contracts). Owned by `/decide`.
 - [`PAYLOAD_SCHEMA.md`](./PAYLOAD_SCHEMA.md) — the board return-payload event stream + the ingest
   fold rule.
 - [`TEMPLATE_PROVE.md`](../../prove/assets/TEMPLATE_PROVE.md) — proof-dossier authoring.

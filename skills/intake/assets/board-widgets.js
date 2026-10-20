@@ -22,8 +22,15 @@
  * Shared-state (multiplayer) markup — ENTIRELY OPTIONAL. A board with no [data-fb-state-config]
  * behaves exactly as it did before this existed: copy-back only, and no network request at all.
  *   [data-fb-state-config]  — a <script type="application/json"> whose text is the publish-injected
- *      config {docId, stateUrl, pollMs, postUrl?, keyPrefix?, fields?, expiresAt?,
+ *      config {docId, stateUrl, pollMs, stateKey?, stateVerified?, stateUnreadableReason?,
+ *      postUrl?, keyPrefix?, fields?, expiresAt?,
  *      expirySeconds?, expiryRequested?, expiryClampedBy?, submitDisabledReason?}.
+ *      stateVerified says the publish wrote the state document AND read it back 200 with no
+ *      credential. It is what turns a later 403/404 from "nothing folded yet" into a reported
+ *      failure: while nothing ever wrote the document those two were the same observation, and a
+ *      refused board waited calmly forever looking unfolded. stateUnreadableReason carries the
+ *      publish's own finding when the readback did NOT come back 200, so the page says so on its
+ *      first paint rather than after a poll.
  *      expiryClampedBy says WHY the window is the length it is — "credential" when the signing
  *      credential dies before the requested window (a session token yields minutes, not days),
  *      "s3-max" when the request exceeded S3's 7-day ceiling, null when nothing shortened it.
@@ -198,6 +205,13 @@
   var lastEvents = null;     // last polled event log, kept so a local pick can re-render cheaply
   var submitted = false;
   var docSeen = false;       // a state doc was READ for this board — turns a later 403 into an error
+  /* A REFUSED read and an UNFOLDED board were the same thing on the page: both showed "an empty
+     board means not folded yet". readBroken is the sticky reason that makes them different, and it
+     outranks that sentence in the status line — the sentence is precisely the lie when the read is
+     refused, because nothing ever prompts anyone to look. [data-prove-state-read] carries the same
+     fact as an attribute so a reader that is not a human can tell them apart too. */
+  var readBroken = null;
+  var superseded = null;     // {docId, url} once a polled doc says this board was republished
   var receipt = null;        // this voter's own submit receipt, restored from localStorage on load
   /* The fold is AGENT-RUN and lands a few times a day. Polling at the reference demo's 1.5s
      would buy nothing and cost a request every 1.5s forever, so: a slow floor, and back off both
@@ -231,6 +245,16 @@
   function setStateStatus(msg) {
     var el = statusEl();
     if (el) el.textContent = msg;
+  }
+
+  /* One machine-readable word for the read half, on <html>: "ok" (a document was read),
+     "broken" (it answered, and not with the document), "unverified" (the publish could not
+     confirm the document reads anonymously), "waiting" (nothing read yet, nothing refused).
+     In the `prove-` TRANSPORT namespace, not `data-fb-*`: the kit WRITES this, a render agent
+     never authors it, and data-fb-* is the authoring vocabulary the render spec has to name. */
+  function markReadState(word) {
+    var root = document.documentElement;
+    if (root && root.setAttribute) root.setAttribute("data-prove-state-read", word);
   }
 
   function voterName() {
@@ -305,6 +329,13 @@
 
   function submitGate() {
     if (!STATE) return { ok: false, reason: "this board has no shared-state config" };
+    /* Answering a superseded board writes into a document the live board never polls. Saying where
+       to answer instead is the whole point of the pointer; leaving the button live would collect
+       answers nothing reads. */
+    if (superseded) {
+      return { ok: false, reason: "this board was republished as " + superseded.docId
+        + " — answer on " + superseded.url + " instead" };
+    }
     if (writeClosed) return { ok: false, reason: writeClosed };
     if (!STATE.postUrl || !STATE.fields || !STATE.keyPrefix) {
       return { ok: false, reason: STATE.submitDisabledReason || "this board was published without a write grant" };
@@ -334,6 +365,12 @@
     if (btn) {
       btn.disabled = !gate.ok;
       if (btn.setAttribute) btn.setAttribute("aria-disabled", gate.ok ? "false" : "true");
+    }
+    /* The read failure leads when there is one. A board whose state cannot be read is not a board
+       waiting for a fold, and the submit reason underneath it is the lesser fact. */
+    if (readBroken) {
+      setStateStatus(withNote(note, readBroken + (gate.ok ? "" : " " + gate.reason) + COPY_BACK));
+      return;
     }
     if (!gate.ok) { setStateStatus(withNote(note, gate.reason + COPY_BACK)); return; }
     var exp = expiryMs();
@@ -615,19 +652,53 @@
     if (lastEtag) headers["If-None-Match"] = lastEtag;
     return fetch(STATE.stateUrl, { cache: "no-store", headers: headers }).then(function (r) {
       if (r.status === 304) { slower(1.6); return null; }        // unchanged — nothing transferred
-      /* Nothing folded yet. A bucket with no public ListBucket answers a MISSING key with 403,
-         not 404, so on a real board the 404 arm below is unreachable and 403 is the ordinary
-         pre-fold state — the first thing every voter sees. It stops being ordinary once a doc
-         HAS been read here: a read that worked and then stopped is a genuine failure, and
-         forgiving it would render a broken board as a calm wait forever. */
-      if (r.status === 404 || (r.status === 403 && !docSeen)) { lastEtag = null; slower(1.6); return null; }
+      /* A missing or refused state document. Which of the two it is used to be unanswerable, so
+         this arm forgave both and the board rendered "not folded yet" forever.
+         The publish now WRITES the document and reads it back with no credential, and says so in
+         stateVerified. So: verified once (by the publish or by a read here) ⇒ a 403/404 is a
+         genuine failure and is reported. Not verified ⇒ keep forgiving it, because an older page
+         or a store that refuses the prefix genuinely cannot tell — but say THAT rather than
+         claiming nothing has been folded. */
+      if (r.status === 404 || r.status === 403) {
+        lastEtag = null;
+        slower(1.6);
+        /* 404 and 403 are different facts and only one of them was ever ambiguous. A 404 proves
+           the prefix IS served and the object simply is not there — which, on a board whose
+           document was never verified, is the honest pre-fold state and keeps the words the kit
+           already had. A 403 proves nothing about the object, only that the reader was refused. */
+        if (r.status === 404 && !(STATE.stateVerified || docSeen)) {
+          readBroken = null;
+          markReadState("waiting");
+          return null;
+        }
+        if (STATE.stateVerified || docSeen) {
+          /* Same opening phrase as the fetch-rejection path on purpose: "the read failed" is one
+             fact with one name, however the failure arrived. */
+          readBroken = "Could not read the shared board (HTTP " + r.status + " on its state document"
+            + (STATE.stateKey ? " " + STATE.stateKey : "") + "). Answers already submitted are not lost, "
+            + "but nothing anyone sends can be shown here until that read works";
+          markReadState("broken");
+        } else {
+          /* A page published before the state document was written cannot tell the two cases
+             apart — so it says that, rather than the reassuring "not folded yet" it used to say.
+             Claiming nothing has been folded is the one sentence that stops anyone looking. */
+          readBroken = "Cannot tell whether anything has been folded into this board — its state "
+            + "document answered HTTP " + r.status + " and this publish never confirmed the document "
+            + "is readable, so an empty board here is not evidence that nothing was answered";
+          markReadState("unverified");
+        }
+        return null;
+      }
       if (!r.ok) throw new Error("HTTP " + r.status);
       docSeen = true;
+      readBroken = null;
+      markReadState("ok");
       lastEtag = (r.headers && r.headers.get) ? r.headers.get("ETag") : null;
       return r.json();
     }).then(function (doc) {
       if (doc) {
         lastEvents = (doc && doc.events) || [];
+        if (doc.supersededBy && doc.supersededBy.url) superseded = doc.supersededBy;
         reconcileReceipt(doc);
         pollDelay = POLL_MIN;                                    // it moved — look again sooner
         renderState();
@@ -635,7 +706,12 @@
       refreshLiveness();
     }, function (e) {
       slower(2);
-      setStateStatus("Could not read the shared board (" + (e && e.message ? e.message : e) + ")" + COPY_BACK);
+      /* Sticky, so refreshLiveness cannot paint over it on the next tick — which is how a read
+         failure came to be invisible: the quiet arm returned through the SUCCESS path and the
+         liveness line re-rendered the submit reason on top of it. */
+      readBroken = "Could not read the shared board (" + (e && e.message ? e.message : e) + ")";
+      markReadState("broken");
+      refreshLiveness();
     }).then(schedulePoll, schedulePoll);
   }
 
@@ -653,6 +729,14 @@
     STATE = readStateConfig();
     if (!STATE) return;                 // no config ⇒ no bar, no listener, no fetch, no behaviour change
     receipt = readReceipt();            // …and no storage read either: a board that did not opt in stays untouched
+    /* The publish already answered the readability question with a credential-free GET. Carry its
+       finding to the first paint rather than making every reader wait a poll to learn it. */
+    if (STATE.stateUnreadableReason) {
+      readBroken = "This board was published with an unreadable shared state: " + STATE.stateUnreadableReason;
+      markReadState("broken");
+    } else {
+      markReadState(STATE.stateVerified ? "waiting" : "unverified");
+    }
     ensureStateBar();
     var btn = document.querySelector("[data-fb-submit]");
     if (btn) btn.addEventListener("click", submit);
@@ -678,11 +762,14 @@
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", wire);
   else wire();
 
-  window.FinchBoard = {
+  window.ProveBoard = {
     buildEvents: buildEvents, payloadText: payloadText, copy: copy, refresh: refreshPreview,
     /* Shared-state surface, exported so it is testable without a browser and a live bucket. */
     fold: foldEvents, submit: submit, render: renderState, liveness: refreshLiveness, poll: poll,
     stateConfig: function () { return STATE; },
+    /* The read half's own verdict, so a test can assert that a refusal and an unfolded board are
+       different observations without driving a browser. */
+    readState: function () { return { broken: readBroken, docSeen: docSeen, superseded: superseded }; },
     applyState: function (doc) { lastEvents = (doc && doc.events) || []; renderState(); }
   };
 })();

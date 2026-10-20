@@ -10,7 +10,7 @@ mode consumes.
 ## Identity
 - **name**: `warm-print`
 - **kit-base-token**: `__FB_KIT_BASE__` — the literal token pages carry unresolved; publish substitutes the real same-origin kit URL.
-- **kit-dir**: `~/.claude/engine/skills/intake/assets/` — where the kit CSS/JS + skeletons live (resolve to an absolute path; do not hardcode `~/.claude` in composed pages).
+- **kit-dir**: `~/.claude/engine/skills/intake/assets/` — where the kit CSS/JS live (resolve to an absolute path; do not hardcode `~/.claude` in composed pages). Board skeletons are **not** here: `/decide` owns those, at `~/.claude/engine/skills/decide/assets/skeletons/`.
 - **kit-readme**: `<kit-dir>/KIT_README.md` — authoritative for block catalog, archetypes, versioning. Read at Setup.
 
 ## Corpus & Digest
@@ -41,4 +41,4 @@ mode consumes.
 ## References
 - **pitfalls**: `~/.claude/engine/skills/intake/.directives/PITFALLS.md` — read at Setup; several traps caught agents mid-page in this system.
 - **archetypes / block catalog / skeletons**: per `<kit-readme>` (§2a blocks, §3d archetypes, §3.0 skeletons).
-- **related tracker work**: `FIN-3566` (extract the /prove visual language into a prescribed theme + block catalog).
+- **related tracker work**: `ENG-3566` (extract the /prove visual language into a prescribed theme + block catalog).

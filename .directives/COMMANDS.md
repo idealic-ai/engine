@@ -44,9 +44,12 @@ This document defines the **Immutable "Laws of Physics"** for all Agent interact
     *   In append mode, content MUST contain a `## ` heading or `engine log` will error (exit 1).
     *   Whitelisted globally via `Bash(engine *)` — no permission prompts.
 
+**Constraint**: **ENTRIES ARE WRITTEN, NOT ASSEMBLED**. An entry says what you established, in your own words. Reference a file by path and summarise what it showed rather than pasting its contents; quote only where the exact wording is itself the finding, and keep that to a line or two. See `§CMD_THINK_IN_LOG` for why.
+
 **Forbidden Patterns (DO NOT DO)**:
 *   ❌ **The "Read-Modify-Write"**: Reading the file, adding text in Python/JS, and writing it back.
 *   ❌ **The "Placeholder Hunt"**: Looking for `{{NEXT_ENTRY}}`.
+*   ❌ **The "Transcript"**: Pasting a file, a diff, a command's output or another agent's report into the entry instead of saying what it told you.
 
 ### ¶CMD_LINK_FILE
 **Definition**: The Chat is for Meta-Discussion. The Filesystem is for Content.
@@ -68,6 +71,7 @@ Start a background watcher that blocks until a specific tag appears on a file or
 **Definition**: Log progress at a regular cadence between tool calls. Mechanically enforced by `pre-tool-use-heartbeat.sh`.
 **Rule**: After N tool calls without an `engine log` append, the heartbeat hook warns (at `toolUseWithoutLogsWarnAfter`, default 3) and blocks (at `toolUseWithoutLogsBlockAfter`, default 10). Thresholds are configurable in `.state.json`.
 **When Blocked**: Append a progress entry via `§CMD_APPEND_LOG`. The log template is already in your context (preloaded by `template-preload` rule or SubagentStart hook).
+**Entry size**: Two or three lines is a complete heartbeat entry. If nothing has moved since the last one, say that in a sentence. The entry marks progress — it is not a place to re-establish context that already sits in the log above it, and padding it with material you have just read is the failure this cadence most often produces.
 **Related**: `§CMD_APPEND_LOG` (the logging mechanism), `§CMD_THINK_IN_LOG` (the logging rationale).
 
 ### ¶CMD_REQUIRE_ACTIVE_SESSION
@@ -103,9 +107,11 @@ Start a background watcher that blocks until a specific tag appears on a file or
 **Constraint**: Only activate when explicitly prompted. Do NOT auto-activate on hook errors or warnings.
 
 ### ¶CMD_THINK_IN_LOG
-**Definition**: The Log file is your Brain. The Chat is your Mouth.
-**Rule**: Before writing code or answering complex questions, write your specific reasoning into the active `_LOG.md`.
-**Constraint**: Do NOT output your thinking process in the chat. Write it to the log file or keep it internal.
+**Definition**: The log carries what you concluded. The chat carries what the user needs to hear.
+**Rule**: Before writing code or answering a complex question, record in the active `_LOG.md` what you have established — the decision, the reason behind it, and what you intend to do next. Write it in your own words, as a short entry.
+**Constraint**: **YOUR OWN WORDS, NOT THE SOURCE'S.** An entry states the finding, not the material the finding came from. Name a file by path and say what it showed; do not copy its text across. Quote only where the exact words ARE the finding — an error string, a one-line claim you are disputing, a term you are defining — and hold it to a line or two.
+**Constraint**: Keep the reasoning process itself out of the chat. It belongs in the log as a conclusion, or stays internal.
+**Why**: A log of conclusions is what a later reader — or an agent resuming after a restart — can actually use; a replayed transcript of how you got there buries the conclusion inside it. Long stretches of copied source text in a model's output are also the shape most likely to be cut off mid-run by the platform's content filters, which costs a dispatched lane its entire result and leaves nothing on disk.
 
 ### ¶CMD_ASSUME_ROLE
 **Definition**: Cognitive anchoring to a specific persona.
@@ -433,13 +439,13 @@ Display-only 3-line blockquote (What / How / Not-what) at phase entry. Serves as
 **Algorithm**:
 1.  **Construct**: Prepare the compact Markdown block following `~/.claude/skills/_shared/TEMPLATE_DIALOGUE.md`.
     *   Premise blockquote: Your question or context (keep nuance).
-    *   `**U**:`: VERBATIM user response on a single line.
+    *   `**U**:`: the user's own words on a single line — their exact phrasing, because a paraphrased instruction drifts. For a long message, keep the sentence that carries the instruction and summarise the rest; the fidelity is owed to the ask, not to the whole message.
 2.  **Execute**:
     ```bash
     engine log sessions/[YYYY_MM_DD]_[TOPIC]/DIALOGUE.md <<'EOF'
     ##
     > [My context or what prompted the user's message]
-    **U**: [User Response Verbatim]
+    **U**: [The user's own words]
     EOF
     ```
 
@@ -591,6 +597,12 @@ The ONE canonical path for sending a Slack message: resolve the destination (`--
 
 ### [¶CMD_READ_RELATED_TICKET](commands/CMD_READ_RELATED_TICKET.md)
 The ONE canonical READ-ONLY path for reading a related Linear ticket for triage: resolve + read the issue (`get_issue`) → read its `state`/`stateType` → pull the thread (`list_comments`), returning a normalized `{ key, title, url, state, stateType, …, comments[] }` the caller classifies (related-for-context vs duplicate/overlapping-work). Never writes (subscribe is a separate action). `/ticket-search` and inline triage callers (intake sweep, triage, ticket dedup) route their ticket read through it.
+
+### [¶CMD_READ_PROJECT_HANDBOOK](commands/CMD_READ_PROJECT_HANDBOOK.md)
+The ONE canonical READ-ONLY path for reading a Linear Project's **Inbox Handbook**: resolve the project (arg → active session → working context → ask) → resolve the doc **by id** from the registry cross-checked on its 12-hex `slugId`, self-healing the registry row on a miss → fetch it **fresh at the point of need** (Linear has served a stale document with a stale timestamp) → return `## Ticketing Strategy`, `## Boundaries`, the channel set, the project's own repo destinations, and `## What triage will chase`. A missing handbook degrades to a one-line notice and the caller's own behaviour, never a block. **`/ticket`, `/inbox-post` and `/loom` route their handbook read through it; `/intake`, `/triage` and `/inbox-handbook` still hand-roll theirs and are the remaining conversion work.** A seat filing into another project obeys THAT project's lines (`¶INV_TICKETING_STRATEGY_IN_HANDBOOK`).
+
+### [¶CMD_READ_INBOX_CHANNEL](commands/CMD_READ_INBOX_CHANNEL.md)
+The ONE canonical READ-ONLY path for reading a Linear **inbox channel's** drained signal: fetch the comment trees to a file (`engine project fetch --out`) → run the command's own `jq` filter over them → get back the flat new-signal set, every node at every depth, with the intake machinery's own replies and the anchored description annotations removed. **It carries the exclusion vocabulary and the program that applies it, so neither lives in a caller** — a caller names its OUTCOME and reads that outcome's marker from here, and restates no list. `/groom` (Phase 0) and `/intake` (Phase 1) route their channel read through it. **Linear only**: the marker-prefix rule exists because every skill post on Linear lands under the operator's own identity, while Slack gives the bot a user id and `engine slack-read` excludes own messages by a real author check (`¶INV_EXCLUDE_OWN_COMMENTS`).
 
 ### [¶CMD_DRAIN_TICKET_QUEUE_ON_WAKE](commands/CMD_DRAIN_TICKET_QUEUE_ON_WAKE.md)
 What to do when a background `engine ticket watch` wakes you: read the drained `{ticket, since}` the watcher wrote to its output (or the persisted-output file, if the harness truncated it), fetch that ticket's new Linear comments since `since`, act, then re-arm the watcher. Cited by `pre-tool-use-ticket-watch-gate.sh` and the watcher's wake-description so the wake protocol lives in one place.

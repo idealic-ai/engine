@@ -86,9 +86,21 @@ Each template = a **shared core** (identical on every channel) + **channel-speci
 *Ten seconds or don't bother. One key + one sentence is a complete item; batch several in one comment if you spotted them together.*
 
 ```
-**Target**: (the specific FIN-key, or the exact line — a chore without one is a mood)
+**Target**: (the specific ENG-key, or the exact line — a chore without one is a mood)
 **What's wrong with the record**: (misleading title / obsolete description / duplicate / already done / stale wording)
 **What it cost you** (optional but high-value): ("I filed a duplicate because the existing one was titled unrecognizably")
+```
+
+## 🛠️ Tooling & Gates
+
+*Machinery, not product — a gate that does not run, a hook that stands aside instead of refusing, a check nothing invokes, a helper that fails, another seat's gate blocking yours. **This channel never graduates to a ticket**: it reports, and the repository resolves. Only some projects have one; where a project does not, see the skill's missing-channel branch rather than filing this shape elsewhere.*
+
+```
+**What is wrong**: (the behaviour, not the theory)
+**Whose tooling**: (the seat / package / gate that owns it)
+**Evidence — the command and its real output**: (paste it; a description of output is not output, and a zero is not evidence unless you paste the control that would have produced a hit)
+**What it blocks**: (whose work is stopped or silently wrong)
+**Where the resolution should land**: (read the destinations off this channel's own `## Directions` — the project names them, and they differ per repository)
 ```
 
 ## 🟡 Researches & Fixtures

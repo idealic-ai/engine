@@ -1,6 +1,6 @@
 /* Round-trip test for board-widgets.js — no external deps.
  * Builds a known DOM with a minimal shim (the kit uses only [attr]-presence selectors),
- * runs the kit, and asserts FinchBoard.payloadText() matches PAYLOAD_SCHEMA.md (v2).
+ * runs the kit, and asserts ProveBoard.payloadText() matches PAYLOAD_SCHEMA.md (v2).
  *
  * Run:  node ~/.claude/engine/skills/intake/assets/__tests__/board-widgets.test.mjs
  */
@@ -118,10 +118,10 @@ function runKit(body, opts = {}) {
   sandbox.window = sandbox; sandbox.self = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(kitSrc, sandbox);
-  const text = sandbox.window.FinchBoard.payloadText();
+  const text = sandbox.window.ProveBoard.payloadText();
   return {
     text, events: text.split("\n").filter(Boolean).map((l) => JSON.parse(l)),
-    board: sandbox.window.FinchBoard, doc: documentShim, body, store
+    board: sandbox.window.ProveBoard, doc: documentShim, body, store
   };
 }
 
@@ -157,7 +157,7 @@ const withPanel = linkParents(node("body", {
     node("input", { "data-fb-key": "seems-like-a-ticket", _checked: false }),
     node("textarea", { "data-fb-note": "", _value: "also check the 20-page OCR cap" })
   ]),
-  node("div", { "data-fb-item": "FIN-9001", "data-fb-kind": "adopt-cancel" }, [
+  node("div", { "data-fb-item": "ENG-9001", "data-fb-kind": "adopt-cancel" }, [
     node("input", { "data-fb-key": "adopt", _checked: true }),
     node("select", { "data-fb-field": "milestone", _value: "Needs research" })
   ]),
@@ -275,8 +275,8 @@ assert.ok(!looksV1(s2.text), "a single-event v2 stream is still not a v1 object"
 const norm = (t) => t.replace(/"ts":"[^"]+"/g, '"ts":"T"');
 const LIVE = {
   docId: "wave2-a1b2c3d4",
-  stateUrl: "https://staging-finch-proofs.s3.us-east-2.amazonaws.com/state/wave2-a1b2c3d4.json",
-  postUrl: "https://staging-finch-proofs.s3.us-east-2.amazonaws.com/",
+  stateUrl: "http://127.0.0.1:9440/proofs/state/wave2-a1b2c3d4.json",
+  postUrl: "http://127.0.0.1:9440/proofs/",
   keyPrefix: "events/wave2-a1b2c3d4/",
   fields: { policy: "POLICY-B64", "x-amz-signature": "SIG-HEX", "x-amz-algorithm": "AWS4-HMAC-SHA256" },
   expiresAt: new Date(Date.now() + 3600e3).toISOString(),
@@ -564,11 +564,11 @@ const DANA_NR = "v:h:dana:cmt-abc:needs-research";
 
 /* A board as it is AFTER a reload: nothing ticked and no name typed, because a reload restores
    neither. Anything this voter is shown therefore has to come from what SURVIVED the reload. */
-function reloadBoard(net, store, checked = false) {
+function reloadBoard(net, store, checked = false, cfg = LIVE) {
   const slot = node("span", { "data-fb-marks": "needs-research" });
   const slotST = node("span", { "data-fb-marks": "seems-like-a-ticket" });
   const r = runKit(linkParents(node("body", BOARD, [
-    ...stateBarNodes(), stateConfigNode(LIVE),
+    ...stateBarNodes(), stateConfigNode(cfg),
     node("input", { "data-fb-voter": "", _value: "" }),
     node("div", { "data-fb-item": "cmt-abc", "data-fb-kind": "steer" }, [
       node("label", {}, [node("input", { "data-fb-key": "needs-research", _checked: checked }), slot]),
@@ -579,21 +579,78 @@ function reloadBoard(net, store, checked = false) {
 }
 const marksIn = (slot) => slot.children[0].children.length;
 
-/* ---- T10 — a 403 with no doc yet is the PRE-FOLD state, not a failure ---- */
+/* ---- T10 — a 403 on an UNVERIFIED board says "cannot tell", never "not folded yet" ----
+   This case used to assert the opposite, and the assertion was the defect. While nothing ever
+   wrote the state document, a 403 was BOTH "nobody has folded this yet" and "this prefix refuses
+   readers", and the kit resolved the ambiguity in favour of the reassuring reading — so a board
+   whose state could not be read waited calmly forever, looking unfolded, with nothing to prompt
+   anyone to look. The publish now writes the document and reads it back with no credential, and
+   records that in `stateVerified`; a config WITHOUT that flag is a page published before the
+   document existed, where the ambiguity is real. The rule for such a page is that it must SAY it
+   cannot tell — not claim the benign case. */
 const t10net = makeNet({ get: err403 });
 const t10 = reloadBoard(t10net, makeStore());
 await tick();
 assert.strictEqual(t10net.gets().length, 1, "the board really did poll — otherwise every assertion below is vacuous");
+assert.ok(!/not folded yet/.test(stateStatus(t10)),
+  "THE DEFECT: a refused read rendered as the reassuring not-folded-yet state, so a blocked board was indistinguishable from a waiting one");
+assert.ok(/Cannot tell whether anything has been folded/.test(stateStatus(t10)) && /403/.test(stateStatus(t10)),
+  "…an unverified board must say it cannot tell an empty board from a blocked one, and name the code");
 assert.ok(!/Could not read the shared board/.test(stateStatus(t10)),
-  "THE BUG: a missing state doc comes back 403, so 'nobody has folded this board yet' rendered as an error");
-assert.ok(/not folded yet/.test(stateStatus(t10)),
-  "…it must read as the not-folded-yet state, which the kit already had words for and could not reach");
+  "…and must not overclaim either: with no verified document this is ambiguity, not a proven break");
 /* The copy BUTTON is unassertable here — ensureCopyBar() injects it via innerHTML and the shim
    stores innerHTML as an unparsed string, so no node ever appears. What is assertable is the
    thing the button copies, which is the part that could actually have broken. */
 t10.doc.querySelector("[data-fb-key]").checked = true;
 assert.ok(/"type":"vote"/.test(t10.board.payloadText()),
   "…and copy-back, the path that always works, still builds its payload under a 403");
+
+/* ---- T10b — the SAME 403 on a VERIFIED board is a reported failure ----
+   The pair that makes T10 mean anything. Identical network answer, identical markup, one config
+   field different, and the two readings MUST diverge. Before `stateVerified` existed there was no
+   input that could make them differ — which is what "indistinguishable by construction" meant,
+   and why a measurement of the old kit read the same before and after any fix to this arm. */
+const VERIFIED = { ...LIVE, stateVerified: true, stateKey: "proofs/state/wave2-a1b2c3d4.json" };
+const t10bnet = makeNet({ get: err403 });
+const t10b = reloadBoard(t10bnet, makeStore(), false, VERIFIED);
+await tick();
+assert.ok(/Could not read the shared board/.test(stateStatus(t10b)) && /403/.test(stateStatus(t10b)),
+  "a state document the publish VERIFIED, now answering 403, is a real failure and not a pre-fold wait");
+assert.ok(/proofs\/state\/wave2-a1b2c3d4\.json/.test(stateStatus(t10b)),
+  "…and it names the object, so a reader can check that grant instead of guessing");
+assert.ok(t10b.board.readState().broken && !t10.board.readState().docSeen && !t10b.board.readState().docSeen,
+  "control: neither scenario ever read a document — the divergence is the stateVerified field alone");
+
+/* ---- T10c — a publish that could NOT read its own state document says so on the FIRST paint ----
+   Asserted before any tick: the publish already answered the readability question with a
+   credential-free GET, so a reader must not have to wait a poll cycle to learn it. The network
+   here answers 200 — i.e. the finding comes from the config, not from the page's own fetch. */
+const t10cnet = makeNet({ get: ok200({ docId: LIVE.docId, events: [] }, '"e-c"') });
+const t10c = reloadBoard(t10cnet, makeStore(), false, {
+  ...LIVE, stateVerified: false,
+  stateUnreadableReason: "the state document was created but reads back HTTP 403 for an anonymous reader"
+});
+assert.ok(/unreadable shared state/.test(stateStatus(t10c)) && /403/.test(stateStatus(t10c)),
+  "the publish's own readback finding must be on the page before the first poll returns");
+await tick();
+assert.ok(!/unreadable shared state/.test(stateStatus(t10c)),
+  "control: a read that then SUCCEEDS clears it — the warning is a live state, not a permanent label");
+
+/* ---- T10d — a superseded board tells the voter where to answer, and stops collecting ---- */
+const supUrl = "http://127.0.0.1:9440/proofs/proofs/u/wave2-ffff0000.html";
+const t10dnet = makeNet({ get: ok200({ docId: LIVE.docId, events: [],
+  supersededBy: { docId: "wave2-ffff0000", url: supUrl } }, '"e-d"') });
+const t10d = reloadBoard(t10dnet, makeStore(), false, VERIFIED);
+await tick();
+assert.ok(/republished as wave2-ffff0000/.test(stateStatus(t10d)) && stateStatus(t10d).includes(supUrl),
+  "an answer given here would land in a document the live board never polls, so the page must point at the successor");
+assert.strictEqual(t10d.doc.querySelector("[data-fb-submit]").disabled, true,
+  "…and the submit control must close rather than collect into a stranded document");
+const t10enet = makeNet({ get: ok200({ docId: LIVE.docId, events: [] }, '"e-e"') });
+const t10e = reloadBoard(t10enet, makeStore(), false, VERIFIED);
+await tick();
+assert.ok(!/republished as/.test(stateStatus(t10e)) && t10e.doc.querySelector("[data-fb-submit]").disabled !== true,
+  "control: the same doc WITHOUT supersededBy leaves the board answerable — the pointer is what closes it");
 
 /* ---- T11 — a 403 AFTER a doc HAS been read is a genuine permissions failure ---- */
 const t11net = makeNet({ get: (n) => (n === 1 ? ok200(t4doc, '"e-403"') : err403()) });
@@ -627,7 +684,7 @@ assert.deepStrictEqual(t13rec.ids, t13net.posts().map((p) => bodyEvent(p).event.
 assert.strictEqual(t13rec.pending, true, "…and claims, for now, that they have not been folded in");
 assert.ok(t13rec.ts, "…and records when they were sent: with nothing scheduling the fold, elapsed time is the only honest staleness signal");
 assert.deepStrictEqual(Object.keys(t13rec).sort(), ["ids", "pending", "ts"],
-  "…and NOTHING else: FIN-3569's escalation trigger fires on storing anything beyond the voter's own answers on their own device");
+  "…and NOTHING else: ENG-3569's escalation trigger fires on storing anything beyond the voter's own answers on their own device");
 assert.deepStrictEqual(t13store.keys(), [RKEY], "one key, scoped to this docId — a receipt cannot leak across boards");
 
 /* ---- T14 — the reload: a brand-new sandbox over the SAME store ---- */
@@ -774,7 +831,10 @@ console.log("board-widgets.test: PASS — 32 assertions (v2 event shape, actor.k
   + "T5 blank-name refusal + the collision it prevents · T6 expired / failed-POST / no-write-grant "
   + "all degrade to copy-back with a reason · T7 polled text inert, zero innerHTML writes · "
   + "T8 council marks byte-identical across two poll cycles · no-tally-before-you-vote) "
-  + "+ 34 reload assertions (T10 a 403 with no doc yet reads as pre-fold, not an error · T11 a 403 "
+  + "+ 34 reload assertions (T10 a 403 on an unverified board says it cannot tell, never "
+  + "not-folded-yet · T10b the same 403 on a verified board is a reported failure · T10c the "
+  + "publish's own readback finding paints before the first poll · T10d a superseded board points "
+  + "at its successor and stops collecting · T11 a 403 "
   + "AFTER a successful read is still a real failure · T12 the 404 branch survives · T13 a clean "
   + "submit writes a docId-scoped receipt of {ids,ts,pending} and nothing else · T14 a fresh sandbox "
   + "over the same store — a reload — says what happened · T15 self-expiry: the claim retires, the "

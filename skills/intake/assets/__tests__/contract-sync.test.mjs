@@ -12,6 +12,7 @@
  * Run:  node ~/.claude/engine/skills/intake/assets/__tests__/contract-sync.test.mjs
  */
 import assert from "node:assert";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -19,10 +20,13 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const intake = path.join(here, "..");
 const council = path.join(intake, "..", "..", "council");
+const decide = path.join(intake, "..", "..", "decide");
 const read = (p) => fs.readFileSync(p, "utf8");
 
 const kitJs = read(path.join(intake, "board-widgets.js"));
-const renderSpec = read(path.join(intake, "TEMPLATE_DECISION_BOARD_PROMPT.md"));
+/* The board render spec and its skeleton are /decide's assets — /decide owns decision boards. The
+   kit objects they pin are /intake's. This file checks the two sides agree, so it reads both. */
+const renderSpec = read(path.join(decide, "assets", "TEMPLATE_DECISION_BOARD_PROMPT.md"));
 const intakeSkill = read(path.join(intake, "..", "SKILL.md"));
 const schema = read(path.join(intake, "PAYLOAD_SCHEMA.md"));
 const publishSh = read(path.join(intake, "..", "..", "prove", "assets", "publish-s3.sh"));
@@ -206,16 +210,31 @@ check("the state-config placeholder token agrees between spec and publish step",
 /* ---- 13. publish-kit.sh delivers every file the render spec tells a board to reference ----
    A spec line pointing at an object nothing publishes is a guaranteed 404 with no error anywhere. */
 check("every kit file the render spec references is actually published", () => {
-  /* Assert the UPLOAD, not a mention: publish-kit.sh naming a file in a comment while never
-     copying it is exactly the state that produces a silent 404 on every board. */
-  const uploads = publishKitSh.match(/aws s3 cp "\$kitDir\/[a-z.-]+"/g) || [];
+  /* Assert the OUTCOME — that the publish set CONTAINS the file under a version-stamped key — not
+     the shell shape that happens to produce it. publish-kit.sh carries no per-file `aws s3 cp`
+     stanza any more: kit-manifest.sh enumerates the kit dir and publish.sh moves the staged
+     result, so a regex over the script's text can only ever measure the old implementation.
+     Running the enumerator is the only reading that still answers the question the check asks. */
+  const manifestRows = execFileSync(path.join(intake, "..", "..", "prove", "assets", "kit-manifest.sh"),
+    [intake], { encoding: "utf8" })
+    .split("\n").filter(Boolean)
+    .map((line) => { const [name, alias, cas, sha, bytes, ctype] = line.split("\t");
+                     return { name, alias, cas, sha, bytes, ctype }; });
+  assert.ok(manifestRows.length > 0, "kit-manifest.sh enumerated nothing — publish-kit would stage an empty kit");
+  const published = new Map(manifestRows.map((r) => [r.name, r]));
   for (const f of ["board-widgets.js", "board-widgets.css", "proof-ticket.js"]) {
-    assert.ok(uploads.includes(`aws s3 cp "$kitDir/${f}"`),
+    assert.ok(published.has(f),
       `publish-kit.sh never uploads ${f} — a board referencing it 404s with nothing in any log`);
   }
-  assert.ok(/board-widgets\.v\$\{ver\}\.js/.test(publishKitSh),
+  /* A row with an unversioned alias is the other half of the same 404: every live board pins
+     `<name>.v<N>`, so a key minted without the version is a file nobody can reach. */
+  const widgetsVer = /SCHEMA_VERSION\s*=\s*(\d+)/.exec(kitJs);
+  assert.ok(widgetsVer, "board-widgets.js declares no SCHEMA_VERSION — publish-kit would mint v1 forever");
+  assert.strictEqual(published.get("board-widgets.js").alias, `board-widgets.v${widgetsVer[1]}.js`,
     "the board-widgets key is not version-stamped from the source's own SCHEMA_VERSION");
-  assert.ok(/proof-ticket\.v\$\{ticketVer\}\.js/.test(publishKitSh),
+  const ticketVer = /PROOF_TICKET_VERSION\s*=\s*(\d+)/.exec(read(path.join(intake, "proof-ticket.js")));
+  assert.ok(ticketVer, "proof-ticket.js declares no PROOF_TICKET_VERSION");
+  assert.strictEqual(published.get("proof-ticket.js").alias, `proof-ticket.v${ticketVer[1]}.js`,
     "proof-ticket.js is published at an unversioned key — a breaking change would overwrite every live board's copy");
   assert.ok(/proof-ticket\.v\d+\.js/.test(renderSpec),
     "the render spec does not name the versioned proof-ticket file it tells agents to reference");
@@ -231,9 +250,10 @@ check("every kit file the render spec references is actually published", () => {
     `proof-icons.v${iv[1]}.woff2 is declared but absent — the @font-face src resolves to a 404`);
   assert.ok(new RegExp(`url\\("\\./proof-icons\\.v${iv[1]}\\.woff2"\\)`).test(themeSrc),
     `proof-theme.css declares PROOF_ICONS_VERSION=${iv[1]} but its @font-face src names a different file`);
-  assert.ok(/aws s3 cp "\$iconsSrc"/.test(publishKitSh),
+  const iconRow = published.get(`proof-icons.v${iv[1]}.woff2`);
+  assert.ok(iconRow,
     "publish-kit.sh never uploads the iconset — every published page silently falls back to colour emoji");
-  assert.ok(/--content-type 'font\/woff2'/.test(publishKitSh),
+  assert.ok(/^font\/woff2/.test(iconRow.ctype),
     "the iconset is uploaded without a font/woff2 content-type");
 
   /* The channel dots must never enter the substitution range. SEVEN of the eight channel glyphs
@@ -330,13 +350,13 @@ check("INTAKE.md's template defines the State doc slot Phases 5 and 6 depend on"
     "the State doc slot does not ask for the docId — the URL alone cannot be re-derived into a fold target");
 });
 
-/* ---- 18. FIN-3577: the phase gates the ticket made unfakeable are still declared + shaped ----
+/* ---- 18. ENG-3577: the phase gates the ticket made unfakeable are still declared + shaped ----
    `worklist` held because its shape forced enumeration; `triageAccounting` was fakeable (a local
    disk path), and Phase 5 had no board/announce field at all. These assert the fields stay declared
    in the proof arrays AND that each shape demands a resolvable pointer OR an explicit declared
    absence — never a bare local path in between. proof-gates.test.mjs proves the engine ENFORCES
    the arrays; this proves the spec still SHAPES the fields. */
-check("FIN-3577 gates: triageAccounting posted-not-path; Phase 5 gates panelRun/decisionBoard/announce", () => {
+check("ENG-3577 gates: triageAccounting posted-not-path; Phase 5 gates panelRun/decisionBoard/announce", () => {
   const pj = /### Session Parameters\s*```json\s*([\s\S]*?)```/.exec(intakeSkill);
   assert.ok(pj, "intake SKILL.md has a Session Parameters json block");
   const phases = JSON.parse(pj[1]).phases;
@@ -351,7 +371,7 @@ check("FIN-3577 gates: triageAccounting posted-not-path; Phase 5 gates panelRun/
   assert.ok(/commentUrl/.test(ta[0]) && /attachmentIds/.test(ta[0]),
     "triageAccounting no longer requires a posted commentUrl + attachmentIds");
   assert.ok(!/reportPath/.test(ta[0]),
-    "triageAccounting still admits a local reportPath as a satisfying pointer — the exact hole FIN-3577 closes");
+    "triageAccounting still admits a local reportPath as a satisfying pointer — the exact hole ENG-3577 closes");
 
   // decisionBoard: a published url OR an explicit skip (fail-closed on silence)
   const db = /decisionBoard: \{[\s\S]*?\n```/.exec(intakeSkill);
@@ -397,13 +417,18 @@ check("pinned kit versions match the source constants", () => {
   truth["proof-ticket.css"] = truth["proof-ticket"];
   truth["board-warm-overrides"] = truth["board-widgets"];
 
-  const consumers = ["skeletons/proof-page.skeleton.html",
-                     "skeletons/proof-decision.skeleton.html",
-                     "skeletons/decision-board.skeleton.html",
-                     "TEMPLATE_DECISION_BOARD_PROMPT.md",
-                     "KIT_README.md"];
-  for (const rel of consumers) {
-    const body = read(path.join(intake, rel));
+  /* Consumers are resolved as ABSOLUTE paths and their existence is asserted, because a consumer
+     that moved to another skill must either be re-pointed here or go loudly red — a list that
+     silently skips a path it cannot open is a gate that cannot see a move. The board pair lives in
+     /decide, which owns decision boards; the kit objects they pin still live in /intake. */
+  const consumers = [path.join(decide, "assets", "skeletons", "decision-board.skeleton.html"),
+                     path.join(decide, "assets", "TEMPLATE_DECISION_BOARD_PROMPT.md"),
+                     path.join(intake, "KIT_README.md")];
+  for (const abs of consumers) {
+    assert.ok(fs.existsSync(abs),
+      `${abs} pins kit versions but is not at that path — a consumer that moved and was not re-pointed pins versions nobody re-checks`);
+    const rel = path.relative(path.join(intake, ".."), abs);
+    const body = read(abs);
     for (const [, stem, ver] of body.matchAll(/\b([a-z-]+)\.v(\d+)\.(?:css|js)\b/g)) {
       if (!(stem in truth)) continue;               // not a versioned kit object
       assert.strictEqual(ver, truth[stem],
@@ -421,4 +446,4 @@ console.log(`contract-sync.test: PASS — ${checks} cross-file checks `
   + "every referenced kit file is published, state config on every board, "
   + "signing-failure degrades read-only, spec block is standard not opt-in, "
   + "State doc slot defined where Phases 5+6 use it, "
-  + "FIN-3577 gates declared + shaped (triageAccounting posted-not-path, panelRun/decisionBoard/announce))");
+  + "ENG-3577 gates declared + shaped (triageAccounting posted-not-path, panelRun/decisionBoard/announce))");
