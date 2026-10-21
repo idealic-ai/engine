@@ -1,7 +1,8 @@
 #!/bin/bash
 # linear-lib.sh — shared Linear GraphQL seam + payload transform.
 #
-# Sourced by project.sh (`engine project fetch`) and ticket.sh (`engine ticket fetch`).
+# Sourced by project.sh (`engine project fetch`) and ticket.sh (`engine ticket fetch`); ticket-search.sh
+# sources it for `_load_key` alone and redefines `_graphql` / `_next_fixture` itself.
 # The two commands differ ONLY in their query filter (a whole project vs. an id-set of
 # tickets) and their envelope; the GraphQL seam, the fixture mechanism, the auth, and the
 # per-issue jq transform are shared here so a field added for one is added for both
@@ -51,14 +52,45 @@ fi
 # the shared env-lib precedence. Unlike the old inline grep, the value is whitespace-
 # trimmed and one layer of surrounding quotes is stripped, so a quoted key works.
 _load_key() {
+  local src=""
   if [ -z "${LINEAR_API_KEY:-}" ]; then
     local val
+    # Read the source BEFORE exporting: once exported, the variable is itself the source.
+    src="$(env_key_source LINEAR_API_KEY 2>/dev/null)" || src=""
     if val="$(resolve_env_key LINEAR_API_KEY)"; then
       LINEAR_API_KEY="$val"
       export LINEAR_API_KEY
     fi
   fi
-  : "${LINEAR_API_KEY:?LINEAR_API_KEY is required — set it in your environment or .env.local/.env}"
+  if [ -z "${LINEAR_API_KEY:-}" ]; then
+    echo "linear: cannot authenticate." >&2
+    env_credential_diagnosis LINEAR_API_KEY
+    return 1
+  fi
+  _announce_key_source "$src"
+}
+
+# One stderr line naming WHERE the key came from. There is more than
+# one Linear workspace reachable from this machine, so a read can succeed against the
+# wrong one — "Account disabled" was how that surfaced, and nothing said which dotfile had
+# been chosen. The anchor and the path are named; the value never is.
+# Once per SHELL, not per process tree: `_graphql` runs inside `$(…)`, so each call is a
+# subshell that loses the flag and a command making several calls (a paginated fetch)
+# repeats the line. ENGINE_QUIET_KEY_SOURCE=1 silences it for callers that parse stderr.
+_announce_key_source() {
+  [ -n "${_LINEAR_KEY_SOURCE_SAID:-}" ] && return 0
+  _LINEAR_KEY_SOURCE_SAID=1
+  [ -n "${ENGINE_QUIET_KEY_SOURCE:-}" ] && return 0
+  local src="${1:-}" anchor
+  [ -n "$src" ] || src="$(env_key_source LINEAR_API_KEY 2>/dev/null)" || src=""
+  [ -n "$src" ] || return 0
+  if [ "$src" = "environment" ]; then
+    echo "linear: LINEAR_API_KEY from the environment" >&2
+  else
+    anchor="$(env_anchor_dir 2>/dev/null)" || anchor="?"
+    echo "linear: LINEAR_API_KEY from $src (anchor $anchor)" >&2
+  fi
+  return 0
 }
 
 # _next_fixture — pop the next fixture path from the colon-separated LINEAR_FIXTURE list.

@@ -10,7 +10,7 @@
 # `## SRC_RELATED_TICKETS`. Done/closed tickets are kept by default — a done match is an
 # "already built" signal for duplicate detection.
 #
-# Search field: `searchIssues(term:, includeArchived:)` — CONFIRMED live against Finch's Linear
+# Search field: `searchIssues(term:, includeArchived:)` — CONFIRMED live against a production Linear workspace
 # (returns real ranked nodes with state{name,type}). We do NOT rely on the API's own ordering:
 # `_rank` re-sorts by local term-overlap (see there). If Linear ever renames the field, ONLY
 # `_q_search` and `_rank` need to change — everything else is field-shape tolerant (missing
@@ -21,7 +21,7 @@
 #
 #   <free text> : raw query / taskSummary. Reduced internally to salient search terms
 #                 (see _reduce_terms — lexical search degrades on a whole paragraph).
-#   --team <KEY>       : scope to a team by identifier prefix (e.g. FIN → keep FIN-* only).
+#   --team <KEY>       : scope to a team by identifier prefix (e.g. ENG → keep ENG-* only).
 #   --include-closed   : surface completed/canceled tickets (DEFAULT ON — a done match =
 #                        "already built"). Negate with --no-include-closed (alias --open-only),
 #                        which drops them via a state.type post-filter. NOTE: "closed" is a
@@ -53,6 +53,18 @@ for _ts_boot in "${ENGINE_SCRIPTS:-}/env-boot.sh" "$HOME/.claude/engine/scripts/
 done
 type resolve_env_key >/dev/null 2>&1 || { echo "ticket-search: could not load the engine resolver via env-boot.sh" >&2; exit 1; }
 
+# `_load_key` (auth + the which-dotfile announcement) lives in linear-lib.sh ONLY: a second
+# copy of it is how this script once announced "from the environment" for a key read from a
+# dotfile. Sourcing the library also defines its own `_graphql` and `_next_fixture`; this
+# script redefines both further down, which is deliberate and must stay AFTER this line.
+for _ts_linear in "${ENGINE_SCRIPTS:-}/linear-lib.sh" "$HOME/.claude/engine/scripts/linear-lib.sh"; do
+  [ -f "$_ts_linear" ] || continue
+  # shellcheck source=/dev/null
+  . "$_ts_linear"
+  break
+done
+type _load_key >/dev/null 2>&1 || { echo "ticket-search: could not load _load_key from linear-lib.sh" >&2; exit 1; }
+
 LINEAR_API_URL="${LINEAR_API_URL:-https://api.linear.app/graphql}"
 DEFAULT_LIMIT=10
 
@@ -73,20 +85,6 @@ usage() {
 }
 
 # ---- GraphQL seam (the single injectable HTTP call) ----
-
-# _load_key — resolve LINEAR_API_KEY from a project dotfile if unset (live path only)
-# through the SHARED env-lib precedence, identical to linear-lib.sh's copy: one key, one
-# answer, whichever command asks. Values are trimmed and one quote layer is stripped.
-_load_key() {
-  if [ -z "${LINEAR_API_KEY:-}" ]; then
-    local val
-    if val="$(resolve_env_key LINEAR_API_KEY)"; then
-      LINEAR_API_KEY="$val"
-      export LINEAR_API_KEY
-    fi
-  fi
-  : "${LINEAR_API_KEY:?LINEAR_API_KEY is required — set it in your environment or .env.local/.env}"
-}
 
 # _next_fixture — pop the next fixture path from the colon-separated TICKET_SEARCH_FIXTURE list.
 # The call counter is FILE-backed (not a shell var) so it survives command-substitution
@@ -154,7 +152,7 @@ GQL
 
 # _reduce_terms RAW_TEXT → space-separated salient search terms on stdout.
 # WHY: lexical `searchIssues` degrades on a whole paragraph — a taskSummary is prose, but the
-# search wants keywords. Keep FIN-keys and salient/technical tokens (uppercase, digits, long
+# search wants keywords. Keep ENG-keys and salient/technical tokens (uppercase, digits, long
 # words), drop common stopwords, cap length. Do NOT "simplify" this into raw-paragraph-in.
 _reduce_terms() {
   local raw="$1"
@@ -168,7 +166,7 @@ _reduce_terms() {
       if (t == "") next;
       lc = tolower(t);
       keep = 0;
-      # FIN-key (or any TEAM-<num>) — always salient, even if short.
+      # ENG-key (or any TEAM-<num>) — always salient, even if short.
       if (t ~ /^[A-Za-z]+-[0-9]+$/) keep = 1;
       # A stopword is noise regardless of case (drops sentence-initial "Add", "New", "The").
       else if (lc in stop) keep = 0;
@@ -297,11 +295,11 @@ cmd_search() {
       'map(select((.stateType // "") | (. != "completed" and . != "canceled")))')
   fi
 
-  # Team scope: keep only hits whose identifier prefix matches the team key (e.g. FIN → FIN-*).
+  # Team scope: keep only hits whose identifier prefix matches the team key (e.g. ENG → ENG-*).
   # Post-filter keeps _q_search stable across the VERIFY-BEFORE-SHIP field question.
   if [ -n "$team" ]; then
     printf '%s' "$team" | grep -qiE '^[0-9a-f]{8}-' \
-      && echo "ticket-search: --team expects an identifier prefix (e.g. FIN), not a UUID" >&2
+      && echo "ticket-search: --team expects an identifier prefix (e.g. ENG), not a UUID" >&2
     ranked=$(printf '%s' "$ranked" | jq --arg team "$team" \
       'map(select(.identifier | ascii_upcase | startswith(($team | ascii_upcase) + "-")))')
   fi
