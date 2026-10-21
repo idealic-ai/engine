@@ -7,6 +7,7 @@
 #   3. Active session with discovered directives → injects directives
 #   4. Standards NOT injected (COMMANDS.md, INVARIANTS.md, SIGILS.md excluded)
 #   5. No logTemplate → no template injection (directives still injected)
+#   8. VOICE.md always injected, exactly once
 #
 # Run: bash ~/.claude/engine/scripts/tests/test-subagent-start.sh
 
@@ -281,6 +282,50 @@ JSON
 }
 
 # ======================================================================
+# Test 8: VOICE.md injected once, even when it is also in preloadedFiles
+# ======================================================================
+test_voice_injection() {
+  echo "--- 8. VOICE.md injected once ---"
+
+  local dir="$FAKE_HOME/.claude/engine/.directives"
+  mkdir -p "$dir"
+  echo "# How we write
+VOICE_MARKER_TEXT" > "$dir/VOICE.md"
+
+  cat > "$TEST_SESSION/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "test",
+  "lifecycle": "active",
+  "logTemplate": "",
+  "preloadedFiles": []
+}
+JSON
+
+  local fresh
+  fresh=$(run_hook) || true
+  assert_contains "VOICE_MARKER_TEXT" "$fresh" "VOICE.md injected when not in preloadedFiles"
+
+  cat > "$TEST_SESSION/.state.json" <<JSON
+{
+  "pid": $$,
+  "skill": "test",
+  "lifecycle": "active",
+  "logTemplate": "",
+  "preloadedFiles": ["$dir/VOICE.md"]
+}
+JSON
+
+  local output count
+  output=$(run_hook) || true
+
+  assert_contains "VOICE_MARKER_TEXT" "$output" "output contains VOICE.md content"
+  assert_contains "Preloaded: $dir/VOICE.md" "$output" "output uses [Preloaded:] format for VOICE.md"
+  count=$(echo "$output" | jq -r '.hookSpecificOutput.additionalContext' | grep -c "VOICE_MARKER_TEXT")
+  assert_eq "1" "$count" "VOICE.md injected exactly once"
+}
+
+# ======================================================================
 # Run all tests
 # ======================================================================
 
@@ -302,6 +347,8 @@ echo ""
 run_test test_cmd_append_log_injection
 echo ""
 run_test test_cmd_append_log_missing
+echo ""
+run_test test_voice_injection
 
 echo ""
 exit_with_results

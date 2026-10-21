@@ -64,7 +64,19 @@ $CMD_CONTENT
   fi
 fi
 
-# 3. Discovered directives injection (from preloadedFiles, excluding standards)
+# 3. VOICE.md injection — sub-agents write most of the prose people read
+VOICE_PATH="$HOME/.claude/engine/.directives/VOICE.md"
+if [ -f "$VOICE_PATH" ]; then
+  VOICE_CONTENT=$(cat "$VOICE_PATH" 2>/dev/null || true)
+  if [ -n "$VOICE_CONTENT" ]; then
+    ADDITIONAL_CONTEXT="${ADDITIONAL_CONTEXT}[Preloaded: $VOICE_PATH]
+$VOICE_CONTENT
+
+"
+  fi
+fi
+
+# 4. Discovered directives injection (from preloadedFiles, excluding standards)
 PRELOADED_COUNT=$(jq '.preloadedFiles // [] | length' "$STATE_FILE" 2>/dev/null || echo "0")
 if [ "$PRELOADED_COUNT" -gt 0 ]; then
   while IFS= read -r filepath; do
@@ -74,6 +86,9 @@ if [ "$PRELOADED_COUNT" -gt 0 ]; then
     if echo "$filepath" | grep -qE "$STANDARDS_PATTERN"; then
       continue
     fi
+
+    # Already injected above
+    case "$filepath" in */.directives/VOICE.md) continue ;; esac
 
     # Read and inject the file
     if [ -f "$filepath" ]; then
