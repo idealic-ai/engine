@@ -245,6 +245,7 @@ the copy bar because a board has a state config.
   </label>
   ```
   The description is the orchestrator's, drawn from the triage steering read — not invented by the render agent (`¶INV_BOARD_TRUSTS_ORCHESTRATOR_CURATION`). If the handoff gave an option no description, render the label alone rather than writing one.
+- **A disclosure on an option** — `<details data-fb-disclose="context|comparison|sources">` with a `<summary>` and the fold's content inside it, placed in the item container. It is the body-level fold the `fmeta` note above records as owed; `details.fmeta` is still the device for the *foot*. The kind set is **closed** and bound in `board-widgets.js` — `context` (why this matters) · `comparison` (what the alternatives cost) · `sources` (where this came from) — and the kit stamps `data-fb-disclose-invalid="true"` on anything else, so a fourth kind renders as a flagged mistake rather than a block. There is deliberately no kind for a recommendation. Optional: `data-fb-disclose-key="<option-key>"` binds the fold to one option row, matching a key you authored. Mechanically: the kit **removes an `open` attribute at wire**, so the summary is visible from first paint and the body never is — do not ship one open; and a disclosure **emits no event and alters none**, so it changes nothing about the payload and nothing about when other people's marks appear. Leave `display` and `list-style` on the `<summary>` alone — either one suppresses the disc marker, which is the affordance (`⌄ Expand` is declined).
 - A consolidation widget: `data-fb-item="<op-id>" id="<op-id>" data-fb-kind="consolidation"` with two radios `<input type="radio" name="<op-id>" data-fb-key="approve">` / `data-fb-key="reject"`.
 - An adopt-cancel widget: `data-fb-item="<ENG-key>" id="<ENG-key>" data-fb-kind="adopt-cancel"` with radios `data-fb-key="adopt"` / `data-fb-key="cancel"`, a `<select data-fb-field="milestone">…</select>` (adopt target), and `<input data-fb-field="reason">` (cancel reason).
 - A copy bar (or let the kit auto-inject one): a `<button data-fb-copy>Copy answers</button>`, a `<input data-fb-voter>` for the voter name, a `<span data-fb-copied></span>`, and a `<pre data-fb-payload></pre>` (the always-visible payload, so copy works even if the clipboard API is blocked).
@@ -330,17 +331,18 @@ history, the reopen trigger — is depth the reader asks for, not depth they wad
   *Presentation* below), not a nicety: without it the only way to find the consequential item on a
   thirteen-item board is to read all of it. The claim cell carries **the question**, never the finding's
   headline — a reader scanning that column is asking *what is being asked of me*, not *what was found*.
-- **At item level the disclosure device is `<details class="fmeta">`, and there is no second one.** It is
-  what the library has — every `<details>` in the block catalog is that one class — and `⌄` **Expand** is a
+- **The item-level disclosure devices are `<details class="fmeta">` for the foot and `<details data-fb-disclose>` for the body, and there is no third.** Both are the library's own
+  — every `<details>` in the block catalog is one of those two — and `⌄` **Expand** is a
   **declined** affordance in the kit's own alphabet: *"native `<details>` already discloses; the disc
   triangle is the affordance."* **Do not hand-roll an accordion, a chevron, a toggle button, or a second
   disclosure of any kind.**
-- ⚠️ **OWED — and name it rather than working around it.** `fmeta` is styled for `.mod-foot` alone:
+- ⚠️ **`fmeta` is for the foot; the body has its own fold.** `fmeta` is styled for `.mod-foot` alone:
   `details.fmeta{margin-left:auto}` and `details.fmeta[open]{flex:1 1 100%}` both assume that foot's flex
-  context, and `.mod-body` is not a flex container. **So the kit has no device for folding depth inside a
-  body.** Until it does: fold depth into the **foot**, where `fmeta` works, or into the item's **evidence
-  popover**, which is the kit's other reveal. A board that genuinely needs a body-level fold has found a
-  real gap — **report it; do not mint a class for it.**
+  context, and `.mod-body` is not a flex container — so do not put a `fmeta` in a body. To fold depth
+  inside a body, use `<details data-fb-disclose="context|comparison|sources">` (see *A disclosure on an
+  option* above). Its kind set is **closed**: a fourth kind is stamped `data-fb-disclose-invalid="true"`
+  and renders as a flagged mistake, so do not mint one and do not mint a class. The item's **evidence
+  popover** is the kit's other reveal. A need the closed kinds do not cover is a real gap — **report it.**
 
 **The gap this section exists to close.** A board was measured minting `.optgrid`, `.optcard`, `.leanbox`
 and `.conf` in its own `<style>` — each of them absent from all five kit sheets and from the skeleton. The

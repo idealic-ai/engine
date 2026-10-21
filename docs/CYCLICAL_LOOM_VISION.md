@@ -166,6 +166,7 @@ END → the operator's explicit close lands it · a fresh loom inherits · answe
 *   **Top-up is governed by the conductor's remaining context, not by lane availability.** Free lanes are an invitation, not a licence. A loom that tops up whenever a lane idles never reaches its hand-off.
 *   **A fork reaches the operator before it blocks a thread**, not after. An operator asking *"what do you need from me"* means a pass was already overdue.
 *   **An escape hatch must be the result of doing the work, not a note written instead of it.** A board row left open must state what the fold found — which cannot be written without folding.
+*   **The operator's attention is spent on domain or not at all.** A mechanical fork is taken on the lean and recorded as a row; only a question about the product, the domain, or a one-way door is worth a person's turn. An agent that asks which hunks of a file belong to which lane has spent the budget it was there to protect.
 
 ### Quality & standards
 
@@ -178,6 +179,7 @@ END → the operator's explicit close lands it · a fresh loom inherits · answe
 
 *   **Unblock the inheritance before optimising the wave.** A faster wave that loses its leftovers is worth less than a slow one that keeps them.
 *   **Prefer a mechanism to a rule** wherever the rule can be made mechanical.
+*   **Prefer a standing grant to a per-instance confirm** wherever the class of decision is mechanical and the choice leaves a durable record. A confirm asked a hundred times is not a hundred safeguards; it is one safeguard and ninety-nine interruptions, and the record is what makes the difference reviewable.
 
 ---
 
@@ -641,6 +643,62 @@ The spine. A loom is **multi-hop by nature** — threads iterate and deviate, so
 
 ---
 
+### `@engine/attention-budget`: The operator's attention is a budget, and the machinery spends it on mechanics
+**Tags**: #needs-coordinate
+
+**State (2026-10-21, after a 5-lens council and the first two `/next` repairs) — written, reviewed, one MUST FIX applied, and the chapter's own `(measured)` label was FALSE.** The council's verdict was *sound with fixes*: one MUST FIX, ten SHOULD FIX, seven CONSIDER. **The MUST FIX is applied** — the standing grant now names its default (skip the mixed file), because the set of outcomes the rule permits includes *commit the mixed file whole* and a grant with no default authorises exactly the sweep `.directives/PITFALLS.md:263` already records. **The ten SHOULD FIX and seven CONSIDER are not applied.** The Scope's `(measured — 17 skills…)` parenthetical was false under every reading and is corrected below; **the conclusion it was offered in support of survives, by a different route** — see § STATUS RECONCILIATION (2026-10-21). Separately, the dial's *first consumer shipped ahead of the dial*: `/next` was repaired twice from live use the same day, the second time to run a whole sequence under one consent, which is this chapter's standing-grant argument arriving one level up and before the mechanism it argues for. **The acceptance checkboxes below are v1's plan, not the current state**, and the chapter is still text that nothing reads.
+
+Every other chapter budgets a resource — context, wakes, slots, test time. **None budgets the operator's attention, and it is the scarcest one.** A conductor spends it on mixed files, commit scopes and tracker paths, and arrives at the decisions that genuinely need a person with the budget already gone. This chapter makes attention a dial, gives the loom somewhere to record what it decided instead of asking, and supplies the criterion that tells the two apart.
+
+The operator's framing, which is the requirement rather than an illustration: *"I want to stop knowing about the gates, about the checks, and all this meta agent thing… everything facing the user will be only about the problems of the domain and the concepts… in the end, I am choosing the recommendation most of the time."*
+
+#### Scope
+*   **A sixth disposition — `Surface`: Domain only · Balanced · Everything.** It auto-takes a mechanical lean **and logs what it took**, rather than asking; it leaves the hard escalation floor untouched; and it requires every surviving question to be **domain-framed**, leading with the product consequence rather than the pipeline consequence.
+*   **The dial belongs on the ask atom, not on this skill.** *(corrected 2026-10-21 — the conclusion holds and the number that was first offered for it did not; v1 read "17 skills route user interaction through the atom", which no reading of the tree yields. **Measured**: 6 skill files cite `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`, 19 files cite it engine-wide, 35 occurrences in all — positive control 103 files for `AskUserQuestion`, negative control 0 for an invented stem. **What actually carries the argument is a RULE rather than a citation count**: `.directives/AGENTS.md:95` binds every `AskUserQuestion` to that atom whether or not the caller cites it, so the atom reaches callers that never name it. See § STATUS RECONCILIATION (2026-10-21).)* A loom-local setting leaves `/ticket`, `/snapshot`, `/pr` and `/scrutinize` asking mechanical questions whenever they run standalone, and leaves every skill written after it uncovered. One dial there is inherited by callers nobody has written yet.
+*   **A rating, which nothing currently performs.** *(measured — `priorit*` occurs 0 times in `/next` and in `/triage`, 2 in `/groom`, against `rank*` at 17, 2 and 35 in the same sweep.)* The system **ranks** work that already has a ticket and never **rates** a finding that does not. The rating is what decides whether a finding earns a ticket, where it sits against open work, and — load-bearing for the dial above — whether it is domain enough to be worth a person's turn. **Without it the dial has no criterion and degenerates into a list of exceptions.**
+*   **The register discipline, which is the half that fails in practice.** The rows are specified and go unwritten: a conductor that records decisions as narrative leaves `🔓 Open claims`, `🗳️ Boards` and `📚 Docs owed` empty, and a reader of the ledger then finds nothing while believing it looked. *(measured on this document's own programme — a cold-entry pass read the blocks correctly and found no rows, because the conductor had written prose instead.)* **The fix is a check that can fail, not a firmer rule**: the rows are already mandated in prose and the prose did not hold.
+*   **A within-loom sweep for what the discipline missed, while the context still exists.** Not an archive harvest and not a reconstruction: the subject is **what this loom knows and has not rowed** — its own live context plus its own files. **Operator's scoping, and it is what makes the piece sound**: *"we don't harvest across threads; it's within one long living loom, basically what's in context + files."*
+*   **A run shape — `Project-driven`**: bound to one project, with the groom → wave → integrate → document cycle **mandatory rather than offered**, so a loom stays on course without being steered turn by turn.
+*   **Out of scope**: an overlay (it cannot amend an invariant, so the forced confirms below would override the dial exactly where it matters most); a `/loom` variant or fork (the standing *extend-`/loom`-do-not-fork-it* decision, overruled for `/groom` only narrowly and on the measured ground that it mints no lanes); weakening or suppressing the hard escalation floor; a dial that **hides** what it took rather than logging it; and a sweep across other sessions' archives, which is a different subject and stays unowned.
+*   **Key files/components**: `.directives/commands/CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT.md` (the dial) · `.directives/SIGILS.md` § `¶FMT_DECISION_CARD` (the domain-first framing) · `engine/skills/loom/SKILL.md` (the two dispositions and the registers) · `engine/skills/snapshot/SKILL.md` and `engine/skills/groom/SKILL.md` (the amendment and the rating's consumer).
+
+#### The amendments this forces
+**Half the questions this chapter exists to remove are not the conductor's to stop asking.** *(measured on one session running at `Autonomy: Automagic`, whose own promise is "proceed autonomously; auto-resolve conflicts where safe; escalate only on the hard floor".)* Roughly half of that session's escalations were off the floor and were simple non-compliance — **so part of the gap is a dial already present and ignored, and this chapter must say so rather than prescribing a cure for a disease the system does not have.** The other half were **mandated by two rules that no disposition reads**, and those are the amendments.
+
+**`/snapshot`'s hard git rule.** It reads: *"If the reviewed work cannot be committed by whole-file staging of CLEAN files alone, the orchestrator SURFACES the situation and lets the USER decide."* That produced, on the session that measured this, a question about which hunks of one shell script belonged to which lane — the exact species of question the operator asked to stop seeing. **The amendment separates the rule's subject from its consequence**: its real prohibition is *never split hunks, never stash, never unroll* — that stays absolute and untouched. The per-instance confirm is a *consequence* of having nobody authorised to choose, and a **standing grant** recorded at Setup can be that authority. What the grant may never do is let the orchestrator manipulate the tree or index to force a clean commit; it may only choose among outcomes the rule already permits. **And it must choose a stated default, because that permitted set includes *commit the mixed file whole* — so a grant with no default authorises sweeping a neighbour's uncommitted work under this commit's message, which is the one outcome nobody would grant deliberately. The default is SKIP THE FILE**: checkpoint the clean paths, leave the mixed one, and record it as skipped. Committing a mixed file whole stays reachable, but only as a decision somebody took rather than one the grant took by omission. The precedent is on disk rather than hypothetical — `.directives/PITFALLS.md:263` records 540 lines of a neighbour's rename landing under an unrelated commit message, by exactly this route.
+
+**`¶INV_LOOM_COMPOSED_WRITES`' per-skill confirm.** The amendment distinguishes a confirm that protects an **outward** write — a tracker comment, a status transition, a PR, anything a third party reads — from one that merely **reports a mechanical choice** inward. The first keeps its confirm unconditionally. The second is exactly what the dial is for.
+
+**And an overlay cannot do this**, which is the argument that settles the shape: an overlay sits above the skills and cannot amend an invariant, so both rules would keep forcing their confirms through it. Only a disposition that those rules themselves read can carry the grant.
+
+#### Dependencies
+*   **Depends on**: `@engine/durable-ledger` — the registers are where an auto-taken decision is logged, and a dial that takes decisions without a durable row is the one shape this chapter rules out.
+*   **Blocks**: nothing yet; `@engine/loom-cycle` benefits but does not wait.
+*   **Shared resources**: `loom/SKILL.md`, shared with `groom-positions`, `execution-shape` and `loom-cycle`; and the ask atom, which every skill shares.
+
+#### Acceptance criteria
+- [ ] A loom asks the `Surface` question at Setup and records the answer with its other dispositions.
+- [ ] Under `Domain only`, a mechanical fork is taken on the lean and appears as a row rather than as a question — demonstrable by finding the row for a decision the operator was never asked.
+- [ ] A mixed-file commit scope is resolved under the standing grant without reaching the operator, while splitting hunks, stashing and unrolling remain refused — and it resolves to **skipped**, with the whole-file commit reachable only as a decision somebody took. Demonstrable by finding a mixed file recorded as skipped under a grant nobody was asked about, and falsified by a grant that swept one in silently.
+- [ ] An outward write still carries its own confirm under every `Surface` setting.
+- [ ] Every question that does reach the operator leads with a domain consequence; a question that cannot be written that way is on the hard floor instead.
+- [ ] An un-ticketed finding carries a rating, and a finding rated high enough reaches `/groom`'s disposition step as a ticket candidate rather than as a signal.
+- [ ] A conductor that decided something has a row for it, and something goes **red** when it does not.
+
+#### Risks & open questions
+*   **Risk**: a dial that auto-takes leans makes the system quieter and wronger, and the operator stops seeing the evidence that it is wrong. → **Mitigation**: it logs what it took, and the falsifier below is a reversal rate rather than a feeling.
+*   **Risk**: *domain-framed* becomes a style rule nobody can check, so every question gets a domain-sounding preamble and nothing changes. → **Mitigation**: the criterion is the rating, not the wording.
+*   **Open question**: what a rating is computed from. Ranking has `engine project next`; rating has no input set, and inventing one from the agent's own judgement is how it becomes unfalsifiable. **Genuinely unresolved.**
+*   **Open question**: whether the standing grant is per-session or per-class-and-session. A grant that outlives the session it was given in is an authority nobody re-consented to.
+
+#### Complexity & effort
+*   **Effort**: M, and smaller than it reads — one dial on a shared atom, one rule on a shared format, two dispositions, and two amendments whose arguments are written above rather than owed.
+*   **Complexity drivers**: amending two rules that currently force confirms, without weakening the prohibition either rule actually exists for; and a rating with no established input.
+*   **Falsifiers**: if auto-taken leans need reversing more than rarely, the dial is wrong rather than the asking was. If a domain-framed question cannot be written for a mechanical fork, that fork belonged on the hard floor all along. If the rating cannot be computed from anything but the agent's own opinion, C is a preference wearing a measurement's clothes and should be withdrawn.
+*   **Label**: **proposed**, except the non-compliance finding and every parenthetical count above, which are **measured here**; and the operator's framing and the three-piece scoping, which are **decisions on record**. **Nothing in this chapter is exercised** — the first run is the test.
+
+---
+
 ## 🔄 STATUS RECONCILIATION (2026-10-20, same day as v1)
 
 **Reconciliation, not revision** — this records what execution found, and by this document's own rule (`@engine/direct-in-loom`) it required no decision to land. The original text above is preserved as history; only the lines below are corrected. **Every item here was measured by a lane or by the conductor, and each says which.**
@@ -678,6 +736,26 @@ The spine. A loom is **multi-hop by nature** — threads iterate and deviate, so
 ### One correction to a correction
 
 **A review panel reported that every chapter is tagged for a serial executor, and the conductor relayed it.** Both were wrong: the tag is the documented convention for chapters of this kind, and the cited invariant governs a monitor's decision loop rather than parallel execution. **The quotation was accurate; the reading of it was not** — recorded because an accurate quote supporting a wrong conclusion is the failure that survives every check for misquotation.
+
+---
+
+## 🔄 STATUS RECONCILIATION (2026-10-21, the day after v1)
+
+**Reconciliation, not revision** — this records what execution found. The text above is corrected only where it stated a FACT that moved; no Goal, Constraint, Decision Principle, acceptance list or chapter Scope claim was rewritten. **One judgement is recorded because a later lane will meet the same question**: the falsified sentence sits physically inside a chapter's `#### Scope` block, which this flow may not write. It was corrected anyway, on the discriminator the flow itself supplies — the bullet's main clause is **intent** (the dial belongs on the ask atom) and is untouched and correct, while only its parenthetical **measurement** was wrong. The prohibition binds the subject, not the line number.
+
+### `@engine/attention-budget`'s `(measured)` label was false, and the conclusion survived by a route nobody in the panel could see
+
+**What v1 published**: *"(measured — 17 skills route user interaction through `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`, against a control of 0 for an invented atom name.)"*
+
+**What is true** *(measured by the conductor, 2026-10-21 14:54, controls in the same invocation)*: **6** skill files cite the atom, **19** files cite it engine-wide, **35** occurrences in all. Positive control: 103 files for `AskUserQuestion`. Negative control: 0 for the invented stem `CMD_ASK_QUESTION_WITH_ZZZ`. **No reading of the tree yields 17** — and none of the four skills the sentence goes on to name (`/ticket`, `/snapshot`, `/pr`, `/scrutinize`) cites the atom at all.
+
+**The conclusion stands, on a different foundation.** `.directives/AGENTS.md:95` binds **every** `AskUserQuestion` to the atom by rule — *"Every `AskUserQuestion` MUST carry its complete context inside the question body (`§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`)"* — so the atom reaches callers that never name it, and a dial there is inherited by skills written later. The placement argument was right for a reason the citation count could not express.
+
+**Why this is recorded rather than quietly fixed, and it is the most useful thing on this page.** Four of five council lenses measured this **independently**, each with its own positive and negative controls, each correctly finding that the atom reaches zero of the four named skills — and all four concluded the placement argument failed. Only the refutation pass found the binding. **Four measurements of the wrong property, agreeing with each other**: agreement raising confidence without touching certainty, which is `§INV_A_COMPARISON_NOBODY_PERFORMED_IS_NOT_ESTABLISHED` in its own words. Nothing inside the panel could have caught it. **Carry this: when you conclude a check or a rule does not reach something, verify that no rule binds it independently of citation — and never treat consensus as verification.**
+
+**The class, because this was its fourth instance in one day.** Measuring a **token** and reporting a **capability**. The others: `disclosur*` returning 0 on one file read as *"the board has no disclosure vocabulary"* while the render spec in a sibling directory carried it all along; `priorit*` ≈ 0 read as *"nothing rates un-ticketed work"* when the rating ships under three other names with no precedence rule between them; and a lens reading `revers*` = 0 as *"a reversal has nowhere to be recorded"* when `## 💡 Decision` is already its home. **The tell is that the control fires.** A firing control licenses *"this pattern finds what it finds"* and never *"this capability is absent"*.
+
+**And two readers failed to find the file that settles it**, which is why the path is written out here: both a five-lens panel and a snapshot reviewer reported `AGENTS.md` absent, having looked at the repository root and `~/.claude/`. It is at **`.directives/AGENTS.md`**, 233 lines, present under both roots.
 
 ---
 

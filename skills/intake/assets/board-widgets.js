@@ -15,6 +15,11 @@
  *      Carries: data-fb-panel-key, -lens, -icon, -weight, -why, -alt, -thin.
  *      Position-independent by design: the item id is on the attribute, so the agent may place
  *      marks wherever the layout wants without the kit depending on nesting.
+ *   [data-fb-disclose="context|comparison|sources"]  — an expandable block of GROUNDS on an option.
+ *      Native <details>; the summary is the visible line, the body is what unfolds. Optional
+ *      [data-fb-disclose-key="<option-key>"] binds it to one option row; the item comes from the
+ *      enclosing [data-fb-item]. The kit stamps [data-fb-disclose-invalid="true"] on an unknown
+ *      kind. Read-only toward the payload: a disclosure emits no event and alters none.
  *   [data-fb-panel-roster] [data-fb-panel-report]  — council run metadata (anywhere; first wins)
  *   [data-fb-copy]     — the copy button (auto-created if absent)
  *   [data-fb-payload]  — the visible payload box (auto-created if absent)
@@ -189,6 +194,60 @@
       mark.setAttribute("data-fb-panel-open", open ? "false" : "true");
       mark.setAttribute("aria-expanded", open ? "false" : "true");
     });
+  }
+
+  /* ── Disclosures: the grounds an option is chosen ON ─────────────────────────────────
+     The kinds are a CLOSED set, and that is the load-bearing part. A disclosure is author-written
+     material a reader needs in order to decide — why this matters, what the alternatives cost,
+     where it came from. With no `recommendation` kind, an agent's lean has no kind to arrive
+     under, so the thing the reveal gate withholds is unexpressible here rather than discouraged.
+
+     Native <details> by the kit's own alphabet, which records `⌄ Expand` as a declined affordance
+     because the disc triangle already discloses. It also costs no listener: the browser handles
+     keyboard focus and tap, and a <summary> toggle fires `toggle`, never `change`, so it cannot
+     reach the preview/render handlers below.
+
+     Deliberately absent from the payload and from hasTakenAPosition(): expanding the grounds is
+     reading, not answering. A record of which grounds someone opened would be a reading trail, and
+     routing it into the position gate would unblind the tally for a reader who has decided
+     nothing — the trade the gate exists to refuse. */
+  var DISCLOSE_KINDS = { context: 1, comparison: 1, sources: 1 };
+
+  function discloseKindOk(kind) {
+    return Object.prototype.hasOwnProperty.call(DISCLOSE_KINDS, kind);
+  }
+
+  function readDisclosure(el) {
+    var host = el.closest ? el.closest("[data-fb-item]") : null;
+    var key = el.getAttribute("data-fb-disclose-key");
+    var kind = attr(el, "data-fb-disclose");
+    return {
+      item: host ? attr(host, "data-fb-item") : null,   // null, never a neighbour's id
+      key: key == null ? null : key,
+      kind: kind,
+      valid: discloseKindOk(kind),
+      open: el.hasAttribute("open"),
+      wasOpen: el.fbShippedOpen === true
+    };
+  }
+
+  function disclosures() {
+    var nodes = document.querySelectorAll("[data-fb-disclose]"), out = [];
+    for (var i = 0; i < nodes.length; i++) out.push(readDisclosure(nodes[i]));
+    return out;
+  }
+
+  /* Closed at first paint on every option, enforced rather than asked for: a board whose options
+     arrive pre-expanded is the tall item the render spec measured, and the correction is recorded
+     on the node (fbShippedOpen, the kit's own mark-without-an-attribute idiom) so the author's
+     mistake stays visible instead of being quietly absorbed. */
+  function wireDisclosures() {
+    var nodes = document.querySelectorAll("[data-fb-disclose]");
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!discloseKindOk(attr(el, "data-fb-disclose"))) el.setAttribute("data-fb-disclose-invalid", "true");
+      if (el.hasAttribute("open")) { el.fbShippedOpen = true; el.removeAttribute("open"); }
+    }
   }
 
   /* ══════════════════════════════════════════════════════════════════════════════════════
@@ -747,6 +806,7 @@
   function wire() {
     ensureCopyBar();
     wirePanelMarks();
+    wireDisclosures();
     var btn = document.querySelector("[data-fb-copy]");
     if (btn) btn.addEventListener("click", copy);
     document.addEventListener("change", function (e) {
@@ -765,6 +825,9 @@
   window.ProveBoard = {
     buildEvents: buildEvents, payloadText: payloadText, copy: copy, refresh: refreshPreview,
     /* Shared-state surface, exported so it is testable without a browser and a live bucket. */
+    /* The kit's read of the board's disclosures, so the device is verifiable without a browser.
+       A read only — nothing here opens, closes or records a reader's expansion. */
+    disclosures: disclosures,
     fold: foldEvents, submit: submit, render: renderState, liveness: refreshLiveness, poll: poll,
     stateConfig: function () { return STATE; },
     /* The read half's own verdict, so a test can assert that a refusal and an unfolded board are

@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const kitSrc = fs.readFileSync(path.join(here, "..", "board-widgets.js"), "utf8");
+const kitCss = fs.readFileSync(path.join(here, "..", "board-widgets.css"), "utf8");
 
 /* ---- minimal DOM shim (attribute-presence selectors only) ---- */
 function attrName(sel) { const m = /^\[([a-z0-9-]+)\]$/i.exec(sel.trim()); return m ? m[1] : null; }
@@ -26,6 +27,7 @@ function node(tag, attrs = {}, kids = []) {
     textContent: attrs._text || "", _listeners: {},
     getAttribute(k) { return k in this.attrs ? this.attrs[k] : null; },
     setAttribute(k, v) { this.attrs[k] = v; },
+    removeAttribute(k) { delete this.attrs[k]; },
     hasAttribute(k) { return k in this.attrs; },
     appendChild(c) { this.children.push(c); c._parent = this; return c; },
     replaceChildren(...kids2) { this.children = kids2; for (const c of kids2) c._parent = this; },
@@ -823,6 +825,197 @@ await tick();
 assert.strictEqual(await t21.board.submit(), false, "a bare 503 fails its own submit");
 assert.strictEqual(await t21.board.submit(), true, "…and does not latch — an unknown failure is not a dead grant");
 
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+   D1…D8 — OPTION-LEVEL DISCLOSURE.
+
+   What this is for. A board option could carry no expandable context. The board's render spec
+   prescribes folding a restated fact "into the first as a disclosure", and then says the kit has
+   no device for it: the only disclosure device is `<details class="fmeta">`, whose
+   `details.fmeta[open]{flex:1 1 100%}` assumes `.mod-foot`'s flex context, and option rows live
+   in `.mod-body`, which is not a flex container. So the spec routes a body-level fold here as an
+   owed gap. These scenarios are that device's contract.
+
+   Why native <details> and not a scripted panel. The kit's own alphabet records `⌄ Expand` as a
+   DECLINED affordance — native <details> already discloses, the disc triangle IS the affordance —
+   and forbids hand-rolling an accordion or a toggle button. Native <details>/<summary> is also
+   reachable by keyboard focus and by tap without any script, which is the standard the council
+   marks had to be rewired to meet.
+
+   What it must NOT do. A disclosure is author-written material a reader needs IN ORDER to decide.
+   It is not a position, not a tally, and not a lean — so it must stay entirely clear of the
+   position gate (`hasTakenAPosition`) and of the event stream. The kind set is closed for exactly
+   that reason: with `context | comparison | sources` bound, there is no `recommendation` kind to
+   put an agent's pick in, so the thing the reveal gate exists to withhold is unexpressible here
+   rather than merely discouraged.
+   ══════════════════════════════════════════════════════════════════════════════════════════ */
+const DKINDS = ["context", "comparison", "sources"];
+
+function disclose(kind, key, open = false, kids = []) {
+  const a = { "data-fb-disclose": kind };
+  if (key !== null && key !== undefined) a["data-fb-disclose-key"] = key;
+  if (open) a.open = "";
+  return node("details", a, [node("summary", { _text: "what this costs" }), ...kids]);
+}
+
+/* The two boards below are the SAME item — same keys, same note, same voter — and differ only in
+   whether disclosures are present. `bare` is the nearest legal neighbour: an option that
+   legitimately has no disclosure, which is every option on every board published to date. It is
+   the control for D7, and it is not built out of the disclosure vocabulary at all. */
+function discloseBoard(blocks, opts = {}) {
+  const slot = node("span", { "data-fb-marks": "do-it-now" });
+  const extra = opts.net ? [...stateBarNodes(), stateConfigNode(LIVE)] : [];
+  const panel = mark("cmt-dx", "do-it-now", "Skeptic", "🔍", 4, "One query settles it.", false);
+  const body = linkParents(node("body", {
+    ...BOARD, "data-fb-panel-roster": "4", "data-fb-panel-report": "builds/r.md"
+  }, [
+    ...extra,
+    node("input", { "data-fb-voter": "", _value: opts.voter === undefined ? "yarik" : opts.voter }),
+    node("div", { "data-fb-item": "cmt-dx", "data-fb-kind": "steer" }, [
+      node("label", {}, [node("input", { "data-fb-key": "do-it-now", _checked: !!opts.checked }), slot]),
+      node("input", { "data-fb-key": "wait", _checked: false }),
+      node("textarea", { "data-fb-note": "", _value: "a note" }),
+      /* IN the tree, not merely returned. A detached mark makes every assertion about it vacuous:
+         the kit never sees it, so "the kit left it alone" is true of a node nothing could reach. */
+      panel,
+      ...blocks
+    ]),
+    ...(opts.boardLevel || [])
+  ]));
+  return { ...runKit(body, opts), slot, panel, body };
+}
+
+const dCtx = disclose("context", "do-it-now");
+const dCmp = disclose("comparison", "do-it-now");
+const dSrc = disclose("sources", "wait");
+const d1 = discloseBoard([dCtx, dCmp, dSrc]);
+
+/* ---- D1 — the kit reads disclosures at all ---- */
+assert.strictEqual(typeof d1.board.disclosures, "function",
+  "the kit exposes no disclosure read — a board can carry the markup and nothing verifies it");
+
+/* ---- D2 — a disclosure is bound to its item and its option, read from the DOM, not guessed ----
+   Reddens on: the `<details data-fb-disclose="comparison" data-fb-disclose-key="do-it-now">`
+   nested inside `[data-fb-item="cmt-dx"]`. Nothing reads that attribute today. */
+/* `Array.from` is not decoration: disclosures() returns an array built inside the vm sandbox, so
+   its prototype is the sandbox's and deepStrictEqual fails on prototype identity while printing
+   two visually identical sides. Re-home it in this realm before any deep compare. */
+const d1read = Array.from(d1.board.disclosures());
+assert.strictEqual(d1read.length, 3, "every disclosure on the board is reported, once each");
+const cmp = d1read.find((d) => d.kind === "comparison");
+assert.ok(cmp, "a `comparison` disclosure is reported under its declared kind");
+assert.strictEqual(cmp.item, "cmt-dx",
+  "the disclosure is attributed to the item container it sits in — resolved upward, never inferred from document order");
+assert.strictEqual(cmp.key, "do-it-now",
+  "…and to the option key it argues about, so a board can put the comparison on the row the reader clicks");
+assert.deepStrictEqual(Array.from(d1read.map((d) => d.kind)).sort(), [...DKINDS].sort(),
+  "all three kinds survive the read — none is silently folded into another");
+
+/* A disclosure OUTSIDE every item container — a board-level `sources` block in the endmatter — is
+   legal and must report `item: null`. A fallback to "the first/nearest item on the page" would
+   attribute it to a decision it has nothing to do with, and silently, which is the misattribution
+   class the spec already warns about for a mismatched `id`. */
+const dBoardLevel = disclose("sources", null);
+const d2b = discloseBoard([], { boardLevel: [dBoardLevel] });
+const d2bread = d2b.board.disclosures();
+assert.strictEqual(d2bread.length, 1, "a board-level disclosure is read like any other");
+assert.strictEqual(d2bread[0].item, null,
+  "…and is attributed to NO item rather than to the nearest one — an unowned block is unowned, not misfiled");
+assert.strictEqual(d2bread[0].key, null, "…and carries no option key it was never given");
+assert.strictEqual(d2bread[0].valid, true, "…and is still a legal `sources` block");
+
+/* ---- D3 — the kind set is CLOSED, and bound rather than documented ----
+   Reddens on: `<details data-fb-disclose="recommendation">`. This is the assertion that separates
+   "the kit reads the attribute" from "the kit binds the set" — an implementation that merely
+   echoes the attribute passes D2 and fails here, which is why both exist. */
+const dBad = disclose("recommendation", "do-it-now");
+const d3 = discloseBoard([disclose("context", "do-it-now"), dBad]);
+const d3read = d3.board.disclosures();
+const bad = d3read.find((d) => d.kind === "recommendation");
+assert.ok(bad, "an unknown kind is still REPORTED — a block the kit silently ignores is a block nobody fixes");
+assert.strictEqual(bad.valid, false,
+  "`recommendation` is not a disclosure kind: a closed set is what makes an agent's lean unexpressible here rather than merely discouraged");
+assert.strictEqual(dBad.getAttribute("data-fb-disclose-invalid"), "true",
+  "…and the kit stamps the node, so a render agent can grep its own output for the mistake");
+assert.ok(d3read.filter((d) => DKINDS.includes(d.kind)).every((d) => d.valid === true),
+  "the three legal kinds are valid — the gate rejects, it does not reject everything");
+assert.strictEqual(d1read.filter((d) => d.valid).length, 3, "…and a board with only legal kinds carries no stamp");
+
+/* ---- D4 — CLOSED before the reader opens it, ENFORCED rather than requested ----
+   Reddens on: the `open` attribute an author shipped on `<details data-fb-disclose="context" open>`.
+   `wire()` touches nothing today, so the attribute survives and every option opens itself at load.
+   This is the half of the reveal question that is mine: the SUMMARY is visible from first paint,
+   the BODY is not, on every option, whether or not anything has been answered. */
+const dShippedOpen = disclose("context", "do-it-now", true);
+const d4 = discloseBoard([dShippedOpen, disclose("sources", "wait")]);
+assert.strictEqual(dShippedOpen.hasAttribute("open"), false,
+  "an author-shipped `open` is removed at wire: a board whose every option is pre-expanded is the 1,825px item the spec measured");
+const d4ctx = d4.board.disclosures().find((d) => d.kind === "context");
+assert.strictEqual(d4ctx.wasOpen, true,
+  "…and the kit REPORTS that it corrected one, so the author's mistake is visible rather than quietly absorbed");
+assert.strictEqual(d4ctx.open, false, "…and the corrected block reads closed");
+assert.ok(d4.board.disclosures().every((d) => d.open === false),
+  "nothing on the board is open at first paint");
+
+/* ---- D5 — open state is PER BLOCK; there is no shared reveal ----
+   Reddens on: setting `open` on one block and reading the other. An implementation holding a
+   module-level open flag, or writing `open` across the family, reports both as open — which is
+   the shape of the defect where answering one decision reveals another's. */
+dCtx.setAttribute("open", "");                       // the reader opened exactly one
+const d5read = d1.board.disclosures();
+assert.strictEqual(d5read.find((d) => d.kind === "context").open, true, "the block the reader opened reads open");
+assert.strictEqual(d5read.find((d) => d.kind === "comparison").open, false,
+  "THE POINT: its sibling on the SAME option stays closed — open state is the node's own, never shared");
+assert.strictEqual(d5read.find((d) => d.kind === "sources").open, false,
+  "…and a block on a different option stays closed too");
+
+/* ---- D6 — opening a disclosure is NOT taking a position ----
+   Reddens on: `open` set on a disclosure while every `[data-fb-key]` input is unchecked. If the
+   disclosure's state ever reached `hasTakenAPosition()`, reading the grounds would unblind the
+   tally — the exact trade the reveal gate exists to refuse. */
+const d6net = makeNet({ get: () => ok200({ docId: LIVE.docId, events: [
+  vote("v:h:dana:cmt-dx:do-it-now", "dana", "cmt-dx", "do-it-now", "2026-07-31T10:00:00Z")
+] }, '"ed6"') });
+const d6ctx = disclose("context", "do-it-now");
+const d6 = discloseBoard([d6ctx], { net: d6net, voter: "", checked: false, store: makeStore() });
+await tick();
+assert.strictEqual(d6net.gets().length, 1, "the board really did poll — otherwise the next assertion is vacuous");
+assert.strictEqual(marksIn(d6.slot), 0, "a reader who has answered nothing sees no marks (the gate as it stands)");
+d6ctx.setAttribute("open", "");
+d6.board.render();
+assert.strictEqual(marksIn(d6.slot), 0,
+  "…and still none after they open the grounds: reading is not answering, so a disclosure can never unblind the tally");
+
+/* ---- D7 — a disclosure emits NOTHING into the payload ----
+   Control: `bare`, the nearest legal neighbour — the identical item with no disclosure markup at
+   all. Reddens on: any future `disclosure` event type, or a `field`/`note` smuggling the kind.
+   The payload is answers-only by contract; what a reader expanded is not an answer, and a record
+   of which grounds someone read is surveillance rather than a position. */
+const bare = discloseBoard([]);
+assert.strictEqual(bare.board.disclosures().length, 0,
+  "the nearest legal neighbour — an option that legitimately has no disclosure — reports none, rather than one empty record");
+assert.strictEqual(norm(d1.text), norm(bare.text),
+  "a board WITH disclosures emits byte-identical answers to one without: the device adds no event and alters none");
+assert.strictEqual(norm(d4.text), norm(bare.text),
+  "…and an author-shipped-open disclosure that the kit closed emits nothing about having been corrected");
+assert.ok(!/disclos/i.test(d1.text), "the word never reaches the wire at all");
+
+/* ---- D8 — a council mark and the CSS seam ----
+   Reddens on: a wire() loop broad enough to strip `open` off, or stamp, any node that is not a
+   disclosure — the council marks sit in the same item container and are static markup a poll must
+   leave byte-identical. */
+/* Compared against `bare`'s mark, NOT against d4's. Both d1 and d4 carry disclosures, so a wire
+   loop broad enough to touch every node would touch both marks equally and the two would stay
+   equal — an assertion whose sides move together. `bare` has no disclosure at all, so its mark is
+   the one the disclosure code never runs near. */
+assert.strictEqual(fingerprint(d1.panel), fingerprint(bare.panel),
+  "a council mark on a board WITH disclosures is structurally identical to one on a board without — the device reaches no node but its own");
+assert.strictEqual(d1.panel.getAttribute("data-fb-disclose-invalid"), null,
+  "…and carries no disclosure stamp: the invalid marker lands on disclosures only");
+assert.ok(/data-fb-disclose/.test(kitCss),
+  "the kit's own stylesheet must style the attribute its script reads — otherwise the device renders as the browser's default inside a composed board");
+assert.ok(!/details\[data-fb-disclose\][^}]*flex:\s*1 1 100%/.test(kitCss),
+  "…and must NOT reproduce fmeta's `flex:1 1 100%`, which is the exact dependency on a flex parent that stopped fmeta serving the body");
+
 console.log("board-widgets.test: PASS — 32 assertions (v2 event shape, actor.kind on every event, "
   + "council marks incl. an untouched item, incomplete-mark skip, human-only tally, id dedupe, "
   + "shared ts, no-panel board, older-markup compat, v1/v2 discrimination) "
@@ -844,4 +1037,12 @@ console.log("board-widgets.test: PASS — 32 assertions (v2 event shape, actor.k
   + "+ 13 latch assertions (T19 an ExpiredToken closes the board and the NEXT submit never reaches "
   + "the network even though it would now succeed · T20 AccessDenied latches the same way · "
   + "T21 EntityTooLarge, RequestTimeout and a bare 503 do NOT latch — a retry still posts, because "
-  + "closing voting over one oversized answer or one blip would shut the board for the wrong reason)");
+  + "closing voting over one oversized answer or one blip would shut the board for the wrong reason)"
+  + " + 33 disclosure assertions (D1 the kit reads them at all · D2 bound to its item by upward "
+  + "resolution and to its option key · D3 the kind set is CLOSED and bound, an unknown kind "
+  + "reported and stamped rather than dropped · D4 an author-shipped `open` removed at wire and the "
+  + "correction reported · D5 open state is the node's own — a sibling on the same option stays "
+  + "closed · D6 opening the grounds is not taking a position, so it never unblinds the tally · "
+  + "D7 byte-identical payload against the nearest legal neighbour, an option with no disclosure · "
+  + "D8 the council mark beside one is untouched, and the CSS does not reproduce fmeta's flex "
+  + "dependency)");
