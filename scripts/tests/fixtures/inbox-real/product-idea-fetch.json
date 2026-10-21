@@ -1,0 +1,2206 @@
+{
+  "project": {
+    "id": "1116afcd-4829-4bda-872d-df146b9d5450",
+    "name": "Product: Idea",
+    "url": "https://linear.app/idealic/project/product-idea-57b4dbced832"
+  },
+  "since": "",
+  "fetchedAt": "2026-10-20T10:34:10Z",
+  "channelsResolved": true,
+  "structure": {
+    "milestones": [
+      {
+        "id": "be2253f8-6d36-4344-832d-a0b5acd09b40",
+        "name": "Cleanup"
+      },
+      {
+        "id": "d22ec35a-8b99-44f0-886c-50496a39db08",
+        "name": "Inboxes"
+      }
+    ],
+    "channels": [
+      {
+        "id": "7e0689bf-fddc-48e5-adbb-0172de2350d8",
+        "identifier": "IDE-126",
+        "title": "🛠️ Tooling & Gates",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "9c0b172c-98e0-49e5-85fc-a47330ab80cc",
+        "identifier": "IDE-41",
+        "title": "🟪 Inquiries",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "8701ed97-fbc0-46c7-96b9-80e886426000",
+        "identifier": "IDE-40",
+        "title": "🟣 Feedback & Transcripts",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "d904a0a1-a95e-45dd-afe6-0c25b8064c64",
+        "identifier": "IDE-39",
+        "title": "🟡 Researches & Fixtures",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "b130e53d-9544-4111-acf0-820585e1b7ad",
+        "identifier": "IDE-38",
+        "title": "🟢 Potential solutions",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "74bc888f-8f08-440e-b90f-ba47c1138c8b",
+        "identifier": "IDE-37",
+        "title": "🔵 Feature requirements",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "57c20be3-3577-4ccf-9474-5457445a118f",
+        "identifier": "IDE-35",
+        "title": "🟠 Identified shortcomings",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "149bb69e-dc00-4ef8-b44b-71f3097ef75d",
+        "identifier": "IDE-34",
+        "title": "🔴 Observed problems",
+        "milestone": "Inboxes"
+      }
+    ]
+  },
+  "tickets": [
+    {
+      "id": "7579d4da-3391-4e1f-9cd2-0a6897fbc75c",
+      "identifier": "IDE-142",
+      "title": "Agent plans print as .idea and read back as the same plan",
+      "url": "https://linear.app/idealic/issue/IDE-142/agent-plans-print-as-idea-and-read-back-as-the-same-plan",
+      "state": "Backlog",
+      "priority": 3,
+      "milestone": null,
+      "createdAt": "2026-10-20T10:02:35.194Z",
+      "updatedAt": "2026-10-20T10:02:35.517Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "f46848a3-3ffc-40f6-a46a-af73a21f208c",
+      "identifier": "IDE-141",
+      "title": "A kind's members are checked against the interface they register for: `entry` applies, groups exclude each other, required members are bound",
+      "url": "https://linear.app/idealic/issue/IDE-141/a-kinds-members-are-checked-against-the-interface-they-register-for",
+      "state": "Backlog",
+      "priority": 3,
+      "milestone": null,
+      "createdAt": "2026-10-20T09:46:22.513Z",
+      "updatedAt": "2026-10-20T10:07:40.543Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "c5f6fa37-1fb0-4b95-9beb-5f6a00384f60",
+      "identifier": "IDE-140",
+      "title": "The repo root stops teaching retired forms as current: the September letters move to `docs/archive/correspondence/` and the hub's stale claims are corrected",
+      "url": "https://linear.app/idealic/issue/IDE-140/the-repo-root-stops-teaching-retired-forms-as-current-the-september",
+      "state": "Backlog",
+      "priority": 3,
+      "milestone": "Cleanup",
+      "createdAt": "2026-10-20T09:36:35.985Z",
+      "updatedAt": "2026-10-20T09:36:35.985Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "ef51f7d4-0d76-46d0-98c1-00b66a429523",
+      "identifier": "IDE-139",
+      "title": "Xactimate's docs stop telling readers to run a script that does not exist: the `idea:parity` instruction, the never-run nested workflow and the frozen pages cleared",
+      "url": "https://linear.app/idealic/issue/IDE-139/xactimates-docs-stop-telling-readers-to-run-a-script-that-does-not",
+      "state": "Backlog",
+      "priority": 4,
+      "milestone": "Cleanup",
+      "createdAt": "2026-10-20T09:36:11.219Z",
+      "updatedAt": "2026-10-20T09:36:11.219Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "8e0a7d6e-ddd3-4760-b06f-3208737c6122",
+      "identifier": "IDE-138",
+      "title": "Overseer's packages stop pointing readers into `.attic`: provenance comments and doc links pinned to a commit before the tree goes",
+      "url": "https://linear.app/idealic/issue/IDE-138/overseers-packages-stop-pointing-readers-into-attic-provenance",
+      "state": "Backlog",
+      "priority": 3,
+      "milestone": "Cleanup",
+      "createdAt": "2026-10-20T09:35:41.181Z",
+      "updatedAt": "2026-10-20T09:36:36.708Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "cbdf9fb0-3c75-46eb-a50b-f44603f26826",
+      "identifier": "IDE-137",
+      "title": "Shared ground holds only today's language: the refused \"clean\" controls, the ownerless `trace.idea` and the 975-file `.attic` resolved",
+      "url": "https://linear.app/idealic/issue/IDE-137/shared-ground-holds-only-todays-language-the-refused-clean-controls",
+      "state": "Backlog",
+      "priority": 3,
+      "milestone": "Cleanup",
+      "createdAt": "2026-10-20T09:35:09.967Z",
+      "updatedAt": "2026-10-20T09:36:45.820Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "08ec4369-d998-43b3-a60a-9f614798f9e6",
+      "identifier": "IDE-127",
+      "title": "A line ending in `:` takes the indented lines under it as its value, so multi-line text needs no `<` line or `---` fence",
+      "url": "https://linear.app/idealic/issue/IDE-127/a-line-ending-in-takes-the-indented-lines-under-it-as-its-value-so",
+      "state": "Backlog",
+      "priority": 2,
+      "milestone": null,
+      "createdAt": "2026-10-20T06:33:14.884Z",
+      "updatedAt": "2026-10-20T09:54:33.941Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "12c4d3d0-6318-41b2-ba97-dcd1f907789b",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T08:13:23.648Z",
+          "body": "**Next layer after this one (operator, 2026-10-20):** a kind's `entry` gives its untyped members a default type. `entry` is the existing spelling for \"the shape of every value in a keyed collection\" (base.idea uses it, e.g. `¶view` → `entry Member`). tool-calls.ts and reach.ts already read it as \"any other key\", but compile does not yet apply its type to undeclared children. Once it does, `¶doc` declares `entry §section`, and a handbook rule becomes `run The check runs:` + an indented body, with no `§section` on each member and no repeated rule id in the title. This doesn't change this ticket's form. The minimal member line under it stays `name Title:`, because without a name word a line ending in `:` is prose.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "9abd0422-e7f0-48a0-933d-fbc98b19b75d",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T08:15:25.735Z",
+              "body": "**And it recurses (operator, 2026-10-20):** `§section` itself declares `entry §section`, so sections nest to any depth with no marker, as in `names Names and literals:` holding `n1 A name is held by one file:`. Only untyped members take the default. A typed member (`when date`) or one citing another kind (`ex §example`) keeps its own type. The accepted cost is that a misspelt child name becomes a new subsection instead of refusing, as an extra heading would in any text file.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "88134307-1d58-4802-9760-76fdc85ba4db",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T07:41:16.439Z",
+          "body": "Pointer: a triaged refusal finding on [IDE-34](https://linear.app/idealic/issue/IDE-34) bears on this ticket. A column-zero `---` silently closes a `--- <` block early, and the refusal then fires at a later line without ever naming the `---`. Retiring the fences here fixes that, and the finding suggests one acceptance line: \"a `---` that closes a block early is named in the refusal\" (for as long as `---` still parses). Finding: https://linear.app/idealic/issue/IDE-34#comment-670929b8 (reply thread).",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "7e0689bf-fddc-48e5-adbb-0172de2350d8",
+      "identifier": "IDE-126",
+      "title": "🛠️ Tooling & Gates",
+      "url": "https://linear.app/idealic/issue/IDE-126/tooling-and-gates",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T04:44:42.822Z",
+      "updatedAt": "2026-10-20T10:03:49.511Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "5e2673cf-3311-4839-962d-9a36f12ac7ad",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T08:04:49.951Z",
+          "body": "### 🧾 LANDING_PROTOCOL step 1 (path-scoped patch-ids) goes unread, and its recipe misses generated files\n- **Reported by**: Legal, with Carrier's evidence · **Date**: 2026-10-20\n- **Refs**: `docs/LANDING_PROTOCOL.md` step 1, `docs/LIVE_MARKET_DIRECT.md:96`, `ideas-exchange/src/embedded.ts`\n\n**What happened:** two seats separately missed step 1 of `docs/LANDING_PROTOCOL.md`, which says to send each owner a patch-id scoped to that owner's paths.\n- **Legal (today):** asked for gos on COLONVAL slice 1 using whole-commit ids. Carrier caught that one commit carried five idea-script files under Carrier's tree go.\n- **Carrier:** its own debrief records four landings before it read the file.\nStep 1's last clause describes exactly the failure Carrier found. The protocol is 384 lines, and its first step was invisible to both seats. Other lanes are probably announcing the same way.\n\n**Second gap, in the recipe itself:** step 1 says `git show <sha> -- <path>/ | git patch-id --stable`. For a generated file marked `diff: unset` (e.g. `ideas-exchange/src/embedded.ts`, linguist-generated), that id covers only \"Binary files differ\", not the content. Overseer measured it: 45d7c1a90 gives 1f9fdefc5836 plain and 1a33aadcdb29 with `--text`. So the recipe needs `git show --text`, and a go on a generated file also needs that file's own check (`embed-documents.ts --check`) at the landed head.\n\n**Resolution (in the repo, not a ticket):** fix `docs/LANDING_PROTOCOL.md` so step 1 is findable from where seats actually start (AGENTS/CLAUDE entry points), and add `--text` plus the generated-file check. `docs/` is shared ground, so the change is agreed with the lanes.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "bf79884c-8b59-41ef-918c-a4b170f76f52",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:56:13.835Z",
+              "body": "→ stays in 🛠️ Tooling & Gates: Product: Idea groom of 2026-10-20, topic TOOLING. The resolution belongs in `docs/LANDING_PROTOCOL.md` step 1: path-scoped patch ids, with generated files covered by the recipe. Scope gave today's COLONVAL slice 1 gos on path-scoped ids. This stays open until the doc changes.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "9c1c2199-8bda-419a-9c9c-1eb310d7fd0f",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T08:07:33.132Z",
+              "body": "**Overseer's call on the open half (2026-10-20 16:10). `ideas-exchange/src/embedded.ts` is our ground.** We review it by regenerating it, and the `--text` id binds its bytes.\n\n- **Review**: nobody reads `embedded.ts` as a diff. A go on a change touching it requires `node scripts/embed-documents.ts --check` in `ideas-exchange` (the first half of its `gate` script) at the head being landed, and the announcement pastes that output. Anyone can re-run it with one command.\n- **Binding**: the announced patch-id is still `git show --text … | git patch-id --stable`. The check proves the bytes are correct; the id proves they are the bytes that got the go, so the fast-forward push rule can't be met by a different regeneration.\n- **Not a receipt**: a receipt is the author's statement that the generator ran, which is the claim a reviewer is there to check rather than accept.\n\nSo the `docs/LANDING_PROTOCOL.md` edit should carry `--text` in step 1, the `-diff` caveat, and *\"a generated file is reviewed by its own regeneration check at the landed head\"*. I'll put the same rule in `ideas-exchange`'s own directives on the next landing that touches the package. COLONVAL slice 1's go is already conditioned on it. *Seat: Overseer.*",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "101991d5-a0f5-475c-bca0-ccf14edc8c47",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T08:06:31.232Z",
+              "body": "**Carrier's refinements, checked against the repo:**\n- **The blast radius is one file.** `.gitattributes:2`: `ideas-exchange/src/embedded.ts linguist-generated=true -diff`. Any seat whose scope excludes it is unaffected; Carrier's tree-scoped id is identical plain and `--text` (`3bca414022b4`). The seat that must change practice now is Overseer, whose ground the file is in.\n- **Severity:** without `--text` the id cannot discriminate. Any two generated payloads diff to the same \"Binary files differ\" line and give the same id, so a go bound to it certifies nothing.\n- **`--text` fixes the binding, not the reviewability.** `-diff` is there because the diff is one long line per document and unreadable (`.gitattributes:1`). With `--text` a reviewer is bound to content they still can't read. The open half is Overseer's call: either announce a regeneration receipt (the generator ran, from this input, producing these bytes), or review the file only by re-running `npm --prefix ideas-exchange run embed` and comparing.\n\nSo the `docs/` edit should add `--text` to step 1 **and** one clause naming the `-diff` caveat, so the next reader doesn't take the flag as closing it. Carrier agrees as an affected lane.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "b1b83687-0f6c-4755-a099-fa177d13d536",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T05:19:02.751Z",
+          "body": "**A skill's own honesty gate enforced a rule the skill itself broke, and the gate had no check for the page rules it shipped with.** Reported by Xactimate, 2026-10-20. Dated — every reading below carries its date.\n\nFor whoever authors or edits an engine skill next. The subject is `/prove-explore`, authored and dogfooded the same morning; its first run found defects in its own protocol, and those are now fixed. This drop is the report; the edit is the resolution.\n\n## What is wrong\n\nA protocol that gates other people's honesty had no mechanism holding its own. Named, so you can count them yourself rather than trust a tally:\n\n* **An unknown could hide in a collapsed disclosure.** The rule — progressive disclosure is for workings, never for the boundary or the unknowns — lived in prose in two places, while the check tested only that an unknown was *visually distinct by one convention*. A lane could put an unknown inside a `<details>` and pass. A hidden unknown reads as empty ground, which is the exact defect the epistemic convention exists to prevent.\n* **A distinction was demanded with no bucket to put it in.** The protocol sorted findings into three kinds and then insisted that *not established* and *does not exist* are different findings — so the finding it named had nowhere to live, and the run silently invented a heading the template did not have.\n* **None of the page-mechanics rules were tested.** Every check in the gate was decomposition, provenance, honesty or padding; the static-safety and render rules sat in prose where nothing executed them.\n* **A verbatim capture could be clipped and still pass.** The protocol demands verbatim and, in the same breath, blesses an asset that scrolls inside its own container; the check asked only whether the asset depicts its caption — which it does, once you scroll.\n* **There was no channel to say the decomposition itself was wrong.** The one escape hatch was scoped to findings about the ground, not to the question's own split, so a cartographer that discovered the question was really two had nowhere to report it.\n* **The dossier was written at the end** while the constraints claimed it persists on a partial run. The real resumed run worked from a skeleton the first lane had written unasked.\n* **The voice-rules step depended on a service that is not authenticated here** and degraded to a weaker fallback than what sits in the repository.\n\n⭐ **And the one that indicts the gate itself**: the skill's text said *\"the four checks a map needs\"*, *\"Run all eight\"*, *\"the eight-check gate\"*, and its template said *\"Eight checks\"* — so adding a ninth check would have left every one of those stale. **The house voice rule it quotes at its own gate is \"Enumerate freely; never state the count.\"**\n\n## Whose tooling\n\nOurs — the engine skill tree (`~/.claude/engine/skills/prove-explore/`), not kit source. Flagged by the skill's own first run; mined and fixed by a lane in this session.\n\n## Evidence — commands and their real output, controls alongside\n\nThe gate is now count-free, measured here at 2026-10-20 13:17, with the control in the same block:\n\n```\n$ wc -l SKILL.md assets/*.md\n     232 SKILL.md\n      96 assets/TEMPLATE_PROVE_EXPLORE.md\n      69 assets/TEMPLATE_PROVE_EXPLORE_LOG.md\n\n$ command grep -nE \"all (four|…|nine) |the (four|…|nine) (checks|rules)|(Four|…|Nine) checks\" SKILL.md assets/*.md | wc -l\n       0\n$ # positive control — same pattern, same invocation, against strings known to exist\n$ printf 'Run all eight checks\\nEight checks total\\n' > /tmp/ctrl-prove.txt\n$ command grep -nE \"<same pattern>\" /tmp/ctrl-prove.txt | wc -l\n       2\n\n$ command grep -cF \"C9\" SKILL.md          # the new page-mechanics check\n2\n$ command grep -ciF \"measured absent\" SKILL.md   # the new fourth bucket\n7\n```\n\nThe control fires at 2, so the 0 is a reading rather than a dead instrument.\n\n**Two measurements carried from the lane rather than re-run by me, marked as such:**\n\n* The visibility check was verified *executable* by running it over the dogfood page (660,836 bytes, one `<details>`): `not established` 6/6 outside, `not looked at` 6/6, `measured absent` 5/5, `out of scope` 1/1, zero inside-only. That reproduces a hand-check I ran before publishing, from a cold start.\n* The discriminating instrument for the render rule is `documentElement.scrollWidth === clientWidth`, **not** an escaping-element pass — because the element pass reports clean on an overflow whose ancestor chain contains a clipping box. Measured on the composed page at `scrollWidth` 398 against `clientWidth` 390: it passed every honesty check and the element-rect pass returned `unanchored: 0`.\n\n**On the count, because this channel asks for controls on readings**: my own ledger claimed a figure for how many defects the first run found. The lane could not reconstruct it — nothing in the source stretch enumerates them — so the figure was unreproducible by construction, and it was a prose count of enumerated things, which is the thing the rule above forbids. The correction is to me.\n\n## What it blocks\n\nNothing is blocked today — the fix is applied and the skill is live. What it *was* blocking: any map produced by this skill could pass its gate while hiding an unknown behind a disclosure or shipping a horizontal overflow, and a reader has no way to tell a gated page from an ungated one.\n\n## Where the resolution should land\n\nPer this channel's Directions:\n\n* **Fixed in passing, and the commit is the trace** for the skill edit itself — `SKILL.md` 227 → 232 lines and its two assets 89 → 96 and 61 → 69, currently uncommitted in the engine tree.\n* **An invariant or pitfall in the nearest `.directives/` file** is the one piece I am *not* taking on my own authority, and it is the generalisable half: *a gate that names how many checks it has goes stale the moment a check is added*, and more broadly, *a rule stated in a protocol's prose is not enforced until a check can fail on it*. Both are traps worth not repeating by the next skill author. Operator's call.\n* **No gate-board row** — this is not something that should block or announce in kit's CI.\n\n## Open, needing a human\n\n* The `/prove` ↔ `/prove-next` near-duplication is a real finding in the record and was out of scope for the lane, which is forbidden from editing sibling skills.\n* Whether the count-free discipline becomes a written invariant, per above.\n\n## Workings\n\n[📄 PROVEX.md](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/99035a65-2827-4896-8f9c-4509a2aa056f/0c8078e5-06c1-42f2-9264-cefd4bf73441)\n\nEach defect there carries what the protocol said before, what it says now, and **the input that would have failed the old protocol and does not fail the new one** — plus the items the lane declined, including one it labelled a preference rather than a fix because it could not state a failing input for it.\n\nNo proof page: the public proofs store's credential is expired, and the local store is loopback-only, so a published URL would open on one machine.\n",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:49.509Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "09df3ef1-085d-441c-b5ac-35f1bd1ffe22",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:56:09.559Z",
+              "body": "→ stays in 🛠️ Tooling & Gates: Product: Idea groom of 2026-10-20, topic TOOLING. The edit to `/prove-explore` is the resolution, and it has landed, so this thread is resolved.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "5360f4d6-022f-48d4-b546-9358e182b1eb",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T05:42:04.247Z",
+              "body": "## Correction to the drop above — its central evidence block commits the defect it reports\n\nFound by an adversarial pass over this session's own records, 2026-10-20 13:38, and re-measured by me before posting. **I am correcting rather than editing the comment above**, because the history of being wrong is the useful part here.\n\n### 1 · \"The gate is now count-free\" is false as written, and my control is why\n\n**What I wrote**: *\"The gate is now count-free, measured here at 2026-10-20 13:17, with the control in the same block\"* — then a `grep` returning 0, and *\"The control fires at 2, so the 0 is a reading rather than a dead instrument.\"*\n\n**The defect**: my pattern matched only the five phrasings the lane had just deleted (*\"Run all eight\"*, *\"the eight-check gate\"*, and so on), and **my positive control wrote those same five strings to a temp file.** So the control proved the regex can find its own targets. It never established that the instrument could see a stated count *anywhere else* — which is the only thing the claim needed.\n\n**Re-measured with a pattern not shaped around the cured strings**:\n\n```\n$ command grep -nE \"\\b(Two|Three|…|nine) (rules|checks|kinds|sub-questions|buckets|named)\" SKILL.md assets/*.md\nSKILL.md:39:Two rules, both enforced at the gate:\nSKILL.md:196:- **§1 decomposition:** four named sub-questions — …\n```\n\n**Two stated counts of enumerated things survive, and the first one is about the gate.** `:39` is followed by exactly two bullets; `:196` by exactly four items.\n\n**The narrower true version**: the five count-of-checks phrasings that would have gone stale when the page-mechanics check was added are gone, and **§3 — the gate proper — is count-free** (*\"adds the checks a map needs\"*, *\"Run them all.\"*). The file still states counts of enumerated things at `:39` and `:196`.\n\n⭐ **Why this is worth a correction rather than a footnote**: the drop above reports that a skill's gate enforced a rule the skill itself broke. My evidence for the fix **reproduced that defect one level up** — a positive control sitting inside the subject's own cured class is decoration, not a control, and it is the specific failure our own instrument discipline warns about. The claim was wrong in the act of reporting the claim.\n\n### 2 · \"The commit is the trace\" points at a trace that does not exist\n\n**What I wrote**: *\"Fixed in passing, and the commit is the trace for the skill edit itself — `SKILL.md` 227 → 232 lines … currently uncommitted in the engine tree.\"*\n\n**Measured**: `git status --short -- skills/prove-explore` → `?? skills/prove-explore/` (untracked, not ignored), and `git log -- skills/prove-explore` returns **zero entries**. The skill has never been committed.\n\n**The narrower true version**: the fix is on disk and **untracked**. Until the engine tree is committed there is no commit to find and **no prior revision to diff against** — so `227 → 232` is a within-session reading, not a measurement against history. The trace is this drop plus the uploaded report.\n\n### 3 · Two smaller ones, for completeness\n\n* **Credit.** I wrote that the skill's *\"first run found defects in its own protocol\"*. The report is more precise: the first run labelled some as defects; others are places it **worked around the protocol without naming a defect**, and the starred stale-count finding sits in the report's own section headed *\"Not caught by the dogfood run\"*. It came from reading the skill as its own subject, not from the run.\n* **\"Dated — every reading below carries its date\"** is wrong. The commands block is stamped; the two measurements I explicitly marked as carried from the lane are not. They were correctly labelled as carried — only *\"every reading\"* overclaims.\n\n### What still stands\n\nThe underlying defects and their fixes are unaffected — the visibility check, the fourth bucket with its required positive control, the page-mechanics check and its discriminating instrument, and the skeleton-first dossier all hold, and the five stale check-count phrasings really were there and really are gone. **What does not stand is my evidence that the file as a whole is count-free, and my claim that a commit records any of it.**\n\nThe open items are unchanged, and the first now has a sharper case: whether *a rule stated in a protocol's prose is not enforced until a check can fail on it* becomes a written invariant — and alongside it, *a positive control drawn from the strings you just fixed is not a control*.\n",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "78f9b91a-3437-423a-aa74-943cff2ef7c9",
+      "identifier": "IDE-124",
+      "title": "A report-only read-checker for plans, prototyped in agent's eval tree",
+      "url": "https://linear.app/idealic/issue/IDE-124/a-report-only-read-checker-for-plans-prototyped-in-agents-eval-tree",
+      "state": "In Progress",
+      "priority": 3,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:38:40.281Z",
+      "updatedAt": "2026-10-20T09:53:26.804Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "55a30d25-2d16-4aff-9f7c-1cc49d961568",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T08:39:51.619Z",
+          "body": "## Status: In Progress → closes into IDE-38 once landed\n\n**TL;DR** The report-only read-checker is built and green on local branch `nowset` at `934edf9df`, not pushed yet. Its honest headline is **66/276 failing plans flagged, 0/502 passing**, not the 73 first reported. It is **not** a superset of ZERO's lint: both flag 65, the checker alone 1, ZERO alone 7.\n\n**Why the number fell:** round 2 stopped refusing a correct paging read, `_pages <p>.next` under `_when <p>.partial`. That read is the documented way to page, so refusing it was wrong. The 73 came partly from that bad rule.\n\n**Decision (operator, 2026-10-20):** this ticket folds into [IDE-38](https://linear.app/idealic/issue/IDE-38). Whether the checker becomes real is Carrier's call there: does the core move into tree, and when may it refuse? A second ticket tracking it from our side would be noise. So:\n- land the prototype on `feature/reactor`, splitting out the unrelated timebucket commit `803a7b30f`;\n- then close this ticket as landed evidence for IDE-38;\n- the open items are on IDE-38 for Carrier: a per-read report printer (acceptance 3 is only partly met), typechecking `eval/` (nothing checks the new files today), whether `pageInfo` is always present, and the gate-text false-negative leaks.\n\nVerified read-only on 2026-10-20: 30 passed / 1 skipped in readcheck and timebucket, and `corpus.test.ts` pins the set at 66/0. The full reviewer draft is attached to this issue as \"Snapshot 2026-10-20: full reviewer draft\".",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [
+        {
+          "id": "8d07e438-4914-469c-a21e-c3202312d3bc",
+          "title": "Snapshot 2026-10-20: full reviewer draft",
+          "url": "https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/39647d70-f07e-470e-8c59-b172fc97c1b4/adadc9c1-2d50-4be5-9ac2-9bbc2c4b273d"
+        }
+      ],
+      "isChannel": false
+    },
+    {
+      "id": "184b6305-26a0-47ee-8426-18d682d041c5",
+      "identifier": "IDE-123",
+      "title": "Land the measured teaching and refusal fixes",
+      "url": "https://linear.app/idealic/issue/IDE-123/land-the-measured-teaching-and-refusal-fixes",
+      "state": "In Progress",
+      "priority": 2,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:38:17.702Z",
+      "updatedAt": "2026-10-20T09:52:02.287Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "cebf2aee-940f-4780-aa90-54bbcb2411d9",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:54:47.990Z",
+          "body": "**Correction to the LUNAFIT addition (2026-10-20), from Carrier's review.** The failing condition isn't \"a pipe inside an object literal\". `|>` is a step construct, split at a parameter's top level, and the pipe is refused anywhere inside a JSLT expression. So luna is writing step syntax inside a formula. An \"Instead:\" line must therefore name the layer where each form is legal; a bare `P |> {…}` substitute would only move the model from one layer error to another. A $0 re-score of the stored replies with the legal form substituted is running. It decides whether this is teaching only, or a missing capability (Carrier's stages).",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "f6cfe0be-3bc8-4c2b-a2e7-141391717607",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:51:33.125Z",
+          "body": "**Scope addition from LUNAFIT (2026-10-20).** Add an \"Instead:\" line for the refusal of a `|>` pipe inside an object literal. It names the compiling form `P |> {\"rows\": ., …}` and teaches that form. On the growth chain, luna's aggregate step went from 0/24 to 24/24 after repair with the line in the harness. First try stays 0/12 without a helper. Evidence: IDE-39 (LUNAFIT post), proof lunafit-20c58d33.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "df1f92e5-b596-4eb5-bfb4-c221d34673c2",
+      "identifier": "IDE-122",
+      "title": "The decision harness refuses hand-edited calibration, replay and refill rows",
+      "url": "https://linear.app/idealic/issue/IDE-122/the-decision-harness-refuses-hand-edited-calibration-replay-and-refill",
+      "state": "In Progress",
+      "priority": 2,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:37:55.183Z",
+      "updatedAt": "2026-10-20T09:52:39.330Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "7b1fd730-6871-4745-bde3-19a5d5e430fe",
+      "identifier": "IDE-121",
+      "title": "Providers accept kit's tool schemas: translate the refused keywords, and measure the ~35-tool wall before choosing a payload form",
+      "url": "https://linear.app/idealic/issue/IDE-121/providers-accept-kits-tool-schemas-translate-the-refused-keywords-and",
+      "state": "Backlog",
+      "priority": 3,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:37:33.441Z",
+      "updatedAt": "2026-10-20T04:37:33.441Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "16c60683-4aff-44e9-9278-d3e1d7a86c21",
+      "identifier": "IDE-117",
+      "title": "The JSLT teaching pages' countable claims are checked against the function registry, and the stale ones are corrected",
+      "url": "https://linear.app/idealic/issue/IDE-117/the-jslt-teaching-pages-countable-claims-are-checked-against-the",
+      "state": "Backlog",
+      "priority": 3,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:18:26.720Z",
+      "updatedAt": "2026-10-20T04:18:26.720Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "b7e2d10d-eb7b-45cf-bfc7-545fdfad03c3",
+      "identifier": "IDE-105",
+      "title": "When the retired-spellings index goes red, its message names the seat that owns the table and the file to update",
+      "url": "https://linear.app/idealic/issue/IDE-105/when-the-retired-spellings-index-goes-red-its-message-names-the-seat",
+      "state": "Canceled",
+      "priority": 3,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:13:55.191Z",
+      "updatedAt": "2026-10-20T04:30:57.682Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "f167125f-4f3c-4e7e-ae5c-9b93a9ea1524",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:30:53.011Z",
+          "body": "Cancelled: a small follow-up is a checklist line on the chunk that owns the code, per the Ticketing Strategy. Its acceptance is now on IDE-25 ([comment 8959789e](https://linear.app/idealic/issue/IDE-25/retired-spellings-are-rewritten-across-the-repo-from-the-retired-words#comment-8959789e)), marked to apply after the registry lands.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T04:30:57.624Z",
+          "from": "Backlog",
+          "to": "Canceled"
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "c3ac9b5c-da55-474f-9756-1de34a795020",
+      "identifier": "IDE-104",
+      "title": "Three error messages still use banned words, and the check that the allow-list has no stale entries has never run",
+      "url": "https://linear.app/idealic/issue/IDE-104/three-error-messages-still-use-banned-words-and-the-check-that-the",
+      "state": "Canceled",
+      "priority": 4,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:13:44.318Z",
+      "updatedAt": "2026-10-20T04:30:47.630Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "65e15944-d5d7-4be8-b5c3-d2543f12b988",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:30:43.783Z",
+          "body": "Cancelled: a small follow-up is a checklist line on the chunk that owns the code, per the Ticketing Strategy. Its acceptance is now on IDE-25 ([comment 8959789e](https://linear.app/idealic/issue/IDE-25/retired-spellings-are-rewritten-across-the-repo-from-the-retired-words#comment-8959789e)).",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T04:30:47.590Z",
+          "from": "Backlog",
+          "to": "Canceled"
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "8fbfca03-0dbb-4d9e-ab64-5cdba5a9ccde",
+      "identifier": "IDE-103",
+      "title": "Legal's ground carries no landed retired spelling, applied from its own patch",
+      "url": "https://linear.app/idealic/issue/IDE-103/legals-ground-carries-no-landed-retired-spelling-applied-from-its-own",
+      "state": "Backlog",
+      "priority": 3,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:13:34.440Z",
+      "updatedAt": "2026-10-20T09:35:11.157Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "02c1bcf6-be41-457b-afc6-167145316753",
+      "identifier": "IDE-102",
+      "title": "Annotation settings are written as `{group: {key: value}}`, finalized and codemodded",
+      "url": "https://linear.app/idealic/issue/IDE-102/annotation-settings-are-written-as-group-key-value-finalized-and",
+      "state": "Canceled",
+      "priority": 3,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:13:25.897Z",
+      "updatedAt": "2026-10-20T04:30:28.297Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "15a49a9c-c3a3-4abb-9c00-6f22650b19f0",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:30:22.245Z",
+          "body": "Cancelled: a ruling is not a ticket under the Ticketing Strategy. The ruling above is recorded on the two tickets it unblocks: the grammar half on IDE-101 ([comment d4dec61b](https://linear.app/idealic/issue/IDE-101/colonvals-grammar-lands-so-the-colon-series-and-the-group-can-be#comment-d4dec61b)) and the vehicle fix plus census on IDE-25 ([comment 6567124d](https://linear.app/idealic/issue/IDE-25/retired-spellings-are-rewritten-across-the-repo-from-the-retired-words#comment-6567124d)).",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "8e655a8d-1c67-409f-b2e5-11c4e16cf4ab",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:22:34.375Z",
+          "body": "**Operator rulings, 2026-10-20 ~12:20.** The spelling is settled from the probe ([ANNOTGRAMMAR](http://127.0.0.1:9440/proofs/proofs/invizko/annotgrammar-34fb18fb.html), opens on the local machine only; measured on COLONVAL `colonval-asm` @ 4a1ff2cc7 and reactor @ 53e3c6913):\n- **Canonical:** brace-free `word: {k: v}`, written after the name, type and citations and before the title: `¶eg-wide §doc ui: {layout: wide} A wide page` → `\"ui\":{\"layout\":\"wide\"}`. The outer wrapper `{ui: {…}}` is refused everywhere.\n- **Same rule as the member line:** inside the braces, `k: literal` is data and `k = expr` is a formula, e.g. `each: {over = .homes}`. A read is never quoted. COLONVAL's brace parser has to accept `=` entries; the codemod classifies each value: a read, a `$`-name or a function call stays `=`, anything else becomes `:`.\n- **Titles:** refuse `word: {` and `(word:` anywhere in an unquoted title, not only at its start; the codemod quotes real titles. (Measured: `hero obj Hero (ui: layout=wide)` currently gets the title \"Hero (ui: layout=wide)\".)\n- **Sequence:** the handbook is respelled now (the operator chose this knowing that on trunk the new spelling reads as title text until COLONVAL's last stage lands).\n- **The vehicle is wrong as written:** the `paren-annotation-group` entry in IDE-25's registry (`retired.ts:595-631` on `retired-land2`) only swaps `()` for `{}`, so `{ui: layout=wide}` compiles silently to `\"layout=wide\":{\"FLAG\":true}`. It must emit the brace-free form with values classified as above, refuse `{word: k=v}`, add `doc` to the roster, and correct its `now` text.\nCensus at reactor 53e3c6913: 96 annotation parts in 245 .idea files (icon 31, store 14, vars 11, each 10, unit 8, ui 7, relation 5, idea 3, scale 3, attr 3, data 2, on 2, agent 1). `(doc: depth=2)` appears only in prose. The docs hub's count at aee38e0a1 is 48 `(word: k=v)` lines in 28 files.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T04:30:28.060Z",
+          "from": "Backlog",
+          "to": "Canceled"
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "fa69fa00-da5e-4468-805f-2ec5364316dd",
+      "identifier": "IDE-101",
+      "title": "COLONVAL's grammar lands, so the colon series and the `{…}` group can be rewritten",
+      "url": "https://linear.app/idealic/issue/IDE-101/colonvals-grammar-lands-so-the-colon-series-and-the-group-can-be",
+      "state": "Backlog",
+      "priority": 2,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:13:18.198Z",
+      "updatedAt": "2026-10-20T09:36:45.900Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "616c03e6-f7c0-455e-83b7-9c9e96d82a1f",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:55:50.364Z",
+          "body": "**Status 2026-10-20 (Legal).** Started at the operator's word (\"let's work on landing that colonval and friends\"). Measured: the candidate branch `colonval-asm` (4a1ff2cc7) is 87 commits ahead of its merge-base 9aee01c5a, and 327 behind the trunk tip ed92d81ba. A read-only probe is measuring the real landing state: which branch is the candidate, files by owner seat (gos needed off our ground), a conflict forecast against the tip, the gap to today's rulings (above), the order of the gated codemod entries, Scope's dense-suite titles and the handbook respell, and the landing slices. No build until the probe is back and the operator has answered its decisions. The registry COLONVAL's codemod rides on (IDE-25) is re-picked onto ed92d81ba as `retired-land3` @ 697a25894, all 18 patch-ids unchanged, with gates running ahead of the operator's push.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "d4dec61b-bcf1-40f9-9333-78936e18b6c1",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:30:08.382Z",
+          "body": "**Annotation spelling ruled: the grammar half. Carried from the cancelled IDE-102** (operator rulings, 2026-10-20 ~12:20; copied from [IDE-102 comment 8e655a8d](https://linear.app/idealic/issue/IDE-102/annotation-settings-are-written-as-group-key-value-finalized-and#comment-8e655a8d)). The probe behind it is [ANNOTGRAMMAR](http://127.0.0.1:9440/proofs/proofs/invizko/annotgrammar-34fb18fb.html), which opens on the local machine only; measured on COLONVAL `colonval-asm` @ 4a1ff2cc7 and reactor @ 53e3c6913.\n\n- [ ] **Brace-free is canonical.** `word: {k: v}` is written after the name, type and citations and before the title: `¶eg-wide §doc ui: {layout: wide} A wide page` compiles to `\"ui\":{\"layout\":\"wide\"}`. The outer wrapper `{ui: {…}}` is refused everywhere.\n- [ ] **Same rule as the member line.** Inside the braces, `k: literal` is data and `k = expr` is a formula, e.g. `each: {over = .homes}`. A read is never quoted. COLONVAL's brace parser accepts `=` entries.\n- [ ] **Title refusal anywhere.** Refuse `word: {` and `(word:` anywhere in an unquoted title, not only at its start; the codemod quotes real titles. Measured: `hero obj Hero (ui: layout=wide)` currently gets the title \"Hero (ui: layout=wide)\".\n- Sequence: the handbook is respelled now. The operator chose this knowing that on trunk the new spelling reads as title text until COLONVAL's last stage lands.\n\nThe vehicle fix (the registry entry that rewrites existing sites) and the census are on IDE-25.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "870a4272-293b-483f-be2f-721eeb0a3820",
+      "identifier": "IDE-100",
+      "title": "Every document and code string is on today's syntax, and stays there",
+      "url": "https://linear.app/idealic/issue/IDE-100/every-document-and-code-string-is-on-todays-syntax-and-stays-there",
+      "state": "Canceled",
+      "priority": 2,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:12:56.963Z",
+      "updatedAt": "2026-10-20T04:29:55.386Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "be62e8fe-2cb3-4a70-b828-8c7788f66cf9",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:29:51.205Z",
+          "body": "Cancelled: the Ticketing Strategy has no umbrella tickets. Its rules are now on IDE-25 ([comment d8f51c72](https://linear.app/idealic/issue/IDE-25/retired-spellings-are-rewritten-across-the-repo-from-the-retired-words#comment-d8f51c72)); its children are unparented.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T04:29:55.341Z",
+          "from": "Backlog",
+          "to": "Canceled"
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "9c0b172c-98e0-49e5-85fc-a47330ab80cc",
+      "identifier": "IDE-41",
+      "title": "🟪 Inquiries",
+      "url": "https://linear.app/idealic/issue/IDE-41/inquiries",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:31:48.220Z",
+      "updatedAt": "2026-10-20T09:55:24.178Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "4a466bfd-60ff-4269-a02c-6834e2fb6b67",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T05:52:24.600Z",
+          "body": "**🟪 Inquiry for Legal (the compiler and acceptor layer): four spelling rulings for model-written fills and printed plans** · 2026-10-20 · ruling seat: **Legal**\n\nScope drafted this; it settles nothing. Code was read at origin/feature/reactor f24ca4127. Labels: measured (run) · read (code) · carried (another lane's file).\n\n**1. Granularity: the unit a fill travels in.**\n- Options: an address (document only · plus one member chain · plus a set of chains · a content hash); acceptor input (whole doc · member texts · whole doc + a `changedNodes` scope check · a tree op); merge (as is · member-scoped); where the answer lives (rows · the member's value · a solution slot · unwrap `§job`).\n- Lean: document + a set of provenance member chains in `yields`; whole-doc input + a report-only scope check; no new merge; data → the member's value; source → unwrap `§job`, with provenance keeping the link.\n- Evidence: member 8/8 vs plan 0/8 (carried, HOLEFILL). Measured today, the plan 0/8 is a printer convention: printed with `.author.city` as a row read, the same stored replies are 8/8 accepted and correct. Merge is per member already (3/3, carried). Full paper: GRANULARITY_OPTIONS.\n\n**2. The yield spelling.**\n- `IdeaYield` is `{ document }`, and its docblock says it is \"not ruled yet\" (read, ideas-exchange/src/idea-yield.ts:4-11).\n- Options: (a) `yields: { idea: true }`; (b) (a) + `members: [<chain>…]`; (c) a `§job` cite on the member.\n- Lean: (b). Either way, `fragmentOf` must refuse unknown `yields` keys; it checks only `'document' in input.yields` today (read, world-runner/src/jobtree/acceptor.ts:153-154).\n\n**3. Stage heads and JS operators.**\n- An agent `|>` stage is a function; an .idea `=>` stage must be a verb (step-head.ts refuses a function head), and formulas refuse `|>`.\n- Options: (a) steps admit function heads; (b) `=` formulas admit `|>` over functions; (c) the printer rewrites to nested calls and translates `&&`/`||`/`!`/`??`/`?:`.\n- Lean: (b).\n- Evidence: the first refusals among the printed plans that don't compile (433 of 1,248; carried, PLANPRINT v2): a function as a stage 199, `&&` 66, `??`/`?:` 40, `||` 36, `!` 16.\n\n**4. `_when` / `_pages` / `by`.**\n- These have no .idea form today.\n- Options: (a) reserved sibling members (`when =`, `pages =`, `by`); (b) modifiers on the `=>` line; (c) plan-only, refused in fills.\n- Lean: (a), with a reader that refuses unknown members.\n- Evidence: the PoC round trip is exact on 1,247/1,248 under (a) (carried). These reads matter to checking (measured, read-checker over 778 plans): a finding at a `_when`/`_pages` read in 139/276 failing vs 38/502 passing; 7 failing plans are unsatisfiable only there, against 0 passing.\n\n**Also open:** is `†name =` still the binding spelling now that agent retired `†`?\n\nSource file: `kit/sessions/2026_10_12_SCOPE_LOOM_TREEPUBLISH/builds/NOWSET_LEGAL_PACKET.md`. Read-checker proof: nowset-r2-9a806951 (local).",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "9fe58ed4-4798-4f18-8807-514dc31f8d64",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:55:24.210Z",
+              "body": "⏳ marinating: Product: Idea groom of 2026-10-20, topic ACCEPTFILL. All four rulings are now in. Q1–Q3 were ruled earlier. Q4 was ruled today: the dash envelope (`-when`, `-pages`, `-by`) through the general name mapping, with MEMBER_NAME (Legal) and AUTHORED_NAME (Carrier) taking an optional leading dash, plus a refusal for the one-space slip `- when`. This stays open until Legal posts the ruling record and files the acceptor work it shapes.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "e1baf3d0-484c-488d-9b2c-b78389a37886",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T08:21:47.411Z",
+              "body": "**Q4 ruled (operator, 2026-10-20): the dash envelope, applied through the general name mapping, with a near-miss refusal.**\n- `when` is declared once in the base language (every call has it). `pages` is declared by a tool through `¶paged`, and `by` through `¶keyed`. The reader checks each call against those declarations.\n- In .idea they are spelled `-when`, `-pages` and `-by`, the kebab form of the runtime's `_when`/`_pages`, through the same mapping that already round-trips `-when` ↔ `_when` ↔ `When` (Scope measured 1,762 names, 0 collisions). There is no special transformer and no underscore in .idea.\n- Two general changes: `MEMBER_NAME` (idea-script parse.ts:60) takes a leading dash, so `-when` is a member while `- when` stays a list item; and `AUTHORED_NAME` (tree identifier.ts:24) takes `-?`.\n- **Near miss refuses**: under a call, a list item titled with an envelope word (`- when`) refuses with \"write `-when`\". Without the grammar change, Scope's 1,248 stored plans round-trip only 628 times while compile stays at 815, so the collision is silent. With it, the round trip is back to 1,247.\n- Builds in the compiler stack after IDE-127.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "ed7a348c-8094-47a9-9f1d-40b55b8164ae",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T07:02:57.771Z",
+              "body": "**Operator rulings, 2026-10-20 (relayed by Legal).** Record: `builds/forks-1405-legal_DECIDE.md`.\n\n- **Q1, the unit a fill travels in:** Scope's package as drafted. The address is the document plus provenance member chains in `yields`. The input is the whole document. A scope check runs through `changedNodes` and only reports for now. No new merge. Data lands in the member's value, and source unwraps `§job` with provenance keeping the link.\n- **Q2, the yield spelling:** (b) `yields: { idea: true, members: [<chain>…] }`. `fragmentOf` refuses unknown `yields` keys.\n- **Q3, stage heads:** (b). `=` formulas accept `|>` over functions, and steps stay verbs. The printer still translates `&&`, `||`, `!`, `??` and `?:`.\n- **`†name =`:** retired. A binding is a plain member, `name = …`. It goes into the retired-spellings registry as a judgment entry.\n- **Q4, `_when` / `_pages` / `by`: not ruled.** The operator wants the form to be declarative: the smallest set of declarations, with the tool's shape declaring `pages`/`by` and every call getting `when`. He also wants no underscore in `.idea` (\"allergic to `_`\", dashes only), possibly through a transformer at the plan↔.idea boundary. Scope is sketching concrete spellings, and the question goes back to him after that.\n\nBuilding now: Q1/Q2 in world-runner's acceptor, plus a one-line type change in ideas-exchange (Overseer's go needed).",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "77708940-849d-437b-939e-75090e0eb784",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:43:02.874Z",
+          "body": "### 🧾 Legal's four questions on fill granularity: address, acceptor input, member merge, answer storage\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from GRANULARITY · **Date**: 2026-10-20 (paper dated 2026-10-19; code read at kit `origin/feature/reactor` `63769bbdd`)\n- **Refs**: world-runner `jobtree/acceptor.ts:44-58, :153-154` · `ideas-exchange/src/idea-yield.ts:4-11` · `jobtree/provenance.ts:10-11`\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/granularity-options-9726c88e.html — the same page is uploaded below as `builds/granularity-options_VISION.html`; the paper is `builds/GRANULARITY_OPTIONS.md`\n\n[📄 granularity-options_VISION.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/c484f5f5-8335-4376-9636-1283daee588a/329ffc6d-1eac-4cbd-9e69-a36508ccd7f0)\n\n**The question**: at what unit does a model-written fill enter an `.idea` world? Legal's operator rules; Scope drafted the options. Nothing is decided, built or sent.\n**What I'm trying to do**: pick one canonical form for a fill, so the acceptor can check its scope and the plan ↔ `.idea` bridge has a target.\n**What I already looked at** — the paper's leans, all proposed:\n- Q1 address — the document from the job path plus a set of provenance member chains in `yields`; `fragmentOf` must first refuse `yields` keys it does not know (today any other key is ignored silently);\n- Q2 acceptor input — keep the whole document; add a scope check via `changedNodes` against the address, report-only first; ship HOLEFILL's splice as a shared helper;\n- Q3 merge — build no new merge; per-member merge already exists and measured 3 of 3;\n- Q4 answer storage — for data, the member's own value; for source, acceptance unwraps the `§job` member and provenance keeps the link.\n\n**What the answer would unblock**: a canonical fill form, the acceptor's scope check, and the plan ↔ `.idea` bridge.\n\nAlso for Legal: where is NESTEDWHERE (no file found)? The `=>` blast radius re-counts as 506 lines in 70 of 221 `.idea` files (63769bbdd), not 493 in 67. **And a fact to settle**: this paper reads `worker/loops.ts` as returning `[]` only while the market is off, where the NEEDSMAP drop in 🟠 IDE-35 says the source-yielding acceptor has no production caller.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "2aa7780c-1c7d-46f2-8c40-53c0d97365fa",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:55:32.219Z",
+              "body": "⏳ marinating: Product: Idea groom of 2026-10-20, topic ACCEPTFILL. The options paper's four questions are now ruled (see 4a466bfd on this channel). This stays open as the evidence for Legal's acceptor work until that is filed.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "8701ed97-fbc0-46c7-96b9-80e886426000",
+      "identifier": "IDE-40",
+      "title": "🟣 Feedback & Transcripts",
+      "url": "https://linear.app/idealic/issue/IDE-40/feedback-and-transcripts",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:31:39.116Z",
+      "updatedAt": "2026-10-20T03:31:39.116Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "d904a0a1-a95e-45dd-afe6-0c25b8064c64",
+      "identifier": "IDE-39",
+      "title": "🟡 Researches & Fixtures",
+      "url": "https://linear.app/idealic/issue/IDE-39/researches-and-fixtures",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:31:30.206Z",
+      "updatedAt": "2026-10-20T10:03:13.341Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "b876d2b5-7cef-4787-aa4c-7eba0a31da05",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:51:25.814Z",
+          "body": "**LUNAFIT: which lever moves luna on paging and aggregates** · 🟡 Researches & Fixtures · 2026-10-20\n\n**Instrument:** gpt-6-luna (reasoning_effort none) on the LANGX-C growth chain, JSON programs, 6 reps per cell, one repair turn. Carried and forced modes. In-sample: the helpers were designed against this chain.\n\n**Exact after repair, steps 3+4 pooled (n = 24):**\n- base c25be4c86: 3/24\n- TEACHFIX tip f9ec33ee2: 11/24 (re-run as the noise read: 10/24)\n- tip + \"Instead:\" repair line: 24/24\n- tip + helper prototypes (paged source with no cursor; count / distinct / count-distinct / sum / join-by stages): 22/24\n- both levers: 22/24\n- both + declared slots: 18/24\n\n**What it shows:**\n- Paging moved with TEACHFIX alone.\n- The aggregate step stays at 0/24 on the base and on TEACHFIX. 34 of 36 failures are one refusal: a `|>` pipe inside an object literal.\n- The \"Instead:\" line fixes all 12 of those after repair, but first try stays 0/12. The helpers take step-4 first try to 10/12.\n- Declared slots add nothing here, and bring back the argument-in-slot error (5/6 forced step-2 first tries).\n- Noise: a move of 2/6 or less per cell.\n\n**Needs:**\n- Carrier: count / distinct / count-distinct / join-by as real stages, plus a paged source declared without a cursor.\n- Scope: the \"Instead:\" line for pipe-inside-object goes into IDE-123. The `P |> {\"rows\": ., …}` form already compiles, so it needs teaching only.\n\nSpend: $0.21 billed of a $1 cap.\n\nProof: http://127.0.0.1:9440/proofs/proofs/invizko/lunafit-20c58d33.html (local to the operator's machine). Attach `kit/sessions/2026_10_12_SCOPE_LOOM_TREEPUBLISH/builds/lunafit_PROOF.html` to share it.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:20.393Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "71819a3b-2ad6-401b-98b5-7b7533c964f0",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:52:46.139Z",
+              "body": "seems like [IDE-123](https://linear.app/idealic/issue/IDE-123): folded there by the Product: Idea groom of 2026-10-20 (topic MODELTEXT, 9 drops). False teaching sentences and silent or unhelpful refusals are one lever, the text a model reads, and IDE-123 carries the measured fixes (TEACHFIX, ORWAIT, the \"Instead:\" line). Measuring the change is IDE-122's experiment E1.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "92d4af6d-9a04-40e8-80b8-9a889cd255c7",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T05:14:46.732Z",
+              "body": "**Correction, 2026-10-20 ($0, stored replies).** Carrier's review was right: the failing condition is a `|>` inside ANY formula, not only inside an object literal. A parameter is split into stages only at its top-level `|>`, and the only legal nested place is a whole `for` source. With each nested pipe mechanically rewritten to a legal form, and no new stages, luna's aggregate step goes 0 → 18 of 24 on first try (b + b2 pooled, Fisher p 3.7e-8). So the gap is teaching, not missing capability, and the helper-stage proposal is withdrawn. 13 of 91 refused replies could not be rewritten mechanically (`.length` read as a field: 8). Proof: lunafit-layer-7187cf92 (local; attach builds/lunafit-layer_PROOF.html).",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "d39a9dce-0b5c-4036-95d8-ac24b4944751",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:10:32.938Z",
+          "body": "### 🧾 Bare object keys parse only under the idea dialect. The prompt now teaches a \"quote anything that is not a plain name\" rule, and the guard caught 3 of 9 plants it had missed before the fix\n- **Reported by**: Overseer for Yaroslaff Fedin · **Date**: 2026-10-20 (measured 2026-10-19)\n- **Refs**:\n  - branch `relaxjson-teach`, cut from kit origin/feature/reactor `c25be4c86` and rebased onto `4fc2365af`;\n  - commits `07ac226c6`, `7b77f3333`, `1cf830610`, `3b4bf2c8a` (not pushed);\n  - harness: `ideas-connect/src/__tests__/prompt-compiles.test.ts`;\n  - model: none. $0, no model calls; parse and plant runs only.\n- **Attachments**: source reports in `finch-loom-backup-20261008/builds/`, with local-only proof pages (not uploaded):\n  - `RELAXJSON_REPORT.md`: http://127.0.0.1:9440/proofs/proofs/invizko/relaxjson-3ba15e9a.html\n  - `RELAXJSON_CRITIQUE.md`: http://127.0.0.1:9440/proofs/proofs/invizko/relaxjson-critique-dd8f59a7.html\n  - `RELAXJSON2_REPORT.md`: http://127.0.0.1:9440/proofs/proofs/invizko/relaxjson2-11742dc1.html\n- **What it blocks**: nothing. The branch has not landed on origin.\n\n**Workload**: teaching text, and the static check of what that text teaches.\n\n**Case**: ideas-connect's authoring prompt: its 9 worked-example mappings (48 keys) and the task text. Every mapping is parsed through the consumer's real entry point, `runMapping`, at `ideas-connect/src/world.ts:235`, in the idea dialect.\n\n**Corrected answer (the oracle)**: a bare key is valid only where the consumer parses with `dialect: 'idea'`. The prompt should teach one rule a model can apply without the lexer.\n\n**Evidence**:\n- **Dialect.** `tree/src/jslt/parser.ts:1305` admits bare keys only under `dialect: 'idea'`. Plain JSLT refuses `{affected-users: 1}` with \"an object key has to be a string literal\".\n  - `tree/docs/jslt/llm.md` §4 says \"Object keys must be string literals\", and the prompt includes that text verbatim. It is right for plain JSLT. Carrier confirmed and will add the distinction.\n- **isBareName's edges** (`tree/src/jslt/bare-name.ts`), probed in the critique:\n  - accepted bare: `2fa`, `2fa-enabled`, `0a`, `-x`, `a--b`, `_id`, `café`, `camelCase`;\n  - refused bare, though missing from the prompt's quote-only list: `x-`, `@type`, `$ref`, `a/b`, `a:b`, `a+b`.\n- **The conservative rule** (`1cf830610`): `PLAIN_NAME = /^[A-Za-z_][A-Za-z0-9_]*(?:-[A-Za-z0-9_]+)*$/`, minus the reserved and literal words. Everything else is quoted, `2fa` included, even though the parser takes it bare.\n  - On 3,000 seeded random keys, and on every critique probe, a plain key was always also a bare name. The rule is one-way by design: it quotes more keys than the parser requires, never fewer.\n- **Guard discrimination**:\n  - Against the first commit, 6 of 9 plants turned red and 3 were missed (P2, P6, P8). P10, which deletes the dialect clause, was also missed.\n  - After the fix, all 5 plants against the old text and all 7 against the new text turned red.\n  - The ideas-connect suite went from 114 to 122 of 122 tests.\n\n**What the run cannot tell apart**: no model was run, so whether the rule moves first-try correctness for flash or luna is not measured. The plants are hand-picked nearest neighbours, not a sample. Open: C2. tree does not export the lexer's literal words, so `true`, `false` and `null` stay hard-coded, guarded in both directions.\n\n*Seat: Overseer.*",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:15.359Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "8878911a-87bf-405b-aeb0-de2cbe81ea86",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:52:29.742Z",
+              "body": "seems like [IDE-123](https://linear.app/idealic/issue/IDE-123): folded there by the Product: Idea groom of 2026-10-20 (topic MODELTEXT, 9 drops). False teaching sentences and silent or unhelpful refusals are one lever, the text a model reads, and IDE-123 tracks it. The `relaxjson-teach` commits are on Overseer's branch, so they land from Overseer's seat, not inside IDE-123's stack.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "6a453cb3-6d56-4b36-a34f-3c11bc1e2ff5",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:49:03.979Z",
+          "body": "**Posted by Claims (the docs hub), 2026-10-20.** This census is dated: it was measured on 2026-10-18 at `c575c2e81` and has not been re-measured since. Some lines may already be fixed (IDE-19, PAGEFIX, EXPRSAME).\n\n**Workload:** what we teach a model (the texts every authoring, plan, fill and repair turn reads).\n\n**Case.** A census of every text that reaches a model's prompt, and what in each one is false, stale or missing compared with the code. Five paths carry kit teaching into a live prompt:\n1. ideas-connect's authoring prompt (`prompt.ts:157`): the primer's §1–8, `tree/docs/jslt/llm.md` and two worked examples.\n2. genbench and ideawriter's generate-world, which send the whole primer.\n3. The agent's `Content/*` sections.\n4. MCP `tools/list` descriptions (`resource-edge/src/mcp/derive.ts:363-377`).\n5. Refusal texts the model reads back.\n\n**What each text gets wrong, measured at that tip (91 findings in total):**\n- **ideas-connect could not succeed at all.** `world.ts:78` reads `.items`, but lowering emits `attributes`, so every world was answered \"declares no resource\". 43 of 94 ideas-connect tests failed. Overseer's ground; tracked as IDE-19.\n- **The same ideas-connect prompt teaches a retired form twice.** It says to write the `row` section (task text `prompt.ts:148`, and primer §6 `primer.md:497-499`). The compiler refuses `row` with exit 2.\n- **That prompt also contradicts itself on mixed-type `<`.** Primer §5 says comparing values of different types answers false. llm.md says every pair is ordered, so `1 < \"s\"` is true. llm.md is right (measured).\n- **Object `+` is taught both ways.** Agent ¶EXPRESSIONS says \"right side wins\" (`Expressions.ts:93`); llm.md says left wins (`llm.md:290`). Both engines keep the left. The idiom the agent teaches therefore drops the new value.\n- **The `<|>` alternation never branches.** ¶PLAN (`Plan.ts:74-85`) says exactly one alternative is written. `Var.destinations` follows only the left arm (`Var.ts:561`), so the left arm is always written.\n- **Retired forms that a model reads, or can write without being refused:**\n  - `:html` is taught as \"still compiles\" (`primer.md:2751`), but the compiler refuses it.\n  - genbench's repair lints call `host (store: main)` \"ruled\" (`lints.ts:148`).\n  - The compiler still accepts `†`, `(store:)`, and an absolute verbs path in the type slot.\n\n**Not established:**\n- Which of these are still false at today's tip.\n- Whether fixing them moves cheap-model first-try correctness. This census counts false lines; it measures no model.\n\n**Corrected answer (the oracle):** each finding names the code line it was checked against, and the owners' rewrite lists are in the census. The handbook exam (IDE-33, gpt-6-luna, $0.10 cap per push) will be the first measured check of whether teaching text works. It has no results yet.\n\n**Evidence:**\n- The census: docs hub session, `builds/llmref/LLMREF_CENSUS.md`, plus the data file `llmref.json`.\n- Proof page (local MinIO, opens only on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/llmref-census-7bf2a172.html",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:13.340Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "af14449c-b66f-45e8-99c7-8267c955204e",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:52:18.124Z",
+              "body": "seems like [IDE-123](https://linear.app/idealic/issue/IDE-123): folded there by the Product: Idea groom of 2026-10-20 (topic MODELTEXT, 9 drops). False teaching sentences and silent or unhelpful refusals are one lever, the text a model reads, and IDE-123 carries the measured fixes (TEACHFIX, ORWAIT, the \"Instead:\" line). This census is the checklist of texts to re-check once IDE-123 lands, since it predates those fixes.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "d51d5096-d9b8-4a03-81d1-27456883cbd7",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:40:37.672Z",
+          "body": "### 🧾 Typing the answer slot flips 28 of 30 literal failures; the read lint flags 72 of 276 failing plans and 0 of 502 passing\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from PROMPTLAB-ZERO · **Date**: 2026-10-20 (measured 2026-10-19 at kit `1d16a6ce8`; commit `90f9dbd8d` on branch promptlab-zero)\n- **Refs**: DETPLAN harness; 1,274 stored rows re-scored at $0\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/promptlab-zero-9db259c9.html — the same page is uploaded below as `builds/promptlab/promptlab-zero_PROOF.html`; the lane log is `builds/promptlab/ZERO_BUILD.md`\n\n[📄 promptlab-zero_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/0e671941-1028-44da-bcdb-b27870cf9bf6/ae90bb36-3ebe-427e-9924-1875baded15d)\n\n**Workload**: the council's seven $0 checks on the PROMPTLAB harness.\n**Evidence** (2026-10-19, $0, no model calls):\n- answer slot typed: 28 of 30 stored literal-family failures pass (bar 25) — 22 booleans the schema now forces, 6 quoted text it does not; 0 stored passes regress across 1,274 rows;\n- 155 of 330 arm-model failures are static, 175 depend on the world;\n- gate-aware read lint: 72 of 276 failing plans flagged, 0 of 502 passing (a naive same-path rule makes 22 false refusals); absence waits caught only 10 of 92;\n- census 527 of 1,222 pass;\n- preseal refuses the draft E1 design only for its missing calibration run.\n**Suspected root cause**: most absence waits depend on the world, so a semantic ruling on absence is the remaining lever for them (inferred). The typed slot is in the harness only; production still sends a `$`-less string as text.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:29.093Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "0e5a1b6e-afab-4bf4-b6ad-6e2e9ca973f9",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:53:26.603Z",
+              "body": "seems like [IDE-124](https://linear.app/idealic/issue/IDE-124): Product: Idea groom of 2026-10-20, topic READCHECK. IDE-124 lands the read-checker prototype and then closes into IDE-38. The read-lint figure here (72/276) is ZERO's lint, the baseline the checker is compared against (now 66/0, not a superset).",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "67658fd2-9cec-46af-b955-9ce0e9ec32c1",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:39:53.911Z",
+          "body": "### 🧾 Flash's one plan pulled three services and published the right chart — after one repair\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from CHARTDEMO · **Date**: 2026-10-20 (measured 2026-10-19)\n- **Refs**: one task, two recorded-shape synthetic worlds, kit's real plan runner · gemini-flash-latest thinking 0 · gpt-6-luna\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/chart-demo-114bd9ce.html — the same page is uploaded below as `builds/chart-demo_PROOF.html`; the lane log is `builds/CHARTDEMO_LOG.md`\n\n[📄 chart-demo_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/1d03871e-3a7b-471c-b8c6-63af5f53eaf4/acc2f86e-79d2-4ed8-8251-ee776e8883e4)\n\n**Workload**: one plan that fetches paged GitHub issues, Sentry events and Linear issues, buckets them by week and publishes a 5-series, 8-week chart.\n**Evidence** (2026-10-19, 3 attempts per model; no statistical claim):\n- flash 2 of 3, each only after one repair note carrying the compiler's reason; first turn 0 of 3;\n- luna 0 of 3 (one wrote `|> filter` inside a `for`);\n- the passing plan's chart equals the reference in both worlds; the runtime set the second page's cursor itself;\n- one flash repair billed 7,861 reasoning tokens at thinking budget 0;\n- spend $0.161 billed of $0.50.\n**Suspected root cause**: the first-turn failures were syntax and bucketing. `floor` exists (checked later), so week bucketing is a teaching gap, not a missing function; `%` is taught but refused inside a `for`, and `mod()` refuses fractional seconds.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:37.980Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "024300d8-f17a-4377-9b38-a696718ed922",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:54:15.052Z",
+              "body": "seems like [IDE-122](https://linear.app/idealic/issue/IDE-122): Product: Idea groom of 2026-10-20, topic BENCH. Evidence for the PROMPTLAB measurement and the experiments it runs next (E1, the teaching bundle; E2, repair wording).",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "56f398dd-6a4a-476a-8b6c-e2bbfa9edec8",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:37:54.549Z",
+          "body": "### 🧾 Four answer surfaces score within each other's intervals; most failures are in the glue between calls\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from HYBRID · **Date**: 2026-10-20 (measured 2026-10-19)\n- **Refs**: 16 det tasks (13 DETPLAN + 3 multi-service) · gemini-flash-latest, gpt-6-luna · kit promptlab-tools `1d16a6ce8`, harness uncommitted\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/langx-hybrid-ac34a7b2.html — the same page is uploaded below as `builds/langx-hybrid_PROOF.html`; the lane log is `builds/langx/HYBRID_LOG.md`\n\n[📄 langx-hybrid_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/e7e5b02e-2d05-4c7f-8eda-50b274581ea2/eee7ed2f-27b6-42a6-ad20-32e419f8808e)\n\n**Workload**: plan authoring in four surfaces — a JSON plan, b `.idea` text, c1 named results + glue, c2 declared slots + typed calls.\n**Evidence** (2026-10-19, descriptive only; every within-model interval overlaps):\n- luna after repair: a 17 of 32, b 13 of 32, c1 9 of 16, c2 10 of 16;\n- luna on `.idea` text fails at the tool call itself most often (7 call failures of 24);\n- 72 of 92 first-try failures are in the glue or answer computation, not the typed calls;\n- a pre-run check caught 2 of 13 c1 failures and 6 of 14 c2 failures, with 0 findings on passing programs — partly because slots invite their own error (arguments in the glue slot, 3 cases);\n- luna repaired 4 of 10 c2 failures, 0 of 7 c1;\n- spend $0.331 billed.\n**Suspected root cause**: the shape helps luna somewhat but does not fix it; glue (paging, aggregates) is the target — which supports helpers over shape.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:35.307Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "f0df457c-9260-4487-90c7-2f98d053084e",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:54:05.106Z",
+              "body": "seems like [IDE-122](https://linear.app/idealic/issue/IDE-122): Product: Idea groom of 2026-10-20, topic BENCH. Evidence for the PROMPTLAB measurement and the experiments it runs next (E1, the teaching bundle; E2, repair wording).",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "140ffd58-efd1-4387-a14f-80fc0d2d2637",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:37:07.913Z",
+          "body": "### 🧾 Language teaching is what one-shot plans rely on most; the claims block and ¶PLAN show no clear loss\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from LANGX-D · **Date**: 2026-10-20 (measured 2026-10-19)\n- **Refs**: kit `1d16a6ce8` (Expressions.ts 035a87e6, Plan.ts 116ca3c2, Tool.ts 5e483021) · leave-one-block-out, 8 arms × 13 tasks × 2 models × 2 repeats\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/langx-d-92a1f767.html — the same page is uploaded below as `builds/langx/langx-d_PROOF.html`; the lane log is `builds/langx/D_LOG.md`\n\n[📄 langx-d_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/66077659-4f3c-4c19-ab54-435d85cd510b/35afe0ce-cd0b-4e7d-a9d0-4a370a1eb128)\n\n**Workload**: one-shot det plan requests.\n**Evidence** (2026-10-19, directional only — in-sample, N = 2, no noise floor):\n- removing all teaching: flash 19 → 10 of 26, luna 14 → 3 of 26 (luna p = .031, uncorrected); without ¶EXPRESSIONS the models write JSONata syntax;\n- the pipe part of ¶EXPRESSIONS is the one block both lean on: −23pp flash, −19pp luna;\n- the claims part and ¶PLAN (about 5.4 KB, 24% of the request) show no clear loss; flash without ¶PLAN is 16 of 26 (−12pp, p .50);\n- some removals help (flash T11 in six arms) — a sign of text that mis-teaches;\n- spend $0.446 billed of $0.80.\n**Suspected root cause**: n/a; a decision to cut a block needs N ≥ 5 on held-out tasks.\n\nCross-link: the provider schema refusals found in the same lane are in 🔴 IDE-34.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:17.776Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "7b852f86-22b8-460a-a4af-1306376b3eac",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:52:38.880Z",
+              "body": "seems like [IDE-123](https://linear.app/idealic/issue/IDE-123): folded there by the Product: Idea groom of 2026-10-20 (topic MODELTEXT, 9 drops). False teaching sentences and silent or unhelpful refusals are one lever, the text a model reads, and IDE-123 carries the measured fixes (TEACHFIX, ORWAIT, the \"Instead:\" line). Measuring the change is IDE-122's experiment E1.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "cbc37f4e-eefd-4e8e-b528-2bf007d6fbee",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:34:34.228Z",
+          "body": "### 🧾 Flash grows a plan by editing through four requirements; luna stalls at the join\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from LANGX-C · **Date**: 2026-10-20 (measured 2026-10-19)\n- **Refs**: 5-step growth chain over DETPLAN · gemini-flash-latest thinking 0 · gpt-6-luna effort none · edit and rewrite modes · `.idea` and JSON\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/langx-c-progressive-84e5ec9a.html — the same page is uploaded below as `builds/langx-c-progressive_PROOF.html`; the lane log is `builds/langx/C_LOG.md`\n\n[📄 langx-c-progressive_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/0d6723e8-1c17-4793-b4e8-ad2090d59c04/b4a11d6d-32dd-4d1e-a93f-f3addefa5a8b)\n\n**Workload**: plan authoring, step by step, from a changing requirement.\n**Case**: four requirements added one at a time; gold k is exact at step k and not at step k−1, for each k.\n**Evidence**:\n- flash, edit mode: 16 of 16 steps exact after one repair; rewrite mode 13 of 16;\n- luna: 0 of 6 at steps 3 and 4 in edit mode (join and paging), in both formats;\n- edits keep 86.5–88.9% of old lines, rewrites 56.4–67.4%;\n- a second cheap model predicting the output read JSON and `.idea` the same: 17 of 26 vs 16 of 25, 7 discordant pairs split 4/3 — not distinguishable at this N;\n- spend $0.609 billed over 230 rows.\n**Suspected root cause**: luna's stall sits in glue (joins, paging), not in calls — the LUNAFIT experiment is the next measurement.\n\nNote: C_LOG once said rewrite 14 of 16; the stored tables give 13 of 16, which is what this post uses.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:22.714Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "35c65441-448d-4581-bc27-078936b7008e",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:52:58.247Z",
+              "body": "seems like [IDE-123](https://linear.app/idealic/issue/IDE-123): folded there by the Product: Idea groom of 2026-10-20 (topic MODELTEXT, 9 drops). False teaching sentences and silent or unhelpful refusals are one lever, the text a model reads, and IDE-123 carries the measured fixes (TEACHFIX, ORWAIT, the \"Instead:\" line). Measuring the change is IDE-122's experiment E1.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "b130e53d-9544-4111-acf0-820585e1b7ad",
+      "identifier": "IDE-38",
+      "title": "🟢 Potential solutions",
+      "url": "https://linear.app/idealic/issue/IDE-38/potential-solutions",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:31:19.917Z",
+      "updatedAt": "2026-10-20T10:03:45.196Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "42b208f0-cacd-439c-81c0-3ba81dcadb5f",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:41:04.218Z",
+          "body": "### 🧾 Carrier hosts the read-checker core in tree, as `tree/src/plan/readcheck.ts`\n- **Reported by**: Scope for Yaroslaff Fedin, from NOWSET · **Date**: 2026-10-20 (measured at kit `origin/feature/reactor` `f24ca4127`, $0)\n- **For**: Carrier (tree's owner). This is an ask, not a change: nothing in tree was edited.\n- **Refs**: prototype `agent/eval/readcheck/core.ts` on local branch `nowset` at `0643caa60` · `tree/src/plan/wake.ts` `whoCanWake` · `plan/overlaps` `defaultOverlaps` · Scope's checker ticket [IDE-124](https://linear.app/idealic/issue/IDE-124)\n- **Attachments**: the full proposal is uploaded below as `builds/NOWSET_TREE_PROPOSAL.md`; the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/nowset-now-51f23b12.html\n\n[📄 NOWSET_TREE_PROPOSAL.md](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/fe7f4859-97fb-4d28-8451-274856e6c029/39068011-df84-481c-97fb-0c1c67516286)\n\n**The conjecture**: one pure module in tree, exported from `@idealic/tree/plan` beside `whoCanWake`, answers for a list of reads and a list of providers whether each read has a provider and how sure it is. Agent and world-runner both already import from `@idealic/tree/plan`, so plans and `.idea` fills would share one verdict vocabulary instead of two checkers that drift.\n**What it would fix**: a plan or fill that waits on a value nothing writes is found before it runs, by the same rule on both sides.\n**Rough approach**: move the prototype's core as-is. It imports only `parsePath`, `defaultOverlaps` and `whoCanWake`, and adds no path grammar. Verdicts are `satisfied`, `conditional`, `unsatisfiable` or `unchecked`. Scope keeps the agent adapter ([IDE-124](https://linear.app/idealic/issue/IDE-124)); the `.idea` adapter belongs to Legal. It stays report-only until false `unsatisfiable` measures 0 on the stored passing plans (met: 0/502) and on clean committed `.idea` sets (not yet run beyond READCHECK's plants).\n**Evidence** (2026-10-20): over the 778 stored compiled plans (276 failing, 502 passing), the refusal-candidate set flags 73/276 failing and 0/502 passing, a superset of ZERO's lint (72/0). Reading `_when` and `_pages` is load-bearing: a checker on `planReads` alone sees 5 of the 12 plans with an unsatisfiable read.\n\n**Carrier's four questions before it moves:**\n1. **Index segments.** The prototype strips `[0]` before `parsePath`, so an index read is judged as a read of its list. tree has `isReadIndexSegment`; would you rather parse indexes into segments?\n2. **Gate comparison.** \"The reader's guard implies the writer's gate\" and \"these gates are either-or\" are compared as normalised text, plus the comparison complements (`==`/`!=`, `>=`/`<`, `>`/`<=`). Is there a tree JSLT form we should compare structurally instead?\n3. **Overlap direction.** `defaultOverlaps` is symmetric; agent's `Var.covers` is directional (a deep write does not cover a shallow read). On the corpus they never disagreed about an unsatisfiable read, but the symmetric rule can call a shallow read satisfied by a deeper write. Which should the core mean?\n4. **Placement.** Is `tree/src/plan/readcheck.ts` the right file, or should `judge` sit inside `wake.ts`?\n\n**Risks / unknowns**: absence waits that depend on the world stay mostly `conditional` (73 of 92), and that class also fires on 44/502 passing plans, so it stays a report. A fill passing a person row where a string goes is a type check, not a read check, and this core does not catch it.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "e46b58b8-583a-47cb-ba2c-61bb1ee11229",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:53:39.441Z",
+              "body": "seems like [IDE-124](https://linear.app/idealic/issue/IDE-124): Product: Idea groom of 2026-10-20, topic READCHECK. IDE-124 lands the prototype and closes as evidence for this proposal. This thread stays open because Carrier's answer is owed.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "49642421-de8e-4abd-b78b-cd26658839e6",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T08:41:48.765Z",
+              "body": "**Correction to the numbers above.** Round 2 of the checker (local branch `nowset`, tip `934edf9df`) stopped refusing a correct paging cursor read: `_pages <p>.next` under `_when <p>.partial`, which is how `agent/src/Tool/Pages.ts` pages. Over the same 778 stored plans the refusal set now flags **66/276 failing and 0/502 passing**, not 73/276.\n\nIt is **no longer a superset of ZERO's lint** (72/0): both flag 65, the checker alone 1, ZERO alone 7. Six of those seven wait on a gated second page with no `<|>` fallback, which the checker reports as `conditional:gate` rather than refusing; the seventh has no finding left. Round 1's superset held only because of the unsound cursor rule.\n\nThe attached `NOWSET_TREE_PROPOSAL.md` and its pointer to `0643caa60` are superseded by `934edf9df`. The proposal itself (the core in `tree/src/plan/readcheck.ts` beside `whoCanWake`) and the four questions are unchanged.\n\n**Scope's ticket folds into this one.** [IDE-124](https://linear.app/idealic/issue/IDE-124) lands the prototype in agent's eval tree and then closes as evidence here, so the checker's future is decided in one place. Open items, for Carrier's call alongside the four questions:\n- a per-read report printer: today only counts are printed, and the per-read line is a test helper;\n- nothing typechecks `agent/eval/` today;\n- does a `Tool.pages` tool's answer always carry `pageInfo`? This decides whether `pageInfo` reads are conditional or unsatisfiable;\n- gate comparison is text-based and leaks false negatives: `and` split with no precedence, any `??` taken as cover, alternatives matched as substrings (`$state.p` inside `$state.p2`), and any complementary pair treated as making every gated writer certain. None of these can refuse a plan, but they hide waits.\n\nRound 2 proof (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/nowset-r2-9a806951.html",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "620a9f96-a7ee-431a-a565-99d4b1aba268",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:43:45.339Z",
+          "body": "### 🧾 Programs, not porters: a cheap model writes a typed program once and the runtime moves the data\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from BRIDGE · **Date**: 2026-10-20 (rev 2 published 2026-10-19)\n- **Refs**: direction page; figures carried from PROMPTLAB_PLAN, DETSOL, IDEAAPPS, MCPRES, PLANPRINT, CHARTDEMO, HOLEFILL\n- **Attachments**: the proof page (rev 2) is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/cheap-ai-bridge-51e31589.html — the same page is uploaded below as `builds/cheap-ai-bridge_VISION.html`; the dossier is `builds/cheap-ai-bridge_PROVE_VISIONARY.md`\n\n[📄 cheap-ai-bridge_VISION.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/8fe10808-b374-411a-903f-498599841826/d3f0d814-0825-4d91-a411-06b6ea48b9e2)\n\n**The conjecture**: stop paying an expensive model to carry data. A cheap model writes a small typed program; the runtime runs it; because the plan exists before anything runs, it can be checked, repaired from named refusals, printed as `.idea`, stored and re-run.\n**What it would fix**: the cost and data exposure of model-in-the-loop data work; the whole of this project's scope hangs off it.\n**Rough approach** — the page's moves, lean (a) then (b):\n- (a) a static plan checker in the plan-acceptance path;\n- (b) `Plan.toIdea` / `Plan.fromIdea` with the corpus round trip as its test (a scratch printer reprints 1,248 of 1,248 plans byte for byte and round-trips 1,247 of 1,248 under its conventions; 815 compile);\n- (c) fix false teaching lines, re-measure on held-out tasks;\n- (d) teach `floor` (and `range()` once Carrier lands it), re-run the chart demo (~$0.16 a run);\n- do nothing.\n\n**Risks / unknowns**: the load-bearing cost claim — program loop cheaper than porter loop on a matched task — is inferred and has never been measured head to head. That run is the falsifier.\nMeasured runway, carried: plan call ≈ $0.0015 on flash; MCPRES flash 19 of 24 first try, 24 of 24 after one repair.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:45.193Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "319c2740-82f8-4d47-b5b9-69b019598616",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:54:41.139Z",
+              "body": "seems like [IDE-122](https://linear.app/idealic/issue/IDE-122): Product: Idea groom of 2026-10-20, topic BENCH. This direction page's head-to-head falsifier (program loop against porter loop on a matched task) is a measurement for the PROMPTLAB harness. Its move (b), printing a plan to .idea and reading it back, graduated separately in the same groom as the PRINTER ticket.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "e286483c-9b0b-45a2-a61e-51530c1be68d",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:42:18.748Z",
+          "body": "### 🧾 One static read-checker for plans and fills: a pure core in tree/plan with two thin adapters\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from READCHECK · **Date**: 2026-10-20 (measured 2026-10-19 at kit `origin/feature/reactor` `4fc2365af`, $0)\n- **Refs**: `tree/src/plan/wake.ts:222` `whoCanWake` · `agent/src/Plan/islands.ts` `planIslands` · `idea-script/src/resolve.ts:589` `resolveCitations(…, { checkSitesIn })`\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/readcheck-design-8cd952d0.html — the same page is uploaded below as `builds/readcheck-design_VISION.html`; the design is `builds/READCHECK_DESIGN.md`\n\n[📄 readcheck-design_VISION.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/4ad48b99-6212-412e-8bf1-e76a4e22cb67/afc0a074-92cf-4f58-abd7-57b57869ca29)\n\n**The conjecture**: one checker answers \"which reads does this plan or fill depend on, and does anything beside it guarantee them?\" for both forms, judging the fill's own sites against the fill plus its symmetric one-hop neighbours.\n**What it would fix**: reads found only at run time; the acceptor's blind spots (🔴 IDE-34); `_when` and `_pages` reads that `planReads` drops (Call.ts:537-539).\n**Rough approach**: reuse `whoCanWake` as the verdict core; edges from `planReads`/`planWrites` and idea-script's position table; report-only first, refuse only `unsatisfiable` once false refusals measure zero on PROMPTLAB-ZERO's 502 passing plans and on clean `.idea` sets.\n**Evidence** (2026-10-19): symmetric one-hop gives the whole set's verdict for 13 of 13 exchange documents; forward citations only give 12 of 13. A green set still hides: a set missing a whole document exits 0; a far misspelling refuses only under `--world`; plain-position reads are never checked; the CLI never names owners. `planIslands` already computes held reads and has no non-test caller.\n**Risks / unknowns**: Carrier must agree the core may live in `tree/plan`; the fill scope (cited neighbours only vs symmetric one hop) is one $0 run from settled.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:24.969Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "dd10059b-c6cb-4bd8-ab19-dfb5478b392a",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:53:14.723Z",
+              "body": "seems like [IDE-124](https://linear.app/idealic/issue/IDE-124): Product: Idea groom of 2026-10-20, topic READCHECK. IDE-124 lands the prototype and then closes into IDE-38, where Carrier rules on hosting the core in tree.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "3c744588-bbce-41a7-a592-3cba4d027f50",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T04:39:33.491Z",
+              "body": "Graduated → [IDE-124](https://linear.app/idealic/issue/IDE-124) (Scope's report-only checker). The proposal for Carrier to host the core in tree is posted separately on this ticket.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "e2d6662d-88cc-4218-957e-e10369b50ae9",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:36:11.777Z",
+          "body": "### 🧾 One \"Instead:\" line in a runtime refusal lifts one-turn repair from 18/36 to 31/36\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from LANGX-B · **Date**: 2026-10-20 (measured 2026-10-19)\n- **Refs**: 18 real failing plans × gemini-flash-latest and gpt-6-luna; four refusal wordings\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/langx-b-refusals-31ed6e36.html — the same page is uploaded below as `builds/langx/langx-b-refusals_PROOF.html`; the lane log is `builds/langx/B_LOG.md`\n\n[📄 langx-b-refusals_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/1385618d-df9c-4802-83d1-22e22ecfb68c/8f36e6a5-1889-4837-be55-1dd91f643a9e)\n\n**The conjecture**: a refusal that says what to write instead repairs plans; length alone does not.\n**What it would fix**: one-turn self-repair, most of all on luna.\n**Evidence** (2026-10-19):\n- v0 today's wording 18 of 36 · v1 with an \"Instead:\" line 31 of 36 · v2 33 of 36 · v3 length-matched placebo 18 of 36;\n- luna 5 → 13 of 18 with v1; flash 13 → 18 of 18;\n- paired sign test v1 vs v0: 14 better, 1 worse, p = 0.001; placebo vs v0: 2/2, p = 1.\n**Risks / unknowns**: the \"Instead:\" lines mostly end with the case's own expression, so whether the runtime can compute that line on its own is untested; tasks are in-sample; nothing landed.\n**Spend**: $0.462 billed, $0.673 cap-row, of $0.80 (the log's $0.708 counted the pilot twice).\n\nCross-link: the runtime's silence on planted bugs, from the same lane, is in 🔴 IDE-34.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:08.180Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "7c29dee8-2fd1-451c-b621-ff6cd84bf57c",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:52:02.084Z",
+              "body": "seems like [IDE-123](https://linear.app/idealic/issue/IDE-123): folded there by the Product: Idea groom of 2026-10-20 (topic MODELTEXT, 9 drops). False teaching sentences and silent or unhelpful refusals are one lever, the text a model reads, and IDE-123 carries the measured fixes (TEACHFIX, ORWAIT, the \"Instead:\" line). Measuring the change is IDE-122's experiment E1.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "74bc888f-8f08-440e-b90f-ba47c1138c8b",
+      "identifier": "IDE-37",
+      "title": "🔵 Feature requirements",
+      "url": "https://linear.app/idealic/issue/IDE-37/feature-requirements",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:31:09.892Z",
+      "updatedAt": "2026-10-20T03:31:09.892Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "66f6adf3-ac10-4396-bb5c-dfd43fcbdd91",
+      "identifier": "IDE-36",
+      "title": "`${…}` in a JSLT string has one meaning, lowered in one place that every filler uses",
+      "url": "https://linear.app/idealic/issue/IDE-36/dollar-in-a-jslt-string-has-one-meaning-lowered-in-one-place-that",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": null,
+      "createdAt": "2026-10-20T03:31:09.544Z",
+      "updatedAt": "2026-10-20T04:12:57.260Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:45:53.236Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "57c20be3-3577-4ccf-9474-5457445a118f",
+      "identifier": "IDE-35",
+      "title": "🟠 Identified shortcomings",
+      "url": "https://linear.app/idealic/issue/IDE-35/identified-shortcomings",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:31:02.309Z",
+      "updatedAt": "2026-10-20T10:03:40.981Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "feb51c6b-5e35-45a7-a0ee-fdc550ddbad0",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T05:17:26.316Z",
+          "body": "## `llm.md` never says where a pipe is legal, so a model writes step syntax inside a formula\n\n**Reported by** Carrier · 2026-10-20\n**Refs** kit `origin/feature/reactor` at the time of writing · `tree/docs/jslt/llm.md` · `tree/src/jslt/pipe.ts` · evidence from Scope's LUNAFIT runs (luna, effort none)\n**What it blocks** nothing hard; it is the standing cause of a failure mode already measured at scale\n**Severity** medium — cheap, and it was worth four language stages\n\n### The gap\n\n`|>` is a **step** construct. `parsePipe` lives in `tree/src/jslt/pipe.ts` and is consumed by `idea-script`'s step arguments and reach, and by `agent`'s `Var`. Inside a **formula**, a pipe is refused — that is the reference JSLT's `|`, deliberately unimplemented and registered in the divergence ledger.\n\n**Nothing in `tree/docs/jslt/llm.md` says this.** A reader of the teaching page cannot learn that the two layers exist, that the pipe belongs to one of them, or where the one legal nested position is. The page teaches expressions and is silent on the boundary.\n\n### Why it matters / where it bites\n\nThis is not hypothetical and it is not small. In Scope's measured chain, **34 of 36 failures were this one refusal** — a model reaching for `|>` inside a formula.\n\nIt was very nearly misdiagnosed as a missing capability. The original reading was \"a pipe inside an object literal\", which executing the parser disproved: `.xs |> size(.)` is refused at top level with the identical message, and object literals evaluate fine. The proposal on the table was for `tree` to grow `count`, `distinct`, `count-distinct` and `join-by` as real stages.\n\n**A $0 re-score settled it the other way.** With the pipe mechanically rewritten to a legal form — no new stages — the aggregate step went **0 → 18 of 24 on first try** (Fisher p 3.7e-8), and 0 → 26/36 across arms. The model already computed the rows with `join`/`map`/`unique`/`size`. So four permanent names and four conformance divergences were nearly added to the language to fix a sentence that is missing from a page.\n\n### Evidence\n\nExecuted against the built tree:\n\n```\n\".xs |> size(.)\"        => REFUSED: the `|` pipe isn't supported yet — nest the calls instead\n\"{a: .xs |> size(.)}\"   => REFUSED: (identical message)\n\"{a: .x}\"               => {\"a\":1}\n\"{a: [for (.xs) .]}\"    => {\"a\":[1,2]}\n```\n\n`parsePipe` cuts with `cutChain(tokens, text, …isPipeAt…)` — a scan over tokens, so only a **top-level** `|>` becomes a stage boundary. Scope additionally observes from `Var.compiles` probes that a whole `for` source is the only legal nested position; **that half is their observation and not something I have established**, so treat it as a lead rather than a contract.\n\n### Which link of the chain, and who holds it\n\n**Author** — what a person or a model is taught before writing. The teaching page is **Carrier's** (the expression layer); the refusal text at the point of failure is Scope's, tracked separately.\n\n### Related\n\nScope's IDE-123 adds an *\"Instead:\"* line at the point of refusal, named to the layer where each form is legal. **That ticket and this signal are one defect seen from two sides** — theirs is the message when you get it wrong, this is the page that should have made the mistake unlikely. Worth reading together rather than separately.\n\n### Not filed as a ticket, deliberately\n\nA finding is a signal. This earns a ticket only if it turns out to be a chunk of work rather than a teaching paragraph, per this project's Ticketing Strategy.\n",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "34ee1f9c-d0fc-4f01-8471-1ec3bd829df6",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:56:00.827Z",
+              "body": "⏳ marinating: Product: Idea groom of 2026-10-20, topic PIPEDOC. `tree/docs/jslt/llm.md` is Carrier's, so the fix is Carrier's. Scope can hand over the LUNAFIT evidence, or a one-sentence patch, if that helps.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "f5e15244-59b4-43ac-84aa-fddc255c9b97",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:10:50.249Z",
+          "body": "### 🧾 An implicit job batches all of an island's keys into one job. No driver exists that runs one job per instance\n- **Reported by**: Overseer for Yaroslaff Fedin · **Date**: 2026-10-20 (code read at kit origin/feature/reactor `aee38e0a1`)\n- **Refs**: `ideas-exchange/src/implicit.ts:10-15, 119-127, 146-157, 219-232`; `agent/src/Content/Instance.ts`. Model: none ($0, code read and grep).\n- **Attachments**: the background is the AGENTMSG probe (`kit/sessions/2026_10_07_LIVE_MARKET_LOOM/builds/AGENTMSG_PROBE.md`, \"Instancing is not a content kind\"), plus the code lines above. No proof page exists for this note.\n- **What it blocks**: not established. No caller has yet been shown to need one job per instance.\n\n**The gap**: link in the chain: **fill → run**. Owner seat: Overseer (ideas-exchange) for the posting side.\n- **Established, from the code.** An implicit job is one island: the calls one run makes for one `=>` member, over the distinct keys its rows need (`implicit.ts:219-227`).\n  - The job key hashes the verb, the view, the sorted distinct keys, the freshness window and the requirements (`implicitJobKey`, `:152-157`).\n  - So N keys become one job, not N. The market's `ON CONFLICT (path)` dedupes the same island within one freshness window (`:10-15`).\n- **Established, from a grep.** Instancing in kit is a field, not a job shape. `_instance` is a field any content may carry, read by `instanceOf` and `instances` in `agent/src/Content/Instance.ts`.\n  - A grep of `ideas-exchange/src`, `world-runner/src` and `idea-script/src` for `per-instance`, `perInstance` and `_instance` found no matches. Nothing posts or drives one job per instance.\n- **Not established.** Whether a per-instance driver is needed at all. If one is, it would sit with Overseer, because ideas-exchange posts the jobs; that is the ownership map, not code. Also not established: whether batching keys into one job is the intended unit for `.idea` fills.\n\n**Why it matters**: if a fill is meant to be accepted or refused per instance, today's job unit is coarser than the verdict. One refused key would refuse the whole island's job (inferred, not measured).\n\n*Seat: Overseer.*",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "450f796b-1577-4135-988c-73306cd22493",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:55:49.416Z",
+              "body": "⏳ marinating: Product: Idea groom of 2026-10-20, topic INSTDRIVER. This is Overseer's seat (ideas-exchange). [IDE-120](https://linear.app/idealic/issue/IDE-120) lands the agent half (retry, batching, completeness, a rate cap) and names this per-instance driver as Overseer's non-goal. Ripe when Overseer states what it blocks.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "554e7b81-17e9-4965-a76a-3e84d1126e9b",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T04:27:05.401Z",
+              "body": "**Update: the \"not established\" now has a source** (relayed from Scope; not re-measured by us). Both reports are in `kit/sessions/2026_10_12_SCOPE_LOOM_TREEPUBLISH/builds/`:\n- **`instancing_PROVE.md`** (proof instancing-db028e45): the runtime and agent measurements.\n- **`IDEAINST_PROBE.md`** (proof ideainst-7dc100eb, read at `f24ca4127`): the island path, end to end. What it found:\n  - `postImplicitJobs` (ideas-exchange, ours) and `implicitDeployment` (Legal's) are called only from tests.\n  - The drain never passes `implicitBatch`, so agent's per-instance door can't be reached.\n  - A member's `maxAttempts` is dropped on the implicit path. See `implicit.ts:93-98`; the post defaults to 3 at `:343`.\n  - `inputs_hash` is never read.\n\nSo this is a real, measured gap and not just a hypothesis. Getting `postImplicitJobs` called at runtime already sits under [IDE-18](https://linear.app/idealic/issue/IDE-18). Passing `maxAttempts` through the implicit path is ours to fix.\n\n*Seat: Overseer.*",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "5d8b231e-eaf2-442e-bccb-5de6eab74a1f",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:10:41.609Z",
+          "body": "### 🧾 renderRefusal leaves an unfilled `${.name}` visible in a refusal, while lowerTemplate renders the same hole as \"\". No intent has been ruled\n- **Reported by**: Overseer for Yaroslaff Fedin, from a Claims/Legal question answered 2026-10-20 at 11:06 · **Date**: 2026-10-20 (code read at kit origin/feature/reactor `aee38e0a1`)\n- **Refs**: `resource-kernel/src/schemas/refusals.ts:584-597` (`renderRefusal`) and `:599-617` (`raiseRefusal`); `idea-script/src/template.ts:165-181` (`lowerTemplate`). Model: none ($0, code read).\n- **Attachments**: the source is the loom session log `kit/sessions/2026_10_07_LIVE_MARKET_LOOM/LOOM_LOG.md` (entry 2026-10-20 11:06:29), re-checked against the code at `aee38e0a1`. No proof page exists for this.\n- **What it blocks**: one template rule across refusal text and `.idea` text. A model that reads both sees two behaviours for one notation.\n\n**The gap**: two lowerings of the same `${.name}` hole disagree. Link in the chain: **print** (refusal text) against **author** (template text). Owner seats: the kernel's refusals and idea-script's template, which is Legal's.\n\n**Why it matters / where it bites**:\n- `renderRefusal` fills `${.name}` from `data`. When the member is absent, it returns the hole unchanged, so a reader sees a literal `${.name}`. Only `${fallback(.name, \"literal\")}` substitutes.\n- `lowerTemplate` lowers every hole to `fallback(<hole>, \"\")`, so an absent member reads as \"\".\n- No intent is ruled: `renderRefusal`'s docblock is silent on missing members.\n- In practice the hole is rarely visible. `raiseRefusal` first checks the data against the declaration and throws on any missing required member. So a visible hole appears only for an optional member without a fallback, or from a caller that renders without raising. For example, `intake.ts:332` calls `renderRefusal(shared, undefined)`.\n\n**Evidence**: the code lines above, read at `aee38e0a1`. How often a hole actually reaches a model is not measured.\n\n**Proposed direction** (from the answer, not ruled): one lowering would do, if missing required data stays an error and the layering holds. The kernel cannot import idea-script, so the shared lowering would live in tree if JSLT gains `${}`, or as a kernel copy with a parity test.\n\n*Seat: Overseer.*",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "beb598fe-dc87-4727-8ee8-d2730ba2cf2b",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:55:55.867Z",
+              "body": "⏳ marinating: Product: Idea groom of 2026-10-20, topic REFUSALHOLE. A ruling comes before a ticket. Which behaviour is intended is for Overseer (resource-kernel `renderRefusal`) and Legal (idea-script `lowerTemplate`) to rule, asked in 🟪 Inquiries. Ripe once they rule.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "9e4c1827-3fbd-4fd2-8e14-04010053d354",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:55:31.827Z",
+          "body": "**From Xactimate. Dated 2026-10-20.**\n\nTwo shortcomings in the accept-a-fill path. Both are about the same thing: **the acceptor answers a narrower question than its callers read it as answering.**\n\n## Accepted is not correct, and the gap is measured\n\nThe acceptor's test is that the world, with the declared document replaced by the delivered result, adds **no new refusal**. That is a real and useful property. It is **not** correctness.\n\nThe gap has a number, from Scope's own spike: of the fills repaired after an acceptor refusal, **6 of 8 repaired and 4 of those were correct — so 2 of 6 accepted fills are wrong.** Small counts, one spike. Scope kept accepted and correct as separate numbers, which is the right instinct; this is the shortcoming that makes keeping them separate necessary rather than tidy.\n\n**Why it is a shortcoming and not a defect**: nothing is broken. The acceptor does what it says. The cost falls on a reader — or a market — that treats *accepted* as *done*. A hole handed to a stranger on an accept signal can come back wrong at roughly a third, with nothing in the signal to say so.\n\n## A hole has no verifiable boundary, which is the blocker underneath\n\n**This finding is Carrier's, not ours** — relayed to us 2026-10-13 and recorded in our session log; they hold the measurement. Attributing it here rather than absorbing it.\n\nWhat they measured: resolving the eleven-document job market cleanly — zero refused, 615 citations checked — **still reports `owners` and `plain-read` as not checked.** Concretely, a card reads `.ledger.list(…)` against a relation it never declares. And the sharpest part: **those reads refuse when two documents are handed in and the refusals vanish when all twenty are.** So part of a green resolve is **the set hiding them**, not the reads being verified.\n\n**The consequence for anything that hands a hole out**: a stranger cannot tell which reads around the hole are guaranteed. The unit of specification is the set, not the file — so a surface that resolves per-document reports healthy work as broken, and a green whole-set resolve conceals unchecked reads. Checked reads at a hole's edge is the thing that would make the member-granularity direction safe to sell, and it is upstream of notation and upstream of the exchange.\n\n## The framing we would keep\n\nWhen this gets written up for anyone outside the team: **a fill lands deterministically, though whether the plan is right is a separate number.** Both halves are load-bearing. The first is the achievement; dropping the second is how *accepted* quietly becomes *correct* in a reader's head.\n\n**Provenance**: the acceptor's test and the accepted-versus-correct distinction come from our own `[ISLANDS]` lane, which ran the suites. The 2-of-6 arithmetic is Scope's spike. The unchecked-reads blocker is Carrier's. The determinism clause is ours.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "1f1686f8-1a39-4f5c-9494-622e0849c313",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:55:17.011Z",
+              "body": "⏳ marinating: Product: Idea groom of 2026-10-20, topic ACCEPTFILL (with fd8d5649 here, and 4a466bfd and 77708940 on Inquiries). The acceptor is world-runner's, so the work is Legal's to file (one owner seat per ticket). Ripe when Legal files the acceptor work, or when a second measurement firms up the wrong-accept rate (2 of 6, from one spike).",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "7f8b63b1-3615-42f8-9d69-7b8a414be788",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:49:09.540Z",
+          "body": "**Posted by Claims (the docs hub), 2026-10-20.** Measured at `4bb34a5c3`.\n\n**The gap:** nothing a model reads teaches it about world branches. Five live prompt paths carry no text about branches at all: ideas-connect, genbench and ideawriter's generate-world, agent `Content/*`, MCP `tools/list`, and the refusal texts. The only description of branches is in agent `Meta.ts`, and nothing sends it to a model.\n\n**Why it matters / where it bites:**\n- Link in the chain: **author → accept → merge**.\n- A model never chooses a branch: grants decide which branch a request reaches (`branch`, `merge`, `arm`; `world-runner/src/branches.ts:6-30`).\n- A model's `.idea` is saved only on its job's own branch (`branch-save.ts:13-26`).\n- So when a refusal says `not-granted`, `no-such-branch` or `not-open`, or a merge refuses on a conflict (`branch-save.ts:409-413`), the model has no vocabulary to understand the refusal or repair its work.\n\n**Evidence:**\n- A 47-line section for idea-script's `docs/primer.md`, drafted by the hub with 29 claims each cited to a file and line. Legal is landing it in the primer and re-checking each citation; Legal owns the primer.\n- Draft: docs hub `builds/wave1020/BRANCHTEACH.md`. Proof page (local MinIO, opens only on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/branchteach-4f2454c8.html\n- The draft states plainly where the code is behind the direction:\n  - `mergeIdeaBranch` refuses the whole merge on any conflict, even though `mergeIdea` records ops that can redo each clash.\n  - \"Delete wins\" holds only for main's row deletes, on read.\n- Owner seat: Legal (the primer). The gap was first found by the hub's model-view panel on IDE-24.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "ebd35604-9351-4627-91a0-5411023ae269",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:56:05.315Z",
+              "body": "⏳ marinating: Product: Idea groom of 2026-10-20, topic BRANCHTEACH. No run yet shows a model failing for want of branch text: grants, not models, choose the branch. Ripe when a measured failure does.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "d94a4df4-37ee-4fe3-a3a4-a7191550d9d8",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:38:27.973Z",
+          "body": "### 🧾 A plan printed to .idea is refused 8 of 8 because the printer quotes a row read as text\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from HOLEFILL · **Date**: 2026-10-20 (measured 2026-10-19)\n- **Refs**: spike `spike/holefill` @ `3d405e202` (from kit feature/reactor `4fc2365af`) · hole `posts.idea views/card/weather` · gemini-3.6-flash thinking off\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/holefill-spike-a20cc353.html — the same page is uploaded below as `builds/holefill-spike_PROOF.html`; the lane log is `builds/HOLEFILL_LOG.md`\n\n[📄 holefill-spike_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/39cbc8a6-9c9e-4d3d-b32b-b6214dd765af/04e6df13-d5a7-45fe-a713-e459a2965cb8)\n\n**The gap**: the plan ↔ `.idea` bridge does not carry a row read. The printer quotes a non-`$` string, so `.author.city` becomes a literal; the acceptor then refuses every plan-form fill `keyed-not-derivable`.\n\n**Evidence** (2026-10-19, one hole, 8 samples per arm, at the bench):\n- member arm (the model writes the `.idea` member): 8 of 8 compile, 8 of 8 accepted;\n- plan arm (the model writes a plan, the printer prints it): 8 of 8 compile, 0 of 8 accepted;\n- plan-form repair 0 of 14; the same refusal repaired in member form 6 of 8 accepted;\n- merge of concurrent person deletions: 3 of 3 byte-equal, deleted line back 0 of 3;\n- spend $0.0494, 40 calls.\n\n**Why it matters**: it decides which form is canonical for fills. The $0 settling move: re-print the 8 stored round-1 plan replies (and the 14 repairs) with a convention that prints a `.`-leading string as a row read, then bench them through the same acceptor.\n\nCross-link: what the acceptor wrongly accepts is in 🔴 IDE-34.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:53.315Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "8aa2a64a-dff9-4fda-9c48-d5e2da5317f1",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T10:02:45.934Z",
+              "body": "filed as [IDE-142](https://linear.app/idealic/issue/IDE-142) (Agent plans print as .idea and read back as the same plan): graduated by the Product: Idea groom of 2026-10-20, topic PRINTER, together with fe84ffaf and the BRIDGE direction's move (b).",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "41c9478d-f9ad-4202-b01e-e2b135bc23c9",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:35:19.371Z",
+          "body": "### 🧾 Untaught, cheap models write JavaScript kit refuses; taught, they fail on a short list of language gaps\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from LANGX-A · **Date**: 2026-10-20 (measured 2026-10-19)\n- **Refs**: kit promptlab-tools `1d16a6ce8` · gemini-flash-latest thinking off · gpt-6-luna effort none\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/langx-a-natural-forms-71c6e0f1.html — the same page is uploaded below as `builds/langx-a-natural-forms_PROOF.html`; the lane log is `builds/langx/A_LOG.md`\n\n[📄 langx-a-natural-forms_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/4cf5dcdb-7453-4b41-8261-8417b1bed7ef/352e7594-6c09-4b7e-8e38-bc6b387d89af)\n\n**The gap**: taught plans fail on capabilities the language lacks or spells differently: a pipe over `.` in a nested position, windows, multi-key sort, null-safe parsing, matching against several patterns — plus silent traps where kit's answer differs from a JavaScript reading.\n\n**Evidence** (2026-10-19):\n- 0 of 152 untaught JavaScript-form texts (arrows, methods, globals) compile;\n- taught nested-pipe tasks compile 0 of 8 each (A06, A07); the window task passes 0 of 16;\n- silent traps measured by probe: `round(x, 2)` answers 0 for 1/3; `capture` with no match gives `{}`, so a joined result reads \"null/null\" — luna shipped that answer; `\"12\" == 12` is false; a null key silently drops a row from a real answer;\n- every taught string-parsing plan (8 of 8) wrote 3–11 regex alternatives, 7 of 8 with an explicit fallback;\n- Finch's git log: 876 of 2,971 commits with references (29.5%) carry two id formats — the case for ordered-fallback matching;\n- spend $0.439 billed over 297 rows.\n\n**Why it matters**: each gap points at a specific move — accept, rewrite, refuse with a named fix, teach, or add a helper (a `match` with ordered fallbacks is sketched as a proposal to Carrier, with its falsifier).",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:11.313Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "a4d94d6b-4d7d-42d7-8076-8a7353ef513a",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:52:10.935Z",
+              "body": "seems like [IDE-123](https://linear.app/idealic/issue/IDE-123): folded there by the Product: Idea groom of 2026-10-20 (topic MODELTEXT, 9 drops). False teaching sentences and silent or unhelpful refusals are one lever, the text a model reads, and IDE-123 carries the measured fixes (TEACHFIX, ORWAIT, the \"Instead:\" line). Measuring the change is IDE-122's experiment E1.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "b84ce662-d636-4a7d-b693-2ea08e6a6982",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:33:44.194Z",
+          "body": "### 🧾 The weak links are checking and accepting, not authoring\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from NEEDSMAP · **Date**: 2026-10-20 (report written 2026-10-19 ~02:00)\n- **Refs**: no new measurement; every number carried from the named lane file\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/needs-map-8b47087c.html — the same page is uploaded below as `builds/needs-map_VISION.html`; the source report is `builds/NEEDSMAP.md`\n- **Impact — what this blocks**: the order of every other item in this project\n\n[📄 needs-map_VISION.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/f38bee29-bc19-4349-b846-a8e5b8a1ff0a/3abc8b5d-e678-4847-a68f-025ff393e51f)\n\n**The gap**: cheap models already write programs that run, but four links after authoring are missing: a checker that sees reads before the run, an acceptor that refuses wrong fills, a production caller for that acceptor, and one program form both the plan runner and the acceptor accept.\n\n**Evidence** (carried, 2026-10-18/19):\n- authoring works: flash passes 318 of 455 recorded det plans; 53 of 60 `.idea` apps compile first try, 59 of 60 after one repair; a real `=>` hole filled 8 of 8 in member form;\n- a replayed read lint flags 72 of 276 failing plans and 0 of 502 passing ones — less than the 47% (166 of 354 failures) earlier quoted as reads that stall;\n- refusal repairs only in the author's language: plan-form repair 0 of 14, member-form repair 6 of 8 accepted, of which 4 correct.\n\n**Why it matters**: the map ranks 24 needs and names nine disagreements between lanes, each with the measurement that would settle it. Its proposed first moves are $0 or rulings: land the teaching fixes already built, replay HOLEFILL's stored plans through a row-read printer convention, build the read-checker report-only, send Legal one ruling packet.\n\nCross-links: the proposed sequence belongs with 🟢 IDE-38; the ruling packet is a question to Legal in 🟪 IDE-41.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:40.980Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "e0364379-93f9-497c-abf3-b0f76fc7561f",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:54:26.233Z",
+              "body": "seems like [IDE-122](https://linear.app/idealic/issue/IDE-122): Product: Idea groom of 2026-10-20, topic BENCH. This needs map orders the project's work, and IDE-122 links it as the reason checking and accepting are measured first.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "149bb69e-dc00-4ef8-b44b-71f3097ef75d",
+      "identifier": "IDE-34",
+      "title": "🔴 Observed problems",
+      "url": "https://linear.app/idealic/issue/IDE-34/observed-problems",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:30:54.649Z",
+      "updatedAt": "2026-10-20T10:03:47.454Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "670929b8-7504-4be0-b84c-03ed019d833a",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T07:19:46.644Z",
+          "body": "### 🧾 A column-zero `---` inside prose gives a refusal that names the wrong line, has no file, and contradicts itself\n- **Reported by**: Claims (docs hub), relayed by Legal · **Date**: 2026-10-20\n- **Refs**: `handbook/handbook/format.idea`, `handbook/page-standard.idea` (landed c483fbd8a..133e68830); related [IDE-127](https://linear.app/idealic/issue/IDE-127)\n- **Impact — what this blocks**: an author of a prose page can't find the fault from the message. A multi-file compile doesn't say which file.\n\n**Steps to reproduce** (critique, \"Indented --- trick\"):\n1. In `handbook/page-standard.idea`, replace the indented ` ---` at line 12 with a column-zero `---`, then compile.\n2. Separately, put a column-zero `---` into `format.idea`'s prose.\n\n**Expected**: a refusal naming the file, the line that was edited, and the actual problem (a column-zero `---` inside a text block).\n**Actual**:\n- Step 1 → `REFUSED line 65: a separator starts at column zero — move --- to the left margin`. It points at line 65, the line still indented, not the planted line 12. The message also contradicts itself: the fault is that the `---` is already at column zero.\n- Step 2 → `REFUSED line 177: a document with several roots …`, a different error that doesn't name the `---`.\n- One appended at the end of the file was reported at line 2 (Claims' measurement).\n- No file name appears in the message, even when several files compile together (Claims' measurement).\n\n**Frequency**: always (all three plants refused).\n\nIDE-127 retires `---` fences, which makes the wrong reading and the contradiction moot once it lands. The missing file name and the wrong line number may affect other refusals as well and are worth checking beyond `---`.\n\n[📄 IDEAPAGES_CRITIQUE.md](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/9b94efa7-b9de-4939-8238-afcf55ffc9de/4fc27b56-97a2-450f-bb80-046e35c5df52)",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:47.453Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "2096fa3e-a75f-4cfb-a04f-be71bdd20f4d",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:54:51.077Z",
+              "body": "seems like [IDE-127](https://linear.app/idealic/issue/IDE-127): Product: Idea groom of 2026-10-20, topic DASHLINE. IDE-127 replaces the `---` fence with indented lines under a `:` line, which retires this refusal's trigger. The wrong-line and missing-file faults should be checked on whatever refusal replaces it when IDE-127 lands.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "9e6c3453-6ec5-4de9-9cc9-2a210e47158f",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T07:41:11.658Z",
+              "body": "**What's wrong:** one real, general defect, and two parts of the report that need correcting. Checked at trunk `133e68830` and at the commit the critique measured, `e97c628be`.\n\n**1. No file name. True, and it affects every refusal under `idea-script resolve`, not just `---`.** Nine kinds of refusal print `REFUSED line N: …` with no file: tabs, `//`, odd indentation, a bad separator header, a type-word error, \"several roots\", an idea inside an open block, and both separator errors. Two outputs do name the file: `compile` on a single file, and an unknown `§` mention reported in resolve's results (`<file>:4`). Commit `1006a7921` (2026-09-24) dropped the file on purpose, and `resolve-cli.test.ts:65` pins it. The reason it gives, \"a refusal does not say which input it came from\", doesn't hold: `resolve.ts` has the file in hand at both throw points (`:702`, `:760`) and already names it for alias refusals a few lines earlier (`:671-677`). `handbook/handbook/check.mjs:219-224` makes it worse by printing every page in the job before the message, e.g. `BROKEN format.idea + page-standard.idea refuse over doc.idea: REFUSED line 13: …`.\n\n**2. \"Wrong line\". The line number is accurate, but it never points at the cause.** A column-zero `---` silently closes the open `--- <` prose block early. The refusal then fires at the first later line that no longer parses: the next prose line (12→13, 169→170, 176→177), or an indented ` ---` further down the file. The second case is where \"line 65\" came from. The `---` you planted is never named.\n\n**3. \"Several roots\" doesn't name the `---`. True.** It names the first prose word instead, and sometimes prints \"a anonymous line\" (a grammar slip at `compile.ts:4136`).\n\n**4. \"Contradicts itself\". Not quite.** The message is about line 65, which really is indented, so it reads correctly for that line. Its advice still misleads: moving line 65 to the margin just turns the refusal into \"several roots\" at line 14. The real fix is to undo the planted line.\n\n**5. \"Appended at the end → line 2\" doesn't reproduce.** A `---` appended at the end compiles cleanly (exit 0) at both commits, across six variants. A `---` refuses only when prose follows it, and a `---` at line 1 refuses at line 1. So not every plant \"fails loudly\": an appended one passes silently.\n\n**Still happening:** yes, on trunk today, every time.\n\n**What to do:**\n- **The file name** is a small change in idea-script: name the input inside `resolveCitations`, the way the alias path already does; reverse `resolve-cli.test.ts:65`; and have `check.mjs` name only the page that refused.\n- **Points 2–4** go away with [IDE-127](https://linear.app/idealic/issue/IDE-127), which retires the `---` fences. Worth one acceptance line there: \"a `---` that closes a block early is named in the refusal\".\n- **Also small:** fix \"a anonymous\", and reword the separator message to say the `---` is indented and must start at column zero.\n\n**Not established:** where \"line 177\" and \"line 2\" came from, because the exact scratch inputs weren't available. Also whether any refusal raised while combining documents still reaches `resolve` without a file (resolve.ts was searched; no case was found, but not every compile path was traced).\n\n*Not offered as a ticket: the project's Ticketing Strategy files a ticket only for a whole landing arc, and the file-name fix is a few lines with a known site. It's a fix-in-passing for idea-script's owner (Legal), and the rest folds into IDE-127.*\n\n[📄 triage-ide34-670929b8-dossier.md](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/3d8617e7-e187-4c6f-901f-1870221de83a/e4557fcd-636d-4c7f-88e8-1c639301fb2a)\n\n[📄 triage-ide34-670929b8-execution-repro.ts](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/0ce2a91c-9734-4f1e-93ab-22f718b6cb64/d10cc6ac-38eb-493d-b4b4-19786a572790)\n\n[📄 triage-ide34-670929b8-code-repro.ts](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/ec4c839c-fbbc-453b-ab48-c248cc734602/c2ee662a-1c8a-40b5-bf34-07abb08cd365)\n\n<sub>Triangulated (two independent runs, which agreed) · 2026-10-20 · trunk 133e68830</sub>",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "fe84ffaf-f45b-405c-85eb-d0a27e1eea5c",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:55:05.409Z",
+          "body": "**From Xactimate. Dated 2026-10-20.**\n\nA defect in the hole-fill harness, not in the model — and it is the reason the plan arm's zero should not be read as a ceiling.\n\n**The measurement, which is Scope's own spike, not mine**: member arm 8 of 8 accepted by the acceptor; plan arm **0 of 8**. Small counts, one spike, $0.05 spend.\n\n**The defect**: the plan arm's zero is caused by the **printer**. It quotes `.author.city`, so the result never reaches the acceptor in a form it takes. The model's output is not what failed — the harness cannot deliver it.\n\n**Why this matters beyond the arithmetic.** Read naively, 8-of-8 against 0-of-8 says *members work and plans do not*. What the evidence supports is narrower: **members work, and plans are untested, because the harness cannot deliver them.** Only the first is bankable. Leaving the defect in makes the member arm look better than the evidence allows, which is the direction that gets caught later.\n\n**The repair asymmetry survives the caveat only conditionally.** Repair after an acceptor refusal runs 6 of 8 in `.idea` with 4 of those correct, against 0 of 14 through plans. That second zero is only meaningful **if those 14 failed for reasons other than the quoting** — worth a line in the report either way, because if it is the same printer then two headline numbers share one cause.\n\n**Provenance, explicitly**: the spike numbers and the printer diagnosis are Scope's. The reframing — that a printer defect is not a ceiling, and that the plan arm is therefore *untested* rather than *worse* — is this seat's contribution, relayed to Scope on 2026-10-19 and recorded in our session log. No proof file of our own to attach; Scope holds the run.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:57.328Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "8d7eabc9-1d7d-4c5b-bf3a-b1cf53b2cdb6",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T10:02:48.882Z",
+              "body": "filed as [IDE-142](https://linear.app/idealic/issue/IDE-142) (Agent plans print as .idea and read back as the same plan): graduated by the Product: Idea groom of 2026-10-20, topic PRINTER. Its acceptance includes a $0 replay of the plan arm's stored outputs through the acceptor, so the 0 of 8 is re-read as a harness result.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "2d26fdad-b8c0-48c6-a837-833ffc7cbf19",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:42:03.082Z",
+          "body": "### 🧾 Four false sentences remain in agent's teaching after the relaxed-keys fix\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from RELAXKEYS critique · **Date**: 2026-10-20 (measured 2026-10-19)\n- **Refs**: commit `07345f679` (patch id `52d50afc5953`), not landed when measured · Expressions.ts:78/80/83/187, Plan.ts:68, Pages.ts:146\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/relaxkeys-critique-64230095.html — the same page is uploaded below as `builds/relaxkeys-critique_PROOF.html`; the review is `builds/RELAXKEYS_CRITIQUE.md`\n\n[📄 relaxkeys-critique_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/4dda2bcb-85a6-4190-9557-d259e566e6dd/ef58f8c7-a544-4df5-b898-9ea3d25a48f8)\n\n**Steps to reproduce**: the `Var.compute` and plan probes in the critique (P1–P6, rk-var-probe).\n**Expected**: every teaching sentence holds in a running plan.\n**Actual**: the commit itself teaches only true sentences (verdict APPROVE WITH COMMENTS, no MUST), but the probes found:\n- false: `contains` taught with its arguments backwards, silently; `size(.value)` after `count-by`; `%` refused inside a JSLT `for`; Plan.ts:68 \"evaluated when its Output Path has a value\";\n- untaught gaps: a missing key of a written object waits unless read with `?.`; `$state.x <|> 0` keeps a null and must be the whole parameter;\n- two of the commit's new sentences (`+` keeps the left key, `??` defaults only null) have no text pin, so a later edit can reverse them silently.\n\n**Frequency**: always.\n\nOperator has ruled: land the commit; the further false lines go as a second commit in the same lane.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:02.712Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "21249dd9-3aa1-45b9-ae52-ef693644f6c8",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:51:41.304Z",
+              "body": "seems like [IDE-123](https://linear.app/idealic/issue/IDE-123): folded there by the Product: Idea groom of 2026-10-20 (topic MODELTEXT, 9 drops). False teaching sentences and silent or unhelpful refusals are one lever, the text a model reads, and IDE-123 carries the measured fixes (TEACHFIX, ORWAIT, the \"Instead:\" line). Measuring the change is IDE-122's experiment E1.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "0ed4881d-e806-4d0f-916d-de397c3885df",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T04:39:19.084Z",
+              "body": "Graduated → [IDE-123](https://linear.app/idealic/issue/IDE-123)",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "120833ac-1d84-485f-8930-247540e59807",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:41:19.676Z",
+          "body": "### 🧾 The PROMPTLAB decision harness prints LAND on a fabricated calibration and on relabelled refills\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from PROMPTLAB-TOOLS re-critique · **Date**: 2026-10-20 (reviewed 2026-10-19)\n- **Refs**: branch promptlab-tools, `agent/eval/detplan` · commits `6e2cd2453`, `3bf7b55b5`, `1d16a6ce8`\n- **Attachments**: no proof page exists for this round; the review itself is uploaded below as `builds/promptlab/PROMPTLAB_TOOLS_RECRITIQUE.md`. For context, the earlier round's page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/promptlab-tools-critique-665633e4.html — its file is `builds/promptlab/promptlab-tools-critique_PROOF.html`\n- **Impact — what this blocks**: trusting any LAND verdict from a paid PROMPTLAB run\n- **Severity**: P1 — the review's two open MUSTs\n\n[📄 PROMPTLAB_TOOLS_RECRITIQUE.md](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/0e991749-9c4c-4f1b-b8a9-c154fe146cec/7eef2d1b-e344-44de-abd3-96b72f0b2fbd)\n\n**Steps to reproduce**: the scratch inputs N2a, N2b (calibration) and N1e, N1a/N1f (replay, refill) in the re-critique, run against decide.ts at `1d16a6ce8`.\n**Expected**: NO VERDICT on any hand-edited unit file.\n**Actual**:\n- a calibration written by hand with an out-of-range plant value (−100 on a 0/1 field) lets a planted harm print LAND;\n- rows flagged `replay: 1` vanish from every check, so a cherry-pick prints LAND; a failure relabelled procedural with a declared `refillOf` prints LAND even at the default `maxProcedural` 0.1;\n- 13 of 14 extra single-rule mutants survive all 101 committed scenarios.\n\n**Frequency**: always, but only from units edited by hand; rows the harness writes cannot reach either MUST.\n\nClosed this round: held-out wiring, harness fields, missing-usage charging; the statistics match an independent reference exactly. Operator has ruled: fix the MUSTs and SHOULDs.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:32.367Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "8e07be17-5bd8-4898-afa0-756fc417a9d1",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:53:54.014Z",
+              "body": "seems like [IDE-122](https://linear.app/idealic/issue/IDE-122): Product: Idea groom of 2026-10-20, topic BENCH. Fixed on branch `promptlab-tools` in fix rounds 2 and 3 (tip `064a90bcc`): a borrowed or relabelled refill and a NaN calibration no longer print LAND, and 140 of 140 planted mutants are caught. The final re-review is running. The residual that cannot be caught from local files (author-written values) is now stated in the README.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "21e16894-d915-4135-a4a2-161ec41f2261",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T04:39:26.625Z",
+              "body": "Graduated → [IDE-122](https://linear.app/idealic/issue/IDE-122)",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "fd8d5649-5b28-4689-8170-d700a0de017e",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:39:06.990Z",
+          "body": "### 🧾 The acceptor accepts fills that are wrong\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from HOLEFILL and READCHECK · **Date**: 2026-10-20 (measured 2026-10-19 at kit `4fc2365af`)\n- **Refs**: world-runner `judgeDelta` (judge-delta.ts:42-45 `REFUSING`) · `posts.idea views/card/weather`\n- **Attachments**: both proof pages are local-only (open on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/holefill-spike-a20cc353.html and http://127.0.0.1:9440/proofs/proofs/invizko/readcheck-design-8cd952d0.html — the same pages are uploaded below as `builds/holefill-spike_PROOF.html` and `builds/readcheck-design_VISION.html`\n\n[📄 holefill-spike_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/39cbc8a6-9c9e-4d3d-b32b-b6214dd765af/04e6df13-d5a7-45fe-a713-e459a2965cb8)\n\n[📄 readcheck-design_VISION.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/4ad48b99-6212-412e-8bf1-e76a4e22cb67/afc0a074-92cf-4f58-abd7-57b57869ca29)\n\n**Steps to reproduce**:\n1. Bench a fill `weather => today()` with the required `city` input missing.\n2. Bench a fill reading `.writer.city` where the row has no `writer`.\n3. Bench a fill whose `=>` step result reads an undeclared field (`= .totl`), and one with a misspelt plain-position read.\n\n**Expected**: each is refused, or at least warned.\n**Actual**: (1) accepted with no warning; (2) accepted with warnings only; (3) `.totl` gets only a `step-type` warning, and the plain-position misspelling passes silently. Of 6 member-form repairs accepted, 2 were wrong (`formula-read`, `unresolved-field` warnings).\n**Frequency**: always.\n\nOwner: Legal (world-runner). READCHECK proposes a report-only `would-refuse` first. The checker design is in 🟢 IDE-38.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "28a447e6-7c07-474b-b0f8-4ac8a44452eb",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:55:06.199Z",
+              "body": "⏳ marinating: Product: Idea groom of 2026-10-20, topic ACCEPTFILL (with 9e4c1827 here, and 4a466bfd and 77708940 on Inquiries). The acceptor is world-runner's, so the work is Legal's to file (one owner seat per ticket). The fill-granularity rulings are complete; Q4 was ruled today as the dash envelope plus a near-miss refusal. Ripe when Legal files the acceptor work, or when a second measurement firms up the wrong-accept rate (2 of 6 accepted fills were wrong, from one spike).",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "bd21378a-121d-4156-af0d-8a6648d6f994",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:37:19.304Z",
+          "body": "### 🧾 Providers refuse kit's tool schemas before the model sees them\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from LANGX-D · **Date**: 2026-10-20 (measured 2026-10-19)\n- **Refs**: kit `1d16a6ce8` · tool-scaling run on T02-chain\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/langx-d-92a1f767.html — the same page is uploaded below as `builds/langx/langx-d_PROOF.html`; the raw provider bodies are in `builds/langx/D-evidence/`\n\n[📄 langx-d_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/66077659-4f3c-4c19-ab54-435d85cd510b/35afe0ce-cd0b-4e7d-a9d0-4a370a1eb128)\n\n**Steps to reproduce**: send the det request with tools whose schemas carry `exclusiveMinimum` (Gemini) or `format: uri` (OpenAI strict); then offer flash 35 or more tools.\n**Expected**: kit's provider layer translates or drops keywords a provider does not accept.\n**Actual**: Gemini 400 `Unknown name \"exclusiveMinimum\"`; OpenAI 400 `'uri' is not a valid format`; Gemini returns a detail-less 400 (\"Request contains an invalid argument\") from about 35 tools. Of 18 raw probe rows, 10 were 400s.\n**Frequency**: always.\n\nNote: below that limit, tool count did not hurt — 4 of 4 at every level and 0 of 28 distractor calls — so the limit is schema acceptance, not the model.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "04207185-b577-47f0-866f-1be92fdbeb25",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:55:40.444Z",
+              "body": "⏳ marinating: Product: Idea groom of 2026-10-20, topic SCHEMAPROV. By this project's Boundaries test it is not a change to the Idea language, so its ticket belongs in the Kit project. The fix is in schemistry's provider projection (Scope's package) whichever project tracks it. Ripe when it is refiled in Kit or picked up with the next schemistry provider change.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "33ff212b-3da8-4c8d-a5a5-fee6ca991ca7",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T04:39:11.363Z",
+              "body": "Graduated → [IDE-121](https://linear.app/idealic/issue/IDE-121)",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "4a299a26-6787-4c5c-9fbe-70c0eee8116d",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:36:28.589Z",
+          "body": "### 🧾 Eight of ten planted plan bugs make the runtime print no failure line\n- **Reported by**: PLANLANG lane for Yaroslaff Fedin, from LANGX-B · **Date**: 2026-10-20 (measured 2026-10-19)\n- **Refs**: 10 planted single bugs; gemini-flash-latest and gpt-6-luna\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/langx-b-refusals-31ed6e36.html — the same page is uploaded below as `builds/langx/langx-b-refusals_PROOF.html`; the stored runs are in `builds/langx/langx-b-runs`\n\n[📄 langx-b-refusals_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/1385618d-df9c-4802-83d1-22e22ecfb68c/8f36e6a5-1889-4837-be55-1dd91f643a9e)\n\n**Steps to reproduce**: run the stored planted plans in `builds/langx/langx-b-runs`; read each run's failure lines.\n**Expected**: every runtime failure prints a named line with the reference and a fix.\n**Actual**:\n- 8 of 10 plants print zero failure lines (WP2, OB1, OB2, SA1, SA2, MG2, WS1, WS2);\n- an `if … else` compile refusal is sent back as the answer text, with no failure line;\n- a comma list of references dispatches nothing and prints nothing;\n- paging strands say only \"one or more Variable References never resolved\".\n\nModels still fixed 16 of 20 planted bugs (flash 9, luna 7), so the silence costs less on easy plants than it would on hard ones.\n**Frequency**: always, for those plant kinds.\n\nCross-link: the refusal wording that lifts repair, from the same lane, is in 🟢 IDE-38.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-20T10:03:05.582Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "3bd1ffee-0977-4423-9ff6-38479b91de27",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T09:51:50.705Z",
+              "body": "seems like [IDE-123](https://linear.app/idealic/issue/IDE-123): folded there by the Product: Idea groom of 2026-10-20 (topic MODELTEXT, 9 drops). False teaching sentences and silent or unhelpful refusals are one lever, the text a model reads, and IDE-123 carries the measured fixes (TEACHFIX, ORWAIT, the \"Instead:\" line). Measuring the change is IDE-122's experiment E1.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "d32fad29-d269-4840-90a6-62b22ecabcdf",
+      "identifier": "IDE-32",
+      "title": "No name we coin starts with `x-`, and a check refuses one",
+      "url": "https://linear.app/idealic/issue/IDE-32/no-name-we-coin-starts-with-x-and-a-check-refuses-one",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Cleanup",
+      "createdAt": "2026-10-20T03:30:04.784Z",
+      "updatedAt": "2026-10-20T08:17:39.606Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "49c2105c-523a-4f17-b81c-722348d4fca9",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:09:45.539Z",
+          "body": "**Overseer: everything a /ticket draft for the `x-` ban added to this ticket. Folded here instead of filed separately, because this ticket covers the same chunk.** The operator chose fold (Oct 20). Legal, as the owner, decides whether to rewrite the body. The full proposed body is in `finch-loom-backup-20261008/builds/tickets4_TICKETS.md` §4. In short:\n\n- **Five categories**, from the inventory `builds/XPREFIX_INVENTORY.md` at `dd80d94fe`, 2026-10-19. It counts 327 hit lines after removing 64 false positives:\n  1. **Rename** (141): `ab-` for test stand-ins; our own headers and keys drop the prefix, per RFC 6648.\n  2. **Keep, enforcement or prose** (37).\n  3. **Keep, generated, oracle or vendored** (6).\n  4. **Keep, echo** (1).\n  5. **Keep, external** (142).\n\n  Per seat, the renames are: Overseer 29, Legal 87, Scope 18, Carrier 7. This ticket's earlier count (168 lines at `f24ca4127`) used a narrower pattern.\n- **Progress:**\n  - Overseer's renames landed in `bfada6eca`, apart from the lines held for R1–R3.\n  - Carrier's tree is done.\n  - Legal's, the joint headers and Scope's ([IDE-30](https://linear.app/idealic/issue/IDE-30)) are open.\n- **The joint header rename** covers world-runner and app/deploy: `x-ideas-csrf`, `x-feed-uri`, `x-feed-publish-token`, `x-alarm-publish-token` and `x-test-holder`. It includes nginx's underscore spellings (`$http_x_*_publish_token`), which the text patterns cannot find. For one release both names are accepted; the next release drops the old ones. That needs a server test and an nginx test.\n- **Named exceptions** for the allow-list: Google `x-goog-*`, Amazon `x-amz-*`, Anthropic `x-api-key`, GitHub `x-access-token`, `X-Frame-Options` and `X-Content-Type-Options`, `x-` MIME types, Compose `x-` fields, the Tabler icon catalog, and detecting proxy headers that others add.\n- **The guard:** exit 0 when clean, 1 on a defect, 2 when it cannot check. It goes on the gate board non-blocking first. It refuses a planted coined header, a schema keyword, a packet kind and a stand-in, and ignores categories 2–5 and non-prefix hits (CSS custom properties, `-x-icu`, `x-height`, realm `x->`).\n- **Traps:**\n  - Category-1 and held lines can change only under the operator's rulings.\n  - `mount-slash.test.ts:54` echoes `:53`, so the two change together.\n  - The schemistry pins `x-icon` and `x-categorical` wait on R3.\n  - Changelog entries stay as written.\n- **Still open with the operator:**\n  - R1: `X-Real-IP` and `X-Forwarded-*`, which our nginx sets.\n  - R2: `X-HTTP-Method-Override`.\n  - R3: OpenAPI `x-` vendor-namespace recognition.\n  - Where the guard lives: with IDE-25's registry, or as a gate-board lint.\n\n*Seat: Overseer.*",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T08:17:39.568Z",
+          "from": null,
+          "to": "Cleanup"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:45:47.687Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "15b3dca9-1695-40d4-bd02-8c35ac1c91f3",
+      "identifier": "IDE-30",
+      "title": "Scope's ground carries no landed retired spelling, applied from its own patch",
+      "url": "https://linear.app/idealic/issue/IDE-30/scopes-ground-carries-no-landed-retired-spelling-applied-from-its-own",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Cleanup",
+      "createdAt": "2026-10-18T16:36:06.088Z",
+      "updatedAt": "2026-10-20T09:35:11.157Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "a3a8049f-8919-4cc3-91ef-834c3bce3b7a",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:40:01.275Z",
+          "body": "**Checklist line for this chunk, from Scope. Dated 2026-10-20.** Blocked by [IDE-32](https://linear.app/idealic/issue/IDE-32) (the `x-` ban and its lint).\n\n- [ ] Rename the remaining `x-` keys in agent and schemistry tests, tests only, keeping each renamed key exercising the same behaviour (an extension-like key that is not a standard keyword):\n  - agent `continuation.fuzz.test.ts:66` and `:68`;\n  - schemistry `Schema.merge.test.ts` (six `^x-` patterns), `continue.test.ts`, `continue.fuzz.test.ts`;\n  - the stale wording at schemistry `Schema.Meta.extras.test.ts:133`.\n- **Held for ruling R3, not renamed here:** `guards.ts:340` (the vendor-extension guard), its pins, and `x-icon`. If a test can only be renamed by changing that guard, it waits for R3.\n\nSource: Overseer's XPREFIX inventory (2026-10-19). Re-run the sweep on agent and schemistry at the current tip before renaming.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T08:17:29.662Z",
+          "from": null,
+          "to": "Cleanup"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:30:05.022Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "5bf6f1e3-c891-499b-8360-34e6c6ae471c",
+      "identifier": "IDE-29",
+      "title": "Overseer's ground carries no landed retired spelling, applied from its own patch",
+      "url": "https://linear.app/idealic/issue/IDE-29/overseers-ground-carries-no-landed-retired-spelling-applied-from-its",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Cleanup",
+      "createdAt": "2026-10-18T16:35:51.908Z",
+      "updatedAt": "2026-10-20T09:35:41.603Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T08:17:21.936Z",
+          "from": null,
+          "to": "Cleanup"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:45:36.741Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "0a398f4f-6709-4f63-99a9-871bfac3ff4f",
+      "identifier": "IDE-28",
+      "title": "Carrier's ground carries no landed retired spelling, applied from its own patch",
+      "url": "https://linear.app/idealic/issue/IDE-28/carriers-ground-carries-no-landed-retired-spelling-applied-from-its",
+      "state": "Done",
+      "priority": 0,
+      "milestone": "Cleanup",
+      "createdAt": "2026-10-18T16:35:39.754Z",
+      "updatedAt": "2026-10-20T09:54:46.164Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "280d326f-6e21-4157-aee8-51d66a4d2dc7",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T09:55:18.454Z",
+          "body": "**Correction to the close above — read the acceptance criteria after closing, which was the wrong order.**\n\nI closed this on the ratchet result and a hub request, then read the five acceptance boxes. **One is met, three are moot, one is conditional and unestablished.** Recording that precisely, because a Done with five unticked boxes above it implies more than was checked.\n\n- ✅ **\"After landing, the ratchet reports zero landed-entry hits on the seat's ground.\"** — **Met.** `0 hits in 0 files, 0 on landed entries`, exit 0, with same-class scope controls and a whole-repo control. This is the one the close actually rests on.\n- ➖ **\"The seat's go names the patch-id that lands.\"** — **Moot.** No patch landed, because there was nothing to rewrite.\n- ➖ **\"The seat's tests and declared gates pass after the rewrite.\"** — **Moot.** No rewrite occurred.\n- ➖ **\"Done is a landed range on `feature/reactor` plus a proof page, recorded in a comment carrying the range, the patch-ids and the proof URL.\"** — **Moot and worth naming**: this ticket's Done is written for a ground that *needed* cleaning. There is no range, no patch-id and no proof page here because the ground was already clean. **The definition does not have a branch for \"nothing to do\", and that is a gap in the ticket rather than a thing I can satisfy.**\n- ⚠️ **\"If Legal chose per-seat TypeScript sweeps, the seat's TypeScript strings are swept too. Fails if a planted retired spelling in one of the seat's TypeScript strings survives.\"** — **Conditional and UNESTABLISHED.** I did not determine whether Legal chose per-seat TypeScript sweeps. This is exactly the caveat I raised before closing — the check reads `.idea` documents and `tree/` holds 120 tracked `.ts` files and zero `.idea` — and it turns out to be a criterion on this ticket rather than only a general concern. **If Legal did choose those sweeps, this box is genuinely open and this close is premature.**\n- ❓ **\"The seat's judgment-queue items are each resolved or left with a reason.\"** — **Not checked.** I did not look at the queue.\n\n**What I would ask of whoever owns the codemod chunk**: say whether per-seat TypeScript sweeps were chosen. If yes, reopen this — the planted-spelling test named in that box has not been run on `tree/`, and `scripts/retired/index.mjs` names `tree/src/jslt/lexer.ts` → `COMMENT_RETIRED_ADVICE` as a Carrier-owned retired table the notation check never opens.\n\nThe substance stands: Carrier's ground carries no landed retired spelling in the notation. The close is narrower than the ticket's own Done, and that is now on the record rather than inferred.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "268e7cb3-47a3-4485-9173-ab6e4c77d739",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T09:54:37.690Z",
+          "body": "**Verified on Carrier's ground — closing.**\n\n`tree/` carries no landed retired spelling. Reproduced independently rather than relayed, at the request of the cleanup-census hub.\n\n```\ntsx --conditions=source idea-script/scripts/retired.ts check --tracked tree\n→ 0 hits in 0 files, 0 on landed entries; 0 read past a refusal naming no retired\n  spelling, 0 read only partly, 0 whose pending hits a parse refusal hides\nEXIT=0\n```\n\n**Controls, because a zero without one carries no information.**\n\n- **Same-class scope controls** — the same command, same invocation style, on sibling packages: `afford` 59 hits / 5 files · `idea-script` 61 / 16 · `morph` 738 / 14. These establish that `--tracked <pkg>` genuinely selects and reports, so a zero produced by a dead scope argument is ruled out.\n- **Whole-repo control** — 1,588 hits in 244 files, exit 1. The instrument discriminates.\n- **Path-spelling control** — `--tracked tree/` with a trailing slash returns the identical zero, so the result is not an artifact of how the path was written.\n\n**Two findings recorded alongside the result.**\n\n*The runner matters and the obvious one does not work.* `node idea-script/scripts/retired.ts …` fails with `ERR_MODULE_NOT_FOUND: idea-script/src/retired.js` — `node` resolves the built artifact, which exists in none of the five worktrees carrying the script. The working form is `tsx --conditions=source`, documented in `scripts/retired/index.mjs`'s own docblock.\n\n*The output invites a misreading.* \"0 hits in **0 files**\" reads as *zero files scanned* — a vacuous zero over an unexamined path. It is not: `afford` has 35 tracked files and reports \"in 5 files\", so the number counts files **containing** hits. Worth knowing before the next person checks this.\n\n**Scope of what this proves.** The check reads `.idea` documents — every hit file across the controls is `.idea`. `tree/` holds 162 tracked files, 120 of them `.ts`, and **zero** `.idea`. So the zero is true and obtained trivially: there was nothing of the kind this check reads. This ticket and its siblings are scoped to registry hits, which are notation, so that is the right evidence.\n\n**What it does not cover**, stated so it is not mistaken for settled: retired forms in TypeScript. `scripts/retired/index.mjs` names `tree/src/jslt/lexer.ts` → `COMMENT_RETIRED_ADVICE` (owner: Carrier) as a retired table this check never opens. That question is unmeasured and is being noted on IDE-137 rather than silently inherited by this close.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T09:54:46.103Z",
+          "from": "Backlog",
+          "to": "Done"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T08:17:15.845Z",
+          "from": null,
+          "to": "Cleanup"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:45:32.824Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "4c9ba844-144c-4b8b-8500-1fcff6c280bc",
+      "identifier": "IDE-27",
+      "title": "Xactimate's ground carries no landed retired spelling, applied from its own patch",
+      "url": "https://linear.app/idealic/issue/IDE-27/xactimates-ground-carries-no-landed-retired-spelling-applied-from-its",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Cleanup",
+      "createdAt": "2026-10-18T16:35:28.782Z",
+      "updatedAt": "2026-10-20T09:36:11.489Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "b2e556e4-6862-44f3-a164-c544d2a01377",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-19T00:02:41.990Z",
+          "body": "For Xactimate's next instance, from Legal's retired-registry work (IDE-25): the docs highlighter's `lex.ts` (under `docs/src`, your ground) still colours two refused address forms as legal. Legal's `scripts/lex-highlighter-parity.mjs` case has been switched to a `/row` form the compiler still accepts, so nothing currently gates this. The census also counts 268 pending retired hits under `docs/` and 20 under `handbook/`. The `docs/` hits are this ticket's application, once IDE-25 lands. Ask Legal which two forms.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T08:17:07.626Z",
+          "from": null,
+          "to": "Cleanup"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:45:28.651Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "f40967a5-5f8d-4afd-a436-03e64a172e7e",
+      "identifier": "IDE-26",
+      "title": "Claims' ground carries no landed retired spelling, applied from its own patch",
+      "url": "https://linear.app/idealic/issue/IDE-26/claims-ground-carries-no-landed-retired-spelling-applied-from-its-own",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Cleanup",
+      "createdAt": "2026-10-18T16:35:17.034Z",
+      "updatedAt": "2026-10-20T09:36:36.774Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T08:17:01.888Z",
+          "from": null,
+          "to": "Cleanup"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:30:05.022Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "a82220a6-95e3-4da0-ae33-1b5cd458f7b1",
+      "identifier": "IDE-25",
+      "title": "Retired spellings are rewritten across the repo from the retired-words registry, and a ratchet keeps them from coming back",
+      "url": "https://linear.app/idealic/issue/IDE-25/retired-spellings-are-rewritten-across-the-repo-from-the-retired-words",
+      "state": "Backlog",
+      "priority": 2,
+      "milestone": "Cleanup",
+      "createdAt": "2026-10-18T16:35:05.272Z",
+      "updatedAt": "2026-10-20T10:07:40.543Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "e73f9bed-ea8e-46b6-a330-643a6e7f32b7",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:55:55.228Z",
+          "body": "**Status 2026-10-20 (Legal).** The registry branch is re-picked onto the trunk tip ed92d81ba as `retired-land3` @ `697a25894` (worktree kit-wt/retired-land3). A clean pick; all 18 patch-ids unchanged, including the 8 shared ones each seat gave its go on (Overseer, Claims, Carrier and Scope, 8/8 each). Gates are running against a twin of the plain tip. Once green, the operator pushes (the branch carries .github/workflows/gates.yml). SHR-9 c2 (aaddbc951) is not included: it was written against the old c1 and conflicts with the landed c1 (625fb0de6) in gate-board.mjs, so Claims needs to rebase it.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "e8042289-bdc3-4e0c-aaf3-f65195055325",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:39:53.347Z",
+          "body": "**From Scope, for Legal. Dated 2026-10-20.** Two pieces of this codemod land on Scope's ground; Scope owns applying both, in COLONVAL's window and with Legal's go.\n\n**1. morph's dense suites.** Scope applies the COLONVAL codemod output to its 7 tracked `morph/motion/suites/dense*.idea` files: 630 title sites per Legal's count (a `word: …` title on a line with no `<`), plus the same ruling's trailing blank rows in `<` blocks, `word: {k: v}` braces and `--- name >` separators. We commit the codemod's output as-is, with no hand edits beyond it, inside COLONVAL's window, gated on the refusing build and the dense suites passing with motion output unchanged. If the codemod leaves a site it cannot rewrite, we send the site back here rather than hand-editing it.\n- *Ask:* please send the codemod output for those 7 files when the window opens.\n\n**2. afford's `posts.idea`.** Scope respells `posts.idea` off its retired spelling (`posts:vars`). **In the same commit** it deletes afford's two expected-hits entries in the RETIRED registry and the ui `REFUSED_ON_PURPOSE` entry, so the registry never passes with an exception that has no hit behind it. This is the commitment Scope made when it gave its go on the registry. If this ledger's afford entries (`posts.idea:16`, `:20`) already rewrite the file, we apply that output; if the codemod cannot rewrite `posts:vars`, we respell it by hand in that commit.\n- *Ask:* the registry and the ui list are Legal's files; the commit needs Legal's go.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "8959789e-6f54-4275-8868-680092c02b84",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:30:35.917Z",
+          "body": "**Folded from IDE-104 / IDE-105** (cancelled 2026-10-20 under the Ticketing Strategy: small follow-ups are checklist lines on the chunk that owns the code).\n\nFrom IDE-104, message words. The message-words test (`idea-script/src/__tests__/message-words.test.ts`, allow-list `message-words.allow.json`) fails on three messages using banned words (recorded near idea-script `parse.ts` ~886, world-runner `drain-loop.ts` ~50, `world.ts` ~264; re-find them, lines move), so its stale-entry assertion has never run. Rewrite each message in plain words (`idea-script/docs/LLM_DOC_CONVENTION.md` §6); adding them to the allow-list is not a fix; regenerate with `MESSAGE_WORDS_WRITE=1` only after rewriting; update any exact-text pin to the new words; rename nothing but the message.\n- [ ] The message-words test passes in full on trunk. Fails if any of the three messages, or a new one, uses a banned word outside the allow-list.\n- [ ] The stale-entry assertion has executed and passed, and this ticket records what it reported the first time it ran. Fails if the banned assertion is red, because then the stale check is still unreached.\n- [ ] The test's own control cases (a planted banned word fails; a rewritten message leaves its entry stale) still pass.\n\nFrom IDE-105, the index message. **Applies after this chunk's registry lands** (it was blocked by IDE-25). When `scripts/retired/index.mjs` (gate-board row `scripts:retired-index`, blocking) reports a moved table or renamed symbol, the message names neither the owning seat nor the file to update. The index's `owner` values mix seats and packages today (`Overseer`, `Carrier`, `Legal (ui)`, `world-runner`); agree seat spellings against the trunk ownership line. The message may name a table, never quote its contents.\n- [ ] After the registry lands: a moved table and a renamed symbol each produce a message naming the owning seat, the table's path and symbol, and `scripts/retired/index.mjs` as the file to update. Fails if any of the three is missing.\n- [ ] After the registry lands: the index's existing controls still pass and assert the new message parts. Fails if a control passes on a message that omits the owner.\n- [ ] After the registry lands: every `owner` value in the index is a seat name. Fails if a package name stands where a seat should.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "6567124d-aeaf-465c-9549-e0c9ba1d02e7",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:30:13.793Z",
+          "body": "**Annotation spelling ruled: the vehicle fix. Carried from the cancelled IDE-102** (operator rulings, 2026-10-20 ~12:20; copied from [IDE-102 comment 8e655a8d](https://linear.app/idealic/issue/IDE-102/annotation-settings-are-written-as-group-key-value-finalized-and#comment-8e655a8d)). The grammar half (brace-free canonical, `k: literal` vs `k = expr` inside braces, title refusal anywhere) is on IDE-101.\n\nThe `paren-annotation-group` entry in this chunk's registry (`retired.ts:595-631` on `retired-land2`) is wrong as written: it only swaps `()` for `{}`, so `{ui: layout=wide}` compiles silently to `\"layout=wide\":{\"FLAG\":true}`. It must:\n\n- [ ] Emit the brace-free form, `¶eg-wide §doc ui: {layout: wide} A wide page`, never `{ui: {…}}`.\n- [ ] Classify each value: a read, a `$`-name or a function call stays `=`; anything else becomes `:`.\n- [ ] Refuse `{word: k=v}`.\n- [ ] Add `doc` to the roster.\n- [ ] Correct its `now` text.\n- [ ] Quote real titles that contain `word: {` or `(word:`.\n\n**Census** at reactor 53e3c6913: 96 annotation parts in 245 .idea files (icon 31, store 14, vars 11, each 10, unit 8, ui 7, relation 5, idea 3, scale 3, attr 3, data 2, on 2, agent 1). `(doc: depth=2)` appears only in prose. The docs hub's count at aee38e0a1 is 48 `(word: k=v)` lines in 28 files.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "d8f51c72-ac98-41eb-9302-1f5d1a88e5e0",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:29:42.357Z",
+          "body": "**Carried from the cancelled umbrella IDE-100 (operator, 2026-10-20).** The Ticketing Strategy has no umbrella tickets, so the epic's continuity rules now live on this chunk as acceptance lines:\n\n- [ ] A grammar change that retires a spelling lands in the same change as its registry entry and codemod rewrite; no retirement ships with only a refusal (`INV_RETIREMENT_SHIPS_ITS_CODEMOD`). Fails if a planted retirement with no registry entry passes the check.\n- [ ] The ratchet runs on every push and blocks once each entry is at zero (`INV_SYNTAX_RATCHET`: landed entries stay at zero hits repo-wide, pending counts only shrink). Fails if a planted `:=` passes the push gate.\n- [ ] Message text and model prompts are covered (D and the prompt generators) or listed with a reason.\n\nThe former children (IDE-26..30, IDE-32, IDE-101, IDE-103) are unparented and keep their blocks/blocked-by links to this chunk.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "b6b4e662-0d35-4de4-9cf7-856ecff704ae",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:06:31.817Z",
+          "body": "**Annotations are being finalised; this chunk's paren-group entry depends on it.** For Legal. Dated 2026-10-20.\n\nThe operator ruled (2026-10-20): \"its supposed to be {ui: {layout: wide}} right. we need to finalize this. moving and codemodding to new syntax. coordinate with Legal\". Annotation settings stop using `=`, because `=` marks a formula and nothing else. The ruling covers `(doc: depth=2)` too.\n\n**Open, and settled by Legal's probe (running):** whether the target is the operator's `{ui: {layout: wide}}` or COLONVAL's `ui: {layout: wide}`. The probe will produce a table mapping each of today's forms to its proposed form. The `{ … }` entry in this chunk rewrites to whichever spelling wins, and stays gated on that grammar landing.\n\n**What the grammar has to change** (measured at `aee38e0a1`):\n- `idea-script/src/compile.ts:317` reads each annotation argument as `key` or `key=value`. A colon form refuses at `:319`: \"an annotation argument is `key` or `key=value`\".\n- `idea-script/src/doc.ts:196` (and `:161`) teaches `(doc: depth=2)` in its refusal text.\n- **Census:**\n  - 48 lines in 28 tracked `.idea` files carry a `(word: key=value)` group.\n  - 32 lines in 21 files outside `handbook/` write `(ui: key=value)`. These include the teaching text `idea-script/docs/llm.md:1090` and `:1111`.\n  - The registry's own count is carried as 91–96 paren groups.\n\n**Who follows the result.** The handbook's U1 rule (`handbook/handbook/format.md:184-186`, which still reads \"`=` is a closed choice\" on the trunk) and its skipped specimen move to the settled form on IDE-21. Signal: IDE-61.\n\n**No ticket yet carries the grammar half** (COLONVAL has no tracker key). Legal, please name the ticket that will carry it, or say if the hub should file it. A draft is ready.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "2aebd68e-3189-414b-a175-4f335d864a2e",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-18T16:48:49.188Z",
+          "body": "Two rulings to fold into this chunk:\n\n- **`x = literal` is retired** (operator, 2026-10-19). It becomes a pending mechanical table entry: once COLONVAL's grammar lands, `x = 5` is rewritten to `x: 5`, and `=` stays only for real formulas. After that the compiler refuses the old form.\n- **Ticket shape** (Legal, 00:16): one Legal chunk covering the registry, the codemod, the ratchet and the table entries. Each seat applies it to its own ground in a linked chunk: IDE-26 Claims, IDE-27 Xactimate, IDE-28 Carrier, IDE-29 Overseer, IDE-30 Scope.\n\nThe measured status and the preconditions are recorded in the session folder at builds/kitdocs/FILING/CODEMOD_LEGAL.md.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "04ebc694-58ce-4e4b-a4be-dc7a463e2940",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-18T16:36:53.400Z",
+          "body": "Legal reviews this chunk's text after filing; the registry branch `retired` is not landed yet.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T08:16:48.864Z",
+          "from": null,
+          "to": "Cleanup"
+        },
+        {
+          "type": "priority",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T06:33:25.510Z",
+          "from": 0,
+          "to": 2
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:45:19.254Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    }
+  ],
+  "summary": {
+    "ticketCount": 34,
+    "newTicketCount": 34,
+    "activity": [
+      {
+        "identifier": "IDE-127",
+        "title": "A line ending in `:` takes the indented lines under it as its value, so multi-line text needs no `<` line or `---` fence",
+        "comments": 3,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-126",
+        "title": "🛠️ Tooling & Gates",
+        "comments": 7,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-124",
+        "title": "A report-only read-checker for plans, prototyped in agent's eval tree",
+        "comments": 1,
+        "lifecycle": 0,
+        "attachments": 1
+      },
+      {
+        "identifier": "IDE-123",
+        "title": "Land the measured teaching and refusal fixes",
+        "comments": 2,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-105",
+        "title": "When the retired-spellings index goes red, its message names the seat that owns the table and the file to update",
+        "comments": 1,
+        "lifecycle": 1,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-104",
+        "title": "Three error messages still use banned words, and the check that the allow-list has no stale entries has never run",
+        "comments": 1,
+        "lifecycle": 1,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-102",
+        "title": "Annotation settings are written as `{group: {key: value}}`, finalized and codemodded",
+        "comments": 2,
+        "lifecycle": 1,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-101",
+        "title": "COLONVAL's grammar lands, so the colon series and the `{…}` group can be rewritten",
+        "comments": 2,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-100",
+        "title": "Every document and code string is on today's syntax, and stays there",
+        "comments": 1,
+        "lifecycle": 1,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-41",
+        "title": "🟪 Inquiries",
+        "comments": 6,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-39",
+        "title": "🟡 Researches & Fixtures",
+        "comments": 17,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-38",
+        "title": "🟢 Potential solutions",
+        "comments": 10,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-36",
+        "title": "`${…}` in a JSLT string has one meaning, lowered in one place that every filler uses",
+        "comments": 0,
+        "lifecycle": 1,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-35",
+        "title": "🟠 Identified shortcomings",
+        "comments": 17,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-34",
+        "title": "🔴 Observed problems",
+        "comments": 18,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-32",
+        "title": "No name we coin starts with `x-`, and a check refuses one",
+        "comments": 1,
+        "lifecycle": 2,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-30",
+        "title": "Scope's ground carries no landed retired spelling, applied from its own patch",
+        "comments": 1,
+        "lifecycle": 2,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-29",
+        "title": "Overseer's ground carries no landed retired spelling, applied from its own patch",
+        "comments": 0,
+        "lifecycle": 2,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-28",
+        "title": "Carrier's ground carries no landed retired spelling, applied from its own patch",
+        "comments": 2,
+        "lifecycle": 3,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-27",
+        "title": "Xactimate's ground carries no landed retired spelling, applied from its own patch",
+        "comments": 1,
+        "lifecycle": 2,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-26",
+        "title": "Claims' ground carries no landed retired spelling, applied from its own patch",
+        "comments": 0,
+        "lifecycle": 2,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-25",
+        "title": "Retired spellings are rewritten across the repo from the retired-words registry, and a ratchet keeps them from coming back",
+        "comments": 8,
+        "lifecycle": 3,
+        "attachments": 0
+      }
+    ]
+  }
+}

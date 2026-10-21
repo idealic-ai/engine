@@ -7,7 +7,7 @@
 
 **Constraint**: **READ-ONLY against Linear.** This atom fetches and filters. It never comments, resolves a thread, or advances a watermark — `/intake` owns its project watermark and `/groom` mints none (`¶INV_GROOM_ADDS_NO_NEW_WATERMARK`).
 
-**Constraint**: **LINEAR ONLY.** The marker-prefix rule exists because every skill post on Linear lands under the operator's own human identity, so the author field distinguishes nothing. **Do not apply this command to Slack.** Slack gives the bot its own user id, so `engine slack-read` excludes own messages by a real author check — stronger, and free of this rule's cost, which is that a human reply opening with a marker word is dropped. A caller draining Slack uses that author check and does not reach for this atom.
+**Constraint**: **LINEAR ONLY.** The marker-prefix rule exists because every skill post on Linear lands under the operator's own human identity, so the author field distinguishes nothing. **Do not apply this command to Slack.** Slack gives the bot its own user id, so `engine slack-read` excludes own messages by a real author check — stronger, and free of this rule's cost, which is that a human reply opening with a marker word suppresses its whole thread. A caller draining Slack uses that author check and does not reach for this atom.
 
 **Prerequisites**:
 *   **`engine project fetch` available**, and `jq` on the path. No `engine` CLI → report the skipped read in one line and fall back to the caller's own behaviour; never hang and never read a channel by hand-rolled MCP paging, which is what this atom replaces.
@@ -20,7 +20,7 @@
   "project": "REQUIRED — the project id or name whose inbox channels are being read.",
   "since": "OPTIONAL ISO8601. Omitted → a full snapshot. A delta filters on `updatedAt`, so a thread nobody has touched since it was last looked at cannot appear in one.",
   "out": "REQUIRED — the payload file path. The payload is large; it is written to a file and processed with jq, never read into context.",
-  "walk": "OPTIONAL 'new-signal' (default) | 'still-owed'. 'new-signal' returns the filtered flat set. 'still-owed' is a different question and is described below rather than filtered here."
+  "walk": "OPTIONAL 'new-signal' (default) | 'open-threads'. 'new-signal' returns the filtered flat set. 'open-threads' lists every unresolved root with a `dispositioned` flag — the deliberately-open threads the drain no longer offers. Both run from the one fence below, selected by the INBOX_WALK environment variable (`INBOX_WALK=open-threads jq -f ...`)."
 }
 ```
 
@@ -31,7 +31,7 @@
     ```
     One call returns the comment **trees** for every inbox channel plus the live `structure.channels`. **A non-zero exit wrote nothing** — surface it and advance no watermark. The command prints the payload path as its last stdout line.
 2.  **Check `channelsResolved`.** `false` means the project's inbox milestone name did not resolve and the channel set came back empty. Say so and re-fetch with `PROJECT_FETCH_INBOX_MILESTONE=<the project's inbox milestone>`, rather than proceeding as though the project had no channels.
-3.  **Apply the filter below to the payload.** It removes, in one pass: every comment whose body leads with a marker from the vocabulary, and every **anchored** comment (`quotedText != null`, which annotates a ticket's *description* rather than the firehose). It walks **every node at every depth**, because a reply is itself signal.
+3.  **Apply the filter below to the payload.** It removes, in one pass: every comment whose body leads with a marker from the vocabulary, and every **anchored** comment (`quotedText != null`, which annotates a ticket's *description* rather than the firehose). It walks **every node at every depth**, because a reply is itself signal, and it withholds a **root** whose thread carries a marker-led comment anywhere beneath it: disposition is a property of the thread, so the parent of a groom reply is not new signal. The root alone is withheld; its non-marker descendants are still emitted.
 4.  **Dedup by comment id** against the caller's own raw input log, and write the surviving set there **before** advancing anything the caller tracks (`¶INV_WRITE_BEFORE_WATERMARK`).
 5.  **Degrade in one line.** A missing CLI, a non-zero fetch, or an unresolved channel set → say which, and hand control back. Absence is a normal state and must be **visible**: a caller that could not drain says it could not drain, and never reports an empty channel instead.
 
@@ -64,14 +64,38 @@ def leads_with_own_marker:
   ((.body // "") | sub("^\\s+"; "")) as $b
   | any(own_comment_markers[]; . as $m | $b | startswith($m));
 
-[ .tickets[]?
-  | { channel: (.identifier // null), channelTitle: (.title // null) } as $ch
-  | (.comments // [] | flatten_tree)[]
-  | select((.quotedText // null) == null)
-  | select(leads_with_own_marker | not)
-  | { channel: $ch.channel, channelTitle: $ch.channelTitle,
-      id, author, createdAt, resolvedAt, body }
-]
+# Disposition is a property of a thread: a marker-led comment anywhere under a root marks the
+# whole root as dealt with. Keyed on the marker, never on resolvedAt.
+def dispositioned: any((.children // []) | flatten_tree[]; leads_with_own_marker);
+
+# Selected by the INBOX_WALK environment variable; unset means new-signal.
+#   new-signal  (default) the flat set of new human signal.
+#   open-threads  every unresolved root with a `dispositioned` flag, so a deliberately-open
+#                 thread (marinating, or owed an answer) stays listable although the drain
+#                 no longer offers it. Roots only, from a fetch with no `since`.
+($ENV.INBOX_WALK // "new-signal") as $walk
+
+| ([.structure.channels[]?.identifier]) as $inbox_channels
+| [ .tickets[]?
+    | { channel: (.identifier // null), channelTitle: (.title // null) } as $ch
+    | if $walk == "open-threads" then
+        select(.identifier | IN($inbox_channels[]))
+        | (.comments // [])[]
+        | select((.quotedText // null) == null and (.resolvedAt // null) == null)
+        | select(leads_with_own_marker | not)
+        | { channel: $ch.channel, channelTitle: $ch.channelTitle,
+            id, author, createdAt, dispositioned: dispositioned, body }
+      else
+        (.comments // [])[] as $root
+        # A dispositioned root is withheld; its non-marker descendants are still flattened in.
+        | (if ($root | dispositioned) then [] else [$root] end
+           + ($root.children // [] | flatten_tree))[]
+        | select((.quotedText // null) == null)
+        | select(leads_with_own_marker | not)
+        | { channel: $ch.channel, channelTitle: $ch.channelTitle,
+            id, author, createdAt, resolvedAt, body }
+      end
+  ]
 ```
 
 **Which disposition each marker marks**
@@ -90,9 +114,9 @@ Markers are emoji-led wherever a bare word would collide with a human reply that
 
 **Constraints**:
 *   **The two halves are one contract.** This atom is the reading half. The writing half is the caller's: every reply it posts onto a channel leads with the marker this atom gives its outcome. A caller that gains a new disposition and not a new marker has reopened the leak, whatever this filter does.
-*   **A marker is matched on the body's leading text, never on the author.** The cost is accepted and stated rather than discovered: a human reply that happens to open with a marker word is dropped. That is why the emoji-led markers exist, and why `candidate` and `seems like` are the two worth watching.
+*   **A marker is matched on the body's leading text, never on the author, and one marker-led comment anywhere under a root withholds the whole thread.** The cost is accepted and stated rather than discovered: a **human** reply that happens to open with a marker word suppresses its entire thread, not only itself. A root *"Totals wrong on report"* with the human reply *"→ same thing on the Friday export, attaching a screenshot"* drains nothing, and `INBOX_WALK=open-threads` then lists it `dispositioned: true`, so a live human signal reads as groomed. `→` is the sharpest case because people use it constantly. That is why the emoji-led markers exist, and why `candidate`, `seems like` and `→` are the three worth watching. `scripts/tests/test-inbox-read-cmd.sh` pins this behaviour so a change to it is deliberate.
 *   **Never filter on resolved state** (`¶INV_RESOLVE_ON_DISPOSITION`). A resolved thread is *dispositioned*, not closed to input, so a new reply on one is live signal and drains like any other. Surface it prominently — it is usually someone correcting a triage the system got wrong.
-*   **The still-owed walk is a different question and is not this filter's.** Resolution is a property of a **thread**, so a reply reads `resolvedAt: null` forever and a recursive walk overstates what is open by roughly the reply count. A caller asking what is still owed reads **root comments only**, from a fetch with **no `since`**, and does not reuse the flattened set above.
+*   **The still-owed walk is a different question from the drain.** Resolution is a property of a **thread**, so a reply reads `resolvedAt: null` forever and a recursive walk overstates what is open by roughly the reply count. A caller asking what is still owed runs the fence with `INBOX_WALK=open-threads`, which reads **root comments only**, from a fetch with **no `since`**, and does not reuse the flattened set. Listing by `resolvedAt` there is a read of thread state for a human, not a drain filter: suppression from the drain keys on the marker-led descendant, so `¶INV_RESOLVE_ON_DISPOSITION` is not touched.
 *   **The payload never enters the caller's context.** It is written to `out` and processed with `jq`; a single longform drop runs to tens of kilobytes.
 *   **Do not copy the fence into a caller, an asset, or a handbook**, and do not write a second filter anywhere. A second *filter* is the defect this atom exists to remove, and the exclusion leaks at whichever copy was not updated. A caller's writer-side marker list is not such a copy and is left alone.
 
