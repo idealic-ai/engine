@@ -6,7 +6,9 @@ set -euo pipefail
 
 source "$(dirname "$0")/test-helpers.sh"
 
-LOG_SH="$HOME/.claude/scripts/log.sh"
+# LOG_SH_PATH points the suite at a modified copy, which is how Tests 10-11 were watched
+# going red: restore the old guard (`[[ "$AFTER_HASH" == "["* ]]`) in a copy and run it.
+LOG_SH="${LOG_SH_PATH:-$HOME/.claude/scripts/log.sh}"
 TMPDIR=$(mktemp -d)
 
 cleanup() { rm -rf "$TMPDIR"; }
@@ -197,6 +199,49 @@ else
     "non-zero exit" \
     "exit 0 (silent success)"
 fi
+
+# --- Test 10: Bracketed non-date heading --- still stamped ---
+# The double-stamp guard used to skip injection on any heading whose first character after
+# "## " was "[". ¶INV_LOOM_AGENTS_NAMED_BY_THREAD requires every loom lane to write
+# "## [TAG] ...", so the guard silently stripped the timestamp from every lane's log — and
+# `engine lane-stall` reads those timestamps to tell a quiet lane from a working one.
+# RED: restore `[[ "$AFTER_HASH" == "["* ]]` and both assertions below go red while Test 2
+# (the nearest legal neighbour: a heading that really does open with a date) stays green.
+echo ""
+echo "Test 10: Bracketed non-date heading --- timestamp still injected"
+FILE="$TMPDIR/test10.md"
+echo "# Existing content" > "$FILE"
+"$LOG_SH" "$FILE" <<'EOF'
+## [STALLFIX] Lane heading
+*   **Item**: Step 1
+EOF
+assert_file_contains "$FILE" '## \[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]\] \[STALLFIX\] Lane heading' \
+  "Lane-tag heading gets a timestamp"
+
+FILE="$TMPDIR/test10b.md"
+echo "# Existing content" > "$FILE"
+"$LOG_SH" "$FILE" <<'EOF'
+## [FIN-3141] Ticket-key heading
+*   **Item**: Step 1
+EOF
+assert_file_contains "$FILE" '## \[20[0-9][0-9]-[0-9][0-9]-[0-9][0-9] [0-9][0-9]:[0-9][0-9]:[0-9][0-9]\] \[FIN-3141\] Ticket-key heading' \
+  "Ticket-key heading gets a timestamp"
+
+# --- Test 11: Date without a time --- still not double-stamped ---
+# The guard matches a YYYY-MM-DD date rather than the full "YYYY-MM-DD HH:MM:SS" that log.sh
+# itself writes, so a hand-written date-only heading is also left alone. Narrower than that
+# (requiring the time) would double-stamp it; looser (any bracket holding a digit) would take
+# "[FIN-3141]" back out of Test 10.
+echo ""
+echo "Test 11: Date-only heading --- no double timestamp"
+FILE="$TMPDIR/test11.md"
+echo "# Existing content" > "$FILE"
+"$LOG_SH" "$FILE" <<'EOF'
+## [2026-02-08] Date only
+*   **Item**: Step 1
+EOF
+assert_file_contains "$FILE" '## \[2026-02-08\] Date only' "Date-only heading preserved"
+assert_file_not_contains "$FILE" '## \[20.*\] \[2026-02-08' "No double timestamp on a date-only heading"
 
 # --- Summary ---
 exit_with_results

@@ -1,19 +1,26 @@
 # Loom Log (The Conductor's Journal)
 **Usage**: Track the weave — thread intake, the live ledger, conflicts brokered, escalations, and each thread's advance through the chain.
 **Requirement**: Every entry header MUST use a `## ` heading. Timestamps are auto-injected by `log.sh`.
-**Authority**: this log is the **narrative** record and the live blocks below are the session's state while the session runs. At a hand-over the open rows are written to `<sessionsRoot>/LOOM_INHERITANCE.md` (`assets/TEMPLATE_LOOM_INHERITANCE.md`), and **from that moment that file is authoritative for them** — it is the copy a successor reads, and this log becomes history. One file, one authority at a time, so no row has two owners.
+**Authority**: this log is the **narrative** record and the live blocks below are the session's state while the session runs. At a hand-over the open rows are written to the sessions root's `LOOM_INHERITANCE.md` (`assets/TEMPLATE_LOOM_INHERITANCE.md`, whose *Where it lives* section says how to compute that root), and **from that moment that file is authoritative for them** — it is the copy a successor reads, and this log becomes history. One file, one authority at a time, so no row has two owners.
 
 ## ▶️ Loom Opened
 *   **Batch**: [what tickets/tasks are in scope]
 *   **Dispositions**: Autonomy=[Automagic|Careful|Allow-agents] · Council=[selective|auto-after-pr|none] · Interrogation=[Reasonable|Thorough|None] · Detail=[Low|Balanced|High] · Run=[Session|Long-running]
+*   **Session branch**: `[name]` @ `[sha at open]` — the base every wave integrates onto. Taken **here** because it is not reconstructable at the boundary: under worktree-per-lane the conductor's tree is not any lane's, so a base read at integration time is a base guessed. A detached HEAD or a tree with no branch is written as that reading (`detached @ <sha>`, `no branch`) and reported; **a loom whose base is unknown does not integrate** (`§INV_LOOM_INTEGRATES_AT_THE_WAVE_BOUNDARY`).
+*   **Execution shape**: [one shared tree | worktree-per-lane] — decides which of the two collision answers is live. One shared tree ⇒ the conductor partitions files and brokers claims, and a wave has nothing to merge. Worktree-per-lane ⇒ **no partition and no brokering**, and lanes land through the wave boundary's merge. Never both.
 
 ## 🧵 Ledger (live — rewrite in place as threads advance)
 *The session's spine. One row per thread. Stages: triaged → interrogated → building → scrutinized → snapshotted → pr'd → council'd.*
+*A pass the conductor ran in its OWN context takes a row here too, under a slug threadId — a grooming pass, an inline ticket, a decision pass, a published weave-status page. `¶INV_LOOM_EVERY_THREAD_PROVES` binds the work rather than the actor and `proofPages` gates on these rows, so a conductor pass with no row is a proof the gate cannot see.*
+
+*`status` is a **closed grammar, not free prose**, because it is the cell a gate reads at a glance and the one place a thread says why it is not moving. A waiting thread names **what it waits on** in `LOOM_AGENT_DIRECTIONS.md` § Progress reporting's own wording, plus **how long** and **what it is doing meanwhile** — `waiting: FACTS → the schema · 41m · idle` or `waiting: path/to/file (denied) · 12m · working around`. The durable event keeps its `📡 Relay / Conflict` entry; this cell is the glance. A bare `in flight` on a thread the stall sweep reads `parked` is a stale cell, and `in flight` is not a reading — it is the absence of one.*
 
 | threadId | ticket | stage | PR | status |
 |----------|--------|-------|----|--------|
 | ENG-XXXX | [title] | building | — | in flight |
 | A | [title] | interrogated | — | queued (wave 2) |
+| FACTS | [title] | building | — | waiting: ENG-3141 → the migration · 41m · idle |
+| INTRODOC | [title] | building | — | waiting: operator → claim #3 · 2 gates · proceeding on the lean |
 
 ## 🗳️ Boards (live — one row per published decision board)
 *Sibling to the thread ledger: a board spans threads and has no stage of its own. Capture `docId` as the board publishes — `/decide` §4 says it is not recoverable later, so a row missing it has lost that board's answers permanently. This row is the board's **state of record**: it outlives the pass that published it, and `/decide`'s own record keeps the URL and points back here. `read back` closes as `gate N: folded + read`, or states what the fold found that leaves it open; a bare `open` is an unworked row and blocks Synthesis.*
@@ -23,21 +30,46 @@
 | [slug] | [board URL] | [state-doc docId, or `no shared state`] | [gate N, timestamp] | [forkIds / threadIds] | [gate N: folded + read \| gate N: open — no answers yet] |
 
 ## 📚 Docs owed (live — one row per documentation claim the weave has falsified)
-*The doc register, sibling to the thread ledger: a claim spans threads and has no stage of its own. A `claim` is a **located sentence** — path, line, what it asserts — because a row naming only a file is a row the doc lane cannot act on, and the lane is dispatched from these rows. Open the row when a thread lands, from its Revise Report's `## Register rows owed` and from the claims the thread falsified; the register is what the conductor tracks, not the doc lane's context, which dies with a context clear. `closed by` reads `revised — <Revise Report path>`, or states what the lane found that leaves it open — `open — no home, escalated`, `open — routed to /document`, `open — unverifiable here, needs <command>`. A bare `open` is an unworked row and blocks Synthesis.*
+*The doc register, sibling to the thread ledger: a claim spans threads and has no stage of its own. A `claim` is a **located sentence** — path, line, what it asserts — because a row naming only a file is a row the doc lane cannot act on, and the lane is dispatched from these rows. Open the row when a thread lands, from its Revise Report's `## Register rows owed` and from the claims the thread falsified; the register is what the conductor tracks, not the doc lane's context, which dies with a context clear. `closed by` reads `revised — <Revise Report path>`, or states what the lane found that leaves it open — `open — no home, escalated`, `open — routed to /document`, `open — unverifiable here, needs <command>`. A bare `open` is an unworked row and blocks Synthesis. A row whose claim is a statement of **intent** — a vision's goal, principle, scope or dependency — or a fact whose supersession the document's history must keep, routes to **`/direct` — reconcile** and closes with the dated reconciliation that records it. It may not route to `/revise`: that lane repairs a claim by making the sentence true, which on a vision erases the deviation.*
 
 | claim (path:line · what it asserts) | from thread | why it is owed | destination | closed by |
 |-------------------------------------|-------------|----------------|-------------|-----------|
-| `path/to/doc.md:LINE` · [what a reader would check] | [threadId] | [falsified by the change \| unverifiable here \| outside a diff's scope] | [`/revise` \| `/document` \| escalate — no home] | [revised — [report path] \| open — [what the lane found]] |
+| `path/to/doc.md:LINE` · [what a reader would check] | [threadId] | [falsified by the change \| unverifiable here \| outside a diff's scope] | [`/revise` \| `/direct` — reconcile \| `/document` \| escalate — no home] | [revised — [report path] \| open — [what the lane found]] |
+
+## 🔓 Open claims (live — one row per fork the operator still owes an answer on)
+*The third sibling to the thread ledger, for the same reason the other two are siblings: a fork spans threads and has no stage of its own. **This block was previously in the inheritance template alone**, which made an unanswered fork durable only at a hand-over — so the one moment a lane sits waiting was the one moment nothing was written down. It is live here and carried to the inheritance unchanged at a hand-over.*
+
+*A row's **`prepared context`** is a POINTER, never the card's fields copied in. `/decide` §6 already writes the fork, the options as framed, the lean with its trade-off, the falsifier, and — per `¶INV_REJECTED_OPTIONS_ARE_RECORDED` — what was decided against, into `builds/<slug>_DECIDE.md`. Point at it, so the operator reaching this row reaches a `§FMT_DECISION_CARD` rather than a title and four buttons, and so a successor reading a decided row can still see what it was decided from. A row whose `prepared context` is `none` is a question asked without what it takes to answer it, which is the complaint this block exists to answer.*
+
+*A row's **`meanwhile`** is what stops the fork being a hang. A thread does not idle on an unanswered question by default: it proceeds on the lean with its falsifier recorded, works around, or parks with a reason — `/decide` §5's vocabulary (decide provisionally · hand it to the lane · defer with a trigger) is the shape of the answer, asked when the fork is RAISED rather than when it is answered. `idle` is a legitimate value and the only one that costs the operator their attention, so it carries why idling was the right call.*
+
+*A row closes as `answered gate N — <the choice> — <record path>`, or states what leaves it open. **A bare `answered` is an unworked row** — the same shape as a bare `open` on a board row and a bare `open` on a docs-owed row — because an answer with no artifact is the shape a successor inherits as a decided question with no record of what decided it. A fork settled in chat and nowhere else closes as `open — decided in chat at gate N, not yet recorded`, which is true and actionable, rather than `answered`, which is neither.*
+
+| the fork | what it unblocks | prepared context | meanwhile | asked at | answered by |
+|----------|------------------|------------------|-----------|----------|-------------|
+| [one line, as a question] | [threadIds / the dispatch that moves once it is decided] | [`builds/<slug>_DECIDE.md` \| board row in 🗳️ Boards \| `none` — and why] | [proceeding on the lean — falsifier: [x] \| working around \| parked — [reason] \| idle — [why idling was right]] | [gate N, timestamp] | [answered gate N — [choice] — [record path] \| open — [what leaves it open]] |
 
 ## 🌊 Wave
+*The wave's own row, and the integration record that closes it. **A wave is not a thread landing** — it is the whole fan-out since the last boundary, so this block closes once, when the last of its lanes has landed or parked, and not at every loop gate. `wavesIntegrated` gates Loom→Synthesis on these rows and **clears on an empty result written down**, like `docRegister`: a loom that never reached a boundary, or one on a shared tree with nothing to merge, passes by recording that reading rather than by skipping the block.*
+
+*`integration` is the row a reader checks to know **which tree the suite judged**. It is written in **landing order, first-landed first** — which is also what makes the conflict loser the later lander, so the loom keeps one precedence rule instead of two. A lane whose merge conflicted names the lane it went back to; the conductor resolves nothing itself (`§INV_LOOM_INTEGRATES_AT_THE_WAVE_BOUNDARY`).*
+
 *   **Wave**: [N]
 *   **Threads fanned out**: [threadIds]
-*   **Partition**: [disjoint file sets, or note what serialized to a later wave and why]
+*   **Partition**: [disjoint file sets, or note what serialized to a later wave and why — `none — worktree-per-lane` where lanes hold their own trees, since the partition and the merge are two answers to one question and only one is live]
+*   **Boundary**: [the reading that closed the wave — `engine lane-stall --all`: `<threadId>=done … ` with **no lane reading `running`**, or `not reached — <threadIds> still running`]
+*   **Integration**: [per lane, in landing order — `<threadId> <branch>@<sha> → merged <merge sha> (--no-ff)` · `<threadId> → conflict on <paths from --diff-filter=U> → merge aborted, resumed <threadId>` · `<threadId> → conflict, lane unreachable → ESCALATED, open claim rowed` · or `nothing to merge — shared tree`]
+*   **Integrated tree**: [the sha the wave assembled to — the one the suite ran against, or `n/a — nothing merged`]
+*   **Suite**: [`green @ <sha>` · `red @ <sha> — <what failed>` · `deferred — <threadId> conflict open`. **Never a green taken against a partly-assembled tree**: that is an unrun gate that reads as evidence.]
+*   **Wave PR**: [one PR for the assembled wave, whole-branch — or `none — <why>`. A per-lane PR here is the shape this step exists instead of.]
 
 ## 📡 Relay / Conflict
-*   **Event**: [file claim | conflict | deadlock | escalation]
+*The waiting-on graph's durable home. The conductor builds that graph from these entries rather than holding it in context, because a cycle found in a context that then clears is a cycle rediscovered from nothing.*
+*   **Event**: [file claim | conflict | deadlock | escalation | **stall** (the sweep read a lane `parked` or quiet past the threshold)]
 *   **Threads**: [who ⇄ who]
-*   **Resolution**: [first-claim-wins → loser deferred | granted | escalated to user → decision]
+*   **Waiting on**: [the lane's own words, per `LOOM_AGENT_DIRECTIONS.md` § Progress reporting — `blocked on <path> (denied)` | `blocked waiting on <threadId> to produce <what>`, or `nothing — the lane stopped without saying` where the sweep found it and the lane never reported]
+*   **Since**: [when the wait started, and the sweep's reading — `transcript=41m log=63m state=parked`]
+*   **Resolution**: [first-claim-wins → loser deferred | granted | escalated to user → decision | resumed by LOG PATH | re-dispatched fresh]
 
 ## ⬆️ Escalation
 *   **Trigger**: [cyclic deadlock | build-fails-after-retries | scrutinize MUST-FIX | thread loopback]
@@ -51,8 +83,11 @@
 *   **Notes**: [Build Report path, critique outcome, snapshot/pr/council result]
 
 ## 🅿️ Parked
+*Two different things are called parked and they **must not collapse into one row**. A thread the conductor parked is a decision with a reason. A lane the stall sweep reads `parked` is a lane that **stopped on its own without handing back** — nobody chose it, nothing is recorded, and it is the shape the operator sees as an agent hung up waiting for something. Write which one this is.*
 *   **Thread**: [threadId]
-*   **Reason**: [not ripe (triangulate) | overlapping files (deferred) | user parked]
+*   **Reason**: [not ripe (triangulate) | overlapping files (deferred) | user parked | **stopped without handing back** — `engine lane-stall` read `state=parked`; the lane's turn ended with no `SubagentHandback` and no block reported]
+*   **Lane's LOG PATH**: [absolute path — for a `stopped without handing back` row, the only handle that survives. Read the log before briefing its state: a lane can land files after its last entry.]
+*   **Next move**: [resume by LOG PATH with a fresh lane | re-dispatch | the fork it was waiting on, rowed in 🔓 Open claims]
 
 ## 💡 Decision
 *   **Board**: [its row in 🗳️ Boards, or `no board`]
@@ -61,7 +96,7 @@
 
 ## 🤝 Hand-over written
 *Written when the conductor writes the inheritance — at a chosen hand-over, and FIRST when an involuntary exit is imminent. The entry is the receipt; the rows themselves live in the inheritance file.*
-*   **Inheritance**: `[absolute path to <sessionsRoot>/LOOM_INHERITANCE.md]`
+*   **Inheritance**: `[the inheritance file's ABSOLUTE path — the sessions root computed as the parent of this session directory, never typed from the convention]`
 *   **Rows carried**: [threads N · boards N · docs owed N · open claims N · standing arrangements N — each kind named, with any `UNKNOWN —` field called out here rather than left for the successor to discover]
 *   **Lanes live at the write**: [threadId → its LOG PATH, for each. **Never an agent id** — a context clear ends every in-process subagent, so an id is unexecutable on arrival.]
 *   **Re-measure on arrival**: [the readings in this entry that are point-in-time and must be re-taken before being acted on]
@@ -69,5 +104,6 @@
 ## ♻️ Inheritance claimed
 *Written by the successor, before it acts on any row.*
 *   **Read**: `[inheritance path]` — rows claimed: [which] · rows left to another owner: [which]
+*   **Roots searched**: [the candidate roots tried, in the order tried, and which held a copy — a copy at more than one root is reported here as a divergence and never merged]
 *   **Re-measured first**: [the predecessor's readings re-taken, and which of them had moved]
 *   **Rows refused**: [any row with an `UNKNOWN` in a field needed to act — reported, not acted on]
