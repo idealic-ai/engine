@@ -2,7 +2,7 @@
 
 **For**: <who reads this later — the conductor, the next pass, a teammate> · **Decided**: <YYYY-MM-DD> by <who> · **Pass**: <n>
 
-**Settled here**: the questions that were holding up work on <subject>, and how each was answered. Each entry also records what was decided **against**, so a later reader can tell a closed question from an open one.
+**Settled here**: the questions that were holding up work on <subject>, and what was done about each: answered, put off until a named event, handed to the thread doing the work, or dropped. Each entry also records what was decided **against**, so a later reader can tell a closed question from an open one.
 
 **Board**: <S3 URL — a pass renders one unless the operator passed `--no-board`, which is recorded here as `--no-board — <who asked>`>
 **Board state**: <the conductor's ledger row that owns this board's `docId`, fold and read status — the authority. `no ledger — handles below` when running standalone, and only then:> `docId` <id> · state doc <url>

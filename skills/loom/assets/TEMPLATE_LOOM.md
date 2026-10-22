@@ -15,9 +15,9 @@
 *   `sessions/YYYY_MM_DD_TOPIC/DEBRIEF.md` — [Why it was relevant]
 
 ## 2. Where Every Thread Ended
-*Every thread, its terminal stage, links, status.*
+*Every thread, the last stage it reached, its links and its status.*
 
-| threadId | ticket | terminal stage | PR | status |
+| threadId | ticket | last stage reached | PR | status |
 |----------|--------|----------------|----|--------|
 | ENG-XXXX | [title] | council'd | [PR link] | shipped |
 | A | [title] | scrutinized | — | parked (mid-flight) |
