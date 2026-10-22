@@ -14,7 +14,7 @@
 
 *   `sessions/YYYY_MM_DD_TOPIC/DEBRIEF.md` — [Why it was relevant]
 
-## 2. Final Ledger
+## 2. Where Every Thread Ended
 *Every thread, its terminal stage, links, status.*
 
 | threadId | ticket | terminal stage | PR | status |
@@ -32,14 +32,14 @@
 
 *   **Parallelism**: [which threads ran concurrently in each wave]
 *   **Serialization**: [what deferred to a later wave — file overlap, dependency]
-*   **Conflicts brokered**: [file claims, first-claim-wins deferrals]
-*   **Deadlocks / escalations**: [what hit the hard floor, what you decided]
+*   **Conflicts settled**: [files two threads both needed, and which thread waited for the other]
+*   **Brought to you**: [what the threads could not settle themselves, and what you decided]
 
 ## 4. Dispositions in Practice
 *How the choices played out.*
 
-*   **Autonomy** ([choice]): [what the conductor auto-resolved vs. escalated]
-*   **Council** ([choice]): [councils run, MUST-FIX loopbacks]
+*   **Autonomy** ([choice]): [what was settled without you vs. brought to you]
+*   **Council** ([choice]): [expert-panel reviews run, and the must-fix findings that sent work back]
 *   **Interrogation** ([choice]): [rounds per thread, what scoping caught]
 *   **Detail importance** ([choice]): [what findings were filtered as over-zealous vs. surfaced]
 
@@ -48,8 +48,8 @@
 
 ### [threadId] — [ticket title]
 *   **Chain run**: [which stages fired: triangulate→interrogate→build→scrutinize→snapshot→pr→council]
-*   **Outcome**: [shipped PR #… / parked because … / looped back because …]
-*   **Notable**: [a conflict, a MUST-FIX, a loopback, a defer]
+*   **Outcome**: [shipped PR #… / parked because … / sent back because …]
+*   **Notable**: [a file conflict, a must-fix finding, work sent back, something put off]
 
 ## 6. Leftovers (Parked / Mid-Flight)
 *Threads not landed. Where each stands so the next `/loom` resumes.*
@@ -63,7 +63,7 @@
 
 ### 1. The Batch Review
 *   **Parallelism payoff**: [did weaving beat sequential? where did the conductor earn its keep?]
-*   **Friction**: [what the coordination cost — escalation churn, deferrals]
+*   **Friction**: [what running in parallel cost — questions brought to you, work put off]
 
 ### 2. Personal Commentary
 *   **The Worry**: [what might have slipped through the parallel cracks]
