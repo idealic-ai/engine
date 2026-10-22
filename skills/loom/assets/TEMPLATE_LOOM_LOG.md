@@ -36,6 +36,15 @@
 |-------------------------------------|-------------|----------------|-------------|-----------|
 | `path/to/doc.md:LINE` · [what a reader would check] | [threadId] | [falsified by the change \| unverifiable here \| outside a diff's scope] | [`/revise` \| `/direct` — reconcile \| `/document` \| escalate — no home] | [revised — [report path] \| open — [what the lane found]] |
 
+## ⚖️ Rules owed (live — one row per durable rule a lane learned and was not permitted to land)
+*The fourth sibling to the thread ledger, and a sibling of the doc register in particular: the shared directive files sit outside every lane's partition, so a lane that learns a rule can only write it down and hand it on. `¶INV_A_RULE_OWED_HAS_AN_OWNER` names the conductor as that owner. **Open the row from the lane's hand-back line**, `rule owed → <file>: <clause>`, not from its report — a `## Rule owed` block nobody was told about is read by whoever happens to open that report, which is nobody, and that is the failure the lane-side contract exists to prevent.*
+
+*The conductor **rules on each row**: it lands the rule in the named file, or it declines with the reason. Both close the row; neither may be left implicit. A bare `open` is an unworked row and blocks Synthesis, on the same grounds as a bare `open` on a board, a doc or a fork row. A declined rule closes as `declined — <why>` and stays visible, because a rule rejected on purpose and a rule dropped on the floor are the same shape once the session ends.*
+
+| the rule (file · clause) | from thread | why the lane could not land it | ruled |
+|--------------------------|-------------|--------------------------------|-------|
+| `.directives/PITFALLS.md` · [the rule in a clause] | [threadId] | [outside the lane's partition \| held by another lane \| operator hold] | [landed — [sha or path] \| declined — [why] \| open — [what leaves it open]] |
+
 ## 🔓 Open claims (live — one row per fork the operator still owes an answer on)
 *The third sibling to the thread ledger, for the same reason the other two are siblings: a fork spans threads and has no stage of its own. **This block was previously in the inheritance template alone**, which made an unanswered fork durable only at a hand-over — so the one moment a lane sits waiting was the one moment nothing was written down. It is live here and carried to the inheritance unchanged at a hand-over.*
 
@@ -97,8 +106,9 @@
 ## 🤝 Hand-over written
 *Written when the conductor writes the inheritance — at a chosen hand-over, and FIRST when an involuntary exit is imminent. The entry is the receipt; the rows themselves live in the inheritance file.*
 *   **Inheritance**: `[the inheritance file's ABSOLUTE path — the sessions root computed as the parent of this session directory, never typed from the convention]`
-*   **Rows carried**: [threads N · boards N · docs owed N · open claims N · standing arrangements N — each kind named, with any `UNKNOWN —` field called out here rather than left for the successor to discover]
+*   **Rows carried**: [threads N · boards N · docs owed N · rules owed N · open claims N · standing arrangements N — each kind named, with any `UNKNOWN —` field called out here rather than left for the successor to discover]
 *   **Lanes live at the write**: [threadId → its LOG PATH, for each. **Never an agent id** — a context clear ends every in-process subagent, so an id is unexecutable on arrival.]
+    *   **Read the paths from `engine lane-stall "<sessionDir>"`, whose rows close with `logpath=`.** That column is the hand-over field; the `agent=` column beside it is the transcript and is diagnostic only. **Take the value as everything after `logpath=` to end of line — `sed 's/.*logpath=//'`, never `awk '{print $NF}'`:** this session's own directory sits under `Shared drives`, and the last whitespace field of such a row is a truncated path that still reads as one. A row reading `logpath=none` is a lane with no log, which is a **different hand-over** from a lane with one and is carried as that reading rather than filled in with the transcript. Take the reading from a bare invocation — a pipeline reports its last command's status, not the sweep's — and note the `window=` the first line states, because every row is scoped to it.
 *   **Re-measure on arrival**: [the readings in this entry that are point-in-time and must be re-taken before being acted on]
 
 ## ♻️ Inheritance claimed

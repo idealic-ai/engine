@@ -20,8 +20,25 @@
 #               a reading taken from the log file's mtime because its headings carry no
 #               timestamp, which is what `engine log` does to a heading opening with "[".
 #   state       done (handed back) | parked (turn ended, no hand-back) | running
+#   agent       the lane's agent transcript. Diagnostic only — NEVER a hand-over handle.
+#   logpath     the log the "log" reading above was taken from, or "none". This is the field
+#               a hand-over carries (¶INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID): a context clear
+#               ends every in-process subagent, so an agent id or transcript is unexecutable
+#               on arrival while the log survives and briefs a fresh lane. "none" is a
+#               reading, not a blank — a lane with no log is a different hand-over from a
+#               lane with one. It comes LAST because the tail of a row is what gets copied.
+#
+# READ logpath AS EVERYTHING AFTER "logpath=" TO END OF LINE: `sed 's/.*logpath=//'`. It is the
+# last FIELD only on a path with no spaces, and session directories on a shared drive routinely
+# have them ("…/Shared drives/…"), so `awk '{print $NF}'` returns a truncated path that still
+# looks like one. Nothing after it is ever printed, which is what makes the sed form exact.
 # Prints only lanes that are not done and whose freshest signal is older than --minutes
 # (default 30), unless --all. Exit 0 = nothing stale, 3 = at least one stale lane.
+#
+# The first line states the window, the threshold and the lane count, because every reading
+# below is scoped to that window. --since-hours defaults to the SESSION'S OWN AGE (floored at
+# 12h), read from the directory's name and its birthtime, wider wins — a fixed 12h default
+# hid a long weave's early lanes from the hand-over that most needs them.
 #
 # It answers lane STATE, never reachability: a dead lane's transcript persists on disk and
 # reads "parked", not gone. "parked" means only that the lane's last turn ended without a tool
@@ -38,7 +55,7 @@ set -euo pipefail
 
 SESSION_DIR="${1:?usage: engine lane-stall <sessionDir> [--minutes N] [--since-hours H] [--all]}"
 shift
-MINUTES=30; SINCE_HOURS=12; SHOW_ALL=0
+MINUTES=30; SINCE_HOURS=auto; SHOW_ALL=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --minutes) MINUTES="$2"; shift 2 ;;
@@ -55,8 +72,44 @@ import glob, json, os, re, sys, time
 from datetime import datetime
 
 session_dir, minutes, since_hours, show_all, projects_dir = sys.argv[1:]
-minutes, since_hours, show_all = float(minutes), float(since_hours), show_all == "1"
+minutes, show_all = float(minutes), show_all == "1"
 now = time.time()
+
+# The window defaults to the SESSION'S OWN AGE, floored at 12h, because a fixed 12h default
+# hid a weave's early lanes from the hand-over that most needs them — measured 2026-10-21 on
+# a 92.6h-old session: 13 lanes inside 12h against 137 inside the session's life. Width is
+# not what this scan costs: 12h/400h/2000h/20000h came in at 0.95s/9.10s/12.24s/9.87s on the
+# same corpus, flat past the first, since the cost is the machine's whole transcript set and
+# not the slice. So there is no ceiling to trade accuracy against.
+#
+# The age is read from the directory's own NAME first and its birthtime only as a fallback,
+# and the WIDER of the two wins. Neither alone is sound: ctime tracks the newest metadata
+# write and read 0.0h on a four-day-old session, and birthtime is reset by a copy or a sync
+# — measured on a session whose name declares 2026_10_12, birthtime said 92.7h against the
+# name's 238.5h, and the narrower window dropped 46 of its 137 lanes.
+DEFAULT_SINCE_HOURS = 12.0
+DIR_DATE = re.compile(r"(\d{4})[_-](\d\d)[_-](\d\d)")
+
+def session_age_hours(path):
+    ages = []
+    m = DIR_DATE.match(os.path.basename(os.path.realpath(path)))
+    if m:
+        try:
+            ages.append((now - datetime(*map(int, m.groups())).timestamp()) / 3600)
+        except ValueError:
+            pass
+    try:
+        birth = getattr(os.stat(path), "st_birthtime", None)
+        if birth:
+            ages.append((now - birth) / 3600)
+    except OSError:
+        pass
+    return max(ages) if ages else 0.0
+
+if since_hours == "auto":
+    since_hours = max(DEFAULT_SINCE_HOURS, session_age_hours(session_dir))
+else:
+    since_hours = float(since_hours)
 cutoff = now - since_hours * 3600
 
 TAG = re.compile(r"\[([A-Z][A-Z0-9_-]{2,})\]")
@@ -135,7 +188,21 @@ def resolve_tag(path, text):
 # a lane writes under ¶INV_LOOM_AGENTS_NAMED_BY_THREAD. Capped at two tags so a shared
 # conductor log can never date a lane it merely mentions.
 MTIME_FALLBACK_MAX_TAGS = 2
-log_last, log_approx = {}, set()
+# A log whose headings carry NO tag at all is dated to the tag in its own filename, from its
+# own last stamped heading (or its mtime when it has none). Without this a lane that stamps
+# its headings and does not repeat its tag falls through both branches above and reads
+# "logpath=none" with its log sitting at builds/<TAG>_LOG.md — a FALSE reading in the one
+# field a successor is told to trust. The guard is "no tag anywhere in the file", not "no tag
+# on the stamped headings": measured on one corpus, PROMPTLAB_LOG.md holds 85 headings of
+# which the 13 stamped ones are a LATER lane's [IDE-122] entries, so dating PROMPTLAB from
+# this file's last stamp would report a stale lane as fresh. It correctly stays "none".
+LOGNAME_TAG = re.compile(r"^([A-Z][A-Z0-9_-]{2,})_LOG\.md$")
+# log_path is the field every consumer of this sweep is required to hand over and forbidden
+# to substitute (`§INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID`): a lane's agent id dies with the
+# parent context and its transcript is not a brief, while its log survives both. The sweep
+# already knows which file dated each tag, so withholding the path only made every caller
+# re-derive it.
+log_last, log_path, log_approx = {}, {}, set()
 unreadable = []
 
 # os.walk with onerror, not glob(recursive=True): a session dir on a cloud-synced mount can
@@ -153,7 +220,7 @@ def session_logs():
 
 for log in session_logs():
     last_ts = None
-    unstamped = set()
+    unstamped, seen_tags = set(), set()
     try:
         with open(log, encoding="utf-8", errors="replace") as fh:
             for line in fh:
@@ -163,16 +230,30 @@ for log in session_logs():
                 if m:
                     last_ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").timestamp()
                 heading_tags = TAG.findall(TS.sub("", line))
+                seen_tags.update(heading_tags)
                 if last_ts is None:
                     unstamped.update(heading_tags)
                     continue
                 for tag in heading_tags:
-                    log_last[tag] = max(log_last.get(tag, 0), last_ts)
-        if last_ts is None and 0 < len(unstamped) <= MTIME_FALLBACK_MAX_TAGS:
+                    if last_ts > log_last.get(tag, 0):
+                        log_last[tag] = last_ts
+                        log_path[tag] = log
+                        # An exact dating supersedes an mtime one, so the "~" must go with it.
+                        log_approx.discard(tag)
+        if not seen_tags:
+            m = LOGNAME_TAG.match(os.path.basename(log))
+            stamp = last_ts if last_ts is not None else os.path.getmtime(log)
+            if m and stamp > log_last.get(m.group(1), 0):
+                log_last[m.group(1)] = stamp
+                log_path[m.group(1)] = log
+                if last_ts is None:
+                    log_approx.add(m.group(1))
+        elif last_ts is None and 0 < len(unstamped) <= MTIME_FALLBACK_MAX_TAGS:
             mtime = os.path.getmtime(log)
             for tag in unstamped:
                 if mtime > log_last.get(tag, 0):
                     log_last[tag] = mtime
+                    log_path[tag] = log
                     log_approx.add(tag)
     except OSError as exc:
         unreadable.append(str(exc))
@@ -251,12 +332,19 @@ for tag, lane in sorted(lanes.items()):
     if show_all or is_stale:
         rows.append((tag, lane["state"], lane["via"], t_age, l_age, is_stale, lane["path"]))
 
+# Every reading below is scoped to this window, and a horizon left unstated is how "0 lanes
+# seen" over half a day read identically to the same words over a whole weave.
+print(f"window={since_hours:.0f}h  threshold={minutes:.0f}m  lanes={len(lanes)}")
 fmt = lambda a: "-" if a is None else f"{a:.0f}m"
 for tag, state, via, t_age, l_age, is_stale, path in rows:
     flag = "STALE" if is_stale else "ok"
     log_col = fmt(l_age) + ("~" if tag in log_approx and l_age is not None else "")
+    # logpath LAST, because the tail of a row is what a reader copies and the agent
+    # transcript in that position is what produced every caller's hand-rolled workaround.
+    # "none" is a reading, not a blank: a lane with no log is a different hand-over.
     print(f"{flag:5}  [{tag}]  state={state:7}  via={via:6}  "
-          f"transcript={fmt(t_age):>6}  log={log_col:>7}  {path}")
+          f"transcript={fmt(t_age):>6}  log={log_col:>7}  "
+          f"agent={path}  logpath={log_path.get(tag, 'none')}")
 if not rows:
     print(f"no stale lanes (threshold {minutes:.0f}m, {len(lanes)} lanes seen)")
 if unreadable:

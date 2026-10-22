@@ -373,6 +373,13 @@ All handoff-related commands are defined in `~/.claude/.directives/COMMANDS.md`.
 **`§CMD_UNTAG_FILE`** — Remove tag from file's Tags line
 **`§CMD_SWAP_TAG_IN_FILE`** — Atomically swap one tag for another
 
+### Loom hand-over: `/sweep` fires first
+
+A loom conductor that is about to hand over (write `LOOM_INHERITANCE.md`, or dehydrate) runs `/sweep` before it writes either. The live-context half of a sweep exists only in the conductor's own context, so the hand-over is the last moment it can be taken. What the sweep finds goes to `builds/sweep-findings.md` for `/groom` (source (d)); the sweep rows nothing itself, so the conductor rows what it accepts into the registers before the inheritance file carries them.
+
+*   The mechanical half is `engine sweep-check "<logFile>"`: read-only, exit 3 on a `## 💡 Decision` heading with no row in the latest copy of the five register blocks, exit 2 on an instrument fault. It needs no skill and is what a loop gate runs as a cadence. Read its exit status directly, never through a pipeline.
+*   `/sweep` is never invoked per gate. Its boundary with `/groom`, `/next` and `/inbox-next` is stated in `skills/sweep/SKILL.md`, `skills/groom/SKILL.md` and `skills/next/SKILL.md`.
+
 ---
 
 ## 7. Worked Examples

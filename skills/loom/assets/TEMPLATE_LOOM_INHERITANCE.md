@@ -45,6 +45,18 @@
 |-------|-------------|-------------------------------------|----------------|-------------|-------------|
 | [session dir] | [threadId] | `path/to/doc.md:LINE` · [what a reader would check] | [falsified by the change \| unverifiable here \| outside a diff's scope] | [`/revise` \| `/direct` — reconcile \| `/document` \| escalate — no home] | [Revise Report path + the repair \| the session that took it] |
 
+## ⚖️ Rules owed — durable rules a lane learned and could not land
+
+*Carried from the session log's `## ⚖️ Rules owed` block **unchanged**, the way a board row and an open claim are. The block is **live in the log** and this is its hand-over copy. The two directions of that pairing have each failed once: an open claim was durable in this file alone, so the one moment a lane sat waiting was the one moment nothing was written down; a rule owed was durable in the log alone, so a handing-over close counted it on the receipt and had nowhere to put it. A row kind lives in both places or it is lost at one of the two moments that matter.*
+
+*The shared directive files sit outside every lane's partition, so a lane that learns a durable rule can only write it down and hand it on, and `¶INV_A_RULE_OWED_HAS_AN_OWNER` names the **conductor** as the party who acts on it. At a hand-over that owner is changing, which is the whole reason the row travels: the successor inherits the ruling, not the lane.*
+
+*A row closes when the conductor **lands** the rule in the named file or **declines** it with the reason. Both close it; neither may be left implicit. A declined rule closes as `declined — <why>` and stays visible, because a rule rejected on purpose and a rule dropped on the floor are the same shape once the session ends. `the rule` is a **file and a clause** — a row naming only a subject is a row a successor cannot land.*
+
+| owner | from thread | the rule (file · clause) | why the lane could not land it | closes when |
+|-------|-------------|--------------------------|--------------------------------|-------------|
+| [session dir] | [threadId] | `.directives/PITFALLS.md` · [the rule in a clause] | [outside the lane's partition \| held by another lane \| operator hold] | [landed — [sha or path] \| declined — [why] \| `UNKNOWN — <why>`] |
+
 ## 🔓 Open claims — what the operator still owes an answer on
 
 *Forks put up and not yet answered, including ones decided in chat where the decision has not reached an artifact. A row closes when the answer is recorded somewhere a successor reads — a board fold, a ticket comment, or a `## 💡 Decision` entry this file points at.*
