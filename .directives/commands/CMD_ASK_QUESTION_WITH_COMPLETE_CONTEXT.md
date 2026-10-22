@@ -8,7 +8,8 @@
 **Algorithm**:
 1.  **Body = complete context** (`§FMT_CONTEXT_BLOCK`). Compose the `question` field so it fully frames the decision on its own: what's being decided, why it matters, and everything needed to choose without reading anything else. Long is fine. For a rich judgment call, the body IS a decision card (`§FMT_DECISION_CARD` via `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`).
 2.  **Options carry gradation** (`§FMT_ANSWER_GRADATION`). Each option `label` leads with the closed gradation cluster — `△●Ⓢ★ ` (risk · confidence · effort · ★) — showing **only the 1–2 dimensions that differentiate this set**; the `description` states what the option means / its trade-off.
-3.  **Call `AskUserQuestion`.** No separate preamble/context-block, no "output context in chat first." A one-line lead-in sentence is fine; keep ONE trailing blank line before the call so the last line stays visible above the UI overlay.
+3.  **List the tickets the question names, first** (`§INV_TICKETS_PRESENTED_BEFORE_ASKED`, defined in `skills/loom/SKILL.md` §Constraints). If the body or any option mentions a tracker ticket, print that rule's one-entry-per-ticket list in chat before the call. It is the one chat block allowed ahead of a question, and it does not replace the body's context.
+4.  **Call `AskUserQuestion`.** No other preamble/context-block, no "output context in chat first." A one-line lead-in sentence is fine; keep ONE trailing blank line before the call so the last line stays visible above the UI overlay.
 
 **"Complete context" means everything needed to DECIDE — not an explanation of the machinery.**
 
@@ -23,7 +24,7 @@ This is the most common way this command is misread, and the misreading looks li
 
 **Constraints**:
 *   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: all user-facing decisions still go through `AskUserQuestion`.
-*   **Complete context in the body** — the point of the name. Never split the context from the question into a preceding chat block.
+*   **Complete context in the body** — the point of the name. Never split the context from the question into a preceding chat block. The ticket list of step 3 is the exception, and it sits beside the body rather than standing in for it.
 *   **Complete ≠ exhaustive.** Long is fine; long *about the machinery* is the failure above. Before sending, check the body answers *"what am I choosing between, and what does each cost me"* — and that a reader who does not know how the system works could still answer it.
 *   **Gradation is a closed set** (`§FMT_ANSWER_GRADATION`): use only the defined glyphs, never freehand; show only differentiating dimensions (no soup).
 *   **`¶INV_LISTS_INSTEAD_OF_TABLES`**, **`¶INV_ESCAPE_BY_DEFAULT`** apply to the body content.
