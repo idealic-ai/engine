@@ -207,7 +207,7 @@
      keyboard focus and tap, and a <summary> toggle fires `toggle`, never `change`, so it cannot
      reach the preview/render handlers below.
 
-     Deliberately absent from the payload and from hasTakenAPosition(): expanding the grounds is
+     Deliberately absent from the payload and from positionsTaken(): expanding the grounds is
      reading, not answering. A record of which grounds someone opened would be a reading trail, and
      routing it into the position gate would unblind the tally for a reader who has decided
      nothing — the trade the gate exists to refuse. */
@@ -262,7 +262,6 @@
   var STATE = null;          // parsed config, or null — null means "behave exactly as before"
   var lastEtag = null;       // conditional-GET token; a matching poll is 304 + zero bytes
   var lastEvents = null;     // last polled event log, kept so a local pick can re-render cheaply
-  var submitted = false;
   var docSeen = false;       // a state doc was READ for this board — turns a later 403 into an error
   /* A REFUSED read and an UNFOLDED board were the same thing on the page: both showed "an empty
      board means not folded yet". readBroken is the sticky reason that makes them different, and it
@@ -535,9 +534,9 @@
           + explainPostError(firstErr) + COPY_BACK);
         return false;
       }
-      submitted = true;
       /* Only on a clean sweep: a partial failure means the doc will legitimately never carry
-         every id, and a receipt that can never retire would sit there claiming "waiting" forever. */
+         every id, and a receipt that can never retire would sit there claiming "waiting" forever.
+         It is also what tells the reveal which items this person just answered. */
       recordReceipt(events.map(function (ev) { return ev.id; }));
       setStateStatus("Submitted " + events.length + " ✓ — they show up here once the fold runs (agent-run, a few times a day).");
       renderState();
@@ -600,22 +599,79 @@
     return (clean[0].charAt(0) + clean[clean.length - 1].charAt(0)).toUpperCase();
   }
 
-  /* Has this person taken a position yet? A running tally shown BEFORE they have turns an
-     independent read into an anchored one, which leaves ¶INV_PANEL_VOTES_ARE_A_READ_NOT_A_VERDICT
+  /* Which items has this person taken a position on? A running tally shown BEFORE they have turns
+     an independent read into an anchored one, which leaves ¶INV_PANEL_VOTES_ARE_A_READ_NOT_A_VERDICT
      literally true while hollowing it out. So: no marks, and no count either, until they answer.
+
+     The question is asked PER ITEM. A board carries several decisions, and a page-wide reading —
+     one tick anywhere opens everything — hands the reader everyone else's answer to the decisions
+     they have not thought about yet, which is the anchoring the gate exists to prevent.
+     ¶INV_REVEAL_IS_PER_ITEM.
 
      Deliberately NOT "is a checkbox ticked right now": a reload restores no ticks, so that reading
      hides the tally from someone who has already voted — the gate firing on the wrong question.
      A stored receipt is this person having answered; it is not a weakening of the gate. */
-  function hasTakenAPosition() {
-    if (submitted) return true;
-    if (receipt && receipt.ids.length) return true;
-    var containers = document.querySelectorAll("[data-fb-item]");
-    for (var i = 0; i < containers.length; i++) {
-      var inputs = containers[i].querySelectorAll("[data-fb-key]");
-      for (var j = 0; j < inputs.length; j++) if (inputs[j].checked) return true;
+
+  /* An event id reads "<t>:h:<actor-slug>:<item>[:<key-or-field>]". The actor slug never holds a
+     colon (slug() strips them), but an item id, an option key and a field name all may —
+     `measure:extraction-count` is a real key and `finding:ENG-3461` a real item id — so the tail
+     is never split on ":". It is read against what the board DECLARES, and a declared item alone
+     is not enough to read it with: `finding` + key `ENG-3461` and the item `finding:ENG-3461`
+     spell the same tail, so matching by item (longest or otherwise) picks the wrong one in one
+     direction or the other. The whole tail must equal item + ":" + a key or field that item
+     carries — or the item itself for a note, the one id shape that legitimately ends there.
+
+     Two items that can both account for one tail resolve to NEITHER. Guessing opens an untouched
+     decision half the time, which is the gate failing open, and that is the harm it exists to
+     prevent — so an ambiguous id fails shut. */
+  function itemFromEventId(id, declared) {
+    var parts = String(id || "").split(":");
+    var kind = parts[0], rest = parts.slice(3).join(":"), hit = "", best = "", d, i;
+    for (i = 0; i < declared.length; i++) {
+      d = declared[i];
+      if (!d.id) continue;
+      if (kind === "n" ? rest === d.id : !!d.tails[kind + ":" + rest]) {
+        if (hit && hit !== d.id) return "";
+        hit = d.id;
+      }
     }
-    return false;
+    if (hit) return hit;
+    /* The tail names an option this board no longer declares — a receipt written before the board
+       was recomposed. Failing shut would blind someone who demonstrably did vote, so the item
+       prefix still recovers it. An exact tail cannot land here: a vote and a field id always carry
+       a trailing segment, so `rest === item` for either is a mis-read, not a stale key. */
+    for (i = 0; i < declared.length; i++) {
+      d = declared[i].id;
+      if (d && rest.indexOf(d + ":") === 0 && d.length > best.length) best = d;
+    }
+    return best;
+  }
+
+  function positionsTaken() {
+    var taken = Object.create(null);
+    var containers = document.querySelectorAll("[data-fb-item]");
+    var declared = [], c, d, els, ids, it, i, j;
+    for (i = 0; i < containers.length; i++) {
+      c = containers[i];
+      d = { id: attr(c, "data-fb-item"), tails: Object.create(null) };
+      els = c.querySelectorAll("[data-fb-key]");
+      for (j = 0; j < els.length; j++) {
+        d.tails["v:" + d.id + ":" + attr(els[j], "data-fb-key")] = true;
+        if (els[j].checked) taken[d.id] = true;
+      }
+      els = c.querySelectorAll("[data-fb-field]");
+      for (j = 0; j < els.length; j++) d.tails["f:" + d.id + ":" + attr(els[j], "data-fb-field")] = true;
+      declared.push(d);
+    }
+    /* The receipt stands in for the ticks a reload erased — for the items it names and no others.
+       It also covers the submit that just happened: recordReceipt() sets it in memory even when
+       the device refuses to store it, so there is no separate page-wide "submitted" reading. */
+    ids = (receipt && receipt.ids) || [];
+    for (i = 0; i < ids.length; i++) {
+      it = itemFromEventId(ids[i], declared);
+      if (it) taken[it] = true;
+    }
+    return taken;
   }
 
   function ownHost(parent, cls) {
@@ -639,7 +695,7 @@
   function renderState() {
     if (!STATE || !lastEvents) return;
     var folded = foldEvents(lastEvents);
-    var reveal = hasTakenAPosition();
+    var revealed = positionsTaken();
     var byItemKey = Object.create(null);
     for (var i = 0; i < folded.length; i++) {
       var ev = folded[i];
@@ -651,6 +707,7 @@
     var containers = document.querySelectorAll("[data-fb-item]");
     for (i = 0; i < containers.length; i++) {
       var c = containers[i], item = attr(c, "data-fb-item");
+      var reveal = !!revealed[item];                 // this item's own gate, never the page's
       var slots = c.querySelectorAll("[data-fb-marks]");
       var covered = Object.create(null), s, key, host, votes, j;
       for (s = 0; s < slots.length; s++) {

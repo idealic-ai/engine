@@ -752,6 +752,227 @@ assert.deepStrictEqual(JSON.parse(t18store.getItem("fb:receipt:some-other-board"
 assert.strictEqual(t18store.getItem(RKEY), "{not json", "…and the unreadable value is not silently overwritten either");
 assert.ok(!/posted/.test(stateStatus(t18)), "…and nothing is claimed on its behalf");
 
+/* ══════════════════════════════════════════════════════════════════════════════════════════
+   R1…R10 — THE REVEAL IS DECIDED PER ITEM.
+
+   The gate asks one question — has this person taken a position? — and it used to ask it of the
+   whole page: one ticked input anywhere opened the marks on every item. A board carries six
+   decisions, so answering the first handed the reader everyone else's read on the five they had
+   not thought about yet. The mechanism built to prevent anchoring produced it.
+
+   Every zero below is paired, in the same invocation, with a slot that SHOULD show a mark — a
+   board that rendered nothing at all would otherwise pass the whole section.
+   ══════════════════════════════════════════════════════════════════════════════════════════ */
+const twoItemDoc = { docId: LIVE.docId, events: [
+  vote("v:h:dana:item-a:go", "dana", "item-a", "go", "2026-07-31T10:00:00Z"),
+  vote("v:h:dana:item-b:go", "dana", "item-b", "go", "2026-07-31T10:00:00Z")
+] };
+/* Two decisions on one board, each with its own marks slot, and a teammate who answered BOTH —
+   so whatever a slot does or does not show is the gate's doing, never a missing vote. */
+function twoItemBoard(net, store, checkedA = false, checkedB = false) {
+  const slotA = node("span", { "data-fb-marks": "go" });
+  const slotB = node("span", { "data-fb-marks": "go" });
+  const r = runKit(linkParents(node("body", BOARD, [
+    ...stateBarNodes(), stateConfigNode(LIVE),
+    node("input", { "data-fb-voter": "", _value: "" }),
+    node("div", { "data-fb-item": "item-a", "data-fb-kind": "steer" }, [
+      node("label", {}, [node("input", { "data-fb-key": "go", _checked: checkedA }), slotA])
+    ]),
+    node("div", { "data-fb-item": "item-b", "data-fb-kind": "steer" }, [
+      node("label", {}, [node("input", { "data-fb-key": "go", _checked: checkedB }), slotB])
+    ])
+  ])), { net, store });
+  return { ...r, slotA, slotB };
+}
+
+/* ---- R1 — answering one decision reveals that decision and NOTHING else ---- */
+const r1 = twoItemBoard(makeNet({ get: () => ok200(twoItemDoc, '"r1"') }), makeStore(), true, false);
+await tick();
+assert.strictEqual(marksIn(r1.slotA), 1,
+  "the item this reader answered shows the teammate's mark — the control for every zero in this section");
+assert.strictEqual(marksIn(r1.slotB), 0,
+  "¶INV_REVEAL_IS_PER_ITEM: the item they have NOT answered stays blind, though the same doc carries a vote on it — a page-wide reading of the gate is the anchoring the gate exists to prevent");
+
+/* ---- R2 — and the gate still shuts for a reader who has answered nothing ---- */
+const r2 = twoItemBoard(makeNet({ get: () => ok200(twoItemDoc, '"r2"') }), makeStore());
+await tick();
+assert.strictEqual(marksIn(r2.slotA) + marksIn(r2.slotB), 0,
+  "nothing answered ⇒ nothing revealed — per-item is a narrowing of the gate, not a hole in it");
+/* …and it opens item by item as they answer, which is also R1's zero shown to be reachable. */
+r2.doc.querySelectorAll("[data-fb-key]")[1].checked = true;
+r2.board.render();
+assert.strictEqual(marksIn(r2.slotB), 1, "answering the second decision reveals the second decision");
+assert.strictEqual(marksIn(r2.slotA), 0, "…and still not the first: the gate runs in both directions");
+
+/* ---- R3 — the reload: a receipt opens only the items it actually answered ----
+   The receipt is how a device remembers it voted once the ticks are gone. Page-wide it reopened
+   the whole board; per item it must reopen exactly what was sent. The key here carries a colon
+   (a real one does: `measure:extraction-count`) — note that this scenario alone does NOT prove
+   colon-safety: even a naive `split(":")[3]` recovers `item-a` from it. R3b carries that claim. */
+const RK2 = "fb:receipt:" + LIVE.docId;
+const r3store = makeStore({ [RK2]: JSON.stringify({
+  ids: ["v:h:dana:item-a:measure:extraction-count"], ts: "2026-07-31T10:00:00Z", pending: true }) });
+const r3 = twoItemBoard(makeNet({ get: () => ok200(twoItemDoc, '"r3"') }), r3store);
+await tick();
+assert.strictEqual(marksIn(r3.slotA), 1,
+  "a stored receipt still IS having taken a position, on the item the id names");
+assert.strictEqual(marksIn(r3.slotB), 0,
+  "…on the item it names, and no further: a receipt for one decision is not a position on the next");
+
+/* ---- R3b — the item id in PAYLOAD_SCHEMA.md's own worked example carries a colon ----
+   Its sample id is `v:c:skeptic:finding:ENG-3461:do-it-now` over item `finding:ENG-3461`. Split
+   that on ":" and the item comes back as "finding"; the board declares its items, so the id is
+   read against what the board says exists instead. */
+const r3bItem = "finding:ENG-3461";
+const r3bSlot = node("span", { "data-fb-marks": "do-it-now" });
+const r3bOther = node("span", { "data-fb-marks": "do-it-now" });
+const r3bStore = makeStore({ [RK2]: JSON.stringify({
+  ids: ["v:h:dana:" + r3bItem + ":do-it-now"], ts: "2026-07-31T10:00:00Z", pending: true }) });
+const r3b = runKit(linkParents(node("body", BOARD, [
+  ...stateBarNodes(), stateConfigNode(LIVE),
+  node("input", { "data-fb-voter": "", _value: "" }),
+  node("div", { "data-fb-item": r3bItem, "data-fb-kind": "steer" }, [
+    node("label", {}, [node("input", { "data-fb-key": "do-it-now", _checked: false }), r3bSlot])
+  ]),
+  node("div", { "data-fb-item": "finding", "data-fb-kind": "steer" }, [
+    node("label", {}, [node("input", { "data-fb-key": "do-it-now", _checked: false }), r3bOther])
+  ])
+])), { net: makeNet({ get: () => ok200({ docId: LIVE.docId, events: [
+  vote("v:h:mo:" + r3bItem + ":do-it-now", "Mo", r3bItem, "do-it-now", "2026-07-31T10:00:00Z"),
+  vote("v:h:mo:finding:do-it-now", "Mo", "finding", "do-it-now", "2026-07-31T10:00:00Z")
+] }, '"r3b"') }), store: r3bStore });
+await tick();
+assert.strictEqual(marksIn(r3bSlot), 1, "the receipt opens the item it names, colon and all");
+assert.strictEqual(marksIn(r3bOther), 0,
+  "…and NOT the item whose id is that id's first segment — longest declared match, never a split");
+
+/* ---- R4 — a receipt naming an item this board does not carry opens nothing ---- */
+const r4store = makeStore({ [RK2]: JSON.stringify({
+  ids: ["v:h:dana:item-gone:go"], ts: "2026-07-31T10:00:00Z", pending: true }) });
+const r4 = twoItemBoard(makeNet({ get: () => ok200(twoItemDoc, '"r4"') }), r4store);
+await tick();
+assert.strictEqual(marksIn(r4.slotA) + marksIn(r4.slotB), 0,
+  "an id for an item that is not on the page is not a position on the items that are — it fails to the invariant's side");
+/* The zero above is only worth the board behind it: tick an option on THIS instance and the mark
+   appears, so a doc that carried no votes on these items could not have produced that zero. */
+r4.doc.querySelectorAll("[data-fb-key]")[0].checked = true;
+r4.board.render();
+assert.strictEqual(marksIn(r4.slotA), 1,
+  "…and the same board does show a mark once this reader answers — the control that stops R4's zero being vacuous");
+
+/* ---- R5 — the fallback presence rows obey the same per-item gate ----
+   Boards that predate the slot contract render marks into an injected presence box instead. That
+   path reads the same `reveal`, so a fix applied only to the slot path would leak there. */
+const r5 = runKit(linkParents(node("body", BOARD, [
+  ...stateBarNodes(), stateConfigNode(LIVE),
+  node("input", { "data-fb-voter": "", _value: "" }),
+  node("div", { "data-fb-item": "item-a", "data-fb-kind": "steer" }, [
+    node("input", { "data-fb-key": "go", _checked: true })
+  ]),
+  node("div", { "data-fb-item": "item-b", "data-fb-kind": "steer" }, [
+    node("input", { "data-fb-key": "go", _checked: false })
+  ])
+])), { net: makeNet({ get: () => ok200(twoItemDoc, '"r5"') }), store: makeStore() });
+await tick();
+const presenceRows = (itemId) => {
+  const c = r5.doc.querySelectorAll("[data-fb-item]").find((e) => e.getAttribute("data-fb-item") === itemId);
+  const box = c.querySelector("[data-fb-presence]");
+  return box && box.children[0] ? box.children[0].children.length : 0;
+};
+assert.strictEqual(presenceRows("item-a"), 1, "the answered item gets its fallback presence row — the control");
+assert.strictEqual(presenceRows("item-b"), 0,
+  "…and the unanswered item gets none: the orphan path is gated per item too, not only the slot path");
+
+/* ---- R6 — opening a disclosure on an item is still not answering it ----
+   D6 proves this page-wide; the per-item gate has to keep it true for the item being read. */
+const r6 = twoItemBoard(makeNet({ get: () => ok200(twoItemDoc, '"r6"') }), makeStore(), true, false);
+await tick();
+const r6b = r6.doc.querySelectorAll("[data-fb-item]").find((e) => e.getAttribute("data-fb-item") === "item-b");
+r6b.appendChild(node("details", { "data-fb-disclose": "context", open: "" }));
+r6.board.render();
+assert.strictEqual(marksIn(r6.slotB), 0,
+  "reading the grounds on a decision does not unblind that decision — the gate asks for an answer, not for attention");
+
+/* ---- R7…R10 — recovering the item from an id, when two declared items can both claim it ----
+
+   R3b proves the long item wins its own id. These are the cases a longest-match rule LOSES, and
+   they matter more than the one it wins: getting the item wrong here is a double fault — the
+   reader's own decision stays blind AND a decision they never touched shows the teammates' marks,
+   which is the gate failing OPEN, the one direction ¶INV_REVEAL_IS_PER_ITEM forbids.
+
+   The board declares its items and the keys each one carries, so the whole tail is read against
+   those declarations rather than matched by prefix. Every zero below is paired on the same board
+   instance with a slot that does show a mark. */
+function collisionBoard(store, aItem, aKey, bItem, bKey) {
+  const slotA = node("span", { "data-fb-marks": aKey });
+  const slotB = node("span", { "data-fb-marks": bKey });
+  const r = runKit(linkParents(node("body", BOARD, [
+    ...stateBarNodes(), stateConfigNode(LIVE),
+    node("input", { "data-fb-voter": "", _value: "" }),
+    node("div", { "data-fb-item": aItem, "data-fb-kind": "steer" }, [
+      node("label", {}, [node("input", { "data-fb-key": aKey, _checked: false }), slotA])
+    ]),
+    node("div", { "data-fb-item": bItem, "data-fb-kind": "steer" }, [
+      node("label", {}, [node("input", { "data-fb-key": bKey, _checked: false }), slotB])
+    ])
+  /* Distinct actors, because the point of these boards is that the two items can spell the SAME
+     event id — one Mo would have the doc dedupe its own second vote away. */
+  ])), { net: makeNet({ get: () => ok200({ docId: LIVE.docId, events: [
+    vote("v:h:mo:" + aItem + ":" + aKey, "Mo", aItem, aKey, "2026-07-31T10:00:00Z"),
+    vote("v:h:ada:" + bItem + ":" + bKey, "Ada", bItem, bKey, "2026-07-31T10:00:00Z")
+  ] }, '"rc"') }), store });
+  return { ...r, slotA, slotB };
+}
+const rcpt = (...ids) => makeStore({ [RK2]: JSON.stringify({ ids, ts: "2026-07-31T10:00:00Z", pending: true }) });
+
+/* ---- R7 — the inverse of R3b: the receipt names the SHORT item, whose key is the long item's tail ----
+   Items `finding` and `finding:ENG-3461` on one board; the reader answered `finding`, picking the
+   option `ENG-3461`. The id's tail is `finding:ENG-3461` either way. Longest-match hands it to the
+   wrong item in both directions at once. */
+const r7 = collisionBoard(rcpt("v:h:dana:finding:ENG-3461"), "finding", "ENG-3461", "finding:ENG-3461", "do-it-now");
+await tick();
+assert.strictEqual(marksIn(r7.slotA), 1,
+  "the item the reader actually answered opens — the tail is `finding` + the key `ENG-3461` it declares, not the longest item that happens to spell the same string");
+assert.strictEqual(marksIn(r7.slotB), 0,
+  "…and the item they never touched stays blind: resolving this id by length reveals an untouched decision, which is the gate failing OPEN");
+
+/* ---- R8 — the same collision one segment deeper, where a type-aware exact-match guard misses ----
+   Items `a` and `a:b`; `a` carries the key `b:c`. The tail `a:b:c` is a prefix match for BOTH, so
+   discriminating only on `rest === item` does not reach it — the declared key does. */
+const r8 = collisionBoard(rcpt("v:h:dana:a:b:c"), "a", "b:c", "a:b", "zz");
+await tick();
+assert.strictEqual(marksIn(r8.slotA), 1,
+  "`a` declares the key `b:c`, so the tail `a:b:c` is its vote — prefix length does not decide this");
+assert.strictEqual(marksIn(r8.slotB), 0,
+  "…and `a:b`, which declares no key `c`, is not opened by an id that was never its own");
+
+/* ---- R9 — the two id shapes the declaration match must NOT break ---- */
+/* (a) a note carries no trailing key, so its tail legitimately ENDS at the item. */
+const r9a = twoItemBoard(makeNet({ get: () => ok200(twoItemDoc, '"r9a"') }), rcpt("n:h:dana:item-a"));
+await tick();
+assert.strictEqual(marksIn(r9a.slotA), 1, "a note-only receipt still opens the item it was written on");
+assert.strictEqual(marksIn(r9a.slotB), 0, "…and only that one");
+/* (b) a receipt written before an option was renamed names a key the board no longer declares.
+   Failing shut here would blind someone who has demonstrably already voted, so the item prefix
+   still recovers it. */
+const r9b = twoItemBoard(makeNet({ get: () => ok200(twoItemDoc, '"r9b"') }), rcpt("v:h:dana:item-a:retired-option"));
+await tick();
+assert.strictEqual(marksIn(r9b.slotA), 1,
+  "a receipt naming an option this board has since dropped still counts as having answered that item");
+assert.strictEqual(marksIn(r9b.slotB), 0, "…and still opens nothing else");
+
+/* ---- R10 — a tail two items can BOTH legitimately claim opens neither ----
+   `a` declares key `b:c`; `a:b` declares key `c`. Nothing in the id distinguishes them, and a
+   guess is a coin flip on whether an untouched decision gets unblinded. So: shut. */
+const r10 = collisionBoard(rcpt("v:h:dana:a:b:c"), "a", "b:c", "a:b", "c");
+await tick();
+assert.strictEqual(marksIn(r10.slotA) + marksIn(r10.slotB), 0,
+  "an id two declared items can both account for resolves to neither — an ambiguous recovery fails shut, never to a guess");
+r10.doc.querySelectorAll("[data-fb-key]")[0].checked = true;
+r10.board.render();
+assert.strictEqual(marksIn(r10.slotA), 1,
+  "…and this board does render marks once the reader answers, so the zero above is the recovery's doing and not an empty doc");
+
 /* ---- A no-config board is inert STRUCTURALLY, not just in its payload ----
    Publish now injects the config into every board, so "no config" stops being the ordinary case
    and becomes the one nobody looks at: a board opened off disk, a compose that was never
@@ -843,7 +1064,7 @@ assert.strictEqual(await t21.board.submit(), true, "…and does not latch — an
 
    What it must NOT do. A disclosure is author-written material a reader needs IN ORDER to decide.
    It is not a position, not a tally, and not a lean — so it must stay entirely clear of the
-   position gate (`hasTakenAPosition`) and of the event stream. The kind set is closed for exactly
+   position gate (`positionsTaken`) and of the event stream. The kind set is closed for exactly
    that reason: with `context | comparison | sources` bound, there is no `recommendation` kind to
    put an agent's pick in, so the thing the reveal gate exists to withhold is unexpressible here
    rather than merely discouraged.
@@ -970,7 +1191,7 @@ assert.strictEqual(d5read.find((d) => d.kind === "sources").open, false,
 
 /* ---- D6 — opening a disclosure is NOT taking a position ----
    Reddens on: `open` set on a disclosure while every `[data-fb-key]` input is unchecked. If the
-   disclosure's state ever reached `hasTakenAPosition()`, reading the grounds would unblind the
+   disclosure's state ever reached `positionsTaken()`, reading the grounds would unblind the
    tally — the exact trade the reveal gate exists to refuse. */
 const d6net = makeNet({ get: () => ok200({ docId: LIVE.docId, events: [
   vote("v:h:dana:cmt-dx:do-it-now", "dana", "cmt-dx", "do-it-now", "2026-07-31T10:00:00Z")
@@ -1034,6 +1255,17 @@ console.log("board-widgets.test: PASS — 32 assertions (v2 event shape, actor.k
   + "ids stay, and the marks render for a voter who ticked nothing this page-life · T16 one missing "
   + "id keeps the whole receipt pending · T17 no receipt + no picks ⇒ no marks, no count, no writes "
   + "· T18 a corrupt or foreign receipt fails closed) "
+  + "+ 24 per-item-reveal assertions (R1 answering one decision reveals that decision and no other "
+  + "· R2 nothing answered ⇒ nothing revealed, and it opens item by item in either order · R3 a "
+  + "reload's receipt opens only the items it names · R3b including PAYLOAD_SCHEMA's own "
+  + "`finding:ENG-3461` item id, against a board that also declares `finding` · R4 a receipt for an "
+  + "item this board does not carry opens nothing, on a board that does show a mark once answered "
+  + "· R5 the fallback presence rows are gated per item too · R6 reading the grounds still answers "
+  + "nothing · R7 the inverse of R3b — the receipt names the SHORT item whose key is the long "
+  + "item's tail, and matching by item length unblinds a decision nobody touched · R8 the same "
+  + "collision a segment deeper, where only the DECLARED key decides · R9 a note-only receipt and "
+  + "a receipt naming a since-dropped option both still open their item · R10 a tail two declared "
+  + "items can both account for opens neither) "
   + "+ 13 latch assertions (T19 an ExpiredToken closes the board and the NEXT submit never reaches "
   + "the network even though it would now succeed · T20 AccessDenied latches the same way · "
   + "T21 EntityTooLarge, RequestTimeout and a bare 503 do NOT latch — a retry still posts, because "
