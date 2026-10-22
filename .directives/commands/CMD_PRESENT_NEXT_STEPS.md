@@ -2,6 +2,8 @@
 **Definition**: Post-synthesis routing menu. Presents the user with options to continue working, switch to another skill, or leave the session idle. Called after `§CMD_CLOSE_SESSION` transitions the session to idle state.
 **Prerequisite**: Session must be in `lifecycle=idle` state (set by `§CMD_CLOSE_SESSION` via `engine session idle`).
 
+**Scope, and what answers the question this cannot.** This routes **one session that has just closed**, and the prerequisite above is the whole of its reach: it answers *which skill next for this session's work*. It cannot be entered cold. A person returning after a gap has no idle session and no live loom, so neither this command nor `/loom`'s loop gate will answer them — **`/next` is the entry for that case**, reading the states that block a return (a lane that stopped without handing back, an unanswered fork, uncommitted work, then groomable work) and ordering the moves blocking-first. It owns the phrases *what's next*, *what should I work on*, *what is blocking me* and *where did we leave off*. The two do not compete and neither composes the other: this command has a session's own `nextSkills` to offer and is the better answer whenever that list exists, which is precisely when `lifecycle=idle` holds.
+
 ---
 
 ## Algorithm
