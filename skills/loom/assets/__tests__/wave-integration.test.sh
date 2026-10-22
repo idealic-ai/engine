@@ -64,6 +64,8 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 loom="$(cd "$here/../.." && pwd)"
 SKILL="$loom/SKILL.md"
 TPL="$loom/assets/TEMPLATE_LOOM_LOG.md"
+DIR="$loom/assets/LOOM_AGENT_DIRECTIONS.md"
+GITIGNORE="$(cd "$loom/../.." && pwd)/.gitignore"
 
 pass=0; fail=0; skipped=0
 ok()   { pass=$((pass+1));    printf '  ok    %s\n' "$1"; }
@@ -120,6 +122,76 @@ a_case "A18 the wave block records the boundary reading"                  "$TPL"
 a_case "A19 the wave block records each lane's merge"                     "$TPL"   '**Integration**'
 a_case "A20 the wave block names the sha the suite ran against"           "$TPL"   '**Integrated tree**'
 a_case "A21 the shared-tree reading is an allowed, written outcome"       "$TPL"   'nothing to merge — shared tree'
+
+# A22 — the meaning arm, honest from the other side. Part C's label arm knows a fixed list of dial
+# names; a future rename it has not been taught reads as a false absence. This case asserts the
+# thing the meaning arm looks FOR actually exists in a bolded disposition bullet, so a rename that
+# silences the label arm cannot silence both at once without also reddening here.
+if printf '%s' "$(awk '/^### The Setup dispositions/{f=1;next} /^### /{f=0} f' "$SKILL" 2>/dev/null)" \
+   | grep -E '^\*[[:space:]]+\*\*' \
+   | grep -qiE 'worktree|tree per lane|tree-per-lane|own tree|tree for every lane|tree for each lane'; then
+  ok "A22 a bolded Setup disposition says in words that lanes hold their own trees — the arm that survives a dial rename"
+else
+  no "A22 a bolded Setup disposition says in words that lanes hold their own trees" "no disposition bullet carries the meaning, so Part C's label arm is the only thing holding the arming up — a rename would silence it and read as a clean skip"
+fi
+
+printf '\n== Part D — the dial half is stated (reddens if the batching dial or the global cap is deleted) ==\n'
+
+if states "$DIR" 'threadId' && ! states "$DIR" 'INV_LOOM_NOSUCHRULE_CONTROL'; then
+  ok "D-control the probe reaches the lane directions and discriminates (present stem found, planted absent stem not found)"
+else
+  no "D-control the probe reaches the lane directions and discriminates" "a present stem was missed or an absent stem was found — every D case touching that file is theatre until this passes"
+fi
+
+# D1 is scoped to the dispositions SECTION rather than the whole file. Measured: the unscoped form
+# passed on a copy whose disposition bullet had been deleted, because the literal also appears in
+# Setup's ask step and in the ledger field it names — a pattern matching what both states share.
+if printf '%s' "$(awk '/^### The Setup dispositions/{f=1;next} /^### /{f=0} f' "$SKILL" 2>/dev/null)" \
+   | grep -qF '*   **Execution shape**'; then
+  ok "D1  the batching dial is a Setup disposition, named — inside the dispositions section, not merely somewhere in the file"
+else
+  no "D1  the batching dial is a Setup disposition, named" "no '**Execution shape**' bullet in § The Setup dispositions; the literal elsewhere in the file does not make it a dial anyone is asked"
+fi
+
+a_case "D2  the once-per-wave suite is its own invariant"                 "$SKILL" '¶INV_SUITE_ONCE_PER_WAVE'
+a_case "D3  the global cap is its own invariant"                          "$SKILL" '¶INV_SLOT_CAP_IS_GLOBAL'
+a_case "D4  the worktree default rests on a local measurement"            "$SKILL" '¶INV_LOOM_WORKTREE_DEFAULT_IS_MEASURED'
+a_case "D5  the measured distribution is cited, not asserted"             "$SKILL" '105 interleaved order-rotated runs'
+a_case "D6  the spread is stated, so no single timing reads as evidence"  "$SKILL" '10.7s–102.0s'
+a_case "D7  reducing concurrency is recorded as falsified, not untried"   "$SKILL" '311.1s against a 40.4s baseline'
+a_case "D8  an advertised figure is marked as not a measurement"          "$SKILL" 'inside the noise band'
+a_case "D9  the slot count's home is named and sits in the engine tree"   "$SKILL" '~/.claude/engine/.loom-slots/'
+a_case "D10 one writer per file is what makes the read lock-free"         "$SKILL" 'writes only its own file and reads every file'
+a_case "D11 a stale slot row is reported rather than dropped"             "$SKILL" 'reported as stale and not counted'
+a_case "D12 deriving the count is recorded as falsified here"             "$SKILL" 'find-sessions.sh active'
+a_case "D13 the justifying measurement names its own method"              "$SKILL" 'read back through the workspace link'
+a_case "D14 the partition is conditional on the dial, not standing"       "$SKILL" "computes **no** partition and brokers **no** claims"
+a_case "D15 lanes are told to run targeted tests, not the suite"          "$DIR"   'you do not run the full suite'
+a_case "D16 the lane partition section is marked conditional"             "$DIR"   '## File ownership — under one shared tree'
+a_case "D17 a lane with its own tree is told to stay inside it"           "$DIR"   'stay in your own tree'
+
+# D18 — measured rather than asserted: the slot directory must be ignored by git, or a loom's own
+# bookkeeping lands in the untracked set of a checkout several sessions share. Controls in the same
+# invocation, because `check-ignore` on a path that does not exist answers about the pattern only.
+if [ -f "$GITIGNORE" ]; then
+  # Paths are REPO-ROOT-RELATIVE and the probe runs from the repo root. `check-ignore` resolves a
+  # relative path against its own cwd, so running it from skills/loom/ asks about
+  # skills/loom/.project-fetch — a different question with the same shape of answer, which is how
+  # the first draft of this case failed its own control.
+  root="$(cd "$loom/../.." && pwd)"
+  gi_ctl_in="$(git -C "$root" check-ignore -q 'control-probe.db' 2>/dev/null && echo 1 || echo 0)"
+  gi_ctl_out="$(git -C "$root" check-ignore -q 'skills/loom/SKILL.md' 2>/dev/null && echo 1 || echo 0)"
+  gi_hit="$(git -C "$root" check-ignore -q '.loom-slots/probe.slots' 2>/dev/null && echo 1 || echo 0)"
+  if [ "$gi_ctl_in" = 1 ] && [ "$gi_ctl_out" = 0 ] && [ "$gi_hit" = 1 ]; then
+    ok "D18 the slot directory's contents are gitignored (controls fired: a *.db path read ignored, a tracked file did not)"
+  elif [ "$gi_ctl_in" != 1 ] || [ "$gi_ctl_out" != 0 ]; then
+    no "D18 the slot directory's contents are gitignored" "the controls did not discriminate (known-ignored=$gi_ctl_in, tracked=$gi_ctl_out) — the reading on .loom-slots/ is void either way"
+  else
+    no "D18 the slot directory's contents are gitignored" "a file under .loom-slots/ is NOT ignored, so every loom's slot bookkeeping shows up in a shared checkout's untracked set"
+  fi
+else
+  no "D18 the slot directory's contents are gitignored" "no .gitignore found at $GITIGNORE"
+fi
 
 printf '\n== Part B — the git mechanics the specification rests on (throwaway repo, never this checkout) ==\n'
 

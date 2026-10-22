@@ -1,11 +1,11 @@
 node_modules/
 *.db
 .DS_Store
-.mode
 .user.json
 *.bak
 .env
 .project-fetch/
 .ticket-fetch/
+.loom-slots/
 __pycache__/
 *.pyc
