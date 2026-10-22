@@ -106,7 +106,7 @@ Extract all items from the tree definition: codes (`[CODE]`), labels, descriptio
 
 ### Step 2: Compose Question Bodies (Complete Context) + Legend
 
-DECISION_TREE routes through `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`: there is **no separate preamble rendered in chat before the popup**. Each tree question's **body carries its own complete context** (`§FMT_CONTEXT_BLOCK` — the context that goes IN the body): WHAT is being decided, WHY it matters, and everything needed to choose without reading any files, log, or artifact. In batch mode, each of the up to 4 questions is a **self-complete body** — no shared block above them to map back to.
+DECISION_TREE routes through `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`: there is **no separate preamble rendered in chat before the popup**, except the ticket list `§INV_TICKETS_PRESENTED_BEFORE_ASKED` requires when a question names a tracker ticket. Each tree question's **body carries its own complete context** (`§FMT_CONTEXT_BLOCK` — the context that goes IN the body): WHAT is being decided, WHY it matters, and everything needed to choose without reading any files, log, or artifact. In batch mode, each of the up to 4 questions is a **self-complete body** — no shared block above them to map back to.
 
 **Format** — compose per-question `question` bodies, then one `AskUserQuestion`:
 > [Body: complete context for THIS question — as long as it needs to be, `§FMT_CONTEXT_BLOCK`. For a rich judgment call the body IS a `§FMT_DECISION_CARD` via `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`. File references are labeled links `[name](url)` per `§FMT_FILE_LINK`, never bare URLs.]
@@ -119,7 +119,7 @@ Option **labels** lead with `§FMT_ANSWER_GRADATION` tags (`△●Ⓢ★ …`) �
 
 **Context requirement** (`¶INV_QUESTION_GATE_OVER_TEXT_GATE`): The in-body context is NOT optional. A bare A/B/C legend without explanation is a violation. The user must understand what they're deciding and why from the question body alone.
 
-**Lead-in + UI overlay**: The `AskUserQuestion` UI element overlaps the bottom of any preceding chat text. Since the context now lives in the body, at most a **one-line lead-in sentence** precedes the call — keep **ONE trailing blank line** after it so that last line stays visible above the overlay. (This replaces the old two-blank-line padding rule, which existed to protect a full context preamble that no longer sits in chat.)
+**Lead-in + UI overlay**: The `AskUserQuestion` UI element overlaps the bottom of any preceding chat text. Since the context now lives in the body, at most a **one-line lead-in sentence** precedes the call (after the ticket list, when `§INV_TICKETS_PRESENTED_BEFORE_ASKED` applies) — keep **ONE trailing blank line** after it so that last line stays visible above the overlay. (This replaces the old two-blank-line padding rule, which existed to protect a full context preamble that no longer sits in chat.)
 
 **A/B/C smart extras**: Agent-generated options based on current context — not from the tree definition. These are creative alternatives the agent thinks are relevant. Examples:
 *   During tag triage: `A: #needs-brainstorm + #needs-implementation | B: Defer to next session | C: Split into 2 items`

@@ -45,7 +45,7 @@ Record the user's choice. This sets the **minimum** — the agent can always ask
 **Constraints**:
 *   **`¶INV_QUESTION_GATE_OVER_TEXT_GATE`**: All user-facing interactions in this command MUST use `AskUserQuestion`. Never drop to bare text for questions or routing decisions.
 *   Minimum rounds are mandatory. No self-authorized skips — fire `§CMD_REFUSE_OFF_COURSE` if tempted.
-*   Between-rounds context is mandatory after Round 1 and lives IN the question body (`§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT` / `¶FMT_CONTEXT_BLOCK`), never as a separate chat block before the popup. A round whose `AskUserQuestion` body carries no in-body recap + framing is a bare question dump — the violation.
+*   Between-rounds context is mandatory after Round 1 and lives IN the question body (`§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT` / `¶FMT_CONTEXT_BLOCK`), never as a separate chat block before the popup — the ticket list `§INV_TICKETS_PRESENTED_BEFORE_ASKED` requires is the one exception. A round whose `AskUserQuestion` body carries no in-body recap + framing is a bare question dump — the violation.
 *   Every round logged to DIALOGUE.md. No unlogged rounds.
 *   Counter-questions don't count as rounds.
 *   **`¶INV_CONCISE_CHAT`**: Chat output is for user communication only — no micro-narration between rounds.
