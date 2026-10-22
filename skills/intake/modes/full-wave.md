@@ -11,7 +11,7 @@
 
 **Scope of the wave** — *new since the watermark* **plus every unresolved inbox thread** (Phase 1's sweep, pull (c)). The second half is what makes this mode the counterpart to Quick Pass: a Quick Pass triages and leaves the thread open, and a Full Wave is the pass that comes back for it. Without pull (c) the Quick Pass is a black hole.
 
-**Cost, stated up front**: pull (c) needs a **second, full** `engine project fetch` at Phase 1 (no `--since` — a delta cannot see a thread nothing has touched), and on a mature project it can hand Phase 3 a worklist far larger than the drain. Report the count and get a ruling on how much backlog this wave takes before marking the worklist; deferred threads stay unresolved, which costs nothing and re-offers them next wave.
+**Cost, stated up front**: pull (c) needs a **second, full** `engine project fetch` at Phase 1 (no `--since` — a delta cannot see a thread nothing has touched), routed through `§CMD_READ_INBOX_CHANNEL` like every other channel read, and on a mature project it can hand Phase 3 a worklist far larger than the drain. Report the count and get a ruling on how much backlog this wave takes before marking the worklist; deferred threads stay unresolved, which costs nothing and re-offers them next wave.
 
 **Deciding**: yes. Phase 4 consolidates, Phase 5 dispositions every item, Phase 6 executes.
 

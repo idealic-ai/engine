@@ -463,36 +463,47 @@ test_16_command_scopes_the_rule_to_linear_and_says_slack_is_out() {
 }
 
 # ============================================================
-# A defect found and NOT fixed — shipped against the rule, skipped.
+# Neither caller reads a channel without the command
 # ============================================================
 
-# Three further intake call sites name `engine project fetch`:
-#   skills/intake/INTAKE_SYSTEM.md · skills/intake/modes/decide.md · skills/intake/modes/full-wave.md
-# They reference the fetch's COST and delegate drain semantics to intake/SKILL.md Phase 1, so
-# they restate no vocabulary and leak nothing today. They are nevertheless channel-read call
-# sites that do not cite the command, which the chapter's "neither caller can read a channel
-# without it" reaches on a literal reading. They sit outside the file partition this build was
-# given, so they are reported rather than edited.
-#
-# UN-SKIP WHEN: the partition is extended to skills/intake/** (or the conductor brokers those
-# three files), at which point delete the skip line and this check must pass as written.
-test_17_every_intake_call_site_cites_the_command() {
-  skip "every intake call site cites ¶CMD_READ_INBOX_CHANNEL" \
-    "INTAKE_SYSTEM.md + modes/{decide,full-wave}.md are outside this build's file partition"
-  return 0
-
-  # shellcheck disable=SC2317
+# The offending set is SCANNED, never listed. A hand-written list of call sites goes stale in
+# silence because nothing executes a comment, and a list that has drifted sizes the remaining
+# work wrongly — the previous one named three files when two were offending.
+# `grep -rl` is what makes the scan safe: it emits one PATH per line, so nothing filters a
+# source line that merely mentions the fetch.
+offending_call_sites() {
   local f
-  # shellcheck disable=SC2317
-  for f in "$ENGINE_DIR/skills/intake/INTAKE_SYSTEM.md" \
-           "$ENGINE_DIR/skills/intake/modes/decide.md" \
-           "$ENGINE_DIR/skills/intake/modes/full-wave.md"; do
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
     if grep -qF 'engine project fetch' "$f" && ! grep -qF 'CMD_READ_INBOX_CHANNEL' "$f"; then
-      fail "$(basename "$f") cites ¶CMD_READ_INBOX_CHANNEL" "a citation" "none"
-    else
-      pass "$(basename "$f") cites ¶CMD_READ_INBOX_CHANNEL or names no fetch"
+      basename "$f"
     fi
-  done
+  done < <(grep -rlF 'engine project fetch' "$@" 2>/dev/null | sort)
+}
+
+test_17_no_caller_reads_a_channel_without_the_command() {
+  local scanned control_dir control offenders
+
+  # Without this the check passes when the scan matches nothing at all.
+  scanned="$(grep -rlF 'engine project fetch' "$ENGINE_DIR/skills/intake" "$ENGINE_DIR/skills/groom" 2>/dev/null | grep -c .)"
+  assert_gt "$scanned" "0" \
+    "positive control — the scan reaches the callers' channel-read call sites ($scanned files name the fetch)"
+
+  # And without this it passes when the detector has stopped being able to see an offender.
+  control_dir="$(mktemp -d)"
+  printf 'Phase 1 runs `engine project fetch` and points at nothing.\n' > "$control_dir/planted-offender.md"
+  control="$(offending_call_sites "$control_dir")"
+  rm -rf "$control_dir"
+  assert_eq "planted-offender.md" "$control" \
+    "positive control — the detector flags a planted file that names the fetch and cites nothing"
+
+  offenders="$(offending_call_sites "$ENGINE_DIR/skills/intake" "$ENGINE_DIR/skills/groom")"
+  if [ -z "$offenders" ]; then
+    pass "every channel-read call site in /intake and /groom cites ¶CMD_READ_INBOX_CHANNEL"
+  else
+    fail "every channel-read call site cites ¶CMD_READ_INBOX_CHANNEL" \
+      "no offender" "$(printf '%s' "$offenders" | tr '\n' ' ')"
+  fi
 }
 
 run_discovered_tests

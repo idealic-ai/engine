@@ -18,7 +18,7 @@ If that distinction ever stops being true, one of the three has stopped earning 
 **Phases run**: `0 → 1 (reduced) → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9`. In short: **Full Wave minus the drain.**
 
 **Phase 1 runs REDUCED, not skipped.** Something must fetch, and fetching lives in Ingest. It runs:
-*   ✅ the **full** `engine project fetch` (no `--since`) that pull (c) needs, plus pulls (a) thin triage candidates and (b) strays off that same payload;
+*   ✅ the **full** `engine project fetch` (no `--since`) that pull (c) needs, plus pulls (a) thin triage candidates and (b) strays off that same payload. The fetch and every read off it go through `§CMD_READ_INBOX_CHANNEL`, which owns the exclusion filter and the `INBOX_WALK=open-threads` walk that pull (c) reads;
 *   ✅ the **prior announce-thread drain** (`engine slack-read --thread-ts`) and its `Slack read ts` advance — decision answers, and Phase 7 reads them out of `INTAKE_DRAIN.md`;
 *   ✅ the **channel context windows** (ambient, stateless, no watermark);
 *   ❌ **not** the inbox comment drain — no new comments are appended to `INTAKE_DRAIN.md` from the inbox channels;

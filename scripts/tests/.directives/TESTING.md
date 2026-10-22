@@ -5,7 +5,7 @@ Rules for writing and maintaining tests for `engine/scripts/`. These tests use a
 ## 1. Sandbox Isolation Is Non-Negotiable
 
 *   **Rule**: Every test file must create a temp directory in `setup()` and clean it in `teardown()`. Override `HOME`, `PROJECT_ROOT`, and `PATH` to point into the sandbox. See `¶INV_TEST_SANDBOX_ISOLATION`.
-*   **Why**: Engine scripts create symlinks at `$PROJECT_ROOT/sessions` and write to `~/.claude/`. Without isolation, tests corrupt the real project and Google Drive.
+*   **Why**: Engine scripts create symlinks at `$PROJECT_ROOT/sessions` and write to `~/.claude/`. Without isolation, tests corrupt the real project and `~/.claude/data`.
 *   **Pattern**: Use `setup_fake_home` from `test-helpers.sh`:
     ```bash
     setup() {
@@ -136,3 +136,21 @@ Use `pass "msg"` and `fail "msg" [expected] [got]` for custom assertions.
     For focus tests that need the `after-select-pane` hook: `setup_test_tmux 4 true`
 *   **One-time init**: Call `setup_test_tmux` ONCE before all tests (not per-test). Use `setup()` only for state reset between tests.
 *   **Cleanup**: `trap cleanup_test_tmux EXIT` kills the test server automatically.
+
+## 10. A Skipped Assertion Names Its Offenders By Executing, Not In A Comment
+
+*   **Rule**: When a check is `skip`ped because the thing it tests is known-broken, it must not list the offending files in a prose comment. Derive the list by running the predicate over a **scanned** file set and printing what it found. The same applies to the `UN-SKIP WHEN` condition: state it as something a reader can evaluate, not as a remembered fact about the tree.
+*   **Why**: Nothing executes a comment, so the list drifts while the suite keeps reporting a clean skip. Measured here: a skip in `test-inbox-read-cmd.sh` named three files as uncited channel-read call sites; evaluating its own predicate later, two were offending and the third had since gained the citation. A reader budgeting the remaining work from that comment sizes it 50% too large, which is worse than no comment at all.
+*   **Two controls, because a scan can fail in two directions.** Assert the scan **reached** something (`assert_gt "$scanned" 0`) — otherwise the check passes when it matched no files at all — and assert the detector still **flags a planted offender** written into a `mktemp -d`. Without the second, the check passes once the detector quietly stops working.
+*   **`grep -rl`, never `grep -rn | grep -v`**: `-rn` emits `path:line:CONTENT`, so a `grep -v <word>` filter also drops any source line whose own text mentions that word. `-rl` emits one path per line and nothing else.
+*   **Removing the last offender raises the severity rather than retiring the check.** From that moment a silent check is indistinguishable from a passing one, so confirm it still reddens: plant an offender, see it fail, remove it.
+*   **Pattern**:
+    ```bash
+    offending_call_sites() {
+      local f
+      while IFS= read -r f; do
+        [ -n "$f" ] || continue
+        grep -qF 'the-thing' "$f" && ! grep -qF 'the-citation' "$f" && basename "$f"
+      done < <(grep -rlF 'the-thing' "$@" 2>/dev/null | sort)
+    }
+    ```
