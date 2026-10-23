@@ -6,7 +6,7 @@ set -euo pipefail
 # ============================================================================
 # The main entrypoint for the Claude workflow engine. Dispatches sub-commands
 # to scripts in the scripts/ directory, with built-in commands for setup,
-# mode switching, and Git operations.
+# engine relinking, and Git operations.
 #
 # Usage:
 #   engine                          Launch Claude (auto-setup if needed)
@@ -19,16 +19,12 @@ set -euo pipefail
 #   engine run [args...]            Launch Claude via run.sh
 #   engine fleet <cmd> [args...]    Fleet management (start, stop, status)
 #   engine setup [project-name]     Full project setup (symlinks, permissions, etc.)
-#   engine local                    Switch to local mode (+ Git onboarding)
-#   engine remote                   Switch engine symlinks to GDrive
-#   engine status                   Show current mode + symlink audit
+#   engine local                    Relink ~/.claude to the local engine (+ Git onboarding)
+#   engine status                   Show engine + symlink audit
 #   engine report                   Full system health report
 #   engine toc                      Show engine directory tree (~/.claude/)
 #   engine push [message]            Commit (if dirty) + push to origin
 #   engine pull                     git pull engine from origin
-#   engine deploy [opts]            Sync local engine → GDrive (rsync)
-#     --dry-run                     Report what would change; write nothing
-#     --adopt / --no-adopt          Adopt GDrive-only skills into the repo, or don't
 #   engine test [args...]           Run engine test suite
 #   engine reindex                  Rebuild doc-search + session-search DBs
 #   engine uninstall                Remove engine symlinks
@@ -40,22 +36,19 @@ set -euo pipefail
 #   (any scripts/*.sh file)
 #
 # Everything is inferred automatically:
-#   - Email and username: from the script's own GDrive path or .user.json cache
+#   - Email and username: from the .user.json cache, else git config --global user.email
 #   - Project name: from the argument, or the current directory name
-#
-# Prerequisites:
-#   - Google Drive desktop app installed and syncing
-#   - Access to the finch-os Shared Drive
+#   - User data: ~/.claude/data/<project>/{sessions,reports}, symlinked into the project
 #
 # Related:
 #   Engine docs: (~/.claude/engine/docs/)
-#     ENGINE_LIFECYCLE.md — Mode system, sync operations, Git workflow, troubleshooting
+#     ENGINE_LIFECYCLE.md — Sync operations, Git workflow, troubleshooting
 #     INVARIANTS.md — Engine-specific invariants (tmux, hooks)
 #   Shared docs: (~/.claude/docs/)
 #     ENGINE_CLI.md — CLI protocol, function signatures, migration system
 #   Invariants: (~/.claude/.directives/INVARIANTS.md)
 #     ¶INV_TEST_SANDBOX_ISOLATION — Test safety requirements
-#     ¶INV_INFER_USER_FROM_GDRIVE — Identity detection
+#     ¶INV_INFER_USER_FROM_GIT — Identity detection
 #
 # CONTRIBUTING:
 #   Before modifying this script, read ~/.claude/engine/CONTRIBUTING.md.
@@ -133,13 +126,12 @@ export ENGINE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 CLAUDE_DIR="$HOME/.claude"
 LOCAL_ENGINE="${LOCAL_ENGINE:-$HOME/.claude/engine}"
-MODE_FILE="$HOME/.claude/engine/.mode"
 ACTIONS=()
 SETUP_MARKER="$HOME/.claude/.setup-done"
 
 # ---- Global symlink helper ----
 # Relinks /usr/local/bin/engine → the given engine.sh path.
-# Called by cmd_setup, cmd_local, cmd_remote.
+# Called by cmd_setup and cmd_local.
 _relink_engine_bin() {
   local target="$1"
   if [ ! -f "$target" ]; then
@@ -196,18 +188,14 @@ LIFECYCLE COMMANDS
   setup [project]        Full project setup (symlinks, permissions, deps)
   uninstall              Remove engine symlinks and hooks
 
-MODE COMMANDS
-  local                  Switch to local engine mode (+ Git onboarding)
-  remote                 Switch engine symlinks to GDrive
-  status                 Show current mode + symlink audit
+ENGINE COMMANDS
+  local                  Relink ~/.claude to the local engine (+ Git onboarding)
+  status                 Show engine + symlink audit
   report                 Full system health report
 
 GIT COMMANDS
   push [message]         Commit (if dirty) + push engine to origin
   pull                   git pull engine from origin
-  deploy [--dry-run]     Sync local engine → GDrive. skills/ is protected from --delete;
-         [--adopt]       GDrive-only skills are reported and offered for adoption.
-         [--no-adopt]    Retire a path for real by listing it in deploy-tombstones.txt.
 
 TESTING & DIAGNOSTICS
   test [--grep P] [args] Run engine test suite (--grep filters by pattern)
@@ -261,16 +249,9 @@ CREDENTIALS & ENVIRONMENT
     setup [--domain <name>]       Fill what is missing: fetch what can be fetched, prompt only
                                   for what a person must obtain. WITH NO --domain it walks
                                   every domain, so a newcomer need not know which they are.
-    setup --aws-key <path>        Install a delivered agent key, verify it, and shred the file.
     resolve <KEY> [--show-value]  Say WHERE a credential resolves from. The value is withheld
                                   unless asked for, so the default is safe in a screenshare.
     env-example [--domain <name>] Print the manifest-derived .env.example.
-    provision --tier <triage|member> [--person <n>] [--apply] [--reconcile]
-                                  Mint someone's agent account: IAM user + policy DERIVED FROM
-                                  THE MANIFEST, app login, and the app row that makes it real.
-                                  Dry-run by default; --apply reads a typed confirmation that
-                                  no flag can supply. --reconcile re-derives an existing grant
-                                  and shows the difference before changing anything.
 
 LINEAR DATA
   project <cmd>          Linear project data (read-only GraphQL; needs LINEAR_API_KEY)
@@ -313,8 +294,8 @@ UTILITIES
   config <cmd>           Session state management (.state.json)
     get <key>                 Read a config value
     set <key> <value>         Write a config value
-  user-info <cmd>        User identity detection
-    username | email | json
+  user-info <cmd>        User identity (.user.json cache, else git user.email)
+    username | email | domain | json | data-root
   research <file>        Gemini Deep Research API wrapper (stdin-based)
   rewrite <in> <out>     Gemini 3 Pro document rewriter (stdin instructions)
   await-tag <file> '#tag'  Block until tag appears (fswatch)
@@ -486,26 +467,20 @@ source "$SCRIPT_DIR/setup-lib.sh"
 source "$SCRIPT_DIR/setup-migrations.sh"
 source "$SCRIPT_DIR/lib.sh"
 
-# Extract email from GDrive mount path or cache
-EMAIL=$(echo "$SCRIPT_DIR" | grep -o 'GoogleDrive-[^/]*' | sed 's/GoogleDrive-//' || true)
-if [ -z "$EMAIL" ]; then
-  USER_INFO_SCRIPT="$HOME/.claude/scripts/user-info.sh"
-  if [ -x "$USER_INFO_SCRIPT" ]; then
-    EMAIL=$("$USER_INFO_SCRIPT" email 2>/dev/null || true)
-  fi
+# Identity: .user.json cache, else git config --global user.email (see user-info.sh)
+EMAIL=""
+USER_INFO_SCRIPT="$HOME/.claude/scripts/user-info.sh"
+[ -x "$USER_INFO_SCRIPT" ] || USER_INFO_SCRIPT="$SCRIPT_DIR/user-info.sh"
+if [ -x "$USER_INFO_SCRIPT" ]; then
+  EMAIL=$("$USER_INFO_SCRIPT" email 2>/dev/null || true)
 fi
-if [ -z "$EMAIL" ]; then
-  echo "ERROR: Could not infer email from script path or user-info.sh."
-  echo "Expected script to live under ~/Library/CloudStorage/GoogleDrive-<email>/..."
-  echo "Or run 'engine setup' first to cache identity."
+if [ -z "$EMAIL" ] || [ "$EMAIL" = "null" ]; then
+  echo "ERROR: Could not determine your identity."
+  echo "  Set it with: git config --global user.email you@example.com"
   exit 1
 fi
 
 USER_NAME="${EMAIL%%@*}"
-
-# Engine path constants
-GDRIVE_ENGINE="${GDRIVE_ENGINE:-$HOME/Library/CloudStorage/GoogleDrive-$EMAIL/Shared drives/finch-os/engine}"
-GDRIVE_ROOT="$HOME/Library/CloudStorage/GoogleDrive-$EMAIL/Shared drives/finch-os"
 
 log_verbose "User: $USER_NAME ($EMAIL)"
 
@@ -514,11 +489,12 @@ log_verbose "User: $USER_NAME ($EMAIL)"
 # ============================================================================
 
 cmd_local() {
-  local PROJECT_NAME="${1:-$(basename "$(pwd)")}"
+  local project_root="${PROJECT_ROOT:-$(pwd)}"
+  local PROJECT_NAME="${1:-$(basename "$project_root")}"
 
   if [ ! -d "$LOCAL_ENGINE" ]; then
     echo "ERROR: Local engine not found at $LOCAL_ENGINE"
-    echo "Run 'engine pull' first to copy engine from GDrive."
+    echo "Clone the engine there first: git clone <repo-url> $LOCAL_ENGINE"
     exit 1
   fi
 
@@ -536,7 +512,7 @@ cmd_local() {
 
     if [ -z "$repo_url" ]; then
       echo "Enter the Git repository URL for the engine:"
-      echo "  (e.g., git@github.com:finch-os/engine.git)"
+      echo "  (e.g., git@github.com:<org>/engine.git)"
       printf "  URL: "
       read -r repo_url
       if [ -z "$repo_url" ]; then
@@ -594,8 +570,7 @@ USERJSON
     fi
   fi
 
-  echo "local" > "$MODE_FILE"
-  echo "Switching to local mode..."
+  echo "Linking ~/.claude to the local engine..."
   log_verbose "Engine: $LOCAL_ENGINE"
   setup_engine_symlinks "$LOCAL_ENGINE" "$CLAUDE_DIR"
 
@@ -621,124 +596,31 @@ USERJSON
     done
   fi
 
-  # Ensure sessions/ and reports/ exist via project-local .claude/ storage
-  local project_root
-  project_root="$(pwd)"
-  local local_sessions="$project_root/.claude/sessions"
-  local local_reports="$project_root/.claude/reports"
-  local sessions_link="$project_root/sessions"
-  local reports_link="$project_root/reports"
-
-  if [ ! -d "$GDRIVE_ROOT" ] 2>/dev/null; then
-    # GDrive unavailable: create project-local dirs + symlinks
-    mkdir -p "$local_sessions" "$local_reports"
-
-    # Fix or create sessions/ symlink
-    if [ -L "$sessions_link" ] && [ ! -e "$sessions_link" ]; then
-      echo "  sessions/ symlink is broken (GDrive not accessible). Relinking to .claude/sessions..."
-      rm "$sessions_link"
-      ln -s "$local_sessions" "$sessions_link"
-      ACTIONS+=("Relinked sessions/ → .claude/sessions (GDrive unavailable)")
-    elif [ ! -e "$sessions_link" ]; then
-      echo "  Creating sessions/ → .claude/sessions..."
-      ln -s "$local_sessions" "$sessions_link"
-      ACTIONS+=("Linked sessions/ → .claude/sessions")
-    fi
-
-    # Fix or create reports/ symlink
-    if [ -L "$reports_link" ] && [ ! -e "$reports_link" ]; then
-      echo "  reports/ symlink is broken (GDrive not accessible). Relinking to .claude/reports..."
-      rm "$reports_link"
-      ln -s "$local_reports" "$reports_link"
-      ACTIONS+=("Relinked reports/ → .claude/reports (GDrive unavailable)")
-    elif [ ! -e "$reports_link" ]; then
-      echo "  Creating reports/ → .claude/reports..."
-      ln -s "$local_reports" "$reports_link"
-      ACTIONS+=("Linked reports/ → .claude/reports")
-    fi
-  else
-    # GDrive available: ensure sessions/ exists (may be real dir or symlink)
-    local sessions_dir="$project_root/sessions"
-    if [ ! -e "$sessions_dir" ]; then
-      echo "  Creating local sessions/ directory..."
-      mkdir -p "$sessions_dir"
-      ACTIONS+=("Created local sessions/ directory")
-    fi
+  # Link sessions/ and reports/ to the local data dir
+  if [ "$project_root" != "$HOME" ] && [ "$project_root" != "/" ]; then
+    link_project_data_dirs "$project_root" "$PROJECT_NAME"
   fi
 
-  # Bootstrap search DBs: copy from GDrive if available, otherwise auto-index
-  # Resolve the actual sessions dir (follows symlink or uses real dir)
+  # Search DBs are not seeded: they build on first query, or on `engine reindex`.
   local resolved_sessions_dir="$project_root/sessions"
   if [ -L "$resolved_sessions_dir" ]; then
     resolved_sessions_dir="$(readlink "$resolved_sessions_dir")"
   fi
-  # Seed the LOCAL cache, not sessions/ — the tools read the local path now
-  # (see scripts/search-db-lib.sh). Seeding sessions/ would plant a file that
-  # nothing reads and that syncs to Drive on every write.
   source "$SCRIPT_DIR/search-db-lib.sh"
   local doc_db session_db
   doc_db=$(search_db_local_path ".doc-search.db" "$resolved_sessions_dir")
   session_db=$(search_db_local_path ".session-search.db" "$resolved_sessions_dir")
-  mkdir -p "$(dirname "$doc_db")" "$(dirname "$session_db")" 2>/dev/null || true
-
-  if [ -d "$GDRIVE_ROOT" ] 2>/dev/null; then
-    local gdrive_sessions="$GDRIVE_ROOT/$USER_NAME/$PROJECT_NAME/sessions"
-    local gdrive_doc_db="$gdrive_sessions/.doc-search.db"
-    local gdrive_session_db="$gdrive_sessions/.session-search.db"
-    local gdrive_tool_doc_db="$GDRIVE_ENGINE/tools/doc-search/.doc-search.db"
-
-    # Seed ONLY when there is no local DB yet. `cp_if_different` skips solely on
-    # source/destination inode identity — which used to hold (sessions/ symlinks
-    # into this very Drive folder) but can never hold for a cache destination.
-    # Unguarded, the seed would fire on every run and overwrite a current local
-    # index with whatever was last uploaded to Drive.
-    if [ ! -f "$doc_db" ]; then
-      if [ -f "$gdrive_doc_db" ]; then
-        cp_if_different "$gdrive_doc_db" "$doc_db" "doc-search DB from GDrive sessions/"
-      elif [ -f "$gdrive_tool_doc_db" ]; then
-        cp_if_different "$gdrive_tool_doc_db" "$doc_db" "doc-search DB from GDrive tool dir"
-      fi
-    fi
-
-    if [ ! -f "$session_db" ] && [ -f "$gdrive_session_db" ]; then
-      cp_if_different "$gdrive_session_db" "$session_db" "session-search DB from GDrive"
-    fi
-  else
-    echo "  GDrive not accessible. Search DBs will be empty until indexed."
-    echo "  Run: doc-search.sh index && session-search.sh index"
+  if [ ! -f "$doc_db" ] || [ ! -f "$session_db" ]; then
+    echo "  Search DBs will be empty until indexed."
+    echo "  Run: engine reindex"
   fi
 
   # Relink /usr/local/bin/engine → local engine
   _relink_engine_bin "$LOCAL_ENGINE/scripts/engine.sh"
 
   echo ""
-  echo "Done. Mode: local"
+  echo "Done."
   echo "  Engine: $LOCAL_ENGINE"
-  if [ ${#ACTIONS[@]} -gt 0 ]; then
-    for action in "${ACTIONS[@]}"; do echo "  - $action"; done
-  fi
-}
-
-cmd_remote() {
-  local engine_dir
-  engine_dir=$(resolve_engine_dir "remote" "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$SCRIPT_DIR")
-  if [ -z "$engine_dir" ] || [ ! -d "$engine_dir/skills" ]; then
-    echo "ERROR: GDrive engine not found."
-    echo "Expected at: $GDRIVE_ENGINE"
-    echo "Is Google Drive running and syncing?"
-    exit 1
-  fi
-  echo "remote" > "$MODE_FILE"
-  echo "Switching to remote mode..."
-  log_verbose "Engine: $engine_dir"
-  setup_engine_symlinks "$engine_dir" "$CLAUDE_DIR"
-
-  # Relink /usr/local/bin/engine → GDrive engine
-  _relink_engine_bin "$engine_dir/scripts/engine.sh"
-
-  echo ""
-  echo "Done. Mode: remote"
-  echo "  Engine: $engine_dir"
   if [ ${#ACTIONS[@]} -gt 0 ]; then
     for action in "${ACTIONS[@]}"; do echo "  - $action"; done
   fi
@@ -874,348 +756,26 @@ cmd_push() {
   fi
 }
 
-# ---- Deploy: skill protection, orphan adoption, tombstones ----
-#
-# The GDrive engine copy is writable and people author skills directly on it, so it is
-# downstream of every clone and upstream of none. `rsync --delete` therefore protects
-# everything under these roots: a path present on GDrive but not in the clone survives, and
-# deploy offers to adopt it into the repo instead. deploy-tombstones.txt is the exemption
-# list for paths retired on purpose.
-DEPLOY_PROTECTED_ROOTS=(skills)
-DEPLOY_TOMBSTONE_BASENAME="deploy-tombstones.txt"
-
-# Reads the tombstone file and emits `path<TAB>date<TAB>reason` for each entry it trusts.
-# A tombstone is the only thing that can delete from a protected root, so a line that fails
-# validation is dropped with a warning on stderr rather than interpreted generously.
-deploy_read_tombstones() {
-  local file="$1"
-  [ -f "$file" ] || return 0
-
-  local line path date reason lineno=0
-  while IFS= read -r line || [ -n "$line" ]; do
-    lineno=$((lineno + 1))
-    line="${line%$'\r'}"
-    # Skip blank lines and comments.
-    case "${line#"${line%%[![:space:]]*}"}" in
-      ''|'#'*) continue ;;
-    esac
-
-    read -r path date reason <<< "$line"
-
-    local bad=""
-    if [ -z "$path" ]; then
-      bad="empty path"
-    elif [ "${path#/}" != "$path" ] || [ "${path#\~}" != "$path" ]; then
-      bad="path must be relative to the engine root"
-    elif [ "${path%/}" != "$path" ]; then
-      bad="path must not end in /"
-    elif case "$path" in *..*) true ;; *) false ;; esac; then
-      bad="path must not contain .."
-    elif [ "$path" = "." ] || [ "${path#./}" != "$path" ]; then
-      bad="path must not start with ./"
-    elif ! printf '%s' "$date" | grep -Eq '^[0-9]{4}-[0-9]{2}-[0-9]{2}$'; then
-      bad="second field must be a YYYY-MM-DD retirement date"
-    else
-      # Tombstoning a protected root itself would un-protect everything beneath it and
-      # restore the destructive behaviour this whole mechanism exists to stop.
-      local root
-      for root in ${DEPLOY_PROTECTED_ROOTS[@]+"${DEPLOY_PROTECTED_ROOTS[@]}"}; do
-        if [ "$path" = "$root" ]; then
-          bad="cannot retire the protected root '$root' itself"
-          break
-        fi
-      done
-    fi
-
-    if [ -n "$bad" ]; then
-      echo "  WARNING: ignoring $DEPLOY_TOMBSTONE_BASENAME line $lineno — $bad: $line" >&2
-      continue
-    fi
-
-    printf '%s\t%s\t%s\n' "$path" "$date" "$reason"
-  done < "$file"
-}
-
-# Emits rsync filter arguments, one per line. Risk rules come first because rsync applies the
-# first matching rule, so a tombstoned path must un-protect itself before the blanket protect
-# rule for its root can catch it.
-deploy_rsync_filters() {
-  local tombstone_file="$1"; shift
-  local path root
-
-  while IFS=$'\t' read -r path _ _; do
-    [ -n "$path" ] || continue
-    printf -- '--filter=R %s\n' "$path"
-    printf -- '--filter=R %s/***\n' "$path"
-  done < <(deploy_read_tombstones "$tombstone_file" 2>/dev/null)
-
-  for root in "$@"; do
-    printf -- '--filter=P %s/**\n' "$root"
-  done
-}
-
-# Emits paths that exist on GDrive but not in the local tree, one per line.
-# Compares only the immediate children of each protected root — one directory read per root,
-# not a tree walk — because the Drive mount stalls for minutes on deep enumeration.
-# Dot-entries are skipped, so Finder droppings like .DS_Store never surface as orphans.
-deploy_find_orphans() {
-  local lroot="$1" groot="$2"; shift 2
-  local sub entry name
-
-  for sub in "$@"; do
-    [ -d "$groot/$sub" ] || continue
-    for entry in "$groot/$sub"/*; do
-      [ -e "$entry" ] || continue
-      name="$(basename "$entry")"
-      [ -e "$lroot/$sub/$name" ] && continue
-      printf '%s/%s\n' "$sub" "$name"
-    done
-  done
-}
-
-# Copies one GDrive-only path into the local tree and stages it. Never overwrites.
-deploy_adopt_path() {
-  local lroot="$1" groot="$2" rel="$3"
-
-  if [ -e "$lroot/$rel" ]; then
-    echo "    skipped $rel — already present locally."
-    return 1
-  fi
-  mkdir -p "$(dirname "$lroot/$rel")"
-  if ! cp -a "$groot/$rel" "$lroot/$rel"; then
-    echo "    ERROR: could not copy $rel into $lroot"
-    return 1
-  fi
-
-  if git -C "$lroot" rev-parse --git-dir >/dev/null 2>&1; then
-    if git -C "$lroot" add -- "$rel" >/dev/null 2>&1; then
-      echo "    adopted $rel → $lroot/$rel (staged)"
-    else
-      echo "    adopted $rel → $lroot/$rel (copied; git add failed — stage it yourself)"
-    fi
-  else
-    echo "    adopted $rel → $lroot/$rel (copied; $lroot is not a git repo)"
-  fi
-  return 0
-}
-
-cmd_deploy() {
-  local dry_run=false adopt_mode=ask
-
-  while [ $# -gt 0 ]; do
-    case "$1" in
-      --dry-run|-n) dry_run=true; shift ;;
-      --adopt)      adopt_mode=always; shift ;;
-      --no-adopt)   adopt_mode=never; shift ;;
-      *)
-        echo "ERROR: unknown option for deploy: $1"
-        echo "Usage: engine deploy [--dry-run] [--adopt|--no-adopt]"
-        exit 1
-        ;;
-    esac
-  done
-
-  if [ ! -d "$LOCAL_ENGINE" ]; then
-    echo "ERROR: Local engine not found at $LOCAL_ENGINE"
-    echo "Nothing to deploy."
-    exit 1
-  fi
-  if [ ! -d "$(dirname "$GDRIVE_ENGINE")" ]; then
-    echo "ERROR: GDrive path not accessible."
-    echo "Expected at: $(dirname "$GDRIVE_ENGINE")"
-    echo "Is Google Drive running and syncing?"
-    exit 1
-  fi
-
-  echo "Deploying local engine → GDrive$([ "$dry_run" = true ] && echo ' (dry run — nothing will be written)')"
-  echo "  Local:  $LOCAL_ENGINE"
-  echo "  GDrive: $GDRIVE_ENGINE"
-  echo ""
-
-  local tombstone_file="$LOCAL_ENGINE/$DEPLOY_TOMBSTONE_BASENAME"
-
-  # ---- Tombstones: what deploy will delete, said before it deletes it ----
-  local tomb_paths=() tomb_lines=() tpath tdate treason
-  while IFS=$'\t' read -r tpath tdate treason; do
-    [ -n "$tpath" ] || continue
-    tomb_paths+=("$tpath")
-    tomb_lines+=("$tpath|$tdate|$treason")
-  done < <(deploy_read_tombstones "$tombstone_file")
-
-  local present_tombs=() line
-  for line in ${tomb_lines[@]+"${tomb_lines[@]}"}; do
-    tpath="${line%%|*}"
-    if [ -e "$GDRIVE_ENGINE/$tpath" ]; then
-      present_tombs+=("$line")
-    fi
-  done
-
-  if [ ${#present_tombs[@]} -gt 0 ]; then
-    echo "Retired paths present on GDrive — deploy WILL DELETE these:"
-    for line in "${present_tombs[@]}"; do
-      tpath="${line%%|*}"; local rest="${line#*|}"
-      tdate="${rest%%|*}"; treason="${rest#*|}"
-      echo "  - $tpath  (retired $tdate) $treason"
-    done
-    echo "  Listed in $tombstone_file — delete a line there to keep the path instead."
-    echo ""
-  fi
-
-  # ---- Orphans: on GDrive, not in the clone. Protected from --delete, offered for adoption ----
-  local orphans=() orphan is_tomb
-  while IFS= read -r orphan; do
-    [ -n "$orphan" ] || continue
-    is_tomb=false
-    for tpath in ${tomb_paths[@]+"${tomb_paths[@]}"}; do
-      [ "$tpath" = "$orphan" ] && { is_tomb=true; break; }
-    done
-    [ "$is_tomb" = true ] && continue
-    orphans+=("$orphan")
-  done < <(deploy_find_orphans "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "${DEPLOY_PROTECTED_ROOTS[@]}")
-
-  if [ ${#orphans[@]} -gt 0 ]; then
-    echo "On GDrive but not in your clone — deploy will KEEP these (not delete them):"
-    for orphan in "${orphans[@]}"; do
-      echo "  - $orphan"
-    done
-    echo ""
-
-    if [ "$dry_run" = true ]; then
-      echo "  Dry run: not offering adoption."
-      echo ""
-    elif [ "$adopt_mode" = never ]; then
-      echo "  --no-adopt: leaving them on GDrive, unadopted."
-      echo ""
-    elif [ "$adopt_mode" = always ]; then
-      echo "  Adopting into $LOCAL_ENGINE:"
-      for orphan in "${orphans[@]}"; do
-        if deploy_adopt_path "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$orphan"; then
-          ACTIONS+=("Adopted $orphan from GDrive into $LOCAL_ENGINE")
-        fi
-      done
-      echo ""
-    elif [ -t 0 ]; then
-      # Adoption writes into the user's repo, so it is never automatic.
-      for orphan in "${orphans[@]}"; do
-        printf "  Adopt %s into %s? [y/N] " "$orphan" "$LOCAL_ENGINE"
-        local answer=""
-        read -r answer
-        case "$answer" in
-          y|Y|yes|YES)
-            if deploy_adopt_path "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$orphan"; then
-              ACTIONS+=("Adopted $orphan from GDrive into $LOCAL_ENGINE")
-            fi
-            ;;
-          *) echo "    left on GDrive, not adopted." ;;
-        esac
-      done
-      echo ""
-    else
-      echo "  Not adopted — this deploy is not interactive, and adoption writes into your repo."
-      echo "  The GDrive copies are kept. To bring them in, run 'engine deploy' from a terminal"
-      echo "  or 'engine deploy --adopt'. If a path is retired on purpose, add it to"
-      echo "  $tombstone_file."
-      echo ""
-    fi
-  fi
-
-  # ---- Backup ----
-  # Copy first, swap second. The old backup must survive a copy that fails or is interrupted,
-  # which a plain `rm -rf .bak; cp -a` does not — the copy takes minutes over the Drive mount.
-  if [ -d "$GDRIVE_ENGINE" ] && [ "$dry_run" = false ]; then
-    echo "Backing up GDrive → ${GDRIVE_ENGINE}.bak"
-    rm -rf "${GDRIVE_ENGINE}.bak.new"
-    if cp -a "$GDRIVE_ENGINE" "${GDRIVE_ENGINE}.bak.new"; then
-      rm -rf "${GDRIVE_ENGINE}.bak"
-      mv "${GDRIVE_ENGINE}.bak.new" "${GDRIVE_ENGINE}.bak"
-      ACTIONS+=("Backed up $GDRIVE_ENGINE → ${GDRIVE_ENGINE}.bak")
-    else
-      rm -rf "${GDRIVE_ENGINE}.bak.new"
-      echo "ERROR: backup failed. Refusing to deploy without one."
-      exit 1
-    fi
-  fi
-
-  # ---- Sync ----
-  local filters=()
-  while IFS= read -r line; do
-    [ -n "$line" ] || continue
-    filters+=("$line")
-  done < <(deploy_rsync_filters "$tombstone_file" "${DEPLOY_PROTECTED_ROOTS[@]}")
-
-  echo "Syncing local engine → GDrive..."
-  local rsync_out rsync_rc=0
-  local dry_args=()
-  [ "$dry_run" = true ] && dry_args=(--dry-run)
-
-  rsync_out=$(rsync -a --delete --itemize-changes \
-    ${dry_args[@]+"${dry_args[@]}"} \
-    ${filters[@]+"${filters[@]}"} \
-    --exclude='.git' \
-    --exclude='.mode' \
-    --exclude='.user.json' \
-    --exclude='.bak' \
-    --exclude='node_modules' \
-    "$LOCAL_ENGINE/" "$GDRIVE_ENGINE/" 2>&1) || rsync_rc=$?
-
-  if [ "$rsync_rc" -ne 0 ]; then
-    echo "ERROR: rsync failed (exit $rsync_rc)."
-    echo "$rsync_out"
-    exit "$rsync_rc"
-  fi
-
-  # rsync reports each removal as it makes it. Outside the protected roots that is the only
-  # notice a deletion gets, so surface it rather than swallowing the transfer log.
-  local deleted
-  # openrsync (the rsync macOS ships) prints each removal twice, so collapse repeats.
-  deleted=$(printf '%s\n' "$rsync_out" | grep '^\*deleting' \
-    | sed 's/^\*deleting  *//' | awk '!seen[$0]++ { print "  - " $0 }' || true)
-  if [ -n "$deleted" ]; then
-    echo ""
-    echo "Deleted from GDrive:"
-    echo "$deleted"
-  fi
-
-  ACTIONS+=("Deployed $LOCAL_ENGINE → $GDRIVE_ENGINE (no .git)")
-  echo ""
-  if [ "$dry_run" = true ]; then
-    echo "Dry run complete. Nothing was written."
-  else
-    echo "Done. GDrive engine updated from local (no .git deployed)."
-  fi
-  echo "  Engine: $GDRIVE_ENGINE"
-  echo "  Backup: ${GDRIVE_ENGINE}.bak"
-  echo "  Protected from --delete: ${DEPLOY_PROTECTED_ROOTS[*]}"
-  if [ ${#ACTIONS[@]} -gt 0 ]; then
-    for action in "${ACTIONS[@]}"; do echo "  - $action"; done
-  fi
-}
-
 cmd_status() {
-  local mode
-  mode=$(current_mode "$MODE_FILE")
   local engine_dir
-  engine_dir=$(resolve_engine_dir "$mode" "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$SCRIPT_DIR")
+  engine_dir=$(resolve_engine_dir "$LOCAL_ENGINE" "$SCRIPT_DIR")
 
-  echo "Engine Mode Status"
-  echo "=================="
+  echo "Engine Status"
+  echo "============="
   echo ""
-  echo "Mode:          $mode"
   echo "Local engine:  $LOCAL_ENGINE $([ -d "$LOCAL_ENGINE" ] && echo '✓' || echo '✗ (not found)')"
-  echo "GDrive engine: $GDRIVE_ENGINE $([ -d "$GDRIVE_ENGINE" ] && echo '✓' || echo '✗ (not accessible)')"
   echo "Active engine: ${engine_dir:-(ERROR: could not resolve)}"
+  echo "Data root:     $HOME/.claude/data"
   echo ""
 
   # Symlink audit
-  local local_count=0 gdrive_count=0 broken_count=0 other_count=0
+  local local_count=0 broken_count=0 other_count=0
   for link in "$CLAUDE_DIR"/{standards,agents,tools} "$CLAUDE_DIR/scripts"/* "$CLAUDE_DIR/hooks"/* "$CLAUDE_DIR/skills"/*; do
     [ -L "$link" ] || continue
     local target
     target=$(readlink "$link")
     if [ ! -e "$link" ]; then
       broken_count=$((broken_count + 1))
-    elif [[ "$target" == *"GoogleDrive"* ]] || [[ "$target" == *"CloudStorage"* ]]; then
-      gdrive_count=$((gdrive_count + 1))
     elif [[ "$target" == "$LOCAL_ENGINE"* ]] || [[ "$target" == *"/.claude/engine/"* ]]; then
       local_count=$((local_count + 1))
     else
@@ -1225,24 +785,19 @@ cmd_status() {
 
   echo "Symlinks:"
   echo "  Local:  $local_count"
-  echo "  GDrive: $gdrive_count"
   echo "  Broken: $broken_count"
   [ "$other_count" -gt 0 ] && echo "  Other:  $other_count"
   echo ""
 
-  if [ "$mode" = "local" ] && [ "$gdrive_count" -gt 0 ]; then
-    echo "⚠️  Mode is 'local' but $gdrive_count symlinks still point to GDrive."
-    echo "   Run 'engine local' to fix."
-  elif [ "$mode" = "remote" ] && [ "$local_count" -gt 0 ]; then
-    echo "⚠️  Mode is 'remote' but $local_count symlinks still point to local engine."
-    echo "   Run 'engine remote' to fix."
-  elif [ "$broken_count" -gt 0 ]; then
+  if [ "$broken_count" -gt 0 ]; then
     echo "⚠️  $broken_count broken symlinks detected."
-    echo "   Run 'engine $mode' to fix."
+    echo "   Run 'engine local' to fix."
+  elif [ "$other_count" -gt 0 ]; then
+    echo "⚠️  $other_count symlinks point outside the local engine."
+    echo "   Run 'engine local' to relink them."
   else
-    echo "✓ All symlinks consistent with mode."
+    echo "✓ All symlinks point at the local engine."
   fi
-
   echo ""
   echo "Dependencies:"
   local dep_ok=true
@@ -1262,7 +817,6 @@ cmd_status() {
   echo ""
   echo "Backups:"
   [ -d "${LOCAL_ENGINE}.bak" ] && echo "  Local:  ${LOCAL_ENGINE}.bak ✓" || echo "  Local:  (none)"
-  [ -d "${GDRIVE_ENGINE}.bak" ] && echo "  GDrive: ${GDRIVE_ENGINE}.bak ✓" || echo "  GDrive: (none)"
 }
 
 cmd_test() {
@@ -1442,9 +996,8 @@ cmd_uninstall() {
 }
 
 cmd_report() {
-  # ---- Resolve ENGINE_DIR based on current mode ----
   local ENGINE_DIR
-  ENGINE_DIR=$(resolve_engine_dir "$(current_mode "$MODE_FILE")" "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$SCRIPT_DIR")
+  ENGINE_DIR=$(resolve_engine_dir "$LOCAL_ENGINE" "$SCRIPT_DIR")
 
   local PROJECT_ROOT
   PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
@@ -1452,7 +1005,6 @@ cmd_report() {
   echo "Workflow Engine Status"
   echo "======================"
   echo ""
-  echo "Mode: $(current_mode "$MODE_FILE")"
   echo "User: $USER_NAME ($EMAIL)"
   echo "Engine: $ENGINE_DIR"
   echo ""
@@ -1546,14 +1098,14 @@ cmd_report() {
   if [ -L "$PROJECT_ROOT/sessions" ]; then
     echo "  sessions/: $(readlink "$PROJECT_ROOT/sessions")"
   elif [ -d "$PROJECT_ROOT/sessions" ]; then
-    echo "  sessions/: local directory (not linked to GDrive)"
+    echo "  sessions/: real directory (not linked to ~/.claude/data)"
   else
     echo "  sessions/: MISSING"
   fi
   if [ -L "$PROJECT_ROOT/reports" ]; then
     echo "  reports/: $(readlink "$PROJECT_ROOT/reports")"
   elif [ -d "$PROJECT_ROOT/reports" ]; then
-    echo "  reports/: local directory (not linked to GDrive)"
+    echo "  reports/: real directory (not linked to ~/.claude/data)"
   else
     echo "  reports/: MISSING"
   fi
@@ -1618,7 +1170,7 @@ cmd_setup() {
   set -- "${setup_args[@]+"${setup_args[@]}"}"
 
   local ENGINE_DIR
-  ENGINE_DIR=$(resolve_engine_dir "$(current_mode "$MODE_FILE")" "$LOCAL_ENGINE" "$GDRIVE_ENGINE" "$SCRIPT_DIR")
+  ENGINE_DIR=$(resolve_engine_dir "$LOCAL_ENGINE" "$SCRIPT_DIR")
 
   if [ -z "$ENGINE_DIR" ] || [ ! -d "$ENGINE_DIR/skills" ]; then
     echo "ERROR: Engine not found."
@@ -1629,22 +1181,8 @@ cmd_setup() {
   local PROJECT_NAME="${1:-$(basename "$(pwd)")}"
   local PROJECT_ROOT="${PROJECT_ROOT:-$(pwd)}"
 
-  # Resolve where sessions/reports live:
-  #   - Remote mode: GDrive path (via ENGINE_DIR parent)
-  #   - Local mode + GDrive available: GDrive path
-  #   - Local mode + GDrive unavailable: project-local .claude/ directory
-  local GDRIVE_ROOT_RESOLVED
-  local USE_LOCAL_STORAGE=false
-  if [ "$(current_mode "$MODE_FILE")" = "local" ]; then
-    if [ -d "$GDRIVE_ROOT" ] 2>/dev/null; then
-      GDRIVE_ROOT_RESOLVED="$GDRIVE_ROOT"
-    else
-      USE_LOCAL_STORAGE=true
-      GDRIVE_ROOT_RESOLVED="$PROJECT_ROOT/.claude"
-    fi
-  else
-    GDRIVE_ROOT_RESOLVED="$(dirname "$ENGINE_DIR")"
-  fi
+  local DATA_DIR
+  DATA_DIR=$(project_data_dir "$PROJECT_NAME")
 
   log_verbose "Engine: $ENGINE_DIR"
   log_verbose "Project: $PROJECT_ROOT"
@@ -1662,19 +1200,12 @@ cmd_setup() {
 
   # Confirmation prompt (skip with --yes)
   if [ "$AUTO_YES" != true ]; then
-    local storage_desc
-    if [ "$USE_LOCAL_STORAGE" = true ]; then
-      storage_desc="project-local (.claude/sessions)"
-    else
-      storage_desc="GDrive ($GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME)"
-    fi
     echo ""
     echo "About to set up workflow engine:"
     echo "  Project:  $PROJECT_NAME"
     echo "  Path:     $PROJECT_ROOT"
     echo "  Engine:   $ENGINE_DIR"
-    echo "  Mode:     $(current_mode "$MODE_FILE")"
-    echo "  Storage:  $storage_desc"
+    echo "  Storage:  $DATA_DIR"
     echo ""
     echo "This will create symlinks, configure settings, and set up session directories."
     echo ""
@@ -1716,17 +1247,8 @@ cmd_setup() {
 
   # ---- Step 1: Create session/report directories ----
   log_step "Step 1: Create session/report directories"
-  local SESSION_DIR REPORTS_DIR
-  if [ "$USE_LOCAL_STORAGE" = true ]; then
-    # Local mode without GDrive: store directly under project/.claude/
-    SESSION_DIR="$PROJECT_ROOT/.claude/sessions"
-    REPORTS_DIR="$PROJECT_ROOT/.claude/reports"
-    log_verbose "Using project-local storage (GDrive unavailable)"
-  else
-    # GDrive available: store under GDrive user/project path
-    SESSION_DIR="$GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME/sessions"
-    REPORTS_DIR="$GDRIVE_ROOT_RESOLVED/$USER_NAME/$PROJECT_NAME/reports"
-  fi
+  local SESSION_DIR="$DATA_DIR/sessions"
+  local REPORTS_DIR="$DATA_DIR/reports"
   if [ ! -d "$SESSION_DIR" ]; then
     log_verbose "sessions/: creating $SESSION_DIR"
     mkdir -p "$SESSION_DIR"
@@ -1768,8 +1290,7 @@ cmd_setup() {
 
   # ---- Step 3: Project-level symlinks (sessions + reports) ----
   log_step "Step 3: Project symlinks"
-  link_project_dir "$SESSION_DIR" "$PROJECT_ROOT/sessions" "./sessions"
-  link_project_dir "$REPORTS_DIR" "$PROJECT_ROOT/reports" "./reports"
+  link_project_data_dirs "$PROJECT_ROOT" "$PROJECT_NAME"
 
   # ---- Step 4: Create project directives stub ----
   log_step "Step 4: Project directives"
@@ -1815,7 +1336,7 @@ cmd_setup() {
       | jq -r -s '[.[] | (.credentials // .rows // [])[]]
                   | map(select((.check.type // "") == "binary" and (.install // "") != ""))
                   | unique_by(.check.name)[]
-                  | "\(.check.name)\u001f\(.install)"' 2>/dev/null)
+                  | "\(.check.name)\u001f\(.install)"' 2>/dev/null) || _bin_rows=""
     if [ -n "$_bin_rows" ]; then
       while IFS=$'\037' read -r _bname _bcmd; do
         [ -n "$_bname" ] || continue
@@ -1855,7 +1376,7 @@ A typical session contains:
 - **Debrief** (e.g. `IMPLEMENTATION.md`, `BRAINSTORM.md`) — Final summary with outcomes, deviations, and next steps
 - **DIALOGUE.md** — Verbatim Q&A and free-form chat capture from sessions
 
-Sessions are stored on Google Drive and symlinked into each project. Browse anyone's sessions from the Shared Drive.
+Sessions are stored under `~/.claude/data/<project>/sessions` and symlinked into each project.
 SESSREADME
     ACTIONS+=("Created sessions/README.md")
   else
@@ -1869,7 +1390,7 @@ SESSREADME
 
 Progress reports generated by `/summarize-progress`. Each report summarizes recent session activity — what shipped, what's in progress, and what's blocked.
 
-Reports are stored on Google Drive and symlinked into each project.
+Reports are stored under `~/.claude/data/<project>/reports` and symlinked into each project.
 REPREADME
     ACTIONS+=("Created reports/README.md")
   else
@@ -1991,7 +1512,7 @@ PERMS
   fi
 
   # ---- Global symlink (/usr/local/bin/engine) ----
-  # Links to the mode-resolved engine.sh so `engine` always runs the right copy.
+  # Links to the resolved engine.sh so `engine` always runs the right copy.
   _relink_engine_bin "$ENGINE_DIR/scripts/engine.sh"
 
   # ---- Mark setup as complete ----
@@ -2050,11 +1571,13 @@ cmd_reindex() {
     fi
   done
 
-  # Also remove lock files. doc-search derives its lock from the DB path, so the
+  # Also remove lock files. Both tools derive the lock from the DB path, so the
   # lock moved with the DB — clear the current location AND any sessions/ orphan.
   for lock_file in \
     "$(dirname "$(search_db_active_path ".doc-search.db" "$sessions_dir")")/.doc-search.lock" \
-    "$sessions_dir/.doc-search.lock"; do
+    "$sessions_dir/.doc-search.lock" \
+    "$(dirname "$(search_db_active_path ".session-search.db" "$sessions_dir")")/.session-search.lock" \
+    "$sessions_dir/.session-search.lock"; do
     if [ -f "$lock_file" ]; then
       rm "$lock_file"
       echo "  Deleted: $(basename "$lock_file")"
@@ -2092,11 +1615,9 @@ cmd_reindex() {
 # 1. Built-in commands (explicit handlers)
 case "$SUBCMD" in
   setup)     cmd_setup "$@";     exit 0 ;;
-  local)     cmd_local;          exit 0 ;;
-  remote)    cmd_remote;         exit 0 ;;
+  local)     cmd_local "$@";     exit 0 ;;
   pull)      cmd_pull;           exit 0 ;;
   push)      cmd_push "$@";      exit 0 ;;
-  deploy)    cmd_deploy "$@";   exit 0 ;;
   status)    cmd_status;         exit 0 ;;
   report)    cmd_report;         exit 0 ;;
   test)      cmd_test "$@";      exit 0 ;;
