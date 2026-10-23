@@ -368,4 +368,31 @@ test_receipt_ids_do_not_depend_on_git_config() {
   assert_eq "$base" "$(bash -c "$verify" | awk '{print $1}')" "the stored verify command reproduces the id under hostile config"
 }
 
+test_receipt_run_records_the_command_exit_when_its_reader_goes_away() {
+  r run -- seq 1 200000 2>/dev/null | head -1 >/dev/null
+  local rec; rec=$(r find --here --json)
+  assert_eq 0 "$(jq -r .exit <<<"$rec")" "the command's own exit is recorded, not 141"
+  assert_eq true "$(jq -r .output_truncated <<<"$rec")" "and the captured output is marked truncated"
+}
+
+test_receipt_cwd_is_recorded_and_splits_the_flake_check() {
+  mkdir -p sub; touch sub/x; git add sub/x; git commit -q -m sub
+  r run -- test -f x >/dev/null 2>&1
+  (cd sub && bash "$RECEIPT" run -- test -f x) >/dev/null 2>&1
+  local out; out=$(r find --here)
+  assert_not_contains "inconsistent" "$out" "the same command in two directories is not a flake"
+  assert_contains "cwd=sub/" "$out" "the subdirectory run shows its cwd"
+}
+
+test_receipt_find_json_is_pure_json_lines() {
+  local flag="$TMP_DIR/flag"; touch "$flag"
+  r run -- test -f "$flag" >/dev/null 2>&1; rm "$flag"
+  r run -- test -f "$flag" >/dev/null 2>&1
+  local out err code
+  out=$(r find --here --json 2>"$TMP_DIR/err"); err=$(cat "$TMP_DIR/err")
+  jq -e . <<<"$out" >/dev/null 2>&1; code=$?
+  assert_eq 0 "$code" "--json stdout parses as JSON lines"
+  assert_contains "inconsistent" "$err" "and the flake line goes to stderr"
+}
+
 run_discovered_tests

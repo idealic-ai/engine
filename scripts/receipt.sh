@@ -25,6 +25,11 @@
 #
 # Paths given to go, check and id are relative to the repo top, wherever the command runs.
 #
+# What a run's key covers: the tracked and untracked (not ignored) tree, and the commit.
+# Ignored files (.env, node_modules, build output), environment variables and tool versions
+# are NOT in it, so a receipt is reusable only for a result that depends on the tree alone.
+# Never run `git notes prune` on refs/notes/receipts: gc can remove the key objects.
+#
 # Forms of a patch-id: whole | whole+text | path | path+text. "path" forms are computed as
 # `git show [--text] <sha> -- <paths> | git patch-id --stable`; "whole" forms omit the paths.
 # The diff options that move an id (prefixes, context, textconv, external diff) are pinned to
@@ -62,8 +67,9 @@ now_epoch() { date -u +%s; }
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; }
 
-# Writers store the key object (-w) so `git notes prune` keeps its notes; readers only hash,
-# because notes resolve on a missing object and a lookup should not write to the repo.
+# Writers store the key object; readers only hash, because a note resolves on a missing
+# object and a lookup should not write to the repo. Nothing references a key object, so gc
+# can remove it, and `git notes prune` would then drop its notes: never prune this ref.
 key_object() {
   printf 'receipt-key:%s:%s' "$1" "$2" | git hash-object ${3:+-w} --stdin
 }
@@ -222,9 +228,14 @@ cmd_run() {
   local commit tree dirty state out code tree_after changed=false
   commit=$(git rev-parse -q --verify HEAD 2>/dev/null || echo "")
   state=$(current_state); tree=${state% *}; dirty=${state#* }
+  local cwd truncated=false
+  cwd=$(git rev-parse --show-prefix)
   out=$(mktemp)
-  "$@" 2>&1 | tee "$out"
+  # When the reader of our stdout goes away, tee dies; cat keeps draining into the file so the
+  # command never sees SIGPIPE and its own exit status is what gets recorded.
+  "$@" 2>&1 | { tee "$out" 2>/dev/null || { : > "$out.cut"; cat >> "$out"; }; }
   code=${PIPESTATUS[0]}
+  [ -e "$out.cut" ] && truncated=true && rm -f "$out.cut"
   state=$(current_state); tree_after=${state% *}
   [ "$tree_after" = "$tree" ] || changed=true
   if [ -z "$summary" ]; then
@@ -245,10 +256,11 @@ cmd_run() {
       --arg tree "$tree" --argjson dirty "$dirty" --argjson changed "$changed" \
       --arg tree_after "$tree_after" --arg seat "$seat" --argjson epoch "$epoch" \
       --arg iso "$iso" --argjson ms "$(now_ms)" --argjson argv "$argv" --arg cmd "$cmdstr" --argjson exit "$code" \
-      --arg summary "$summary" \
+      --arg summary "$summary" --arg cwd "$cwd" --argjson truncated "$truncated" \
       '{v:1, kind:"run", key_kind:$kk, key:$kv, repo:$repo, commit:$commit, tree:$tree,
         dirty:$dirty, changed_during_run:$changed, tree_after:$tree_after, seat:$seat,
-        time:$epoch, time_ms:$ms, time_iso:$iso, argv:$argv, cmd:$cmd, exit:$exit, summary:$summary}')
+        time:$epoch, time_ms:$ms, time_iso:$iso, argv:$argv, cmd:$cmd, exit:$exit, summary:$summary,
+        cwd:$cwd, output_truncated:$truncated}')
     printf '%s\t%s\n' "$(key_object "$kk" "$kv" write)" "$rec" >> "$notes"
   done
   write_notes "$notes" || { rm -f "$notes"; exit "$code"; }
@@ -290,11 +302,13 @@ cmd_find() {
   local incons
   incons=$(printf '%s\n' "$lines" | sed '/^$/d' | jq -sr \
     '[.[] | select(.kind=="run" and (.dirty|not) and ((.changed_during_run // false)|not))]
-     | group_by(.cmd)[] | select((map(.exit)|unique|length) > 1)
-     | "inconsistent: \(.[0].cmd) exited \(map(.exit)|unique|map(tostring)|join(" and ")) on this key"')
+     | group_by([.cmd, (.cwd // "")])[] | select((map(.exit)|unique|length) > 1)
+     | "inconsistent: \(.[0].cmd)\(if (.[0].cwd // "") != "" then " (in \(.[0].cwd))" else "" end) exited \(map(.exit)|unique|map(tostring)|join(" and ")) on this key"')
+  # With --json, stdout carries JSON lines only.
+  local incons_fd=1; [ "$json" = true ] && incons_fd=2
   if [ -z "$sel" ]; then
     echo "receipt: no ${all:+}receipts for $kk:$kv" >&2
-    [ -n "$incons" ] && echo "$incons"
+    [ -n "$incons" ] && echo "$incons" >&"$incons_fd"
     return 1
   fi
   if [ "$json" = true ]; then
@@ -302,12 +316,12 @@ cmd_find() {
   else
     printf '%s\n' "$sel" | jq -r '
       if .kind=="run" then
-        "\(.time_iso) run  exit=\(.exit) seat=\(.seat) commit=\(.commit[0:12])\(if .dirty then " DIRTY" else "" end)\(if (.changed_during_run // false) then " CHANGED" else "" end)  \(.cmd)  -- \(.summary)"
+        "\(.time_iso) run  exit=\(.exit) seat=\(.seat)\(if (.cwd // "") != "" then " cwd=\(.cwd)" else "" end) commit=\(.commit[0:12])\(if .dirty then " DIRTY" else "" end)\(if (.changed_during_run // false) then " CHANGED" else "" end)  \(.cmd)  -- \(.summary)"
       else
         "\(.time_iso) go\(if .withdrawn then "-withdrawn" else "" end)  owner=\(.owner) form=\(.form) paths=\(.paths|join(",")) giver=\(.giver)  \(.patch_id[0:12])\(if .verify != "" then "  verify: \(.verify)" else "" end)"
       end'
   fi
-  [ -n "$incons" ] && echo "$incons"
+  [ -n "$incons" ] && echo "$incons" >&"$incons_fd"
   return 0
 }
 
