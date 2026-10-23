@@ -19,14 +19,14 @@ Stage 1: SEED          Stage 2: QUEUE           Stage 3: DELIVER         Stage 4
 SessionStart hook       PostToolUse hooks         PreToolUse guard rule    .state.json
                         + PreToolUse discovery
 
-preloadedFiles = [6     pendingPreloads += [      _claim_and_preload()    preloadedFiles += [
+preloadedFiles = [      pendingPreloads += [      _claim_and_preload()    preloadedFiles += [
   core standards]         CMD files,                reads files,             delivered files]
                           templates,                builds content,        pendingPreloads -= [
                           directives]               injects via              delivered files]
                                                     additionalContext
 ```
 
-**Stage 1 (Seed)**: SessionStart clears stale state and seeds `preloadedFiles` with the 6 core standards it just injected.
+**Stage 1 (Seed)**: SessionStart clears stale state and seeds `preloadedFiles` with the core standards it just injected.
 
 **Stage 2 (Queue)**: Various hooks discover files and add them to `pendingPreloads` in `.state.json`. Discovery happens via:
 - Skill activation (Phase 0 CMDs + templates)
@@ -49,17 +49,29 @@ preloadedFiles = [6     pendingPreloads += [      _claim_and_preload()    preloa
 
 **Actions**:
 1. **Clear stale state**: Resets `preloadedFiles`, `touchedDirs`, `pendingPreloads`, `pendingAllowInjections` in ALL session `.state.json` files. A new Claude process = new context window = previous preload tracking is invalid.
-2. **Re-seed**: Sets `preloadedFiles` to the 6 core standards via `get_session_start_seeds()`.
-3. **Inject standards**: Reads and outputs the 6 core files as `[Preloaded: path]` content via `additionalContext`.
+2. **Re-seed**: Sets `preloadedFiles` to the core standards via `get_session_start_seeds()`.
+3. **Inject standards**: Reads and outputs those same core files as `[Preloaded: path]` content via `additionalContext`.
 4. **Dehydration restore** (startup only): If a `.state.json` has `dehydratedContext`, reads required files and injects them.
 
-**Core standards** (always preloaded, always in `preloadedFiles`):
-- `~/.claude/.directives/COMMANDS.md`
-- `~/.claude/.directives/INVARIANTS.md`
-- `~/.claude/.directives/SIGILS.md`
-- `~/.claude/.directives/commands/CMD_DEHYDRATE.md`
-- `~/.claude/.directives/commands/CMD_RESUME_SESSION.md`
-- `~/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md`
+**Core standards** (always preloaded, always in `preloadedFiles`). **This page deliberately does not state how many there are** — the set grows, and a page carrying the number in prose goes quietly wrong everywhere at once. Code defines it, in the sites below, and they are the only current answer:
+
+- **What gets injected** — the `for std_file in …` loop in `hooks/session-start-restore.sh`.
+- **What gets registered** for PostToolUse dedup — `get_session_start_seeds()` in `scripts/lib.sh`, plus any in-hook append onto `PRELOAD_SEEDS` ahead of the flush, so **reading the array alone can undercount**. `PITFALLS.md` arrives both ways; the append is guarded by `if index($p)`, so a path in both places is registered once.
+- **What activation seeds** — `ACTIVATE_SEEDS` in `scripts/session.sh`, a second seed list kept in step with the `lib.sh` one by convention. `scripts/tests/test-preload-seed.sh` is what fails when the two drift.
+
+```bash
+# injected — the print loop
+sed -n '/^for std_file in /,/; do$/p' hooks/session-start-restore.sh | grep -o '"[^"]*"'
+# registered — the seed array, then the in-hook appends
+awk '/^get_session_start_seeds\(\)/,/^}/' scripts/lib.sh | grep -o '\$d+"[^"]*"'
+grep -nF 'index($p) then' hooks/session-start-restore.sh
+# seeded at activation — the second list, which must agree with the first
+grep -o '\$d+"[^"]*"' scripts/session.sh
+```
+
+**All four must agree and nothing checks that they do.** A path added to the print loop alone is injected on every session start and recorded nowhere, which leaves the preload rule free to re-deliver it for the rest of the session; a path added to one seed list and not the other leaves the tree booting one way and activating another. Both are the authoring trap under `` `¶PTF_PENDING_PRELOADS_STALE` ``, which carries the measured instance. **So a change to this set is four edits in four files**, and the count is a thing to run rather than a thing to remember.
+
+Measured at 12:00 on 2026-10-23, all four sites agreed: the loop injected eight files, all under `~/.claude/.directives/` — `COMMANDS.md`, `INVARIANTS.md`, `SIGILS.md`, `VOICE.md`, `commands/CMD_DEHYDRATE.md`, `commands/CMD_RESUME_SESSION.md`, `commands/CMD_PARSE_PARAMETERS.md`, `PITFALLS.md`. That sentence carries a **clock time** rather than a date because the set moved three times inside fifteen minutes earlier that morning; the commands above do not rot.
 
 ### Skill Expansion (UserPromptSubmit: Claude Code built-in)
 
@@ -68,7 +80,7 @@ preloadedFiles = [6     pendingPreloads += [      _claim_and_preload()    preloa
 
 **What happens**: Claude Code reads the skill's SKILL.md and injects it into the agent's context as the expanded command. This is a **built-in delivery** — no hook writes to `.state.json`, no preload tracking occurs.
 
-**The tracking gap**: SKILL.md is now in the context window, but NO tracking mechanism knows about it. The `preloadedFiles` array (seeded with 6 core standards) has no entry for SKILL.md. When the templates hook fires next (PostToolUse:Skill), it may re-deliver SKILL.md because dedup doesn't know it was already delivered by skill expansion.
+**The tracking gap**: SKILL.md is now in the context window, but NO tracking mechanism knows about it. The `preloadedFiles` array (seeded with the core standards) has no entry for SKILL.md. When the templates hook fires next (PostToolUse:Skill), it may re-deliver SKILL.md because dedup doesn't know it was already delivered by skill expansion.
 
 ### Skill Invocation (PostToolUse: templates hook)
 
@@ -179,19 +191,19 @@ There's a timing gap between SessionStart (Claude process starts) and session ac
 
 ### Current Approach (Hardcoded Seeds)
 
-SessionStart seeds `preloadedFiles` in ALL existing session `.state.json` files with the 6 core standard paths. The seed function `get_session_start_seeds()` returns these paths deterministically. When a skill is invoked before a session exists, the templates hook calls `filter_preseeded_paths()` which compares against these seeds without needing a `.state.json`.
+SessionStart seeds `preloadedFiles` in ALL existing session `.state.json` files with the core-standard paths. The seed function `get_session_start_seeds()` returns these paths deterministically. When a skill is invoked before a session exists, the templates hook calls `filter_preseeded_paths()` which compares against these seeds without needing a `.state.json`.
 
 **Flow**:
-1. Claude starts → SessionStart clears all `.state.json` preload fields, re-seeds `preloadedFiles = [6 core paths]`.
+1. Claude starts → SessionStart clears all `.state.json` preload fields, re-seeds `preloadedFiles = [the core paths]`.
 2. User invokes `/implement` → **skill expansion delivers SKILL.md** (untracked).
 3. Skill tool fires → templates hook extracts Phase 0 CMDs.
 4. Templates hook checks: is there an active session? No (not activated yet).
-5. Templates hook calls `filter_preseeded_paths()` → removes paths matching the 6 core seeds.
+5. Templates hook calls `filter_preseeded_paths()` → removes paths matching the core seeds.
 6. Templates hook delivers CMDs + templates directly. **Also re-delivers SKILL.md on the Bash(activate) path** because SKILL.md from step 2 was never tracked.
 7. Agent calls `engine session activate` → `.state.json` is created/updated.
 8. From this point, all hooks use `.state.json:preloadedFiles` for dedup.
 
-**Problem**: Step 2 is a black hole. `filter_preseeded_paths()` only knows the 6 core standards. SKILL.md delivered by skill expansion, and Phase 0 CMDs delivered by the templates hook in step 6, are not tracked anywhere persistent until a session `.state.json` exists. If the templates hook's best-effort state write (step 6, `|| true`) fails silently, the preload rule will re-deliver on the next call.
+**Problem**: Step 2 is a black hole. `filter_preseeded_paths()` only knows the core standards. SKILL.md delivered by skill expansion, and Phase 0 CMDs delivered by the templates hook in step 6, are not tracked anywhere persistent until a session `.state.json` exists. If the templates hook's best-effort state write (step 6, `|| true`) fails silently, the preload rule will re-deliver on the next call.
 
 ### Target Design: Per-Transcript Seed State File
 
@@ -221,12 +233,12 @@ SessionStart                    Skill expansion           Templates hook        
     ▼                               ▼                         ▼                              ▼
 Create seed .state.json       Write SKILL.md path       Write Phase 0 CMD paths      Merge seed → session .state.json
   lifecycle: "seeding"        to seed state              to seed state                Delete seed file
-  preloadedFiles: [6 seeds]
+  preloadedFiles: [core seeds]
 ```
 
 **Actions by hook**:
 
-*   **SessionStart**: Creates `sessions/.seeds/{PPID}.json` (mkdir -p the directory) with `lifecycle: "seeding"`, `pid: PPID`, `preloadedFiles: [6 core standards]`. Also cleans up stale seed files where the stored PID is dead (`! kill -0 $pid`).
+*   **SessionStart**: Creates `sessions/.seeds/{PPID}.json` (mkdir -p the directory) with `lifecycle: "seeding"`, `pid: PPID`, `preloadedFiles: [the core standards]`. Also cleans up stale seed files where the stored PID is dead (`! kill -0 $pid`).
 
 *   **UserPromptSubmit** (skill expansion): Writes the SKILL.md path to the seed state's `preloadedFiles`. This is the critical addition — skill expansion currently leaves no trace.
 
@@ -253,7 +265,7 @@ Create seed .state.json       Write SKILL.md path       Write Phase 0 CMD paths 
 - Session `.state.json` inherits a complete picture of the context window on activation
 - Hooks that run before session activation (directive discovery, guard rules) have a real state file to work with
 
-**Propagation**: `engine session activate` reads the seed file and merges its tracking fields into the new `.state.json`. This is a one-time handoff. The merge is additive — seed `preloadedFiles` are appended to the session's initial `preloadedFiles` (which may already have the 6 seeds from SessionStart's blanket re-seed). Duplicates are removed by `unique`.
+**Propagation**: `engine session activate` reads the seed file and merges its tracking fields into the new `.state.json`. This is a one-time handoff. The merge is additive — seed `preloadedFiles` are appended to the session's initial `preloadedFiles` (which may already have the core seeds from SessionStart's blanket re-seed). Duplicates are removed by `unique`.
 
 ---
 
@@ -294,7 +306,7 @@ Multiple hooks can discover the same file. The system prevents duplicate injecti
 
 What gets preloaded, by category:
 
-*   **Core Standards** (6 files, SessionStart)
+*   **Core Standards** (SessionStart)
     *   COMMANDS.md, INVARIANTS.md, SIGILS.md
     *   CMD_DEHYDRATE.md, CMD_RESUME_SESSION.md, CMD_PARSE_PARAMETERS.md
     *   Always available from the first tool call
@@ -349,7 +361,7 @@ The preload system assumes hooks execute sequentially within a single Claude pro
 
 *   **`normalize_preload_path(PATH)`** — Resolves `~` to `$HOME`, follows directory symlinks via `cd + pwd -P`. Ensures consistent paths for dedup.
 
-*   **`get_session_start_seeds()`** — Returns JSON array of the 6 core standard paths (canonical, via `normalize_preload_path`). Deterministic — any hook can call it.
+*   **`get_session_start_seeds()`** — Returns JSON array of the core-standard paths (canonical, via `normalize_preload_path`). Deterministic — any hook can call it.
 
 *   **`filter_preseeded_paths(PATHS)`** — Removes paths matching SessionStart seeds. Used when no active session exists for `.state.json` dedup.
 
@@ -379,7 +391,7 @@ The preload system assumes hooks execute sequentially within a single Claude pro
 
 ## Known Issues
 
-*   **Pre-session tracking gap** (critical): Between SessionStart and session activation, skill expansion delivers SKILL.md and the templates hook delivers Phase 0 CMDs — but no persistent tracking exists. The hardcoded `filter_preseeded_paths()` only knows 6 core standards. Fix: implement the per-transcript seed file described in "Target Design" above.
+*   **Pre-session tracking gap** (critical): Between SessionStart and session activation, skill expansion delivers SKILL.md and the templates hook delivers Phase 0 CMDs — but no persistent tracking exists. The hardcoded `filter_preseeded_paths()` only knows the core standards. Fix: implement the per-transcript seed file described in "Target Design" above.
 
 *   **N×lock in phase-commands**: CMD files are written to `pendingPreloads` one at a time in a loop. 8 CMD files = 8 lock acquire/release cycles. Should be batched into a single `safe_json_write`.
 
@@ -419,7 +431,7 @@ Each has its own CMD name → file path resolution with subtly different normali
 
 Four dedup mechanisms depending on timing:
 
-*   **Pre-session**: `filter_preseeded_paths()` — hardcoded 6 seeds, nothing else
+*   **Pre-session**: `filter_preseeded_paths()` — the hardcoded core seeds, nothing else
 *   **Templates hook**: Inline check against `preloadedFiles` (reads `.state.json`, may see stale data from previous hook's best-effort write)
 *   **Phase-commands hook**: Its own inline check against `preloadedFiles` (N×lock, one file at a time)
 *   **Preload rule**: `_claim_and_preload()` — atomic path + inode dedup under lock
@@ -823,7 +835,8 @@ Tests the `sessions/.seeds/{pid}.json` pre-session tracking mechanism.
 test_seed_propagation() {
   simulate_session_start
   assert_file_exists "sessions/.seeds/$$.json" "seed created"
-  assert_json "6 core seeds" "sessions/.seeds/$$.json" '.preloadedFiles | length' "6"
+  assert_json "core seeds registered" "sessions/.seeds/$$.json" \
+    '.preloadedFiles | length' "$(get_session_start_seeds | jq 'length')"
 
   simulate_user_prompt_submit "implement" "add feature"
   assert_json "SKILL.md tracked" "sessions/.seeds/$$.json" \
@@ -1081,11 +1094,11 @@ Tests interaction between preloading and the dehydration/restart cycle.
 
 #### 7.1: Dehydration Preserves Preload State
 
-Agent is mid-session, has preloaded 20 files. Context overflow triggers `§CMD_DEHYDRATE`. The `dehydratedContext.requiredFiles` are a subset of `preloadedFiles`. On restart, SessionStart re-seeds `preloadedFiles` with the 6 core standards AND injects the required files from dehydrated context. Both must be tracked.
+Agent is mid-session, has preloaded 20 files. Context overflow triggers `§CMD_DEHYDRATE`. The `dehydratedContext.requiredFiles` are a subset of `preloadedFiles`. On restart, SessionStart re-seeds `preloadedFiles` with the core standards AND injects the required files from dehydrated context. Both must be tracked.
 
 #### 7.2: Restart Re-Seeds Correctly
 
-After restart, SessionStart clears ALL `preloadedFiles` in existing `.state.json` files and re-seeds with 6 core standards. This is correct — new process = new context window. Test that the old session's `preloadedFiles` (20 files) is replaced with the 6 seeds, not appended to.
+After restart, SessionStart clears ALL `preloadedFiles` in existing `.state.json` files and re-seeds with the core standards. This is correct — new process = new context window. Test that the old session's `preloadedFiles` (20 files) is replaced with the core seeds, not appended to.
 
 #### 7.3: Resume Doesn't Re-Deliver Already-Loaded
 
@@ -1109,10 +1122,11 @@ test_fleet_seed_isolation() {
   assert_file_exists "sessions/.seeds/1001.json" "agent 1 seed"
   assert_file_exists "sessions/.seeds/1002.json" "agent 2 seed"
   # Different content (seeded independently)
+  local expected=$(get_session_start_seeds | jq 'length')
   local count1=$(jq '.preloadedFiles | length' "sessions/.seeds/1001.json")
   local count2=$(jq '.preloadedFiles | length' "sessions/.seeds/1002.json")
-  assert_eq "agent 1 seeds" "6" "$count1"
-  assert_eq "agent 2 seeds" "6" "$count2"
+  assert_eq "agent 1 seeds" "$expected" "$count1"
+  assert_eq "agent 2 seeds" "$expected" "$count2"
 }
 ```
 
