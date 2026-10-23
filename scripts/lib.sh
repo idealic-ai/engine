@@ -140,22 +140,117 @@ normalize_preload_path() {
 }
 
 # get_session_start_seeds → JSON array of canonical seed paths on stdout
-#   The paths SessionStart seeds into preloadedFiles. Any hook can call this to know what
-#   SessionStart injected.
-#
-#   PITFALLS.md is guarded on resolution, not on being optional — every path here is tracked.
-#   $HOME/.claude/.directives can resolve where the files are not: a symlink shadowed by a real
-#   directory of the same name, or a half-finished checkout. The print loop skips whatever [ -f ]
-#   cannot read there, and a path recorded but never injected reads to PostToolUse dedup as
-#   already delivered, which suppresses the later real injection.
+#   The one list of standards SessionStart injects in full. The hook's print loop iterates this
+#   output and activation seeds from it, so a path is added or removed here and nowhere else.
+#   Every entry is guarded on existence: the print loop can only inject what [ -f ] can read, and
+#   a path recorded but never injected reads to PostToolUse dedup as already delivered, which
+#   suppresses the later real injection.
+#   PITFALLS.md, SIGILS.md and CMD_PARSE_PARAMETERS.md are on demand; PITFALLS is represented at
+#   session start by generate_pitfalls_index rather than by its bytes.
+SESSION_START_SEED_FILES=(COMMANDS.md INVARIANTS.md VOICE.md commands/CMD_DEHYDRATE.md commands/CMD_RESUME_SESSION.md)
 get_session_start_seeds() {
-  local engine_dir seeds
+  local engine_dir rel seeds='[]'
   engine_dir=$(cd "$HOME/.claude/.directives" 2>/dev/null && pwd -P) || engine_dir="$HOME/.claude/.directives"
-  seeds=$(jq -n --arg d "$engine_dir" '[$d+"/COMMANDS.md",$d+"/INVARIANTS.md",$d+"/SIGILS.md",$d+"/VOICE.md",$d+"/commands/CMD_DEHYDRATE.md",$d+"/commands/CMD_RESUME_SESSION.md",$d+"/commands/CMD_PARSE_PARAMETERS.md"]')
-  if [ -f "$engine_dir/PITFALLS.md" ]; then
-    seeds=$(echo "$seeds" | jq --arg p "$engine_dir/PITFALLS.md" '. + [$p]')
-  fi
+  for rel in "${SESSION_START_SEED_FILES[@]}"; do
+    [ -f "$engine_dir/$rel" ] || continue
+    seeds=$(echo "$seeds" | jq --arg p "$engine_dir/$rel" '. + [$p]')
+  done
   echo "$seeds"
+}
+
+# generate_pitfalls_index FILE... → one line per ¶PTF_ name: "- ¶PTF_NAME — <one-line trap>"
+#   Built from the files at call time, never maintained by hand. Recognises the three definition
+#   shapes in use: a bold bullet (**¶PTF_X**: trap), a heading carrying the name (trap after an
+#   em dash, else the entry's first paragraph), and an "Addendum to ¶PTF_X" heading, which is not a
+#   definition. A name that appears only in prose still gets a line, so every name is findable.
+generate_pitfalls_index() {
+  local f
+  for f in "$@"; do
+    [ -f "$f" ] || continue
+    LC_ALL=C awk -v file="$f" '
+      function clean(t) {
+        gsub(/\*\*/, "", t); gsub(/`/, "", t)
+        sub(/^[[:space:]]*[*-][[:space:]]+/, "", t)
+        sub(/^[[:space:]]*(The trap|Trap)[[:space:]]*:[[:space:]]*/, "", t)
+        if (index(t, ". ") > 40) t = substr(t, 1, index(t, ". "))
+        sub(/^[[:space:]]+/, "", t); sub(/[[:space:]]+$/, "", t)
+        if (length(t) > 220) t = substr(t, 1, 217) "..."
+        return t
+      }
+      function emit(name, trap) {
+        if (name in seen) return
+        seen[name] = 1; order[++n] = name; text[name] = trap
+      }
+      pending != "" {
+        if ($0 ~ /^[[:space:]]*$/) { if (para != "") { emit(pending, clean(para)); pending = ""; para = "" } ; next }
+        if ($0 ~ /^#/) { emit(pending, clean(para)); pending = ""; para = "" }
+        else { para = para (para == "" ? "" : " ") $0; next }
+      }
+      /^[[:space:]]*[*-][[:space:]]+\*\*¶PTF_[A-Z0-9_]+\*\*/ {
+        match($0, /¶PTF_[A-Z0-9_]+/); name = substr($0, RSTART + 2, RLENGTH - 2)
+        rest = substr($0, RSTART + RLENGTH); sub(/^\*\*:?[[:space:]]*/, "", rest)
+        emit(name, clean(rest)); next
+      }
+      /^#+[[:space:]]/ && /¶PTF_[A-Z0-9_]+/ && $0 !~ /[Aa]ddendum/ {
+        match($0, /¶PTF_[A-Z0-9_]+/); name = substr($0, RSTART + 2, RLENGTH - 2)
+        rest = substr($0, RSTART + RLENGTH)
+        if (index(rest, " — ") > 0) { emit(name, clean(substr(rest, index(rest, " — ") + 5))) }
+        else if (!(name in seen)) { pending = name; para = "" }
+        next
+      }
+      {
+        line = $0
+        while (match(line, /¶PTF_[A-Z0-9_]+/)) {
+          nm = substr(line, RSTART + 2, RLENGTH - 2)
+          if (!(nm in mentioned)) { mentioned[nm] = 1; morder[++m] = nm }
+          line = substr(line, RSTART + RLENGTH)
+        }
+      }
+      END {
+        if (pending != "") emit(pending, clean(para))
+        for (i = 1; i <= m; i++) if (!(morder[i] in seen)) emit(morder[i], "(named in prose, no definition line)")
+        for (i = 1; i <= n; i++) printf "- ¶%s — %s\n", order[i], text[order[i]]
+      }
+    ' "$f"
+  done
+}
+
+# heading_aligned_tail FILE MAX_BYTES → the file whole if it fits, else its last MAX_BYTES advanced
+#   to the next "## " heading, behind a note naming what was cut. Append-only artifacts put
+#   current state at the end, so the tail is the part worth delivering.
+heading_aligned_tail() {
+  local file="$1" max="$2" bytes tail_txt first
+  bytes=$(wc -c < "$file" 2>/dev/null | tr -d ' ') || bytes=0
+  if [ "${bytes:-0}" -le "$max" ]; then
+    cat "$file" 2>/dev/null
+    return 0
+  fi
+  tail_txt=$(tail -c "$max" "$file" 2>/dev/null || true)
+  first=$(printf '%s' "$tail_txt" | grep -n '^## ' | head -n 1 | cut -d: -f1 || true)
+  echo "[... earlier entries omitted; showing the most recent of $bytes bytes ...]"
+  echo ""
+  if [ -n "$first" ]; then
+    printf '%s\n' "$tail_txt" | tail -n +"$first"
+  else
+    printf '%s\n' "$tail_txt"
+  fi
+}
+
+# loom_log_excerpt FILE → pointer line + latest Ledger block + latest Hand-over entry; exit 1 when
+#   the file carries neither, so the caller falls back to heading_aligned_tail.
+loom_log_excerpt() {
+  local file="$1" ledger_line handover_line bytes lines
+  ledger_line=$(grep -n -i '^## .*🧵 ledger' "$file" 2>/dev/null | tail -n 1 | cut -d: -f1 || true)
+  handover_line=$(grep -n '^## .*🤝 Hand-over' "$file" 2>/dev/null | tail -n 1 | cut -d: -f1 || true)
+  [ -n "$ledger_line" ] || [ -n "$handover_line" ] || return 1
+  bytes=$(wc -c < "$file" | tr -d ' ')
+  lines=$(wc -l < "$file" | tr -d ' ')
+  echo "[Loom log excerpt: $file is $bytes bytes, $lines lines. Shown below: the latest Ledger block and the latest Hand-over entry only. For the rest: grep -n '^## ' $file | tail -40, then sed -n '<from>,<to>p' $file]"
+  local start
+  for start in $ledger_line $handover_line; do
+    echo ""
+    awk -v s="$start" 'NR == s { print; next } NR > s && /^## / { exit } NR > s { print }' "$file" | head -c 50000 || true
+  done
 }
 
 # NOTE: filter_preseeded_paths() removed — replaced by seed file infrastructure.

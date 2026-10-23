@@ -121,13 +121,14 @@ debug "session context: $SESSION_CONTEXT_LINE"
 debug "clearing preload state for fresh context"
 PRELOAD_SEEDS=$(get_session_start_seeds)
 
-# Engine-wide pitfalls — injected with the standards below, so it must also be
-# registered here or PostToolUse dedup is free to re-deliver the whole file.
-ENGINE_PITFALLS="$HOME/.claude/.directives/PITFALLS.md"
-if [ -f "$ENGINE_PITFALLS" ]; then
-  PITFALLS_NORM=$(normalize_preload_path "$ENGINE_PITFALLS" 2>/dev/null || echo "$ENGINE_PITFALLS")
-  PRELOAD_SEEDS=$(echo "$PRELOAD_SEEDS" | jq --arg p "$PITFALLS_NORM" 'if index($p) then . else . + [$p] end')
-  debug "engine pitfalls registered: $PITFALLS_NORM"
+# Pitfalls are on demand: an index generated from the files is injected instead of their bytes,
+# so the files stay unregistered and PostToolUse discovery can still deliver them whole.
+PITFALLS_INDEX_SOURCES=()
+[ -f "$HOME/.claude/.directives/PITFALLS.md" ] && PITFALLS_INDEX_SOURCES+=("$HOME/.claude/.directives/PITFALLS.md")
+if [ -f "$PROJECT_ROOT/.directives/PITFALLS.md" ]; then
+  PROJECT_PITFALLS_REAL=$(normalize_preload_path "$PROJECT_ROOT/.directives/PITFALLS.md")
+  ENGINE_PITFALLS_REAL=$(normalize_preload_path "$HOME/.claude/.directives/PITFALLS.md")
+  [ "$PROJECT_PITFALLS_REAL" = "$ENGINE_PITFALLS_REAL" ] || PITFALLS_INDEX_SOURCES+=("$PROJECT_ROOT/.directives/PITFALLS.md")
 fi
 
 # Project docs index — when the repo follows the docs/TOC.md convention, treat it
@@ -350,6 +351,13 @@ if [ -n "$ACTIVE_SKILL" ] && [ -n "${ACTIVE_SESSION_DIR:-}" ] && [ -f "${skill_m
         else
           ART_CONTENT=$(cat "$art_path" 2>/dev/null || true)
         fi
+      elif [ "$art_path" = "$ACTIVE_SESSION_DIR/${LOG_NAME:-}" ]; then
+        # A log is append-only and can run to megabytes; a debrief is bounded and goes whole.
+        if [ "$LOG_NAME" = "LOOM_LOG.md" ] && ART_CONTENT=$(loom_log_excerpt "$art_path"); then
+          :
+        else
+          ART_CONTENT=$(heading_aligned_tail "$art_path" 50000 || true)
+        fi
       else
         ART_CONTENT=$(cat "$art_path" 2>/dev/null || true)
       fi
@@ -392,29 +400,30 @@ $FILE_LIST
   ARTIFACT_OUTPUT="${ARTIFACT_OUTPUT}${SESSION_DIR_LISTING}"
 fi
 
-# Preload core standards — available to agent from first message
+# Preload core standards — exactly the get_session_start_seeds list, which is what dedup records.
 STANDARDS_OUTPUT=""
-for std_file in "$HOME/.claude/.directives/COMMANDS.md" \
-                "$HOME/.claude/.directives/INVARIANTS.md" \
-                "$HOME/.claude/.directives/SIGILS.md" \
-                "$HOME/.claude/.directives/VOICE.md" \
-                "$HOME/.claude/.directives/commands/CMD_DEHYDRATE.md" \
-                "$HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md" \
-                "$HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md" \
-                "$ENGINE_PITFALLS"; do
-  if [ -f "$std_file" ]; then
-    STD_CONTENT=$(cat "$std_file" 2>/dev/null || true)
-    if [ -n "$STD_CONTENT" ]; then
-      STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Preloaded: $std_file]
+while IFS= read -r std_file; do
+  [ -n "$std_file" ] || continue
+  STD_CONTENT=$(cat "$std_file" 2>/dev/null || true)
+  if [ -n "$STD_CONTENT" ]; then
+    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Preloaded: $std_file]
 $STD_CONTENT
 
 "
-      debug "  preloaded standard: $(basename "$std_file")"
-    fi
-  else
-    debug "  standard missing (skipped): $std_file"
+    debug "  preloaded standard: $(basename "$std_file")"
   fi
-done
+done < <(get_session_start_seeds | jq -r '.[]')
+
+if [ ${#PITFALLS_INDEX_SOURCES[@]} -gt 0 ]; then
+  PITFALLS_INDEX=$(generate_pitfalls_index "${PITFALLS_INDEX_SOURCES[@]}" 2>/dev/null || true)
+  if [ -n "$PITFALLS_INDEX" ]; then
+    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Pitfalls index, generated at session start from: ${PITFALLS_INDEX_SOURCES[*]}. The files themselves are not preloaded; read an entry with grep -n -A12 '¶PTF_<NAME>' <file>]
+$PITFALLS_INDEX
+
+"
+    debug "  preloaded pitfalls index: ${#PITFALLS_INDEX_SOURCES[@]} file(s)"
+  fi
+fi
 
 # Inject the project docs index (registered in PRELOAD_SEEDS above)
 if [ -n "$PROJECT_DOCS_INDEX" ]; then
@@ -524,24 +533,7 @@ if [ -n "$REQUIRED_FILES" ]; then
     esac
 
     if [ -f "$resolved" ]; then
-      # Append-only artifacts (logs, dialogues) put current state at the END, so
-      # taking the first bytes delivers the oldest entries. Take the tail, then
-      # advance to the next entry heading so the excerpt starts on a whole entry.
-      FILE_BYTES=$(wc -c < "$resolved" 2>/dev/null || echo 0)
-      if [ "$FILE_BYTES" -le 50000 ]; then
-        FILE_CONTENT=$(cat "$resolved" 2>/dev/null || echo "[Error reading file]")
-      else
-        FILE_TAIL=$(tail -c 50000 "$resolved" 2>/dev/null || echo "")
-        FIRST_HEADING=$(printf '%s' "$FILE_TAIL" | grep -n '^## ' | head -n 1 | cut -d: -f1 || echo "")
-        if [ -n "$FIRST_HEADING" ]; then
-          FILE_CONTENT=$(printf '%s' "$FILE_TAIL" | tail -n +"$FIRST_HEADING")
-        else
-          FILE_CONTENT="$FILE_TAIL"
-        fi
-        FILE_CONTENT="[... earlier entries omitted; showing the most recent of $FILE_BYTES bytes ...]
-
-$FILE_CONTENT"
-      fi
+      FILE_CONTENT=$(heading_aligned_tail "$resolved" 50000 || echo "[Error reading file]")
       CONTEXT="$CONTEXT
 
 ---

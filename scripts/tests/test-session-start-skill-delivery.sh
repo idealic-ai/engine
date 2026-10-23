@@ -390,12 +390,15 @@ test_standards_preloaded_on_clear() {
   local output
   output=$(run_hook "clear") || true
 
-  assert_contains "COMMANDS content" "$output" "clear source → COMMANDS preloaded"
-  assert_contains "INVARIANTS content" "$output" "clear source → INVARIANTS preloaded"
-  assert_contains "SIGILS content" "$output" "clear source → SIGILS preloaded"
-  assert_contains "CMD_DEHYDRATE content" "$output" "clear source → CMD_DEHYDRATE preloaded"
-  assert_contains "CMD_RESUME_SESSION content" "$output" "clear source → CMD_RESUME_SESSION preloaded"
-  assert_contains "CMD_PARSE_PARAMETERS content" "$output" "clear source → CMD_PARSE_PARAMETERS preloaded"
+  # Expected set comes from the list the hook reads, so this test holds no copy of it.
+  unset _LIB_SH_LOADED
+  source "$FAKE_HOME/.claude/scripts/lib.sh"
+  local std
+  while IFS= read -r std; do
+    assert_contains "[Preloaded: $std]" "$output" "clear source → $(basename "$std") preloaded"
+  done < <(get_session_start_seeds | jq -r '.[]')
+  assert_not_contains "SIGILS content" "$output" "clear source → on-demand SIGILS not preloaded"
+  assert_not_contains "CMD_PARSE_PARAMETERS content" "$output" "clear source → on-demand CMD_PARSE_PARAMETERS not preloaded"
 }
 
 # --- Test 10: Multiple skill deps are all delivered ---
