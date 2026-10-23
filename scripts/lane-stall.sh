@@ -16,7 +16,10 @@
 # For each lane it reports:
 #   transcript  minutes since the lane's transcript last changed (any tool call or reply)
 #   log         minutes since the lane last wrote to any *_LOG.md under the session dir
-#               (searched recursively — lane logs live in <sessionDir>/builds/). A "~" marks
+#               (searched recursively — lane logs live in <sessionDir>/builds/). The lane's
+#               own log (builds/<TAG>_LOG.md, builds/<TAG>_<KIND>_LOG.md, builds/<tag>/…)
+#               outranks any other log naming the tag, however recent, and a log at the
+#               session root is the conductor's and never dates a lane. A "~" marks
 #               a reading taken from the log file's mtime because its headings carry no
 #               timestamp, which is what `engine log` does to a heading opening with "[".
 #   state       done (handed back) | parked (turn ended, no hand-back) | running
@@ -246,6 +249,39 @@ LOGNAME_TAG = re.compile(r"^([A-Z][A-Z0-9_-]{2,})_LOG\.md$")
 # already knows which file dated each tag, so withholding the path only made every caller
 # re-derive it.
 log_last, log_path, log_approx = {}, {}, set()
+# A dating ranks by (is the lane's own log, timestamp): any reading from the lane's own log beats
+# every mention of it elsewhere, however recent, and only then does the newer reading win. A
+# shared log names lanes in passing and its unstamped headings inherit an earlier stamp, so
+# newest-mention-wins handed a successor whichever file last said the tag.
+log_rank = {}
+SESSION_ROOT = os.path.normpath(session_dir)
+
+def norm_tag(name):
+    return name.upper().replace("-", "_")
+
+# builds/<TAG>_LOG.md, builds/<TAG>_<KIND>_LOG.md, or any log in builds/<tag>/.
+def is_own_log(log, tag):
+    tag = norm_tag(tag)
+    stem = norm_tag(os.path.basename(log)[:-len("_LOG.md")])
+    if stem == tag or stem.startswith(tag + "_"):
+        return True
+    return norm_tag(os.path.basename(os.path.dirname(log))) == tag
+
+def date_tag(tag, stamp, log, approx):
+    # A log at the session root is the conductor's. It names every lane and is never a lane's
+    # log, so it neither dates a lane nor becomes the path a successor is handed.
+    if os.path.normpath(os.path.dirname(log)) == SESSION_ROOT:
+        return
+    rank = (is_own_log(log, tag), stamp)
+    if rank > log_rank.get(tag, (False, 0)):
+        log_rank[tag] = rank
+        log_last[tag] = stamp
+        log_path[tag] = log
+        # An exact dating supersedes an mtime one, so the "~" must go with it.
+        if approx:
+            log_approx.add(tag)
+        else:
+            log_approx.discard(tag)
 # tag -> disposition. Separate from log_last on purpose: a retirement heading unavoidably
 # bumps the lane's FRESHNESS too, and a retirement that worked by that bump would buy exactly
 # one --minutes of quiet and then report the lane stale again.
@@ -305,11 +341,7 @@ for log in session_logs():
                     unstamped.update(heading_tags)
                     continue
                 for tag in heading_tags:
-                    if last_ts > log_last.get(tag, 0):
-                        log_last[tag] = last_ts
-                        log_path[tag] = log
-                        # An exact dating supersedes an mtime one, so the "~" must go with it.
-                        log_approx.discard(tag)
+                    date_tag(tag, last_ts, log, False)
         if not seen_tags:
             m = LOGNAME_TAG.match(os.path.basename(log))
             stamp = last_ts if last_ts is not None else os.path.getmtime(log)
@@ -319,18 +351,12 @@ for log in session_logs():
             # nothing else, so a retirement does not depend on a lane having logged in life.
             if m and file_retired:
                 retired[m.group(1)] = file_retired
-            if m and stamp > log_last.get(m.group(1), 0):
-                log_last[m.group(1)] = stamp
-                log_path[m.group(1)] = log
-                if last_ts is None:
-                    log_approx.add(m.group(1))
+            if m:
+                date_tag(m.group(1), stamp, log, last_ts is None)
         elif last_ts is None and 0 < len(unstamped) <= MTIME_FALLBACK_MAX_TAGS:
             mtime = os.path.getmtime(log)
             for tag in unstamped:
-                if mtime > log_last.get(tag, 0):
-                    log_last[tag] = mtime
-                    log_path[tag] = log
-                    log_approx.add(tag)
+                date_tag(tag, mtime, log, True)
     except OSError as exc:
         unreadable.append(str(exc))
 

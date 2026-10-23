@@ -821,4 +821,55 @@ test_lane_stall_retirement_binds_only_to_the_heading_it_opens() {
   assert_eq "1" "$(grep -c '^RETIRED' "$out")" "one heading retired one lane, not two"
 }
 
+# The conductor's log at the session root names every lane, and its unstamped headings inherit
+# the previous stamp. Newest-mention-wins let a conductor note about a lane outrank the lane's
+# own log, so the row handed a successor the conductor's whole log and dated the lane by the
+# conductor's clock. Three layouts of a lane's own log, each one older than the conductor's
+# mention of it and than a shared builds/ log's, plus a lane the conductor alone mentions.
+# RED: rank a dating by its timestamp alone (the shared log wins); let a session-root log date
+# a lane (the conductor's log wins, and becomes the orphan's logpath).
+test_lane_stall_prefers_the_lanes_own_log_over_the_conductors() {
+  local session="$TMP_DIR/ownlog/2026_10_12_OWNLOG"
+  local projects="$TMP_DIR/projects-ownlog"
+  plant_synthetic_lane "$projects" "$session" "FLATLANE" \
+    "## [2026-10-20 10:20:00] [FLATLANE] docker build running"
+  plant_synthetic_lane "$projects" "$session" "BUILDLANE" ""
+  plant_synthetic_lane "$projects" "$session" "SUBDIRLANE" ""
+  plant_synthetic_lane "$projects" "$session" "ORPHANLANE" ""
+  printf '## [2026-10-20 10:20:00] [BUILDLANE] docker build running\n' \
+    > "$session/builds/BUILDLANE_BUILD_LOG.md"
+  mkdir -p "$session/builds/subdirlane"
+  printf '## [2026-10-20 10:20:00] [SUBDIRLANE] docker build running\n' \
+    > "$session/builds/subdirlane/SUBDIRLANE_BUILD_LOG.md"
+  printf '%s\n' \
+    "## [2026-10-20 10:30:00] Overseer poll answered" \
+    "## [FLATLANE] [BUILDLANE] [SUBDIRLANE] still building, per their logs" \
+    "## [2026-10-20 10:31:00] dispatched [ORPHANLANE]" \
+    > "$session/LOOM_LOG.md"
+  printf '## [2026-10-20 10:40:00] wave notes: [FLATLANE] and [BUILDLANE] share a fixture\n' \
+    > "$session/builds/WAVE_LOG.md"
+  local out="$TMP_DIR/ownlog.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  local own_age
+  own_age=$(python3 -c 'import time,datetime;print(round((time.time()-datetime.datetime(2026,10,20,10,20).timestamp())/60))')
+  local tag want row got_age
+  for tag in FLATLANE BUILDLANE SUBDIRLANE; do
+    case "$tag" in
+      FLATLANE) want="$session/builds/FLATLANE_LOG.md" ;;
+      BUILDLANE) want="$session/builds/BUILDLANE_BUILD_LOG.md" ;;
+      SUBDIRLANE) want="$session/builds/subdirlane/SUBDIRLANE_BUILD_LOG.md" ;;
+    esac
+    row=$(grep "\[$tag\]" "$out")
+    assert_eq "$want" "$(printf '%s' "$row" | sed 's/.*logpath=//')" \
+      "$tag: the lane's own log is handed over, not the conductor's"
+    got_age=$(printf '%s' "$row" | sed -E 's/.* log= *([0-9]+)m.*/\1/')
+    assert_eq "1" "$(( got_age - own_age <= 1 && own_age - got_age <= 1 ))" \
+      "$tag: the log age is read from that same log (got ${got_age}m, own log ${own_age}m)"
+  done
+  assert_eq "0" "$(logpath_values "$out" | grep -c '/LOOM_LOG\.md$')" \
+    "the conductor's log is never any lane's logpath"
+  assert_eq "none" "$(grep '\[ORPHANLANE\]' "$out" | sed 's/.*logpath=//')" \
+    "a lane only the conductor mentions has no log of its own"
+}
+
 run_discovered_tests
