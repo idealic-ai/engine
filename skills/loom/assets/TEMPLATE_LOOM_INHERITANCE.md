@@ -71,6 +71,14 @@
 |-------|----------|------------------|------------------|-----------|----------|-------------|
 | [session dir] | [one line] | [threadIds / the work waiting] | [absolute path to the `_DECIDE.md` record or board row \| `UNKNOWN — no card prepared`] | [proceeding on the lean — falsifier: [x] \| working around \| parked \| idle] | [gate N, timestamp] | [the artifact that records the answer] |
 
+## ❓ Lane asks open — questions a lane asked the conductor that have no answer yet
+
+*The rows `engine open-asks "<sessionDir>"` prints, each `OPEN` or `UNPARSED` row copied verbatim with its `logpath=`. A row closes when `## [<lane tag>] ✅ Answered <id>: …` is appended to that log or to `LOOM_LOG.md`. When the command exited 2, the reading is incomplete, so record that in place of the rows.*
+
+| row (verbatim, ends in `logpath=`) |
+|------------------------------------|
+| [OPEN ## [TAG] ❓ Ask <id>: … · logpath=<absolute path>] |
+
 ## 📨 Seat handovers — topics handed to or from another seat, still waiting on an ack
 
 *Carried from the session log's `## 📨 Seat handovers` block **unchanged**, the way a board row, an open claim and a rule owed are. The block is **live in the log** and this is its hand-over copy. A row kind lives in both places or it is lost at one of the two moments that matter — and this kind is the one most exposed at a hand-over, because **the party who owes the ack is not the party handing over**. A peer seat keeps its own context and answers in its own time, so an un-acked handover routinely outlives the session that sent it, and a successor that cannot see one re-sends a topic the peer already took or abandons one it never did.*
