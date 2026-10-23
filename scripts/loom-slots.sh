@@ -17,7 +17,8 @@
 #   gate — but it is the thing a gate, or a conductor, asks.
 #
 # TWO SCHEMAS, DELIBERATELY
-#   legacy  `<loom>.slots`               — key=value, conductor-written: sessionDir, cap, liveLanes, heartbeat.
+#   legacy  `<loom>.slots`               — key=value, the conductor's row: sessionDir, cap, liveLanes, heartbeat
+#                                          (written with --heartbeat), plus claims (the claim commands).
 #                                          One heartbeat for the whole loom, so one forgotten rewrite
 #                                          makes every lane in it stale or every ended lane live.
 #   lane    `<loom>/<laneTag>.live`      — one file per LANE, refreshed by the lane itself. Liveness is
@@ -38,6 +39,11 @@
 #   engine loom-slots                             Report every loom, the global figure, and the verdict
 #   engine loom-slots --minutes N                 Staleness window (default 20)
 #   engine loom-slots --quiet                     Exit status only
+#   engine loom-slots --heartbeat <sessionDir> [--cap N] [--lanes <id>,<id>...]
+#                                                 Write this loom's row: session directory, cap, lanes,
+#                                                 a fresh heartbeat. Keeps claims and anything else in
+#                                                 the file; a cap or lane list not given is kept too.
+#                                                 The only way a conductor writes its row
 #   engine loom-slots --lane-alive <sessionDir> <laneTag>
 #                                                 Refresh THIS lane's liveness file (what a lane calls)
 #   engine loom-slots --lane-done  <sessionDir> <laneTag>
@@ -81,6 +87,7 @@ MODE=report
 SELF=""
 REPO_ARG=""
 REPO_BASE=""
+HB_CAP=""; HB_SET_CAP=0; HB_LANES=""; HB_SET_LANES=0
 DISPATCHING=""
 CLAIM_SESSION=""; CLAIM_STATE=""; CLAIM_ITEMS=()
 
@@ -108,6 +115,9 @@ while [ $# -gt 0 ]; do
       MODE="${1#--}"; CLAIM_SESSION="${2:?$1 needs <sessionDir> <item>...}"; shift 2
       TAKEN=0; take_items "$@"; shift "$TAKEN"
       [ "${#CLAIM_ITEMS[@]}" -gt 0 ] || { printf 'loom-slots: --%s needs at least one item\n' "$MODE" >&2; exit 1; } ;;
+    --heartbeat)  MODE=heartbeat; CLAIM_SESSION="${2:?--heartbeat needs <sessionDir>}"; shift 2 ;;
+    --cap)        HB_CAP="${2:?--cap needs a number}"; HB_SET_CAP=1; shift 2 ;;
+    --lanes)      HB_LANES="${2?--lanes needs a list (may be empty: --lanes '')}"; HB_SET_LANES=1; shift 2 ;;
     --claim-state)
       MODE=claim-state; CLAIM_SESSION="${2:?--claim-state needs <sessionDir> <item> <state>}"
       CLAIM_ITEMS=("${3:?--claim-state needs <sessionDir> <item> <state>}")
@@ -297,6 +307,35 @@ take_lock() {
 # write_fail — a write that did not happen. Its own exit code (5), so it is never read as exit 2's
 # "the directory could not be read".
 write_fail() { printf 'loom-slots: %s — nothing was written\n' "$1" >&2; release_lock; exit 5; }
+
+# --heartbeat — the conductor's own write: session directory, cap, lanes and heartbeat, with every
+# other line (claims above all) carried over unchanged. A cap or lane list not given is kept.
+if [ "$MODE" = heartbeat ]; then
+  if [ "$HB_SET_CAP" = 1 ]; then
+    case "$HB_CAP" in ''|*[!0-9]*) printf 'loom-slots: --cap must be a whole number (got %s)\n' "$HB_CAP" >&2; exit 1 ;; esac
+  fi
+  case "$HB_LANES" in *$'\n'*) printf 'loom-slots: --lanes may not contain a newline\n' >&2; exit 1 ;; esac
+  mkdir -p "$SLOTS_DIR" 2>/dev/null || write_fail "cannot create $SLOTS_DIR"
+  f="$(loom_file "$CLAIM_SESSION")"
+  take_lock "$SLOTS_DIR/.$(basename "$f").lock" || write_fail "could not take the lock on $f (held for 30s, or the directory is not writable)"
+  old_cap=""; old_lanes=""
+  if [ -f "$f" ]; then
+    old_cap="$(sed -n 's/^cap=//p' "$f" | tail -1)"
+    old_lanes="$(sed -n 's/^liveLanes=//p' "$f" | tail -1)"
+  fi
+  [ "$HB_SET_CAP" = 1 ] || HB_CAP="$old_cap"
+  [ "$HB_SET_LANES" = 1 ] || HB_LANES="$old_lanes"
+  tmp="$(mktemp "$SLOTS_DIR/.claims.XXXXXX")" || write_fail "cannot create a temporary file in $SLOTS_DIR"
+  {
+    printf 'sessionDir=%s\ncap=%s\nliveLanes=%s\nheartbeat=%s\n' \
+      "$CLAIM_SESSION" "$HB_CAP" "$HB_LANES" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    [ -f "$f" ] && awk '!/^(sessionDir|cap|liveLanes|heartbeat)=/' "$f"
+  } > "$tmp" || { rm -f "$tmp"; write_fail "cannot copy $f"; }
+  chmod 644 "$tmp"
+  mv "$tmp" "$f" || { rm -f "$tmp"; write_fail "cannot replace $f"; }
+  release_lock
+  exit 0
+fi
 
 if [ "$MODE" = claim ] || [ "$MODE" = release ] || [ "$MODE" = claim-state ]; then
   case "$MODE:$CLAIM_STATE" in

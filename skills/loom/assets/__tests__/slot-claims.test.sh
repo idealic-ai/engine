@@ -357,6 +357,65 @@ else
   no "R4  unclaimed items are refused" "claim-state rc=$rc1 release rc=$rc2 msg=[$out1] file changed=$([ "$before" = "$(cat "$f")" ] && echo no || echo yes)"
 fi
 
+printf '\n== The conductor'"'"'s own row write keeps the claims ==\n'
+
+# Setup re-run by a loom restarted in the same session: its finished, uncommitted work must survive.
+reset
+mk_loom "tmp-sessions-LAND_TREE_BRANCHES" "$OTHER" 6 "L1,L2" "$(iso_ago 400)"
+run --claim "$OTHER" IDE-129,IDE-130 >/dev/null 2>&1
+run --claim-state "$OTHER" IDE-129 done-uncommitted >/dev/null 2>&1
+run --claim-state "$OTHER" IDE-130 done-uncommitted >/dev/null 2>&1
+before="$(grep '^claims=' "$f")"
+run --heartbeat "$OTHER" --cap 6 --lanes '' >/dev/null 2>&1; rc=$?
+after="$(grep '^claims=' "$f")"
+out="$(run 2>&1)"
+age="$(printf '%s' "$out" | awk '$1=="LAND_TREE_BRANCHES"{print $5; exit}')"
+if [ "$rc" -eq 0 ] && [ -n "$before" ] && [ "$before" = "$after" ] && grep -qx 'liveLanes=' "$f" \
+   && grep -qx 'cap=6' "$f" && [ "$age" = "0m" ] && [ "$(ls "$SB"/*.slots | wc -l | tr -d ' ')" = 1 ]; then
+  ok "H1  Setup re-run (--heartbeat --cap 6 --lanes '') on a stale row leaves both done-uncommitted claims byte-identical, empties the lanes, and freshens the heartbeat (age 0m), on the same one row"
+else
+  no "H1  Setup re-run keeps done-uncommitted claims" "rc=$rc before=[$before] after=[$after] age=[$age] file: $(tr '\n' '~' < "$f")"
+fi
+
+run --heartbeat "$OTHER" --lanes A,B >/dev/null 2>&1
+live="$(run 2>&1 | sed -n 's/.*global live lanes *: *\([0-9]*\).*/\1/p')"
+if grep -qx 'cap=6' "$f" && grep -qx 'liveLanes=A,B' "$f" && [ "${live:-x}" = 2 ] && [ "$after" = "$(grep '^claims=' "$f")" ]; then
+  ok "H2  --heartbeat --lanes without --cap keeps the cap (6), and the reader counts the 2 new lanes"
+else
+  no "H2  a field not given is kept" "live=${live:-?} file: $(tr '\n' '~' < "$f")"
+fi
+
+printf 'note=kept\n' >> "$f"
+run --heartbeat "$OTHER" >/dev/null 2>&1
+perm="$(stat -f %Lp "$f" 2>/dev/null || stat -c %a "$f")"
+if grep -qx 'note=kept' "$f" && [ "$perm" = 644 ] && [ "$(grep -c '^heartbeat=' "$f")" = 1 ]; then
+  ok "H3  --heartbeat carries unknown lines over, writes one heartbeat line, and leaves the file 0644"
+else
+  no "H3  other lines kept, one heartbeat, 0644" "mode $perm; file: $(tr '\n' '~' < "$f")"
+fi
+
+out="$(run --heartbeat "$OTHER" --cap many 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && grep -qx 'cap=6' "$f"; then
+  ok "H4  a cap that is not a whole number is refused (exit 1) and the row is untouched"
+else
+  no "H4  a bad cap is refused" "rc=$rc"
+fi
+
+# A heartbeat racing claims: every claim survives.
+reset
+mk_loom "tmp-sessions-LAND_TREE_BRANCHES" "$OTHER" 6 "" "$(iso_ago 1)"
+for i in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  run --claim "$OTHER" "RACE-$i" >/dev/null 2>&1 &
+  run --heartbeat "$OTHER" --lanes "L$i" >/dev/null 2>&1 &
+done
+wait
+n="$(grep '^claims=' "$f" | tr ',' '\n' | grep -c 'RACE-[0-9]*|working|')"
+if [ "$n" = 12 ] && [ "$(grep -c '^claims=' "$f")" = 1 ]; then
+  ok "H5  12 heartbeats racing 12 claims leave all 12 claims on one claims= line"
+else
+  no "H5  heartbeats never drop a racing claim" "survived $n of 12; file: $(tr '\n' '~' < "$f")"
+fi
+
 printf '\n== Existing behaviour ==\n'
 
 reset
