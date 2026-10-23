@@ -71,6 +71,20 @@
 |-------|----------|------------------|------------------|-----------|----------|-------------|
 | [session dir] | [one line] | [threadIds / the work waiting] | [absolute path to the `_DECIDE.md` record or board row \| `UNKNOWN — no card prepared`] | [proceeding on the lean — falsifier: [x] \| working around \| parked \| idle] | [gate N, timestamp] | [the artifact that records the answer] |
 
+## 📨 Seat handovers — topics handed to or from another seat, still waiting on an ack
+
+*Carried from the session log's `## 📨 Seat handovers` block **unchanged**, the way a board row, an open claim and a rule owed are. The block is **live in the log** and this is its hand-over copy. A row kind lives in both places or it is lost at one of the two moments that matter — and this kind is the one most exposed at a hand-over, because **the party who owes the ack is not the party handing over**. A peer seat keeps its own context and answers in its own time, so an un-acked handover routinely outlives the session that sent it, and a successor that cannot see one re-sends a topic the peer already took or abandons one it never did.*
+
+*⚠️ **Not the same thing as the `## 🤝 Hand-over written` receipt**, which is this conductor handing its own state to its own successor. This block is one seat handing a topic to **another seat**. The two were one word and are two registers.*
+
+*A row closes on the receiving seat's own words — `taken`, `declined — <why>`, or `already done — <the evidence>` — and `§INV_HANDOVER_CLOSES_ON_ACK` forbids the sender closing it on sending, so **an open row is the normal thing to inherit** rather than a sign anybody fell behind. What a successor may not do is drop one: `¶INV_LOOM_PASS_ON_NEVER_DISCARD` binds this kind like the rest.*
+
+*`seat` carries the from-name **and** the pane id, and a successor **re-measures the pane before acting on a row** — a session that took the name later, or a seat renamed since the row was written, makes the from-name resolve somewhere else or nowhere, and a handover sent nowhere reads exactly like one sent. Where the pane cannot be resolved the cell is `UNKNOWN — <why>` and the successor stops and reports the row rather than re-sending into the dark.*
+
+| owner | direction | seat (from-name · pane id) | the topic | member links | sent | closes when |
+|-------|-----------|----------------------------|-----------|--------------|------|-------------|
+| [session dir] | [`sent` \| `received`] | `domain:<Seat>` · `yarik-fleet:domain:<Seat>` \| `UNKNOWN — <why>` | [one line, as the receiving seat reads it] | [ticket keys, comment ids, inbox roots — never `the topic` alone] | [timestamp · the delivery reading] | [the seat's own words — `taken` \| `declined — [why]` \| `already done — [evidence]` \| `UNKNOWN — <why>`] |
+
 ## ⚙️ Standing arrangements — things that die on their own and need re-arming
 
 *A background watcher, a subscription, a lane's held file, a credential pinned for a publish. Each row says what dies, what blocks when it does, how to restore it, and **whether restoring it contradicts something** — because a successor cannot infer any of those from an absence.*
