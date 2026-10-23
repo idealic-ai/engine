@@ -43,7 +43,9 @@
 #                                                 Write this loom's row: session directory, cap, lanes,
 #                                                 a fresh heartbeat. Keeps claims and anything else in
 #                                                 the file; a cap or lane list not given is kept too.
-#                                                 The only way a conductor writes its row
+#                                                 With no row yet, CREATES one at the generated name
+#                                                 with an empty claims= line. The only way a conductor
+#                                                 writes or creates its row
 #   engine loom-slots --lane-alive <sessionDir> <laneTag>
 #                                                 Refresh THIS lane's liveness file (what a lane calls)
 #   engine loom-slots --lane-done  <sessionDir> <laneTag>
@@ -70,13 +72,14 @@
 #   file's mtime, so writing a claim never makes a dead row look live.
 #
 # Exit status (the idiom `engine lane-stall` and `engine sweep-check` already use):
-#   0  under every cap, dispatching another lane is within budget
-#   3  AT or OVER a cap — the reading a refusal is built on
+#   0  under every cap, dispatching another lane is within budget; or a write succeeded
+#   1  a write command refused its input: a bad item, state or cap, or an item that is not claimed
 #   2  the directory could not be read: the caller must dispatch ONE lane at a time and say so,
-#      never assume it is alone (`¶INV_SLOT_CAP_IS_GLOBAL`)
+#      never assume it is alone (`¶INV_SLOT_CAP_IS_GLOBAL`); also an unknown argument
+#   3  AT or OVER a cap — the reading a refusal is built on
 #   4  under cap, but --dispatching overlaps another loom's claim (3 wins when both hold)
-#   1  a claim command refused its input (bad item or state, or an item that is not claimed)
 #   5  a write failed (lock, temp file or rename): nothing was written
+# (end of help)
 
 set -uo pipefail
 
@@ -124,7 +127,7 @@ while [ $# -gt 0 ]; do
       CLAIM_STATE="${4:?--claim-state needs <sessionDir> <item> <state>}"; shift 4 ;;
     --lane-alive) MODE=alive; LANE_SESSION="${2:?--lane-alive needs <sessionDir> <laneTag>}"; LANE_TAG="${3:?--lane-alive needs <sessionDir> <laneTag>}"; shift 3 ;;
     --lane-done)  MODE=done;  LANE_SESSION="${2:?--lane-done needs <sessionDir> <laneTag>}";  LANE_TAG="${3:?--lane-done needs <sessionDir> <laneTag>}";  shift 3 ;;
-    -h|--help)    sed -n '/^# Usage:/,/^#   5 /p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)    sed -n '/^# Usage:/,/^# (end of help)$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'loom-slots: unknown argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -177,14 +180,28 @@ fi
 
 # loom_file — the loom's own file: the one whose sessionDir line names it, else the slug. Found by
 # content first because hand-written files exist whose names are not the slug.
+# file_hb_epoch — a row's heartbeat as epoch seconds: its stanza stamp, else the file's mtime.
+file_hb_epoch() {
+  local f="$1" h e=""
+  h="$(sed -n 's/^heartbeat=//p' "$f" | tail -1)"
+  [ -n "$h" ] && e="$(iso_to_epoch "$h" || true)"
+  [ -n "$e" ] || e="$(stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null || echo 0)"
+  printf '%s' "$e"
+}
+
+# Where two rows name one loom (a legacy hand-named file beside the generated one), writes go to
+# the one with the freshest heartbeat — the same row the reader counts.
 loom_file() {
-  local sd="$1" f v
+  local sd="$1" f v best="" best_e=-1 e
   for f in "$SLOTS_DIR"/*.slots; do
     [ -f "$f" ] || continue
     v="$(sed -n 's/^sessionDir=//p' "$f" | tail -1)"
     [ -n "$v" ] || continue
-    if [ "$(canon_session "$v")" = "$sd" ]; then printf '%s' "$f"; return 0; fi
+    [ "$(canon_session "$v")" = "$sd" ] || continue
+    e="$(file_hb_epoch "$f")"
+    if [ "$e" -gt "$best_e" ]; then best="$f"; best_e="$e"; fi
   done
+  if [ -n "$best" ]; then printf '%s' "$best"; return 0; fi
   printf '%s/%s.slots' "$SLOTS_DIR" "$(slugify "$sd")"
 }
 
@@ -329,7 +346,11 @@ if [ "$MODE" = heartbeat ]; then
   {
     printf 'sessionDir=%s\ncap=%s\nliveLanes=%s\nheartbeat=%s\n' \
       "$CLAIM_SESSION" "$HB_CAP" "$HB_LANES" "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    [ -f "$f" ] && awk '!/^(sessionDir|cap|liveLanes|heartbeat)=/' "$f"
+    if [ -f "$f" ]; then
+      awk '!/^(sessionDir|cap|liveLanes|heartbeat)=/' "$f"
+    else
+      printf 'claims=\n'
+    fi
   } > "$tmp" || { rm -f "$tmp"; write_fail "cannot copy $f"; }
   chmod 644 "$tmp"
   mv "$tmp" "$f" || { rm -f "$tmp"; write_fail "cannot replace $f"; }
@@ -440,8 +461,30 @@ claim_rows=""
 overlaps=0
 overlap_lines=""
 
+# Pre-pass: every row's canonical session directory and heartbeat, so two rows naming one loom are
+# counted once — from the freshest — and the other is reported as a duplicate by file name.
+F_PATH=(); F_CANON=(); F_HB=()
 for f in "$SLOTS_DIR"/*.slots; do
   [ -f "$f" ] || continue
+  v="$(sed -n 's/^sessionDir=//p' "$f" | tail -1)"
+  c="file:$f"; [ -n "$v" ] && c="$(canon_session "$v")"
+  F_PATH+=("$f"); F_CANON+=("$c"); F_HB+=("$(file_hb_epoch "$f")")
+done
+global_dupes=0
+dupe_lines=""
+primary_of() { # index -> index of the freshest row with the same canonical session
+  local i="$1" j best="$1"
+  for j in ${F_PATH[@]+"${!F_PATH[@]}"}; do
+    [ "${F_CANON[$j]}" = "${F_CANON[$i]}" ] || continue
+    if [ "${F_HB[$j]}" -gt "${F_HB[$best]}" ]; then best="$j"; fi
+  done
+  printf '%s' "$best"
+}
+
+for fi_ in ${F_PATH[@]+"${!F_PATH[@]}"}; do
+  f="${F_PATH[$fi_]}"
+  pi="$(primary_of "$fi_")"
+  is_dupe=0; [ "$pi" != "$fi_" ] && is_dupe=1
   sessionDir=""; cap=""; liveLanes=""; heartbeat=""; claims=""
   while IFS='=' read -r k v; do
     case "$k" in
@@ -497,7 +540,12 @@ for f in "$SLOTS_DIR"/*.slots; do
   # WHICH NUMBER COUNTS. Lane files, where they exist, because each one is refreshed by the lane it
   # describes. Otherwise the conductor's asserted list, gated on the loom's own heartbeat being
   # fresh — a stale loom row is reported and not counted.
-  if [ "$have_lane_files" = 1 ]; then
+  if [ "$is_dupe" = 1 ]; then
+    counted=0; basis="duplicate"; observed_stale=0; stale_names=""
+    global_dupes=$((global_dupes+1))
+    dupe_lines="$dupe_lines$(printf '    %s duplicates %s (same session %s; counted once, from the freshest heartbeat)' "$(basename "$f")" "$(basename "${F_PATH[$pi]}")" "${F_CANON[$fi_]}")
+"
+  elif [ "$have_lane_files" = 1 ]; then
     counted="$observed"; basis="observed"
   elif [ "$loom_fresh" = 1 ]; then
     counted="$asserted"; basis="asserted"
@@ -514,11 +562,12 @@ for f in "$SLOTS_DIR"/*.slots; do
   verdict="under"
   if [ "$capnum" -gt 0 ] && [ "$counted" -ge "$capnum" ]; then verdict="AT-CAP"; at_cap=1; fi
   [ "$basis" = "stale-not-counted" ] && verdict="stale"
+  [ "$is_dupe" = 1 ] && verdict="duplicate"
 
   # The newline is appended OUTSIDE the substitution: `$( )` strips trailing newlines, so building
   # a table by `rows="$rows$(printf '...\n')"` silently runs every row into the previous one.
   rows="$rows$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
-    "$short" "${cap:-?}" "$counted" "$basis" "${loom_age}m" "$hb_src" "$verdict" "${observed_names:-${liveLanes:-—}}")
+    "$short" "${cap:-?}" "$counted" "$basis" "${loom_age}m" "$hb_src" "$verdict" "$( [ "$is_dupe" = 1 ] && printf 'of %s' "$(basename "${F_PATH[$pi]}")" || printf '%s' "${observed_names:-${liveLanes:-—}}")")
 "
   # Claims are read off EVERY row, counted or not: the row that is stale with no lanes is the one
   # whose finished-but-uncommitted work a second loom is about to redo.
@@ -527,6 +576,7 @@ for f in "$SLOTS_DIR"/*.slots; do
     [ -n "$SELF" ] && [ "$(canon_session "$sessionDir")" = "$SELF" ] && is_self=1
     rowstate="fresh"; [ "$loom_fresh" = 1 ] || rowstate="stale(${loom_age}m)"
     [ "$counted" -gt 0 ] || rowstate="$rowstate,no-live-lanes"
+    [ "$is_dupe" = 1 ] && rowstate="duplicate-row:$(basename "$f")"
     IFS=',' read -r -a row_claims <<< "$claims"
     for c in ${row_claims[@]+"${row_claims[@]}"}; do
       [ -n "$c" ] || continue
@@ -571,6 +621,10 @@ if ! $QUIET; then
   { printf 'LOOM\tCAP\tLIVE\tBASIS\tAGE\tFROM\tVERDICT\tLANES\n'; printf '%s\n' "$rows"; } | column -t -s "$(printf '\t')"
   printf '\n  global live lanes : %s\n' "$global_live"
   printf '  stale loom rows   : %s (reported, not counted)\n' "$global_stale_looms"
+  if [ "$global_dupes" -gt 0 ]; then
+    printf '  duplicate rows    : %s (one loom under two file names; remove the stale one once its claims are moved)\n' "$global_dupes"
+    printf '%s' "$dupe_lines"
+  fi
   printf '  stale lane files  : %s (reported, not counted)\n' "$global_stale_lanes"
   if [ "$at_cap" = 1 ]; then
     printf '\n  VERDICT: a loom is AT or OVER its cap. A dispatch past it is the refusal this count exists for.\n\n'
