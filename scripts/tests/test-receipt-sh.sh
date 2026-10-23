@@ -211,4 +211,47 @@ test_receipt_go_refuses_an_id_the_commit_does_not_give() {
   assert_eq 2 "$code" "a go whose id does not match its stated commit and form is refused"
 }
 
+test_receipt_sync_carries_gos_between_clones() {
+  local bare="$TMP_DIR/remote.git" A="$TMP_DIR/A" B="$TMP_DIR/B"
+  git clone -q --bare "$REPO" "$bare"
+  git clone -q "$bare" "$A"
+  git clone -q "$bare" "$B"
+  local id; id=$(cd "$A" && bash "$RECEIPT" id HEAD --form whole)
+  (cd "$A" && bash "$RECEIPT" go "$id" --form whole --owner Claims --seat SA) 2>/dev/null
+  local code
+  (cd "$B" && bash "$RECEIPT" find --patch "$id") >/dev/null 2>&1; code=$?
+  assert_eq 1 "$code" "precondition: clone B cannot see A's go before a sync"
+  (cd "$A" && bash "$RECEIPT" sync) 2>/dev/null
+  (cd "$B" && bash "$RECEIPT" go "$id" --form whole --owner Legal --seat SB) 2>/dev/null
+  (cd "$B" && bash "$RECEIPT" sync) 2>/dev/null; code=$?
+  assert_eq 0 "$code" "B syncs over its own diverged notes"
+  local out; out=$(cd "$B" && bash "$RECEIPT" find --patch "$id")
+  assert_contains "owner=Claims" "$out" "A's go is found in clone B after sync"
+  assert_contains "owner=Legal" "$out" "and B's own go is kept"
+  (cd "$A" && bash "$RECEIPT" sync) 2>/dev/null
+  assert_contains "owner=Legal" "$(cd "$A" && bash "$RECEIPT" find --patch "$id")" "B's go reaches A"
+  assert_contains "+refs/notes/receipts:refs/notes/receipts-remote/origin" \
+    "$(git -C "$A" config --get-all remote.origin.fetch)" "a fetch refspec is configured"
+  local before after
+  before=$(git -C "$A" rev-list refs/notes/receipts | wc -l | tr -d ' ')
+  (cd "$A" && bash "$RECEIPT" sync) 2>/dev/null
+  after=$(git -C "$A" rev-list refs/notes/receipts | wc -l | tr -d ' ')
+  assert_eq "$before" "$after" "a sync with nothing new writes nothing"
+}
+
+test_receipt_withdrawal_ordered_by_time_after_a_sorting_merge() {
+  commit_file a.txt 'w2' 'w2'
+  local bare="$TMP_DIR/remote.git" A="$TMP_DIR/A" id
+  git clone -q --bare "$REPO" "$bare"
+  git clone -q "$bare" "$A"
+  id=$(cd "$A" && bash "$RECEIPT" id HEAD --paths a.txt)
+  (cd "$A" && bash "$RECEIPT" go "$id" --form path+text --paths a.txt --owner O --withdraw \
+     && bash "$RECEIPT" sync) 2>/dev/null
+  git remote add origin "$bare"
+  r go "$id" --form path+text --paths a.txt --owner O >/dev/null 2>&1
+  r sync >/dev/null 2>&1
+  local code; r check main~1..main --owner O=a.txt >/dev/null; code=$?
+  assert_eq 0 "$code" "the later go wins over the earlier withdrawal whatever the merged line order"
+}
+
 run_discovered_tests

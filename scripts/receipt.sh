@@ -10,12 +10,17 @@
 #   engine receipt check <rev-range> [--against <branch>]... [--form <form>]
 #                        [--owner <O>=<path,path>]...
 #   engine receipt id <sha> --form <form> [--paths a,b]
+#   engine receipt sync [--remote R] [--no-push]
 #
 # Storage: notes on refs/notes/receipts. A key K of kind T is the object
 # `printf 'receipt-key:T:K' | git hash-object -w --stdin`, so a tree hash, commit or patch-id
 # is a direct lookup and the record survives rebases (it hangs on the id, not on a sha).
 # Every write appends one JSON line; nothing is ever rewritten. Notes live in the common git
-# dir, so every worktree of the repo reads them at once.
+# dir, so every worktree of the repo reads them at once. Notes do not travel with a plain
+# push; `sync` fetches the remote's notes, merges them (cat_sort_uniq: JSON lines are kept,
+# duplicates dropped) and pushes the union back. It also adds a fetch refspec so a plain
+# fetch brings the remote's notes into refs/notes/receipts-remote/<R>. It adds no push
+# refspec, because a configured push refspec replaces what a bare `git push` pushes.
 #
 # Forms of a patch-id: whole | whole+text | path | path+text. "path" forms are computed as
 # `git show [--text] <sha> -- <paths> | git patch-id --stable`; "whole" forms omit the paths.
@@ -446,6 +451,67 @@ cmd_check() {
   return "$fail"
 }
 
+# ---------------------------------------------------------------- sync
+cmd_sync() {
+  local remote=origin push=true
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --remote) remote="${2:?}"; shift 2 ;;
+      --no-push) push=false; shift ;;
+      *) die "sync: unexpected '$1'" ;;
+    esac
+  done
+  require_repo
+  git remote get-url "$remote" >/dev/null 2>&1 || die "sync: no remote '$remote'"
+  local track="refs/notes/receipts-remote/$remote"
+  local spec="+$NOTES_REF:$track"
+  git config --get-all "remote.$remote.fetch" | grep -qxF "$spec" \
+    || git config --add "remote.$remote.fetch" "$spec"
+
+  local attempt=0
+  while [ "$attempt" -lt 10 ]; do
+    attempt=$((attempt + 1))
+    git fetch -q "$remote" "$spec" 2>/dev/null || git update-ref -d "$track" 2>/dev/null
+    if git rev-parse -q --verify "$track" >/dev/null; then
+      merge_remote_notes "$track" || return 1
+    fi
+    [ "$push" = true ] || { echo "receipt: fetched and merged notes from $remote" >&2; return 0; }
+    git rev-parse -q --verify "$NOTES_REF" >/dev/null || { echo "receipt: no notes to push" >&2; return 0; }
+    if git push -q "$remote" "$NOTES_REF:$NOTES_REF" 2>/dev/null; then
+      echo "receipt: notes synced with $remote" >&2
+      return 0
+    fi
+    sleep "0.$((RANDOM % 5 + 1))"
+  done
+  echo "receipt: sync with $remote did not settle after $attempt attempts" >&2
+  return 1
+}
+
+# Merge a fetched notes ref into ours on a temp ref, then compare-and-swap it in.
+merge_remote_notes() {
+  local theirs="$1" attempt=0 old tmp new
+  while [ "$attempt" -lt "$RECEIPT_RETRIES" ]; do
+    attempt=$((attempt + 1))
+    old=$(git rev-parse -q --verify "$NOTES_REF" 2>/dev/null || true)
+    if [ -z "$old" ]; then
+      git update-ref "$NOTES_REF" "$(git rev-parse "$theirs")" "" 2>/dev/null && return 0
+      continue
+    fi
+    tmp="$TMP_REF_PREFIX/$$-$RANDOM-merge-$attempt"
+    git update-ref "$tmp" "$old" || continue
+    if ! git notes --ref="$tmp" merge -q -s cat_sort_uniq "$theirs" >/dev/null 2>&1; then
+      git update-ref -d "$tmp" >/dev/null 2>&1
+      echo "receipt: notes merge from $theirs failed" >&2
+      return 1
+    fi
+    new=$(git rev-parse "$tmp")
+    git update-ref -d "$tmp" >/dev/null 2>&1
+    [ "$new" = "$old" ] && return 0
+    git update-ref -m "receipt merge" "$NOTES_REF" "$new" "$old" 2>/dev/null && return 0
+  done
+  return 1
+}
+
 main() {
   local sub="${1:-}"; [ -n "$sub" ] && shift
   case "$sub" in
@@ -454,6 +520,7 @@ main() {
     go) cmd_go "$@" ;;
     check) cmd_check "$@" ;;
     id) cmd_id "$@" ;;
+    sync) cmd_sync "$@" ;;
     -h|--help|help|"") usage ;;
     *) die "unknown subcommand '$sub'" ;;
   esac
