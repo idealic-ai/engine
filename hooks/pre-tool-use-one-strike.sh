@@ -69,6 +69,12 @@ if [ -z "$CMD" ]; then
   hook_allow
 fi
 
+# Set only when the call comes from a subagent. Patterns in SUBAGENT_HARD are denied to a
+# subagent on every attempt: reset, clean, checkout ., restore, stash, checkout -- <paths>,
+# checkout -f/switch -f, bare reset, add -A.
+AGENT_ID=$(echo "$INPUT" | jq -r '.agent_id // ""' 2>/dev/null || echo "")
+SUBAGENT_HARD="2 3 4 5 6 7 8 9 12"
+
 # PID for scoping warning files
 SUPERVISOR_PID="${CLAUDE_SUPERVISOR_PID:-$PPID}"
 
@@ -93,6 +99,15 @@ deny_destructive() {
   local idx="$1"
   local desc="$2"
   local explanation="$3"
+
+  # A subagent never gets the retry on the git tree/index family: a builder that stashed the
+  # shared kit tree on its retry swept 1,162 paths from every lane (2026-09-24).
+  if [ -n "$AGENT_ID" ] && [[ " $SUBAGENT_HARD " == *" $idx "* ]]; then
+    hook_deny \
+      "[block: subagent] §CMD_CONFIRM_DESTRUCTIVE — ${desc}" \
+      "${explanation} A subagent may not run this at all, and retrying will not allow it. For a before-state, copy the file to your scratchpad; to read a committed version, use 'git show HEAD:<path>'." \
+      ""
+  fi
 
   if check_warned "$idx"; then
     hook_allow
@@ -128,8 +143,25 @@ if [[ "$CMD" =~ (^|[[:space:]|;&])rm[[:space:]] ]]; then
 fi
 
 # Pattern 1: git push --force (or -f after push)
-if [[ "$CMD" =~ ${GITP}push[[:space:]] ]]; then
-  if [[ "$CMD" =~ ${GITP}push[[:space:]].*(--force|-f) ]]; then
+# Flags are read per push command, split off at ; & |, so a `-f` in a later command or a path is not one.
+# Force: --force[=..], --force-with-lease[=..], a short-flag cluster holding f (-f, -uf), or a +refspec.
+if [[ "$CMD" =~ ${GITP}push([[:space:]]|$) ]]; then
+  PUSH_FORCE=0
+  set -f
+  while IFS= read -r SEG; do
+    [[ "$SEG" =~ ${GITP}push([[:space:]]|$) ]] || continue
+    ARGS="${SEG#*"${BASH_REMATCH[0]}"}"
+    for TOK in $ARGS; do
+      case "$TOK" in
+        --force|--force=*|--force-with-lease|--force-with-lease=*) PUSH_FORCE=1 ;;
+        --*) ;;
+        -*f*) PUSH_FORCE=1 ;;
+        +?*) PUSH_FORCE=1 ;;
+      esac
+    done
+  done < <(printf '%s\n' "$CMD" | tr ';&|' '\n\n\n')
+  set +f
+  if [ "$PUSH_FORCE" = 1 ]; then
     deny_destructive 1 \
       "git push --force" \
       "Force-pushing overwrites remote history, potentially destroying other developers' commits. ${GIT_GUIDANCE}"

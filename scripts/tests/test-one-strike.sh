@@ -310,6 +310,39 @@ assert_contains '"deny"' "$OUT" "git push -f denied"
 
 echo ""
 
+# --- 15b. a `-f` outside the push's own arguments is not a force flag ---
+echo "--- 15b. push flags read from the push segment only ---"
+clear_warnings
+
+OUT=$(run_hook "Bash" '{"command":"git push origin HEAD:feature/reactor 2>&1 | tee /tmp/push-final.log"}')
+assert_contains '"allow"' "$OUT" "plain push piped to a path containing -f allowed"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git push origin HEAD:feature/reactor && ls -f /tmp"}')
+assert_contains '"allow"' "$OUT" "plain push followed by a command with -f allowed"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git push origin fix-foo"}')
+assert_contains '"allow"' "$OUT" "branch name containing -f allowed"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git push --force-with-lease origin main"}')
+assert_contains '"deny"' "$OUT" "git push --force-with-lease denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git push -uf origin main"}')
+assert_contains '"deny"' "$OUT" "git push -uf (clustered short flag) denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git push origin +main"}')
+assert_contains '"deny"' "$OUT" "git push origin +ref (force refspec) denied"
+
+clear_warnings
+OUT=$(run_hook "Bash" '{"command":"git push origin main 2>&1 | tee log && git push --force origin main"}')
+assert_contains '"deny"' "$OUT" "a later force push in the same command still denied"
+
+echo ""
+
 # --- 16. git clean -fd variant ---
 echo "--- 16. git clean -fd variant ---"
 clear_warnings
