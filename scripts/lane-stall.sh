@@ -17,7 +17,7 @@
 #   transcript  minutes since the lane's transcript last changed (any tool call or reply)
 #   log         minutes since the lane last wrote to any *_LOG.md under the session dir
 #               (searched recursively — lane logs live in <sessionDir>/builds/). The lane's
-#               own log (builds/<TAG>_LOG.md, builds/<TAG>_<KIND>_LOG.md, builds/<tag>/…)
+#               own log (<TAG>_LOG.md, <TAG>_<KIND>_LOG.md, builds/<tag>/<KIND>_LOG.md)
 #               outranks any other log naming the tag, however recent, and a log at the
 #               session root dates only the lane it is named for: the conductor's log there
 #               names every lane and dates none of them. A "~" marks
@@ -257,16 +257,28 @@ log_last, log_path, log_approx = {}, {}, set()
 log_rank = {}
 SESSION_ROOT = os.path.normpath(session_dir)
 
-def norm_tag(name):
-    return name.upper().replace("-", "_")
+# The <KIND> a lane's own log may carry after its tag, optionally numbered or behind a round
+# (R2_CRITIQUE). Closed, so a sibling tag is never read as a kind: VOICE-COUNCIL_LOG.md is not
+# VOICE's log, nor PROOFS-B_LOG.md PROOFS's.
+OWN_LOG_KINDS = ("BUILD", "LAND", "FIX", "CRITIQUE", "RECRITIQUE", "REVIEW", "REREVIEW",
+                 "SCRUTINIZE", "PROBE", "PROVE", "EXPLORE", "REPORT", "UPDATE", "RUN", "PREP")
+KIND_PART = re.compile(r"R\d+|(?:%s)\d*" % "|".join(OWN_LOG_KINDS))
 
-# builds/<TAG>_LOG.md, builds/<TAG>_<KIND>_LOG.md, or any log in builds/<tag>/.
+def name_parts(name):
+    return [p for p in re.split(r"[-_]", name.upper()) if p]
+
+# builds/<TAG>_LOG.md or builds/<TAG>_<KIND>_LOG.md, anywhere, or a kind-only name such as
+# BUILD_LOG.md inside builds/<tag>/. Names compare with "-" and "_" removed, so
+# builds/ide173/IDE173_BUILD_LOG.md is [IDE-173]'s.
 def is_own_log(log, tag):
-    tag = norm_tag(tag)
-    stem = norm_tag(os.path.basename(log)[:-len("_LOG.md")])
-    if stem == tag or stem.startswith(tag + "_"):
+    want = "".join(name_parts(tag))
+    parts = name_parts(os.path.basename(log)[:-len("_LOG.md")])
+    is_kind = lambda rest: all(KIND_PART.fullmatch(p) for p in rest)
+    if any("".join(parts[:i]) == want and is_kind(parts[i:]) for i in range(1, len(parts) + 1)):
         return True
-    return norm_tag(os.path.basename(os.path.dirname(log))) == tag
+    parent = os.path.dirname(log)
+    return (os.path.normpath(parent) != SESSION_ROOT and bool(parts) and is_kind(parts)
+            and "".join(name_parts(os.path.basename(parent))) == want)
 
 def date_tag(tag, stamp, log, approx):
     # The conductor's log sits at the session root and names every lane, so a root log dates

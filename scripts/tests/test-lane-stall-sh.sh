@@ -897,4 +897,53 @@ test_lane_stall_dates_a_lanes_own_log_at_the_session_root() {
     "the conductor's root log is still nobody's logpath"
 }
 
+# Which file counts as a lane's own log decides who wins, so the match must be exact. Every own
+# log below is older than a mention of its lane in another builds/ log; a looser match hands
+# the lane a sibling's or a child's log, and a stricter one hands it the mention.
+#   KITDOCS      builds/kitdocs/ also holds a child lane's HBSYNTAX_LOG.md naming [KITDOCS]
+#   VOICE        a sibling's builds/VOICE-COUNCIL_LOG.md names [VOICE]; PROOFS likewise PROOFS-B
+#   IDE-173      builds/ide173/IDE173_BUILD_LOG.md, the separator dropped from both names
+#   DIRLANE      builds/dirlane/BUILD_LOG.md, owned only by its directory
+#   KINDLANE     builds/KINDLANE_R2_CRITIQUE_LOG.md, a round prefix on a kind
+# RED: own any log under builds/<tag>/ (KITDOCS); own any <TAG>_* stem (VOICE, PROOFS); compare
+#      without removing separators (IDE-173); drop the directory rule (DIRLANE).
+test_lane_stall_own_log_match_is_exact() {
+  local session="$TMP_DIR/ownmatch/2026_10_12_OWNMATCH"
+  local projects="$TMP_DIR/projects-ownmatch"
+  local tag
+  for tag in KITDOCS HBSYNTAX VOICE VOICE-COUNCIL PROOFS PROOFS-B IDE-173 DIRLANE KINDLANE; do
+    plant_synthetic_lane "$projects" "$session" "$tag" ""
+  done
+  local b="$session/builds"
+  mkdir -p "$b/kitdocs" "$b/ide173" "$b/dirlane"
+  printf '## [2026-10-20 10:20:00] [KITDOCS] work\n' > "$b/KITDOCS_LOG.md"
+  printf '## [2026-10-20 10:40:00] [HBSYNTAX] picked up from [KITDOCS]\n' > "$b/kitdocs/HBSYNTAX_LOG.md"
+  printf '## [2026-10-20 10:20:00] [VOICE] work\n' > "$b/VOICE_LOG.md"
+  printf '## [2026-10-20 10:40:00] [VOICE-COUNCIL] continuing [VOICE]\n' > "$b/VOICE-COUNCIL_LOG.md"
+  printf '## [2026-10-20 10:20:00] [PROOFS] work\n' > "$b/PROOFS_LOG.md"
+  printf '## [2026-10-20 10:40:00] [PROOFS-B] continuing [PROOFS]\n' > "$b/PROOFS-B_LOG.md"
+  printf '## [2026-10-20 10:20:00] [IDE-173] work\n' > "$b/ide173/IDE173_BUILD_LOG.md"
+  printf '## [2026-10-20 10:20:00] [DIRLANE] work\n' > "$b/dirlane/BUILD_LOG.md"
+  printf '## [2026-10-20 10:20:00] [KINDLANE] work\n' > "$b/KINDLANE_R2_CRITIQUE_LOG.md"
+  printf '## [2026-10-20 10:40:00] wave notes: [IDE-173] [DIRLANE] [KINDLANE]\n' > "$b/WAVE_LOG.md"
+  local out="$TMP_DIR/ownmatch.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  local want
+  for tag in KITDOCS HBSYNTAX VOICE VOICE-COUNCIL PROOFS PROOFS-B IDE-173 DIRLANE KINDLANE; do
+    case "$tag" in
+      KITDOCS) want="$b/KITDOCS_LOG.md" ;;
+      HBSYNTAX) want="$b/kitdocs/HBSYNTAX_LOG.md" ;;
+      VOICE) want="$b/VOICE_LOG.md" ;;
+      VOICE-COUNCIL) want="$b/VOICE-COUNCIL_LOG.md" ;;
+      PROOFS) want="$b/PROOFS_LOG.md" ;;
+      PROOFS-B) want="$b/PROOFS-B_LOG.md" ;;
+      IDE-173) want="$b/ide173/IDE173_BUILD_LOG.md" ;;
+      DIRLANE) want="$b/dirlane/BUILD_LOG.md" ;;
+      KINDLANE) want="$b/KINDLANE_R2_CRITIQUE_LOG.md" ;;
+    esac
+    assert_eq "$want" "$(grep "\[$tag\]" "$out" | sed 's/.*logpath=//')" \
+      "$tag: the logpath is the lane's own log"
+  done
+}
+
 run_discovered_tests
