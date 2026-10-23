@@ -146,6 +146,19 @@ scope_blobs() {
       | any($ps[]; (sub("/+$";"")) as $q | $p == $q or ($p | startswith($q + "/"))))))' <<<"$1"
 }
 
+# range_patch_id <base> <head> <form> <paths-json>: the id of the whole range as one diff.
+range_patch_id() {
+  local textflag=() paths=()
+  case "$3" in *+text) textflag=(--text) ;; esac
+  case "$3" in
+    path|path+text)
+      while IFS= read -r p; do paths+=("$p"); done < <(jq -r '.[]' <<<"$4")
+      [ "${#paths[@]}" -gt 0 ] || return 0
+      git "${DIFF_PIN[@]}" diff "${SHOW_PIN[@]}" ${textflag[@]+"${textflag[@]}"} "$1" "$2" -- "${paths[@]}" | git patch-id --stable | awk '{print $1}' ;;
+    *) git "${DIFF_PIN[@]}" diff "${SHOW_PIN[@]}" ${textflag[@]+"${textflag[@]}"} "$1" "$2" | git patch-id --stable | awk '{print $1}' ;;
+  esac
+}
+
 patch_cmd() {
   local sha="$1" form="$2" pj="$3" t="" p g
   case "$form" in *+text) t=" --text" ;; esac
@@ -318,7 +331,7 @@ cmd_find() {
       if .kind=="run" then
         "\(.time_iso) run  exit=\(.exit) seat=\(.seat)\(if (.cwd // "") != "" then " cwd=\(.cwd)" else "" end) commit=\(.commit[0:12])\(if .dirty then " DIRTY" else "" end)\(if (.changed_during_run // false) then " CHANGED" else "" end)  \(.cmd)  -- \(.summary)"
       else
-        "\(.time_iso) go\(if .withdrawn then "-withdrawn" else "" end)  owner=\(.owner) form=\(.form) paths=\(.paths|join(",")) giver=\(.giver)  \(.patch_id[0:12])\(if .verify != "" then "  verify: \(.verify)" else "" end)"
+        "\(.time_iso) go\(if .withdrawn then "-withdrawn" else "" end)  owner=\(.owner) form=\(.form) paths=\(.paths|join(",")) giver=\(.giver)\(if .verified == false then " UNVERIFIED" else "" end)  \(.patch_id[0:12])\(if .verify != "" then "  verify: \(.verify)" else "" end)"
       end'
   fi
   [ -n "$incons" ] && echo "$incons" >&"$incons_fd"
@@ -358,14 +371,17 @@ cmd_go() {
     [ "$got" = "$pid" ] || die "go: $commit gives ${got:-an empty diff} in form $form, not $pid"
     verify=$(patch_cmd "$commit" "$form" "$pj")
     blobs=$(scope_blobs "$(binary_blobs "$commit")" "$form" "$pj")
+  elif [ "$withdraw" = false ]; then
+    echo "receipt: warning: form $form is unverified; without --commit nothing checked that $pid is a per-commit id in that form" >&2
   fi
   local rec notes
   rec=$(jq -nc --arg pid "$pid" --arg form "$form" --argjson paths "$pj" --arg owner "$owner" \
     --arg giver "$seat" --arg commit "$commit" --arg note "$note" --argjson wd "$withdraw" \
     --arg repo "$(repo_id)" --argjson epoch "$(now_epoch)" --arg iso "$(now_iso)" \
     --argjson ms "$(now_ms)" --arg verify "$verify" --argjson blobs "$blobs" \
+    --argjson verified "$( [ -n "$commit" ] && echo true || echo false)" \
     '{v:1, kind:"go", key_kind:"patch", key:$pid, patch_id:$pid, form:$form, paths:$paths,
-      owner:$owner, giver:$giver, commit:$commit, verify:$verify, blobs:$blobs, note:$note,
+      owner:$owner, giver:$giver, commit:$commit, verify:$verify, verified:$verified, blobs:$blobs, note:$note,
       withdrawn:$wd, repo:$repo, time:$epoch, time_ms:$ms, time_iso:$iso}')
   notes=$(mktemp)
   printf '%s\t%s\n' "$(key_object patch "$pid" write)" "$rec" >> "$notes"
@@ -424,6 +440,27 @@ cmd_check() {
     sort_by(.time_ms // (.time * 1000)) | group_by([.patch_id, .form, (.paths|join(",")), .owner])
     | map(last) | map(select(.withdrawn|not))')
   local fail=0 c
+
+  # Gos given to the whole range as one diff. Ids here are per commit, so such a go is named
+  # as a form mismatch rather than reported as plain missing.
+  local rangegos="[]" rbase rhead
+  rhead="${range##*..}"; [ -n "$rhead" ] || rhead=HEAD
+  rbase="${range%%..*}"
+  # One commit's range id is its own id, so only a range of two or more commits is checked.
+  if [ "$(printf '%s\n' "$commits" | sed '/^$/d' | wc -l)" -gt 1 ] \
+    && [ "$rbase" != "$range" ] && [ -n "$rbase" ] && rbase=$(git merge-base "$rbase" "$rhead" 2>/dev/null); then
+    local rt rids="{}" rf rp
+    rt=$(git diff --name-only "$rbase" "$rhead" | jq -R . | jq -sc .)
+    while IFS=$'\t' read -r rf rp; do
+      [ -n "$rf" ] || continue
+      rids=$(jq -c --arg k "$rf|$rp" --arg v "$(range_patch_id "$rbase" "$rhead" "$rf" "$rp")" '. + {($k): $v}' <<<"$rids")
+    done < <(jq -r --argjson t "$rt" '
+      map(select((.form | startswith("whole")) or any(.paths[]; (sub("/+$";"")) as $q
+          | any($t[]; . == $q or startswith($q + "/")))))
+      | map([.form, (.paths|tojson)]) | unique[] | @tsv' <<<"$index")
+    rangegos=$(jq -c --argjson ids "$rids" '
+      map(select(($ids[.form + "|" + (.paths|tojson)] // "") as $v | $v != "" and $v == .patch_id))' <<<"$index")
+  fi
 
   for c in $commits; do
     local subject touched
@@ -500,9 +537,13 @@ cmd_check() {
         continue
       fi
       fail=1
-      local other; other=$(jq -r --arg f "$form" '[.[] | select(.form != $f) | .form] | unique | join(",")' <<<"$mine")
+      local other ranged
+      other=$(jq -r --arg f "$form" '[.[] | select(.form != $f) | .form] | unique | join(",")' <<<"$mine")
+      ranged=$(jq -r --arg w "$who" '[.[] | select($w == "undeclared" or .owner == $w) | .owner] | unique | join(",")' <<<"$rangegos")
       if [ -n "$other" ]; then
         echo "$label id=${rid:0:12}: FORM-MISMATCH (a go exists in form $other, not $form; it does not count)"
+      elif [ -n "$ranged" ]; then
+        echo "$label id=${rid:0:12}: FORM-MISMATCH (a go by $ranged was given to the whole range $range as one diff; gos are per commit, so it does not count)"
       else
         echo "$label id=${rid:0:12}: MISSING${missing:+ (uncovered: ${missing%,})}"
       fi

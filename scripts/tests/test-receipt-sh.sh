@@ -395,4 +395,18 @@ test_receipt_find_json_is_pure_json_lines() {
   assert_contains "inconsistent" "$err" "and the flake line goes to stderr"
 }
 
+test_receipt_range_id_under_a_per_commit_label_is_named() {
+  commit_file a.txt 'r1' 'r1'
+  commit_file a.txt 'r2' 'r2'
+  local rid err out code
+  rid=$(git diff --text main~2 main -- a.txt | git patch-id --stable | awk '{print $1}')
+  err=$(r go "$rid" --form path+text --paths a.txt --owner Carrier 2>&1 >/dev/null)
+  assert_contains "unverified" "$err" "go without --commit warns that its form is unverified"
+  assert_contains "UNVERIFIED" "$(r find --patch "$rid")" "and find marks it"
+  out=$(r check main~2..main --owner Carrier=a.txt); code=$?
+  assert_eq 1 "$code" "a range id does not clear per-commit requirements"
+  assert_eq 2 "$(grep -c 'given to the whole range main~2..main as one diff' <<<"$out")" "each commit names the range go as the reason"
+  assert_not_contains "MISSING" "$out" "it is not reported as plain missing"
+}
+
 run_discovered_tests
