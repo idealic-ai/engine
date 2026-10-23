@@ -381,20 +381,52 @@ test_core_set_is_the_ruled_five() {
 
 # --- Isolation: a hook run under this harness must never reach a live session ---
 
+# The leak path that reseeded a live conductor: the real fleet.sh turns an inherited TMUX/TMUX_PANE
+# into a pane id, and that id matches fleetPaneId on a live session in the project's own sessions/.
+# A stub tmux answers fleet.sh's queries; the decoy's pid is dead, so only the pane can reach it.
+setup_fleet_decoy() {
+  mkdir -p "$TMP_DIR/bin"
+  cat > "$TMP_DIR/bin/tmux" <<'SH'
+#!/bin/bash
+case "$*" in
+  *session_name*) echo decoysess ;;
+  *window_name*) echo decoywin ;;
+  *pane_label*) echo decoylabel ;;
+  *) exit 0 ;;
+esac
+SH
+  chmod +x "$TMP_DIR/bin/tmux"
+  rm -f "$FAKE_HOME/.claude/scripts/fleet.sh"
+  ln -s "$SCRIPT_DIR/scripts/fleet.sh" "$FAKE_HOME/.claude/scripts/fleet.sh"
+  DECOY="$PROJECT_DIR/sessions/LIVE_DECOY"
+  mkdir -p "$DECOY"
+  local dead; dead=$(bash -c 'echo $$'); 
+  printf '{"pid": %s, "skill": "loom", "lifecycle": "active", "fleetPaneId": "decoysess:decoywin:decoylabel", "preloadedFiles": ["/live/untouched.md"]}\n' "$dead" > "$DECOY/.state.json"
+  SEAT_ENV=(TMUX="$TMP_DIR/sock/fleet,4242,0" TMUX_PANE="%7" PATH="$TMP_DIR/bin:$PATH")
+}
+
 test_hook_run_cannot_resolve_a_live_session() {
-  # A decoy "live" session outside the test project, reachable the ways a real seat's would be:
-  # the PID cache in the inherited cache dir, and the inherited fleet and tmux variables.
-  local live="$TMP_DIR/live-project/sessions/LIVE" cache="$TMP_DIR/live-cache"
-  mkdir -p "$live" "$cache" "$TMP_DIR/live-project/.claude"
-  printf '{"pid": %s, "skill": "loom", "lifecycle": "active", "fleetPaneId": "fleet:decoy", "preloadedFiles": ["/live/untouched.md"]}\n' "$$" > "$live/.state.json"
-  echo "$live" > "$cache/claude-session-cache-$$"
+  setup_fleet_decoy
   local before after output
-  before=$(shasum "$live/.state.json")
-  output=$(CLAUDE_SUPERVISOR_PID="$$" CLAUDE_SESSION_CACHE_DIR="$cache" TMUX="/tmp/decoy,1,0" TMUX_PANE="%1" \
-    FLEET_PANE_ID="fleet:decoy" FLEET_PANE="fleet:decoy" run_hook "clear") || true
-  after=$(shasum "$live/.state.json")
-  assert_eq "$before" "$after" "decoy live session's .state.json is untouched"
-  has "Session: (none)" "$output" "hook resolved no session"
+  before=$(shasum "$DECOY/.state.json")
+  output=$(env "${SEAT_ENV[@]}" bash -c "$(declare -f hook_env run_hook); TMP_DIR='$TMP_DIR' PROJECT_DIR='$PROJECT_DIR' RESOLVED_HOOK='$RESOLVED_HOOK' run_hook clear") || true
+  after=$(shasum "$DECOY/.state.json")
+  assert_eq "$before" "$after" "under hook_env, the decoy live session is untouched"
+  has "Session: (none)" "$output" "under hook_env, no session resolved"
+}
+
+test_the_leak_path_is_real_without_env_i() {
+  # The guard above only means something if the same seat variables DO reach the decoy when the
+  # environment is inherited, so prove it.
+  setup_fleet_decoy
+  local before after output
+  before=$(shasum "$DECOY/.state.json")
+  mkdir -p "$TMP_DIR/session-cache"
+  output=$(echo "{\"hook_event_name\":\"SessionStart\",\"source\":\"clear\",\"cwd\":\"$PROJECT_DIR\"}" \
+    | env "${SEAT_ENV[@]}" CLAUDE_SESSION_CACHE_DIR="$TMP_DIR/session-cache" bash "$RESOLVED_HOOK" 2>/dev/null) || true
+  after=$(shasum "$DECOY/.state.json")
+  assert_neq "$before" "$after" "with the seat's variables inherited, the decoy IS reseeded"
+  has "Session: LIVE_DECOY" "$output" "with the seat's variables inherited, the decoy IS resolved"
 }
 
 # --- Loom-log excerpt edge cases (from the review's scratch cases A–J) ---
@@ -543,6 +575,101 @@ test_large_pitfalls_loaded_later_arrives_as_its_index() {
   mkdir -p "$(dirname "$small")"; printf -- '*   **¶PTF_SMALL**: small body SMALL_BODY\n' > "$small"
   content=$(cd "$PROJECT_DIR" && CLAUDE_SUPERVISOR_PID=77778 CLAUDE_SESSION_CACHE_DIR="$TMP_DIR/session-cache" bash -c 'source "$HOME/.claude/scripts/lib.sh"; preload_ensure "$1" test immediate; printf "%b" "$_PRELOAD_CONTENT"' _ "$small")
   has "SMALL_BODY" "$content" "a small PITFALLS is still delivered whole"
+}
+
+# --- A dehydrated restart (startup) at the reviewer's measured shape: seven required files, ~223 KB,
+# one of them the loom log itself and one the active skill's SKILL.md ---
+
+# The line that follows the first line equal to $1 in file $2.
+line_after() { awk -v want="$1" 'found { print; exit } $0 == want { found = 1 }' "$2"; }
+
+make_dehydrated_context() {
+  local d="$TMP_DIR/required" i
+  mkdir -p "$d"
+  for i in 1 2 3 4; do
+    awk -v n="$i" 'BEGIN { for (j = 1; j <= 700; j++) printf "## [t] required %d entry %d\nrequired body text for padding the file out\n", n, j }' > "$d/REQ_$i.md"
+  done
+  jq -n --arg log "$LOOM_SESSION/LOOM_LOG.md" --arg skill "$HOME/.claude/skills/loom/SKILL.md" \
+    --arg r1 "$d/REQ_1.md" --arg r2 "$d/REQ_2.md" --arg r3 "$d/REQ_3.md" --arg r4 "$d/REQ_4.md" \
+    '{summary: "DEHYDRATED_SUMMARY_MARKER", lastAction: "x", nextSteps: ["y"], handoverInstructions: "z",
+      requiredFiles: [$log, $r1, $r2, $r3, $r4, $skill]}' > "$TMP_DIR/dehyd.json"
+  jq --slurpfile d "$TMP_DIR/dehyd.json" '.dehydratedContext = $d[0]' "$LOOM_SESSION/.state.json" > "$TMP_DIR/st" \
+    && mv "$TMP_DIR/st" "$LOOM_SESSION/.state.json"
+}
+
+test_startup_with_dehydrated_context_keeps_session_state_inline() {
+  use_real_engine
+  make_measured_loom_session
+  make_dehydrated_context
+  run_hook "startup" > "$TMP_DIR/preload.txt" || true
+  split_inline "$TMP_DIR/preload.txt" "$TMP_DIR/inline.txt" "$TMP_DIR/spill.txt"
+  local all; all=$(cat "$TMP_DIR/preload.txt")
+  has "DEHYDRATED_SUMMARY_MARKER" "$(cat "$TMP_DIR/inline.txt")" "startup: dehydrated summary is inline"
+  assert_session_state_inline "$TMP_DIR/inline.txt" "startup with dehydrated context"
+  has "[Already in this preload" "$(line_after "#### File: $LOOM_SESSION/LOOM_LOG.md" "$TMP_DIR/preload.txt")" "the loom log as a required file is not delivered again"
+  has "[Already in this preload" "$(line_after "#### File: $HOME/.claude/skills/loom/SKILL.md" "$TMP_DIR/preload.txt")" "the active SKILL.md as a required file is not delivered again"
+  has "required 1 entry 700" "$all" "an ordinary required file is still delivered"
+  local notice; notice=$(grep -F '[preload overflow:' "$TMP_DIR/inline.txt" || true)
+  if [ -n "$notice" ]; then
+    hasnt "DIALOGUE" "$notice" "the overflow notice does not list the DIALOGUE tail"
+    hasnt "loom-log" "$notice" "the overflow notice does not list the log excerpt"
+  else
+    pass "nothing spilled"
+  fi
+}
+
+test_overflow_notice_names_the_sections_that_spilled() {
+  local f="$TMP_DIR/sections.txt" gen="$TMP_DIR/gen2.sh" out
+  {
+    echo "[Preloaded: /fit/INLINE_FIRST.md]"; head -c 30000 /dev/zero | tr '\0' 'a' | fold -w 100; echo
+    echo "[DIALOGUE excerpt: x]"; echo "newest"
+    echo "[Preloaded: /fit/SPILL_PARTIAL.md]"; head -c 30000 /dev/zero | tr '\0' 'b' | fold -w 100; echo
+    echo "#### File: /fit/SPILL_WHOLE.md"; head -c 20000 /dev/zero | tr '\0' 'c' | fold -w 100; echo
+  } > "$f"
+  printf '#!/bin/bash\ncat %q\n' "$f" > "$gen"; chmod +x "$gen"
+  rm -rf "$TMP_DIR/cc"; mkdir -p "$TMP_DIR/cc"
+  out=$(echo '{"session_id":"n","source":"clear"}' | PRELOAD_GENERATOR="$gen" PRELOAD_CACHE_DIR="$TMP_DIR/cc" PRELOAD_CHUNK_BYTES=8500 \
+    bash "$SCRIPT_DIR/hooks/session-start-chunk.sh" 5 6)
+  local notice; notice=$(grep -F '[preload overflow:' <<< "$out")
+  has "/fit/SPILL_PARTIAL.md (from part-way through)" "$notice" "a section cut by the boundary is named as partial"
+  has "required file /fit/SPILL_WHOLE.md" "$notice" "a wholly spilled section is named"
+  hasnt "INLINE_FIRST" "$notice" "an inline section is not named"
+  hasnt "DIALOGUE" "$notice" "an inline DIALOGUE tail is not named"
+}
+
+# --- Definitions that left SIGILS.md are delivered by the citations that use them ---
+
+test_moved_definitions_live_once_in_their_own_files() {
+  local n f
+  for n in CMD_FIND_TAGGED_FILES CMD_TAG_FILE CMD_UNTAG_FILE CMD_SWAP_TAG_IN_FILE CMD_HANDLE_INLINE_TAG; do
+    f="$SCRIPT_DIR/.directives/commands/$n.md"
+    has "¶$n" "$(cat "$f" 2>/dev/null)" "$n defined in commands/$n.md"
+    hasnt "¶$n" "$(cat "$SCRIPT_DIR/.directives/SIGILS.md")" "$n no longer defined in SIGILS.md"
+  done
+  for n in FMT_DECISION_CARD FMT_ANSWER_GRADATION FMT_CONTEXT_BLOCK FMT_TICKET_LINK FMT_TICKET_COMMENT_LINK FMT_FILE_LINK; do
+    has "¶$n" "$(cat "$SCRIPT_DIR/.directives/formats/$n.md" 2>/dev/null)" "$n defined in formats/$n.md"
+    hasnt "¶$n" "$(cat "$SCRIPT_DIR/.directives/SIGILS.md")" "$n no longer defined in SIGILS.md"
+  done
+  has "¶TAG_DISPATCH" "$(cat "$SCRIPT_DIR/.directives/tags/TAG_DISPATCH.md" 2>/dev/null)" "TAG_DISPATCH defined in tags/TAG_DISPATCH.md"
+  hasnt "¶TAG_DISPATCH" "$(cat "$SCRIPT_DIR/.directives/SIGILS.md")" "TAG_DISPATCH no longer defined in SIGILS.md"
+}
+
+test_citing_files_deliver_the_tag_commands() {
+  local d="$SCRIPT_DIR/.directives/commands" pair src want got
+  for pair in CMD_HANDLE_INLINE_TAG:CMD_TAG_FILE CMD_RESOLVE_BARE_TAGS:CMD_TAG_FILE CMD_PROCESS_CHECKLISTS:CMD_TAG_FILE \
+              CMD_CAPTURE_SIDE_DISCOVERIES:CMD_TAG_FILE CMD_TAG_TRIAGE:CMD_HANDLE_INLINE_TAG CMD_TAG_TRIAGE:CMD_TAG_FILE \
+              CMD_WALK_THROUGH_RESULTS:CMD_HANDLE_INLINE_TAG CMD_WALK_THROUGH_RESULTS:CMD_TAG_FILE CMD_DECISION_TREE:CMD_HANDLE_INLINE_TAG; do
+    src="${pair%%:*}"; want="${pair#*:}"
+    got=$(resolve_refs "$d/$src.md" 1 '[]' 2>/dev/null || true)
+    has "/commands/$want.md" "$got" "$src delivers $want"
+  done
+  got=$(resolve_refs "$SCRIPT_DIR/skills/review/SKILL.md" 1 '[]' 2>/dev/null || true)
+  has "/commands/CMD_SWAP_TAG_IN_FILE.md" "$got" "/review delivers CMD_SWAP_TAG_IN_FILE"
+  use_real_engine
+  printf 'Route with §TAG_DISPATCH; render with §FMT_DECISION_CARD.\n' > "$TMP_DIR/cites.md"
+  got=$(resolve_refs "$TMP_DIR/cites.md" 1 '[]' 2>/dev/null || true)
+  has "/tags/TAG_DISPATCH.md" "$got" "a bare §TAG_ citation resolves to tags/"
+  has "/formats/FMT_DECISION_CARD.md" "$got" "a bare §FMT_ citation resolves to formats/"
 }
 
 run_discovered_tests

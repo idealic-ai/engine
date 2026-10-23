@@ -371,6 +371,7 @@ $ART_CONTENT
         # A log or DIALOGUE went out as an excerpt, so it is recorded under preloadedExcerpts:
         # preloadedFiles means "delivered whole", and SubagentStart cats every path listed there.
         ART_NORM=$(normalize_preload_path "$art_path" 2>/dev/null || echo "$art_path")
+        DELIVERED_IN_PRELOAD="${DELIVERED_IN_PRELOAD:-}|$ART_NORM=the session excerpts above|"
         ART_FIELD="preloadedFiles"
         case "$art_path" in */DIALOGUE.md|"$ACTIVE_SESSION_DIR/${LOG_NAME:-}") ART_FIELD="preloadedExcerpts" ;; esac
         for sessions_dir in "${SESSION_DIRS[@]}"; do
@@ -454,9 +455,9 @@ docs/TOC.md, dehydrated recovery context, session artifacts, skill deps) is
 actually in your context. Acting on the preview alone is a protocol violation.
 ════════════════════════════════════════════════════════════════════"
 
-# Order: standards, then session state (dehydrated context, log excerpt, DIALOGUE tail), then skill
-# files. Whatever overflows the inline slots is then a skill file, which can be re-read whole,
-# and never the newest session state, which cannot.
+# Order: standards, the dehydrated summary, the session excerpts, the dehydrated required files,
+# then skill files. An overflow therefore cuts files that can be re-read whole before the newest
+# session state, which cannot be.
 HEAD_OUTPUT="${PRELOAD_BANNER}
 ${SESSION_CONTEXT_LINE}
 ${STANDARDS_OUTPUT}"
@@ -510,12 +511,20 @@ if [ -n "$USER_HISTORY" ]; then
 $USER_HISTORY"
 fi
 
-# Read required files and append their contents
+# Skill files delivered at the end of this preload, so a required file naming one is not repeated.
+if [ -n "${SKILL_DEP_PATHS:-}" ]; then
+  while IFS= read -r dep; do
+    [ -n "$dep" ] || continue
+    dep_norm=$(normalize_preload_path "${dep/#\~/$HOME}" 2>/dev/null || echo "$dep")
+    DELIVERED_IN_PRELOAD="${DELIVERED_IN_PRELOAD:-}|$dep_norm=the skill files below|"
+  done <<< "$SKILL_DEP_PATHS"
+fi
+
+# Read required files into their own block, which goes after the session excerpts
+REQUIRED_OUTPUT=""
 REQUIRED_FILES=$(jq -r '.dehydratedContext.requiredFiles // [] | .[]' "$STATE_FILE" 2>/dev/null)
 if [ -n "$REQUIRED_FILES" ]; then
-  CONTEXT="$CONTEXT
-
-### Required Files (Auto-Loaded)"
+  REQUIRED_OUTPUT="## Session Recovery: Required Files (Auto-Loaded)"
 
   while IFS= read -r filepath; do
     [ -z "$filepath" ] && continue
@@ -528,9 +537,20 @@ if [ -n "$REQUIRED_FILES" ]; then
       "sessions/"*|"packages/"*|"apps/"*|"src/"*|".claude/"*) resolved="$CWD/$filepath" ;;
     esac
 
-    if [ -f "$resolved" ]; then
+    resolved_norm=$(normalize_preload_path "$resolved" 2>/dev/null || echo "$resolved")
+    delivered_as=""
+    case "${DELIVERED_IN_PRELOAD:-}" in
+      *"|$resolved_norm="*) delivered_as="${DELIVERED_IN_PRELOAD#*|$resolved_norm=}"; delivered_as="${delivered_as%%|*}" ;;
+    esac
+    if [ -n "$delivered_as" ]; then
+      REQUIRED_OUTPUT="$REQUIRED_OUTPUT
+
+---
+#### File: $filepath
+[Already in this preload — see $delivered_as. Not repeated here.]"
+    elif [ -f "$resolved" ]; then
       FILE_CONTENT=$(heading_aligned_tail "$resolved" 50000 || echo "[Error reading file]")
-      CONTEXT="$CONTEXT
+      REQUIRED_OUTPUT="$REQUIRED_OUTPUT
 
 ---
 #### File: $filepath
@@ -538,7 +558,7 @@ if [ -n "$REQUIRED_FILES" ]; then
 $FILE_CONTENT
 \`\`\`"
     else
-      CONTEXT="$CONTEXT
+      REQUIRED_OUTPUT="$REQUIRED_OUTPUT
 
 ---
 #### File: $filepath
@@ -552,6 +572,11 @@ jq 'del(.dehydratedContext)' "$STATE_FILE" | safe_json_write "$STATE_FILE"
 CONTEXT="${CONTEXT}
 
 "
+[ -z "$REQUIRED_OUTPUT" ] || REQUIRED_OUTPUT="${REQUIRED_OUTPUT}
+
+"
 fi
 
-echo "${HEAD_OUTPUT}${CONTEXT}${ARTIFACT_OUTPUT}${SKILL_DEPS_OUTPUT}"
+# The dehydrated summary and the session excerpts (ledger, hand-over, newest log entries, DIALOGUE
+# tail) come before the required files and the skill files, so an overflow cuts those first.
+echo "${HEAD_OUTPUT}${CONTEXT}${ARTIFACT_OUTPUT}${REQUIRED_OUTPUT:-}${SKILL_DEPS_OUTPUT}"

@@ -1133,7 +1133,7 @@ match_whitelist() {
 # --- Reference resolution utilities ---
 
 # resolve_refs FILE_PATH [DEPTH] [ALREADY_LOADED_JSON]
-#   Scans FILE_PATH for unescaped §(CMD|FMT|INV)_ references.
+#   Scans FILE_PATH for unescaped §(CMD|FMT|INV|TAG)_ references.
 #   Resolves each to a file path via convention-based prefix-to-folder mapping.
 #   Recurses to DEPTH (default 2). Deduplicates against ALREADY_LOADED_JSON.
 #   Walk-up resolution: starts from FILE_PATH's directory, walks up checking
@@ -1144,6 +1144,7 @@ match_whitelist() {
 #     CMD → commands/
 #     FMT → formats/
 #     INV → invariants/
+#     TAG → tags/
 #
 #   Code fences (``` blocks) are stripped before scanning, so refs inside JSON
 #   schemas (e.g. phases steps/commands arrays) are never extracted.
@@ -1161,9 +1162,9 @@ resolve_refs() {
 
   # Two-pass regex: strip code fences + backtick spans, then extract § references
   # Pass 1: awk skips lines inside ``` code fences AND strips inline `code` spans
-  # Pass 2: Extract bare §(CMD|FMT|INV)_NAME references
+  # Pass 2: Extract bare §(CMD|FMT|INV|TAG)_NAME references
   local refs
-  refs=$(awk '/^```/{skip=!skip; next} skip{next} {gsub(/`[^`]*`/, ""); print}' "$file_path" | grep -oE '§(CMD|FMT|INV)_[A-Z][A-Z0-9_]*' | sort -u || true)
+  refs=$(awk '/^```/{skip=!skip; next} skip{next} {gsub(/`[^`]*`/, ""); print}' "$file_path" | grep -oE '§(CMD|FMT|INV|TAG)_[A-Z][A-Z0-9_]*' | sort -u || true)
 
   [ -n "$refs" ] || return 0
 
@@ -1194,6 +1195,7 @@ resolve_refs() {
       CMD) folder="commands" ;;
       FMT) folder="formats" ;;
       INV) folder="invariants" ;;
+      TAG) folder="tags" ;;
       *)   continue ;;
     esac
 

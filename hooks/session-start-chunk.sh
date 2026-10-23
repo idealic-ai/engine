@@ -103,24 +103,45 @@ fi
 # CHUNK is hard-split at byte boundaries into its own contiguous chunks so no
 # slice can exceed the truncation limit (LC_ALL=C forces byte semantics for
 # length()/substr() so multibyte content is measured in bytes, matching the
-# byte-based truncation). The final slot names any un-inlined overflow rather
-# than dropping it silently.
+# byte-based truncation). The final slot names the sections that did not fit,
+# read from the chunk boundaries, rather than dropping them silently.
 LC_ALL=C awk -v idx="$INDEX" -v total="$TOTAL" -v max="$CHUNK" -v cache="$CACHE" '
+function section(line,   t) {
+  if (line ~ /^\[Preloaded: /) { t = substr(line, 13); sub(/\]$/, "", t); return t }
+  if (line ~ /^\[Loom log excerpt: /) return "the loom-log excerpt (ledger, hand-over)"
+  if (line ~ /^\[Entries written after the latest marker/) return "the newest loom-log entries"
+  if (line ~ /^\[DIALOGUE excerpt: /) return "the DIALOGUE tail"
+  if (line ~ /^\[Pitfalls index/) return "the pitfalls index"
+  if (line ~ /^## Session Recovery \(Dehydrated Context\)/) return "the dehydrated summary"
+  if (line ~ /^#### File: /) return "required file " substr(line, 12)
+  if (line ~ /^\[Session Files: /) return "the session file listing"
+  return ""
+}
+function spilled(c) {
+  if (c <= total - 1 || cur_sec == "" || cur_sec in seen_spill) return
+  seen_spill[cur_sec] = 1; spill_list[++nspill] = cur_sec
+  if (nspill == 1 && cur_sec_chunk <= total - 1) partial = 1
+}
 {
   line = $0 "\n"
   llen = length(line)
+  s = section($0)
   if (llen <= max) {
     if (cur + llen > max && cur > 0) { chunk++; cur = 0 }
+    if (s != "") { cur_sec = s; cur_sec_chunk = chunk }
     if (chunk == idx) buf = buf line
+    spilled(chunk)
     cur += llen
     if (chunk > maxchunk) maxchunk = chunk
   } else {
     # Oversized line: start on a fresh chunk, split into <=max byte fragments,
     # each its own chunk; force the next line onto a fresh chunk too.
     if (cur > 0) { chunk++; cur = 0 }
+    if (s != "") { cur_sec = s; cur_sec_chunk = chunk }
     pos = 1
     while (pos <= llen) {
       if (chunk == idx) buf = buf substr(line, pos, max)
+      spilled(chunk)
       if (chunk > maxchunk) maxchunk = chunk
       pos += max
       if (pos <= llen) chunk++
@@ -131,7 +152,10 @@ LC_ALL=C awk -v idx="$INDEX" -v total="$TOTAL" -v max="$CHUNK" -v cache="$CACHE"
 END {
   printf "%s", buf
   if (idx == total - 1 && maxchunk > total - 1) {
-    printf "\n[preload overflow: %d further chunk(s) beyond the %d inline slots were not shown — later preload sections; with an active skill these are its skill files, placed after session state. Read the full preload from %s]\n", (maxchunk - (total - 1)), total, cache
+    what = ""
+    for (i = 1; i <= nspill && i <= 12; i++) what = what (i > 1 ? ", " : "") spill_list[i] (i == 1 && partial ? " (from part-way through)" : "")
+    if (nspill > 12) what = what ", and " (nspill - 12) " more"
+    printf "\n[preload overflow: %d further chunk(s) beyond the %d inline slots were not shown. They hold: %s. Read the full preload from %s]\n", (maxchunk - (total - 1)), total, what, cache
   }
 }
 ' "$CACHE"
