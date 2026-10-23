@@ -32,7 +32,7 @@ Introduce a term in a few words the first time ("a permit, the grant that lets s
 
 A heading names its topic, like a chapter title: "Holds", "How a post is accepted". A short plain statement suits a page readers scan for its rule.
 
-Describe a thing by what it does. Mention what it is not only when a reader would otherwise believe it, and say why that matters. Keep bold for a word being defined or a warning the reader must see. Calm text is easier to trust.
+Describe a thing by what it does. Mention what it is not only when a reader would otherwise believe it, and say why that matters. Keep bold for a word being defined, a warning the reader must see, or a fixed label that a register names, such as a handbook page's **Rules**. Calm text is easier to trust.
 
 ## Honesty and numbers
 
