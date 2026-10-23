@@ -261,4 +261,102 @@ test_debrief_is_delivered_whole() {
   hasnt "[... earlier entries omitted" "$output" "debrief not truncated"
 }
 
+# --- Fit on a loom resume at today's sizes: real standards, real loom skill, logs at measured sizes ---
+
+# Real engine directives and skills behind the fake HOME, so sizes are the live ones.
+use_real_engine() {
+  local skills_dir="${1:-$SCRIPT_DIR/skills}"
+  rm -rf "$FAKE_HOME/.claude/.directives" "$FAKE_HOME/.claude/skills" "$FAKE_HOME/.claude/engine"
+  ln -s "$SCRIPT_DIR/.directives" "$FAKE_HOME/.claude/.directives"
+  ln -s "$skills_dir" "$FAKE_HOME/.claude/skills"
+  ln -s "$SCRIPT_DIR" "$FAKE_HOME/.claude/engine"
+}
+
+# A loom session whose log and dialogue match the sizes measured on 2026-10-23 (1.7 MB, 1.06 MB).
+make_measured_loom_session() {
+  LOOM_SESSION="$PROJECT_DIR/sessions/fit_loom"
+  mkdir -p "$LOOM_SESSION" "$PROJECT_DIR/docs"
+  head -c 11400 /dev/zero | tr '\0' 'x' | fold -w 100 > "$PROJECT_DIR/docs/TOC.md"
+  cat > "$LOOM_SESSION/.state.json" <<JSON
+{"pid": $$, "skill": "loom", "lifecycle": "active", "currentPhase": "3: Weave", "preloadedFiles": []}
+JSON
+  {
+    awk 'BEGIN { f = "log filler log filler log filler log filler log filler log filler log filler"; for (i = 1; i <= 9000; i++) printf "## [2026-10-22 10:00:00] 🔧 Progress %d\n%s %s\n\n", i, f, f }'
+    printf '## [2026-10-23 19:15:00] 🧵 LEDGER (19:15): FIT_LEDGER_MARKER\n- row\n\n'
+    printf '## [2026-10-23 19:16:00] 🤝 Hand-over written (19:18)\nFIT_HANDOVER_MARKER\n'
+  } > "$LOOM_SESSION/LOOM_LOG.md"
+  {
+    awk 'BEGIN { f = "dialogue filler dialogue filler dialogue filler dialogue filler dialogue filler dialogue filler dialogue filler"; for (i = 1; i <= 7700; i++) printf "## [2026-10-22 10:00:00] entry %d\n%s\n", i, f }'
+    printf '## [2026-10-23 20:00:00] newest entry\nFIT_NEWEST_DIALOGUE_MARKER\n'
+  } > "$LOOM_SESSION/DIALOGUE.md"
+}
+
+# Prints the inline part (slots 0..47) and the spilled remainder of a preload, as the chunker emits them.
+split_inline() {
+  local preload="$1" inline_out="$2" spill_out="$3" gen="$TMP_DIR/gen.sh" i
+  printf '#!/bin/bash\ncat %q\n' "$preload" > "$gen"; chmod +x "$gen"
+  rm -rf "$TMP_DIR/chunkcache"; mkdir -p "$TMP_DIR/chunkcache"
+  : > "$inline_out"
+  for i in $(seq 0 47); do
+    echo '{"session_id":"fit","source":"clear"}' | PRELOAD_GENERATOR="$gen" PRELOAD_CACHE_DIR="$TMP_DIR/chunkcache" \
+      bash "$SCRIPT_DIR/hooks/session-start-chunk.sh" "$i" 48 >> "$inline_out"
+  done
+  local inline_bytes
+  inline_bytes=$(grep -v '^\[preload overflow:' "$inline_out" | wc -c | tr -d ' ')
+  tail -c +"$((inline_bytes + 1))" "$preload" > "$spill_out"
+}
+
+assert_session_state_inline() {
+  local inline="$1" label="$2"
+  has "FIT_NEWEST_DIALOGUE_MARKER" "$(cat "$inline")" "$label: newest DIALOGUE entry is inline"
+  has "FIT_LEDGER_MARKER" "$(cat "$inline")" "$label: ledger extract is inline"
+  has "FIT_HANDOVER_MARKER" "$(cat "$inline")" "$label: hand-over is inline"
+}
+
+test_loom_resume_keeps_session_state_inline_at_todays_sizes() {
+  use_real_engine
+  make_measured_loom_session
+  run_hook "clear" > "$TMP_DIR/preload.txt" || true
+  split_inline "$TMP_DIR/preload.txt" "$TMP_DIR/inline.txt" "$TMP_DIR/spill.txt"
+  assert_session_state_inline "$TMP_DIR/inline.txt" "today's sizes"
+  hasnt "TEMPLATE_LOOM_LOG.md]" "$(cat "$TMP_DIR/preload.txt")" "log template not delivered once the session log exists"
+}
+
+test_planted_large_skill_file_spills_only_skill_files() {
+  local skills="$TMP_DIR/skills-planted"
+  mkdir -p "$skills"
+  cp -R "$SCRIPT_DIR/skills/loom" "$skills/loom"
+  { echo ""; echo "## Planted filler"; head -c 102400 /dev/zero | tr '\0' 'p' | fold -w 100; } >> "$skills/loom/SKILL.md"
+  use_real_engine "$skills"
+  make_measured_loom_session
+  run_hook "clear" > "$TMP_DIR/preload.txt" || true
+  split_inline "$TMP_DIR/preload.txt" "$TMP_DIR/inline.txt" "$TMP_DIR/spill.txt"
+  has "[preload overflow:" "$(cat "$TMP_DIR/inline.txt")" "the planted file does overflow the slots"
+  assert_session_state_inline "$TMP_DIR/inline.txt" "planted 100 KB skill file"
+  local spill
+  spill=$(cat "$TMP_DIR/spill.txt")
+  hasnt "FIT_NEWEST_DIALOGUE_MARKER" "$spill" "spill holds no DIALOGUE"
+  hasnt "Loom log excerpt" "$spill" "spill holds no log excerpt"
+  hasnt "[Preloaded: $LOOM_SESSION" "$spill" "spill holds no session artifact"
+}
+
+test_dialogue_tail_keeps_newest_and_points_at_the_rest() {
+  local d="$TMP_DIR/DIALOGUE.md" out i
+  awk 'BEGIN { x = sprintf("%200s", ""); gsub(/ /, "x", x); for (i = 1; i <= 400; i++) printf "## entry %d\n%s\n", i, x }' > "$d"
+  printf '## newest\nNEWEST_LINE\n' >> "$d"
+  out=$(dialogue_tail "$d" 100 4000)
+  has "NEWEST_LINE" "$out" "newest line present"
+  has "[DIALOGUE excerpt: $d is" "$out" "pointer names the path and size"
+  has "tail -n" "$out" "pointer gives tail -n"
+  assert_gt "4500" "$(printf '%s' "$out" | wc -c | tr -d ' ')" "excerpt within the byte cap plus pointer"
+  has "## " "$(sed -n '3p' <<< "$out")" "excerpt starts on an entry heading"
+  local big="$TMP_DIR/big-entry.md"
+  { echo "## only"; head -c 20000 /dev/zero | tr '\0' 'y' | fold -w 100; echo "LAST_OF_HUGE"; } > "$big"
+  out=$(dialogue_tail "$big" 100 4000)
+  has "LAST_OF_HUGE" "$out" "an oversized newest entry still shows its newest lines"
+  local small="$TMP_DIR/small-dlg.md"
+  printf '## a\nb\n' > "$small"
+  assert_eq "$(cat "$small")" "$(dialogue_tail "$small" 100 4000)" "a short dialogue comes back whole, no pointer"
+}
+
 run_discovered_tests

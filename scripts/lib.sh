@@ -236,6 +236,39 @@ heading_aligned_tail() {
   fi
 }
 
+# dialogue_tail FILE MAX_LINES MAX_BYTES → the newest entries of an append-only DIALOGUE.md
+#   Starts at the first "## " heading inside the last MAX_LINES lines, then drops the oldest whole
+#   entries until the excerpt fits MAX_BYTES. When even the newest entry is larger, its last
+#   MAX_BYTES are shown, so the newest lines are always present. A pointer line precedes a cut.
+dialogue_tail() {
+  local file="$1" max_lines="$2" max_bytes="$3"
+  LC_ALL=C awk -v maxl="$max_lines" -v maxb="$max_bytes" -v file="$file" '
+    { len[NR] = length($0) + 1; txt[NR] = $0; if ($0 ~ /^## /) head[NR] = 1; total += len[NR] }
+    END {
+      n = NR; if (n == 0) exit
+      start = n - maxl + 1; if (start < 1) start = 1
+      if (start > 1) { s = start; while (s <= n && !(s in head)) s++; if (s <= n) start = s }
+      bytes = 0; for (i = start; i <= n; i++) bytes += len[i]
+      while (bytes > maxb) {
+        s = start + 1; while (s <= n && !(s in head)) s++
+        if (s > n) break
+        for (i = start; i < s; i++) bytes -= len[i]
+        start = s
+      }
+      if (start > 1 || bytes > maxb) {
+        shown = n - start + 1
+        printf "[DIALOGUE excerpt: %s is %d bytes, %d lines. Shown: the newest entries, as tail -n %d %s would; raise the N in tail -n N for earlier ones]\n\n", file, total, n, shown, file
+      }
+      if (bytes > maxb) {
+        out = ""; for (i = start; i <= n; i++) out = out txt[i] "\n"
+        printf "%s", substr(out, length(out) - maxb + 1)
+      } else {
+        for (i = start; i <= n; i++) print txt[i]
+      }
+    }
+  ' "$file"
+}
+
 # loom_log_excerpt FILE → pointer line + latest Ledger block + latest Hand-over entry; exit 1 when
 #   the file carries neither, so the caller falls back to heading_aligned_tail.
 loom_log_excerpt() {

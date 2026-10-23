@@ -229,12 +229,28 @@ $skill_md_content
         done <<< "$phase_paths"
       fi
 
+      # The log template is skipped once the session's own log exists: the live log shows the
+      # format. Left out of the tracked paths too, so it can still be delivered later.
+      SKIP_LOG_TEMPLATE=""
+      skill_log_template=$(sed -n '/^```json$/,/^```$/p' "$skill_md" 2>/dev/null | sed '1d;$d' | jq -r '.logTemplate // ""' 2>/dev/null || true)
+      if [ -n "$skill_log_template" ] && [ -n "${ACTIVE_SESSION_DIR:-}" ] \
+        && [ -f "$ACTIVE_SESSION_DIR/$(basename "$skill_log_template" | sed 's/^TEMPLATE_//')" ]; then
+        SKIP_LOG_TEMPLATE=$(normalize_preload_path "$(dirname "$skill_md")/$skill_log_template" 2>/dev/null || true)
+      fi
+
       # Deliver all unique deps, deduped against boot standards
+      KEPT_DEP_PATHS=""
       if [ -n "$ALL_DEP_PATHS" ]; then
         while IFS= read -r dep_path; do
           [ -n "$dep_path" ] || continue
           resolved="${dep_path/#\~/$HOME}"
           resolved_real=$(cd "$(dirname "$resolved")" 2>/dev/null && echo "$(pwd -P)/$(basename "$resolved")")
+          if [ -n "$SKIP_LOG_TEMPLATE" ] && [ "$resolved_real" = "$SKIP_LOG_TEMPLATE" ]; then
+            debug "  skip: $(basename "$resolved") (session log exists)"
+            continue
+          fi
+          KEPT_DEP_PATHS="${KEPT_DEP_PATHS}${KEPT_DEP_PATHS:+
+}$dep_path"
           if echo "$PRELOAD_SEEDS" | jq -e --arg p "$resolved_real" 'index($p) != null' >/dev/null 2>&1; then
             debug "  skip dedup: $(basename "$resolved") (boot standard)"
             continue
@@ -260,9 +276,9 @@ $dep_content
     SKILL_DEP_PATHS=""
     skill_md_norm=$(normalize_preload_path "$skill_md" 2>/dev/null || true)
     [ -n "$skill_md_norm" ] && SKILL_DEP_PATHS="$skill_md_norm"
-    if [ -n "${ALL_DEP_PATHS:-}" ]; then
+    if [ -n "${KEPT_DEP_PATHS:-}" ]; then
       SKILL_DEP_PATHS="${SKILL_DEP_PATHS}${SKILL_DEP_PATHS:+
-}${ALL_DEP_PATHS}"
+}${KEPT_DEP_PATHS}"
     fi
 
     # Update seed files with skill dep paths
@@ -333,24 +349,8 @@ if [ -n "$ACTIVE_SKILL" ] && [ -n "${ACTIVE_SESSION_DIR:-}" ] && [ -f "${skill_m
   if [ -n "$ARTIFACT_PATHS" ]; then
     while IFS= read -r art_path; do
       [ -n "$art_path" ] || continue
-      # Smart truncation for DIALOGUE.md — last ~100 lines, aligned to entry boundary
       if [[ "$(basename "$art_path")" == "DIALOGUE.md" ]]; then
-        TOTAL_LINES=$(wc -l < "$art_path" 2>/dev/null || echo "0")
-        TOTAL_LINES=$(echo "$TOTAL_LINES" | tr -d ' ')
-        if [ "$TOTAL_LINES" -gt 100 ]; then
-          # Find the nearest ## heading at or after the 100-lines-from-end mark
-          START_LINE=$((TOTAL_LINES - 100))
-          # Search forward from START_LINE for the next ## heading to avoid cutting mid-entry
-          HEADING_LINE=$(tail -n +"$START_LINE" "$art_path" 2>/dev/null | grep -n '^## ' | head -n 1 | cut -d: -f1 || echo "")
-          if [ -n "$HEADING_LINE" ]; then
-            ACTUAL_START=$((START_LINE + HEADING_LINE - 1))
-            ART_CONTENT=$(tail -n +"$ACTUAL_START" "$art_path" 2>/dev/null || true)
-          else
-            ART_CONTENT=$(tail -n 100 "$art_path" 2>/dev/null || true)
-          fi
-        else
-          ART_CONTENT=$(cat "$art_path" 2>/dev/null || true)
-        fi
+        ART_CONTENT=$(dialogue_tail "$art_path" 100 16000 || true)
       elif [ "$art_path" = "$ACTIVE_SESSION_DIR/${LOG_NAME:-}" ]; then
         # A log is append-only and can run to megabytes; a debrief is bounded and goes whole.
         if [ "$LOG_NAME" = "LOOM_LOG.md" ] && ART_CONTENT=$(loom_log_excerpt "$art_path"); then
@@ -447,35 +447,28 @@ only a small preview from the top (COMMANDS.md). If you see a notice like
 \"Output too large … Full output saved to: <path>\" with only a preview, you are
 seeing ONLY THE FIRST CHUNK. BEFORE you plan, answer, or call any tool, READ
 THAT ENTIRE FILE end-to-end so every [Preloaded: …] block below (standards,
-skill deps, session artifacts, docs/TOC.md, dehydrated recovery context) is
+docs/TOC.md, dehydrated recovery context, session artifacts, skill deps) is
 actually in your context. Acting on the preview alone is a protocol violation.
 ════════════════════════════════════════════════════════════════════"
 
-# Prepend banner + session context line, append skill deps + session artifact after standards
-STANDARDS_OUTPUT="${PRELOAD_BANNER}
+# Order: standards, then session state (dehydrated context, log excerpt, DIALOGUE tail), then skill
+# files. Whatever overflows the inline slots is then a skill file, which can be re-read whole,
+# and never the newest session state, which cannot.
+HEAD_OUTPUT="${PRELOAD_BANNER}
 ${SESSION_CONTEXT_LINE}
-${STANDARDS_OUTPUT}${SKILL_DEPS_OUTPUT}${ARTIFACT_OUTPUT}"
+${STANDARDS_OUTPUT}"
 
 # Dehydrated context restore — startup only (other sources: user didn't restart)
-if [ "$SOURCE" != "startup" ]; then
-  debug "$SOURCE source — preloading standards only, skipping dehydration"
-  echo "$STANDARDS_OUTPUT"
-  exit 0
+CONTEXT=""
+STATE_FILE=""
+if [ "$SOURCE" = "startup" ]; then
+  STATE_FILE="${DEHYDRATED_STATE_FILE:-}"
+else
+  debug "$SOURCE source — skipping dehydration"
 fi
+[ -n "$STATE_FILE" ] || debug "no dehydrated context to restore"
 
-# Dehydrated context was already detected during the single-pass scan above.
-# DEHYDRATED_STATE_FILE is set if any .state.json had dehydratedContext of type "object".
-STATE_FILE="${DEHYDRATED_STATE_FILE:-}"
-
-if [ -z "$STATE_FILE" ]; then
-  # No dehydrated context found — still output standards if present
-  debug "no dehydrated context found"
-  if [ -n "$STANDARDS_OUTPUT" ]; then
-    echo "$STANDARDS_OUTPUT"
-  fi
-  exit 0
-fi
-
+if [ -n "$STATE_FILE" ]; then
 SESSION_DIR=$(dirname "$STATE_FILE")
 SESSION_NAME=$(basename "$SESSION_DIR")
 
@@ -553,7 +546,9 @@ fi
 
 # Clear dehydratedContext from .state.json (consumed)
 jq 'del(.dehydratedContext)' "$STATE_FILE" | safe_json_write "$STATE_FILE"
+CONTEXT="${CONTEXT}
 
-# Output the context — Claude Code will inject this as additionalContext
-# Standards first, then dehydrated context
-echo "${STANDARDS_OUTPUT}${CONTEXT}"
+"
+fi
+
+echo "${HEAD_OUTPUT}${CONTEXT}${ARTIFACT_OUTPUT}${SKILL_DEPS_OUTPUT}"
