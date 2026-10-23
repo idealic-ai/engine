@@ -382,18 +382,21 @@ cmd_check() {
     touched=$(git diff-tree --root --no-commit-id --name-only -r "$c")
     echo "commit ${c:0:12} $subject"
 
-    # Gos that apply: the commit's id, recomputed in each recorded go's own form and paths.
-    local applicable="[]" n i g gf gp gid
-    n=$(jq 'length' <<<"$index")
-    i=0
-    while [ "$i" -lt "$n" ]; do
-      g=$(jq -c ".[$i]" <<<"$index"); i=$((i + 1))
-      gf=$(jq -r .form <<<"$g"); gp=$(jq -c .paths <<<"$g")
+    # Gos that apply: the commit's id, recomputed once per distinct (form, paths) among the
+    # gos whose paths touch this commit, then matched against every go in one pass.
+    local tj ids="{}" gf gp gid applicable
+    tj=$(printf '%s\n' "$touched" | sed '/^$/d' | jq -R . | jq -sc .)
+    while IFS=$'\t' read -r gf gp; do
+      [ -n "$gf" ] || continue
       gid=$(patch_id "$c" "$gf" "$gp")
-      [ -n "$gid" ] && [ "$gid" = "$(jq -r .patch_id <<<"$g")" ] || continue
-      applicable=$(jq -c --argjson g "$g" '. + [$g]' <<<"$applicable")
-      echo "  go     owner=$(jq -r .owner <<<"$g") form=$gf paths=$(jq -r '.paths|join(",")' <<<"$g") id=${gid:0:12} by $(jq -r .giver <<<"$g") at $(jq -r .time_iso <<<"$g")"
-    done
+      ids=$(jq -c --arg k "$gf|$gp" --arg v "$gid" '. + {($k): $v}' <<<"$ids")
+    done < <(jq -r --argjson t "$tj" '
+      map(select((.form | startswith("whole")) or any(.paths[]; (sub("/+$";"")) as $q
+          | any($t[]; . == $q or startswith($q + "/")))))
+      | map([.form, (.paths|tojson)]) | unique[] | @tsv' <<<"$index")
+    applicable=$(jq -c --argjson ids "$ids" '
+      map(select(($ids[.form + "|" + (.paths|tojson)] // "") as $v | $v != "" and $v == .patch_id))' <<<"$index")
+    jq -r '.[] | "  go     owner=\(.owner) form=\(.form) paths=\(.paths|join(",")) id=\(.patch_id[0:12]) by \(.giver) at \(.time_iso)"' <<<"$applicable"
 
     # Requirements: explicit --owner specs, else one per owner from the ownership seam.
     local reqs=() spec p
