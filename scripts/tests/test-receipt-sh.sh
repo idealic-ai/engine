@@ -321,4 +321,26 @@ test_receipt_binary_go_does_not_clear_a_different_binary_change() {
   assert_eq 1 "$code" "a go without --commit never clears a binary change"
 }
 
+test_receipt_sync_against_a_remote_without_notes_keeps_plain_fetch_working() {
+  local bare="$TMP_DIR/remote.git" B="$TMP_DIR/B" code
+  git clone -q --bare "file://$REPO" "$bare"
+  git clone -q "file://$bare" "$B"
+  (cd "$B" && bash "$RECEIPT" sync --no-push) 2>/dev/null; code=$?
+  assert_eq 0 "$code" "a first sync against a remote with no notes succeeds"
+  git -C "$B" fetch -q 2>/dev/null; code=$?
+  assert_eq 0 "$code" "plain git fetch still works afterwards"
+  git -C "$B" pull -q 2>/dev/null; code=$?
+  assert_eq 0 "$code" "and so does git pull"
+  assert_not_contains "receipts-remote" "$(git -C "$B" config --get-all remote.origin.fetch)" "no notes refspec is configured"
+  (cd "$B" && bash "$RECEIPT" sync) 2>/dev/null
+  assert_not_contains "receipts-remote" "$(git -C "$B" config --get-all remote.origin.fetch)" "nor after a sync with nothing to push"
+  git -C "$B" config --add remote.origin.fetch "+refs/notes/receipts:refs/notes/receipts-remote/origin"
+  (cd "$B" && bash "$RECEIPT" sync --no-push) 2>/dev/null
+  assert_not_contains "receipts-remote" "$(git -C "$B" config --get-all remote.origin.fetch)" "a stale refspec is removed while the remote has no notes"
+  (cd "$B" && bash "$RECEIPT" go "$(bash "$RECEIPT" id HEAD --form whole)" --form whole --owner O && bash "$RECEIPT" sync) 2>/dev/null
+  assert_contains "receipts-remote" "$(git -C "$B" config --get-all remote.origin.fetch)" "the refspec is added once the push created the remote ref"
+  git -C "$B" fetch -q 2>/dev/null; code=$?
+  assert_eq 0 "$code" "and plain fetch works with it"
+}
+
 run_discovered_tests

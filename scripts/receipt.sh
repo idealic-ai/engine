@@ -18,9 +18,10 @@
 # Every write appends one JSON line; nothing is ever rewritten. Notes live in the common git
 # dir, so every worktree of the repo reads them at once. Notes do not travel with a plain
 # push; `sync` fetches the remote's notes, merges them (cat_sort_uniq: JSON lines are kept,
-# duplicates dropped) and pushes the union back. It also adds a fetch refspec so a plain
-# fetch brings the remote's notes into refs/notes/receipts-remote/<R>. It adds no push
-# refspec, because a configured push refspec replaces what a bare `git push` pushes.
+# duplicates dropped) and pushes the union back. Once the remote holds the notes ref, it also
+# adds a fetch refspec so a plain fetch brings them into refs/notes/receipts-remote/<R>, and
+# removes it if the remote has none (git refuses a refspec whose source is missing). It adds
+# no push refspec, because a configured push refspec replaces what a bare `git push` pushes.
 #
 # Paths given to go, check and id are relative to the repo top, wherever the command runs.
 #
@@ -514,26 +515,47 @@ cmd_sync() {
   git remote get-url "$remote" >/dev/null 2>&1 || die "sync: no remote '$remote'"
   local track="refs/notes/receipts-remote/$remote"
   local spec="+$NOTES_REF:$track"
-  git config --get-all "remote.$remote.fetch" | grep -qxF "$spec" \
-    || git config --add "remote.$remote.fetch" "$spec"
 
+  # git refuses a configured exact refspec whose source is missing, so the refspec stays in
+  # the remote's config only while the remote holds the notes ref; otherwise every plain
+  # fetch and pull in the clone would fail.
   local attempt=0
   while [ "$attempt" -lt 10 ]; do
     attempt=$((attempt + 1))
-    git fetch -q "$remote" "$spec" 2>/dev/null || git update-ref -d "$track" 2>/dev/null
-    if git rev-parse -q --verify "$track" >/dev/null; then
+    if remote_has_notes "$remote"; then
+      git fetch -q "$remote" "$spec" 2>/dev/null || { echo "receipt: fetch of notes from $remote failed" >&2; return 1; }
       merge_remote_notes "$track" || return 1
+      set_fetch_refspec "$remote" "$spec" on
+    else
+      set_fetch_refspec "$remote" "$spec" off
     fi
     [ "$push" = true ] || { echo "receipt: fetched and merged notes from $remote" >&2; return 0; }
     git rev-parse -q --verify "$NOTES_REF" >/dev/null || { echo "receipt: no notes to push" >&2; return 0; }
     if git push -q "$remote" "$NOTES_REF:$NOTES_REF" 2>/dev/null; then
+      set_fetch_refspec "$remote" "$spec" on
       echo "receipt: notes synced with $remote" >&2
       return 0
     fi
     sleep "0.$((RANDOM % 5 + 1))"
   done
+  remote_has_notes "$remote" || set_fetch_refspec "$remote" "$spec" off
   echo "receipt: sync with $remote did not settle after $attempt attempts" >&2
   return 1
+}
+
+remote_has_notes() {
+  git ls-remote --exit-code "$1" "$NOTES_REF" >/dev/null 2>&1
+}
+
+# set_fetch_refspec <remote> <spec> on|off
+set_fetch_refspec() {
+  local have=false
+  git config --get-all "remote.$1.fetch" | grep -qxF "$2" && have=true
+  if [ "$3" = on ] && [ "$have" = false ]; then
+    git config --add "remote.$1.fetch" "$2"
+  elif [ "$3" = off ] && [ "$have" = true ]; then
+    git config --fixed-value --unset-all "remote.$1.fetch" "$2"
+  fi
 }
 
 # Merge a fetched notes ref into ours on a temp ref, then compare-and-swap it in.
