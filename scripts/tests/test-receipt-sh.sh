@@ -239,6 +239,29 @@ test_receipt_sync_carries_gos_between_clones() {
   assert_eq "$before" "$after" "a sync with nothing new writes nothing"
 }
 
+test_receipt_lookups_write_nothing_in_a_clone_that_never_wrote() {
+  local bare="$TMP_DIR/remote.git" C="$TMP_DIR/C" id
+  id=$(r id HEAD --form whole)
+  r go "$id" --form whole --owner Claims >/dev/null 2>&1
+  # file:// forces the pack transport; a local-path clone hardlinks every object, the
+  # unreachable key objects included, and would hide a lookup that needs them.
+  git clone -q --bare "file://$REPO" "$bare"
+  git remote add origin "$bare"
+  r sync >/dev/null 2>&1
+  git clone -q "file://$bare" "$C"
+  local key; key=$(printf 'receipt-key:patch:%s' "$id" | git hash-object --stdin)
+  git -C "$C" cat-file -e "$key" 2>/dev/null
+  assert_eq 1 "$?" "precondition: clone C does not hold the key object"
+  (cd "$C" && bash "$RECEIPT" sync --no-push) 2>/dev/null
+  local before after out
+  before=$(git -C "$C" count-objects -v | awk '/^count:/{print $2}')
+  out=$(cd "$C" && bash "$RECEIPT" find --patch "$id")
+  (cd "$C" && bash "$RECEIPT" check HEAD~0..HEAD) >/dev/null 2>&1
+  after=$(git -C "$C" count-objects -v | awk '/^count:/{print $2}')
+  assert_contains "owner=Claims" "$out" "a clone that never stored the key object still finds the go"
+  assert_eq "$before" "$after" "find and check add no objects to the repo"
+}
+
 test_receipt_withdrawal_ordered_by_time_after_a_sorting_merge() {
   commit_file a.txt 'w2' 'w2'
   local bare="$TMP_DIR/remote.git" A="$TMP_DIR/A" id

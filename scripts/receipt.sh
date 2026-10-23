@@ -49,8 +49,10 @@ now_epoch() { date -u +%s; }
 now_iso() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 now_ms() { perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; }
 
+# Writers store the key object (-w) so `git notes prune` keeps its notes; readers only hash,
+# because notes resolve on a missing object and a lookup should not write to the repo.
 key_object() {
-  printf 'receipt-key:%s:%s' "$1" "$2" | git hash-object -w --stdin
+  printf 'receipt-key:%s:%s' "$1" "$2" | git hash-object ${3:+-w} --stdin
 }
 
 repo_id() {
@@ -204,7 +206,7 @@ cmd_run() {
       '{v:1, kind:"run", key_kind:$kk, key:$kv, repo:$repo, commit:$commit, tree:$tree,
         dirty:$dirty, changed_during_run:$changed, tree_after:$tree_after, seat:$seat,
         time:$epoch, time_ms:$ms, time_iso:$iso, argv:$argv, cmd:$cmd, exit:$exit, summary:$summary}')
-    printf '%s\t%s\n' "$(key_object "$kk" "$kv")" "$rec" >> "$notes"
+    printf '%s\t%s\n' "$(key_object "$kk" "$kv" write)" "$rec" >> "$notes"
   done
   write_notes "$notes" || { rm -f "$notes"; exit "$code"; }
   rm -f "$notes"
@@ -307,8 +309,8 @@ cmd_go() {
       owner:$owner, giver:$giver, commit:$commit, verify:$verify, note:$note,
       withdrawn:$wd, repo:$repo, time:$epoch, time_ms:$ms, time_iso:$iso}')
   notes=$(mktemp)
-  printf '%s\t%s\n' "$(key_object patch "$pid")" "$rec" >> "$notes"
-  printf '%s\t%s\n' "$(key_object index go)" "$rec" >> "$notes"
+  printf '%s\t%s\n' "$(key_object patch "$pid" write)" "$rec" >> "$notes"
+  printf '%s\t%s\n' "$(key_object index go write)" "$rec" >> "$notes"
   write_notes "$notes" || { rm -f "$notes"; exit 1; }
   rm -f "$notes"
   echo "receipt: go${withdraw:+} patch:$pid form=$form owner=$owner$( [ "$withdraw" = true ] && echo ' WITHDRAWN')" >&2
