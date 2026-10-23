@@ -221,6 +221,8 @@ inferred.
 *   **On a symlinked or network tree**: re-run the identical invocation warm and untimed before standing on any zero. A control cannot tell you the walk completed.
 *   **When two instruments disagree**: the disagreement is the finding. Suspect the world changed between them before suspecting either.
 *   **When mutation-testing**: after applying the mutation, **strip comments and whitespace and compare to the original stripped the same way.** Byte-identical means the edit touched nothing that runs — report it `inert` and fail, never `survivor`. ⭐ The stripper may be a crude regex: the file is compared to ITSELF under one transformation, so any error applies to both sides and cancels. ⚠️ It proves the edit changed running code, not that the changed code is reachable by the suite.
+*   ⛔ **A plant that breaks the module's LOADING is reported as "no tests", not as red.** A planted defect severe enough to stop the module importing gives vitest no cases to run, and a run with zero cases is not a failing run — so **a green-looking plant run can be a load failure**. Check the run actually executed the cases before reading its colour. Same family as the inert mutation above and a different mechanism: there the edit touched nothing that runs, here the edit stopped anything from running at all, and the harness reports the second as success. *Relayed from another fleet's IDE-18 lane and its reviewer, whose grep against this file was run; I did not re-run their drill.* ⚠️ **Stated, not enforced** — nothing compares a plant run's case count against the baseline's.
+*   ⛔ **Where a property is held by MORE THAN ONE LAYER, a plant on one layer stays green — so plant every layer before calling a drill blind.** Redundant enforcement is the thing that makes a single-layer plant uninformative, and it is invisible from the plant site. Measured by that lane on its own system: the spend ceiling is held by **both** the pickup gate and the drain's allowance read, and double-running is prevented by `SKIP LOCKED`, the status filter, **and** holder hooks minted only for assigned jobs — so a plant on any one of those passes while the property still holds. ⭐ **The tell is a green plant on a property the system is proud of**: the properties most worth drilling are the ones most likely to be defended twice. *Relayed, not re-measured here.* ⚠️ **Stated, not enforced.**
 
 **Reason**: captured 2026-09-12 across three sessions. ⭐ **The load-bearing half is not the mechanism, it is the indistinguishability**: an inert mutation reads exactly like a genuine survivor, a truncated list reads exactly like an absence, and a stale symbol reads exactly like a typo. In each case the wrong conclusion is the confident one, and acting on it destroys something that works. Related: `§PTF_A_ZERO_IS_NOT_EVIDENCE` and `§PTF_PROVE_THE_INSTRUMENT_RAN`, which this generalises — both are special cases of an instrument aimed at a question adjacent to the one being asked.
 
@@ -284,19 +286,87 @@ inferred.
 
 *   **A background job started in one turn stalls when that turn ends**, because its stdout pipe goes away and nothing reads it. The process stays alive, the output file stays empty, and nothing errors.
 *   **It is indistinguishable from a slow run by every obvious signal** — alive, no error, zero output — which is why the instinct is to wait longer, and waiting is exactly wrong.
-*   **The tell is CPU time**: 1.8 seconds burned across eleven minutes of wall clock. **A job that has consumed seconds over minutes is stalled, not slow.**
-*   **Redirection**: redirect to a real file rather than inheriting a pipe, and **wait inside the turn** with a bounded poll rather than ending the turn and returning later. If you must background across a turn, the first thing to check on return is CPU time, not the output file.
+*   **The tell is CPU time — OF THE PROCESS TREE, never of the one process you grep for.** A job whose
+    **tree** has consumed seconds over minutes is stalled, not slow. The same reading taken on the parent
+    alone carries nothing. *(The original figure here — 1.8 seconds across eleven minutes — was recorded
+    without saying which of the two it measured, so read it as the shape and not as a tree reading.)*
+    *   ⛔ **A parent waiting on a busy child reads as perfectly stalled.** ✅ **Measured here rather than
+        relayed, 2026-10-23**: a `bash` parent whose only job was to `wait` printed `TIME 0:00.00` against
+        `ELAPSED 00:05` — **zero CPU over five seconds** — while its compute child printed `0:04.71` over
+        the identical elapsed, both lines from one `ps`. By the tell as it was previously written that
+        parent was stalled, and it was a correctly-working wait. *The incident that forced the correction
+        is relayed: a `git push` at 2m44s elapsed on 0.05s CPU was called stalled, and the work was in a
+        pre-push hook's child the `ps` pattern never matched.*
+    *   ⭐ **The parent is structurally blind, not merely unlucky**: a child's CPU joins its parent's
+        cumulative time only when the child is **reaped**, and the stalled-or-slow question is always
+        asked while the thing is still running — exactly when that addition has not happened. This is
+        `§INV_ESTABLISH_THE_SUBJECT_IS_IN_SCOPE_OF_THE_CHECK`: the parent's `TIME` field cannot speak
+        about a live descendant at all, and prints a reassuring zero whether or not one exists.
+    *   **The instrument, one invocation**: `ps -o pid,ppid,time,etime,comm -g "$(ps -o pgid= -p <pid> | tr -d ' ')"`
+        prints every process in the group with its own CPU beside its own elapsed, so a burning descendant
+        arrives on its own line. `pgrep -P <pid>` reaches one generation; the group reaches the tree.
+        **Read the lines, not a sum** — summing reproduces the original error in the other direction, by
+        hiding which process is working.
+    *   ⚠️ **Stated, not enforced.** Nothing reddens when a stall verdict is taken from a single `ps -p`.
+        Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+*   **Redirection**: redirect to a real file rather than inheriting a pipe, and **wait inside the turn** with a bounded poll rather than ending the turn and returning later. If you must background across a turn, the first thing to check on return is the **tree's** CPU time, not the output file and not the parent's.
 *   **The cousin already on record in the same session's handoff**: a suite run chained behind a `git log` was backgrounded whole, its output lost, and the handoff said *"re-measure"* instead of carrying a number. **Same family: a long command's output is lost to the shape of the turn, and the loss looks like patience.**
 
 ## [2026-09-17 02:10:00] Addendum 6 to ¶PTF_A_TRUE_ANSWER_TO_THE_WRONG_QUESTION — five instances in one night, and the test that separates them from a real green
 
 *   **⭐ THE SHARPEST STATEMENT OF THE FAMILY YET, and it replaces "could this have failed?"**: ask ***"what would have to be true of the world for this to be green, and is that the thing I care about?"*** Every instance below had a **passing positive control**. The control proves an instrument can MOVE; it never proves what it moves in RESPONSE to. *(Credit: `domain:Scope`, reformulating a rule three sessions had each hit independently.)*
 *   **The corollary, which is the one that catches a differential**: ***two derivations of one corrupted input agreeing is not corroboration.*** A gate comparing two halves cannot see them wrong in the same direction. A third reference — the ORIGINAL, not another derivation — is the only thing that can.
+*   ⭐⭐ **AND THE READING THAT SAVES YOU WHEN THE CONTROL CANNOT: AN IMPLAUSIBLE CONTROL IS AN
+    INSTRUMENT FAULT, NOT A FINDING.** The corollary above needs a third reference you may not have.
+    What you always have is a sense of what the control's value *ought to be* — so when the subject
+    and its control come back **equally improbable**, stop reading the world and read the reader.
+    A control is usually consulted only for its direction (did it fire); **its magnitude is the free
+    signal nobody spends.**
+    *   ✅ **MEASURED HERE, and it is a trap in the RECORD rather than in a command.** A transcript holds
+        **more than one** `prompt_snapshot` attachment, and the first one carries no `tools` key at all —
+        so a naive read that takes the first snapshot reports a near-empty tool set for every transcript
+        it touches, subject and control alike. **RAN** over the newest 25 transcripts under
+        `~/.claude/projects/<project>/`: every transcript that carried snapshots carried more than one,
+        the **first** snapshot's `tools` field was **absent in all 25**, and the later snapshots carried
+        real tool sets. ⛔ The relayed version of this said the first snapshot has `tools: null`;
+        **re-measured it is ABSENT, not null** — which is not pedantry, because `x.get('tools')` returns
+        `None` for both while `'tools' in x` separates them, so whether the naive read can notice at all
+        depends on which spelling it reached for. *(The figure the original lane reported — both arms at
+        1/672 — is relayed; I did not re-run its instrument, only the snapshot shape beneath it.)*
+    *   ⭐ **It was caught because the CONTROL was implausible too.** The read would have produced a
+        dispatch-shape split between two groups of lanes that does not exist, and the thing that stopped
+        it was not a failing control — the control fired correctly — but a control whose *number* could
+        not be true of a working fleet. **A control that fires at an impossible magnitude has passed its
+        own test and failed yours.**
+    *   **Redirection**: when a record may hold repeats of the unit you are reading, **count the units
+        first and print the count beside the reading**, then say which one you took and why. And ask of
+        every control not only *did it fire* but *is its value one the world could produce*.
+    *   ⚠️ **Stated, not enforced** — nothing reddens on a first-match read of a repeated record. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`. ⭐ *Kept on one line deliberately: an earlier draft wrapped this very marker across a line break, and the line-oriented grep verifying that every landing carried one returned a **false absence** for it — `§PTF_A_TRUE_ANSWER_TO_THE_WRONG_QUESTION`'s spanning-tag false zero, committed inside the check for it. Where a marker is what a grep looks for, do not let it wrap.*
 *   **The five, each a different instrument answering a narrower question than its reader took it for:**
     *   **A control satisfied by the bug it was meant to catch.** `grep -qa "$(printf '\000')"` — command substitution strips NUL, so the pattern was the EMPTY STRING and matched every file. The positive control passed **for the same reason the false positive fired**. ⭐ *A control that cannot fail is not a control.*
     *   **A mutation that reddened for the wrong reason.** A malformed edit produced a `SyntaxError`, so the gate failed at IMPORT and said nothing about the behaviour under test. ⭐ *A mutation that reds is not evidence until you know WHICH arm it red and why.*
     *   **A derived check measuring its own parser.** A gate deriving expected exports from a barrel read prose inside `export { … }` braces as export names, reported 74 where 69 was right, and listed a paragraph of documentation as "absent from dist". *A derived check is only as good as its derivation; cross-check the derived number against an independent one.*
     *   **A pattern silently transformed into a different pattern.** An unescaped `$` inside a **double-quoted** grep pattern is read as an end-anchor, so `grep -- "\$ref: …"` matches nothing **and reports it as absence**. Hits every `$`-carrying JSON-Schema keyword. ⚠️ **Not a BSD quirk — `grep` is a shell function from the Claude snapshot resolving to ugrep, so the whole fleet inherits it.** Single-quote the pattern.
+        *   ⛔⛔ **THE SAME MECHANISM DESTROYS A GIT REFSPEC, AND THE MANGLED REF STILL LOOKS LIKE A
+            REF** — which is why it is worth its own paragraph rather than a mention. **zsh applies
+            history-style MODIFIERS to an unbraced parameter expansion**, so in `"$H:refs/heads/main"`
+            the `:r` is eaten as the *root* modifier and the `r` vanishes from the string.
+            ✅ **RAN, 2026-10-23**, one file under zsh and under bash: `zsh -f` printed
+            `unbraced: abc123defefs/heads/main` while `bash --noprofile --norc` printed
+            `unbraced: abc123def:refs/heads/main`, and the braced form `${H}:refs/heads/main` was intact
+            under both. The mechanism confirmed in the same run: `zsh -fc 'H=a.b.c; echo "$H:r"'` → `a.b`
+            and `"$H:e"` → `c`, while `"${H}:r"` stays the literal `a.b.c:r`.
+            *   ⚠️ **It is NOT history expansion, and that correction matters operationally**: history
+                expansion is off in a non-interactive shell, so *"scripts are safe"* is the wrong
+                conclusion — `zsh -f` with history expansion disabled mangled it anyway, because this is
+                parameter-expansion syntax. **Braces are the fix**, and they are the fix in every shell.
+            *   ⭐ **What makes it expensive is the failure's shape, not its cause.** `git push` answers
+                `error: src refspec … does not match any`, which reads as *the ref is missing* and sends
+                you to look at branches. The ref named in the error is **one character short of the one
+                you wrote** and still looks like a plausible ref, so the string nobody re-reads is the
+                string that is wrong. **Echo the refspec before pushing it**, or brace every
+                `$var:`-adjacent expansion on sight.
+            *   ⚠️ **Stated, not enforced.** Nothing reddens on an unbraced expansion followed by a colon — the shell is behaving as documented, and `git` reports a real error about the string it was actually handed. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
     *   **A regex that matched English.** A scan for `$ref` under a `not:` returned exactly one hit, and reading it showed prose — *"reads as derived and is not: a `minItems` added…"*. Controls passed throughout (20 files carrying `$ref`, 9 `not:` sites). **Live, and answering about the wrong subject.**
 *   **⛔ AND A SIXTH FROM A GATE RATHER THAN A SEARCH, which is the one nobody would think to audit**: an import gate refuses a commit whose imports do not resolve — **so it passes a commit containing tests whose SUBJECT is missing**, because those tests import only tracked modules and every edge resolves. The suite collects cleanly and fails at runtime against an implementation that was never staged. ⭐ *A gate reports on the edges it can reach; nothing marks a test whose subject is absent.*
 *   **⚠️ A VARIANT THAT BURNS CREDIBILITY RATHER THAN TRUTH: a claim that is TRUE whose evidence argues against it.** *"The package directory is absent"* was true of the workspace sibling — and `ls node_modules/@idealic/resource` **prints the name**, because it is a dangling symlink and a dangling symlink still has a name. Anyone verifying in the obvious place concludes you were careless about something you were right about. **Cite the check a reader would run, not the one you happened to run.**
@@ -321,6 +391,39 @@ inferred.
 *   ⭐⭐ **The remedy is NOT to keep the file true — every such file drifts. Put the instruction in the brief instead**: *treat every sentence above as a claim to re-measure, not a brief to act on.* **Measured across one wave of parallel lanes: every brief carried a false load-bearing claim lifted from entries marked verified — in two lanes the PREMISE itself, in the third the stated REASONS while the premise held. Every lane found a live defect the brief had not named.** ⛔ An earlier wording of this entry said all three refused their premise and scored it *three times out of three* — **a stated count, wrong about the third lane, inside the very entry warning against confidence that is not earned.** Briefing for skepticism still beat briefing for accuracy; it never needed a score.
 *   **The writer's share, which the blanket instruction does not cover**: per-claim provenance — each load-bearing sentence marked *measured by me at HH:MM* / *relayed from X* / *inferred*. Three words per claim, paid by the writer, and it tells the reader **which** sentence to spend time on instead of all of them. ⛔ It must not harden into *briefs are expected to be wrong*, which is where the writer stops trying because the reader is supposed to catch it.
 *   ⛔ **A fabricated timestamp is worse than an absent one.** A lane invented five plausible minutes rather than reading the clock; one became the freshness evidence inside a grant and propagated into another party's decision.
+*   ⭐⭐ **COMPUTE AN AGE, NEVER READ ONE — a stamp in `Z` eyeballed against local time is wrong by the
+    whole offset, silently, and in the direction that manufactures staleness.** ✅ **Measured here,
+    2026-10-23**: `date -u` printed `08:16:19Z` in the same invocation as `date` printing
+    `16:16:19+0800`, and `utcoffset()` returned `8.0`. Heartbeats are written in `Z`; this machine is
+    **UTC+8**. Comparing the two by eye overstates every age by eight hours. ⛔ **The measured cost**: a
+    false *"all three loom slot files are stale"* on a set where one had been written **two minutes**
+    earlier. **The fix is arithmetic, not care** — subtract two epoch seconds (`date -u +%s` minus the
+    stamp parsed as UTC) and print the difference, in the same invocation as the reading per the clause
+    above. ⚠️ **Why no amount of attention closes it**: both strings are correct, both are plausible
+    local times, and **the difference reads as a believable age** rather than as an error — this is
+    `§PTF_A_TRUE_ANSWER_TO_THE_WRONG_QUESTION` wearing a clock. A staleness verdict is also a
+    DISPOSITION claim, so it owes the two readings that entry's Addendum 4 requires, and an eight-hour
+    offset corrupts both of them identically so their agreement proves nothing.
+    *   ⚠️ **Stated, not enforced.** No invocation reddens when an age is eyeballed rather than
+        subtracted. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+*   ⭐⭐ **THE MIRROR CASE, AND IT IS THE ONE THIS ENTRY WAS MISSING: A ROW ASSERTING A DEFECT OWES ITS
+    INSTRUMENT, NOT ONLY ITS LOCATION.** Everything above governs a mark claiming something is *right*.
+    A register row claiming something is **wrong** — a stale doc line, a false claim, an owed repair —
+    rots the same way and is read far more trustingly, because a negative finding reads as work already
+    done. **A row carrying only a path and a line number cannot be re-checked against a repair**: the
+    path still resolves, the line still exists, and nothing in the row says what made the claim false,
+    so the row survives its own subject being fixed and keeps sending people to a repaired file.
+    ⛔ **Measured, relayed in part**: a row outlived the repair of its subject, which had been committed
+    as `b5e3607` — *(**RAN**: `git log --oneline -1 b5e3607` → "the echo-label rule gains its positive
+    form, and a doc stops stating a count", so the repair is real and dated; that the row survived it is
+    relayed from the lane that found it, and the only instrument that discovered the staleness was a
+    dispatched lane re-reading the subject.)* **Redirection: write the sha or the command that
+    established the claim false into the row**, beside the path, so closing the row is a re-run rather
+    than a re-reading. A row whose evidence is a command retires itself; a row whose evidence is a
+    location cannot.
+    *   ⚠️ **Stated, not enforced**, and the register-row template that would carry it is not mine to
+        edit — rowed as still owed in this lane's report. Per
+        `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
 *   ⭐ **A COUNT IS A PROVENANCE MARK, AND IT ALMOST NEVER CARRIES ITS TIMESTAMP.** *"Eight seeds"*, *"four call sites"*, *"eleven pages"* each record that somebody counted and never when — buying the same trust this entry is about, and **a count restated in prose in more than one place is wrong in all of them at once**, because the copies agree with each other and nothing disagrees with them. The fix is not a correction: **name the command that measures it and delete the number**, and where a number must appear, **pin it to a clock time rather than a date** — a set that moves in minutes cannot be stamped by a day.
     *   ⛔ **Do not re-derive the instance here; it is already written.** `§PTF_PENDING_PRELOADS_STALE` carries the measurement — a doc stating six in fifteen separate places while the live set was eight, clean in git throughout, so nothing anywhere contradicted it — and the standing form *"Run the size; never quote one."* **This bullet exists only to join the two**, because a reader arriving with *"my document states a count"* has no reason to open an entry about hook preloads. *Both that measurement and the reported recurrence — the same defect four more times inside one lane's own edits within an hour — are relayed; I re-ran neither.*
     *   ⚠️ **Stated, not enforced** per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`. A count in prose has no failing arm anywhere in this engine; the only thing that reddens is a human reading two copies side by side.
@@ -334,6 +437,34 @@ inferred.
     *   **A test named for the property it does not check.** A case titled *"answers for a target it could not reach, and the caller is told"* asserted density and refusal and never asked what sat in the slot. Green.
     *   **A confident heading over an honest caveat.** The caveat is true, present, and neutralises nothing: the reader acts on the heading.
     *   ⛔ **A docstring over a body that does less than it says.** A docstring is an **instrument claim about the code beneath it**, and it is the text an auditor reads *instead of* the body — so a `verify()` still status-code-only, now behind a docstring reading as if it were not, survives the review that came to check exactly that. *Relayed from another lane, not re-run.* Cousin of Addendum 3 above: there a NAME is taken for a behaviour, here a DESCRIPTION is, and in both **nobody experiences the text as an instrument**, so nothing triggers the instinct to check it. ⚠️ **Stated, not enforced** — no gate compares a docstring to its body, and the only control is to read the body and name what it would do differently were the docstring true.
+    *   ⛔⛔ **A MECHANISM KEYED ON A STATE NOTHING CAN REACH — and this one does not merely terminate a
+        search, it LOOKS INSTALLED.** A retirement sweep, a reaper, a cleanup pass, an auto-close: the
+        code is correct, the invocation runs, the exit is zero, and **the state it fires on is unreachable
+        by construction**, so it retires nothing. Nobody re-opens the question, because the mechanism is
+        visibly there and visibly green. ⭐ **The distinguishing property against everything else in this
+        list: the other species mislead a READER, this one misleads the SYSTEM OF RECORD** — the backlog
+        stays exactly as full as before and the green is what certifies it handled.
+        *   ✅ **MEASURED HERE, 2026-10-23 at 16:30 local**: a lane-state field whose `done` value fires
+            only on a hand-back tool call that the lanes in question **cannot load at all** read `done`
+            for **not one** lane in a whole weave, so nothing was ever retired by it. **RAN**
+            `engine lane-stall <sessionDir> --all --minutes 1`, tallying the printed `state=` values; the
+            header also reported `retired=0` independently. ⭐ **The control is the sibling value, and it
+            is the right one**: a fifth of those same rows read `state=running`, so the field is live and
+            the instrument discriminates — **the zero is specific to `done`, not a dead walk or an
+            unparsed field**, and every row read carried a `state=` at all. *(No count restated, per
+            `§PTF_A_PROVENANCE_MARK_WITHOUT_A_TIMESTAMP`: the population moved between the relaying lane's
+            reading and mine, which is exactly why the command and not the number is what is written here.
+            The tool's own docblock at `scripts/lane-stall.sh:22-34` carries the finding at its site.)*
+        *   ⭐ **The check that separates it from a working mechanism is not a control, it is a
+            CONSTRUCTION ARGUMENT**: name the code path that *writes* the state the mechanism reads, and
+            establish that path is reachable by the population the mechanism is pointed at. A control
+            proves the mechanism fires when the state is present; **nothing a control can do establishes
+            that the state ever arrives.** `§INV_AN_ASSERTION_WHOSE_SIDES_CANNOT_DIVERGE_IS_NOT_COVERAGE`
+            asks what input would make an assertion fail; this asks what event would make a mechanism
+            *act*, and an answer of *none* is the whole finding.
+        *   ⚠️ **Stated, not enforced.** No invocation reddens on a mechanism whose trigger state is
+            unreachable — its green is indistinguishable from a working one. Per
+            `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
     *   ⭐⭐ **The passing gate itself — the most common artifact in any repository.** A red result gets investigated; a green one ends the question. **So the control nobody runs is always the one on a passing result, and that is structural rather than a remark about diligence.**
 *   ⛔ **Why it outranks an ordinary false statement**: a false statement is wrong and gets contradicted by evidence. This is *true* and it **redirects attention**, so no evidence ever arrives.
 *   ⭐⭐ **The remedy, and it scales past any single instrument — `domain:Scope`'s**: **for any GREEN, name the observation that would have been different had the thing been broken. If you cannot name one, the green is not evidence yet.** A positive control stated so it applies identically to a gate, a grep, a suite and a review; `--listFiles` on a typecheck and *which string did the search actually match* are only its instances.
