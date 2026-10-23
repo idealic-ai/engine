@@ -467,7 +467,7 @@ case "$ACTION" in
             fi
           else
             # Same skill, same PID — merge seed (if any) before early exit.
-            # After /clear, SessionStart resets preloadedFiles to 6 seeds and creates
+            # After /clear, SessionStart resets preloadedFiles to 8 seeds and creates
             # a new seed file. Without this merge, the seed's accumulated entries are
             # lost — causing discovery hook to re-queue directives that were already loaded.
             SESSIONS_BASE=$(dirname "$DIR")
@@ -594,9 +594,9 @@ case "$ACTION" in
     # Create fresh .state.json (skip if already handled via same-PID or idle path)
     if [ "$ACTIVATED" = false ]; then
       NOW=$(timestamp)
-      # Build preload seeds with absolute paths (resolved through symlinks)
-      ACTIVATE_ENGINE_DIR=$(cd "$HOME/.claude/.directives" 2>/dev/null && pwd -P) || ACTIVATE_ENGINE_DIR="$HOME/.claude/.directives"
-      ACTIVATE_SEEDS=$(jq -n --arg d "$ACTIVATE_ENGINE_DIR" '[$d+"/COMMANDS.md",$d+"/INVARIANTS.md",$d+"/SIGILS.md",$d+"/commands/CMD_DEHYDRATE.md",$d+"/commands/CMD_RESUME_SESSION.md",$d+"/commands/CMD_PARSE_PARAMETERS.md"]')
+      # Shares SessionStart's list rather than restating it: a copy that drifts makes a session
+      # boot one set and activate another, and the existence guards live in that function.
+      ACTIVATE_SEEDS=$(get_session_start_seeds)
       # Build base JSON and conditionally add optional fields
       BASE_JSON=$(jq -n \
         --argjson pid "$TARGET_PID" \
@@ -1790,7 +1790,7 @@ case "$ACTION" in
     echo "$DIR" > "$SESSION_CACHE_DIR/claude-session-cache-$TARGET_PID" 2>/dev/null || true
 
     # --- Seed File Merge (continue-specific) ---
-    # After context overflow restart, SessionStart created a seed with 6 boot files.
+    # After context overflow restart, SessionStart created a seed with 8 boot files.
     # The session's preloadedFiles are stale (from the OLD process). Replace them
     # with the seed's preloadedFiles so the templates hook doesn't skip deps.
     SESSIONS_BASE=$(dirname "$DIR")

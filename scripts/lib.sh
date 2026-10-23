@@ -140,12 +140,22 @@ normalize_preload_path() {
 }
 
 # get_session_start_seeds → JSON array of canonical seed paths on stdout
-#   Returns the same 6 paths that SessionStart seeds into preloadedFiles.
-#   Deterministic — any hook can call this to know what SessionStart injected.
+#   The paths SessionStart seeds into preloadedFiles. Any hook can call this to know what
+#   SessionStart injected.
+#
+#   PITFALLS.md is guarded on resolution, not on being optional — every path here is tracked.
+#   $HOME/.claude/.directives can resolve where the files are not: a symlink shadowed by a real
+#   directory of the same name, or a half-finished checkout. The print loop skips whatever [ -f ]
+#   cannot read there, and a path recorded but never injected reads to PostToolUse dedup as
+#   already delivered, which suppresses the later real injection.
 get_session_start_seeds() {
-  local engine_dir
+  local engine_dir seeds
   engine_dir=$(cd "$HOME/.claude/.directives" 2>/dev/null && pwd -P) || engine_dir="$HOME/.claude/.directives"
-  jq -n --arg d "$engine_dir" '[$d+"/COMMANDS.md",$d+"/INVARIANTS.md",$d+"/SIGILS.md",$d+"/commands/CMD_DEHYDRATE.md",$d+"/commands/CMD_RESUME_SESSION.md",$d+"/commands/CMD_PARSE_PARAMETERS.md"]'
+  seeds=$(jq -n --arg d "$engine_dir" '[$d+"/COMMANDS.md",$d+"/INVARIANTS.md",$d+"/SIGILS.md",$d+"/VOICE.md",$d+"/commands/CMD_DEHYDRATE.md",$d+"/commands/CMD_RESUME_SESSION.md",$d+"/commands/CMD_PARSE_PARAMETERS.md"]')
+  if [ -f "$engine_dir/PITFALLS.md" ]; then
+    seeds=$(echo "$seeds" | jq --arg p "$engine_dir/PITFALLS.md" '. + [$p]')
+  fi
+  echo "$seeds"
 }
 
 # NOTE: filter_preseeded_paths() removed — replaced by seed file infrastructure.
@@ -317,6 +327,54 @@ _release_lock() {
   rmdir "$lock_dir" 2>/dev/null || true
 }
 
+# _pid_is_alive PID — true when PID names an existing process, ours or not.
+#   `kill -0` alone cannot answer this: it fails with EPERM when the process EXISTS but belongs to
+#   another user, and only ESRCH means "gone". Treating every failure as death deletes the in-flight
+#   temp of a live foreign-owned writer — the one case the reaper exists to protect.
+#   The discriminator is `ps -p`'s exit status, not `kill`'s stderr: the shell's `kill` reports
+#   `strerror(errno)`, so the message text moves with locale and differs between shells, while
+#   `ps -p` answers existence without needing permission to signal. Status 0 = exists, 1 = no such
+#   process, anything else (127 for a missing `ps`, or a `ps` failure) = unknown, and unknown is
+#   reported as alive so the caller keeps the temp. A retained orphan is harmless; a deleted live
+#   temp is not.
+_pid_is_alive() {
+  local pid="${1:?_pid_is_alive requires PID as arg 1}"
+  if kill -0 "$pid" 2>/dev/null; then
+    return 0
+  fi
+  local ps_rc=0
+  ps -p "$pid" >/dev/null 2>&1 || ps_rc=$?
+  case "$ps_rc" in
+    1) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+# _reap_stale_temps FILE — remove `FILE.tmp.<pid>` siblings whose writer is gone.
+#   The atomic write is `write tmp` then `mv`. A writer killed anywhere in between leaves the temp
+#   behind — measured on a real backlog, most are complete and a third are truncated mid-write — and
+#   neither a failure-path `rm -f` nor an EXIT trap covers it, since SIGKILL runs neither. Reclaim is
+#   therefore deferred to the next writer: a temp whose pid is no longer alive has nobody left to mv
+#   it. A pid reused by an unrelated live process survives this pass and is reaped on a later one.
+#   Reaps for whatever FILE the caller passes, so it covers seed files as well as `.state.json`.
+#   Call under the lock, before writing.
+#
+#   The `if` form is deliberate: under `set -e` a bare failing simple command in a loop body exits
+#   the script, and an `if` compound returns 0 when its condition is false, so the body's last
+#   command always succeeds. (`&&`/`||` operands are exempt from `set -e`, so that is not the hazard.)
+_reap_stale_temps() {
+  local file="${1:?_reap_stale_temps requires FILE as arg 1}"
+  local tmp pid
+  for tmp in "${file}".tmp.*; do
+    [ -f "$tmp" ] || continue
+    pid="${tmp##*.tmp.}"
+    case "$pid" in ''|*[!0-9]*) continue ;; esac
+    if [ "$pid" != "$$" ] && ! _pid_is_alive "$pid"; then
+      rm -f "$tmp" 2>/dev/null || true
+    fi
+  done
+}
+
 # safe_json_write FILE
 #   Reads JSON from stdin, validates with `jq empty`, writes atomically.
 #   Uses a PID-aware mkdir spinlock (_acquire_lock) for concurrency safety.
@@ -341,6 +399,8 @@ safe_json_write() {
     echo "ERROR: safe_json_write: lock timeout for $file" >&2
     return 1
   fi
+
+  _reap_stale_temps "$file"
 
   # Write atomically: temp file + mv
   if echo "$json" > "$tmp_file" && mv "$tmp_file" "$file"; then
@@ -371,6 +431,8 @@ safe_json_update() {
     echo "ERROR: safe_json_update: lock timeout for $file" >&2
     return 1
   fi
+
+  _reap_stale_temps "$file"
 
   # Read + transform + write under lock
   local result

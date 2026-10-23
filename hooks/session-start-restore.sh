@@ -121,6 +121,15 @@ debug "session context: $SESSION_CONTEXT_LINE"
 debug "clearing preload state for fresh context"
 PRELOAD_SEEDS=$(get_session_start_seeds)
 
+# Engine-wide pitfalls — injected with the standards below, so it must also be
+# registered here or PostToolUse dedup is free to re-deliver the whole file.
+ENGINE_PITFALLS="$HOME/.claude/.directives/PITFALLS.md"
+if [ -f "$ENGINE_PITFALLS" ]; then
+  PITFALLS_NORM=$(normalize_preload_path "$ENGINE_PITFALLS" 2>/dev/null || echo "$ENGINE_PITFALLS")
+  PRELOAD_SEEDS=$(echo "$PRELOAD_SEEDS" | jq --arg p "$PITFALLS_NORM" 'if index($p) then . else . + [$p] end')
+  debug "engine pitfalls registered: $PITFALLS_NORM"
+fi
+
 # Project docs index — when the repo follows the docs/TOC.md convention, treat it
 # as a session-start preload: register it in the seeds (so PostToolUse dedup won't
 # re-inject it) and inject its content alongside the standards below. No-op when absent.
@@ -388,9 +397,11 @@ STANDARDS_OUTPUT=""
 for std_file in "$HOME/.claude/.directives/COMMANDS.md" \
                 "$HOME/.claude/.directives/INVARIANTS.md" \
                 "$HOME/.claude/.directives/SIGILS.md" \
+                "$HOME/.claude/.directives/VOICE.md" \
                 "$HOME/.claude/.directives/commands/CMD_DEHYDRATE.md" \
                 "$HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md" \
-                "$HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"; do
+                "$HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md" \
+                "$ENGINE_PITFALLS"; do
   if [ -f "$std_file" ]; then
     STD_CONTENT=$(cat "$std_file" 2>/dev/null || true)
     if [ -n "$STD_CONTENT" ]; then
@@ -513,7 +524,24 @@ if [ -n "$REQUIRED_FILES" ]; then
     esac
 
     if [ -f "$resolved" ]; then
-      FILE_CONTENT=$(head -c 50000 "$resolved" 2>/dev/null || echo "[Error reading file]")
+      # Append-only artifacts (logs, dialogues) put current state at the END, so
+      # taking the first bytes delivers the oldest entries. Take the tail, then
+      # advance to the next entry heading so the excerpt starts on a whole entry.
+      FILE_BYTES=$(wc -c < "$resolved" 2>/dev/null || echo 0)
+      if [ "$FILE_BYTES" -le 50000 ]; then
+        FILE_CONTENT=$(cat "$resolved" 2>/dev/null || echo "[Error reading file]")
+      else
+        FILE_TAIL=$(tail -c 50000 "$resolved" 2>/dev/null || echo "")
+        FIRST_HEADING=$(printf '%s' "$FILE_TAIL" | grep -n '^## ' | head -n 1 | cut -d: -f1 || echo "")
+        if [ -n "$FIRST_HEADING" ]; then
+          FILE_CONTENT=$(printf '%s' "$FILE_TAIL" | tail -n +"$FIRST_HEADING")
+        else
+          FILE_CONTENT="$FILE_TAIL"
+        fi
+        FILE_CONTENT="[... earlier entries omitted; showing the most recent of $FILE_BYTES bytes ...]
+
+$FILE_CONTENT"
+      fi
       CONTEXT="$CONTEXT
 
 ---
