@@ -22,6 +22,8 @@
 # fetch brings the remote's notes into refs/notes/receipts-remote/<R>. It adds no push
 # refspec, because a configured push refspec replaces what a bare `git push` pushes.
 #
+# Paths given to go, check and id are relative to the repo top, wherever the command runs.
+#
 # Forms of a patch-id: whole | whole+text | path | path+text. "path" forms are computed as
 # `git show [--text] <sha> -- <paths> | git patch-id --stable`; "whole" forms omit the paths.
 # A go satisfies a check only in the form and paths it was given for.
@@ -43,6 +45,12 @@ usage() { sed -n '/^# Usage:/,/^#$/p' "$0" | sed 's/^# \{0,1\}//'; }
 
 require_repo() {
   git rev-parse --git-dir >/dev/null 2>&1 || die "not inside a git repository"
+}
+
+# Paths in gos and checks are relative to the repo top, and git reads pathspecs relative to
+# the cwd, so every command that builds a pathspec runs from the top.
+to_top() {
+  cd "$(git rev-parse --show-toplevel)" || die "cannot enter the repo top"
 }
 
 now_epoch() { date -u +%s; }
@@ -293,6 +301,7 @@ cmd_go() {
     whole*) [ -z "$paths" ] || die "go: form $form covers the whole commit; drop --paths" ;;
   esac
   require_repo
+  to_top
   local pj; pj=$(paths_json "$paths")
   local verify=""
   if [ -n "$commit" ]; then
@@ -329,6 +338,7 @@ cmd_id() {
     esac
   done
   require_repo
+  to_top
   local id; id=$(patch_id "$sha" "$form" "$(paths_json "$paths")")
   if [ -z "$id" ]; then echo "empty"; return 1; fi
   echo "$id"
@@ -354,6 +364,7 @@ cmd_check() {
   done
   [ -n "$range" ] || die "check: give a rev-range such as origin/dev..HEAD"
   require_repo
+  to_top
   local o; for o in "${owners[@]+"${owners[@]}"}"; do
     case "$o" in *=*) ;; *) die "check: --owner takes NAME=path,path" ;; esac
   done

@@ -284,4 +284,20 @@ test_receipt_withdrawal_ordered_by_time_after_a_sorting_merge() {
   assert_eq 0 "$code" "the later go wins over the earlier withdrawal whatever the merged line order"
 }
 
+test_receipt_check_from_a_subdirectory_still_needs_a_go() {
+  mkdir -p sub
+  commit_file sub/a.txt 'in-sub' 'sub file'
+  commit_file sub/a.txt 'in-sub-2' 'change sub file'
+  local out code
+  out=$(cd sub && bash "$RECEIPT" check main~1..main); code=$?
+  assert_eq 1 "$code" "check run from a subdirectory with no gos fails"
+  assert_contains "MISSING" "$out" "the root-relative path is not read as empty"
+  local id; id=$(cd sub && bash "$RECEIPT" id HEAD --paths sub/a.txt)
+  assert_eq "$(r id HEAD --paths sub/a.txt)" "$id" "id from a subdirectory equals id from the top"
+  (cd sub && bash "$RECEIPT" go "$id" --form path+text --paths sub/a.txt --owner O --commit HEAD) >/dev/null 2>&1; code=$?
+  assert_eq 0 "$code" "go --commit verifies from a subdirectory"
+  (cd sub && bash "$RECEIPT" check main~1..main) >/dev/null; code=$?
+  assert_eq 0 "$code" "and check from the subdirectory then passes"
+}
+
 run_discovered_tests
