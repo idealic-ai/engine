@@ -409,4 +409,52 @@ test_receipt_range_id_under_a_per_commit_label_is_named() {
   assert_not_contains "MISSING" "$out" "it is not reported as plain missing"
 }
 
+test_receipt_named_owner_ignores_other_owners_gos() {
+  commit_file a.txt 'own' 'own'
+  local id code; id=$(r id HEAD --paths a.txt)
+  r go "$id" --form path+text --paths a.txt --owner Claims --commit HEAD >/dev/null 2>&1
+  r check main~1..main --owner Legal=a.txt >/dev/null; code=$?
+  assert_eq 1 "$code" "a Claims go does not clear Legal's requirement"
+  r check main~1..main --owner Claims=a.txt >/dev/null; code=$?
+  assert_eq 0 "$code" "it clears Claims' own"
+}
+
+test_receipt_withdrawal_cancels_only_its_own_owner() {
+  commit_file a.txt 'wd' 'wd'
+  local id code; id=$(r id HEAD --paths a.txt)
+  r go "$id" --form path+text --paths a.txt --owner Claims --commit HEAD >/dev/null 2>&1
+  r go "$id" --form path+text --paths a.txt --owner Legal --commit HEAD >/dev/null 2>&1
+  r go "$id" --form path+text --paths a.txt --owner Claims --withdraw >/dev/null 2>&1
+  r check main~1..main --owner Legal=a.txt >/dev/null; code=$?
+  assert_eq 0 "$code" "Claims withdrawing leaves Legal's go standing"
+  r check main~1..main --owner Claims=a.txt >/dev/null; code=$?
+  assert_eq 1 "$code" "and cancels Claims' own"
+}
+
+test_receipt_tree_changed_during_run_is_not_reusable() {
+  local before; before=$(git rev-parse 'HEAD^{tree}')
+  r run -- bash -c 'echo more >> a.txt' >/dev/null 2>&1
+  local code; r find --tree "$before" >/dev/null 2>&1; code=$?
+  assert_eq 1 "$code" "a run that changed the tree is not reusable for the tree it started on"
+  assert_contains "CHANGED" "$(r find --tree "$before" --all)" "--all shows it marked"
+}
+
+test_receipt_untracked_files_make_a_tree_dirty() {
+  echo new > untracked.txt
+  r run -- true >/dev/null 2>&1
+  local code; r find --commit HEAD >/dev/null 2>&1; code=$?
+  assert_eq 1 "$code" "a run with an untracked file present is not a clean receipt"
+  assert_contains "DIRTY" "$(r find --commit HEAD --all)" "it is recorded as dirty"
+}
+
+test_receipt_path_cover_respects_the_path_boundary() {
+  printf 'x\n' > a; printf 'y\n' > ab.txt; git add a ab.txt; git commit -q -m both
+  printf 'x2\n' > a; printf 'y2\n' > ab.txt; git commit -q -am both2
+  local id out code; id=$(r id HEAD --paths a)
+  r go "$id" --form path+text --paths a --owner O --commit HEAD >/dev/null 2>&1
+  out=$(r check main~1..main --owner O=a,ab.txt); code=$?
+  assert_eq 1 "$code" "a go on path a does not cover ab.txt"
+  assert_contains "uncovered: ab.txt" "$out" "the uncovered path is named"
+}
+
 run_discovered_tests
