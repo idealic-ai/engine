@@ -262,7 +262,7 @@ This is YOUR internal rubric -- do NOT present it as a form. Use it to generate 
         ```
         Then append a `## Rework Notes` section at the end with: the date of rejection, the user's stated reason, and specific items to address. If `## Rework Notes` already exists, append a new dated entry under it.
         Record the verdict in `REVIEW_LOG.md`. Ask user for the rework reason. Log `Verdict: Needs Rework`. The leftover prompt generated for this rework MUST include the instruction:
-        1.  Execute `§CMD_SWAP_TAG_IN_FILE` to replace `#needs-rework` with `#done-review`.
+        1.  Execute §CMD_SWAP_TAG_IN_FILE to replace `#needs-rework` with `#done-review`.
         2.  Append a short resolution entry to the debrief's `## Rework Notes` section:
             ```
             ### [YYYY-MM-DD] Resolved
