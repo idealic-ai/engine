@@ -27,6 +27,8 @@
 #
 # Forms of a patch-id: whole | whole+text | path | path+text. "path" forms are computed as
 # `git show [--text] <sha> -- <paths> | git patch-id --stable`; "whole" forms omit the paths.
+# The diff options that move an id (prefixes, context, textconv, external diff) are pinned to
+# git's defaults, so an id does not depend on a seat's git config.
 # A go satisfies a check only in the form and paths it was given for. A binary path is also
 # bound to its blob ids (old..new), which `go --commit` records: patch-id alone does not tell
 # two binary changes apart, so a go recorded without --commit never clears a binary change.
@@ -95,6 +97,13 @@ paths_json() {
 }
 
 # patch_id <sha> <form> <paths-json>; prints the id, or nothing for an empty diff.
+# Every diff option that moves a patch-id is pinned to git's default, so two seats with
+# different git config compute the same id, and the stored verify command reproduces.
+DIFF_PIN=(-c diff.noprefix=false -c diff.mnemonicPrefix=false -c diff.context=3
+  -c diff.interHunkContext=0 -c diff.algorithm=myers -c diff.renames=true
+  -c diff.relative=false -c diff.suppressBlankEmpty=false -c core.quotePath=true)
+SHOW_PIN=(--no-textconv --no-ext-diff --no-color)
+
 patch_id() {
   local sha="$1" form="$2" pj="$3" textflag=() paths=()
   case "$form" in *+text) textflag=(--text) ;; esac
@@ -102,10 +111,10 @@ patch_id() {
     path|path+text)
       while IFS= read -r p; do paths+=("$p"); done < <(jq -r '.[]' <<<"$pj")
       [ "${#paths[@]}" -gt 0 ] || return 0
-      git show ${textflag[@]+"${textflag[@]}"} --no-color "$sha" -- "${paths[@]}" | git patch-id --stable | awk '{print $1}'
+      git "${DIFF_PIN[@]}" show "${SHOW_PIN[@]}" ${textflag[@]+"${textflag[@]}"} "$sha" -- "${paths[@]}" | git patch-id --stable | awk '{print $1}'
       ;;
     *)
-      git show ${textflag[@]+"${textflag[@]}"} --no-color "$sha" | git patch-id --stable | awk '{print $1}'
+      git "${DIFF_PIN[@]}" show "${SHOW_PIN[@]}" ${textflag[@]+"${textflag[@]}"} "$sha" | git patch-id --stable | awk '{print $1}'
       ;;
   esac
 }
@@ -132,13 +141,14 @@ scope_blobs() {
 }
 
 patch_cmd() {
-  local sha="$1" form="$2" pj="$3" t="" p
+  local sha="$1" form="$2" pj="$3" t="" p g
   case "$form" in *+text) t=" --text" ;; esac
+  g="git ${DIFF_PIN[*]} show ${SHOW_PIN[*]}${t} $sha"
   case "$form" in
     path|path+text)
       p=$(jq -r 'map(@sh) | join(" ")' <<<"$pj")
-      echo "git show${t} $sha -- $p | git patch-id --stable" ;;
-    *) echo "git show${t} $sha | git patch-id --stable" ;;
+      echo "$g -- $p | git patch-id --stable" ;;
+    *) echo "$g | git patch-id --stable" ;;
   esac
 }
 

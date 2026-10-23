@@ -343,4 +343,29 @@ test_receipt_sync_against_a_remote_without_notes_keeps_plain_fetch_working() {
   assert_eq 0 "$code" "and plain fetch works with it"
 }
 
+test_receipt_ids_do_not_depend_on_git_config() {
+  # Seven lines after the edit, so context 1 and context 3 give different hunks.
+  printf 'hello\n2\n3\n4\n5\n6\n7\n8\n' > n.txt; git add n.txt; git commit -q -m n
+  printf 'world\n2\n3\n4\n5\n6\n7\n8\n' > n.txt; git commit -q -am n2
+  local base human
+  base=$(r id HEAD --paths n.txt)
+  human=$(git show --text HEAD -- n.txt | git patch-id --stable | awk '{print $1}')
+  assert_eq "$human" "$base" "under default config the id is the hand-computed LANDING.md id"
+  local kv
+  for kv in diff.noprefix=true diff.context=1 diff.mnemonicPrefix=true diff.relative=true; do
+    git config "${kv%%=*}" "${kv#*=}"
+    assert_eq "$base" "$(r id HEAD --paths n.txt)" "$kv does not move the id"
+    git config --unset "${kv%%=*}"
+  done
+  echo '*.txt diff=up' > .git/info/attributes
+  git config diff.up.textconv 'tr a-z A-Z <'
+  assert_eq "$base" "$(r id HEAD --paths n.txt)" "a textconv driver does not move the id"
+  git config diff.external 'false'
+  assert_eq "$base" "$(r id HEAD --paths n.txt)" "an external diff does not move the id"
+  git config diff.noprefix true; git config diff.context 1
+  r go "$base" --form path+text --paths n.txt --owner O --commit HEAD >/dev/null 2>&1
+  local verify; verify=$(r find --patch "$base" --json | jq -r .verify)
+  assert_eq "$base" "$(bash -c "$verify" | awk '{print $1}')" "the stored verify command reproduces the id under hostile config"
+}
+
 run_discovered_tests
