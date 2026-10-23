@@ -42,12 +42,29 @@
 #                                                 Refresh THIS lane's liveness file (what a lane calls)
 #   engine loom-slots --lane-done  <sessionDir> <laneTag>
 #                                                 Remove it (what a lane calls as it hands back)
+#   engine loom-slots --dispatching <item>[,<item>...] [--self <sessionDir>]
+#                                                 Also warn (stderr, even with --quiet) when another
+#                                                 loom claims a ticket key or an overlapping path
+#   engine loom-slots --claim <sessionDir> <item>...
+#                                                 Claim tickets or paths for this loom, state `working`
+#   engine loom-slots --claim-state <sessionDir> <item> working|done-uncommitted|landed
+#                                                 Move a claim on; `landed` removes it
+#   engine loom-slots --release <sessionDir> <item>...
+#                                                 Drop a claim without landing it
+#
+# WORK CLAIMS
+#   A `claims=` line in a loom's `.slots` file: `item|state|stampZ`, comma-separated. A claim is NOT
+#   a liveness signal and never expires: it is reported however stale the row is and however empty
+#   its lanes, because a loom whose lanes have ended can still hold finished, uncommitted work. Only
+#   `landed` or `--release` removes one. The claim commands rewrite only that line and keep the
+#   file's mtime, so writing a claim never makes a dead row look live.
 #
 # Exit status (the idiom `engine lane-stall` and `engine sweep-check` already use):
 #   0  under every cap, dispatching another lane is within budget
 #   3  AT or OVER a cap — the reading a refusal is built on
 #   2  the directory could not be read: the caller must dispatch ONE lane at a time and say so,
 #      never assume it is alone (`¶INV_SLOT_CAP_IS_GLOBAL`)
+#   4  under cap, but --dispatching overlaps another loom's claim (3 wins when both hold)
 
 set -uo pipefail
 
@@ -55,14 +72,33 @@ SLOTS_DIR="${LOOM_SLOTS_DIR:-$HOME/.claude/engine/.loom-slots}"
 WINDOW_MIN=20
 QUIET=false
 MODE=report
+SELF=""
+DISPATCHING=""
+CLAIM_SESSION=""; CLAIM_STATE=""; CLAIM_ITEMS=()
+
+# take_items — the items after a claim command's sessionDir, up to the next --flag.
+take_items() {
+  CLAIM_ITEMS=()
+  while [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; do CLAIM_ITEMS+=("$1"); shift; done
+}
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --minutes)    WINDOW_MIN="${2:?--minutes needs a number}"; shift 2 ;;
     --quiet)      QUIET=true; shift ;;
+    --self)       SELF="${2:?--self needs <sessionDir>}"; shift 2 ;;
+    --dispatching) DISPATCHING="${DISPATCHING:+$DISPATCHING,}${2:?--dispatching needs <item>[,<item>...]}"; shift 2 ;;
+    --claim|--release)
+      MODE="${1#--}"; CLAIM_SESSION="${2:?$1 needs <sessionDir> <item>...}"; shift 2
+      take_items "$@"; shift "${#CLAIM_ITEMS[@]}"
+      [ "${#CLAIM_ITEMS[@]}" -gt 0 ] || { printf 'loom-slots: --%s needs at least one item\n' "$MODE" >&2; exit 2; } ;;
+    --claim-state)
+      MODE=claim-state; CLAIM_SESSION="${2:?--claim-state needs <sessionDir> <item> <state>}"
+      CLAIM_ITEMS=("${3:?--claim-state needs <sessionDir> <item> <state>}")
+      CLAIM_STATE="${4:?--claim-state needs <sessionDir> <item> <state>}"; shift 4 ;;
     --lane-alive) MODE=alive; LANE_SESSION="${2:?--lane-alive needs <sessionDir> <laneTag>}"; LANE_TAG="${3:?--lane-alive needs <sessionDir> <laneTag>}"; shift 3 ;;
     --lane-done)  MODE=done;  LANE_SESSION="${2:?--lane-done needs <sessionDir> <laneTag>}";  LANE_TAG="${3:?--lane-done needs <sessionDir> <laneTag>}";  shift 3 ;;
-    -h|--help)    sed -n '/^# Usage:/,/^#   2 /p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)    sed -n '/^# Usage:/,/^#   4 /p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'loom-slots: unknown argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -96,6 +132,83 @@ if [ "$MODE" = alive ] || [ "$MODE" = done ]; then
   exit 0
 fi
 
+# loom_file — the loom's own file: the one whose sessionDir line names it, else the slug. Found by
+# content first because hand-written files exist whose names are not the slug.
+loom_file() {
+  local sd="$1" f
+  for f in "$SLOTS_DIR"/*.slots; do
+    [ -f "$f" ] || continue
+    if grep -qxF "sessionDir=$sd" "$f"; then printf '%s' "$f"; return 0; fi
+  done
+  printf '%s/%s.slots' "$SLOTS_DIR" "$(slugify "$sd")"
+}
+
+# claim_key — the comparison form of an item: a ticket key upper-cased, a path without ./ or a
+# trailing slash.
+is_ticket_key() { printf '%s' "$1" | grep -Eq '^[A-Za-z][A-Za-z0-9]*-[0-9]+$'; }
+claim_key() {
+  local x="$1"
+  if is_ticket_key "$x"; then printf '%s' "$x" | tr '[:lower:]' '[:upper:]'; return; fi
+  x="${x#./}"; while [ "${x%/}" != "$x" ]; do x="${x%/}"; done
+  printf '%s' "$x"
+}
+
+# items_overlap — same ticket key, or one path at or under the other at a path boundary.
+items_overlap() {
+  local a b; a="$(claim_key "$1")"; b="$(claim_key "$2")"
+  [ -n "$a" ] && [ -n "$b" ] || return 1
+  [ "$a" = "$b" ] && return 0
+  if is_ticket_key "$a" || is_ticket_key "$b"; then return 1; fi
+  case "$a" in "$b"/*) return 0 ;; esac
+  case "$b" in "$a"/*) return 0 ;; esac
+  return 1
+}
+
+if [ "$MODE" = claim ] || [ "$MODE" = release ] || [ "$MODE" = claim-state ]; then
+  case "$MODE:$CLAIM_STATE" in
+    claim-state:working|claim-state:done-uncommitted|claim-state:landed|claim:|release:) ;;
+    *) printf 'loom-slots: state must be working, done-uncommitted or landed (got %s)\n' "$CLAIM_STATE" >&2; exit 2 ;;
+  esac
+  for it in "${CLAIM_ITEMS[@]}"; do
+    case "$it" in
+      ''|*,*|*'|'*|*$'\n'*) printf 'loom-slots: a claim item may not be empty or contain "," or "|": %s\n' "$it" >&2; exit 2 ;;
+    esac
+  done
+  mkdir -p "$SLOTS_DIR" 2>/dev/null || { printf 'loom-slots: cannot create %s\n' "$SLOTS_DIR" >&2; exit 2; }
+  f="$(loom_file "$CLAIM_SESSION")"
+  current=""
+  [ -f "$f" ] && current="$(sed -n 's/^claims=//p' "$f" | tail -1)"
+  stamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  next=""
+  # Keep every existing claim except the ones this call names; then append the named ones in their
+  # new state, unless that state removes them.
+  IFS=',' read -r -a existing <<< "$current"
+  for c in ${existing[@]+"${existing[@]}"}; do
+    [ -n "$c" ] || continue
+    ci="${c%%|*}"; hit=0
+    for it in "${CLAIM_ITEMS[@]}"; do [ "$(claim_key "$ci")" = "$(claim_key "$it")" ] && hit=1; done
+    if [ "$hit" = 1 ] && [ "$MODE" = claim-state ]; then
+      [ "$CLAIM_STATE" = landed ] || next="${next:+$next,}$ci|$CLAIM_STATE|$stamp"
+      continue
+    fi
+    [ "$hit" = 1 ] && continue
+    next="${next:+$next,}$c"
+  done
+  if [ "$MODE" = claim ]; then
+    for it in "${CLAIM_ITEMS[@]}"; do next="${next:+$next,}$it|working|$stamp"; done
+  fi
+  tmp="$(mktemp "$SLOTS_DIR/.claims.XXXXXX")" || exit 2
+  if [ -f "$f" ]; then
+    awk '!/^claims=/' "$f" > "$tmp"
+  else
+    printf 'sessionDir=%s\n' "$CLAIM_SESSION" > "$tmp"
+  fi
+  printf 'claims=%s\n' "$next" >> "$tmp"
+  [ -f "$f" ] && touch -r "$f" "$tmp"
+  mv "$tmp" "$f" || { rm -f "$tmp"; exit 2; }
+  exit 0
+fi
+
 if [ ! -d "$SLOTS_DIR" ] || [ ! -r "$SLOTS_DIR" ]; then
   $QUIET || {
     printf '\nloom-slots: cannot read %s\n' "$SLOTS_DIR"
@@ -114,12 +227,16 @@ global_stale_looms=0
 global_stale_lanes=0
 at_cap=0
 rows=""
+claim_rows=""
+overlaps=0
+overlap_lines=""
 
 for f in "$SLOTS_DIR"/*.slots; do
   [ -f "$f" ] || continue
-  sessionDir=""; cap=""; liveLanes=""; heartbeat=""
+  sessionDir=""; cap=""; liveLanes=""; heartbeat=""; claims=""
   while IFS='=' read -r k v; do
     case "$k" in
+      claims)     claims="$v" ;;
       sessionDir) sessionDir="$v" ;;
       cap)        cap="$v" ;;
       liveLanes)  liveLanes="$v" ;;
@@ -194,6 +311,37 @@ for f in "$SLOTS_DIR"/*.slots; do
   rows="$rows$(printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s' \
     "$short" "${cap:-?}" "$counted" "$basis" "${loom_age}m" "$hb_src" "$verdict" "${observed_names:-${liveLanes:-—}}")
 "
+  # Claims are read off EVERY row, counted or not: the row that is stale with no lanes is the one
+  # whose finished-but-uncommitted work a second loom is about to redo.
+  if [ -n "$claims" ]; then
+    is_self=0
+    [ -n "$SELF" ] && [ "$sessionDir" = "$SELF" ] && is_self=1
+    rowstate="fresh"; [ "$loom_fresh" = 1 ] || rowstate="stale(${loom_age}m)"
+    [ "$counted" -gt 0 ] || rowstate="$rowstate,no-live-lanes"
+    IFS=',' read -r -a row_claims <<< "$claims"
+    for c in ${row_claims[@]+"${row_claims[@]}"}; do
+      [ -n "$c" ] || continue
+      ci="${c%%|*}"; rest="${c#*|}"; cs="${rest%%|*}"; ct="${rest#*|}"
+      cage="?"
+      ce="$(iso_to_epoch "$ct" || true)"; [ -n "$ce" ] && cage="$(( (NOW - ce) / 60 ))m"
+      who="$short"; [ "$is_self" = 1 ] && who="$short (this loom)"
+      claim_rows="$claim_rows$(printf '%s\t%s\t%s\t%s\t%s' "$who" "$ci" "$cs" "$cage" "$rowstate")
+"
+      [ "$is_self" = 1 ] && continue
+      if [ -n "$DISPATCHING" ]; then
+        IFS=',' read -r -a want <<< "$DISPATCHING"
+        for w in ${want[@]+"${want[@]}"}; do
+          [ -n "$w" ] || continue
+          if items_overlap "$w" "$ci"; then
+            overlaps=$((overlaps+1))
+            overlap_lines="$overlap_lines$(printf '  WARNING: dispatching %s overlaps %s, claimed %s by %s %s ago (row %s).' "$w" "$ci" "$cs" "$short" "$cage" "$rowstate")
+"
+          fi
+        done
+      fi
+    done
+  fi
+
   if [ -n "$stale_names" ]; then
     rows="$rows$(printf '  ↳\t\t%s\t%s\t\t\t%s\t%s' "$observed_stale" "stale-lane-files" "named" "$stale_names")
 "
@@ -224,5 +372,22 @@ if ! $QUIET; then
   fi
 fi
 
+if [ -n "$claim_rows" ] && ! $QUIET; then
+  printf '== Work claims (kept until landed or released; a stale row with no lanes can still hold uncommitted work) ==\n\n'
+  { printf 'LOOM\tITEM\tSTATE\tSINCE\tROW\n'; printf '%s' "$claim_rows"; } | column -t -s "$(printf '\t')"
+  printf '\n'
+fi
+
+# Overlaps go to stderr so --quiet, which silences the table, cannot silence them.
+if [ "$overlaps" -gt 0 ]; then
+  {
+    printf '\nloom-slots: %s overlap(s) with another loom'"'"'s work claims:\n' "$overlaps"
+    printf '%s' "$overlap_lines"
+    printf '  Ask that loom (or its session log) before dispatching into it: a claim on a stale row is\n'
+    printf '  work nobody has landed yet, not work nobody owns.\n\n'
+  } >&2
+fi
+
 [ "$at_cap" = 1 ] && exit 3
+[ "$overlaps" -gt 0 ] && exit 4
 exit 0
