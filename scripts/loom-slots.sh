@@ -42,7 +42,7 @@
 #                                                 Refresh THIS lane's liveness file (what a lane calls)
 #   engine loom-slots --lane-done  <sessionDir> <laneTag>
 #                                                 Remove it (what a lane calls as it hands back)
-#   engine loom-slots --dispatching <item>[,<item>...] [--self <sessionDir>]
+#   engine loom-slots --dispatching <item>[,<item>...] [--self <sessionDir>] [--repo <dir>]
 #                                                 Also warn (stderr, even with --quiet) when another
 #                                                 loom claims a ticket key or an overlapping path
 #   engine loom-slots --claim <sessionDir> <item>[,<item>...]...
@@ -55,7 +55,9 @@
 #                                                 Drop a claim without landing it
 #
 # WORK CLAIMS
-#   A `claims=` line in a loom's `.slots` file: `item|state|stampZ`, comma-separated. A claim is NOT
+#   A `claims=` line in a loom's `.slots` file: `item|state|stampZ`, comma-separated, each item in
+#   its claim_key form (below): a ticket key, or `<repo>::<path in repo>`. Relative paths resolve
+#   against --repo, else the working directory's repository. A claim is NOT
 #   a liveness signal and never expires: it is reported however stale the row is and however empty
 #   its lanes, because a loom whose lanes have ended can still hold finished, uncommitted work. Only
 #   `landed` or `--release` removes one. The claim commands rewrite only that line and keep the
@@ -77,6 +79,8 @@ WINDOW_MIN=20
 QUIET=false
 MODE=report
 SELF=""
+REPO_ARG=""
+REPO_BASE=""
 DISPATCHING=""
 CLAIM_SESSION=""; CLAIM_STATE=""; CLAIM_ITEMS=()
 
@@ -98,6 +102,7 @@ while [ $# -gt 0 ]; do
     --minutes)    WINDOW_MIN="${2:?--minutes needs a number}"; shift 2 ;;
     --quiet)      QUIET=true; shift ;;
     --self)       SELF="${2:?--self needs <sessionDir>}"; shift 2 ;;
+    --repo)       REPO_ARG="${2:?--repo needs <dir>}"; shift 2 ;;
     --dispatching) DISPATCHING="${DISPATCHING:+$DISPATCHING,}${2:?--dispatching needs <item>[,<item>...]}"; shift 2 ;;
     --claim|--release)
       MODE="${1#--}"; CLAIM_SESSION="${2:?$1 needs <sessionDir> <item>...}"; shift 2
@@ -139,6 +144,10 @@ canon_session() {
 }
 
 [ -n "$SELF" ] && SELF="$(canon_session "$SELF")"
+if [ -n "$REPO_ARG" ]; then
+  REPO_BASE="$(git -C "$REPO_ARG" rev-parse --show-toplevel 2>/dev/null || (cd "$REPO_ARG" 2>/dev/null && pwd -P))" \
+    || { printf 'loom-slots: --repo %s is not a directory\n' "$REPO_ARG" >&2; exit 1; }
+fi
 [ -n "$CLAIM_SESSION" ] && CLAIM_SESSION="$(canon_session "$CLAIM_SESSION")"
 [ -n "${LANE_SESSION:-}" ] && LANE_SESSION="$(canon_session "$LANE_SESSION")"
 
@@ -169,22 +178,96 @@ loom_file() {
   printf '%s/%s.slots' "$SLOTS_DIR" "$(slugify "$sd")"
 }
 
-# claim_key — the comparison form of an item: a ticket key upper-cased, a path without ./ or a
-# trailing slash.
-is_ticket_key() { printf '%s' "$1" | grep -Eq '^[A-Za-z][A-Za-z0-9]*-[0-9]+$'; }
-claim_key() {
-  local x="$1"
-  if is_ticket_key "$x"; then printf '%s' "$x" | tr '[:lower:]' '[:upper:]'; return; fi
-  x="${x#./}"; while [ "${x%/}" != "$x" ]; do x="${x%/}"; done
-  printf '%s' "$x"
+# claim_key — the one comparison form of an item, applied to what is claimed and to what is about
+# to be dispatched, so a ticket or a path typed two ways still meets itself.
+#   ticket  any item carrying a key — `FIN-3141`, a `fin-3141-fix-the-thing` branch, `[FIN-3141]`,
+#           a Linear URL — becomes the upper-cased key.
+#   path    made absolute (a relative path against --repo, else the git top level of the working
+#           directory, else the working directory), `.`/`..`/`//` folded, symlinks resolved on the
+#           part that exists, then written `<repo>::<path in repo>`. <repo> is the MAIN checkout
+#           (from git's common directory), so worktrees of one repository meet and two
+#           repositories never do. A path outside any repository stays absolute.
+# A ticket and a path never match each other: claim both forms when a dispatch has both.
+KEY_RE='[A-Za-z][A-Za-z0-9]*-[0-9]+'
+is_ticket_key() { printf '%s' "$1" | grep -Eq "^$KEY_RE\$"; }
+trim() { local x="$1"; x="${x#"${x%%[![:space:]]*}"}"; x="${x%"${x##*[![:space:]]}"}"; printf '%s' "$x"; }
+upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+
+ticket_of() { # prints the key an item carries, or nothing
+  local x="$1" seg k
+  case "$x" in
+    *'['*']'*) k="$(printf '%s' "$x" | sed -En "s/.*\[($KEY_RE)\].*/\1/p" | head -1)"
+               [ -n "$k" ] && { upper "$k"; return; } ;;
+  esac
+  case "$x" in
+    *://*) IFS='/' read -r -a segs <<< "${x%%[?#]*}"
+           for seg in ${segs[@]+"${segs[@]}"}; do is_ticket_key "$seg" && k="$seg"; done
+           [ -n "${k:-}" ] && upper "$k"; return ;;
+    */*) return ;;
+  esac
+  k="$(printf '%s' "$x" | sed -En "s/^($KEY_RE)(-.*)?\$/\1/p")"
+  [ -n "$k" ] && upper "$k"
 }
 
-# items_overlap — same ticket key, or one path at or under the other at a path boundary.
+fold_path() { # lexical: absolute in, absolute out, no ., .., or //
+  local p="$1" out="" seg
+  IFS='/' read -r -a segs <<< "$p"
+  for seg in ${segs[@]+"${segs[@]}"}; do
+    case "$seg" in
+      ''|.) ;;
+      ..) out="${out%/*}" ;;
+      *)  out="$out/$seg" ;;
+    esac
+  done
+  printf '%s' "${out:-/}"
+}
+
+path_key() {
+  local x="$1" base abs anc rest top common root
+  case "$x" in *::*) printf '%s' "$x"; return ;; esac
+  if [ "${x#/}" = "$x" ]; then
+    base="$REPO_BASE"
+    [ -n "$base" ] || base="$(git rev-parse --show-toplevel 2>/dev/null || pwd -P)"
+    x="$base/$x"
+  fi
+  abs="$(fold_path "$x")"
+  anc="$abs"; rest=""
+  while [ "$anc" != "/" ] && [ ! -d "$anc" ]; do rest="/${anc##*/}$rest"; anc="${anc%/*}"; [ -n "$anc" ] || anc="/"; done
+  anc="$(cd "$anc" 2>/dev/null && pwd -P || printf '%s' "$anc")"
+  abs="$(fold_path "$anc$rest")"
+  top="$(git -C "$anc" rev-parse --show-toplevel 2>/dev/null)" || top=""
+  if [ -z "$top" ]; then printf '%s' "$abs"; return; fi
+  top="$(cd "$top" && pwd -P)"
+  common="$(cd "$anc" && cd "$(git rev-parse --git-common-dir)" 2>/dev/null && pwd -P)" || common="$top/.git"
+  case "$common" in */.git) root="${common%/.git}" ;; *) root="$common" ;; esac
+  rest="${abs#"$top"}"; rest="${rest#/}"
+  printf '%s::%s' "$root" "$rest"
+}
+
+claim_key() {
+  local x k; x="$(trim "$1")"
+  [ -n "$x" ] || return 0
+  k="$(ticket_of "$x")"
+  if [ -n "$k" ]; then printf '%s' "$k"; return; fi
+  path_key "$x"
+}
+
+# items_overlap — over claim_key forms: the same key, or one path at or under the other, inside one
+# repository and at a path boundary.
 items_overlap() {
-  local a b; a="$(claim_key "$1")"; b="$(claim_key "$2")"
+  local a="$1" b="$2" ra=0 rb=0
   [ -n "$a" ] && [ -n "$b" ] || return 1
   [ "$a" = "$b" ] && return 0
   if is_ticket_key "$a" || is_ticket_key "$b"; then return 1; fi
+  case "$a" in *::*) ra=1 ;; esac
+  case "$b" in *::*) rb=1 ;; esac
+  if [ "$ra" = 1 ] && [ "$rb" = 1 ]; then
+    [ "${a%%::*}" = "${b%%::*}" ] || return 1
+    a="${a#*::}"; b="${b#*::}"
+    if [ -z "$a" ] || [ -z "$b" ]; then return 0; fi
+  elif [ "$ra" != "$rb" ]; then
+    return 1
+  fi
   case "$a" in "$b"/*) return 0 ;; esac
   case "$b" in "$a"/*) return 0 ;; esac
   return 1
@@ -220,11 +303,16 @@ if [ "$MODE" = claim ] || [ "$MODE" = release ] || [ "$MODE" = claim-state ]; th
     claim-state:working|claim-state:done-uncommitted|claim-state:landed|claim:|release:) ;;
     *) printf 'loom-slots: state must be working, done-uncommitted or landed (got %s)\n' "$CLAIM_STATE" >&2; exit 1 ;;
   esac
+  norm=()
   for it in "${CLAIM_ITEMS[@]}"; do
     case "$it" in
-      ''|*'|'*|*$'\n'*) printf 'loom-slots: a claim item may not be empty or contain "|": [%s]\n' "$it" >&2; exit 1 ;;
+      *'|'*|*$'\n'*) printf 'loom-slots: a claim item may not contain "|": [%s]\n' "$it" >&2; exit 1 ;;
     esac
+    k="$(claim_key "$it")"
+    [ -n "$k" ] || { printf 'loom-slots: a claim item may not be empty\n' >&2; exit 1; }
+    norm+=("$k")
   done
+  CLAIM_ITEMS=("${norm[@]}")
   mkdir -p "$SLOTS_DIR" 2>/dev/null || write_fail "cannot create $SLOTS_DIR"
   f="$(loom_file "$CLAIM_SESSION")"
   take_lock "$SLOTS_DIR/.$(basename "$f").lock" || write_fail "could not take the lock on $f (held for 30s, or the directory is not writable)"
@@ -263,7 +351,10 @@ if [ "$MODE" = claim ] || [ "$MODE" = release ] || [ "$MODE" = claim-state ]; th
     next="${next:+$next,}$c"
   done
   if [ "$MODE" = claim ]; then
-    for it in "${CLAIM_ITEMS[@]}"; do next="${next:+$next,}$it|working|$stamp"; done
+    for it in "${CLAIM_ITEMS[@]}"; do
+      dup=0; case ",$next," in *",$it|"*) dup=1 ;; esac
+      [ "$dup" = 1 ] || next="${next:+$next,}$it|working|$stamp"
+    done
   fi
   tmp="$(mktemp "$SLOTS_DIR/.claims.XXXXXX")" || write_fail "cannot create a temporary file in $SLOTS_DIR"
   if [ -f "$f" ]; then
@@ -287,6 +378,15 @@ if [ ! -d "$SLOTS_DIR" ] || [ ! -r "$SLOTS_DIR" ]; then
     printf '  failure the directory exists to prevent.\n\n'
   }
   exit 2
+fi
+
+want_raw=(); want_key=()
+if [ -n "$DISPATCHING" ]; then
+  IFS=',' read -r -a dparts <<< "$DISPATCHING"
+  for w in ${dparts[@]+"${dparts[@]}"}; do
+    k="$(claim_key "$w")"; [ -n "$k" ] || continue
+    want_raw+=("$(trim "$w")"); want_key+=("$k")
+  done
 fi
 
 NOW="$(now_epoch)"
@@ -399,10 +499,10 @@ for f in "$SLOTS_DIR"/*.slots; do
 "
       [ "$is_self" = 1 ] && continue
       if [ -n "$DISPATCHING" ]; then
-        IFS=',' read -r -a want <<< "$DISPATCHING"
-        for w in ${want[@]+"${want[@]}"}; do
-          [ -n "$w" ] || continue
-          if items_overlap "$w" "$ci"; then
+        cik="$(claim_key "$ci")"
+        for wi in ${want_raw[@]+"${!want_raw[@]}"}; do
+          w="${want_raw[$wi]}"
+          if items_overlap "${want_key[$wi]}" "$cik"; then
             overlaps=$((overlaps+1))
             overlap_lines="$overlap_lines$(printf '  WARNING: dispatching %s overlaps %s, claimed %s by %s %s ago (row %s).' "$w" "$ci" "$cs" "$short" "$cage" "$rowstate")
 "

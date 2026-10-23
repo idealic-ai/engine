@@ -24,7 +24,17 @@ ok() { pass=$((pass+1)); printf '  ok    %s\n' "$1"; }
 no() { fail=$((fail+1)); printf '  FAIL  %s\n        %s\n' "$1" "${2:-}"; }
 
 SB="$(mktemp -d "${TMPDIR:-/tmp}/loom-slot-claims.XXXXXX")"
-trap 'rm -rf "$SB"' EXIT
+# Repositories live beside the slot directory, not in it, so reset() never removes them. Relative
+# claim paths resolve against the working directory's repository, so every case runs from REPO.
+GIT="$(mktemp -d "${TMPDIR:-/tmp}/loom-slot-claims-git.XXXXXX")"
+trap 'rm -rf "$SB" "$GIT"' EXIT
+REPO="$GIT/finch"; REPO2="$GIT/other-repo"; WT="$GIT/finch-wt"
+for r in "$REPO" "$REPO2"; do
+  mkdir -p "$r/packages/estimate/src" "$r/apps/api/src/msft"
+  git -C "$r" init -q && git -C "$r" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+done
+git -C "$REPO" worktree add -q "$WT" 2>/dev/null
+cd "$REPO" || exit 1
 
 iso_ago() { date -u -v-"$1"M +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "-$1 minutes" +%Y-%m-%dT%H:%M:%SZ; }
 mk_loom() { # file-stem sessionDir cap lanes heartbeat
@@ -244,6 +254,61 @@ if [ "$rc" -eq 3 ] && printf '%s' "$err" | grep -q 'IDE-129'; then
   ok "O6  at cap AND overlapping exits 3 (the cap's existing code) and still prints the overlap on stderr"
 else
   no "O6  cap exit wins, overlap still printed" "rc=$rc stderr=[$err]"
+fi
+
+printf '\n== One ticket or path, typed several ways ==\n'
+
+reset
+mk_loom "tmp-sessions-LAND_TREE_BRANCHES" "$OTHER" 6 "" "$(iso_ago 400)"
+run --claim "$OTHER" fin-3141-fix-the-thing FIN-2 packages/estimate/src "$REPO/apps/api/src/msft" >/dev/null 2>&1
+line="$(grep '^claims=' "$f")"
+if printf '%s' "$line" | grep -q 'FIN-3141|working|' && ! printf '%s' "$line" | grep -qi 'fix-the-thing'; then
+  ok "N1  a claim made with a branch name is stored as its ticket key (FIN-3141)"
+else
+  no "N1  a branch-name claim is stored as its key" "[$line]"
+fi
+
+missed=""
+for d in ' FIN-3141' 'FIN-3141 ' 'fin-3141-fix-the-thing' 'https://linear.app/finchclaims/issue/FIN-3141/slug' '[FIN-3141]' 'see [FIN-3141]'; do
+  run --quiet --dispatching "$d" >/dev/null 2>&1; [ $? -eq 4 ] || missed="$missed [$d]"
+done
+run --quiet --dispatching 'FIN-77, FIN-2' >/dev/null 2>&1; [ $? -eq 4 ] || missed="$missed [FIN-77, FIN-2]"
+if [ -z "$missed" ]; then
+  ok "N2  FIN-3141 is found through surrounding spaces, a branch name, a Linear URL and a [KEY] link, and FIN-2 through a ', '-separated list"
+else
+  no "N2  ticket spellings all meet the claim" "missed:$missed"
+fi
+
+missed=""
+# The not-there/../ spelling crosses a directory that does not exist, so only the lexical fold can
+# remove it — resolving the existing part with pwd -P would hide a broken fold.
+for d in "$REPO/packages/estimate/src/x.ts" 'packages//estimate/./src' "../$(basename "$REPO")/packages/estimate/src" 'not-there/../packages/estimate/src/z.ts' 'apps/api/src/msft' "$WT/packages/estimate/src/y.ts"; do
+  run --quiet --dispatching "$d" >/dev/null 2>&1; [ $? -eq 4 ] || missed="$missed [$d]"
+done
+if [ -z "$missed" ]; then
+  ok "N3  a path claim is found whether the dispatch spells it absolute or relative, with // or ./ or ../, or from another worktree of the same repository"
+else
+  no "N3  path spellings all meet the claim" "missed:$missed"
+fi
+
+# A file UNDER the claimed path in the other repository: an equal path would fail the prefix test
+# whether or not the repositories are compared.
+e1="$(run --quiet --dispatching "$REPO2/packages/estimate/src/x.ts" 2>&1 >/dev/null)"; r1=$?
+e2="$(run --quiet --repo "$REPO2" --dispatching packages/estimate/src 2>&1 >/dev/null)"; r2=$?
+run --quiet --repo "$REPO" --dispatching packages/estimate/src >/dev/null 2>&1; r3=$?
+if [ "$r1" -eq 0 ] && [ -z "$e1" ] && [ "$r2" -eq 0 ] && [ "$r3" -eq 4 ]; then
+  ok "N4  the same relative path in a different repository does not collide (absolute, and through --repo), while --repo naming the claim's own repository still does"
+else
+  no "N4  two repositories never collide" "other-abs rc=$r1 other-repo rc=$r2 same-repo rc=$r3"
+fi
+
+run --quiet --dispatching FIN-3141-extra/notes.md >/dev/null 2>&1; r1=$?
+run --quiet --dispatching FIN-31415 >/dev/null 2>&1; r2=$?
+run --quiet --dispatching FIN-3141x >/dev/null 2>&1; r3=$?
+if [ "$r1" -eq 0 ] && [ "$r2" -eq 0 ] && [ "$r3" -eq 0 ]; then
+  ok "N5  a path that merely starts with a key, a longer key, and a key with a letter run on (FIN-3141x) do not match FIN-3141"
+else
+  no "N5  near-miss spellings stay apart" "path rc=$r1 longer-key rc=$r2 key-plus-letter rc=$r3"
 fi
 
 printf '\n== Removing claims: only landed or an explicit release ==\n'
