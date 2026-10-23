@@ -158,44 +158,52 @@ get_session_start_seeds() {
   echo "$seeds"
 }
 
-# generate_pitfalls_index FILE... → one line per ¶PTF_ name: "- ¶PTF_NAME — <one-line trap>"
-#   Built from the files at call time, never maintained by hand. Recognises the three definition
-#   shapes in use: a bold bullet (**¶PTF_X**: trap), a heading carrying the name (trap after an
-#   em dash, else the entry's first paragraph), and an "Addendum to ¶PTF_X" heading, which is not a
-#   definition. A name that appears only in prose still gets a line, so every name is findable.
+# generate_pitfalls_index FILE... → per file, a "From <file>:" line and one line per ¶PTF_ name:
+#   "- <severity marks> ¶PTF_NAME — <one-line trap>". Built from the files at call time, never
+#   maintained by hand. Definition shapes: a bold bullet (**¶PTF_X**: trap, with optional marks such
+#   as ⛔⛔ between the ** and the ¶; the trap may wrap onto following lines), a heading carrying the
+#   name (trap after an em dash, else the entry's first paragraph), and an "Addendum to ¶PTF_X"
+#   heading, which is not a definition. A real name that appears only in prose still gets a line;
+#   placeholder names used to describe the format (¶PTF_NAME, ¶PTF_UPPER_SNAKE_CASE) are dropped.
+PITFALLS_PLACEHOLDER_RE='^PTF_(X+|N|NAME|FOO|BAR|BAZ|EXAMPLE|SOMETHING|UPPER_SNAKE_CASE|YOUR_[A-Z0-9_]+)$'
 generate_pitfalls_index() {
   local f
   for f in "$@"; do
     [ -f "$f" ] || continue
-    LC_ALL=C awk -v file="$f" '
+    echo "From $f:"
+    LC_ALL=C awk -v placeholder="$PITFALLS_PLACEHOLDER_RE" '
       function clean(t) {
         gsub(/\*\*/, "", t); gsub(/`/, "", t)
         sub(/^[[:space:]]*[*-][[:space:]]+/, "", t)
         sub(/^[[:space:]]*(The trap|Trap)[[:space:]]*:[[:space:]]*/, "", t)
+        gsub(/[[:space:]]+/, " ", t); sub(/^ /, "", t); sub(/ $/, "", t)
         if (index(t, ". ") > 40) t = substr(t, 1, index(t, ". "))
-        sub(/^[[:space:]]+/, "", t); sub(/[[:space:]]+$/, "", t)
         if (length(t) > 220) t = substr(t, 1, 217) "..."
         return t
       }
-      function emit(name, trap) {
+      function emit(name, trap, marks) {
         if (name in seen) return
-        seen[name] = 1; order[++n] = name; text[name] = trap
+        seen[name] = 1; order[++n] = name; text[name] = trap; mark[name] = marks
       }
+      function flush() { if (pending != "") emit(pending, clean(para), pmarks); pending = ""; para = ""; pmarks = "" }
       pending != "" {
-        if ($0 ~ /^[[:space:]]*$/) { if (para != "") { emit(pending, clean(para)); pending = ""; para = "" } ; next }
-        if ($0 ~ /^#/) { emit(pending, clean(para)); pending = ""; para = "" }
+        if ($0 ~ /^[[:space:]]*$/ || $0 ~ /^#/ || $0 ~ /^[[:space:]]*[*-][[:space:]]/) { if (para != "" || $0 ~ /^#/ || $0 ~ /^[[:space:]]*[*-][[:space:]]/) flush() }
         else { para = para (para == "" ? "" : " ") $0; next }
+        if ($0 ~ /^[[:space:]]*$/) next
       }
-      /^[[:space:]]*[*-][[:space:]]+\*\*¶PTF_[A-Z0-9_]+\*\*/ {
+      /^[[:space:]]*[*-][[:space:]]+\*\*[^*]*¶PTF_[A-Z0-9_]+[^*]*\*\*/ {
+        match($0, /\*\*[^*]*¶PTF_/); marks = substr($0, RSTART + 2, RLENGTH - 8)
+        sub(/^[[:space:]]+/, "", marks); sub(/[[:space:]]+$/, "", marks)
         match($0, /¶PTF_[A-Z0-9_]+/); name = substr($0, RSTART + 2, RLENGTH - 2)
-        rest = substr($0, RSTART + RLENGTH); sub(/^\*\*:?[[:space:]]*/, "", rest)
-        emit(name, clean(rest)); next
+        rest = substr($0, RSTART + RLENGTH); sub(/^[^*]*\*\*:?[[:space:]]*/, "", rest)
+        if (name in seen) next
+        pending = name; para = rest; pmarks = marks; next
       }
       /^#+[[:space:]]/ && /¶PTF_[A-Z0-9_]+/ && $0 !~ /[Aa]ddendum/ {
         match($0, /¶PTF_[A-Z0-9_]+/); name = substr($0, RSTART + 2, RLENGTH - 2)
         rest = substr($0, RSTART + RLENGTH)
-        if (index(rest, " — ") > 0) { emit(name, clean(substr(rest, index(rest, " — ") + 5))) }
-        else if (!(name in seen)) { pending = name; para = "" }
+        if (index(rest, " — ") > 0) { emit(name, clean(substr(rest, index(rest, " — ") + 5)), "") }
+        else if (!(name in seen)) { pending = name; para = ""; pmarks = "" }
         next
       }
       {
@@ -207,9 +215,9 @@ generate_pitfalls_index() {
         }
       }
       END {
-        if (pending != "") emit(pending, clean(para))
-        for (i = 1; i <= m; i++) if (!(morder[i] in seen)) emit(morder[i], "(named in prose, no definition line)")
-        for (i = 1; i <= n; i++) printf "- ¶%s — %s\n", order[i], text[order[i]]
+        flush()
+        for (i = 1; i <= m; i++) if (!(morder[i] in seen) && morder[i] !~ placeholder) emit(morder[i], "(named in prose, no definition line)", "")
+        for (i = 1; i <= n; i++) printf "- %s¶%s — %s\n", (mark[order[i]] != "" ? mark[order[i]] " " : ""), order[i], text[order[i]]
       }
     ' "$f"
   done
@@ -269,21 +277,49 @@ dialogue_tail() {
   ' "$file"
 }
 
-# loom_log_excerpt FILE → pointer line + latest Ledger block + latest Hand-over entry; exit 1 when
-#   the file carries neither, so the caller falls back to heading_aligned_tail.
+# loom_log_excerpt FILE [TAIL_BYTES] → pointer line, the latest Ledger block, the latest Hand-over
+#   entry, then a heading-aligned tail (default 12 KB) of everything written after the later of
+#   the two. Exit 1 when the file carries neither, so the caller falls back to heading_aligned_tail.
+#   A Ledger heading is "🧵 Ledger" or "🧵 LEDGER" followed by "(", ":" or the end of the line, so
+#   "LEDGER erratum" and a thread named "LEDGERNAME" are not ledgers.
 loom_log_excerpt() {
-  local file="$1" ledger_line handover_line bytes lines
-  ledger_line=$(grep -n -i '^## .*🧵 ledger' "$file" 2>/dev/null | tail -n 1 | cut -d: -f1 || true)
+  local file="$1" tail_bytes="${2:-12000}" ledger_line handover_line bytes lines later after
+  ledger_line=$(grep -n -E '^## .*🧵 (LEDGER|Ledger)([[:space:]]*[(:]|[[:space:]]*$)' "$file" 2>/dev/null | tail -n 1 | cut -d: -f1 || true)
   handover_line=$(grep -n '^## .*🤝 Hand-over' "$file" 2>/dev/null | tail -n 1 | cut -d: -f1 || true)
   [ -n "$ledger_line" ] || [ -n "$handover_line" ] || return 1
   bytes=$(wc -c < "$file" | tr -d ' ')
   lines=$(wc -l < "$file" | tr -d ' ')
-  echo "[Loom log excerpt: $file is $bytes bytes, $lines lines. Shown below: the latest Ledger block and the latest Hand-over entry only. For the rest: grep -n '^## ' $file | tail -40, then sed -n '<from>,<to>p' $file]"
-  local start
-  for start in $ledger_line $handover_line; do
+  echo "[Loom log excerpt: '$file' is $bytes bytes, $lines lines. Shown below: the latest Ledger block, the latest Hand-over entry, and the newest entries written after them. For the rest: grep -n '^## ' '$file' | tail -40, then sed -n '<from>,<to>p' '$file']"
+  _loom_block() {
+    awk -v s="$1" -v max=50000 -v label="$2" '
+      NR == s { print label $0; got = length($0) + 1; next }
+      NR > s && /^## / { exit }
+      NR > s { got += length($0) + 1; if (got > max) { print "[... block cut at " max " bytes; read the rest from the log ...]"; exit } print }
+    ' "$file"
+  }
+  if [ -n "$ledger_line" ] && [ -n "$handover_line" ] && [ "$ledger_line" = "$handover_line" ]; then
+    echo ""; _loom_block "$ledger_line" ""
+  elif [ -n "$ledger_line" ] && [ -n "$handover_line" ] && [ "$handover_line" -lt "$ledger_line" ]; then
+    echo ""; _loom_block "$ledger_line" ""
+    echo ""; echo "[The latest Hand-over below is OLDER than the Ledger above.]"; _loom_block "$handover_line" ""
+  else
+    [ -n "$ledger_line" ] && { echo ""; _loom_block "$ledger_line" ""; }
+    [ -n "$handover_line" ] && { echo ""; _loom_block "$handover_line" ""; }
+  fi
+  later=$ledger_line
+  if [ -z "$later" ] || { [ -n "$handover_line" ] && [ "$handover_line" -gt "$later" ]; }; then later=$handover_line; fi
+  after=$(awk -v s="$later" 'NR > s && /^## / { print NR; exit }' "$file")
+  if [ -n "$after" ]; then
+    local tmp count
+    tmp=$(mktemp "${TMPDIR:-/tmp}/loom-after.XXXXXX") || return 0
+    tail -n +"$after" "$file" > "$tmp"
+    count=$(grep -c '^## ' "$tmp" || true)
     echo ""
-    awk -v s="$start" 'NR == s { print; next } NR > s && /^## / { exit } NR > s { print }' "$file" | head -c 50000 || true
-  done
+    echo "[Entries written after the latest marker: $count, from line $after. Newest last.]"
+    heading_aligned_tail "$tmp" "$tail_bytes"
+    rm -f "$tmp"
+  fi
+  return 0
 }
 
 # NOTE: filter_preseeded_paths() removed — replaced by seed file infrastructure.
@@ -1410,6 +1446,12 @@ preload_ensure() {
     local content
     content=$(cat "$resolved" 2>/dev/null || true)
     [ -n "$content" ] || { _PRELOAD_RESULT="skipped"; return 0; }
+    # A large PITFALLS.md delivered whole lands past the harness's preview cut, which shows the reader
+    # a couple of KB and records the file as read. Its index fits, and says how to read any entry.
+    if [ "$(basename "$resolved")" = "PITFALLS.md" ] && [ "${#content}" -gt "${PITFALLS_INLINE_MAX:-8000}" ]; then
+      content="[Pitfalls index for this file, $(wc -c < "$resolved" | tr -d ' ') bytes, too large to deliver whole. Read an entry with: grep -n -A12 '¶PTF_<NAME>' '$resolved']
+$(generate_pitfalls_index "$resolved")"
+    fi
 
     # Atomic state update under lock — add to preloadedFiles
     safe_json_update "$state_file" --arg p "$normalized" '

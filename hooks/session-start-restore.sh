@@ -122,7 +122,7 @@ debug "clearing preload state for fresh context"
 PRELOAD_SEEDS=$(get_session_start_seeds)
 
 # Pitfalls are on demand: an index generated from the files is injected instead of their bytes,
-# so the files stay unregistered and PostToolUse discovery can still deliver them whole.
+# so the files stay unregistered; PostToolUse discovery delivers a large one as its index too.
 PITFALLS_INDEX_SOURCES=()
 [ -f "$HOME/.claude/.directives/PITFALLS.md" ] && PITFALLS_INDEX_SOURCES+=("$HOME/.claude/.directives/PITFALLS.md")
 if [ -f "$PROJECT_ROOT/.directives/PITFALLS.md" ]; then
@@ -368,15 +368,18 @@ $ART_CONTENT
 "
         debug "  preloaded session artifact: $(basename "$art_path")"
 
-        # Track in seed preloadedFiles
+        # A log or DIALOGUE went out as an excerpt, so it is recorded under preloadedExcerpts:
+        # preloadedFiles means "delivered whole", and SubagentStart cats every path listed there.
         ART_NORM=$(normalize_preload_path "$art_path" 2>/dev/null || echo "$art_path")
+        ART_FIELD="preloadedFiles"
+        case "$art_path" in */DIALOGUE.md|"$ACTIVE_SESSION_DIR/${LOG_NAME:-}") ART_FIELD="preloadedExcerpts" ;; esac
         for sessions_dir in "${SESSION_DIRS[@]}"; do
           SEED_FILE="$sessions_dir/.seeds/$CLAUDE_PID.json"
           if [ -f "$SEED_FILE" ]; then
-            jq --arg p "$ART_NORM" '
-              (.preloadedFiles //= []) |
-              if (.preloadedFiles | index($p)) then .
-              else .preloadedFiles += [$p]
+            jq --arg p "$ART_NORM" --arg k "$ART_FIELD" '
+              (.[$k] //= []) |
+              if (.[$k] | index($p)) then .
+              else .[$k] += [$p]
               end
             ' "$SEED_FILE" | safe_json_write "$SEED_FILE"
           fi

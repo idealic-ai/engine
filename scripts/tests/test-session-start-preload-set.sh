@@ -57,13 +57,21 @@ teardown() {
   rm -rf "$TMP_DIR"
 }
 
+# Every hook run gets a scrubbed environment. The seat running the tests carries its own
+# CLAUDE_SUPERVISOR_PID, TMUX, TMUX_PANE, FLEET_* and session-cache dir, and any one of them lets
+# session.sh find resolve the seat's LIVE session, which the hook then reseeds.
+hook_env() {
+  env -i HOME="$HOME" PATH="$PATH" TMPDIR="$TMP_DIR" \
+    CLAUDE_SUPERVISOR_PID="$$" CLAUDE_HOOK_PPID="$$" CLAUDE_SESSION_CACHE_DIR="$TMP_DIR/session-cache" \
+    FLEET_SETUP_DONE=1 "$@"
+}
+
 run_hook() {
   local source="${1:-startup}"
   local cwd="${2:-$PROJECT_DIR}"
-  local owner=$$
+  mkdir -p "$TMP_DIR/session-cache"
   echo "{\"hook_event_name\":\"SessionStart\",\"source\":\"$source\",\"cwd\":\"$cwd\"}" \
-    | CLAUDE_SUPERVISOR_PID="$owner" CLAUDE_HOOK_PPID="$owner" "$RESOLVED_HOOK" 2>/dev/null
-  rm -f "/tmp/claude-session-cache-$owner" 2>/dev/null || true
+    | hook_env bash "$RESOLVED_HOOK" 2>/dev/null
 }
 
 # The paths of the [Preloaded: <path>] blocks a hook run printed, sorted, as a JSON array.
@@ -119,21 +127,22 @@ test_index_names_every_ptf_in_the_engine_pitfalls() {
   names=$(grep -o '¶PTF_[A-Z0-9_]*' "$REAL_PITFALLS" | sort -u)
   while IFS= read -r name; do
     [ -n "$name" ] || continue
-    if ! grep -qF -- "- $name — " <<< "$index"; then
+    [[ "${name#¶}" =~ $PITFALLS_PLACEHOLDER_RE ]] && continue
+    if ! grep -qF -- "$name — " <<< "$index"; then
       missing=$((missing + 1))
       echo "    not indexed: $name"
     fi
   done <<< "$names"
   assert_eq "0" "$missing" "every ¶PTF_ name in PITFALLS.md appears in the index"
-  assert_eq "$(echo "$names" | grep -c .)" "$(echo "$index" | grep -c '^- ¶PTF_')" "one index line per distinct name"
+  assert_eq "$(echo "$names" | grep -c .)" "$(echo "$index" | grep -c '¶PTF_[A-Z0-9_]* — ')" "one index line per distinct name"
 
   # A definition line must yield its trap, not the prose-only placeholder.
   local defined placeholder=0
-  defined=$(grep -oE '^[[:space:]]*[*-][[:space:]]+\*\*¶PTF_[A-Z0-9_]+|^#+ .*¶PTF_[A-Z0-9_]+' "$REAL_PITFALLS" \
+  defined=$(grep -oE '^[[:space:]]*[*-][[:space:]]+\*\*[^*]*¶PTF_[A-Z0-9_]+|^#+ .*¶PTF_[A-Z0-9_]+' "$REAL_PITFALLS" \
     | grep -v -i addendum | grep -o '¶PTF_[A-Z0-9_]*' | sort -u)
   while IFS= read -r name; do
     [ -n "$name" ] || continue
-    if grep -F -- "- $name — " <<< "$index" | grep -q 'named in prose, no definition line'; then
+    if grep -F -- "$name — " <<< "$index" | grep -q 'named in prose, no definition line'; then
       placeholder=$((placeholder + 1))
       echo "    defined but no trap text: $name"
     fi
@@ -173,9 +182,9 @@ test_loom_log_excerpt_keeps_latest_ledger_and_handover() {
   has "HANDOVER_MARKER" "$out" "hand-over entry present"
   hasnt "OLD_LEDGER_MARKER" "$out" "older ledger absent"
   hasnt "FILLER_MARKER" "$out" "other entries absent"
-  hasnt "AFTER_MARKER" "$out" "entry after the hand-over absent"
-  has "$log is $bytes bytes" "$out" "pointer names path and size"
-  has "grep -n '^## ' $log" "$out" "pointer gives the grep recipe"
+  has "AFTER_MARKER" "$out" "entry after the hand-over delivered"
+  has "'$log' is $bytes bytes" "$out" "pointer names path and size"
+  has "grep -n '^## ' '$log'" "$out" "pointer gives the grep recipe"
 }
 
 test_loom_log_excerpt_declines_without_markers() {
@@ -232,12 +241,12 @@ test_loom_resume_delivers_excerpt_not_whole_log() {
   local output
   output=$(run_hook "clear") || true
   has "[Preloaded: $LOOM_SESSION/LOOM_LOG.md]" "$output" "loom log block present"
-  has "[Loom log excerpt: $LOOM_SESSION/LOOM_LOG.md is" "$output" "excerpt pointer present"
+  has "[Loom log excerpt: '$LOOM_SESSION/LOOM_LOG.md' is" "$output" "excerpt pointer present"
   has "HANDOVER_MARKER" "$output" "hand-over delivered"
   hasnt "FILLER_MARKER" "$output" "rest of the log not delivered"
 }
 
-test_non_loom_log_gets_heading_aligned_tail() {
+test_loom_log_without_markers_gets_heading_aligned_tail() {
   create_loom_session
   # Same session shape, a log with no loom markers: falls back to the 50 KB tail.
   local i
@@ -283,7 +292,10 @@ JSON
   {
     awk 'BEGIN { f = "log filler log filler log filler log filler log filler log filler log filler"; for (i = 1; i <= 9000; i++) printf "## [2026-10-22 10:00:00] 🔧 Progress %d\n%s %s\n\n", i, f, f }'
     printf '## [2026-10-23 19:15:00] 🧵 LEDGER (19:15): FIT_LEDGER_MARKER\n- row\n\n'
-    printf '## [2026-10-23 19:16:00] 🤝 Hand-over written (19:18)\nFIT_HANDOVER_MARKER\n'
+    printf '## [2026-10-23 19:16:00] 🤝 Hand-over written (19:18)\nFIT_HANDOVER_MARKER\n\n'
+    # 57 entries (~39 KB) after the hand-over, as measured on the conductor's log.
+    awk 'BEGIN { f = sprintf("%660s", ""); gsub(/ /, "a", f); for (i = 1; i <= 56; i++) printf "## [2026-10-23 20:%02d:00] 🧵 [LANE] step %d\n%s\n\n", i % 60, i, f }'
+    printf '## [2026-10-23 21:20:00] 🧵 [SLOTCLAIM] round 2 done\nFIT_NEWEST_LOG_MARKER\n'
   } > "$LOOM_SESSION/LOOM_LOG.md"
   {
     awk 'BEGIN { f = "dialogue filler dialogue filler dialogue filler dialogue filler dialogue filler dialogue filler dialogue filler"; for (i = 1; i <= 7700; i++) printf "## [2026-10-22 10:00:00] entry %d\n%s\n", i, f }'
@@ -311,6 +323,7 @@ assert_session_state_inline() {
   has "FIT_NEWEST_DIALOGUE_MARKER" "$(cat "$inline")" "$label: newest DIALOGUE entry is inline"
   has "FIT_LEDGER_MARKER" "$(cat "$inline")" "$label: ledger extract is inline"
   has "FIT_HANDOVER_MARKER" "$(cat "$inline")" "$label: hand-over is inline"
+  has "FIT_NEWEST_LOG_MARKER" "$(cat "$inline")" "$label: newest loom-log entry is inline"
 }
 
 test_loom_resume_keeps_session_state_inline_at_todays_sizes() {
@@ -357,6 +370,179 @@ test_dialogue_tail_keeps_newest_and_points_at_the_rest() {
   local small="$TMP_DIR/small-dlg.md"
   printf '## a\nb\n' > "$small"
   assert_eq "$(cat "$small")" "$(dialogue_tail "$small" 100 4000)" "a short dialogue comes back whole, no pointer"
+}
+
+# --- Ruled core set, pinned literally (everything else here derives from the list) ---
+
+test_core_set_is_the_ruled_five() {
+  assert_eq "COMMANDS.md INVARIANTS.md VOICE.md commands/CMD_DEHYDRATE.md commands/CMD_RESUME_SESSION.md" \
+    "${SESSION_START_SEED_FILES[*]}" "core set is exactly the operator's 2026-10-23 ruling"
+}
+
+# --- Isolation: a hook run under this harness must never reach a live session ---
+
+test_hook_run_cannot_resolve_a_live_session() {
+  # A decoy "live" session outside the test project, reachable the ways a real seat's would be:
+  # the PID cache in the inherited cache dir, and the inherited fleet and tmux variables.
+  local live="$TMP_DIR/live-project/sessions/LIVE" cache="$TMP_DIR/live-cache"
+  mkdir -p "$live" "$cache" "$TMP_DIR/live-project/.claude"
+  printf '{"pid": %s, "skill": "loom", "lifecycle": "active", "fleetPaneId": "fleet:decoy", "preloadedFiles": ["/live/untouched.md"]}\n' "$$" > "$live/.state.json"
+  echo "$live" > "$cache/claude-session-cache-$$"
+  local before after output
+  before=$(shasum "$live/.state.json")
+  output=$(CLAUDE_SUPERVISOR_PID="$$" CLAUDE_SESSION_CACHE_DIR="$cache" TMUX="/tmp/decoy,1,0" TMUX_PANE="%1" \
+    FLEET_PANE_ID="fleet:decoy" FLEET_PANE="fleet:decoy" run_hook "clear") || true
+  after=$(shasum "$live/.state.json")
+  assert_eq "$before" "$after" "decoy live session's .state.json is untouched"
+  has "Session: (none)" "$output" "hook resolved no session"
+}
+
+# --- Loom-log excerpt edge cases (from the review's scratch cases A–J) ---
+
+# Writes stdin to a loom log under a path with spaces; callable at the end of a pipe.
+rc_log() { mkdir -p "$TMP_DIR/shared drive/sess ion"; cat > "$TMP_DIR/shared drive/sess ion/LOOM_LOG.md"; }
+
+test_excerpt_delivers_entries_after_the_markers() {
+  rc_log <<'MD'
+# Loom log
+## [2026-10-01 10:00:00] 🧵 LEDGER (10:00) OLD_LEDGER_MARK
+* old
+## [2026-10-01 10:05:00] 🤝 Hand-over written (10:05) HANDOVER_MARK
+* hand
+## [2026-10-01 11:00:00] 🧵 [THREADX] done NEWEST_ENTRY_MARK
+* the newest state
+MD
+  local out
+  out=$(loom_log_excerpt "$TMP_DIR/shared drive/sess ion/LOOM_LOG.md")
+  has "OLD_LEDGER_MARK" "$out" "A: ledger delivered"
+  has "HANDOVER_MARK" "$out" "A: hand-over delivered"
+  has "NEWEST_ENTRY_MARK" "$out" "A: entry newer than both markers delivered"
+  has "Entries written after the latest marker: 1" "$out" "A: the tail is labelled with its count"
+}
+
+test_excerpt_tail_is_capped_and_keeps_the_newest() {
+  { printf '## 🧵 Ledger (live — rewrite in place as threads advance)\n* t\n'
+    awk 'BEGIN { for (i = 1; i <= 3000; i++) printf "## [2026-10-01 10:00:00] 🔧 entry %d\nbody body body body body body body body\n", i }'; } | rc_log
+  local out
+  out=$(loom_log_excerpt "$TMP_DIR/shared drive/sess ion/LOOM_LOG.md" 4000)
+  has "entry 3000" "$out" "H: top-of-file ledger + 3000 newer entries → newest entry delivered"
+  assert_eq "0" "$(grep -cxF '## [2026-10-01 10:00:00] 🔧 entry 10' <<< "$out")" "H: old entries are not"
+  assert_gt "8000" "$(printf '%s' "$out" | wc -c | tr -d ' ')" "H: excerpt stays near its cap"
+}
+
+test_excerpt_ignores_erratum_and_ledger_named_threads() {
+  printf '## [t] 🧵 LEDGER (10:00) REAL_LEDGER_BODY\n* ALPHA_ROW\n## [t] 🧵 LEDGER erratum (10:01): ERRATUM_MARK\n## [t] 🧵 LEDGERNAME landed\n* n\n' | rc_log
+  local out
+  out=$(loom_log_excerpt "$TMP_DIR/shared drive/sess ion/LOOM_LOG.md")
+  has "ALPHA_ROW" "$out" "B/G: erratum and LEDGERNAME headings do not displace the real ledger"
+}
+
+test_excerpt_marks_a_stale_handover_and_prints_once() {
+  printf '## [2026-09-01] 🤝 Hand-over written STALE_HANDOVER\n* ancient\n## [2026-10-01] 🧵 LEDGER (Oct 1) FRESH_LEDGER\n' | rc_log
+  local out first
+  out=$(loom_log_excerpt "$TMP_DIR/shared drive/sess ion/LOOM_LOG.md")
+  first=$(grep -m1 'STALE_HANDOVER\|FRESH_LEDGER' <<< "$out")
+  has "FRESH_LEDGER" "$first" "C: the newer marker comes first"
+  has "OLDER than the Ledger" "$out" "C: the stale hand-over is labelled"
+  printf '## [t] 🧵 LEDGER + 🤝 Hand-over written BOTH_MARK\n* body\n' | rc_log
+  out=$(loom_log_excerpt "$TMP_DIR/shared drive/sess ion/LOOM_LOG.md")
+  assert_eq "1" "$(grep -c BOTH_MARK <<< "$out")" "F: a heading carrying both markers is printed once"
+}
+
+test_excerpt_pointer_quotes_the_path_and_notes_a_cut() {
+  { printf '## [t] 🧵 LEDGER (x)\n'; awk 'BEGIN { for (i = 1; i <= 2000; i++) print "row row row row row row row row row row row row row row row row row row row row " i }'; } | rc_log
+  local out
+  out=$(loom_log_excerpt "$TMP_DIR/shared drive/sess ion/LOOM_LOG.md")
+  has "'$TMP_DIR/shared drive/sess ion/LOOM_LOG.md'" "$(head -1 <<< "$out")" "E: pointer quotes a path containing spaces"
+  has "[... block cut at 50000 bytes" "$out" "a cut ledger block says so"
+}
+
+# --- Pitfalls index: kit's severity form and placeholders ---
+
+test_index_reads_severity_marked_bullets() {
+  local f="$TMP_DIR/glyph-PITFALLS.md" idx
+  printf -- '- **⛔⛔ ¶PTF_GLYPHED_ENTRY**: the glyphed trap text\n  continues here.\n\n*   **¶PTF_REAL**: real\n\nName entries like `¶PTF_UPPER_SNAKE_CASE`.\n' > "$f"
+  idx=$(generate_pitfalls_index "$f")
+  has "- ⛔⛔ ¶PTF_GLYPHED_ENTRY — the glyphed trap text continues here." "$idx" "I: severity marks kept and wrapped trap joined"
+  hasnt "named in prose" "$idx" "I: severity-marked entry is not prose-only"
+  hasnt "PTF_UPPER_SNAKE_CASE" "$idx" "J: placeholder name dropped"
+}
+
+test_index_on_a_copy_of_kit_pitfalls() {
+  local kit="$SCRIPT_DIR/../../kit/.directives/PITFALLS.md" copy="$TMP_DIR/kit-PITFALLS.md" idx
+  [ -f "$kit" ] || kit="/Users/invizko/Projects/kit/.directives/PITFALLS.md"
+  if [ ! -f "$kit" ]; then pass "kit PITFALLS.md not on this machine — skipped"; return 0; fi
+  cp "$kit" "$copy"
+  idx=$(generate_pitfalls_index "$copy")
+  local defined
+  defined=$(grep -cE '^[[:space:]]*[*-][[:space:]]+\*\*[^*]*¶PTF_' "$copy")
+  assert_gt "$defined" "0" "kit copy has bullet definitions"
+  assert_eq "0" "$(grep -c 'named in prose' <<< "$idx")" "every kit entry carries its trap text"
+  has "⛔" "$idx" "severity marks survive"
+}
+
+# --- Session artifacts are recorded as excerpts, and lanes are not handed them whole ---
+
+test_excerpted_artifacts_recorded_as_excerpts() {
+  create_loom_session
+  make_loom_log "$LOOM_SESSION/LOOM_LOG.md"
+  printf '## d\nx\n' > "$LOOM_SESSION/DIALOGUE.md"
+  run_hook "clear" > /dev/null || true
+  local seed="$PROJECT_DIR/sessions/.seeds/$$.json"
+  assert_eq "false" "$(jq '(.preloadedFiles // []) | any(endswith("/LOOM_LOG.md") or endswith("/DIALOGUE.md"))' "$seed")" "log and DIALOGUE not in preloadedFiles"
+  assert_eq "2" "$(jq '(.preloadedExcerpts // []) | length' "$seed")" "both recorded in preloadedExcerpts"
+}
+
+test_non_loom_skill_log_gets_the_tail() {
+  local skill_dir="$FAKE_HOME/.claude/skills/implement"
+  mkdir -p "$skill_dir/assets"
+  echo "# t" > "$skill_dir/assets/TEMPLATE_IMPLEMENTATION_LOG.md"
+  printf -- '---\ndescription: x\n---\n\n```json\n{"logTemplate": "assets/TEMPLATE_IMPLEMENTATION_LOG.md", "debriefTemplate": "assets/TEMPLATE_IMPLEMENTATION.md", "phases": [{"major": 0, "minor": 0, "name": "Setup", "steps": []}]}\n```\n' > "$skill_dir/SKILL.md"
+  local sess="$PROJECT_DIR/sessions/impl"
+  mkdir -p "$sess"
+  printf '{"pid": %s, "skill": "implement", "lifecycle": "active", "currentPhase": "0: Setup", "preloadedFiles": []}\n' "$$" > "$sess/.state.json"
+  awk 'BEGIN { for (i = 1; i <= 4000; i++) printf "## step %d\nIMPL_FILLER %d.\n", i, i; print "## last"; print "IMPL_LAST" }' > "$sess/IMPLEMENTATION_LOG.md"
+  local output
+  output=$(run_hook "clear") || true
+  has "IMPL_LAST" "$output" "non-loom log: newest entry delivered"
+  has "[... earlier entries omitted" "$output" "non-loom log: tail note"
+  hasnt "IMPL_FILLER 1." "$output" "non-loom log: head not delivered"
+}
+
+test_subagent_gets_index_skips_excerpts_and_survives_large_context() {
+  ln -sf "$SCRIPT_DIR/hooks/subagent-start-context.sh" "$FAKE_HOME/.claude/hooks/subagent-start-context.sh"
+  local sess="$PROJECT_DIR/sessions/sub"
+  mkdir -p "$sess"
+  head -c 3000000 /dev/zero | tr '\0' 'L' | fold -w 100 > "$sess/LOOM_LOG.md"
+  head -c 1500000 /dev/zero | tr '\0' 'D' | fold -w 100 > "$TMP_DIR/big-directive.md"
+  jq -n --argjson pid "$$" --arg log "$sess/LOOM_LOG.md" --arg big "$TMP_DIR/big-directive.md" \
+    '{pid: $pid, skill: "loom", lifecycle: "active", preloadedFiles: [$log, $big]}' > "$sess/.state.json"
+  local out rc=0
+  out=$(echo "{\"cwd\":\"$PROJECT_DIR\"}" | (cd "$PROJECT_DIR" && hook_env bash "$FAKE_HOME/.claude/hooks/subagent-start-context.sh")) || rc=$?
+  assert_eq "0" "$rc" "subagent hook exits 0 with a 1.5 MB context"
+  local ctx
+  ctx=$(jq -r '.hookSpecificOutput.additionalContext' <<< "$out" 2>/dev/null || true)
+  has "[Pitfalls index, generated from:" "$ctx" "subagent receives the pitfalls index"
+  has "¶PTF_FAKE_ENGINE_ENTRY" "$ctx" "index carries the engine entry"
+  hasnt "LLLLLLLLLL" "$ctx" "the session log is not cat'ed whole"
+  has "DDDDDDDDDD" "$ctx" "a large ordinary directive still arrives"
+}
+
+test_large_pitfalls_loaded_later_arrives_as_its_index() {
+  local f="$TMP_DIR/area/.directives/PITFALLS.md"
+  mkdir -p "$(dirname "$f")"
+  { printf -- '*   **¶PTF_LATER_ENTRY**: the later trap\n\n'; head -c 20000 /dev/zero | tr '\0' 'b' | fold -w 100; } > "$f"
+  mkdir -p "$PROJECT_DIR/sessions/.seeds"
+  (cd "$PROJECT_DIR" && CLAUDE_SUPERVISOR_PID=$$ CLAUDE_SESSION_CACHE_DIR="$TMP_DIR/session-cache" preload_ensure "$f" "test" "immediate")
+  local content
+  content=$(cd "$PROJECT_DIR" && CLAUDE_SUPERVISOR_PID=77777 CLAUDE_SESSION_CACHE_DIR="$TMP_DIR/session-cache" bash -c 'source "$HOME/.claude/scripts/lib.sh"; preload_ensure "$1" test immediate; printf "%b" "$_PRELOAD_CONTENT"' _ "$f")
+  has "¶PTF_LATER_ENTRY — the later trap" "$content" "large PITFALLS delivered as its index"
+  has "grep -n -A12" "$content" "with a pointer to read an entry"
+  hasnt "bbbbbbbbbb" "$content" "not the body"
+  local small="$TMP_DIR/area2/.directives/PITFALLS.md"
+  mkdir -p "$(dirname "$small")"; printf -- '*   **¶PTF_SMALL**: small body SMALL_BODY\n' > "$small"
+  content=$(cd "$PROJECT_DIR" && CLAUDE_SUPERVISOR_PID=77778 CLAUDE_SESSION_CACHE_DIR="$TMP_DIR/session-cache" bash -c 'source "$HOME/.claude/scripts/lib.sh"; preload_ensure "$1" test immediate; printf "%b" "$_PRELOAD_CONTENT"' _ "$small")
+  has "SMALL_BODY" "$content" "a small PITFALLS is still delivered whole"
 }
 
 run_discovered_tests

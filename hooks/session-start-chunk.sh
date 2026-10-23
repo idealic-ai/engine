@@ -131,7 +131,7 @@ LC_ALL=C awk -v idx="$INDEX" -v total="$TOTAL" -v max="$CHUNK" -v cache="$CACHE"
 END {
   printf "%s", buf
   if (idx == total - 1 && maxchunk > total - 1) {
-    printf "\n[preload overflow: %d further chunk(s) beyond the %d inline slots were not shown — later preload sections, which are skill files: session state is placed ahead of them. Read the full preload from %s]\n", (maxchunk - (total - 1)), total, cache
+    printf "\n[preload overflow: %d further chunk(s) beyond the %d inline slots were not shown — later preload sections; with an active skill these are its skill files, placed after session state. Read the full preload from %s]\n", (maxchunk - (total - 1)), total, cache
   }
 }
 ' "$CACHE"

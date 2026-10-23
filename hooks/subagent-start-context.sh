@@ -76,7 +76,28 @@ $VOICE_CONTENT
   fi
 fi
 
-# 4. Discovered directives injection (from preloadedFiles, excluding standards)
+# 4. Pitfalls index — the files are on demand; lanes edit code and need to know the entries exist
+CWD=$(printf '%s' "$INPUT" | jq -r '.cwd // ""' 2>/dev/null || true)
+PITFALLS_SOURCES=()
+[ -f "$HOME/.claude/.directives/PITFALLS.md" ] && PITFALLS_SOURCES+=("$HOME/.claude/.directives/PITFALLS.md")
+if [ -n "$CWD" ]; then
+  SUB_PROJECT_ROOT=$(find_project_root "$CWD" 2>/dev/null || echo "$CWD")
+  if [ -f "$SUB_PROJECT_ROOT/.directives/PITFALLS.md" ] \
+    && [ "$(normalize_preload_path "$SUB_PROJECT_ROOT/.directives/PITFALLS.md")" != "$(normalize_preload_path "$HOME/.claude/.directives/PITFALLS.md")" ]; then
+    PITFALLS_SOURCES+=("$SUB_PROJECT_ROOT/.directives/PITFALLS.md")
+  fi
+fi
+if [ ${#PITFALLS_SOURCES[@]} -gt 0 ]; then
+  PITFALLS_INDEX=$(generate_pitfalls_index "${PITFALLS_SOURCES[@]}" 2>/dev/null || true)
+  if [ -n "$PITFALLS_INDEX" ]; then
+    ADDITIONAL_CONTEXT="${ADDITIONAL_CONTEXT}[Pitfalls index, generated from: ${PITFALLS_SOURCES[*]}. The files themselves are not preloaded; read an entry with grep -n -A12 '¶PTF_<NAME>' <file>]
+$PITFALLS_INDEX
+
+"
+  fi
+fi
+
+# 5. Discovered directives injection (from preloadedFiles, excluding standards)
 PRELOADED_COUNT=$(jq '.preloadedFiles // [] | length' "$STATE_FILE" 2>/dev/null || echo "0")
 if [ "$PRELOADED_COUNT" -gt 0 ]; then
   while IFS= read -r filepath; do
@@ -87,8 +108,17 @@ if [ "$PRELOADED_COUNT" -gt 0 ]; then
       continue
     fi
 
-    # Already injected above
-    case "$filepath" in */.directives/VOICE.md) continue ;; esac
+    # Already injected above (VOICE, the pitfalls index), or a session artifact that SessionStart
+    # sent as an excerpt: whole, a loom log or DIALOGUE runs to megabytes.
+    case "$filepath" in
+      */.directives/VOICE.md|*/DIALOGUE.md|*/sessions/*/*_LOG.md) continue ;;
+    esac
+    if [ "$(basename "$filepath")" = "PITFALLS.md" ] && [ ${#PITFALLS_SOURCES[@]} -gt 0 ]; then
+      fp_real=$(normalize_preload_path "$filepath")
+      for src in "${PITFALLS_SOURCES[@]}"; do
+        [ "$fp_real" = "$(normalize_preload_path "$src")" ] && continue 2
+      done
+    fi
 
     # Read and inject the file
     if [ -f "$filepath" ]; then
@@ -105,8 +135,9 @@ fi
 
 # Output JSON if we have context to inject
 if [ -n "$ADDITIONAL_CONTEXT" ]; then
-  jq -n --arg ctx "$ADDITIONAL_CONTEXT" \
-    '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":$ctx}}'
+  # Through stdin, not --arg: an argument over the OS limit makes jq fail and the lane gets nothing.
+  printf '%s' "$ADDITIONAL_CONTEXT" | jq -Rs \
+    '{"hookSpecificOutput":{"hookEventName":"SubagentStart","additionalContext":.}}'
 fi
 
 exit 0
