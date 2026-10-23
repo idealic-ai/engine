@@ -300,4 +300,25 @@ test_receipt_check_from_a_subdirectory_still_needs_a_go() {
   assert_eq 0 "$code" "and check from the subdirectory then passes"
 }
 
+test_receipt_binary_go_does_not_clear_a_different_binary_change() {
+  printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR-original-pixels\n' > logo.png
+  git add logo.png; git commit -q -m logo
+  git checkout -q -b good
+  printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR-approved-pixels\n' > logo.png; git commit -q -am 'logo update'
+  git checkout -q -b evil main
+  printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR-something-else-entirely\n' > logo.png; git commit -q -am 'logo update'
+  local g e out code
+  g=$(r id good --paths logo.png); e=$(r id evil --paths logo.png)
+  assert_eq "$g" "$e" "precondition: git gives both binary edits the same path+text id"
+  r go "$g" --form path+text --paths logo.png --owner Design --commit good >/dev/null 2>&1
+  out=$(r check main..evil --owner Design=logo.png); code=$?
+  assert_eq 1 "$code" "the go for one binary edit does not clear a different one"
+  assert_contains "IGNORED: binary logo.png" "$out" "and says why"
+  r check main..good --owner Design=logo.png >/dev/null; code=$?
+  assert_eq 0 "$code" "it still clears the edit it was given for"
+  r go "$e" --form path+text --paths logo.png --owner Design2 >/dev/null 2>&1
+  r check main..evil --owner Design2=logo.png >/dev/null; code=$?
+  assert_eq 1 "$code" "a go without --commit never clears a binary change"
+}
+
 run_discovered_tests

@@ -26,7 +26,9 @@
 #
 # Forms of a patch-id: whole | whole+text | path | path+text. "path" forms are computed as
 # `git show [--text] <sha> -- <paths> | git patch-id --stable`; "whole" forms omit the paths.
-# A go satisfies a check only in the form and paths it was given for.
+# A go satisfies a check only in the form and paths it was given for. A binary path is also
+# bound to its blob ids (old..new), which `go --commit` records: patch-id alone does not tell
+# two binary changes apart, so a go recorded without --commit never clears a binary change.
 #
 # Exit codes: run passes the command's code through; find 0 when something is listed, 1 when
 # nothing is; check 0 when every go is present and every merge is clean, 1 otherwise;
@@ -105,6 +107,27 @@ patch_id() {
       git show ${textflag[@]+"${textflag[@]}"} --no-color "$sha" | git patch-id --stable | awk '{print $1}'
       ;;
   esac
+}
+
+# binary_blobs <sha>: {"path": "<old-blob>..<new-blob>"} for every binary path the commit
+# changes. git patch-id does not hash binary changes faithfully (two different PNG edits can
+# share an id, even with --text), so a go on a binary path is also bound to its blob ids.
+binary_blobs() {
+  local sha="$1" bins
+  bins=$(git -c core.quotePath=false diff-tree --root --no-commit-id -r --numstat "$sha" \
+    | awk -F'\t' '$1 == "-" && $2 == "-" {print $3}')
+  if [ -z "$bins" ]; then echo '{}'; return; fi
+  git -c core.quotePath=false diff-tree --root --no-commit-id -r "$sha" \
+    | awk -F'\t' 'NR == FNR {b[$0] = 1; next} ($2 in b) {split($1, f, " "); print $2 "\t" f[3] ".." f[4]}' \
+      <(printf '%s\n' "$bins") - \
+    | jq -R 'split("\t") | {(.[0]): .[1]}' | jq -sc 'add // {}'
+}
+
+# scope_blobs <blobs-json> <form> <paths-json>: the entries a go in that form and paths covers.
+scope_blobs() {
+  jq -c --arg f "$2" --argjson ps "$3" '
+    with_entries(select(($f | startswith("whole")) or (.key as $p
+      | any($ps[]; (sub("/+$";"")) as $q | $p == $q or ($p | startswith($q + "/"))))))' <<<"$1"
 }
 
 patch_cmd() {
@@ -303,20 +326,21 @@ cmd_go() {
   require_repo
   to_top
   local pj; pj=$(paths_json "$paths")
-  local verify=""
+  local verify="" blobs="{}"
   if [ -n "$commit" ]; then
     commit=$(git rev-parse -q --verify "$commit^{commit}") || die "go: unknown commit '$commit'"
     local got; got=$(patch_id "$commit" "$form" "$pj")
     [ "$got" = "$pid" ] || die "go: $commit gives ${got:-an empty diff} in form $form, not $pid"
     verify=$(patch_cmd "$commit" "$form" "$pj")
+    blobs=$(scope_blobs "$(binary_blobs "$commit")" "$form" "$pj")
   fi
   local rec notes
   rec=$(jq -nc --arg pid "$pid" --arg form "$form" --argjson paths "$pj" --arg owner "$owner" \
     --arg giver "$seat" --arg commit "$commit" --arg note "$note" --argjson wd "$withdraw" \
     --arg repo "$(repo_id)" --argjson epoch "$(now_epoch)" --arg iso "$(now_iso)" \
-    --argjson ms "$(now_ms)" --arg verify "$verify" \
+    --argjson ms "$(now_ms)" --arg verify "$verify" --argjson blobs "$blobs" \
     '{v:1, kind:"go", key_kind:"patch", key:$pid, patch_id:$pid, form:$form, paths:$paths,
-      owner:$owner, giver:$giver, commit:$commit, verify:$verify, note:$note,
+      owner:$owner, giver:$giver, commit:$commit, verify:$verify, blobs:$blobs, note:$note,
       withdrawn:$wd, repo:$repo, time:$epoch, time_ms:$ms, time_iso:$iso}')
   notes=$(mktemp)
   printf '%s\t%s\n' "$(key_object patch "$pid" write)" "$rec" >> "$notes"
@@ -394,9 +418,17 @@ cmd_check() {
       map(select((.form | startswith("whole")) or any(.paths[]; (sub("/+$";"")) as $q
           | any($t[]; . == $q or startswith($q + "/")))))
       | map([.form, (.paths|tojson)]) | unique[] | @tsv' <<<"$index")
-    applicable=$(jq -c --argjson ids "$ids" '
-      map(select(($ids[.form + "|" + (.paths|tojson)] // "") as $v | $v != "" and $v == .patch_id))' <<<"$index")
-    jq -r '.[] | "  go     owner=\(.owner) form=\(.form) paths=\(.paths|join(",")) id=\(.patch_id[0:12]) by \(.giver) at \(.time_iso)"' <<<"$applicable"
+    # A binary path in the go's scope must also carry this commit's blob ids.
+    local bin byid
+    bin=$(binary_blobs "$c")
+    byid=$(jq -c --argjson ids "$ids" --argjson bin "$bin" '
+      map(select(($ids[.form + "|" + (.paths|tojson)] // "") as $v | $v != "" and $v == .patch_id)
+        | . as $g
+        | .blob_mismatch = [$bin | to_entries[] | select(($g.form | startswith("whole")) or (.key as $p
+            | any($g.paths[]; (sub("/+$";"")) as $q | $p == $q or ($p | startswith($q + "/")))))
+            | select((($g.blobs // {})[.key]) != .value) | .key])' <<<"$index")
+    applicable=$(jq -c 'map(select(.blob_mismatch == []))' <<<"$byid")
+    jq -r '.[] | "  go     owner=\(.owner) form=\(.form) paths=\(.paths|join(",")) id=\(.patch_id[0:12]) by \(.giver) at \(.time_iso)\(if .blob_mismatch != [] then "  IGNORED: binary \(.blob_mismatch|join(",")) not the blobs this go was given for" else "" end)"' <<<"$byid"
 
     # Requirements: explicit --owner specs, else one per owner from the ownership seam.
     local reqs=() spec p
