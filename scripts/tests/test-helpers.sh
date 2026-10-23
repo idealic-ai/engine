@@ -71,7 +71,9 @@ assert_neq() {
 
 assert_contains() {
   local pattern="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -qF "$pattern" 2>/dev/null || echo "$actual" | grep -q "$pattern" 2>/dev/null; then
+  # Here-strings, not echo | grep -q: grep -q exits on the first match, and under pipefail the
+  # writer's SIGPIPE on a large haystack turns that match into a reported miss.
+  if grep -qF -- "$pattern" <<< "$actual" 2>/dev/null || grep -q -- "$pattern" <<< "$actual" 2>/dev/null; then
     pass "$msg"
   else
     fail "$msg" "contains '$pattern'" "$actual"
@@ -80,7 +82,7 @@ assert_contains() {
 
 assert_not_contains() {
   local pattern="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -qF "$pattern" 2>/dev/null; then
+  if grep -qF -- "$pattern" <<< "$actual" 2>/dev/null; then
     fail "$msg" "NOT contains '$pattern'" "$actual"
   else
     pass "$msg"
