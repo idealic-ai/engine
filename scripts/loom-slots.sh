@@ -45,10 +45,12 @@
 #   engine loom-slots --dispatching <item>[,<item>...] [--self <sessionDir>]
 #                                                 Also warn (stderr, even with --quiet) when another
 #                                                 loom claims a ticket key or an overlapping path
-#   engine loom-slots --claim <sessionDir> <item>...
-#                                                 Claim tickets or paths for this loom, state `working`
+#   engine loom-slots --claim <sessionDir> <item>[,<item>...]...
+#                                                 Claim tickets or paths for this loom, state `working`.
+#                                                 Batch a dispatch's items into one call
 #   engine loom-slots --claim-state <sessionDir> <item> working|done-uncommitted|landed
-#                                                 Move a claim on; `landed` removes it
+#                                                 Move a claim on; `landed` removes it. An item
+#                                                 that is not claimed is refused (exit 1)
 #   engine loom-slots --release <sessionDir> <item>...
 #                                                 Drop a claim without landing it
 #
@@ -65,6 +67,8 @@
 #   2  the directory could not be read: the caller must dispatch ONE lane at a time and say so,
 #      never assume it is alone (`¶INV_SLOT_CAP_IS_GLOBAL`)
 #   4  under cap, but --dispatching overlaps another loom's claim (3 wins when both hold)
+#   1  a claim command refused its input (bad item or state, or an item that is not claimed)
+#   5  a write failed (lock, temp file or rename): nothing was written
 
 set -uo pipefail
 
@@ -76,10 +80,17 @@ SELF=""
 DISPATCHING=""
 CLAIM_SESSION=""; CLAIM_STATE=""; CLAIM_ITEMS=()
 
-# take_items — the items after a claim command's sessionDir, up to the next --flag.
+# take_items — the items after a claim command's sessionDir, up to the next --flag. Each argument
+# may itself be a comma list, so one call can claim everything a dispatch takes.
 take_items() {
   CLAIM_ITEMS=()
-  while [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; do CLAIM_ITEMS+=("$1"); shift; done
+  local a part
+  while [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; do
+    a="$1"; shift
+    IFS=',' read -r -a parts <<< "$a"
+    for part in ${parts[@]+"${parts[@]}"}; do CLAIM_ITEMS+=("$part"); done
+    TAKEN=$((TAKEN+1))
+  done
 }
 
 while [ $# -gt 0 ]; do
@@ -90,15 +101,15 @@ while [ $# -gt 0 ]; do
     --dispatching) DISPATCHING="${DISPATCHING:+$DISPATCHING,}${2:?--dispatching needs <item>[,<item>...]}"; shift 2 ;;
     --claim|--release)
       MODE="${1#--}"; CLAIM_SESSION="${2:?$1 needs <sessionDir> <item>...}"; shift 2
-      take_items "$@"; shift "${#CLAIM_ITEMS[@]}"
-      [ "${#CLAIM_ITEMS[@]}" -gt 0 ] || { printf 'loom-slots: --%s needs at least one item\n' "$MODE" >&2; exit 2; } ;;
+      TAKEN=0; take_items "$@"; shift "$TAKEN"
+      [ "${#CLAIM_ITEMS[@]}" -gt 0 ] || { printf 'loom-slots: --%s needs at least one item\n' "$MODE" >&2; exit 1; } ;;
     --claim-state)
       MODE=claim-state; CLAIM_SESSION="${2:?--claim-state needs <sessionDir> <item> <state>}"
       CLAIM_ITEMS=("${3:?--claim-state needs <sessionDir> <item> <state>}")
       CLAIM_STATE="${4:?--claim-state needs <sessionDir> <item> <state>}"; shift 4 ;;
     --lane-alive) MODE=alive; LANE_SESSION="${2:?--lane-alive needs <sessionDir> <laneTag>}"; LANE_TAG="${3:?--lane-alive needs <sessionDir> <laneTag>}"; shift 3 ;;
     --lane-done)  MODE=done;  LANE_SESSION="${2:?--lane-done needs <sessionDir> <laneTag>}";  LANE_TAG="${3:?--lane-done needs <sessionDir> <laneTag>}";  shift 3 ;;
-    -h|--help)    sed -n '/^# Usage:/,/^#   4 /p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help)    sed -n '/^# Usage:/,/^#   5 /p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) printf 'loom-slots: unknown argument: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
@@ -118,6 +129,19 @@ iso_to_epoch() {
   return 1
 }
 
+# canon_session — one spelling per session directory: trailing slashes stripped and, when the
+# directory exists, symlinks resolved. Two spellings of one loom must meet on one row.
+canon_session() {
+  local sd="$1" r
+  while [ "${#sd}" -gt 1 ] && [ "${sd%/}" != "$sd" ]; do sd="${sd%/}"; done
+  if [ -d "$sd" ] && r="$(cd "$sd" 2>/dev/null && pwd -P)"; then sd="$r"; fi
+  printf '%s' "$sd"
+}
+
+[ -n "$SELF" ] && SELF="$(canon_session "$SELF")"
+[ -n "$CLAIM_SESSION" ] && CLAIM_SESSION="$(canon_session "$CLAIM_SESSION")"
+[ -n "${LANE_SESSION:-}" ] && LANE_SESSION="$(canon_session "$LANE_SESSION")"
+
 if [ "$MODE" = alive ] || [ "$MODE" = done ]; then
   d="$SLOTS_DIR/$(slugify "$LANE_SESSION")"
   f="$d/$(slugify "$LANE_TAG").live"
@@ -135,10 +159,12 @@ fi
 # loom_file — the loom's own file: the one whose sessionDir line names it, else the slug. Found by
 # content first because hand-written files exist whose names are not the slug.
 loom_file() {
-  local sd="$1" f
+  local sd="$1" f v
   for f in "$SLOTS_DIR"/*.slots; do
     [ -f "$f" ] || continue
-    if grep -qxF "sessionDir=$sd" "$f"; then printf '%s' "$f"; return 0; fi
+    v="$(sed -n 's/^sessionDir=//p' "$f" | tail -1)"
+    [ -n "$v" ] || continue
+    if [ "$(canon_session "$v")" = "$sd" ]; then printf '%s' "$f"; return 0; fi
   done
   printf '%s/%s.slots' "$SLOTS_DIR" "$(slugify "$sd")"
 }
@@ -164,25 +190,67 @@ items_overlap() {
   return 1
 }
 
+# with_lock — a mkdir lock around a read-modify-write of one loom's file. One conductor issuing
+# several writes at once is the ordinary case, and a rename alone keeps each write whole without
+# stopping two of them from each dropping the other's change. A lock older than 60s is a dead
+# writer's and is broken.
+LOCK=""
+release_lock() { [ -n "$LOCK" ] && rmdir "$LOCK" 2>/dev/null; LOCK=""; }
+take_lock() {
+  local l="$1" i=0 m
+  while ! mkdir "$l" 2>/dev/null; do
+    [ -w "$(dirname "$l")" ] || return 1
+    i=$((i+1))
+    if [ $((i % 50)) -eq 0 ]; then
+      m="$(stat -f %m "$l" 2>/dev/null || stat -c %Y "$l" 2>/dev/null || echo "")"
+      [ -n "$m" ] && [ $(( $(now_epoch) - m )) -gt 60 ] && rmdir "$l" 2>/dev/null
+    fi
+    [ "$i" -ge 600 ] && return 1
+    sleep 0.05
+  done
+  LOCK="$l"; trap release_lock EXIT
+}
+
+# write_fail — a write that did not happen. Its own exit code (5), so it is never read as exit 2's
+# "the directory could not be read".
+write_fail() { printf 'loom-slots: %s — nothing was written\n' "$1" >&2; release_lock; exit 5; }
+
 if [ "$MODE" = claim ] || [ "$MODE" = release ] || [ "$MODE" = claim-state ]; then
   case "$MODE:$CLAIM_STATE" in
     claim-state:working|claim-state:done-uncommitted|claim-state:landed|claim:|release:) ;;
-    *) printf 'loom-slots: state must be working, done-uncommitted or landed (got %s)\n' "$CLAIM_STATE" >&2; exit 2 ;;
+    *) printf 'loom-slots: state must be working, done-uncommitted or landed (got %s)\n' "$CLAIM_STATE" >&2; exit 1 ;;
   esac
   for it in "${CLAIM_ITEMS[@]}"; do
     case "$it" in
-      ''|*,*|*'|'*|*$'\n'*) printf 'loom-slots: a claim item may not be empty or contain "," or "|": %s\n' "$it" >&2; exit 2 ;;
+      ''|*'|'*|*$'\n'*) printf 'loom-slots: a claim item may not be empty or contain "|": [%s]\n' "$it" >&2; exit 1 ;;
     esac
   done
-  mkdir -p "$SLOTS_DIR" 2>/dev/null || { printf 'loom-slots: cannot create %s\n' "$SLOTS_DIR" >&2; exit 2; }
+  mkdir -p "$SLOTS_DIR" 2>/dev/null || write_fail "cannot create $SLOTS_DIR"
   f="$(loom_file "$CLAIM_SESSION")"
+  take_lock "$SLOTS_DIR/.$(basename "$f").lock" || write_fail "could not take the lock on $f (held for 30s, or the directory is not writable)"
   current=""
   [ -f "$f" ] && current="$(sed -n 's/^claims=//p' "$f" | tail -1)"
+  IFS=',' read -r -a existing <<< "$current"
+
+  # Moving or dropping a claim that is not there is refused: a conductor marking an item at
+  # hand-back that it never claimed must learn it was never protected.
+  if [ "$MODE" != claim ]; then
+    for it in "${CLAIM_ITEMS[@]}"; do
+      found=0
+      for c in ${existing[@]+"${existing[@]}"}; do
+        [ "$(claim_key "${c%%|*}")" = "$(claim_key "$it")" ] && found=1
+      done
+      if [ "$found" = 0 ]; then
+        printf 'loom-slots: %s is not claimed by %s — claim it first (--claim); nothing was changed\n' "$it" "$CLAIM_SESSION" >&2
+        release_lock; exit 1
+      fi
+    done
+  fi
+
   stamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   next=""
   # Keep every existing claim except the ones this call names; then append the named ones in their
   # new state, unless that state removes them.
-  IFS=',' read -r -a existing <<< "$current"
   for c in ${existing[@]+"${existing[@]}"}; do
     [ -n "$c" ] || continue
     ci="${c%%|*}"; hit=0
@@ -197,15 +265,17 @@ if [ "$MODE" = claim ] || [ "$MODE" = release ] || [ "$MODE" = claim-state ]; th
   if [ "$MODE" = claim ]; then
     for it in "${CLAIM_ITEMS[@]}"; do next="${next:+$next,}$it|working|$stamp"; done
   fi
-  tmp="$(mktemp "$SLOTS_DIR/.claims.XXXXXX")" || exit 2
+  tmp="$(mktemp "$SLOTS_DIR/.claims.XXXXXX")" || write_fail "cannot create a temporary file in $SLOTS_DIR"
   if [ -f "$f" ]; then
-    awk '!/^claims=/' "$f" > "$tmp"
+    awk '!/^claims=/' "$f" > "$tmp" || { rm -f "$tmp"; write_fail "cannot copy $f"; }
   else
     printf 'sessionDir=%s\n' "$CLAIM_SESSION" > "$tmp"
   fi
   printf 'claims=%s\n' "$next" >> "$tmp"
+  chmod 644 "$tmp"
   [ -f "$f" ] && touch -r "$f" "$tmp"
-  mv "$tmp" "$f" || { rm -f "$tmp"; exit 2; }
+  mv "$tmp" "$f" || { rm -f "$tmp"; write_fail "cannot replace $f"; }
+  release_lock
   exit 0
 fi
 
@@ -315,7 +385,7 @@ for f in "$SLOTS_DIR"/*.slots; do
   # whose finished-but-uncommitted work a second loom is about to redo.
   if [ -n "$claims" ]; then
     is_self=0
-    [ -n "$SELF" ] && [ "$sessionDir" = "$SELF" ] && is_self=1
+    [ -n "$SELF" ] && [ "$(canon_session "$sessionDir")" = "$SELF" ] && is_self=1
     rowstate="fresh"; [ "$loom_fresh" = 1 ] || rowstate="stale(${loom_age}m)"
     [ "$counted" -gt 0 ] || rowstate="$rowstate,no-live-lanes"
     IFS=',' read -r -a row_claims <<< "$claims"

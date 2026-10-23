@@ -73,12 +73,84 @@ else
   no "W3  a claim creates the file when absent" "$(ls "$SB" | tr '\n' ' ')"
 fi
 
-out="$(run --claim "$OTHER" 'a,b' 2>&1)"; rc1=$?
+out="$(run --claim "$OTHER" 'a|b' 2>&1)"; rc1=$?
 out2="$(run --claim-state "$OTHER" IDE-9 finished 2>&1)"; rc2=$?
-if [ "$rc1" -eq 2 ] && [ "$rc2" -eq 2 ] && grep -q '^claims=IDE-9|working|' "$f"; then
-  ok "W4  an item containing the separator, and a state outside working|done-uncommitted|landed, are refused (exit 2) and the file is untouched"
+if [ "$rc1" -eq 1 ] && [ "$rc2" -eq 1 ] && grep -q '^claims=IDE-9|working|[^,]*$' "$f"; then
+  ok "W4  an item containing the field separator '|', and a state outside working|done-uncommitted|landed, are refused (exit 1) and the file is untouched"
 else
-  no "W4  bad items and bad states are refused" "comma rc=$rc1 state rc=$rc2; file: $(grep claims= "$f")"
+  no "W4  bad items and bad states are refused" "pipe rc=$rc1 state rc=$rc2; file: $(grep claims= "$f")"
+fi
+
+run --claim "$OTHER" IDE-10 >/dev/null 2>&1
+if grep -q 'IDE-9|working|' "$f" && grep -q 'IDE-10|working|' "$f"; then
+  ok "W5  a second --claim call on the same loom keeps the first call's claim (one claim per dispatch is the ordinary use)"
+else
+  no "W5  successive claims accumulate" "claims: $(grep claims= "$f")"
+fi
+
+run --claim "$OTHER" 'IDE-11,IDE-12' IDE-13 >/dev/null 2>&1
+n="$(grep '^claims=' "$f" | tr ',' '\n' | grep -c 'IDE-1[123]|working|')"
+if [ "$n" = 3 ]; then
+  ok "W6  one --claim call takes a comma list and further arguments together (3 items, one write)"
+else
+  no "W6  --claim a,b c claims all three" "found $n; claims: $(grep claims= "$f")"
+fi
+
+perm="$(stat -f %Lp "$f" 2>/dev/null || stat -c %a "$f")"
+if [ "$perm" = 644 ]; then
+  ok "W7  a claim write leaves the file 0644, not mktemp's 0600"
+else
+  no "W7  the file stays 0644" "mode $perm"
+fi
+
+# Ten claims at once on one loom, as a conductor dispatching several lanes in one message makes them.
+reset
+mk_loom "tmp-sessions-LAND_TREE_BRANCHES" "$OTHER" 6 "" "$(iso_ago 1)"
+for i in 1 2 3 4 5 6 7 8 9 10; do run --claim "$OTHER" "CONC-$i" >/dev/null 2>&1 & done
+wait
+n="$(grep '^claims=' "$SB/tmp-sessions-LAND_TREE_BRANCHES.slots" | tr ',' '\n' | grep -c 'CONC-[0-9]*|working|')"
+locks="$(ls -a "$SB" | grep -c '\.lock$')"
+if [ "$n" = 10 ] && [ "$locks" = 0 ]; then
+  ok "W8  10 concurrent --claim calls on one loom leave all 10 claims, and no lock is left behind"
+else
+  no "W8  concurrent claims all survive" "survived $n of 10; locks left: $locks"
+fi
+
+# One session path a prefix of another must not share a row.
+reset
+# AB's file sorts first, so a prefix match would find it before A's.
+mk_loom "1-AB" "/tmp/s/AB" 4 "" "$(iso_ago 1)"
+mk_loom "2-A" "/tmp/s/A" 4 "" "$(iso_ago 1)"
+run --claim /tmp/s/A PFX-1 >/dev/null 2>&1
+if grep -q 'PFX-1' "$SB/2-A.slots" && ! grep -q 'PFX-1' "$SB/1-AB.slots"; then
+  ok "W9  a claim for /tmp/s/A lands in A's row and not in /tmp/s/AB's"
+else
+  no "W9  session paths match whole, not by prefix" "A: $(grep claims= "$SB/2-A.slots") AB: $(grep claims= "$SB/1-AB.slots")"
+fi
+
+# Two spellings of one session directory: a symlink and the real path, plus a trailing slash.
+reset
+REAL="$SB/real/sessions/LOOM"; mkdir -p "$REAL"; ln -s "$SB/real" "$SB/link"
+mk_loom "the-real-row" "$REAL" 4 "" "$(iso_ago 1)"
+run --claim "$SB/link/sessions/LOOM/" SYM-1 >/dev/null 2>&1
+rows="$(ls "$SB"/*.slots | wc -l | tr -d ' ')"
+err="$(run --quiet --self "$REAL" --dispatching SYM-1 2>&1 >/dev/null)"; rc=$?
+if [ "$rows" = 1 ] && grep -q 'SYM-1' "$SB/the-real-row.slots" && [ "$rc" -eq 0 ] && [ -z "$err" ]; then
+  ok "W10 a claim made through a symlinked, trailing-slash spelling of the session lands on the loom's one row, and --self with the real spelling raises no warning about its own claim"
+else
+  no "W10 one loom, two spellings, one row" "rows=$rows rc=$rc stderr=[$err] files: $(ls "$SB" | tr '\n' ' ')"
+fi
+
+# A write that cannot happen exits 5, never 2 (which means "could not read").
+reset
+mk_loom "tmp-sessions-LAND_TREE_BRANCHES" "$OTHER" 6 "" "$(iso_ago 1)"
+chmod 555 "$SB"
+out="$(run --claim "$OTHER" RO-1 2>&1)"; rc=$?
+chmod 755 "$SB"
+if [ "$rc" -eq 5 ] && ! grep -q 'RO-1' "$SB/tmp-sessions-LAND_TREE_BRANCHES.slots"; then
+  ok "W11 a claim into an unwritable directory exits 5 at once and writes nothing"
+else
+  no "W11 a failed write exits 5" "rc=$rc out=[$out]"
 fi
 
 f="$SB/tmp-sessions-LAND_TREE_BRANCHES.slots"
@@ -205,6 +277,19 @@ if [ "$line" = "claims=" ] && ! printf '%s' "$out" | grep -q 'IDE-3'; then
   ok "R3  landing the last claim leaves an empty claims= line and the report no longer names it"
 else
   no "R3  the last claim lands cleanly" "line=[$line]"
+fi
+
+reset
+mk_loom "tmp-sessions-LAND_TREE_BRANCHES" "$OTHER" 6 "" "$(iso_ago 1)"
+run --claim "$OTHER" IDE-1 >/dev/null 2>&1
+before="$(cat "$f")"
+out1="$(run --claim-state "$OTHER" NEVER-1 done-uncommitted 2>&1)"; rc1=$?
+out2="$(run --release "$OTHER" IDE-1 NEVER-2 2>&1)"; rc2=$?
+if [ "$rc1" -eq 1 ] && [ "$rc2" -eq 1 ] && printf '%s' "$out1" | grep -q 'not claimed' \
+   && [ "$before" = "$(cat "$f")" ]; then
+  ok "R4  --claim-state and --release on an item that was never claimed exit 1 and say so, and a release naming one unclaimed item changes nothing (IDE-1 kept)"
+else
+  no "R4  unclaimed items are refused" "claim-state rc=$rc1 release rc=$rc2 msg=[$out1] file changed=$([ "$before" = "$(cat "$f")" ] && echo no || echo yes)"
 fi
 
 printf '\n== Existing behaviour ==\n'
