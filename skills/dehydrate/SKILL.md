@@ -24,7 +24,7 @@ HANDOFF.md's section owns the rule; `skills/loom/assets/TEMPLATE_LOOM_INHERITANC
 
 This skill runs when context is nearly gone, so **every step it adds must be cheap**: a key-selected state read, a bounded script, a blind append. A step that must read a large file cannot run at the moment this skill is for.
 
-**Safe at 95%**: `engine session find` · a key-selected `jq` over `.state.json` · `engine sweep-check` read by exit status · any `engine log` append (a blind write — `¶CMD_APPEND_LOG`) · `§CMD_DEHYDRATE`, already in your context.
+**Safe at 95%**: `engine session find` · a key-selected `jq` over `.state.json` · `engine sweep-check` read by exit status · `engine open-asks` read by exit status · any `engine log` append (a blind write — `¶CMD_APPEND_LOG`) · `§CMD_DEHYDRATE`, already in your context.
 
 **NOT safe at 95%**, each with its measured cost: invoking `/sweep` as a skill (its `SKILL.md` is ~10KB and it warns against its own repeated load) · reading `TEMPLATE_LOOM_INHERITANCE.md` (~16KB) · reading the loom log to compose a register block (it grows all session) · reading an existing `LOOM_INHERITANCE.md` to merge rows. Each has a degraded substitute below.
 
@@ -78,7 +78,10 @@ Read its **exit status directly, never through a pipeline** — HANDOFF.md state
 
 ```bash
 engine sweep-check "$SESSION_DIR/LOOM_LOG.md"
+engine open-asks "$SESSION_DIR"
 ```
+
+`open-asks` exit 3 lists each question a lane logged that has no `✅ Answered` yet. Those rows go into the inheritance's `❓ Lane asks open` block verbatim. Exit 2 means a directory or file could not be read, so the reading is incomplete; say so in that block.
 
 Exit 3 lists each decision no register block was written after, so it **cannot** have been rowed. Exit 2 is an instrument fault. Exit 0 means only that *no decision is certainly unrowed* — it compares no content, and `skills/loom/SKILL.md` records which registers it does not read at all, so a clean exit is not a clean log. Take that verdict as given; do not re-derive it.
 
