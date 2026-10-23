@@ -186,7 +186,8 @@ cmd_run() {
   state=$(current_state); tree_after=${state% *}
   [ "$tree_after" = "$tree" ] || changed=true
   if [ -z "$summary" ]; then
-    summary=$(sed '/^[[:space:]]*$/d' "$out" | tail -n 1 | cut -c1-240)
+    # Last line with a letter or digit in it: a rule of "=====" closes many test runners.
+    summary=$(sed 's/\x1b\[[0-9;]*m//g' "$out" | grep '[[:alnum:]]' | tail -n 1 | cut -c1-240)
   fi
   rm -f "$out"
 

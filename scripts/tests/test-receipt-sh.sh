@@ -53,6 +53,13 @@ test_receipt_run_records_clean_and_find_here_returns_it() {
   assert_eq "false" "$(jq -r .dirty <<<"$out")" "clean run is not dirty"
 }
 
+test_receipt_summary_skips_a_closing_rule() {
+  r run -- bash -c 'printf "\033[32m9 passed\033[0m\n=====\n\n"' >/dev/null 2>&1
+  assert_eq "9 passed" "$(r find --here --json | jq -r .summary)" "the summary is the last line with content, colour stripped"
+  r run --summary "given by hand" -- true >/dev/null 2>&1
+  assert_contains "given by hand" "$(r find --here --json | jq -r .summary)" "--summary overrides it"
+}
+
 test_receipt_run_passes_failure_exit_through() {
   local code
   r run -- bash -c 'echo boom; exit 7' >/dev/null 2>&1; code=$?
