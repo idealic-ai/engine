@@ -384,3 +384,36 @@ the shortest units are what headings, labels and field names are.
     narrowed; the "says nothing" claim did not.
 *   **Redirection**: when a count is the deliverable, extract with no filter and filter afterwards if at
     all — and name the threshold next to the number so a reader can see what it could not see.
+
+## [2026-10-23 13:05:38] ¶PTF_SAMPLING_A_BYTE_STREAM_TO_AUDIT_A_CHARACTER_BUG_MANUFACTURES_THE_BUG
+
+**Checking whether a tool split a multibyte character, by sampling its output with a
+byte-wise tool, splits the character yourself and shows you the fault you were looking for.**
+`tail -c`, `head -c`, `dd bs=1` and `cut -b` all cut bytes; a sample taken with one of them
+can begin or end mid-character no matter how clean the thing you are auditing was.
+
+*   **Measured 2026-10-23**: a guard bounded a quoted line with `cut -c1-200`. To check that for
+    multibyte damage the author ran `cut -c1-200 | tail -c 20 | od -c`, read a dangling
+    continuation byte at the head of the sample, and recorded `cut` as byte-slicing and broken.
+    A second lane could not reproduce it. **Re-measured by decoding the whole output instead of
+    sampling it: under `LC_CTYPE=UTF-8` `cut -c1-200` returned valid UTF-8, 367 bytes, exactly
+    200 codepoints. The dangling byte was produced by the `tail -c 20`.**
+*   ⭐ **The artifact pointed the same way as the hypothesis**, which is why it was believed. An
+    instrument error that contradicts you gets investigated; one that agrees with you gets
+    written down.
+*   **Redirection**: audit an encoding property by **decoding the whole output** — `python3 -c
+    "open(f,'rb').read().decode('utf-8')"`, or `iconv -f utf-8 -t utf-8`, or `wc -m` against
+    `wc -c` — never by eyeballing a byte-sampled tail. If you must sample, sample with a
+    character-aware tool and say which one.
+*   **The locale half, since the original claim named none**: `cut -c` slices **codepoints** when
+    `LC_CTYPE` names a UTF-8 locale and **bytes** when it does not (`LC_ALL=C`, or `LANG`/`LC_ALL`/
+    `LC_CTYPE` all unset — then the same input gave invalid UTF-8, 200 bytes, failing at position
+    199). So *"`cut -c` breaks on multibyte input"* is **conditional, not a property of the tool**,
+    and a hook or script inherits whatever environment its host hands it. Prefer a slice that does
+    not depend on the environment (`jq '.[0:200]'`) and state the locale next to any reading taken
+    with one that does.
+*   **The general rule, and it is the one worth carrying**: a warning you were handed — in a brief,
+    a runbook, a directive — is a **claim**, not a fact. This one asserted a locale-dependent
+    behaviour unconditionally and was confirmed with a broken measurement rather than tested.
+    **A rule that tells you to measure is still a rule about measuring, and the measurement of it
+    needs a control like any other.**
