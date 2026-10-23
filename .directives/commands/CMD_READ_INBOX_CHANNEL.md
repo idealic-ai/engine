@@ -60,9 +60,21 @@ def own_comment_markers: [
 # skill-authored one is signal, and pruning the subtree would discard it with its parent.
 def flatten_tree: [ .[] | ., (.children // [] | flatten_tree[]) ];
 
+# An emoji-led marker matches on its SIGIL alone: the emoji is the machine signature and the words
+# after it are prose a writer re-phrases, so `⏳ still marinating` is the same marker as
+# `⏳ marinating`. A word-led marker still needs its whole phrase, because a bare word is exactly
+# what the emoji-led markers exist to avoid colliding with — `seems` must not match a human's
+# "seems unrelated". Derived from the table rather than listed beside it, so emptying the table
+# empties the prefixes and a control arm stays honest.
+def own_comment_prefixes:
+  [ own_comment_markers[]
+    | . as $m
+    | ($m | split(" ")[0]) as $head
+    | if ($head == $m) or (($head | explode | .[0]) < 128) then $m else $head end ];
+
 def leads_with_own_marker:
   ((.body // "") | sub("^\\s+"; "")) as $b
-  | any(own_comment_markers[]; . as $m | $b | startswith($m));
+  | any(own_comment_prefixes[]; . as $m | $b | startswith($m));
 
 # Disposition is a property of a thread: a marker-led comment anywhere under a root marks the
 # whole root as dealt with. Keyed on the marker, never on resolvedAt.
@@ -110,11 +122,11 @@ A caller names its **outcome** and reads the marker from here, rather than carry
 *   **already shipped before the pass looked**, so no ticket was needed → `shipped in ENG-XXX`
 *   **a marinate**, with the reason in the same reply → `⏳ marinating`
 
-Markers are emoji-led wherever a bare word would collide with a human reply that happens to open with it. When a reply cites a **specific** comment, deep-link it via `§FMT_TICKET_COMMENT_LINK`; ticket keys via `§FMT_TICKET_LINK`.
+Markers are emoji-led wherever a bare word would collide with a human reply that happens to open with it. **An emoji-led marker matches on its sigil alone** — the emoji is the machine signature, and the words after it are prose a writer re-phrases, so `⏳ still marinating` is the same marker as `⏳ marinating`. The phrase in the table is the canonical wording a writer should use, not the string the filter compares. **A word-led marker still needs its whole phrase**, because a bare word is precisely what the emoji exists to avoid colliding with: `seems` must not match a human's *"seems unrelated to the export bug"*. When a reply cites a **specific** comment, deep-link it via `§FMT_TICKET_COMMENT_LINK`; ticket keys via `§FMT_TICKET_LINK`.
 
 **Constraints**:
 *   **The two halves are one contract.** This atom is the reading half. The writing half is the caller's: every reply it posts onto a channel leads with the marker this atom gives its outcome. A caller that gains a new disposition and not a new marker has reopened the leak, whatever this filter does.
-*   **A marker is matched on the body's leading text, never on the author, and one marker-led comment anywhere under a root withholds the whole thread.** The cost is accepted and stated rather than discovered: a **human** reply that happens to open with a marker word suppresses its entire thread, not only itself. A root *"Totals wrong on report"* with the human reply *"→ same thing on the Friday export, attaching a screenshot"* drains nothing, and `INBOX_WALK=open-threads` then lists it `dispositioned: true`, so a live human signal reads as groomed. `→` is the sharpest case because people use it constantly. That is why the emoji-led markers exist, and why `candidate`, `seems like` and `→` are the three worth watching. `scripts/tests/test-inbox-read-cmd.sh` pins this behaviour so a change to it is deliberate.
+*   **A marker is matched on the body's leading text, never on the author, and one marker-led comment anywhere under a root withholds the whole thread.** Matching an emoji-led marker on the whole phrase rather than the sigil is how a reply in the family escaped a table it was already in: `⏳ still marinating` drained as fresh human signal for two days while the vocabulary agreement and the writer-side lists all read clean, because the marker *was* in the table and the reply *was* in the family. A writer re-phrases prose; it does not re-pick the emoji. The cost is accepted and stated rather than discovered: a **human** reply that happens to open with a marker word suppresses its entire thread, not only itself. A root *"Totals wrong on report"* with the human reply *"→ same thing on the Friday export, attaching a screenshot"* drains nothing, and `INBOX_WALK=open-threads` then lists it `dispositioned: true`, so a live human signal reads as groomed. `→` is the sharpest case because people use it constantly. That is why the emoji-led markers exist, and why `candidate`, `seems like` and `→` are the three worth watching. `scripts/tests/test-inbox-read-cmd.sh` pins this behaviour so a change to it is deliberate.
 *   **Never filter on resolved state** (`¶INV_RESOLVE_ON_DISPOSITION`). A resolved thread is *dispositioned*, not closed to input, so a new reply on one is live signal and drains like any other. Surface it prominently — it is usually someone correcting a triage the system got wrong.
 *   **The still-owed walk is a different question from the drain.** Resolution is a property of a **thread**, so a reply reads `resolvedAt: null` forever and a recursive walk overstates what is open by roughly the reply count. A caller asking what is still owed runs the fence with `INBOX_WALK=open-threads`, which reads **root comments only**, from a fetch with **no `since`**, and does not reuse the flattened set. Listing by `resolvedAt` there is a read of thread state for a human, not a drain filter: suppression from the drain keys on the marker-led descendant, so `¶INV_RESOLVE_ON_DISPOSITION` is not touched.
 *   **The payload never enters the caller's context.** It is written to `out` and processed with `jq`; a single longform drop runs to tens of kilobytes.

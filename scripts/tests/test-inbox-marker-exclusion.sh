@@ -148,4 +148,72 @@ test_04_no_marker_led_comment_survives_the_real_drain() {
   assert_eq "0" "$survivors" "no marker-led comment survives the real drain (of $baseline the emptied arm returns)"
 }
 
+# An emoji-led marker's sigil is the machine signature; the words after it are prose a writer
+# re-phrases. Measured live on 2026-10-23: `/groom` posted `⏳ still marinating, second pass — …`
+# onto IDE-35 and the drain returned it as fresh human signal, because the table carries the phrase
+# `⏳ marinating` and the match was on the whole phrase. Table membership and writer-list agreement
+# both read clean through that: the marker was in the table, and the reply was in the family.
+variant_of() {
+  local m="$1" sigil rest
+  sigil="${m%% *}"; rest="${m#* }"
+  [ "$sigil" != "$m" ] || return 1          # a bare-sigil marker has no words to re-phrase
+  [ "$(printf '%s' "$sigil" | jq -Rr 'explode[0]')" -ge 128 ] || return 1
+  printf '%s still %s' "$sigil" "$rest"
+}
+
+test_05_an_emoji_marker_variant_is_dropped() {
+  local m v got seen=0
+  while IFS= read -r m; do
+    v="$(variant_of "$m")" || continue
+    seen=$((seen + 1))
+    got="$(drained_ids "$v" "$TMP/real.jq")"
+    if [[ " $got " == *" plant-marked "* ]]; then
+      fail "a reply leading with the variant '$v' is excluded" "plant-marked absent" "drained: $got"
+    else
+      pass "the variant '$v' is excluded (the sigil matches, not the phrase)"
+    fi
+  done < "$TMP/markers.txt"
+  assert_gt "$seen" "0" "control — the table holds at least one emoji-led marker to vary"
+}
+
+test_06_control_a_variant_drains_when_the_table_is_empty() {
+  local m v got
+  while IFS= read -r m; do
+    v="$(variant_of "$m")" || continue
+    got="$(drained_ids "$v" "$TMP/empty.jq")"
+    if [[ " $got " == *" plant-marked "* ]]; then
+      pass "control — with the table emptied, '$v' drains (so the drop above was the sigil)"
+    else
+      fail "control — '$v' drains with the table emptied" "plant-marked present" "drained: $got"
+    fi
+  done < "$TMP/markers.txt"
+}
+
+# The live leak verbatim, kept as its own case so the regression has a name rather than riding a loop.
+test_07_the_live_marinating_variant_is_dropped() {
+  local lead="⏳ still marinating, second pass — Product: Idea groom of 2026-10-21, topic ACCEPTFILL."
+  local got; got="$(drained_ids "$lead" "$TMP/real.jq")"
+  if [[ " $got " == *" plant-marked "* ]]; then
+    fail "the live '⏳ still marinating' reply does not return as fresh feedback" \
+         "plant-marked absent" "drained: $got"
+  else
+    pass "the live '⏳ still marinating' reply does not return as fresh feedback"
+  fi
+  got="$(drained_ids "$lead" "$TMP/empty.jq")"
+  assert_contains "plant-marked" "$got" \
+    "control — that same reply drains with the table emptied"
+}
+
+# A word-led marker keeps its whole phrase: a sigil rule must not shrink `seems like` to `seems`,
+# because a bare word is what the emoji-led markers exist to avoid colliding with.
+test_08_a_word_led_marker_still_needs_its_whole_phrase() {
+  local got
+  got="$(drained_ids "seems unrelated to the export bug," "$TMP/real.jq")"
+  assert_contains "plant-marked" "$got" \
+    "a human reply opening 'seems unrelated…' still drains (only 'seems like' is a marker)"
+  got="$(drained_ids "filed a complaint with the carrier," "$TMP/real.jq")"
+  assert_contains "plant-marked" "$got" \
+    "a human reply opening 'filed a…' still drains (only 'filed as' is a marker)"
+}
+
 run_discovered_tests
