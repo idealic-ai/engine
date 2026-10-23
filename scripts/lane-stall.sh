@@ -20,6 +20,41 @@
 #               a reading taken from the log file's mtime because its headings carry no
 #               timestamp, which is what `engine log` does to a heading opening with "[".
 #   state       done (handed back) | parked (turn ended, no hand-back) | running
+#               DO NOT build on "done": it is unreachable for a lane this tool is pointed at.
+#               It fires only on a SubagentHandback call in the transcript tail, and whether a
+#               lane is granted that tool is a property of the session that dispatched it —
+#               measured over the 47 sessions holding a lane in one 72h window, 33 granted it
+#               to every lane, 13 to none, 1 was mixed, with identical SDK prefix, agent types
+#               and dispatch shape on both sides. A weave whose session is in the deny group
+#               reads "done" 0 for every lane it will ever run, so a landed lane is
+#               indistinguishable from a dead one on this column alone. That is what the
+#               "retired" field below exists to answer, and why retirement is NOT keyed on
+#               state.
+#   retired     the lane's own declaration that it ENDED, with its disposition: landed |
+#               ended-nothing-to-land | abandoned, or "no". A field of its own, never inferred
+#               from state, from freshness or from logpath. Read from a "retired=<disposition>"
+#               token in a "## " heading of any *_LOG.md under the session dir, beside the
+#               lane's [TAG] — the same headings this sweep already reads to date a lane, so
+#               the marker needs no second instrument (¶INV_LOOM_STALL_IS_SWEPT_NOT_SENSED) and
+#               no store of its own (¶INV_SWEEP_ADDS_NO_STORE). A retired lane is never STALE
+#               and never counts toward the exit status, and it is never silenced either: the
+#               verdict line always states how many lanes are retired, and --all prints each
+#               one with its disposition (¶INV_RETIRED_IS_NOT_SILENCED).
+#               The disposition is load-bearing and a bare "retired" is rejected. The close-out
+#               consumes it in the order marker -> ticket -> worktree, and a lane that ended
+#               WITHOUT landing is the one whose tree may still hold uncommitted work: one
+#               undifferentiated token is what makes a close-out delete it.
+#               WRITE IT AS THE HEADING'S OPENING TAG: "## [TAG] … retired=landed". The marker
+#               binds to the LEADING tag only, so a lane retires itself and naming another lane
+#               in the same heading does nothing to it — these headings share one log, and a
+#               retirement that reached every tag on the line would retire a lane that is still
+#               running, or one that died.
+#               A lane that never wrote a log of its own may be GIVEN builds/<TAG>_LOG.md
+#               holding only its retirement heading — a create, so no evidence is rewritten
+#               (¶INV_RETIREMENT_TOUCHES_NO_EVIDENCE). Such a heading MUST say so in its own
+#               words ("no own log; this line is the whole record"), because logpath then
+#               points at a file that briefs a successor on nothing, which is exactly what
+#               ¶INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID forbids a hand-over to do silently.
 #   agent       the lane's agent transcript. Diagnostic only — NEVER a hand-over handle.
 #   logpath     the log the "log" reading above was taken from, or "none". This is the field
 #               a hand-over carries (¶INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID): a context clear
@@ -44,8 +79,11 @@
 # reads "parked", not gone. "parked" means only that the lane's last turn ended without a tool
 # call, which covers died, finished, and waiting-on-the-conductor alike — so a healthy lane
 # blocked on a reply reads "STALE state=parked" once it crosses the threshold, and a finished
-# thread reads the same. A "0 lanes seen" line is a claim about what was recognised. Reconcile
-# every reading against the weave's ledger before acting on it.
+# thread reads the same. The "retired" field is what separates the finished ones, and it is the
+# only thing that does — but it reports a lane's own DECLARATION, so a lane that died before
+# writing one still reads "parked", and that is the row to chase. A "0 lanes seen" line is a
+# claim about what was recognised. Reconcile every reading against the weave's ledger before
+# acting on it.
 #
 # Read the exit status DIRECTLY, never through a pipeline: `engine lane-stall ... | head` gives
 # you head's status, not the verdict.
@@ -114,6 +152,11 @@ cutoff = now - since_hours * 3600
 
 TAG = re.compile(r"\[([A-Z][A-Z0-9_-]{2,})\]")
 TS = re.compile(r"\[(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\]")
+# A lane declares its own end in a heading, as "retired=<disposition>" beside its [TAG]. Only
+# these three dispositions are read; a bare "retired", or any other word after the "=", is not
+# a marker and leaves the lane exactly as stale as it was. The closed set is the point — see
+# the "retired" entry in the header for why one undifferentiated token is unsafe.
+RETIRED = re.compile(r"\bretired=(landed|ended-nothing-to-land|abandoned)\b")
 HEAD_TAG = re.compile(r"\s*\[([A-Z][A-Z0-9_-]{2,})\]")
 THREAD_TAG = re.compile(r"\bthread\s+(?:\*\*)?\[?([A-Z][A-Z0-9_-]{2,})\]?(?:\*\*)?")
 THREAD_SCAN_CHARS = 400
@@ -203,6 +246,10 @@ LOGNAME_TAG = re.compile(r"^([A-Z][A-Z0-9_-]{2,})_LOG\.md$")
 # already knows which file dated each tag, so withholding the path only made every caller
 # re-derive it.
 log_last, log_path, log_approx = {}, {}, set()
+# tag -> disposition. Separate from log_last on purpose: a retirement heading unavoidably
+# bumps the lane's FRESHNESS too, and a retirement that worked by that bump would buy exactly
+# one --minutes of quiet and then report the lane stale again.
+retired = {}
 unreadable = []
 
 # os.walk with onerror, not glob(recursive=True): a session dir on a cloud-synced mount can
@@ -221,6 +268,7 @@ def session_logs():
 for log in session_logs():
     last_ts = None
     unstamped, seen_tags = set(), set()
+    file_retired = None
     try:
         with open(log, encoding="utf-8", errors="replace") as fh:
             for line in fh:
@@ -231,6 +279,28 @@ for log in session_logs():
                     last_ts = datetime.strptime(m.group(1), "%Y-%m-%d %H:%M:%S").timestamp()
                 heading_tags = TAG.findall(TS.sub("", line))
                 seen_tags.update(heading_tags)
+                # Bound BEFORE the unstamped branch below: retirement is a declaration, not a
+                # dating, so an untimestamped heading still retires its lane. `engine log`
+                # strips the timestamp from any heading opening with "[", which is every
+                # heading a lane writes under ¶INV_LOOM_AGENTS_NAMED_BY_THREAD — so requiring
+                # a stamp here would reject the marker in its most common form.
+                #
+                # Bound to the heading's LEADING tag only, never to every tag on the line. A
+                # retirement is a lane declaring its own end, and most of these headings land
+                # in a SHARED log where a lane routinely names another ("handing [OTHER] the
+                # rest"): binding to all of them would let one lane's retirement silently
+                # retire a lane that is still running, or one that died. Over-retiring is the
+                # one error this sweep cannot afford, since the dropped row is the whole
+                # reason it runs. Dating is capped for the same reason (MTIME_FALLBACK_MAX_TAGS).
+                rm = RETIRED.search(line)
+                if rm:
+                    hm = HEAD_TAG.match(TS.sub("", line)[3:])
+                    if hm:
+                        retired[hm.group(1)] = rm.group(1)
+                    elif not heading_tags:
+                        # No tag anywhere on the heading: the file's own name may supply it
+                        # below. This is the given-log path for a lane that never logged.
+                        file_retired = rm.group(1)
                 if last_ts is None:
                     unstamped.update(heading_tags)
                     continue
@@ -243,6 +313,12 @@ for log in session_logs():
         if not seen_tags:
             m = LOGNAME_TAG.match(os.path.basename(log))
             stamp = last_ts if last_ts is not None else os.path.getmtime(log)
+            # A log whose headings name no tag is dated from its own filename, and it retires
+            # from its filename too. This is the path the 45-of-117 lanes with no log of their
+            # own take: they are GIVEN builds/<TAG>_LOG.md carrying the retirement heading and
+            # nothing else, so a retirement does not depend on a lane having logged in life.
+            if m and file_retired:
+                retired[m.group(1)] = file_retired
             if m and stamp > log_last.get(m.group(1), 0):
                 log_last[m.group(1)] = stamp
                 log_path[m.group(1)] = log
@@ -323,30 +399,41 @@ def age(t):
     # A file written during this run is "newer than now"; report 0, never a negative age.
     return None if not t else max(0.0, (now - t) / 60)
 
-rows, stale = [], 0
+rows, stale, retired_lanes = [], 0, 0
 for tag, lane in sorted(lanes.items()):
     t_age, l_age = age(lane["mtime"]), age(log_last.get(tag))
     fresh = min(a for a in (t_age, l_age) if a is not None)
-    is_stale = lane["state"] != "done" and fresh > minutes
+    # A retirement is read, not computed: no threshold, no window and no age can produce it or
+    # take it away. That independence is the whole mechanism — "state" cannot answer this
+    # question (see the header), and freshness answers a different one.
+    disposition = retired.get(tag)
+    retired_lanes += disposition is not None
+    is_stale = lane["state"] != "done" and disposition is None and fresh > minutes
     stale += is_stale
     if show_all or is_stale:
-        rows.append((tag, lane["state"], lane["via"], t_age, l_age, is_stale, lane["path"]))
+        rows.append((tag, lane["state"], lane["via"], t_age, l_age, is_stale, lane["path"],
+                     disposition))
 
 # Every reading below is scoped to this window, and a horizon left unstated is how "0 lanes
 # seen" over half a day read identically to the same words over a whole weave.
-print(f"window={since_hours:.0f}h  threshold={minutes:.0f}m  lanes={len(lanes)}")
+# retired= rides the verdict line so a retirement is never invisible, even in the default
+# stale-only output that a retired lane has (correctly) dropped out of: a count that only
+# appears under --all would make a drained backlog and a broken marker read alike.
+print(f"window={since_hours:.0f}h  threshold={minutes:.0f}m  lanes={len(lanes)}  "
+      f"retired={retired_lanes}")
 fmt = lambda a: "-" if a is None else f"{a:.0f}m"
-for tag, state, via, t_age, l_age, is_stale, path in rows:
-    flag = "STALE" if is_stale else "ok"
+for tag, state, via, t_age, l_age, is_stale, path, disposition in rows:
+    flag = "STALE" if is_stale else ("RETIRED" if disposition else "ok")
     log_col = fmt(l_age) + ("~" if tag in log_approx and l_age is not None else "")
     # logpath LAST, because the tail of a row is what a reader copies and the agent
     # transcript in that position is what produced every caller's hand-rolled workaround.
     # "none" is a reading, not a blank: a lane with no log is a different hand-over.
-    print(f"{flag:5}  [{tag}]  state={state:7}  via={via:6}  "
+    print(f"{flag:7}  [{tag}]  state={state:7}  retired={disposition or 'no':22}  via={via:6}  "
           f"transcript={fmt(t_age):>6}  log={log_col:>7}  "
           f"agent={path}  logpath={log_path.get(tag, 'none')}")
 if not rows:
-    print(f"no stale lanes (threshold {minutes:.0f}m, {len(lanes)} lanes seen)")
+    print(f"no stale lanes (threshold {minutes:.0f}m, {len(lanes)} lanes seen, "
+          f"{retired_lanes} retired)")
 if unreadable:
     print(f"warning: {len(unreadable)} path(s) unreadable; counts above are a floor. "
           f"first: {unreadable[0]}", file=sys.stderr)
