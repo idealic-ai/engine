@@ -416,6 +416,72 @@ else
   no "H5  heartbeats never drop a racing claim" "survived $n of 12; file: $(tr '\n' '~' < "$f")"
 fi
 
+printf '\n== Creating a row, the help, and one loom under two file names ==\n'
+
+reset
+out="$(run --heartbeat "$OTHER" --cap 4 --lanes L1 2>&1)"; rc=$?
+gen="$SB/tmp-sessions-LAND-TREE-BRANCHES.slots"
+nfiles="$(ls "$SB"/*.slots 2>/dev/null | wc -l | tr -d ' ')"
+live="$(run 2>&1 | sed -n 's/.*global live lanes *: *\([0-9]*\).*/\1/p')"
+if [ "$rc" -eq 0 ] && [ "$nfiles" = 1 ] && [ -f "$gen" ] && grep -qxF "sessionDir=$OTHER" "$gen" \
+   && grep -qx 'cap=4' "$gen" && grep -qx 'liveLanes=L1' "$gen" && grep -q '^heartbeat=20' "$gen" \
+   && grep -qx 'claims=' "$gen" && [ "${live:-x}" = 1 ]; then
+  ok "D1  --heartbeat with no row CREATES one at the generated name, with sessionDir, cap, lanes, heartbeat and an empty claims line, and the reader counts its lane"
+else
+  no "D1  --heartbeat creates a missing row" "rc=$rc files=$nfiles live=${live:-?} out=[$out] file: $(tr '\n' '~' < "$gen" 2>/dev/null)"
+fi
+
+help="$("$READER" --help 2>&1)"
+missing=""
+for c in 0 1 2 3 4 5; do printf '%s\n' "$help" | grep -Eq "^  $c  " || missing="$missing $c"; done
+if [ -z "$missing" ] && printf '%s' "$help" | grep -q 'CREATES one' && ! printf '%s' "$help" | grep -q 'end of help'; then
+  ok "D2  --help documents every exit code (0 1 2 3 4 5), says --heartbeat creates a missing row, and stops at its own end marker"
+else
+  no "D2  --help documents every exit code" "missing codes:${missing:- none}"
+fi
+
+# Carrier's live case: a legacy hand-named row and the generated row, two spellings of one session.
+reset
+REALS="$GIT/drive/sessions/LOOM_X"; mkdir -p "$REALS"; ln -s "$GIT/drive" "$GIT/data-root"
+LINKS="$GIT/data-root/sessions/LOOM_X"
+printf 'sessionDir=%s\ncap=6\nliveLanes=A,B,C\nheartbeat=%s\nclaims=DUP-1|done-uncommitted|%s\n' "$LINKS" "$(iso_ago 400)" "$(iso_ago 400)" > "$SB/Hand_Named_LOOM_X.slots"
+mk_loom "generated-loom-x" "$REALS" 6 "L1" "$(iso_ago 1)"
+out="$(run 2>&1)"
+live="$(printf '%s' "$out" | sed -n 's/.*global live lanes *: *\([0-9]*\).*/\1/p')"
+stale="$(printf '%s' "$out" | sed -n 's/.*stale loom rows *: *\([0-9]*\).*/\1/p')"
+dup="$(printf '%s' "$out" | sed -n 's/.*duplicate rows *: *\([0-9]*\).*/\1/p')"
+if [ "${live:-x}" = 1 ] && [ "${stale:-x}" = 0 ] && [ "${dup:-x}" = 1 ] \
+   && printf '%s' "$out" | grep -q 'Hand_Named_LOOM_X.slots duplicates generated-loom-x.slots' \
+   && printf '%s' "$out" | grep 'DUP-1' | grep -q 'done-uncommitted'; then
+  ok "D3  two rows resolving to one session are counted once from the fresher (1 live, not 1+3, and no stale row), the duplicate is named by file, and its claim is still reported"
+else
+  no "D3  a duplicate row is named and counted once" "live=${live:-?} stale=${stale:-?} dup=${dup:-?}; $(printf '%s' "$out" | grep -i dup | tr '\n' '~')"
+fi
+
+err="$(run --quiet --self "$REALS" --dispatching DUP-1 2>&1 >/dev/null)"; rc=$?
+# The fresh row sorts SECOND here (H < g), so a write landing in it is not first-match luck.
+run --claim "$REALS" WR-0 >/dev/null 2>&1
+if [ "$rc" -eq 0 ] && [ -z "$err" ] && grep -q 'WR-0' "$SB/generated-loom-x.slots" && ! grep -q 'WR-0' "$SB/Hand_Named_LOOM_X.slots"; then
+  ok "D4  --self recognises the duplicate row's claim as its own, and a new claim goes to the fresher row even when it sorts second"
+else
+  no "D4  a duplicate row's claim is the loom's own; writes go to the fresher row" "rc=$rc stderr=[$err] gen: $(grep claims= "$SB/generated-loom-x.slots")"
+fi
+
+# The other way round: the hand-named row is the fresh one.
+reset
+printf 'sessionDir=%s\ncap=6\nliveLanes=A,B\nheartbeat=%s\n' "$LINKS" "$(iso_ago 1)" > "$SB/Hand_Named_LOOM_X.slots"
+mk_loom "generated-loom-x" "$REALS" 6 "L1" "$(iso_ago 400)"
+out="$(run 2>&1)"
+live="$(printf '%s' "$out" | sed -n 's/.*global live lanes *: *\([0-9]*\).*/\1/p')"
+run --claim "$REALS" WR-1 >/dev/null 2>&1
+if [ "${live:-x}" = 2 ] && printf '%s' "$out" | grep -q 'generated-loom-x.slots duplicates Hand_Named_LOOM_X.slots' \
+   && grep -q 'WR-1' "$SB/Hand_Named_LOOM_X.slots" && ! grep -q 'WR-1' "$SB/generated-loom-x.slots"; then
+  ok "D5  whichever row is fresher is the one counted (2 live from the hand-named row) and the one a write goes to"
+else
+  no "D5  the freshest row is counted and written" "live=${live:-?}; hand: $(grep claims= "$SB/Hand_Named_LOOM_X.slots") gen: $(grep claims= "$SB/generated-loom-x.slots")"
+fi
+rm -f "$GIT/data-root"
+
 printf '\n== Existing behaviour ==\n'
 
 reset
