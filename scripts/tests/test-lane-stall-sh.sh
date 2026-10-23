@@ -821,4 +821,129 @@ test_lane_stall_retirement_binds_only_to_the_heading_it_opens() {
   assert_eq "1" "$(grep -c '^RETIRED' "$out")" "one heading retired one lane, not two"
 }
 
+# The conductor's log at the session root names every lane, and its unstamped headings inherit
+# the previous stamp. Newest-mention-wins let a conductor note about a lane outrank the lane's
+# own log, so the row handed a successor the conductor's whole log and dated the lane by the
+# conductor's clock. Three layouts of a lane's own log, each one older than the conductor's
+# mention of it and than a shared builds/ log's, plus a lane the conductor alone mentions.
+# RED: rank a dating by its timestamp alone (the shared log wins); let a session-root log date
+# a lane (the conductor's log wins, and becomes the orphan's logpath).
+test_lane_stall_prefers_the_lanes_own_log_over_the_conductors() {
+  local session="$TMP_DIR/ownlog/2026_10_12_OWNLOG"
+  local projects="$TMP_DIR/projects-ownlog"
+  plant_synthetic_lane "$projects" "$session" "FLATLANE" \
+    "## [2026-10-20 10:20:00] [FLATLANE] docker build running"
+  plant_synthetic_lane "$projects" "$session" "BUILDLANE" ""
+  plant_synthetic_lane "$projects" "$session" "SUBDIRLANE" ""
+  plant_synthetic_lane "$projects" "$session" "ORPHANLANE" ""
+  printf '## [2026-10-20 10:20:00] [BUILDLANE] docker build running\n' \
+    > "$session/builds/BUILDLANE_BUILD_LOG.md"
+  mkdir -p "$session/builds/subdirlane"
+  printf '## [2026-10-20 10:20:00] [SUBDIRLANE] docker build running\n' \
+    > "$session/builds/subdirlane/SUBDIRLANE_BUILD_LOG.md"
+  printf '%s\n' \
+    "## [2026-10-20 10:30:00] Overseer poll answered" \
+    "## [FLATLANE] [BUILDLANE] [SUBDIRLANE] still building, per their logs" \
+    "## [2026-10-20 10:31:00] dispatched [ORPHANLANE]" \
+    > "$session/LOOM_LOG.md"
+  printf '## [2026-10-20 10:40:00] wave notes: [FLATLANE] and [BUILDLANE] share a fixture\n' \
+    > "$session/builds/WAVE_LOG.md"
+  local out="$TMP_DIR/ownlog.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  local own_age
+  own_age=$(python3 -c 'import time,datetime;print(round((time.time()-datetime.datetime(2026,10,20,10,20).timestamp())/60))')
+  local tag want row got_age
+  for tag in FLATLANE BUILDLANE SUBDIRLANE; do
+    case "$tag" in
+      FLATLANE) want="$session/builds/FLATLANE_LOG.md" ;;
+      BUILDLANE) want="$session/builds/BUILDLANE_BUILD_LOG.md" ;;
+      SUBDIRLANE) want="$session/builds/subdirlane/SUBDIRLANE_BUILD_LOG.md" ;;
+    esac
+    row=$(grep "\[$tag\]" "$out")
+    assert_eq "$want" "$(printf '%s' "$row" | sed 's/.*logpath=//')" \
+      "$tag: the lane's own log is handed over, not the conductor's"
+    got_age=$(printf '%s' "$row" | sed -E 's/.* log= *([0-9]+)m.*/\1/')
+    assert_eq "1" "$(( got_age - own_age <= 1 && own_age - got_age <= 1 ))" \
+      "$tag: the log age is read from that same log (got ${got_age}m, own log ${own_age}m)"
+  done
+  assert_eq "0" "$(logpath_values "$out" | grep -c '/LOOM_LOG\.md$')" \
+    "the conductor's log is never any lane's logpath"
+  assert_eq "none" "$(grep '\[ORPHANLANE\]' "$out" | sed 's/.*logpath=//')" \
+    "a lane only the conductor mentions has no log of its own"
+}
+
+# Older looms kept a lane's log at the session root as <TAG>_LOG.md, beside the conductor's.
+# Skipping every root log blanked those lanes to logpath=none while their logs existed. A root
+# log the lane owns by name dates it; the conductor's log there still dates nobody.
+# RED: skip every log at the session root, own or not.
+test_lane_stall_dates_a_lanes_own_log_at_the_session_root() {
+  local session="$TMP_DIR/rootlog/2026_10_07_ROOTLOG"
+  local projects="$TMP_DIR/projects-rootlog"
+  plant_synthetic_lane "$projects" "$session" "ROOTLANE" ""
+  plant_synthetic_lane "$projects" "$session" "ROOTMTIME" ""
+  printf '## [2026-10-20 10:20:00] [ROOTLANE] work\n' > "$session/ROOTLANE_LOG.md"
+  printf '## [ROOTMTIME] work\n' > "$session/ROOTMTIME_LOG.md"
+  printf '## [2026-10-20 10:30:00] [ROOTLANE] [ROOTMTIME] noted by the conductor\n' \
+    > "$session/LOOM_LOG.md"
+  local out="$TMP_DIR/rootlog.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  assert_eq "$session/ROOTLANE_LOG.md" "$(grep '\[ROOTLANE\]' "$out" | sed 's/.*logpath=//')" \
+    "a stamped root <TAG>_LOG.md is the lane's own log"
+  assert_eq "$session/ROOTMTIME_LOG.md" "$(grep '\[ROOTMTIME\]' "$out" | sed 's/.*logpath=//')" \
+    "an unstamped root <TAG>_LOG.md still dates its lane from its mtime"
+  assert_contains "m~" "$(grep '\[ROOTMTIME\]' "$out" | sed 's/.* log= *//')" \
+    "and that reading is marked approximate"
+  assert_eq "0" "$(logpath_values "$out" | grep -c '/LOOM_LOG\.md$')" \
+    "the conductor's root log is still nobody's logpath"
+}
+
+# Which file counts as a lane's own log decides who wins, so the match must be exact. Every own
+# log below is older than a mention of its lane in another builds/ log; a looser match hands
+# the lane a sibling's or a child's log, and a stricter one hands it the mention.
+#   KITDOCS      builds/kitdocs/ also holds a child lane's HBSYNTAX_LOG.md naming [KITDOCS]
+#   VOICE        a sibling's builds/VOICE-COUNCIL_LOG.md names [VOICE]; PROOFS likewise PROOFS-B
+#   IDE-173      builds/ide173/IDE173_BUILD_LOG.md, the separator dropped from both names
+#   DIRLANE      builds/dirlane/BUILD_LOG.md, owned only by its directory
+#   KINDLANE     builds/KINDLANE_R2_CRITIQUE_LOG.md, a round prefix on a kind
+# RED: own any log under builds/<tag>/ (KITDOCS); own any <TAG>_* stem (VOICE, PROOFS); compare
+#      without removing separators (IDE-173); drop the directory rule (DIRLANE).
+test_lane_stall_own_log_match_is_exact() {
+  local session="$TMP_DIR/ownmatch/2026_10_12_OWNMATCH"
+  local projects="$TMP_DIR/projects-ownmatch"
+  local tag
+  for tag in KITDOCS HBSYNTAX VOICE VOICE-COUNCIL PROOFS PROOFS-B IDE-173 DIRLANE KINDLANE; do
+    plant_synthetic_lane "$projects" "$session" "$tag" ""
+  done
+  local b="$session/builds"
+  mkdir -p "$b/kitdocs" "$b/ide173" "$b/dirlane"
+  printf '## [2026-10-20 10:20:00] [KITDOCS] work\n' > "$b/KITDOCS_LOG.md"
+  printf '## [2026-10-20 10:40:00] [HBSYNTAX] picked up from [KITDOCS]\n' > "$b/kitdocs/HBSYNTAX_LOG.md"
+  printf '## [2026-10-20 10:20:00] [VOICE] work\n' > "$b/VOICE_LOG.md"
+  printf '## [2026-10-20 10:40:00] [VOICE-COUNCIL] continuing [VOICE]\n' > "$b/VOICE-COUNCIL_LOG.md"
+  printf '## [2026-10-20 10:20:00] [PROOFS] work\n' > "$b/PROOFS_LOG.md"
+  printf '## [2026-10-20 10:40:00] [PROOFS-B] continuing [PROOFS]\n' > "$b/PROOFS-B_LOG.md"
+  printf '## [2026-10-20 10:20:00] [IDE-173] work\n' > "$b/ide173/IDE173_BUILD_LOG.md"
+  printf '## [2026-10-20 10:20:00] [DIRLANE] work\n' > "$b/dirlane/BUILD_LOG.md"
+  printf '## [2026-10-20 10:20:00] [KINDLANE] work\n' > "$b/KINDLANE_R2_CRITIQUE_LOG.md"
+  printf '## [2026-10-20 10:40:00] wave notes: [IDE-173] [DIRLANE] [KINDLANE]\n' > "$b/WAVE_LOG.md"
+  local out="$TMP_DIR/ownmatch.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  local want
+  for tag in KITDOCS HBSYNTAX VOICE VOICE-COUNCIL PROOFS PROOFS-B IDE-173 DIRLANE KINDLANE; do
+    case "$tag" in
+      KITDOCS) want="$b/KITDOCS_LOG.md" ;;
+      HBSYNTAX) want="$b/kitdocs/HBSYNTAX_LOG.md" ;;
+      VOICE) want="$b/VOICE_LOG.md" ;;
+      VOICE-COUNCIL) want="$b/VOICE-COUNCIL_LOG.md" ;;
+      PROOFS) want="$b/PROOFS_LOG.md" ;;
+      PROOFS-B) want="$b/PROOFS-B_LOG.md" ;;
+      IDE-173) want="$b/ide173/IDE173_BUILD_LOG.md" ;;
+      DIRLANE) want="$b/dirlane/BUILD_LOG.md" ;;
+      KINDLANE) want="$b/KINDLANE_R2_CRITIQUE_LOG.md" ;;
+    esac
+    assert_eq "$want" "$(grep "\[$tag\]" "$out" | sed 's/.*logpath=//')" \
+      "$tag: the logpath is the lane's own log"
+  done
+}
+
 run_discovered_tests
