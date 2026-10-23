@@ -872,4 +872,29 @@ test_lane_stall_prefers_the_lanes_own_log_over_the_conductors() {
     "a lane only the conductor mentions has no log of its own"
 }
 
+# Older looms kept a lane's log at the session root as <TAG>_LOG.md, beside the conductor's.
+# Skipping every root log blanked those lanes to logpath=none while their logs existed. A root
+# log the lane owns by name dates it; the conductor's log there still dates nobody.
+# RED: skip every log at the session root, own or not.
+test_lane_stall_dates_a_lanes_own_log_at_the_session_root() {
+  local session="$TMP_DIR/rootlog/2026_10_07_ROOTLOG"
+  local projects="$TMP_DIR/projects-rootlog"
+  plant_synthetic_lane "$projects" "$session" "ROOTLANE" ""
+  plant_synthetic_lane "$projects" "$session" "ROOTMTIME" ""
+  printf '## [2026-10-20 10:20:00] [ROOTLANE] work\n' > "$session/ROOTLANE_LOG.md"
+  printf '## [ROOTMTIME] work\n' > "$session/ROOTMTIME_LOG.md"
+  printf '## [2026-10-20 10:30:00] [ROOTLANE] [ROOTMTIME] noted by the conductor\n' \
+    > "$session/LOOM_LOG.md"
+  local out="$TMP_DIR/rootlog.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  assert_eq "$session/ROOTLANE_LOG.md" "$(grep '\[ROOTLANE\]' "$out" | sed 's/.*logpath=//')" \
+    "a stamped root <TAG>_LOG.md is the lane's own log"
+  assert_eq "$session/ROOTMTIME_LOG.md" "$(grep '\[ROOTMTIME\]' "$out" | sed 's/.*logpath=//')" \
+    "an unstamped root <TAG>_LOG.md still dates its lane from its mtime"
+  assert_contains "m~" "$(grep '\[ROOTMTIME\]' "$out" | sed 's/.* log= *//')" \
+    "and that reading is marked approximate"
+  assert_eq "0" "$(logpath_values "$out" | grep -c '/LOOM_LOG\.md$')" \
+    "the conductor's root log is still nobody's logpath"
+}
+
 run_discovered_tests

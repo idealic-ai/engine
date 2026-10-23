@@ -19,7 +19,8 @@
 #               (searched recursively — lane logs live in <sessionDir>/builds/). The lane's
 #               own log (builds/<TAG>_LOG.md, builds/<TAG>_<KIND>_LOG.md, builds/<tag>/…)
 #               outranks any other log naming the tag, however recent, and a log at the
-#               session root is the conductor's and never dates a lane. A "~" marks
+#               session root dates only the lane it is named for: the conductor's log there
+#               names every lane and dates none of them. A "~" marks
 #               a reading taken from the log file's mtime because its headings carry no
 #               timestamp, which is what `engine log` does to a heading opening with "[".
 #   state       done (handed back) | parked (turn ended, no hand-back) | running
@@ -268,11 +269,12 @@ def is_own_log(log, tag):
     return norm_tag(os.path.basename(os.path.dirname(log))) == tag
 
 def date_tag(tag, stamp, log, approx):
-    # A log at the session root is the conductor's. It names every lane and is never a lane's
-    # log, so it neither dates a lane nor becomes the path a successor is handed.
-    if os.path.normpath(os.path.dirname(log)) == SESSION_ROOT:
+    # The conductor's log sits at the session root and names every lane, so a root log dates
+    # only the lane it belongs to by name (older looms kept <TAG>_LOG.md there).
+    own = is_own_log(log, tag)
+    if not own and os.path.normpath(os.path.dirname(log)) == SESSION_ROOT:
         return
-    rank = (is_own_log(log, tag), stamp)
+    rank = (own, stamp)
     if rank > log_rank.get(tag, (False, 0)):
         log_rank[tag] = rank
         log_last[tag] = stamp
