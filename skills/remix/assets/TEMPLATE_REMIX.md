@@ -46,7 +46,7 @@
 *   **Digest regenerated**: [yes/no — freshness stamp + corpus delta if tend]
 
 ## 6. Invariants & Pitfalls
-*New honesty rules or traps this session surfaced. Pitfalls go to intake/.directives/PITFALLS.md.*
+*New honesty rules or traps this session surfaced. Pitfalls go to ~/.claude/engine/skills/intake/assets/.directives/PITFALLS.md.*
 
 *   **¶INV_DS_NAME** / **¶PTF_NAME**: [definition — bar for a pitfall is "shipped, or nearly, with every check green"]
 

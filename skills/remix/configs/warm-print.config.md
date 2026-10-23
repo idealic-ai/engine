@@ -39,6 +39,6 @@ mode consumes.
 - **missing-marker**: an absent fact renders distinct from a false one and from a zero (`¶INV_DS_MISSING_NOT_EMPTY`).
 
 ## References
-- **pitfalls**: `~/.claude/engine/skills/intake/.directives/PITFALLS.md` — read at Setup; several traps caught agents mid-page in this system.
+- **pitfalls**: `~/.claude/engine/skills/intake/assets/.directives/PITFALLS.md` — read at Setup; several traps caught agents mid-page in this system.
 - **archetypes / block catalog / skeletons**: per `<kit-readme>` (§2a blocks, §3d archetypes, §3.0 skeletons).
 - **related tracker work**: `ENG-3566` (extract the /prove visual language into a prescribed theme + block catalog).

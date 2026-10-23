@@ -100,7 +100,7 @@ Stated once; each mode cites rather than restates. The first seven are the hones
 - **`¶INV_DS_FACTS_ARE_CITED_NOT_COPIED`** — measured numbers cross a dispatch boundary as `FACTS` ledger id-citations, never as hand-copied values in a brief. (An orchestrator who re-types numbers introduces errors in transit.)
 - **`¶INV_DS_REGISTER_BEFORE_DISPATCH`** — a channel vocabulary MUST be registered (`channel · values · meaning · reserved-for`) in the digest's registry before it is dispatched on. Seven agents asked to converge without a registry produced four partly-agreeing vocabularies.
 
-Every mode reads `~/.claude/engine/skills/intake/.directives/PITFALLS.md` at Setup — several of its traps caught agents mid-page on the day these rules were written.
+Every mode reads `~/.claude/engine/skills/intake/assets/.directives/PITFALLS.md` at Setup — several of its traps caught agents mid-page on the day these rules were written.
 
 ---
 
@@ -218,5 +218,5 @@ The design system is not a stylesheet; it is the memory that keeps a rendered pa
 - **Rulings** → the design system's memory. `orchestrate` writes them (decided *and why*, because the next agent inherits the rule without the conversation); every mode reads them via the digest.
 - **Facts** → `FACTS.md`. Any mode that measures appends; every brief cites. Immutable and id-addressed.
 - **Vocabulary** → `REGISTRY.md`. Registered before dispatch; a collision is a finding, never a silent overwrite.
-- **Pitfalls** → `~/.claude/engine/skills/intake/.directives/PITFALLS.md`. Any mode may add; the bar is *it shipped, or nearly shipped, with every check green*.
+- **Pitfalls** → `~/.claude/engine/skills/intake/assets/.directives/PITFALLS.md`. Any mode may add; the bar is *it shipped, or nearly shipped, with every check green*.
 - **Gates** → `critique` findings that recur become checks. **This is the loop's terminus**: a finding that stays a finding will recur, because instruction is not the lever — the slot is.
