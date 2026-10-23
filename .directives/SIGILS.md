@@ -318,69 +318,13 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 
 ## Tag Operations
 
-### ¶CMD_FIND_TAGGED_FILES
-**Definition**: To locate files carrying specific semantic tags (on the Tags line or as intentional inline tags), filtering out backtick-escaped references.
-**Algorithm**:
-1.  **Identify**: Determine the target tag (e.g., `#needs-review`).
-2.  **Execute**:
-    ```bash
-    engine tag find '#tag-name'
-    ```
-    *   Searches `sessions/` by default. Pass a path argument to override.
-    *   Two-pass search: Tags line (high precision) + inline body (backtick-filtered).
-    *   Add `--context` for line numbers and surrounding text (useful before `remove --inline` or `swap --inline`).
-3.  **Output**: A list of file paths (one per line) that carry the tag. Each path should be a clickable link per `¶INV_TERMINAL_FILE_LINKS` (Full variant).
-4.  **Goal**: Identify active alerts, pending reviews, or other tagged artifacts.
+Each tag operation is its own command file under `commands/`, so a `§CMD_` citation delivers it with the skill that cites it:
 
-### ¶CMD_TAG_FILE
-**Definition**: To add a semantic tag to a Markdown file.
-**Constraint**: Tags live on a dedicated `**Tags**:` line immediately after the H1 heading (line 2). Never on the H1 itself.
-**Format**: `**Tags**: #tag1 #tag2`
-**Algorithm**:
-1.  **Execute**:
-    ```bash
-    engine tag add "$FILE" '#tag-name'
-    ```
-    *   Ensures `**Tags**:` line exists after H1, then appends tag idempotently.
-    *   Safe to run multiple times.
-
-### ¶CMD_UNTAG_FILE
-**Definition**: To remove a semantic tag from a Markdown file.
-**Algorithm**:
-1.  **Execute**:
-    ```bash
-    engine tag remove "$FILE" '#tag-name'
-    ```
-
-### ¶CMD_SWAP_TAG_IN_FILE
-**Definition**: To atomically replace one tag with another (e.g., `#needs-review` → `#done-review`).
-**Algorithm**:
-1.  **Execute**:
-    ```bash
-    engine tag swap "$FILE" '#old-tag' '#new-tag'
-    ```
-    *   Supports comma-separated old tags for multi-swap: `'#tag-a,#tag-b'`
-
-### ¶CMD_HANDLE_INLINE_TAG
-**Definition**: When a user types `#needs-xxx` (e.g., `#needs-brainstorm`, `#needs-research`, `#needs-documentation`) in response to a question or during discussion, the agent must capture it as an inline tag in the active artifact.
-
-**Rule**: The user typing `#needs-xxx` means: "I can't answer this now. Tag it so it can be addressed later by the appropriate skill (e.g., `/brainstorm`, `/research`, `/document`)."
-
-**Algorithm**:
-1.  **Detect**: The user's response contains a `#needs-xxx` tag.
-2.  **Tag the Source**: Add the tag **inline** in the relevant location of the **active work artifact** (the log entry, plan section, or debrief section currently being discussed). Place it naturally — next to the heading, in the paragraph, or as a bold marker:
-    *   *In a log entry*: `### [timestamp] 🚧 Block — [Topic] #needs-brainstorm`
-    *   *In a plan step*: `*   [ ] **Step 3**: [Action] #needs-brainstorm`
-    *   *In a debrief section*: Add to the relevant paragraph or as a bullet.
-3.  **Log to DIALOGUE.md**: Execute `§CMD_LOG_INTERACTION` recording the user's deferral (the question asked, the `#needs-xxx` response, and the context).
-4.  **Do NOT Duplicate**: The tag should appear in **exactly one** work artifact (the log OR the debrief section — whichever is active when the user defers). Do NOT propagate the tag from DIALOGUE.md into the debrief automatically. If the debrief has a "Pending Decisions" or "Open Questions" section, list it there as a **reference** (one-liner with source path), not a full copy.
-5.  **Tag the File**: If the work artifact is a debrief (final output), also add the `#needs-xxx` tag to the file's `**Tags**:` line via `§CMD_TAG_FILE`.
-6.  **Tag Reactivity** (`¶INV_WALKTHROUGH_TAGS_ARE_PASSIVE`): Determine the current context and react accordingly:
-    *   **During `§CMD_WALK_THROUGH_RESULTS`**: Tags are **passive**. The walkthrough protocol handles triage. Do NOT offer `/delegation-create` — the tag is protocol-placed, not a user-initiated deferral. Record and move on.
-    *   **All other contexts** (interrogation, QnA, ad-hoc chat, side discovery): Tags are **reactive**. After recording the tag, invoke `/delegation-create` via the Skill tool: `Skill(skill: "delegation-create", args: "[tag] [context summary]")`. The `/delegation-create` skill handles mode selection (async/blocking/silent) and REQUEST filing. The user can always decline via "Other" in the delegate prompt.
-7.  **Continue**: Resume the session. Do not halt or change phases — the deferral is recorded (and optionally delegated), move on.
-
-**Constraint**: **Once Only**. Each deferred item appears as an inline tag in ONE place. The DIALOGUE.md captures the verbatim exchange. The debrief may list it in a "Pending" section as a pointer. Never three copies.
+*   `§CMD_FIND_TAGGED_FILES` — `commands/CMD_FIND_TAGGED_FILES.md`
+*   `§CMD_TAG_FILE` — `commands/CMD_TAG_FILE.md`
+*   `§CMD_UNTAG_FILE` — `commands/CMD_UNTAG_FILE.md`
+*   `§CMD_SWAP_TAG_IN_FILE` — `commands/CMD_SWAP_TAG_IN_FILE.md`
+*   `§CMD_HANDLE_INLINE_TAG` — `commands/CMD_HANDLE_INLINE_TAG.md`
 
 ---
 

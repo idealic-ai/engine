@@ -149,7 +149,7 @@ EOF
 - **Cap at 8 files**: `requiredFiles` max 8 entries. Prioritize session artifacts > source code > templates.
 - **Combined command**: `engine session dehydrate` both stores AND restarts. Do not call `engine session restart` separately.
 - **JSON only**: Content must be valid JSON. The engine validates before storing.
-- **Auto-injected files**: COMMANDS.md, INVARIANTS.md, SIGILS.md, CMD_DEHYDRATE.md, CMD_RESUME_SESSION.md are auto-injected by SessionStart. Do NOT list them in requiredFiles.
+- **Auto-injected files**: the core standards SessionStart preloads (each arrives as a `[Preloaded: …]` block; the list is `get_session_start_seeds` in `scripts/lib.sh`) are re-injected on restart. Do NOT list them in requiredFiles.
 - **`¶INV_TRUST_CACHED_CONTEXT`**: Do not re-read files already in context window — use memory only.
 - **`¶INV_CONCISE_CHAT`**: Chat output is for user communication only — brief dehydration announcement, no micro-narration.
 - **Verbatim user message**: If the user's last message/request has not been fully handled (overflow interrupted work), include it **verbatim** in `userHistory`. Do not paraphrase — the next agent needs the exact wording to continue without re-asking the user.

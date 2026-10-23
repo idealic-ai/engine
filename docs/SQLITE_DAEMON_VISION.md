@@ -396,7 +396,7 @@ These orchestrate filesystem I/O and daemon RPCs. The bash layer handles all fil
 
 **General pattern**: RPC formats content, hook writes FS.
 
-**SessionStart**: Fires when a new Claude Code instance starts. Creates or finds session, returns effort context. Injects standards (COMMANDS.md, INVARIANTS.md, SIGILS.md) + effort required files. If resuming: loads dehydrated context from prev_session's dehydration_payload.
+**SessionStart**: Fires when a new Claude Code instance starts. Creates or finds session, returns effort context. Injects standards (the `get_session_start_seeds` list) + effort required files. If resuming: loads dehydrated context from prev_session's dehydration_payload.
 
 **UserPromptSubmit**: Fires when user sends a message. Appends to messages table (real-time streaming). Returns formatted content for bash to write if needed.
 
