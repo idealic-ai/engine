@@ -97,7 +97,7 @@ Guards are judged against base directly. A placebo that moves the same way does 
 ## Talking to the conductor
 
 - Report at stage boundaries, when blocked (name exactly what you wait on), and when done. Do not go silent.
-- Heartbeat: append a `## [TAG] …` line through `engine log` about every 5 tool calls, and before any wait longer than 5 minutes (say what you wait on and the expected time).
+- Heartbeat: append a `## [TAG] …` line to **your own log under the session's `builds/`**, the absolute path your brief names (such as `<sessionDir>/builds/<tag>/<TAG>_LOG.md`), with `engine log <that path>`, about every 5 tool calls and before any wait longer than 5 minutes (say what you wait on and the expected time). Never write it to the conductor's `LOOM_EXPERIMENT_LOG.md` at the session root: the stall sweep dates a lane from its own log and reads nothing at the root for anyone else, so heartbeats there leave you looking silent.
 - Wait with one blocking call, not a chain of short background waits: a foreground `Bash` loop that polls up to the 10-minute tool limit, repeated as needed, or a single `Monitor` with an until-condition. A background wait whose process dies leaves you parked with nothing to wake you, and short background waits wake the conductor for nothing.
 - End with `SubagentHandback`. A plain-text ending reads as "parked" to the stall watchdog (`engine lane-stall`).
 - Escalate scope changes, a cap you are about to hit, a file conflict, and any design question before spending.
