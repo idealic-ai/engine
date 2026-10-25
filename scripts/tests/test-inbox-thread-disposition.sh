@@ -79,7 +79,7 @@ test_05_flatten_kept_unmarked_descendants_still_drain() {
   unmarked="$(jq --argjson ch "$CHANNELS" '
     def ft: [ .[] | ., (.children // [] | ft[]) ];
     [ .tickets[] | select(.identifier|IN($ch[])) | .comments[]? | (.children // []) | ft[] ] | length' "$SNAPSHOT")"
-  assert_eq "39" "$total" "the drain still returns 39 nodes on the frozen snapshot: zero of the 31 roots, but the other nodes (13 on channel tickets, 26 on non-channel tickets) still drain"
+  assert_eq "26" "$total" "the drain returns 26 nodes on the frozen snapshot: zero of the 31 roots, zero of the 13 channel replies (each predates its thread's last marker), and 26 on non-channel tickets"
   assert_gt "$total" "0" "unmarked replies under machine replies still drain ($total emitted in all tickets; $unmarked channel descendants walked)"
 }
 
@@ -94,6 +94,68 @@ test_06_open_threads_are_listable() {
 test_07_open_listing_control_nonvacuous() {
   assert_eq "0" "$(drained_roots "$TMP/real.jq" new-signal)" "open threads are absent from the drain"
   assert_eq "11" "$(INBOX_WALK=open-threads jq -c -f "$TMP/real.jq" "$SNAPSHOT" | jq length)" "yet present in the open-threads walk"
+}
+
+# ------------------------------------------------------------------
+# Echoes: a reply that predates its thread's latest marker reply was already in front of whoever
+# dispositioned the thread, so it is not new signal. Measured on the committed Product: Handbook
+# fetch (2026-10-25 18:05): five channel-ticket replies sit before their thread's last marker and
+# the drain returned all five. A reply AFTER the last marker is live signal and still drains.
+# ------------------------------------------------------------------
+HANDBOOK="$(dirname "$0")/fixtures/inbox-real/product-handbook-fetch.json"
+
+# The fence's own definitions (everything before the walk), so the test reuses the marker logic
+# rather than restating it, followed by a query for echo ids on channel tickets.
+echo_ids_program() {
+  awk '/^\(\$ENV\.INBOX_WALK/ { exit } { print }' "$TMP/real.jq"
+  cat <<'JQ'
+([.structure.channels[]?.identifier]) as $ch
+| [ .tickets[] | select(.identifier | IN($ch[])) | (.comments // [])[]
+    | select(dispositioned)
+    | ([(.children // []) | flatten_tree[] | select(leads_with_own_marker) | .createdAt] | max) as $last
+    | (.children // []) | flatten_tree[] | select(leads_with_own_marker | not)
+    | select(.createdAt <= $last) | .id ]
+JQ
+}
+
+# Number of drained nodes from $2 (a payload) that are echoes, under program $1.
+drained_echoes() {
+  local echoes; echoes="$(jq -c -f "$TMP/echo.jq" "$2")"
+  jq -c -f "$1" "$2" | jq --argjson e "$echoes" '[.[] | select(.id | IN($e[]))] | length'
+}
+
+test_08_echo_replies_before_the_last_marker_do_not_drain() {
+  echo_ids_program > "$TMP/echo.jq"
+  assert_file_exists "$HANDBOOK" "the committed Product: Handbook snapshot exists"
+  assert_eq "5" "$(jq -c -f "$TMP/echo.jq" "$HANDBOOK" | jq length)" "control — the snapshot holds five replies that predate their thread's last marker"
+  assert_eq "0" "$(drained_echoes "$TMP/real.jq" "$HANDBOOK")" "none of the five echo replies drains"
+}
+
+test_09_control_the_pre_fix_program_drains_all_five_echoes() {
+  echo_ids_program > "$TMP/echo.jq"
+  # The pre-fix program: every non-marker descendant of a dispositioned root is flattened in.
+  sed 's/(\$root.children \/\/ \[\] | flatten_tree | after_last_marker(\$root))/($root.children \/\/ [] | flatten_tree)/' "$TMP/real.jq" > "$TMP/old.jq"
+  assert_neq "$(cat "$TMP/real.jq")" "$(cat "$TMP/old.jq")" "the pre-fix program really differs from the shipped one"
+  assert_eq "5" "$(drained_echoes "$TMP/old.jq" "$HANDBOOK")" "without the echo cut the same drain returns all five"
+}
+
+# A reply after the last marker is someone answering the disposition: it must still drain.
+test_10_a_reply_after_the_last_marker_still_drains_and_one_before_does_not() {
+  local plant got
+  plant="$(jq '.tickets += [{ identifier: "IDE-34", title: "planted", comments: [{
+      id: "p-root", author: "h", createdAt: "2026-01-01T00:00:00Z", resolvedAt: "2026-01-05T00:00:00Z",
+      quotedText: null, body: "Totals are wrong on the weekly report.", children: [
+        { id: "p-before", author: "h", createdAt: "2026-01-02T00:00:00Z", resolvedAt: null, quotedText: null,
+          body: "Same on the Friday export.", children: [] },
+        { id: "p-mark", author: "h", createdAt: "2026-01-03T00:00:00Z", resolvedAt: null, quotedText: null,
+          body: "filed as IDE-999", children: [] },
+        { id: "p-after", author: "h", createdAt: "2026-01-04T00:00:00Z", resolvedAt: null, quotedText: null,
+          body: "That ticket is the wrong one, this is the export.", children: [] } ] }] }]' "$SNAPSHOT")"
+  got="$(printf '%s' "$plant" | jq -c -f "$TMP/real.jq" | jq -r '[.[].id] | join(" ")')"
+  assert_contains "p-after" "$got" "a reply after the last marker on a resolved thread drains (it corrects the disposition)"
+  assert_not_contains "p-before" "$got" "a reply before the last marker does not drain (the disposition already answered it)"
+  got="$(printf '%s' "$plant" | jq -c -f "$TMP/empty.jq" | jq -r '[.[].id] | join(" ")')"
+  assert_contains "p-before" "$got" "control — with the table emptied the earlier reply drains, so its drop was the marker's doing"
 }
 
 run_discovered_tests

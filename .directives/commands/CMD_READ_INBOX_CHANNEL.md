@@ -31,7 +31,7 @@
     ```
     One call returns the comment **trees** for every inbox channel plus the live `structure.channels`. **A non-zero exit wrote nothing** — surface it and advance no watermark. The command prints the payload path as its last stdout line.
 2.  **Check `channelsResolved`.** `false` means the project's inbox milestone name did not resolve and the channel set came back empty. Say so and re-fetch with `PROJECT_FETCH_INBOX_MILESTONE=<the project's inbox milestone>`, rather than proceeding as though the project had no channels.
-3.  **Apply the filter below to the payload.** It removes, in one pass: every comment whose body leads with a marker from the vocabulary, and every **anchored** comment (`quotedText != null`, which annotates a ticket's *description* rather than the firehose). It walks **every node at every depth**, because a reply is itself signal, and it withholds a **root** whose thread carries a marker-led comment anywhere beneath it: disposition is a property of the thread, so the parent of a groom reply is not new signal. The root alone is withheld; its non-marker descendants are still emitted.
+3.  **Apply the filter below to the payload.** It removes, in one pass: every comment whose body leads with a marker from the vocabulary, and every **anchored** comment (`quotedText != null`, which annotates a ticket's *description* rather than the firehose). It walks **every node at every depth**, because a reply is itself signal, and it withholds a **root** whose thread carries a marker-led comment anywhere beneath it: disposition is a property of the thread, so the parent of a groom reply is not new signal. On such a thread a non-marker descendant is emitted **only when it was created after the thread's latest marker-led reply**: an earlier one was in front of whoever wrote that disposition, so returning it would hand the caller an echo of something already decided. A later one is someone answering the disposition and drains.
 4.  **Dedup by comment id** against the caller's own raw input log, and write the surviving set there **before** advancing anything the caller tracks (`¶INV_WRITE_BEFORE_WATERMARK`).
 5.  **Degrade in one line.** A missing CLI, a non-zero fetch, or an unresolved channel set → say which, and hand control back. Absence is a normal state and must be **visible**: a caller that could not drain says it could not drain, and never reports an empty channel instead.
 
@@ -80,6 +80,13 @@ def leads_with_own_marker:
 # whole root as dealt with. Keyed on the marker, never on resolvedAt.
 def dispositioned: any((.children // []) | flatten_tree[]; leads_with_own_marker);
 
+# The latest marker-led reply is the disposition that had every earlier reply in front of it, so
+# an earlier reply is an echo and only a later one is new. null when the thread carries no marker.
+def last_marker_at: [ (.children // []) | flatten_tree[] | select(leads_with_own_marker) | .createdAt ] | max;
+def after_last_marker($root):
+  ($root | last_marker_at) as $t
+  | if $t == null then . else map(select((.createdAt // "") > $t)) end;
+
 # Selected by the INBOX_WALK environment variable; unset means new-signal.
 #   new-signal  (default) the flat set of new human signal.
 #   open-threads  every unresolved root with a `dispositioned` flag, so a deliberately-open
@@ -99,9 +106,10 @@ def dispositioned: any((.children // []) | flatten_tree[]; leads_with_own_marker
             id, author, createdAt, dispositioned: dispositioned, body }
       else
         (.comments // [])[] as $root
-        # A dispositioned root is withheld; its non-marker descendants are still flattened in.
+        # A dispositioned root is withheld, and so is every reply the latest marker already answered;
+        # a reply after that marker is new signal and drains.
         | (if ($root | dispositioned) then [] else [$root] end
-           + ($root.children // [] | flatten_tree))[]
+           + ($root.children // [] | flatten_tree | after_last_marker($root)))[]
         | select((.quotedText // null) == null)
         | select(leads_with_own_marker | not)
         | { channel: $ch.channel, channelTitle: $ch.channelTitle,
@@ -127,7 +135,7 @@ Markers are emoji-led wherever a bare word would collide with a human reply that
 **Constraints**:
 *   **The two halves are one contract.** This atom is the reading half. The writing half is the caller's: every reply it posts onto a channel leads with the marker this atom gives its outcome. A caller that gains a new disposition and not a new marker has reopened the leak, whatever this filter does.
 *   **A marker is matched on the body's leading text, never on the author, and one marker-led comment anywhere under a root withholds the whole thread.** Matching an emoji-led marker on the whole phrase rather than the sigil is how a reply in the family escaped a table it was already in: `⏳ still marinating` drained as fresh human signal for two days while the vocabulary agreement and the writer-side lists all read clean, because the marker *was* in the table and the reply *was* in the family. A writer re-phrases prose; it does not re-pick the emoji. The cost is accepted and stated rather than discovered: a **human** reply that happens to open with a marker word suppresses its entire thread, not only itself. A root *"Totals wrong on report"* with the human reply *"→ same thing on the Friday export, attaching a screenshot"* drains nothing, and `INBOX_WALK=open-threads` then lists it `dispositioned: true`, so a live human signal reads as groomed. `→` is the sharpest case because people use it constantly. That is why the emoji-led markers exist, and why `candidate`, `seems like` and `→` are the three worth watching. `scripts/tests/test-inbox-read-cmd.sh` pins this behaviour so a change to it is deliberate.
-*   **Never filter on resolved state** (`¶INV_RESOLVE_ON_DISPOSITION`). A resolved thread is *dispositioned*, not closed to input, so a new reply on one is live signal and drains like any other. Surface it prominently — it is usually someone correcting a triage the system got wrong.
+*   **Never filter on resolved state** (`¶INV_RESOLVE_ON_DISPOSITION`). A resolved thread is *dispositioned*, not closed to input, so a new reply on one is live signal and drains like any other. Surface it prominently — it is usually someone correcting a triage the system got wrong. **New means after the thread's latest marker-led reply**, read from `createdAt` and never from `resolvedAt`: a reply that predates that marker is an echo the disposition already answered, and on a real Product: Handbook fetch five such echoes were the whole of what the drain returned from its channels. The cost, accepted: a human reply posted between a `🔎 needs-triage` and its `✅ result` is treated as answered by the result.
 *   **The still-owed walk is a different question from the drain.** Resolution is a property of a **thread**, so a reply reads `resolvedAt: null` forever and a recursive walk overstates what is open by roughly the reply count. A caller asking what is still owed runs the fence with `INBOX_WALK=open-threads`, which reads **root comments only**, from a fetch with **no `since`**, and does not reuse the flattened set. Listing by `resolvedAt` there is a read of thread state for a human, not a drain filter: suppression from the drain keys on the marker-led descendant, so `¶INV_RESOLVE_ON_DISPOSITION` is not touched.
 *   **The payload never enters the caller's context.** It is written to `out` and processed with `jq`; a single longform drop runs to tens of kilobytes.
 *   **Do not copy the fence into a caller, an asset, or a handbook**, and do not write a second filter anywhere. A second *filter* is the defect this atom exists to remove, and the exclusion leaks at whichever copy was not updated. A caller's writer-side marker list is not such a copy and is left alone.

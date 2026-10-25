@@ -29,18 +29,19 @@ trap 'rm -rf "$TMP"' EXIT
 # The fixture: an `engine project fetch --out` payload, shaped from
 # scripts/linear-lib.sh (comment TREES with `children`) rather than guessed.
 #
-# Survivors by design: c3, c8, c10, c12, c13. Each is a named divergence input —
+# Survivors by design: c3, c8, c12, c13. Each is a named divergence input —
 #   c3  fails this suite if the filter PRUNES a subtree instead of flattening it
 #   c8  fails it if a reply-less human root is over-dropped (a sibling of c1/c4/c5/c7)
-#   c10 fails it if the marker search stops at direct children: c9's only marker (c11) sits under
-#       the human reply c10, so c9 is withheld and c10 survives
+#   c9  fails it if the marker search stops at direct children: c9's only marker (c11) sits under
+#       the human reply c10, so c9 is withheld. c10 is withheld too, as an echo: it predates c11,
+#       the marker reply that answered it (c3, after its thread's marker c2, still drains)
 #   c12 fails it if any root with any reply is withheld: c12's replies are all human, so c12 and
 #       c13 survive
 #   c14 pins the accepted cost: its human reply c15 opens with the marker word `→`, so the whole
 #       thread is withheld and nothing from it drains
 # Withheld roots by design: c9 and c14 (above) and c1 and c5, which are human drops whose thread carries a marker-led reply
 #   (c2, c6), so the thread is dispositioned and the root is not new signal.
-# Exclusions by design: c2 (the live leak), c4, c6, c7, c11, c15.
+# Exclusions by design: c2 (the live leak), c4, c6, c7, c10 (echo), c11, c15.
 # ------------------------------------------------------------------
 write_payload() {
   cat > "$TMP/payload.json" <<'JSON'
@@ -263,10 +264,10 @@ test_08_root_whose_only_reply_is_an_own_comment_is_withheld() {
   assert_not_contains "c6" "$ids" "the own-comment reply under c5 stays excluded"
 }
 
-test_09_exactly_the_five_human_nodes_survive() {
+test_09_exactly_the_four_human_nodes_survive() {
   local n
   n="$(run_filter | grep -c '^c[0-9]*$')"
-  assert_eq "5" "$n" "exactly five nodes survive (c3, c8, c10, c12, c13) — no over-drop, no under-drop"
+  assert_eq "4" "$n" "exactly four nodes survive (c3, c8, c12, c13) — no over-drop, no under-drop"
 }
 
 test_09a_marker_under_a_human_reply_withholds_the_root() {
@@ -274,7 +275,7 @@ test_09a_marker_under_a_human_reply_withholds_the_root() {
   ids="$(run_filter)"
   assert_filter_ran "$ids" "a marker at depth 2 withholds its root" || return
   assert_not_contains "c9" "$ids" "a root whose only marker sits under a human reply is withheld (whole subtree, not direct children)"
-  assert_contains "c10" "$ids" "the human reply that carries the nested marker still drains"
+  assert_not_contains "c10" "$ids" "the human reply under the nested marker predates it, so it is an echo and does not drain"
 }
 
 test_09b_root_with_only_human_replies_survives() {

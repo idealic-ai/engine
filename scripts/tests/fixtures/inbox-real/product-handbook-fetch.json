@@ -1,0 +1,1308 @@
+{
+  "project": {
+    "id": "1aeb0e20-d6b9-410f-9e9b-605c0394f170",
+    "name": "Product: Handbook",
+    "url": "https://linear.app/idealic/project/product-handbook-af540b1714ea"
+  },
+  "since": "",
+  "fetchedAt": "2026-10-25T10:05:47Z",
+  "channelsResolved": true,
+  "structure": {
+    "milestones": [
+      {
+        "id": "cf4cbd86-d6ba-4c3d-9537-54594f1b9ec4",
+        "name": "Inboxes"
+      }
+    ],
+    "channels": [
+      {
+        "id": "049d5cf9-2e3f-46b0-af93-9317e1a3b09a",
+        "identifier": "IDE-64",
+        "title": "🟣 Feedback & Transcripts",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "cd5d5abf-6bcf-4fd5-a4e5-c3037a410ff4",
+        "identifier": "IDE-63",
+        "title": "🟡 Researches & Fixtures",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "39787a6b-8b27-4ff2-9750-3197f049e0dd",
+        "identifier": "IDE-62",
+        "title": "🔵 Feature requirements",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "c0170101-770c-4441-b3bd-bec5e6042a85",
+        "identifier": "IDE-61",
+        "title": "🟠 Identified shortcomings",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "1d312d99-b068-4038-9d10-e8da79114996",
+        "identifier": "IDE-53",
+        "title": "🟪 Inquiries",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "a49424a1-8c4f-40de-96d8-89ddbe57d9ed",
+        "identifier": "IDE-52",
+        "title": "🟢 Potential solutions",
+        "milestone": "Inboxes"
+      },
+      {
+        "id": "d43ca206-55c6-4ff7-bd00-0b79ff7f521c",
+        "identifier": "IDE-51",
+        "title": "🔴 Observed problems",
+        "milestone": "Inboxes"
+      }
+    ]
+  },
+  "tickets": [
+    {
+      "id": "500a54af-5f9f-4c51-828b-62a5731e9552",
+      "identifier": "IDE-173",
+      "title": "The repo page leaves the handbook, explains landing plainly, and keeps its questions in the new shape",
+      "url": "https://linear.app/idealic/issue/IDE-173/the-repo-page-leaves-the-handbook-explains-landing-plainly-and-keeps",
+      "state": "Done",
+      "priority": 0,
+      "milestone": null,
+      "createdAt": "2026-10-22T16:30:39.258Z",
+      "updatedAt": "2026-10-22T19:31:45.711Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "5eea7e87-dcd5-4e8e-b920-05d3736e96f7",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-22T19:31:40.795Z",
+          "body": "## Done: the landing guide is a root LANDING.md, and the old quiz type is gone\n\nOn `feature/reactor` as `0f27fb063..8f5015e1c`, pushed 2026-10-23 03:31 with every lane's go: 9 commits, linear, no merge commits. Closed by the docs hub while the operator slept, under the operator's standing instruction to keep going on judgement.\n\n**What landed**\n- `handbook/repo/landing.idea` is gone, and its content lives in a root `LANDING.md`, in plain markdown beside `PUBLISHING.md`, `PROOFS.md` and `CI.md`. Every fact was re-checked at the tip. All 12 questions still hold, and they're kept as a plain \"Check yourself\" list.\n- `LANDING.md` also carries Legal's REGFIX additions, which landed on the old page while this was in flight: the group id and its empty-path control, the trap that `--text` doesn't make a generated file reviewable, and \"per commit unless an owner asked for a group id\".\n- `¶handbook-question` and `handbook/handbook/vocabulary/question.idea` are retired. Pages use IDE-172's `¶question`.\n- These now point at `LANDING.md`:\n  - the pre-push hook's messages (wording only, on Xactimate's go);\n  - the scripts test that asserts them;\n  - `docs/LANDING_PROTOCOL.md`;\n  - the root README;\n  - `AGENTS.md`.\n- The ownership line (`docs/LIVE_MARKET_DIRECT.md:98`) names `LANDING.md` as Claims', as the operator ruled.\n- `handbook/_plan/VISION.md` states the `.husky/` rule as the ownership line does.\n\n**Checked at the pushed tip**\n- `check.mjs`: 0 broken.\n- `--self-test`: 27/27.\n- `inventory --check`: 0.\n- `inventory.test`: 10/10.\n- biome: 0.\n- scripts test: 29/29.\n- A grep for the old page and type finds nothing.\n\nThe review checked 12 facts and the 12 questions against the tip. All five lanes recomputed the shared-ground ids per commit: `LANDING.md` 9001b4c9, `AGENTS.md` c0532c26, `.husky/pre-push` fb474991, the scripts test 834db82a, the ownership line ab5b1410.\n\n**Left open**\n- `.directives/PITFALLS.md:99` is a stale rule about the hook standing aside, not a pointer. Legal routed it to Carrier.\n- Not exercised by anyone, though consistent with the exports: `LANDING.md`'s statement that the hook can't see a moved package file.\n\nThis push also carried the worlds pages for IDE-7, including the new `handbook/worlds/branch-stacks.idea`.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "c9eef5b9-6e7b-4ce7-ba2e-69a680d986aa",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-22T18:36:37.220Z",
+          "body": "Two corrections to this ticket from the build and its review, 2026-10-23.\n\n- **Where the page goes:** the operator ruled a root `LANDING.md` in plain markdown, beside `PUBLISHING.md`, `PROOFS.md` and `CI.md`. Its questions become a short uncompiled \"Check yourself\" list, and `¶handbook-question` is retired. **Owner:** Claims (the hub), per the operator. `LANDING.md` is being added to the hub's clause in the ownership line (`docs/LIVE_MARKET_DIRECT.md:98`) in the same go round.\n- **`docs/LANDING_PROTOCOL.md` is Claims' ground, not Xactimate's.** The ownership line names it among the hub's reference pages, and the description's non-goal had it wrong. It is re-pointed at `LANDING.md` in this change. The other shared paths re-pointed here, `.husky/pre-push` (wording only) and the `scripts/committed-imports-resolve.test.mts` messages, still go to their owners for a go.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-22T19:31:41.043Z",
+          "from": "Backlog",
+          "to": "Done"
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "9ddf3df4-515e-49df-a3d8-81959d6602e6",
+      "identifier": "IDE-172",
+      "title": "A handbook page can ask its reader a question in the same shape kit's agents use for questions",
+      "url": "https://linear.app/idealic/issue/IDE-172/a-handbook-page-can-ask-its-reader-a-question-in-the-same-shape-kits",
+      "state": "Done",
+      "priority": 0,
+      "milestone": null,
+      "createdAt": "2026-10-22T16:30:21.814Z",
+      "updatedAt": "2026-10-22T18:49:50.250Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "d7ac494e-0eb0-4404-aa36-629ab0348bd8",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-22T17:55:52.263Z",
+          "body": "## Done: handbook pages can ask their reader questions again\n\nOn `feature/reactor` as `043af5088..49a81a7f9`, pushed 2026-10-23 01:55. A page's questions sit in a `questions[]` list after its prose. Each question is the agent's shape (`title`, `description`, `answers[]` of `{title, description}`) with an optional `correct[]` of answer indices counted from 0.\n\n**What landed**\n- `handbook/handbook/vocabulary/reader-question.idea` declares `¶question`. `¶handbook-question` stays only because `handbook/repo/landing.idea` still uses it, until IDE-173.\n- `format.idea` has an `asking` section. It gives a fenced example and a live question that compiles, and states plainly what isn't checked.\n- `voice.idea` now says a page's prose is one block, with its questions after it, never inside it.\n- `handbook/market/hold-at-post.idea` carries the first real question. A permit of 10 with 6 held, then a cost-plus post with an estimate of 3 and a bid of 5: it is refused as `bad-permit`, because 6 + 5 = 11. That's `correct: [1]`.\n\n**How it changed on the way.** The first shape referred to answers by title. The build lane measured that the compiler checks nothing inside a `questions[]` list, so titles bought no checking, and the operator chose indices instead.\n\n**Two accepted costs**, both stated in `format.idea`:\n- No item in `questions[]` is checked against the shape, although a `§` mention inside one is still resolved and a bad one is refused.\n- An index doesn't move with its answer.\n\n**Checked**\n- At the pushed tip: `check.mjs` 0 broken, `--self-test` 27/27, `inventory.mjs --check` 0, `inventory.test.mjs` 10/10, biome 0.\n- Controls: `correct: [7]`, `correct: 1` and a question with no answers all compile. A misspelt `§question` and a bad `§` mention are refused.\n- Overseer confirmed the question's facts twice: `post.sql:54`, `:93-97`, `fixed-hold.test.ts:24`, `zero-estimate.test.ts:123-125`.\n\n**Follow-ups**\n- IDE-176 (Legal, Product: Editor): show questions in ideawriter, with answers hidden until the reader picks.\n- IDE-173: move the repo page out of the handbook and convert its questions.\n- Overseer adds a test pinning this exact refusal case in ideas-exchange.\n- When Scope's IDE-174 declares the agent's message shapes as .idea, the handbook cites it and drops its own `¶question`.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-22T17:55:52.522Z",
+          "from": "Backlog",
+          "to": "Done"
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "f8c23eaf-7f76-4fa8-bca6-0b335f6207c6",
+      "identifier": "IDE-143",
+      "title": "The handbook explains jobs and the market, worlds and branches, and the .idea language plainly, for a developer new to kit",
+      "url": "https://linear.app/idealic/issue/IDE-143/the-handbook-explains-jobs-and-the-market-worlds-and-branches-and-the",
+      "state": "Done",
+      "priority": 0,
+      "milestone": null,
+      "createdAt": "2026-10-20T10:07:40.217Z",
+      "updatedAt": "2026-10-22T16:30:39.582Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "8de64fc5-a92d-48c2-802c-fb4d76a39d70",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-22T15:59:58.922Z",
+          "body": "## Status: Done, with one page left to rewrite\n\n**TL;DR** The plain handbook pages are on `feature/reactor` (`f96814b0c..0651b77cb`, 16 commits, pushed 2026-10-22 23:38): the language tour and citations, jobs and the market (with hold-at-post and verdict), and the three worlds pages. The handbook check passes on them, Overseer and Legal checked the facts and every fix they asked for landed, and the quiz, Built/Intended and ledger checks are gone from the checker. One thing is not finished: the repo page, `handbook/repo/landing.idea`, still carries 12 quiz questions and 6 Built/Intended lines. The operator closed this ticket with that page as a separate follow-up (see Acceptance).\n\n**Covers:** everything since the 2026-10-21 direction comment, through the push at 23:38 on 2026-10-22. This is the closing update.\n\n### On-direction\n\nOn direction. The operator's 2026-10-21 direction asked for plain, one-idea pages for a developer new to kit, read in ideawriter, with no quizzes, no Built/Intended marks and no ledger lines, in the voice of `handbook/handbook/voice.idea`. The new pages follow it: the tour is down to 37 lines and explains the language through one worked example (`first-world.idea`), and the market and worlds pages each open with the idea in everyday words and then state the rules. Every page is written in the `name: value` spelling that IDE-101 introduced, and the \"lands after slice 1\" constraint was met, because slice 1 landed at 19:15 (`aae59711e..e97c7603d`), well before this push.\n\nTwo things widened the scope a little, and both were approved by every team that owns a shared file: a one-line ownership update in `docs/LIVE_MARKET_DIRECT.md` (`39ceb1584`) and a date-time note in `CONTRACTS.md` (`b769f95e9`). Both are content-identical to the versions each team approved.\n\n### What landed\n\nIn reading order, as `handbook/README.md` now lists them:\n\n- **The .idea language**: `handbook/language/tour.idea` (\"A member line is a name, a type and a title\") and `handbook/language/citations.idea`.\n- **Jobs and the market**: `handbook/market/jobs.idea` (how a job moves through the market), `hold-at-post.idea` (money is set aside when a job is posted) and `verdict.idea` (a fixed-price job is paid only when its delivery is accepted).\n- **Worlds and branches**: `handbook/worlds/branch-reads.idea`, `branch-fold.idea` and `branches-merge.idea`, which replace the old single worlds page.\n- **The handbook's own pages**: `voice.idea`, `page-template.idea`, and calmer wording in `page-standard.idea`, which stays a measurement of shoparc rather than a style rule.\n- **The cleanup**: the claim ledger (`ledger.mjs` and its test), the quiz checks in `check.mjs`, the copy-checking helpers (`copyOf` and friends), 27 quiz specimens and the Questions and Built/Intended rules in `format.idea` were removed. On the trunk before this push the handbook check reported 28 problems, all of them leftovers of that machinery; it now reports none. `plugins.idea` keeps its place because it describes Legal's registration layer (IDE-141), which the cleanup did not touch.\n\n### Verified\n\nRe-run at `0651b77cb` on 2026-10-22:\n\n- `git ls-remote origin refs/heads/feature/reactor` → `0651b77cba4eb24b0457719b5ccbf70900f6f64f`, the landed tip itself.\n- `git rev-list --count f96814b0c..0651b77cb` → 16.\n- `node handbook/handbook/check.mjs` → exit 0: \"25 rules on format.idea, 29 specimen entries: 22 held, 7 skipped, 0 broken\".\n- `node handbook/handbook/check.mjs --landed IDE-101` → exit 0, same counts.\n- `node handbook/handbook/check.mjs --self-test` → exit 0: \"27 of 27 mutants run turned the check red; 0 of 27 not run\", and the unplanted copy is clean. This proves the check still catches each kind of fault it is meant to catch.\n- `node handbook/handbook/inventory.mjs --check` → exit 0: 53 files, 29 rows, 0 pages nothing links to.\n- `node --test handbook/handbook/inventory.test.mjs` → 10 tests, 10 pass.\n- `npx biome check handbook/` → exit 0.\n- Spot checks that the fact fixes are on the pages at the tip: jobs.idea:26 says a lapsed lease sends \"a fixed-price job back to the queue\"; verdict.idea:23 says \"at most one verdict\"; verdict.idea:4 says \"only a yes pays anyone\"; tour.idea:33 now lists \"a number, boolean, null, list or object\"; branches-merge.idea:8 and :25 compare main with the version as it \"was saved\"; branch-reads.idea:2 and :27 name the host's `arm` placement; citations.idea:18 limits the pointer reading to \"a stored resource\".\n\n### Acceptance\n\n1. **The three pages are on `feature/reactor`, and the handbook check compiles them clean. Met.** The language, market and worlds pages are at `0651b77cb` on origin, and the check passes with 0 broken (above).\n\n2. **Overseer and Legal have confirmed the jobs page, Legal has confirmed the merge facts and reviewed the tour. Met, recorded here.**\n   - **Overseer, market pages** (relayed to the docs hub at about 20:57 on 2026-10-22; there is no separate report file, only the hub's log entry): hold-at-post's five facts (A to E) confirmed as written. jobs.idea and verdict.idea needed five word fixes: an offer usually, not always, names a price (jobs:6); a lapsed job keeps its place in the queue and the lapse is counted (jobs:17); only a fixed-price lapse holds the full price again (jobs:26); a delivery takes at most one verdict (verdict:23); only a yes pays anyone (verdict:4). All five landed in `5462f5c27`, and a review pass tightened jobs:17 and verdict:2 in `2a822f3ef`. Overseer also called verdict:25 (it leaves out the gate's exception) minor; that line is unchanged.\n   - **Legal, tour, citations and worlds pages** (Legal's fact-check report dated 2026-10-22, checked against `dca00627c`): 77 claims checked, 5 false, 1 unverifiable and 3 true but needing a qualifier. Legal's verdict, as relayed at 23:21: \"with fixes, no objection\". The merge facts were among the false ones: the merge compares main with the base the reviewed version was saved on, not the base the branch was cut from, and that base moves with every save. Every fix landed in `0651b77cb` (tour :8, :26, :33; citations :18; branch-reads :2, :4, :27; branches-merge :8 and rule :25).\n\n3. **The dropped machinery is gone, and nothing still refers to it. Met for the checker, not met for one page.**\n   - Gone: the ledger, the quiz checks, the copy checks, the quiz specimens, and the Questions and Built/Intended rules. A search of the tip finds no reference to `ledger.mjs`, `copyOf`, `questionProblems` or `overQ1` anywhere under `handbook/` or in the build scripts.\n   - Still there: `handbook/repo/landing.idea` carries 12 `§handbook-question` members (lines 26 to 280), 6 `Built:` / `Intended:` lines (:25, :209, :213, :219, :279, :298) and a section named `ledger` (:299). It still compiles, because `handbook/handbook/vocabulary/question.idea` and its entry in `check.mjs`'s `VOCABULARY` list (:35) were kept, so nothing checks those questions any more.\n   - Also still there: `ui/examples/ideaide/structure.fuzz.test.ts:319-343` lists 24 deleted quiz specimens in its skip list. That test is Legal's, and Legal has taken the list into its own retirement of ideaide.\n\n   The operator closed this as Done, with the landing page rewrite as a separate follow-up, since it is a page rewrite with its own facts to check.\n\n### Confidence & fragility\n\nHigh for what landed and what passes: the remote tip, the commit count and every check were measured at the tip, not copied from the build report. The Overseer confirmation is less direct, since it survives only as the hub's summary; the five fixes it names all match the landed text. Two pieces are fragile: the worlds pages will need new sentences when IDE-7 lands, and `plugins.idea` describes the registration layer \"as of 2026-10-20\", so it goes stale when IDE-141 lands.\n\n### Leftovers & followups\n\nGuidance only; nothing here is filed yet.\n\n- **Rewrite `handbook/repo/landing.idea` plainly.** Drop its 12 questions, its 6 Built/Intended lines and the `ledger` section, keep its facts true at the tip, then remove `vocabulary/question.idea` and its `VOCABULARY` entry in `check.mjs`. The 2026-10-21 comment's open question still stands: the repo page may belong in a contributing area rather than the handbook.\n- **Say why someone would write a .idea.** The tour teaches how a file reads but not what it buys you. Finished prose for this exists in [the IDE-61 comment that raised it](https://linear.app/idealic/issue/IDE-61#comment-92a82051); it was written against an older tip in the old spelling, so its facts need re-checking before use.\n- **Worlds pages after IDE-7.** Legal's report lists the sentences stacked branches would change: branch-reads :6, :8, :23 and :28, branch-fold :4, :6 and :26, branches-merge :4, :19 and rule 27, plus a new sentence for \"a parent with an open child cannot be closed\". IDE-7's own handbook edit targets the old worlds page, so it has to be rewritten against the three new pages.\n- **tour.idea:8, Legal's wording note.** It still says \"a value that reads as JSON is held as JSON\"; Legal suggested \"a number, true, false, null, a list or an object is held as that value\". The rule at :33 already has the exact version.\n- **verdict.idea:25** leaves out the gate's exception to the timer (`verdict.sql:100-101`). Overseer called it minor.\n- **`plugins.idea`** says \"As of 2026-10-20\" (:5 and :91). Update it when IDE-141 lands.\n\n### Findings\n\n- The skipped specimen `g1-kind` does not need un-skipping yet. A self-test line reads \"NOW HOLDS: un-skip it\", but it comes from a planted case that pretends IDE-141 has landed. The real check says g1-kind is still refused; un-skip it when IDE-141 lands.\n\n### Supersedes\n\n- The [2026-10-21 finding](https://linear.app/idealic/issue/IDE-143#comment-65be5e3d) that `tour.idea:46` misstates why the first world uses plain `obj` roots no longer applies: the rewritten tour has 37 lines and no such passage.\n\n### Links\n\n- Pushed range: `origin/feature/reactor` `f96814b0c..0651b77cb` (16 commits).\n- Shared-file commits: `39ceb1584` (ownership line), `b769f95e9` (`CONTRACTS.md` date-time note).\n- Fact-fix commits: `5462f5c27` (Overseer), `0651b77cb` (Legal). Cleanup: `ef663a519`. Review fixes: `2a822f3ef`.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "2f9bfbeb-6bee-4cfc-8e54-d6bb7084b66a",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-21T13:31:20.819Z",
+          "body": "The direction for these pages has changed. The operator wants the handbook to be plain, domain-specific docs for developers new to kit, read in ideawriter. So the pages drop their Built and Intended lines and their quiz questions, and they are written in the team's new voice: the main idea first in everyday words, then what happens and why, with small real examples.\n\nThe three pages, the .idea language, jobs and the market, and working in the repo, will be rewritten that way. One open question for the rewrite: the operator also moved meta pages out of the handbook, so the repo page may land in a contributing area instead. The description above still shows the old shape and gets updated when the rewrite starts.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "65be5e3d-91df-4245-b3ad-9864e900aeaa",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-21T04:21:45.872Z",
+          "body": "[OPS2] A triage on IDE-51 confirms that the first world must use plain `obj` roots for now: `check.mjs` refuses a page citing `§idealic/resource` by design, pending a hub ruling. It also found that `tour.idea:46` misstates why. The second compile does load the resource vocabulary; it is the first compile that refuses. [Finding](https://linear.app/idealic/issue/IDE-51#comment-be6d1890)",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-22T16:00:30.218Z",
+          "from": "Backlog",
+          "to": "Done"
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "976310d1-231d-48bd-81d0-90908c5a67e9",
+      "identifier": "IDE-94",
+      "title": "One handbook page opens inside the ideas app at `/handbooks/<name>`",
+      "url": "https://linear.app/idealic/issue/IDE-94/one-handbook-page-opens-inside-the-ideas-app-at-handbooksname",
+      "state": "Done",
+      "priority": 0,
+      "milestone": null,
+      "createdAt": "2026-10-20T04:07:20.458Z",
+      "updatedAt": "2026-10-23T12:59:15.106Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "1b2bb4c6-068e-4779-a9af-b143639faf41",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-23T12:59:22.543Z",
+          "body": "**Follow-up landed on `feature/reactor`: `693b04065..f898d18f0`, six commits, each with Legal's go by patch-id.** A handbook page's body now renders its Markdown instead of showing it literally, and `GET /handbooks` lists every page. The built kit-ideas image serves both routes from inside its container.\n\n- `d4f261fb3` (aab61c5b): ui's Markdown parser moves to a module without React (`ui/src/page/view/markdown-parse.ts`), so the server can read the parsed tree without bundling React. The server bundle still has no React inputs.\n- `d8a2d0abb` (286c58fb): `world-runner/src/handbook.ts` renders that tree to HTML with every value escaped. A link whose address is unsafe keeps only its words. The image's allowlist admits the one new file.\n- `52247347d` (9ac5e189): `GET /handbooks` goes through the page route's existing handler, so it gets the same readiness check, admission, rate limit and headers.\n- `47af37f9b` (4f7d6c5d), `c9091496c` (b752f21d), `f898d18f0` (7061d0c5): fixes from review. Tests now cover fenced and raw-HTML blocks being escaped and links not nesting. The parser module states that its strings are raw.\n\nEvidence:\n- 110 of 110 world-runner tests and 82 of 82 ui tests pass. Thirteen planted bugs were each caught by a failing test.\n- A review fed 29 hostile inputs through the real renderer, among them `javascript:` and `data:` links in many spellings, entity tricks, and quotes in links. Each one came out escaped or stripped of its link.\n- From inside the container, `/handbooks` answered 200 with 21 pages, `/handbooks/handbook-voice` drew bold text as `<strong>`, and an unknown page answered 404.\n\nThe proof page is attached.\n\nNot done:\n- `/handbooks/` with a trailing slash still answers 404.\n- A URL containing `)` is cut short by ui's link pattern.\n- `world-runner/package.json` doesn't declare `@idealic/ui`; it resolves through hoisting. Legal holds this as a follow-up, since the change moves the shared lockfile.\n- This ticket's acceptance lines still say `/handbook/`; the route is `/handbooks/`.\n\nNext is grouping the index by book, with the vocabulary entries listed as a glossary. That change is in review.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "d34fd7f1-1e55-4cca-8b29-6b6e848604ca",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-23T10:56:21.432Z",
+          "body": "**Landed on `feature/reactor`: `4a76e0024..923bb030c`, then `3413cddab..56b6f4086`.** Built by the docs hub; Legal gave the go on every commit by patch-id. Handbook pages now open inside the ideas app at **`/handbooks/<name>`**. The route is plural because the operator ruled on 2026-10-23 that \"all resources are plural\". There is no alias, and `/handbook/<name>` answers the server's ordinary no-route 404.\n\n**Acceptance, each with a test that failed before and passes after:**\n- [x] `GET /handbooks/<name>` returns the title, summary, audience and durability labels, the escaped body, and each mention as a link. A fixture puts markup and quotes in every drawn part, and the test checks each is escaped.\n- [x] A page whose mention is misspelt refuses alone, with a 500 naming the nearest name. Its neighbours still answer 200.\n- [x] An unknown name, an undecodable one and an empty one get a not-found page. If the handbook folder is missing, the server answers a fixed 500 with no path in it and logs `handbook-unavailable`.\n- [x] The route test runs on the real specimen `specimens/h1-header-refs.idea`, plus the default handbook the build ships, with nothing skipped. A 429 test pins guest admission, which is the same as `/contact`'s.\n\n**Commits** (per-commit patch-id from `git show --text <sha> | git patch-id --stable`): `093669169` d8f14bd30632 · `8afdf368a` b9fb3d89452e · `1ff680dec` 4db661e60d9a · `48ac2435c` 0a44b8938457 · `fb8df3820` 73686b086575 · `c6cb7c52c` eb75347f409e · `923bb030c` 162f139497cf · `56b6f4086` (the rename) bb3208a5c561.\n\n**Checks:** 99 tests across handbook, handbook-route, image-allowlist, guest-routes, server, page-route and guest-contact; biome 0; `handbook/handbook/check.mjs` 0. The handbook compiles as its own set at server startup. The proof page is attached; it was built before the rename, so its captures show the singular path.\n\n**Not done:**\n- No `docker build` was run. The image change was tested with a local bundle and the allowlist test.\n- Markdown in a page body shows as literal text.\n- There is no `/handbooks` index page.\n- `agent-host-order.mjs` fails `1338 >= 1338`. It was already failing at base (`1337 >= 1337`).\n- The `.dockerignore` rule also admits `.idea` files that are never compiled.\n- A dev server shows stale pages until it restarts.\n- Vocabulary entries that cite `§doc` open as pages too.\n\n*Seat: Claims (docs hub).*",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "7966e942-e8f2-48a7-a257-4aaa34da7d79",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:55:45.671Z",
+          "body": "**Status 2026-10-20 (Legal).** Built in its own worktree (kit-wt/docsframe), not landed. Commits: `7be83658b` (route, loader, renderer; patch-id 988ae87da193) and `59bd8ecd2` (the kit-ideas image ships handbook/; patch-id b5a2e21ead47), on 53e3c6913. Tests: handbook.test.ts 12/12; handbook-route.test.ts 6/6 on a real SQLite world through the guest door, covering 200, 404 naming the page, 429, and a misspelt mention giving 503 with a single log line; image-allowlist 10/10. Each of 4 planted mutants was killed. A review lane is running now (security of every rendered field, guest-door parity, a real `docker build` probe, rebase over the tip). Landing follows its verdict. Known gap, outside this ticket: the image-allowlist test's model of `handbook/**/specimens` doesn't match a real docker build (the shipped .dockerignore is correct). Proof: docsframe-build-a3c2a110 (local proofs store; opens on the operator's machine only).",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-23T10:56:24.612Z",
+          "from": "Backlog",
+          "to": "Done"
+        }
+      ],
+      "attachments": [
+        {
+          "id": "f8c6646f-83b7-466e-88e4-57748217fb79",
+          "title": "Proof: handbook pages draw Markdown, /handbooks index",
+          "url": "https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/0a411185-a5c6-48e6-8938-1a7f218857f8/258c040d-df5f-45fa-b0aa-8d118d9e0956"
+        },
+        {
+          "id": "2cad212a-a775-4e28-bb2e-210014c5aafd",
+          "title": "IDE-94 proof page (fix round)",
+          "url": "https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/7288855a-a68c-4c1e-ab78-725c5120b57e/ffbc13e2-f6a0-45ab-98be-36eae59cb969"
+        }
+      ],
+      "isChannel": false
+    },
+    {
+      "id": "049d5cf9-2e3f-46b0-af93-9317e1a3b09a",
+      "identifier": "IDE-64",
+      "title": "🟣 Feedback & Transcripts",
+      "url": "https://linear.app/idealic/issue/IDE-64/feedback-and-transcripts",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:49:49.152Z",
+      "updatedAt": "2026-10-20T05:56:59.812Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "cd5d5abf-6bcf-4fd5-a4e5-c3037a410ff4",
+      "identifier": "IDE-63",
+      "title": "🟡 Researches & Fixtures",
+      "url": "https://linear.app/idealic/issue/IDE-63/researches-and-fixtures",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:49:43.036Z",
+      "updatedAt": "2026-10-20T05:56:55.431Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "39787a6b-8b27-4ff2-9750-3197f049e0dd",
+      "identifier": "IDE-62",
+      "title": "🔵 Feature requirements",
+      "url": "https://linear.app/idealic/issue/IDE-62/feature-requirements",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:49:37.800Z",
+      "updatedAt": "2026-10-20T05:56:51.248Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "c0170101-770c-4441-b3bd-bec5e6042a85",
+      "identifier": "IDE-61",
+      "title": "🟠 Identified shortcomings",
+      "url": "https://linear.app/idealic/issue/IDE-61/identified-shortcomings",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:49:31.419Z",
+      "updatedAt": "2026-10-25T07:30:31.569Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "92a82051-2e84-4ec3-9c4c-441fe8fab47b",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-22T12:19:22.468Z",
+          "body": "**2026-10-22, Xactimate.** Sits in: **a seat's section** — `handbook/language/` — and bears on **[IDE-143](https://linear.app/idealic/issue/IDE-143)**, which already owns the missing half. Owner seat: Claims holds the handbook root and format; this content is language-section material.\n\n**The gap.** `handbook/language/tour.idea` is landed, tagged `§for-strangers`, and does what it says: it teaches a newcomer how a `.idea` file *reads* — a first world, the shapes a line can take, mentions, what the compiler refuses. What it does not do is say **why anyone would write one**. A reader finishes it knowing the notation and not knowing what the notation buys them.\n\n**Why it bites, and who it costs.** The reader this page names first is \"a person deciding whether kit is for them\". That reader learns the syntax of a thing whose point was never stated — the deliverable being what you *did not* write, a `=>` hole handed out as work, that work going to a market rather than a queue, and what stops the whole arrangement running away with your system. Someone deciding whether kit is for them is deciding on the wrong half.\n\n**Evidence.** Measured over `origin/feature/reactor:handbook/language/tour.idea` (27,590 bytes) at trunk `4d0722231`:\n\n- `market` → **0 hits**\n- `why you would` → **0 hits**\n- `hole` → **9 hits** — so holes are present as notation, and the *economy* around them is not\n- control term → **0 hits**, and the page is readable by the same invocation, so the zeros above are real absences rather than a blind instrument\n\n**This is not a request for new writing.** The missing half already exists as finished prose, in a `README.md` rewrite on an unpushed commit (`aa136b225`, branch `feature/reactor`) that was **deliberately dropped today** by operator decision in favour of trunk's `# kit` README. The decision was right — trunk's README is newer and another seat's — but the explainer content in it has no home, and `git show aa136b225:README.md` is a recovery path rather than a home. It is attached here so it survives the commit:\n\n[📄 idea-explainer-from-aa136b225.md](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/1b7239fa-1522-47a4-946b-85df5c405e00/d3ebf5e7-daa2-4f86-a50d-7cf51ee61d3b)\n\n**Where it goes — fold, do not file.** IDE-143's `## What's left` already carries \"**Jobs and the market**: a new page, written from what the exchange's SQL and tests do at the tip.\" That is this material's destination. Two cautions if anyone lifts from the attachment: its facts were written against an older tip and IDE-143 requires every fact to be true at the tip it lands on and sourced from code and tests rather than design documents, so this is **raw material to be re-verified, never text to paste**; and it is written in the pre-`name: value` spelling, which IDE-143's own constraint rules out.\n\n**What I got wrong, recorded because the correction is the useful part.** I was one call from dropping this as \"nothing explains what `.idea` is\", which is false. My search for the definition over trunk returned zero because the pattern was a phrase lifted from **my own** text (`is a language for declaring`) — the tour says the same thing as \"kit's language for declaring things\" and was invisible to it. My positive control passed and proved only that the ref was readable, never that the pattern could see a paraphrase. What caught it was IDE-143 appearing in a channel listing I was reading for an unrelated reason. A pattern shaped around the author's own wording is not an instrument.\n\n**One thing this drop does not claim:** whether the tour is the right page to carry the \"why\", or whether it belongs on its own page beside it. That is a format call and Claims holds the format.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-23T08:01:21.599Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "bf8646fb-6ef1-44d9-816e-286cbeffcee3",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-23T08:01:11.945Z",
+              "body": "→ shipped on trunk (2026-10-23, docs hub). `handbook/language/holes.idea` now carries the missing half, what a `.idea` file buys you once it holds work it doesn't write itself. It was landed in `53ec168fd..ea1c54f8e` and revised to the operator's job model in `ec0e73d21..61cec516a`. An arrow (`=>`) describes behaviour over a resource's life. Work that costs money is paid by the nearest declared `job` and owned at that level. A **hole** is the part of a definition a define job finishes. Each statement says whether it's built or the aim. The operator's rulings are recorded in [IDE-44 comment 85633a10](https://linear.app/idealic/issue/IDE-44/inquiries#comment-85633a10), and the first chunk of building it is [IDE-179](https://linear.app/idealic/issue/IDE-179). The attached explainer was used as raw material only, and every fact was re-checked against the code at the tip. *Seat: Claims.*",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "67915f31-75a6-486e-9809-5367a222e43a",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-22T16:25:28.518Z",
+              "body": "**Correction to the comment above, posted ~4 hours later. Its load-bearing premise has expired.** Leaving the original in place rather than editing it, so the record of having been wrong stays legible — which is the form `builds/HARVEST.md` uses for the same situation.\n\n**What the comment above says:** that `handbook/language/tour.idea` is a landed 27,590-byte page tagged `§for-strangers`, teaching a newcomer how a `.idea` file reads — and that therefore the gap is narrow: the tour covers mechanics and only the *why would anyone write one* half is missing.\n\n**Measured at `origin/feature/reactor` `0651b77cb`, 2026-10-23 00:20:** `handbook/language/tour.idea` is **3,611 bytes**, tagged **`§doc §for-developers §evergreen`**, titled *\"A member line is a name, a type and a title\"*. It is **not** `§for-strangers` and it is not the tour the comment above describes. Over it: `hole` → **0** hits where I measured 9; `market` → 0; `why you would` → 0; impossible-term control → 0. **Positive control:** `handbook/handbook/format.idea` resolves through the same command on the same ref at 13,675 bytes, so the lookup sees that directory — this is a replaced file, not an unreadable reference.\n\n**What happened:** trunk replaced it in `1b80c78bd` (2026-10-22 12:40, *\"the .idea language in two plain pages — a member line is a name, a type and a title; a citation name…\"*) and refined it in `0651b77cb` (23:23, Legal's fact check). The 27,590-byte `§for-strangers` edition survives **off trunk only**, on branch `voiceland` and in a detached worktree. `§for-strangers` still appears in 8 files on trunk — just not in the tour.\n\n**So the comment above measured a real file and the file has since been replaced.** My measurement was taken at ~20:00 and was true then; the page it described is no longer what trunk serves.\n\n**What I am NOT claiming.** I have **not** measured whether the two plain pages that replaced it cover the stranger case between them, so I am not reinstating the original *\"nothing explains what `.idea` is\"* framing either. **Both the claim and its retraction are now unverified at the tip**, and the honest state is: this needs re-measuring by whoever picks it up, against a sha they record.\n\n**What still stands from the comment above, unaffected:**\n- The attached `idea-explainer-from-aa136b225.md` is unchanged and is still the only off-git copy of that prose. That was the point of attaching it.\n- [IDE-143](https://linear.app/idealic/issue/IDE-143) still owns the destination, its *\"Jobs and the market\"* page is still unwritten, and the material is still raw material to re-verify rather than text to paste.\n- The spelling lesson still stands, and is now doubly earned: my search missed the old tour because the pattern was a phrase lifted from my own text.\n\n**And the lesson the correction itself carries, which is the useful part:** a file-size-and-tag reading is a point-in-time measurement, and this one expired in **under four hours** on a tree that took **32 commits** the same day. A claim of that shape belongs with its sha and its clock time, not stated as a property of the repository. The comment above gave its date but not its sha, and the sha is what would have made the expiry visible.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "25b202ac-fa70-4764-97a6-2556a3ec6681",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:55:10.757Z",
+          "body": "**The gap:** the handbook's format rule for closed `ui:` choices cannot be written in a form that compiles today.\n\n**Why it matters / where it bites:**\n- **Part:** format. **Owner seats:** Claims for the rule, Legal for the grammar.\n- The operator ruled (A11) that `=` is for formulas only. The handbook rule U1 was therefore rewritten from `(ui: layout = wide)` to a colon form, `(ui: layout: wide)`.\n- The compiler's annotation reader accepts only `key` or `key=value` (`idea-script/src/compile.ts:317`, `parseAnnotations`, at `4bb34a5c3`). So on a member line only the `=` form compiles, and the colon form refuses with \"found `layout:`\". After a `§doc` citation, both forms refuse.\n- The operator has since said the target is an object form: \"its supposed to be {ui: {layout: wide}} right. we need to finalize this. moving and codemodding to new syntax\". The same rule covers `(doc: depth=2)`.\n- Legal's COLONVAL grammar series plans `word: {k: v}`. A probe (running) is settling whether that and the operator's `{ui: {layout: wide}}` are the same design, and how much the codemod covers (about 91–96 paren-group uses).\n\n**Evidence:**\n- The handbook follow-up branch `hbfollow-1020`: rule U1's specimen is skipped until the spelling is final.\n- A critique counted 32 lines outside `handbook/` that write `(ui: key=value)`, including `idea-script/docs/llm.md:1090`, so the teaching texts move too.\n- Reports: docs hub `builds/wave1020/HBFOLLOW.md` and `HBFOLLOW_CRITIQUE.md`. Proof page (local MinIO, opens only on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/hbfollow-handbook-4f469881.html",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "bc73dbcf-4bb0-4dcb-80d1-c7a0467488ee",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T12:32:45.421Z",
+              "body": "⏳ marinating — this waits on [IDE-127](https://linear.app/idealic/issue/IDE-127), the multi-line colon value (a line ending in `:` takes the indented lines under it as its value), still Backlog on 2026-10-20.\n\nWhy it is not ripe: rule U1 cannot be given a spelling that compiles until the colon grammar settles, and IDE-127 is the piece that decides how a colon value is read. Until then U1's specimen stays skipped, as it is on the trunk today.\n\nWhat has moved since this drop: the `{group: {key: value}}` ticket ([IDE-102](https://linear.app/idealic/issue/IDE-102)) was canceled, and the rule now rides COLONVAL's grammar ([IDE-101](https://linear.app/idealic/issue/IDE-101)) and the codemod ([IDE-25](https://linear.app/idealic/issue/IDE-25)). [IDE-21](https://linear.app/idealic/issue/IDE-21) keeps its \"`ui:` rule waiting\" line until then.\n\nRevisit when IDE-127 lands: write U1 in the landed form, un-skip its specimen, and resolve this thread. Left open on purpose. From the 2026-10-20 groom of Product: Handbook, confirmed by the operator.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "1d312d99-b068-4038-9d10-e8da79114996",
+      "identifier": "IDE-53",
+      "title": "🟪 Inquiries",
+      "url": "https://linear.app/idealic/issue/IDE-53/inquiries",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:43:00.917Z",
+      "updatedAt": "2026-10-25T08:00:34.694Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "96225ff5-7ead-450d-b67b-6bf558ed70cc",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-25T07:30:34.172Z",
+          "body": "**Who owns format rules H5 and H6 now that IDE-22 is cancelled?**\n\nThe ruling at [🟪 aabfc2e6](https://linear.app/idealic/issue/IDE-53/inquiries#comment-aabfc2e6) (2026-10-20) sent H4 to Legal's compiler and H5/H6 to the census, IDE-22. IDE-22 was then cancelled (marker 07768238), so H5 and H6 have no home. Their specimens are still skipped under the key \"unfiled\" at `handbook/specimens/manifest.mjs:23,28,33` on main `e5018903f` (relayed from the groom lane), and IDE-21 closed with them listed as leftovers.\n\n**The ask, for the operator**: should H5/H6 come to the hub (checked by `handbook/handbook/check.mjs`), go to Legal with H4, or be dropped from the format page? Until this is ruled they stay skipped, and the handbook check reports them as waiting on work nobody has filed.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "cc93a149-b39e-405f-b416-08efa55e3057",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-25T08:00:34.719Z",
+              "body": "Ruled by the operator, 2026-10-25: **the hub owns H5 and H6.** They are the handbook checking itself, so the hub takes them, and getting their specimens to run under `handbook/handbook/check.mjs` becomes hub work. H4 stays with Legal's compiler, as the 2026-10-20 ruling said. The hub will scope what H5/H6 need and re-key their skipped specimens from \"unfiled\" to the hub's own record.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "f4612914-fa40-493c-8ed5-0d994ae9592c",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-21T04:21:56.756Z",
+          "body": "[OPS2] A ruling for Claims (the hub) is wanted: should the handbook check keep its v1 world (`doc.idea` + handbook files), or let pages opt in to the idealic vocabulary so a world page can cite `§idealic/resource`? The plan's stated reason for the narrow world (a `¶world` collision) is stale. Its live job, refusing stray bare idealic words, argues for an opt-in rather than dropping the narrow run. [Finding](https://linear.app/idealic/issue/IDE-51#comment-be6d1890)",
+          "quotedText": null,
+          "resolvedAt": "2026-10-21T13:31:48.965Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "8f8bf073-23f9-47c8-b288-eaebce7084dd",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-21T13:19:34.334Z",
+              "body": "→ Claims: handed to Claims, who stewards the handbook and gate boards (Legal gives gos on any Legal rows), and the reply above already records the operator's ruling, so this thread is ready to resolve.\n\n(groom pass 2026-10-21 20:35 by Legal; record: groom-2035_DECIDE.md in Legal's builds)",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "3a89aa93-fd9a-4e6e-af8e-d0032ea092ae",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-21T04:54:10.043Z",
+              "body": "Ruled by the operator 2026-10-21: keep the narrow doc.idea-first compile. Handbook page worlds stay plain `obj`; a page that needs the idealic vocabulary opts in under IDE-21. tour.idea:46's wording is being corrected in IDE-143.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "96da0aec-5f4b-44a3-803b-fc19bdb2c4d9",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:06:49.591Z",
+          "body": "**For Legal, from Claims (the docs hub). Dated 2026-10-20, at `aee38e0a1`.**\n\n**Question:** are handbook format rules H4–H6 compiler refusals on your ground (idea-script), or should the census in IDE-22 refuse them (Xactimate's seat)?\n\n**What the three rules are** (`handbook/handbook/format.md:51,58,65`):\n- **H4:** a reference of the wrong kind refuses.\n- **H5:** a page cites exactly one durability.\n- **H6:** a page has a summary.\n\n**Where they stand:** each specimen is committed and skipped (`specimens/manifest.mjs:21-31`), and each waits on \"UNFILED\". No plan item or ticket owns them. The census already records each root's kind, title and summary, which is why it is a candidate home.\n\nThe answer decides who owns the chunk and what key replaces \"UNFILED\".",
+          "quotedText": null,
+          "resolvedAt": "2026-10-23T04:02:01.934Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "07768238-ba6c-49c8-a151-5e197e17ccf9",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-22T16:41:51.823Z",
+              "body": "→ IDE-21: H4 stays with Legal as ruled. H5 and H6's home, IDE-22, was cancelled on 2026-10-21 along with the census and the other checks. They stay on `handbook/handbook/format.idea` as written conventions for page authors, with no check behind them, and their skipped specimens retire under IDE-21.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "b973a3b1-9da4-462d-be8f-ab7679ea6756",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-21T13:19:19.642Z",
+              "body": "→ Claims: handed to Claims, who stewards the handbook and gate boards; Legal gives gos on any Legal rows.\n\n(groom pass 2026-10-21 20:35 by Legal; record: groom-2035_DECIDE.md in Legal's builds)",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "aabfc2e6-6a8c-4835-b607-499d7b886073",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-20T07:03:02.353Z",
+              "body": "**Operator ruling, 2026-10-20 (relayed by Legal): split.**\n\n- **H4** (a reference of the wrong kind refuses) is a compiler refusal on Legal's ground (idea-script). It is a general language rule, not only a handbook one.\n- **H5** (a page cites exactly one durability) and **H6** (a page has a summary) belong to the census (IDE-22, Xactimate's seat). They are handbook page conventions, so they stay out of the compiler every `.idea` runs through.\n\nSo \"UNFILED\" becomes: H4 → Legal (building after COLONVAL lands, since both touch idea-script); H5/H6 → IDE-22. Record: `builds/forks-1405-legal_DECIDE.md` §7.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "a49424a1-8c4f-40de-96d8-89ddbe57d9ed",
+      "identifier": "IDE-52",
+      "title": "🟢 Potential solutions",
+      "url": "https://linear.app/idealic/issue/IDE-52/potential-solutions",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:42:56.273Z",
+      "updatedAt": "2026-10-20T05:55:58.186Z",
+      "isNew": true,
+      "comments": [],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "d43ca206-55c6-4ff7-bd00-0b79ff7f521c",
+      "identifier": "IDE-51",
+      "title": "🔴 Observed problems",
+      "url": "https://linear.app/idealic/issue/IDE-51/observed-problems",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": "Inboxes",
+      "createdAt": "2026-10-20T03:42:52.523Z",
+      "updatedAt": "2026-10-25T07:30:31.569Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "b5807059-df5d-4ed8-a84d-8a65b404f9e6",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-21T04:05:51.116Z",
+          "body": "[OPS2] **The handbook check refuses a world page that cites `§idealic/resource`, so the language tour's first world has to use plain `obj` roots**\n\nFor the handbook's owners. Reported by OPS2 (docs-hub loom) for the operator, 2026-10-21.\n\n`handbook/handbook/check.mjs` compiles all the handbook pages together twice: once over `doc.idea` plus the handbook vocabulary, and once over the whole idealic vocabulary. `§idealic/resource` is declared only in the idealic vocabulary (`docs/src/worldtree/idea/idealic/resource.idea`), so the first compile refuses any page that cites it, and the check reports the page BROKEN. A world page that stores records would normally cite `§idealic/resource` on each root, and the newcomer tour cannot show that shape.\n\n**Refs:** kit `e4b5eb129` (the tour's commit). Page: `handbook/language/first-world.idea:1`. Command: `node handbook/handbook/check.mjs --dir <copy>/handbook/handbook`. Affects [IDE-143](https://linear.app/idealic/issue/IDE-143), the page that carries the tour. `handbook/language/tour.idea:46` already tells the reader the file leaves `§idealic/resource` out for this reason.\n**What it blocks:** the tour's first world cannot use the root shape the primer teaches for stored records.\n\n**Steps to reproduce** ($0):\n1. `git archive e4b5eb129 handbook | tar -x -C <copy>`, done twice into two copies.\n2. In one copy, change `first-world.idea` line 1 from `¶tour-sites obj Sites` to `¶tour-sites §idealic/resource Sites`.\n3. Run `node handbook/handbook/check.mjs --dir <copy>/handbook/handbook` on each copy.\n\n**Expected**: the cited page compiles. `§idealic/resource` is a real declaration, and the second compile, over the whole idealic vocabulary, accepts it.\n**Actual**: the unchanged copy exits 0. The cited copy exits 1 with one BROKEN line:\n\n`BROKEN   handbook/language/first-world.idea refuses over doc.idea: REFUSED <copy>/handbook/language/first-world.idea:1: `§idealic/resource` answers to nothing in this world, and a world is the whole set, so no other document will answer it`\n\n**Frequency**: always.\n\nFull output of both runs, with the one-line diff:\n\n[📄 first-world-resource-refusal.txt](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/e0c744e1-29bc-4545-85fa-a5955cad2698/45e314c1-a743-438b-a0e4-8dbbded0c575)\n\nUnsure: whether the first compile is meant to stay over `doc.idea` only. If it is deliberate (no page may lean on vocabulary outside the document set), the tour's plain roots are the right answer and this drop is a note for the page. If not, the check is the thing to change.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-23T04:02:03.647Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "5510509a-ac0f-45a3-ac93-424744db3d2f",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-22T17:56:11.197Z",
+              "body": "seems like IDE-143: the remaining point here, tour.idea:46's wording about plain `obj` roots, went away when the tour was rewritten. The new tour landed in `f96814b0c..0651b77cb` and was polished in `49a81a7f9`, and it has no such passage. The operator's ruling stands: keep the narrow doc.idea-first compile, and a page that needs the idealic vocabulary opts in under IDE-21. Nothing else is owed on this thread.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "3190feca-13a1-488f-bbaf-ddc932985868",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-21T13:19:31.488Z",
+              "body": "→ Claims: handed to Claims, who stewards the handbook and gate boards; Legal gives gos on any Legal rows.\n\n(groom pass 2026-10-21 20:35 by Legal; record: groom-2035_DECIDE.md in Legal's builds)",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "be6d1890-0f3e-4c3d-9fd3-b8a825649899",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-21T04:21:35.917Z",
+              "body": "[OPS2] **The refusal is real and the narrow compile is deliberate. Keep the tour's plain `obj` roots until the hub rules on widening.**\n\n**What's wrong:** nothing is broken. `check.mjs`'s first page compile runs over the v1 handbook world, which is `doc.idea` plus the handbook's own files. That world is written down in `handbook/_plan/VISION.md:136` and `:481` (\"nothing else in v1\") and in [IDE-22](https://linear.app/idealic/issue/IDE-22)'s first constraint, and the check was built to it a few hours after the plan landed. Citing `§idealic/resource` falls outside that world, so it is refused.\n\n**What the report got right and wrong:** the mechanism and the repro are right. The guess \"no page may lean on vocabulary outside the document set\" is close but too strong. The plan calls this a v1 scope and expects it to widen \"before any v1 page needs another vocabulary\". No text forbids citing idealic words as a principle.\n\n**Why the narrow run still matters:** the plan's stated reason for it, a `¶world` collision with the full idealic set, no longer holds. Today only idealic's `package.idea` declares `¶world`, and every handbook page compiles beside the whole idealic set. But the narrow run is still the only one that refuses a stray bare idealic word. With `See §stats.` planted in `format.idea`, only the `doc.idea` run refused it, and the idealic-wide run accepted it. It is also the run the format rules are read from. So widening must not drop the first run.\n\n**Evidence:** reproduced at `b6d65af39`, the current tip of the tour's worktree. Since `e4b5eb129` only `tour.idea` changed, and `check.mjs` and `first-world.idea` are identical. Unchanged copy: exit 0. Cited copy: exit 1, one BROKEN line, \"refuses over doc.idea\". The simplest fix also fails: adding `resource.idea` alone to the first compile exits 2 on `§query`, `§tool` and `§ordering`. Pages have no opt-in like the specimens' `with: 'idealic'`.\n\n**How widespread:** only one page wants it today, [IDE-143](https://linear.app/idealic/issue/IDE-143)'s first world. No committed handbook page cites an idealic word.\n\n**Is it still happening:** yes, always, at the current tip.\n\n**What to do:**\n1. **Claims (the hub):** rule on keep-or-widen in 🟪 Inquiries ([IDE-53](https://linear.app/idealic/issue/IDE-53)). The question should carry both the stale `¶world` reason and the live bare-word reason. A ruling is not a ticket, per the Ticketing Strategy.\n2. If widened, change the check under [IDE-21](https://linear.app/idealic/issue/IDE-21), which owns `check.mjs`. The shape is a per-page or per-folder opt-in like `with: 'idealic'`, with a self-test mutant that keeps `See §stats.` refused. Then update IDE-22's constraint text.\n3. **IDE-143:** a one-clause wording fix on `tour.idea:46`. It says the check does not load the resource vocabulary, but the second compile does load it. It is the first compile that refuses.\n\n**Not established:**\n- Whether the hub has a reason for the narrow world beyond the stale one. Only a ruling settles this.\n- Whether a full stored-record page, with `§idealic/resource` roots and `attributes` members, compiles cleanly over the whole idealic set. Cheapest check: compile one such scratch page.\n- How many planned IDE-143 examples need idealic roots.\n\nNot offered as a ticket. Both investigations recommend letting it marinate, and the Ticketing Strategy routes rulings to Inquiries.\n\n[📄 triage-IDE51-b5807059-dossier.md](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/c03bedc4-d036-4206-b388-9a85e1331cc4/bbd856d0-2c72-4db3-8584-2c359f7225c0)\n\n<sub>Triangulated triage (code and history angles, reconciled), 2026-10-21. Workings in the dossier above.</sub>",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "a0f5cbce-b641-4059-a47a-0e626d73f532",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:16:13.433Z",
+          "body": "### 🧾 Pages the model and readers learn from still teach false things: the act 020 paging form, a Plan.ts sentence, `contains`, and `%` in a JSLT `for`\n- **Reported by**: Scope (INBOXES lane) for Yaroslaff Fedin, from the RELAXKEYS critique · **Date**: 2026-10-20 (measured 2026-10-19; the file lines below re-checked at origin `feature/reactor` `aee38e0a1` on 2026-10-20)\n- **Refs**: `docs/acts/020_agent_pages.md:73` and its three translations (`docs/translations/{ru,simple-en,simple-ru}/acts/020_agent_pages.md`) · `agent/src/Content/Plan.ts:68` · `agent/src/Content/Expressions.ts:80`\n- **Attachments**: the proof page is local-only (opens on the operator's machine): http://127.0.0.1:9440/proofs/proofs/invizko/relaxkeys-critique-64230095.html — the same page is uploaded below as `builds/relaxkeys-critique_PROOF.html`; the review is `builds/RELAXKEYS_CRITIQUE.md`\n- **Impact — what this blocks**: a person or a model that follows these pages writes plans that fail or quietly do the wrong thing. The `contains` one gives no error: the arguments are simply backwards.\n\n[📄 relaxkeys-critique_PROOF.html](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/8014c136-b649-449b-ab36-dbce8bed9cb0/148d5270-ef71-4a1a-bc08-51dc5bd9a951)\n\n[📄 RELAXKEYS_CRITIQUE.md](https://uploads.linear.app/963aea4d-374d-4346-8fa1-9d10e8a5af04/b9cd255f-3d05-406a-ab31-73c1c9c904c7/ba0c9876-0d6f-4f54-bbee-2543da28a541)\n\n**Steps to reproduce**: read each line, then run the critique's probes (P1–P6, rk-var-probe) against what it teaches.\n**Expected**: every taught sentence holds in a running plan.\n**Actual**:\n1. **Act 020, \"Paging On Is Calling Again\"**, in the English page and all three translations, still teaches the old paging form, `\"_pages\": \"$state.issues.next\"`. It is silent on the case where the next page is asked for in the same reply. Checked at the tip: the old form is still in all four files.\n2. **`Plan.ts:68`** says \"A call is evaluated when its Output Path has a value in state\". The critique found that false. Checked at the tip: the sentence is unchanged.\n3. **`Expressions.ts:80`** teaches `contains($state.tags, \"x\")`, and the critique found that argument order backwards. Checked at the tip: the line is unchanged.\n4. **`%` inside a JSLT `for`** is refused at runtime, but the teaching does not say so. This one is carried from the critique and was not re-checked here.\n\n**Frequency**: always.\n\n**Who is fixing what**: Scope's TEACHFIX lane fixes the agent lines (2, 3, 4) on branch `teachfix`, tip `f9ec33ee2`, which has not landed. The act 020 pages are human docs, and TEACHFIX does not cover them yet. The agent-teaching side of this was also posted to Plan Language: [🔴 comment 2d26fdad](https://linear.app/idealic/issue/IDE-34/observed-problems#comment-2d26fdad). This drop is about the pages.",
+          "quotedText": null,
+          "resolvedAt": "2026-10-23T06:03:47.144Z",
+          "resolvedBy": "Yaroslaff Fedin",
+          "reactions": [],
+          "orphanReply": false,
+          "children": [
+            {
+              "id": "7423840d-86ad-4e92-9bef-ce950fa8e011",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-23T06:03:36.119Z",
+              "body": "→ fixed on trunk in `d407f529a..ae7bc0b2f` (2026-10-23, docs hub). Act 020's \"Paging On Is Calling Again\" in `docs/acts/020_agent_pages.md` now teaches what the agent code does: one call already pages as far as the plan's pipes read, up to the ten-fetch budget, and a call the shared runner claims fetches one page. Re-calling with `\"_pages\": \"$state.issues.next\"` is for a later turn, after an answer comes back partial. Sources: `agent/src/Content/Expressions.ts:196-206`, `agent/src/Tool/Pages.ts:30`, `agent/src/Agent.ts:2738-2766`, and `Agent.pages.test.ts`. The three translations are gone: the operator dropped all docs translations, and the site is English only. The agent-teaching lines (`Plan.ts:68`, `Expressions.ts:80`, `%` in a JSLT `for`) stay with Scope's fix, as this drop said. Approved by Xactimate (docs/) and every lane (shared gate files). *Seat: Claims.*",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "c8b0b260-1fd0-47dd-bbc8-1af7dc1def45",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-21T13:31:01.762Z",
+              "body": "The pages are being rewritten in plain language for developers new to kit, and these false lines go into that rewrite, so each one is corrected as its page is rewritten. The agent-teaching lines stay with Scope's fix.",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            },
+            {
+              "id": "3fe744d5-4dfc-4289-b78c-052229513e50",
+              "author": "Yaroslaff Fedin",
+              "createdAt": "2026-10-21T13:19:22.856Z",
+              "body": "→ Claims: handed to Claims, who stewards the handbook and gate boards; Legal gives gos on any Legal rows.\n\n(groom pass 2026-10-21 20:35 by Legal; record: groom-2035_DECIDE.md in Legal's builds)",
+              "quotedText": null,
+              "resolvedAt": null,
+              "resolvedBy": null,
+              "reactions": [],
+              "orphanReply": false,
+              "children": []
+            }
+          ]
+        }
+      ],
+      "lifecycle": [],
+      "attachments": [],
+      "isChannel": true
+    },
+    {
+      "id": "0828cc75-9eb6-4462-a8ee-a3b337840148",
+      "identifier": "IDE-33",
+      "title": "A cold model sits the handbook exam on demand, within a hard spend cap of $1 a run",
+      "url": "https://linear.app/idealic/issue/IDE-33/a-cold-model-sits-the-handbook-exam-on-demand-within-a-hard-spend-cap",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": null,
+      "createdAt": "2026-10-20T03:30:17.420Z",
+      "updatedAt": "2026-10-22T18:28:51.031Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "f2308af4-d1c5-4dac-a281-8fce6be176f8",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-22T18:28:54.164Z",
+          "body": "Reopened on 2026-10-23 at the operator's request (\"i want ai to respond to it\"), re-scoped as a plain on-demand runner in IDE-172's question shape.\n\nA hand-run trial came first. Two fresh models, Haiku and Sonnet, got only `handbook/market/hold-at-post.idea`'s prose (its `questions[]` removed) and the question with its four answer titles and no descriptions. Both picked index 1, `bad-permit`, which is the page's `correct: [1]`, with high confidence. Every phrase they quoted was checked against the page and found in it. One question and one run per model: this shows the page teaches that case, and it isn't a measurement of the handbook in general.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "5a402875-1f6c-4799-973f-6966afd34382",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-21T13:30:27.712Z",
+          "body": "Canceling this one. The operator has decided that handbook pages no longer carry quiz questions, so there is nothing for a model to sit. The handbook becomes plain pages for developers new to kit, and whether a page teaches well is judged by the people who read it.\n\nNothing here needs to move elsewhere. The price notes came from Scope's rates file, which keeps them.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "bf13ef47-3edd-44c2-8c7b-ebc4bef1eee2",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-21T04:04:13.753Z",
+          "body": "[OPS2] Re-scoped by the operator's rulings of 2026-10-21. For whoever picks this up.\n\n* **When:** on demand only. Nothing on push, in a hook or in CI runs it.\n* **Model and key:** OpenAI `gpt-6-luna`, on the operator's OpenAI key read from the runner's environment, never from git.\n* **Cap:** $1 per run, charged at worst case before each call (was $0.10 per push).\n* **Question set:** the questions the handbook pages embed, as `handbook/handbook/check.mjs` reads and accepts them; refused questions are counted and left out.\n* **Decision rule:** the ticket had none, so one is written in and marked **proposed**: calibration must hold (good page ≥90%, wrong page ≤50%) or the run reports CANNOT JUDGE; a page is flagged below 80% or on a loss of two right answers against its last run; fewer than three questions gets a score and no flag. The operator still has to rule on it.\n* **Seat:** the seat line is unchanged. A line now says the build is expected from the docs hub, pending the seat's release on record.\n\nStatus unchanged. The title and description were rewritten to match, with a dated Change history entry.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "cabe5891-b4b7-486b-bf97-fcad7d6d2bfb",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T13:19:39.894Z",
+          "body": "The handbook checker `handbook/handbook/check.mjs` is getting a gate-board row for CI. Its pre-push trigger is left to this ticket's hook, as IDE-21 arranged. Today `.husky/pre-push` does not run it.\nFull workings: [IDE-126 — handbook checker on no gate-board row](https://linear.app/idealic/issue/IDE-126/tooling-and-gates#comment-4624fcc4)",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-22T18:28:51.084Z",
+          "from": "Canceled",
+          "to": "Backlog"
+        },
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-21T13:30:54.748Z",
+          "from": "Backlog",
+          "to": "Canceled"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:30:17.625Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "6d99aadc-76ea-48c2-b389-574a33fcc358",
+      "identifier": "IDE-31",
+      "title": "Handbook pages are reachable at a public address",
+      "url": "https://linear.app/idealic/issue/IDE-31/handbook-pages-are-reachable-at-a-public-address",
+      "state": "Backlog",
+      "priority": 0,
+      "milestone": null,
+      "createdAt": "2026-10-18T16:39:58.586Z",
+      "updatedAt": "2026-10-25T08:14:44.060Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "7e8f366f-850f-43cc-b464-631c6d194ba4",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T03:31:43.564Z",
+          "body": "**The DOCSFRAME investigation is done, and the operator chose option B.** I measured the code at commit `4bb34a5c3`.\n\n**Why the handbook can't be shown inside the ideas app yet:**\n- The ideas app has no route that serves a prose page. Its one generic page route only draws views of rows.\n- It reads documents from one fixed realm prefix, `realm-docs.ts:11`.\n- None of the 11 ideas-* packages has a manifest.\n- Nothing renders a handbook page as a page.\n- The handbook can't be compiled together with the app's own files: `¶agents` is defined in both, and the compiler refuses with exit 2. So each knowledge base has to be compiled as its own set.\n\n**Option B, the one chosen:** Legal is asked to build it.\n- A `GET /handbook/<name>` route in world-runner's ideas server, open to visitors the way `/contact` is.\n- A loader that compiles `idealic/doc.idea` plus `handbook/**/*.idea` as that separate set.\n- A small renderer for one handbook page: title, summary, the audience and durability labels, the body, and mentions as links.\n- One server test against the specimen page.\n- Estimated at half a day to a day. It touches only Legal's paths, and it needs scheduling around IDE-17, which edits the same `serve()`.\n\nThis ticket's goal (a public address) is still open. The work above is recorded here rather than filed as a new ticket.\n\n- Report: the docs hub's `builds/wave1020/DOCSFRAME.md`\n- Proof page (local MinIO, opens only on this machine): http://127.0.0.1:9440/proofs/proofs/invizko/docsframe-vision-6cf6375b.html",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "e01d5a46-e6ec-4e7e-add1-2bf6e8b5cb83",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-18T17:03:25.335Z",
+          "body": "## Completing the acceptance list\n\nPer this ticket's own last line — *\"Xactimate sets the rest of this acceptance list.\"* Five criteria below, plus a refinement to one already here.\n\n**Every one is earned by a defect that actually shipped on 2026-10-18/19, not invented.** The reason is attached to each so a later reader knows why the line exists and can drop it if the reason stops being true.\n\n- [ ] **The audit enumerates published KEYS under the prefix, not pages, and prints its denominator.** Fails if the count is of pages, or if the denominator is unstated. *Because every page-counting sweep that night undercounted severalfold: the exposure read 5 until someone listed 382 keys and found 28 more.*\n\n- [ ] **The audit covers SUPERSEDED keys, not only the current version of each page.** Fails if a key is skipped because its bytes no longer match a local file. *Because a page republished N times has N public keys, and a stale published version is as exposed as a current one — one leaking object was missed in exactly this way, by a method that digest-compared only the key matching the current source.*\n\n- [ ] **Zero-outbound is verified on TWO arms** — a static source scan, and a request log in a network-blocked browser with the window held past load including clicks — **with a planted control for EACH failure class shown to be refused in the same invocation.** Fails on a `<script src>` count alone, or on a control not shown to discriminate. *Because a tag count passes a stylesheet link; a request count passes a root-relative `/_kit/page.js` whose target is absent; and a load-window gate passes a deferred or click fetch. All three shipped.*\n\n- [ ] **A claimed absence on a bucket is proved with a control object returning 200 on that same bucket in the same run.** Fails if a 403 or 404 is reported as absence without one. *Because otherwise a dead bucket and an empty bucket are indistinguishable.*\n\n- [ ] **The publish path's resolved endpoint, bucket and profile are printed and checked before the write, never inherited from ambient resolution.** Fails if the config is taken as already resolved. *Because `PROVE_S3_*` resolves first-wins through a HOME dotfile that pairs a staging-AWS bucket name with a loopback endpoint — two lanes published to the wrong store with a clean exit 0.*\n\n### Refinement to the two-fetch criterion already on this ticket\n\nTwo independent fetches agreeing is **necessary but not sufficient — each fetch's HTTP status must be checked too.**\n\n*Because a lane nearly filed a torn read that was not one: both fetches differed, and both were 428-byte `SlowDownRead` error bodies carrying unique request ids. Its own sweep had rate-limited the store. A hash comparison on a body whose status was never read cannot tell an object from an error page.*\n\n### Note on scope\n\nThis comment sets acceptance only. The blocker stands as filed: **staging writes fail `InvalidAccessKeyId`**, verified both with the profile and without (expired session). That is unavailable rather than undecided, and nothing on this list can be attempted until a working credential exists.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:31:43.717Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "20a1836b-ebad-428c-b722-792f41fe4b9f",
+      "identifier": "IDE-24",
+      "title": "The worlds, branches and merge page compiles in the handbook, every claim on it is tied to a test or a ticket, and it says what the code does today",
+      "url": "https://linear.app/idealic/issue/IDE-24/the-worlds-branches-and-merge-page-compiles-in-the-handbook-every",
+      "state": "Canceled",
+      "priority": 0,
+      "milestone": null,
+      "createdAt": "2026-10-18T16:34:33.451Z",
+      "updatedAt": "2026-10-22T16:41:35.366Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "15686428-db8d-4277-be30-6fc2117c27ec",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-22T16:41:30.859Z",
+          "body": "Closing as superseded by IDE-143. The worlds, branches and merge content landed on `feature/reactor` on 2026-10-22 (`f96814b0c..0651b77cb`) as three plain pages: `handbook/worlds/branch-reads.idea`, `branch-fold.idea` and `branches-merge.idea`. Legal checked the merge facts before landing. This ticket's acceptance asked for Built lines with tests and for the claim ledger to pass. The 2026-10-21 plain direction dropped both of those, and the two tickets blocking this one (IDE-22, IDE-23) were cancelled with them, so that acceptance won't be met as written. The pointer from `docs/WORLDS_AND_BRANCHES.md` to the new pages is still open, and it's Xactimate's to make in `docs/`.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "5cc17317-11db-46f8-bbc4-e411f869e5f2",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T12:58:26.569Z",
+          "body": "The `handbook/worlds/` folder this ticket landed (`2a7342190`) has no owner anyone can read off the \"Ownership is fixed\" line. The line names a handbook root and \"sections\" but never defines a section. A triage on IDE-126 lists `worlds/` ownership as needing a ruling: does it go to the hub, to Overseer, or to the seat this ticket names?\nFull workings: [IDE-126 — ownership line: handbook sections + four shared-ground paths](https://linear.app/idealic/issue/IDE-126/tooling-and-gates#comment-ae849e54)",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "053066b9-385d-4a1f-85d3-a2f2d14a32c6",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T12:29:22.206Z",
+          "body": "## Status: landed, awaiting the ledger and the census\n\n**TL;DR** The Worlds, branches and merge page is on kit's `feature/reactor`, range `3da2b7dc2..34d0ac28b`, every patch-id matching the one it got its go on. Three acceptance items are still open by design: the census lists it ([IDE-22](https://linear.app/idealic/issue/IDE-22), not built), the ledger passes on it ([IDE-23](https://linear.app/idealic/issue/IDE-23)), and the old doc's pointer, which is committed but not pushed. The \"What the model sees\" panel moves to [IDE-143](https://linear.app/idealic/issue/IDE-143). No code here and nothing committed by this update.\n**Covers:** the whole pilot, from the first page commit to the landing on 2026-10-20.\n\n### What landed\nOn `idealic-ai/kit` `origin/feature/reactor`, a fast-forward `3da2b7dc2..34d0ac28b`, pushed through the pre-push hook with no `--no-verify`:\n\n| Commit | What | Scope | Patch-id (`git patch-id --stable`) | Go from |\n|---|---|---|---|---|\n| `2a7342190` | The page `handbook/worlds/branches-merge.idea` (`¶worlds-branches-merge`) plus a Pages list in `handbook/README.md` | `-- handbook` | `746421b6c89bb9bfbd48e40e1f9fbbbf718a371b` | hub |\n| `2a7342190` | same commit, page only | `-- handbook/worlds/branches-merge.idea` | `b86416d8fffdd6bda270a7911e7a3380598570fe` | Legal |\n| `d794e599b` | Format rule H7 restated as [IDE-127](https://linear.app/idealic/issue/IDE-127)'s ruled target; the checker names the page that refuses in a joint compile | `-- handbook` | `18cfec853512c8abd3b0fa4a21676bc6f498d33d` | hub |\n| `34d0ac28b` | The format checker reads each rule's id from its member name | `-- handbook` | `62bc334702612c1c7995d298a4f5e612e6443561` | hub |\n\n### Proofs\nThese are served by kit's local proofs store and open only on the operator's machine:\n- Round 4, after the critic's and Legal's corrections: http://127.0.0.1:9440/proofs/proofs/invizko/pilot-r4-9acdda49.html\n- Landing: http://127.0.0.1:9440/proofs/proofs/invizko/pilot-landed-dc3185d9.html\n\n### On-direction\nThe page does what the ticket asks. Every Built line names a test file and an exact test or group title. Every Intended line names its ticket ([IDE-6](https://linear.app/idealic/issue/IDE-6), [IDE-7](https://linear.app/idealic/issue/IDE-7), [IDE-10](https://linear.app/idealic/issue/IDE-10), [IDE-11](https://linear.app/idealic/issue/IDE-11)). It has no \"Today…\" prose, so it can stay evergreen.\n\nTwo departures from the description:\n- **Isolation.** The page has one sentence: a world is isolated from every other world, and how is the subject of its own page. It does not state \"one role per world, only doors cross\", and it does not name IDE-12 or IDE-14. The critic and Legal ruled this way, so that no isolation mechanics reach the page.\n- **Merge.** The page states today's whole-merge refusal as Built: `conflict`, `moved`, `idea-refused`, `authority-changed`, and `world-broken`, which is marked Built, untested. Auto-merge sits beside it as Intended, IDE-10. That is what the 2026-10-20 comment above asked for.\n\n### Verified\nRechecked read-only for this update, in kit, against `origin/feature/reactor` at `12f0ed24a`:\n- `34d0ac28b` is an ancestor of the remote tip, and `3da2b7dc2..34d0ac28b` is exactly the three commits.\n- All four patch-ids recomputed and identical to the table.\n- The ticket's grep (`tenant`, `alsoReaches`, `by a person`) over the page at the remote tip: 0 hits.\n- Both proof URLs return HTTP 200 over loopback.\n\nCarried from the landing report, not re-run here: on the re-picked tip, `node handbook/handbook/check.mjs` exits 0 with no BROKEN line, `--self-test` turns 24 of 24 mutants red, and `npx biome check handbook/` exits 0. Each test the page names was checked to exist at the tip with `git grep -F`. The branch-save tests and `provision.pg.test.ts` were not run because they need PostgreSQL.\n\n### Acceptance\n- [x] The page compiles in the handbook world. *The census lists it* waits on [IDE-22](https://linear.app/idealic/issue/IDE-22).\n- [ ] The ledger passes on it. Waits on [IDE-23](https://linear.app/idealic/issue/IDE-23). The first-write claim is tied to `resource-database` `overlay.test.ts`, \"copy-on-write: …\".\n- [x] The grep finds nothing, and no section discusses isolation mechanics or realm storage.\n- [ ] Pointer in `docs/WORLDS_AND_BRANCHES.md`. Xactimate committed it as `314be2280` (patch-id `0c75a394a24e09b281ab02b7d70442d9eaeeee02`), since `docs/` is their ground. **It is not pushed yet**, so the old page has no pointer on the trunk.\n- [x] Legal's review of the `world-runner` claims: Legal gave its go on the page-only patch-id `b86416d8…` after the round-4 corrections.\n- [ ] **What the model sees.** Moved to [IDE-143](https://linear.app/idealic/issue/IDE-143) by operator ruling. Nothing generates the panel yet, and writing it by hand is forbidden, so it is not on this page and does not hold this ticket open.\n\n### Pending change to the page\nA follow-up edit has Legal's go and lands with the ledger ([IDE-23](https://linear.app/idealic/issue/IDE-23)). It adds keys to the three \"Built, untested\" lines (the `arm` search path, IDE-6; the sorted-read resume refusal, IDE-6; the `world-broken` refusal, IDE-8) and adds an Intended line keyed IDE-10. Until it lands, those three lines carry no key on the trunk.\n\n### Confidence & fragility\nHigh that what landed is what was approved: patch-ids are content hashes, and all four match. The weak spot is that \"Built\" means named, not run. Every Built line naming a branch-save or provisioning test depends on PostgreSQL, and none of those ran. The ledger in IDE-23 is the first thing that will run them, and the first that could prove a claim on this page wrong. One Built line is also weak by its own admission: the stand-ins test checks the list, not that nothing names a branch.\n\n### Leftovers & followups\n- Push Xactimate's `314be2280` (the docs pointer). The ticket's pointer item stays unmet until then.\n- Land the keyed \"Built, untested\" lines and the IDE-10 Intended line with the ledger.\n- The census entry ([IDE-22](https://linear.app/idealic/issue/IDE-22)) and a ledger run with PostgreSQL ([IDE-23](https://linear.app/idealic/issue/IDE-23)).\n- The figure and rendering stay with the roadmap renderer, as the ticket's constraints say.\n- Possibly open for Legal: format rule L1 may need restating next to the new H7.\n\n### Status\nMoved from Backlog to **In Progress**. The work has landed, but the ticket is not Done, because the census, the ledger and the pointer push are still open. The Idealic team has no In Review state, so In Progress is the nearest state that does not regress.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "dbb98576-5207-4bf3-90c0-1770a8c285c3",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:06:44.200Z",
+          "body": "- [ ] **The merge section says what the code does today, beside its Intended line.** The Intended line is \"publishing auto-merges and records every resolution\" (IDE-10). The operator re-ruled on 2026-10-20 that a merge never refuses.\n  - Today, `mergeIdeaBranch` (`world-runner/src/jobtree/branch-save.ts:408-413`, throw at `:563`, measured at `aee38e0a1`) refuses the whole merge into main and writes nothing. It refuses on any conflict, on a moved branch, or on a result that adds a refusal.\n  - It refuses even though `mergeIdea` records each reconcile clash with a `reapply` op.\n  - Fails if the page states auto-merge with no Built line for today's refusal. A matching \"Built today\" callout is proposed to Xactimate for `docs/WORLDS_AND_BRANCHES.md`. Signal: IDE-45.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-22T16:41:35.290Z",
+          "from": "In Progress",
+          "to": "Canceled"
+        },
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T12:29:22.372Z",
+          "from": "Backlog",
+          "to": "In Progress"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:30:17.625Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "12b9bfd7-4e4d-479c-8ffb-aded421449bf",
+      "identifier": "IDE-23",
+      "title": "Every Built line in the handbook runs the test it names, every Intended line carries a ticket key, and a closed ticket flags its line",
+      "url": "https://linear.app/idealic/issue/IDE-23/every-built-line-in-the-handbook-runs-the-test-it-names-every-intended",
+      "state": "Canceled",
+      "priority": 0,
+      "milestone": null,
+      "createdAt": "2026-10-18T16:34:16.030Z",
+      "updatedAt": "2026-10-21T13:30:49.371Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "03f2b4e2-5e43-47d1-a425-d78609f3e478",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-21T13:30:19.534Z",
+          "body": "Canceling this one. The operator has decided that handbook pages drop their Built and Intended lines, so there is nothing for this to hold to evidence. The handbook becomes plain explanations for developers new to kit, and the pages that replace this are written and reviewed by people.\n\nThe cases collected here are still a good lesson: each was a doc naming the wrong file. The two in `CI.md` are already fixed. The third, `render.ts`'s docblock promising that a missing field refuses when that only holds for citations, I have not re-checked. If it is still wrong, it is a one-line fix for whoever owns `render.ts`, and it does not need this ticket.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "6dcc82f7-41c2-4927-aad5-6ec2a74686b2",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T13:19:31.544Z",
+          "body": "A Tooling & Gates drop said this ticket's \"registered on the board\" line was blocked by `check.mjs` having no gate-board row. It isn't. The promise ledger runs as its own script, `ledger.mjs`, in the LEDGER lane. It imports `pagesOf` from `check.mjs`, but `check.mjs` never runs it. So this line needs its own row and `gate-suites.json` entry when the lane lands, and the lane doesn't add them yet.\nFull workings: [IDE-126 — handbook checker on no gate-board row](https://linear.app/idealic/issue/IDE-126/tooling-and-gates#comment-4624fcc4)",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-21T13:30:49.268Z",
+          "from": "Backlog",
+          "to": "Canceled"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:44:57.699Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "817a4522-69c6-4093-8b40-d14e1ec99c65",
+      "identifier": "IDE-22",
+      "title": "Every tracked file and root under `handbook/` is accounted for in one page model, and a file the census does not know refuses with its fix",
+      "url": "https://linear.app/idealic/issue/IDE-22/every-tracked-file-and-root-under-handbook-is-accounted-for-in-one",
+      "state": "Canceled",
+      "priority": 0,
+      "milestone": null,
+      "createdAt": "2026-10-18T16:33:57.667Z",
+      "updatedAt": "2026-10-21T13:30:43.478Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "58208d49-8b59-4c4d-a8ec-96ce84816017",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-21T13:30:15.622Z",
+          "body": "Canceling this one. The operator has decided that the handbook becomes plain docs for developers new to kit, read in ideawriter, so it no longer needs a model that accounts for every file and root. The things this census was going to feed, the promise list and the pilot page's figures, are dropped too. The pages that replace them are ordinary files a person writes and reads.\n\nOne thing loses its home here: the operator had sent rules H5 and H6 (a page cites one durability, a page has a summary) to this ticket. If the plain pages still want a one-line summary at the top, that belongs in the new page template the hub is writing, not in a tool.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "6cdacf7f-c5d8-496e-ac4d-fd5ba113c9dc",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-21T04:21:49.799Z",
+          "body": "[OPS2] A triage on IDE-51 found the stated reason for this ticket's first constraint (handbook world = `doc.idea` + handbook files) is stale: `¶world` is now declared only in idealic `package.idea`, and every handbook page compiles beside the whole idealic set. The narrow world still does a live job, refusing a stray bare idealic word like `§stats`. A keep-or-widen ruling is asked for. [Finding](https://linear.app/idealic/issue/IDE-51#comment-be6d1890)",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "79bacb78-6690-4000-a5fe-7149f269845e",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T13:19:25.532Z",
+          "body": "A Tooling & Gates drop said this ticket's \"registered on the board\" line was blocked by `check.mjs` having no gate-board row. It isn't. The census runs as its own script, `inventory.mjs`, in the LEDGER lane, and `check.mjs` never runs it. So this line needs its own row and `gate-suites.json` entry when the lane lands, and the lane doesn't add them yet.\nFull workings: [IDE-126 — handbook checker on no gate-board row](https://linear.app/idealic/issue/IDE-126/tooling-and-gates#comment-4624fcc4)",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "0819e3a1-8d2a-498b-92a6-dc10251ecf7c",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T12:57:57.955Z",
+          "body": "A 🛠️ drop listed this census as blocked on the \"Ownership is fixed\" line in `docs/LIVE_MARKET_DIRECT.md`. Triage found it is not. This ticket reads owners from the `handbook/README.md` section table, which IDE-21 owes as its acceptance item 4, and that table is the real dependency. At `12f0ed24a` the README carries no owner text at all.\nFull workings: [IDE-126 — ownership line: handbook sections + four shared-ground paths](https://linear.app/idealic/issue/IDE-126/tooling-and-gates#comment-ae849e54)",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "44a20c23-17b8-48b1-895e-230d34b690af",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-18T18:40:58.825Z",
+          "body": "For Xactimate's next instance: the README and ARCHITECTURE commits have landed, as `625fb0de6..63769bbdd`. Both files are Claims' ground under the ownership line, so your go is no longer needed on them. Only SHR-9b (`d61e6646e`, `fdb115583395…`) still waits on your seat.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "ba0e0c23-4a0a-4bac-b708-86932964c7db",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-18T18:28:45.590Z",
+          "body": "Update for Xactimate's next instance: the two FRONTDOOR ids in my previous comment are superseded. To meet Overseer's condition, one line about IDE-18 was reworded, and both commits were re-picked onto `625fb0de6`. The new ids:\n\n- README doorway: `d3aab8672`, patch-id `9c9ab39638615d2484006929fbabc3d0fdc69e28`.\n- ARCHITECTURE v3: `173054adf`, patch-id `5403d9984002ea813a41a49bcf108457a8ecec5f`.\n\nSHR-9b (`d61e6646e`, `fdb115583395…`) is unchanged.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "c875c904-ed00-473a-8ed3-be5c95c05878",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-18T18:25:00.329Z",
+          "body": "For Xactimate's next instance: three hub commits are waiting for your seat's go, as shared ground.\n\n- **SHR-9b**, `d61e6646e` (on top of landed SHR-9 `625fb0de6`), patch-id `fdb115583395174a1dc936b5097f01481c79aa53`. It touches `scripts/closed-set-drift.mjs` and `scripts/gate-board.mjs`, and makes the gate watch the three error sets from the homes Overseer and Legal agreed. Proof: http://127.0.0.1:9440/proofs/proofs/invizko/shr9b-closed-set-drift-4228d5f9.html\n- **README doorway**, `8ce0695d3`, patch-id `25fe826db34a0877565c73cb32e3a204a8a26a31`. README.md only.\n- **ARCHITECTURE v3**, `5931c8da3`, patch-id `9c2177e9f9372ea4a07a47c16fc6fe55a2b94bb3`. ARCHITECTURE.md, plus one README bullet. Proof: http://127.0.0.1:9440/proofs/proofs/invizko/frontdoor-land-1d6caa80.html\n\nThey sit here because this is your ticket and you asked to be reached on tickets. None of them is IDE-22 work.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-21T13:30:43.298Z",
+          "from": "Backlog",
+          "to": "Canceled"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:44:53.798Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    },
+    {
+      "id": "a814a1a7-ac94-4dd1-9563-79b4815d0866",
+      "identifier": "IDE-21",
+      "title": "A handbook page has one written format, and every rule in it has a committed specimen the compiler checks",
+      "url": "https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a",
+      "state": "Done",
+      "priority": 0,
+      "milestone": null,
+      "createdAt": "2026-10-18T16:33:41.273Z",
+      "updatedAt": "2026-10-24T03:15:02.577Z",
+      "isNew": true,
+      "comments": [
+        {
+          "id": "d0792c4e-ba04-4021-81c6-4049b5d1f2cb",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-24T03:14:46.714Z",
+          "body": "IDE-21 is done, and line 1's CI gate moves to [IDE-126](https://linear.app/idealic/issue/IDE-126).\n\nThe handbook now has one written format page, `handbook/handbook/format.idea`, whose rules are each backed by a committed specimen or a named waiting key, a checker that compiles every specimen, and a front page that tells a reader where to start and who owns each folder. Everything below was measured on kit `main` at the merge `fe915972a`, which brought in the three handbook books and the README's \"Where to start\" list. `origin/feature/reactor` is fully merged into `main`, so the earlier landings this ticket recorded are there as well.\n\n**1. Every rule names a specimen or a waiting ticket, and a gate compiles every specimen: met for the checker, handed off for the gate.** `node handbook/handbook/check.mjs` exits 0: \"25 rules on format.idea, 29 specimen entries: 22 held, 7 skipped, 0 broken; 4 rules wait on a key with no specimen; 3 wait on work nobody has filed\". `--self-test` exits 0 with \"27 of 27 mutants run turned the check red\", and the three falsifiers on this line are among those mutants (a positive specimen that refuses, a negative one that compiles, a rule with neither specimen nor key). `node --test handbook/handbook/*.test.mjs` passes 60 of 60. What is missing is a CI step that runs it: `git grep -n handbook -- package.json scripts/gate-suites.json .husky .github` finds nothing, while the same grep for `idea-parity` finds two lines in `scripts/gate-suites.json`, so the grep does work. [Comment 42c643ab](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-42c643ab) moved this to [IDE-126](https://linear.app/idealic/issue/IDE-126), the tooling channel, and the operator has accepted closing on that hand-off. Three rules (H4, H5, H6) wait on compiler work nobody has filed yet; the check lists them as such rather than hiding them.\n\n**2. The probe set lives in the repo, with no citation of the session folder: met under the amended check.** `git grep -n 'sketch/' handbook/ ':(exclude)handbook/_plan'` finds nothing (exit 1). The original grep without the exclusion still finds 14 lines, all in `handbook/_plan/VISION.md`, the dated plan that is meant to cite the session folder; they show the grep still fires on a real citation. The description's line 2 is updated to the amended check, per [comment 57491e4f](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-57491e4f).\n\n**3. Section specimens: met.** The embed (`s2`, `s2-line`), the section mention, the misspelt section path in a mention and in an embed (`s3-mention` refusing at line 7, `s3-embed` at line 3) and the self-embed (`s4`) are all held: none appears in the check's skipped list, and 0 are broken. Only `s3-nearest`, the nearest-name hint, is skipped, waiting on T8. Depth and budget are documented at `format.idea:80`: an embed reaches one level, `doc: {depth: 2}` reaches one more, and a page reads at most 64 KiB through its embeds.\n\n**4. The README lists reader goals and an owner table: met.** `handbook/README.md` now has a \"Where to start\" section (commit `afa37d743`) with all eight goals: see what kit is, make a first change, look up the notation, worlds and branches, jobs, find a word, write a page, check what is real. All 17 pages it links exist, and so does `idea-script/GRAMMAR.md`, which it names as the full reference. The \"Who owns each folder\" table has a row for each of the 10 tracked folders under `handbook/`, and `node handbook/handbook/inventory.mjs --check` exits 0 (\"34 rows, 34 owned ... 0 findings\"); its tests include \"a folder with no owner row is red\". One gap: \"Make a first change\" points at the tour's worked case, which changes one line of a `.idea` file. No page yet covers a first change to kit's TypeScript code.\n\n**5. The ownership line at `docs/LIVE_MARKET_DIRECT.md:98`: met, with two deviations waived.** At `fe915972a`, line 98 says Claims holds \"the root of `handbook/`\", that each lane owns the `handbook/` sections for its own domain, and that which folder is a section, and whose, is the \"Who owns each folder\" table in `handbook/README.md`. The Xactimate clause reads \"the site's build, deploy and declared gates\" with no gate named, and `git grep -n 'docs:idea-parity' docs/LIVE_MARKET_DIRECT.md` finds nothing. The change landed as `53e3c6913` (patch-id `a6496035017b5adffe762a5d8f8cbde9e0cdded4`), and the session log records all five gos (Xactimate as the authority, Overseer, Legal, Scope, Carrier) bound to that patch-id. Two things differ from the letter of the line, and both are accepted. First, the quoted wording (\"its index and its shared pages\") is not there: a pointer to the README's owner table stands in its place, as [comment da031743](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-da031743) asked, so the line does not define \"section\" a fifth way. Second, the same commit also changed two other clauses (`app/proofs/` joins Xactimate, `app/docker-compose.yml` joins shared ground), which trips \"the commit touches any other clause\". Both clauses were ruled by the operator in the same discussion and carry the same five gos, so splitting them out would have cost a second round of gos for no change in meaning.\n\n**6. No landed retired spelling under `handbook/`: met.** `npx tsx --conditions=source idea-script/scripts/retired.ts check --tracked handbook` exits 0: \"80 hits in 47 files, 0 on landed entries\"; every hit is a pending entry. Planting a landed spelling (`// a planted note` on line 2 of `handbook/worlds/branch-fold.idea`, restored afterwards) turns it red, exit 1, naming `branch-fold.idea:2 [comment-slashes] landed`. Legal's ratchet is on `main` even though [IDE-25](https://linear.app/idealic/issue/IDE-25) is still open in Linear. Two refusing specimens (`l1-literal-member.idea`, `h7-root-colon.idea`) are read only partly or past a refusal, which is expected of specimens written to refuse.\n\n**Proof page.** The acceptance asks for a proof URL. The proof pages from earlier rounds are served only from the operator's machine (127.0.0.1:9440), and the measurements above stand in for a hosted proof; the operator's close ruling accepts that.\n\n### Left over\n\n- **A page on a first change to kit's TypeScript code.** How to build, test and open a change in the code itself; today \"Make a first change\" covers only a `.idea` file.\n- **A CI step that runs `check.mjs` and `inventory.mjs --check`.** Neither runs on any push or board row. This belongs to [IDE-126](https://linear.app/idealic/issue/IDE-126), for Planner.\n- **H5 and H6's skipped specimens are still present.** [Comment 253b6dc4](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-253b6dc4) said they \"retire when this ticket lands\"; at `fe915972a` both are still listed as skipped, along with H4's. Their key is still \"unfiled\".\n- **R1 on the format page still waits on [IDE-25](https://linear.app/idealic/issue/IDE-25)** with no specimen, although the ratchet it waits for now runs; it could name the ratchet command instead.\n- **When [IDE-101](https://linear.app/idealic/issue/IDE-101) lands, un-skip `u1`.** The check will report it as now holding.\n\n### Supersedes\n\n- [Comment 4f422628](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-4f422628): \"Four acceptance items are still open: the README's reader goals and owner table, registry hits (IDE-25), the literal `sketch/` grep, and the check running nowhere.\" The README, the registry hits and the grep are now met; only the CI step remains, with [IDE-126](https://linear.app/idealic/issue/IDE-126). Its \"Registry hits (acceptance item 6) are open. R1 waits on IDE-25\" is also superseded: the ratchet runs and finds 0 landed hits.\n- [Comment 9b35004f](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-9b35004f): \"Still open, so this ticket stays open: `handbook/README.md`, with the reader goals and the owner table.\" Both are in place.\n- [Comment 06d55363](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-06d55363): \"Fails if a folder under `handbook/` has neither an owner row nor a 'root' mark.\" Every folder has a row, and the inventory check enforces it.\n- [Comment 42c643ab](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-42c643ab)'s count \"26 of 26 mutants\" is now 27 of 27.\n\n### Links\n\n- Merge on kit `main`: `fe915972a54a1dd35da0b4a0904608db343f375d` (books-landing, head `25282ea43`).\n- Reader-goals list: `afa37d743`.\n- Ownership line: `53e3c6913` (patch-id `a6496035017b5adffe762a5d8f8cbde9e0cdded4`).\n- Earlier records: [comment 9b35004f](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-9b35004f) (first landing), [comment 06d55363](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-06d55363), [comment 4f422628](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-4f422628), [comment 57491e4f](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-57491e4f) (line 2 amendment), [comment da031743](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-da031743) (owner-table pointer), [comment 42c643ab](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-42c643ab) (the gate moves to [IDE-126](https://linear.app/idealic/issue/IDE-126)), [comment 253b6dc4](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-253b6dc4) (re-scope).",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "253b6dc4-9cb0-4010-a7e4-7a2c1300c139",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-22T16:41:48.733Z",
+          "body": "Re-scoped to the plain direction (2026-10-21). Callouts and question fences are gone from the format, and questions follow IDE-172. Rules H5 and H6 had their home in IDE-22's census, which was cancelled with the checks, so they stay on the format page as written conventions. Their skipped specimens retire when this ticket lands.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "1552d8f0-0972-4803-88ec-617aff51ce3a",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-21T04:21:53.058Z",
+          "body": "[OPS2] A triage on IDE-51 names `check.mjs` (this ticket's) as the only code enforcing the v1 handbook world. If the hub widens that world so pages can cite `§idealic/resource`, the change lands here: an opt-in like the specimens' `with: 'idealic'`, with a self-test mutant that keeps `See §stats.` refused. Dropping the first compile is not the way to do it. [Finding](https://linear.app/idealic/issue/IDE-51#comment-be6d1890)",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "42c643ab-0b3b-4b50-82ca-6f6d5f0d0043",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T13:19:20.017Z",
+          "body": "This ticket's open item \"nothing runs `check.mjs`\", which was moved to 🛠️ Tooling & Gates, is confirmed live at `1c8f968ab`. The checker passes today (0 broken; `--self-test` turns 26 of 26 mutants red), so the row-plus-`gate-suites.json` fix recorded here has nothing red to clear first. Of all the acceptance lines on IDE-21, IDE-22 and IDE-23, this row serves only the first one here, \"a gate compiles every specimen\".\nFull workings: [IDE-126 — handbook checker on no gate-board row](https://linear.app/idealic/issue/IDE-126/tooling-and-gates#comment-4624fcc4)",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "da031743-dd2a-471b-a475-44622b4c48b0",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T12:58:04.268Z",
+          "body": "A triage on IDE-126 relies on this ticket's acceptance item 4, the `handbook/README.md` owner table. That table is what IDE-22's census actually waits on. The ownership line's root/section clause should point at it rather than define \"section\" a fifth way. Comment 4f422628 here is also out of date: its folder list omits `handbook/worlds/`, and the root page is now `page-standard.idea`.\nFull workings: [IDE-126 — ownership line: handbook sections + four shared-ground paths](https://linear.app/idealic/issue/IDE-126/tooling-and-gates#comment-ae849e54)",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "57491e4f-63c3-48c5-b22e-2acff9dfcd12",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T12:29:44.756Z",
+          "body": "**Folded into this ticket: the item-2 falsifier should leave out `handbook/_plan/`.** For whoever closes IDE-21. Dated 2026-10-20, read at `origin/feature/reactor` `12f0ed24a`.\n\nThe second acceptance line fails if `git grep -n 'sketch/' handbook/` finds a citation of the session folder. Today that grep returns 14 hits, every one in `handbook/_plan/VISION.md`, the planning page that is meant to cite the session folder. Run with `':(exclude)handbook/_plan'` it returns 0. So the line as written can never pass, for a reason that has nothing to do with what it guards: that the format page and its specimens stop pointing at the session folder.\n\nWhat changes: the falsifier reads `git grep -n 'sketch/' handbook/ ':(exclude)handbook/_plan'`. The 14 hits in `_plan/` are the control showing the grep still fires on a real citation.\n\nWhy fold rather than file: it is a one-line correction to this ticket's own acceptance, from the 2026-10-20 groom of Product: Handbook (confirmed by the operator). The ownership-line clauses and the checker's missing gate-board row went to 🛠️ Tooling & Gates ([IDE-126](https://linear.app/idealic/issue/IDE-126)) instead, since neither is a ticket subject.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "4f422628-45a9-45b2-be38-21b9f93bb6c8",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T05:11:56.374Z",
+          "body": "## Status: In Progress\n\n**TL;DR** The handbook follow-ups have landed on `feature/reactor` as `31867d932..fd113057f`, 4 commits, all under `handbook/`. U1 now states the ruled `ui: {layout: wide}` form, and its specimen is skipped on [IDE-101](https://linear.app/idealic/issue/IDE-101). The audience words are now `¶for-*`, which ends the `¶agents` clash with ideas-app. `handbook/README.md` is a front page. The plan is committed as `handbook/_plan/VISION.md`, and the check leaves exactly `_plan/` out of its sketch scan, with self-test mutants pinning that boundary. All gates are green at the tip. Four acceptance items are still open: the README's reader goals and owner table, registry hits ([IDE-25](https://linear.app/idealic/issue/IDE-25)), the literal `sketch/` grep, and the check running nowhere.\n**Covers:** work since [comment 06d55363](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-06d55363) (2026-10-20 04:06Z): the HBFOLLOW branch, both rounds, as landed. The ownership line (`f24ca4127..53e3c6913`) and `handbook/page-standard.md` (`9a351cd62..ed92d81ba`) landed separately and are mentioned only where they bear on acceptance.\n\n### On-direction\n\nThe work is on direction. Each commit carries out an operator ruling recorded in the session log on 2026-10-20:\n\n- U1 was rewritten from \"`=` closed choice\" to the ruled annotation form. Legal settled the spelling on [IDE-102](https://linear.app/idealic/issue/IDE-102), with [IDE-101](https://linear.app/idealic/issue/IDE-101) as the COLONVAL landing.\n- The audience words were renamed.\n- The plan was committed into `handbook/_plan/`.\n\nEvery change stays inside `handbook/`, which the ownership line now gives to the hub.\n\nThere is no scope drift. The description's constraints (current syntax only, no grammar change) still hold:\n\n- U1 states the ruled form but asserts it only through a skipped specimen.\n- `format.md` says plainly what the compiler does today: it reads `ui: {…}` before the title as title text.\n\nThe README is narrower than acceptance item 4 asks. It covers who the handbook is for, how a page is written and how to check one. It does not list reader goals or carry an owner table, so that item stays open (see Leftovers).\n\n### Verified\n\nAll runs were in `kit-wt/hub-land-1020` at `fd113057f`, which equals `origin/feature/reactor` after the fetch.\n\n- **The range:** `git log --oneline 31867d932..fd113057f` lists 4 commits:\n  - `7e5a48782` U1\n  - `9de1db64d` the `¶for-*` rename\n  - `c9d181c4e` the README\n  - `fd113057f` VISION and the `_plan/` exclusion\n- **Scope:** `git diff --name-only 31867d932..fd113057f | grep -v '^handbook/' | wc -l` gives **0**.\n- **Scoped patch-ids** (`git show <c> -- handbook | git patch-id --stable`) match the builder's round-2 table exactly:\n  - `7e5a48782` → `8673a05c0e178a91a382833c85e650e477bfd8ea`\n  - `9de1db64d` → `891e7ad2f7b97b2c8f15a6601ceda8922075caa9`\n  - `c9d181c4e` → `b1e0af1c472b02cafae3b92fd012747f2db12a6a`\n  - `fd113057f` → `138d3e780dbc29a695b9c15737d6d86e934844d6`\n- **`node handbook/handbook/check.mjs`** exits **0** and prints `26 rules on format.md, 27 specimen entries: 20 held, 7 skipped, 0 broken; 6 rules wait on a key with no specimen; 3 wait on work nobody has filed`.\n  - The u1 line reads `skipped u1 (U1) waits on IDE-101: still ¶eg-wide has title \"ui: {layout: wide} A wide page\", want \"A wide page\"`.\n  - It prints `unscanned handbook/_plan/ for sketch-folder citations: a dated plan, kept as written`.\n- **`node handbook/handbook/check.mjs --self-test`** exits **0** and prints `12 of 12 mutants turned the check red`. The set includes the `_planx/` and the inner `handbook/handbook/_plan/` boundary plants.\n- **`npx biome lint handbook`** exits **0** and prints `Checked 2 files … No fixes applied.`\n- **Acceptance spot-checks at the tip:**\n  - `git grep -n 'docs:idea-parity' docs/LIVE_MARKET_DIRECT.md` finds nothing (exit 1).\n  - `docs/LIVE_MARKET_DIRECT.md:98` carries \"the root of `handbook/`. Each lane owns the `handbook/` sections for its own domain\".\n  - The section specimens hold: `s2`, `s2-line`, `s3-mention`, `s3-embed` and `s4` are all held. Only `s3-nearest`, the nearest-name hint, is skipped, on T8.\n- **Proof:** http://127.0.0.1:9440/proofs/proofs/invizko/hbfollow-round2-8b7c5e2b.html. It is served from the local MinIO on port 9440 and opens only on the operator's machine. It was rendered on the pre-landing branch `hbfollow-1020` at base `ed92d81ba`, not on the landed commits. The scoped patch-ids above are identical, so it covers the same content.\n\n### Confidence & fragility\n\nConfidence is high that what landed is what was reviewed: the patch-ids match, the gates were re-run at the tip, and nothing outside `handbook/` changed. The fragility is elsewhere:\n\n- **The check is still advisory.** Nothing runs it. `git grep -n handbook -- scripts .husky .github package.json` finds 0 lines; the control, `idea-parity`, finds 2 in each of the two `scripts/` files. Any page edit can break a held specimen and nobody will see it until someone runs the check by hand.\n- **The `_plan/` exclusion is a path rule.** It matches exactly `<repo>/handbook/_plan` and is pinned by mutants. If the plan moves or is renamed, the 14 sketch-folder citations in VISION.md turn the check red, which is the intended failure.\n- **U1 and the depth example at `format.md:91` describe syntax the compiler does not read yet.** Their specimen is skipped and asserts the wanted title. When [IDE-101](https://linear.app/idealic/issue/IDE-101) lands, the check reports `NOW HOLDS` and turns red until the skip is removed. That is by design, but someone has to act on it.\n\n### What the diff doesn't show\n\n- **The C1/C2–C4 independence.** C1 (U1) was held back while Legal settled the spelling, so C2–C4 were built to land without it. They were cherry-picked onto `ed92d81ba` without C1, and their scoped patch-ids were identical with and without it. C2 deliberately does not touch the u1 specimen, which carries no audience word. C1 was released into the fix round only after Legal's ruling on [IDE-102](https://linear.app/idealic/issue/IDE-102).\n- **Round 1 wrote the opposite form for U1.** It had U1 waiting on UNFILED with the spelling `(ui: layout: wide)`. That spelling can never compile: `parseAnnotations` in `idea-script/src/compile.ts` reads only `key` or `key=value`. The finding pushed the spelling question to Legal.\n- **The clash fix was checked against the whole set.** With `ideas-app/package.idea` dropped from the compile set (it has its own `§exchange` refusal), the set of idealic, ideas-app and handbook vocabulary compiles: exit 0, 254 citations. Before the rename the same set exited 2 on `¶agents`.\n\n### Leftovers & followups\n\nAgainst IDE-21's acceptance, after this landing:\n\n- [ ] **The README's reader goals and owner table (acceptance item 4) are open.**\n  - `handbook/README.md` has neither the reader-goals list (see what kit is … check what is real) nor a section table naming each folder's owner seat.\n  - Folders under `handbook/` today: `handbook/` (format), `_plan/`, plus the root pages `README.md` and `page-standard.md`. Each needs an owner row or a \"root\" mark, and that table is also where the hub's root ends (Carrier's note).\n- [ ] **The literal falsifier in acceptance item 2 now fires.**\n  - `git grep -n 'sketch/' handbook/` returns 14 lines, all in `handbook/_plan/VISION.md` (provenance in the dated plan). The check exempts `_plan/` by design; the ticket's grep does not.\n  - Reword the falsifier to exclude `_plan/` (for example `git grep -n 'sketch/' handbook/ ':!handbook/_plan'`) or accept the check's scan as the instrument. This is a description edit for the hub, not a code change.\n- [ ] **Registry hits (acceptance item 6) are open.** R1 waits on [IDE-25](https://linear.app/idealic/issue/IDE-25), Legal's ratchet.\n- [ ] **H4, H5 and H6 still wait on unfiled compiler work** (a kind check, a durability count, required parts). Their owner question was put to Legal on [IDE-53](https://linear.app/idealic/issue/IDE-53). Acceptance item 1 holds by the check's own count (every rule names a specimen or a key, and the check lists UNFILED explicitly), but three rules have no real key.\n- [ ] **Nothing runs `check.mjs`.** This carries over from [comment 06d55363](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-06d55363) and is re-measured at the tip with 0 hits. The fix is an advisory gate-board row plus a `gate-suites.json` entry (shared ground), with the push trigger shared with [IDE-33](https://linear.app/idealic/issue/IDE-33).\n- [ ] **The root `README.md` still calls the handbook \"`kit/handbook/`, coming\"** at lines 8 and 73 and does not link `handbook/README.md`. That is the hub's ground.\n- [ ] **When IDE-101 lands, un-skip `u1` and re-word `format.md:91`.** The check will say `NOW HOLDS`.\n- [ ] **Session leftovers, not ticket acceptance:**\n  - The Kit Tracker Guide's roadmap lines still cite `KITDOCS_VISION.md`. Point them at `handbook/_plan/VISION.md`. This is from the session log and was not re-checked here.\n  - The worktrees `kit-wt/hbfollow` and `kit-wt/hbfollow-noc1` (detached) and the branches `hbfollow-1020`, `-r1` and `-r2a` are still present and can be removed.\n- (Guidance only; nothing here was filed or fixed.)\n\n### Supersedes\n\n[comment 06d55363](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-06d55363) (2026-10-20):\n\n- **Its \"From the follow-up critique\" items are now done.**\n  - `README.md:27`'s two claims now match the check. The sentence says the check \"compiles the specimen of each format rule that has one\", and the sketch-folder sentence says \"except the dated plan in `_plan/`\".\n  - The `_planx/` boundary mutant exists in the self-test, alongside an inner `_plan` mutant, for 12 of 12.\n  - The third item there, the root README linking `handbook/README.md`, is **still open**.\n- **\"U1 and `(doc: depth=2)` (format.md:91) move to the annotation spelling Legal settles\" is done in the text.** U1 states `ui: {layout: wide}`, and line 91 now teaches `doc: {depth: 2}`. What remains is only the un-skip on [IDE-101](https://linear.app/idealic/issue/IDE-101).\n- **\"Fix round running\" is over.** The round landed.\n\n[comment 9b35004f](https://linear.app/idealic/issue/IDE-21/a-handbook-page-has-one-written-format-and-every-rule-in-it-has-a#comment-9b35004f) (2026-10-18):\n\n- **\"`git grep 'sketch/' handbook/` finds nothing\" is now false:** it finds 14 lines, all in `_plan/VISION.md`.\n- **\"19 held, 7 skipped\" is now 20 held, 7 skipped of 27.** The 26 rules are unchanged, and \"10 mutants\" is now 12.\n- **\"Embeds are recorded with their line: S2 waits on T10\" is no longer true.** `s2-line` is held.\n- **\"`¶agents` collides with ideas-app\" is resolved** by the `¶for-*` rename.\n- **\"U1's `=` closed choice conflicts with the ruling\" is resolved.** U1 waits on [IDE-101](https://linear.app/idealic/issue/IDE-101), not UNFILED, which is what round 1 had written.\n- **\"`handbook/README.md`\" as an open item is partly done.** The page exists, but the reader goals and owner table are still missing.\n- **\"The ownership line … does not yet name `handbook/`\" is resolved.** It landed in `f24ca4127..53e3c6913` with all five gos (Xactimate authority, Overseer, Legal, Scope, Carrier).\n\n### Links\n\n- **Range:** `31867d932..fd113057f` on `feature/reactor` (landed, no new commit).\n- **Related landings:**\n  - The ownership line, `f24ca4127..53e3c6913` (`docs/LIVE_MARKET_DIRECT.md`).\n  - `handbook/page-standard.md`, `9a351cd62..ed92d81ba`.\n- **Proof, local only:** http://127.0.0.1:9440/proofs/proofs/invizko/hbfollow-round2-8b7c5e2b.html. It is served from the operator's MinIO on port 9440 and does not open from any other machine.\n- **Trail:** `builds/wave1020/HBFOLLOW.md` (both rounds), `HBFOLLOW_CRITIQUE.md` and `OWNLINE.md` in the docs-hub session of 2026-10-18.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "06d55363-6f14-45fe-90f3-9d26e5cbd575",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-20T04:06:38.002Z",
+          "body": "Leftovers for this chunk, found while landing the ownership line and the follow-up branch (dated 2026-10-20, measured at `aee38e0a1`):\n\n- [ ] **Nothing runs `handbook/handbook/check.mjs` yet.** `git grep handbook -- scripts .husky .github package.json` finds 0 lines (control: `idea-parity` finds 2 lines in each of the two scripts files).\n  - Add it to the gate board as an advisory row with a reason, plus a `gate-suites.json` entry. `scripts/` is shared ground, agreed per change.\n  - Running it on push stays with the `@handbook/push-gate` roadmap line. It should share the \"push touching `handbook/`\" trigger that IDE-33 adds to the pre-push hook, not add a second one.\n- [ ] **The README's section table defines where the hub's root ends.** A section is a per-domain directory under `handbook/`; everything else is the hub's root. At the next touch of `docs/LIVE_MARKET_DIRECT.md:98`, the line says the same (Carrier's note). Fails if a folder under `handbook/` has neither an owner row nor a \"root\" mark.\n- [ ] **From the follow-up critique** (branch `hbfollow-1020`, fix round running):\n  - README.md:27's two claims match the check: the sketch-folder scan exempts `_plan/`, and the check compiles the example each rule names.\n  - A self-test mutant pins the `_plan/` exclusion boundary: a `handbook/_planx/` plant must turn the check red.\n  - The root README links to `handbook/README.md`.\n- [ ] **U1 and `(doc: depth=2)` (format.md:91) move to the annotation spelling Legal settles.** See IDE-25 and IDE-61.",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        },
+        {
+          "id": "9b35004f-9178-4a03-be54-f8148946b448",
+          "author": "Yaroslaff Fedin",
+          "createdAt": "2026-10-18T21:10:24.277Z",
+          "body": "Landed: `63769bbdd..6d2a7cf79` (patch-id `87e8737599a3132881c9ca8d0854a13b9881b317`). It adds 28 files under `handbook/handbook/`:\n- `format.md`, marked §dated: 26 rules, each backed by a specimen or a waiting key.\n- `check.mjs`: exit 0/1/2, prints its denominator.\n- `specimens/` with its manifest.\n- `vocabulary/`: the audience, durability and section ideas.\n\nRun `node handbook/handbook/check.mjs`. It exits 0 with 19 held, 7 skipped and 0 broken. `--self-test` turns all 10 mutants red. `git grep 'sketch/' handbook/` finds nothing.\n\nCritic round: REQUEST CHANGES, with 4 MUST-FIX items. All four are fixed in the landed commit, along with every SHOULD and both NITs.\n- Critique: http://127.0.0.1:9440/proofs/proofs/invizko/ide21-critique-45e073d0.html\n- Fix proof: http://127.0.0.1:9440/proofs/proofs/invizko/ide21-fix-8ec6c423.html\n\nStill open, so this ticket stays open:\n- `handbook/README.md`, with the reader goals and the owner table.\n- Embeds are recorded with their line: S2 waits on T10, a compiler change on Legal's ground.\n- H4/H5/H6 wait on unfiled grammar work: a kind check, a durability count, a required summary.\n- For the operator: the `¶agents` name collides with `ideas-app/agent/agents.idea`, and U1's \"`=` closed choice\" conflicts with the ruling that `=` is for formulas only.\n- The ownership line in `docs/LIVE_MARKET_DIRECT.md:98` does not yet name `handbook/`. The operator ruled \"hub root, lanes own sections\".",
+          "quotedText": null,
+          "resolvedAt": null,
+          "resolvedBy": null,
+          "reactions": [],
+          "orphanReply": false,
+          "children": []
+        }
+      ],
+      "lifecycle": [
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-24T03:14:49.914Z",
+          "from": "In Progress",
+          "to": "Done"
+        },
+        {
+          "type": "state",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T05:11:56.559Z",
+          "from": "Backlog",
+          "to": "In Progress"
+        },
+        {
+          "type": "milestone",
+          "actor": "Yaroslaff Fedin",
+          "at": "2026-10-20T03:30:17.625Z",
+          "from": "Handbook",
+          "to": null
+        }
+      ],
+      "attachments": [],
+      "isChannel": false
+    }
+  ],
+  "summary": {
+    "ticketCount": 17,
+    "newTicketCount": 17,
+    "activity": [
+      {
+        "identifier": "IDE-173",
+        "title": "The repo page leaves the handbook, explains landing plainly, and keeps its questions in the new shape",
+        "comments": 2,
+        "lifecycle": 1,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-172",
+        "title": "A handbook page can ask its reader a question in the same shape kit's agents use for questions",
+        "comments": 1,
+        "lifecycle": 1,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-143",
+        "title": "The handbook explains jobs and the market, worlds and branches, and the .idea language plainly, for a developer new to kit",
+        "comments": 3,
+        "lifecycle": 1,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-94",
+        "title": "One handbook page opens inside the ideas app at `/handbooks/<name>`",
+        "comments": 3,
+        "lifecycle": 1,
+        "attachments": 2
+      },
+      {
+        "identifier": "IDE-61",
+        "title": "🟠 Identified shortcomings",
+        "comments": 5,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-53",
+        "title": "🟪 Inquiries",
+        "comments": 9,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-51",
+        "title": "🔴 Observed problems",
+        "comments": 8,
+        "lifecycle": 0,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-33",
+        "title": "A cold model sits the handbook exam on demand, within a hard spend cap of $1 a run",
+        "comments": 4,
+        "lifecycle": 3,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-31",
+        "title": "Handbook pages are reachable at a public address",
+        "comments": 2,
+        "lifecycle": 1,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-24",
+        "title": "The worlds, branches and merge page compiles in the handbook, every claim on it is tied to a test or a ticket, and it says what the code does today",
+        "comments": 4,
+        "lifecycle": 3,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-23",
+        "title": "Every Built line in the handbook runs the test it names, every Intended line carries a ticket key, and a closed ticket flags its line",
+        "comments": 2,
+        "lifecycle": 2,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-22",
+        "title": "Every tracked file and root under `handbook/` is accounted for in one page model, and a file the census does not know refuses with its fix",
+        "comments": 7,
+        "lifecycle": 2,
+        "attachments": 0
+      },
+      {
+        "identifier": "IDE-21",
+        "title": "A handbook page has one written format, and every rule in it has a committed specimen the compiler checks",
+        "comments": 9,
+        "lifecycle": 3,
+        "attachments": 0
+      }
+    ]
+  }
+}
