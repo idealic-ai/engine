@@ -31,7 +31,8 @@
 #               builder's row, while a re-dispatch of the same stage still replaces its
 #               predecessor. The log reading and the retirement marker are still per TAG, so they
 #               apply to every stage of the thread alike.
-#   state       done (handed back) | parked (turn ended, no hand-back) | running
+#   state       done (handed back) | parked (turn ended, no hand-back) | busy (inside a tool call
+#               that has not returned and is still within its own timeout; never stale) | running
 #               DO NOT build on "done": it is unreachable for a lane this tool is pointed at.
 #               It fires only on a SubagentHandback call in the transcript tail, and whether a
 #               lane is granted that tool is a property of the session that dispatched it —
@@ -79,7 +80,7 @@
 # last FIELD only on a path with no spaces, and session directories on a shared drive routinely
 # have them ("…/Shared drives/…"), so `awk '{print $NF}'` returns a truncated path that still
 # looks like one. Nothing after it is ever printed, which is what makes the sed form exact.
-# Prints only lanes that are not done and whose freshest signal is older than --minutes
+# Prints only lanes that are neither done nor busy and whose freshest signal is older than --minutes
 # (default 30), unless --all. Exit 0 = nothing stale, 3 = at least one stale lane.
 #
 # The first line states the window, the threshold and the lane count, because every reading
@@ -172,6 +173,24 @@ RETIRED = re.compile(r"\bretired=(landed|ended-nothing-to-land|abandoned)\b")
 HEAD_TAG = re.compile(r"\s*\[([A-Z][A-Z0-9_-]{2,})\]")
 THREAD_TAG = re.compile(r"\bthread\s+(?:\*\*)?\[?([A-Z][A-Z0-9_-]{2,})\]?(?:\*\*)?")
 THREAD_SCAN_CHARS = 400
+
+# A lane inside one long foreground call writes nothing until the call returns, so its transcript
+# ages like a dead lane's. An unanswered tool_use still inside its own timeout separates the two.
+# Only a call that carries a timeout can be judged — Bash defaults to 2m — so a pending call with
+# none (an Agent, say) claims nothing and the lane reads as its silence says.
+DEFAULT_TIMEOUT_MS = {"Bash": 120000}
+
+def call_still_running(pending, mtime):
+    if not pending:
+        return False
+    limits = []
+    for b in pending:
+        t = (b.get("input") or {}).get("timeout")
+        t = t if isinstance(t, (int, float)) and t > 0 else DEFAULT_TIMEOUT_MS.get(b.get("name"))
+        if t is None:
+            return False
+        limits.append(t / 1000)
+    return now - mtime < max(limits)
 
 # agentId -> spawn `description`, per parent transcript. The parent of
 # <proj>/<sessionId>/subagents/agent-<id>.jsonl is <proj>/<sessionId>.jsonl; inside it a
@@ -447,20 +466,30 @@ for path in glob.glob(os.path.join(projects_dir, "*", "*", "subagents", "agent-*
     except OSError as exc:
         unreadable.append(str(exc))
         tail = []
+    answered = set()
     for raw in reversed(tail):
         try:
             rec = json.loads(raw)
         except Exception:
             continue
         msg = rec.get("message") or {}
+        blocks = msg.get("content") or []
+        if not isinstance(blocks, list):
+            blocks = []
+        if msg.get("role") == "user":
+            answered.update(b.get("tool_use_id") for b in blocks
+                            if isinstance(b, dict) and b.get("type") == "tool_result")
+            continue
         if msg.get("role") != "assistant":
             continue
-        blocks = msg.get("content") or []
-        names = [b.get("name") for b in blocks if isinstance(b, dict) and b.get("type") == "tool_use"]
+        uses = [b for b in blocks if isinstance(b, dict) and b.get("type") == "tool_use"]
+        names = [b.get("name") for b in uses]
         if "SubagentHandback" in names:
             state = "done"
         elif not names and msg.get("stop_reason") == "end_turn":
             state = "parked"
+        elif call_still_running([b for b in uses if b.get("id") not in answered], mtime):
+            state = "busy"
         break
     # Keyed by (tag, stage): a second stage of a thread is a second lane, while a re-dispatch of
     # the same stage is its successor and replaces it.
@@ -481,7 +510,7 @@ for (tag, stage), lane in sorted(lanes.items(), key=lambda kv: (kv[0][0], kv[0][
     # question (see the header), and freshness answers a different one.
     disposition = retired.get(tag)
     retired_lanes += disposition is not None
-    is_stale = lane["state"] != "done" and disposition is None and fresh > minutes
+    is_stale = lane["state"] not in ("done", "busy") and disposition is None and fresh > minutes
     stale += is_stale
     if show_all or is_stale:
         rows.append((tag, stage, lane["state"], lane["via"], t_age, l_age, is_stale, lane["path"],

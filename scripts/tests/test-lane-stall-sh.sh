@@ -1024,4 +1024,40 @@ test_lane_stall_a_lane_tagged_loom_does_not_own_the_conductors_log() {
     "control — builds/LOOM_LOG.md is the [LOOM] lane's own log"
 }
 
+# $1 projects dir · $2 session dir · $3 tag · $4 the call's timeout in ms ("" omits it) ·
+# $5 minutes to backdate the transcript · $6 "answered" to append the call's tool_result.
+plant_lane_in_a_call() {
+  local projects="$1" session="$2" tag="$3" timeout="$4" ago="$5" answered="${6:-}"
+  mkdir -p "$session/builds" "$projects/proj/sess/subagents"
+  local key t="$projects/proj/sess/subagents/agent-$3.jsonl"
+  key="$(basename "$(dirname "$session")")/$(basename "$session")"
+  printf '{"message":{"role":"user","content":[{"type":"text","text":"[%s] thread brief, session %s"}]}}\n' "$tag" "$key" > "$t"
+  jq -nc --arg to "$timeout" '{message:{role:"assistant",stop_reason:"tool_use",content:[{type:"tool_use",id:"tu-long",name:"Bash",
+    input:({command:"bash scripts/tests/run-all.sh"} + (if $to == "" then {} else {timeout: ($to|tonumber)} end))}]}}' >> "$t"
+  [ "$answered" = "answered" ] && \
+    printf '{"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-long","content":"ok"}]}}\n' >> "$t"
+  touch -t "$(python3 -c "import time,sys;print(time.strftime('%Y%m%d%H%M.%S',time.localtime(time.time()-$ago*60)))")" "$t"
+}
+
+# A lane inside one long foreground call writes nothing until it returns, so its transcript ages
+# like a dead lane's. What separates them is the call itself: a tool_use with no tool_result yet,
+# still inside its own timeout, is a lane at work. Past the timeout the call has returned or died
+# either way, and the lane is as stale as its silence says.
+# RED: drop the busy reading, and LONGCALL reads STALE.
+test_lane_stall_a_lane_inside_a_long_call_is_busy_not_stale() {
+  local session="$TMP_DIR/longcall/2026_10_12_LONGCALL"
+  local projects="$TMP_DIR/projects-longcall"
+  plant_lane_in_a_call "$projects" "$session" "LONGCALL" 600000 5
+  plant_lane_in_a_call "$projects" "$session" "OVERTIME" 600000 15
+  plant_lane_in_a_call "$projects" "$session" "DEFAULTTO" "" 5
+  plant_lane_in_a_call "$projects" "$session" "RETURNED" 600000 5 answered
+  local out="$TMP_DIR/longcall.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all --minutes 1 >"$out" 2>"$out.err"
+  assert_contains "state=busy" "$(grep '\[LONGCALL\]' "$out")" "a lane 5m into a 10m call reads busy"
+  assert_not_contains "STALE" "$(grep '\[LONGCALL\]' "$out")" "and is not stale"
+  assert_contains "STALE" "$(grep '\[OVERTIME\]' "$out")" "control — 15m into a 10m call it is stale"
+  assert_contains "STALE" "$(grep '\[DEFAULTTO\]' "$out")" "control — a call with no timeout set gets the 2m default, so 5m in is stale"
+  assert_contains "STALE" "$(grep '\[RETURNED\]' "$out")" "control — a call that already returned buys nothing"
+}
+
 run_discovered_tests
