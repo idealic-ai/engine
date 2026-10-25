@@ -53,10 +53,11 @@ canonical_markers() {
   '
 }
 
-# A ticket carrying one human root with two replies: the planted marker-led one, and a human
-# sibling. Reproduces the leak's shape — a skill reply landing on somebody's drop.
+# A channel ticket carrying one human root with two replies: the planted marker-led one, and a
+# human sibling. Reproduces the leak's shape — a skill reply landing on somebody's drop. It is
+# registered as a channel because the drain reads only the inbox channels.
 plant() {
-  jq --arg m "$1" '.tickets += [{
+  jq --arg m "$1" '.structure.channels += [{ identifier: "PLANT-1" }] | .tickets += [{
       identifier: "PLANT-1", title: "planted",
       comments: [{
         id: "plant-root", author: "human", createdAt: "2026-01-01T00:00:00Z",

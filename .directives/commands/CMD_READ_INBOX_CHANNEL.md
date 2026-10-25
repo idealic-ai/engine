@@ -31,7 +31,7 @@
     ```
     One call returns the comment **trees** for every inbox channel plus the live `structure.channels`. **A non-zero exit wrote nothing** — surface it and advance no watermark. The command prints the payload path as its last stdout line.
 2.  **Check `channelsResolved`.** `false` means the project's inbox milestone name did not resolve and the channel set came back empty. Say so and re-fetch with `PROJECT_FETCH_INBOX_MILESTONE=<the project's inbox milestone>`, rather than proceeding as though the project had no channels.
-3.  **Apply the filter below to the payload.** It removes, in one pass: every comment whose body leads with a marker from the vocabulary, and every **anchored** comment (`quotedText != null`, which annotates a ticket's *description* rather than the firehose). It walks **every node at every depth**, because a reply is itself signal, and it withholds a **root** whose thread carries a marker-led comment anywhere beneath it: disposition is a property of the thread, so the parent of a groom reply is not new signal. On such a thread a non-marker descendant is emitted **only when it was created after the thread's latest marker-led reply**: an earlier one was in front of whoever wrote that disposition, so returning it would hand the caller an echo of something already decided. A later one is someone answering the disposition and drains.
+3.  **Apply the filter below to the payload.** Both walks read **only the tickets in `structure.channels`** — the whole `Inboxes` milestone, so a ticket parked there to gather input is in scope. `engine project fetch` also returns new comments on ordinary work tickets, and those are not inbox signal: on a real Product: Handbook fetch they were 37 of the 39 nodes an unscoped drain returned. A caller that wants work-ticket comments reads `.tickets[]` with `isChannel == false` itself; this command does not hand them back. It removes, in one pass: every comment whose body leads with a marker from the vocabulary, and every **anchored** comment (`quotedText != null`, which annotates a ticket's *description* rather than the firehose). It walks **every node at every depth**, because a reply is itself signal, and it withholds a **root** whose thread carries a marker-led comment anywhere beneath it: disposition is a property of the thread, so the parent of a groom reply is not new signal. On such a thread a non-marker descendant is emitted **only when it was created after the thread's latest marker-led reply**: an earlier one was in front of whoever wrote that disposition, so returning it would hand the caller an echo of something already decided. A later one is someone answering the disposition and drains.
 4.  **Dedup by comment id** against the caller's own raw input log, and write the surviving set there **before** advancing anything the caller tracks (`¶INV_WRITE_BEFORE_WATERMARK`).
 5.  **Degrade in one line.** A missing CLI, a non-zero fetch, or an unresolved channel set → say which, and hand control back. Absence is a normal state and must be **visible**: a caller that could not drain says it could not drain, and never reports an empty channel instead.
 
@@ -105,7 +105,9 @@ def after_last_marker($root):
         | { channel: $ch.channel, channelTitle: $ch.channelTitle,
             id, author, createdAt, dispositioned: dispositioned, body }
       else
-        (.comments // [])[] as $root
+        # The fetch also carries comments on ordinary work tickets; those are not inbox signal.
+        select(.identifier | IN($inbox_channels[]))  # new-signal scope
+        | (.comments // [])[] as $root
         # A dispositioned root is withheld, and so is every reply the latest marker already answered;
         # a reply after that marker is new signal and drains.
         | (if ($root | dispositioned) then [] else [$root] end

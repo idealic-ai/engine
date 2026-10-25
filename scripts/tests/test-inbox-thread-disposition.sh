@@ -73,14 +73,13 @@ test_04_old_behaviour_would_fail_this_check() {
   assert_eq "31" "$(drained_roots "$TMP/old.jq")" "removing the root suppression re-admits 31 roots"
 }
 
-test_05_flatten_kept_unmarked_descendants_still_drain() {
-  local total unmarked
-  total="$(jq -c -f "$TMP/real.jq" "$SNAPSHOT" | jq length)"
+test_05_a_fully_groomed_snapshot_drains_nothing() {
+  local unmarked
   unmarked="$(jq --argjson ch "$CHANNELS" '
     def ft: [ .[] | ., (.children // [] | ft[]) ];
     [ .tickets[] | select(.identifier|IN($ch[])) | .comments[]? | (.children // []) | ft[] ] | length' "$SNAPSHOT")"
-  assert_eq "26" "$total" "the drain returns 26 nodes on the frozen snapshot: zero of the 31 roots, zero of the 13 channel replies (each predates its thread's last marker), and 26 on non-channel tickets"
-  assert_gt "$total" "0" "unmarked replies under machine replies still drain ($total emitted in all tickets; $unmarked channel descendants walked)"
+  assert_gt "$unmarked" "0" "control — the channels carry $unmarked descendants for the drain to walk"
+  assert_eq "0" "$(jq -c -f "$TMP/real.jq" "$SNAPSHOT" | jq length)" "the drain returns nothing on the frozen snapshot: zero of the 31 roots, zero of the 13 channel replies (each predates its thread's last marker), and no work-ticket comment"
 }
 
 test_06_open_threads_are_listable() {
@@ -156,6 +155,30 @@ test_10_a_reply_after_the_last_marker_still_drains_and_one_before_does_not() {
   assert_not_contains "p-before" "$got" "a reply before the last marker does not drain (the disposition already answered it)"
   got="$(printf '%s' "$plant" | jq -c -f "$TMP/empty.jq" | jq -r '[.[].id] | join(" ")')"
   assert_contains "p-before" "$got" "control — with the table emptied the earlier reply drains, so its drop was the marker's doing"
+}
+
+# ------------------------------------------------------------------
+# Scope: the fetch also carries comments on ordinary work tickets (project.sh says so), and the
+# drain is a read of the INBOX. Measured on the Product: Handbook fetch: 37 of the 39 nodes drained
+# sat on work tickets, none of them inbox signal; the open-threads walk was already scoped.
+# ------------------------------------------------------------------
+off_channel_drained() {
+  jq -c -f "$1" "$2" | jq --argjson ch "$(jq -c '[.structure.channels[]?.identifier]' "$2")" \
+    '[.[] | select(.channel | IN($ch[]) | not)] | length'
+}
+
+test_11_the_drain_reads_only_the_inbox_channels() {
+  assert_eq "0" "$(off_channel_drained "$TMP/real.jq" "$HANDBOOK")" "no work-ticket comment drains from the Product: Handbook snapshot"
+  assert_eq "0" "$(off_channel_drained "$TMP/real.jq" "$SNAPSHOT")" "no work-ticket comment drains from the Product: Idea snapshot"
+  assert_eq "2" "$(jq -c -f "$TMP/real.jq" "$HANDBOOK" | jq length)" "the live inbox thread on IDE-53 (a root and its reply, no marker) still drains in full"
+}
+
+test_12_control_unscoped_the_same_drain_returns_the_work_ticket_comments() {
+  # Swap the scope for identity (deleting the line would leave a dangling pipe).
+  awk '/# new-signal scope$/ { print "        ."; next } { print }' "$TMP/real.jq" > "$TMP/unscoped.jq"
+  assert_neq "$(cat "$TMP/real.jq")" "$(cat "$TMP/unscoped.jq")" "the unscoped program really differs from the shipped one"
+  assert_eq "37" "$(off_channel_drained "$TMP/unscoped.jq" "$HANDBOOK")" "without the scope the Product: Handbook drain returns 37 work-ticket comments"
+  assert_eq "26" "$(off_channel_drained "$TMP/unscoped.jq" "$SNAPSHOT")" "and the Product: Idea drain returns 26"
 }
 
 run_discovered_tests
