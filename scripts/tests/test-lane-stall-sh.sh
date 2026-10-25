@@ -946,4 +946,56 @@ test_lane_stall_own_log_match_is_exact() {
   done
 }
 
+# $1 projects dir · $2 session dir · $3 agent id · $4 spawn description · $5 "parked" to end the
+# transcript parked and backdate it, else it stays a fresh running lane. Writes the parent
+# transcript records the sweep reads a description from: an Agent tool_use and the tool_result
+# carrying toolUseResult.agentId.
+plant_described_lane() {
+  local projects="$1" session="$2" id="$3" desc="$4" mode="${5:-}"
+  local parent="$projects/proj/sess.jsonl" t="$projects/proj/sess/subagents/agent-$3.jsonl" key
+  mkdir -p "$session/builds" "$projects/proj/sess/subagents"
+  key="$(basename "$(dirname "$session")")/$(basename "$session")"
+  jq -nc --arg id "tu-$id" --arg d "$desc" \
+    '{message:{role:"assistant",content:[{type:"tool_use",id:$id,name:"Agent",input:{description:$d,prompt:"brief"}}]}}' >> "$parent"
+  jq -nc --arg id "tu-$id" --arg a "$id" \
+    '{toolUseResult:{agentId:$a},message:{role:"user",content:[{type:"tool_result",tool_use_id:$id,content:"started"}]}}' >> "$parent"
+  printf '{"message":{"role":"user","content":[{"type":"text","text":"Lane brief, session %s"}]}}\n' "$key" > "$t"
+  if [ "$mode" = "parked" ]; then
+    printf '{"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"waiting"}]}}\n' >> "$t"
+    touch -t 202610201000 "$t"
+  fi
+}
+
+# Two lanes of one thread share its tag, and the stage lives only in the description's words:
+# measured on a real weave, "[BOOKWORLDS] migrate worlds book to voice" and "[BOOKWORLDS]
+# scrutinize worlds book". Keyed by tag alone the newer scrutinize lane replaced the builder,
+# so a builder that had gone quiet vanished from the sweep and the exit read clean.
+# RED: key lanes by tag alone.
+test_lane_stall_two_stages_of_one_thread_are_two_lanes() {
+  local session="$TMP_DIR/stages/2026_10_12_STAGES"
+  local projects="$TMP_DIR/projects-stages"
+  plant_described_lane "$projects" "$session" "builder1" "[BOOKWORLDS] migrate worlds book to voice" parked
+  plant_described_lane "$projects" "$session" "critic1" "[BOOKWORLDS] scrutinize worlds book"
+  local out="$TMP_DIR/stages.txt" rc
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"; rc=$?
+  assert_eq "2" "$(grep -c '\[BOOKWORLDS\]' "$out")" "both lanes of the thread get a row"
+  assert_contains "lanes=2" "$(head -1 "$out")" "the verdict line counts two lanes"
+  assert_contains "STALE" "$(grep 'agent-builder1' "$out")" "the quiet builder is reported stale"
+  assert_contains "stage=scrutinize" "$(grep 'agent-critic1' "$out")" "the critique lane names its stage"
+  assert_contains "stage=-" "$(grep 'agent-builder1' "$out")" "the builder is the unstaged lane"
+  assert_eq "3" "$rc" "the stale builder makes the exit status say so"
+}
+
+# A re-dispatch of the same stage is a successor, not a second lane: only the newer one is read.
+test_lane_stall_a_same_stage_successor_still_replaces_its_predecessor() {
+  local session="$TMP_DIR/succ/2026_10_12_SUCCESSOR"
+  local projects="$TMP_DIR/projects-succ"
+  plant_described_lane "$projects" "$session" "old1" "[BOOKWORLDS] migrate worlds book to voice" parked
+  plant_described_lane "$projects" "$session" "new1" "[BOOKWORLDS] continue the worlds book"
+  local out="$TMP_DIR/succ.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  assert_eq "1" "$(grep -c '\[BOOKWORLDS\]' "$out")" "two unstaged lanes of one thread are one lane"
+  assert_contains "agent-new1" "$(grep '\[BOOKWORLDS\]' "$out")" "and the row is the newer transcript"
+}
+
 run_discovered_tests

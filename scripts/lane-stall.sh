@@ -23,6 +23,13 @@
 #               names every lane and dates none of them. A "~" marks
 #               a reading taken from the log file's mtime because its headings carry no
 #               timestamp, which is what `engine log` does to a heading opening with "[".
+#   stage       the lane's stage when its description (or prompt head) follows the tag with one
+#               of a closed set of verbs — scrutinize, critique, recritique, review, rereview, fix,
+#               land, probe, prove, explore, prep — else "-". Two lanes of one thread share a tag,
+#               so lanes are keyed by tag AND stage: a critique lane no longer replaces its
+#               builder's row, while a re-dispatch of the same stage still replaces its
+#               predecessor. The log reading and the retirement marker are still per TAG, so they
+#               apply to every stage of the thread alike.
 #   state       done (handed back) | parked (turn ended, no hand-back) | running
 #               DO NOT build on "done": it is unreachable for a lane this tool is pointed at.
 #               It fires only on a SubagentHandback call in the transcript tail, and whether a
@@ -213,6 +220,19 @@ def spawn_descriptions(parent_path):
     _spawn_cache[parent_path] = described
     return described
 
+# Two lanes of one thread carry the same tag, and what tells them apart is the verb after it:
+# "[BOOKWORLDS] migrate worlds book" builds, "[BOOKWORLDS] scrutinize worlds book" critiques. A
+# closed set, so an ordinary builder verb leaves the lane unstaged rather than minting a stage.
+STAGE_WORDS = ("scrutinize", "critique", "recritique", "review", "rereview", "fix", "land",
+               "probe", "prove", "explore", "prep")
+STAGE_WORD = re.compile(r"\s*([A-Za-z]+)")
+
+def stage_after(text, m):
+    w = STAGE_WORD.match(text, m.end())
+    word = w.group(1).lower() if w else ""
+    return word if word in STAGE_WORDS else None
+
+# -> (tag, via, stage)
 def resolve_tag(path, text):
     subagents = os.path.dirname(path)
     agent_id = os.path.basename(path)[len("agent-"):-len(".jsonl")]
@@ -220,14 +240,14 @@ def resolve_tag(path, text):
     if desc:
         m = HEAD_TAG.match(desc)
         if m:
-            return m.group(1), "desc"
+            return m.group(1), "desc", stage_after(desc, m)
     m = HEAD_TAG.match(text)
     if m:
-        return m.group(1), "head"
+        return m.group(1), "head", stage_after(text, m)
     m = THREAD_TAG.search(text[:THREAD_SCAN_CHARS])
     if m:
-        return m.group(1), "thread"
-    return None, None
+        return m.group(1), "thread", None
+    return None, None, None
 
 # Last log heading per tag; headings without their own timestamp inherit the previous one.
 # A log whose headings are ALL unstamped still dates its own tags, from the file mtime —
@@ -405,7 +425,7 @@ for path in glob.glob(os.path.join(projects_dir, "*", "*", "subagents", "agent-*
         b.get("text", "") for b in content if isinstance(b, dict))
     if session_key not in text:
         continue
-    tag, via = resolve_tag(path, text)
+    tag, via, stage = resolve_tag(path, text)
     if tag is None:
         continue
     state = "running"
@@ -431,16 +451,18 @@ for path in glob.glob(os.path.join(projects_dir, "*", "*", "subagents", "agent-*
         elif not names and msg.get("stop_reason") == "end_turn":
             state = "parked"
         break
-    prev = lanes.get(tag)
+    # Keyed by (tag, stage): a second stage of a thread is a second lane, while a re-dispatch of
+    # the same stage is its successor and replaces it.
+    prev = lanes.get((tag, stage))
     if prev is None or mtime > prev["mtime"]:
-        lanes[tag] = {"mtime": mtime, "state": state, "path": path, "via": via}
+        lanes[(tag, stage)] = {"mtime": mtime, "state": state, "path": path, "via": via}
 
 def age(t):
     # A file written during this run is "newer than now"; report 0, never a negative age.
     return None if not t else max(0.0, (now - t) / 60)
 
 rows, stale, retired_lanes = [], 0, 0
-for tag, lane in sorted(lanes.items()):
+for (tag, stage), lane in sorted(lanes.items(), key=lambda kv: (kv[0][0], kv[0][1] or "")):
     t_age, l_age = age(lane["mtime"]), age(log_last.get(tag))
     fresh = min(a for a in (t_age, l_age) if a is not None)
     # A retirement is read, not computed: no threshold, no window and no age can produce it or
@@ -451,7 +473,7 @@ for tag, lane in sorted(lanes.items()):
     is_stale = lane["state"] != "done" and disposition is None and fresh > minutes
     stale += is_stale
     if show_all or is_stale:
-        rows.append((tag, lane["state"], lane["via"], t_age, l_age, is_stale, lane["path"],
+        rows.append((tag, stage, lane["state"], lane["via"], t_age, l_age, is_stale, lane["path"],
                      disposition))
 
 # Every reading below is scoped to this window, and a horizon left unstated is how "0 lanes
@@ -462,13 +484,14 @@ for tag, lane in sorted(lanes.items()):
 print(f"window={since_hours:.0f}h  threshold={minutes:.0f}m  lanes={len(lanes)}  "
       f"retired={retired_lanes}")
 fmt = lambda a: "-" if a is None else f"{a:.0f}m"
-for tag, state, via, t_age, l_age, is_stale, path, disposition in rows:
+for tag, stage, state, via, t_age, l_age, is_stale, path, disposition in rows:
     flag = "STALE" if is_stale else ("RETIRED" if disposition else "ok")
     log_col = fmt(l_age) + ("~" if tag in log_approx and l_age is not None else "")
     # logpath LAST, because the tail of a row is what a reader copies and the agent
     # transcript in that position is what produced every caller's hand-rolled workaround.
     # "none" is a reading, not a blank: a lane with no log is a different hand-over.
-    print(f"{flag:7}  [{tag}]  state={state:7}  retired={disposition or 'no':22}  via={via:6}  "
+    print(f"{flag:7}  [{tag}]  stage={stage or '-':10}  state={state:7}  "
+          f"retired={disposition or 'no':22}  via={via:6}  "
           f"transcript={fmt(t_age):>6}  log={log_col:>7}  "
           f"agent={path}  logpath={log_path.get(tag, 'none')}")
 if not rows:
