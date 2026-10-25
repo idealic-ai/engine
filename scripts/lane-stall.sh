@@ -20,7 +20,8 @@
 #               own log (<TAG>_LOG.md, <TAG>_<KIND>_LOG.md, builds/<tag>/<KIND>_LOG.md)
 #               outranks any other log naming the tag, however recent, and a log at the
 #               session root dates only the lane it is named for: the conductor's log there
-#               names every lane and dates none of them. A "~" marks
+#               names every lane and dates none of them — not even a lane literally tagged
+#               [LOOM], which would otherwise own LOOM_LOG.md by name. A "~" marks
 #               a reading taken from the log file's mtime because its headings carry no
 #               timestamp, which is what `engine log` does to a heading opening with "[".
 #   stage       the lane's stage when its description (or prompt head) follows the tag with one
@@ -290,7 +291,17 @@ def name_parts(name):
 # builds/<TAG>_LOG.md or builds/<TAG>_<KIND>_LOG.md, anywhere, or a kind-only name such as
 # BUILD_LOG.md inside builds/<tag>/. Names compare with "-" and "_" removed, so
 # builds/ide173/IDE173_BUILD_LOG.md is [IDE-173]'s.
+# The conductor's own logs at the session root. A lane tagged [LOOM] would otherwise own
+# LOOM_LOG.md by name, and read fresh off every stamp the conductor writes there.
+CONDUCTOR_LOGS = ("LOOM_LOG.md", "LOOM_EXPERIMENT_LOG.md")
+
+def is_conductor_log(log):
+    return (os.path.normpath(os.path.dirname(log)) == SESSION_ROOT
+            and os.path.basename(log) in CONDUCTOR_LOGS)
+
 def is_own_log(log, tag):
+    if is_conductor_log(log):
+        return False
     want = "".join(name_parts(tag))
     parts = name_parts(os.path.basename(log)[:-len("_LOG.md")])
     is_kind = lambda rest: all(KIND_PART.fullmatch(p) for p in rest)
@@ -383,7 +394,7 @@ for log in session_logs():
             # from its filename too. This is the path the 45-of-117 lanes with no log of their
             # own take: they are GIVEN builds/<TAG>_LOG.md carrying the retirement heading and
             # nothing else, so a retirement does not depend on a lane having logged in life.
-            if m and file_retired:
+            if m and file_retired and not is_conductor_log(log):
                 retired[m.group(1)] = file_retired
             if m:
                 date_tag(m.group(1), stamp, log, last_ts is None)

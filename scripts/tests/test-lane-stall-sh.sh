@@ -998,4 +998,30 @@ test_lane_stall_a_same_stage_successor_still_replaces_its_predecessor() {
   assert_contains "agent-new1" "$(grep '\[BOOKWORLDS\]' "$out")" "and the row is the newer transcript"
 }
 
+# The conductor's log at the session root is LOOM_LOG.md, so under the own-log rule a lane
+# literally tagged [LOOM] would own it — and with it every recent stamp the conductor writes,
+# reading as fresh however dead it is. The conductor's log is nobody's own log; the same lane's
+# log under builds/ still is.
+# RED: drop the conductor-log guard from is_own_log.
+test_lane_stall_a_lane_tagged_loom_does_not_own_the_conductors_log() {
+  local session="$TMP_DIR/loomtag/2026_10_12_LOOMTAG"
+  local projects="$TMP_DIR/projects-loomtag"
+  plant_parked_lane "$projects" "$session" "LOOM" ""
+  printf '%s\n' "## [2026-10-20 10:30:00] dispatched [OTHERLANE]" "## [2026-10-20 10:31:00] [LOOM] wave 2 notes" \
+    > "$session/LOOM_LOG.md"
+  local out="$TMP_DIR/loomtag.txt" rc
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"; rc=$?
+  assert_eq "none" "$(grep '\[LOOM\]' "$out" | sed 's/.*logpath=//')" "a [LOOM] lane is not handed the conductor's root log"
+  # Untagged headings date a log from its filename, the other path to the same file.
+  printf '%s\n' "## [2026-10-20 10:30:00] wave notes" "## retired=landed" > "$session/LOOM_LOG.md"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"; rc=$?
+  assert_eq "none" "$(grep '\[LOOM\]' "$out" | sed 's/.*logpath=//')" "nor through the filename path when its headings name no tag"
+  assert_contains "retired=no" "$(grep '\[LOOM\]' "$out")" "and a bare retirement in the conductor's log does not retire it"
+  # Control: the same lane's own log under builds/ is still its own.
+  printf '## [2026-10-20 10:20:00] [LOOM] work\n' > "$session/builds/LOOM_LOG.md"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  assert_eq "$session/builds/LOOM_LOG.md" "$(grep '\[LOOM\]' "$out" | sed 's/.*logpath=//')" \
+    "control — builds/LOOM_LOG.md is the [LOOM] lane's own log"
+}
+
 run_discovered_tests
