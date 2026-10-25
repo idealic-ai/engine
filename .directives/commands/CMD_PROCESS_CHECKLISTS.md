@@ -42,7 +42,7 @@
     *   On failure: `engine session check` exits 1 with a descriptive error. Fix the content and retry.
 5.  **Report Pending Items**: If any checklist items are marked `[ ]` (unchecked), flag them:
     *   Add a brief mention in the debrief's "Next Steps" section.
-    *   If significant, tag with `#needs-implementation` via `§CMD_TAG_FILE`.
+    *   If significant, tag with `#needs-implementation` via §CMD_TAG_FILE.
 
 **JSON Schema** (stdin to `engine session check`):
 ```json

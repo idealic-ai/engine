@@ -9,7 +9,7 @@
     *   **`ACK`** (Acknowledge): Log the acknowledgment to `_LOG.md`. No file changes.
     *   **`ESC`** (Escape): Backtick-escape the tag in the source file. No request file.
     *   **`MORE/DROP`** (Delete): Remove the tag and surrounding context entirely.
-    *   **`MORE/MOV`** (Move to Tags line): Remove inline tag, add to the file's `**Tags**:` line via `§CMD_TAG_FILE`.
+    *   **`MORE/MOV`** (Move to Tags line): Remove inline tag, add to the file's `**Tags**:` line via §CMD_TAG_FILE.
 5.  **Mark complete**: After all tags are processed, execute `engine session update [sessionDir] tagCheckPassed true`.
 6.  **Re-run check**: Execute `engine session check [sessionDir]` again (with stdin for checklists if applicable). Should now pass.
 

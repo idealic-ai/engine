@@ -10,6 +10,9 @@
 [ -n "${_TEST_HELPERS_LOADED:-}" ] && return 0
 _TEST_HELPERS_LOADED=1
 
+# Resolved at source time: BASH_SOURCE may be relative, and setup_test_env later cds into a sandbox.
+_TEST_HELPERS_ENGINE_TREE="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 # ============================================================
 # Colors
 # ============================================================
@@ -71,7 +74,9 @@ assert_neq() {
 
 assert_contains() {
   local pattern="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -qF "$pattern" 2>/dev/null || echo "$actual" | grep -q "$pattern" 2>/dev/null; then
+  # Here-strings, not echo | grep -q: grep -q exits on the first match, and under pipefail the
+  # writer's SIGPIPE on a large haystack turns that match into a reported miss.
+  if grep -qF -- "$pattern" <<< "$actual" 2>/dev/null || grep -q -- "$pattern" <<< "$actual" 2>/dev/null; then
     pass "$msg"
   else
     fail "$msg" "contains '$pattern'" "$actual"
@@ -80,7 +85,7 @@ assert_contains() {
 
 assert_not_contains() {
   local pattern="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -qF "$pattern" 2>/dev/null; then
+  if grep -qF -- "$pattern" <<< "$actual" 2>/dev/null; then
     fail "$msg" "NOT contains '$pattern'" "$actual"
   else
     pass "$msg"
@@ -315,9 +320,9 @@ disable_fleet_tmux() {
 #   TEST_SESSION     — $TMP_DIR/sessions/$SESSION_NAME
 #   FAKE_HOME        — (from setup_fake_home)
 #   ORIGINAL_HOME    — (from setup_fake_home)
-#   REAL_SCRIPTS_DIR — Original ~/.claude/scripts/ (for extra symlinks)
-#   REAL_ENGINE_DIR  — Original ~/.claude/engine/ (for extra symlinks)
-#   REAL_HOOKS_DIR   — Original ~/.claude/hooks/ (for extra symlinks)
+#   REAL_SCRIPTS_DIR — scripts/ of the engine tree holding this file (for extra symlinks)
+#   REAL_ENGINE_DIR  — root of the engine tree holding this file (for extra symlinks)
+#   REAL_HOOKS_DIR   — hooks/ of the engine tree holding this file (for extra symlinks)
 #
 # After calling, add test-specific symlinks:
 #   ln -sf "$REAL_HOOKS_DIR/my-hook.sh" "$FAKE_HOME/.claude/hooks/my-hook.sh"
@@ -331,10 +336,11 @@ setup_test_env() {
   # PID above can't leak a shared /tmp cache across tests/runs.
   export CLAUDE_SESSION_CACHE_DIR="$TMP_DIR"
 
-  # Capture real paths before HOME switch
-  REAL_SCRIPTS_DIR="$HOME/.claude/scripts"
-  REAL_ENGINE_DIR="$HOME/.claude/engine"
-  REAL_HOOKS_DIR="$HOME/.claude/hooks"
+  # The tree these tests ship in, never ~/.claude: the live engine may be checked out at another
+  # branch, and code linked from there is that branch's code, not the code under test.
+  REAL_ENGINE_DIR="$_TEST_HELPERS_ENGINE_TREE"
+  REAL_SCRIPTS_DIR="$REAL_ENGINE_DIR/scripts"
+  REAL_HOOKS_DIR="$REAL_ENGINE_DIR/hooks"
 
   setup_fake_home "$TMP_DIR"
   disable_fleet_tmux

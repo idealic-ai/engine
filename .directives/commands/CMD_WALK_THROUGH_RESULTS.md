@@ -11,7 +11,7 @@ The algorithm below is parameterized. These mode-specific values fill the placeh
   *   **Disclosure engine**: §CMD_ELICIT — builds a `§FMT_DECISION_CARD` per item, triages on severity × complexity into advisory `I've-got-this` / `Your-call` / `FYI`. Each card is rendered AS its item's `AskUserQuestion` question body per §CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT (not as separate chat cards followed by a terse question). It DISCLOSES only — it makes no decision. Replaces the thin `§FMT_CONTEXT_BLOCK` disclosure (that under-briefed the user, who then had to interrogate each item). Card depth scales with the bucket, so simple/clean results stay light (one-liners) and cost concentrates on the few `Your-call`s.
   *   **Context labels**: "[ID]: What this is about" + "The finding" (the Decision Card subsumes this — the labels remain for any item ELICIT renders as a light one-liner)
   *   **Decision command**: §CMD_TAG_TRIAGE (dynamic tag options from `SRC_DELEGATION_TARGETS`, option labels leading with §FMT_ANSWER_GRADATION tags) — **the Decision Card IS the question body; §CMD_TAG_TRIAGE's options are that question's answers**, informed by the card. Each `Your-call` gets individual tag attention, the `I've-got-this`/`FYI` sets can be batched — tag placements exactly as before.
-  *   **On result**: tag → `§CMD_HANDLE_INLINE_TAG` + tag proof output; dismiss → no tag; custom → execute instruction
+  *   **On result**: tag → §CMD_HANDLE_INLINE_TAG + tag proof output; dismiss → no tag; custom → execute instruction
   *   **Summary fields**: Tagged: N, Dismissed: N — includes inline tag verification report (ELICIT's triaged summary — `N Your-calls · M I'll-handle · K FYI` — leads it)
   *   **Plan Review tree**: Not used
 
@@ -87,7 +87,7 @@ After all items triaged/reviewed:
 
 1.  **Summary**: Output mode-specific summary in chat (tagged/dismissed counts for results; approved/feedback/flagged counts for plan).
 2.  **Inline Tag Verification** (results mode only): List every inline tag placed with file paths per `¶INV_TERMINAL_FILE_LINKS`. Count MUST match tag proofs from Step 3.
-3.  **Update Tags Line** (results mode): Add inline tags to debrief's `**Tags**:` line via `§CMD_TAG_FILE`.
+3.  **Update Tags Line** (results mode): Add inline tags to debrief's `**Tags**:` line via §CMD_TAG_FILE.
 4.  **If flagged** (plan mode): Warn calling skill that revision is needed.
 5.  **Log**: Append summary entry to session log.
 

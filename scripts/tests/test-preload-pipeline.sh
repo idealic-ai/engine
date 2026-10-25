@@ -3,7 +3,7 @@
 #
 # Tests the full preload pipeline: discovery → delivery → dedup across
 # multiple directory touches. Reproduces the AGENTS.md re-delivery bug
-# where preloadedFiles stays stuck at 6 seeds despite delivery.
+# where preloadedFiles stays stuck at the seed count despite delivery.
 #
 # Bug: When _run_discovery finds AGENTS.md for dir A, it gets delivered
 # via preload_ensure(immediate). When dir B triggers discovery and finds
@@ -25,14 +25,6 @@ setup() {
   ln -sf "$REAL_ENGINE_DIR/scripts/lib.sh" "$FAKE_HOME/.claude/engine/scripts/lib.sh"
   ln -sf "$REAL_ENGINE_DIR/config.sh" "$FAKE_HOME/.claude/engine/config.sh" 2>/dev/null || true
 
-  # Create minimal seed directive files (the 6 core seeds)
-  for f in COMMANDS.md INVARIANTS.md SIGILS.md; do
-    echo "# $f content" > "$FAKE_HOME/.claude/engine/.directives/$f"
-  done
-  for f in CMD_DEHYDRATE.md CMD_RESUME_SESSION.md CMD_PARSE_PARAMETERS.md; do
-    echo "# $f content" > "$FAKE_HOME/.claude/engine/.directives/commands/$f"
-  done
-
   # Symlink ~/.claude/.directives → engine/.directives (mirrors real setup)
   ln -sf "$FAKE_HOME/.claude/engine/.directives" "$FAKE_HOME/.claude/.directives"
 
@@ -50,13 +42,17 @@ setup() {
   cp "$REAL_ENGINE_DIR/scripts/discover-directives.sh" "$FAKE_HOME/.claude/scripts/discover-directives.sh" 2>/dev/null || true
   chmod +x "$FAKE_HOME/.claude/scripts/discover-directives.sh" 2>/dev/null || true
 
-  # Build the 6 seeds array (absolute paths, resolved through symlinks)
-  local engine_dir
-  engine_dir=$(cd "$FAKE_HOME/.claude/.directives" 2>/dev/null && pwd -P)
-  SEEDS=$(jq -n --arg d "$engine_dir" \
-    '[$d+"/COMMANDS.md",$d+"/INVARIANTS.md",$d+"/SIGILS.md",$d+"/commands/CMD_DEHYDRATE.md",$d+"/commands/CMD_RESUME_SESSION.md",$d+"/commands/CMD_PARSE_PARAMETERS.md"]')
+  # Seeds come from the function SessionStart reads, so this fixture holds no copy of the list.
+  unset _LIB_SH_LOADED
+  source "$FAKE_HOME/.claude/scripts/lib.sh"
+  local rel
+  for rel in "${SESSION_START_SEED_FILES[@]}"; do
+    echo "# $rel content" > "$FAKE_HOME/.claude/engine/.directives/$rel"
+  done
+  SEEDS=$(get_session_start_seeds)
+  SEED_N=$(echo "$SEEDS" | jq 'length')
 
-  # Create session .state.json with 6 seeds
+  # Create session .state.json with the seeds
   # PID must match CLAUDE_SUPERVISOR_PID so session.sh find locates this session
   jq -n --argjson pid "${CLAUDE_SUPERVISOR_PID:-$$}" --argjson seeds "$SEEDS" '{
     pid: $pid,
@@ -104,10 +100,10 @@ count_pending() {
 # --- Tests ---
 
 test_P1_preloaded_files_grows_after_immediate_delivery() {
-  # BASELINE: preloadedFiles starts with exactly 6 seeds
+  # BASELINE: preloadedFiles starts with exactly the seeds
   local before
   before=$(count_preloaded)
-  assert_eq "6" "$before" "P1: starts with 6 seeds"
+  assert_eq "$SEED_N" "$before" "P1: starts with the seeds"
 
   # Create a file to deliver
   local test_file="$TMP_DIR/content/agents.md"
@@ -118,10 +114,10 @@ test_P1_preloaded_files_grows_after_immediate_delivery() {
   preload_ensure "$test_file" "test" "immediate"
   assert_eq "delivered" "$_PRELOAD_RESULT" "P1: file delivered"
 
-  # CRITICAL ASSERTION: preloadedFiles should now have 7 entries
+  # CRITICAL ASSERTION: preloadedFiles should now have one more entry
   local after
   after=$(count_preloaded)
-  assert_eq "7" "$after" "P1: preloadedFiles grew from 6 to 7 after delivery"
+  assert_eq "$((SEED_N + 1))" "$after" "P1: preloadedFiles grew by one after delivery"
 }
 
 test_P2_dedup_prevents_redelivery_after_tracking() {
@@ -204,7 +200,7 @@ test_P4_discovery_then_delivery_then_rediscovery_no_duplicate() {
 
   local preloaded_count
   preloaded_count=$(count_preloaded)
-  assert_eq "7" "$preloaded_count" "P4: preloadedFiles count is 7 (6 seeds + AGENTS.md)"
+  assert_eq "$((SEED_N + 1))" "$preloaded_count" "P4: preloadedFiles count is seeds + AGENTS.md"
 
   # Step 3: Simulate _run_discovery for dir B finding same AGENTS.md
   # This is the _run_discovery jq from lines 245-261 of overflow-v2
@@ -228,20 +224,20 @@ test_P4_discovery_then_delivery_then_rediscovery_no_duplicate() {
 }
 
 test_P5_injections_hook_cleanup_preserves_preloaded() {
-  # Simulate: preloadedFiles has 7 entries + pendingAllowInjections has content
-  # After injections hook clears stash, preloadedFiles should still have 7
+  # Simulate: preloadedFiles has seeds+1 entries + pendingAllowInjections has content
+  # After injections hook clears stash, preloadedFiles should still have seeds+1
 
   local test_file="$TMP_DIR/content/test_p5.md"
   mkdir -p "$TMP_DIR/content"
   echo "# P5 test" > "$test_file"
 
-  # Deliver a file to get preloadedFiles to 7
+  # Deliver a file to grow preloadedFiles by one
   preload_ensure "$test_file" "test" "immediate"
   assert_eq "delivered" "$_PRELOAD_RESULT" "P5: file delivered"
 
   local before
   before=$(count_preloaded)
-  assert_eq "7" "$before" "P5: preloadedFiles has 7 before injections cleanup"
+  assert_eq "$((SEED_N + 1))" "$before" "P5: preloadedFiles has seeds+1 before injections cleanup"
 
   # Add some pendingAllowInjections (simulating what overflow-v2 stashes)
   jq '.pendingAllowInjections = [{"ruleId": "preload", "content": "test content"}]' \
@@ -255,7 +251,7 @@ test_P5_injections_hook_cleanup_preserves_preloaded() {
   # preloadedFiles should be preserved
   local after
   after=$(count_preloaded)
-  assert_eq "7" "$after" "P5: preloadedFiles still 7 after injections cleanup"
+  assert_eq "$((SEED_N + 1))" "$after" "P5: preloadedFiles still seeds+1 after injections cleanup"
 }
 
 test_P6_multiple_state_writes_preserve_preloaded() {
@@ -277,7 +273,7 @@ test_P6_multiple_state_writes_preserve_preloaded() {
 
   local after_counter
   after_counter=$(count_preloaded)
-  assert_eq "6" "$after_counter" "P6: preloaded still 6 after counter write"
+  assert_eq "$SEED_N" "$after_counter" "P6: preloaded still seeds after counter write"
 
   # Step 2: preload_ensure delivery
   preload_ensure "$test_file" "test" "immediate"
@@ -285,14 +281,14 @@ test_P6_multiple_state_writes_preserve_preloaded() {
 
   local after_delivery
   after_delivery=$(count_preloaded)
-  assert_eq "7" "$after_delivery" "P6: preloaded 7 after delivery"
+  assert_eq "$((SEED_N + 1))" "$after_delivery" "P6: preloaded seeds+1 after delivery"
 
   # Step 3: pendingPreloads cleanup
   jq '.pendingPreloads = []' "$STATE_FILE" | safe_json_write "$STATE_FILE"
 
   local after_cleanup
   after_cleanup=$(count_preloaded)
-  assert_eq "7" "$after_cleanup" "P6: preloaded still 7 after pending cleanup"
+  assert_eq "$((SEED_N + 1))" "$after_cleanup" "P6: preloaded still seeds+1 after pending cleanup"
 
   # Step 4: _track_delivered
   jq '.injectedRules.preload = true | .lastHeartbeat = "now"' \
@@ -300,7 +296,7 @@ test_P6_multiple_state_writes_preserve_preloaded() {
 
   local after_track
   after_track=$(count_preloaded)
-  assert_eq "7" "$after_track" "P6: preloaded still 7 after track_delivered"
+  assert_eq "$((SEED_N + 1))" "$after_track" "P6: preloaded still seeds+1 after track_delivered"
 
   # Step 5: pendingAllowInjections stash
   jq '.pendingAllowInjections = [{"ruleId": "preload", "content": "x"}]' \
@@ -308,7 +304,7 @@ test_P6_multiple_state_writes_preserve_preloaded() {
 
   local after_stash
   after_stash=$(count_preloaded)
-  assert_eq "7" "$after_stash" "P6: preloaded still 7 after stash"
+  assert_eq "$((SEED_N + 1))" "$after_stash" "P6: preloaded still seeds+1 after stash"
 
   # Step 6: injections hook clear (manual temp+mv, not safe_json_write)
   local tmp="${STATE_FILE}.tmp.$$"
@@ -316,7 +312,7 @@ test_P6_multiple_state_writes_preserve_preloaded() {
 
   local after_injections
   after_injections=$(count_preloaded)
-  assert_eq "7" "$after_injections" "P6: preloaded still 7 after injections clear"
+  assert_eq "$((SEED_N + 1))" "$after_injections" "P6: preloaded still seeds+1 after injections clear"
 }
 
 test_P7_delivery_event_log_tracks_pipeline() {
@@ -493,7 +489,7 @@ test_P8_full_run_discovery_integration() {
 
   local preloaded_after_delivery
   preloaded_after_delivery=$(count_preloaded)
-  assert_gt "$preloaded_after_delivery" "6" "P8: preloadedFiles grew after delivery"
+  assert_gt "$preloaded_after_delivery" "$SEED_N" "P8: preloadedFiles grew after delivery"
 
   # Now touch dir B (scripts/tests/)
   TOOL_INPUT=$(jq -n --arg p "$FAKE_HOME/.claude/engine/scripts/tests/test-file.sh" '{"file_path": $p}')
@@ -510,7 +506,7 @@ test_P9_pid_mismatch_causes_tracking_loss() {
   # When CLAUDE_SUPERVISOR_PID doesn't match the PID in .state.json,
   # find_preload_state() can't find the session and falls back to a seed file.
   # Writes to preloadedFiles go to the seed instead of the session .state.json,
-  # causing the "stuck at 6 seeds" bug observed in the audit.
+  # causing the "stuck at the seed count" bug observed in the audit.
 
   # Override CLAUDE_SUPERVISOR_PID to a non-matching value
   local orig_pid="$CLAUDE_SUPERVISOR_PID"
@@ -528,7 +524,7 @@ test_P9_pid_mismatch_causes_tracking_loss() {
   # Session .state.json should NOT have grown (writes went to seed)
   local session_count
   session_count=$(count_preloaded)
-  assert_eq "6" "$session_count" "P9: session preloadedFiles stuck at 6 (PID mismatch → writes to seed)"
+  assert_eq "$SEED_N" "$session_count" "P9: session preloadedFiles stuck at the seeds (PID mismatch → writes to seed)"
 
   # The state_file that preload_ensure used is a seed, not the session
   local actual_state

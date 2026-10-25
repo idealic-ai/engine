@@ -32,7 +32,7 @@
 
     3.  **On Selection**: Process each discovery's answer independently. Apply tags for non-skipped items (step 6). Move to next group after all answers processed.
 6.  **Apply Tags**: For each tagged discovery:
-    *   Add the tag to the debrief file's `**Tags**:` line via `§CMD_TAG_FILE`:
+    *   Add the tag to the debrief file's `**Tags**:` line via §CMD_TAG_FILE:
         ```bash
         engine tag add "[sessionDir]/[DEBRIEF].md" '#needs-implementation'
         ```

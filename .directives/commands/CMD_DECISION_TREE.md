@@ -242,7 +242,7 @@ These work in the Other text field across all `¶ASK_*` patterns. Resolved at pr
   After: Resolve immediately
 
 - **`#` — Tag**
-  Behavior: `#needs-brainstorm` — triggers `§CMD_HANDLE_INLINE_TAG` on the active artifact
+  Behavior: `#needs-brainstorm` — triggers §CMD_HANDLE_INLINE_TAG on the active artifact
   After: Re-present tree
 
 - **`@` — Reference**
