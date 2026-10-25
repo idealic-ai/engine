@@ -9,7 +9,9 @@ set -uo pipefail
 source "$(dirname "$0")/test-helpers.sh"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-HOOK_SCRIPT="$HOME/.claude/hooks/session-start-restore.sh"
+# Everything under test comes from this tree: $HOME/.claude is the machine's live engine, which may
+# be checked out at another branch, so a hook read from there tests that branch's code.
+HOOK_SCRIPT="$SCRIPT_DIR/hooks/session-start-restore.sh"
 REAL_PITFALLS="$SCRIPT_DIR/.directives/PITFALLS.md"
 
 TMP_DIR=""
@@ -77,6 +79,15 @@ run_hook() {
 # The paths of the [Preloaded: <path>] blocks a hook run printed, sorted, as a JSON array.
 printed_standards() {
   grep -E '^\[Preloaded: /' <<< "$1" | sed -E 's/^\[Preloaded: (.*)\]$/\1/' | jq -R . | jq -sc 'sort'
+}
+
+test_fake_home_runs_this_trees_code() {
+  local tree link target
+  tree=$(cd "$SCRIPT_DIR" && pwd -P)
+  for link in hooks/session-start-restore.sh scripts/lib.sh scripts/session.sh; do
+    target=$(cd "$(dirname "$(readlink "$FAKE_HOME/.claude/$link")")" 2>/dev/null && pwd -P)
+    assert_eq "$tree/$(dirname "$link")" "$target" "fake-home $link comes from this tree"
+  done
 }
 
 test_hook_prints_exactly_the_seed_list() {
@@ -501,9 +512,8 @@ test_index_reads_severity_marked_bullets() {
 }
 
 test_index_on_a_copy_of_kit_pitfalls() {
-  local kit="$SCRIPT_DIR/../../kit/.directives/PITFALLS.md" copy="$TMP_DIR/kit-PITFALLS.md" idx
-  [ -f "$kit" ] || kit="/Users/invizko/Projects/kit/.directives/PITFALLS.md"
-  if [ ! -f "$kit" ]; then pass "kit PITFALLS.md not on this machine — skipped"; return 0; fi
+  local kit="$SCRIPT_DIR/scripts/tests/fixtures/kit-pitfalls/PITFALLS.md" copy="$TMP_DIR/kit-PITFALLS.md" idx
+  assert_file_exists "$kit" "kit PITFALLS.md snapshot present in the fixtures"
   cp "$kit" "$copy"
   idx=$(generate_pitfalls_index "$copy")
   local defined
