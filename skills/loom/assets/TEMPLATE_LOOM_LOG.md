@@ -6,8 +6,11 @@
 ## ▶️ Loom Opened
 *   **Batch**: [what tickets/tasks are in scope]
 *   **Dispositions**: Autonomy=[Automagic|Careful|Allow-agents] · Council=[selective|auto-after-pr|none] · Interrogation=[Reasonable|Thorough|None] · Detail=[Low|Balanced|High] · Run=[Session|Long-running]
+*   **Global slots**: `[n]` live lanes across all looms · cap `[N]` here · `[n]` stale rows kept rather than dropped — or `directory unreadable — one lane at a time until it is`. Taken **here** because the cap is shared with every other loom (`§INV_SLOT_CAP_IS_GLOBAL`): the figure is a reading of every loom's file at the moment this one opens, and nothing later reconstructs what the directory said when this loom chose its first dispatch.
 *   **Session branch**: `[name]` @ `[sha at open]` — the base every wave integrates onto. Taken **here** because it is not reconstructable at the boundary: under worktree-per-lane the conductor's tree is not any lane's, so a base read at integration time is a base guessed. A detached HEAD or a tree with no branch is written as that reading (`detached @ <sha>`, `no branch`) and reported; **a loom whose base is unknown does not integrate** (`§INV_LOOM_INTEGRATES_AT_THE_WAVE_BOUNDARY`).
 *   **Execution shape**: [one shared tree | worktree-per-lane] — decides which of the two collision answers is live. One shared tree ⇒ the conductor partitions files and brokers claims, and a wave has nothing to merge. Worktree-per-lane ⇒ **no partition and no brokering**, and lanes land through the wave boundary's merge. Never both.
+*   **Interruption**: [confirmed each time | automatic posting | quiet] — which offers reached the operator and which the conductor fired on its own. Taken **here** because whether a human saw a posted comment before it went out is not recoverable from the comment afterwards.
+*   **Peer instructions**: [a request to ask | trusted] — whether a peer seat's relayed instruction counted as the operator's. Taken here for the same reason: a conductor that acted on a peer's word leaves nothing in the artifact saying whose word it was.
 
 ## 🧵 Ledger (live — rewrite in place as threads advance)
 *The session's spine. One row per thread. Stages: triaged → interrogated → building → scrutinized → snapshotted → pr'd → council'd.*
