@@ -217,4 +217,23 @@ test_08_a_word_led_marker_still_needs_its_whole_phrase() {
     "a human reply opening 'filed a…' still drains (only 'filed as' is a marker)"
 }
 
+# A ruling with its work still owed leaves the thread open on purpose, so its reply is the one most
+# certain to come back next pass. Measured on the Product: Handbook fetch of 2026-10-25: a reply
+# opening "Ruled by the operator" drained with its root, because no marker covered a ruling.
+test_09_a_ruling_reply_is_a_marker() {
+  assert_contains "⚖️ ruled" "$(cat "$TMP/markers.txt")" "the table carries the ruling marker"
+  local got; got="$(drained_ids "⚖️ ruled by the operator, 2026-10-25: the hub owns H5 and H6." "$TMP/real.jq")"
+  assert_not_contains "plant-marked" "$got" "a '⚖️ ruled' reply does not drain"
+  assert_not_contains "plant-root" "$got" "and it withholds the root it answered"
+}
+
+# U+2696 is drawn as an emoji only with the variation selector U+FE0F after it, and writers and
+# keyboards emit it both ways; the sigil must match either spelling.
+test_10_a_sigil_matches_with_or_without_the_variation_selector() {
+  local bare; bare="$(printf '\xe2\x9a\x96 ruled, work owed: the export moves to the hub.')"
+  assert_not_contains "$(printf '\xef\xb8\x8f')" "$bare" "the planted lead really lacks U+FE0F"
+  assert_not_contains "plant-marked" "$(drained_ids "$bare" "$TMP/real.jq")" "'⚖ ruled' without U+FE0F is still the marker"
+  assert_contains "plant-marked" "$(drained_ids "$bare" "$TMP/empty.jq")" "control — it drains with the table emptied"
+}
+
 run_discovered_tests

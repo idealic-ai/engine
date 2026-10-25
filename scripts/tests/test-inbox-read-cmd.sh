@@ -346,7 +346,7 @@ canonical_markers() {
 # Only the distinctive tokens are scanned; `→` and `candidate` saturate ordinary prose.
 writer_side_markers() {
   local f="$1" m
-  for m in '👀 claimed' '🔎 needs-triage' '✅ result' '⏳ marinating' 'shipped in' 'filed as' 'seems like'; do
+  for m in '👀 claimed' '🔎 needs-triage' '✅ result' '⏳ marinating' '⚖️ ruled' 'shipped in' 'filed as' 'seems like'; do
     grep -qF "\`$m" "$f" && echo "$m"
   done
 }

@@ -53,7 +53,8 @@ def own_comment_markers: [
   "✅ result",
   "filed as",
   "shipped in",
-  "⏳ marinating"
+  "⏳ marinating",
+  "⚖️ ruled"
 ];
 
 # Every node at every depth, flattened rather than pruned: a human reply nested under a
@@ -72,9 +73,11 @@ def own_comment_prefixes:
     | ($m | split(" ")[0]) as $head
     | if ($head == $m) or (($head | explode | .[0]) < 128) then $m else $head end ];
 
+# U+FE0F (the emoji variation selector) is dropped from both sides: `⚖️` and a bare `⚖` are one sigil
+# as far as a writer or a keyboard is concerned.
 def leads_with_own_marker:
-  ((.body // "") | sub("^\\s+"; "")) as $b
-  | any(own_comment_prefixes[]; . as $m | $b | startswith($m));
+  ((.body // "") | sub("^\\s+"; "") | gsub("\ufe0f"; "")) as $b
+  | any(own_comment_prefixes[] | gsub("\ufe0f"; ""); . as $m | $b | startswith($m));
 
 # Disposition is a property of a thread: a marker-led comment anywhere under a root marks the
 # whole root as dealt with. Keyed on the marker, never on resolvedAt.
@@ -131,6 +134,7 @@ A caller names its **outcome** and reads the marker from here, rather than carry
 *   **a graduation**, naming the ticket → `filed as ENG-XXX`
 *   **already shipped before the pass looked**, so no ticket was needed → `shipped in ENG-XXX`
 *   **a marinate**, with the reason in the same reply → `⏳ marinating`
+*   **a ruling recorded, with the work it creates still owed**, naming who ruled and when → `⚖️ ruled`. The thread stays unresolved until that work lands, so this reply, like a marinate's, is one every later pass will see again
 
 Markers are emoji-led wherever a bare word would collide with a human reply that happens to open with it. **An emoji-led marker matches on its sigil alone** — the emoji is the machine signature, and the words after it are prose a writer re-phrases, so `⏳ still marinating` is the same marker as `⏳ marinating`. The phrase in the table is the canonical wording a writer should use, not the string the filter compares. **A word-led marker still needs its whole phrase**, because a bare word is precisely what the emoji exists to avoid colliding with: `seems` must not match a human's *"seems unrelated to the export bug"*. When a reply cites a **specific** comment, deep-link it via `§FMT_TICKET_COMMENT_LINK`; ticket keys via `§FMT_TICKET_LINK`.
 

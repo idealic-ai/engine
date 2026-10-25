@@ -238,6 +238,7 @@ Record the confirmed set to `<the session's builds dir>/groom-topics-<ts>.md` (s
 *   **fold** → `seems like ENG-XXX`, naming the parent it became a facet of.
 *   **route to 🛠️** → `→`, naming the channel drop `/inbox-post` created, so the signal's destination is reachable from where it arrived.
 *   **marinate** → `⏳ marinating`, with the reason in the same reply.
+*   **ruling recorded, work owed** → `⚖️ ruled`, stating who ruled, when, and the work the ruling now owes. Typical on an Inquiry the operator answered: the answer is settled but acting on it is not, so the thread stays unresolved until that work lands, exactly like a marinate.
 
 **The widening adds no marker, and that is a result rather than an omission.** A marker exists to stop `/groom`'s own reply draining back next pass as fresh human feedback, so the contract binds exactly the replies that land on an inbox channel thread — and a ticket or a leftover has no such thread. **`dispatch as-is`, `re-scope` and `defer` post nothing at all**: a ticket's record is its own open state at its own rank, so there is nothing to mark and nothing that could be misread as signal. A **leftover** is likewise disposed where it was found; what stops one being filed twice is the de-dupe against open tickets that `/inbox-next` §3b owns, plus a marinated leftover's reason landing in this pass's debrief `## Leftovers` where the next gather reads it. The reader-side vocabulary in `§CMD_READ_INBOX_CHANNEL` therefore needs no edit for this change, and the two sides stay identical.
 
