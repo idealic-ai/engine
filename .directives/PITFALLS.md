@@ -629,8 +629,30 @@ the main clone, so the bytes you can see are not the whole of what you break.
 *   ⚠️ **Stated, not enforced.** Nothing goes red when the `worktree list` check is skipped — the hook
     refuses the command, it does not ask the question. Per
     `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
-*   **After the fact**: `git worktree prune` clears the dangling entry, and the working copy's uncommitted
-    contents are gone with no git-recoverable trace. *Repair relayed, not run.*
+*   ⛔⛔ **After the fact — AND THIS BULLET USED TO BE WRONG IN THE DESTRUCTIVE DIRECTION, so read it rather
+    than the model you arrived with.** For a **dangling** entry (path absent from disk) `git worktree prune`
+    clears the registration, and that working copy's uncommitted contents are already gone with no
+    git-recoverable trace. **For a BROKEN one (directory present, `.git` file missing) prune does NOT skip
+    it — it DEREGISTERS it**, destroying the admin dir that still holds HEAD and the index, and orphaning
+    contents that are still on disk. On a detached one that admin dir was the only record of its tip.
+    ✅ **MEASURED on git 2.43.0, six arms in a throwaway repo**: git marks a broken worktree `prunable=1`
+    **with the same reason string as an absent one** (`gitdir file points to non-existent location`) because
+    it tests the `.git` **file**, not the directory — so the two are indistinguishable to prune, and
+    `prune --verbose` removed the broken arm alongside the absent one, 6 registrations down to 4.
+    ⭐ **`git worktree repair` is the repair, and the order is load-bearing: REPAIR FIRST, PRUNE SECOND,
+    NEVER THE REVERSE.** Repair restored a still-registered broken arm (`status` exits 0 after) and could do
+    nothing for the arm pruned moments earlier. **And repair itself removes the prune hazard** — on an
+    unlocked arm `prunable` goes 1 → 0 (re-run unlocked, because a lock suppresses `prunable` by itself and
+    the first run had every arm locked, which would have confounded it). Cost at live size, 35 worktrees:
+    **110 ms total, 5,451 bytes written, zero objects created, 35/35 restored, every lock intact**; expect
+    two noisy stderr lines per worktree, which are not failures. *Measured, not relayed — this bullet's
+    provenance goes DOWN from relayed to run.*
+*   ⚠️ **A lock is not a guard, and on this machine it is the only thing standing between a broken
+    registration and the next prune.** A locked worktree does not report `prunable`, so a lock incidentally
+    protects it. ✅ **Measured**: of 35 broken registrations in one repo, **35 of 35 were locked** — every
+    one with a *lane* reason (`MORPHCI lane`, `PLANEXEC spike`, one empty), **none with a janitor's own
+    hold-for-review reason.** The protection is a lane habit rather than anything designed, so it
+    evaporates the first time somebody tidies lock reasons.
 
 ## [2026-10-23 21:45:23] ¶PTF_APPROVING_A_RULE_DOES_NOT_INSTALL_IT
 
@@ -751,3 +773,98 @@ the main clone, so the bytes you can see are not the whole of what you break.
 *   ⭐ **The tell is arithmetic, not inspection — and it is the generalisable half.** `comm` cannot report its own failure, so the only thing that catches it is **reconciling the set-difference count against the totals it came from.** A difference larger than either operand's share, or one that does not add up, is the signal. Inspecting the list does not help: every path in it is real.
 *   **Redirection**: `sort` both inputs explicitly, and print the reconciliation beside the result — `total A, total B, difference, and A − B` — so a reader can see the arithmetic close. Prefer computing set operations in Python over a pipeline when the sets matter, for the same reason `§PTF_A_PIPELINE_INTO_WHILE_READ_CAN_LOSE_PATH_AND_EVERY_COMPARISON_THEN_RUNS_AGAINST_EMPTY` prefers it.
 *   ⚠️ **Stated, not enforced.** Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+
+## [2026-10-25 18:18:00] ¶PTF_A_MULTI_REPO_CLEANUP_MUST_RE_CHECK_EVERY_REPOSITORY_ITS_SCAN_COVERED
+
+**A cleanup pass whose keep list spans several repositories must run its apply-time re-check against every repository the scan covered, read from a list the scan itself wrote — never against a repository named literally in the code.** The asymmetry between a wide scan and a narrow re-check is invisible at the call site and deletes other repositories' live state.
+
+*   ✅ **Confirmed from the code and then reproduced as destruction.** The scan opened one `keep-paths` file for all repositories and every scanned repo appended to it; the apply-time re-check, **one line before `rm -rf`**, asked a **single** repository by literal path whether a scratch directory still held a worktree. A red test against the pre-fix script: **5 passed, 5 failed**, with `repo2's worktree survived the scratch rm: got 'DESTROYED' want 'present'` while that worktree was still registered in repo2. **That is the damage, not a near miss.** After the fix: 10 of 10, the original suite unchanged at 41/41, and the control that still deletes an empty stale scratch directory firing.
+*   ⛔⛔ **And there is a second path with NO timing race at all, which is the half a race-condition framing hides.** A `--only <name>` filter gated the *archive* phase while leaving the *scratch* phase unrestricted — and an archivable worktree is absent from the keep list **by construction**. So an archivable worktree of a non-covered repository in a stale scratch directory is deleted **deterministically**, not on an unlucky interleaving. An archive failure opens the same window.
+*   ⭐ **The tell: a keep list built by many writers and consulted by one reader.** Grep for who appends and who reads; if the reader names a repository, a path or an environment while the writers do not, the gap is the defect.
+*   **Redirection**: have the scan write the list of what it covered (`: > "$OUT/scanned-repos"` beside the keep list, each classifier appending its own), and have the re-check loop that file, matching by exact string prefix and logging which member holds the directory. **A re-check that cannot name what it did not check is the thing to fix**, not the matching.
+*   ⚠️ **Stated, not enforced.** Nothing compares a cleanup's scan scope to its re-check scope. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+
+## [2026-10-25 18:18:10] ¶PTF_CLOSE_IN_MAGNITUDE_IS_NOT_A_RECONCILIATION
+
+**A reconciliation between a figure you measured and a figure you inherited may not rest on the two being close in magnitude.** Find the inherited figure's source and read what it counted, or report the gap as unexplained.
+
+*   ✅ **Measured**: an all-repository sum of **608** was reconciled against an inherited **655** by treating the inherited number as a cross-repository aggregate — the two were close, so it read as a result. The source pinned **655 to one repository alone**, and that same repository read **722** nine hours later. **Magnitude discriminated nothing**: a wrong model and a right one produced numbers 7% apart, while the correct reading was a different population entirely.
+*   ⭐ **Why proximity is actively misleading rather than merely weak evidence**: two counts of *different things* in the same system are usually within an order of magnitude of each other, so closeness is the expected outcome of almost any pairing and carries nearly no information. **Closeness feels like corroboration and is a prior.**
+*   **Redirection**: open the inherited figure's source and read **what it counted and when** — the population, the repository, the clock time. Where the source cannot be found, the honest output is *unexplained gap* with both numbers and both scopes stated, which a later reader can close; a reconciliation invented from proximity cannot be told from a real one.
+*   **Cross-ref `§PTF_A_PROVENANCE_MARK_WITHOUT_A_TIMESTAMP`**, whose count clause this sharpens: a count owes its scope as well as its clock, because the same instrument over two populations is two facts wearing one number.
+*   ⚠️ **Stated, not enforced.** Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+
+## [2026-10-25 18:42:00] ¶PTF_THE_PROOF_PUBLISHERS_DEV_PAIR_FALLBACK_ONLY_APPLIES_TO_A_CLEAN_ENVIRONMENT
+
+**When publishing to a loopback proof store, set `PROVE_S3_PROFILE` as well as `PROVE_S3_ENV`** — the publisher's development-pair fallback reads `${AWS_ACCESS_KEY_ID:-kitminio}`, so it applies **only when nothing has already put an AWS key in the environment**, and a session that carries one puts every publish in the failing arm.
+
+*   ✅ **Measured in six arms.** With no ambient key and the profile unset the publish **succeeds** (rc 0). With an ambient `AWS_ACCESS_KEY_ID` present and the profile unset it **fails `InvalidAccessKeyId`** (rc 254) — the ambient key shadows the dev-pair fallback at `_prove-s3-env.sh:78`. With the same ambient key and `PROVE_S3_PROFILE=kit-proofs` named it **succeeds again** (rc 0). **And one project's `.env` sets such a key**, so every lane whose session is that project while its subject is another is already in the failing arm.
+*   ⛔ **The error names the wrong thing, which is the expensive half.** `InvalidAccessKeyId` sends you to the store, the bucket, the port and the credential's value — none of which is wrong. **The defect is that a fallback did not apply**, and nothing in the message says a fallback was involved. Expect to lose the diagnosis rather than the publish.
+*   **The credential and the port are a matched pair, not independent**: the local credential works only on its own store's port and the other project's credential only on its own (each read **254** when crossed). So a half-correct configuration fails exactly like a wrong store.
+*   ⚠️ **A widely-read sentence asserts the opposite and is true only in the clean arm**: `/prove`'s own §4 prose reads *"No AWS profile is involved: credentials come from `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`, defaulting to the MinIO dev pair."* True with a clean environment, false with an ambient key, and it is the sentence that sends a lane to a failing publish believing the profile is irrelevant.
+*   **Redirection**: pin both — `PROVE_S3_ENV` to the intended project's `.env` **and** `PROVE_S3_PROFILE` to that store's credential — and read the resolved endpoint back before trusting the URL. ⭐ **And check the environment DURING the helper's run rather than before it**: clean beforehand is not clean during, which is the distinction that makes this reproducible rather than intermittent.
+*   **Cross-ref `§PTF_PROVE_THE_INSTRUMENT_RAN`'s wrong-store case**, which `PROVE_S3_ENV` alone answers. This is the second half: the env pin picks the right store, the profile pin makes the credential for it apply.
+*   ⚠️ **Stated, not enforced.** Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+
+## [2026-10-25 18:46:00] ¶PTF_THE_DEFAULT_CHECKOUT_IS_THE_STALE_ONE_AND_EVERY_CASUAL_READ_LANDS_THERE
+
+**Where a repository's primary working directory sits on a branch that is thousands of commits behind the trunk, every read that does not NAME A REF lands in the stale copy — and a stale copy's answers are confident, internally consistent, and clean in `git status`.** Name the ref or read a worktree you created; never read "the repo".
+
+*   ✅ **Four instances in one weave, one afternoon, across four different agents — which is what makes this environmental rather than carelessness:**
+    *   A repin lane's first sweep for nine reported sites returned *"No such file or directory"* for three of them, because half the files exist only on the trunk. **Had git's warnings been quieter it would have reported a peer's findings as imaginary.**
+    *   The conductor's own 40-file census of a string, taken in the same stale copy, came back as **25** when re-measured against the trunk.
+    *   **The conductor then CORRECTED A LANE from that copy** — reading an ownership line at one number with two names absent, where the trunk and even the stale branch's own *remote* carry a later revision with both present. The lane re-measured and refused the correction; **the clearance the conductor was about to hand its operator was false.**
+    *   A verification lane's first gate-board census read the same checkout, **1,888 commits behind and missing 10 rows** — caught by a `shasum` differing from the pinned revision's.
+*   ⛔⛔ **Nothing in the stale copy looks wrong.** `git status --porcelain` on the path is **empty**, because the divergence is committed history rather than a local edit. So the three signals an agent reaches for — the file exists, it parses, the tree is clean — all pass. ⭐ **And knowing the tree is stale does not help**: the conductor above had itself measured that checkout as 342 commits behind, logged it as a lesson, and read it anyway twice more. **Awareness is not the remedy; naming the ref is.**
+*   ⭐ **The tell is a disagreement with somebody whose brief NAMED a ref.** When a peer cites `origin/main` and you cite "the file", you are not disagreeing about the content — you are reading two revisions, and theirs is the one with a name on it.
+*   **Redirection**: read `git show <ref>:<path>` rather than opening the file, pipe that into the count, and print the ref beside the number. Where a tree must be walked, create a worktree **at a named ref** and walk that. **Treat a bare path in a multi-branch repository as missing its most important argument.**
+*   ⚠️ **Stated, not enforced.** Nothing marks a read as having come from a stale checkout, and the reading is a valid answer about a revision nobody asked about — `§PTF_A_TRUE_ANSWER_TO_THE_WRONG_QUESTION` with a branch as the wrong question.
+
+## [2026-10-25 18:46:10] ¶PTF_AN_AMBIGUOUS_WORD_IN_A_LEFTOVERS_ROW_READS_AS_A_CONTRADICTION
+
+**A leftovers row states the thing's STATE, never an adjective that spans two states.** One ambiguous word makes two accurate records look like a disagreement, and the disagreement is what gets investigated.
+
+*   ✅ **Measured**: a ledger claimed a ticket's work `done-uncommitted` while a sweep row reported *"four **unguarded** sites"* remaining. Both were true. The row's full wording was **"Corrected by hand, scanned by nothing"** — so `unguarded` meant **unscanned**, not **uncorrected**. The four sites had been fixed and were simply read by no check. **It cost a thread a hold and a lane its first task**, and the settlement was one content reading with a firing control.
+*   ⭐ **`unguarded`, `unhandled`, `uncovered`, `open`, `unresolved` and `not done` are each two claims wearing one word** — *the thing is wrong* and *nothing watches the thing*. A reader who needs to act cannot tell which, and the two imply opposite work: fix it, versus leave it alone and point a check at it.
+*   **Redirection**: write the state, not the adjective — *"corrected; scanned by nothing"* rather than *"unguarded"*. Where a row must be short, the discriminator is cheaper than the word: say which of **fixed** and **watched** is false.
+*   ⚠️ **Stated, not enforced.** Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+
+## [2026-10-25 18:46:20] ¶PTF_NARROWING_A_GUARDS_EXCLUSION_IS_A_CLAIM_ABOUT_THE_OLD_RULES_SILENCE
+
+**Narrowing a guard's exclusion asserts that the old rule was BLIND to something. That is a claim about the old rule, so run BOTH rules over the same planted input in one invocation and report both readings** — the new rule going red proves only that the new rule works.
+
+*   ✅ **Measured, and the unplanted corpus proves nothing either way**: over 14 unplanted pages the two rules are **indistinguishable** — 4 sites, the same 2 files. Only the old rule run **on the plant** shows what was at stake: it was blind to a backticked count, **and its own census silently dropped 4 → 3**. So the same edit it failed to catch would have **lowered the guard's anti-blindness floor**, and a page asserting a wrong total would have passed green while weakening the thing meant to notice.
+*   ⛔ **A red on the new rule alone is the weakest useful evidence here**, because the interesting quantity is not *does the new rule fire* but *what did the old one let through*. Shipping the first reading is how a narrowing gets credited with a hole it did not close.
+*   **Redirection**: keep the old predicate reachable long enough to run it, put both columns in one invocation, and state both. `§INV_A_CONTROL_DRAWN_FROM_WHAT_YOU_JUST_FIXED_IS_NOT_A_CONTROL` applied to a rule change: the old rule is the only available control, and it stops existing the moment you delete it.
+*   ⚠️ **Stated, not enforced.** Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+
+## [2026-10-25 18:46:30] ¶PTF_AN_UNGUARDED_OBJECT_INDEX_ADMITS_CONSTRUCTOR_AS_A_VALUE
+
+**A check that classifies a token by indexing a plain object must guard the lookup with `Object.hasOwn`, or use a null-prototype map.** An unguarded index returns a **function** for `constructor`, `toString`, `valueOf` and friends, and the numeric reject that normally follows is false against a function — so the token is admitted as a value.
+
+*   ✅ **Measured**: `readNumber('constructor')` returned **`Object`**, and the check went on to print `states function Object() { [native code] }`. **Unreachable for the check's entire life and reachable the instant its corpus grew by one directory** — the new directory simply contained a file with that word in it.
+*   ⭐ **The shape worth recognising: a latent defect whose trigger is a CORPUS change rather than a code change.** Nothing about the lookup changed; the set of tokens reaching it did. So the usual instinct — *what did I just edit* — points at the wrong half, and a bisect over the code finds nothing.
+*   **Redirection**: `Object.hasOwn(map, key)` at every lookup site, or build the map with `Object.create(null)`. Prefer the null prototype where the map is yours to construct, because it removes the whole class rather than each site.
+*   ⚠️ **Stated, not enforced.** Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+
+## [2026-10-25 19:36:00] ¶PTF_A_CLEARANCE_FOR_ONE_CHANGE_IS_NOT_A_CLAIM_ON_THE_GROUND
+
+**Being cleared to make one change in someone's ground is not ownership of it, and a record that cannot tell the two apart grows an owner per incident.** When writing an ownership map, a CODEOWNERS file or any durable record of who holds what, the input is each holder's own claim — never the list of who was recently permitted to touch something.
+
+*   ✅ **Measured, and the correction came from the seat that would have GAINED the ground.** Rebuilding an ownership map, a conductor put three files into one seat's column because an operator had cleared that seat to edit them an hour earlier for an unrelated repair. **The seat refused them**: *"That's a clearance for one change, not ownership."* Every incentive in the moment ran the other way, and nothing in the conductor's reading would have caught it — a permission and a claim look identical in a log.
+*   ⭐ **Three things are routinely conflated and only one belongs in the record.** On one afternoon: an operator **clearing** a seat to edit files it does not own; a change **entailed** by a ruled decision landing in another seat's ground (a test tracking an index after a page moved); and a seat **claiming** its own ground. The first two are events, the third is a fact. **A map built from events assigns everything to whoever touched it last**, which is how it rots into something nobody can satisfy.
+*   ⛔ **The failure direction is accretion, not loss.** Nobody notices a map gaining an owner, because each addition had a real justification behind it. The map stays plausible while becoming wrong, and it is only discovered when somebody tries to USE it to find an owner — by which time several rows name whoever last had a reason to be there.
+*   **Redirection**: ask each holder what it owns and write only that. Where a one-off clearance needs recording, record it as a **clearance with its date and its reason**, somewhere that is not the ownership record. And **prefer pointing at a living table over copying it** — a map clause that cites the owner table rather than restating it cannot drift from it, which is the same reason a citation beats a copy everywhere else.
+*   ⭐ **A seat saying *"my row is only stale"* is a stronger claim than *"my row is correct"***, and worth eliciting explicitly: it distinguishes a dead name from a wrong assignment, and those are different repairs.
+*   ⚠️ **Stated, not enforced.** Nothing distinguishes a permission from a claim in any record either produces. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+
+## [2026-10-25 21:02:00] ¶PTF_A_CLAIM_ABOUT_ALL_REMOTES_REQUIRES_ENUMERATING_REFS_NOT_CHECKING_THE_TWO_YOU_WERE_TOLD
+
+**Checking the refs somebody named you is not a claim about every ref.** A reading of `origin/main` and one other branch is a true answer about those two and carries nothing about the remote; the instrument for *"is this anywhere on the remote"* is `git for-each-ref refs/remotes/<remote>` and a loop, never a hand-written list.
+
+*   ✅ **Measured, and the escalation reached an operator before it was caught.** A seat reported a package as existing *"on no remote trunk"* — **true**. The conductor checked `origin/main` and `origin/feature/reactor`, **got the right answer for both**, and reported to its operator that the package was *"held nowhere but one working copy"* — a single-copy hazard at package scale. Enumerated properly: **5 of 82 remote refs carry it**, three of them pushed that same day by the seat that reported it. Control in the same invocation: `agent/` reads 926 on main and 369 on one of the carrying branches, so the instrument saw both refs and discriminated.
+*   ⛔⛔ **Two correct readings, one wrong conclusion, and nothing in either reading was at fault.** The conductor's grep worked, its pair of refs was exactly the pair it had been given, and its answer about them was right. **The defect is that a two-ref reading was spent as an all-refs claim** — a scope error rather than a measurement error, which is why re-running the measurement would have confirmed it forever.
+*   ⭐ **`trunk` and `remote` are different words and the relay blurred them.** The source sentence said *no remote **trunk***, which is a narrow true claim; the conductor acted on *no remote*. **Where a claim's scope is one adjective away from a much bigger claim, the adjective is the load-bearing part** — and a reader under time pressure drops it. Say the set you measured, not the property you inferred.
+*   ⭐⭐ **And the deeper half, from the seat that made the original error: fixing the instrument did not fix the scope.** They had got the right diff on their second attempt and *still* handed over a sentence whose scope was too wide. **"The diff was the easy half."** So a rule about picking the right command does not reach this; what reaches it is naming the SET a claim covers in the same sentence as the claim.
+*   **Redirection**: for any *anywhere / nowhere / all / none* claim over refs, branches, files or hosts, **print the size of the set you enumerated beside the answer** — *"5 of 82 remote refs"*, not *"on the remote"*. A reader can then see the denominator and so can you.
+*   ⚠️ **Stated, not enforced.** Nothing marks a two-element reading spent as a universal claim; both halves look like results. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
