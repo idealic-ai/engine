@@ -78,7 +78,12 @@ if [ -d "$PROJECTS_DIR" ]; then
     case "$RECENT" in *"auto-continues;"*)
       # `grep -c` PRINTS 0 and EXITS 1 on no match, so `|| echo 0` would append a
       # second 0 and the arithmetic test below would error on "0\n0".
-      AFTER=$(printf '%s\n' "$RECENT" | awk '/auto-continues;/{found=1; next} found' | grep -c '"type":"tool_use"' || true)
+      # Anchor on the LAST injection, not the first. With several in the window a tool
+      # call made after an EARLY one masks an idle turn after the latest — so the guard
+      # got weaker the more it fired, which is exactly backwards.
+      AFTER=$(printf '%s\n' "$RECENT" \
+        | awk '/auto-continues;/{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' \
+        | grep -c '"type":"tool_use"' || true)
       if [ "${AFTER:-0}" -eq 0 ]; then
         jq '.autoContinueCount = 0' "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
         exit 0

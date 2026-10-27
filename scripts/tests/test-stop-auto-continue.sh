@@ -161,4 +161,22 @@ test_no_backoff_when_last_wake_worked() {
 }
 run_test test_no_backoff_when_last_wake_worked
 
+
+# The regression the operator caught: with SEVERAL injections in the window, a tool call
+# made after an EARLY one must not mask an idle turn after the LATEST one.
+test_backoff_anchors_on_last_injection() {
+  write_state
+  {
+    echo '{"type":"user","content":"(1 of 3 auto-continues; set autoContinue false)"}'
+    echo '{"type":"assistant","content":[{"type":"tool_use","name":"Bash"}]}'
+    echo '{"type":"user","content":"(2 of 3 auto-continues; set autoContinue false)"}'
+    echo '{"type":"assistant","content":"Nothing to advance."}'
+    echo '{"type":"user","content":"(3 of 3 auto-continues; set autoContinue false)"}'
+    echo '{"type":"assistant","content":"Still nothing to advance."}'
+  } > "$PROJ_DIR/mine.jsonl"
+  local out; out=$(run_hook)
+  assert_empty "$out" "BACKOFF-04: an early tool call does not mask an idle turn after the LAST injection"
+}
+run_test test_backoff_anchors_on_last_injection
+
 exit_with_results
