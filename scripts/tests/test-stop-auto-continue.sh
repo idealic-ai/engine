@@ -223,4 +223,19 @@ test_backoff_anchors_on_last_injection() {
 }
 run_test test_backoff_anchors_on_last_injection
 
+# The operator's complaint: woken agents answered "nothing to advance until you answer
+# my questions" instead of asking them. The prompt must say to ask, batched, in one call.
+test_prompt_says_ask_pending_questions() {
+  write_state
+  echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
+  local out; out=$(run_hook)
+  if [[ "$out" == *"AskUserQuestion"* ]] && [[ "$out" == *"batch"* ]]; then
+    pass "ASK-01: the wake tells the agent to ask its pending questions, batched, rather than wait on them"
+  else
+    fail "ASK-01: the wake tells the agent to ask its pending questions, batched, rather than wait on them" \
+      "a reason naming AskUserQuestion and batching" "$out"
+  fi
+}
+run_test test_prompt_says_ask_pending_questions
+
 exit_with_results
