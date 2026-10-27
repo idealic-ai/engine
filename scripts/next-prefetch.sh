@@ -416,10 +416,12 @@ refresh_digest() {
     fi
   fi
 
-  # RAG. The slot is wired and off by default: one query measured 227.9s because sql.js loads a
-  # 1.9GB image per call, and ENGINE_RAG_TIMEOUT cuts it off long before it answers.
+  # RAG. The slot is wired and off by default: a query cost roughly 14-21s when measured in Oct
+  # 2026 — the spread is machine state, idle versus loaded — because query.ts scores every indexed
+  # chunk instead of using a vector index. Cost tracks chunk count, not image bytes, so
+  # ENGINE_RAG_TIMEOUT is the thing to raise, not the index to shrink.
   if [ "$WANT_RAG" -ne 1 ]; then
-    erecord rag_sessions UNREAD "rag_disabled: semantic search measured 227.9s per query and is bounded at ENGINE_RAG_TIMEOUT; pass --rag to attempt it anyway" 0 ""
+    erecord rag_sessions UNREAD "rag_disabled: semantic search cost roughly 14-21s per query when measured in Oct 2026 (the spread is machine load), against a bound that then defaulted to 10s; the cost is a full scan of every indexed chunk, not the index size; pass --rag to attempt it anyway" 0 ""
   else
     local tool="$HOME/.claude/tools/session-search/session-search.sh"
     if [ ! -x "$tool" ]; then
@@ -428,11 +430,11 @@ refresh_digest() {
       local q
       q=$(jq -r '.taskSummary // empty' "$STATE" 2>/dev/null | cut -c1-200)
       [ -n "$q" ] || q="session state"
-      _attempt rag_sessions "${ENGINE_RAG_TIMEOUT:-10}" "$tool" query "$q" --limit 5
+      _attempt rag_sessions "${ENGINE_RAG_TIMEOUT:-30}" "$tool" query "$q" --limit 5
       if [ "$A_RC" -eq 0 ]; then
         erecord rag_sessions OK "" "$A_MS" "hits=$(_count "$A_OUT") at=$A_OUT"
       elif [ "$A_RC" -eq 124 ]; then
-        erecord rag_sessions UNREAD "timeout after ${ENGINE_RAG_TIMEOUT:-10}s" "$A_MS" ""
+        erecord rag_sessions UNREAD "timeout after ${ENGINE_RAG_TIMEOUT:-30}s" "$A_MS" ""
       else
         erecord rag_sessions UNREAD "session-search_exit_$A_RC: $(_err1 "$A_ERR")" "$A_MS" ""
       fi

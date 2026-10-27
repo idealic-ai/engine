@@ -65,9 +65,9 @@
 _rag_query() {
   local tool="$1" q="$2" limit="$3" err out rc
   err=$(mktemp 2>/dev/null) || err=/dev/null
-  out=$(timeout "${ENGINE_RAG_TIMEOUT:-10}" "$tool" query "$q" --limit "$limit" 2>"$err"); rc=$?
+  out=$(timeout "${ENGINE_RAG_TIMEOUT:-30}" "$tool" query "$q" --limit "$limit" 2>"$err"); rc=$?
   if [ "$rc" -eq 124 ]; then
-    out="_not searched — timed out after ${ENGINE_RAG_TIMEOUT:-10}s (index too large for the query path; raise ENGINE_RAG_TIMEOUT to wait)_"
+    out="_not searched — timed out after ${ENGINE_RAG_TIMEOUT:-30}s (the query path scans every indexed chunk; raise ENGINE_RAG_TIMEOUT to wait)_"
   elif [ "$rc" -ne 0 ]; then
     out="_not searched — $(head -1 "$err" 2>/dev/null)_"
   fi
