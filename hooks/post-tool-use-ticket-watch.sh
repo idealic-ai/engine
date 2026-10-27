@@ -15,6 +15,9 @@
 set -uo pipefail
 
 [ "${DISABLE_TOOL_USE_HOOK:-}" = "1" ] && exit 0
+# Ticket watching is OFF by default — intra-agent messaging carries this traffic now.
+# Opt back in per shell or per seat with ENGINE_TICKET_WATCH=1.
+[ "${ENGINE_TICKET_WATCH:-}" = "1" ] || exit 0
 trap 'exit 0' ERR
 
 source "$HOME/.claude/scripts/lib.sh"
