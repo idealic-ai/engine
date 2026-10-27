@@ -223,19 +223,23 @@ test_backoff_anchors_on_last_injection() {
 }
 run_test test_backoff_anchors_on_last_injection
 
-# The operator's complaint: woken agents answered "nothing to advance until you answer
-# my questions" instead of asking them. The prompt must say to ask, batched, in one call.
-test_prompt_says_ask_pending_questions() {
+# Two complaints, one arm. First: woken agents answered "nothing to advance until you
+# answer my questions" instead of asking. Then, once they asked, they hand-rolled the
+# question instead of dispatching the skill that owns it — which is the substitution a
+# loom forbids for /interrogate and which cost this programme a fork left unasked for
+# hours. So the wake must route BOTH ways by the boundary the skills themselves declare:
+# gathers information -> /interrogate, unblocks work -> /decide.
+test_prompt_routes_questions_to_their_skill() {
   write_state
   echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
   local out; out=$(run_hook)
-  if [[ "$out" == *"AskUserQuestion"* ]] && [[ "$out" == *"batch"* ]]; then
-    pass "ASK-01: the wake tells the agent to ask its pending questions, batched, rather than wait on them"
+  if [[ "$out" == *"/interrogate"* ]] && [[ "$out" == *"/decide"* ]] && [[ "$out" == *"do NOT hand-roll"* ]]; then
+    pass "ASK-01: the wake routes a pending question to /interrogate or /decide, never a hand-rolled ask"
   else
-    fail "ASK-01: the wake tells the agent to ask its pending questions, batched, rather than wait on them" \
-      "a reason naming AskUserQuestion and batching" "$out"
+    fail "ASK-01: the wake routes a pending question to /interrogate or /decide, never a hand-rolled ask" \
+      "a reason routing to /interrogate or /decide, and refusing a hand-rolled ask" "$out"
   fi
 }
-run_test test_prompt_says_ask_pending_questions
+run_test test_prompt_routes_questions_to_their_skill
 
 exit_with_results

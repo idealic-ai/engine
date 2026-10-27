@@ -122,7 +122,7 @@ else
   HINT=""
 fi
 
-REASON="If you invoked \`/next\` recently and are part-way through the sequence it named, carry on with its next step.$HINT Otherwise invoke \`/next\`: it reads what state the work is actually in and runs the sequence that advances it, blocking-first. If what you would wait on is an answer from the user — open questions, forks, a decision only they can make — ask now: batch every pending question into one \`AskUserQuestion\` call (up to four), rather than stopping with \"waiting on your answers\". Do not manufacture work — if there is genuinely nothing to advance and nothing to ask, say so in one line and stop."
+REASON="If you invoked \`/next\` recently and are part-way through the sequence it named, carry on with its next step.$HINT Otherwise invoke \`/next\`: it reads what state the work is actually in and runs the sequence that advances it, blocking-first. If what you would wait on is an answer from the user, do NOT hand-roll an \`AskUserQuestion\` — dispatch the skill that owns it, so a loom's rules apply: a question that GATHERS INFORMATION is \`/interrogate\`, and a fork that UNBLOCKS WORK — a decision only they can make — is \`/decide\`. Either beats stopping with \"waiting on your answers\", and either beats an inline round, which is the substitution a loom forbids. Do not manufacture work — if there is genuinely nothing to advance and nothing to ask, say so in one line and stop."
 
 NEW=$((COUNT + 1))
 jq ".autoContinueCount = $NEW" "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
