@@ -71,7 +71,7 @@ assert_neq() {
 
 assert_contains() {
   local pattern="$1" actual="$2" msg="$3"
-  if echo "$actual" | grep -qF "$pattern" 2>/dev/null || echo "$actual" | grep -q "$pattern" 2>/dev/null; then
+  if echo "$actual" | grep -qF -- "$pattern" 2>/dev/null || echo "$actual" | grep -q -- "$pattern" 2>/dev/null; then
     pass "$msg"
   else
     fail "$msg" "contains '$pattern'" "$actual"

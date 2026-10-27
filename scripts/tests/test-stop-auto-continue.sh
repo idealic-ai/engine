@@ -106,18 +106,62 @@ test_own_transcript_tail_suppresses() {
 }
 run_test test_own_transcript_tail_suppresses
 
-test_missing_key_falls_back() {
+# Without a key there is no way to tell a turn that did work from one that woke,
+# found nothing and said so — and the ceiling is not an answer to that, it only caps
+# how many times we ask. The hook fails CLOSED. This arm replaces an earlier one that
+# asserted the opposite; the newest-by-mtime fallback it protected is what let a
+# sibling session's turn be read as this one's.
+test_missing_key_fails_closed() {
   jq -n '{pid: 99999999, lifecycle: "active", skill: "loom", currentPhase: "1: Loom"}' \
     > "$TEST_SESSION/.state.json"
   echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
   local out; out=$(run_hook)
-  if [[ "$out" == *"block"* ]]; then
-    pass "TRANSCRIPT-03: no primaryTranscriptKey still reaches a decision"
-  else
-    fail "TRANSCRIPT-03: no primaryTranscriptKey still reaches a decision" "a block decision" "$out"
-  fi
+  assert_empty "$out" "TRANSCRIPT-03: no primaryTranscriptKey stops rather than guessing"
 }
-run_test test_missing_key_falls_back
+run_test test_missing_key_fails_closed
+
+# ── The transcript is resolved by NAME, not by the cwd's slug ───────────────
+# A seat working in a worktree has a cwd whose slug names a project directory that
+# does not exist. Deriving the directory from $PWD skipped every guard below it, so
+# the hook injected on every stop up to the ceiling with nothing to show it had never
+# run. The pair differs only in WHERE the transcript lives.
+#
+# CWD-02 is the binding arm, and the plant is what established that rather than the
+# reasoning: restoring the cwd-derived resolution reddens CWD-02 ALONE. CWD-01 expects
+# silence, and a hook that cannot resolve the key is silent too — so it passes
+# vacuously under exactly the defect it was written for. It still covers the
+# suppression path; it just cannot be the regression arm, which is why the pair exists.
+test_resolves_transcript_outside_cwd_slug() {
+  write_state
+  local elsewhere="$FAKE_HOME/.claude/projects/-Some-Other-Project"
+  mkdir -p "$elsewhere"
+  echo '{"name":"AskUserQuestion"}' > "$elsewhere/mine.jsonl"
+  rm -rf "$PROJ_DIR"                      # the cwd-derived directory does not exist
+  local out; out=$(run_hook)
+  assert_empty "$out" "CWD-01: a transcript outside the cwd's slug is still found and still suppresses"
+  mkdir -p "$PROJ_DIR"
+}
+run_test test_resolves_transcript_outside_cwd_slug
+
+# CWD-02 is its discriminating pair: same absent slug directory, same resolution by
+# name, benign content. It must still reach a decision — so CWD-01's silence is the
+# marker being seen, not the hook failing closed on a key it could not resolve.
+test_resolution_by_name_still_decides() {
+  write_state
+  local elsewhere="$FAKE_HOME/.claude/projects/-Some-Other-Project"
+  mkdir -p "$elsewhere"
+  echo '{"type":"assistant"}' > "$elsewhere/mine.jsonl"
+  rm -rf "$PROJ_DIR"
+  local out; out=$(run_hook)
+  if [[ "$out" == *"block"* ]]; then
+    pass "CWD-02: a benign transcript outside the cwd's slug still reaches a decision"
+  else
+    fail "CWD-02: a benign transcript outside the cwd's slug still reaches a decision" \
+      "a block decision" "$out"
+  fi
+  mkdir -p "$PROJ_DIR"
+}
+run_test test_resolution_by_name_still_decides
 
 # ── An inactive session has nothing to continue ─────────────────────────────
 test_idle_session_noop() {

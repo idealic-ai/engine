@@ -56,47 +56,61 @@ if [ "$COUNT" -ge "$MAX" ]; then
 fi
 
 # ── Guard 3: did the last turn end by asking the human something? ──
-# Tail THIS session's transcript, named from .state.json rather than picked by mtime.
-PROJECT_SLUG=$(echo "$PWD" | sed 's|/|-|g')
-PROJECTS_DIR="$HOME/.claude/projects/$PROJECT_SLUG"
-if [ -d "$PROJECTS_DIR" ]; then
-  # Name this session's own transcript. The project directory is shared by every session
-  # of this project, so picking by mtime can read a sibling session's turn instead.
-  KEY=$(read_state '.primaryTranscriptKey')
-  if [ -n "${KEY:-}" ] && [ -f "$PROJECTS_DIR/$KEY" ]; then
-    JSONL="$PROJECTS_DIR/$KEY"
+# Resolve THIS session's transcript by NAME. Do not derive its directory from $PWD: a seat
+# whose cwd is a worktree computes a slug for a directory that does not exist, every guard
+# below is skipped whole, and the hook then injects on every stop until the ceiling — with
+# nothing to show it never ran. Measured on a kit seat working in kit-wt/ci-speed whose
+# transcript lives under -Users-invizko-Projects-kit.
+KEY=$(read_state '.primaryTranscriptKey')
+JSONL=""
+if [ -n "${KEY:-}" ]; then
+  CAND="$HOME/.claude/projects/$(echo "$PWD" | sed 's|/|-|g')/$KEY"
+  if [ -f "$CAND" ]; then
+    JSONL="$CAND"
   else
-    JSONL=$(ls -t "$PROJECTS_DIR"/*.jsonl 2>/dev/null | head -1 || true)
-  fi
-  if [ -n "${JSONL:-}" ] && [ -f "$JSONL" ]; then
-    # ── Guard 3b: did the LAST wake accomplish anything? ──
-    # If our own previous injection is in recent history and the agent made no tool
-    # call after it, it woke, found nothing to advance, and said so. Waking it again
-    # asks a question already answered — and the ceiling is not an answer to that,
-    # it just caps how many times we ask. Back off and reset instead.
-    RECENT=$(tail -60 "$JSONL" 2>/dev/null || true)
-    case "$RECENT" in *"auto-continues;"*)
-      # `grep -c` PRINTS 0 and EXITS 1 on no match, so `|| echo 0` would append a
-      # second 0 and the arithmetic test below would error on "0\n0".
-      # Anchor on the LAST injection, not the first. With several in the window a tool
-      # call made after an EARLY one masks an idle turn after the latest — so the guard
-      # got weaker the more it fired, which is exactly backwards.
-      AFTER=$(printf '%s\n' "$RECENT" \
-        | awk '/auto-continues;/{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' \
-        | grep -c '"type":"tool_use"' || true)
-      if [ "${AFTER:-0}" -eq 0 ]; then
-        jq '.autoContinueCount = 0' "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
-        exit 0
-      fi ;;
-    esac
-
-    TAIL=$(tail -8 "$JSONL" 2>/dev/null || true)
-    case "$TAIL" in *AskUserQuestion*|*ExitPlanMode*)
-      jq '.autoContinueCount = 0' "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
-      exit 0 ;;
-    esac
+    for d in "$HOME"/.claude/projects/*/; do
+      if [ -f "$d$KEY" ]; then JSONL="$d$KEY"; break; fi
+    done
   fi
 fi
+
+# ⛔ Fail CLOSED when this session's transcript cannot be named. Without it the guards below
+# cannot tell a turn that did work from one that woke, found nothing and said so — and the
+# ceiling is not an answer to that, it only caps how many times we ask. Stopping is the safe
+# side: the cost is a turn the human resumes, against a loop the human has to interrupt.
+# Never fall back to newest-by-mtime: nine kit seats share one project directory and four of
+# them were written in the same minute, so that fallback reads a sibling's turn.
+if [ -z "${JSONL:-}" ] || [ ! -f "$JSONL" ]; then
+  jq '.autoContinueCount = 0' "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
+  exit 0
+fi
+
+# ── Guard 3b: did the LAST wake accomplish anything? ──
+# If our own previous injection is in recent history and the agent made no tool
+# call after it, it woke, found nothing to advance, and said so. Waking it again
+# asks a question already answered — and the ceiling is not an answer to that,
+# it just caps how many times we ask. Back off and reset instead.
+RECENT=$(tail -60 "$JSONL" 2>/dev/null || true)
+case "$RECENT" in *"auto-continues;"*)
+  # `grep -c` PRINTS 0 and EXITS 1 on no match, so `|| echo 0` would append a
+  # second 0 and the arithmetic test below would error on "0\n0".
+  # Anchor on the LAST injection, not the first. With several in the window a tool
+  # call made after an EARLY one masks an idle turn after the latest — so the guard
+  # got weaker the more it fired, which is exactly backwards.
+  AFTER=$(printf '%s\n' "$RECENT" \
+    | awk '/auto-continues;/{buf=""; next} {buf=buf $0 "\n"} END{printf "%s", buf}' \
+    | grep -c '"type":"tool_use"' || true)
+  if [ "${AFTER:-0}" -eq 0 ]; then
+    jq '.autoContinueCount = 0' "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
+    exit 0
+  fi ;;
+esac
+
+TAIL=$(tail -8 "$JSONL" 2>/dev/null || true)
+case "$TAIL" in *AskUserQuestion*|*ExitPlanMode*)
+  jq '.autoContinueCount = 0' "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
+  exit 0 ;;
+esac
 
 # ── Branch: a live weave gets its own cadences; a cold session gets /next. ──
 SKILL=$(read_state '.skill')
