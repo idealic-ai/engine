@@ -1,0 +1,99 @@
+{
+  "preset": "manager",
+  "presetSource": "direction dossier option C1 (builds/manager-tier-direction_PROVE_VISIONARY.md, 2026-10-28)",
+  "confidenceThreshold": 0.5,
+  "peerInstructions": "trusted",
+  "autonomy": "automagic within the grant",
+  "interruption": "confirmed each time",
+  "slotCap": 1,
+  "slotCapNote": "probes only — a manager builds no lanes",
+  "autoContinue": true,
+  "declaredVsLiveCheck": true,
+  "alwaysEscalate": [
+    "history rewrite (force-push, amend or rebase of pushed commits)",
+    "push to a shared trunk or a branch another seat holds",
+    "conflict resolution and the wave-boundary merge",
+    "remote branch deletion",
+    "file deletion",
+    "database changes",
+    "security decisions",
+    "architecture changes",
+    "PR creation",
+    "deployment",
+    "dependency changes",
+    "standing configuration (canonical roots, hooks, permissions, schemas, promoted directives)",
+    "outward obligations (PR, ticket, Linear or Slack post, publish)",
+    "merge approval into fleet-owned ground"
+  ],
+  "alwaysEscalateNote": "The blanket \"git operations\" entry is replaced by the four git clauses quoted on GRANTBOARD (IDE-238), verbatim from AUTHORITY_GRANT_PROPOSAL.md lines 117-120. The proposal's backstops for standing configuration (F), outward obligations (G) and merge approval (H), lines 121, 122 and 126, are restored verbatim (director ruling R6, interpreting v1 as class D), so a merge labelled B is still escalated by category. Kept beyond the proposal, conservatively: architecture changes, PR creation, deployment, dependency changes.",
+  "alwaysLog": [
+    "every ruling, with its class, its condition and what would reverse it",
+    "every hop (pass-up, re-ping, answer relayed down)",
+    "provisional rulings, with the escalation they stand in front of",
+    "readings-forward of an existing instruction, with the words read",
+    "architecture decisions",
+    "dependency changes",
+    "test strategy"
+  ],
+  "preEscalation": {
+    "enabled": true,
+    "probeMessage": "Before I decide, can you briefly explain what led to this question and what you'd recommend?"
+  },
+  "hop": {
+    "parent": "the seat's live @pane_parent; FLEET_PARENT is a cross-check only (hop.sh target exits 5 on a disagreement)",
+    "noParent": "operator",
+    "chainFile": "hop-chain.txt in the session directory, written by hop.sh chain at Setup",
+    "carrier": "an /ask file, per /ask — a pass-up changes only its to: field; floor and reserved items carry reserved-for: operator",
+    "rePing": "manual — no timer (operator 23:05: push is fine; timers aren't). The seat's /next lists overdue asks; passing an ask further up is a deliberate step.",
+    "register": "🪜 Escalations"
+  },
+  "grant": {
+    "version": "v1 — the leans, decided by the operator 2026-10-28 23:13 (GRANTBOARD IDE-238; record builds/authority-grant_DECIDE.md). A living document: amendments go through RULINGS (IDE-233).",
+    "classes": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "reserved": [
+      "E",
+      "F",
+      "G",
+      "H"
+    ],
+    "clauses": {
+      "A": {
+        "covers": "assignment of an action the operator already approved",
+        "condition": "the operator's approval can be found; the ruling picks or re-picks the performer only — never approves, enlarges or re-times the action",
+        "reversal": "the approval cannot be found (then it is D or E), or the operator names a different performer"
+      },
+      "B": {
+        "covers": "a fast-forward or an append onto ground this fleet owns",
+        "condition": "all four hold: (1) a fast-forward or an append, no rewrite of a pushed commit; (2) the branch was created by this weave or named as its ground; (3) no other seat holds a claim on it in the live registers; (4) the relevant gate ran green and the verdict was read, not the exit status",
+        "reversal": "any one of the four fails — it is then class E"
+      },
+      "C": {
+        "covers": "a provisional working position for this weave only",
+        "condition": "the ruling is written down as provisional, names the side picked and the escalation it stands in front of, keeps that escalation open, and flags the durable question in the hand-over",
+        "reversal": "the weave boundary (it expires), or the operator's durable answer"
+      },
+      "D": {
+        "covers": "interpreting a ruling the operator already gave",
+        "condition": "the instruction is clear in direction and silent on the detail; the reading is logged beside the words read",
+        "reversal": "the reading widens the instruction, or the operator reads it otherwise"
+      }
+    },
+    "scope": "manager mode only (director ruling R7). coordinate.config.example.json carries no grant."
+  },
+  "timeouts": {
+    "waitTimeout": 300,
+    "consecutiveTimeoutLimit": 10,
+    "idleHeartbeatInterval": 3
+  },
+  "logging": {
+    "logAutonomousDecisions": true,
+    "logEscalations": true,
+    "logProbes": true,
+    "logRoutineSkips": false
+  }
+}
