@@ -47,6 +47,7 @@ setup() {
   echo "# CMD_DEHYDRATE content" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
   echo "# CMD_RESUME_SESSION content" > "$FAKE_HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md"
   echo "# CMD_PARSE_PARAMETERS content" > "$FAKE_HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"
+  echo "# CMD_CONTINUE_ON_STOP content" > "$FAKE_HOME/.claude/.directives/commands/CMD_CONTINUE_ON_STOP.md"
 
   RESOLVED_HOOK="$FAKE_HOME/.claude/hooks/session-start-restore.sh"
 }
@@ -396,6 +397,7 @@ test_standards_preloaded_on_clear() {
   assert_contains "CMD_DEHYDRATE content" "$output" "clear source → CMD_DEHYDRATE preloaded"
   assert_contains "CMD_RESUME_SESSION content" "$output" "clear source → CMD_RESUME_SESSION preloaded"
   assert_contains "CMD_PARSE_PARAMETERS content" "$output" "clear source → CMD_PARSE_PARAMETERS preloaded"
+  assert_contains "CMD_CONTINUE_ON_STOP content" "$output" "clear source → CMD_CONTINUE_ON_STOP preloaded"
 }
 
 # --- Test 10: Multiple skill deps are all delivered ---

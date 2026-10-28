@@ -401,6 +401,7 @@ for std_file in "$HOME/.claude/.directives/COMMANDS.md" \
                 "$HOME/.claude/.directives/commands/CMD_DEHYDRATE.md" \
                 "$HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md" \
                 "$HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md" \
+                "$HOME/.claude/.directives/commands/CMD_CONTINUE_ON_STOP.md" \
                 "$ENGINE_PITFALLS"; do
   if [ -f "$std_file" ]; then
     STD_CONTENT=$(cat "$std_file" 2>/dev/null || true)

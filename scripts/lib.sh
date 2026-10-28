@@ -151,7 +151,7 @@ normalize_preload_path() {
 get_session_start_seeds() {
   local engine_dir seeds
   engine_dir=$(cd "$HOME/.claude/.directives" 2>/dev/null && pwd -P) || engine_dir="$HOME/.claude/.directives"
-  seeds=$(jq -n --arg d "$engine_dir" '[$d+"/COMMANDS.md",$d+"/INVARIANTS.md",$d+"/SIGILS.md",$d+"/VOICE.md",$d+"/commands/CMD_DEHYDRATE.md",$d+"/commands/CMD_RESUME_SESSION.md",$d+"/commands/CMD_PARSE_PARAMETERS.md"]')
+  seeds=$(jq -n --arg d "$engine_dir" '[$d+"/COMMANDS.md",$d+"/INVARIANTS.md",$d+"/SIGILS.md",$d+"/VOICE.md",$d+"/commands/CMD_DEHYDRATE.md",$d+"/commands/CMD_RESUME_SESSION.md",$d+"/commands/CMD_PARSE_PARAMETERS.md",$d+"/commands/CMD_CONTINUE_ON_STOP.md"]')
   if [ -f "$engine_dir/PITFALLS.md" ]; then
     seeds=$(echo "$seeds" | jq --arg p "$engine_dir/PITFALLS.md" '. + [$p]')
   fi

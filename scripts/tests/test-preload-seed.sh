@@ -26,7 +26,7 @@ setup() {
   for f in COMMANDS.md INVARIANTS.md SIGILS.md VOICE.md PITFALLS.md; do
     echo "# $f" > "$FAKE_HOME/.claude/engine/.directives/$f"
   done
-  for f in CMD_DEHYDRATE.md CMD_RESUME_SESSION.md CMD_PARSE_PARAMETERS.md; do
+  for f in CMD_DEHYDRATE.md CMD_RESUME_SESSION.md CMD_PARSE_PARAMETERS.md CMD_CONTINUE_ON_STOP.md; do
     echo "# $f" > "$FAKE_HOME/.claude/engine/.directives/commands/$f"
   done
 
@@ -66,12 +66,18 @@ test_find_preload_state_creates_seed() {
 
   local preloaded_count
   preloaded_count=$(jq '.preloadedFiles | length' "$result")
-  assert_eq "8" "$preloaded_count" "seed has 8 core standards"
+  assert_eq "9" "$preloaded_count" "seed holds every core standard"
 
   # A bare length says the list changed but not which entry, so name the guarded one.
   local has_pitfalls
   has_pitfalls=$(jq 'any(.preloadedFiles[]; endswith("/PITFALLS.md"))' "$result")
   assert_eq "true" "$has_pitfalls" "present PITFALLS.md is named in the seed"
+
+  # The Stop hook cites this atom on every block, so SessionStart preloads it with the core
+  # standards; name it, so dropping it from the seed list reddens by name rather than by length.
+  local has_continue
+  has_continue=$(jq 'any(.preloadedFiles[]; endswith("/commands/CMD_CONTINUE_ON_STOP.md"))' "$result")
+  assert_eq "true" "$has_continue" "CMD_CONTINUE_ON_STOP.md is named in the seed"
 }
 
 test_seed_omits_guarded_file_when_absent() {
@@ -86,7 +92,7 @@ test_seed_omits_guarded_file_when_absent() {
 
   local count
   count=$(jq '.preloadedFiles | length' "$result")
-  assert_eq "7" "$count" "guarded file absent → seed has 7, not 8"
+  assert_eq "8" "$count" "guarded file absent → seed is one shorter"
 
   local has_pitfalls
   has_pitfalls=$(jq 'any(.preloadedFiles[]; endswith("/PITFALLS.md"))' "$result")
@@ -206,7 +212,7 @@ test_seed_without_activation() {
   jq '.preloadedFiles += ["/extra/file.md"]' "$result" | safe_json_write "$result"
   local count
   count=$(jq '.preloadedFiles | length' "$result")
-  assert_eq "9" "$count" "seed updated with extra file"
+  assert_eq "10" "$count" "seed updated with extra file"
 }
 
 test_multiple_seeds_per_pid() {
@@ -242,7 +248,7 @@ test_log_delivery_writes_when_set() {
 
 test_continue_replaces_stale_preloaded_with_seed() {
   # After context overflow restart:
-  # 1. SessionStart creates seed with 8 boot files
+  # 1. SessionStart creates seed with its boot files
   # 2. session.sh continue should REPLACE session's stale preloadedFiles with seed's
   # This prevents the templates hook from skipping deps it thinks are "already loaded"
   local pid="${CLAUDE_SUPERVISOR_PID:-99999999}"
@@ -253,7 +259,7 @@ test_continue_replaces_stale_preloaded_with_seed() {
   assert_file_exists "$seed_file" "seed exists before continue"
   local seed_count
   seed_count=$(jq '.preloadedFiles | length' "$seed_file")
-  assert_eq "8" "$seed_count" "seed has 8 boot files"
+  assert_eq "9" "$seed_count" "seed holds every boot file"
 
   # Create session with STALE preloadedFiles (12 files from old process)
   mkdir -p "$TMP_DIR/sessions/test_continue"
@@ -277,11 +283,11 @@ test_continue_replaces_stale_preloaded_with_seed() {
   local output
   output=$(cd "$TMP_DIR" && "$FAKE_HOME/.claude/scripts/session.sh" continue "sessions/test_continue" 2>&1) || true
 
-  # After continue: preloadedFiles should be the seed's 8, not the stale 12
+  # After continue: preloadedFiles should be the seed's, not the stale 12
   local state_file="$TMP_DIR/sessions/test_continue/.state.json"
   local post_count
   post_count=$(jq '.preloadedFiles | length' "$state_file")
-  assert_eq "8" "$post_count" "preloadedFiles replaced with seed's 8 (not stale 12)"
+  assert_eq "9" "$post_count" "preloadedFiles replaced with the seed's (not the stale 12)"
 
   # pendingPreloads should be cleared (seed's are empty)
   local pending_count
