@@ -9,8 +9,8 @@
 # weakest of them:
 #   1. autoContinue must not be false in .state.json    (default: absent = ON)
 #   2. a hard ceiling on CONSECUTIVE continues          (autoContinueMax, default 3)
-#   3. no-op when this session's recent transcript tail carries AskUserQuestion or
-#      ExitPlanMode. Note AskUserQuestion resolves IN-turn, so by the time Stop fires the
+#   3. no-op when this session's recent transcript tail carries an AskUserQuestion or
+#      ExitPlanMode tool CALL (not a mention). Note AskUserQuestion resolves IN-turn, so by the time Stop fires the
 #      human has already answered: this suppresses a continue just after an answered
 #      question rather than preventing one over a pending question.
 # The counter resets on any turn this hook does not block, so the ceiling bounds a
@@ -106,8 +106,12 @@ case "$RECENT" in *"auto-continues;"*)
   fi ;;
 esac
 
+# Match the TOOL CALL, not the word. A bare *AskUserQuestion* also matched prose about the
+# tool, and this hook's own atom says "do NOT hand-roll an `AskUserQuestion`" — delivered
+# into the tail after a wake's first tool call, it suppressed the next continue by itself
+# (test BACKOFF-05). The transcript writes a call compactly as "name":"AskUserQuestion".
 TAIL=$(tail -8 "$JSONL" 2>/dev/null || true)
-case "$TAIL" in *AskUserQuestion*|*ExitPlanMode*)
+case "$TAIL" in *'"name":"AskUserQuestion"'*|*'"name":"ExitPlanMode"'*)
   jq '.autoContinueCount = 0' "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
   exit 0 ;;
 esac
@@ -117,7 +121,9 @@ esac
 # question to /interrogate or /decide, never manufacture work — lives in
 # .directives/commands/CMD_CONTINUE_ON_STOP.md, so this hook and its readers say it once.
 # Line 2 is the counter suffix; Guard 3b above finds our own injection by its
-# "auto-continues;" text, so that wording is load-bearing.
+# "auto-continues;" text, so that wording is load-bearing — and it must appear in nothing
+# else that lands in the transcript, the atom included: the atom is delivered after the
+# wake's first tool call, so a copy there would become the anchor (test BACKOFF-05).
 ATOM="$HOME/.claude/.directives/commands/CMD_CONTINUE_ON_STOP.md"
 REASON="Follow \`§CMD_CONTINUE_ON_STOP\`: carry on the \`/next\` sequence you are in, else invoke \`/next\`; route a question for the user to \`/interrogate\` or \`/decide\`, never a hand-rolled ask; if nothing is left, say so in one line and stop."
 

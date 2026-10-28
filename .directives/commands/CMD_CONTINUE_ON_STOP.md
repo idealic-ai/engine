@@ -1,7 +1,7 @@
 ### ¶CMD_CONTINUE_ON_STOP
 **Definition**: The action to take when the Stop hook (`hooks/stop-auto-continue.sh`) refuses to let your turn end and hands it back with a short `decision: block` reason that cites `§CMD_CONTINUE_ON_STOP`. Do the next thing you already know about; when you do not know one, ask `/next` for it; when the next thing is an answer only the user can give, dispatch the skill that owns the question instead of asking it inline; and when there is genuinely nothing, say so in one line and stop. One place, cited by the Stop hook's two-line reason.
 
-**Trigger**: Your turn tried to end and came back with a reason naming this command and a counter suffix `(N of M auto-continues; …)`. The hook fires only in an active session whose `.state.json` does not carry `autoContinue: false`, at most `autoContinueMax` (default 3) times in a row.
+**Trigger**: Your turn tried to end and came back with a reason naming this command and, on its second line, a counter saying how many of the allowed auto-continues this is and how to switch them off. The hook fires only in an active session whose `.state.json` does not carry `autoContinue: false`, at most `autoContinueMax` (default 3) times in a row.
 
 **Algorithm** (on an auto-continue):
 1.  **Finish the sequence you are in.** If you invoked `/next` recently and are part-way through the sequence it named, carry on with its next step.
@@ -15,6 +15,7 @@
 5.  **Or stop, in one line.** If there is genuinely nothing to advance and nothing to ask, say so in one line and stop.
 
 **Constraints**:
+*   **Never quote the hook's counter text in this file.** The hook recognises its own earlier wakes by a fragment of that counter line. This atom is delivered into the transcript after your first tool call on a wake, so a copy of the fragment here would be read as a newer wake, and a wake that did real work would be taken for an idle one.
 *   **Do not manufacture work.** An auto-continue is permission to advance known work, not a demand to find some. Step 5 is a correct outcome, not a failure.
 *   **A one-line stop ends the series.** The hook reads your turn back: a wake after which you made no tool call is taken as "nothing to advance", and the hook backs off and resets its counter rather than asking again. So do not pad an empty wake with a busy-work tool call — that is what keeps the series going.
 *   **Never hand-roll the ask.** A pending question goes to `/interrogate` or `/decide` per step 4, never to an inline `AskUserQuestion` round, in or out of a loom.

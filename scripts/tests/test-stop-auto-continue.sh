@@ -25,6 +25,15 @@ setup() {
   # PROJECT_SLUG is derived from $PWD, which setup_test_env set to TMP_DIR.
   PROJ_DIR="$FAKE_HOME/.claude/projects/$(echo "$PWD" | sed 's|/|-|g')"
   mkdir -p "$PROJ_DIR"
+
+  # Lay the atom out the way production does: the real file under engine/.directives,
+  # reached through the ~/.claude/.directives symlink the hook names. normalize_preload_path
+  # only resolves that symlink for a file that EXISTS, so without this the PRELOAD arms
+  # match an incidental spelling production never queues.
+  mkdir -p "$FAKE_HOME/.claude/engine/.directives/commands"
+  cp "$ATOM_FILE" "$FAKE_HOME/.claude/engine/.directives/commands/CMD_CONTINUE_ON_STOP.md"
+  ln -sfn "$FAKE_HOME/.claude/engine/.directives" "$FAKE_HOME/.claude/.directives"
+  ATOM_RESOLVED="$(cd "$FAKE_HOME/.claude/engine/.directives/commands" && pwd -P)/CMD_CONTINUE_ON_STOP.md"
 }
 
 teardown() { cleanup_test_env; }
@@ -318,19 +327,20 @@ run_test test_reason_is_two_lines_citing_atom
 # A cited atom that is not preloaded is a citation to nothing. The pair differs ONLY in
 # whether preloadedFiles already holds the atom: PRELOAD-01 queues it, PRELOAD-02 does
 # not re-queue it — so PRELOAD-01 cannot pass on a hook that queues blindly or not at all.
-ATOM_QUEUED_PATH='/.claude/.directives/commands/CMD_CONTINUE_ON_STOP.md'
-
+# Both match the path normalize_preload_path RESOLVES the hook's ~/.claude/.directives
+# spelling to (engine/.directives, through the symlink setup lays down), which is the path
+# preloadedFiles holds in production and the one its dedup compares against.
 test_block_queues_atom_for_preload() {
   write_state
   echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
   run_hook >/dev/null
-  local n; n=$(jq --arg s "$ATOM_QUEUED_PATH" '[.pendingPreloads // [] | .[] | select(endswith($s))] | length' "$TEST_SESSION/.state.json")
-  assert_eq "1" "$n" "PRELOAD-01: a block queues the cited atom into pendingPreloads"
+  local got; got=$(jq -r '[.pendingPreloads // [] | .[] | select(endswith("/commands/CMD_CONTINUE_ON_STOP.md"))] | join(",")' "$TEST_SESSION/.state.json")
+  assert_eq "$ATOM_RESOLVED" "$got" "PRELOAD-01: a block queues the cited atom, at its resolved engine path"
 }
 run_test test_block_queues_atom_for_preload
 
 test_already_preloaded_atom_not_requeued() {
-  write_state " | .preloadedFiles = [\"$HOME$ATOM_QUEUED_PATH\"]"
+  write_state " | .preloadedFiles = [\"$ATOM_RESOLVED\"]"
   echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
   local out; out=$(run_hook)
   local n; n=$(jq '[.pendingPreloads // [] | .[]] | length' "$TEST_SESSION/.state.json")
@@ -342,5 +352,49 @@ test_already_preloaded_atom_not_requeued() {
   fi
 }
 run_test test_already_preloaded_atom_not_requeued
+
+# ── The delivered atom must not become Guard 3b's anchor ────────────────────
+# The preload rule delivers the atom as a PostToolUse attachment, i.e. AFTER the wake's
+# first tool_use. Guard 3b anchors on the LAST line carrying "auto-continues;" and counts
+# tool calls after it, so an atom quoting that text resets the series after a wake that did
+# exactly one useful call. The pair differs ONLY in whether the delivery line is present;
+# BACKOFF-05 is built from the atom file itself, so it reddens on the text, not a fixture.
+backoff_transcript() {  # $1 = include the atom's PostToolUse delivery (yes/no)
+  local f="$PROJ_DIR/mine.jsonl"
+  jq -cn --arg r "Follow §CMD_CONTINUE_ON_STOP ...
+(1 of 3 auto-continues; set ...)" '{type:"user",message:{content:$r}}' > "$f"
+  echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash"}]}}' >> "$f"
+  echo '{"type":"user","message":{"content":[{"type":"tool_result"}]}}' >> "$f"
+  if [ "$1" = yes ]; then
+    jq -cn --rawfile c "$ATOM_FILE" --arg p "$ATOM_RESOLVED" \
+      '{type:"attachment",attachment:{type:"hook_additional_context",hookEvent:"PostToolUse",content:("[Preloaded: "+$p+"]\n"+$c)}}' >> "$f"
+  fi
+  echo '{"type":"assistant","message":{"content":[{"type":"text","text":"done one step"}]}}' >> "$f"
+}
+
+test_one_call_wake_continues_without_atom() {
+  write_state ' | .autoContinueCount = 1'
+  backoff_transcript no
+  local out; out=$(run_hook)
+  if [[ "$out" == *"block"* ]]; then
+    pass "BACKOFF-06: a one-call wake continues (the control, no atom delivered)"
+  else
+    fail "BACKOFF-06: a one-call wake continues (the control, no atom delivered)" "a block decision" "$out"
+  fi
+}
+run_test test_one_call_wake_continues_without_atom
+
+test_one_call_wake_continues_after_atom_delivery() {
+  write_state ' | .autoContinueCount = 1'
+  backoff_transcript yes
+  local out; out=$(run_hook)
+  if [[ "$out" == *"block"* ]]; then
+    pass "BACKOFF-05: a one-call wake still continues after the atom was delivered behind it"
+  else
+    fail "BACKOFF-05: a one-call wake still continues after the atom was delivered behind it" \
+      "a block decision" "empty: Guard 3b anchored on the atom (count=$(jq .autoContinueCount "$TEST_SESSION/.state.json"))"
+  fi
+}
+run_test test_one_call_wake_continues_after_atom_delivery
 
 exit_with_results
