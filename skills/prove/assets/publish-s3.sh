@@ -12,21 +12,31 @@
 # Duplicate keys in one file resolve FIRST-NON-EMPTY, the engine-wide rule.
 #
 # Keys:
-#   PROVE_S3_BUCKET   (required) target bucket, e.g. staging-finch-proofs
-#   PROVE_S3_REGION   (default us-east-2) region for the virtual-hosted URL
+#   PROVE_S3_BUCKET   (default proofs) target bucket
+#   PROVE_S3_REGION   (default us-east-1) region; also names the AWS virtual-hosted URL
+#   PROVE_S3_ENDPOINT (default http://127.0.0.1:9440, the local MinIO started with the kit)
+#                     S3-compatible endpoint; empty publishes to AWS S3
+#   PROVE_S3_PUBLIC_BASE (default http://127.0.0.1:9440) base for path-style object URLs
 #   PROVE_S3_PREFIX   (default proofs)    key prefix; MUST match the bucket's public-read policy prefix
-#   PROVE_S3_PROFILE  (optional) AWS CLI profile for the upload, e.g. finch-staging
+#   PROVE_S3_PROFILE  (optional) AWS CLI profile for the upload. Leave unset for the local MinIO:
+#                     credentials then come from AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY,
+#                     defaulting to the MinIO dev pair on a loopback endpoint
 #   PROVE_S3_SIGNER_PROFILE (optional) profile used ONLY to sign the board's write grant; defaults
 #                     to PROVE_S3_PROFILE. Point it at a narrow long-lived key (PutObject on the
 #                     events prefix only) to get a board that still accepts votes days from now —
 #                     a presign expires with the credential that signed it, so a session token
 #                     yields a board that is write-dead within the hour.
-#   PROVE_S3_USER     (optional) per-user key segment; else derived from the AWS caller identity
+#   PROVE_S3_USER     (optional) per-user key segment; else `id -un` on a loopback endpoint, else
+#                     derived from the AWS caller identity
+#   PROVE_DOC_ID      (optional) an existing key stem to republish IN PLACE — same object key, same
+#                     state document, so a corrected board keeps the answers already given against
+#                     it. Omit it and the publish mints a fresh identity and re-points every earlier
+#                     state document for this slug at the new one (supersededBy).
 #   PROVE_TICKETS_JSON (optional) path to the ticket-data JSON to publish beside the page. Default:
 #                     <proofPath with .html stripped>.tickets.json, i.e. what bake-tickets.sh --emit
 #                     writes with no --out. Absent ⇒ no ticket data is published (the page's refs
 #                     degrade to plain links, loudly, at read time).
-#   PROVE_TICKETS_KEY (optional) an EXPLICIT bucket key for that JSON, e.g. proofs/yarik/wave3.tickets.json.
+#   PROVE_TICKETS_KEY (optional) an EXPLICIT bucket key for that JSON, e.g. proofs/alice/wave3.tickets.json.
 #                     This is the opt-in to ONE json serving MANY pages. Default is the page's own
 #                     key stem, which inherits the page key's <rand8> unguessability; a shared key
 #                     is by construction predictable, so the object becomes a public index of every
@@ -36,6 +46,7 @@
 #   s3://$PROVE_S3_BUCKET/$PROVE_S3_PREFIX/<user>/<slug>-<rand8>.html
 # and is served at
 #   https://$PROVE_S3_BUCKET.s3.$PROVE_S3_REGION.amazonaws.com/<same key>
+# or, with PROVE_S3_ENDPOINT set (a local MinIO), at $PROVE_S3_PUBLIC_BASE/$PROVE_S3_BUCKET/<same key>
 # The random suffix makes the key unguessable — an unlisted, shareable link.
 # macOS ships bash 3.2, where "${arr[@]}" on an EMPTY array under `set -u` is an "unbound
 # variable" fatal — so every array expansion below uses the ${arr[@]+"${arr[@]}"} guard. Without
@@ -52,27 +63,44 @@ slug="${2:-$(basename "$proofPath" .html)}"
 # FIRST-NON-EMPTY. /prove therefore answered differently depending on which script you
 # entered through. _prove-s3-env.sh is now the ONE place prove config is resolved; it
 # loads the `prove` manifest via env_load_domain and honours PROVE_S3_ENV as an
-# authoritative single-file override. (It also sets PROFILE_ARG, which this script does
-# not use — it builds its own profile_arg below, including the signer variant.)
+# authoritative single-file override. (It also sets PROFILE_ARG and ENDPOINT_ARG, which
+# seed profile_arg / endpoint_arg below; the signer variant is built here.)
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$here/_prove-s3-env.sh"
 
 if [ -z "${PROVE_S3_BUCKET:-}" ]; then
   echo "publish-s3: PROVE_S3_BUCKET is not set (and none found in a project .env)." >&2
-  echo "  Prescribe it once in your project's .env (finch → repo-root .env):" >&2
-  echo "    PROVE_S3_BUCKET=staging-finch-proofs" >&2
-  echo "    PROVE_S3_REGION=us-east-2" >&2
-  echo "    PROVE_S3_PROFILE=finch-staging" >&2
+  echo "  The manifest default is the local MinIO (bucket 'proofs' on http://127.0.0.1:9440);" >&2
+  echo "  an empty value in a project .env shadows it. Set it there, or export it:" >&2
+  echo "    PROVE_S3_BUCKET=proofs" >&2
+  echo "    PROVE_S3_ENDPOINT=http://127.0.0.1:9440" >&2
   echo "  (or export them in your shell). The proof is still composed in builds/." >&2
   exit 2
 fi
 
-region="${PROVE_S3_REGION:-us-east-2}"
+region="${PROVE_S3_REGION:-us-east-1}"
 prefix="${PROVE_S3_PREFIX:-proofs}"
 
-profile_arg=()
-[ -n "${PROVE_S3_PROFILE:-}" ] && profile_arg=(--profile "$PROVE_S3_PROFILE")
+# PROVE_S3_ENDPOINT sends the publish to an S3-compatible store (a local MinIO) instead of AWS.
+# Its URLs are path-style under PROVE_S3_PUBLIC_BASE (default: the endpoint itself), so a page on
+# a loopback endpoint opens only on this machine.
+endpoint="${PROVE_S3_ENDPOINT_URL:-}"
+publicBase="${PROVE_S3_PUBLIC_URL:-$endpoint}"
+endpoint_arg=(${ENDPOINT_ARG[@]+"${ENDPOINT_ARG[@]}"})
+obj_url() {
+  if [ -n "$endpoint" ]; then
+    printf '%s/%s/%s' "${publicBase%/}" "$PROVE_S3_BUCKET" "$1"
+  else
+    printf 'https://%s.s3.%s.amazonaws.com/%s' "$PROVE_S3_BUCKET" "$region" "$1"
+  fi
+}
+
+profile_arg=(${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"})
+
+# WHICH STORE. Stated before a byte moves, and refused when the environment overrode the file —
+# the bucket is identical on every local store here, so only the port answers the question.
+prove_destination_gate publish-s3 || exit 3
 
 # Publishing and signing want DIFFERENT identities. The upload is a person putting a page in a
 # bucket; the presign mints a write grant that is handed to strangers and lives for up to a week.
@@ -82,10 +110,19 @@ profile_arg=()
 # sets neither behaves exactly as before.
 signer_profile_arg=(${profile_arg[@]+"${profile_arg[@]}"})
 [ -n "${PROVE_S3_SIGNER_PROFILE:-}" ] && signer_profile_arg=(--profile "$PROVE_S3_SIGNER_PROFILE")
+# A scalar, not ${#array[@]}: bash 3.2 under `set -u` is hostile to empty-array expansion, and
+# this flag is read in a condition that must never be the thing that kills the publish.
+signerProfileNamed=0
+[ -n "${PROVE_S3_PROFILE:-}" ] && signerProfileNamed=1
+[ -n "${PROVE_S3_SIGNER_PROFILE:-}" ] && signerProfileNamed=1
 
-# Per-user key segment: explicit override, else the last segment of the caller ARN
-# (arn:aws:iam::…:user/yarik -> yarik ; assumed-role/…/<session> -> <session>), else "shared".
+# Per-user key segment: explicit override (a loopback endpoint defaults it to `id -un` in
+# _prove-s3-env.sh), else the last segment of the caller ARN
+# (arn:aws:iam::…:user/alice -> alice ; assumed-role/…/<session> -> <session>), else "shared".
 user="${PROVE_S3_USER:-}"
+if [ -z "$user" ] && [ -n "$endpoint" ]; then
+  user="$(id -un 2>/dev/null || printf local)"
+fi
 if [ -z "$user" ]; then
   arn="$(aws sts get-caller-identity ${profile_arg[@]+"${profile_arg[@]}"} --query Arn --output text 2>/dev/null || true)"
   user="${arn##*/}"
@@ -94,8 +131,28 @@ fi
 # sanitize to a safe key segment
 user="$(printf '%s' "$user" | tr -c 'A-Za-z0-9._-' '-')"
 
-rand="$(openssl rand -hex 4)"
-stem="${slug}-${rand}"
+# --- Identity: a fresh one by default, the SAME one on request ---------------------------------
+# The stem carries the page's own entropy and the docId is derived from it, so a republish normally
+# mints a new URL AND a new state doc — leaving every answer already given on an address the
+# corrected board never polls. PROVE_DOC_ID names an existing stem to republish IN PLACE: same
+# object key, same state doc, so a correction keeps the answers.
+#
+# Deliberately an author-named id rather than one re-derived from the slug. A slug-derived stem
+# would be a guessable public key, and it would collide across two different boards that happen to
+# share a slug, merging their answers with nothing to say so — the two harms named at docId below.
+# Naming the id keeps the first publish's entropy and makes the merge a decision instead of an
+# accident. A fresh identity is not silent either: every earlier state doc for this slug is
+# stamped with a supersededBy pointer (see the state block).
+if [ -n "${PROVE_DOC_ID:-}" ]; then
+  case "$PROVE_DOC_ID" in
+    *[/\\]*|*..*) echo "publish-s3: PROVE_DOC_ID must be a bare key stem, no path separators (got '$PROVE_DOC_ID')" >&2; exit 2 ;;
+  esac
+  stem="$PROVE_DOC_ID"
+  echo "publish-s3: republishing IN PLACE as ${stem} — the existing state doc and its answers are kept" >&2
+else
+  rand="$(openssl rand -hex 4)"
+  stem="${slug}-${rand}"
+fi
 key="${prefix}/${user}/${stem}.html"
 
 # --- The working copy: made ONCE, unconditionally, under ONE trap ---
@@ -104,7 +161,7 @@ key="${prefix}/${user}/${stem}.html"
 #   1. The composed board in builds/ stays as authored, so a re-publish to a different bucket
 #      resolves afresh instead of inheriting the first publish's URLs.
 #   2. The state config carries a LIVE PRESIGNED CREDENTIAL. builds/ lives under sessions/, which
-#      is a symlink into a shared Google Drive — writing the credential there would sync it.
+#      is a symlink into the data root — writing the credential there would persist it beside the session.
 # Unconditional and single-trap on purpose: an alias that only becomes a copy inside one branch
 # points at the authored source on every other path, and a second `trap … EXIT` REPLACES the
 # first (bash does not stack them), silently leaking the earlier temp file.
@@ -141,7 +198,7 @@ fi
 # one substitution serves both, because the token resolves to the kit BASE, not to a file.
 # Pages with no token are untouched.
 if grep -q '__FB_KIT_BASE__' "$upload"; then
-  kitBase="https://${PROVE_S3_BUCKET}.s3.${region}.amazonaws.com/${prefix}/kit"
+  kitBase="$(obj_url "${prefix}/kit")"
   sed "s|__FB_KIT_BASE__|${kitBase}|g" "$upload" > "${work}/kit.html"
   mv "${work}/kit.html" "$upload"
   echo "publish-s3: kit reference resolved → ${kitBase}" >&2
@@ -211,7 +268,8 @@ PY
   if command -v curl >/dev/null 2>&1; then
     dangling=0
     for ref in $(grep -oE "${kitBase//./\\.}/[A-Za-z0-9._-]+" "$upload" | sort -u); do
-      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -I "$ref" 2>/dev/null || echo 000)"
+      code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 -I "$ref" 2>/dev/null)" || true
+      [ -n "$code" ] || code="000"
       if [ "$code" != "200" ]; then
         echo "publish-s3: DECLARED KIT ADDRESS DOES NOT RESOLVE — HTTP ${code}: ${ref}" >&2
         dangling=$((dangling + 1))
@@ -235,36 +293,226 @@ fi
 # credential, byte-identical. An author who wants state on such a page says so with the placeholder.
 #
 # THE SIGNER IS NEVER LOAD-BEARING FOR PUBLISHING. `set -e` is on, so every failure path here is
-# explicitly caught: a missing signer, unavailable credentials, or a python error all degrade to
-# a config that carries the READ url but no write grant. The board then polls (state/* is public
-# read) and routes submissions to the copy bar with a stated reason. Publishing a broken board
-# because signing broke would be strictly worse than publishing today's board.
+# explicitly caught: a missing signer, unavailable credentials, a python error, or a grant that
+# fails the destination gate all degrade to a config that carries the READ url but no write grant.
+# The board then polls the state doc this block writes, and routes submissions to the copy bar with
+# a stated reason. Publishing a broken board because signing broke would be strictly worse than
+# publishing today's board.
+#
+# Whether the state doc is READABLE is a separate question from whether it was written, and it is
+# answered here by reading it back with no credential rather than asserted in a comment. The claim
+# that used to sit in this comment — "state/* is public read" — was true on one store and false on
+# the one in use, and a comment cannot tell the difference.
 if [ "$isBoard" = 1 ] || grep -q '__PROVE_STATE_CONFIG__' "$upload"; then
-  statePrefix="${PROVE_S3_STATE_PREFIX:-state}"
   eventsPrefix="${PROVE_S3_EVENTS_PREFIX:-events}"
   # docId inherits the board's own entropy rather than being re-derived from the slug: a
   # predictable state/<slug>.json is a guessable public key AND collides across re-publishes
   # of the same wave, silently merging two boards' votes into one doc.
   docId="$stem"
-  stateUrl="https://${PROVE_S3_BUCKET}.s3.${region}.amazonaws.com/${statePrefix}/${docId}.json"
+  stateKey="$(prove_state_key "$docId")"
+  stateUrl="$(obj_url "$stateKey")"
   signer="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/sign-post.py"
 
+  # --- The ONE destination this publish may hand out a write grant for ---------------------------
+  # Derived HERE, from the same resolved endpoint and bucket that obj_url uses for the read URL.
+  # The signer computes its POST target independently from the same config and must come back with
+  # exactly this string. Two derivations, one config: a signer that regresses to a hardcoded host,
+  # a stale signer earlier on PATH, or an endpoint that fails to reach the signer all surface as a
+  # mismatch, and a mismatched grant is dropped rather than published. This gate is the reason the
+  # local-store refusal below could be lifted at all.
+  if [ -n "$endpoint" ]; then
+    expectedPostUrl="${publicBase%/}/${PROVE_S3_BUCKET}/"
+  elif [ "$region" = "us-east-1" ]; then
+    expectedPostUrl="https://${PROVE_S3_BUCKET}.s3.amazonaws.com/"
+  else
+    expectedPostUrl="https://${PROVE_S3_BUCKET}.s3.${region}.amazonaws.com/"
+  fi
+
+  # --- WHICH IDENTITY SIGNS -----------------------------------------------------------------------
+  # The discriminator is whether a profile is NAMED, not whether the endpoint is loopback. The
+  # upload authenticates as the named profile; a grant signed with a different identity is still
+  # minted, still passes the destination gate below (its URL is right), and is then refused by the
+  # destination itself — InvalidAccessKeyId, on the reader's click, long after a publish that said
+  # success. A dead grant on a healthy-looking page is worse than the honest refusal it replaced.
+  #
+  # The ambient pair is the fallback, not the rule: a loopback store that names NO profile has no
+  # AWS identity behind it and the dev pair _prove-s3-env.sh exported is the only identity that
+  # endpoint knows — asking `export-credentials` there would answer with the default profile, a real
+  # cloud key with no business inside a page's presign fields. A named profile that will not export
+  # still falls back to the ambient pair rather than costing the board its grant.
   signed=""
+  creds=""
+  credError=""
+  signerUsable=1
   signError="signing was not attempted"
   if [ ! -f "$signer" ]; then
+    signerUsable=0
     signError="sign-post.py not found beside publish-s3.sh"
-  elif ! creds="$(aws configure export-credentials ${signer_profile_arg[@]+"${signer_profile_arg[@]}"} --format env 2>"${work}/cred.err")"; then
-    signError="could not export AWS credentials for the presign ($(tr -d '\n' < "${work}/cred.err" | cut -c1-160))"
-  elif ! signed="$( set +u; eval "$creds"; \
+  elif [ "$signerProfileNamed" = 1 ] || [ "${PROVE_S3_LOCAL:-0}" != 1 ]; then
+    if ! creds="$(aws configure export-credentials ${signer_profile_arg[@]+"${signer_profile_arg[@]}"} --format env 2>"${work}/cred.err")"; then
+      creds=""
+      credError="could not export AWS credentials for the presign ($(tr -d '\n' < "${work}/cred.err" | cut -c1-160))"
+    fi
+  fi
+  if [ "$signerUsable" = 0 ]; then
+    : # no signer on disk; nothing below can run
+  elif [ -z "$creds" ] && { [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ]; }; then
+    signError="${credError:-no credential to sign the write grant with: no profile exported one and no AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY is in the environment}"
+  elif ! signed="$( set +u; if [ -n "$creds" ]; then eval "$creds"; fi; \
         PROVE_S3_BUCKET="$PROVE_S3_BUCKET" PROVE_S3_REGION="$region" \
         PROVE_S3_EVENTS_PREFIX="$eventsPrefix" \
+        PROVE_S3_ENDPOINT_URL="$endpoint" PROVE_S3_PUBLIC_URL="$publicBase" \
         python3 "$signer" "$docId" "${PROVE_S3_STATE_EXPIRY:-604800}" 2>"${work}/sign.err" )"; then
     signed=""
     signError="sign-post.py failed ($(tr -d '\n' < "${work}/sign.err" | cut -c1-160))"
   fi
 
+  # THE DESTINATION GATE. Nothing below publishes a grant that has not passed it.
+  if [ -n "$signed" ]; then
+    gotPostUrl="$(printf '%s' "$signed" | python3 -c 'import json,sys
+try: print(json.load(sys.stdin).get("postUrl") or "")
+except Exception: print("")' 2>/dev/null || true)"
+    if [ "$gotPostUrl" != "$expectedPostUrl" ]; then
+      signed=""
+      signError="write grant REFUSED by the destination gate — the signer's POST target is not the resolved destination (expected ${expectedPostUrl}, got ${gotPostUrl:-<none>})"
+      echo "publish-s3: $signError" >&2
+    fi
+  fi
+
   printf '%s' "${signed:-}" > "${work}/signed.json"
+
+  # --- SPEND THE GRANT ONCE, HERE ----------------------------------------------------------------
+  # A minted grant is not an accepted grant. The gate above proves the grant points at the resolved
+  # destination; it cannot prove the destination will TAKE it. The grant that shipped before this
+  # check pointed at exactly the right URL and was signed by an identity the store did not know, so
+  # every answer given against it was refused and the publish said success.
+  #
+  # Same discipline the state document already gets, applied to the write half: use the grant the
+  # page will carry, against the destination the page will post to, and read the answer. Three
+  # outcomes, never two — accepted, refused (drop the grant and say why, so the board falls back to
+  # copy-back instead of swallowing clicks), or unverifiable because the probe never reached the
+  # destination at all (keep the grant, say it is unproven). Collapsing the third into either of the
+  # others would strip a working grant off a board for a network blip.
+  grantVerified=0
+  grantUnverified=""
+  prober="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_grant-probe.py"
+  if [ -n "$signed" ] && [ -f "$prober" ]; then
+    # A dot-prefixed basename: prove-sync skips it, so a probe whose cleanup fails cannot be folded
+    # into the board's answers as a phantom event. Belt and braces — the delete below is the belt.
+    probeKey="${eventsPrefix}/${docId}/.grant-probe-$(openssl rand -hex 4).json"
+    probeVerdict="$(python3 "$prober" "${work}/signed.json" "$probeKey" 2>/dev/null)" || probeVerdict=""
+    case "${probeVerdict:-}" in
+      accepted*)
+        grantVerified=1
+        aws s3api delete-object ${profile_arg[@]+"${profile_arg[@]}"} ${endpoint_arg[@]+"${endpoint_arg[@]}"} \
+          --bucket "$PROVE_S3_BUCKET" --key "$probeKey" >/dev/null 2>&1 || true
+        ;;
+      refused*)
+        signed=""
+        printf '%s' "" > "${work}/signed.json"
+        signError="write grant REFUSED by the destination itself — it answered ${probeVerdict#refused } to the very grant this page would have carried"
+        echo "publish-s3: $signError" >&2
+        ;;
+      *)
+        grantUnverified="${probeVerdict#unverified }"
+        [ -n "$grantUnverified" ] && [ "$grantUnverified" != "$probeVerdict" ] || \
+          grantUnverified="the grant probe produced no verdict"
+        echo "publish-s3: WARNING — the write grant was NOT exercised: ${grantUnverified}" >&2
+        ;;
+    esac
+  fi
+
+  # --- Write the state document, then read it back the way a reader will ------------------------
+  # Minting a stateUrl and never writing the object is what made the read half untestable: the page
+  # polled an address that had never held anything, got the bucket's refusal, and the widget read
+  # that refusal as "nothing folded yet". With an initial document the two cases are different
+  # facts — an unfolded board is a document that READS and carries an empty events array; a broken
+  # read is an address that does not answer 200. A conductor can tell them apart too.
+  #
+  # Create-only (--if-none-match '*'): a republish in place must never overwrite a doc that has
+  # collected answers, and PreconditionFailed is the success case for that, not an error.
+  python3 - "$docId" > "${work}/state-init.json" <<'PY'
+import datetime, json, sys
+json.dump({"docId": sys.argv[1],
+           "publishedAt": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+           "events": []}, sys.stdout)
+PY
+  stateWrite="failed"
+  if aws s3api put-object ${profile_arg[@]+"${profile_arg[@]}"} ${endpoint_arg[@]+"${endpoint_arg[@]}"} \
+       --bucket "$PROVE_S3_BUCKET" --key "$stateKey" --body "${work}/state-init.json" \
+       --content-type 'application/json; charset=utf-8' --cache-control 'no-cache' \
+       --if-none-match '*' >/dev/null 2>"${work}/state-put.err"; then
+    stateWrite="created"
+  elif grep -qiE 'PreconditionFailed|ConditionalRequestConflict|412|At least one of the pre-conditions' "${work}/state-put.err"; then
+    stateWrite="kept"
+  fi
+
+  # A successful PUT is not a readable GET. The page fetches this URL with no credential, and the
+  # stores disagree about which prefixes they serve anonymously, so ask rather than assume.
+  # `|| echo 000` would CONCATENATE: curl prints its own 000 on a transport failure and then exits
+  # non-zero, so the fallback appended a second one and the operator was told "HTTP 000000".
+  stateReadCode=""
+  if command -v curl >/dev/null 2>&1; then
+    stateReadCode="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$stateUrl" 2>/dev/null)" || true
+    [ -n "$stateReadCode" ] || stateReadCode="000"
+  fi
+  stateReadable=0
+  stateReason=""
+  if [ "$stateWrite" = "failed" ]; then
+    stateReason="the state document could not be written ($(tr -d '\n' < "${work}/state-put.err" | cut -c1-160))"
+  elif [ -z "$stateReadCode" ]; then
+    stateReason="the state document was ${stateWrite} but could not be read back (no curl on this machine)"
+  elif [ "$stateReadCode" = "200" ]; then
+    stateReadable=1
+  elif [ "$stateReadCode" = "000" ]; then
+    # A code of 000 is curl saying it never got an answer — nothing was established about the
+    # object or the policy. Naming a read policy here would send the reader to edit a grant that
+    # was never consulted, which is the same confusion as reporting a refusal for an empty board.
+    stateReason="the state document was ${stateWrite} but ${stateUrl} could not be reached at all for an anonymous reader — the address was never answered, so neither the object nor the read policy has been established"
+  else
+    stateReason="the state document was ${stateWrite} but reads back HTTP ${stateReadCode} for an anonymous reader — fix the bucket read policy for ${stateKey}"
+  fi
+
+  # --- Re-point answers left on a board this publish supersedes ---------------------------------
+  # A fresh identity leaves the earlier board's URL resolving, polling its own state doc, and
+  # saying nothing about having been replaced — so an answer given there is lost in silence. Stamp
+  # supersededBy onto every earlier state doc for this slug. The widget shows it; a conductor
+  # reading the doc sees it. Non-fatal throughout: a stale pointer is a far smaller harm than a
+  # publish that refuses because an unrelated old object would not take a field.
+  if [ -z "${PROVE_DOC_ID:-}" ] && [ "$stateWrite" != "failed" ]; then
+    stateDir="${stateKey%/*}"
+    superseded=0
+    for priorKey in $(aws s3api list-objects-v2 ${profile_arg[@]+"${profile_arg[@]}"} ${endpoint_arg[@]+"${endpoint_arg[@]}"} \
+                        --bucket "$PROVE_S3_BUCKET" --prefix "${stateDir}/${slug}-" \
+                        --query 'Contents[].Key' --output text 2>/dev/null | tr '\t' '\n' \
+                        | grep -v '^None$' | grep -v '^$' || true); do
+      if [ "$priorKey" = "$stateKey" ]; then continue; fi
+      aws s3api get-object ${profile_arg[@]+"${profile_arg[@]}"} ${endpoint_arg[@]+"${endpoint_arg[@]}"} \
+        --bucket "$PROVE_S3_BUCKET" --key "$priorKey" "${work}/prior.json" > "${work}/prior.meta" 2>/dev/null || continue
+      priorEtag="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["ETag"])' "${work}/prior.meta" 2>/dev/null || true)"
+      [ -n "$priorEtag" ] || continue
+      SUPERSEDED_BY_DOC="$docId" SUPERSEDED_BY_URL="$(obj_url "$key")" \
+        python3 - "${work}/prior.json" > "${work}/prior.new.json" <<'PY' || continue
+import json, os, sys
+doc = json.load(open(sys.argv[1], encoding="utf-8"))
+doc["supersededBy"] = {"docId": os.environ["SUPERSEDED_BY_DOC"], "url": os.environ["SUPERSEDED_BY_URL"]}
+json.dump(doc, sys.stdout)
+PY
+      if aws s3api put-object ${profile_arg[@]+"${profile_arg[@]}"} ${endpoint_arg[@]+"${endpoint_arg[@]}"} \
+           --bucket "$PROVE_S3_BUCKET" --key "$priorKey" --body "${work}/prior.new.json" \
+           --content-type 'application/json; charset=utf-8' --cache-control 'no-cache' \
+           --if-match "$priorEtag" >/dev/null 2>&1; then
+        superseded=$((superseded + 1))
+      fi
+    done
+    if [ "$superseded" -gt 0 ]; then
+      echo "publish-s3: re-pointed ${superseded} superseded board state doc(s) at ${docId}" >&2
+    fi
+  fi
+
   STATE_DOC_ID="$docId" STATE_URL="$stateUrl" SIGN_ERROR="$signError" \
+    STATE_KEY="$stateKey" STATE_READABLE="$stateReadable" STATE_REASON="$stateReason" \
+    GRANT_VERIFIED="$grantVerified" GRANT_UNVERIFIED="$grantUnverified" \
     python3 - "$upload" "${work}/signed.json" > "${work}/state.html" <<'PY'
 import json, os, re, sys
 
@@ -272,6 +520,13 @@ page = open(sys.argv[1], encoding="utf-8").read()
 raw = open(sys.argv[2], encoding="utf-8").read().strip()
 
 cfg = {"docId": os.environ["STATE_DOC_ID"], "stateUrl": os.environ["STATE_URL"], "pollMs": 20000}
+# stateVerified says the document was written AND read back 200 with no credential, in this
+# publish. It is what lets the widget treat a later 403/404 as a genuine failure instead of as the
+# pre-fold state — the two were indistinguishable while nothing ever wrote the document.
+cfg["stateKey"] = os.environ.get("STATE_KEY", "")
+cfg["stateVerified"] = os.environ.get("STATE_READABLE") == "1"
+if not cfg["stateVerified"] and os.environ.get("STATE_REASON"):
+    cfg["stateUnreadableReason"] = os.environ["STATE_REASON"]
 try:
     presign = json.loads(raw) if raw else None
 except ValueError:
@@ -287,6 +542,13 @@ if presign and presign.get("postUrl"):
     # an older signer's output degrades to null instead of failing the publish.
     for k in ("expirySeconds", "expiryRequested", "expiryClampedBy"):
         cfg[k] = presign.get(k)
+    # grantVerified says the destination ACCEPTED this exact grant during this publish, not merely
+    # that the grant was minted and points at the right host. A board whose grant was never spent
+    # carries the reason, so a conductor reading the config can tell "nobody answered yet" from
+    # "nobody COULD have answered".
+    cfg["grantVerified"] = os.environ.get("GRANT_VERIFIED") == "1"
+    if not cfg["grantVerified"] and os.environ.get("GRANT_UNVERIFIED"):
+        cfg["grantUnverifiedReason"] = os.environ["GRANT_UNVERIFIED"]
 else:
     # Read-only config. The kit shows the reason on the submit control rather than a dead button.
     cfg["submitDisabledReason"] = os.environ["SIGN_ERROR"]
@@ -313,11 +575,19 @@ else:
 sys.stdout.write(page)
 PY
   mv "${work}/state.html" "$upload"
-  if [ -n "$signed" ]; then
-    echo "publish-s3: state config injected → ${stateUrl} (writes presigned)" >&2
+  if [ -n "$signed" ] && [ "$grantVerified" = 1 ]; then
+    echo "publish-s3: state config injected → ${stateUrl} (writes presigned → ${expectedPostUrl}, grant SPENT once and accepted)" >&2
+  elif [ -n "$signed" ]; then
+    echo "publish-s3: state config injected → ${stateUrl} (writes presigned → ${expectedPostUrl}, grant UNPROVEN: ${grantUnverified:-not exercised})" >&2
   else
     echo "publish-s3: state config injected READ-ONLY → ${stateUrl}" >&2
     echo "publish-s3: no write grant — ${signError}; the board falls back to copy-back" >&2
+  fi
+  if [ "$stateReadable" = 1 ]; then
+    echo "publish-s3: state doc ${stateWrite} at ${stateKey} and reads back 200 anonymously" >&2
+  else
+    echo "publish-s3: WARNING — ${stateReason}" >&2
+    echo "publish-s3:   the board will say so on the page rather than waiting silently" >&2
   fi
 else
   # Say so, and only in the case that is actually surprising: a page that links the kit but carries
@@ -359,10 +629,10 @@ if [ -n "$ticketsJson" ]; then
   # An explicit shared key is taken verbatim (that is the whole point of it); otherwise the sibling
   # of the page key, which is exactly what the component derives when no <link> survives.
   ticketsKey="${PROVE_TICKETS_KEY:-${prefix}/${user}/${stem}${TICKETS_SUFFIX:-.tickets.json}}"
-  ticketsUrl="https://${PROVE_S3_BUCKET}.s3.${region}.amazonaws.com/${ticketsKey}"
+  ticketsUrl="$(obj_url "$ticketsKey")"
 
   if aws s3 cp "$ticketsJson" "s3://${PROVE_S3_BUCKET}/${ticketsKey}" \
-      ${profile_arg[@]+"${profile_arg[@]}"} \
+      ${profile_arg[@]+"${profile_arg[@]}"} ${endpoint_arg[@]+"${endpoint_arg[@]}"} \
       --content-type 'application/json; charset=utf-8' \
       --cache-control 'no-cache' >&2; then
     TICKETS_URL="$ticketsUrl" python3 - "$upload" > "${work}/tickets.html" <<'PY'
@@ -403,7 +673,8 @@ PY
     # credential, so read it back the way a reader will: an upload that lands under a key the bucket
     # policy does not serve is invisible here and a failure banner at the reader.
     if command -v curl >/dev/null 2>&1; then
-      readback="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$ticketsUrl" 2>/dev/null || echo 000)"
+      readback="$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$ticketsUrl" 2>/dev/null)" || true
+      [ -n "$readback" ] || readback="000"
       if [ "$readback" != "200" ]; then
         echo "publish-s3: WARNING — the ticket data uploaded but reads back HTTP ${readback} for an anonymous reader" >&2
         echo "publish-s3:   the published page WILL fetch that URL and paint a failure banner. Fix the bucket read policy for ${ticketsKey} before sharing the link" >&2
@@ -462,8 +733,45 @@ fi
 
 # Upload. cp chatter → stderr; only the URL goes to stdout.
 aws s3 cp "$upload" "s3://${PROVE_S3_BUCKET}/${key}" \
-  ${profile_arg[@]+"${profile_arg[@]}"} \
+  ${profile_arg[@]+"${profile_arg[@]}"} ${endpoint_arg[@]+"${endpoint_arg[@]}"} \
   --content-type 'text/html; charset=utf-8' \
   --cache-control 'no-cache' >&2
 
-printf 'https://%s.s3.%s.amazonaws.com/%s\n' "$PROVE_S3_BUCKET" "$region" "$key"
+# ── VERIFY BY CONTENT, against the bytes that were SENT ─────────────────────────────────────────
+#
+# A status code says a key answers, not that it answers with this page — and the other store
+# answers the same key, so a 200 from the wrong store is indistinguishable from success.
+#
+# The comparison basis is `$upload`, never `$proofPath`. This script REWRITES the page before
+# uploading (a shared-state config for a board, an explicit no-ticket-data meta for a page carrying
+# ticket refs), so a source-sha comparison reports a mismatch that means nothing — and a reader who
+# learns to ignore that mismatch ignores a real one next time. The delta from the source is stated
+# rather than hidden, which is what stops the next reader concluding the bytes were corrupted.
+sentSha="$(shasum -a 256 "$upload" | cut -d' ' -f1)"
+srcSha="$(shasum -a 256 "$proofPath" | cut -d' ' -f1)"
+readback="${work}/readback.html"
+if aws s3api get-object --bucket "$PROVE_S3_BUCKET" --key "$key" \
+     ${profile_arg[@]+"${profile_arg[@]}"} ${endpoint_arg[@]+"${endpoint_arg[@]}"} \
+     "$readback" >/dev/null 2>&1 && [ -s "$readback" ]; then
+  gotSha="$(shasum -a 256 "$readback" | cut -d' ' -f1)"
+  if [ "$gotSha" != "$sentSha" ]; then
+    echo "publish-s3: REFUSED after write — the bytes read back MISMATCH the bytes sent." >&2
+    echo "  sent:     ${sentSha}" >&2
+    echo "  fetched:  ${gotSha}" >&2
+    echo "  endpoint: ${endpoint:-AWS-S3}   bucket: ${PROVE_S3_BUCKET}   key: ${key}" >&2
+    echo "  A key that answers with content you did not write is the signature of another store" >&2
+    echo "  serving the same bucket name. Check the endpoint's PORT before republishing." >&2
+    exit 4
+  fi
+  if [ "$sentSha" = "$srcSha" ]; then
+    echo "publish-s3: verified by content — sha256 match against the uploaded bytes (${sentSha})" >&2
+  else
+    echo "publish-s3: verified by content — sha256 match against the uploaded bytes (${sentSha})" >&2
+    echo "publish-s3:   the uploaded page differs from the source by design: this publish rewrote it (injected config/meta), source sha ${srcSha}. A source-sha comparison would report a false mismatch." >&2
+  fi
+else
+  echo "publish-s3: WARNING — could not read the object back, so the destination is unverified." >&2
+  echo "publish-s3:   endpoint ${endpoint:-AWS-S3}, bucket ${PROVE_S3_BUCKET}, key ${key}. A write that cannot be read is not a published page." >&2
+fi
+
+printf '%s\n' "$(obj_url "$key")"

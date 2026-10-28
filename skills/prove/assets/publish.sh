@@ -117,6 +117,69 @@ if [ -z "$target" ]; then
   fi
 fi
 
+# ── The two gates ─────────────────────────────────────────────────────────────────────────────
+# Both answer their question BEFORE a byte moves, and both exist because a digest check cannot.
+# Fetching a page back and comparing its hash proves the bytes arrived intact; it compares the page
+# to its own source, so it is silent about a source that went to the wrong store or carried a local
+# path. Five pages passed that check and were wrong on both counts.
+#
+# A directory target is neither a store nor shareable, so it is exempt from both.
+case "$target" in
+  s3://*)
+    gate_bucket="${target#s3://}"; gate_bucket="${gate_bucket%%/*}"
+
+    # DESTINATION. The declaration is read from the env FILE, not from the environment, because an
+    # ambient override shadowing the file is exactly the failure: the file named the local store and
+    # something else won, with nothing in the output saying which store got the bytes. Where no file
+    # can be identified the gate stays quiet — it checks a declaration, it never invents one.
+    gate_env="${PROVE_S3_ENV:-}"
+    if [ -z "$gate_env" ]; then
+      for c in .env.local .env; do [ -f "$c" ] && { gate_env="$c"; break; }; done
+    fi
+    if [ -n "$gate_env" ] && [ -f "$gate_env" ]; then
+      want_bucket="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}PROVE_S3_BUCKET=//p' "$gate_env" | tail -1 | tr -d '"'"'"' ')"
+      want_endpoint="$(sed -n 's/^[[:space:]]*\(export[[:space:]]\{1,\}\)\{0,1\}PROVE_S3_ENDPOINT=//p' "$gate_env" | tail -1 | tr -d '"'"'"' ')"
+      if [ -n "$want_bucket" ] && [ "$want_bucket" != "$gate_bucket" ]; then
+        echo "publish: REFUSED — this is not the store $gate_env declares." >&2
+        echo "  declared:  $want_bucket" >&2
+        echo "  attempted: $gate_bucket" >&2
+        echo "  Publish to the declared store, or change the declaration deliberately." >&2
+        exit 3
+      fi
+      # An endpoint declared in the file but absent from the resolution means the publish is aimed
+      # at AWS while the file names a local store. That is the five-page defect, exactly.
+      case "$want_endpoint" in
+        ''|aws|AWS|none|NONE) : ;;
+        *) if [ -z "${PROVE_S3_ENDPOINT_URL:-}" ]; then
+             echo "publish: REFUSED — $gate_env declares an endpoint and the resolution has none." >&2
+             echo "  declared:  $want_endpoint" >&2
+             echo "  attempted: AWS S3 (no endpoint resolved — something overrode the file)" >&2
+             exit 3
+           fi ;;
+      esac
+    fi
+
+    # PROVENANCE LEAK. An absolute local path carrying a username is never legitimate page content.
+    # A RELATIVE pointer to a session artifact is ordinary content and only earns a warning: a gate
+    # that refused there would fire on most real pages and be switched off, taking the username
+    # check with it. POSIX ERE here — no \w, which matches nothing and exits as though clean.
+    leaks="$(grep -rlE '/Users/[A-Za-z]|-Users-[A-Za-z]|claude-501' "$dir" 2>/dev/null || true)"
+    if [ -n "$leaks" ]; then
+      echo "publish: REFUSED — a local path identifying this machine would be published:" >&2
+      printf '  %s\n' $leaks >&2
+      echo "  Strip the absolute path. The reader cannot open it and it names the author." >&2
+      exit 3
+    fi
+    unreachable="$(grep -rloE '(builds|runs)/[A-Za-z0-9_.-]+' "$dir" 2>/dev/null | sort -u || true)"
+    if [ -n "$unreachable" ]; then
+      echo "publish: note — these files point at builds/ or runs/, which a reader cannot open:" >&2
+      printf '  %s\n' $unreachable >&2
+      echo "  Publishing anyway; consider inlining the evidence or dropping the pointer." >&2
+    fi
+    ;;
+esac
+
 exec python3 "$here/_publish.py" "$dir" "$target" \
   --profile "${PROVE_S3_PROFILE:-}" --region "${PROVE_S3_REGION}" \
+  --endpoint "${PROVE_S3_ENDPOINT_URL:-}" --public-base "${PROVE_S3_PUBLIC_URL:-}" \
   ${pass[@]+"${pass[@]}"}

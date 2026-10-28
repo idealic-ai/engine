@@ -10,23 +10,30 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 doc="${1:?usage: prove-sync.sh <doc>}"
 : "${PROVE_S3_BUCKET:?prove-sync: PROVE_S3_BUCKET not set (env or project .env)}"
-eprefix="${PROVE_S3_EVENTS_PREFIX}/${doc}/"
+eprefix="$(prove_events_key_prefix "$doc")"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 
 # Snapshot the event keys up front (delete only these; newer ones wait for the next run).
-aws s3api list-objects-v2 ${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"} --bucket "$PROVE_S3_BUCKET" \
+aws s3api list-objects-v2 ${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"} ${ENDPOINT_ARG[@]+"${ENDPOINT_ARG[@]}"} --bucket "$PROVE_S3_BUCKET" \
   --prefix "$eprefix" --query 'Contents[].Key' --output text 2>/dev/null \
   | tr '\t' '\n' | grep -v '^None$' | grep -v '^$' > "$tmp/keys" || true
 
-folded=0; failed=0
+folded=0; failed=0; skipped=0
 while IFS= read -r key; do
   [ -z "$key" ] && continue
-  if ! aws s3api get-object ${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"} --bucket "$PROVE_S3_BUCKET" \
+  # A dot-prefixed basename is not an event. The publisher spends the board's write grant once
+  # against the real destination before shipping it, and that probe object lands in this prefix;
+  # folding it would append a phantom answer to the board. The publisher deletes it, so this is
+  # the second defence, for the run where the delete did not land.
+  case "${key##*/}" in
+    .*) skipped=$((skipped+1)); continue ;;
+  esac
+  if ! aws s3api get-object ${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"} ${ENDPOINT_ARG[@]+"${ENDPOINT_ARG[@]}"} --bucket "$PROVE_S3_BUCKET" \
         --key "$key" "$tmp/ev.json" >/dev/null 2>&1; then
     failed=$((failed+1)); continue
   fi
   if "$here/state-append.sh" "$doc" "$tmp/ev.json" >/dev/null 2>&1; then
-    aws s3api delete-object ${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"} --bucket "$PROVE_S3_BUCKET" \
+    aws s3api delete-object ${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"} ${ENDPOINT_ARG[@]+"${ENDPOINT_ARG[@]}"} --bucket "$PROVE_S3_BUCKET" \
       --key "$key" >/dev/null 2>&1 || true
     folded=$((folded+1))
   else
@@ -34,4 +41,4 @@ while IFS= read -r key; do
   fi
 done < "$tmp/keys"
 
-echo "prove-sync: folded ${folded} event(s) into ${PROVE_S3_STATE_PREFIX}/${doc}.json$([ "$failed" -gt 0 ] && echo " (${failed} left for retry)")"
+echo "prove-sync: folded ${folded} event(s) into $(prove_state_key "$doc")$([ "$failed" -gt 0 ] && echo " (${failed} left for retry)")$([ "$skipped" -gt 0 ] && echo " (${skipped} non-event key(s) skipped)")"

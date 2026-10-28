@@ -13,7 +13,19 @@ value is `now + <whatever was asked for>`, which S3 rejects at REQUEST time — 
 machine, long after publish, as ExpiredToken rather than a policy expiry. Long-lived keys
 declare no expiration, so the clamp is a no-op for them and the full window is real.
 
-Config (env):  PROVE_S3_BUCKET, PROVE_S3_REGION (default us-east-2), PROVE_S3_EVENTS_PREFIX (default events)
+The POST target follows the SAME rule as the read URL publish-s3.sh builds with obj_url: an
+S3-compatible endpoint gets a path-style URL on the browser-facing base, and only an empty
+endpoint gets AWS's virtual-hosted host. Without that rule this file hardcoded
+`<bucket>.s3.amazonaws.com`, so a board on a local store either got no write grant at all or —
+had the refusal simply been lifted — would have handed every reader a form posting their answers
+to the real cloud account. The two halves must agree, so publish-s3.sh re-derives the expected
+target and refuses a grant whose postUrl does not match it.
+
+Config (env):  PROVE_S3_BUCKET, PROVE_S3_REGION (default us-east-1), PROVE_S3_EVENTS_PREFIX (default events)
+               PROVE_S3_ENDPOINT_URL (optional) S3-compatible endpoint; empty ⇒ AWS S3
+               PROVE_S3_PUBLIC_URL (optional) browser-facing base for the path-style POST;
+               defaults to PROVE_S3_ENDPOINT_URL. Same-origin with the page is what keeps the
+               POST out of CORS, so this is the page's base rather than the admin endpoint.
 Creds  (env):  AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN (optional),
                AWS_CREDENTIAL_EXPIRATION (optional; `aws configure export-credentials --format env` emits it)
 Args:          <doc> [expiry_seconds<=604800] [max_bytes]
@@ -43,6 +55,17 @@ def _credential_expiry():
         return datetime.datetime.now(datetime.timezone.utc)
 
 
+def _post_url(bucket, region):
+    """Where the browser POSTs. Mirrors publish-s3.sh's obj_url, deliberately."""
+    endpoint = os.environ.get("PROVE_S3_ENDPOINT_URL", "").strip()
+    if endpoint in ("", "aws", "AWS", "none", "NONE"):
+        host = (f"{bucket}.s3.amazonaws.com" if region == "us-east-1"
+                else f"{bucket}.s3.{region}.amazonaws.com")
+        return f"https://{host}/"
+    base = (os.environ.get("PROVE_S3_PUBLIC_URL") or endpoint).rstrip("/")
+    return f"{base}/{bucket}/"
+
+
 def main():
     if len(sys.argv) < 2:
         sys.exit("usage: sign-post.py <doc> [expiry_seconds] [max_bytes]")
@@ -52,7 +75,7 @@ def main():
     max_bytes = int(sys.argv[3]) if len(sys.argv) > 3 else 16384
 
     bucket = os.environ["PROVE_S3_BUCKET"]
-    region = os.environ.get("PROVE_S3_REGION", "us-east-2")
+    region = os.environ.get("PROVE_S3_REGION", "us-east-1")
     eprefix = os.environ.get("PROVE_S3_EVENTS_PREFIX", "events")
     ak = os.environ["AWS_ACCESS_KEY_ID"]
     sk = os.environ["AWS_SECRET_ACCESS_KEY"]
@@ -101,9 +124,8 @@ def main():
     if token:
         fields["x-amz-security-token"] = token
 
-    host = f"{bucket}.s3.amazonaws.com" if region == "us-east-1" else f"{bucket}.s3.{region}.amazonaws.com"
     print(json.dumps({
-        "postUrl": f"https://{host}/",
+        "postUrl": _post_url(bucket, region),
         "keyPrefix": key_prefix,
         "fields": fields,
         "expiresAt": expires_at,

@@ -4,7 +4,7 @@
 # into .events, PUT with If-Match=<etag> (or If-None-Match=* to create). On 412 (someone
 # raced us) re-read and retry. This is the CAS "owner" write — no lost updates.
 #
-# Config: PROVE_S3_BUCKET/REGION/PROFILE (env or project .env), PROVE_S3_STATE_PREFIX (default state).
+# Config: PROVE_S3_BUCKET/REGION/PROFILE/ENDPOINT (env or project .env), PROVE_S3_STATE_PREFIX (default state).
 # NAIVE=1 disables the conditional (last-writer-wins) — used ONLY by the race test to show
 # that without CAS, concurrent appends lose updates.
 #
@@ -21,13 +21,13 @@ event="${2:?usage: state-append.sh <doc> <event.json>}"
 [ -f "$event" ] || { echo "state-append: event file not found: $event" >&2; exit 1; }
 : "${PROVE_S3_BUCKET:?state-append: PROVE_S3_BUCKET not set (env or project .env)}"
 
-key="${PROVE_S3_STATE_PREFIX}/${doc}.json"
+key="$(prove_state_key "$doc")"
 naive="${NAIVE:-0}"
 attempts="${PROVE_S3_CAS_ATTEMPTS:-30}"
 tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
 
 for attempt in $(seq 1 "$attempts"); do
-  if aws s3api get-object ${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"} --bucket "$PROVE_S3_BUCKET" \
+  if aws s3api get-object ${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"} ${ENDPOINT_ARG[@]+"${ENDPOINT_ARG[@]}"} --bucket "$PROVE_S3_BUCKET" \
        --key "$key" "$tmp/cur.json" >"$tmp/meta.json" 2>/dev/null; then
     exists=1
     etag="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["ETag"])' "$tmp/meta.json")"
@@ -59,7 +59,7 @@ PY
     cond=(--if-none-match "*")
   fi
 
-  if aws s3api put-object ${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"} --bucket "$PROVE_S3_BUCKET" \
+  if aws s3api put-object ${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"} ${ENDPOINT_ARG[@]+"${ENDPOINT_ARG[@]}"} --bucket "$PROVE_S3_BUCKET" \
        --key "$key" --body "$tmp/new.json" --content-type application/json \
        ${cond[@]+"${cond[@]}"} >/dev/null 2>"$tmp/err"; then
     exit 0
