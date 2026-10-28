@@ -47,9 +47,9 @@ Verify a project's Slack setup before its first announce: `engine slack-post --v
 
 ## Initiatives — the domain a project belongs to
 
-A wave can attach a project to an initiative it is given by name — `save_project(addInitiatives: ["Platform"])` — and comment on, document, or post status updates against one. It cannot discover the initiative set, so record the cut here once someone decides it:
+A wave can attach a project to an initiative it is given by name — `save_project(addInitiatives: ["Platform"])` — and comment on, document, or post status updates against one. Membership is read live — `list_initiatives`, then `get_initiative(includeProjects: true)` — so it is never kept here. What a wave cannot do is decide the cut, so record the decision and its owner here once someone makes it:
 
-| Initiative | Owner | Projects |
+| Initiative | Owner | Decision |
 |---|---|---|
 
 **Why an initiative rather than a saved view**: a view is a *filter*, and a domain is not filterable — no field on a Linear project says "this is a Platform concern". An initiative is a **curated** set, which is exactly the shape of a judgement call.
