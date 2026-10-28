@@ -98,7 +98,7 @@ test_reads_own_transcript_not_newest() {
   write_state
   echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
   sleep 1
-  echo '{"name":"AskUserQuestion"}' > "$PROJ_DIR/sibling.jsonl"   # newer, another session
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_q1","name":"AskUserQuestion","input":{}}]}}' > "$PROJ_DIR/sibling.jsonl"   # newer, another session
   local out; out=$(run_hook)
   if [[ "$out" == *"block"* ]]; then
     pass "TRANSCRIPT-01: a sibling session's newer AskUserQuestion does not suppress"
@@ -111,7 +111,7 @@ run_test test_reads_own_transcript_not_newest
 
 test_own_transcript_tail_suppresses() {
   write_state
-  echo '{"name":"AskUserQuestion"}' > "$PROJ_DIR/mine.jsonl"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_q1","name":"AskUserQuestion","input":{}}]}}' > "$PROJ_DIR/mine.jsonl"
   sleep 1
   echo '{"type":"assistant"}' > "$PROJ_DIR/sibling.jsonl"          # newer, benign
   local out; out=$(run_hook)
@@ -148,7 +148,7 @@ test_resolves_transcript_outside_cwd_slug() {
   write_state
   local elsewhere="$FAKE_HOME/.claude/projects/-Some-Other-Project"
   mkdir -p "$elsewhere"
-  echo '{"name":"AskUserQuestion"}' > "$elsewhere/mine.jsonl"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_q1","name":"AskUserQuestion","input":{}}]}}' > "$elsewhere/mine.jsonl"
   rm -rf "$PROJ_DIR"                      # the cwd-derived directory does not exist
   local out; out=$(run_hook)
   assert_empty "$out" "CWD-01: a transcript outside the cwd's slug is still found and still suppresses"
@@ -396,5 +396,111 @@ test_one_call_wake_continues_after_atom_delivery() {
   fi
 }
 run_test test_one_call_wake_continues_after_atom_delivery
+
+# ── Guard 3 walks the turn, not a fixed window ──────────────────────────────
+# Real tails, shaped like finch a28d5901 lines 621-630: when the question is the turn's
+# LAST call, the harness writes PreToolUse hook lines, the tool_result, PostToolUse lines,
+# queue operations, a token reminder and the closing text after it before Stop fires.
+# The old `tail -8` lost the call in 9 of 15 measured Stop points. Each fixture below puts
+# the call more than 8 lines from the end; the pair G3-01/G3-02 differs ONLY in which
+# tool the turn called last.
+g3_turn() {  # $1 = name of the turn's last tool call; writes a real-shaped turn tail
+  local f="$PROJ_DIR/mine.jsonl" last="$1"
+  {
+    echo '{"parentUuid":"p0","type":"user","message":{"role":"user","content":"please check the loom and ask me what you need"},"uuid":"u0"}'
+    echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_a1","name":"AskUserQuestion","input":{}}]}}'
+    echo '{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_a1","type":"tool_result","content":"Your questions have been answered"}]}}'
+    echo "{\"type\":\"assistant\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"toolu_z9\",\"name\":\"$last\",\"input\":{}}]}}"
+    local i; for i in 1 2 3; do
+      echo "{\"attachment\":{\"type\":\"hook_success\",\"hookName\":\"PreToolUse:$last\",\"toolUseID\":\"toolu_z9\",\"hookEvent\":\"PreToolUse\",\"content\":\"\"},\"type\":\"attachment\"}"
+    done
+    echo '{"promptId":"pr1","type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_z9","type":"tool_result","content":"done"}]}}'
+    echo "{\"attachment\":{\"type\":\"hook_success\",\"hookName\":\"PostToolUse:$last\",\"toolUseID\":\"toolu_z9\",\"hookEvent\":\"PostToolUse\",\"content\":\"\"},\"type\":\"attachment\"}"
+    echo '{"type":"queue-operation","operation":"enqueue","content":"<task-notification>\n<task-id>x</task-id>"}'
+    echo '{"attachment":{"type":"total_tokens_reminder","text":"<total_tokens>14101031 tokens left</total_tokens>"},"type":"attachment"}'
+    echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"wrap up"}]}}'
+    echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I have what I need and wrote it down."}]}}'
+    echo '{"type":"queue-operation","operation":"dequeue"}'
+  } > "$f"
+}
+
+test_g3_question_last_call_long_tail_suppresses() {
+  write_state
+  g3_turn AskUserQuestion
+  local out; out=$(run_hook)
+  assert_empty "$out" "G3-01: a question as the turn's last call suppresses, 10 lines from the end"
+}
+run_test test_g3_question_last_call_long_tail_suppresses
+
+test_g3_other_last_call_still_blocks() {
+  write_state
+  g3_turn Bash
+  local out; out=$(run_hook)
+  if [[ "$out" == *"block"* ]]; then
+    pass "G3-02: an earlier question does not suppress once a later call ends the turn (the control)"
+  else
+    fail "G3-02: an earlier question does not suppress once a later call ends the turn (the control)" "a block decision" "$out"
+  fi
+}
+run_test test_g3_other_last_call_still_blocks
+
+test_g3_plan_mode_exit_suppresses() {
+  write_state
+  g3_turn ExitPlanMode
+  local out; out=$(run_hook)
+  assert_empty "$out" "G3-03: ExitPlanMode as the turn's last call suppresses too"
+}
+run_test test_g3_plan_mode_exit_suppresses
+
+# A real user prompt starts a new turn: a question answered in the PREVIOUS turn must not
+# suppress a turn that made no call at all. The Stop hook's own feedback is isMeta and is
+# NOT a new prompt, so a question followed only by that feedback still suppresses.
+test_g3_new_prompt_clears_question() {
+  write_state
+  g3_turn AskUserQuestion
+  echo '{"promptId":"pr2","type":"user","message":{"role":"user","content":"thanks, now carry on"},"origin":{"kind":"human"}}' >> "$PROJ_DIR/mine.jsonl"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"On it."}]}}' >> "$PROJ_DIR/mine.jsonl"
+  local out; out=$(run_hook)
+  if [[ "$out" == *"block"* ]]; then
+    pass "G3-04: a real user prompt after the question clears it"
+  else
+    fail "G3-04: a real user prompt after the question clears it" "a block decision" "$out"
+  fi
+}
+run_test test_g3_new_prompt_clears_question
+
+test_g3_meta_feedback_is_not_a_prompt() {
+  write_state
+  g3_turn AskUserQuestion
+  echo '{"type":"user","isMeta":true,"message":{"role":"user","content":"Stop hook feedback:\nsomething else"}}' >> "$PROJ_DIR/mine.jsonl"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Noted."}]}}' >> "$PROJ_DIR/mine.jsonl"
+  local out; out=$(run_hook)
+  assert_empty "$out" "G3-05: Stop-hook feedback (isMeta) is not a new prompt, so the question still suppresses"
+}
+run_test test_g3_meta_feedback_is_not_a_prompt
+
+# Two harness lines look like prompts and are not. Measured on 15 real Stop points where a
+# question was the last call: 6 were REJECTED or interrupted, and the harness then wrote a
+# "[Request interrupted by user" line and/or background task-notifications (origin kind
+# task-notification) as "type":"user" lines. Counting them as prompts lost all 6.
+test_g3_interrupt_marker_is_not_a_prompt() {
+  write_state
+  g3_turn AskUserQuestion
+  echo '{"promptId":"pr3","type":"user","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}' >> "$PROJ_DIR/mine.jsonl"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Understood."}]}}' >> "$PROJ_DIR/mine.jsonl"
+  local out; out=$(run_hook)
+  assert_empty "$out" "G3-06: the harness's interrupt marker after a rejected question is not a new prompt"
+}
+run_test test_g3_interrupt_marker_is_not_a_prompt
+
+test_g3_task_notification_is_not_a_prompt() {
+  write_state
+  g3_turn AskUserQuestion
+  echo '{"promptId":"pr4","type":"user","message":{"role":"user","content":"<task-notification>\n<task-id>a1</task-id>"},"origin":{"kind":"task-notification"}}' >> "$PROJ_DIR/mine.jsonl"
+  echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Noted the task finished."}]}}' >> "$PROJ_DIR/mine.jsonl"
+  local out; out=$(run_hook)
+  assert_empty "$out" "G3-07: a background task-notification is not a new prompt"
+}
+run_test test_g3_task_notification_is_not_a_prompt
 
 exit_with_results

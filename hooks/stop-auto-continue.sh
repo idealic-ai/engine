@@ -9,10 +9,11 @@
 # weakest of them:
 #   1. autoContinue must not be false in .state.json    (default: absent = ON)
 #   2. a hard ceiling on CONSECUTIVE continues          (autoContinueMax, default 3)
-#   3. no-op when this session's recent transcript tail carries an AskUserQuestion or
-#      ExitPlanMode tool CALL (not a mention). Note AskUserQuestion resolves IN-turn, so by the time Stop fires the
-#      human has already answered: this suppresses a continue just after an answered
-#      question rather than preventing one over a pending question.
+#   3. no-op when the last tool CALL of this session's current turn (since the last real
+#      user prompt) is AskUserQuestion or ExitPlanMode — a call, not a mention. Note
+#      AskUserQuestion resolves IN-turn, so by the time Stop fires the human has already
+#      answered: this suppresses a continue just after an answered question rather than
+#      preventing one over a pending question.
 # The counter resets on any turn this hook does not block, so the ceiling bounds a
 # runaway rather than a long session.
 #
@@ -106,12 +107,39 @@ case "$RECENT" in *"auto-continues;"*)
   fi ;;
 esac
 
-# Match the TOOL CALL, not the word. A bare *AskUserQuestion* also matched prose about the
-# tool, and this hook's own atom says "do NOT hand-roll an `AskUserQuestion`" — delivered
-# into the tail after a wake's first tool call, it suppressed the next continue by itself
-# (test BACKOFF-05). The transcript writes a call compactly as "name":"AskUserQuestion".
-TAIL=$(tail -8 "$JSONL" 2>/dev/null || true)
-case "$TAIL" in *'"name":"AskUserQuestion"'*|*'"name":"ExitPlanMode"'*)
+# ── Guard 3: did this turn's LAST tool call ask the human something? ──
+# Walk the turn, not a fixed window. A fixed `tail -8` missed most real cases: when the
+# question is the turn's last call the harness writes PreToolUse hook lines, the
+# tool_result, PostToolUse lines, reminders and the closing text after it before Stop
+# fires, and that pushed the call out of the window in 9 of 15 measured Stop points.
+# So: over a bounded tail, track the name of the last tool_use, clearing it at every
+# real user prompt — a "type":"user" line that is not a tool_result, not isMeta (the Stop
+# hook's own feedback and peer messages are isMeta, so a wake is not a new prompt), not a
+# background task-notification (origin kind task-notification), and not the harness's
+# "[Request interrupted by user" marker (a rejected or interrupted question is still the
+# human being asked; measured: 6 of 15 real last-call Stop points carry those lines).
+# Suppress when what is left is AskUserQuestion or ExitPlanMode.
+# Match the CALL, never the word. The call line is compact JSON —
+# "type":"tool_use","id":"…","name":"AskUserQuestion" — and prose about the tool (this
+# hook's own atom says "do NOT hand-roll an `AskUserQuestion`", delivered after a wake's
+# first call) sits inside an escaped JSON string, where the unescaped key cannot match
+# (test BACKOFF-05). 300 lines covers a long turn's tail; the file is not read whole.
+LAST_CALL=$(tail -300 "$JSONL" 2>/dev/null | awk '
+  /"type":"tool_use","id":"[^"]*","name":"/ {
+    s = $0
+    while (match(s, /"type":"tool_use","id":"[^"]*","name":"[^"]*"/)) {
+      m = substr(s, RSTART, RLENGTH); s = substr(s, RSTART + RLENGTH)
+      sub(/.*"name":"/, "", m); sub(/"$/, "", m); last = m
+    }
+    next
+  }
+  /"type":"user"/ && !/"type":"tool_result"/ && !/"isMeta":true/ {
+    if (index($0, "\"origin\":{\"kind\":\"task-notification\"")) next
+    if (index($0, "[Request interrupted by user")) next
+    last = ""
+  }
+  END { print last }' 2>/dev/null || true)
+case "$LAST_CALL" in AskUserQuestion|ExitPlanMode)
   jq '.autoContinueCount = 0' "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
   exit 0 ;;
 esac
