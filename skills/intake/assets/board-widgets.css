@@ -238,6 +238,14 @@ details[data-fb-disclose-invalid="true"] > summary::before { content: "unknown k
    still calm, because the wait is normal and unbounded by design, not an alarm. */
 .fb-statestatus.fb-pending { color: inherit; font-weight: 550;
                              border-left: 3px solid var(--fb-human); padding-left: 0.55rem; }
+/* Retry + "Copy unsent answers": shown only when a Submit did not demonstrably land. */
+.fb-unsentbar { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: -0.5rem 0 1rem; }
+.fb-unsentbar [hidden] { display: none; }
+.fb-retrybtn { padding: 0.4rem 0.85rem; border-radius: var(--fb-radius-sm);
+               border: 1px solid var(--fb-human); background: transparent;
+               color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.fb-retrybtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.fb-retrybtn:focus-visible { outline: 2px solid var(--fb-accent); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
   .fb-opt, .fb-mark, .fb-mark-note, .fb-copybtn, .fb-submitbtn { transition: none; }

@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """Mint an S3 presigned POST for the events/<doc>/ prefix — pure stdlib SigV4, no boto3.
 
-Emits {"postUrl", "keyPrefix", "fields", "expiresAt", "expirySeconds", "expiryRequested",
-"expiryClampedBy"} JSON on stdout. A browser then POSTs multipart/form-data to postUrl with:
+Emits {"postUrl", "listUrl", "keyPrefix", "fields", "expiresAt", "expirySeconds",
+"expiryRequested", "expiryClampedBy"} JSON on stdout. A browser then POSTs multipart/form-data to postUrl with:
 every `fields` entry, a `key` that starts with keyPrefix, a `Content-Type`, and the `file` —
 landing one object under events/<doc>/. The POST is authorized by the signature (NOT anonymous
 public write), so no bucket public-write is needed.
+
+`listUrl` is the READ-BACK half: a SigV4 query-presigned ListObjectsV2 on the same host, fixed to
+this board's own events/<doc>/ prefix and the same expiry. events/* is owner-read-only, so without
+it a page can only trust the POST's 2xx — and a 2xx is the store's word that it took the bytes,
+not evidence the fold will find them there (a board posted into one store while the fold listed
+another, and the answer read as submitted). The page lists after posting and shows "stored" only
+for keys the listing returns. It discloses key NAMES (timestamp + random) under this one board's
+prefix, never an object's body: it signs no GetObject.
 
 A presign cannot outlive the credential that signed it, so `expiresAt` is clamped to
 AWS_CREDENTIAL_EXPIRATION when the environment declares one. Without that clamp the emitted
@@ -31,6 +39,7 @@ Creds  (env):  AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN (opti
 Args:          <doc> [expiry_seconds<=604800] [max_bytes]
 """
 import os, sys, json, hmac, hashlib, base64, datetime
+from urllib.parse import quote, urlsplit
 
 
 S3_MAX_EXPIRY = 604800   # 7 days — the protocol ceiling, not a policy choice
@@ -53,6 +62,38 @@ def _credential_expiry():
         # whole function exists to prevent. Fail closed with a sane instant rather than
         # datetime.min, which would bake a year-0001 timestamp into a published page.
         return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _uri_encode(v):
+    return quote(str(v), safe="-_.~")
+
+
+def _presign_list(base_url, prefix, region, ak, sk, token, now, expiry):
+    """Query-presigned GET ?list-type=2&prefix=<prefix> on base_url (path-style or virtual-host)."""
+    if expiry < 1:
+        return None
+    u = urlsplit(base_url)
+    path = u.path or "/"
+    amzdate = now.strftime("%Y%m%dT%H%M%SZ")
+    datestamp = now.strftime("%Y%m%d")
+    scope = f"{datestamp}/{region}/s3/aws4_request"
+    q = {
+        "list-type": "2",
+        "prefix": prefix,
+        "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+        "X-Amz-Credential": f"{ak}/{scope}",
+        "X-Amz-Date": amzdate,
+        "X-Amz-Expires": str(min(expiry, S3_MAX_EXPIRY)),
+        "X-Amz-SignedHeaders": "host",
+    }
+    if token:
+        q["X-Amz-Security-Token"] = token
+    cq = "&".join(f"{_uri_encode(k)}={_uri_encode(v)}" for k, v in sorted(q.items()))
+    canonical = "\n".join(["GET", quote(path, safe="/-_.~"), cq, f"host:{u.netloc}", "", "host", "UNSIGNED-PAYLOAD"])
+    sts = "\n".join(["AWS4-HMAC-SHA256", amzdate, scope, hashlib.sha256(canonical.encode("utf-8")).hexdigest()])
+    key = _sign(_sign(_sign(_sign(("AWS4" + sk).encode("utf-8"), datestamp), region), "s3"), "aws4_request")
+    sig = hmac.new(key, sts.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{u.scheme}://{u.netloc}{path}?{cq}&X-Amz-Signature={sig}"
 
 
 def _post_url(bucket, region):
@@ -124,8 +165,10 @@ def main():
     if token:
         fields["x-amz-security-token"] = token
 
+    post_url = _post_url(bucket, region)
     print(json.dumps({
-        "postUrl": _post_url(bucket, region),
+        "postUrl": post_url,
+        "listUrl": _presign_list(post_url, key_prefix, region, ak, sk, token, now, expiry),
         "keyPrefix": key_prefix,
         "fields": fields,
         "expiresAt": expires_at,
