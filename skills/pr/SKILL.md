@@ -144,7 +144,7 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
      - `PR_DRAFT` — the PR is still a draft. A draft cannot be complete; flipping it to ready is the caller's call. **This test is read from the PR's own `draft` flag and runs *before* the reviewer gate**. Gated on the reviewers, a draft whose reviewers never report waits out the quiet window and is reported as a stall, which is the defect this ordering removes. Whether the automated reviewers do run on drafts is **unmeasured** here (a hand request or a repository setting may make them), so the loop does not wait on them for a draft rather than claiming they will not come. It also does not exit on the first poll: a just-opened draft or a fresh fix push usually has no check runs registered yet, so the draft exit needs at least 3 polls (~1 min, the same floor the codex gate uses) and the line carries `checks=<total>` so that zero registered checks is never read as green. So a draft exits once nothing is pending and that floor is met, and the exit line says what it did and did not establish — `reviewers=settled` when every reviewer it was waiting on had reported, `reviewers=not_awaited` when it stopped waiting because this is a draft, with `replies_owed=unchecked` and `merge_state=not_read` because neither was read on this path. **`reviewers=not_awaited` is the whole point of the token**: without it, `copilot=0` on a draft reads identically to `copilot=0` on a reviewer that simply has not run yet, and a draft reported as settled would be the same error in the other direction.
      - `PR_BLOCKED` — the PR cannot merge for a reason outside the caller's immediate control. The reason is named (`review_required` · `changes_requested` · `behind_base` · `merge_conflict` · `non_required_check_not_green` · `merge_state_unknown` · `stacked_below_unmerged` · `unresolved:<state>`), because "blocked" on its own gives the user nothing to act on. Kept separate from `PR_REPLIES_OWED` on purpose: waiting on a human's approval is not the same obligation as owing that human an answer.
      - `PR_STALLED` — nothing pending and nothing changing. Say that plainly and hand back what it is still waiting on.
-     - `PR_POLL_UNAVAILABLE` — no `gh`, or the API is unreachable. A no-op, never a completion.
+     - `PR_POLL_UNAVAILABLE` — no `gh`, the API is unreachable, or the PR's stack could not be read (`stack_unreadable`: an error on either stack call, or a stack that does not list this PR). A no-op, never a completion.
      There is deliberately no timeout exit: a poll that expires quietly is indistinguishable from a poll that passed, which is how a failing gate stays invisible. The wall-clock bound is a heartbeat — on hitting it the loop reports what it is still waiting on and hands back, and §4 re-arms it when the PR is legitimately still in flight.
    - **How an owed reply is detected.** An inline review comment is answered when some comment carries its id in `in_reply_to_id`; a review *body* has no reply endpoint, so §5 answers it as an issue comment that **names the review id**, and the loop looks for that id in the PR's issue comments. Both are read off the API, so the completeness test is checked rather than asserted.
    - **The head SHA re-arms the watch.** Each tick re-reads `.head.sha`; when it moves, the settle state resets and the loop keeps watching. Addressing findings means pushing commits, which starts a fresh CI run and can start a fresh review round — that push is the exact moment a one-shot poll stops watching, so the ordinary open → findings → fix → push flow is the one that most needs the re-arm.
@@ -221,10 +221,15 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
          # A non-bottom PR in a stack can read CLEAN and still must not merge while a PR below it is
          # open (§6). .stack is null on an unstacked PR. The stack's pull_requests run bottom-first, so
          # the ones below this PR are the entries before its own index.
-         stk=$(gh api "repos/$OWNER/$REPO/pulls/$N" --jq '.stack // empty | "\(.number) \(.position)"' 2>/dev/null)
-         IFS=' ' read -r snum spos <<< "$stk"
-         if [ -n "$snum" ]; then
-           below=$(gh api "repos/$OWNER/$REPO/stacks/$snum" --jq '.pull_requests as $p | ($p|map(.number)|index('"$N"')) as $k | [$p[:$k][]|select(.state=="open" and .number!='"$N"')|.number|tostring]|join(" ")' 2>/dev/null)
+         # Both reads FAIL CLOSED. On an HTTP error gh prints the error body WITHOUT applying --jq and
+         # exits non-zero, which would parse as a stack. On a network error it prints nothing, which
+         # would read as "unstacked" and could fall through to PR_COMPLETE. So the exit code decides.
+         SU="PR_POLL_UNAVAILABLE pr=$N head=$sha reason=stack_unreadable"
+         stk=$(gh api "repos/$OWNER/$REPO/pulls/$N" --jq '.stack // empty | "\(.number) \(.position)"' 2>/dev/null) || { echo "$SU call=pull"; exit 0; }   # guard:stack-pull
+         if [ -n "$stk" ]; then
+           snum=${stk%% *}; spos=${stk#* }
+           below=$(gh api "repos/$OWNER/$REPO/stacks/$snum" --jq '.pull_requests as $p | ($p|map(.number)|index('"$N"')) as $k | if $k == null then "!absent" else [$p[:$k][]|select(.state=="open")|.number|tostring]|join(" ") end' 2>/dev/null) || { echo "$SU call=stack stack=$snum"; exit 0; }   # guard:stack-list
+           [ "$below" != "!absent" ] || { echo "$SU call=stack stack=$snum detail=pr_not_in_stack"; exit 0; }   # guard:stack-absent
            if [ -n "$below" ]; then
              echo "PR_BLOCKED pr=$N head=$sha reason=stacked_below_unmerged stack=$snum position=$spos below=\"$below\" copilot=$cop codex_review=$cdx replies_owed=0"; exit 0
            fi
@@ -310,7 +315,7 @@ One live run illustrates the spread: on a single PR the same reviewers produced 
   gh api "repos/<owner>/<repo>/pulls/<n>/comments" --jq '.[]|select(.user.login=="chatgpt-codex-connector[bot]")|"\(.path):\(.line) — \(.body)"'
   ```
   - **Codex clean pass** (`codex_ok=`>0 with `codex_review=0`): no written review — relay "Codex reviewed and approved (👍, no written findings)." This speaks for the reviewer only; it says nothing about the gates.
-- **`PR_POLL_UNAVAILABLE`:** say the watch could not run and why (`no_gh` / `api_unreachable`). The PR is open; nothing was observed, so claim nothing about it.
+- **`PR_POLL_UNAVAILABLE`:** say the watch could not run and why (`no_gh` / `api_unreachable` / `stack_unreadable`, where `call=` names the read that failed). The PR is open; nothing was observed, so claim nothing about it.
 - Once every finding has a disposition, go to **§5** and record them on the thread. Offer, don't auto-run, the rest: `/scrutinize` to triage the findings or `/fix` to address a red gate or an accepted finding. Applying a fix is the user's call; posting the disposition is not optional.
 
 ## 5. Record Each Disposition on the PR Thread

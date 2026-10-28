@@ -15,8 +15,12 @@
 #   bottom PR of a stack                   → PR_COMPLETE
 #   non-bottom PR whose lower PRs merged   → PR_COMPLETE
 #   unstacked PR (.stack null)             → PR_COMPLETE
+#   either stack read errors (HTTP error body on stdout, or a silent network failure), or the
+#   stack does not list the PR             → PR_POLL_UNAVAILABLE reason=stack_unreadable
 # Control: the same non-bottom case, run against a copy of SKILL.md with the stack check
 # removed, must NOT block. If it still blocks, the first case never discriminated.
+# Control 2: with the fail-closed guards removed, no error case may report stack_unreadable,
+# and both network-failure cases must fall through to PR_COMPLETE (the fail-open being guarded).
 # ============================================================================
 set -uo pipefail
 
@@ -60,7 +64,8 @@ else
   case "$path" in
     */pulls/*/reviews*)   src="$FX/reviews.json" ;;
     */pulls/*/comments*)  src="$FX/pr_comments.json" ;;
-    */pulls/*)            src="$FX/pull.json" ;;
+    */pulls/*)            src="$FX/pull.json"
+                          case "$jqx" in *'.stack //'*) src="$FX/stackread.json" ;; esac ;;
     */stacks/*)           src="$FX/stack.json" ;;
     */check-runs*)        src="$FX/check_runs.json" ;;
     */reactions*)         src="$FX/reactions.json" ;;
@@ -68,6 +73,11 @@ else
     *) echo "FAKEGH: unmapped path: $path" >&2; exit 1 ;;
   esac
 fi
+# .err: an HTTP error. gh prints the error body on stdout, does not apply --jq, and exits 1.
+# .neterr: a network failure. Nothing on stdout, exit 1.
+[ -f "${src%.json}.err" ] && { cat "${src%.json}.err"; exit 1; }
+[ -f "${src%.json}.neterr" ] && { echo "FAKEGH: network down" >&2; exit 1; }
+[ "${src##*/}" = stackread.json ] && src="$FX/pull.json"
 [ -f "$src" ] || { echo "FAKEGH: missing fixture $src" >&2; exit 1; }
 if [ -n "$jqx" ]; then jq -r "$jqx" < "$src"; else cat "$src"; fi
 FAKE
@@ -99,6 +109,13 @@ setup() {
   fixture bottom  '{"head":{"sha":"aaa111"},"draft":false,"stack":{"number":8,"position":1,"size":4}}' "$STACK_OPEN"
   fixture merged  '{"head":{"sha":"aaa111"},"draft":false,"stack":{"number":8,"position":3,"size":3}}' "$STACK_MERGED"
   fixture plain   '{"head":{"sha":"aaa111"},"draft":false,"stack":null}' '{}'
+  local UP='{"head":{"sha":"aaa111"},"draft":false,"stack":{"number":8,"position":3,"size":4}}'
+  local E404='{"message":"Not Found","documentation_url":"https://docs.github.com/rest","status":"404"}'
+  fixture pullhttp  "$UP" "$STACK_OPEN"; printf '%s\n' "$E404" > "$TMP/fx_pullhttp/stackread.err"
+  fixture pullnet   "$UP" "$STACK_OPEN"; : > "$TMP/fx_pullnet/stackread.neterr"
+  fixture stackhttp "$UP" "$STACK_OPEN"; printf '%s\n' "$E404" > "$TMP/fx_stackhttp/stack.err"
+  fixture stacknet  "$UP" "$STACK_OPEN"; : > "$TMP/fx_stacknet/stack.neterr"
+  fixture absent    "$UP" '{"number":8,"pull_requests":[{"number":5,"state":"open"},{"number":6,"state":"open"}]}'
 }
 
 teardown() { rm -rf "$TMP"; }
@@ -148,6 +165,37 @@ test_control_without_the_stack_check_does_not_block() {
   extract_loop "$TMP/planted.md" "$TMP/loop_planted.sh"
   local out; out=$(run_loop "$TMP/loop_planted.sh" upper 7 bash)
   assert_contains 'PR_COMPLETE pr=7' "$out" "control: with the check removed, the same upper PR reads PR_COMPLETE"
+}
+
+test_stack_read_errors_fail_closed() {
+  local sh c out want
+  for sh in sh bash zsh; do
+    for c in pullhttp pullnet stackhttp stacknet absent; do
+      case "$c" in
+        pull*)  want='PR_POLL_UNAVAILABLE pr=7 head=aaa111 reason=stack_unreadable call=pull' ;;
+        absent) want='PR_POLL_UNAVAILABLE pr=7 head=aaa111 reason=stack_unreadable call=stack stack=8 detail=pr_not_in_stack' ;;
+        *)      want='PR_POLL_UNAVAILABLE pr=7 head=aaa111 reason=stack_unreadable call=stack stack=8' ;;
+      esac
+      out=$(run_loop "$TMP/loop.sh" "$c" 7 "$sh")
+      assert_contains "$want" "$out" "[$sh] $c → stack_unreadable, never a stack reason or a completion"
+    done
+  done
+}
+
+test_control_without_the_guards_fails_open() {
+  # Plant: remove the three fail-closed guards from a copy of SKILL.md. The error cases must
+  # stop reporting stack_unreadable, and a network failure must slide through to PR_COMPLETE.
+  sed -E -e 's/ \|\| \{ echo "\$SU call=[^}]*\}   # guard:stack-(pull|list)$//' \
+         -e '/# guard:stack-absent$/d' "$SKILL" > "$TMP/unguarded.md"
+  assert_eq 0 "$(grep -c 'guard:stack-' "$TMP/unguarded.md")" "plant removed all three guards"
+  extract_loop "$TMP/unguarded.md" "$TMP/loop_unguarded.sh"
+  local c out
+  for c in pullhttp pullnet stackhttp stacknet absent; do
+    out=$(run_loop "$TMP/loop_unguarded.sh" "$c" 7 bash)
+    assert_not_contains 'stack_unreadable' "$out" "control: unguarded $c no longer fails closed ($out)"
+  done
+  assert_contains 'PR_COMPLETE pr=7' "$(run_loop "$TMP/loop_unguarded.sh" pullnet 7 bash)" "control: unguarded pull-read network failure reads PR_COMPLETE"
+  assert_contains 'PR_COMPLETE pr=7' "$(run_loop "$TMP/loop_unguarded.sh" stacknet 7 bash)" "control: unguarded stack-read network failure reads PR_COMPLETE"
 }
 
 run_discovered_tests
