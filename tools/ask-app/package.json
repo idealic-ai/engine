@@ -1,0 +1,23 @@
+{
+  "name": "ask-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Local app for /ask: lists open ask files, renders their decision trees, writes answers back and pushes them to the asking seat.",
+  "scripts": {
+    "build": "vite build",
+    "test": "vitest run",
+    "serve": "node src/server.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.29",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.5.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
+  }
+}
