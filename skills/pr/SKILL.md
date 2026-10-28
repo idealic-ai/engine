@@ -135,7 +135,7 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
      - `PR_COMPLETE` — nothing pending, nothing failing, reviewers settled, every review comment replied to, merge state clear. The only state that may be relayed as done.
      - `PR_CHECKS_RED` — a check failed. Stop and escalate with the check names and their annotations (§4); a red gate needs a decision, not another twenty seconds of waiting.
      - `PR_REPLIES_OWED` — gates pass, findings unanswered. Carries the owed ids (`c<id>` an inline comment, `r<id>` a review body). This is work the caller owes and can do now, which is why it is not a stall and not a block.
-     - `PR_DRAFT` — everything else is in order but the PR is still a draft. A draft cannot be complete; flipping it to ready is the caller's call.
+     - `PR_DRAFT` — the PR is still a draft. A draft cannot be complete; flipping it to ready is the caller's call. **This test is read from the PR's own `draft` flag and runs *before* the reviewer gate**. Gated on the reviewers, a draft whose reviewers never report waits out the quiet window and is reported as a stall, which is the defect this ordering removes. Whether the automated reviewers do run on drafts is **unmeasured** here (a hand request or a repository setting may make them), so the loop does not wait on them for a draft rather than claiming they will not come. It also does not exit on the first poll: a just-opened draft or a fresh fix push usually has no check runs registered yet, so the draft exit needs at least 3 polls (~1 min, the same floor the codex gate uses) and the line carries `checks=<total>` so that zero registered checks is never read as green. So a draft exits once nothing is pending and that floor is met, and the exit line says what it did and did not establish — `reviewers=settled` when every reviewer it was waiting on had reported, `reviewers=not_awaited` when it stopped waiting because this is a draft, with `replies_owed=unchecked` and `merge_state=not_read` because neither was read on this path. **`reviewers=not_awaited` is the whole point of the token**: without it, `copilot=0` on a draft reads identically to `copilot=0` on a reviewer that simply has not run yet, and a draft reported as settled would be the same error in the other direction.
      - `PR_BLOCKED` — the PR cannot merge for a reason outside the caller's immediate control. The reason is named (`review_required` · `changes_requested` · `behind_base` · `merge_conflict` · `non_required_check_not_green` · `merge_state_unknown` · `unresolved:<state>`), because "blocked" on its own gives the user nothing to act on. Kept separate from `PR_REPLIES_OWED` on purpose: waiting on a human's approval is not the same obligation as owing that human an answer.
      - `PR_STALLED` — nothing pending and nothing changing. Say that plainly and hand back what it is still waiting on.
      - `PR_POLL_UNAVAILABLE` — no `gh`, or the API is unreachable. A no-op, never a completion.
@@ -153,7 +153,11 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
 
      head=""; prev=""; quiet=0; unk=0
      for i in $(seq 1 135); do                                  # 20s ticks; the 45-min bound is a heartbeat, not a verdict
-       sha=$(gh api "repos/$OWNER/$REPO/pulls/$N" --jq '.head.sha' 2>/dev/null)
+       # One call, two facts: this request already ran every tick for the sha, so draft-ness is free.
+       # On an HTTP error gh prints the raw error body WITHOUT applying --jq and exits non-zero;
+       # emptying it here sends a rate limit to PR_POLL_UNAVAILABLE instead of past the guard into a stall.
+       out=$(gh api "repos/$OWNER/$REPO/pulls/$N" --jq '"\(.head.sha) \(.draft)"' 2>/dev/null) || out=""
+       IFS=' ' read -r sha is_draft <<< "$out"
        [ -n "$sha" ] || { echo "PR_POLL_UNAVAILABLE pr=$N reason=api_unreachable"; exit 0; }
        if [ "$sha" != "$head" ]; then head="$sha"; quiet=0; fi  # a fix push re-arms the watch
 
@@ -163,6 +167,7 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
          names=$(gh api "$CR/$sha/check-runs?per_page=100" --jq "[.check_runs[]|select($BAD)|.name]|join(\", \")" 2>/dev/null)
          ids=$(gh api "$CR/$sha/check-runs?per_page=100" --jq "[.check_runs[]|select($BAD)|.id|tostring]|join(\" \")" 2>/dev/null)
          echo "PR_CHECKS_RED pr=$N head=$sha failing=$failed names=\"$names\" run_ids=\"$ids\" pending=$pending"; exit 0
+       total=$(gh api "$CR/$sha/check-runs?per_page=100" --jq '.check_runs|length' 2>/dev/null || echo 0)
        fi
 
        cop=$(gh api "repos/$OWNER/$REPO/pulls/$N/reviews" --jq '[.[]|select(.user.login=="copilot-pull-request-reviewer[bot]")]|length' 2>/dev/null || echo 0)
@@ -175,7 +180,15 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
        if [ "$cdx" -gt 0 ] || [ "$ok" -gt 0 ]; then cdx_done=1; fi                                          # posted a review, or a clean +1
        if [ "$eyes" -eq 0 ] && [ "$cdx" -eq 0 ] && [ "$ok" -eq 0 ] && [ "$i" -ge 3 ]; then cdx_done=1; fi   # never engaged after ~1min
 
-       if [ "$pending" -eq 0 ] && [ "$cop_done" -eq 1 ] && [ "$cdx_done" -eq 1 ]; then
+       # The draft test sits ABOVE the reviewer gate. Whether the automated reviewers run on a draft
+       # is unmeasured; gated on them, a draft they never review lands in PR_STALLED. The i>=3 floor
+       # keeps a fresh draft with no check runs registered yet from exiting on poll 1.
+       if [ "$pending" -eq 0 ] && [ "$is_draft" = "true" ] && [ "$i" -ge 3 ]; then
+         if [ "$cop_done" -eq 1 ] && [ "$cdx_done" -eq 1 ]; then rv=settled; else rv=not_awaited; fi
+         echo "PR_DRAFT pr=$N head=$sha checks=$total reviewers=$rv copilot=$cop codex_review=$cdx replies_owed=unchecked merge_state=not_read"; exit 0
+       fi
+
+       if [ "$pending" -eq 0 ] && [ "$cop_done" -eq 1 ] && [ "$cdx_done" -eq 1 ] && [ "$is_draft" != "true" ]; then   # a draft inside the floor waits, it does not take the ready path
          # completeness condition 2: every finding carries a reply recording its disposition
          PC="repos/$OWNER/$REPO/pulls/$N"
          tops=$(gh api --paginate "$PC/comments?per_page=100" --jq '.[]|select(.in_reply_to_id==null)|.id' 2>/dev/null)
@@ -199,17 +212,17 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
            echo "PR_REPLIES_OWED pr=$N head=$sha owed=$owed ids=\"${owed_ids# }\""; exit 0
          fi
 
-         ms=$(gh api graphql -f query="{repository(owner:\"$OWNER\",name:\"$REPO\"){pullRequest(number:$N){mergeStateStatus mergeable reviewDecision isDraft}}}" \
-                --jq '.data.repository.pullRequest|"\(.mergeStateStatus) \(.mergeable) \(.reviewDecision) \(.isDraft)"' 2>/dev/null)
-         [ -n "$ms" ] || ms="UNKNOWN UNKNOWN UNKNOWN false"     # an unreadable merge state is never reported as complete
-         set -- $ms; state=$1; able=$2; rvw=$3; draft=$4
+         ms=$(gh api graphql -f query="{repository(owner:\"$OWNER\",name:\"$REPO\"){pullRequest(number:$N){mergeStateStatus mergeable reviewDecision}}}" \
+                --jq '.data.repository.pullRequest|"\(.mergeStateStatus) \(.mergeable) \(.reviewDecision)"' 2>/dev/null)
+         [ -n "$ms" ] || ms="UNKNOWN UNKNOWN UNKNOWN"           # an unreadable merge state is never reported as complete
+         IFS=' ' read -r state able rvw <<< "$ms"               # `set -- $ms` would arrive as ONE word in zsh, per the note above
          if [ "$state" = "UNKNOWN" ] && [ "$unk" -lt 3 ]; then  # GitHub computes merge state lazily; re-ask for ~1 min
            unk=$((unk+1)); sleep 20; continue
          fi
 
          case "$state" in
            CLEAN|HAS_HOOKS) echo "PR_COMPLETE pr=$N head=$sha copilot=$cop codex_review=$cdx codex_ok=$ok replies_owed=0 merge_state=$state"; exit 0 ;;
-           DRAFT) echo "PR_DRAFT pr=$N head=$sha copilot=$cop codex_review=$cdx replies_owed=0 mergeable=$able"; exit 0 ;;
+           DRAFT) echo "PR_DRAFT pr=$N head=$sha checks=$total reviewers=settled copilot=$cop codex_review=$cdx replies_owed=0 mergeable=$able merge_state=$state"; exit 0 ;;   # the draft flag flipped mid-tick
          esac
          case "$state:$able:$rvw" in                            # first match wins; order is the priority
            *:CONFLICTING:*)       why=merge_conflict ;;
@@ -255,7 +268,7 @@ Relay per failing check: its name, then its annotations. When a check exposes no
 
 **On `PR_BLOCKED`** — name the reason in the user's words: a required review is missing, the branch is behind base, the branch conflicts, changes were requested, a non-required check is not green, GitHub cannot compute the merge commit. Say what unblocks each; `/pr` does not merge, rebase, or approve.
 
-**On `PR_DRAFT`** — everything else is in order and the PR is still a draft. Offer to flip it to ready; do not flip it unasked.
+**On `PR_DRAFT`** — nothing is pending on the head commit and the PR is still a draft. Read `checks=` before calling anything green: `checks=0` means **no checks registered** on the head commit, which is not the same as green and is relayed as "no checks registered"; only a non-zero count with nothing pending and nothing failing is relayed as green. Offer to flip it to ready; do not flip it unasked. **Say what this state does not cover**, reading it off the signal: on `reviewers=not_awaited` the reviewers had not reported and the loop did not wait for them on a draft (whether they review drafts is unmeasured) — so relay no reviewer verdict, and do not call the absence a clean pass. `replies_owed=unchecked` means the owed-reply count was not taken, so a draft is never relayed as having nothing outstanding. Flipping to ready and re-arming the watch is what establishes both.
 
 **On `PR_STALLED`** — say exactly that nothing has moved and what it was still waiting on. Do not present it as a pass. Offer to re-arm the watch or to stop watching.
 
@@ -311,7 +324,7 @@ Every review comment gets a reply saying what happened to it. A PR thread where 
 **Then re-arm the §3 watch.** With the replies posted, the owed count is zero and the watch can reach `PR_COMPLETE` — or surface whatever else is still in the way.
 
 ## Constraints (Summary)
-- **The PR is watched to a named terminal state — checks, reviewers, replies owed, mergeability:** after the PR opens, `/pr` requests a Copilot review and runs one background watch (re-woken via `run_in_background`) covering Copilot (requested), the Codex connector (opt-in — detected via its 👀 reaction, so `/pr` waits only when codex is engaged), the head commit's check runs, the unanswered-finding count, and `mergeStateStatus`. It exits only into `PR_COMPLETE`, `PR_CHECKS_RED`, `PR_REPLIES_OWED`, `PR_DRAFT`, `PR_BLOCKED`, `PR_STALLED` or `PR_POLL_UNAVAILABLE` — there is no quiet timeout, because a poll that expires reads exactly like a poll that passed. A head-SHA change re-arms the watch, so the fix push that follows a round of findings is watched rather than abandoned. `/pr` then RELAYS: failing check names with their `check-runs/<id>/annotations` as `path:line — message`, the merge state, the owed findings, and both review sets. It re-runs no gate and merges nothing. Missing `gh`/MCP or a reviewer that isn't enabled degrades to a no-op, never to a completion.
+- **The PR is watched to a named terminal state — checks, reviewers, replies owed, mergeability:** after the PR opens, `/pr` requests a Copilot review and runs one background watch (re-woken via `run_in_background`) covering Copilot (requested), the Codex connector (opt-in — detected via its 👀 reaction, so `/pr` waits only when codex is engaged), the head commit's check runs, the unanswered-finding count, the PR's own `draft` flag (tested *before* the reviewer gate after a 3-poll floor; whether the automated reviewers run on drafts is unmeasured, so a draft's exit does not wait on them), and `mergeStateStatus`. It exits only into `PR_COMPLETE`, `PR_CHECKS_RED`, `PR_REPLIES_OWED`, `PR_DRAFT`, `PR_BLOCKED`, `PR_STALLED` or `PR_POLL_UNAVAILABLE` — there is no quiet timeout, because a poll that expires reads exactly like a poll that passed. A head-SHA change re-arms the watch, so the fix push that follows a round of findings is watched rather than abandoned. `/pr` then RELAYS: failing check names with their `check-runs/<id>/annotations` as `path:line — message`, the merge state, the owed findings, and both review sets. It re-runs no gate and merges nothing. Missing `gh`/MCP or a reviewer that isn't enabled degrades to a no-op, never to a completion.
 - **A PR is complete only when the gates pass AND every review comment has a reply:** green checks are half the test. The owed count is read off the API — an inline comment is answered when a comment carries its id in `in_reply_to_id`, a review body when an issue comment names the review id — so completeness is checked, not asserted.
 - **Only `PR_COMPLETE` may be relayed as done:** a red gate, an owed reply, a draft, a blocked merge state, or a stall is reported by its named reason, leading the relay. No wording that sounds finished may cover a failing check or an unanswered finding.
 - **Every finding's disposition is posted to the thread, after the caller decides it:** accepted says what changed and where, rejected says why with the evidence, deferred says where it went. Replies go to the inline comment's own thread (`pulls/<n>/comments/<id>/replies`) or, for a review body, to an issue comment naming the review id. `/pr` invents no disposition to have something to post, and where `gh`/MCP is missing it reports the findings unanswered and the PR incomplete rather than claiming replies it did not post.
