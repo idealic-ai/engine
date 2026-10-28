@@ -69,6 +69,24 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=/dev/null
 . "$here/_prove-s3-env.sh"
 
+# --- The seat-strip helpers ship WITH this script: refuse loudly if either is missing ---
+# A partial landing (this file committed or synced without its helpers) must not publish. Checked
+# here, before the EXIT trap below exists and before any byte moves: under the macOS bash 3.2, a
+# failed `. file` under `set -e` with an EXIT trap set exits with the TRAP's status, which is 0,
+# so the old unguarded source turned a missing helper into "success" with no URL and no upload.
+for seatHelper in _prove-seat.sh _seat-strip.py; do
+  if [ ! -f "$here/$seatHelper" ]; then
+    echo "publish-s3: REFUSED — $here/$seatHelper is missing; every published page carries a seat strip and this install cannot make one. Land the helper beside publish-s3.sh." >&2
+    exit 5
+  fi
+done
+# shellcheck source=/dev/null
+. "$here/_prove-seat.sh"
+# The strip's board flags are set ONLY by the state block below, from what this publish injected.
+# Start them empty so a same-named variable exported in the environment cannot leak a board line in.
+seatBoard=""
+seatCopyBack=""
+
 if [ -z "${PROVE_S3_BUCKET:-}" ]; then
   echo "publish-s3: PROVE_S3_BUCKET is not set (and none found in a project .env)." >&2
   echo "  The manifest default is the local MinIO (bucket 'proofs' on http://127.0.0.1:9440);" >&2
@@ -579,6 +597,11 @@ else:
 sys.stdout.write(page)
 PY
   mv "${work}/state.html" "$upload"
+  # The seat strip's "or answer on this board" line is set HERE, from the injection this publish
+  # just made, never from a grep of the page (a page that merely mentions data-fb-state-config
+  # would qualify, and a placeholder page like state-demo.html would not). No grant: copy-back.
+  seatBoard="--board"
+  [ -n "$signed" ] || seatCopyBack="--copy-back"
   if [ -n "$signed" ] && [ "$grantVerified" = 1 ]; then
     echo "publish-s3: state config injected → ${stateUrl} (writes presigned → ${expectedPostUrl}, grant SPENT once and accepted)" >&2
   elif [ -n "$signed" ]; then
@@ -735,6 +758,41 @@ PY
   echo "publish-s3:   bake it with: bake-tickets.sh --scan <page> → fetch each key → bake-tickets.sh --emit <page> --tickets <in.json>" >&2
 fi
 
+# --- The seat strip: WHO published this page and HOW to answer them ---
+# Every page, board or not, gets a strip at the top of its body naming the publishing seat, the
+# reply route ("message <seat>", plus "or answer on this board" when THIS publish injected a state
+# config — set in the state block above, "(copy-back)" when it carries no write grant) and the
+# publish time. The operator reads pages from many seats and otherwise cannot tell whom to answer.
+# This step is LAST among the rewrites, so the strip is in the bytes the read-back below compares
+# against. It is idempotent: a page that already carries a strip has it replaced.
+# If no seat resolves, the page says "seat unknown" with host:cwd and this script warns. If the
+# helper fails at run time, the page uploads without a strip and that is said loudly. (A MISSING
+# helper is refused at the top of this script, before any byte moves.)
+seatPair="$(prove_seat_resolve)"
+seat="${seatPair%%	*}"
+seatRest="${seatPair#*	}"
+seatSource="${seatRest%%	*}"
+seatVia="${seatRest#*	}"
+# Names come from session files a peer can set: never print control characters to a terminal.
+seatShown="$(printf '%s' "$seat" | tr -cd '[:print:]')"
+seatViaShown="$(printf '%s' "$seatVia" | tr -cd '[:print:]')"
+seatOrigin="$(hostname -s 2>/dev/null || hostname):${PWD}"
+if python3 "$here/_seat-strip.py" "$upload" --seat "$seat" --source "$seatSource" --via "$seatVia" \
+     --origin "$seatOrigin" ${seatBoard:+"$seatBoard"} ${seatCopyBack:+"$seatCopyBack"} \
+     > "${work}/seat.html" 2>"${work}/seat.err"; then
+  mv "${work}/seat.html" "$upload"
+  if [ -n "$seat" ]; then
+    echo "publish-s3: seat strip: ${seatShown} (from ${seatSource}${seatBoard:+, board reply line}${seatCopyBack:+ (copy-back)})" >&2
+    if [ -n "$seatVia" ]; then
+      echo "publish-s3: PROVE_SEAT overrides live seat ${seatViaShown} — the page says 'Published by ${seatShown} (via ${seatViaShown})'" >&2
+    fi
+  else
+    echo "publish-s3: WARNING — no seat resolved (no PROVE_SEAT, no ancestor ~/.claude/sessions/<pid>.json, no FLEET_PANE); the page says 'seat unknown — published from ${seatOrigin}'" >&2
+  fi
+else
+  echo "publish-s3: WARNING — the seat strip could not be added ($(tr -d '\n' < "${work}/seat.err" | cut -c1-160)); the page uploads WITHOUT saying who published it" >&2
+fi
+
 # Upload. cp chatter → stderr; only the URL goes to stdout.
 aws s3 cp "$upload" "s3://${PROVE_S3_BUCKET}/${key}" \
   ${profile_arg[@]+"${profile_arg[@]}"} ${endpoint_arg[@]+"${endpoint_arg[@]}"} \
@@ -771,7 +829,7 @@ if aws s3api get-object --bucket "$PROVE_S3_BUCKET" --key "$key" \
     echo "publish-s3: verified by content — sha256 match against the uploaded bytes (${sentSha})" >&2
   else
     echo "publish-s3: verified by content — sha256 match against the uploaded bytes (${sentSha})" >&2
-    echo "publish-s3:   the uploaded page differs from the source by design: this publish rewrote it (injected config/meta), source sha ${srcSha}. A source-sha comparison would report a false mismatch." >&2
+    echo "publish-s3:   the uploaded page differs from the source by design: this publish rewrote it (injected config/meta and the seat strip), source sha ${srcSha}. A source-sha comparison would report a false mismatch." >&2
   fi
 else
   echo "publish-s3: WARNING — could not read the object back, so the destination is unverified." >&2
