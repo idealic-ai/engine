@@ -163,11 +163,11 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
 
        pending=$(gh api "$CR/$sha/check-runs?per_page=100" --jq '[.check_runs[]|select(.status!="completed")]|length' 2>/dev/null || echo 0)
        failed=$(gh api "$CR/$sha/check-runs?per_page=100" --jq "[.check_runs[]|select($BAD)]|length" 2>/dev/null || echo 0)
+       total=$(gh api "$CR/$sha/check-runs?per_page=100" --jq '.check_runs|length' 2>/dev/null || echo 0)
        if [ "$failed" -gt 0 ]; then
          names=$(gh api "$CR/$sha/check-runs?per_page=100" --jq "[.check_runs[]|select($BAD)|.name]|join(\", \")" 2>/dev/null)
          ids=$(gh api "$CR/$sha/check-runs?per_page=100" --jq "[.check_runs[]|select($BAD)|.id|tostring]|join(\" \")" 2>/dev/null)
          echo "PR_CHECKS_RED pr=$N head=$sha failing=$failed names=\"$names\" run_ids=\"$ids\" pending=$pending"; exit 0
-       total=$(gh api "$CR/$sha/check-runs?per_page=100" --jq '.check_runs|length' 2>/dev/null || echo 0)
        fi
 
        cop=$(gh api "repos/$OWNER/$REPO/pulls/$N/reviews" --jq '[.[]|select(.user.login=="copilot-pull-request-reviewer[bot]")]|length' 2>/dev/null || echo 0)
