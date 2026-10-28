@@ -281,6 +281,10 @@ if presign and presign.get("postUrl"):
     cfg["keyPrefix"] = presign["keyPrefix"]
     cfg["fields"] = presign["fields"]
     cfg["expiresAt"] = presign["expiresAt"]
+    # The read-back grant: the page lists its own events prefix after posting, and says "stored"
+    # only for a key the store returns. Absent (an older signer) ⇒ the page never says "stored".
+    if presign.get("listUrl"):
+        cfg["listUrl"] = presign["listUrl"]
     # Why the window is the length it is, carried on the page rather than left on the signer's
     # stdout. A board that says "closes in 12 minutes" without saying "because it was signed with
     # a temporary credential" reproduces the confusion this whole config exists to end. .get() so
