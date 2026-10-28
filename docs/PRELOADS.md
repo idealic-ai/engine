@@ -57,21 +57,20 @@ preloadedFiles = [      pendingPreloads += [      _claim_and_preload()    preloa
 
 - **What gets injected** — the `for std_file in …` loop in `hooks/session-start-restore.sh`.
 - **What gets registered** for PostToolUse dedup — `get_session_start_seeds()` in `scripts/lib.sh`, plus any in-hook append onto `PRELOAD_SEEDS` ahead of the flush, so **reading the array alone can undercount**. `PITFALLS.md` arrives both ways; the append is guarded by `if index($p)`, so a path in both places is registered once.
-- **What activation seeds** — `ACTIVATE_SEEDS` in `scripts/session.sh`, a second seed list kept in step with the `lib.sh` one by convention. `scripts/tests/test-preload-seed.sh` is what fails when the two drift.
+- **What activation seeds** — `ACTIVATE_SEEDS` in `scripts/session.sh`, which is `$(get_session_start_seeds)`. It is not a list of its own, so activation always seeds the registered set and needs no edit when that set changes.
 
 ```bash
+# the set, as SessionStart registers it (run from the engine root)
+bash -c 'source scripts/lib.sh && get_session_start_seeds | jq -r ".[]"'
 # injected — the print loop
 sed -n '/^for std_file in /,/; do$/p' hooks/session-start-restore.sh | grep -o '"[^"]*"'
-# registered — the seed array, then the in-hook appends
-awk '/^get_session_start_seeds\(\)/,/^}/' scripts/lib.sh | grep -o '\$d+"[^"]*"'
+# registered on top of the function — the in-hook appends
 grep -nF 'index($p) then' hooks/session-start-restore.sh
-# seeded at activation — the second list, which must agree with the first
-grep -o '\$d+"[^"]*"' scripts/session.sh
 ```
 
-**All four must agree and nothing checks that they do.** A path added to the print loop alone is injected on every session start and recorded nowhere, which leaves the preload rule free to re-deliver it for the rest of the session; a path added to one seed list and not the other leaves the tree booting one way and activating another. Both are the authoring trap under `` `¶PTF_PENDING_PRELOADS_STALE` ``, which carries the measured instance. **So a change to this set is four edits in four files**, and the count is a thing to run rather than a thing to remember.
+**The print loop and `get_session_start_seeds()` are two hand-written lists, and they must agree.** A path added to the print loop alone is injected on every session start and recorded nowhere, which leaves the preload rule free to re-deliver it for the rest of the session. That is the authoring trap under `` `¶PTF_PENDING_PRELOADS_STALE` ``, which carries the measured instance. `test_standards_print_loop_matches_seed_list` in `scripts/tests/test-session-start-skill-delivery.sh` runs the real hook and fails when the paths it prints differ from the function's set. `scripts/tests/test-preload-seed.sh` states the expected counts as literals, so a change to the set is also an edit there. The count is a thing to run rather than a thing to remember.
 
-Measured at 12:00 on 2026-10-23, all four sites agreed: the loop injected eight files, all under `~/.claude/.directives/` — `COMMANDS.md`, `INVARIANTS.md`, `SIGILS.md`, `VOICE.md`, `commands/CMD_DEHYDRATE.md`, `commands/CMD_RESUME_SESSION.md`, `commands/CMD_PARSE_PARAMETERS.md`, `PITFALLS.md`. That sentence carries a **clock time** rather than a date because the set moved three times inside fifteen minutes earlier that morning; the commands above do not rot.
+Measured at 12:00 on 2026-10-23, all four sites agreed: the loop injected eight files, all under `~/.claude/.directives/` — `COMMANDS.md`, `INVARIANTS.md`, `SIGILS.md`, `VOICE.md`, `commands/CMD_DEHYDRATE.md`, `commands/CMD_RESUME_SESSION.md`, `commands/CMD_PARSE_PARAMETERS.md`, `PITFALLS.md`. That sentence carries a **clock time** rather than a date because the set moved three times inside fifteen minutes earlier that morning; the commands above do not rot. That reading is history and not the current set: `commands/CMD_CONTINUE_ON_STOP.md` joined it in `3828cae`.
 
 ### Skill Expansion (UserPromptSubmit: Claude Code built-in)
 
@@ -307,8 +306,7 @@ Multiple hooks can discover the same file. The system prevents duplicate injecti
 What gets preloaded, by category:
 
 *   **Core Standards** (SessionStart)
-    *   COMMANDS.md, INVARIANTS.md, SIGILS.md
-    *   CMD_DEHYDRATE.md, CMD_RESUME_SESSION.md, CMD_PARSE_PARAMETERS.md
+    *   The set `get_session_start_seeds` prints (`scripts/lib.sh`); run it rather than reading a list here, per "Core standards" above
     *   Always available from the first tool call
 
 *   **Skill Protocol** (SKILL.md, skill expansion)
