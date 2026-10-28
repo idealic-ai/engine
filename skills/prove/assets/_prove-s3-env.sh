@@ -52,7 +52,8 @@ fi
 #   ENDPOINT_ARG    (--endpoint-url <endpoint>) when an endpoint is set, else empty
 #   PROFILE_ARG     (--profile <PROVE_S3_PROFILE>) when a profile is named, else empty
 # A loopback endpoint has no AWS identity behind it: credentials come from
-# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, defaulting to the MinIO dev pair, and the per-user
+# AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY, falling back to the kit's KIT_PROOFS_MINIO_USER /
+# KIT_PROOFS_MINIO_PASSWORD when neither is set (nothing is invented), and the per-user
 # key segment defaults to the login name because there is no STS caller to ask.
 # Every branch below is an `if` and the file ends on one: sourcing scripts run `set -e`, and a
 # false `&&` as the last command would kill the caller at its source line.
