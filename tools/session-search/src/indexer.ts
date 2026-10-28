@@ -15,7 +15,22 @@ interface ExistingChunk {
   file_path: string;
   section_title: string;
   content_hash: string;
+  /** Model/width of the stored embedding; null when the chunk has none. */
+  model: string | null;
+  dimensions: number | null;
 }
+
+export interface ReconcileOptions {
+  /**
+   * Embed, write and save in slabs of this many chunks, so a long rebuild
+   * survives an interrupt: a re-run skips every slab already saved.
+   */
+  checkpointEvery?: number;
+  /** Progress line sink; defaults to stderr. */
+  log?: (line: string) => void;
+}
+
+const DEFAULT_CHECKPOINT_EVERY = 4096;
 
 /**
  * Reconcile a set of chunks against the database.
@@ -24,16 +39,22 @@ interface ExistingChunk {
  * 1. Build a lookup map of existing chunks keyed by (file_path, section_title)
  * 2. For each incoming chunk:
  *    - If not in DB: INSERT (new)
- *    - If in DB with same hash: SKIP (unchanged)
- *    - If in DB with different hash: UPDATE (changed)
+ *    - If in DB with same hash AND its embedding is the embedder's model and
+ *      width: SKIP (unchanged)
+ *    - Otherwise: UPDATE (changed, or embedded by another model/width)
  * 3. Any DB chunks not seen in incoming set: DELETE (orphaned)
+ *
+ * Inserts and updates are embedded and written in slabs, saving after each.
  */
 export async function reconcileChunks(
   db: Database,
   dbPath: string,
   chunks: Chunk[],
-  embedder: EmbeddingClient
+  embedder: EmbeddingClient,
+  options: ReconcileOptions = {}
 ): Promise<IndexReport> {
+  const checkpointEvery = Math.max(1, options.checkpointEvery ?? DEFAULT_CHECKPOINT_EVERY);
+  const log = options.log ?? ((line: string) => console.error(line));
   const report: IndexReport = {
     inserted: 0,
     updated: 0,
@@ -44,7 +65,8 @@ export async function reconcileChunks(
   // 1. Load existing chunks from DB
   const existingRows: ExistingChunk[] = [];
   const stmt = db.prepare(
-    "SELECT id, file_path, section_title, content_hash FROM chunks"
+    `SELECT c.id, c.file_path, c.section_title, c.content_hash, e.model, e.dimensions
+     FROM chunks c LEFT JOIN embeddings e ON e.chunk_id = c.id`
   );
   while (stmt.step()) {
     const row = stmt.getAsObject() as unknown as ExistingChunk;
@@ -70,10 +92,14 @@ export async function reconcileChunks(
     const existing = existingMap.get(key);
     if (!existing) {
       toInsert.push(chunk);
-    } else if (existing.content_hash !== chunk.contentHash) {
-      toUpdate.push({ chunk, existingId: existing.id });
-    } else {
+    } else if (
+      existing.content_hash === chunk.contentHash &&
+      existing.model === embedder.model &&
+      existing.dimensions === embedder.dimensions
+    ) {
       report.skipped++;
+    } else {
+      toUpdate.push({ chunk, existingId: existing.id });
     }
   }
 
@@ -85,73 +111,61 @@ export async function reconcileChunks(
     }
   }
 
-  // 4. Embed new and updated chunks
-  const textsToEmbed = [
-    ...toInsert.map((c) => c.content),
-    ...toUpdate.map((u) => u.chunk.content),
+  // 4–5. Embed and write new and updated chunks, one checkpointed slab at a time
+  type Work = { chunk: Chunk; existingId: number | null };
+  const work: Work[] = [
+    ...toInsert.map((chunk) => ({ chunk, existingId: null })),
+    ...toUpdate.map(({ chunk, existingId }) => ({ chunk, existingId })),
   ];
 
-  let embeddings: Float32Array[] = [];
-  if (textsToEmbed.length > 0) {
-    embeddings = await embedder.embedTexts(textsToEmbed);
-  }
-
-  // 5. Execute DB operations
-  let embeddingIndex = 0;
-
-  // Insert new chunks
-  for (const chunk of toInsert) {
+  const writeEmbedding = (chunkId: number, embedding: Float32Array): void => {
     db.run(
-      `INSERT INTO chunks (session_path, session_date, file_path, section_title, content, content_hash, session_started_at, session_completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        chunk.sessionPath,
-        chunk.sessionDate,
-        chunk.filePath,
-        chunk.sectionTitle,
-        chunk.content,
-        chunk.contentHash,
-        chunk.sessionStartedAt ?? null,
-        chunk.sessionCompletedAt ?? null,
-      ]
+      `INSERT INTO embeddings (chunk_id, embedding, model, dimensions) VALUES (?, ?, ?, ?)`,
+      [chunkId, float32ToBytes(embedding), embedder.model, embedder.dimensions]
     );
+  };
 
-    // Get the inserted ID
-    const idResult = db.exec("SELECT last_insert_rowid()");
-    const chunkId = idResult[0].values[0][0] as number;
+  for (let start = 0; start < work.length; start += checkpointEvery) {
+    const slab = work.slice(start, start + checkpointEvery);
+    const embeddings = await embedder.embedTexts(slab.map((w) => w.chunk.content));
 
-    const embedding = embeddings[embeddingIndex++];
-    const embeddingBytes = float32ToBytes(embedding);
+    slab.forEach(({ chunk, existingId }, i) => {
+      if (existingId === null) {
+        db.run(
+          `INSERT INTO chunks (session_path, session_date, file_path, section_title, content, content_hash, session_started_at, session_completed_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            chunk.sessionPath,
+            chunk.sessionDate,
+            chunk.filePath,
+            chunk.sectionTitle,
+            chunk.content,
+            chunk.contentHash,
+            chunk.sessionStartedAt ?? null,
+            chunk.sessionCompletedAt ?? null,
+          ]
+        );
+        const idResult = db.exec("SELECT last_insert_rowid()");
+        writeEmbedding(idResult[0].values[0][0] as number, embeddings[i]);
+        report.inserted++;
+      } else {
+        db.run(
+          `UPDATE chunks
+           SET content = ?, content_hash = ?, session_started_at = ?, session_completed_at = ?, updated_at = datetime('now')
+           WHERE id = ?`,
+          [chunk.content, chunk.contentHash, chunk.sessionStartedAt ?? null, chunk.sessionCompletedAt ?? null, existingId]
+        );
+        db.run(`DELETE FROM embeddings WHERE chunk_id = ?`, [existingId]);
+        writeEmbedding(existingId, embeddings[i]);
+        report.updated++;
+      }
+    });
 
-    db.run(`INSERT INTO embeddings (chunk_id, embedding) VALUES (?, ?)`, [
-      chunkId,
-      embeddingBytes,
-    ]);
-
-    report.inserted++;
-  }
-
-  // Update changed chunks
-  for (const { chunk, existingId } of toUpdate) {
-    db.run(
-      `UPDATE chunks
-       SET content = ?, content_hash = ?, session_started_at = ?, session_completed_at = ?, updated_at = datetime('now')
-       WHERE id = ?`,
-      [chunk.content, chunk.contentHash, chunk.sessionStartedAt ?? null, chunk.sessionCompletedAt ?? null, existingId]
-    );
-
-    // Delete old embedding and insert new one
-    db.run(`DELETE FROM embeddings WHERE chunk_id = ?`, [existingId]);
-
-    const embedding = embeddings[embeddingIndex++];
-    const embeddingBytes = float32ToBytes(embedding);
-
-    db.run(`INSERT INTO embeddings (chunk_id, embedding) VALUES (?, ?)`, [
-      existingId,
-      embeddingBytes,
-    ]);
-
-    report.updated++;
+    const done = Math.min(start + checkpointEvery, work.length);
+    if (done < work.length) {
+      saveDb(db, dbPath);
+      log(`[session-search] embedded ${done}/${work.length} (checkpoint saved)`);
+    }
   }
 
   // Delete orphaned chunks

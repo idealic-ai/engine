@@ -198,14 +198,17 @@ export function groupResultsByFile(results: SearchResult[]): FileResult[] {
  */
 function loadChunksWithEmbeddings(
   db: Database,
-  filters: QueryFilters
+  filters: QueryFilters,
+  generation: { model: string; dimensions: number }
 ): ChunkWithEmbedding[] {
   const { whereClauses, params } = buildFilterClauses(filters);
 
-  let filterClause = "";
-  if (whereClauses.length > 0) {
-    filterClause = "WHERE " + whereClauses.join(" AND ");
-  }
+  // Rank only rows written by the query's own model at its own width. A row of
+  // another generation is not comparable; the indexer re-embeds it on the next run.
+  whereClauses.unshift("e.model = ?", "e.dimensions = ?");
+  params.unshift(generation.model, generation.dimensions);
+
+  const filterClause = "WHERE " + whereClauses.join(" AND ");
 
   const sql = `
     SELECT
@@ -267,7 +270,7 @@ export async function searchChunks(
   const queryEmbedding = await embedder.embedSingle(queryText);
 
   // 2. Load all chunks with embeddings
-  const chunks = loadChunksWithEmbeddings(db, filters);
+  const chunks = loadChunksWithEmbeddings(db, filters, embedder);
 
   if (chunks.length === 0) {
     return [];
@@ -291,4 +294,19 @@ export async function searchChunks(
     distance: similarityToDistance(similarity),
     snippet: chunk.content.slice(0, SNIPPET_LENGTH),
   }));
+}
+
+/**
+ * Embedding rows that a query with this model and width will NOT rank — left
+ * by an earlier generation, waiting for the next index run to re-embed them.
+ */
+export function countForeignEmbeddings(
+  db: Database,
+  generation: { model: string; dimensions: number }
+): number {
+  const result = db.exec(
+    "SELECT COUNT(*) FROM embeddings WHERE model != ? OR dimensions != ?",
+    [generation.model, generation.dimensions]
+  );
+  return (result[0]?.values[0]?.[0] as number) ?? 0;
 }

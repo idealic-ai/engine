@@ -8,6 +8,7 @@ import { reconcileChunks, type IndexReport } from "./indexer.js";
 import {
   searchChunks,
   groupResultsByFile,
+  countForeignEmbeddings,
   type QueryFilters,
 } from "./query.js";
 import { parseTimeArg, toISOString } from "../../shared/parse-time-arg.js";
@@ -37,8 +38,13 @@ TIME formats:
   2026-02-01             Absolute date (midnight UTC)
   2026-02-01T14:30:00Z   ISO datetime
 
-Environment:
-  GEMINI_API_KEY         Required for embedding (index and query)`);
+Embedding (local, no key, no network; tools/embed-local):
+  A running Ollama with the model pulled is required for index and query:
+    ollama pull embeddinggemma
+  ENGINE_EMBED_ENDPOINT  Runner URL (default: http://127.0.0.1:11434)
+  ENGINE_EMBED_MODEL     Model tag (default: embeddinggemma)
+  ENGINE_EMBED_DIMENSIONS Vector width the model returns (default: 768)
+  ENGINE_EMBED_BATCH     Texts per embed request (default: 32)`);
 }
 
 function resolveSessionsDir(customPath?: string): string {
@@ -138,6 +144,7 @@ async function runIndex(targetPath?: string): Promise<void> {
   // 3. Initialize DB and embedder
   const db = await initDb(dbPath);
   const embedder = createEmbeddingClient();
+  console.log(`Embedding with ${embedder.model} (${embedder.dimensions}-d, local)`);
 
   // 4. Reconcile (this also saves the DB)
   console.log("Reconciling with database...");
@@ -174,6 +181,14 @@ async function runQuery(
 
   const db = await initDb(dbPath);
   const embedder = createEmbeddingClient();
+
+  const foreign = countForeignEmbeddings(db, embedder);
+  if (foreign > 0) {
+    console.error(
+      `[session-search] ${foreign} indexed chunks were embedded by another model or width and are not ranked. ` +
+        `Run 'session-search index' to re-embed them with ${embedder.model} (${embedder.dimensions}-d).`
+    );
+  }
 
   console.log(`Searching for: "${queryText}"`);
   if (Object.keys(filters).length > 0) {

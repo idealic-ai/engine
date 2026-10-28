@@ -1,0 +1,10 @@
+{
+  "name": "embed-local",
+  "version": "1.0.0",
+  "description": "The engine's one local embedding client: Ollama /api/embed (embeddinggemma, 768-d), no dependencies",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "../session-search/node_modules/.bin/vitest run --root . --globals --dir test && bash test/gate.test.sh"
+  }
+}

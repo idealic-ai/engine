@@ -6,7 +6,7 @@ import { dbPathFromEnv } from "../../shared/db-path.js";
 
 const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
 
-export const DB_FILENAME = ".doc-search.db";
+export const DB_FILENAME = ".doc-search.local.db";
 
 /**
  * Find the project root by looking for .claude directory.

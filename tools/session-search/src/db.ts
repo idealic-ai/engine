@@ -1,15 +1,28 @@
 import initSqlJs, { type Database } from "sql.js";
 import * as fs from "fs";
 import * as path from "path";
+import { EMBED_LOCAL_DEFAULTS } from "../../embed-local/src/index.js";
 
-export const EMBEDDING_DIMENSIONS = 3072;
+/** Width of the default local model (embeddinggemma). Each row also stores its own. */
+export const EMBEDDING_DIMENSIONS = EMBED_LOCAL_DEFAULTS.dimensions;
 
 /**
  * Schema version — bump this when table structure changes.
  * On open, if the DB's PRAGMA user_version doesn't match,
  * all tables are dropped and recreated (reindex required).
+ *
+ * 3: local embeddings (768-d) replace Gemini (3072-d), and every embedding row
+ *    carries `model` + `dimensions` so a mixed index cannot recur unnoticed.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
+
+/**
+ * The first schema of the local-embeddings generation. Any older non-zero
+ * version is a Gemini-era index: initDb refuses it instead of dropping it, so a
+ * shell lib still naming the old file can never make this build wipe it.
+ */
+const FIRST_LOCAL_SCHEMA_VERSION = 3;
+const DB_FILENAME_HINT = ".session-search.local.db";
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>> | null = null;
 
@@ -42,6 +55,16 @@ export async function initDb(dbPath: string): Promise<Database> {
     const result = db.exec("PRAGMA user_version;");
     const dbVersion = result[0]?.values[0]?.[0] as number ?? 0;
     if (dbVersion !== SCHEMA_VERSION) {
+      if (dbVersion > 0 && dbVersion < FIRST_LOCAL_SCHEMA_VERSION) {
+        // A Gemini-era (3072-d) index. It is the only copy of that index, so
+        // never drop it: refuse to open, and leave the file byte-identical.
+        db.close();
+        throw new Error(
+          `[session-search] ${dbPath} is a Gemini-era index (schema ${dbVersion}); this build embeds locally ` +
+            `(schema ${SCHEMA_VERSION}) and will not open or overwrite it. Point ENGINE_SEARCH_DB_PATH at ` +
+            `${DB_FILENAME_HINT} (the wrappers do when search-db-lib.sh is the same version as this tool).`
+        );
+      }
       console.error(
         `[session-search] Schema version mismatch (db=${dbVersion}, expected=${SCHEMA_VERSION}). Dropping tables and reindexing.`
       );
@@ -79,11 +102,16 @@ export async function initDb(dbPath: string): Promise<Database> {
   `);
 
   // Create embeddings table (replaces sqlite-vec virtual table)
-  // Embeddings stored as BLOB (raw Float32Array bytes)
+  // Embeddings stored as BLOB (raw Float32Array bytes). `model` and
+  // `dimensions` say which generation wrote the row: queries rank only rows of
+  // the client's own model and width, and the indexer re-embeds any other.
   db.run(`
     CREATE TABLE IF NOT EXISTS embeddings (
       chunk_id INTEGER PRIMARY KEY,
       embedding BLOB NOT NULL,
+      model TEXT NOT NULL,
+      dimensions INTEGER NOT NULL CHECK (dimensions > 0),
+      CHECK (length(embedding) = dimensions * 4),
       FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
     );
   `);

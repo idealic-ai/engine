@@ -3,33 +3,22 @@
 # Resolves tool directory via symlinks (works in both local and remote mode)
 set -euo pipefail
 
-# --- GEMINI_API_KEY via the shared engine resolver ---------------------------------
-# ONE rule for every consumer: a real env var, then the current session's project root
-# (.env.local, then .env). There is deliberately NO $HOME dotfile in the chain — a
-# per-project credential comes from the project, never from a global file that would let
-# one project's wave authenticate as another's. (Measured before removal: neither
-# ~/.env nor ~/.claude/.env exists here, so that branch was dead code.)
-if [ -z "${GEMINI_API_KEY:-}" ]; then
-  # ONE bootstrap, shared. This used to be a byte-identical twelve-line symlink chain-walk
-  # repeated in six files; it lives in env-boot.sh now and `engine doctor` gates (EB-01)
-  # against a seventh appearing.
-  for _gem_boot in "${ENGINE_SCRIPTS:-}/env-boot.sh" "$HOME/.claude/engine/scripts/env-boot.sh"; do
-    [ -f "$_gem_boot" ] || continue
-    # shellcheck source=/dev/null
-    . "$_gem_boot"
-    GEMINI_API_KEY="$(resolve_env_key GEMINI_API_KEY 2>/dev/null)" || GEMINI_API_KEY=""
-    export GEMINI_API_KEY
-    break
-  done
-fi
-
-if [ -z "${GEMINI_API_KEY:-}" ]; then
-  echo "ERROR: GEMINI_API_KEY not set. Add it to .env or export it." >&2
-  exit 1
-fi
-
 # Resolve the real tool directory (follows ~/.claude/tools -> engine/tools symlink)
 TOOL_DIR="$(cd "$HOME/.claude/tools/doc-search" && pwd)"
+
+# --- Local embeddings readiness (tools/embed-local) ---------------------------------
+# The search CLIs embed through tools/embed-local (Ollama embeddinggemma, 768-d), with
+# NO remote fallback, so the gate is "a runner answers and has the model", not a key.
+# One gate, shared by all four search wrappers; when it cannot be found the CLI still
+# reports the same named failure (RUNNER_ABSENT / MODEL_ABSENT) itself.
+for _el_gate in "$TOOL_DIR/../embed-local/embed-local-gate.sh" \
+                "$HOME/.claude/engine/tools/embed-local/embed-local-gate.sh"; do
+  [ -f "$_el_gate" ] || continue
+  # shellcheck source=/dev/null
+  . "$_el_gate"
+  embed_local_gate || exit 1
+  break
+done
 
 # Keep the working DB on local disk rather than the Drive-backed sessions/ dir.
 # Best-effort by design: a search that falls back to the legacy path is slow, but

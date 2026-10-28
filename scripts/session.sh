@@ -17,7 +17,7 @@
 #                                                  # Set lifecycle=completed (gate re-engages)
 #                                                  # REQUIRES 1-3 line description on stdin for RAG/search
 #                                                  # --keywords: comma-separated search keywords (stored in .state.json)
-#                                                  # Outputs: Related sessions from RAG search (if GEMINI_API_KEY set)
+#                                                  # Outputs: Related sessions from RAG search (if local Ollama embeddinggemma is up)
 #   session.sh idle <path> [--keywords 'kw1,kw2'] <<DESCRIPTION
 #                                                  # Set lifecycle=idle (restricted gate, reactivatable)
 #                                                  # Like deactivate but session stays alive for fast-track reactivation
@@ -2293,7 +2293,7 @@ case "$ACTION" in
     fi
 
     # Run RAG search FIRST (query old index — still useful for session linkage)
-    # The search scripts load .env internally — no GEMINI_API_KEY guard needed here
+    # The search wrappers gate on the local embedding runner themselves (tools/embed-local) — no guard needed here
     SESSION_SEARCH="$HOME/.claude/tools/session-search/session-search.sh"
     DOC_SEARCH="$HOME/.claude/tools/doc-search/doc-search.sh"
     if [ -x "$SESSION_SEARCH" ]; then

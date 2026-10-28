@@ -90,8 +90,8 @@ Two SQLite databases power the search tools:
 
 | Database | File | Indexed content | Tool |
 |----------|------|-----------------|------|
-| Doc search | `~/.claude/cache/search-db/<namespace>/.doc-search.db` | Project documentation files | `doc-search.sh` |
-| Session search | `~/.claude/cache/search-db/<namespace>/.session-search.db` | Session debriefs and logs | `session-search.sh` |
+| Doc search | `~/.claude/cache/search-db/<namespace>/.doc-search.local.db` | Project documentation files | `doc-search.sh` |
+| Session search | `~/.claude/cache/search-db/<namespace>/.session-search.local.db` | Session debriefs and logs | `session-search.sh` |
 
 ### Location
 Both DBs live on **local disk**, outside any repo — so no project needs a

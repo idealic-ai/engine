@@ -1,6 +1,6 @@
 # Document Indexing System
 
-Semantic search over project documentation and session history using Gemini embeddings + SQLite + sqlite-vec.
+Semantic search over project documentation and session history using LOCAL embeddings (Ollama `embeddinggemma`, 768-d, through `tools/embed-local`) + SQLite (sql.js).
 
 ## Overview
 
@@ -8,8 +8,8 @@ The engine provides two indexing tools for RAG-style context retrieval:
 
 | Tool | Purpose | Scope | Database |
 |------|---------|-------|----------|
-| `session-search` | Search session history | `sessions/**/*.md` | `~/.claude/cache/search-db/<namespace>/.session-search.db` |
-| `doc-search` | Search project documentation | `docs/**/*.md`, `{apps,packages}/*/docs/**/*.md` | `~/.claude/cache/search-db/<namespace>/.doc-search.db` |
+| `session-search` | Search session history | `sessions/**/*.md` | `~/.claude/cache/search-db/<namespace>/.session-search.local.db` |
+| `doc-search` | Search project documentation | `docs/**/*.md`, `{apps,packages}/*/docs/**/*.md` | `~/.claude/cache/search-db/<namespace>/.doc-search.local.db` |
 
 Both DBs live on **local disk**, outside any repo, so no `.gitignore` entry is
 needed anywhere. `<namespace>` comes from the sessions path — `yarik/finch/sessions`
@@ -24,7 +24,8 @@ can return nothing for minutes. The wrapper scripts own the path (via
 the TypeScript never re-derives it.
 
 Both tools share the same architecture:
-- **Gemini embeddings** (`gemini-embedding-001`, 3072 dimensions)
+- **Local embeddings** through `tools/embed-local` — Ollama `embeddinggemma`, 768 dimensions, document/query role prefixes, no key and no network, and **no remote fallback**
+- **Per-row generation**: every embedding row stores `model` + `dimensions`; a query ranks only rows of its own model and width, and the next `index` re-embeds any other row (so a mixed index cannot build up)
 - **SQLite + sqlite-vec** for vector storage and KNN search
 - **Content-addressed deduplication** (same content = same embedding)
 
@@ -81,7 +82,7 @@ CREATE TABLE doc_chunks (
 
 1. **mtime fast-check**: If file mtime unchanged, skip entirely
 2. **Content hash comparison**: If mtime changed but content hash matches, update mtime only
-3. **Embed if needed**: Only call Gemini API when content actually changed
+3. **Embed if needed**: Only embed when content changed, or when the stored embedding was written by another model/width
 
 ### Concurrency (Multiplayer)
 
@@ -166,19 +167,26 @@ Both tools split markdown by H2 headers (`## `):
 ## Environment
 
 ```bash
-# Required for both tools
-export GEMINI_API_KEY="..."
+# Required for both tools: a running Ollama with the model pulled (one-time, ~620 MB)
+ollama pull embeddinggemma
 
-# Default key is hardcoded in wrapper scripts (for convenience)
-# Override with your own key if needed
+# Optional overrides (read by tools/embed-local and its wrapper gate)
+export ENGINE_EMBED_ENDPOINT="http://127.0.0.1:11434"
+export ENGINE_EMBED_MODEL="embeddinggemma"
+export ENGINE_EMBED_DIMENSIONS=768
+export ENGINE_EMBED_BATCH=32
+
+# The wrappers refuse to start (exit 1, RUNNER_ABSENT / MODEL_ABSENT) when the
+# runner is down or the model is missing. GEMINI_API_KEY is not used by search.
 ```
 
 ## File Locations
 
 ```
 ~/.claude/cache/search-db/<namespace>/
-├── .doc-search.db              # SQLite database (local, never synced)
-└── .session-search.db          # SQLite database (local, never synced)
+├── .doc-search.local.db        # SQLite database, 768-d local embeddings
+├── .session-search.local.db    # SQLite database, 768-d local embeddings
+└── .{doc,session}-search.db    # Gemini-era 3072-d databases, no longer read (safe to delete by hand)
 
 ~/.claude/tools/
 ├── doc-search/
@@ -187,7 +195,7 @@ export GEMINI_API_KEY="..."
 │   └── src/
 │       ├── cli.ts              # CLI interface
 │       ├── db.ts               # Schema + init
-│       ├── embed.ts            # Gemini client
+│       ├── embed.ts            # wraps tools/embed-local
 │       ├── chunker.ts          # H2 parsing
 │       ├── indexer.ts          # Reconciliation
 │       ├── query.ts            # KNN search

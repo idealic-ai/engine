@@ -85,12 +85,15 @@ const empty = db.exec("SELECT * FROM chunks WHERE 1=0");
 
 ## 6. Mocking the Embedding API
 
-Tests that exercise the indexer or query path need Gemini embeddings mocked. Do NOT call the real API in tests:
+Tests that exercise the indexer or query path take a mock `EmbeddingClient` (the shape is owned by `tools/embed-local/src/contract.ts`). Do NOT call a real runner in tests:
 
 ```typescript
-vi.mock("../embeddings.js", () => ({
-  getEmbedding: vi.fn().mockResolvedValue(new Float32Array(768).fill(0.1)),
-}));
+const embedder: EmbeddingClient = {
+  model: "embeddinggemma",
+  dimensions: 768,
+  embedTexts: async (texts) => texts.map(() => new Float32Array(768).fill(0.1)),
+  embedSingle: async () => new Float32Array(768).fill(0.1),
+};
 ```
 
 ## 7. COALESCE Filtering (--since / --until)
@@ -105,7 +108,7 @@ COALESCE(c.session_started_at, c.session_date || 'T00:00:00.000Z') >= ?
 
 ## 8. Conventions
 
-*   **No `$GEMINI_API_KEY` in tests**: All API calls mocked. Tests must run offline.
+*   **No live Ollama in tests**: the embedder is a mock, or `createEmbeddingClient({ fetchImpl })`. Tests must run offline.
 *   **sql.js WASM**: The `sql.js` library uses WASM. Vitest handles this natively — no special config needed.
 *   **ESM imports**: Use `.js` extensions in imports (`../db.js`, not `../db`). The project uses `"type": "module"`.
 *   **See also**: `.directives/PITFALLS.md` for common gotchas.

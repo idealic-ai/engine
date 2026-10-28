@@ -21,13 +21,15 @@ interface ExistingChunk {
 }
 
 /**
- * Check if an embedding already exists in the global embeddings table.
+ * Check if the global embeddings table holds this content at the embedder's
+ * own model and width. A row from another generation does not count: it is
+ * re-embedded and replaced, so a mixed index cannot build up.
  */
-function hasEmbedding(db: Database, contentHash: string): boolean {
+function hasCurrentEmbedding(db: Database, contentHash: string, embedder: EmbeddingClient): boolean {
   const row = queryOne<{ found: number }>(
     db,
-    "SELECT 1 as found FROM embeddings WHERE content_hash = ?",
-    [contentHash]
+    "SELECT 1 as found FROM embeddings WHERE content_hash = ? AND model = ? AND dimensions = ?",
+    [contentHash, embedder.model, embedder.dimensions]
   );
   return row !== undefined;
 }
@@ -45,6 +47,9 @@ function hasEmbedding(db: Database, contentHash: string): boolean {
  *       - If not, embed and insert into embeddings table
  *       - Upsert doc_chunks with new hash
  * 3. Delete orphaned chunks (in DB but not in incoming set)
+ * 4. Any incoming chunk — skipped ones included — whose content has no
+ *    embedding at the embedder's model and width gets one (replacing a row
+ *    left by another generation).
  */
 export async function reconcileChunks(
   db: Database,
@@ -130,28 +135,17 @@ export async function reconcileChunks(
     }
   }
 
-  // 4. Collect content hashes that need embeddings
+  // 4. Collect content hashes that need embeddings at this model/width
   const hashesToEmbed: string[] = [];
   const hashToContent = new Map<string, string>();
+  const changed = new Set<DocChunk>([...toInsert, ...toUpdate.map((u) => u.chunk)]);
 
-  for (const chunk of toInsert) {
-    if (!hasEmbedding(db, chunk.contentHash)) {
-      if (!hashToContent.has(chunk.contentHash)) {
-        hashesToEmbed.push(chunk.contentHash);
-        hashToContent.set(chunk.contentHash, chunk.content);
-      }
-    } else {
-      report.embeddingsReused++;
-    }
-  }
-
-  for (const { chunk } of toUpdate) {
-    if (!hasEmbedding(db, chunk.contentHash)) {
-      if (!hashToContent.has(chunk.contentHash)) {
-        hashesToEmbed.push(chunk.contentHash);
-        hashToContent.set(chunk.contentHash, chunk.content);
-      }
-    } else {
+  for (const chunk of chunks) {
+    if (hashToContent.has(chunk.contentHash)) continue;
+    if (!hasCurrentEmbedding(db, chunk.contentHash, embedder)) {
+      hashesToEmbed.push(chunk.contentHash);
+      hashToContent.set(chunk.contentHash, chunk.content);
+    } else if (changed.has(chunk)) {
       report.embeddingsReused++;
     }
   }
@@ -166,15 +160,13 @@ export async function reconcileChunks(
 
   // 6. Execute DB operations
 
-  // Insert embeddings first (since chunks reference them via FK)
+  // Write embeddings first (since chunks reference them via FK). REPLACE
+  // overwrites a row another model/width left under the same content hash.
   for (let i = 0; i < hashesToEmbed.length; i++) {
-    const hash = hashesToEmbed[i];
-    const embedding = embeddings[i];
-    const bytes = float32ToBytes(embedding);
     execute(
       db,
-      "INSERT OR IGNORE INTO embeddings (content_hash, embedding) VALUES (?, ?)",
-      [hash, bytes]
+      "INSERT OR REPLACE INTO embeddings (content_hash, embedding, model, dimensions) VALUES (?, ?, ?, ?)",
+      [hashesToEmbed[i], float32ToBytes(embeddings[i]), embedder.model, embedder.dimensions]
     );
   }
 

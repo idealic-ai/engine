@@ -11,7 +11,7 @@ describe("getDbPath", () => {
   it("returns ENGINE_SEARCH_DB_PATH verbatim when set", () => {
     // The wrapper .sh owns the DB location and exports it; the CLI must not
     // re-derive the path or the two can silently disagree.
-    const wrapperPath = "/Users/x/.claude/cache/search-db/y/proj/sessions/.doc-search.db";
+    const wrapperPath = "/Users/x/.claude/cache/search-db/y/proj/sessions/.doc-search.local.db";
     process.env[ENV_KEY] = wrapperPath;
     expect(getDbPath()).toBe(wrapperPath);
   });
@@ -20,13 +20,13 @@ describe("getDbPath", () => {
     // Direct `tsx cli.ts` invocations bypass the wrapper, so the previous
     // behaviour has to remain intact.
     const resolved = getDbPath();
-    expect(resolved.endsWith(".doc-search.db")).toBe(true);
+    expect(resolved.endsWith(".doc-search.local.db")).toBe(true);
   });
 
   it("ignores an empty ENGINE_SEARCH_DB_PATH rather than returning an empty path", () => {
     process.env[ENV_KEY] = "";
     const resolved = getDbPath();
-    expect(resolved.endsWith(".doc-search.db")).toBe(true);
-    expect(resolved.length).toBeGreaterThan(".doc-search.db".length);
+    expect(resolved.endsWith(".doc-search.local.db")).toBe(true);
+    expect(resolved.length).toBeGreaterThan(".doc-search.local.db".length);
   });
 });

@@ -49,4 +49,4 @@ const chunks = queryAll<DocChunk>(db, "SELECT * FROM doc_chunks WHERE branch = ?
 
 ### 4. Schema Version Differs
 
-Doc-search has `SCHEMA_VERSION = 1`, session-search has `SCHEMA_VERSION = 2`. They are independent — don't assume they match. Each tool manages its own database file.
+Doc-search has `SCHEMA_VERSION = 2`, session-search has `SCHEMA_VERSION = 3`. They are independent — don't assume they match. Each tool manages its own database file.

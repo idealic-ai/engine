@@ -1,7 +1,7 @@
 import path from "node:path";
 import { dbPathFromEnv } from "../../shared/db-path.js";
 
-export const DB_FILENAME = ".session-search.db";
+export const DB_FILENAME = ".session-search.local.db";
 
 /**
  * Namespace used to PREFIX SESSION PATHS IN SEARCH RESULTS, so results from

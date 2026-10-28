@@ -6,7 +6,7 @@ import { initDb, saveDb, queryAll, queryOne } from "./db.js";
 import { parseChunks, type DocChunk } from "./chunker.js";
 import { createEmbeddingClient } from "./embed.js";
 import { reconcileChunks, type IndexReport } from "./indexer.js";
-import { searchDocs, groupResultsByFile, type QueryFilters } from "./query.js";
+import { searchDocs, groupResultsByFile, countForeignEmbeddings, type QueryFilters } from "./query.js";
 import { parseTimeArg, toUnixMs } from "../../shared/parse-time-arg.js";
 import { acquireLock, releaseLock } from "./lock.js";
 import { getDbPath, getProjectRoot } from "./db-path.js";
@@ -75,8 +75,13 @@ TIME formats:
   2026-02-01             Absolute date (midnight UTC)
   2026-02-01T14:30:00Z   ISO datetime
 
-Environment:
-  GEMINI_API_KEY    Required for embedding (index and query)
+Embedding (local, no key, no network; tools/embed-local):
+  A running Ollama with the model pulled is required for index and query:
+    ollama pull embeddinggemma
+  ENGINE_EMBED_ENDPOINT    Runner URL (default: http://127.0.0.1:11434)
+  ENGINE_EMBED_MODEL       Model tag (default: embeddinggemma)
+  ENGINE_EMBED_DIMENSIONS  Vector width the model returns (default: 768)
+  ENGINE_EMBED_BATCH       Texts per embed request (default: 32)
 
 Project identification:
   Finds project root by looking for .claude/ directory (falls back to git root).
@@ -141,6 +146,7 @@ async function runIndex(customGlob?: string): Promise<void> {
     // Initialize DB and embedder
     const db = await initDb(DB_PATH);
     const embedder = createEmbeddingClient();
+    console.log(`Embedding with ${embedder.model} (${embedder.dimensions}-d, local)`);
 
     // Reconcile
     console.log("Reconciling with database...");
@@ -188,6 +194,9 @@ async function runStatus(): Promise<void> {
   // Get total counts
   const totalChunks = queryOne<{ count: number }>(db, "SELECT COUNT(*) as count FROM doc_chunks")?.count ?? 0;
   const totalEmbeddings = queryOne<{ count: number }>(db, "SELECT COUNT(*) as count FROM embeddings")?.count ?? 0;
+  const generations = queryAll<{ model: string; dimensions: number; count: number }>(db, `
+    SELECT model, dimensions, COUNT(*) as count FROM embeddings GROUP BY model, dimensions ORDER BY count DESC
+  `);
 
   // Get projects
   const projects = queryAll<{ project_name: string; chunk_count: number }>(db, `
@@ -217,6 +226,9 @@ async function runStatus(): Promise<void> {
   console.log("Global Statistics:");
   console.log(`  Total chunks:     ${totalChunks}`);
   console.log(`  Total embeddings: ${totalEmbeddings}`);
+  for (const g of generations) {
+    console.log(`    - ${g.model} (${g.dimensions}-d): ${g.count}`);
+  }
   console.log(`  Unique files:     ${filesCount}`);
   console.log(`  Projects:         ${projects.length}`);
   console.log();
@@ -252,6 +264,14 @@ async function runQuery(
 
   const db = await initDb(DB_PATH);
   const embedder = createEmbeddingClient();
+
+  const foreign = countForeignEmbeddings(db, embedder);
+  if (foreign > 0) {
+    console.error(
+      `[doc-search] ${foreign} embeddings were written by another model or width and are not ranked. ` +
+        `Run 'doc-search index' to re-embed them with ${embedder.model} (${embedder.dimensions}-d).`
+    );
+  }
 
   // Default to current branch unless --all-branches specified
   const effectiveFilters: QueryFilters = {

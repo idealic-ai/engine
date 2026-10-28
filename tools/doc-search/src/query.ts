@@ -86,9 +86,10 @@ export async function searchDocs(
   // 1. Embed the query
   const queryEmbedding = await embedder.embedSingle(queryText);
 
-  // 2. Build filter clauses for doc_chunks
-  const whereClauses: string[] = [];
-  const params: SqlValue[] = [];
+  // 2. Build filter clauses for doc_chunks. Rank only embeddings of the
+  // query's own model and width; another generation's rows are not comparable.
+  const whereClauses: string[] = ["e.model = ?", "e.dimensions = ?"];
+  const params: SqlValue[] = [embedder.model, embedder.dimensions];
 
   // Project filter (unless --all-projects)
   if (!filters.allProjects) {
@@ -112,9 +113,7 @@ export async function searchDocs(
     params.push(filters.until);
   }
 
-  const filterClause = whereClauses.length > 0
-    ? "WHERE " + whereClauses.join(" AND ")
-    : "";
+  const filterClause = "WHERE " + whereClauses.join(" AND ");
 
   // 3. Get all matching chunks with their embeddings
   const sql = `
@@ -159,4 +158,20 @@ export async function searchDocs(
   // 5. Sort by distance (ascending) and limit
   results.sort((a, b) => a.distance - b.distance);
   return results.slice(0, limit);
+}
+
+/**
+ * Embedding rows a query with this model and width will NOT rank — left by an
+ * earlier generation, waiting for the next index run to replace them.
+ */
+export function countForeignEmbeddings(
+  db: Database,
+  generation: { model: string; dimensions: number }
+): number {
+  const row = queryAll<{ count: number }>(
+    db,
+    "SELECT COUNT(*) as count FROM embeddings WHERE model != ? OR dimensions != ?",
+    [generation.model, generation.dimensions]
+  )[0];
+  return row?.count ?? 0;
 }

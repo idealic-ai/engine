@@ -28,7 +28,7 @@ npx vitest run src/__tests__/chunker.test.ts
 
 ## 3. Coverage Gaps
 
-Doc-search shares architecture with session-search (both use sql.js + Gemini embeddings). The following are untested and should follow session-search test patterns:
+Doc-search shares architecture with session-search (both use sql.js + local embeddings from tools/embed-local). The following are untested and should follow session-search test patterns:
 
 *   **Database layer** (`db.ts`) — async `initDb()`, schema creation (`doc_chunks` + `embeddings` tables), schema versioning
 *   **Indexer** — file discovery, chunking pipeline, deduplication
@@ -81,7 +81,7 @@ async function setupDb(): Promise<{ db: Database; dbPath: string }> {
 
 ## 6. Conventions
 
-*   **No `$GEMINI_API_KEY` in tests**: All API calls mocked. Tests must run offline.
+*   **No live Ollama in tests**: the embedder is a mock `EmbeddingClient` (with `model` + `dimensions`), or `createEmbeddingClient({ fetchImpl })`. Tests must run offline.
 *   **Chunk content assertions**: Use `toContain` for content matching — exact string matching is brittle with whitespace normalization.
 *   **sql.js WASM**: Vitest handles this natively — no special config needed.
 *   **ESM imports**: Use `.js` extensions in imports (`../chunker.js`, not `../chunker`). The project uses `"type": "module"`.

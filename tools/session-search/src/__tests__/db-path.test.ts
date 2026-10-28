@@ -12,7 +12,7 @@ describe("resolveDbPath", () => {
   it("returns ENGINE_SEARCH_DB_PATH verbatim when set", () => {
     // The wrapper .sh is the single source of truth for the DB location; the
     // CLI must not second-guess it or re-derive the path.
-    const wrapperPath = "/Users/x/.claude/cache/search-db/y/proj/sessions/.session-search.db";
+    const wrapperPath = "/Users/x/.claude/cache/search-db/y/proj/sessions/.session-search.local.db";
     process.env[ENV_KEY] = wrapperPath;
     expect(resolveDbPath("/anywhere/else/sessions")).toBe(wrapperPath);
   });
@@ -22,7 +22,7 @@ describe("resolveDbPath", () => {
     // bypass the wrapper and therefore never get the env var.
     const sessionsDir = "/anywhere/else/sessions";
     expect(resolveDbPath(sessionsDir)).toBe(
-      path.join(sessionsDir, ".session-search.db"),
+      path.join(sessionsDir, ".session-search.local.db"),
     );
   });
 
@@ -30,7 +30,7 @@ describe("resolveDbPath", () => {
     process.env[ENV_KEY] = "";
     const sessionsDir = "/anywhere/else/sessions";
     expect(resolveDbPath(sessionsDir)).toBe(
-      path.join(sessionsDir, ".session-search.db"),
+      path.join(sessionsDir, ".session-search.local.db"),
     );
   });
 });

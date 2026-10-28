@@ -9,6 +9,7 @@ import {
   groupResultsBySession,
   groupResultsByFile,
   buildFilterClauses,
+  countForeignEmbeddings,
   type SearchResult,
   type QueryFilters,
 } from "../query.js";
@@ -22,11 +23,13 @@ function makeTmpDbPath(): string {
   );
 }
 
-function makeMockEmbedder(): EmbeddingClient {
+function makeMockEmbedder(model = "embeddinggemma", dimensions = 768): EmbeddingClient {
   return {
+    model,
+    dimensions,
     async embedTexts(texts: string[]): Promise<Float32Array[]> {
       return texts.map((t) => {
-        const arr = new Float32Array(3072);
+        const arr = new Float32Array(dimensions);
         for (let i = 0; i < arr.length; i++) {
           arr[i] = (t.length + i) / 10000;
         }
@@ -34,7 +37,7 @@ function makeMockEmbedder(): EmbeddingClient {
       });
     },
     async embedSingle(text: string): Promise<Float32Array> {
-      const arr = new Float32Array(3072);
+      const arr = new Float32Array(dimensions);
       for (let i = 0; i < arr.length; i++) {
         arr[i] = (text.length + i) / 10000;
       }
@@ -328,6 +331,31 @@ describe("query", () => {
         snippet: expect.any(String),
       });
 
+      db.close();
+    });
+
+    it("ranks only rows of the query's own model and width, and counts the rest as foreign", async () => {
+      const { db, dbPath } = await setupDb();
+      const mk = (title: string, hash: string): Chunk => ({
+        sessionPath: "sessions/2026_02_04_TEST",
+        sessionDate: "2026-02-04",
+        filePath: `sessions/2026_02_04_TEST/${title}.md`,
+        sectionTitle: title,
+        content: `Content of ${title}.`,
+        contentHash: hash,
+      });
+      const current = makeMockEmbedder();
+      await reconcileChunks(db, dbPath, [mk("Old", "h_old"), mk("New", "h_new")], current, { log: () => {} });
+      // Turn "Old" into a row left by an earlier 16-wide generation.
+      db.run(
+        "UPDATE embeddings SET model = 'old-model', dimensions = 16, embedding = ? WHERE chunk_id = (SELECT id FROM chunks WHERE section_title = 'Old')",
+        [new Uint8Array(16 * 4)]
+      );
+
+      const results = await searchChunks(db, "anything", current, {}, 10);
+
+      expect(results.map((r) => r.sectionTitle)).toEqual(["New"]);
+      expect(countForeignEmbeddings(db, current)).toBe(1);
       db.close();
     });
   });
