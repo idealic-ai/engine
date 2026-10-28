@@ -81,6 +81,31 @@ else
   no "P4  in-pr demands a PR number" "missing rc=$r1 [$o1] abc rc=$r2 zero rc=$r3"
 fi
 
+o5="$(run --claim-state "$ME" IDE-201 in-pr 0482 2>&1)"; r5=$?
+if [ "$r5" -eq 1 ] && printf '%s' "$o5" | grep -q 'no leading zeros' && [ "$before" = "$(cat "$MF")" ]; then
+  ok "P4b in-pr 0482 is refused (exit 1) with a message that names the leading zero, and the file is untouched"
+else
+  no "P4b 0482 refused and says why" "rc=$r5 [$o5]"
+fi
+
+# The stored spelling `in-pr:<x>` given as the state must pass the same PR check, and must not be a
+# way to write the claim separators into the shared line.
+o6="$(run --claim-state "$ME" IDE-201 'in-pr:4x2' 2>&1)"; r6=$?
+o7="$(run --claim-state "$ME" IDE-201 'in-pr:1,EVIL|working|2020-01-01T00:00:00Z' 2>&1)"; r7=$?
+o8="$(run --claim-state "$ME" IDE-201 'in-pr:0482' 2>&1)"; r8=$?
+if [ "$r6" -eq 1 ] && [ "$r7" -eq 1 ] && [ "$r8" -eq 1 ] && [ "$before" = "$(cat "$MF")" ] && ! grep -q 'EVIL' "$MF"; then
+  ok "P4c the stored form as a state — in-pr:4x2, in-pr:0482 and the injection 'in-pr:1,EVIL|working|…' — is refused (exit 1) and the file is byte-identical"
+else
+  no "P4c stored-form bypass" "4x2 rc=$r6 [$o6] inject rc=$r7 [$o7] 0482 rc=$r8; file: $(grep claims= "$MF")"
+fi
+run --claim-state "$ME" IDE-201 'in-pr:640' >/dev/null 2>&1; r9=$?
+if [ "$r9" -eq 0 ] && grep -q '^claims=IDE-201|in-pr:640|' "$MF"; then
+  ok "P4d a well-formed stored form in-pr:640 is accepted and stored as given"
+else
+  no "P4d in-pr:640 accepted" "rc=$r9 file: $(grep claims= "$MF")"
+fi
+before="$(cat "$MF")"
+
 o4="$(run --claim-state "$ME" NOT-CLAIMED in-pr 9 2>&1)"; r4=$?
 if [ "$r4" -eq 1 ] && [ "$before" = "$(cat "$MF")" ]; then
   ok "P5  in-pr on an item that is not claimed is refused (exit 1), like the other states"
@@ -88,11 +113,12 @@ else
   no "P5  in-pr on an unclaimed item" "rc=$r4 [$o4]"
 fi
 
+had=0; grep -q '^claims=IDE-201|in-pr:[0-9]*|' "$MF" && had=1
 run --claim-state "$ME" IDE-201 landed >/dev/null 2>&1; rc=$?
-if [ "$rc" -eq 0 ] && grep -qx 'claims=' "$MF"; then
+if [ "$had" = 1 ] && [ "$rc" -eq 0 ] && grep -qx 'claims=' "$MF"; then
   ok "P6  landed removes an in-pr claim"
 else
-  no "P6  landed removes in-pr" "rc=$rc file: $(grep claims= "$MF")"
+  no "P6  landed removes in-pr" "had-in-pr=$had rc=$rc file: $(grep claims= "$MF")"
 fi
 
 printf '\n== Overlap wording ==\n'
@@ -120,11 +146,21 @@ fi
 
 run --claim "$ME" IDE-401 >/dev/null 2>&1
 run --claim-state "$ME" IDE-401 in-pr 600 >/dev/null 2>&1
+had=0; grep -q 'IDE-401|in-pr:600|' "$MF" && had=1
 run --quiet --dispatching IDE-401 --self "$ME" >/dev/null 2>&1; rc=$?
-if [ "$rc" -eq 0 ]; then
+if [ "$had" = 1 ] && [ "$rc" -eq 0 ]; then
   ok "O3  a loom's own in-pr claim does not count as an overlap against itself (exit 0)"
 else
-  no "O3  own in-pr claim is not an overlap" "rc=$rc"
+  no "O3  own in-pr claim is not an overlap" "had-in-pr=$had rc=$rc"
+fi
+
+run --claim "$OTHER" IDE-303 >/dev/null 2>&1
+err="$(run --quiet --dispatching IDE-303 --self "$ME" 2>&1 >/dev/null)"; rc=$?
+if [ "$rc" -eq 4 ] && grep -q 'IDE-303|working|' "$OF" && printf '%s' "$err" | grep -q 'in flight' \
+   && ! printf '%s' "$err" | grep -q 'uncommitted at risk' && ! printf '%s' "$err" | grep -q 'in review'; then
+  ok "O4  a working overlap exits 4 and names the collision ('in flight'), not 'uncommitted at risk' or 'in review'"
+else
+  no "O4  working overlap wording" "rc=$rc err=[$err]"
 fi
 
 printf '\n== in-pr survives heartbeat and a stale row ==\n'
@@ -174,6 +210,31 @@ if printf '%s' "$notes" | grep -q 'RUNNER_LOOM' \
   ok "N1  --self prints every note= line from another loom's slot file, after --heartbeat, under its loom's name"
 else
   no "N1  note= lines reach the report" "notes=[$notes]"
+fi
+
+if printf '%s' "$notes" | grep -q 'RUNNER_LOOM \[fresh\]: interim'; then
+  ok "N1b a note on a fresh row is labelled [fresh]"
+else
+  no "N1b fresh label on notes" "notes=[$notes]"
+fi
+
+# A stale row's note is labelled stale; a hand-named duplicate of that row carrying the same note
+# prints it once; a duplicate carrying a different note prints it, marked as the duplicate's.
+reset
+mk_loom "tmp-sessions-RUNNER_LOOM" "$OTHER" 4 "" "$(iso_ago 400)"
+printf 'note=OLD: do not dispatch into apps/api\n' >> "$OF"
+touch -t "$(date -v-7H +%Y%m%d%H%M 2>/dev/null || date -d '-7 hours' +%Y%m%d%H%M)" "$OF"
+printf 'sessionDir=%s\ncap=4\nliveLanes=\nheartbeat=%s\nnote=OLD: do not dispatch into apps/api\nnote=DUPONLY marker\n' "$OTHER" "$(iso_ago 500)" > "$SB/Hand_Named_RUNNER.slots"
+touch -t "$(date -v-9H +%Y%m%d%H%M 2>/dev/null || date -d '-9 hours' +%Y%m%d%H%M)" "$SB/Hand_Named_RUNNER.slots"
+mk_loom "tmp-sessions-DOMAIN_LOOM" "$ME" 4 "L1" "$(iso_ago 1)"
+out="$(run --self "$ME" 2>&1)"
+notes="$(printf '%s\n' "$out" | sed -n '/== Notes/,$p')"
+nold="$(printf '%s\n' "$notes" | grep -c 'OLD: do not dispatch')"
+if [ "$nold" = 1 ] && printf '%s' "$notes" | grep 'OLD: do not dispatch' | grep -q 'stale(' \
+   && printf '%s' "$notes" | grep 'DUPONLY' | grep -q 'duplicate row'; then
+  ok "N3  a stale row's note is labelled stale(...), a duplicate row's copy of it prints once, and a note only the duplicate carries is marked 'duplicate row'"
+else
+  no "N3  stale label and duplicate dedupe" "OLD count=$nold notes=[$notes]"
 fi
 
 reset
