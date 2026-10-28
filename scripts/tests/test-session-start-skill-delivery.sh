@@ -400,6 +400,26 @@ test_standards_preloaded_on_clear() {
   assert_contains "CMD_CONTINUE_ON_STOP content" "$output" "clear source → CMD_CONTINUE_ON_STOP preloaded"
 }
 
+# --- Test 9b: The print loop and get_session_start_seeds name the same set ---
+# The hook prints its standards from a literal list, and lib.sh's get_session_start_seeds
+# records the set as delivered from another. A file printed but not recorded is re-delivered
+# by PostToolUse dedup; a file recorded but not printed is suppressed for good
+# (¶PTF_PENDING_PRELOADS_STALE). Every member exists here, so the loop's [ -f ] skip and the
+# PITFALLS guard cannot hide a difference.
+test_standards_print_loop_matches_seed_list() {
+  echo "# VOICE content" > "$FAKE_HOME/.claude/.directives/VOICE.md"
+  echo "# PITFALLS content" > "$FAKE_HOME/.claude/.directives/PITFALLS.md"
+  local output printed seeds
+  output=$(run_hook "clear") || true
+
+  printed=$(printf '%s\n' "$output" | sed -n 's/^\[Preloaded: \(.*\/\.directives\/.*\)\]$/\1/p' \
+    | while IFS= read -r p; do echo "$(cd "$(dirname "$p")" && pwd -P)/$(basename "$p")"; done | sort)
+  seeds=$(source "$HOME/.claude/scripts/lib.sh" && get_session_start_seeds | jq -r '.[]' | sort)
+
+  assert_not_empty "$printed" "print loop emitted standards headers"
+  assert_eq "$seeds" "$printed" "print loop set == get_session_start_seeds set"
+}
+
 # --- Test 10: Multiple skill deps are all delivered ---
 test_multiple_phase0_cmds_delivered() {
   create_test_skill "implement"
@@ -1113,6 +1133,7 @@ run_test test_skill_deps_tracked_in_seed_file
 run_test test_skill_deps_only_when_active_session
 run_test test_session_context_line_included
 run_test test_standards_preloaded_on_clear
+run_test test_standards_print_loop_matches_seed_list
 run_test test_multiple_phase0_cmds_delivered
 run_test test_fleet_match_correct_session_selected
 run_test test_fleet_match_resuming_lifecycle

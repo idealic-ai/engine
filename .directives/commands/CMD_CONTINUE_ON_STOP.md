@@ -15,7 +15,7 @@
 5.  **Or stop, in one line.** If there is genuinely nothing to advance and nothing to ask, say so in one line and stop.
 
 **Constraints**:
-*   **Never quote the hook's counter text in this file.** The hook recognises its own earlier wakes by a fragment of that counter line. This atom is delivered into the transcript after your first tool call on a wake, so a copy of the fragment here would be read as a newer wake, and a wake that did real work would be taken for an idle one.
+*   **Never quote the hook's counter text in this file.** The hook recognises its own earlier wakes by a fragment of that counter line. This atom is preloaded at SessionStart, and in a session that was not seeded the Stop hook's fallback delivers it into the transcript after your first tool call on a wake. Either way it sits in the transcript the hook reads, so a copy of the fragment here would be read as a newer wake, and a wake that did real work would be taken for an idle one.
 *   **Do not manufacture work.** An auto-continue is permission to advance known work, not a demand to find some. Step 5 is a correct outcome, not a failure.
 *   **A one-line stop ends the series.** The hook reads your turn back: a wake after which you made no tool call is taken as "nothing to advance", and the hook backs off and resets its counter rather than asking again. So do not pad an empty wake with a busy-work tool call — that is what keeps the series going.
 *   **Never hand-roll the ask.** A pending question goes to `/interrogate` or `/decide` per step 4, never to an inline `AskUserQuestion` round, in or out of a loom.
