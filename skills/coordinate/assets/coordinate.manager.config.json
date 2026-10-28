@@ -40,7 +40,7 @@
     "probeMessage": "Before I decide, can you briefly explain what led to this question and what you'd recommend?"
   },
   "hop": {
-    "parent": "the seat's live @pane_parent; FLEET_PARENT is a cross-check only (hop.sh target exits 5 on a disagreement)",
+    "parent": "the seat's live @pane_parent, which always wins; FLEET_PARENT is a launch-time cache, noted on stderr when unset or stale (hop.sh target exits 5 only when the live edge cannot be read or is malformed)",
     "noParent": "operator",
     "chainFile": "hop-chain.txt in the session directory, written by hop.sh chain at Setup",
     "carrier": "an /ask file, per /ask — a pass-up changes only its to: field; floor and reserved items carry reserved-for: operator",

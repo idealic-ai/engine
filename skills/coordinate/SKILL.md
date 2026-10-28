@@ -67,7 +67,7 @@ bash $H chain > [sessionDir]/hop-chain.txt || echo "chain exit $?"   # must be 0
 bash $H target --config [sessionDir]/coordinate.config.json --chain-file [sessionDir]/hop-chain.txt
 ```
 *   `chain` records this seat's ancestry from the live tree. When a parent's pane later dies, its own `@pane_parent` dies with it, and only this record still knows the next rung. **Check its exit.** A non-zero exit (2: no identity; 4: the tree is unreadable; 5: a rung is already missing or the chain loops) leaves a **partial** file, and a later `target` would skip a live ancestor because of it. STOP at Setup as for `target` exit 2, and name the rung that is missing.
-*   `target` reads this seat's **live** `@pane_parent`. `FLEET_PARENT` (exported once by run.sh at launch) is used only as a cross-check. `@pane_manager` is not read. The exit codes:
+*   `target` reads this seat's **live** `@pane_parent`, and a readable live edge always wins. `FLEET_PARENT` is exported once by run.sh at launch, so after a reparent it is stale: when it is unset or disagrees, `target` notes it on stderr and uses the live edge. `@pane_manager` is not read. The exit codes:
 
 | exit | stdout | meaning | do this |
 |------|--------|---------|---------|
@@ -75,7 +75,7 @@ bash $H target --config [sessionDir]/coordinate.config.json --chain-file [sessio
 | 3 | a target | a dead rung was skipped using the chain record; a dead top gives `operator` | use it, and copy the stderr reason into the `sent` row |
 | 2 | — | config missing or unparseable, `hop.parentFrom` set, or no identity for this seat | Setup: STOP and fix it. In the loop: Step 5c, reason `broken hop: <stderr>` |
 | 4 | — | the live tree could not be read | as for exit 2 |
-| 5 | — | the edge is wrong: FLEET_PARENT disagrees with the live edge, is unset while the live edge is set, or names this seat or `operator` | as for exit 2. Name both values to the human |
+| 5 | — | the live edge cannot be used: this seat is not in the live tree (FLEET_PARENT alone is never trusted), or the live edge names this seat or `operator` | as for exit 2. Name both values to the human |
 
 *   A route to the operator is either `operator` printed on stdout or a Step 5c with a stated reason. It is never a silent fallback.
 *   Show the result, for example `> **Pass-ups go to:** manager:director (%114)` or `> **Pass-ups go to:** the operator (no parent)`.

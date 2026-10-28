@@ -9,7 +9,8 @@
 #
 #   hop.sh target [--of SEAT] [--self SEAT] [--config F] [--chain-file F]
 #       Print where a pass-up goes: "<window:label> <pane_id>", or "operator".
-#       Without --of: this seat's LIVE @pane_parent (FLEET_PARENT is a cross-check only).
+#       Without --of: this seat's LIVE @pane_parent. FLEET_PARENT is a launch-time cache: unset
+#       or disagreeing, it draws a note on stderr and the live parent is used.
 #       With --of: SEAT's parent (one level further up, for a deliberate re-pass).
 #       exit 0  target on stdout.
 #       exit 3  target on stdout, but a dead rung was skipped (its parent read from the chain
@@ -17,9 +18,9 @@
 #       exit 2  usage or config error (missing/unparseable config, bad hop.parentFrom,
 #               no identity for this seat). Nothing on stdout.
 #       exit 4  live tree unreadable. Nothing on stdout.
-#       exit 5  the edge is wrong: FLEET_PARENT disagrees with the live @pane_parent, is unset
-#               while the live one is set, names this seat or "operator", or this seat is not
-#               in the live tree. Nothing on stdout.
+#       exit 5  the live edge cannot be used: this seat is not in the live tree (FLEET_PARENT
+#               would be the only source, and it is never used alone), or the live parent names
+#               this seat or "operator". Nothing on stdout.
 #
 #   hop.sh chain [--self SEAT]
 #       Print this seat's ancestry from the live tree, one "<seat> <pane> <parent|->" line per
@@ -177,14 +178,17 @@ cmd_target() {
   local self live env
   self=$(resolve_self "$self_arg") || exit $?
   live=$(col_of "$tree" "$self" 3)
-  [ -n "$live" ] || die 5 "this seat '$self' is not in the live tree — cannot read its edge"
-  [ "$live" = "-" ] && live=""
   env="${FLEET_PARENT:-}"
+  # The live edge cannot be read: FLEET_PARENT would be the only source, and it is a launch-time
+  # cache, so it is not trusted alone.
+  [ -n "$live" ] || die 5 "this seat '$self' is not in the live tree — cannot read its edge (FLEET_PARENT='${env:-unset}' is not used alone)"
+  [ "$live" = "-" ] && live=""
+  # A readable live edge always wins. run.sh caches FLEET_PARENT at launch, so a seat reparented
+  # since then disagrees with it (stats: FLEET_PARENT=manager:director, live manager:domain).
   if [ -n "$env" ] && [ "$env" != "$live" ]; then
-    die 5 "edge disagreement: FLEET_PARENT='$env' but the live @pane_parent of '$self' is '${live:-none}'"
-  fi
-  if [ -z "$env" ] && [ -n "$live" ]; then
-    die 5 "FLEET_PARENT is unset but the live @pane_parent of '$self' is '$live' — refusing to fall back to the operator"
+    echo "hop: FLEET_PARENT '$env' is stale; using the live @pane_parent '${live:-none}' of '$self'" >&2
+  elif [ -z "$env" ] && [ -n "$live" ]; then
+    echo "hop: FLEET_PARENT unset; using live @pane_parent '$live'" >&2
   fi
   [ "$live" = "$self" ] && die 5 "the parent of '$self' is itself"
   [ "$live" = "operator" ] && die 5 "'operator' is not a seat; a seat with no parent reaches the operator by having no @pane_parent"

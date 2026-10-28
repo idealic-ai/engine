@@ -2,7 +2,7 @@
 # test-coordinate-hop.sh — Tests for skills/coordinate/scripts/hop.sh, its configs and the
 # protocol text that depends on them. All against fixtures (no live tmux, no live fleet).
 #
-#   target   — the live @pane_parent decides; FLEET_PARENT only cross-checks; broken config,
+#   target   — the live @pane_parent decides; a stale or unset FLEET_PARENT is noted, never obeyed; broken config,
 #              missing identity and a wrong edge fail loudly; a dead rung is skipped one level
 #              up via the chain record (exit 3, target still printed).
 #   may-rule — required --class/--floor/--raised-by/--config; uppercase classes only; own
@@ -80,17 +80,35 @@ test_target_live_parent_with_matching_env() {
     "target: live parent, FLEET_PARENT agrees → the parent's pane"
 }
 
-test_target_unset_env_on_parented_seat_refuses() {
+test_target_unset_env_on_parented_seat_uses_the_live_parent() {
   local err
-  assert_eq "5|" "$(run_hop FLEET_PANE=manager:idealic bash "$HOP_SH" target)" \
-    "target: FLEET_PARENT unset but live @pane_parent set → exit 5, no target (M1)"
-  err=$(hop FLEET_PANE=manager:idealic bash "$HOP_SH" target 2>&1 >/dev/null)
-  assert_has "refusing to fall back" "$err" "target: says why it refused"
+  assert_eq "0|manager:director %114" "$(run_hop FLEET_PANE=manager:idealic bash "$HOP_SH" target)" \
+    "target: FLEET_PARENT unset, live @pane_parent set → the live parent (absent cross-check never blocks)"
+  assert_eq "0|manager:idealic %121" "$(run_hop FLEET_PANE=idealic:kernel bash "$HOP_SH" target)" \
+    "target: kernel with FLEET_PARENT unset → manager:idealic"
+  err=$(hop FLEET_PANE=idealic:kernel bash "$HOP_SH" target 2>&1 >/dev/null)
+  assert_has "FLEET_PARENT unset; using live @pane_parent 'manager:idealic'" "$err" "target: notes the unset cross-check"
 }
 
-test_target_env_disagreeing_with_live_refuses() {
-  assert_eq "5|" "$(run_hop FLEET_PANE=manager:idealic FLEET_PARENT=manager:domain bash "$HOP_SH" target)" \
-    "target: FLEET_PARENT disagrees with the live edge → exit 5"
+test_target_stale_env_loses_to_the_live_parent() {
+  local err
+  assert_eq "0|manager:director %114" "$(run_hop FLEET_PANE=manager:idealic FLEET_PARENT=manager:domain bash "$HOP_SH" target)" \
+    "target: FLEET_PARENT disagrees with the live edge → the live parent wins"
+  assert_eq "0|manager:idealic %121" "$(run_hop FLEET_PANE=idealic:kernel FLEET_PARENT=manager:director bash "$HOP_SH" target)" \
+    "target: a reparented seat's stale FLEET_PARENT → the live parent"
+  err=$(hop FLEET_PANE=idealic:kernel FLEET_PARENT=manager:director bash "$HOP_SH" target 2>&1 >/dev/null)
+  assert_has "FLEET_PARENT 'manager:director' is stale; using the live @pane_parent 'manager:idealic'" "$err" \
+    "target: names both values on stderr"
+  assert_eq "0|operator" "$(run_hop FLEET_PANE=manager:director FLEET_PARENT=manager:ghost bash "$HOP_SH" target)" \
+    "target: a live 'no parent' also beats a stale FLEET_PARENT → operator"
+}
+
+test_target_unreadable_live_edge_never_trusts_env_alone() {
+  local err
+  assert_eq "5|" "$(run_hop FLEET_PANE=nowhere:seat FLEET_PARENT=manager:director bash "$HOP_SH" target)" \
+    "target: seat not in the live tree, FLEET_PARENT the only source → exit 5, no target"
+  err=$(hop FLEET_PANE=nowhere:seat FLEET_PARENT=manager:director bash "$HOP_SH" target 2>&1 >/dev/null)
+  assert_has "is not used alone" "$err" "target: says FLEET_PARENT is not trusted alone"
 }
 
 test_target_parent_is_self_or_operator_refuses() {
