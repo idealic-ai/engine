@@ -11,6 +11,10 @@ set -euo pipefail
 source "$(dirname "$0")/test-helpers.sh"
 
 REAL_HOOK="${STOP_HOOK_UNDER_TEST:-$HOME/.claude/engine/hooks/stop-auto-continue.sh}"
+# The atom the reason cites, read from the same tree as the hook under test.
+ENGINE_UNDER_TEST="${STOP_ENGINE_UNDER_TEST:-$(cd "$(dirname "$REAL_HOOK")/.." && pwd)}"
+ATOM_FILE="$ENGINE_UNDER_TEST/.directives/commands/CMD_CONTINUE_ON_STOP.md"
+COMMANDS_FILE="$ENGINE_UNDER_TEST/.directives/COMMANDS.md"
 
 setup() {
   setup_test_env "test_stop_ac"
@@ -229,11 +233,14 @@ run_test test_backoff_anchors_on_last_injection
 # loom forbids for /interrogate and which cost this programme a fork left unasked for
 # hours. So the wake must route BOTH ways by the boundary the skills themselves declare:
 # gathers information -> /interrogate, unblocks work -> /decide.
+# The full guidance moved out of the reason into §CMD_CONTINUE_ON_STOP, so the arm now
+# asserts it twice: the two-line reason still names both routes, and the atom it cites
+# still carries every clause the long reason used to, unweakened.
 test_prompt_routes_questions_to_their_skill() {
   write_state
   echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
   local out; out=$(run_hook)
-  if [[ "$out" == *"/interrogate"* ]] && [[ "$out" == *"/decide"* ]] && [[ "$out" == *"do NOT hand-roll"* ]]; then
+  if [[ "$out" == *"/interrogate"* ]] && [[ "$out" == *"/decide"* ]] && [[ "$out" == *"never a hand-rolled ask"* ]]; then
     pass "ASK-01: the wake routes a pending question to /interrogate or /decide, never a hand-rolled ask"
   else
     fail "ASK-01: the wake routes a pending question to /interrogate or /decide, never a hand-rolled ask" \
@@ -241,5 +248,99 @@ test_prompt_routes_questions_to_their_skill() {
   fi
 }
 run_test test_prompt_routes_questions_to_their_skill
+
+test_atom_carries_the_whole_guidance() {
+  local atom; atom=$(cat "$ATOM_FILE" 2>/dev/null || true)
+  local missing="" clause
+  for clause in \
+    '### ¶CMD_CONTINUE_ON_STOP' \
+    '## PROOF FOR §CMD_CONTINUE_ON_STOP' \
+    'part-way through the sequence it named, carry on with its next step' \
+    '`🔓 Open claims`, `📚 Docs owed` or `🗳️ Boards`' \
+    'Otherwise invoke `/next`' \
+    'blocking-first' \
+    'do NOT hand-roll an `AskUserQuestion`' \
+    'GATHERS INFORMATION** is `/interrogate`' \
+    'UNBLOCKS WORK** — a decision only they can make — is `/decide`' \
+    'waiting on your answers' \
+    'which is the substitution a loom forbids' \
+    'Do not manufacture work' \
+    'say so in one line and stop'; do
+    [[ "$atom" == *"$clause"* ]] || missing="$missing [$clause]"
+  done
+  if [ -z "$missing" ]; then
+    pass "ATOM-01: CMD_CONTINUE_ON_STOP.md carries every clause the long reason carried"
+  else
+    fail "ATOM-01: CMD_CONTINUE_ON_STOP.md carries every clause the long reason carried" \
+      "all clauses present in $ATOM_FILE" "missing:$missing"
+  fi
+}
+run_test test_atom_carries_the_whole_guidance
+
+test_atom_is_registered() {
+  if grep -qF '### [¶CMD_CONTINUE_ON_STOP](commands/CMD_CONTINUE_ON_STOP.md)' "$COMMANDS_FILE"; then
+    pass "ATOM-02: COMMANDS.md registers the atom, so its summary rides the SessionStart preload"
+  else
+    fail "ATOM-02: COMMANDS.md registers the atom, so its summary rides the SessionStart preload" \
+      "a ### [¶CMD_CONTINUE_ON_STOP](commands/...) entry" "none in $COMMANDS_FILE"
+  fi
+}
+run_test test_atom_is_registered
+
+# ── The reason is short and cites the atom ──────────────────────────────────
+# The operator's ask: at most two lines, naming the §CMD_ atom the way the ticket-watch
+# gate names §CMD_DRAIN_TICKET_QUEUE_ON_WAKE. Line 2 is the counter suffix, whose
+# "auto-continues;" text Guard 3b reads back, so SHAPE-02 pins it to its own line.
+test_reason_is_two_lines_citing_atom() {
+  write_state
+  echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
+  local out reason lines
+  out=$(run_hook)
+  reason=$(printf '%s' "$out" | jq -r '.reason // empty' 2>/dev/null || true)
+  lines=$(printf '%s\n' "$reason" | wc -l | tr -d ' ')
+  if [ -n "$reason" ] && [ "$lines" -le 2 ] && [[ "$reason" == *'§CMD_CONTINUE_ON_STOP'* ]]; then
+    pass "SHAPE-01: the reason is at most 2 lines and cites §CMD_CONTINUE_ON_STOP"
+  else
+    fail "SHAPE-01: the reason is at most 2 lines and cites §CMD_CONTINUE_ON_STOP" \
+      "<=2 lines containing §CMD_CONTINUE_ON_STOP" "$lines line(s): $reason"
+  fi
+  local second; second=$(printf '%s\n' "$reason" | sed -n 2p)
+  if [[ "$second" == "(1 of 3 auto-continues; "* ]]; then
+    pass "SHAPE-02: line 2 is the intact counter suffix Guard 3b reads back"
+  else
+    fail "SHAPE-02: line 2 is the intact counter suffix Guard 3b reads back" \
+      "(1 of 3 auto-continues; ..." "$second"
+  fi
+}
+run_test test_reason_is_two_lines_citing_atom
+
+# ── The cited atom reaches the agent ────────────────────────────────────────
+# A cited atom that is not preloaded is a citation to nothing. The pair differs ONLY in
+# whether preloadedFiles already holds the atom: PRELOAD-01 queues it, PRELOAD-02 does
+# not re-queue it — so PRELOAD-01 cannot pass on a hook that queues blindly or not at all.
+ATOM_QUEUED_PATH='/.claude/.directives/commands/CMD_CONTINUE_ON_STOP.md'
+
+test_block_queues_atom_for_preload() {
+  write_state
+  echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
+  run_hook >/dev/null
+  local n; n=$(jq --arg s "$ATOM_QUEUED_PATH" '[.pendingPreloads // [] | .[] | select(endswith($s))] | length' "$TEST_SESSION/.state.json")
+  assert_eq "1" "$n" "PRELOAD-01: a block queues the cited atom into pendingPreloads"
+}
+run_test test_block_queues_atom_for_preload
+
+test_already_preloaded_atom_not_requeued() {
+  write_state " | .preloadedFiles = [\"$HOME$ATOM_QUEUED_PATH\"]"
+  echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
+  local out; out=$(run_hook)
+  local n; n=$(jq '[.pendingPreloads // [] | .[]] | length' "$TEST_SESSION/.state.json")
+  if [[ "$out" == *"block"* ]] && [ "$n" = "0" ]; then
+    pass "PRELOAD-02: an atom already in context is not queued again (and the hook still blocks)"
+  else
+    fail "PRELOAD-02: an atom already in context is not queued again (and the hook still blocks)" \
+      "a block and 0 pending" "pending=$n out=$out"
+  fi
+}
+run_test test_already_preloaded_atom_not_requeued
 
 exit_with_results

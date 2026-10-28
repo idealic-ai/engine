@@ -1,8 +1,8 @@
 #!/bin/bash
 # Stop hook: optionally continue the turn instead of stopping — loom-aware.
 #
-# Asks the agent to do the next thing it already knows about, or to invoke /next when it
-# does not. A live weave gets one extra line pointing at its own open rows. Default ON.
+# Hands the turn back with a two-line reason citing §CMD_CONTINUE_ON_STOP, which holds the
+# whole of what to do on a wake (and queues that atom for preload). Default ON.
 #
 # ⛔ A Stop hook that blocks is an infinite loop by default: the agent can never end a
 # turn and the only exit is killing the process. Three guards, and the toggle is the
@@ -112,22 +112,26 @@ case "$TAIL" in *AskUserQuestion*|*ExitPlanMode*)
   exit 0 ;;
 esac
 
-# ── Branch: a live weave gets its own cadences; a cold session gets /next. ──
-SKILL=$(read_state '.skill')
-PHASE=$(read_state '.currentPhase')
-
-if [ "$SKILL" = "loom" ] && [ "${PHASE#1}" != "$PHASE" ]; then
-  HINT=" In a live weave the next thing is usually an open row — \`🔓 Open claims\`, \`📚 Docs owed\` or \`🗳️ Boards\` in the log."
-else
-  HINT=""
-fi
-
-REASON="If you invoked \`/next\` recently and are part-way through the sequence it named, carry on with its next step.$HINT Otherwise invoke \`/next\`: it reads what state the work is actually in and runs the sequence that advances it, blocking-first. If what you would wait on is an answer from the user, do NOT hand-roll an \`AskUserQuestion\` — dispatch the skill that owns it, so a loom's rules apply: a question that GATHERS INFORMATION is \`/interrogate\`, and a fork that UNBLOCKS WORK — a decision only they can make — is \`/decide\`. Either beats stopping with \"waiting on your answers\", and either beats an inline round, which is the substitution a loom forbids. Do not manufacture work — if there is genuinely nothing to advance and nothing to ask, say so in one line and stop."
+# ── The reason: two lines that cite the atom. ──
+# The guidance itself — finish a /next sequence, a live weave's open rows, /next, route a
+# question to /interrogate or /decide, never manufacture work — lives in
+# .directives/commands/CMD_CONTINUE_ON_STOP.md, so this hook and its readers say it once.
+# Line 2 is the counter suffix; Guard 3b above finds our own injection by its
+# "auto-continues;" text, so that wording is load-bearing.
+ATOM="$HOME/.claude/.directives/commands/CMD_CONTINUE_ON_STOP.md"
+REASON="Follow \`§CMD_CONTINUE_ON_STOP\`: carry on the \`/next\` sequence you are in, else invoke \`/next\`; route a question for the user to \`/interrogate\` or \`/decide\`, never a hand-rolled ask; if nothing is left, say so in one line and stop."
 
 NEW=$((COUNT + 1))
 jq ".autoContinueCount = $NEW" "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
 
-jq -n --arg r "$REASON ($NEW of $MAX auto-continues; set \`autoContinue: false\` in .state.json, or the loom Auto-continue disposition to off, to stop.)" \
+# A cited atom that never reaches the agent is a citation to nothing. Queue it through the
+# preload pipeline, the same path phase commands take: the preload guard rule delivers it in
+# full on the agent's next tool call, and preloadedFiles dedup keeps that to once per context.
+# COMMANDS.md, which SessionStart injects, carries its summary for a wake that makes no call.
+preload_ensure "$ATOM" "stop-auto-continue" "next" >/dev/null 2>&1 || true
+
+jq -n --arg r "$REASON
+($NEW of $MAX auto-continues; set \`autoContinue: false\` in .state.json, or the loom Auto-continue disposition to off, to stop.)" \
   '{decision: "block", reason: $r}' 2>/dev/null || true
 
 exit 0
