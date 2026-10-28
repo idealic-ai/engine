@@ -67,7 +67,10 @@ export PROVE_S3_REGION=us-east-9
 export PROVE_S3_EVENTS_PREFIX=events
 export PROVE_S3_STATE_PREFIX=state
 export PROVE_SYNC_LOCK_DIR="$tmp/locks"
-unset PROVE_S3_PROFILE PROVE_S3_ENDPOINT AWS_ENDPOINT_URL
+# `aws` is the resolver's own sentinel for "no endpoint": without it a manifest default could aim
+# every case below at a real local store.
+export PROVE_S3_ENDPOINT=aws
+unset PROVE_S3_PROFILE PROVE_S3_PUBLIC_BASE AWS_ENDPOINT_URL
 shimPATH="$tmp/bin:$PATH"
 
 echo "== a listing that fails is a failure, not an empty inbox =="
@@ -81,14 +84,14 @@ else no "…and the sentence names the store and the error" "$(cat "$tmp/a.err")
 
 echo "== the nearest legal neighbour: an empty inbox is still 'folded 0', exit 0 =="
 PATH="$shimPATH" SHIM_LIST=empty "$sync" doc-b >"$tmp/b.out" 2>"$tmp/b.err"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q "^prove-sync: folded 0 event(s) into state/doc-b.json$" "$tmp/b.out"; then
+if [ "$rc" -eq 0 ] && grep -Eq "^prove-sync: folded 0 event\(s\) into (proofs/)?state/doc-b\.json$" "$tmp/b.out"; then
   ok "empty inbox: exit 0 and the summary line callers parse, unchanged"
 else no "empty inbox: exit 0 + unchanged summary" "rc=$rc out=$(cat "$tmp/b.out") err=$(cat "$tmp/b.err")"; fi
 
 echo "== per-event progress, and stdout stays one parseable line =="
 printf 'events/doc-c/1-aa.json\nevents/doc-c/2-bb.json\nevents/doc-c/.grant-probe.json\n' > "$tmp/keys"
 PATH="$shimPATH" SHIM_LIST=keys SHIM_KEYS="$tmp/keys" SHIM_APPENDED="$tmp/c.appended" "$sync" doc-c >"$tmp/c.out" 2>"$tmp/c.err"; rc=$?
-if [ "$rc" -eq 0 ] && [ "$(wc -l < "$tmp/c.out" | tr -d ' ')" = 1 ] && grep -q "^prove-sync: folded 2 event(s) into state/doc-c.json" "$tmp/c.out"; then
+if [ "$rc" -eq 0 ] && [ "$(wc -l < "$tmp/c.out" | tr -d ' ')" = 1 ] && grep -Eq "^prove-sync: folded 2 event\(s\) into (proofs/)?state/doc-c\.json" "$tmp/c.out"; then
   ok "two events: one stdout line, 'folded 2'"
 else no "two events: one stdout line, 'folded 2'" "rc=$rc out=$(cat "$tmp/c.out")"; fi
 if grep -q "\[1/2\] folded events/doc-c/1-aa.json" "$tmp/c.err" && grep -q "\[2/2\] folded events/doc-c/2-bb.json" "$tmp/c.err"; then
@@ -131,7 +134,7 @@ echo "== the real CLI against a store that is not there =="
 if command -v aws >/dev/null 2>&1; then
   AWS_ENDPOINT_URL=http://127.0.0.1:9 AWS_ACCESS_KEY_ID=x AWS_SECRET_ACCESS_KEY=y AWS_MAX_ATTEMPTS=1 \
     AWS_EC2_METADATA_DISABLED=true "$sync" doc-f >"$tmp/f.out" 2>"$tmp/f.err"; rc=$?
-  if [ "$rc" -ne 0 ] && ! grep -q folded "$tmp/f.out" && grep -q "127.0.0.1:9" "$tmp/f.err"; then
+  if [ "$rc" -ne 0 ] && ! grep -q folded "$tmp/f.out" && grep -q "on http://127.0.0.1:9: " "$tmp/f.err"; then
     ok "real aws, closed port: non-zero, no 'folded', names the endpoint (rc=$rc)"
   else no "real aws, closed port" "rc=$rc out=$(cat "$tmp/f.out") err=$(cat "$tmp/f.err")"; fi
 else
