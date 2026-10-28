@@ -248,12 +248,26 @@ run_test test_backoff_anchors_on_last_injection
 test_prompt_routes_questions_to_their_skill() {
   write_state
   echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
-  local out; out=$(run_hook)
-  if [[ "$out" == *"/interrogate"* ]] && [[ "$out" == *"/decide"* ]] && [[ "$out" == *"never a hand-rolled ask"* ]]; then
-    pass "ASK-01: the wake routes a pending question to /interrogate or /decide, never a hand-rolled ask"
+  local out reason first missing="" clause
+  out=$(run_hook)
+  reason=$(printf '%s' "$out" | jq -r '.reason // empty' 2>/dev/null || true)
+  first=$(printf '%s\n' "$reason" | sed -n 1p)
+  # Operator 02:17: nobody may be at the terminal, so /interrogate and /decide (both
+  # AskUserQuestion at this terminal) cannot be the wake's route. The route is an ask
+  # addressed up the chain; the two skills survive only as the operator-present exception.
+  for clause in \
+    '`engine ask new --to <your parent seat, or operator if none>`' \
+    'never a hand-rolled ask' \
+    'only for an operator present at this terminal' \
+    'never from a seat with a parent'; do
+    [[ "$first" == *"$clause"* ]] || missing="$missing [$clause]"
+  done
+  [[ "$first" == *'route a question for the user to `/interrogate` or `/decide`'* ]] && missing="$missing [old route still present]"
+  if [ -z "$missing" ]; then
+    pass "ASK-01: line 1 routes an operator-only question to an ask up the chain, /interrogate and /decide only for an operator at this terminal"
   else
-    fail "ASK-01: the wake routes a pending question to /interrogate or /decide, never a hand-rolled ask" \
-      "a reason routing to /interrogate or /decide, and refusing a hand-rolled ask" "$out"
+    fail "ASK-01: line 1 routes an operator-only question to an ask up the chain, /interrogate and /decide only for an operator at this terminal" \
+      "every ask-route clause, and no old route" "missing:$missing :: $first"
   fi
 }
 run_test test_prompt_routes_questions_to_their_skill
@@ -269,8 +283,11 @@ test_atom_carries_the_whole_guidance() {
     'Otherwise invoke `/next`' \
     'blocking-first' \
     'do NOT hand-roll an `AskUserQuestion`' \
-    'GATHERS INFORMATION** is `/interrogate`' \
-    'UNBLOCKS WORK** — a decision only they can make — is `/decide`' \
+    '`bash ~/.claude/engine/skills/coordinate/scripts/hop.sh target`' \
+    '`engine ask new --to <that target>`' \
+    'one-line row under `🔓 Open claims`' \
+    'an operator who is present at this terminal' \
+    'A seat with a parent never uses them' \
     'waiting on your answers' \
     'which is the substitution a loom forbids' \
     'Do not manufacture work' \
@@ -296,6 +313,32 @@ test_atom_is_registered() {
 }
 run_test test_atom_is_registered
 
+# The atom is in the transcript Guard 3b reads, so it may not carry the counter fragment;
+# and it names AskUserQuestion only in prose, never in a form an agent could paste as a call.
+test_atom_has_no_anchor_or_call_form() {
+  local bad=""
+  grep -qF 'auto-continues;' "$ATOM_FILE" && bad="$bad [auto-continues;]"
+  grep -qE 'AskUserQuestion *\(|"name" *: *"AskUserQuestion"' "$ATOM_FILE" && bad="$bad [AskUserQuestion call form]"
+  if [ -z "$bad" ]; then
+    pass "ATOM-03: the atom carries no Guard 3b anchor and no AskUserQuestion call form"
+  else
+    fail "ATOM-03: the atom carries no Guard 3b anchor and no AskUserQuestion call form" "neither" "found:$bad"
+  fi
+}
+run_test test_atom_has_no_anchor_or_call_form
+
+test_commands_entry_names_the_ask_route() {
+  local entry; entry=$(awk '/^### \[¶CMD_CONTINUE_ON_STOP\]/{f=1;next} f&&/^### /{exit} f' "$COMMANDS_FILE")
+  if [[ "$entry" == *'engine ask new --to'* ]] && [[ "$entry" == *'hop.sh target'* ]] \
+     && [[ "$entry" == *'present at this terminal'* ]] && [[ "$entry" != *'auto-continues;'* ]]; then
+    pass "ATOM-04: the COMMANDS.md entry routes an operator-only question to an ask, the skills only for an operator present"
+  else
+    fail "ATOM-04: the COMMANDS.md entry routes an operator-only question to an ask, the skills only for an operator present" \
+      "engine ask new --to, hop.sh target, present at this terminal" "$entry"
+  fi
+}
+run_test test_commands_entry_names_the_ask_route
+
 # ── The reason is short and cites the atom ──────────────────────────────────
 # The operator's ask: at most two lines, naming the §CMD_ atom the way the ticket-watch
 # gate names §CMD_DRAIN_TICKET_QUEUE_ON_WAKE. Line 2 is the counter suffix, whose
@@ -307,18 +350,19 @@ test_reason_is_two_lines_citing_atom() {
   out=$(run_hook)
   reason=$(printf '%s' "$out" | jq -r '.reason // empty' 2>/dev/null || true)
   lines=$(printf '%s\n' "$reason" | wc -l | tr -d ' ')
-  if [ -n "$reason" ] && [ "$lines" -le 2 ] && [[ "$reason" == *'§CMD_CONTINUE_ON_STOP'* ]]; then
-    pass "SHAPE-01: the reason is at most 2 lines and cites §CMD_CONTINUE_ON_STOP"
+  if [ -n "$reason" ] && [ "$lines" -eq 2 ] && [[ "$(printf '%s\n' "$reason" | sed -n 1p)" == *'§CMD_CONTINUE_ON_STOP'* ]]; then
+    pass "SHAPE-01: the reason is exactly 2 lines and line 1 cites §CMD_CONTINUE_ON_STOP"
   else
-    fail "SHAPE-01: the reason is at most 2 lines and cites §CMD_CONTINUE_ON_STOP" \
-      "<=2 lines containing §CMD_CONTINUE_ON_STOP" "$lines line(s): $reason"
+    fail "SHAPE-01: the reason is exactly 2 lines and line 1 cites §CMD_CONTINUE_ON_STOP" \
+      "2 lines, line 1 containing §CMD_CONTINUE_ON_STOP" "$lines line(s): $reason"
   fi
   local second; second=$(printf '%s\n' "$reason" | sed -n 2p)
-  if [[ "$second" == "(1 of 3 auto-continues; "* ]]; then
-    pass "SHAPE-02: line 2 is the intact counter suffix Guard 3b reads back"
+  local want='(1 of 3 auto-continues; set `autoContinue: false` in .state.json, or the loom Auto-continue disposition to off, to stop.)'
+  if [[ "$second" == "$want" ]]; then
+    pass "SHAPE-02: line 2 is the counter suffix Guard 3b reads back, byte for byte"
   else
-    fail "SHAPE-02: line 2 is the intact counter suffix Guard 3b reads back" \
-      "(1 of 3 auto-continues; ..." "$second"
+    fail "SHAPE-02: line 2 is the counter suffix Guard 3b reads back, byte for byte" \
+      "$want" "$second"
   fi
 }
 run_test test_reason_is_two_lines_citing_atom

@@ -146,8 +146,9 @@ case "$LAST_CALL" in AskUserQuestion|ExitPlanMode)
 esac
 
 # ── The reason: two lines that cite the atom. ──
-# The guidance itself — finish a /next sequence, a live weave's open rows, /next, route a
-# question to /interrogate or /decide, never manufacture work — lives in
+# The guidance itself — finish a /next sequence, a live weave's open rows, /next, send an
+# operator-only question up the chain as an ask (/interrogate and /decide only for an
+# operator present at this terminal), never manufacture work — lives in
 # .directives/commands/CMD_CONTINUE_ON_STOP.md, so this hook and its readers say it once.
 # Line 2 is the counter suffix; Guard 3b above finds our own injection by its
 # "auto-continues;" text, so that wording is load-bearing — and it must appear in nothing
@@ -155,7 +156,7 @@ esac
 # (or, in an unseeded session, delivered by the fallback below after the wake's first tool
 # call), so a copy there would become the anchor (test BACKOFF-05).
 ATOM="$HOME/.claude/.directives/commands/CMD_CONTINUE_ON_STOP.md"
-REASON="Follow \`§CMD_CONTINUE_ON_STOP\`: carry on the \`/next\` sequence you are in, else invoke \`/next\`; route a question for the user to \`/interrogate\` or \`/decide\`, never a hand-rolled ask; if nothing is left, say so in one line and stop."
+REASON="Follow \`§CMD_CONTINUE_ON_STOP\`: carry on the \`/next\` sequence you are in, else invoke \`/next\`; put a question only the operator can answer in an ask, \`engine ask new --to <your parent seat, or operator if none>\`, never a hand-rolled ask (\`/interrogate\` and \`/decide\` only for an operator present at this terminal, never from a seat with a parent); if nothing is left, say so in one line and stop."
 
 NEW=$((COUNT + 1))
 jq ".autoContinueCount = $NEW" "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
