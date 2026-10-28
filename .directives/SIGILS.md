@@ -318,69 +318,13 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 
 ## Tag Operations
 
-### ¶CMD_FIND_TAGGED_FILES
-**Definition**: To locate files carrying specific semantic tags (on the Tags line or as intentional inline tags), filtering out backtick-escaped references.
-**Algorithm**:
-1.  **Identify**: Determine the target tag (e.g., `#needs-review`).
-2.  **Execute**:
-    ```bash
-    engine tag find '#tag-name'
-    ```
-    *   Searches `sessions/` by default. Pass a path argument to override.
-    *   Two-pass search: Tags line (high precision) + inline body (backtick-filtered).
-    *   Add `--context` for line numbers and surrounding text (useful before `remove --inline` or `swap --inline`).
-3.  **Output**: A list of file paths (one per line) that carry the tag. Each path should be a clickable link per `¶INV_TERMINAL_FILE_LINKS` (Full variant).
-4.  **Goal**: Identify active alerts, pending reviews, or other tagged artifacts.
+Each tag operation is its own command file under `commands/`, so a `§CMD_` citation delivers it with the skill that cites it:
 
-### ¶CMD_TAG_FILE
-**Definition**: To add a semantic tag to a Markdown file.
-**Constraint**: Tags live on a dedicated `**Tags**:` line immediately after the H1 heading (line 2). Never on the H1 itself.
-**Format**: `**Tags**: #tag1 #tag2`
-**Algorithm**:
-1.  **Execute**:
-    ```bash
-    engine tag add "$FILE" '#tag-name'
-    ```
-    *   Ensures `**Tags**:` line exists after H1, then appends tag idempotently.
-    *   Safe to run multiple times.
-
-### ¶CMD_UNTAG_FILE
-**Definition**: To remove a semantic tag from a Markdown file.
-**Algorithm**:
-1.  **Execute**:
-    ```bash
-    engine tag remove "$FILE" '#tag-name'
-    ```
-
-### ¶CMD_SWAP_TAG_IN_FILE
-**Definition**: To atomically replace one tag with another (e.g., `#needs-review` → `#done-review`).
-**Algorithm**:
-1.  **Execute**:
-    ```bash
-    engine tag swap "$FILE" '#old-tag' '#new-tag'
-    ```
-    *   Supports comma-separated old tags for multi-swap: `'#tag-a,#tag-b'`
-
-### ¶CMD_HANDLE_INLINE_TAG
-**Definition**: When a user types `#needs-xxx` (e.g., `#needs-brainstorm`, `#needs-research`, `#needs-documentation`) in response to a question or during discussion, the agent must capture it as an inline tag in the active artifact.
-
-**Rule**: The user typing `#needs-xxx` means: "I can't answer this now. Tag it so it can be addressed later by the appropriate skill (e.g., `/brainstorm`, `/research`, `/document`)."
-
-**Algorithm**:
-1.  **Detect**: The user's response contains a `#needs-xxx` tag.
-2.  **Tag the Source**: Add the tag **inline** in the relevant location of the **active work artifact** (the log entry, plan section, or debrief section currently being discussed). Place it naturally — next to the heading, in the paragraph, or as a bold marker:
-    *   *In a log entry*: `### [timestamp] 🚧 Block — [Topic] #needs-brainstorm`
-    *   *In a plan step*: `*   [ ] **Step 3**: [Action] #needs-brainstorm`
-    *   *In a debrief section*: Add to the relevant paragraph or as a bullet.
-3.  **Log to DIALOGUE.md**: Execute `§CMD_LOG_INTERACTION` recording the user's deferral (the question asked, the `#needs-xxx` response, and the context).
-4.  **Do NOT Duplicate**: The tag should appear in **exactly one** work artifact (the log OR the debrief section — whichever is active when the user defers). Do NOT propagate the tag from DIALOGUE.md into the debrief automatically. If the debrief has a "Pending Decisions" or "Open Questions" section, list it there as a **reference** (one-liner with source path), not a full copy.
-5.  **Tag the File**: If the work artifact is a debrief (final output), also add the `#needs-xxx` tag to the file's `**Tags**:` line via `§CMD_TAG_FILE`.
-6.  **Tag Reactivity** (`¶INV_WALKTHROUGH_TAGS_ARE_PASSIVE`): Determine the current context and react accordingly:
-    *   **During `§CMD_WALK_THROUGH_RESULTS`**: Tags are **passive**. The walkthrough protocol handles triage. Do NOT offer `/delegation-create` — the tag is protocol-placed, not a user-initiated deferral. Record and move on.
-    *   **All other contexts** (interrogation, QnA, ad-hoc chat, side discovery): Tags are **reactive**. After recording the tag, invoke `/delegation-create` via the Skill tool: `Skill(skill: "delegation-create", args: "[tag] [context summary]")`. The `/delegation-create` skill handles mode selection (async/blocking/silent) and REQUEST filing. The user can always decline via "Other" in the delegate prompt.
-7.  **Continue**: Resume the session. Do not halt or change phases — the deferral is recorded (and optionally delegated), move on.
-
-**Constraint**: **Once Only**. Each deferred item appears as an inline tag in ONE place. The DIALOGUE.md captures the verbatim exchange. The debrief may list it in a "Pending" section as a pointer. Never three copies.
+*   `§CMD_FIND_TAGGED_FILES` — `commands/CMD_FIND_TAGGED_FILES.md`
+*   `§CMD_TAG_FILE` — `commands/CMD_TAG_FILE.md`
+*   `§CMD_UNTAG_FILE` — `commands/CMD_UNTAG_FILE.md`
+*   `§CMD_SWAP_TAG_IN_FILE` — `commands/CMD_SWAP_TAG_IN_FILE.md`
+*   `§CMD_HANDLE_INLINE_TAG` — `commands/CMD_HANDLE_INLINE_TAG.md`
 
 ---
 
@@ -416,76 +360,9 @@ The check gate blocks synthesis until every inline tag is addressed. This replac
 
 
 
-## ¶TAG_DISPATCH
-*   **Purpose**: Maps `#needs-*` tags to their resolving skills and defines daemon dispatch behavior. Used by `/delegation-claim`, daemon, and `/find-tagged` to route deferred work to the correct skill.
-*   **Rule**: Every `#needs-X` tag maps to exactly one skill `/X`. See `¶INV_1_TO_1_TAG_SKILL`.
-*   **Daemon monitors**: `#delegated-*` only (NOT `#needs-*` or `#next-*`). See `¶INV_NEEDS_IS_STAGING`, `¶INV_NEXT_IS_IMMEDIATE`.
-*   **Registry**:
+## §TAG_DISPATCH
 
-*   **brainstorm**
-  *   **Resolving Skill**: `/brainstorm`
-  *   **Mode**: interactive
-  *   **Daemon-Dispatchable**: Yes
-  *   **Priority**: 1 (exploration unblocks decisions)
-
-*   **direct**
-  *   **Resolving Skill**: `/direct`
-  *   **Mode**: interactive
-  *   **Daemon-Dispatchable**: Yes
-  *   **Priority**: 1.5 (vision unblocks coordinator)
-
-*   **research**
-  *   **Resolving Skill**: `/research`
-  *   **Mode**: async (Gemini)
-  *   **Daemon-Dispatchable**: Yes
-  *   **Priority**: 2 (queue early)
-
-*   **fix**
-  *   **Resolving Skill**: `/fix`
-  *   **Mode**: interactive/agent
-  *   **Daemon-Dispatchable**: Yes
-  *   **Priority**: 3 (bugs block progress)
-
-*   **implementation**
-  *   **Resolving Skill**: `/implement`
-  *   **Mode**: interactive/agent
-  *   **Daemon-Dispatchable**: Yes
-  *   **Priority**: 4
-
-*   **loop**
-  *   **Resolving Skill**: `/loop`
-  *   **Mode**: interactive
-  *   **Daemon-Dispatchable**: Yes
-  *   **Priority**: 4.5 (iteration workloads)
-
-*   **chores**
-  *   **Resolving Skill**: `/chores`
-  *   **Mode**: interactive
-  *   **Daemon-Dispatchable**: Yes
-  *   **Priority**: 5 (quick wins, filler)
-
-*   **documentation**
-  *   **Resolving Skill**: `/document`
-  *   **Mode**: interactive
-  *   **Daemon-Dispatchable**: Yes
-  *   **Priority**: 6
-
-*   **review**
-  *   **Resolving Skill**: `/review`
-  *   **Mode**: interactive
-  *   **Daemon-Dispatchable**: No (user-invoked only)
-  *   **Priority**: 7
-
-*   **rework**
-  *   **Resolving Skill**: `/review`
-  *   **Mode**: interactive
-  *   **Daemon-Dispatchable**: No (user-invoked only)
-  *   **Priority**: 7
-
-*   **Extensibility**: To add a new dispatchable tag, add a row to this table and create the corresponding `§FEED_*` section above. The tag noun MUST match the skill name (`¶INV_1_TO_1_TAG_SKILL`).
-*   **Priority**: Resolves in priority order (1 first). Brainstorming unblocks decisions; research is async so queue early; fixes unblock progress; implementation is the main work; chores fill gaps; documentation after code; review last.
-*   **Daemon-Dispatchable**: Only tags marked "Yes" will be picked up by the daemon when in `#delegated-*` state. Tags marked "No" are resolved manually by the user.
-*   **Immediate path**: Any daemon-dispatchable tag also supports `#next-X` (immediate next-skill execution). `#next-X` items are auto-claimed by the matching skill on activation. `/delegation-review` surfaces stale `#next-X` items for re-routing.
+Defined in `tags/TAG_DISPATCH.md`; a bare `§TAG_DISPATCH` citation delivers it.
 
 ## ¶TAG_WEIGHTS
 Weight tags express urgency and effort for work items. They are optional metadata — absence means default priority (P2) and unknown effort.
@@ -673,152 +550,26 @@ Three named list density levels that replace markdown tables. Referenced via `§
 *   **3-4 fields per item** → `§FMT_MEDIUM_LIST` (blank lines between items, indented fields)
 *   **5+ fields per item** → `§FMT_HEAVY_LIST` (blank lines between items, bold sub-keys)
 
-### ¶FMT_CONTEXT_BLOCK
+### §FMT_CONTEXT_BLOCK
 
-**When to use**: The complete context that goes **inside** an `AskUserQuestion` question body — what the user needs to decide, framed so the body stands alone. Consumed by `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT` (every question), `§CMD_INTERROGATE` (each round's body), `§CMD_WALK_THROUGH_RESULTS` (per-item body).
+Defined in `formats/FMT_CONTEXT_BLOCK.md`; a bare `§FMT_CONTEXT_BLOCK` citation delivers it.
 
-**Rules**: The context lives **in the question body**, NOT in a separate chat block rendered before it — that duality (context up top, terse options below) is exactly what `§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT` kills. Frame the decision completely: what's being decided, why it matters, whatever's needed to choose in-place. Substantive, not stubs. **No length cap, and there IS a floor** — AskUserQuestion bodies render long content fine; the old "exactly 2 paragraphs" existed only for a removed length limit, and once the limit went it read as a ceiling. The floor is this: **the body carries what the reader would need if they had been handed a couple of pages on the subject** — the draft itself where a draft is being approved, what a referenced item actually is where the decision cites one, and the open questions the drafting agent flagged where it flagged any. The test is not length but that **nothing the reader needs is anywhere except in front of them.** Two well-framed paragraphs is the thin end of acceptable rather than the target; a rich decision uses a full `§FMT_DECISION_CARD` as the body. ⛔ **A body that names the decision without carrying the material to decide it is the failure.** *Measured*: a question reading only "Ticket 1, the Alphabet facility: approve as drafted?" asked for approval of a draft the reader could not see, over premises, three flagged open questions and a related ticket that appeared nowhere.
+### §FMT_ANSWER_GRADATION
 
-```markdown
-[in the AskUserQuestion `question` field:]
-**[Context]**: what the user needs to know — background / recap / scope.
-**[The decision]**: the specific choice with concrete details. The user decides from THIS, in place.
-```
+Defined in `formats/FMT_ANSWER_GRADATION.md`; a bare `§FMT_ANSWER_GRADATION` citation delivers it.
 
-**Anti-pattern**: a separate context block in chat followed by a terse `AskUserQuestion` — the user then has to map options back to context above. Put the context in the body.
+### §FMT_FILE_LINK
 
-### ¶FMT_ANSWER_GRADATION
+Defined in `formats/FMT_FILE_LINK.md`; a bare `§FMT_FILE_LINK` citation delivers it.
 
-**When to use**: compact, at-a-glance gradation tags leading an `AskUserQuestion` **option label** — so the user reads risk / data-certainty / effort / recommendation right on the choice. Generalizes the old "(Recommended)" suffix. A **closed** set (like the `§CMD_FLOWGRAPH` glyphs — defined once, never freehand). Show **only the 1–2 dimensions that actually differentiate this answer set**; omit any dimension uniform across all options.
+### §FMT_TICKET_LINK
 
-**The set** (fixed row order, packed — no spaces inside the cluster, one space before the label):
-*   **risk** — `△` low · `◭` med · `▲` high  *(triangle = caution)*
-*   **confidence** — `○` thin · `◑` med · `●` solid  *(certainty in the GATHERED DATA behind the call — "how much more analysis to verify"; fullness = evidence completeness)*
-*   **effort** — `Ⓢ` small · `Ⓜ` med · `Ⓛ` large
-*   **★** — the agent's recommendation, **last** in the row, ≤1 per set
-*   *(rare optional)* `‡` — one-way / irreversible; appended only when genuinely relevant, not part of the default row
+Defined in `formats/FMT_TICKET_LINK.md`; a bare `§FMT_TICKET_LINK` citation delivers it.
 
-**Row order**: `risk · confidence · effort · ★` → e.g. `△●Ⓢ★ `, then the label text.
+### §FMT_TICKET_COMMENT_LINK
 
-```markdown
-[AskUserQuestion option labels:]
-"△●Ⓢ★ Cherry-pick onto a fresh branch"    (low risk · solid data · small · recommended)
-"▲◑Ⓢ Push the mixed branch as-is"          (high risk · medium data · small)
-"◭○Ⓜ Rebase after a spike"                 (med risk · thin data—verify first · med effort)
-```
+Defined in `formats/FMT_TICKET_COMMENT_LINK.md`; a bare `§FMT_TICKET_COMMENT_LINK` citation delivers it.
 
-**Anti-pattern**: tagging every dimension even when uniform across options (soup); freehand emoji/glyphs outside the closed set; putting the tags in the option `description` instead of leading the `label`.
+### §FMT_DECISION_CARD
 
-### ¶FMT_FILE_LINK
-
-**When to use**: EVERY reference to a file/artifact — in chat or in a `.md` artifact — renders as a **labeled clickable link**, never a bare URL and never a dead relative path. Labeled links now render clickable in-terminal (the old bare-URL mandate existed only because they didn't).
-
-**Rules** (smart-by-type):
-*   **Editable** (code, `.md`, `.ts`/`.js`, `.json`, session artifacts, configs) → `[<label>](cursor://file/<abs-path>)` — opens in the editor.
-*   **Viewable** (images `.png`/`.jpg`, `.pdf`, `.html`) → `[<label>](file:///<abs-path>)` — opens in the default viewer (Preview, browser). (`file://` opens Finder for editable files — so only use it for view-only kinds.)
-*   **Label** = the basename or a short description (`[EDIT_SKILL.md]`, `[the debrief]`).
-*   **Absolute path always** (resolve `~`/relative). Never a bare `cursor://…` / `file://…` blob in the prose.
-
-```markdown
-See [EDIT_SKILL.md](cursor://file/Users/me/proj/sessions/X/EDIT_SKILL.md).
-Overlay: [overlay-3.png](file:///Users/me/proj/out/overlay-3.png).
-```
-
-**Anti-pattern**: a bare `cursor://file/…` URL dumped in text; a non-clickable relative path (`sessions/X/foo.md`); `file://` for a code file (opens Finder, not the editor).
-
-### ¶FMT_TICKET_LINK
-
-**When to use**: EVERY mention of a tracker issue key — in chat or in a `.md` artifact — renders as a **labeled link** to the issue, never a bare key. The file-link sibling (`¶FMT_FILE_LINK`) for tickets.
-
-**Rules** (config-driven — do NOT hardcode the tracker):
-*   Source the **issue-key prefix** and the **issue-URL template** from the project's `## Tracker` config (the project `CLAUDE.md`) — e.g. Finch: prefix `FIN`, URL `https://linear.app/finchclaims/issue/<KEY>`. Other projects set their own; this format never bakes in a specific tracker.
-*   Render `[<KEY>](<issue-url-with-KEY-substituted>)` — e.g. `[FIN-3141](https://linear.app/finchclaims/issue/FIN-3141)`.
-*   Applies to keys matching the project's prefix (`FIN-3141`). A bare key with no `## Tracker` config configured → leave as plain text (nothing to link to).
-
-```markdown
-Fixed in [FIN-3141](https://linear.app/finchclaims/issue/FIN-3141); follow-up is [FIN-3200](https://linear.app/finchclaims/issue/FIN-3200).
-```
-
-**Anti-pattern**: a bare `FIN-3141` in prose when a `## Tracker` issue-URL is configured; hardcoding a tracker URL in the engine instead of sourcing it from the project config.
-
-### ¶FMT_TICKET_COMMENT_LINK
-
-**When to use**: EVERY reference to a *specific tracker comment* — a transcript passage, a prior triage / corroboration, a provenance source — renders as a **labeled deep-link to that comment**, never a bare comment id and never a link that only reaches the issue. The comment-level sibling of `¶FMT_TICKET_LINK`.
-
-**Rules** (config-driven — do NOT hardcode the tracker):
-*   Source the **comment-anchor template** from the project's `## Tracker` config (the project `CLAUDE.md`), alongside the issue-URL template. Finch (Linear): `<issue-url>#comment-<shortId>`, where `<shortId>` is the comment id's first 8 hex chars — e.g. `https://linear.app/finchclaims/issue/FIN-3457/feedback-and-transcripts#comment-e3b45fac`. Other trackers set their own anchor form; this never bakes one into the engine.
-*   Render `[<label>](<comment-deep-link>)` with a meaningful label (source + short id), e.g. `[🟣 comment e3b45fac](…#comment-e3b45fac)`.
-*   The `<shortId>` comes from the comment object you already hold — `save_comment` returns it on create, `list_comments` on read (first 8 chars of the id). The issue slug comes from the issue URL / `get_issue`.
-*   A comment reference with no `## Tracker` anchor configured → leave the bare id as plain text (nothing to deep-link to).
-
-```markdown
-Source: [Rob ↔ Yarik call (🟣 comment e3b45fac)](https://linear.app/finchclaims/issue/FIN-3457/feedback-and-transcripts#comment-e3b45fac)
-```
-
-**Anti-pattern**: a bare `` `e3b45fac` `` / "comment 9c6208d5" in prose; a markdown link whose text names a comment but whose URL stops at the issue (`…/issue/FIN-3457`); hardcoding the `#comment-` anchor in the engine instead of sourcing it from the project config.
-
-### ¶FMT_DECISION_CARD
-
-**When to use**: The richer successor to `§FMT_CONTEXT_BLOCK` for disclosing the agent's own judgment per item. Used by `§CMD_ELICIT` (and, via it, `§CMD_WALK_THROUGH_RESULTS` results mode) — front-loading what the user reliably asks for next so they judge from context instead of interrogating. **The fields are generalized off the fix-shape** so one card fits a proposed **fix**, a raw **idea**, or a neutral **observation** — not only findings-to-fix. One card per item.
-
-**Rendering as the question body (plain text — NO markdown)**: the card renders **as the `AskUserQuestion` question body** (via `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`), not as separate chat text before a terse question. **AskUserQuestion bodies do not render markdown** — `**bold**`, `` `code` ``, `####` show literally. So in the body use **plain text, one field per section as `Label: value`** — the field label, a colon, then its value **inline** — and **separate sections with a blank line**. Do **not** whitespace-align into columns (the padding gap is hard to scan); wrap multi-line values under the label with no column alignment. Labels stay plain (`My lean:`), never bold. Unicode renders fine (`·`, the `§FMT_ANSWER_GRADATION` glyphs `△●Ⓢ★`). The markdown card layout above is for **chat** rendering only.
-
-**Drop the Options field in the body** — the `AskUserQuestion`'s **answers ARE the options**, so re-listing them in the body is redundant. The body carries only the *analysis*: What's-at-stake, How-to-verify, My-lean, Confidence, plus any context/subtitle (`itemId · Title`, `scope · △●Ⓜ`). Each **answer** is a disposition whose label leads with `§FMT_ANSWER_GRADATION` (`△●Ⓢ★ short action`) and whose **description carries that option's COST in its own sentences** — what the user gives up, not a restatement of the label; a description that only re-describes the option is the thin-question failure `§FMT_CONTEXT_BLOCK` names. **My lean** becomes the `★` on the recommended answer. The user reads the analysis and picks in one place — no scroll, no redundancy.
-
-```
-[3.2/1] · Update the sticky PR comment on failing tests
-scope: comment-builder · △ low · ● solid · Ⓜ med
-
-At stake: failing tests are invisible in the PR summary — reviewers miss them
-
-Verify: grep the comment builder for the failures block
-
-My lean: add a failures section — one comment stays clean · cost: builder branches
-
-Confidence: high — verified against the real comment output, not a fixture
-```
-*(answers, carrying the options: `△●Ⓢ★ Add a failures section` · `◭●Ⓜ Separate comment per failure` · `△●Ⓢ Leave the summary as-is`)*
-
-**Rules**: A named-list card (never a table — `¶INV_LISTS_INSTEAD_OF_TABLES`). Card **depth scales with the triage bucket**: `FYI` = a one-liner (what + why-no-action); `I've-got-this` = a one-line what + why (never a bare count); `Your-call` = the full card, every required field below. On a `Your-call`, order the body **options-first-neutral, then the defeasible lean** (`§CMD_ELICIT` anti-anchor rule) — the POV lives in the lean, never in a separate recommendation-first field.
-
-**Layout**: each `Your-call` card leads with a markdown **heading** — `#### [itemId] · [Title]` (or larger when a card stands alone) — immediately followed by a **subtitle line** carrying `file:line`/scope + confidence + any *optional* fields. Then the body fields, each on its own line. **No blank line after a heading; one blank line before it** (blocks separate above, not below — keeps cards tight).
-
-**Required fields** (a `Your-call`):
-*   **What's at stake** — the concrete consequence if left unaddressed: who/what it hits, how widely (a fix's failure, an idea's missed upside, an observation's implication).
-*   **Options** — 2–4 framed trade-offs: *A → risk X; B → risk Y, gain Z*; **always the honest do-nothing / defer** where it's real. Neutral, before the lean.
-*   **Complexity / cost to act** — does acting add surface / muddy the design / bloat the build? (orthogonal to correctness).
-*   **How to verify / validate** — the low-cost check that confirms or *sizes* it (a read-only count, a one-line repro, a grep, a quick spike).
-*   **Confidence** — the agent's honest confidence in its own read (load-bearing — gates the triage). Goes on the subtitle line.
-*   **My lean** — the agent's defeasible POV, *after* the options: what it recommends + its paired **trade-off / cost** + the strongest case against it (the anti-anchor rule; the POV lives here, never in a recommendation-first field).
-*   **Engagement** — the advisory triage verdict: `I've-got-this` | `Your-call` | `FYI`.
-*   **Why you'd want to understand this** — one line, on `Your-call`s (folds into the Engagement line): a one-way door? a load-bearing assumption? a domain rule?
-
-**Optional fields** — render **only when they carry signal** (keep the core lean): **effort** (rough size ~S/M/L or time), **blast-radius / scope** (how many affected — rows / callers / users), **reversibility** (one-way door?), **depends-on / blocks** (sequencing vs. other items). When present, ride them on the **subtitle line** next to `file:line`, not as separate body blocks.
-
-```markdown
-#### [itemId] · [Title]
-`[file:line or scope]` — confidence **[high|med|low]** · effort **[~S/M/L]** · blast-radius **[scope]**
-
-**What's at stake**
-[concrete consequence — who/what, how widely]
-
-**Options**
-- **A** — [risk X]
-- **B** — [risk Y, gain Z]
-- **C** — do nothing → [what stays unaddressed]
-
-**Complexity / cost to act**
-[low | real — adds/muddies X]
-
-**How to verify**
-[the low-cost confirm/size check]
-
-**My lean**
-**B**, because […] — cost: […] — strongest counter: […]
-
-**Engagement**
-Your-call — [one line: why it's worth your attention]
-```
-
-**Anti-pattern**: a neutral dump with no lean; a recommendation-first framing that anchors before the options; a lean without its paired trade-off; a bare count for the `I've-got-this` / `FYI` buckets; a full expensive card spent on an `FYI`; **a blank line jammed after every heading** (blank before headings, not after).
-
+Defined in `formats/FMT_DECISION_CARD.md`; a bare `§FMT_DECISION_CARD` citation delivers it.

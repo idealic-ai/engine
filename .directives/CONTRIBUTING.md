@@ -70,7 +70,7 @@ Phase transitions are mechanically enforced via `engine session phase`. Non-sequ
 
 Every skill protocol MUST include:
 
-- **Boot sequence**: Load `COMMANDS.md`, `INVARIANTS.md`, `SIGILS.md`, project `INVARIANTS.md`
+- **Boot sequence**: Load the core standards (`get_session_start_seeds`), project `INVARIANTS.md`
 - **`§CMD_PARSE_PARAMETERS`**: Activate session with JSON params
 - **`§CMD_INGEST_CONTEXT_BEFORE_WORK`**: Context menu in Phase 2
 - **`§CMD_GENERATE_DEBRIEF`**: Synthesis output
@@ -208,7 +208,7 @@ hook_deny "title" "message" "detail"    # from lib.sh
 
 - **`session-start-restore.sh`**
   Event: SessionStart
-  Purpose: Standards injection (COMMANDS.md, INVARIANTS.md, SIGILS.md), dehydration context restore, directive preload
+  Purpose: Standards injection (the `get_session_start_seeds` list), dehydration context restore, directive preload
 
 - **`post-tool-use-phase-commands.sh`**
   Event: PostToolUse

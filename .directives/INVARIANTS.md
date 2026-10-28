@@ -260,7 +260,7 @@ This document defines the system physics — rules about how sessions, phases, t
     *   **Two markers**:
         *   `[Preloaded: /path/to/file]` + file content inline → **Already loaded. Do NOT Read.**
         *   `[Suggested — read these files for full context]:` + path list → **Not loaded. Read if relevant.**
-    *   **Scope**: Applies to ALL preload sources — SessionStart standards (COMMANDS.md, INVARIANTS.md, SIGILS.md), phase CMD files, skill SKILL.md, templates, directive files, dehydrated context files.
+    *   **Scope**: Applies to ALL preload sources — SessionStart standards (the `get_session_start_seeds` list), phase CMD files, skill SKILL.md, templates, directive files, dehydrated context files.
     *   **Not affected**: Files you loaded yourself via the Read tool. Those are already registered.
     *   **Reason**: Hooks deliver content via `additionalContext` injection, which bypasses the Edit tool's read-tracking. The agent sees the content and reasonably assumes it can edit it — but the Edit tool's internal state disagrees. Agents also systematically re-read preloaded directive files, wasting context tokens. This invariant makes both limitations explicit.
 

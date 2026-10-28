@@ -20,22 +20,20 @@ setup() {
   ln -sf "$REAL_ENGINE_DIR/scripts/session.sh" "$FAKE_HOME/.claude/engine/scripts/session.sh"
   ln -sf "$REAL_ENGINE_DIR/config.sh" "$FAKE_HOME/.claude/engine/config.sh" 2>/dev/null || true
 
-  # Create minimal directive files (for seeds list). Plants every file the seed list names,
-  # including the existence-guarded ones, so the fixture models a real tree rather than a
-  # partial one whose seed length silently differs from a real session's.
-  for f in COMMANDS.md INVARIANTS.md SIGILS.md VOICE.md PITFALLS.md; do
-    echo "# $f" > "$FAKE_HOME/.claude/engine/.directives/$f"
-  done
-  for f in CMD_DEHYDRATE.md CMD_RESUME_SESSION.md CMD_PARSE_PARAMETERS.md; do
-    echo "# $f" > "$FAKE_HOME/.claude/engine/.directives/commands/$f"
-  done
-
   # Create symlink ~/.claude/.directives → ~/.claude/engine/.directives
   ln -sf "$FAKE_HOME/.claude/engine/.directives" "$FAKE_HOME/.claude/.directives"
 
   # Re-source lib.sh with the new HOME
   unset _LIB_SH_LOADED
   source "$FAKE_HOME/.claude/scripts/lib.sh"
+
+  # Plant every file the seed list names, read from the list itself so this fixture cannot hold
+  # a second copy of it, plus the on-demand standards a real tree also carries.
+  local rel
+  for rel in "${SESSION_START_SEED_FILES[@]}" PITFALLS.md SIGILS.md commands/CMD_PARSE_PARAMETERS.md; do
+    echo "# $rel" > "$FAKE_HOME/.claude/engine/.directives/$rel"
+  done
+  SEED_N=${#SESSION_START_SEED_FILES[@]}
 }
 
 teardown() {
@@ -64,35 +62,40 @@ test_find_preload_state_creates_seed() {
   pid=$(jq -r '.pid' "$result")
   assert_eq "$$" "$pid" "seed PID matches"
 
-  local preloaded_count
-  preloaded_count=$(jq '.preloadedFiles | length' "$result")
-  assert_eq "8" "$preloaded_count" "seed has 8 core standards"
+  local expected actual
+  expected=$(get_session_start_seeds | jq -c 'sort')
+  actual=$(jq -c '.preloadedFiles | sort' "$result")
+  assert_eq "$expected" "$actual" "seed holds exactly get_session_start_seeds"
+  assert_eq "$SEED_N" "$(jq '.preloadedFiles | length' "$result")" "seed has one entry per listed standard"
 
-  # A bare length says the list changed but not which entry, so name the guarded one.
-  local has_pitfalls
-  has_pitfalls=$(jq 'any(.preloadedFiles[]; endswith("/PITFALLS.md"))' "$result")
-  assert_eq "true" "$has_pitfalls" "present PITFALLS.md is named in the seed"
+  # On-demand standards exist on disk here and must still stay out of the seed, or PostToolUse
+  # dedup would read them as delivered and never deliver them.
+  local f
+  for f in PITFALLS.md SIGILS.md CMD_PARSE_PARAMETERS.md; do
+    assert_eq "false" "$(jq --arg f "/$f" 'any(.preloadedFiles[]; endswith($f))' "$result")" "on-demand $f is not seeded"
+  done
 }
 
 test_seed_omits_guarded_file_when_absent() {
   # The seed records what SessionStart INJECTED, and the print loop skips a standard that is
   # not on disk. A seed naming an uninjected file reads to PostToolUse dedup as already
   # delivered, which suppresses the later real injection — bytes withheld, silently.
-  local pitfalls="$FAKE_HOME/.claude/engine/.directives/PITFALLS.md"
-  rm -f "$pitfalls"
+  local rel="${SESSION_START_SEED_FILES[$((SEED_N - 1))]}"
+  local missing="$FAKE_HOME/.claude/engine/.directives/$rel"
+  rm -f "$missing"
 
   local result
   result=$(find_preload_state "20001")
 
   local count
   count=$(jq '.preloadedFiles | length' "$result")
-  assert_eq "7" "$count" "guarded file absent → seed has 7, not 8"
+  assert_eq "$((SEED_N - 1))" "$count" "listed file absent → seed is one shorter"
 
-  local has_pitfalls
-  has_pitfalls=$(jq 'any(.preloadedFiles[]; endswith("/PITFALLS.md"))' "$result")
-  assert_eq "false" "$has_pitfalls" "absent PITFALLS.md is not named in the seed"
+  local has_missing
+  has_missing=$(jq --arg f "/$rel" 'any(.preloadedFiles[]; endswith($f))' "$result")
+  assert_eq "false" "$has_missing" "absent $rel is not named in the seed"
 
-  echo "# PITFALLS.md" > "$pitfalls"
+  echo "# $rel" > "$missing"
 }
 
 test_find_preload_state_returns_existing_seed() {
@@ -206,7 +209,7 @@ test_seed_without_activation() {
   jq '.preloadedFiles += ["/extra/file.md"]' "$result" | safe_json_write "$result"
   local count
   count=$(jq '.preloadedFiles | length' "$result")
-  assert_eq "9" "$count" "seed updated with extra file"
+  assert_eq "$((SEED_N + 1))" "$count" "seed updated with extra file"
 }
 
 test_multiple_seeds_per_pid() {
@@ -242,7 +245,7 @@ test_log_delivery_writes_when_set() {
 
 test_continue_replaces_stale_preloaded_with_seed() {
   # After context overflow restart:
-  # 1. SessionStart creates seed with 8 boot files
+  # 1. SessionStart creates seed with the boot files
   # 2. session.sh continue should REPLACE session's stale preloadedFiles with seed's
   # This prevents the templates hook from skipping deps it thinks are "already loaded"
   local pid="${CLAUDE_SUPERVISOR_PID:-99999999}"
@@ -253,7 +256,7 @@ test_continue_replaces_stale_preloaded_with_seed() {
   assert_file_exists "$seed_file" "seed exists before continue"
   local seed_count
   seed_count=$(jq '.preloadedFiles | length' "$seed_file")
-  assert_eq "8" "$seed_count" "seed has 8 boot files"
+  assert_eq "$SEED_N" "$seed_count" "seed has the boot files"
 
   # Create session with STALE preloadedFiles (12 files from old process)
   mkdir -p "$TMP_DIR/sessions/test_continue"
@@ -277,11 +280,11 @@ test_continue_replaces_stale_preloaded_with_seed() {
   local output
   output=$(cd "$TMP_DIR" && "$FAKE_HOME/.claude/scripts/session.sh" continue "sessions/test_continue" 2>&1) || true
 
-  # After continue: preloadedFiles should be the seed's 8, not the stale 12
+  # After continue: preloadedFiles should be the seed's, not the stale 12
   local state_file="$TMP_DIR/sessions/test_continue/.state.json"
   local post_count
   post_count=$(jq '.preloadedFiles | length' "$state_file")
-  assert_eq "8" "$post_count" "preloadedFiles replaced with seed's 8 (not stale 12)"
+  assert_eq "$SEED_N" "$post_count" "preloadedFiles replaced with the seed's (not stale 12)"
 
   # pendingPreloads should be cleared (seed's are empty)
   local pending_count

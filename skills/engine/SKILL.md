@@ -54,7 +54,7 @@ Smart assistant for the workflow engine — answers questions, invokes scripts, 
     *   **Doc questions**: Read the specific doc file (`~/.claude/docs/<name>.md` or `~/.claude/engine/docs/<name>.md`).
     *   **Skill questions**: Read `~/.claude/skills/<name>/SKILL.md` for the skill protocol.
     *   **Hook questions**: Read `~/.claude/hooks/<name>.sh` for hook behavior.
-    *   **Tag questions**: The tag system is defined in `SIGILS.md` (already in context from boot).
+    *   **Tag questions**: The tag system is defined in `~/.claude/.directives/SIGILS.md`, which is not preloaded; read it on demand. The tag commands are `commands/CMD_*.md` files and `§TAG_DISPATCH` is `tags/TAG_DISPATCH.md`.
 
 3.  **Answer Format**: Be precise and cite sources. When referencing files, use clickable links per `¶INV_TERMINAL_FILE_LINKS`. Include relevant command examples when helpful.
 

@@ -121,13 +121,14 @@ debug "session context: $SESSION_CONTEXT_LINE"
 debug "clearing preload state for fresh context"
 PRELOAD_SEEDS=$(get_session_start_seeds)
 
-# Engine-wide pitfalls — injected with the standards below, so it must also be
-# registered here or PostToolUse dedup is free to re-deliver the whole file.
-ENGINE_PITFALLS="$HOME/.claude/.directives/PITFALLS.md"
-if [ -f "$ENGINE_PITFALLS" ]; then
-  PITFALLS_NORM=$(normalize_preload_path "$ENGINE_PITFALLS" 2>/dev/null || echo "$ENGINE_PITFALLS")
-  PRELOAD_SEEDS=$(echo "$PRELOAD_SEEDS" | jq --arg p "$PITFALLS_NORM" 'if index($p) then . else . + [$p] end')
-  debug "engine pitfalls registered: $PITFALLS_NORM"
+# Pitfalls are on demand: an index generated from the files is injected instead of their bytes,
+# so the files stay unregistered; PostToolUse discovery delivers a large one as its index too.
+PITFALLS_INDEX_SOURCES=()
+[ -f "$HOME/.claude/.directives/PITFALLS.md" ] && PITFALLS_INDEX_SOURCES+=("$HOME/.claude/.directives/PITFALLS.md")
+if [ -f "$PROJECT_ROOT/.directives/PITFALLS.md" ]; then
+  PROJECT_PITFALLS_REAL=$(normalize_preload_path "$PROJECT_ROOT/.directives/PITFALLS.md")
+  ENGINE_PITFALLS_REAL=$(normalize_preload_path "$HOME/.claude/.directives/PITFALLS.md")
+  [ "$PROJECT_PITFALLS_REAL" = "$ENGINE_PITFALLS_REAL" ] || PITFALLS_INDEX_SOURCES+=("$PROJECT_ROOT/.directives/PITFALLS.md")
 fi
 
 # Project docs index — when the repo follows the docs/TOC.md convention, treat it
@@ -228,12 +229,28 @@ $skill_md_content
         done <<< "$phase_paths"
       fi
 
+      # The log template is skipped once the session's own log exists: the live log shows the
+      # format. Left out of the tracked paths too, so it can still be delivered later.
+      SKIP_LOG_TEMPLATE=""
+      skill_log_template=$(sed -n '/^```json$/,/^```$/p' "$skill_md" 2>/dev/null | sed '1d;$d' | jq -r '.logTemplate // ""' 2>/dev/null || true)
+      if [ -n "$skill_log_template" ] && [ -n "${ACTIVE_SESSION_DIR:-}" ] \
+        && [ -f "$ACTIVE_SESSION_DIR/$(basename "$skill_log_template" | sed 's/^TEMPLATE_//')" ]; then
+        SKIP_LOG_TEMPLATE=$(normalize_preload_path "$(dirname "$skill_md")/$skill_log_template" 2>/dev/null || true)
+      fi
+
       # Deliver all unique deps, deduped against boot standards
+      KEPT_DEP_PATHS=""
       if [ -n "$ALL_DEP_PATHS" ]; then
         while IFS= read -r dep_path; do
           [ -n "$dep_path" ] || continue
           resolved="${dep_path/#\~/$HOME}"
           resolved_real=$(cd "$(dirname "$resolved")" 2>/dev/null && echo "$(pwd -P)/$(basename "$resolved")")
+          if [ -n "$SKIP_LOG_TEMPLATE" ] && [ "$resolved_real" = "$SKIP_LOG_TEMPLATE" ]; then
+            debug "  skip: $(basename "$resolved") (session log exists)"
+            continue
+          fi
+          KEPT_DEP_PATHS="${KEPT_DEP_PATHS}${KEPT_DEP_PATHS:+
+}$dep_path"
           if echo "$PRELOAD_SEEDS" | jq -e --arg p "$resolved_real" 'index($p) != null' >/dev/null 2>&1; then
             debug "  skip dedup: $(basename "$resolved") (boot standard)"
             continue
@@ -259,9 +276,9 @@ $dep_content
     SKILL_DEP_PATHS=""
     skill_md_norm=$(normalize_preload_path "$skill_md" 2>/dev/null || true)
     [ -n "$skill_md_norm" ] && SKILL_DEP_PATHS="$skill_md_norm"
-    if [ -n "${ALL_DEP_PATHS:-}" ]; then
+    if [ -n "${KEPT_DEP_PATHS:-}" ]; then
       SKILL_DEP_PATHS="${SKILL_DEP_PATHS}${SKILL_DEP_PATHS:+
-}${ALL_DEP_PATHS}"
+}${KEPT_DEP_PATHS}"
     fi
 
     # Update seed files with skill dep paths
@@ -332,23 +349,14 @@ if [ -n "$ACTIVE_SKILL" ] && [ -n "${ACTIVE_SESSION_DIR:-}" ] && [ -f "${skill_m
   if [ -n "$ARTIFACT_PATHS" ]; then
     while IFS= read -r art_path; do
       [ -n "$art_path" ] || continue
-      # Smart truncation for DIALOGUE.md — last ~100 lines, aligned to entry boundary
       if [[ "$(basename "$art_path")" == "DIALOGUE.md" ]]; then
-        TOTAL_LINES=$(wc -l < "$art_path" 2>/dev/null || echo "0")
-        TOTAL_LINES=$(echo "$TOTAL_LINES" | tr -d ' ')
-        if [ "$TOTAL_LINES" -gt 100 ]; then
-          # Find the nearest ## heading at or after the 100-lines-from-end mark
-          START_LINE=$((TOTAL_LINES - 100))
-          # Search forward from START_LINE for the next ## heading to avoid cutting mid-entry
-          HEADING_LINE=$(tail -n +"$START_LINE" "$art_path" 2>/dev/null | grep -n '^## ' | head -n 1 | cut -d: -f1 || echo "")
-          if [ -n "$HEADING_LINE" ]; then
-            ACTUAL_START=$((START_LINE + HEADING_LINE - 1))
-            ART_CONTENT=$(tail -n +"$ACTUAL_START" "$art_path" 2>/dev/null || true)
-          else
-            ART_CONTENT=$(tail -n 100 "$art_path" 2>/dev/null || true)
-          fi
+        ART_CONTENT=$(dialogue_tail "$art_path" 100 16000 || true)
+      elif [ "$art_path" = "$ACTIVE_SESSION_DIR/${LOG_NAME:-}" ]; then
+        # A log is append-only and can run to megabytes; a debrief is bounded and goes whole.
+        if [ "$LOG_NAME" = "LOOM_LOG.md" ] && ART_CONTENT=$(loom_log_excerpt "$art_path"); then
+          :
         else
-          ART_CONTENT=$(cat "$art_path" 2>/dev/null || true)
+          ART_CONTENT=$(heading_aligned_tail "$art_path" 50000 || true)
         fi
       else
         ART_CONTENT=$(cat "$art_path" 2>/dev/null || true)
@@ -360,15 +368,19 @@ $ART_CONTENT
 "
         debug "  preloaded session artifact: $(basename "$art_path")"
 
-        # Track in seed preloadedFiles
+        # A log or DIALOGUE went out as an excerpt, so it is recorded under preloadedExcerpts:
+        # preloadedFiles means "delivered whole", and SubagentStart cats every path listed there.
         ART_NORM=$(normalize_preload_path "$art_path" 2>/dev/null || echo "$art_path")
+        DELIVERED_IN_PRELOAD="${DELIVERED_IN_PRELOAD:-}|$ART_NORM=the session excerpts above|"
+        ART_FIELD="preloadedFiles"
+        case "$art_path" in */DIALOGUE.md|"$ACTIVE_SESSION_DIR/${LOG_NAME:-}") ART_FIELD="preloadedExcerpts" ;; esac
         for sessions_dir in "${SESSION_DIRS[@]}"; do
           SEED_FILE="$sessions_dir/.seeds/$CLAUDE_PID.json"
           if [ -f "$SEED_FILE" ]; then
-            jq --arg p "$ART_NORM" '
-              (.preloadedFiles //= []) |
-              if (.preloadedFiles | index($p)) then .
-              else .preloadedFiles += [$p]
+            jq --arg p "$ART_NORM" --arg k "$ART_FIELD" '
+              (.[$k] //= []) |
+              if (.[$k] | index($p)) then .
+              else .[$k] += [$p]
               end
             ' "$SEED_FILE" | safe_json_write "$SEED_FILE"
           fi
@@ -392,29 +404,30 @@ $FILE_LIST
   ARTIFACT_OUTPUT="${ARTIFACT_OUTPUT}${SESSION_DIR_LISTING}"
 fi
 
-# Preload core standards — available to agent from first message
+# Preload core standards — exactly the get_session_start_seeds list, which is what dedup records.
 STANDARDS_OUTPUT=""
-for std_file in "$HOME/.claude/.directives/COMMANDS.md" \
-                "$HOME/.claude/.directives/INVARIANTS.md" \
-                "$HOME/.claude/.directives/SIGILS.md" \
-                "$HOME/.claude/.directives/VOICE.md" \
-                "$HOME/.claude/.directives/commands/CMD_DEHYDRATE.md" \
-                "$HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md" \
-                "$HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md" \
-                "$ENGINE_PITFALLS"; do
-  if [ -f "$std_file" ]; then
-    STD_CONTENT=$(cat "$std_file" 2>/dev/null || true)
-    if [ -n "$STD_CONTENT" ]; then
-      STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Preloaded: $std_file]
+while IFS= read -r std_file; do
+  [ -n "$std_file" ] || continue
+  STD_CONTENT=$(cat "$std_file" 2>/dev/null || true)
+  if [ -n "$STD_CONTENT" ]; then
+    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Preloaded: $std_file]
 $STD_CONTENT
 
 "
-      debug "  preloaded standard: $(basename "$std_file")"
-    fi
-  else
-    debug "  standard missing (skipped): $std_file"
+    debug "  preloaded standard: $(basename "$std_file")"
   fi
-done
+done < <(get_session_start_seeds | jq -r '.[]')
+
+if [ ${#PITFALLS_INDEX_SOURCES[@]} -gt 0 ]; then
+  PITFALLS_INDEX=$(generate_pitfalls_index "${PITFALLS_INDEX_SOURCES[@]}" 2>/dev/null || true)
+  if [ -n "$PITFALLS_INDEX" ]; then
+    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Pitfalls index, generated at session start from: ${PITFALLS_INDEX_SOURCES[*]}. The files themselves are not preloaded; read an entry with grep -n -A12 '¶PTF_<NAME>' <file>]
+$PITFALLS_INDEX
+
+"
+    debug "  preloaded pitfalls index: ${#PITFALLS_INDEX_SOURCES[@]} file(s)"
+  fi
+fi
 
 # Inject the project docs index (registered in PRELOAD_SEEDS above)
 if [ -n "$PROJECT_DOCS_INDEX" ]; then
@@ -438,35 +451,28 @@ only a small preview from the top (COMMANDS.md). If you see a notice like
 \"Output too large … Full output saved to: <path>\" with only a preview, you are
 seeing ONLY THE FIRST CHUNK. BEFORE you plan, answer, or call any tool, READ
 THAT ENTIRE FILE end-to-end so every [Preloaded: …] block below (standards,
-skill deps, session artifacts, docs/TOC.md, dehydrated recovery context) is
+docs/TOC.md, dehydrated recovery context, session artifacts, skill deps) is
 actually in your context. Acting on the preview alone is a protocol violation.
 ════════════════════════════════════════════════════════════════════"
 
-# Prepend banner + session context line, append skill deps + session artifact after standards
-STANDARDS_OUTPUT="${PRELOAD_BANNER}
+# Order: standards, the dehydrated summary, the session excerpts, the dehydrated required files,
+# then skill files. An overflow therefore cuts files that can be re-read whole before the newest
+# session state, which cannot be.
+HEAD_OUTPUT="${PRELOAD_BANNER}
 ${SESSION_CONTEXT_LINE}
-${STANDARDS_OUTPUT}${SKILL_DEPS_OUTPUT}${ARTIFACT_OUTPUT}"
+${STANDARDS_OUTPUT}"
 
 # Dehydrated context restore — startup only (other sources: user didn't restart)
-if [ "$SOURCE" != "startup" ]; then
-  debug "$SOURCE source — preloading standards only, skipping dehydration"
-  echo "$STANDARDS_OUTPUT"
-  exit 0
+CONTEXT=""
+STATE_FILE=""
+if [ "$SOURCE" = "startup" ]; then
+  STATE_FILE="${DEHYDRATED_STATE_FILE:-}"
+else
+  debug "$SOURCE source — skipping dehydration"
 fi
+[ -n "$STATE_FILE" ] || debug "no dehydrated context to restore"
 
-# Dehydrated context was already detected during the single-pass scan above.
-# DEHYDRATED_STATE_FILE is set if any .state.json had dehydratedContext of type "object".
-STATE_FILE="${DEHYDRATED_STATE_FILE:-}"
-
-if [ -z "$STATE_FILE" ]; then
-  # No dehydrated context found — still output standards if present
-  debug "no dehydrated context found"
-  if [ -n "$STANDARDS_OUTPUT" ]; then
-    echo "$STANDARDS_OUTPUT"
-  fi
-  exit 0
-fi
-
+if [ -n "$STATE_FILE" ]; then
 SESSION_DIR=$(dirname "$STATE_FILE")
 SESSION_NAME=$(basename "$SESSION_DIR")
 
@@ -505,12 +511,20 @@ if [ -n "$USER_HISTORY" ]; then
 $USER_HISTORY"
 fi
 
-# Read required files and append their contents
+# Skill files delivered at the end of this preload, so a required file naming one is not repeated.
+if [ -n "${SKILL_DEP_PATHS:-}" ]; then
+  while IFS= read -r dep; do
+    [ -n "$dep" ] || continue
+    dep_norm=$(normalize_preload_path "${dep/#\~/$HOME}" 2>/dev/null || echo "$dep")
+    DELIVERED_IN_PRELOAD="${DELIVERED_IN_PRELOAD:-}|$dep_norm=the skill files below|"
+  done <<< "$SKILL_DEP_PATHS"
+fi
+
+# Read required files into their own block, which goes after the session excerpts
+REQUIRED_OUTPUT=""
 REQUIRED_FILES=$(jq -r '.dehydratedContext.requiredFiles // [] | .[]' "$STATE_FILE" 2>/dev/null)
 if [ -n "$REQUIRED_FILES" ]; then
-  CONTEXT="$CONTEXT
-
-### Required Files (Auto-Loaded)"
+  REQUIRED_OUTPUT="## Session Recovery: Required Files (Auto-Loaded)"
 
   while IFS= read -r filepath; do
     [ -z "$filepath" ] && continue
@@ -523,26 +537,20 @@ if [ -n "$REQUIRED_FILES" ]; then
       "sessions/"*|"packages/"*|"apps/"*|"src/"*|".claude/"*) resolved="$CWD/$filepath" ;;
     esac
 
-    if [ -f "$resolved" ]; then
-      # Append-only artifacts (logs, dialogues) put current state at the END, so
-      # taking the first bytes delivers the oldest entries. Take the tail, then
-      # advance to the next entry heading so the excerpt starts on a whole entry.
-      FILE_BYTES=$(wc -c < "$resolved" 2>/dev/null || echo 0)
-      if [ "$FILE_BYTES" -le 50000 ]; then
-        FILE_CONTENT=$(cat "$resolved" 2>/dev/null || echo "[Error reading file]")
-      else
-        FILE_TAIL=$(tail -c 50000 "$resolved" 2>/dev/null || echo "")
-        FIRST_HEADING=$(printf '%s' "$FILE_TAIL" | grep -n '^## ' | head -n 1 | cut -d: -f1 || echo "")
-        if [ -n "$FIRST_HEADING" ]; then
-          FILE_CONTENT=$(printf '%s' "$FILE_TAIL" | tail -n +"$FIRST_HEADING")
-        else
-          FILE_CONTENT="$FILE_TAIL"
-        fi
-        FILE_CONTENT="[... earlier entries omitted; showing the most recent of $FILE_BYTES bytes ...]
+    resolved_norm=$(normalize_preload_path "$resolved" 2>/dev/null || echo "$resolved")
+    delivered_as=""
+    case "${DELIVERED_IN_PRELOAD:-}" in
+      *"|$resolved_norm="*) delivered_as="${DELIVERED_IN_PRELOAD#*|$resolved_norm=}"; delivered_as="${delivered_as%%|*}" ;;
+    esac
+    if [ -n "$delivered_as" ]; then
+      REQUIRED_OUTPUT="$REQUIRED_OUTPUT
 
-$FILE_CONTENT"
-      fi
-      CONTEXT="$CONTEXT
+---
+#### File: $filepath
+[Already in this preload — see $delivered_as. Not repeated here.]"
+    elif [ -f "$resolved" ]; then
+      FILE_CONTENT=$(heading_aligned_tail "$resolved" 50000 || echo "[Error reading file]")
+      REQUIRED_OUTPUT="$REQUIRED_OUTPUT
 
 ---
 #### File: $filepath
@@ -550,7 +558,7 @@ $FILE_CONTENT"
 $FILE_CONTENT
 \`\`\`"
     else
-      CONTEXT="$CONTEXT
+      REQUIRED_OUTPUT="$REQUIRED_OUTPUT
 
 ---
 #### File: $filepath
@@ -561,7 +569,14 @@ fi
 
 # Clear dehydratedContext from .state.json (consumed)
 jq 'del(.dehydratedContext)' "$STATE_FILE" | safe_json_write "$STATE_FILE"
+CONTEXT="${CONTEXT}
 
-# Output the context — Claude Code will inject this as additionalContext
-# Standards first, then dehydrated context
-echo "${STANDARDS_OUTPUT}${CONTEXT}"
+"
+[ -z "$REQUIRED_OUTPUT" ] || REQUIRED_OUTPUT="${REQUIRED_OUTPUT}
+
+"
+fi
+
+# The dehydrated summary and the session excerpts (ledger, hand-over, newest log entries, DIALOGUE
+# tail) come before the required files and the skill files, so an overflow cuts those first.
+echo "${HEAD_OUTPUT}${CONTEXT}${ARTIFACT_OUTPUT}${REQUIRED_OUTPUT:-}${SKILL_DEPS_OUTPUT}"
