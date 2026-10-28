@@ -105,6 +105,19 @@ HB_CAP=""; HB_SET_CAP=0; HB_LANES=""; HB_SET_LANES=0
 DISPATCHING=""
 CLAIM_SESSION=""; CLAIM_STATE=""; CLAIM_ITEMS=()
 
+# pr_check — the ONE check a PR number passes, whichever spelling it arrived in (`in-pr 482`,
+# `in-pr '#482'`, or the stored form `in-pr:482`). Prints why on refusal. Digits only, so nothing
+# that could carry the claim separators `,` or `|` into the claims line; no leading zero, so one PR
+# has one spelling.
+pr_check() {
+  case "$1" in
+    '') printf 'loom-slots: in-pr needs the open PR number: --claim-state <sessionDir> <item> in-pr <PR#>\n' >&2; return 1 ;;
+    *[!0-9]*) printf 'loom-slots: an in-pr PR number is digits only, optionally written #N (got [%s])\n' "$1" >&2; return 1 ;;
+    0*) printf 'loom-slots: an in-pr PR number has no leading zeros, and is not 0 (got [%s]; write it as GitHub shows it)\n' "$1" >&2; return 1 ;;
+  esac
+  return 0
+}
+
 # take_items — the items after a claim command's sessionDir, up to the next --flag. Each argument
 # may itself be a comma list, so one call can claim everything a dispatch takes.
 take_items() {
@@ -136,14 +149,18 @@ while [ $# -gt 0 ]; do
       MODE=claim-state; CLAIM_SESSION="${2:?--claim-state needs <sessionDir> <item> <state>}"
       CLAIM_ITEMS=("${3:?--claim-state needs <sessionDir> <item> <state>}")
       CLAIM_STATE="${4:?--claim-state needs <sessionDir> <item> <state>}"; shift 4
-      if [ "$CLAIM_STATE" = in-pr ]; then
-        # The PR number is required and is the next argument; it may be written 482 or #482.
-        CLAIM_PR="${1-}"; CLAIM_PR="${CLAIM_PR#\#}"
-        case "$CLAIM_PR" in
-          ''|*[!0-9]*|0*) printf 'loom-slots: in-pr needs the open PR number: --claim-state <sessionDir> <item> in-pr <PR#> (got [%s])\n' "${1-}" >&2; exit 1 ;;
-        esac
-        shift; CLAIM_STATE="in-pr:$CLAIM_PR"
-      fi ;;
+      case "$CLAIM_STATE" in
+        in-pr)
+          # The PR number is required and is the next argument; it may be written 482 or #482.
+          CLAIM_PR="${1-}"; CLAIM_PR="${CLAIM_PR#\#}"
+          pr_check "$CLAIM_PR" || exit 1
+          shift; CLAIM_STATE="in-pr:$CLAIM_PR" ;;
+        in-pr:*)
+          # The stored spelling goes through the same check: it is not a way around it.
+          CLAIM_PR="${CLAIM_STATE#in-pr:}"; CLAIM_PR="${CLAIM_PR#\#}"
+          pr_check "$CLAIM_PR" || exit 1
+          CLAIM_STATE="in-pr:$CLAIM_PR" ;;
+      esac ;;
     --lane-alive) MODE=alive; LANE_SESSION="${2:?--lane-alive needs <sessionDir> <laneTag>}"; LANE_TAG="${3:?--lane-alive needs <sessionDir> <laneTag>}"; shift 3 ;;
     --lane-done)  MODE=done;  LANE_SESSION="${2:?--lane-done needs <sessionDir> <laneTag>}";  LANE_TAG="${3:?--lane-done needs <sessionDir> <laneTag>}";  shift 3 ;;
     -h|--help)    sed -n '/^# Usage:/,/^# (end of help)$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -379,7 +396,8 @@ fi
 
 if [ "$MODE" = claim ] || [ "$MODE" = release ] || [ "$MODE" = claim-state ]; then
   case "$MODE:$CLAIM_STATE" in
-    claim-state:working|claim-state:done-uncommitted|claim-state:landed|claim-state:in-pr:[1-9]*|claim:|release:) ;;
+    claim-state:working|claim-state:done-uncommitted|claim-state:landed|claim:|release:) ;;
+    claim-state:in-pr:*) pr_check "${CLAIM_STATE#in-pr:}" || exit 1 ;;
     *) printf 'loom-slots: state must be working, done-uncommitted, in-pr <PR#> or landed (got %s)\n' "$CLAIM_STATE" >&2; exit 1 ;;
   esac
   norm=()
@@ -478,6 +496,7 @@ at_cap=0
 rows=""
 claim_rows=""
 note_rows=""
+note_recs=()
 overlaps=0
 overlap_lines=""
 
@@ -622,7 +641,12 @@ for fi_ in ${F_PATH[@]+"${!F_PATH[@]}"}; do
               overlap_lines="$overlap_lines$(printf '  WARNING: dispatching %s overlaps %s, in review in PR %s by %s, claimed %s ago (row %s). It is committed and pushed: review or wait for the merge, do not redo it.' "$w" "$ci" "$cpr" "$short" "$cage" "$rowstate")
 "
             else
-              overlap_lines="$overlap_lines$(printf '  WARNING: dispatching %s overlaps %s, claimed %s by %s %s ago (row %s): uncommitted at risk.' "$w" "$ci" "$cs" "$short" "$cage" "$rowstate")
+              case "$cs" in
+                done-uncommitted) why=': uncommitted at risk.' ;;
+                working) why=': in flight — a lane may be working on it now, so a second dispatch collides with it.' ;;
+                *) why='.' ;;
+              esac
+              overlap_lines="$overlap_lines$(printf '  WARNING: dispatching %s overlaps %s, claimed %s by %s %s ago (row %s)%s' "$w" "$ci" "$cs" "$short" "$cage" "$rowstate" "$why")
 "
             fi
           fi
@@ -631,12 +655,19 @@ for fi_ in ${F_PATH[@]+"${!F_PATH[@]}"}; do
     done
   fi
 
-  # Notes are read off every row too: an interim marker on a stale row is still somebody's message.
+  # Notes are read off every row too: an interim marker on a stale row is still somebody's message,
+  # so it is printed, but labelled with its row's state so a dead loom's marker reads as one. A
+  # duplicate row's note is recorded with its canonical session and printed only if the primary row
+  # does not carry the same text (below), and then marked as coming from the duplicate.
+  nstate="fresh"; [ "$loom_fresh" = 1 ] || nstate="stale(${loom_age}m)"
   for nv in ${notes[@]+"${notes[@]}"}; do
     nwho="$short"
     [ -n "$SELF" ] && [ "$(canon_session "$sessionDir")" = "$SELF" ] && nwho="$short (this loom)"
-    note_rows="$note_rows$(printf '  %s: %s' "$nwho" "$nv")
-"
+    if [ "$is_dupe" = 1 ]; then
+      note_recs+=("1"$'\x1f'"${F_CANON[$fi_]}"$'\x1f'"$nv"$'\x1f'"$(printf '  %s [%s, duplicate row %s]: %s' "$nwho" "$nstate" "$(basename "$f")" "$nv")")
+    else
+      note_recs+=("0"$'\x1f'"${F_CANON[$fi_]}"$'\x1f'"$nv"$'\x1f'"$(printf '  %s [%s]: %s' "$nwho" "$nstate" "$nv")")
+    fi
   done
 
   if [ -n "$stale_names" ]; then
@@ -678,6 +709,22 @@ if [ -n "$claim_rows" ] && ! $QUIET; then
   { printf 'LOOM\tITEM\tSTATE\tSINCE\tROW\n'; printf '%s' "$claim_rows"; } | column -t -s "$(printf '\t')"
   printf '\n'
 fi
+
+# A primary row's notes print as they are; a duplicate row's note prints only when its primary
+# does not already carry the same text for the same session.
+for nr in ${note_recs[@]+"${note_recs[@]}"}; do
+  IFS=$'\x1f' read -r nd nc nt nl <<< "$nr"
+  if [ "$nd" = 1 ]; then
+    seen=0
+    for pr in ${note_recs[@]+"${note_recs[@]}"}; do
+      IFS=$'\x1f' read -r pd pc pt pl <<< "$pr"
+      [ "$pd" = 0 ] && [ "$pc" = "$nc" ] && [ "$pt" = "$nt" ] && { seen=1; break; }
+    done
+    [ "$seen" = 1 ] && continue
+  fi
+  note_rows="$note_rows$nl
+"
+done
 
 if [ -n "$note_rows" ] && ! $QUIET; then
   printf '== Notes (note= lines from each loom'"'"'s slot file) ==\n\n'
