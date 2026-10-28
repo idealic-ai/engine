@@ -4,9 +4,11 @@
 # the page would rest on a URL nobody had ever seen answer.
 #
 # LOCAL STORE ONLY. It talks to the kit's loopback MinIO (default http://127.0.0.1:9440, the port
-# IS the store's identity) with that store's dev pair, writes one object under a throwaway doc id
-# and deletes it. If that store is not answering, the test says SKIP and exits 0 — it never
-# reaches for another endpoint.
+# IS the store's identity) with that store's login, writes one object under a throwaway doc id
+# and deletes it. The login is SIGN_LIST_AK/SIGN_LIST_SK, else the kit's KIT_PROOFS_MINIO_USER /
+# KIT_PROOFS_MINIO_PASSWORD (the variables the publisher reads); no login is written in this file.
+# If that store is not answering, or no login is set, the store half says SKIP and exits 0 — it
+# never reaches for another endpoint or another credential.
 #
 # Run:  ~/.claude/engine/skills/prove/assets/__tests__/sign-list.test.sh
 set -uo pipefail
@@ -14,7 +16,7 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 assets="$(cd "$here/.." && pwd)"
 EP="${SIGN_LIST_ENDPOINT:-http://127.0.0.1:9440}"
 BUCKET="${SIGN_LIST_BUCKET:-proofs}"
-export AWS_ACCESS_KEY_ID="${SIGN_LIST_AK:-kitminio}" AWS_SECRET_ACCESS_KEY="${SIGN_LIST_SK:-kitminio-dev-secret}"
+export AWS_ACCESS_KEY_ID="${SIGN_LIST_AK:-${KIT_PROOFS_MINIO_USER:-}}" AWS_SECRET_ACCESS_KEY="${SIGN_LIST_SK:-${KIT_PROOFS_MINIO_PASSWORD:-}}"
 export AWS_REGION=us-east-1 AWS_EC2_METADATA_DISABLED=true
 unset AWS_PROFILE AWS_SESSION_TOKEN
 
@@ -33,6 +35,9 @@ else no "one-segment doc id signs"; fi
 code="$(curl -s -m 3 -o /dev/null -w '%{http_code}' "$EP/" || true)"
 if [ -z "$code" ] || [ "$code" = 000 ]; then
   echo "SKIP sign-list (store half): no store answering at $EP"; echo "sign-list: $pass passed, $fail failed"; [ "$fail" -eq 0 ]; exit $?
+fi
+if [ -z "$AWS_ACCESS_KEY_ID" ] || [ -z "$AWS_SECRET_ACCESS_KEY" ]; then
+  echo "SKIP sign-list (store half): no login for $EP — set KIT_PROOFS_MINIO_USER and KIT_PROOFS_MINIO_PASSWORD (or SIGN_LIST_AK/SIGN_LIST_SK)"; echo "sign-list: $pass passed, $fail failed"; [ "$fail" -eq 0 ]; exit $?
 fi
 
 doc="boardrcpt-selftest-$$-$RANDOM"
