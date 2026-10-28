@@ -25,9 +25,11 @@
 
 *A row closes when its thread reaches a terminal stage with its proof URL recorded, or when the operator parks it with a reason. `reach it by` is the lane's **LOG PATH**, never an agent id: a context clear ends every in-process subagent, so an id is executable only while the parent context lives, and the log is what a fresh lane reads to take over.*
 
-| owner | threadId | subject | stage | reach it by (LOG PATH) | file holds | closes when |
-|-------|----------|---------|-------|------------------------|------------|-------------|
-| [session dir] | [ENG-XXXX / SLUG] | [one line] | [triaged \| interrogated \| building \| scrutinized \| snapshotted \| pr'd \| council'd \| parked] | `[absolute path to the lane's _BUILD_LOG.md]` | [paths this thread holds, or `none`] | [the terminal stage + its proof URL \| `parked — <reason>`] |
+*🔍 `scrutiny` travels because it is the reading a successor cannot re-take (`§INV_LOOM_SCRUTINY_IS_DECLARED_AND_ROWED`). Once the lane is gone, nothing in git or in the ticket says whether anybody other than its author read its work, and `clean` and `never read` look identical in the diff. So the cell is carried verbatim — `clean` · `[n] findings → triaged` · `not scrutinized — [why]` — and a row arriving with it **empty** reads `UNKNOWN — cell never written`, which a successor stops on rather than acting past, like any other `UNKNOWN` in a field it needs.*
+
+| owner | threadId | subject | stage | 🔍 scrutiny | reach it by (LOG PATH) | file holds | closes when |
+|-------|----------|---------|-------|----------|------------------------|------------|-------------|
+| [session dir] | [ENG-XXXX / SLUG] | [one line] | [triaged \| interrogated \| building \| scrutinized \| snapshotted \| pr'd \| council'd \| parked] | [clean \| [n] findings → triaged \| not scrutinized — [why] \| `UNKNOWN — cell never written`] | `[absolute path to the lane's _BUILD_LOG.md]` | [paths this thread holds, or `none`] | [the terminal stage + its proof URL \| `parked — <reason>`] |
 
 ## 🗳️ Boards — published decision boards awaiting a fold
 
