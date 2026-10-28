@@ -7,13 +7,13 @@ every `fields` entry, a `key` that starts with keyPrefix, a `Content-Type`, and 
 landing one object under events/<doc>/. The POST is authorized by the signature (NOT anonymous
 public write), so no bucket public-write is needed.
 
-`listUrl` is the READ-BACK half: a SigV4 query-presigned ListObjectsV2 on the same host, fixed to
-this board's own events/<doc>/ prefix and the same expiry. events/* is owner-read-only, so without
-it a page can only trust the POST's 2xx — and a 2xx is the store's word that it took the bytes,
-not evidence the fold will find them there (a board posted into one store while the fold listed
-another, and the answer read as submitted). The page lists after posting and shows "stored" only
-for keys the listing returns. It discloses key NAMES (timestamp + random) under this one board's
-prefix, never an object's body: it signs no GetObject.
+`listUrl` is the READ-BACK half: a SigV4 query-presigned ListObjectsV2 on the same host as postUrl,
+fixed to this board's own events/<doc>/ prefix and the same expiry. events/* is owner-read-only, so
+without it a page can only trust the POST's 2xx. What a listing shows is that the key is listed in
+the store this page POSTED to — nothing more. It says nothing about a store the fold reads if that
+is a different one, so the page also refuses "stored" unless listUrl and its stateUrl name the same
+origin and bucket. It discloses key NAMES (timestamp + random) under this one board's prefix,
+never an object's body: it signs no GetObject.
 
 A presign cannot outlive the credential that signed it, so `expiresAt` is clamped to
 AWS_CREDENTIAL_EXPIRATION when the environment declares one. Without that clamp the emitted
@@ -88,6 +88,9 @@ def main():
     if len(sys.argv) < 2:
         sys.exit("usage: sign-post.py <doc> [expiry_seconds] [max_bytes]")
     doc = sys.argv[1]
+    # One path segment: a '/' would widen the grant (starts-with + list prefix) over nested docs.
+    if not doc or "/" in doc or doc.startswith("."):
+        sys.exit(f"sign-post.py: refusing doc id {doc!r} - a doc id is one path segment, with no '/' and no leading '.'")
     requested = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_EXPIRY
     expiry = min(requested, S3_MAX_EXPIRY)
     max_bytes = int(sys.argv[3]) if len(sys.argv) > 3 else 16384

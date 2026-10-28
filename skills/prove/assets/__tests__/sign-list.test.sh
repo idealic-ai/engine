@@ -22,9 +22,17 @@ pass=0; fail=0
 ok() { pass=$((pass+1)); printf '  ok   %s\n' "$1"; }
 no() { fail=$((fail+1)); printf '  FAIL %s\n     %s\n' "$1" "${2:-}"; }
 
+# Offline, before any store: a doc id with '/' would widen the grant over nested docs.
+if out="$(PROVE_S3_BUCKET=b AWS_ACCESS_KEY_ID=A AWS_SECRET_ACCESS_KEY=S python3 -I "$assets/sign-post.py" "doc/sub" 60 2>&1)"; then
+  no "a doc id with '/' is refused" "signed: $(printf '%s' "$out" | head -c 120)"
+else ok "a doc id with '/' is refused, nothing signed"; fi
+if PROVE_S3_BUCKET=b AWS_ACCESS_KEY_ID=A AWS_SECRET_ACCESS_KEY=S python3 -I "$assets/sign-post.py" "doc-ok" 60 >/dev/null 2>&1; then
+  ok "…and its nearest legal neighbour, a one-segment id, still signs"
+else no "one-segment doc id signs"; fi
+
 code="$(curl -s -m 3 -o /dev/null -w '%{http_code}' "$EP/" || true)"
 if [ -z "$code" ] || [ "$code" = 000 ]; then
-  echo "SKIP sign-list: no store answering at $EP"; exit 0
+  echo "SKIP sign-list (store half): no store answering at $EP"; echo "sign-list: $pass passed, $fail failed"; [ "$fail" -eq 0 ]; exit $?
 fi
 
 doc="boardrcpt-selftest-$$-$RANDOM"

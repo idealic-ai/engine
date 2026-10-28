@@ -84,8 +84,8 @@ else no "…and the sentence names the store and the error" "$(cat "$tmp/a.err")
 
 echo "== the nearest legal neighbour: an empty inbox is still 'folded 0', exit 0 =="
 PATH="$shimPATH" SHIM_LIST=empty "$sync" doc-b >"$tmp/b.out" 2>"$tmp/b.err"; rc=$?
-if [ "$rc" -eq 0 ] && grep -Eq "^prove-sync: folded 0 event\(s\) into (proofs/)?state/doc-b\.json$" "$tmp/b.out"; then
-  ok "empty inbox: exit 0 and the summary line callers parse, unchanged"
+if [ "$rc" -eq 0 ] && grep -Eq "^prove-sync: folded 0 event\(s\) into (proofs/)?state/doc-b\.json from s3://test-bucket/events/doc-b/ on AWS S3$" "$tmp/b.out"; then
+  ok "empty inbox: exit 0, the summary keeps its shape and now names the store it listed"
 else no "empty inbox: exit 0 + unchanged summary" "rc=$rc out=$(cat "$tmp/b.out") err=$(cat "$tmp/b.err")"; fi
 
 echo "== per-event progress, and stdout stays one parseable line =="
@@ -114,6 +114,9 @@ if [ -e "$hold.entered" ]; then
   else no "second run: 'fold already running', exit 75" "rc2=$rc2 out=$(cat "$tmp/d2.out") err=$(cat "$tmp/d2.err")"; fi
   if [ ! -s "$tmp/d2.aws" ]; then ok "…without listing, reading or deleting anything"
   else no "…second run touched the store" "$(cat "$tmp/d2.aws")"; fi
+  if [ "$(readlink "$PROVE_SYNC_LOCK_DIR/prove-sync.aws-s3.test-bucket.doc-d.lck" 2>/dev/null)" = "$first" ] || grep -q "pid $first" "$tmp/d2.out"; then
+    ok "…the lock carries the holder's pid from the instant it exists (a symlink to the pid, made in one step)"
+  else no "lock names the holder pid" "first=$first d2=$(cat "$tmp/d2.out")"; fi
   if [ "$rc1" -eq 0 ] && grep -q "folded 1 event" "$tmp/d1.out"; then ok "…while the first run finishes its fold normally"
   else no "first run finished" "rc1=$rc1 $(cat "$tmp/d1.out")"; fi
 else
@@ -123,12 +126,28 @@ fi
 PATH="$shimPATH" SHIM_LIST=empty "$sync" doc-d >"$tmp/d3.out" 2>&1; rc3=$?
 if [ "$rc3" -eq 0 ]; then ok "…and once it is done the lock is released (a third run folds)"
 else no "lock released after the first run" "rc=$rc3 $(cat "$tmp/d3.out")"; fi
-# The lock a crashed run leaves behind: its directory, holding a pid that is not running.
-lkpath="$PROVE_SYNC_LOCK_DIR/prove-sync.aws-s3.test-bucket.doc-e.lock"
-mkdir -p "$lkpath"; echo 999999 > "$lkpath/pid"
+# The lock a crashed run leaves behind: a symlink to a pid that is not running.
+lkpath="$PROVE_SYNC_LOCK_DIR/prove-sync.aws-s3.test-bucket.doc-e.lck"
+ln -s 999999 "$lkpath"
 PATH="$shimPATH" SHIM_LIST=empty "$sync" doc-e >"$tmp/e.out" 2>"$tmp/e.err"; rc=$?
-if [ "$rc" -eq 0 ] && grep -q "stale" "$tmp/e.err"; then ok "a lock left by a dead run is taken over, and that is said"
-else no "stale lock taken over" "rc=$rc lock=$lkpath err=$(cat "$tmp/e.err")"; fi
+if [ "$rc" -eq 0 ] && grep -q "no longer running" "$tmp/e.err"; then ok "a lock left by a dead run is taken over, and that is said"
+else no "stale lock taken over" "rc=$rc err=$(cat "$tmp/e.err")"; fi
+if [ ! -e "$lkpath" ] && [ ! -L "$lkpath" ]; then ok "…and released when that run ends"; else no "lock released after take-over" "$(ls -l "$lkpath")"; fi
+
+echo "== a recycled pid: the number is alive, but it is not a fold =="
+sleep 30 & sleeper=$!
+lkpath="$PROVE_SYNC_LOCK_DIR/prove-sync.aws-s3.test-bucket.doc-g.lck"
+ln -s "$sleeper" "$lkpath"
+PATH="$shimPATH" SHIM_LIST=empty "$sync" doc-g >"$tmp/g.out" 2>"$tmp/g.err"; rc=$?
+kill "$sleeper" 2>/dev/null; wait "$sleeper" 2>/dev/null
+if [ "$rc" -eq 0 ] && grep -q "not a prove-sync" "$tmp/g.err" && grep -q "folded 0" "$tmp/g.out"; then
+  ok "a live pid that is not a prove-sync does not wedge the fold (taken over, rc 0)"
+else no "recycled pid does not wedge" "rc=$rc out=$(cat "$tmp/g.out") err=$(cat "$tmp/g.err")"; fi
+
+echo "== a doc id is one path segment =="
+PATH="$shimPATH" SHIM_LIST=empty SHIM_AWS_LOG="$tmp/h.aws" "$sync" "doc-h/sub" >"$tmp/h.out" 2>"$tmp/h.err"; rc=$?
+if [ "$rc" -eq 1 ] && grep -q "one path segment" "$tmp/h.err" && [ ! -s "$tmp/h.aws" ]; then ok "a doc id with '/' is refused before any store call"
+else no "doc id with '/' refused" "rc=$rc err=$(cat "$tmp/h.err")"; fi
 
 echo "== the real CLI against a store that is not there =="
 if command -v aws >/dev/null 2>&1; then

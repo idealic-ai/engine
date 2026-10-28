@@ -76,7 +76,7 @@ function makeStoreNet(o = {}) {
           text: () => Promise.resolve("<Error><Code>AccessDenied</Code></Error>") });
       }
       const keys = postKeys.filter((p) => (o.listHas ? o.listHas(p) : true)).map((p) => p.key);
-      const xml = '<?xml version="1.0"?><ListBucketResult>' + keys.map((k) => "<Contents><Key>" + k + "</Key></Contents>").join("") + "</ListBucketResult>";
+      const xml = '<?xml version="1.0"?><ListBucketResult>' + (o.truncated ? "<IsTruncated>true</IsTruncated>" : "<IsTruncated>false</IsTruncated>") + keys.map((k) => "<Contents><Key>" + k + "</Key></Contents>").join("") + "</ListBucketResult>";
       return Promise.resolve({ ok: true, status: 200, headers: { get: () => null }, text: () => Promise.resolve(xml) });
     }
     if (o.stateDoc) {
@@ -251,7 +251,52 @@ process.on("unhandledRejection", (e) => { failures.push("unhandled: " + (e && e.
   check(b.retryBtn.disabled === true, "B9 Retry is disabled while the window is closed");
 }
 
+/* ---- B10 — an EDITED answer: the doc already holds this voter's earlier event under the same id ---- */
+{
+  // Ids are deterministic per voter+item+key; only ts tells the edit from the original.
+  const net = makeStoreNet({ listHas: () => false, stateDoc: (pk) => ({ docId: LIVE.docId,
+    events: pk.map((p) => ({ ...p.body, ts: "2026-01-01T00:00:00.000Z" })) }) });
+  const st = makeStorage();
+  const b = board([["q1", "yes"]], { net, storage: st }); await tick();
+  check((await sub(b)) === false, "B10 an id already in the doc with an OLDER ts is not this answer stored");
+  check(/Not stored/.test(b.status()) && !/stored at/i.test(b.status()), "B10 …it says not stored — got: " + b.status());
+  check(kept(st).length === 1, "B10 …and keeps the edit for Retry");
+}
+
+/* ---- B11 — the read-back lists a different store from the one the board's state is read from ---- */
+{
+  for (const [label, cfg] of [
+    ["another bucket host", { ...LIVE, listUrl: "https://other.s3.us-east-2.amazonaws.com/?list-type=2&prefix=x" }],
+    ["another local port", { ...LIVE, stateUrl: "http://127.0.0.1:9440/proofs/proofs/state/" + LIVE.docId + ".json",
+      postUrl: "http://127.0.0.1:9010/proofs/", listUrl: "http://127.0.0.1:9010/proofs/?list-type=2&prefix=x" }],
+    ["another bucket, same port", { ...LIVE, stateUrl: "http://127.0.0.1:9440/proofs/proofs/state/" + LIVE.docId + ".json",
+      postUrl: "http://127.0.0.1:9440/other/", listUrl: "http://127.0.0.1:9440/other/?list-type=2&prefix=x" }]]) {
+    const net = makeStoreNet(), st = makeStorage();
+    const b = board([["q1", "yes"]], { cfg, net, storage: st }); await tick();
+    check((await sub(b)) === false, "B11 " + label + ": no 'Stored' when the listed store is not the state's store");
+    check(/Not confirmed/.test(b.status()) && !/stored at/i.test(b.status()), "B11 " + label + ": says not confirmed — got: " + b.status());
+    check(net.lists().length === 0 && kept(st).length === 1, "B11 " + label + ": no read-back is trusted, the answer is kept");
+  }
+  // The nearest legal neighbour: a path-style local board whose list and state share port and bucket.
+  const cfg = { ...LIVE, stateUrl: "http://127.0.0.1:9440/proofs/proofs/state/" + LIVE.docId + ".json",
+    postUrl: "http://127.0.0.1:9440/proofs/", listUrl: "http://127.0.0.1:9440/proofs/?list-type=2&prefix=x" };
+  const b = board([["q1", "yes"]], { cfg, net: makeStoreNet(), storage: makeStorage() }); await tick();
+  check((await sub(b)) === true && /^Stored at/.test(b.status()), "B11 same port + bucket, path-style: stored as before");
+}
+
+/* ---- B12 — a truncated listing that lacks the key is 'not confirmed', not 'not stored' ---- */
+{
+  const net = makeStoreNet({ listHas: () => false, truncated: true }), st = makeStorage();
+  const b = board([["q1", "yes"]], { net, storage: st }); await tick();
+  check((await sub(b)) === false, "B12 a key absent from a truncated page is not confirmed");
+  check(/Not confirmed/.test(b.status()) && /cut off/.test(b.status()) && !/Not stored/.test(b.status()), "B12 …and says the listing was cut off — got: " + b.status());
+  const ok = board([["q1", "yes"]], { net: makeStoreNet({ truncated: true }), storage: makeStorage() }); await tick();
+  check((await sub(ok)) === true, "B12 a truncated page that DOES list the key is still stored");
+}
+
+/* The gate sits immediately above the PASS line, after EVERY scenario: a check written below it
+ * would print FAIL and still exit 0. */
 if (failures.length) { console.log("board-receipt.test: FAIL — " + failures.length + " of " + n + " checks failed"); process.exit(1); }
 console.log("board-receipt.test: PASS — " + n + " assertions (B1 stored-at only on read-back · B2 accepted-but-absent is an error with Retry · "
   + "B3 already-folded counts · B4 refused read-back · B5 offline keep/copy/reload/re-send · B6 no resurrection · "
-  + "B7 throwing storage · B8 older board never says stored · B9 closed window keeps the answer)");
+  + "B7 throwing storage · B8 older board never says stored · B9 closed window keeps the answer · B10 an edit is matched on id AND ts · B11 a listing on another store never says stored · B12 truncated listing is not confirmed)");

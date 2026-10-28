@@ -5,7 +5,9 @@
 # A delete happens only after a successful append, so a failed fold leaves the event for retry.
 #
 # OUTPUT CONTRACT. stdout carries exactly one line, which callers read:
-#   prove-sync: folded N event(s) into <state key>[ (K left for retry)][ (S non-event key(s) skipped)]
+#   prove-sync: folded N event(s) into <state key> from s3://<bucket>/<events prefix> on <endpoint>[ (K left for retry)][ (S non-event key(s) skipped)]
+# The store is on the line because a fold aimed at a reachable but WRONG store prints "folded 0"
+# truthfully, and only the store's name tells that apart from an empty inbox.
 # or, when another fold of the same doc holds the lock:
 #   prove-sync: fold already running for <doc> (pid P) — not folding; run it again once that one ends
 # Per-event progress and every error go to stderr.
@@ -22,6 +24,10 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$here/_prove-s3-env.sh"
 
 doc="${1:?usage: prove-sync.sh <doc>}"
+# A doc id is one path segment. A '/' would make events/<doc>/ cover other boards' inboxes.
+case "$doc" in
+  */*|.|..|.*) echo "prove-sync: refusing doc id '${doc}' — a doc id is one path segment, with no '/' and no leading '.'" >&2; exit 1 ;;
+esac
 : "${PROVE_S3_BUCKET:?prove-sync: PROVE_S3_BUCKET not set (env or project .env)}"
 # The key helpers and ENDPOINT_ARG come from _prove-s3-env.sh where that file defines them; the
 # fallbacks are the layout this script has always used.
@@ -37,32 +43,56 @@ s3() { aws s3api ${PROFILE_ARG[@]+"${PROFILE_ARG[@]}"} ${ENDPOINT_ARG[@]+"${ENDP
 
 tmp="$(mktemp -d)"
 lock=""
-cleanup() { rm -rf "$tmp"; if [ -n "$lock" ]; then rm -rf "$lock"; fi; }
+# Release only a lock that is still ours: after a take-over race the path may name another run.
+cleanup() {
+  rm -rf "$tmp"
+  if [ -n "$lock" ] && [ "$(readlink "$lock" 2>/dev/null)" = "$$" ]; then rm -f "$lock"; fi
+}
 trap cleanup EXIT
 
 # --- one fold per doc per store at a time ---------------------------------------------------------
 # Two folds racing do not corrupt the doc (state-append is a CAS), but both list the same keys and
 # both append them, so every answer lands twice and each run reports a count the other contradicts.
-# mkdir is the lock because it is atomic everywhere this runs; macOS ships no flock(1).
+# The lock is a SYMLINK whose target is the holder's pid: `ln -s` creates the name and its content
+# in one atomic step, so there is no moment where the lock exists without a pid for another run to
+# read as stale (a mkdir-then-write lock has exactly that gap). macOS ships no flock(1).
 lockdir="${PROVE_SYNC_LOCK_DIR:-${TMPDIR:-/tmp}}"
 lockid="$(printf '%s' "${endpoint:-aws-s3}" | sed 's#^[a-z]*://##; s#[^A-Za-z0-9._-]#_#g')"
-lockpath="${lockdir%/}/prove-sync.${lockid}.${PROVE_S3_BUCKET}.${doc}.lock"
+lockpath="${lockdir%/}/prove-sync.${lockid}.${PROVE_S3_BUCKET}.${doc}.lck"
 mkdir -p "$lockdir"
-take_lock() { mkdir "$lockpath" 2>/dev/null && echo "$$" > "$lockpath/pid"; }
+take_lock() { ln -s "$$" "$lockpath" 2>/dev/null; }
+# A pid is a live holder only if it is running AND is a prove-sync. A bare `kill -0` reads a
+# recycled pid (any process that inherited the number) as the holder and wedges every fold until
+# that process exits; it also fails with EPERM on another user's process, which is not "gone".
+holder_cmd() { ps -p "$1" -o command= 2>/dev/null || true; }
+is_fold() { case "$(holder_cmd "$1")" in *prove-sync*) return 0 ;; *) return 1 ;; esac; }
+running() {
+  echo "prove-sync: fold already running for ${doc} (pid $1) — not folding; run it again once that one ends"
+  exit 75
+}
 if ! take_lock; then
-  holder="$(cat "$lockpath/pid" 2>/dev/null || true)"
-  if [ -n "$holder" ] && kill -0 "$holder" 2>/dev/null; then
-    echo "prove-sync: fold already running for ${doc} (pid ${holder}) — not folding; run it again once that one ends"
-    exit 75
+  holder="$(readlink "$lockpath" 2>/dev/null || true)"
+  case "$holder" in ''|*[!0-9]*) holder="" ;; esac
+  if [ -n "$holder" ] && is_fold "$holder"; then running "$holder"; fi
+  cmd="$(holder_cmd "${holder:-0}")"
+  if [ -z "$holder" ]; then why="it names no pid"
+  elif [ -z "$cmd" ]; then why="pid ${holder} is no longer running"
+  else why="pid ${holder} is now a different process (${cmd%% *}), not a prove-sync"; fi
+  echo "prove-sync: taking over a stale lock (${lockpath}: ${why})" >&2
+  # Move the stale lock aside rather than deleting it, then check what was moved. If another run
+  # took the lock over between our read and our move, we have just moved ITS live lock: put it
+  # back (ln -s, which never overwrites) and stand down.
+  aside="${lockpath}.stale.$$"
+  if mv "$lockpath" "$aside" 2>/dev/null; then
+    moved="$(readlink "$aside" 2>/dev/null || true)"
+    if [ "$moved" != "${holder}" ] && [ -n "$moved" ] && is_fold "$moved"; then
+      ln -s "$moved" "$lockpath" 2>/dev/null || true
+      rm -f "$aside"
+      running "$moved"
+    fi
+    rm -f "$aside"
   fi
-  # The holder is gone (crashed, killed) or never wrote its pid. Take the lock over, once; if a
-  # third run beats us to it, that run is the fold and this one stands down.
-  echo "prove-sync: taking over a stale lock (${lockpath}, pid ${holder:-none} is not running)" >&2
-  rm -rf "$lockpath"
-  if ! take_lock; then
-    echo "prove-sync: fold already running for ${doc} (pid $(cat "$lockpath/pid" 2>/dev/null || echo '?')) — not folding; run it again once that one ends"
-    exit 75
-  fi
+  if ! take_lock; then running "$(readlink "$lockpath" 2>/dev/null || echo '?')"; fi
 fi
 lock="$lockpath"
 
@@ -108,4 +138,4 @@ while IFS= read -r key; do
   fi
 done < "$tmp/keys"
 
-echo "prove-sync: folded ${folded} event(s) into ${statekey}$([ "$failed" -gt 0 ] && echo " (${failed} left for retry)")$([ "$skipped" -gt 0 ] && echo " (${skipped} non-event key(s) skipped)")"
+echo "prove-sync: folded ${folded} event(s) into ${statekey} from ${store}$([ "$failed" -gt 0 ] && echo " (${failed} left for retry)")$([ "$skipped" -gt 0 ] && echo " (${skipped} non-event key(s) skipped)")"

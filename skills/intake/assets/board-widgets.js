@@ -31,8 +31,11 @@
  *      postUrl?, listUrl?, keyPrefix?, fields?, expiresAt?,
  *      expirySeconds?, expiryRequested?, expiryClampedBy?, submitDisabledReason?}.
  *      listUrl is the READ-BACK grant (sign-post.py): a presigned list of this board's own events
- *      prefix. With it, a Submit says "Stored at HH:MM" only for keys the store lists back; without
- *      it (an older publish) the page says the store accepted the POST and never says "stored".
+ *      prefix, in the store this page POSTS to. With it, a Submit says "Stored at HH:MM" only for
+ *      keys that store lists back (or events, matched on id AND ts, already in the state doc), and
+ *      only when that store is the one stateUrl reads — a listing on another store says nothing
+ *      about what the fold will find. Without it (an older publish) the page says the store
+ *      accepted the POST and never says "stored".
  *   [data-fb-retry] [data-fb-copy-unsent]  — kit-owned, auto-created (hidden) if absent. Shown when
  *      a Submit did not demonstrably land: its answers are kept in localStorage under
  *      fb:outbox:<docId> (memory when storage refuses), copyable, and re-sent by the next Submit.
@@ -611,6 +614,19 @@
     return String(s).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
       .replace(/&apos;/g, "'").replace(/&amp;/g, "&");
   }
+  /* Which store a URL addresses: its origin plus bucket. Path-style (a local MinIO:
+     http://host:port/<bucket>/…) takes the bucket from the first path segment; AWS virtual-host
+     (https://<bucket>.s3.<region>.amazonaws.com/…) carries it in the host. Regex, not URL(): the
+     kit runs where URL may not exist. */
+  function storeOf(u) {
+    var m = /^(https?:\/\/([^\/?#]+))(\/[^?#]*)?/i.exec(String(u || ""));
+    if (!m) return "";
+    var origin = m[1].toLowerCase(), host = m[2].toLowerCase();
+    if (/^[^.]+\.s3[.-]/.test(host)) return origin;
+    var seg = /^\/([^\/]+)/.exec(m[3] || "");
+    return origin + "/" + (seg ? seg[1] : "");
+  }
+
   function readBack(sent) {
     return fetch(STATE.listUrl, { cache: "no-store" }).then(null, function () {
       throw new Error("Unreachable");
@@ -629,13 +645,24 @@
       while ((m = re.exec(body || ""))) listed[xmlText(m[1])] = true;
       var missing = sent.filter(function (x) { return !listed[x.key]; });
       if (!missing.length) return { missing: [], error: null };
+      /* ListObjectsV2 answers at most 1000 keys. A key not on a TRUNCATED page may be on the next,
+         so its absence there is "not confirmed", never "not stored". */
+      var truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(body || "");
       return fetch(STATE.stateUrl, { cache: "no-store" }).then(function (r) {
         return r && r.ok && typeof r.json === "function" ? r.json() : null;
       }).then(function (doc) {
-        var ids = Object.create(null), evs = (doc && doc.events) || [], i;
-        for (i = 0; i < evs.length; i++) if (evs[i] && evs[i].id) ids[evs[i].id] = true;
-        return { missing: missing.filter(function (x) { return !ids[x.ev.id]; }), error: null };
-      }, function () { return { missing: missing, error: null }; });
+        /* Folded already only if the doc holds THIS event: same id AND same ts. Ids are
+           deterministic per voter and item, so an edited answer shares its id with the earlier
+           one already in the doc — matching on id alone read the old answer as the new one stored. */
+        var seen = Object.create(null), evs = (doc && doc.events) || [], i;
+        for (i = 0; i < evs.length; i++) if (evs[i] && evs[i].id) seen[evs[i].id + "\u0000" + evs[i].ts] = true;
+        var still = missing.filter(function (x) { return !seen[x.ev.id + "\u0000" + x.ev.ts]; });
+        return { missing: still, error: still.length && truncated
+          ? "the inbox listing was cut off at its first page, so the missing answers may be on a later one" : null };
+      }, function () {
+        return { missing: missing, error: truncated
+          ? "the inbox listing was cut off at its first page, so the missing answers may be on a later one" : null };
+      });
     }).then(null, function (e) {
       return { missing: sent, error: explainPostError(e && e.message ? e.message : String(e)) };
     });
@@ -711,6 +738,17 @@
         pollDelay = POLL_MIN;
         return true;
       }
+      /* The read-back lists the store this page POSTED to. The fold reads the store the board's
+         shared state lives on. If those are two stores, a listing proves nothing about what the
+         fold will find — which is the incident's own shape — so "Stored" is refused outright. */
+      if (storeOf(STATE.listUrl) !== storeOf(STATE.stateUrl)) {
+        writeOutbox(events);
+        outcome = { ok: false, text: "Not confirmed: this board checks its answers on " + storeOf(STATE.listUrl)
+          + " but reads its shared state from " + storeOf(STATE.stateUrl)
+          + ", so it cannot say the fold that feeds this board will find them." };
+        refreshLiveness();
+        return false;
+      }
       setStateStatus("Sent " + events.length + " — checking the store has them…");
       return readBack(sent).then(function (res) {
         if (res.error || res.missing.length) {
@@ -728,8 +766,9 @@
         writeOutbox([]);
         recordReceipt(ids, true);
         outcome = { ok: true, text: "Stored at " + hhmm(new Date()) + " ✓ — " + events.length
-          + (events.length === 1 ? " answer is" : " answers are") + " in the board's inbox; "
-          + (events.length === 1 ? "it shows" : "they show") + " up here once an agent runs the fold (a few times a day)." };
+          + (events.length === 1 ? " answer is" : " answers are") + " listed in this board's inbox, on the store its "
+          + "shared state is read from; " + (events.length === 1 ? "it appears" : "they appear")
+          + " here once an agent folds that inbox (a few times a day)." };
         renderState();
         refreshLiveness();
         pollDelay = POLL_MIN;
