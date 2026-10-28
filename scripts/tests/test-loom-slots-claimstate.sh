@@ -218,6 +218,15 @@ else
   no "N1b fresh label on notes" "notes=[$notes]"
 fi
 
+qout="$(run --quiet --self "$ME" 2>/dev/null)"
+qerr="$(run --quiet --self "$ME" 2>&1 >/dev/null)"
+if printf '%s' "$qerr" | grep -qF 'interim: IDE-77 rebasing onto main' && printf '%s' "$qerr" | grep -q 'RUNNER_LOOM' \
+   && ! printf '%s' "$qout" | grep -q 'interim'; then
+  ok "N4  with --quiet, notes print on stderr (loom named) and are absent from stdout — --quiet cannot hide a reason not to dispatch"
+else
+  no "N4  notes on stderr under --quiet" "stdout=[$qout] stderr=[$qerr]"
+fi
+
 # A stale row's note is labelled stale; a hand-named duplicate of that row carrying the same note
 # prints it once; a duplicate carrying a different note prints it, marked as the duplicate's.
 reset

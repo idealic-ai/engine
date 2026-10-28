@@ -80,7 +80,8 @@
 #
 # NOTES
 #   Any `note=` line in a loom's `.slots` file (a conductor's interim marker; --heartbeat keeps it)
-#   is printed, under that loom's name, in a Notes section of the report.
+#   is printed, under that loom's name, in a Notes section of the report. Under --quiet the notes
+#   go to stderr instead, like overlap warnings, because a note is a reason not to dispatch.
 #
 # Exit status (the idiom `engine lane-stall` and `engine sweep-check` already use):
 #   0  under every cap, dispatching another lane is within budget; or a write succeeded
@@ -726,10 +727,19 @@ for nr in ${note_recs[@]+"${note_recs[@]}"}; do
 "
 done
 
-if [ -n "$note_rows" ] && ! $QUIET; then
-  printf '== Notes (note= lines from each loom'"'"'s slot file) ==\n\n'
-  printf '%s' "$note_rows"
-  printf '\n'
+if [ -n "$note_rows" ]; then
+  if ! $QUIET; then
+    printf '== Notes (note= lines from each loom'"'"'s slot file) ==\n\n'
+    printf '%s' "$note_rows"
+    printf '\n'
+  else
+    # A note is a reason not to dispatch, so --quiet must not hide it: like an overlap warning, it
+    # goes to stderr when the table is silenced.
+    {
+      printf 'loom-slots: notes from loom slot files:\n'
+      printf '%s' "$note_rows"
+    } >&2
+  fi
 fi
 
 # Overlaps go to stderr so --quiet, which silences the table, cannot silence them.
