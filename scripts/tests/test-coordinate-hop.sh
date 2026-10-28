@@ -157,6 +157,35 @@ test_target_unreadable_tree_fails_loudly() {
     "target: unreadable live tree → exit 4, no target"
 }
 
+# A seat renamed after launch: run.sh cached FLEET_PANE=domain:domain, the live label reads
+# domain:stats. The live label must win, with a stale warning. tmux is a PATH stub here (the
+# hop() seam sets HOP_LIVE_PANES, which turns the live-label read off), so no server is touched.
+live_label_hop() { # live_label_hop <env and args…> — hop.sh against the stub tmux, pane %60
+  mkdir -p "$FIX/bin"
+  cat > "$FIX/bin/tmux" <<EOF
+#!/bin/bash
+case "\$1" in
+  display) [ "\$4" = "%60" ] && echo "domain:stats" ;;
+  list-panes) cat "$FIX/live.txt"; echo "domain:stats %60 manager:domain" ;;
+  *) exit 1 ;;
+esac
+EOF
+  chmod +x "$FIX/bin/tmux"
+  env -u FLEET_PARENT -u FLEET_PANE -u HOP_CHAIN_FILE -u HOP_LIVE_PANES -u HOP_TMUX_SOCKET \
+    PATH="$FIX/bin:$PATH" TMUX_PANE=%60 "$@"
+}
+
+test_target_live_label_beats_a_stale_fleet_pane() {
+  local out rc err
+  out=$(live_label_hop FLEET_PANE=domain:domain FLEET_PARENT=manager:domain bash "$HOP_SH" target 2>/dev/null); rc=$?
+  assert_eq "0|manager:domain %134" "$rc|$out" "target: stale FLEET_PANE, live label domain:stats → its live parent"
+  err=$(live_label_hop FLEET_PANE=domain:domain FLEET_PARENT=manager:domain bash "$HOP_SH" target 2>&1 >/dev/null)
+  assert_has "FLEET_PANE 'domain:domain' is stale; using the live pane label 'domain:stats'" "$err" \
+    "target: a stale FLEET_PANE is named on stderr"
+  err=$(live_label_hop FLEET_PANE=domain:stats FLEET_PARENT=manager:domain bash "$HOP_SH" target 2>&1 >/dev/null)
+  assert_eq "" "$err" "target: a FLEET_PANE that matches the live label warns nothing"
+}
+
 test_target_of_walks_one_level_up() {
   assert_eq "0|manager:director %114" "$(run_hop bash "$HOP_SH" target --of manager:idealic)" "target --of manager:idealic → director"
   assert_eq "0|operator" "$(run_hop bash "$HOP_SH" target --of manager:director)" "target --of the director → operator"

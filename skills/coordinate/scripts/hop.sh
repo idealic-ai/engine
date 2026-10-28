@@ -100,12 +100,18 @@ seat_of_pane() { awk -v p="$2" '$2 == p { print $1; exit }' <<<"$1"; }
 
 # resolve_self <explicit> → this seat's window:label, or die 2.
 resolve_self() {
-  local s="$1"
-  [ -n "$s" ] || s="${FLEET_PANE:-}"
+  local s="$1" live=""
+  # The live pane label wins over FLEET_PANE: run.sh caches FLEET_PANE at launch, so a seat
+  # renamed since then still carries its old name there (domain:stats read "domain:domain").
   if [ -z "$s" ] && [ -z "${HOP_LIVE_PANES:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
-    s=$(tm display -p -t "$TMUX_PANE" '#{window_name}:#{@pane_label}' 2>/dev/null || true)
-    [ "$s" = ":" ] && s=""
+    live=$(tm display -p -t "$TMUX_PANE" '#{window_name}:#{@pane_label}' 2>/dev/null || true)
+    [ "$live" = ":" ] && live=""
+    if [ -n "$live" ] && [ -n "${FLEET_PANE:-}" ] && [ "$live" != "$FLEET_PANE" ]; then
+      echo "hop: FLEET_PANE '$FLEET_PANE' is stale; using the live pane label '$live'" >&2
+    fi
+    s="$live"
   fi
+  [ -n "$s" ] || s="${FLEET_PANE:-}"
   [ -n "$s" ] || die 2 "cannot resolve this seat's identity (no --self, no FLEET_PANE, no live pane label)"
   echo "$s"
 }
