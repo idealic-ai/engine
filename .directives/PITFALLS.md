@@ -822,7 +822,7 @@ the main clone, so the bytes you can see are not the whole of what you break.
 *   **Redirection**: read `git show <ref>:<path>` rather than opening the file, pipe that into the count, and print the ref beside the number. Where a tree must be walked, create a worktree **at a named ref** and walk that. **Treat a bare path in a multi-branch repository as missing its most important argument.**
 *   ⚠️ **Stated, not enforced.** Nothing marks a read as having come from a stale checkout, and the reading is a valid answer about a revision nobody asked about — `§PTF_A_TRUE_ANSWER_TO_THE_WRONG_QUESTION` with a branch as the wrong question.
 
-## [2026-10-29 12:00:00] ¶PTF_A_CANDIDATE_TREE_TESTED_AGAINST_THE_LIVE_ENGINE_IS_NOT_TESTED
+## [2026-10-29 01:51:32] ¶PTF_A_CANDIDATE_TREE_TESTED_AGAINST_THE_LIVE_ENGINE_IS_NOT_TESTED
 
 **A commit candidate's suites run on an archive of the candidate tree with `ENGINE_SCRIPTS=<tree>/scripts`, or they have not tested the candidate.** Unpinned, the resolver falls back to `$HOME/.claude/engine/scripts`, reads the live checkout's dirty manifests, and goes green for content the commit does not carry.
 
