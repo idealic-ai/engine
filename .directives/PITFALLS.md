@@ -404,6 +404,7 @@ inferred.
 *   **⛔ A `git add` naming a rename's deletion side ABORTS THE WHOLE COMMAND**: `fatal: pathspec '…' did not match any files`, because the file does not exist on disk. **Nothing is staged and the exit is non-zero** — read it, or you proceed believing you staged a migration you did not.
 *   **⚠️ A failed `git commit` in a busy repo is a LOCK RACE before it is anything else.** Twice in one night, exit 1 with another lane's commit landing in the same instant; both succeeded on retry with no change.
 *   **⭐ Before deleting or unstaging anything you did not stage: measure what it is attached to.** A staged rename was one third of a half-staged migration — the rest was an unstaged source deletion, two modified files, an untracked implementation, and a modified file in the other package that wired them together. **Committing the index alone would have published a tree describing no working state.**
+*   **⛔ Verify a hunk-isolated stage BYTE FOR BYTE, never by line set.** Compare the staged blob against the intended file — `git ls-files -s <path>` against `git hash-object <intended>`, or `cmp <intended> <(git show :<path>)` — because a line-set comparison cannot see order. Measured 2026-10-28 (PRDRAFT): a line-set check passed a stage that had one line in the wrong place. ⚠️ **Stated, not enforced** — nothing reddens when a stage is verified by line set. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
 
 ## [2026-09-19 02:12:00] ¶PTF_A_PROVENANCE_MARK_WITHOUT_A_TIMESTAMP
 
@@ -820,6 +821,14 @@ the main clone, so the bytes you can see are not the whole of what you break.
 *   ⭐ **The tell is a disagreement with somebody whose brief NAMED a ref.** When a peer cites `origin/main` and you cite "the file", you are not disagreeing about the content — you are reading two revisions, and theirs is the one with a name on it.
 *   **Redirection**: read `git show <ref>:<path>` rather than opening the file, pipe that into the count, and print the ref beside the number. Where a tree must be walked, create a worktree **at a named ref** and walk that. **Treat a bare path in a multi-branch repository as missing its most important argument.**
 *   ⚠️ **Stated, not enforced.** Nothing marks a read as having come from a stale checkout, and the reading is a valid answer about a revision nobody asked about — `§PTF_A_TRUE_ANSWER_TO_THE_WRONG_QUESTION` with a branch as the wrong question.
+
+## [2026-10-29 12:00:00] ¶PTF_A_CANDIDATE_TREE_TESTED_AGAINST_THE_LIVE_ENGINE_IS_NOT_TESTED
+
+**A commit candidate's suites run on an archive of the candidate tree with `ENGINE_SCRIPTS=<tree>/scripts`, or they have not tested the candidate.** Unpinned, the resolver falls back to `$HOME/.claude/engine/scripts`, reads the live checkout's dirty manifests, and goes green for content the commit does not carry.
+
+*   ✅ **Measured 2026-10-29 (IDE129COMMIT)**: the same 17 blobs gave **5/5** suites green unpinned and **1/5** pinned, and swapping in the single dirty manifest file restored 5/5. *Source: that lane's `IDE129COMMIT_REPORT.md`; relayed, not re-run here.*
+*   **Distinct from `§PTF_THE_DEFAULT_CHECKOUT_IS_THE_STALE_ONE_AND_EVERY_CASUAL_READ_LANDS_THERE`**: there the unnamed read lands on old committed history; here it lands on uncommitted edits that are newer than the commit, so the green is borrowed from work the candidate does not contain.
+*   ⚠️ **Stated, not enforced.** Nothing reddens when a candidate's suite resolves the live engine. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
 
 ## [2026-10-25 18:46:10] ¶PTF_AN_AMBIGUOUS_WORD_IN_A_LEFTOVERS_ROW_READS_AS_A_CONTRADICTION
 
