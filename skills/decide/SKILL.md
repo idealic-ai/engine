@@ -118,7 +118,6 @@ The house path, in order:
 
 **Fewer chat questions, each carrying MORE.** The page taking the asking is not a reason to invest less in the questions that remain. There are now only two kinds, and each still owes its reader the whole decision **inside the body** (`§CMD_ASK_QUESTION_WITH_COMPLETE_CONTEXT`, `§FMT_CONTEXT_BLOCK`): what is being decided, the material it is decided from, and what each option **costs** in its own description rather than only what that option is. A thin question is not made acceptable by being rare, and the same floor binds the page's cards.
 
-Present each `Your-call` card **as its own `AskUserQuestion` body** via `§CMD_PRESENT_CARD_WITH_COMPLETE_CONTEXT`, batching per that command. The body carries the analysis; the **answers are the options**, each label led by `§FMT_ANSWER_GRADATION` — follow that format as specified, including its rule that only the dimensions actually differentiating this answer set appear. Write the body about the operator's decision and what it costs them, not about this protocol.
 
 The default disposition vocabulary — what a pick *means* here, unless `--vocabulary` replaced it:
 - **Decide it** — the chosen option becomes the lane's instruction. Record the option, and the falsifier that would reopen it.
@@ -130,7 +129,7 @@ The default disposition vocabulary — what a pick *means* here, unless `--vocab
 
 The `I've-got-this` and `FYI` buckets are presented as `§CMD_ELICIT` requires and may be batched in one confirm.
 
-**Natural-language answers are honored.** *"Do B on all of them"*, *"hold the whole set"* — apply the obvious reading and echo what you applied, rather than re-asking item by item.
+**Natural-language answers are honored wherever the asking happens.** *"Do B on all of them"*, *"hold the whole set"* — apply the obvious reading and echo what you applied, rather than re-asking item by item. That holds for the two chat cases above and for the page's own free-text slot, which §4 wires on every fork.
 
 ## 6. Record, hand back, stop
 

@@ -45,14 +45,14 @@ Triage is **severity × cost-to-act/complexity**, NOT severity alone. The catch 
 
 **Confidence is the backstop.** Agent self-confidence is unreliable (proven: an agent can walk back things it personally endorsed one round earlier). So **low confidence never earns the `I've-got-this` recommendation**, regardless of how low the severity or complexity looks — it goes to `Your-call`. The triple gate on the advisory verdict exists because the only real danger in the two-axis rating is a false-*low* complexity or severity call; the confidence gate catches it.
 
-### Step 3 — Render each card as its question body (the disclosure)
+### Step 3 — Render each card onto the caller's target (the disclosure)
 
 Never assume the user read the artifact files — **brief them**. The card no longer lands as chat text before a terse popup; it lands **on the target the Definition names**, never in a chat block above it:
 
 1.  **A compact triaged summary lead-in** — one line before the call: `N Your-calls to weigh · M clear-cut (batch-able) · K FYI`, then the visible one-liner lists for the `I've-got-this` and `FYI` buckets (see *No hidden items*).
 2.  **Each `Your-call` card rendered onto the target the Definition names** — one item = one card, batched up to 4 per call where that target is an `AskUserQuestion` (the tool's own cap), `Your-call`s leading. The body carries the full card (stakes, options, how-to-verify, lean); the answer options are the caller's dispositions, each leading with `§FMT_ANSWER_GRADATION` (Step 4). Card depth per Step 1 (FYI/handled stay one-liners; `Your-call`s are full).
 
-ELICIT now **does** render the card AS the `AskUserQuestion` body — but the answer options are the caller's decision vocabulary (Step 5), and the caller's command still owns what a pick *means*. What ELICIT emits is disclosure the caller then decides *from*, now fused into one prompt instead of cards-in-chat then a separate terse popup.
+ELICIT now **does** render the card itself — but the answer options are the caller's decision vocabulary (Step 5), and the caller's command still owns what a pick *means*. What ELICIT emits is disclosure the caller then decides *from*, fused into one surface instead of cards-in-chat then a separate terse popup.
 
 **No hidden items.** The `I've-got-this` and `FYI` buckets are **always visible** as titled one-liner lists in the lead-in — never a bare count, never silently hidden. A glance must be able to catch a mislabel *before* the caller acts on the advisory, and a systematic agent bias (e.g. always "simpler, skip it") must be able to surface and be challenged. Escalate-by-exception ≠ hide-by-default.
 
@@ -68,7 +68,7 @@ In the rendered question, the lean surfaces as the single **`★`** on the recom
 
 ### Step 5 — Hand off to the caller's decision command
 
-**ELICIT hands off the choice's *meaning* — it does not collect the final decision and does not auto-act.** The card is the question body and the caller's dispositions are that same question's answer options (no separate popup follows); the CALLER's **own** decision command still interprets the pick, informed by the cards + triage:
+**ELICIT hands off the choice's *meaning* — it does not collect the final decision and does not auto-act.** The card is the disclosure surface itself and the caller's dispositions are its answer options (no separate popup follows); the CALLER's **own** decision command still interprets the pick, informed by the cards + triage:
 
 *   **Under `§CMD_WALK_THROUGH_RESULTS` (results mode)**: the `§CMD_TAG_TRIAGE` `#needs-X` tags ARE the answer options on ELICIT's card-body questions — the `Your-call`s get individual tag attention; the `I've-got-this`/`FYI` sets can be batched per the walkthrough's Step 4. ELICIT rendered the cards + framed the options; the walkthrough places the tags + emits tag proof.
 *   **Under `/scrutinize`**: the user still decides **fix / skip / defer** per finding (`/scrutinize`'s invariant — *the user, not the model, decides*). The `I've-got-this` verdict is a suggestion the user may honor by fixing, never an auto-fix.
