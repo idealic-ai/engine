@@ -28,6 +28,7 @@ Each intake project carries its **own complete copy**, attached to the project s
 | Example | [Inbox Handbook](https://linear.app/acme/document/inbox-handbook-how-this-projects-intake-inboxes-work-000000000000) | `00000000-0000-4000-8000-000000000000` · `000000000000` |
 | Product: Idea | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-d0af553e772b) | `cd6df668-3156-4293-98c9-adf09f82a587` · `d0af553e772b` |
 | Product: Handbook | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-1cef23ee882a) | `941dc575-d981-4c65-963d-087fdabddf99` · `1cef23ee882a` |
+| Product: Stats | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-0d867505073a) | `a4ad13b9-a462-49bf-8d22-36ddb7eee108` · `0d867505073a` |
 
 **A filtered call resolves a handbook without this table.** `list_documents({ projectId, query: "Inbox Handbook", fields: ["id","title","url","updatedAt","project"] })` returns the one document deterministically — verified live — because every project's copy carries the identical title and `projectId` scopes the search. `§CMD_READ_PROJECT_HANDBOOK` tries that first and falls back to these rows, so the table is a cache for the no-MCP and empty-result cases rather than the path.
 
@@ -38,6 +39,7 @@ Match a handbook by **slugId**, not by the words in the URL: retitling a Linear 
 The wave's `§PASS_HEARTBEAT` announce is **per-project** — pass the name below as `engine slack-post --channel '#name'`. Do **not** leave the announce to `$SLACK_INTAKE_CHANNEL`: it is a single global var, so relying on it makes every project post to the same place.
 
 *   **Example** — **UNSET**
+*   **Product: Stats** — **UNSET** (no bot token configured at scaffold time either — `engine env doctor --domain intake` failed on `SLACK_INTAKE_TOKEN`, so the transport is deaf rather than merely unrouted)
 
 A project whose row is **UNSET** has no announce destination yet; ask rather than guess, because a guess silently sends a heartbeat somewhere nobody watches.
 
@@ -51,8 +53,18 @@ A wave can attach a project to an initiative it is given by name — `save_proje
 
 | Initiative | Owner | Decision |
 |---|---|---|
+| _none yet, for Product: Stats_ | manager:director | One initiative per manager is the intended cut (operator, 2026-10-28), not yet created. **A wave never creates one because the authority grant reserves it to the operator** — the grant's classes went up for their tick on [IDE-238](https://linear.app/idealic/issue/IDE-238). ⚠️ **Corrected 2026-10-29**: this row previously said the MCP was attach-only with no `save_initiative`. That was false and was relayed from `intake/SKILL.md` rather than measured — `list_initiatives`, `get_initiative` and `save_initiative` all load, and `save_initiative` creates. The policy is unchanged; only its reason was wrong, and a capability claim owed evidence it did not have. `Product: Stats` stays unattached until the cut is settled, which is a normal state. |
 
 **Why an initiative rather than a saved view**: a view is a *filter*, and a domain is not filterable — no field on a Linear project says "this is a Platform concern". An initiative is a **curated** set, which is exactly the shape of a judgement call.
+
+## Product: Stats
+- **Project id**: `2676866f-52f0-48a2-9aa7-8696f8a51fd7` (`P-IDE-13`) · **Inboxes milestone**: `154fb314-b34b-47ee-9564-db48a21feba8`
+- 📊 Measure requests — [IDE-248](https://linear.app/idealic/issue/IDE-248/measure-requests)
+- 🔴 Observed problems — [IDE-249](https://linear.app/idealic/issue/IDE-249/observed-problems)
+- 🛠️ Tooling & Gates — [IDE-250](https://linear.app/idealic/issue/IDE-250/tooling-and-gates)
+- 🟦 Documentation — [IDE-251](https://linear.app/idealic/issue/IDE-251/documentation)
+
+*Four channels rather than the default set: this project's own 📊 Measure requests is the one it has and others do not, and the four were the operator's choice at scaffold time. **All four sit on `Backlog`, not on an `Inboxes` status** — team Idealic has no such status and it cannot be created through the API; the sibling channel IDE-126 in Product: Idea has the same gap, so the repair is one workflow state added in team settings, then the channels moved.*
 
 ## Product: Example
 - **Project id**: `00000000-0000-4000-8000-000000000001` · **Inboxes milestone**: `00000000-0000-4000-8000-000000000002`
