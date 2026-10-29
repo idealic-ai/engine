@@ -9,7 +9,7 @@ The engine provides two indexing tools for RAG-style context retrieval:
 | Tool | Purpose | Scope | Database |
 |------|---------|-------|----------|
 | `session-search` | Search session history | `sessions/**/*.md` | `~/.claude/cache/search-db/<namespace>/.session-search.local.db` |
-| `doc-search` | Search project documentation | `docs/**/*.md`, `{apps,packages}/*/docs/**/*.md` | `~/.claude/cache/search-db/<namespace>/.doc-search.local.db` |
+| `doc-search` | Search project documentation | the project's configured roots (see Roots); default `docs/**/*.md`, `{apps,packages}/*/docs/**/*.md` | `~/.claude/cache/search-db/<namespace>/.doc-search.local.db` |
 
 Both DBs live on **local disk**, outside any repo, so no `.gitignore` entry is
 needed anywhere. `<namespace>` comes from the sessions path — `yarik/finch/sessions`
@@ -37,8 +37,11 @@ Both tools share the same architecture:
 # Index documentation for current project
 ~/.claude/tools/doc-search/doc-search.sh index
 
-# Index with custom glob pattern
+# One glob under the project root, instead of the configured roots
 ~/.claude/tools/doc-search/doc-search.sh index --path "packages/*/docs/**/*.md"
+
+# Show which folders index reads, with file counts (no embedding)
+~/.claude/tools/doc-search/doc-search.sh roots
 
 # Query for information (filters to current branch by default)
 ~/.claude/tools/doc-search/doc-search.sh query "how does matching work"
@@ -52,6 +55,33 @@ Both tools share the same architecture:
 # Limit results
 ~/.claude/tools/doc-search/doc-search.sh query "API endpoints" --limit 5
 ```
+
+### Roots (which folders are indexed)
+
+A project names its documentation roots in a JSON file. The first one found wins:
+
+1. `$DOC_SEARCH_CONFIG`
+2. `<project>/.doc-search.json` (meant to be committed with the project)
+3. `<project>/.claude/doc-search.json` (local; many projects keep `.claude/` out of git)
+
+With none of them, the default is `docs/**/*.md` and `{apps,packages}/*/docs/**/*.md` under the project root. The engine names no project's folders itself.
+
+```json
+{
+  "roots": [
+    { "name": "kit", "path": ".", "tracked": true,
+      "globs": ["docs/**/*.md", "handbook/**/*.md", "*/docs/**/*.md", "*/*.md", ".directives/**/*.md"],
+      "ignore": ["**/CHANGELOG.md"] },
+    { "name": "engine", "path": "~/.claude/engine", "globs": ["docs/**/*.md", ".directives/**/*.md"] }
+  ]
+}
+```
+
+- `path` is relative to the project root or starts with `~/`. It never depends on the working directory, so an index started from a subdirectory or a session hook reads the same files.
+- `tracked: true` keeps only files git tracks under that root, so build output and scratch folders drop out without an ignore list.
+- `**/node_modules/**` is never read.
+- A file inside the project is stored by its project-relative path; a file outside it (the engine root above) by its absolute path, so a result can be opened as printed.
+- A root whose folder is missing is skipped with a warning. A config with no roots, a root with no globs, or a name used twice is refused.
 
 ### Schema (Content-Addressed)
 

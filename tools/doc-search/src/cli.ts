@@ -1,7 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
 import { execSync } from "node:child_process";
-import fg from "fast-glob";
 import { initDb, saveDb, queryAll, queryOne } from "./db.js";
 import { parseChunks, type DocChunk } from "./chunker.js";
 import { createEmbeddingClient, INDEXER_EMBED_RETRY } from "./embed.js";
@@ -11,14 +10,11 @@ import { parseTimeArg, toUnixMs } from "../../shared/parse-time-arg.js";
 import { acquireLock, releaseLock, startLockHeartbeat, lockHeartbeatMsFromEnv } from "./lock.js";
 import { isSearchDbRefused } from "../../shared/search-db-guard.js";
 import { getDbPath, getProjectRoot } from "./db-path.js";
+import { loadDocRoots, collectDocFiles, CONFIG_ENV, CONFIG_FILENAMES, type DocRoot } from "./roots.js";
 
 // Resolved in main(), not at import, so a refused path prints its message
 // instead of an import-time stack trace.
 let DB_PATH = "";
-const DEFAULT_DOCS_GLOBS = [
-  "docs/**/*.md",
-  "{apps,packages}/*/docs/**/*.md",
-];
 
 
 /**
@@ -61,9 +57,18 @@ Usage:
   doc-search index [options]                       Index docs for current project
   doc-search query "text" [options]                Semantic search
   doc-search status                                Show index statistics
+  doc-search roots                                 Show which folders index reads, with file counts
 
 Index options:
-  --path GLOB       Custom glob pattern (default: docs/**/*.md + {apps,packages}/*/docs/**/*.md)
+  --path GLOB       One glob under the project root, instead of the configured roots
+
+Roots (which folders are indexed):
+  Read from the first of: $${CONFIG_ENV}, ${CONFIG_FILENAMES.map((f) => "<project>/" + f).join(", ")}.
+  Shape: {"roots": [{"name": "kit", "path": ".", "globs": ["docs/**/*.md"], "ignore": ["docs/dist/**"]},
+                    {"name": "engine", "path": "~/.claude/engine", "globs": ["docs/**/*.md"]}]}
+  "path" is relative to the project root or starts with ~/; it never depends on the working directory.
+  "tracked": true keeps only files git tracks under that root (drops build output and scratch dirs).
+  With no config file: docs/**/*.md + {apps,packages}/*/docs/**/*.md. node_modules is never read.
 
 Query options:
   --branch NAME     Filter by specific branch (default: current branch)
@@ -102,11 +107,43 @@ function describeDbPath(): string {
   }
 }
 
+/** The roots this run reads: the configured ones, or one glob under the project root. */
+function resolveRoots(projectRoot: string, customGlob?: string): { roots: DocRoot[]; source: string } {
+  if (customGlob) {
+    return {
+      roots: [{ name: path.basename(projectRoot), path: projectRoot, globs: [customGlob], ignore: [] }],
+      source: "--path",
+    };
+  }
+  const loaded = loadDocRoots(projectRoot);
+  return { roots: loaded.roots, source: loaded.source ?? "(default, no config file)" };
+}
+
+function printRoots(roots: DocRoot[], source: string, perRoot?: Record<string, number>): void {
+  console.log(`Roots from: ${source}`);
+  for (const r of roots) {
+    const count = perRoot ? `  ${perRoot[r.name] ?? 0} files` : "";
+    console.log(`  [${r.name}] ${r.path}${count}`);
+    console.log(`      globs:  ${r.globs.join(", ")}`);
+    if (r.ignore.length > 0) console.log(`      ignore: ${r.ignore.join(", ")}`);
+  }
+}
+
+async function runRoots(): Promise<void> {
+  const projectRoot = getProjectRoot();
+  const { roots, source } = resolveRoots(projectRoot);
+  const { files, perRoot, missingRoots } = await collectDocFiles(roots, projectRoot);
+  console.log(`Project root: ${projectRoot}`);
+  printRoots(roots, source, perRoot);
+  for (const m of missingRoots) console.log(`  MISSING: ${m} (skipped)`);
+  console.log(`Total: ${files.length} markdown files`);
+}
+
 async function runIndex(customGlob?: string): Promise<void> {
   const projectRoot = getProjectRoot();
   const projectName = getProjectName();
   const branch = getCurrentBranch();
-  const docsGlobs = customGlob ? [customGlob] : DEFAULT_DOCS_GLOBS;
+  const { roots, source } = resolveRoots(projectRoot, customGlob);
 
   console.log(`Project: ${projectName}`);
   console.log(`Project root: ${projectRoot}`);
@@ -125,13 +162,12 @@ async function runIndex(customGlob?: string): Promise<void> {
   // A long rebuild refreshes its lock, so it is never judged stale mid-run.
   const stopHeartbeat = startLockHeartbeat(DB_PATH, lockHeartbeatMsFromEnv());
   try {
-    // Scan for markdown files from project root (not cwd)
-    console.log(`Scanning: ${docsGlobs.join(", ")}`);
-    const files = await fg(docsGlobs, {
-      cwd: projectRoot,
-      followSymbolicLinks: true,
-      onlyFiles: true,
-    });
+    // Roots resolve against the project root and ~, never cwd.
+    const { files, perRoot, missingRoots } = await collectDocFiles(roots, projectRoot);
+    printRoots(roots, source, perRoot);
+    for (const m of missingRoots) {
+      console.error(`[doc-search] root folder ${m} does not exist; skipped`);
+    }
 
     console.log(`Found ${files.length} markdown files`);
 
@@ -142,15 +178,14 @@ async function runIndex(customGlob?: string): Promise<void> {
 
     // Parse all files into chunks
     const allChunks: DocChunk[] = [];
-    for (const relativeFile of files) {
-      const absolutePath = path.join(projectRoot, relativeFile);
-      const content = fs.readFileSync(absolutePath, "utf-8");
-      const mtime = getFileMtime(absolutePath);
+    for (const file of files) {
+      const content = fs.readFileSync(file.absPath, "utf-8");
+      const mtime = getFileMtime(file.absPath);
       const chunks = parseChunks(
         content,
         projectName,
         branch,
-        relativeFile,
+        file.storedPath,
         mtime
       );
       allChunks.push(...chunks);
@@ -447,6 +482,11 @@ async function main(): Promise<void> {
 
     case "status": {
       await runStatus();
+      break;
+    }
+
+    case "roots": {
+      await runRoots();
       break;
     }
 
