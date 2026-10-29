@@ -22,9 +22,8 @@ An ask is a question whose answer unblocks work and that you are not entitled to
 
 - **You can check it.** A fact you can read, grep or run is not a question. Find it out, then decide.
   That includes what an earlier session or a doc already settled. Before you write an ask, search both
-  for its subject, from the main checkout, because each search exits 1 inside a worktree:
-  `(cd "$(git worktree list --porcelain | sed -n '1s/^worktree //p')" && engine session-search query "<subject>" --limit 5)`
-  and `(cd "$(git worktree list --porcelain | sed -n '1s/^worktree //p')" && engine doc-search query "<subject>" --limit 5)`.
+  for its subject: `engine session-search query "<subject>" --limit 5` and
+  `engine doc-search query "<subject>" --limit 5`.
   Cite a hit that bears on the question as an `Evidence:` line (the path, or the session log). If none
   does, say `searched, nothing relevant` in the ask. A search can miss, since the index is only as fresh
   as its last run, so that line means the question is still open, not that nobody answered it.

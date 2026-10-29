@@ -208,11 +208,32 @@ search_db_migrate() {
 SEARCH_DB_SESSION_FILE=".session-search.local.db"
 SEARCH_DB_DOC_FILE=".doc-search.local.db"
 
+# The sessions dir of the live session (`engine session find`), or nothing. The fallback for a search
+# run from a directory that has no index of its own, which is every worktree: a loom lane's cwd has no
+# sessions/ and no doc index, so both searches exited 1 there (IDE-333). A sub-agent inherits its
+# parent's live session, so this names the project the agent is working for.
+search_db_live_sessions_dir() {
+  command -v engine >/dev/null 2>&1 || return 1
+  local sd sessions
+  sd=$(engine session find 2>/dev/null) || return 1
+  [ -n "$sd" ] && [ -d "$sd" ] || return 1
+  sessions=$(dirname "$sd")
+  [ "$(basename "$sessions")" = "sessions" ] || return 1
+  echo "$sessions"
+}
+
 # THE wrapper entry point. Works out the sessions dir the CLI will use, migrates
 # when the subcommand is `index`, and exports ENGINE_SEARCH_DB_PATH.
 #
 #   search_db_export_path session "$@"   # session-search wrappers
 #   search_db_export_path doc     "$@"   # doc-search wrappers
+#
+# When the working directory yields nothing to search (no `$PWD/sessions` for session-search, no index
+# for its project for doc-search) and the subcommand is not `index`, it falls back to the live session's
+# project and `cd`s there. The cd is the point: both CLIs reread the cwd (session-search requires
+# `$PWD/sessions`; doc-search names its project and branch from it), so exporting a DB path alone would
+# not reach them. Today's resolution always runs first; the fallback never replaces an answer it gave.
+# `index` never falls back: building an index somewhere other than where it was asked is a surprise.
 #
 # Never fails the caller: a search that falls back to the legacy path is slow,
 # but a wrapper that aborts leaves the caller with no search at all.
@@ -243,6 +264,27 @@ search_db_export_path() {
   else
     db="$SEARCH_DB_DOC_FILE"
     sessions_dir="$(search_db_project_root)/sessions"
+  fi
+
+  # Fallback to the live session's project (see the docblock), only where the cwd yields nothing.
+  local live root
+  if [ "$subcmd" != "index" ]; then
+    if [ "$kind" = "session" ]; then
+      if [ -z "${WORKSPACE:-}" ] && [ ! -d "$sessions_dir" ] && live=$(search_db_live_sessions_dir); then
+        root=$(dirname "$live")
+        if cd "$root" 2>/dev/null; then
+          sessions_dir="$live"
+          echo "[search] no sessions/ here; searching the live session's project: $root" >&2
+        fi
+      fi
+    elif [ ! -f "$(search_db_active_path "$db" "$sessions_dir")" ] && live=$(search_db_live_sessions_dir); then
+      root=$(search_db_project_root "$(dirname "$live")")
+      if [ "$root/sessions" != "$sessions_dir" ] && [ -f "$(search_db_active_path "$db" "$root/sessions")" ] \
+         && cd "$root" 2>/dev/null; then
+        sessions_dir="$root/sessions"
+        echo "[search] no doc index for this project; searching the live session's project: $root" >&2
+      fi
+    fi
   fi
 
   if [ "$subcmd" = "index" ]; then
