@@ -71,3 +71,25 @@ describe("cli index lock (M2)", () => {
     expect(fs.existsSync(dbPath)).toBe(false);
   }, 130_000);
 });
+
+describe("cli index reads the configured roots (IDE-333)", () => {
+  it("finds the files the project's config names, not the default globs", async () => {
+    // docs/A.md is there from beforeEach; the config adds handbook/ and a
+    // package README, which the default globs would never reach.
+    fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "handbook"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "handbook", "H.md"), "# H\n\n## S\nHandbook.\n");
+    fs.mkdirSync(path.join(dir, "pkg"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "pkg", "README.md"), "# P\n\n## S\nPackage.\n");
+    fs.writeFileSync(
+      path.join(dir, ".claude", "doc-search.json"),
+      JSON.stringify({ roots: [{ name: "proj", path: ".", globs: ["docs/**/*.md", "handbook/**/*.md", "*/README.md"] }] })
+    );
+    const dbPath = path.join(dir, "cache", ".doc-search.local.db");
+    // The embed endpoint is closed, so the run fails after scanning; the scan is what is checked.
+    const r = await run(["index"], dbPath);
+    expect(r.out).toMatch(/Roots from: .*\.claude\/doc-search\.json/);
+    expect(r.out).toMatch(/\[proj\] .*  3 files/);
+    expect(r.out).toMatch(/Found 3 markdown files/);
+  }, 130_000);
+});

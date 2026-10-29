@@ -18,7 +18,11 @@ import fg from "fast-glob";
 /** The roots a project gets when it has no config file. */
 export const DEFAULT_DOCS_GLOBS = ["docs/**/*.md", "{apps,packages}/*/docs/**/*.md"];
 
-/** Never indexed, whatever a glob says: vendored READMEs are not the project's docs. */
+/**
+ * Never indexed by a CONFIGURED root, whatever its globs say: vendored READMEs
+ * are not the project's docs. The no-config default and `--path` do not apply
+ * it, so a project without a config indexes exactly what it did before.
+ */
 export const ALWAYS_IGNORED = ["**/node_modules/**"];
 
 /**
@@ -40,6 +44,24 @@ export interface DocRoot {
   /** Keep only files git tracks under this root: build output, scratch dirs and
    *  other untracked or gitignored folders drop out without an ignore list. */
   tracked?: boolean;
+  /** True for a root read from a config file; only these get ALWAYS_IGNORED. */
+  configured?: boolean;
+}
+
+/** The pre-config shape: one root at the project root, globs read verbatim. */
+export function singleGlobRoot(projectRoot: string, ...globs: string[]): DocRoot {
+  return { name: path.basename(projectRoot), path: projectRoot, globs, ignore: [] };
+}
+
+function samePath(a: string, b: string): boolean {
+  const real = (p: string) => {
+    try {
+      return fs.realpathSync(p);
+    } catch {
+      return path.resolve(p);
+    }
+  };
+  return real(a) === real(b);
 }
 
 export interface LoadedRoots {
@@ -60,6 +82,10 @@ function expandPath(p: string, base: string, home: string): string {
 }
 
 function findConfig(projectRoot: string, env: NodeJS.ProcessEnv, home: string): string | null {
+  // A run that resolved its project root to ~ (a worktree with no .claude/ of
+  // its own walks up to ~/.claude) has no project config: a doc-search.json in
+  // ~/.claude/ — or a global $DOC_SEARCH_CONFIG — would otherwise glob home.
+  if (samePath(projectRoot, home)) return null;
   const fromEnv = env[CONFIG_ENV];
   if (fromEnv && fromEnv.length > 0) {
     const resolved = expandPath(fromEnv, projectRoot, home);
@@ -91,7 +117,7 @@ export function loadDocRoots(projectRoot: string, opts: LoadOptions = {}): Loade
 
   if (!source) {
     return {
-      roots: [{ name: path.basename(projectRoot), path: projectRoot, globs: [...DEFAULT_DOCS_GLOBS], ignore: [] }],
+      roots: [singleGlobRoot(projectRoot, ...DEFAULT_DOCS_GLOBS)],
       source: null,
     };
   }
@@ -125,6 +151,7 @@ export function loadDocRoots(projectRoot: string, opts: LoadOptions = {}): Loade
       globs,
       ignore: stringList(r.ignore, `root "${name}" ignore`, source),
       tracked: r.tracked === true,
+      configured: true,
     };
   });
 
@@ -146,13 +173,20 @@ export interface CollectedFiles {
   perRoot: Record<string, number>;
   /** Root folders that do not exist on this machine (skipped, not fatal). */
   missingRoots: string[];
+  /** Roots marked `tracked` whose folder is not in a git work tree (skipped, not fatal). */
+  untrackedRoots: string[];
 }
 
-/** List every markdown file the roots name. A file named by two roots is read once. */
+/**
+ * List every markdown file the roots name. A file reached twice — by two
+ * overlapping roots, or through a symlinked alias — is read once, under the
+ * first root that reached it (compared by real path).
+ */
 export async function collectDocFiles(roots: DocRoot[], projectRoot: string): Promise<CollectedFiles> {
   const files: DocFile[] = [];
   const perRoot: Record<string, number> = {};
   const missingRoots: string[] = [];
+  const untrackedRoots: string[] = [];
   const seen = new Set<string>();
 
   for (const root of roots) {
@@ -163,16 +197,29 @@ export async function collectDocFiles(roots: DocRoot[], projectRoot: string): Pr
     }
     const matches = await fg(root.globs, {
       cwd: root.path,
-      ignore: [...ALWAYS_IGNORED, ...root.ignore],
+      ignore: root.configured ? [...ALWAYS_IGNORED, ...root.ignore] : [...root.ignore],
       followSymbolicLinks: true,
       onlyFiles: true,
     });
-    const keep = root.tracked ? trackedFiles(root.path) : null;
+    let keep: Set<string> | null = null;
+    if (root.tracked) {
+      keep = trackedFiles(root.path);
+      if (!keep) {
+        untrackedRoots.push(root.path);
+        continue;
+      }
+    }
     for (const rel of matches.sort()) {
       if (keep && !keep.has(rel)) continue;
       const absPath = path.join(root.path, rel);
-      if (seen.has(absPath)) continue;
-      seen.add(absPath);
+      let real: string;
+      try {
+        real = fs.realpathSync(absPath);
+      } catch {
+        real = absPath;
+      }
+      if (seen.has(real)) continue;
+      seen.add(real);
       const fromProject = path.relative(projectRoot, absPath);
       const inside = fromProject !== "" && !fromProject.startsWith("..") && !path.isAbsolute(fromProject);
       files.push({
@@ -184,15 +231,16 @@ export async function collectDocFiles(roots: DocRoot[], projectRoot: string): Pr
     }
   }
 
-  return { files, perRoot, missingRoots };
+  return { files, perRoot, missingRoots, untrackedRoots };
 }
 
 /**
- * Paths git tracks under `dir`, relative to it. A root asked to be `tracked`
- * that is not inside a git work tree is an error: silently indexing every
- * untracked file instead would bring back the scratch dirs it was set to drop.
+ * Paths git tracks under `dir`, relative to it, or null when `dir` is not in a
+ * git work tree. The caller skips such a root rather than indexing every file
+ * in it (which would bring back the scratch dirs `tracked` was set to drop) or
+ * failing the whole index (which a background session-start run would hide).
  */
-function trackedFiles(dir: string): Set<string> {
+function trackedFiles(dir: string): Set<string> | null {
   let out: string;
   try {
     out = execFileSync("git", ["ls-files", "-z", "--", "."], {
@@ -201,8 +249,8 @@ function trackedFiles(dir: string): Set<string> {
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 256 * 1024 * 1024,
     });
-  } catch (err) {
-    throw new Error(`[doc-search] root ${dir} is marked "tracked" but git ls-files failed there: ${(err as Error).message}`);
+  } catch {
+    return null;
   }
   return new Set(out.split("\0").filter((p) => p.length > 0));
 }

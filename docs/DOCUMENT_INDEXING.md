@@ -60,11 +60,11 @@ Both tools share the same architecture:
 
 A project names its documentation roots in a JSON file. The first one found wins:
 
-1. `$DOC_SEARCH_CONFIG`
+1. `$DOC_SEARCH_CONFIG` — **applies to every project** the shell indexes, so set it per command, not in a shell profile
 2. `<project>/.doc-search.json` (meant to be committed with the project)
 3. `<project>/.claude/doc-search.json` (local; many projects keep `.claude/` out of git)
 
-With none of them, the default is `docs/**/*.md` and `{apps,packages}/*/docs/**/*.md` under the project root. The engine names no project's folders itself.
+With none of them, the default is `docs/**/*.md` and `{apps,packages}/*/docs/**/*.md` under the project root, read exactly as before configs existed (including any `node_modules` those globs reach); `index --path GLOB` is read the same way. No config is looked for when the project root resolves to the home directory (a worktree without its own `.claude/` walks up to `~/.claude`), so a `doc-search.json` in `~/.claude/` cannot become every such run's config. The engine names no project's folders itself.
 
 ```json
 {
@@ -78,10 +78,12 @@ With none of them, the default is `docs/**/*.md` and `{apps,packages}/*/docs/**/
 ```
 
 - `path` is relative to the project root or starts with `~/`. It never depends on the working directory, so an index started from a subdirectory or a session hook reads the same files.
-- `tracked: true` keeps only files git tracks under that root, so build output and scratch folders drop out without an ignore list.
-- `**/node_modules/**` is never read.
+- `tracked: true` keeps only files git tracks under that root, so build output and scratch folders drop out without an ignore list. A new doc is therefore not indexed until it is `git add`-ed. A `tracked` root that is not in a git work tree is skipped with a warning; the other roots still index.
+- A configured root never reads `**/node_modules/**`.
+- A file reached twice — by overlapping roots or through a symlinked alias — is indexed once, under the first root that reached it (compared by real path).
 - A file inside the project is stored by its project-relative path; a file outside it (the engine root above) by its absolute path, so a result can be opened as printed.
-- A root whose folder is missing is skipped with a warning. A config with no roots, a root with no globs, or a name used twice is refused.
+- A root whose folder is missing is skipped with a warning, and the rows it had are deleted as orphans on that run (they are re-embedded when it returns). A config with no roots, a root with no globs, or a name used twice is refused.
+- When every root yields zero files, `index` prints "Nothing to index." and returns **without reconciling**: the rows already in the index stay, unchanged. A glob typo or all roots missing therefore leaves the previous index in place rather than emptying it; run `doc-search roots` to see the counts.
 
 ### Schema (Content-Addressed)
 

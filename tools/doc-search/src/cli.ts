@@ -10,7 +10,7 @@ import { parseTimeArg, toUnixMs } from "../../shared/parse-time-arg.js";
 import { acquireLock, releaseLock, startLockHeartbeat, lockHeartbeatMsFromEnv } from "./lock.js";
 import { isSearchDbRefused } from "../../shared/search-db-guard.js";
 import { getDbPath, getProjectRoot } from "./db-path.js";
-import { loadDocRoots, collectDocFiles, CONFIG_ENV, CONFIG_FILENAMES, type DocRoot } from "./roots.js";
+import { loadDocRoots, collectDocFiles, singleGlobRoot, CONFIG_ENV, CONFIG_FILENAMES, type DocRoot } from "./roots.js";
 
 // Resolved in main(), not at import, so a refused path prints its message
 // instead of an import-time stack trace.
@@ -68,7 +68,8 @@ Roots (which folders are indexed):
                     {"name": "engine", "path": "~/.claude/engine", "globs": ["docs/**/*.md"]}]}
   "path" is relative to the project root or starts with ~/; it never depends on the working directory.
   "tracked": true keeps only files git tracks under that root (drops build output and scratch dirs).
-  With no config file: docs/**/*.md + {apps,packages}/*/docs/**/*.md. node_modules is never read.
+  With no config file: docs/**/*.md + {apps,packages}/*/docs/**/*.md, read exactly as before.
+  Configured roots never read node_modules. A config is not looked for when the project root is ~.
 
 Query options:
   --branch NAME     Filter by specific branch (default: current branch)
@@ -110,10 +111,7 @@ function describeDbPath(): string {
 /** The roots this run reads: the configured ones, or one glob under the project root. */
 function resolveRoots(projectRoot: string, customGlob?: string): { roots: DocRoot[]; source: string } {
   if (customGlob) {
-    return {
-      roots: [{ name: path.basename(projectRoot), path: projectRoot, globs: [customGlob], ignore: [] }],
-      source: "--path",
-    };
+    return { roots: [singleGlobRoot(projectRoot, customGlob)], source: "--path" };
   }
   const loaded = loadDocRoots(projectRoot);
   return { roots: loaded.roots, source: loaded.source ?? "(default, no config file)" };
@@ -132,10 +130,11 @@ function printRoots(roots: DocRoot[], source: string, perRoot?: Record<string, n
 async function runRoots(): Promise<void> {
   const projectRoot = getProjectRoot();
   const { roots, source } = resolveRoots(projectRoot);
-  const { files, perRoot, missingRoots } = await collectDocFiles(roots, projectRoot);
+  const { files, perRoot, missingRoots, untrackedRoots } = await collectDocFiles(roots, projectRoot);
   console.log(`Project root: ${projectRoot}`);
   printRoots(roots, source, perRoot);
   for (const m of missingRoots) console.log(`  MISSING: ${m} (skipped)`);
+  for (const u of untrackedRoots) console.log(`  NOT IN GIT: ${u} is marked "tracked" but is not a git work tree (skipped)`);
   console.log(`Total: ${files.length} markdown files`);
 }
 
@@ -163,10 +162,13 @@ async function runIndex(customGlob?: string): Promise<void> {
   const stopHeartbeat = startLockHeartbeat(DB_PATH, lockHeartbeatMsFromEnv());
   try {
     // Roots resolve against the project root and ~, never cwd.
-    const { files, perRoot, missingRoots } = await collectDocFiles(roots, projectRoot);
+    const { files, perRoot, missingRoots, untrackedRoots } = await collectDocFiles(roots, projectRoot);
     printRoots(roots, source, perRoot);
     for (const m of missingRoots) {
       console.error(`[doc-search] root folder ${m} does not exist; skipped`);
+    }
+    for (const u of untrackedRoots) {
+      console.error(`[doc-search] root ${u} is marked "tracked" but is not a git work tree; skipped`);
     }
 
     console.log(`Found ${files.length} markdown files`);
