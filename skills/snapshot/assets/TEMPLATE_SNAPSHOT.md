@@ -8,7 +8,7 @@
 ## PART 1 — Commit proposal (the checkpoint)
 *The reviewer identifies the exact file set, classifies each CLEAN vs MIXED, + proposes the message; it NEVER commits. The orchestrator whole-file-stages CLEAN files with `git add -- <path>` (never a wildcard, never `-p`/stash/checkout/revert — the NO-GYMNASTICS rule), SURFACES MIXED files to the user per file (commit whole as-is / skip / defer — default: skip), reviews `git diff --cached` before committing, and commits after the batch confirm. Gated on green (§2 gates passed, re-checked at commit time); branch-first if on `dev`/`main`.*
 
-- **Proposed message** (`type(scope): <PREFIX>-NNNN <summary>` — match `git log --oneline -5`; the `Co-Authored-By` trailer is appended by the orchestrator):
+- **Proposed message** (`type(scope): <PREFIX>-NNNN <summary>` — match `git log --oneline -5`; the `Co-Authored-By` trailer is appended by the orchestrator). **When the branch is not the ticket's canonical one** (§1 warn case), end the message with a `Snapshot-Branch: <branch>` trailer:
   > *(Illustrative — adapt, don't copy)* `refactor(estimate): FIN-2712 deterministic recap-by-room extractor`
 - **Staged files — CLEAN vs MIXED** (the reviewed work's EXACT paths — no wildcard; a MIXED file also carries churn outside the work and is surfaced to the user, never auto-split):
   > *(Illustrative — adapt, don't copy)*
@@ -31,6 +31,7 @@
 > **## Status: In review**
 > **TL;DR** Identity-model fix landed + verified (suite green); chunk-5 reader-swap now unblocked on a stable join key. Committed `{{COMMIT_SHA}}`. Two minor leftovers (a coexistence test, a doc note). No blockers.
 > **Covers:** work since the 2026-06-28 update (chunks 3–5).
+> **Branch:** `<branch>` — only when it is not the ticket's canonical branch (§1 warn case); the line names where the work actually sits.
 
 ### `### On-direction`  — ALWAYS
 *Use: every update. Is the work aligned with the ticket's intent/acceptance — on track, drifted (how + why), or re-scoped? The core judgment.*
