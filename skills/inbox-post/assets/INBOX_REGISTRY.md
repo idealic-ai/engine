@@ -33,6 +33,10 @@ Each intake project carries its **own complete copy**, attached to the project s
 | Product: Writer | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-68121d233e0e) | `7715150a-7ed8-4458-9e85-e2b18cf5467a` · `68121d233e0e` |
 | Product: Playground | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-4ce0c5ff2dfc) | `91ac23b5-a42e-4a41-890f-3fa8ccbaac3c` · `4ce0c5ff2dfc` |
 | Product: Ideas site | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-77c40cb0e4fb) | `04a1a8e3-1b89-412f-aa3a-12523a32cdda` · `77c40cb0e4fb` |
+| Product: Orchestration | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-orchestration-intake-inboxes-work-1ff5597c997b) | `83a9a7d7-fecf-4135-b47b-75514e9f3b6e` · `1ff5597c997b` |
+| Product: Market & Jobs | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-market-and-jobs-intake-inboxes-work-4b8c10a1ebe7) | `163b1b3d-74e0-4f14-a169-ad448c295c60` · `4b8c10a1ebe7` |
+
+**A row's project id alone resolves the project.** A caller that needs only the project (`/snapshot --yes` filing un-ticketed work, for one) takes the **Project id** from the project's section below and needs nothing else here. A project with no handbook document — Product: Realm's case, or any section reading *No inbox handbook yet* — still resolves; the missing handbook only means no handbook rules apply.
 
 **A filtered call resolves a handbook without this table.** `list_documents({ projectId, query: "Inbox Handbook", fields: ["id","title","url","updatedAt","project"] })` returns the one document deterministically — verified live — because every project's copy carries the identical title and `projectId` scopes the search. `§CMD_READ_PROJECT_HANDBOOK` tries that first and falls back to these rows, so the table is a cache for the no-MCP and empty-result cases rather than the path.
 
@@ -189,6 +193,12 @@ A wave can attach a project to an initiative it is given by name — `save_proje
 - 🟦 Documentation — [IDE-294](https://linear.app/idealic/issue/IDE-294)
 
 *No inbox handbook yet.*
+
+## Product: Orchestration
+- **Project id**: `8716ada7-01c9-49b7-a882-51e7c2352960` (`P-IDE-10`, team Idealic) · **Inboxes milestone**: none yet
+- No channels yet. Its handbook says so in its own opening, and rules a 🛠️ Tooling & Gates channel out: here, engine coordination work is ticket material (the carve-out in `/ticket`'s Subject Gate), not a residue.
+
+*Added 2026-10-30 from [IDE-128](https://linear.app/idealic/issue/IDE-128), which recorded the handbook's publication. Add channels here when they exist rather than inventing ids.*
 
 ## Product: Ideas site
 - **Project id**: `d7147709-bbf3-43ea-8cb0-d402ab4c102d` (`P-IDE-16`) · **Inboxes milestone**: none yet

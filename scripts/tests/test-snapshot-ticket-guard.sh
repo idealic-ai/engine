@@ -213,11 +213,21 @@ test_loom_key_fallback() {
   every_line_has "$LOOM" '-- <thread KEY>`' "never an umbrella key" "R2-S2: /loom never passes an umbrella key"
 }
 
-# IDE-341 (operator ruling 2026-10-30 03:06) — `--yes` on un-ticketed work files a ticket instead of
-# aborting: duplicate search first (a strong match attaches), the project from the seat's map or
-# abort, a premise-first draft marked auto-filed, then commit and post against the new key.
+# IDE-341 (operator ruling 2026-10-30 03:06, round-4 rulings) — `--yes` on un-ticketed work files a
+# ticket, but only once the run is known to proceed: every check that can abort runs first, any
+# duplicate candidate aborts (never attach), /ticket's non-confirm gates run on the draft, the
+# project comes from the work's repository first, and the filed key is recorded where §1 reads it.
 autofile_para() { grep -m1 -F 'files a ticket only for work that has none' "$SKILL"; awk '/files a ticket only for work that has none/ {on=1; next} on && /situations abort the run/ {exit} on {print}' "$SKILL"; }
 TICKET="${TICKET_SKILL:-$ENGINE_DIR/skills/ticket/SKILL.md}"
+REGISTRY="${REGISTRY_FILE:-$ENGINE_DIR/skills/inbox-post/assets/INBOX_REGISTRY.md}"
+FRONT="$(sed -n '1,/^---$/p' "$SKILL" | sed -n '2,$p')"
+# step_no <needle> → the number of the auto-file list item that carries the needle (0 when none).
+step_no() { autofile_para | awk -v n="$1" 'BEGIN{IGNORECASE=1} /^[0-9]+\. / { if (index(tolower($0), tolower(n))) { sub(/\..*/, ""); print; exit } }' | grep . || echo 0; }
+# line_no <needle> → the first SKILL.md line carrying the needle (0 when none).
+line_no() { grep -n -m1 -F -- "$1" "$SKILL" | cut -d: -f1 | grep . || echo 0; }
+before() {  # before <a> <b> <msg> — a > 0, b > 0 and a < b
+  if [ "$1" -gt 0 ] && [ "$2" -gt 0 ] && [ "$1" -lt "$2" ]; then pass "$3"; else fail "$3" "$1 < $2 (both > 0)" "$1 vs $2"; fi
+}
 
 test_autofile_replaces_never_creates() {
   lacks_fixed '`--yes` never creates a ticket' "$(cat "$SKILL")" "IDE-341: /snapshot no longer says --yes never creates a ticket"
@@ -226,8 +236,8 @@ test_autofile_replaces_never_creates() {
 
 test_autofile_new_key_in_commit() {
   local a; a=$(autofile_para)
-  has_fixed "no explicit key and §1 detects no key at any confidence" "$a" "IDE-341: auto-file fires only on work with no key at all"
-  has_fixed "a low-confidence or ambiguous one still aborts" "$a" "IDE-341: low-confidence or ambiguous detection still aborts"
+  has_fixed "no explicit key" "$a" "IDE-341: auto-file needs no explicit key"
+  has_fixed "§1 detects no key at any confidence" "$a" "IDE-341: auto-file fires only on work with no key at all"
   has_fixed "the commit message carries the new key" "$a" "IDE-341: un-ticketed work ends with the new key in the commit message"
   has_fixed "the run's explicit key from here on" "$a" "IDE-341: the new key is explicit, so a lane branch only warns"
   has_fixed '`auto-filed by /snapshot --yes`' "$a" "IDE-341: the body carries the auto-filed marker"
@@ -235,27 +245,108 @@ test_autofile_new_key_in_commit() {
   has_fixed "premise-first" "$a" "IDE-341: the draft is premise-first like /ticket"
 }
 
-test_autofile_duplicate_attaches() {
+# R3-M2 — any candidate aborts; never attach.
+test_autofile_any_candidate_aborts() {
   local a; a=$(autofile_para)
-  has_fixed '`/ticket-search --report`' "$a" "IDE-341: the duplicate search runs first"
-  has_fixed "a strong match → attach the work to that ticket instead of creating one" "$a" "IDE-341: a strong duplicate attaches instead of creating"
-  has_fixed "the report says it attached rather than filed" "$a" "IDE-341: the report says it attached"
+  has_fixed '`/ticket-search --report`' "$a" "R3-M2: the duplicate search runs"
+  has_fixed "file only when it returns no candidates" "$a" "R3-M2: filing needs zero candidates"
+  has_fixed "on any candidate, abort and print each" "$a" "R3-M2: any candidate aborts and is printed"
+  has_fixed "with its state" "$a" "R3-M2: candidates are printed with their states"
+  has_fixed 'so the seat re-runs with `-- <KEY>`' "$a" "R3-M2: the seat re-runs with -- <KEY>"
+  has_fixed "never attach" "$a" "R3-M2: never attach"
+  has_fixed "never to a Done one" "$a" "R3-M2: never post to a Done ticket"
+  lacks_fixed "attach the work to that ticket" "$a" "R3-M2: the attach path is gone"
 }
 
+# R3-S1 — /ticket's non-confirm gates run on the draft.
+test_autofile_ticket_gates() {
+  local a; a=$(autofile_para)
+  has_fixed "Subject Gate" "$a" "R3-S1: the Subject Gate runs on the draft"
+  has_fixed "a refusal by any of them aborts with its reason" "$a" "R3-S1: a refusal aborts with its reason"
+  has_fixed "Ticketing Strategy" "$a" "R3-S1: the project's Ticketing Strategy applies"
+  has_fixed "Size dial" "$a" "R3-S1: the Size dial applies"
+  has_fixed "In plain terms" "$a" "R3-S1: the plain-terms opening"
+  has_fixed 'state: "backlog"' "$a" "R3-S1: state backlog"
+}
+
+# R3-S2 + registry — the project comes from the work's repository first, then the session; team stated.
 test_autofile_project_never_guessed() {
   local a; a=$(autofile_para)
-  has_fixed '`linearProject`' "$a" "IDE-341: the session's linearProject parameter is a project source"
-  has_fixed '`§CMD_READ_PROJECT_HANDBOOK`' "$a" "IDE-341: the handbook registry is a project source"
-  has_fixed "fleet config" "$a" "IDE-341: the fleet config is a project source"
-  has_fixed "name the source used" "$a" "IDE-341: the run names the project source it used"
-  has_fixed "none resolves → abort and say so" "$a" "IDE-341: no project → abort, never guess"
+  has_fixed "the work's own repository first" "$a" "R3-S2: the work's repository is the first project source"
+  has_fixed "then the session's \`linearProject\` parameter" "$a" "R3-S2: the session is second"
+  has_fixed "its project id alone resolves the project" "$a" "registry: a row's project id alone resolves the project"
+  has_fixed "only means no handbook rules apply" "$a" "registry: a missing handbook only means no handbook rules"
+  has_fixed "team Idealic" "$a" "R3-S2: the team is stated"
+  has_fixed "name the source" "$a" "IDE-341: the run names the project source it used"
+  has_fixed "neither resolves → abort and say so" "$a" "IDE-341: no project → abort, never guess"
+  lacks_fixed "fleet config" "$a" "R3-S2: the fleet-config source is gone"
 }
 
-test_autofile_reservation_kept() {
-  has_fixed "scope-level reservation still applies to a ticket a seat files deliberately through \`/ticket\`" "$(autofile_para)" "IDE-341: /snapshot keeps scope-level reservation for deliberate /ticket filings"
+# N1 + director (a) + R3-M1 record.
+test_autofile_label_record_and_rerun() {
+  local a; a=$(autofile_para)
+  has_fixed 'the label `auto-filed`' "$a" "N1: the auto-filed label"
+  has_fixed "create it in team Idealic if missing" "$a" "N1: the label is created if missing"
+  has_fixed '`<sessionDir>/.snapshot-autofiled`' "$a" "R3-M1: the filed key is recorded in the session dir"
+  has_fixed "Ruled below you" "$a" "director (a): a settled ask record for Ruled below you"
+  has_fixed "answered by the seat" "$a" "director (a): the record is answered by the seat"
+  has_fixed '.snapshot-autofiled`' "$(target_bullet)" "R3-M1: §1 reads the record first on a re-run"
+  has_fixed "read first" "$(target_bullet)" "R3-M1: §1 reads it first"
+}
+
+# R3-S4 — a single commit key with no -- is low-confidence and aborts rather than files.
+test_single_commit_key_low_confidence() {
+  has_fixed "a single key carried by the commits being snapshotted, with no \`--\`, is a low-confidence detection" "$(target_bullet)" "R3-S4: a single commit key is a low-confidence detection"
+  has_fixed "aborts rather than files" "$(target_bullet)" "R3-S4: it aborts rather than files"
+}
+
+# R3-M1 — ORDER: every abort check comes before the filing, in the list and in §3.
+test_autofile_order_in_list() {
+  local f; f=$(step_no "**File**")
+  before "$(step_no "§1 decides")" "$f" "order: §1's checks come before the filing"
+  before "$(step_no "§2 reviews")" "$f" "order: §2's review and gates come before the filing"
+  before "$(step_no "Subject Gate")" "$f" "order: the Subject Gate comes before the filing"
+  before "$(step_no "/ticket-search --report")" "$f" "order: the duplicate search comes before the filing"
+  before "$(step_no "staged-content check")" "$f" "order: §3's staged-content check comes before the filing"
+  before "$f" "$(step_no "Commit and post")" "order: the filing comes before the commit and post"
+}
+test_autofile_order_in_section_3() {
+  local z; z=$(line_no "**[0] Auto-file")
+  before "$(line_no "**Inspect the staged CONTENT before committing:**")" "$z" "§3 order: the staged-content check precedes [0] Auto-file"
+  before "$(line_no "**Green re-check (TOCTOU):**")" "$z" "§3 order: the green re-check precedes [0] Auto-file"
+  before "$z" "$(line_no "- **Commit** with the approved message")" "§3 order: [0] Auto-file precedes the commit"
+  before "$(line_no "## 2. Review")" "$z" "§3 order: §2 precedes [0] Auto-file"
+}
+
+# R3-M1 — ":33": an abort posts nothing, commits nothing and files nothing.
+test_abort_files_nothing() {
+  has_fixed "files nothing" "$(abort_list)" "R3-M1: an abort files nothing"
+  has_fixed "comes after every check that can abort" "$(abort_list)" "R3-M1: the abort list says why"
+}
+
+# R3-S3 — the other statements agree.
+test_other_statements_agree() {
   local t; t=$(cat "$TICKET")
   has_fixed '`/snapshot --yes` auto-filing work that has no ticket at all' "$t" "IDE-341: /ticket names the /snapshot --yes exception"
   has_fixed "scope-level reservation still applies to every ticket a seat files deliberately through \`/ticket\`" "$t" "IDE-341: /ticket keeps scope-level reservation"
+  has_fixed "a ticket is the exception a human asks for, or the one \`/snapshot --yes\` files" "$(grep -F 'A finding is a signal; a chunk of work is a ticket' "$TICKET")" "R3-S3: ticket:217 names the auto-file"
+  has_fixed "except the one \`/snapshot --yes\` auto-files" "$(grep -F 'The user owns every ticket' "$TICKET")" "R3-S3: ticket:219 names the auto-file"
+  has_fixed "the one filing that does not ask" "$(grep -F 'keep theirs' "$LOOM")" "R3-S3: loom:73 names the auto-file"
+  has_fixed "the \`/snapshot --yes\` auto-file of un-ticketed work aside" "$(grep -F 'No position of *Interruption* reaches this card' "$LOOM")" "R3-S3: loom:280 names the auto-file"
+  has_fixed "files a ticket for it instead" "$(grep -F 'Say this plainly in the header' "$NEXT")" "R3-S3: next:88 says no key at all files a ticket"
+  has_fixed "files one ticket for un-ticketed work" "$FRONT" "R3-S3: the snapshot frontmatter names the auto-file"
+}
+
+# Registry rows.
+test_registry_rows() {
+  local r; r=$(cat "$REGISTRY")
+  has_fixed '| Product: Orchestration |' "$r" "registry: Orchestration has a handbook row"
+  has_fixed '`83a9a7d7-fecf-4135-b47b-75514e9f3b6e` · `1ff5597c997b`' "$r" "registry: Orchestration's doc id and slugId"
+  has_fixed '| Product: Market & Jobs |' "$r" "registry: Market & Jobs has a handbook row"
+  has_fixed '`163b1b3d-74e0-4f14-a169-ad448c295c60` · `4b8c10a1ebe7`' "$r" "registry: Market & Jobs' doc id and slugId"
+  has_fixed '`8716ada7-01c9-49b7-a882-51e7c2352960`' "$r" "registry: Orchestration's project id"
+  has_fixed "a row's project id alone resolves the project" "$r" "registry: says the project id alone resolves the project"
+  has_fixed "only means no handbook rules apply" "$r" "registry: says a missing handbook only means no handbook rules"
 }
 
 run_discovered_tests
