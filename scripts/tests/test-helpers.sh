@@ -72,23 +72,38 @@ assert_neq() {
   fi
 }
 
+# _th_grep MODE PATTERN TEXT: does TEXT hold PATTERN? Returns 0 if found, 1 if absent,
+# and 2 or more if grep could not run. MODE is F (a fixed string) or G (a basic regex, BRE).
+# `--` keeps a dash-led pattern from being read as an option. The text goes in as a
+# here-string, never `echo |`: grep -q exits at the first match, and under pipefail the
+# writer's SIGPIPE on a large text turns that match into a reported miss.
+_th_grep() {
+  grep -q"$1" -- "$2" <<<"$3" 2>/dev/null
+}
+
+# assert_contains PATTERN TEXT MSG. The ONE helper that takes a regex: PATTERN is tried as
+# a fixed string first, then as a basic regex (BRE, `grep -G`, not -E). So "a[1" matches
+# literally, and "fo*bar" or "^x$" match as a regex.
 assert_contains() {
   local pattern="$1" actual="$2" msg="$3"
-  # Here-strings, not echo | grep -q: grep -q exits on the first match, and under pipefail the
-  # writer's SIGPIPE on a large haystack turns that match into a reported miss.
-  if grep -qF -- "$pattern" <<< "$actual" 2>/dev/null || grep -q -- "$pattern" <<< "$actual" 2>/dev/null; then
+  if _th_grep F "$pattern" "$actual" || _th_grep G "$pattern" "$actual"; then
     pass "$msg"
   else
     fail "$msg" "contains '$pattern'" "$actual"
   fi
 }
 
+# assert_not_contains PATTERN TEXT MSG. Fixed string only. It passes only when grep ran and
+# found nothing (exit 1): a grep that could not run fails, because nothing was checked.
 assert_not_contains() {
-  local pattern="$1" actual="$2" msg="$3"
-  if grep -qF -- "$pattern" <<< "$actual" 2>/dev/null; then
+  local pattern="$1" actual="$2" msg="$3" rc=0
+  _th_grep F "$pattern" "$actual" || rc=$?
+  if [ "$rc" -eq 1 ]; then
+    pass "$msg"
+  elif [ "$rc" -eq 0 ]; then
     fail "$msg" "NOT contains '$pattern'" "$actual"
   else
-    pass "$msg"
+    fail "$msg" "NOT contains '$pattern'" "grep could not run (exit $rc), so nothing was checked"
   fi
 }
 
