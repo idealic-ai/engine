@@ -24,6 +24,8 @@ One threadId, one bracketed prefix, on every line you produce. This is the singl
 *   **A cross-cutting break of yours can reach that gate instead of your own run.** Accepted deliberately — the gate catches it and you are resumed to fix it. Do not pre-empt it by running the suite anyway.
 *   **A single timing proves nothing on that spread.** If you need to claim something got faster or slower, take an interleaved, order-rotated distribution; one run before and one run after is not a reading. And an advertised figure is not a measurement — a cache advertised at removing 57% of tracked time measured inside the noise band here.
 
+**Stop only the processes you started, by their PID.** Never `pkill`, `killall` or `kill $(pgrep …)` by a name or a pattern. The machine is shared with every other seat's lanes, and a pattern cannot tell their process from yours. Record the PID when you start something you may need to stop, then stop exactly that PID and its children. If a process you didn't start is in your way, report it to the conductor with its PID and what it's doing, and leave it running. Measured 2026-10-29: an assembler subagent ran `pkill -f "headless=new"`, which killed headless Chrome machine-wide, including other seats' browsers. Stated, not enforced: nothing refuses a pattern kill.
+
 ## File ownership — under one shared tree
 
 *(Skip this section if your brief gave you your own worktree. Under worktree-per-lane the conductor computes no partition and brokers no claims, so there is nothing here to obey.)*
