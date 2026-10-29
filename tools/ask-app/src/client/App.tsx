@@ -68,7 +68,7 @@ import { pushEsc } from "./esc.ts";
 import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, type PathHop } from "./supersede.ts";
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
-import { CHANGE_WORDING, changeAnswerStart, draftBody, mayChangeAnswer, planClick, requestSend, unsentKey } from "./reanswer.ts";
+import { CHANGE_WORDING, cancelDiscards, changeAnswerStart, draftBody, mayChangeAnswer, planClick, requestSend, staleChangeKeys, unsentKey } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
 export { ticketKeys };
@@ -208,6 +208,8 @@ export function App() {
   }, [theme]);
 
   const shown = useMemo(() => visibleAsks(asks), [asks]);
+  // Round 2 NIT F: a change in progress on an ask that can no longer be changed is dropped.
+  useEffect(() => staleChangeKeys(asks).forEach((k) => clearUnsent(k)), [asks]);
   const hiddenCount = asks.length - shown.length;
   const drafts = trayDrafts(shown);
   const now = Date.now();
@@ -872,6 +874,8 @@ export function AskDetail({
   };
   const cancelChange = () => {
     clearUnsent(keyFor(true));
+    // Round 2 NIT C: the change draft it saved goes too, or the card reopens changing.
+    if (cancelDiscards(ask)) void act("discard");
     const s0 = initialValues(ask);
     setValues(s0.values);
     setText(s0.text);

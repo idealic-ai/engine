@@ -13,7 +13,7 @@ import { actedAsk, answerAsk, newAsk, readAsk } from "../src/lib/store.ts";
 import { isProvisional } from "../src/client/loop.ts";
 import { askRow, rowInFilter } from "../src/client/model.ts";
 import { clearUnsent, saveUnsent } from "../src/client/unsent.ts";
-import { CHANGE_WORDING, changeAnswerStart, draftBody, followUpOf, mayChangeAnswer, planClick, requestSend, unsentKey } from "../src/client/reanswer.ts";
+import { CHANGE_WORDING, cancelDiscards, changeAnswerStart, draftBody, followUpOf, mayChangeAnswer, planClick, requestSend, staleChangeKeys, unsentKey } from "../src/client/reanswer.ts";
 
 const head = (extra = "", status = "answered", id = "a1", created = "2026-10-29T10:00:00.000Z") =>
   `---\nid: ${id}\nto: operator\nfrom: manager:docs\nstatus: ${status}\nrevision: 4\ncreated: ${created}\n${extra}---\n\n`;
@@ -152,6 +152,25 @@ describe("a provisional ask whose asker came back", () => {
     expect(followUpOf(plain, [plain, next])).toBeUndefined();
   });
 
+  it("round 2: only the same asker's follow-up counts; another seat's related: leaves the row under Open", () => {
+    const other = { ...stored(head("related: manager:docs/a1\n", "open", "x1", "2026-10-29T11:00:00.000Z").replace("from: manager:docs", "from: domain:stats") + BODY), seat: "domain:stats" };
+    expect(followUpOf(provisional, [provisional, other])).toBeUndefined();
+    expect(rowInFilter(askRow(provisional, NOW, [provisional, other]), "open")).toBe(true);
+  });
+
+  it("round 2: a missing created: on either side is not a follow-up", () => {
+    const undated = stored(head("related: manager:docs/a1\n", "open", "r4", "2026-10-29T11:00:00.000Z").replace(/created: .*\n/, "") + BODY);
+    expect(followUpOf(provisional, [provisional, undated])).toBeUndefined();
+    const mineUndated = stored(head("", "answered", "a1").replace(/created: .*\n/, "") + BODY + block({ answers: { Q1: ["HB"] }, note: REQ, answeredBy: "operator", answeredVia: "browser", revision: 4 }));
+    expect(followUpOf(mineUndated, [mineUndated, r2])).toBeUndefined();
+  });
+
+  it("round 2: previous: wins over related:", () => {
+    const rel = stored(head("related: manager:docs/a1\n", "open", "rel", "2026-10-29T11:00:00.000Z") + BODY);
+    const prev = stored(head("previous: manager:docs/a1\n", "open", "prev", "2026-10-29T12:00:00.000Z") + BODY);
+    expect(followUpOf(provisional, [provisional, rel, prev])).toBe("manager:docs/prev");
+  });
+
   it("the card links the follow-up and still offers Change answer", async () => {
     const html = await render(provisional, {}, [provisional, r2]);
     expect(html).toMatch(/followed up by <a class="asklink" href="\/a\/manager:docs\/r2">manager:docs\/r2<\/a>/);
@@ -193,5 +212,28 @@ describe("the store takes a re-answer", () => {
     await expect(answerAsk(root, "manager:docs", "go", { answers: { GO: ["NO"] }, answeredBy: "operator" }, { expectedRevision: 1, push })).rejects.toThrow(/revision/i);
     expect(read().answer?.answers).toEqual({ GO: ["YES"] });
     expect(read().header.revision).toBe("2");
+  });
+});
+
+describe("round 2: Cancel and stale change edits", () => {
+  const withDraft = stored(
+    head("draft: 2026-10-29T20:00:00.000Z\n") + BODY + block({ answers: { Q1: ["HB"] }, answeredBy: "operator", revision: 4 }) +
+      '\n```json draft\n{"answers":{"Q1":["DOCS"]},"answeredBy":"operator","basedOn":4,"savedAt":"2026-10-29T20:00:00.000Z"}\n```\n',
+  );
+
+  it("Cancel discards a change draft the operator saved on a settled ask, and nothing else", () => {
+    expect(cancelDiscards(withDraft)).toBe(true);
+    expect(cancelDiscards(plain)).toBe(false);
+    expect(cancelDiscards(openAsk)).toBe(false);
+  });
+
+  it("change:<ref> entries are dropped for asks that can no longer be changed", () => {
+    expect(staleChangeKeys([plain, ruled, superseded, openAsk, provisional])).toEqual([]);
+    const seatRuled = { ...ruled, header: { ...ruled.header, id: "r9" } };
+    const gone = { ...superseded, header: { ...superseded.header, id: "s9" } };
+    expect(staleChangeKeys([plain, seatRuled, gone], (k) => k === "change:manager:docs/r9" || k === "change:manager:docs/s9" || k === "change:manager:docs/a1")).toEqual([
+      "change:manager:docs/r9",
+      "change:manager:docs/s9",
+    ]);
   });
 });

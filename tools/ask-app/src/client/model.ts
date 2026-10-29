@@ -69,23 +69,25 @@ export function ageOf(createdMs: number, now: number): string {
 const REF_RE = /[\w.-]+(?::[\w.-]+)?\/[\w.-]+/g;
 
 /**
- * The asker came back (operator, 04:05): another ask, not older than this provisional one, names it
- * in `previous:` or `related:`. The first such ask's ref, or undefined.
+ * The asker came back (operator, 04:05): a later ask FROM THE SAME ASKER names this provisional one,
+ * in `previous:` first, else in `related:` (round 2: `related:` is a general cross-reference, so
+ * another seat naming it is not the asker coming back). Both asks need a `created:`, and the
+ * follow-up must not be older. The follow-up's ref, or undefined.
  */
 export function followUpOf<T extends ParsedAsk & { seat: string }>(a: T, all: T[]): string | undefined {
   if (!isProvisional(a)) return undefined;
   const ref = `${a.seat}/${a.header.id}`;
+  const asker = a.header.from?.trim();
   const mine = Date.parse(a.header.created ?? "");
-  for (const b of all) {
-    const bref = `${b.seat}/${b.header.id}`;
-    if (bref === ref) continue;
-    const names: string[] = [b.header.previous ?? "", b.header.related ?? ""].join(" ").match(REF_RE) ?? [];
-    if (!names.includes(ref)) continue;
+  if (!asker || !Number.isFinite(mine)) return undefined;
+  const names = (v: string | undefined): string[] => (v ?? "").match(REF_RE) ?? [];
+  const later = all.filter((b) => {
+    if (`${b.seat}/${b.header.id}` === ref || b.header.from?.trim() !== asker) return false;
     const theirs = Date.parse(b.header.created ?? "");
-    if (Number.isFinite(mine) && Number.isFinite(theirs) && mine > theirs) continue;
-    return bref;
-  }
-  return undefined;
+    return Number.isFinite(theirs) && theirs >= mine;
+  });
+  const hit = later.find((b) => names(b.header.previous).includes(ref)) ?? later.find((b) => names(b.header.related).includes(ref));
+  return hit ? `${hit.seat}/${hit.header.id}` : undefined;
 }
 
 export function askRow(a: StoredAsk, now = Date.now(), all: StoredAsk[] = []): Row {

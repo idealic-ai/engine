@@ -5,7 +5,8 @@
  * tells the asker it CHANGED and what it replaced. What each handler decides lives here, pure.
  */
 import { clickPlan, composeNote, isProvisional, provisionalAnswers, requestLine, stripLoopLines, type SendKind } from "./loop.ts";
-import { isSettled, sendConfirmation, unansweredForks, type StoredAsk } from "./model.ts";
+import { askRef, isSettled, sendConfirmation, unansweredForks, type StoredAsk } from "./model.ts";
+import { loadUnsent } from "./unsent.ts";
 import { draftAuthor, isOperatorAnswer, type AnswerMap, type AnswerValue, type ParsedAsk } from "../lib/format.ts";
 
 /** What sending a changed answer does, said beside the sends. */
@@ -66,3 +67,14 @@ export function requestSend(ask: ParsedAsk, answers: AnswerMap, note: string, ki
 
 /** The asker came back: see model.ts followUpOf (the sidebar reads it there). */
 export { followUpOf } from "./model.ts";
+
+/** Cancel on a change drops the change draft the operator saved, so the card does not reopen changing. */
+export function cancelDiscards(a: ParsedAsk): boolean {
+  const open = (a.header.status ?? "open") === "open";
+  return !open && !!a.draft && draftAuthor(a.draft) === "operator";
+}
+
+/** The `change:<ref>` entries of asks that can no longer be changed (superseded, re-ruled, reopened). */
+export function staleChangeKeys(asks: StoredAsk[], has: (key: string) => boolean = (k) => !!loadUnsent(k)): string[] {
+  return asks.filter((a) => !mayChangeAnswer(a)).map((a) => unsentKey(askRef(a), true)).filter(has);
+}
