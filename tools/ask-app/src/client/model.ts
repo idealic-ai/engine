@@ -4,6 +4,7 @@
  * worth a column on a fork. Pure, so the tests read it without a DOM.
  */
 import { displayTitle } from "./md.ts";
+import { relayerOf } from "../lib/format.ts";
 import { cardFor, draftAuthor, questionKey, visibleQuestions, type AnswerMap, type AnswerValue, type AskOption, type ParsedAsk } from "../lib/format.ts";
 
 export type StoredAsk = ParsedAsk & { seat: string; file: string; mtimeMs: number };
@@ -24,10 +25,25 @@ export type Row = {
   draft: boolean;
   seatDraft?: string;
   status: string;
+  /** Ruled below you: the seat that answered in the operator's place, and when (ISO). */
+  ruledBy?: string;
+  ruledAt?: string;
 };
 
 export const askRef = (a: StoredAsk) => `${a.seat}/${a.header.id}`;
 export const isSettled = (a: ParsedAsk) => a.header.status === "answered" || a.header.status === "declined";
+
+/**
+ * Ruled below you (operator 01:56; the ASKDESIGN preview's rule, unchanged): the ask carries an answer
+ * given by a seat itself, not by the operator and not a seat relaying the operator's words. An ask
+ * reserved for the operator cannot be answered by a seat, so it never appears here.
+ */
+export function ruledBelow(a: ParsedAsk): boolean {
+  const by = a.answer?.answeredBy?.trim() ?? "";
+  if (!a.answer || !by) return false;
+  if (/^operator\b/i.test(by) || relayerOf(a.answer)) return false;
+  return true;
+}
 
 /** The answers the operator has given or drafted, which is what "left" counts against. */
 function givenAnswers(a: ParsedAsk): AnswerMap {
@@ -73,6 +89,7 @@ export function askRow(a: StoredAsk, now = Date.now()): Row {
     draft: !!a.draft && author === "operator",
     seatDraft: a.draft && author !== "operator" ? author : undefined,
     status: a.header.status ?? "open",
+    ...(ruledBelow(a) ? { ruledBy: a.answer!.answeredBy!.trim(), ruledAt: a.answer!.answeredAt } : {}),
   };
 }
 
@@ -370,13 +387,22 @@ export function batchConfirmation(drafts: ParsedAsk[], refOf: (a: ParsedAsk) => 
   return `${n} question${n === 1 ? "" : "s"} unanswered — send anyway? Each ask is settled when sent. ${parts.join(" · ")}`;
 }
 
-export type Filter = "open" | "drafts" | "settled" | "all";
+export type Filter = "open" | "ruled" | "settled" | "all";
 /**
  * SF-4: the one predicate behind both a filter's list and its count. Settled is answered or declined;
  * a superseded ask is in All only (it was replaced, not settled by anyone here).
  */
-export function rowInFilter(r: Pick<Row, "status" | "draft">, f: Filter): boolean {
-  return f === "all" ? true : f === "drafts" ? r.draft : f === "settled" ? r.status === "answered" || r.status === "declined" : r.status === "open";
+export function rowInFilter(r: Pick<Row, "status" | "draft" | "ruledBy">, f: Filter): boolean {
+  return f === "all" ? true : f === "ruled" ? !!r.ruledBy : f === "settled" ? r.status === "answered" || r.status === "declined" : r.status === "open";
+}
+
+/** The Ruled list's order: the newest ruling first; a ruling with no time sorts last. */
+export function sortRuled(rows: Row[]): Row[] {
+  const t = (r: Row) => {
+    const n = Date.parse(r.ruledAt ?? "");
+    return Number.isFinite(n) ? n : -Infinity;
+  };
+  return [...rows].sort((x, y) => t(y) - t(x));
 }
 
 /**

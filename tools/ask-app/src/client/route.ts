@@ -2,7 +2,8 @@
  * The URL is the app's state: a reload, or the same link opened elsewhere, shows the same screen.
  *
  *   /a/<seat>/<id>            an ask            /proofs, /proofs/<key>        the proof list, one proof
- *   /broadcasts, /broadcasts/<id>               ?filter=drafts|settled|all  ?group=seat|topic
+ *   /broadcasts, /broadcasts/<id>               ?filter=ruled|settled|all  ?group=seat|topic
+ *   ?drafts=1                 the drafts tray shown (an old ?filter=drafts link lands here, on Open)
  *   ?ask=<seat>/<id>          the ask kept open beside the Proofs or Broadcasts list
  *   ?pane=off | ?pane=<url>   the split pane closed, or showing that page (absent: the default)
  *   #F2, #Q1                  the fork in view
@@ -11,7 +12,7 @@
  * in the saved draft; neither is in the URL.
  */
 export type Section = "asks" | "proofs" | "broadcasts";
-export type Filter = "open" | "drafts" | "settled" | "all";
+export type Filter = "open" | "ruled" | "settled" | "all";
 export type Group = "none" | "seat" | "topic";
 export type Route = {
   section: Section;
@@ -26,9 +27,11 @@ export type Route = {
   /** "off", a page URL, or undefined for the section's default. */
   pane?: string;
   fork?: string;
+  /** The drafts tray asked for (it was the Drafts tab before "Ruled below you" took its place). */
+  drafts?: true;
 };
 
-const FILTERS: Filter[] = ["open", "drafts", "settled", "all"];
+const FILTERS: Filter[] = ["open", "ruled", "settled", "all"];
 const GROUPS: Group[] = ["none", "seat", "topic"];
 
 const dec = (s: string) => {
@@ -46,9 +49,11 @@ export function parseRoute(pathname: string, search = "", hash = ""): Route {
   const filter = (FILTERS as string[]).includes(q.get("filter") ?? "") ? (q.get("filter") as Filter) : "open";
   const group = (GROUPS as string[]).includes(q.get("group") ?? "") ? (q.get("group") as Group) : "none";
   const pane = q.get("pane") ?? undefined;
+  // The Drafts tab is gone: its old links open Open with the drafts tray shown.
+  const drafts = q.get("filter") === "drafts" || q.get("drafts") === "1";
   const parts = pathname.split("/").filter(Boolean).map(dec);
   const h = dec(hash.replace(/^#/, ""));
-  const base: Route = { section: "asks", filter, group, ...(pane ? { pane } : {}) };
+  const base: Route = { section: "asks", filter, group, ...(pane ? { pane } : {}), ...(drafts ? { drafts: true as const } : {}) };
   const withFork = (r: Route): Route => (h && !h.includes("/") ? { ...r, fork: h } : r);
   const askParam = q.get("ask") ?? undefined;
   if (parts[0] === "a" && parts.length >= 3) return withFork({ ...base, ask: `${parts[1]}/${parts.slice(2).join("/")}` });
@@ -72,6 +77,7 @@ export function serializeRoute(r: Route): string {
   if (r.filter !== "open") q.set("filter", r.filter);
   if (r.group !== "none") q.set("group", r.group);
   if (r.pane) q.set("pane", r.pane);
+  if (r.drafts) q.set("drafts", "1");
   const qs = q.toString().replace(/%2F/gi, "/").replace(/%3A/gi, ":");
   return `${path}${qs ? `?${qs}` : ""}${r.fork ? `#${seg(r.fork)}` : ""}`;
 }

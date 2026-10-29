@@ -19,9 +19,12 @@ import {
 } from "../lib/format.ts";
 import {
   acceptAll,
+  ageOf,
   answerInWords,
   batchConfirmation,
   rowInFilter,
+  ruledBelow,
+  sortRuled,
   restoreUnsent,
   sendConfirmation,
   unansweredForks,
@@ -67,6 +70,8 @@ export { ticketKeys };
 type Pane = { url: string; label: string; source: Brief["source"] | "link"; trust: Trust };
 type Theme = "auto" | "light" | "dark";
 type View = "asks" | "proofs" | "broadcasts";
+const FILTERS: Filter[] = ["open", "ruled", "settled", "all"];
+const FILTER_LABEL: Record<Filter, string> = { open: "Open", ruled: "Ruled below you", settled: "Settled", all: "All" };
 
 const valueOf = (o: AskOption) => o.code ?? o.label;
 /** Proof hosts besides loopback :9440, set at build time (VITE_PROOF_ORIGINS); :9440 needs no entry. */
@@ -117,6 +122,18 @@ export function App() {
   const [sending, setSending] = useState(false);
   const [batchConfirm, setBatchConfirm] = useState<string | undefined>();
   const [appNotice, setAppNotice] = useState("");
+  // The drafts tray can be tucked away; the sidebar then shows "✎ N drafts" to bring it back. An old
+  // ?filter=drafts link (now ?drafts=1) always shows it.
+  const [trayHidden, setTrayHidden] = useState(() => !route.drafts && store.get("askclient.trayHidden") === "1");
+  const hideTray = () => {
+    setTrayHidden(true);
+    store.set("askclient.trayHidden", "1");
+    if (route.drafts) navigate({ drafts: undefined }, false);
+  };
+  const showTray = () => {
+    setTrayHidden(false);
+    store.set("askclient.trayHidden", null);
+  };
   const [theme, setTheme] = useState<Theme>(() => (store.get("askclient.theme") as Theme) || "auto");
   const [dragging, setDragging] = useState(false);
   const { section: view, filter, group: groupBy } = route;
@@ -189,7 +206,8 @@ export function App() {
   const now = Date.now();
   const rows = useMemo(() => sortRows(shown.map((a) => askRow(a, now))), [shown]); // eslint-disable-line react-hooks/exhaustive-deps
   // SF-4: the list and its count read one predicate, so they cannot disagree.
-  const inFilter = rows.filter((r) => rowInFilter(r, filter));
+  // Ruled below you lists the newest ruling first; the other filters keep the waiting-on-you order.
+  const inFilter = filter === "ruled" ? sortRuled(rows.filter((r) => rowInFilter(r, filter))) : rows.filter((r) => rowInFilter(r, filter));
   const count = (f: Filter) => rows.filter((r) => rowInFilter(r, f)).length;
   const loaded = root !== "";
   const named = route.ask;
@@ -279,7 +297,8 @@ export function App() {
             {theme === "dark" ? "☾ Dark" : theme === "light" ? "☀ Light" : "◐ Auto"}
           </button>
         </header>
-        {drafts.length > 0 && (
+        {route.drafts && loaded && drafts.length === 0 && <p className="tray-result" role="status">No drafts are saved. (The Drafts tab is now “Ruled below you”; drafts show here when you save one.)</p>}
+        {drafts.length > 0 && !trayHidden && (
           <div className="tray" role="region" aria-label="Drafts ready to send">
             <span>
               <b>{drafts.length}</b> draft{drafts.length === 1 ? "" : "s"} saved in {drafts.length === 1 ? "its file" : "their files"}, not sent:{" "}
@@ -287,7 +306,10 @@ export function App() {
                 <button key={askRef(d)} className="linkish" onClick={() => pick(askRef(d))}>{askRef(d)}</button>
               ))}
             </span>
-            <button className="btn primary" disabled={sending} onClick={askSendBatch}>Send batch · one message per seat</button>
+            <span className="tray-actions">
+              <button className="btn primary" disabled={sending} onClick={askSendBatch}>Send batch · one message per seat</button>
+              <button className="btn quiet" onClick={hideTray} title="Tuck the tray away; the list keeps a ✎ drafts link">Hide</button>
+            </span>
           </div>
         )}
         {drafts.length > 0 && batchConfirm && (
@@ -309,14 +331,14 @@ export function App() {
             <div className="side-tools">
               {slim ? (
                 <select aria-label="Show" value={filter} onChange={(e) => setFilter(e.target.value as Filter)} id="filter-slim">
-                  {(["open", "drafts", "settled", "all"] as Filter[]).map((f) => <option key={f} value={f}>{f === "open" ? "Open" : f === "drafts" ? "Drafts" : f === "settled" ? "Settled" : "All"} {count(f)}</option>)}
+                  {FILTERS.map((f) => <option key={f} value={f}>{FILTER_LABEL[f]} {count(f)}</option>)}
                 </select>
               ) : (
                 <>
                   <div className="seg" role="group" aria-label="Show">
-                    {(["open", "drafts", "settled", "all"] as Filter[]).map((f) => (
+                    {FILTERS.map((f) => (
                       <button key={f} aria-pressed={filter === f} onClick={() => setFilter(f)}>
-                        {f === "open" ? "Open" : f === "drafts" ? "Drafts" : f === "settled" ? "Settled" : "All"} <span className="n">{count(f)}</span>
+                        {FILTER_LABEL[f]} <span className="n">{count(f)}</span>
                       </button>
                     ))}
                   </div>
@@ -331,7 +353,10 @@ export function App() {
                 </>
               )}
             </div>
-            {inFilter.length === 0 && <p className="muted pad">No {filter === "all" ? "" : filter} asks.</p>}
+            {drafts.length > 0 && trayHidden && (
+              <p className="side-drafts"><button className="linkish" onClick={showTray}>✎ {drafts.length} draft{drafts.length === 1 ? "" : "s"}</button> <span className="muted">saved, not sent</span></p>
+            )}
+            {inFilter.length === 0 && <p className="muted pad">{filter === "ruled" ? "No seat has ruled on an ask in your place." : `No ${filter === "all" ? "" : filter} asks.`}</p>}
             {groupRows(inFilter, slim ? "none" : groupBy).map((g) => (
               <section key={g.name || "all"} className="group" aria-label={g.name || undefined}>
                 {g.name && <h2 className="group-name">{g.name} <span className="n">{g.rows.length}</span></h2>}
@@ -413,7 +438,7 @@ function Plain({ text }: { text: string }) {
  * grouped by seat, since the group heading already says it.
  */
 export function AskRowButton({ r, current, onPick, slim, groupBy = "none" }: { r: Row; current: boolean; onPick: () => void; slim: boolean; groupBy?: GroupBy }) {
-  const left = r.status === "open" ? `${r.left} of ${r.total} left` : r.status;
+  const left = r.ruledBy ? `ruled by ${r.ruledBy}${r.ruledAt ? ` · ${ageOf(Date.parse(r.ruledAt), Date.now())} ago` : ""}` : r.status === "open" ? `${r.left} of ${r.total} left` : r.status;
   const marks: [string, string, string][] = [
     ...(r.reserved === "operator" ? [["res", "◆", "Reserved for you: only you may answer; seats may forward it"] as [string, string, string]] : []),
     ...(r.reserved && r.reserved !== "operator" ? [["res other", "◇", `Reserved for ${r.reserved}`] as [string, string, string]] : []),
@@ -431,7 +456,7 @@ export function AskRowButton({ r, current, onPick, slim, groupBy = "none" }: { r
         {!slim && groupBy !== "seat" && <span className="seat">{r.seat}</span>}
         {!slim && r.age && <span className="age" title={new Date(r.created).toLocaleString()}>{r.age}</span>}
         {!slim && marks.map(([c, g, t]) => <span key={c} className={`mk-i ${c}`} title={t} aria-label={t}>{g}</span>)}
-        <span className={`left${r.left === 0 ? " zero" : ""}`}>{left}</span>
+        <span className={`left${r.left === 0 ? " zero" : ""}${r.ruledBy ? " ruled" : ""}`} title={r.ruledAt ? new Date(r.ruledAt).toLocaleString() : undefined}>{left}</span>
       </span>
     </button>
   );
@@ -836,6 +861,13 @@ export function AskDetail({
       <section className="answerbar" id={`answerbar-${ask.header.id}`}>
         {isSettled(ask) && (
           <>
+            {ruledBelow(ask) ? (
+              <p className="ruled-by" role="note">
+                <b>Ruled by {ask.answer!.answeredBy}</b>
+                {ask.answer?.answeredAt && <> · <time dateTime={ask.answer.answeredAt} title={new Date(ask.answer.answeredAt).toLocaleString()}>{ask.answer.answeredAt.replace("T", " ").slice(0, 16)} ({ageOf(Date.parse(ask.answer.answeredAt), Date.now())} ago)</time></>}
+                <span className="muted"> · a seat answered in your place{ask.header.status === "declined" ? " and declined" : ""}. This app has no overrule yet.</span>
+              </p>
+            ) : null}
             <h3>{ask.header.status === "declined" ? "Declined" : "Answered"} · revision {ask.header.revision}</h3>
             <AnsweredBy answer={ask.answer} />
             {ask.answer?.note && <p className="answer-note"><Inline text={ask.answer.note} /></p>}

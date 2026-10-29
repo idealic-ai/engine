@@ -417,7 +417,7 @@ describe("round 4: the URL is the app's state", () => {
     { section: "asks", ask: "idealic:ui/20261029-055903-how-should-the-design-matcher-fi", filter: "open", group: "none", pane: "off" },
     { section: "asks", ask: "meta:utils/x", filter: "all", group: "seat", pane: "http://127.0.0.1:9440/proofs/proofs/invizko/a b?x=1&y=2" },
     { section: "proofs", filter: "open", group: "none" },
-    { section: "proofs", proof: "proofs/invizko/fork2-fits-explore-7fc21c59.html", ask: "manager:domain/opforks-1029", filter: "drafts", group: "none" },
+    { section: "proofs", proof: "proofs/invizko/fork2-fits-explore-7fc21c59.html", ask: "manager:domain/opforks-1029", filter: "ruled", group: "none" },
     { section: "broadcasts", filter: "open", group: "none" },
     { section: "broadcasts", broadcast: "ask-serve-hold", filter: "open", group: "seat" },
   ];
@@ -432,7 +432,7 @@ describe("round 4: the URL is the app's state", () => {
   it("writes readable paths and leaves defaults out", () => {
     expect(serializeRoute(cases[0])).toBe("/");
     expect(serializeRoute(cases[1])).toBe("/a/manager:domain/opforks-1029?filter=settled&group=topic#F2");
-    expect(serializeRoute(cases[5])).toBe("/proofs/proofs/invizko/fork2-fits-explore-7fc21c59.html?ask=manager:domain/opforks-1029&filter=drafts");
+    expect(serializeRoute(cases[5])).toBe("/proofs/proofs/invizko/fork2-fits-explore-7fc21c59.html?ask=manager:domain/opforks-1029&filter=ruled");
     expect(serializeRoute(cases[7])).toBe("/broadcasts/ask-serve-hold?group=seat");
   });
 

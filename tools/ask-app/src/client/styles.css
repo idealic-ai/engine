@@ -374,3 +374,10 @@ h5.md-h, h6.md-h { font-size: 14px; color: var(--ink-2); }
 .row-meta .mk-i.draft, .row-meta .mk-i.sdraft { color: var(--warn); }
 .row-meta .mk-i.other { color: var(--ink-3); }
 .group-name { padding: 8px 12px 2px; font-size: 10.5px; }
+
+/* ── Ruled below you (operator 01:56) ─────────────────── */
+.tray-actions { display: inline-flex; gap: 6px; align-items: center; }
+.side-drafts { margin: 0; padding: 6px 12px; font-size: 12px; border-bottom: 1px solid var(--line); }
+.row-meta .left.ruled { color: var(--warn); font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.ruled-by { margin: 0; padding: 8px 12px; border-left: 3px solid var(--warn); background: var(--warn-soft); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: 14px; overflow-wrap: anywhere; }
+.ruled-by b { color: var(--warn); }
