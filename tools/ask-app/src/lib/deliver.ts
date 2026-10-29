@@ -23,7 +23,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-export type DeliveryResult = { status: "delivered" | "undelivered"; reason?: string; socketPath?: string };
+export type DeliveryResult = { status: "delivered" | "undelivered" | "partial"; reason?: string; socketPath?: string };
 
 export type DeliverOptions = {
   sessionsDir?: string;

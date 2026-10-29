@@ -5,6 +5,16 @@ import http from "node:http";
 import path from "node:path";
 import { newAsk } from "../src/lib/store.ts";
 import { parseAskFile } from "../src/lib/format.ts";
+import { BUILD_ID_FILE, computeBuildId } from "../src/build-id.ts";
+
+/** A stand-in client, stamped with the build id the server needs: no test reads or builds the live dist/. */
+function fakeDist(base: string): string {
+  const d = path.join(base, "dist");
+  fs.mkdirSync(d, { recursive: true });
+  fs.writeFileSync(path.join(d, "index.html"), "<!doctype html><html><head><title>ask-app</title></head><body><div id=\"root\"></div></body></html>\n");
+  fs.writeFileSync(path.join(d, BUILD_ID_FILE), `${computeBuildId()}\n`);
+  return d;
+}
 
 const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
 const TOKEN = "t0k3n-for-tests";
@@ -19,7 +29,7 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(base, "sessions"));
   port = 30000 + Math.floor(Math.random() * 20000);
   proc = spawn(process.execPath, ["--no-warnings", "src/server.ts", "--root", root, "--port", String(port), "--token", TOKEN], {
-    env: { ...process.env, ASK_SESSIONS_DIR: path.join(base, "sessions") },
+    env: { ...process.env, ASK_SESSIONS_DIR: path.join(base, "sessions"), ASK_APP_DIST: fakeDist(base) },
     stdio: "ignore",
   });
   for (let i = 0; i < 100; i++) {
@@ -93,7 +103,7 @@ describe("MF-1: the server refuses cross-origin and rebinding requests", () => {
 
   it("hands the token to the page it serves, and nowhere else", async () => {
     const r = await req("GET", "/");
-    if (r.status === 503) return; // client not built in this checkout
+    expect(r.status).toBe(200); // the fixture client is stamped with this server's build id
     expect(r.body).toContain(`<meta name="ask-token" content="${TOKEN}">`);
     expect((await req("GET", "/api/health")).body).not.toContain(TOKEN);
   });

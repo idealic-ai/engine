@@ -79,9 +79,11 @@ describe("answerAsk", () => {
     // The socket carries no sender label, so the first line must name who answered and which ask.
     expect(content.split("\n")[0]).toBe("[ask-answer] from operator via ask-app: idealic:kernel/a1 is answered");
     expect(text).toContain("idealic:kernel/a1");
-    // The push is a pointer to the file, never a second copy of the answer (INV_ONE_CHOSEN_DESTINATION).
+    // The push names the file (the record) and carries the answer's lines
+    // exactly as a batch does (the operator's ruling), read back from the file just written.
     expect(content).toContain("revision 2");
-    expect(text).not.toContain("NO");
+    expect(content).toContain(res.file);
+    expect(content).toContain("- Ship it? → No · idealic:kernel/a1#GO");
     expect(parseAskFile(fs.readFileSync(res.file, "utf8")).header.delivery).toBe("delivered");
   });
 
@@ -105,8 +107,8 @@ describe("answerAsk races and refusals", () => {
     const seat = await fakeSeat();
     newAsk(root, { from: "idealic:kernel", to: "operator", id: "a1" }, BODY);
     const results = await Promise.allSettled([
-      answerAsk(root, "idealic:kernel", "a1", { answers: { GO: ["YES"] }, answeredBy: "A" }, { sessionsDir: sessions, expectedRevision: 1 }),
-      answerAsk(root, "idealic:kernel", "a1", { answers: { GO: ["NO"] }, answeredBy: "B" }, { sessionsDir: sessions, expectedRevision: 1 }),
+      answerAsk(root, "idealic:kernel", "a1", { answers: { GO: ["YES"] }, answeredBy: "operator", note: "A" }, { sessionsDir: sessions, expectedRevision: 1 }),
+      answerAsk(root, "idealic:kernel", "a1", { answers: { GO: ["NO"] }, answeredBy: "operator", note: "B" }, { sessionsDir: sessions, expectedRevision: 1 }),
     ]);
     await new Promise((r) => setTimeout(r, 80));
     await seat.close();
@@ -119,13 +121,13 @@ describe("answerAsk races and refusals", () => {
 
   it("refuses an empty answer and records nothing", async () => {
     newAsk(root, { from: "s", to: "t", id: "a1" }, BODY);
-    await expect(answerAsk(root, "s", "a1", { answers: {} }, { sessionsDir: sessions, expectedRevision: 1 })).rejects.toThrow(/empty/);
+    await expect(answerAsk(root, "s", "a1", { answers: {}, answeredBy: "t" }, { sessionsDir: sessions, expectedRevision: 1 })).rejects.toThrow(/empty/);
     expect(parseAskFile(fs.readFileSync(resolveAskPath(root, "s", "a1"), "utf8")).header.status).toBe("open");
   });
 
   it("records a decline with its reason", async () => {
     newAsk(root, { from: "s", to: "t", id: "a1" }, BODY);
-    const res = await answerAsk(root, "s", "a1", { declined: true, reason: "beyond my grant" }, { sessionsDir: sessions, expectedRevision: 1 });
+    const res = await answerAsk(root, "s", "a1", { declined: true, reason: "beyond my grant", answeredBy: "t" }, { sessionsDir: sessions, expectedRevision: 1 });
     const ask = parseAskFile(fs.readFileSync(res.file, "utf8"));
     expect(ask.header.status).toBe("declined");
     expect(ask.answer?.reason).toBe("beyond my grant");
