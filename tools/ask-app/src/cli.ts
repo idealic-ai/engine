@@ -1,12 +1,12 @@
 /**
- * Node half of `engine ask new|list|answer|…|supersede` (scripts/ask.sh handles `path` and `serve`).
+ * Node half of `engine ask new|list|answer|…|supersede|rename-seat` (scripts/ask.sh handles `path` and `serve`).
  * Run with node >= 23.6, which strips the types itself.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
-import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk } from "./lib/store.ts";
+import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk } from "./lib/store.ts";
 import { answeredByText, authorWarnings, HEADER_FIELDS, parseAskFile, type AnswerMap, type AskAnswer } from "./lib/format.ts";
 
 /** The author guide, pointed to whenever `new` or `revise` warns or refuses. */
@@ -364,6 +364,28 @@ async function main() {
       const r = await supersedeAsk(root, old, neu, { by: identity("supersede"), manages });
       console.log(`superseded\t${old.seat}/${old.id} → ${neu.seat}/${neu.id}\trevision ${r.revision}`);
       for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
+    } catch (e) {
+      die((e as Error).message);
+    }
+    return;
+  }
+
+  if (cmd === "rename-seat") {
+    // `--dry-run` is a switch wherever it sits: flags() would take a seat after it as its value.
+    const dryRun = rest.includes("--dry-run");
+    const seats = [...(opt["dry-run"] && opt["dry-run"] !== "true" ? [opt["dry-run"]] : []), ...pos];
+    const usage = "usage: ask rename-seat <old seat> <new seat> [--dry-run]";
+    if (seats.length !== 2) die(usage);
+    // Order matters only for the switch's captured value: put the seats back in the order written.
+    const [old, neu] = rest.filter((a) => seats.includes(a));
+    try {
+      const r = await renameSeat(root, old, neu, { dryRun });
+      console.log(`rename-seat ${old} → ${neu}${dryRun ? " (dry run: nothing changed)" : ""}`);
+      const n = r.folder.ids.length;
+      if (r.folder.mode === "none") console.log(`folder\t${old}/ does not exist: no asks to move`);
+      else console.log(`folder\t${r.folder.mode === "move" ? "move" : "merge into existing"}\t${path.join(root, old)}/ → ${path.join(root, neu)}/\t(${n} ask${n === 1 ? "" : "s"}${n ? `: ${r.folder.ids.join(", ")}` : ""})`);
+      for (const c of r.changes) console.log(`${c.file}\t${c.field}\t${c.from} → ${c.to}`);
+      console.log(`${dryRun ? "would change" : "changed"} ${r.changes.length} field${r.changes.length === 1 ? "" : "s"} in ${r.files.length} file${r.files.length === 1 ? "" : "s"}; revisions unchanged`);
     } catch (e) {
       die((e as Error).message);
     }

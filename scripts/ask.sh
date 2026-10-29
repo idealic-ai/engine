@@ -25,6 +25,9 @@
 #   engine ask acted <seat>/<id> "<summary>" [--ruled-in-chat "<who, when>"]   stamps acted (recipients only)
 #   engine ask forward <seat>/<id> --to <seat>   the holder (to:), or its parent, moves it one rung
 #   engine ask supersede <seat>/<old-id> --by <seat>/<new-id>   the asker, its manager or the operator retires an open ask for its replacement
+#   engine ask rename-seat <old> <new> [--dry-run]   a fleet rename: move <old>/'s asks to <new>/ and rewrite
+#                  every reference to <old> in every ask (seat fields, hops, <seat>/<id> refs, answer/draft
+#                  records); revisions and mtimes kept; refused if <new>/ holds an ask of the same id
 #   engine ask serve [dir] [--port N] [--stop]   start (or reuse) the local app on 127.0.0.1
 #
 # Identity: a seat (FLEET_PANE set) acts as itself; --by naming anyone else, or operator, is refused.
@@ -292,7 +295,7 @@ case "$sub" in
     else echo "$ASK_ROOT/$1/$2.md"
     fi
     ;;
-  new|revise|list|answer|draft|send|discard|read|acted|forward|supersede)
+  new|revise|list|answer|draft|send|discard|read|acted|forward|supersede|rename-seat)
     exec node --no-warnings "$APP_DIR/src/cli.ts" "$sub" "$@"
     ;;
   serve)

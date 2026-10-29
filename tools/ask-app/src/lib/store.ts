@@ -39,6 +39,7 @@ import {
   type AskAnswer,
   type ParsedAsk,
 } from "./format.ts";
+import { rewriteSeatRefs, type SeatChange } from "./rename-seat.ts";
 
 export type StoredAsk = ParsedAsk & { seat: string; file: string; mtimeMs: number };
 
@@ -952,4 +953,101 @@ export async function supersedeAsk(
   const pushes: SupersedeResult["pushes"] = [];
   for (const s of seats) pushes.push({ seat: s, delivery: await safePush(push, s, msg, o) });
   return { file: oldFile, revision: res.revision, pushes };
+}
+
+// ── renaming a seat (a fleet rename) ──────────────────────
+
+export type RenameSeatChange = SeatChange & { /** `<seat>/<id>.md` under the root, as the file sat BEFORE the move. */ file: string };
+export type RenameSeatResult = {
+  dryRun: boolean;
+  old: string;
+  neu: string;
+  /** `move`: the folder is renamed whole; `merge`: its asks join an existing folder; `none`: the old seat filed no asks. */
+  folder: { from: string; to: string; mode: "move" | "merge" | "none"; ids: string[] };
+  changes: RenameSeatChange[];
+  /** Files whose text changes. */
+  files: string[];
+};
+
+/**
+ * `engine ask rename-seat <old> <new>`: the fleet renamed a seat, so its asks and every reference to
+ * it follow.
+ *
+ * 1. The folder `<root>/<old>/` becomes `<root>/<new>/`: renamed whole, or, when `<new>/` exists,
+ *    merged file by file. Refused — before anything is written — when `<new>/` already holds an
+ *    entry of the same name (an ask of the same id), or when a write is in flight in `<old>/`.
+ * 2. Every ask file under the root, not only the moved ones, has its references rewritten
+ *    (rename-seat.ts says which fields, and that only whole names match).
+ * 3. Each file is rewritten under its lock, atomically (temp file, then rename), with its revision
+ *    unchanged (a rename is not a revision) and its mtime restored, so the app's newest-first order
+ *    and every ask's age stay as they were.
+ * With `dryRun`, the same plan is computed and returned, and nothing is written.
+ */
+export async function renameSeat(root: string, old: string, neu: string, o: { dryRun?: boolean } = {}): Promise<RenameSeatResult> {
+  for (const s of [old, neu]) if (!SAFE.test(s) || s.includes("..")) throw new AskFormatError(`invalid seat: ${s}`);
+  if (old === neu) throw new AskFormatError(`${old} and ${neu} are the same seat: nothing to rename`);
+  if (old === "operator" || neu === "operator") throw new AskFormatError("the operator is not a seat; it is never renamed");
+  const fromDir = path.join(root, old);
+  const toDir = path.join(root, neu);
+  const has = (d: string) => fs.existsSync(d) && fs.statSync(d).isDirectory();
+  const entries = has(fromDir) ? fs.readdirSync(fromDir) : [];
+  const ids = entries.filter((f) => f.endsWith(".md") && !f.startsWith(".")).map((f) => f.slice(0, -3)).sort();
+  const mode: RenameSeatResult["folder"]["mode"] = !has(fromDir) ? "none" : has(toDir) ? "merge" : "move";
+  const assertFolder = () => {
+    if (!has(fromDir)) return;
+    const now = fs.readdirSync(fromDir);
+    const busy = now.filter((f) => f.endsWith(".lock") || f.endsWith(".tmp"));
+    if (busy.length) throw new AskFormatError(`a write is in flight in ${old}/ (${busy.join(", ")}); try again in a moment`);
+    if (!has(toDir)) return;
+    const clash = now.filter((f) => fs.existsSync(path.join(toDir, f)));
+    if (clash.length) {
+      throw new AskFormatError(`refusing to rename ${old} → ${neu}: ${clash.map((f) => `${neu}/${f.replace(/\.md$/, "")}`).join(", ")} already exist${clash.length === 1 ? "s" : ""}; nothing was changed`);
+    }
+  };
+  assertFolder();
+
+  // The plan: every ask file under the root, as it sits now.
+  const plan: { file: string; rel: string; changes: SeatChange[] }[] = [];
+  const seats = fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort() : [];
+  for (const seat of seats) {
+    for (const f of fs.readdirSync(path.join(root, seat)).sort()) {
+      if (!f.endsWith(".md") || f.startsWith(".")) continue;
+      const file = path.join(root, seat, f);
+      const r = rewriteSeatRefs(fs.readFileSync(file, "utf8"), old, neu);
+      if (r.changes.length) plan.push({ file, rel: `${seat}/${f}`, changes: r.changes });
+    }
+  }
+  const result: RenameSeatResult = {
+    dryRun: !!o.dryRun,
+    old,
+    neu,
+    folder: { from: `${old}/`, to: `${neu}/`, mode, ids },
+    changes: plan.flatMap((p) => p.changes.map((c) => ({ file: p.rel, ...c }))),
+    files: plan.map((p) => p.rel),
+  };
+  if (o.dryRun) return result;
+
+  // The rewrite, each file under its lock and re-read there, so a write that landed since the plan is kept.
+  result.changes = [];
+  for (const p of plan) {
+    await withFileLock(p.file, () => {
+      const st = fs.statSync(p.file);
+      const r = rewriteSeatRefs(fs.readFileSync(p.file, "utf8"), old, neu);
+      if (!r.changes.length) return;
+      atomicWrite(p.file, r.text);
+      // Seconds as a float, not a Date: a Date keeps whole milliseconds, and its round trip drifted up to 2 ms.
+      fs.utimesSync(p.file, st.atimeMs / 1000, st.mtimeMs / 1000);
+      result.changes.push(...r.changes.map((c) => ({ file: p.rel, ...c })));
+    });
+  }
+  // Then the folder: whole when it can be, else ask by ask (a rename keeps each file's mtime).
+  if (mode !== "none") {
+    assertFolder();
+    if (!has(toDir)) fs.renameSync(fromDir, toDir);
+    else {
+      for (const f of fs.readdirSync(fromDir)) fs.renameSync(path.join(fromDir, f), path.join(toDir, f));
+      fs.rmdirSync(fromDir);
+    }
+  }
+  return result;
 }

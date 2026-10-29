@@ -147,8 +147,9 @@ const CHECKED_X_RE = /^\[X\]\s*(?=\[)/;
 const DEPENDS_RE = /^DependsOn:\s*(?:¶|§)?\s*ASK_(\w+)(?:\s*=\s*(\S+))?\s*$/;
 // Record fences are whole lines of exactly three backticks: an inline or 4-backtick quote is body
 // text, shown as written, and never a record (`new` refuses the indented forms).
-const ANSWER_FENCES = /(?:^|\n)```json answer\n([\s\S]*?)\n```(?=\n|$)\n?/g;
-const DRAFT_FENCES = /(?:^|\n)```json draft\n([\s\S]*?)\n```(?=\n|$)\n?/g;
+/** The store-written record fences (`rename-seat` rewrites seats inside them). */
+export const ANSWER_FENCES = /(?:^|\n)```json answer\n([\s\S]*?)\n```(?=\n|$)\n?/g;
+export const DRAFT_FENCES = /(?:^|\n)```json draft\n([\s\S]*?)\n```(?=\n|$)\n?/g;
 /** Any record fence (`json answer` or `json draft`), wherever it sits: a body never carries one (M1). */
 export const RECORD_FENCE_RE = /^\s*```json (?:answer|draft)\b/m;
 
