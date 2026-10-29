@@ -36,7 +36,10 @@
 #       Owner cell still asks the owner it repoints away from. Each path's seat comes from the owners
 #       map (FILE, else BROADCAST_OWNERS, else ~/.claude/data/yarik/owners.tsv: lines
 #       "<path-glob> <seat>", a trailing / covers a tree; the pattern with the most /-separated
-#       segments wins, two seats tied refuse). Per owner and commit the receipt is
+#       segments wins; at equal segments a pattern with no * or ? (a path or a dir/ prefix) beats
+#       one holding either, so "resource-* A" plus "resource-kernel/ B" gives resource-kernel to B
+#       and a catch-all "* S" is the default; two literals or two globs at equal segments that map
+#       to different seats tie and refuse). Per owner and commit the receipt is
 #       `git show --text <commit> -- <paths> | git patch-id --stable`; merge commits are skipped
 #       (--no-merges). RANGE defaults to origin/main..HEAD; a rev without ".." is one commit. ONE
 #       broadcast to exactly the owner seats; each seat's message carries only its own receipt lines
@@ -600,9 +603,12 @@ row_owner_paths() {
 
 # seat_of_path <path> → the seat whose map pattern matches most specifically. Specificity is the
 # number of /-separated segments in the pattern (a trailing / adds none): kern/a.ts (2) beats kern/
-# (1), and */schemas/*.ts (3) beats resource-kernel/ (1) whatever their lengths in characters. A
-# pattern ending in / covers everything under it; any other pattern is a shell glob, whose * also
-# matches /. Two different seats at the same specificity are a tie. rc 1 none · 2 a tie.
+# (1), and */schemas/*.ts (3) beats resource-kernel/ (1) whatever their lengths in characters. At
+# equal segments a literal (no * or ?: a path, or a dir/ prefix) beats a glob: resource-kernel/
+# beats resource-*, kern/ beats a catch-all *, kern/a.ts beats kern/*.ts. A pattern ending in /
+# covers everything under it; any other pattern is a shell glob, whose * also matches /. Two
+# different seats at the same rank (two literals, or two globs, at equal segments) are a tie.
+# rc 1 none · 2 a tie.
 seat_of_path() {
   local p="$1" pat seat best="" bseg=-1 tie=0 seg t
   while read -r pat seat _; do
@@ -614,7 +620,8 @@ seat_of_path() {
         # shellcheck disable=SC2053 # $pat is a glob on purpose
         [[ "$p" == $pat ]] || continue ;;
     esac
-    t="${pat%/}"; t="${t//[!\/]/}"; seg=$(( ${#t} + 1 ))
+    t="${pat%/}"; t="${t//[!\/]/}"; seg=$(( (${#t} + 1) * 2 ))
+    case "$pat" in *'*'*|*'?'*) ;; *) seg=$(( seg + 1 )) ;; esac   # literal beats glob at equal depth
     if [ "$seg" -gt "$bseg" ]; then best="$seat"; bseg="$seg"; tie=0
     elif [ "$seg" = "$bseg" ] && [ "$seat" != "$best" ]; then tie=1; fi
   done < "$OWNERS_MAP"

@@ -978,6 +978,57 @@ test_go_owners_map_specificity_is_by_segments() {
   assert_eq "app:ui" "$(audience)" "N4: the two-segment pattern wins over a longer one-segment pattern"
 }
 
+# R2-S1: at equal segments a literal pattern (a path, or a dir/ prefix) beats one holding * or ?.
+# "resource-* except resource-kernel" is written as the family glob plus the exception's dir/ line.
+test_go_owners_map_except_shape() {
+  go_repo
+  cat > "$FIX/owners" <<'X'
+kern*   app:ui
+kern/   app:ask
+stat*   domain:stats
+ui/     app:ui
+X
+  PANE=%2 goreq --pr 28 --rows alpha,beta --commits base..HEAD --dry-run
+  assert_eq 0 "$RC" "R2-S1: 'kern*' and the exception 'kern/' do not tie"
+  assert_eq "app:ask domain:stats app:ui" "$(audience)" "R2-S1: the exception's dir/ line wins its tree, the family glob still maps the rest"
+}
+
+# A catch-all '*' is the default seat; it does not tie with every top-level dir/ line.
+test_go_owners_map_catchall_default() {
+  go_repo
+  cat > "$FIX/owners" <<'X'
+*       app:ui
+kern/   app:ask
+stats/  domain:stats
+X
+  PANE=%2 goreq --pr 28 --rows alpha,beta --commits base..HEAD --dry-run
+  assert_eq 0 "$RC" "R2-S1: a catch-all '*' does not tie with a top-level dir/ line"
+  assert_eq "app:ask domain:stats app:ui" "$(audience)" "R2-S1: the dir/ lines win their trees, the catch-all takes the rest"
+}
+
+# A literal file beats a file glob at the same depth, in either order in the map.
+test_go_owners_map_literal_file_beats_file_glob() {
+  go_repo
+  printf 'kern/*.ts app:ui\nkern/a.ts domain:stats\n' >> "$FIX/owners"
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD --dry-run
+  assert_eq 0 "$RC" "R2-S1: kern/a.ts against kern/*.ts resolves (glob listed first)"
+  assert_eq "domain:stats" "$(audience)" "R2-S1: the literal file wins (glob listed first)"
+  printf 'kern/   app:ask\nkern/a.ts domain:stats\nkern/*.ts app:ui\n' > "$FIX/owners"
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD --dry-run
+  assert_eq 0 "$RC" "R2-S1: kern/a.ts against kern/*.ts resolves (literal listed first)"
+  assert_eq "domain:stats" "$(audience)" "R2-S1: the literal file wins (literal listed first)"
+}
+
+# Two globs at the same depth that map to different seats still tie and refuse.
+test_go_owners_map_glob_vs_glob_still_ties() {
+  go_repo
+  printf 'kern/*.ts app:ui\nkern/a.* domain:stats\n' >> "$FIX/owners"
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD
+  assert_eq 2 "$RC" "R2-S1: two globs at equal depth for one path, two seats, refuse"
+  assert_has "maps to two seats equally" "$OUT" "R2-S1: and say it is a tie"
+  assert_eq 0 "$(sent_count)" "R2-S1: nothing sent on the tie"
+}
+
 # Receipt kind: lines carry a kind ("path"); a round-1 record (no kind) still reads; a kind this
 # script cannot recompute fails go-check rather than passing.
 test_go_receipt_kind() {
