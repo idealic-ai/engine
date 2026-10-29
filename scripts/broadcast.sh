@@ -32,14 +32,19 @@
 # name equals the pane label (case-insensitive), is a target; none, several, or a different name
 # is reported undelivered with the reason. The push itself is deliver.ts pushToSeat (the one
 # module that knows the socket protocol), given a sessions dir holding only that pid's files, so
-# it cannot pick another process. The message is the broadcast's text (cut at BROADCAST_INLINE_MAX
-# characters, with the record path for the rest) and one ack line; the record stays the durable copy. "delivered" = the socket accepted the bytes (a stopped process still accepts); acks are
-# the proof it was read.
+# it cannot pick another process. The message is the broadcast's text, cut past
+# BROADCAST_INLINE_MAX characters (counted in UTF-8 whatever the caller's locale) with the record
+# path for the rest, then one line naming the sender and the ack command:
+# `ack (from <seat>): engine broadcast ack <id>` — the sent-by seat, or on a resend the resender's.
+# The record stays the durable copy. "delivered" = the socket accepted the bytes (a stopped
+# process still accepts); acks are the proof it was read.
 #
 # Files: $BROADCAST_DIR (default ~/.claude/data/yarik/broadcasts): <id>.md record,
 #        <id>.acks.d/<seat> acks, sticky/<id> the sticky index.
 # Env:   HOP_LIVE_PANES / HOP_TMUX_SOCKET — as hop.sh. BROADCAST_LIB — lib.sh for fleet_self.
 #        ASK_SESSIONS_DIR — the session registry (shared with deliver.ts).
+#        BROADCAST_INLINE_MAX — the cut, in characters (default 1500); anything but a positive
+#        integer of at most 9 digits warns on stderr and falls back to 1500.
 #        Test seams: BROADCAST_DELIVER (`<cmd> <seat> <pid> <message>`, exit 0 = delivered),
 #        BROADCAST_PANE_PIDS ("<pane_id> <pid>" lines), BROADCAST_PS_FILE ("<pid> <ppid>" lines).
 set -uo pipefail
@@ -203,19 +208,33 @@ deliver() { # deliver <seat> <pid> <name> <message> → one status line; rc 0 = 
 }
 
 BROADCAST_INLINE_MAX="${BROADCAST_INLINE_MAX:-1500}"
+if ! [[ "$BROADCAST_INLINE_MAX" =~ ^[1-9][0-9]{0,8}$ ]]; then
+  echo "broadcast: BROADCAST_INLINE_MAX '$BROADCAST_INLINE_MAX' is not a positive integer; using 1500" >&2
+  BROADCAST_INLINE_MAX=1500
+fi
 
-# message <id> <text> <record> — what reaches a seat: the broadcast's own text, then one ack line.
-# Text past BROADCAST_INLINE_MAX characters is cut and the record path given for the rest.
+# message <id> <text> <record> <sender> — what reaches a seat: the broadcast's own text, then one
+# line naming the sender and the ack command. Text past BROADCAST_INLINE_MAX characters is cut and
+# the record path given for the rest. The locale is pinned so ${#…} and ${…:0:N} count characters,
+# never bytes: launchd, cron and `env -i` start with no LANG, and a byte cut can split a character.
 message() {
+  local LC_ALL=en_US.UTF-8
   local text="$2"
   if [ "${#text}" -gt "$BROADCAST_INLINE_MAX" ]; then
     text="${text:0:$BROADCAST_INLINE_MAX}…"$'\n'"full text: $3"
   fi
-  printf '%s\nack: engine broadcast ack %s' "$text" "$1"
+  printf '%s\nack (from %s): engine broadcast ack %s' "$text" "$4" "$1"
 }
 
-text_of() { # text_of <record> — the record's "## Text" section, without its surrounding blank lines
-  awk '/^## Text/ { on = 1; next } on && /^## / { exit } on' "$1" | sed -e '/./,$!d' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}'
+# text_of <record> — the text exactly as cmd_send wrote it: from the first line that is exactly
+# "## Text" to the LAST line that is exactly "## Delivery" (the writer emits it right after the
+# text, and nothing later writes another), less the one blank line the writer puts on each side.
+# The text itself may hold any "## " line, "## Text…" and "## Delivery" included.
+text_of() {
+  awk '{ l[NR] = $0 } $0 == "## Text" && !s { s = NR } $0 == "## Delivery" { e = NR }
+    END { if (!s) exit; if (e <= s) e = NR + 1; a = s + 1; b = e - 1
+          if (a <= b && l[a] == "") a++; if (a <= b && l[b] == "") b--
+          for (i = a; i <= b; i++) print l[i] }' "$1"
 }
 
 header() { # header <record> <key> — value from the header block only (before "## Text")
@@ -300,7 +319,7 @@ cmd_send() {
   audience=$(tr -s ' \n' ' ' <<<"$audience" | sed 's/^ //; s/ $//')
 
   local rec="$BDIR/$id.md" msg
-  msg=$(message "$id" "$text" "$rec")
+  msg=$(message "$id" "$text" "$rec" "$sent_by")
   printf 'id: %s\nfrom: %s\nsent-by: %s\nscope: %s\nsticky: %s\nexpires: %s\naudience: %s\n' \
     "$id" "$from" "$sent_by" "$scope" "$sticky" "$expires" "$audience"
   [ -z "$skipped" ] || echo "skipped (no Claude session in pane): $skipped"
@@ -357,7 +376,7 @@ cmd_resend() {
     seats+=("$s")
   done
   echo "resend: by $by at $(now) (${#seats[@]} seats)" | tee -a "$rec"
-  fan_out "$tree" "$id" "$rec" "$(message "$id" "$(text_of "$rec")" "$rec")" "${seats[@]+"${seats[@]}"}"
+  fan_out "$tree" "$id" "$rec" "$(message "$id" "$(text_of "$rec")" "$rec" "$by")" "${seats[@]+"${seats[@]}"}"
 }
 
 # in_live_scope <tree> <seat> <scope>

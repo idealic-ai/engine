@@ -9,7 +9,8 @@
 #   identity — live-first via fleet_self (fixture and stub-tmux paths); a cache-only identity is
 #              refused for a write; --from must be in the tree; flag values cannot be flags.
 #   binding  — delivery by pane: mismatch, ambiguity and a same-named pane elsewhere are refused.
-#   record   — written (noclobber) before delivery; sent-by; fixed pointer message; done marker.
+#   record   — written (noclobber) before delivery; sent-by; the text inline (cut at the cap) with the
+#              sender on the ack line; done marker; resend reads the text back byte for byte.
 #   receipts — own-seat acks only; status states; resend; sticky pending/retract/expires/limit.
 #   parity   — live_tree() body equals hop.sh's.
 #
@@ -65,7 +66,8 @@ EOF
 #!/bin/bash
 # stub delivery: <seat> <pid> <message>
 if grep -qxF -- "\$1" "$FIX/failseats"; then echo "undelivered: stub refused \$1"; exit 1; fi
-id=\$(sed -n 's/^ack: engine broadcast ack //p' <<<"\$3")
+id=\$(sed -n 's/^ack (from [^)]*): engine broadcast ack //p' <<<"\$3")
+printf '%s' "\$3" > "$FIX/msg.\$1"   # the raw bytes, per seat (last message wins)
 if [ -n "\$id" ] && [ -f "$FIX/bc/\$id.md" ]; then st=record-present; else st=record-absent; fi
 printf '%s|%s|%s|%s\n' "\$1" "\$2" "\$st" "\$(printf '%s' "\$3" | tr '\n' '~')" >> "$FIX/sent.log"
 echo delivered
@@ -87,7 +89,8 @@ reg() {
 # Stdout+stderr in OUT, exit code in RC. PANE → TMUX_PANE, SELF → FLEET_PANE (the launch cache),
 # TREE → the fixture tree ("none" = no HOP_LIVE_PANES; the stub tmux on PATH answers).
 # PANE defaults to %1 (manager:director); PANE=none runs as if outside tmux. DELIVER=real drops the
-# stub so the real deliver.ts path runs. LIB → BROADCAST_LIB.
+# stub so the real deliver.ts path runs. LIB → BROADCAST_LIB. CLEAN=1 runs under `env -i` (only
+# PATH, HOME and the fixture variables), as launchd, cron and some hook runners do.
 OUT="" RC=0
 bc() {
   local tree="${TREE:-$FIX/live.txt}" path="$PATH" pane="${PANE-%1}" stub="$FIX/stub.sh"
@@ -96,9 +99,10 @@ bc() {
   [ "$tree" = none ] && { tree=""; path="$FIX/bin:$PATH"; tmuxenv="$FIX/fake-tmux-socket,1,0"; }
   [ "$pane" = none ] && pane=""
   [ "${DELIVER:-}" = real ] && stub=""
-  OUT=$(env -u FLEET_PARENT -u FLEET_PANE -u TMUX_PANE -u HOP_CHAIN_FILE -u FLEET_LIVE_PANES \
+  local clean="" keep=(); [ "${CLEAN:-}" = 1 ] && { clean=-i; keep=(HOME="$HOME" ${BROADCAST_INLINE_MAX:+BROADCAST_INLINE_MAX="$BROADCAST_INLINE_MAX"}); }
+  OUT=$(env $clean -u FLEET_PARENT -u FLEET_PANE -u TMUX_PANE -u HOP_CHAIN_FILE -u FLEET_LIVE_PANES \
     -u HOP_TMUX_SOCKET -u FLEET_TMUX_SOCKET -u TMUX \
-    PATH="$path" HOP_LIVE_PANES="$tree" BROADCAST_DIR="$FIX/bc" BROADCAST_DELIVER="$stub" \
+    ${keep[@]+"${keep[@]}"} PATH="$path" HOP_LIVE_PANES="$tree" BROADCAST_DIR="$FIX/bc" BROADCAST_DELIVER="$stub" \
     BROADCAST_PANE_PIDS="$FIX/panepids" BROADCAST_PS_FILE="$FIX/ps" ASK_SESSIONS_DIR="$FIX/sess" \
     BROADCAST_LIB="${LIB:-$LIB_SH}" ${pane:+TMUX_PANE="$pane"} ${tmuxenv:+TMUX="$tmuxenv"} ${SELF:+FLEET_PANE="$SELF"} \
     perl -e 'alarm 10; exec @ARGV' bash "$BROADCAST_SH" "$@" 2>&1 <<<"${MSG-Use /ask, not AskUserQuestion.}")
@@ -281,7 +285,7 @@ test_send_writes_record() {
   if grep -qE '^at: [0-9]{4}-[0-9]{2}-[0-9]{2}T' <<<"$body"; then pass "record: time"; else fail "record: time" "at: ISO" "$body"; fi
   local sent; sent=$(cat "$FIX/sent.log")
   assert_eq 2 "$(sent_count)" "send: one message per seat"
-  assert_has "app:ask|2004|record-present|Use /ask, not AskUserQuestion.~ack: engine broadcast ack ask-rules" \
+  assert_has "app:ask|2004|record-present|Use /ask, not AskUserQuestion.~ack (from manager:app): engine broadcast ack ask-rules" \
     "$sent" "message: the text then the ack line, to the pane's pid, with the record already on disk"
   assert_hasnt "read $rec" "$sent" "message: no pointer to the record when the text fits"
   assert_hasnt "audience:" "$sent" "message: the header and delivery list stay out of the message"
@@ -293,7 +297,7 @@ test_long_text_is_cut_with_the_record_path() {
   MSG="$long" PANE=%2 bc --children --id long1
   assert_eq 0 "$RC" "long: send exits 0"
   local sent; sent=$(cat "$FIX/sent.log")
-  assert_has "full text: $FIX/bc/long1.md~ack: engine broadcast ack long1" "$sent" "long: past the cap the message gives the record path, then the ack line"
+  assert_has "full text: $FIX/bc/long1.md~ack (from manager:app): engine broadcast ack long1" "$sent" "long: past the cap the message gives the record path, then the ack line"
   assert_hasnt "$long" "$sent" "long: the text is cut at the cap"
   assert_has "$long" "$(cat "$FIX/bc/long1.md")" "long: the record keeps the full text"
 }
@@ -349,7 +353,8 @@ test_bind_ignores_bg_sessions() {
 }
 
 # The real deliver.ts path, no stub: two live scratch listeners both registered as app:ask, only
-# one of them under app:ask's pane. The in-pane socket must get exactly one pointer line.
+# one of them under app:ask's pane. The in-pane socket must get exactly one line: one user message
+# holding the text and the ack line.
 test_real_deliver_path() {
   command -v node >/dev/null 2>&1 || { skip "real deliver: node not found"; return; }
   local d; d=$(mktemp -d /tmp/bcsock.XXXXXX)
@@ -369,7 +374,7 @@ EOF2
   kill "$pa" "$pb" 2>/dev/null; wait "$pa" "$pb" 2>/dev/null
   assert_has "delivered app:ask pid=$pa" "$(cat "$FIX/bc/real1.md")" "real deliver: the in-pane session is delivered"
   assert_eq 1 "$(grep -c . "$d/a.out")" "real deliver: exactly one line on the in-pane socket"
-  assert_has '"content":"Use /ask, not AskUserQuestion.\nack: engine broadcast ack real1"' "$(cat "$d/a.out")" "real deliver: the text and ack line, as one user message"
+  assert_has '"content":"Use /ask, not AskUserQuestion.\nack (from manager:director): engine broadcast ack real1"' "$(cat "$d/a.out")" "real deliver: the text and ack line, as one user message"
   assert_eq 0 "$(grep -c . "$d/b.out")" "real deliver: the same-named session outside the pane gets nothing"
   rm -rf "$d"
 }
@@ -432,7 +437,7 @@ test_resend() {
   assert_eq 0 "$RC" "S5: resend exits 0"
   assert_eq 1 "$(sent_count)" "S5: --undelivered resends only the undelivered seat"
   assert_has "app:ui|" "$(cat "$FIX/sent.log")" "S5: it went to app:ui"
-  assert_has "app:ui|2005|record-present|Use /ask, not AskUserQuestion.~ack: engine broadcast ack re1" "$(cat "$FIX/sent.log")" "F5: a resend carries the record's text"
+  assert_has "app:ui|2005|record-present|Use /ask, not AskUserQuestion.~ack (from manager:domain): engine broadcast ack re1" "$(cat "$FIX/sent.log")" "F5: a resend carries the record's text"
   PANE=none bc resend re1
   assert_eq 2 "$RC" "F2: resend outside tmux is refused"
   bc status re1
@@ -492,6 +497,81 @@ test_retract_expires_limit() {
 }
 
 # ---------------------------------------------------------------- parity (S7)
+# ---------------------------------------------------------------- the inline text: cap and resend
+xs() { printf 'x%.0s' $(seq "$1"); }
+
+test_cut_is_exact() {
+  MSG="$(xs 1600)" PANE=%2 bc --children --id cut1
+  assert_eq "$(xs 1500)…"$'\n'"full text: $FIX/bc/cut1.md"$'\n'"ack (from manager:app): engine broadcast ack cut1" \
+    "$(cat "$FIX/msg.app:ask")" "S1: past the cap the message is exactly 1500 characters, …, the record path, the ack line"
+}
+
+test_text_at_the_cap_is_not_cut() {
+  MSG="$(xs 1500)" PANE=%2 bc --children --id cap1
+  assert_eq "$(xs 1500)"$'\n'"ack (from manager:app): engine broadcast ack cap1" \
+    "$(cat "$FIX/msg.app:ask")" "S1: a text of exactly the cap arrives whole, with no record path"
+}
+
+test_inline_max_is_validated() {
+  local v
+  for v in abc 0 -3 1e3; do
+    : > "$FIX/sent.log"; rm -f "$FIX/msg.app:ask"
+    BROADCAST_INLINE_MAX="$v" MSG="$(xs 1600)" PANE=%2 bc --children --id "max$(printf %s "$v" | tr -c 'a-z0-9' n)"
+    assert_eq 0 "$RC" "S3: BROADCAST_INLINE_MAX='$v' still sends"
+    assert_has "BROADCAST_INLINE_MAX '$v' is not a positive integer; using 1500" "$OUT" "S3: BROADCAST_INLINE_MAX='$v' warns"
+    assert_eq "$(xs 1500)…" "$(sed -n 1p "$FIX/msg.app:ask")" "S3: BROADCAST_INLINE_MAX='$v' falls back to a 1500 cut"
+  done
+  BROADCAST_INLINE_MAX=3 MSG="abcdef" PANE=%2 bc --children --id max3
+  assert_hasnt "not a positive integer" "$OUT" "S3: a valid cap does not warn"
+  assert_eq "abc…" "$(sed -n 1p "$FIX/msg.app:ask")" "S3: a valid cap is used"
+}
+
+# M2: the cut counts characters even when the caller's locale counts bytes.
+test_multibyte_cut_outside_utf8() {
+  local want="ééééé…"$'\n'"full text: $FIX/bc/mb1.md"$'\n'"ack (from manager:app): engine broadcast ack mb1"
+  LC_ALL=C BROADCAST_INLINE_MAX=5 MSG="ééééééé" PANE=%2 bc --children --id mb1
+  assert_eq "$want" "$(cat "$FIX/msg.app:ask")" "M2: under LC_ALL=C the cut is 5 characters, not 5 bytes"
+  if iconv -f UTF-8 -t UTF-8 "$FIX/msg.app:ask" >/dev/null 2>&1; then pass "M2: under LC_ALL=C the message is valid UTF-8"
+  else fail "M2: under LC_ALL=C the message is valid UTF-8" "iconv accepts it" "$(od -c "$FIX/msg.app:ask" | head -3)"; fi
+  rm -f "$FIX/msg.app:ask"
+  CLEAN=1 BROADCAST_INLINE_MAX=5 MSG="ééééééé" PANE=%2 bc --children --id mb2
+  assert_eq 0 "$RC" "M2: under env -i the send exits 0"
+  assert_eq "${want//mb1/mb2}" "$(cat "$FIX/msg.app:ask" 2>/dev/null)" "M2: under env -i the cut is 5 characters, not 5 bytes"
+}
+
+# M1: a resend reads the text back exactly, whatever "## " lines it holds.
+test_resend_is_byte_exact() {
+  local text=$'\nDo this:\n\n## Step 1\nrun foo\n## Textbook\n## Text\n  a "quoted" \\ $line\t with a tab\n## Delivery\n\n## Step 2\nrun bar'
+  echo app:ui > "$FIX/failseats"
+  MSG="$text" PANE=%2 bc --children --id rb1
+  : > "$FIX/failseats"
+  assert_eq "$text"$'\n'"ack (from manager:app): engine broadcast ack rb1" "$(cat "$FIX/msg.app:ask")" "M1: the first send carries the text as given"
+  PANE=%3 bc resend rb1 --undelivered
+  assert_eq 0 "$RC" "M1: resend exits 0"
+  assert_eq "$text"$'\n'"ack (from manager:domain): engine broadcast ack rb1" "$(cat "$FIX/msg.app:ui")" \
+    "M1: a resend carries the same text byte for byte, headings and all"
+}
+
+test_resend_over_the_cap() {
+  echo app:ui > "$FIX/failseats"
+  MSG="$(xs 1600)" PANE=%2 bc --children --id rcap1
+  : > "$FIX/failseats"
+  PANE=%3 bc resend rcap1 --undelivered
+  assert_eq "$(xs 1500)…"$'\n'"full text: $FIX/bc/rcap1.md"$'\n'"ack (from manager:domain): engine broadcast ack rcap1" \
+    "$(cat "$FIX/msg.app:ui")" "S1: a resend past the cap is cut the same way"
+}
+
+# Operator ruling on S2: the sender is named on the ack line — the sent-by seat, not --from; on a
+# resend, the resender's seat. The text above it is untouched.
+test_sender_on_the_ack_line() {
+  MSG="hello" PANE=%2 bc --subtree app:ask --from manager:director --id who1
+  assert_eq "hello"$'\n'"ack (from manager:app): engine broadcast ack who1" "$(cat "$FIX/msg.ask:helper")" \
+    "S2: the ack line names the sent-by seat, not --from"
+  PANE=%4 bc resend who1
+  assert_eq "hello"$'\n'"ack (from app:ask): engine broadcast ack who1" "$(cat "$FIX/msg.ask:helper")" \
+    "S2: a resend's ack line names the resender"
+}
+
 test_tree_parity() {
   local a b
   a=$(sed -n '/^live_tree() {/,/^}/p' "$BROADCAST_SH")
