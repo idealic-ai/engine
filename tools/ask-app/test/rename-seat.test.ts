@@ -4,7 +4,7 @@
  * every reference to the old seat in every ask under the root — the header's seat fields, the forward
  * hops, the `<seat>/<id>` refs, the answer and draft records — without moving a revision.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -302,6 +302,44 @@ describe("renameSeat: a writer caught by the rename (S1)", () => {
     const k1 = read("core:kernel", "k1");
     expect(k1.answer?.answeredBy).toBe("manager:idealic");
     expect(k1.header.delivery).toBe("delivered");
+  });
+
+  // R2-1 (the reviewer's plant P4): the folder moves to staging while answerAsk holds the file lock,
+  // so the lock's release finds `<old>/k1.md.lock` gone. Deterministic: the move is started from
+  // inside the lock, right after the answer's own atomic rename lands, by calling renameSeat, whose
+  // part up to its first await (the ledger, then `<old>/` → staging) runs synchronously.
+  it("an answer whose seat folder moves to staging while it holds the lock reports success, and lands at the new path (R2-1)", async () => {
+    newAsk(root, { from: K, to: "manager:idealic", id: "k1" }, BODY);
+    const realRename = fs.renameSync.bind(fs);
+    let running: Promise<unknown> | undefined;
+    const spy = vi.spyOn(fs, "renameSync").mockImplementation((from, to) => {
+      realRename(from, to);
+      if (!running && to === file(K, "k1") && String(from).endsWith(".tmp")) {
+        running = renameSeat(root, K, "core:kernel", { ...OP, waitMs: 500 });
+        running.catch(() => {});
+      }
+    });
+    // The push waits for the rename to finish, so the delivery stamp has one place to go.
+    const pushAfterMove = async () => {
+      await running?.catch(() => {});
+      return { status: "delivered" as const };
+    };
+    let r: Awaited<ReturnType<typeof answerAsk>>;
+    try {
+      r = await answerAsk(root, K, "k1", YES("manager:idealic"), { expectedRevision: 1, push: pushAfterMove });
+    } finally {
+      spy.mockRestore();
+    }
+    expect(running).toBeDefined(); // the move did happen inside the lock
+    await expect(running).resolves.toMatchObject({ moved: 1 });
+    expect(r.revision).toBe(2);
+    expect(r.file).toBe(file("core:kernel", "k1"));
+    expect(places("k1")).toEqual(["core:kernel/k1.md"]);
+    const k1 = read("core:kernel", "k1");
+    expect(k1.answer?.answeredBy).toBe("manager:idealic");
+    expect(k1.header.delivery).toBe("delivered");
+    expect(fs.existsSync(stage(K))).toBe(false);
+    expect(fs.existsSync(`${file("core:kernel", "k1")}.lock`)).toBe(false);
   });
 
   it("a write to a seat that has moved says where it went", async () => {
