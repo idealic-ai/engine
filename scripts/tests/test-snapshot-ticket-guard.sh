@@ -637,4 +637,21 @@ test_r7_no_abort_count() {
   assert_not_empty "$(abort_list)" "R6-N3: the abort paragraph is still found"
 }
 
+# ── Round 7b (round-7 check). /next adopts a stamp only from its own branch; the backstop's match
+# stays narrow; the dev/main gap is stated.
+test_r7b_next_adopts_own_branch_only() {
+  every_line_has "$NEXT" '/snapshot --yes -- <KEY>' "only when that Outcome's \`on <branch>\` is the current branch" "R7-SHOULD: /next adopts a stamp only when its branch is the current branch"
+  every_line_has "$NEXT" '/snapshot --yes -- <KEY>' 'otherwise bare `--yes`' "R7-SHOULD: /next runs bare --yes for a stamp from another branch"
+  local l bad=0
+  while IFS= read -r l; do grep -qiE 'most recent|latest|any `?/snapshot' <<<"$l" && bad=1; done <<<"$(grep -F '/snapshot --yes -- <KEY>' "$NEXT")"
+  if [ "$bad" = 0 ]; then pass "PL9: /next never adopts the latest stamp from anywhere"; else fail "PL9: /next never adopts the latest stamp from anywhere" "no latest/any" "present"; fi
+}
+test_r7b_backstop_match_narrow() {
+  local m; m=$(sentence_with "list_issues" "$(backstop_step)")
+  lacks_re 'or any|files|session|or the line' "$m" "PL10: the backstop's match sentence is not widened beyond the branch line"
+}
+test_r7b_dev_main_gap_stated() {
+  has_fixed 'a second keyless run on `dev`/`main` can file again' "$(backstop_step)" "R7-NIT: the backstop states the dev/main lost-record gap"
+}
+
 run_discovered_tests
