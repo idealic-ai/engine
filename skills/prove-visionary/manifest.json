@@ -1,0 +1,10 @@
+{
+  "name": "prove-visionary",
+  "version": "1",
+  "description": "Compile an unsettled body of work into a self-contained, shareable visual DIRECTION page — where this is going, the options that get there with their costs, and the evidence that grounds them kept reachable rather than in the way. The forward-looking sibling of /prove: where /prove SHOWS a settled finding, /prove-visionary PROPOSES — it may reason forward, extrapolate, sketch a shape that does not exist yet, and recommend. Spine: it loosens what the page may SAY, never what it may claim as MEASURED — every claim carries a visible epistemic label (measured · inferred · proposed), every proposal names what would falsify it, every option is costed (fixes / leaves unfixed / risks / the cheap check that would size it) with the honest do-nothing option present, and every number keeps its denominator and its source. Direction leads; the current state is the runway, not the flight; the full workings sit behind disclosures a skeptic can reach and a persuaded reader never has to walk through. A subagent assembles + composes; the orchestrator owns the honesty gate and the S3 publish. A building block: it proposes and reports, never fixes, commits, files, or decides. Triggers: \"where should this go\", \"make the case for a direction\", \"lay out the options\", \"vision page\", \"proposal page\", \"what are our moves here\", \"write this up as a direction with costs\", \"pitch this properly\".",
+  "tier": "lightweight",
+  "sibling": "prove",
+  "sharedAssets": {
+    "publish": "~/.claude/skills/prove/assets/publish-s3.sh"
+  }
+}
