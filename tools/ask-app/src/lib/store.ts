@@ -24,6 +24,7 @@ import {
   draftAuthor,
   readsOf,
   relayerOf,
+  replacedSummary,
   trailingDraftFence,
   removeHeaderField,
   recipientsOf,
@@ -141,10 +142,16 @@ function assertCodes(ask: ParsedAsk) {
  * message names it and how to fold it. The socket stamps no sender (measured), so the first line
  * names who answered and which ask.
  */
-export function deliveryMessage(seat: string, id: string, file: string, answer: AskAnswer, lines: string[] = []): string {
+export function deliveryMessage(seat: string, id: string, file: string, answer: AskAnswer, lines: string[] = [], o: { replaced?: string; resent?: boolean } = {}): string {
   const verb = answer.declined ? "declined" : "answered";
+  // IDE-304: a second answer says it CHANGED and what it replaced; a re-push says it is one.
+  const first = o.replaced
+    ? `[ask-answer-changed] from ${answer.answeredBy || "unknown"} via ask-app: ${seat}/${id} is ${verb} again; this answer replaces the earlier one`
+    : `[ask-answer] from ${answer.answeredBy || "unknown"} via ask-app: ${seat}/${id} is ${verb}`;
   return [
-    `[ask-answer] from ${answer.answeredBy || "unknown"} via ask-app: ${seat}/${id} is ${verb}`,
+    first,
+    ...(o.replaced ? [`Replaced: ${o.replaced}`] : []),
+    ...(o.resent ? ["Re-sent: an earlier push of this answer may not have arrived; nothing changed since."] : []),
     ...lines.map((l) => `- ${l}`),
     `${seat}/${id} was ${verb} at revision ${answer.revision}. The file is the record; \`engine ask read ${seat}/${id}\` prints it and marks it read:`,
     file,
@@ -240,9 +247,10 @@ export async function answerAsk(
           ].join("\n"), opts);
     return { file, revision: passed.revision, delivery, passedUpTo: passed.to };
   }
-  const { written, record, parsed } = await withFileLock(file, () => {
+  const { written, record, parsed, replaced } = await withFileLock(file, () => {
     const before = fs.readFileSync(file, "utf8");
     assertMayAnswer(parseAskFile(before), input, opts);
+    const replaced = replacedSummary(parseAskFile(before));
     let text: string;
     if (input.declined) {
       text = writeDecline(before, { reason: input.reason ?? "", answeredBy: input.answeredBy, ...via, answeredAt: at, ...(input.note ? { note: input.note } : {}) }, opts.expectedRevision);
@@ -253,18 +261,18 @@ export async function answerAsk(
     text = setHeaderField(setHeaderField(text, "delivery", "pending"), "deliveryWriter", writerStamp());
     atomicWrite(file, text);
     const parsed = parseAskFile(text);
-    return { written: currentRevision(parsed), record: parsed.answer!, parsed };
+    return { written: currentRevision(parsed), record: parsed.answer!, parsed, replaced };
   });
-  const delivery = await pushAnswer(parsed, seat, file, record, opts);
+  const delivery = await pushAnswer(parsed, seat, file, record, opts, { replaced });
   await stampDelivery(file, written, delivery);
   return { file, revision: written, delivery };
 }
 
 /** S4: the asker and every seat that held and forwarded the ask hear the answer, with its lines. */
-async function pushAnswer(parsed: ParsedAsk, seat: string, file: string, record: AskAnswer, opts: DeliverOptions & { push?: typeof pushToSeat }): Promise<DeliveryResult> {
+async function pushAnswer(parsed: ParsedAsk, seat: string, file: string, record: AskAnswer, opts: DeliverOptions & { push?: typeof pushToSeat }, how: { replaced?: string; resent?: boolean } = {}): Promise<DeliveryResult> {
   const push = opts.push ?? pushToSeat;
   const id = parsed.header.id ?? "";
-  const msg = deliveryMessage(seat, id, file, record, answerLines(parsed, seat));
+  const msg = deliveryMessage(seat, id, file, record, answerLines(parsed, seat), how);
   const results: Record<string, DeliveryResult> = {};
   for (const s of pushTargets(parsed, seat)) {
     results[s] = isSelf(s, record) ? SELF : await safePush(push, s, msg, opts);
@@ -468,11 +476,12 @@ export type BatchResult = {
 };
 
 /** The batch push: a summary built from the files just written, one per recipient seat. */
-export function batchMessage(seat: string, answeredBy: string, items: { ref: string; file: string; lines: string[] }[]): string {
+export function batchMessage(seat: string, answeredBy: string, items: { ref: string; file: string; lines: string[]; replaced?: string }[]): string {
   const n = items.length;
   return [
     `[ask-batch] from ${answeredBy || "unknown"} via ask-app: ${n} answer${n === 1 ? "" : "s"} for ${seat}`,
-    ...items.flatMap((it) => it.lines.map((l) => `- ${l}`)),
+    // IDE-304: an item that replaces an earlier answer says so, and what it replaced.
+    ...items.flatMap((it) => [...(it.replaced ? [`- [ask-answer-changed] ${it.ref} replaces ${it.replaced}`] : []), ...it.lines.map((l) => `- ${l}`)]),
     "",
     "Each answer is in its file, the only record. `engine ask read <seat>/<id>` prints it in full and marks it read:",
     ...items.map((it) => it.file),
@@ -491,7 +500,7 @@ export async function sendBatch(root: string, refs: string[] | undefined, opts: 
   if (!by) throw new AskFormatError("send must name its sender: a batch sends only the sender's own drafts");
   const out: BatchResult = { repushed: await repushPending(root, opts), settled: [], refused: [], pushes: [] };
   const list = refs ?? listAsks(root).filter((a) => a.draft && draftAuthor(a.draft) === by).sort((a, b) => a.file.localeCompare(b.file)).map((a) => `${a.seat}/${a.header.id}`);
-  const bySeat = new Map<string, { ref: string; file: string; lines: string[]; written: number }[]>();
+  const bySeat = new Map<string, { ref: string; file: string; lines: string[]; written: number; replaced?: string }[]>();
   const answerers = new Set<string>();
   const selfOnly: { file: string; written: number; seat: string }[] = [];
   for (const ref of list) {
@@ -508,6 +517,7 @@ export async function sendBatch(root: string, refs: string[] | undefined, opts: 
         assertMayAnswer(ask, d, opts);
         // S4: the draft answers the question as it was when it was saved.
         if (d.bodyHash && d.bodyHash !== bodyDigest(before)) throw new AskFormatError(`${ref}: stale draft, the question was edited after the draft was saved: re-read it and draft again`);
+        const replaced = replacedSummary(ask);
         const at = new Date().toISOString();
         const base = { answeredBy: d.answeredBy, ...(d.answeredVia ? { answeredVia: d.answeredVia } : {}), answeredAt: at, ...(d.note ? { note: d.note } : {}) };
         let text = d.declined
@@ -515,12 +525,12 @@ export async function sendBatch(root: string, refs: string[] | undefined, opts: 
           : (validateAnswer(ask, d.answers), writeAnswer(before, { answers: d.answers, ...base }, d.basedOn));
         text = setHeaderField(setHeaderField(text, "delivery", "pending"), "deliveryWriter", writerStamp());
         atomicWrite(file, text);
-        return parseAskFile(text);
+        return { ...parseAskFile(text), replaced };
       });
       const written = currentRevision(settled);
       out.settled.push({ ref, revision: written, file });
       answerers.add(settled.answer?.answeredBy ?? "");
-      const item = { ref, file, lines: answerLines(settled, seat), written };
+      const item = { ref, file, lines: answerLines(settled, seat), written, ...(settled.replaced ? { replaced: settled.replaced } : {}) };
       for (const s of pushTargets(settled, seat)) {
         if (isSelf(s, settled.answer)) selfOnly.push({ file, written, seat: s });
         else bySeat.set(s, [...(bySeat.get(s) ?? []), item]);
@@ -600,7 +610,8 @@ export async function repushPending(root: string, opts: DeliverOptions & { push?
       return p;
     });
     if (!claimed?.answer) continue;
-    const delivery = await pushAnswer(claimed, a.seat, a.file, claimed.answer, opts);
+    // The answer's own `replaced:` line, if it was a change; marked re-sent either way.
+    const delivery = await pushAnswer(claimed, a.seat, a.file, claimed.answer, opts, { replaced: claimed.header.replaced?.trim() || undefined, resent: true });
     await stampDelivery(a.file, currentRevision(claimed), delivery);
     out.push({ ref: `${a.seat}/${claimed.header.id ?? ""}`, delivery });
   }

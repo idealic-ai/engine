@@ -112,6 +112,8 @@ export const STAMP_FIELDS = [
   "ruledInChat", "revisions", "delivery", "deliveryNote", "deliveryWriter", "readAt", "readBy", "reads", "acted", "actedAt", "actedBy", "draft", "forwards",
   // `engine ask supersede`: on the replaced ask, its replacement, when, and who replaced it; on the replacement, what it replaced.
   "superseded-by", "superseded-at", "superseded-actor", "supersedes",
+  // IDE-304: the answer a later answer replaced, on one line (revision, who, when, what).
+  "replaced",
 ] as const;
 
 const KIND_WORDS: Record<string, QuestionKind> = {
@@ -513,7 +515,9 @@ export function parseAskFile(text: string): ParsedAsk {
   let draft: AskDraft | undefined;
   const open = header.status === "open" || header.status === undefined;
   const dms = [...rest.matchAll(DRAFT_FENCES)];
-  if (dms.length && open) draft = honouredDraft(rest, dms[dms.length - 1], header);
+  if (dms.length && (open || settled)) draft = honouredDraft(rest, dms[dms.length - 1], header);
+  // IDE-304: on a settled ask, only the operator's draft of a change to the operator's own answer counts.
+  if (draft && !open && !(isOperatorAnswer(answer) && /^operator\b/i.test(draft.answeredBy?.trim() ?? ""))) draft = undefined;
   const body = rest.replace(ANSWER_FENCES, "\n").replace(DRAFT_FENCES, "\n");
   const { preamble, questions } = parseQuestions(body);
   return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}) };
@@ -559,6 +563,34 @@ export function currentRevision(ask: ParsedAsk): number {
   return parseInt(ask.header.revision ?? "0", 10) || 0;
 }
 
+/** The operator's own recorded answer (as the client's ruledBelow reads it: `operator…`, or a relay of it). */
+export const isOperatorAnswer = (a: AskAnswer | undefined) => !!a && (/^operator\b/i.test(a.answeredBy?.trim() ?? "") || !!relayerOf(a));
+
+const REQUEST_LINE_RE = /^request: (\S+) — (.+)$/;
+
+/**
+ * IDE-304: what a new answer replaces, on one line, for the `replaced:` stamp and the change push:
+ * `revision N by W at T; was <picks | a decline: reason | a request: kind — text (with picks)>`.
+ * Undefined when the ask holds no settled answer.
+ */
+export function replacedSummary(ask: ParsedAsk): string | undefined {
+  const a = ask.answer;
+  if (!a || (ask.header.status !== "answered" && ask.header.status !== "declined")) return undefined;
+  const rev = a.revision ?? currentRevision(ask);
+  const picks = ask.questions.flatMap((q, i) => {
+    const v = a.answers?.[questionKey(q, i)];
+    if (v === undefined) return [];
+    return [`${q.askName ?? `Q${i + 1}`} ${Array.isArray(v) ? v.join("+") : String(v)}`];
+  }).join(", ");
+  const req = (a.note ?? "").split("\n").map((l) => l.trim().match(REQUEST_LINE_RE)).find(Boolean);
+  const was = a.declined
+    ? `a decline: ${a.reason ?? ""}`
+    : req
+      ? `a request: ${req[1]} — ${req[2]}${picks ? ` (with ${picks})` : ""}`
+      : picks || "no picks";
+  return `revision ${rev} by ${a.answeredBy || "unknown"} at ${a.answeredAt ?? "?"}; was ${was}`.replace(/\s+/g, " ").trim();
+}
+
 function settle(text: string, record: AskAnswer, status: "answered" | "declined", expectedRevision?: number): string {
   const ask = parseAskFile(text);
   assertNotSuperseded(ask);
@@ -566,7 +598,9 @@ function settle(text: string, record: AskAnswer, status: "answered" | "declined"
   if (expectedRevision !== undefined && expectedRevision !== cur) throw new StaleRevisionError(expectedRevision, cur);
   const revision = String(cur + 1);
   const answer = { ...record, revision: cur + 1 };
+  const replaced = replacedSummary(ask);
   let out = setHeaderField(text, "status", status);
+  out = replaced ? setHeaderField(out, "replaced", replaced) : removeHeaderField(out, "replaced");
   out = setHeaderField(out, "revision", revision);
   // A new answer is unread and not yet acted on, whatever the last one was.
   for (const k of ["readAt", "readBy", "reads", "acted", "actedAt", "actedBy", "draft", "deliveryWriter"]) out = removeHeaderField(out, k);
@@ -659,8 +693,11 @@ export function validateAnswer(ask: ParsedAsk, answers: unknown): asserts answer
 export function writeDraft(text: string, d: AskAnswer & { savedAt?: string }, expectedRevision: number): string {
   const ask = parseAskFile(text);
   assertNotSuperseded(ask);
-  if (ask.header.status !== "open" && ask.header.status !== undefined) {
-    throw new AskFormatError(`ask ${ask.header.id ?? ""} is ${ask.header.status}; only an open ask takes a draft`);
+  // IDE-304: a settled ask takes the operator's draft of a change to the operator's own answer.
+  const open = ask.header.status === "open" || ask.header.status === undefined;
+  const ownChange = (ask.header.status === "answered" || ask.header.status === "declined") && isOperatorAnswer(ask.answer) && /^operator\b/i.test(d.answeredBy?.trim() ?? "");
+  if (!open && !ownChange) {
+    throw new AskFormatError(`ask ${ask.header.id ?? ""} is ${ask.header.status}; only an open ask, or the operator's own answer, takes a draft`);
   }
   const cur = currentRevision(ask);
   if (expectedRevision !== cur) throw new StaleRevisionError(expectedRevision, cur);
