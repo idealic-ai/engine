@@ -51,7 +51,21 @@ const arg = (name: string) => {
 };
 const root = path.resolve(arg("root") || defaultAskRoot());
 const port = Number(arg("port") || 4977);
-const token = arg("token") || randomBytes(24).toString("hex");
+const token = arg("token") || stableToken(path.join(root, ".ask-app.token"));
+
+/**
+ * The page token outlives a restart: it is kept in <root>/.ask-app.token (mode 600) and reused, so a
+ * tab opened before a deploy can still send, and unsent picks are not lost to a forced reload.
+ */
+function stableToken(file: string): string {
+  try {
+    const t = fs.readFileSync(file, "utf8").trim();
+    if (/^[0-9a-f]{48}$/.test(t)) return t;
+  } catch {}
+  const t = randomBytes(24).toString("hex");
+  fs.writeFileSync(file, t + "\n", { mode: 0o600 });
+  return t;
+}
 const ORIGINS = [`http://127.0.0.1:${port}`, `http://localhost:${port}`];
 const HOSTS = [`127.0.0.1:${port}`, `localhost:${port}`];
 const tickets = makeTicketFetcher({ apiKey: loadLinearKey(), endpoint: process.env.ASK_LINEAR_ENDPOINT });
