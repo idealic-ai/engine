@@ -27,7 +27,9 @@
 #   engine ask supersede <seat>/<old-id> --by <seat>/<new-id>   the asker, its manager or the operator retires an open ask for its replacement
 #   engine ask rename-seat <old> <new> [--dry-run]   a fleet rename: move <old>/'s asks to <new>/ and rewrite
 #                  every reference to <old> in every ask (seat fields, hops, <seat>/<id> refs, answer/draft
-#                  records); revisions and mtimes kept; refused if <new>/ holds an ask of the same id
+#                  records); revisions and mtimes kept; refused if <new>/ holds an ask of the same id.
+#                  The operator (--by operator) or <old>'s own manager only. Re-run until a pass reports
+#                  "moved 0 asks and changed 0 fields"; a run that stops partway is finished by running it again
 #   engine ask serve [dir] [--port N] [--stop]   start (or reuse) the local app on 127.0.0.1
 #
 # Identity: a seat (FLEET_PANE set) acts as itself; --by naming anyone else, or operator, is refused.

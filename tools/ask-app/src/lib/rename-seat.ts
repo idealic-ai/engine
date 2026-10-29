@@ -4,6 +4,7 @@
  *
  * What counts as a reference (the fields come from format.ts's HEADER_FIELDS and STAMP_FIELDS):
  * - header fields whose whole value is a seat: SEAT_FIELDS;
+ * - `askedBy: seat · thread · log` — its first ` · ` segment, when that is the whole seat name;
  * - `reads: seat@iso ; …` — each entry's seat;
  * - `forwards: a→b@iso [declined: …] ; …` — each hop's two seats; the reason is kept byte for byte,
  *   escapes and all (it is prose, like a note);
@@ -41,6 +42,14 @@ const refOf = (seat: string) => new RegExp(`${BEFORE}${esc(seat)}/(?=\\S)`, "g")
 /** One header value's rewrite, by field. Returns the new value and the changes, field-named. */
 function rewriteHeaderValue(key: string, value: string, old: string, neu: string): { value: string; changes: SeatChange[] } {
   const changes: SeatChange[] = [];
+  if (key === "askedBy") {
+    // S2 (round 2): `seat · thread · log` — only the first segment is a seat, and only a whole match counts.
+    const parts = value.split(" · ");
+    if (parts[0].trim() !== old) return { value, changes };
+    parts[0] = parts[0].replace(old, neu);
+    changes.push({ field: key, from: old, to: neu });
+    return { value: parts.join(" · "), changes };
+  }
   if ((SEAT_FIELDS as readonly string[]).includes(key)) {
     if (value.trim() !== old) return { value, changes };
     changes.push({ field: key, from: old, to: neu });
@@ -137,4 +146,47 @@ export function rewriteSeatRefs(text: string, old: string, neu: string): { text:
     });
   }
   return { text: changes.length ? `${head}${rest}` : text, changes };
+}
+
+/** A `<seat>/<id>` ref left in prose: where it sits and what it says. */
+export type LeftRef = { field: string; ref: string };
+
+/**
+ * N1 (round 2): the `<old>/<id>` refs a rename leaves as written — in the body, in a declined hop's
+ * reason, and in a record's `note` or `reason`. They are prose (the body's digest guards drafts, and a
+ * reason is kept byte for byte), so they are listed for the operator rather than rewritten;
+ * `engine ask read <old>/<id>` will not find the ask they name.
+ */
+export function leftRefs(text: string, old: string): LeftRef[] {
+  const lines = text.split("\n");
+  const end = lines[0]?.trim() === "---" ? lines.indexOf("---", 1) : -1;
+  if (end === -1) return [];
+  const out: LeftRef[] = [];
+  const find = (field: string, s: string) => {
+    for (const m of s.matchAll(new RegExp(`${BEFORE}${esc(old)}/([A-Za-z0-9][A-Za-z0-9_.:@-]*)`, "g"))) {
+      out.push({ field, ref: `${old}/${m[1].replace(/[.:@-]+$/, "")}` });
+    }
+  };
+  for (let i = 1; i < end; i++) {
+    const m = lines[i].match(/^forwards:\s?(.*)$/);
+    if (!m) continue;
+    for (const hop of m[1].split(/\s;\s/)) {
+      const cut = hop.search(/\s+\[declined: /);
+      if (cut !== -1) find("forwards reason", hop.slice(cut));
+    }
+  }
+  let body = `\n${lines.slice(end + 1).join("\n")}`;
+  for (const [re, which] of [[ANSWER_FENCES, "answer"], [DRAFT_FENCES, "draft"]] as const) {
+    body = body.replace(re, (_whole: string, json: string) => {
+      try {
+        const rec = JSON.parse(json) as Record<string, unknown>;
+        for (const k of ["note", "reason"]) if (typeof rec[k] === "string") find(`${which}.${k}`, rec[k] as string);
+      } catch {
+        // an unreadable record names nothing we can point at
+      }
+      return "\n";
+    });
+  }
+  find("body", body);
+  return out;
 }

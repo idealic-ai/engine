@@ -39,7 +39,7 @@ import {
   type AskAnswer,
   type ParsedAsk,
 } from "./format.ts";
-import { rewriteSeatRefs, type SeatChange } from "./rename-seat.ts";
+import { leftRefs, rewriteSeatRefs, type LeftRef, type SeatChange } from "./rename-seat.ts";
 
 export type StoredAsk = ParsedAsk & { seat: string; file: string; mtimeMs: number };
 
@@ -172,6 +172,8 @@ async function withFileLock<T>(file: string, fn: () => T | Promise<T>): Promise<
       fs.mkdirSync(lock);
       break;
     } catch (e) {
+      // S1 (round 2): the seat's folder is gone — say where it went, when a rename moved it.
+      if (isENOENT(e)) throw renamedError(file) ?? e;
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       try {
         if (Date.now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) fs.rmdirSync(lock);
@@ -182,11 +184,98 @@ async function withFileLock<T>(file: string, fn: () => T | Promise<T>): Promise<
       await new Promise((r) => setTimeout(r, 10));
     }
   }
+  let out: T;
   try {
-    return await fn();
-  } finally {
-    fs.rmdirSync(lock);
+    out = await fn();
+  } catch (e) {
+    releaseLock(file, lock);
+    throw isENOENT(e) ? (renamedError(file) ?? e) : e;
   }
+  releaseLock(file, lock);
+  return out;
+}
+
+const isENOENT = (e: unknown) => (e as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+
+/**
+ * S1 (round 2): release a lock whose seat folder may have been moved by `rename-seat` while it was
+ * held. The folder moves whole into staging, and this holder's lock and any temp file of its own
+ * move with it. What it wrote before the move moved too, so a release that finds the folder gone is
+ * not a failure: the holder clears its own lock and temp file in staging (rename-seat waits on them),
+ * and the caller is told only if a later write of the same call fails.
+ */
+function releaseLock(file: string, lock: string) {
+  try {
+    fs.rmdirSync(lock);
+  } catch (e) {
+    const moved = isENOENT(e) ? renamedError(file) : undefined;
+    if (!moved) throw e;
+    clearOwnInStaging(file, moved.seat);
+  }
+}
+
+function clearOwnInStaging(file: string, seat: string) {
+  const stage = stagingOf(path.dirname(path.dirname(file)), seat);
+  const base = path.basename(file);
+  for (const [p, rm] of [[path.join(stage, `${base}.lock`), fs.rmdirSync], [path.join(stage, `.${base}.${process.pid}.tmp`), fs.unlinkSync]] as const) {
+    try {
+      rm(p);
+    } catch {
+      // not there: rename-seat cleared it (a stale lock), or this call never made it
+    }
+  }
+}
+
+/** S1 (round 2): a write that hit a seat whose folder rename-seat moved. */
+export class SeatRenamedError extends AskFormatError {
+  readonly seat: string;
+  readonly to: string;
+  readonly id: string;
+  constructor(seat: string, to: string, id: string) {
+    super(`seat ${seat} was renamed to ${to} (engine ask rename-seat) while this ran, so ${seat}/${id} is now ${to}/${id}; your answer may have landed: check \`engine ask read ${to}/${id}\` before trying again`);
+    this.seat = seat;
+    this.to = to;
+    this.id = id;
+  }
+}
+
+/**
+ * How a rename is detected (S1): the ask's seat folder `<root>/<seat>/` does not exist, and the
+ * ledger file `<root>/.rename-seat/<seat>`, which rename-seat writes before it moves the folder,
+ * names the new seat. Anything else is an ordinary ENOENT and is left as it was.
+ */
+function renamedError(file: string): SeatRenamedError | undefined {
+  const seatDir = path.dirname(file);
+  if (fs.existsSync(seatDir)) return undefined;
+  const seat = path.basename(seatDir);
+  const to = renamedTo(path.dirname(seatDir), seat);
+  return to ? new SeatRenamedError(seat, to, path.basename(file).replace(/\.md(\.lock)?$/, "")) : undefined;
+}
+
+/** `<root>/.rename-seat/`: rename-seat's ledger and staging, one level below a dot folder, so listAsks never reads them. */
+const RENAME_DIR = ".rename-seat";
+const ledgerOf = (root: string, seat: string) => path.join(root, RENAME_DIR, seat);
+const stagingOf = (root: string, seat: string) => path.join(root, RENAME_DIR, `${seat}.staging`);
+const readLedger = (root: string, seat: string): string | undefined => {
+  try {
+    return fs.readFileSync(ledgerOf(root, seat), "utf8").split("\n")[0].trim() || undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+/** Where a renamed seat went, following the ledger (a seat renamed twice) until a seat whose folder exists. */
+export function renamedTo(root: string, seat: string): string | undefined {
+  const seen = new Set([seat]);
+  let s = seat;
+  for (let i = 0; i < 16; i++) {
+    const next = readLedger(root, s);
+    if (!next || seen.has(next)) break;
+    seen.add(next);
+    s = next;
+    if (fs.existsSync(path.join(root, s))) break;
+  }
+  return s === seat ? undefined : s;
 }
 
 export type AnswerInput = AskAnswer;
@@ -265,7 +354,21 @@ export async function answerAsk(
     return { written: currentRevision(parsed), record: parsed.answer!, parsed, replaced };
   });
   const delivery = await pushAnswer(parsed, seat, file, record, opts, { replaced });
-  await stampDelivery(file, written, delivery);
+  try {
+    await stampDelivery(file, written, delivery);
+  } catch (e) {
+    if (!(e instanceof SeatRenamedError)) throw e;
+    // S1 (round 2): the answer landed and was pushed, then rename-seat moved the seat's folder. The
+    // answer is not a failure: the stamp follows the ask. If the move is still under way, the stamp
+    // stays `pending` and a later send or read re-pushes it (S3), which is safe to repeat.
+    const moved = resolveAskPath(root, e.to, id);
+    try {
+      await stampDelivery(moved, written, delivery);
+    } catch {
+      // left pending, as above
+    }
+    return { file: moved, revision: written, delivery };
+  }
   return { file, revision: written, delivery };
 }
 
@@ -962,92 +1065,276 @@ export type RenameSeatResult = {
   dryRun: boolean;
   old: string;
   neu: string;
-  /** `move`: the folder is renamed whole; `merge`: its asks join an existing folder; `none`: the old seat filed no asks. */
+  /** `move`: the folder is renamed whole; `merge`: its asks join an existing folder; `none`: the old seat has no asks to move. */
   folder: { from: string; to: string; mode: "move" | "merge" | "none"; ids: string[] };
   changes: RenameSeatChange[];
   /** Files whose text changes. */
   files: string[];
+  /** Asks this run moved into `<new>/` (0 on a dry run). */
+  moved: number;
+  /** N1: `<old>/<id>` refs left as written — in bodies, declined hops' reasons, and records' notes and reasons. */
+  left: (LeftRef & { file: string })[];
+  /** N3: rewritten files whose revision was read back after the write and found unchanged. */
+  revisionsChecked: number;
+  /** S5: what earlier runs left — asks waiting in staging, or an old folder a seat still using the old name filed into again. */
+  leftover: { staging: string; staged: string[]; oldAgain?: { renamedTo: string; ids: string[] } };
 };
+
+export type RenameSeatOptions = {
+  dryRun?: boolean;
+  /** Who is renaming (S4): the operator, or a manager of `old` (FLEET_MANAGES), as for supersede. A dry run needs neither. */
+  by?: string;
+  manages?: string[];
+  /** How long to wait for a write in flight inside the staged folder before refusing (default: the stale-lock age plus 5 s). */
+  waitMs?: number;
+  /** Test seam: called at each step (`ledger`, `staged`, `waited`, `linked:<file>`, `moved`); a throw stands for a crash. */
+  onStep?: (step: string) => void;
+};
+
+const mdFiles = (d: string) => (isDir(d) ? fs.readdirSync(d).filter((f) => f.endsWith(".md") && !f.startsWith(".")).sort() : []);
+const isDir = (d: string) => {
+  try {
+    return fs.statSync(d).isDirectory();
+  } catch {
+    return false;
+  }
+};
+const sameFile = (a: string, b: string) => {
+  try {
+    const [x, y] = [fs.statSync(a), fs.statSync(b)];
+    return x.ino === y.ino && x.dev === y.dev;
+  } catch {
+    return false;
+  }
+};
+const revisionOf = (text: string) => text.match(/^revision:[ \t]*(.*)$/m)?.[1]?.trim() ?? "";
+
+/**
+ * Wait until no write is in flight in the staged folder: no `<id>.md.lock` and no temp file. A lock
+ * untouched for LOCK_STALE_MS is a dead holder's and is cleared — withFileLock's own rule. A temp
+ * file whose writer process is gone never lands, and is cleared. Returns what is still busy when
+ * `waitMs` runs out (empty when settled).
+ */
+async function settleStaging(stage: string, waitMs: number): Promise<string[]> {
+  const end = Date.now() + waitMs;
+  for (;;) {
+    const busy: string[] = [];
+    for (const f of fs.readdirSync(stage)) {
+      const p = path.join(stage, f);
+      try {
+        if (f.endsWith(".lock")) {
+          if (Date.now() - fs.statSync(p).mtimeMs > LOCK_STALE_MS) fs.rmdirSync(p);
+          else busy.push(f);
+        } else if (f.endsWith(".tmp")) {
+          const pid = Number(f.match(/\.(\d+)\.tmp$/)?.[1]);
+          if (pid && !pidAlive(pid)) fs.unlinkSync(p);
+          else busy.push(f);
+        }
+      } catch {
+        // cleared by its holder meanwhile
+      }
+    }
+    if (!busy.length || Date.now() >= end) return busy.sort();
+    await new Promise((r) => setTimeout(r, 25));
+  }
+}
 
 /**
  * `engine ask rename-seat <old> <new>`: the fleet renamed a seat, so its asks and every reference to
  * it follow.
  *
- * 1. The folder `<root>/<old>/` becomes `<root>/<new>/`: renamed whole, or, when `<new>/` exists,
- *    merged file by file. Refused — before anything is written — when `<new>/` already holds an
- *    entry of the same name (an ask of the same id), or when a write is in flight in `<old>/`.
- * 2. Every ask file under the root, not only the moved ones, has its references rewritten
- *    (rename-seat.ts says which fields, and that only whole names match).
- * 3. Each file is rewritten under its lock, atomically (temp file, then rename), with its revision
- *    unchanged (a rename is not a revision) and its mtime restored, so the app's newest-first order
- *    and every ask's age stay as they were.
- * With `dryRun`, the same plan is computed and returned, and nothing is written.
+ * Who: the operator, or the old seat's own manager (S4, supersede's rule). A dry run writes nothing
+ * and needs neither.
+ *
+ * Order (M1, N4 — the folder moves FIRST, so a writer still using the old name fails loudly with
+ * ENOENT instead of writing into a folder being emptied):
+ * 1. Refused, before anything is written, when `<new>/` holds an ask of the same id as one to move.
+ * 2. The ledger `<root>/.rename-seat/<old>` records `<new>` (how a writer's ENOENT names the rename).
+ * 3. `<old>/` is renamed, in one step, to the staging folder `<root>/.rename-seat/<old>.staging/`,
+ *    which listAsks never reads. A write in flight there is waited for (a bounded wait; refused
+ *    after it, with the folder put back as it was).
+ * 4. Staging becomes `<new>/` in one rename when `<new>/` does not exist; otherwise each file is
+ *    hard-linked into `<new>/` and then unlinked from staging. A link never overwrites: an ask that
+ *    appeared in `<new>/` under the same id meanwhile is kept, the moved one goes back to `<old>/`,
+ *    and the run is refused.
+ * 5. Every ask file under the root has its references rewritten (rename-seat.ts says which fields;
+ *    whole names only), each under its lock, atomically, with its revision unchanged — checked by
+ *    reading it back — and its mtime restored, so newest-first order and every ask's age stay as they
+ *    were.
+ *
+ * A run that stops at any point leaves each ask in one place — its old folder, staging, or its new
+ * folder (between a link and its unlink, one file under two names, which a re-run tells apart by
+ * inode) — and running the same command again finishes it. So does a run after a seat still using
+ * the old name files under it again (S5): re-run until a pass moves and changes nothing.
  */
-export async function renameSeat(root: string, old: string, neu: string, o: { dryRun?: boolean } = {}): Promise<RenameSeatResult> {
+export async function renameSeat(root: string, old: string, neu: string, o: RenameSeatOptions = {}): Promise<RenameSeatResult> {
   for (const s of [old, neu]) if (!SAFE.test(s) || s.includes("..")) throw new AskFormatError(`invalid seat: ${s}`);
   if (old === neu) throw new AskFormatError(`${old} and ${neu} are the same seat: nothing to rename`);
   if (old === "operator" || neu === "operator") throw new AskFormatError("the operator is not a seat; it is never renamed");
+  if (!o.dryRun && o.by !== "operator" && !managesSeat(o.manages ?? [], old)) {
+    throw new AskFormatError(`only the operator or ${old}'s manager renames ${old}; ${o.by || "an unnamed caller"} is neither`);
+  }
   const fromDir = path.join(root, old);
   const toDir = path.join(root, neu);
-  const has = (d: string) => fs.existsSync(d) && fs.statSync(d).isDirectory();
-  const entries = has(fromDir) ? fs.readdirSync(fromDir) : [];
-  const ids = entries.filter((f) => f.endsWith(".md") && !f.startsWith(".")).map((f) => f.slice(0, -3)).sort();
-  const mode: RenameSeatResult["folder"]["mode"] = !has(fromDir) ? "none" : has(toDir) ? "merge" : "move";
-  const assertFolder = () => {
-    if (!has(fromDir)) return;
-    const now = fs.readdirSync(fromDir);
-    const busy = now.filter((f) => f.endsWith(".lock") || f.endsWith(".tmp"));
-    if (busy.length) throw new AskFormatError(`a write is in flight in ${old}/ (${busy.join(", ")}); try again in a moment`);
-    if (!has(toDir)) return;
-    const clash = now.filter((f) => fs.existsSync(path.join(toDir, f)));
-    if (clash.length) {
-      throw new AskFormatError(`refusing to rename ${old} → ${neu}: ${clash.map((f) => `${neu}/${f.replace(/\.md$/, "")}`).join(", ")} already exist${clash.length === 1 ? "s" : ""}; nothing was changed`);
-    }
-  };
-  assertFolder();
-
-  // The plan: every ask file under the root, as it sits now.
-  const plan: { file: string; rel: string; changes: SeatChange[] }[] = [];
-  const seats = fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name).sort() : [];
-  for (const seat of seats) {
-    for (const f of fs.readdirSync(path.join(root, seat)).sort()) {
-      if (!f.endsWith(".md") || f.startsWith(".")) continue;
-      const file = path.join(root, seat, f);
-      const r = rewriteSeatRefs(fs.readFileSync(file, "utf8"), old, neu);
-      if (r.changes.length) plan.push({ file, rel: `${seat}/${f}`, changes: r.changes });
-    }
+  const stage = stagingOf(root, old);
+  const ledgerWas = readLedger(root, old);
+  if (isDir(stage) && ledgerWas && ledgerWas !== neu) {
+    throw new AskFormatError(`an earlier rename-seat ${old} → ${ledgerWas} stopped partway (its asks wait in ${stage}); finish it first: engine ask rename-seat ${old} ${ledgerWas}`);
   }
+  const strip = (f: string) => f.replace(/\.md$/, "");
+  const oldMd = mdFiles(fromDir);
+  const staged = mdFiles(stage);
+  const ids = [...new Set([...oldMd, ...staged].map(strip))].sort();
+  const mode: RenameSeatResult["folder"]["mode"] = !isDir(fromDir) && !isDir(stage) ? "none" : isDir(toDir) ? "merge" : "move";
+  const clash = [...new Set([...oldMd.filter((f) => fs.existsSync(path.join(toDir, f))), ...staged.filter((f) => fs.existsSync(path.join(toDir, f)) && !sameFile(path.join(stage, f), path.join(toDir, f)))])].sort();
+  if (clash.length) {
+    throw new AskFormatError(`refusing to rename ${old} → ${neu}: ${clash.map((f) => `${neu}/${strip(f)}`).join(", ")} already exist${clash.length === 1 ? "s" : ""}; nothing was changed`);
+  }
+  const leftover: RenameSeatResult["leftover"] = { staging: stage, staged: staged.map(strip) };
+  if (ledgerWas === neu && oldMd.length) leftover.oldAgain = { renamedTo: neu, ids: oldMd.map(strip) };
+
+  /** Every ask file under the root, named as it sat before the move; staged files are named under the old seat. */
+  const askFiles = () => {
+    const out: { file: string; rel: string }[] = [];
+    const seats = fs.existsSync(root) ? fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith(".")).map((d) => d.name).sort() : [];
+    for (const seat of seats) {
+      for (const f of mdFiles(path.join(root, seat))) out.push({ file: path.join(root, seat, f), rel: `${seat === neu && ids.includes(strip(f)) ? old : seat}/${f}` });
+    }
+    for (const f of mdFiles(stage)) out.push({ file: path.join(stage, f), rel: `${old}/${f}` });
+    return out;
+  };
   const result: RenameSeatResult = {
     dryRun: !!o.dryRun,
     old,
     neu,
     folder: { from: `${old}/`, to: `${neu}/`, mode, ids },
-    changes: plan.flatMap((p) => p.changes.map((c) => ({ file: p.rel, ...c }))),
-    files: plan.map((p) => p.rel),
+    changes: [],
+    files: [],
+    moved: 0,
+    left: [],
+    revisionsChecked: 0,
+    leftover,
   };
-  if (o.dryRun) return result;
 
-  // The rewrite, each file under its lock and re-read there, so a write that landed since the plan is kept.
-  result.changes = [];
-  for (const p of plan) {
+  if (o.dryRun) {
+    for (const p of askFiles()) {
+      const t = fs.readFileSync(p.file, "utf8");
+      const r = rewriteSeatRefs(t, old, neu);
+      if (r.changes.length) {
+        result.files.push(p.rel);
+        result.changes.push(...r.changes.map((c) => ({ file: p.rel, ...c })));
+      }
+      result.left.push(...leftRefs(t, old).map((l) => ({ file: p.rel, ...l })));
+    }
+    return result;
+  }
+
+  const step = (s: string) => o.onStep?.(s);
+  if (mode !== "none") {
+    fs.mkdirSync(path.join(root, RENAME_DIR), { recursive: true });
+    if (ledgerWas !== neu) atomicWrite(ledgerOf(root, old), `${neu}\n${new Date().toISOString()}\n`);
+    // `neu` is a live seat now: a ledger from an earlier rename away from that name no longer applies.
+    if (readLedger(root, neu)) fs.rmSync(ledgerOf(root, neu), { force: true });
+    step("ledger");
+    // A few passes at most: one for a staging folder a stopped run left, one for an old folder filed into again.
+    for (let pass = 0; pass < 3 && (isDir(stage) || isDir(fromDir)); pass++) {
+      if (!isDir(stage)) fs.renameSync(fromDir, stage);
+      step("staged");
+      const waitMs = o.waitMs ?? LOCK_STALE_MS + 5_000;
+      const busy = await settleStaging(stage, waitMs);
+      if (busy.length) {
+        const back = !isDir(fromDir);
+        if (back) fs.renameSync(stage, fromDir);
+        if (back && ledgerWas === undefined) fs.rmSync(ledgerOf(root, old), { force: true });
+        throw new AskFormatError(
+          `a write is in flight in ${old}/ (${busy.join(", ")}) and did not finish in ${(waitMs / 1000).toFixed(1)}s; ${back ? `nothing was moved (${old}/ is back as it was)` : `its asks wait in ${stage}`}; run the same command again in a moment`,
+        );
+      }
+      step("waited");
+      result.moved += moveStaged(stage, fromDir, toDir, old, neu, step);
+      step("moved");
+    }
+  }
+
+  // The rewrite, each file under its lock and re-read there, so a write that landed since is kept.
+  for (const p of askFiles()) {
     await withFileLock(p.file, () => {
       const st = fs.statSync(p.file);
-      const r = rewriteSeatRefs(fs.readFileSync(p.file, "utf8"), old, neu);
+      const before = fs.readFileSync(p.file, "utf8");
+      const r = rewriteSeatRefs(before, old, neu);
+      result.left.push(...leftRefs(r.text, old).map((l) => ({ file: p.rel, ...l })));
       if (!r.changes.length) return;
+      const rev = revisionOf(before);
+      if (revisionOf(r.text) !== rev) throw new AskFormatError(`refusing to rewrite ${p.rel}: its revision would move (${rev} → ${revisionOf(r.text)}); a rename is not a revision`);
       atomicWrite(p.file, r.text);
       // Seconds as a float, not a Date: a Date keeps whole milliseconds, and its round trip drifted up to 2 ms.
       fs.utimesSync(p.file, st.atimeMs / 1000, st.mtimeMs / 1000);
+      // N3: read back, so "revisions unchanged" is a check, not a claim.
+      const back = revisionOf(fs.readFileSync(p.file, "utf8"));
+      if (back !== rev) throw new AskFormatError(`${p.rel}: revision ${rev} read back as ${back} after the rewrite`);
+      result.revisionsChecked++;
+      result.files.push(p.rel);
       result.changes.push(...r.changes.map((c) => ({ file: p.rel, ...c })));
     });
   }
-  // Then the folder: whole when it can be, else ask by ask (a rename keeps each file's mtime).
-  if (mode !== "none") {
-    assertFolder();
-    if (!has(toDir)) fs.renameSync(fromDir, toDir);
-    else {
-      for (const f of fs.readdirSync(fromDir)) fs.renameSync(path.join(fromDir, f), path.join(toDir, f));
-      fs.rmdirSync(fromDir);
+  return result;
+}
+
+/**
+ * Step 4: staging into `<new>/`. Returns how many asks moved. Never overwrites: `renameSync` of a
+ * folder only onto a missing one, then `linkSync` (EEXIST when the name is taken) and `unlinkSync`.
+ */
+function moveStaged(stage: string, fromDir: string, toDir: string, old: string, neu: string, step: (s: string) => void): number {
+  const asks = mdFiles(stage).length;
+  if (!isDir(toDir)) {
+    try {
+      fs.renameSync(stage, toDir);
+      return asks;
+    } catch (e) {
+      // `<new>/` appeared meanwhile with something in it: merge instead.
+      if (!["EEXIST", "ENOTEMPTY"].includes((e as NodeJS.ErrnoException).code ?? "")) throw e;
     }
   }
-  return result;
+  let moved = 0;
+  const kept: string[] = [];
+  for (const f of fs.readdirSync(stage).sort()) {
+    const src = path.join(stage, f);
+    const dst = path.join(toDir, f);
+    try {
+      fs.linkSync(src, dst);
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      // The same file under both names is a stopped run's half-done move; anything else is a clash.
+      if (!sameFile(src, dst)) {
+        kept.push(f);
+        continue;
+      }
+    }
+    step(`linked:${f}`);
+    fs.unlinkSync(src);
+    if (f.endsWith(".md") && !f.startsWith(".")) moved++;
+  }
+  if (!kept.length) {
+    fs.rmdirSync(stage);
+    return moved;
+  }
+  // Each clashing ask goes back where it was — never over anything — so it stays listed, under its old name.
+  fs.mkdirSync(fromDir, { recursive: true });
+  const stuck: string[] = [];
+  for (const f of kept) {
+    try {
+      fs.linkSync(path.join(stage, f), path.join(fromDir, f));
+      fs.unlinkSync(path.join(stage, f));
+    } catch {
+      stuck.push(f);
+    }
+  }
+  if (!stuck.length) fs.rmdirSync(stage);
+  const ids = kept.map((f) => f.replace(/\.md$/, ""));
+  throw new AskFormatError(
+    `refusing to finish ${old} → ${neu}: ${ids.map((id) => `${neu}/${id}`).join(", ")} appeared in ${neu}/ while this ran; nothing was overwritten. ` +
+      `${kept.length - stuck.length ? `${kept.filter((f) => !stuck.includes(f)).map((f) => `${old}/${f.replace(/\.md$/, "")}`).join(", ")} went back to ${old}/. ` : ""}` +
+      `${stuck.length ? `${stuck.join(", ")} wait in ${stage}. ` : ""}${moved} other ask${moved === 1 ? "" : "s"} moved. ` +
+      `Compare each pair, keep the one with the higher revision, remove the other, and run the same command again.`,
+  );
 }

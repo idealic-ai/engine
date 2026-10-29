@@ -775,4 +775,19 @@ test_r5_supersede_tells_the_asker_when_someone_else_does_it() {
   assert_contains "notice manager:idealic" "$out" "and the holder"
 }
 
+test_rename_seat_route_moves_asks_and_refuses_a_bystander() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id rs1 >/dev/null
+  assert_fails_with "a seat that does not manage idealic:kernel cannot rename it" "only the operator or idealic:kernel's manager" \
+    env FLEET_PANE=idealic:ui "$ASK_SH" rename-seat idealic:kernel core:kernel
+  local dry; dry=$("$ASK_SH" rename-seat idealic:kernel core:kernel --dry-run)
+  assert_contains "would move 1 ask" "$dry" "a dry run says what it would move"
+  [ -f "$ASK_ROOT/idealic:kernel/rs1.md" ] && pass "and moves nothing" || fail "the dry run moved rs1"
+  local out; out=$(as_op rename-seat idealic:kernel core:kernel)
+  assert_contains "moved 1 ask; changed 1 field in 1 file" "$out" "the operator's run moves the ask and rewrites its from:"
+  assert_contains "from: core:kernel" "$(cat "$ASK_ROOT/core:kernel/rs1.md")" "the moved ask names its new seat"
+  [ ! -e "$ASK_ROOT/idealic:kernel" ] && pass "the old folder is gone" || fail "idealic:kernel/ still exists"
+  out=$(as_op rename-seat idealic:kernel core:kernel)
+  assert_contains "moved 0 asks; changed 0 fields in 0 files" "$out" "a second pass changes nothing"
+}
+
 run_discovered_tests

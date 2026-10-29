@@ -374,18 +374,37 @@ async function main() {
     // `--dry-run` is a switch wherever it sits: flags() would take a seat after it as its value.
     const dryRun = rest.includes("--dry-run");
     const seats = [...(opt["dry-run"] && opt["dry-run"] !== "true" ? [opt["dry-run"]] : []), ...pos];
-    const usage = "usage: ask rename-seat <old seat> <new seat> [--dry-run]";
+    const usage = "usage: ask rename-seat <old seat> <new seat> [--dry-run] (the operator: --by operator; or the old seat's manager)";
     if (seats.length !== 2) die(usage);
     // Order matters only for the switch's captured value: put the seats back in the order written.
     const [old, neu] = rest.filter((a) => seats.includes(a));
+    // S4 (round 2): supersede's rule — the operator, or the old seat's own manager. A dry run writes nothing.
+    const by = dryRun ? undefined : identity("rename-seat");
+    const many = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+    const listed = (ids: string[]) => `${many(ids.length, "ask")}${ids.length ? `: ${ids.join(", ")}` : ""}`;
+    console.log(`rename-seat ${old} → ${neu}${dryRun ? " (dry run: nothing changed)" : ""}`);
+    if (!dryRun) {
+      console.log(`recovery\tif this run stops partway, run the same command again: it finishes the move (asks it took out of ${old}/ wait in ${path.join(root, ".rename-seat", `${old}.staging`)}/) and the rewrite`);
+    }
     try {
-      const r = await renameSeat(root, old, neu, { dryRun });
-      console.log(`rename-seat ${old} → ${neu}${dryRun ? " (dry run: nothing changed)" : ""}`);
+      const r = await renameSeat(root, old, neu, { dryRun, by, manages });
+      const then = dryRun ? "a real run moves them" : "this run moved them";
+      if (r.leftover.staged.length) console.log(`leftover\ta run that stopped partway left asks in ${r.leftover.staging}/ (${listed(r.leftover.staged)}); ${then}`);
+      if (r.leftover.oldAgain) {
+        console.log(`leftover\t${old}/ exists again after an earlier rename to ${r.leftover.oldAgain.renamedTo} (${listed(r.leftover.oldAgain.ids)}): a seat still files under the old name; ${then}`);
+      }
       const n = r.folder.ids.length;
       if (r.folder.mode === "none") console.log(`folder\t${old}/ does not exist: no asks to move`);
-      else console.log(`folder\t${r.folder.mode === "move" ? "move" : "merge into existing"}\t${path.join(root, old)}/ → ${path.join(root, neu)}/\t(${n} ask${n === 1 ? "" : "s"}${n ? `: ${r.folder.ids.join(", ")}` : ""})`);
+      else console.log(`folder\t${r.folder.mode === "move" ? "move" : "merge into existing"}\t${path.join(root, old)}/ → ${path.join(root, neu)}/\t(${listed(r.folder.ids)})`);
       for (const c of r.changes) console.log(`${c.file}\t${c.field}\t${c.from} → ${c.to}`);
-      console.log(`${dryRun ? "would change" : "changed"} ${r.changes.length} field${r.changes.length === 1 ? "" : "s"} in ${r.files.length} file${r.files.length === 1 ? "" : "s"}; revisions unchanged`);
+      // N1 (round 2): refs in prose are kept as the asker wrote them; `engine ask read <old>/<id>` will not find them.
+      for (const l of r.left) console.log(`${l.file}\t${l.field}\t${l.ref}\tleft as written`);
+      if (dryRun) {
+        console.log(`would move ${many(n, "ask")}; would change ${many(r.changes.length, "field")} in ${many(r.files.length, "file")}`);
+      } else {
+        console.log(`revisions checked: unchanged in ${many(r.revisionsChecked, "file")}`);
+        console.log(`moved ${many(r.moved, "ask")}; changed ${many(r.changes.length, "field")} in ${many(r.files.length, "file")}; run it again until a pass reports moved 0 asks and changed 0 fields (a seat still using the name ${old} files under it again)`);
+      }
     } catch (e) {
       die((e as Error).message);
     }
