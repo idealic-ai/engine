@@ -13,6 +13,10 @@
 #              sender on the ack line; done marker; resend reads the text back byte for byte.
 #   receipts — own-seat acks only; status states; resend; sticky pending/retract/expires/limit.
 #   parity   — live_tree() body equals hop.sh's.
+#   go       — go-request reaches exactly the CONTRACTS rows' owner seats with their own receipts;
+#              unowned / unmapped / dead-seat / empty-receipt rows refuse; ack = GO bound to the
+#              receipts, decline needs a one-line reason, outsiders refused; go-check passes on
+#              all GOs and a re-pick, fails on pending / declined / an amended commit.
 #
 # Plant a defect: BROADCAST_SH=<mutated copy> bash test-broadcast.sh — it must go red.
 
@@ -570,6 +574,203 @@ test_sender_on_the_ack_line() {
   PANE=%4 bc resend who1
   assert_eq "hello"$'\n'"ack (from app:ask): engine broadcast ack who1" "$(cat "$FIX/msg.ask:helper")" \
     "S2: a resend's ack line names the resender"
+}
+
+# ---------------------------------------------------------------- go requests (IDE-350)
+# A temp git repo with a fake CONTRACTS.md and an owners map. kern/ is app:ask's, stats/ is
+# domain:stats's, ui/ is app:ui's, ghost/ belongs to a seat that is not in the live tree, orphan/
+# has no owner. c1 touches kern/ and stats/; c2 touches ui/ and kern/.
+G() { git -C "$FIX/repo" -c user.name=t -c user.email=t@t -c core.hooksPath=/dev/null -c commit.gpgsign=false "$@"; }
+go_repo() {
+  mkdir -p "$FIX/repo"; git init -q -b main "$FIX/repo"
+  mkdir -p "$FIX/repo/kern" "$FIX/repo/stats" "$FIX/repo/ui" "$FIX/repo/orphan" "$FIX/repo/ghost"
+  cat > "$FIX/repo/CONTRACTS.md" <<'EOF'
+# Contracts
+
+| Contract | Status | Owner | Import | Doc |
+|---|---|---|---|---|
+| [Alpha shape](#alpha) | settled | `kern/a.ts` | `import { A } from 'kern'` | `kern/a.ts` |
+| [Beta shape](#beta) | settled for stats | `stats/b.ts`, `ui/c.ts` | `import { B } from 'stats'` | `stats/b.ts` |
+| [Gamma](#gamma) | pending a ruling | none | none yet | none |
+| [Delta](#delta) | settled | `orphan/d.ts` | none | `orphan/d.ts` |
+| [Epsilon](#eps) | settled | `kern/untouched.ts` | none | `kern/untouched.ts` |
+| [Zeta](#zeta) | settled | `ghost/z.ts` | none | `ghost/z.ts` |
+EOF
+  printf 'a0\n' > "$FIX/repo/kern/a.ts"; printf 'b0\n' > "$FIX/repo/stats/b.ts"; printf 'c0\n' > "$FIX/repo/ui/c.ts"
+  printf 'd0\n' > "$FIX/repo/orphan/d.ts"; printf 'z0\n' > "$FIX/repo/ghost/z.ts"; printf 'u0\n' > "$FIX/repo/kern/untouched.ts"
+  G add -A; G commit -qm base; G tag base
+  printf 'a1\n' > "$FIX/repo/kern/a.ts"; printf 'b1\n' > "$FIX/repo/stats/b.ts"; G commit -qam c1
+  printf 'c2\n' > "$FIX/repo/ui/c.ts"; printf 'a1\na2\n' > "$FIX/repo/kern/a.ts"; G commit -qam c2
+  cat > "$FIX/owners" <<'EOF'
+# path-glob seat
+kern/   app:ask
+stats/  domain:stats
+ui/     app:ui
+ghost/  app:ghost
+EOF
+}
+rid() { git -C "$FIX/repo" show --text "$1" -- "${@:2}" | git patch-id --stable | cut -d' ' -f1; }
+goreq() { bc go-request --repo "$FIX/repo" --owners "$FIX/owners" "$@"; }
+
+test_go_request_reaches_exactly_the_owners() {
+  go_repo
+  local c1 c2; c1=$(G rev-parse HEAD~1); c2=$(G rev-parse HEAD)
+  PANE=%2 goreq --pr 28 --rows alpha,beta --commits base..HEAD --id go1
+  assert_eq 0 "$RC" "goreq: a go request exits 0"
+  assert_eq "app:ask domain:stats app:ui" "$(audience)" "goreq: the audience is exactly the rows' owner seats"
+  assert_eq 3 "$(sent_count)" "goreq: one message per owner seat, one broadcast"
+  assert_eq 1 "$(nrec)" "goreq: one record"
+  assert_eq "app:ask app:ui domain:stats" "$(cut -d'|' -f1 "$FIX/sent.log" | sort | tr '\n' ' ' | sed 's/ $//')" "goreq: the messages went to those seats and nobody else"
+  local body; body=$(cat "$FIX/bc/go1.md")
+  assert_has "kind: go-request" "$body" "goreq: the record says it is a go request"
+  assert_has "pr: 28" "$body" "goreq: the record names the PR"
+  assert_has "rows: alpha beta" "$body" "goreq: the record names the rows"
+  local m; m=$(cat "$FIX/msg.app:ask")
+  assert_has "PR 28" "$m" "goreq: the message carries the PR"
+  assert_has "alpha" "$m" "goreq: the message carries the rows"
+  assert_has "receipt app:ask $c1 $(rid "$c1" kern/a.ts) -- kern/a.ts" "$m" "goreq: app:ask's receipt for c1 inline"
+  assert_has "receipt app:ask $c2 $(rid "$c2" kern/a.ts) -- kern/a.ts" "$m" "goreq: app:ask's receipt for c2 inline"
+  assert_has "receipt domain:stats $c1 $(rid "$c1" stats/b.ts) -- stats/b.ts" "$(cat "$FIX/msg.domain:stats")" "goreq: domain:stats gets its own receipt"
+  assert_has "untouched domain:stats $c2 -- stats/b.ts" "$(cat "$FIX/msg.domain:stats")" "goreq: a commit that misses an owner's paths is listed untouched, not a receipt"
+  assert_hasnt "domain:stats" "$m" "goreq: each owner's message carries only its own receipt lines"
+  assert_has "receipt app:ui $c2" "$body" "goreq: the record keeps every owner's receipts"
+  assert_has "receipt app:ui $c2 $(rid "$c2" ui/c.ts) -- ui/c.ts" "$(cat "$FIX/msg.app:ui")" "goreq: app:ui gets its own receipt"
+  assert_has "engine broadcast decline go1 --reason" "$m" "goreq: the message says how to decline"
+  assert_has "ack (from manager:app): engine broadcast ack go1" "$m" "goreq: and how to give the go"
+}
+
+test_go_request_refuses_an_unowned_row() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha,gamma --commits base..HEAD
+  assert_eq 2 "$RC" "goreq: a row whose owner is none refuses"
+  assert_has "gamma" "$OUT" "goreq: and names the row"
+  PANE=%2 goreq --pr 28 --rows delta --commits base..HEAD
+  assert_eq 2 "$RC" "goreq: an owner path no seat maps refuses"
+  assert_has "delta" "$OUT" "goreq: and names that row"
+  PANE=%2 goreq --pr 28 --rows nosuch --commits base..HEAD
+  assert_eq 2 "$RC" "goreq: a row not in CONTRACTS.md refuses"
+  assert_has "nosuch" "$OUT" "goreq: and names it"
+  PANE=%2 goreq --pr 28 --rows zeta --commits base..HEAD
+  assert_eq 3 "$RC" "goreq: an owner seat not in the live tree refuses with 3"
+  assert_has "zeta" "$OUT" "goreq: and names the row"
+  printf 'kern/a.ts app:ui\nkern/a.ts domain:stats\n' >> "$FIX/owners"
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD
+  assert_eq 2 "$RC" "goreq: two seats equally specific for one path refuse, never a guess"
+  assert_eq 0 "$(sent_count)" "goreq: nothing sent on any refusal"
+  assert_eq 0 "$(nrec)" "goreq: no record on any refusal"
+}
+
+test_go_request_refuses_an_empty_receipt() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha,eps --commits base..HEAD
+  assert_eq 2 "$RC" "goreq: an owner whose paths give an empty id refuses"
+  assert_has "empty" "$OUT" "goreq: says the receipt is empty"
+  assert_has "kern/untouched.ts" "$OUT" "goreq: names the paths"
+  assert_eq 0 "$(sent_count)" "goreq: nothing sent"
+  assert_eq 0 "$(nrec)" "goreq: no record"
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..base
+  assert_eq 2 "$RC" "goreq: an empty commit range refuses"
+  PANE=%2 goreq --pr x --rows alpha --commits base..HEAD
+  assert_eq 2 "$RC" "goreq: --pr takes a number"
+  PANE=%2 goreq --pr 28 --commits base..HEAD
+  assert_eq 2 "$RC" "goreq: --rows is required"
+}
+
+test_go_ack_and_decline_are_recorded() {
+  go_repo
+  local c1 c2; c1=$(G rev-parse HEAD~1); c2=$(G rev-parse HEAD)
+  PANE=%2 goreq --pr 28 --rows alpha,beta --commits base..HEAD --id go2
+  : > "$FIX/sent.log"
+  PANE=%4 bc ack go2
+  assert_eq 0 "$RC" "go ack: exits 0"
+  assert_has "GO: app:ask" "$OUT" "go ack: records a GO for the caller's seat"
+  assert_has "$(rid "$c1" kern/a.ts)" "$(cat "$FIX/bc/go2.acks.d/app:ask")" "go ack: the GO is bound to the receipts it was sent"
+  PANE=%7 bc decline go2 --reason "breaks the stats export"
+  assert_eq 0 "$RC" "go decline: exits 0"
+  assert_has "DECLINED: domain:stats" "$OUT" "go decline: recorded for the caller's seat"
+  assert_eq 0 "$(sent_count)" "go ack/decline: no message is sent"
+  bc status go2
+  assert_eq 0 "$RC" "go status: exits 0"
+  assert_has $'app:ask\tdelivered\tGO\t' "$OUT" "go status: GO"
+  assert_has "$(rid "$c2" kern/a.ts)" "$(grep '^app:ask' <<<"$OUT")" "go status: a GO shows its receipts"
+  assert_has $'domain:stats\tdelivered\tDECLINED\tbreaks the stats export' "$OUT" "go status: DECLINED with the reason"
+  assert_has $'app:ui\tdelivered\tPENDING' "$OUT" "go status: PENDING"
+  PANE=%7 bc ack go2
+  assert_eq 2 "$RC" "go: a seat that declined cannot turn it into a GO; a new request is needed"
+  PANE=%4 bc decline go2 --reason "changed my mind"
+  assert_eq 2 "$RC" "go: a seat that gave its GO cannot decline the same request"
+  PANE=%4 bc ack go2
+  assert_eq 0 "$RC" "go: a repeated GO is a no-op"
+  bc --children --from manager:app --id plain9
+  PANE=%4 bc decline plain9 --reason "no"
+  assert_eq 2 "$RC" "decline: an ordinary broadcast has no decline"
+}
+
+test_go_decline_needs_a_reason() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha,beta --commits base..HEAD --id go3
+  PANE=%7 bc decline go3
+  assert_eq 2 "$RC" "decline: no --reason refuses"
+  PANE=%7 bc decline go3 --reason "   "
+  assert_eq 2 "$RC" "decline: a blank reason refuses"
+  PANE=%7 bc decline go3 --reason $'one\ntwo'
+  assert_eq 2 "$RC" "decline: a reason of more than one line refuses"
+  assert_file_not_exists "$FIX/bc/go3.declines.d/domain:stats" "decline: nothing recorded"
+  bc status go3
+  assert_has $'domain:stats\tdelivered\tPENDING' "$OUT" "decline: the seat is still pending"
+}
+
+test_go_non_audience_is_refused() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD --id go4
+  assert_eq 0 "$RC" "go: fixture: the request was sent"
+  PANE=%7 bc ack go4
+  assert_eq 2 "$RC" "go: a seat outside the owners cannot give a GO"
+  assert_has "'domain:stats' is not in the audience of 'go4'" "$OUT" "go: the GO refusal names the seat and the request"
+  PANE=%7 bc decline go4 --reason "not mine"
+  assert_eq 2 "$RC" "go: a seat outside the owners cannot decline"
+  assert_has "'domain:stats' is not an owner in the audience of 'go4'" "$OUT" "go: the decline refusal names the seat and the request"
+  PANE=%99 SELF=app:ask bc ack go4
+  assert_eq 2 "$RC" "go: a cache-only identity cannot give a GO"
+  assert_file_not_exists "$FIX/bc/go4.acks.d/domain:stats" "go: nothing recorded for the outsider"
+}
+
+test_go_check() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha,beta --commits base..HEAD --id go5
+  PANE=%4 bc ack go5; PANE=%7 bc ack go5
+  bc go-check go5 --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 1 "$RC" "go-check: a pending owner fails"
+  assert_has "PENDING app:ui" "$OUT" "go-check: and names who is missing"
+  PANE=%5 bc ack go5
+  bc go-check go5 --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 0 "$RC" "go-check: every owner GO and every receipt matching passes"
+  # Re-picked onto a moved tip: an unrelated commit lands first; the ids do not move.
+  G checkout -q -b repick base; printf 'x\n' > "$FIX/repo/other.txt"; G add other.txt; G commit -qm other
+  G cherry-pick main~1 main >/dev/null
+  assert_eq 3 "$(G rev-list --count base..repick)" "go-check: fixture: the stack was re-picked onto a moved base"
+  bc go-check go5 --repo "$FIX/repo" --commits base..repick
+  assert_eq 0 "$RC" "go-check: a re-picked commit whose receipt still matches keeps its go"
+  # Amend c2's ui change: app:ui's receipt moves; app:ask's does not.
+  printf 'c2-amended\n' > "$FIX/repo/ui/c.ts"; G commit -q -a --amend -m c2
+  bc go-check go5 --repo "$FIX/repo" --commits base..repick
+  assert_eq 1 "$RC" "go-check: a changed receipt fails"
+  assert_has "MOVED app:ui" "$OUT" "go-check: names the owner whose receipt moved"
+  assert_hasnt "MOVED app:ask" "$OUT" "go-check: an owner whose receipts still match is not named"
+  bc go-check go5 --repo "$FIX/repo"
+  assert_eq 2 "$RC" "go-check: --commits is required"
+}
+
+test_go_check_declined() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD --id go6
+  PANE=%4 bc decline go6 --reason "not yet"
+  bc go-check go6 --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 1 "$RC" "go-check: a declined owner fails"
+  assert_has "DECLINED app:ask: not yet" "$OUT" "go-check: names the decline and its reason"
+  bc --children --from manager:app --id plain8
+  bc go-check plain8 --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 2 "$RC" "go-check: an ordinary broadcast is not a go request"
 }
 
 test_tree_parity() {
