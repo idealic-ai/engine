@@ -347,3 +347,19 @@ h5.md-h, h6.md-h { font-size: 14px; color: var(--ink-2); }
 .feed-error { color: var(--danger); font-size: 13px; overflow-wrap: anywhere; margin: 0; }
 .feed-status { max-width: 640px; margin: 24px auto; padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface); display: grid; gap: 6px; }
 .feed-status p { margin: 0; overflow-wrap: anywhere; }
+
+/* ── fence round ─────────────────────────────────────── */
+/* An option description with paragraphs or a fenced block: the block renderer, tightened to the card. */
+.opt-desc-blocks { display: block; }
+.opt-desc-blocks > .rich > *:last-child, .opt-desc-blocks > .rich > *:last-child > *:last-child { margin-bottom: 0; }
+.opt-desc-blocks p { margin: 0 0 6px; max-width: none; }
+/* Code in an option: wraps inside itself, never widens the card, reads as text (not a click target),
+   and takes the theme's own code tokens in light and dark. */
+.opt-desc pre.code { margin: 4px 0 6px; max-width: 100%; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); background: var(--code-bg); border-color: var(--line); cursor: text; user-select: text; }
+.opt-desc pre.code code { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* A lens popover that would run past the pane's bottom opens above its mark instead. */
+@media (min-width: 561px) {
+  .lens-pop.above { top: auto; bottom: calc(100% + 6px); }
+  .lens-pop.above:not(.pinned)::before { top: auto; bottom: -8px; }
+}
+@media (max-width: 560px) { .lens-pop { transform: none !important; } }

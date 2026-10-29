@@ -1,8 +1,8 @@
 /**
- * The page's ask token, and what to do when the server no longer takes it (operator 01:29). The server
- * mints a new token on every start, so a tab opened before a restart holds a dead one and every write
- * came back 403 "missing or wrong ask token". Now a rejected request re-reads the token from a fresh
- * copy of the page and is retried ONCE. If the server now runs a different build, nothing is retried:
+ * The page's ask token, and what to do when the server no longer takes it (operator 01:29). Since
+ * d015990 the server keeps its token across restarts (in <root>/.ask-app.token), so a rejection should
+ * be rare: a deleted token file, another root, a server started with --token. This is the backstop for
+ * those: a rejected request re-reads the token from a fresh copy of the page and is retried ONCE. If the server now runs a different build, nothing is retried:
  * the operator is told to reload, and the card's picks are kept (see unsent.ts).
  */
 export const TOKEN_REJECTED = "missing or wrong ask token";

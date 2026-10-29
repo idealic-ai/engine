@@ -103,10 +103,10 @@ export function blocks(text: string): Block[] {
     const fence = line.match(FENCE_RE);
     if (fence) {
       flush();
-      const close = fence[1];
+      const open = fence[1];
       const body: string[] = [];
       i++;
-      while (i < lines.length && !(lines[i].trim().startsWith(close[0].repeat(3)) && lines[i].trim().replace(/[`~]/g, "") === "")) body.push(lines[i++]);
+      while (i < lines.length && !closesFence(lines[i], open)) body.push(lines[i++]);
       i++; // the closing fence (or the end)
       out.push({ t: "pre", lang: fence[2] ?? "", code: dedent(body).join("\n") });
       continue;
@@ -180,6 +180,15 @@ export function blocks(text: string): Block[] {
   }
   flush();
   return out;
+}
+
+/**
+ * CommonMark: a fence closes only on a run of the SAME character at least as long as the one that
+ * opened it, with nothing after it. So a ````-fence can hold a ``` line, and ~~~ never closes ```.
+ */
+export function closesFence(line: string, open: string): boolean {
+  const m = line.match(/^\s{0,3}(`{3,}|~{3,})\s*$/);
+  return !!m && m[1][0] === open[0] && m[1].length >= open.length;
 }
 
 function dedent(ls: string[]): string[] {

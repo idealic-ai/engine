@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   answeredByText,
   cardFor,
@@ -54,7 +54,7 @@ import {
 } from "./model.ts";
 import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
-import { displayTitle } from "./md.ts";
+import { blocks, displayTitle } from "./md.ts";
 import { RELOAD_RESTARTED, RELOAD_UPDATED, authedFetch, recordBuild, refreshToken, type Authed } from "./token.ts";
 import { clearUnsent, loadUnsent, saveUnsent } from "./unsent.ts";
 import { SCROLL_ROOT, scrollRootOf, scrollToId, scrollWithin } from "./scroll.ts";
@@ -1148,7 +1148,7 @@ function OptionBody({ o, card, q, lean, leanText, trade, suggested }: { o: AskOp
         {suggested && <span className="sr-only">Suggested by the asker, not picked. Click to confirm.</span>}
         <Strip trade={trade} cells={cells} />
       </span>
-      {o.description && <span className="opt-desc"><Inline text={o.description} /></span>}
+      {o.description && <OptionDescription text={o.description} />}
       {o.cost && <span className={`opt-cost${costSame ? " same" : ""}`}><b>Cost</b> <Inline text={o.cost} /></span>}
       {extra.length > 0 && (
         <span className="opt-dims">
@@ -1170,11 +1170,37 @@ function OptionBody({ o, card, q, lean, leanText, trade, suggested }: { o: AskOp
  * stays while hovered and closes on Esc (S3). A click or Enter pins it as a small non-modal dialog
  * with a Close button (S4). The body is the Panel: line's text; a longer read needs parser support.
  */
+type Rect = { left: number; right: number; top: number; bottom: number };
+/**
+ * Fence round, item 5: where a popover goes so it stays inside its column (the ask pane no longer
+ * scrolls sideways, so a popover past its right edge was clipped). `dx` shifts it left (never past the
+ * left edge); `above` flips it over its trigger when it would run past the bottom and fits above.
+ */
+export function fitPopover(pop: Rect, bounds: Rect, anchor: Rect, margin = 8): { dx: number; above: boolean } {
+  const height = pop.bottom - pop.top;
+  const over = pop.right - (bounds.right - margin);
+  const dx = over > 0 ? -Math.min(over, Math.max(0, pop.left - (bounds.left + margin))) : 0;
+  const above = pop.bottom > bounds.bottom - margin && anchor.top - height - margin >= bounds.top;
+  return { dx, above };
+}
+
+const useIsoLayout = typeof window === "undefined" ? useEffect : useLayoutEffect;
+
 export function LensMark({ read, id }: { read: PanelRead; id: string }) {
   const [hover, setHover] = useState(false);
   const [pinned, setPinned] = useState(false);
+  const [fit, setFit] = useState({ dx: 0, above: false });
   const ref = useRef<HTMLSpanElement>(null);
+  const pop = useRef<HTMLSpanElement>(null);
   const show = hover || pinned;
+  useIsoLayout(() => {
+    if (!show || !pop.current || !ref.current) return setFit({ dx: 0, above: false });
+    // Measured from the unshifted position: reset, read, then place.
+    pop.current.style.transform = "";
+    const root = scrollRootOf(ref.current);
+    const b = root ? root.getBoundingClientRect() : { left: 0, top: 0, right: innerWidth, bottom: innerHeight };
+    setFit(fitPopover(pop.current.getBoundingClientRect(), b, ref.current.getBoundingClientRect()));
+  }, [show, pinned]);
   useEffect(() => {
     if (!show) return;
     return pushEsc(() => {
@@ -1203,7 +1229,15 @@ export function LensMark({ read, id }: { read: PanelRead; id: string }) {
       >
         ◆ <b>{read.lens}</b> picks this
       </button>
-      <span className={`lens-pop${pinned ? " pinned" : ""}`} role={pinned ? "dialog" : "tooltip"} aria-label={pinned ? `${read.lens}'s read` : undefined} id={id} hidden={!show}>
+      <span
+        ref={pop}
+        className={`lens-pop${pinned ? " pinned" : ""}${fit.above ? " above" : ""}`}
+        style={fit.dx ? { transform: `translateX(${fit.dx}px)` } : undefined}
+        role={pinned ? "dialog" : "tooltip"}
+        aria-label={pinned ? `${read.lens}'s read` : undefined}
+        id={id}
+        hidden={!show}
+      >
         <span className="lp-head"><b>{read.lens}</b> picks <code>{read.pick}</code></span>
         <span className="lp-h">Why</span>
         <span className="lp-body"><Inline text={read.why} /></span>
@@ -1212,6 +1246,26 @@ export function LensMark({ read, id }: { read: PanelRead; id: string }) {
       </span>
     </span>
   );
+}
+
+/**
+ * An option's description (fence round). One paragraph renders exactly as before, inline; anything
+ * more (paragraphs, a fenced code block kept verbatim by the parser) goes through the block renderer.
+ */
+export function OptionDescription({ text }: { text: string }) {
+  const bs = blocks(text);
+  if (bs.length <= 1 && (bs[0]?.t ?? "p") === "p") return <span className="opt-desc"><Inline text={text} /></span>;
+  return <span className="opt-desc opt-desc-blocks"><Rich text={text} className="rich" /></span>;
+}
+
+/**
+ * A click inside an option's label selects the option, except (fence round) a click inside a code
+ * block, or one that ends a text selection: reading or copying code never picks the option. The click
+ * the label forwards to its own input (target: the input) always passes.
+ */
+export function ignoreOptionClick(target: Element | null, selection: string): boolean {
+  if (!target || target.tagName === "INPUT") return false;
+  return !!target.closest?.("pre") || selection.trim().length > 0;
 }
 
 /** Collect every value in a subtree, so un-picking a branch also un-picks what was chosen under it. */
@@ -1248,7 +1302,13 @@ function OptionTree(p: InputProps & { options: AskOption[]; picks: string[]; nam
         };
         return (
           <div key={v} className={`optwrap${on ? " on" : ""}${suggested ? " suggested" : ""}${p.lean === o.code ? " is-lean" : ""}${readOnly ? " readonly" : ""}`}>
-            <label className="opt" title={suggested ? "Suggested by the asker · click to confirm" : undefined}>
+            <label
+              className="opt"
+              title={suggested ? "Suggested by the asker · click to confirm" : undefined}
+              onClick={(e) => {
+                if (ignoreOptionClick(e.target as Element, typeof getSelection === "function" ? String(getSelection() ?? "") : "")) e.preventDefault();
+              }}
+            >
               <input
                 type={q.multiSelect ? "checkbox" : "radio"}
                 name={p.name}
