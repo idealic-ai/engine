@@ -381,3 +381,17 @@ h5.md-h, h6.md-h { font-size: 14px; color: var(--ink-2); }
 .row-meta .left.ruled { color: var(--warn); font-weight: 600; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .ruled-by { margin: 0; padding: 8px 12px; border-left: 3px solid var(--warn); background: var(--warn-soft); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: 14px; overflow-wrap: anywhere; }
 .ruled-by b { color: var(--warn); }
+
+/* ── round 5: the ask loop ───────────────────────────── */
+.mk-i.sent { color: var(--ok); }
+.rounds { display: grid; gap: 6px; }
+details.round { border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); padding: 6px 10px; font-size: 13px; }
+details.round > summary { cursor: pointer; color: var(--ink-2); }
+details.round ul { margin: 6px 0; padding-left: 1.2em; }
+.round-q { margin: 6px 0 0; font-weight: 600; }
+.dialogue { border-left: 2px solid var(--line-strong); padding: 4px 0 4px 12px; font-size: 14px; }
+.dialogue ol { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 4px; }
+.dialogue b { color: var(--ink-2); margin-right: 4px; }
+.need { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-2); }
+.need select { border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 4px 6px; max-width: 100%; }
+.need-preview { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
