@@ -350,39 +350,150 @@ test_registry_rows() {
   has_fixed "only means no handbook rules apply" "$r" "registry: says a missing handbook only means no handbook rules"
 }
 
-# R4-M1 — an entry is bound to the work, expires when a commit carries its key, and loses to a real --.
-test_entry_bound_to_the_work() {
+# ── Round 6 (R5-M1, R5-M2, R5-S1..S4, R5-N1..N3). An entry never selects the target; it only blocks
+# a re-filing. These arms read the sentence that states each rule, so a qualifier that inverts the
+# rule inside that sentence turns them red, not only the removal of a phrase.
+# sentences <text> → one sentence per line (split after ". " and "; ").
+sentences() { norm "$1" | tr '\n' ' ' | sed -e 's/\([.;]\) /\1\n/g'; }
+# sentence_with <needle> <text> → the first sentence of <text> that carries <needle>.
+sentence_with() { grep -m1 -iF -- "$1" <<<"$(sentences "$2")"; }
+# pos <needle> <text> → 1-based character offset of the first match (0 when none).
+pos() { local t; t=$(norm "$2" | tr '\n' ' '); local p="${t%%"$1"*}"; if [ "$p" = "$t" ]; then echo 0; else echo $(( ${#p} + 1 )); fi; }
+zero_bullet() { grep -m1 -F '**[0] Auto-file' "$SKILL"; }
+branch_safety() { grep -m1 -F '**Branch safety:**' "$SKILL"; }
+intro_line() { grep -m1 -F 'files a ticket only for work that has none' "$SKILL"; }
+file_step() { autofile_para | grep -m1 -E '^[0-9]+\. \*\*File\*\*'; }
+constraint_save() { grep -m1 -F -- '- **`save_issue` always carries `id`' "$SKILL"; }
+
+# R5-M2 — an entry never selects the target ticket.
+test_r6_entry_never_selects() {
   local t; t=$(target_bullet)
-  has_fixed "the HEAD sha at filing time" "$t" "R4-M1: the entry records HEAD at filing"
-  has_fixed "the reviewed file set" "$t" "R4-M1: the entry records the reviewed file set"
-  has_fixed "bound to that work, not the branch" "$t" "R4-M1: the entry is bound to the work"
-  has_fixed "its file set matches this run's work" "$t" "R4-M1: an entry applies only to the same work"
+  has_fixed "an entry never selects the target ticket" "$t" "R5-M2: §1 says an entry never selects the target"
+  has_fixed "it only blocks a re-filing" "$t" "R5-M2: an entry only blocks a re-filing"
+  lacks_fixed "names the target as if passed after" "$t" "R5-M2: no entry names the target as if passed after --"
+  lacks_fixed "an applicable entry" "$t" "R5-M2: the applicable-entry selection rule is gone"
 }
-# R4-N2 — how long an entry stays valid.
-test_entry_lifetime() {
+# R5-M2/S2 — "this work" is one stated comparison, the branch; no sha, no file set.
+test_r6_this_work_defined() {
+  local t s; t=$(target_bullet); s=$(sentence_with "is for this work when" "$t")
+  has_fixed 'an entry is for this work when its `branch` is the current branch or is `-`' "$s" "R5-S2: this work = same branch, or an unbound entry"
+  has_fixed "nothing else is compared" "$s" "R5-S2: nothing else is compared"
+  lacks_fixed "ancestor" "$s" "P1: no sha-ancestor qualifier in the this-work rule"
+  lacks_fixed "overlap" "$s" "P5: no overlap qualifier in the this-work rule"
+  lacks_fixed "any one path" "$s" "P5: no any-one-path qualifier in the this-work rule"
+  lacks_fixed "file set match" "$s" "R5-M2: no file-set match in the this-work rule"
+  has_fixed "not the sha, not the file set" "$s" "R5-S2: the sha and the file set are named as not compared"
+}
+# R5-N1 — a record a path with a space cannot break.
+test_r6_record_format() {
+  local t f; t=$(target_bullet); f=$(file_step)
+  has_fixed "one JSON object per line" "$t" "R5-N1: the record is one JSON object per line"
+  has_fixed "appended and never edited" "$t" "R5-M1: the record is append-only"
+  has_fixed "the last line for an \`id\` is that entry's state" "$t" "R5-M1: the last line per id is the state"
+  lacks_fixed "<HEAD sha> <files>" "$f" "R5-N1: the space-separated line format is gone"
+  lacks_fixed "<HEAD sha> <files>" "$t" "R5-N1: §1 has no space-separated line format"
+}
+# R5-M1/N3 — pending and filed abort under --yes, ask without it, and name their exits.
+test_r6_pending_filed_abort() {
+  local t s; t=$(target_bullet); s=$(sentence_with 'a `pending` or `filed` entry for this work aborts' "$t")
+  assert_not_empty "$s" "R5-M1: §1 has the pending/filed abort sentence"
+  has_fixed "under \`--yes\`" "$s" "R5-M1: the abort is the --yes case"
+  lacks_fixed "ignore" "$s" "P3: the pending/filed rule never ignores the entry"
+  lacks_fixed "file anew" "$s" "P3: the pending/filed rule never files anew"
+  lacks_fixed "proceed" "$s" "P3: the pending/filed rule never proceeds"
+  has_fixed "a \`filed\` entry's \`<KEY>\`" "$s" "R5-M1: a filed entry's abort prints its KEY"
+  has_fixed "for a \`pending\` entry that no key was recorded" "$s" "R5-M1: a pending entry's abort says no key was recorded"
+  has_fixed "re-run with \`-- <KEY>\` if this work is that ticket's, which retires a \`filed\` line" "$t" "R5-M1: exit 1, a -- <KEY> run retires a filed line"
+  has_fixed "a person checks Linear for an open ticket with the \`auto-filed\` label naming this branch or session, then clears the line" "$t" "R5-M1: exit 2, a person clears a pending line after checking Linear"
+  has_fixed "may belong to another thread on this lane" "$t" "R5-M2: the abort warns the KEY may be another thread's"
+  local n; n=$(sentence_with "Without \`--yes\`" "$t")
+  has_fixed "asked about through one \`AskUserQuestion\` rather than aborting" "$n" "R5-N3: without --yes a pending/filed entry asks"
+}
+# R5-M2 — spent is recorded once and never comes back.
+test_r6_spent_recorded() {
+  local t s; t=$(target_bullet); s=$(sentence_with 'a `spent` entry is recorded' "$t")
+  assert_not_empty "$s" "R5-M2: §1 has the spent sentence"
+  has_fixed "recorded, not recomputed" "$s" "R5-M2: spent is recorded, not recomputed"
+  has_fixed "when the commit carrying its key lands" "$s" "R5-M2: spent is written when the commit lands"
+  has_fixed "never blocks a run again and never comes back" "$s" "R5-M2: spent never comes back"
+  lacks_fixed "until" "$s" "P6: no until-clause on spent"
+  lacks_fixed "applies again" "$s" "P6: a spent entry never applies again"
+  lacks_fixed "default branch" "$s" "P6: spent is not tied to the default branch"
+}
+# A real -- reaches a ticket, and no entry blocks it.
+test_r6_dash_dash() {
   local t; t=$(target_bullet)
-  has_fixed "stays valid only while no commit carrying its key is in the commit range" "$t" "R4-N2: an entry is valid only until a commit carries its key"
-  has_fixed "once one is, the entry is spent and §1 ignores it" "$t" "R4-N2: a spent entry is ignored"
+  has_fixed "a real \`-- <KEY>\` is how a run reaches a ticket, and no entry blocks it" "$t" "R5-M1: -- is never blocked by an entry"
+  has_fixed "when it names a \`filed\` entry's key it retires that line" "$t" "R5-M1: a -- run naming the filed key retires it"
+  lacks_fixed "if it differs from an unspent entry for the same work, abort" "$t" "R5-M2: -- no longer aborts against an entry"
 }
-test_dash_dash_against_entry() {
-  local t; t=$(target_bullet)
-  has_fixed "a real \`-- <KEY>\` wins over an entry" "$t" "R4-M1: a real -- wins over an entry"
-  has_fixed "if it differs from an unspent entry for the same work, abort" "$t" "R4-M1: -- differing from an unspent entry aborts"
+# R5-M2 — the thread-B sentence promises only what blocking guarantees.
+test_r6_thread_b() {
+  local t s; t=$(target_bullet); s=$(sentence_with "thread B landing on the same lane" "$t")
+  has_fixed "never posts to IDE-342 on its own" "$s" "R5-M2: thread B never posts to A's key on its own"
+  has_fixed "it aborts and prints IDE-342" "$s" "R5-M2: thread B aborts and prints A's key"
+  has_fixed "only on a \`-- <KEY>\` re-run its caller chooses" "$s" "R5-M2: thread B reaches a ticket only through --"
+  lacks_fixed "file set" "$s" "R5-M2: the thread-B sentence no longer rests on file sets"
 }
-test_pending_entry() {
-  has_fixed "a \`pending\` entry means a ticket may exist: abort and show it" "$(target_bullet)" "R4-N1: a pending entry aborts and is shown"
+# R5-S3 — the Linear backstop runs before filing.
+test_r6_linear_backstop() {
   local a; a=$(autofile_para)
-  has_fixed "write a \`pending\` line before \`save_issue\` and complete it after" "$a" "R4-N1: pending is written before save_issue, completed after"
-  has_fixed "only after Branch safety has named the branch" "$a" "R4-M1: the entry is completed only after Branch safety names the branch"
-  has_fixed "never bound to \`dev\`/\`main\`" "$a" "R4-M1: an entry is never bound to dev/main"
-  lacks_fixed "Immediately append" "$a" "R4-M1: no immediate append bound to the branch"
+  has_fixed "Linear backstop" "$a" "R5-S3: the auto-file list has a Linear backstop"
+  has_fixed "an open issue with the label \`auto-filed\` whose body names this session or, off \`dev\`/\`main\`, this branch" "$a" "R5-S3: the backstop queries auto-filed tickets naming the session or branch"
+  has_fixed "if one exists, abort and print it" "$a" "R5-S3: a backstop hit aborts and prints it"
+  before "$(step_no "Linear backstop")" "$(step_no "**File**")" "order: the Linear backstop comes before the filing"
+  has_fixed '`session: <sessionDir>`' "$(file_step)" "R5-S3: the body names the session"
+  has_fixed '`branch: <branch>`' "$(file_step)" "R5-S3: the body names the branch"
 }
-# The thread-B-on-the-same-lane path: it aborts or files anew, never posts to the old key.
-test_thread_b_same_lane() {
-  local t; t=$(target_bullet)
-  has_fixed "thread B landing on the same lane after thread A was auto-filed as IDE-342 never posts to IDE-342" "$t" "thread B: never posts to thread A's auto-filed key"
-  has_fixed "the entry is spent and B's single commit key aborts" "$t" "thread B: after A's commit, B aborts"
-  has_fixed "so B is un-ticketed work and files anew or aborts" "$t" "thread B: before A's commit, B files anew or aborts"
+# R5-M1 — the three states in the File step, in order, and never bound to dev/main.
+test_r6_file_states() {
+  local f; f=$(file_step)
+  has_fixed '`pending` is appended before `save_issue`' "$f" "R5-M1: pending before save_issue"
+  has_fixed '`filed` with the `<KEY>` the moment `save_issue` returns, so the key is never lost' "$f" "R5-M1: filed the moment save_issue returns"
+  has_fixed '`spent` when the commit carrying the key lands' "$f" "R5-M1: spent when the commit lands"
+  has_fixed '`branch` is `-` until a feature branch exists' "$f" "R5-M1: unbound until a branch exists"
+  has_fixed "never bound to \`dev\`/\`main\`" "$f" "R5-M1: never bound to dev/main"
+  lacks_fixed "only after Branch safety has named the branch" "$f" "R5-M1: the key no longer waits for Branch safety"
+  before "$(pos '`pending` is appended' "$f")" "$(pos '`filed` with the' "$f")" "R5-M1: pending precedes filed in the File step"
+  before "$(pos '`filed` with the' "$f")" "$(pos '`spent` when' "$f")" "R5-M1: filed precedes spent in the File step"
+  has_fixed "the line stays \`pending\`, and §1 aborts on it until a person clears it" "$f" "R5-M1: a failed save_issue leaves pending, cleared by a person"
+}
+# R5-M1/P2 — the §3 [0] bullet says the same thing.
+test_r6_zero_bullet() {
+  local z; z=$(zero_bullet)
+  has_fixed 'append the `pending` line' "$z" "[0]: appends pending"
+  has_fixed 'append the `filed <KEY>` line the moment it returns' "$z" "[0]: appends filed the moment save_issue returns"
+  has_fixed 'or `-` on `dev`/`main`' "$z" "[0]: unbound on dev/main"
+  lacks_fixed "binding it to the current branch" "$z" "P2: [0] never binds the entry to the current branch unconditionally"
+  lacks_fixed "complete the entry" "$z" "P2: [0] has no complete-later step"
+  has_fixed 'append the `spent` line' "$z" "[0]: appends spent when the commit lands"
+  has_fixed "the next run for this work aborts and prints \`<KEY>\`" "$z" "[0]: a skipped commit leaves filed, the next run aborts with the KEY"
+  before "$(pos 'save_issue' "$z")" "$(pos 'Branch safety then runs' "$z")" "R5-S1: in [0], save_issue precedes Branch safety"
+}
+# R5-S1 — under auto-file Branch safety runs after [0], so the branch is named from the new key.
+test_r6_branch_safety_order() {
+  local b z; b=$(branch_safety); z=$(zero_bullet)
+  has_fixed "under a [0] auto-file it runs after [0], not here" "$b" "R5-S1: Branch safety says it runs after [0] under auto-file"
+  has_fixed "names the branch from the new key" "$b" "R5-S1: Branch safety names the branch from the new key"
+  before "$(pos '[0] files the key' "$b")" "$(pos 'names the branch from the new key' "$b")" "R5-S1: Branch safety's stated order puts [0] first"
+  lacks_fixed "Branch safety above" "$z" "R5-S1: [0] no longer points to a Branch safety that ran above"
+  has_fixed "Branch safety then runs" "$z" "R5-S1: [0] says Branch safety runs after it"
+}
+# R5-S4 — the intro, §1, the §3 [0] bullet and Constraints agree.
+test_r6_sections_agree() {
+  local i t z c
+  i=$(intro_line); t=$(target_bullet); z=$(zero_bullet); c=$(constraint_save)
+  for st in '`pending`' '`filed`' '`spent`'; do
+    has_fixed "$st" "$i" "agree: the intro names $st"
+    has_fixed "$st" "$t" "agree: §1 names $st"
+    has_fixed "$st" "$z" "agree: §3 [0] names $st"
+  done
+  for sect in i t z; do
+    has_fixed "for this work" "${!sect}" "agree: '$sect' scopes the entry to this work"
+  done
+  has_fixed 'no `pending` or `filed` `.snapshot-autofiled` entry for this work' "$i" "P4: the intro's eligibility names pending and filed"
+  lacks_fixed "unspent" "$i" "agree: the intro's old unspent wording is gone"
+  has_fixed "except the one § *Unattended runs* auto-file" "$c" "R5-N2: Constraints carves out the auto-file"
 }
 # R4-S1 — what counts as a candidate, and the field read.
 test_candidate_definition() {
