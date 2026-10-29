@@ -1,5 +1,5 @@
 #!/bin/bash
-# lease.sh — the landing lease (v2): a short, self-expiring, advisory lease on a trunk, held for one PUSH.
+# lease.sh — the landing lease (v2): a short, self-expiring lease on a trunk, held for one PUSH.
 #
 # Usage:
 #   engine lease show
@@ -9,7 +9,8 @@
 #                                  3 no (another seat holds one; the holder and its time left go to stderr)
 #
 # The protocol is kit sessions/2026_10_14_LAND_TREE_BRANCHES/builds/LANDING_LEASE_DRAFT.md (in force by the
-# operator's ruling of 2026-10-28). This script carries out its mechanics and nothing more:
+# operator's ruling of 2026-10-28; made blocking by the ruling of 2026-10-30, leasegate). This script carries out
+# its mechanics and nothing more:
 #   - one file per seat under $LANDING_LEASE_DIR (default ~/.claude/engine/.landing-lease/); a writer writes
 #     only its own file and reads everyone's
 #   - taken=/expires= are UTC with a trailing Z; expires is taken + 10 minutes, absolute, never renewed
@@ -20,8 +21,13 @@
 #     this command serialise on a mkdir lock, and the re-read after the write catches a hand-written file
 #   - `take` creates the directory (and says so, for the landing record); `show` reports what is on disk at
 #     read time: ABSENT says nothing about who holds a lease, EMPTY says nobody does
-# It is advisory and fails open: it never blocks a push, and a seat that cannot run it lands anyway and says so
-# in its landing record. Release after the remote-side verification, never on the push's exit code.
+# It blocks through kit's pre-push hook, not through this script. By the operator's ruling of 2026-10-30
+# (leasegate, reversing the 2026-10-28 "advisory" ruling), kit's .husky/pre-push runs `engine lease check <seat>`
+# on a push to refs/heads/main and refuses the push on exit 3. `check` itself stays read-only: it reads the lease
+# files and writes nothing, so it neither takes nor renews a lease. The hook still fails open where this script
+# cannot answer: on exit 2 (the lease cannot be read), on a pusher with no seat (a person or CI), or where
+# `engine` is not on PATH, the push goes through and the hook says it could not check. Release after the
+# remote-side verification, never on the push's exit code.
 #
 # Exit: 0 ok · 1 refused (another seat holds a live lease, this seat already holds one, or a release names a
 # seat whose name maps to another seat's file) · 2 usage/IO error. `show` exits 0 whether or not the lease is
