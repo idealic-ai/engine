@@ -385,4 +385,12 @@ out="$(env -u HOME -u LANDING_LEASE_DIR bash "$LEASE" check handbook --repo kit 
 assert_eq 2 "$rc" "L38 check with no HOME and no LANDING_LEASE_DIR is exit 2"
 assert_contains "LANDING_LEASE_DIR" "$out" "L38 and says the lease store cannot be found"
 
+# L39 — the Unicode line separators U+0085 (NEL), U+2028 and U+2029 are folded to a space as well, so a reader that
+# splits lines on them (Python splitlines, JS line terminators) still sees one take as one line.
+reset
+run take runner --repo kit --branch main --what "$(printf 'a\302\205b\342\200\250c\342\200\251d')" >/dev/null 2>&1
+h="$DIR/history.log"
+assert_eq "what=a b c d" "$(awk -F'\t' '{print $7}' "$h")" "L39 NEL, LS and PS in what= are folded to spaces"
+assert_eq 0 "$(LC_ALL=C grep -c "$(printf '\302\205')\|$(printf '\342\200\250')\|$(printf '\342\200\251')" "$h")" "L39 history.log holds none of the three"
+
 exit_with_results

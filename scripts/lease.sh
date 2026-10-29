@@ -29,7 +29,8 @@
 #   - $LEASE_DIR/history.log is the lease's holder history, append-only, one line per event. Fields are separated
 #     by one TAB (shown here as \t); the first is the UTC Z time, the second the event, and each after that is
 #     key=value. No value holds a control byte: TAB, CR, LF, ESC and the rest are folded to a space before the
-#     line is written, so a reader splits the line on TAB and each field on its first `=`:
+#     line is written, and so are U+0085, U+2028 and U+2029, so a reader that splits lines on those too (Python's
+#     splitlines(), JS) sees the same lines. A reader splits the line on TAB and each field on its first `=`:
 #       <UTC Z>\ttake\tseat=S\trepo=R\tbranch=B\texpires=<UTC Z>\twhat=TEXT     (a take that won)
 #       <UTC Z>\trelease\tseat=S                                             (a release that removed a file)
 #       <UTC Z>\toverride\tseat=S\trepo=R\tbranch=B\tsha=SHA\twhy=TEXT\treason=TEXT
@@ -93,8 +94,11 @@ iso_to_epoch() {
 }
 seat_file() { printf '%s/%s.lease' "$LEASE_DIR" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | sed 's/^\./_/')"; }
 field() { sed -n "s/^$1=//p" "$2" | head -1; }
-# one_line — a value for a history.log field: every control byte (TAB, CR, LF, ESC, DEL…) folded to a space.
-one_line() { printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' '; }
+# one_line — a value for a history.log field: every control byte (TAB, CR, LF, ESC, DEL…) folded to a space, and so
+# are U+0085 (NEL), U+2028 and U+2029 (their UTF-8 bytes, written in octal), which Python's splitlines() and JS treat
+# as line breaks.
+NEL=$(printf '\302\205'); LSEP=$(printf '\342\200\250'); PSEP=$(printf '\342\200\251')
+one_line() { printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' ' | LC_ALL=C sed -e "s/$NEL/ /g" -e "s/$LSEP/ /g" -e "s/$PSEP/ /g"; }
 # norm_repo / norm_branch — the scope as take records it and check compares it: repo case-folded, branch without
 # refs/heads/, so `Kit` and `refs/heads/main` name the same trunk as `kit` and `main`.
 norm_repo() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
