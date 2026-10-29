@@ -9,7 +9,9 @@ export type Inline =
   | { t: "text"; v: string }
   | { t: "code"; v: string }
   | { t: "link"; label: string; href: string }
-  | { t: "ticket"; key: string };
+  | { t: "ticket"; key: string }
+  | { t: "strong"; v: string }
+  | { t: "em"; v: string };
 
 export const CALLOUT_KINDS = ["background", "term", "code", "evidence", "more"] as const;
 export type CalloutKind = (typeof CALLOUT_KINDS)[number];
@@ -17,7 +19,9 @@ export type CalloutKind = (typeof CALLOUT_KINDS)[number];
 export type Block =
   | { t: "p"; text: string }
   | { t: "pre"; lang: string; code: string }
-  | { t: "list"; ordered: boolean; items: string[] }
+  | { t: "list"; ordered: boolean; items: string[]; start?: number; nested?: string[] }
+  | { t: "hr" }
+  | { t: "h"; level: number; text: string }
   | { t: "quote"; text: string }
   | { t: "callout"; kind: CalloutKind; title: string; body: string };
 
@@ -30,6 +34,10 @@ const INLINE_RE = new RegExp(
     "\\[([^\\]\\n]+)\\]\\(([^)\\s]+)\\)", // 2,3 markdown link
     "(https?:\\/\\/[^\\s<>()\\[\\]`\"']+)", // 4 bare URL
     `\\b(${TICKET_SRC})\\b`, // 5 ticket key
+    "\\*\\*(?=\\S)([^\\n]+?)\\*\\*", // 6 bold
+    "(?<![\\w_])__(?=\\S)([^\\n]+?)__(?![\\w_])", // 7 bold
+    "(?<![\\w*])\\*(?=[^\\s*])([^*\\n]+?)\\*(?![\\w*])", // 8 italic
+    "(?<![\\w_])_(?=[^\\s_])([^_\\n]+?)_(?![\\w_])", // 9 italic (not inside snake_case)
   ].join("|"),
   "g",
 );
@@ -59,6 +67,8 @@ export function inlineTokens(text: string): Inline[] {
       out.push({ t: "link", label: url, href: url });
       at = start + url.length;
     } else if (m[5] !== undefined) out.push({ t: "ticket", key: m[5] });
+    else if (m[6] !== undefined || m[7] !== undefined) out.push({ t: "strong", v: (m[6] ?? m[7])! });
+    else out.push({ t: "em", v: (m[8] ?? m[9])! });
   }
   pushText(text.slice(at));
   return out;
@@ -67,7 +77,15 @@ export function inlineTokens(text: string): Inline[] {
 const FENCE_RE = /^\s*(`{3,}|~{3,})\s*([\w+-]*)\s*$/;
 const CALLOUT_RE = new RegExp(`^\\s*>\\s?\\[!(${CALLOUT_KINDS.join("|")})\\]\\s*(.*)$`, "i");
 const QUOTE_RE = /^\s*>/;
-const LIST_RE = /^\s*(?:([-*])|(\d+)[.)])\s+(.*)$/;
+const LIST_RE = /^(\s*)(?:([-*+])|(\d+)[.)])\s+(.*)$/;
+const HR_RE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
+const HEAD_RE = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
+const indentOf = (l: string) => l.length - l.trimStart().length;
+
+/** A heading's display text: an ask fork's `¶ASK_NAME:` anchor is for machines, not for reading. */
+export function displayTitle(t: string): string {
+  return t.replace(/^\s*(?:#{1,6}\s+)?(?:Q\d+\s+)?¶?ASK_[A-Za-z0-9_-]+\s*:\s*/, "").trim() || t.trim();
+}
 
 /** Split prose into blocks. Fenced code keeps its blank lines; a callout runs while lines start with `>`. */
 export function blocks(text: string): Block[] {
@@ -108,19 +126,51 @@ export function blocks(text: string): Block[] {
       out.push({ t: "quote", text: body.join("\n").trim() });
       continue;
     }
+    if (HR_RE.test(line)) {
+      flush();
+      out.push({ t: "hr" });
+      i++;
+      continue;
+    }
+    const h = line.match(HEAD_RE);
+    if (h) {
+      flush();
+      out.push({ t: "h", level: h[1].length, text: displayTitle(h[2]) });
+      i++;
+      continue;
+    }
     const li = line.match(LIST_RE);
     if (li) {
       flush();
-      const ordered = li[2] !== undefined;
+      const base = li[1].length;
+      const ordered = li[3] !== undefined;
       const items: string[] = [];
+      const nested: string[][] = [];
       while (i < lines.length) {
-        const m = lines[i].match(LIST_RE);
-        if (m && (m[2] !== undefined) === ordered) items.push(m[3]);
-        else if (items.length && lines[i].trim() && /^\s{2,}/.test(lines[i])) items[items.length - 1] += ` ${lines[i].trim()}`;
-        else break;
+        const l = lines[i];
+        const m = l.match(LIST_RE);
+        if (m && m[1].length <= base + 1 && (m[3] !== undefined) === ordered) {
+          items.push(m[4]);
+          nested.push([]);
+        } else if (m && m[1].length <= base + 1) break; // a list of the other kind starts
+        else if (!l.trim()) {
+          // A blank line ends the list unless the next line is indented under it or is its next item.
+          const next = lines.slice(i + 1).find((x) => x.trim());
+          const nm = next?.match(LIST_RE);
+          if (!next || !(indentOf(next) > base + 1 || (nm && nm[1].length <= base + 1 && (nm[3] !== undefined) === ordered))) break;
+          if (nested[nested.length - 1].length) nested[nested.length - 1].push("");
+        } else if (indentOf(l) > base + 1 || (!m && !nested[nested.length - 1].length && !HR_RE.test(l) && !QUOTE_RE.test(l) && !FENCE_RE.test(l) && indentOf(l) > base)) {
+          // Indented under the item: a nested list or block goes in its body; a plain line continues its text.
+          const body = nested[nested.length - 1];
+          if (body.length || m || FENCE_RE.test(l) || QUOTE_RE.test(l)) body.push(l);
+          else items[items.length - 1] += ` ${l.trim()}`;
+        } else break;
         i++;
       }
-      out.push({ t: "list", ordered, items });
+      const block: Block = { t: "list", ordered, items };
+      if (ordered && Number(li[3]) !== 1) block.start = Number(li[3]);
+      if (nested.some((n) => n.some((x) => x.trim()))) block.nested = nested.map((n) => dedent(n).join("\n").trim());
+      out.push(block);
       continue;
     }
     if (!line.trim()) flush();
@@ -139,5 +189,5 @@ function dedent(ls: string[]): string[] {
 
 /** Every link target in a piece of text, with its label, in order. */
 export function linksIn(text: string): { href: string; label: string }[] {
-  return inlineTokens(text).flatMap((t) => (t.t === "link" ? [{ href: t.href, label: t.label }] : []));
+  return inlineTokens(text).flatMap((t) => (t.t === "link" ? [{ href: t.href, label: t.label }] : t.t === "strong" || t.t === "em" ? linksIn(t.v) : []));
 }

@@ -75,7 +75,8 @@ export function ProofRows({ list, busy, onOpen, onReload, current, slim, now = D
         <span className="muted">{list.ok ? `${list.total} page${list.total === 1 ? "" : "s"}` : "Proof store not reachable"}</span>
         <button className="linkish" onClick={onReload} disabled={busy}>{busy ? "Refreshing…" : "Refresh"}</button>
       </div>
-      {!list.ok && <p className="muted pad">{list.error}</p>}
+      {!list.ok && <p className="pad feed-error" role="alert">{list.error || "no reason given"}</p>}
+      {list.ok && list.total === 0 && <p className="muted pad">No proof pages in the store{list.bucket ? ` (${list.bucket}/${list.prefix ?? ""})` : ""}.</p>}
       <ul className="rows">
         {list.proofs.map((p) => (
           <li key={p.key}>
@@ -149,4 +150,31 @@ export function BroadcastFeed({ list, error, current, now = Date.now() }: { list
       })}
     </section>
   );
+}
+
+/**
+ * IDE-304 item 6: why the Proofs tab is empty, said plainly in the main area, where there is room:
+ * the server's own error text when the store did not answer, or that it answered with no pages.
+ * Undefined while loading and when there are pages to pick from.
+ */
+export function ProofStatus({ list }: { list?: ProofList }) {
+  if (!list) return null;
+  if (!list.ok) {
+    return (
+      <div className="feed-status" role="alert">
+        <b>The proof list could not be read</b>
+        <p>The app server said: <code>{list.error || "no reason given"}</code></p>
+        <p className="muted">Nothing is wrong with the asks. Refresh in the list on the left tries again.</p>
+      </div>
+    );
+  }
+  if (list.total === 0) {
+    return (
+      <div className="feed-status" role="status">
+        <b>The proof store answered with no pages</b>
+        <p className="muted">{list.bucket ? `Nothing under ${list.bucket}/${list.prefix ?? ""}${list.endpoint ? ` at ${list.endpoint}` : ""}.` : "It listed nothing."}</p>
+      </div>
+    );
+  }
+  return null;
 }

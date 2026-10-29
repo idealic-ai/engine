@@ -3,7 +3,8 @@
  * swap touches that file alone.
  */
 *, *::before, *::after { box-sizing: border-box; }
-html, body { margin: 0; }
+/* IDE-304 item 1: the page itself never scrolls; the shell is the viewport, and each column scrolls on its own. */
+html, body, #root { margin: 0; height: 100%; overflow: hidden; }
 body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.5; -webkit-text-size-adjust: 100%; }
 code, pre, .okey, kbd { font-family: var(--mono); font-variant-ligatures: none; }
 a { color: var(--accent-ink); text-underline-offset: 2px; }
@@ -11,7 +12,7 @@ button, select, input, textarea { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
 .muted { color: var(--ink-3); }
 .pad { padding: 8px 12px; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
 .n { font-variant-numeric: tabular-nums; color: var(--ink-3); font-size: 12px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
 
@@ -45,12 +46,14 @@ header.top .spacer { flex: 1; }
 /* ── the desk: list | ask | linked page, nothing on top of anything ── */
 .app { height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .desk { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
-.side { border-right: 1px solid var(--line); background: var(--surface); min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.side { position: relative; border-right: 1px solid var(--line); background: var(--surface); min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .work { min-width: 0; min-height: 0; display: grid; }
 .work.solo { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
 .work.split-columns { grid-template-rows: minmax(0, 1fr); }
 .work.split-rows { grid-template-columns: minmax(0, 1fr); }
-.detail { min-width: 0; min-height: 0; overflow: auto; padding: 20px 24px 64px; overscroll-behavior: contain; }
+/* position: relative keeps absolutely placed descendants (.sr-only, popovers) inside this scroller, so they
+   never stretch the document below the shell (the empty band). One scroll, vertical only. */
+.detail { position: relative; min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 20px 24px 64px; overscroll-behavior: contain; }
 .detail > .ask { max-width: 820px; margin: 0 auto; }
 @media (max-width: 700px) { .detail { padding: 12px 12px 40px; } }
 
@@ -134,8 +137,9 @@ header.top .spacer { flex: 1; }
 .rich blockquote, .fork-prose blockquote { margin: 0 0 10px; padding-left: 12px; border-left: 2px solid var(--line-strong); color: var(--ink-2); }
 .rich.context, .rich.preamble { color: var(--ink-2); }
 code.ic { background: var(--code-bg); border: 1px solid var(--line); border-radius: 3px; padding: 0 4px; font-size: .88em; overflow-wrap: anywhere; }
-pre.code { margin: 0 0 10px; padding: 10px 12px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--radius-sm); overflow-x: auto; font-size: 13px; line-height: 1.45; max-width: 100%; }
-pre.code code { white-space: pre; }
+/* IDE-304 item 2: long lines wrap instead of adding a scrollbar of their own. */
+pre.code { margin: 0 0 10px; padding: 10px 12px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: visible; font-size: 13px; line-height: 1.45; max-width: 100%; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+pre.code code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .fork-prose.between-forks { margin: -4px 0 18px; padding: 0 4px; color: var(--ink-2); }
 
 details.callout { margin: 0 0 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
@@ -251,7 +255,7 @@ textarea { width: 100%; display: block; resize: vertical; }
 .pane-title b { font-size: 14px; }
 .pane-title .muted { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pane-actions { display: flex; gap: 6px; flex: 0 0 auto; }
-.pane-body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; background: var(--surface-2); }
+.pane-body { position: relative; flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; background: var(--surface-2); }
 .pane-body iframe { flex: 1; width: 100%; min-height: 0; border: 0; background: #fff; }
 .pane-body .note { margin: 0; font-size: 12px; border-bottom: 1px solid var(--line); background: var(--warn-soft); }
 .pane-fail { margin: 16px; padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface); display: grid; gap: 8px; }
@@ -312,3 +316,33 @@ textarea { width: 100%; display: block; resize: vertical; }
 .confirm-send p { margin: 4px 0; }
 /* SF-3: a suggested radio is not checked; its dashed outline says "suggested" to sighted users. */
 .optwrap.suggested > .opt input { outline: 2px dashed var(--accent); outline-offset: 2px; }
+
+/* ── IDE-304 ─────────────────────────────────────────── */
+/* Item 2: a grid or flex child may shrink below its content, so one long word or line cannot widen the column. */
+.ask-head > *, .answerbar > *, .pane-fail > *, .suggest-bar > *, .fork > *, .opt-body > * { min-width: 0; }
+.chip.warn, .chip.danger { white-space: normal; max-width: 100%; }
+.answerbar details { min-width: 0; }
+/* Item 3: a pick is solid and filled at once, with an accent rule on its left; a suggestion is dashed and empty. */
+.optwrap.on > .opt { box-shadow: inset 3px 0 0 var(--accent); }
+.opt input { transition: none; }
+/* An answered ask shows its recorded picks as picked, not faded like a suggestion. */
+.optwrap.readonly > .opt { cursor: default; }
+.optwrap.readonly > .opt input:disabled { opacity: 1; }
+.optwrap.readonly.on > .opt { border-color: var(--accent); background: var(--accent-soft); }
+.optwrap.readonly:not(.on) > .opt { opacity: .7; }
+/* Item 4: markdown pieces the renderer now draws. */
+.rich hr, .fork-prose hr { border: 0; border-top: 1px solid var(--line); margin: 12px 0; }
+.md-h { margin: 14px 0 6px; font-size: 15px; font-weight: 650; }
+h5.md-h, h6.md-h { font-size: 14px; color: var(--ink-2); }
+.rich li > .nested-md { margin-top: 4px; }
+.rich li > .nested-md > *:last-child { margin-bottom: 0; }
+/* Item 5: the answer in words, above the raw block. */
+.answer-words { display: grid; gap: 6px; margin: 0; font-size: 14px; }
+.answer-words > div { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0; padding: 6px 10px; border-left: 2px solid var(--accent); background: var(--surface-2); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.answer-words dt { color: var(--ink-2); font-size: 13px; overflow-wrap: anywhere; }
+.answer-words dd { margin: 0; overflow-wrap: anywhere; }
+.aw-note { color: var(--ink-2); }
+/* Item 6: why the proof list is empty. */
+.feed-error { color: var(--danger); font-size: 13px; overflow-wrap: anywhere; margin: 0; }
+.feed-status { max-width: 640px; margin: 24px auto; padding: 14px 16px; border: 1px solid var(--line-strong); border-radius: var(--radius); background: var(--surface); display: grid; gap: 6px; }
+.feed-status p { margin: 0; overflow-wrap: anywhere; }

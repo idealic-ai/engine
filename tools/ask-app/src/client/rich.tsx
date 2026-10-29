@@ -30,6 +30,8 @@ export function Inline({ text }: { text: string }) {
         t.t === "text" ? <span key={i}>{t.v}</span>
         : t.t === "code" ? <code key={i} className="ic">{t.v}</code>
         : t.t === "ticket" ? <TicketLink key={i} k={t.key} />
+        : t.t === "strong" ? <strong key={i}><Inline text={t.v} /></strong>
+        : t.t === "em" ? <em key={i}><Inline text={t.v} /></em>
         : <SmartLink key={i} href={t.href} label={t.label} />,
       )}
     </>
@@ -71,9 +73,20 @@ export function Rich({ text, className }: { text?: string; className?: string })
         if (b.t === "p") return <p key={i}><Inline text={b.text} /></p>;
         if (b.t === "pre") return <pre key={i} className="code"><code>{b.code}</code></pre>;
         if (b.t === "quote") return <blockquote key={i}><Rich text={b.text} /></blockquote>;
+        if (b.t === "hr") return <hr key={i} />;
+        if (b.t === "h") {
+          // Prose headings sit under the fork's own title, so they render a step quieter than it.
+          const H = (b.level <= 2 ? "h4" : b.level === 3 ? "h5" : "h6") as "h4" | "h5" | "h6";
+          return <H key={i} className="md-h"><Inline text={b.text} /></H>;
+        }
         if (b.t === "list") {
-          const items = b.items.map((it, j) => <li key={j}><Inline text={it} /></li>);
-          return b.ordered ? <ol key={i}>{items}</ol> : <ul key={i}>{items}</ul>;
+          const items = b.items.map((it, j) => (
+            <li key={j}>
+              <Inline text={it} />
+              {b.nested?.[j] ? <Rich text={b.nested[j]} className="rich nested-md" /> : null}
+            </li>
+          ));
+          return b.ordered ? <ol key={i} start={b.start}>{items}</ol> : <ul key={i}>{items}</ul>;
         }
         const [label, icon] = CALLOUT_LABEL[b.kind];
         const lines = b.body.split("\n").length;

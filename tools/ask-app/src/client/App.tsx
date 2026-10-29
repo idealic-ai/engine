@@ -19,6 +19,7 @@ import {
 } from "../lib/format.ts";
 import {
   acceptAll,
+  answerInWords,
   batchConfirmation,
   rowInFilter,
   restoreUnsent,
@@ -53,10 +54,11 @@ import {
 } from "./model.ts";
 import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
+import { displayTitle } from "./md.ts";
 import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, sideDefault, useStoredNumber } from "./layout.tsx";
 import { pushEsc } from "./esc.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
-import { BroadcastFeed, BroadcastRows, ProofRows, useBroadcasts, useProofs } from "./feeds.tsx";
+import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
 export { ticketKeys };
 type Pane = { url: string; label: string; source: Brief["source"] | "link"; trust: Trust };
@@ -368,7 +370,11 @@ export function App() {
                     onForkHash={setForkHash}
                   />
                 ) : (
-                  <p className="muted">{view === "proofs" ? "Pick a proof page on the left; it opens beside this area." : "Nothing selected."}</p>
+                  view === "proofs" && proofs.list && (!proofs.list.ok || proofs.list.total === 0) ? (
+                    <ProofStatus list={proofs.list} />
+                  ) : (
+                    <p className="muted">{view === "proofs" ? "Pick a proof page on the left; it opens beside this area." : "Nothing selected."}</p>
+                  )
                 )}
               </main>
             }
@@ -382,7 +388,7 @@ export function App() {
 
 /** A title inside a button: code spans keep their look, links and tickets become plain text. */
 function Plain({ text }: { text: string }) {
-  return <>{inlineTokens(text).map((t, i) => (t.t === "code" ? <code key={i} className="ic">{t.v}</code> : <span key={i}>{t.t === "text" ? t.v : t.t === "ticket" ? t.key : t.label}</span>))}</>;
+  return <>{inlineTokens(displayTitle(text)).map((t, i) => (t.t === "code" ? <code key={i} className="ic">{t.v}</code> : t.t === "strong" ? <b key={i}>{t.v}</b> : t.t === "em" ? <i key={i}>{t.v}</i> : <span key={i}>{t.t === "text" ? t.v : t.t === "ticket" ? t.key : t.label}</span>))}</>;
 }
 
 function AskRowButton({ r, current, onPick, slim }: { r: Row; current: boolean; onPick: () => void; slim: boolean }) {
@@ -813,7 +819,8 @@ export function AskDetail({
             <AnsweredBy answer={ask.answer} />
             {ask.answer?.note && <p className="answer-note"><Inline text={ask.answer.note} /></p>}
             <Life h={ask.header} />
-            <details>
+            {ask.header.status !== "declined" && <AnswerWords ask={ask} />}
+            <details className="raw-answer">
               <summary>Recorded answer block</summary>
               <pre className="code">{JSON.stringify(ask.answer, null, 2)}</pre>
             </details>
@@ -856,6 +863,25 @@ export function AskDetail({
         <AskDetails ask={ask} />
       </section>
     </article>
+  );
+}
+
+/** IDE-304 item 5: the recorded answer read out fork by fork, above the raw block (which stays closed). */
+export function AnswerWords({ ask }: { ask: StoredAsk }) {
+  const lines = answerInWords(ask, ask.answer);
+  if (!lines.length) return null;
+  return (
+    <dl className="answer-words" aria-label="The answer, fork by fork">
+      {lines.map((l) => (
+        <div key={l.label}>
+          <dt><span className="flabel">{l.label}</span> <Inline text={l.title} /></dt>
+          <dd>
+            {l.unanswered ? <span className="muted">not answered</span> : <b>{l.picks.join(", ")}</b>}
+            {l.note && <span className="aw-note"> — <Inline text={l.note} /></span>}
+          </dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -936,7 +962,7 @@ function QuestionCard(p: {
         </span>
       </div>
 
-      <h3 className="fork-q"><Inline text={q.title} /></h3>
+      <h3 className="fork-q"><Inline text={displayTitle(q.title)} /></h3>
       {index === 0 && ask.preamble.trim() && <Rich text={ask.preamble.trim()} className="rich preamble" />}
       {card.context && <Rich text={card.context} className="rich context" />}
       <ForkProse text={q.prose} />
@@ -1174,6 +1200,17 @@ function subtreeValues(o: AskOption): string[] {
   return [valueOf(o), ...(o.children ?? []).flatMap(subtreeValues)];
 }
 
+/**
+ * IDE-304 item 3: an option input's click handlers. The click is NOT default-prevented. A prevented
+ * click on a radio or checkbox makes the browser put the native checked state back after the handler
+ * returns, which is after React's synchronous re-render, so the tick stayed empty until some later
+ * render (a focus change, the next keystroke). Letting the native toggle stand, the browser and React
+ * agree in the same frame: the pick is synchronous local state, with no request in between.
+ */
+export function optionInputHandlers(click: () => void): { onChange: () => void; onClick: (e: { preventDefault(): void }) => void } {
+  return { onChange: () => {}, onClick: () => click() };
+}
+
 function OptionTree(p: InputProps & { options: AskOption[]; picks: string[]; name: string; onPicks: (v: string[], confirm: boolean) => void }) {
   const { q, options, picks, readOnly, suggestion } = p;
   const untouched = picks.length === 0;
@@ -1191,7 +1228,7 @@ function OptionTree(p: InputProps & { options: AskOption[]; picks: string[]; nam
           p.onPicks(r.picks, r.confirm);
         };
         return (
-          <div key={v} className={`optwrap${on ? " on" : ""}${suggested ? " suggested" : ""}${p.lean === o.code ? " is-lean" : ""}`}>
+          <div key={v} className={`optwrap${on ? " on" : ""}${suggested ? " suggested" : ""}${p.lean === o.code ? " is-lean" : ""}${readOnly ? " readonly" : ""}`}>
             <label className="opt" title={suggested ? "Suggested by the asker · click to confirm" : undefined}>
               <input
                 type={q.multiSelect ? "checkbox" : "radio"}
@@ -1199,11 +1236,7 @@ function OptionTree(p: InputProps & { options: AskOption[]; picks: string[]; nam
                 disabled={readOnly}
                 checked={on}
                 aria-checked={on}
-                onChange={() => {}}
-                onClick={(e) => {
-                  e.preventDefault();
-                  click();
-                }}
+                {...optionInputHandlers(click)}
               />
               <OptionBody o={o} card={p.card} q={q} lean={p.lean} leanText={p.leanText} trade={p.trade} suggested={suggested} />
             </label>

@@ -3,6 +3,7 @@
  * and grouping of those rows, which option a fork leans to, and which trade-off dimensions are
  * worth a column on a fork. Pure, so the tests read it without a DOM.
  */
+import { displayTitle } from "./md.ts";
 import { cardFor, draftAuthor, questionKey, visibleQuestions, type AnswerMap, type AnswerValue, type AskOption, type ParsedAsk } from "../lib/format.ts";
 
 export type StoredAsk = ParsedAsk & { seat: string; file: string; mtimeMs: number };
@@ -59,7 +60,7 @@ export function askRow(a: StoredAsk, now = Date.now()): Row {
   return {
     ref: askRef(a),
     id: a.header.id ?? "",
-    title: a.questions[0]?.title ?? a.header.id ?? "",
+    title: displayTitle(a.questions[0]?.title ?? a.header.id ?? ""),
     seat: a.header.from?.trim() || a.seat,
     topic: (a.header.topic ?? a.questions[0]?.meta.topic ?? "").trim(),
     created,
@@ -428,4 +429,29 @@ export function buildAnswers(a: ParsedAsk, values: Values, text: Record<string, 
     if (text[k]?.trim()) out[`${k}.other`] = text[k].trim();
   });
   return out;
+}
+
+/**
+ * IDE-304 item 5: a recorded answer in words, fork by fork: what was picked, by option label (a code
+ * the ask no longer names is shown as the code), and the operator's note on that fork. A fork the
+ * answer does not mention is listed as unanswered, so a partial answer reads as partial.
+ */
+export type AnswerLine = { label: string; title: string; picks: string[]; note?: string; unanswered: boolean };
+export function answerInWords(a: ParsedAsk, answer: { answers?: AnswerMap } | undefined): AnswerLine[] {
+  const map = answer?.answers ?? {};
+  const labelOf = (opts: AskOption[], code: string): string | undefined => {
+    for (const o of opts) {
+      if (o.code === code || o.label === code) return o.label.replace(/\s*\(lean\)\s*$/i, "");
+      const sub = labelOf(o.children ?? [], code);
+      if (sub) return sub;
+    }
+    return undefined;
+  };
+  return a.questions.map((q, i) => {
+    const k = questionKey(q, i);
+    const v = map[k];
+    const note = typeof map[`${k}.other`] === "string" && (map[`${k}.other`] as string).trim() ? (map[`${k}.other`] as string).trim() : undefined;
+    const picks = v === undefined || v === "" ? [] : Array.isArray(v) ? v.map((c) => { const l = labelOf(q.options, c); return l && l !== c ? `${c} · ${l}` : c; }) : [String(v)];
+    return { label: forkLabel(q, i), title: displayTitle(q.title), picks, note, unanswered: picks.length === 0 };
+  });
 }
