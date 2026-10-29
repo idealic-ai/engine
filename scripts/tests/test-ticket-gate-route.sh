@@ -119,7 +119,7 @@ elif cmd == "pins":
                    "`/ticket-search --report`", "/inbox-post --channel",
                    "**`FILE` counts only when every visible fork is answered**",
                    "engine ask acted <seat>/<id> \"re-asked as <id>-r<N>", "the id `<id>-r<N>`",
-                   "An unanswered ask files nothing", "**No answer is not a yes.**", "PROVISIONAL",
+                   "An unanswered ask files nothing", "**No answer is not a yes.**", "unclear-scope-default",
                    "Re-run §4 step 1's backstop dedup", "re-read the parent with `get_issue`",
                    "**If either check now differs from what the ask showed, post nothing and re-ask**",
                    "started you with its Agent or Task tool"]:
