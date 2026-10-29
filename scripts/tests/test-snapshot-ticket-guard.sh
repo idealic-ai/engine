@@ -276,7 +276,8 @@ test_autofile_project_never_guessed() {
   has_fixed "then the session's \`linearProject\` parameter" "$a" "R3-S2: the session is second"
   has_fixed "its project id alone resolves the project" "$a" "registry: a row's project id alone resolves the project"
   has_fixed "only means no handbook rules apply" "$a" "registry: a missing handbook only means no handbook rules"
-  has_fixed "team Idealic" "$a" "R3-S2: the team is stated"
+  has_fixed "the team is § Tracker's" "$a" "R3-S2/R4-S3: the team is stated, from § Tracker"
+  lacks_fixed "Idealic" "$a" "R4-S3: no hard-coded team in the auto-file rule"
   has_fixed "name the source" "$a" "IDE-341: the run names the project source it used"
   has_fixed "neither resolves → abort and say so" "$a" "IDE-341: no project → abort, never guess"
   lacks_fixed "fleet config" "$a" "R3-S2: the fleet-config source is gone"
@@ -286,7 +287,7 @@ test_autofile_project_never_guessed() {
 test_autofile_label_record_and_rerun() {
   local a; a=$(autofile_para)
   has_fixed 'the label `auto-filed`' "$a" "N1: the auto-filed label"
-  has_fixed "create it in team Idealic if missing" "$a" "N1: the label is created if missing"
+  has_fixed "create it in the § Tracker team if missing" "$a" "N1/R4-S3: the label is created in the § Tracker team if missing"
   has_fixed '`<sessionDir>/.snapshot-autofiled`' "$a" "R3-M1: the filed key is recorded in the session dir"
   has_fixed "Ruled below you" "$a" "director (a): a settled ask record for Ruled below you"
   has_fixed "answered by the seat" "$a" "director (a): the record is answered by the seat"
@@ -347,6 +348,54 @@ test_registry_rows() {
   has_fixed '`8716ada7-01c9-49b7-a882-51e7c2352960`' "$r" "registry: Orchestration's project id"
   has_fixed "a row's project id alone resolves the project" "$r" "registry: says the project id alone resolves the project"
   has_fixed "only means no handbook rules apply" "$r" "registry: says a missing handbook only means no handbook rules"
+}
+
+# R4-M1 — an entry is bound to the work, expires when a commit carries its key, and loses to a real --.
+test_entry_bound_to_the_work() {
+  local t; t=$(target_bullet)
+  has_fixed "the HEAD sha at filing time" "$t" "R4-M1: the entry records HEAD at filing"
+  has_fixed "the reviewed file set" "$t" "R4-M1: the entry records the reviewed file set"
+  has_fixed "bound to that work, not the branch" "$t" "R4-M1: the entry is bound to the work"
+  has_fixed "its file set matches this run's work" "$t" "R4-M1: an entry applies only to the same work"
+}
+# R4-N2 — how long an entry stays valid.
+test_entry_lifetime() {
+  local t; t=$(target_bullet)
+  has_fixed "stays valid only while no commit carrying its key is in the commit range" "$t" "R4-N2: an entry is valid only until a commit carries its key"
+  has_fixed "once one is, the entry is spent and §1 ignores it" "$t" "R4-N2: a spent entry is ignored"
+}
+test_dash_dash_against_entry() {
+  local t; t=$(target_bullet)
+  has_fixed "a real \`-- <KEY>\` wins over an entry" "$t" "R4-M1: a real -- wins over an entry"
+  has_fixed "if it differs from an unspent entry for the same work, abort" "$t" "R4-M1: -- differing from an unspent entry aborts"
+}
+test_pending_entry() {
+  has_fixed "a \`pending\` entry means a ticket may exist: abort and show it" "$(target_bullet)" "R4-N1: a pending entry aborts and is shown"
+  local a; a=$(autofile_para)
+  has_fixed "write a \`pending\` line before \`save_issue\` and complete it after" "$a" "R4-N1: pending is written before save_issue, completed after"
+  has_fixed "only after Branch safety has named the branch" "$a" "R4-M1: the entry is completed only after Branch safety names the branch"
+  has_fixed "never bound to \`dev\`/\`main\`" "$a" "R4-M1: an entry is never bound to dev/main"
+  lacks_fixed "Immediately append" "$a" "R4-M1: no immediate append bound to the branch"
+}
+# The thread-B-on-the-same-lane path: it aborts or files anew, never posts to the old key.
+test_thread_b_same_lane() {
+  local t; t=$(target_bullet)
+  has_fixed "thread B landing on the same lane after thread A was auto-filed as IDE-342 never posts to IDE-342" "$t" "thread B: never posts to thread A's auto-filed key"
+  has_fixed "the entry is spent and B's single commit key aborts" "$t" "thread B: after A's commit, B aborts"
+  has_fixed "so B is un-ticketed work and files anew or aborts" "$t" "thread B: before A's commit, B files anew or aborts"
+}
+# R4-S1 — what counts as a candidate, and the field read.
+test_candidate_definition() {
+  local a; a=$(autofile_para)
+  has_fixed "a candidate is a ticket the report classifies as a duplicate or an overlap" "$a" "R4-S1: a candidate is a duplicate/overlap classification"
+  has_fixed "its §2 duplicate/overlap bucket" "$a" "R4-S1: the field read is the report's §2 duplicate/overlap bucket"
+  has_fixed "a related-for-context hit is not a candidate" "$a" "R4-S1: a related-for-context hit is not a candidate"
+}
+# R4-S2 — more than one plausible project aborts.
+test_ambiguous_project_aborts() {
+  local a; a=$(autofile_para)
+  has_fixed "more than one registry project plausibly owns the work → abort and name the candidates" "$a" "R4-S2: several plausible projects abort, named"
+  has_fixed "never pick" "$a" "R4-S2: never pick"
 }
 
 run_discovered_tests
