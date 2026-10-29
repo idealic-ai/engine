@@ -84,7 +84,8 @@ const indentOf = (l: string) => l.length - l.trimStart().length;
 
 /** A heading's display text: an ask fork's `¶ASK_NAME:` anchor is for machines, not for reading. */
 export function displayTitle(t: string): string {
-  return t.replace(/^\s*(?:#{1,6}\s+)?(?:Q\d+\s+)?¶?ASK_[A-Za-z0-9_-]+\s*:\s*/, "").trim() || t.trim();
+  // `¶ASK_X: title`, `¶ASK_X title` (no colon, operator 01:29) and a bare `ASK_X: title`.
+  return t.replace(/^\s*(?:#{1,6}\s+)?(?:Q\d+\s+)?(?:¶\s*ASK_[A-Za-z0-9_-]+\s*:?|ASK_[A-Za-z0-9_-]+\s*:)\s*/, "").trim() || t.trim();
 }
 
 /** Split prose into blocks. Fenced code keeps its blank lines; a callout runs while lines start with `>`. */

@@ -8,8 +8,9 @@ import type { Proof, ProofList } from "../lib/proofs.ts";
 import type { Broadcast } from "../lib/broadcasts.ts";
 import { ageOf } from "./model.ts";
 import { Rich } from "./rich.tsx";
+import { scrollToId } from "./scroll.ts";
 
-const token = () => (typeof document === "undefined" ? "" : document.querySelector('meta[name="ask-token"]')?.getAttribute("content") ?? "");
+import { authedFetch } from "./token.ts";
 
 /** Acks counted against the audience: a seat outside the audience that acked does not raise the count. */
 export function ackSummary(b: Pick<Broadcast, "acks" | "audience">): { acked: number; of: number; missing: string[] } {
@@ -32,9 +33,9 @@ export function useProofs(enabled: boolean) {
   const load = useCallback(async (fresh = false) => {
     setBusy(true);
     try {
-      const r = await fetch(`/api/proofs${fresh ? "?fresh" : ""}`, { headers: { "x-ask-token": token() } });
-      const j = await r.json();
-      setList(r.ok ? j : { ok: false, proofs: [], error: j.error ?? `HTTP ${r.status}`, at: new Date().toISOString(), total: 0 });
+      const r = await authedFetch(`/api/proofs${fresh ? "?fresh" : ""}`);
+      const j = r.json;
+      setList(r.status === 200 ? j : { ok: false, proofs: [], error: r.restarted ? "the app restarted: reload to continue" : j.error ?? `HTTP ${r.status}`, at: new Date().toISOString(), total: 0 });
     } catch {
       setList({ ok: false, proofs: [], error: "the app server did not answer", at: new Date().toISOString(), total: 0 });
     } finally {
@@ -52,9 +53,9 @@ export function useBroadcasts(enabled: boolean) {
   const [error, setError] = useState("");
   const load = useCallback(async () => {
     try {
-      const r = await fetch("/api/broadcasts", { headers: { "x-ask-token": token() } });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error ?? `HTTP ${r.status}`);
+      const r = await authedFetch("/api/broadcasts");
+      const j = r.json;
+      if (r.status !== 200) throw new Error(r.restarted ? "the app restarted: reload to continue" : j.error ?? `HTTP ${r.status}`);
       setList(j.broadcasts);
       setError("");
     } catch (e) {
@@ -122,7 +123,7 @@ export function BroadcastRows({ list, error, current, onPick, slim }: { list?: B
 /** The broadcasts in full: newest first, the text inline, the acks over the audience, and in force. */
 export function BroadcastFeed({ list, error, current, now = Date.now() }: { list?: Broadcast[]; error: string; current?: string; now?: number }) {
   useEffect(() => {
-    if (current) document.getElementById(`bc-${current}`)?.scrollIntoView({ block: "start" });
+    if (current) scrollToId(`bc-${current}`);
   }, [current]);
   if (error) return <p className="muted">Broadcasts could not be read: {error}</p>;
   if (!list) return <p className="muted">Loading broadcasts…</p>;

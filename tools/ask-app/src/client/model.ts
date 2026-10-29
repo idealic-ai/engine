@@ -451,7 +451,12 @@ export function answerInWords(a: ParsedAsk, answer: { answers?: AnswerMap } | un
     const k = questionKey(q, i);
     const v = map[k];
     const note = typeof map[`${k}.other`] === "string" && (map[`${k}.other`] as string).trim() ? (map[`${k}.other`] as string).trim() : undefined;
-    const picks = v === undefined || v === "" ? [] : Array.isArray(v) ? v.map((c) => { const l = labelOf(q.options, c); return l && l !== c ? `${c} · ${l}` : c; }) : [String(v)];
+    // A single pick may be stored as a string or as a one-item list; both read as the option's label.
+    const named = (c: string) => {
+      const l = labelOf(q.options, c);
+      return l && l !== c ? `${c} · ${l}` : c;
+    };
+    const picks = v === undefined || v === "" ? [] : Array.isArray(v) ? v.map(named) : typeof v === "string" ? [named(v)] : [String(v)];
     return { label: forkLabel(q, i), title: displayTitle(q.title), picks, note, unanswered: picks.length === 0 };
   });
 }

@@ -16,7 +16,7 @@ const useIsoLayout = typeof window === "undefined" ? useEffect : useLayoutEffect
 export type PaneOpener = (url: string, label: string) => void;
 export const PaneContext = createContext<PaneOpener | undefined>(undefined);
 
-const token = () => (typeof document === "undefined" ? "" : document.querySelector('meta[name="ask-token"]')?.getAttribute("content") ?? "");
+import { authedFetch } from "./token.ts";
 
 /** N3: a link is followed only when it is http(s); anything else (javascript:, data:) is dropped. */
 export function safeHref(url: string | undefined): string | undefined {
@@ -113,8 +113,8 @@ function loadTicket(k: string) {
   if (!ticketCache.has(k)) {
     ticketCache.set(
       k,
-      fetch(`/api/ticket/${encodeURIComponent(k)}`, { headers: { "x-ask-token": token() } })
-        .then(async (r) => (r.ok ? r.json() : { error: (await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}` }))
+      authedFetch(`/api/ticket/${encodeURIComponent(k)}`)
+        .then((r) => (r.status === 200 ? r.json : { error: r.json?.error ?? `HTTP ${r.status}` }))
         .catch(() => ({ error: "the app server did not answer" }))
         .then((v: TicketInfo | { error: string }) => {
           // S6: a failed lookup is shown once, then forgotten, so the next hover asks again.

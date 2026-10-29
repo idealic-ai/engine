@@ -4,7 +4,8 @@
  */
 *, *::before, *::after { box-sizing: border-box; }
 /* IDE-304 item 1: the page itself never scrolls; the shell is the viewport, and each column scrolls on its own. */
-html, body, #root { margin: 0; height: 100%; overflow: hidden; }
+/* clip (where supported) makes them non-scrollers, so not even a script can shift them; hidden is the fallback. */
+html, body, #root { margin: 0; height: 100%; overflow: hidden; overflow: clip; }
 body { background: var(--bg); color: var(--ink); font-family: var(--sans); font-size: 15px; line-height: 1.5; -webkit-text-size-adjust: 100%; }
 code, pre, .okey, kbd { font-family: var(--mono); font-variant-ligatures: none; }
 a { color: var(--accent-ink); text-underline-offset: 2px; }
@@ -44,7 +45,7 @@ header.top .spacer { flex: 1; }
 .tray-result { margin: 0; padding: 8px 16px; background: var(--surface-2); border-bottom: 1px solid var(--line); font-size: 14px; }
 
 /* ── the desk: list | ask | linked page, nothing on top of anything ── */
-.app { height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.app { height: 100dvh; min-height: 0; display: flex; flex-direction: column; overflow: hidden; overflow: clip; }
 .desk { flex: 1; min-height: 0; display: grid; grid-template-rows: minmax(0, 1fr); }
 .side { position: relative; border-right: 1px solid var(--line); background: var(--surface); min-width: 0; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .work { min-width: 0; min-height: 0; display: grid; }

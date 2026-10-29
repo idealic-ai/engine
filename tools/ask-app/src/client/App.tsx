@@ -55,6 +55,9 @@ import {
 import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
 import { displayTitle } from "./md.ts";
+import { RELOAD_RESTARTED, RELOAD_UPDATED, authedFetch, recordBuild, refreshToken, type Authed } from "./token.ts";
+import { clearUnsent, loadUnsent, saveUnsent } from "./unsent.ts";
+import { SCROLL_ROOT, scrollRootOf, scrollToId, scrollWithin } from "./scroll.ts";
 import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, sideDefault, useStoredNumber } from "./layout.tsx";
 import { pushEsc } from "./esc.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
@@ -66,7 +69,6 @@ type Theme = "auto" | "light" | "dark";
 type View = "asks" | "proofs" | "broadcasts";
 
 const valueOf = (o: AskOption) => o.code ?? o.label;
-const token = () => document.querySelector('meta[name="ask-token"]')?.getAttribute("content") ?? "";
 /** Proof hosts besides loopback :9440, set at build time (VITE_PROOF_ORIGINS); :9440 needs no entry. */
 const PROOF_ORIGINS = proofOriginsFromEnv((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_PROOF_ORIGINS);
 const store = {
@@ -87,9 +89,9 @@ const store = {
   },
 };
 
-async function post(url: string, body: unknown): Promise<{ status: number; json: any }> {
-  const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-ask-token": token() }, body: JSON.stringify(body) });
-  return { status: r.status, json: await r.json().catch(() => ({})) };
+/** A write with the token; a token rejected after a server restart is refreshed and retried once (token.ts). */
+async function post(url: string, body: unknown, beforeRetry?: () => void): Promise<Authed> {
+  return authedFetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, { beforeRetry });
 }
 
 function useMedia(q: string): boolean {
@@ -114,6 +116,7 @@ export function App() {
   const [batchResult, setBatchResult] = useState("");
   const [sending, setSending] = useState(false);
   const [batchConfirm, setBatchConfirm] = useState<string | undefined>();
+  const [appNotice, setAppNotice] = useState("");
   const [theme, setTheme] = useState<Theme>(() => (store.get("askclient.theme") as Theme) || "auto");
   const [dragging, setDragging] = useState(false);
   const { section: view, filter, group: groupBy } = route;
@@ -136,8 +139,17 @@ export function App() {
 
   useEffect(() => {
     load();
+    void recordBuild();
     const es = new EventSource("/api/events");
-    es.addEventListener("hello", () => setLive(true));
+    let hellos = 0;
+    // A second hello is a reconnect: the server may have restarted with a new token, so re-read it now,
+    // before the operator's next write, and reload the asks.
+    es.addEventListener("hello", () => {
+      setLive(true);
+      if (hellos++ === 0) return;
+      void refreshToken().then((r) => setAppNotice(!r.ok && r.updated ? RELOAD_UPDATED : ""));
+      load();
+    });
     es.addEventListener("change", () => load());
     es.onerror = () => setLive(false);
     return () => es.close();
@@ -232,7 +244,8 @@ export function App() {
     setSending(true);
     setBatchResult("");
     try {
-      const { status, json } = await post("/api/send", { refs: drafts.map(askRef) });
+      const { status, json, restarted } = await post("/api/send", { refs: drafts.map(askRef) });
+      if (restarted) return setBatchResult(restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
       if (status !== 200) return setBatchResult(`Error: ${json.error}`);
       const pushes = (json.pushes as { seat: string; refs: string[]; delivery: { status: string; reason?: string } }[])
         .map((p) => `${p.seat}: ${p.delivery.status === "delivered" ? "queued, not read yet" : `${p.delivery.status}${p.delivery.reason ? ` (${p.delivery.reason})` : ""}`} — ${p.refs.length} answer${p.refs.length === 1 ? "" : "s"} in one message`)
@@ -284,9 +297,10 @@ export function App() {
             <button className="btn" onClick={() => setBatchConfirm(undefined)}>Keep answering</button>
           </div>
         )}
+        {appNotice && <p className="tray-result" role="alert">{appNotice} <button className="linkish" onClick={() => location.reload()}>Reload</button></p>}
         {batchResult && <p className="tray-result" role="status">{batchResult}</p>}
         <div className="desk" ref={desk} style={{ gridTemplateColumns: `${sideW}px 8px minmax(0, 1fr)` }}>
-          <nav className={`side${slim ? " slim" : ""}`} id="asklist" aria-label={view === "asks" ? "Asks" : view === "proofs" ? "Proof pages" : "Broadcasts"}>
+          <nav className={`side${slim ? " slim" : ""}`} {...{ [SCROLL_ROOT]: "" }} id="asklist" aria-label={view === "asks" ? "Asks" : view === "proofs" ? "Proof pages" : "Broadcasts"}>
             {view === "proofs" && (
               <ProofRows list={proofs.list} busy={proofs.busy} onReload={proofs.reload} slim={slim} current={pane?.url} onOpen={(p) => navigate({ proof: p.key, pane: undefined }, true)} />
             )}
@@ -351,7 +365,7 @@ export function App() {
             onRatio={portrait ? setRatioY : setRatioX}
             onDragging={setDragging}
             main={
-              <main className="detail" ref={detail}>
+              <main className="detail" ref={detail} {...{ [SCROLL_ROOT]: "" }}>
                 {proofMissing && view === "proofs" && <p className="chip warn notice" role="status">No proof page “{route.proof}” in the store. The list on the left still works.</p>}
                 {view === "broadcasts" ? (
                   <BroadcastFeed list={broadcasts.list} error={broadcasts.error} current={bcast} />
@@ -629,8 +643,6 @@ export function initialValues(ask: ParsedAsk): { values: Values; text: Record<st
   return { values, text, note: src?.note ?? "" };
 }
 
-/** SF-5: unsent picks and notes by ask ref (notes by fork key inside), so a remount does not drop them. */
-const unsentStore = new Map<string, Unsent>();
 
 export function AskDetail({
   ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash,
@@ -641,7 +653,7 @@ export function AskDetail({
   const revision = String(ask.header.revision ?? "");
   const start = useMemo(() => {
     const init = initialValues(ask);
-    return open ? restoreUnsent(init, unsentStore.get(ref), revision, ask.questions.map((q, i) => questionKey(q, i))) : { ...init, notice: "" };
+    return open ? restoreUnsent(init, loadUnsent(ref), revision, ask.questions.map((q, i) => questionKey(q, i))) : { ...init, notice: "" };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- the card is keyed by ref+revision
   const [values, setValues] = useState<Values>(start.values);
   const [text, setText] = useState<Record<string, string>>(start.text);
@@ -652,7 +664,7 @@ export function AskDetail({
   const [moved, setMoved] = useState(start.notice);
   const [confirmSend, setConfirmSend] = useState<string | undefined>();
   useEffect(() => {
-    if (open) unsentStore.set(ref, { revision, values, text, note });
+    if (open) saveUnsent(ref, { revision, values, text, note });
   }, [open, ref, revision, values, text, note]);
 
   // Only questions visible under the answers so far are sent, repeated until stable, so a hidden
@@ -678,7 +690,7 @@ export function AskDetail({
 
   const scrollToFork = (i: number | undefined) => {
     const el = i === undefined ? document.getElementById(`answerbar-${ask.header.id}`) : document.getElementById(forkId(i));
-    el?.scrollIntoView({ block: "start", behavior: "smooth" });
+    scrollWithin(scrollRootOf(el), el, { behavior: "smooth" });
     if (i !== undefined) onForkHash?.(forkLabel(ask.questions[i], i));
   };
 
@@ -688,10 +700,10 @@ export function AskDetail({
     const i = resolveFork(ask, focusFork);
     if (i === undefined) {
       setNotice(`No fork “${focusFork}” in this ask; showing ${forkLabel(ask.questions[0] ?? {}, 0)}.`);
-      document.getElementById(forkId(0))?.scrollIntoView({ block: "start" });
+      scrollToId(forkId(0));
     } else {
       setNotice("");
-      document.getElementById(forkId(i))?.scrollIntoView({ block: "start" });
+      scrollToId(forkId(i));
     }
   }, [focusFork, ask]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -699,23 +711,30 @@ export function AskDetail({
     setConfirmSend(undefined);
     setBusy(true);
     setResult("");
+    // Operator 01:29: a token refused after a server restart is refreshed and the request retried once;
+    // the picks and notes are saved in this browser first, so even a reload keeps them.
+    const keep = () => saveUnsent(ref, { revision, values, text, note });
+    const gaveUp = (r: Authed) => (r.restarted ? (setResult(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED), true) : false);
     try {
       if (kind === "discard") {
-        const r = await post("/api/discard", { seat: ask.seat, id: ask.header.id });
+        const r = await post("/api/discard", { seat: ask.seat, id: ask.header.id }, keep);
+        if (gaveUp(r)) return;
         setResult(r.status === 200 ? "Draft discarded." : `Error: ${r.json.error}`);
         return onChanged();
       }
       const base = { seat: ask.seat, id: ask.header.id, expectedRevision: Number(ask.header.revision), note: note || undefined };
       const body = kind === "draft-decline" ? { ...base, decline: note.trim() } : { ...base, answers };
-      const r = await post("/api/draft", body);
+      const r = await post("/api/draft", body, keep);
+      if (gaveUp(r)) return;
       if (r.status === 409) return setResult(`Not saved: the ask moved (now revision ${r.json.revision}). Read the current state before answering again.`);
       if (r.status !== 200) return setResult(`Error: ${r.json.error}`);
       if (kind === "send-now") {
-        const s = await post("/api/send", { refs: [askRef(ask)] });
+        const s = await post("/api/send", { refs: [askRef(ask)] }, keep);
+        if (gaveUp(s)) return;
         const p = s.json.pushes?.[0];
         if (s.json.refused?.length) setResult(`Refused: ${s.json.refused[0].error}`);
         else {
-          unsentStore.delete(ref);
+          clearUnsent(ref);
           if (p) setResult(p.delivery.status === "delivered" ? `Queued at ${p.seat}, not read yet. It turns "read" when the seat runs engine ask read.` : `Saved, but ${p.delivery.status} (${p.delivery.reason ?? ""}). The asker's /next picks it up from the file.`);
         }
       } else setResult("Draft saved in the file. Nothing has been sent: use Send batch at the top.");
