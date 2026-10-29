@@ -122,7 +122,7 @@ Nothing about this has moved yet. `hop.sh` is still at `skills/coordinate/script
 
 ### meta:engine's lean
 
-In meta:engine's words: "Fold it. What seats use is the routing in hop.sh (target, chain, tree, may-rule, inbox) and the grant v1 classes behind may-rule; those move next to /ask and this doc. The 541-line /coordinate skill around them is an older manager event loop that /loom's manager chain and asks have replaced, so it retires."
+In meta:engine's words: "Fold it. What seats use is the routing in hop.sh (target, chain, may-rule, inbox, and the tree read broadcast.sh copies) and the grant v1 classes behind may-rule; those move next to /ask and this doc. The 541-line /coordinate skill around them is an older manager event loop that /loom's manager chain and asks have replaced, so it retires."
 
 Their strongest reason against it: "hop.sh's path is cited literally by the Stop atom in COMMANDS.md, by /afk and by five test suites. A move that misses one caller leaves a seat with no route up, and nothing goes red to say so". That is why the fold is its own ticket, and why `hop.sh` keeps its path until every caller moves in one change.
 
