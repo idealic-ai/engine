@@ -238,4 +238,30 @@ assert_file_not_exists "$DIR/studio.lease" "L24 take writes nothing while anothe
 rmdir "$DIR/.take.lock"; wait
 assert_eq 0 "$(cat "$TMP_DIR/l21.rc")" "L24 take proceeds once the lock is released"
 
+# L25 — check: another seat's live lease means "may not push" (exit 3), naming the holder, and writes nothing.
+reset; mkdir -p "$DIR"; run take runner --repo kit --branch main --what "PR 3" >/dev/null 2>&1
+before="$(ls -A "$DIR" | sort)"
+out="$(run check handbook 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L25 check by another seat while a lease is held is exit 3"
+assert_contains "runner" "$out" "L25 and names the holder"
+assert_contains "left" "$out" "L25 and says how long it has left"
+assert_eq "$before" "$(ls -A "$DIR" | sort)" "L25 check writes nothing"
+
+# L26 — check by the holder itself, on a free directory, and on an absent one: all may push (exit 0).
+out="$(run check runner 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L26 the holder may push"
+run release runner >/dev/null 2>&1
+out="$(run check handbook 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L26 a released lease is free"
+reset
+out="$(run check handbook 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L26 an absent directory is free"
+assert_file_not_exists "$DIR" "L26 check does not create the directory"
+
+# L27 — an expired lease does not block: the same rule take uses.
+reset; mkdir -p "$DIR"; t=$(( $(date -u +%s) - 900 ))
+printf 'seat=runner\nrepo=kit\nbranch=main\ntaken=%s\nexpires=%s\nwhat=old\n' "$(iso_at "$t")" "$(iso_at $((t + 600)))" > "$DIR/runner.lease"
+out="$(run check handbook 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L27 an expired lease does not stop a push"
+
 exit_with_results

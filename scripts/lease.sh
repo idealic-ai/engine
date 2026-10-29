@@ -5,6 +5,8 @@
 #   engine lease show
 #   engine lease take <seat> [--repo R] [--branch B] [--what "one line"]
 #   engine lease release <seat>
+#   engine lease check <seat>      may <seat> push now? 0 yes (nobody holds a live lease, or <seat> does);
+#                                  3 no (another seat holds one; the holder and its time left go to stderr)
 #
 # The protocol is kit sessions/2026_10_14_LAND_TREE_BRANCHES/builds/LANDING_LEASE_DRAFT.md (in force by the
 # operator's ruling of 2026-10-28). This script carries out its mechanics and nothing more:
@@ -196,11 +198,34 @@ lease_release() {
   fi
 }
 
+# lease_check — the read-only question a push gate asks. The holder is found exactly as `take` finds it, so a
+# seat `check` lets through is a seat `take` would not have refused. It writes nothing; an absent directory
+# means nobody holds a lease. Whether a caller fails open on exit 2 is the caller's choice, not this command's.
+lease_check() {
+  local seat="${1:-}"; [ -n "$seat" ] || die "usage: engine lease check <seat>"
+  [ $# -le 1 ] || die "unknown argument: $2"
+  if [ ! -e "$LEASE_DIR" ]; then
+    printf 'lease: free (%s is absent, so nobody has taken a lease)\n' "$LEASE_DIR"
+    return 0
+  fi
+  [ -d "$LEASE_DIR" ] && [ -r "$LEASE_DIR" ] && [ -x "$LEASE_DIR" ] || die "cannot read $LEASE_DIR"
+  local h; h="$(holder_file)"
+  if [ -z "$h" ]; then
+    printf 'lease: free\n'
+  elif [ "$(field seat "$h")" = "$seat" ]; then
+    printf 'lease: held by %s, so %s may push\n' "$(describe "$h")" "$seat"
+  else
+    printf 'lease: %s may not push now; held by %s\n' "$seat" "$(describe "$h")" >&2
+    return 3
+  fi
+}
+
 cmd="${1:-show}"; [ $# -gt 0 ] && shift
 case "$cmd" in
   show) lease_show ;;
   take) lease_take "$@" ;;
   release) lease_release "$@" ;;
-  -h|--help|help) sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//' ;;
-  *) die "unknown subcommand: $cmd (take|release|show)" ;;
+  check) lease_check "$@" ;;
+  -h|--help|help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//' ;;
+  *) die "unknown subcommand: $cmd (take|release|show|check)" ;;
 esac
