@@ -395,3 +395,10 @@ details.round ul { margin: 6px 0; padding-left: 1.2em; }
 .need { display: grid; gap: 6px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--surface-2); }
 .need select { border: 1px solid var(--line-strong); background: var(--surface); border-radius: var(--radius-sm); padding: 4px 6px; max-width: 100%; }
 .need-preview { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+
+/* ── supersede and decline pass-up ───────────────────── */
+.superseded { margin: 0; padding: 8px 12px; border-left: 3px solid var(--ink-3); background: var(--sunken); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: 14px; overflow-wrap: anywhere; }
+.replaces { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
+.path { margin: 0; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
+.path .hop { color: var(--ink-3); cursor: help; }
+.path .hop.declined { color: var(--warn); font-weight: 600; }

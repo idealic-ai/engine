@@ -3,6 +3,7 @@
  * for something first, a draft answer sent as "provisional", and rounds linked by `round:` and
  * `previous:`. Every function degrades: a field today's server drops is read back from the note.
  */
+import { conflictMessage } from "./supersede.ts";
 import { describeAnswer, questionKey, type AnswerMap, type AskAnswer, type ParsedAsk } from "../lib/format.ts";
 
 /** The note line a draft answer carries, so the asker sees it even where `provisional` is not stored. */
@@ -89,7 +90,7 @@ export function provisionalAnswers(a: ParsedAsk, picks: AnswerMap, line: string)
 }
 
 export type Poster = (url: string, body: unknown) => Promise<{ status: number; json: any }>;
-export type SendOutcome = { ok: boolean; message: string; flagStored?: boolean };
+export type SendOutcome = { ok: boolean; message: string; flagStored?: boolean; supersededBy?: string };
 
 /**
  * Save as a draft with `provisional: true`, send it, and read it back. A server that refuses the
@@ -108,7 +109,10 @@ export async function sendProvisional(
     refusedFlag = true;
     r = await post("/api/draft", base);
   }
-  if (r.status === 409) return { ok: false, message: `Not sent: the ask moved (now revision ${r.json.revision}). Read it again first.` };
+  if (r.status === 409) {
+    const c = conflictMessage(r.json);
+    return { ok: false, message: c.supersededBy || r.json?.status === "superseded" ? c.text : c.text.replace("Not saved", "Not sent"), ...(c.supersededBy ? { supersededBy: c.supersededBy } : {}) };
+  }
   if (r.status !== 200) return { ok: false, message: `Error: ${r.json?.error ?? r.status}` };
   // From here a draft with the loop line is in the file: on any failure, put the plain note back.
   const unsave = () => post("/api/draft", { ...base, note: stripLoopLines(args.note) || undefined }).catch(() => undefined);
