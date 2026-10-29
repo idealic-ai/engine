@@ -831,6 +831,24 @@ the main clone, so the bytes you can see are not the whole of what you break.
 *   **Distinct from `§PTF_THE_DEFAULT_CHECKOUT_IS_THE_STALE_ONE_AND_EVERY_CASUAL_READ_LANDS_THERE`**: there the unnamed read lands on old committed history; here it lands on uncommitted edits that are newer than the commit, so the green is borrowed from work the candidate does not contain.
 *   ⚠️ **Stated, not enforced.** Nothing reddens when a candidate's suite resolves the live engine. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
 
+## [2026-10-29 22:31:48] ¶PTF_A_SUBAGENT_FROM_A_PREVIOUS_CONVERSATION_IS_RESUMABLE_BY_COPYING_ITS_TRANSCRIPT
+
+**After a `/clear`, a restart or a reboot, an old agent id is not lost: copy its transcript into the current conversation and resume it.** `SendMessage` to the old id fails with *"No transcript found"*, which reads as the agent being gone. It is not gone; it is filed under the conversation that spawned it.
+
+*   ✅ **Measured 2026-10-29**: copying `<proj>/<old-conv>/subagents/agent-<id>.{jsonl,meta.json}` into `<proj>/<current-conv>/subagents/` made each agent resumable with its full context — **6 of 6 lanes resumed**.
+*   ⛔ **Re-dispatching from scratch is the forbidden move.** It reads as the safe recovery, but the new agent starts without the old one's context and re-does work the old one already holds.
+*   **Redirection**: on *"No transcript found"*, find the old conversation's `subagents/` directory, copy both files for the id, and send the message again.
+*   ⚠️ **Stated, not enforced.** Nothing suggests the copy when the resume fails. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+
+## [2026-10-29 22:31:58] ¶PTF_A_LANE_SAYING_IT_LEFT_A_FILE_UNTOUCHED_IS_A_CLAIM_ABOUT_THAT_FILE
+
+**A report that a file was left untouched is checked on that file, not on its neighbours.** Hashing the sources beside it confirms the sources; it says nothing about the path the claim names.
+
+*   ✅ **Measured 2026-10-29**: a lane reported *"dist never touched, sha256 unchanged"*. On disk, `tools/ask-app/dist/.build-id` equalled that lane's own build id, and a `dist.v1-backup-*` directory carried the same timestamp, so the dist had been rebuilt. The conductor relaying the claim had hashed three source files, not `dist`.
+*   ⭐ **It has the shape of `§INV_A_CONTROL_DRAWN_FROM_WHAT_YOU_JUST_FIXED_IS_NOT_A_CONTROL`**: the check that passed was drawn from files the claim was never about, so it could not have failed.
+*   **Redirection**: re-hash or `stat` the exact path the claim names, in the same invocation as the relay, and print that path beside the result.
+*   ⚠️ **Stated, not enforced.** Nothing ties a relayed "untouched" to a reading of the named path. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
+
 ## [2026-10-25 18:46:10] ¶PTF_AN_AMBIGUOUS_WORD_IN_A_LEFTOVERS_ROW_READS_AS_A_CONTRADICTION
 
 **A leftovers row states the thing's STATE, never an adjective that spans two states.** One ambiguous word makes two accurate records look like a disagreement, and the disagreement is what gets investigated.
