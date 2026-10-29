@@ -22,10 +22,21 @@
 #   ¶INV_HOOKS_NOOP_WHEN_IDLE   — exit 0 immediately when there is nothing to do
 #   ¶PTF_EXPLICIT_EXIT_ZERO     — every branch ends in exit 0
 #   ¶PTF_BASH32_COMPATIBILITY   — no ((x++)); macOS ships bash 3.2
-#   ¶PTF_BLOCKING_CAT_ON_STDIN  — this hook never reads stdin
+#   ¶PTF_BLOCKING_CAT_ON_STDIN  — stdin (the Stop hook input) is read once, never with a bare
+#                                 `cat`: a bounded `read -t`, skipped when stdin is a tty, so a
+#                                 writer that holds stdin open cannot hang the hook
 #   ¶PTF_STATE_JSON_RACE        — counter written through safe_json_write
 
 set -uo pipefail
+
+# The Stop hook input is JSON on stdin; its transcript_path names the conversation file the
+# harness is writing NOW. Read it before anything else, bounded: `read -d ''` takes the whole
+# input up to EOF (it returns non-zero there, hence `|| true`), `-t 2` caps a writer that
+# holds stdin open and sends nothing. bash 3.2 has both flags.
+INPUT=""
+if [ ! -t 0 ]; then
+  IFS= read -r -d '' -t 2 INPUT || true
+fi
 
 source "$HOME/.claude/scripts/lib.sh" 2>/dev/null || exit 0
 
@@ -58,14 +69,25 @@ if [ "$COUNT" -ge "$MAX" ]; then
 fi
 
 # ── Guard 3: did the last turn end by asking the human something? ──
-# Resolve THIS session's transcript by NAME. Do not derive its directory from $PWD: a seat
+# Resolve THIS session's transcript. FIRST from the hook input's transcript_path: it is the
+# file the harness is writing this turn. primaryTranscriptKey is set on the first counted tool
+# call and is not refreshed when /clear starts a new conversation file, so after a /clear the
+# key names a stale file. Measured on kit e58778b2 (2026-10-29): Guard 3b tailed the stale
+# file, never found its own injection, and woke an idle agent three times running (test
+# STDIN-01). The path is taken only if it names an existing regular file.
+JSONL=""
+TP=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty' 2>/dev/null || true)
+if [ -n "${TP:-}" ] && [ -f "$TP" ]; then
+  JSONL="$TP"
+fi
+
+# Otherwise resolve it by NAME from primaryTranscriptKey. Do not derive its directory from $PWD: a seat
 # whose cwd is a worktree computes a slug for a directory that does not exist, every guard
 # below is skipped whole, and the hook then injects on every stop until the ceiling — with
 # nothing to show it never ran. Measured on a kit seat working in kit-wt/ci-speed whose
 # transcript lives under -Users-invizko-Projects-kit.
 KEY=$(read_state '.primaryTranscriptKey')
-JSONL=""
-if [ -n "${KEY:-}" ]; then
+if [ -z "$JSONL" ] && [ -n "${KEY:-}" ]; then
   CAND="$HOME/.claude/projects/$(echo "$PWD" | sed 's|/|-|g')/$KEY"
   if [ -f "$CAND" ]; then
     JSONL="$CAND"
@@ -76,7 +98,8 @@ if [ -n "${KEY:-}" ]; then
   fi
 fi
 
-# ⛔ Fail CLOSED when this session's transcript cannot be named. Without it the guards below
+# ⛔ Fail CLOSED when this session's transcript cannot be named — neither by the hook input
+# nor by the key. Without it the guards below
 # cannot tell a turn that did work from one that woke, found nothing and said so — and the
 # ceiling is not an answer to that, it only caps how many times we ask. Stopping is the safe
 # side: the cost is a turn the human resumes, against a loop the human has to interrupt.

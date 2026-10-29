@@ -591,4 +591,118 @@ test_g3_task_notification_is_not_a_prompt() {
 }
 run_test test_g3_task_notification_is_not_a_prompt
 
+# ── The transcript comes from the hook input first ─────────────────────────
+# Measured on kit e58778b2 (2026-10-29): after a /clear the harness writes a NEW
+# conversation file, but primaryTranscriptKey still names the file of the first counted
+# tool call. Guard 3b tailed that stale file, never found its own injection, and woke an
+# idle agent three times in a row (transcript lines 711/716/721, no tool_use between).
+# The Stop hook input carries transcript_path; it names the live file. STDIN-01 is the
+# repro; STDIN-02 is its control (same files swapped), so neither passes vacuously.
+run_hook_with() { printf '%s' "$1" | bash "$HOOK" 2>/dev/null || true; }
+
+idle_wake_transcript() {  # $1 = file; our injection, then a one-line reply, no tool_use
+  {
+    jq -cn --arg r "Stop hook feedback:
+Follow §CMD_CONTINUE_ON_STOP ...
+(2 of 3 auto-continues; set ...)" '{type:"user",isMeta:true,message:{role:"user",content:$r}}'
+    echo '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Nothing to do."}]}}'
+  } > "$1"
+}
+
+test_stdin_transcript_wins_over_stale_key() {
+  write_state ' | .autoContinueCount = 2'
+  echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"         # stale: the pre-/clear file
+  idle_wake_transcript "$PROJ_DIR/live.jsonl"                   # live: after the /clear
+  local out; out=$(run_hook_with "{\"session_id\":\"live\",\"transcript_path\":\"$PROJ_DIR/live.jsonl\",\"hook_event_name\":\"Stop\"}")
+  assert_empty "$out" "STDIN-01: an idle wake in the hook input's transcript is not repeated, whatever the stale key names"
+  assert_eq "0" "$(jq -r '.autoContinueCount' "$TEST_SESSION/.state.json")" \
+    "STDIN-01b: backing off on the live transcript resets the counter"
+}
+run_test test_stdin_transcript_wins_over_stale_key
+
+test_stdin_transcript_control() {
+  write_state ' | .autoContinueCount = 1'
+  idle_wake_transcript "$PROJ_DIR/mine.jsonl"                   # the key names an idle wake
+  echo '{"type":"assistant"}' > "$PROJ_DIR/live.jsonl"          # the input names a benign turn
+  local out; out=$(run_hook_with "{\"transcript_path\":\"$PROJ_DIR/live.jsonl\"}")
+  if [[ "$out" == *"block"* ]]; then
+    pass "STDIN-02: the hook input's transcript is the one read, not the key's (the control)"
+  else
+    fail "STDIN-02: the hook input's transcript is the one read, not the key's (the control)" "a block decision" "$out"
+  fi
+}
+run_test test_stdin_transcript_control
+
+# Fallbacks reach a BLOCK on a benign key file: silence would not discriminate the key
+# being read from the hook failing closed.
+test_stdin_without_path_falls_back_to_key() {
+  write_state
+  echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
+  local out; out=$(run_hook_with '{"session_id":"x","hook_event_name":"Stop"}')
+  if [[ "$out" == *"block"* ]]; then
+    pass "STDIN-03: input with no transcript_path falls back to primaryTranscriptKey"
+  else
+    fail "STDIN-03: input with no transcript_path falls back to primaryTranscriptKey" "a block decision" "$out"
+  fi
+}
+run_test test_stdin_without_path_falls_back_to_key
+
+test_stdin_missing_file_falls_back_to_key() {
+  write_state
+  echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
+  local out; out=$(run_hook_with "{\"transcript_path\":\"$PROJ_DIR/gone.jsonl\"}")
+  if [[ "$out" == *"block"* ]]; then
+    pass "STDIN-04: a transcript_path naming a missing file falls back to the key"
+  else
+    fail "STDIN-04: a transcript_path naming a missing file falls back to the key" "a block decision" "$out"
+  fi
+  # And the fallback is the key's logic whole: the key's idle wake still backs off.
+  write_state
+  idle_wake_transcript "$PROJ_DIR/mine.jsonl"
+  out=$(run_hook_with "{\"transcript_path\":\"$PROJ_DIR/gone.jsonl\"}")
+  assert_empty "$out" "STDIN-05: through that fallback, the key's idle wake still backs off"
+}
+run_test test_stdin_missing_file_falls_back_to_key
+
+test_stdin_non_regular_path_falls_back_to_key() {
+  write_state
+  echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
+  mkdir -p "$PROJ_DIR/adir.jsonl"
+  local out; out=$(run_hook_with "{\"transcript_path\":\"$PROJ_DIR/adir.jsonl\"}")
+  if [[ "$out" == *"block"* ]]; then
+    pass "STDIN-06: a transcript_path naming a directory is refused and falls back to the key"
+  else
+    fail "STDIN-06: a transcript_path naming a directory is refused and falls back to the key" "a block decision" "$out"
+  fi
+}
+run_test test_stdin_non_regular_path_falls_back_to_key
+
+test_stdin_bad_path_and_no_key_fails_closed() {
+  jq -n '{pid: 99999999, lifecycle: "active", skill: "loom", currentPhase: "1: Loom"}' > "$TEST_SESSION/.state.json"
+  local out; out=$(run_hook_with "{\"transcript_path\":\"$PROJ_DIR/gone.jsonl\"}")
+  assert_empty "$out" "STDIN-07: no usable transcript_path and no key still fails closed"
+}
+run_test test_stdin_bad_path_and_no_key_fails_closed
+
+# ¶PTF_BLOCKING_CAT_ON_STDIN: a writer that holds stdin open and sends nothing must not
+# hang the hook. The holder is a background writer on a fifo, killed afterwards, so the
+# timing is the hook's own and not a pipeline waiting on its other member.
+test_stdin_held_open_does_not_hang() {
+  write_state
+  echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
+  local fifo="$TMP_DIR/stdin.fifo"; mkfifo "$fifo"
+  sleep 30 > "$fifo" &
+  local holder=$!
+  local start=$SECONDS out
+  out=$(bash "$HOOK" < "$fifo" 2>/dev/null || true)
+  local took=$((SECONDS - start))
+  kill "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true
+  if [ "$took" -le 5 ] && [[ "$out" == *"block"* ]]; then
+    pass "STDIN-08: stdin held open with no data does not hang the hook (${took}s), and it falls back to the key"
+  else
+    fail "STDIN-08: stdin held open with no data does not hang the hook" "<=5s and a block" "${took}s out=$out"
+  fi
+}
+run_test test_stdin_held_open_does_not_hang
+
 exit_with_results
