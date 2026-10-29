@@ -761,10 +761,12 @@ test_go_check() {
   assert_eq 1 "$RC" "go-check: a changed receipt fails"
   assert_has "MOVED app:ui" "$OUT" "go-check: names the owner whose receipt moved"
   assert_hasnt "MOVED app:ask" "$OUT" "go-check: an owner whose receipts still match is not named"
-  assert_has "strict" "$OUT" "go-check S4: the FAIL text says the check is strict"
-  assert_has "context-only move" "$OUT" "go-check S4: and that a context-only move fails too"
-  assert_has "LANDING.md step 4" "$OUT" "go-check S4: and points at the lander's judgement in LANDING step 4"
-  assert_has "fresh go" "$OUT" "go-check S4: or the owner's fresh go"
+  assert_hasnt "strict" "$OUT" "go-check R4: the FAIL text no longer calls the check strict"
+  assert_hasnt "a context-only move included" "$OUT" "go-check R4: nor says a context-only move fails without recourse"
+  assert_has "MOVED means the diff text" "$OUT" "go-check R4: the FAIL text says what MOVED means: the diff text changed"
+  assert_has "context lines" "$OUT" "go-check R4: and names a change only in context lines"
+  assert_has "LANDING.md step 4" "$OUT" "go-check R4: as covered by LANDING step 4's judgement"
+  assert_has "anything else needs the owner's fresh go" "$OUT" "go-check R4: and anything else needs the owner's fresh go"
   bc go-check go5 --repo "$FIX/repo"
   assert_eq 2 "$RC" "go-check: --commits is required"
 }
@@ -1051,6 +1053,150 @@ test_go_receipt_kind() {
   bc go-check gk1 --repo "$FIX/repo" --commits base..HEAD
   assert_eq 1 "$RC" "kind: a receipt kind go-check cannot recompute fails"
   assert_has "kind 'row'" "$OUT" "kind: and names the kind"
+}
+
+# ---------------------------------------------------------------- go, round 4: --paths, MOVED wording
+# --paths alone: each path's owner is asked through the owners map, as a row's owner path would be.
+test_go_paths_reach_their_owners() {
+  go_repo
+  local c1 c2; c1=$(G rev-parse HEAD~1); c2=$(G rev-parse HEAD)
+  PANE=%2 goreq --pr 28 --paths kern/a.ts,ui/c.ts --commits base..HEAD --id gp1
+  assert_eq 0 "$RC" "paths: a go request with --paths alone exits 0"
+  assert_eq "app:ask app:ui" "$(audience)" "paths: the audience is exactly the paths' owner seats"
+  assert_eq 2 "$(sent_count)" "paths: one message per owner seat"
+  assert_has "paths: kern/a.ts ui/c.ts" "$(rec_of gp1)" "paths: the record header names the paths"
+  assert_has "receipt path app:ask $c1 $(rid "$c1" kern/a.ts) -- kern/a.ts" "$(cat "$FIX/msg.app:ask")" "paths: app:ask's receipt for c1, over its given path"
+  assert_has "receipt path app:ask $c2 $(rid "$c2" kern/a.ts) -- kern/a.ts" "$(cat "$FIX/msg.app:ask")" "paths: app:ask's receipt for c2"
+  assert_has "receipt path app:ui $c2 $(rid "$c2" ui/c.ts) -- ui/c.ts" "$(cat "$FIX/msg.app:ui")" "paths: app:ui's receipt"
+  assert_hasnt "app:ui" "$(cat "$FIX/msg.app:ask")" "paths: each owner's message carries only its own lines"
+  bc status gp1
+  assert_has "paths kern/a.ts ui/c.ts" "$OUT" "paths: status reads the paths header"
+  PANE=%4 bc ack gp1; PANE=%5 bc ack gp1
+  bc go-check gp1 --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 0 "$RC" "paths: go-check passes when every path owner gave its GO"
+  assert_has "paths kern/a.ts ui/c.ts" "$(grep 'go-check: PASS' <<<"$OUT")" "paths: the PASS line names the paths it covered"
+  printf 'c2-amended\n' > "$FIX/repo/ui/c.ts"; G commit -q -a --amend -m c2
+  bc go-check gp1 --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 1 "$RC" "paths: an amended commit on a given path fails go-check"
+  assert_has "MOVED app:ui" "$OUT" "paths: naming the path's owner"
+}
+
+# --rows and --paths together: the audience is the union, and a seat reached both ways gets one
+# receipt line per commit over the union of its paths.
+test_go_rows_and_paths_union() {
+  go_repo
+  local c1 c2; c1=$(G rev-parse HEAD~1); c2=$(G rev-parse HEAD)
+  PANE=%2 goreq --pr 28 --rows alpha --paths stats/b.ts --commits base..HEAD --id gu1
+  assert_eq 0 "$RC" "union: rows and paths together exit 0"
+  assert_eq "app:ask domain:stats" "$(audience)" "union: the audience is the union of the rows' and the paths' seats"
+  assert_has "rows: alpha" "$(rec_of gu1)" "union: the record keeps the rows header"
+  assert_has "paths: stats/b.ts" "$(rec_of gu1)" "union: and adds the paths header"
+  PANE=%4 bc ack gu1; PANE=%7 bc ack gu1
+  bc go-check gu1 --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 0 "$RC" "union: go-check passes"
+  assert_has "rows alpha" "$(grep 'go-check: PASS' <<<"$OUT")" "union: the PASS line names the rows"
+  assert_has "paths stats/b.ts" "$(grep 'go-check: PASS' <<<"$OUT")" "union: and the paths"
+  # beta's owner paths are stats/b.ts and ui/c.ts; --paths repeats ui/c.ts: one path, one line.
+  PANE=%2 goreq --pr 28 --rows beta --paths ui/c.ts --commits base..HEAD --id gu2
+  assert_eq 0 "$RC" "union: a path a row already names is fine"
+  assert_has "receipt path app:ui $c2 $(rid "$c2" ui/c.ts) -- ui/c.ts" "$(rec_of gu2)" "union: one receipt over ui/c.ts, not the path twice"
+  assert_hasnt "-- ui/c.ts ui/c.ts" "$(rec_of gu2)" "union: the path is not repeated"
+  # A seat reached by a row and by a path: one id over both paths, equal to the hand command.
+  PANE=%2 goreq --pr 28 --rows alpha --paths kern/untouched.ts --commits base..HEAD --id gu3
+  assert_eq 2 "$RC" "union: an owner whose --paths give an empty receipt refuses even when its row has one"
+  printf 'u1\n' > "$FIX/repo/kern/untouched.ts"; printf 'a3\n' >> "$FIX/repo/kern/a.ts"; G commit -qam c3
+  local c3; c3=$(G rev-parse HEAD)
+  PANE=%2 goreq --pr 28 --rows alpha --paths kern/untouched.ts --commits base..HEAD --id gu4
+  assert_eq 0 "$RC" "union: once the path is touched, the request goes"
+  assert_has "receipt path app:ask $c3 $(rid "$c3" kern/a.ts kern/untouched.ts) -- kern/a.ts kern/untouched.ts" "$(rec_of gu4)" "union: one receipt per commit over the row's and the given paths"
+  assert_eq 1 "$(grep -c "^receipt path app:ask $c3 " "$FIX/bc/gu4.md" | tr -d ' ')" "union: exactly one line for that seat and commit"
+}
+
+# Refusals mirror rows: unmapped, tie, non-live seat, empty receipt — each naming the path.
+test_go_paths_refusals() {
+  go_repo
+  PANE=%2 goreq --pr 28 --paths orphan/d.ts --commits base..HEAD
+  assert_eq 2 "$RC" "paths: a path no seat maps refuses"
+  assert_has "path 'orphan/d.ts'" "$OUT" "paths: and names the path"
+  PANE=%2 goreq --pr 28 --paths ghost/z.ts --commits base..HEAD
+  assert_eq 3 "$RC" "paths: a path whose seat is not live refuses with 3"
+  assert_has "ghost/z.ts" "$OUT" "paths: and names the path"
+  PANE=%2 goreq --pr 28 --paths kern/untouched.ts --commits base..HEAD
+  assert_eq 2 "$RC" "paths: a path whose receipt is empty on every commit refuses"
+  assert_has "empty" "$OUT" "paths: says the receipt is empty"
+  assert_has "kern/untouched.ts" "$OUT" "paths: and names the path"
+  PANE=%2 goreq --pr 28 --rows alpha --paths orphan/d.ts --commits base..HEAD
+  assert_eq 2 "$RC" "paths: a bad path refuses even beside a good row"
+  printf 'kern/a.ts app:ui\nkern/a.ts domain:stats\n' >> "$FIX/owners"
+  PANE=%2 goreq --pr 28 --paths kern/a.ts --commits base..HEAD
+  assert_eq 2 "$RC" "paths: a path two seats map equally refuses"
+  assert_has "two seats equally" "$OUT" "paths: says it is a tie"
+  PANE=%2 goreq --pr 28 --commits base..HEAD
+  assert_eq 2 "$RC" "paths: neither --rows nor --paths refuses"
+  assert_has "--paths" "$OUT" "paths: and the refusal names both flags"
+  assert_eq 0 "$(sent_count)" "paths: nothing sent on any refusal"
+  assert_eq 0 "$(nrec)" "paths: no record on any refusal"
+}
+
+# Paths are literal: kern/*.ts from a cwd where it would match files is still the one path kern/*.ts.
+test_go_paths_are_literal() {
+  go_repo
+  pushd "$FIX/repo" >/dev/null; PANE=%2 goreq --pr 28 --paths 'kern/*.ts' --commits base..HEAD --dry-run; popd >/dev/null
+  assert_eq 2 "$RC" "paths literal: 'kern/*.ts' is one path, so from the repo root its receipt is empty and it refuses"
+  assert_has "kern/*.ts" "$OUT" "paths literal: and names the literal path"
+  assert_hasnt "kern/a.ts" "$OUT" "paths literal: never expanded to the files it would match"
+  pushd "$FIX/repo" >/dev/null; PANE=%2 goreq --pr 28 --paths 'kern/a.ts,kern/*.ts' --commits base..HEAD --id gl1; popd >/dev/null
+  assert_eq 0 "$RC" "paths literal: beside a real path the request goes"
+  assert_has "-- kern/a.ts kern/*.ts" "$(rec_of gl1)" "paths literal: the receipt line keeps the literal path"
+}
+
+# A record from before --paths (no paths: header) still reads the same in status and go-check.
+test_go_rows_only_record_has_no_paths_header() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD --id gr1
+  assert_hasnt "paths:" "$(sed -n '/^## Text/q;p' "$FIX/bc/gr1.md")" "rows only: the record has no paths header"
+  bc status gr1
+  assert_hasnt "paths" "$OUT" "rows only: status does not mention paths"
+  PANE=%4 bc ack gr1
+  bc go-check gr1 --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 0 "$RC" "rows only: go-check passes"
+  assert_has "each owner of rows alpha has a GO" "$OUT" "rows only: the PASS line reads as before, naming only the rows"
+}
+
+test_go_usage_names_paths() {
+  bc --help
+  assert_has "--paths" "$OUT" "usage: names --paths"
+}
+
+# patch-id --stable ignores line numbers: a re-pick that only shifts lines (an unrelated commit
+# earlier in the same file) keeps the id and passes; a change to a context line moves it.
+test_go_check_line_shift_passes() {
+  go_repo
+  seq 1 20 > "$FIX/repo/kern/a.ts"; G commit -qam long; G tag lbase
+  sed -i.bak 's/^15$/fifteen/' "$FIX/repo/kern/a.ts"; rm -f "$FIX/repo/kern/a.ts.bak"; G commit -qam x
+  local x; x=$(G rev-parse HEAD)
+  PANE=%2 goreq --pr 28 --rows alpha --commits lbase..HEAD --id gs1
+  PANE=%4 bc ack gs1
+  G checkout -q -b shifted lbase
+  { printf 'h1\nh2\nh3\nh4\nh5\n'; cat "$FIX/repo/kern/a.ts"; } > "$FIX/repo/kern/a.ts.n"; mv "$FIX/repo/kern/a.ts.n" "$FIX/repo/kern/a.ts"
+  G commit -qam unrelated-top; G tag sbase
+  G cherry-pick "$x" >/dev/null
+  local h0 h1
+  h0=$(git -C "$FIX/repo" show "$x" -- kern/a.ts | grep '^@@')
+  h1=$(git -C "$FIX/repo" show HEAD -- kern/a.ts | grep '^@@')
+  assert_not_empty "$h0" "line shift: fixture: the original hunk has a header"
+  [ "$h0" != "$h1" ] && pass "line shift: fixture: the re-picked hunk sits at other line numbers" \
+    || fail "line shift: fixture: the re-picked hunk sits at other line numbers" "differ" "$h0 / $h1"
+  bc go-check gs1 --repo "$FIX/repo" --commits sbase..HEAD
+  assert_eq 0 "$RC" "line shift: a re-pick that only shifts lines keeps its go"
+  # Control: a context line beside the change moves, so the id moves.
+  G checkout -q -b ctx lbase
+  sed -i.bak 's/^12$/twelve/' "$FIX/repo/kern/a.ts"; rm -f "$FIX/repo/kern/a.ts.bak"; G commit -qam ctxchange; G tag cbase
+  G cherry-pick "$x" >/dev/null
+  bc go-check gs1 --repo "$FIX/repo" --commits cbase..HEAD
+  assert_eq 1 "$RC" "line shift control: a changed context line moves the receipt"
+  assert_has "MOVED app:ask" "$OUT" "line shift control: naming the owner"
+  assert_has "context lines" "$OUT" "line shift control: and the FAIL text points context-only changes at LANDING step 4"
 }
 
 test_tree_parity() {
