@@ -351,8 +351,10 @@ test_registry_rows() {
 }
 
 # ── Round 6 (R5-M1, R5-M2, R5-S1..S4, R5-N1..N3). An entry never selects the target; it only blocks
-# a re-filing. These arms read the sentence that states each rule, so a qualifier that inverts the
-# rule inside that sentence turns them red, not only the removal of a phrase.
+# a re-filing. These arms read the one sentence that states each rule and check that it carries the
+# rule and lacks the inverting qualifiers listed in each arm. A qualifier not on a list, or one put
+# in a neighbouring sentence, is not caught by these; round 7's arms below add order and rule checks
+# for the regressions the round-6 critique planted (PL1-PL7).
 # sentences <text> → one sentence per line (split after ". " and "; ").
 sentences() { norm "$1" | tr '\n' ' ' | sed -e 's/\([.;]\) /\1\n/g'; }
 # sentence_with <needle> <text> → the first sentence of <text> that carries <needle>.
@@ -439,8 +441,8 @@ test_r6_thread_b() {
 test_r6_linear_backstop() {
   local a; a=$(autofile_para)
   has_fixed "Linear backstop" "$a" "R5-S3: the auto-file list has a Linear backstop"
-  has_fixed "an open issue with the label \`auto-filed\` whose body names this session or, off \`dev\`/\`main\`, this branch" "$a" "R5-S3: the backstop queries auto-filed tickets naming the session or branch"
-  has_fixed "if one exists, abort and print it" "$a" "R5-S3: a backstop hit aborts and prints it"
+  has_fixed "for an open issue whose body carries the line \`branch: <this branch>\`" "$a" "R5-S3/R6-M1: the backstop queries auto-filed tickets naming this branch"
+  has_fixed "on a hit, abort and print it" "$a" "R5-S3: a backstop hit aborts and prints it"
   before "$(step_no "Linear backstop")" "$(step_no "**File**")" "order: the Linear backstop comes before the filing"
   has_fixed '`session: <sessionDir>`' "$(file_step)" "R5-S3: the body names the session"
   has_fixed '`branch: <branch>`' "$(file_step)" "R5-S3: the body names the branch"
@@ -507,6 +509,132 @@ test_ambiguous_project_aborts() {
   local a; a=$(autofile_para)
   has_fixed "more than one registry project plausibly owns the work → abort and name the candidates" "$a" "R4-S2: several plausible projects abort, named"
   has_fixed "never pick" "$a" "R4-S2: never pick"
+}
+
+# ── Round 7 (R6-M1, R6-S1..S5, R6-N1..N4). Each arm names the rule it checks and the plant it was
+# written against. They are still text arms: they read the sentence that states a rule, and they go
+# red on the listed qualifiers or orderings, not on any rewording that inverts the rule.
+lacks_re() {  # lacks_re <ERE> <text> <msg>, case-insensitive
+  if grep -qiE -- "$1" <<<"$(norm "$2")"; then fail "$3" "lacks /$1/" "present"; else pass "$3"; fi
+}
+backstop_step() { autofile_para | grep -m1 -E '^[0-9]+\. \*\*Linear backstop'; }
+commit_bullet() { grep -m1 -F -- '- **Commit** with the approved message' "$SKILL"; }
+report_step() { grep -m1 -F '4. **Report + trail.**' "$SKILL"; }
+
+# R6-M1 — the backstop matches on this branch alone, off dev/main, never on the session.
+test_r7_backstop_branch_only() {
+  local b m; b=$(backstop_step); m=$(sentence_with "list_issues" "$b")
+  assert_not_empty "$b" "R6-M1: the auto-file list has a Linear backstop step"
+  has_fixed 'the line `branch: <this branch>`' "$m" "R6-M1: the backstop query matches the body's branch line"
+  lacks_re 'session' "$m" "R6-M1: the backstop's match sentence has no session criterion"
+  lacks_fixed "names this session" "$b" "R6-M1: no session clause anywhere in the backstop"
+  has_fixed "the match is on the branch alone" "$b" "R6-M1: the backstop says it matches on the branch alone"
+  has_fixed 'off `dev`/`main`' "$m" "R6-M1: the backstop runs only off dev/main"
+  has_fixed 'on `dev`/`main` the backstop does not run' "$b" "R6-M1: on dev/main the backstop does not run"
+  lacks_fixed "the lines step 6 matches" "$(file_step)" "R6-M1: the File step no longer says step 6 matches the session line"
+  has_fixed '`session: <sessionDir>`' "$(file_step)" "R6-M1: the body still carries the session line for a person"
+}
+# R6-M1 — a backstop hit prints the key with §1's caveat and never advises -- on its own.
+test_r7_backstop_caveat() {
+  local b; b=$(backstop_step)
+  has_fixed "may belong to another thread on this lane" "$b" "R6-M1: the backstop abort carries §1's caveat"
+  lacks_fixed 'so the seat re-runs with `-- <KEY>`' "$b" "R6-M1: the backstop no longer tells the seat to re-run with --"
+  has_fixed "an unattended caller does not re-run with it on its own reading" "$b" "R6-M1: an unattended caller does not adopt the printed key"
+  # Every sentence of the backstop that mentions `-- <KEY>` carries the caveat's condition.
+  local s bad=0
+  while IFS= read -r s; do
+    grep -qiF -- '-- <KEY>' <<<"$s" || continue
+    grep -qiF -- "only when this work is that ticket's own" <<<"$s" || bad=1
+  done <<<"$(sentences "$b")"
+  if [ "$bad" = 0 ]; then pass "R6-M1: every backstop sentence naming -- <KEY> carries the condition"; else fail "R6-M1: every backstop sentence naming -- <KEY> carries the condition" "condition in each" "a -- <KEY> sentence without it"; fi
+}
+# R6-N4 + PL3 — open is statusType not completed or canceled, and no state exempts a hit.
+test_r7_backstop_open() {
+  local b; b=$(backstop_step)
+  has_fixed 'open means its `statusType` is neither `completed` nor `canceled`' "$b" "R6-N4: open is defined by statusType"
+  lacks_re 'not a hit|file anyway|file regardless|still files?' "$b" "PL3: no hit is exempted from the abort"
+  lacks_re 'backlog|triage|unstarted' "$b" "PL3: no open state is singled out as not a hit"
+  has_fixed "on a hit, abort" "$b" "R6-M1: a backstop hit aborts"
+}
+# R6-S1 — the Outcome stamps the auto-filed key, and /loom and /next adopt it as the thread's key.
+test_r7_filed_key_reaches_caller() {
+  has_fixed '`auto-filed <KEY>`' "$(report_step)" "R6-S1: §4's Outcome stamps auto-filed <KEY>"
+  has_fixed "adopts that key as the thread's key" "$(report_step)" "R6-S1: §4 says the caller adopts the key"
+  has_fixed 'when a bare run'"'"'s Outcome stamps `auto-filed <KEY>`, that key becomes the thread'"'"'s key' "$(grep -F '**Automatic** invokes' "$LOOM")" "R6-S1: /loom's Automatic path adopts the auto-filed key"
+  has_fixed '`auto-filed <KEY>` an earlier snapshot of the thread stamped' "$(grep -F '**Closing snapshot before the proof**' "$LOOM")" "R6-S1: /loom's closing snapshot passes the adopted key"
+  every_line_has "$NEXT" '/snapshot --yes -- <KEY>' 'an `auto-filed <KEY>` an earlier `/snapshot --yes` stamped in its Outcome' "R6-S1: /next adopts an auto-filed key as the thread's key"
+}
+# R6-S2 + R6-N2 — an unbound or orphaned filed entry gets a person's exit, and the abort says unbound.
+test_r7_unbound_and_orphan_exit() {
+  local t u o; t=$(target_bullet)
+  u=$(sentence_with "unbound" "$t")
+  has_fixed 'a `filed` entry whose `branch` is `-`' "$u" "R6-S2: the unbound filed entry is named"
+  has_fixed 'same exit as a `pending` one' "$u" "R6-S2: an unbound filed entry takes pending's exit"
+  has_fixed "the abort says the entry is unbound" "$t" "R6-S2: the abort says the entry is unbound"
+  o=$(sentence_with "orphaned" "$t")
+  has_fixed "a person clears an orphaned entry the same way" "$o" "R6-N2: an orphaned filed entry has a person's exit"
+}
+# PL5 — a person clears a line only by appending, never by editing the file.
+test_r7_clear_appends() {
+  local t s bad=0; t=$(target_bullet)
+  while IFS= read -r s; do
+    grep -qiE 'clears?( the| an| such)? (line|entry)|clears it' <<<"$s" || continue
+    grep -qiE 'delet|remov|edit|rewrit|truncat' <<<"$s" && bad=1
+    grep -qiF 'appending it as `spent`' <<<"$s" || bad=1
+  done <<<"$(sentences "$t")"
+  if [ "$bad" = 0 ]; then pass "PL5: every clear-the-entry sentence appends spent and edits nothing"; else fail "PL5: every clear-the-entry sentence appends spent and edits nothing" "append only" "a clear sentence that edits or does not append"; fi
+}
+# R6-S3 — the id is a fresh uuid at pending and repeated on later lines.
+test_r7_id_rule() {
+  local s; s=$(sentence_with '`id` is a fresh' "$(target_bullet)")
+  has_fixed "a fresh uuid" "$s" "R6-S3: the id is a fresh uuid"
+  has_fixed 'generated when `pending` is appended' "$s" "R6-S3: the id is generated at pending"
+  has_fixed "every later line for that entry repeats it" "$s" "R6-S3: later lines repeat the id"
+  lacks_re 'slug|counter|session|branch|derived from the' "$s" "R6-S3: the id is not derived from the session, branch or a count"
+}
+# R6-S4 — any commit through /snapshot that carries a filed key spends the entry.
+test_r7_commit_spends() {
+  local c s; c=$(commit_bullet); s=$(sentence_with 'append a `spent` line' "$c")
+  has_fixed 'for every `filed` entry for this work whose `<KEY>` the commit message carries' "$s" "R6-S4: the commit spends every filed entry whose key it carries"
+  has_fixed "whichever run filed it" "$s" "R6-S4: not only the auto-file run's own commit"
+  has_fixed 'use its `<KEY>`' "$s" "R6-S4: a confirm-mode use-its-KEY commit spends the entry"
+  lacks_re 'only (when|if) \[0\]|merge|default branch|\bPR\b' "$s" "R6-S4: the commit's spend has no extra condition"
+}
+# PL1 — [0]'s spent line is appended when the commit lands, with no merge condition.
+test_r7_zero_spent_no_condition() {
+  local s; s=$(sentence_with 'append the `spent` line' "$(zero_bullet)")
+  has_fixed "when the commit carrying the key lands" "$s" "PL1: [0]'s spent is tied to the commit landing"
+  lacks_re 'merge|\bPR\b|default branch|only once|push' "$s" "PL1: [0]'s spent has no merge, push or PR condition"
+}
+# PL2 — in [0] the pending line precedes save_issue, which precedes the filed line.
+test_r7_zero_order() {
+  local z; z=$(zero_bullet)
+  before "$(pos 'append the `pending` line' "$z")" "$(pos 'call `save_issue`' "$z")" "PL2: in [0], pending is appended before save_issue"
+  before "$(pos 'call `save_issue`' "$z")" "$(pos 'append the `filed <KEY>` line' "$z")" "PL2: in [0], save_issue precedes the filed line"
+}
+# PL4 + R6-N1 — without --yes the question never files, and use-its-KEY is offered only for filed.
+test_r7_without_yes() {
+  local t n u; t=$(target_bullet); n=$(sentence_with "Without \`--yes\`" "$t")
+  lacks_re '\bfile\b|fresh ticket|new ticket|file (a|one|it)' "$n" "PL4: the without---yes question never files a ticket"
+  u=$(sentence_with 'use its `<KEY>`' "$t")
+  has_fixed '`filed`' "$u" "R6-N1: use-its-KEY is offered for a filed entry"
+  lacks_fixed '`pending`' "$u" "R6-N1: use-its-KEY is not offered for a pending entry"
+  has_fixed 'for a `pending` one, check Linear first' "$t" "R6-N1: a pending entry is told to check Linear first"
+}
+# PL7 — a -- naming another key leaves the entry as it is.
+test_r7_other_key_leaves_entry() {
+  local s; s=$(sentence_with "names another key" "$(target_bullet)")
+  has_fixed "the entry is left as it is" "$s" "PL7: another key leaves the entry as it is"
+  lacks_re 'retire|spent' "$s" "PL7: another key never retires or spends the entry"
+}
+# PL6 — spent is only ever appended; nothing turns an entry spent by age or inference.
+test_r7_spent_only_appended() {
+  lacks_re 'treated as `?spent|older than|after (an?|one|[0-9]+) (hour|day|minute)|expires?' "$(target_bullet)" "PL6: no entry becomes spent by age or inference"
+}
+# R6-N3 — no stale count of aborts.
+test_r7_no_abort_count() {
+  lacks_re '\b(two|three|four|five) (situations|aborts)\b' "$(cat "$SKILL")" "R6-N3: no fixed count of aborts"
+  assert_not_empty "$(abort_list)" "R6-N3: the abort paragraph is still found"
 }
 
 run_discovered_tests
