@@ -18,7 +18,8 @@ import {
   type PanelRead,
 } from "../lib/format.ts";
 import {
-  acceptAll,
+  acceptListed,
+  suggestionList,
   batchConfirmation,
   rowInFilter,
   restoreUnsent,
@@ -55,7 +56,7 @@ import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
 import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, sideDefault, useStoredNumber } from "./layout.tsx";
 import { pushEsc } from "./esc.ts";
-import { DRAFT_NOTE, REQUEST_KINDS, composeNote, needsUnansweredConfirm, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
+import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, useBroadcasts, useProofs } from "./feeds.tsx";
 
@@ -135,6 +136,8 @@ export function App() {
 
   useEffect(() => {
     load();
+    // SF-3: a server that keeps `provisional` will say so in /api/health; until then the flag is absent.
+    fetch("/api/health").then((r) => r.json()).then((h) => h?.provisional === true && noteServerKeepsProvisional(true)).catch(() => undefined);
     const es = new EventSource("/api/events");
     es.addEventListener("hello", () => setLive(true));
     es.addEventListener("change", () => load());
@@ -622,15 +625,25 @@ export function initialValues(ask: ParsedAsk): { values: Values; text: Record<st
     if (k.endsWith(".other")) text[k.slice(0, -6)] = String(v);
     else values[k] = v;
   }
-  return { values, text, note: src?.note ?? "" };
+  // SF-2: a draft left by a failed provisional send does not hand its draft or request line to the next send.
+  return { values, text, note: own ? stripLoopLines(src?.note ?? "") : src?.note ?? "" };
+}
+
+/**
+ * Whether this server keeps `provisional` (SF-3): learned from a read-back that showed the flag, or
+ * from a `provisional: true` in /api/health once the server says so. Until then, false.
+ */
+let provisionalKeptSeen = false;
+export function noteServerKeepsProvisional(v: boolean) {
+  provisionalKeptSeen = v;
 }
 
 /** SF-5: unsent picks and notes by ask ref (notes by fork key inside), so a remount does not drop them. */
 const unsentStore = new Map<string, Unsent>();
 
 export function AskDetail({
-  ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash,
-}: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void }) {
+  ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash, provisionalKept,
+}: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void; provisionalKept?: boolean }) {
   // NIT: an ask with no status line is open, as the list and the server read it.
   const open = (ask.header.status ?? "open") === "open";
   const ref = askRef(ask);
@@ -646,7 +659,7 @@ export function AskDetail({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [moved, setMoved] = useState(start.notice);
-  const [confirmSend, setConfirmSend] = useState<string | undefined>();
+  const [confirmSend, setConfirmSend] = useState<{ msg: string; kind: SendKind } | undefined>();
   useEffect(() => {
     if (open) unsentStore.set(ref, { revision, values, text, note });
   }, [open, ref, revision, values, text, note]);
@@ -662,25 +675,20 @@ export function AskDetail({
     answers = buildAnswers(ask, values, text, visible);
   }
   // A later round suggests the operator's picks from the round before; elsewhere, the asker's lean.
+  // MF-1: ONE list, with one "unpicked" test (filled: [] is unpicked), drives the label, the dashed
+  // cards and Accept all, so Accept all accepts exactly what its label names.
   const prior = useMemo(() => (open ? priorPicks(ask, all) : {}), [ask, all, open]);
-  const suggestions: Record<string, string> = open ? { ...suggestionsFor(ask, values), ...Object.fromEntries(Object.entries(prior).filter(([k]) => values[k] === undefined)) } : {};
-  const fromPrior = Object.keys(suggestions).some((k) => prior[k] === suggestions[k]);
+  const visibleSuggestions = suggestionList(ask, values, visible, prior);
+  const suggestions: Record<string, string> = Object.fromEntries(visibleSuggestions.map((v) => [v.key, v.code]));
+  const fromPrior = visibleSuggestions.some((v) => v.from === "prior");
   const provisional = isProvisional(ask);
   const rounds = useMemo(() => earlierRounds(ask, all), [ask, all]);
-  const { turns } = dialogueOf(ask);
+  const dialogue = useMemo(() => dialogueOf(ask), [ask]);
+  const turns = dialogue.turns;
   const [needOpen, setNeedOpen] = useState(false);
   const [needKind, setNeedKind] = useState("proof:best");
   const [needText, setNeedText] = useState("");
-  // MF-2: the button names exactly this list, and Accept all accepts exactly this list (visible forks only).
-  const visibleSuggestions = open
-    ? [
-        ...visibleSuggestionsFor(ask, values, visible).filter((v) => !prior[v.key]),
-        ...ask.questions.flatMap((q, i) => {
-          const key = questionKey(q, i);
-          return visible.includes(q) && prior[key] && values[key] === undefined ? [{ key, label: forkLabel(q, i), code: prior[key] }] : [];
-        }),
-      ].sort((x, y) => ask.questions.findIndex((q, i) => questionKey(q, i) === x.key) - ask.questions.findIndex((q, i) => questionKey(q, i) === y.key))
-    : [];
+  const kept = provisionalKept ?? provisionalKeptSeen;
   const dep = ask.header.dependsOn?.trim();
   const depMissing = dep && !all.some((a) => a.header.id === dep);
   const depDeclined = dependsOnDeclined(ask, all);
@@ -718,7 +726,9 @@ export function AskDetail({
         setResult(r.status === 200 ? "Draft discarded." : `Error: ${r.json.error}`);
         return onChanged();
       }
-      const base = { seat: ask.seat, id: ask.header.id, expectedRevision: Number(ask.header.revision), note: note || undefined };
+      // SF-2: an ordinary save or send never carries the draft or request line along.
+      const plain = stripLoopLines(note);
+      const base = { seat: ask.seat, id: ask.header.id, expectedRevision: Number(ask.header.revision), note: plain || undefined };
       const body = kind === "draft-decline" ? { ...base, decline: note.trim() } : { ...base, answers };
       const r = await post("/api/draft", body);
       if (r.status === 409) return setResult(`Not saved: the ask moved (now revision ${r.json.revision}). Read the current state before answering again.`);
@@ -738,7 +748,7 @@ export function AskDetail({
     }
   }
 
-  /** Send as draft and Send request: provisional and deliberately partial, so no "unanswered" confirm. */
+  /** Send as draft and Send request: provisional and partial on purpose (see clickPlan for when they confirm). */
   async function provisionalSend(answersToSend: Record<string, AnswerValue>, noteText: string) {
     setConfirmSend(undefined);
     setBusy(true);
@@ -748,14 +758,20 @@ export function AskDetail({
         const j = await (await fetch("/api/asks")).json();
         return (j.asks as StoredAsk[]).find((x) => askRef(x) === askRef(ask));
       }, { seat: ask.seat, id: ask.header.id ?? "", expectedRevision: Number(ask.header.revision), answers: answersToSend, note: noteText });
-      if (out.ok) unsentStore.delete(ref);
+      if (out.ok) {
+        unsentStore.delete(ref);
+        setNeedText("");
+        setNeedOpen(false);
+        if (out.flagStored) provisionalKeptSeen = true;
+      }
       setResult(out.message);
       onChanged();
+    } catch (e) {
+      setResult(`Error: ${(e as Error).message}. Reload to see whether anything was sent.`);
     } finally {
       setBusy(false);
     }
   }
-  // Provisional sends never stop at the "unanswered" confirm (needsUnansweredConfirm is false for them).
   const sendDraft = () => provisionalSend(answers, composeNote(DRAFT_NOTE, note));
   const sendRequest = () => {
     const line = requestLine(needKind, needText);
@@ -766,11 +782,15 @@ export function AskDetail({
   const nothing = Object.keys(answers).length === 0;
   const unanswered = unansweredForks(ask, answers, visible);
   /** MF-1: a send settles the whole ask, so a send that leaves visible forks unpicked asks first. */
-  const askSend = () => {
-    const msg = needsUnansweredConfirm("send", unanswered) ? sendConfirmation(unanswered) : undefined;
-    if (msg) setConfirmSend(msg);
-    else act("send-now");
+  // Every send button goes through clickPlan: a final partial send confirms; Send as draft and Send
+  // request confirm only while the server does not keep `provisional` (SF-3).
+  const runSend = (kind: SendKind) => (kind === "send" ? act("send-now") : kind === "draft" ? sendDraft() : sendRequest());
+  const clickSend = (kind: SendKind) => {
+    const plan = clickPlan(kind, { unanswered, provisionalKept: kept, confirmText: sendConfirmation });
+    if (plan.confirm) setConfirmSend({ msg: plan.confirm, kind });
+    else runSend(kind);
   };
+  const askSend = () => clickSend("send");
   return (
     <article className="ask">
       <header className="ask-head">
@@ -822,12 +842,7 @@ export function AskDetail({
             <p>
               <b>Suggested picks</b> {fromPrior ? "are your picks from the last round where they still fit, and the asker's leans elsewhere" : "are the asker's leans"}, shown dashed. They are not your answer: nothing is saved or sent until you click. Click a suggested option to confirm it and move to the next fork.
             </p>
-            <button className="btn" onClick={() => setValues((cur) => {
-              // Leans through acceptAll (visible forks only, nested paths kept); last round's picks override on their forks.
-              const next = acceptAll(ask, cur, visible);
-              for (const v of visibleSuggestions) if (prior[v.key] === v.code && cur[v.key] === undefined) next[v.key] = [v.code];
-              return next;
-            })}>
+            <button className="btn" onClick={() => setValues(acceptListed(ask, values, visibleSuggestions))}>
               Accept all {visibleSuggestions.length} suggestion{visibleSuggestions.length === 1 ? "" : "s"}: {visibleSuggestions.map((s) => `${s.label} ${s.code}`).join(" · ")}
             </button>
           </div>
@@ -887,18 +902,18 @@ export function AskDetail({
             <textarea id={`note-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
             <p className="actions">
               <button className="btn primary" disabled={busy || nothing} onClick={askSend}>{nothing ? "Send answers" : picked ? `Send ${picked} answer${picked === 1 ? "" : "s"}` : "Send your notes"}</button>
-              {/* Deliberately partial: a provisional answer expects a second round, so neither of these asks "N questions unanswered — send anyway?". */}
-              <button className="btn" disabled={busy || nothing} onClick={() => sendDraft()} title="Sends your picks marked as not final, with a note saying so">Send as draft</button>
-              <button className="btn" aria-expanded={needOpen} aria-controls={`need-${ask.header.id}`} onClick={() => setNeedOpen(!needOpen)}>Need something first ▾</button>
+              {/* Partial on purpose: never the "N questions unanswered" confirm; while the server does not keep `provisional`, an honest confirm instead. */}
+              <button className="btn" disabled={busy || nothing} onClick={() => clickSend("draft")} title={kept ? "Sends your picks marked as not final, with a note saying so; the ask stays open for a second round" : "Today this closes the ask with your picks and a 'not final' note; the asker should come back with a second round"}>Send as draft</button>
+              <button className="btn" disabled={busy} aria-expanded={needOpen} aria-controls={`need-${ask.header.id}`} onClick={() => setNeedOpen(!needOpen)}>Need something first ▾</button>
               <button className="btn quiet" disabled={busy || nothing} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>
               <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => act("draft-decline")}>Draft a decline</button>
               {ask.draft && <button className="btn" disabled={busy} onClick={() => act("discard")}>Discard draft</button>}
             </p>
             {confirmSend && (
               <div className="confirm-send" role="alertdialog" aria-label="Confirm sending a partial answer">
-                <p>{confirmSend}</p>
+                <p>{confirmSend.msg}</p>
                 <p className="actions">
-                  <button className="btn primary" disabled={busy} onClick={() => act("send-now")}>Send anyway</button>
+                  <button className="btn primary" disabled={busy} onClick={() => runSend(confirmSend.kind)}>{confirmSend.kind === "send" ? "Send anyway" : confirmSend.kind === "draft" ? "Send as draft anyway" : "Send request anyway"}</button>
                   <button className="btn" onClick={() => setConfirmSend(undefined)}>Keep answering</button>
                 </p>
               </div>
@@ -915,9 +930,12 @@ export function AskDetail({
                 </select>
                 <label className="field-label" htmlFor={`need-text-${ask.header.id}`}>In your words</label>
                 <textarea id={`need-text-${ask.header.id}`} rows={2} placeholder="For example: is BIND worth the migration?" value={needText} onChange={(e) => setNeedText(e.target.value)} />
-                <p className="muted need-preview">Sends: <code>{needText.trim() ? requestLine(needKind, needText) : `request: ${needKind} — …`}</code>{picked ? `, with your ${picked} pick${picked === 1 ? "" : "s"} as a draft` : ""}</p>
+                <p className="muted need-preview">
+                  Sends <code>{needText.trim() ? requestLine(needKind, needText) : `request: ${needKind} — …`}</code> as the first line of the note
+                  {picked ? `, with your ${picked} pick${picked === 1 ? "" : "s"}${Object.keys(answers).length > picked ? " and your fork notes" : ""} as a draft answer.` : `. With no picks it also goes in as ${forkLabel(ask.questions[0] ?? {}, 0)}'s answer text, since an empty answer is refused.`}
+                </p>
                 <p className="actions">
-                  <button className="btn primary" disabled={busy || !needText.trim()} onClick={() => sendRequest()}>Send request</button>
+                  <button className="btn primary" disabled={busy || !needText.trim()} onClick={() => clickSend("request")} title={kept ? "Sends the request as a provisional answer" : "Today this closes the ask with the request line in the note; the asker should come back with a second round"}>Send request</button>
                   <button className="btn quiet" onClick={() => setNeedOpen(false)}>Cancel</button>
                 </p>
               </div>
@@ -1015,6 +1033,7 @@ function QuestionCard(p: {
   const tickets = forkTickets(q);
   const high = ask.header.importance?.trim().toLowerCase() === "high";
   const choice = q.kind === "choose-one" || q.kind === "choose" || q.kind === "yesno";
+  const preamble = index === 0 ? dialogueOf(ask).preamble : "";
   return (
     <article className="fork" id={p.domId} data-kind={q.kind}>
       <div className="fork-head">
@@ -1034,7 +1053,7 @@ function QuestionCard(p: {
       </div>
 
       <h3 className="fork-q"><Inline text={q.title} /></h3>
-      {index === 0 && dialogueOf(ask).preamble.trim() && <Rich text={dialogueOf(ask).preamble.trim()} className="rich preamble" />}
+      {index === 0 && preamble.trim() && <Rich text={preamble.trim()} className="rich preamble" />}
       {card.context && <Rich text={card.context} className="rich context" />}
       <ForkProse text={q.prose} />
 
