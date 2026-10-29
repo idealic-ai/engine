@@ -297,3 +297,15 @@ textarea { width: 100%; display: block; resize: vertical; }
 
 /* Hovering from a trigger into its popover keeps it open: a bridge over the gap. */
 .tooltip::before, .lens-pop:not(.pinned)::before { content: ""; position: absolute; left: 0; right: 0; top: -8px; height: 8px; }
+
+/* ── round 4: views ──────────────────────────────────── */
+.seg.views button { font-size: 13px; padding: 3px 10px; }
+.feed-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 12px; position: sticky; top: 0; background: var(--surface); }
+.feed { max-width: 820px; margin: 0 auto; }
+.feed-title { font-size: 16px; margin: 0 0 12px; display: flex; gap: 8px; align-items: baseline; }
+.bcast.in-force { border-left: 3px solid var(--danger); }
+.bcast.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.bc-missing { font-size: 12px; margin: 4px 0 0; }
+@media (max-width: 700px) { header.top .sub { display: none; } }
+.btn.quiet { border-color: transparent; background: none; color: var(--accent-ink); }
+.btn.quiet:hover:not(:disabled) { background: var(--accent-soft); }

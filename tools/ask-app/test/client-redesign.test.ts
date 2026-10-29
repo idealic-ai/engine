@@ -10,6 +10,7 @@ import { acceptAll, askRow, buildAnswers, clickPicks, groupRows, headerLeanEntri
 import { paneTrust, proofOriginsFromEnv } from "../src/client/related.ts";
 import { clampRatio, clampSide, sideDefault, Split, SIDE_MIN, SIDE_MAX } from "../src/client/layout.tsx";
 import { escDepth, pushEsc } from "../src/client/esc.ts";
+import { isNavigation, parseRoute, serializeRoute, type Route } from "../src/client/route.ts";
 import { briefFor, isProofUrl, proofLinks } from "../src/client/related.ts";
 import { blocks, inlineTokens, Rich } from "../src/client/rich.tsx";
 
@@ -280,8 +281,8 @@ describe("round 3 M1: a suggestion is never an answer", () => {
     const { AskDetail } = await import("../src/client/App.tsx");
     const a = stored(OPF);
     const html = renderToStaticMarkup(createElement(AskDetail, { ask: a, all: [a], onChanged: () => {} }));
-    expect(html).toMatch(/<button class="btn primary" disabled="">Save draft<\/button>/);
-    expect(html).toMatch(/<button class="btn" disabled="">Send this one now<\/button>/);
+    expect(html).toMatch(/<button class="btn primary" disabled="">Send answers<\/button>/);
+    expect(html).toMatch(/<button class="btn quiet" disabled="">Save draft<\/button>/);
     expect(html).toContain("Nothing picked yet. Suggestions are not sent.");
     expect(html).toContain("Accept all 3 suggestions: F1 ALL · F2 DEGR · F3 WAIT");
     expect(html).toContain('class="optwrap suggested is-lean"');
@@ -354,5 +355,116 @@ describe("round 3: popovers", () => {
     const names = [...html.matchAll(/type="radio" name="([^"]+)"/g)].map((m) => m[1]);
     expect(new Set(names).size).toBe(2);
     expect(names).toContain("idealic:ui/a1#A/top/X");
+  });
+});
+
+// ── round 4: the Proofs and Broadcasts tabs ─────────────────
+
+describe("round 4 (c): Proofs and Broadcasts views", () => {
+  const B = (id: string, at: string, inForce: boolean, acks: string[], extra: Record<string, unknown> = {}) => ({
+    id, from: "manager:director", at, audience: ["meta:utils", "idealic:ui", "domain:storage"], text: `Hold: ${id} is in effect. More words follow.\n\nSecond paragraph with \`code\`.`,
+    acks, sticky: inForce, expires: "", inForce, ...extra,
+  });
+
+  it("counts acks against the audience only, and names who has not acked", async () => {
+    const { ackSummary, broadcastHeadline } = await import("../src/client/feeds.tsx");
+    expect(ackSummary({ audience: ["a", "b", "c"], acks: ["a", "x"] })).toEqual({ acked: 1, of: 3, missing: ["b", "c"] });
+    expect(broadcastHeadline({ id: "hold", text: "Hold: do not run it. Then more." })).toBe("Hold:");
+    expect(broadcastHeadline({ id: "x", text: "Plain first sentence. Second." })).toBe("Plain first sentence.");
+    expect(broadcastHeadline({ id: "x", text: "" })).toBe("x");
+  });
+
+  it("the feed shows each text inline, the ack count over the audience and in force, never the delivery list", async () => {
+    const { BroadcastFeed } = await import("../src/client/feeds.tsx");
+    const list = [B("soon", "2026-10-29T20:00:00Z", true, ["meta:utils", "idealic:ui", "domain:storage"]), B("old", "2026-10-27T09:00:00Z", false, ["meta:utils"], { expires: "2026-10-28T00:00:00Z" })];
+    const html = renderToStaticMarkup(createElement(BroadcastFeed, { list, error: "", now: NOW }));
+    expect(html).toContain("2, 1 in force");
+    expect(html.indexOf("bc-soon")).toBeLessThan(html.indexOf("bc-old"));
+    expect(html).toContain("Second paragraph with </span><code class=\"ic\">code</code>");
+    expect(html).toContain("in force · sticky");
+    expect(html).toContain("3 of 3 acked");
+    expect(html).toContain("1 of 3 acked");
+    expect(html).toContain("expired 2026-10-28T00:00:00Z");
+    expect(html).toContain("Not acked yet: idealic:ui, domain:storage");
+    expect(html).not.toMatch(/delivered|pid=/);
+  });
+
+  it("the proof list keeps the server's newest-first order and marks the page open in the pane", async () => {
+    const { ProofRows } = await import("../src/client/feeds.tsx");
+    const list = { ok: true, total: 2, at: "", proofs: [
+      { key: "k1", url: "http://127.0.0.1:9440/proofs/a.html", title: "Newest page", owner: "invizko", slug: "a.html", modified: "2026-10-29T12:00:00Z", size: 1 },
+      { key: "k2", url: "http://127.0.0.1:9440/proofs/b.html", title: "Older page", owner: "invizko", slug: "b.html", modified: "2026-10-28T12:00:00Z", size: 1 },
+    ] };
+    const html = renderToStaticMarkup(createElement(ProofRows, { list, busy: false, onOpen: () => {}, onReload: () => {}, slim: false, current: "http://127.0.0.1:9440/proofs/b.html", now: NOW }));
+    expect(html.indexOf("Newest page")).toBeLessThan(html.indexOf("Older page"));
+    expect(html).toContain("2 pages");
+    expect(html).toMatch(/aria-current="true"[^>]*title="http:\/\/127.0.0.1:9440\/proofs\/b.html"/);
+    const down = renderToStaticMarkup(createElement(ProofRows, { list: { ok: false, total: 0, at: "", proofs: [], error: "connection refused" }, busy: false, onOpen: () => {}, onReload: () => {}, slim: false }));
+    expect(down).toContain("Proof store not reachable");
+    expect(down).toContain("connection refused");
+  });
+
+  it("a proof from the store opens in the pane by itself: its host is loopback", () => {
+    expect(paneTrust("http://127.0.0.1:9440/proofs/proofs/invizko/a.html", "http://127.0.0.1:4977")).toBe("auto");
+  });
+});
+
+describe("round 4: the URL is the app's state", () => {
+  const cases: Route[] = [
+    { section: "asks", filter: "open", group: "none" },
+    { section: "asks", ask: "manager:domain/opforks-1029", filter: "settled", group: "topic", fork: "F2" },
+    { section: "asks", ask: "idealic:ui/20261029-055903-how-should-the-design-matcher-fi", filter: "open", group: "none", pane: "off" },
+    { section: "asks", ask: "meta:utils/x", filter: "all", group: "seat", pane: "http://127.0.0.1:9440/proofs/proofs/invizko/a b?x=1&y=2" },
+    { section: "proofs", filter: "open", group: "none" },
+    { section: "proofs", proof: "proofs/invizko/fork2-fits-explore-7fc21c59.html", ask: "manager:domain/opforks-1029", filter: "drafts", group: "none" },
+    { section: "broadcasts", filter: "open", group: "none" },
+    { section: "broadcasts", broadcast: "ask-serve-hold", filter: "open", group: "seat" },
+  ];
+
+  it("parse(serialize(route)) gives the route back, for every section and setting", () => {
+    for (const r of cases) {
+      const u = new URL(serializeRoute(r), "http://127.0.0.1:4977");
+      expect(parseRoute(u.pathname, u.search, u.hash)).toEqual(r);
+    }
+  });
+
+  it("writes readable paths and leaves defaults out", () => {
+    expect(serializeRoute(cases[0])).toBe("/");
+    expect(serializeRoute(cases[1])).toBe("/a/manager:domain/opforks-1029?filter=settled&group=topic#F2");
+    expect(serializeRoute(cases[5])).toBe("/proofs/proofs/invizko/fork2-fits-explore-7fc21c59.html?ask=manager:domain/opforks-1029&filter=drafts");
+    expect(serializeRoute(cases[7])).toBe("/broadcasts/ask-serve-hold?group=seat");
+  });
+
+  it("reads the round-1/2 fragment links, and ignores unknown filters and groups", () => {
+    expect(parseRoute("/", "", "#manager:domain/opforks-1029/F3")).toMatchObject({ section: "asks", ask: "manager:domain/opforks-1029", fork: "F3" });
+    expect(parseRoute("/", "?filter=bogus&group=nope", "")).toMatchObject({ filter: "open", group: "none" });
+  });
+
+  it("pushes what Back should undo, and replaces small changes", () => {
+    const r = cases[1];
+    expect(isNavigation(r, { ...r, ask: "meta:utils/x" })).toBe(true);
+    expect(isNavigation(r, { ...r, section: "proofs" })).toBe(true);
+    expect(isNavigation(r, { ...r, filter: "all" })).toBe(false);
+    expect(isNavigation(r, { ...r, group: "seat" })).toBe(false);
+    expect(isNavigation(r, { ...r, pane: "off" })).toBe(false);
+    expect(isNavigation(r, { ...r, fork: "F1" })).toBe(false);
+  });
+
+  it("an unknown ask, proof or broadcast id still parses, so the app can say not found", async () => {
+    expect(parseRoute("/a/nobody/nothing", "", "")).toMatchObject({ section: "asks", ask: "nobody/nothing" });
+    expect(parseRoute("/proofs/missing.html", "", "")).toMatchObject({ section: "proofs", proof: "missing.html" });
+    expect(parseRoute("/broadcasts/gone", "", "")).toMatchObject({ section: "broadcasts", broadcast: "gone" });
+    const { BroadcastFeed } = await import("../src/client/feeds.tsx");
+    const html = renderToStaticMarkup(createElement(BroadcastFeed, { list: [], error: "", current: "gone" }));
+    expect(html).toContain("No broadcast “gone”");
+  });
+
+  it("Send is the primary action and says how many answers it sends; Save draft is quiet", async () => {
+    const { AskDetail } = await import("../src/client/App.tsx");
+    const a = stored(OPF.replace("status: open", "status: open\ndraft: 2026-10-29T11:00:00.000Z") + '\n```json draft\n{"answers":{"F1":["MAP"],"F2":["DEGR"]},"answeredBy":"operator","basedOn":1,"savedAt":"2026-10-29T11:00:00.000Z"}\n```\n');
+    const html = renderToStaticMarkup(createElement(AskDetail, { ask: a, all: [a], onChanged: () => {} }));
+    const primary = [...html.matchAll(/<button class="btn primary"[^>]*>([^<]*)<\/button>/g)].map((m) => m[1]);
+    expect(primary).toEqual(["Send 2 answers"]);
+    expect(html).toMatch(/<button class="btn quiet">Update draft<\/button>/);
   });
 });

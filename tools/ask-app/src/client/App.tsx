@@ -46,11 +46,14 @@ import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
 import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, sideDefault, useStoredNumber } from "./layout.tsx";
 import { pushEsc } from "./esc.ts";
+import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
+import { BroadcastFeed, BroadcastRows, ProofRows, useBroadcasts, useProofs } from "./feeds.tsx";
 
 export { ticketKeys };
 type Filter = "open" | "drafts" | "settled" | "all";
 type Pane = { url: string; label: string; source: Brief["source"] | "link"; trust: Trust };
 type Theme = "auto" | "light" | "dark";
+type View = "asks" | "proofs" | "broadcasts";
 
 const valueOf = (o: AskOption) => o.code ?? o.label;
 const token = () => document.querySelector('meta[name="ask-token"]')?.getAttribute("content") ?? "";
@@ -96,16 +99,16 @@ const paneFor = (url: string, label: string, source: Pane["source"]): Pane => ({
 export function App() {
   const [root, setRoot] = useState("");
   const [asks, setAsks] = useState<StoredAsk[]>([]);
-  const [filter, setFilter] = useState<Filter>(() => (store.get("askclient.filter") as Filter) || "open");
-  const [groupBy, setGroupBy] = useState<GroupBy>(() => (store.get("askclient.group") as GroupBy) || "none");
-  const [hash, setHash] = useState(() => parseHash(location.hash));
-  const [selected, setSelected] = useState<string | undefined>(() => parseHash(location.hash).ref);
+  const [route, setRoute] = useState<Route>(() => parseRoute(location.pathname, location.search, location.hash));
   const [live, setLive] = useState(false);
   const [batchResult, setBatchResult] = useState("");
   const [sending, setSending] = useState(false);
-  const [pane, setPane] = useState<Pane | null>(null);
   const [theme, setTheme] = useState<Theme>(() => (store.get("askclient.theme") as Theme) || "auto");
   const [dragging, setDragging] = useState(false);
+  const { section: view, filter, group: groupBy } = route;
+  const bcast = route.broadcast;
+  const proofs = useProofs(view === "proofs");
+  const broadcasts = useBroadcasts(view === "broadcasts");
   const portrait = useMedia("(orientation: portrait)");
   const [sideW, setSideW] = useStoredNumber("askclient.sideW", () => sideDefault(typeof innerWidth === "number" ? innerWidth : 1440), clampSide);
   const [ratioX, setRatioX] = useStoredNumber("askclient.splitX", () => 0.5, clampRatio);
@@ -129,23 +132,33 @@ export function App() {
     return () => es.close();
   }, [load]);
 
+  // Back and Forward restore the screen from the URL; a legacy #seat/id link is rewritten in place.
   useEffect(() => {
-    const h = () => {
-      const p = parseHash(location.hash);
-      setHash(p);
-      if (p.ref) setSelected(p.ref);
-    };
-    addEventListener("hashchange", h);
-    return () => removeEventListener("hashchange", h);
+    const pop = () => setRoute(parseRoute(location.pathname, location.search, location.hash));
+    addEventListener("popstate", pop);
+    const canonical = serializeRoute(route);
+    if (canonical !== location.pathname + location.search + location.hash) history.replaceState(null, "", canonical);
+    return () => removeEventListener("popstate", pop);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Move to a new state: pushed when Back should undo it (or when asked), replaced otherwise. */
+  const navigate = useCallback((patch: Partial<Route>, push?: boolean) => {
+    setRoute((cur) => {
+      const next = { ...cur, ...patch };
+      const url = serializeRoute(next);
+      if (push ?? isNavigation(cur, next)) history.pushState(null, "", url);
+      else history.replaceState(null, "", url);
+      return next;
+    });
   }, []);
+  const setFilter = (f: Filter) => navigate({ filter: f });
+  const setGroupBy = (g: GroupBy) => navigate({ group: g });
 
   useEffect(() => {
     if (theme === "auto") delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = theme;
     store.set("askclient.theme", theme === "auto" ? null : theme);
   }, [theme]);
-  useEffect(() => store.set("askclient.filter", filter), [filter]);
-  useEffect(() => store.set("askclient.group", groupBy), [groupBy]);
 
   const shown = useMemo(() => visibleAsks(asks), [asks]);
   const hiddenCount = asks.length - shown.length;
@@ -157,46 +170,46 @@ export function App() {
   );
   const count = (f: Filter) =>
     f === "all" ? rows.length : f === "drafts" ? rows.filter((r) => r.draft).length : f === "settled" ? rows.filter((r) => r.status !== "open").length : rows.filter((r) => r.status === "open").length;
-  const currentRef = asks.some((a) => askRef(a) === selected) ? selected : inFilter[0]?.ref;
-  const current = asks.find((a) => askRef(a) === currentRef);
+  const loaded = root !== "";
+  const named = route.ask;
+  const current = named ? asks.find((a) => askRef(a) === named) : view === "asks" ? asks.find((a) => askRef(a) === inFilter[0]?.ref) : undefined;
+  const currentRef = current ? askRef(current) : undefined;
+  const askMissing = loaded && !!named && !current;
   const brief = current ? briefFor(current) : undefined;
+  const proofHit = route.proof ? proofs.list?.proofs.find((p) => p.key === route.proof) : undefined;
+  const proofMissing = !!route.proof && !!proofs.list?.ok && !proofHit;
 
-  // A brief opens on its own beside the ask, unless it was closed on this ask before. Only a trusted
-  // host opens by itself (M2): another host's page waits for a click and is not fetched before it.
+  // The pane follows the URL: ?pane=off closes it, ?pane=<url> shows that page, and with neither a
+  // chosen proof shows, else the ask's brief, but only from a trusted host (M2).
+  const pane: Pane | null = useMemo(() => {
+    if (route.pane === "off") return null;
+    if (route.pane) {
+      const named = current ? proofLinks(current).find((l) => l.url === route.pane)?.label : undefined;
+      const fromList = proofs.list?.proofs.find((p) => p.url === route.pane)?.title;
+      return paneFor(route.pane, named ?? fromList ?? "Linked page", brief?.url === route.pane ? brief.source : "link");
+    }
+    if (view === "proofs" && proofHit) return paneFor(proofHit.url, proofHit.title, "link");
+    if (brief) {
+      const p = paneFor(brief.url, brief.source === "brief" ? "Brief" : "Linked proof", brief.source);
+      return p.trust === "auto" ? p : null;
+    }
+    return null;
+  }, [route.pane, view, proofHit, brief, current, proofs.list]); // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (detail.current) detail.current.scrollTop = 0;
-    if (!current) return setPane(null);
-    const b = briefFor(current);
-    const closed = store.get(`askclient.brief.closed.${askRef(current)}`) === "1";
-    const p = b ? paneFor(b.url, b.source === "brief" ? "Brief" : "Linked proof", b.source) : null;
-    setPane(p && !closed && p.trust === "auto" ? p : null);
-  }, [currentRef]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [currentRef]);
 
-  const pick = (ref: string) => {
-    setSelected(ref);
-    setHash({ ref });
-    history.replaceState(null, "", `#${ref}`);
-  };
-  const openInPane = useCallback((url: string, label: string) => setPane(paneFor(url, label, "link")), []);
-  const closePane = () => {
-    if (current && pane && brief && pane.url === brief.url) store.set(`askclient.brief.closed.${askRef(current)}`, "1");
-    setPane(null);
-  };
+  const pick = (ref: string) => navigate({ section: "asks", ask: ref, fork: undefined, pane: undefined });
+  const setView = (v: View) => navigate({ section: v, ask: currentRef, proof: undefined, broadcast: undefined, pane: undefined, fork: undefined });
+  const openInPane = useCallback((url: string) => navigate({ pane: url }, true), [navigate]);
+  const closePane = () => navigate({ pane: "off" }, false);
   const toggleBrief = () => {
     if (!current || !brief) return;
     if (pane) closePane();
-    else {
-      store.set(`askclient.brief.closed.${askRef(current)}`, null);
-      setPane(paneFor(brief.url, brief.source === "brief" ? "Brief" : "Linked proof", brief.source));
-    }
+    else navigate({ pane: paneFor(brief.url, "", brief.source).trust === "auto" ? undefined : brief.url }, false);
   };
-  const setForkHash = useCallback(
-    (label: string) => {
-      if (!currentRef) return;
-      history.replaceState(null, "", `#${currentRef}/${label}`);
-    },
-    [currentRef],
-  );
+  const setForkHash = useCallback((label: string) => navigate({ fork: label }, false), [navigate]);
 
   async function sendBatch() {
     setSending(true);
@@ -222,6 +235,13 @@ export function App() {
       <div className={`app${dragging ? " dragging" : ""}`}>
         <header className="top">
           <h1>Asks</h1>
+          <div className="seg views" role="tablist" aria-label="View">
+            {(["asks", "proofs", "broadcasts"] as View[]).map((v) => (
+              <button key={v} role="tab" aria-selected={view === v} aria-pressed={view === v} onClick={() => setView(v)}>
+                {v === "asks" ? <>Asks <span className="n">{waiting}</span></> : v === "proofs" ? "Proofs" : "Broadcasts"}
+              </button>
+            ))}
+          </div>
           <span className="sub">{waiting} waiting on you</span>
           <span className="spacer" />
           <span className={`live ${live ? "on" : ""}`} title={root}>{live ? "Live" : "Offline"}</span>
@@ -242,7 +262,12 @@ export function App() {
         )}
         {batchResult && <p className="tray-result" role="status">{batchResult}</p>}
         <div className="desk" ref={desk} style={{ gridTemplateColumns: `${sideW}px 8px minmax(0, 1fr)` }}>
-          <nav className={`side${slim ? " slim" : ""}`} id="asklist" aria-label="Asks">
+          <nav className={`side${slim ? " slim" : ""}`} id="asklist" aria-label={view === "asks" ? "Asks" : view === "proofs" ? "Proof pages" : "Broadcasts"}>
+            {view === "proofs" && (
+              <ProofRows list={proofs.list} busy={proofs.busy} onReload={proofs.reload} slim={slim} current={pane?.url} onOpen={(p) => navigate({ proof: p.key, pane: undefined }, true)} />
+            )}
+            {view === "broadcasts" && <BroadcastRows list={broadcasts.list} error={broadcasts.error} current={bcast} onPick={(id) => navigate({ broadcast: id }, true)} slim={slim} />}
+            {view === "asks" && <>
             <div className="side-tools">
               {slim ? (
                 <select aria-label="Show" value={filter} onChange={(e) => setFilter(e.target.value as Filter)} id="filter-slim">
@@ -282,6 +307,7 @@ export function App() {
               </section>
             ))}
             {hiddenCount > 0 && !slim && <p className="muted pad">{hiddenCount} ask{hiddenCount === 1 ? " is" : "s are"} hidden until the ask {hiddenCount === 1 ? "it depends" : "they depend"} on is settled.</p>}
+            </>}
           </nav>
           <Grip
             orientation="vertical"
@@ -302,7 +328,12 @@ export function App() {
             onDragging={setDragging}
             main={
               <main className="detail" ref={detail}>
-                {current ? (
+                {proofMissing && view === "proofs" && <p className="chip warn notice" role="status">No proof page “{route.proof}” in the store. The list on the left still works.</p>}
+                {view === "broadcasts" ? (
+                  <BroadcastFeed list={broadcasts.list} error={broadcasts.error} current={bcast} />
+                ) : askMissing ? (
+                  <p className="chip warn notice" role="status">No ask “{named}” here. It may have been moved or deleted; pick one from the list.</p>
+                ) : current ? (
                   <AskDetail
                     key={askRef(current) + current.header.revision}
                     ask={current}
@@ -311,11 +342,11 @@ export function App() {
                     brief={brief}
                     paneOpen={!!pane && !!brief && pane.url === brief.url}
                     onToggleBrief={toggleBrief}
-                    focusFork={hash.fork}
+                    focusFork={route.fork}
                     onForkHash={setForkHash}
                   />
                 ) : (
-                  <p className="muted">Nothing selected.</p>
+                  <p className="muted">{view === "proofs" ? "Pick a proof page on the left; it opens beside this area." : "Nothing selected."}</p>
                 )}
               </main>
             }
@@ -721,8 +752,8 @@ export function AskDetail({
             <label className="field-label" htmlFor={`note-${ask.header.id}`}>Note to the asker</label>
             <textarea id={`note-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
             <p className="actions">
-              <button className="btn primary" disabled={busy || nothing} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>
-              <button className="btn" disabled={busy || nothing} onClick={() => act("send-now")}>Send this one now</button>
+              <button className="btn primary" disabled={busy || nothing} onClick={() => act("send-now")}>{nothing ? "Send answers" : picked ? `Send ${picked} answer${picked === 1 ? "" : "s"}` : "Send your notes"}</button>
+              <button className="btn quiet" disabled={busy || nothing} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>
               <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => act("draft-decline")}>Draft a decline</button>
               {ask.draft && <button className="btn" disabled={busy} onClick={() => act("discard")}>Discard draft</button>}
             </p>
