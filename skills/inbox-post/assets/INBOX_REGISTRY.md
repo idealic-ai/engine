@@ -30,6 +30,7 @@ Each intake project carries its **own complete copy**, attached to the project s
 | Product: Handbook | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-1cef23ee882a) | `941dc575-d981-4c65-963d-087fdabddf99` · `1cef23ee882a` |
 | Product: Stats | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-0d867505073a) | `a4ad13b9-a462-49bf-8d22-36ddb7eee108` · `0d867505073a` |
 | Product: Deploy | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-c498df89472d) | `a6f5098f-4827-4053-b1a4-9e000a9154ce` · `c498df89472d` |
+| Product: Writer | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-68121d233e0e) | `7715150a-7ed8-4458-9e85-e2b18cf5467a` · `68121d233e0e` |
 | Product: Playground | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-4ce0c5ff2dfc) | `91ac23b5-a42e-4a41-890f-3fa8ccbaac3c` · `4ce0c5ff2dfc` |
 
 **A filtered call resolves a handbook without this table.** `list_documents({ projectId, query: "Inbox Handbook", fields: ["id","title","url","updatedAt","project"] })` returns the one document deterministically — verified live — because every project's copy carries the identical title and `projectId` scopes the search. `§CMD_READ_PROJECT_HANDBOOK` tries that first and falls back to these rows, so the table is a cache for the no-MCP and empty-result cases rather than the path.
@@ -80,6 +81,12 @@ A wave can attach a project to an initiative it is given by name — `save_proje
 ## Product: Deploy
 - **Project id**: `cdc5753a-3e3d-4385-8b44-c92d2e463359` (`P-IDE-14`) · **Inboxes milestone**: none yet
 - No channels yet. Its seat is app:deploy, and the handbook says to raise signals with that seat directly until channels exist.
+
+*Created 2026-10-30 on the operator's per-area project ruling. Channels and an Inboxes milestone are not scaffolded; add them here when they exist rather than inventing ids.*
+
+## Product: Writer
+- **Project id**: `3614e4b5-d4b1-44a6-a35c-2e06c5f3c91a` (`P-IDE-17`) · **Inboxes milestone**: none yet
+- No channels yet. Its seat is app:writer, and the handbook says to drop writer and editor findings in Product: Editor's channels until this project's exist.
 
 *Created 2026-10-30 on the operator's per-area project ruling. Channels and an Inboxes milestone are not scaffolded; add them here when they exist rather than inventing ids.*
 
