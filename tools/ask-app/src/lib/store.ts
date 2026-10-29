@@ -14,7 +14,6 @@ import {
   clearDraft,
   currentRevision,
   forwardChain,
-  hopReason,
   hopText,
   type Hop,
   CODE_RULE,
@@ -199,7 +198,15 @@ export async function answerAsk(
   seat: string,
   id: string,
   input: AnswerInput,
-  opts: DeliverOptions & RelayStanding & { push?: typeof pushToSeat; expectedRevision: number; passUpTo?: string },
+  opts: DeliverOptions &
+    RelayStanding & {
+      push?: typeof pushToSeat;
+      expectedRevision: number;
+      /** A reserved ask's decline by a seat goes here: the decliner's parent ("" → operator). */
+      passUpTo?: string;
+      /** A seat's parent ("" when none), to climb past the asker when the pass-up would land on it. */
+      parentOf?: (seat: string) => string;
+    },
 ): Promise<{ file: string; revision: number; delivery: DeliveryResult; passedUpTo?: string }> {
   const file = resolveAskPath(root, seat, id);
   if (!Number.isInteger(opts?.expectedRevision)) throw new AskFormatError("expectedRevision is required: pass the revision you read");
@@ -214,8 +221,9 @@ export async function answerAsk(
     if (!input.reason?.trim()) throw new AskFormatError("a decline needs a non-empty reason");
     const cur = currentRevision(ask);
     if (opts.expectedRevision !== cur) throw new StaleRevisionError(opts.expectedRevision, cur);
-    const to = opts.passUpTo?.trim() || "operator";
-    const after = forwardedText(before, ask, `${seat}/${id}`, { to, by: input.answeredBy ?? "", manages: opts.relayerManages, at, reason: input.reason });
+    const to = passUpTarget(opts.passUpTo?.trim() || "operator", ask.header.from ?? "", opts.parentOf);
+    // N5: like a supersede, the move drops a saved draft (only the operator can hold one here).
+    const after = clearDraft(forwardedText(before, ask, `${seat}/${id}`, { to, by: input.answeredBy ?? "", manages: opts.relayerManages, at, reason: input.reason }));
     atomicWrite(file, after);
     return { to, revision: cur + 1, reserved: reservedOf(ask), reason: forwardChain(parseAskFile(after).header).at(-1)?.reason ?? "" };
   });
@@ -359,6 +367,23 @@ function assertMayRelay(ask: ParsedAsk, a: AskAnswer, standing: RelayStanding = 
   }
 }
 
+/**
+ * S2 (round 2): where a pass-up lands. The decliner's parent — unless that is the ask's own asker,
+ * who cannot answer an operator-reserved ask either: then on up the asker's chain (`parentOf`),
+ * skipping the asker each time, ending at `operator` when a seat has no parent, when the parent
+ * cannot be read, or when the chain loops.
+ */
+function passUpTarget(first: string, asker: string, parentOf?: (seat: string) => string): string {
+  let to = first;
+  const seen = new Set<string>();
+  while (to && to !== "operator" && to === asker) {
+    if (seen.has(to)) return "operator";
+    seen.add(to);
+    to = parentOf?.(to)?.trim() || "operator";
+  }
+  return to || "operator";
+}
+
 const reservedOf = (ask: ParsedAsk) => ask.header["reserved-for"]?.trim() ?? "";
 
 /**
@@ -403,6 +428,12 @@ export async function saveDraft(root: string, seat: string, id: string, input: A
   await withFileLock(file, () => {
     const before = fs.readFileSync(file, "utf8");
     const ask = parseAskFile(before);
+    assertNotSuperseded(ask);
+    // S3 (round 2): a seat's decline of a reserved ask is a pass-up, which moves the ask at once;
+    // it is never held as a draft.
+    if (isPassUp(ask, input)) {
+      throw new AskFormatError(`${seat}/${id} is reserved for ${reservedOf(ask)}: a seat's decline of it is not drafted; use \`engine ask answer --decline\` to pass it up`);
+    }
     assertMayAnswer(ask, input, standing);
     // One draft per ask, owned by whoever saved it: another answerer does not overwrite it.
     // Round 3 (MUST-2): the operator outranks every answerer, so it may supersede a seat's draft
@@ -872,6 +903,14 @@ export async function supersedeAsk(
       if (repl.header.status === "superseded") {
         throw new AskFormatError(`${newRef} is itself superseded (by ${repl.header["superseded-by"] || "another ask"}); supersede ${oldRef} by the live ask`);
       }
+      // N2 (round 2): the replacement must still carry the decision — open, or answered by the
+      // operator (the IDE-261 clean-up). A declined or ruled one, or one a seat answered, is not.
+      const rs = repl.header.status ?? "open";
+      if (rs === "declined" || rs === "ruled") throw new AskFormatError(`${newRef} is ${rs}: nothing is left to answer there; supersede ${oldRef} by an open ask`);
+      if (rs === "answered" && repl.answer?.answeredBy !== "operator") {
+        throw new AskFormatError(`${newRef} was answered by ${repl.answer?.answeredBy || "an unnamed answerer"}, not the operator; only an open ask, or one the operator answered, replaces ${oldRef}`);
+      }
+      if (rs !== "open" && rs !== "answered") throw new AskFormatError(`${newRef} is ${rs}; only an open ask, or one the operator answered, replaces ${oldRef}`);
       const revision = currentRevision(ask) + 1;
       let after = clearDraft(oldText);
       after = setHeaderField(after, "status", "superseded");
@@ -888,7 +927,9 @@ export async function supersedeAsk(
       return { parsed: parseAskFile(after), revision };
     }),
   );
-  const seats = [...new Set([res.parsed.header.to ?? "", ...forwardChain(res.parsed.header).flatMap((h) => [h.from, h.to])])].filter(
+  // S4 (round 2): the asker hears it too when someone else retired its ask — the replacement's answer
+  // goes to the replacement's asker, so otherwise it would wait on a dead ask.
+  const seats = [...new Set([res.parsed.header.to ?? "", ...forwardChain(res.parsed.header).flatMap((h) => [h.from, h.to]), res.parsed.header.from ?? ""])].filter(
     (s) => s && s !== o.by && s !== "operator",
   );
   const push = o.push ?? pushToSeat;

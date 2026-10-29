@@ -59,7 +59,8 @@ describe("supersedeAsk: the happy path", () => {
     await supersedeAsk(root, OLD, { seat: "manager:idealic", id: "n2" }, { by: "operator", push });
     expect(read(ASKER, "old").header["superseded-by"]).toBe("manager:idealic/n2");
     expect(read("manager:idealic", "n2").header.supersedes).toBe(`${ASKER}/old`);
-    expect(pushes.map((p) => p.seat)).toEqual(["manager:idealic"]);
+    // The holder, and (S4, round 2) the asker, since the operator retired its ask.
+    expect(pushes.map((p) => p.seat)).toEqual(["manager:idealic", ASKER]);
     expect(pushes[0].content).toContain("[ask-superseded]");
     expect(pushes[0].content).toContain("manager:idealic/n2");
   });
@@ -81,9 +82,9 @@ describe("supersedeAsk: the happy path", () => {
     expect(read(ASKER, "old2").header.status).toBe("superseded");
   });
 
-  it("an answered copy may supersede its open original (the IDE-261 clean-up)", async () => {
+  it("an operator-answered copy may supersede its open original (the IDE-261 clean-up)", async () => {
     pair();
-    await answerAsk(root, ASKER, "new", { answers: { GO: ["YES"] }, answeredBy: "manager:idealic" }, { expectedRevision: 1, push });
+    await answerAsk(root, ASKER, "new", { answers: { GO: ["YES"] }, answeredBy: "operator" }, { expectedRevision: 1, push });
     await supersedeAsk(root, OLD, NEW, { by: ASKER, push });
     expect(read(ASKER, "old").header.status).toBe("superseded");
     expect(read(ASKER, "new").header.status).toBe("answered");
@@ -138,6 +139,42 @@ describe("supersedeAsk: refusals", () => {
   it("refuses an actor-less call", async () => {
     pair();
     await expect(supersedeAsk(root, OLD, NEW, { by: "", push })).rejects.toThrow(/must name who/);
+  });
+});
+
+describe("round 2: the replacement must be live, and the asker hears it", () => {
+  beforeEach(() => (pushes.length = 0));
+
+  it("N2: refuses a declined replacement, or one settled by anyone but the operator", async () => {
+    pair();
+    newAsk(root, { from: ASKER, to: "manager:idealic", id: "seat-answered" }, BODY);
+    newAsk(root, { from: ASKER, to: "manager:idealic", id: "ruled" }, BODY);
+    await answerAsk(root, ASKER, "new", { declined: true, reason: "no", answeredBy: "operator" }, { expectedRevision: 1, push });
+    await answerAsk(root, ASKER, "seat-answered", { answers: { GO: ["YES"] }, answeredBy: "manager:idealic" }, { expectedRevision: 1, push });
+    const { actedAsk } = await import("../src/lib/store.ts");
+    await actedAsk(root, ASKER, "ruled", "done", { by: ASKER, ruledInChat: "manager:idealic, 02:00" });
+    await expect(supersedeAsk(root, OLD, NEW, { by: ASKER, push })).rejects.toThrow(/idealic:kernel\/new is declined: nothing is left to answer/);
+    await expect(supersedeAsk(root, OLD, { seat: ASKER, id: "seat-answered" }, { by: ASKER, push })).rejects.toThrow(/answered by manager:idealic, not the operator/);
+    await expect(supersedeAsk(root, OLD, { seat: ASKER, id: "ruled" }, { by: ASKER, push })).rejects.toThrow(/idealic:kernel\/ruled is ruled/);
+    expect(read(ASKER, "old").header.status).toBe("open");
+  });
+
+  it("S4: the operator superseding tells the asker, naming the replacement", async () => {
+    pair();
+    await supersedeAsk(root, OLD, NEW, { by: "operator", push });
+    expect(pushes.map((p) => p.seat).sort()).toEqual([ASKER, "manager:idealic"].sort());
+    const toAsker = pushes.find((p) => p.seat === ASKER)!;
+    expect(toAsker.content).toContain(`superseded by ${ASKER}/new`);
+  });
+
+  it("S4: a manager superseding tells the asker; the asker superseding does not tell itself", async () => {
+    pair();
+    await supersedeAsk(root, OLD, NEW, { by: "manager:director", manages: ["kernel"], push });
+    expect(pushes.map((p) => p.seat).sort()).toEqual([ASKER, "manager:idealic"].sort());
+    pushes.length = 0;
+    newAsk(root, { from: ASKER, to: "manager:idealic", id: "old2" }, BODY);
+    await supersedeAsk(root, { seat: ASKER, id: "old2" }, NEW, { by: ASKER, push });
+    expect(pushes.map((p) => p.seat)).toEqual(["manager:idealic"]);
   });
 });
 

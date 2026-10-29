@@ -157,7 +157,6 @@ export class AskFormatError extends Error {
   }
 }
 
-/** The ask moved on since the answerer read it (INV_ONE_CHOSEN_DESTINATION: one answer wins). */
 /**
  * The ask was replaced by another (`engine ask supersede`): nothing answers, declines or drafts it
  * any more. `by` is the replacement's `<seat>/<id>`, so a refusal can say where to answer instead.
@@ -176,6 +175,7 @@ export function assertNotSuperseded(ask: ParsedAsk) {
   if (ask.header.status === "superseded") throw new SupersededError(ask.header.id ?? "", ask.header["superseded-by"] ?? "");
 }
 
+/** The ask moved on since the answerer read it (INV_ONE_CHOSEN_DESTINATION: one answer wins). */
 export class StaleRevisionError extends AskFormatError {
   readonly current: number;
   constructor(expected: number, current: number) {
@@ -799,21 +799,34 @@ export function answerLines(ask: ParsedAsk, seat: string): string[] {
 export type Hop = { from: string; to: string; at: string; reason?: string };
 
 /** A decline reason as it sits on a hop: one line, and none of the characters the hop is split on. */
+/**
+ * A decline reason as `forwards:` stores it: one line (whitespace runs collapse to a space), with
+ * `%`, `@`, `;` and `]` percent-escaped. The escape keeps the ` ; ` hop split and the closing `]`
+ * unambiguous, and keeps a raw `@` out of the hop, so a reader that splits a hop at its last `@`
+ * (main before this change) still finds `from→to`. `forwardChain` unescapes it: the reason reads
+ * back whole.
+ */
 export const hopReason = (reason: string) =>
-  reason.replace(/\s+/g, " ").replace(/;/g, ",").replace(/@/g, " at ").replace(/\]/g, ")").replace(/\s+/g, " ").trim();
+  reason.replace(/\s+/g, " ").trim().replace(/%/g, "%25").replace(/@/g, "%40").replace(/;/g, "%3B").replace(/\]/g, "%5D");
+const unescapeReason = (r: string) => r.replace(/%(25|40|3B|5D)/g, (_, c: string) => String.fromCharCode(parseInt(c, 16)));
+
+/** An ISO timestamp, as every hop's `at` is written. */
+const HOP_RE = /^(.+?)→(.+?)@(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2}))$/;
 
 /**
  * `forwards: a→b@iso ; b→c@iso [declined: reason]`: every move of `to:`, in order, written by the
  * holder that moved it. A hop made by declining a reserved ask carries the decline's reason.
+ * Each hop splits at its TIMESTAMP (a seat name may hold `@`, a timestamp never does); a hop whose
+ * `at` is not a timestamp falls back to the last `@` (N5).
  */
 export function forwardChain(h: AskHeader): Hop[] {
   return (h.forwards ?? "")
     .split(/\s;\s/)
     .map((x) => {
-      const r = x.trim().match(/^(.*?)\s+\[declined: ([^\]]*)\]$/);
-      // N5: a seat name may hold `@`; the timestamp never does, so the hop splits at the LAST `@`.
-      const m = (r ? r[1] : x.trim()).match(/^(.+?)→(.+)@([^@]+)$/);
-      return m ? { from: m[1], to: m[2], at: m[3], ...(r ? { reason: r[2] } : {}) } : undefined;
+      const r = x.trim().match(/^(.*?)\s+\[declined: (.*)\]$/);
+      const head = r ? r[1] : x.trim();
+      const m = head.match(HOP_RE) ?? head.match(/^(.+?)→(.+)@([^@]+)$/);
+      return m ? { from: m[1], to: m[2], at: m[3], ...(r ? { reason: unescapeReason(r[2]) } : {}) } : undefined;
     })
     .filter((h): h is Hop => !!h);
 }

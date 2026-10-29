@@ -15,7 +15,8 @@
 #   engine ask list [--status open|answered|declined|settled|superseded|all|a,b] [--to T] [--seat S] [--json]
 #   engine ask answer <seat>/<id> --revision N (--json '{"Q":["CODE"]}' | --decline <reason>) [--note text]
 #                  --relayed-from operator --note "<when/where>"   a seat records the operator's answer
-#                  on a reserved ask, --decline by anyone but the operator passes it up to your parent (open)
+#                  on a reserved ask, answer --decline by anyone but the operator passes it up to your parent
+#                  (past the asker, else operator; it stays open); draft --decline there is refused
 #   engine ask revise <seat>/<id> [card flags as for new] [--keep-body]   the asker revises an open ask
 #   engine ask draft  <seat>/<id> --revision N (--json … | --decline <reason>)   save in the file, push nothing
 #   engine ask send [<seat>/<id> …]       settle YOUR drafts (all of yours, by default); ONE push per seat
@@ -49,7 +50,7 @@ export ASK_ROOT
 APP_DIST="${ASK_APP_DIST:-$APP_DIR/dist}"
 
 usage() {
-  sed -n '6,39p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '6,40p' "$0" | sed 's/^# \{0,1\}//' >&2
 }
 
 health() { # health <port> → prints the health JSON, or nothing

@@ -91,6 +91,31 @@ export function liveIdentity(env: NodeJS.ProcessEnv = process.env, warn: (m: str
   return { pane: liveSeat, parent: liveParent };
 }
 
+/**
+ * S2 (round 2): another seat's parent, read live the way liveIdentity reads this seat's — the
+ * ASK_LIVE_PANES seam, else tmux — and only when this shell is in tmux (TMUX_PANE). "" when the seat
+ * has no parent or cannot be found; the pass-up then ends at the operator.
+ */
+export function parentOfSeat(seat: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (!env.TMUX_PANE) return "";
+  try {
+    let lines: string[];
+    if (env.ASK_LIVE_PANES) {
+      lines = fs.readFileSync(env.ASK_LIVE_PANES, "utf8").split("\n").map((l) => {
+        const [s, , parent] = l.trim().split(/\s+/);
+        return `${s ?? ""} ${parent ?? "-"}`;
+      });
+    } else {
+      const sock = env.ASK_TMUX_SOCKET ? ["-L", env.ASK_TMUX_SOCKET] : [];
+      lines = execFileSync("tmux", [...sock, "list-panes", "-a", "-F", "#{window_name}:#{@pane_label} #{?@pane_parent,#{@pane_parent},-}"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 2000 }).split("\n");
+    }
+    const hit = lines.map((l) => l.trim().split(/\s+/)).find(([s]) => s === seat);
+    return !hit || !hit[1] || hit[1] === "-" ? "" : hit[1];
+  } catch {
+    return "";
+  }
+}
+
 async function main() {
   const [cmd, ...rest] = process.argv.slice(2);
   const { pos, opt } = flags(rest);
@@ -220,7 +245,7 @@ async function main() {
       }
       // A decline of a reserved ask by a seat is passed up to the decliner's own parent (live, as for
       // the default --to; none → operator) instead of closing it.
-      const res = await answerAsk(root, seat, id, input, { expectedRevision: Number(opt.revision), relayerManages: manages, passUpTo: live.parent || "operator" });
+      const res = await answerAsk(root, seat, id, input, { expectedRevision: Number(opt.revision), relayerManages: manages, passUpTo: live.parent || "operator", parentOf: (s) => parentOfSeat(s) });
       if (res.passedUpTo) {
         console.log(`passed up, not declined\t${seat}/${id} → ${res.passedUpTo}\trevision ${res.revision}\t(it is reserved; a decline by anyone else moves it one rung up, with the reason)`);
         console.log(`notice ${res.passedUpTo} ${res.delivery.status}${res.delivery.reason ? `: ${res.delivery.reason}` : ""}`);
@@ -322,6 +347,14 @@ async function main() {
     const refs = bys.filter((b) => b.includes("/"));
     const actors = bys.filter((b) => !b.includes("/"));
     if (refs.length !== 1) die(`${usage}: name exactly one replacement with --by <seat>/<new-id>`);
+    // N1 (round 2): exactly one positional, the OLD ask, written before `--by <new>`. Anything else
+    // reads the other way round to the eye, so it is refused with the form to use.
+    if (pos.length > 1) die(`${usage}: one old ask only; got ${pos.join(", ")}`);
+    const byAt = rest.findIndex((a, i) => a === "--by" && rest[i + 1] === refs[0]);
+    const posAt = rest.indexOf(pos[0] ?? "");
+    if (pos[0] && byAt !== -1 && byAt < posAt) {
+      die(`the old ask comes first and --by names its replacement; you wrote --by ${refs[0]} before ${pos[0]}. If ${pos[0]} is the old ask: engine ask supersede ${pos[0]} --by ${refs[0]}; if ${refs[0]} is: engine ask supersede ${refs[0]} --by ${pos[0]}`);
+    }
     if (actors.length > 1) die(`${usage}: more than one actor given (${actors.join(", ")})`);
     if (actors.length) opt.by = actors[0];
     else delete opt.by;

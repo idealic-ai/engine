@@ -73,6 +73,12 @@ test_new_to_defaults_to_fleet_parent() {
   assert_contains "to: manager:idealic" "$(cat "$out")" "FLEET_PARENT is the default recipient"
 }
 
+# assert_has_fixed <needle> <file> <desc>: a fixed-string check. assert_contains falls back to a
+# basic regex, where a needle like `[declined: x]` is a bracket expression that matches almost anything.
+assert_has_fixed() {
+  if grep -qF -- "$1" "$2"; then pass "$3"; else fail "$3" "fixed string '$1'" "$(cat "$2")"; fi
+}
+
 # Fails with a message: assert the exit code AND the specific error, so an unrelated failure cannot pass.
 assert_fails_with() {
   local desc="$1" want="$2"; shift 2
@@ -707,7 +713,7 @@ test_r4_reserved_decline_by_a_seat_passes_up_and_stays_open() {
   assert_contains "status: open" "$(cat "$f")" "the reserved ask stays open"
   assert_contains "to: manager:director" "$(cat "$f")" "it moved to the decliner's parent"
   assert_contains "manager:idealic→manager:director@" "$(cat "$f")" "the hop is in forwards:"
-  assert_contains "[declined: needs the budget owner]" "$(cat "$f")" "with the reason"
+  assert_has_fixed "[declined: needs the budget owner]" "$f" "with the reason"
   assert_not_contains '```json answer' "$(cat "$f")" "and no decline was recorded as an answer"
   out=$(FLEET_PANE=manager:director "$ASK_SH" answer idealic:kernel/pu1 --revision 2 --decline "the operator's call")
   assert_contains "passed up, not declined	idealic:kernel/pu1 → operator" "$out" "a decliner with no parent passes it to the operator"
@@ -722,6 +728,51 @@ test_r4_unreserved_decline_by_a_seat_is_unchanged() {
   assert_not_contains "passed up" "$out" "an unreserved decline is not passed up"
   assert_contains "status: declined" "$(cat "$ASK_ROOT/idealic:kernel/pu2.md")" "it closes as declined"
   assert_contains "to: manager:idealic" "$(cat "$ASK_ROOT/idealic:kernel/pu2.md")" "and does not move"
+}
+
+# ── round 2 ──────────────────────────────────────────────
+
+test_r5_pass_up_skips_the_asker_up_its_chain() {
+  # The critique's failing input: manager:app asks app:writer; app:writer's parent is the asker.
+  local live="$TMP/live-panes" f="$ASK_ROOT/manager:app/pa1.md" out
+  printf 'app:writer %%7 manager:app\nmanager:app %%3 manager:director\nmanager:director %%1 -\n' > "$live"
+  printf '%s\n' "$BODY" | FLEET_PANE=manager:app "$ASK_SH" new --id pa1 --to app:writer --reserved-for operator >/dev/null
+  out=$(TMUX_PANE=%7 ASK_LIVE_PANES="$live" FLEET_PANE=app:writer "$ASK_SH" answer manager:app/pa1 --revision 1 --decline "not mine" 2>&1)
+  assert_contains "passed up, not declined	manager:app/pa1 → manager:director" "$out" "the pass-up skips the asker to the asker's parent"
+  assert_contains "status: open" "$(cat "$f")" "the ask stays open"
+  assert_contains "to: manager:director" "$(cat "$f")" "held by the next rung"
+  assert_contains "app:writer→manager:director@" "$(cat "$f")" "the hop names the move"
+  assert_has_fixed "[declined: not mine]" "$f" "with the reason"
+  printf '%s\n' "$BODY" | FLEET_PANE=manager:app "$ASK_SH" new --id pa2 --to app:writer --reserved-for operator >/dev/null
+  out=$(FLEET_PANE=app:writer FLEET_PARENT=manager:app "$ASK_SH" answer manager:app/pa2 --revision 1 --decline "not mine" 2>&1)
+  assert_contains "passed up, not declined	manager:app/pa2 → operator" "$out" "outside tmux the asker's parent is unreadable, so it ends at the operator"
+}
+
+test_r5_draft_decline_of_a_reserved_ask_points_at_answer() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id pd1 --reserved-for operator >/dev/null
+  assert_fails_with "a seat's draft decline is refused, saying how to pass it up" "use \`engine ask answer --decline\` to pass it up" \
+    env FLEET_PANE=manager:idealic "$ASK_SH" draft idealic:kernel/pd1 --revision 1 --decline "no"
+  assert_contains "status: open" "$(cat "$ASK_ROOT/idealic:kernel/pd1.md")" "and the ask is untouched"
+}
+
+test_r5_supersede_refuses_ambiguous_positionals() {
+  printf '%s\n' "$BODY" | "$ASK_SH" new --id px1 >/dev/null
+  printf '%s\n' "$BODY" | "$ASK_SH" new --id px2 >/dev/null
+  printf '%s\n' "$BODY" | "$ASK_SH" new --id px3 >/dev/null
+  assert_fails_with "two positional refs are refused" "one old ask only" \
+    "$ASK_SH" supersede idealic:kernel/px1 idealic:kernel/px3 --by idealic:kernel/px2
+  assert_fails_with "--by before the old ask is refused, showing both readings" "engine ask supersede idealic:kernel/px2 --by idealic:kernel/px1" \
+    "$ASK_SH" supersede --by idealic:kernel/px1 idealic:kernel/px2
+  assert_contains "status: open" "$(cat "$ASK_ROOT/idealic:kernel/px1.md")" "px1 is untouched"
+  assert_contains "status: open" "$(cat "$ASK_ROOT/idealic:kernel/px2.md")" "px2 is untouched"
+}
+
+test_r5_supersede_tells_the_asker_when_someone_else_does_it() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id pn1 >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id pn2 >/dev/null
+  local out; out=$(as_op supersede idealic:kernel/pn1 --by idealic:kernel/pn2)
+  assert_contains "notice idealic:kernel" "$out" "the operator's supersede notices the asker"
+  assert_contains "notice manager:idealic" "$out" "and the holder"
 }
 
 run_discovered_tests
