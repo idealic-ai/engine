@@ -148,24 +148,24 @@ esac
 # ── The reason: two lines that cite the atom. ──
 # The guidance itself — finish a /next sequence, a live weave's open rows, /next, send an
 # operator-only question up the chain as an ask (/interrogate and /decide only for an
-# operator present at this terminal), never manufacture work — lives in
-# .directives/commands/CMD_CONTINUE_ON_STOP.md, so this hook and its readers say it once.
+# operator present at this terminal), never manufacture work — lives in the
+# ¶CMD_CONTINUE_ON_STOP section of .directives/COMMANDS.md, so this hook and its readers say it once.
 # Line 2 is the counter suffix; Guard 3b above finds our own injection by its
 # "auto-continues;" text, so that wording is load-bearing — and it must appear in nothing
-# else that lands in the transcript, the atom included: the atom is preloaded at SessionStart
+# else that lands in the transcript, COMMANDS.md included: it is preloaded at SessionStart
 # (or, in an unseeded session, delivered by the fallback below after the wake's first tool
 # call), so a copy there would become the anchor (test BACKOFF-05).
-ATOM="$HOME/.claude/.directives/commands/CMD_CONTINUE_ON_STOP.md"
+ATOM="$HOME/.claude/.directives/COMMANDS.md"
 REASON="Follow \`§CMD_CONTINUE_ON_STOP\`: carry on the \`/next\` sequence you are in, else invoke \`/next\`; put a question only the operator can answer in an ask, \`engine ask new --to <the first word hop.sh target prints: your parent seat, or operator>\`, never a hand-rolled ask (\`/interrogate\` and \`/decide\` only for an operator present at this terminal, never from a seat with a parent); if nothing is left, say so in one line and stop."
 
 NEW=$((COUNT + 1))
 jq ".autoContinueCount = $NEW" "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true
 
-# A cited atom that never reaches the agent is a citation to nothing. SessionStart preloads it
-# with the core standards (get_session_start_seeds), so in a seeded session it is already in
-# preloadedFiles and this call is a skip. It stays as the fallback for an unseeded session: the
-# preload guard rule then delivers the atom in full on the agent's next tool call, and
-# preloadedFiles dedup keeps that to once per context.
+# A cited atom that never reaches the agent is a citation to nothing. The atom lives in
+# COMMANDS.md, which SessionStart preloads with the core standards (get_session_start_seeds), so
+# in a seeded session it is already in preloadedFiles and this call is a skip. It is the fallback
+# for a session that lacks COMMANDS.md: the preload guard rule then delivers it in full on the
+# agent's next tool call, and preloadedFiles dedup keeps that to once per context.
 preload_ensure "$ATOM" "stop-auto-continue" "next" >/dev/null 2>&1 || true
 
 jq -n --arg r "$REASON

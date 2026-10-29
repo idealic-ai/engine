@@ -44,13 +44,12 @@ setup() {
 
   # Create standards files in fake home
   mkdir -p "$FAKE_HOME/.claude/.directives/commands"
-  echo "# COMMANDS content" > "$FAKE_HOME/.claude/.directives/COMMANDS.md"
+  printf '# COMMANDS content\n### ¶CMD_CONTINUE_ON_STOP\n' > "$FAKE_HOME/.claude/.directives/COMMANDS.md"
   echo "# INVARIANTS content" > "$FAKE_HOME/.claude/.directives/INVARIANTS.md"
   echo "# SIGILS content" > "$FAKE_HOME/.claude/.directives/SIGILS.md"
   echo "# CMD_DEHYDRATE content" > "$FAKE_HOME/.claude/.directives/commands/CMD_DEHYDRATE.md"
   echo "# CMD_RESUME_SESSION content" > "$FAKE_HOME/.claude/.directives/commands/CMD_RESUME_SESSION.md"
   echo "# CMD_PARSE_PARAMETERS content" > "$FAKE_HOME/.claude/.directives/commands/CMD_PARSE_PARAMETERS.md"
-  echo "# CMD_CONTINUE_ON_STOP content" > "$FAKE_HOME/.claude/.directives/commands/CMD_CONTINUE_ON_STOP.md"
 
   RESOLVED_HOOK="$FAKE_HOME/.claude/hooks/session-start-restore.sh"
 }
@@ -403,7 +402,7 @@ test_standards_preloaded_on_clear() {
   done < <(get_session_start_seeds | jq -r '.[]')
   assert_not_contains "SIGILS content" "$output" "clear source → on-demand SIGILS not preloaded"
   assert_not_contains "CMD_PARSE_PARAMETERS content" "$output" "clear source → on-demand CMD_PARSE_PARAMETERS not preloaded"
-  assert_contains "CMD_CONTINUE_ON_STOP content" "$output" "clear source → CMD_CONTINUE_ON_STOP preloaded (the Stop atom arrives at SessionStart)"
+  assert_contains "### ¶CMD_CONTINUE_ON_STOP" "$output" "clear source → COMMANDS.md carrying ¶CMD_CONTINUE_ON_STOP is preloaded (the Stop atom arrives at SessionStart)"
 }
 
 # --- Test 10: Multiple skill deps are all delivered ---

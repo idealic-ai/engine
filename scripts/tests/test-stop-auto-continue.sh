@@ -10,11 +10,16 @@ set -euo pipefail
 
 source "$(dirname "$0")/test-helpers.sh"
 
-REAL_HOOK="${STOP_HOOK_UNDER_TEST:-$HOME/.claude/engine/hooks/stop-auto-continue.sh}"
-# The atom the reason cites, read from the same tree as the hook under test.
+# Defaults to the hook in the tree this suite lives in, so the hook and the COMMANDS.md it
+# cites are read from one tree; STOP_HOOK_UNDER_TEST points it elsewhere.
+REAL_HOOK="${STOP_HOOK_UNDER_TEST:-$(cd "$(dirname "$0")/../.." && pwd)/hooks/stop-auto-continue.sh}"
+# The atom the reason cites is the ¶CMD_CONTINUE_ON_STOP section of COMMANDS.md, read from the
+# same tree as the hook under test. COMMANDS.md is the file the hook preloads and the one that
+# lands in the transcript, so the anchor checks read all of it; the clause checks read the section.
 ENGINE_UNDER_TEST="${STOP_ENGINE_UNDER_TEST:-$(cd "$(dirname "$REAL_HOOK")/.." && pwd)}"
-ATOM_FILE="$ENGINE_UNDER_TEST/.directives/commands/CMD_CONTINUE_ON_STOP.md"
 COMMANDS_FILE="$ENGINE_UNDER_TEST/.directives/COMMANDS.md"
+ATOM_FILE="$COMMANDS_FILE"
+atom_section() { awk '/^### ¶CMD_CONTINUE_ON_STOP$/{f=1;print;next} f&&/^### /{exit} f' "$COMMANDS_FILE"; }
 
 setup() {
   setup_test_env "test_stop_ac"
@@ -26,14 +31,14 @@ setup() {
   PROJ_DIR="$FAKE_HOME/.claude/projects/$(echo "$PWD" | sed 's|/|-|g')"
   mkdir -p "$PROJ_DIR"
 
-  # Lay the atom out the way production does: the real file under engine/.directives,
+  # Lay COMMANDS.md out the way production does: the real file under engine/.directives,
   # reached through the ~/.claude/.directives symlink the hook names. normalize_preload_path
   # only resolves that symlink for a file that EXISTS, so without this the PRELOAD arms
   # match an incidental spelling production never queues.
   mkdir -p "$FAKE_HOME/.claude/engine/.directives/commands"
-  cp "$ATOM_FILE" "$FAKE_HOME/.claude/engine/.directives/commands/CMD_CONTINUE_ON_STOP.md"
+  cp "$COMMANDS_FILE" "$FAKE_HOME/.claude/engine/.directives/COMMANDS.md"
   ln -sfn "$FAKE_HOME/.claude/engine/.directives" "$FAKE_HOME/.claude/.directives"
-  ATOM_RESOLVED="$(cd "$FAKE_HOME/.claude/engine/.directives/commands" && pwd -P)/CMD_CONTINUE_ON_STOP.md"
+  ATOM_RESOLVED="$(cd "$FAKE_HOME/.claude/engine/.directives" && pwd -P)/COMMANDS.md"
 }
 
 teardown() { cleanup_test_env; }
@@ -273,7 +278,7 @@ test_prompt_routes_questions_to_their_skill() {
 run_test test_prompt_routes_questions_to_their_skill
 
 test_atom_carries_the_whole_guidance() {
-  local atom; atom=$(cat "$ATOM_FILE" 2>/dev/null || true)
+  local atom; atom=$(atom_section)
   local missing="" clause
   for clause in \
     '### ¶CMD_CONTINUE_ON_STOP' \
@@ -295,30 +300,32 @@ test_atom_carries_the_whole_guidance() {
     [[ "$atom" == *"$clause"* ]] || missing="$missing [$clause]"
   done
   if [ -z "$missing" ]; then
-    pass "ATOM-01: CMD_CONTINUE_ON_STOP.md carries every clause the long reason carried"
+    pass "ATOM-01: COMMANDS.md's ¶CMD_CONTINUE_ON_STOP section carries every clause the long reason carried"
   else
-    fail "ATOM-01: CMD_CONTINUE_ON_STOP.md carries every clause the long reason carried" \
-      "all clauses present in $ATOM_FILE" "missing:$missing"
+    fail "ATOM-01: COMMANDS.md's ¶CMD_CONTINUE_ON_STOP section carries every clause the long reason carried" \
+      "all clauses present in the section of $COMMANDS_FILE" "missing:$missing"
   fi
 }
 run_test test_atom_carries_the_whole_guidance
 
 test_atom_is_registered() {
-  if grep -qF '### [¶CMD_CONTINUE_ON_STOP](commands/CMD_CONTINUE_ON_STOP.md)' "$COMMANDS_FILE"; then
-    pass "ATOM-02: COMMANDS.md registers the atom, so its summary rides the SessionStart preload"
+  if grep -qxF '### ¶CMD_CONTINUE_ON_STOP' "$COMMANDS_FILE" \
+     && ! grep -qF '](commands/CMD_CONTINUE_ON_STOP.md)' "$COMMANDS_FILE"; then
+    pass "ATOM-02: COMMANDS.md defines the atom inline, so all of it rides the SessionStart preload"
   else
-    fail "ATOM-02: COMMANDS.md registers the atom, so its summary rides the SessionStart preload" \
-      "a ### [¶CMD_CONTINUE_ON_STOP](commands/...) entry" "none in $COMMANDS_FILE"
+    fail "ATOM-02: COMMANDS.md defines the atom inline, so all of it rides the SessionStart preload" \
+      "an un-linked ### ¶CMD_CONTINUE_ON_STOP heading and no link to a separate file" "$(grep -n 'CMD_CONTINUE_ON_STOP' "$COMMANDS_FILE" | head -3)"
   fi
 }
 run_test test_atom_is_registered
 
-# The atom is in the transcript Guard 3b reads, so it may not carry the counter fragment;
-# and it names AskUserQuestion only in prose, never in a form an agent could paste as a call.
+# COMMANDS.md, which carries the atom, is in the transcript Guard 3b reads, so no part of it may
+# carry the counter fragment; and it names AskUserQuestion/ExitPlanMode only in prose, never in
+# the compact form Guard 3 suppresses on or a form an agent could paste as a call.
 test_atom_has_no_anchor_or_call_form() {
   local bad=""
-  grep -qF 'auto-continues;' "$ATOM_FILE" && bad="$bad [auto-continues;]"
-  grep -qE 'AskUserQuestion *\(|"name" *: *"AskUserQuestion"' "$ATOM_FILE" && bad="$bad [AskUserQuestion call form]"
+  grep -qF 'auto-continues;' "$COMMANDS_FILE" && bad="$bad [auto-continues;]"
+  grep -qE 'AskUserQuestion *\(|"name" *: *"(AskUserQuestion|ExitPlanMode)"' "$COMMANDS_FILE" && bad="$bad [AskUserQuestion/ExitPlanMode call form]"
   if [ -z "$bad" ]; then
     pass "ATOM-03: the atom carries no Guard 3b anchor and no AskUserQuestion call form"
   else
@@ -328,7 +335,7 @@ test_atom_has_no_anchor_or_call_form() {
 run_test test_atom_has_no_anchor_or_call_form
 
 test_commands_entry_names_the_ask_route() {
-  local entry; entry=$(awk '/^### \[¶CMD_CONTINUE_ON_STOP\]/{f=1;next} f&&/^### /{exit} f' "$COMMANDS_FILE")
+  local entry; entry=$(atom_section)
   if [[ "$entry" == *'engine ask new --to'* ]] && [[ "$entry" == *'the first word `hop.sh target` prints'* ]] \
      && [[ "$entry" == *'`engine open-asks`'* ]] \
      && [[ "$entry" == *'present at this terminal'* ]] && [[ "$entry" != *'auto-continues;'* ]]; then
@@ -346,7 +353,7 @@ run_test test_commands_entry_names_the_ask_route
 # stale note that must not be taken (stopmsg2 critique M1/M2). Pin each exit's routing, the
 # first-word rule, the broken-hop body, and the two lane/conductor pointer registers.
 test_atom_pins_hop_exit_routing() {
-  local atom; atom=$(cat "$ATOM_FILE" 2>/dev/null || true)
+  local atom; atom=$(atom_section)
   local missing="" clause
   for clause in \
     'It prints `<seat> <pane>`, or `operator`' \
@@ -414,7 +421,7 @@ test_block_queues_atom_for_preload() {
   write_state
   echo '{"type":"assistant"}' > "$PROJ_DIR/mine.jsonl"
   run_hook >/dev/null
-  local got; got=$(jq -r '[.pendingPreloads // [] | .[] | select(endswith("/commands/CMD_CONTINUE_ON_STOP.md"))] | join(",")' "$TEST_SESSION/.state.json")
+  local got; got=$(jq -r '[.pendingPreloads // [] | .[] | select(endswith("/.directives/COMMANDS.md"))] | join(",")' "$TEST_SESSION/.state.json")
   assert_eq "$ATOM_RESOLVED" "$got" "PRELOAD-01: a block queues the cited atom, at its resolved engine path"
 }
 run_test test_block_queues_atom_for_preload
@@ -438,7 +445,8 @@ run_test test_already_preloaded_atom_not_requeued
 # first tool_use. Guard 3b anchors on the LAST line carrying "auto-continues;" and counts
 # tool calls after it, so an atom quoting that text resets the series after a wake that did
 # exactly one useful call. The pair differs ONLY in whether the delivery line is present;
-# BACKOFF-05 is built from the atom file itself, so it reddens on the text, not a fixture.
+# BACKOFF-05 delivers the whole of COMMANDS.md, the file that carries the atom, so it reddens on
+# the text, not a fixture.
 backoff_transcript() {  # $1 = include the atom's PostToolUse delivery (yes/no)
   local f="$PROJ_DIR/mine.jsonl"
   jq -cn --arg r "Follow §CMD_CONTINUE_ON_STOP ...

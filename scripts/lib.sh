@@ -149,7 +149,7 @@ normalize_preload_path() {
 #   suppresses the later real injection.
 #   PITFALLS.md, SIGILS.md and CMD_PARSE_PARAMETERS.md are on demand; PITFALLS is represented at
 #   session start by generate_pitfalls_index rather than by its bytes.
-SESSION_START_SEED_FILES=(COMMANDS.md INVARIANTS.md VOICE.md commands/CMD_DEHYDRATE.md commands/CMD_RESUME_SESSION.md commands/CMD_CONTINUE_ON_STOP.md)
+SESSION_START_SEED_FILES=(COMMANDS.md INVARIANTS.md VOICE.md commands/CMD_DEHYDRATE.md commands/CMD_RESUME_SESSION.md)
 get_session_start_seeds() {
   local engine_dir rel seeds='[]'
   engine_dir=$(cd "$HOME/.claude/.directives" 2>/dev/null && pwd -P) || engine_dir="$HOME/.claude/.directives"
