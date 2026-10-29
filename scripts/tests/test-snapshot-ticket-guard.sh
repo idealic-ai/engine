@@ -66,7 +66,7 @@ test_explicit_key_is_the_target() {
   has_fixed "the explicit key is the target" "$cc" "M1: §1 says the explicit key is the target"
   has_fixed '`-- <KEY>` argument' "$cc" "M1: the argument is an explicit source"
   has_fixed "subjects or trailers" "$cc" "M1: a key carried by the snapshotted commits is an explicit source"
-  has_fixed "every explicit source present must name the target" "$cc" "M1: every explicit source must name the target"
+  lacks_fixed "every explicit source present must name the target" "$cc" "R2-S1: the all-commits-name-the-target rule is gone"
   has_fixed '`tickets[]` corroborates and is never a source on its own' "$cc" "M1: tickets[] corroborates, never a source"
   lacks_fixed "contains neither" "$cc" "M1/S3: no abort on tickets[] containing neither key"
   lacks_fixed 'named in the active session' "$cc" "M1: tickets[] membership no longer makes a key explicit"
@@ -88,9 +88,20 @@ test_stale_tickets_list_aborts() {
 # S4 — the commit range and set semantics.
 test_commit_range_defined() {
   local cc; cc=$(cross_check)
-  has_fixed "not on its upstream base" "$cc" "S4: the commits are the branch's commits not on its upstream base"
+  has_fixed '`git log --no-merges origin/<default branch>..HEAD`' "$cc" "R2-S1: the range is origin/<default branch>..HEAD, merges excluded"
+  has_fixed 'never `@{u}`' "$cc" "R2-S1: the range never uses @{u}"
+  lacks_fixed "not on its upstream base" "$cc" "R2-S1: the upstream-relative range is gone"
   has_fixed "excluding the commit §3 is about to draft" "$cc" "S4: the commit §3 drafts cannot vouch for the target"
-  has_fixed "two different keys among them is a disagreement" "$cc" "S4: two keys among the commits disagree"
+  lacks_fixed "two different keys among them is a disagreement" "$cc" "R2-S1: two keys no longer always disagree"
+}
+
+# R2-S1 — with a -- key the commit key set must contain the target or be empty; other keys warn.
+# Without --, two or more keys among the commits is ambiguous and aborts under --yes.
+test_commit_key_set_rule() {
+  local cc; cc=$(cross_check)
+  has_fixed "the commits' key set must contain the target or be empty" "$cc" "R2-S1: with --, the commit keys contain the target or are empty"
+  has_fixed "keys for other tickets in that set are only a warning" "$cc" "R2-S1: other tickets' keys only warn (wave and stacked lanes)"
+  has_fixed "two or more keys among the commits is ambiguous and aborts under \`--yes\`" "$cc" "R2-S1: without --, two or more commit keys abort"
 }
 
 # The lane-branch mismatch under an explicit key warns and proceeds — and that bullet never aborts.
@@ -110,8 +121,9 @@ test_different_key_aborts() {
   assert_not_empty "$d" "§1 has the different-key sub-bullet"
   has_fixed "ABORT under \`--yes\`" "$d" "§1: a branch naming a different key than the explicit one aborts"
   has_fixed '`ide-312-x` with key `IDE-313` aborts' "$d" "§1 gives the different-key example"
-  has_fixed "only with a configured § Tracker prefix" "$d" "S6: the different-key abort needs a configured prefix"
-  has_fixed "in fallback mode" "$d" "S6: fallback mode only warns"
+  lacks_fixed "only with a configured § Tracker prefix" "$d" "R2-N1: the different-key abort is not limited to a configured prefix"
+  has_fixed "in fallback mode a hyphenated \`<PREFIX>-NNNN\` branch key still aborts" "$d" "R2-N1: fallback keeps the abort for the hyphenated form"
+  has_fixed "only the unhyphenated lane-name forms warn" "$d" "R2-N1: only the unhyphenated forms warn in fallback"
   local s; s=$(sub_bullet "Explicit sources disagree")
   has_fixed "ABORT under \`--yes\`" "$s" "§1: disagreeing explicit sources abort"
 }
@@ -175,6 +187,30 @@ test_callers_pass_the_key() {
   lacks_fixed 'invokes `/snapshot --yes` ' "$l" "S1: no /loom call line runs /snapshot --yes without the key"
   local n; n=$(cat "$NEXT")
   has_fixed '`/snapshot --yes -- <KEY>`' "$n" "S1: /next's checkpoint passes -- <KEY>"
+}
+
+# every_line_has <file> <call needle> <clause> <msg> — each line carrying the call also carries the clause.
+every_line_has() {
+  local file=$1 call=$2 clause=$3 msg=$4 line n=0 bad=0
+  while IFS= read -r line; do
+    n=$((n+1))
+    grep -qiF -- "$clause" <<<"$(norm "$line")" || bad=$((bad+1))
+  done < <(grep -F -- "$call" "$file")
+  if [ "$n" -gt 0 ] && [ "$bad" -eq 0 ]; then pass "$msg ($n line(s))"; else fail "$msg" "all $n call line(s) carry '$clause'" "$bad lack it"; fi
+}
+
+# R2-M1 — /next names where <KEY> comes from, never tickets[], and falls back to bare --yes.
+test_next_key_sources() {
+  every_line_has "$NEXT" '/snapshot --yes -- <KEY>' "the session slug's key, a keyed branch, or the lane log's thread key" "R2-M1: /next names the key's three sources"
+  every_line_has "$NEXT" '/snapshot --yes -- <KEY>' 'never from `tickets[]`' "R2-M1: /next never takes the key from tickets[]"
+  every_line_has "$NEXT" '/snapshot --yes -- <KEY>' 'bare `--yes` otherwise' "R2-M1: /next falls back to bare --yes"
+}
+
+# R2-S2 — /loom passes the key only for a thread with its own ticket, never an umbrella key.
+test_loom_key_fallback() {
+  every_line_has "$LOOM" '-- <thread KEY>`' "only when the thread has its own ticket" "R2-S2: /loom passes the key only for a ticketed thread"
+  every_line_has "$LOOM" '-- <thread KEY>`' 'bare `--yes` otherwise' "R2-S2: /loom falls back to bare --yes"
+  every_line_has "$LOOM" '-- <thread KEY>`' "never an umbrella key" "R2-S2: /loom never passes an umbrella key"
 }
 
 run_discovered_tests
