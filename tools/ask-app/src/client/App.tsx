@@ -68,6 +68,7 @@ import { pushEsc } from "./esc.ts";
 import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, type PathHop } from "./supersede.ts";
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
+import { CHANGE_WORDING, changeAnswerStart, mayChangeAnswer, sendChangedAnswer } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
 export { ticketKeys };
@@ -691,18 +692,23 @@ export function noteServerKeepsProvisional(v: boolean) {
 
 
 export function AskDetail({
-  ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash, provisionalKept, onOpenAsk,
-}: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void; provisionalKept?: boolean; onOpenAsk?: (ref: string) => void }) {
+  ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash, provisionalKept, onOpenAsk, startChanging,
+}: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void; provisionalKept?: boolean; onOpenAsk?: (ref: string) => void; /** Open the card already changing its answer (IDE-304). */ startChanging?: boolean }) {
   const [replacedBy, setReplacedBy] = useState<string | undefined>();
   const superseded = supersededInfo(ask.header);
   const replaces = supersedesList(ask.header);
   const path = pathOf(ask.header);
   // NIT: an ask with no status line is open, as the list and the server read it.
   const open = (ask.header.status ?? "open") === "open";
+  // IDE-304: the operator may reopen their own recorded answer and send a new one in its place.
+  const mayChange = mayChangeAnswer(ask);
+  const [changing, setChanging] = useState(!!startChanging && mayChange);
+  const editable = open || changing;
   const ref = askRef(ask);
   const revision = String(ask.header.revision ?? "");
   const start = useMemo(() => {
     const init = initialValues(ask);
+    if (changing) return { ...changeAnswerStart(ask), notice: "" };
     return open ? restoreUnsent(init, loadUnsent(ref), revision, ask.questions.map((q, i) => questionKey(q, i))) : { ...init, notice: "" };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- the card is keyed by ref+revision
   const [values, setValues] = useState<Values>(start.values);
@@ -844,6 +850,37 @@ export function AskDetail({
       setBusy(false);
     }
   }
+  /** Change answer: the form starts from the recorded answer without its loop lines. Cancel puts the record back. */
+  const beginChange = () => {
+    const s0 = changeAnswerStart(ask);
+    setValues(s0.values);
+    setText(s0.text);
+    setNote(s0.note);
+    setResult("");
+    setChanging(true);
+  };
+  const cancelChange = () => {
+    const s0 = initialValues(ask);
+    setValues(s0.values);
+    setText(s0.text);
+    setNote(s0.note);
+    setResult("");
+    setChanging(false);
+  };
+  async function sendChange() {
+    setBusy(true);
+    setResult("");
+    try {
+      const out = await sendChangedAnswer(post, { seat: ask.seat, id: ask.header.id ?? "", expectedRevision: Number(ask.header.revision), answers, note });
+      if (out.supersededBy !== undefined) setReplacedBy(out.supersededBy);
+      setResult(out.message);
+      if (out.ok) onChanged();
+    } catch (e) {
+      setResult(`Error: ${(e as Error).message}. Reload to see whether anything was sent.`);
+    } finally {
+      setBusy(false);
+    }
+  }
   const sendDraft = () => provisionalSend(answers, composeNote(DRAFT_NOTE, note));
   const sendRequest = () => {
     const line = requestLine(needKind, needText);
@@ -953,7 +990,7 @@ export function AskDetail({
               }}
               note={text[k] ?? ""}
               onNote={(t) => setText({ ...text, [k]: t })}
-              readOnly={!open}
+              readOnly={!editable}
             />
             {/* Prose written after a fork's options, before the next heading, sits between the cards. */}
             <ForkProse text={q.proseAfter} between />
@@ -962,7 +999,7 @@ export function AskDetail({
       })}
 
       <section className="answerbar" id={`answerbar-${ask.header.id}`}>
-        {(isSettled(ask) || provisional) && (
+        {(isSettled(ask) || provisional) && !changing && (
           <>
             {ruledBelow(ask) ? (
               <p className="ruled-by" role="note">
@@ -981,6 +1018,23 @@ export function AskDetail({
               <summary>Recorded answer block</summary>
               <pre className="code">{JSON.stringify(ask.answer, null, 2)}</pre>
             </details>
+            {mayChange && (
+              <p className="actions">
+                <button className="btn" disabled={busy} onClick={beginChange} title="Reopen your answer and send a new one in its place">Change answer</button>
+              </p>
+            )}
+          </>
+        )}
+        {changing && (
+          <>
+            <h3>Change your answer · revision {ask.header.revision}</h3>
+            <p className="muted sends">{CHANGE_WORDING}</p>
+            <label className="field-label" htmlFor={`note-${ask.header.id}`}>Note to the asker</label>
+            <textarea id={`note-${ask.header.id}`} rows={2} placeholder="Optional." value={note} onChange={(e) => setNote(e.target.value)} />
+            <p className="actions">
+              <button className="btn primary" disabled={busy || nothing} onClick={sendChange}>Send changed answer</button>
+              <button className="btn quiet" disabled={busy} onClick={cancelChange}>Cancel</button>
+            </p>
           </>
         )}
         {open && (

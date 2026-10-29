@@ -36,20 +36,9 @@ export function conflictMessage(json: { status?: string; supersededBy?: string; 
 
 export type PathHop = { from: string; to: string; at: string; reason?: string };
 
-const HOP_RE = /^(.+?)→(.+?)@(\S+?)(?:\s+\[declined:\s*([\s\S]*?)\])?$/;
-
-/**
- * The forward chain with each hop's decline reason. Uses `Hop.reason` from forwardChain when the
- * engine provides it; until then reads the ` [declined: …]` tail itself.
- */
+/** The forward chain with each hop's decline reason, as forwardChain reads it (unescaped). */
 export function pathOf(h: AskHeader): PathHop[] {
-  const engine = forwardChain(h) as (ReturnType<typeof forwardChain>[number] & { reason?: string })[];
-  if (engine.some((x) => x.reason)) return engine.map((x) => ({ from: x.from, to: x.to, at: x.at, ...(x.reason ? { reason: x.reason } : {}) }));
-  return (h.forwards ?? "")
-    .split(/\s;\s/)
-    .map((x) => x.trim().match(HOP_RE))
-    .filter((m): m is RegExpMatchArray => !!m)
-    .map((m) => ({ from: m[1].trim(), to: m[2].trim(), at: m[3], ...(m[4]?.trim() ? { reason: m[4].trim() } : {}) }));
+  return forwardChain(h).map((x) => ({ from: x.from, to: x.to, at: x.at, ...(x.reason ? { reason: x.reason } : {}) }));
 }
 
 /** One hop in words: "manager:meta declined: <reason> → passed up to operator", or "a → b". */

@@ -786,6 +786,7 @@ describe("round-5 fixes: rounds NITs", () => {
 // ── supersede and the decline pass-up ──────────────────────
 
 import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList } from "../src/client/supersede.ts";
+import { forwardChain, hopText } from "../src/lib/format.ts";
 
 describe("supersede (1): a 409 for a superseded ask", () => {
   it("names the replacement and never says 'revision undefined'", () => {
@@ -841,14 +842,27 @@ describe("supersede (2): the old and the new ask", () => {
 });
 
 describe("decline pass-up (3): the reason on its hop", () => {
-  const h = { forwards: "idealic:ui→manager:meta@2026-10-30T00:50:00Z ; manager:meta→operator@2026-10-30T01:00:00Z [declined: not mine to rule; the operator owns F2]" };
+  // The hops as the store writes them: hopText percent-escapes the reason; forwardChain reads it back whole.
+  const hops = [
+    { from: "idealic:ui", to: "manager:meta", at: "2026-10-30T00:50:00Z" },
+    { from: "manager:meta", to: "operator", at: "2026-10-30T01:00:00Z", reason: "not mine to rule; the operator owns F2" },
+  ];
+  const h = { forwards: hops.map(hopText).join(" ; ") };
+
+  it("forwardChain itself returns each hop's reason, unescaped, so pathOf needs no parser of its own", async () => {
+    expect(h.forwards).toContain("[declined: not mine to rule%3B the operator owns F2]");
+    expect(forwardChain(h as never)).toEqual(hops);
+    expect(forwardChain({ forwards: hopText({ from: "a", to: "b", at: "2026-10-30T01:00:00Z", reason: "ask x@y" }) } as never)[0].reason).toBe("ask x@y");
+    const fs = await import("node:fs");
+    expect(fs.readFileSync(new URL("../src/client/supersede.ts", import.meta.url), "utf8")).not.toMatch(/HOP_RE|\[declined:\\s/);
+  });
 
   it("reads each hop and the decline reason, even one holding an @", () => {
     expect(pathOf(h as never)).toEqual([
       { from: "idealic:ui", to: "manager:meta", at: "2026-10-30T00:50:00Z" },
       { from: "manager:meta", to: "operator", at: "2026-10-30T01:00:00Z", reason: "not mine to rule; the operator owns F2" },
     ]);
-    expect(pathOf({ forwards: "a→b@2026-10-30T01:00:00Z [declined: ask x@y]" } as never)[0]).toMatchObject({ to: "b", reason: "ask x@y" });
+    expect(pathOf({ forwards: hopText({ from: "a", to: "b", at: "2026-10-30T01:00:00Z", reason: "ask x@y" }) } as never)[0]).toMatchObject({ to: "b", reason: "ask x@y" });
     expect(hopWords(pathOf(h as never)[1])).toBe("manager:meta declined: not mine to rule; the operator owns F2 → passed up to operator");
   });
 
