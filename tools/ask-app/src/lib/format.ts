@@ -796,17 +796,30 @@ export function answerLines(ask: ParsedAsk, seat: string): string[] {
 
 // ── the forward chain (COORDHOP S4) ──────────────────────
 
-export type Hop = { from: string; to: string; at: string };
+export type Hop = { from: string; to: string; at: string; reason?: string };
 
-/** `forwards: a→b@iso ; b→c@iso`: every move of `to:`, in order, written by the holder that moved it. */
+/** A decline reason as it sits on a hop: one line, and none of the characters the hop is split on. */
+export const hopReason = (reason: string) =>
+  reason.replace(/\s+/g, " ").replace(/;/g, ",").replace(/@/g, " at ").replace(/\]/g, ")").replace(/\s+/g, " ").trim();
+
+/**
+ * `forwards: a→b@iso ; b→c@iso [declined: reason]`: every move of `to:`, in order, written by the
+ * holder that moved it. A hop made by declining a reserved ask carries the decline's reason.
+ */
 export function forwardChain(h: AskHeader): Hop[] {
   return (h.forwards ?? "")
     .split(/\s;\s/)
-    // N5: a seat name may hold `@`; the timestamp never does, so the hop splits at the LAST `@`.
-    .map((x) => x.trim().match(/^(.+?)→(.+)@([^@]+)$/))
-    .filter((m): m is RegExpMatchArray => !!m)
-    .map((m) => ({ from: m[1], to: m[2], at: m[3] }));
+    .map((x) => {
+      const r = x.trim().match(/^(.*?)\s+\[declined: ([^\]]*)\]$/);
+      // N5: a seat name may hold `@`; the timestamp never does, so the hop splits at the LAST `@`.
+      const m = (r ? r[1] : x.trim()).match(/^(.+?)→(.+)@([^@]+)$/);
+      return m ? { from: m[1], to: m[2], at: m[3], ...(r ? { reason: r[2] } : {}) } : undefined;
+    })
+    .filter((h): h is Hop => !!h);
 }
+
+/** One hop as `forwards:` holds it. */
+export const hopText = (h: Hop) => `${h.from}→${h.to}@${h.at}${h.reason ? ` [declined: ${hopReason(h.reason)}]` : ""}`;
 
 /** Who an answer is pushed to: the asker, then every seat that held and forwarded it, minus the answerer. */
 export function recipientsOf(ask: ParsedAsk, answeredBy?: string): string[] {

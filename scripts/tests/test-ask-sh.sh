@@ -696,4 +696,32 @@ test_r4_superseded_ask_takes_no_answer_draft_or_send_and_leaves_the_open_list() 
   assert_contains "superseded	idealic:kernel/sa1" "$("$ASK_SH" list --status superseded)" "--status superseded still reaches it"
 }
 
+# ── a reserved ask declined by a seat is passed up (the operator's ruling, 2026-10-30) ──
+
+test_r4_reserved_decline_by_a_seat_passes_up_and_stays_open() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id pu1 --reserved-for operator >/dev/null
+  local f="$ASK_ROOT/idealic:kernel/pu1.md" out
+  out=$(FLEET_PANE=manager:idealic FLEET_PARENT=manager:director "$ASK_SH" answer idealic:kernel/pu1 --revision 1 --decline "needs the budget owner")
+  assert_contains "passed up, not declined	idealic:kernel/pu1 → manager:director" "$out" "the CLI says it was passed up, and to whom"
+  assert_contains "notice manager:director" "$out" "and that the next holder was told"
+  assert_contains "status: open" "$(cat "$f")" "the reserved ask stays open"
+  assert_contains "to: manager:director" "$(cat "$f")" "it moved to the decliner's parent"
+  assert_contains "manager:idealic→manager:director@" "$(cat "$f")" "the hop is in forwards:"
+  assert_contains "[declined: needs the budget owner]" "$(cat "$f")" "with the reason"
+  assert_not_contains '```json answer' "$(cat "$f")" "and no decline was recorded as an answer"
+  out=$(FLEET_PANE=manager:director "$ASK_SH" answer idealic:kernel/pu1 --revision 2 --decline "the operator's call")
+  assert_contains "passed up, not declined	idealic:kernel/pu1 → operator" "$out" "a decliner with no parent passes it to the operator"
+  assert_contains "to: operator" "$(cat "$f")" "so it now sits with the operator"
+  as_op answer idealic:kernel/pu1 --revision 3 --decline "not doing this" >/dev/null
+  assert_contains "status: declined" "$(cat "$f")" "the operator's own decline closes it"
+}
+
+test_r4_unreserved_decline_by_a_seat_is_unchanged() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id pu2 >/dev/null
+  local out; out=$(FLEET_PANE=manager:idealic FLEET_PARENT=manager:director "$ASK_SH" answer idealic:kernel/pu2 --revision 1 --decline "no")
+  assert_not_contains "passed up" "$out" "an unreserved decline is not passed up"
+  assert_contains "status: declined" "$(cat "$ASK_ROOT/idealic:kernel/pu2.md")" "it closes as declined"
+  assert_contains "to: manager:idealic" "$(cat "$ASK_ROOT/idealic:kernel/pu2.md")" "and does not move"
+}
+
 run_discovered_tests

@@ -218,7 +218,14 @@ async function main() {
         console.log(`draft saved\t${await saveDraft(root, seat, id, input, Number(opt.revision), { relayerManages: manages })}`);
         return;
       }
-      const res = await answerAsk(root, seat, id, input, { expectedRevision: Number(opt.revision), relayerManages: manages });
+      // A decline of a reserved ask by a seat is passed up to the decliner's own parent (live, as for
+      // the default --to; none → operator) instead of closing it.
+      const res = await answerAsk(root, seat, id, input, { expectedRevision: Number(opt.revision), relayerManages: manages, passUpTo: live.parent || "operator" });
+      if (res.passedUpTo) {
+        console.log(`passed up, not declined\t${seat}/${id} → ${res.passedUpTo}\trevision ${res.revision}\t(it is reserved; a decline by anyone else moves it one rung up, with the reason)`);
+        console.log(`notice ${res.passedUpTo} ${res.delivery.status}${res.delivery.reason ? `: ${res.delivery.reason}` : ""}`);
+        return;
+      }
       console.log(`${res.delivery.status}${res.delivery.reason ? `: ${res.delivery.reason}` : ""}\trevision ${res.revision}\t${res.file}`);
     } catch (e) {
       die((e as Error).message);

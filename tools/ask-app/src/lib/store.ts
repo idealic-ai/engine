@@ -14,6 +14,9 @@ import {
   clearDraft,
   currentRevision,
   forwardChain,
+  hopReason,
+  hopText,
+  type Hop,
   CODE_RULE,
   hasRead,
   invalidDependsOn,
@@ -196,13 +199,39 @@ export async function answerAsk(
   seat: string,
   id: string,
   input: AnswerInput,
-  opts: DeliverOptions & RelayStanding & { push?: typeof pushToSeat; expectedRevision: number },
-): Promise<{ file: string; revision: number; delivery: DeliveryResult }> {
+  opts: DeliverOptions & RelayStanding & { push?: typeof pushToSeat; expectedRevision: number; passUpTo?: string },
+): Promise<{ file: string; revision: number; delivery: DeliveryResult; passedUpTo?: string }> {
   const file = resolveAskPath(root, seat, id);
   if (!Number.isInteger(opts?.expectedRevision)) throw new AskFormatError("expectedRevision is required: pass the revision you read");
   const at = input.answeredAt ?? new Date().toISOString();
   // How the answerer was established (browser, cli, relay:<seat>) is part of the record.
   const via = input.answeredVia ? { answeredVia: input.answeredVia } : {};
+  const passed = await withFileLock(file, () => {
+    const before = fs.readFileSync(file, "utf8");
+    const ask = parseAskFile(before);
+    if (!isPassUp(ask, input)) return undefined;
+    assertNotSuperseded(ask);
+    if (!input.reason?.trim()) throw new AskFormatError("a decline needs a non-empty reason");
+    const cur = currentRevision(ask);
+    if (opts.expectedRevision !== cur) throw new StaleRevisionError(opts.expectedRevision, cur);
+    const to = opts.passUpTo?.trim() || "operator";
+    const after = forwardedText(before, ask, `${seat}/${id}`, { to, by: input.answeredBy ?? "", manages: opts.relayerManages, at, reason: input.reason });
+    atomicWrite(file, after);
+    return { to, revision: cur + 1, reserved: reservedOf(ask), reason: forwardChain(parseAskFile(after).header).at(-1)?.reason ?? "" };
+  });
+  if (passed) {
+    // The next holder hears it, with the reason; the operator is not a seat (the app redraws from the file).
+    const delivery: DeliveryResult =
+      passed.to === "operator"
+        ? { status: "delivered" }
+        : await safePush(opts.push ?? pushToSeat, passed.to, [
+            `[ask-passed-up] from ${input.answeredBy} via ask-app: ${seat}/${id} is reserved for ${passed.reserved}; ${input.answeredBy} declined it and passed it up to you`,
+            `Reason: ${passed.reason}`,
+            `It is still open, at revision ${passed.revision}. Answer it only if you are who it is reserved for; otherwise decline it to pass it up again. The file is the record:`,
+            file,
+          ].join("\n"), opts);
+    return { file, revision: passed.revision, delivery, passedUpTo: passed.to };
+  }
   const { written, record, parsed } = await withFileLock(file, () => {
     const before = fs.readFileSync(file, "utf8");
     assertMayAnswer(parseAskFile(before), input, opts);
@@ -328,6 +357,18 @@ function assertMayRelay(ask: ParsedAsk, a: AskAnswer, standing: RelayStanding = 
   if (!inChain && !manager) {
     throw new AskFormatError(`${relayer} may not relay onto ${id}: a relay comes from the addressee, a forwarder, or a manager of the asker (${ask.header.from ?? "?"})`);
   }
+}
+
+const reservedOf = (ask: ParsedAsk) => ask.header["reserved-for"]?.trim() ?? "";
+
+/**
+ * The operator's ruling (2026-10-30): a decline of a reserved ask by anyone but the one it is
+ * reserved for does not close it — it is passed up one rung (forward's rule), with its reason, and
+ * stays open. The reserved party's own decline, and any decline of an unreserved ask, settle as before.
+ */
+function isPassUp(ask: ParsedAsk, a: AskAnswer): boolean {
+  const reserved = reservedOf(ask);
+  return !!a.declined && !!reserved && a.answeredBy !== reserved;
 }
 
 /** R4 and M3: an ask marked `reserved-for: operator` is answered by the operator; any ask only by its answerers. */
@@ -659,32 +700,39 @@ const SEAT_RE = /^[A-Za-z0-9][A-Za-z0-9_.:@-]*$/;
  * stale (S4).
  */
 export async function forwardAsk(root: string, seat: string, id: string, o: { to: string; by: string; manages?: string[]; now?: string }): Promise<void> {
-  if (!o.to || !SEAT_RE.test(o.to) || o.to.includes("..")) throw new AskFormatError(`invalid recipient: ${o.to}`);
   if (!o.by) throw new AskFormatError("forward must name who is forwarding");
   const file = resolveAskPath(root, seat, id);
   await withFileLock(file, () => {
     const text = fs.readFileSync(file, "utf8");
-    const ask = parseAskFile(text);
-    if (ask.header.status !== "open") throw new AskFormatError(`${seat}/${id} is ${ask.header.status}; only an open ask moves`);
-    const holder = ask.header.to ?? "";
-    if (o.to === holder) throw new AskFormatError(`${seat}/${id} is already with ${holder}`);
-    if (o.to === ask.header.from) throw new AskFormatError(`${seat}/${id} cannot be forwarded to its own asker (${o.to})`);
-    const at = o.now ?? new Date().toISOString();
-    const hops = forwardChain(ask.header).map((h) => `${h.from}→${h.to}@${h.at}`);
-    if (o.by === holder) hops.push(`${holder}→${o.to}@${at}`);
-    else if (o.by === ask.header.from) {
-      throw new AskFormatError(`only the holder (${holder}) or its parent may move this ask; the asker re-pings the holder instead`);
-    } else if (managesSeat(o.manages ?? [], holder)) {
-      hops.push(`${holder}→${o.by}@${at}`);
-      if (o.to !== o.by) hops.push(`${o.by}→${o.to}@${at}`);
-    } else {
-      throw new AskFormatError(`only the holder (${holder}) or its parent may move this ask; ${o.by} is neither`);
-    }
-    let after = setHeaderField(text, "to", o.to);
-    after = setHeaderField(after, "forwards", hops.join(" ; "));
-    after = setHeaderField(after, "revision", String(currentRevision(ask) + 1));
-    atomicWrite(file, after);
+    atomicWrite(file, forwardedText(text, parseAskFile(text), `${seat}/${id}`, { ...o, at: o.now ?? new Date().toISOString() }));
   });
+}
+
+/**
+ * The move itself, shared by `forward` and by a decline passed up from a reserved ask: the standing
+ * check (the holder, or the holder's parent), the hops appended to `forwards:` (with the decline's
+ * reason on the last one, when there is one), the new `to:` and the revision moved.
+ */
+function forwardedText(text: string, ask: ParsedAsk, ref: string, o: { to: string; by: string; manages?: string[]; at: string; reason?: string }): string {
+  if (!o.to || !SEAT_RE.test(o.to) || o.to.includes("..")) throw new AskFormatError(`invalid recipient: ${o.to}`);
+  if (ask.header.status !== "open") throw new AskFormatError(`${ref} is ${ask.header.status}; only an open ask moves`);
+  const holder = ask.header.to ?? "";
+  if (o.to === holder) throw new AskFormatError(`${ref} is already with ${holder}`);
+  if (o.to === ask.header.from) throw new AskFormatError(`${ref} cannot be forwarded to its own asker (${o.to})`);
+  const hops: Hop[] = forwardChain(ask.header);
+  if (o.by === holder) hops.push({ from: holder, to: o.to, at: o.at });
+  else if (o.by === ask.header.from) {
+    throw new AskFormatError(`only the holder (${holder}) or its parent may move this ask; the asker re-pings the holder instead`);
+  } else if (managesSeat(o.manages ?? [], holder)) {
+    hops.push({ from: holder, to: o.by, at: o.at });
+    if (o.to !== o.by) hops.push({ from: o.by, to: o.to, at: o.at });
+  } else {
+    throw new AskFormatError(`only the holder (${holder}) or its parent may move this ask; ${o.by} is neither`);
+  }
+  if (o.reason) hops[hops.length - 1].reason = o.reason;
+  let after = setHeaderField(text, "to", o.to);
+  after = setHeaderField(after, "forwards", hops.map(hopText).join(" ; "));
+  return setHeaderField(after, "revision", String(currentRevision(ask) + 1));
 }
 
 // ── revising an open ask (the asker only) ─────────────────

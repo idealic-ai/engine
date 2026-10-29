@@ -82,7 +82,7 @@ Coming with ASK v2 H4: `Council: <url>` and `CouncilAsOf:` to attach the board i
 
 ## Reserved for the operator
 
-Set `reserved-for: operator` in the header (`--reserved-for operator`) when only the operator may rule: a one-way door, another team's code, money, anything a standing ruling names as the operator's. Managers then forward the ask rather than answer it. The header field is the marking; a sentence in the preamble saying "reserved for the operator" is not read.
+Set `reserved-for: operator` in the header (`--reserved-for operator`) when only the operator may rule: a one-way door, another team's code, money, anything a standing ruling names as the operator's. Managers then forward the ask rather than answer it; a manager's `--decline` on it passes it up one rung with the reason instead of closing it. The header field is the marking; a sentence in the preamble saying "reserved for the operator" is not read.
 
 ## Codes, and why they matter
 
