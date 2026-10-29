@@ -256,7 +256,7 @@ test_prompt_routes_questions_to_their_skill() {
   # AskUserQuestion at this terminal) cannot be the wake's route. The route is an ask
   # addressed up the chain; the two skills survive only as the operator-present exception.
   for clause in \
-    '`engine ask new --to <your parent seat, or operator if none>`' \
+    '`engine ask new --to <the first word hop.sh target prints: your parent seat, or operator>`' \
     'never a hand-rolled ask' \
     'only for an operator present at this terminal' \
     'never from a seat with a parent'; do
@@ -329,15 +329,51 @@ run_test test_atom_has_no_anchor_or_call_form
 
 test_commands_entry_names_the_ask_route() {
   local entry; entry=$(awk '/^### \[¶CMD_CONTINUE_ON_STOP\]/{f=1;next} f&&/^### /{exit} f' "$COMMANDS_FILE")
-  if [[ "$entry" == *'engine ask new --to'* ]] && [[ "$entry" == *'hop.sh target'* ]] \
+  if [[ "$entry" == *'engine ask new --to'* ]] && [[ "$entry" == *'the first word `hop.sh target` prints'* ]] \
+     && [[ "$entry" == *'`engine open-asks`'* ]] \
      && [[ "$entry" == *'present at this terminal'* ]] && [[ "$entry" != *'auto-continues;'* ]]; then
     pass "ATOM-04: the COMMANDS.md entry routes an operator-only question to an ask, the skills only for an operator present"
   else
     fail "ATOM-04: the COMMANDS.md entry routes an operator-only question to an ask, the skills only for an operator present" \
-      "engine ask new --to, hop.sh target, present at this terminal" "$entry"
+      "engine ask new --to, the first word hop.sh target prints, engine open-asks, present at this terminal" "$entry"
   fi
 }
 run_test test_commands_entry_names_the_ask_route
+
+# Step 4.1 decides who an operator-only question reaches. hop.sh target prints
+# "<seat> <pane>", so the whole line as --to files the ask to a seat with a space in its
+# name. Its exit 5 sometimes names a usable FLEET_PARENT and sometimes names a seat in a
+# stale note that must not be taken (stopmsg2 critique M1/M2). Pin each exit's routing, the
+# first-word rule, the broken-hop body, and the two lane/conductor pointer registers.
+test_atom_pins_hop_exit_routing() {
+  local atom; atom=$(cat "$ATOM_FILE" 2>/dev/null || true)
+  local missing="" clause
+  for clause in \
+    'It prints `<seat> <pane>`, or `operator`' \
+    'the **first word** of what it prints' \
+    '**Exit 0:** that seat.' \
+    '**Exit 3:** still that seat' \
+    "names \`FLEET_PARENT='<seat>'\`, address that \`<seat>\`" \
+    "\`FLEET_PARENT='unset'\`" \
+    'Do not take a seat from hop'"'"'s `is stale; using the live @pane_parent` note' \
+    '**Exit 2 or 4**' \
+    'start the ask'"'"'s body with `broken hop: <hop'"'"'s stderr>`' \
+    '`/coordinate` Step 5 still sends every exit 5 to the operator' \
+    'A lane logs a `## [TAG] ❓ Ask <id>: …` heading' \
+    '`engine open-asks`'; do
+    [[ "$atom" == *"$clause"* ]] || missing="$missing [$clause]"
+  done
+  # The retired wording sent every exit 5 to operator and called the output "your parent seat".
+  [[ "$atom" == *'When it prints nothing (exit 2, 4 or 5), address `operator`'* ]] && missing="$missing [old exit-5 rule still present]"
+  [[ "$atom" == *'ASK_AUTHOR_GUIDE.md'* ]] && missing="$missing [untracked guide cited]"
+  if [ -z "$missing" ]; then
+    pass "ATOM-05: step 4.1 routes each hop.sh exit, takes the first word, and starts a non-zero exit's ask with broken hop:"
+  else
+    fail "ATOM-05: step 4.1 routes each hop.sh exit, takes the first word, and starts a non-zero exit's ask with broken hop:" \
+      "every exit-routing clause, no retired rule" "missing:$missing"
+  fi
+}
+run_test test_atom_pins_hop_exit_routing
 
 # ── The reason is short and cites the atom ──────────────────────────────────
 # The operator's ask: at most two lines, naming the §CMD_ atom the way the ticket-watch

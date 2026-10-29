@@ -156,7 +156,7 @@ esac
 # (or, in an unseeded session, delivered by the fallback below after the wake's first tool
 # call), so a copy there would become the anchor (test BACKOFF-05).
 ATOM="$HOME/.claude/.directives/commands/CMD_CONTINUE_ON_STOP.md"
-REASON="Follow \`§CMD_CONTINUE_ON_STOP\`: carry on the \`/next\` sequence you are in, else invoke \`/next\`; put a question only the operator can answer in an ask, \`engine ask new --to <your parent seat, or operator if none>\`, never a hand-rolled ask (\`/interrogate\` and \`/decide\` only for an operator present at this terminal, never from a seat with a parent); if nothing is left, say so in one line and stop."
+REASON="Follow \`§CMD_CONTINUE_ON_STOP\`: carry on the \`/next\` sequence you are in, else invoke \`/next\`; put a question only the operator can answer in an ask, \`engine ask new --to <the first word hop.sh target prints: your parent seat, or operator>\`, never a hand-rolled ask (\`/interrogate\` and \`/decide\` only for an operator present at this terminal, never from a seat with a parent); if nothing is left, say so in one line and stop."
 
 NEW=$((COUNT + 1))
 jq ".autoContinueCount = $NEW" "$STATE" 2>/dev/null | safe_json_write "$STATE" >/dev/null 2>&1 || true

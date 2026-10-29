@@ -372,7 +372,7 @@ A probe raises **confidence**. It never grants **authority**. A question that `h
 Re-run `hop.sh target --config [sessionDir]/coordinate.config.json --chain-file [sessionDir]/hop-chain.txt` here rather than trusting the Setup reading, because the tree may have changed since then. Handle every exit code:
 *   **exit 0**: the target on stdout.
 *   **exit 3**: the target on stdout is still valid. A dead rung was skipped, or the top of the chain is dead and it printed `operator`. Copy the stderr reason into the `sent` row's `sent` cell.
-*   **exit 2, 4 or 5**: there is no target. Go to 5c with the reason `broken hop: <stderr>`, so the operator is told why the chain did not carry it.
+*   **exit 2, 4 or 5**: there is no target. Go to 5c with the reason `broken hop: <stderr>`, so the operator is told why the chain did not carry it. This step sends every exit 5 to 5c. `¶CMD_CONTINUE_ON_STOP` step 4.1 (the ask a seat writes on an auto-continue) splits exit 5 under the director's interim rule: when stderr says this seat is not in the live tree and names `FLEET_PARENT='<seat>'`, that ask goes to that seat. The split is not adopted here yet.
 
 1.  **Leave worker blocked**: Do NOT send any keystrokes. The worker's AskUserQuestion remains unanswered. The next `await-next` call will re-sweep this pane. **Keep the middle rung thin**: a worker waits on every rung above it, so pass the question up at once. Do not hold it for a batch.
 
