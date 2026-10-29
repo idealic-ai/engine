@@ -4,7 +4,7 @@
  * worth a column on a fork. Pure, so the tests read it without a DOM.
  */
 import { displayTitle } from "./md.ts";
-import { relayerOf } from "../lib/format.ts";
+import { isOperatorAnswer } from "../lib/format.ts";
 import { isProvisional } from "./loop.ts";
 import { cardFor, draftAuthor, questionKey, visibleQuestions, type AnswerMap, type AnswerValue, type AskOption, type ParsedAsk } from "../lib/format.ts";
 
@@ -31,6 +31,8 @@ export type Row = {
   /** Ruled below you: the seat that answered in the operator's place, and when (ISO). */
   ruledBy?: string;
   ruledAt?: string;
+  /** A provisional ask whose asker came back: the ask that followed it up (operator, 04:05). */
+  followedBy?: string;
 };
 
 export const askRef = (a: StoredAsk) => `${a.seat}/${a.header.id}`;
@@ -44,8 +46,8 @@ export const isSettled = (a: ParsedAsk) => a.header.status === "answered" || a.h
 export function ruledBelow(a: ParsedAsk): boolean {
   const by = a.answer?.answeredBy?.trim() ?? "";
   if (!a.answer || !by) return false;
-  if (/^operator\b/i.test(by) || relayerOf(a.answer)) return false;
-  return true;
+  // One rule for "the operator's own answer", the store's (IDE-304 NIT 6).
+  return !isOperatorAnswer(a.answer);
 }
 
 /** The answers the operator has given or drafted, which is what "left" counts against. */
@@ -64,7 +66,29 @@ export function ageOf(createdMs: number, now: number): string {
   return `${Math.floor(h / 24)}d`;
 }
 
-export function askRow(a: StoredAsk, now = Date.now()): Row {
+const REF_RE = /[\w.-]+(?::[\w.-]+)?\/[\w.-]+/g;
+
+/**
+ * The asker came back (operator, 04:05): another ask, not older than this provisional one, names it
+ * in `previous:` or `related:`. The first such ask's ref, or undefined.
+ */
+export function followUpOf<T extends ParsedAsk & { seat: string }>(a: T, all: T[]): string | undefined {
+  if (!isProvisional(a)) return undefined;
+  const ref = `${a.seat}/${a.header.id}`;
+  const mine = Date.parse(a.header.created ?? "");
+  for (const b of all) {
+    const bref = `${b.seat}/${b.header.id}`;
+    if (bref === ref) continue;
+    const names: string[] = [b.header.previous ?? "", b.header.related ?? ""].join(" ").match(REF_RE) ?? [];
+    if (!names.includes(ref)) continue;
+    const theirs = Date.parse(b.header.created ?? "");
+    if (Number.isFinite(mine) && Number.isFinite(theirs) && mine > theirs) continue;
+    return bref;
+  }
+  return undefined;
+}
+
+export function askRow(a: StoredAsk, now = Date.now(), all: StoredAsk[] = []): Row {
   const given = givenAnswers(a);
   const visible = visibleQuestions(a.questions, given);
   const answered = visible.filter((q) => {
@@ -77,6 +101,7 @@ export function askRow(a: StoredAsk, now = Date.now()): Row {
   const created = Date.parse(a.header.created ?? "");
   const reserved = a.header["reserved-for"]?.trim() || undefined;
   const author = a.draft ? draftAuthor(a.draft) : "";
+  const followedBy = followUpOf(a, all);
   return {
     ref: askRef(a),
     id: a.header.id ?? "",
@@ -95,6 +120,7 @@ export function askRow(a: StoredAsk, now = Date.now()): Row {
     seatDraft: a.draft && author !== "operator" ? author : undefined,
     status: a.header.status ?? "open",
     ...(ruledBelow(a) ? { ruledBy: a.answer!.answeredBy!.trim(), ruledAt: a.answer!.answeredAt } : {}),
+    ...(followedBy ? { followedBy } : {}),
   };
 }
 
@@ -397,9 +423,10 @@ export type Filter = "open" | "ruled" | "settled" | "all";
  * SF-4: the one predicate behind both a filter's list and its count. Settled is answered or declined;
  * a superseded ask is in All only (it was replaced, not settled by anyone here).
  */
-export function rowInFilter(r: Pick<Row, "status" | "draft" | "ruledBy"> & { draftSent?: boolean }, f: Filter): boolean {
-  // Round 5: a provisional answer waits on its asker, so it stays under Open, never Settled.
-  if (r.draftSent) return f === "all" || f === "open";
+export function rowInFilter(r: Pick<Row, "status" | "draft" | "ruledBy"> & { draftSent?: boolean; followedBy?: string }, f: Filter): boolean {
+  // Round 5: a provisional answer waits on its asker, so it stays under Open, never Settled, until
+  // the asker comes back with a follow-up ask (operator, 04:05): then it reads as settled.
+  if (r.draftSent && !r.followedBy) return f === "all" || f === "open";
   return f === "all" ? true : f === "ruled" ? !!r.ruledBy : f === "settled" ? r.status === "answered" || r.status === "declined" : r.status === "open";
 }
 

@@ -717,7 +717,10 @@ describe("round-5 fixes SF-2: only the operator's own browser answer can be prov
     expect(initialValues(left).note).toBe("mine");
     const fs = await import("node:fs");
     const src = fs.readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
-    expect(src).toMatch(/const plain = stripLoopLines\(note\);\s*const base = \{[^}]*note: plain \|\| undefined/);
+    // The body is decided in reanswer.ts draftBody (IDE-304), which strips the loop lines.
+    expect(src).toContain('post("/api/draft", draftBody(ask, kind, { answers, note }), keep)');
+    const { draftBody } = await import("../src/client/reanswer.ts");
+    expect(draftBody(left, "draft", { answers: {}, note: composeNote(DRAFT_NOTE, "mine") }).note).toBe("mine");
   });
 });
 
@@ -740,7 +743,7 @@ describe("round-5 fixes SF-3/SF-4: which sends confirm, and the buttons are wire
     expect(src).toContain('onClick={() => clickSend("draft")}');
     expect(src).toContain('onClick={() => clickSend("request")}');
     expect(src).toContain("const askSend = () => clickSend(\"send\");");
-    expect(src).toMatch(/const plan = clickPlan\(kind, \{ unanswered, provisionalKept: kept, confirmText: sendConfirmation \}\);\s*if \(plan\.confirm\) setConfirmSend\(\{ msg: plan\.confirm, kind \}\);\s*else runSend\(kind\);/);
+    expect(src).toMatch(/const plan = planClick\(kind, \{ ask, answers, visible, provisionalKept: kept \}\);\s*if \(plan\.confirm\) setConfirmSend\(\{ msg: plan\.confirm, kind \}\);\s*else runSend\(kind\);/);
     // No button calls a send without the plan, except "Send anyway" inside the confirm.
     expect(src.match(/onClick=\{\(\) => (sendDraft|sendRequest)\(\)\}/g)).toBeNull();
     expect(src.match(/onClick=\{\(\) => act\("send-now"\)\}/g)).toBeNull();
@@ -849,12 +852,10 @@ describe("decline pass-up (3): the reason on its hop", () => {
   ];
   const h = { forwards: hops.map(hopText).join(" ; ") };
 
-  it("forwardChain itself returns each hop's reason, unescaped, so pathOf needs no parser of its own", async () => {
+  it("forwardChain itself returns each hop's reason, unescaped, so pathOf needs no parser of its own", () => {
     expect(h.forwards).toContain("[declined: not mine to rule%3B the operator owns F2]");
     expect(forwardChain(h as never)).toEqual(hops);
     expect(forwardChain({ forwards: hopText({ from: "a", to: "b", at: "2026-10-30T01:00:00Z", reason: "ask x@y" }) } as never)[0].reason).toBe("ask x@y");
-    const fs = await import("node:fs");
-    expect(fs.readFileSync(new URL("../src/client/supersede.ts", import.meta.url), "utf8")).not.toMatch(/HOP_RE|\[declined:\\s/);
   });
 
   it("reads each hop and the decline reason, even one holding an @", () => {

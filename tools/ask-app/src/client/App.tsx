@@ -68,7 +68,7 @@ import { pushEsc } from "./esc.ts";
 import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, type PathHop } from "./supersede.ts";
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
-import { CHANGE_WORDING, changeAnswerStart, mayChangeAnswer, sendChangedAnswer } from "./reanswer.ts";
+import { CHANGE_WORDING, changeAnswerStart, draftBody, mayChangeAnswer, planClick, requestSend, unsentKey } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
 export { ticketKeys };
@@ -211,7 +211,7 @@ export function App() {
   const hiddenCount = asks.length - shown.length;
   const drafts = trayDrafts(shown);
   const now = Date.now();
-  const rows = useMemo(() => sortRows(shown.map((a) => askRow(a, now))), [shown]); // eslint-disable-line react-hooks/exhaustive-deps
+  const rows = useMemo(() => sortRows(shown.map((a) => askRow(a, now, asks))), [shown, asks]); // eslint-disable-line react-hooks/exhaustive-deps
   // SF-4: the list and its count read one predicate, so they cannot disagree.
   // Ruled below you lists the newest ruling first; the other filters keep the waiting-on-you order.
   const inFilter = filter === "ruled" ? sortRuled(rows.filter((r) => rowInFilter(r, filter))) : rows.filter((r) => rowInFilter(r, filter));
@@ -702,14 +702,17 @@ export function AskDetail({
   const open = (ask.header.status ?? "open") === "open";
   // IDE-304: the operator may reopen their own recorded answer and send a new one in its place.
   const mayChange = mayChangeAnswer(ask);
-  const [changing, setChanging] = useState(!!startChanging && mayChange);
-  const editable = open || changing;
   const ref = askRef(ask);
+  // A change in progress survives a remount: its unsent edits, or the operator's saved change draft.
+  const [changing, setChanging] = useState(() => mayChange && (!!startChanging || !!loadUnsent(unsentKey(ref, true)) || (!!ask.draft && draftAuthor(ask.draft) === "operator")));
+  const editable = open || changing;
+  const keyFor = (c: boolean) => unsentKey(ref, c);
   const revision = String(ask.header.revision ?? "");
+  const keys = ask.questions.map((q, i) => questionKey(q, i));
   const start = useMemo(() => {
+    if (changing) return restoreUnsent(changeAnswerStart(ask), loadUnsent(keyFor(true)), revision, keys);
     const init = initialValues(ask);
-    if (changing) return { ...changeAnswerStart(ask), notice: "" };
-    return open ? restoreUnsent(init, loadUnsent(ref), revision, ask.questions.map((q, i) => questionKey(q, i))) : { ...init, notice: "" };
+    return open ? restoreUnsent(init, loadUnsent(ref), revision, keys) : { ...init, notice: "" };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- the card is keyed by ref+revision
   const [values, setValues] = useState<Values>(start.values);
   const [text, setText] = useState<Record<string, string>>(start.text);
@@ -720,8 +723,8 @@ export function AskDetail({
   const [moved, setMoved] = useState(start.notice);
   const [confirmSend, setConfirmSend] = useState<{ msg: string; kind: SendKind } | undefined>();
   useEffect(() => {
-    if (open) saveUnsent(ref, { revision, values, text, note });
-  }, [open, ref, revision, values, text, note]);
+    if (editable) saveUnsent(keyFor(changing), { revision, values, text, note });
+  }, [editable, changing, ref, revision, values, text, note]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Only questions visible under the answers so far are sent, repeated until stable, so a hidden
   // dependent's stale pick is dropped. A suggestion is never an answer, so it never unhides one.
@@ -753,7 +756,7 @@ export function AskDetail({
   const depDeclined = dependsOnDeclined(ask, all);
   const headerTickets = [...(ask.header.tickets ?? "").matchAll(/\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b/g)].map((m) => m[1]);
   const proofs = proofLinks(ask);
-  const row = askRow(ask);
+  const row = askRow(ask, Date.now(), all);
   const forkId = (i: number) => `fork-${ask.header.id}-${forkLabel(ask.questions[i], i)}`;
 
   const scrollToFork = (i: number | undefined) => {
@@ -781,7 +784,7 @@ export function AskDetail({
     setResult("");
     // Operator 01:29: a token refused after a server restart is refreshed and the request retried once;
     // the picks and notes are saved in this browser first, so even a reload keeps them.
-    const keep = () => saveUnsent(ref, { revision, values, text, note });
+    const keep = () => saveUnsent(keyFor(changing), { revision, values, text, note });
     const gaveUp = (r: Authed) => (r.restarted ? (setResult(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED), true) : false);
     try {
       if (kind === "discard") {
@@ -790,11 +793,7 @@ export function AskDetail({
         setResult(r.status === 200 ? "Draft discarded." : `Error: ${r.json.error}`);
         return onChanged();
       }
-      // SF-2: an ordinary save or send never carries the draft or request line along.
-      const plain = stripLoopLines(note);
-      const base = { seat: ask.seat, id: ask.header.id, expectedRevision: Number(ask.header.revision), note: plain || undefined };
-      const body = kind === "draft-decline" ? { ...base, decline: note.trim() } : { ...base, answers };
-      const r = await post("/api/draft", body, keep);
+      const r = await post("/api/draft", draftBody(ask, kind, { answers, note }), keep);
       if (gaveUp(r)) return;
       if (r.status === 409) {
         // A superseded ask names its replacement; the picks stay in this browser for it.
@@ -812,7 +811,7 @@ export function AskDetail({
         const p = s.json.pushes?.[0];
         if (s.json.refused?.length) setResult(`Refused: ${s.json.refused[0].error}`);
         else {
-          clearUnsent(ref);
+          clearUnsent(keyFor(changing));
           if (p) setResult(p.delivery.status === "delivered" ? `Queued at ${p.seat}, not read yet. It turns "read" when the seat runs engine ask read.` : `Saved, but ${p.delivery.status} (${p.delivery.reason ?? ""}). The asker's /next picks it up from the file.`);
         }
       } else setResult("Draft saved in the file. Nothing has been sent: use Send batch at the top.");
@@ -827,17 +826,29 @@ export function AskDetail({
     setConfirmSend(undefined);
     setBusy(true);
     setResult("");
+    const keep = () => saveUnsent(keyFor(changing), { revision, values, text, note });
+    let restarted: Authed["restarted"];
+    // The token refresh and the restart notice, as act() has them: edits are kept before a retry.
+    const poster = async (url: string, body: unknown) => {
+      const r = await post(url, body, keep);
+      if (r.restarted) restarted = r.restarted;
+      return r;
+    };
     try {
-      const out = await sendProvisional(post, async () => {
+      const out = await sendProvisional(poster, async () => {
         const j = await (await fetch("/api/asks")).json();
         return (j.asks as StoredAsk[]).find((x) => askRef(x) === askRef(ask));
       }, { seat: ask.seat, id: ask.header.id ?? "", expectedRevision: Number(ask.header.revision), answers: answersToSend, note: noteText });
+      if (restarted) {
+        keep();
+        return setResult(restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
+      }
       if (out.supersededBy !== undefined || /was replaced/.test(out.message)) {
-        saveUnsent(ref, { revision, values, text, note });
+        keep();
         setReplacedBy(out.supersededBy ?? "");
       }
       if (out.ok) {
-        clearUnsent(ref);
+        clearUnsent(keyFor(changing));
         setNeedText("");
         setNeedOpen(false);
         if (out.flagStored) provisionalKeptSeen = true;
@@ -860,6 +871,7 @@ export function AskDetail({
     setChanging(true);
   };
   const cancelChange = () => {
+    clearUnsent(keyFor(true));
     const s0 = initialValues(ask);
     setValues(s0.values);
     setText(s0.text);
@@ -867,24 +879,10 @@ export function AskDetail({
     setResult("");
     setChanging(false);
   };
-  async function sendChange() {
-    setBusy(true);
-    setResult("");
-    try {
-      const out = await sendChangedAnswer(post, { seat: ask.seat, id: ask.header.id ?? "", expectedRevision: Number(ask.header.revision), answers, note });
-      if (out.supersededBy !== undefined) setReplacedBy(out.supersededBy);
-      setResult(out.message);
-      if (out.ok) onChanged();
-    } catch (e) {
-      setResult(`Error: ${(e as Error).message}. Reload to see whether anything was sent.`);
-    } finally {
-      setBusy(false);
-    }
-  }
   const sendDraft = () => provisionalSend(answers, composeNote(DRAFT_NOTE, note));
   const sendRequest = () => {
-    const line = requestLine(needKind, needText);
-    return provisionalSend(provisionalAnswers(ask, answers, line), composeNote(line, note));
+    const r = requestSend(ask, answers, note, needKind, needText);
+    return provisionalSend(r.answers, r.note);
   };
 
   const picked = Object.keys(answers).filter((k) => !k.endsWith(".other")).length;
@@ -895,7 +893,7 @@ export function AskDetail({
   // request confirm only while the server does not keep `provisional` (SF-3).
   const runSend = (kind: SendKind) => (kind === "send" ? act("send-now") : kind === "draft" ? sendDraft() : sendRequest());
   const clickSend = (kind: SendKind) => {
-    const plan = clickPlan(kind, { unanswered, provisionalKept: kept, confirmText: sendConfirmation });
+    const plan = planClick(kind, { ask, answers, visible, provisionalKept: kept });
     if (plan.confirm) setConfirmSend({ msg: plan.confirm, kind });
     else runSend(kind);
   };
@@ -953,7 +951,7 @@ export function AskDetail({
           </div>
         )}
         {notice && <p className="chip warn notice" role="status">{notice}</p>}
-        {moved && open && (
+        {moved && editable && (
           <p className="chip warn notice" role="status">
             {moved} <button className="linkish" onClick={() => setMoved("")}>Dismiss</button>
           </p>
@@ -1008,8 +1006,9 @@ export function AskDetail({
                 <span className="muted"> · a seat answered in your place{ask.header.status === "declined" ? " and declined" : ""}. This app has no overrule yet.</span>
               </p>
             ) : null}
-            <h3>{provisional ? "Waiting on the asker: draft sent" : ask.header.status === "declined" ? "Declined" : "Answered"} · revision {ask.header.revision}</h3>
-            {provisional && <p className="muted">This answer is not final. The asker comes back with a second round, which opens here as a new ask.</p>}
+            <h3>{provisional ? (row.followedBy ? "Draft sent; the asker came back" : "Waiting on the asker: draft sent") : ask.header.status === "declined" ? "Declined" : "Answered"} · revision {ask.header.revision}</h3>
+            {provisional && !row.followedBy && <p className="muted">This answer is not final. The asker comes back with a second round, which opens here as a new ask.</p>}
+            {row.followedBy && <p className="followed-up muted">followed up by <AskLink to={row.followedBy} onOpen={onOpenAsk} /></p>}
             <AnsweredBy answer={ask.answer} />
             {ask.answer?.note && <p className="answer-note"><Inline text={ask.answer.note} /></p>}
             <Life h={ask.header} />
@@ -1025,27 +1024,17 @@ export function AskDetail({
             )}
           </>
         )}
-        {changing && (
+        {editable && (
           <>
-            <h3>Change your answer · revision {ask.header.revision}</h3>
-            <p className="muted sends">{CHANGE_WORDING}</p>
-            <label className="field-label" htmlFor={`note-${ask.header.id}`}>Note to the asker</label>
-            <textarea id={`note-${ask.header.id}`} rows={2} placeholder="Optional." value={note} onChange={(e) => setNote(e.target.value)} />
-            <p className="actions">
-              <button className="btn primary" disabled={busy || nothing} onClick={sendChange}>Send changed answer</button>
-              <button className="btn quiet" disabled={busy} onClick={cancelChange}>Cancel</button>
-            </p>
-          </>
-        )}
-        {open && (
-          <>
+            {changing && <h3>Change your answer · revision {ask.header.revision}</h3>}
+            {changing && <p className="muted sends">{CHANGE_WORDING}</p>}
             <p className="muted sends">
               {nothing
                 ? "Nothing picked yet. Suggestions are not sent."
                 : `Sending settles this ask: the asker gets ${picked} of ${visible.length} fork${visible.length === 1 ? "" : "s"} answered${Object.keys(answers).length > picked ? " and your notes" : ""}${unanswered.length ? `, and ${unanswered.join(", ")} reach${unanswered.length === 1 ? "es" : ""} the asker unanswered. The ask closes; nothing here is left open` : ""}. Save draft keeps it in the file and sends nothing.`}
             </p>
-            <label className="field-label" htmlFor={`note-${ask.header.id}`}>Note to the asker</label>
-            <textarea id={`note-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
+            <label className="field-label" htmlFor={`${changing ? "change-note" : "note"}-${ask.header.id}`}>Note to the asker</label>
+            <textarea id={`${changing ? "change-note" : "note"}-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
             <p className="actions">
               <button className="btn primary" disabled={busy || nothing} onClick={askSend}>{nothing ? "Send answers" : picked ? `Send ${picked} answer${picked === 1 ? "" : "s"}` : "Send your notes"}</button>
               {/* Partial on purpose: never the "N questions unanswered" confirm; while the server does not keep `provisional`, an honest confirm instead. */}
@@ -1054,6 +1043,7 @@ export function AskDetail({
               <button className="btn quiet" disabled={busy || nothing} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>
               <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => act("draft-decline")}>Draft a decline</button>
               {ask.draft && <button className="btn" disabled={busy} onClick={() => act("discard")}>Discard draft</button>}
+              {changing && <button className="btn quiet" disabled={busy} onClick={cancelChange}>Cancel</button>}
             </p>
             {confirmSend && (
               <div className="confirm-send" role="alertdialog" aria-label="Confirm sending a partial answer">
