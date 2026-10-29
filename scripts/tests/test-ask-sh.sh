@@ -407,9 +407,24 @@ test_r1_linear_key_comes_from_the_working_project() {
   h=$(curl -s -H "Host: 127.0.0.1:$port" "http://127.0.0.1:$port/api/health")
   assert_contains '"tickets":true' "$h" "the project's .env.local key turns tooltips on"
   "$ASK_SH" serve "$ASK_ROOT" --stop >/dev/null 2>&1
+  # A later start from outside any project reuses the file the last start remembered (<root>/.ask-app.env),
+  # so a restart from another directory keeps its tooltips.
+  assert_contains "ASK_LINEAR_ENV=$proj/.env.local" "$(cat "$ASK_ROOT/.ask-app.env")" "serve remembers the key file it used"
   ( cd "$TMP" && unset ASK_LINEAR_ENV && _ENV_ANCHOR_RESOLVING=1 "$ASK_SH" serve "$ASK_ROOT" --port "$port" >/dev/null 2>&1 )
   h=$(curl -s -H "Host: 127.0.0.1:$port" "http://127.0.0.1:$port/api/health")
-  assert_contains '"tickets":false' "$h" "outside any project there is no key, and no fixed fallback path"
+  assert_contains '"tickets":true' "$h" "a restart outside any project reuses the remembered key file"
+  "$ASK_SH" serve "$ASK_ROOT" --stop >/dev/null 2>&1
+  # With nothing remembered, outside any project there is no key, and no fixed fallback path.
+  rm -f "$ASK_ROOT/.ask-app.env"
+  ( cd "$TMP" && unset ASK_LINEAR_ENV && _ENV_ANCHOR_RESOLVING=1 "$ASK_SH" serve "$ASK_ROOT" --port "$port" >/dev/null 2>&1 )
+  h=$(curl -s -H "Host: 127.0.0.1:$port" "http://127.0.0.1:$port/api/health")
+  assert_contains '"tickets":false' "$h" "with nothing remembered, outside any project there is no key"
+  "$ASK_SH" serve "$ASK_ROOT" --stop >/dev/null 2>&1
+  # A remembered path that no longer exists is not reused.
+  printf 'ASK_LINEAR_ENV=%s\n' "$TMP/gone/.env.local" > "$ASK_ROOT/.ask-app.env"
+  ( cd "$TMP" && unset ASK_LINEAR_ENV && _ENV_ANCHOR_RESOLVING=1 "$ASK_SH" serve "$ASK_ROOT" --port "$port" >/dev/null 2>&1 )
+  h=$(curl -s -H "Host: 127.0.0.1:$port" "http://127.0.0.1:$port/api/health")
+  assert_contains '"tickets":false' "$h" "a remembered key file that is gone is not used"
   "$ASK_SH" serve "$ASK_ROOT" --stop >/dev/null 2>&1
 }
 
