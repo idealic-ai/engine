@@ -108,7 +108,11 @@ export const HEADER_FIELDS = [
 ] as const;
 
 /** Fields written by the store as the ask moves, never set by `engine ask new`. */
-export const STAMP_FIELDS = ["ruledInChat", "revisions", "delivery", "deliveryNote", "deliveryWriter", "readAt", "readBy", "reads", "acted", "actedAt", "actedBy", "draft", "forwards"] as const;
+export const STAMP_FIELDS = [
+  "ruledInChat", "revisions", "delivery", "deliveryNote", "deliveryWriter", "readAt", "readBy", "reads", "acted", "actedAt", "actedBy", "draft", "forwards",
+  // `engine ask supersede`: on the replaced ask, its replacement, when, and who replaced it; on the replacement, what it replaced.
+  "superseded-by", "superseded-at", "superseded-actor", "supersedes",
+] as const;
 
 const KIND_WORDS: Record<string, QuestionKind> = {
   "Choose one": "choose-one", Choose: "choose", Rank: "rank", Text: "text", Number: "number", Date: "date", "Yes or no": "yesno",
@@ -154,6 +158,24 @@ export class AskFormatError extends Error {
 }
 
 /** The ask moved on since the answerer read it (INV_ONE_CHOSEN_DESTINATION: one answer wins). */
+/**
+ * The ask was replaced by another (`engine ask supersede`): nothing answers, declines or drafts it
+ * any more. `by` is the replacement's `<seat>/<id>`, so a refusal can say where to answer instead.
+ */
+export class SupersededError extends AskFormatError {
+  readonly by: string;
+  constructor(id: string, by: string) {
+    super(`ask ${id} is superseded${by ? ` by ${by}; answer that one instead` : "; answer its replacement"}`);
+    this.name = "SupersededError";
+    this.by = by;
+  }
+}
+
+/** Refuse any answer, decline or draft on a superseded ask, naming its replacement. */
+export function assertNotSuperseded(ask: ParsedAsk) {
+  if (ask.header.status === "superseded") throw new SupersededError(ask.header.id ?? "", ask.header["superseded-by"] ?? "");
+}
+
 export class StaleRevisionError extends AskFormatError {
   readonly current: number;
   constructor(expected: number, current: number) {
@@ -539,9 +561,7 @@ export function currentRevision(ask: ParsedAsk): number {
 
 function settle(text: string, record: AskAnswer, status: "answered" | "declined", expectedRevision?: number): string {
   const ask = parseAskFile(text);
-  if (ask.header.status === "superseded") {
-    throw new AskFormatError(`ask ${ask.header.id ?? ""} is superseded; answer its replacement`);
-  }
+  assertNotSuperseded(ask);
   const cur = currentRevision(ask);
   if (expectedRevision !== undefined && expectedRevision !== cur) throw new StaleRevisionError(expectedRevision, cur);
   const revision = String(cur + 1);
@@ -638,6 +658,7 @@ export function validateAnswer(ask: ParsedAsk, answers: unknown): asserts answer
  */
 export function writeDraft(text: string, d: AskAnswer & { savedAt?: string }, expectedRevision: number): string {
   const ask = parseAskFile(text);
+  assertNotSuperseded(ask);
   if (ask.header.status !== "open" && ask.header.status !== undefined) {
     throw new AskFormatError(`ask ${ask.header.id ?? ""} is ${ask.header.status}; only an open ask takes a draft`);
   }

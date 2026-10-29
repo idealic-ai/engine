@@ -10,6 +10,7 @@
  *   GET  /api/events   server-sent events: "change" whenever a file under the root changes
  *   POST /api/answer   {seat, id, expectedRevision, answers | decline: reason, note?}
  *                      → 200 written + pushed · 400 invalid/empty · 409 stale revision (+ current answer)
+ *                        · 409 superseded ({ error, status: "superseded", supersededBy: "<seat>/<id>" })
  *   POST /api/draft    same body as /api/answer → the answer is saved IN THE FILE as a draft; nothing pushed
  *   POST /api/discard  {seat, id} → the operator's draft is removed (404 when there is no such ask)
  *   POST /api/send     {refs?: ["seat/id", …]} → every named draft (the operator's own drafts when refs
@@ -39,7 +40,7 @@ import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
 import { answerAsk, defaultAskRoot, discardDraft, listAsks, resolveAskPath, saveDraft, sendBatch } from "./lib/store.ts";
 import { loadLinearKey, makeTicketFetcher, TICKET_KEY_RE, TicketNotFound } from "./lib/linear.ts";
-import { AskFormatError, parseAskFile, StaleRevisionError } from "./lib/format.ts";
+import { AskFormatError, parseAskFile, StaleRevisionError, SupersededError } from "./lib/format.ts";
 import { computeBuildId, recordedBuildId } from "./build-id.ts";
 import { listProofs } from "./lib/proofs.ts";
 import { listBroadcasts } from "./lib/broadcasts.ts";
@@ -214,6 +215,8 @@ const server = http.createServer(async (req, res) => {
         const out = await answerAsk(root, b.seat, b.id, withNote, { expectedRevision: Number(b.expectedRevision) });
         return send(res, 200, out);
       } catch (e) {
+        // The ask was replaced: 409, naming the replacement, so the client can link to it.
+        if (e instanceof SupersededError) return send(res, 409, { error: e.message, status: "superseded", supersededBy: e.by });
         if (e instanceof StaleRevisionError) {
           const cur = parseAskFile(fs.readFileSync(resolveAskPath(root, b.seat, b.id), "utf8"));
           return send(res, 409, { error: e.message, revision: e.current, status: cur.header.status, answer: cur.answer });

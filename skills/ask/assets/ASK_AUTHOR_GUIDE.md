@@ -93,6 +93,7 @@ The v1 parser read only 2 to 4 capitals. In the IDE-264 ask, `[RESCOPE]`, `[KEEP
 ## Before you run `engine ask new`
 
 - [ ] I cannot check or decide this myself, and I am not a loom lane.
+- [ ] This is not a re-filing of an open ask: to change one, `engine ask revise` it; if it must be a new ask, `engine ask supersede` the old one right after filing (SKILL.md, *Replacing an ask*).
 - [ ] Each fork is one decision; there are at most five; each is named `¶ASK_<NAME>`.
 - [ ] Dependent forks carry `DependsOn:`.
 - [ ] Each fork has two to four options in neutral order, plus an honest do-nothing when one exists.

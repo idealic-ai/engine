@@ -8,6 +8,7 @@ import path from "node:path";
 import { pushToSeat, type DeliverOptions, type DeliveryResult } from "./deliver.ts";
 import {
   AskFormatError,
+  assertNotSuperseded,
   answerLines,
   bodyDigest,
   clearDraft,
@@ -331,6 +332,8 @@ function assertMayRelay(ask: ParsedAsk, a: AskAnswer, standing: RelayStanding = 
 
 /** R4 and M3: an ask marked `reserved-for: operator` is answered by the operator; any ask only by its answerers. */
 function assertMayAnswer(ask: ParsedAsk, a: AskAnswer, standing?: RelayStanding) {
+  // First: a superseded ask is refused whoever answers, pointing at the ask that replaced it.
+  assertNotSuperseded(ask);
   assertMayRelay(ask, a, standing);
   const by = a.answeredBy;
   const id = ask.header.id ?? "";
@@ -427,6 +430,7 @@ export async function sendBatch(root: string, refs: string[] | undefined, opts: 
         const before = fs.readFileSync(file, "utf8");
         const ask = parseAskFile(before);
         const d = ask.draft;
+        assertNotSuperseded(ask);
         if (!d) throw new AskFormatError(`${ref} has no draft to send`);
         if (draftAuthor(d) !== by) throw new AskFormatError(`${ref}'s draft was saved by ${draftAuthor(d) || "an unnamed answerer"}; only its author sends it`);
         assertMayAnswer(ask, d, opts);
@@ -761,4 +765,91 @@ export async function reviseAsk(
   const pushes: ReviseResult["pushes"] = [];
   for (const s of seats) pushes.push({ seat: s, delivery: await safePush(push, s, msg, o) });
   return { file, revision: res.revision, changed: res.changed, pushes };
+}
+
+// ── superseding (one ask replaces another) ────────────────
+
+export type AskRef = { seat: string; id: string };
+export type SupersedeResult = { file: string; revision: number; pushes: { seat: string; delivery: DeliveryResult }[] };
+
+/**
+ * Replace the open ask `old` with the ask `by`, so the two can never both be answered (a re-filed
+ * copy and its original were, and a ticket flip-flopped — IDE-261). Prefer `revise`; supersede is
+ * for when the replacement had to be a new ask.
+ *
+ * - Who: the old ask's asker (`from:`), a manager of that asker (`manages`, its FLEET_MANAGES —
+ *   forward's standing rule), or the operator. Not the holder: it changes what the asker asked. A
+ *   reserved ask may be superseded, since it settles no decision.
+ * - The old ask: `status: superseded`, `superseded-by: <seat>/<id>`, `superseded-at`,
+ *   `superseded-actor`; its revision moves and `revisions:` records it (revise's rule), so an answer
+ *   or draft in flight against it is stale, and any saved draft is dropped. The new ask: `supersedes:
+ *   <seat>/<id>` only — its question is unchanged, so its revision does not move.
+ * - Refused: either ask missing, an ask superseding itself, an old ask that is not open (answered,
+ *   declined or ruled asks are history; a superseded one names what replaced it), or a replacement
+ *   that is itself superseded.
+ * - The holder and forwarders of the old ask hear one `[ask-superseded]` notice naming the new ask.
+ */
+export async function supersedeAsk(
+  root: string,
+  old: AskRef,
+  by: AskRef,
+  o: DeliverOptions & { by: string; manages?: string[]; push?: typeof pushToSeat; now?: string },
+): Promise<SupersedeResult> {
+  if (!o?.by) throw new AskFormatError("supersede must name who is superseding");
+  const oldRef = `${old.seat}/${old.id}`;
+  const newRef = `${by.seat}/${by.id}`;
+  const oldFile = resolveAskPath(root, old.seat, old.id);
+  const newFile = resolveAskPath(root, by.seat, by.id);
+  if (oldFile === newFile) throw new AskFormatError(`${oldRef} cannot supersede itself: name the new ask that replaces it`);
+  for (const [f, r] of [[oldFile, oldRef], [newFile, newRef]]) if (!fs.existsSync(f)) throw new AskFormatError(`no ask ${r}`);
+  const at = o.now ?? new Date().toISOString();
+  // Both files are locked, always in the same order, so two supersedes never wait on each other.
+  const [first, second] = [oldFile, newFile].sort();
+  const res = await withFileLock(first, () =>
+    withFileLock(second, () => {
+      const oldText = fs.readFileSync(oldFile, "utf8");
+      const newText = fs.readFileSync(newFile, "utf8");
+      const ask = parseAskFile(oldText);
+      const repl = parseAskFile(newText);
+      const asker = ask.header.from ?? "";
+      if (o.by !== "operator" && o.by !== asker && !(asker && managesSeat(o.manages ?? [], asker))) {
+        throw new AskFormatError(`only the asker (${asker || "?"}), its manager or the operator supersedes ${oldRef}; ${o.by} is none of them`);
+      }
+      const status = ask.header.status ?? "open";
+      if (status === "superseded") throw new AskFormatError(`${oldRef} is already superseded by ${ask.header["superseded-by"] || "another ask"}`);
+      if (["answered", "declined", "ruled"].includes(status)) {
+        throw new AskFormatError(`${oldRef} is ${status}: answered asks are history and are not superseded; file a new one instead`);
+      }
+      if (status !== "open") throw new AskFormatError(`${oldRef} is ${status}; only an open ask is superseded`);
+      if (repl.header.status === "superseded") {
+        throw new AskFormatError(`${newRef} is itself superseded (by ${repl.header["superseded-by"] || "another ask"}); supersede ${oldRef} by the live ask`);
+      }
+      const revision = currentRevision(ask) + 1;
+      let after = clearDraft(oldText);
+      after = setHeaderField(after, "status", "superseded");
+      after = setHeaderField(after, "superseded-by", newRef);
+      after = setHeaderField(after, "superseded-at", at);
+      after = setHeaderField(after, "superseded-actor", o.by);
+      after = setHeaderField(after, "revision", String(revision));
+      const history = (ask.header.revisions ?? "").trim();
+      after = setHeaderField(after, "revisions", `${history ? `${history} ; ` : ""}${revision}@${at}:superseded`);
+      const links = (repl.header.supersedes ?? "").split(/\s*;\s*/).filter(Boolean);
+      const newAfter = setHeaderField(newText, "supersedes", [...links.filter((l) => l !== oldRef), oldRef].join(" ; "));
+      atomicWrite(newFile, newAfter);
+      atomicWrite(oldFile, after);
+      return { parsed: parseAskFile(after), revision };
+    }),
+  );
+  const seats = [...new Set([res.parsed.header.to ?? "", ...forwardChain(res.parsed.header).flatMap((h) => [h.from, h.to])])].filter(
+    (s) => s && s !== o.by && s !== "operator",
+  );
+  const push = o.push ?? pushToSeat;
+  const msg = [
+    `[ask-superseded] from ${o.by} via ask-app: ${oldRef} is superseded by ${newRef}`,
+    `Do not answer ${oldRef}: an answer or draft on it is refused. Answer ${newRef} instead. The file is the record:`,
+    oldFile,
+  ].join("\n");
+  const pushes: SupersedeResult["pushes"] = [];
+  for (const s of seats) pushes.push({ seat: s, delivery: await safePush(push, s, msg, o) });
+  return { file: oldFile, revision: res.revision, pushes };
 }

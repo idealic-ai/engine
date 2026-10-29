@@ -1,12 +1,12 @@
 /**
- * Node half of `engine ask new|list|answer` (scripts/ask.sh handles `path` and `serve`).
+ * Node half of `engine ask new|list|answer|…|supersede` (scripts/ask.sh handles `path` and `serve`).
  * Run with node >= 23.6, which strips the types itself.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
-import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, repushPending, reviseAsk, saveDraft, sendBatch } from "./lib/store.ts";
+import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk } from "./lib/store.ts";
 import { answeredByText, authorWarnings, HEADER_FIELDS, parseAskFile, type AnswerMap, type AskAnswer } from "./lib/format.ts";
 
 /** The author guide, pointed to whenever `new` or `revise` warns or refuses. */
@@ -299,6 +299,31 @@ async function main() {
     try {
       await forwardAsk(root, seat, id, { to: opt.to || die("--to is required"), by: identity("forward"), manages });
       console.log(`forwarded\t${seat}/${id} → ${opt.to}`);
+    } catch (e) {
+      die((e as Error).message);
+    }
+    return;
+  }
+
+  if (cmd === "supersede") {
+    // `--by` is overloaded here: `--by <seat>/<id>` names the replacement (the usage the verb was
+    // asked for), and `--by <who>` stays the actor, as for every verb. A seat never holds a `/`
+    // (resolveAskPath refuses one), so the slash tells them apart; both may be given.
+    const usage = "usage: ask supersede <seat>/<old-id> --by <seat>/<new-id> [--by operator]";
+    const bys: string[] = [];
+    for (let i = 0; i < rest.length; i++) if (rest[i] === "--by" && rest[i + 1] !== undefined && !rest[i + 1].startsWith("--")) bys.push(rest[++i]);
+    const refs = bys.filter((b) => b.includes("/"));
+    const actors = bys.filter((b) => !b.includes("/"));
+    if (refs.length !== 1) die(`${usage}: name exactly one replacement with --by <seat>/<new-id>`);
+    if (actors.length > 1) die(`${usage}: more than one actor given (${actors.join(", ")})`);
+    if (actors.length) opt.by = actors[0];
+    else delete opt.by;
+    const old = splitRef(pos[0], usage);
+    const neu = splitRef(refs[0], usage);
+    try {
+      const r = await supersedeAsk(root, old, neu, { by: identity("supersede"), manages });
+      console.log(`superseded\t${old.seat}/${old.id} → ${neu.seat}/${neu.id}\trevision ${r.revision}`);
+      for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
     } catch (e) {
       die((e as Error).message);
     }

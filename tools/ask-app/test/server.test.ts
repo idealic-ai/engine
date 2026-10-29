@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { newAsk } from "../src/lib/store.ts";
+import { newAsk, supersedeAsk } from "../src/lib/store.ts";
 import { parseAskFile } from "../src/lib/format.ts";
 import { BUILD_ID_FILE, computeBuildId } from "../src/build-id.ts";
 
@@ -132,5 +132,47 @@ describe("MF-3 / MF-4 over HTTP", () => {
     const j = JSON.parse(r.body);
     expect(j.revision).toBe(2);
     expect(j.answer.answers).toEqual({ GO: ["YES"] });
+  });
+});
+
+describe("supersede: the server refuses an answer or a draft on a superseded ask", () => {
+  async function superseded(): Promise<string> {
+    const oldId = freshAsk();
+    const newId = freshAsk();
+    await supersedeAsk(root, { seat: "idealic:kernel", id: oldId }, { seat: "idealic:kernel", id: newId }, { by: "idealic:kernel", push: async () => ({ status: "delivered" }) });
+    return newId;
+  }
+
+  it("answers with 409, naming the new ask, at the revision the client read or the current one", async () => {
+    const newId = await superseded();
+    const oldId = `s${n - 1}`;
+    for (const rev of [1, 2]) {
+      const r = await req("POST", "/api/answer", { headers: GOOD(), body: answer(oldId, { expectedRevision: rev }) });
+      expect(r.status).toBe(409);
+      const b = JSON.parse(r.body);
+      expect(b.status).toBe("superseded");
+      expect(b.supersededBy).toBe(`idealic:kernel/${newId}`);
+      expect(b.error).toContain(`superseded by idealic:kernel/${newId}`);
+    }
+    expect(statusOf(oldId)).toBe("superseded");
+  });
+
+  it("refuses a draft and a decline the same way", async () => {
+    const newId = await superseded();
+    const oldId = `s${n - 1}`;
+    const d = await req("POST", "/api/draft", { headers: GOOD(), body: answer(oldId, { expectedRevision: 2 }) });
+    expect(d.status).toBe(409);
+    expect(JSON.parse(d.body).supersededBy).toBe(`idealic:kernel/${newId}`);
+    const body = JSON.stringify({ seat: "idealic:kernel", id: oldId, expectedRevision: 2, decline: "no" });
+    const x = await req("POST", "/api/answer", { headers: GOOD(), body });
+    expect(x.status).toBe(409);
+    expect(statusOf(oldId)).toBe("superseded");
+  });
+
+  it("the replacement is still answerable", async () => {
+    const newId = await superseded();
+    const r = await req("POST", "/api/answer", { headers: GOOD(), body: answer(newId) });
+    expect(r.status).toBe(200);
+    expect(statusOf(newId)).toBe("answered");
   });
 });

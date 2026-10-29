@@ -6,14 +6,17 @@
 set -uo pipefail
 source "$(dirname "$0")/test-helpers.sh"
 
-ASK_SH="$HOME/.claude/engine/scripts/ask.sh"
-ENGINE_SH="$HOME/.claude/engine/scripts/engine.sh"
+# The checkout under test is the one this file lives in (ASK_ENGINE_DIR overrides it), never a fixed
+# ~/.claude/engine: a worktree's suite must exercise the worktree's ask.sh and ask-app, not the live copy.
+ENGINE_DIR="${ASK_ENGINE_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+ASK_SH="$ENGINE_DIR/scripts/ask.sh"
+ENGINE_SH="$ENGINE_DIR/scripts/engine.sh"
 
 # The served client is built ONCE into a throwaway dir: no test ever builds into (or serves) the
 # app's own dist/, which a live server may be reading.
 ASK_TEST_DIST_DIR=$(mktemp -d /tmp/askdist-XXXXXX)
 trap 'rm -rf "$ASK_TEST_DIST_DIR"' EXIT
-(cd "$HOME/.claude/engine/tools/ask-app" && npx vite build --logLevel error --outDir "$ASK_TEST_DIST_DIR/dist" --emptyOutDir) >/dev/null 2>&1 \
+(cd "$ENGINE_DIR/tools/ask-app" && npx vite build --logLevel error --outDir "$ASK_TEST_DIST_DIR/dist" --emptyOutDir) >/dev/null 2>&1 \
   || { echo "could not build the test client" >&2; exit 1; }
 
 BODY='## ¶ASK_GO: Choose one: Ship it?
@@ -441,7 +444,7 @@ test_r1_exported_linear_key_is_not_in_the_server_env() {
 # into a temp dir moved into place under a lock; and the server refuses a client of another build.
 test_r2_serve_rebuilds_by_build_id_and_the_server_refuses_a_mismatch() {
   local port=$((20000 + RANDOM % 20000)) d="$TMP/dist" want out
-  want=$(node --no-warnings "$HOME/.claude/engine/tools/ask-app/src/build-id.ts")
+  want=$(node --no-warnings "$ENGINE_DIR/tools/ask-app/src/build-id.ts")
   cp -R "$ASK_TEST_DIST_DIR/dist" "$d"
   assert_eq "$want" "$(cat "$d/.build-id")" "the throwaway build is stamped with the sources' build id"
   touch -t 200001010000 "$d/index.html"
@@ -575,7 +578,7 @@ test_r1_new_points_to_the_author_guide_when_it_warns() {
   out=$(printf '## Choose one: Ship?\n- [ ] [YES] Yes\n- [ ] No idea\n' | "$ASK_SH" new --id g1 2>&1 >/dev/null)
   assert_contains "warning: \"Ship?\": 1 option(s) have no [CODE]" "$out" "new warns about a codeless option"
   assert_contains "skills/ask/assets/ASK_AUTHOR_GUIDE.md" "$out" "and points to the author guide"
-  assert_file_exists "$HOME/.claude/engine/skills/ask/assets/ASK_AUTHOR_GUIDE.md" "the guide it points to exists"
+  assert_file_exists "$ENGINE_DIR/skills/ask/assets/ASK_AUTHOR_GUIDE.md" "the guide it points to exists"
   out=$(printf '%s\n' "$BODY" | "$ASK_SH" new --id g2 2>&1 >/dev/null)
   assert_eq "" "$out" "a well-formed ask prints no warning and no pointer"
   out=$(printf '## Choose one: X?\n- [ ] [OVERLONGCODE1] x\n' | "$ASK_SH" new --id g3 2>&1)
@@ -619,6 +622,78 @@ SH
   assert_eq "0000000000000000" "$(cat "$d/.build-id")" "and keeps its id"
   assert_eq "" "$(ls -d "$d".tmp-* "$d".lock "$d".v1-backup-* 2>/dev/null)" "no temp dir, lock or backup is left"
   assert_fail "no server was started" curl -sf -H "Host: 127.0.0.1:$port" "http://127.0.0.1:$port/api/health"
+}
+
+# ── supersede ────────────────────────────────────────────
+
+test_r4_supersede_by_the_asker_links_both_asks() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id sp1 >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id sp2 >/dev/null
+  local out; out=$("$ASK_SH" supersede idealic:kernel/sp1 --by idealic:kernel/sp2)
+  assert_contains "superseded	idealic:kernel/sp1 → idealic:kernel/sp2" "$out" "supersede reports the link"
+  assert_contains "notice manager:idealic" "$out" "and notices the old ask's holder"
+  local old; old=$(cat "$ASK_ROOT/idealic:kernel/sp1.md")
+  assert_contains "status: superseded" "$old" "the old ask is superseded"
+  assert_contains "superseded-by: idealic:kernel/sp2" "$old" "and points at its replacement"
+  assert_contains "superseded-at: " "$old" "with a time"
+  assert_contains "superseded-actor: idealic:kernel" "$old" "and who did it"
+  assert_contains "revision: 2" "$old" "its revision moves"
+  assert_contains "supersedes: idealic:kernel/sp1" "$(cat "$ASK_ROOT/idealic:kernel/sp2.md")" "the new ask points back"
+  assert_contains "revision: 1" "$(cat "$ASK_ROOT/idealic:kernel/sp2.md")" "and its revision does not move"
+}
+
+test_r4_supersede_refusals() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id sr1 >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id sr2 >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id sr3 >/dev/null
+  assert_fails_with "a missing old ask is refused" "no ask idealic:kernel/nope" "$ASK_SH" supersede idealic:kernel/nope --by idealic:kernel/sr2
+  assert_fails_with "a missing new ask is refused" "no ask idealic:kernel/nope" "$ASK_SH" supersede idealic:kernel/sr1 --by idealic:kernel/nope
+  assert_fails_with "an ask cannot supersede itself" "cannot supersede itself" "$ASK_SH" supersede idealic:kernel/sr1 --by idealic:kernel/sr1
+  assert_fails_with "the holder, not being the asker or its manager, is refused" "only the asker" \
+    env FLEET_PANE=manager:idealic "$ASK_SH" supersede idealic:kernel/sr1 --by idealic:kernel/sr2
+  assert_fails_with "a replacement is required" "exactly one replacement" "$ASK_SH" supersede idealic:kernel/sr1
+  assert_contains "status: open" "$(cat "$ASK_ROOT/idealic:kernel/sr1.md")" "after the refusals sr1 is still open"
+  "$ASK_SH" supersede idealic:kernel/sr2 --by idealic:kernel/sr3 >/dev/null
+  assert_fails_with "an already-superseded old ask is refused, naming its replacement" "already superseded by idealic:kernel/sr3" \
+    "$ASK_SH" supersede idealic:kernel/sr2 --by idealic:kernel/sr1
+  assert_fails_with "a superseded replacement is refused" "idealic:kernel/sr2 is itself superseded" \
+    "$ASK_SH" supersede idealic:kernel/sr1 --by idealic:kernel/sr2
+  as_op answer idealic:kernel/sr1 --revision 1 --json '{"GO":["NO"]}' >/dev/null
+  assert_fails_with "an answered old ask is history" "answered asks are history" \
+    "$ASK_SH" supersede idealic:kernel/sr1 --by idealic:kernel/sr3
+}
+
+test_r4_supersede_by_operator_and_manager() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id so1 --reserved-for operator >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id so2 >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id so3 >/dev/null
+  as_op supersede idealic:kernel/so1 --by idealic:kernel/so2 >/dev/null
+  assert_contains "superseded-actor: operator" "$(cat "$ASK_ROOT/idealic:kernel/so1.md")" "the operator (--by operator) supersedes a reserved ask"
+  FLEET_PANE=manager:idealic FLEET_MANAGES=kernel "$ASK_SH" supersede idealic:kernel/so3 --by idealic:kernel/so2 >/dev/null
+  assert_contains "superseded-actor: manager:idealic" "$(cat "$ASK_ROOT/idealic:kernel/so3.md")" "the asker's manager (FLEET_MANAGES) supersedes"
+  assert_fails_with "a seat may not claim operator" "--by operator from a seat" \
+    env FLEET_PANE=app:writer "$ASK_SH" supersede idealic:kernel/so2 --by idealic:kernel/so3 --by operator
+}
+
+test_r4_superseded_ask_takes_no_answer_draft_or_send_and_leaves_the_open_list() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id sa1 >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id sa2 >/dev/null
+  FLEET_PANE=manager:idealic "$ASK_SH" draft idealic:kernel/sa1 --revision 1 --json '{"GO":["YES"]}' >/dev/null
+  "$ASK_SH" supersede idealic:kernel/sa1 --by idealic:kernel/sa2 >/dev/null
+  assert_fails_with "answer on a superseded ask is refused, naming the new ask" "superseded by idealic:kernel/sa2; answer that one instead" \
+    as_op answer idealic:kernel/sa1 --revision 2 --json '{"GO":["YES"]}'
+  assert_fails_with "even at the revision read before the supersede" "superseded by idealic:kernel/sa2" \
+    as_op answer idealic:kernel/sa1 --revision 1 --json '{"GO":["YES"]}'
+  assert_fails_with "draft is refused" "superseded by idealic:kernel/sa2" \
+    env FLEET_PANE=manager:idealic "$ASK_SH" draft idealic:kernel/sa1 --revision 2 --json '{"GO":["YES"]}'
+  local out; out=$(FLEET_PANE=manager:idealic "$ASK_SH" send idealic:kernel/sa1 2>&1); local rc=$?
+  assert_eq "1" "$rc" "send of the superseded ask exits 1"
+  assert_contains "refused idealic:kernel/sa1	ask sa1 is superseded by idealic:kernel/sa2" "$out" "send refuses it, naming the new ask"
+  assert_contains "status: superseded" "$(cat "$ASK_ROOT/idealic:kernel/sa1.md")" "nothing settled it"
+  local list; list=$("$ASK_SH" list)
+  assert_not_contains "idealic:kernel/sa1" "$list" "the default (open) list hides the superseded ask"
+  assert_contains "idealic:kernel/sa2" "$list" "and shows its replacement"
+  assert_contains "superseded	idealic:kernel/sa1" "$("$ASK_SH" list --status superseded)" "--status superseded still reaches it"
 }
 
 run_discovered_tests
