@@ -32,6 +32,7 @@ Each intake project carries its **own complete copy**, attached to the project s
 | Product: Deploy | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-c498df89472d) | `a6f5098f-4827-4053-b1a4-9e000a9154ce` · `c498df89472d` |
 | Product: Writer | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-68121d233e0e) | `7715150a-7ed8-4458-9e85-e2b18cf5467a` · `68121d233e0e` |
 | Product: Playground | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-4ce0c5ff2dfc) | `91ac23b5-a42e-4a41-890f-3fa8ccbaac3c` · `4ce0c5ff2dfc` |
+| Product: Ideas site | [Inbox Handbook](https://linear.app/idealic/document/inbox-handbook-how-this-projects-intake-inboxes-work-77c40cb0e4fb) | `04a1a8e3-1b89-412f-aa3a-12523a32cdda` · `77c40cb0e4fb` |
 
 **A filtered call resolves a handbook without this table.** `list_documents({ projectId, query: "Inbox Handbook", fields: ["id","title","url","updatedAt","project"] })` returns the one document deterministically — verified live — because every project's copy carries the identical title and `projectId` scopes the search. `§CMD_READ_PROJECT_HANDBOOK` tries that first and falls back to these rows, so the table is a cache for the no-MCP and empty-result cases rather than the path.
 
@@ -188,6 +189,12 @@ A wave can attach a project to an initiative it is given by name — `save_proje
 - 🟦 Documentation — [IDE-294](https://linear.app/idealic/issue/IDE-294)
 
 *No inbox handbook yet.*
+
+## Product: Ideas site
+- **Project id**: `d7147709-bbf3-43ea-8cb0-d402ab4c102d` (`P-IDE-16`) · **Inboxes milestone**: none yet
+- No channels yet. Its seat is app:ideas. The handbook says to file a chunk of work as a ticket here, send a question or finding to app:ideas, and drop tooling in Product: Idea's 🛠️ [IDE-126](https://linear.app/idealic/issue/IDE-126) until this project's channels exist.
+
+*Created 2026-10-30 on the operator's per-area project ruling. Channels and an Inboxes milestone are not scaffolded; add them here when they exist rather than inventing ids.*
 
 ## Product: Example
 - **Project id**: `00000000-0000-4000-8000-000000000001` · **Inboxes milestone**: `00000000-0000-4000-8000-000000000002`
