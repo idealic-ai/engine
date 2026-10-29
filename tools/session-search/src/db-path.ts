@@ -1,5 +1,6 @@
 import path from "node:path";
 import { dbPathFromEnv } from "../../shared/db-path.js";
+import { assertLocalDbPath } from "../../shared/search-db-guard.js";
 
 export const DB_FILENAME = ".session-search.local.db";
 
@@ -31,5 +32,8 @@ export function extractResultNamespace(resolvedPath: string): string {
  * import time — importing it from a test would execute the CLI.
  */
 export function resolveDbPath(sessionsDir: string): string {
-  return dbPathFromEnv() ?? path.join(sessionsDir, DB_FILENAME);
+  const dbPath = dbPathFromEnv() ?? path.join(sessionsDir, DB_FILENAME);
+  // Every command resolves its path here, so every command refuses an old name.
+  assertLocalDbPath("session-search", dbPath, DB_FILENAME);
+  return dbPath;
 }

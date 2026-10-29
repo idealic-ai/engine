@@ -32,6 +32,41 @@ client.model;      // "embeddinggemma": store it beside each vector
 client.dimensions; // 768: store it too
 ```
 
+### Loader requirement: tsx or a bundler, not plain `node`
+
+The module ships TypeScript source only. It has no `main` or `exports`, no build step,
+and its internal imports use `.js` specifiers (`./config.js` for `config.ts`). Only a
+TS-aware loader maps those: `tsx` (both search tools run under `npx tsx`), vitest, or a
+bundler such as vite. **Node's native type stripping does not**: `node` resolves
+`./config.js` literally and fails with `ERR_MODULE_NOT_FOUND`. Checked on Node 24.2:
+`node -e "await import('…/tools/embed-local/src/index.ts')"` fails that way.
+
+The relative path `../../embed-local/src/index.js` holds only for a file directly in
+`tools/<tool>/src/`. From a deeper file, add one `../` per extra directory.
+
+### ASKGROOM (`engine ask`, chunk 3)
+
+The ask index's consumer is `tools/ask-app/src/lib/similar.ts`, so the import is:
+
+```ts
+// tools/ask-app/src/lib/similar.ts
+import { createLocalEmbeddingClient, type EmbeddingClient } from "../../../embed-local/src/index.ts";
+```
+
+ask-app uses `.ts` specifiers (`allowImportingTsExtensions`), and `scripts/ask.sh` runs it
+as `node --no-warnings tools/ask-app/src/cli.ts`, which is plain Node. **As this module
+stands, that import fails at run time** (see above): the `.ts` entry loads, then its value
+imports of `./config.js`, `./errors.js` and `./client.js` do not resolve. Chunk 3 has to do one of two things:
+- run the ask CLI under `tsx` for the commands that embed, or
+- switch this module's internal imports to `.ts` specifiers and add
+  `allowImportingTsExtensions` to the session-search and doc-search tsconfigs (tsx and
+  vitest accept `.ts` specifiers, so the search tools keep working).
+
+The design embeds both sides of an ask-to-ask comparison in the document role, so call
+`embed(texts, "document")` or `embedTexts`. Never use `embedSingle` there. For its 2 s
+cap, pass `config: { ...resolveEmbedConfig(), timeoutMs: 2000 }`. A miss then arrives as
+`RUNNER_TIMEOUT`, which the ask index reports as `timeout`.
+
 `EmbeddingClient` is defined in `src/contract.ts`, and that file is its owner:
 
 | member | meaning |
@@ -48,6 +83,11 @@ quality without any error. Both prefixes match ideas/ai exactly.
 - `fetchImpl` (inject a fake in tests)
 - `isDownloading`
 - `onProgress(done, total)`
+- `retry`: `{ attempts, baseDelayMs, maxDelayMs }`. It retries one batch that failed as
+  `RUNNER_BUSY` or `RUNNER_TIMEOUT`, waiting `baseDelayMs` and then doubling each time.
+  It is off by default, so a query on the activate path fails fast. Both indexers pass
+  `INDEXER_EMBED_RETRY`, which allows 4 tries with waits of 2 s, 4 s and 8 s.
+- `sleep` (inject a fake in tests)
 
 The `LocalEmbeddingClient` it returns adds `embed(texts, role)` and `health()`.
 
@@ -59,6 +99,7 @@ The `LocalEmbeddingClient` it returns adds `embed(texts, role)` and `health()`.
 | `ENGINE_EMBED_MODEL` | `embeddinggemma` |
 | `ENGINE_EMBED_DIMENSIONS` | `768` |
 | `ENGINE_EMBED_BATCH` | `32` |
+| `ENGINE_EMBED_TIMEOUT_MS` | `120000` (per request, body included) |
 
 A value that is not a positive whole number throws `CONFIG_INVALID`.
 
@@ -74,7 +115,8 @@ other row on the next `index`.
 | `MODEL_ABSENT` | The runner returned 404 and no download is in flight. | `ollama pull embeddinggemma` |
 | `MODEL_LOADING` | The runner returned 404 while a pull is in progress. | Wait for the pull to finish. |
 | `RUNNER_LACKS_EMBEDDINGS` | The runner returned 501. | Start llama.cpp with `--embeddings`. |
-| `RUNNER_BUSY` | The runner returned 503. | Retry, or lower `ENGINE_EMBED_BATCH`. |
+| `RUNNER_BUSY` | The runner returned 503. | Retry, or lower `ENGINE_EMBED_BATCH`. The indexers retry it themselves. |
+| `RUNNER_TIMEOUT` | The runner accepted the request and did not finish within `timeoutMs`. | Retry, lower `ENGINE_EMBED_BATCH`, or raise `ENGINE_EMBED_TIMEOUT_MS`. The indexers retry it themselves. |
 | `DIMENSION_UNEXPECTED` | A returned vector is not `dimensions` wide. | Fix the config, then rebuild the index. |
 | `PROVIDER_ERROR` | Any other non-2xx response, a body that is not JSON, or a vector count that does not match. | Read the message. |
 | `EMPTY_TEXTS` | `embed([], …)` was called. (`embedTexts([])` returns `[]` instead.) | |
@@ -87,6 +129,26 @@ other row on the next `index`.
 
 It exits 1 with `[embed-local] RUNNER_ABSENT: …` or `MODEL_ABSENT: …` on stderr. It reads
 `ENGINE_EMBED_ENDPOINT` and `ENGINE_EMBED_MODEL`. It replaced the old `GEMINI_API_KEY` gate.
+
+## Rollback hazard: roll the shell lib and the tools back together
+
+The file names live in `scripts/search-db-lib.sh`. The schema check lives in the
+TypeScript. If those two come from different versions of the engine, things go wrong:
+
+- **Old tools with new scripts can wipe a `.local.db`.** This happens after a rollback of
+  `tools/` while some `ENGINE_SCRIPTS` still points at a checkout from 4f4206b or later.
+  The new lib exports `.session-search.local.db` or `.doc-search.local.db`, and the
+  Gemini-era tools open it. Their only schema rule is "drop on mismatch", so they drop
+  the local tables and refill them with Gemini vectors. Nothing written today can stop
+  that, because the old code is already written.
+- Afterwards the new tools refuse that same file: its schema is now Gemini-era.
+- **New tools with an old lib** is the other direction. It is safe: the tools refuse the
+  old file names (`.session-search.db`, `.doc-search.db`) and any schema other than their
+  own, and they leave the file byte-identical.
+
+To roll back, move `scripts/` and `tools/` to the same commit, then run `engine reindex`.
+It deletes only the `.local.db` files, so a mixed window cannot leave a wrong-generation
+index behind.
 
 ## Tests
 

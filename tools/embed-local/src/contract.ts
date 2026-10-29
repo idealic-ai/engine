@@ -28,6 +28,12 @@ export interface EmbedConfig {
   documentPrefix: string;
   /** Prefix stapled to a search query before embedding. */
   queryPrefix: string;
+  /**
+   * Milliseconds one request may take, body included, before it fails as
+   * RUNNER_TIMEOUT. Optional so a hand-built config keeps compiling; the
+   * client falls back to EMBED_LOCAL_DEFAULTS.timeoutMs.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -63,6 +69,8 @@ export type EmbedErrorCode =
   | "RUNNER_LACKS_EMBEDDINGS"
   /** The runner's queue is full. */
   | "RUNNER_BUSY"
+  /** The runner accepted the request and did not finish it within timeoutMs. */
+  | "RUNNER_TIMEOUT"
   /** The runner answered with something this client cannot use. */
   | "PROVIDER_ERROR"
   /** A vector came back at a width the configuration does not promise. */

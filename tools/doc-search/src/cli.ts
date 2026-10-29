@@ -4,14 +4,17 @@ import { execSync } from "node:child_process";
 import fg from "fast-glob";
 import { initDb, saveDb, queryAll, queryOne } from "./db.js";
 import { parseChunks, type DocChunk } from "./chunker.js";
-import { createEmbeddingClient } from "./embed.js";
+import { createEmbeddingClient, INDEXER_EMBED_RETRY } from "./embed.js";
 import { reconcileChunks, type IndexReport } from "./indexer.js";
 import { searchDocs, groupResultsByFile, countForeignEmbeddings, type QueryFilters } from "./query.js";
 import { parseTimeArg, toUnixMs } from "../../shared/parse-time-arg.js";
-import { acquireLock, releaseLock } from "./lock.js";
+import { acquireLock, releaseLock, startLockHeartbeat, lockHeartbeatMsFromEnv } from "./lock.js";
+import { isSearchDbRefused } from "../../shared/search-db-guard.js";
 import { getDbPath, getProjectRoot } from "./db-path.js";
 
-const DB_PATH = getDbPath();
+// Resolved in main(), not at import, so a refused path prints its message
+// instead of an import-time stack trace.
+let DB_PATH = "";
 const DEFAULT_DOCS_GLOBS = [
   "docs/**/*.md",
   "{apps,packages}/*/docs/**/*.md",
@@ -82,11 +85,21 @@ Embedding (local, no key, no network; tools/embed-local):
   ENGINE_EMBED_MODEL       Model tag (default: embeddinggemma)
   ENGINE_EMBED_DIMENSIONS  Vector width the model returns (default: 768)
   ENGINE_EMBED_BATCH       Texts per embed request (default: 32)
+  ENGINE_EMBED_TIMEOUT_MS  Per-request timeout in ms (default: 120000)
 
 Project identification:
   Finds project root by looking for .claude/ directory (falls back to git root).
   Can be run from any subdirectory within the project.
-  Database location: ${DB_PATH}`);
+  Database location: ${describeDbPath()}`);
+}
+
+/** The DB path for the help text; a refused path is shown as its refusal. */
+function describeDbPath(): string {
+  try {
+    return getDbPath();
+  } catch (err: unknown) {
+    return isSearchDbRefused(err) ? `(refused) ${err.message}` : String(err);
+  }
 }
 
 async function runIndex(customGlob?: string): Promise<void> {
@@ -109,6 +122,8 @@ async function runIndex(customGlob?: string): Promise<void> {
     process.exit(1);
   }
 
+  // A long rebuild refreshes its lock, so it is never judged stale mid-run.
+  const stopHeartbeat = startLockHeartbeat(DB_PATH, lockHeartbeatMsFromEnv());
   try {
     // Scan for markdown files from project root (not cwd)
     console.log(`Scanning: ${docsGlobs.join(", ")}`);
@@ -145,7 +160,8 @@ async function runIndex(customGlob?: string): Promise<void> {
 
     // Initialize DB and embedder
     const db = await initDb(DB_PATH);
-    const embedder = createEmbeddingClient();
+    // Indexing retries a busy or timed-out batch with backoff; a query does not.
+    const embedder = createEmbeddingClient({ retry: INDEXER_EMBED_RETRY });
     console.log(`Embedding with ${embedder.model} (${embedder.dimensions}-d, local)`);
 
     // Reconcile
@@ -165,6 +181,7 @@ async function runIndex(customGlob?: string): Promise<void> {
     db.close();
   } finally {
     // Always release lock
+    stopHeartbeat();
     releaseLock(DB_PATH);
     console.log("Lock released.");
   }
@@ -375,6 +392,7 @@ async function main(): Promise<void> {
   }
 
   const { command, positional, flags } = parseArgs(args);
+  DB_PATH = getDbPath();
 
   switch (command) {
     case "index": {
@@ -440,6 +458,11 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
+  // A refused DB path or schema is an answer, not a crash: print it as written.
+  if (isSearchDbRefused(err)) {
+    console.error(err.message);
+    process.exit(1);
+  }
   console.error("Fatal error:", err);
   process.exit(1);
 });

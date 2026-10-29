@@ -3,7 +3,7 @@
  * passes a fake `fetch`. Runs with vitest globals (see package.json "test"),
  * so this file imports nothing from vitest and embed-local stays dependency-free.
  */
-import { createLocalEmbeddingClient } from "../src/client.js";
+import { createLocalEmbeddingClient, INDEXER_EMBED_RETRY, retryDelayMs } from "../src/client.js";
 import { EMBED_LOCAL_DEFAULTS, resolveEmbedConfig } from "../src/config.js";
 import type { EmbedConfig } from "../src/contract.js";
 import { EmbedLocalError } from "../src/errors.js";
@@ -175,5 +175,146 @@ describe("health", () => {
     expect((await absent.health()).state).toBe("model_absent");
     const otherTag = createLocalEmbeddingClient({ config: config(), fetchImpl: tags(["embeddinggemma:300m"]), isDownloading: () => false });
     expect((await otherTag.health()).state).toBe("model_absent");
+  });
+});
+
+/** A runner that accepts the request and never answers until the request's signal aborts. */
+function stallingFetch(stage: "headers" | "body") {
+  let calls = 0;
+  const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+    calls++;
+    const signal = init?.signal;
+    const stall = () =>
+      new Promise<never>((_, reject) => {
+        if (!signal) return; // no signal: hangs forever, which is the bug under test
+        if (signal.aborted) reject(signal.reason);
+        signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+      });
+    if (stage === "headers") return stall();
+    const body = new ReadableStream({
+      start(controller) {
+        signal?.addEventListener("abort", () => controller.error(signal.reason), { once: true });
+      },
+    });
+    return new Response(body, { status: 200 });
+  }) as typeof fetch;
+  return { fetchImpl, count: () => calls };
+}
+
+/** A runner that answers each request with the next status in `statuses` (200 = real vectors). */
+function scriptedRunner(statuses: number[], width = 4) {
+  let i = 0;
+  const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit) => {
+    const status = statuses[Math.min(i, statuses.length - 1)];
+    i++;
+    if (status !== 200) return new Response("busy", { status });
+    const n = (JSON.parse(String(init?.body)) as { input: string[] }).input.length;
+    return new Response(JSON.stringify({ embeddings: Array.from({ length: n }, () => Array(width).fill(0.5)) }), {
+      status: 200,
+    });
+  }) as typeof fetch;
+  return { fetchImpl, count: () => i };
+}
+
+/** Bound a test so a missing timeout fails it instead of hanging the suite. */
+function within<T>(p: Promise<T>, ms: number): Promise<T> {
+  return Promise.race([p, new Promise<T>((_, reject) => setTimeout(() => reject(new Error(`still pending after ${ms} ms`)), ms))]);
+}
+
+describe("request timeout", () => {
+  it("reads ENGINE_EMBED_TIMEOUT_MS, defaulting to 120 s", () => {
+    expect(resolveEmbedConfig({}).timeoutMs).toBe(120_000);
+    expect(EMBED_LOCAL_DEFAULTS.timeoutMs).toBe(120_000);
+    expect(resolveEmbedConfig({ ENGINE_EMBED_TIMEOUT_MS: "5000" }).timeoutMs).toBe(5000);
+    expect(() => resolveEmbedConfig({ ENGINE_EMBED_TIMEOUT_MS: "-1" })).toThrow(/CONFIG_INVALID/);
+  });
+
+  it("a runner that accepts and never answers fails as RUNNER_TIMEOUT, naming the env to raise", async () => {
+    const { fetchImpl } = stallingFetch("headers");
+    const client = createLocalEmbeddingClient({ config: config({ timeoutMs: 50 }), fetchImpl });
+    const err = await caught(within(client.embedTexts(["a"]), 3000));
+    expect(err.code).toBe("RUNNER_TIMEOUT");
+    expect(err.message).toMatch(/50 ms/);
+    expect(err.message).toMatch(/ENGINE_EMBED_TIMEOUT_MS/);
+  });
+
+  it("a runner that sends headers and stalls the body also fails as RUNNER_TIMEOUT", async () => {
+    const { fetchImpl } = stallingFetch("body");
+    const client = createLocalEmbeddingClient({ config: config({ timeoutMs: 50 }), fetchImpl });
+    const err = await caught(within(client.embedSingle("q"), 3000));
+    expect(err.code).toBe("RUNNER_TIMEOUT");
+  });
+
+  it("health() on a stalled runner reports unknown instead of hanging", async () => {
+    const { fetchImpl } = stallingFetch("headers");
+    const client = createLocalEmbeddingClient({ config: config({ timeoutMs: 50 }), fetchImpl });
+    const h = await within(client.health(), 3000);
+    expect(h.state).toBe("unknown");
+    expect(h.detail).toMatch(/within 50 ms/);
+  });
+});
+
+describe("retry on a busy runner", () => {
+  const policy = { attempts: 4, baseDelayMs: 2000, maxDelayMs: 30_000 };
+
+  it("off by default: one 503 is one request and RUNNER_BUSY", async () => {
+    const { fetchImpl, count } = scriptedRunner([503, 200]);
+    const client = createLocalEmbeddingClient({ config: config(), fetchImpl });
+    expect((await caught(client.embedTexts(["a"]))).code).toBe("RUNNER_BUSY");
+    expect(count()).toBe(1);
+  });
+
+  it("with a policy, retries the busy batch with doubling waits and returns its vectors", async () => {
+    const { fetchImpl, count } = scriptedRunner([503, 503, 200]);
+    const waits: number[] = [];
+    const client = createLocalEmbeddingClient({
+      config: config(),
+      fetchImpl,
+      retry: policy,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    const out = await client.embedTexts(["a", "b"]);
+    expect(out).toHaveLength(2);
+    expect(count()).toBe(3);
+    expect(waits).toEqual([2000, 4000]);
+  });
+
+  it("is bounded: after `attempts` tries it throws RUNNER_BUSY", async () => {
+    const { fetchImpl, count } = scriptedRunner([503]);
+    const waits: number[] = [];
+    const client = createLocalEmbeddingClient({ config: config(), fetchImpl, retry: policy, sleep: async (ms) => { waits.push(ms); } });
+    expect((await caught(client.embedTexts(["a"]))).code).toBe("RUNNER_BUSY");
+    expect(count()).toBe(4);
+    expect(waits).toEqual([2000, 4000, 8000]);
+  });
+
+  it("retries a timed-out batch too, and only that batch", async () => {
+    let n = 0;
+    const stalled = stallingFetch("headers").fetchImpl;
+    const ok = scriptedRunner([200]).fetchImpl;
+    const fetchImpl = ((input: string | URL | Request, init?: RequestInit) => (n++ === 1 ? stalled(input, init) : ok(input, init))) as typeof fetch;
+    const client = createLocalEmbeddingClient({
+      config: config({ batchSize: 1, timeoutMs: 50 }),
+      fetchImpl,
+      retry: policy,
+      sleep: async () => {},
+    });
+    const out = await within(client.embedTexts(["a", "b", "c"]), 3000);
+    expect(out).toHaveLength(3);
+    expect(n).toBe(4); // a, b (timed out), b again, c
+  });
+
+  it("does not retry a failure a retry cannot cure", async () => {
+    const { fetchImpl, count } = scriptedRunner([404, 200]);
+    const client = createLocalEmbeddingClient({ config: config(), fetchImpl, isDownloading: () => false, retry: policy, sleep: async () => {} });
+    expect((await caught(client.embedTexts(["a"]))).code).toBe("MODEL_ABSENT");
+    expect(count()).toBe(1);
+  });
+
+  it("the indexers' policy is 4 tries waiting 2 s, 4 s, 8 s", () => {
+    expect(INDEXER_EMBED_RETRY).toEqual({ attempts: 4, baseDelayMs: 2000, maxDelayMs: 30_000 });
+    expect([1, 2, 3].map((t) => retryDelayMs(INDEXER_EMBED_RETRY, t))).toEqual([2000, 4000, 8000]);
   });
 });

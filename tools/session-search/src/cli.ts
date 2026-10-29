@@ -1,9 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { initDb, saveDb } from "./db.js";
+import { initDb } from "./db.js";
+import { acquireLock, releaseLock, startLockHeartbeat, lockHeartbeatMsFromEnv } from "./lock.js";
 import { parseChunks } from "./chunker.js";
 import { scanMarkdownFiles, scanStateFiles, extractSessionPath } from "./scanner.js";
-import { createEmbeddingClient } from "./embed.js";
+import { createEmbeddingClient, INDEXER_EMBED_RETRY } from "./embed.js";
 import { reconcileChunks, type IndexReport } from "./indexer.js";
 import {
   searchChunks,
@@ -13,6 +14,7 @@ import {
 } from "./query.js";
 import { parseTimeArg, toISOString } from "../../shared/parse-time-arg.js";
 import { extractResultNamespace, resolveDbPath } from "./db-path.js";
+import { isSearchDbRefused } from "../../shared/search-db-guard.js";
 
 const WORKSPACE = process.env.WORKSPACE;
 const SESSIONS_DIR = WORKSPACE ? path.join(WORKSPACE, "sessions") : "sessions";
@@ -44,7 +46,8 @@ Embedding (local, no key, no network; tools/embed-local):
   ENGINE_EMBED_ENDPOINT  Runner URL (default: http://127.0.0.1:11434)
   ENGINE_EMBED_MODEL     Model tag (default: embeddinggemma)
   ENGINE_EMBED_DIMENSIONS Vector width the model returns (default: 768)
-  ENGINE_EMBED_BATCH     Texts per embed request (default: 32)`);
+  ENGINE_EMBED_BATCH     Texts per embed request (default: 32)
+  ENGINE_EMBED_TIMEOUT_MS Per-request timeout in ms (default: 120000)`);
 }
 
 function resolveSessionsDir(customPath?: string): string {
@@ -74,6 +77,25 @@ async function runIndex(targetPath?: string): Promise<void> {
   console.log(`Scanning: ${sessionsDir}`);
   console.log(`Database: ${dbPath}`);
 
+  // Every `engine session idle`/`deactivate` fires a detached `index`, so a fleet
+  // closing sessions launches many at once against one SQLite image. Losers exit
+  // here instead of blocking — the next session close reindexes anyway. The
+  // heartbeat keeps a long rebuild's lock fresh, so it is never judged stale.
+  if (!acquireLock(dbPath)) {
+    console.error("Another process is indexing — skipping this run.");
+    return;
+  }
+
+  const stopHeartbeat = startLockHeartbeat(dbPath, lockHeartbeatMsFromEnv());
+  try {
+    await indexInto(sessionsDir, dbPath);
+  } finally {
+    stopHeartbeat();
+    releaseLock(dbPath);
+  }
+}
+
+async function indexInto(sessionsDir: string, dbPath: string): Promise<void> {
   // 1. Scan for markdown files
   const files = scanMarkdownFiles(sessionsDir);
   console.log(`Found ${files.length} markdown files`);
@@ -143,7 +165,8 @@ async function runIndex(targetPath?: string): Promise<void> {
 
   // 3. Initialize DB and embedder
   const db = await initDb(dbPath);
-  const embedder = createEmbeddingClient();
+  // Indexing retries a busy or timed-out batch with backoff; a query does not.
+  const embedder = createEmbeddingClient({ retry: INDEXER_EMBED_RETRY });
   console.log(`Embedding with ${embedder.model} (${embedder.dimensions}-d, local)`);
 
   // 4. Reconcile (this also saves the DB)
@@ -315,6 +338,11 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
+  // A refused DB path or schema is an answer, not a crash: print it as written.
+  if (isSearchDbRefused(err)) {
+    console.error(err.message);
+    process.exit(1);
+  }
   console.error("Fatal error:", err);
   process.exit(1);
 });

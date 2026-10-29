@@ -10,8 +10,8 @@
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { EmbedConfig, EmbedHealth, EmbedRole, EmbeddingClient } from "./contract.js";
-import { resolveEmbedConfig } from "./config.js";
+import type { EmbedConfig, EmbedErrorCode, EmbedHealth, EmbedRole, EmbeddingClient } from "./contract.js";
+import { EMBED_LOCAL_DEFAULTS, resolveEmbedConfig } from "./config.js";
 import { EmbedLocalError } from "./errors.js";
 
 interface EmbedResponseBody {
@@ -31,6 +31,41 @@ export interface LocalEmbeddingClientOptions {
   isDownloading?: () => boolean;
   /** Called after every batch of `embedTexts`, with texts done so far and the total. */
   onProgress?: (done: number, total: number) => void;
+  /**
+   * Retry one batch that failed as RUNNER_BUSY or RUNNER_TIMEOUT. Off by
+   * default: a query on the activate path has a budget and should fail fast.
+   * The indexers pass INDEXER_EMBED_RETRY.
+   */
+  retry?: EmbedRetryPolicy;
+  /** Waits between retries. Defaults to setTimeout; tests inject a fake. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+export interface EmbedRetryPolicy {
+  /** Total tries per batch, the first one included. */
+  attempts: number;
+  /** Wait before the second try; each later wait doubles, up to maxDelayMs. */
+  baseDelayMs: number;
+  maxDelayMs: number;
+}
+
+/** The codes a retry can cure: the runner is there, just not keeping up. */
+export const RETRYABLE_EMBED_CODES: readonly EmbedErrorCode[] = ["RUNNER_BUSY", "RUNNER_TIMEOUT"];
+
+/**
+ * What the background indexers use: 4 tries per batch, waiting 2 s, 4 s, 8 s.
+ * A batch that is still busy after that fails the run, and its finished slabs
+ * are already checkpointed.
+ */
+export const INDEXER_EMBED_RETRY: EmbedRetryPolicy = { attempts: 4, baseDelayMs: 2_000, maxDelayMs: 30_000 };
+
+export function retryDelayMs(policy: EmbedRetryPolicy, failedTry: number): number {
+  return Math.min(policy.maxDelayMs, policy.baseDelayMs * 2 ** (failedTry - 1));
+}
+
+/** Whether a fetch or body read failed because the request's timeout fired. */
+function isTimeout(err: unknown): boolean {
+  return typeof err === "object" && err !== null && (err as { name?: unknown }).name === "TimeoutError";
 }
 
 export interface LocalEmbeddingClient extends EmbeddingClient {
@@ -79,6 +114,17 @@ export function createLocalEmbeddingClient(options: LocalEmbeddingClientOptions 
   const fetchImpl = options.fetchImpl ?? fetch;
   const isDownloading = options.isDownloading ?? ollamaDownloadInFlight;
   const onProgress = options.onProgress;
+  const retry = options.retry;
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const timeoutMs = config.timeoutMs ?? EMBED_LOCAL_DEFAULTS.timeoutMs;
+
+  function timeoutError(what: string): EmbedLocalError {
+    return new EmbedLocalError(
+      "RUNNER_TIMEOUT",
+      `The runner at ${config.endpoint} did not finish ${what} within ${String(timeoutMs)} ms. ` +
+        `It may be loading the model or overloaded. Retry, lower ENGINE_EMBED_BATCH, or raise ENGINE_EMBED_TIMEOUT_MS.`
+    );
+  }
 
   function prefixed(texts: string[], role: EmbedRole): string[] {
     const prefix = role === "query" ? config.queryPrefix : config.documentPrefix;
@@ -86,14 +132,31 @@ export function createLocalEmbeddingClient(options: LocalEmbeddingClientOptions 
   }
 
   async function requestBatch(texts: string[], role: EmbedRole): Promise<Float32Array[]> {
+    const attempts = retry ? Math.max(1, retry.attempts) : 1;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await requestBatchOnce(texts, role);
+      } catch (err: unknown) {
+        const retryable = err instanceof EmbedLocalError && RETRYABLE_EMBED_CODES.includes(err.code);
+        if (!retry || !retryable || attempt >= attempts) throw err;
+        await sleep(retryDelayMs(retry, attempt));
+      }
+    }
+  }
+
+  async function requestBatchOnce(texts: string[], role: EmbedRole): Promise<Float32Array[]> {
+    // One timeout covers the request and the body read: a runner can stall in either.
+    const signal = AbortSignal.timeout(timeoutMs);
     let response: Response;
     try {
       response = await fetchImpl(`${config.endpoint}/api/embed`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ model: config.model, input: prefixed(texts, role) }),
+        signal,
       });
     } catch (err: unknown) {
+      if (isTimeout(err)) throw timeoutError(`an embed request`);
       if (isConnectionRefused(err)) {
         throw new EmbedLocalError("RUNNER_ABSENT", runnerAbsentMessage(config.endpoint));
       }
@@ -141,7 +204,8 @@ export function createLocalEmbeddingClient(options: LocalEmbeddingClientOptions 
     let body: EmbedResponseBody;
     try {
       body = (await response.json()) as EmbedResponseBody;
-    } catch {
+    } catch (err: unknown) {
+      if (isTimeout(err)) throw timeoutError(`an embed response`);
       throw new EmbedLocalError("PROVIDER_ERROR", `The runner at ${config.endpoint} answered with a body that is not JSON.`);
     }
     const embeddings = body.embeddings;
@@ -195,8 +259,11 @@ export function createLocalEmbeddingClient(options: LocalEmbeddingClientOptions 
     const base = { model: config.model, dimensions: config.dimensions, endpoint: config.endpoint };
     let response: Response;
     try {
-      response = await fetchImpl(`${config.endpoint}/api/tags`);
+      response = await fetchImpl(`${config.endpoint}/api/tags`, { signal: AbortSignal.timeout(timeoutMs) });
     } catch (err: unknown) {
+      if (isTimeout(err)) {
+        return { ...base, state: "unknown", detail: `The runner at ${config.endpoint} did not list its models within ${String(timeoutMs)} ms.` };
+      }
       if (isConnectionRefused(err)) {
         return { ...base, state: "runner_absent", detail: runnerAbsentMessage(config.endpoint) };
       }

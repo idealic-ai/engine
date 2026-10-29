@@ -4,6 +4,10 @@ export { EmbedLocalError, isEmbedLocalError } from "./errors.js";
 export {
   createLocalEmbeddingClient,
   ollamaDownloadInFlight,
+  INDEXER_EMBED_RETRY,
+  RETRYABLE_EMBED_CODES,
+  retryDelayMs,
+  type EmbedRetryPolicy,
   type LocalEmbeddingClient,
   type LocalEmbeddingClientOptions,
 } from "./client.js";

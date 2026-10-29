@@ -2,14 +2,15 @@ import initSqlJs, { type Database, type SqlValue } from "sql.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { EMBED_LOCAL_DEFAULTS } from "../../embed-local/src/index.js";
+import { assertLocalDbPath, checkExistingDb } from "../../shared/search-db-guard.js";
 
 /** Width of the default local model (embeddinggemma). Each row also stores its own. */
 export const EMBEDDING_DIMENSIONS = EMBED_LOCAL_DEFAULTS.dimensions;
 
 /**
  * Schema version — bump this when table structure changes.
- * On open, if the DB's PRAGMA user_version doesn't match,
- * all tables are dropped and recreated (reindex required).
+ * On open, an existing image at any other PRAGMA user_version is refused, never
+ * dropped (tools/shared/search-db-guard.ts); `engine reindex` deletes the file.
  *
  * 2: local embeddings (768-d) replace Gemini (3072-d), and every embedding row
  *    carries `model` + `dimensions` so a mixed index cannot recur unnoticed.
@@ -17,9 +18,8 @@ export const EMBEDDING_DIMENSIONS = EMBED_LOCAL_DEFAULTS.dimensions;
 export const SCHEMA_VERSION = 2;
 
 /**
- * The first schema of the local-embeddings generation. Any older non-zero
- * version is a Gemini-era index: initDb refuses it instead of dropping it, so a
- * shell lib still naming the old file can never make this build wipe it.
+ * The first schema of the local-embeddings generation. Below it is Gemini-era,
+ * which the refusal message names as such.
  */
 const FIRST_LOCAL_SCHEMA_VERSION = 2;
 const DB_FILENAME_HINT = ".doc-search.local.db";
@@ -47,37 +47,26 @@ export async function initDb(dbPath: string): Promise<Database> {
 
   let db: Database;
 
+  // Refuse a Gemini-era file name before touching anything on disk.
+  assertLocalDbPath("doc-search", dbPath, DB_FILENAME_HINT);
+
   // Ensure directory exists
   const dir = path.dirname(dbPath);
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  // Load existing database if it exists
-  if (fs.existsSync(dbPath)) {
-    const buffer = fs.readFileSync(dbPath);
-    db = new SqlJs.Database(buffer);
+  // Refuse any image not at exactly this schema from the 100-byte header
+  // alone, before the whole file is read into memory.
+  const state = checkExistingDb(dbPath, {
+    tool: "doc-search",
+    schemaVersion: SCHEMA_VERSION,
+    firstLocalSchemaVersion: FIRST_LOCAL_SCHEMA_VERSION,
+    hint: DB_FILENAME_HINT,
+  });
 
-    // Check schema version — drop and recreate if mismatched
-    const result = db.exec("PRAGMA user_version;");
-    const dbVersion = result[0]?.values[0]?.[0] as number ?? 0;
-    if (dbVersion !== SCHEMA_VERSION) {
-      if (dbVersion > 0 && dbVersion < FIRST_LOCAL_SCHEMA_VERSION) {
-        // A Gemini-era (3072-d) index. It is the only copy of that index, so
-        // never drop it: refuse to open, and leave the file byte-identical.
-        db.close();
-        throw new Error(
-          `[doc-search] ${dbPath} is a Gemini-era index (schema ${dbVersion}); this build embeds locally ` +
-            `(schema ${SCHEMA_VERSION}) and will not open or overwrite it. Point ENGINE_SEARCH_DB_PATH at ` +
-            `${DB_FILENAME_HINT} (the wrappers do when search-db-lib.sh is the same version as this tool).`
-        );
-      }
-      console.error(
-        `[doc-search] Schema version mismatch (db=${dbVersion}, expected=${SCHEMA_VERSION}). Dropping tables and reindexing.`
-      );
-      db.run("DROP TABLE IF EXISTS doc_chunks;");
-      db.run("DROP TABLE IF EXISTS embeddings;");
-    }
+  if (state === "current") {
+    db = new SqlJs.Database(fs.readFileSync(dbPath));
   } else {
     db = new SqlJs.Database();
   }

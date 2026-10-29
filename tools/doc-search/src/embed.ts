@@ -6,11 +6,13 @@
  */
 import {
   createLocalEmbeddingClient,
+  INDEXER_EMBED_RETRY,
   type EmbeddingClient,
   type LocalEmbeddingClientOptions,
 } from "../../embed-local/src/index.js";
 
 export type { EmbeddingClient };
+export { INDEXER_EMBED_RETRY };
 
 export function createEmbeddingClient(options: LocalEmbeddingClientOptions = {}): EmbeddingClient {
   return createLocalEmbeddingClient(options);

@@ -3,6 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execSync } from "node:child_process";
 import { dbPathFromEnv } from "../../shared/db-path.js";
+import { assertLocalDbPath } from "../../shared/search-db-guard.js";
 
 const TOOL_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -51,7 +52,11 @@ export function getProjectRoot(): string {
  */
 export function getDbPath(): string {
   const fromWrapper = dbPathFromEnv();
-  if (fromWrapper) return fromWrapper;
+  if (fromWrapper) {
+    // Every command resolves its path here, so every command refuses an old name.
+    assertLocalDbPath("doc-search", fromWrapper, DB_FILENAME);
+    return fromWrapper;
+  }
 
   const sessionsDir = path.join(getProjectRoot(), "sessions");
   if (fs.existsSync(sessionsDir)) {
