@@ -56,7 +56,7 @@ for a in "$@"; do case "$a" in http*) url="$a";; esac; done
 case " $* " in
   *" -w "*)
     case "$url" in
-      *test-bucket.s3.us-east-9.amazonaws.com*) printf '200' ;;
+      *test-bucket.s3.us-east-9.amazonaws.com*|http://127.0.0.1:9440/proofs/*) printf '200' ;;
       *) printf '404' ;;
     esac ;;
 esac
@@ -71,7 +71,8 @@ export PROVE_S3_BUCKET=test-bucket
 export PROVE_S3_REGION=us-east-9
 export PROVE_S3_PREFIX=proofs
 export PROVE_S3_USER=testuser
-unset PROVE_S3_PROFILE
+export PROVE_S3_ENDPOINT=aws   # the manifest defaults to the local MinIO; these cases pin AWS S3
+unset PROVE_S3_PROFILE PROVE_S3_PUBLIC_BASE
 
 echo "== publish-kit.sh: uploads =="
 export AWS_SHIM_LOG="$tmp/kit.log"
@@ -242,6 +243,76 @@ export CAPTURE="$tmp/dec/re-up.html"
 grep -q 'state config injected' "$tmp/dec/re.err" \
   && no "an injected config does not self-qualify" "republishing gated in on its own previous config element" \
   || ok "a previously-injected config element does NOT self-qualify a read-only page"
+
+echo "== publish-s3.sh: local MinIO defaults =="
+# No bucket/endpoint/user in the environment: the prove manifest defaults must route the publish to
+# the local MinIO, path-style, with the dev credentials and the login name as the user segment.
+cat > "$tmp/bin/aws" <<'SHIM'
+#!/usr/bin/env bash
+printf '%s|AK=%s|SK=%s\n' "$*" "${AWS_ACCESS_KEY_ID:-}" "${AWS_SECRET_ACCESS_KEY:-}" >> "$AWS_SHIM_LOG"
+case "$*" in
+  *"sts get-caller-identity"*) echo "arn:aws:iam::000000000000:user/should-not-be-asked" ;;
+  *"s3api head-object"*|*"s3api get-object"*) exit 1 ;;
+  *"s3api list-objects-v2"*) echo '{}' ;;
+esac
+exit 0
+SHIM
+chmod +x "$tmp/bin/aws"
+export AWS_SHIM_LOG="$tmp/minio.log"; : > "$AWS_SHIM_LOG"
+# The MinIO login comes from the kit's own variables, here set to test values: never a literal.
+localUrl="$(KIT_PROOFS_MINIO_USER=kit-user-under-test KIT_PROOFS_MINIO_PASSWORD=kit-pass-under-test \
+  env -u PROVE_S3_BUCKET -u PROVE_S3_REGION -u PROVE_S3_ENDPOINT -u PROVE_S3_USER -u AWS_PROFILE \
+  -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY "$assets/publish-s3.sh" "$src" 2>"$tmp/minio.err")"
+me="$(printf "%s" "$(id -un)" | tr -c "A-Za-z0-9._-" "-")"
+case "$localUrl" in
+  "http://127.0.0.1:9440/proofs/proofs/${me}/sample-proof-"*.html) ok "default publish URL is path-style on the local MinIO, user = id -un" ;;
+  *) no "local MinIO URL" "got: $localUrl ($(tail -2 "$tmp/minio.err"))" ;;
+esac
+grep -q -- '--endpoint-url http://127.0.0.1:9440' "$AWS_SHIM_LOG" \
+  && ok "the upload is sent to the MinIO endpoint" || no "endpoint-url on upload" "$(head -2 "$AWS_SHIM_LOG")"
+grep -q 'AK=kit-user-under-test|SK=kit-pass-under-test' "$AWS_SHIM_LOG" \
+  && ok "unset AWS credentials take the kit's KIT_PROOFS_MINIO_* login" || no "kit MinIO login used" "$(head -2 "$AWS_SHIM_LOG")"
+grep -q 'no credentials for the local store' "$tmp/minio.err" \
+  && no "no missing-login warning when the kit login is set" "$(cat "$tmp/minio.err")" \
+  || ok "no missing-login warning when the kit login is set"
+# Control: nothing set anywhere -> no login is invented, and the warning names the variables to set.
+export AWS_SHIM_LOG="$tmp/minio-none.log"; : > "$AWS_SHIM_LOG"
+env -u PROVE_S3_BUCKET -u PROVE_S3_ENDPOINT -u PROVE_S3_USER -u AWS_PROFILE -u AWS_ACCESS_KEY_ID \
+  -u AWS_SECRET_ACCESS_KEY -u KIT_PROOFS_MINIO_USER -u KIT_PROOFS_MINIO_PASSWORD \
+  "$assets/publish-s3.sh" "$src" >/dev/null 2>"$tmp/minio-none.err"
+if ! grep -q 's3 cp' "$AWS_SHIM_LOG"; then
+  no "no login is invented when none is set" "the upload never reached the aws shim"
+elif grep 's3 cp' "$AWS_SHIM_LOG" | grep -qv '|AK=|SK=$'; then
+  no "no login is invented when none is set" "$(grep 's3 cp' "$AWS_SHIM_LOG" | head -1)"
+else
+  ok "no login is invented when none is set (the upload sees empty keys)"
+fi
+grep -q 'KIT_PROOFS_MINIO_USER and KIT_PROOFS_MINIO_PASSWORD' "$tmp/minio-none.err" \
+  && ok "a missing login is named, with the variables to set" || no "missing-login message" "$(cat "$tmp/minio-none.err")"
+# Plant: the retired dev password must never come back into this skill. Pattern split so this file
+# does not match itself.
+retired="kitminio""-dev-secret"
+if grep -rlF -- "$retired" "$assets/.." >/dev/null 2>&1; then
+  no "the retired MinIO dev password is not committed in skills/prove" "$(grep -rlF -- "$retired" "$assets/..")"
+else
+  ok "the retired MinIO dev password is not committed in skills/prove"
+fi
+grep -q -- '--profile' "$AWS_SHIM_LOG" && no "no AWS profile on a local publish" "a --profile reached the aws CLI" \
+  || ok "no AWS profile is passed for the local MinIO"
+grep -q 'sts get-caller-identity' "$AWS_SHIM_LOG" && no "no STS lookup on a local publish" "sts was called" \
+  || ok "no STS caller-identity lookup on a loopback endpoint"
+export AWS_SHIM_LOG="$tmp/minio2.log"; : > "$AWS_SHIM_LOG"
+AWS_ACCESS_KEY_ID=mine AWS_SECRET_ACCESS_KEY=mysecret env -u PROVE_S3_ENDPOINT -u PROVE_S3_BUCKET \
+  "$assets/publish-s3.sh" "$src" >/dev/null 2>&1
+grep -q 'AK=mine|SK=mysecret' "$AWS_SHIM_LOG" \
+  && ok "explicit AWS credentials win over the MinIO default" || no "explicit credentials win" "$(head -1 "$AWS_SHIM_LOG")"
+cat > "$tmp/proofs-sync-ev.json" <<'JSON'
+{"kind":"vote"}
+JSON
+export AWS_SHIM_LOG="$tmp/minio3.log"; : > "$AWS_SHIM_LOG"
+env -u PROVE_S3_ENDPOINT -u PROVE_S3_BUCKET "$assets/state-append.sh" demo-doc "$tmp/proofs-sync-ev.json" >/dev/null 2>&1
+grep -q 'put-object.*--endpoint-url http://127.0.0.1:9440 --bucket proofs' "$AWS_SHIM_LOG" \
+  && ok "state-append.sh writes to the MinIO endpoint" || no "state-append endpoint" "$(cat "$AWS_SHIM_LOG")"
 
 echo "== bake-tickets.sh: --scan =="
 scanSrc="$tmp/scan.html"

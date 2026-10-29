@@ -19,6 +19,25 @@
     "enabled": true,
     "probeMessage": "Before I decide, can you briefly explain what led to this question and what you'd recommend?"
   },
+  "hop": {
+    "parent": "the seat's live @pane_parent, which always wins; FLEET_PARENT is a launch-time cache, noted on stderr when unset or stale (hop.sh target exits 5 only when the live edge cannot be read or is malformed)",
+    "noParent": "operator",
+    "chainFile": "hop-chain.txt in the session directory, written by hop.sh chain at Setup",
+    "carrier": "an /ask file, per /ask — a pass-up changes only its to: field; floor and reserved items carry reserved-for: operator",
+    "rePing": "manual — no timer (operator 23:05: push is fine; timers aren't). The seat's /next lists overdue asks; passing an ask further up is a deliberate step.",
+    "register": "🪜 Escalations"
+  },
+  "grant": {
+    "scope": "none — the grant applies in Manager mode only (director ruling R7, 2026-10-29). Grant v1 lives in coordinate.manager.config.json. Autonomous, cautious, supervised and custom runs rule on nothing but orientation.",
+    "classes": [],
+    "reserved": [
+      "E",
+      "F",
+      "G",
+      "H"
+    ],
+    "clauses": {}
+  },
   "timeouts": {
     "waitTimeout": 300,
     "consecutiveTimeoutLimit": 10,

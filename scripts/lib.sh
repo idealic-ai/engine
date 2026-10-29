@@ -24,6 +24,8 @@
 #   is_engine_session_cmd CMD — Returns 0 if CMD is an engine session invocation
 #   is_engine_tag_cmd CMD   — Returns 0 if CMD is an engine tag invocation
 #   is_engine_glob_cmd CMD  — Returns 0 if CMD is an engine glob invocation
+#   fleet_self              — This seat's window:label, live tmux first (exit 3 = launch-time cache)
+#   fleet_parent [--live V] [--of SEAT] — This seat's parent, live @pane_parent first (exit 3 = cache)
 
 # Guard against double-sourcing
 [ -n "${_LIB_SH_LOADED:-}" ] && return 0
@@ -147,7 +149,7 @@ normalize_preload_path() {
 #   suppresses the later real injection.
 #   PITFALLS.md, SIGILS.md and CMD_PARSE_PARAMETERS.md are on demand; PITFALLS is represented at
 #   session start by generate_pitfalls_index rather than by its bytes.
-SESSION_START_SEED_FILES=(COMMANDS.md INVARIANTS.md VOICE.md commands/CMD_DEHYDRATE.md commands/CMD_RESUME_SESSION.md)
+SESSION_START_SEED_FILES=(COMMANDS.md INVARIANTS.md VOICE.md commands/CMD_DEHYDRATE.md commands/CMD_RESUME_SESSION.md commands/CMD_CONTINUE_ON_STOP.md)
 get_session_start_seeds() {
   local engine_dir rel seeds='[]'
   engine_dir=$(cd "$HOME/.claude/.directives" 2>/dev/null && pwd -P) || engine_dir="$HOME/.claude/.directives"
@@ -1612,4 +1614,127 @@ clear_agent_context() {
     # No tmux: signal restart via session.sh (wrapper picks it up)
     "$HOME/.claude/scripts/session.sh" restart "$session_dir" 2>/dev/null || true
   fi
+}
+
+# ---- Fleet identity: the live tmux pane wins over run.sh's launch-time cache ----
+# run.sh exports FLEET_PANE (window:label) and FLEET_PARENT at launch. A seat renamed or
+# re-parented since then still carries its old values in them, so any reader that trusts them
+# acts under its old identity (domain:stats read "domain:domain"). These two functions read the
+# live pane first, name the cache on stderr when it disagrees, and fall back to the cache only
+# when tmux cannot be read — flagged with exit 3 and a stderr note.
+#
+#   fleet_self                          → this seat's window:label
+#   fleet_parent [--live V] [--of SEAT] → this seat's parent seat; empty stdout = no parent
+#       --live V  the caller already read the live edge (hop.sh, from its tree); "-" = none
+#       --of SEAT names the seat in the stale warning
+#   exit 0  live value on stdout (warning on stderr if the cache differed)
+#   exit 3  tmux unreadable: the launch-time cache on stdout, flagged on stderr
+#   exit 1  tmux unreadable and no cache: nothing on stdout
+#   exit 2  usage error (fleet_parent)
+#
+# "Readable" means: $TMUX_PANE is set, the agent's own server is known ($TMUX, or an explicit
+# FLEET_TMUX_SOCKET), and the pane is a fleet seat (it has a window name and an @pane_label).
+# Label and parent come from ONE display call, so a pane that is not a seat never yields a
+# "live: no parent" either. Without $TMUX a bare `tmux` would reach the default server, where
+# the same %N is somebody else's pane — so there is no live read then, only the cache.
+#
+# Env: FLEET_TMUX_SOCKET — tmux -L socket for the live read (default: the server $TMUX names,
+#                          addressed with -S so a stray -L/default server is never consulted)
+#      FLEET_LIVE_PANES  — test seam: a file in hop.sh's live-tree shape
+#                          ("<window:label> <pane_id> <parent or ->" per line), read instead of tmux
+#      FLEET_WARN_PREFIX — the stderr prefix (default "fleet"; hop.sh passes "hop")
+#      FLEET_WARN_ONCE_DIR — when set, each distinct stale warning (pane, cache, live) is printed
+#                          once, stamped in this dir (await-next sets it: it runs every loop turn)
+# Bash 3.2 safe (§PTF_BASH32_COMPATIBILITY): no arrays, no arithmetic, every var defaulted.
+
+_fleet_tmux() {
+  if [ -n "${FLEET_TMUX_SOCKET:-}" ]; then
+    tmux -L "$FLEET_TMUX_SOCKET" "$@"
+  elif [ -n "${TMUX:-}" ]; then
+    tmux -S "${TMUX%%,*}" "$@"
+  else
+    return 1
+  fi
+}
+
+# _fleet_live_read — "<window:label>|<parent or ->" for $TMUX_PANE, or exit 1 when unreadable.
+_fleet_live_read() {
+  local pane="${TMUX_PANE:-}" out="" label="" parent=""
+  [ -n "$pane" ] || return 1
+  if [ -n "${FLEET_LIVE_PANES:-}" ]; then
+    [ -r "$FLEET_LIVE_PANES" ] || return 1
+    out=$(awk -v p="$pane" '$2 == p { print $1 "|" ($3 == "" ? "-" : $3); exit }' "$FLEET_LIVE_PANES" 2>/dev/null) || return 1
+  else
+    # _fleet_tmux refuses (exit 1) when neither $TMUX nor FLEET_TMUX_SOCKET names a server.
+    out=$(_fleet_tmux display -p -t "$pane" '#{window_name}:#{@pane_label}|#{?@pane_parent,#{@pane_parent},-}' 2>/dev/null) || return 1
+  fi
+  label="${out%%|*}"
+  case "$out" in *"|"*) parent="${out#*|}" ;; *) parent="" ;; esac
+  # A pane with no window name or no @pane_label is not a live fleet seat: neither value is live.
+  case "$label" in ""|:*|*:) return 1 ;; esac
+  printf '%s|%s\n' "$label" "$parent"
+}
+
+# _fleet_warn <key> <message> — stderr, once per key when FLEET_WARN_ONCE_DIR is set.
+_fleet_warn() {
+  local dir="${FLEET_WARN_ONCE_DIR:-}" stamp=""
+  if [ -n "$dir" ]; then
+    stamp="$dir/$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_')"
+    [ -e "$stamp" ] && return 0
+    mkdir -p "$dir" 2>/dev/null && : > "$stamp" 2>/dev/null
+  fi
+  echo "$2" >&2
+}
+
+fleet_self() {
+  local pfx="${FLEET_WARN_PREFIX:-fleet}" cache="${FLEET_PANE:-}" out="" live=""
+  if out=$(_fleet_live_read); then
+    live="${out%%|*}"
+    if [ -n "$cache" ] && [ "$cache" != "$live" ]; then
+      _fleet_warn "self|${TMUX_PANE:-}|$cache|$live" "$pfx: FLEET_PANE '$cache' is stale; using the live pane label '$live'"
+    fi
+    printf '%s\n' "$live"
+    return 0
+  fi
+  if [ -n "$cache" ]; then
+    echo "$pfx: cannot read the live pane label; using the launch-time FLEET_PANE '$cache' (cache)" >&2
+    printf '%s\n' "$cache"
+    return 3
+  fi
+  echo "$pfx: cannot resolve this seat's identity (no live pane label, no FLEET_PANE)" >&2
+  return 1
+}
+
+fleet_parent() {
+  local pfx="${FLEET_WARN_PREFIX:-fleet}" cache="${FLEET_PARENT:-}" live="" have=0 of="" of_txt="" out=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --live) live="${2:-}"; [ -n "$live" ] && have=1; shift; [ $# -gt 0 ] && shift ;;
+      --of) of="${2:-}"; shift; [ $# -gt 0 ] && shift ;;
+      *) echo "$pfx: fleet_parent: unknown argument $1" >&2; return 2 ;;
+    esac
+  done
+  if [ "$have" = 0 ] && out=$(_fleet_live_read); then
+    live="${out#*|}"
+    [ -n "$live" ] && have=1
+  fi
+  if [ "$have" = 1 ]; then
+    [ "$live" = "-" ] && live=""
+    [ -n "$of" ] && of_txt=" of '$of'"
+    if [ -n "$cache" ] && [ "$cache" != "$live" ]; then
+      _fleet_warn "parent|${TMUX_PANE:-}|$of|$cache|$live" \
+        "$pfx: FLEET_PARENT '$cache' is stale; using the live @pane_parent '${live:-none}'$of_txt"
+    elif [ -z "$cache" ] && [ -n "$live" ]; then
+      _fleet_warn "parent-unset|${TMUX_PANE:-}|$of|$live" "$pfx: FLEET_PARENT unset; using live @pane_parent '$live'"
+    fi
+    [ -n "$live" ] && printf '%s\n' "$live"
+    return 0
+  fi
+  if [ -n "$cache" ]; then
+    echo "$pfx: cannot read the live @pane_parent; using the launch-time FLEET_PARENT '$cache' (cache)" >&2
+    printf '%s\n' "$cache"
+    return 3
+  fi
+  echo "$pfx: cannot resolve this seat's parent (no live @pane_parent, no FLEET_PARENT)" >&2
+  return 1
 }

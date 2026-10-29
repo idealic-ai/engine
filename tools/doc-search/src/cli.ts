@@ -4,14 +4,17 @@ import { execSync } from "node:child_process";
 import fg from "fast-glob";
 import { initDb, saveDb, queryAll, queryOne } from "./db.js";
 import { parseChunks, type DocChunk } from "./chunker.js";
-import { createEmbeddingClient } from "./embed.js";
+import { createEmbeddingClient, INDEXER_EMBED_RETRY } from "./embed.js";
 import { reconcileChunks, type IndexReport } from "./indexer.js";
-import { searchDocs, groupResultsByFile, type QueryFilters } from "./query.js";
+import { searchDocs, groupResultsByFile, countForeignEmbeddings, type QueryFilters } from "./query.js";
 import { parseTimeArg, toUnixMs } from "../../shared/parse-time-arg.js";
-import { acquireLock, releaseLock } from "./lock.js";
+import { acquireLock, releaseLock, startLockHeartbeat, lockHeartbeatMsFromEnv } from "./lock.js";
+import { isSearchDbRefused } from "../../shared/search-db-guard.js";
 import { getDbPath, getProjectRoot } from "./db-path.js";
 
-const DB_PATH = getDbPath();
+// Resolved in main(), not at import, so a refused path prints its message
+// instead of an import-time stack trace.
+let DB_PATH = "";
 const DEFAULT_DOCS_GLOBS = [
   "docs/**/*.md",
   "{apps,packages}/*/docs/**/*.md",
@@ -75,13 +78,28 @@ TIME formats:
   2026-02-01             Absolute date (midnight UTC)
   2026-02-01T14:30:00Z   ISO datetime
 
-Environment:
-  GEMINI_API_KEY    Required for embedding (index and query)
+Embedding (local, no key, no network; tools/embed-local):
+  A running Ollama with the model pulled is required for index and query:
+    ollama pull embeddinggemma
+  ENGINE_EMBED_ENDPOINT    Runner URL (default: http://127.0.0.1:11434)
+  ENGINE_EMBED_MODEL       Model tag (default: embeddinggemma)
+  ENGINE_EMBED_DIMENSIONS  Vector width the model returns (default: 768)
+  ENGINE_EMBED_BATCH       Texts per embed request (default: 32)
+  ENGINE_EMBED_TIMEOUT_MS  Per-request timeout in ms (default: 120000)
 
 Project identification:
   Finds project root by looking for .claude/ directory (falls back to git root).
   Can be run from any subdirectory within the project.
-  Database location: ${DB_PATH}`);
+  Database location: ${describeDbPath()}`);
+}
+
+/** The DB path for the help text; a refused path is shown as its refusal. */
+function describeDbPath(): string {
+  try {
+    return getDbPath();
+  } catch (err: unknown) {
+    return isSearchDbRefused(err) ? `(refused) ${err.message}` : String(err);
+  }
 }
 
 async function runIndex(customGlob?: string): Promise<void> {
@@ -104,6 +122,8 @@ async function runIndex(customGlob?: string): Promise<void> {
     process.exit(1);
   }
 
+  // A long rebuild refreshes its lock, so it is never judged stale mid-run.
+  const stopHeartbeat = startLockHeartbeat(DB_PATH, lockHeartbeatMsFromEnv());
   try {
     // Scan for markdown files from project root (not cwd)
     console.log(`Scanning: ${docsGlobs.join(", ")}`);
@@ -140,7 +160,9 @@ async function runIndex(customGlob?: string): Promise<void> {
 
     // Initialize DB and embedder
     const db = await initDb(DB_PATH);
-    const embedder = createEmbeddingClient();
+    // Indexing retries a busy or timed-out batch with backoff; a query does not.
+    const embedder = createEmbeddingClient({ retry: INDEXER_EMBED_RETRY });
+    console.log(`Embedding with ${embedder.model} (${embedder.dimensions}-d, local)`);
 
     // Reconcile
     console.log("Reconciling with database...");
@@ -159,6 +181,7 @@ async function runIndex(customGlob?: string): Promise<void> {
     db.close();
   } finally {
     // Always release lock
+    stopHeartbeat();
     releaseLock(DB_PATH);
     console.log("Lock released.");
   }
@@ -188,6 +211,9 @@ async function runStatus(): Promise<void> {
   // Get total counts
   const totalChunks = queryOne<{ count: number }>(db, "SELECT COUNT(*) as count FROM doc_chunks")?.count ?? 0;
   const totalEmbeddings = queryOne<{ count: number }>(db, "SELECT COUNT(*) as count FROM embeddings")?.count ?? 0;
+  const generations = queryAll<{ model: string; dimensions: number; count: number }>(db, `
+    SELECT model, dimensions, COUNT(*) as count FROM embeddings GROUP BY model, dimensions ORDER BY count DESC
+  `);
 
   // Get projects
   const projects = queryAll<{ project_name: string; chunk_count: number }>(db, `
@@ -217,6 +243,9 @@ async function runStatus(): Promise<void> {
   console.log("Global Statistics:");
   console.log(`  Total chunks:     ${totalChunks}`);
   console.log(`  Total embeddings: ${totalEmbeddings}`);
+  for (const g of generations) {
+    console.log(`    - ${g.model} (${g.dimensions}-d): ${g.count}`);
+  }
   console.log(`  Unique files:     ${filesCount}`);
   console.log(`  Projects:         ${projects.length}`);
   console.log();
@@ -252,6 +281,14 @@ async function runQuery(
 
   const db = await initDb(DB_PATH);
   const embedder = createEmbeddingClient();
+
+  const foreign = countForeignEmbeddings(db, embedder);
+  if (foreign > 0) {
+    console.error(
+      `[doc-search] ${foreign} embeddings were written by another model or width and are not ranked. ` +
+        `Run 'doc-search index' to re-embed them with ${embedder.model} (${embedder.dimensions}-d).`
+    );
+  }
 
   // Default to current branch unless --all-branches specified
   const effectiveFilters: QueryFilters = {
@@ -355,6 +392,7 @@ async function main(): Promise<void> {
   }
 
   const { command, positional, flags } = parseArgs(args);
+  DB_PATH = getDbPath();
 
   switch (command) {
     case "index": {
@@ -420,6 +458,11 @@ async function main(): Promise<void> {
 }
 
 main().catch((err: unknown) => {
+  // A refused DB path or schema is an answer, not a crash: print it as written.
+  if (isSearchDbRefused(err)) {
+    console.error(err.message);
+    process.exit(1);
+  }
   console.error("Fatal error:", err);
   process.exit(1);
 });

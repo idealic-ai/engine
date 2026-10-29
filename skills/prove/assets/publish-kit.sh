@@ -25,7 +25,8 @@
 # against and not a later fix. That choice is per-reference and belongs to the page.
 #
 # Served same-origin with the boards, at
-#   https://$PROVE_S3_BUCKET.s3.$PROVE_S3_REGION.amazonaws.com/$PROVE_S3_PREFIX/kit/…
+#   $PROVE_S3_PUBLIC_BASE/$PROVE_S3_BUCKET/$PROVE_S3_PREFIX/kit/…   (an S3-compatible endpoint, e.g. the local MinIO)
+#   https://$PROVE_S3_BUCKET.s3.$PROVE_S3_REGION.amazonaws.com/$PROVE_S3_PREFIX/kit/…   (AWS S3)
 #
 # OVERWRITE GUARD (in publish.sh — this script only stages). Before it existed, twelve unconditional
 # PutObjects meant a declared version did not pin bytes: published proof-blocks.v2.css was 113,188 B
@@ -157,7 +158,15 @@ while IFS='	' read -r name alias cas sha bytes ctype; do
   cp "$kitDir/$name" "$stage/kit/$cas"
 done < "$rowsTsv"
 
-KIT_BASE_URL="https://${PROVE_S3_BUCKET}.s3.${PROVE_S3_REGION}.amazonaws.com/${PROVE_S3_PREFIX}/kit" \
+# Path-style under PROVE_S3_PUBLIC_BASE when an S3-compatible endpoint is set (the local MinIO),
+# else the AWS virtual-hosted address.
+kitPublicBase="${PROVE_S3_PUBLIC_URL:-}"
+if [ -n "$kitPublicBase" ]; then
+  kitBaseUrl="${kitPublicBase%/}/${PROVE_S3_BUCKET}/${PROVE_S3_PREFIX}/kit"
+else
+  kitBaseUrl="https://${PROVE_S3_BUCKET}.s3.${PROVE_S3_REGION}.amazonaws.com/${PROVE_S3_PREFIX}/kit"
+fi
+KIT_BASE_URL="$kitBaseUrl" \
   python3 "$here/_kit-manifest-json.py" "$rowsTsv" > "$stage/kit/kit-manifest.json"
 rm -f "$rowsTsv"
 
@@ -176,4 +185,4 @@ echo "publish-kit: staged ${staged} objects from ${kitDir}" >&2
   ${KIT_ARGS[@]+"${KIT_ARGS[@]}"} >&2
 
 # stdout is the BASE url only — publish-s3.sh substitutes it into a page's __FB_KIT_BASE__ token.
-printf 'https://%s.s3.%s.amazonaws.com/%s/kit\n' "$PROVE_S3_BUCKET" "$PROVE_S3_REGION" "$PROVE_S3_PREFIX"
+printf '%s\n' "$kitBaseUrl"

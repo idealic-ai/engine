@@ -608,8 +608,8 @@ USERJSON
   fi
   source "$SCRIPT_DIR/search-db-lib.sh"
   local doc_db session_db
-  doc_db=$(search_db_local_path ".doc-search.db" "$resolved_sessions_dir")
-  session_db=$(search_db_local_path ".session-search.db" "$resolved_sessions_dir")
+  doc_db=$(search_db_local_path "$SEARCH_DB_DOC_FILE" "$resolved_sessions_dir")
+  session_db=$(search_db_local_path "$SEARCH_DB_SESSION_FILE" "$resolved_sessions_dir")
   if [ ! -f "$doc_db" ] || [ ! -f "$session_db" ]; then
     echo "  Search DBs will be empty until indexed."
     echo "  Run: engine reindex"
@@ -1562,8 +1562,8 @@ cmd_reindex() {
   local removed=0
   local db_file
   for db_file in \
-    "$(search_db_active_path ".doc-search.db" "$sessions_dir")" \
-    "$(search_db_active_path ".session-search.db" "$sessions_dir")"; do
+    "$(search_db_active_path "$SEARCH_DB_DOC_FILE" "$sessions_dir")" \
+    "$(search_db_active_path "$SEARCH_DB_SESSION_FILE" "$sessions_dir")"; do
     if [ -f "$db_file" ]; then
       rm "$db_file"
       echo "  Deleted: $(basename "$db_file")"
@@ -1574,9 +1574,9 @@ cmd_reindex() {
   # Also remove lock files. Both tools derive the lock from the DB path, so the
   # lock moved with the DB — clear the current location AND any sessions/ orphan.
   for lock_file in \
-    "$(dirname "$(search_db_active_path ".doc-search.db" "$sessions_dir")")/.doc-search.lock" \
+    "$(dirname "$(search_db_active_path "$SEARCH_DB_DOC_FILE" "$sessions_dir")")/.doc-search.lock" \
     "$sessions_dir/.doc-search.lock" \
-    "$(dirname "$(search_db_active_path ".session-search.db" "$sessions_dir")")/.session-search.lock" \
+    "$(dirname "$(search_db_active_path "$SEARCH_DB_SESSION_FILE" "$sessions_dir")")/.session-search.lock" \
     "$sessions_dir/.session-search.lock"; do
     if [ -f "$lock_file" ]; then
       rm "$lock_file"

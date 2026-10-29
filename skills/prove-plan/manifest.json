@@ -1,0 +1,16 @@
+{
+  "name": "prove-plan",
+  "version": "1",
+  "description": "Compile a DECIDED route into a self-contained, shareable PLAN page — the ordered steps with their dependencies drawn as a flowgraph, the acceptance for each step and how each will be checked, the risks, the owners, and what is out of scope. The route sibling of /prove: where /prove SHOWS a settled finding and /prove-visionary PROPOSES among options that are still open, /prove-plan LAYS OUT a route that has already been chosen and not yet travelled, so a reader can follow it, check it and own a piece of it. Its sources are a /build or /implement plan, a loom's thread map, or a ticket. Spine: it trusts the decisions and presents them straight, and its honesty gate is that every step names its check and nothing is presented as done — a plan page shows what will happen and how anyone will know it happened, never progress. The thin sibling on /prove's shared assets: the assembler brief, the provenance rules, the dossier and notebook templates and the S3 publish are /prove's, cited and never copied. A subagent extracts + composes; the orchestrator owns the route gate and the publish. A building block: it lays out and reports, never executes the plan, commits, files, or decides. Triggers: \"prove the plan\", \"make the plan shareable\", \"plan page\", \"show the route\", \"draw the dependency graph for this plan\", \"lay out the steps with their checks\", \"who owns which step\".",
+  "tier": "lightweight",
+  "sibling": "prove",
+  "sharedAssets": {
+    "publish": "~/.claude/engine/skills/prove/assets/publish-s3.sh",
+    "dossierTemplate": "~/.claude/engine/skills/prove/assets/TEMPLATE_PROVE.md",
+    "notebookTemplate": "~/.claude/engine/skills/prove/assets/TEMPLATE_PROVE_LOG.md"
+  },
+  "localAssets": {
+    "gateScanner": "~/.claude/engine/skills/prove-plan/assets/plan-page-scan.py",
+    "pageRegions": "~/.claude/engine/skills/prove-plan/assets/_page_regions.py"
+  }
+}

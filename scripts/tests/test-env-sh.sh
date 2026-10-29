@@ -1545,8 +1545,10 @@ fi
 #   doc/session-search  — only ./.env (cwd-relative), and `tr -d '"'` strips EVERY quote
 #                         in the value, corrupting one that legitimately contains a "
 #   extract_env_key     — anchored, first-non-empty, wrapping quotes only
-echo "Test 28: the six Gemini sites route through the shared resolver"
-GEM_SITES="scripts/gemini.sh scripts/research.sh scripts/doc-search.sh scripts/session-search.sh tools/doc-search/doc-search.sh tools/session-search/session-search.sh"
+echo "Test 28: the Gemini sites route through the shared resolver"
+# 2026-10-29: the four search wrappers left this list — they embed locally through
+# tools/embed-local and gate on the Ollama runner, not on a key (no Gemini fallback).
+GEM_SITES="scripts/gemini.sh scripts/research.sh"
 ENGROOT="$HOME/.claude/engine"
 
 # (a) HOME-level lookup is DELETED (user ruling: find the project keys instead).
@@ -1571,7 +1573,7 @@ else
   fail "tr -d quote-strip removed" "no tr -d '\"'" "$TRHITS"
 fi
 
-# (c) BEHAVIOUR: all six resolve identically from the repo root AND a subdirectory,
+# (c) BEHAVIOUR: every site resolves identically from the repo root AND a subdirectory,
 #     and a value containing a QUOTE survives intact — the tr -d regression.
 CASE_GM="$WORK/gem"; mkcase "$CASE_GM"; mkdir -p "$CASE_GM/deep"
 GEMVAL='abc"def'
@@ -1617,9 +1619,9 @@ for f in $GEM_SITES; do
   done
 done
 if [ -z "$GEMBAD" ]; then
-  pass "all six sites resolve the SAME value from root and subdir, quote intact"
+  pass "every Gemini site resolves the SAME value from root and subdir, quote intact"
 else
-  fail "six sites agree + quote survives" "all = abc\"def" "$GEMBAD"
+  fail "Gemini sites agree + quote survives" "all = abc\"def" "$GEMBAD"
 fi
 
 # ══ 29. aws-secret source (5/1) ═══════════════════════════════════════════════

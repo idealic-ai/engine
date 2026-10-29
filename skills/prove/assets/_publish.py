@@ -5,6 +5,7 @@ Invoked as:
     _publish.py <dir> <target> [--dry-run] [--force] [--flat] [--as <name>]
                                [--bump|--minor|--major|--fork <name>]
                                [--profile <awsProfile>] [--region <r>]
+                               [--endpoint <url>] [--public-base <url>]
 
 <target> is either  s3://<bucket>/<prefix>  or an absolute local directory.
 Both take this same code path; the only thing that varies is `probe`, `put` and `list_versions`.
@@ -119,10 +120,13 @@ def walk(root):
 class S3Target:
     kind = "s3"
 
-    def __init__(self, bucket, prefix, profile, region):
+    def __init__(self, bucket, prefix, profile, region, endpoint="", public_base=""):
         self.bucket, self.prefix = bucket, prefix.strip("/")
         self.profile, self.region = profile, region
-        self._pa = ["--profile", profile] if profile else []
+        self.endpoint = endpoint.rstrip("/")
+        self.public_base = (public_base or endpoint).rstrip("/")
+        self._pa = (["--profile", profile] if profile else []) \
+            + (["--endpoint-url", self.endpoint] if self.endpoint else [])
 
     def __str__(self):
         return "s3://%s/%s" % (self.bucket, self.prefix)
@@ -131,6 +135,9 @@ class S3Target:
         return "%s/%s" % (self.prefix, rel) if self.prefix else rel
 
     def url(self, rel):
+        # An S3-compatible endpoint (the local MinIO) serves path-style URLs under its public base.
+        if self.public_base:
+            return "%s/%s/%s" % (self.public_base, self.bucket, self.key(rel))
         return "https://%s.s3.%s.amazonaws.com/%s" % (self.bucket, self.region, self.key(rel))
 
     def probe(self, rel):
@@ -478,6 +485,8 @@ def main(argv):
     ap.add_argument("--bundle", action="store_true")
     ap.add_argument("--single-file", action="store_true")
     ap.add_argument("--profile", default="")
+    ap.add_argument("--endpoint", default="")
+    ap.add_argument("--public-base", default="")
     ap.add_argument("--region", default="us-east-2")
     ap.add_argument("--no-verify", action="store_true")
     ap.add_argument("--flat", action="store_true")
@@ -523,7 +532,7 @@ def main(argv):
                   file=sys.stderr)
             return EXIT_CONFIG
         bucket, _, prefix = rest.partition("/")
-        target = S3Target(bucket, prefix, a.profile, a.region)
+        target = S3Target(bucket, prefix, a.profile, a.region, a.endpoint, a.public_base)
     else:
         target = LocalTarget(a.target)
 

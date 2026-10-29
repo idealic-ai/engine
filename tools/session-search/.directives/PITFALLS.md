@@ -78,3 +78,19 @@ When testing, ensure test data covers both cases: sessions with and without `ses
 ## 7. PRAGMA journal_mode Is Meaningless
 
 sql.js runs in-memory (WASM). PRAGMA journal_mode returns `"memory"` regardless of settings. Don't write tests for it — it provides no useful signal.
+
+## Index lock, refusals, and the rollback hazard (2026-10-29)
+
+- **`index` takes `.<tool>.lock` beside the DB** (`tools/shared/index-lock.ts`). Every
+  session close backgrounds both indexers, so the second run on a DB exits at once. The
+  holder refreshes its timestamp every 30 s. A lock is broken only when its pid is dead
+  or its timestamp is more than 5 min old. Before the heartbeat, a ~50 min rebuild looked
+  stale after 5 min, and kit ran four rebuilds at once.
+- **`initDb` refuses, and never drops**, any image whose `user_version` is not exactly
+  this build's schema. That includes 0 and anything newer. It also refuses the Gemini-era
+  names `.session-search.db` and `.doc-search.db`. Both checks read only the 100-byte
+  header (`tools/shared/search-db-guard.ts`). The only reset is `engine reindex`, which
+  deletes the file.
+- **Rollback hazard**: old tools with new scripts open a `.local.db` and drop it. Roll
+  `scripts/` and `tools/` back together, then run `engine reindex`. See
+  `tools/embed-local/README.md` § Rollback hazard.

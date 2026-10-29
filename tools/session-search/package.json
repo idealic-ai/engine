@@ -1,7 +1,7 @@
 {
   "name": "session-search",
   "version": "1.1.0",
-  "description": "Semantic search over session history using Gemini embeddings + sql.js (WASM SQLite)",
+  "description": "Semantic search over session history using local embeddings (Ollama embeddinggemma, via tools/embed-local) + sql.js (WASM SQLite)",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,6 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@google/genai": "^0.7.0",
     "sql.js": "^1.11.0"
   },
   "devDependencies": {

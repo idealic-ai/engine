@@ -57,19 +57,31 @@
 #                                                 Claim tickets or paths for this loom, state `working`.
 #                                                 Batch a dispatch's items into one call
 #   engine loom-slots --claim-state <sessionDir> <item> working|done-uncommitted|landed
+#   engine loom-slots --claim-state <sessionDir> <item> in-pr <PR#>
 #                                                 Move a claim on; `landed` removes it. An item
-#                                                 that is not claimed is refused (exit 1)
+#                                                 that is not claimed is refused (exit 1).
+#                                                 `in-pr` = committed, pushed and in an open PR,
+#                                                 not merged; it needs the PR number (482 or #482)
 #   engine loom-slots --release <sessionDir> <item>...
 #                                                 Drop a claim without landing it
 #
 # WORK CLAIMS
 #   A `claims=` line in a loom's `.slots` file: `item|state|stampZ`, comma-separated, each item in
-#   its claim_key form (below): a ticket key, or `<repo>::<path in repo>`. Relative paths resolve
+#   its claim_key form (below): a ticket key, or `<repo>::<path in repo>`. The state is `working`,
+#   `done-uncommitted`, or `in-pr:<N>` (in open PR N, not merged) — the PR rides inside the state
+#   field so the three-field form is unchanged and an older reader still prints it. Relative paths resolve
 #   against --repo, else the working directory's repository. A claim is NOT
 #   a liveness signal and never expires: it is reported however stale the row is and however empty
 #   its lanes, because a loom whose lanes have ended can still hold finished, uncommitted work. Only
 #   `landed` or `--release` removes one. The claim commands rewrite only that line and keep the
 #   file's mtime, so writing a claim never makes a dead row look live.
+#   An overlap with an `in-pr` claim still exits 4, but is worded "in review in PR <N>": the work
+#   is committed and pushed, so the risk is redoing a reviewed change, not losing an unsaved one.
+#
+# NOTES
+#   Any `note=` line in a loom's `.slots` file (a conductor's interim marker; --heartbeat keeps it)
+#   is printed, under that loom's name, in a Notes section of the report. Under --quiet the notes
+#   go to stderr instead, like overlap warnings, because a note is a reason not to dispatch.
 #
 # Exit status (the idiom `engine lane-stall` and `engine sweep-check` already use):
 #   0  under every cap, dispatching another lane is within budget; or a write succeeded
@@ -93,6 +105,19 @@ REPO_BASE=""
 HB_CAP=""; HB_SET_CAP=0; HB_LANES=""; HB_SET_LANES=0
 DISPATCHING=""
 CLAIM_SESSION=""; CLAIM_STATE=""; CLAIM_ITEMS=()
+
+# pr_check — the ONE check a PR number passes, whichever spelling it arrived in (`in-pr 482`,
+# `in-pr '#482'`, or the stored form `in-pr:482`). Prints why on refusal. Digits only, so nothing
+# that could carry the claim separators `,` or `|` into the claims line; no leading zero, so one PR
+# has one spelling.
+pr_check() {
+  case "$1" in
+    '') printf 'loom-slots: in-pr needs the open PR number: --claim-state <sessionDir> <item> in-pr <PR#>\n' >&2; return 1 ;;
+    *[!0-9]*) printf 'loom-slots: an in-pr PR number is digits only, optionally written #N (got [%s])\n' "$1" >&2; return 1 ;;
+    0*) printf 'loom-slots: an in-pr PR number has no leading zeros, and is not 0 (got [%s]; write it as GitHub shows it)\n' "$1" >&2; return 1 ;;
+  esac
+  return 0
+}
 
 # take_items — the items after a claim command's sessionDir, up to the next --flag. Each argument
 # may itself be a comma list, so one call can claim everything a dispatch takes.
@@ -124,7 +149,19 @@ while [ $# -gt 0 ]; do
     --claim-state)
       MODE=claim-state; CLAIM_SESSION="${2:?--claim-state needs <sessionDir> <item> <state>}"
       CLAIM_ITEMS=("${3:?--claim-state needs <sessionDir> <item> <state>}")
-      CLAIM_STATE="${4:?--claim-state needs <sessionDir> <item> <state>}"; shift 4 ;;
+      CLAIM_STATE="${4:?--claim-state needs <sessionDir> <item> <state>}"; shift 4
+      case "$CLAIM_STATE" in
+        in-pr)
+          # The PR number is required and is the next argument; it may be written 482 or #482.
+          CLAIM_PR="${1-}"; CLAIM_PR="${CLAIM_PR#\#}"
+          pr_check "$CLAIM_PR" || exit 1
+          shift; CLAIM_STATE="in-pr:$CLAIM_PR" ;;
+        in-pr:*)
+          # The stored spelling goes through the same check: it is not a way around it.
+          CLAIM_PR="${CLAIM_STATE#in-pr:}"; CLAIM_PR="${CLAIM_PR#\#}"
+          pr_check "$CLAIM_PR" || exit 1
+          CLAIM_STATE="in-pr:$CLAIM_PR" ;;
+      esac ;;
     --lane-alive) MODE=alive; LANE_SESSION="${2:?--lane-alive needs <sessionDir> <laneTag>}"; LANE_TAG="${3:?--lane-alive needs <sessionDir> <laneTag>}"; shift 3 ;;
     --lane-done)  MODE=done;  LANE_SESSION="${2:?--lane-done needs <sessionDir> <laneTag>}";  LANE_TAG="${3:?--lane-done needs <sessionDir> <laneTag>}";  shift 3 ;;
     -h|--help)    sed -n '/^# Usage:/,/^# (end of help)$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
@@ -361,7 +398,8 @@ fi
 if [ "$MODE" = claim ] || [ "$MODE" = release ] || [ "$MODE" = claim-state ]; then
   case "$MODE:$CLAIM_STATE" in
     claim-state:working|claim-state:done-uncommitted|claim-state:landed|claim:|release:) ;;
-    *) printf 'loom-slots: state must be working, done-uncommitted or landed (got %s)\n' "$CLAIM_STATE" >&2; exit 1 ;;
+    claim-state:in-pr:*) pr_check "${CLAIM_STATE#in-pr:}" || exit 1 ;;
+    *) printf 'loom-slots: state must be working, done-uncommitted, in-pr <PR#> or landed (got %s)\n' "$CLAIM_STATE" >&2; exit 1 ;;
   esac
   norm=()
   for it in "${CLAIM_ITEMS[@]}"; do
@@ -458,6 +496,8 @@ global_stale_lanes=0
 at_cap=0
 rows=""
 claim_rows=""
+note_rows=""
+note_recs=()
 overlaps=0
 overlap_lines=""
 
@@ -485,9 +525,12 @@ for fi_ in ${F_PATH[@]+"${!F_PATH[@]}"}; do
   f="${F_PATH[$fi_]}"
   pi="$(primary_of "$fi_")"
   is_dupe=0; [ "$pi" != "$fi_" ] && is_dupe=1
-  sessionDir=""; cap=""; liveLanes=""; heartbeat=""; claims=""
-  while IFS='=' read -r k v; do
+  sessionDir=""; cap=""; liveLanes=""; heartbeat=""; claims=""; notes=()
+  while IFS= read -r line || [ -n "$line" ]; do
+    k="${line%%=*}"; v="${line#*=}"
+    [ "$k" = "$line" ] && continue
     case "$k" in
+      note)       notes+=("$v") ;;
       claims)     claims="$v" ;;
       sessionDir) sessionDir="$v" ;;
       cap)        cap="$v" ;;
@@ -584,7 +627,9 @@ for fi_ in ${F_PATH[@]+"${!F_PATH[@]}"}; do
       cage="?"
       ce="$(iso_to_epoch "$ct" || true)"; [ -n "$ce" ] && cage="$(( (NOW - ce) / 60 ))m"
       who="$short"; [ "$is_self" = 1 ] && who="$short (this loom)"
-      claim_rows="$claim_rows$(printf '%s\t%s\t%s\t%s\t%s' "$who" "$ci" "$cs" "$cage" "$rowstate")
+      cpr=""; case "$cs" in in-pr:*) cpr="${cs#in-pr:}" ;; esac
+      clabel="$cs"; [ -n "$cpr" ] && clabel="in-pr (PR #$cpr)"
+      claim_rows="$claim_rows$(printf '%s\t%s\t%s\t%s\t%s' "$who" "$ci" "$clabel" "$cage" "$rowstate")
 "
       [ "$is_self" = 1 ] && continue
       if [ -n "$DISPATCHING" ]; then
@@ -593,13 +638,38 @@ for fi_ in ${F_PATH[@]+"${!F_PATH[@]}"}; do
           w="${want_raw[$wi]}"
           if items_overlap "${want_key[$wi]}" "$cik"; then
             overlaps=$((overlaps+1))
-            overlap_lines="$overlap_lines$(printf '  WARNING: dispatching %s overlaps %s, claimed %s by %s %s ago (row %s).' "$w" "$ci" "$cs" "$short" "$cage" "$rowstate")
+            if [ -n "$cpr" ]; then
+              overlap_lines="$overlap_lines$(printf '  WARNING: dispatching %s overlaps %s, in review in PR %s by %s, claimed %s ago (row %s). It is committed and pushed: review or wait for the merge, do not redo it.' "$w" "$ci" "$cpr" "$short" "$cage" "$rowstate")
 "
+            else
+              case "$cs" in
+                done-uncommitted) why=': uncommitted at risk.' ;;
+                working) why=': in flight — a lane may be working on it now, so a second dispatch collides with it.' ;;
+                *) why='.' ;;
+              esac
+              overlap_lines="$overlap_lines$(printf '  WARNING: dispatching %s overlaps %s, claimed %s by %s %s ago (row %s)%s' "$w" "$ci" "$cs" "$short" "$cage" "$rowstate" "$why")
+"
+            fi
           fi
         done
       fi
     done
   fi
+
+  # Notes are read off every row too: an interim marker on a stale row is still somebody's message,
+  # so it is printed, but labelled with its row's state so a dead loom's marker reads as one. A
+  # duplicate row's note is recorded with its canonical session and printed only if the primary row
+  # does not carry the same text (below), and then marked as coming from the duplicate.
+  nstate="fresh"; [ "$loom_fresh" = 1 ] || nstate="stale(${loom_age}m)"
+  for nv in ${notes[@]+"${notes[@]}"}; do
+    nwho="$short"
+    [ -n "$SELF" ] && [ "$(canon_session "$sessionDir")" = "$SELF" ] && nwho="$short (this loom)"
+    if [ "$is_dupe" = 1 ]; then
+      note_recs+=("1"$'\x1f'"${F_CANON[$fi_]}"$'\x1f'"$nv"$'\x1f'"$(printf '  %s [%s, duplicate row %s]: %s' "$nwho" "$nstate" "$(basename "$f")" "$nv")")
+    else
+      note_recs+=("0"$'\x1f'"${F_CANON[$fi_]}"$'\x1f'"$nv"$'\x1f'"$(printf '  %s [%s]: %s' "$nwho" "$nstate" "$nv")")
+    fi
+  done
 
   if [ -n "$stale_names" ]; then
     rows="$rows$(printf '  ↳\t\t%s\t%s\t\t\t%s\t%s' "$observed_stale" "stale-lane-files" "named" "$stale_names")
@@ -639,6 +709,37 @@ if [ -n "$claim_rows" ] && ! $QUIET; then
   printf '== Work claims (kept until landed or released; a stale row with no lanes can still hold uncommitted work) ==\n\n'
   { printf 'LOOM\tITEM\tSTATE\tSINCE\tROW\n'; printf '%s' "$claim_rows"; } | column -t -s "$(printf '\t')"
   printf '\n'
+fi
+
+# A primary row's notes print as they are; a duplicate row's note prints only when its primary
+# does not already carry the same text for the same session.
+for nr in ${note_recs[@]+"${note_recs[@]}"}; do
+  IFS=$'\x1f' read -r nd nc nt nl <<< "$nr"
+  if [ "$nd" = 1 ]; then
+    seen=0
+    for pr in ${note_recs[@]+"${note_recs[@]}"}; do
+      IFS=$'\x1f' read -r pd pc pt pl <<< "$pr"
+      [ "$pd" = 0 ] && [ "$pc" = "$nc" ] && [ "$pt" = "$nt" ] && { seen=1; break; }
+    done
+    [ "$seen" = 1 ] && continue
+  fi
+  note_rows="$note_rows$nl
+"
+done
+
+if [ -n "$note_rows" ]; then
+  if ! $QUIET; then
+    printf '== Notes (note= lines from each loom'"'"'s slot file) ==\n\n'
+    printf '%s' "$note_rows"
+    printf '\n'
+  else
+    # A note is a reason not to dispatch, so --quiet must not hide it: like an overlap warning, it
+    # goes to stderr when the table is silenced.
+    {
+      printf 'loom-slots: notes from loom slot files:\n'
+      printf '%s' "$note_rows"
+    } >&2
+  fi
 fi
 
 # Overlaps go to stderr so --quiet, which silences the table, cannot silence them.

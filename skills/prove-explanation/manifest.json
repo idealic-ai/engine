@@ -1,0 +1,16 @@
+{
+  "name": "prove-explanation",
+  "version": "1",
+  "description": "Teach ONE mechanism to a newcomer as a self-contained, shareable EXPLANATION page — the main idea in everyday words, then how it works, then a worked example with real values taken from the source, then its edge cases and what it is not. The teaching sibling of /prove: where /prove SHOWS a settled claim and /prove-explore MAPS a whole territory, /prove-explanation teaches one mechanism, narrower and more didactic than a map. Boundary with /prove-explore: one mechanism, taught in order to someone who knows none of our words, is /prove-explanation; a whole with many parts, mapped so a reader sees how they connect and where the map ends, is /prove-explore. Spine: teaching loosens the ORDER and the WORDS, never the evidence — every claim still carries a real asset or an honest provenance label exactly as /prove demands, and every value in the worked example is read from the source, never made up to be tidy. The thin sibling on /prove's shared assets: the assembler brief, the provenance rules, the dossier and notebook templates and the S3 publish are /prove's, cited and never copied; the prose follows VOICE.md's rules for explaining. A subagent grounds + composes; the orchestrator owns the teaching gate and the publish. A building block: it teaches and reports, never fixes, commits, files, or decides. Triggers: \"explain how X works\", \"teach me this mechanism\", \"explain this to a newcomer\", \"explainer page\", \"walk me through one example of X\", \"what actually happens when Y\".",
+  "tier": "lightweight",
+  "sibling": "prove",
+  "sharedAssets": {
+    "publish": "~/.claude/engine/skills/prove/assets/publish-s3.sh",
+    "dossierTemplate": "~/.claude/engine/skills/prove/assets/TEMPLATE_PROVE.md",
+    "notebookTemplate": "~/.claude/engine/skills/prove/assets/TEMPLATE_PROVE_LOG.md"
+  },
+  "localAssets": {
+    "gateScanner": "~/.claude/engine/skills/prove-explanation/assets/explain-page-scan.py",
+    "pageRegions": "~/.claude/engine/skills/prove-plan/assets/_page_regions.py"
+  }
+}

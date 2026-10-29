@@ -3,7 +3,7 @@ name: pr
 description: "Open a pull request for the current branch with a CONTEXT-MAXED body. A PR-writer subagent reads the branch commits + diff, the linked ticket(s), and the full builds/ trail (build reports, critiques, verdicts, decisions) to draft a rich PR description — Summary, linked ticket + acceptance checklist, Changes + Verification, Decisions/Risks/CI-gates. Context-aware about the branch: on a MIXED branch it offers to cherry-pick just the target ticket's commits onto a fresh branch (never rewriting the shared branch); on a clean branch it pushes as-is. One confirm → push → gh pr create (base branch from the project's § Tracker config — dev for finch — draft or ready), then requests an automated Copilot review and runs one background watch over the reviewers (Copilot + the Codex connector, the latter gated on its 👀 reaction), the CI check runs on the head commit, and mergeability — exiting only into a named state (complete / checks-red / replies-owed / draft / blocked / stalled) and re-arming when a fix push moves the head. It relays failing check names with their annotations as path:line alongside the review findings, treats each finding as a claim to verify rather than an instruction, and posts a reply on the PR thread recording every finding's disposition — accepted, rejected with the evidence, or deferred with a destination. A PR is complete only when the gates pass AND every review comment carries a reply. A building block: it opens the PR, watches it to a named state, and records dispositions — it applies no fix on its own authority and never merges. Triggers: \"open a PR\", \"create a pull request\", \"PR this\", \"raise a PR\", \"ship this for review\"."
 version: 1.0
 tier: lightweight
-args: "[<base branch override, default: CLAUDE.md § Tracker PR base — dev for finch>] [--dry-run] [-- <PR title / framing override>]"
+args: "[<base branch override, default: CLAUDE.md § Tracker PR base — dev for finch>] [--dry-run] [--stack <bottom-pr> <pr> … <top-pr>] [-- <PR title / framing override>]"
 ---
 
 Open a pull request for the current branch with a **context-maxed** description. A PR-writer subagent reads *everything* — the branch commits, the diff, the linked ticket(s), and the full `builds/` trail (build reports, critiques, verdicts, and the "whys") — to draft a rich, trustworthy PR body. This allows a human reviewer to trust the work without having to re-derive it. This skill is sessionless and lightweight: it runs *within* the active session, scopes the range, drafts the body, gets one confirmation, pushes, runs `gh pr create`, and stops.
@@ -14,6 +14,7 @@ This is **not `/snapshot`**. The `/snapshot` skill creates per-checkpoint commit
 
 **Hard Repo Rules (Enforce Strictly):**
 - **Target Branch:** PRs target the **configured base branch** (CLAUDE.md § Tracker "PR base branch"; `dev` for finch), **never `main` directly** (`gh pr create --base <base>`). Resolve `<base>` in §1 (args override § Tracker; absent both, fall back to `dev`).
+  - **The one carve-out is a stacked PR, and it narrows the rule rather than loosening it** (§6): in a stack, each PR's base is **the head branch of the PR below it**, and only the **bottom** PR targets `<base>`. So the rule reads: a stack's *root* base is `<base>`, never `main`. A PR whose base is another feature branch is stacked or it is a mistake — there is no third reason for it.
 - **CI Boundaries:** Build and lint are **CI's job**. Do NOT run them here. Instead, flag special CI gates in the PR body (see §2).
 - **Attribution:** All PR bodies must end with the trailer: `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 - **Consent:** Push and PR creation happen ONLY after explicit user confirmation.
@@ -22,6 +23,8 @@ This is **not `/snapshot`**. The `/snapshot` skill creates per-checkpoint commit
 We use **Linear** via the `linear` MCP — the tracker + its tools are constant; only the **issue-key prefix** varies per project and comes from CLAUDE.md § Tracker (resolve it in §1, inject into the subagent prompt; keys are `<PREFIX>-NNNN` — `FIN` for finch). Use the `get_issue` tool to read the linked ticket's title and acceptance criteria. Load this on demand via ToolSearch `linear`. GitHub integration is handled via the `gh` CLI. If no tracker is found or linked, draft the PR from the commits/diff, explicitly note the absence of a ticket, and skip the acceptance checklist.
 
 **Preview / dry-run mode:** If invoked with `--dry-run` (or the user asks to preview the body without pushing), run §1 and §2 normally, then **STOP after the PR-writer writes `<trailDir>/<slug>_PR.md`** — do NOT enter §3 (no confirm, no push, no `gh pr create`). Report the file path so a cautious user can hand-edit the body in their editor, then re-run `/pr` without `--dry-run` to push it.
+
+**Stack-assembly mode:** If invoked with `--stack <bottom-pr> <pr> … <top-pr>`, do NOT run §1–§5: there is no branch to resolve, no ticket to read, no body to draft, nothing to push and no PR to open. Go straight to §6 → *An assembly over PRs that already exist*. That means verifying the chain, taking the one confirm, making the one call and reporting the stack.
 
 # /pr Protocol
 
@@ -49,6 +52,9 @@ Establish the base branch, the commit range, the branching strategy, and the lin
   - **Untagged & Merge Commits:** Show these in their own bucket. **WARN** the user that they are excluded from a focused cherry-pick. If an excluded intermediate commit is a dependency for a target commit, it will surface as a conflict or an incomplete PR.
   - **Merge Commit Rule:** REFUSE to include merge commits in a cherry-pick set. They require `-m <parent>` and break focused picks. If the range contains merge commits, you MUST use the whole-branch path.
   - **Conflict Handling:** The cherry-pick preserves commit order and stops on the first conflict. This surfaces broken dependencies loudly. Never silently drop work.
+  - **STACKABLE branch:** the commits group into **two or more tickets whose work sits in order** — each group builds on the one before it, so a reviewer reading group 2 needs group 1 to make sense. → Offer a **third** choice alongside push-whole and cherry-pick-one: **split into a chain** — `<k>` fresh branches, each cherry-picked in a worktree off **the previous branch's head** rather than off `<base>`, opening `<k>` PRs that chain, then assembling them into a GitHub stack (§6).
+    - **This is the cherry-pick path run `<k>` times with a moving base, not a new mechanism** — same `git worktree`, same commit grouping, same refusal to include merge commits, same abort-on-conflict. The only change is the base each worktree branches from.
+    - **Do NOT offer it on order you cannot see.** Commits sitting in sequence on one branch are in *commit* order, which is the order they were written, not evidence that group 2 needs group 1. Offer the split when the groups genuinely read in order and **say which way you think the dependency runs so the user can correct you**; where you cannot tell, offer push-whole and cherry-pick-one and say that you could not tell. A chain asserts a dependency, and asserting a false one is worse than one fat PR (§6).
   - **No Silent Decisions:** Never push a mixed branch whole without asking; you might accidentally PR someone else's work.
 - **Detect Linked Ticket(s):** Extract `<PREFIX>-NNNN` (prefix from § Tracker) from the branch name, commit messages, or conversation (args `--` overrides this). Use `get_issue` on the **primary** ticket to fetch its title and acceptance signals. If there are multiple tickets, ask the user to pick the **primary** (`Closes`), and for the others, ask if they should be related (`Relates`) or ignored. Do not auto-relate everything.
 - **Resolve the Trail:** `<trailDir> = <sessionDir>/builds/`. Pick a `<slug>` (kebab-case of the work or ticket). Before creating a new one, run `ls <trailDir>`. **REUSE** an existing `<slug>_*.md` that matches this work so the PR artifact clusters with the upstream build/snapshot artifacts under one name. Only mint a fresh slug for entirely new work.
@@ -135,10 +141,10 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
      - `PR_COMPLETE` — nothing pending, nothing failing, reviewers settled, every review comment replied to, merge state clear. The only state that may be relayed as done.
      - `PR_CHECKS_RED` — a check failed. Stop and escalate with the check names and their annotations (§4); a red gate needs a decision, not another twenty seconds of waiting.
      - `PR_REPLIES_OWED` — gates pass, findings unanswered. Carries the owed ids (`c<id>` an inline comment, `r<id>` a review body). This is work the caller owes and can do now, which is why it is not a stall and not a block.
-     - `PR_DRAFT` — everything else is in order but the PR is still a draft. A draft cannot be complete; flipping it to ready is the caller's call.
-     - `PR_BLOCKED` — the PR cannot merge for a reason outside the caller's immediate control. The reason is named (`review_required` · `changes_requested` · `behind_base` · `merge_conflict` · `non_required_check_not_green` · `merge_state_unknown` · `unresolved:<state>`), because "blocked" on its own gives the user nothing to act on. Kept separate from `PR_REPLIES_OWED` on purpose: waiting on a human's approval is not the same obligation as owing that human an answer.
+     - `PR_DRAFT` — the PR is still a draft. A draft cannot be complete; flipping it to ready is the caller's call. **This test is read from the PR's own `draft` flag and runs *before* the reviewer gate**. Gated on the reviewers, a draft whose reviewers never report waits out the quiet window and is reported as a stall, which is the defect this ordering removes. Whether the automated reviewers do run on drafts is **unmeasured** here (a hand request or a repository setting may make them), so the loop does not wait on them for a draft rather than claiming they will not come. It also does not exit on the first poll: a just-opened draft or a fresh fix push usually has no check runs registered yet, so the draft exit needs at least 3 polls (~1 min, the same floor the codex gate uses) and the line carries `checks=<total>` so that zero registered checks is never read as green. So a draft exits once nothing is pending and that floor is met, and the exit line says what it did and did not establish — `reviewers=settled` when every reviewer it was waiting on had reported, `reviewers=not_awaited` when it stopped waiting because this is a draft, with `replies_owed=unchecked` and `merge_state=not_read` because neither was read on this path. **`reviewers=not_awaited` is the whole point of the token**: without it, `copilot=0` on a draft reads identically to `copilot=0` on a reviewer that simply has not run yet, and a draft reported as settled would be the same error in the other direction.
+     - `PR_BLOCKED` — the PR cannot merge for a reason outside the caller's immediate control. The reason is named (`review_required` · `changes_requested` · `behind_base` · `merge_conflict` · `non_required_check_not_green` · `merge_state_unknown` · `stacked_below_unmerged` · `unresolved:<state>`), because "blocked" on its own gives the user nothing to act on. Kept separate from `PR_REPLIES_OWED` on purpose: waiting on a human's approval is not the same obligation as owing that human an answer.
      - `PR_STALLED` — nothing pending and nothing changing. Say that plainly and hand back what it is still waiting on.
-     - `PR_POLL_UNAVAILABLE` — no `gh`, or the API is unreachable. A no-op, never a completion.
+     - `PR_POLL_UNAVAILABLE` — no `gh`, the API is unreachable, or the PR's stack could not be read (`stack_unreadable`: an error on either stack call, or a stack that does not list this PR). A no-op, never a completion.
      There is deliberately no timeout exit: a poll that expires quietly is indistinguishable from a poll that passed, which is how a failing gate stays invisible. The wall-clock bound is a heartbeat — on hitting it the loop reports what it is still waiting on and hands back, and §4 re-arms it when the PR is legitimately still in flight.
    - **How an owed reply is detected.** An inline review comment is answered when some comment carries its id in `in_reply_to_id`; a review *body* has no reply endpoint, so §5 answers it as an issue comment that **names the review id**, and the loop looks for that id in the PR's issue comments. Both are read off the API, so the completeness test is checked rather than asserted.
    - **The head SHA re-arms the watch.** Each tick re-reads `.head.sha`; when it moves, the settle state resets and the loop keeps watching. Addressing findings means pushing commits, which starts a fresh CI run and can start a fresh review round — that push is the exact moment a one-shot poll stops watching, so the ordinary open → findings → fix → push flow is the one that most needs the re-arm.
@@ -153,12 +159,17 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
 
      head=""; prev=""; quiet=0; unk=0
      for i in $(seq 1 135); do                                  # 20s ticks; the 45-min bound is a heartbeat, not a verdict
-       sha=$(gh api "repos/$OWNER/$REPO/pulls/$N" --jq '.head.sha' 2>/dev/null)
+       # One call, two facts: this request already ran every tick for the sha, so draft-ness is free.
+       # On an HTTP error gh prints the raw error body WITHOUT applying --jq and exits non-zero;
+       # emptying it here sends a rate limit to PR_POLL_UNAVAILABLE instead of past the guard into a stall.
+       out=$(gh api "repos/$OWNER/$REPO/pulls/$N" --jq '"\(.head.sha) \(.draft)"' 2>/dev/null) || out=""
+       IFS=' ' read -r sha is_draft <<< "$out"
        [ -n "$sha" ] || { echo "PR_POLL_UNAVAILABLE pr=$N reason=api_unreachable"; exit 0; }
        if [ "$sha" != "$head" ]; then head="$sha"; quiet=0; fi  # a fix push re-arms the watch
 
        pending=$(gh api "$CR/$sha/check-runs?per_page=100" --jq '[.check_runs[]|select(.status!="completed")]|length' 2>/dev/null || echo 0)
        failed=$(gh api "$CR/$sha/check-runs?per_page=100" --jq "[.check_runs[]|select($BAD)]|length" 2>/dev/null || echo 0)
+       total=$(gh api "$CR/$sha/check-runs?per_page=100" --jq '.check_runs|length' 2>/dev/null || echo 0)
        if [ "$failed" -gt 0 ]; then
          names=$(gh api "$CR/$sha/check-runs?per_page=100" --jq "[.check_runs[]|select($BAD)|.name]|join(\", \")" 2>/dev/null)
          ids=$(gh api "$CR/$sha/check-runs?per_page=100" --jq "[.check_runs[]|select($BAD)|.id|tostring]|join(\" \")" 2>/dev/null)
@@ -175,7 +186,15 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
        if [ "$cdx" -gt 0 ] || [ "$ok" -gt 0 ]; then cdx_done=1; fi                                          # posted a review, or a clean +1
        if [ "$eyes" -eq 0 ] && [ "$cdx" -eq 0 ] && [ "$ok" -eq 0 ] && [ "$i" -ge 3 ]; then cdx_done=1; fi   # never engaged after ~1min
 
-       if [ "$pending" -eq 0 ] && [ "$cop_done" -eq 1 ] && [ "$cdx_done" -eq 1 ]; then
+       # The draft test sits ABOVE the reviewer gate. Whether the automated reviewers run on a draft
+       # is unmeasured; gated on them, a draft they never review lands in PR_STALLED. The i>=3 floor
+       # keeps a fresh draft with no check runs registered yet from exiting on poll 1.
+       if [ "$pending" -eq 0 ] && [ "$is_draft" = "true" ] && [ "$i" -ge 3 ]; then
+         if [ "$cop_done" -eq 1 ] && [ "$cdx_done" -eq 1 ]; then rv=settled; else rv=not_awaited; fi
+         echo "PR_DRAFT pr=$N head=$sha checks=$total reviewers=$rv copilot=$cop codex_review=$cdx replies_owed=unchecked merge_state=not_read"; exit 0
+       fi
+
+       if [ "$pending" -eq 0 ] && [ "$cop_done" -eq 1 ] && [ "$cdx_done" -eq 1 ] && [ "$is_draft" != "true" ]; then   # a draft inside the floor waits, it does not take the ready path
          # completeness condition 2: every finding carries a reply recording its disposition
          PC="repos/$OWNER/$REPO/pulls/$N"
          tops=$(gh api --paginate "$PC/comments?per_page=100" --jq '.[]|select(.in_reply_to_id==null)|.id' 2>/dev/null)
@@ -199,17 +218,34 @@ Dispatch this subagent to the background by default (`run_in_background: true`) 
            echo "PR_REPLIES_OWED pr=$N head=$sha owed=$owed ids=\"${owed_ids# }\""; exit 0
          fi
 
-         ms=$(gh api graphql -f query="{repository(owner:\"$OWNER\",name:\"$REPO\"){pullRequest(number:$N){mergeStateStatus mergeable reviewDecision isDraft}}}" \
-                --jq '.data.repository.pullRequest|"\(.mergeStateStatus) \(.mergeable) \(.reviewDecision) \(.isDraft)"' 2>/dev/null)
-         [ -n "$ms" ] || ms="UNKNOWN UNKNOWN UNKNOWN false"     # an unreadable merge state is never reported as complete
-         set -- $ms; state=$1; able=$2; rvw=$3; draft=$4
+         # A non-bottom PR in a stack can read CLEAN and still must not merge while a PR below it is
+         # open (§6). .stack is null on an unstacked PR. The stack's pull_requests run bottom-first, so
+         # the ones below this PR are the entries before its own index.
+         # Both reads FAIL CLOSED. On an HTTP error gh prints the error body WITHOUT applying --jq and
+         # exits non-zero, which would parse as a stack. On a network error it prints nothing, which
+         # would read as "unstacked" and could fall through to PR_COMPLETE. So the exit code decides.
+         SU="PR_POLL_UNAVAILABLE pr=$N head=$sha reason=stack_unreadable"
+         stk=$(gh api "repos/$OWNER/$REPO/pulls/$N" --jq '.stack // empty | "\(.number) \(.position)"' 2>/dev/null) || { echo "$SU call=pull"; exit 0; }   # guard:stack-pull
+         if [ -n "$stk" ]; then
+           snum=${stk%% *}; spos=${stk#* }
+           below=$(gh api "repos/$OWNER/$REPO/stacks/$snum" --jq '.pull_requests as $p | ($p|map(.number)|index('"$N"')) as $k | if $k == null then "!absent" else [$p[:$k][]|select(.state=="open")|.number|tostring]|join(" ") end' 2>/dev/null) || { echo "$SU call=stack stack=$snum"; exit 0; }   # guard:stack-list
+           [ "$below" != "!absent" ] || { echo "$SU call=stack stack=$snum detail=pr_not_in_stack"; exit 0; }   # guard:stack-absent
+           if [ -n "$below" ]; then
+             echo "PR_BLOCKED pr=$N head=$sha reason=stacked_below_unmerged stack=$snum position=$spos below=\"$below\" copilot=$cop codex_review=$cdx replies_owed=0"; exit 0
+           fi
+         fi
+
+         ms=$(gh api graphql -f query="{repository(owner:\"$OWNER\",name:\"$REPO\"){pullRequest(number:$N){mergeStateStatus mergeable reviewDecision}}}" \
+                --jq '.data.repository.pullRequest|"\(.mergeStateStatus) \(.mergeable) \(.reviewDecision)"' 2>/dev/null)
+         [ -n "$ms" ] || ms="UNKNOWN UNKNOWN UNKNOWN"           # an unreadable merge state is never reported as complete
+         IFS=' ' read -r state able rvw <<< "$ms"               # `set -- $ms` would arrive as ONE word in zsh, per the note above
          if [ "$state" = "UNKNOWN" ] && [ "$unk" -lt 3 ]; then  # GitHub computes merge state lazily; re-ask for ~1 min
            unk=$((unk+1)); sleep 20; continue
          fi
 
          case "$state" in
            CLEAN|HAS_HOOKS) echo "PR_COMPLETE pr=$N head=$sha copilot=$cop codex_review=$cdx codex_ok=$ok replies_owed=0 merge_state=$state"; exit 0 ;;
-           DRAFT) echo "PR_DRAFT pr=$N head=$sha copilot=$cop codex_review=$cdx replies_owed=0 mergeable=$able"; exit 0 ;;
+           DRAFT) echo "PR_DRAFT pr=$N head=$sha checks=$total reviewers=settled copilot=$cop codex_review=$cdx replies_owed=0 mergeable=$able merge_state=$state"; exit 0 ;;   # the draft flag flipped mid-tick
          esac
          case "$state:$able:$rvw" in                            # first match wins; order is the priority
            *:CONFLICTING:*)       why=merge_conflict ;;
@@ -253,9 +289,9 @@ Relay per failing check: its name, then its annotations. When a check exposes no
 
 **On `PR_REPLIES_OWED`** — the gates pass and findings sit unanswered. Relay the findings (below), take the caller's disposition for each, then post the replies per §5 and re-arm the watch. This is the ordinary path, not an exception: a first watch on a reviewed PR almost always lands here.
 
-**On `PR_BLOCKED`** — name the reason in the user's words: a required review is missing, the branch is behind base, the branch conflicts, changes were requested, a non-required check is not green, GitHub cannot compute the merge commit. Say what unblocks each; `/pr` does not merge, rebase, or approve.
+**On `PR_BLOCKED`** — name the reason in the user's words: a required review is missing, the branch is behind base, the branch conflicts, changes were requested, a non-required check is not green, GitHub cannot compute the merge commit, a PR below this one in its stack is still open (`stacked_below_unmerged`; it clears when the PRs named in `below=` merge, bottom first). Say what unblocks each; `/pr` does not merge, rebase, or approve.
 
-**On `PR_DRAFT`** — everything else is in order and the PR is still a draft. Offer to flip it to ready; do not flip it unasked.
+**On `PR_DRAFT`** — nothing is pending on the head commit and the PR is still a draft. Read `checks=` before calling anything green: `checks=0` means **no checks registered** on the head commit, which is not the same as green and is relayed as "no checks registered"; only a non-zero count with nothing pending and nothing failing is relayed as green. Offer to flip it to ready; do not flip it unasked. **Say what this state does not cover**, reading it off the signal: on `reviewers=not_awaited` the reviewers had not reported and the loop did not wait for them on a draft (whether they review drafts is unmeasured) — so relay no reviewer verdict, and do not call the absence a clean pass. `replies_owed=unchecked` means the owed-reply count was not taken, so a draft is never relayed as having nothing outstanding. Flipping to ready and re-arming the watch is what establishes both.
 
 **On `PR_STALLED`** — say exactly that nothing has moved and what it was still waiting on. Do not present it as a pass. Offer to re-arm the watch or to stop watching.
 
@@ -279,7 +315,7 @@ One live run illustrates the spread: on a single PR the same reviewers produced 
   gh api "repos/<owner>/<repo>/pulls/<n>/comments" --jq '.[]|select(.user.login=="chatgpt-codex-connector[bot]")|"\(.path):\(.line) — \(.body)"'
   ```
   - **Codex clean pass** (`codex_ok=`>0 with `codex_review=0`): no written review — relay "Codex reviewed and approved (👍, no written findings)." This speaks for the reviewer only; it says nothing about the gates.
-- **`PR_POLL_UNAVAILABLE`:** say the watch could not run and why (`no_gh` / `api_unreachable`). The PR is open; nothing was observed, so claim nothing about it.
+- **`PR_POLL_UNAVAILABLE`:** say the watch could not run and why (`no_gh` / `api_unreachable` / `stack_unreadable`, where `call=` names the read that failed). The PR is open; nothing was observed, so claim nothing about it.
 - Once every finding has a disposition, go to **§5** and record them on the thread. Offer, don't auto-run, the rest: `/scrutinize` to triage the findings or `/fix` to address a red gate or an accepted finding. Applying a fix is the user's call; posting the disposition is not optional.
 
 ## 5. Record Each Disposition on the PR Thread
@@ -310,8 +346,66 @@ Every review comment gets a reply saying what happened to it. A PR thread where 
 
 **Then re-arm the §3 watch.** With the replies posted, the owed count is zero and the watch can reach `PR_COMPLETE` — or surface whatever else is still in the way.
 
+## 6. Assemble the Stack (only when the work already stacks)
+
+GitHub calls a chain of dependent pull requests a **stack**, and it shows one as a numbered chain — `1/3`, `2/3`, `3/3` — with a single root base and a `Stacks` entry in the repository sidebar. A stack is worth having for the same reason one fat PR is not: three 200-line PRs a reviewer reads in order are reviewable, and one 600-line PR is read diagonally.
+
+**A stack is two things, and only the first is branch work.**
+
+1.  **The topology.** Each PR's base ref is the head ref of the PR below it; the bottom PR's base is `<base>`. Nothing else makes PRs stackable.
+2.  **The stack object.** A separate record that must be created. GitHub recognises a chain and offers *Create stack* in the UI, but until something creates it the PRs are just PRs — `GET /repos/{owner}/{repo}/pulls/{n}` returns `"stack": null` on a correctly chained PR that nobody stacked.
+
+**Creating it is an API call, not a UI-only button.** `gh` does not know the word `stack` at 2.82.1 and the GraphQL schema exposes the read types with **no** mutation, so both of the obvious instruments say no. The REST API is where it lives:
+
+```bash
+gh api -X POST repos/<owner>/<repo>/stacks --input - <<'EOF'
+{"pull_requests":[<bottom>,<next>,<top>]}
+EOF
+```
+
+*   `pull_requests` is an array of **integers** — PR numbers — **bottom of the stack first, top last**, minimum **2**. A single PR can never be a stack.
+*   GitHub re-checks the topology on the call: *"Each pull request's base ref must match the previous pull request's head ref."* A set that does not chain is rejected, so the API refuses a fabricated stack even if this skill asked for one.
+*   Reading: `gh api -X GET repos/<owner>/<repo>/stacks -f pull_request=<n>` (or `gh api "repos/<owner>/<repo>/stacks?pull_request=<n>"`), and `gh api repos/<owner>/<repo>/stacks/<stack_number>`. **Keep the `-X GET`.** `gh api` switches to POST as soon as any `-f` parameter is added, so `-f pull_request=<n>` without it sends a request to the create route.
+*   Growing: `POST repos/<owner>/<repo>/stacks/<stack_number>/add` with the same `pull_requests` shape, from the current top upward — this is the call for a thread that lands *after* the stack exists, and it is preferred over dissolving and recreating.
+*   Removing: `POST repos/<owner>/<repo>/stacks/<stack_number>/unstack`, which dissolves the stack and returns 204 when nothing remains. **Its request body is read from the docs and unverified here**, so confirm the shape against a stack you are willing to lose before using it on one you are not.
+
+### The precondition, and the refusal that protects it
+
+**Assemble a stack ONLY where the base chain already exists in git.** Verify it, per adjacent pair, before the call:
+
+```bash
+# for each adjacent pair (lower, upper): the upper PR's base must BE the lower PR's head
+gh api "repos/<owner>/<repo>/pulls/<upper>" --jq '.base.ref'
+gh api "repos/<owner>/<repo>/pulls/<lower>" --jq '.head.ref'   # these two must be equal
+git merge-base --is-ancestor origin/<lower-head> origin/<upper-head>; echo "ancestor=$?"   # 0 = genuinely built on top
+```
+
+**If the branches do not chain, STOP and say so. Do NOT rebase, retarget, or reorder anything to make them chain.** This is not squeamishness about history, though the §3 hard rule forbids the rebase anyway. It is that the chain *is the evidence*: a branch based on another branch is the one durable record that its work needed the other's. Manufacturing the chain manufactures the dependency, and then the stack asserts something nobody checked.
+
+**What a false dependency costs, since it is not obvious:** a stack tells a reviewer to read in an order that does not matter, and it holds the lower PR's merge behind the upper PR's review. Two independent PRs merge the moment each is approved; chain them and the first one waits on the second's reviewer. So the failure mode is not an untidy diagram — it is work sitting unmerged for a reason that was invented.
+
+**Where the chain exists but the dependency is cosmetic** — branch B was cut from A's head because A happened to be checked out — the topology is real and the dependency is not. Say that to the user and offer to leave the PRs unstacked; the chain's existence is good evidence, not a verdict.
+
+**Confirm before the POST.** Creating a stack is an outward write, like a push or a `gh pr create`, so it waits for the same explicit confirmation (Hard Repo Rules → Consent). Use one `AskUserQuestion` that shows three things: the chain bottom-first, each adjacent pair's base ref, head ref and ancestry result, and the exact call with its `pull_requests` array. With no yes, make no call; report the verified chain and stop. In a STACKABLE split, the §3 confirm covers the stack only if it named the stack. If it did not, ask again here.
+
+### Two entry points, and why they are different
+
+*   **A STACKABLE branch split (§1).** `/pr` built `<k>` chained branches itself, opened `<k>` PRs, and knows the chain because it created it. Assemble immediately after the last `gh pr create`. This is an **extension of the cherry-pick path** — same worktree, moving base.
+*   **An assembly over PRs that already exist.** Invoked as `/pr --stack <n> <n> <n>` (bottom first) over PRs opened by earlier runs, by `/loom`, or by a human. This is a **separate mode**, not a step in an ordinary run: it opens no PR, pushes no branch, and drafts no body — it verifies the chain and makes one call. It has to be separate because an ordinary `/pr` run produces exactly one PR and a stack needs at least two.
+
+### What changes in the rest of the run
+
+*   **Each PR in a chain gets its own §2 draft and its own body.** The point of a stack is that each piece is reviewable alone; a chain of PRs sharing one body throws that away. Each body says **where it sits** — `2/3 in the stack; based on #<lower>` — and scopes its Summary to its own slice.
+*   **Each PR is opened with `--base <the branch below>`**, not `<base>`. Only the bottom PR carries `--base <base>`.
+*   **Open bottom-up.** The upper PR's base branch must exist on the remote before its `gh pr create`, so push and open in stack order.
+*   **The §3 watch gains one blocked reason.** A non-bottom PR in a stack can read `CLEAN` and still must not merge. Its base is the lower PR's head branch, not `<base>`, so merging it first lands its commits on that lower branch. They then show up in the lower PR's diff and reach `<base>` inside a PR whose reviewer approved something smaller. That is what plain git does with these refs. How GitHub's stack object handles an out-of-order merge has not been measured here. The §3 loop runs this check itself, after the replies check and before it reads the merge state. It reads `.stack` off the PR, and when any PR below it in the stack is still open it reports `PR_BLOCKED reason=stacked_below_unmerged stack=<n> position=<p> below="<numbers>"` instead of `PR_COMPLETE`.
+    This sits with the other `PR_BLOCKED` reasons for the reason that section gives: "blocked" with no named cause gives the user nothing to act on, and a stacked PR's cause is the most actionable of them — it clears when the PR below merges.
+*   **Report the stack, not just the PRs.** One line: `Stack <stack_number> created: #<bottom> → #<next> → #<top> (root base <base>)`, with the `github.com/<owner>/<repo>/stack/<stack_number>` URL, and stamp it into `<trailDir>/<slug>_PR.md`.
+
+**Degradation.** Where the create call fails — the endpoint is absent on the host, the token lacks the scope, the chain was rejected — the PRs are already open and correctly chained, which means GitHub's own *Create stack* dialog will offer the stack. Say exactly that: the PRs are up, they chain, one click in the dialog completes it, and report the call's error. That is a real outcome and most of the value; never report a stack that was not created.
+
 ## Constraints (Summary)
-- **The PR is watched to a named terminal state — checks, reviewers, replies owed, mergeability:** after the PR opens, `/pr` requests a Copilot review and runs one background watch (re-woken via `run_in_background`) covering Copilot (requested), the Codex connector (opt-in — detected via its 👀 reaction, so `/pr` waits only when codex is engaged), the head commit's check runs, the unanswered-finding count, and `mergeStateStatus`. It exits only into `PR_COMPLETE`, `PR_CHECKS_RED`, `PR_REPLIES_OWED`, `PR_DRAFT`, `PR_BLOCKED`, `PR_STALLED` or `PR_POLL_UNAVAILABLE` — there is no quiet timeout, because a poll that expires reads exactly like a poll that passed. A head-SHA change re-arms the watch, so the fix push that follows a round of findings is watched rather than abandoned. `/pr` then RELAYS: failing check names with their `check-runs/<id>/annotations` as `path:line — message`, the merge state, the owed findings, and both review sets. It re-runs no gate and merges nothing. Missing `gh`/MCP or a reviewer that isn't enabled degrades to a no-op, never to a completion.
+- **The PR is watched to a named terminal state — checks, reviewers, replies owed, mergeability:** after the PR opens, `/pr` requests a Copilot review and runs one background watch (re-woken via `run_in_background`) covering Copilot (requested), the Codex connector (opt-in — detected via its 👀 reaction, so `/pr` waits only when codex is engaged), the head commit's check runs, the unanswered-finding count, the PR's own `draft` flag (tested *before* the reviewer gate after a 3-poll floor; whether the automated reviewers run on drafts is unmeasured, so a draft's exit does not wait on them), and `mergeStateStatus`. It exits only into `PR_COMPLETE`, `PR_CHECKS_RED`, `PR_REPLIES_OWED`, `PR_DRAFT`, `PR_BLOCKED`, `PR_STALLED` or `PR_POLL_UNAVAILABLE` — there is no quiet timeout, because a poll that expires reads exactly like a poll that passed. A head-SHA change re-arms the watch, so the fix push that follows a round of findings is watched rather than abandoned. `/pr` then RELAYS: failing check names with their `check-runs/<id>/annotations` as `path:line — message`, the merge state, the owed findings, and both review sets. It re-runs no gate and merges nothing. Missing `gh`/MCP or a reviewer that isn't enabled degrades to a no-op, never to a completion.
 - **A PR is complete only when the gates pass AND every review comment has a reply:** green checks are half the test. The owed count is read off the API — an inline comment is answered when a comment carries its id in `in_reply_to_id`, a review body when an issue comment names the review id — so completeness is checked, not asserted.
 - **Only `PR_COMPLETE` may be relayed as done:** a red gate, an owed reply, a draft, a blocked merge state, or a stall is reported by its named reason, leading the relay. No wording that sounds finished may cover a failing check or an unanswered finding.
 - **Every finding's disposition is posted to the thread, after the caller decides it:** accepted says what changed and where, rejected says why with the evidence, deferred says where it went. Replies go to the inline comment's own thread (`pulls/<n>/comments/<id>/replies`) or, for a review body, to an issue comment naming the review id. `/pr` invents no disposition to have something to post, and where `gh`/MCP is missing it reports the findings unanswered and the PR incomplete rather than claiming replies it did not post.
@@ -324,5 +418,6 @@ Every review comment gets a reply saying what happened to it. A PR thread where 
 - **Body via `--body-file`, NEVER inline:** The subagent writes the body to `<trailDir>/<slug>_PR.md`, the orchestrator appends the trailer to that file and creates with `--body-file`; `--title` stays a short sanitized single value. Inline `--body "…"` is forbidden (backtick/`$` shell-substitution risk).
 - **Gates flagged, not run:** `/pr` detects + flags any special CI gates the project documents (e.g. in CLAUDE.md/CONTRIBUTING.md) as a reviewer heads-up in the body; it does NOT run build/lint (CI does). It never claims a verification not present in the trail.
 - **Building block — opens, watches, records; never fixes on its own authority, never merges:** It creates the PR (draft or ready), watches it to a named terminal state, and posts each finding's decided disposition. Deciding a finding, applying a fix, flipping draft to ready, and merging stay the caller's.
+- **A stack is assembled only where the chain is already in git, and never manufactured:** stacking is `POST repos/<owner>/<repo>/stacks` with `{"pull_requests":[bottom,…,top]}` (integers, minimum 2) over PRs whose base refs already chain — `gh` has no `stack` command and GraphQL exposes no stack mutation, so REST is the only route. `/pr` verifies each adjacent pair (the upper PR's base ref IS the lower PR's head ref) and, where they do not chain, STOPS and says so: it does not rebase, retarget or reorder to create the chain, because the chain is the evidence of the dependency and a stack asserting a false one holds the lower PR's merge behind the upper PR's review. Only the bottom PR targets `<base>`; each other PR's base is the head below it. A failed create leaves correctly chained PRs that GitHub's own dialog will offer to stack — reported as that, never as a stack.
 - **Claude Code trailer:** Must end every PR body.
 - **Lightweight + sessionless:** Scope → draft → confirm → push + create → watch → relay → record dispositions. The PR-writer subagent stays read-only; all git/`gh` mutations are the orchestrator's, and each is gated — the push and PR on the §3 confirm, every reply on the caller's decision for that finding.

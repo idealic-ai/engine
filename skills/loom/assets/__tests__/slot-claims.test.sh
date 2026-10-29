@@ -86,7 +86,7 @@ fi
 out="$(run --claim "$OTHER" 'a|b' 2>&1)"; rc1=$?
 out2="$(run --claim-state "$OTHER" IDE-9 finished 2>&1)"; rc2=$?
 if [ "$rc1" -eq 1 ] && [ "$rc2" -eq 1 ] && grep -q '^claims=IDE-9|working|[^,]*$' "$f"; then
-  ok "W4  an item containing the field separator '|', and a state outside working|done-uncommitted|landed, are refused (exit 1) and the file is untouched"
+  ok "W4  an item containing the field separator '|', and a state outside working|done-uncommitted|in-pr <PR#>|landed, are refused (exit 1) and the file is untouched"
 else
   no "W4  bad items and bad states are refused" "pipe rc=$rc1 state rc=$rc2; file: $(grep claims= "$f")"
 fi

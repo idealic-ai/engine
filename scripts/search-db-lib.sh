@@ -200,6 +200,14 @@ search_db_migrate() {
   return 0
 }
 
+# The DB file names — the ONE place the shell side names them (engine.sh reads
+# these too). `.local.db` is the local-embeddings generation (embeddinggemma,
+# 768-d, tools/embed-local). The Gemini-era `.session-search.db` /
+# `.doc-search.db` beside them are deliberately left alone: the new schema would
+# drop their tables on open, and they are the only copy of the old index.
+SEARCH_DB_SESSION_FILE=".session-search.local.db"
+SEARCH_DB_DOC_FILE=".doc-search.local.db"
+
 # THE wrapper entry point. Works out the sessions dir the CLI will use, migrates
 # when the subcommand is `index`, and exports ENGINE_SEARCH_DB_PATH.
 #
@@ -214,7 +222,7 @@ search_db_export_path() {
   local db sessions_dir resolved
 
   if [ "$kind" = "session" ]; then
-    db=".session-search.db"
+    db="$SEARCH_DB_SESSION_FILE"
     sessions_dir=""
     # `index <path>` wins — but only for a non-flag token. cli.ts's parseArgs
     # routes anything starting with `-` into flags and never into positionals,
@@ -233,7 +241,7 @@ search_db_export_path() {
       fi
     fi
   else
-    db=".doc-search.db"
+    db="$SEARCH_DB_DOC_FILE"
     sessions_dir="$(search_db_project_root)/sessions"
   fi
 

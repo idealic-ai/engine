@@ -28,8 +28,17 @@
  * behaves exactly as it did before this existed: copy-back only, and no network request at all.
  *   [data-fb-state-config]  — a <script type="application/json"> whose text is the publish-injected
  *      config {docId, stateUrl, pollMs, stateKey?, stateVerified?, stateUnreadableReason?,
- *      postUrl?, keyPrefix?, fields?, expiresAt?,
+ *      postUrl?, listUrl?, keyPrefix?, fields?, expiresAt?,
  *      expirySeconds?, expiryRequested?, expiryClampedBy?, submitDisabledReason?}.
+ *      listUrl is the READ-BACK grant (sign-post.py): a presigned list of this board's own events
+ *      prefix, in the store this page POSTS to. With it, a Submit says "Stored at HH:MM" only for
+ *      keys that store lists back (or events, matched on id AND ts, already in the state doc), and
+ *      only when that store is the one stateUrl reads — a listing on another store says nothing
+ *      about what the fold will find. Without it (an older publish) the page says the store
+ *      accepted the POST and never says "stored".
+ *   [data-fb-retry] [data-fb-copy-unsent]  — kit-owned, auto-created (hidden) if absent. Shown when
+ *      a Submit did not demonstrably land: its answers are kept in localStorage under
+ *      fb:outbox:<docId> (memory when storage refuses), copyable, and re-sent by the next Submit.
  *      stateVerified says the publish wrote the state document AND read it back 200 with no
  *      credential. It is what turns a later 403/404 from "nothing folded yet" into a reported
  *      failure: while nothing ever wrote the document those two were the same observation, and a
@@ -344,16 +353,19 @@
     if (!raw) return null;
     try { r = JSON.parse(raw); } catch (e) { return null; }   // unreadable ⇒ no receipt, gate stays shut
     if (!r || typeof r !== "object" || !Array.isArray(r.ids) || !r.ids.length) return null;
-    return { ids: r.ids.slice(), ts: typeof r.ts === "string" ? r.ts : "", pending: r.pending !== false };
+    var out = { ids: r.ids.slice(), ts: typeof r.ts === "string" ? r.ts : "", pending: r.pending !== false };
+    if (r.verified === true) out.verified = true;
+    return out;
   }
   function writeReceipt(r) {
     var area = storageArea(), key = receiptKey();
     if (!area || !key) return;
     try { area.setItem(key, JSON.stringify(r)); } catch (e) { /* full or blocked: the page still works */ }
   }
-  function recordReceipt(ids) {
+  function recordReceipt(ids, verified) {
     if (!ids || !ids.length) return;
     receipt = { ids: ids.slice(), ts: new Date().toISOString(), pending: true };
+    if (verified) receipt.verified = true;    // only ever set by a read-back that found every key
     writeReceipt(receipt);
   }
   function reconcileReceipt(doc) {
@@ -371,11 +383,88 @@
   function receiptNote() {
     if (!receipt || !receipt.pending) return "";
     var n = receipt.ids.length, one = n === 1;
+    /* "stored" is said only for a receipt a read-back confirmed. An unverified one keeps the older,
+       weaker word: the store accepted the POST, which is not the same claim. */
+    if (receipt.verified) {
+      return "Your " + n + (one ? " answer was" : " answers were") + " stored"
+        + (receipt.ts ? " at " + hhmm(new Date(receipt.ts)) : "") + " ✓ and "
+        + (one ? "is" : "are") + " not on the shared board yet — " + (one ? "it appears" : "they appear")
+        + " once an agent runs the fold. Nothing schedules it, so there is no countdown; if this is still here much later, ask the wave to run it.";
+    }
     return "Your " + n + (one ? " answer" : " answers") + " posted ✓"
       + (receipt.ts ? " at " + receipt.ts : "")
       + (one ? " and is" : " and are") + " not on the shared board yet — "
       + (one ? "it appears" : "they appear") + " once an agent runs the fold. Nothing "
       + "schedules it, so there is no countdown; if this is still here much later, ask the wave to run it.";
+  }
+
+  function pad2(n) { return (n < 10 ? "0" : "") + n; }
+  function hhmm(d) { return isNaN(d.getTime()) ? "" : pad2(d.getHours()) + ":" + pad2(d.getMinutes()); }
+
+  /* ── Unsent answers: kept on this device until the store has them ──────────────────────
+     A submit that cannot reach the store (offline, the write window closed, the page opened
+     somewhere other than where it was published) used to leave nothing behind but a sentence,
+     and a reload lost even that. So the answers that did not demonstrably land are kept — in
+     memory always, in localStorage when the browser allows it — shown with a copy button, and
+     re-sent by the next Submit. Only this voter's own events, keyed by docId, on their device.
+     They leave the outbox only when a read-back finds them in the store. */
+  var unsent = [];           // events not yet confirmed stored, in memory even when storage refuses
+  var unsentKept = true;     // false when the browser refused to keep them (private mode, quota)
+  var outcome = null;        // {ok, text}: the last submit's verdict — sticky, so a poll cannot paint over it
+  function outboxKey() { return STATE && STATE.docId ? "fb:outbox:" + STATE.docId : null; }
+  function readOutbox() {
+    var area = storageArea(), key = outboxKey(), raw = null, v = null;
+    if (!area || !key) return [];
+    try { raw = area.getItem(key); } catch (e) { return []; }
+    if (!raw) return [];
+    try { v = JSON.parse(raw); } catch (e) { return []; }
+    if (!Array.isArray(v)) return [];
+    return v.filter(function (ev) { return ev && typeof ev === "object" && typeof ev.id === "string"; });
+  }
+  function writeOutbox(evs) {
+    unsent = evs.slice();
+    var area = storageArea(), key = outboxKey();
+    if (!area || !key) { unsentKept = !evs.length; return; }
+    try {
+      if (evs.length) area.setItem(key, JSON.stringify(evs)); else area.removeItem(key);
+      unsentKept = true;
+    } catch (e) { unsentKept = !evs.length; }
+  }
+  /* Merge this Submit's fresh answers over what is still unsent. An unsent event on an item the
+     voter has just answered again is dropped rather than re-sent: the fresh one supersedes it
+     anyway (greatest ts per actor and item), and re-posting it would only resurrect a retracted
+     pick in the inbox. */
+  function withUnsent(fresh) {
+    var taken = Object.create(null), out = [], i, ev;
+    for (i = 0; i < fresh.length; i++) {
+      taken["id:" + fresh[i].id] = true;
+      taken["ai:" + actorKey(fresh[i].actor) + "|" + fresh[i].item] = true;
+    }
+    for (i = 0; i < unsent.length; i++) {
+      ev = unsent[i];
+      if (taken["id:" + ev.id] || taken["ai:" + actorKey(ev.actor) + "|" + ev.item]) continue;
+      out.push(ev);
+    }
+    return out.concat(fresh);
+  }
+  function unsentText() { return unsent.map(function (e) { return JSON.stringify(e); }).join("\n"); }
+  function keptClause() {
+    var n = unsent.length;
+    if (!n) return "";
+    return unsentKept
+      ? " " + (n === 1 ? "That answer is" : "Those " + n + " answers are") + " kept on this device for Retry and “Copy unsent answers”."
+      : " This browser would not keep them, so use “Copy unsent answers” now, before you leave the page.";
+  }
+  function copyUnsent() {
+    var text = unsentText();
+    if (!text) return Promise.resolve(false);
+    var box = document.querySelector("[data-fb-payload]");
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text).then(function () { return true; },
+        function () { if (box) box.textContent = text; return fallbackCopy(text, box); });
+    }
+    if (box) box.textContent = text;
+    return Promise.resolve(fallbackCopy(text, box));
   }
 
   /* Expiry is a first-class rendered state, not a warning banner. */
@@ -424,6 +513,14 @@
       btn.disabled = !gate.ok;
       if (btn.setAttribute) btn.setAttribute("aria-disabled", gate.ok ? "false" : "true");
     }
+    showUnsentControls(gate);
+    /* The voter's own last Submit outranks everything else on the line: a failed one is the fact
+       they must act on, and a confirmed one is the receipt they came for. */
+    if (outcome && !outcome.ok) {
+      setStateStatus(outcome.text + keptClause() + (gate.ok || outcome.text.indexOf(gate.reason) >= 0 ? "" : " " + gate.reason + ".") + COPY_BACK);
+      return;
+    }
+    if (outcome && outcome.ok && receipt && receipt.pending) { setStateStatus(outcome.text); return; }
     /* The read failure leads when there is one. A board whose state cannot be read is not a board
        waiting for a fold, and the submit reason underneath it is the lesser fact. */
     if (readBroken) {
@@ -451,11 +548,16 @@
     var fd = new FormData();
     var f = STATE.fields;
     Object.keys(f).forEach(function (k) { fd.append(k, f[k]); });
-    fd.append("key", STATE.keyPrefix + Date.now() + "-" + Math.random().toString(16).slice(2, 10) + ".json");
+    var key = STATE.keyPrefix + Date.now() + "-" + Math.random().toString(16).slice(2, 10) + ".json";
+    fd.append("key", key);
     fd.append("Content-Type", "application/json");
     fd.append("file", new Blob([JSON.stringify(ev)], { type: "application/json" }));  // file LAST
-    return fetch(STATE.postUrl, { method: "POST", body: fd }).then(function (r) {
-      if (r.status === 204 || r.ok) return true;
+    /* A rejected fetch never reached the store at all — offline, a dead network, or a page opened
+       somewhere other than where it was published (file://, another origin). One name for it. */
+    return fetch(STATE.postUrl, { method: "POST", body: fd }).then(null, function () {
+      throw new Error("Unreachable");
+    }).then(function (r) {
+      if (r.status === 204 || r.ok) return key;
       /* S3 names the cause in the body and the status alone does not: a 400 carrying
          ExpiredToken means "the write window closed", which the voter can act on, whereas
          "HTTP 400" is noise. Observed live — a board whose expiresAt claimed seven days
@@ -479,7 +581,8 @@
     TokenRefreshRequired: "the write window closed early (the board's own expiry date was optimistic)",
     AccessDenied: "this board's write grant was refused",
     EntityTooLarge: "that answer was too large for this board",
-    RequestTimeout: "the connection timed out"
+    RequestTimeout: "the connection timed out",
+    Unreachable: "the store could not be reached (offline, or this page was opened somewhere other than where it was published)"
   };
   function explainPostError(code) {
     return POST_ERRORS[code] || (/^HTTP /.test(code) ? code : code);
@@ -500,9 +603,91 @@
     return true;
   }
 
+  /* ── Read-back: "stored" is something the store says, not something the POST implied ───────
+     A 2xx from the presigned POST is the store taking the bytes. The incident this exists for was
+     a board whose answer read as submitted while the events inbox the fold listed was empty. So
+     after posting, the page LISTS its own events prefix with the publish-minted listUrl and checks
+     every key it wrote is there. A key that is not listed may already have been folded — the fold
+     deletes what it folds — so the state document is checked for its event id before calling it
+     missing. Resolves {missing: [events], error: string|null}. */
+  function xmlText(s) {
+    return String(s).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'").replace(/&amp;/g, "&");
+  }
+  /* Which store a URL addresses: its origin plus bucket. Path-style (a local MinIO:
+     http://host:port/<bucket>/…) takes the bucket from the first path segment; AWS virtual-host
+     (https://<bucket>.s3.<region>.amazonaws.com/…) carries it in the host. Regex, not URL(): the
+     kit runs where URL may not exist. */
+  function storeOf(u) {
+    var m = /^(https?:\/\/([^\/?#]+))(\/[^?#]*)?/i.exec(String(u || ""));
+    if (!m) return "";
+    var origin = m[1].toLowerCase(), host = m[2].toLowerCase();
+    if (/^[^.]+\.s3[.-]/.test(host)) return origin;
+    var seg = /^\/([^\/]+)/.exec(m[3] || "");
+    return origin + "/" + (seg ? seg[1] : "");
+  }
+
+  function readBack(sent) {
+    return fetch(STATE.listUrl, { cache: "no-store" }).then(null, function () {
+      throw new Error("Unreachable");
+    }).then(function (r) {
+      if (!r.ok) {
+        var fallback = "HTTP " + r.status;
+        if (typeof r.text !== "function") throw new Error(fallback);
+        return r.text().then(function (body) {
+          var m = /<Code>([^<]+)<\/Code>/.exec(body || "");
+          throw new Error(m ? m[1] : fallback);
+        }, function () { throw new Error(fallback); });
+      }
+      return r.text();
+    }).then(function (body) {
+      var listed = Object.create(null), re = /<Key>([^<]*)<\/Key>/g, m;
+      while ((m = re.exec(body || ""))) listed[xmlText(m[1])] = true;
+      var missing = sent.filter(function (x) { return !listed[x.key]; });
+      if (!missing.length) return { missing: [], error: null };
+      /* ListObjectsV2 answers at most 1000 keys. A key not on a TRUNCATED page may be on the next,
+         so its absence there is "not confirmed", never "not stored". */
+      var truncated = /<IsTruncated>\s*true\s*<\/IsTruncated>/i.test(body || "");
+      return fetch(STATE.stateUrl, { cache: "no-store" }).then(function (r) {
+        return r && r.ok && typeof r.json === "function" ? r.json() : null;
+      }).then(function (doc) {
+        /* Folded already only if the doc holds THIS event: same id AND same ts. Ids are
+           deterministic per voter and item, so an edited answer shares its id with the earlier
+           one already in the doc — matching on id alone read the old answer as the new one stored. */
+        var seen = Object.create(null), evs = (doc && doc.events) || [], i;
+        for (i = 0; i < evs.length; i++) if (evs[i] && evs[i].id) seen[evs[i].id + "\u0000" + evs[i].ts] = true;
+        var still = missing.filter(function (x) { return !seen[x.ev.id + "\u0000" + x.ev.ts]; });
+        return { missing: still, error: still.length && truncated
+          ? "the inbox listing was cut off at its first page, so the missing answers may be on a later one" : null };
+      }, function () {
+        return { missing: missing, error: truncated
+          ? "the inbox listing was cut off at its first page, so the missing answers may be on a later one" : null };
+      });
+    }).then(null, function (e) {
+      return { missing: sent, error: explainPostError(e && e.message ? e.message : String(e)) };
+    });
+  }
+
   function submit() {
+    outcome = null;
     var gate = submitGate();
-    if (!gate.ok) { setStateStatus(gate.reason + COPY_BACK); return Promise.resolve(false); }
+    if (!gate.ok) {
+      /* The write is closed, but the answer on screen is still the voter's. Keep it (with a name,
+         so it is attributable), so that a reload does not lose it and a later Submit can send it. */
+      var gname = voterName();
+      if (slug(gname)) {
+        var gmeta = { board: firstAttr("data-fb-board"), wave: firstAttr("data-fb-wave") };
+        var gfresh = humanEvents(gmeta, new Date().toISOString());
+        if (gfresh.length) writeOutbox(withUnsent(gfresh));
+      }
+      if (unsent.length) {
+        outcome = { ok: false, text: "Not sent: " + gate.reason + "." };
+        refreshLiveness();
+      } else {
+        setStateStatus(gate.reason + COPY_BACK);
+      }
+      return Promise.resolve(false);
+    }
 
     /* A blank name is not a minor validation miss. humanEvents() keys ids as h:<slug>||anon, so
        two unnamed voters become ONE actor, and the greatest-ts supersede rule then deletes the
@@ -517,31 +702,78 @@
     }
 
     var meta = { board: firstAttr("data-fb-board"), wave: firstAttr("data-fb-wave") };
-    var events = humanEvents(meta, new Date().toISOString());
+    var fresh = humanEvents(meta, new Date().toISOString());
+    /* The next Submit re-sends whatever an earlier one could not get into the store. */
+    var events = withUnsent(fresh);
     if (!events.length) { setStateStatus("Nothing to submit yet — make a pick first."); return Promise.resolve(false); }
 
     setStateStatus("Submitting " + events.length + "…");
-    var failed = 0, firstErr = "";
+    var failed = 0, firstErr = "", sent = [];
     return Promise.all(events.map(function (ev) {
-      return postOne(ev).then(null, function (e) { failed++; if (!firstErr) firstErr = e && e.message ? e.message : String(e); });
+      return postOne(ev).then(function (key) { sent.push({ ev: ev, key: key }); },
+        function (e) { failed++; if (!firstErr) firstErr = e && e.message ? e.message : String(e); });
     })).then(function () {
       if (failed) {
-        /* Latch first, then render: refreshLiveness() disables the control off the new gate, and
-           the specific "N of M" line then replaces its generic reason — the voter gets the precise
-           outcome now, and every later render reads the latch. */
-        if (latchIfAuthoritative(firstErr)) refreshLiveness();
-        setStateStatus(failed + " of " + events.length + " answers did not post — "
-          + explainPostError(firstErr) + COPY_BACK);
+        /* Everything from this attempt stays unsent — including the ones that posted, because
+           nothing has confirmed them yet; a duplicate in the inbox is collapsed by id at read time,
+           a lost answer is not recoverable. Latch first, then render: refreshLiveness() disables
+           the control off the new gate, and the specific "N of M" line is the verdict. */
+        writeOutbox(events);
+        latchIfAuthoritative(firstErr);
+        outcome = { ok: false, text: failed + " of " + events.length + " answers did not post — "
+          + explainPostError(firstErr) + "." };
+        refreshLiveness();
         return false;
       }
-      /* Only on a clean sweep: a partial failure means the doc will legitimately never carry
-         every id, and a receipt that can never retire would sit there claiming "waiting" forever.
-         It is also what tells the reveal which items this person just answered. */
-      recordReceipt(events.map(function (ev) { return ev.id; }));
-      setStateStatus("Submitted " + events.length + " ✓ — they show up here once the fold runs (agent-run, a few times a day).");
-      renderState();
-      pollDelay = POLL_MIN;
-      return true;
+      var ids = events.map(function (ev) { return ev.id; });
+      if (!STATE.listUrl) {
+        /* A board published before the read-back grant existed. The store took the POST and that
+           is all this page can know, so it says exactly that — and never the word "stored". */
+        writeOutbox([]);
+        recordReceipt(ids);
+        setStateStatus("Sent " + events.length + " — the store accepted them, but this board was "
+          + "published without a read-back grant, so it cannot confirm they were stored. They show "
+          + "up here once the fold runs (agent-run, a few times a day).");
+        renderState();
+        pollDelay = POLL_MIN;
+        return true;
+      }
+      /* The read-back lists the store this page POSTED to. The fold reads the store the board's
+         shared state lives on. If those are two stores, a listing proves nothing about what the
+         fold will find — which is the incident's own shape — so "Stored" is refused outright. */
+      if (storeOf(STATE.listUrl) !== storeOf(STATE.stateUrl)) {
+        writeOutbox(events);
+        outcome = { ok: false, text: "Not confirmed: this board checks its answers on " + storeOf(STATE.listUrl)
+          + " but reads its shared state from " + storeOf(STATE.stateUrl)
+          + ", so it cannot say the fold that feeds this board will find them." };
+        refreshLiveness();
+        return false;
+      }
+      setStateStatus("Sent " + events.length + " — checking the store has them…");
+      return readBack(sent).then(function (res) {
+        if (res.error || res.missing.length) {
+          var gone = res.error ? events : res.missing.map(function (x) { return x.ev; });
+          writeOutbox(gone);
+          outcome = { ok: false, text: res.error
+            ? "Not confirmed: the answers were sent, but the store could not be read back to check them — " + res.error + "."
+            : "Not stored: " + res.missing.length + " of " + events.length + " answers were sent but are not in the store." };
+          refreshLiveness();
+          return false;
+        }
+        /* Only on a clean, confirmed sweep: a receipt that can never retire would sit there
+           claiming "waiting" forever. It is also what tells the reveal which items this person
+           just answered. */
+        writeOutbox([]);
+        recordReceipt(ids, true);
+        outcome = { ok: true, text: "Stored at " + hhmm(new Date()) + " ✓ — " + events.length
+          + (events.length === 1 ? " answer is" : " answers are") + " listed in this board's inbox, on the store its "
+          + "shared state is read from; " + (events.length === 1 ? "it appears" : "they appear")
+          + " here once an agent folds that inbox (a few times a day)." };
+        renderState();
+        refreshLiveness();
+        pollDelay = POLL_MIN;
+        return true;
+      });
     });
   }
 
@@ -841,6 +1073,25 @@
     document.body.appendChild(bar);
   }
 
+  function ensureUnsentBar() {
+    if (document.querySelector("[data-fb-retry]")) return;
+    var bar = document.createElement("div");
+    bar.className = "fb-unsentbar";
+    bar.innerHTML =
+      '<button type="button" class="fb-retrybtn" data-fb-retry hidden>Retry</button>' +
+      '<button type="button" class="fb-copybtn" data-fb-copy-unsent hidden>Copy unsent answers</button>';
+    document.body.appendChild(bar);
+  }
+  function showUnsentControls(gate) {
+    var retry = document.querySelector("[data-fb-retry]");
+    var cp = document.querySelector("[data-fb-copy-unsent]");
+    var failedNow = !!(outcome && !outcome.ok);
+    function vis(el, on) { if (!el) return; if (on) el.removeAttribute("hidden"); else el.setAttribute("hidden", ""); }
+    vis(retry, failedNow);
+    if (retry) retry.disabled = !gate.ok;
+    vis(cp, unsent.length > 0);
+  }
+
   function wireState() {
     STATE = readStateConfig();
     if (!STATE) return;                 // no config ⇒ no bar, no listener, no fetch, no behaviour change
@@ -854,8 +1105,19 @@
       markReadState(STATE.stateVerified ? "waiting" : "unverified");
     }
     ensureStateBar();
+    ensureUnsentBar();
+    /* Answers an earlier visit could not get into the store. Said first, because they are the
+       one thing on this page that exists nowhere else. */
+    unsent = readOutbox();
+    if (unsent.length) {
+      outcome = { ok: false, text: "An earlier Submit did not reach the store." };
+    }
     var btn = document.querySelector("[data-fb-submit]");
     if (btn) btn.addEventListener("click", submit);
+    var rbtn = document.querySelector("[data-fb-retry]");
+    if (rbtn) rbtn.addEventListener("click", submit);
+    var cbtn = document.querySelector("[data-fb-copy-unsent]");
+    if (cbtn) cbtn.addEventListener("click", copyUnsent);
     refreshLiveness();
     poll();
   }
@@ -886,6 +1148,9 @@
        A read only — nothing here opens, closes or records a reader's expansion. */
     disclosures: disclosures,
     fold: foldEvents, submit: submit, render: renderState, liveness: refreshLiveness, poll: poll,
+    /* The submit verdict and the unsent answers it kept, readable without a browser. */
+    submitOutcome: function () { return outcome; },
+    unsent: function () { return unsent.slice(); }, unsentText: unsentText, copyUnsent: copyUnsent,
     stateConfig: function () { return STATE; },
     /* The read half's own verdict, so a test can assert that a refusal and an unfolded board are
        different observations without driving a browser. */

@@ -448,6 +448,15 @@ find_restart_agent_json() {
   local sessions_dir="$(resolve_sessions_dir)"
   [ -d "$sessions_dir" ] || return 1
 
+  # Re-read the live pane id: the seat may have been renamed since start-up
+  # (migrate-fleet-pane-ids.sh --rename rebinds the session to the new label). Falls back to
+  # the start-up value when fleet.sh gives nothing. Runs in the caller's $(...) subshell.
+  if [ -n "${FLEET_PANE_ID:-}" ]; then
+    local live_pane_id
+    live_pane_id=$("$SCRIPTS_DIR/fleet.sh" pane-id 2>/dev/null || true)
+    [ -n "$live_pane_id" ] && FLEET_PANE_ID="$live_pane_id"
+  fi
+
   find -L "$sessions_dir" -name ".state.json" -type f 2>/dev/null | while read -r f; do
     local kill_req=$(jq -r '.killRequested // false' "$f" 2>/dev/null)
     if [ "$kill_req" = "true" ]; then

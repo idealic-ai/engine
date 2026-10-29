@@ -1,15 +1,28 @@
 import initSqlJs, { type Database } from "sql.js";
 import * as fs from "fs";
 import * as path from "path";
+import { EMBED_LOCAL_DEFAULTS } from "../../embed-local/src/index.js";
+import { assertLocalDbPath, checkExistingDb } from "../../shared/search-db-guard.js";
 
-export const EMBEDDING_DIMENSIONS = 3072;
+/** Width of the default local model (embeddinggemma). Each row also stores its own. */
+export const EMBEDDING_DIMENSIONS = EMBED_LOCAL_DEFAULTS.dimensions;
 
 /**
  * Schema version — bump this when table structure changes.
- * On open, if the DB's PRAGMA user_version doesn't match,
- * all tables are dropped and recreated (reindex required).
+ * On open, an existing image at any other PRAGMA user_version is refused, never
+ * dropped (tools/shared/search-db-guard.ts); `engine reindex` deletes the file.
+ *
+ * 3: local embeddings (768-d) replace Gemini (3072-d), and every embedding row
+ *    carries `model` + `dimensions` so a mixed index cannot recur unnoticed.
  */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
+
+/**
+ * The first schema of the local-embeddings generation. Below it is Gemini-era,
+ * which the refusal message names as such.
+ */
+const FIRST_LOCAL_SCHEMA_VERSION = 3;
+const DB_FILENAME_HINT = ".session-search.local.db";
 
 let SQL: Awaited<ReturnType<typeof initSqlJs>> | null = null;
 
@@ -33,21 +46,18 @@ export async function initDb(dbPath: string): Promise<Database> {
 
   let db: Database;
 
-  // Load existing database if it exists
-  if (fs.existsSync(dbPath)) {
-    const buffer = fs.readFileSync(dbPath);
-    db = new SqlJs.Database(buffer);
+  // Refuse a Gemini-era file name, then any image not at exactly this schema,
+  // from the 100-byte header alone — before the whole file is read into memory.
+  assertLocalDbPath("session-search", dbPath, DB_FILENAME_HINT);
+  const state = checkExistingDb(dbPath, {
+    tool: "session-search",
+    schemaVersion: SCHEMA_VERSION,
+    firstLocalSchemaVersion: FIRST_LOCAL_SCHEMA_VERSION,
+    hint: DB_FILENAME_HINT,
+  });
 
-    // Check schema version — drop and recreate if mismatched
-    const result = db.exec("PRAGMA user_version;");
-    const dbVersion = result[0]?.values[0]?.[0] as number ?? 0;
-    if (dbVersion !== SCHEMA_VERSION) {
-      console.error(
-        `[session-search] Schema version mismatch (db=${dbVersion}, expected=${SCHEMA_VERSION}). Dropping tables and reindexing.`
-      );
-      db.run("DROP TABLE IF EXISTS embeddings;");
-      db.run("DROP TABLE IF EXISTS chunks;");
-    }
+  if (state === "current") {
+    db = new SqlJs.Database(fs.readFileSync(dbPath));
   } else {
     db = new SqlJs.Database();
   }
@@ -79,11 +89,16 @@ export async function initDb(dbPath: string): Promise<Database> {
   `);
 
   // Create embeddings table (replaces sqlite-vec virtual table)
-  // Embeddings stored as BLOB (raw Float32Array bytes)
+  // Embeddings stored as BLOB (raw Float32Array bytes). `model` and
+  // `dimensions` say which generation wrote the row: queries rank only rows of
+  // the client's own model and width, and the indexer re-embeds any other.
   db.run(`
     CREATE TABLE IF NOT EXISTS embeddings (
       chunk_id INTEGER PRIMARY KEY,
       embedding BLOB NOT NULL,
+      model TEXT NOT NULL,
+      dimensions INTEGER NOT NULL CHECK (dimensions > 0),
+      CHECK (length(embedding) = dimensions * 4),
       FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
     );
   `);

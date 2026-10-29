@@ -1,11 +1,19 @@
 #!/usr/bin/env python3
 """Mint an S3 presigned POST for the events/<doc>/ prefix — pure stdlib SigV4, no boto3.
 
-Emits {"postUrl", "keyPrefix", "fields", "expiresAt", "expirySeconds", "expiryRequested",
-"expiryClampedBy"} JSON on stdout. A browser then POSTs multipart/form-data to postUrl with:
+Emits {"postUrl", "listUrl", "keyPrefix", "fields", "expiresAt", "expirySeconds",
+"expiryRequested", "expiryClampedBy"} JSON on stdout. A browser then POSTs multipart/form-data to postUrl with:
 every `fields` entry, a `key` that starts with keyPrefix, a `Content-Type`, and the `file` —
 landing one object under events/<doc>/. The POST is authorized by the signature (NOT anonymous
 public write), so no bucket public-write is needed.
+
+`listUrl` is the READ-BACK half: a SigV4 query-presigned ListObjectsV2 on the same host as postUrl,
+fixed to this board's own events/<doc>/ prefix and the same expiry. events/* is owner-read-only, so
+without it a page can only trust the POST's 2xx. What a listing shows is that the key is listed in
+the store this page POSTED to — nothing more. It says nothing about a store the fold reads if that
+is a different one, so the page also refuses "stored" unless listUrl and its stateUrl name the same
+origin and bucket. It discloses key NAMES (timestamp + random) under this one board's prefix,
+never an object's body: it signs no GetObject.
 
 A presign cannot outlive the credential that signed it, so `expiresAt` is clamped to
 AWS_CREDENTIAL_EXPIRATION when the environment declares one. Without that clamp the emitted
@@ -13,12 +21,25 @@ value is `now + <whatever was asked for>`, which S3 rejects at REQUEST time — 
 machine, long after publish, as ExpiredToken rather than a policy expiry. Long-lived keys
 declare no expiration, so the clamp is a no-op for them and the full window is real.
 
-Config (env):  PROVE_S3_BUCKET, PROVE_S3_REGION (default us-east-2), PROVE_S3_EVENTS_PREFIX (default events)
+The POST target follows the SAME rule as the read URL publish-s3.sh builds with obj_url: an
+S3-compatible endpoint gets a path-style URL on the browser-facing base, and only an empty
+endpoint gets AWS's virtual-hosted host. Without that rule this file hardcoded
+`<bucket>.s3.amazonaws.com`, so a board on a local store either got no write grant at all or —
+had the refusal simply been lifted — would have handed every reader a form posting their answers
+to the real cloud account. The two halves must agree, so publish-s3.sh re-derives the expected
+target and refuses a grant whose postUrl does not match it.
+
+Config (env):  PROVE_S3_BUCKET, PROVE_S3_REGION (default us-east-1), PROVE_S3_EVENTS_PREFIX (default events)
+               PROVE_S3_ENDPOINT_URL (optional) S3-compatible endpoint; empty ⇒ AWS S3
+               PROVE_S3_PUBLIC_URL (optional) browser-facing base for the path-style POST;
+               defaults to PROVE_S3_ENDPOINT_URL. Same-origin with the page is what keeps the
+               POST out of CORS, so this is the page's base rather than the admin endpoint.
 Creds  (env):  AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN (optional),
                AWS_CREDENTIAL_EXPIRATION (optional; `aws configure export-credentials --format env` emits it)
 Args:          <doc> [expiry_seconds<=604800] [max_bytes]
 """
 import os, sys, json, hmac, hashlib, base64, datetime
+from urllib.parse import quote, urlsplit
 
 
 S3_MAX_EXPIRY = 604800   # 7 days — the protocol ceiling, not a policy choice
@@ -43,16 +64,62 @@ def _credential_expiry():
         return datetime.datetime.now(datetime.timezone.utc)
 
 
+def _uri_encode(v):
+    return quote(str(v), safe="-_.~")
+
+
+def _presign_list(base_url, prefix, region, ak, sk, token, now, expiry):
+    """Query-presigned GET ?list-type=2&prefix=<prefix> on base_url (path-style or virtual-host)."""
+    if expiry < 1:
+        return None
+    u = urlsplit(base_url)
+    path = u.path or "/"
+    amzdate = now.strftime("%Y%m%dT%H%M%SZ")
+    datestamp = now.strftime("%Y%m%d")
+    scope = f"{datestamp}/{region}/s3/aws4_request"
+    q = {
+        "list-type": "2",
+        "prefix": prefix,
+        "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+        "X-Amz-Credential": f"{ak}/{scope}",
+        "X-Amz-Date": amzdate,
+        "X-Amz-Expires": str(min(expiry, S3_MAX_EXPIRY)),
+        "X-Amz-SignedHeaders": "host",
+    }
+    if token:
+        q["X-Amz-Security-Token"] = token
+    cq = "&".join(f"{_uri_encode(k)}={_uri_encode(v)}" for k, v in sorted(q.items()))
+    canonical = "\n".join(["GET", quote(path, safe="/-_.~"), cq, f"host:{u.netloc}", "", "host", "UNSIGNED-PAYLOAD"])
+    sts = "\n".join(["AWS4-HMAC-SHA256", amzdate, scope, hashlib.sha256(canonical.encode("utf-8")).hexdigest()])
+    key = _sign(_sign(_sign(_sign(("AWS4" + sk).encode("utf-8"), datestamp), region), "s3"), "aws4_request")
+    sig = hmac.new(key, sts.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{u.scheme}://{u.netloc}{path}?{cq}&X-Amz-Signature={sig}"
+
+
+def _post_url(bucket, region):
+    """Where the browser POSTs. Mirrors publish-s3.sh's obj_url, deliberately."""
+    endpoint = os.environ.get("PROVE_S3_ENDPOINT_URL", "").strip()
+    if endpoint in ("", "aws", "AWS", "none", "NONE"):
+        host = (f"{bucket}.s3.amazonaws.com" if region == "us-east-1"
+                else f"{bucket}.s3.{region}.amazonaws.com")
+        return f"https://{host}/"
+    base = (os.environ.get("PROVE_S3_PUBLIC_URL") or endpoint).rstrip("/")
+    return f"{base}/{bucket}/"
+
+
 def main():
     if len(sys.argv) < 2:
         sys.exit("usage: sign-post.py <doc> [expiry_seconds] [max_bytes]")
     doc = sys.argv[1]
+    # One path segment: a '/' would widen the grant (starts-with + list prefix) over nested docs.
+    if not doc or "/" in doc or doc.startswith("."):
+        sys.exit(f"sign-post.py: refusing doc id {doc!r} - a doc id is one path segment, with no '/' and no leading '.'")
     requested = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_EXPIRY
     expiry = min(requested, S3_MAX_EXPIRY)
     max_bytes = int(sys.argv[3]) if len(sys.argv) > 3 else 16384
 
     bucket = os.environ["PROVE_S3_BUCKET"]
-    region = os.environ.get("PROVE_S3_REGION", "us-east-2")
+    region = os.environ.get("PROVE_S3_REGION", "us-east-1")
     eprefix = os.environ.get("PROVE_S3_EVENTS_PREFIX", "events")
     ak = os.environ["AWS_ACCESS_KEY_ID"]
     sk = os.environ["AWS_SECRET_ACCESS_KEY"]
@@ -101,9 +168,10 @@ def main():
     if token:
         fields["x-amz-security-token"] = token
 
-    host = f"{bucket}.s3.amazonaws.com" if region == "us-east-1" else f"{bucket}.s3.{region}.amazonaws.com"
+    post_url = _post_url(bucket, region)
     print(json.dumps({
-        "postUrl": f"https://{host}/",
+        "postUrl": post_url,
+        "listUrl": _presign_list(post_url, key_prefix, region, ak, sk, token, now, expiry),
         "keyPrefix": key_prefix,
         "fields": fields,
         "expiresAt": expires_at,

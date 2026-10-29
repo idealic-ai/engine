@@ -17,7 +17,7 @@
 #                                                  # Set lifecycle=completed (gate re-engages)
 #                                                  # REQUIRES 1-3 line description on stdin for RAG/search
 #                                                  # --keywords: comma-separated search keywords (stored in .state.json)
-#                                                  # Outputs: Related sessions from RAG search (if GEMINI_API_KEY set)
+#                                                  # Outputs: Related sessions from RAG search (if local Ollama embeddinggemma is up)
 #   session.sh idle <path> [--keywords 'kw1,kw2'] <<DESCRIPTION
 #                                                  # Set lifecycle=idle (restricted gate, reactivatable)
 #                                                  # Like deactivate but session stays alive for fast-track reactivation
@@ -57,6 +57,23 @@
 #     §CMD_REQUIRE_ACTIVE_SESSION — Session gate enforcement
 #     §CMD_RESOLVE_REQUEST_TEMPLATE — Tag-to-skill template resolution
 
+
+# Bounded semantic-search query. RAG is ADVISORY: it must never block activation,
+# and a failure must be distinguishable from an empty result — an empty block has
+# been read as "nothing similar found" when it meant "nothing was searched".
+# Returns results on success, or a one-line notice saying why it could not search.
+_rag_query() {
+  local tool="$1" q="$2" limit="$3" err out rc
+  err=$(mktemp 2>/dev/null) || err=/dev/null
+  out=$(timeout "${ENGINE_RAG_TIMEOUT:-30}" "$tool" query "$q" --limit "$limit" 2>"$err"); rc=$?
+  if [ "$rc" -eq 124 ]; then
+    out="_not searched — timed out after ${ENGINE_RAG_TIMEOUT:-30}s (the query path scans every indexed chunk; raise ENGINE_RAG_TIMEOUT to wait)_"
+  elif [ "$rc" -ne 0 ]; then
+    out="_not searched — $(head -1 "$err" 2>/dev/null)_"
+  fi
+  [ "$err" = /dev/null ] || rm -f "$err"
+  printf '%s' "$out"
+}
 set -euo pipefail
 
 # Source shared utilities (timestamp, pid_exists, safe_json_write)
@@ -820,7 +837,9 @@ case "$ACTION" in
       if jq -e '(.tickets // []) | any(type == "string")' "$STATE_FILE" >/dev/null 2>&1; then
         jq 'del(.tickets)' "$STATE_FILE" | safe_json_write "$STATE_FILE"
       fi
-      if [ -n "$SEED_TICKETS" ]; then
+      # Subscriptions are OFF by default — ENGINE_TICKET_WATCH=1 opts back in. The strip
+      # above still runs, so .tickets ends empty rather than holding unsubscribed keys.
+      if [ -n "$SEED_TICKETS" ] && [ "${ENGINE_TICKET_WATCH:-}" = "1" ]; then
         while IFS= read -r TKEY; do
           [ -n "$TKEY" ] && "$(dirname "$0")/ticket.sh" subscribe "$TKEY" "$DIR" >/dev/null 2>&1 || true
         done <<< "$SEED_TICKETS"
@@ -856,7 +875,7 @@ case "$ACTION" in
       echo ""
       echo "## SRC_PRIOR_SESSIONS"
       if [ -n "$TASK_SUMMARY" ]; then
-        RECALL_SESSIONS=$("$SESSION_SEARCH" query "$TASK_SUMMARY" --limit 10 2>/dev/null || true)
+        RECALL_SESSIONS=$(_rag_query "$SESSION_SEARCH" "$TASK_SUMMARY" 10)
       fi
       if [ -n "${RECALL_SESSIONS:-}" ]; then
         echo "$RECALL_SESSIONS"
@@ -868,7 +887,7 @@ case "$ACTION" in
       echo ""
       echo "## SRC_RELEVANT_DOCS"
       if [ -n "$TASK_SUMMARY" ]; then
-        RECALL_DOCS=$("$DOC_SEARCH" query "$TASK_SUMMARY" --limit 10 2>/dev/null || true)
+        RECALL_DOCS=$(_rag_query "$DOC_SEARCH" "$TASK_SUMMARY" 10)
       fi
       if [ -n "${RECALL_DOCS:-}" ]; then
         echo "$RECALL_DOCS"
@@ -2274,11 +2293,11 @@ case "$ACTION" in
     fi
 
     # Run RAG search FIRST (query old index — still useful for session linkage)
-    # The search scripts load .env internally — no GEMINI_API_KEY guard needed here
+    # The search wrappers gate on the local embedding runner themselves (tools/embed-local) — no guard needed here
     SESSION_SEARCH="$HOME/.claude/tools/session-search/session-search.sh"
     DOC_SEARCH="$HOME/.claude/tools/doc-search/doc-search.sh"
     if [ -x "$SESSION_SEARCH" ]; then
-      RAG_RESULTS=$("$SESSION_SEARCH" query "$DESCRIPTION" --limit 5 2>/dev/null || echo "")
+      RAG_RESULTS=$(_rag_query "$SESSION_SEARCH" "$DESCRIPTION" 5)
       if [ -n "$RAG_RESULTS" ]; then
         echo ""
         echo "## Related Sessions"
@@ -2372,7 +2391,7 @@ case "$ACTION" in
     SESSION_SEARCH="$HOME/.claude/tools/session-search/session-search.sh"
     DOC_SEARCH="$HOME/.claude/tools/doc-search/doc-search.sh"
     if [ -x "$SESSION_SEARCH" ]; then
-      RAG_RESULTS=$("$SESSION_SEARCH" query "$DESCRIPTION" --limit 5 2>/dev/null || echo "")
+      RAG_RESULTS=$(_rag_query "$SESSION_SEARCH" "$DESCRIPTION" 5)
       if [ -n "$RAG_RESULTS" ]; then
         echo ""
         echo "## Related Sessions"

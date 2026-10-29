@@ -1,7 +1,7 @@
 {
   "name": "coordinate",
   "version": "3",
-  "description": "Persistent fleet coordinator \u2014 monitors workers, answers routine questions autonomously, escalates uncertain decisions. Triggers: \\\"coordinate the fleet\\\", \\\"manage workers\\\", \\\"start oversight\\\", \\\"monitor agents\\\".",
+  "description": "Persistent fleet coordinator \u2014 monitors workers, answers what it may rule on (orientation questions in every mode; grant classes A\u2013D only in Manager mode) and passes the rest up its parent chain, to the operator only from a seat with no parent. Triggers: \\\"coordinate the fleet\\\", \\\"manage workers\\\", \\\"start oversight\\\", \\\"monitor agents\\\".",
   "tier": "protocol",
   "taskType": "COORDINATE",
   "templates": {
@@ -178,6 +178,11 @@
       "label": "Custom",
       "description": "User-defined thresholds",
       "file": "modes/custom.md"
+    },
+    "manager": {
+      "label": "Manager",
+      "description": "Front door: rule within the grant, pass the rest up the parent chain",
+      "file": "modes/manager.md"
     }
   },
   "nextSkills": [
