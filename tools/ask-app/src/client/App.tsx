@@ -338,7 +338,7 @@ export function App() {
                 <ul className="rows">
                   {g.rows.map((r) => (
                     <li key={r.ref}>
-                      <AskRowButton r={r} slim={slim} current={r.ref === currentRef} onPick={() => pick(r.ref)} />
+                      <AskRowButton r={r} slim={slim} groupBy={slim ? "none" : groupBy} current={r.ref === currentRef} onPick={() => pick(r.ref)} />
                     </li>
                   ))}
                 </ul>
@@ -405,32 +405,34 @@ function Plain({ text }: { text: string }) {
   return <>{inlineTokens(displayTitle(text)).map((t, i) => (t.t === "code" ? <code key={i} className="ic">{t.v}</code> : t.t === "strong" ? <b key={i}>{t.v}</b> : t.t === "em" ? <i key={i}>{t.v}</i> : <span key={i}>{t.t === "text" ? t.v : t.t === "ticket" ? t.key : t.label}</span>))}</>;
 }
 
-function AskRowButton({ r, current, onPick, slim }: { r: Row; current: boolean; onPick: () => void; slim: boolean }) {
-  const done = r.total - r.left;
+/**
+ * One compact line per ask (operator 01:42): the title (two lines at most), then one meta line,
+ * seat · age · "N of M left". Who it waits on is the row's STYLE, never a repeated chip: an ask waiting
+ * on you is bold with an accent bar, one waiting on someone else is muted. Reserved and draft are small
+ * marks with their words in the title and the accessible label. The seat is left out when the list is
+ * grouped by seat, since the group heading already says it.
+ */
+export function AskRowButton({ r, current, onPick, slim, groupBy = "none" }: { r: Row; current: boolean; onPick: () => void; slim: boolean; groupBy?: GroupBy }) {
   const left = r.status === "open" ? `${r.left} of ${r.total} left` : r.status;
+  const marks: [string, string, string][] = [
+    ...(r.reserved === "operator" ? [["res", "◆", "Reserved for you: only you may answer; seats may forward it"] as [string, string, string]] : []),
+    ...(r.reserved && r.reserved !== "operator" ? [["res other", "◇", `Reserved for ${r.reserved}`] as [string, string, string]] : []),
+    ...(r.draft ? [["draft", "✎", "Your draft is saved, not sent"] as [string, string, string]] : []),
+    ...(r.seatDraft ? [["sdraft", "✎", `${r.seatDraft} holds a draft here`] as [string, string, string]] : []),
+  ];
+  const tone = r.waitingOnYou ? "you" : "other";
   return (
-    <button className="row" aria-current={current} onClick={onPick} title={slim ? `${r.title} · ${r.seat} · ${left}` : undefined}>
+    <button className={`row ${tone}`} aria-current={current} onClick={onPick} title={slim ? `${r.title} · ${r.seat} · ${left}` : undefined}>
       <span className="row-top">
         {r.high && <span className="imp" title="High importance" aria-label="High importance">!</span>}
         <span className="row-title"><Plain text={r.title} /></span>
       </span>
       <span className="row-meta">
-        {!slim && <span className="seat">{r.seat}</span>}
-        {!slim && <span className="age" title={new Date(r.created).toLocaleString()}>{r.age}</span>}
+        {!slim && groupBy !== "seat" && <span className="seat">{r.seat}</span>}
+        {!slim && r.age && <span className="age" title={new Date(r.created).toLocaleString()}>{r.age}</span>}
+        {!slim && marks.map(([c, g, t]) => <span key={c} className={`mk-i ${c}`} title={t} aria-label={t}>{g}</span>)}
         <span className={`left${r.left === 0 ? " zero" : ""}`}>{left}</span>
       </span>
-      {!slim && r.total > 0 && (
-        <span className="bar" aria-hidden="true"><span style={{ width: `${(done / r.total) * 100}%` }} /></span>
-      )}
-      {!slim && (r.waitingOnYou || r.reserved || r.draft || r.seatDraft) && (
-        <span className="marks">
-          {r.waitingOnYou && <span className="mk you">needs you</span>}
-          {r.reserved && r.reserved !== "operator" && <span className="mk">reserved · {r.reserved}</span>}
-          {r.reserved === "operator" && <span className="mk res" title="Only you may answer; seats may forward it">reserved for you</span>}
-          {r.draft && <span className="mk draft">draft</span>}
-          {r.seatDraft && <span className="mk">{r.seatDraft} draft</span>}
-        </span>
-      )}
     </button>
   );
 }
