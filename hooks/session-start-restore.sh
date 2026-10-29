@@ -87,20 +87,36 @@ else
   debug "no active session for this process (session find: none)"
 fi
 
-# Dehydrated-context detection — startup-only restore. Scan for the first session
-# carrying a dehydratedContext object, independent of active-session resolution.
+# Dehydrated-context detection — startup-only restore. A handover belongs to the seat that wrote it,
+# and the restore consumes it, so taking another seat's is a theft: that seat comes back with nothing
+# and this one acts on someone else's next steps. The session `session find` resolved is used first.
+# Failing that, the scan takes a session only when it carries no fleetPaneId other than this pane's
+# and no live pid (a live process owns its session; a dehydrated one waits with its pid gone).
 DEHYDRATED_STATE_FILE=""
 if [ "$SOURCE" = "startup" ]; then
-  for sessions_dir in "${SESSION_DIRS[@]}"; do
-    for f in "$sessions_dir"/*/.state.json; do
-      [ -f "$f" ] || continue
-      S_DEHY_TYPE=$(jq -r '.dehydratedContext // null | type' "$f" 2>/dev/null) || continue
-      if [ "$S_DEHY_TYPE" = "object" ]; then
+  if [ -n "$FOUND_DIR" ] && [ "$(jq -r '.dehydratedContext // null | type' "$FOUND_DIR/.state.json" 2>/dev/null)" = "object" ]; then
+    DEHYDRATED_STATE_FILE="$FOUND_DIR/.state.json"
+  else
+    OWN_PANE=$("$HOME/.claude/scripts/fleet.sh" pane-id 2>/dev/null || true)
+    for sessions_dir in "${SESSION_DIRS[@]}"; do
+      for f in "$sessions_dir"/*/.state.json; do
+        [ -f "$f" ] || continue
+        S_DEHY=$(jq -r '[(.dehydratedContext // null | type), (.fleetPaneId // ""), (.pid // "" | tostring)] | join("|")' "$f" 2>/dev/null) || continue
+        IFS='|' read -r S_DEHY_TYPE S_PANE S_PID <<< "$S_DEHY"
+        [ "$S_DEHY_TYPE" = "object" ] || continue
+        if [ -n "$S_PANE" ] && [ "$S_PANE" != "$OWN_PANE" ]; then
+          debug "dehydrated context in $f belongs to pane $S_PANE, not this one; left for it"
+          continue
+        fi
+        if [ -n "$S_PID" ] && kill -0 "$S_PID" 2>/dev/null; then
+          debug "dehydrated context in $f is held by live pid $S_PID; left for it"
+          continue
+        fi
         DEHYDRATED_STATE_FILE="$f"
         break 2
-      fi
+      done
     done
-  done
+  fi
 fi
 
 CONTEXT_TIME=$(date '+%Y-%m-%d %H:%M:%S')

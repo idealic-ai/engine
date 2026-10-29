@@ -227,6 +227,33 @@ echo "H2: dehydratedContext cleared after consumption"
 H2_CTX=$(jq -r '.dehydratedContext // "null"' "$H1_DIR/.state.json" 2>/dev/null)
 assert_eq "H2: dehydratedContext is null after hook" "null" "$H2_CTX"
 
+# H2b: another pane's handover is left for that pane, not injected and not cleared
+echo ""
+echo "H2b: a handover owned by another fleet pane is left alone"
+clear_all_dehydrated
+H2B_DIR="$SANDBOX/sessions/H2B_TEST"
+create_state "$H2B_DIR"
+jq '.fleetPaneId = "yarik-fleet:other:seat" | .dehydratedContext = {"summary":"another seat handover","requiredFiles":[]}' \
+  "$H2B_DIR/.state.json" | safe_json_write "$H2B_DIR/.state.json"
+H2B_OUTPUT=$(run_hook "startup" "$SANDBOX")
+assert_not_contains "H2b: other pane's handover not injected" "another seat handover" "$H2B_OUTPUT"
+H2B_CTX=$(jq -r '.dehydratedContext.summary // "missing"' "$H2B_DIR/.state.json" 2>/dev/null)
+assert_eq "H2b: other pane's handover still there" "another seat handover" "$H2B_CTX"
+
+# H2c: a handover whose session is held by a live process is left alone
+echo ""
+echo "H2c: a handover held by a live pid is left alone"
+clear_all_dehydrated
+H2C_DIR="$SANDBOX/sessions/H2C_TEST"
+create_state "$H2C_DIR"
+jq --arg pid "$PPID" '.pid = ($pid | tonumber) | .dehydratedContext = {"summary":"live owner handover","requiredFiles":[]}' \
+  "$H2C_DIR/.state.json" | safe_json_write "$H2C_DIR/.state.json"
+H2C_OUTPUT=$(run_hook "startup" "$SANDBOX")
+assert_not_contains "H2c: live-owned handover not injected" "live owner handover" "$H2C_OUTPUT"
+H2C_CTX=$(jq -r '.dehydratedContext.summary // "missing"' "$H2C_DIR/.state.json" 2>/dev/null)
+assert_eq "H2c: live-owned handover still there" "live owner handover" "$H2C_CTX"
+jq 'del(.dehydratedContext) | del(.pid)' "$H2C_DIR/.state.json" | safe_json_write "$H2C_DIR/.state.json"
+
 # H3: Non-startup sources → standards preloaded, dehydration skipped
 echo ""
 echo "H3: source=resume preloads standards, skips dehydration"
