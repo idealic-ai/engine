@@ -55,6 +55,7 @@ import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
 import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, sideDefault, useStoredNumber } from "./layout.tsx";
 import { pushEsc } from "./esc.ts";
+import { DRAFT_NOTE, REQUEST_KINDS, composeNote, needsUnansweredConfirm, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, useBroadcasts, useProofs } from "./feeds.tsx";
 
@@ -387,7 +388,7 @@ function Plain({ text }: { text: string }) {
 
 function AskRowButton({ r, current, onPick, slim }: { r: Row; current: boolean; onPick: () => void; slim: boolean }) {
   const done = r.total - r.left;
-  const left = r.status === "open" ? `${r.left} of ${r.total} left` : r.status;
+  const left = r.draftSent ? "draft sent" : r.status === "open" ? `${r.left} of ${r.total} left` : r.status;
   return (
     <button className="row" aria-current={current} onClick={onPick} title={slim ? `${r.title} · ${r.seat} · ${left}` : undefined}>
       <span className="row-top">
@@ -402,9 +403,10 @@ function AskRowButton({ r, current, onPick, slim }: { r: Row; current: boolean; 
       {!slim && r.total > 0 && (
         <span className="bar" aria-hidden="true"><span style={{ width: `${(done / r.total) * 100}%` }} /></span>
       )}
-      {!slim && (r.waitingOnYou || r.reserved || r.draft || r.seatDraft) && (
+      {!slim && (r.waitingOnYou || r.draftSent || r.reserved || r.draft || r.seatDraft) && (
         <span className="marks">
           {r.waitingOnYou && <span className="mk you">needs you</span>}
+          {r.draftSent && <span className="mk sent" title="Your provisional answer is with the asker">draft sent</span>}
           {r.reserved && r.reserved !== "operator" && <span className="mk">reserved · {r.reserved}</span>}
           {r.reserved === "operator" && <span className="mk res" title="Only you may answer; seats may forward it">reserved for you</span>}
           {r.draft && <span className="mk draft">draft</span>}
@@ -659,9 +661,26 @@ export function AskDetail({
     visible = next;
     answers = buildAnswers(ask, values, text, visible);
   }
-  const suggestions = open ? suggestionsFor(ask, values) : {};
-  // MF-2: the button names exactly this list, and acceptAll accepts exactly this list.
-  const visibleSuggestions = open ? visibleSuggestionsFor(ask, values, visible) : [];
+  // A later round suggests the operator's picks from the round before; elsewhere, the asker's lean.
+  const prior = useMemo(() => (open ? priorPicks(ask, all) : {}), [ask, all, open]);
+  const suggestions: Record<string, string> = open ? { ...suggestionsFor(ask, values), ...Object.fromEntries(Object.entries(prior).filter(([k]) => values[k] === undefined)) } : {};
+  const fromPrior = Object.keys(suggestions).some((k) => prior[k] === suggestions[k]);
+  const provisional = isProvisional(ask);
+  const rounds = useMemo(() => earlierRounds(ask, all), [ask, all]);
+  const { turns } = dialogueOf(ask);
+  const [needOpen, setNeedOpen] = useState(false);
+  const [needKind, setNeedKind] = useState("proof:best");
+  const [needText, setNeedText] = useState("");
+  // MF-2: the button names exactly this list, and Accept all accepts exactly this list (visible forks only).
+  const visibleSuggestions = open
+    ? [
+        ...visibleSuggestionsFor(ask, values, visible).filter((v) => !prior[v.key]),
+        ...ask.questions.flatMap((q, i) => {
+          const key = questionKey(q, i);
+          return visible.includes(q) && prior[key] && values[key] === undefined ? [{ key, label: forkLabel(q, i), code: prior[key] }] : [];
+        }),
+      ].sort((x, y) => ask.questions.findIndex((q, i) => questionKey(q, i) === x.key) - ask.questions.findIndex((q, i) => questionKey(q, i) === y.key))
+    : [];
   const dep = ask.header.dependsOn?.trim();
   const depMissing = dep && !all.some((a) => a.header.id === dep);
   const depDeclined = dependsOnDeclined(ask, all);
@@ -719,12 +738,36 @@ export function AskDetail({
     }
   }
 
+  /** Send as draft and Send request: provisional and deliberately partial, so no "unanswered" confirm. */
+  async function provisionalSend(answersToSend: Record<string, AnswerValue>, noteText: string) {
+    setConfirmSend(undefined);
+    setBusy(true);
+    setResult("");
+    try {
+      const out = await sendProvisional(post, async () => {
+        const j = await (await fetch("/api/asks")).json();
+        return (j.asks as StoredAsk[]).find((x) => askRef(x) === askRef(ask));
+      }, { seat: ask.seat, id: ask.header.id ?? "", expectedRevision: Number(ask.header.revision), answers: answersToSend, note: noteText });
+      if (out.ok) unsentStore.delete(ref);
+      setResult(out.message);
+      onChanged();
+    } finally {
+      setBusy(false);
+    }
+  }
+  // Provisional sends never stop at the "unanswered" confirm (needsUnansweredConfirm is false for them).
+  const sendDraft = () => provisionalSend(answers, composeNote(DRAFT_NOTE, note));
+  const sendRequest = () => {
+    const line = requestLine(needKind, needText);
+    return provisionalSend(provisionalAnswers(ask, answers, line), composeNote(line, note));
+  };
+
   const picked = Object.keys(answers).filter((k) => !k.endsWith(".other")).length;
   const nothing = Object.keys(answers).length === 0;
   const unanswered = unansweredForks(ask, answers, visible);
   /** MF-1: a send settles the whole ask, so a send that leaves visible forks unpicked asks first. */
   const askSend = () => {
-    const msg = sendConfirmation(unanswered);
+    const msg = needsUnansweredConfirm("send", unanswered) ? sendConfirmation(unanswered) : undefined;
     if (msg) setConfirmSend(msg);
     else act("send-now");
   };
@@ -736,8 +779,16 @@ export function AskDetail({
           {row.age && <span className="muted"> · {row.age} ago</span>}
           {row.high && <span className="chip danger">! High importance</span>}
           {ask.header["reserved-for"] && <span className="chip" title="Only this party may answer; others may forward it">reserved for {ask.header["reserved-for"]}</span>}
-          <span className="chip quiet">{ask.header.status === "open" ? `${row.left} of ${row.total} left` : ask.header.status}</span>
+          {ask.header.round && <span className="chip quiet">round {ask.header.round}</span>}
+          <span className="chip quiet">{provisional ? "draft sent" : ask.header.status === "open" ? `${row.left} of ${row.total} left` : ask.header.status}</span>
         </p>
+        {rounds.length > 0 && <EarlierRounds rounds={rounds} />}
+        {turns.length > 0 && (
+          <section className="dialogue" aria-label="Dialogue so far">
+            <span className="lg-label">Dialogue so far</span>
+            <ol>{turns.map((t, i) => <li key={i}><b>{t.who}</b> <Inline text={t.text} /></li>)}</ol>
+          </section>
+        )}
         {ask.header.why && <p className="ask-why"><Inline text={ask.header.why} /></p>}
         {(headerTickets.length > 0 || proofs.length > 0 || brief) && (
           <div className="ask-links">
@@ -769,9 +820,14 @@ export function AskDetail({
         {visibleSuggestions.length > 0 && (
           <div className="suggest-bar">
             <p>
-              <b>Suggested picks</b> are the asker's leans, shown dashed. They are not your answer: nothing is saved or sent until you click. Click a suggested option to confirm it and move to the next fork.
+              <b>Suggested picks</b> {fromPrior ? "are your picks from the last round where they still fit, and the asker's leans elsewhere" : "are the asker's leans"}, shown dashed. They are not your answer: nothing is saved or sent until you click. Click a suggested option to confirm it and move to the next fork.
             </p>
-            <button className="btn" onClick={() => setValues(acceptAll(ask, values, visible))}>
+            <button className="btn" onClick={() => setValues((cur) => {
+              // Leans through acceptAll (visible forks only, nested paths kept); last round's picks override on their forks.
+              const next = acceptAll(ask, cur, visible);
+              for (const v of visibleSuggestions) if (prior[v.key] === v.code && cur[v.key] === undefined) next[v.key] = [v.code];
+              return next;
+            })}>
               Accept all {visibleSuggestions.length} suggestion{visibleSuggestions.length === 1 ? "" : "s"}: {visibleSuggestions.map((s) => `${s.label} ${s.code}`).join(" · ")}
             </button>
           </div>
@@ -807,9 +863,10 @@ export function AskDetail({
       })}
 
       <section className="answerbar" id={`answerbar-${ask.header.id}`}>
-        {isSettled(ask) && (
+        {(isSettled(ask) || provisional) && (
           <>
-            <h3>{ask.header.status === "declined" ? "Declined" : "Answered"} · revision {ask.header.revision}</h3>
+            <h3>{provisional ? "Waiting on the asker: draft sent" : ask.header.status === "declined" ? "Declined" : "Answered"} · revision {ask.header.revision}</h3>
+            {provisional && <p className="muted">This answer is not final. The asker comes back with a second round, which opens here as a new ask.</p>}
             <AnsweredBy answer={ask.answer} />
             {ask.answer?.note && <p className="answer-note"><Inline text={ask.answer.note} /></p>}
             <Life h={ask.header} />
@@ -830,6 +887,9 @@ export function AskDetail({
             <textarea id={`note-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
             <p className="actions">
               <button className="btn primary" disabled={busy || nothing} onClick={askSend}>{nothing ? "Send answers" : picked ? `Send ${picked} answer${picked === 1 ? "" : "s"}` : "Send your notes"}</button>
+              {/* Deliberately partial: a provisional answer expects a second round, so neither of these asks "N questions unanswered — send anyway?". */}
+              <button className="btn" disabled={busy || nothing} onClick={() => sendDraft()} title="Sends your picks marked as not final, with a note saying so">Send as draft</button>
+              <button className="btn" aria-expanded={needOpen} aria-controls={`need-${ask.header.id}`} onClick={() => setNeedOpen(!needOpen)}>Need something first ▾</button>
               <button className="btn quiet" disabled={busy || nothing} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>
               <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => act("draft-decline")}>Draft a decline</button>
               {ask.draft && <button className="btn" disabled={busy} onClick={() => act("discard")}>Discard draft</button>}
@@ -840,6 +900,25 @@ export function AskDetail({
                 <p className="actions">
                   <button className="btn primary" disabled={busy} onClick={() => act("send-now")}>Send anyway</button>
                   <button className="btn" onClick={() => setConfirmSend(undefined)}>Keep answering</button>
+                </p>
+              </div>
+            )}
+            {needOpen && (
+              <div className="need" id={`need-${ask.header.id}`}>
+                <label className="field-label" htmlFor={`need-kind-${ask.header.id}`}>What do you need before you answer?</label>
+                <select id={`need-kind-${ask.header.id}`} value={needKind} onChange={(e) => setNeedKind(e.target.value)}>
+                  {[...new Set(REQUEST_KINDS.map((k) => k.group))].map((g) => (
+                    <optgroup key={g} label={g}>
+                      {REQUEST_KINDS.filter((k) => k.group === g).map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+                    </optgroup>
+                  ))}
+                </select>
+                <label className="field-label" htmlFor={`need-text-${ask.header.id}`}>In your words</label>
+                <textarea id={`need-text-${ask.header.id}`} rows={2} placeholder="For example: is BIND worth the migration?" value={needText} onChange={(e) => setNeedText(e.target.value)} />
+                <p className="muted need-preview">Sends: <code>{needText.trim() ? requestLine(needKind, needText) : `request: ${needKind} — …`}</code>{picked ? `, with your ${picked} pick${picked === 1 ? "" : "s"} as a draft` : ""}</p>
+                <p className="actions">
+                  <button className="btn primary" disabled={busy || !needText.trim()} onClick={() => sendRequest()}>Send request</button>
+                  <button className="btn quiet" onClick={() => setNeedOpen(false)}>Cancel</button>
                 </p>
               </div>
             )}
@@ -856,6 +935,24 @@ export function AskDetail({
         <AskDetails ask={ask} />
       </section>
     </article>
+  );
+}
+
+/** Earlier rounds of this ask, oldest first, each collapsed with the answers it got. */
+function EarlierRounds({ rounds }: { rounds: RoundView[] }) {
+  return (
+    <div className="rounds" aria-label="Earlier rounds">
+      {rounds.map((r) => (
+        <details key={r.ref} className="round">
+          <summary>
+            Round {r.round} · <span className="muted">{r.ref}</span> · {r.provisional ? "draft sent" : r.status}
+          </summary>
+          {r.title && <p className="round-q"><Inline text={r.title} /></p>}
+          {r.lines.length ? <ul>{r.lines.map((l, i) => <li key={i}><Inline text={l} /></li>)}</ul> : <p className="muted">{r.status === "not in this root" ? "That round is not in this root." : "No answers recorded."}</p>}
+          {r.note && <Rich text={r.note} />}
+        </details>
+      ))}
+    </div>
   );
 }
 
@@ -937,7 +1034,7 @@ function QuestionCard(p: {
       </div>
 
       <h3 className="fork-q"><Inline text={q.title} /></h3>
-      {index === 0 && ask.preamble.trim() && <Rich text={ask.preamble.trim()} className="rich preamble" />}
+      {index === 0 && dialogueOf(ask).preamble.trim() && <Rich text={dialogueOf(ask).preamble.trim()} className="rich preamble" />}
       {card.context && <Rich text={card.context} className="rich context" />}
       <ForkProse text={q.prose} />
 

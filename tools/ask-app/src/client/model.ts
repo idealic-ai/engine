@@ -3,6 +3,7 @@
  * and grouping of those rows, which option a fork leans to, and which trade-off dimensions are
  * worth a column on a fork. Pure, so the tests read it without a DOM.
  */
+import { isProvisional } from "./loop.ts";
 import { cardFor, draftAuthor, questionKey, visibleQuestions, type AnswerMap, type AnswerValue, type AskOption, type ParsedAsk } from "../lib/format.ts";
 
 export type StoredAsk = ParsedAsk & { seat: string; file: string; mtimeMs: number };
@@ -20,6 +21,8 @@ export type Row = {
   high: boolean;
   reserved?: string;
   waitingOnYou: boolean;
+  /** A provisional answer is out: the ask waits on its asker, not on you. */
+  draftSent: boolean;
   draft: boolean;
   seatDraft?: string;
   status: string;
@@ -53,6 +56,7 @@ export function askRow(a: StoredAsk, now = Date.now()): Row {
     return v !== undefined && !(Array.isArray(v) && v.length === 0) && v !== "";
   }).length;
   const settled = isSettled(a);
+  const draftSent = isProvisional(a);
   const created = Date.parse(a.header.created ?? "");
   const reserved = a.header["reserved-for"]?.trim() || undefined;
   const author = a.draft ? draftAuthor(a.draft) : "";
@@ -68,7 +72,8 @@ export function askRow(a: StoredAsk, now = Date.now()): Row {
     left: settled ? 0 : visible.length - answered,
     high: a.header.importance?.trim().toLowerCase() === "high",
     reserved,
-    waitingOnYou: a.header.status === "open" && (a.header.to?.trim() === "operator" || reserved === "operator"),
+    draftSent,
+    waitingOnYou: !draftSent && a.header.status === "open" && (a.header.to?.trim() === "operator" || reserved === "operator"),
     draft: !!a.draft && author === "operator",
     seatDraft: a.draft && author !== "operator" ? author : undefined,
     status: a.header.status ?? "open",
@@ -374,7 +379,9 @@ export type Filter = "open" | "drafts" | "settled" | "all";
  * SF-4: the one predicate behind both a filter's list and its count. Settled is answered or declined;
  * a superseded ask is in All only (it was replaced, not settled by anyone here).
  */
-export function rowInFilter(r: Pick<Row, "status" | "draft">, f: Filter): boolean {
+export function rowInFilter(r: Pick<Row, "status" | "draft"> & { draftSent?: boolean }, f: Filter): boolean {
+  // Round 5: a provisional answer waits on its asker, so it stays under Open, not Settled.
+  if (r.draftSent) return f === "all" || f === "open";
   return f === "all" ? true : f === "drafts" ? r.draft : f === "settled" ? r.status === "answered" || r.status === "declined" : r.status === "open";
 }
 
