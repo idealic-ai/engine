@@ -14,7 +14,9 @@
 #       With --of: SEAT's parent (one level further up, for a deliberate re-pass).
 #       exit 0  target on stdout.
 #       exit 3  target on stdout, but a dead rung was skipped (its parent read from the chain
-#               file); reason on stderr — record it in the row. A dead top → "operator".
+#               file); reason on stderr — record in the row the line naming the dead rung
+#               ("'<seat>' names no live pane …"), not the identity notes (stale FLEET_PANE /
+#               FLEET_PARENT, cache fallback) that can precede it. A dead top → "operator".
 #       exit 2  usage or config error (missing/unparseable config, bad hop.parentFrom,
 #               no identity for this seat). Nothing on stdout.
 #       exit 4  live tree unreadable. Nothing on stdout.
@@ -64,6 +66,27 @@ RESERVED_CLASSES="E F G"
 
 tm() { if [ -n "${HOP_TMUX_SOCKET:-}" ]; then tmux -L "$HOP_TMUX_SOCKET" "$@"; else tmux "$@"; fi; }
 
+# The shared live-first identity rule (fleet_self / fleet_parent) lives in scripts/lib.sh. It is
+# loaded on first use (hop_fleet), so ask-id, rowed, panes and may-rule never depend on it.
+_HOP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+_HOP_LIBS="$_HOP_DIR/../../../scripts/lib.sh $HOME/.claude/scripts/lib.sh"
+
+# _hop_load_lib — this tree's scripts/lib.sh first (a tree under test uses its own), then
+# ~/.claude/scripts/lib.sh. A candidate counts only if it defines fleet_self. An inherited
+# _LIB_SH_LOADED (lib.sh's double-source guard) is cleared first: the functions are provably not
+# in this shell, so the guard would only make the source a no-op.
+_hop_load_lib() {
+  declare -F fleet_self >/dev/null 2>&1 && return 0
+  local c
+  for c in $_HOP_LIBS; do
+    [ -r "$c" ] || continue
+    unset _LIB_SH_LOADED
+    source "$c"
+    declare -F fleet_self >/dev/null 2>&1 && return 0
+  done
+  return 1
+}
+
 # load_config <file or ""> <required 0|1> — validates; sets CFG to the path (or "").
 CFG=""
 load_config() {
@@ -101,20 +124,32 @@ seat_of_pane() { awk -v p="$2" '$2 == p { print $1; exit }' <<<"$1"; }
 
 # resolve_self <explicit> → this seat's window:label, or die 2.
 resolve_self() {
-  local s="$1" live=""
+  local s="$1" rc=0 err="" ef=""
+  [ -n "$s" ] && { echo "$s"; return 0; }
   # The live pane label wins over FLEET_PANE: run.sh caches FLEET_PANE at launch, so a seat
   # renamed since then still carries its old name there (domain:stats read "domain:domain").
-  if [ -z "$s" ] && [ -z "${HOP_LIVE_PANES:-}" ] && [ -n "${TMUX_PANE:-}" ]; then
-    live=$(tm display -p -t "$TMUX_PANE" '#{window_name}:#{@pane_label}' 2>/dev/null || true)
-    [ "$live" = ":" ] && live=""
-    if [ -n "$live" ] && [ -n "${FLEET_PANE:-}" ] && [ "$live" != "$FLEET_PANE" ]; then
-      echo "hop: FLEET_PANE '$FLEET_PANE' is stale; using the live pane label '$live'" >&2
-    fi
-    s="$live"
+  # fleet_self (scripts/lib.sh) holds the rule; exit 3 is its flagged cache fallback, used here
+  # as before when the live label cannot be read. Its notes pass through on success; on failure
+  # its reason is folded into the one die line.
+  ef=$(mktemp "${TMPDIR:-/tmp}/hop-self.XXXXXX" 2>/dev/null) || ef=""
+  if [ -n "$ef" ]; then
+    s=$(hop_fleet fleet_self 2>"$ef") || rc=$?
+    err=$(cat "$ef"); rm -f "$ef"
+  else
+    s=$(hop_fleet fleet_self) || rc=$?
   fi
-  [ -n "$s" ] || s="${FLEET_PANE:-}"
-  [ -n "$s" ] || die 2 "cannot resolve this seat's identity (no --self, no FLEET_PANE, no live pane label)"
+  case "$rc" in
+    0|3) [ -n "$err" ] && printf '%s\n' "$err" >&2 ;;
+    *) s="" ;;
+  esac
+  [ -n "$s" ] || die 2 "cannot resolve this seat's identity: no --self, and fleet_self exit $rc (${err#hop: })"
   echo "$s"
+}
+
+# hop_fleet <fn> [args…] — a lib.sh fleet identity call with hop's seam, socket and prefix.
+hop_fleet() {
+  _hop_load_lib || { echo "hop: no scripts/lib.sh defining fleet_self (tried: $_HOP_LIBS)" >&2; return 2; }
+  FLEET_LIVE_PANES="${HOP_LIVE_PANES:-}" FLEET_TMUX_SOCKET="${HOP_TMUX_SOCKET:-}" FLEET_WARN_PREFIX=hop "$@"
 }
 
 # walk <tree> <chain> <seat> — print the first live rung from SEAT upward; exit 0, or 3 if any
@@ -180,16 +215,13 @@ cmd_target() {
   live=$(col_of "$tree" "$self" 3)
   env="${FLEET_PARENT:-}"
   # The live edge cannot be read: FLEET_PARENT would be the only source, and it is a launch-time
-  # cache, so it is not trusted alone.
+  # cache, so it is not trusted alone (fleet_parent's exit-3 cache fallback is never taken here).
   [ -n "$live" ] || die 5 "this seat '$self' is not in the live tree — cannot read its edge (FLEET_PARENT='${env:-unset}' is not used alone)"
-  [ "$live" = "-" ] && live=""
   # A readable live edge always wins. run.sh caches FLEET_PARENT at launch, so a seat reparented
   # since then disagrees with it (stats: FLEET_PARENT=manager:director, live manager:domain).
-  if [ -n "$env" ] && [ "$env" != "$live" ]; then
-    echo "hop: FLEET_PARENT '$env' is stale; using the live @pane_parent '${live:-none}' of '$self'" >&2
-  elif [ -z "$env" ] && [ -n "$live" ]; then
-    echo "hop: FLEET_PARENT unset; using live @pane_parent '$live'" >&2
-  fi
+  # fleet_parent (scripts/lib.sh) applies that rule to the edge read from the tree: "-" is no
+  # parent, a differing or unset FLEET_PARENT is named on stderr.
+  live=$(hop_fleet fleet_parent --live "$live" --of "$self") || die 5 "the live edge of '$self' could not be applied"
   [ "$live" = "$self" ] && die 5 "the parent of '$self' is itself"
   [ "$live" = "operator" ] && die 5 "'operator' is not a seat; a seat with no parent reaches the operator by having no @pane_parent"
   walk "$tree" "$chain" "$live"

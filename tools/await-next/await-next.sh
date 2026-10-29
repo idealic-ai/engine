@@ -33,7 +33,7 @@ TIMEOUT=""
 PANES_FILTER=""
 CLAIMS=""
 TARGETED_CLAIMS=""
-SELF_PANE="${FLEET_PANE:-}"
+SELF_PANE=""        # --pane; else fleet_self (live label first) when targeted claims need it
 SESSIONS_DIR=""
 SOCKET="${FLEET_SOCKET:-fleet}"
 DO_CONNECT=1
@@ -46,7 +46,8 @@ Usage: await-next.sh [timeout_seconds] [options]
   --panes a,b            managed panes (default: $FLEET_MANAGES)
   --claims a,b           claim nouns  (default: $FLEET_CLAIMS)
   --targeted-claims a,b  targeted nouns (default: $FLEET_TARGETED_CLAIMS)
-  --pane window:label    this agent's identity (default: $FLEET_PANE)
+  --pane window:label    this agent's identity (default: the live pane label;
+                         $FLEET_PANE only when tmux cannot be read)
   --sessions-dir PATH    tag search root (default: <cwd>/sessions)
   --socket NAME          tmux socket (default: $FLEET_SOCKET or "fleet")
   --no-connect           skip the coordinator purple-layer connect/disconnect
@@ -83,6 +84,36 @@ fi
 [ -n "$PANES_FILTER" ]    || PANES_FILTER="${FLEET_MANAGES:-}"
 [ -n "$CLAIMS" ]          || CLAIMS="${FLEET_CLAIMS:-}"
 [ -n "$TARGETED_CLAIMS" ] || TARGETED_CLAIMS="${FLEET_TARGETED_CLAIMS:-}"
+
+# This seat's identity, only when a targeted claim needs it. run.sh caches FLEET_PANE at launch,
+# so a seat renamed since then would match tags addressed to its old name; fleet_self
+# (scripts/lib.sh) reads the live pane label first, warns when the cache differs, and falls back
+# to FLEET_PANE (exit 3) only when tmux cannot be read. It reads the agent's own server ($TMUX), not
+# --socket: $TMUX_PANE is an id on the server this agent runs in.
+if [ -z "$SELF_PANE" ] && [ -n "$TARGETED_CLAIMS" ]; then
+  # The tree's own scripts/lib.sh first, then ~/.claude/scripts/lib.sh; a candidate counts only if
+  # it defines fleet_self. An inherited _LIB_SH_LOADED is cleared first (the functions are
+  # provably absent, so the double-source guard would only make the source a no-op).
+  _an_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+  for _an_lib in "$_an_dir/../../scripts/lib.sh" "$HOME/.claude/scripts/lib.sh"; do
+    declare -F fleet_self >/dev/null 2>&1 && break
+    [ -r "$_an_lib" ] || continue
+    unset _LIB_SH_LOADED
+    source "$_an_lib"
+  done
+  if declare -F fleet_self >/dev/null 2>&1; then
+    _an_rc=0
+    # A renamed seat would otherwise repeat its stale warning on every loop turn.
+    SELF_PANE=$(FLEET_WARN_PREFIX=await-next FLEET_WARN_ONCE_DIR="${FLEET_WARN_ONCE_DIR:-${TMPDIR:-/tmp}/fleet-warn-once-$(id -u)}" fleet_self) || _an_rc=$?
+    case "$_an_rc" in
+      0|3) ;;
+      *) SELF_PANE=""
+         echo "await-next: this seat's identity is unknown (fleet_self exit $_an_rc); targeted tags are skipped — pass --pane" >&2 ;;
+    esac
+  else
+    echo "await-next: no scripts/lib.sh defining fleet_self (tried $_an_dir/../../scripts/lib.sh and ~/.claude/scripts/lib.sh); targeted tags are skipped — pass --pane" >&2
+  fi
+fi
 [ -n "$SESSIONS_DIR" ]    || SESSIONS_DIR="$PWD/sessions"
 
 TMUX_FMT='#{pane_id}|#{@pane_notify}|#{@pane_fleet_id}|#{@pane_label}|#{@pane_user_focused}|#{session_name}:#{window_name}|#{pane_title}'

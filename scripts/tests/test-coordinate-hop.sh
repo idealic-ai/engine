@@ -177,11 +177,14 @@ test_target_unreadable_tree_fails_loudly() {
 
 # A seat renamed after launch: run.sh cached FLEET_PANE=domain:domain, the live label reads
 # domain:stats. The live label must win, with a stale warning. tmux is a PATH stub here (the
-# hop() seam sets HOP_LIVE_PANES, which turns the live-label read off), so no server is touched.
+# hop() seam sets HOP_LIVE_PANES, which feeds the self read from the fixture), so no server is
+# touched. fleet_self (scripts/lib.sh) reads only with a $TMUX, addressed with -S: the stub gets a
+# fake one and skips that prefix.
 live_label_hop() { # live_label_hop <env and args…> — hop.sh against the stub tmux, pane %60
   mkdir -p "$FIX/bin"
   cat > "$FIX/bin/tmux" <<EOF
 #!/bin/bash
+while [ "\${1:-}" = -S ] || [ "\${1:-}" = -L ]; do shift 2; done
 case "\$1" in
   display) [ "\$4" = "%60" ] && echo "domain:stats" ;;
   list-panes) cat "$FIX/live.txt"; echo "domain:stats %60 manager:domain" ;;
@@ -190,7 +193,7 @@ esac
 EOF
   chmod +x "$FIX/bin/tmux"
   env -u FLEET_PARENT -u FLEET_PANE -u HOP_CHAIN_FILE -u HOP_LIVE_PANES -u HOP_TMUX_SOCKET \
-    PATH="$FIX/bin:$PATH" TMUX_PANE=%60 "$@"
+    PATH="$FIX/bin:$PATH" TMUX="$FIX/sock,1,0" TMUX_PANE=%60 "$@"
 }
 
 test_target_live_label_beats_a_stale_fleet_pane() {
