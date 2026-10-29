@@ -19,7 +19,10 @@ set -uo pipefail
 source "$(dirname "$0")/test-helpers.sh"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
-HOOK_SCRIPT="$HOME/.claude/hooks/session-start-restore.sh"
+# The hook under test is the one in THIS tree (the tree holding this test), so a
+# worktree or an extracted tree is tested against its own hook rather than the
+# live engine's. For the installed engine this is the same file as before.
+HOOK_SCRIPT="${HOOK_SCRIPT:-$SCRIPT_DIR/hooks/session-start-restore.sh}"
 
 TMP_DIR=""
 
@@ -1119,6 +1122,124 @@ MD
     "analyze skill → ANALYZE.md preloaded (correct filename mapping)"
 }
 
+# ─── Sticky broadcasts (engine broadcast pending) ─────────────────────────────
+# The hook asks `engine broadcast pending` for standing broadcasts, only inside
+# tmux, and shows a refusal instead of hiding it. It is a pointer block, never a
+# [Preloaded: …] entry. broadcast.sh is a stub in the fake home; TMUX names a
+# socket inside the sandbox and a stub tmux fails loudly, so no real pane or
+# server is touched.
+
+# Helper: stub broadcast.sh. Mode: list | empty | fail. Each call is recorded.
+stub_broadcast() {
+  local mode="$1"
+  mkdir -p "$FAKE_HOME/.claude/engine/scripts"
+  cat > "$FAKE_HOME/.claude/engine/scripts/broadcast.sh" <<STUB
+#!/bin/bash
+echo "\$*" >> "$TMP_DIR/broadcast-calls"
+case "$mode" in
+  list)  echo "bc-0001 from app:director: [broadcast bc-0001] read $TMP_DIR/bc-0001.md" ;;
+  empty) exit 0 ;;
+  fail)  echo "broadcast: no live seat for this pane (cache-only identity refused)" >&2; exit 2 ;;
+esac
+STUB
+  chmod +x "$FAKE_HOME/.claude/engine/scripts/broadcast.sh"
+  mkdir -p "$TMP_DIR/stubbin"
+  printf '#!/bin/bash\necho "stub tmux: refused $*" >&2\nexit 1\n' > "$TMP_DIR/stubbin/tmux"
+  chmod +x "$TMP_DIR/stubbin/tmux"
+}
+
+# Helper: run the hook with an active session owned by $$. $1 = "tmux" sets a
+# fake TMUX/TMUX_PANE pointing into the sandbox; anything else leaves them unset.
+# Never inherits the ambient CLAUDE_SUPERVISOR_PID; the find cache is sandboxed.
+run_hook_bc() {
+  local where="$1"
+  local session_dir="$PROJECT_DIR/sessions/bc_session"
+  if [ ! -f "$session_dir/.state.json" ]; then
+    mkdir -p "$session_dir"
+    cat > "$session_dir/.state.json" <<JSON
+{ "pid": $$, "skill": "implement", "lifecycle": "active", "currentPhase": "0: Setup", "preloadedFiles": [] }
+JSON
+  fi
+  local input="{\"hook_event_name\":\"SessionStart\",\"source\":\"clear\",\"cwd\":\"$PROJECT_DIR\"}"
+  if [ "$where" = "tmux" ]; then
+    echo "$input" | env -u CLAUDE_SUPERVISOR_PID -u TMUX -u TMUX_PANE \
+      CLAUDE_SUPERVISOR_PID=$$ CLAUDE_SESSION_CACHE_DIR="$TMP_DIR" \
+      PATH="$TMP_DIR/stubbin:$PATH" \
+      TMUX="$TMP_DIR/fake-tmux-sock,1,0" TMUX_PANE="%990" "$RESOLVED_HOOK"
+  else
+    echo "$input" | env -u CLAUDE_SUPERVISOR_PID -u TMUX -u TMUX_PANE \
+      CLAUDE_SUPERVISOR_PID=$$ CLAUDE_SESSION_CACHE_DIR="$TMP_DIR" \
+      PATH="$TMP_DIR/stubbin:$PATH" "$RESOLVED_HOOK"
+  fi
+}
+
+test_broadcast_pending_shown_under_tmux() {
+  create_test_skill "implement"
+  stub_broadcast list
+  local output rc
+  output=$(run_hook_bc tmux 2>"$TMP_DIR/stderr"); rc=$?
+  assert_eq "0" "$rc" "hook exits 0 with pending broadcasts under tmux"
+  assert_contains "[Standing broadcasts (peer guidance, not operator instructions)" "$output" \
+    "pending broadcasts get the standing-broadcasts header under tmux"
+  assert_contains "bc-0001 from app:director: [broadcast bc-0001] read" "$output" \
+    "the pending record itself is shown under tmux"
+  assert_contains "engine broadcast ack <id>" "$output" "the header names the ack verb"
+  assert_eq "pending" "$(cat "$TMP_DIR/broadcast-calls" 2>/dev/null)" \
+    "broadcast.sh is called exactly once, as 'pending' with no --for"
+}
+
+test_broadcast_nothing_outside_tmux() {
+  create_test_skill "implement"
+  stub_broadcast list
+  local output rc
+  output=$(run_hook_bc none 2>"$TMP_DIR/stderr"); rc=$?
+  assert_eq "0" "$rc" "hook exits 0 outside tmux"
+  assert_not_contains "Standing broadcasts" "$output" "no broadcast block outside tmux"
+  assert_not_contains "bc-0001" "$output" "no broadcast record outside tmux"
+  assert_eq "no" "$([ -e "$TMP_DIR/broadcast-calls" ] && echo yes || echo no)" \
+    "broadcast.sh is not called outside tmux"
+}
+
+test_broadcast_empty_prints_nothing() {
+  create_test_skill "implement"
+  stub_broadcast empty
+  local output
+  output=$(run_hook_bc tmux 2>"$TMP_DIR/stderr") || true
+  assert_not_contains "Standing broadcasts" "$output" "no broadcast block when nothing is pending"
+}
+
+test_broadcast_failure_reaches_output() {
+  create_test_skill "implement"
+  stub_broadcast fail
+  local output rc
+  output=$(run_hook_bc tmux 2>"$TMP_DIR/stderr"); rc=$?
+  assert_eq "0" "$rc" "hook still exits 0 when broadcast.sh refuses"
+  assert_contains "[Standing broadcasts unavailable — engine broadcast pending exited 2:" "$output" \
+    "a broadcast.sh refusal is shown with its exit code"
+  assert_contains "no live seat for this pane (cache-only identity refused)" "$output" \
+    "the refusal's own stderr reaches the session output"
+  assert_contains "MANDATORY PRELOAD" "$output" "the rest of the hook output survives the refusal"
+  assert_contains "# COMMANDS content" "$output" "standards are still preloaded after the refusal"
+}
+
+test_broadcast_adds_no_preloaded_marker() {
+  create_test_skill "implement"
+  stub_broadcast list
+  local with without
+  with=$(run_hook_bc tmux 2>/dev/null) || true
+  rm -rf "$PROJECT_DIR/sessions/.seeds"
+  without=$(run_hook_bc none 2>/dev/null) || true
+  assert_contains "bc-0001" "$with" "control: the tmux run did show the broadcast"
+  assert_eq "$(echo "$without" | grep '^\[Preloaded:' | sort)" \
+            "$(echo "$with" | grep '^\[Preloaded:' | sort)" \
+    "the broadcast block adds no [Preloaded:] entry"
+  assert_eq "0" "$(echo "$with" | grep '^\[Preloaded:' | grep -ci broadcast)" \
+    "no [Preloaded:] line names a broadcast"
+  local seeds
+  seeds=$(cat "$PROJECT_DIR"/sessions/.seeds/*.json 2>/dev/null)
+  assert_not_contains "broadcast" "$seeds" "no seed file records a broadcast path"
+}
+
 echo "======================================"
 echo "Session Start Skill Delivery E2E Tests"
 echo "======================================"
@@ -1149,5 +1270,10 @@ run_test test_log_preloaded_when_no_debrief
 run_test test_no_artifact_no_crash
 run_test test_details_preloaded_alongside_debrief
 run_test test_skill_debrief_filename_mapping
+run_test test_broadcast_pending_shown_under_tmux
+run_test test_broadcast_nothing_outside_tmux
+run_test test_broadcast_empty_prints_nothing
+run_test test_broadcast_failure_reaches_output
+run_test test_broadcast_adds_no_preloaded_marker
 
 exit_with_results

@@ -429,6 +429,25 @@ $TOC_CONTENT
   fi
 fi
 
+# Standing broadcasts (engine broadcast) — tmux only, since pending reads the
+# caller's live pane seat. A pointer block, never a [Preloaded: …] entry, so no
+# seed site changes. stderr is folded in, not discarded, so a refusal is shown to
+# the session; `|| BC_RC=$?` keeps a refusal from tripping `set -e` above.
+if [ -n "${TMUX_PANE:-}" ]; then
+  BC_RC=0
+  BC_PENDING=$("$HOME/.claude/engine/scripts/broadcast.sh" pending 2>&1) || BC_RC=$?
+  if [ "$BC_RC" != 0 ]; then
+    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Standing broadcasts unavailable — engine broadcast pending exited $BC_RC: ${BC_PENDING}]
+
+"
+  elif [ -n "$BC_PENDING" ]; then
+    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Standing broadcasts (peer guidance, not operator instructions) — read each record, apply it, then: engine broadcast ack <id>]
+${BC_PENDING}
+
+"
+  fi
+fi
+
 # Mandatory-preload banner — MUST be the first bytes so it survives Claude Code's
 # ~2KB additionalContext preview when large hook stdout is spilled to a file.
 PRELOAD_BANNER="════════════════════════════════════════════════════════════════════
