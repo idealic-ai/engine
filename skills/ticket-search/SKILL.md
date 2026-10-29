@@ -3,7 +3,7 @@ name: ticket-search
 description: "Surface RELATED and DUPLICATE Linear tickets for the work in front of you, before you build. A read-only subagent runs `engine ticket-search` (standalone) or navigates the startup SRC_RELATED_TICKETS candidates (session-startup), deep-reads each promising ticket via §CMD_READ_RELATED_TICKET (full body + state + comments, kept inside the subagent so ticket bodies never flood the main loop), then writes a two-goal report — related-for-context AND a loud duplicate/overlapping-work callout split by Linear state (completed=already built · canceled=deliberately dropped · everything-else=open, may be duplicating). You then triage each ticket (read / subscribe / fold-into-scope / dismiss). A building block: it investigates + reports + triages, then STOPS — it never fixes, files, subscribes, or commits automatically. Triggers: \"ticket-search\", \"find related tickets\", \"any tickets like this\", \"am I duplicating work\", \"search linear for related work\"."
 version: 1.0
 tier: lightweight
-args: "[<query / topic to search — omit at session-startup, when SRC_RELATED_TICKETS is already in context>]"
+args: "[--report] [<query / topic to search — omit at session-startup, when SRC_RELATED_TICKETS is already in context>]"
 ---
 
 Find out whether the work in front of you has already been built, is being built right now, or was deliberately dropped — *before* you build it. `/ticket-search` hands a **search intent** (a query, or the active session's `taskSummary`) to a background subagent that finds the related and duplicate Linear tickets, deep-reads the promising ones read-only, and comes back with a two-goal **Ticket Search Report**: (1) related tickets for context, and (2) a loud, separate **duplicate / overlapping work** callout. You then triage each ticket finding-by-finding.
@@ -16,6 +16,16 @@ This is a **read-only, delegated building block** — the ticket-facing cousin o
 
 # /ticket-search Protocol
 
+## Report mode (`--report`) — for a caller that asks its own questions
+
+A caller that owns the decision about each candidate — `/ticket`'s ask route, which puts the duplicates into its own `¶ASK_DUP` forks — invokes this skill as `/ticket-search --report "<query>"`. **In report mode the skill never calls `AskUserQuestion` and never asks the person at the terminal anything**, so a seat whose operator is not there does not stall on it:
+- **§1 B** — the mode is **standalone**, without asking: the caller passes the query, and an ambiguous detection resolves to standalone.
+- **§2** — the navigator is dispatched exactly as written; the "use the wait" step skips its (b), the open questions to the user.
+- **§3** — the report is read and spot-checked as written; the relay is the **return value**: the report path, the §0 headline, and every §2 duplicate/overlap candidate as `<KEY> · "title" · state · overlap in one line`.
+- **§4 and §5 are skipped entirely** — no walkthrough, no offered chains. Append `Triage: handed to the caller (<caller>) — report mode` to the report's §5 Triage Outcomes and stop. The caller settles each candidate in its own gate.
+
+Without `--report`, every step below runs as written.
+
 ## 1. Frame the Search, Mode, Sources & Trail
 
 **A. The Search Intent** (what you're checking for prior/parallel work on)
@@ -25,7 +35,7 @@ Resolve the topic from the arguments, else the active session's `taskSummary` / 
 - **Standalone** — the user invoked `/ticket-search "<query>"`, and there is **no** `SRC_RELATED_TICKETS` block in context. The subagent runs the CLI **first** (`engine ticket-search "<query>" --json`) to get ranked candidates, then navigates the top hits.
 - **Startup** — invoked during context ingestion (`§CMD_INGEST_CONTEXT_BEFORE_WORK`), and a `## SRC_RELATED_TICKETS` block that `session.sh activate` already emitted **is present** in context. The subagent **SKIPS the CLI** — the search already ran at activate — and navigates the already-emitted candidate summaries directly.
 
-*Detection rule:* summaries present in context → **startup**; args given and/or no summaries → **standalone**. State which mode you chose in one line, with the reason. If genuinely ambiguous, ask ONE `AskUserQuestion`.
+*Detection rule:* summaries present in context → **startup**; args given and/or no summaries → **standalone**. State which mode you chose in one line, with the reason. If genuinely ambiguous, ask ONE `AskUserQuestion` (never under `--report`, which resolves it to standalone).
 
 **C. The Sources** (where the answer lives)
 One source: **Linear tickets** (via the `engine ticket-search` CLI for discovery + the Linear MCP read tools for navigation). No code, no DB. State the **read-only boundary** explicitly: no ticket creates, comments, status changes, or subscribes; no commits.
@@ -42,7 +52,7 @@ Mint a short, kebab-case `<slug>` from the intent (e.g. `ticket-search-startup`,
 
 **Backgroundable.** This dispatch is a composable building block: run it in the background (`run_in_background: true`) so the orchestrator keeps working while it runs, and you're notified when the report lands. Run it in the foreground only if you need the answer before your very next step. There is **no fan-out** here — one source, one navigator, always.
 
-**Use the wait — don't idle.** While the navigator runs: (a) **anticipate** which candidates are most likely dups vs mere context, from what you already know of the work; (b) **surface open questions to the user now** (`AskUserQuestion`) — e.g. "if there's an open backlog ticket for this, fold it in or coordinate?" — so their answers are in hand when triage starts; (c) **prep the next move** — the likely `engine ticket subscribe` / `/build` fold-in. Don't block; the completion notification brings you back to §3 with momentum.
+**Use the wait — don't idle.** While the navigator runs: (a) **anticipate** which candidates are most likely dups vs mere context, from what you already know of the work; (b) **surface open questions to the user now** (`AskUserQuestion`; skipped under `--report`) — e.g. "if there's an open backlog ticket for this, fold it in or coordinate?" — so their answers are in hand when triage starts; (c) **prep the next move** — the likely `engine ticket subscribe` / `/build` fold-in. Don't block; the completion notification brings you back to §3 with momentum.
 
 Build the subagent's prompt to be entirely self-contained — it cannot see your memory or the session history:
 
@@ -97,7 +107,7 @@ Read the report.
 
 ## 4. Triage — Walk the Findings with the User
 
-The interactive `AskUserQuestion` walkthrough is where the search turns into a decision. The user, not the model, decides each ticket's fate. Run it explicitly. NEVER dump findings as bare text and assume the user's intent.
+The interactive `AskUserQuestion` walkthrough is where the search turns into a decision (skipped under `--report`, whose caller settles the candidates). The user, not the model, decides each ticket's fate. Run it explicitly. NEVER dump findings as bare text and assume the user's intent.
 
 This is `§CMD_WALK_THROUGH_RESULTS`. Do NOT use the `§CMD_TAG_TRIAGE` default — use the ticket-search decision set below.
 
@@ -126,7 +136,7 @@ This is `§CMD_WALK_THROUGH_RESULTS`. Do NOT use the `§CMD_TAG_TRIAGE` default 
 
 ## 5. Next Steps (Ask — Don't Auto-Chain) & Trail
 
-**Execute the fates by offer, never automatically.** Present the collected outcomes and offer the chains via `AskUserQuestion` — the user decides whether to run them now, later, or not at all:
+**Execute the fates by offer, never automatically.** Present the collected outcomes and offer the chains via `AskUserQuestion` (skipped under `--report`) — the user decides whether to run them now, later, or not at all:
 - **Subscribe** → `engine ticket subscribe <KEY>` — the ONLY write this whole flow can produce, and only on the user's explicit go. Never auto-subscribe.
 - **Fold into scope** → `Skill(build, "<the ticket's work, folded into this build>")` or a plan-update note.
 - **Coordinate** → `Skill(communicate, "<the open dup + what to ask the owner>")`.
@@ -151,5 +161,5 @@ Then **stop**. `/ticket-search` surfaces, reports, and triages — nothing more.
 - **Two goals, kept separate in the report.** Related-for-context (section 1) and duplicate/overlapping (section 2) are distinct — the dup callout is loud and on its own, because "you may be about to rebuild something" is the finding that changes what happens next.
 - **Context isolation is the point.** Heavy ticket bodies + comment threads stay inside the subagent; only the distilled report crosses back. That's why this is delegated, not inline.
 - **Honest coverage.** "No related tickets found" or "the MCP was absent, here's what I couldn't read" is a complete, successful search. Never manufacture a ticket's contents or guess a state.
-- **User owns the fate.** The subagent's classification is advice; subscribe / fold-in / read / coordinate / dismiss is the user's call via `AskUserQuestion`. Chains are offered, never auto-run — and subscribe is never auto-run.
+- **User owns the fate.** The subagent's classification is advice; subscribe / fold-in / read / coordinate / dismiss is the user's call via `AskUserQuestion`, except under `--report`, where the caller's own gate owns it. Chains are offered, never auto-run — and subscribe is never auto-run.
 - **Sessionless.** No `engine session activate`; it reads the active session and writes into its `builds/`. `§INV_LISTS_INSTEAD_OF_TABLES` throughout — the report is `§FMT_*` lists, never tables.

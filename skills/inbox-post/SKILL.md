@@ -3,7 +3,7 @@ name: inbox-post
 description: "Post an item into a project's intake inbox — resolves the Linear Project, classifies the item into the best-fit inbox channel, fills that channel's reporter template, and posts it as a comment — then triangulates what it posted and replies to the drop with the finding, so an item arrives with an answer under it instead of waiting for the next wave. When that finding comes back clean on a defect channel it offers to file the item as a ticket via /ticket, gated narrowly and always confirmed by a human; everything it holds back marinates for the next wave. The front-door companion to /intake (which then organizes, marinates, and promotes the rest). Triggers: \"drop this into the inbox\", \"post an inbox item\", \"file this to observed problems\", \"report this bug to intake\", \"inbox-post\"."
 version: 1.1
 tier: lightweight
-args: "[item text or hint]"
+args: "[--channel \"<project> :: <channel>\" --fields <file>] [item text or hint]"
 ---
 
 Quick front-door for the intake system: drops one well-formed item into the right project's right inbox channel.
@@ -40,15 +40,25 @@ Quick front-door for the intake system: drops one well-formed item into the righ
 
 *A project may not have all of them — the set is contextual (`¶INV_INBOX_IS_TICKETS`). Resolve the actual set from `INBOX_REGISTRY.md` or discovery; never assume a channel exists because it is listed here.*
 
+## Preset mode (`--channel`) — the target was already chosen
+
+A caller that has already settled where the item goes — `/ticket`'s ask route, whose `¶ASK_SUBJ` answer `TOOL` chose 🛠️ Tooling & Gates — invokes this skill as `/inbox-post --channel "<project> :: <channel>" --fields <file>`, where `<file>` holds the channel template already filled (the shared core plus that channel's fields, as the answerer approved them). **In preset mode the skill asks the person at the terminal nothing before the post:**
+- **Step 1** — the project is the one named; no `AskUserQuestion`.
+- **Step 2** — the channel is the one named; no `AskUserQuestion`. The handbook is still read for `## Directions` and `## Ticketing Strategy`. If the named channel is not in the project's channel set, **refuse**: post nothing and return `refused: <project> has no <channel>`, never a substitute channel.
+- **Step 3** — the fields come from `<file>`. If a critical field is missing (step 3 names them per channel; for 🛠️ every field of its template is critical), **refuse**: post nothing and return `refused: missing fields: <field>, <field>`. The caller puts those fields into its own ask; this skill never asks for them at a seat's terminal.
+- **Steps 4–7** run as written; step 6 asks only through the route it states below.
+
+Without `--channel`, every step below runs as written.
+
 ## Algorithm
 
 ### 1. Resolve the project
 *   If an `/intake` session is active, default to its project (from its `INTAKE.md`).
 *   Else infer from the item + working context and match against `INBOX_REGISTRY.md`.
-*   If ambiguous or multiple candidates, confirm via `AskUserQuestion` (offer the registry's projects).
+*   If ambiguous or multiple candidates, confirm via `AskUserQuestion` (offer the registry's projects), except under `--channel`, which names the project.
 
 ### 2. Classify the channel
-*   Read the item; pick the best-fit channel from the project's actual set. **Confirm via `AskUserQuestion`** — misfiling costs `/intake` an organize step, so a one-tap confirm is worth it. A single item may span channels → pick the **primary**, and note the cross-link in the comment body.
+*   Read the item; pick the best-fit channel from the project's actual set. **Confirm via `AskUserQuestion`** (never under `--channel`, which already chose it) — misfiling costs `/intake` an organize step, so a one-tap confirm is worth it. A single item may span channels → pick the **primary**, and note the cross-link in the comment body.
 *   **Machinery goes to 🛠️ Tooling & Gates, not to a defect channel.** When the item's subject is a guard or check, tooling, a seat/ownership question, or agent-coordination machinery, it classifies here — **even when it reads like a symptom**, which is exactly why it keeps landing in 🔴. The discriminator is the same one `/ticket`'s Subject Gate uses: strip the proposed fix and ask what is left wrong. Something broken in the **product** is a defect channel; nothing left but the machinery is 🛠️. Say both halves in the body — the **report** is this drop, and the **resolution** belongs in the repo (the gate board, the owning package's `.directives/` file, or the ownership line). **A 🛠️ item does not graduate to a ticket**; step 6 never offers one here, and that is the channel working, not a gap.
 *   **A tooling item arriving as a refused ticket draft is the same item.** `/ticket`'s Subject Gate redirects here by name; take the draft's premise as the report and do not re-litigate the refusal.
 *   **One named project is carved out of the subject half, and in it machinery is ordinary domain work.** `§INV_LOOM_HANDBOOK_BEFORE_FILING` and `/ticket`'s Subject Gate (§3 step 0) state the carve-out and name the project; read it there rather than keeping a copy here, and never widen it to a second project on the strength of a resemblance. What changes for an item targeting that project: the bullet above does not force it into 🛠️, so classify it on its own shape — a symptom to 🔴, a diagnosed gap to 🟠, a wanted behaviour to 🔵 — and **step 6's ticket offer is not suppressed on subject grounds**, though that project's `## Ticketing Strategy` still gates it. What does not change: a **missing** guard is still not a ticket subject anywhere, since stripping the fix leaves nothing wrong today. **Where the carved-out project publishes no channels at all, nothing here overrides step 2's no-channel branch** — report the item unposted with its reason and offer the repository half, exactly as for any other project.
@@ -61,7 +71,7 @@ Quick front-door for the intake system: drops one well-formed item into the righ
     *   **Never gate the drop on any of them.** Half-formed is still welcome; a steer is not an entry fee. In particular, Ticketing Strategy governs what *graduates* — what `/intake` promotes, and whether step 6 offers a ticket at all — never what a reporter is allowed to *report*. Do not talk anyone out of dropping something because it looks too small; a drop that will never clear step 6's gate is still a drop worth having, and it marinates rather than being turned away.
 
 ### 3. Fill the template
-*   Load that channel's template from `CHANNEL_TEMPLATES.md`. Pre-fill fields known from context (reporter, refs, app page URL). Ask for the **missing critical** fields in ONE `AskUserQuestion` round — app page URL, repro/expected-actual (Observed problems), who reported it, what it blocks. Optional fields left blank are fine (half-formed is welcome).
+*   Load that channel's template from `CHANNEL_TEMPLATES.md`. Pre-fill fields known from context (reporter, refs, app page URL). Ask for the **missing critical** fields in ONE `AskUserQuestion` round (under `--channel`, refuse with the list of missing fields instead) — app page URL, repro/expected-actual (Observed problems), who reported it, what it blocks. Optional fields left blank are fine (half-formed is welcome).
 *   **Evidence rides with the DROP, never a private preview (`§INV_PROVE_S3_URL_IS_SHAREABLE`, `§INV_CHANNEL_EVIDENCE_RIDES_THE_COMMENT`).** When the evidence is a rendered proof / report / screenshot / source document on disk (e.g. `builds/<slug>_PROOF.html`, a PNG, the transcript you are summarizing), plan to **upload it and embed it in the comment body** in step 4 — never as a ticket-level attachment. A `/prove` proof also has a public **S3 URL** (uploaded via `assets/publish-s3.sh`) a teammate can open directly — reference that if you have it. Either way the reader must be able to open the evidence without the author's session, **and** be able to tell which drop it belongs to.
 *   **If you are describing something you read in a file, attach that file.** A summary is not a substitute for the source — this is the handbook's own rule, and it binds the poster as much as a human dropper. A restructured or condensed version in the comment body is fine *alongside* the source, never *instead of* it.
 *   **Comment references in the body use `§FMT_TICKET_COMMENT_LINK`.** The `Source` line and any cross-reference to a specific comment (a 🟣 transcript passage, a related drop) renders as a labeled `#comment-<shortId>` deep-link, never a bare comment id or a link that only reaches the issue; ticket keys use `§FMT_TICKET_LINK`.
@@ -116,7 +126,7 @@ The triangulation has already paid the ledger's own bar for corroboration — *"
 
 So **offer** to file it, and let the human decide.
 
-**Nothing here files anything on its own.** The offer is an `AskUserQuestion`, the filing is `/ticket` under its own confirm, and an unanswered offer files nothing (`¶INV_INTAKE_DISPATCHES_NEVER_EXECUTES`). `/inbox-post` never calls `save_issue`.
+**Nothing here files anything on its own.** The offer is a question to a person, the filing is `/ticket` under its own confirm, and an unanswered offer files nothing (`¶INV_INTAKE_DISPATCHES_NEVER_EXECUTES`). `/inbox-post` never calls `save_issue`.
 
 **Step 5 skipped → no offer.** A skipped investigation produced no verdict, so there is nothing to gate on; the skip note already explains the silence and needs no second line.
 
@@ -166,6 +176,8 @@ Name the condition in one line, in the run's report **and** in the reply posted 
 #### The offer, and what an acceptance does
 
 Ask **after** the reply has posted, with the finding in one line and the milestone the Disposition names, so the answer is informed: file it now · leave it to marinate · leave it, with a reason.
+
+**Who is asked follows `/ticket`'s § Gate route.** Run `hop.sh target` as that section says. **When it names a seat** (or nobody is at this terminal), the offer is not asked here at all: dispatch `Skill(ticket, …)` as below straight away, and its ask route puts the offer and the post confirm up as its one ask to that seat — a `DROP` or an unanswered ask leaves the item marinating, exactly as an unanswered offer does. **Only a seat with no parent whose operator is at this terminal** gets the offer as an `AskUserQuestion` for the operator.
 
 **Carry the context-siblings into the question as a caveat** — *"`## Related` also names ENG-1234, same area, not the same defect"*. They did not block the offer, and the person deciding is the one who should see them.
 
