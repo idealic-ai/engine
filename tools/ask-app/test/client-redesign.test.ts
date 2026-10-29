@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { parseAskFile } from "../src/lib/format.ts";
-import { acceptAll, askRow, buildAnswers, clickPicks, groupRows, headerLeanEntries, leanCodeFor, leanFor, nextFork, parseHash, resolveFork, saysMore, sortRows, suggestionsFor, tradeoff } from "../src/client/model.ts";
+import { rowInFilter, acceptAll, askRow, buildAnswers, clickPicks, groupRows, headerLeanEntries, leanCodeFor, leanFor, nextFork, parseHash, resolveFork, saysMore, sortRows, suggestionsFor, tradeoff } from "../src/client/model.ts";
 import { paneTrust, proofOriginsFromEnv } from "../src/client/related.ts";
 import { clampRatio, clampSide, sideDefault, Split, SIDE_MIN, SIDE_MAX } from "../src/client/layout.tsx";
 import { escDepth, pushEsc } from "../src/client/esc.ts";
@@ -352,7 +352,8 @@ describe("round 3: popovers", () => {
     const draft = text.replace("status: open", "status: open\ndraft: 2026-10-29T11:00:00.000Z") + '\n```json draft\n{"answers":{"A":["X","XA"]},"answeredBy":"operator","basedOn":1,"savedAt":"2026-10-29T11:00:00.000Z"}\n```\n';
     const a = stored(draft);
     const html = renderToStaticMarkup(createElement(AskDetail, { ask: a, all: [a], onChanged: () => {} }));
-    expect(html).not.toContain("aria-expanded");
+    expect(html).not.toMatch(/class="lens-mark"[^>]*aria-expanded/);
+    expect(html).not.toMatch(/data-ticket[^>]*>[^<]*<a[^>]*aria-expanded/);
     const names = [...html.matchAll(/type="radio" name="([^"]+)"/g)].map((m) => m[1]);
     expect(new Set(names).size).toBe(2);
     expect(names).toContain("idealic:ui/a1#A/top/X");
@@ -467,5 +468,168 @@ describe("round 4: the URL is the app's state", () => {
     const primary = [...html.matchAll(/<button class="btn primary"[^>]*>([^<]*)<\/button>/g)].map((m) => m[1]);
     expect(primary).toEqual(["Send 2 answers"]);
     expect(html).toMatch(/<button class="btn quiet">Update draft<\/button>/);
+  });
+});
+
+// ── round 5: the ask loop ──────────────────────────────────
+
+import { DRAFT_NOTE, REQUEST_KINDS, composeNote, needsUnansweredConfirm, dialogueOf, earlierRounds, isProvisional, parseRequestLine, priorPicks, provisionalAnswers, requestLine, sendProvisional } from "../src/client/loop.ts";
+
+describe("round 5 (1): the request line", () => {
+  it("is byte-exact: `request: <kind>[:<arg>] — <operator text>`, one space each side of an em dash", () => {
+    const line = requestLine("council:critique", "is BIND worth the migration?");
+    expect(line).toBe("request: council:critique — is BIND worth the migration?");
+    expect([...line.slice(25, 28)].map((c) => c.codePointAt(0))).toEqual([0x20, 0x2014, 0x20]);
+    expect(requestLine("details", "  what does  F2   change?\n")).toBe("request: details — what does F2 change?");
+    expect(requestLine("proof:best", "show me the map")).toBe("request: proof:best — show me the map");
+  });
+
+  it("offers exactly the agreed kinds, with proof:best labelled as the default", () => {
+    expect(REQUEST_KINDS.map((k) => k.kind)).toEqual([
+      "details", "reword", "proof:best", "proof:prove", "proof:explore", "proof:visionary", "proof:plan", "proof:explanation",
+      "council:critique", "council:design-off", "council:ideas", "council:refute", "vote", "scrutinize",
+    ]);
+    expect(REQUEST_KINDS.find((k) => k.kind === "proof:best")?.label).toBe("Best match: the asker picks the page type");
+  });
+
+  it("refuses an unknown kind or empty words, reads its own line back, and comes first in the note", () => {
+    expect(() => requestLine("council:vibes", "x")).toThrow("unknown request kind");
+    expect(() => requestLine("details", "   ")).toThrow("operator's words");
+    const note = composeNote(requestLine("council:design-off", "two shapes side by side"), "Also: F3 can wait.");
+    expect(note).toBe("request: council:design-off — two shapes side by side\nAlso: F3 can wait.");
+    expect(parseRequestLine(note)).toEqual({ kind: "council", arg: "design-off", text: "two shapes side by side" });
+    expect(parseRequestLine("request: vote — yes")).toEqual({ kind: "vote", text: "yes" });
+    expect(parseRequestLine("no request here")).toBeUndefined();
+    expect(composeNote("request: vote — yes", "  ")).toBe("request: vote — yes");
+  });
+
+  it("with no picks the request rides in the first fork's free-text slot, since an empty answer is refused", () => {
+    const a = stored(OPF);
+    expect(provisionalAnswers(a, {}, "request: details — why?")).toEqual({ "F1.other": "request: details — why?" });
+    expect(provisionalAnswers(a, { F2: ["DEGR"] }, "x")).toEqual({ F2: ["DEGR"] });
+  });
+});
+
+describe("round 5 (2): Send as draft, and the fallback when the server drops `provisional`", () => {
+  const args = { seat: "idealic:ui", id: "a1", expectedRevision: 1, answers: { F2: ["DEGR"] }, note: composeNote(DRAFT_NOTE, "") };
+  const answered = (extra: string) => stored(OPF.replace("status: open", "status: answered") + `\n\`\`\`json answer\n{"answers":{"F2":["DEGR"]},"answeredBy":"operator","note":${JSON.stringify(DRAFT_NOTE)}${extra}}\n\`\`\`\n`);
+
+  it("sends `provisional: true` with the draft note; a server that drops it silently is caught on read-back", async () => {
+    const calls: { url: string; body: any }[] = [];
+    const post = async (url: string, body: unknown) => (calls.push({ url, body }), { status: 200, json: { pushes: [], refused: [] } });
+    const out = await sendProvisional(post, async () => answered(""), args);
+    expect(calls.map((c) => c.url)).toEqual(["/api/draft", "/api/send"]);
+    expect(calls[0].body).toMatchObject({ provisional: true, note: DRAFT_NOTE, answers: { F2: ["DEGR"] } });
+    expect(out).toMatchObject({ ok: true, flagStored: false });
+    expect(out.message).toMatch(/^Waiting on the asker: draft sent/);
+  });
+
+  it("a server that refuses the field gets the same body without it, and the note line stays", async () => {
+    const calls: { url: string; body: any }[] = [];
+    const post = async (url: string, body: any) => {
+      calls.push({ url, body });
+      if (url === "/api/draft" && body.provisional) return { status: 400, json: { error: "unknown field: provisional" } };
+      return { status: 200, json: { refused: [] } };
+    };
+    const out = await sendProvisional(post, async () => answered(""), args);
+    expect(calls.map((c) => [c.url, "provisional" in c.body])).toEqual([["/api/draft", true], ["/api/draft", false], ["/api/send", false]]);
+    expect(calls[1].body.note).toBe(DRAFT_NOTE);
+    expect(out.flagStored).toBe(false);
+  });
+
+  it("a server that stores the field says so", async () => {
+    const post = async () => ({ status: 200, json: { refused: [] } });
+    expect((await sendProvisional(post, async () => answered(',"provisional":true'), args)).flagStored).toBe(true);
+  });
+
+  it("the ask then reads as provisional: by status, by the flag, or by the note line", () => {
+    expect(isProvisional(stored(OPF.replace("status: open", "status: answered-provisional")))).toBe(true);
+    expect(isProvisional(answered(""))).toBe(true);
+    const plain = stored(OPF.replace("status: open", "status: answered") + '\n```json answer\n{"answers":{"F2":["DEGR"]},"answeredBy":"operator"}\n```\n');
+    expect(isProvisional(plain)).toBe(false);
+    expect(isProvisional(stored(OPF))).toBe(false);
+  });
+
+  it("the card offers Send as draft and Need something first beside the primary Send, and a sent draft says it waits on the asker", async () => {
+    const { AskDetail } = await import("../src/client/App.tsx");
+    const a = stored(OPF);
+    const html = renderToStaticMarkup(createElement(AskDetail, { ask: a, all: [a], onChanged: () => {} }));
+    expect(html).toMatch(/btn primary" disabled="">Send answers<\/button><button class="btn" disabled="" title="[^"]*">Send as draft<\/button><button class="btn" aria-expanded="false"[^>]*>Need something first ▾<\/button>/);
+    const sent = answered("");
+    const html2 = renderToStaticMarkup(createElement(AskDetail, { ask: sent, all: [sent], onChanged: () => {} }));
+    expect(html2).toContain("Waiting on the asker: draft sent");
+    const odd = stored(OPF.replace("status: open", "status: answered-provisional"));
+    expect(renderToStaticMarkup(createElement(AskDetail, { ask: odd, all: [odd], onChanged: () => {} }))).toContain("Waiting on the asker: draft sent");
+  });
+});
+
+describe("round 5 (3): threaded rounds", () => {
+  const r1 = { ...parseAskFile(OPF.replace("status: open", "status: answered").replace("id: a1", "id: r1") + `\n\`\`\`json answer\n{"answers":{"F1":["MAP"],"F2":["DEGR"]},"answeredBy":"operator","note":${JSON.stringify(DRAFT_NOTE)}}\n\`\`\`\n`), seat: "idealic:ui", file: "/r1.md", mtimeMs: 0 };
+  const r2 = { ...parseAskFile(head("round: 2\nprevious: idealic:ui/r1\n").replace("id: a1", "id: r2") + "## ¶ASK_F1: Choose one: Verbs, again?\n- [ ] [ALL] All\n- [ ] [MAP] Map\n\n## ¶ASK_F2: Choose one: xattr?\n- [ ] [DECL] Declare\n- [ ] [NEW] New option\n"), seat: "idealic:ui", file: "/r2.md", mtimeMs: 0 };
+
+  it("walks previous: back to the first round, oldest first, with each round's answers", () => {
+    const rounds = earlierRounds(r2, [r1, r2]);
+    expect(rounds.map((r) => [r.ref, r.round, r.provisional])).toEqual([["idealic:ui/r1", 1, true]]);
+    expect(rounds[0].lines).toEqual(["F1: Map", "F2: Degrade"]);
+    expect(earlierRounds(r2, [r2])).toMatchObject([{ ref: "idealic:ui/r1", status: "not in this root" }]);
+  });
+
+  it("the next round suggests last round's picks where the fork and code still exist, never as answers", async () => {
+    expect(priorPicks(r2, [r1, r2])).toEqual({ F1: "MAP" });
+    const { AskDetail } = await import("../src/client/App.tsx");
+    const html = renderToStaticMarkup(createElement(AskDetail, { ask: r2, all: [r1, r2], onChanged: () => {} }));
+    expect(html).toContain('<details class="round"><summary>Round 1 · <span class="muted">idealic:ui/r1</span> · draft sent</summary>');
+    expect(html).toContain("<li><span>F1: Map</span></li>");
+    expect(html).not.toMatch(/<details class="round" open/);
+    expect(html).toContain("are your picks from the last round");
+    // SF-3 (00fcb1b): a suggestion is not natively checked; it is dashed and aria-checked=false.
+    expect(html).toMatch(/optwrap suggested[^"]*"><label class="opt" title="[^"]*"><input type="radio" name="idealic:ui\/r2#F1\/top" aria-checked="false"[^>]*><span class="opt-body"><span class="opt-label"><code class="okey">MAP<\/code>/);
+    expect(html).toMatch(/btn primary" disabled="">Send answers/);
+    expect(html).toContain("round 2");
+  });
+
+  it("a ## Dialogue block before the forks is read as who: text turns and kept out of the preamble", async () => {
+    const a = stored(head() + "Some context.\n\n## Dialogue\n- **operator**: Is BIND worth it?\n- idealic:ui: Yes, here is why.\n  It removes a double declaration.\n\n" + OPF.slice(OPF.indexOf("## ¶ASK_F1")));
+    const d = dialogueOf(a);
+    expect(d.turns).toEqual([{ who: "operator", text: "Is BIND worth it?" }, { who: "idealic:ui", text: "Yes, here is why. It removes a double declaration." }]);
+    expect(d.preamble).not.toContain("Dialogue");
+    expect(d.preamble).toContain("Some context.");
+    const { AskDetail } = await import("../src/client/App.tsx");
+    const html = renderToStaticMarkup(createElement(AskDetail, { ask: a, all: [a], onChanged: () => {} }));
+    expect(html).toContain('aria-label="Dialogue so far"');
+    expect(html).toContain("<b>operator</b>");
+    // A parsed `dialogue` array, once the parser provides one, wins.
+    expect(dialogueOf({ ...a, dialogue: [{ who: "x", text: "y" }] } as never).turns).toEqual([{ who: "x", text: "y" }]);
+  });
+
+  it("measured: a ## Dialogue block AFTER the forks does not reach the client, so nothing renders for it", () => {
+    const a = stored(OPF + "\n## Dialogue\n- operator: lost?\n");
+    expect(dialogueOf(a).turns).toEqual([]);
+    expect(JSON.stringify(a)).not.toContain("lost?");
+  });
+});
+
+describe("round 5 (4): the sidebar says draft sent, not needs you", () => {
+  it("a provisional answer is waiting on its asker", () => {
+    const sent = stored(OPF.replace("status: open", "status: answered") + `\n\`\`\`json answer\n{"answers":{"F2":["DEGR"]},"answeredBy":"operator","note":${JSON.stringify(DRAFT_NOTE)}}\n\`\`\`\n`);
+    expect(askRow(sent, NOW)).toMatchObject({ draftSent: true, waitingOnYou: false });
+    expect(askRow(stored(OPF.replace("status: open", "status: answered-provisional")), NOW)).toMatchObject({ draftSent: true, waitingOnYou: false });
+    expect(askRow(stored(OPF), NOW)).toMatchObject({ draftSent: false, waitingOnYou: true });
+  });
+});
+
+describe("round 5 after the review fixes: provisional sends are partial on purpose", () => {
+  it("Send as draft and Send request never ask 'N questions unanswered — send anyway?'; a final partial send does", () => {
+    expect(needsUnansweredConfirm("send", ["F2", "F3"])).toBe(true);
+    expect(needsUnansweredConfirm("send", [])).toBe(false);
+    expect(needsUnansweredConfirm("draft", ["F2", "F3"])).toBe(false);
+    expect(needsUnansweredConfirm("request", ["F1", "F2", "F3"])).toBe(false);
+  });
+
+  it("a draft-sent row is listed and counted under Open, not Settled", () => {
+    const sent = { status: "answered", draft: false, draftSent: true };
+    expect(rowInFilter(sent, "open")).toBe(true);
+    expect(rowInFilter(sent, "settled")).toBe(false);
+    expect(rowInFilter(sent, "all")).toBe(true);
   });
 });
