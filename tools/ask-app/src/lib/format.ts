@@ -53,6 +53,8 @@ export type AskQuestion = {
   proseAfter?: string;
   panel: PanelRead[];
   number?: { min?: number; max?: number; unit?: string };
+  /** A fence in this fork is never closed, so it ran to the end of the file (authorWarnings says so). */
+  unclosedFence?: boolean;
 };
 
 /**
@@ -210,7 +212,7 @@ export function removeHeaderField(text: string, key: string): string {
 
 type RawOption = { indent: number; code?: string; label: string; description?: string; cost?: string; effort?: string; blastRadius?: string; afterFence?: boolean };
 
-function parseOptionLines(lines: string[]): RawOption[] {
+function parseOptionLines(lines: string[], folds: Folds): RawOption[] {
   const raw: RawOption[] = [];
   for (const line of lines) {
     const stripped = line.trimStart();
@@ -228,9 +230,14 @@ function parseOptionLines(lines: string[]): RawOption[] {
       const label = rest.trim() || code;
       if (!label) continue;
       raw.push({ indent, code, label });
-    } else if (raw.length > 0 && indent > raw[raw.length - 1].indent) {
-      const last = raw[raw.length - 1];
-      const fence = unfoldFence(line);
+    } else {
+      // An indented line belongs to the nearest option above it with a smaller indent: a line at a
+      // child's own indent is its parent's, as in markdown, and is never dropped.
+      let at = raw.length - 1;
+      while (at >= 0 && raw[at].indent >= indent) at--;
+      if (at < 0) continue;
+      const last = raw[at];
+      const fence = unfoldFence(line, folds);
       if (fence) {
         // A fence keeps its lines: the description becomes markdown with the fence as its own block.
         const code = fence.join("\n");
@@ -297,23 +304,30 @@ function parseQuestions(body: string): { preamble: string; questions: AskQuestio
     if (m[1]) q.askName = m[1];
     i++;
     const body: string[] = [];
+    const folds = newFolds();
     while (i < lines.length && !/^#{1,2}\s/.test(lines[i])) {
       const line = lines[i];
       if (line.trim().startsWith("```")) {
         // A fenced block inside a fork never ends the fork. At the top level it is the fork's prose,
         // kept whole. Indented, it may belong to the option above it, so it travels as ONE body line
-        // (see fenceLine) that the option grammar treats as an indented continuation.
+        // (see Folds) that the option grammar treats as an indented continuation.
         const open = line.trim().match(/^`+/)![0];
         const fence: string[] = [line];
+        let closed = false;
         i++;
         while (i < lines.length) {
           fence.push(lines[i]);
           const close = lines[i].trim();
           i++;
-          if (close.startsWith(open) && /^`+$/.test(close)) break;
+          if (close.startsWith(open) && /^`+$/.test(close)) {
+            closed = true;
+            break;
+          }
         }
-        if (/^\s/.test(line)) body.push(fenceLine(fence));
-        else body.push(...fence, FENCE_END);
+        // N2: an unclosed fence runs to the end of the file, taking later forks with it.
+        if (!closed) q.unclosedFence = true;
+        if (/^\s/.test(line)) body.push(fold(folds, fence));
+        else body.push(...fence, folds.end);
         continue;
       }
       const dm = line.trim().match(DEPENDS_RE);
@@ -327,12 +341,12 @@ function parseQuestions(body: string): { preamble: string; questions: AskQuestio
       else body.push(line);
       i++;
     }
-    const { before, block, after } = splitForkBody(body);
-    const proseText = tidy(before);
+    const { before, block, after } = splitForkBody(body, folds);
+    const proseText = tidy(before, folds);
     if (proseText) q.prose = proseText;
-    const afterText = tidy(after);
+    const afterText = tidy(after, folds);
     if (afterText) q.proseAfter = afterText;
-    q.options = buildTree(parseOptionLines(block));
+    q.options = buildTree(parseOptionLines(block, folds));
     if (kind === "yesno" && q.options.length === 0) q.options = [{ label: "Yes", code: "YES" }, { label: "No", code: "NO" }];
     if (kind === "number") {
       const r = q.meta.range?.match(/^\s*(-?[\d.]+)?\s*\.\.\s*(-?[\d.]+)?\s*$/);
@@ -346,34 +360,48 @@ function parseQuestions(body: string): { preamble: string; questions: AskQuestio
   return { preamble: preambleLines.join("\n"), questions };
 }
 
-const FENCE_END = "\u0000fence-end";
 /**
- * An indented fence folded into one line: the fence's own indent, a marker, then its lines as JSON
- * with that indent removed (a line indented less loses only what it has). Being one non-blank
- * indented line, it continues an options group and never splits it, whatever the fence holds.
+ * Fences inside one fork. A fence at the fork's top level is kept as its lines followed by `end`, a
+ * line that stops an options group. An indented fence is folded into ONE line, `<indent><tag><n>`,
+ * and its lines (dedented by the fence's own indent; a line indented less loses only what it has)
+ * are kept in `fences[n]`. Being one non-blank indented line, it continues an options group whatever
+ * the fence holds. The tag carries a per-parse nonce, so no text an author writes can pose as a fold
+ * or an end, and unfolding is a table lookup that cannot throw.
  */
-const FENCE_LINE = "\u0000fence:";
-function fenceLine(fence: string[]): string {
+type Folds = { tag: string; end: string; fences: string[][] };
+function newFolds(): Folds {
+  const nonce = `${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+  return { tag: `\u0000fence:${nonce}:`, end: `\u0000fence-end:${nonce}`, fences: [] };
+}
+function fold(folds: Folds, fence: string[]): string {
   const indent = fence[0].length - fence[0].trimStart().length;
   const dedent = (l: string) => l.slice(Math.min(indent, l.length - l.trimStart().length));
-  return `${fence[0].slice(0, indent)}${FENCE_LINE}${JSON.stringify(fence.map(dedent))}`;
+  folds.fences.push(fence.map(dedent));
+  return `${fence[0].slice(0, indent)}${folds.tag}${folds.fences.length - 1}`;
 }
 /** The fence a folded line holds, as dedented lines; undefined for any other line. */
-function unfoldFence(line: string): string[] | undefined {
+function unfoldFence(line: string, folds: Folds): string[] | undefined {
   const s = line.trimStart();
-  return s.startsWith(FENCE_LINE) ? (JSON.parse(s.slice(FENCE_LINE.length)) as string[]) : undefined;
+  if (!s.startsWith(folds.tag)) return undefined;
+  const n = s.slice(folds.tag.length);
+  return /^\d+$/.test(n) ? folds.fences[Number(n)] : undefined;
 }
-/** Prose lines as written: a folded fence back at its own indent. */
-const unfold = (ls: string[]) =>
-  ls.flatMap((l) => {
-    const f = unfoldFence(l);
-    if (!f) return [l];
-    const pad = l.slice(0, l.length - l.trimStart().length);
-    return f.map((x) => (x ? pad + x : x));
-  });
-const tidy = (ls: string[]) => unfold(ls.filter((l) => l !== FENCE_END)).join("\n").replace(/^\s*\n/, "").replace(/\s+$/, "");
+/** Prose lines as written: a folded fence back at its own indent, the end markers gone. */
+function tidy(ls: string[], folds: Folds): string {
+  return ls
+    .filter((l) => l !== folds.end)
+    .flatMap((l) => {
+      const f = unfoldFence(l, folds);
+      if (!f) return [l];
+      const pad = l.slice(0, l.length - l.trimStart().length);
+      return f.map((x) => (x ? pad + x : x));
+    })
+    .join("\n")
+    .replace(/^\s*\n/, "")
+    .replace(/\s+$/, "");
+}
 
-type Group = { start: number; end: number; marked: boolean; coded: boolean };
+type Group = { start: number; end: number; marked: boolean; coded: boolean; folded?: boolean };
 
 /**
  * Split a fork's lines into its prose, its options and the prose after them. The options are the
@@ -383,7 +411,7 @@ type Group = { start: number; end: number; marked: boolean; coded: boolean };
  * agrees with them on having codes. When any list in the fork is coded, only coded lists are
  * options; else only lists with a checkbox or a code; else any list (a v1 fork of bare `- Label`).
  */
-function splitForkBody(body: string[]): { before: string[]; block: string[]; after: string[] } {
+function splitForkBody(body: string[], folds: Folds): { before: string[]; block: string[]; after: string[] } {
   const groups: Group[] = [];
   let g: Group | undefined;
   const item = (l: string) => {
@@ -394,17 +422,26 @@ function splitForkBody(body: string[]): { before: string[]; block: string[]; aft
   };
   body.forEach((l, idx) => {
     const top = /^- /.test(l);
-    const cont = !!g && l.trim() !== "" && /^\s/.test(l) && l !== FENCE_END;
+    const cont = !!g && l.trim() !== "" && /^\s/.test(l) && l !== folds.end;
     if (top) {
       const it = item(l);
+      // A list that holds a folded fence ends at a bullet that disagrees with it on codes or marks,
+      // as the fence once ended it outright: so a plain bullet with a code example in the reasons
+      // never joins the coded options under it (S1), and a plain bullet after them stays a note (S2).
+      if (g?.folded && (it.coded !== g.coded || it.marked !== g.marked)) {
+        groups.push(g);
+        g = undefined;
+      }
       if (!g) g = { start: idx, end: idx, marked: it.marked, coded: it.coded };
       else {
         g.end = idx;
         g.marked ||= it.marked;
         g.coded &&= it.coded;
       }
-    } else if (cont) g!.end = idx;
-    else if (g && l.trim() === "" && /^\s+\S/.test(body.slice(idx).find((x) => x.trim() !== "") ?? "")) {
+    } else if (cont) {
+      g!.end = idx;
+      if (unfoldFence(l, folds)) g!.folded = true;
+    } else if (g && l.trim() === "" && /^\s+\S/.test(body.slice(idx).find((x) => x.trim() !== "") ?? "")) {
       // Blank lines inside an option (around its fence, between its paragraphs) do not end the
       // group when the option's indented body goes on after them.
     } else if (g) {
@@ -906,6 +943,7 @@ export function authorWarnings(ask: ParsedAsk): string[] {
   }
   ask.questions.forEach((q, i) => {
     const codeless = q.options.filter((o) => !o.code).length;
+    if (q.unclosedFence) out.push(`"${q.title}": a code fence is never closed, so everything after it, later forks included, is read as code`);
     if (choice(q) && codeless) out.push(`"${q.title}": ${codeless} option(s) have no [CODE]; the answer will store the whole label`);
     if (choice(q) && ask.questions.length > 1 && !q.meta.lean && !(i === 0 && ask.header.lean?.trim())) out.push(`"${q.title}": no Lean: line`);
   });

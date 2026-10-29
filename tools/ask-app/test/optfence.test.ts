@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
 import { newAsk } from "../src/lib/store.ts";
-import { parseAskFile, validateAnswer } from "../src/lib/format.ts";
+import { authorWarnings, parseAskFile, validateAnswer } from "../src/lib/format.ts";
 
 const head = "---\nid: f1\nto: operator\nfrom: meta:engine\nstatus: open\nrevision: 1\n---\n\n";
 const parse = (body: string) => parseAskFile(head + body);
@@ -154,5 +154,65 @@ describe("a fence indented under an option", () => {
     const a = parseAskFile(fs.readFileSync(newAsk(root, { from: "meta:engine", to: "operator", id: "of1" }, body), "utf8"));
     expect(a.questions[0].options.map((o) => o.code)).toEqual(["A", "B"]);
     expect(a.questions[0].options[1].description).toBe("```ts\ny();\n```");
+  });
+});
+
+describe("round 2 (OPTFENCE_CRITIQUE)", () => {
+  it("S1: a reasons bullet carrying an indented fence, right before coded options, stays prose", () => {
+    const a = parse(
+      "## ¶ASK_Q: Choose one: Q?\nReasons:\n- the current call\n  ```ts\n  load(id)\n  ```\n- [ ] [A] a\n- [ ] [B] b\n",
+    );
+    const q = a.questions[0];
+    expect(q.options.map((o) => o.code ?? o.label)).toEqual(["A", "B"]);
+    expect(q.prose).toBe("Reasons:\n- the current call\n  ```ts\n  load(id)\n  ```");
+  });
+
+  it("S2: a plain bullet after a fenced option stays the after-options note", () => {
+    const a = parse("## ¶ASK_Q: Choose one: Q?\n- [ ] [A] a\n- [ ] [B] b\n  ```\n  x\n  ```\n- see also: the old ticket\n");
+    const q = a.questions[0];
+    expect(q.options.map((o) => o.code ?? o.label)).toEqual(["A", "B"]);
+    expect(q.options[1].description).toBe("```\nx\n```");
+    expect(q.proseAfter).toBe("- see also: the old ticket");
+  });
+
+  it("S2: a coded option after a fenced coded option still joins the group", () => {
+    const a = parse("## ¶ASK_Q: Choose one: Q?\n- [ ] [A] a\n  ```\n  x\n  ```\n- [ ] [B] b\n");
+    expect(a.questions[0].options.map((o) => o.code)).toEqual(["A", "B"]);
+  });
+
+  it("S4: a fence at a nested child's own indent belongs to the parent, never dropped", () => {
+    const a = parse("## ¶ASK_Q: Choose one: Q?\n- [ ] [A] a\n  - [ ] [AA] child\n  ```\n  kept\n  ```\n- [ ] [B] b\n");
+    const q = a.questions[0];
+    expect(q.options.map((o) => o.code)).toEqual(["A", "B"]);
+    expect(q.options[0].children?.map((o) => o.code)).toEqual(["AA"]);
+    expect(q.options[0].description).toBe("```\nkept\n```");
+    expect(q.options[0].children?.[0].description).toBeUndefined();
+  });
+
+  it("N1: a literal fold-marker line in the author's text never throws and is never read as a fold", () => {
+    const forged = "\u0000fence:";
+    const a = parse(`## ¶ASK_Q: Choose one: Q?\nWhy:\n  ${forged}["injected"]\n- [ ] [A] a\n  ${forged}not json\n  ${forged}0\n- [ ] [B] b\n` + "  ```\n  real\n  ```\n");
+    const q = a.questions[0];
+    expect(q.options.map((o) => o.code)).toEqual(["A", "B"]);
+    expect(q.options[1].description).toBe("```\nreal\n```");
+    expect(q.options[0].description).toBe(`${forged}not json ${forged}0`);
+    expect(q.prose).toBe(`Why:\n  ${forged}["injected"]`);
+  });
+
+  it("S3: after a blank line an indented note joins the last option; a column-0 line stays after-prose", () => {
+    const a = parse("## ¶ASK_Q: Choose one: Q?\n- [ ] [A] a\n- [ ] [B] b\n\n  Note: both are fine.\n\nThanks.\n");
+    const q = a.questions[0];
+    expect(q.options.map((o) => o.code)).toEqual(["A", "B"]);
+    expect(q.options[1].description).toBe("Note: both are fine.");
+    expect(q.proseAfter).toBe("Thanks.");
+  });
+
+  it("N2: a fence never closed is flagged on the question and warned at authoring; a closed one is not", () => {
+    const bad = parse("## ¶ASK_Q: Choose one: Q?\nLean: A\n- [ ] [A] a\n  ```\n  oops\n- [ ] [B] b\n");
+    expect(bad.questions[0].unclosedFence).toBe(true);
+    expect(authorWarnings(bad)).toContain('"Q?": a code fence is never closed, so everything after it, later forks included, is read as code');
+    const good = parse("## ¶ASK_Q: Choose one: Q?\nLean: A\n- [ ] [A] a\n  ```\n  ok\n  ```\n- [ ] [B] b\n");
+    expect(good.questions[0].unclosedFence).toBeUndefined();
+    expect(authorWarnings(good)).toEqual([]);
   });
 });
