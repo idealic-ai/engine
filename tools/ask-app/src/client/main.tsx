@@ -1,11 +1,7 @@
 import { createRoot } from "react-dom/client";
-// The /decide board kit, imported as is so the cards look like a /decide board and pick up its
-// fixes: tokens → block catalog → widgets → warm overrides (the same order the board skeleton
-// links them). Never restyle these classes in styles.css; that sheet holds only the app chrome.
-import "../../../../skills/intake/assets/proof-theme.css";
-import "../../../../skills/intake/assets/proof-blocks.css";
-import "../../../../skills/intake/assets/board-widgets.css";
-import "../../../../skills/intake/assets/board-warm-overrides.css";
+// The app's own look: Slate tokens (theme.css), then the components that read them (styles.css).
+// The /decide board kit is no longer imported; asks keep a theme of their own.
+import "./theme.css";
 import "./styles.css";
 import { App } from "./App.tsx";
 

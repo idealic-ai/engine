@@ -1,0 +1,90 @@
+/*
+ * Slate: cool grey-blue neutrals, white surfaces, hairline borders, one steel-blue accent.
+ * Every colour the app uses is a token here; styles.css reads only these names. To try Sage
+ * (green-grey neutrals, filled surfaces, moss accent) swap the values below and keep the names.
+ * Layout: a three-column desk (asks · ask · related page) that folds to a drawer and a bottom sheet.
+ */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --surface-2: #f7f9fb;
+  --sunken: #eceff4;
+  --line: #dde2ea;
+  --line-strong: #c3cbd7;
+  --ink: #18202b;
+  --ink-2: #3f4b5b;
+  --ink-3: #6b7686;
+  --accent: #3b6a96;
+  --accent-ink: #2c5579;
+  --accent-soft: #e7eef6;
+  --on-accent: #ffffff;
+  --danger: #c0392b;
+  --danger-soft: #fbeceb;
+  --warn: #9a6a12;
+  --warn-soft: #fbf3e2;
+  --ok: #2f7d55;
+  --ok-soft: #e8f4ed;
+  --code-bg: #f1f4f8;
+  --shadow: 0 1px 2px rgba(20, 32, 48, 0.06), 0 8px 24px rgba(20, 32, 48, 0.10);
+  --scrim: rgba(16, 22, 30, 0.35);
+
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --radius: 6px;
+  --radius-sm: 4px;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f141a;
+    --surface: #161c24;
+    --surface-2: #1b222c;
+    --sunken: #11171e;
+    --line: #2a3340;
+    --line-strong: #3a4554;
+    --ink: #e4e9f0;
+    --ink-2: #b7c1cd;
+    --ink-3: #8592a3;
+    --accent: #7aa7d4;
+    --accent-ink: #9cc0e4;
+    --accent-soft: #1d2a38;
+    --on-accent: #0f141a;
+    --danger: #f07a6c;
+    --danger-soft: #3a1f1d;
+    --warn: #e0b45a;
+    --warn-soft: #33291a;
+    --ok: #6cc596;
+    --ok-soft: #17301f;
+    --code-bg: #121820;
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.45);
+    --scrim: rgba(0, 0, 0, 0.55);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0f141a;
+  --surface: #161c24;
+  --surface-2: #1b222c;
+  --sunken: #11171e;
+  --line: #2a3340;
+  --line-strong: #3a4554;
+  --ink: #e4e9f0;
+  --ink-2: #b7c1cd;
+  --ink-3: #8592a3;
+  --accent: #7aa7d4;
+  --accent-ink: #9cc0e4;
+  --accent-soft: #1d2a38;
+  --on-accent: #0f141a;
+  --danger: #f07a6c;
+  --danger-soft: #3a1f1d;
+  --warn: #e0b45a;
+  --warn-soft: #33291a;
+  --ok: #6cc596;
+  --ok-soft: #17301f;
+  --code-bg: #121820;
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 10px 28px rgba(0, 0, 0, 0.45);
+  --scrim: rgba(0, 0, 0, 0.55);
+  color-scheme: dark;
+}

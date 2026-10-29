@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   answeredByText,
   cardFor,
@@ -10,37 +10,108 @@ import {
   dependsOnDeclined,
   visibleQuestions,
   type AskAnswer,
-  type AnswerMap,
   type AnswerValue,
   type AskOption,
   type AskQuestion,
   type Card,
   type ParsedAsk,
+  type PanelRead,
 } from "../lib/format.ts";
+import {
+  acceptAll,
+  askRef,
+  askRow,
+  buildAnswers,
+  clickPicks,
+  forkLabel,
+  groupRows,
+  isSettled,
+  leanCodeFor,
+  leanFor,
+  nextFork,
+  parseHash,
+  resolveFork,
+  saysMore,
+  sortRows,
+  suggestionsFor,
+  tradeoff,
+  DIM_LABEL,
+  type Dim,
+  type GroupBy,
+  type Row,
+  type StoredAsk,
+  type Values,
+} from "./model.ts";
+import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
+import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
+import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, sideDefault, useStoredNumber } from "./layout.tsx";
+import { pushEsc } from "./esc.ts";
 
-type StoredAsk = ParsedAsk & { seat: string; file: string; mtimeMs: number };
-type Tab = "open" | "drafts" | "settled" | "all";
+export { ticketKeys };
+type Filter = "open" | "drafts" | "settled" | "all";
+type Pane = { url: string; label: string; source: Brief["source"] | "link"; trust: Trust };
+type Theme = "auto" | "light" | "dark";
 
 const valueOf = (o: AskOption) => o.code ?? o.label;
-const askRef = (a: StoredAsk) => `${a.seat}/${a.header.id}`;
 const token = () => document.querySelector('meta[name="ask-token"]')?.getAttribute("content") ?? "";
-/** React 18's DOM types predate the popover attributes; lowercase names pass straight to the DOM. */
-const pop = (attrs: Record<string, string>) => attrs as Record<string, unknown>;
-const settled = (a: StoredAsk) => a.header.status === "answered" || a.header.status === "declined";
+/** Proof hosts besides loopback, set at build time (VITE_PROOF_ORIGINS); loopback needs no entry. */
+const PROOF_ORIGINS = proofOriginsFromEnv((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_PROOF_ORIGINS);
+const store = {
+  get(k: string): string | null {
+    try {
+      return localStorage.getItem(k);
+    } catch {
+      return null;
+    }
+  },
+  set(k: string, v: string | null) {
+    try {
+      if (v === null) localStorage.removeItem(k);
+      else localStorage.setItem(k, v);
+    } catch {
+      /* private window: the choice lasts until reload */
+    }
+  },
+};
 
 async function post(url: string, body: unknown): Promise<{ status: number; json: any }> {
   const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-ask-token": token() }, body: JSON.stringify(body) });
   return { status: r.status, json: await r.json().catch(() => ({})) };
 }
 
+function useMedia(q: string): boolean {
+  const [on, setOn] = useState(() => typeof matchMedia !== "undefined" && matchMedia(q).matches);
+  useEffect(() => {
+    const m = matchMedia(q);
+    const f = () => setOn(m.matches);
+    f();
+    m.addEventListener("change", f);
+    return () => m.removeEventListener("change", f);
+  }, [q]);
+  return on;
+}
+
+const paneFor = (url: string, label: string, source: Pane["source"]): Pane => ({ url, label, source, trust: paneTrust(url, location.origin, PROOF_ORIGINS) });
+
 export function App() {
   const [root, setRoot] = useState("");
   const [asks, setAsks] = useState<StoredAsk[]>([]);
-  const [tab, setTab] = useState<Tab>("open");
-  const [selected, setSelected] = useState<string | undefined>(() => decodeURIComponent(location.hash.slice(1)) || undefined);
+  const [filter, setFilter] = useState<Filter>(() => (store.get("askclient.filter") as Filter) || "open");
+  const [groupBy, setGroupBy] = useState<GroupBy>(() => (store.get("askclient.group") as GroupBy) || "none");
+  const [hash, setHash] = useState(() => parseHash(location.hash));
+  const [selected, setSelected] = useState<string | undefined>(() => parseHash(location.hash).ref);
   const [live, setLive] = useState(false);
   const [batchResult, setBatchResult] = useState("");
   const [sending, setSending] = useState(false);
+  const [pane, setPane] = useState<Pane | null>(null);
+  const [theme, setTheme] = useState<Theme>(() => (store.get("askclient.theme") as Theme) || "auto");
+  const [dragging, setDragging] = useState(false);
+  const portrait = useMedia("(orientation: portrait)");
+  const [sideW, setSideW] = useStoredNumber("askclient.sideW", () => sideDefault(typeof innerWidth === "number" ? innerWidth : 1440), clampSide);
+  const [ratioX, setRatioX] = useStoredNumber("askclient.splitX", () => 0.5, clampRatio);
+  const [ratioY, setRatioY] = useStoredNumber("askclient.splitY", () => 0.55, clampRatio);
+  const desk = useRef<HTMLDivElement>(null);
+  const detail = useRef<HTMLElement>(null);
 
   const load = useCallback(async () => {
     const r = await fetch("/api/asks");
@@ -58,23 +129,79 @@ export function App() {
     return () => es.close();
   }, [load]);
 
+  useEffect(() => {
+    const h = () => {
+      const p = parseHash(location.hash);
+      setHash(p);
+      if (p.ref) setSelected(p.ref);
+    };
+    addEventListener("hashchange", h);
+    return () => removeEventListener("hashchange", h);
+  }, []);
+
+  useEffect(() => {
+    if (theme === "auto") delete document.documentElement.dataset.theme;
+    else document.documentElement.dataset.theme = theme;
+    store.set("askclient.theme", theme === "auto" ? null : theme);
+  }, [theme]);
+  useEffect(() => store.set("askclient.filter", filter), [filter]);
+  useEffect(() => store.set("askclient.group", groupBy), [groupBy]);
+
   const shown = useMemo(() => visibleAsks(asks), [asks]);
   const hiddenCount = asks.length - shown.length;
-  // S1: the tray holds the operator's own drafts; a seat's draft is sent by that seat.
-  // Round 2: by its AUTHOR — a seat's relay draft says answeredBy operator but belongs to the relayer,
-  // and the operator can neither send nor discard it.
   const drafts = trayDrafts(shown);
-  const inTab = shown.filter((a) =>
-    tab === "all" ? true : tab === "drafts" ? !!a.draft : tab === "settled" ? settled(a) : a.header.status === "open",
+  const now = Date.now();
+  const rows = useMemo(() => sortRows(shown.map((a) => askRow(a, now))), [shown]); // eslint-disable-line react-hooks/exhaustive-deps
+  const inFilter = rows.filter((r) =>
+    filter === "all" ? true : filter === "drafts" ? r.draft : filter === "settled" ? r.status === "answered" || r.status === "declined" : r.status === "open",
   );
-  const current = asks.find((a) => askRef(a) === selected) ?? inTab[0];
-  const count = (t: Tab) => (t === "all" ? shown.length : t === "drafts" ? drafts.length : t === "settled" ? shown.filter(settled).length : shown.filter((a) => a.header.status === "open").length);
+  const count = (f: Filter) =>
+    f === "all" ? rows.length : f === "drafts" ? rows.filter((r) => r.draft).length : f === "settled" ? rows.filter((r) => r.status !== "open").length : rows.filter((r) => r.status === "open").length;
+  const currentRef = asks.some((a) => askRef(a) === selected) ? selected : inFilter[0]?.ref;
+  const current = asks.find((a) => askRef(a) === currentRef);
+  const brief = current ? briefFor(current) : undefined;
+
+  // A brief opens on its own beside the ask, unless it was closed on this ask before. Only a trusted
+  // host opens by itself (M2): another host's page waits for a click and is not fetched before it.
+  useEffect(() => {
+    if (detail.current) detail.current.scrollTop = 0;
+    if (!current) return setPane(null);
+    const b = briefFor(current);
+    const closed = store.get(`askclient.brief.closed.${askRef(current)}`) === "1";
+    const p = b ? paneFor(b.url, b.source === "brief" ? "Brief" : "Linked proof", b.source) : null;
+    setPane(p && !closed && p.trust === "auto" ? p : null);
+  }, [currentRef]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const pick = (ref: string) => {
+    setSelected(ref);
+    setHash({ ref });
+    history.replaceState(null, "", `#${ref}`);
+  };
+  const openInPane = useCallback((url: string, label: string) => setPane(paneFor(url, label, "link")), []);
+  const closePane = () => {
+    if (current && pane && brief && pane.url === brief.url) store.set(`askclient.brief.closed.${askRef(current)}`, "1");
+    setPane(null);
+  };
+  const toggleBrief = () => {
+    if (!current || !brief) return;
+    if (pane) closePane();
+    else {
+      store.set(`askclient.brief.closed.${askRef(current)}`, null);
+      setPane(paneFor(brief.url, brief.source === "brief" ? "Brief" : "Linked proof", brief.source));
+    }
+  };
+  const setForkHash = useCallback(
+    (label: string) => {
+      if (!currentRef) return;
+      history.replaceState(null, "", `#${currentRef}/${label}`);
+    },
+    [currentRef],
+  );
 
   async function sendBatch() {
     setSending(true);
     setBatchResult("");
     try {
-      // Refs only: the server reads every answer from its file.
       const { status, json } = await post("/api/send", { refs: drafts.map(askRef) });
       if (status !== 200) return setBatchResult(`Error: ${json.error}`);
       const pushes = (json.pushes as { seat: string; refs: string[]; delivery: { status: string; reason?: string } }[])
@@ -88,57 +215,293 @@ export function App() {
     }
   }
 
+  const waiting = rows.filter((r) => r.waitingOnYou).length;
+  const slim = sideW < SIDE_SLIM;
   return (
-    <>
-      <header className="top">
-        <h1>Asks</h1>
-        <div className="tabs" role="group" aria-label="Status">
-          {(["open", "drafts", "settled", "all"] as Tab[]).map((t) => (
-            <button key={t} aria-pressed={tab === t} onClick={() => setTab(t)}>
-              {t} ({count(t)})
-            </button>
-          ))}
-        </div>
-        <span className={`pill ${live ? "ok" : "warn"}`}>{live ? "live" : "offline"}</span>
-        <span className="root">{root}</span>
-      </header>
-      {drafts.length > 0 && (
-        <div className="tray" role="region" aria-label="Drafts ready to send">
-          <span>
-            <b>{drafts.length}</b> draft{drafts.length === 1 ? "" : "s"} saved in {drafts.length === 1 ? "its file" : "their files"}, not sent:{" "}
-            {drafts.map((d) => (
-              <button key={askRef(d)} className="linkish" onClick={() => setSelected(askRef(d))}>{askRef(d)}</button>
+    <PaneContext.Provider value={openInPane}>
+      <div className={`app${dragging ? " dragging" : ""}`}>
+        <header className="top">
+          <h1>Asks</h1>
+          <span className="sub">{waiting} waiting on you</span>
+          <span className="spacer" />
+          <span className={`live ${live ? "on" : ""}`} title={root}>{live ? "Live" : "Offline"}</span>
+          <button className="iconbtn" onClick={() => setTheme(theme === "auto" ? "dark" : theme === "dark" ? "light" : "auto")} aria-label={`Theme: ${theme}. Change theme`}>
+            {theme === "dark" ? "☾ Dark" : theme === "light" ? "☀ Light" : "◐ Auto"}
+          </button>
+        </header>
+        {drafts.length > 0 && (
+          <div className="tray" role="region" aria-label="Drafts ready to send">
+            <span>
+              <b>{drafts.length}</b> draft{drafts.length === 1 ? "" : "s"} saved in {drafts.length === 1 ? "its file" : "their files"}, not sent:{" "}
+              {drafts.map((d) => (
+                <button key={askRef(d)} className="linkish" onClick={() => pick(askRef(d))}>{askRef(d)}</button>
+              ))}
+            </span>
+            <button className="btn primary" disabled={sending} onClick={sendBatch}>Send batch · one message per seat</button>
+          </div>
+        )}
+        {batchResult && <p className="tray-result" role="status">{batchResult}</p>}
+        <div className="desk" ref={desk} style={{ gridTemplateColumns: `${sideW}px 8px minmax(0, 1fr)` }}>
+          <nav className={`side${slim ? " slim" : ""}`} id="asklist" aria-label="Asks">
+            <div className="side-tools">
+              {slim ? (
+                <select aria-label="Show" value={filter} onChange={(e) => setFilter(e.target.value as Filter)} id="filter-slim">
+                  {(["open", "drafts", "settled", "all"] as Filter[]).map((f) => <option key={f} value={f}>{f === "open" ? "Open" : f === "drafts" ? "Drafts" : f === "settled" ? "Settled" : "All"} {count(f)}</option>)}
+                </select>
+              ) : (
+                <>
+                  <div className="seg" role="group" aria-label="Show">
+                    {(["open", "drafts", "settled", "all"] as Filter[]).map((f) => (
+                      <button key={f} aria-pressed={filter === f} onClick={() => setFilter(f)}>
+                        {f === "open" ? "Open" : f === "drafts" ? "Drafts" : f === "settled" ? "Settled" : "All"} <span className="n">{count(f)}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <label className="groupby">
+                    Group
+                    <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)} id="groupby">
+                      <option value="none">none</option>
+                      <option value="seat">by seat</option>
+                      <option value="topic">by topic</option>
+                    </select>
+                  </label>
+                </>
+              )}
+            </div>
+            {inFilter.length === 0 && <p className="muted pad">No {filter === "all" ? "" : filter} asks.</p>}
+            {groupRows(inFilter, slim ? "none" : groupBy).map((g) => (
+              <section key={g.name || "all"} className="group" aria-label={g.name || undefined}>
+                {g.name && <h2 className="group-name">{g.name} <span className="n">{g.rows.length}</span></h2>}
+                <ul className="rows">
+                  {g.rows.map((r) => (
+                    <li key={r.ref}>
+                      <AskRowButton r={r} slim={slim} current={r.ref === currentRef} onPick={() => pick(r.ref)} />
+                    </li>
+                  ))}
+                </ul>
+              </section>
             ))}
-          </span>
-          <button className="btn primary" disabled={sending} onClick={sendBatch}>Send batch · one message per seat</button>
+            {hiddenCount > 0 && !slim && <p className="muted pad">{hiddenCount} ask{hiddenCount === 1 ? " is" : "s are"} hidden until the ask {hiddenCount === 1 ? "it depends" : "they depend"} on is settled.</p>}
+          </nav>
+          <Grip
+            orientation="vertical"
+            label="Resize the ask list"
+            value={sideW}
+            min={SIDE_MIN}
+            max={SIDE_MAX}
+            step={24}
+            absolute
+            container={() => desk.current}
+            onChange={(v) => setSideW(v)}
+            onDragging={setDragging}
+          />
+          <Split
+            mode={portrait ? "rows" : "columns"}
+            ratio={portrait ? ratioY : ratioX}
+            onRatio={portrait ? setRatioY : setRatioX}
+            onDragging={setDragging}
+            main={
+              <main className="detail" ref={detail}>
+                {current ? (
+                  <AskDetail
+                    key={askRef(current) + current.header.revision}
+                    ask={current}
+                    all={asks}
+                    onChanged={load}
+                    brief={brief}
+                    paneOpen={!!pane && !!brief && pane.url === brief.url}
+                    onToggleBrief={toggleBrief}
+                    focusFork={hash.fork}
+                    onForkHash={setForkHash}
+                  />
+                ) : (
+                  <p className="muted">Nothing selected.</p>
+                )}
+              </main>
+            }
+            pane={pane ? <RelatedPane key={pane.url} pane={pane} onClose={closePane} /> : null}
+          />
         </div>
-      )}
-      {batchResult && <p className="tray-result" role="status">{batchResult}</p>}
-      <div className="layout">
-        <nav className="list" aria-label="Asks">
-          {inTab.length === 0 && <p className="hidden-note">No {tab === "all" ? "" : tab} asks.</p>}
-          {inTab.map((a) => (
-            <button key={askRef(a)} className="item" aria-current={current && askRef(a) === askRef(current)} onClick={() => setSelected(askRef(a))}>
-              <div className="title">{a.questions[0]?.title ?? a.header.id}</div>
-              <div className="ref">{askRef(a)} → {a.header.to}{a.questions.length > 1 ? ` · ${a.questions.length} questions` : ""}</div>
-              <div className="chips">
-                {a.header.importance && <span className={`pill ${a.header.importance === "high" ? "bad" : ""}`}>{a.header.importance}</span>}
-                <span className="pill">{a.header.status}</span>
-                {a.draft && <span className="pill warn">draft</span>}
-                {a.header["reserved-for"] && <span className="pill bad">reserved · {a.header["reserved-for"]}</span>}
-                {settled(a) && <LifeChip h={a.header} />}
-              </div>
-            </button>
-          ))}
-          {hiddenCount > 0 && <p className="hidden-note">{hiddenCount} ask(s) hidden until the ask they depend on is settled.</p>}
-        </nav>
-        <main className="detail">
-          {current ? <AskDetail key={askRef(current) + current.header.revision} ask={current} all={asks} onChanged={load} /> : <p>Nothing selected.</p>}
-        </main>
       </div>
-    </>
+    </PaneContext.Provider>
   );
 }
+
+/** A title inside a button: code spans keep their look, links and tickets become plain text. */
+function Plain({ text }: { text: string }) {
+  return <>{inlineTokens(text).map((t, i) => (t.t === "code" ? <code key={i} className="ic">{t.v}</code> : <span key={i}>{t.t === "text" ? t.v : t.t === "ticket" ? t.key : t.label}</span>))}</>;
+}
+
+function AskRowButton({ r, current, onPick, slim }: { r: Row; current: boolean; onPick: () => void; slim: boolean }) {
+  const done = r.total - r.left;
+  const left = r.status === "open" ? `${r.left} of ${r.total} left` : r.status;
+  return (
+    <button className="row" aria-current={current} onClick={onPick} title={slim ? `${r.title} · ${r.seat} · ${left}` : undefined}>
+      <span className="row-top">
+        {r.high && <span className="imp" title="High importance" aria-label="High importance">!</span>}
+        <span className="row-title"><Plain text={r.title} /></span>
+      </span>
+      <span className="row-meta">
+        {!slim && <span className="seat">{r.seat}</span>}
+        {!slim && <span className="age" title={new Date(r.created).toLocaleString()}>{r.age}</span>}
+        <span className={`left${r.left === 0 ? " zero" : ""}`}>{left}</span>
+      </span>
+      {!slim && r.total > 0 && (
+        <span className="bar" aria-hidden="true"><span style={{ width: `${(done / r.total) * 100}%` }} /></span>
+      )}
+      {!slim && (r.waitingOnYou || r.reserved || r.draft || r.seatDraft) && (
+        <span className="marks">
+          {r.waitingOnYou && <span className="mk you">needs you</span>}
+          {r.reserved && r.reserved !== "operator" && <span className="mk">reserved · {r.reserved}</span>}
+          {r.reserved === "operator" && <span className="mk res" title="Only you may answer; seats may forward it">reserved for you</span>}
+          {r.draft && <span className="mk draft">draft</span>}
+          {r.seatDraft && <span className="mk">{r.seatDraft} draft</span>}
+        </span>
+      )}
+    </button>
+  );
+}
+
+// ── the related pane ─────────────────────────────────────
+
+type Probe = { state: "checking" | "ok" | "silent" | "notfound" | "noframe" | "error"; code?: number };
+
+/**
+ * One HEAD request per pane open (N5): reachable, 404, or a framing refusal. A failed request cannot
+ * tell "down" from "does not allow this check", so it is reported as not answering, with Load anyway.
+ */
+async function probePage(url: string): Promise<Probe> {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), 6000);
+  try {
+    const r = await fetch(url, { method: "HEAD", mode: "cors", signal: c.signal, cache: "no-store" });
+    if (r.status === 404) return { state: "notfound", code: 404 };
+    if (!r.ok) return { state: "error", code: r.status };
+    const xfo = r.headers.get("x-frame-options") ?? "";
+    const csp = r.headers.get("content-security-policy") ?? "";
+    if (/deny|sameorigin/i.test(xfo) || /frame-ancestors\s+('none'|'self')/i.test(csp)) return { state: "noframe" };
+    return { state: "ok" };
+  } catch {
+    return { state: "silent" };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** The proof page is framed with scripts and its own origin, and may open new tabs; no forms, no top navigation. */
+export const PANE_SANDBOX = "allow-scripts allow-same-origin allow-popups";
+
+export function RelatedPane({ pane, onClose }: { pane: Pane; onClose: () => void }) {
+  const [allowed, setAllowed] = useState(pane.trust === "auto");
+  const [probe, setProbe] = useState<Probe>({ state: "checking" });
+  const [force, setForce] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [slow, setSlow] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!allowed || pane.trust === "refuse") return;
+    let live = true;
+    setProbe({ state: "checking" });
+    setLoaded(false);
+    setSlow(false);
+    setForce(false);
+    probePage(pane.url).then((p) => live && setProbe(p));
+    const t = setTimeout(() => live && setSlow(true), 9000);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [pane.url, pane.trust, attempt, allowed]);
+  const local = isLocalOnly(pane.url);
+  const host = (() => {
+    try {
+      return new URL(pane.url).host;
+    } catch {
+      return pane.url;
+    }
+  })();
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(pane.url);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
+  const failure =
+    pane.trust === "refuse"
+      ? { title: "The app does not show this page in the pane", body: "It is on the app's own address or is not a web page. A framed page from the app's own address could read the app's answer token." }
+      : !allowed || force
+        ? undefined
+        : probe.state === "silent"
+          ? local
+            ? { title: "This page opens only on this machine", body: `Its server, ${host}, did not answer the app's check. It may be down, you may not be on the machine that runs it, or it may not allow the check.` }
+            : { title: "The page did not answer", body: `${host} did not answer the app's check, or does not allow it.` }
+          : probe.state === "notfound"
+            ? { title: "Not found", body: `${host} answered 404: the page is not there. It may have been deleted or never published.` }
+            : probe.state === "noframe"
+              ? { title: "This page refuses to be shown inside another page", body: "Its server forbids framing. Open it in a new tab to read it." }
+              : probe.state === "error"
+                ? { title: `The page answered ${probe.code}`, body: "It could not be shown." }
+                : undefined;
+  const sourceNote = pane.source === "brief" ? "the ask's brief" : pane.source === "first proof link" ? "first proof page the ask links" : "opened from a link";
+  const framed = allowed && pane.trust !== "refuse" && (force || probe.state === "ok");
+  return (
+    <aside className="pane" aria-label="Linked page">
+      <div className="pane-head">
+        <div className="pane-title">
+          <b>{pane.label}</b>
+          {failure ? <span className="pane-sub bad">{failure.title}</span> : <span className="muted">{sourceNote} · {host}</span>}
+        </div>
+        <div className="pane-actions">
+          {pane.trust !== "refuse" && (
+            <a className="iconbtn" href={pane.url} target="_blank" rel="noreferrer" aria-label="Open in new tab"><span className="nt-long">Open in new tab </span>↗</a>
+          )}
+          <button className="iconbtn" onClick={onClose} aria-label="Close the linked page">✕</button>
+        </div>
+      </div>
+      <div className="pane-body">
+        {!allowed && pane.trust === "ask" && (
+          <div className="pane-fail" role="status">
+            <b>This page is on {host}</b>
+            <p>The app opens pages from this machine's proof server by itself. Pages on other hosts open only when you ask, so nothing has been fetched from {host} yet.</p>
+            <code className="url">{pane.url}</code>
+            <p className="actions">
+              <button className="btn primary" onClick={() => setAllowed(true)}>Open in pane</button>
+              <a className="btn" href={pane.url} target="_blank" rel="noreferrer">Open in new tab</a>
+              <button className="btn" onClick={onClose}>Close</button>
+            </p>
+          </div>
+        )}
+        {allowed && !failure && probe.state === "checking" && !force && <p className="muted pad">Checking {host}…</p>}
+        {failure && (
+          <div className="pane-fail" role="status">
+            <b>{failure.title}</b>
+            <p>{failure.body}</p>
+            <code className="url">{pane.url}</code>
+            <p className="actions">
+              {pane.trust !== "refuse" && probe.state !== "noframe" && <button className="btn" onClick={() => setAttempt(attempt + 1)}>Retry</button>}
+              {probe.state === "silent" && <button className="btn" onClick={() => setForce(true)}>Load it anyway</button>}
+              <button className="btn" onClick={copy}>{copied ? "Copied" : "Copy link"}</button>
+              {probe.state === "noframe" && <a className="btn primary" href={pane.url} target="_blank" rel="noreferrer">Open in new tab</a>}
+              <button className="btn" onClick={onClose}>Close</button>
+            </p>
+            <p className="muted">You can answer the ask without this page.</p>
+          </div>
+        )}
+        {framed && (
+          <>
+            {slow && !loaded && <p className="muted pad note">Still loading. If it never appears, the page may refuse framing: open it in a new tab.</p>}
+            <iframe title={pane.label} src={pane.url} onLoad={() => setLoaded(true)} referrerPolicy="no-referrer" sandbox={PANE_SANDBOX} />
+          </>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+// ── answer state ─────────────────────────────────────────
 
 /** queued → read → acted. A delivered push is QUEUED; only `readAt` makes it read. */
 function lifeStage(h: Record<string, string | undefined>): string {
@@ -146,11 +509,6 @@ function lifeStage(h: Record<string, string | undefined>): string {
   if (h.readAt) return "read";
   if (h.delivery === "delivered") return "queued";
   return h.delivery ?? "";
-}
-function LifeChip({ h }: { h: Record<string, string | undefined> }) {
-  const s = lifeStage(h);
-  if (!s) return null;
-  return <span className={`pill ${s === "acted" || s === "read" ? "ok" : s === "queued" ? "" : "warn"}`}>{s}</span>;
 }
 function Life({ h }: { h: Record<string, string | undefined> }) {
   const steps: [string, boolean, string | undefined][] = [
@@ -170,11 +528,10 @@ function Life({ h }: { h: Record<string, string | undefined> }) {
   );
 }
 
-type Values = Record<string, AnswerValue | undefined>;
-
 /**
  * What the card starts filled with: the recorded answer, or the OPERATOR's own draft. A seat's draft
- * (MUST-2) is never shown as the operator's choice; the card says a seat holds one instead.
+ * (MUST-2) is never shown as the operator's choice. A lean is never a value here (M1): it is shown
+ * as a suggestion beside the values, and joins them only when the operator clicks it.
  */
 export function initialValues(ask: ParsedAsk): { values: Values; text: Record<string, string>; note: string } {
   const own = ask.draft && draftAuthor(ask.draft) === "operator" ? ask.draft : undefined;
@@ -188,41 +545,59 @@ export function initialValues(ask: ParsedAsk): { values: Values; text: Record<st
   return { values, text, note: src?.note ?? "" };
 }
 
-const hasValue = (v: AnswerValue | undefined) =>
-  v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0) && !(typeof v === "number" && Number.isNaN(v));
-
-export function AskDetail({ ask, all, onChanged }: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void }) {
+export function AskDetail({
+  ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash,
+}: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void }) {
   const init = useMemo(() => initialValues(ask), [ask]);
   const [values, setValues] = useState<Values>(init.values);
   const [text, setText] = useState<Record<string, string>>(init.text);
   const [note, setNote] = useState(init.note);
   const [result, setResult] = useState("");
   const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
 
   // Only questions visible under the answers so far are sent, repeated until stable, so a hidden
-  // dependent's stale pick is dropped. Free text goes under `<key>.other`.
-  const collect = (qs: AskQuestion[]) => {
-    const out: AnswerMap = {};
-    ask.questions.forEach((q, i) => {
-      if (!qs.includes(q)) return;
-      const k = questionKey(q, i);
-      if (hasValue(values[k])) out[k] = values[k] as AnswerValue;
-      if (text[k]?.trim()) out[`${k}.other`] = text[k].trim();
-    });
-    return out;
-  };
+  // dependent's stale pick is dropped. A suggestion is never an answer, so it never unhides one.
   let visible = visibleQuestions(ask.questions, {});
-  let answers = collect(visible);
+  let answers = buildAnswers(ask, values, text, visible);
   for (let pass = 0; pass < ask.questions.length; pass++) {
     const next = visibleQuestions(ask.questions, answers);
     if (next.length === visible.length) break;
     visible = next;
-    answers = collect(visible);
+    answers = buildAnswers(ask, values, text, visible);
   }
+  const open = ask.header.status === "open";
+  const suggestions = open ? suggestionsFor(ask, values) : {};
+  const visibleSuggestions = ask.questions.flatMap((q, i) => {
+    const k = questionKey(q, i);
+    return visible.includes(q) && suggestions[k] ? [{ label: forkLabel(q, i), code: suggestions[k] }] : [];
+  });
   const dep = ask.header.dependsOn?.trim();
   const depMissing = dep && !all.some((a) => a.header.id === dep);
   const depDeclined = dependsOnDeclined(ask, all);
-  const open = ask.header.status === "open";
+  const headerTickets = [...(ask.header.tickets ?? "").matchAll(/\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b/g)].map((m) => m[1]);
+  const proofs = proofLinks(ask);
+  const row = askRow(ask);
+  const forkId = (i: number) => `fork-${ask.header.id}-${forkLabel(ask.questions[i], i)}`;
+
+  const scrollToFork = (i: number | undefined) => {
+    const el = i === undefined ? document.getElementById(`answerbar-${ask.header.id}`) : document.getElementById(forkId(i));
+    el?.scrollIntoView({ block: "start", behavior: "smooth" });
+    if (i !== undefined) onForkHash?.(forkLabel(ask.questions[i], i));
+  };
+
+  // #Q2, #q2 and #f2 open that fork; an unknown one says so and shows the first.
+  useEffect(() => {
+    if (!focusFork) return setNotice("");
+    const i = resolveFork(ask, focusFork);
+    if (i === undefined) {
+      setNotice(`No fork “${focusFork}” in this ask; showing ${forkLabel(ask.questions[0] ?? {}, 0)}.`);
+      document.getElementById(forkId(0))?.scrollIntoView({ block: "start" });
+    } else {
+      setNotice("");
+      document.getElementById(forkId(i))?.scrollIntoView({ block: "start" });
+    }
+  }, [focusFork, ask]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function act(kind: "draft" | "draft-decline" | "discard" | "send-now") {
     setBusy(true);
@@ -250,54 +625,109 @@ export function AskDetail({ ask, all, onChanged }: { ask: StoredAsk; all: Stored
     }
   }
 
+  const picked = Object.keys(answers).filter((k) => !k.endsWith(".other")).length;
+  const nothing = Object.keys(answers).length === 0;
   return (
     <article className="ask">
-      {depMissing && <p className="pill warn">depends on {dep}, which is not in this root</p>}
-      {depDeclined && <p className="pill warn">depends on {dep}, which was declined</p>}
+      <header className="ask-head">
+        <p className="ask-route">
+          <span className="seat">{ask.header.from || ask.seat}</span> <span className="muted">→ {ask.header.to}</span>
+          {row.age && <span className="muted"> · {row.age} ago</span>}
+          {row.high && <span className="chip danger">! High importance</span>}
+          {ask.header["reserved-for"] && <span className="chip" title="Only this party may answer; others may forward it">reserved for {ask.header["reserved-for"]}</span>}
+          <span className="chip quiet">{ask.header.status === "open" ? `${row.left} of ${row.total} left` : ask.header.status}</span>
+        </p>
+        {ask.header.why && <p className="ask-why"><Inline text={ask.header.why} /></p>}
+        {(headerTickets.length > 0 || proofs.length > 0 || brief) && (
+          <div className="ask-links">
+            {headerTickets.length > 0 && (
+              <span className="linkgroup">
+                <span className="lg-label">Tickets</span>
+                {headerTickets.map((t) => <TicketLink key={t} k={t} />)}
+              </span>
+            )}
+            {proofs.length > 0 && (
+              <span className="linkgroup">
+                <span className="lg-label">Proofs</span>
+                {proofs.map((p) => <ProofChip key={p.url} url={p.url} label={p.label} />)}
+              </span>
+            )}
+            {brief && onToggleBrief && (
+              <button className={`chip toggle${paneOpen ? " on" : ""}`} aria-pressed={paneOpen} onClick={onToggleBrief} title={brief.source === "brief" ? "The ask's brief page" : "No brief: field; this is the first proof page the ask links"}>
+                ◧ {brief.source === "brief" ? "Brief" : "Linked proof"} {paneOpen ? "on" : "off"}
+              </button>
+            )}
+          </div>
+        )}
+        {notice && <p className="chip warn notice" role="status">{notice}</p>}
+        {visibleSuggestions.length > 0 && (
+          <div className="suggest-bar">
+            <p>
+              <b>Suggested picks</b> are the asker's leans, shown dashed. They are not your answer: nothing is saved or sent until you click. Click a suggested option to confirm it and move to the next fork.
+            </p>
+            <button className="btn" onClick={() => setValues(acceptAll(ask, values))}>
+              Accept all {visibleSuggestions.length} suggestion{visibleSuggestions.length === 1 ? "" : "s"}: {visibleSuggestions.map((s) => `${s.label} ${s.code}`).join(" · ")}
+            </button>
+          </div>
+        )}
+      </header>
+      {depMissing && <p className="chip warn">depends on {dep}, which is not in this root</p>}
+      {depDeclined && <p className="chip warn">depends on {dep}, which was declined</p>}
       {ask.questions.map((q, i) => {
         const k = questionKey(q, i);
         return (
           <Fragment key={k}>
-          <QuestionCard
-            ask={ask}
-            q={q}
-            index={i}
-            waiting={!visible.includes(q)}
-            value={values[k]}
-            onValue={(v) => setValues({ ...values, [k]: v })}
-            note={text[k] ?? ""}
-            onNote={(t) => setText({ ...text, [k]: t })}
-            readOnly={!open}
-          />
-          {/* Prose written after a fork's options, before the next heading, sits between the cards. */}
-          <ForkProse text={q.proseAfter} between />
+            <QuestionCard
+              ask={ask}
+              q={q}
+              index={i}
+              domId={forkId(i)}
+              waiting={!visible.includes(q)}
+              value={values[k]}
+              suggestion={suggestions[k]}
+              onValue={(v) => setValues((cur) => ({ ...cur, [k]: v }))}
+              onConfirm={(v) => {
+                setValues((cur) => ({ ...cur, [k]: v }));
+                scrollToFork(nextFork(ask, i, visible));
+              }}
+              note={text[k] ?? ""}
+              onNote={(t) => setText({ ...text, [k]: t })}
+              readOnly={!open}
+            />
+            {/* Prose written after a fork's options, before the next heading, sits between the cards. */}
+            <ForkProse text={q.proseAfter} between />
           </Fragment>
         );
       })}
 
-      <section className="answerbar">
-        {settled(ask) && (
+      <section className="answerbar" id={`answerbar-${ask.header.id}`}>
+        {isSettled(ask) && (
           <>
             <h3>{ask.header.status === "declined" ? "Declined" : "Answered"} · revision {ask.header.revision}</h3>
             <AnsweredBy answer={ask.answer} />
+            {ask.answer?.note && <p className="answer-note"><Inline text={ask.answer.note} /></p>}
             <Life h={ask.header} />
             <details>
               <summary>Recorded answer block</summary>
-              <pre className="answer">{JSON.stringify(ask.answer, null, 2)}</pre>
+              <pre className="code">{JSON.stringify(ask.answer, null, 2)}</pre>
             </details>
           </>
         )}
         {open && (
           <>
-            <textarea rows={2} className="fb-note" placeholder="Note to the asker (optional). To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
+            <p className="muted sends">
+              {nothing ? "Nothing picked yet. Suggestions are not sent." : `Saving or sending sends ${picked} fork${picked === 1 ? "" : "s"} you picked${Object.keys(answers).length > picked ? " and your notes" : ""}; forks you did not touch stay open.`}
+            </p>
+            <label className="field-label" htmlFor={`note-${ask.header.id}`}>Note to the asker</label>
+            <textarea id={`note-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
             <p className="actions">
-              <button className="btn primary" disabled={busy || Object.keys(answers).length === 0} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>
-              <button className="btn" disabled={busy || Object.keys(answers).length === 0} onClick={() => act("send-now")}>Send this one now</button>
+              <button className="btn primary" disabled={busy || nothing} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>
+              <button className="btn" disabled={busy || nothing} onClick={() => act("send-now")}>Send this one now</button>
               <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => act("draft-decline")}>Draft a decline</button>
               {ask.draft && <button className="btn" disabled={busy} onClick={() => act("discard")}>Discard draft</button>}
             </p>
             {ask.draft && (
-              <p className="hidden-note">
+              <p className="muted">
                 {draftAuthor(ask.draft) === "operator"
                   ? <>Draft saved {ask.draft.savedAt} against revision {ask.draft.basedOn}{ask.draft.declined ? `, a decline: ${ask.draft.reason}` : ""}. Not sent.</>
                   : <>{draftAuthor(ask.draft)} holds an unsent draft here ({ask.draft.savedAt}); it is not shown as your choice. Saving your own draft replaces it.</>}
@@ -309,6 +739,18 @@ export function AskDetail({ ask, all, onChanged }: { ask: StoredAsk; all: Stored
         <AskDetails ask={ask} />
       </section>
     </article>
+  );
+}
+
+function ProofChip({ url, label }: { url: string; label: string }) {
+  return (
+    <PaneContext.Consumer>
+      {(open) => (
+        <a className="chip proof" href={url} target="_blank" rel="noreferrer" onClick={(e) => { if (open && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) { e.preventDefault(); open(url, label); } }}>
+          ◧ {label}
+        </a>
+      )}
+    </PaneContext.Consumer>
   );
 }
 
@@ -336,135 +778,148 @@ const OPTIONAL: [keyof Card, string][] = [
 ];
 const KIND_LABEL: Record<string, string> = { "choose-one": "choose one", choose: "choose any", rank: "rank all", text: "free text", number: "a number", date: "a date", yesno: "yes or no" };
 
+/** Ticket keys written in this one fork: its title, prose, card lines, evidence and options. */
+function forkTickets(q: AskQuestion): string[] {
+  const opt = (os: AskOption[]): string[] => os.flatMap((o) => [o.label, o.description ?? "", o.cost ?? "", ...opt(o.children ?? [])]);
+  const text = [q.title, q.prose ?? "", ...Object.values(q.meta), ...q.evidence, ...opt(q.options)].join("\n");
+  return [...new Set([...text.matchAll(/\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b/g)].map((m) => m[1]))];
+}
+
 function QuestionCard(p: {
-  ask: StoredAsk; q: AskQuestion; index: number; waiting: boolean; readOnly: boolean;
-  value: AnswerValue | undefined; onValue: (v: AnswerValue | undefined) => void; note: string; onNote: (t: string) => void;
+  ask: StoredAsk; q: AskQuestion; index: number; domId: string; waiting: boolean; readOnly: boolean;
+  value: AnswerValue | undefined; suggestion?: string;
+  onValue: (v: AnswerValue | undefined) => void; onConfirm: (v: AnswerValue) => void; note: string; onNote: (t: string) => void;
 }) {
   const { ask, q, index } = p;
   const card = cardFor(ask, index);
   const k = questionKey(q, index);
-  const id = `${ask.header.id}-${k}`;
-  const keys = index === 0 ? ticketKeys(ask) : [];
+  const label = forkLabel(q, index);
   const total = ask.questions.length;
-  const eyebrow = `Q${index + 1}${card.rank ? ` · rank ${card.rank}` : total > 1 ? ` of ${total}` : ""}`;
+  const leanCode = leanCodeFor(ask, index);
+  const lean = leanFor(ask, index);
+  const trade = tradeoff(q.options, leanCode);
+  const tickets = forkTickets(q);
+  const high = ask.header.importance?.trim().toLowerCase() === "high";
+  const choice = q.kind === "choose-one" || q.kind === "choose" || q.kind === "yesno";
   return (
-    <article className="mod block" id={id} data-kind={q.kind}>
-      <div className="mod-head">
-        <span className="mod-title">
-          <span className="mod-eyebrow">{eyebrow}</span>{" "}
-          <span className="mod-slug">{card.topic ?? `${KIND_LABEL[q.kind]} · ${k}`}</span>
+    <article className="fork" id={p.domId} data-kind={q.kind}>
+      <div className="fork-head">
+        <span className="eyebrow">
+          <b className="flabel">{label}</b>
+          {` · ${index + 1} of ${total}`}
+          {card.rank && ` · rank ${card.rank}`}
+          <span className="kind"> · {KIND_LABEL[q.kind]}</span>
+          {card.topic && <span className="topic"> · {card.topic}</span>}
         </span>
-        <span className="mod-aff" aria-label="Affordance rail">
-          {(card.evidence.length > 0 || keys.length > 0) && (
-            <span className="affgroup" role="group" aria-label="Block affordances">
-              {card.evidence.length > 0 && (
-                <button className="affseg" {...pop({ popovertarget: `ev-${id}` })} aria-label={`${card.evidence.length} evidence pieces`}>
-                  <span className="segico" aria-hidden="true">📎</span><span className="seglab">Evidence</span>·<span className="segn">{card.evidence.length}</span>
-                </button>
-              )}
-              {keys.length > 0 && (
-                <span className="affseg tk" aria-label={`${keys.length} linked tickets`}>
-                  <span className="segico" aria-hidden="true">🎫</span><span className="seglab">Tickets</span>·<span className="segn">{keys.length}</span>
-                </span>
-              )}
-            </span>
-          )}
-          {card.reservedFor && <span className="pill bad" title="Only this party may answer; others may forward it">reserved · {card.reservedFor}</span>}
-          <a className="aff mod-perma" href={`#${id}`} aria-label="Permalink to this question">¶</a>
+        <span className="fork-aff">
+          {high && <span className="chip danger" title="The ask is marked high importance; it applies to every fork">! High importance</span>}
+          {tickets.length > 0 && <span className="chip quiet" title={tickets.join(", ")}>{tickets.length} ticket{tickets.length === 1 ? "" : "s"}</span>}
+          {card.reservedFor && <span className="chip" title="Only this party may answer; others may forward it">reserved · {card.reservedFor}</span>}
+          <a className="perma" href={`#${askRef(ask)}/${label}`} aria-label={`Link to ${label}`}>¶</a>
         </span>
       </div>
 
-      <div className="mod-body">
-        <h3 className="fork-q">{q.title}</h3>
-        {index === 0 && ask.preamble.trim() && <Prose text={ask.preamble.trim()} />}
-        {card.context && <p>{card.context}</p>}
-        <ForkProse text={q.prose} />
-        {keys.length > 0 && <p className="tickets">{keys.map((t) => <TicketLink key={t} k={t} />)}</p>}
-        {card.stake && (
-          <div className="callout caution">
-            <div className="ci">⚠</div>
-            <div><div className="ctitle">At stake</div><div className="cbody">{card.stake}</div></div>
-          </div>
-        )}
-        {card.unblocks && (
-          <div className="callout insight">
-            <div className="ci">◆</div>
-            <div><div className="ctitle">Deciding this unblocks</div><div className="cbody">{card.unblocks}</div></div>
-          </div>
-        )}
-        {OPTIONAL.some(([f]) => card[f]) && (
-          <dl className="cardmeta">
-            {OPTIONAL.filter(([f]) => card[f]).map(([f, label]) => (
-              <div key={f}><dt>{label}</dt><dd>{card[f] as string}</dd></div>
-            ))}
-          </dl>
-        )}
-        {card.related && (
-          <details>
-            <summary>Related, not asked here</summary>
-            <p>{card.related}</p>
-          </details>
-        )}
+      <h3 className="fork-q"><Inline text={q.title} /></h3>
+      {index === 0 && ask.preamble.trim() && <Rich text={ask.preamble.trim()} className="rich preamble" />}
+      {card.context && <Rich text={card.context} className="rich context" />}
+      <ForkProse text={q.prose} />
 
-        {p.waiting ? (
-          <p className="waiting">Waiting on ASK_{q.dependsOn?.ask}{q.dependsOn?.code ? ` = ${q.dependsOn.code}` : ""}.</p>
-        ) : (
-          <Input q={q} card={card} value={p.value} onValue={p.onValue} readOnly={p.readOnly} />
-        )}
-        {card.lean && !card.lean.code && (
-          <p className="lean-line"><b>Lean:</b> “{card.lean.text}”{card.counter && <> <b>Strongest counter:</b> {card.counter}</>}</p>
-        )}
-        {q.panel.length > 0 && (
-          <details className="panelread">
-            <summary>Council panel read · {q.panel.length} lens{q.panel.length === 1 ? "" : "es"}</summary>
-            <ul>
-              {q.panel.map((r, i) => (
-                <li key={i}><b>{r.lens}</b> → <span className="okey">{r.pick}</span> · {r.why}</li>
-              ))}
-            </ul>
-          </details>
-        )}
-        {!p.waiting && (
-          <textarea
-            className="fb-note"
-            rows={2}
-            disabled={p.readOnly}
-            placeholder={`Your note on Q${index + 1}: a different answer, a condition, or a question back. Optional.`}
-            value={p.note}
-            onChange={(e) => p.onNote(e.target.value)}
-          />
-        )}
-      </div>
-
-      <div className="mod-foot">
-        <span><span className="fk">prov</span> <span className="fv">{card.provenance ?? `asked by ${card.askedBy ?? ask.header.from}`}</span></span>
-        {card.asOf && <span><span className="fk">as-of</span> <span className="fv">{card.asOf}</span></span>}
-        <span><span className="fk">ref</span> <span className="fv">{card.sourceRef ?? `${ask.seat}/${ask.header.id}#${k}`}</span></span>
-        {q.dependsOn && <span><span className="fk">after</span> <span className="fv">ASK_{q.dependsOn.ask}{q.dependsOn.code ? `=${q.dependsOn.code}` : ""}</span></span>}
-      </div>
-
-      {card.evidence.length > 0 && (
-        <div id={`ev-${id}`} {...pop({ popover: "auto" })} className="evpop" role="dialog" aria-label="Evidence for this question">
-          <div className="evpop-head"><b>Evidence</b> <span className="cnt">{card.evidence.length} items</span>
-            <button className="evpop-close" {...pop({ popovertarget: `ev-${id}`, popovertargetaction: "hide" })} aria-label="Close">✕</button></div>
-          <ul className="evlist">
-            {card.evidence.map((e, i) => (
-              <li key={i} className="evrow"><span className="evtype src">source</span><div className="evbody">{e}</div></li>
-            ))}
-          </ul>
-        </div>
+      {(card.stake || card.unblocks) && (
+        <dl className="stakes">
+          {card.stake && <div><dt>At stake</dt><dd><Inline text={card.stake} /></dd></div>}
+          {card.unblocks && <div><dt>Deciding this unblocks</dt><dd><Inline text={card.unblocks} /></dd></div>}
+        </dl>
       )}
+      {card.evidence.length > 0 && (
+        <details className="evidence">
+          <summary>Evidence <span className="n">{card.evidence.length}</span></summary>
+          <ul>{card.evidence.map((e, i) => <li key={i}><Inline text={e} /></li>)}</ul>
+        </details>
+      )}
+
+      {p.waiting ? (
+        <p className="waiting">Waiting on ASK_{q.dependsOn?.ask}{q.dependsOn?.code ? ` = ${q.dependsOn.code}` : ""}.</p>
+      ) : (
+        <>
+          {choice && q.options.length > 1 && <TradeLegend trade={trade} />}
+          <Input q={q} card={card} lean={leanCode} leanText={lean?.text} trade={trade} radioBase={`${askRef(ask)}#${k}`} value={p.value} suggestion={p.suggestion} onValue={p.onValue} onConfirm={p.onConfirm} readOnly={p.readOnly} />
+        </>
+      )}
+      {lean && !leanCode && (
+        <p className="lean-line"><b>Lean:</b> <Inline text={lean.text} />{card.counter && <> <b>Strongest counter:</b> <Inline text={card.counter} /></>}</p>
+      )}
+      {leanCode && card.counter && <p className="lean-line"><b>Strongest counter to the lean:</b> <Inline text={card.counter} /></p>}
+      {q.panel.length > 0 && (
+        <p className="panel-line">
+          <span className="lg-label">Panel read</span> {q.panel.length} lens{q.panel.length === 1 ? "" : "es"} ·{" "}
+          {q.panel.map((r, i) => <span key={i} className="pl">{r.lens} → <code>{r.pick}</code>{i < q.panel.length - 1 ? " · " : ""}</span>)}
+          <span className="muted"> · a read, not a vote</span>
+        </p>
+      )}
+      {OPTIONAL.some(([f]) => card[f]) && (
+        <dl className="cardmeta">
+          {OPTIONAL.filter(([f]) => card[f]).map(([f, l]) => (
+            <div key={f}><dt>{l}</dt><dd><Inline text={card[f] as string} /></dd></div>
+          ))}
+        </dl>
+      )}
+      {card.related && (
+        <details className="evidence">
+          <summary>Related, not asked here</summary>
+          <Rich text={card.related} />
+        </details>
+      )}
+      {!p.waiting && (
+        <textarea
+          className="fork-note"
+          rows={1}
+          disabled={p.readOnly}
+          aria-label={`Your note on ${label}`}
+          placeholder={`Your note on ${label}: a different answer, a condition, or a question back. Optional.`}
+          value={p.note}
+          onChange={(e) => p.onNote(e.target.value)}
+        />
+      )}
+      <div className="fork-foot">
+        <span>{card.provenance ?? `asked by ${card.askedBy ?? ask.header.from}`}</span>
+        {card.asOf && <span>as of {card.asOf}</span>}
+        <span className="ref">{card.sourceRef ?? `${ask.seat}/${ask.header.id}#${label}`}</span>
+        {q.dependsOn && <span>after ASK_{q.dependsOn.ask}{q.dependsOn.code ? `=${q.dependsOn.code}` : ""}</span>}
+      </div>
     </article>
   );
 }
 
-function Prose({ text }: { text: string }) {
-  return <>{text.split(/\n{2,}/).map((para, i) => <p key={i}>{para}</p>)}</>;
+type Trade = ReturnType<typeof tradeoff>;
+const LEGEND: Record<Dim, string> = { blast: "△ ◭ ▲", effort: "Ⓢ Ⓜ Ⓛ", cost: "one line", lean: "★ the asker's lean" };
+function TradeLegend({ trade }: { trade: Trade }) {
+  return (
+    <p className="legend" aria-label="What the marks on the options mean">
+      <span className="lg-label">Compare</span>
+      {trade.dims.map((d) => (
+        <span key={d} className={trade.same.includes(d) ? "same" : undefined}>{d === "lean" ? LEGEND.lean : `${DIM_LABEL[d]} ${LEGEND[d]}`}</span>
+      ))}
+      <span className="muted">faded: the same for every option · – not given</span>
+    </p>
+  );
+}
+
+/** Kept for the old import: the author's prose under a fork's heading, rendered as markdown. */
+export function ForkProse({ text, between }: { text?: string; between?: boolean }) {
+  if (!text?.trim()) return null;
+  return <Rich text={text} className={between ? "fork-prose between-forks" : "fork-prose"} />;
 }
 
 // ── inputs by kind ────────────────────────────────────────
 
-function Input({ q, card, value, onValue, readOnly }: { q: AskQuestion; card: Card; value: AnswerValue | undefined; onValue: (v: AnswerValue | undefined) => void; readOnly: boolean }) {
+type InputProps = {
+  q: AskQuestion; card: Card; lean?: string; leanText?: string; trade: Trade; radioBase: string;
+  value: AnswerValue | undefined; suggestion?: string;
+  onValue: (v: AnswerValue | undefined) => void; onConfirm: (v: AnswerValue) => void; readOnly: boolean;
+};
+
+function Input(p: InputProps) {
+  const { q, value, onValue, readOnly } = p;
   if (q.kind === "text") {
     return <textarea className="answer-text" rows={3} disabled={readOnly} placeholder="Your answer" value={typeof value === "string" ? value : ""} onChange={(e) => onValue(e.target.value)} />;
   }
@@ -474,49 +929,124 @@ function Input({ q, card, value, onValue, readOnly }: { q: AskQuestion; card: Ca
       <p className="answer-num">
         <input type="number" disabled={readOnly} min={n.min} max={n.max} value={typeof value === "number" ? value : ""} onChange={(e) => onValue(e.target.value === "" ? undefined : Number(e.target.value))} />
         {n.unit && <span> {n.unit}</span>}
-        {(n.min !== undefined || n.max !== undefined) && <span className="hidden-note"> between {n.min ?? "−∞"} and {n.max ?? "∞"}</span>}
+        {(n.min !== undefined || n.max !== undefined) && <span className="muted"> between {n.min ?? "−∞"} and {n.max ?? "∞"}</span>}
       </p>
     );
   }
   if (q.kind === "date") {
     return <p><input type="date" disabled={readOnly} value={typeof value === "string" ? value : ""} onChange={(e) => onValue(e.target.value || undefined)} /></p>;
   }
-  if (q.kind === "rank") return <RankInput q={q} card={card} value={Array.isArray(value) ? value : undefined} onValue={onValue} readOnly={readOnly} />;
-  return <OptionTree q={q} card={card} options={q.options} picks={Array.isArray(value) ? value : []} onChange={(v) => onValue(v.length ? v : undefined)} readOnly={readOnly} />;
+  if (q.kind === "rank") return <RankInput {...p} value={Array.isArray(value) ? value : undefined} />;
+  const picks = Array.isArray(value) ? value : [];
+  return (
+    <>
+      <OptionTree {...p} options={q.options} picks={picks} name={`${p.radioBase}/top`} onPicks={(v, confirm) => (confirm ? p.onConfirm(v) : onValue(v.length ? v : undefined))} />
+      {!readOnly && picks.length > 0 && (
+        <button className="linkish clear" onClick={() => onValue(undefined)}>Clear this pick</button>
+      )}
+    </>
+  );
 }
 
-function OptionBody({ o, card, q }: { o: AskOption; card: Card; q: AskQuestion }) {
-  const isLean = !!card.lean?.code && card.lean.code === o.code;
-  const marks = q.panel.filter((r) => r.pick === o.code || r.pick === o.label);
+const glyphOr = (c: { glyph: string; text: string } | undefined) => (c ? c.glyph || c.text : "–");
+function Strip({ trade, cells }: { trade: Trade; cells: Trade["rows"][string] | undefined }) {
+  const show = trade.dims.filter((d) => d !== "cost");
   return (
-    <span className="fb-opt-body">
-      <span className="fb-opt-label">
-        {o.code && <><span className="okey">{o.code}</span> · </>}
-        {o.label}
-        {isLean && <> <span className="pill ok lean-badge">lean</span></>}
+    <span className="strip" aria-label={show.map((d) => `${DIM_LABEL[d]}: ${cells?.[d]?.text ?? "not given"}`).join("; ")}>
+      {show.map((d) =>
+        d === "lean" ? (
+          cells?.lean ? <span key={d} className="g g-lean" title="The asker's lean">★</span> : <span key={d} className="g g-lean blank" aria-hidden="true">☆</span>
+        ) : (
+          <span key={d} className={`g g-${d}${trade.same.includes(d) ? " same" : ""}${cells?.[d] ? "" : " none"}`} title={`${DIM_LABEL[d]}: ${cells?.[d]?.text ?? "not given"}`}>
+            {cells?.[d]?.glyph ? cells[d]!.glyph : <span className="gtext">{glyphOr(cells?.[d])}</span>}
+          </span>
+        ),
+      )}
+    </span>
+  );
+}
+
+function OptionBody({ o, card, q, lean, leanText, trade, suggested }: { o: AskOption; card: Card; q: AskQuestion; lean?: string; leanText?: string; trade: Trade; suggested?: boolean }) {
+  const isLean = !!lean && lean === o.code;
+  const marks = q.panel.filter((r) => r.pick === o.code || r.pick === o.label);
+  const cells = trade.rows[o.code ?? o.label];
+  const label = o.label.replace(/\s*\(lean\)\s*$/i, "");
+  const costSame = trade.same.includes("cost");
+  const extra = [
+    o.effort && cells?.effort?.glyph && saysMore(o.effort) ? ["Effort", o.effort] : undefined,
+    o.blastRadius && cells?.blast?.glyph && saysMore(o.blastRadius) ? ["Blast radius", o.blastRadius] : undefined,
+  ].filter(Boolean) as [string, string][];
+  return (
+    <span className="opt-body">
+      <span className="opt-label">
+        {o.code && <code className="okey">{o.code}</code>}
+        <span className="opt-text"><Inline text={label} /></span>
+        {isLean && <span className="rec">Recommended</span>}
+        {suggested && <span className="sugg">Suggested · click to confirm</span>}
+        <Strip trade={trade} cells={cells} />
       </span>
-      {(o.description || o.cost || o.effort || o.blastRadius || isLean) && (
-        <span className="fb-opt-desc">
-          {o.description}
-          {o.cost && <> <b>Cost:</b> {o.cost}</>}
-          {(o.effort || o.blastRadius) && (
-            <span className="optmeta">
-              {o.effort && <span><b>Effort:</b> {o.effort}</span>}
-              {o.blastRadius && <span><b>Blast radius:</b> {o.blastRadius}</span>}
-            </span>
-          )}
-          {isLean && (
-            <span className="lean-line">
-              <b>Lean:</b> {o.code}, “{card.lean!.text}”{card.counter && <> <b>Strongest counter:</b> {card.counter}</>}
-            </span>
-          )}
+      {o.description && <span className="opt-desc"><Inline text={o.description} /></span>}
+      {o.cost && <span className={`opt-cost${costSame ? " same" : ""}`}><b>Cost</b> <Inline text={o.cost} /></span>}
+      {extra.length > 0 && (
+        <span className="opt-dims">
+          {extra.map(([l, v]) => <span key={l}><b>{l}</b> {v}</span>)}
         </span>
       )}
-      {marks.length > 0 && (
-        <span className="marks">
-          {marks.map((m, i) => <span key={i} className="panel-mark">◆ <b>{m.lens}</b> picks this: {m.why}</span>)}
+      {isLean && leanText && <span className="opt-lean"><b>Why the lean</b> <Inline text={leanText} /></span>}
+      {q.panel.length > 0 && (
+        <span className="lens-row">
+          {marks.length ? marks.map((m, i) => <LensMark key={i} read={m} id={`lens-${q.askName ?? "q"}-${o.code ?? i}-${i}`} />) : <span className="muted lens-none">No lens picked this</span>}
         </span>
       )}
+    </span>
+  );
+}
+
+/**
+ * "◆ Lens picks this" as a button: hover or focus shows the lens's reasoning as a tooltip, which
+ * stays while hovered and closes on Esc (S3). A click or Enter pins it as a small non-modal dialog
+ * with a Close button (S4). The body is the Panel: line's text; a longer read needs parser support.
+ */
+export function LensMark({ read, id }: { read: PanelRead; id: string }) {
+  const [hover, setHover] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  const show = hover || pinned;
+  useEffect(() => {
+    if (!show) return;
+    return pushEsc(() => {
+      setPinned(false);
+      setHover(false);
+    });
+  }, [show]);
+  useEffect(() => {
+    if (!pinned) return;
+    const away = (e: Event) => ref.current && !ref.current.contains(e.target as Node) && setPinned(false);
+    document.addEventListener("pointerdown", away);
+    return () => document.removeEventListener("pointerdown", away);
+  }, [pinned]);
+  return (
+    <span className="lens" ref={ref} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+      <button
+        type="button"
+        className="lens-mark"
+        aria-describedby={id}
+        onFocus={() => setHover(true)}
+        onBlur={() => !pinned && setHover(false)}
+        onClick={(e) => {
+          e.preventDefault();
+          setPinned(!pinned);
+        }}
+      >
+        ◆ <b>{read.lens}</b> picks this
+      </button>
+      <span className={`lens-pop${pinned ? " pinned" : ""}`} role={pinned ? "dialog" : "tooltip"} aria-label={pinned ? `${read.lens}'s read` : undefined} id={id} hidden={!show}>
+        <span className="lp-head"><b>{read.lens}</b> picks <code>{read.pick}</code></span>
+        <span className="lp-h">Why</span>
+        <span className="lp-body"><Inline text={read.why} /></span>
+        <span className="lp-foot muted">From the fork's Panel: line. One line is all the ask file holds for this lens.</span>
+        {pinned && <button type="button" className="lp-close" onClick={() => setPinned(false)}>Close</button>}
+      </span>
     </span>
   );
 }
@@ -526,29 +1056,42 @@ function subtreeValues(o: AskOption): string[] {
   return [valueOf(o), ...(o.children ?? []).flatMap(subtreeValues)];
 }
 
-function OptionTree({ q, card, options, picks, onChange, readOnly }: { q: AskQuestion; card: Card; options: AskOption[]; picks: string[]; onChange: (p: string[]) => void; readOnly: boolean }) {
+function OptionTree(p: InputProps & { options: AskOption[]; picks: string[]; name: string; onPicks: (v: string[], confirm: boolean) => void }) {
+  const { q, options, picks, readOnly, suggestion } = p;
+  const untouched = picks.length === 0;
   return (
-    <div className="fb-options">
+    <div className="options" role={q.multiSelect ? "group" : "radiogroup"}>
       {options.map((o) => {
         const v = valueOf(o);
         const on = picks.includes(v);
-        const toggle = () => {
+        const suggested = untouched && !!suggestion && suggestion === v;
+        const click = () => {
           if (readOnly) return;
-          if (q.multiSelect) onChange(on ? picks.filter((p) => !subtreeValues(o).includes(p)) : [...picks, v]);
-          else {
-            const siblings = options.flatMap(subtreeValues);
-            onChange(on ? picks.filter((p) => !subtreeValues(o).includes(p)) : [...picks.filter((p) => !siblings.includes(p)), v]);
-          }
+          // Clicking the suggested option confirms it and moves on; it never clears it (hands-2 B1).
+          if (suggested) return p.onPicks([v], true);
+          const r = clickPicks(picks, v, q.multiSelect, options.flatMap(subtreeValues), subtreeValues(o));
+          p.onPicks(r.picks, r.confirm);
         };
         return (
-          <div key={v} className="optwrap">
-            <label className="fb-opt">
-              <input type={q.multiSelect ? "checkbox" : "radio"} disabled={readOnly} checked={on} onChange={toggle} onClick={() => { if (on && !q.multiSelect) toggle(); }} />
-              <OptionBody o={o} card={card} q={q} />
+          <div key={v} className={`optwrap${on ? " on" : ""}${suggested ? " suggested" : ""}${p.lean === o.code ? " is-lean" : ""}`}>
+            <label className="opt">
+              <input
+                type={q.multiSelect ? "checkbox" : "radio"}
+                name={p.name}
+                disabled={readOnly}
+                checked={on || suggested}
+                onChange={() => {}}
+                onClick={(e) => {
+                  e.preventDefault();
+                  click();
+                }}
+              />
+              <OptionBody o={o} card={p.card} q={q} lean={p.lean} leanText={p.leanText} trade={p.trade} suggested={suggested} />
             </label>
             {on && o.children && (
               <div className="nested">
-                <OptionTree q={q} card={card} options={o.children} picks={picks} onChange={onChange} readOnly={readOnly} />
+                {/* S5: each level has its own radio group, so a picked parent stays checked. */}
+                <OptionTree {...p} options={o.children} name={`${p.name}/${v}`} suggestion={undefined} />
               </div>
             )}
           </div>
@@ -558,7 +1101,8 @@ function OptionTree({ q, card, options, picks, onChange, readOnly }: { q: AskQue
   );
 }
 
-function RankInput({ q, card, value, onValue, readOnly }: { q: AskQuestion; card: Card; value: string[] | undefined; onValue: (v: string[] | undefined) => void; readOnly: boolean }) {
+function RankInput(p: InputProps & { value: string[] | undefined }) {
+  const { q, value, onValue, readOnly } = p;
   const order = value ?? q.options.map(valueOf);
   const move = (i: number, d: number) => {
     const next = [...order];
@@ -568,13 +1112,13 @@ function RankInput({ q, card, value, onValue, readOnly }: { q: AskQuestion; card
   };
   return (
     <div className="rank">
-      <ol className="fb-options">
+      <ol className="options">
         {order.map((v, i) => {
           const o = q.options.find((x) => valueOf(x) === v)!;
           return (
-            <li key={v} className="fb-opt rank-row">
+            <li key={v} className="opt rank-row">
               <span className="rank-n">{i + 1}</span>
-              <OptionBody o={o} card={card} q={q} />
+              <OptionBody o={o} card={p.card} q={q} lean={p.lean} leanText={p.leanText} trade={p.trade} />
               {!readOnly && (
                 <span className="rank-btns">
                   <button className="btn" aria-label={`Move ${o.label} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>
@@ -586,62 +1130,9 @@ function RankInput({ q, card, value, onValue, readOnly }: { q: AskQuestion; card
         })}
       </ol>
       {!readOnly && !value && <button className="btn" onClick={() => onValue(order)}>Use this order as my ranking</button>}
-      {!readOnly && value && <p className="hidden-note">Ranking set. Move items to change it.</p>}
+      {!readOnly && value && <p className="muted">Ranking set. Move items to change it.</p>}
     </div>
   );
-}
-
-// ── linked tickets (the Linear key stays on the server) ──
-
-type TicketInfo = { key: string; title: string; status: string; statusType: string; statusSince: string; assignee: string; summary: string; url: string };
-const ticketCache = new Map<string, Promise<TicketInfo | { error: string }>>();
-function loadTicket(k: string) {
-  if (!ticketCache.has(k)) {
-    ticketCache.set(
-      k,
-      fetch(`/api/ticket/${encodeURIComponent(k)}`, { headers: { "x-ask-token": token() } }).then(async (r) =>
-        r.ok ? r.json() : { error: (await r.json().catch(() => ({}))).error ?? `HTTP ${r.status}` },
-      ),
-    );
-  }
-  return ticketCache.get(k)!;
-}
-
-function TicketLink({ k }: { k: string }) {
-  const [info, setInfo] = useState<TicketInfo | { error: string } | undefined>();
-  const [show, setShow] = useState(false);
-  useEffect(() => {
-    let live = true;
-    loadTicket(k).then((i) => live && setInfo(i));
-    return () => {
-      live = false;
-    };
-  }, [k]);
-  const t = info && "key" in info ? info : undefined;
-  return (
-    <span className="ticket" onMouseEnter={() => setShow(true)} onMouseLeave={() => setShow(false)} onFocus={() => setShow(true)} onBlur={() => setShow(false)}>
-      <a href={safeHref(t?.url)} target="_blank" rel="noreferrer" tabIndex={0} aria-describedby={`tt-${k}`}>{k}</a>
-      {t && <span className={`pill ${t.statusType === "completed" ? "ok" : t.statusType === "canceled" ? "bad" : t.statusType === "started" ? "warn" : ""}`}>{t.status}</span>}
-      {show && info && (
-        <span className="tooltip" role="tooltip" id={`tt-${k}`}>
-          {t ? (
-            <>
-              <b>{t.key} · {t.title}</b>
-              <span>{t.status} since {t.statusSince.slice(0, 10)} · {t.assignee}</span>
-              {t.summary && <span className="tt-sum">{t.summary}</span>}
-            </>
-          ) : (
-            <span>{k}: {(info as { error: string }).error}</span>
-          )}
-        </span>
-      )}
-    </span>
-  );
-}
-
-/** N3: a ticket link is followed only when it is https; anything else (javascript:, data:) is dropped. */
-function safeHref(url: string | undefined): string | undefined {
-  return url && /^https:\/\//i.test(url) ? url : undefined;
 }
 
 /**
@@ -655,26 +1146,14 @@ export function AnsweredBy({ answer }: { answer?: AskAnswer }) {
     <p className="answered-by">
       by <b>{answer.answeredBy || "unknown"}</b>
       {relayer ? (
-        <span className="pill warn relay" title={`${relayer} recorded this as the operator's answer${answer.note ? `: ${answer.note}` : ""}`}>
+        <span className="chip warn relay" title={`${relayer} recorded this as the operator's answer${answer.note ? `: ${answer.note}` : ""}`}>
           relayed by {relayer}
         </span>
       ) : answer.answeredVia ? (
-        <span className="hidden-note"> via {answer.answeredVia}</span>
+        <span className="muted"> via {answer.answeredVia}</span>
       ) : null}
       <span className="sr-only">{answeredByText(answer)}</span>
     </p>
-  );
-}
-
-/** The author's prose under a fork's heading, paragraph by paragraph: the reasons the options rest on. */
-export function ForkProse({ text, between }: { text?: string; between?: boolean }) {
-  if (!text?.trim()) return null;
-  return (
-    <div className={between ? "fork-prose between-forks" : "fork-prose"}>
-      {text.split(/\n\s*\n/).map((p, i) => (
-        <p key={i}>{p.trim()}</p>
-      ))}
-    </div>
   );
 }
 
