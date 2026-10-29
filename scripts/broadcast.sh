@@ -32,8 +32,8 @@
 # name equals the pane label (case-insensitive), is a target; none, several, or a different name
 # is reported undelivered with the reason. The push itself is deliver.ts pushToSeat (the one
 # module that knows the socket protocol), given a sessions dir holding only that pid's files, so
-# it cannot pick another process. The message is a fixed pointer line; no user text reaches the
-# socket. "delivered" = the socket accepted the bytes (a stopped process still accepts); acks are
+# it cannot pick another process. The message is the broadcast's text (cut at BROADCAST_INLINE_MAX
+# characters, with the record path for the rest) and one ack line; the record stays the durable copy. "delivered" = the socket accepted the bytes (a stopped process still accepts); acks are
 # the proof it was read.
 #
 # Files: $BROADCAST_DIR (default ~/.claude/data/yarik/broadcasts): <id>.md record,
@@ -202,7 +202,21 @@ deliver() { # deliver <seat> <pid> <name> <message> → one status line; rc 0 = 
   return "$rc"
 }
 
-pointer() { echo "[broadcast $1 ${4:-from} $2] read $3; ack: engine broadcast ack $1"; }
+BROADCAST_INLINE_MAX="${BROADCAST_INLINE_MAX:-1500}"
+
+# message <id> <text> <record> — what reaches a seat: the broadcast's own text, then one ack line.
+# Text past BROADCAST_INLINE_MAX characters is cut and the record path given for the rest.
+message() {
+  local text="$2"
+  if [ "${#text}" -gt "$BROADCAST_INLINE_MAX" ]; then
+    text="${text:0:$BROADCAST_INLINE_MAX}…"$'\n'"full text: $3"
+  fi
+  printf '%s\nack: engine broadcast ack %s' "$text" "$1"
+}
+
+text_of() { # text_of <record> — the record's "## Text" section, without its surrounding blank lines
+  awk '/^## Text/ { on = 1; next } on && /^## / { exit } on' "$1" | sed -e '/./,$!d' | sed -e ':a' -e '/^\n*$/{$d;N;ba' -e '}'
+}
 
 header() { # header <record> <key> — value from the header block only (before "## Text")
   awk -v k="$2" '/^## Text/ { exit } index($0, k ": ") == 1 { print substr($0, length(k) + 3); exit }' "$1"
@@ -286,7 +300,7 @@ cmd_send() {
   audience=$(tr -s ' \n' ' ' <<<"$audience" | sed 's/^ //; s/ $//')
 
   local rec="$BDIR/$id.md" msg
-  msg=$(pointer "$id" "$sent_by" "$rec")
+  msg=$(message "$id" "$text" "$rec")
   printf 'id: %s\nfrom: %s\nsent-by: %s\nscope: %s\nsticky: %s\nexpires: %s\naudience: %s\n' \
     "$id" "$from" "$sent_by" "$scope" "$sticky" "$expires" "$audience"
   [ -z "$skipped" ] || echo "skipped (no Claude session in pane): $skipped"
@@ -343,7 +357,7 @@ cmd_resend() {
     seats+=("$s")
   done
   echo "resend: by $by at $(now) (${#seats[@]} seats)" | tee -a "$rec"
-  fan_out "$tree" "$id" "$rec" "$(pointer "$id" "$by" "$rec" "resent by")" "${seats[@]+"${seats[@]}"}"
+  fan_out "$tree" "$id" "$rec" "$(message "$id" "$(text_of "$rec")" "$rec")" "${seats[@]+"${seats[@]}"}"
 }
 
 # in_live_scope <tree> <seat> <scope>

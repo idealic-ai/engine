@@ -65,9 +65,9 @@ EOF
 #!/bin/bash
 # stub delivery: <seat> <pid> <message>
 if grep -qxF -- "\$1" "$FIX/failseats"; then echo "undelivered: stub refused \$1"; exit 1; fi
-rec=\$(sed -n 's/.* read \(.*\); ack: .*/\1/p' <<<"\$3")
-if [ -f "\$rec" ]; then st=record-present; else st=record-absent; fi
-printf '%s|%s|%s|%s\n' "\$1" "\$2" "\$st" "\$3" >> "$FIX/sent.log"
+id=\$(sed -n 's/^ack: engine broadcast ack //p' <<<"\$3")
+if [ -n "\$id" ] && [ -f "$FIX/bc/\$id.md" ]; then st=record-present; else st=record-absent; fi
+printf '%s|%s|%s|%s\n' "\$1" "\$2" "\$st" "\$(printf '%s' "\$3" | tr '\n' '~')" >> "$FIX/sent.log"
 echo delivered
 EOF
   chmod +x "$FIX/stub.sh"
@@ -281,10 +281,21 @@ test_send_writes_record() {
   if grep -qE '^at: [0-9]{4}-[0-9]{2}-[0-9]{2}T' <<<"$body"; then pass "record: time"; else fail "record: time" "at: ISO" "$body"; fi
   local sent; sent=$(cat "$FIX/sent.log")
   assert_eq 2 "$(sent_count)" "send: one message per seat"
-  assert_has "app:ask|2004|record-present|[broadcast ask-rules from manager:app] read $rec; ack: engine broadcast ack ask-rules" \
-    "$sent" "message: the fixed pointer line, to the pane's pid, with the record already on disk"
-  assert_hasnt "AskUserQuestion" "$sent" "message: no user text reaches the socket"
+  assert_has "app:ask|2004|record-present|Use /ask, not AskUserQuestion.~ack: engine broadcast ack ask-rules" \
+    "$sent" "message: the text then the ack line, to the pane's pid, with the record already on disk"
+  assert_hasnt "read $rec" "$sent" "message: no pointer to the record when the text fits"
+  assert_hasnt "audience:" "$sent" "message: the header and delivery list stay out of the message"
   assert_hasnt "ask:helper" "$sent" "send: grandchild not messaged under --children"
+}
+
+test_long_text_is_cut_with_the_record_path() {
+  local long; long=$(printf 'x%.0s' $(seq 1600))
+  MSG="$long" PANE=%2 bc --children --id long1
+  assert_eq 0 "$RC" "long: send exits 0"
+  local sent; sent=$(cat "$FIX/sent.log")
+  assert_has "full text: $FIX/bc/long1.md~ack: engine broadcast ack long1" "$sent" "long: past the cap the message gives the record path, then the ack line"
+  assert_hasnt "$long" "$sent" "long: the text is cut at the cap"
+  assert_has "$long" "$(cat "$FIX/bc/long1.md")" "long: the record keeps the full text"
 }
 
 test_text_dash_n() {
@@ -358,7 +369,7 @@ EOF2
   kill "$pa" "$pb" 2>/dev/null; wait "$pa" "$pb" 2>/dev/null
   assert_has "delivered app:ask pid=$pa" "$(cat "$FIX/bc/real1.md")" "real deliver: the in-pane session is delivered"
   assert_eq 1 "$(grep -c . "$d/a.out")" "real deliver: exactly one line on the in-pane socket"
-  assert_has '"content":"[broadcast real1 from manager:director] read ' "$(cat "$d/a.out")" "real deliver: it is the pointer line, as a user message"
+  assert_has '"content":"Use /ask, not AskUserQuestion.\nack: engine broadcast ack real1"' "$(cat "$d/a.out")" "real deliver: the text and ack line, as one user message"
   assert_eq 0 "$(grep -c . "$d/b.out")" "real deliver: the same-named session outside the pane gets nothing"
   rm -rf "$d"
 }
@@ -421,7 +432,7 @@ test_resend() {
   assert_eq 0 "$RC" "S5: resend exits 0"
   assert_eq 1 "$(sent_count)" "S5: --undelivered resends only the undelivered seat"
   assert_has "app:ui|" "$(cat "$FIX/sent.log")" "S5: it went to app:ui"
-  assert_has "[broadcast re1 resent by manager:domain] read " "$(cat "$FIX/sent.log")" "F5: the pointer names the resender"
+  assert_has "app:ui|2005|record-present|Use /ask, not AskUserQuestion.~ack: engine broadcast ack re1" "$(cat "$FIX/sent.log")" "F5: a resend carries the record's text"
   PANE=none bc resend re1
   assert_eq 2 "$RC" "F2: resend outside tmux is refused"
   bc status re1
