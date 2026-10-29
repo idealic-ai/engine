@@ -5,6 +5,7 @@
 # ever messaged and the fleet's real asks directory is never touched.
 set -uo pipefail
 source "$(dirname "$0")/test-helpers.sh"
+source "$(dirname "$0")/lib-search-first-nudge.sh"
 
 # The checkout under test is the one this file lives in (ASK_ENGINE_DIR overrides it), never a fixed
 # ~/.claude/engine: a worktree's suite must exercise the worktree's ask.sh and ask-app, not the live copy.
@@ -589,6 +590,20 @@ test_r1_new_points_to_the_author_guide_when_it_warns() {
   assert_eq "" "$out" "a well-formed ask prints no warning and no pointer"
   out=$(printf '## Choose one: X?\n- [ ] [OVERLONGCODE1] x\n' | "$ASK_SH" new --id g3 2>&1)
   assert_contains "ASK_AUTHOR_GUIDE.md" "$out" "a refusal points to the guide too"
+}
+
+# IDE-333 acceptance 3: before writing an ask, search sessions and docs, and cite the result as Evidence:.
+test_r1_author_guide_says_search_before_you_ask() {
+  local guide="$ENGINE_DIR/skills/ask/assets/ASK_AUTHOR_GUIDE.md" v body
+  v=$(search_nudge_violations "$guide" 'Is this an ask at all?' "$ENGINE_DIR")
+  assert_eq "" "$v" "the guide's 'Is this an ask at all?' names session-search and doc-search with working commands"
+  body=$(awk 'index($0,"## Is this an ask at all?")==1 {f=1; next} f && /^## / {exit} f' "$guide")
+  assert_contains '`Evidence:`' "$body" "and says to cite what the search found as an Evidence: line"
+  # Plant: drop the doc-search command; the check must go red.
+  cp "$guide" "$TMP/guide.md"
+  FIND='engine doc-search query "' REPL='engine doc-search find "' perl -0pi -e 's/\Q$ENV{FIND}\E/$ENV{REPL}/' "$TMP/guide.md"
+  v=$(search_nudge_violations "$TMP/guide.md" 'Is this an ask at all?' "$ENGINE_DIR")
+  assert_contains "doc-search: no 'engine doc-search query" "$v" "plant: without the doc-search command the check is red"
 }
 
 # Stale identity: run.sh caches FLEET_PANE/FLEET_PARENT at launch; the live pane label and parent win.

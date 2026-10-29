@@ -63,6 +63,15 @@ Escalate to the **conductor** — do not decide these alone:
 - A **build failure you cannot fix** after a reasonable retry.
 - A **scope question** — the work is larger or different than the context pack implies.
 
+**Search before you escalate a question or open an investigation** (`§INV_ASK_THE_REPOSITORY_BEFORE_ASKING_THE_CODE`). Run both from the main checkout: each finds its index from the working directory and exits 1 inside a worktree.
+
+```bash
+(cd "$(git worktree list --porcelain | sed -n '1s/^worktree //p')" && engine session-search query "<subject>" --limit 5)
+(cd "$(git worktree list --porcelain | sed -n '1s/^worktree //p')" && engine doc-search query "<subject>" --limit 5)
+```
+
+Put what answers the question in the escalation, as a path and the line, or write `searched, nothing relevant`. Both commands return the nearest matches even when none is relevant, so read the hits rather than counting them. A search can miss: the index is as old as its last `index` run and covers only the configured folders. So "nothing relevant" leaves the question open; it does not show that nobody has answered it.
+
 The conductor auto-resolves what it safely can and passes the rest up. These ALWAYS reach the conductor's manager (the operator if it has none — `SKILL.md` § The manager chain), marked `reserved-for: operator` so a manager can forward them but never rule on them, even under the most autonomous disposition (the **hard escalation floor**): a **cyclic deadlock**, a **build that fails after retries**, a **scrutinize MUST-FIX** needing a decision, and a **thread loopback** (council/scrutinize → interrogate or build). You never contact a manager or the operator directly — route everything through the conductor, which decides what goes up.
 
 ## Disposition tuning

@@ -32,6 +32,7 @@
 set -uo pipefail
 
 source "$(dirname "$0")/test-helpers.sh"
+source "$(dirname "$0")/lib-search-first-nudge.sh"
 
 ENGINE="${ENGINE_DIR:-$HOME/.claude/engine}"
 SKILL="$ENGINE/skills/loom/SKILL.md"
@@ -500,6 +501,15 @@ test_R7_no_AskUserQuestion_aimed_at_a_parent() {
   report "R7: no sentence aims AskUserQuestion at a parent or manager" "$(check_no_blocking_ask_to_parent "$SKILL")"
 }
 
+# ── N — search before you escalate (IDE-333 acceptance 3) ─────────────────────────────────────
+
+NUDGE_HEADING='What you escalate (to the conductor)'
+
+test_N1_lanes_search_before_escalating() {
+  report "N1: the escalation section tells a lane to run session-search and doc-search, with working commands, before it escalates" \
+    "$(search_nudge_violations "$DIRS" "$NUDGE_HEADING" "$ENGINE")"
+}
+
 # ── P — plants: each must turn the aggregate check red ────────────────────────────────────────
 
 plant_dir=""
@@ -688,6 +698,16 @@ test_Z3_exit_4_on_both_lists() {
 test_Z4_FLEET_PARENT_guard_removed() {
   perl_in "$plant_dir/S.md" ', and **only when `FLEET_PARENT` is empty and stderr carries no stale `FLEET_PARENT` note**' ', and **always**' || { fail "Z4: setup" "applied" "missed"; return; }
   assert_plant_reddens "Z4 the FLEET_PARENT guard on the no-parent list removed"
+}
+
+test_N2_plant_a_flag_the_CLI_does_not_have() {
+  perl_in "$plant_dir/D.md" 'engine session-search query "<subject>" --limit 5' 'engine session-search query "<subject>" --top 5' || { fail "N2: setup" "applied" "missed"; return; }
+  local v; v=$(search_nudge_violations "$plant_dir/D.md" "$NUDGE_HEADING" "$ENGINE")
+  if printf '%s' "$v" | grep -qF 'flag --top is not in its CLI usage'; then
+    pass "N2: plant '--top', a flag session-search does not have, reddens N1"
+  else
+    fail "N2: plant reddens N1" "flag --top is not in its CLI usage" "${v:-no violations}"
+  fi
 }
 
 run_discovered_tests
