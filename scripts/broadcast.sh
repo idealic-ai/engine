@@ -31,25 +31,39 @@
 #   engine broadcast go-request --pr N --rows ROW[,ROW…] [--repo PATH] [--commits RANGE]
 #                    [--owners FILE] [--id SLUG] [--dry-run]
 #       ROW is a CONTRACTS.md registry anchor (#answer-envelope → answer-envelope). Its owner paths
-#       are the backticked paths in that row's Owner cell, read from CONTRACTS.md at the range's tip;
-#       each path's seat comes from the owners map (FILE, else BROADCAST_OWNERS, else
-#       ~/.claude/data/yarik/owners.tsv: lines "<path-glob> <seat>", a trailing / covers a tree, the
-#       longest pattern wins, two seats tied refuse). Per owner and commit the receipt is
-#       `git show --text <commit> -- <paths> | git patch-id --stable`. RANGE defaults to
-#       origin/main..HEAD; a rev without ".." is one commit. ONE broadcast to exactly the owner
-#       seats; each seat's message carries only its own receipt lines. Refuses, naming the row: an
-#       unknown row, no owner path, a path no seat maps, an owner seat not in the live tree (exit 3),
-#       a row whose receipt is empty on every commit (exit 2).
+#       are the backticked paths in that row's Owner cell, read from CONTRACTS.md at the range's tip
+#       (`git rev-parse` of the range's end) AND at its base (the merge-base): a PR that repoints an
+#       Owner cell still asks the owner it repoints away from. Each path's seat comes from the owners
+#       map (FILE, else BROADCAST_OWNERS, else ~/.claude/data/yarik/owners.tsv: lines
+#       "<path-glob> <seat>", a trailing / covers a tree; the pattern with the most /-separated
+#       segments wins, two seats tied refuse). Per owner and commit the receipt is
+#       `git show --text <commit> -- <paths> | git patch-id --stable`; merge commits are skipped
+#       (--no-merges). RANGE defaults to origin/main..HEAD; a rev without ".." is one commit. ONE
+#       broadcast to exactly the owner seats; each seat's message carries only its own receipt lines
+#       ("receipt path <seat> <commit> <id> -- <paths>"; "path" is the receipt kind). Paths and rows
+#       are literal, never glob-expanded. Refuses, naming the row: an unknown row, no owner path, a
+#       path no seat maps, an owner seat not in the live tree (exit 3), a row whose receipt is empty
+#       on every commit (exit 2).
 #   engine broadcast ack <id>                 on a go request: a GO, bound to the receipts sent
 #   engine broadcast decline <id> --reason "<one line>"   on a go request only; a reason is required
-#                                             One answer per seat: a GO and a decline do not replace
-#                                             each other (a changed change is a new go-request).
-#   engine broadcast status <id>              on a go request: per owner GO <ids> | DECLINED <reason>
-#                                             | PENDING
-#   engine broadcast go-check <id> --commits RANGE [--repo PATH]   recomputes the receipts on RANGE:
-#                                             0 only when every owner has a GO whose ids are exactly
-#                                             RANGE's ids (matched by id, so a re-pick keeps its go);
-#                                             1 lists PENDING / DECLINED / MOVED owners; 2 usage.
+#                                             One answer per seat, claimed atomically: a GO and a
+#                                             decline do not replace each other (a changed change is
+#                                             a new go-request).
+#       A GO records attribution, not authentication: the answering seat is this pane's live label
+#       (fleet_self, read from $TMUX_PANE), and any process can set TMUX_PANE to another seat's pane
+#       and answer as that seat. It is cooperative bookkeeping, not a signature.
+#   engine broadcast status <id>              on a go request: per owner GO <ids> | GO (no receipts)
+#                                             | DECLINED <reason> | PENDING
+#   engine broadcast go-check <id> --commits RANGE [--repo PATH]   recomputes the receipts on RANGE
+#                                             in --repo, else in the cwd's git toplevel (the worktree
+#                                             being landed; never the request's recorded repo):
+#                                             0 only when every owner of the requested rows has a GO
+#                                             whose ids are exactly RANGE's ids on that owner's paths
+#                                             (matched by id, so a re-pick keeps its go); nothing
+#                                             outside those paths is checked. 1 lists PENDING /
+#                                             DECLINED / MOVED owners; strict, so a context-only move
+#                                             fails too and needs a fresh go or the lander's
+#                                             judgement (LANDING.md step 4). 2 usage.
 #
 # Delivery binds a seat by PANE, never by name alone: pane id → #{pane_pid} → the descendant
 # process that has a ~/.claude/sessions/<pid>.json of kind "interactive". Exactly one such session, whose registered
@@ -65,9 +79,11 @@
 #
 # Files: $BROADCAST_DIR (default ~/.claude/data/yarik/broadcasts): <id>.md record,
 #        <id>.acks.d/<seat> acks, sticky/<id> the sticky index. A go request's record adds the
-#        headers kind: go-request, pr, rows, repo, commits, and "receipt <seat> <commit> <id> -- <paths>"
-#        / "untouched <seat> <commit> -- <paths>" lines in its text; a GO's ack file is
-#        "<seat>\t<at>\tGO\t<ids>", a decline is <id>.declines.d/<seat> "<seat>\t<at>\t<reason>".
+#        headers kind: go-request, pr, rows, repo, commits, and "receipt <kind> <seat> <commit> <id>
+#        -- <paths>" / "untouched <kind> <seat> <commit> -- <paths>" lines in its text (round-1
+#        records, without the kind, still read as kind "path"); a GO's ack file is
+#        "<seat>\t<at>\tGO\t<ids>", a decline is <id>.declines.d/<seat> "<seat>\t<at>\t<reason>",
+#        and <id>.answers.d/<seat> ("GO" | "DECLINED") claims the seat's one answer first.
 # Env:   HOP_LIVE_PANES / HOP_TMUX_SOCKET — as hop.sh. BROADCAST_LIB — lib.sh for fleet_self.
 #        ASK_SESSIONS_DIR — the session registry (shared with deliver.ts).
 #        BROADCAST_INLINE_MAX — the cut, in characters (default 1500); anything but a positive
@@ -522,20 +538,49 @@ cmd_pending() {
 
 # ---- go requests (IDE-350): a landing seat asks every CONTRACTS row owner for its go ----
 # A go request is an ordinary record with more header lines (kind: go-request, pr, rows, repo,
-# commits) and receipt lines in its text:
-#   receipt <seat> <commit> <patch-id> -- <path>…     one per commit that touches the seat's paths
-#   untouched <seat> <commit> -- <path>…              a commit that does not touch them
+# commits) and receipt lines in its text. Each line carries a receipt KIND, so a later receipt that
+# is not path-scoped (a row's own lines, say) is a new kind, not a new format:
+#   receipt <kind> <seat> <commit> <patch-id> -- <path>…   one per commit that touches the paths
+#   untouched <kind> <seat> <commit> -- <path>…            a commit that does not touch them
+# The one kind today is "path" (LANDING.md step 2). Round-1 records have no kind field
+# ("receipt <seat> <commit> <id> -- …"); they read as kind "path".
 # A GO is <id>.acks.d/<seat> = "<seat>\t<at>\tGO\t<patch-id> <patch-id>…" (the ids it was sent);
-# a decline is <id>.declines.d/<seat> = "<seat>\t<at>\t<reason>". One answer per seat per request.
+# a decline is <id>.declines.d/<seat> = "<seat>\t<at>\t<reason>". Before either is written, the
+# seat's one answer is claimed in <id>.answers.d/<seat> ("GO" | "DECLINED", noclobber), so a GO and
+# a decline from one seat cannot both land.
+#
+# Paths, rows and seats are kept in arrays and never expanded unquoted: an Owner cell or a --rows
+# value holding * is that literal string, never file names from the caller's cwd.
 OWNERS_MAP="${BROADCAST_OWNERS:-$HOME/.claude/data/yarik/owners.tsv}"
 is_go() { [ "$(header "$1" kind)" = go-request ]; }
 declined() { [ -e "$BDIR/$1.declines.d/$(ack_key "$2")" ]; }
 
-# commits_of <repo> <range> → one sha per line, oldest first. A rev without ".." is that commit.
+# range_ends <repo> <range> → "<tip> <base>". The tip is `git rev-parse` of the range's end (never
+# whichever commit rev-list prints last); the base is the merge-base of its start and end, or the
+# tip's first parent for a single rev, "-" when there is none.
+range_ends() {
+  local repo="$1" range="$2" start end tip base=""
+  case "$range" in
+    *..*)
+      start=${range%%..*}; end=${range##*..}
+      [ -n "$start" ] || start=HEAD; [ -n "$end" ] || end=HEAD
+      tip=$(git -C "$repo" rev-parse --verify --quiet "$end^{commit}") || return 1
+      start=$(git -C "$repo" rev-parse --verify --quiet "$start^{commit}") || return 1
+      base=$(git -C "$repo" merge-base "$start" "$tip" 2>/dev/null) || base="" ;;
+    *)
+      tip=$(git -C "$repo" rev-parse --verify --quiet "$range^{commit}") || return 1
+      base=$(git -C "$repo" rev-parse --verify --quiet "$tip^1^{commit}") || base="" ;;
+  esac
+  echo "$tip ${base:--}"
+}
+
+# commits_of <repo> <range> → one sha per line, oldest first, merge commits skipped (--no-merges:
+# LANDING.md computes receipts on lane commits). A rev without ".." is that one commit.
 commits_of() {
   case "$2" in
-    *..*) git -C "$1" rev-list --reverse "$2" -- 2>/dev/null || return 1 ;;
-    *) git -C "$1" rev-parse --verify --quiet "$2^{commit}" || return 1 ;;
+    *..*) git -C "$1" rev-list --no-merges --reverse "$2" -- 2>/dev/null || return 1 ;;
+    *) local c; c=$(git -C "$1" rev-parse --verify --quiet "$2^{commit}") || return 1
+       git -C "$1" rev-list --no-merges "$c^!" -- 2>/dev/null || return 1 ;;
   esac
 }
 
@@ -545,55 +590,75 @@ receipt_id() {
   git -C "$repo" --literal-pathspecs show --text "$c" -- "$@" | git patch-id --stable | cut -d' ' -f1
 }
 
-# row_owner_paths <contracts-text> <row> → the backticked paths in that registry row's Owner cell;
-# rc 1 when no registry row links to #<row>.
+# row_owner_paths <contracts-text> <row> → the backticked paths in that registry row's Owner cell
+# (none for an Owner cell like "none"); rc 1 when no registry row links to #<row>.
 row_owner_paths() {
   local cell
   cell=$(awk -F'|' -v r="$2" '/^\|/ && index($2, "](#" r ")") { print $4; f = 1; exit } END { exit !f }' <<<"$1") || return 1
-  grep -o '`[^`]*`' <<<"$cell" | tr -d '`'
+  { grep -o '`[^`]*`' <<<"$cell" || true; } | tr -d '`'
 }
 
-# seat_of_path <path> → the seat whose map pattern matches most specifically (longest pattern; a
-# pattern ending in / covers everything under it, otherwise a shell glob). rc 1 none · 2 a tie.
+# seat_of_path <path> → the seat whose map pattern matches most specifically. Specificity is the
+# number of /-separated segments in the pattern (a trailing / adds none): kern/a.ts (2) beats kern/
+# (1), and */schemas/*.ts (3) beats resource-kernel/ (1) whatever their lengths in characters. A
+# pattern ending in / covers everything under it; any other pattern is a shell glob, whose * also
+# matches /. Two different seats at the same specificity are a tie. rc 1 none · 2 a tie.
 seat_of_path() {
-  local p="$1" pat seat best="" blen=-1 tie=0 len
+  local p="$1" pat seat best="" bseg=-1 tie=0 seg t
   while read -r pat seat _; do
     case "$pat" in ''|'#'*) continue ;; esac
     [ -n "$seat" ] || continue
     case "$pat" in
       */) [[ "$p" == "$pat"* ]] || continue ;;
-      # shellcheck disable=SC2053 # $pat is a glob on purpose
-      *) [[ "$p" == $pat ]] || continue ;;
+      *)
+        # shellcheck disable=SC2053 # $pat is a glob on purpose
+        [[ "$p" == $pat ]] || continue ;;
     esac
-    len=${#pat}
-    if [ "$len" -gt "$blen" ]; then best="$seat"; blen="$len"; tie=0
-    elif [ "$len" = "$blen" ] && [ "$seat" != "$best" ]; then tie=1; fi
+    t="${pat%/}"; t="${t//[!\/]/}"; seg=$(( ${#t} + 1 ))
+    if [ "$seg" -gt "$bseg" ]; then best="$seat"; bseg="$seg"; tie=0
+    elif [ "$seg" = "$bseg" ] && [ "$seat" != "$best" ]; then tie=1; fi
   done < "$OWNERS_MAP"
   [ -n "$best" ] || return 1
   [ "$tie" = 0 ] || return 2
   echo "$best"
 }
 
-# receipts_text <repo> <commits> <seat> <path>… → receipt / untouched lines for one owner.
+# receipts_text <repo> <commits> <seat> <path>… → "path"-kind receipt / untouched lines for one owner.
 receipts_text() {
   local repo="$1" commits="$2" seat="$3" c pid; shift 3
-  for c in $commits; do
+  [ $# -gt 0 ] || return 1   # no paths would be the whole commit, never a receipt
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
     pid=$(receipt_id "$repo" "$c" "$@")
-    if [ -n "$pid" ]; then echo "receipt $seat $c $pid -- $*"; else echo "untouched $seat $c -- $*"; fi
-  done
+    if [ -n "$pid" ]; then echo "receipt path $seat $c $pid -- $*"; else echo "untouched path $seat $c -- $*"; fi
+  done <<<"$commits"
 }
 
-# go_text_for <text> <seat> — the request text with only that seat's receipt lines.
-go_text_for() {
-  awk -v s="$2" '($1 == "receipt" || $1 == "untouched") && $2 != s { next } { print }' <<<"$1"
+# RL_AWK — awk functions that read a receipt line in either form. rl() is 2 for round 2
+# (with a kind), 1 for round 1 (no kind, read as "path"), 0 for any other line.
+RL_AWK='
+function rl() {
+  if ($1 == "receipt") return ($6 == "--") ? 2 : (($5 == "--") ? 1 : 0)
+  if ($1 == "untouched") return ($5 == "--") ? 2 : (($4 == "--") ? 1 : 0)
+  return 0
 }
+function rl_seat(v) { return v == 1 ? $2 : $3 }
+function rl_kind(v) { return v == 1 ? "path" : $2 }
+function rl_id(v) { return v == 1 ? $4 : $5 }
+'
+# go_text_for <text> <seat> — the request text with only that seat's receipt lines.
+go_text_for() { awk -v s="$2" "$RL_AWK"'{ v = rl() } v && rl_seat(v) != s { next } { print }' <<<"$1"; }
 GO_ID="" GO_TEXT="" GO_REC="" GO_BY=""
 go_msg_for() { message "$GO_ID" "$(go_text_for "$GO_TEXT" "$1")" "$GO_REC" "$GO_BY"; }
 
-# owner_paths_of <text> <seat> → that seat's paths, as recorded on its receipt lines.
-owner_paths_of() { awk -v s="$2" '($1 == "receipt" || $1 == "untouched") && $2 == s { sub(/^.* -- /, ""); print; exit }' <<<"$1"; }
-# sent_ids_of <text> <seat> → the patch-ids the seat was sent, sorted, one line.
-sent_ids_of() { awk -v s="$2" '$1 == "receipt" && $2 == s { print $4 }' <<<"$1" | sort | tr '\n' ' ' | sed 's/ $//'; }
+# owner_paths_of <text> <seat> → that seat's "path"-kind paths, one per line.
+owner_paths_of() {
+  awk -v s="$2" "$RL_AWK"'{ v = rl() } v && rl_seat(v) == s && rl_kind(v) == "path" { sub(/^.* -- /, ""); n = split($0, a, " "); for (i = 1; i <= n; i++) print a[i]; exit }' <<<"$1"
+}
+# kinds_of <text> <seat> → the receipt kinds that seat was sent, one per line.
+kinds_of() { awk -v s="$2" "$RL_AWK"'{ v = rl() } v && rl_seat(v) == s && !k[rl_kind(v)]++ { print rl_kind(v) }' <<<"$1"; }
+# sent_ids_of <text> <seat> → the patch-ids the seat was sent (every kind), sorted, one line.
+sent_ids_of() { awk -v s="$2" "$RL_AWK"'$1 == "receipt" { v = rl() } $1 == "receipt" && v && rl_seat(v) == s { print rl_id(v) }' <<<"$1" | sort | tr '\n' ' ' | sed 's/ $//'; }
 
 cmd_go_request() {
   local pr="" rows="" repo="" range="origin/main..HEAD" id="" dry=0
@@ -612,23 +677,33 @@ cmd_go_request() {
   [[ "$pr" =~ ^[0-9]+$ ]] || die 2 "go-request: --pr takes a PR number"
   rows=$(tr -s ' ' '\n' <<<"$rows" | awk 'NF && !seen[$0]++' | tr '\n' ' ' | sed 's/ $//')
   [ -n "$rows" ] || die 2 "go-request: --rows names at least one CONTRACTS.md row id (its #anchor)"
+  local -a row_arr=() seat_arr=() parr=()
+  read -ra row_arr <<<"$rows"
   if [ -n "$id" ]; then valid_id "$id"
   else id="go-pr$pr-$(date -u +%Y%m%dt%H%M%Sz)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"; fi
   [ -n "$repo" ] || repo=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "go-request: not in a git repo; pass --repo"
   repo=$(cd "$repo" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || die 2 "go-request: '$repo' is not a git repo"
   [ -r "$OWNERS_MAP" ] || die 2 "go-request: no owners map at $OWNERS_MAP (lines '<path-glob> <seat>'; --owners FILE or BROADCAST_OWNERS)"
 
-  local commits tip contracts
+  local ends tip base commits contracts cbase=""
+  ends=$(range_ends "$repo" "$range") || die 2 "go-request: '$range' is not a commit range in $repo"
+  read -r tip base <<<"$ends"
   commits=$(commits_of "$repo" "$range") || die 2 "go-request: '$range' is not a commit range in $repo"
-  [ -n "$commits" ] || die 2 "go-request: '$range' holds no commits"
-  tip=$(tail -n 1 <<<"$commits")
-  # CONTRACTS.md as the tip commit has it — the rows this PR lands — never a working-tree copy.
+  [ -n "$commits" ] || die 2 "go-request: '$range' holds no commits (merge commits are skipped)"
+  # CONTRACTS.md as the range's tip has it (the rows this PR lands) AND as its base has it (the
+  # owners it would land over), never a working-tree copy. A row's owners are the union of both, so
+  # a PR that repoints an Owner cell still asks the owner it repoints away from.
   contracts=$(git -C "$repo" show "$tip:CONTRACTS.md" 2>/dev/null) || die 2 "go-request: no CONTRACTS.md at $tip"
+  [ "$base" = - ] || cbase=$(git -C "$repo" show "$base:CONTRACTS.md" 2>/dev/null) || cbase=""
 
   # Row → owner paths → seat. Each refusal names the row; nothing is guessed.
-  local r p seat src rc pairs="" oseats="" bad=""
-  for r in $rows; do
-    src=$(row_owner_paths "$contracts" "$r") || { bad+="row '$r' is not in CONTRACTS.md's registry; "; continue; }
+  local r p seat src srcb found rc pairs="" bad=""
+  for r in "${row_arr[@]}"; do
+    found=0 src="" srcb=""
+    if src=$(row_owner_paths "$contracts" "$r"); then found=1; fi
+    if [ -n "$cbase" ] && srcb=$(row_owner_paths "$cbase" "$r"); then found=1; fi
+    [ "$found" = 1 ] || { bad+="row '$r' is not in CONTRACTS.md's registry; "; continue; }
+    src=$(printf '%s\n%s\n' "$src" "$srcb" | awk 'NF && !seen[$0]++')
     [ -n "$src" ] || { bad+="row '$r' has no owner path; "; continue; }
     while IFS= read -r p; do
       [[ "$p" =~ ^[^[:space:]]+$ ]] || { bad+="row '$r' owner path '$p' is not one path; "; continue; }
@@ -639,7 +714,7 @@ cmd_go_request() {
       esac
       valid_seat "owner of row '$r'" "$seat"
       pairs+="$seat $p $r"$'\n'
-      case " $oseats " in *" $seat "*) ;; *) oseats+="${oseats:+ }$seat" ;; esac
+      case " ${seat_arr[*]-} " in *" $seat "*) ;; *) seat_arr+=("$seat") ;; esac
     done <<<"$src"
   done
   [ -z "$bad" ] || die 2 "go-request refused: ${bad%; }"
@@ -647,7 +722,7 @@ cmd_go_request() {
   local tree sent_by
   tree=$(live_tree) || exit $?
   sent_by=$(live_self) || exit $?
-  for seat in $oseats; do
+  for seat in "${seat_arr[@]}"; do
     in_tree "$tree" "$seat" || bad+="owner '$seat' of row(s) $(awk -v s="$seat" '$1 == s { print $3 }' <<<"$pairs" | sort -u | tr '\n' ' ' | sed 's/ $//') is not a live seat; "
   done
   [ -z "$bad" ] || die 3 "go-request refused: ${bad%; }"
@@ -655,36 +730,36 @@ cmd_go_request() {
   # A row whose owner paths give an empty id on every commit is a receipt for nothing (a misspelt
   # path, or a row this range does not touch): refused per row and owner, so another row of the
   # same owner cannot hide it.
-  local receipts="" paths lines
-  for r in $rows; do
-    for seat in $oseats; do
-      paths=$(awk -v s="$seat" -v r="$r" '$1 == s && $3 == r { print $2 }' <<<"$pairs" | tr '\n' ' ')
-      [ -n "$paths" ] || continue
-      # shellcheck disable=SC2086
+  local receipts="" lines
+  for r in "${row_arr[@]}"; do
+    for seat in "${seat_arr[@]}"; do
+      parr=()
+      while IFS= read -r p; do [ -z "$p" ] || parr+=("$p"); done < <(awk -v s="$seat" -v r="$r" '$1 == s && $3 == r { print $2 }' <<<"$pairs")
+      [ "${#parr[@]}" -gt 0 ] || continue
       # A here-string, not a pipe: grep -q exits on the first match and pipefail would count the
       # writer's SIGPIPE as a failure.
-      grep -q '^receipt ' <<<"$(receipts_text "$repo" "$commits" "$seat" $paths)" \
-        || bad+="row '$r': the receipt for owner '$seat' is empty on every commit in $range (paths: ${paths% }); "
+      grep -q '^receipt ' <<<"$(receipts_text "$repo" "$commits" "$seat" "${parr[@]}")" \
+        || bad+="row '$r': the receipt for owner '$seat' is empty on every commit in $range (paths: ${parr[*]}); "
     done
   done
   [ -z "$bad" ] || die 2 "go-request refused: ${bad%; }"
-  for seat in $oseats; do
-    paths=$(awk -v s="$seat" '$1 == s && !seen[$2]++ { print $2 }' <<<"$pairs" | tr '\n' ' ')
-    # shellcheck disable=SC2086
-    lines=$(receipts_text "$repo" "$commits" "$seat" $paths)
+  for seat in "${seat_arr[@]}"; do
+    parr=()
+    while IFS= read -r p; do [ -z "$p" ] || parr+=("$p"); done < <(awk -v s="$seat" '$1 == s && !seen[$2]++ { print $2 }' <<<"$pairs")
+    lines=$(receipts_text "$repo" "$commits" "$seat" "${parr[@]}")
     receipts+="$lines"$'\n'
   done
 
-  local text n
+  local text n oseats="${seat_arr[*]}"
   n=$(grep -c . <<<"$commits" | tr -d ' ')
-  text=$(printf 'GO request: PR %s\nrows: %s\ncommits: %s (%s, in %s)\nEach receipt is a --text, path-scoped `git patch-id --stable` id per commit (LANDING.md step 2).\nAnswer without prose. GO: engine broadcast ack %s  ·  decline: engine broadcast decline %s --reason "<one line>"\n\n%s' \
-    "$pr" "$rows" "$range" "$n commits" "$repo" "$id" "$id" "${receipts%$'\n'}")
+  text=$(printf 'GO request: PR %s\nrows: %s\ncommits: %s (%s, in %s; merge commits skipped)\nOwners are read from CONTRACTS.md at the tip %s and the base %s; both are asked.\nEach receipt is a --text, path-scoped `git patch-id --stable` id per commit (LANDING.md step 2).\nAnswer without prose. GO: engine broadcast ack %s  ·  decline: engine broadcast decline %s --reason "<one line>"\n\n%s' \
+    "$pr" "$rows" "$range" "$n commits" "$repo" "$tip" "$base" "$id" "$id" "${receipts%$'\n'}")
   local rec="$BDIR/$id.md" extra
   extra=$(printf 'kind: go-request\npr: %s\nrows: %s\nrepo: %s\ncommits: %s' "$pr" "$rows" "$repo" "$range")$'\n'
   printf 'id: %s\nfrom: %s\nsent-by: %s\nscope: go-request\naudience: %s\n%s' "$id" "$sent_by" "$sent_by" "$oseats" "$extra"
   GO_ID="$id" GO_TEXT="$text" GO_REC="$rec" GO_BY="$sent_by"
   if [ "$dry" = 1 ]; then
-    for seat in $oseats; do echo "binds $seat → $(bind "$tree" "$seat")"; echo "message to $seat: $(go_msg_for "$seat")"; done
+    for seat in "${seat_arr[@]}"; do echo "binds $seat → $(bind "$tree" "$seat")"; echo "message to $seat: $(go_msg_for "$seat")"; done
     echo "dry-run: nothing written, nothing sent"
     return 0
   fi
@@ -692,18 +767,32 @@ cmd_go_request() {
   write_record "$rec" "$id" "$sent_by" "$sent_by" go-request no - "$oseats" "$text" "$extra"
   local rc=0
   SEAT_MSG=go_msg_for
-  # shellcheck disable=SC2086
-  fan_out "$tree" "$id" "$rec" "" $oseats || rc=$?
+  fan_out "$tree" "$id" "$rec" "" "${seat_arr[@]}" || rc=$?
   echo "record: $rec"
   return "$rc"
 }
 
+# claim_answer <id> <seat> <GO|DECLINED> — claim the seat's one answer atomically (noclobber).
+# rc 0 when this answer holds the claim (now or from before); 1, printing the other answer, when
+# the other one does.
+claim_answer() {
+  local d="$BDIR/$1.answers.d" f have
+  mkdir -p "$d" || die 2 "cannot create the answers dir"
+  f="$d/$(ack_key "$2")"
+  ( set -C; printf '%s\n' "$3" > "$f" ) 2>/dev/null && return 0
+  have=$(head -n 1 "$f" 2>/dev/null)
+  [ "$have" = "$3" ] && return 0
+  echo "${have:-an unreadable answer}"
+  return 1
+}
+
 # go_ack <id> <rec> <seat> — a GO on a go request, bound to the patch-ids that seat was sent.
 go_ack() {
-  local id="$1" rec="$2" seat="$3" ids f
+  local id="$1" rec="$2" seat="$3" ids f other
   declined "$id" "$seat" && die 2 "'$seat' declined '$id' ($(cut -f3 "$BDIR/$id.declines.d/$(ack_key "$seat")")); a changed change needs a new go-request"
   ids=$(sent_ids_of "$(text_of "$rec")" "$seat")
   [ -n "$ids" ] || die 2 "'$id' carries no receipt for '$seat'"
+  other=$(claim_answer "$id" "$seat" GO) || die 2 "'$seat' already answered '$id' with $other; one answer per seat (a changed change needs a new go-request)"
   f="$BDIR/$id.acks.d/$(ack_key "$seat")"
   if ( set -C; printf '%s\t%s\tGO\t%s\n' "$seat" "$(now)" "$ids" > "$f" ) 2>/dev/null; then
     echo "GO: $seat (receipts: $ids)"
@@ -721,7 +810,7 @@ cmd_decline() {
       *) [ -z "$id" ] || die 2 "decline: one id"; id="$1"; shift ;;
     esac
   done
-  local rec seat
+  local rec seat other
   rec=$(record_of "$id") || exit $?
   is_go "$rec" || die 2 "'$id' is not a go request; only a go request takes a decline"
   [ "$have" = 1 ] || die 2 "decline needs --reason \"<one line>\""
@@ -730,6 +819,7 @@ cmd_decline() {
   seat=$(live_self) || exit $?
   grep -qxF -- "$seat" <<<"$(tr ' ' '\n' <<<"$(header "$rec" audience)")" || die 2 "'$seat' is not an owner in the audience of '$id'"
   acked "$id" "$seat" && die 2 "'$seat' already gave its GO on '$id'; a GO is not withdrawn by a decline"
+  other=$(claim_answer "$id" "$seat" DECLINED) || die 2 "'$seat' already answered '$id' with $other; a GO is not withdrawn by a decline"
   mkdir -p "$BDIR/$id.declines.d" || die 2 "cannot create the decline dir"
   if ( set -C; printf '%s\t%s\t%s\n' "$seat" "$(now)" "$reason" > "$BDIR/$id.declines.d/$(ack_key "$seat")" ) 2>/dev/null; then
     echo "DECLINED: $seat ($reason)"
@@ -738,27 +828,37 @@ cmd_decline() {
   fi
 }
 
-# go_answer <id> <seat> → "GO\t<ids>" | "DECLINED\t<reason>" | "PENDING"
+# go_answer <id> <seat> → "GO\t<ids>" | "GO-NO-RECEIPTS" (an ack file without ids: a plain
+# two-field ack, from before go requests or written by hand) | "DECLINED\t<reason>" | "PENDING"
 go_answer() {
-  local k; k=$(ack_key "$2")
-  if [ -r "$BDIR/$1.acks.d/$k" ]; then printf 'GO\t%s\n' "$(cut -f4 "$BDIR/$1.acks.d/$k")"
+  local k f; k=$(ack_key "$2"); f="$BDIR/$1.acks.d/$k"
+  if [ -r "$f" ]; then
+    if [ "$(cut -f3 "$f")" = GO ] && [ -n "$(cut -f4 "$f")" ]; then printf 'GO\t%s\n' "$(cut -f4 "$f")"
+    else echo GO-NO-RECEIPTS; fi
   elif [ -r "$BDIR/$1.declines.d/$k" ]; then printf 'DECLINED\t%s\n' "$(cut -f3- "$BDIR/$1.declines.d/$k")"
   else echo PENDING; fi
 }
 
 go_status() {
-  local id="$1" rec="$2" s
+  local id="$1" rec="$2" s ans
+  local -a aud=()
   echo "go-request: PR $(header "$rec" pr) · rows $(header "$rec" rows) · commits $(header "$rec" commits)"
-  for s in $(header "$rec" audience); do
-    printf '%s\t%s\t%s\n' "$s" "$(last_state "$rec" "$s")" "$(go_answer "$id" "$s")"
+  read -ra aud <<<"$(header "$rec" audience)"
+  for s in ${aud[@]+"${aud[@]}"}; do
+    ans=$(go_answer "$id" "$s")
+    [ "$ans" = GO-NO-RECEIPTS ] && ans="GO (no receipts)"
+    printf '%s\t%s\t%s\n' "$s" "$(last_state "$rec" "$s")" "$ans"
   done
   if grep -q '^done: ' "$rec"; then echo "complete: yes ($(grep '^done: ' "$rec" | tail -n 1))"
   else echo "complete: no — the fan-out did not finish; see resend"; fi
 }
 
-# go-check <id> --commits <range> [--repo P] — exit 0 only when every owner has a GO whose
-# receipts are exactly the ones these commits give now (matched by patch-id, so a re-picked commit
-# whose id did not move keeps its go). 1 otherwise, naming who is missing and whose receipt moved.
+# go-check <id> --commits <range> [--repo P] — exit 0 only when every owner of the requested rows
+# has a GO whose receipts are exactly the ones these commits give now on that owner's paths
+# (matched by patch-id, so a re-picked commit whose id did not move keeps its go). The repo is
+# --repo, else the git toplevel of the cwd (the worktree being landed), never the request's
+# recorded repo. 1 otherwise, naming who is missing and whose receipt moved. Strict: a
+# context-only move fails too (LANDING.md step 4 leaves that judgement to the lander).
 cmd_go_check() {
   local id="" range="" repo=""
   while [ $# -gt 0 ]; do
@@ -769,31 +869,48 @@ cmd_go_check() {
       *) [ -z "$id" ] || die 2 "go-check: one id"; id="$1"; shift ;;
     esac
   done
-  local rec text commits s paths now sent ans fail=0
+  local rec text commits s now sent ans k unknown recrepo fail=0
+  local -a aud=() parr=()
   rec=$(record_of "$id") || exit $?
   is_go "$rec" || die 2 "'$id' is not a go request"
   [ -n "$range" ] || die 2 "go-check: --commits <range> is required (the commits about to land)"
-  [ -n "$repo" ] || repo=$(header "$rec" repo)
+  if [ -z "$repo" ]; then
+    repo=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "go-check: not in a git repo; run it in the worktree being landed, or pass --repo"
+  else
+    repo=$(cd "$repo" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || die 2 "go-check: '$repo' is not a git repo"
+  fi
+  echo "go-check: repo $repo"
+  recrepo=$(header "$rec" repo)
+  [ "$recrepo" = "$repo" ] || echo "go-check: (the request was made in $recrepo)"
   commits=$(commits_of "$repo" "$range") || die 2 "go-check: '$range' is not a commit range in $repo"
-  [ -n "$commits" ] || die 2 "go-check: '$range' holds no commits"
+  [ -n "$commits" ] || die 2 "go-check: '$range' holds no commits (merge commits are skipped)"
   text=$(text_of "$rec")
-  for s in $(header "$rec" audience); do
+  read -ra aud <<<"$(header "$rec" audience)"
+  for s in ${aud[@]+"${aud[@]}"}; do
     ans=$(go_answer "$id" "$s")
     case "$ans" in
       PENDING) echo "PENDING $s"; fail=1; continue ;;
       DECLINED*) echo "DECLINED $s: ${ans#DECLINED$'\t'}"; fail=1; continue ;;
+      GO-NO-RECEIPTS) echo "NO-RECEIPTS $s: its GO carries no receipt ids; ask again"; fail=1; continue ;;
     esac
+    unknown=""
+    while IFS= read -r k; do [ -z "$k" ] || [ "$k" = path ] || unknown+="${unknown:+, }'$k'"; done < <(kinds_of "$text" "$s")
+    if [ -n "$unknown" ]; then echo "UNKNOWN $s: receipt kind $unknown is not one this go-check can recompute"; fail=1; continue; fi
     sent=${ans#GO$'\t'}
-    paths=$(owner_paths_of "$text" "$s")
-    # shellcheck disable=SC2086
-    now=$(receipts_text "$repo" "$commits" "$s" $paths | awk '$1 == "receipt" { print $4 }' | sort | tr '\n' ' ' | sed 's/ $//')
+    parr=()
+    while IFS= read -r k; do [ -z "$k" ] || parr+=("$k"); done < <(owner_paths_of "$text" "$s")
+    if [ "${#parr[@]}" = 0 ]; then echo "MOVED $s: the request records no paths for it"; fail=1; continue; fi
+    now=$(receipts_text "$repo" "$commits" "$s" "${parr[@]}" | awk '$1 == "receipt" { print $5 }' | sort | tr '\n' ' ' | sed 's/ $//')
     if [ "$now" = "$sent" ]; then echo "GO $s: receipts match"
     else
-      echo "MOVED $s: the go covers [$sent]; $range gives [$now] for $paths"; fail=1
+      echo "MOVED $s: the go covers [$sent]; $range gives [$now] for ${parr[*]}"; fail=1
     fi
   done
-  if [ "$fail" = 0 ]; then echo "go-check: PASS — every owner's GO covers these commits"; return 0; fi
-  echo "go-check: FAIL — send a new go-request for what moved, or wait for the pending owners"
+  if [ "$fail" = 0 ]; then
+    echo "go-check: PASS in $repo — each owner of rows $(header "$rec" rows) has a GO whose receipts match $range on that owner's paths; nothing outside those paths was checked"
+    return 0
+  fi
+  echo "go-check: FAIL in $repo — strict: any moved receipt fails, a context-only move included. Get the owner's fresh go (a new go-request), or per LANDING.md step 4 the lander judges a context-only move; or wait for the pending owners"
   return 1
 }
 
@@ -808,6 +925,6 @@ case "$sub" in
   decline) shift; cmd_decline "$@" ;;
   go-check) shift; cmd_go_check "$@" ;;
   send) shift; cmd_send "$@" ;;
-  -h|--help|help|"") sed -n '2,76p' "$0" | sed 's/^# \{0,1\}//' >&2; exit 2 ;;
+  -h|--help|help|"") awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0" >&2; exit 2 ;;
   *) cmd_send "$@" ;;
 esac

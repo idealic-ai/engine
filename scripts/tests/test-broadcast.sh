@@ -628,13 +628,13 @@ test_go_request_reaches_exactly_the_owners() {
   local m; m=$(cat "$FIX/msg.app:ask")
   assert_has "PR 28" "$m" "goreq: the message carries the PR"
   assert_has "alpha" "$m" "goreq: the message carries the rows"
-  assert_has "receipt app:ask $c1 $(rid "$c1" kern/a.ts) -- kern/a.ts" "$m" "goreq: app:ask's receipt for c1 inline"
-  assert_has "receipt app:ask $c2 $(rid "$c2" kern/a.ts) -- kern/a.ts" "$m" "goreq: app:ask's receipt for c2 inline"
-  assert_has "receipt domain:stats $c1 $(rid "$c1" stats/b.ts) -- stats/b.ts" "$(cat "$FIX/msg.domain:stats")" "goreq: domain:stats gets its own receipt"
-  assert_has "untouched domain:stats $c2 -- stats/b.ts" "$(cat "$FIX/msg.domain:stats")" "goreq: a commit that misses an owner's paths is listed untouched, not a receipt"
+  assert_has "receipt path app:ask $c1 $(rid "$c1" kern/a.ts) -- kern/a.ts" "$m" "goreq: app:ask's receipt for c1 inline"
+  assert_has "receipt path app:ask $c2 $(rid "$c2" kern/a.ts) -- kern/a.ts" "$m" "goreq: app:ask's receipt for c2 inline"
+  assert_has "receipt path domain:stats $c1 $(rid "$c1" stats/b.ts) -- stats/b.ts" "$(cat "$FIX/msg.domain:stats")" "goreq: domain:stats gets its own receipt"
+  assert_has "untouched path domain:stats $c2 -- stats/b.ts" "$(cat "$FIX/msg.domain:stats")" "goreq: a commit that misses an owner's paths is listed untouched, not a receipt"
   assert_hasnt "domain:stats" "$m" "goreq: each owner's message carries only its own receipt lines"
-  assert_has "receipt app:ui $c2" "$body" "goreq: the record keeps every owner's receipts"
-  assert_has "receipt app:ui $c2 $(rid "$c2" ui/c.ts) -- ui/c.ts" "$(cat "$FIX/msg.app:ui")" "goreq: app:ui gets its own receipt"
+  assert_has "receipt path app:ui $c2" "$body" "goreq: the record keeps every owner's receipts"
+  assert_has "receipt path app:ui $c2 $(rid "$c2" ui/c.ts) -- ui/c.ts" "$(cat "$FIX/msg.app:ui")" "goreq: app:ui gets its own receipt"
   assert_has "engine broadcast decline go1 --reason" "$m" "goreq: the message says how to decline"
   assert_has "ack (from manager:app): engine broadcast ack go1" "$m" "goreq: and how to give the go"
 }
@@ -745,6 +745,10 @@ test_go_check() {
   PANE=%5 bc ack go5
   bc go-check go5 --repo "$FIX/repo" --commits base..HEAD
   assert_eq 0 "$RC" "go-check: every owner GO and every receipt matching passes"
+  assert_has "go-check: PASS in " "$OUT" "go-check S4: the PASS line names the repo it checked"
+  assert_has "rows alpha beta" "$OUT" "go-check S4: the PASS line names the rows it covers"
+  assert_has "nothing outside those paths was checked" "$OUT" "go-check S4: the PASS line says what it does not cover"
+  assert_hasnt "every owner's GO covers these commits" "$OUT" "go-check S4: the round-1 overclaim is gone"
   # Re-picked onto a moved tip: an unrelated commit lands first; the ids do not move.
   G checkout -q -b repick base; printf 'x\n' > "$FIX/repo/other.txt"; G add other.txt; G commit -qm other
   G cherry-pick main~1 main >/dev/null
@@ -757,6 +761,10 @@ test_go_check() {
   assert_eq 1 "$RC" "go-check: a changed receipt fails"
   assert_has "MOVED app:ui" "$OUT" "go-check: names the owner whose receipt moved"
   assert_hasnt "MOVED app:ask" "$OUT" "go-check: an owner whose receipts still match is not named"
+  assert_has "strict" "$OUT" "go-check S4: the FAIL text says the check is strict"
+  assert_has "context-only move" "$OUT" "go-check S4: and that a context-only move fails too"
+  assert_has "LANDING.md step 4" "$OUT" "go-check S4: and points at the lander's judgement in LANDING step 4"
+  assert_has "fresh go" "$OUT" "go-check S4: or the owner's fresh go"
   bc go-check go5 --repo "$FIX/repo"
   assert_eq 2 "$RC" "go-check: --commits is required"
 }
@@ -771,6 +779,227 @@ test_go_check_declined() {
   bc --children --from manager:app --id plain8
   bc go-check plain8 --repo "$FIX/repo" --commits base..HEAD
   assert_eq 2 "$RC" "go-check: an ordinary broadcast is not a go request"
+}
+
+# ---------------------------------------------------------------- go, round 2 (critique M1-N5)
+GOH=(-c user.name=t -c user.email=t@t -c core.hooksPath=/dev/null -c commit.gpgsign=false)
+rec_of() { cat "$FIX/bc/$1.md"; }
+
+# M1: go-check without --repo checks the worktree it runs in, never the request's recorded repo.
+test_go_check_uses_the_cwd_repo() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD --id gw
+  PANE=%4 bc ack gw
+  G worktree add -q -b land "$FIX/wt2" HEAD
+  local wt; wt=$(cd "$FIX/wt2" && pwd -P)
+  pushd "$FIX/wt2" >/dev/null; bc go-check gw --commits base..HEAD; popd >/dev/null
+  assert_eq 0 "$RC" "go-check M1: from an unchanged landing worktree it passes"
+  assert_has "$wt" "$OUT" "go-check M1: it names the repo it checked, the cwd's"
+  printf 'EVIL\n' > "$FIX/wt2/kern/a.ts"
+  git -C "$FIX/wt2" "${GOH[@]}" commit -q -a --amend -m c2
+  pushd "$FIX/wt2" >/dev/null; bc go-check gw --commits base..HEAD; popd >/dev/null
+  assert_eq 1 "$RC" "go-check M1: an amend in the landing worktree fails when run from it without --repo"
+  assert_has "MOVED app:ask" "$OUT" "go-check M1: and names the owner whose receipt moved"
+  bc go-check gw --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 0 "$RC" "go-check M1: --repo still names a repo explicitly (the request's, unchanged)"
+  pushd / >/dev/null; bc go-check gw --commits base..HEAD; popd >/dev/null
+  assert_eq 2 "$RC" "go-check M1: outside a git repo with no --repo it refuses, never falls back to the record's"
+}
+
+# M2: a resend of a go request gives each seat only its own receipt lines.
+test_go_resend_gives_each_seat_its_own_lines() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha,beta --commits base..HEAD --id gs
+  rm -f "$FIX"/msg.*; : > "$FIX/sent.log"
+  PANE=%2 bc resend gs
+  assert_eq 0 "$RC" "go resend: exits 0"
+  assert_eq 3 "$(sent_count)" "go resend: reaches the three owners"
+  local a s u
+  a=$(cat "$FIX/msg.app:ask"); s=$(cat "$FIX/msg.domain:stats"); u=$(cat "$FIX/msg.app:ui")
+  assert_has "receipt path app:ask " "$a" "go resend: app:ask gets its own receipts"
+  assert_hasnt "domain:stats" "$a" "go resend: app:ask gets no domain:stats line"
+  assert_hasnt "app:ui" "$a" "go resend: app:ask gets no app:ui line"
+  assert_has "receipt path domain:stats " "$s" "go resend: domain:stats gets its own receipts"
+  assert_hasnt "app:ask" "$s" "go resend: domain:stats gets no app:ask line"
+  assert_has "receipt path app:ui " "$u" "go resend: app:ui gets its own receipts"
+  assert_hasnt "app:ask" "$u" "go resend: app:ui gets no app:ask line"
+}
+
+# M2: --text (a binary file) and one owner with several paths in one commit, each equal to the
+# LANDING.md step 2 hand command.
+test_go_receipts_equal_the_landing_hand_command() {
+  go_repo
+  printf 'kern/ app:ask\nstats/ app:ui\nui/ app:ui\n' > "$FIX/owners"
+  printf '\000\001bin\000\n' > "$FIX/repo/kern/a.ts"; printf 'b9\n' > "$FIX/repo/stats/b.ts"; printf 'c9\n' > "$FIX/repo/ui/c.ts"
+  G commit -qam bin
+  local c body hand hand2; c=$(G rev-parse HEAD)
+  PANE=%2 goreq --pr 1 --rows alpha,beta --commits HEAD~1..HEAD --id gb
+  assert_eq 0 "$RC" "receipts: the request is sent"
+  body=$(rec_of gb)
+  hand=$(rid "$c" kern/a.ts)
+  assert_not_empty "$hand" "receipts: fixture: the hand --text id of a binary change is not empty"
+  assert_has "receipt path app:ask $c $hand -- kern/a.ts" "$body" "receipts: a binary file's receipt is the --text id"
+  hand2=$(rid "$c" stats/b.ts ui/c.ts)
+  assert_has "receipt path app:ui $c $hand2 -- stats/b.ts ui/c.ts" "$body" "receipts: one owner, two paths, one commit: one id over both, as the hand command gives"
+  assert_eq 1 "$(grep -c "^receipt path app:ui $c " <<<"$body" | tr -d ' ')" "receipts: and only one receipt line for that owner and commit"
+}
+
+# M2: the range grows or shrinks between the request and the check.
+test_go_check_when_the_range_changes_length() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha,beta --commits base..HEAD --id gl
+  PANE=%4 bc ack gl; PANE=%7 bc ack gl; PANE=%5 bc ack gl
+  bc go-check gl --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 0 "$RC" "range: fixture: every owner's GO passes"
+  printf 'x\n' > "$FIX/repo/other.txt"; G add other.txt; G commit -qm unrelated
+  bc go-check gl --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 0 "$RC" "range: an added commit that touches no owner path passes"
+  printf 'a3\n' >> "$FIX/repo/kern/a.ts"; G commit -qam sneaky
+  bc go-check gl --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 1 "$RC" "range: an added commit that touches an owner path fails"
+  assert_has "MOVED app:ask" "$OUT" "range: and names that owner"
+  assert_hasnt "MOVED app:ui" "$OUT" "range: an owner it does not touch is not named"
+  bc go-check gl --repo "$FIX/repo" --commits HEAD~3..HEAD~2
+  assert_eq 1 "$RC" "range: a dropped commit fails"
+  assert_has "MOVED domain:stats" "$OUT" "range: the owner whose only receipt was dropped is named"
+}
+
+# M2: CONTRACTS.md is read at the range's tip, so a row only the PR adds is found.
+test_go_request_reads_contracts_at_the_tip() {
+  go_repo
+  printf '| [New](#newrow) | settled | `kern/a.ts` | none | `kern/a.ts` |\n' >> "$FIX/repo/CONTRACTS.md"
+  printf 'a4\n' >> "$FIX/repo/kern/a.ts"; G commit -qam addrow
+  G show HEAD~1:CONTRACTS.md > "$FIX/repo/CONTRACTS.md"   # the working tree lacks the row
+  PANE=%2 goreq --pr 28 --rows newrow --commits base..HEAD --id gt
+  assert_eq 0 "$RC" "tip: a row only the PR's tip adds is found"
+  assert_eq "app:ask" "$(audience)" "tip: and its owner is asked"
+}
+
+# N1 + N5: the tip is the range's end (here a merge whose side added the row, with skewed dates so
+# rev-list order puts another commit last), and a merge commit gets no receipt line.
+test_go_request_tip_is_the_range_end_and_merges_are_skipped() {
+  go_repo
+  G checkout -q -b side base
+  printf '| [Side](#siderow) | settled | `kern/s.ts` | none | `kern/s.ts` |\n' >> "$FIX/repo/CONTRACTS.md"
+  printf 's1\n' > "$FIX/repo/kern/s.ts"; G add -A
+  GIT_COMMITTER_DATE='2001-01-01T00:00:00Z' GIT_AUTHOR_DATE='2001-01-01T00:00:00Z' G commit -qm side
+  G checkout -q main
+  printf 'b5\n' > "$FIX/repo/stats/b.ts"
+  GIT_COMMITTER_DATE='2030-01-01T00:00:00Z' GIT_AUTHOR_DATE='2030-01-01T00:00:00Z' G commit -qam late
+  G merge -q --no-edit side >/dev/null
+  local m; m=$(G rev-parse HEAD)
+  assert_eq 2 "$(G rev-list --parents -1 HEAD | wc -w | tr -d ' ' | awk '{ print $1 - 1 }')" "tip: fixture: HEAD is a merge"
+  PANE=%2 goreq --pr 28 --rows siderow --commits base..HEAD --id gm
+  assert_eq 0 "$RC" "tip N1: the row is read at the range's end, the merge, not at the last commit rev-list prints"
+  assert_eq 0 "$(grep -cE "^(receipt|untouched) .*$m" "$FIX/bc/gm.md" | tr -d ' ')" "tip N5: the merge commit gets no receipt or untouched line"
+  assert_has "receipt path app:ask $(G rev-parse side) " "$(rec_of gm)" "tip N5: the side's lane commit is a receipt"
+}
+
+# S1: the audience is each row's owners at the base AND at the tip: a PR that repoints a row's
+# Owner cell still asks the owner it repoints away from.
+test_go_request_asks_the_owner_at_the_base_too() {
+  go_repo
+  perl -pi -e 's#`kern/a.ts` \| `import#`stats/b.ts` | `import#' "$FIX/repo/CONTRACTS.md"
+  printf 'evil\n' > "$FIX/repo/kern/a.ts"; printf 'b-touch\n' > "$FIX/repo/stats/b.ts"
+  G commit -qam repoint
+  PANE=%2 goreq --pr 28 --rows alpha --commits HEAD~1..HEAD --id gp
+  assert_eq 0 "$RC" "S1: the request is sent"
+  assert_has "app:ask" "$(audience)" "S1: the owner at the base (app:ask) is still asked"
+  assert_has "domain:stats" "$(audience)" "S1: and the owner at the tip (domain:stats)"
+  assert_has "receipt path app:ask " "$(rec_of gp)" "S1: the base owner gets a receipt for its path"
+}
+
+# S3: no glob expansion of owner paths or row ids, whatever the cwd.
+test_go_request_does_not_glob() {
+  go_repo
+  # The glob cell is in place at the range's base and its tip; the range then touches kern/a.ts.
+  perl -pi -e 's#`kern/a.ts` \| `import#`kern/*.ts` | `import#' "$FIX/repo/CONTRACTS.md"
+  G commit -qam globrow; G tag globbase
+  printf 'a5\n' >> "$FIX/repo/kern/a.ts"; G commit -qam touch
+  local in_rc in_out
+  pushd "$FIX/repo" >/dev/null; PANE=%2 goreq --pr 28 --rows alpha --commits globbase..HEAD --dry-run; popd >/dev/null
+  in_rc=$RC in_out=$OUT
+  pushd / >/dev/null; PANE=%2 goreq --pr 28 --rows alpha --commits globbase..HEAD --dry-run; popd >/dev/null
+  assert_eq 2 "$in_rc" "S3: an Owner cell 'kern/*.ts' is one literal path, so from the repo root its receipt is empty and it refuses"
+  assert_has "paths: kern/*.ts" "$in_out" "S3: and names the literal path"
+  assert_eq "$in_rc" "$RC" "S3: the same from / (no dependence on the cwd)"
+  : > "$FIX/alpha"
+  pushd "$FIX" >/dev/null; PANE=%2 goreq --pr 28 --rows '*' --commits base..HEAD --dry-run; popd >/dev/null
+  assert_eq 2 "$RC" "S3: --rows '*' refuses"
+  assert_has "row '*' is not in" "$OUT" "S3: as the literal row '*'"
+  assert_hasnt "row 'alpha'" "$OUT" "S3: never expanded to file names in the cwd"
+}
+
+# S2: the usage says a GO is attribution, not authentication.
+test_go_usage_says_attribution_not_authentication() {
+  bc --help
+  assert_has "attribution, not authentication" "$OUT" "S2: the usage says a GO records attribution, not authentication"
+  assert_has "TMUX_PANE" "$OUT" "S2: and names where the seat comes from"
+}
+
+# N2: a GO and a decline for one seat exclude each other at the write, not only at the pre-check.
+test_go_answer_is_one_per_seat() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha,beta --commits base..HEAD --id gx
+  mkdir -p "$FIX/bc/gx.answers.d"
+  printf 'DECLINED\n' > "$FIX/bc/gx.answers.d/app:ask"     # a decline won the race
+  PANE=%4 bc ack gx
+  assert_eq 2 "$RC" "N2: a GO loses to a decline that claimed the seat first"
+  assert_file_not_exists "$FIX/bc/gx.acks.d/app:ask" "N2: no GO is written"
+  printf 'GO\n' > "$FIX/bc/gx.answers.d/domain:stats"      # a GO won the race
+  PANE=%7 bc decline gx --reason "late"
+  assert_eq 2 "$RC" "N2: a decline loses to a GO that claimed the seat first"
+  assert_file_not_exists "$FIX/bc/gx.declines.d/domain:stats" "N2: no decline is written"
+  PANE=%5 bc ack gx
+  assert_eq 0 "$RC" "N2: an unclaimed seat's GO goes through"
+  PANE=%5 bc decline gx --reason "x"
+  assert_eq 2 "$RC" "N2: and then that seat cannot decline"
+}
+
+# N3: an ack file with two fields (a pre-go ack) reads as a GO with no receipts, and fails go-check.
+test_go_status_shows_an_ack_without_receipts() {
+  go_repo
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD --id gn
+  mkdir -p "$FIX/bc/gn.acks.d"; printf 'app:ask\t2026-01-01T00:00:00Z\n' > "$FIX/bc/gn.acks.d/app:ask"
+  bc status gn
+  assert_has $'app:ask\tdelivered\tGO (no receipts)' "$OUT" "N3: status shows GO (no receipts)"
+  bc go-check gn --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 1 "$RC" "N3: go-check fails on a GO with no receipts"
+  assert_has "app:ask" "$OUT" "N3: and names the seat"
+}
+
+# N4: the most specific owners-map pattern is the one with the most path segments, not the most
+# characters. kern*a.ts (1 segment, 9 chars) loses to */a.ts (2 segments, 6 chars).
+test_go_owners_map_specificity_is_by_segments() {
+  go_repo
+  printf 'kern*a.ts domain:stats\n*/a.ts app:ui\n' >> "$FIX/owners"
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD --dry-run
+  assert_eq 0 "$RC" "N4: the request resolves"
+  assert_eq "app:ui" "$(audience)" "N4: the two-segment pattern wins over a longer one-segment pattern"
+}
+
+# Receipt kind: lines carry a kind ("path"); a round-1 record (no kind) still reads; a kind this
+# script cannot recompute fails go-check rather than passing.
+test_go_receipt_kind() {
+  go_repo
+  local c1; c1=$(G rev-parse HEAD~1)
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD --id gk1
+  assert_has "receipt path app:ask $c1 $(rid "$c1" kern/a.ts) -- kern/a.ts" "$(rec_of gk1)" "kind: a receipt line carries the kind 'path'"
+  PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD --id gk2
+  perl -pi -e 's/^(receipt|untouched) path /$1 /' "$FIX/bc/gk2.md"   # round 1's form
+  assert_has "receipt app:ask $c1 " "$(rec_of gk2)" "kind: fixture: gk2 is in round 1's form"
+  PANE=%4 bc ack gk2
+  assert_eq 0 "$RC" "kind: a round-1 record takes a GO"
+  assert_has "$(rid "$c1" kern/a.ts)" "$(cat "$FIX/bc/gk2.acks.d/app:ask")" "kind: bound to the round-1 receipts"
+  bc go-check gk2 --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 0 "$RC" "kind: go-check reads a round-1 record and passes"
+  rm -f "$FIX"/msg.*; PANE=%2 bc resend gk2
+  assert_has "receipt app:ask $c1 " "$(cat "$FIX/msg.app:ask")" "kind: a round-1 record resends its own lines"
+  PANE=%4 bc ack gk1
+  perl -pi -e 's/^receipt path app:ask /receipt row app:ask /' "$FIX/bc/gk1.md"
+  bc go-check gk1 --repo "$FIX/repo" --commits base..HEAD
+  assert_eq 1 "$RC" "kind: a receipt kind go-check cannot recompute fails"
+  assert_has "kind 'row'" "$OUT" "kind: and names the kind"
 }
 
 test_tree_parity() {
