@@ -4,6 +4,8 @@
  *
  *   GET  /api/health   {app, root, pid, port}
  *   GET  /api/asks     every ask under the root, all statuses
+ *   GET  /api/proofs   published proof pages in the local proof store, newest first (?fresh skips the cache)
+ *   GET  /api/broadcasts  (token required) broadcasts newest first, with acks; read-only, BROADCAST_DIR overrides the dir
  *   GET  /api/events   server-sent events: "change" whenever a file under the root changes
  *   POST /api/answer   {seat, id, expectedRevision, answers | decline: reason, note?}
  *                      → 200 written + pushed · 400 invalid/empty · 409 stale revision (+ current answer)
@@ -38,6 +40,8 @@ import { answerAsk, defaultAskRoot, discardDraft, listAsks, resolveAskPath, save
 import { loadLinearKey, makeTicketFetcher, TICKET_KEY_RE, TicketNotFound } from "./lib/linear.ts";
 import { AskFormatError, parseAskFile, StaleRevisionError } from "./lib/format.ts";
 import { computeBuildId, recordedBuildId } from "./build-id.ts";
+import { listProofs } from "./lib/proofs.ts";
+import { listBroadcasts } from "./lib/broadcasts.ts";
 
 const args = process.argv.slice(2);
 const arg = (name: string) => {
@@ -114,6 +118,13 @@ const server = http.createServer(async (req, res) => {
   try {
     if (url.pathname === "/api/health") return send(res, 200, { app: "ask-app", root, pid: process.pid, port, tickets: tickets.enabled, build: BUILD_ID });
     if (url.pathname === "/api/asks") return send(res, 200, { root, asks: listAsks(root) });
+    // The published proof pages in the local MinIO store, read-only (ported from the ASKDESIGN prototype).
+    if (url.pathname === "/api/proofs") return send(res, 200, await listProofs(url.searchParams.has("fresh")));
+    // Broadcasts, read-only: the director's notices and which seats acked them. Token-checked like /api/ticket/.
+    if (url.pathname === "/api/broadcasts" && req.method === "GET") {
+      if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });
+      return send(res, 200, { broadcasts: listBroadcasts() });
+    }
     if (url.pathname === "/api/events") {
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
       res.write("event: hello\ndata: 0\n\n");
