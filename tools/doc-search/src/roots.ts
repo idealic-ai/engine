@@ -82,10 +82,8 @@ function expandPath(p: string, base: string, home: string): string {
 }
 
 function findConfig(projectRoot: string, env: NodeJS.ProcessEnv, home: string): string | null {
-  // A run that resolved its project root to ~ (a worktree with no .claude/ of
-  // its own walks up to ~/.claude) has no project config: a doc-search.json in
-  // ~/.claude/ — or a global $DOC_SEARCH_CONFIG — would otherwise glob home.
-  if (samePath(projectRoot, home)) return null;
+  // An explicit $DOC_SEARCH_CONFIG is set per command on purpose, so it is
+  // honoured everywhere — including at ~, where it is the only lever a run has.
   const fromEnv = env[CONFIG_ENV];
   if (fromEnv && fromEnv.length > 0) {
     const resolved = expandPath(fromEnv, projectRoot, home);
@@ -94,6 +92,11 @@ function findConfig(projectRoot: string, env: NodeJS.ProcessEnv, home: string): 
     }
     return resolved;
   }
+  // A run that resolved its project root to ~ (a worktree with no .claude/ of
+  // its own walks up to ~/.claude) has no project config FILE: a
+  // doc-search.json in ~/.claude/ would otherwise glob home for every such run.
+  // An empty HOME names no directory, so it never matches.
+  if (home && samePath(projectRoot, home)) return null;
   for (const name of CONFIG_FILENAMES) {
     const candidate = path.join(projectRoot, name);
     if (fs.existsSync(candidate)) return candidate;
@@ -173,20 +176,38 @@ export interface CollectedFiles {
   perRoot: Record<string, number>;
   /** Root folders that do not exist on this machine (skipped, not fatal). */
   missingRoots: string[];
-  /** Roots marked `tracked` whose folder is not in a git work tree (skipped, not fatal). */
-  untrackedRoots: string[];
+  /** Roots marked `tracked` whose `git ls-files` failed (skipped, not fatal), with git's reason. */
+  untrackedRoots: UntrackedRoot[];
+  /** Names of configured roots whose folder exists but whose globs matched no
+   *  file. Their old rows are deleted as orphans by an index run that finds
+   *  other files. */
+  emptyRoots: string[];
+}
+
+export interface UntrackedRoot {
+  path: string;
+  /** What git said (or why it could not run), not a guess at the cause. */
+  reason: string;
 }
 
 /**
- * List every markdown file the roots name. A file reached twice — by two
- * overlapping roots, or through a symlinked alias — is read once, under the
- * first root that reached it (compared by real path).
+ * List every markdown file the roots name.
+ *
+ * Configured roots: a file reached twice — by two overlapping roots, or
+ * through a symlinked alias — is read once, under the first root that reached
+ * it (compared by real path).
+ *
+ * The no-config default and `--path` are not de-duplicated by real path: they
+ * return every path fast-glob returns, symlinked aliases and loops included,
+ * exactly as the tool did before configs existed, so their stored row keys
+ * do not change.
  */
 export async function collectDocFiles(roots: DocRoot[], projectRoot: string): Promise<CollectedFiles> {
   const files: DocFile[] = [];
   const perRoot: Record<string, number> = {};
   const missingRoots: string[] = [];
-  const untrackedRoots: string[] = [];
+  const untrackedRoots: UntrackedRoot[] = [];
+  const emptyRoots: string[] = [];
   const seen = new Set<string>();
 
   for (const root of roots) {
@@ -203,23 +224,27 @@ export async function collectDocFiles(roots: DocRoot[], projectRoot: string): Pr
     });
     let keep: Set<string> | null = null;
     if (root.tracked) {
-      keep = trackedFiles(root.path);
-      if (!keep) {
-        untrackedRoots.push(root.path);
+      const tracked = trackedFiles(root.path);
+      if ("reason" in tracked) {
+        untrackedRoots.push({ path: root.path, reason: tracked.reason });
         continue;
       }
+      keep = tracked.files;
     }
-    for (const rel of matches.sort()) {
-      if (keep && !keep.has(rel)) continue;
+    const kept = keep ? matches.filter((rel) => keep.has(rel)) : matches;
+    if (kept.length === 0 && root.configured) emptyRoots.push(root.name);
+    for (const rel of kept.sort()) {
       const absPath = path.join(root.path, rel);
-      let real: string;
-      try {
-        real = fs.realpathSync(absPath);
-      } catch {
-        real = absPath;
+      let key = absPath;
+      if (root.configured) {
+        try {
+          key = fs.realpathSync(absPath);
+        } catch {
+          key = absPath;
+        }
       }
-      if (seen.has(real)) continue;
-      seen.add(real);
+      if (seen.has(key)) continue;
+      seen.add(key);
       const fromProject = path.relative(projectRoot, absPath);
       const inside = fromProject !== "" && !fromProject.startsWith("..") && !path.isAbsolute(fromProject);
       files.push({
@@ -231,26 +256,30 @@ export async function collectDocFiles(roots: DocRoot[], projectRoot: string): Pr
     }
   }
 
-  return { files, perRoot, missingRoots, untrackedRoots };
+  return { files, perRoot, missingRoots, untrackedRoots, emptyRoots };
 }
 
 /**
- * Paths git tracks under `dir`, relative to it, or null when `dir` is not in a
- * git work tree. The caller skips such a root rather than indexing every file
- * in it (which would bring back the scratch dirs `tracked` was set to drop) or
- * failing the whole index (which a background session-start run would hide).
+ * Paths git tracks under `dir`, relative to it, including the files of any
+ * initialised submodule (`--recurse-submodules`), or git's reason when it
+ * cannot list them (not a work tree, git missing, output too large). The
+ * caller skips such a root rather than indexing every file in it (which would
+ * bring back the scratch dirs `tracked` was set to drop) or failing the whole
+ * index (which a background session-start run would hide).
  */
-function trackedFiles(dir: string): Set<string> | null {
+function trackedFiles(dir: string): { files: Set<string> } | { reason: string } {
   let out: string;
   try {
-    out = execFileSync("git", ["ls-files", "-z", "--", "."], {
+    out = execFileSync("git", ["ls-files", "-z", "--recurse-submodules", "--", "."], {
       cwd: dir,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
       maxBuffer: 256 * 1024 * 1024,
     });
-  } catch {
-    return null;
+  } catch (err) {
+    const e = err as { stderr?: string | Buffer; message?: string };
+    const said = e.stderr ? e.stderr.toString().trim() : "";
+    return { reason: said || e.message || String(err) };
   }
-  return new Set(out.split("\0").filter((p) => p.length > 0));
+  return { files: new Set(out.split("\0").filter((p) => p.length > 0)) };
 }

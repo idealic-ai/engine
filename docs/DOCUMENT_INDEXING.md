@@ -64,7 +64,7 @@ A project names its documentation roots in a JSON file. The first one found wins
 2. `<project>/.doc-search.json` (meant to be committed with the project)
 3. `<project>/.claude/doc-search.json` (local; many projects keep `.claude/` out of git)
 
-With none of them, the default is `docs/**/*.md` and `{apps,packages}/*/docs/**/*.md` under the project root, read exactly as before configs existed (including any `node_modules` those globs reach); `index --path GLOB` is read the same way. No config is looked for when the project root resolves to the home directory (a worktree without its own `.claude/` walks up to `~/.claude`), so a `doc-search.json` in `~/.claude/` cannot become every such run's config. The engine names no project's folders itself.
+With none of them, the default is `docs/**/*.md` and `{apps,packages}/*/docs/**/*.md` under the project root, read exactly as before configs existed (including any `node_modules` those globs reach); `index --path GLOB` is read the same way: every path fast-glob returns is stored as it was, a symlinked alias or a symlink loop included. When the project root resolves to the home directory (a worktree without its own `.claude/` walks up to `~/.claude`), the two config files are not looked for, so a `doc-search.json` in `~/.claude/` cannot become every such run's config; an explicit `$DOC_SEARCH_CONFIG` is still honoured there, and one naming a missing file is still an error. The engine names no project's folders itself.
 
 ```json
 {
@@ -78,12 +78,13 @@ With none of them, the default is `docs/**/*.md` and `{apps,packages}/*/docs/**/
 ```
 
 - `path` is relative to the project root or starts with `~/`. It never depends on the working directory, so an index started from a subdirectory or a session hook reads the same files.
-- `tracked: true` keeps only files git tracks under that root, so build output and scratch folders drop out without an ignore list. A new doc is therefore not indexed until it is `git add`-ed. A `tracked` root that is not in a git work tree is skipped with a warning; the other roots still index.
+- `tracked: true` keeps only files git tracks under that root, so build output and scratch folders drop out without an ignore list. A new doc is therefore not indexed until it is `git add`-ed. Files inside an initialised git submodule under the root count as tracked (`git ls-files --recurse-submodules`). A `tracked` root that git cannot list (not in a work tree, or git not runnable) is skipped with a warning carrying git's own message; the other roots still index.
 - A configured root never reads `**/node_modules/**`.
-- A file reached twice — by overlapping roots or through a symlinked alias — is indexed once, under the first root that reached it (compared by real path).
+- In a config, a file reached twice — by overlapping roots or through a symlinked alias — is indexed once, under the first root that reached it (compared by real path). The no-config default and `--path` do not do this, so their row keys stay as they were.
 - A file inside the project is stored by its project-relative path; a file outside it (the engine root above) by its absolute path, so a result can be opened as printed.
-- A root whose folder is missing is skipped with a warning, and the rows it had are deleted as orphans on that run (they are re-embedded when it returns). A config with no roots, a root with no globs, or a name used twice is refused.
-- When every root yields zero files, `index` prints "Nothing to index." and returns **without reconciling**: the rows already in the index stay, unchanged. A glob typo or all roots missing therefore leaves the previous index in place rather than emptying it; run `doc-search roots` to see the counts.
+- A root whose folder is missing is skipped with a warning, and the rows it had are deleted as orphans on that run. When it returns its rows are inserted again; the embeddings are reused from the content-hash cache, not recomputed. A config with no roots, a root with no globs, or a name used twice is refused.
+- A configured root whose folder exists but whose globs match nothing is named in a warning on stderr (`root "<name>" matched no files`) and as `EMPTY` in `doc-search roots`. If any other root still finds files, that root's rows are deleted as orphans on that run, so a glob or path typo in one root of several drops that root's rows (fixing it re-inserts them, reusing the cached embeddings).
+- Only when **every** root yields zero files does `index` print "Nothing to index." and return **without reconciling**, leaving the rows already in the index unchanged. Run `doc-search roots` to see the counts before indexing.
 
 ### Schema (Content-Addressed)
 

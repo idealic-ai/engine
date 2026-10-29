@@ -117,6 +117,11 @@ function resolveRoots(projectRoot: string, customGlob?: string): { roots: DocRoo
   return { roots: loaded.roots, source: loaded.source ?? "(default, no config file)" };
 }
 
+/** git's stderr can run to several lines; a warning line carries them joined. */
+function oneLine(text: string): string {
+  return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).join(" | ");
+}
+
 function printRoots(roots: DocRoot[], source: string, perRoot?: Record<string, number>): void {
   console.log(`Roots from: ${source}`);
   for (const r of roots) {
@@ -130,11 +135,14 @@ function printRoots(roots: DocRoot[], source: string, perRoot?: Record<string, n
 async function runRoots(): Promise<void> {
   const projectRoot = getProjectRoot();
   const { roots, source } = resolveRoots(projectRoot);
-  const { files, perRoot, missingRoots, untrackedRoots } = await collectDocFiles(roots, projectRoot);
+  const { files, perRoot, missingRoots, untrackedRoots, emptyRoots } = await collectDocFiles(roots, projectRoot);
   console.log(`Project root: ${projectRoot}`);
   printRoots(roots, source, perRoot);
   for (const m of missingRoots) console.log(`  MISSING: ${m} (skipped)`);
-  for (const u of untrackedRoots) console.log(`  NOT IN GIT: ${u} is marked "tracked" but is not a git work tree (skipped)`);
+  for (const u of untrackedRoots) {
+    console.log(`  NOT IN GIT: ${u.path} is marked "tracked" but git could not list it: ${oneLine(u.reason)} (skipped)`);
+  }
+  for (const e of emptyRoots) console.log(`  EMPTY: root "${e}" matched no files (check its path and globs)`);
   console.log(`Total: ${files.length} markdown files`);
 }
 
@@ -162,13 +170,21 @@ async function runIndex(customGlob?: string): Promise<void> {
   const stopHeartbeat = startLockHeartbeat(DB_PATH, lockHeartbeatMsFromEnv());
   try {
     // Roots resolve against the project root and ~, never cwd.
-    const { files, perRoot, missingRoots, untrackedRoots } = await collectDocFiles(roots, projectRoot);
+    const { files, perRoot, missingRoots, untrackedRoots, emptyRoots } = await collectDocFiles(roots, projectRoot);
     printRoots(roots, source, perRoot);
     for (const m of missingRoots) {
       console.error(`[doc-search] root folder ${m} does not exist; skipped`);
     }
     for (const u of untrackedRoots) {
-      console.error(`[doc-search] root ${u} is marked "tracked" but is not a git work tree; skipped`);
+      console.error(`[doc-search] root ${u.path} is marked "tracked" but git could not list it (${oneLine(u.reason)}); skipped`);
+    }
+    for (const e of emptyRoots) {
+      // When other roots still find files, reconcile deletes this root's old
+      // rows as orphans; say so, since a glob typo looks exactly like this.
+      console.error(
+        `[doc-search] root "${e}" matched no files (check its path and globs); ` +
+          `if other roots find files, its previously indexed rows are removed on this run`
+      );
     }
 
     console.log(`Found ${files.length} markdown files`);

@@ -129,6 +129,36 @@ describe("loadDocRoots", () => {
     expect(loaded.roots[0].globs).toEqual(["docs/**/*.md", "{apps,packages}/*/docs/**/*.md"]);
   });
 
+  it("at the home directory still honours an explicit $DOC_SEARCH_CONFIG, and a missing one still throws", () => {
+    // Only the config FILES at ~ are skipped; the variable is set per command
+    // on purpose and is the one lever a run resolving to ~ has.
+    write(path.join(home, ".claude", "doc-search.json"), JSON.stringify({ roots: [{ name: "home", path: ".", globs: ["**/*.md"] }] }));
+    const fromEnv = writeConfig({ roots: [{ name: "env", path: ".", globs: ["docs/**/*.md"] }] }, path.join(tmp, "explicit.json"));
+    const loaded = loadDocRoots(home, { home, env: { DOC_SEARCH_CONFIG: fromEnv } });
+    expect(loaded.source).toBe(fromEnv);
+    expect(loaded.roots.map((r) => r.name)).toEqual(["env"]);
+    expect(() => loadDocRoots(home, { home, env: { DOC_SEARCH_CONFIG: path.join(tmp, "nonexistent.json") } })).toThrow(/does not exist/);
+  });
+
+  it("recognises the home directory through a symlink, not only by its spelling", () => {
+    write(path.join(home, ".claude", "doc-search.json"), JSON.stringify({ roots: [{ name: "home", path: ".", globs: ["**/*.md"] }] }));
+    const homeLink = path.join(tmp, "home-link");
+    fs.symlinkSync(home, homeLink);
+    expect(loadDocRoots(home, { home: homeLink, env: {} }).source).toBeNull();
+    expect(loadDocRoots(homeLink, { home, env: {} }).source).toBeNull();
+  });
+
+  it("an empty HOME does not make the working directory count as home", () => {
+    const cfg = writeConfig({ roots: [{ name: "proj", path: ".", globs: ["docs/**/*.md"] }] });
+    const before = process.cwd();
+    try {
+      process.chdir(project);
+      expect(loadDocRoots(project, { home: "", env: {} }).source).toBe(cfg);
+    } finally {
+      process.chdir(before);
+    }
+  });
+
   it("refuses a config that names no roots or a root without globs, rather than indexing nothing", () => {
     writeConfig({ roots: [] });
     expect(() => loadDocRoots(project, { home, env: {} })).toThrow(/roots/);
@@ -246,6 +276,16 @@ describe("collectDocFiles over a kit-shaped project", () => {
     write(path.join(project, "docs", "node_modules", "d3", "README.md"));
     write(path.join(project, "packages", "p", "docs", "b.md"));
     write(path.join(project, "handbook", "c.md"));
+    // Symlinks the old call followed and spelled out once per alias: a
+    // relative alias, a link out of the project, a link to a package's docs
+    // and a loop. Every spelling must come back exactly as it did before.
+    write(path.join(project, "docs", "real", "r.md"));
+    fs.symlinkSync("real", path.join(project, "docs", "alias"));
+    write(path.join(tmp, "outside", "o.md"));
+    fs.symlinkSync(path.join(tmp, "outside"), path.join(project, "docs", "out"));
+    fs.symlinkSync(path.join("..", "packages", "p", "docs"), path.join(project, "docs", "pdocs"));
+    fs.mkdirSync(path.join(project, "docs", "loop"), { recursive: true });
+    fs.symlinkSync("..", path.join(project, "docs", "loop", "up"));
     // The pre-IDE-333 call, verbatim: cli.ts ran fg(DEFAULT_DOCS_GLOBS, {cwd, followSymbolicLinks, onlyFiles}).
     const old = await fg(["docs/**/*.md", "{apps,packages}/*/docs/**/*.md"], {
       cwd: project,
@@ -253,9 +293,18 @@ describe("collectDocFiles over a kit-shaped project", () => {
       onlyFiles: true,
     });
     expect(old).toContain("docs/node_modules/d3/README.md");
+    expect(old).toContain("docs/real/r.md");
+    expect(old).toContain("docs/alias/r.md");
+    expect(old).toContain("docs/out/o.md");
+    expect(old).toContain("packages/p/docs/b.md");
+    expect(old.some((p) => p.startsWith("docs/loop/up/"))).toBe(true);
     const { roots } = loadDocRoots(project, { home, env: {} });
     const { files } = await collect(roots);
     expect(files.map((f) => f.storedPath).sort()).toEqual([...old].sort());
+    // --path is the same shape and must agree too.
+    const viaPath = await fg(["docs/**/*.md"], { cwd: project, followSymbolicLinks: true, onlyFiles: true });
+    const { files: pathFiles } = await collect([singleGlobRoot(project, "docs/**/*.md")]);
+    expect(pathFiles.map((f) => f.storedPath).sort()).toEqual([...viaPath].sort());
   });
 
   it("--path reads its one glob exactly as before, node_modules included", async () => {
@@ -275,7 +324,9 @@ describe("collectDocFiles over a kit-shaped project", () => {
     });
     const { roots } = loadDocRoots(project, { home, env: {} });
     const { files, perRoot, untrackedRoots } = await collect(roots);
-    expect(untrackedRoots).toEqual([project]);
+    expect(untrackedRoots.map((u) => u.path)).toEqual([project]);
+    // git's own words, not a guess at the cause.
+    expect(untrackedRoots[0].reason).toMatch(/not a git repository/i);
     expect(perRoot).toEqual({ kit: 0, engine: 1 });
     expect(files.map((f) => f.root)).toEqual(["engine"]);
   });
@@ -295,6 +346,46 @@ describe("collectDocFiles over a kit-shaped project", () => {
     const { files, perRoot } = await collect(roots);
     expect(files.map((f) => f.storedPath).sort()).toEqual(["docs/a.md", "docs/sub/b.md"]);
     expect(perRoot).toEqual({ kit: 2, sub: 0, alias: 0 });
+    const { emptyRoots } = await collect(roots);
+    expect(emptyRoots).toEqual([]);
+  });
+
+  it("names a root whose folder exists but whose globs match nothing", async () => {
+    makeKitLikeProject();
+    writeConfig({
+      roots: [
+        { name: "kit", path: ".", globs: ["handbok/**/*.md"] }, // typo
+        { name: "engine", path: "~/.claude/engine", globs: ["docs/**/*.md"] },
+        { name: "gone", path: "~/nowhere", globs: ["**/*.md"] },
+      ],
+    });
+    const { roots } = loadDocRoots(project, { home, env: {} });
+    const { emptyRoots, missingRoots, perRoot } = await collect(roots);
+    expect(perRoot).toEqual({ kit: 0, engine: 1, gone: 0 });
+    // A missing folder is reported as missing, not also as empty.
+    expect(emptyRoots).toEqual(["kit"]);
+    expect(missingRoots).toEqual([path.join(home, "nowhere")]);
+  });
+
+  it('a "tracked" root reads the files of the submodules it contains', async () => {
+    const git = (cwd: string, ...args: string[]) =>
+      execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "-c", "protocol.file.allow=always", ...args], {
+        cwd,
+        stdio: "ignore",
+      });
+    const inner = path.join(tmp, "inner");
+    write(path.join(inner, "docs", "i.md"));
+    git(inner, "init", "-q");
+    git(inner, "add", ".");
+    git(inner, "commit", "-q", "-m", "inner");
+    write(path.join(project, "docs", "o.md"));
+    git(project, "init", "-q");
+    git(project, "add", "docs/o.md");
+    git(project, "submodule", "add", "-q", inner, "vendor/inner");
+    writeConfig({ roots: [{ name: "kit", path: ".", globs: ["**/*.md"], tracked: true }] });
+    const { roots } = loadDocRoots(project, { home, env: {} });
+    const { files } = await collect(roots);
+    expect(files.map((f) => f.storedPath).sort()).toEqual(["docs/o.md", "vendor/inner/docs/i.md"]);
   });
 
   it("the default still reads docs/ and {apps,packages}/*/docs/", async () => {
