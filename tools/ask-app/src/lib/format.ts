@@ -7,7 +7,8 @@
  * non-list line as the option's description, nesting by indent). It is restated here, not
  * imported, because that file lives in another repository. One addition: a `DependsOn:` metadata
  * line under a heading, `DependsOn: ASK_OTHER` or `DependsOn: ASK_OTHER=CODE`, which hides the
- * question until the other one is answered (with that code, when one is named).
+ * question until the other one is answered (with that code, when one is named). And a fenced
+ * block indented under an option is that option's, kept verbatim in its description as markdown.
  *
  * Pure string functions only — no fs, no node — so the React client imports this file as is.
  */
@@ -207,7 +208,7 @@ export function removeHeaderField(text: string, key: string): string {
 
 // ── decision tree ─────────────────────────────────────────
 
-type RawOption = { indent: number; code?: string; label: string; description?: string; cost?: string; effort?: string; blastRadius?: string };
+type RawOption = { indent: number; code?: string; label: string; description?: string; cost?: string; effort?: string; blastRadius?: string; afterFence?: boolean };
 
 function parseOptionLines(lines: string[]): RawOption[] {
   const raw: RawOption[] = [];
@@ -229,11 +230,23 @@ function parseOptionLines(lines: string[]): RawOption[] {
       raw.push({ indent, code, label });
     } else if (raw.length > 0 && indent > raw[raw.length - 1].indent) {
       const last = raw[raw.length - 1];
+      const fence = unfoldFence(line);
+      if (fence) {
+        // A fence keeps its lines: the description becomes markdown with the fence as its own block.
+        const code = fence.join("\n");
+        last.description = last.description === undefined ? code : `${last.description}\n\n${code}`;
+        last.afterFence = true;
+        continue;
+      }
       const m = stripped.match(META_RE);
       const field = m ? OPTION_META[m[1].toLowerCase()] : undefined;
       if (field) last[field] = m![2].trim();
-      // N-2: further indented prose lines continue the description rather than vanishing.
-      else last.description = last.description === undefined ? stripped : `${last.description} ${stripped}`;
+      // N-2: further indented prose lines continue the description rather than vanishing; after a
+      // fence they start a new paragraph, so they are never glued onto its closing line.
+      else if (last.afterFence) {
+        last.description = `${last.description}\n\n${stripped}`;
+        last.afterFence = false;
+      } else last.description = last.description === undefined ? stripped : `${last.description} ${stripped}`;
     }
   }
   return raw;
@@ -287,17 +300,20 @@ function parseQuestions(body: string): { preamble: string; questions: AskQuestio
     while (i < lines.length && !/^#{1,2}\s/.test(lines[i])) {
       const line = lines[i];
       if (line.trim().startsWith("```")) {
-        // A fenced block inside a fork is the fork's prose, kept whole; it never ends the fork.
+        // A fenced block inside a fork never ends the fork. At the top level it is the fork's prose,
+        // kept whole. Indented, it may belong to the option above it, so it travels as ONE body line
+        // (see fenceLine) that the option grammar treats as an indented continuation.
         const open = line.trim().match(/^`+/)![0];
-        body.push(line);
+        const fence: string[] = [line];
         i++;
         while (i < lines.length) {
-          body.push(lines[i]);
+          fence.push(lines[i]);
           const close = lines[i].trim();
           i++;
           if (close.startsWith(open) && /^`+$/.test(close)) break;
         }
-        body.push(FENCE_END);
+        if (/^\s/.test(line)) body.push(fenceLine(fence));
+        else body.push(...fence, FENCE_END);
         continue;
       }
       const dm = line.trim().match(DEPENDS_RE);
@@ -331,7 +347,31 @@ function parseQuestions(body: string): { preamble: string; questions: AskQuestio
 }
 
 const FENCE_END = "\u0000fence-end";
-const tidy = (ls: string[]) => ls.filter((l) => l !== FENCE_END).join("\n").replace(/^\s*\n/, "").replace(/\s+$/, "");
+/**
+ * An indented fence folded into one line: the fence's own indent, a marker, then its lines as JSON
+ * with that indent removed (a line indented less loses only what it has). Being one non-blank
+ * indented line, it continues an options group and never splits it, whatever the fence holds.
+ */
+const FENCE_LINE = "\u0000fence:";
+function fenceLine(fence: string[]): string {
+  const indent = fence[0].length - fence[0].trimStart().length;
+  const dedent = (l: string) => l.slice(Math.min(indent, l.length - l.trimStart().length));
+  return `${fence[0].slice(0, indent)}${FENCE_LINE}${JSON.stringify(fence.map(dedent))}`;
+}
+/** The fence a folded line holds, as dedented lines; undefined for any other line. */
+function unfoldFence(line: string): string[] | undefined {
+  const s = line.trimStart();
+  return s.startsWith(FENCE_LINE) ? (JSON.parse(s.slice(FENCE_LINE.length)) as string[]) : undefined;
+}
+/** Prose lines as written: a folded fence back at its own indent. */
+const unfold = (ls: string[]) =>
+  ls.flatMap((l) => {
+    const f = unfoldFence(l);
+    if (!f) return [l];
+    const pad = l.slice(0, l.length - l.trimStart().length);
+    return f.map((x) => (x ? pad + x : x));
+  });
+const tidy = (ls: string[]) => unfold(ls.filter((l) => l !== FENCE_END)).join("\n").replace(/^\s*\n/, "").replace(/\s+$/, "");
 
 type Group = { start: number; end: number; marked: boolean; coded: boolean };
 
@@ -364,7 +404,10 @@ function splitForkBody(body: string[]): { before: string[]; block: string[]; aft
         g.coded &&= it.coded;
       }
     } else if (cont) g!.end = idx;
-    else if (g) {
+    else if (g && l.trim() === "" && /^\s+\S/.test(body.slice(idx).find((x) => x.trim() !== "") ?? "")) {
+      // Blank lines inside an option (around its fence, between its paragraphs) do not end the
+      // group when the option's indented body goes on after them.
+    } else if (g) {
       groups.push(g);
       g = undefined;
     }
