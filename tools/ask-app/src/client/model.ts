@@ -493,3 +493,36 @@ export function answerInWords(a: ParsedAsk, answer: { answers?: AnswerMap } | un
     return { label: forkLabel(q, i), title: displayTitle(q.title), picks, note, unanswered: picks.length === 0 };
   });
 }
+
+// ── round-5 fixes (MF-1): one suggestion list drives the label, the cards and Accept all ──
+
+export type Suggestion = { key: string; label: string; code: string; from: "prior" | "lean" };
+
+/**
+ * The suggestions on screen, in fork order: on each visible, unpicked fork (unpicked by `filled`, so
+ * `[]` counts as unpicked), last round's pick if there is one, else the asker's lean.
+ */
+export function suggestionList(a: ParsedAsk, values: Values, visible: ParsedAsk["questions"], prior: Record<string, string>): Suggestion[] {
+  const open = a.header.status === "open" || a.header.status === undefined;
+  if (!open) return [];
+  const lean = suggestionsFor(a, values);
+  return a.questions.flatMap((q, i): Suggestion[] => {
+    const key = questionKey(q, i);
+    if (!visible.includes(q) || filled(values[key])) return [];
+    if (prior[key]) return [{ key, label: forkLabel(q, i), code: prior[key], from: "prior" }];
+    return lean[key] ? [{ key, label: forkLabel(q, i), code: lean[key], from: "lean" }] : [];
+  });
+}
+
+/** Accept exactly the listed suggestions: a lean by its path in the tree, a prior pick as itself. */
+export function acceptListed(a: ParsedAsk, values: Values, list: Suggestion[]): Values {
+  const next = { ...values };
+  for (const s of list) {
+    if (filled(next[s.key])) continue;
+    const q = a.questions.find((x, i) => questionKey(x, i) === s.key);
+    next[s.key] = s.from === "lean" && q ? (pathTo(q.options, s.code) ?? [s.code]) : [s.code];
+  }
+  return next;
+}
+
+export const isPicked = filled;
