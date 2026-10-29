@@ -1,7 +1,7 @@
 /**
  * Ask v2 fix round 3 (builds/askv2_REREVIEW_R2.md): MUST-1 label-shaped FLEET_MANAGES,
  * MUST-2 the operator over a seat's draft, SHOULD-3 empty choice forks, SHOULD-7 the S9 guards
- * K1 (build id pinned at server start) and K2 (kit sheets hashed). K3 and SHOULD-5 are in bash.
+ * K1 (build id pinned at server start) and K2 (the imported stylesheets hashed). K3 and SHOULD-5 are in bash.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
@@ -105,13 +105,14 @@ function copySources(dest: string): string {
 }
 
 describe("SHOULD-7: the S9 guards", () => {
-  it("K2: the four kit sheets main.tsx imports are build inputs, and editing one changes the id", () => {
-    const sheets = buildInputs().filter((f) => f.includes(`${path.sep}skills${path.sep}intake${path.sep}assets${path.sep}`));
-    expect(sheets.map((f) => path.basename(f))).toEqual(["board-warm-overrides.css", "board-widgets.css", "proof-blocks.css", "proof-theme.css"]);
+  it("K2: the stylesheets main.tsx imports are build inputs inside the app, and editing one changes the id", () => {
+    const inputs = buildInputs();
+    expect(inputs.filter((f) => !f.startsWith(APP_DIR + path.sep))).toEqual([]);
+    expect(inputs.map((f) => path.basename(f))).toEqual(expect.arrayContaining(["theme.css", "styles.css"]));
     const app = copySources(path.join(base, "eng"));
     const before = computeBuildId(app);
     expect(before).toBe(computeBuildId());
-    const sheet = path.join(base, "eng", "skills", "intake", "assets", "proof-theme.css");
+    const sheet = path.join(app, "src", "client", "theme.css");
     fs.appendFileSync(sheet, "\n/* a comment is a different build */\n");
     expect(computeBuildId(app)).not.toBe(before);
   });

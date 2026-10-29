@@ -1,7 +1,7 @@
 /**
  * The client's build id: a hash of everything the built client is made
- * from — every file under src/client, src/lib/format.ts (the client imports it), and the kit sheets
- * main.tsx imports from outside the app. `vite build` writes it into the output as `.build-id`;
+ * from — every file under src/client, src/lib/format.ts (the client imports it), and every stylesheet
+ * main.tsx imports, wherever it lives. `vite build` writes it into the output as `.build-id`;
  * `engine ask serve` rebuilds only when the built id differs from the sources'; the server refuses
  * to serve a client whose id is missing or not the one its own sources make. Mtimes are never used:
  * a checkout, a merge or a restored copy moves them in either direction.
