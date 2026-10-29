@@ -10,6 +10,8 @@
 #                                  or <seat> does); 3 no (another seat holds one; the holder and its time left go
 #                                  to stderr). A lease covers R/B when its repo= is empty or R, and its branch= is
 #                                  empty or B; a check that names no --repo (or --branch) counts every lease.
+#                                  Repo is matched case-folded (Kit is kit) and branch without refs/heads/, on
+#                                  take and on check alike.
 #
 # The protocol is kit sessions/2026_10_14_LAND_TREE_BRANCHES/builds/LANDING_LEASE_DRAFT.md (in force by the
 # operator's ruling of 2026-10-28; made blocking by the ruling of 2026-10-30, leasegate). This script carries out
@@ -24,14 +26,17 @@
 #     this command serialise on a mkdir lock, and the re-read after the write catches a hand-written file
 #   - `take` creates the directory (and says so, for the landing record); `show` reports what is on disk at
 #     read time: ABSENT says nothing about who holds a lease, EMPTY says nobody does
-#   - $LEASE_DIR/history.log is the lease's holder history, append-only, one line per event:
-#       <UTC Z> take seat=S repo=R branch=B expires=<UTC Z> what=TEXT     (a take that won)
-#       <UTC Z> release seat=S                                             (a release that removed a file)
-#       <UTC Z> override seat=S repo=R branch=B sha=SHA why=TEXT reason=TEXT
+#   - $LEASE_DIR/history.log is the lease's holder history, append-only, one line per event. Fields are separated
+#     by one TAB (shown here as \t); the first is the UTC Z time, the second the event, and each after that is
+#     key=value. No value holds a control byte: TAB, CR, LF, ESC and the rest are folded to a space before the
+#     line is written, so a reader splits the line on TAB and each field on its first `=`:
+#       <UTC Z>\ttake\tseat=S\trepo=R\tbranch=B\texpires=<UTC Z>\twhat=TEXT     (a take that won)
+#       <UTC Z>\trelease\tseat=S                                             (a release that removed a file)
+#       <UTC Z>\toverride\tseat=S\trepo=R\tbranch=B\tsha=SHA\twhy=TEXT\treason=TEXT
 #     The override line is written by kit's .husky/pre-push, not by this script: when a seat sets
-#     KIT_LEASE_CHECK_OVERRIDE and the hook could not ask the lease, the hook appends it here or refuses.
-#     take/release append best-effort (a failed append never fails them); nothing here truncates or reads it
-#     back, and `show` does not report it as a stray file
+#     KIT_LEASE_CHECK_OVERRIDE and the hook could not ask the lease, the hook appends it here, once the rest of
+#     the hook has passed, or refuses the push. take/release append best-effort (a failed append never fails
+#     them); nothing here truncates or reads it back, and `show` does not report it as a stray file
 # It blocks through kit's pre-push hook, not through this script. By the operator's ruling of 2026-10-30
 # (leasegate, reversing the 2026-10-28 "advisory" ruling), kit's .husky/pre-push runs
 # `engine lease check <seat> --repo kit --branch main` on a push to refs/heads/main and refuses the push on exit 3.
@@ -43,12 +48,13 @@
 # verification, never on the push's exit code.
 #
 # Exit: 0 ok · 1 refused (another seat holds a live lease, this seat already holds one, or a release names a
-# seat whose name maps to another seat's file) · 2 usage/IO error. `show` exits 0 whether or not the lease is
+# seat whose name maps to another seat's file) · 2 usage/IO error (including no HOME and no LANDING_LEASE_DIR) ·
+# 3 `check` only: another seat holds a live lease that covers the asked trunk. `show` exits 0 whether or not the lease is
 # held; its text is the interface.
 
 set -uo pipefail
 
-LEASE_DIR="${LANDING_LEASE_DIR:-$HOME/.claude/engine/.landing-lease}"
+LEASE_DIR="${LANDING_LEASE_DIR:-${HOME:+$HOME/.claude/engine/.landing-lease}}"
 CEILING=600
 # A taken= further than SKEW seconds in the future is not a lease: it is how a local-time stamp written with a
 # Z reads on a machine east of UTC (v2's 8h10m hold on this UTC+8 machine).
@@ -75,6 +81,7 @@ take_take_lock() {
 }
 
 die() { printf 'lease: %s\n' "$1" >&2; exit 2; }
+[ -n "$LEASE_DIR" ] || die "cannot find the lease store: HOME and LANDING_LEASE_DIR are both unset"
 now_epoch() { date -u +%s; }
 epoch_to_iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -d "@$1" +%Y-%m-%dT%H:%M:%SZ; }
 iso_to_epoch() {
@@ -86,8 +93,20 @@ iso_to_epoch() {
 }
 seat_file() { printf '%s/%s.lease' "$LEASE_DIR" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_' | sed 's/^\./_/')"; }
 field() { sed -n "s/^$1=//p" "$2" | head -1; }
-# history — append one event line to $LEASE_DIR/history.log, best-effort: the lease itself is the seat files.
-history() { printf '%s %s\n' "$(epoch_to_iso "$(now_epoch)")" "$1" >> "$LEASE_DIR/history.log" 2>/dev/null || true; }
+# one_line — a value for a history.log field: every control byte (TAB, CR, LF, ESC, DEL…) folded to a space.
+one_line() { printf '%s' "$1" | LC_ALL=C tr '\000-\037\177' ' '; }
+# norm_repo / norm_branch — the scope as take records it and check compares it: repo case-folded, branch without
+# refs/heads/, so `Kit` and `refs/heads/main` name the same trunk as `kit` and `main`.
+norm_repo() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+norm_branch() { printf '%s' "${1#refs/heads/}"; }
+# lease_history — append one event line to $LEASE_DIR/history.log: the event, then each argument (key=value) as a
+# TAB-separated field with its control bytes folded. Best-effort: the lease itself is the seat files.
+lease_history() {
+  local line a
+  line="$(epoch_to_iso "$(now_epoch)")"
+  for a in "$@"; do line="$line"$'\t'"$(one_line "$a")"; done
+  printf '%s\n' "$line" >> "$LEASE_DIR/history.log" 2>/dev/null || true
+}
 
 # live_rows — one line per live lease: "<taken_epoch> <expires_epoch> <file>", earliest taken first, ties by path.
 # A row is live only while taken <= now + SKEW and now < min(expires, taken + CEILING): the ceiling is enforced on
@@ -165,8 +184,8 @@ lease_take() {
   local repo="" branch="" what=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --repo) repo="${2:-}"; shift 2 ;;
-      --branch) branch="${2:-}"; shift 2 ;;
+      --repo) repo="$(norm_repo "${2:-}")"; shift 2 ;;
+      --branch) branch="$(norm_branch "${2:-}")"; shift 2 ;;
       --what) what="${2:-}"; shift 2 ;;
       *) die "unknown argument: $1" ;;
     esac
@@ -201,7 +220,7 @@ lease_take() {
     return 1
   fi
   printf 'lease: taken by %s\n' "$(describe "$mine")"
-  history "take seat=$seat repo=$repo branch=$branch expires=$(field expires "$mine") what=$what"
+  lease_history take "seat=$seat" "repo=$repo" "branch=$branch" "expires=$(field expires "$mine")" "what=$what"
 }
 
 lease_release() {
@@ -214,7 +233,7 @@ lease_release() {
       return 1
     fi
     rm -f "$mine" || die "cannot remove $mine"
-    history "release seat=$seat"
+    lease_history release "seat=$seat"
     printf 'lease: released by %s\n' "$seat"
   else
     printf 'lease: %s held no lease file (%s)\n' "$seat" "$mine"
@@ -233,8 +252,8 @@ lease_check() {
   local repo="" branch=""
   while [ $# -gt 0 ]; do
     case "$1" in
-      --repo) [ $# -ge 2 ] && [ -n "$2" ] || die "--repo needs a value"; repo="$2"; shift 2 ;;
-      --branch) [ $# -ge 2 ] && [ -n "$2" ] || die "--branch needs a value"; branch="$2"; shift 2 ;;
+      --repo) [ $# -ge 2 ] && [ -n "$2" ] || die "--repo needs a value"; repo="$(norm_repo "$2")"; shift 2 ;;
+      --branch) [ $# -ge 2 ] && [ -n "$2" ] || die "--branch needs a value"; branch="$(norm_branch "$2")"; shift 2 ;;
       *) die "unknown argument: $1" ;;
     esac
   done
@@ -247,7 +266,8 @@ lease_check() {
   h=""
   while read -r _ _ f; do
     [ -n "$f" ] || continue
-    r="$(field repo "$f")"; b="$(field branch "$f")"
+    # Normalised here too, so a lease file that take did not write (or an older take) is matched the same way.
+    r="$(norm_repo "$(field repo "$f")")"; b="$(norm_branch "$(field branch "$f")")"
     [ -z "$repo" ] || [ -z "$r" ] || [ "$r" = "$repo" ] || continue
     [ -z "$branch" ] || [ -z "$b" ] || [ "$b" = "$branch" ] || continue
     h="$f"; break
@@ -268,6 +288,6 @@ case "$cmd" in
   take) lease_take "$@" ;;
   release) lease_release "$@" ;;
   check) lease_check "$@" ;;
-  -h|--help|help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//' ;;
+  -h|--help|help) sed -n '2,14p' "$0" | sed 's/^# \{0,1\}//' ;;
   *) die "unknown subcommand: $cmd (take|release|show|check)" ;;
 esac

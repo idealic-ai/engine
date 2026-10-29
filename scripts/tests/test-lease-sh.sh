@@ -303,7 +303,7 @@ reset
 run take runner --repo kit --branch main --what "PR 9" >/dev/null 2>&1
 h="$DIR/history.log"
 assert_file_exists "$h" "L32 take creates history.log"
-assert_contains "take seat=runner repo=kit branch=main" "$(cat "$h")" "L32 take appends a take line"
+assert_contains "$(printf '\ttake\tseat=runner\trepo=kit\tbranch=main\t')" "$(cat "$h")" "L32 take appends a take line"
 before="$(cat "$h")"
 run check handbook --repo kit --branch main >/dev/null 2>&1
 assert_eq "$before" "$(cat "$h")" "L32 check appends nothing"
@@ -311,11 +311,78 @@ out="$(run show 2>&1)"
 assert_not_contains "history.log" "$out" "L32 show does not report history.log as an unrecognised file"
 run release runner >/dev/null 2>&1
 assert_eq 2 "$(wc -l < "$h" | tr -d ' ')" "L32 release appends a second line"
-assert_contains "release seat=runner" "$(tail -1 "$h")" "L32 the release line names the seat"
+assert_contains "$(printf '\trelease\tseat=runner')" "$(tail -1 "$h")" "L32 the release line names the seat"
 run release runner >/dev/null 2>&1
 assert_eq 2 "$(wc -l < "$h" | tr -d ' ')" "L32 a release that held nothing appends nothing"
 reset; mkdir -p "$DIR"; printf 'x\n' > "$DIR/history.log"; run release runner >/dev/null 2>&1
 out="$(run show 2>&1)"
 assert_contains "nobody holds a lease" "$out" "L32 a directory holding only history.log reads as empty"
+
+# L33 — check matches a lease's scope regardless of how the repo is cased or the branch is spelled: `Kit` is kit and
+# `refs/heads/main` is main, on take and on check, in both directions. An exact-string match let a seat push inside a
+# live lease taken as `--repo Kit` (fail open on spelling).
+reset; mkdir -p "$DIR"; run take runner --repo Kit --branch main >/dev/null 2>&1
+out="$(run check handbook --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L33 a lease taken as --repo Kit stops a check for kit"
+reset; mkdir -p "$DIR"; run take runner --repo kit --branch main >/dev/null 2>&1
+out="$(run check handbook --repo Kit --branch main 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L33 a lease taken as --repo kit stops a check for Kit"
+reset; mkdir -p "$DIR"; run take runner --repo kit --branch refs/heads/main >/dev/null 2>&1
+out="$(run check handbook --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L33 a lease taken on refs/heads/main stops a check for main"
+reset; mkdir -p "$DIR"; run take runner --repo kit --branch main >/dev/null 2>&1
+out="$(run check handbook --repo kit --branch refs/heads/main 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L33 a lease taken on main stops a check for refs/heads/main"
+reset; mkdir -p "$DIR"; t=$(date -u +%s)
+printf 'seat=runner\nrepo=KIT\nbranch=refs/heads/main\ntaken=%s\nexpires=%s\nwhat=hand\n' "$(iso_at "$t")" "$(iso_at $((t + 600)))" > "$DIR/runner.lease"
+out="$(run check handbook --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L33 a lease file that spells repo=KIT branch=refs/heads/main (not written by take) still covers kit/main"
+reset; mkdir -p "$DIR"; run take runner --repo engine --branch main >/dev/null 2>&1
+out="$(run check handbook --repo Kit --branch refs/heads/main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L33 folding does not widen: engine's lease still does not stop Kit"
+
+# L34 — history.log is best-effort: a failed append never fails take or release (here history.log is a directory).
+reset; mkdir -p "$DIR/history.log"
+out="$(run take runner --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L34 take succeeds when history.log cannot be appended to"
+assert_file_exists "$DIR/runner.lease" "L34 and the lease is held"
+out="$(run release runner 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L34 release succeeds when history.log cannot be appended to"
+
+# L35 — an empty --repo or --branch is a usage error, not "every repo" (a gate passing an empty variable must not
+# read as a check of nothing in particular).
+reset; mkdir -p "$DIR"
+out="$(run check handbook --repo "" --branch main 2>&1)"; rc=$?
+assert_eq 2 "$rc" "L35 check --repo '' is exit 2"
+out="$(run check handbook --repo kit --branch "" 2>&1)"; rc=$?
+assert_eq 2 "$rc" "L35 check --branch '' is exit 2"
+
+# L36 — of several live leases that cover the asked trunk, the EARLIEST taken= is the holder, as take decides it.
+reset; mkdir -p "$DIR"; t=$(date -u +%s)
+printf 'seat=first\nrepo=kit\nbranch=main\ntaken=%s\nexpires=%s\nwhat=a\n' "$(iso_at $((t - 120)))" "$(iso_at $((t + 480)))" > "$DIR/first.lease"
+printf 'seat=second\nrepo=kit\nbranch=main\ntaken=%s\nexpires=%s\nwhat=b\n' "$(iso_at $((t - 60)))" "$(iso_at $((t + 540)))" > "$DIR/second.lease"
+out="$(run check first --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L36 the earliest of two covering leases may push"
+out="$(run check second --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L36 the later of two covering leases may not"
+assert_contains "held by first" "$out" "L36 and is told the earliest holds it"
+out="$(run check third --repo kit --branch main 2>&1)"; rc=$?
+assert_contains "held by first" "$out" "L36 a third seat is told the earliest holds it"
+
+# L37 — a history line is TAB-separated `<UTC Z>\t<event>\tkey=value…`, and no value carries a control byte: a
+# newline, TAB or ESC in --what is folded to a space, so one take is exactly one line with the fields where they belong.
+reset
+run take runner --repo kit --branch main --what "$(printf 'one\ntwo\tthree\033[31mred')" >/dev/null 2>&1
+h="$DIR/history.log"
+assert_eq 1 "$(wc -l < "$h" | tr -d ' ')" "L37 a --what holding a newline still appends one line"
+assert_eq 7 "$(awk -F'\t' '{print NF}' "$h")" "L37 the take line has seven TAB-separated fields"
+assert_eq "what=one two three [31mred" "$(awk -F'\t' '{print $7}' "$h")" "L37 the control bytes in what= are folded to spaces"
+assert_eq 0 "$(LC_ALL=C tr -d '\t\n' < "$h" | LC_ALL=C tr -d '[:print:]' | wc -c | tr -d ' ')" "L37 the line holds no control byte but its TABs and newline"
+
+# L38 — with HOME and LANDING_LEASE_DIR both unset there is no lease store to read: a usage/IO error (exit 2), not a
+# shell fault (exit 1, which a caller may read as something else).
+out="$(env -u HOME -u LANDING_LEASE_DIR bash "$LEASE" check handbook --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 2 "$rc" "L38 check with no HOME and no LANDING_LEASE_DIR is exit 2"
+assert_contains "LANDING_LEASE_DIR" "$out" "L38 and says the lease store cannot be found"
 
 exit_with_results
