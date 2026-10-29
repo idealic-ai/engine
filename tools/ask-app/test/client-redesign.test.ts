@@ -163,7 +163,7 @@ describe("prose rendering", () => {
 });
 
 describe("the redesigned card", () => {
-  it("every card links its own tickets; lens marks are buttons described by their popover; lean is Recommended", async () => {
+  it("every card links its own tickets; lens marks are buttons described by their popover; the lean is the one ★ (Operator 00:30: no Recommended chip)", async () => {
     const { AskDetail } = await import("../src/client/App.tsx");
     const text = head("tickets: IDE-1\n") + "## ¶ASK_A: Choose one: First?\n- [ ] [X] x\n\n## ¶ASK_B: Choose one: Second blocks IDE-222?\nPanel: Minimalist → P — fewest lines\nLean: P — short\n- [ ] [P] p\n- [ ] [Q] q\n";
     const ask = stored(text);
@@ -172,7 +172,8 @@ describe("the redesigned card", () => {
     expect(second).toContain("IDE-222");
     expect(second).toMatch(/<button[^>]*class="lens-mark"[^>]*aria-describedby="lens-/);
     expect(second).toContain("fewest lines");
-    expect(second).toContain("Recommended");
+    expect(second).not.toContain("Recommended");
+    expect(second).toContain('aria-label="the asker&#x27;s lean">★');
     expect(html).not.toContain("callout caution");
   });
 
@@ -296,8 +297,8 @@ describe("round 3 M1: a suggestion is never an answer", () => {
 
   it("Accept all sends exactly the leans, and keeps a fork the operator already picked", () => {
     const a = stored(OPF);
-    expect(buildAnswers(a, acceptAll(a, {}), {}, a.questions)).toEqual({ F1: ["ALL"], F2: ["DEGR"], F3: ["WAIT"] });
-    expect(buildAnswers(a, acceptAll(a, { F1: ["MAP"] }), {}, a.questions)).toEqual({ F1: ["MAP"], F2: ["DEGR"], F3: ["WAIT"] });
+    expect(buildAnswers(a, acceptAll(a, {}, a.questions), {}, a.questions)).toEqual({ F1: ["ALL"], F2: ["DEGR"], F3: ["WAIT"] });
+    expect(buildAnswers(a, acceptAll(a, { F1: ["MAP"] }, a.questions), {}, a.questions)).toEqual({ F1: ["MAP"], F2: ["DEGR"], F3: ["WAIT"] });
   });
 
   it("S1: the row counts a suggested fork as still left", () => {

@@ -166,12 +166,11 @@ details.evidence ul { margin: 6px 0 0; padding-left: 1.2em; overflow-wrap: anywh
 .optwrap.on > .opt { border-color: var(--accent); background: var(--accent-soft); }
 .opt input { margin-top: 4px; flex: 0 0 auto; accent-color: var(--accent); }
 .opt-body { display: grid; gap: 3px; min-width: 0; flex: 1; }
-.opt-label { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; font-weight: 600; min-width: 0; }
-.opt-text { min-width: 0; overflow-wrap: anywhere; }
+.opt-label { display: flex; flex-wrap: nowrap; gap: 4px 8px; align-items: baseline; font-weight: 600; min-width: 0; }
+.opt-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .okey { font-size: 12px; font-weight: 600; color: var(--accent-ink); background: var(--accent-soft); border-radius: 3px; padding: 0 5px; }
 .optwrap.on .okey { background: var(--surface); }
-.rec { font-size: 11px; font-weight: 650; color: var(--ok); background: var(--ok-soft); border-radius: 3px; padding: 0 6px; letter-spacing: .02em; }
-.strip { display: inline-flex; gap: 4px; margin-left: auto; font-weight: 400; font-family: var(--mono); font-variant-ligatures: none; color: var(--ink-2); }
+.strip { display: inline-flex; flex: 0 0 auto; gap: 4px; margin-left: auto; font-weight: 400; font-family: var(--mono); font-variant-ligatures: none; color: var(--ink-2); }
 .strip .g { min-width: 1.3em; text-align: center; cursor: help; }
 .strip .g-blast { color: var(--danger); }
 .strip .g-lean { color: var(--warn); }
@@ -181,7 +180,6 @@ details.evidence ul { margin: 6px 0 0; padding-left: 1.2em; overflow-wrap: anywh
 .opt-cost b, .opt-lean b, .opt-dims b { font-weight: 600; color: var(--ink-3); margin-right: 4px; }
 .opt-dims { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 13px; color: var(--ink-2); }
 .nested { margin: 6px 0 0 26px; padding-left: 10px; border-left: 2px solid var(--line); }
-@media (max-width: 560px) { .strip { margin-left: 0; flex-basis: 100%; } }
 
 .lens-row { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 2px; }
 .lens-none { font-size: 12px; }
@@ -281,7 +279,6 @@ textarea { width: 100%; display: block; resize: vertical; }
 /* A suggestion is the asker's lean, not a pick: dashed, with its own badge, until clicked. */
 .optwrap.suggested > .opt { border-style: dashed; border-color: var(--accent); background: var(--surface); }
 .optwrap.suggested > .opt input { opacity: .55; }
-.sugg { font-size: 11px; font-weight: 600; color: var(--accent-ink); border: 1px dashed var(--accent); border-radius: 3px; padding: 0 6px; }
 .suggest-bar { display: grid; gap: 8px; padding: 10px 12px; border: 1px dashed var(--accent); border-radius: var(--radius-sm); background: var(--accent-soft); font-size: 13px; }
 .suggest-bar p { margin: 0; color: var(--ink-2); }
 .suggest-bar .btn { justify-self: start; white-space: normal; text-align: left; }
@@ -309,3 +306,9 @@ textarea { width: 100%; display: block; resize: vertical; }
 @media (max-width: 700px) { header.top .sub { display: none; } }
 .btn.quiet { border-color: transparent; background: none; color: var(--accent-ink); }
 .btn.quiet:hover:not(:disabled) { background: var(--accent-soft); }
+
+/* MF-1: a partial send is confirmed in place, never by a modal. */
+.confirm-send, .tray.confirm { border: 1px solid var(--warn); background: var(--warn-soft); border-radius: 8px; padding: 8px 12px; }
+.confirm-send p { margin: 4px 0; }
+/* SF-3: a suggested radio is not checked; its dashed outline says "suggested" to sighted users. */
+.optwrap.suggested > .opt input { outline: 2px dashed var(--accent); outline-offset: 2px; }

@@ -69,11 +69,17 @@ export function lastSegment(href: string): string {
 
 export type Trust = "auto" | "ask" | "refuse";
 
+const LOOPBACK = ["127.0.0.1", "localhost", "[::1]"];
+/** The one loopback port the pane opens by itself: the local proof server (MinIO). */
+export const PROOF_PORT = "9440";
+const portOf = (u: URL) => u.port || (u.protocol === "https:" ? "443" : "80");
+
 /**
- * Whether the pane may open a page on its own (M2):
- * - "refuse": the app's own origin. A framed same-origin page could read the page's ask token.
- * - "auto": loopback, or an origin named as a proof host. It opens and is checked without a click.
- * - "ask": any other host. Nothing is fetched until the operator clicks "Open in pane".
+ * Whether the pane may open a page on its own (M2, SF-1):
+ * - "refuse": not http(s), or the app itself under any loopback name (127.0.0.1, localhost, [::1]
+ *   on the app's port). A framed copy of the app could answer asks with its own token.
+ * - "auto": the local proof server (loopback :9440), or an origin named as a proof host.
+ * - "ask": anything else, other loopback ports included. Nothing is fetched until the operator clicks.
  */
 export function paneTrust(href: string, appOrigin: string, proofOrigins: string[] = []): Trust {
   let u: URL;
@@ -84,7 +90,15 @@ export function paneTrust(href: string, appOrigin: string, proofOrigins: string[
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") return "refuse";
   if (u.origin === appOrigin) return "refuse";
-  if (["127.0.0.1", "localhost", "[::1]"].includes(u.hostname)) return "auto";
+  let app: URL | undefined;
+  try {
+    app = new URL(appOrigin);
+  } catch {
+    app = undefined;
+  }
+  const loop = LOOPBACK.includes(u.hostname);
+  if (loop && app && LOOPBACK.includes(app.hostname) && portOf(u) === portOf(app)) return "refuse";
+  if (loop && u.port === PROOF_PORT) return "auto";
   if (proofOrigins.some((o) => o && u.origin === o.replace(/\/+$/, ""))) return "auto";
   return "ask";
 }

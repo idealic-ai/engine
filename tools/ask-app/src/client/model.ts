@@ -127,7 +127,7 @@ export type Dim = "blast" | "effort" | "cost" | "lean";
 export type Cell = { glyph: string; text: string };
 /** Gradation order: risk-like first, then effort, then the one text line, then ★ last. */
 const DIM_ORDER: Dim[] = ["blast", "effort", "cost", "lean"];
-export const DIM_LABEL: Record<Dim, string> = { blast: "Risk (blast radius)", effort: "Effort", cost: "Cost", lean: "Recommended" };
+export const DIM_LABEL: Record<Dim, string> = { blast: "Risk (blast radius)", effort: "Effort", cost: "Cost", lean: "The asker's lean" };
 
 const level = (s: string): "s" | "m" | "l" | undefined => {
   const w = s.trim().toLowerCase().split(/[\s—–,;:(-]+/)[0];
@@ -153,14 +153,17 @@ function cell(dim: Dim, o: AskOption, lean: string | undefined): Cell | undefine
  * dimension that is the same on every option stays, marked `same`, so the reader sees it did not
  * separate the options rather than wondering where it went.
  */
-export function tradeoff(options: AskOption[], lean: string | undefined): { dims: Dim[]; same: Dim[]; rows: Record<string, Partial<Record<Dim, Cell>>> } {
+export function tradeoff(options: AskOption[], lean: string | undefined): { dims: Dim[]; same: Dim[]; shown: Dim[]; rows: Record<string, Partial<Record<Dim, Cell>>> } {
   const key = (o: AskOption) => o.code ?? o.label;
   const rows: Record<string, Partial<Record<Dim, Cell>>> = {};
   for (const o of options) rows[key(o)] = {};
   const dims: Dim[] = ["blast", "effort", "cost", ...(lean ? (["lean"] as Dim[]) : [])];
   const same: Dim[] = [];
+  const shown: Dim[] = [];
   for (const d of dims) {
     const cells = options.map((o) => cell(d, o, lean));
+    // Operator 00:30: a dimension no option gives ("–" on every one) is not drawn at all.
+    if (cells.some(Boolean)) shown.push(d);
     options.forEach((o, i) => {
       if (cells[i]) rows[key(o)][d] = cells[i];
     });
@@ -168,7 +171,13 @@ export function tradeoff(options: AskOption[], lean: string | undefined): { dims
     const sig = cells.map((c) => (c ? `${c.glyph}|${c.glyph ? "" : c.text}` : ""));
     if (sig.every((x) => x === sig[0])) same.push(d);
   }
-  return { dims, same, rows };
+  return { dims, same, shown, rows };
+}
+
+/** A lean's reason with its leading separator gone; empty when nothing but punctuation is left ("Why the lean ."). */
+export function leanReason(text: string | undefined): string {
+  const t = (text ?? "").replace(/^[\s—–:;.,-]+/, "").trim();
+  return /[\p{L}\p{N}]/u.test(t) ? t : "";
 }
 
 /** True when a value says more than its level word (`high — every CI box`), so the words are worth showing. */
@@ -282,7 +291,7 @@ export function leanFor(a: ParsedAsk, index: number): { code?: string; text: str
 
 export type Values = Record<string, AnswerValue | undefined>;
 const CHOICE = new Set(["choose-one", "choose", "yesno"]);
-const filled = (v: AnswerValue | undefined) => v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0) && !(typeof v === "number" && Number.isNaN(v));
+export const filled = (v: AnswerValue | undefined) => v !== undefined && v !== "" && !(Array.isArray(v) && v.length === 0) && !(typeof v === "number" && Number.isNaN(v));
 
 /** The lean each untouched choice fork suggests, by answer key. Never part of what is sent. */
 export function suggestionsFor(a: ParsedAsk, values: Values): Record<string, string> {
@@ -298,11 +307,112 @@ export function suggestionsFor(a: ParsedAsk, values: Values): Record<string, str
   return out;
 }
 
-/** "Accept all suggestions": every remaining suggestion becomes the operator's pick, and nothing else changes. */
-export function acceptAll(a: ParsedAsk, values: Values): Values {
+/** The option values from a fork's top level down to `code`, so a nested lean also picks its parent. */
+function pathTo(opts: AskOption[], code: string): string[] | undefined {
+  for (const o of opts) {
+    const v = o.code ?? o.label;
+    if (o.code === code) return [v];
+    const sub = pathTo(o.children ?? [], code);
+    if (sub) return [v, ...sub];
+  }
+  return undefined;
+}
+
+/**
+ * The suggestions on forks the operator can SEE now (MF-2), in fork order. A fork hidden by DependsOn
+ * is left out: its lean shows as its own dashed suggestion once its parent is picked. This one list is
+ * both what the Accept-all button names and what it accepts.
+ */
+export function visibleSuggestionsFor(a: ParsedAsk, values: Values, visible: ParsedAsk["questions"]): { key: string; label: string; code: string }[] {
+  const s = suggestionsFor(a, values);
+  return a.questions.flatMap((q, i) => {
+    const key = questionKey(q, i);
+    return visible.includes(q) && s[key] ? [{ key, label: forkLabel(q, i), code: s[key] }] : [];
+  });
+}
+
+/** "Accept all suggestions": every suggestion on a VISIBLE fork becomes the operator's pick, and nothing else changes. */
+export function acceptAll(a: ParsedAsk, values: Values, visible: ParsedAsk["questions"]): Values {
   const next = { ...values };
-  for (const [k, code] of Object.entries(suggestionsFor(a, values))) next[k] = [code];
+  for (const { key, code } of visibleSuggestionsFor(a, values, visible)) {
+    const q = a.questions.find((x, i) => questionKey(x, i) === key)!;
+    next[key] = pathTo(q.options, code) ?? [code];
+  }
   return next;
+}
+
+/** The visible forks with no pick, by label. A note (`.other`) is not a pick. */
+export function unansweredForks(a: ParsedAsk, answers: AnswerMap, visible: ParsedAsk["questions"] = visibleQuestions(a.questions, answers)): string[] {
+  return a.questions.flatMap((q, i) => (visible.includes(q) && !filled(answers[questionKey(q, i)] as AnswerValue | undefined) ? [forkLabel(q, i)] : []));
+}
+
+/**
+ * MF-1: a send settles the WHOLE ask, so a send that leaves visible forks unpicked (including a send
+ * of notes alone) must be confirmed. Undefined when every visible fork is picked.
+ */
+export function sendConfirmation(unanswered: string[]): string | undefined {
+  if (unanswered.length === 0) return undefined;
+  const n = unanswered.length;
+  return `${n} question${n === 1 ? "" : "s"} unanswered (${unanswered.join(", ")}) — send anyway? Sending settles the whole ask; ${n === 1 ? "it reaches" : "they reach"} the asker unanswered and cannot be answered here afterwards.`;
+}
+
+/** The batch tray's confirm: one line per draft that leaves forks unpicked. A decline is not partial. */
+export function batchConfirmation(drafts: ParsedAsk[], refOf: (a: ParsedAsk) => string): string | undefined {
+  let n = 0;
+  const parts = drafts.flatMap((d) => {
+    if (!d.draft || d.draft.declined) return [];
+    const left = unansweredForks(d, d.draft.answers ?? {});
+    n += left.length;
+    return left.length ? [`${refOf(d)}: ${left.join(", ")}`] : [];
+  });
+  if (!parts.length) return undefined;
+  return `${n} question${n === 1 ? "" : "s"} unanswered — send anyway? Each ask is settled when sent. ${parts.join(" · ")}`;
+}
+
+export type Filter = "open" | "drafts" | "settled" | "all";
+/**
+ * SF-4: the one predicate behind both a filter's list and its count. Settled is answered or declined;
+ * a superseded ask is in All only (it was replaced, not settled by anyone here).
+ */
+export function rowInFilter(r: Pick<Row, "status" | "draft">, f: Filter): boolean {
+  return f === "all" ? true : f === "drafts" ? r.draft : f === "settled" ? r.status === "answered" || r.status === "declined" : r.status === "open";
+}
+
+/**
+ * SF-5: what survives a remount of the card. Unsent notes (per fork, and to the asker) are kept by ask
+ * and fork and restored over what the file holds. Unsent picks come back only at the same revision:
+ * when the revision moved, the forks may have changed, so they are cleared and the notice says so.
+ */
+export type Unsent = { revision: string; values: Values; text: Record<string, string>; note: string };
+export function restoreUnsent(
+  init: { values: Values; text: Record<string, string>; note: string },
+  kept: Unsent | undefined,
+  revision: string,
+  keys: string[],
+): { values: Values; text: Record<string, string>; note: string; notice: string } {
+  if (!kept) return { ...init, notice: "" };
+  const same = kept.revision === revision;
+  const text = { ...init.text };
+  const changedNotes: string[] = [];
+  const lost: string[] = [];
+  for (const [k, v] of Object.entries(kept.text)) {
+    if (!v.trim() || v === init.text[k]) continue;
+    if (keys.includes(k)) {
+      text[k] = v;
+      changedNotes.push(k);
+    } else lost.push(k);
+  }
+  const noteKept = !!kept.note.trim() && kept.note !== init.note;
+  const note = noteKept ? kept.note : init.note;
+  const values = same ? { ...init.values, ...kept.values } : init.values;
+  const droppedPicks = same ? 0 : Object.keys(kept.values).filter((k) => filled(kept.values[k]) && JSON.stringify(kept.values[k]) !== JSON.stringify(init.values[k])).length;
+  if (same || (!changedNotes.length && !noteKept && !lost.length && !droppedPicks)) return { values, text, note, notice: "" };
+  const bits = [
+    changedNotes.length || noteKept ? "your unsent notes are kept below" : "",
+    lost.length ? `your notes on ${lost.join(", ")} have no fork to go back to and are not shown` : "",
+    droppedPicks ? `your ${droppedPicks} unsent pick${droppedPicks === 1 ? " was" : "s were"} cleared, because the forks may have changed` : "",
+  ].filter(Boolean);
+  return { values, text, note, notice: `The ask changed under you (now revision ${revision}): ${bits.join("; ")}.` };
 }
 
 /**

@@ -32,8 +32,9 @@ export function useProofs(enabled: boolean) {
   const load = useCallback(async (fresh = false) => {
     setBusy(true);
     try {
-      const r = await fetch(`/api/proofs${fresh ? "?fresh" : ""}`);
-      setList(await r.json());
+      const r = await fetch(`/api/proofs${fresh ? "?fresh" : ""}`, { headers: { "x-ask-token": token() } });
+      const j = await r.json();
+      setList(r.ok ? j : { ok: false, proofs: [], error: j.error ?? `HTTP ${r.status}`, at: new Date().toISOString(), total: 0 });
     } catch {
       setList({ ok: false, proofs: [], error: "the app server did not answer", at: new Date().toISOString(), total: 0 });
     } finally {

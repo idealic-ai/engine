@@ -12,7 +12,7 @@ export const SIDE_SLIM = 180;
 export const RATIO_MIN = 0.2;
 export const RATIO_MAX = 0.8;
 
-export const clampSide = (w: number) => Math.round(Math.min(SIDE_MAX, Math.max(SIDE_MIN, w)));
+export const clampSide = (w: number) => Math.round(Math.min(SIDE_MAX, Math.max(SIDE_MIN, Number.isFinite(w) ? w : 300)));
 export const clampRatio = (r: number) => Math.min(RATIO_MAX, Math.max(RATIO_MIN, Number.isFinite(r) ? r : 0.5));
 
 /** The sidebar's starting width when the browser has none stored: slim on a phone, roomy on a desk. */
