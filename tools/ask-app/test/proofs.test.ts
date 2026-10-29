@@ -2,7 +2,7 @@
  * Round 4 (a): /api/proofs, ported from the ASKDESIGN prototype. The proof store is a fake: an env
  * script and an `aws` on PATH that prints a listing. Nothing reads the live store.
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
@@ -36,7 +36,8 @@ beforeAll(async () => {
   const bin = path.join(base, "bin");
   fs.mkdirSync(bin);
   fs.writeFileSync(path.join(base, "listing.json"), JSON.stringify(LISTING));
-  fs.writeFileSync(path.join(bin, "aws"), `#!/bin/sh\ncat "${path.join(base, "listing.json")}"\n`, { mode: 0o755 });
+  // Each run of the fake aws leaves a line in spawns.log, and takes a moment, so overlapping requests overlap.
+  fs.writeFileSync(path.join(bin, "aws"), `#!/bin/sh\necho run >> "${path.join(base, "spawns.log")}"\nsleep 0.4\ncat "${path.join(base, "listing.json")}"\n`, { mode: 0o755 });
   const envSh = path.join(base, "prove-env.sh");
   fs.writeFileSync(envSh, `PROVE_S3_ENDPOINT_URL=http://127.0.0.1:1\nPROVE_S3_PUBLIC_URL=http://127.0.0.1:1\nPROVE_S3_BUCKET=proofs\nPROVE_S3_PREFIX=proofs\nENDPOINT_ARG=()\nPROFILE_ARG=()\n`);
   fakeEnv = { ASK_PROVE_ENV_SH: envSh, PATH: `${bin}:${process.env.PATH}` };
@@ -73,7 +74,7 @@ function req(p: string, opts: { method?: string; headers?: Record<string, string
 
 describe("(a) /api/proofs", () => {
   it("lists the store's .html pages newest first, skipping assets and non-pages, with public URLs", async () => {
-    const r = await req("/api/proofs?fresh");
+    const r = await req("/api/proofs?fresh", { headers: { "x-ask-token": TOKEN } });
     expect(r.status).toBe(200);
     const j = JSON.parse(r.body);
     expect(j.ok).toBe(true);
@@ -96,5 +97,59 @@ describe("(a) /api/proofs", () => {
       q.end();
     });
     expect(r).toBe(403);
+  });
+});
+
+describe("SF-6: /api/proofs is gated like /api/broadcasts", () => {
+  const spawns = () => (fs.existsSync(path.join(base, "spawns.log")) ? fs.readFileSync(path.join(base, "spawns.log"), "utf8").split("\n").filter(Boolean).length : 0);
+
+  it("refuses a request with no token or a wrong one, and spawns nothing for it", async () => {
+    const before = spawns();
+    expect((await req("/api/proofs?fresh")).status).toBe(403);
+    expect((await req("/api/proofs?fresh", { headers: { "x-ask-token": "nope" } })).status).toBe(403);
+    expect(spawns()).toBe(before);
+  });
+
+  it("answers GET only: a POST, even with the token, is no such endpoint", async () => {
+    const before = spawns();
+    const r = await req("/api/proofs?fresh", { method: "POST", headers: { "x-ask-token": TOKEN, "content-type": "text/plain", origin: "https://evil.example" } });
+    expect(r.status).toBe(404);
+    expect(spawns()).toBe(before);
+  });
+
+  it("refuses a foreign Origin even with the token", async () => {
+    const r = await req("/api/proofs?fresh", { headers: { "x-ask-token": TOKEN, origin: "https://evil.example" } });
+    expect(r.status).toBe(403);
+    expect((await req("/api/proofs", { headers: { "x-ask-token": TOKEN, origin: `http://127.0.0.1:${port}` } })).status).toBe(200);
+  });
+
+  it("?fresh joins a listing already running: five at once spawn one", async () => {
+    const before = spawns();
+    const rs = await Promise.all(Array.from({ length: 5 }, () => req("/api/proofs?fresh", { headers: { "x-ask-token": TOKEN } })));
+    expect(rs.map((r) => r.status)).toEqual([200, 200, 200, 200, 200]);
+    expect(spawns() - before).toBe(1);
+  });
+});
+
+describe("NIT-B1: a failed listing names no path", () => {
+  it("reports a fixed message with the exit code, never the env script's path", async () => {
+    const dir = fs.mkdtempSync(path.join("/tmp", "askproofs-"));
+    const envSh = path.join(dir, "secret-place-env.sh");
+    fs.writeFileSync(envSh, "exit 1\n");
+    const saved = process.env.ASK_PROVE_ENV_SH;
+    process.env.ASK_PROVE_ENV_SH = envSh;
+    try {
+      vi.resetModules();
+      const { listProofs } = await import("../src/lib/proofs.ts");
+      const out = await listProofs(true);
+      expect(out.ok).toBe(false);
+      expect(out.error).toMatch(/^proof store not reachable \(/);
+      expect(JSON.stringify(out)).not.toContain(dir);
+      expect(JSON.stringify(out)).not.toContain("secret-place");
+    } finally {
+      if (saved === undefined) delete process.env.ASK_PROVE_ENV_SH;
+      else process.env.ASK_PROVE_ENV_SH = saved;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

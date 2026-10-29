@@ -4,7 +4,8 @@
  *
  *   GET  /api/health   {app, root, pid, port}
  *   GET  /api/asks     every ask under the root, all statuses
- *   GET  /api/proofs   published proof pages in the local proof store, newest first (?fresh skips the cache)
+ *   GET  /api/proofs   (token required) published proof pages in the local proof store, newest first
+ *                      (?fresh skips the cache, and joins a listing already running rather than starting one)
  *   GET  /api/broadcasts  (token required) broadcasts newest first, with acks; read-only, BROADCAST_DIR overrides the dir
  *   GET  /api/events   server-sent events: "change" whenever a file under the root changes
  *   POST /api/answer   {seat, id, expectedRevision, answers | decline: reason, note?}
@@ -119,7 +120,14 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/api/health") return send(res, 200, { app: "ask-app", root, pid: process.pid, port, tickets: tickets.enabled, build: BUILD_ID });
     if (url.pathname === "/api/asks") return send(res, 200, { root, asks: listAsks(root) });
     // The published proof pages in the local MinIO store, read-only (ported from the ASKDESIGN prototype).
-    if (url.pathname === "/api/proofs") return send(res, 200, await listProofs(url.searchParams.has("fresh")));
+    // SF-6: a listing spawns bash + aws, so it is gated like /api/broadcasts: GET only, the page's token,
+    // and no foreign Origin. Any other method falls through to the 404 below.
+    if (url.pathname === "/api/proofs" && req.method === "GET") {
+      const origin = req.headers.origin;
+      if (origin !== undefined && !ORIGINS.includes(origin)) return send(res, 403, { error: "cross-origin read refused" });
+      if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });
+      return send(res, 200, await listProofs(url.searchParams.has("fresh")));
+    }
     // Broadcasts, read-only: the director's notices and which seats acked them. Token-checked like /api/ticket/.
     if (url.pathname === "/api/broadcasts" && req.method === "GET") {
       if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });

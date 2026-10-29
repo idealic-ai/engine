@@ -20,11 +20,18 @@ aws "\${ENDPOINT_ARG[@]}" "\${PROFILE_ARG[@]}" s3api list-objects-v2 --bucket "$
 let cache: { at: number; value: ProofList } | undefined;
 const titles = new Map<string, string>();
 
+/**
+ * NIT-B1: a failure is reported by a fixed message and its exit code, never by the child's text. That
+ * text ends with the argv (the env script's absolute path) and would reach the page in a 200 body.
+ */
 function run(): Promise<string> {
   return new Promise((resolve, reject) =>
-    execFile("bash", ["-c", SCRIPT, "proofs", ENV], { maxBuffer: 64 * 1024 * 1024, timeout: 20_000 }, (e, out, err) =>
-      e ? reject(new Error((err || e.message).trim().split("\n").slice(-1)[0])) : resolve(out),
-    ),
+    execFile("bash", ["-c", SCRIPT, "proofs", ENV], { maxBuffer: 64 * 1024 * 1024, timeout: 20_000 }, (e, out) => {
+      if (!e) return resolve(out);
+      const x = e as Error & { code?: number | string; killed?: boolean };
+      const why = x.killed ? "timed out" : x.code === 3 ? "its settings could not be read" : `exit ${x.code ?? "?"}`;
+      reject(new Error(`proof store not reachable (${why})`));
+    }),
   );
 }
 
@@ -47,13 +54,18 @@ async function readTitle(url: string): Promise<string | undefined> {
 }
 
 let refreshing: Promise<ProofList> | undefined;
-/** Stale-while-revalidate: a cached list answers at once and refreshes behind the response. */
+/** One listing at a time: every caller that wants a new one joins the one already running (SF-6). */
+function refresh(): Promise<ProofList> {
+  if (!refreshing) refreshing = fetchProofs().finally(() => (refreshing = undefined));
+  return refreshing;
+}
+/** Stale-while-revalidate: a cached list answers at once and refreshes behind the response. `fresh` waits for a new one. */
 export async function listProofs(fresh = false): Promise<ProofList> {
   if (!fresh && cache) {
-    if (Date.now() - cache.at >= 60_000 && !refreshing) refreshing = fetchProofs().finally(() => (refreshing = undefined));
+    if (Date.now() - cache.at >= 60_000) void refresh();
     return cache.value;
   }
-  return fetchProofs();
+  return refresh();
 }
 
 async function fetchProofs(): Promise<ProofList> {
