@@ -264,4 +264,58 @@ printf 'seat=runner\nrepo=kit\nbranch=main\ntaken=%s\nexpires=%s\nwhat=old\n' "$
 out="$(run check handbook 2>&1)"; rc=$?
 assert_eq 0 "$rc" "L27 an expired lease does not stop a push"
 
+# L28 — check --repo: a lease taken for another repo's trunk does not stop this repo's push; one for this repo does,
+# and a check that names no repo counts every lease (the one-slot answer it gave before --repo existed).
+reset; mkdir -p "$DIR"; run take runner --repo engine --branch main --what "engine PR" >/dev/null 2>&1
+out="$(run check handbook --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L28 a lease for another repo does not stop a push to kit"
+out="$(run check handbook --repo engine --branch main 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L28 a lease for the same repo still stops it"
+assert_contains "runner" "$out" "L28 and names the holder"
+out="$(run check handbook 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L28 a check that names no repo counts every lease"
+
+# L29 — check --branch: a lease for another branch of the same repo does not count; the same branch does.
+reset; mkdir -p "$DIR"; run take runner --repo kit --branch dev >/dev/null 2>&1
+out="$(run check handbook --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L29 a lease on kit/dev does not stop a push to kit/main"
+out="$(run check handbook --repo kit --branch dev 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L29 a lease on kit/dev stops a push to kit/dev"
+
+# L30 — a lease taken with no --repo (or no --branch) names no scope, so it counts for every repo (fail closed on
+# the lease, as before --repo existed).
+reset; mkdir -p "$DIR"; run take runner >/dev/null 2>&1
+out="$(run check handbook --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L30 an unscoped lease counts for kit/main"
+reset; mkdir -p "$DIR"; run take runner --repo kit >/dev/null 2>&1
+out="$(run check handbook --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L30 a lease with a repo and no branch counts for every branch of that repo"
+
+# L31 — check's argument errors are usage errors (exit 2), so a gate cannot read a typo as "free".
+out="$(run check handbook --repo 2>&1)"; rc=$?
+assert_eq 2 "$rc" "L31 --repo with no value is exit 2"
+out="$(run check handbook --what x 2>&1)"; rc=$?
+assert_eq 2 "$rc" "L31 an unknown argument is exit 2"
+
+# L32 — history.log: take and release append one line each; check appends nothing; show does not read it as a
+# stray lease file. Kit's pre-push appends its override lines here too (KIT_LEASE_CHECK_OVERRIDE).
+reset
+run take runner --repo kit --branch main --what "PR 9" >/dev/null 2>&1
+h="$DIR/history.log"
+assert_file_exists "$h" "L32 take creates history.log"
+assert_contains "take seat=runner repo=kit branch=main" "$(cat "$h")" "L32 take appends a take line"
+before="$(cat "$h")"
+run check handbook --repo kit --branch main >/dev/null 2>&1
+assert_eq "$before" "$(cat "$h")" "L32 check appends nothing"
+out="$(run show 2>&1)"
+assert_not_contains "history.log" "$out" "L32 show does not report history.log as an unrecognised file"
+run release runner >/dev/null 2>&1
+assert_eq 2 "$(wc -l < "$h" | tr -d ' ')" "L32 release appends a second line"
+assert_contains "release seat=runner" "$(tail -1 "$h")" "L32 the release line names the seat"
+run release runner >/dev/null 2>&1
+assert_eq 2 "$(wc -l < "$h" | tr -d ' ')" "L32 a release that held nothing appends nothing"
+reset; mkdir -p "$DIR"; printf 'x\n' > "$DIR/history.log"; run release runner >/dev/null 2>&1
+out="$(run show 2>&1)"
+assert_contains "nobody holds a lease" "$out" "L32 a directory holding only history.log reads as empty"
+
 exit_with_results
