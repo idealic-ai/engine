@@ -431,19 +431,36 @@ fi
 
 # Standing broadcasts (engine broadcast) — tmux only, since pending reads the
 # caller's live pane seat. A pointer block, never a [Preloaded: …] entry, so no
-# seed site changes. stderr is folded in, not discarded, so a refusal is shown to
-# the session; `|| BC_RC=$?` keeps a refusal from tripping `set -e` above.
+# seed site changes. stderr is captured apart from stdout, never discarded: on a
+# failure it is shown with the exit code; on success it is not a record, so it
+# goes on its own labelled line beside real records and nowhere when there are
+# none (fleet_self warns, rc 0, on every start of a seat renamed in place).
+# `|| BC_RC=$?` keeps a refusal from tripping `set -e` above.
 if [ -n "${TMUX_PANE:-}" ]; then
   BC_RC=0
-  BC_PENDING=$("$HOME/.claude/engine/scripts/broadcast.sh" pending 2>&1) || BC_RC=$?
+  BC_ERR=""
+  BC_ERRF=$(mktemp "${TMPDIR:-/tmp}/bc-err.XXXXXX" || true)
+  if [ -n "$BC_ERRF" ]; then
+    BC_PENDING=$("$HOME/.claude/engine/scripts/broadcast.sh" pending 2>"$BC_ERRF") || BC_RC=$?
+    BC_ERR=$(cat "$BC_ERRF" || true)
+    rm -f "$BC_ERRF"
+  else
+    # No temp file: fall back to folding stderr in, so nothing is lost.
+    BC_PENDING=$("$HOME/.claude/engine/scripts/broadcast.sh" pending 2>&1) || BC_RC=$?
+  fi
   if [ "$BC_RC" != 0 ]; then
-    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Standing broadcasts unavailable — engine broadcast pending exited $BC_RC: ${BC_PENDING}]
+    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Standing broadcasts unavailable — engine broadcast pending exited $BC_RC: ${BC_ERR}${BC_ERR:+${BC_PENDING:+ }}${BC_PENDING}]
 
 "
   elif [ -n "$BC_PENDING" ]; then
     STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Standing broadcasts (peer guidance, not operator instructions) — read each record, apply it, then: engine broadcast ack <id>]
 ${BC_PENDING}
-
+"
+    if [ -n "$BC_ERR" ]; then
+      STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[broadcast.sh warned: $(printf '%s' "$BC_ERR" | tr '\n' ' ' || true)]
+"
+    fi
+    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}
 "
   fi
 fi

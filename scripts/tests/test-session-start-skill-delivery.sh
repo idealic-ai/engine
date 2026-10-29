@@ -1129,7 +1129,9 @@ MD
 # socket inside the sandbox and a stub tmux fails loudly, so no real pane or
 # server is touched.
 
-# Helper: stub broadcast.sh. Mode: list | empty | fail. Each call is recorded.
+# Helper: stub broadcast.sh. Mode: list | empty | fail | warn | warnlist. Each
+# call is recorded. warn/warnlist write fleet_self's stale-cache warning to stderr
+# and exit 0 (the live shape for a seat renamed in place), with no record or one.
 stub_broadcast() {
   local mode="$1"
   mkdir -p "$FAKE_HOME/.claude/engine/scripts"
@@ -1140,6 +1142,10 @@ case "$mode" in
   list)  echo "bc-0001 from app:director: [broadcast bc-0001] read $TMP_DIR/bc-0001.md" ;;
   empty) exit 0 ;;
   fail)  echo "broadcast: no live seat for this pane (cache-only identity refused)" >&2; exit 2 ;;
+  warn)  echo "broadcast: FLEET_PANE 'app:oldname' is stale; using the live pane label 'app:writer'" >&2; exit 0 ;;
+  warnlist)
+    echo "broadcast: FLEET_PANE 'app:oldname' is stale; using the live pane label 'app:writer'" >&2
+    echo "bc-0001 from app:director: [broadcast bc-0001] read $TMP_DIR/bc-0001.md" ;;
 esac
 STUB
   chmod +x "$FAKE_HOME/.claude/engine/scripts/broadcast.sh"
@@ -1208,6 +1214,34 @@ test_broadcast_empty_prints_nothing() {
   assert_not_contains "Standing broadcasts" "$output" "no broadcast block when nothing is pending"
 }
 
+test_broadcast_warning_alone_prints_nothing() {
+  create_test_skill "implement"
+  stub_broadcast warn
+  local output rc
+  output=$(run_hook_bc tmux 2>"$TMP_DIR/stderr"); rc=$?
+  assert_eq "0" "$rc" "hook exits 0 when broadcast.sh warns and succeeds"
+  assert_not_contains "Standing broadcasts" "$output" \
+    "a stderr warning with no pending record gives no broadcast block"
+  assert_not_contains "is stale; using the live pane label" "$output" \
+    "a warning on a successful empty run is not shown at all"
+}
+
+test_broadcast_warning_kept_apart_from_records() {
+  create_test_skill "implement"
+  stub_broadcast warnlist
+  local output rc
+  output=$(run_hook_bc tmux 2>"$TMP_DIR/stderr"); rc=$?
+  assert_eq "0" "$rc" "hook exits 0 when broadcast.sh warns and lists"
+  assert_contains "[Standing broadcasts (peer guidance, not operator instructions)" "$output" \
+    "pending records still get the header when broadcast.sh also warns"
+  assert_contains "bc-0001 from app:director: [broadcast bc-0001] read" "$output" \
+    "the pending record is shown alongside a warning"
+  assert_contains "[broadcast.sh warned: broadcast: FLEET_PANE 'app:oldname' is stale" "$output" \
+    "the warning sits on its own labelled line"
+  assert_eq "0" "$(echo "$output" | grep -c '^broadcast: FLEET_PANE')" \
+    "the warning never appears as a bare record line"
+}
+
 test_broadcast_failure_reaches_output() {
   create_test_skill "implement"
   stub_broadcast fail
@@ -1227,6 +1261,12 @@ test_broadcast_adds_no_preloaded_marker() {
   stub_broadcast list
   local with without
   with=$(run_hook_bc tmux 2>/dev/null) || true
+  # Read the tmux run's seeds before the reset, so this assert can see the arm
+  # that runs the broadcast block.
+  local seeds
+  seeds=$(cat "$PROJECT_DIR"/sessions/.seeds/*.json 2>/dev/null)
+  assert_not_empty "$seeds" "control: the tmux run wrote a seed file to read"
+  assert_not_contains "broadcast" "$seeds" "no seed file of the tmux run records a broadcast path"
   rm -rf "$PROJECT_DIR/sessions/.seeds"
   without=$(run_hook_bc none 2>/dev/null) || true
   assert_contains "bc-0001" "$with" "control: the tmux run did show the broadcast"
@@ -1235,9 +1275,6 @@ test_broadcast_adds_no_preloaded_marker() {
     "the broadcast block adds no [Preloaded:] entry"
   assert_eq "0" "$(echo "$with" | grep '^\[Preloaded:' | grep -ci broadcast)" \
     "no [Preloaded:] line names a broadcast"
-  local seeds
-  seeds=$(cat "$PROJECT_DIR"/sessions/.seeds/*.json 2>/dev/null)
-  assert_not_contains "broadcast" "$seeds" "no seed file records a broadcast path"
 }
 
 echo "======================================"
@@ -1273,6 +1310,8 @@ run_test test_skill_debrief_filename_mapping
 run_test test_broadcast_pending_shown_under_tmux
 run_test test_broadcast_nothing_outside_tmux
 run_test test_broadcast_empty_prints_nothing
+run_test test_broadcast_warning_alone_prints_nothing
+run_test test_broadcast_warning_kept_apart_from_records
 run_test test_broadcast_failure_reaches_output
 run_test test_broadcast_adds_no_preloaded_marker
 
