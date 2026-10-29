@@ -782,3 +782,82 @@ describe("round-5 fixes: rounds NITs", () => {
     expect(priorPicks(unnamedNext, [unnamedPrev, unnamedNext])).toEqual({});
   });
 });
+
+// ── supersede and the decline pass-up ──────────────────────
+
+import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList } from "../src/client/supersede.ts";
+
+describe("supersede (1): a 409 for a superseded ask", () => {
+  it("names the replacement and never says 'revision undefined'", () => {
+    const c = conflictMessage({ error: "superseded", status: "superseded", supersededBy: "meta:utils/new-ask" } as never);
+    expect(c).toEqual({ text: "This ask was replaced by meta:utils/new-ask. Your picks are kept here; open the new ask to answer.", supersededBy: "meta:utils/new-ask" });
+    expect(conflictMessage({ status: "superseded" }).text).not.toContain("undefined");
+    expect(conflictMessage({ revision: 4 }).text).toBe("Not saved: the ask moved (now revision 4). Read the current state before answering again.");
+    expect(conflictMessage({}).text).toBe("Not saved: the ask moved. Read the current state before answering again.");
+    expect(conflictMessage(undefined).text).not.toContain("undefined");
+  });
+
+  it("a provisional send that hits it reports the replacement, not a revision", async () => {
+    const post = async () => ({ status: 409, json: { error: "superseded", status: "superseded", supersededBy: "meta:utils/new-ask" } });
+    const out = await sendProvisional(post, async () => undefined, { seat: "s", id: "a", expectedRevision: 1, answers: { F1: ["A"] }, note: DRAFT_NOTE });
+    expect(out).toMatchObject({ ok: false, supersededBy: "meta:utils/new-ask" });
+    expect(out.message).toContain("replaced by meta:utils/new-ask");
+    expect(out.message).not.toContain("undefined");
+  });
+
+  it("App's 409 branch keeps the picks and goes through conflictMessage", async () => {
+    const fs = await import("node:fs");
+    const src = fs.readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
+    expect(src).toMatch(/if \(r\.status === 409\) \{\s*\/\/[^\n]*\n\s*const c = conflictMessage\(r\.json\);\s*if \(c\.supersededBy \|\| r\.json\?\.status === "superseded"\) \{\s*keep\(\);/);
+    expect(src).not.toContain("now revision ${r.json.revision}");
+  });
+});
+
+describe("supersede (2): the old and the new ask", () => {
+  const old = stored(OPF.replace("status: open", "status: superseded\nsuperseded-by: meta:utils/new-ask\nsuperseded-at: 2026-10-30T01:10:00.000Z\nsuperseded-actor: manager:meta"));
+  const fresh = stored(head("supersedes: idealic:ui/a1 ; idealic:ui/a0\n") + "## ¶ASK_F1: Choose one: Verbs?\n- [ ] [ALL] All\n- [ ] [MAP] Map\n");
+
+  it("reads the header fields", () => {
+    expect(supersededInfo(old.header)).toEqual({ by: "meta:utils/new-ask", at: "2026-10-30T01:10:00.000Z", actor: "manager:meta" });
+    expect(supersededInfo(fresh.header)).toBeUndefined();
+    expect(supersedesList(fresh.header)).toEqual(["idealic:ui/a1", "idealic:ui/a0"]);
+  });
+
+  it("the old card shows 'Replaced by <link> · actor · time' and is read-only; the new one shows 'Replaces <links>'", async () => {
+    const { AskDetail } = await import("../src/client/App.tsx");
+    const html = renderToStaticMarkup(createElement(AskDetail, { ask: old, all: [old, fresh], onChanged: () => {} }));
+    expect(html).toMatch(/<p class="superseded" role="note"><b>Replaced by<\/b> <a class="asklink" href="\/a\/meta:utils\/new-ask">meta:utils\/new-ask<\/a> · manager:meta · <time dateTime="2026-10-30T01:10:00.000Z"/);
+    expect(html).not.toContain("Send answers");
+    expect(html).not.toContain("Save draft");
+    expect(html).toMatch(/type="radio"[^>]*disabled=""/);
+    const html2 = renderToStaticMarkup(createElement(AskDetail, { ask: fresh, all: [old, fresh], onChanged: () => {} }));
+    expect(html2).toMatch(/Replaces <a class="asklink" href="\/a\/idealic:ui\/a1">idealic:ui\/a1<\/a>, <a class="asklink" href="\/a\/idealic:ui\/a0">idealic:ui\/a0<\/a>/);
+  });
+
+  it("a superseded ask is listed under All only", () => {
+    const r = askRow(old, NOW);
+    expect((["open", "ruled", "settled", "all"] as const).filter((f) => rowInFilter(r, f))).toEqual(["all"]);
+  });
+});
+
+describe("decline pass-up (3): the reason on its hop", () => {
+  const h = { forwards: "idealic:ui→manager:meta@2026-10-30T00:50:00Z ; manager:meta→operator@2026-10-30T01:00:00Z [declined: not mine to rule; the operator owns F2]" };
+
+  it("reads each hop and the decline reason, even one holding an @", () => {
+    expect(pathOf(h as never)).toEqual([
+      { from: "idealic:ui", to: "manager:meta", at: "2026-10-30T00:50:00Z" },
+      { from: "manager:meta", to: "operator", at: "2026-10-30T01:00:00Z", reason: "not mine to rule; the operator owns F2" },
+    ]);
+    expect(pathOf({ forwards: "a→b@2026-10-30T01:00:00Z [declined: ask x@y]" } as never)[0]).toMatchObject({ to: "b", reason: "ask x@y" });
+    expect(hopWords(pathOf(h as never)[1])).toBe("manager:meta declined: not mine to rule; the operator owns F2 → passed up to operator");
+  });
+
+  it("the card's header shows 'Path: … → you' with the declined hop marked and its reason in the label and on hover", async () => {
+    const { AskDetail } = await import("../src/client/App.tsx");
+    const a = stored(OPF.replace("status: open", `status: open\nforwards: ${h.forwards}`));
+    const html = renderToStaticMarkup(createElement(AskDetail, { ask: a, all: [a], onChanged: () => {} }));
+    expect(html).toContain('aria-label="Path: idealic:ui → manager:meta; manager:meta declined: not mine to rule; the operator owns F2 → passed up to operator"');
+    expect(html).toContain('<span class="hop declined" title="manager:meta declined: not mine to rule; the operator owns F2 → passed up to operator"> declined →</span>');
+    expect(html).toMatch(/declined →<\/span> you<\/p>/);
+  });
+});

@@ -65,6 +65,7 @@ import { clearUnsent, loadUnsent, saveUnsent } from "./unsent.ts";
 import { SCROLL_ROOT, scrollRootOf, scrollToId, scrollWithin } from "./scroll.ts";
 import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, sideDefault, useStoredNumber } from "./layout.tsx";
 import { pushEsc } from "./esc.ts";
+import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, type PathHop } from "./supersede.ts";
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
@@ -412,6 +413,7 @@ export function App() {
                     onToggleBrief={toggleBrief}
                     focusFork={route.fork}
                     onForkHash={setForkHash}
+                    onOpenAsk={pick}
                   />
                 ) : (
                   view === "proofs" && proofs.list && (!proofs.list.ok || proofs.list.total === 0) ? (
@@ -689,8 +691,12 @@ export function noteServerKeepsProvisional(v: boolean) {
 
 
 export function AskDetail({
-  ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash, provisionalKept,
-}: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void; provisionalKept?: boolean }) {
+  ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash, provisionalKept, onOpenAsk,
+}: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void; provisionalKept?: boolean; onOpenAsk?: (ref: string) => void }) {
+  const [replacedBy, setReplacedBy] = useState<string | undefined>();
+  const superseded = supersededInfo(ask.header);
+  const replaces = supersedesList(ask.header);
+  const path = pathOf(ask.header);
   // NIT: an ask with no status line is open, as the list and the server read it.
   const open = (ask.header.status ?? "open") === "open";
   const ref = askRef(ask);
@@ -784,7 +790,15 @@ export function AskDetail({
       const body = kind === "draft-decline" ? { ...base, decline: note.trim() } : { ...base, answers };
       const r = await post("/api/draft", body, keep);
       if (gaveUp(r)) return;
-      if (r.status === 409) return setResult(`Not saved: the ask moved (now revision ${r.json.revision}). Read the current state before answering again.`);
+      if (r.status === 409) {
+        // A superseded ask names its replacement; the picks stay in this browser for it.
+        const c = conflictMessage(r.json);
+        if (c.supersededBy || r.json?.status === "superseded") {
+          keep();
+          setReplacedBy(c.supersededBy ?? "");
+        }
+        return setResult(c.text);
+      }
       if (r.status !== 200) return setResult(`Error: ${r.json.error}`);
       if (kind === "send-now") {
         const s = await post("/api/send", { refs: [askRef(ask)] }, keep);
@@ -812,6 +826,10 @@ export function AskDetail({
         const j = await (await fetch("/api/asks")).json();
         return (j.asks as StoredAsk[]).find((x) => askRef(x) === askRef(ask));
       }, { seat: ask.seat, id: ask.header.id ?? "", expectedRevision: Number(ask.header.revision), answers: answersToSend, note: noteText });
+      if (out.supersededBy !== undefined || /was replaced/.test(out.message)) {
+        saveUnsent(ref, { revision, values, text, note });
+        setReplacedBy(out.supersededBy ?? "");
+      }
       if (out.ok) {
         clearUnsent(ref);
         setNeedText("");
@@ -856,6 +874,18 @@ export function AskDetail({
           {ask.header.round && <span className="chip quiet">round {ask.header.round}</span>}
           <span className="chip quiet">{provisional ? "draft sent" : ask.header.status === "open" ? `${row.left} of ${row.total} left` : ask.header.status}</span>
         </p>
+        {superseded && (
+          <p className="superseded" role="note">
+            <b>Replaced by</b> {superseded.by ? <AskLink to={superseded.by} onOpen={onOpenAsk} /> : <span>a newer ask</span>}
+            {superseded.actor && <> · {superseded.actor}</>}
+            {superseded.at && <> · <time dateTime={superseded.at} title={new Date(superseded.at).toLocaleString()}>{superseded.at.replace("T", " ").slice(0, 16)}</time></>}
+            <span className="muted"> · read-only; answer the new ask</span>
+          </p>
+        )}
+        {replaces.length > 0 && (
+          <p className="replaces muted">Replaces {replaces.map((r, i) => <Fragment key={r}>{i > 0 && ", "}<AskLink to={r} onOpen={onOpenAsk} /></Fragment>)}</p>
+        )}
+        {path.length > 0 && <PathLine path={path} />}
         {rounds.length > 0 && <EarlierRounds rounds={rounds} />}
         {turns.length > 0 && (
           <section className="dialogue" aria-label="Dialogue so far">
@@ -1012,6 +1042,7 @@ export function AskDetail({
           </>
         )}
         {result && <p className="result" role="status">{result}</p>}
+        {replacedBy && <p className="result"><AskLink to={replacedBy} onOpen={onOpenAsk}>Open the new ask: {replacedBy}</AskLink></p>}
         <AskDetails ask={ask} />
       </section>
     </article>
@@ -1034,6 +1065,36 @@ export function AnswerWords({ ask }: { ask: StoredAsk }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/** A link to another ask: a real URL, opened in place when the app can. */
+function AskLink({ to, onOpen, children }: { to: string; onOpen?: (ref: string) => void; children?: React.ReactNode }) {
+  const href = serializeRoute({ section: "asks", ask: to, filter: "open", group: "none" });
+  return (
+    <a className="asklink" href={href} onClick={(e) => { if (onOpen && !e.metaKey && !e.ctrlKey && !e.shiftKey) { e.preventDefault(); onOpen(to); } }}>
+      {children ?? to}
+    </a>
+  );
+}
+
+/** "Path: seat → seat → you", with a declined hop marked and its reason on hover and in the label. */
+export function PathLine({ path }: { path: PathHop[] }) {
+  const who = (s: string) => (s === "operator" ? "you" : s);
+  return (
+    <p className="path" aria-label={`Path: ${path.map(hopWords).join("; ")}`}>
+      <span className="lg-label">Path</span> {who(path[0].from)}
+      {path.map((p, i) => (
+        <Fragment key={i}>
+          {p.reason ? (
+            <span className="hop declined" title={hopWords(p)}> declined →</span>
+          ) : (
+            <span className="hop" title={`${p.from} → ${p.to}${p.at ? ` · ${p.at}` : ""}`}> →</span>
+          )}{" "}
+          {who(p.to)}
+        </Fragment>
+      ))}
+    </p>
   );
 }
 
