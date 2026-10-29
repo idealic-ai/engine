@@ -50,6 +50,13 @@ export function parseRequestLine(note: string | undefined): { kind: string; arg?
   return undefined;
 }
 
+const isLoopLine = (l: string) => l.trim() === DRAFT_NOTE || REQUEST_RE.test(l.trim());
+
+/** A note without the draft or request line, so a later ordinary send does not inherit it (SF-2). */
+export function stripLoopLines(note: string): string {
+  return note.split("\n").filter((l) => !isLoopLine(l)).join("\n").trim();
+}
+
 /** The request line first, then whatever else the operator wrote. */
 export function composeNote(first: string, rest: string): string {
   const r = rest.trim();
@@ -65,7 +72,10 @@ export function isProvisional(a: ParsedAsk): boolean {
   const ans = a.answer as (AskAnswer & { provisional?: boolean }) | undefined;
   if (!ans || a.header.status !== "answered") return false;
   if (ans.provisional === true) return true;
-  return (ans.note ?? "").split("\n").some((l) => l.trim() === DRAFT_NOTE || REQUEST_RE.test(l));
+  // The note line counts only on the operator's own answer through this client (the server stamps
+  // answeredVia "browser"): a seat's final answer that mentions "request:" is not provisional.
+  if (ans.answeredBy !== "operator" || ans.answeredVia !== "browser") return false;
+  return (ans.note ?? "").split("\n").some((l) => isLoopLine(l));
 }
 
 /**
@@ -100,10 +110,27 @@ export async function sendProvisional(
   }
   if (r.status === 409) return { ok: false, message: `Not sent: the ask moved (now revision ${r.json.revision}). Read it again first.` };
   if (r.status !== 200) return { ok: false, message: `Error: ${r.json?.error ?? r.status}` };
+  // From here a draft with the loop line is in the file: on any failure, put the plain note back.
+  const unsave = () => post("/api/draft", { ...base, note: stripLoopLines(args.note) || undefined }).catch(() => undefined);
   const s = await post("/api/send", { refs: [`${args.seat}/${args.id}`] });
-  if (s.json?.refused?.length) return { ok: false, message: `Refused: ${s.json.refused[0].error}` };
-  const after = await readBack();
-  const stored = !refusedFlag && !!(after?.answer as { provisional?: boolean } | undefined)?.provisional;
+  if (s.status !== 200) {
+    await unsave();
+    return { ok: false, message: `Not sent: the send failed (${s.json?.error ?? `HTTP ${s.status}`}). Your picks are kept as a draft.` };
+  }
+  if (s.json?.refused?.length) {
+    await unsave();
+    return { ok: false, message: `Refused: ${s.json.refused[0].error}` };
+  }
+  let after: ParsedAsk | undefined;
+  try {
+    after = await readBack();
+  } catch (e) {
+    return { ok: false, message: `Sent, but the app could not read the ask back (${(e as Error).message}). Reload to see where it stands.` };
+  }
+  if (!after || (after.header.status ?? "open") === "open") {
+    return { ok: false, message: "The send did not settle the ask: it still reads as open. Reload to see where it stands." };
+  }
+  const stored = !refusedFlag && (after.header.status === "answered-provisional" || !!(after.answer as { provisional?: boolean } | undefined)?.provisional);
   const where = stored ? "marked provisional" : "sent as an ordinary answer with the draft note, because this server does not store the provisional mark yet";
   return { ok: true, flagStored: stored, message: `Waiting on the asker: draft sent (${where}).` };
 }
@@ -135,8 +162,10 @@ export function earlierRounds<T extends ParsedAsk & { seat: string }>(a: T, all:
     out.unshift({ ref: prev, round: Number(p.header.round) || 0, title: p.questions[0]?.title ?? prev, status: p.header.status ?? "", lines, note: p.answer?.note, provisional: isProvisional(p) });
     prev = p.header.previous?.trim();
   }
+  // A round missing from this root is numbered back from this ask's own round, else by position.
+  const mine = Number(a.header.round) || out.length + 1;
   out.forEach((r, i) => {
-    if (!r.round) r.round = i + 1;
+    if (!r.round) r.round = Math.max(1, mine - (out.length - i));
   });
   return out;
 }
@@ -148,10 +177,13 @@ export function earlierRounds<T extends ParsedAsk & { seat: string }>(a: T, all:
 export function priorPicks<T extends ParsedAsk & { seat: string }>(a: T, all: T[]): Record<string, string> {
   const prev = a.header.previous?.trim();
   const p = prev ? all.find((x) => `${x.seat}/${x.header.id}` === prev) : undefined;
-  const ans = p?.answer?.answers;
+  // "Your picks": only the operator's own answer, and only on named forks, since unnamed keys
+  // (q0, q1) shift when forks are reordered between rounds.
+  const ans = p?.answer?.answeredBy === "operator" ? p.answer.answers : undefined;
   if (!ans) return {};
   const out: Record<string, string> = {};
   a.questions.forEach((q, i) => {
+    if (!q.askName) return;
     const v = ans[questionKey(q, i)];
     const first = Array.isArray(v) ? v[0] : undefined;
     const codes = new Set(q.options.map((o) => o.code ?? o.label));
@@ -193,4 +225,17 @@ export type SendKind = "send" | "draft" | "request";
  */
 export function needsUnansweredConfirm(kind: SendKind, unanswered: string[]): boolean {
   return kind === "send" && unanswered.length > 0;
+}
+
+export const PROVISIONAL_NOT_KEPT =
+  "Today this closes the ask: the asker gets your picks plus the draft note and should come back with a second round. It becomes truly provisional once the server update lands.";
+
+/**
+ * What a click on a send button does first. A final send confirms when forks are left unpicked. Send
+ * as draft and Send request are partial on purpose and skip that, but while the server does not keep
+ * `provisional` they confirm with the honest text, because today they close the ask.
+ */
+export function clickPlan(kind: SendKind, ctx: { unanswered: string[]; provisionalKept: boolean; confirmText: (u: string[]) => string | undefined }): { confirm?: string } {
+  if (kind === "send") return needsUnansweredConfirm("send", ctx.unanswered) ? { confirm: ctx.confirmText(ctx.unanswered) } : {};
+  return ctx.provisionalKept ? {} : { confirm: PROVISIONAL_NOT_KEPT };
 }
