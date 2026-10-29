@@ -34,7 +34,10 @@
 #      FLEET_MANAGES (the panes whose silent asks you may forward as their parent),
 #      ASK_LINEAR_ENV (an env file holding LINEAR_API_KEY, for ticket tooltips; default: the working
 #      project's .env.local, then .env, resolved as scripts/env-lib.sh does — the server reads it,
-#      never argv, the page or its own environment), ASK_APP_DIST (the built client to serve).
+#      never argv, the page or its own environment), PROVE_S3_ENV (the env file naming the proof
+#      store, for the proofs list), ASK_APP_DIST (the built client to serve). serve remembers both
+#      env files in <root>/.ask-app.env and reuses them when a later start does not set them, so a
+#      restart from another working directory keeps its tickets and proofs.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -150,6 +153,27 @@ resolve_linear_env() {
   return 0
 }
 
+# remember_serve_env <file>: the server's env-file settings outlive the shell that started it. An
+# unset ASK_LINEAR_ENV or PROVE_S3_ENV is taken from <file> when the path it names still exists, then
+# the Linear key falls back to the working project's; whatever is set is exported and written back.
+# The file holds paths only, never a key.
+remember_serve_env() {
+  local file="$1" name val
+  if [ -f "$file" ]; then
+    while IFS='=' read -r name val; do
+      case "$name" in ASK_LINEAR_ENV|PROVE_S3_ENV) ;; *) continue ;; esac
+      [ -n "${!name:-}" ] || { [ -f "$val" ] && export "$name=$val"; }
+    done < "$file"
+  fi
+  resolve_linear_env
+  [ -n "${PROVE_S3_ENV:-}" ] && export PROVE_S3_ENV
+  : > "$file"
+  for name in ASK_LINEAR_ENV PROVE_S3_ENV; do
+    [ -n "${!name:-}" ] && printf '%s=%s\n' "$name" "${!name}" >> "$file"
+  done
+  return 0
+}
+
 cmd_serve() {
   local root="" port="" stop=0
   while [ $# -gt 0 ]; do
@@ -234,7 +258,7 @@ cmd_serve() {
   # The Linear key for ticket tooltips reaches the server through the environment (a file path),
   # never argv: argv is readable by every process on the machine through ps. S7: the file is the
   # working project's, found the way every engine credential is (env-lib.sh), never a fixed path.
-  resolve_linear_env
+  remember_serve_env "$root/.ask-app.env"
   # N1: an exported LINEAR_API_KEY would sit in the server's environment block, readable through
   # `ps eww`, for the server's whole life; it is dropped before the server starts.
   nohup env -u LINEAR_API_KEY ASK_APP_DIST="$APP_DIST" node --no-warnings "$APP_DIR/src/server.ts" --root "$root" --port "$port" > "$root/.ask-app.log" 2>&1 &
