@@ -517,7 +517,7 @@ export function parseAskFile(text: string): ParsedAsk {
   const dms = [...rest.matchAll(DRAFT_FENCES)];
   if (dms.length && (open || settled)) draft = honouredDraft(rest, dms[dms.length - 1], header);
   // IDE-304: on a settled ask, only the operator's draft of a change to the operator's own answer counts.
-  if (draft && !open && !(isOperatorAnswer(answer) && /^operator\b/i.test(draft.answeredBy?.trim() ?? ""))) draft = undefined;
+  if (draft && !open && !(isOperatorAnswer(answer) && isOperatorName(draft.answeredBy))) draft = undefined;
   const body = rest.replace(ANSWER_FENCES, "\n").replace(DRAFT_FENCES, "\n");
   const { preamble, questions } = parseQuestions(body);
   return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}) };
@@ -564,7 +564,13 @@ export function currentRevision(ask: ParsedAsk): number {
 }
 
 /** The operator's own recorded answer (as the client's ruledBelow reads it: `operator…`, or a relay of it). */
-export const isOperatorAnswer = (a: AskAnswer | undefined) => !!a && (/^operator\b/i.test(a.answeredBy?.trim() ?? "") || !!relayerOf(a));
+/**
+ * The operator by name: `operator` in any case, or the legacy relayed form on disk,
+ * `operator (relayed by <seat>, <when>, via <how>)`. Not a seat whose name merely starts with it
+ * (`operator:x`, `operator-bot`).
+ */
+export const isOperatorName = (s: string | undefined) => /^operator(?: \(relayed by [^)]*\))?$/i.test(s?.trim() ?? "");
+export const isOperatorAnswer = (a: AskAnswer | undefined) => !!a && (isOperatorName(a.answeredBy) || !!relayerOf(a));
 
 const REQUEST_LINE_RE = /^request: (\S+) — (.+)$/;
 
@@ -695,7 +701,7 @@ export function writeDraft(text: string, d: AskAnswer & { savedAt?: string }, ex
   assertNotSuperseded(ask);
   // IDE-304: a settled ask takes the operator's draft of a change to the operator's own answer.
   const open = ask.header.status === "open" || ask.header.status === undefined;
-  const ownChange = (ask.header.status === "answered" || ask.header.status === "declined") && isOperatorAnswer(ask.answer) && /^operator\b/i.test(d.answeredBy?.trim() ?? "");
+  const ownChange = (ask.header.status === "answered" || ask.header.status === "declined") && isOperatorAnswer(ask.answer) && isOperatorName(d.answeredBy);
   if (!open && !ownChange) {
     throw new AskFormatError(`ask ${ask.header.id ?? ""} is ${ask.header.status}; only an open ask, or the operator's own answer, takes a draft`);
   }

@@ -128,3 +128,20 @@ describe("discardDraft on a settled ask", () => {
     expect(read().header.status).toBe("answered");
   });
 });
+
+describe("isOperatorAnswer: the operator by name, not a seat whose name starts with it (round 2 NIT D)", () => {
+  it("takes operator in any case, the legacy relayed-by form and a relay; refuses operator:x and operator-bot", async () => {
+    const { isOperatorAnswer, isOperatorName } = await import("../src/lib/format.ts");
+    for (const by of ["operator", "Operator", " operator ", "operator (relayed by manager:director, 02:17, via AskUserQuestion)"]) expect(isOperatorName(by)).toBe(true);
+    for (const by of ["operator:x", "operator-bot", "operators", "operator (x) extra", "", undefined]) expect(isOperatorName(by)).toBe(false);
+    expect(isOperatorAnswer({ answeredBy: "operator", answeredVia: "relay:manager:docs" })).toBe(true);
+    expect(isOperatorAnswer({ answeredBy: "operator-bot" })).toBe(false);
+    expect(isOperatorAnswer({ answeredBy: "operator:x" })).toBe(false);
+  });
+
+  it("a seat named operator-bot cannot draft over an answer as if it were the operator", async () => {
+    await answerAsk(root, SEAT, "go", { answers: { GO: ["YES"] }, ...OP }, { expectedRevision: 1, push });
+    const { writeDraft } = await import("../src/lib/format.ts");
+    expect(() => writeDraft(fs.readFileSync(file(), "utf8"), { answers: { GO: ["NO"] }, answeredBy: "operator-bot" }, 2)).toThrow(/only an open ask, or the operator's own answer, takes a draft/);
+  });
+});
