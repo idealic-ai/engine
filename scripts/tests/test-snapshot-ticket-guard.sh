@@ -213,4 +213,49 @@ test_loom_key_fallback() {
   every_line_has "$LOOM" '-- <thread KEY>`' "never an umbrella key" "R2-S2: /loom never passes an umbrella key"
 }
 
+# IDE-341 (operator ruling 2026-10-30 03:06) — `--yes` on un-ticketed work files a ticket instead of
+# aborting: duplicate search first (a strong match attaches), the project from the seat's map or
+# abort, a premise-first draft marked auto-filed, then commit and post against the new key.
+autofile_para() { grep -m1 -F 'files a ticket only for work that has none' "$SKILL"; awk '/files a ticket only for work that has none/ {on=1; next} on && /situations abort the run/ {exit} on {print}' "$SKILL"; }
+TICKET="${TICKET_SKILL:-$ENGINE_DIR/skills/ticket/SKILL.md}"
+
+test_autofile_replaces_never_creates() {
+  lacks_fixed '`--yes` never creates a ticket' "$(cat "$SKILL")" "IDE-341: /snapshot no longer says --yes never creates a ticket"
+  assert_not_empty "$(autofile_para)" "IDE-341: § Unattended runs has the auto-file paragraph"
+}
+
+test_autofile_new_key_in_commit() {
+  local a; a=$(autofile_para)
+  has_fixed "no explicit key and §1 detects no key at any confidence" "$a" "IDE-341: auto-file fires only on work with no key at all"
+  has_fixed "a low-confidence or ambiguous one still aborts" "$a" "IDE-341: low-confidence or ambiguous detection still aborts"
+  has_fixed "the commit message carries the new key" "$a" "IDE-341: un-ticketed work ends with the new key in the commit message"
+  has_fixed "the run's explicit key from here on" "$a" "IDE-341: the new key is explicit, so a lane branch only warns"
+  has_fixed '`auto-filed by /snapshot --yes`' "$a" "IDE-341: the body carries the auto-filed marker"
+  has_fixed "routine, never reserved" "$a" "IDE-341: an auto-filed ticket is routine, never reserved"
+  has_fixed "premise-first" "$a" "IDE-341: the draft is premise-first like /ticket"
+}
+
+test_autofile_duplicate_attaches() {
+  local a; a=$(autofile_para)
+  has_fixed '`/ticket-search --report`' "$a" "IDE-341: the duplicate search runs first"
+  has_fixed "a strong match → attach the work to that ticket instead of creating one" "$a" "IDE-341: a strong duplicate attaches instead of creating"
+  has_fixed "the report says it attached rather than filed" "$a" "IDE-341: the report says it attached"
+}
+
+test_autofile_project_never_guessed() {
+  local a; a=$(autofile_para)
+  has_fixed '`linearProject`' "$a" "IDE-341: the session's linearProject parameter is a project source"
+  has_fixed '`§CMD_READ_PROJECT_HANDBOOK`' "$a" "IDE-341: the handbook registry is a project source"
+  has_fixed "fleet config" "$a" "IDE-341: the fleet config is a project source"
+  has_fixed "name the source used" "$a" "IDE-341: the run names the project source it used"
+  has_fixed "none resolves → abort and say so" "$a" "IDE-341: no project → abort, never guess"
+}
+
+test_autofile_reservation_kept() {
+  has_fixed "scope-level reservation still applies to a ticket a seat files deliberately through \`/ticket\`" "$(autofile_para)" "IDE-341: /snapshot keeps scope-level reservation for deliberate /ticket filings"
+  local t; t=$(cat "$TICKET")
+  has_fixed '`/snapshot --yes` auto-filing work that has no ticket at all' "$t" "IDE-341: /ticket names the /snapshot --yes exception"
+  has_fixed "scope-level reservation still applies to every ticket a seat files deliberately through \`/ticket\`" "$t" "IDE-341: /ticket keeps scope-level reservation"
+}
+
 run_discovered_tests

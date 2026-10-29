@@ -16,7 +16,8 @@
 #   3. Inside that section, a sentence naming AskUserQuestion is allowed only in the
 #      operator-present bullet, or as the lane bullet's "call no AskUserQuestion".
 #   4. Nowhere in /ticket does silence or a timeout count as an answer.
-#   5. /snapshot states that --yes never creates a ticket.
+#   5. /snapshot states that --yes files a ticket only for work that has none (IDE-341, which
+#      overturned "--yes never creates a ticket"), and keeps scope-level reservation for /ticket.
 #   6. /ticket-search has a --report mode, and every AskUserQuestion it names outside that section
 #      is exempted under --report (its §4 walkthrough as a whole).
 #   7. /inbox-post has a --channel mode, and every AskUserQuestion it names is exempted under
@@ -134,7 +135,9 @@ elif cmd == "silence-yes":
     out(bad)
 
 elif cmd == "snapshot":
-    print(1 if "`--yes` never creates a ticket" in text else 0)
+    print(1 if ("`--yes` files a ticket only for work that has none" in text
+                and "Scope-level reservation still applies to a ticket a seat files deliberately through `/ticket`" in text
+                and "`--yes` never creates a ticket" not in text) else 0)
 
 elif cmd == "ticket-search":
     bad = []
@@ -240,12 +243,12 @@ test_silence_control_m4() {   # critic's M4: step 5 rewritten as a timeout yes
 
 # ------------------------------------------------------------ arm 5
 test_snapshot_yes_never_files() {
-  if [ "$(check snapshot "$SNAPSHOT")" = "1" ]; then pass "/snapshot states that --yes never creates a ticket"
-  else fail "/snapshot states that --yes never creates a ticket" "present" "absent"; fi
+  if [ "$(check snapshot "$SNAPSHOT")" = "1" ]; then pass "/snapshot states that --yes files a ticket only for work that has none"
+  else fail "/snapshot states that --yes files a ticket only for work that has none" "present" "absent"; fi
 }
 
 test_snapshot_control() {
-  grep -vF -- '`--yes` never creates a ticket' "$SNAPSHOT" > "$TMPD/snap.md"
+  grep -vF -- '`--yes` files a ticket only for work that has none' "$SNAPSHOT" > "$TMPD/snap.md"
   if [ "$(check snapshot "$TMPD/snap.md")" = "0" ]; then pass "control: the snapshot arm goes red with the statement removed"
   else fail "control: the snapshot arm goes red with the statement removed" "0" "1"; fi
 }
