@@ -407,8 +407,22 @@ test_lane_stall_pairs_every_dated_reading_with_its_log_path() {
   undated=$(grep -cE 'log= *- ' "$body" 2>/dev/null)
   undated_none=$(grep -E 'log= *- ' "$body" | grep -c 'logpath=none' 2>/dev/null)
   assert_gt "$undated" 0 "SCOPE_LOOM: some lane is undated, so the converse means something (got $undated)"
-  assert_eq "$undated" "$undated_none" \
-    "every undated lane reads logpath=none ($undated undated, $undated_none none)"
+  # An undated lane may also carry its own log from ANOTHER session, found by absolute path in
+  # its brief: such a log never dates a lane, so the row stays undated. It counts only when the
+  # path is outside the swept session and the file is the lane's own by name ([TAG] -> tag_*LOG.md,
+  # case-insensitive). A path inside the swept session, or someone else's log, still fails here.
+  local undated_foreign
+  undated_foreign=$(grep -E 'log= *- ' "$body" | grep 'logpath=/' | awk -v top="$SCOPE_SESSION/" '
+    {
+      tag = ""; path = ""
+      if (match($0, /\[[^]]+\]/)) tag = tolower(substr($0, RSTART + 1, RLENGTH - 2))
+      if (match($0, /logpath=\/[^ ]+/)) path = substr($0, RSTART + 8, RLENGTH - 8)
+      n = split(path, parts, "/"); base = tolower(parts[n])
+      if (tag != "" && index(path, top) != 1 && index(base, tag "_") == 1 && base ~ /_log\.md$/) c++
+    }
+    END { print c + 0 }')
+  assert_eq "$undated" "$((undated_none + undated_foreign))" \
+    "every undated lane reads logpath=none or its own log outside the swept session ($undated undated, $undated_none none, $undated_foreign foreign own)"
 
   # Per-row, not per-kind. Three claims the field makes about itself, each with its own
   # positive control in this same invocation.
@@ -511,14 +525,14 @@ test_lane_stall_dates_a_log_whose_headings_are_stamped_but_untagged() {
 # `retired=` is pinned here for a reason of its own: a retired lane drops out of the default
 # stale-only output, so without a count on this line a drained backlog and a marker that
 # silently stopped matching read identically (¶INV_RETIRED_IS_NOT_SILENCED).
-# RED: drop the window from the verdict line, or drop threshold=, lanes=, retired= or failed= from it.
+# RED: drop the window from the verdict line, or drop threshold=, lanes= or retired= from it, or print failed=0.
 test_lane_stall_states_the_window_it_searched() {
   local empty="$TMP_DIR/window-empty"
   mkdir -p "$empty"
   local out="$TMP_DIR/window.txt"
   run_lane_stall "$out" "$empty" 12 >/dev/null
-  assert_eq "window=12h  threshold=30m  lanes=0  retired=0  failed=0" "$(head -1 "$out")" \
-    "the verdict line states the window, the threshold, the lane count, the retired and the failed count"
+  assert_eq "window=12h  threshold=30m  lanes=0  retired=0" "$(head -1 "$out")" \
+    "the verdict line states the window, the threshold, the lane count and the retired count; failed= only when nonzero"
 }
 
 # A loom that runs longer than the old 12h default lost its own early lanes, silently. The
@@ -1031,49 +1045,92 @@ test_lane_stall_reads_an_api_error_death_as_failed() {
 }
 
 # A lane whose log lives in ANOTHER session's builds/ (reported by manager:docs: IDE330 logged
-# in 2026_10_18_DOCS_HUB_LOOM, swept from a different session): the transcript is found
-# project-wide, but the log walk covered only the swept session, so the lane read STALE with
-# logpath=none and its retired= marker was never read. Lanes, all parked and backdated:
-#   AWAYLANE   brief names the home session; its log there says retired=landed
-#              -> RETIRED, logpath = the home session's log
-#   BLINDLANE  identical log in the home session, but its brief does not name it (control)
-#              -> STALE, logpath=none: only a session the brief names is read
-#   HERELANE   has its own log in the swept session; the home session's log mentions it with a
-#              retired= heading -> stays STALE with its own log: a foreign log only fills a
-#              lane that has none, and never retires a lane the swept session already dates
-# RED: skip the brief-named session scan (AWAYLANE reads STALE logpath=none).
+# in 2026_10_18_DOCS_HUB_LOOM, swept from a different session) read logpath=none. A foreign log
+# is used ONLY to find the logpath, and only when the brief names that exact file and it is the
+# lane's own log by name. It never dates and never retires the lane (LANEAUTH critique M1): a
+# tag is reused across sessions (ticket keys, round re-runs), so a foreign retired= may be an
+# earlier lane's. A retirement there shows only as the hint retired-elsewhere=. Lanes:
+#   AWAYLANE   brief names $home/builds/AWAYLANE_LOG.md, which says retired=landed
+#              -> STALE, not RETIRED, log undated, retired-elsewhere=landed, logpath = that file
+#   DIRLANE2   brief names only the home session DIRECTORY; a log for it sits there
+#              -> logpath=none: a directory mention is not the lane's log
+#   BLINDLANE  brief names no other session (control) -> STALE, logpath=none
+#   HERELANE   own log in the swept session, and its brief also names a retired foreign log
+#              -> keeps its own log and stays STALE
+# RED: let a foreign log retire or date (AWAYLANE reads RETIRED); resolve from a directory
+#      mention (DIRLANE2 gets a logpath).
 test_lane_stall_reads_a_lanes_log_in_the_session_its_brief_names() {
   local root="$TMP_DIR/xsess"
   local swept="$root/2026_10_20_SWEPT" home="$root/2026_10_18_HOME_LOOM"
   local projects="$TMP_DIR/projects-xsess"
   mkdir -p "$swept/builds" "$home/builds" "$projects/proj/sess/subagents"
   local key="xsess/2026_10_20_SWEPT" tag t brief
-  for tag in AWAYLANE BLINDLANE HERELANE; do
+  for tag in AWAYLANE DIRLANE2 BLINDLANE HERELANE; do
     t="$projects/proj/sess/subagents/agent-${tag}.jsonl"
     brief="[$tag] thread brief, session $key"
-    [ "$tag" != BLINDLANE ] && brief="$brief, log $home/builds/${tag}_LOG.md"
+    case "$tag" in
+      AWAYLANE|HERELANE) brief="$brief, log $home/builds/${tag}_LOG.md" ;;
+      DIRLANE2) brief="$brief, see $home for the earlier wave" ;;
+    esac
     printf '{"message":{"role":"user","content":[{"type":"text","text":"%s"}]}}\n' "$brief" > "$t"
     printf '{"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}\n' >> "$t"
     touch -t 202610201000 "$t"
   done
   printf '## [2026-10-20 10:00:00] [AWAYLANE] landed, retired=landed\n' > "$home/builds/AWAYLANE_LOG.md"
+  printf '## [2026-10-20 10:00:00] [DIRLANE2] landed, retired=landed\n' > "$home/builds/DIRLANE2_LOG.md"
   printf '## [2026-10-20 10:00:00] [BLINDLANE] landed, retired=landed\n' > "$home/builds/BLINDLANE_LOG.md"
   printf '## [2026-10-20 10:00:00] [HERELANE] working\n' > "$swept/builds/HERELANE_LOG.md"
   printf '## [2026-10-20 10:30:00] [HERELANE] retired=abandoned\n' > "$home/builds/HERELANE_LOG.md"
   local out="$TMP_DIR/xsess.txt"
   CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$swept" --all >"$out" 2>"$out.err"
+  local rc=$?
   local row
   row=$(grep '\[AWAYLANE\]' "$out")
-  assert_contains "RETIRED" "$row" "AWAYLANE: the retirement in the session its brief names is read"
+  assert_contains "STALE" "$row" "AWAYLANE: a foreign retirement does not retire the lane"
+  assert_contains "retired=no " "$row" "AWAYLANE: its retired field stays no"
+  assert_contains "retired-elsewhere=landed" "$row" "AWAYLANE: the foreign retirement is shown as a hint"
+  assert_contains "log=      -" "$row" "AWAYLANE: a foreign log does not date the lane"
   assert_eq "$home/builds/AWAYLANE_LOG.md" "$(printf '%s' "$row" | sed 's/.*logpath=//')" \
-    "AWAYLANE: logpath is its log in the session its brief names"
+    "AWAYLANE: logpath is the exact own log its brief names"
+  row=$(grep '\[DIRLANE2\]' "$out")
+  assert_eq "none" "$(printf '%s' "$row" | sed 's/.*logpath=//')" \
+    "DIRLANE2: a session directory named in the brief is not a logpath"
+  assert_not_contains "retired-elsewhere" "$row" "DIRLANE2: and gives no hint"
   row=$(grep '\[BLINDLANE\]' "$out")
-  assert_contains "STALE" "$row" "BLINDLANE: the control whose brief names no other session stays STALE"
+  assert_contains "STALE" "$row" "BLINDLANE: the control stays STALE"
   assert_eq "none" "$(printf '%s' "$row" | sed 's/.*logpath=//')" "BLINDLANE: and reads logpath=none"
   row=$(grep '\[HERELANE\]' "$out")
   assert_contains "STALE" "$row" "HERELANE: a foreign log does not retire a lane the swept session dates"
   assert_eq "$swept/builds/HERELANE_LOG.md" "$(printf '%s' "$row" | sed 's/.*logpath=//')" \
     "HERELANE: its own log in the swept session keeps the logpath"
+  assert_contains "retired=0" "$(head -1 "$out")" "no lane is retired by a foreign log"
+  assert_eq "3" "$rc" "every lane still counts toward the exit status"
+}
+
+# The critic's measured case (LANEAUTH critique M1, fixture laneauth-crit/fx): round 2 of
+# [IDE330] in a new loom, 40 min into an unanswered tool call, no log yet, whose brief cites
+# round 1's log in an older session saying retired=landed. It read "RETIRED … log=17787m" and
+# dropped out of the default output. It must stay in the default output, undated by the old
+# log, and keep the exit status at 3.
+test_lane_stall_a_prior_rounds_retirement_does_not_retire_the_next_round() {
+  local root="$TMP_DIR/m1/sessions"
+  local new="$root/2026_10_12_NEW_LOOM" old="$root/2026_10_01_OLD_LOOM"
+  local projects="$TMP_DIR/projects-m1"
+  mkdir -p "$new/builds" "$old/builds" "$projects/proj/sess/subagents"
+  printf '## [2026-10-01 10:00:00] [IDE330] landed, retired=landed\n' > "$old/builds/IDE330_LOG.md"
+  local t="$projects/proj/sess/subagents/agent-a1.jsonl"
+  printf '{"sessionId":"S1","message":{"role":"user","content":[{"type":"text","text":"[IDE330] round 2 for sessions/2026_10_12_NEW_LOOM. Prior round log: %s/builds/IDE330_LOG.md"}]}}\n' "$old" > "$t"
+  printf '{"sessionId":"S1","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}\n' >> "$t"
+  touch -t 202610201000 "$t"
+  local out="$TMP_DIR/m1.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$new" >"$out" 2>"$out.err"
+  local rc=$?
+  local row; row=$(grep '\[IDE330\]' "$out")
+  assert_contains "STALE" "$row" "IDE330 r2: still STALE in the default output"
+  assert_not_contains "RETIRED" "$(cat "$out")" "IDE330 r2: not retired by round 1's marker"
+  assert_contains "log=      -" "$row" "IDE330 r2: not dated from round 1's log"
+  assert_contains "retired-elsewhere=landed" "$row" "IDE330 r2: round 1's retirement is only a hint"
+  assert_eq "3" "$rc" "IDE330 r2: the sweep still exits 3"
 }
 
 # presumed-dead (meta:utils): a lane killed mid-tool-call has an assistant tool_use as its LAST
@@ -1102,8 +1159,10 @@ test_lane_stall_presumes_dead_a_lane_stale_inside_a_tool_call() {
   row=$(grep '\[KILLEDLANE\]' "$out")
   assert_contains "STALE" "$row" "KILLEDLANE: stale"
   assert_contains "state=presumed-dead" "$row" "KILLEDLANE: stale inside an unanswered tool call reads presumed-dead"
+  assert_contains "pending=Bash" "$row" "KILLEDLANE: the row names the tool it is inside"
   row=$(grep '\[WAITLANE\]' "$out")
   assert_contains "state=running" "$row" "WAITLANE: a stale lane whose tool call was answered still reads running"
+  assert_not_contains "pending=" "$row" "WAITLANE: no pending tool on an answered call"
   row=$(grep '\[BUSYLANE\]' "$out")
   assert_contains "state=running" "$row" "BUSYLANE: a fresh lane inside a tool call reads running"
   assert_not_contains "STALE" "$row" "BUSYLANE: and is not stale"

@@ -13,6 +13,14 @@
 #   COND-01       no agent_id: the conductor's own turn -> the session log, conductor heading
 #   NOSESS-01     no session resolves -> nothing written, exit 0
 #   SANITIZE-01   an error value carrying a newline and a fake heading -> written as "unknown"
+#   PARSE-01      input that does not parse as a StopFailure event -> nothing written
+#   CHILD-01      a session_id that is not the session's own (a child `claude -p` that inherited
+#                 the supervisor pid) -> nothing written, conductor or lane
+#   SKILL-01      the session is not a loom -> no conductor heading
+#   CLASS-01/02   a transient error says resume by SendMessage; a recurring one says re-dispatch
+#   LIVE-01       the input exactly as measured live on 2026-10-30 (claude 2.1.314, a subagent
+#                 with a bad model id): agent_id + agent_type, the PARENT's session_id and
+#                 transcript_path, the brief as a plain string
 
 set -euo pipefail
 
@@ -26,8 +34,8 @@ setup() {
   PROJ_DIR="$FAKE_HOME/.claude/projects/-fake"
   CONVO="$PROJ_DIR/convo-1"
   mkdir -p "$CONVO/subagents" "$TEST_SESSION/builds"
-  jq -n '{pid: 99999999, lifecycle: "active", skill: "loom", currentPhase: "1: Loom"}' \
-    > "$TEST_SESSION/.state.json"
+  jq -n '{pid: 99999999, lifecycle: "active", skill: "loom", currentPhase: "1: Loom",
+          sessionId: "convo-1"}' > "$TEST_SESSION/.state.json"
   printf '# loom log\n' > "$TEST_SESSION/LOOM_LOG.md"
   echo '{"type":"user"}' > "$CONVO.jsonl"
 }
@@ -40,10 +48,10 @@ plant_lane() {
     > "$CONVO/subagents/agent-a$1.jsonl"
 }
 
-# $1 error, $2 agent_id (empty = the conductor's own turn)
+# $1 error, $2 agent_id (empty = the conductor's own turn), $3 session_id (default convo-1)
 run_hook() {
-  jq -cn --arg e "$1" --arg a "$2" --arg tp "$CONVO.jsonl" '{
-      session_id: "convo-1", transcript_path: $tp, cwd: "/tmp", hook_event_name: "StopFailure",
+  jq -cn --arg e "$1" --arg a "$2" --arg tp "$CONVO.jsonl" --arg sid "${3:-convo-1}" '{
+      session_id: $sid, transcript_path: $tp, cwd: "/tmp", hook_event_name: "StopFailure",
       error: $e, last_assistant_message: "Not logged in · Please run /login"}
     + (if $a == "" then {} else {agent_id: $a} end)' | bash "$HOOK" >/dev/null 2>&1
   echo $?
@@ -115,5 +123,70 @@ test_error_value_is_sanitized() {
   assert_contains "conductor turn failed: unknown" "$s" "SANITIZE-02: it is written as unknown"
 }
 run_test test_error_value_is_sanitized
+
+test_unparseable_input_writes_nothing() {
+  printf '{"error":"authentication_failed", truncated' | bash "$HOOK" >/dev/null 2>&1
+  printf '{"hook_event_name":"Stop","error":"authentication_failed","session_id":"convo-1"}' \
+    | bash "$HOOK" >/dev/null 2>&1
+  assert_eq "# loom log" "$(cat "$TEST_SESSION/LOOM_LOG.md")" \
+    "PARSE-01: a truncated input, or one that is not a StopFailure event, writes nothing"
+}
+run_test test_unparseable_input_writes_nothing
+
+test_a_child_claude_with_another_session_writes_nothing() {
+  printf '## [GOREQ] critique start\n' > "$TEST_SESSION/builds/GOREQ_LOG.md"
+  plant_lane GOREQ "[GOREQ] Log: $TEST_SESSION/builds/GOREQ_LOG.md"
+  run_hook authentication_failed "" child-9 >/dev/null
+  run_hook authentication_failed aGOREQ child-9 >/dev/null
+  assert_eq "# loom log" "$(cat "$TEST_SESSION/LOOM_LOG.md")" \
+    "CHILD-01: a conductor turn from another conversation is not this conductor's"
+  assert_eq "## [GOREQ] critique start" "$(cat "$TEST_SESSION/builds/GOREQ_LOG.md")" \
+    "CHILD-02: nor is a lane dispatched from another conversation"
+  run_hook authentication_failed "" >/dev/null
+  assert_contains "conductor turn failed" "$(cat "$TEST_SESSION/LOOM_LOG.md")" \
+    "CHILD-03: control: the session's own conversation is recorded"
+}
+run_test test_a_child_claude_with_another_session_writes_nothing
+
+test_a_non_loom_session_gets_no_conductor_heading() {
+  jq '.skill = "implement"' "$TEST_SESSION/.state.json" > "$TEST_SESSION/s.tmp" \
+    && mv "$TEST_SESSION/s.tmp" "$TEST_SESSION/.state.json"
+  printf '# implement log\n' > "$TEST_SESSION/IMPLEMENT_LOG.md"
+  run_hook authentication_failed "" >/dev/null
+  assert_eq "# implement log" "$(cat "$TEST_SESSION/IMPLEMENT_LOG.md")" \
+    "SKILL-01: a session that is not a loom gets no conductor heading"
+  assert_eq "# loom log" "$(cat "$TEST_SESSION/LOOM_LOG.md")" "SKILL-02: nor does any other log"
+}
+run_test test_a_non_loom_session_gets_no_conductor_heading
+
+test_the_heading_says_resume_or_redispatch_by_error_class() {
+  printf '## [TRANS] start\n' > "$TEST_SESSION/builds/TRANS_LOG.md"
+  plant_lane TRANS "[TRANS] Log: $TEST_SESSION/builds/TRANS_LOG.md"
+  printf '## [RECUR] start\n' > "$TEST_SESSION/builds/RECUR_LOG.md"
+  plant_lane RECUR "[RECUR] Log: $TEST_SESSION/builds/RECUR_LOG.md"
+  run_hook overloaded aTRANS >/dev/null
+  run_hook invalid_request aRECUR >/dev/null
+  local t r
+  t=$(cat "$TEST_SESSION/builds/TRANS_LOG.md"); r=$(cat "$TEST_SESSION/builds/RECUR_LOG.md")
+  assert_contains "resume by SendMessage" "$t" "CLASS-01: a transient error says resume by SendMessage"
+  assert_contains "re-dispatch" "$r" "CLASS-02: a recurring error says re-dispatch from the log"
+  assert_not_contains "resume by SendMessage" "$r" "CLASS-03: and does not say resume"
+}
+run_test test_the_heading_says_resume_or_redispatch_by_error_class
+
+test_the_input_as_measured_live() {
+  printf '## [BADLANE] start\n' > "$TEST_SESSION/builds/BADLANE_LOG.md"
+  jq -cn --arg t "[BADLANE] say hello, log $TEST_SESSION/builds/BADLANE_LOG.md" \
+    '{type:"user",sessionId:"convo-1",message:{role:"user",content:$t}}' \
+    > "$CONVO/subagents/agent-a66d995aa0b628de8.jsonl"
+  jq -cn --arg tp "$CONVO.jsonl" '{agent_id:"a66d995aa0b628de8", agent_type:"badagent",
+      cwd:"/tmp", effort:"medium", error:"model_not_found", hook_event_name:"StopFailure",
+      last_assistant_message:"There is an issue with the selected model", prompt_id:"p1",
+      session_id:"convo-1", transcript_path:$tp}' | bash "$HOOK" >/dev/null 2>&1
+  assert_contains "## [BADLANE] lane failed: model_not_found" \
+    "$(cat "$TEST_SESSION/builds/BADLANE_LOG.md")" \
+    "LIVE-01: the measured subagent input resolves the lane from the parent's transcript_path"
+}
+run_test test_the_input_as_measured_live
 
 exit_with_results
