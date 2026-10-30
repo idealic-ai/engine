@@ -67,19 +67,40 @@ usage() {
   sed -n '6,40p' "$0" | sed 's/^# \{0,1\}//' >&2
 }
 
-health() { # health <port> → prints the health JSON, or nothing
-  curl -s --max-time 1 -H "Host: 127.0.0.1:$1" "http://127.0.0.1:$1/api/health" 2>/dev/null || true
+health() { # health <port> [max-seconds] → prints the health JSON, or nothing
+  curl -s --max-time "${2:-1}" -H "Host: 127.0.0.1:$1" "http://127.0.0.1:$1/api/health" 2>/dev/null || true
 }
 
 # is_ours <pid> <port> <root>: the pid is THIS root's ask-app, proven two ways — its command line is
 # our server for this root and port, and the server on that port reports this pid and root. A pid
 # alone proves nothing: pidfiles outlive reboots and crashes, and pids are recycled (MF-2).
 is_ours() {
+  runs_as_ours "$1" "$2" "$3" && answers_as_ours "$1" "$2" "$3" 1
+}
+# runs_as_ours <pid> <port> <root>: the pid is alive and its command line is our server for this
+# root and port. answers_as_ours <pid> <port> <root> <seconds>: the server on that port reports this
+# pid and root within the given time.
+runs_as_ours() {
   local pid="$1" port="$2" root="$3" cmd
   [ -n "$pid" ] && [ -n "$port" ] && kill -0 "$pid" 2>/dev/null || return 1
   cmd=$(ps -o command= -p "$pid" 2>/dev/null) || return 1
-  case "$cmd" in *"ask-app/src/server.ts --root $root --port $port"*) ;; *) return 1 ;; esac
-  health "$port" | grep -qF "\"root\":\"$root\",\"pid\":$pid,"
+  case "$cmd" in *"ask-app/src/server.ts --root $root --port $port"*) return 0 ;; *) return 1 ;; esac
+}
+answers_as_ours() {
+  health "$2" "$4" | grep -qF "\"root\":\"$3\",\"pid\":$1,"
+}
+# is_ours_patient: is_ours for the search by root. A busy server (a loaded machine, or one still
+# starting) can take more than a second to answer its health check, and a search that drops it then
+# doubles it or reports it as a stale pidfile it will not stop. The command line is checked first, so
+# a pid that is not ours is refused at once; only the health answer is retried, 4.5 s at most.
+is_ours_patient() {
+  local t
+  runs_as_ours "$1" "$2" "$3" || return 1
+  for t in 1 1.5 2; do
+    answers_as_ours "$1" "$2" "$3" "$t" && return 0
+    runs_as_ours "$1" "$2" "$3" || return 1
+  done
+  return 1
 }
 
 # One serve/stop at a time per root (SF-1). mkdir is atomic; a lock older than 30s is a dead holder's.
@@ -216,7 +237,7 @@ cmd_serve() {
     # A listed server may exit before ps reads it (another root's, on a busy box): under set -e and
     # pipefail that failed ps would end serve silently, so it only means "not a hit".
     hport=$(ps -o command= -p "$hit" 2>/dev/null | sed -n 's/.*ask-app\/src\/server\.ts --root .* --port \([0-9]*\).*/\1/p') || continue
-    if [ -n "$hport" ] && is_ours "$hit" "$hport" "$root"; then found+=("$hit $hport"); fi
+    if [ -n "$hport" ] && is_ours_patient "$hit" "$hport" "$root"; then found+=("$hit $hport"); fi
   # N4: pgrep matches a REGEX, so the root (which may hold + or parentheses) is not in the pattern;
   # every ask-app server is listed and is_ours matches the root as a fixed string.
   done < <(pgrep -f 'ask-app/src/server\.ts --root ' 2>/dev/null || true)

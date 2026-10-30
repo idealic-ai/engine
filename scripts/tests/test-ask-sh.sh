@@ -368,6 +368,21 @@ test_serve_survives_a_server_that_vanishes_mid_search() {
   assert_contains "stopped ask-app pid" "$out" "and --stop still stops it"
 }
 
+# A live server whose health reply is slow once (a loaded machine, a server still starting) is
+# still this root's server: --stop must stop it, not call its pidfile stale and kill nothing. The
+# curl stand-in makes the first health call time out, as a 1 s limit does on a busy box.
+test_serve_stop_survives_one_slow_health_reply() {
+  local port=$(free_port) bin="$TMP/slowbin" out
+  "$ASK_SH" serve "$ASK_ROOT" --port "$port" >/dev/null 2>&1
+  mkdir -p "$bin"
+  printf '#!/bin/bash\nif [ ! -e "%s/slow.once" ]; then : > "%s/slow.once"; exit 28; fi\nexec /usr/bin/curl "$@"\n' "$bin" "$bin" > "$bin/curl"
+  chmod +x "$bin/curl"
+  out=$(PATH="$bin:$PATH" "$ASK_SH" serve "$ASK_ROOT" --stop 2>&1)
+  assert_contains "stopped ask-app pid" "$out" "--stop stops a server whose first health reply was slow"
+  assert_not_contains "stale pidfile" "$out" "and does not call its pidfile stale"
+  assert_fail "nothing serves on the port after --stop" curl -sf -H "Host: 127.0.0.1:$port" "http://127.0.0.1:$port/api/health"
+}
+
 # ── v2 fix round 1 ──────────────────────────────────────────────────────────────
 
 # M3: --by is checked against FLEET_PANE on answer, draft, forward, send and discard.
