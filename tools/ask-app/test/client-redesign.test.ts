@@ -743,7 +743,9 @@ describe("round-5 fixes SF-3/SF-4: which sends confirm, and the buttons are wire
     expect(src).toContain('onClick={() => clickSend("draft")}');
     expect(src).toContain('onClick={() => clickSend("request")}');
     expect(src).toContain("const askSend = () => clickSend(\"send\");");
-    expect(src).toMatch(/const plan = planClick\(kind, \{ ask, answers, visible, provisionalKept: kept \}\);\s*if \(plan\.confirm\) setConfirmSend\(\{ msg: plan\.confirm, kind \}\);\s*else runSend\(kind\);/);
+    // Send & next (IDE-304) rides the same plan: `next` is carried through the confirm to runSend.
+    expect(src).toMatch(/const plan = planClick\(kind, \{ ask, answers, visible, provisionalKept: kept \}\);\s*if \(plan\.confirm\) setConfirmSend\(\{ msg: plan\.confirm, kind, next \}\);\s*else runSend\(kind, next\);/);
+    expect(src).toContain('onClick={() => clickSend("send", true)}');
     // No button calls a send without the plan, except "Send anyway" inside the confirm.
     expect(src.match(/onClick=\{\(\) => (sendDraft|sendRequest)\(\)\}/g)).toBeNull();
     expect(src.match(/onClick=\{\(\) => act\("send-now"\)\}/g)).toBeNull();

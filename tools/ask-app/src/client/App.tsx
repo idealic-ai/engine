@@ -60,6 +60,7 @@ import {
 import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
 import { CodeBlock } from "./highlight.tsx";
+import { afterSendNext } from "./next.ts";
 import { blocks, displayTitle } from "./md.ts";
 import { RELOAD_RESTARTED, RELOAD_UPDATED, authedFetch, recordBuild, refreshToken, type Authed } from "./token.ts";
 import { clearUnsent, loadUnsent, saveUnsent } from "./unsent.ts";
@@ -441,6 +442,11 @@ export function App() {
                     focusFork={route.fork}
                     onForkHash={setForkHash}
                     onOpenAsk={pick}
+                    onSendNext={(sent) => {
+                      const r = afterSendNext(sent, inFilter, askRef(current));
+                      if (r.go) pick(r.go);
+                      return r;
+                    }}
                   />
                 ) : (
                   view === "proofs" && proofs.list && (!proofs.list.ok || proofs.list.total === 0) ? (
@@ -770,8 +776,8 @@ export function noteServerKeepsProvisional(v: boolean) {
 
 
 export function AskDetail({
-  ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash, provisionalKept, onOpenAsk, startChanging,
-}: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void; provisionalKept?: boolean; onOpenAsk?: (ref: string) => void; /** Open the card already changing its answer (IDE-304). */ startChanging?: boolean }) {
+  ask, all, onChanged, brief, paneOpen, onToggleBrief, focusFork, onForkHash, provisionalKept, onOpenAsk, startChanging, onSendNext,
+}: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void; provisionalKept?: boolean; onOpenAsk?: (ref: string) => void; /** Open the card already changing its answer (IDE-304). */ startChanging?: boolean; /** Send & next (IDE-304): called once a Send & next send settles; it opens the next waiting ask or says none is left. */ onSendNext?: (sent: boolean) => { go?: string; notice?: string } }) {
   const [replacedBy, setReplacedBy] = useState<string | undefined>();
   const superseded = supersededInfo(ask.header);
   const replaces = supersedesList(ask.header);
@@ -799,7 +805,8 @@ export function AskDetail({
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [moved, setMoved] = useState(start.notice);
-  const [confirmSend, setConfirmSend] = useState<{ msg: string; kind: SendKind } | undefined>();
+  const [confirmSend, setConfirmSend] = useState<{ msg: string; kind: SendKind; next?: boolean } | undefined>();
+  const [nextNotice, setNextNotice] = useState("");
   useEffect(() => {
     if (editable) saveUnsent(keyFor(changing), { revision, values, text, note });
   }, [editable, changing, ref, revision, values, text, note]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -856,8 +863,9 @@ export function AskDetail({
     }
   }, [focusFork, ask]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function act(kind: "draft" | "draft-decline" | "discard" | "send-now") {
+  async function act(kind: "draft" | "draft-decline" | "discard" | "send-now", next = false) {
     setConfirmSend(undefined);
+    setNextNotice("");
     setBusy(true);
     setResult("");
     // Operator 01:29: a token refused after a server restart is refreshed and the request retried once;
@@ -887,11 +895,19 @@ export function AskDetail({
         const s = await post("/api/send", { refs: [askRef(ask)] }, keep);
         if (gaveUp(s)) return;
         const p = s.json.pushes?.[0];
+        const sent = s.status === 200 && !s.json.refused?.length;
         if (s.json.refused?.length) setResult(`Refused: ${s.json.refused[0].error}`);
         else {
           clearUnsent(keyFor(changing));
           if (p) setResult(p.delivery.status === "delivered" ? `Queued at ${p.seat}, not read yet. It turns "read" when the seat runs engine ask read.` : `Saved, but ${p.delivery.status} (${p.delivery.reason ?? ""}). The asker's /next picks it up from the file.`);
         }
+        onChanged();
+        // Send & next: only a send the server accepted moves on; a refused or stale one stays with its error.
+        if (next && sent) {
+          const r = onSendNext?.(true);
+          if (r?.notice) setNextNotice(r.notice);
+        }
+        return;
       } else setResult("Draft saved in the file. Nothing has been sent: use Send batch at the top.");
       onChanged();
     } finally {
@@ -971,11 +987,11 @@ export function AskDetail({
   /** MF-1: a send settles the whole ask, so a send that leaves visible forks unpicked asks first. */
   // Every send button goes through clickPlan: a final partial send confirms; Send as draft and Send
   // request confirm only while the server does not keep `provisional` (SF-3).
-  const runSend = (kind: SendKind) => (kind === "send" ? act("send-now") : kind === "draft" ? sendDraft() : sendRequest());
-  const clickSend = (kind: SendKind) => {
+  const runSend = (kind: SendKind, next = false) => (kind === "send" ? act("send-now", next) : kind === "draft" ? sendDraft() : sendRequest());
+  const clickSend = (kind: SendKind, next = false) => {
     const plan = planClick(kind, { ask, answers, visible, provisionalKept: kept });
-    if (plan.confirm) setConfirmSend({ msg: plan.confirm, kind });
-    else runSend(kind);
+    if (plan.confirm) setConfirmSend({ msg: plan.confirm, kind, next });
+    else runSend(kind, next);
   };
   const askSend = () => clickSend("send");
   return (
@@ -1117,6 +1133,7 @@ export function AskDetail({
             <textarea id={`${changing ? "change-note" : "note"}-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
             <p className="actions">
               <button className="btn primary" disabled={busy || nothing} onClick={askSend}>{nothing ? "Send answers" : picked ? `Send ${picked} answer${picked === 1 ? "" : "s"}` : "Send your notes"}</button>
+              {onSendNext && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("send", true)} title="Sends exactly as Send does, then opens the next ask in the list that is waiting on you">Send &amp; next</button>}
               {/* Partial on purpose: never the "N questions unanswered" confirm; while the server does not keep `provisional`, an honest confirm instead. */}
               <button className="btn" disabled={busy || nothing} onClick={() => clickSend("draft")} title={kept ? "Sends your picks marked as not final, with a note saying so; the ask stays open for a second round" : "Today this closes the ask with your picks and a 'not final' note; the asker should come back with a second round"}>Send as draft</button>
               <button className="btn" disabled={busy} aria-expanded={needOpen} aria-controls={`need-${ask.header.id}`} onClick={() => setNeedOpen(!needOpen)}>Need something first ▾</button>
@@ -1129,7 +1146,7 @@ export function AskDetail({
               <div className="confirm-send" role="alertdialog" aria-label="Confirm sending a partial answer">
                 <p>{confirmSend.msg}</p>
                 <p className="actions">
-                  <button className="btn primary" disabled={busy} onClick={() => runSend(confirmSend.kind)}>{confirmSend.kind === "send" ? "Send anyway" : confirmSend.kind === "draft" ? "Send as draft anyway" : "Send request anyway"}</button>
+                  <button className="btn primary" disabled={busy} onClick={() => runSend(confirmSend.kind, confirmSend.next)}>{confirmSend.kind === "send" ? "Send anyway" : confirmSend.kind === "draft" ? "Send as draft anyway" : "Send request anyway"}</button>
                   <button className="btn" onClick={() => setConfirmSend(undefined)}>Keep answering</button>
                 </p>
               </div>
@@ -1166,6 +1183,7 @@ export function AskDetail({
           </>
         )}
         {result && <p className="result" role="status">{result}</p>}
+        {nextNotice && <p className="next-notice muted" role="status">{nextNotice}</p>}
         {replacedBy && <p className="result"><AskLink to={replacedBy} onOpen={onOpenAsk}>Open the new ask: {replacedBy}</AskLink></p>}
         <AskDetails ask={ask} />
       </section>
