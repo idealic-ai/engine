@@ -43,9 +43,9 @@ describe("the examples clear the floor", () => {
     for (const b of rest) expect(problems(b)).toEqual([]);
   });
 
-  it("control: the check fires on an example with its context taken out", () => {
-    const b = askBlocks(SKILL).find((x) => x.includes("ASK_LAYOUT"))!;
-    expect(problems(b.replace(/^Context: given one file per ask.*\n/m, ""))).toContain('"Which id parts?": a fork needs context of its own: a Context: or Stake: line, or prose under the heading, saying what the decider must know');
+  it("control: the check fires on an example with its context and preamble taken out", () => {
+    const b = askBlocks(SKILL).find((x) => x.includes("ASK_LAYOUT"))!.replace(/^[\s\S]*?(?=^## )/m, "");
+    expect(problems(b.replace(/^Context: given one file per ask.*\n/m, ""))).toContain('"Which id parts?": a fork needs context: add a Context: line under the heading (or Stake:, Lean:, a line of prose, or a preamble above the first fork) saying what the decider must know');
   });
 });
 

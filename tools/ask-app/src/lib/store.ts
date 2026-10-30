@@ -170,11 +170,14 @@ function assertCodes(ask: ParsedAsk) {
  * ASKTREE: what `new` and a body `revise` refuse beyond the codes — a fork named after its kind
  * word, then the per-answer floor. Only a filing is checked: files already on disk still read.
  */
-function assertFloor(ask: ParsedAsk) {
+function assertFloor(ask: ParsedAsk, onRevise = false) {
+  // S4: a revise names the way out. Renaming a fork changes its answer key, which a revise already
+  // makes stale for any draft.
+  const hint = onRevise ? "\n  To revise only the card fields, pass --keep-body; otherwise fix each line above in the body." : "";
   const order = forkNameAfterKind(ask);
-  if (order.length) throw new ForkNameOrderError(order);
+  if (order.length) throw new ForkNameOrderError(order, hint);
   const floor = floorProblems(ask);
-  if (floor.length) throw new AskFloorError(floor);
+  if (floor.length) throw new AskFloorError(floor, hint);
 }
 
 /**
@@ -1135,7 +1138,7 @@ export async function reviseAsk(
       const reparsed = parseAskFile(after);
       if (reparsed.questions.length === 0) throw new AskFormatError('body holds no question: write at least one "## Choose one: …" heading');
       assertCodes(reparsed);
-      assertFloor(reparsed);
+      assertFloor(reparsed, true);
       if (bodyDigest(after) !== oldBody) changed.push("body");
     }
     const answers = [...new Set(o.answersFollowup ?? [])];

@@ -687,14 +687,16 @@ test_asktree_new_refuses_under_the_floor() {
   assert_file_not_exists "$ASK_ROOT/idealic:kernel/f2.md" "and files nothing"
   out=$(printf '## ¶ASK_GO: Choose one: Ship?\n- [ ] [YES] Yes\n  Ships.\n' | "$ASK_SH" new --id f3 2>&1); rc=$?
   assert_eq "1" "$rc" "new exits 1 on a fork with no context of its own"
-  assert_contains '"Ship?": a fork needs context of its own' "$out" "naming the fork"
+  assert_contains '"Ship?": a fork needs context: add a Context: line under the heading' "$out" "naming the fork and where the context goes"
   out=$(printf '## ¶ASK_GO: Choose one: Ship?\nContext: c\n- [ ] [YES] Yes\n  Ships.\n' | "$ASK_SH" new --id f4 2>&1 >/dev/null); rc=$?
   assert_eq "0" "$rc" "an option with a description but no Cost or Elegance files"
-  assert_contains 'warning: "Ship?": [YES] has no Cost: line' "$out" "and warns about the Cost"
-  assert_contains 'warning: "Ship?": [YES] has no Elegance: line' "$out" "and about the Elegance"
+  assert_contains 'warning: "Ship?": 1 of 1 options have no Cost: line (what the operator gives up); 1 of 1 have no Elegance: line' "$out" "and warns about the Cost and the Elegance in one line"
   out=$(printf '## ¶ASK_GO: Choose one: Ship?\nContext: c\n- [ ] [YES] Yes\n' | "$ASK_SH" revise idealic:kernel/f4 2>&1); rc=$?
   assert_eq "1" "$rc" "revise exits 1 on a bare option in the new body"
   assert_contains '"Ship?" [YES]: a bare option' "$out" "naming it"
+  assert_contains "pass --keep-body" "$out" "and naming --keep-body as the way to revise the card only"
+  out=$("$ASK_SH" revise idealic:kernel/f4 --keep-body --stake "card only" 2>&1); rc=$?
+  assert_eq "0" "$rc" "a --keep-body revise reads no body and goes through"
 }
 
 # IDE-333 acceptance 3: before writing an ask, search sessions and docs, and cite the result as Evidence:.

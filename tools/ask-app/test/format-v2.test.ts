@@ -297,13 +297,9 @@ describe("authoring warnings", () => {
     expect(authorWarnings(bad)).toEqual([
       "the header lean fills the first fork's card only; write a Lean: line under every fork",
       '"A?": 1 option(s) have no [CODE]; the answer will store the whole label',
-      '"A?": [X] has no Cost: line (what the operator gives up)',
-      '"A?": [X] has no Elegance: line (how cleanly it fits)',
-      '"A?": "y" has no Cost: line (what the operator gives up)',
-      '"A?": "y" has no Elegance: line (how cleanly it fits)',
+      '"A?": 2 of 2 options have no Cost: line (what the operator gives up); 2 of 2 have no Elegance: line (how cleanly it fits)',
       '"B?": no Lean: line',
-      '"B?": [P] has no Cost: line (what the operator gives up)',
-      '"B?": [P] has no Elegance: line (how cleanly it fits)',
+      '"B?": 1 of 1 options have no Cost: line (what the operator gives up); 1 of 1 have no Elegance: line (how cleanly it fits)',
     ]);
     const good = parseAskFile(head() + "## ¶ASK_A: Choose one: A?\nLean: X — because\n- [ ] [X] x\n  Cost: c\n  Elegance: e\n\n## ¶ASK_B: Text: Name?\n");
     expect(authorWarnings(good)).toEqual([]);
