@@ -45,7 +45,9 @@ DependsOn: ASK_LAYOUT=ONE
 EOF
 ```
 
-It prints the file path: `<fleet data dir>/asks/<your seat>/<id>.md`, where the fleet data dir is `~/.claude/data/yarik/` (`engine ask path` prints the root). `--from` is your **live** seat (the pane's `window:@pane_label`, read from tmux; `$FLEET_PANE` only when tmux cannot be read) and may only repeat it; `--to` defaults to your live `@pane_parent` (`$FLEET_PARENT` only as the fallback), and a seat with no parent asks `operator`.
+It prints the file path: `<fleet data dir>/asks/<your seat>/<id>.md`, and on the next line the ask's app URL, where the fleet data dir is `~/.claude/data/yarik/` (`engine ask path` prints the root). `--from` is your **live** seat (the pane's `window:@pane_label`, read from tmux; `$FLEET_PANE` only when tmux cannot be read) and may only repeat it; `--to` defaults to your live `@pane_parent` (`$FLEET_PARENT` only as the fallback), and a seat with no parent asks `operator`.
+
+**Tell the operator about an ask by its app URL, written as a link: `http://127.0.0.1:4977/a/<seat>/<id>`.** That is the line `engine ask new` printed; for an ask already filed, `engine ask url <seat>/<id>` prints it, and `engine ask list --url` adds it as a column. The port is whatever `engine ask serve` runs on. A bare id or a file path is not enough, because the operator cannot open either from where they read your message.
 
 ### The format
 
