@@ -91,6 +91,18 @@
 
 ---
 
+## Ask Lines
+*Included ONLY when the Brief's poll items are forks of an ask (omit this whole block otherwise). One block per fork, ready for the asker to paste under that fork's heading with `engine ask revise`. One `Panel:` line per lens that voted on the item, in the vote's own words, then the report itself. Council writes these here and nowhere else; it never edits the ask.*
+
+```
+<seat>/<ask-id> ¶ASK_<NAME>
+Panel: <lens> → <key> — <the vote's one-sentence why>
+Panel: <lens> → <key> — <why>
+Council: <absolute path to this file, or the published board's URL>
+```
+
+---
+
 ## Panel Blind Spots
 *What the panel collectively could NOT judge — files/states/integrations outside the grounding, an expert that returned empty or failed, a lens the subject warranted but the panel didn't seat. A clean verdict with unstated blind spots is dishonest.*
 - <blind spot + why it matters>

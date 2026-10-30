@@ -13,7 +13,7 @@ Status as of 2026-10-29. Write only what the parser reads, or the operator never
 - **Read today, per fork** (flush-left lines under the heading): `Stake:`, `Unblocks:`, `Related:`, `Lean:`, `Counter:`, `Confidence:`, `Reversible:`, `Verify:`, `Falsifier:`, `IfUnanswered:`, `NeededBy:`, `Blocks:`, `Context:` (one line; a second `Context:` replaces the first), repeatable `Evidence:` and `Panel:`, and `DependsOn:`.
 - **Read today, per option** (indented under the option): a description, and `Cost:`, `Effort:`, `Blast:`. Every other indented line is joined onto the description as plain text, except a fenced code block indented under the option: it stays part of that option, kept line for line (dedented to the fence's indent) as its own block in the description, and an indented line after it starts a new paragraph. Blank lines around the fence are fine. A fence that is not indented under an option is the fork's prose. An indented line belongs to the nearest option above it that is indented less, so a fence at a child option's own indent is its parent's. After a blank line, an indented line (a note, a fence, even a `- [ ]` line) still belongs to the last option; start a note at column 0 to keep it out of the options. `engine ask new` warns when a fence is never closed, because everything after it, later forks included, is then read as code.
 - **Every fence carries a language.** Open each fenced block with its language (```` ```ts ````, ```` ```sh ````, ```` ```json ````), so the browser can highlight it; write ```` ```text ```` when nothing fits. `engine ask new` and `engine ask revise` refuse (exit 2) a fence with no language, at the top level or indented under an option, naming each line of the body: `line 14: fenced block has no language; write ```text if nothing fits`. The store's own record fences (`json answer`, `json history`) already carry a tag. An ask already on disk is never refused for this: reading, answering and listing it work as before, and a revise that keeps the body (`--keep-body`) passes.
-- **Coming with ASK v2 H4, not read yet:** per-option `Pro:`, `Con:`, `Risk:`, `Complexity:`, `Confidence:`, `Unblocks:`, `Reversible:`; a do-nothing marker; per-fork `Parent:`; `Council:` and `CouncilAsOf:`; header `project:` and `group:`. Until H4 lands, carry the same facts as plain sentences in the option's description. An indented `Risk: med` line is not lost today, but it runs into the description as one line of text, so a sentence reads better.
+- **Coming with ASK v2 H4, not read yet:** per-option `Pro:`, `Con:`, `Risk:`, `Complexity:`, `Confidence:`, `Unblocks:`, `Reversible:`; a do-nothing marker; per-fork `Parent:`; `CouncilAsOf:`; header `project:` and `group:`. Until H4 lands, carry the same facts as plain sentences in the option's description. An indented `Risk: med` line is not lost today, but it runs into the description as one line of text, so a sentence reads better.
 - **Prose under a fork heading.** The v2 parser keeps it: the reasons before the options are shown at the top of the fork's card, and an unindented note after the options between that card and the next. A fenced example inside a fork stays in its prose. The options are the fork's last list (its coded list, when it has one), so a `- [ ]` checklist line in your reasons is shown as prose, never offered as an option. An indented line under an option stays that option's description. (The v1 parser dropped it, which is how IDE-264's reason for existing was lost; the operator's running app stays v1 until v2 is deployed, so for an ask it must answer before then, also put the key fact in a `Context:` line.)
 - **Header lean on a multi-fork ask.** A header `lean:` (and every header card field) fills the first fork's card only. `lean: F1 ALL; F2 DEGR` gives F2 onward no lean at all. Write a `Lean:` line under every fork.
 
@@ -85,7 +85,21 @@ The operator answers most asks by accepting the lean, so the lean has to stand u
 
 If a `/council` or `/decide` panel actually ran on this decision, add one `Panel:` line per lens under the fork: `Panel: Security → SAME — keeps the refusal narrow`. The card shows each lens beside the option it picks. A panel is a read, not a vote: report what each lens said, never a tally. Never write a `Panel:` line for a panel that did not run.
 
-Coming with ASK v2 H4: `Council: <url>` and `CouncilAsOf:` to attach the board itself, and a richer `Panel:` line with a weight, an alternative and a thin-grounds mark. Until then, cite the board's URL in an `Evidence:` line.
+Under the `Panel:` lines, add one `Council: <path-or-url>` line naming the report the reads came from: the `_COUNCIL_<run-id>.md` path, the published board's URL, or a `[label](url)` link. The parser keeps the first `Council:` line per fork, and `/api/asks` returns it as the fork's `council` field.
+
+```
+## ¶ASK_FUND: Choose one: What does a world fund its contracts out of?
+Lean: B
+Panel: Security → B — a separate root keeps the blast small
+Panel: Economist → A — one root is simpler to audit
+Council: sessions/2026_10_29_KERNEL/builds/fund_COUNCIL_20261030T1545.md
+- [ ] [A] One root
+- [ ] [B] A separate root
+```
+
+The reads go in `Panel:` lines, never only in prose. The app draws a panel only from `Panel:` lines, so "the panel's consensus is LAND" written in a Context line shows nothing beside the options. `engine ask new` and `revise` warn on stderr when a fork, or the header and the text above the first fork, names a council or panel report and carries no `Panel:` line. The warning names the fork and does not stop the filing. If the panel ran on several forks at once, each fork carries its own lens reads, and every fork names the same report.
+
+Not built yet: `CouncilAsOf:`, and a richer `Panel:` line with a weight, an alternative and a thin-grounds mark.
 
 ## Reserved for the operator
 

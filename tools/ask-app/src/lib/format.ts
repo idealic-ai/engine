@@ -52,6 +52,14 @@ export type AskQuestion = {
   /** Unindented prose after the options, before the next heading: shown after the fork's card. */
   proseAfter?: string;
   panel: PanelRead[];
+  /**
+   * IDE-338: the council or /decide report the fork's `Panel:` reads came from, as the author wrote
+   * it after `Council:` — a path, a URL or a `[label](url)` link. The first `Council:` line wins;
+   * a second is reported by authorWarnings.
+   */
+  council?: string;
+  /** How many `Council:` lines the fork carried (only read by authorWarnings). */
+  councilLines?: number;
   number?: { min?: number; max?: number; unit?: string };
   /** A fence in this fork is never closed, so it ran to the end of the file (authorWarnings says so). */
   unclosedFence?: boolean;
@@ -504,7 +512,10 @@ function parseQuestions(body: string): { preamble: string; questions: AskQuestio
       const mm = line.startsWith(" ") || line.startsWith("\t") ? null : line.match(META_RE);
       if (dm) q.dependsOn = dm[2] ? { ask: dm[1], code: dm[2] } : { ask: dm[1] };
       else if (mm && mm[1].toLowerCase() === "evidence") q.evidence.push(mm[2].trim());
-      else if (mm && mm[1].toLowerCase() === "panel") {
+      else if (mm && mm[1].toLowerCase() === "council") {
+        q.councilLines = (q.councilLines ?? 0) + 1;
+        if (q.council === undefined) q.council = mm[2].trim();
+      } else if (mm && mm[1].toLowerCase() === "panel") {
         const pm = mm[2].trim().match(PANEL_RE);
         if (pm) q.panel.push({ lens: pm[1].trim(), pick: pm[2].trim(), why: pm[3].trim() });
       } else if (mm && META_KEYS[mm[1].toLowerCase()]) q.meta[META_KEYS[mm[1].toLowerCase()]] = mm[2].trim();
@@ -1383,6 +1394,44 @@ export function authorWarnings(ask: ParsedAsk): string[] {
     if (q.unclosedFence) out.push(`"${q.title}": a code fence is never closed, so everything after it, later forks included, is read as code`);
     if (choice(q) && codeless) out.push(`"${q.title}": ${codeless} option(s) have no [CODE]; the answer will store the whole label`);
     if (choice(q) && ask.questions.length > 1 && !q.meta.lean && !(i === 0 && ask.header.lean?.trim())) out.push(`"${q.title}": no Lean: line`);
+    if ((q.councilLines ?? 0) > 1) out.push(`"${q.title}": more than one Council: line; the app shows the first only`);
+    if (!q.panel.length && (q.council !== undefined || forkText(q).some(mentionsPanelReport))) {
+      out.push(`"${q.title}": it names a council or panel report but carries no Panel: line, so the app shows no reads beside its options. ${PANEL_LINES_HINT}`);
+    }
   });
+  const askText = [ask.preamble, ...ASK_TEXT_FIELDS.map((k) => ask.header[k] ?? "")];
+  if (ask.questions.length && !ask.questions.some((q) => q.panel.length) && askText.some(mentionsPanelReport)) {
+    out.push(`the header or the text above the first fork names a council or panel report, but no fork carries a Panel: line. ${PANEL_LINES_HINT}`);
+  }
   return out;
 }
+
+/** Header fields an asker writes prose into, read for a reported panel with the preamble. */
+const ASK_TEXT_FIELDS = ["why", "stakes", "stake", "context", "alternatives", "lean", "counter", "falsifier", "evidence", "confidence"] as const;
+
+/** The two lines a fork owes when a panel ran on it, as the author guide gives them. */
+const PANEL_LINES_HINT = "Write one line per lens under the fork, `Panel: <lens> → <code> — <why>`, and the report as `Council: <path-or-url>`.";
+
+/** A fork's own text: its prose, its card lines (Context, Stake, Lean…) and its Evidence lines. Option text is left out: an option may propose a council. */
+function forkText(q: AskQuestion): string[] {
+  return [q.prose ?? "", q.proseAfter ?? "", ...Object.values(q.meta), ...q.evidence];
+}
+
+/**
+ * IDE-338: does this text say a council or panel RAN — a report, a verdict, a finding, a read —
+ * rather than propose one? Measured against the live asks' wording (ASKCOUNCIL_LOG.md): a
+ * possessive ("the panel's corrections"), a report noun after the word, "on/from/by the panel",
+ * a sized panel ("a 3-lens council"), or a council report file. "a council per question" and
+ * "request council" propose; "Council auto-after-PR" is a loom setting; "side panel" is UI.
+ */
+export function mentionsPanelReport(text: string): boolean {
+  return PANEL_REPORT_RES.some((re) => re.test(text));
+}
+const PANEL_WORD = String.raw`(?:council|panel)`;
+const PANEL_REPORT_RES: RegExp[] = [
+  new RegExp(String.raw`\b(?:the|this|that|its|our)\s+${PANEL_WORD}(?:'s|’s)\s`, "i"),
+  new RegExp(String.raw`\b${PANEL_WORD}\s+(?:report|reports|verdict|found|finds|findings|board|consensus|read|reads|said|ruled|ran)\b`, "i"),
+  new RegExp(String.raw`\b(?:on|from|by)\s+the\s+${PANEL_WORD}\b`, "i"),
+  new RegExp(String.raw`\b(?:\d+|one|two|three|four|five|six|seven|eight)[- ](?:lens|reviewer|expert|persona|member)s?\s+${PANEL_WORD}\b`, "i"),
+  /_COUNCIL(?:_[\w-]+)?\.md\b/,
+];
