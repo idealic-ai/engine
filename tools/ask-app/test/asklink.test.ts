@@ -13,7 +13,7 @@ import { askAppBase, askUrl } from "../src/lib/url.ts";
 import { parseRoute } from "../src/client/route.ts";
 
 const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.ts");
-const BODY = "## Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const BODY = "## Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 
 let root: string;
 beforeEach(() => {

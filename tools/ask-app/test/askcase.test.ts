@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 import { actedAsk, answerAsk, forwardAsk, listAsks, newAsk, readAsk, renameSeat, reviseAsk, withdrawAsk, followupAsk } from "../src/lib/store.ts";
 import { parseAskFile, setHeaderField, writeAnswer } from "../src/lib/format.ts";
 
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 const UP = "domain:Language";
 const LOW = "domain:language";
 const MGR = "manager:domain";

@@ -11,7 +11,8 @@ import path from "node:path";
 import { listAsks, newAsk, readAsk, reviseAsk } from "../src/lib/store.ts";
 import { authorWarnings, parseAskFile, untaggedFenceLines, UntaggedFenceError } from "../src/lib/format.ts";
 
-const GO = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+// ASKTREE: a yes-or-no fork, so the floor asks nothing of it and the line numbers below hold.
+const GO = "## ¶ASK_GO: Yes or no: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
 const push = async () => ({ status: "delivered" as const });
 
 let root: string;

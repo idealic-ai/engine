@@ -142,13 +142,13 @@ describe("a fork that reports a panel without Panel: lines", () => {
     expect(warning(fork("Stake: a council per question is expensive."))).toBeUndefined();
   });
   it("warns once for a preamble that names a report when no fork has Panel: lines", () => {
-    const ask = head.replace("\n\n", "\n\nThe five-reviewer panel report behind the outline is linked.\n\n") + "## Choose one: X?\nLean: A\n- [ ] [A] a\n- [ ] [B] b\n";
+    const ask = head.replace("\n\n", "\n\nThe five-reviewer panel report behind the outline is linked.\n\n") + "## Choose one: X?\nContext: c\nLean: A\n- [ ] [A] a\n  Picks A.\n- [ ] [B] b\n  Picks B.\n";
     const ws = authorWarnings(parseAskFile(ask)).filter((w) => w.includes("Panel:"));
     expect(ws).toHaveLength(1);
     expect(ws[0]).toContain("the text above the first fork");
   });
   it("reads the header's prose fields too (a confidence that cites the council)", () => {
-    const ask = head.replace("status: open\n", "status: open\nconfidence: high — a 3-lens council plus refutation\n") + "## Choose one: X?\nLean: A\n- [ ] [A] a\n- [ ] [B] b\n";
+    const ask = head.replace("status: open\n", "status: open\nconfidence: high — a 3-lens council plus refutation\n") + "## Choose one: X?\nContext: c\nLean: A\n- [ ] [A] a\n  Picks A.\n- [ ] [B] b\n  Picks B.\n";
     expect(authorWarnings(parseAskFile(ask)).filter((w) => w.includes("Panel:"))).toHaveLength(1);
   });
 });
@@ -159,7 +159,7 @@ describe("engine ask new: the warning reaches stderr and filing still succeeds",
     const asks = path.join(root, "asks");
     fs.mkdirSync(asks);
     const body = path.join(root, "body.md");
-    fs.writeFileSync(body, "## ¶ASK_VOICE: Choose one: Land draft 2?\nLean: LAND\nContext: the council's verdict is folded in.\n- [ ] [LAND] Land it\n- [ ] [HOLD] Hold it\n");
+    fs.writeFileSync(body, "## ¶ASK_VOICE: Choose one: Land draft 2?\nLean: LAND\nContext: the council's verdict is folded in.\n- [ ] [LAND] Land it\n  Picks LAND.\n- [ ] [HOLD] Hold it\n  Picks HOLD.\n");
     const cli = fileURLToPath(new URL("../src/cli.ts", import.meta.url));
     const env: NodeJS.ProcessEnv = { ...process.env, ASK_SESSIONS_DIR: path.join(root, "sessions") };
     for (const k of ["TMUX_PANE", "FLEET_PANE", "FLEET_PARENT", "FLEET_MANAGES"]) delete env[k];

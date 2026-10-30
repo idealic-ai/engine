@@ -128,7 +128,13 @@ Panel: Security → B — a separate root keeps the blast small
 Panel: Economist → A — one root is simpler to audit
 Council: sessions/2026_10_29_KERNEL/builds/fund_COUNCIL_20261030T1545.md
 - [ ] [A] One root
+  Contracts derive from the world's own spend root, made transferable.
+  Cost: changes what a holder can pass on
+  Elegance: high — one root, no second kind
 - [ ] [B] A separate root
+  A transferable root at the world's budgets funds the contracts.
+  Cost: a second root to audit
+  Elegance: med — a parallel root beside the spend root
 ```
 
 The reads go in `Panel:` lines, never only in prose. The app draws a panel only from `Panel:` lines, so "the panel's consensus is LAND" written in a Context line shows nothing beside the options. `engine ask new` and `revise` warn on stderr when a fork, or the header and the text above the first fork, names a council or panel report and carries no `Panel:` line. The warning names the fork and does not stop the filing. If the panel ran on several forks at once, each fork carries its own lens reads, and every fork names the same report.

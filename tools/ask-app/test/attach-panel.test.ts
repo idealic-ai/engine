@@ -20,12 +20,16 @@ const URL1 = "http://127.0.0.1:9440/proofs/fund-council-1.html";
 const BODY = `## ¶ASK_FUND: Choose one: What does a world fund its contracts out of?
 Lean: B
 - [ ] [A] One root
+  Picks A.
 - [ ] [B] A separate root
+  Picks B.
 
 ## ¶ASK_SECOND: Choose one: Second?
 Lean: X
 - [ ] [X] x
+  Picks X.
 - [ ] [Y] y
+  Picks Y.
 `;
 
 let root: string;
@@ -190,13 +194,13 @@ describe("engine ask attach-panel (CLI)", () => {
 // ── step-3 review (ASKCOUNCIL_CRITIQUE_S3.md) ─────────────
 
 describe("M2: reads stay on the question the panel read", () => {
-  const UNNAMED = "## Choose one: Fund?\n- [ ] [A] a\n- [ ] [B] b\n\n## Choose one: Other?\n- [ ] [X] x\n- [ ] [Y] y\n";
+  const UNNAMED = "## Choose one: Fund?\nContext: c\n- [ ] [A] a\n  Picks A.\n- [ ] [B] b\n  Picks B.\n\n## Choose one: Other?\nContext: c\n- [ ] [X] x\n  Picks X.\n- [ ] [Y] y\n  Picks Y.\n";
   it("refuses an unnamed fork when the ask has more than one fork", async () => {
     newAsk(root, { from: SEAT, to: "operator", id: "anon" }, UNNAMED);
     await expect(attachPanel(root, { seat: SEAT, id: "anon" }, { by: RUNNER, fork: "q0", panel: [{ lens: "Sec", pick: "B", why: "w" }], council: URL1, push })).rejects.toThrow(/no ¶ASK_ name, and the ask has 2 forks/);
   });
   it("takes an unnamed fork when it is the only one", async () => {
-    newAsk(root, { from: SEAT, to: "operator", id: "one" }, "## Choose one: Fund?\n- [ ] [A] a\n- [ ] [B] b\n");
+    newAsk(root, { from: SEAT, to: "operator", id: "one" }, "## Choose one: Fund?\nContext: c\n- [ ] [A] a\n  Picks A.\n- [ ] [B] b\n  Picks B.\n");
     await attachPanel(root, { seat: SEAT, id: "one" }, { by: RUNNER, fork: "q0", panel: [{ lens: "Sec", pick: "B", why: "w" }], council: URL1, push });
     expect(parseAskFile(fs.readFileSync(path.join(root, SEAT, "one.md"), "utf8")).questions[0].panel).toHaveLength(1);
   });
