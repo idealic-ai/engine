@@ -215,6 +215,16 @@ details.evidence ul { margin: 6px 0 0; padding-left: 1.2em; overflow-wrap: anywh
 
 .lean-line, .panel-line { font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
 .panel-line .pl code { font-size: 12px; }
+.panel-line { margin-bottom: 4px; }
+.council-ref { font-size: 12px; overflow-wrap: anywhere; }
+/* COUNCILUI: the reads in words, lens → pick — why, opened with a click rather than a hover. */
+.panel-reads, .panel-proposals { font-size: 13px; color: var(--ink-2); margin: 0 0 10px; }
+.panel-reads > summary, .panel-proposals > summary { cursor: pointer; }
+.panel-reads code, .panel-proposals code { font-size: 12px; }
+.panel-reads ul, .panel-proposals ul { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+.pr-stamp { font-size: 12px; }
+.pp-label { font-weight: 600; color: var(--ink); }
+.lens-count { font-size: 12px; font-weight: 600; color: var(--ink-2); }
 .cardmeta { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0 0 12px; font-size: 13px; }
 .cardmeta > div { display: contents; }
 .cardmeta dt { color: var(--ink-3); font-weight: 600; }

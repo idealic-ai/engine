@@ -61,7 +61,8 @@ import {
   type Values,
 } from "./model.ts";
 import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
-import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
+import { Inline, PaneContext, Rich, SmartLink, TicketLink, inlineTokens } from "./rich.tsx";
+import { attachedText, councilRef, forkCouncils, optionTally, tallyText } from "./panel.ts";
 import { CodeBlock } from "./highlight.tsx";
 import { batchOutcome, noticeFor, postSendStep, sendOutcome, type SentNotice } from "./next.ts";
 import { createRouteNav, createUrlSync } from "./urlsync.ts";
@@ -1625,13 +1626,7 @@ function QuestionCard(p: {
         <p className="lean-line"><b>Lean:</b> <Inline text={leanReason(lean.text)} />{card.counter && <> <b>Strongest counter:</b> <Inline text={card.counter} /></>}</p>
       )}
       {leanCode && card.counter && <p className="lean-line"><b>Strongest counter to the lean:</b> <Inline text={card.counter} /></p>}
-      {q.panel.length > 0 && (
-        <p className="panel-line">
-          <span className="lg-label">Panel read</span> {q.panel.length} lens{q.panel.length === 1 ? "" : "es"} ·{" "}
-          {q.panel.map((r, i) => <span key={i} className="pl">{r.lens} → <code>{r.pick}</code>{i < q.panel.length - 1 ? " · " : ""}</span>)}
-          <span className="muted"> · a read, not a vote</span>
-        </p>
-      )}
+      <PanelStrip q={q} />
       {OPTIONAL.some(([f]) => card[f]) && (
         <dl className="cardmeta">
           {OPTIONAL.filter(([f]) => card[f]).map(([f, l]) => (
@@ -1663,6 +1658,60 @@ function QuestionCard(p: {
         {q.dependsOn && <span>after ASK_{q.dependsOn.ask}{q.dependsOn.code ? `=${q.dependsOn.code}` : ""}</span>}
       </div>
     </article>
+  );
+}
+
+/** COUNCILUI: a council report, linked only when it is an http(s) URL (a :9440 proof opens beside the ask). */
+function CouncilLink({ v }: { v: string }) {
+  const c = councilRef(v);
+  return c.href ? <SmartLink href={c.href} label={c.label} /> : <code className="council-ref">{c.label}</code>;
+}
+
+/**
+ * COUNCILUI: the fork's panel strip. The report link(s) sit beside the reads, shown even when the
+ * fork has no Panel: lines; the reads are listed lens → pick — why in a disclosure (no hover needed),
+ * each attached read with who attached it, when and from which report; options a panel proposed
+ * follow, apart from the fork's own options and never answerable.
+ */
+function PanelStrip({ q }: { q: AskQuestion }) {
+  const councils = forkCouncils(q);
+  const proposals = q.proposals ?? [];
+  if (!q.panel.length && !councils.length && !proposals.length) return null;
+  const n = q.panel.length;
+  return (
+    <>
+      <p className="panel-line">
+        <span className="lg-label">Panel read</span>{" "}
+        {n ? <>{n} lens{n === 1 ? "" : "es"}</> : <span className="muted">no lens reads recorded on this fork</span>}
+        {councils.map((c, i) => <span key={i} className="council-link"> · <CouncilLink v={c} /></span>)}
+        {n > 0 && <span className="muted"> · a read, not a vote</span>}
+      </p>
+      {n > 0 && (
+        <details className="panel-reads"><summary>{q.panel.map((r, i) => <span key={i} className="pl">{r.lens} → <code>{r.pick}</code>{i < n - 1 ? " · " : ""}</span>)}</summary>
+          <ul>
+            {q.panel.map((r, i) => (
+              <li key={i}>
+                <b>{r.lens}</b> → <code>{r.pick}</code> — <Inline text={r.why} />
+                {attachedText(r) && <span className="muted pr-stamp"> · {attachedText(r)}{r.council && r.council !== q.council && <> · <CouncilLink v={r.council} /></>}</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+      {proposals.length > 0 && (
+        <details className="panel-proposals" open>
+          <summary>Proposed by the panel <span className="n">{proposals.length}</span> <span className="muted">not an option here; to take one, revise the ask</span></summary>
+          <ul>
+            {proposals.map((p, i) => (
+              <li key={i}>
+                <b>{p.lens}</b> proposes <span className="pp-label"><Inline text={p.label} /></span> — <Inline text={p.why} />
+                {attachedText(p) && <span className="muted pr-stamp"> · {attachedText(p)}{p.council && <> · <CouncilLink v={p.council} /></>}</span>}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </>
   );
 }
 
@@ -1745,7 +1794,8 @@ function Strip({ trade, cells }: { trade: Trade; cells: Trade["rows"][string] | 
 
 function OptionBody({ o, card, q, lean, leanText, trade, suggested }: { o: AskOption; card: Card; q: AskQuestion; lean?: string; leanText?: string; trade: Trade; suggested?: boolean }) {
   const isLean = !!lean && lean === o.code;
-  const marks = q.panel.filter((r) => r.pick === o.code || r.pick === o.label);
+  const tally = optionTally(q, o);
+  const marks = tally.reads;
   const cells = trade.rows[o.code ?? o.label];
   const label = o.label.replace(/\s*\(lean\)\s*$/i, "");
   const costSame = trade.same.includes("cost");
@@ -1772,7 +1822,8 @@ function OptionBody({ o, card, q, lean, leanText, trade, suggested }: { o: AskOp
       {isLean && leanReason(leanText) && <span className="opt-lean"><b>Why the lean</b> <Inline text={leanReason(leanText)} /></span>}
       {q.panel.length > 0 && (
         <span className="lens-row">
-          {marks.length ? marks.map((m, i) => <LensMark key={i} read={m} id={`lens-${q.askName ?? "q"}-${o.code ?? i}-${i}`} />) : <span className="muted lens-none">No lens picked this</span>}
+          <span className={`lens-count${tally.picked ? "" : " muted lens-none"}`}>{tallyText(tally.picked, tally.of)}</span>
+          {marks.map((m, i) => <LensMark key={i} read={m} id={`lens-${q.askName ?? "q"}-${o.code ?? i}-${i}`} />)}
         </span>
       )}
     </span>
@@ -1855,7 +1906,9 @@ export function LensMark({ read, id }: { read: PanelRead; id: string }) {
         <span className="lp-head"><b>{read.lens}</b> picks <code>{read.pick}</code></span>
         <span className="lp-h">Why</span>
         <span className="lp-body"><Inline text={read.why} /></span>
-        <span className="lp-foot muted">From the fork's Panel: line. One line is all the ask file holds for this lens.</span>
+        <span className="lp-foot muted">
+          {read.attachedBy ? <>Attached by {read.attachedBy}{read.attachedAt ? ` at ${read.attachedAt}` : ""}.</> : "From the fork's Panel: line."} One line is all the ask file holds for this lens{read.council ? "; the report has the rest" : ""}.
+        </span>
         {pinned && <button type="button" className="lp-close" onClick={() => setPinned(false)}>Close</button>}
       </span>
     </span>
