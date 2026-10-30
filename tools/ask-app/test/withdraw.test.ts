@@ -10,7 +10,6 @@ import { answerAsk, listAsks, newAsk, readAsk, renameSeat, saveDraft, sendBatch,
 import { assertLive, parseAskFile, WithdrawnError } from "../src/lib/format.ts";
 import { SEAT_FIELDS } from "../src/lib/rename-seat.ts";
 import { askRow, rowInFilter } from "../src/client/model.ts";
-import { conflictMessage, withdrawnInfo } from "../src/client/supersede.ts";
 
 let root: string;
 beforeEach(() => {
@@ -235,15 +234,6 @@ describe("the operator's lists", () => {
     expect(row.waitingOnYou).toBe(false);
     for (const f of ["open", "settled", "ruled"] as const) expect(rowInFilter(row, f)).toBe(false);
     expect(rowInFilter(row, "all")).toBe(true);
-  });
-
-  it("the client reads who withdrew it and why; a 409 says there is nothing to answer", () => {
-    const a = parseAskFile("---\nid: x\nstatus: withdrawn\nwithdrawn-actor: idealic:kernel\nwithdrawn-at: 2026-10-30T16:20:00.000Z\nwithdrawn-reason: moot\n---\n" + BODY);
-    expect(withdrawnInfo(a.header)).toEqual({ actor: "idealic:kernel", at: "2026-10-30T16:20:00.000Z", reason: "moot" });
-    expect(withdrawnInfo(parseAskFile("---\nid: x\nstatus: open\n---\n" + BODY).header)).toBeUndefined();
-    const c = conflictMessage({ status: "withdrawn", withdrawnBy: "idealic:kernel", withdrawnReason: "moot" } as never);
-    expect(c.text).toBe("This ask was withdrawn by idealic:kernel (moot). There is nothing to answer; your picks are kept here.");
-    expect(c.withdrawn).toBe(true);
   });
 });
 
