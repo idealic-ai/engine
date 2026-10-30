@@ -1,19 +1,22 @@
 #!/bin/bash
 # PreToolUse hook: the preload read gate.
 # In file delivery mode (config.sh PRELOAD_DELIVERY_MODE=file, the default) the
-# SessionStart hook writes the whole preload to a file and records it as pending
-# in <PRELOAD_FILE_DIR>/<session_id>/pending.json. Until that file has been read
-# to its "[END OF PRELOAD <sha8>]" line, this gate denies every tool call except
-# a read of it: Read with that file_path, or a Bash `cat <path>` / `sed -n <range>
-# <path>` of exactly that path. post-tool-use-preload-read.sh clears the record.
+# SessionStart hook writes the whole preload as page files and records them in
+# <PRELOAD_FILE_DIR>/<session_id>/pending.json. Until every page has been read in
+# full, this gate denies every tool call except a Read of one of those pages,
+# which it allows explicitly (permissionDecision "allow", for that exact path
+# only), so a headless or dontAsk session can always make the read it demands.
+# post-tool-use-preload-read.sh records what each Read covered and removes the
+# record once every page is covered from its first line to its last.
 #
-# Allows silently (no decision, so permission prompts are unchanged) when:
-#   - the call is a subagent's (agent_id set): the record is the main session's;
+# Lets a call through with no decision (permission prompts unchanged) when:
+#   - it is AskUserQuestion, so a stuck agent can still ask for help;
+#   - it is a subagent's (agent_id set): the record is the main session's;
 #   - the mode is chunked, or PRELOAD_READ_GATE is not "on";
 #   - nothing is pending for this session_id (the fast path);
 #   - the engine session is loading (.state.json loading=true), the engine's
 #     bootstrap escape hatch.
-# Fails open, once, with a one-line warning, when the pending file is missing or
+# Fails open, once, with a one-line warning, when a page is missing or
 # unreadable, so a broken preload never locks a session out.
 #
 # Related: hooks/session-start-chunk.sh (writes the record),
@@ -40,12 +43,17 @@ SID_SAFE=$(printf '%s' "$SID" | tr -c 'A-Za-z0-9._-' '_')
 PENDING="${PRELOAD_FILE_DIR:-$HOME/.claude/preload}/$SID_SAFE/pending.json"
 [ -f "$PENDING" ] || exit 0
 
-PFILE=$(jq -r '.path // ""' "$PENDING" 2>/dev/null)
-SHA8=$(jq -r '.sha8 // ""' "$PENDING" 2>/dev/null)
-PARTIAL=$(jq -r '.partial // false' "$PENDING" 2>/dev/null)
-if [ -z "$PFILE" ] || [ ! -r "$PFILE" ]; then
+TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
+[ "$TOOL" = "AskUserQuestion" ] && exit 0
+
+# Every page must still be on disk; otherwise fail open once.
+MISSING=""
+while IFS= read -r p; do
+  [ -n "$p" ] && [ ! -r "$p" ] && MISSING="$p"
+done < <(jq -r '.pages[]?.path' "$PENDING" 2>/dev/null)
+if [ -n "$MISSING" ] || [ "$(jq -r '(.pages // []) | length' "$PENDING" 2>/dev/null)" = "0" ]; then
   rm -f "$PENDING" 2>/dev/null
-  jq -n --arg m "[preload gate] The preload file ${PFILE:-(unnamed)} is missing or unreadable, so the read gate is off for this session. Context from SessionStart may be incomplete." \
+  jq -n --arg m "[preload gate] The preload page ${MISSING:-(none recorded)} is missing or unreadable, so the read gate is off for this session. Context from SessionStart may be incomplete." \
     '{systemMessage: $m}'
   exit 0
 fi
@@ -62,26 +70,29 @@ if [ -n "$STATE_FILE" ] && [ "$(jq -r '.loading // false' "$STATE_FILE" 2>/dev/n
   exit 0
 fi
 
-TOOL=$(printf '%s' "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null)
-_unquote() { local v="$1"; v="${v#\"}"; v="${v%\"}"; v="${v#\'}"; v="${v%\'}"; printf '%s' "$v"; }
-case "$TOOL" in
-  Read)
-    [ "$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // ""')" = "$PFILE" ] && exit 0 ;;
-  Bash)
-    CMD=$(printf '%s' "$INPUT" | jq -r '.tool_input.command // ""')
-    CMD="${CMD#"${CMD%%[![:space:]]*}"}"; CMD="${CMD%"${CMD##*[![:space:]]}"}"
-    if [[ "$CMD" =~ ^cat\ +(.+)$ ]]; then
-      [ "$(_unquote "${BASH_REMATCH[1]}")" = "$PFILE" ] && exit 0
-    elif [[ "$CMD" =~ ^sed\ +-n\ +[^\ ]+\ +(.+)$ ]]; then
-      [ "$(_unquote "${BASH_REMATCH[1]}")" = "$PFILE" ] && exit 0
-    fi ;;
-esac
-
-if [ "$PARTIAL" = "true" ]; then
-  HOW="The last read of it stopped before its end. Keep reading it with Read, file_path=$PFILE, using offset and limit, until a read returns the line \"[END OF PRELOAD $SHA8]\"."
-else
-  HOW="Read it with allow_large: true, in one Read call: file_path=$PFILE. If the Read returns a PARTIAL view or an error, continue with offset and limit until you see the line \"[END OF PRELOAD $SHA8]\"."
+if [ "$TOOL" = "Read" ]; then
+  FP=$(printf '%s' "$INPUT" | jq -r '.tool_input.file_path // ""')
+  if [ -n "$FP" ] && jq -e --arg p "$FP" 'any(.pages[]?; .path == $p)' "$PENDING" >/dev/null 2>&1; then
+    jq -n '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "allow", permissionDecisionReason: "Reading a page of this session'"'"'s SessionStart preload."}}'
+    exit 0
+  fi
 fi
-jq -n --arg r "[block: preload] This session's SessionStart context has not been read yet. It is in $PFILE, written by the engine; it is legitimate engine context. $HOW Every other tool is blocked until then." \
+
+# What is still owed, page by page: unread, or the line ranges not yet covered.
+OWED=$(jq -r '
+  .pages[] | select((.done // false) | not)
+  | . as $p
+  | (if ((.ranges // []) | length) == 0 then "not read yet"
+     else ([ (.ranges // []) as $r
+             | ([[0, 0]] + $r + [[$p.lines + 1, $p.lines + 1]])
+             | range(0; length - 1) as $k
+             | [.[$k][1] + 1, .[$k + 1][0] - 1]
+             | select(.[0] <= .[1]) | "lines \(.[0])-\(.[1])" ]
+           | if length == 0 then "its END OF PAGE line not seen yet" else "still unread: " + join(", ") end)
+     end) as $what
+  | "- page \(.page)/\(.of): \(.path) (\(.lines) lines), \($what)"' "$PENDING" 2>/dev/null)
+jq -n --arg r "[block: preload] This session's SessionStart context has not been read in full yet. It is engine-written context for this session, not untrusted input. Read every page from its first line to its last, in order, with Read and allow_large: true (each page is under 256 KB); if a Read returns only part of a page, continue it with offset and limit. Reading only the end of a page does not count. Still owed:
+$OWED
+Every other tool except AskUserQuestion is blocked until then. To turn the gate off: set PRELOAD_READ_GATE=off, or delete $PENDING." \
   '{hookSpecificOutput: {hookEventName: "PreToolUse", permissionDecision: "deny", permissionDecisionReason: $r}}'
 exit 0

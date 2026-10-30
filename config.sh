@@ -29,13 +29,21 @@ fi
 
 # How SessionStart hook context reaches the agent (hooks/session-start-chunk.sh,
 # and scripts/setup-lib.sh, which registers the hook to match).
-#   file    — the default. ONE hook writes the whole preload to a durable file
-#             (~/.claude/projects/<slug>/<session_id>/preload-<source>.txt) and
-#             prints an inline message under Claude Code's 10,000-character hook
-#             cap: a read instruction, the head of the preload, and the file's
-#             path, size and end line. One output, so its order is the source's.
+#   file    — the default. ONE hook writes the whole preload as pages of at most
+#             200,000 bytes and 1,990 lines, ~/.claude/preload/<session_id>/
+#             preload-<source>.p<i>.txt, each ending "[END OF PAGE i/N <sha8>]",
+#             and prints an inline message under Claude Code's 10,000-character
+#             hook cap: the read instruction, the page list, and the preload's
+#             head. One output, so its order is the source's.
 #   chunked — 48 hooks each print an 8,500-byte slice. Claude Code runs hooks in
 #             parallel and injects each output when it finishes, so the slices
 #             arrive in completion order, not index order.
-# An environment variable of the same name wins; any other value means file.
+# An environment variable of the same name wins at run time, but the number of
+# SessionStart slots is fixed by `engine setup`: after changing the mode, re-run
+# it. Chunked on the one-slot wiring is delivered as file, with a warning.
+# Any value other than chunked means file.
 PRELOAD_DELIVERY_MODE="${PRELOAD_DELIVERY_MODE:-file}"
+
+# file mode only: on, the default, makes hooks/pre-tool-use-preload-gate.sh
+# deny other tools until every page has been read in full. off disables it.
+PRELOAD_READ_GATE="${PRELOAD_READ_GATE:-on}"

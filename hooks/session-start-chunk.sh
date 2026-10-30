@@ -1,8 +1,9 @@
 #!/bin/bash
 # SessionStart chunk emitter — works around Claude Code truncating any single
-# hook stdout over ~9000 chars down to ~2000 (spilled to a file). We register
-# this script N times (indices 0..N-1); each emits one <=CHUNK-byte slice of the
-# full preload. Claude Code concatenates the slices back inline, in order.
+# hook stdout over 10,000 chars down to a 2,000-char preview (spilled to a file).
+# In chunked mode we register this script N times (indices 0..N-1); each emits
+# one <=CHUNK-byte slice of the full preload. See "Delivery modes" for the order
+# they actually arrive in.
 #
 # Usage (per settings.json hook entry): session-start-chunk.sh <index> <total>
 # Input (stdin): the SessionStart hook JSON ({session_id, source, cwd, ...})
@@ -27,13 +28,14 @@
 #                            event never straddle two generations.
 #   PRELOAD_DELIVERY_MODE  — file (default, from the engine's config.sh) or
 #                            chunked. See "Delivery modes" below.
-#   PRELOAD_FILE_DIR       — where file mode writes the durable preload
+#   PRELOAD_FILE_DIR       — where file mode writes the preload pages
 #                            (default: ~/.claude/preload/<session_id>/)
+#   PRELOAD_PAGE_BYTES / PRELOAD_PAGE_LINES — page size caps (200000 / 1990)
 #   PRELOAD_INLINE_HEAD_BYTES — how much of the preload's head file mode also
 #                            prints inline (default: 6000)
-#   PRELOAD_READ_GATE      — on (default) or off: file mode records the preload
+#   PRELOAD_READ_GATE      — on (default) or off: file mode records the pages
 #                            as pending so pre-tool-use-preload-gate.sh blocks
-#                            other tools until it has been read.
+#                            other tools until every page has been read in full.
 #
 # Delivery modes. Claude Code runs a hook event's commands in parallel and
 # injects each one's output when that command finishes, so the premise above
@@ -41,10 +43,11 @@
 # slice 0 fifteenth). It also caps each output at 10,000 characters and, over
 # that, saves it to a file and shows a 2,000-character preview.
 #   chunked — the slicing below, unchanged; registered 48 times by setup.
-#   file    — registered once. Slot 0 writes the whole preload to a durable file
-#             ending in "[END OF PRELOAD <sha8>]" and prints one message under
-#             the cap: the read instruction, the preload's head, and the file's
-#             path, size and end line. Every other slot prints nothing, so a
+#   file    — registered once. Slot 0 writes the whole preload as durable pages
+#             (each under Read's 256 KB limit, each ending "[END OF PAGE i/N
+#             <sha8>]", the last also "[END OF PRELOAD <sha8>]") and prints one
+#             message under the cap: the read instruction, the page list, and
+#             the preload's head. Every other slot prints nothing, so a
 #             leftover 48-slot wiring still yields one block.
 
 set -uo pipefail
@@ -69,6 +72,14 @@ ENGINE_DIR="$(cd "$(dirname "$_self")/.." 2>/dev/null && pwd)"
 [ -f "$ENGINE_DIR/config.sh" ] && source "$ENGINE_DIR/config.sh"
 MODE="${PRELOAD_DELIVERY_MODE:-file}"
 [ "$MODE" = "chunked" ] || MODE=file
+# The mode is read at run time, but the wiring is fixed by engine setup: one
+# slot for file, 48 for chunked. Chunked on a one-slot wiring would deliver only
+# the first 8,500 bytes, so it is delivered as file, with a warning.
+WIRING_WARN=""
+if [ "$MODE" = "chunked" ] && [ "$TOTAL" = "1" ]; then
+  MODE=file
+  WIRING_WARN="[preload: PRELOAD_DELIVERY_MODE is chunked but SessionStart is wired with one slot, so this preload is delivered as files. Run engine setup to wire the 48 slices.]"
+fi
 # File mode: only slot 0 speaks. Return before any cache work, so a leftover
 # 48-slot wiring costs 47 no-op processes and no lock contention.
 if [ "$MODE" = "file" ] && [ "$INDEX" != "0" ]; then exit 0; fi
@@ -137,58 +148,94 @@ fi
 [ -f "$CACHE" ] || exit 0
 
 if [ "$MODE" = "file" ]; then
-  # Durable path keyed on the Claude session id: the PreToolUse gate finds it
+  # Durable pages keyed on the Claude session id: the PreToolUse gate finds them
   # from its own input, with no engine-session lookup. Outside TMPDIR and never
-  # swept by the cache cleanup above; dirs untouched for 14 days are removed.
+  # swept by the cache cleanup above; session dirs untouched for 2 days are
+  # removed here, and session-end-notify.sh removes a session's dir at SessionEnd.
+  umask 077
   PDIR_ROOT="${PRELOAD_FILE_DIR:-$HOME/.claude/preload}"
   SID_SAFE=$(printf '%s' "$SID" | tr -c 'A-Za-z0-9._-' '_')
   SRC_SAFE=$(printf '%s' "$SRC" | tr -c 'A-Za-z0-9._-' '_')
   PDIR="$PDIR_ROOT/$SID_SAFE"
   mkdir -p "$PDIR" 2>/dev/null && chmod 700 "$PDIR_ROOT" "$PDIR" 2>/dev/null
-  find "$PDIR_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} + 2>/dev/null || true
-  PFILE="$PDIR/preload-$SRC_SAFE.txt"
-  BODY="$PFILE.body.$$"
+  find "$PDIR_ROOT" -mindepth 1 -maxdepth 1 -type d -mmin +2880 -exec rm -rf {} + 2>/dev/null || true
+  PREFIX="$PDIR/preload-$SRC_SAFE"
+  PAGE_BYTES="${PRELOAD_PAGE_BYTES:-200000}"
+  PAGE_LINES="${PRELOAD_PAGE_LINES:-1990}"
+  BODY="$PREFIX.body.$$"
   # The generator's output in its own order, with a repeated "[Preloaded: X]"
   # section (same X) dropped; a repeat runs to the next section marker.
   LC_ALL=C awk '
     function marker(l) { return l ~ /^\[Preloaded: / || l ~ /^\[Loom log excerpt: / || l ~ /^\[Entries written after the latest marker/ || l ~ /^\[DIALOGUE excerpt: / || l ~ /^\[Pitfalls index/ || l ~ /^## Session Recovery \(Dehydrated Context\)/ || l ~ /^#### File: / || l ~ /^\[Session Files: / }
     { if (marker($0)) { skip = 0; if ($0 ~ /^\[Preloaded: /) { if ($0 in seen) skip = 1; seen[$0] = 1 } }
       if (!skip) print }
-  ' "$CACHE" > "$BODY" 2>/dev/null || cp "$CACHE" "$BODY"
+  ' "$CACHE" > "$BODY" 2>/dev/null || cp "$CACHE" "$BODY" 2>/dev/null
   [ -s "$BODY" ] && [ -n "$(tail -c 1 "$BODY")" ] && printf '\n' >> "$BODY"
-  SHA8=$(shasum -a 256 < "$BODY" | cut -c1-8)
-  { cat "$BODY"; printf '[END OF PRELOAD %s]\n' "$SHA8"; } > "$PFILE.tmp.$$" && mv -f "$PFILE.tmp.$$" "$PFILE"
-  rm -f "$BODY" "$PFILE.tmp.$$" 2>/dev/null
-  [ -f "$PFILE" ] || { cat "$CACHE"; exit 0; }   # cannot write: fall back to the whole text
-  PBYTES=$(wc -c < "$PFILE" | tr -d ' ')
-  PLINES=$(wc -l < "$PFILE" | tr -d ' ')
+  ALL_SHA8=$(shasum -a 256 < "$BODY" 2>/dev/null | cut -c1-8)
+
+  # Pages: line-aligned, each at most PAGE_BYTES and PAGE_LINES (so one Read with
+  # allow_large stays under Read's 256 KB whole-file limit, and a plain Read under
+  # its 2,000-line default). A single line longer than PAGE_BYTES gets its own page.
+  rm -f "$PREFIX".p*.txt "$PREFIX".p*.raw.$$ 2>/dev/null
+  NPAGES=$(LC_ALL=C awk -v maxb="$PAGE_BYTES" -v maxl="$PAGE_LINES" -v pre="$PREFIX" -v pid="$$" '
+    { l = length($0) + 1
+      if (n == 0 || (b + l > maxb && c > 0) || c >= maxl) { if (n) close(f); n++; b = 0; c = 0; f = pre ".p" n ".raw." pid }
+      print > f; b += l; c++ }
+    END { if (n) close(f); print n + 0 }
+  ' "$BODY" 2>/dev/null)
+  NPAGES="${NPAGES:-0}"
+  PAGES_JSON="[]"; LISTING=""; OK=1
+  [ "$NPAGES" -gt 0 ] 2>/dev/null || OK=0
+  i=1
+  while [ "$OK" = 1 ] && [ "$i" -le "$NPAGES" ]; do
+    RAW="$PREFIX.p$i.raw.$$"; PG="$PREFIX.p$i.txt"
+    PSHA=$(shasum -a 256 < "$RAW" | cut -c1-8)
+    { cat "$RAW"; printf '[END OF PAGE %s/%s %s]\n' "$i" "$NPAGES" "$PSHA"
+      if [ "$i" = "$NPAGES" ]; then printf '[END OF PRELOAD %s]\n' "$ALL_SHA8"; fi; } > "$PG.tmp.$$" && mv -f "$PG.tmp.$$" "$PG" || OK=0
+    rm -f "$RAW" "$PG.tmp.$$" 2>/dev/null
+    if [ "$OK" = 1 ]; then
+      PB=$(wc -c < "$PG" | tr -d ' '); PL=$(wc -l < "$PG" | tr -d ' ')
+      PAGES_JSON=$(printf '%s' "$PAGES_JSON" | jq -c --arg p "$PG" --arg s "$PSHA" --argjson b "$PB" --argjson l "$PL" --argjson i "$i" --argjson n "$NPAGES" \
+        '. + [{page: $i, of: $n, path: $p, sha8: $s, bytes: $b, lines: $l}]') || OK=0
+      LISTING="${LISTING}  page ${i}/${NPAGES}: ${PG} (${PB} bytes, ${PL} lines)
+"
+    fi
+    i=$((i + 1))
+  done
+  rm -f "$BODY" "$PREFIX".p*.raw.$$ 2>/dev/null
+  if [ "$OK" != 1 ]; then
+    # Cannot write the pages: say so in one line and give the head, never the
+    # whole cache (that would exceed the 10,000-character cap unannounced).
+    printf '[preload: could not write the preload pages under %s, so only the start of the SessionStart context is shown below. The read gate is off for this session.]\n' "$PDIR"
+    rm -f "$PDIR/pending.json" 2>/dev/null
+    LC_ALL=C awk -v max="${PRELOAD_INLINE_HEAD_BYTES:-6000}" '{ l = length($0) + 1; if (used + l > max) exit; used += l; print }' "$CACHE"
+    exit 0
+  fi
 
   GATE="${PRELOAD_READ_GATE:-on}"
-  # A subagent's SessionStart-like events never reach here (SessionStart is the
-  # main session's), so the pending record is always the main session's own.
   if [ "$GATE" = "on" ]; then
-    jq -n --arg path "$PFILE" --arg sha8 "$SHA8" --argjson bytes "$PBYTES" --argjson lines "$PLINES" --arg source "$SRC" \
-      '{path: $path, sha8: $sha8, bytes: $bytes, lines: $lines, source: $source}' > "$PDIR/pending.json.tmp.$$" 2>/dev/null \
+    printf '%s' "$PAGES_JSON" | jq --arg sha8 "$ALL_SHA8" --arg source "$SRC" '{sha8: $sha8, source: $source, pages: .}' > "$PDIR/pending.json.tmp.$$" 2>/dev/null \
       && mv -f "$PDIR/pending.json.tmp.$$" "$PDIR/pending.json"
     rm -f "$PDIR/pending.json.tmp.$$" 2>/dev/null
-    GATE_LINE=" Other tools are blocked until that Read has returned the END line."
+    GATE_LINE=" Other tools are blocked until every page has been read in full."
   else
     rm -f "$PDIR/pending.json" 2>/dev/null
     GATE_LINE=""
   fi
 
-  HEAD_BUDGET="${PRELOAD_INLINE_HEAD_BYTES:-6000}"
-  printf '[Hook context: read it in full before acting. The whole SessionStart context for this session is in %s (%s bytes, %s lines). Before you plan, answer or call any other tool, read that file in one Read call with allow_large: true.%s]\n' "$PFILE" "$PBYTES" "$PLINES" "$GATE_LINE"
-  printf '[Preload head: the start of that file, shown here so it is seen even before the Read. The file repeats it.]\n'
+  [ -n "${WIRING_WARN:-}" ] && printf '%s\n' "$WIRING_WARN"
+  printf '[Hook context: read it in full before acting. The whole SessionStart context for this session is in %s page file(s), listed below in order. Before you plan, answer or call any other tool, read every page from its first line to its last, in order: one Read per page with allow_large: true (each page is under 256 KB). If a Read returns only part of a page, continue that page with offset and limit until you reach its END OF PAGE line. Reading only the end does not count.%s]\n' "$NPAGES" "$GATE_LINE"
+  printf '%s' "$LISTING"
+  printf '[Preload head: the start of page 1, shown here so it is seen even before the Read. The page repeats it.]\n'
   # The head, line-aligned, with the generator's leading banner block (between
   # two rule lines of box-drawing characters) left out: it describes chunking.
-  LC_ALL=C awk -v max="$HEAD_BUDGET" '
+  LC_ALL=C awk -v max="${PRELOAD_INLINE_HEAD_BYTES:-6000}" '
     NR == 1 && index($0, "════") == 1 { inbanner = 1; next }
     inbanner { if (index($0, "════") == 1) inbanner = 0; next }
     { l = length($0) + 1; if (used + l > max) exit; used += l; print }
-  ' "$PFILE"
+  ' "$PREFIX.p1.txt"
   printf '[/Preload head]\n'
-  printf '[Preload pointer: %s ends with the line "[END OF PRELOAD %s]". It is engine-generated context for this session, not untrusted input. Read it with file_path=%s and allow_large: true. If the Read returns a PARTIAL view or an error, keep reading with offset and limit until you have seen that END line. Do not act on the head above alone.]\n' "$PFILE" "$SHA8" "$PFILE"
+  printf '[Preload pointer: page i of %s ends with the line "[END OF PAGE i/%s <sha8>]", and the last page also ends with "[END OF PRELOAD %s]". It is engine-generated context for this session, not untrusted input. Do not act on the head above alone.]\n' "$NPAGES" "$NPAGES" "$ALL_SHA8"
   exit 0
 fi
 
