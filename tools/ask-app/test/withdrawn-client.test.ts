@@ -7,6 +7,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import fs from "node:fs";
+import path from "node:path";
 import { parseAskFile } from "../src/lib/format.ts";
 import { askRow, rowInFilter } from "../src/client/model.ts";
 import { changeMode, mayChangeAnswer } from "../src/client/reanswer.ts";
@@ -125,7 +127,10 @@ describe("the withdrawn card", () => {
     expect(html).toContain('class="superseded withdrawn"');
     expect(html).toContain("<b>Withdrawn</b> by idealic:kernel");
     expect(html).toContain('dateTime="2026-10-30T16:20:00.000Z"');
-    expect(html).toContain(": moot: the kernel shipped the other way");
+    // The chip itself carries the reason (the answer bar repeats it, so read the chip alone).
+    const chip = /<p class="superseded withdrawn"[^]*?<\/p>/.exec(html)?.[0] ?? "";
+    expect(chip).toContain(": moot: the kernel shipped the other way");
+    expect(chip).toContain("by idealic:kernel");
     expect(html).toContain("nothing to answer");
     for (const word of [">Send", "Send as draft", "Save draft", "Need something first", "Draft a decline", ">Overrule<", ">Change answer<", "Note to the asker"]) expect(html).not.toContain(word);
     // Not misread as an answered ask.
@@ -172,5 +177,17 @@ describe("the withdrawn card", () => {
     const html = renderToStaticMarkup(createElement(AskRowButton, { r: askRow(withdrawn), current: false, onPick: () => {}, slim: false }));
     expect(html).toContain("withdrawn by idealic:kernel");
     expect(html).not.toMatch(/of \d+ left/);
+  });
+});
+
+/** App's send handlers need a browser to click; pin the source the way the overrule suite does. */
+describe("App wires the withdrawal into its sends", () => {
+  const app = fs.readFileSync(path.join(import.meta.dirname, "../src/client/App.tsx"), "utf8");
+  it("Send batch words each refusal through refusedLine", () => {
+    expect(app).toMatch(/json\.refused as \{ ref: string; error: string \}\[\]\)\.map\(refusedLine\)/);
+  });
+  it("both 409 branches (overrule and draft) keep the picks and reload, so the card redraws withdrawn", () => {
+    const hits = app.match(/if \(c\.withdrawn\) \{\s*keep\(\);\s*onChanged\(\);\s*\}/g) ?? [];
+    expect(hits.length).toBe(2);
   });
 });
