@@ -59,8 +59,9 @@ DECISION = re.compile(r"^(?:\[[^\]]*\]\s*)*[^A-Za-z0-9]*decision", re.IGNORECASE
 REGISTERS = [
     ("Ledger", re.compile(r"\U0001F9F5\uFE0F?\s*Ledger")),
     # The name ends at a separator or the end of the heading: "🗳️ Asks read — gate 3" is an event named after
-    # the trigger, not a write of the register (LOOMASK round 2, S1).
-    ("Asks", re.compile(r"\U0001F5F3\uFE0F?\s*(?:Asks|Boards)(?=\s*(?:[\u2014\u2013:(\u00B7-]|at\b|$))")),
+    # the trigger, not a write of the register (LOOMASK round 2, S1). "·" is not a separator: it joins an
+    # event's detail, as in "🗳️ Asks · read at gate 3" (LOOMASK round 3, R4).
+    ("Asks", re.compile(r"\U0001F5F3\uFE0F?\s*(?:Asks|Boards)(?=\s*(?:[\u2014\u2013:(-]|at\b|$))")),
     ("Docs owed", re.compile(r"\U0001F4DA\uFE0F?\s*Docs owed")),
     ("Open claims", re.compile(r"\U0001F513\uFE0F?\s*Open claims")),
     ("Parked", re.compile(r"\U0001F17F\uFE0F?\s*Parked")),

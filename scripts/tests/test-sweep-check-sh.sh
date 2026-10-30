@@ -119,6 +119,22 @@ test_an_asks_read_event_heading_is_not_the_register() {
   done
 }
 
+# "·" joins an event's detail rather than ending the register's name (LOOMASK round 3, R4): a decision
+# followed only by "🗳️ Asks · read at gate 3" is UNROWED, while the timed "at" forms stay the register.
+test_a_middot_asks_event_heading_is_not_the_register() {
+  local log="$TMP_DIR/asksdot.md" out="$TMP_DIR/asksdot.out" rc head
+  write_log "$log" '## 🧵 Ledger' '' '## 🗳️ Asks' '* seat/a1 — open — to manager:x since gate 2' '' \
+    '## 📚 Docs owed' '' '## 🔓 Open claims' '' '## 🅿️ Parked' '' '## 💡 Decision — d1' '' \
+    '## [2026-10-30 03:00:00] 🗳️ Asks · read at gate 3: seat/a1 still open'
+  rc=$(run_check "$out" "$log")
+  assert_eq "3" "$rc" "a '🗳️ Asks · read at gate 3' event heading after the decision is not a register write"
+  for head in '🗳️ Asks at 22:21' '🗳️ Boards at 22:24'; do
+    write_log "$log" '## 💡 Decision — a plain decision' '' "## $head"
+    rc=$(run_check "$out" "$log")
+    assert_eq "0" "$rc" "control: '$head' still counts as the register"
+  done
+}
+
 # Both heading shapes are decisions. The anchored pattern sees one of these two.
 test_stamped_and_unstamped_headings_are_both_found() {
   local log="$TMP_DIR/shapes.md" out="$TMP_DIR/shapes.out" anchored

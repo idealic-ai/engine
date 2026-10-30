@@ -256,6 +256,21 @@ test_an_asks_read_event_heading_is_not_the_asks_register() {
   assert_contains "Asks         register instrument=  2" "$(cat "$out")" "control: '🗳️ Asks (live)' still counts"
 }
 
+# "·" joins an event's detail rather than ending the register's name (LOOMASK round 3, R4).
+test_a_middot_asks_event_heading_is_not_the_asks_register() {
+  local log="$TMP_DIR/asksdot.md" out="$TMP_DIR/asksdot.out" rc
+  write_log "$log" '## 🧵 Ledger' '' '## 🗳️ Asks' '* seat/a1 — open — REGISTERMARK' '' \
+    '## 💡 Decision — d1' '' \
+    '## [2026-10-30 03:00:00] 🗳️ Asks · read at gate 3: seat/a1 still open, DOTMARK' ''
+  rc=$(run_text "$out" "$log")
+  assert_contains "Asks         register instrument=  1" "$(cat "$out")" "the '· read at gate' event heading is not counted as the register"
+  assert_not_contains "DOTMARK" "$(register_section "$out" "Asks")" "the event heading is not rendered as the present Asks"
+  write_log "$log" '## 🗳️ Asks at 22:21 — ATMARK' '' '## 🗳️ Boards at 22:24 — BOARDSATMARK' ''
+  rc=$(run_text "$out" "$log")
+  assert_contains "Asks         register instrument=  2" "$(cat "$out")" "control: 'Asks at 22:21' and 'Boards at 22:24' both count"
+  assert_contains "BOARDSATMARK" "$(register_section "$out" "Asks")" "control: the latest timed heading is the present Asks"
+}
+
 test_a_known_mark_may_sit_around_the_glyph() {
   local log="$TMP_DIR/marks.md" out="$TMP_DIR/marks.out" rc
   write_log "$log" \
