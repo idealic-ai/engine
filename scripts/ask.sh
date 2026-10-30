@@ -213,7 +213,9 @@ cmd_serve() {
   local found=() hit hport
   while IFS= read -r hit; do
     [ -n "$hit" ] || continue
-    hport=$(ps -o command= -p "$hit" 2>/dev/null | sed -n 's/.*ask-app\/src\/server\.ts --root .* --port \([0-9]*\).*/\1/p')
+    # A listed server may exit before ps reads it (another root's, on a busy box): under set -e and
+    # pipefail that failed ps would end serve silently, so it only means "not a hit".
+    hport=$(ps -o command= -p "$hit" 2>/dev/null | sed -n 's/.*ask-app\/src\/server\.ts --root .* --port \([0-9]*\).*/\1/p') || continue
     if [ -n "$hport" ] && is_ours "$hit" "$hport" "$root"; then found+=("$hit $hport"); fi
   # N4: pgrep matches a REGEX, so the root (which may hold + or parentheses) is not in the pattern;
   # every ask-app server is listed and is_ours matches the root as a fixed string.
@@ -223,7 +225,7 @@ cmd_serve() {
     local stopped=0 entry spid
     for entry in "${found[@]+"${found[@]}"}"; do
       spid=${entry%% *}
-      kill "$spid"
+      kill "$spid" 2>/dev/null || true   # it may have exited since the search found it
       for _ in $(seq 1 50); do kill -0 "$spid" 2>/dev/null || break; sleep 0.05; done
       echo "stopped ask-app pid $spid"
       stopped=1

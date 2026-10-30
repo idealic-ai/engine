@@ -353,6 +353,21 @@ test_v2_lost_pidfile_server_is_adopted_not_doubled() {
   kill "$stranger" 2>/dev/null || true
 }
 
+# Another root's server that exits between serve's pgrep and its ps must not end serve. Where other
+# lanes run this suite at once, one does; under set -e that ended serve and --stop silently, so a
+# running server was neither adopted nor stopped. The pgrep shim lists a pid that has already exited.
+test_serve_survives_a_server_that_vanishes_mid_search() {
+  local port=$(free_port) bin="$TMP/bin" dead out
+  "$ASK_SH" serve "$ASK_ROOT" --port "$port" >/dev/null 2>&1
+  sleep 0 & dead=$!; wait "$dead"
+  mkdir -p "$bin"
+  printf '#!/bin/bash\necho %s\nexec /usr/bin/pgrep "$@"\n' "$dead" > "$bin/pgrep"; chmod +x "$bin/pgrep"
+  out=$(PATH="$bin:$PATH" "$ASK_SH" serve "$ASK_ROOT" 2>&1)
+  assert_contains "http://127.0.0.1:$port/" "$out" "serve still finds its server when another vanishes mid-search"
+  out=$(PATH="$bin:$PATH" "$ASK_SH" serve "$ASK_ROOT" --stop 2>&1)
+  assert_contains "stopped ask-app pid" "$out" "and --stop still stops it"
+}
+
 # ── v2 fix round 1 ──────────────────────────────────────────────────────────────
 
 # M3: --by is checked against FLEET_PANE on answer, draft, forward, send and discard.
