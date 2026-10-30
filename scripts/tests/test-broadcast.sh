@@ -520,10 +520,10 @@ act() {
 }
 
 test_queue_idle_seat_is_queued_not_pushed() {
-  act 2004 idle 120; act 2005 idle 5
+  act 2004 idle 120; act 2005 busy 5
   bc --children --from manager:app --id q1
   assert_eq 0 "$RC" "queue: a send with a queued seat exits 0"
-  assert_eq "app:ui" "$(cut -d'|' -f1 "$FIX/sent.log" | tr '\n' ' ' | sed 's/ $//')" "queue: only the seat active within the hour is pushed"
+  assert_eq "app:ui" "$(cut -d'|' -f1 "$FIX/sent.log" | tr '\n' ' ' | sed 's/ $//')" "queue: only the busy seat is pushed"
   local body; body=$(cat "$FIX/bc/q1.md")
   assert_has "queued app:ask pid=2004 idle=120m" "$body" "queue: the idle seat gets a queued line with its idle time"
   assert_has "delivered app:ui pid=2005" "$body" "queue: the active seat is delivered as before"
@@ -543,28 +543,61 @@ test_queue_busy_and_unread_seats_are_live() {
   assert_has "done: rc=0 delivered=2 undelivered=0 at " "$(cat "$FIX/bc/q2.md")" "queue: the done line is unchanged when nothing is queued"
 }
 
-test_queue_window_is_a_setting() {
-  act 2004 idle 120; act 2005 idle 5
-  BROADCAST_LIVE_WINDOW=180 bc --children --from manager:app --id w1
-  assert_eq 2 "$(sent_count)" "window: 180 minutes pushes a seat idle 120m"
+# Operator ruling "stop waking everything up": only a busy seat is pushed live; an idle seat is
+# queued however recently it was active, and only --wake-reason pushes to it.
+test_queue_recently_active_idle_seat_is_queued() {
+  act 2004 idle 5; act 2005 busy 5
+  bc --children --from manager:app --id rc1
+  assert_has "queued app:ask pid=2004 idle=5m via=status" "$(cat "$FIX/bc/rc1.md")" "rule: an idle seat active 5 minutes ago is queued"
+  assert_has "delivered app:ui pid=2005" "$(cat "$FIX/bc/rc1.md")" "rule: a busy seat is delivered"
+  assert_eq "app:ui" "$(cut -d'|' -f1 "$FIX/sent.log" | tr '\n' ' ' | sed 's/ $//')" "rule: and only it is pushed"
   : > "$FIX/sent.log"
-  BROADCAST_LIVE_WINDOW=1 bc --children --from manager:app --id w2
-  assert_eq 0 "$(sent_count)" "window: 1 minute queues a seat idle 5m"
-  assert_has "queued app:ui pid=2005 idle=5m" "$(cat "$FIX/bc/w2.md")" "window: and records it queued"
-  BROADCAST_LIVE_WINDOW=soon bc --children --from manager:app --id w3
-  assert_has "BROADCAST_LIVE_WINDOW 'soon' is not" "$OUT" "window: a bad value warns"
-  assert_has "queued app:ask" "$(cat "$FIX/bc/w3.md")" "window: and falls back to 60 minutes"
-  assert_has "delivered app:ui" "$(cat "$FIX/bc/w3.md")" "window: 60 minutes still pushes a seat idle 5m"
+  bc --children --from manager:app --id rc2 --wake-reason "operator: resume after the limit"
+  assert_eq 2 "$(sent_count)" "rule: --wake-reason delivers to the idle seat and the busy one"
+  assert_has "wake-reason: operator: resume after the limit" "$(awk '/^## Text/ { exit } { print }' "$FIX/bc/rc2.md")" "rule: the record carries the reason"
+  bc status rc2
+  assert_has "wake-reason: operator: resume after the limit" "$OUT" "rule: status shows the reason"
+}
+
+test_queue_all_with_idle_seats_wakes_none() {
+  local p; for p in 2001 2002 2003 2004 2005 2006 2007; do act "$p" idle 3; done
+  act 2005 busy 1
+  bc --all --from manager:director --id an1
+  assert_eq 0 "$RC" "all: an ordinary --all needs no extra flag"
+  assert_eq "app:ui" "$(cut -d'|' -f1 "$FIX/sent.log" | tr '\n' ' ' | sed 's/ $//')" "all: only the busy seat is pushed live"
+  assert_has "done: rc=0 delivered=1 undelivered=0 queued=5 at " "$(cat "$FIX/bc/an1.md")" "all: every idle seat is queued"
+}
+
+test_queue_bare_wake_is_refused() {
+  act 2004 idle 120
+  local f
+  for f in --wake --all-live; do
+    : > "$FIX/sent.log"
+    bc --children --from manager:app --id "bw${f//-/}" "$f"
+    assert_eq 2 "$RC" "bare $f: exits 2"
+    assert_has "--wake-reason" "$OUT" "bare $f: names --wake-reason"
+    assert_eq 0 "$(sent_count)" "bare $f: sends nothing"
+    assert_file_not_exists "$FIX/bc/bw${f//-/}.md" "bare $f: writes nothing"
+  done
+  bc --children --from manager:app --id bw3 --wake-reason "   "
+  assert_eq 2 "$RC" "blank --wake-reason: exits 2"
+  bc --children --from manager:app --id bw4 --wake-reason $'two\nlines'
+  assert_eq 2 "$RC" "two-line --wake-reason: exits 2"
+  bc --children --from manager:app --id bw5 --wake-reason
+  assert_eq 2 "$RC" "--wake-reason with no value: exits 2"
+  bc --children --from manager:app --id bw6
+  PANE=%3 bc resend bw6 --wake
+  assert_eq 2 "$RC" "resend --wake: bare is refused"
 }
 
 test_queue_all_live_pushes_everyone() {
   act 2004 idle 120; act 2005 idle 500
-  bc --children --from manager:app --id al1 --all-live
+  bc --children --from manager:app --id al1 --wake-reason "test: wake"
   assert_eq 0 "$RC" "all-live: exits 0"
   assert_eq 2 "$(sent_count)" "all-live: every audience seat is pushed whatever its activity"
   assert_hasnt "queued" "$(cat "$FIX/bc/al1.md")" "all-live: nothing queued"
   : > "$FIX/sent.log"
-  bc --all --all-live --from manager:director --id al2
+  bc --all --wake-reason "test: wake" --from manager:director --id al2
   assert_eq "manager:app manager:domain app:ask app:ui ask:helper domain:stats" "$(audience)" "all-live: --all keeps its audience"
   assert_eq 6 "$(sent_count)" "all-live: and pushes all of it"
   bc --all --from manager:director --id al3 --dry-run
@@ -630,7 +663,7 @@ test_queue_resend_all_live_clears_the_queue() {
   : > "$FIX/sent.log"
   PANE=%3 bc resend rq1 --undelivered
   assert_eq 0 "$(sent_count)" "resend: an idle queued seat stays queued"
-  PANE=%3 bc resend rq1 --undelivered --wake
+  PANE=%3 bc resend rq1 --undelivered --wake-reason "test: wake"
   assert_eq 1 "$(sent_count)" "resend --all-live: pushes the queued seat"
   assert_file_not_exists "$FIX/bc/queued/app:ask/rq1" "resend --all-live: the queue entry is cleared"
   PANE=%4 bc pending
@@ -655,8 +688,8 @@ test_queue_go_request_idle_owner() {
 test_queue_go_request_wake_pushes_idle_owner() {
   go_repo
   act 2004 idle 120
-  PANE=%2 goreq --pr 29 --rows alpha,beta --commits base..HEAD --id gw1 --wake
-  assert_eq 0 "$RC" "go --wake: go-request accepts --wake"
+  PANE=%2 goreq --pr 29 --rows alpha,beta --commits base..HEAD --id gw1 --wake-reason "test: wake"
+  assert_eq 0 "$RC" "go --wake-reason: go-request accepts it"
   assert_has "app:ask|" "$(cat "$FIX/sent.log")" "go --wake: the idle owner is pushed live"
   assert_hasnt "queued app:ask" "$(cat "$FIX/bc/gw1.md")" "go --wake: and not queued"
 }
@@ -708,7 +741,7 @@ test_queue_waiting_status_is_named() {
 # ---------------------------------------------------------------- wake kind (IDE-352 round 4)
 test_wake_reaches_an_idle_seat_live() {
   act 2004 idle 120; act 2005 idle 500
-  bc --children --from manager:app --id wk1 --wake
+  bc --children --from manager:app --id wk1 --wake-reason "test: wake"
   assert_eq 0 "$RC" "wake: exits 0"
   assert_has "kind: wake" "$OUT" "wake: the sender is shown the kind"
   assert_eq 2 "$(sent_count)" "wake: both idle seats are pushed live"
@@ -731,13 +764,6 @@ test_wake_ordinary_still_queues() {
   assert_hasnt "resent as wake" "$OUT" "ordinary: and no wake resend"
 }
 
-test_wake_all_live_is_its_alias() {
-  act 2004 idle 120
-  bc --children --from manager:app --id wa1 --all-live
-  assert_hasnt "queued" "$(cat "$FIX/bc/wa1.md")" "alias: --all-live pushes the idle seat"
-  bc status wa1
-  assert_has "kind: wake" "$OUT" "alias: and records the wake kind"
-}
 
 test_wake_choice_gate_and_queue_idle_are_gone() {
   act 2004 idle 120
@@ -749,12 +775,12 @@ test_wake_choice_gate_and_queue_idle_are_gone() {
   assert_file_not_exists "$FIX/bc/gg2.md" "queue-idle gone: nothing written"
   assert_hasnt "queue-idle" "$(sed -n '1,80p' "$BROADCAST_SH")" "usage: no --queue-idle"
   assert_hasnt "NEEDS_CHOICE" "$(cat "$BROADCAST_SH")" "the gate variable is gone from the script"
-  assert_has "engine broadcast --all --wake" "$(sed -n '1,80p' "$BROADCAST_SH")" "usage: names the resume command"
+  assert_has "engine broadcast --all --wake-reason" "$(sed -n '1,80p' "$BROADCAST_SH")" "usage: names the resume command"
 }
 
 test_wake_resend() {
   act 2004 idle 120
-  bc --children --from manager:app --id wr1 --wake
+  bc --children --from manager:app --id wr1 --wake-reason "test: wake"
   : > "$FIX/sent.log"
   PANE=%3 bc resend wr1
   assert_eq 2 "$(sent_count)" "wake resend: a wake record is resent as a wake"
@@ -763,7 +789,7 @@ test_wake_resend() {
   : > "$FIX/sent.log"
   PANE=%3 bc resend wr2 --undelivered
   assert_eq 0 "$(sent_count)" "ordinary resend: the idle seat stays queued"
-  PANE=%3 bc resend wr2 --undelivered --wake
+  PANE=%3 bc resend wr2 --undelivered --wake-reason "test: wake"
   assert_eq 1 "$(sent_count)" "resend --wake: pushes the queued seat live"
   assert_file_not_exists "$FIX/bc/queued/app:ask/wr2" "resend --wake: the queue entry is cleared"
   bc status wr2
@@ -778,7 +804,7 @@ test_wake_go_request_interplay_unchanged() {
   assert_hasnt "app:ask|" "$(cat "$FIX/sent.log")" "go+wake: the idle owner is queued, as before"
   assert_eq "go-request" "$(awk '/^## Text/ { exit } /^kind: / { print $2 }' "$FIX/bc/gw1.md")" "go+wake: the record stays kind: go-request"
   : > "$FIX/sent.log"
-  PANE=%2 bc resend gw1 --undelivered --wake
+  PANE=%2 bc resend gw1 --undelivered --wake-reason "test: wake"
   assert_has "app:ask|" "$(cat "$FIX/sent.log")" "go+wake: resend --wake pushes the idle owner"
   assert_has "receipt path app:ask $c1 $(rid "$c1" kern/a.ts) -- kern/a.ts" "$(cat "$FIX/sent.log")" "go+wake: with its own receipt lines"
   assert_hasnt "receipt path domain:stats" "$(grep '^app:ask|' "$FIX/sent.log")" "go+wake: and only its own"
@@ -835,11 +861,11 @@ test_queue_push_sets_the_entry_aside_first() {
   act 2004 idle 120
   bc --children --from manager:app --id ps1
   echo app:ask > "$FIX/failseats"
-  PANE=%3 bc resend ps1 --undelivered --all-live
+  PANE=%3 bc resend ps1 --undelivered --wake-reason "test: wake"
   assert_has "undelivered app:ask" "$(cat "$FIX/bc/ps1.md")" "push aside: a failed push is undelivered"
   assert_file_exists "$FIX/bc/queued/app:ask/ps1" "push aside: and its queue entry is put back"
   : > "$FIX/failseats"; rm -f "$FIX/queued-at-push"
-  PANE=%3 bc resend ps1 --undelivered --all-live
+  PANE=%3 bc resend ps1 --undelivered --wake-reason "test: wake"
   assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/ps1.md")" "push aside: the retry lands"
   assert_file_not_exists "$FIX/queued-at-push" "push aside: the entry was out of the queue while the push ran"
   assert_file_not_exists "$FIX/bc/queued/app:ask/ps1" "push aside: and is gone after it"
@@ -889,8 +915,8 @@ test_idle_same_name_in_two_projects_takes_newest() {
   mv "$TXF" "$z/$sid.jsonl"   # the cwd's slug now misses; the live copy sorts after the stale one
   rmdir "$(dirname "$TXF")" 2>/dev/null
   bc --children --from manager:app --id nw1
-  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/nw1.md")" "same name: the newest copy (a turn 3m ago) is read, not the first directory's"
-  assert_hasnt "queued app:ask" "$(cat "$FIX/bc/nw1.md")" "same name: and the seat is not queued from the stale copy"
+  assert_has "queued app:ask pid=2004 idle=3m via=transcript" "$(cat "$FIX/bc/nw1.md")" "same name: the newest copy (a turn 3m ago) is read, not the first directory's"
+  assert_hasnt "idle=120m" "$(cat "$FIX/bc/nw1.md")" "same name: and the idle time is not the stale copy's"
   local got; got=$(bash -c 'source "$1" >/dev/null 2>&1; transcript_by_key "$2" /w/none "$3"' _ "$LIB_SH" "$sid.jsonl" "$FIX/projects")
   assert_eq "$z/$sid.jsonl" "$got" "same name: transcript_by_key prints the newest by mtime"
   touch -t 202001010000 "$z/$sid.jsonl"; touch "$a/$sid.jsonl"
@@ -912,7 +938,7 @@ test_ack_drops_the_wake_copy() {
 test_go_request_takes_wake() {
   go_repo
   act 2004 idle 120
-  PANE=%2 goreq --pr 29 --rows alpha,beta --commits base..HEAD --id gwk1 --wake
+  PANE=%2 goreq --pr 29 --rows alpha,beta --commits base..HEAD --id gwk1 --wake-reason "test: wake"
   assert_eq 0 "$RC" "go --wake: accepted"
   assert_has "app:ask|" "$(cat "$FIX/sent.log")" "go --wake: the idle owner is pushed live"
   assert_eq "go-request" "$(awk '/^## Text/ { exit } /^kind: / { print $2 }' "$FIX/bc/gwk1.md")" "go --wake: the record stays kind: go-request"
@@ -949,8 +975,7 @@ tx() {
 test_idle_transcript_newer_than_status_is_active() {
   act 2004 idle 120; tx 2004 3
   bc --children --from manager:app --id tr1
-  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/tr1.md")" "transcript: a turn 3m ago in the transcript is active though the status is 120m old"
-  assert_hasnt "queued app:ask" "$(cat "$FIX/bc/tr1.md")" "transcript: and is not queued"
+  assert_has "queued app:ask pid=2004 idle=3m via=transcript" "$(cat "$FIX/bc/tr1.md")" "transcript: the idle time shown is the transcript's 3m, not the status's 120m; idle is still queued"
 }
 
 test_idle_status_newer_but_transcript_old_is_idle() {
@@ -976,7 +1001,7 @@ test_idle_no_transcript_falls_back_to_status() {
   assert_has "queued app:ui pid=2005 idle=120m via=transcript" "$(cat "$FIX/bc/tr4.md")" "fallback: beside a seat read from its transcript"
   act 2004 idle 5
   bc --children --from manager:app --id tr4b
-  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/tr4b.md")" "fallback: a recent status with no transcript is active"
+  assert_has "queued app:ask pid=2004 idle=5m via=status" "$(cat "$FIX/bc/tr4b.md")" "fallback: a recent status with no transcript is read, and the idle seat still queued"
 }
 
 test_idle_transcript_without_event_falls_back() {
@@ -1002,7 +1027,7 @@ test_idle_reads_only_the_tail() {
   BROADCAST_TRANSCRIPT_TAIL=2000 bc --children --from manager:app --id tr7
   assert_has "queued app:ask pid=2004 idle=120m via=status" "$(cat "$FIX/bc/tr7.md")" "tail: an event before the tail is not read (the cut first line is dropped)"
   bc --children --from manager:app --id tr7b
-  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/tr7b.md")" "tail: with the default tail the same event is read"
+  assert_has "queued app:ask pid=2004 idle=2m via=transcript" "$(cat "$FIX/bc/tr7b.md")" "tail: with the default tail the same event is read"
 }
 
 # ---------------------------------------------------------------- parity (S7)

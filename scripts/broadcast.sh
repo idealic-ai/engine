@@ -3,39 +3,41 @@
 # with a durable record, receipts, and standing (sticky) guidance for sessions that start later.
 #
 #   engine broadcast [send] (--subtree SEAT | --children | --all) [--from SEAT] [--id SLUG]
-#                    [--sticky [--expires YYYY-MM-DD[THH:MM:SSZ]]] [--wake]
-#                    [--dry-run] <<'MSG'
+#                    [--sticky [--expires YYYY-MM-DD[THH:MM:SSZ]]] [--wake-reason WHY] [--dry-run] <<'MSG'
 #   <text>
 #   MSG
 #       Audience from the live tmux tree (@pane_parent chains):
 #         --children      the --from seat's direct children
 #         --subtree SEAT  every descendant of SEAT (not SEAT itself)
 #         --all           every live seat whose pane holds an interactive Claude session,
-#                         except --from and the sender (shell panes are skipped and listed)
+#                         except --from and the sender (shell panes are skipped and listed).
+#                         Like every ordinary broadcast it wakes nobody: idle seats are queued.
 #       --from (default: this seat) must be in the live tree. The record also names `sent-by`, the
 #       caller's own seat resolved live by fleet_self (scripts/lib.sh). Every write — and pending
 #       without --for — refuses an identity that is only the launch-time FLEET_PANE cache, or none
 #       (outside tmux): there is no unseated send. --dry-run prints the audience and each seat's
 #       binding; writes and sends nothing.
-#       Live or queued (IDE-352): a seat is pushed live only when its session was active within
-#       BROADCAST_LIVE_WINDOW minutes (default 60: a default threshold, a policy choice, not a
-#       measured prompt-cache TTL): status "busy" in the seat's ~/.claude/sessions/<pid>.json, or a
-#       newest user/assistant event that recent in its bound transcript (the session id's .jsonl,
-#       found by lib.sh transcript_by_key; only its tail is read), or, when no transcript resolves
-#       or it holds no such event, a statusUpdatedAt that recent. Any other bound seat is queued
-#       ("queued <seat> pid=<pid> idle=<N>m", plus " status=<s>" when the reading is neither idle
-#       nor empty, e.g. waiting: a seat blocked on a permission prompt needs the operator, not a
-#       broadcast; then " via=transcript|status", the reading the idle time came from;
-#       $BROADCAST_DIR/queued/<seat>/<id>) and
-#       shown once at its next wake by `pending` (SessionStart, and `pending --queued` on each
-#       prompt), which then records "delivered <seat> at-wake <time>". A session with no reading is
-#       pushed live. A queued seat is not a failure: it does not set exit 1.
-#       --wake makes it a wake broadcast (operator ruling, IDE-352 round 4): pushed live to every
-#       audience seat whatever its activity, never queued, and recorded as "kind: wake" in its
-#       record (status shows the kind). A resume or a limit-lifted broadcast is a wake broadcast:
-#         engine broadcast --all --wake <<<'…resume…'
-#       --all-live is the older spelling of --wake and means the same (--all still means the
-#       audience is every live seat). Every other broadcast is ordinary: idle seats are queued.
+#       Live or queued (operator ruling, "stop waking everything up"): an ordinary broadcast is
+#       pushed live only to a seat that is busy right now (status "busy", mid-turn, in its
+#       ~/.claude/sessions/<pid>.json): a busy seat is already awake, so the push wakes nobody.
+#       Every other bound seat is queued, however recently it was active ("queued <seat>
+#       pid=<pid> idle=<N>m", or idle=? when there is no reading, plus " status=<s>" when the status
+#       is neither idle nor empty, e.g. waiting; then " via=transcript|status", where the idle
+#       time was read: the newest user/assistant event in its bound transcript, found by lib.sh
+#       transcript_by_key and read from its tail, else statusUpdatedAt; the idle time is shown, it
+#       decides nothing; $BROADCAST_DIR/queued/<seat>/<id>) and shown once at its next wake by
+#       `pending` (SessionStart, and `pending --queued` on each prompt), which then records
+#       "delivered <seat> at-wake <time>". A registry file with neither status nor statusUpdatedAt
+#       gives no reading, and that seat is pushed live. A queued seat is not a failure: it does
+#       not set exit 1.
+#       --wake-reason "<why>" makes it a wake broadcast, and is the only way to push to an idle
+#       seat: pushed live to every audience seat, idle or not, which WAKES every one of them,
+#       never queued, recorded as "kind: wake" with "wake-reason: <why>" (status shows both). It
+#       is for the operator's explicit order only, such as a resume or a lifted limit; the reason
+#       is one non-blank line:
+#         engine broadcast --all --wake-reason "operator: resume, the limit lifted" <<<'…'
+#       A bare --wake (or its older spelling --all-live) is refused with exit 2: a wake needs its
+#       reason. Every other broadcast is ordinary: idle seats are queued.
 #       exit 0 every seat accepted or queued (or dry run) · 1 record written, ≥1 seat undelivered ·
 #       2 usage / identity / existing id · 3 seat not in the live tree · 4 live tree unreadable.
 #
@@ -44,10 +46,11 @@
 #   engine broadcast status <id>              per seat: delivered | queued | undelivered |
 #                                             not-attempted, then acked | not-acked; the kind
 #                                             (wake | ordinary); complete marker
-#   engine broadcast resend <id> [--undelivered] [--wake]   explicit retry (no automatic one); an
-#                                             idle seat is queued again unless the record is a wake
-#                                             broadcast or --wake (alias --all-live) is given; the
-#                                             resend line then says kind=wake. A live push clears
+#   engine broadcast resend <id> [--undelivered] [--wake-reason WHY]   explicit retry (no
+#                                             automatic one); an idle seat is queued again unless the
+#                                             record is a wake broadcast (its own reason is reused) or
+#                                             --wake-reason is given; the resend line then says
+#                                             kind=wake, with a resend-wake-reason line. A live push clears
 #                                             its queue entry
 #   engine broadcast retract <id>             withdraw a sticky broadcast (its sender only)
 #   engine broadcast pending [--for SEAT] [--limit N] [--queued] [--peek]   first the broadcasts queued for
@@ -67,7 +70,7 @@
 #
 #   Go requests (kit LANDING.md "Get the go"; IDE-350):
 #   engine broadcast go-request --pr N [--rows ROW[,ROW…]] [--paths PATH[,PATH…]] [--repo PATH]
-#                    [--commits RANGE] [--owners FILE] [--id SLUG] [--wake|--all-live] [--dry-run]
+#                    [--commits RANGE] [--owners FILE] [--id SLUG] [--wake-reason WHY] [--dry-run]
 #       --rows, --paths or both; at least one. A --paths PATH goes straight to the owners map, as a
 #       row's owner path does; the audience is the union of the rows' seats and the paths' seats,
 #       and each seat's receipt covers all its paths from either flag.
@@ -153,8 +156,6 @@
 #        ASK_SESSIONS_DIR — the session registry (shared with deliver.ts).
 #        BROADCAST_INLINE_MAX — the cut, in characters (default 1500); anything but a positive
 #        integer of at most 9 digits warns on stderr and falls back to 1500.
-#        BROADCAST_LIVE_WINDOW — minutes a seat counts as active (default 60); anything but a
-#        whole number of at most 6 digits warns and falls back to 60. 0 pushes only busy seats.
 #        Test seams: BROADCAST_DELIVER (`<cmd> <seat> <pid> <message>`, exit 0 = delivered),
 #        BROADCAST_PANE_PIDS ("<pane_id> <pid>" lines), BROADCAST_PS_FILE ("<pid> <ppid>" lines).
 set -uo pipefail
@@ -317,23 +318,24 @@ deliver() { # deliver <seat> <pid> <name> <message> → one status line; rc 0 = 
   return "$rc"
 }
 
-# ---- who is pushed live, who is queued (IDE-352) ----
-# A push wakes the seat, and a seat whose prompt cache has gone cold re-reads its whole context to
-# take it. So a bound seat is pushed live only when its session was active within
-# BROADCAST_LIVE_WINDOW minutes (default 60: a default threshold, chosen as policy; no TTL for these
-# sessions' prompt cache has been confirmed); any other is queued and shown at its next wake by
-# `pending`. The reading is the session registry file bind() already
-# reads (~/.claude/sessions/<pid>.json, written by Claude Code itself): status "busy" is mid-turn,
-# so active; otherwise statusUpdatedAt (epoch ms) is when the status last changed, which for an
-# idle seat is the end of its last turn. A file with neither field gives no reading, and a seat
-# with no reading is pushed live, as before this rule. A wake broadcast (--wake, alias --all-live;
-# operator ruling, IDE-352 round 4) pushes every seat: LIVE_ALL is what fan_out obeys.
-LIVE_ALL=0
-BROADCAST_LIVE_WINDOW="${BROADCAST_LIVE_WINDOW:-60}"
-if ! [[ "$BROADCAST_LIVE_WINDOW" =~ ^[0-9]{1,6}$ ]]; then
-  echo "broadcast: BROADCAST_LIVE_WINDOW '$BROADCAST_LIVE_WINDOW' is not a whole number of minutes; using 60" >&2
-  BROADCAST_LIVE_WINDOW=60
-fi
+# ---- who is pushed live, who is queued (IDE-352; operator ruling "stop waking everything up") ----
+# A push to an idle seat wakes it, and a woken seat re-reads its context to take the push. So an
+# ordinary broadcast is pushed live only to a seat that is busy right now: status "busy" (mid-turn)
+# in the session registry file bind() already reads (~/.claude/sessions/<pid>.json, written by
+# Claude Code). Every other bound seat is queued, however recently it was active, and is shown the
+# broadcast at its next prompt or SessionStart. The idle time printed beside a queued seat is for
+# the reader; it decides nothing. A wake broadcast (--wake, alias --all-live) pushes every seat:
+# LIVE_ALL is what fan_out obeys.
+LIVE_ALL=0 WAKE_REASON=""
+# wake_reason <argc> <value> — take --wake-reason's value: one non-blank line. Sets LIVE_ALL.
+wake_reason() {
+  [ "$1" -ge 2 ] || die 2 "--wake-reason needs a reason: why every audience seat must be woken"
+  case "$2" in *$'\n'*|*$'\r'*) die 2 "--wake-reason takes one line" ;; esac
+  [ -n "${2//[[:space:]]/}" ] || die 2 "--wake-reason needs a non-blank reason"
+  WAKE_REASON="$2"; LIVE_ALL=1
+}
+# A bare --wake is refused: a push to an idle seat wakes it (operator ruling).
+wake_bare() { die 2 "$1 alone is refused: a push to an idle seat wakes it. Pass --wake-reason \"<why>\" (the operator's explicit order, such as a resume), or leave it out and idle seats are queued"; }
 # Since round 3 (operator ruling, IDE-352) the reading is the seat's bound transcript first: the
 # newest user or assistant event's `timestamp` in ~/.claude/projects/*/<sessionId>.jsonl, found by
 # lib.sh transcript_by_key (the rule Guard 3 of hooks/stop-auto-continue.sh uses), and read from the
@@ -362,32 +364,33 @@ transcript_ts() {
   [[ "$out" =~ ^[0-9]{9,11}$ ]] || return 1
   echo "$out"
 }
-# idle_for <pid> → prints "<minutes idle> <status> <via>" (via: transcript | status) and returns 0
-# when the seat is past the window; returns 1 (active, or no reading) otherwise.
+# idle_for <pid> → prints "<minutes idle or ?> <status> <via>" (via: transcript | status | none)
+# and returns 0 when the seat is not busy right now (it is queued); returns 1 when it is busy, or
+# its registry file cannot be read (it is pushed live).
 idle_for() {
-  local st t sid cwd f last="" via=status age
+  local st t sid cwd f last="" via=none
   # Joined on US (0x1f), not tab: tab is IFS whitespace, so an empty field would shift the rest.
   IFS=$'\x1f' read -r st t sid cwd < <(jq -r '[(.status // "" | tostring), (.statusUpdatedAt // "" | tostring),
       (.sessionId // "" | tostring), (.cwd // "" | tostring)] | map(gsub("[\u001f\n]"; " ")) | join("\u001f")' \
       "$SESS_DIR/$1.json" 2>/dev/null) || return 1
   [ "$st" != busy ] || return 1
+  # A registry file with neither field gives no reading: it is pushed live, as before this rule.
+  [ -n "$st" ] || [ -n "$t" ] || return 1
   if [ -n "$sid" ] && f=$(transcript_of "$sid" "$cwd") && last=$(transcript_ts "$f"); then
     via=transcript
   elif [[ "$t" =~ ^[0-9]{10,16}$ ]]; then
-    last=$(( t / 1000 ))
-  else
-    return 1
+    last=$(( t / 1000 )); via=status
   fi
-  age=$(( $(date +%s) - last ))
-  [ "$age" -gt $(( BROADCAST_LIVE_WINDOW * 60 )) ] || return 1
-  echo "$(( age / 60 )) ${st:-idle} $via"
+  if [ -n "$last" ]; then echo "$(( ($(date +%s) - last) / 60 )) ${st:-idle} $via"
+  else echo "? ${st:-idle} $via"; fi
 }
 # idle_words <idle_for output> → "idle=<N>m", plus " status=<s>" unless the status is idle, then
 # " via=<transcript|status>": which reading the idle time came from.
 idle_words() {
   local m st via; read -r m st via <<<"$1"
-  printf 'idle=%sm' "$m"; [ "$st" = idle ] || printf ' status=%s' "$st"
-  [ -z "$via" ] || printf ' via=%s' "$via"
+  if [ "$m" = "?" ]; then printf 'idle=?'; else printf 'idle=%sm' "$m"; fi
+  [ "$st" = idle ] || printf ' status=%s' "$st"
+  [ -z "$via" ] || [ "$via" = none ] || printf ' via=%s' "$via"
 }
 queue_dir() { echo "$BDIR/queued/$(ack_key "$1")"; }
 # unqueue <seat> <id> — drop the seat's queue entry and every wake key's copy of it (an ack: an
@@ -506,6 +509,7 @@ cmd_send() {
   local scope="" target="" from="" id="" sticky=no expires="-" dry=0 n=0
   while [ $# -gt 0 ]; do
     case "$1" in
+      --wake-reason) wake_reason $# "${2-}"; shift 2 ;;
       --subtree) need_val "$1" $# "${2:-}"; scope=subtree; target="$2"; n=$((n + 1)); shift 2 ;;
       --children) scope=children; n=$((n + 1)); shift ;;
       --all) scope=all; n=$((n + 1)); shift ;;
@@ -513,7 +517,8 @@ cmd_send() {
       --id) need_val "$1" $# "${2:-}"; id="$2"; shift 2 ;;
       --expires) need_val "$1" $# "${2:-}"; expires="$2"; shift 2 ;;
       --sticky) sticky=yes; shift ;;
-      --wake|--all-live) LIVE_ALL=1; shift ;;
+      --wake-reason) wake_reason $# "${2-}"; shift 2 ;;
+      --wake|--all-live) wake_bare "$1" ;;
       --dry-run) dry=1; shift ;;
       *) die 2 "unknown argument $1" ;;
     esac
@@ -554,6 +559,7 @@ cmd_send() {
   local rec="$BDIR/$id.md" msg
   msg=$(message "$id" "$text" "$rec" "$sent_by")
   local kindh=""; [ "$LIVE_ALL" = 0 ] || kindh=$'kind: wake\n'
+  [ -z "$WAKE_REASON" ] || kindh+="wake-reason: $WAKE_REASON"$'\n'
   printf 'id: %s\nfrom: %s\nsent-by: %s\nscope: %s\nsticky: %s\nexpires: %s\naudience: %s\n%s' \
     "$id" "$from" "$sent_by" "$scope" "$sticky" "$expires" "$audience" "$kindh"
   [ -z "$skipped" ] || echo "skipped (no Claude session in pane): $skipped"
@@ -588,7 +594,8 @@ cmd_resend() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --undelivered) only=1; shift ;;
-      --wake|--all-live) LIVE_ALL=1; shift ;;
+      --wake-reason) wake_reason $# "${2-}"; shift 2 ;;
+      --wake|--all-live) wake_bare "$1" ;;
       -*) die 2 "resend: unknown argument $1" ;;
       *) [ -z "$id" ] || die 2 "resend: one id"; id="$1"; shift ;;
     esac
@@ -603,9 +610,12 @@ cmd_resend() {
     seats+=("$s")
   done
   # A wake record is resent as a wake: its kind is what it is, not a per-call choice.
-  [ "$(header "$rec" kind)" != wake ] || LIVE_ALL=1
+  if [ "$(header "$rec" kind)" = wake ]; then
+    LIVE_ALL=1; [ -n "$WAKE_REASON" ] || WAKE_REASON=$(header "$rec" wake-reason)
+  fi
   local kw=""; [ "$LIVE_ALL" = 0 ] || kw=" kind=wake"
   echo "resend: by $by at $(now) (${#seats[@]} seats)$kw" | tee -a "$rec"
+  [ "$LIVE_ALL" = 0 ] || echo "resend-wake-reason: ${WAKE_REASON:--}" | tee -a "$rec"
   if is_go "$rec"; then GO_ID="$id" GO_REC="$rec" GO_BY="$by" GO_TEXT=$(text_of "$rec"); SEAT_MSG=go_msg_for; fi
   fan_out "$tree" "$id" "$rec" "$(message "$id" "$(text_of "$rec")" "$rec" "$by")" "${seats[@]+"${seats[@]}"}"
 }
@@ -659,6 +669,9 @@ cmd_status() {
     done
   fi
   local w; w=$(grep -c '^resend: .* kind=wake$' "$rec" || true)
+  local wr; wr=$(header "$rec" wake-reason)
+  [ -z "$wr" ] || echo "wake-reason: $wr"
+  grep '^resend-wake-reason: ' "$rec" || true
   if [ "$(header "$rec" kind)" = wake ]; then echo "kind: wake (pushed live to every seat)"
   elif [ "${w:-0}" != 0 ]; then echo "kind: ordinary (idle seats queued); resent as wake ${w}×"
   else echo "kind: ordinary (idle seats queued)"; fi
@@ -1066,7 +1079,8 @@ cmd_go_request() {
       --commits) need_val "$1" $# "${2:-}"; range="$2"; shift 2 ;;
       --owners) need_val "$1" $# "${2:-}"; OWNERS_MAP="$2"; shift 2 ;;
       --id) need_val "$1" $# "${2:-}"; id="$2"; shift 2 ;;
-      --wake|--all-live) LIVE_ALL=1; shift ;;
+      --wake-reason) wake_reason $# "${2-}"; shift 2 ;;
+      --wake|--all-live) wake_bare "$1" ;;
       --dry-run) dry=1; shift ;;
       *) die 2 "go-request: unknown argument $1" ;;
     esac
@@ -1229,6 +1243,7 @@ cmd_go_request() {
     "$pr" "$covers" "$range" "$n commits" "$repo" "$owners_line" "$id" "$id" "${receipts%$'\n'}")$unc_line
   local rec="$BDIR/$id.md" extra
   extra=$(printf 'kind: go-request\npr: %s\n%srepo: %s\ncommits: %s' "$pr" "$covers" "$repo" "$range")$'\n'
+  [ -z "$WAKE_REASON" ] || extra+="wake-reason: $WAKE_REASON"$'\n'
   printf 'id: %s\nfrom: %s\nsent-by: %s\nscope: go-request\naudience: %s\n%s' "$id" "$sent_by" "$sent_by" "$oseats" "$extra"
   GO_ID="$id" GO_TEXT="$text" GO_REC="$rec" GO_BY="$sent_by"
   if [ "$dry" = 1 ]; then

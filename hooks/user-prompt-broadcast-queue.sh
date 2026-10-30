@@ -1,8 +1,8 @@
 #!/bin/bash
 # UserPromptSubmit hook: show this seat the broadcasts queued for it while it was idle (IDE-352).
 #
-# `engine broadcast` pushes a broadcast live only to seats active within a default threshold
-# (BROADCAST_LIVE_WINDOW, 60 minutes) and queues it for the rest. A seat that wakes on a prompt
+# `engine broadcast` pushes an ordinary broadcast live only to seats busy right now (mid-turn) and
+# queues it for every idle seat; only --wake-reason pushes to an idle seat. A seat that wakes on a prompt
 # (the operator typing, or an ask/hop push) is shown its queue here, once: `engine broadcast pending --queued` marks each one
 # delivered as it lists it. SessionStart shows the same queue through the standing-broadcast
 # listing (session-start-restore.sh calls `pending`), so whichever wake comes first shows it.
