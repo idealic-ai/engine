@@ -205,7 +205,7 @@ check_withdrawn_row_closes() {  # $1 skill $2 log tpl $3 debrief — ASKWITHDRAW
   printf '%s' "$close" | grep -q -i 'decisionPasses. does not block' || echo "skill: the withdrawn row is not said to leave decisionPasses unblocked"
   printf '%s' "$close" | grep -q -i 'a moot ask is withdrawn, not left open' || echo "skill: a moot ask is not said to be withdrawn rather than left open"
   grep -A1 -E '^## 🗳️ Asks' "$2" | grep -q -F "\`${form}<reason> — <ask path>\`" || echo "log template: the Asks register has no withdrawn closing form"
-  grep -A6 -E '^## 🗳️ Asks' "$2" | grep -E '^\| \[seat/id\]' | grep -q -F "${form}[reason] — [ask path]" || echo "log template: the Asks row's read-back cell has no withdrawn form"
+  grep -A6 -E '^## 🗳️ Asks' "$2" | grep -E '^\| \[\[?seat/id\]' | grep -q -F "${form}[reason] — [ask path]" || echo "log template: the Asks row's read-back cell has no withdrawn form"
   grep -A4 -E '^### Asks' "$3" | grep -q -F "\`${form}[reason] — [ask path]\`" || echo "debrief: the Asks read-back has no withdrawn form"
 }
 
