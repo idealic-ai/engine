@@ -1771,13 +1771,13 @@ function allLabels(opts: AskOption[]): string[] {
 }
 
 /** Header fields an asker writes prose into, read for a reported panel with the preamble. */
-const ASK_TEXT_FIELDS = ["why", "stakes", "stake", "context", "alternatives", "lean", "counter", "falsifier", "evidence", "confidence"] as const;
+export const ASK_TEXT_FIELDS = ["why", "stakes", "stake", "context", "alternatives", "lean", "counter", "falsifier", "evidence", "confidence"] as const;
 
 /** The two lines a fork owes when a panel ran on it, as the author guide gives them. */
 const PANEL_LINES_HINT = "Write one line per lens under the fork, `Panel: <lens> → <code> — <why>`, and the report as `Council: <path-or-url>`.";
 
 /** A fork's own text: its prose, its card lines (Context, Stake, Lean…) and its Evidence lines. Option text is left out: an option may propose a council. */
-function forkText(q: AskQuestion): string[] {
+export function forkText(q: AskQuestion): string[] {
   return [q.prose ?? "", q.proseAfter ?? "", ...Object.values(q.meta), ...q.evidence];
 }
 

@@ -62,7 +62,7 @@ import {
 } from "./model.ts";
 import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
 import { Inline, PaneContext, Rich, SmartLink, TicketLink, inlineTokens } from "./rich.tsx";
-import { attachedText, councilRef, forkCouncils, optionTally, tallyText } from "./panel.ts";
+import { attachedText, councilRef, forkCouncils, isStale, namedReport, optionTally, proposalLabel, tallyText } from "./panel.ts";
 import { CodeBlock } from "./highlight.tsx";
 import { batchOutcome, noticeFor, postSendStep, sendOutcome, type SentNotice } from "./next.ts";
 import { createRouteNav, createUrlSync } from "./urlsync.ts";
@@ -1626,7 +1626,7 @@ function QuestionCard(p: {
         <p className="lean-line"><b>Lean:</b> <Inline text={leanReason(lean.text)} />{card.counter && <> <b>Strongest counter:</b> <Inline text={card.counter} /></>}</p>
       )}
       {leanCode && card.counter && <p className="lean-line"><b>Strongest counter to the lean:</b> <Inline text={card.counter} /></p>}
-      <PanelStrip q={q} />
+      <PanelStrip q={q} named={namedReport(ask, q)} />
       {OPTIONAL.some(([f]) => card[f]) && (
         <dl className="cardmeta">
           {OPTIONAL.filter(([f]) => card[f]).map(([f, l]) => (
@@ -1673,10 +1673,19 @@ function CouncilLink({ v }: { v: string }) {
  * each attached read with who attached it, when and from which report; options a panel proposed
  * follow, apart from the fork's own options and never answerable.
  */
-function PanelStrip({ q }: { q: AskQuestion }) {
+function PanelStrip({ q, named }: { q: AskQuestion; named: ReturnType<typeof namedReport> }) {
   const councils = forkCouncils(q);
   const proposals = q.proposals ?? [];
-  if (!q.panel.length && !councils.length && !proposals.length) return null;
+  if (!q.panel.length && !councils.length && !proposals.length) {
+    // S1: the panel ran in prose only. Say so quietly, with the report when the prose names one.
+    if (!named.named) return null;
+    return (
+      <p className="panel-line panel-named muted">
+        A council is named here, but no lens reads were recorded on this question.
+        {named.report && <span className="council-link"> · <CouncilLink v={named.report} /></span>}
+      </p>
+    );
+  }
   const n = q.panel.length;
   return (
     <>
@@ -1692,6 +1701,7 @@ function PanelStrip({ q }: { q: AskQuestion }) {
             {q.panel.map((r, i) => (
               <li key={i}>
                 <b>{r.lens}</b> → <code>{r.pick}</code> — <Inline text={r.why} />
+                {isStale(q, r) && <span className="muted pr-stale"> · picks no current option</span>}
                 {attachedText(r) && <span className="muted pr-stamp"> · {attachedText(r)}{r.council && r.council !== q.council && <> · <CouncilLink v={r.council} /></>}</span>}
               </li>
             ))}
@@ -1704,7 +1714,7 @@ function PanelStrip({ q }: { q: AskQuestion }) {
           <ul>
             {proposals.map((p, i) => (
               <li key={i}>
-                <b>{p.lens}</b> proposes <span className="pp-label"><Inline text={p.label} /></span> — <Inline text={p.why} />
+                <b>{p.lens}</b> proposes “<Inline text={proposalLabel(p.label)} />” — <Inline text={p.why} />
                 {attachedText(p) && <span className="muted pr-stamp"> · {attachedText(p)}{p.council && <> · <CouncilLink v={p.council} /></>}</span>}
               </li>
             ))}
@@ -1820,9 +1830,9 @@ function OptionBody({ o, card, q, lean, leanText, trade, suggested }: { o: AskOp
         </span>
       )}
       {isLean && leanReason(leanText) && <span className="opt-lean"><b>Why the lean</b> <Inline text={leanReason(leanText)} /></span>}
-      {q.panel.length > 0 && (
+      {tally.of > 0 && (
         <span className="lens-row">
-          <span className={`lens-count${tally.picked ? "" : " muted lens-none"}`}>{tallyText(tally.picked, tally.of)}</span>
+          <span className={`lens-count${tally.picked || tally.under ? "" : " muted lens-none"}`}>{tallyText(tally.picked, tally.of, tally.under)}</span>
           {marks.map((m, i) => <LensMark key={i} read={m} id={`lens-${q.askName ?? "q"}-${o.code ?? i}-${i}`} />)}
         </span>
       )}
