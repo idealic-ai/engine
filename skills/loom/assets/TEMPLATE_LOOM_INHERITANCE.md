@@ -42,7 +42,7 @@
 
 | owner | ask | to | forks held | closes when |
 |-------|-----|----|------------|-------------|
-| [session dir] | [`<seat>/<id>`] | [holder seat, or `operator`] | [forkIds / threadIds] | [answer read, with what it changed] |
+| [session dir] | [[seat/id](http://127.0.0.1:<port>/a/<seat>/<id>) — carried as written in the log] | [holder seat, or `operator`] | [forkIds / threadIds] | [answer read, with what it changed] |
 
 ## 📚 Docs owed — claims a landed change falsified
 
@@ -76,7 +76,7 @@
 
 | owner | the fork | what it unblocks | prepared context | meanwhile | asked at | closes when |
 |-------|----------|------------------|------------------|-----------|----------|-------------|
-| [session dir] | [one line] | [threadIds / the work waiting] | [absolute path to the `_DECIDE.md` record or ask `<seat>/<id>` \| `UNKNOWN — no card prepared`] | [proceeding on the lean — falsifier: [x] \| working around \| parked \| idle] | [gate N, timestamp] | [the artifact that records the answer] |
+| [session dir] | [one line] | [threadIds / the work waiting] | [absolute path to the `_DECIDE.md` record or the ask as [seat/id](http://127.0.0.1:<port>/a/<seat>/<id>) (`engine ask url`) \| `UNKNOWN — no card prepared`] | [proceeding on the lean — falsifier: [x] \| working around \| parked \| idle] | [gate N, timestamp] | [the artifact that records the answer] |
 
 ## ❓ Lane asks open — questions a lane asked the conductor that have no answer yet
 

@@ -23,7 +23,7 @@ An ask is a question written to a file. When an agent needs a decision it is not
 
 ### 1. The agent writes the ask
 
-A seated agent runs `engine ask new` with the question body on stdin. The command prints the new file's path, `<asks root>/<asking seat>/<id>.md`. The file has a header of one-line `key: value` fields (who it is from and to, why it matters, the asker's lean and what would prove the lean wrong) and a body written as a decision tree: one heading per question, with coded options under it.
+A seated agent runs `engine ask new` with the question body on stdin. The command prints the new file's path, `<asks root>/<asking seat>/<id>.md`, and on the next line the ask's app URL, `http://127.0.0.1:<port>/a/<asking seat>/<id>`, which is what the operator is given (`engine ask url <seat>/<id>` prints it later). The file has a header of one-line `key: value` fields (who it is from and to, why it matters, the asker's lean and what would prove the lean wrong) and a body written as a decision tree: one heading per question, with coded options under it.
 
 The asker is always the live seat that runs the command, read from tmux. `--from` may only repeat it.
 
