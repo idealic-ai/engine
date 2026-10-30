@@ -622,7 +622,7 @@ test_queue_resend_all_live_clears_the_queue() {
   : > "$FIX/sent.log"
   PANE=%3 bc resend rq1 --undelivered
   assert_eq 0 "$(sent_count)" "resend: an idle queued seat stays queued"
-  PANE=%3 bc resend rq1 --undelivered --all-live
+  PANE=%3 bc resend rq1 --undelivered --wake
   assert_eq 1 "$(sent_count)" "resend --all-live: pushes the queued seat"
   assert_file_not_exists "$FIX/bc/queued/app:ask/rq1" "resend --all-live: the queue entry is cleared"
   PANE=%4 bc pending
@@ -688,33 +688,87 @@ test_queue_waiting_status_is_named() {
   assert_hasnt "app:ui pid=2005 idle=120m status=" "$(cat "$FIX/bc/ws1.md")" "waiting: with no status field for an idle one"
 }
 
-test_queue_idle_flag_and_choice_gate() {
+# ---------------------------------------------------------------- wake kind (IDE-352 round 4)
+test_wake_reaches_an_idle_seat_live() {
+  act 2004 idle 120; act 2005 idle 500
+  bc --children --from manager:app --id wk1 --wake
+  assert_eq 0 "$RC" "wake: exits 0"
+  assert_has "kind: wake" "$OUT" "wake: the sender is shown the kind"
+  assert_eq 2 "$(sent_count)" "wake: both idle seats are pushed live"
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/wk1.md")" "wake: the idle seat is delivered, not queued"
+  assert_hasnt "queued" "$(cat "$FIX/bc/wk1.md")" "wake: nothing queued"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/wk1" "wake: no queue entry"
+  assert_eq "wake" "$(awk '/^## Text/ { exit } /^kind: / { print $2 }' "$FIX/bc/wk1.md")" "wake: the record header says kind: wake"
+  bc status wk1
+  assert_has $'app:ask\tdelivered\tnot-acked' "$OUT" "wake: status says delivered"
+  assert_has "kind: wake (pushed live to every seat)" "$OUT" "wake: status shows the kind"
+}
+
+test_wake_ordinary_still_queues() {
   act 2004 idle 120
-  bc --children --from manager:app --id qi1 --queue-idle
-  assert_eq 0 "$RC" "queue-idle: accepted"
-  assert_has "queued app:ask" "$(cat "$FIX/bc/qi1.md")" "queue-idle: queues the idle seat, as the default does"
-  bc --children --from manager:app --id qi2 --queue-idle --all-live
-  assert_eq 2 "$RC" "queue-idle: with --all-live is refused"
-  assert_file_not_exists "$FIX/bc/qi2.md" "queue-idle: and nothing is written"
+  bc --children --from manager:app --id or1
+  assert_has "queued app:ask" "$(cat "$FIX/bc/or1.md")" "ordinary: the idle seat is queued"
+  assert_hasnt "kind:" "$(awk '/^## Text/ { exit } { print }' "$FIX/bc/or1.md")" "ordinary: no kind header"
+  bc status or1
+  assert_has "kind: ordinary (idle seats queued)" "$OUT" "ordinary: status shows the kind"
+  assert_hasnt "resent as wake" "$OUT" "ordinary: and no wake resend"
+}
+
+test_wake_all_live_is_its_alias() {
+  act 2004 idle 120
+  bc --children --from manager:app --id wa1 --all-live
+  assert_hasnt "queued" "$(cat "$FIX/bc/wa1.md")" "alias: --all-live pushes the idle seat"
+  bc status wa1
+  assert_has "kind: wake" "$OUT" "alias: and records the wake kind"
+}
+
+test_wake_choice_gate_and_queue_idle_are_gone() {
+  act 2004 idle 120
+  BROADCAST_QUEUE_NEEDS_CHOICE=1 bc --children --from manager:app --id gg1
+  assert_eq 0 "$RC" "gate gone: the old variable refuses nothing"
+  assert_has "queued app:ask" "$(cat "$FIX/bc/gg1.md")" "gate gone: the ordinary send queues"
+  bc --children --from manager:app --id gg2 --queue-idle
+  assert_eq 2 "$RC" "queue-idle gone: an unknown argument"
+  assert_file_not_exists "$FIX/bc/gg2.md" "queue-idle gone: nothing written"
+  assert_hasnt "queue-idle" "$(sed -n '1,80p' "$BROADCAST_SH")" "usage: no --queue-idle"
+  assert_hasnt "NEEDS_CHOICE" "$(cat "$BROADCAST_SH")" "the gate variable is gone from the script"
+  assert_has "engine broadcast --all --wake" "$(sed -n '1,80p' "$BROADCAST_SH")" "usage: names the resume command"
+}
+
+test_wake_resend() {
+  act 2004 idle 120
+  bc --children --from manager:app --id wr1 --wake
   : > "$FIX/sent.log"
-  BROADCAST_QUEUE_NEEDS_CHOICE=1 bc --children --from manager:app --id qi3
-  assert_eq 2 "$RC" "gate: a send that would queue, with no choice given, is refused"
-  assert_has "1 of 2 seats would be queued, not woken: app:ask (idle=120m via=status)" "$OUT" "gate: naming the idle seats"
-  assert_has "--all-live" "$OUT" "gate: and offering --all-live"
-  assert_has "--queue-idle" "$OUT" "gate: and --queue-idle"
-  assert_file_not_exists "$FIX/bc/qi3.md" "gate: before the record is written"
-  assert_eq 0 "$(sent_count)" "gate: and before any push"
-  BROADCAST_QUEUE_NEEDS_CHOICE=1 bc --children --from manager:app --id qi4 --queue-idle
-  assert_eq 0 "$RC" "gate: --queue-idle passes it"
-  assert_has "queued app:ask" "$(cat "$FIX/bc/qi4.md")" "gate: and queues"
-  BROADCAST_QUEUE_NEEDS_CHOICE=1 bc --children --from manager:app --id qi5 --all-live
-  assert_eq 0 "$RC" "gate: --all-live passes it"
-  assert_hasnt "queued" "$(cat "$FIX/bc/qi5.md")" "gate: and pushes everyone"
-  act 2004 idle 5
-  BROADCAST_QUEUE_NEEDS_CHOICE=1 bc --children --from manager:app --id qi6
-  assert_eq 0 "$RC" "gate: a send that queues nobody needs no choice"
-  bc --children --from manager:app --id qi7
-  assert_eq 0 "$RC" "gate: off by default (MUST-1 awaits the operator)"
+  PANE=%3 bc resend wr1
+  assert_eq 2 "$(sent_count)" "wake resend: a wake record is resent as a wake"
+  assert_has "kind=wake" "$(grep '^resend: ' "$FIX/bc/wr1.md")" "wake resend: the resend line says so"
+  bc --children --from manager:app --id wr2
+  : > "$FIX/sent.log"
+  PANE=%3 bc resend wr2 --undelivered
+  assert_eq 0 "$(sent_count)" "ordinary resend: the idle seat stays queued"
+  PANE=%3 bc resend wr2 --undelivered --wake
+  assert_eq 1 "$(sent_count)" "resend --wake: pushes the queued seat live"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/wr2" "resend --wake: the queue entry is cleared"
+  bc status wr2
+  assert_has "kind: ordinary (idle seats queued); resent as wake 1×" "$OUT" "resend --wake: status shows the wake resend"
+}
+
+test_wake_go_request_interplay_unchanged() {
+  go_repo
+  act 2004 idle 120
+  local c1; c1=$(G rev-parse HEAD~1)
+  PANE=%2 goreq --pr 29 --rows alpha,beta --commits base..HEAD --id gw1
+  assert_hasnt "app:ask|" "$(cat "$FIX/sent.log")" "go+wake: the idle owner is queued, as before"
+  assert_eq "go-request" "$(awk '/^## Text/ { exit } /^kind: / { print $2 }' "$FIX/bc/gw1.md")" "go+wake: the record stays kind: go-request"
+  : > "$FIX/sent.log"
+  PANE=%2 bc resend gw1 --undelivered --wake
+  assert_has "app:ask|" "$(cat "$FIX/sent.log")" "go+wake: resend --wake pushes the idle owner"
+  assert_has "receipt path app:ask $c1 $(rid "$c1" kern/a.ts) -- kern/a.ts" "$(cat "$FIX/sent.log")" "go+wake: with its own receipt lines"
+  assert_hasnt "receipt path domain:stats" "$(grep '^app:ask|' "$FIX/sent.log")" "go+wake: and only its own"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/gw1" "go+wake: its queue entry is cleared"
+  bc status gw1
+  assert_has "go-request: PR 29" "$OUT" "go+wake: status is still the go status"
+  assert_has $'app:ask\tdelivered\tPENDING' "$OUT" "go+wake: delivered and pending its answer"
 }
 
 test_queue_wake_key_keeps_what_it_claimed() {
