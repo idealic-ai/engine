@@ -139,10 +139,12 @@ echo "=== G10: the named escape hatch, exactly rm -f <pending.json>, gets throug
 start_session 30 10
 expect_allow "G10a: rm -f <pending> is allowed" "$(pre Bash "$(jq -nc --arg c "rm -f $PEND" '{command:$c}')")"
 expect_allow "G10b: rm -f '<pending>' (quoted) is allowed" "$(pre Bash "$(jq -nc --arg c "rm -f '$PEND'" '{command:$c}')")"
+expect_allow "G10e: rm -f \"<pending>\" (double-quoted) is allowed" "$(pre Bash "$(jq -nc --arg c "rm -f \"$PEND\"" '{command:$c}')")"
 expect_deny "G10c: rm -f <pending> chained with another command is denied" "$(pre Bash "$(jq -nc --arg c "rm -f $PEND; ls" '{command:$c}')")"
 expect_deny "G10d: rm -rf of the session dir is denied" "$(pre Bash "$(jq -nc --arg c "rm -rf $(dirname "$PEND")" '{command:$c}')")"
 
-echo "=== G11: a session that never reads fails open after 5 denials in a row ==="
+echo "=== G11: a session that never reads fails open after 5 denials in a row (no gap between counted denials) ==="
+export PRELOAD_GATE_DENIAL_GAP=0
 start_session 30 10
 for k in 1 2 3 4 5; do OUT=$(pre Bash "$LS"); expect_deny "G11a: denial $k of 5" "$OUT"; done
 case "$OUT" in *"denial 5 of 5"*) pass "G11b: the deny counts down" ;; *) fail "G11b: the deny counts down" "${OUT:0:300}" ;; esac
@@ -156,6 +158,15 @@ for k in 1 2 3 4; do pre Bash "$LS" > /dev/null; done
 pre Read "$(jq -nc --arg p "$(pg 1)" '{file_path:$p}')" > /dev/null
 for k in 1 2 3 4; do pre Bash "$LS" > /dev/null; done
 expect_deny "G11g: a page Read resets the count (4 + Read + 4 + 1 still denied)" "$(pre Bash "$LS")"
+start_session 30 10
+for k in 1 2; do expect_deny "G11h: PRELOAD_GATE_MAX_DENIALS=2, denial $k" "$(PRELOAD_GATE_MAX_DENIALS=2 pre Bash "$LS")"; done
+OUT=$(PRELOAD_GATE_MAX_DENIALS=2 pre Bash "$LS")
+case "$OUT" in *systemMessage*"2 tool calls in a row"*) pass "G11i: PRELOAD_GATE_MAX_DENIALS=2 fails open on the 3rd call" ;; *) fail "G11i: PRELOAD_GATE_MAX_DENIALS=2 fails open on the 3rd call" "${OUT:0:200}" ;; esac
+start_session 30 10
+for k in 1 2 3 4 5; do OUT=$(PRELOAD_GATE_MAX_DENIALS=abc pre Bash "$LS"); done
+case "$OUT" in *"denial 5 of 5"*) pass "G11j: a non-numeric limit falls back to 5" ;; *) fail "G11j: a non-numeric limit falls back to 5" "${OUT:0:300}" ;; esac
+OUT=$(PRELOAD_GATE_MAX_DENIALS=abc pre Bash "$LS")
+case "$OUT" in *systemMessage*"5 tool calls in a row"*) pass "G11k: and fails open on the 6th call" ;; *) fail "G11k: and fails open on the 6th call" "${OUT:0:200}" ;; esac
 
 echo "=== G12: an orphaned lock older than 5 s is reclaimed ==="
 start_session 5
@@ -164,6 +175,92 @@ T0=$(date +%s); read_whole "$(pg 1)"; T1=$(date +%s)
 pending && fail "G12a: the read is recorded despite the orphan" || pass "G12a: the read is recorded despite the orphan"
 if [ $((T1 - T0)) -lt 3 ]; then pass "G12b: no wait on the orphan ($((T1 - T0)) s)"; else fail "G12b: no wait on the orphan" "$((T1 - T0)) s"; fi
 [ -e "$PEND.lockd" ] && fail "G12c: the lock is released" || pass "G12c: the lock is released"
+
+start_session 30 10
+mkdir "$PEND.lockd"; echo someone > "$PEND.lockd/owner"; touch -t 202001010000 "$PEND.lockd/owner" "$PEND.lockd"
+T0=$(date +%s); OUT=$(pre Bash "$LS"); T1=$(date +%s)
+expect_deny "G12d: the gate reclaims an orphan too, and still denies" "$OUT"
+if [ $((T1 - T0)) -lt 3 ] && [ "$(jq -r '.denials' "$PEND")" = "1" ]; then pass "G12e: the gate counted under the reclaimed lock ($((T1 - T0)) s)"; else fail "G12e: the gate counted under the reclaimed lock" "$((T1 - T0)) s, denials=$(jq -c '.denials' "$PEND")"; fi
+[ -e "$PEND.lockd" ] && fail "G12f: the gate released the lock" || pass "G12f: the gate released the lock"
+
+echo "=== G13: a fresh lock is never reclaimed; each hook waits for it ==="
+start_session 5
+mkdir "$PEND.lockd"
+read_whole "$(pg 1)" & HOOK=$!
+sleep 1
+{ [ -d "$PEND.lockd" ] && pending && [ "$(jq -c '.pages[0].ranges // []' "$PEND")" = "[]" ]; } && pass "G13a: the post hook waits on a 1 s old lock" || fail "G13a: the post hook waits on a 1 s old lock" "lock=$([ -d "$PEND.lockd" ] && echo held || echo gone) ranges=$(jq -c '.pages[0].ranges' "$PEND" 2>/dev/null)"
+rmdir "$PEND.lockd" 2>/dev/null; wait $HOOK
+pending && fail "G13b: and records the read once the lock is released" || pass "G13b: and records the read once the lock is released"
+start_session 30 10
+mkdir "$PEND.lockd"
+pre Bash "$LS" > "$SANDBOX/g13.out" & HOOK=$!
+sleep 1
+{ [ -d "$PEND.lockd" ] && [ "$(jq -r '.denials // 0' "$PEND")" = "0" ]; } && pass "G13c: the gate waits on a 1 s old lock" || fail "G13c: the gate waits on a 1 s old lock" "lock=$([ -d "$PEND.lockd" ] && echo held || echo gone) denials=$(jq -c '.denials' "$PEND")"
+rmdir "$PEND.lockd" 2>/dev/null; wait $HOOK
+{ [ "$(decision "$(cat "$SANDBOX/g13.out")")" = "deny" ] && [ "$(jq -r '.denials' "$PEND")" = "1" ]; } && pass "G13d: and counts once the lock is released" || fail "G13d: and counts once the lock is released" "denials=$(jq -c '.denials' "$PEND")"
+
+export PRELOAD_GATE_DENIAL_GAP=0
+start_session 30 10
+for k in 1 2 3; do pre Bash "$LS" > /dev/null; done
+mkdir "$PEND.lockd"
+pre Read "$(jq -nc --arg p "$(pg 1)" '{file_path:$p}')" > "$SANDBOX/g13.out" & HOOK=$!
+sleep 1
+[ "$(jq -r '.denials' "$PEND")" = "3" ] && pass "G13e: a page Read waits on the lock before it resets the count" || fail "G13e: a page Read waits on the lock before it resets the count" "denials=$(jq -c '.denials' "$PEND")"
+rmdir "$PEND.lockd" 2>/dev/null; wait $HOOK
+{ [ "$(decision "$(cat "$SANDBOX/g13.out")")" = "allow" ] && [ "$(jq -r '.denials' "$PEND")" = "0" ]; } && pass "G13f: and resets it once the lock is released" || fail "G13f: and resets it once the lock is released" "denials=$(jq -c '.denials' "$PEND")"
+
+echo "=== G14: concurrent calls lose no count and no reset ==="
+export PRELOAD_GATE_DENIAL_GAP=0
+for t in 1 2 3; do
+  start_session 30 10
+  for k in 1 2 3 4 5; do pre Bash "$LS" > /dev/null & done; wait
+  D=$(jq -r '.denials' "$PEND")
+  [ "$D" = "5" ] && pass "G14a.$t: 5 concurrent denials count 5" || fail "G14a.$t: 5 concurrent denials count 5" "denials=$D"
+done
+BAD=""
+for t in 1 2 3 4 5 6; do
+  start_session 30 10
+  for k in 1 2 3 4; do pre Bash "$LS" > /dev/null; done
+  pre Read "$(jq -nc --arg p "$(pg 1)" '{file_path:$p}')" > /dev/null & pre Bash "$LS" > /dev/null & wait
+  D=$(jq -r '.denials' "$PEND"); case "$D" in 0|1) ;; *) BAD="$BAD trial $t: denials=$D" ;; esac
+done
+[ -z "$BAD" ] && pass "G14b: a page Read racing a denial at count 4 always resets (6 trials)" || fail "G14b: a page Read racing a denial at count 4 always resets" "$BAD"
+
+echo "=== G15: one message's calls count once; the gap is a setting ==="
+unset PRELOAD_GATE_DENIAL_GAP
+start_session 30 10
+OPENED=""
+for k in 1 2 3 4 5 6 7; do OUT=$(pre Bash "$LS"); [ "$(decision "$OUT")" = "deny" ] || OPENED="call $k: ${OUT:0:120}"; done
+[ -z "$OPENED" ] && pass "G15a: 7 calls within the default gap are all denied" || fail "G15a: 7 calls within the default gap are all denied" "$OPENED"
+[ "$(jq -r '.denials' "$PEND")" = "1" ] && pass "G15b: and count once" || fail "G15b: and count once" "denials=$(jq -c '.denials' "$PEND")"
+jq '.lastDeniedAt -= 10' "$PEND" > "$PEND.t" && mv "$PEND.t" "$PEND"
+pre Bash "$LS" > /dev/null
+[ "$(jq -r '.denials' "$PEND")" = "2" ] && pass "G15c: a call after the gap counts again" || fail "G15c: a call after the gap counts again" "denials=$(jq -c '.denials' "$PEND")"
+jq '.denials = 5' "$PEND" > "$PEND.t" && mv "$PEND.t" "$PEND"
+expect_deny "G15d: at the limit, a call within the gap is still denied" "$(pre Bash "$LS")"
+jq '.lastDeniedAt -= 10' "$PEND" > "$PEND.t" && mv "$PEND.t" "$PEND"
+OUT=$(pre Bash "$LS")
+case "$OUT" in *systemMessage*"read gate is off"*) pass "G15e: and the first call after the gap fails open" ;; *) fail "G15e: and the first call after the gap fails open" "${OUT:0:200}" ;; esac
+start_session 30 10
+for k in 1 2 3; do PRELOAD_GATE_DENIAL_GAP=0 pre Bash "$LS" > /dev/null; done
+[ "$(jq -r '.denials' "$PEND")" = "3" ] && pass "G15f: PRELOAD_GATE_DENIAL_GAP=0 counts every call" || fail "G15f: PRELOAD_GATE_DENIAL_GAP=0 counts every call" "denials=$(jq -c '.denials' "$PEND")"
+start_session 30 10
+for k in 1 2 3; do PRELOAD_GATE_DENIAL_GAP=x pre Bash "$LS" > /dev/null; done
+[ "$(jq -r '.denials' "$PEND")" = "1" ] && pass "G15g: a non-numeric gap falls back to the default" || fail "G15g: a non-numeric gap falls back to the default" "denials=$(jq -c '.denials' "$PEND")"
+
+echo "=== G16: a path with a space: the message quotes it, and only a quoted form gets through ==="
+export PRELOAD_GATE_DENIAL_GAP=0
+SAVED_DIR="$PRELOAD_FILE_DIR"; export PRELOAD_FILE_DIR="$SANDBOX/pre load"; PEND="$PRELOAD_FILE_DIR/$SID/pending.json"
+start_session 30 10
+QP=$(printf '%q' "$PEND")
+R=$(pre Bash "$LS" | jq -r '.hookSpecificOutput.permissionDecisionReason // ""')
+case "$R" in *"rm -f $QP\`"*) pass "G16a: the deny message prints the path shell-quoted" ;; *) fail "G16a: the deny message prints the path shell-quoted" "${R: -400}" ;; esac
+expect_deny "G16b: the bare path with a space is denied" "$(pre Bash "$(jq -nc --arg c "rm -f $PEND" '{command:$c}')")"
+expect_allow "G16c: the %q form is allowed" "$(pre Bash "$(jq -nc --arg c "rm -f $QP" '{command:$c}')")"
+expect_allow "G16d: the single-quoted form is allowed" "$(pre Bash "$(jq -nc --arg c "rm -f '$PEND'" '{command:$c}')")"
+expect_allow "G16e: the double-quoted form is allowed" "$(pre Bash "$(jq -nc --arg c "rm -f \"$PEND\"" '{command:$c}')")"
+export PRELOAD_FILE_DIR="$SAVED_DIR"; PEND="$PRELOAD_FILE_DIR/$SID/pending.json"
+unset PRELOAD_GATE_DENIAL_GAP
 
 echo ""
 echo "======================================="

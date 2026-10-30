@@ -46,4 +46,8 @@ PRELOAD_DELIVERY_MODE="${PRELOAD_DELIVERY_MODE:-file}"
 
 # file mode only: on, the default, makes hooks/pre-tool-use-preload-gate.sh
 # deny other tools until every page has been read in full. off disables it.
+# The gate turns itself off after PRELOAD_GATE_MAX_DENIALS (default 5) denials
+# with no page Read between them, counting at most one every
+# PRELOAD_GATE_DENIAL_GAP seconds (default 3), so a session without Read is not
+# blocked for good. Both are read from the environment.
 PRELOAD_READ_GATE="${PRELOAD_READ_GATE:-on}"
