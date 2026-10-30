@@ -30,31 +30,17 @@ setup_log_step() {
   fi
 }
 
-# ---- Mode resolution ----
+# ---- Engine resolution ----
 
-# current_mode "$mode_file"
-# Echoes "local" or "remote" based on the mode file content.
-current_mode() {
-  local mode_file="$1"
-  if [ -f "$mode_file" ] && [ "$(cat "$mode_file")" = "local" ]; then
-    echo "local"
-  else
-    echo "remote"
-  fi
-}
-
-# resolve_engine_dir "$mode" "$local_engine" "$gdrive_engine" "$script_dir"
-# Echoes the resolved engine directory path, or "" if not found.
+# resolve_engine_dir "$local_engine" "$script_dir"
+# Echoes the engine directory: the local engine when it holds skills/, else the
+# engine that contains script_dir, else "".
 resolve_engine_dir() {
-  local mode="$1"
-  local local_engine="$2"
-  local gdrive_engine="$3"
-  local script_dir="$4"
+  local local_engine="$1"
+  local script_dir="$2"
 
-  if [ "$mode" = "local" ]; then
+  if [ -d "$local_engine/skills" ]; then
     echo "$local_engine"
-  elif [ -d "$gdrive_engine/.directives" ] && [ -d "$gdrive_engine/skills" ]; then
-    echo "$gdrive_engine"
   elif [ -d "$script_dir/../.directives" ] && [ -d "$script_dir/../skills" ]; then
     (cd "$script_dir/.." && pwd)
   elif [ -d "$script_dir/.directives" ] && [ -d "$script_dir/skills" ]; then
@@ -62,6 +48,32 @@ resolve_engine_dir() {
   else
     echo ""
   fi
+}
+
+# ---- Data root ----
+
+# project_data_dir "$project_name"
+# Echoes the local directory holding a project's user data (sessions/, reports/).
+project_data_dir() {
+  local project_name="$1"
+  echo "$HOME/.claude/data/$project_name"
+}
+
+# dir_has_user_data "$dir"
+# Returns 0 when dir exists and holds anything besides setup's own README.md / .DS_Store.
+dir_has_user_data() {
+  local dir="$1"
+  [ -d "$dir" ] || return 1
+  local entry name
+  for entry in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do
+    [ -e "$entry" ] || [ -L "$entry" ] || continue
+    name=$(basename "$entry")
+    case "$name" in
+      README.md|.DS_Store) continue ;;
+    esac
+    return 0
+  done
+  return 1
 }
 
 # ---- Symlinking (core) ----
@@ -258,8 +270,8 @@ setup_engine_symlinks() {
   # above, these loose files live at the engine root — a consumer whose
   # ~/.claude/engine is NOT the active engine never receives them, so every hook
   # that sources $HOME/.claude/engine/config.sh fails. Link them from the active
-  # engine when it lives elsewhere (remote/consumer). In local mode the active
-  # engine IS ~/.claude/engine, so they are already the real files. engine.db
+  # engine when it lives elsewhere. When the active engine IS ~/.claude/engine
+  # they are already the real files. engine.db
   # (gitignored) and .migrations (machine-specific state) are deliberately NOT
   # linked — they must stay per-machine.
   if [ "$engine_dir" != "$claude_dir/engine" ]; then
@@ -271,7 +283,7 @@ setup_engine_symlinks() {
     done
   fi
 
-  # Fix permissions (GDrive sync often strips +x)
+  # Fix permissions (a copy or checkout can strip +x)
   fix_script_permissions "$engine_dir"
 }
 
@@ -300,7 +312,7 @@ fix_script_permissions() {
 
 # cp_if_different "$source" "$dest" "$label"
 # Copies source to dest only if they resolve to different files (realpath check).
-# Prevents cp-to-self when source and dest are symlinks to the same file (e.g., GDrive).
+# Prevents cp-to-self when source and dest are symlinks to the same file.
 # Returns 0 on success or skip, 1 if source doesn't exist.
 # Appends to ACTIONS array (must be declared by caller).
 cp_if_different() {
@@ -557,8 +569,11 @@ configure_hooks() {
 # ---- Project-level setup ----
 
 # link_project_dir "$target" "$link_path" "$display_name"
-# Symlinks project directories (sessions/, reports/). No interactive prompts
-# for real dirs — just warns.
+# Symlinks a project directory (sessions/, reports/) to its local data dir.
+# A symlink pointing elsewhere is repointed only when target already holds user
+# data; otherwise it is left alone with a warning, so data still sitting at the old
+# location is never orphaned. A real directory is never touched.
+# Returns 0, or 2 when a real directory is in the way.
 link_project_dir() {
   local target="$1"
   local link="$2"
@@ -570,13 +585,18 @@ link_project_dir() {
     if [ "$current" = "$target" ]; then
       setup_log_verbose "$name: OK (symlink exists)"
       return 0
-    else
-      setup_log_verbose "$name: updating symlink"
+    fi
+    if dir_has_user_data "$target"; then
+      setup_log_verbose "$name: repointing symlink to local data dir"
       rm "$link"
       ln -s "$target" "$link"
-      ACTIONS+=("Updated $name -> $target")
+      ACTIONS+=("Repointed $name -> $target (was $current)")
       return 0
     fi
+    echo "WARNING: $name points to $current, not the local data dir $target."
+    echo "  $target is empty, so the link was left alone."
+    echo "  Move your data into $target, then re-run 'engine setup' to repoint it."
+    return 0
   elif [ -d "$link" ]; then
     setup_log_verbose "$name: REAL DIRECTORY - manual action required"
     echo "WARNING: $name is a real directory with existing data."
@@ -588,6 +608,25 @@ link_project_dir() {
     ACTIONS+=("Linked $name -> $target")
     return 0
   fi
+}
+
+# link_project_data_dirs "$project_root" "$project_name"
+# Creates the project's local data dirs and links <project>/sessions and
+# <project>/reports to them.
+link_project_data_dirs() {
+  local project_root="$1"
+  local project_name="$2"
+  local data_dir
+  data_dir=$(project_data_dir "$project_name")
+
+  local sub
+  for sub in sessions reports; do
+    if [ ! -d "$data_dir/$sub" ]; then
+      mkdir -p "$data_dir/$sub"
+      ACTIONS+=("Created $data_dir/$sub")
+    fi
+    link_project_dir "$data_dir/$sub" "$project_root/$sub" "./$sub" || true
+  done
 }
 
 # ensure_project_directives "$project_root"

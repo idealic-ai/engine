@@ -3,7 +3,7 @@
 # test-setup-lib.sh — Tests for setup-lib.sh pure functions
 # ============================================================================
 # Tests the extracted library functions with full filesystem isolation.
-# Pattern: SETUP_* env vars + temp dirs, zero network/GDrive dependency.
+# Pattern: SETUP_* env vars + temp dirs, zero network dependency.
 # ============================================================================
 set -uo pipefail
 
@@ -60,63 +60,57 @@ teardown() {
 source "$LIB"
 
 # ============================================================================
-# current_mode tests
-# ============================================================================
-echo "=== current_mode ==="
-
-setup
-echo "local" > "$TEST_DIR/engine/.mode"
-result=$(current_mode "$TEST_DIR/engine/.mode")
-[ "$result" = "local" ] && pass "MODE-01: Returns 'local' when mode file says local" || fail "MODE-01" "local" "$result"
-teardown
-
-setup
-echo "remote" > "$TEST_DIR/engine/.mode"
-result=$(current_mode "$TEST_DIR/engine/.mode")
-[ "$result" = "remote" ] && pass "MODE-02: Returns 'remote' when mode file says remote" || fail "MODE-02" "remote" "$result"
-teardown
-
-setup
-result=$(current_mode "$TEST_DIR/nonexistent/.mode")
-[ "$result" = "remote" ] && pass "MODE-03: Returns 'remote' when mode file missing (default)" || fail "MODE-03" "remote" "$result"
-teardown
-
-setup
-echo "" > "$TEST_DIR/engine/.mode"
-result=$(current_mode "$TEST_DIR/engine/.mode")
-[ "$result" = "remote" ] && pass "MODE-04: Returns 'remote' when mode file empty" || fail "MODE-04" "remote" "$result"
-teardown
-
-# ============================================================================
 # resolve_engine_dir tests
 # ============================================================================
-echo ""
 echo "=== resolve_engine_dir ==="
 
 setup
-result=$(resolve_engine_dir "local" "$TEST_DIR/engine" "$TEST_DIR/gdrive" "$TEST_DIR/scripts")
-[ "$result" = "$TEST_DIR/engine" ] && pass "RESOLVE-01: Local mode returns local engine" || fail "RESOLVE-01" "$TEST_DIR/engine" "$result"
+mkdir -p "$TEST_DIR/engine/skills"
+result=$(resolve_engine_dir "$TEST_DIR/engine" "$TEST_DIR/scripts")
+[ "$result" = "$TEST_DIR/engine" ] && pass "RESOLVE-01: Returns local engine when it holds skills/" || fail "RESOLVE-01" "$TEST_DIR/engine" "$result"
 teardown
 
 setup
-# Create fake GDrive engine with required dirs
-mkdir -p "$TEST_DIR/gdrive/.directives" "$TEST_DIR/gdrive/skills"
-result=$(resolve_engine_dir "remote" "$TEST_DIR/engine" "$TEST_DIR/gdrive" "$TEST_DIR/scripts")
-[ "$result" = "$TEST_DIR/gdrive" ] && pass "RESOLVE-02: Remote mode returns GDrive engine when dirs exist" || fail "RESOLVE-02" "$TEST_DIR/gdrive" "$result"
+result=$(resolve_engine_dir "$TEST_DIR/nonexistent" "$TEST_DIR/empty")
+[ -z "$result" ] && pass "RESOLVE-02: Returns empty when no engine found" || fail "RESOLVE-02" "" "$result"
 teardown
 
 setup
-# No GDrive, no script_dir parent — should return empty
-result=$(resolve_engine_dir "remote" "$TEST_DIR/engine" "$TEST_DIR/nonexistent" "$TEST_DIR/empty")
-[ -z "$result" ] && pass "RESOLVE-03: Returns empty when no engine found" || fail "RESOLVE-03" "" "$result"
-teardown
-
-setup
-# Fallback: script_dir/../ has .directives/ and skills/
 mkdir -p "$TEST_DIR/parent/.directives" "$TEST_DIR/parent/skills" "$TEST_DIR/parent/scripts"
-result=$(resolve_engine_dir "remote" "$TEST_DIR/engine" "$TEST_DIR/nonexistent" "$TEST_DIR/parent/scripts")
+result=$(resolve_engine_dir "$TEST_DIR/nonexistent" "$TEST_DIR/parent/scripts")
 expected=$(cd "$TEST_DIR/parent" && pwd)
-[ "$result" = "$expected" ] && pass "RESOLVE-04: Fallback to script_dir parent when GDrive missing" || fail "RESOLVE-04" "$expected" "$result"
+[ "$result" = "$expected" ] && pass "RESOLVE-03: Falls back to script_dir parent when local engine missing" || fail "RESOLVE-03" "$expected" "$result"
+teardown
+
+setup
+result=$(type current_mode 2>/dev/null || true)
+[ -z "$result" ] && pass "RESOLVE-04: current_mode no longer exists (no engine modes)" || fail "RESOLVE-04" "undefined" "defined"
+teardown
+
+# ============================================================================
+# project_data_dir / dir_has_user_data tests
+# ============================================================================
+echo ""
+echo "=== project_data_dir ==="
+
+setup
+result=$(HOME="$TEST_DIR/home" project_data_dir "myproj")
+[ "$result" = "$TEST_DIR/home/.claude/data/myproj" ] && pass "DATA-01: project_data_dir is ~/.claude/data/<project>" || fail "DATA-01" "$TEST_DIR/home/.claude/data/myproj" "$result"
+teardown
+
+setup
+mkdir -p "$TEST_DIR/d"
+dir_has_user_data "$TEST_DIR/d" && fail "DATA-02: empty dir has no user data" "1" "0" || pass "DATA-02: empty dir has no user data"
+echo "x" > "$TEST_DIR/d/README.md"; touch "$TEST_DIR/d/.DS_Store"
+dir_has_user_data "$TEST_DIR/d" && fail "DATA-03: README.md/.DS_Store alone are not user data" "1" "0" || pass "DATA-03: README.md/.DS_Store alone are not user data"
+mkdir -p "$TEST_DIR/d/2026_01_01_TOPIC"
+dir_has_user_data "$TEST_DIR/d" && pass "DATA-04: a session dir counts as user data" || fail "DATA-04" "0" "1"
+dir_has_user_data "$TEST_DIR/missing" && fail "DATA-05: missing dir has no user data" "1" "0" || pass "DATA-05: missing dir has no user data"
+teardown
+
+setup
+mkdir -p "$TEST_DIR/d"; touch "$TEST_DIR/d/.doc-search.db"
+dir_has_user_data "$TEST_DIR/d" && pass "DATA-06: hidden files count as user data" || fail "DATA-06" "0" "1"
 teardown
 
 # ============================================================================
@@ -384,28 +378,86 @@ echo ""
 echo "=== link_project_dir ==="
 
 setup
-mkdir -p "$TEST_DIR/gdrive/sessions"
-link_project_dir "$TEST_DIR/gdrive/sessions" "$TEST_DIR/project/sessions" "./sessions"
+mkdir -p "$TEST_DIR/data/sessions"
+link_project_dir "$TEST_DIR/data/sessions" "$TEST_DIR/project/sessions" "./sessions"
 [ -L "$TEST_DIR/project/sessions" ] && pass "PROJ-01: Creates project symlink" || fail "PROJ-01" "symlink" "not"
 actual=$(readlink "$TEST_DIR/project/sessions")
-[ "$actual" = "$TEST_DIR/gdrive/sessions" ] && pass "PROJ-02: Points to correct target" || fail "PROJ-02" "$TEST_DIR/gdrive/sessions" "$actual"
+[ "$actual" = "$TEST_DIR/data/sessions" ] && pass "PROJ-02: Points to correct target" || fail "PROJ-02" "$TEST_DIR/data/sessions" "$actual"
 teardown
 
 setup
-mkdir -p "$TEST_DIR/gdrive/sessions"
-ln -s "$TEST_DIR/gdrive/sessions" "$TEST_DIR/project/sessions"
+mkdir -p "$TEST_DIR/data/sessions"
+ln -s "$TEST_DIR/data/sessions" "$TEST_DIR/project/sessions"
 ACTIONS=()
-link_project_dir "$TEST_DIR/gdrive/sessions" "$TEST_DIR/project/sessions" "./sessions"
+link_project_dir "$TEST_DIR/data/sessions" "$TEST_DIR/project/sessions" "./sessions"
 [ ${#ACTIONS[@]} -eq 0 ] && pass "PROJ-03: Idempotent — correct symlink unchanged" || fail "PROJ-03" "0 actions" "${#ACTIONS[@]} actions"
 teardown
 
 setup
 mkdir -p "$TEST_DIR/project/sessions"
 echo "data" > "$TEST_DIR/project/sessions/file.txt"
-link_project_dir "$TEST_DIR/gdrive/sessions" "$TEST_DIR/project/sessions" "./sessions"
+link_project_dir "$TEST_DIR/data/sessions" "$TEST_DIR/project/sessions" "./sessions"
 rc=$?
 [ "$rc" -eq 2 ] && pass "PROJ-04: Returns 2 for existing real directory" || fail "PROJ-04" "exit 2" "exit $rc"
 [ -f "$TEST_DIR/project/sessions/file.txt" ] && pass "PROJ-05: Real dir content preserved" || fail "PROJ-05" "file exists" "missing"
+teardown
+
+setup
+# Symlink into an old location (e.g. a cloud-synced folder); local data dir empty -> leave it
+mkdir -p "$TEST_DIR/old/sessions" "$TEST_DIR/data/sessions"
+echo "keep" > "$TEST_DIR/old/sessions/LOG.md"
+echo "readme" > "$TEST_DIR/data/sessions/README.md"
+ln -s "$TEST_DIR/old/sessions" "$TEST_DIR/project/sessions"
+out=$(link_project_dir "$TEST_DIR/data/sessions" "$TEST_DIR/project/sessions" "./sessions" 2>&1)
+actual=$(readlink "$TEST_DIR/project/sessions")
+[ "$actual" = "$TEST_DIR/old/sessions" ] && pass "PROJ-06: Foreign symlink left alone when local data dir is empty" || fail "PROJ-06" "$TEST_DIR/old/sessions" "$actual"
+[[ "$out" == *WARNING* ]] && pass "PROJ-07: Warns when leaving a foreign symlink" || fail "PROJ-07" "WARNING" "$out"
+[ -f "$TEST_DIR/old/sessions/LOG.md" ] && pass "PROJ-08: Old data untouched" || fail "PROJ-08" "file exists" "missing"
+teardown
+
+setup
+# Local data dir already holds the migrated data -> repoint
+mkdir -p "$TEST_DIR/old/sessions" "$TEST_DIR/data/sessions/2026_01_01_TOPIC"
+echo "keep" > "$TEST_DIR/old/sessions/LOG.md"
+ln -s "$TEST_DIR/old/sessions" "$TEST_DIR/project/sessions"
+ACTIONS=()
+link_project_dir "$TEST_DIR/data/sessions" "$TEST_DIR/project/sessions" "./sessions" >/dev/null
+actual=$(readlink "$TEST_DIR/project/sessions")
+[ "$actual" = "$TEST_DIR/data/sessions" ] && pass "PROJ-09: Foreign symlink repointed when local data dir has data" || fail "PROJ-09" "$TEST_DIR/data/sessions" "$actual"
+[ -f "$TEST_DIR/old/sessions/LOG.md" ] && pass "PROJ-10: Repoint never deletes old data" || fail "PROJ-10" "file exists" "missing"
+teardown
+
+setup
+# Broken symlink (old location gone) + empty local data dir -> leave it
+mkdir -p "$TEST_DIR/data/sessions"
+ln -s "$TEST_DIR/gone/sessions" "$TEST_DIR/project/sessions"
+link_project_dir "$TEST_DIR/data/sessions" "$TEST_DIR/project/sessions" "./sessions" >/dev/null 2>&1
+actual=$(readlink "$TEST_DIR/project/sessions")
+[ "$actual" = "$TEST_DIR/gone/sessions" ] && pass "PROJ-11: Broken foreign symlink left alone when local data dir is empty" || fail "PROJ-11" "$TEST_DIR/gone/sessions" "$actual"
+teardown
+
+# ============================================================================
+# link_project_data_dirs tests
+# ============================================================================
+echo ""
+echo "=== link_project_data_dirs ==="
+
+setup
+ACTIONS=()
+HOME="$TEST_DIR/home" link_project_data_dirs "$TEST_DIR/project" "proj" >/dev/null
+[ -d "$TEST_DIR/home/.claude/data/proj/sessions" ] && [ -d "$TEST_DIR/home/.claude/data/proj/reports" ] && pass "PDATA-01: Creates local sessions/ and reports/ data dirs" || fail "PDATA-01" "dirs exist" "missing"
+s_t=$(readlink "$TEST_DIR/project/sessions"); r_t=$(readlink "$TEST_DIR/project/reports")
+[ "$s_t" = "$TEST_DIR/home/.claude/data/proj/sessions" ] && pass "PDATA-02: sessions/ links to ~/.claude/data/<project>/sessions" || fail "PDATA-02" "$TEST_DIR/home/.claude/data/proj/sessions" "$s_t"
+[ "$r_t" = "$TEST_DIR/home/.claude/data/proj/reports" ] && pass "PDATA-03: reports/ links to ~/.claude/data/<project>/reports" || fail "PDATA-03" "$TEST_DIR/home/.claude/data/proj/reports" "$r_t"
+teardown
+
+setup
+mkdir -p "$TEST_DIR/project/sessions"
+echo "data" > "$TEST_DIR/project/sessions/file.txt"
+HOME="$TEST_DIR/home" link_project_data_dirs "$TEST_DIR/project" "proj" >/dev/null 2>&1
+rc=$?
+[ "$rc" -eq 0 ] && pass "PDATA-04: A real sessions/ dir warns but does not fail the caller" || fail "PDATA-04" "exit 0" "exit $rc"
+[ -L "$TEST_DIR/project/reports" ] && pass "PDATA-05: reports/ still linked when sessions/ is a real dir" || fail "PDATA-05" "symlink" "not"
 teardown
 
 # ============================================================================
