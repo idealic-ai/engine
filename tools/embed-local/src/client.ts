@@ -10,9 +10,9 @@
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { EmbedConfig, EmbedErrorCode, EmbedHealth, EmbedRole, EmbeddingClient } from "./contract.js";
-import { EMBED_LOCAL_DEFAULTS, resolveEmbedConfig } from "./config.js";
-import { EmbedLocalError } from "./errors.js";
+import type { EmbedConfig, EmbedErrorCode, EmbedHealth, EmbedRole, EmbeddingClient } from "./contract.ts";
+import { EMBED_LOCAL_DEFAULTS, resolveEmbedConfig } from "./config.ts";
+import { EmbedLocalError } from "./errors.ts";
 
 interface EmbedResponseBody {
   embeddings?: unknown;

@@ -1,4 +1,4 @@
-import type { EmbedErrorCode } from "./contract.js";
+import type { EmbedErrorCode } from "./contract.ts";
 
 /**
  * Every embedding failure, thrown with a code a caller can branch on and a

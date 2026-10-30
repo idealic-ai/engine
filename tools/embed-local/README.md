@@ -32,17 +32,18 @@ client.model;      // "embeddinggemma": store it beside each vector
 client.dimensions; // 768: store it too
 ```
 
-### Loader requirement: tsx or a bundler, not plain `node`
+### Loaders: plain `node`, tsx, vitest or a bundler
 
-The module ships TypeScript source only. It has no `main` or `exports`, no build step,
-and its internal imports use `.js` specifiers (`./config.js` for `config.ts`). Only a
-TS-aware loader maps those: `tsx` (both search tools run under `npx tsx`), vitest, or a
-bundler such as vite. **Node's native type stripping does not**: `node` resolves
-`./config.js` literally and fails with `ERR_MODULE_NOT_FOUND`. Checked on Node 24.2:
-`node -e "await import('…/tools/embed-local/src/index.ts')"` fails that way.
+The module ships TypeScript source only. It has no `main` or `exports` and no build step.
+Its internal imports use `.ts` specifiers (`./config.ts`), so it loads under Node's own type
+stripping as well as under `tsx`, vitest or vite: `node --no-warnings` can import
+`tools/embed-local/src/index.ts` directly, which is how the ask app (plain Node) uses it. A
+TypeScript project that type-checks a file importing it needs `allowImportingTsExtensions`
+(session-search, doc-search and ask-app set it). Keep the source inside what type stripping
+accepts: no enums, namespaces or constructor parameter properties.
 
-The relative path `../../embed-local/src/index.js` holds only for a file directly in
-`tools/<tool>/src/`. From a deeper file, add one `../` per extra directory.
+From `tools/<tool>/src/`, import `../../embed-local/src/index.ts` (or `.js`, which tsx and the
+bundler resolution map to the same file). From a deeper file, add one `../` per extra directory.
 
 ### ASKGROOM (`engine ask`, chunk 3)
 
@@ -53,14 +54,9 @@ The ask index's consumer is `tools/ask-app/src/lib/similar.ts`, so the import is
 import { createLocalEmbeddingClient, type EmbeddingClient } from "../../../embed-local/src/index.ts";
 ```
 
-ask-app uses `.ts` specifiers (`allowImportingTsExtensions`), and `scripts/ask.sh` runs it
-as `node --no-warnings tools/ask-app/src/cli.ts`, which is plain Node. **As this module
-stands, that import fails at run time** (see above): the `.ts` entry loads, then its value
-imports of `./config.js`, `./errors.js` and `./client.js` do not resolve. Chunk 3 has to do one of two things:
-- run the ask CLI under `tsx` for the commands that embed, or
-- switch this module's internal imports to `.ts` specifiers and add
-  `allowImportingTsExtensions` to the session-search and doc-search tsconfigs (tsx and
-  vitest accept `.ts` specifiers, so the search tools keep working).
+ask-app uses `.ts` specifiers (`allowImportingTsExtensions`) and runs as plain Node, which
+this module now supports (above). The ask app's search index (`tools/ask-app/src/search/`,
+IDE-334) already imports it that way.
 
 The design embeds both sides of an ask-to-ask comparison in the document role, so call
 `embed(texts, "document")` or `embedTexts`. Never use `embedSingle` there. For its 2 s

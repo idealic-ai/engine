@@ -6,8 +6,8 @@
  * model or width are not ranked against this one (the search tools store
  * both per row).
  */
-import type { EmbedConfig } from "./contract.js";
-import { EmbedLocalError } from "./errors.js";
+import type { EmbedConfig } from "./contract.ts";
+import { EmbedLocalError } from "./errors.ts";
 
 /**
  * The default model and its contract. The prefixes are part of embeddinggemma's
