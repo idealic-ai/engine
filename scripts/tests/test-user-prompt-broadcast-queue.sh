@@ -47,6 +47,77 @@ run() {
   RC=$?
 }
 
+# ---------------------------------------------------------------- the tool-use drain (SEATACT)
+# A busy seat in one long turn never reaches UserPromptSubmit, so the same hook also runs on
+# PostToolUse. There it costs nothing unless this seat (FLEET_PANE, matched without case) has a
+# queue entry, skips a lane's tool calls (its context is the lane's, not the seat's), and asks
+# broadcast.sh at most once per BROADCAST_TOOL_DRAIN_SECS (default 30).
+# runtool [agent] — a PostToolUse payload under tmux, FLEET_PANE=$SEAT (default app:ask), with
+# BROADCAST_DIR=$T/bc.
+runtool() {
+  local payload='{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"Read"}'
+  [ "${1:-}" = agent ] && payload='{"session_id":"s1","agent_id":"a1","hook_event_name":"PostToolUse","tool_name":"Read"}'
+  OUT=$(printf '%s' "$payload" | env -u TMUX -u TMUX_PANE HOME="$T/home" TMUX_PANE=%990 FLEET_PANE="${SEAT-app:ask}" \
+    BROADCAST_DIR="$T/bc" ${DRAIN_SECS:+BROADCAST_TOOL_DRAIN_SECS=$DRAIN_SECS} bash "$HOOK" 2>&1)
+  RC=$?
+}
+
+test_tool_use_nothing_queued_does_not_ask() {
+  stub list
+  mkdir -p "$T/bc/queued/app:ui"; : > "$T/bc/queued/app:ui/x1"
+  runtool
+  assert_eq 0 "$RC" "tool drain: exits 0"
+  assert_eq "" "$OUT" "tool drain: prints nothing when this seat has nothing queued"
+  assert_file_not_exists "$T/calls" "tool drain: and never runs broadcast.sh (another seat's queue does not count)"
+}
+
+test_tool_use_drains_this_seats_queue() {
+  stub list
+  mkdir -p "$T/bc/queued/App:Ask"; : > "$T/bc/queued/App:Ask/q1"
+  runtool
+  assert_eq "pending --queued" "$(cat "$T/calls" 2>/dev/null)" "tool drain: a queued entry for this seat (any case) runs pending --queued, marking"
+  assert_eq "PostToolUse" "$(jq -r '.hookSpecificOutput.hookEventName' <<<"$OUT" 2>/dev/null)" "tool drain: answered as PostToolUse"
+  assert_contains "ack (from manager:app): engine broadcast ack q1" "$(jq -r '.hookSpecificOutput.additionalContext' <<<"$OUT" 2>/dev/null)" "tool drain: with the queued message"
+}
+
+test_tool_use_is_rate_limited() {
+  stub empty
+  mkdir -p "$T/bc/queued/app:ask"; : > "$T/bc/queued/app:ask/q1"
+  runtool; runtool
+  assert_eq 1 "$(grep -c . "$T/calls" 2>/dev/null || echo 0)" "tool drain: a second call within 30 s does not ask again"
+  DRAIN_SECS=0 runtool
+  assert_eq 2 "$(grep -c . "$T/calls" 2>/dev/null || echo 0)" "tool drain: past the interval it asks again"
+}
+
+test_tool_use_of_a_lane_is_skipped() {
+  stub list
+  mkdir -p "$T/bc/queued/app:ask"; : > "$T/bc/queued/app:ask/q1"
+  runtool agent
+  assert_eq "" "$OUT" "tool drain: a lane's tool call shows nothing (it would land in the lane's context)"
+  assert_file_not_exists "$T/calls" "tool drain: and does not ask"
+}
+
+test_tool_use_without_seat_is_silent() {
+  stub list
+  mkdir -p "$T/bc/queued/app:ask"; : > "$T/bc/queued/app:ask/q1"
+  SEAT="" runtool
+  assert_eq "" "$OUT" "tool drain: no FLEET_PANE, nothing"
+  assert_file_not_exists "$T/calls" "tool drain: and no call"
+}
+
+# The fast path's cost: the hook run 20 times on a PostToolUse with nothing queued.
+test_tool_use_cost() {
+  stub list
+  mkdir -p "$T/bc/queued"
+  local s e ms
+  s=$(perl -MTime::HiRes=time -e 'printf q(%d), time*1000')
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do runtool; done
+  e=$(perl -MTime::HiRes=time -e 'printf q(%d), time*1000')
+  ms=$(( (e - s) / 20 ))
+  echo "    (tool drain, nothing queued: ${ms} ms per hook run incl. bash start and env, load $(uptime | sed 's/.*averages*: //'))"
+  if [ "$ms" -le 200 ]; then pass "tool drain cost: ${ms} ms (bound 200)"; else fail "tool drain cost" "<=200" "$ms"; fi
+}
+
 test_shows_queued_under_tmux() {
   stub list
   run tmux
@@ -127,10 +198,13 @@ real_fixture() {
   printf '{"pid":2001,"name":"manager:director","kind":"interactive","messagingSocketPath":"/nonexistent/1"}\n' > "$f/sess/2001.json"
   printf '{"pid":2004,"name":"app:ask","kind":"interactive","messagingSocketPath":"/nonexistent/4","status":"idle","statusUpdatedAt":%s}\n' "$ms" > "$f/sess/2004.json"
   printf '#!/bin/bash\necho "$1" >> "%s/sent.log"; echo delivered\n' "$f" > "$f/deliver.sh"; chmod +x "$f/deliver.sh"
+  # The drain hook is installed: the hook under test, named in a fixture settings file.
+  printf '{"hooks":{"UserPromptSubmit":[{"hooks":[{"command":"~/.claude/hooks/user-prompt-broadcast-queue.sh"}]}]}}\n' > "$f/settings.json"
   cat > "$T/home/.claude/engine/scripts/broadcast.sh" <<WRAP
 #!/bin/bash
 exec env -u FLEET_PANE -u FLEET_PARENT HOP_LIVE_PANES="$f/live.txt" BROADCAST_DIR="$f/bc" BROADCAST_DELIVER="$f/deliver.sh" \\
   BROADCAST_PANE_PIDS="$f/panepids" BROADCAST_PS_FILE="$f/ps" ASK_SESSIONS_DIR="$f/sess" \\
+  BROADCAST_DRAIN_HOOK="$HOOK" BROADCAST_DRAIN_SETTINGS="$f/settings.json" SEAT_ACTIVITY_DIR="$f/activity" \\
   BROADCAST_LIB="${BROADCAST_LIB:-$ROOT/scripts/lib.sh}" bash "$BC_REAL" "\$@"
 WRAP
   chmod +x "$T/home/.claude/engine/scripts/broadcast.sh"

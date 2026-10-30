@@ -369,6 +369,8 @@ overflow_count=$(jq '[.hooks.PreToolUse[] | select(.hooks[0].command == "~/.clau
 [ "$overflow_count" = "1" ] && pass "HOOKS-04: Idempotent — no duplicates after second run" || fail "HOOKS-04" "1" "$overflow_count"
 bq_count=$(jq '[.hooks.UserPromptSubmit[] | select(.hooks[0].command == "~/.claude/hooks/user-prompt-broadcast-queue.sh")] | length' "$TEST_DIR/claude/settings.json")
 [ "$bq_count" = "1" ] && pass "HOOKS-05: the queued-broadcast UserPromptSubmit hook is wired once (IDE-352)" || fail "HOOKS-05" "1" "$bq_count"
+bqt_count=$(jq '[.hooks.PostToolUse[] | select(.matcher == "*" and .hooks[0].command == "~/.claude/hooks/user-prompt-broadcast-queue.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$bqt_count" = "1" ] && pass "HOOKS-05b: the queue drain also runs on PostToolUse, once, for every tool (SEATACT)" || fail "HOOKS-05b" "1" "$bqt_count"
 teardown
 
 # ============================================================================

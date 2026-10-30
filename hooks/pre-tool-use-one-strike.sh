@@ -42,6 +42,10 @@ source "$HOME/.claude/scripts/lib.sh"
 # Read hook input from stdin
 INPUT=$(cat)
 
+# The seat's activity record, read by `engine broadcast` for its idle time (lib.sh). Every tool
+# call, a subagent's included, before any early exit.
+seat_activity_record tool "$INPUT" || true
+
 # Parse tool info
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || echo "")
 

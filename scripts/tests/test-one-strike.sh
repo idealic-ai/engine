@@ -40,7 +40,7 @@
 set -uo pipefail
 source "$(dirname "$0")/test-helpers.sh"
 
-HOOK="$HOME/.claude/engine/hooks/pre-tool-use-one-strike.sh"
+HOOK="${HOOK_SCRIPT:-$(cd "$(dirname "$0")/../.." && pwd)/hooks/pre-tool-use-one-strike.sh}"
 
 TMP_DIR=$(mktemp -d)
 WARNED_DIR="$TMP_DIR/warnings"
@@ -49,6 +49,8 @@ mkdir -p "$WARNED_DIR"
 # Use a fixed PID for test isolation
 export CLAUDE_SUPERVISOR_PID=88888888
 export CLAUDE_HOOK_WARNED_DIR="$WARNED_DIR"
+# The hook writes this seat's activity record (lib.sh seat_activity_record): keep it in the sandbox.
+export SEAT_ACTIVITY_DIR="$TMP_DIR/activity"
 
 cleanup() {
   rm -rf "$TMP_DIR"

@@ -486,6 +486,12 @@ configure_hooks() {
           "matcher": "*",
           "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-use-preload-read.sh", "timeout": 10}]
         })
+      # The broadcast queue of a busy seat, drained after a tool call (SEATACT): the same hook as on
+      # UserPromptSubmit, which exits at a bash-only check unless this seat has something queued.
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-broadcast-queue.sh", "timeout": 30}]
+        })
     )
 
     # Stop: engine notifier + terminal bell.

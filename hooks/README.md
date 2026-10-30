@@ -27,7 +27,7 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 | `pre-tool-use-session-gate.sh` | Blocks non-whitelisted tools when no session is active. Forces `engine session activate` before work begins. |
 | `pre-tool-use-overflow.sh` | Blocks all tools when context usage exceeds the overflow threshold. Triggers `§CMD_DEHYDRATE` to save state. |
 | `pre-tool-use-heartbeat.sh` | Tracks tool calls per agent via per-transcript counters. Warns, then blocks, if the agent hasn't logged recently. |
-| `pre-tool-use-one-strike.sh` | Blocks the tree/index-destructive git family (`stash`, `checkout`/`switch`/`restore` of paths or branches, `reset --hard`, `clean`, `rm`, `branch -d/-D`, `push --force`, `add -A/-u/./-p`) plus `rm -rf` on first attempt with an educational warning; allows on retry (same pattern type) within the session. Read-only git and `git add -- <path>` always pass. See `¶INV_NO_DESTRUCTIVE_GIT`. |
+| `pre-tool-use-one-strike.sh` | Blocks the tree/index-destructive git family (`stash`, `checkout`/`switch`/`restore` of paths or branches, `reset --hard`, `clean`, `rm`, `branch -d/-D`, `push --force`, `add -A/-u/./-p`) plus `rm -rf` on first attempt with an educational warning; allows on retry (same pattern type) within the session. Read-only git and `git add -- <path>` always pass. See `¶INV_NO_DESTRUCTIVE_GIT`. Before any check it rewrites the seat's activity record, for every tool call, a lane's included. |
 | `pre-tool-use-directive-gate.sh` | Enforces reading of directive files discovered by `post-tool-use-discovery.sh`. Blocks after N tool calls if pending directives remain unread. |
 | _installed order_ | session-gate → overflow → heartbeat → one-strike → directive-gate |
 
@@ -46,7 +46,8 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 |------|---------|
 | `user-prompt-state-injector.sh` | Injects runtime context into the agent's prompt: current time, session info, skill/phase, heartbeat state. |
 | `user-prompt-submit-session-gate.sh` | Instructs the agent to load standards and activate a session when no session is active. |
-| `user-prompt-working.sh` | Sends "working" notification state when the user submits a prompt, before Claude processes. |
+| `user-prompt-working.sh` | Sends "working" notification state when the user submits a prompt, before Claude processes, and rewrites the seat's activity record (`lib.sh seat_activity_record`), which `engine broadcast` reads. |
+| `user-prompt-broadcast-queue.sh` | Shows the seat the broadcasts queued for it (`engine broadcast pending --queued`). Also wired on PostToolUse, so a seat busy in one long turn picks them up after a tool call; there it exits at a bash-only check unless this seat has something queued, skips a lane's tool calls, and asks at most once per 30 s. |
 
 ### PreCompact (1 hook)
 
@@ -67,7 +68,7 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 | `notification-attention.sh` | Sends "unchecked" state when Claude needs user input. |
 | `notification-idle.sh` | Clears working state when Claude is idle/waiting. |
 | `pane-focus-style.sh` | Sets focused tmux pane to black background, unfocused to status tint. |
-| `stop-notify.sh` | Sends "done" notification when Claude's turn ends. |
+| `stop-notify.sh` | Sends "done" notification when Claude's turn ends, and rewrites the seat's activity record. |
 | `stop-failure-record.sh` | StopFailure (an API error ended the turn): appends `## [TAG] lane failed: <error>` to the lane's own log, or records the conductor's failed turn in the session log. |
 | `session-end-notify.sh` | Sends "done" notification when the Claude session exits. |
 

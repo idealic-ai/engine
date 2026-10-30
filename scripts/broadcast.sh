@@ -18,18 +18,27 @@
 #       (outside tmux): there is no unseated send. --dry-run prints the audience and each seat's
 #       binding; writes and sends nothing.
 #       Live or queued (operator ruling, "stop waking everything up"): an ordinary broadcast is
-#       pushed live only to a seat that is busy right now (status "busy", mid-turn, in its
-#       ~/.claude/sessions/<pid>.json): a busy seat is already awake, so the push wakes nobody.
-#       Every other bound seat is queued, however recently it was active ("queued <seat>
-#       pid=<pid> idle=<N>m", or idle=? when there is no reading, plus " status=<s>" when the status
-#       is neither idle nor empty, e.g. waiting; then " via=transcript|status", where the idle
-#       time was read: the newest user/assistant event in its bound transcript, found by lib.sh
-#       transcript_by_key and read from its tail, else statusUpdatedAt; the idle time is shown, it
-#       decides nothing; $BROADCAST_DIR/queued/<seat>/<id>) and shown once at its next wake by
-#       `pending` (SessionStart, and `pending --queued` on each prompt), which then records
-#       "delivered <seat> at-wake <time>". A registry file with neither status nor statusUpdatedAt
-#       gives no reading, and that seat is pushed live. A queued seat is not a failure: it does
-#       not set exit 1.
+#       pushed live only to a seat that is busy right now: status "busy" (mid-turn) in its
+#       ~/.claude/sessions/<pid>.json, or a tool call in its activity record (below) at most
+#       BROADCAST_BUSY_SECS seconds old (default 30). A busy seat is already awake, so the push
+#       wakes nobody. Every other bound seat is queued, however recently it was active ("queued
+#       <seat> pid=<pid> idle=<N>m", or idle=? when there is no reading, plus " status=<s>" when the
+#       status is neither idle nor empty, e.g. waiting; then " via=activity|transcript|status",
+#       where the idle time was read; $BROADCAST_DIR/queued/<seat>/<id>). The idle time is shown,
+#       it decides nothing. It is read from the seat's activity record first: one line in
+#       $SEAT_ACTIVITY_DIR/<seat>.json (default: activity/ beside BROADCAST_DIR) that the engine's
+#       hooks rewrite on every prompt, tool call (a lane's included) and stop (lib.sh
+#       seat_activity_record), trusted only while its sessionId is the bound session's; else from
+#       the newest user/assistant event in the bound transcript (lib.sh transcript_by_key, its
+#       tail only); else statusUpdatedAt. A queued item is shown once, at the seat's next prompt,
+#       its next tool call when it is mid-turn (at most once per 30 s), or SessionStart, by
+#       hooks/user-prompt-broadcast-queue.sh calling `pending --queued`, which records "delivered
+#       <seat> at-wake <time> via=queue"; an ack of an item still recorded queued records
+#       "delivered <seat> at-ack <time> via=queue". A seat that cannot drain a queue, because the
+#       drain hook file is missing or no settings file names it, is pushed live instead, with a
+#       "warning: <seat> is idle … cannot drain a queue: <why>" line. A registry file with neither
+#       status nor statusUpdatedAt, and no activity record, gives no reading, and that seat is
+#       pushed live. A queued seat is not a failure: it does not set exit 1.
 #       --wake-reason "<why>" makes it a wake broadcast, and is the only way to push to an idle
 #       seat: pushed live to every audience seat, idle or not, which WAKES every one of them,
 #       never queued, recorded as "kind: wake" with "wake-reason: <why>" (status shows both). It
@@ -44,7 +53,8 @@
 #   engine broadcast ack <id>                 this seat applied it (own seat only; must be in the
 #                                             audience, or in a live sticky scope)
 #   engine broadcast status <id>              per seat: delivered | queued | undelivered |
-#                                             not-attempted, then acked | not-acked; the kind
+#                                             not-attempted, then acked | not-acked, then
+#                                             via=queue when it was delivered from the queue; the kind
 #                                             (wake | ordinary); complete marker
 #   engine broadcast resend <id> [--undelivered] [--wake-reason WHY]   explicit retry (no
 #                                             automatic one); an idle seat is queued again unless the
@@ -156,6 +166,10 @@
 #        ASK_SESSIONS_DIR — the session registry (shared with deliver.ts).
 #        BROADCAST_INLINE_MAX — the cut, in characters (default 1500); anything but a positive
 #        integer of at most 9 digits warns on stderr and falls back to 1500.
+#        SEAT_ACTIVITY_DIR — the seats' activity records (default: activity/ beside BROADCAST_DIR).
+#        BROADCAST_BUSY_SECS — how recent a recorded tool call makes a seat busy (default 30).
+#        BROADCAST_DRAIN_HOOK / BROADCAST_DRAIN_SETTINGS — where the drain hook and its settings
+#        entry are looked for (see drain_missing).
 #        Test seams: BROADCAST_DELIVER (`<cmd> <seat> <pid> <message>`, exit 0 = delivered),
 #        BROADCAST_PANE_PIDS ("<pane_id> <pid>" lines), BROADCAST_PS_FILE ("<pid> <ppid>" lines).
 set -uo pipefail
@@ -259,10 +273,14 @@ ancestors_of() {
 }
 
 # ---- binding a seat to the one Claude session in its pane (M2) ----
-PS_TABLE="" REGISTRY="" BIND_LOADED=0
+# Loaded once per run: every caller of bind() runs it in $(…), a subshell, so a table loaded there
+# is lost and was re-read for every seat (ps, one jq per registry file, one tmux call). The send,
+# fan-out and dry-run paths call load_bindings in the parent shell first.
+PS_TABLE="" REGISTRY="" PANE_TABLE="" BIND_LOADED=0
 load_bindings() {
   [ "$BIND_LOADED" = 1 ] && return 0
   if [ -n "${BROADCAST_PS_FILE:-}" ]; then PS_TABLE=$(cat "$BROADCAST_PS_FILE"); else PS_TABLE=$(ps -A -o pid=,ppid=); fi
+  [ -n "${BROADCAST_PANE_PIDS:-}" ] || PANE_TABLE=$(tm list-panes -a -F '#{pane_id} #{pane_pid}' 2>/dev/null)
   local f
   REGISTRY=""
   for f in "$SESS_DIR"/[0-9]*.json; do
@@ -275,6 +293,7 @@ load_bindings() {
 }
 pane_pid() {
   if [ -n "${BROADCAST_PANE_PIDS:-}" ]; then awk -v p="$1" '$1 == p { print $2; exit }' "$BROADCAST_PANE_PIDS"
+  elif [ -n "$PANE_TABLE" ]; then awk -v p="$1" '$1 == p { print $2; exit }' <<<"$PANE_TABLE"
   else tm display -p -t "$1" '#{pane_pid}' 2>/dev/null; fi
 }
 # bind <tree> <seat> → "ok <pid> <name>" | "no-session" | "mismatch <pid:name>" |
@@ -284,8 +303,8 @@ bind() {
   n=$(panes_named "$tree" "$seat")
   [ "$n" -le 1 ] || { echo "duplicate-label $n"; return; }
   pane=$(pane_of "$tree" "$seat"); [ -n "$pane" ] || { echo no-pane; return; }
-  root=$(pane_pid "$pane"); [ -n "$root" ] || { echo no-session; return; }
   load_bindings
+  root=$(pane_pid "$pane"); [ -n "$root" ] || { echo no-session; return; }
   awk -v root="$root" -v seat="$seat" -F'\t' '
     FNR == NR { split($0, a, " "); if (a[1] != "") { alive[a[1]] = 1; kids[a[2]] = kids[a[2]] " " a[1] }; next }
     $1 != "" { reg[$1] = $2 }
@@ -364,28 +383,92 @@ transcript_ts() {
   [[ "$out" =~ ^[0-9]{9,11}$ ]] || return 1
   echo "$out"
 }
-# idle_for <pid> → prints "<minutes idle or ?> <status> <via>" (via: transcript | status | none)
-# and returns 0 when the seat is not busy right now (it is queued); returns 1 when it is busy, or
+# The first reading is the seat's activity record (SEATACT), which the engine's hooks write on
+# every prompt, tool call (a subagent's included) and stop: lib.sh seat_activity_record, one line
+# in $SEAT_ACTIVITY_DIR/<seat>.json (default: activity/ beside BROADCAST_DIR). It is trusted only
+# while its sessionId is the bound session's, so a record left by an earlier session (a /clear, a
+# relaunch, a renamed seat) is ignored. A record whose event is a tool call no more than
+# BROADCAST_BUSY_SECS seconds old (default 30) is a seat mid-turn: busy, pushed live, like status
+# "busy". It is read with bash builtins, no process per seat; the transcript is read only when
+# there is no usable record.
+ACT_DIR="${SEAT_ACTIVITY_DIR:-$(dirname "$BDIR")/activity}"
+BROADCAST_BUSY_SECS="${BROADCAST_BUSY_SECS:-30}"
+[[ "$BROADCAST_BUSY_SECS" =~ ^[0-9]{1,5}$ ]] || BROADCAST_BUSY_SECS=30
+# activity_of <seat> <sessionId> → "<epoch seconds> <event>" from the seat's record; rc 1 when it
+# is missing, malformed, or another session's.
+activity_of() {
+  local f="$ACT_DIR/$1.json" line="" re_s='"sessionId":"([A-Za-z0-9_-]{1,128})"' re_t='"lastActivityAt":([0-9]{9,11})[,}]' \
+    re_e='"event":"([A-Za-z:_-]{1,40})"' ts ev=""
+  [ -n "$1" ] && [ -n "$2" ] && [ -f "$f" ] || return 1
+  IFS= read -r line < "$f" 2>/dev/null || [ -n "$line" ] || return 1
+  [[ "$line" =~ $re_s ]] && [ "${BASH_REMATCH[1]}" = "$2" ] || return 1
+  [[ "$line" =~ $re_t ]] || return 1
+  ts="${BASH_REMATCH[1]}"
+  [[ "$line" =~ $re_e ]] && ev="${BASH_REMATCH[1]}"
+  echo "$ts ${ev:-?}"
+}
+# idle_for <pid> [seat] → prints "<minutes idle or ?> <status> <via>" (via: activity | transcript
+# | status | none) and returns 0 when the seat is not busy right now (it is queued); returns 1 when
+# it is busy (status "busy", or a tool call in its activity record within BROADCAST_BUSY_SECS), or
 # its registry file cannot be read (it is pushed live).
 idle_for() {
-  local st t sid cwd f last="" via=none
+  local st t sid cwd f last="" via=none a ev now
   # Joined on US (0x1f), not tab: tab is IFS whitespace, so an empty field would shift the rest.
   IFS=$'\x1f' read -r st t sid cwd < <(jq -r '[(.status // "" | tostring), (.statusUpdatedAt // "" | tostring),
       (.sessionId // "" | tostring), (.cwd // "" | tostring)] | map(gsub("[\u001f\n]"; " ")) | join("\u001f")' \
       "$SESS_DIR/$1.json" 2>/dev/null) || return 1
   [ "$st" != busy ] || return 1
-  # A registry file with neither field gives no reading: it is pushed live, as before this rule.
-  [ -n "$st" ] || [ -n "$t" ] || return 1
-  if [ -n "$sid" ] && f=$(transcript_of "$sid" "$cwd") && last=$(transcript_ts "$f"); then
+  now=$(date +%s)
+  if a=$(activity_of "${2:-}" "$sid"); then
+    read -r last ev <<<"$a"; via=activity
+    case "$ev" in tool|tool:*) [ $(( now - last )) -gt "$BROADCAST_BUSY_SECS" ] || return 1 ;; esac
+  fi
+  # A registry file with neither field (and no record) gives no reading: it is pushed live.
+  [ -n "$last" ] || [ -n "$st" ] || [ -n "$t" ] || return 1
+  if [ -n "$last" ]; then :
+  elif [ -n "$sid" ] && f=$(transcript_of "$sid" "$cwd") && last=$(transcript_ts "$f"); then
     via=transcript
   elif [[ "$t" =~ ^[0-9]{10,16}$ ]]; then
     last=$(( t / 1000 )); via=status
   fi
-  if [ -n "$last" ]; then echo "$(( ($(date +%s) - last) / 60 )) ${st:-idle} $via"
+  if [ -n "$last" ]; then echo "$(( (now - last) / 60 )) ${st:-idle} $via"
   else echo "? ${st:-idle} $via"; fi
 }
+# ---- a queue needs its drain hook ----
+# A queued broadcast reaches the seat only through hooks/user-prompt-broadcast-queue.sh (and the
+# SessionStart listing). When broadcast can see that hook is not installed, it does not queue: it
+# pushes live and warns. Installed means: the hook file exists (BROADCAST_DRAIN_HOOK, default
+# ~/.claude/hooks/user-prompt-broadcast-queue.sh; a dangling link counts as missing), and some
+# settings file Claude Code reads for that seat names it: BROADCAST_DRAIN_SETTINGS (":"-separated;
+# default ~/.claude/settings.json and settings.local.json), or .claude/settings.json or
+# settings.local.json in the seat's cwd or any directory above it. The settings check is a text
+# match on the hook's file name, not a parse of the hooks block.
+DRAIN_HOOK="${BROADCAST_DRAIN_HOOK:-$HOME/.claude/hooks/user-prompt-broadcast-queue.sh}"
+DRAIN_SETTINGS="${BROADCAST_DRAIN_SETTINGS-$HOME/.claude/settings.json:$HOME/.claude/settings.local.json}"
+# drain_missing <pid> → rc 0 and the reason on stdout when the seat cannot drain a queue; rc 1 when
+# it can.
+drain_missing() {
+  local name="user-prompt-broadcast-queue.sh" f d cwd="" list
+  [ -e "$DRAIN_HOOK" ] || { echo "drain hook $DRAIN_HOOK is not installed"; return 0; }
+  list="$DRAIN_SETTINGS"
+  while [ -n "$list" ]; do
+    f="${list%%:*}"; [ "$f" = "$list" ] && list="" || list="${list#*:}"
+    [ -n "$f" ] && [ -f "$f" ] && grep -qF -- "$name" "$f" 2>/dev/null && return 1
+  done
+  cwd=$(jq -r '.cwd // ""' "$SESS_DIR/$1.json" 2>/dev/null)
+  d="$cwd"
+  while [ -n "$d" ] && [ "${d#/}" != "$d" ]; do
+    for f in "$d/.claude/settings.json" "$d/.claude/settings.local.json"; do
+      [ -f "$f" ] && grep -qF -- "$name" "$f" 2>/dev/null && return 1
+    done
+    [ "$d" = / ] && break
+    d=$(dirname "$d")
+  done
+  echo "no settings entry runs $name (checked ${DRAIN_SETTINGS:-no global file} and .claude/settings*.json above ${cwd:-an unknown cwd})"
+  return 0
+}
 # idle_words <idle_for output> → "idle=<N>m", plus " status=<s>" unless the status is idle, then
-# " via=<transcript|status>": which reading the idle time came from.
+# " via=<activity|transcript|status>": which reading the idle time came from.
 idle_words() {
   local m st via; read -r m st via <<<"$1"
   if [ "$m" = "?" ]; then printf 'idle=?'; else printf 'idle=%sm' "$m"; fi
@@ -398,10 +481,12 @@ queue_dir() { echo "$BDIR/queued/$(ack_key "$1")"; }
 unqueue() { local qd; qd=$(queue_dir "$1"); rm -f "$qd/$2" "$qd"/.wake.*/"$2" 2>/dev/null; return 0; }
 # bind_note <bind-result> — the dry run's "(queue: idle Nm)" for a bound seat that would be queued.
 bind_note() {
-  local m pid
+  local m pid why
   [ "$LIVE_ALL" = 0 ] && [ "${1%% *}" = ok ] || return 0
   read -r _ pid _ <<<"$1"
-  m=$(idle_for "$pid") && echo " (queue: $(idle_words "$m"))"
+  m=$(idle_for "$pid" "${2:-}") || return 0
+  if why=$(drain_missing "$pid"); then echo " (live, not queued: $(idle_words "$m"); $why)"
+  else echo " (queue: $(idle_words "$m"))"; fi
   return 0
 }
 
@@ -472,6 +557,7 @@ SEAT_MSG=""
 # fan_out <tree> <id> <rec> <message> <seats…> — deliver, append one line per seat, then done.
 fan_out() {
   local tree="$1" id="$2" rec="$3" msg="$4" s b res m idle qd hold rc=0 ok=0 bad=0 q=0; shift 4
+  load_bindings
   for s in "$@"; do
     b=$(bind "$tree" "$s")
     if [ "${b%% *}" = ok ]; then
@@ -481,7 +567,11 @@ fan_out() {
       # through to the live push: a broadcast is never left neither pushed nor queued.
       qd=$(queue_dir "$s")
       # A re-queue keeps an existing entry as it is (its mtime is its place in the queue).
-      if [ "$LIVE_ALL" = 0 ] && idle=$(idle_for "$pid") && mkdir -p "$qd" 2>/dev/null \
+      # A seat that visibly cannot drain a queue (no drain hook) is pushed live, with a warning.
+      local why="" idle=""
+      if [ "$LIVE_ALL" = 0 ] && idle=$(idle_for "$pid" "$s") && why=$(drain_missing "$pid"); then
+        echo "warning: $s is idle ($(idle_words "$idle")) but cannot drain a queue: $why; pushed live instead" | tee -a "$rec"
+      elif [ "$LIVE_ALL" = 0 ] && [ -n "$idle" ] && mkdir -p "$qd" 2>/dev/null \
          && { [ -f "$qd/$id" ] || : > "$qd/$id"; } 2>/dev/null; then
         echo "queued $s pid=$pid $(idle_words "$idle")" | tee -a "$rec"; q=$((q + 1)); continue
       fi
@@ -543,6 +633,7 @@ cmd_send() {
   sent_by=$(live_self) || exit $?
   [ -n "$from" ] || from="$sent_by"
   in_tree "$tree" "$from" || die 3 "sender '$from' is not in the live tree"
+  load_bindings
   case "$scope" in
     children) audience=$(children_of "$tree" "$from" | tr '\n' ' '); scope="children:$from" ;;
     subtree)
@@ -564,7 +655,7 @@ cmd_send() {
     "$id" "$from" "$sent_by" "$scope" "$sticky" "$expires" "$audience" "$kindh"
   [ -z "$skipped" ] || echo "skipped (no Claude session in pane): $skipped"
   if [ "$dry" = 1 ]; then
-    for s in $audience; do b=$(bind "$tree" "$s"); echo "binds $s → $b$(bind_note "$b")"; done
+    for s in $audience; do b=$(bind "$tree" "$s"); echo "binds $s → $b$(bind_note "$b" "$s")"; done
     echo "message: $msg"
     echo "dry-run: nothing written, nothing sent"
     return 0
@@ -587,6 +678,12 @@ cmd_send() {
 last_state() {
   awk -v s="$2" '/^## Delivery/ { d = 1; next } d && ($1 == "delivered" || $1 == "undelivered" || $1 == "queued") && $2 == s { st = $1 }
     END { print (st == "" ? "not-attempted" : st) }' "$1"
+}
+
+# last_via <rec> <seat> → "\tvia=queue" when the seat's last delivery line came through the queue.
+last_via() {
+  awk -v s="$2" '/^## Delivery/ { d = 1; next } d && ($1 == "delivered" || $1 == "undelivered" || $1 == "queued") && $2 == s { v = ($NF == "via=queue") }
+    END { if (v) printf "\tvia=queue" }' "$1"
 }
 
 cmd_resend() {
@@ -630,6 +727,13 @@ in_live_scope() {
   esac
 }
 
+# ack_delivers <rec> <seat> — a seat that acks an item still recorded as queued has seen it (a
+# --peek listing, a SessionStart preload, or another route): record it delivered via the queue.
+ack_delivers() {
+  [ "$(last_state "$1" "$2")" = queued ] || return 0
+  echo "delivered $2 at-ack $(now) via=queue" >> "$1"
+}
+
 cmd_ack() {
   local id="${1:-}"; [ $# -le 1 ] || die 2 "ack takes one id (an ack is always this seat's own)"
   local rec seat
@@ -644,7 +748,8 @@ cmd_ack() {
   mkdir -p "$BDIR/$id.acks.d" || die 2 "cannot create the ack dir"
   # An acked item is not shown again at the seat's next wake (go_ack dies on a refusal, so the
   # entry is cleared only once the answer stands).
-  if is_go "$rec"; then go_ack "$id" "$rec" "$seat"; unqueue "$seat" "$id"; return 0; fi
+  if is_go "$rec"; then go_ack "$id" "$rec" "$seat"; ack_delivers "$rec" "$seat"; unqueue "$seat" "$id"; return 0; fi
+  ack_delivers "$rec" "$seat"
   if ( set -C; printf '%s\t%s\n' "$seat" "$(now)" > "$BDIR/$id.acks.d/$(ack_key "$seat")" ) 2>/dev/null; then
     echo "acked: $seat"
   else
@@ -659,7 +764,7 @@ cmd_status() {
   if is_go "$rec"; then go_status "$id" "$rec"; return 0; fi
   aud=" $(header "$rec" audience) "
   for s in $aud; do
-    printf '%s\t%s\t%s\n' "$s" "$(last_state "$rec" "$s")" "$(acked "$id" "$s" && echo acked || echo not-acked)"
+    printf '%s\t%s\t%s%s\n' "$s" "$(last_state "$rec" "$s")" "$(acked "$id" "$s" && echo acked || echo not-acked)" "$(last_via "$rec" "$s")"
   done
   if [ -d "$BDIR/$id.acks.d" ]; then
     for f in "$BDIR/$id.acks.d"/*; do
@@ -774,7 +879,7 @@ cmd_pending() {
       printf '%s\t%s\tqueued\t%s\n%s\n' "$id" "$(header "$rec" sent-by)" "$rec" "$(wake_message "$id" "$rec" "$seat")"
       shown=$((shown + 1))
       if [ "$mark" = 1 ]; then
-        echo "delivered $seat at-wake $(now)" >> "$rec"
+        echo "delivered $seat at-wake $(now) via=queue" >> "$rec"
         if [ -n "$wk" ] && mkdir -p "$wk" 2>/dev/null && mv -f "$claim" "$wk/$id" 2>/dev/null; then :; else rm -f "$claim"; fi
       fi
     done 3< <(ls -tr "$qd" 2>/dev/null)
@@ -1247,7 +1352,8 @@ cmd_go_request() {
   printf 'id: %s\nfrom: %s\nsent-by: %s\nscope: go-request\naudience: %s\n%s' "$id" "$sent_by" "$sent_by" "$oseats" "$extra"
   GO_ID="$id" GO_TEXT="$text" GO_REC="$rec" GO_BY="$sent_by"
   if [ "$dry" = 1 ]; then
-    for seat in "${seat_arr[@]}"; do b=$(bind "$tree" "$seat"); echo "binds $seat → $b$(bind_note "$b")"; echo "message to $seat: $(go_msg_for "$seat")"; done
+    load_bindings
+    for seat in "${seat_arr[@]}"; do b=$(bind "$tree" "$seat"); echo "binds $seat → $b$(bind_note "$b" "$seat")"; echo "message to $seat: $(go_msg_for "$seat")"; done
     echo "dry-run: nothing written, nothing sent"
     return 0
   fi

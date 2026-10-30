@@ -10,5 +10,8 @@
 #     ¶INV_TMUX_AND_FLEET_OPTIONAL — No-op outside fleet
 
 source "$HOME/.claude/scripts/lib.sh"
+# The seat's activity record, read by `engine broadcast` for its idle time (lib.sh).
+IFS= read -r -d '' INPUT || true
+seat_activity_record prompt "$INPUT"
 notify_fleet working
 exit 0

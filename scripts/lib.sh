@@ -26,6 +26,7 @@
 #   is_engine_glob_cmd CMD  — Returns 0 if CMD is an engine glob invocation
 #   fleet_self              — This seat's window:label, live tmux first (exit 3 = launch-time cache)
 #   fleet_parent [--live V] [--of SEAT] — This seat's parent, live @pane_parent first (exit 3 = cache)
+#   seat_activity_record EVENT INPUT — rewrite this seat's activity record (broadcast reads it)
 
 # Guard against double-sourcing
 [ -n "${_LIB_SH_LOADED:-}" ] && return 0
@@ -1737,6 +1738,37 @@ fleet_parent() {
   fi
   echo "$pfx: cannot resolve this seat's parent (no live @pane_parent, no FLEET_PARENT)" >&2
   return 1
+}
+
+# seat_activity_record <event> <hook-input-json> — note that this seat did something just now.
+# Writes $SEAT_ACTIVITY_DIR/<seat>.json (default ~/.claude/data/yarik/activity, beside broadcasts/
+# and asks/), one line:
+#   {"seat":"<seat>","lastActivityAt":<epoch s>,"pid":<hook's parent pid>,"sessionId":"<id>","event":"<event>"}
+# `engine broadcast` reads it for a seat's idle time, and trusts it only while its sessionId is the
+# bound session's. The seat is FLEET_PANE, the launch-time label run.sh exports: read from the
+# environment, no tmux call. A seat renamed since launch keeps writing under its old name, and the
+# reader's session-id check then ignores that file. The session id comes from the hook input's
+# top-level "session_id" (a subagent's hook input carries its parent's, so a lane's tool call counts
+# for its seat; one carrying "agent_id" is recorded as "<event>:subagent"). Nothing is written
+# without a seat or a session id. One writer per seat, so no lock: the line goes to a temp file
+# that is renamed over the record, and a reader never sees half a line. Always returns 0: a hook
+# must not fail on it. Bash 3.2; costs one `date` and one `mv`.
+seat_activity_record() {
+  local seat="${FLEET_PANE:-}" ev="${1:-}" input="${2:-}" sid="" dir now tmp
+  local sre='"session_id"[[:space:]]*:[[:space:]]*"([A-Za-z0-9_-]{1,128})"'
+  local are='"agent_id"[[:space:]]*:[[:space:]]*"[^"]'
+  case "$seat" in ""|.*|-*|*/*|*[[:space:]]*|*'"'*|*\\*) return 0 ;; esac
+  [[ "$input" =~ $sre ]] && sid="${BASH_REMATCH[1]}"
+  [ -n "$sid" ] || return 0
+  [[ "$input" =~ $are ]] && ev="$ev:subagent"
+  dir="${SEAT_ACTIVITY_DIR:-$HOME/.claude/data/yarik/activity}"
+  [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || return 0
+  now=$(date +%s) || return 0
+  tmp="$dir/.$seat.$$"
+  printf '{"seat":"%s","lastActivityAt":%s,"pid":%s,"sessionId":"%s","event":"%s"}\n' \
+    "$seat" "$now" "${PPID:-0}" "$sid" "$ev" > "$tmp" 2>/dev/null \
+    && mv -f "$tmp" "$dir/$seat.json" 2>/dev/null || rm -f "$tmp" 2>/dev/null
+  return 0
 }
 
 # transcript_by_key <key> [cwd] [projects-dir] — print the path of the transcript file named <key>

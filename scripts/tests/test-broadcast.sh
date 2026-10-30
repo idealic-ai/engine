@@ -114,9 +114,15 @@ bc() {
   [ "$pane" = none ] && pane=""
   [ "${DELIVER:-}" = real ] && stub=""
   local clean="" keep=(); [ "${CLEAN:-}" = 1 ] && { clean=-i; keep=(HOME="$HOME" ${BROADCAST_INLINE_MAX:+BROADCAST_INLINE_MAX="$BROADCAST_INLINE_MAX"}); }
-  OUT=$(env $clean -u FLEET_PARENT -u FLEET_PANE -u TMUX_PANE -u HOP_CHAIN_FILE -u FLEET_LIVE_PANES \
+  # The queue's drain hook, installed by default (a fixture hook file and a settings entry);
+  # DRAIN_HOOK / DRAIN_SETTINGS override them. ACT_DIR → SEAT_ACTIVITY_DIR.
+  [ -e "$FIX/drain-hook.sh" ] || : > "$FIX/drain-hook.sh"
+  [ -e "$FIX/settings.json" ] || printf '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"~/.claude/hooks/user-prompt-broadcast-queue.sh"}]}]}}\n' > "$FIX/settings.json"
+  OUT=$(env $clean -u FLEET_PARENT -u FLEET_PANE -u TMUX_PANE -u SEAT_ACTIVITY_DIR -u HOP_CHAIN_FILE -u FLEET_LIVE_PANES \
     -u HOP_TMUX_SOCKET -u FLEET_TMUX_SOCKET -u TMUX -u BROADCAST_OWNERS ${OWNERS_ENV:+BROADCAST_OWNERS="$OWNERS_ENV"} \
-    ${keep[@]+"${keep[@]}"} PATH="$path" HOP_LIVE_PANES="$tree" BROADCAST_DIR="$FIX/bc" BROADCAST_DELIVER="$stub" \
+    ${keep[@]+"${keep[@]}"} BROADCAST_DRAIN_HOOK="${DRAIN_HOOK:-$FIX/drain-hook.sh}" \
+    BROADCAST_DRAIN_SETTINGS="${DRAIN_SETTINGS:-$FIX/settings.json}" ${ACT_DIR:+SEAT_ACTIVITY_DIR="$ACT_DIR"} \
+    PATH="$path" HOP_LIVE_PANES="$tree" BROADCAST_DIR="$FIX/bc" BROADCAST_DELIVER="$stub" \
     BROADCAST_PANE_PIDS="$FIX/panepids" BROADCAST_PS_FILE="$FIX/ps" ASK_SESSIONS_DIR="$FIX/sess" BROADCAST_PROJECTS_DIR="$FIX/projects" \
     BROADCAST_LIB="${LIB:-$LIB_SH}" ${pane:+TMUX_PANE="$pane"} ${tmuxenv:+TMUX="$tmuxenv"} ${SELF:+FLEET_PANE="$SELF"} \
     perl -e "$BC_BOUND" "${BC_ALARM_SECS:-60}" bash "$BROADCAST_SH" "$@" 2>&1 <<<"${MSG-Use /ask, not AskUserQuestion.}")
@@ -1028,6 +1034,112 @@ test_idle_reads_only_the_tail() {
   assert_has "queued app:ask pid=2004 idle=120m via=status" "$(cat "$FIX/bc/tr7.md")" "tail: an event before the tail is not read (the cut first line is dropped)"
   bc --children --from manager:app --id tr7b
   assert_has "queued app:ask pid=2004 idle=2m via=transcript" "$(cat "$FIX/bc/tr7b.md")" "tail: with the default tail the same event is read"
+}
+
+# ---------------------------------------------------------------- idle by the activity record (SEATACT)
+# actrec <seat> <seconds-ago> <sessionId> [event] — the record the hooks write (lib.sh
+# seat_activity_record), under $FIX/activity: beside BROADCAST_DIR, where broadcast looks by default.
+actrec() {
+  mkdir -p "$FIX/activity"
+  printf '{"seat":"%s","lastActivityAt":%s,"pid":1,"sessionId":"%s","event":"%s"}\n' \
+    "$1" "$(( $(date +%s) - $2 ))" "$3" "${4:-tool}" > "$FIX/activity/$1.json"
+}
+
+test_activity_record_is_read_first() {
+  act 2004 idle 5; tx 2004 3; actrec app:ask 7200 sess-2004 stop
+  bc --children --from manager:app --id ar1
+  assert_has "queued app:ask pid=2004 idle=120m via=activity" "$(cat "$FIX/bc/ar1.md")" "activity: a record of the bound session is read before the transcript and the status"
+  bc --children --from manager:app --id ar1d --dry-run
+  assert_has "(queue: idle=120m via=activity)" "$OUT" "activity: the dry run names the source"
+}
+
+test_activity_tool_event_within_30s_is_busy() {
+  act 2004 idle 120; tx 2004 120; actrec app:ask 10 sess-2004 tool
+  act 2005 idle 120; tx 2005 120; actrec app:ui 10 sess-2005 tool:subagent
+  bc --children --from manager:app --id ab1
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/ab1.md")" "busy now: a tool call 10 s ago is mid-turn, so it is pushed live"
+  assert_has "delivered app:ui pid=2005" "$(cat "$FIX/bc/ab1.md")" "busy now: a lane's tool call 10 s ago counts for its seat"
+  actrec app:ask 10 sess-2004 stop; actrec app:ui 90 sess-2005 tool
+  bc --children --from manager:app --id ab2
+  assert_has "queued app:ask pid=2004 idle=0m via=activity" "$(cat "$FIX/bc/ab2.md")" "busy now: a stop 10 s ago ended the turn, so it is queued"
+  assert_has "queued app:ui pid=2005 idle=1m via=activity" "$(cat "$FIX/bc/ab2.md")" "busy now: a tool call 90 s ago is past 30 s, so it is queued"
+}
+
+test_activity_record_of_another_session_falls_back() {
+  act 2004 idle 120; tx 2004 120; actrec app:ask 5 sess-older tool
+  bc --children --from manager:app --id ar2
+  assert_has "queued app:ask pid=2004 idle=120m via=transcript" "$(cat "$FIX/bc/ar2.md")" "stale: a record from another session id is ignored; the transcript is read"
+}
+
+test_activity_record_missing_falls_back() {
+  act 2004 idle 120; tx 2004 120
+  bc --children --from manager:app --id ar3
+  assert_has "queued app:ask pid=2004 idle=120m via=transcript" "$(cat "$FIX/bc/ar3.md")" "missing: no record reads the transcript"
+}
+
+test_activity_record_malformed_falls_back() {
+  act 2004 idle 120; tx 2004 120
+  mkdir -p "$FIX/activity"; printf '{"seat":"app:ask","sessionId":"sess-2004"' > "$FIX/activity/app:ask.json"
+  bc --children --from manager:app --id ar4
+  assert_has "queued app:ask pid=2004 idle=120m via=transcript" "$(cat "$FIX/bc/ar4.md")" "malformed: a record without lastActivityAt reads the transcript"
+}
+
+test_activity_record_busy_status_is_live() {
+  act 2004 busy 120; tx 2004 120; actrec app:ask 7200 sess-2004 stop
+  bc --children --from manager:app --id ar5
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/ar5.md")" "busy: a busy status is live whatever the record says"
+}
+
+test_activity_dir_env_wins() {
+  act 2004 idle 5; tx 2004 3
+  mkdir -p "$FIX/elsewhere"
+  printf '{"seat":"app:ask","lastActivityAt":%s,"pid":1,"sessionId":"sess-2004","event":"stop"}\n' "$(( $(date +%s) - 7200 ))" > "$FIX/elsewhere/app:ask.json"
+  ACT_DIR="$FIX/elsewhere" bc --children --from manager:app --id ar6
+  assert_has "queued app:ask pid=2004 idle=120m via=activity" "$(cat "$FIX/bc/ar6.md")" "dir: SEAT_ACTIVITY_DIR names where the records are"
+}
+
+# ---------------------------------------------------------------- no queue without its drain hook
+test_drain_hook_file_missing_pushes_live() {
+  act 2004 idle 120; act 2005 busy 5
+  DRAIN_HOOK="$FIX/no-such-hook.sh" bc --children --from manager:app --id dh1
+  local body; body=$(cat "$FIX/bc/dh1.md")
+  assert_has "delivered app:ask pid=2004" "$body" "drain: an idle seat is pushed live when the drain hook file is missing"
+  assert_hasnt "queued app:ask" "$body" "drain: and not queued"
+  assert_has "warning: app:ask is idle (idle=120m" "$body" "drain: the record carries a warning"
+  assert_has "no-such-hook.sh" "$body" "drain: naming the missing hook"
+  assert_has "warning: app:ask is idle" "$OUT" "drain: the sender sees the warning"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/dh1" "drain: no queue entry is written"
+  DRAIN_HOOK="$FIX/no-such-hook.sh" bc --children --from manager:app --id dh1d --dry-run
+  assert_has "(live, not queued: idle=120m" "$OUT" "drain: the dry run says live, and why"
+}
+
+test_drain_hook_unregistered_pushes_live() {
+  act 2004 idle 120
+  printf '{"hooks":{"UserPromptSubmit":[{"hooks":[{"type":"command","command":"~/.claude/hooks/user-prompt-working.sh"}]}]}}\n' > "$FIX/bare.json"
+  DRAIN_SETTINGS="$FIX/bare.json" bc --children --from manager:app --id dh2
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/dh2.md")" "drain: an idle seat is pushed live when no settings file registers the drain hook"
+  assert_has "no settings entry" "$(cat "$FIX/bc/dh2.md")" "drain: the warning says the settings entry is missing"
+  mkdir -p "$FIX/w/proj/.claude"; cp "$FIX/settings.json" "$FIX/w/proj/.claude/settings.local.json"
+  jq -c --arg c "$FIX/w/proj/sub" '. + {cwd: $c}' "$FIX/sess/2004.json" > "$FIX/sess/2004.tmp" && mv "$FIX/sess/2004.tmp" "$FIX/sess/2004.json"
+  DRAIN_SETTINGS="$FIX/bare.json" bc --children --from manager:app --id dh3
+  assert_has "queued app:ask pid=2004" "$(cat "$FIX/bc/dh3.md")" "drain: a project settings.local.json above the seat's cwd counts as installed"
+}
+
+# ---------------------------------------------------------------- a drained item reads delivered
+test_status_after_queue_shown_and_acked() {
+  act 2004 idle 120
+  bc --children --from manager:app --id dq1
+  PANE=%4 bc pending --queued --peek
+  PANE=%4 bc ack dq1
+  bc status dq1
+  assert_has $'app:ask\tdelivered\tacked\tvia=queue' "$OUT" "drained: a queued item the seat saw (peek) and acked reads delivered via=queue, acked"
+  assert_has "delivered app:ask at-ack " "$(cat "$FIX/bc/dq1.md")" "drained: the record says the ack delivered it"
+  bc --children --from manager:app --id dq2
+  PANE=%4 bc pending --queued
+  bc status dq2
+  assert_has $'app:ask\tdelivered\tnot-acked\tvia=queue' "$OUT" "drained: shown at wake reads delivered via=queue before any ack"
+  PANE=%4 bc ack dq2
+  assert_eq 1 "$(grep -c '^delivered app:ask' "$FIX/bc/dq2.md")" "drained: an ack after the wake adds no second delivery line"
 }
 
 # ---------------------------------------------------------------- parity (S7)
