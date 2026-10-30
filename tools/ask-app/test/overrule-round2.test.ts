@@ -20,7 +20,7 @@ const SEAT = "docs:handbook";
 const MGR = "manager:docs";
 const PEER = "docs:peer";
 const MANAGES_SEAT = ["handbook"];
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 const fileOf = (id: string) => path.join(root, SEAT, `${id}.md`);
 const readAsk = (id: string) => parseAskFile(fs.readFileSync(fileOf(id), "utf8"));
 const yes = (by: string, extra: Partial<AskAnswer> = {}): AskAnswer => ({ answers: { GO: ["YES"] }, answeredBy: by, answeredVia: "cli", ...extra });

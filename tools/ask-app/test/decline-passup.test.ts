@@ -15,7 +15,7 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(path.dirname(root), { recursive: true, force: true }));
 
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 const ASKER = "idealic:kernel";
 const read = (id: string) => parseAskFile(fs.readFileSync(path.join(root, ASKER, `${id}.md`), "utf8"));
 const pushes: { seat: string; content: string }[] = [];

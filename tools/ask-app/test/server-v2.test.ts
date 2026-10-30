@@ -22,7 +22,7 @@ function fakeDist(base: string): string {
 
 const KEY = "lin_api_TESTSECRET_0123456789abcdef";
 const TOKEN = "t0k3n-v2";
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 let base: string, root: string, port: number, proc: ChildProcess;
 let linear: http.Server, linearPort: number;
 const linearSeen: { auth?: string; body: string }[] = [];

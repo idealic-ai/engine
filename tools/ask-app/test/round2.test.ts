@@ -15,7 +15,7 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(path.dirname(root), { recursive: true, force: true }));
 
-const GO = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const GO = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 const file = (seat: string, id: string) => path.join(root, seat, `${id}.md`);
 const read = (seat: string, id: string) => parseAskFile(fs.readFileSync(file(seat, id), "utf8"));
 function recorder(delayMs = 0) {
@@ -221,48 +221,48 @@ describe("drafts smuggled into the body", () => {
 
 describe("codes at the 12-character boundary", () => {
   it("HOLDS: a 12-character code is a code; 13 is refused, naming it", () => {
-    const f = newAsk(root, { from: "a:b", to: "operator", id: "c1" }, "## ¶ASK_Q: Choose one: Q?\n- [ ] [ABCDEFGHIJKL] twelve\n- [ ] [B] b\n");
+    const f = newAsk(root, { from: "a:b", to: "operator", id: "c1" }, "## ¶ASK_Q: Choose one: Q?\nContext: c\n- [ ] [ABCDEFGHIJKL] twelve\n  Picks ABCDEFGHIJKL.\n- [ ] [B] b\n  Picks B.\n");
     expect(parseAskFile(fs.readFileSync(f, "utf8")).questions[0].options[0].code).toBe("ABCDEFGHIJKL");
-    expect(() => newAsk(root, { from: "a:b", to: "operator", id: "c2" }, "## ¶ASK_Q: Choose one: Q?\n- [ ] [ABCDEFGHIJKLM] thirteen\n")).toThrow(/\[ABCDEFGHIJKLM\]/);
+    expect(() => newAsk(root, { from: "a:b", to: "operator", id: "c2" }, "## ¶ASK_Q: Choose one: Q?\nContext: c\n- [ ] [ABCDEFGHIJKLM] thirteen\n  Picks ABCDEFGHIJKLM.\n")).toThrow(/\[ABCDEFGHIJKLM\]/);
   });
   it("the refusal text states the real rule (12 at most), not 'up to 4 capitals'", () => {
-    const go = () => newAsk(root, { from: "a:b", to: "operator", id: "c3" }, "## ¶ASK_Q: Choose one: Q?\n- [ ] [ABCDEFGHIJKLM] thirteen\n");
+    const go = () => newAsk(root, { from: "a:b", to: "operator", id: "c3" }, "## ¶ASK_Q: Choose one: Q?\nContext: c\n- [ ] [ABCDEFGHIJKLM] thirteen\n  Picks ABCDEFGHIJKLM.\n");
     expect(go).not.toThrow(/up to 4 capitals/);
     expect(go).toThrow(`up to ${CODE_MAX - 1} capitals or digits (${CODE_MAX} at most)`);
   });
   it("a DependsOn naming a 13-character code is refused at filing, naming it", () => {
-    const body = "## ¶ASK_A: Choose one: A?\n- [ ] [ABCDEFGHIJKL] x\n- [ ] [NO] n\n\n## ¶ASK_B: Text: Why?\nDependsOn: ASK_A=ABCDEFGHIJKLM\n";
+    const body = "## ¶ASK_A: Choose one: A?\nContext: c\n- [ ] [ABCDEFGHIJKL] x\n  Picks ABCDEFGHIJKL.\n- [ ] [NO] n\n  Picks NO.\n\n## ¶ASK_B: Text: Why?\nContext: c\nDependsOn: ASK_A=ABCDEFGHIJKLM\n";
     expect(() => newAsk(root, { from: "a:b", to: "operator", id: "c4" }, body)).toThrow(/ASK_A=ABCDEFGHIJKLM is not a code/);
   });
   it("a DependsOn naming a code no option has, or a question the ask lacks, is refused", () => {
-    const unknownCode = "## ¶ASK_A: Choose one: A?\n- [ ] [YES] y\n- [ ] [NO] n\n\n## ¶ASK_B: Text: Why?\nDependsOn: ASK_A=MAYBE\n";
+    const unknownCode = "## ¶ASK_A: Choose one: A?\nContext: c\n- [ ] [YES] y\n  Picks YES.\n- [ ] [NO] n\n  Picks NO.\n\n## ¶ASK_B: Text: Why?\nContext: c\nDependsOn: ASK_A=MAYBE\n";
     expect(() => newAsk(root, { from: "a:b", to: "operator", id: "c5" }, unknownCode)).toThrow(/ASK_A=MAYBE names no option of ASK_A \(it has YES, NO\)/);
-    const unknownQ = "## ¶ASK_A: Choose one: A?\n- [ ] [YES] y\n\n## ¶ASK_B: Text: Why?\nDependsOn: ASK_Z=YES\n";
+    const unknownQ = "## ¶ASK_A: Choose one: A?\nContext: c\n- [ ] [YES] y\n  Picks YES.\n\n## ¶ASK_B: Text: Why?\nContext: c\nDependsOn: ASK_Z=YES\n";
     expect(() => newAsk(root, { from: "a:b", to: "operator", id: "c5b" }, unknownQ)).toThrow(/ASK_Z names no question/);
-    const ok = "## ¶ASK_A: Yes or no: A?\n\n## ¶ASK_B: Text: Why?\nDependsOn: ASK_A=NO\n";
+    const ok = "## ¶ASK_A: Yes or no: A?\nContext: c\n\n## ¶ASK_B: Text: Why?\nContext: c\nDependsOn: ASK_A=NO\n";
     expect(() => newAsk(root, { from: "a:b", to: "operator", id: "c5c" }, ok)).not.toThrow();
   });
   it("`- [X] Xray` keeps code X; `- [X] [A] label` is still a checked box then code A", () => {
-    const f = newAsk(root, { from: "a:b", to: "operator", id: "c6" }, "## ¶ASK_Q: Choose one: Q?\n- [X] Xray\n- [Y] Yankee\n- [X] [A] Alpha\n");
+    const f = newAsk(root, { from: "a:b", to: "operator", id: "c6" }, "## ¶ASK_Q: Choose one: Q?\nContext: c\n- [X] Xray\n  Picks it.\n- [Y] Yankee\n  Picks Y.\n- [X] [A] Alpha\n  Picks A.\n");
     const opts = parseAskFile(fs.readFileSync(f, "utf8")).questions[0].options;
     expect(opts.map((o) => [o.code, o.label])).toEqual([["X", "Xray"], ["Y", "Yankee"], ["A", "Alpha"]]);
   });
   it("HOLDS: a 12-char lean code is recognised on the card", () => {
-    const f = newAsk(root, { from: "a:b", to: "operator", id: "c7" }, "## ¶ASK_Q: Choose one: Q?\nLean: ABCDEFGHIJKL — because\n- [ ] [ABCDEFGHIJKL] x\n- [ ] [B] b\n");
+    const f = newAsk(root, { from: "a:b", to: "operator", id: "c7" }, "## ¶ASK_Q: Choose one: Q?\nContext: c\nLean: ABCDEFGHIJKL — because\n- [ ] [ABCDEFGHIJKL] x\n  Picks ABCDEFGHIJKL.\n- [ ] [B] b\n  Picks B.\n");
     expect(cardFor(parseAskFile(fs.readFileSync(f, "utf8")), 0).lean?.code).toBe("ABCDEFGHIJKL");
   });
 });
 
 describe("prose that holds a - [ ] line, or a fence (re-review MAJ-3)", () => {
   it("a checklist line in the reasons is prose, never an answerable option", () => {
-    const body = "## ¶ASK_Q: Choose one: Which?\nBefore you pick:\n- [ ] check the logs first\n\n- [ ] [A] Option A\n- [ ] [B] Option B\n";
+    const body = "## ¶ASK_Q: Choose one: Which?\nBefore you pick:\n- [ ] check the logs first\n\n- [ ] [A] Option A\n  Picks A.\n- [ ] [B] Option B\n  Picks B.\n";
     const a = parseAskFile(fs.readFileSync(newAsk(root, { from: "a:b", to: "operator", id: "pr1" }, body), "utf8"));
     expect(a.questions[0].options.map((o) => o.label)).toEqual(["Option A", "Option B"]);
     expect(a.questions[0].prose).toBe("Before you pick:\n- [ ] check the logs first");
     expect(() => validateAnswer(a, { Q: ["check the logs first"] })).toThrow("unknown option");
   });
   it("a fenced example under a fork stays in its prose, and the options after it are kept", () => {
-    const body = "## ¶ASK_Q: Choose one: Which?\nLike this:\n```ts\nfoo()\n## not a heading\n- [ ] [Z] not an option\n```\n- [ ] [A] Option A\n- [ ] [B] Option B\n";
+    const body = "## ¶ASK_Q: Choose one: Which?\nLike this:\n```ts\nfoo()\n## not a heading\n- [ ] [Z] not an option\n```\n- [ ] [A] Option A\n  Picks A.\n- [ ] [B] Option B\n  Picks B.\n";
     const a = parseAskFile(fs.readFileSync(newAsk(root, { from: "a:b", to: "operator", id: "pr2" }, body), "utf8"));
     expect(a.questions).toHaveLength(1);
     expect(a.questions[0].options.map((o) => o.code)).toEqual(["A", "B"]);

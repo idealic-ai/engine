@@ -25,7 +25,7 @@ import { leftRefs, rewriteSeatRefs } from "../src/lib/rename-seat.ts";
 let root: string;
 const ASKER = "idealic:kernel";
 const MGR = "manager:idealic";
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n\n## ¶ASK_WHY: Text: Why?\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n\n## ¶ASK_WHY: Text: Why?\nContext: c\n";
 const file = (id = "go") => path.join(root, ASKER, `${id}.md`);
 const text = (id = "go") => fs.readFileSync(file(id), "utf8");
 const read = (id = "go") => parseAskFile(text(id));

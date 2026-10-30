@@ -21,6 +21,12 @@ export type AskOption = {
   cost?: string;
   effort?: string;
   blastRadius?: string;
+  /** ASKTREE: what picking this option unblocks (`Unblocks:` under the option, not the fork's). */
+  unblocks?: string;
+  /** ASKTREE: the asker's next concrete step if this option is picked (`Then:`). */
+  then?: string;
+  /** ASKTREE: how cleanly this option fits — a driving factor the asker states per option (`Elegance:`). */
+  elegance?: string;
   children?: AskOption[];
 };
 
@@ -228,7 +234,13 @@ const META_KEYS: Record<string, string> = {
   ifunanswered: "ifUnanswered", neededby: "neededBy", blocks: "blocks", context: "context", range: "range", unit: "unit",
 };
 const META_RE = /^([A-Za-z][A-Za-z ]*?):\s+(.+)$/;
-const OPTION_META: Record<string, "cost" | "effort" | "blastRadius"> = { cost: "cost", effort: "effort", blast: "blastRadius", blastradius: "blastRadius", "blast radius": "blastRadius" };
+type OptionField = "cost" | "effort" | "blastRadius" | "unblocks" | "then" | "elegance";
+const OPTION_META: Record<string, OptionField> = {
+  cost: "cost", effort: "effort", blast: "blastRadius", blastradius: "blastRadius", "blast radius": "blastRadius",
+  unblocks: "unblocks", then: "then", elegance: "elegance",
+};
+/** Every per-option field, in the order buildTree copies them. */
+const OPTION_FIELDS: OptionField[] = ["cost", "effort", "blastRadius", "unblocks", "then", "elegance"];
 const PANEL_RE = /^(.+?)\s*(?:→|->)\s*(\S+?)\s*(?:—|–|:|\s-)\s*(.+)$/;
 // v1 took 2–4 capitals; v2 also takes one letter (A, B, as /decide boards key options) and digits (L2).
 /**
@@ -460,7 +472,14 @@ export function removeHeaderField(text: string, key: string): string {
 
 // ── decision tree ─────────────────────────────────────────
 
-type RawOption = { indent: number; code?: string; label: string; description?: string; cost?: string; effort?: string; blastRadius?: string; afterFence?: boolean };
+type RawOption = { indent: number; code?: string; label: string; description?: string; afterFence?: boolean; afterBullet?: boolean } & Partial<Record<OptionField, string>>;
+
+/** The nearest option above with a smaller indent: the one an indented line belongs to. */
+function ownerOf(raw: RawOption[], indent: number): RawOption | undefined {
+  let at = raw.length - 1;
+  while (at >= 0 && raw[at].indent >= indent) at--;
+  return at < 0 ? undefined : raw[at];
+}
 
 function parseOptionLines(lines: string[], folds: Folds): RawOption[] {
   const raw: RawOption[] = [];
@@ -469,7 +488,18 @@ function parseOptionLines(lines: string[], folds: Folds): RawOption[] {
     if (!stripped) continue;
     const indent = line.length - stripped.length;
     if (stripped.startsWith("- ")) {
-      let rest = stripped.slice(2);
+      // ASKTREE: an indented bullet with no checkbox and no [CODE] under an option is that option's
+      // description, kept as a markdown list item; only `- [ ]` or `- [CODE]` opens a nested option.
+      const item = stripped.slice(2);
+      const owner = indent > 0 && !CHECKBOX_RE.test(item) && !CHECKED_X_RE.test(item) && !CODE_RE.test(item) ? ownerOf(raw, indent) : undefined;
+      if (owner) {
+        const sep = owner.description === undefined ? "" : owner.afterBullet ? "\n" : "\n\n";
+        owner.description = `${owner.description ?? ""}${sep}${stripped}`;
+        owner.afterBullet = true;
+        owner.afterFence = false;
+        continue;
+      }
+      let rest = item;
       rest = rest.replace(CHECKBOX_RE, "").replace(CHECKED_X_RE, "");
       let code: string | undefined;
       const cm = rest.match(CODE_RE);
@@ -483,26 +513,26 @@ function parseOptionLines(lines: string[], folds: Folds): RawOption[] {
     } else {
       // An indented line belongs to the nearest option above it with a smaller indent: a line at a
       // child's own indent is its parent's, as in markdown, and is never dropped.
-      let at = raw.length - 1;
-      while (at >= 0 && raw[at].indent >= indent) at--;
-      if (at < 0) continue;
-      const last = raw[at];
+      const last = ownerOf(raw, indent);
+      if (!last) continue;
       const fence = unfoldFence(line, folds);
       if (fence) {
         // A fence keeps its lines: the description becomes markdown with the fence as its own block.
         const code = fence.join("\n");
         last.description = last.description === undefined ? code : `${last.description}\n\n${code}`;
         last.afterFence = true;
+        last.afterBullet = false;
         continue;
       }
       const m = stripped.match(META_RE);
       const field = m ? OPTION_META[m[1].toLowerCase()] : undefined;
       if (field) last[field] = m![2].trim();
       // N-2: further indented prose lines continue the description rather than vanishing; after a
-      // fence they start a new paragraph, so they are never glued onto its closing line.
-      else if (last.afterFence) {
+      // fence or a bullet list they start a new paragraph, so they are never glued onto it.
+      else if (last.afterFence || last.afterBullet) {
         last.description = `${last.description}\n\n${stripped}`;
         last.afterFence = false;
+        last.afterBullet = false;
       } else last.description = last.description === undefined ? stripped : `${last.description} ${stripped}`;
     }
   }
@@ -517,9 +547,7 @@ function buildTree(raw: RawOption[]): AskOption[] {
     const opt: AskOption = { label: item.label };
     if (item.code) opt.code = item.code;
     if (item.description) opt.description = item.description;
-    if (item.cost) opt.cost = item.cost;
-    if (item.effort) opt.effort = item.effort;
-    if (item.blastRadius) opt.blastRadius = item.blastRadius;
+    for (const f of OPTION_FIELDS) if (item[f]) opt[f] = item[f];
     let j = i + 1;
     while (j < raw.length && raw[j].indent > item.indent) j++;
     if (j > i + 1) opt.children = buildTree(raw.slice(i + 1, j));
@@ -1573,6 +1601,78 @@ export function invalidOptionCodes(ask: ParsedAsk): { question: string; code: st
   return out;
 }
 
+/** The kinds whose options are picked: their options carry the per-answer floor. */
+const isChoice = (q: AskQuestion) => q.kind === "choose-one" || q.kind === "choose" || q.kind === "rank";
+/** A short name for an option in a message: its code, or its quoted label when it has none. */
+const optName = (o: AskOption) => (o.code ? `[${o.code}]` : `"${o.label}"`);
+const walkOptions = (opts: AskOption[], f: (o: AskOption, parent?: AskOption) => void, parent?: AskOption) => {
+  for (const o of opts) {
+    f(o, parent);
+    walkOptions(o.children ?? [], f, o);
+  }
+};
+
+/**
+ * ASKTREE: forks written `## Choose one: ¶ASK_X: …` (or `… ¶ASK_X — …`), the name after the kind
+ * word. HEADING_RE reads a name only before the kind word, so such a fork is keyed by position and
+ * no DependsOn can name it. Each entry is the heading as written and the heading to write instead.
+ */
+export function forkNameAfterKind(ask: ParsedAsk): { wrote: string; write: string }[] {
+  const word = Object.fromEntries(Object.entries(KIND_WORDS).map(([w, k]) => [k, w]));
+  const out: { wrote: string; write: string }[] = [];
+  for (const q of ask.questions) {
+    const m = q.title.match(/^[¶§]?ASK_(\w+)\s*(?::|—|–|-)?\s*(.*)$/);
+    if (!m) continue;
+    out.push({ wrote: `## ${word[q.kind]}: ${q.title}`, write: `## ¶ASK_${m[1]}: ${word[q.kind]}: ${m[2] || "…"}` });
+  }
+  return out;
+}
+
+/**
+ * ASKTREE floor, refused at `new` and on a body `revise` (files already on disk still read). One
+ * line per problem:
+ * - a bare option: a choice fork's option, at any depth, with nothing under its label (no
+ *   description, no per-option field, no nested options). A Yes-or-no fork's options are exempt;
+ *   the fork's own context says what YES locks in.
+ * - a fork with no context of its own: no prose, `Context:` or `Stake:`. The first fork may borrow
+ *   the preamble or the header's `why`, `context` or `stakes`.
+ */
+export function floorProblems(ask: ParsedAsk): string[] {
+  const out: string[] = [];
+  const h = ask.header;
+  ask.questions.forEach((q, i) => {
+    const own = !!(q.prose?.trim() || q.proseAfter?.trim() || q.meta.context?.trim() || q.meta.stake?.trim());
+    const borrowed = i === 0 && !!(ask.preamble.trim() || h.why?.trim() || h.context?.trim() || h.stakes?.trim() || h.stake?.trim());
+    if (!own && !borrowed) out.push(`"${q.title}": a fork needs context of its own: a Context: or Stake: line, or prose under the heading, saying what the decider must know`);
+    if (!isChoice(q)) return;
+    walkOptions(q.options, (o) => {
+      const said = !!o.description?.trim() || OPTION_FIELDS.some((f) => o[f]?.trim()) || !!o.children?.length;
+      if (!said) out.push(`"${q.title}" ${optName(o)}: a bare option: write what changes under it, and its Cost:`);
+    });
+  });
+  return out;
+}
+
+/** A body `new` or `revise` refuses because a fork's name comes after its kind word. */
+export class ForkNameOrderError extends AskFormatError {
+  readonly forks: { wrote: string; write: string }[];
+  constructor(forks: { wrote: string; write: string }[]) {
+    super(`fork name after the kind word, so it is not read and nothing can depend on it: ${forks.map((f) => `"${f.wrote}" — write "${f.write}"`).join("; ")}`);
+    this.name = "ForkNameOrderError";
+    this.forks = forks;
+  }
+}
+
+/** A body `new` or `revise` refuses because it is under the per-answer floor (floorProblems). */
+export class AskFloorError extends AskFormatError {
+  readonly problems: string[];
+  constructor(problems: string[]) {
+    super(`under the ask floor (every option says what it does, every fork says why it is asked):\n${problems.map((p) => `  ${p}`).join("\n")}`);
+    this.name = "AskFloorError";
+    this.problems = problems;
+  }
+}
+
 /**
  * Non-fatal authoring warnings for `engine ask new` / `revise`: shapes that file fine but read badly
  * (ASK_AUTHOR_GUIDE.md). Each is one line; none blocks filing.
@@ -1601,6 +1701,15 @@ export function authorWarnings(ask: ParsedAsk): string[] {
     if (!q.panel.length && (q.council !== undefined || forkText(q).some(mentionsPanelReport))) {
       out.push(`"${q.title}": it names a council or panel report but carries no Panel: line, so the app shows no reads beside its options. ${PANEL_LINES_HINT}`);
     }
+    // ASKTREE: a nested option with no code is answerable but stores its label; say so by name.
+    if (choice(q)) for (const o of q.options) walkOptions(o.children ?? [], (c, parent) => {
+      if (!c.code) out.push(`"${q.title}": nested option "${c.label}" under ${optName(parent ?? o)} has no [CODE]; the answer will store the whole label`);
+    }, o);
+    // ASKTREE: the per-answer facts a decider compares — what it costs, and how elegant it is.
+    if (choice(q)) walkOptions(q.options, (o) => {
+      if (!o.cost?.trim()) out.push(`"${q.title}": ${optName(o)} has no Cost: line (what the operator gives up)`);
+      if (!o.elegance?.trim()) out.push(`"${q.title}": ${optName(o)} has no Elegance: line (how cleanly it fits)`);
+    });
   });
   for (const o of ask.panelOrphans ?? []) {
     out.push(`${o.entry.by}'s attached panel (${o.entry.council || "no report"}) is no longer shown: ${o.reason}. Ask them to attach it again if it still applies`);

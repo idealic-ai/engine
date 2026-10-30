@@ -15,7 +15,7 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(path.dirname(root), { recursive: true, force: true }));
 
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 
 describe("newAsk", () => {
   it("writes <root>/<from>/<id>.md with an open header at revision 1", () => {

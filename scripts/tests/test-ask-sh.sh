@@ -21,9 +21,15 @@ trap 'rm -rf "$ASK_TEST_DIST_DIR"' EXIT
   || { echo "could not build the test client" >&2; exit 1; }
 
 BODY='## ¶ASK_GO: Choose one: Ship it?
+Context: the build is green on main.
 - [ ] [YES] Yes
   Ship tonight.
-- [ ] [NO] No'
+  Cost: a night watch
+  Elegance: one release path
+- [ ] [NO] No
+  Hold the release.
+  Cost: the fix waits a week
+  Elegance: nothing changes'
 
 setup() {
   TMP=$(mktemp -d /tmp/askcli-XXXXXX)
@@ -657,7 +663,7 @@ test_r1_acted_on_an_ask_ruled_in_chat() {
 
 test_r1_new_points_to_the_author_guide_when_it_warns() {
   local out
-  out=$(printf '## Choose one: Ship?\n- [ ] [YES] Yes\n- [ ] No idea\n' | "$ASK_SH" new --id g1 2>&1 >/dev/null)
+  out=$(printf '## Choose one: Ship?\nContext: c\n- [ ] [YES] Yes\n  Ships.\n- [ ] No idea\n  Unsure.\n' | "$ASK_SH" new --id g1 2>&1 >/dev/null)
   assert_contains "warning: \"Ship?\": 1 option(s) have no [CODE]" "$out" "new warns about a codeless option"
   assert_contains "skills/ask/assets/ASK_AUTHOR_GUIDE.md" "$out" "and points to the author guide"
   assert_file_exists "$ENGINE_DIR/skills/ask/assets/ASK_AUTHOR_GUIDE.md" "the guide it points to exists"
@@ -665,6 +671,30 @@ test_r1_new_points_to_the_author_guide_when_it_warns() {
   assert_eq "" "$out" "a well-formed ask prints no warning and no pointer"
   out=$(printf '## Choose one: X?\n- [ ] [OVERLONGCODE1] x\n' | "$ASK_SH" new --id g3 2>&1)
   assert_contains "ASK_AUTHOR_GUIDE.md" "$out" "a refusal points to the guide too"
+}
+
+# ASKTREE: new and revise refuse a fork named after its kind word, a bare option and a fork with no
+# context; they warn on an option with no Cost: or no Elegance:. Exit codes are read directly.
+test_asktree_new_refuses_under_the_floor() {
+  local out rc
+  out=$(printf '## Choose one: ¶ASK_GO: Ship?\nContext: c\n- [ ] [YES] Yes\n  Ships.\n' | "$ASK_SH" new --id f1 2>&1); rc=$?
+  assert_eq "1" "$rc" "new exits 1 on a fork named after its kind word"
+  assert_contains 'write "## ¶ASK_GO: Choose one: Ship?"' "$out" "and names the heading to write"
+  assert_file_not_exists "$ASK_ROOT/idealic:kernel/f1.md" "and files nothing"
+  out=$(printf '## ¶ASK_GO: Choose one: Ship?\nContext: c\n- [ ] [YES] Yes\n  Ships.\n- [ ] [NO] No\n' | "$ASK_SH" new --id f2 2>&1); rc=$?
+  assert_eq "1" "$rc" "new exits 1 on a bare option"
+  assert_contains '"Ship?" [NO]: a bare option' "$out" "naming the fork and the code"
+  assert_file_not_exists "$ASK_ROOT/idealic:kernel/f2.md" "and files nothing"
+  out=$(printf '## ¶ASK_GO: Choose one: Ship?\n- [ ] [YES] Yes\n  Ships.\n' | "$ASK_SH" new --id f3 2>&1); rc=$?
+  assert_eq "1" "$rc" "new exits 1 on a fork with no context of its own"
+  assert_contains '"Ship?": a fork needs context of its own' "$out" "naming the fork"
+  out=$(printf '## ¶ASK_GO: Choose one: Ship?\nContext: c\n- [ ] [YES] Yes\n  Ships.\n' | "$ASK_SH" new --id f4 2>&1 >/dev/null); rc=$?
+  assert_eq "0" "$rc" "an option with a description but no Cost or Elegance files"
+  assert_contains 'warning: "Ship?": [YES] has no Cost: line' "$out" "and warns about the Cost"
+  assert_contains 'warning: "Ship?": [YES] has no Elegance: line' "$out" "and about the Elegance"
+  out=$(printf '## ¶ASK_GO: Choose one: Ship?\nContext: c\n- [ ] [YES] Yes\n' | "$ASK_SH" revise idealic:kernel/f4 2>&1); rc=$?
+  assert_eq "1" "$rc" "revise exits 1 on a bare option in the new body"
+  assert_contains '"Ship?" [YES]: a bare option' "$out" "naming it"
 }
 
 # IDE-333 acceptance 3: before writing an ask, search sessions and docs, and cite the result as Evidence:.

@@ -16,7 +16,7 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(path.dirname(root), { recursive: true, force: true }));
 
 const SEAT = "manager:docs";
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n\n## ¶ASK_WHY: Choose one: Why?\n- [ ] [A] a\n- [ ] [B] b\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n\n## ¶ASK_WHY: Choose one: Why?\nContext: c\n- [ ] [A] a\n  Picks A.\n- [ ] [B] b\n  Picks B.\n";
 const file = () => path.join(root, SEAT, "go.md");
 const read = () => parseAskFile(fs.readFileSync(file(), "utf8"));
 let pushes: { seat: string; content: string }[] = [];

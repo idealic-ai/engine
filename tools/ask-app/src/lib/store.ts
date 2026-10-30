@@ -23,6 +23,10 @@ import {
   hasRead,
   invalidDependsOn,
   invalidOptionCodes,
+  forkNameAfterKind,
+  floorProblems,
+  ForkNameOrderError,
+  AskFloorError,
   parseAskFile,
   draftAuthor,
   GRANT_CLASSES,
@@ -120,6 +124,7 @@ export function newAsk(root: string, fields: NewAskFields, body: string): string
     throw new AskFormatError('body holds no question: write at least one "## Choose one: …" or "## Choose: …" heading');
   }
   assertCodes(parsed);
+  assertFloor(parsed);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   atomicWrite(file, text);
   return file;
@@ -159,6 +164,17 @@ function assertCodes(ask: ParsedAsk) {
   if (empty.length) throw new AskFormatError(`${empty.map((q) => `"${q.title}"`).join(", ")}: a ${empty[0].kind} fork needs at least one option (- [ ] [CODE] Label)`);
   const deps = invalidDependsOn(ask);
   if (deps.length) throw new AskFormatError(`DependsOn refused: ${deps.join("; ")}`);
+}
+
+/**
+ * ASKTREE: what `new` and a body `revise` refuse beyond the codes — a fork named after its kind
+ * word, then the per-answer floor. Only a filing is checked: files already on disk still read.
+ */
+function assertFloor(ask: ParsedAsk) {
+  const order = forkNameAfterKind(ask);
+  if (order.length) throw new ForkNameOrderError(order);
+  const floor = floorProblems(ask);
+  if (floor.length) throw new AskFloorError(floor);
 }
 
 /**
@@ -1119,6 +1135,7 @@ export async function reviseAsk(
       const reparsed = parseAskFile(after);
       if (reparsed.questions.length === 0) throw new AskFormatError('body holds no question: write at least one "## Choose one: …" heading');
       assertCodes(reparsed);
+      assertFloor(reparsed);
       if (bodyDigest(after) !== oldBody) changed.push("body");
     }
     const answers = [...new Set(o.answersFollowup ?? [])];

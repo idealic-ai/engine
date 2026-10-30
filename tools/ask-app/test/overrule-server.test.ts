@@ -19,7 +19,7 @@ function fakeDist(base: string): string {
 }
 
 const TOKEN = "t0k3n-overrule";
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 const SEAT = "docs:handbook";
 const MGR = "manager:docs";
 let base: string, root: string, port: number, proc: ChildProcess;

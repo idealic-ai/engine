@@ -16,7 +16,7 @@ function fakeDist(base: string): string {
   return d;
 }
 
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 const TOKEN = "t0k3n-for-tests";
 let base: string;
 let root: string;

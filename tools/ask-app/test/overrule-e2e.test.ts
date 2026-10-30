@@ -16,7 +16,7 @@ import { BUILD_ID_FILE, computeBuildId } from "../src/build-id.ts";
 import { draftBody, overruleBody, withoutGrant } from "../src/client/reanswer.ts";
 
 const TOKEN = "t0k3n-e2e";
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes, ship\n- [ ] [NO] No, hold\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes, ship\n  Picks YES.\n- [ ] [NO] No, hold\n  Picks NO.\n";
 const SEAT = "docs:handbook", MGR = "manager:docs";
 let base: string, root: string, port: number, proc: ChildProcess;
 function req(method: string, p: string, body?: unknown): Promise<{ status: number; json: any }> {

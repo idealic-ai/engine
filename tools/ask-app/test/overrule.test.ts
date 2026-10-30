@@ -134,7 +134,7 @@ let pushes: { seat: string; content: string }[] = [];
 const push = async (seat: string, content: string) => (pushes.push({ seat, content }), { status: "delivered" as const });
 const SEAT = "docs:handbook";
 const MGR = "manager:docs";
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 const fileOf = (id: string) => path.join(root, SEAT, `${id}.md`);
 const readAsk = (id: string) => parseAskFile(fs.readFileSync(fileOf(id), "utf8"));
 beforeEach(() => {

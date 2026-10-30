@@ -17,7 +17,7 @@ import { CHANGE_WORDING, cancelDiscards, changeAnswerStart, draftBody, followUpO
 
 const head = (extra = "", status = "answered", id = "a1", created = "2026-10-29T10:00:00.000Z") =>
   `---\nid: ${id}\nto: operator\nfrom: manager:docs\nstatus: ${status}\nrevision: 4\ncreated: ${created}\n${extra}---\n\n`;
-const BODY = "## ¶ASK_Q1: Choose one: Where?\n- [ ] [HB] handbook\n- [ ] [DOCS] docs\n\n## ¶ASK_Q2: Choose one: Second?\n- [ ] [P] p\n- [ ] [Q] q\n";
+const BODY = "## ¶ASK_Q1: Choose one: Where?\nContext: c\n- [ ] [HB] handbook\n  Picks HB.\n- [ ] [DOCS] docs\n  Picks DOCS.\n\n## ¶ASK_Q2: Choose one: Second?\nContext: c\n- [ ] [P] p\n  Picks P.\n- [ ] [Q] q\n  Picks Q.\n";
 const block = (a: object) => `\n\`\`\`json answer\n${JSON.stringify(a)}\n\`\`\`\n`;
 const stored = (text: string) => ({ ...parseAskFile(text), seat: "manager:docs", file: "/x.md", mtimeMs: 0 });
 const NOW = Date.parse("2026-10-29T13:00:00.000Z");
@@ -186,7 +186,7 @@ describe("the store takes a re-answer", () => {
   });
   afterEach(() => fs.rmSync(path.dirname(root), { recursive: true, force: true }));
   const push = async () => ({ status: "delivered" as const });
-  const ONE = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+  const ONE = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
   const read = () => parseAskFile(fs.readFileSync(path.join(root, "manager:docs", "go.md"), "utf8"));
 
   it("re-answering at the current revision replaces the block and clears read and acted", async () => {

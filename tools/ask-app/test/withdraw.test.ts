@@ -19,7 +19,7 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(path.dirname(root), { recursive: true, force: true }));
 
-const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const BODY = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 const ASKER = "idealic:kernel";
 const HOLDER = "manager:idealic";
 const file = (id: string, seat = ASKER) => path.join(root, seat, `${id}.md`);

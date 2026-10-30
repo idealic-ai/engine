@@ -19,8 +19,8 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(path.dirname(root), { recursive: true, force: true }));
 
-const GO = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
-const NAME = "## ¶ASK_NAME: Text: Name it?\n";
+const GO = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
+const NAME = "## ¶ASK_NAME: Text: Name it?\nContext: c\n";
 const read = (seat: string, id: string) => parseAskFile(fs.readFileSync(path.join(root, seat, `${id}.md`), "utf8"));
 
 type Sent = { seat: string; content: string };
@@ -526,13 +526,13 @@ describe("revise (conductor add-on)", () => {
     newAsk(root, { from: "idealic:kernel", to: "operator", id: "rv4" }, GO);
     await expect(reviseAsk(root, "idealic:kernel", "rv4", { to: "x" }, undefined, { by: "idealic:kernel" })).rejects.toThrow("not revisable");
     await expect(reviseAsk(root, "idealic:kernel", "rv4", {}, GO + "\n```json draft\n{}\n```\n", { by: "idealic:kernel" })).rejects.toThrow("records the store writes");
-    await expect(reviseAsk(root, "idealic:kernel", "rv4", {}, "## ¶ASK_GO: Choose one: Where?\n- [ ] [OVERLONGCODE1] In a worktree\n", { by: "idealic:kernel" })).rejects.toThrow("[OVERLONGCODE1]");
+    await expect(reviseAsk(root, "idealic:kernel", "rv4", {}, "## ¶ASK_GO: Choose one: Where?\nContext: c\n- [ ] [OVERLONGCODE1] In a worktree\n  Picks OVERLONGCODE1.\n", { by: "idealic:kernel" })).rejects.toThrow("[OVERLONGCODE1]");
   });
 });
 
 describe("filing checks and acted (conductor add-on)", () => {
   it("new accepts codes up to 12 characters as CODES, and the answer stores the code", async () => {
-    const body = "## ¶ASK_F5: Choose one: What now?\n- [ ] [RESCOPE] Rescope it\n- [ ] [KEEPBROAD] Keep it broad\n- [ ] [MARINATE] Let it marinate\n- [ ] [TICKET] File a ticket\n  - [ ] [WORKTREE] In a worktree\n";
+    const body = "## ¶ASK_F5: Choose one: What now?\nContext: c\n- [ ] [RESCOPE] Rescope it\n  Picks RESCOPE.\n- [ ] [KEEPBROAD] Keep it broad\n  Picks KEEPBROAD.\n- [ ] [MARINATE] Let it marinate\n  Picks MARINATE.\n- [ ] [TICKET] File a ticket\n  - [ ] [WORKTREE] In a worktree\n    Picks WORKTREE.\n";
     newAsk(root, { from: "domain:stats", to: "operator", id: "cd0" }, body);
     const q = read("domain:stats", "cd0").questions[0];
     expect(q.options.map((o) => [o.code, o.label])).toEqual([["RESCOPE", "Rescope it"], ["KEEPBROAD", "Keep it broad"], ["MARINATE", "Let it marinate"], ["TICKET", "File a ticket"]]);
@@ -547,7 +547,7 @@ describe("filing checks and acted (conductor add-on)", () => {
   });
 
   it("new refuses an option code the grammar cannot read (over 12, or not capitals), naming it", () => {
-    const body = "## ¶ASK_WHERE: Choose one: Where?\n- [ ] [THIRTEENCHARS] Too long\n- [ ] [wt] lower\n  - [ ] [OK] fine\n";
+    const body = "## ¶ASK_WHERE: Choose one: Where?\nContext: c\n- [ ] [THIRTEENCHARS] Too long\n  Picks THIRTEENCHARS.\n- [ ] [wt] lower\n  - [ ] [OK] fine\n    Picks OK.\n";
     expect(() => newAsk(root, { from: "domain:stats", to: "operator", id: "cd1" }, body)).toThrow(/\[THIRTEENCHARS\].*\[wt\]/);
     expect(fs.existsSync(path.join(root, "domain:stats", "cd1.md"))).toBe(false);
   });

@@ -21,7 +21,7 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(base, { recursive: true, force: true }));
 
-const GO = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
+const GO = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes\n  Picks YES.\n- [ ] [NO] No\n  Picks NO.\n";
 const file = (seat: string, id: string) => path.join(root, seat, `${id}.md`);
 const read = (seat: string, id: string) => parseAskFile(fs.readFileSync(file(seat, id), "utf8"));
 const push = async () => ({ status: "delivered" as const });
@@ -87,10 +87,10 @@ describe("MUST-2: a seat's draft never locks the operator out", () => {
 describe("SHOULD-3: a choice fork with no options is refused", () => {
   it("at new and at revise, naming the fork", async () => {
     expect(() => newAsk(root, { from: "a:b", to: "operator", id: "z1" }, "## ¶ASK_Q: Choose one: Which?\nJust prose, no options.\n")).toThrow('"Which?": a choose-one fork needs at least one option');
-    expect(() => newAsk(root, { from: "a:b", to: "operator", id: "z2" }, "## ¶ASK_R: Rank: Order?\n")).toThrow("needs at least one option");
-    expect(() => newAsk(root, { from: "a:b", to: "operator", id: "z3" }, "## ¶ASK_T: Text: Why?\n\n## ¶ASK_Y: Yes or no: Ok?\n")).not.toThrow();
+    expect(() => newAsk(root, { from: "a:b", to: "operator", id: "z2" }, "## ¶ASK_R: Rank: Order?\nContext: c\n")).toThrow("needs at least one option");
+    expect(() => newAsk(root, { from: "a:b", to: "operator", id: "z3" }, "## ¶ASK_T: Text: Why?\nContext: c\n\n## ¶ASK_Y: Yes or no: Ok?\nContext: c\n")).not.toThrow();
     newAsk(root, { from: "a:b", to: "operator", id: "z4" }, GO);
-    await expect(reviseAsk(root, "a:b", "z4", {}, "## ¶ASK_GO: Choose one: Ship it?\n", { by: "a:b", push })).rejects.toThrow("needs at least one option");
+    await expect(reviseAsk(root, "a:b", "z4", {}, "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n", { by: "a:b", push })).rejects.toThrow("needs at least one option");
   });
 });
 

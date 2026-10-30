@@ -150,7 +150,7 @@ describe("a fence indented under an option", () => {
   });
 
   it("an ask filed through `new` keeps the fenced options answerable", () => {
-    const body = "## ¶ASK_Q: Choose one: Which?\n- [ ] [A] a\n  ```ts\n  x();\n  ```\n- [ ] [B] b\n  ```ts\n  y();\n  ```\n";
+    const body = "## ¶ASK_Q: Choose one: Which?\nContext: c\n- [ ] [A] a\n  ```ts\n  x();\n  ```\n- [ ] [B] b\n  ```ts\n  y();\n  ```\n";
     const a = parseAskFile(fs.readFileSync(newAsk(root, { from: "meta:engine", to: "operator", id: "of1" }, body), "utf8"));
     expect(a.questions[0].options.map((o) => o.code)).toEqual(["A", "B"]);
     expect(a.questions[0].options[1].description).toBe("```ts\ny();\n```");
@@ -211,7 +211,7 @@ describe("round 2 (OPTFENCE_CRITIQUE)", () => {
     const bad = parse("## ¶ASK_Q: Choose one: Q?\nLean: A\n- [ ] [A] a\n  ```\n  oops\n- [ ] [B] b\n");
     expect(bad.questions[0].unclosedFence).toBe(true);
     expect(authorWarnings(bad)).toContain('"Q?": a code fence is never closed, so everything after it, later forks included, is read as code');
-    const good = parse("## ¶ASK_Q: Choose one: Q?\nLean: A\n- [ ] [A] a\n  ```\n  ok\n  ```\n- [ ] [B] b\n");
+    const good = parse("## ¶ASK_Q: Choose one: Q?\nLean: A\n- [ ] [A] a\n  ```\n  ok\n  ```\n  Cost: c\n  Elegance: e\n- [ ] [B] b\n  Cost: c\n  Elegance: e\n");
     expect(good.questions[0].unclosedFence).toBeUndefined();
     expect(authorWarnings(good)).toEqual([]);
   });
