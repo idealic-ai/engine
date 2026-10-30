@@ -430,8 +430,14 @@ configure_hooks() {
     [ -n "$pruned" ] && printf '%s' "$pruned" | safe_json_write "$settings_file"
   fi
 
+  # SessionStart delivery mode (config.sh PRELOAD_DELIVERY_MODE): file registers
+  # one command, chunked the 48 slices. An environment value wins, as in the hook.
+  local preload_mode
+  preload_mode=$( [ -f "$(dirname "${BASH_SOURCE[0]}")/../config.sh" ] && source "$(dirname "${BASH_SOURCE[0]}")/../config.sh"; echo "${PRELOAD_DELIVERY_MODE:-file}")
+  [ "$preload_mode" = "chunked" ] || preload_mode=file
+
   local merged
-  merged=$(cat "$settings_file" | jq '
+  merged=$(cat "$settings_file" | jq --arg preload_mode "$preload_mode" '
     # Helper: add entry to array if command not already present
     def add_if_missing(entry):
       if any(.[]; .hooks[]? | .command == (entry | .hooks[0].command))
@@ -449,6 +455,11 @@ configure_hooks() {
       | add_if_missing({
           "matcher": "*",
           "hooks": [{"type": "command", "command": "~/.claude/hooks/pre-tool-use-one-strike.sh", "timeout": 5}]
+        })
+      # Preload read gate: inert unless a file-mode preload is pending.
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/pre-tool-use-preload-gate.sh", "timeout": 10}]
         })
     )
 
@@ -470,6 +481,10 @@ configure_hooks() {
       | add_if_missing({
           "matcher": "*",
           "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-use-details-log.sh", "timeout": 5}]
+        })
+      | add_if_missing({
+          "matcher": "*",
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/post-tool-use-preload-read.sh", "timeout": 10}]
         })
     )
 
@@ -548,19 +563,24 @@ configure_hooks() {
         })
     )
 
-    # SessionStart: chunked preload. Claude Code truncates any single hook stdout
-    # over ~9000 chars to ~2000, so the preload is split across 48 slice commands
-    # (session-start-chunk.sh <i> 48) that Claude concatenates back inline. Rebuild
+    # SessionStart preload. Claude Code caps each hook output at 10,000 characters.
+    # file mode: one command, which writes the whole preload to a file and prints a
+    # message under the cap. chunked mode: 48 slice commands
+    # (session-start-chunk.sh <i> 48), which arrive in completion order. Rebuild
     # the entry idempotently: drop any prior session-start-restore/chunk wiring
     # (migrates the legacy single restore hook), then append the canonical block.
     | .hooks.SessionStart = (
         [ (.hooks.SessionStart // [])[]
           | select([ (.hooks // [])[]?.command // "" | test("session-start-(restore|chunk)\\.sh") ] | any | not) ]
-        + [ { "hooks": [ range(0;48) | {
+        + (if $preload_mode == "chunked" then
+            [ { "hooks": [ range(0;48) | {
               "type": "command",
               "command": ("~/.claude/hooks/session-start-chunk.sh \(.) 48"),
               "timeout": 30
             } ] } ]
+          else
+            [ { "hooks": [ { "type": "command", "command": "~/.claude/hooks/session-start-chunk.sh 0 1", "timeout": 30 } ] } ]
+          end)
       )
 
     # PostToolUseSuccess → PostToolUse migration (legacy compat)

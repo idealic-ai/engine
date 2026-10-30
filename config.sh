@@ -26,3 +26,16 @@ if [ "${DISABLE_AUTO_COMPACT:-}" = "1" ]; then
 else
   OVERFLOW_THRESHOLD=0.76
 fi
+
+# How SessionStart hook context reaches the agent (hooks/session-start-chunk.sh,
+# and scripts/setup-lib.sh, which registers the hook to match).
+#   file    — the default. ONE hook writes the whole preload to a durable file
+#             (~/.claude/projects/<slug>/<session_id>/preload-<source>.txt) and
+#             prints an inline message under Claude Code's 10,000-character hook
+#             cap: a read instruction, the head of the preload, and the file's
+#             path, size and end line. One output, so its order is the source's.
+#   chunked — 48 hooks each print an 8,500-byte slice. Claude Code runs hooks in
+#             parallel and injects each output when it finishes, so the slices
+#             arrive in completion order, not index order.
+# An environment variable of the same name wins; any other value means file.
+PRELOAD_DELIVERY_MODE="${PRELOAD_DELIVERY_MODE:-file}"

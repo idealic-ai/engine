@@ -15,6 +15,9 @@ SANDBOX=$(mktemp -d)
 trap 'rm -rf "$SANDBOX"' EXIT
 
 CHUNKER="${CHUNKER:-$HOME/.claude/engine/hooks/session-start-chunk.sh}"
+# These cases pin the 48-slice behaviour; file mode (the default) has its own
+# suite, test-session-start-chunk-mode.sh.
+export PRELOAD_DELIVERY_MODE=chunked
 CHUNK=8500
 TOTAL=24
 INPUT='{"hook_event_name":"SessionStart","source":"resume","session_id":"testsid","cwd":"/tmp"}'

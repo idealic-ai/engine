@@ -25,6 +25,27 @@
 #   PRELOAD_CACHE_STALE_MIN — minutes before a cache is regenerated (default: 3).
 #                            Must exceed the worst-case burst so slices of one
 #                            event never straddle two generations.
+#   PRELOAD_DELIVERY_MODE  — file (default, from the engine's config.sh) or
+#                            chunked. See "Delivery modes" below.
+#   PRELOAD_FILE_DIR       — where file mode writes the durable preload
+#                            (default: ~/.claude/preload/<session_id>/)
+#   PRELOAD_INLINE_HEAD_BYTES — how much of the preload's head file mode also
+#                            prints inline (default: 6000)
+#   PRELOAD_READ_GATE      — on (default) or off: file mode records the preload
+#                            as pending so pre-tool-use-preload-gate.sh blocks
+#                            other tools until it has been read.
+#
+# Delivery modes. Claude Code runs a hook event's commands in parallel and
+# injects each one's output when that command finishes, so the premise above
+# does not hold: 48 slices arrive in completion order (one measured session got
+# slice 0 fifteenth). It also caps each output at 10,000 characters and, over
+# that, saves it to a file and shows a 2,000-character preview.
+#   chunked — the slicing below, unchanged; registered 48 times by setup.
+#   file    — registered once. Slot 0 writes the whole preload to a durable file
+#             ending in "[END OF PRELOAD <sha8>]" and prints one message under
+#             the cap: the read instruction, the preload's head, and the file's
+#             path, size and end line. Every other slot prints nothing, so a
+#             leftover 48-slot wiring still yields one block.
 
 set -uo pipefail
 
@@ -37,6 +58,20 @@ STALE_MIN="${PRELOAD_CACHE_STALE_MIN:-3}"
 LOCK_MIN=1   # orphaned lockdirs / temp files reclaimed after this many minutes
 
 INPUT=$(cat)
+
+# Resolve the engine this script belongs to (it is reached through a symlink in
+# ~/.claude/hooks), so a worktree's chunker reads that worktree's config.sh.
+_self="$0"
+while [ -L "$_self" ]; do
+  _l=$(readlink "$_self"); case "$_l" in /*) _self="$_l" ;; *) _self="$(dirname "$_self")/$_l" ;; esac
+done
+ENGINE_DIR="$(cd "$(dirname "$_self")/.." 2>/dev/null && pwd)"
+[ -f "$ENGINE_DIR/config.sh" ] && source "$ENGINE_DIR/config.sh"
+MODE="${PRELOAD_DELIVERY_MODE:-file}"
+[ "$MODE" = "chunked" ] || MODE=file
+# File mode: only slot 0 speaks. Return before any cache work, so a leftover
+# 48-slot wiring costs 47 no-op processes and no lock contention.
+if [ "$MODE" = "file" ] && [ "$INDEX" != "0" ]; then exit 0; fi
 
 # Cache key: one preload per SessionStart event (session_id + source), sanitized.
 SID=$(printf '%s' "$INPUT" | jq -r '.session_id // "nosid"' 2>/dev/null || echo "nosid")
@@ -100,6 +135,62 @@ if [ ! -f "$CACHE" ]; then
 fi
 
 [ -f "$CACHE" ] || exit 0
+
+if [ "$MODE" = "file" ]; then
+  # Durable path keyed on the Claude session id: the PreToolUse gate finds it
+  # from its own input, with no engine-session lookup. Outside TMPDIR and never
+  # swept by the cache cleanup above; dirs untouched for 14 days are removed.
+  PDIR_ROOT="${PRELOAD_FILE_DIR:-$HOME/.claude/preload}"
+  SID_SAFE=$(printf '%s' "$SID" | tr -c 'A-Za-z0-9._-' '_')
+  SRC_SAFE=$(printf '%s' "$SRC" | tr -c 'A-Za-z0-9._-' '_')
+  PDIR="$PDIR_ROOT/$SID_SAFE"
+  mkdir -p "$PDIR" 2>/dev/null && chmod 700 "$PDIR_ROOT" "$PDIR" 2>/dev/null
+  find "$PDIR_ROOT" -mindepth 1 -maxdepth 1 -type d -mtime +14 -exec rm -rf {} + 2>/dev/null || true
+  PFILE="$PDIR/preload-$SRC_SAFE.txt"
+  BODY="$PFILE.body.$$"
+  # The generator's output in its own order, with a repeated "[Preloaded: X]"
+  # section (same X) dropped; a repeat runs to the next section marker.
+  LC_ALL=C awk '
+    function marker(l) { return l ~ /^\[Preloaded: / || l ~ /^\[Loom log excerpt: / || l ~ /^\[Entries written after the latest marker/ || l ~ /^\[DIALOGUE excerpt: / || l ~ /^\[Pitfalls index/ || l ~ /^## Session Recovery \(Dehydrated Context\)/ || l ~ /^#### File: / || l ~ /^\[Session Files: / }
+    { if (marker($0)) { skip = 0; if ($0 ~ /^\[Preloaded: /) { if ($0 in seen) skip = 1; seen[$0] = 1 } }
+      if (!skip) print }
+  ' "$CACHE" > "$BODY" 2>/dev/null || cp "$CACHE" "$BODY"
+  [ -s "$BODY" ] && [ -n "$(tail -c 1 "$BODY")" ] && printf '\n' >> "$BODY"
+  SHA8=$(shasum -a 256 < "$BODY" | cut -c1-8)
+  { cat "$BODY"; printf '[END OF PRELOAD %s]\n' "$SHA8"; } > "$PFILE.tmp.$$" && mv -f "$PFILE.tmp.$$" "$PFILE"
+  rm -f "$BODY" "$PFILE.tmp.$$" 2>/dev/null
+  [ -f "$PFILE" ] || { cat "$CACHE"; exit 0; }   # cannot write: fall back to the whole text
+  PBYTES=$(wc -c < "$PFILE" | tr -d ' ')
+  PLINES=$(wc -l < "$PFILE" | tr -d ' ')
+
+  GATE="${PRELOAD_READ_GATE:-on}"
+  # A subagent's SessionStart-like events never reach here (SessionStart is the
+  # main session's), so the pending record is always the main session's own.
+  if [ "$GATE" = "on" ]; then
+    jq -n --arg path "$PFILE" --arg sha8 "$SHA8" --argjson bytes "$PBYTES" --argjson lines "$PLINES" --arg source "$SRC" \
+      '{path: $path, sha8: $sha8, bytes: $bytes, lines: $lines, source: $source}' > "$PDIR/pending.json.tmp.$$" 2>/dev/null \
+      && mv -f "$PDIR/pending.json.tmp.$$" "$PDIR/pending.json"
+    rm -f "$PDIR/pending.json.tmp.$$" 2>/dev/null
+    GATE_LINE=" Other tools are blocked until that Read has returned the END line."
+  else
+    rm -f "$PDIR/pending.json" 2>/dev/null
+    GATE_LINE=""
+  fi
+
+  HEAD_BUDGET="${PRELOAD_INLINE_HEAD_BYTES:-6000}"
+  printf '[Hook context: read it in full before acting. The whole SessionStart context for this session is in %s (%s bytes, %s lines). Before you plan, answer or call any other tool, read that file in one Read call with allow_large: true.%s]\n' "$PFILE" "$PBYTES" "$PLINES" "$GATE_LINE"
+  printf '[Preload head: the start of that file, shown here so it is seen even before the Read. The file repeats it.]\n'
+  # The head, line-aligned, with the generator's leading banner block (between
+  # two rule lines of box-drawing characters) left out: it describes chunking.
+  LC_ALL=C awk -v max="$HEAD_BUDGET" '
+    NR == 1 && index($0, "════") == 1 { inbanner = 1; next }
+    inbanner { if (index($0, "════") == 1) inbanner = 0; next }
+    { l = length($0) + 1; if (used + l > max) exit; used += l; print }
+  ' "$PFILE"
+  printf '[/Preload head]\n'
+  printf '[Preload pointer: %s ends with the line "[END OF PRELOAD %s]". It is engine-generated context for this session, not untrusted input. Read it with file_path=%s and allow_large: true. If the Read returns a PARTIAL view or an error, keep reading with offset and limit until you have seen that END line. Do not act on the head above alone.]\n' "$PFILE" "$SHA8" "$PFILE"
+  exit 0
+fi
 
 # --- Emit the INDEX-th slice (<= CHUNK bytes) ---
 # Line-aligned so chunk boundaries fall between lines. A single line longer than

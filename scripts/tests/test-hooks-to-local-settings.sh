@@ -23,7 +23,7 @@ setup
 echo '{}' > "$TEST_DIR/settings.local.json"
 configure_hooks "$TEST_DIR/settings.local.json"
 assert_contains "pre-tool-use-overflow-v2.sh" "$(cat "$TEST_DIR/settings.local.json")" "HLS-01: hooks written to settings.local.json"
-assert_json "$TEST_DIR/settings.local.json" '.hooks.PreToolUse | length' "2" "HLS-01b: PreToolUse has overflow-v2 + one-strike"
+assert_json "$TEST_DIR/settings.local.json" '.hooks.PreToolUse | length' "3" "HLS-01b: PreToolUse has overflow-v2 + one-strike + preload-gate"
 assert_contains "post-tool-use-templates.sh" "$(cat "$TEST_DIR/settings.local.json")" "HLS-01c: PostToolUse templates wired"
 assert_contains "subagent-start-context.sh" "$(cat "$TEST_DIR/settings.local.json")" "HLS-01d: SubagentStart wired"
 teardown
@@ -69,6 +69,8 @@ teardown
 # tuning number that has already been raised once, and a literal copy of it in
 # this file silently goes stale the next time it moves — asserting the WIRING is
 # self-consistent catches real breakage, asserting a magic number catches a bump.
+# HLS-06..08 pin the chunked wiring; the file-mode wiring (the default) is HLS-09.
+export PRELOAD_DELIVERY_MODE=chunked
 CHUNK_N=$(grep -oE 'session-start-chunk\.sh \\\(\.\) [0-9]+' "$SCRIPT_DIR/../setup-lib.sh" | grep -oE '[0-9]+$' | head -1)
 
 # HLS-06: SessionStart is wired as CHUNK_N chunk-emitter commands
@@ -99,6 +101,21 @@ configure_hooks "$TEST_DIR/settings.local.json"
 configure_hooks "$TEST_DIR/settings.local.json"
 assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart | length' "1" "HLS-08: still one SessionStart entry after re-run"
 assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart[0].hooks | length' "$CHUNK_N" "HLS-08b: still one chunk block after re-run"
+teardown
+
+unset PRELOAD_DELIVERY_MODE
+
+# HLS-09: file mode (the default) wires ONE SessionStart command, plus the
+# preload read gate and its clear; a 48-slice block from chunked mode is replaced.
+setup
+echo '{}' > "$TEST_DIR/settings.local.json"
+PRELOAD_DELIVERY_MODE=chunked configure_hooks "$TEST_DIR/settings.local.json"
+configure_hooks "$TEST_DIR/settings.local.json"
+assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart | length' "1" "HLS-09: one SessionStart entry"
+assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart[0].hooks | length' "1" "HLS-09b: one SessionStart command in file mode"
+assert_json "$TEST_DIR/settings.local.json" '.hooks.SessionStart[0].hooks[0].command' "~/.claude/hooks/session-start-chunk.sh 0 1" "HLS-09c: the single command is slot 0 of 1"
+assert_contains "pre-tool-use-preload-gate.sh" "$(cat "$TEST_DIR/settings.local.json")" "HLS-09d: preload gate wired"
+assert_contains "post-tool-use-preload-read.sh" "$(cat "$TEST_DIR/settings.local.json")" "HLS-09e: preload clear wired"
 teardown
 
 exit_with_results

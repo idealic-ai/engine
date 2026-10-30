@@ -7,6 +7,9 @@
 
 set -uo pipefail
 source "$(dirname "$0")/test-helpers.sh"
+# The inline/spill cases here measure the 48-slice delivery; file mode (the
+# default) is covered by test-session-start-chunk-mode.sh.
+export PRELOAD_DELIVERY_MODE=chunked
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 # Everything under test comes from this tree: $HOME/.claude is the machine's live engine, which may
