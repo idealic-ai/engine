@@ -71,7 +71,7 @@ Build the brief in this order, reading each included part from `/prove`'s file:
 2. Item **1** below, in place of `/prove`'s item 1.
 3. `/prove`'s items **2** and **3** as written.
 4. Item **4** below, in place of `/prove`'s item 4.
-5. `/prove`'s item **5**, except its bullet **"Write from the reader's side"** (thesis line, key-insight callout, scope block, end-state), which item 4 below overrides entirely. A plan page has **no end-state**: "what is now true" is exactly what P2 forbids. Item 5's other bullets — loading `Skill(artifact-design)`, self-contained and CSP-safe, no third-party renderer, theme-aware and responsive, an honest title — stand.
+5. `/prove`'s item **5**, except its bullet **"Write from the reader's side"** (thesis line, key-insight callout, scope block, end-state), which item 4 below overrides entirely. A plan page has **no end-state**: "what is now true" is exactly what P2 forbids. Item 5's other bullets — loading `Skill(artifact-design)`, self-contained and CSP-safe, no third-party renderer, every code block tagged with its language (`language-text` when none fits; `publish-s3.sh` refuses an untagged block), theme-aware and responsive, an honest title — stand.
 6. `/prove`'s item **6** (the output contract: the dossier from the template, the `<LOGGING>` heartbeat, the tight return manifest). The template's base dir is `~/.claude/engine/skills/prove/assets/`, not this skill's. The return manifest's provenance counts gain a third, `N derived-here`, beside `/prove`'s trusted-upstream and checked-here.
 7. `/prove`'s two **Substituting** paragraphs, with the paths from §1 D: `<dossierPath>` and `<pagePath>` (in place of `<proofPath>`), and `<LOGGING>` resolved to the concrete `engine log` command.
 

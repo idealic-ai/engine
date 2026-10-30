@@ -98,6 +98,13 @@
 # reason proof-ticket.css rides proof-ticket.js: the js injects no <style>, so a page pairing v2
 # behaviour with v1 selectors renders a half-styled control with nothing anywhere to explain it.
 #
+# proof-highlight.js + proof-highlight.css carry their OWN version (PROOF_HIGHLIGHT_VERSION) — the
+# kit's code highlighter, which colours every <pre><code class="language-X"> from the palette tokens.
+# A proof page loads no script from anywhere, so publish-s3.sh INLINES these two files into the page
+# (via _fence-lang.py inject) rather than linking them; they are published here as well so a board
+# that links the kit can take the same highlighter at a stable address. The css rides the js's
+# version for the reason proof-ticket.css rides proof-ticket.js: the js injects no <style>.
+#
 # proof-icons.v<I>.woff2 is the subsetted MONOCHROME Noto Emoji face that proof-theme.css's
 # @font-face claims by unicode-range. Its version comes from PROOF_ICONS_VERSION, declared in
 # proof-theme.css rather than in the font — a .woff2 cannot carry a constant, and the stylesheet

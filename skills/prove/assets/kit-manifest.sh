@@ -69,6 +69,8 @@ proof-module.css|PROOF_MODULE_VERSION|proof-module.css|text/css; charset=utf-8
 kit-behaviors.js|KIT_BEHAVIORS_VERSION|kit-behaviors.js|text/javascript; charset=utf-8
 board-swipe.js|BOARD_SWIPE_VERSION|board-swipe.js|text/javascript; charset=utf-8
 board-swipe.css|BOARD_SWIPE_VERSION|board-swipe.js|text/css; charset=utf-8
+proof-highlight.js|PROOF_HIGHLIGHT_VERSION|proof-highlight.js|text/javascript; charset=utf-8
+proof-highlight.css|PROOF_HIGHLIGHT_VERSION|proof-highlight.js|text/css; charset=utf-8
 '
 
 # --- Exclusion rules -----------------------------------------------------------------------------

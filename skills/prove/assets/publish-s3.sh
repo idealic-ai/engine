@@ -82,6 +82,23 @@ for seatHelper in _prove-seat.sh _seat-strip.py; do
 done
 # shellcheck source=/dev/null
 . "$here/_prove-seat.sh"
+
+# --- Every code block names its language: refused before any byte moves ---
+# The mechanical half of every prove skill's integrity pass. A <pre> with no `language-*` class on
+# itself or on a <code> inside it is refused, each one named by line, exit 6. `language-text` is the
+# tag when nothing fits. Checked against the AUTHORED page, ahead of every rewrite below, so the
+# refusal points at lines the author can find. The helper ships beside this script like the
+# seat-strip helpers: a partial landing without it refuses rather than publishing unchecked.
+if [ ! -f "$here/_fence-lang.py" ]; then
+  echo "publish-s3: REFUSED — $here/_fence-lang.py is missing; this install cannot check that every code block names its language. Land the helper beside publish-s3.sh." >&2
+  exit 5
+fi
+python3 "$here/_fence-lang.py" check "$proofPath" || {
+  rc=$?
+  [ "$rc" = 6 ] && echo "publish-s3: REFUSED — untagged code block(s) above; nothing was uploaded" >&2 \
+    || echo "publish-s3: REFUSED — the code-block language check could not run (exit $rc); nothing was uploaded" >&2
+  [ "$rc" = 6 ] && exit 6 || exit 5
+}
 # The strip's board flags are set ONLY by the state block below, from what this publish injected.
 # Start them empty so a same-named variable exported in the environment cannot leak a board line in.
 seatBoard=""
@@ -756,6 +773,21 @@ PY
   echo "publish-s3: the page references tickets but no <page>.tickets.json was found — publishing WITHOUT ticket data" >&2
   echo "publish-s3:   refs render as plain links and the page says so; it will NOT try to fetch a sibling that was never uploaded" >&2
   echo "publish-s3:   bake it with: bake-tickets.sh --scan <page> → fetch each key → bake-tickets.sh --emit <page> --tickets <in.json>" >&2
+fi
+
+# --- The code highlighter rides inline ---
+# A page with a highlightable block (any language-* other than text/plaintext) gets the kit's
+# proof-highlight.{css,js} inlined once, before </body>, so its code is coloured in the browser in
+# both themes. Inline because a proof page loads no script from anywhere. Idempotent: a republish
+# replaces the earlier copy. A page with nothing to highlight is untouched. A failure here does not
+# refuse the publish (the page is still correct, only uncoloured) but says so loudly.
+if python3 "$here/_fence-lang.py" inject "$upload" > "${work}/hl.html" 2>"${work}/hl.err" && [ -s "${work}/hl.html" ]; then
+  if ! cmp -s "$upload" "${work}/hl.html"; then
+    mv "${work}/hl.html" "$upload"
+    echo "publish-s3: code highlighter inlined (proof-highlight, kit $(sed -n 's/.*PROOF_HIGHLIGHT_VERSION = \([0-9]*\).*/v\1/p' "${PROVE_KIT_DIR:-$here/../../intake/assets}/proof-highlight.js" 2>/dev/null | head -1))" >&2
+  fi
+else
+  echo "publish-s3: WARNING — the code highlighter could not be inlined ($(tr -d '\n' < "${work}/hl.err" | cut -c1-160)); code blocks upload uncoloured" >&2
 fi
 
 # --- The seat strip: WHO published this page and HOW to answer them ---

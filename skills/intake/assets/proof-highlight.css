@@ -1,0 +1,89 @@
+/* proof-highlight.css — the colours for proof-highlight.js's hl-* spans. Rides at
+ * PROOF_HIGHLIGHT_VERSION, read from proof-highlight.js: the js injects no <style>, so this file is the
+ * only source of the highlighter's appearance, and the two ship as one component.
+ *
+ * Every colour is a kit palette token from proof-theme.css, so a block follows the page's light and
+ * dark themes (prefers-color-scheme AND :root[data-theme]) with nothing to keep in step here. The
+ * second argument of each var() is that token's own light / dark value, for a page that carries
+ * this file without proof-theme.css.
+ *
+ * In dark, the two dimmest tokens (--status-unstarted, --status-triage) are mixed toward --ink so
+ * literals and calls stay readable on the dark card.
+ *
+ * Inside a terminal plate (.codewrap.term, whose ground is --ink) the inverted ground takes the
+ * opposite theme's values, so the plate reads like a block from the other theme.
+ */
+:root{
+  --hl-comment:var(--ink-meta,#73644d);
+  --hl-keyword:var(--accent-ink,#8f3620);
+  --hl-string:var(--fixed,#2f7d4f);
+  --hl-number:var(--status-blue,#2f66a8);
+  --hl-literal:var(--status-unstarted,#75627f);
+  --hl-call:var(--status-triage,#9b6127);
+  --hl-attr:var(--status-blue,#2f66a8);
+  --hl-tag:var(--accent-ink,#8f3620);
+  --hl-var:var(--status-triage,#9b6127);
+  --hl-add:var(--fixed,#2f7d4f); --hl-add-bg:var(--fixed-bg,#e6eede);
+  --hl-del:var(--defect,#ba3527); --hl-del-bg:var(--defect-bg,#f6e3dd);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --hl-comment:var(--ink-meta,#a2957f);
+    --hl-keyword:var(--accent-ink,#eea277);
+    --hl-string:var(--fixed,#6fc48d);
+    --hl-number:var(--status-blue,#6f9dd4);
+    --hl-literal:color-mix(in srgb,var(--status-unstarted,#7a6684) 55%,var(--ink,#ece3d3));
+    --hl-call:color-mix(in srgb,var(--status-triage,#a06326) 65%,var(--ink,#ece3d3));
+    --hl-attr:var(--status-blue,#6f9dd4);
+    --hl-tag:var(--accent-ink,#eea277);
+    --hl-var:var(--hl-call);
+    --hl-add:var(--fixed,#6fc48d); --hl-add-bg:var(--fixed-bg,#1e2c1f);
+    --hl-del:var(--defect,#e8917f); --hl-del-bg:var(--defect-bg,#3a221c);
+  }
+}
+:root[data-theme="dark"]{
+  --hl-comment:var(--ink-meta,#a2957f);
+  --hl-keyword:var(--accent-ink,#eea277);
+  --hl-string:var(--fixed,#6fc48d);
+  --hl-number:var(--status-blue,#6f9dd4);
+  --hl-literal:color-mix(in srgb,var(--status-unstarted,#7a6684) 55%,var(--ink,#ece3d3));
+  --hl-call:color-mix(in srgb,var(--status-triage,#a06326) 65%,var(--ink,#ece3d3));
+  --hl-attr:var(--status-blue,#6f9dd4);
+  --hl-tag:var(--accent-ink,#eea277);
+  --hl-var:var(--hl-call);
+  --hl-add:var(--fixed,#6fc48d); --hl-add-bg:var(--fixed-bg,#1e2c1f);
+  --hl-del:var(--defect,#e8917f); --hl-del-bg:var(--defect-bg,#3a221c);
+}
+/* Terminal plate: its ground is --ink, the OTHER theme's paper, so it takes the other theme's
+ * values (proof-theme.css's light and dark blocks, copied as literals because a token always
+ * resolves to the current theme). */
+.codewrap.term{
+  --hl-comment:#a2957f; --hl-keyword:#eea277; --hl-string:#6fc48d; --hl-number:#6f9dd4;
+  --hl-literal:#b9a9c2; --hl-call:#d39a5f; --hl-attr:#6f9dd4; --hl-tag:#eea277; --hl-var:#d39a5f;
+  --hl-add:#6fc48d; --hl-add-bg:transparent; --hl-del:#e8917f; --hl-del-bg:transparent;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .codewrap.term{
+    --hl-comment:#73644d; --hl-keyword:#8f3620; --hl-string:#2f7d4f; --hl-number:#2f66a8;
+    --hl-literal:#75627f; --hl-call:#9b6127; --hl-attr:#2f66a8; --hl-tag:#8f3620; --hl-var:#9b6127;
+    --hl-add:#2f7d4f; --hl-add-bg:transparent; --hl-del:#ba3527; --hl-del-bg:transparent;
+  }
+}
+:root[data-theme="dark"] .codewrap.term{
+  --hl-comment:#73644d; --hl-keyword:#8f3620; --hl-string:#2f7d4f; --hl-number:#2f66a8;
+  --hl-literal:#75627f; --hl-call:#9b6127; --hl-attr:#2f66a8; --hl-tag:#8f3620; --hl-var:#9b6127;
+  --hl-add:#2f7d4f; --hl-add-bg:transparent; --hl-del:#ba3527; --hl-del-bg:transparent;
+}
+pre .hl-c{color:var(--hl-comment); font-style:italic}
+pre .hl-k{color:var(--hl-keyword); font-weight:600}
+pre .hl-s{color:var(--hl-string)}
+pre .hl-n{color:var(--hl-number)}
+pre .hl-l{color:var(--hl-literal); font-weight:600}
+pre .hl-f{color:var(--hl-call)}
+pre .hl-a{color:var(--hl-attr)}
+pre .hl-t{color:var(--hl-tag)}
+pre .hl-v{color:var(--hl-var)}
+pre .hl-m{color:var(--hl-comment); font-weight:600}
+pre .hl-hunk{color:var(--hl-number)}
+pre .hl-add{color:var(--hl-add); background:var(--hl-add-bg)}
+pre .hl-del{color:var(--hl-del); background:var(--hl-del-bg)}

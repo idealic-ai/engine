@@ -13,7 +13,9 @@ set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 assets="$(cd "$here/.." && pwd)"
-kitSrc="$HOME/.claude/engine/skills/intake/assets"
+# The kit in THIS tree, not the installed one: a kit file added in a branch is otherwise checked
+# against an install that does not have it yet. KIT_SRC points it elsewhere on purpose.
+kitSrc="${KIT_SRC:-$(cd "$here/../../../intake/assets" && pwd)}"
 
 pass=0; fail=0
 ok()   { pass=$((pass+1)); printf '  ok   %s\n' "$1"; }

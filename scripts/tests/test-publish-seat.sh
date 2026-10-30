@@ -375,7 +375,7 @@ mention="$tmp/mention.html"
 cat > "$mention" <<'HTML'
 <!doctype html><html><head><meta charset="utf-8"><title>Docs</title></head>
 <body><p>The publisher injects <code>&lt;script data-fb-state-config&gt;</code>.</p>
-<pre>data-fb-state-config &lt;script id="prove-state-config" data-fb-state-config&gt;</pre></body></html>
+<pre class="language-text">data-fb-state-config &lt;script id="prove-state-config" data-fb-state-config&gt;</pre></body></html>
 HTML
 if publish "$mention" e2emention FLEET_PANE=manager:director; then
   obj="$(stored e2emention)"
