@@ -8,14 +8,16 @@
  *
  * Two roots: a plain temp directory (case-insensitive on a default macOS volume; elsewhere the alias
  * is simulated with a symlink), and a case-insensitive APFS disk image made with hdiutil (skipped,
- * with a message, where hdiutil is unavailable or fails). ASKCASE_SCRATCH sets where the image is made.
+ * with a message, where hdiutil is unavailable or fails). The image cases run only with ASKCASE_IMAGE=1;
+ * ASKCASE_SCRATCH sets where the image is made.
  */
 import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { actedAsk, answerAsk, forwardAsk, newAsk, readAsk, renameSeat } from "../src/lib/store.ts";
+import { fileURLToPath } from "node:url";
+import { actedAsk, answerAsk, forwardAsk, listAsks, newAsk, readAsk, renameSeat, reviseAsk, withdrawAsk, followupAsk } from "../src/lib/store.ts";
 import { parseAskFile, setHeaderField, writeAnswer } from "../src/lib/format.ts";
 
 const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes\n- [ ] [NO] No\n";
@@ -84,6 +86,17 @@ function cases(rootOf: () => string, prepare: (root: string) => void = () => {})
     // A second pass moves and changes nothing.
     const again = await renameSeat(root, UP, LOW, OP);
     expect(again.changes).toEqual([]);
+    // S1 (round 2): it converges. The old spelling still finds the folder through the volume's case
+    // folding, but the listing spells it the new way: nothing moves, and no old name was filed into again.
+    expect(again.moved).toBe(0);
+    expect(again.folder.mode).toBe("none");
+    expect(again.leftover.oldAgain).toBeUndefined();
+    const dry = await renameSeat(root, UP, LOW, { dryRun: true });
+    expect(dry.changes).toEqual([]);
+    expect(dry.folder.mode).toBe("none");
+    expect(dry.leftover.oldAgain).toBeUndefined();
+    expect(seatsOnDisk(root)).toContain(LOW);
+    expect(seatsOnDisk(root)).not.toContain(UP);
   });
 
   it("a dry run reports the move and the counts, and changes nothing", async () => {
@@ -128,6 +141,55 @@ function cases(rootOf: () => string, prepare: (root: string) => void = () => {})
     // A stranger is still refused.
     await expect(actedAsk(root, UP, "a2", "x", { by: "domain:stranger" })).rejects.toThrow("not a recipient");
   });
+
+  it("S3: the deny guards fold too: a case variant of the asker is the asker", async () => {
+    const root = rootOf();
+    // Filing to a case variant of yourself is filing to yourself.
+    expect(() => newAsk(root, { from: UP, to: LOW, id: "self" }, BODY)).toThrow("cannot address an ask to itself");
+    newAsk(root, { from: UP, to: "app:writer", id: "d1" }, BODY);
+    // Never relays the operator's answer onto its own ask.
+    await expect(
+      answerAsk(root, UP, "d1", { answers: { GO: ["YES"] }, answeredBy: "operator", answeredVia: `relay:${LOW}` }, { expectedRevision: 1, push }),
+    ).rejects.toThrow("never relays an answer to its own ask");
+    // Never answers its own ask.
+    await expect(answerAsk(root, UP, "d1", { answers: { GO: ["YES"] }, answeredBy: LOW }, { expectedRevision: 1, push })).rejects.toThrow(`${LOW} may not answer`);
+    // Its ask is never forwarded to it, and it does not move the ask itself.
+    await expect(forwardAsk(root, UP, "d1", { to: LOW, by: "app:writer" })).rejects.toThrow("cannot be forwarded to its own asker");
+    await expect(forwardAsk(root, UP, "d1", { to: "app:deploy", by: LOW })).rejects.toThrow("the asker re-pings the holder");
+    // A case variant of the holder is the holder: it moves the ask, and cannot forward it to itself.
+    await expect(forwardAsk(root, UP, "d1", { to: "app:Writer", by: "app:writer" })).rejects.toThrow("is already with app:writer");
+    // It revises its own ask.
+    const rv = await reviseAsk(root, UP, "d1", {}, BODY.replace("Ship it?", "Ship it tonight?"), { by: LOW, push });
+    expect(rv.revision).toBe(2);
+    await expect(reviseAsk(root, UP, "d1", {}, BODY, { by: "app:writer", push })).rejects.toThrow("only the asker");
+    expect(read(root, UP, "d1").header.from).toBe(UP);
+  });
+
+  it("withdraw (re-pick onto ASKWITHDRAW): a case variant of the asker withdraws, and is not told of its own withdrawal", async () => {
+    const root = rootOf();
+    newAsk(root, { from: UP, to: "app:writer", id: "x1" }, BODY);
+    await forwardAsk(root, UP, "x1", { to: "app:deploy", by: "app:writer" });
+    await expect(withdrawAsk(root, { seat: UP, id: "x1" }, { by: "domain:stranger", reason: "moot", push })).rejects.toThrow("is none of them");
+    const told: string[] = [];
+    const r = await withdrawAsk(root, { seat: UP, id: "x1" }, { by: LOW, reason: "moot", push: async (s: string) => (told.push(s), { status: "delivered" as const }) });
+    expect(read(root, UP, "x1").header.status).toBe("withdrawn");
+    expect(read(root, UP, "x1").header["withdrawn-actor"]).toBe(LOW);
+    // The holder and the forwarder hear it once each; the asker, under either spelling, does not.
+    expect(told).toEqual(["app:deploy", "app:writer"]);
+    expect(r.pushes.map((p) => p.seat)).toEqual(["app:deploy", "app:writer"]);
+  });
+
+  it("follow-up (re-pick onto ASKFOLLOWUP): a case variant of the asker is not pushed its own follow-up", async () => {
+    const root = rootOf();
+    newAsk(root, { from: UP, to: "app:writer", id: "f1" }, BODY);
+    const told: string[] = [];
+    const r = await followupAsk(root, UP, "f1", { by: LOW, kind: "question", text: "still wanted?" }, { expectedRevision: 1, push: async (s: string) => (told.push(s), { status: "delivered" as const }) });
+    expect(r.delivery.status).toBe("delivered");
+    expect(told).toEqual([]);
+    // Another seat's follow-up still reaches the asker.
+    await followupAsk(root, UP, "f1", { by: "app:writer", kind: "question", text: "which branch?" }, { expectedRevision: read(root, UP, "f1").header.revision ? Number(read(root, UP, "f1").header.revision) : 1, push: async (s: string) => (told.push(s), { status: "delivered" as const }) });
+    expect(told).toEqual([UP]);
+  });
 }
 
 describe("ASKCASE: a plain directory (case-insensitive here, or simulated with a symlink)", () => {
@@ -143,10 +205,67 @@ describe("ASKCASE: a plain directory (case-insensitive here, or simulated with a
     if (fs.existsSync(up) && !fs.existsSync(low)) fs.symlinkSync(UP, low);
   };
   cases(() => path.join(base, "asks"), alias);
+
+  /** Does this temp dir tell two spellings apart (a case-sensitive volume)? */
+  const caseSensitive = () => {
+    const probe = path.join(base, "Probe");
+    fs.mkdirSync(probe);
+    const ci = fs.existsSync(path.join(base, "probe"));
+    fs.rmdirSync(probe);
+    return !ci;
+  };
+
+  it("S2: an old name that is a symlink to the new folder is refused, and no file is deleted", async () => {
+    const root = path.join(base, "asks");
+    // On a case-sensitive volume the old spelling itself is the link; here (case-insensitive) both
+    // spellings cannot coexist, so a second name stands in for it: the guard is the same check.
+    const old = caseSensitive() ? UP : "domain:Lang";
+    newAsk(root, { from: LOW, to: MGR, id: "s1" }, BODY);
+    newAsk(root, { from: LOW, to: MGR, id: "s2" }, BODY);
+    newAsk(root, { from: "app:writer", to: old, id: "s3" }, BODY);
+    fs.symlinkSync(LOW, path.join(root, old));
+    const before = snapshot(root);
+    for (const o of [{ dryRun: true }, OP]) {
+      await expect(renameSeat(root, old, LOW, o)).rejects.toThrow(`is a symlink to ${LOW}/: there is nothing to move`);
+    }
+    expect(snapshot(root)).toEqual(before);
+    expect(fs.readdirSync(path.join(root, LOW)).sort()).toEqual(["s1.md", "s2.md"]);
+    expect(fs.lstatSync(path.join(root, old)).isSymbolicLink()).toBe(true);
+    expect(fs.existsSync(path.join(root, ".rename-seat"))).toBe(false);
+    // Removing the link, as the refusal says, lets the same command finish: only references move.
+    fs.unlinkSync(path.join(root, old));
+    const r = await renameSeat(root, old, LOW, OP);
+    expect(r.folder.mode).toBe("none");
+    expect(r.moved).toBe(0);
+    expect(read(root, "app:writer", "s3").header.to).toBe(LOW);
+    expect(fs.readdirSync(path.join(root, LOW)).sort()).toEqual(["s1.md", "s2.md"]);
+  });
+
+  it("S3: list --to and --seat fold the seat", () => {
+    const root = path.join(base, "asks");
+    newAsk(root, { from: "app:writer", to: UP, id: "q1" }, BODY);
+    newAsk(root, { from: UP, to: MGR, id: "q2" }, BODY);
+    expect(listAsks(root).length).toBe(2);
+    const CLI = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "src", "cli.ts");
+    const run = (...args: string[]) => {
+      const env: NodeJS.ProcessEnv = { ...process.env, ASK_SESSIONS_DIR: path.join(base, "sessions") };
+      for (const k of ["TMUX_PANE", "FLEET_PANE", "FLEET_PARENT", "FLEET_MANAGES"]) delete env[k];
+      return spawnSync(process.execPath, ["--no-warnings", CLI, ...args, "--root", root], { encoding: "utf8", env });
+    };
+    const ids = (r: ReturnType<typeof run>) => (JSON.parse(r.stdout) as { header: { id: string } }[]).map((a) => a.header.id);
+    const to = run("list", "--to", LOW, "--json");
+    expect(to.status, to.stderr).toBe(0);
+    expect(ids(to)).toEqual(["q1"]);
+    const seat = run("list", "--seat", LOW, "--json");
+    expect(seat.status, seat.stderr).toBe(0);
+    expect(ids(seat)).toEqual(["q2"]);
+  });
 });
 
 /** Make and attach a case-insensitive APFS image; undefined (with the reason) where that cannot be done. */
 function attachImage(): { mount: string; dmg: string } | string {
+  // N4 (round 2): hdiutil is known to hang on this machine, so a plain test run never calls it.
+  if (process.env.ASKCASE_IMAGE !== "1") return "set ASKCASE_IMAGE=1 to run them";
   if (process.platform !== "darwin") return "hdiutil needs macOS";
   if (spawnSync("which", ["hdiutil"]).status !== 0) return "hdiutil is unavailable";
   const scratch = fs.mkdtempSync(path.join(process.env.ASKCASE_SCRATCH ?? os.tmpdir(), "askcase-"));

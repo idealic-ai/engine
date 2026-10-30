@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk } from "./lib/store.ts";
-import { answeredByText, authorWarnings, noteLine, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, UntaggedFenceError, type AnswerMap, type AskAnswer, type AskFollowup, type GrantClass } from "./lib/format.ts";
+import { answeredByText, authorWarnings, noteLine, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, seatEq, UntaggedFenceError, type AnswerMap, type AskAnswer, type AskFollowup, type GrantClass } from "./lib/format.ts";
 
 /** The author guide, pointed to whenever `new` or `revise` warns or refuses. */
 const GUIDE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "skills", "ask", "assets", "ASK_AUTHOR_GUIDE.md");
@@ -244,7 +244,7 @@ async function main() {
     // NEW-4: `settled` is answered + declined; a comma list names several statuses.
     const wanted = new Set(status.split(",").flatMap((x) => (x === "settled" ? ["answered", "declined"] : [x.trim()])));
     const asks = listAsks(root).filter(
-      (a) => (wanted.has("all") || wanted.has(a.header.status ?? "")) && (!opt.to || a.header.to === opt.to) && (!opt.seat || a.seat === opt.seat),
+      (a) => (wanted.has("all") || wanted.has(a.header.status ?? "")) && (!opt.to || seatEq(a.header.to, opt.to)) && (!opt.seat || seatEq(a.seat, opt.seat)),
     );
     if (opt.json === "true") {
       console.log(JSON.stringify(asks, null, 2));

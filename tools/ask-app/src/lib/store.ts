@@ -91,7 +91,7 @@ export function newAsk(root: string, fields: NewAskFields, body: string): string
     if (fields[k] !== undefined) throw new AskFormatError(`${k} is written by the store as the ask moves; a new ask does not set it`);
   }
   if (fields.from === "operator") throw new AskFormatError("an ask comes from a seat; the operator is not one (it answers asks, or asks in chat)");
-  if (fields.to === fields.from) throw new AskFormatError(`an ask is a question to somebody else: ${fields.from} cannot address an ask to itself`);
+  if (fields.to === fields.from || seatEq(fields.to, fields.from)) throw new AskFormatError(`an ask is a question to somebody else: ${fields.from} cannot address an ask to itself`);
   const header: Record<string, string> = {
     id: fields.id,
     to: fields.to,
@@ -482,8 +482,8 @@ export function answerersOf(ask: ParsedAsk): string[] {
   }
   out.add("operator");
   // Never the asker, even when it once held its own ask (an ask to itself is refused at filing).
-  if (ask.header.from) out.delete(ask.header.from);
-  return [...out];
+  // S3 (round 2): folded, so a case variant of the asker is never an answerer either.
+  return [...out].filter((s) => !seatEq(s, ask.header.from));
 }
 
 /**
@@ -509,7 +509,7 @@ function assertMayRelay(ask: ParsedAsk, a: AskAnswer, standing: RelayStanding = 
   if (!relayer) return;
   const id = ask.header.id ?? "";
   if (a.answeredBy !== "operator") throw new AskFormatError(`a relay records the operator's answer; ${a.answeredBy || "an unnamed answerer"} is not relayed`);
-  if (relayer === ask.header.from) throw new AskFormatError(`the asker (${relayer}) never relays an answer to its own ask ${id}; the operator answers it, or a seat in its chain relays`);
+  if (seatEq(relayer, ask.header.from)) throw new AskFormatError(`the asker (${relayer}) never relays an answer to its own ask ${id}; the operator answers it, or a seat in its chain relays`);
   const inChain = answerersOf(ask).filter((s) => s !== "operator").includes(relayer);
   const manager = !!ask.header.from && managesSeat(standing.relayerManages ?? [], ask.header.from);
   if (!inChain && !manager) {
@@ -950,11 +950,11 @@ function forwardedText(text: string, ask: ParsedAsk, ref: string, o: { to: strin
   if (!o.to || !SEAT_RE.test(o.to) || o.to.includes("..")) throw new AskFormatError(`invalid recipient: ${o.to}`);
   if (ask.header.status !== "open") throw new AskFormatError(`${ref} is ${ask.header.status}; only an open ask moves`);
   const holder = ask.header.to ?? "";
-  if (o.to === holder) throw new AskFormatError(`${ref} is already with ${holder}`);
-  if (o.to === ask.header.from) throw new AskFormatError(`${ref} cannot be forwarded to its own asker (${o.to})`);
+  if (seatEq(o.to, holder)) throw new AskFormatError(`${ref} is already with ${holder}`);
+  if (seatEq(o.to, ask.header.from)) throw new AskFormatError(`${ref} cannot be forwarded to its own asker (${o.to})`);
   const hops: Hop[] = forwardChain(ask.header);
-  if (o.by === holder) hops.push({ from: holder, to: o.to, at: o.at });
-  else if (o.by === ask.header.from) {
+  if (seatEq(o.by, holder)) hops.push({ from: holder, to: o.to, at: o.at });
+  else if (seatEq(o.by, ask.header.from)) {
     throw new AskFormatError(`only the holder (${holder}) or its parent may move this ask; the asker re-pings the holder instead`);
   } else if (managesSeat(o.manages ?? [], holder)) {
     hops.push({ from: holder, to: o.by, at: o.at });
@@ -1013,7 +1013,8 @@ export async function followupAsk(
     return { parsed: parseAskFile(text), followup };
   });
   const asker = parsed.header.from || seat;
-  const delivery = asker === followup.by ? SELF : await safePush(opts.push ?? pushToSeat, asker, followupMessage(seat, id, file, parsed, followup), opts);
+  // ASKCASE: the asker under any spelling is the sender itself, and is not pushed its own follow-up.
+  const delivery = seatEq(asker, followup.by) ? SELF : await safePush(opts.push ?? pushToSeat, asker, followupMessage(seat, id, file, parsed, followup), opts);
   const stamp = { delivery: delivery.status, deliveryNote: delivery.reason ? delivery.reason.replace(/\n/g, " ") : undefined };
   const stampAt = async (f: string) => withFileLock(f, () => atomicWrite(f, markFollowups(fs.readFileSync(f, "utf8"), [followup.n], stamp)));
   let at = file;
@@ -1066,7 +1067,7 @@ export async function reviseAsk(
   const res = await withFileLock(file, () => {
     const text = fs.readFileSync(file, "utf8");
     const ask = parseAskFile(text);
-    if (o.by !== ask.header.from) throw new AskFormatError(`only the asker (${ask.header.from ?? "?"}) revises ${seat}/${id}; ${o.by} may answer, forward or decline it instead`);
+    if (!seatEq(o.by, ask.header.from)) throw new AskFormatError(`only the asker (${ask.header.from ?? "?"}) revises ${seat}/${id}; ${o.by} may answer, forward or decline it instead`);
     if (ask.header.status !== "open") throw new AskFormatError(`${seat}/${id} is ${ask.header.status}; only an open ask is revised (ask a new one)`);
     const changed: string[] = [];
     let after = text;
@@ -1252,7 +1253,8 @@ export async function withdrawAsk(
     const before = fs.readFileSync(file, "utf8");
     const ask = parseAskFile(before);
     const asker = ask.header.from ?? "";
-    if (o.by !== "operator" && o.by !== asker && !(asker && managesSeat(o.manages ?? [], asker))) {
+    // ASKCASE: the asker is matched case folded (an identity check); the operator name and managesSeat stay exact.
+    if (o.by !== "operator" && !seatEq(o.by, asker) && !(asker && managesSeat(o.manages ?? [], asker))) {
       throw new AskFormatError(`only the asker (${asker || "?"}), its manager or the operator withdraws ${r}; ${o.by} is none of them`);
     }
     const status = ask.header.status ?? "open";
@@ -1277,7 +1279,11 @@ export async function withdrawAsk(
     return { parsed: parseAskFile(after), revision, draftOf };
   });
   const h = res.parsed.header;
-  const seats = [...new Set([h.to ?? "", ...forwardChain(h).flatMap((x) => [x.from, x.to]), h.from ?? ""])].filter((s) => s && s !== o.by && s !== "operator");
+  // ASKCASE: recipients fold case: one notice per seat whatever its spelling, and never to the withdrawer.
+  const seats: string[] = [];
+  for (const s of [h.to ?? "", ...forwardChain(h).flatMap((x) => [x.from, x.to]), h.from ?? ""]) {
+    if (s && s !== "operator" && !seatEq(s, o.by) && !hasSeat(seats, s)) seats.push(s);
+  }
   const push = o.push ?? pushToSeat;
   const msg = [
     `[ask-withdrawn] from ${o.by} via ask-app: ${r} is withdrawn: ${reason}`,
@@ -1419,17 +1425,32 @@ export async function renameSeat(root: string, old: string, neu: string, o: Rena
   // names ONE folder twice (the same inode). Its asks are not a clash with themselves: the folder
   // moves through staging, and comes back under the new name, case and all.
   const caseOnly = old.toLowerCase() === neu.toLowerCase();
-  const aliasOfNew = (d: string) => caseOnly && isDir(d) && sameFile(d, toDir);
-  const aliased = aliasOfNew(fromDir);
+  // S2 (round 2): an old name that is a symlink to the new folder is an alias, not a folder to move:
+  // moving the link and merging through it would unlink the real asks. Refused before any write.
+  if (isSymlink(fromDir) && isDir(toDir) && sameFile(fromDir, toDir)) {
+    throw new AskFormatError(`${fromDir} is a symlink to ${neu}/: there is nothing to move; remove the link (rm '${fromDir}') and run the same command again; nothing was changed`);
+  }
+  /** Is `name` an entry of `dir` spelled exactly so? A case-insensitive volume finds a folder by either spelling; its listing holds one. */
+  const onDisk = (dir: string, name: string) => fs.existsSync(dir) && fs.readdirSync(dir).includes(name);
+  // S1 (round 2): the old name still finds the folder through the volume's case folding after the
+  // move. It is the old folder only while the listing still spells it the old way; once it reads
+  // `neu`, the rename is done, and a re-run moves nothing and reports no old name filed into again.
+  const aliasOfNew = (d: string) => caseOnly && isDir(d) && !isSymlink(d) && sameFile(d, toDir);
+  const oldPresent = () => isDir(fromDir) && (!aliasOfNew(fromDir) || onDisk(root, old));
+  const aliased = oldPresent() && aliasOfNew(fromDir);
   const ledgerWas = readLedger(root, old);
   if (isDir(stage) && ledgerWas && ledgerWas !== neu) {
-    throw new AskFormatError(`an earlier rename-seat ${old} → ${ledgerWas} stopped partway (its asks wait in ${stage}); finish it first: engine ask rename-seat ${old} ${ledgerWas}`);
+    // N1: on a case-insensitive volume a case-only pair shares one ledger and one staging folder, so a
+    // stopped `X → old` reads here as a ledger naming `old` itself. The command that finishes it names
+    // the staging folder's own spelling as its old seat.
+    const was = ledgerWas === old ? (fs.readdirSync(path.dirname(stage)).find((e) => e.toLowerCase() === path.basename(stage).toLowerCase())?.replace(/\.staging$/, "") ?? old) : old;
+    throw new AskFormatError(`an earlier rename-seat ${was} → ${ledgerWas} stopped partway (its asks wait in ${stage}); finish it first: engine ask rename-seat ${was} ${ledgerWas}`);
   }
   const strip = (f: string) => f.replace(/\.md$/, "");
-  const oldMd = mdFiles(fromDir);
+  const oldMd = oldPresent() ? mdFiles(fromDir) : [];
   const staged = mdFiles(stage);
   const ids = [...new Set([...oldMd, ...staged].map(strip))].sort();
-  const mode: RenameSeatResult["folder"]["mode"] = !isDir(fromDir) && !isDir(stage) ? "none" : isDir(toDir) && !aliased ? "merge" : "move";
+  const mode: RenameSeatResult["folder"]["mode"] = !oldPresent() && !isDir(stage) ? "none" : isDir(toDir) && !aliased ? "merge" : "move";
   const clash = [...new Set([...oldMd.filter((f) => !aliased && fs.existsSync(path.join(toDir, f))), ...staged.filter((f) => fs.existsSync(path.join(toDir, f)) && !sameFile(path.join(stage, f), path.join(toDir, f)))])].sort();
   if (clash.length) {
     throw new AskFormatError(`refusing to rename ${old} → ${neu}: ${clash.map((f) => `${neu}/${strip(f)}`).join(", ")} already exist${clash.length === 1 ? "s" : ""}; nothing was changed`);
@@ -1477,6 +1498,8 @@ export async function renameSeat(root: string, old: string, neu: string, o: Rena
   if (mode !== "none") {
     fs.mkdirSync(path.join(root, RENAME_DIR), { recursive: true });
     if (ledgerWas !== neu) atomicWrite(ledgerOf(root, old), `${neu}\n${new Date().toISOString()}\n`);
+    // N3: after a case-only rename on a case-insensitive volume this one file is also `neu`'s ledger,
+    // so it names its own seat; renamedTo ignores a ledger that leads back to a name it has seen.
     // `neu` is a live seat now: a ledger from an earlier rename away from that name no longer applies.
     // On a case-insensitive volume a case-only rename's two ledgers are one file: that one is kept.
     if (readLedger(root, neu) && !sameFile(ledgerOf(root, old), ledgerOf(root, neu))) fs.rmSync(ledgerOf(root, neu), { force: true });
@@ -1484,7 +1507,7 @@ export async function renameSeat(root: string, old: string, neu: string, o: Rena
     // A few passes at most: one for a staging folder a stopped run left, one for an old folder filed into again.
     // Once moved, the old name of a case-only rename still finds the folder through the alias: that is
     // the new folder, not an old one filed into again.
-    const oldLeft = () => isDir(fromDir) && !aliasOfNew(fromDir);
+    const oldLeft = () => oldPresent() && !aliasOfNew(fromDir);
     for (let pass = 0; pass < 3 && ((pass === 0 && aliased) || isDir(stage) || oldLeft()); pass++) {
       if (!isDir(stage)) fs.renameSync(fromDir, stage);
       // An alias that is a symlink (not a case-folding volume) is left dangling by the move: it goes.
