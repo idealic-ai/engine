@@ -3,7 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { newAsk, supersedeAsk } from "../src/lib/store.ts";
+import { newAsk, saveDraft, supersedeAsk, withdrawAsk } from "../src/lib/store.ts";
 import { parseAskFile } from "../src/lib/format.ts";
 import { BUILD_ID_FILE, computeBuildId } from "../src/build-id.ts";
 
@@ -174,5 +174,47 @@ describe("supersede: the server refuses an answer or a draft on a superseded ask
     const r = await req("POST", "/api/answer", { headers: GOOD(), body: answer(newId) });
     expect(r.status).toBe(200);
     expect(statusOf(newId)).toBe("answered");
+  });
+});
+
+describe("withdraw (ASKWITHDRAW): the server refuses an answer, a draft or a send on a withdrawn ask", () => {
+  async function withdrawn(): Promise<string> {
+    const id = freshAsk();
+    await saveDraft(root, "idealic:kernel", id, { answers: { GO: ["YES"] }, answeredBy: "operator" }, 1);
+    await withdrawAsk(root, { seat: "idealic:kernel", id }, { by: "idealic:kernel", reason: "moot now", now: "2026-10-30T16:30:00.000Z", push: async () => ({ status: "delivered" }) });
+    return id;
+  }
+
+  it("answers 409 with who, when and why, at the revision the client read or the current one", async () => {
+    const id = await withdrawn();
+    for (const rev of [1, 2]) {
+      const r = await req("POST", "/api/answer", { headers: GOOD(), body: answer(id, { expectedRevision: rev }) });
+      expect(r.status).toBe(409);
+      expect(JSON.parse(r.body)).toEqual({
+        error: `ask ${id} is withdrawn by idealic:kernel (moot now): there is nothing to answer`,
+        status: "withdrawn",
+        withdrawnBy: "idealic:kernel",
+        withdrawnAt: "2026-10-30T16:30:00.000Z",
+        withdrawnReason: "moot now",
+      });
+    }
+    const d = await req("POST", "/api/draft", { headers: GOOD(), body: answer(id, { expectedRevision: 2 }) });
+    expect(d.status).toBe(409);
+    expect(JSON.parse(d.body).status).toBe("withdrawn");
+    expect(statusOf(id)).toBe("withdrawn");
+  });
+
+  it("a send naming it is refused, and /api/asks lists it with its status and reason", async () => {
+    const id = await withdrawn();
+    const s = await req("POST", "/api/send", { headers: GOOD(), body: JSON.stringify({ refs: [`idealic:kernel/${id}`] }) });
+    expect(s.status).toBe(200);
+    const j = JSON.parse(s.body);
+    expect(j.settled).toEqual([]);
+    expect(j.refused[0].error).toContain("is withdrawn");
+    const all = JSON.parse((await req("GET", "/api/asks")).body).asks as { header: Record<string, string> }[];
+    const h = all.find((a) => a.header.id === id)!.header;
+    expect(h.status).toBe("withdrawn");
+    expect(h["withdrawn-reason"]).toBe("moot now");
+    expect(h.draft).toBeUndefined();
   });
 });

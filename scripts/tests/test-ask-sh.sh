@@ -717,6 +717,95 @@ test_r4_superseded_ask_takes_no_answer_draft_or_send_and_leaves_the_open_list() 
   assert_contains "superseded	idealic:kernel/sa1" "$("$ASK_SH" list --status superseded)" "--status superseded still reaches it"
 }
 
+# ── withdraw (ASKWITHDRAW) ───────────────────────────────
+
+test_askwithdraw_the_asker_withdraws_and_the_holder_is_told_no_action() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id wd1 >/dev/null
+  FLEET_PANE=manager:idealic "$ASK_SH" draft idealic:kernel/wd1 --revision 1 --json '{"GO":["YES"]}' >/dev/null
+  local out; out=$("$ASK_SH" withdraw idealic:kernel/wd1 --reason "the ticket closed")
+  assert_contains "withdrawn	idealic:kernel/wd1	revision 2	the ticket closed" "$out" "withdraw reports the ask, its revision and the reason"
+  assert_contains "draft discarded	saved by manager:idealic" "$out" "and the draft it discarded"
+  assert_contains "notice manager:idealic" "$out" "and notices the holder"
+  local f; f=$(cat "$ASK_ROOT/idealic:kernel/wd1.md")
+  assert_contains "status: withdrawn" "$f" "the ask is withdrawn"
+  assert_contains "withdrawn-actor: idealic:kernel" "$f" "with who"
+  assert_contains "withdrawn-at: " "$f" "when"
+  assert_contains "withdrawn-reason: the ticket closed" "$f" "and why"
+  assert_contains "withdrawn-draft-of: manager:idealic" "$f" "the discarded draft is recorded"
+  assert_not_contains '```json draft' "$f" "and the draft is gone"
+  assert_not_contains "superseded" "$f" "it is not a supersede"
+}
+
+test_askwithdraw_who_may_withdraw() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id wo1 --reserved-for operator >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id wo2 >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id wo3 >/dev/null
+  as_op withdraw idealic:kernel/wo1 --reason moot >/dev/null
+  assert_contains "withdrawn-actor: operator" "$(cat "$ASK_ROOT/idealic:kernel/wo1.md")" "the operator (--by operator) withdraws a reserved ask"
+  FLEET_PANE=manager:idealic FLEET_MANAGES=kernel "$ASK_SH" withdraw idealic:kernel/wo2 --reason moot >/dev/null
+  assert_contains "withdrawn-actor: manager:idealic" "$(cat "$ASK_ROOT/idealic:kernel/wo2.md")" "the asker's manager (FLEET_MANAGES) withdraws"
+  assert_fails_with "a peer is refused" "only the asker (idealic:kernel), its manager or the operator withdraws" \
+    env FLEET_PANE=idealic:runner "$ASK_SH" withdraw idealic:kernel/wo3 --reason moot
+  assert_fails_with "the holder that does not manage the asker is refused" "only the asker" \
+    env -u FLEET_MANAGES FLEET_PANE=manager:idealic "$ASK_SH" withdraw idealic:kernel/wo3 --reason moot
+  assert_fails_with "a seat may not claim operator" "--by operator from a seat" \
+    env FLEET_PANE=app:writer "$ASK_SH" withdraw idealic:kernel/wo3 --reason moot --by operator
+  assert_contains "status: open" "$(cat "$ASK_ROOT/idealic:kernel/wo3.md")" "after the refusals wo3 is still open"
+}
+
+test_askwithdraw_refusals() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id wr1 >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id wr2 >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id wr3 >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id wr4 >/dev/null
+  assert_fails_with "a reason is required" "--reason is required" "$ASK_SH" withdraw idealic:kernel/wr1
+  assert_fails_with "a blank reason is refused" "--reason is required" "$ASK_SH" withdraw idealic:kernel/wr1 --reason "  "
+  assert_fails_with "a missing ask is refused" "no ask idealic:kernel/nope" "$ASK_SH" withdraw idealic:kernel/nope --reason moot
+  as_op answer idealic:kernel/wr1 --revision 1 --json '{"GO":["NO"]}' >/dev/null
+  assert_fails_with "an answered ask is history" "is answered: that one is history" "$ASK_SH" withdraw idealic:kernel/wr1 --reason moot
+  as_op answer idealic:kernel/wr2 --revision 1 --decline "not mine" >/dev/null
+  assert_fails_with "a declined ask is history" "is declined: that one is history" "$ASK_SH" withdraw idealic:kernel/wr2 --reason moot
+  "$ASK_SH" supersede idealic:kernel/wr3 --by idealic:kernel/wr4 >/dev/null
+  assert_fails_with "a superseded ask is refused, naming its replacement" "already superseded by idealic:kernel/wr4" "$ASK_SH" withdraw idealic:kernel/wr3 --reason moot
+  "$ASK_SH" withdraw idealic:kernel/wr4 --reason first >/dev/null
+  assert_fails_with "an already withdrawn ask is refused" "already withdrawn by idealic:kernel (first)" "$ASK_SH" withdraw idealic:kernel/wr4 --reason again
+}
+
+test_askwithdraw_withdrawn_ask_takes_no_answer_draft_or_send_and_leaves_the_open_list() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id wa1 >/dev/null
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id wa2 >/dev/null
+  FLEET_PANE=manager:idealic "$ASK_SH" draft idealic:kernel/wa1 --revision 1 --json '{"GO":["YES"]}' >/dev/null
+  "$ASK_SH" withdraw idealic:kernel/wa1 --reason "no longer needed" >/dev/null
+  assert_fails_with "answer after withdraw is refused" "ask wa1 is withdrawn by idealic:kernel (no longer needed): there is nothing to answer" \
+    as_op answer idealic:kernel/wa1 --revision 2 --json '{"GO":["YES"]}'
+  assert_fails_with "even at the revision read before the withdrawal" "is withdrawn" \
+    as_op answer idealic:kernel/wa1 --revision 1 --json '{"GO":["YES"]}'
+  assert_fails_with "draft is refused" "is withdrawn" \
+    env FLEET_PANE=manager:idealic "$ASK_SH" draft idealic:kernel/wa1 --revision 2 --json '{"GO":["YES"]}'
+  local out; out=$(FLEET_PANE=manager:idealic "$ASK_SH" send idealic:kernel/wa1 2>&1); local rc=$?
+  assert_eq "1" "$rc" "send of the withdrawn ask exits 1"
+  assert_contains "refused idealic:kernel/wa1	ask wa1 is withdrawn" "$out" "send refuses it"
+  assert_contains "status: withdrawn" "$(cat "$ASK_ROOT/idealic:kernel/wa1.md")" "nothing settled it: the status survives a re-read"
+  local list; list=$("$ASK_SH" list)
+  assert_not_contains "idealic:kernel/wa1" "$list" "the default (open) list hides the withdrawn ask"
+  assert_contains "idealic:kernel/wa2" "$list" "and still shows the open one"
+  assert_not_contains "idealic:kernel/wa1" "$("$ASK_SH" list --status settled)" "settled does not hold it"
+  assert_contains "withdrawn	idealic:kernel/wa1" "$("$ASK_SH" list --status withdrawn)" "--status withdrawn reaches it"
+  assert_contains "withdrawn by idealic:kernel: no longer needed" "$("$ASK_SH" list --status all)" "list shows who and why"
+  assert_contains "withdrawn by idealic:kernel at " "$("$ASK_SH" read idealic:kernel/wa1 2>/dev/null)" "read shows who and when"
+  assert_contains ": no longer needed" "$("$ASK_SH" read idealic:kernel/wa1 2>/dev/null)" "and why"
+}
+
+test_askwithdraw_rename_seat_rewrites_its_seat_fields() {
+  printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id wn1 >/dev/null
+  FLEET_PANE=manager:idealic "$ASK_SH" draft idealic:kernel/wn1 --revision 1 --json '{"GO":["YES"]}' >/dev/null
+  "$ASK_SH" withdraw idealic:kernel/wn1 --reason moot >/dev/null
+  as_op rename-seat manager:idealic manager:kit >/dev/null
+  assert_contains "withdrawn-draft-of: manager:kit" "$(cat "$ASK_ROOT/idealic:kernel/wn1.md")" "rename-seat rewrites withdrawn-draft-of"
+  as_op rename-seat idealic:kernel idealic:core >/dev/null
+  assert_contains "withdrawn-actor: idealic:core" "$(cat "$ASK_ROOT/idealic:core/wn1.md")" "and withdrawn-actor"
+}
+
 # ── a reserved ask declined by a seat is passed up (the operator's ruling, 2026-10-30) ──
 
 test_r4_reserved_decline_by_a_seat_passes_up_and_stays_open() {

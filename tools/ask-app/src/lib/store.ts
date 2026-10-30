@@ -8,7 +8,7 @@ import path from "node:path";
 import { pushToSeat, type DeliverOptions, type DeliveryResult } from "./deliver.ts";
 import {
   AskFormatError,
-  assertNotSuperseded,
+  assertLive,
   answerLines,
   noteLine,
   overruledNow,
@@ -329,7 +329,7 @@ export async function answerAsk(
     const ask = parseAskFile(before);
     assertGrant(ask, input, opts.answererManages);
     if (!isPassUp(ask, input)) return undefined;
-    assertNotSuperseded(ask);
+    assertLive(ask);
     if (!input.reason?.trim()) throw new AskFormatError("a decline needs a non-empty reason");
     const cur = currentRevision(ask);
     if (opts.expectedRevision !== cur) throw new StaleRevisionError(opts.expectedRevision, cur);
@@ -564,7 +564,7 @@ function assertGrant(ask: ParsedAsk, a: AskAnswer, answererManages: string[] = [
 /** R4 and M3: an ask marked `reserved-for: operator` is answered by the operator; any ask only by its answerers. */
 function assertMayAnswer(ask: ParsedAsk, a: AskAnswer, standing?: RelayStanding) {
   // First: a superseded ask is refused whoever answers, pointing at the ask that replaced it.
-  assertNotSuperseded(ask);
+  assertLive(ask);
   assertMayRelay(ask, a, standing);
   const by = a.answeredBy;
   const id = ask.header.id ?? "";
@@ -593,7 +593,7 @@ export async function saveDraft(root: string, seat: string, id: string, input: A
   await withFileLock(file, () => {
     const before = fs.readFileSync(file, "utf8");
     const ask = parseAskFile(before);
-    assertNotSuperseded(ask);
+    assertLive(ask);
     if (input.grantClass !== undefined) throw new AskFormatError("a grant class is never drafted: it is written with `engine ask answer --grant`");
     // S3 (round 2): a seat's decline of a reserved ask is a pass-up, which moves the ask at once;
     // it is never held as a draft.
@@ -682,7 +682,7 @@ export async function sendBatch(root: string, refs: string[] | undefined, opts: 
         const before = fs.readFileSync(file, "utf8");
         const ask = parseAskFile(before);
         const d = ask.draft;
-        assertNotSuperseded(ask);
+        assertLive(ask);
         if (!d) throw new AskFormatError(`${ref} has no draft to send`);
         if (draftAuthor(d) !== by) throw new AskFormatError(`${ref}'s draft was saved by ${draftAuthor(d) || "an unnamed answerer"}; only its author sends it`);
         assertMayAnswer(ask, d, opts);
@@ -1127,6 +1127,78 @@ export async function supersedeAsk(
   const pushes: SupersedeResult["pushes"] = [];
   for (const s of seats) pushes.push({ seat: s, delivery: await safePush(push, s, msg, o) });
   return { file: oldFile, revision: res.revision, pushes };
+}
+
+// ── withdrawing (the asker takes its question back) ─────────
+
+export type WithdrawResult = { file: string; revision: number; draftOf?: string; pushes: { seat: string; delivery: DeliveryResult }[] };
+
+/**
+ * Take the open ask `ref` back (ASKWITHDRAW). Unlike supersede, no newer ask replaces it: nothing is
+ * left to answer, and nobody is asked to confirm the withdrawal (the operator, 2026-10-30: "confirm
+ * withdrawal" asks were left in the queue).
+ *
+ * - Who: supersede's set — the asker (`from:`), a manager of the asker (`manages`, its FLEET_MANAGES),
+ *   or the operator. Pending an operator ruling on WHO.
+ * - The ask: `status: withdrawn`, `withdrawn-at`, `withdrawn-actor`, `withdrawn-reason` (one line);
+ *   its revision moves and `revisions:` records it, so an answer or draft in flight is stale, and
+ *   any saved draft is discarded, its author kept as `withdrawn-draft-of`.
+ * - Refused: a missing ask, no actor, a blank reason, an ask that is answered, declined or ruled
+ *   (that one is history), or one already superseded or withdrawn.
+ * - The holder and forwarders hear one `[ask-withdrawn]` notice saying no action is needed; the
+ *   asker hears it too when someone else withdrew its ask. The operator is never pushed.
+ */
+export async function withdrawAsk(
+  root: string,
+  ref: AskRef,
+  o: DeliverOptions & { by: string; reason: string; manages?: string[]; push?: typeof pushToSeat; now?: string },
+): Promise<WithdrawResult> {
+  if (!o?.by) throw new AskFormatError("withdraw must name who is withdrawing");
+  const reason = (o.reason ?? "").replace(/\s+/g, " ").trim();
+  const r = `${ref.seat}/${ref.id}`;
+  if (!reason) throw new AskFormatError(`withdrawing ${r} needs a reason: --reason "<why it is no longer asked>"`);
+  const file = resolveAskPath(root, ref.seat, ref.id);
+  if (!fs.existsSync(file)) throw new AskFormatError(`no ask ${r}`);
+  const at = o.now ?? new Date().toISOString();
+  const res = await withFileLock(file, () => {
+    const before = fs.readFileSync(file, "utf8");
+    const ask = parseAskFile(before);
+    const asker = ask.header.from ?? "";
+    if (o.by !== "operator" && o.by !== asker && !(asker && managesSeat(o.manages ?? [], asker))) {
+      throw new AskFormatError(`only the asker (${asker || "?"}), its manager or the operator withdraws ${r}; ${o.by} is none of them`);
+    }
+    const status = ask.header.status ?? "open";
+    if (status === "superseded") throw new AskFormatError(`${r} is already superseded by ${ask.header["superseded-by"] || "another ask"}; there is nothing to withdraw`);
+    if (status === "withdrawn") throw new AskFormatError(`${r} is already withdrawn by ${ask.header["withdrawn-actor"] || "someone"} (${ask.header["withdrawn-reason"] || "no reason"})`);
+    if (["answered", "declined", "ruled"].includes(status)) {
+      throw new AskFormatError(`${r} is ${status}: that one is history and is not withdrawn; file a new ask if the answer no longer holds`);
+    }
+    if (status !== "open") throw new AskFormatError(`${r} is ${status}; only an open ask is withdrawn`);
+    const draftOf = ask.draft ? draftAuthor(ask.draft) || "an unnamed answerer" : undefined;
+    const revision = currentRevision(ask) + 1;
+    let after = clearDraft(before);
+    after = setHeaderField(after, "status", "withdrawn");
+    after = setHeaderField(after, "withdrawn-at", at);
+    after = setHeaderField(after, "withdrawn-actor", o.by);
+    after = setHeaderField(after, "withdrawn-reason", reason);
+    if (draftOf) after = setHeaderField(after, "withdrawn-draft-of", draftOf);
+    after = setHeaderField(after, "revision", String(revision));
+    const history = (ask.header.revisions ?? "").trim();
+    after = setHeaderField(after, "revisions", `${history ? `${history} ; ` : ""}${revision}@${at}:withdrawn`);
+    atomicWrite(file, after);
+    return { parsed: parseAskFile(after), revision, draftOf };
+  });
+  const h = res.parsed.header;
+  const seats = [...new Set([h.to ?? "", ...forwardChain(h).flatMap((x) => [x.from, x.to]), h.from ?? ""])].filter((s) => s && s !== o.by && s !== "operator");
+  const push = o.push ?? pushToSeat;
+  const msg = [
+    `[ask-withdrawn] from ${o.by} via ask-app: ${r} is withdrawn: ${reason}`,
+    `No action needed: do not answer it and do not acknowledge this notice; an answer or draft on it is refused.${res.draftOf ? ` A draft saved by ${res.draftOf} on it was discarded.` : ""} The file is the record:`,
+    file,
+  ].join("\n");
+  const pushes: WithdrawResult["pushes"] = [];
+  for (const s of seats) pushes.push({ seat: s, delivery: await safePush(push, s, msg, o) });
+  return { file, revision: res.revision, ...(res.draftOf ? { draftOf: res.draftOf } : {}), pushes };
 }
 
 // ── renaming a seat (a fleet rename) ──────────────────────

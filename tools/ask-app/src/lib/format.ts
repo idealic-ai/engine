@@ -133,6 +133,8 @@ export const STAMP_FIELDS = [
   "ruledInChat", "revisions", "delivery", "deliveryNote", "deliveryWriter", "readAt", "readBy", "reads", "acted", "actedAt", "actedBy", "draft", "forwards",
   // `engine ask supersede`: on the replaced ask, its replacement, when, and who replaced it; on the replacement, what it replaced.
   "superseded-by", "superseded-at", "superseded-actor", "supersedes",
+  // ASKWITHDRAW `engine ask withdraw`: when, who, why, and whose saved draft the withdrawal discarded.
+  "withdrawn-at", "withdrawn-actor", "withdrawn-reason", "withdrawn-draft-of",
   // IDE-304: the answer a later answer replaced, on one line (revision, who, when, what).
   "replaced",
   // IDE-339: the answerer whose settled answer a different answerer replaced.
@@ -203,6 +205,30 @@ export class SupersededError extends AskFormatError {
 /** Refuse any answer, decline or draft on a superseded ask, naming its replacement. */
 export function assertNotSuperseded(ask: ParsedAsk) {
   if (ask.header.status === "superseded") throw new SupersededError(ask.header.id ?? "", ask.header["superseded-by"] ?? "");
+}
+
+/**
+ * The asker took the ask back (`engine ask withdraw`): no ask replaces it, so there is nothing to
+ * answer anywhere. `actor` and `reason` are the withdrawal's own stamps, so a refusal says who and why.
+ */
+export class WithdrawnError extends AskFormatError {
+  readonly actor: string;
+  readonly reason: string;
+  readonly at: string;
+  constructor(id: string, actor: string, reason: string, at = "") {
+    super(`ask ${id} is withdrawn${actor ? ` by ${actor}` : ""}${reason ? ` (${reason})` : ""}: there is nothing to answer`);
+    this.name = "WithdrawnError";
+    this.actor = actor;
+    this.reason = reason;
+    this.at = at;
+  }
+}
+
+/** Refuse any answer, decline or draft on an ask that is no longer live: superseded or withdrawn. */
+export function assertLive(ask: ParsedAsk) {
+  assertNotSuperseded(ask);
+  const h = ask.header;
+  if (h.status === "withdrawn") throw new WithdrawnError(h.id ?? "", h["withdrawn-actor"] ?? "", h["withdrawn-reason"] ?? "", h["withdrawn-at"] ?? "");
 }
 
 /** The ask moved on since the answerer read it (INV_ONE_CHOSEN_DESTINATION: one answer wins). */
@@ -673,7 +699,7 @@ export function overruledNow(ask: ParsedAsk): string | undefined {
 
 function settle(text: string, record: AskAnswer, status: "answered" | "declined", expectedRevision?: number): string {
   const ask = parseAskFile(text);
-  assertNotSuperseded(ask);
+  assertLive(ask);
   // NIT-1 (round 2): a settle rewrites the history fence, so one it cannot read whole is refused.
   if (ask.historyError) throw new AskFormatError(`${ask.historyError}: fix or remove it by hand before this ask is answered again`);
   const cur = currentRevision(ask);
@@ -781,7 +807,7 @@ export function validateAnswer(ask: ParsedAsk, answers: unknown): asserts answer
  */
 export function writeDraft(text: string, d: AskAnswer & { savedAt?: string }, expectedRevision: number): string {
   const ask = parseAskFile(text);
-  assertNotSuperseded(ask);
+  assertLive(ask);
   // IDE-304: a settled ask takes the operator's draft of a change to the operator's own answer.
   const open = ask.header.status === "open" || ask.header.status === undefined;
   const ownChange = (ask.header.status === "answered" || ask.header.status === "declined") && isOperatorAnswer(ask.answer) && isOperatorName(d.answeredBy);

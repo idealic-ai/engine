@@ -65,7 +65,7 @@ import { clearUnsent, loadUnsent, saveUnsent } from "./unsent.ts";
 import { SCROLL_ROOT, scrollRootOf, scrollToId, scrollWithin } from "./scroll.ts";
 import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, sideDefault, useStoredNumber } from "./layout.tsx";
 import { pushEsc } from "./esc.ts";
-import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, type PathHop } from "./supersede.ts";
+import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, withdrawnInfo, type PathHop } from "./supersede.ts";
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { CHANGE_WORDING, cancelDiscards, changeAnswerStart, draftBody, mayChangeAnswer, planClick, requestSend, staleChangeKeys, unsentKey } from "./reanswer.ts";
@@ -698,6 +698,7 @@ export function AskDetail({
 }: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void; provisionalKept?: boolean; onOpenAsk?: (ref: string) => void; /** Open the card already changing its answer (IDE-304). */ startChanging?: boolean }) {
   const [replacedBy, setReplacedBy] = useState<string | undefined>();
   const superseded = supersededInfo(ask.header);
+  const withdrawn = withdrawnInfo(ask.header);
   const replaces = supersedesList(ask.header);
   const path = pathOf(ask.header);
   // NIT: an ask with no status line is open, as the list and the server read it.
@@ -803,6 +804,11 @@ export function AskDetail({
         if (c.supersededBy || r.json?.status === "superseded") {
           keep();
           setReplacedBy(c.supersededBy ?? "");
+        }
+        // ASKWITHDRAW: a withdrawn ask has no replacement; the picks are kept and the card redraws read-only.
+        if (c.withdrawn) {
+          keep();
+          onChanged();
         }
         return setResult(c.text);
       }
@@ -919,6 +925,15 @@ export function AskDetail({
             {superseded.actor && <> · {superseded.actor}</>}
             {superseded.at && <> · <time dateTime={superseded.at} title={new Date(superseded.at).toLocaleString()}>{superseded.at.replace("T", " ").slice(0, 16)}</time></>}
             <span className="muted"> · read-only; answer the new ask</span>
+          </p>
+        )}
+        {withdrawn && (
+          <p className="superseded withdrawn" role="note">
+            <b>Withdrawn</b>
+            {withdrawn.actor && <> by {withdrawn.actor}</>}
+            {withdrawn.at && <> · <time dateTime={withdrawn.at} title={new Date(withdrawn.at).toLocaleString()}>{withdrawn.at.replace("T", " ").slice(0, 16)}</time></>}
+            {withdrawn.reason && <>: {withdrawn.reason}</>}
+            <span className="muted"> · read-only; nothing to answer</span>
           </p>
         )}
         {replaces.length > 0 && (

@@ -1,12 +1,12 @@
 /**
- * Node half of `engine ask new|list|answer|…|supersede|rename-seat` (scripts/ask.sh handles `path` and `serve`).
+ * Node half of `engine ask new|list|answer|…|supersede|withdraw|rename-seat` (scripts/ask.sh handles `path` and `serve`).
  * Run with node >= 23.6, which strips the types itself.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
-import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk } from "./lib/store.ts";
+import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk } from "./lib/store.ts";
 import { answeredByText, authorWarnings, noteLine, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, type AnswerMap, type AskAnswer, type GrantClass } from "./lib/format.ts";
 
 /** The author guide, pointed to whenever `new` or `revise` warns or refuses. */
@@ -234,7 +234,9 @@ async function main() {
       const title = a.questions[0]?.title ?? "";
       const life = lifeOf(a.header);
       const delivery = life ? ` (${life})` : a.draft ? " (draft)" : "";
-      console.log(`${a.header.status}${delivery}\t${a.seat}/${a.header.id}\trev=${a.header.revision}\tto=${a.header.to}\t${a.header.importance || "-"}\t${title}`);
+      // ASKWITHDRAW: a withdrawn ask's reason follows its title.
+      const why = a.header.status === "withdrawn" && a.header["withdrawn-reason"] ? `\twithdrawn by ${a.header["withdrawn-actor"] || "?"}: ${a.header["withdrawn-reason"]}` : "";
+      console.log(`${a.header.status}${delivery}\t${a.seat}/${a.header.id}\trev=${a.header.revision}\tto=${a.header.to}\t${a.header.importance || "-"}\t${title}${why}`);
     }
     return;
   }
@@ -293,11 +295,14 @@ async function main() {
     const by = reader();
     // S3: an answer whose push died with its writer is pushed again on the next read.
     for (const r of await repushPending(root, { by: by || undefined })) console.error(`repushed ${r.ref}\t${r.delivery.status}`);
-    const print = (r: { ref: string; file: string; lines: string[]; stamped: boolean; why?: string; ask: { answer?: AskAnswer } }) => {
+    const print = (r: { ref: string; file: string; lines: string[]; stamped: boolean; why?: string; ask: { answer?: AskAnswer; header: Record<string, string | undefined> } }) => {
       // SHOULD-3 (round 2): the grant class beside who answered; ASKNOTE: the note marked, on its own line.
       const a = r.ask.answer;
       console.log(`${r.ref}\t${r.file}${a ? `\tby ${answeredByText(a)}${a.grantClass ? ` · grant ${a.grantClass}` : ""}` : ""}`);
       for (const l of r.lines) console.log(`  ${l}`);
+      // ASKWITHDRAW: a withdrawn ask has no answer; read says who took it back and why.
+      const h = r.ask.header;
+      if (h.status === "withdrawn") console.log(`  withdrawn by ${h["withdrawn-actor"] || "?"}${h["withdrawn-at"] ? ` at ${h["withdrawn-at"]}` : ""}: ${h["withdrawn-reason"] || "no reason given"}`);
       const note = noteLine(a);
       if (note) console.log(`  ${note}`);
       if (!r.stamped) console.error(`  (not stamped read: ${r.why})`);
@@ -374,6 +379,23 @@ async function main() {
     try {
       const r = await supersedeAsk(root, old, neu, { by: identity("supersede"), manages });
       console.log(`superseded\t${old.seat}/${old.id} → ${neu.seat}/${neu.id}\trevision ${r.revision}`);
+      for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
+    } catch (e) {
+      die((e as Error).message);
+    }
+    return;
+  }
+
+  if (cmd === "withdraw") {
+    // ASKWITHDRAW: the asker takes its question back; no replacement, nothing to answer, nothing to acknowledge.
+    const usage = 'usage: ask withdraw <seat>/<id> --reason "<why it is no longer asked>" [--by operator]';
+    if (pos.length !== 1) die(`${usage}: name exactly one ask`);
+    if (opt.reason === undefined || opt.reason === "true" || !opt.reason.trim()) die(`${usage}: --reason is required`);
+    const ref = splitRef(pos[0], usage);
+    try {
+      const r = await withdrawAsk(root, ref, { by: identity("withdraw"), reason: opt.reason, manages });
+      console.log(`withdrawn\t${ref.seat}/${ref.id}\trevision ${r.revision}\t${opt.reason.replace(/\s+/g, " ").trim()}`);
+      if (r.draftOf) console.log(`draft discarded\tsaved by ${r.draftOf}`);
       for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
     } catch (e) {
       die((e as Error).message);

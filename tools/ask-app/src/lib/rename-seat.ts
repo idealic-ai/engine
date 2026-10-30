@@ -26,7 +26,7 @@ import { ANSWER_FENCES, DRAFT_FENCES, HISTORY_FENCES } from "./format.ts";
 export type SeatChange = { field: string; from: string; to: string };
 
 /** Header fields whose whole value is one seat. */
-export const SEAT_FIELDS = ["to", "from", "reserved-for", "askedBy", "readBy", "actedBy", "superseded-actor", "overruled"] as const;
+export const SEAT_FIELDS = ["to", "from", "reserved-for", "askedBy", "readBy", "actedBy", "superseded-actor", "overruled", "withdrawn-actor", "withdrawn-draft-of"] as const;
 /** Store-written stamps in which any whole-name mention of the seat is the seat. */
 const STAMP_TEXT_FIELDS = ["delivery", "deliveryNote", "revisions"] as const;
 /** JSON keys, in the answer and draft records, whose value is a seat. */
