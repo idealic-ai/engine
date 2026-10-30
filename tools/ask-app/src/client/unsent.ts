@@ -26,6 +26,7 @@ export function loadUnsent(ref: string, s: Store | undefined = storage()): Unsen
     if (typeof u?.revision !== "string" || typeof u.note !== "string" || !u.values || !u.text) return undefined;
     if (u.need !== undefined && typeof u.need !== "string") return undefined;
     if (u.followup !== undefined && typeof u.followup !== "string") return undefined;
+    if (u.needKind !== undefined && typeof u.needKind !== "string") return undefined;
     memory.set(ref, u);
     return u;
   } catch {
@@ -59,8 +60,38 @@ export function forgetMemory() {
 }
 
 /** What a card keeps: its picks, notes, request and follow-up text at this revision; a blank request or follow-up is left out. */
-export function cardUnsent(revision: string, s: { values: Values; text: Record<string, string>; note: string; need: string; followup?: string }): Unsent {
-  return { revision, values: s.values, text: s.text, note: s.note, ...(s.need.trim() ? { need: s.need } : {}), ...(s.followup?.trim() ? { followup: s.followup } : {}) };
+export function cardUnsent(revision: string, s: { values: Values; text: Record<string, string>; note: string; need: string; needKind?: string; followup?: string }): Unsent {
+  return {
+    revision, values: s.values, text: s.text, note: s.note,
+    // NIT-A: the request keeps its kind, so the kept line and a remount say what kind of request it was.
+    ...(s.need.trim() ? { need: s.need, ...(s.needKind ? { needKind: s.needKind } : {}) } : {}),
+    ...(s.followup?.trim() ? { followup: s.followup } : {}),
+  };
+}
+
+/** NIT-A: what the kept copy holds, said whole: "Your picks and notes are kept in this browser:". */
+export function keptSentence(u: Unsent): string {
+  const parts = [
+    Object.values(u.values).some((v) => (Array.isArray(v) ? v.length > 0 : v !== undefined && v !== "")) ? "picks" : "",
+    u.note.trim() || Object.values(u.text).some((t) => t.trim()) ? "notes" : "",
+    u.need?.trim() ? "request" : "",
+    u.followup?.trim() ? "follow-up" : "",
+  ].filter(Boolean);
+  const list = parts.length <= 1 ? parts.join("") : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+  const many = parts.length > 1 || parts[0] === "picks" || parts[0] === "notes";
+  return `Your ${list || "edits"} ${many || !parts.length ? "are" : "is"} kept in this browser:`;
+}
+
+/** WithdrawnBar's state: whether a copy took, and whether Forget is asking to confirm. */
+export type BarState = { copy?: "ok" | "failed"; confirming: boolean };
+export type BarEvent = "forget" | "yes" | "keep" | { copied: boolean };
+
+/** P13 (ASKWITHDRAWN delta): WithdrawnBar's steps, pure. Only "yes" clears the kept copy. */
+export function barStep(s: BarState, ev: BarEvent): { state: BarState; clear: boolean } {
+  if (ev === "forget") return { state: { ...s, confirming: true }, clear: false };
+  if (ev === "keep") return { state: { ...s, confirming: false }, clear: false };
+  if (ev === "yes") return { state: { ...s, confirming: false }, clear: true };
+  return { state: { ...s, copy: ev.copied ? "ok" : "failed" }, clear: false };
 }
 
 /** An option's label for a stored pick (its code, or its label when it has none); the value itself if no option matches. */
@@ -89,7 +120,7 @@ export function keptDraftLines(ask: Pick<ParsedAsk, "questions">, u: Unsent): st
     if (words.length || t) out.push(`${forkLabel(q, i)}: ${[words.join(" · "), t].filter(Boolean).join("; ")}`);
   });
   if (u.note.trim()) out.push(`Note: ${u.note.trim()}`);
-  if (u.need?.trim()) out.push(`Request: ${u.need.trim()}`);
+  if (u.need?.trim()) out.push(`Request${u.needKind ? ` (${u.needKind})` : ""}: ${u.need.trim()}`);
   if (u.followup?.trim()) out.push(`Follow-up: ${u.followup.trim()}`);
   return out;
 }

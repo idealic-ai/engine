@@ -111,6 +111,17 @@ export function conflictStep(json: ConflictJson, here: string, openKey: string):
   return { text: c.text, reload: false };
 }
 
+/** What a card applies a step with: keep its copy under a key, name a replacement, reload, show a line. */
+export type ConflictDeps = { save: (key: string) => void; setReplacedBy: (by: string) => void; reload: () => void; setResult: (text: string) => void };
+
+/** SHOULD-1 (ASKWITHDRAWN delta): a card's 409 step, applied. Pure but for the deps, so spies test it. */
+export function applyConflict(s: ConflictStep, d: ConflictDeps): void {
+  if (s.keepUnder) d.save(s.keepUnder);
+  if (s.replacedBy !== undefined) d.setReplacedBy(s.replacedBy);
+  if (s.reload) d.reload();
+  d.setResult(s.text);
+}
+
 export type PathHop = { from: string; to: string; at: string; reason?: string };
 
 /** The forward chain with each hop's decline reason, as forwardChain reads it (unescaped). */

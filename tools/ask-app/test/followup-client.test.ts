@@ -201,7 +201,7 @@ describe("unsent follow-up text survives a remount (cardUnsent)", () => {
   });
 
   it("App's one snapshot holds the follow-up text", () => {
-    expect(src("App.tsx")).toMatch(/const snap = \(\) => cardUnsent\(revision, \{ values, text, note, need: needText, followup: followText \}\);/);
+    expect(src("App.tsx")).toMatch(/const snap = \(\) => cardUnsent\(revision, \{ values, text, note, need: needText, (?:needKind, )?followup: followText \}\);/);
   });
 });
 

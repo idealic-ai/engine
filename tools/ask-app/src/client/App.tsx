@@ -63,15 +63,15 @@ import {
 import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
 import { CodeBlock } from "./highlight.tsx";
-import { batchResultLine, noticeFor, postSendStep, sendOutcome, type SentNotice } from "./next.ts";
+import { batchOutcome, noticeFor, postSendStep, sendOutcome, type SentNotice } from "./next.ts";
 import { createRouteNav, createUrlSync } from "./urlsync.ts";
 import { blocks, displayTitle } from "./md.ts";
 import { RELOAD_RESTARTED, RELOAD_UPDATED, authedFetch, recordBuild, refreshToken, type Authed } from "./token.ts";
-import { cardUnsent, clearUnsent, copyText, forgetWords, keptDraftLines, loadUnsent, saveUnsent } from "./unsent.ts";
+import { barStep, cardUnsent, clearUnsent, copyText, forgetWords, keptDraftLines, keptSentence, loadUnsent, saveUnsent, type BarEvent, type BarState } from "./unsent.ts";
 import { SCROLL_ROOT, scrollRootOf, scrollToId, scrollWithin } from "./scroll.ts";
 import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, sideDefault, useStoredNumber } from "./layout.tsx";
 import { pushEsc } from "./esc.ts";
-import { conflictStep, hopWords, pathOf, supersededInfo, supersedesList, withdrawnInfo, withdrawnWords, type PathHop, type Withdrawn } from "./supersede.ts";
+import { applyConflict, conflictStep, hopWords, pathOf, supersededInfo, supersedesList, withdrawnInfo, withdrawnWords, type PathHop, type Withdrawn } from "./supersede.ts";
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay } from "./search.ts";
@@ -318,14 +318,11 @@ export function App() {
   async function sendBatch() {
     setBatchConfirm(undefined);
     setSending(true);
-    setBatchResult("");
     try {
-      const { status, json, restarted } = await post("/api/send", { refs: drafts.map(askRef) });
-      if (restarted) return setBatchResult(restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
-      if (status !== 200) return setBatchResult(`Error: ${json.error}`);
-      // ASKWITHDRAW (S-1, NIT-3): every word is next.ts batchResultLine's; a withdrawal gets its own line.
-      setBatchResult(batchResultLine(json));
-      load();
+      // SHOULD-1 (ASKWITHDRAWN delta): every word is next.ts batchOutcome's, written once; a withdrawal gets its own line.
+      const out = batchOutcome(await post("/api/send", { refs: drafts.map(askRef) }));
+      setBatchResult(out.line);
+      if (out.reload) load();
     } finally {
       setSending(false);
     }
@@ -451,7 +448,7 @@ export function App() {
                 {view === "broadcasts" ? (
                   <BroadcastFeed list={broadcasts.list} error={broadcasts.error} current={bcast} />
                 ) : askMissing ? (
-                  <p className="chip warn notice" role="status">No ask “{named}” here. It may have been moved or deleted; pick one from the list.</p>
+                  <p className="chip warn notice" role="status">No ask “{named}” here. It may have gone to another seat or been deleted; pick one from the list.</p>
                 ) : current ? (
                   <AskDetail
                     key={askRef(current) + current.header.revision}
@@ -836,12 +833,13 @@ export function AskDetail({
   const [result, setResult] = useState(() => followupResultFor(ref, revision) ?? "");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
-  const [moved, setMoved] = useState(start.notice);
+  const [changedUnder, setChangedUnder] = useState(start.notice);
   const [confirmSend, setConfirmSend] = useState<{ msg: string; kind: SendKind; next?: boolean } | undefined>();
   // MF-1: the request typed in "Need something first" is kept with the picks, and comes back on a remount.
   const [keptNeed] = useState(() => (open && !changing ? loadUnsent(ref)?.need ?? "" : ""));
   const [needOpen, setNeedOpen] = useState(!!keptNeed);
-  const [needKind, setNeedKind] = useState("proof:best");
+  // NIT-A: the request's kind comes back with its text.
+  const [needKind, setNeedKind] = useState(() => (open && !changing ? loadUnsent(ref)?.needKind : undefined) ?? "proof:best");
   const [needText, setNeedText] = useState(keptNeed);
   // ASKFOLLOW: the follow-up's text is kept with the picks too, so a remount or a reload brings it back.
   const followable = mayFollowUp(ask);
@@ -852,22 +850,17 @@ export function AskDetail({
   const [followText, setFollowText] = useState(keptFollow);
   const [attachPicks, setAttachPicks] = useState(false);
   /** The one copy every save writes: picks, notes, the request text and the follow-up text. */
-  const snap = () => cardUnsent(revision, { values, text, note, need: needText, followup: followText });
+  const snap = () => cardUnsent(revision, { values, text, note, need: needText, needKind, followup: followText });
   useEffect(() => {
     if (editable) saveUnsent(keyFor(changing), snap());
-  }, [editable, changing, ref, revision, values, text, note, needText, followText]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editable, changing, ref, revision, values, text, note, needText, needKind, followText]); // eslint-disable-line react-hooks/exhaustive-deps
   /**
    * S-1: a 409, as supersede.ts conflictStep words it. App adds nothing: it keeps where the step says
    * (a withdrawal under the open form's key, which WithdrawnBar reads, NIT-2), names a replacement,
    * reloads so a withdrawn card redraws with the kept copy in sight, and shows the step's text.
    */
-  const onConflict = (json: Parameters<typeof conflictStep>[0], here: string) => applyStep(conflictStep(json, here, unsentKey(ref, false)));
-  const applyStep = (s: ReturnType<typeof conflictStep>) => {
-    if (s.keepUnder) saveUnsent(s.keepUnder, snap());
-    if (s.replacedBy !== undefined) setReplacedBy(s.replacedBy);
-    if (s.reload) onChanged();
-    return setResult(s.text);
-  };
+  const conflictDeps = { save: (k: string) => saveUnsent(k, snap()), setReplacedBy, reload: onChanged, setResult };
+  const onConflict = (json: Parameters<typeof conflictStep>[0], here: string) => applyConflict(conflictStep(json, here, unsentKey(ref, false)), conflictDeps);
 
   // Only questions visible under the answers so far are sent, repeated until stable, so a hidden
   // dependent's stale pick is dropped. A suggestion is never an answer, so it never unhides one.
@@ -931,7 +924,7 @@ export function AskDetail({
       const r = await post("/api/followup", followupBody(ask, { kind: followKind, fork: followFork, text: followText, attachPicks }, answers), keep);
       if (r.restarted) return setResult(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
       if (r.status === 409) {
-        return applyStep(followupConflict(r.json, keyFor(false), unsentKey(ref, false)));
+        return applyConflict(followupConflict(r.json, keyFor(false), unsentKey(ref, false)), conflictDeps);
       }
       const out = followupOutcome(ask, r.status, r.json);
       if (!out.sent) return setResult(out.text);
@@ -1159,9 +1152,9 @@ export function AskDetail({
           </div>
         )}
         {notice && <p className="chip warn notice" role="status">{notice}</p>}
-        {moved && editable && (
+        {changedUnder && editable && (
           <p className="chip warn notice" role="status">
-            {moved} <button className="linkish" onClick={() => setMoved("")}>Dismiss</button>
+            {changedUnder} <button className="linkish" onClick={() => setChangedUnder("")}>Dismiss</button>
           </p>
         )}
         {visibleSuggestions.length > 0 && (
@@ -1969,12 +1962,21 @@ export function WithdrawnBar({ ask, w, seed }: { ask: StoredAsk; w: Withdrawn; s
   const ref = askRef(ask);
   const [kept, setKept] = useState(() => loadUnsent(unsentKey(ref, false)));
   // S-2: "Copied." only once the clipboard took the text; otherwise say so and show it to select by hand.
-  const [copy, setCopy] = useState<"ok" | "failed" | undefined>(seed?.copy);
-  const [confirming, setConfirming] = useState(!!seed?.confirming);
+  // P13: every step is unsent.ts barStep's; only "yes" clears the kept copy.
+  const [bar, setBar] = useState<BarState>({ ...(seed?.copy ? { copy: seed.copy } : {}), confirming: !!seed?.confirming });
+  const { copy, confirming } = bar;
+  const dispatch = (ev: BarEvent) => {
+    const r = barStep(bar, ev);
+    if (r.clear) {
+      clearUnsent(unsentKey(ref, false));
+      setKept(undefined);
+    }
+    setBar(r.state);
+  };
   const lines = kept ? keptDraftLines(ask, kept) : [];
   const all = lines.join("\n");
   const ownDraft = !!w.draftOf && isOperatorName(w.draftOf);
-  const doCopy = () => void copyText(all).then((ok) => setCopy(ok ? "ok" : "failed"));
+  const doCopy = () => void copyText(all).then((ok) => dispatch({ copied: ok }));
   return (
     <>
       <h3>Withdrawn · revision {ask.header.revision}</h3>
@@ -1982,20 +1984,20 @@ export function WithdrawnBar({ ask, w, seed }: { ask: StoredAsk; w: Withdrawn; s
       {lines.length > 0 ? (
         <div className="chip warn notice kept-draft" role="status">
           <p>
-            You were answering this ask when it was withdrawn. Nothing was sent.{ownDraft ? " The draft saved in the file was discarded;" : ""} Your picks and notes are kept in this browser:
+            You were answering this ask when it was withdrawn. Nothing was sent.{ownDraft ? " The draft saved in the file was discarded;" : ""} {kept ? keptSentence(kept) : ""}
           </p>
           <ul>{lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
           {copy === "failed" && <pre className="kept-copy" tabIndex={0}>{all}</pre>}
           {confirming ? (
             <p className="actions">
               <span>{forgetWords(copy === "ok")}</span>{" "}
-              <button className="btn quiet" onClick={() => { clearUnsent(unsentKey(ref, false)); setKept(undefined); setConfirming(false); }}>Yes, forget them</button>
-              <button className="btn quiet" onClick={() => setConfirming(false)}>Keep them</button>
+              <button className="btn quiet" onClick={() => dispatch("yes")}>Yes, forget them</button>
+              <button className="btn quiet" onClick={() => dispatch("keep")}>Keep them</button>
             </p>
           ) : (
             <p className="actions">
               <button className="btn quiet" onClick={doCopy}>Copy</button>
-              <button className="btn quiet" onClick={() => setConfirming(true)}>Forget them…</button>
+              <button className="btn quiet" onClick={() => dispatch("forget")}>Forget them…</button>
               {copy && <span className="muted"> {copy === "ok" ? "Copied." : "Copy failed; select the lines below by hand."}</span>}
             </p>
           )}

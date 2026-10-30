@@ -5,6 +5,7 @@
  */
 
 import { refusalWords, withdrawnRefusal, withdrawnWords } from "./supersede.ts";
+import { RELOAD_RESTARTED, RELOAD_UPDATED } from "./token.ts";
 
 export type NextRow = { ref: string; waitingOnYou: boolean };
 
@@ -89,4 +90,14 @@ export function batchResultLine(json: { settled?: unknown[]; pushes?: BatchPush[
   }
   const first = `Sent ${json.settled?.length ?? 0}. ${pushes}${refused.length ? ` · Refused: ${refused.join(" · ")}` : ""}`;
   return [first, ...withdrawn].join("\n");
+}
+
+/**
+ * SHOULD-1 (ASKWITHDRAWN delta): what Send batch shows, from what /api/send said: a restart's notice,
+ * the server's error, or batchResultLine's words; `reload` only after a 200. App writes the line once.
+ */
+export function batchOutcome(r: { status: number; json: Parameters<typeof batchResultLine>[0] & { error?: string }; restarted?: "updated" | "restarted" | string }): { line: string; reload: boolean } {
+  if (r.restarted) return { line: r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED, reload: false };
+  if (r.status !== 200) return { line: `Error: ${r.json?.error}`, reload: false };
+  return { line: batchResultLine(r.json), reload: true };
 }
