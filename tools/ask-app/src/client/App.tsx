@@ -842,6 +842,7 @@ export function AskDetail({
   const readFollowResult = () => followupResultFor(ref, revision);
   const followResult = useSyncExternalStore(subscribeFollowupResults, readFollowResult, readFollowResult);
   const [busy, setBusy] = useState(false);
+  const [sendingFollowup, setSendingFollowup] = useState(false);
   const [notice, setNotice] = useState("");
   const [changedUnder, setChangedUnder] = useState(start.notice);
   const [confirmSend, setConfirmSend] = useState<{ msg: string; kind: SendKind; next?: boolean } | undefined>();
@@ -934,10 +935,13 @@ export function AskDetail({
    */
   async function sendFollowup() {
     setBusy(true);
+    // NIT-A (delta 2): the answer inputs wait too, so `keep`'s click-time snapshot cannot undo later edits.
+    setSendingFollowup(true);
     const next = Number(revision) + 1;
-    const say = (t: string) => {
+    // NIT-C (delta 2): a line is left for N+1 only where a write may have happened.
+    const say = (t: string, mayHaveWritten = true) => {
       setResult(t);
-      rememberFollowupResult(ref, [revision, next], t);
+      rememberFollowupResult(ref, mayHaveWritten ? [revision, next] : [revision], t);
     };
     const keep = () => {
       if (keepsOver(loadUnsent(keyFor(false)), revision)) saveUnsent(keyFor(false), snap());
@@ -958,7 +962,7 @@ export function AskDetail({
       const out = followupOutcome(ask, r.status, r.json);
       if (!out.sent) {
         keep();
-        return say(out.text);
+        return say(out.text, r.status >= 500);
       }
       say(out.text);
       onChanged();
@@ -967,6 +971,7 @@ export function AskDetail({
       say(`Error: ${(e as Error).message}. Reload to see whether the follow-up was sent.`);
     } finally {
       setBusy(false);
+      setSendingFollowup(false);
     }
   }
 
@@ -1222,7 +1227,7 @@ export function AskDetail({
               }}
               note={text[k] ?? ""}
               onNote={(t) => setText({ ...text, [k]: t })}
-              readOnly={!editable}
+              readOnly={!editable || sendingFollowup}
             />
             {/* Prose written after a fork's options, before the next heading, sits between the cards. */}
             <ForkProse text={q.proseAfter} between />
@@ -1278,7 +1283,7 @@ export function AskDetail({
                 : `Sending settles this ask: the asker gets ${picked} of ${visible.length} fork${visible.length === 1 ? "" : "s"} answered${Object.keys(answers).length > picked ? " and your notes" : ""}${unanswered.length ? `, and ${unanswered.join(", ")} reach${unanswered.length === 1 ? "es" : ""} the asker unanswered. The ask closes; nothing here is left open` : ""}.${overrule ? " Save draft keeps it in the file and sends nothing; sending that draft overrules." : " Save draft keeps it in the file and sends nothing."}`}
             </p>
             <label className="field-label" htmlFor={`${changing ? "change-note" : "note"}-${ask.header.id}`}>Note to the asker</label>
-            <textarea id={`${changing ? "change-note" : "note"}-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
+            <textarea id={`${changing ? "change-note" : "note"}-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} disabled={sendingFollowup} onChange={(e) => setNote(e.target.value)} />
             <p className="actions">
               <button className="btn primary" disabled={busy || nothing} onClick={askSend}>{nothing ? "Send answers" : picked ? `Send ${picked} answer${picked === 1 ? "" : "s"}` : "Send your notes"}</button>
               {onSent && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("send", true)} title="Sends exactly as Send does, then opens the next ask in the list that is waiting on you">Send &amp; next</button>}
@@ -1310,7 +1315,7 @@ export function AskDetail({
             {needOpen && (
               <div className="need" id={`need-${ask.header.id}`}>
                 <label className="field-label" htmlFor={`need-kind-${ask.header.id}`}>What do you need before you answer?</label>
-                <select id={`need-kind-${ask.header.id}`} value={needKind} onChange={(e) => setNeedKind(e.target.value)}>
+                <select id={`need-kind-${ask.header.id}`} value={needKind} disabled={sendingFollowup} onChange={(e) => setNeedKind(e.target.value)}>
                   {[...new Set(REQUEST_KINDS.map((k) => k.group))].map((g) => (
                     <optgroup key={g} label={g}>
                       {REQUEST_KINDS.filter((k) => k.group === g).map((k) => <option key={k.kind} value={k.kind}>{k.label}</option>)}
@@ -1318,7 +1323,7 @@ export function AskDetail({
                   ))}
                 </select>
                 <label className="field-label" htmlFor={`need-text-${ask.header.id}`}>In your words</label>
-                <textarea id={`need-text-${ask.header.id}`} rows={2} placeholder="For example: is BIND worth the migration?" value={needText} onChange={(e) => setNeedText(e.target.value)} />
+                <textarea id={`need-text-${ask.header.id}`} rows={2} placeholder="For example: is BIND worth the migration?" value={needText} disabled={sendingFollowup} onChange={(e) => setNeedText(e.target.value)} />
                 <p className="muted need-preview">
                   Sends <code>{needText.trim() ? requestLine(needKind, needText) : `request: ${needKind} — …`}</code> as the first line of the note
                   {picked ? `, with your ${picked} pick${picked === 1 ? "" : "s"}${Object.keys(answers).length > picked ? " and your fork notes" : ""} as a draft answer.` : `. With no picks it also goes in as ${forkLabel(ask.questions[0] ?? {}, 0)}'s answer text, since an empty answer is refused.`}

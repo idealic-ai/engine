@@ -4,7 +4,7 @@
  * (POST /api/followup, ASKFOLLOWUP) writes a `## Follow-up <n>` entry, bumps the revision and pushes
  * `[ask-followup]` to the asker; the ask stays open. What each handler decides lives here, pure.
  */
-import { questionKey, type AnswerMap, type AskFollowup, type FollowupKind, type ParsedAsk } from "../lib/format.ts";
+import { currentRevision, isOperatorName, questionKey, type AnswerMap, type AskFollowup, type FollowupKind, type ParsedAsk } from "../lib/format.ts";
 import { forkLabel, type StoredAsk, type Unsent } from "./model.ts";
 import { conflictStep, type ConflictStep } from "./supersede.ts";
 
@@ -100,30 +100,44 @@ export function rebaseAfterFollowup(u: Unsent, revision: number): Unsent {
 export const FOLLOWUP_PENDING = "Sending the follow-up to the asker…";
 
 /**
- * Delta SHOULD-A/B, option (b): the follow-up that made the ask's CURRENT revision, read from the
- * `revisions:` tail writeFollowup writes (`<cur>@<at>:followup <k>`), with its text. Undefined when the
- * tail names another revision (forward and act bump without a `revisions:` entry) or another change.
+ * Delta SHOULD-A/B, option (b): the follow-ups that made the ask's CURRENT revision, read from the
+ * `revisions:` tail writeFollowup writes (`<rev>@<at>:followup <k>`). Delta 2: walked back over
+ * consecutive follow-up entries, so `from` is the revision before the first of them; `n` and `text`
+ * are the last one's. Undefined when the tail names another revision (forward and act bump without a
+ * `revisions:` entry) or another change. A missing `revision:` is 0, as the server reads it (NIT-B).
  */
 export function followupBumpOf(ask: ParsedAsk): { from: string; n: number; text?: string } | undefined {
-  const cur = String(ask.header.revision ?? "").trim();
-  const tail = (ask.header.revisions ?? "").split(";").map((s) => s.trim()).filter(Boolean).pop();
-  const m = tail?.match(/^(\d+)@.*:followup (\d+)$/);
-  if (!m || m[1] !== cur || !/^\d+$/.test(cur)) return undefined;
-  const n = Number(m[2]);
-  return { from: String(Number(cur) - 1), n, text: (ask.followups ?? []).find((f) => f.n === n)?.text };
+  const cur = currentRevision(ask);
+  const entries = (ask.header.revisions ?? "").split(";").map((s) => s.trim()).filter(Boolean);
+  let at = cur;
+  let last: number | undefined;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const m = entries[i].match(/^(\d+)@.*:followup (\d+)$/);
+    if (!m || Number(m[1]) !== at) break;
+    if (last === undefined) last = Number(m[2]);
+    at--;
+  }
+  if (last === undefined) return undefined;
+  const n = last;
+  return { from: String(at), n, text: (ask.followups ?? []).find((f) => f.n === n)?.text };
 }
 
 /**
- * MUST-FIX-1 and delta SHOULD-A/B: a copy saved one revision behind is still current when that one
- * revision was a follow-up (it changes neither the questions nor the body; writeFollowup re-bases the
- * operator's draft for the same reason). Its text is dropped when it is the follow-up that was sent. Any
- * other copy is returned as it is, for restoreUnsent to judge.
+ * MUST-FIX-1 and delta SHOULD-A/B: a copy saved before a run of follow-ups is still current (they change
+ * neither the questions nor the body; writeFollowup re-bases the operator's draft for the same reason).
+ * Delta 2 SHOULD-A: a kept text equal to ANY operator follow-up already on the ask was sent, whatever
+ * the revision, so it is dropped with its settings; adoption only decides whether the picks stand.
  */
 export function adoptAfterFollowup(kept: Unsent | undefined, ask: ParsedAsk): Unsent | undefined {
+  if (!kept) return kept;
+  const t = kept.followup?.trim();
+  const sent = !!t && (ask.followups ?? []).some((f) => isOperatorName(f.by) && f.text?.trim() === t);
   const b = followupBumpOf(ask);
-  if (!kept || !b || kept.revision !== b.from) return kept;
-  const sent = b.text !== undefined && kept.followup?.trim() === b.text.trim();
-  return sent ? rebaseAfterFollowup(kept, Number(ask.header.revision)) : { ...kept, revision: String(ask.header.revision) };
+  const k = Number(kept.revision || "0");
+  const adopt = !!b && k >= Number(b.from) && k < currentRevision(ask);
+  if (!sent && !adopt) return kept;
+  const base = sent ? rebaseAfterFollowup(kept, k) : kept;
+  return adopt ? { ...base, revision: String(currentRevision(ask)) } : { ...base, revision: kept.revision };
 }
 
 /** Delta SHOULD-A: a card writes its copy only when no newer card has saved one since. */

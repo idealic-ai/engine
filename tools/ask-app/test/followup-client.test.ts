@@ -14,7 +14,9 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import fs from "node:fs";
 import path from "node:path";
-import { parseAskFile } from "../src/lib/format.ts";
+import { parseAskFile, writeFollowup } from "../src/lib/format.ts";
+import { followupAsk, newAsk, reviseAsk } from "../src/lib/store.ts";
+import os from "node:os";
 import { cardUnsent, forgetMemory, keptDraftLines, loadUnsent, saveUnsent } from "../src/client/unsent.ts";
 import {
   FOLLOWUP_KIND_OPTIONS,
@@ -302,12 +304,13 @@ describe("MUST-FIX-1 by adoption (delta SHOULD-A/B): the card at N+1 adopts the 
     const fn = app.slice(app.indexOf("async function sendFollowup("), app.indexOf("async function sendFollowup(") + 2600);
     expect(app).toContain("async function sendFollowup(");
     expect(app).not.toContain("rebaseAfterFollowup(");
-    expect(fn).toContain("const say = (t: string) => {\n      setResult(t);\n      rememberFollowupResult(ref, [revision, next], t);\n    };");
+    expect(fn).toContain("const say = (t: string, mayHaveWritten = true) => {\n      setResult(t);\n      rememberFollowupResult(ref, mayHaveWritten ? [revision, next] : [revision], t);\n    };");
     expect(fn).toContain("const keep = () => {\n      if (keepsOver(loadUnsent(keyFor(false)), revision)) saveUnsent(keyFor(false), snap());\n    };");
     expect(fn.indexOf("say(FOLLOWUP_PENDING);")).toBeLessThan(fn.indexOf('post("/api/followup"'));
     expect(fn).toMatch(/if \(r\.restarted\) \{\s*keep\(\);\s*return say\(/);
     expect(fn).toMatch(/if \(r\.status === 409\) \{\s*keep\(\);\s*const step = followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\);\s*rememberFollowupResult\(ref, \[revision, next\], step\.text\);\s*return applyConflict\(step, conflictDeps\);/);
-    expect(fn).toMatch(/if \(!out\.sent\) \{\s*keep\(\);\s*return say\(out\.text\);/);
+    // NIT-C (delta 2): a 4xx wrote nothing, so its line is not left for N+1; a 5xx may have written.
+    expect(fn).toMatch(/if \(!out\.sent\) \{\s*keep\(\);\s*return say\(out\.text, r\.status >= 500\);/);
     expect(fn).toMatch(/catch \(e\) \{\s*keep\(\);\s*say\(/);
     expect(app).toContain("const [openKept] = useState(() => (open ? adoptAfterFollowup(loadUnsent(ref), ask) : undefined));");
     expect(app).toContain("restoreUnsent(init, openKept, revision, keys)");
@@ -361,5 +364,98 @@ describe("SHOULD-2: the follow-up starts from the question you are on, with your
     const h = renderToStaticMarkup(createElement(AskDetail, { ask: open, all: [open], onChanged: () => {}, onSent: () => {}, focusFork: "q2" }));
     expect(h).toContain('<option value="WHEN" selected="">WHEN: When?</option>');
     expect(h).toMatch(/<input type="checkbox"(?=[^>]*checked="")(?![^>]*disabled="")[^>]*>/);
+  });
+});
+
+describe("delta 2: the sent text never comes back, whoever mounts when (SHOULD-A, NIT-B, NIT-D)", () => {
+  const FLOOR = "## ¶ASK_GO: Choose one: Ship it?\nContext: c\n- [ ] [YES] Yes, ship\n  Picks YES.\n- [ ] [NO] No, hold\n  Picks NO.\n\n## ¶ASK_WHEN: Choose one: When?\nContext: c\n- [ ] [NOW] Now\n  Picks NOW.\n- [ ] [LATER] Later\n  Picks LATER.\n";
+  const quiet = async () => ({ status: "delivered" as const });
+  const real = () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "askfollow-d2-"));
+    newAsk(root, { from: "idealic:kernel", to: "operator", id: "f1" }, FLOOR);
+    const read = () => ({ ...parseAskFile(fs.readFileSync(path.join(root, "idealic:kernel", "f1.md"), "utf8")), seat: "idealic:kernel", file: "/x.md", mtimeMs: 0 });
+    return { root, read };
+  };
+  const copyAt = (rev: string, followup?: string) => cardUnsent(rev, { values: { GO: ["NO"] }, text: {}, note: "", need: "", ...(followup ? { followup, followKind: "first", followFork: "GO", followAttach: true } : {}) });
+
+  it("probe P2: sent at 1, the asker revises before any card mounts at 2; the card at 3 does not bring the sent text back", async () => {
+    const { root, read } = real();
+    saveUnsent(REF, copyAt("1", "why NO?"));
+    await followupAsk(root, "idealic:kernel", "f1", { by: "operator", via: "browser", kind: "first", text: "why NO?" }, { expectedRevision: 1, push: quiet });
+    await reviseAsk(root, "idealic:kernel", "f1", { why: "answered your follow-up" }, undefined, { by: "idealic:kernel", push: quiet, answersFollowup: [1] });
+    const at3 = read();
+    expect(at3.header.revision).toBe("3");
+    const h = await render(at3);
+    expect(h).not.toContain("why NO?</textarea>");
+    expect(h).toMatch(/aria-controls="followup-f1"/);
+    expect(h).not.toMatch(/<div class="need followup"/);
+    // The picks were made against revision 1 and a revise came since: those are judged as before.
+    expect(h).toContain("The ask changed under you");
+  });
+
+  it("a kept text equal to any operator follow-up on the ask is dropped, with its settings, whatever the revision", async () => {
+    const { root, read } = real();
+    await followupAsk(root, "idealic:kernel", "f1", { by: "operator", kind: "first", text: "why NO?" }, { expectedRevision: 1, push: quiet });
+    await reviseAsk(root, "idealic:kernel", "f1", { why: "x" }, undefined, { by: "idealic:kernel", push: quiet });
+    const a = read();
+    expect(adoptAfterFollowup(copyAt("1", "why NO?  "), a)).toEqual({ revision: "1", values: { GO: ["NO"] }, text: {}, note: "" });
+    // Another text is yours, still unsent: kept.
+    expect(adoptAfterFollowup(copyAt("1", "something else"), a)?.followup).toBe("something else");
+    // A seat's follow-up text is not the operator's: kept.
+    const { root: r2, read: read2 } = real();
+    await followupAsk(r2, "idealic:kernel", "f1", { by: "manager:idealic", kind: "question", text: "why NO?" }, { expectedRevision: 1, push: quiet });
+    expect(adoptAfterFollowup(copyAt("1", "why NO?"), read2())?.followup).toBe("why NO?");
+  });
+
+  it("two follow-ups in a row (from the CLI while the card was away) are walked back: the copy two behind is adopted", async () => {
+    const { root, read } = real();
+    saveUnsent(REF, copyAt("1"));
+    await followupAsk(root, "idealic:kernel", "f1", { by: "manager:idealic", kind: "question", text: "one" }, { expectedRevision: 1, push: quiet });
+    await followupAsk(root, "idealic:kernel", "f1", { by: "manager:idealic", kind: "question", text: "two" }, { expectedRevision: 2, push: quiet });
+    const a = read();
+    expect(followupBumpOf(a)).toMatchObject({ from: "1", n: 2, text: "two" });
+    expect(adoptAfterFollowup(copyAt("1"), a)?.revision).toBe("3");
+    const h = await render(a);
+    expect(h).not.toContain("The ask changed under you");
+    expect(h.match(/class="optwrap on/g)).toHaveLength(1);
+  });
+
+  it("the walk stops at the first entry that is not a follow-up", async () => {
+    const { root, read } = real();
+    await followupAsk(root, "idealic:kernel", "f1", { by: "operator", kind: "question", text: "one" }, { expectedRevision: 1, push: quiet });
+    await reviseAsk(root, "idealic:kernel", "f1", { why: "x" }, undefined, { by: "idealic:kernel", push: quiet });
+    await followupAsk(root, "idealic:kernel", "f1", { by: "operator", kind: "question", text: "two" }, { expectedRevision: 3, push: quiet });
+    const a = read();
+    expect(followupBumpOf(a)).toMatchObject({ from: "3", n: 2 });
+    expect(adoptAfterFollowup(copyAt("1"), a)?.revision).toBe("1");
+    expect(adoptAfterFollowup(copyAt("2"), a)?.revision).toBe("2");
+    expect(adoptAfterFollowup(copyAt("3"), a)?.revision).toBe("4");
+  });
+
+  it("NIT-B: an ask with no revision line is revision 0; its first follow-up adopts the copy kept at ''", () => {
+    const noRev = `---\nid: f1\nto: operator\nfrom: idealic:kernel\nstatus: open\ncreated: 2026-10-30T10:00:00.000Z\n---\n\n${BODY}`;
+    const out = writeFollowup(noRev, { by: "operator", kind: "question", text: "why?" }, 0).text;
+    const a = stored(out);
+    expect(a.header.revision).toBe("1");
+    expect(followupBumpOf(a)).toMatchObject({ from: "0", n: 1 });
+    expect(adoptAfterFollowup(cardUnsent("", { values: { GO: ["NO"] }, text: {}, note: "", need: "", followup: "why?" }), a)).toEqual({ revision: "1", values: { GO: ["NO"] }, text: {}, note: "" });
+  });
+
+  it("NIT-D: writeFollowup's real stamp is what followupBumpOf reads", () => {
+    const out = writeFollowup(head("open", 3) + BODY, { by: "operator", kind: "first", fork: "WHEN", text: "  check the calendar  " }, 3).text;
+    const a = stored(out);
+    expect(a.header.revisions).toMatch(/^4@\d{4}-\d\d-\d\dT[\d:.]+Z:followup 1$/);
+    expect(followupBumpOf(a)).toEqual({ from: "3", n: 1, text: "check the calendar" });
+  });
+
+  it("NIT-A: the answer inputs are read-only while a follow-up post is in flight", () => {
+    const app = src("App.tsx");
+    expect(app).toContain("readOnly={!editable || sendingFollowup}");
+    expect(app).toContain('placeholder="Optional. To decline, write the reason here." value={note} disabled={sendingFollowup} onChange');
+    expect(app).toContain("value={needText} disabled={sendingFollowup} onChange");
+    expect(app).toContain("value={needKind} disabled={sendingFollowup} onChange");
+    const fn = app.slice(app.indexOf("async function sendFollowup("), app.indexOf("async function sendFollowup(") + 2600);
+    expect(fn).toContain("setSendingFollowup(true);");
+    expect(fn).toMatch(/finally \{\s*setBusy\(false\);\s*setSendingFollowup\(false\);/);
   });
 });
