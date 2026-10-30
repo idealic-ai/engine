@@ -325,3 +325,26 @@ describe("a history the server could not read is said on the card (NIT-3)", () =
     expect(h).toContain("fix or remove it by hand");
   });
 });
+
+describe("SHOULD-1 (ASKFOLLOW critique): Send batch says which drafts overrule a seat", () => {
+  const draftOver = (a: object, status = "answered", id = "a1") =>
+    stored(head("draft: 2026-10-30T09:00:00.000Z\n", status, id) + BODY + block(MGR) + `\n\`\`\`json draft\n${JSON.stringify({ answeredBy: "operator", answeredVia: "browser", basedOn: 4, savedAt: "2026-10-30T09:00:00.000Z", ...a })}\n\`\`\`\n`);
+  const ref = (a: { header: { id?: string } }) => `${(a as { seat?: string }).seat}/${a.header.id}`;
+
+  it("a complete overrule draft still confirms, naming the ask and the seat it overrules", async () => {
+    const { batchConfirmation } = await import("../src/client/model.ts");
+    const d = draftOver({ answers: { GO: ["NO"] } });
+    expect(d.draft).toBeDefined();
+    expect(batchConfirmation([d], ref)).toBe("Sending overrules a seat's ruling: docs:handbook/a1 overrules manager:docs's ruling. The asker and the seat that ruled are told. Send anyway?");
+  });
+
+  it("beside unanswered forks, both are said; a draft on an open ask, or over your own answer, is no overrule", async () => {
+    const { batchConfirmation } = await import("../src/client/model.ts");
+    const over = draftOver({ answers: { GO: ["NO"] } }, "answered", "a2");
+    const openPartial = stored(`---\nid: o1\nto: operator\nfrom: docs:handbook\nstatus: open\nrevision: 1\ndraft: 2026-10-30T09:00:00.000Z\ncreated: 2026-10-29T10:00:00.000Z\n---\n\n## ¶ASK_A: Choose one: A?\n- [ ] [Y] y\n\n## ¶ASK_B: Choose one: B?\n- [ ] [Y] y\n` + `\n\`\`\`json draft\n${JSON.stringify({ answers: { A: ["Y"] }, answeredBy: "operator", basedOn: 1, savedAt: "2026-10-30T09:00:00.000Z" })}\n\`\`\`\n`);
+    expect(openPartial.draft).toBeDefined();
+    const msg = batchConfirmation([openPartial, over], ref);
+    expect(msg).toBe("1 question unanswered — send anyway? Each ask is settled when sent. docs:handbook/o1: B Sending overrules a seat's ruling: docs:handbook/a2 overrules manager:docs's ruling. The asker and the seat that ruled are told.");
+    expect(batchConfirmation([openPartial], ref)).not.toMatch(/overrule/);
+  });
+});

@@ -47,20 +47,24 @@ export function followupOutcome(ask: StoredAsk, status: number, json: FollowupJs
   const text =
     !d || d.status === "delivered"
       ? `Follow-up ${n} sent to ${seat}: delivered. The ask stays open; answer it as usual.`
-      : `Follow-up ${n} is in the file, but ${d.status} (${d.reason ?? ""}). The asker's /next picks it up from the file.`;
+      : `Follow-up ${n} is in the file, but ${d.status}${d.reason ? ` (${d.reason})` : ""}. The asker's /next picks it up from the file.`;
   return { sent: true, revision: Number(json?.revision), text };
 }
 
 /**
- * A 409 from /api/followup. Superseded, withdrawn and stale are conflictStep's (same payloads as
- * /api/answer); an ask settled since it was read is said as such, its text kept here, and reloaded.
+ * A 409 from /api/followup. Superseded and withdrawn are conflictStep's (same payloads as /api/answer);
+ * an ask settled since it was read is said as such, its text kept here, and reloaded. SHOULD-3: a stale
+ * revision is a follow-up NOT SENT (nothing was being saved, and nothing moved): re-read, then send again.
  */
 export function followupConflict(json: Parameters<typeof conflictStep>[0] & { error?: string }, here: string, openKey: string): ConflictStep {
   const s = json?.status;
   if (typeof s === "string" && s !== "superseded" && s !== "withdrawn" && s !== "open") {
     return { text: `Not sent: this ask is ${s} now, and a follow-up goes only to an open ask. Your text is kept here.`, keepUnder: here, reload: true };
   }
-  return conflictStep(json, here, openKey);
+  if (s === "superseded" || s === "withdrawn") return conflictStep(json, here, openKey);
+  const rev = json?.revision;
+  const now = rev !== undefined && rev !== null && String(rev) !== "" ? ` (now revision ${rev})` : "";
+  return { text: `Not sent: the ask changed${now}. Re-read it, then send again.`, reload: true };
 }
 
 /**
@@ -87,19 +91,36 @@ export function followupLine(a: ParsedAsk, f: AskFollowup): string {
 }
 
 /**
- * After a 200 the revision moved. The card's unsent copy saved at the revision the follow-up was sent
- * from moves to the new one (the server re-bases the operator's draft the same way); a copy already
- * stale stays stale. The sent text is dropped either way.
+ * MUST-FIX-1: the card's unsent copy, moved to the revision a follow-up makes (writeFollowup bumps it by
+ * exactly one, and changes neither the questions nor the body, so the picks still stand), without the
+ * follow-up itself. App saves it BEFORE it posts: the file change reaches the page (SSE, 100 ms) before a
+ * slow push lets the 200 come back, and the card remounts at the new revision reading this copy.
  */
-export function rebaseAfterFollowup(u: Unsent, sentFrom: string, revision: number): Unsent {
-  const { followup: _sent, ...rest } = u;
-  return rest.revision === sentFrom && Number.isFinite(revision) ? { ...rest, revision: String(revision) } : rest;
+export function rebaseAfterFollowup(u: Unsent, revision: number): Unsent {
+  const { followup: _t, followKind: _k, followFork: _f, followAttach: _a, ...rest } = u;
+  return { ...rest, revision: String(revision) };
 }
 
-/** The result line, kept for the card that remounts at the new revision (the card is keyed by it). */
+/** Shown on the card at the new revision while the push is still out. */
+export const FOLLOWUP_PENDING = "Follow-up written to the file; pushing it to the asker…";
+
+/**
+ * The result line, kept per ask for the card at the revision it names, and subscribable: a card that
+ * remounted before the 200 (MUST-FIX-1) still gets the line when it lands.
+ */
 const results = new Map<string, { revision: string; text: string }>();
+const listeners = new Set<() => void>();
+const changed = () => listeners.forEach((l) => l());
+export function subscribeFollowupResults(l: () => void): () => void {
+  listeners.add(l);
+  return () => void listeners.delete(l);
+}
 export function rememberFollowupResult(ref: string, revision: number | string, text: string) {
   results.set(ref, { revision: String(revision), text });
+  changed();
+}
+export function forgetFollowupResult(ref: string) {
+  if (results.delete(ref)) changed();
 }
 export function followupResultFor(ref: string, revision: string): string | undefined {
   const r = results.get(ref);

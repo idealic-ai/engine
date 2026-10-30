@@ -88,7 +88,7 @@ describe("MF-1: the request text is kept with the picks", () => {
     const viaSnap = app.match(/saveUnsent\([^()]*(?:\([^()]*\))?[^()]*, (?:snap\(\)|rebaseAfterFollowup\(snap\(\), [^()]*\))\)/g) ?? [];
     expect(calls.length).toBeGreaterThan(0);
     expect(viaSnap.length).toBe(calls.length);
-    expect(app).toMatch(/const snap = \(\) => cardUnsent\(revision, \{ values, text, note, need: needText(?:, needKind)?(?:, followup: followText)? \}\);/);
+    expect(app).toMatch(/const snap = \(\) => cardUnsent\(revision, \{ values, text, note, need: needText(?:, needKind)?(?:, followup: followText)?(?:, followKind, followFork, followAttach: attachPicks)? \}\);/);
   });
 });
 
@@ -143,7 +143,7 @@ describe("App says only what the helpers say", () => {
     const all = app.match(/status === 409/g) ?? [];
     const one = app.match(/if \(r\.status === 409\) return onConflict\(r\.json, keyFor\((?:true|changing)\)\);/g) ?? [];
     // ASKFOLLOW: the follow-up's 409 is conflictStep's too, through followupConflict and the same apply step.
-    const follow = app.match(/if \(r\.status === 409\) \{\s*return applyConflict\(followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\), conflictDeps\);\s*\}/g) ?? [];
+    const follow = app.match(/if \(r\.status === 409\) \{\s*undo\(\);\s*return applyConflict\(followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\), conflictDeps\);\s*\}/g) ?? [];
     expect(all.length).toBe(3);
     expect(one.length + follow.length).toBe(all.length);
     expect(follow.length).toBe(1);
@@ -154,7 +154,7 @@ describe("App says only what the helpers say", () => {
     expect(app).toMatch(/const onConflict = \(json: Parameters<typeof conflictStep>\[0\], here: string\) => applyConflict\(conflictStep\(json, here, unsentKey\(ref, false\)\), conflictDeps\);/);
   });
   it("the batch line is the helper's, unaltered", () => {
-    expect(app).toMatch(/setBatchResult\(out\.line\);/);
+    expect(app).toMatch(/setBatchResult\(line\);/);
     expect(app).not.toMatch(/batchResultLine\(/);
     expect(app).not.toMatch(/\.map\(refusedLine\)/);
   });

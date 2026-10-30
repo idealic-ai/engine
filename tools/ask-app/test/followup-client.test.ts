@@ -27,6 +27,9 @@ import {
   mayFollowUp,
   rebaseAfterFollowup,
   rememberFollowupResult,
+  forgetFollowupResult,
+  subscribeFollowupResults,
+  FOLLOWUP_PENDING,
 } from "../src/client/followup.ts";
 
 const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes, ship\n- [ ] [NO] No, hold\n\n## ¶ASK_WHEN: Choose one: When?\n- [ ] [NOW] Now\n- [ ] [LATER] Later\n";
@@ -84,6 +87,8 @@ describe("followupOutcome: the delivery result, said", () => {
     expect(followupOutcome(open, 200, { revision: 4, followup: { n: 2 }, delivery: { status: "undelivered", reason: "no live session named idealic:kernel" } }).text).toBe(
       "Follow-up 2 is in the file, but undelivered (no live session named idealic:kernel). The asker's /next picks it up from the file.",
     );
+    // NIT-1: no reason, no empty brackets.
+    expect(followupOutcome(open, 200, { revision: 4, followup: { n: 2 }, delivery: { status: "undelivered" } }).text).toBe("Follow-up 2 is in the file, but undelivered. The asker's /next picks it up from the file.");
     expect(followupOutcome(open, 200, { revision: 4, followup: { n: 2 }, delivery: { status: "partial", reason: "one of two" } }).text).toBe(
       "Follow-up 2 is in the file, but partial (one of two). The asker's /next picks it up from the file.",
     );
@@ -100,7 +105,18 @@ describe("followupConflict: a 409 through conflictStep", () => {
     const { conflictStep } = await import("../src/client/supersede.ts");
     expect(followupConflict(W, "here", "open")).toEqual(conflictStep(W, "here", "open"));
     expect(followupConflict({ status: "superseded", supersededBy: "a/b" }, "here", "open")).toEqual(conflictStep({ status: "superseded", supersededBy: "a/b" }, "here", "open"));
-    expect(followupConflict({ revision: 7 }, "here", "open")).toEqual(conflictStep({ revision: 7 }, "here", "open"));
+  });
+
+  it("SHOULD-3: a stale revision is the follow-up's own line: not sent, the ask changed, re-read it", () => {
+    expect(followupConflict({ revision: 7 }, "here", "open")).toEqual({ text: "Not sent: the ask changed (now revision 7). Re-read it, then send again.", reload: true });
+    expect(followupConflict({}, "here", "open").text).toBe("Not sent: the ask changed. Re-read it, then send again.");
+  });
+
+  it("SHOULD-3: no follow-up 409 line says moved", () => {
+    const W = { status: "withdrawn", withdrawnBy: "idealic:kernel", withdrawnReason: "moot" };
+    for (const j of [W, { status: "superseded", supersededBy: "a/b" }, { status: "superseded" }, { revision: 7 }, {}, { status: "answered" }, { status: "declined" }]) {
+      expect(followupConflict(j, "here", "open").text).not.toMatch(/moved/);
+    }
   });
 
   it("an ask closed since it was read (answered, declined) says so, keeps the text and reloads", () => {
@@ -201,38 +217,93 @@ describe("unsent follow-up text survives a remount (cardUnsent)", () => {
   });
 
   it("App's one snapshot holds the follow-up text", () => {
-    expect(src("App.tsx")).toMatch(/const snap = \(\) => cardUnsent\(revision, \{ values, text, note, need: needText, (?:needKind, )?followup: followText \}\);/);
+    expect(src("App.tsx")).toMatch(/const snap = \(\) => cardUnsent\(revision, \{ values, text, note, need: needText, (?:needKind, )?followup: followText(?:, followKind, followFork, followAttach: attachPicks)? \}\);/);
   });
 });
 
-describe("after a 200: the unsent copy is re-based, the result outlives the remount", () => {
-  it("a copy saved at the revision the follow-up was sent from moves to the new revision, without the sent text", () => {
-    const u = cardUnsent("3", { values: { GO: ["YES"] }, text: { GO: "half" }, note: "n", need: "", followup: "why?" });
-    expect(rebaseAfterFollowup(u, "3", 4)).toEqual({ revision: "4", values: { GO: ["YES"] }, text: { GO: "half" }, note: "n" });
+describe("re-base before the post (MUST-FIX-1): the unsent copy and the result outlive a remount", () => {
+  it("rebaseAfterFollowup moves the copy to the given revision and drops the sent follow-up, its kind, fork and attach box", () => {
+    const u = cardUnsent("3", { values: { GO: ["YES"] }, text: { GO: "half" }, note: "n", need: "", followup: "why?", followKind: "first", followFork: "GO", followAttach: false });
+    expect(rebaseAfterFollowup(u, 4)).toEqual({ revision: "4", values: { GO: ["YES"] }, text: { GO: "half" }, note: "n" });
   });
 
-  it("a copy already stale stays stale (as the server leaves a stale draft), still without the sent text", () => {
-    const u = cardUnsent("2", { values: { GO: ["YES"] }, text: {}, note: "", need: "", followup: "why?" });
-    expect(rebaseAfterFollowup(u, "3", 4)).toEqual({ revision: "2", values: { GO: ["YES"] }, text: {}, note: "" });
-  });
-
-  it("the remounted card (keyed by revision) reads the result it was left", () => {
+  it("the result store tells a card that mounted before the 200, and forgets on a failed send", () => {
+    const seen: number[] = [];
+    const off = subscribeFollowupResults(() => seen.push(1));
     rememberFollowupResult(REF, 4, "Follow-up 1 sent to idealic:kernel: delivered.");
     expect(followupResultFor(REF, "4")).toBe("Follow-up 1 sent to idealic:kernel: delivered.");
     expect(followupResultFor(REF, "5")).toBeUndefined();
+    forgetFollowupResult(REF);
+    expect(followupResultFor(REF, "4")).toBeUndefined();
+    expect(seen.length).toBe(2);
+    off();
+    rememberFollowupResult(REF, 4, "x");
+    expect(seen.length).toBe(2);
   });
 
-  it("App: a 200 saves the re-based copy, keeps the result for the remount, and re-reads", () => {
+  it("App: the re-based copy and a pending line are saved BEFORE the post; a non-200 restores the copy with the text", () => {
     const app = src("App.tsx");
-    const fn = app.slice(app.indexOf("async function sendFollowup("), app.indexOf("async function sendFollowup(") + 1800);
-    expect(fn).toContain('post("/api/followup", followupBody(ask, { kind: followKind, fork: followFork, text: followText, attachPicks }, answers), keep)');
-    expect(fn).toMatch(/if \(r\.status === 409\) \{[\s\S]*followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\)/);
-    expect(fn).toContain("saveUnsent(keyFor(false), rebaseAfterFollowup(snap(), revision, out.revision))");
-    expect(fn).toContain("rememberFollowupResult(ref, out.revision, out.text)");
-    expect(fn).toContain("onChanged()");
+    const fn = app.slice(app.indexOf("async function sendFollowup("), app.indexOf("async function sendFollowup(") + 2400);
+    const pre = fn.indexOf("saveUnsent(keyFor(false), rebaseAfterFollowup(snap(), next));");
+    const pending = fn.indexOf("rememberFollowupResult(ref, next, FOLLOWUP_PENDING);");
+    const postAt = fn.indexOf('post("/api/followup", followupBody(ask, { kind: followKind, fork: followFork, text: followText, attachPicks }, answers));');
+    expect(pre).toBeGreaterThan(-1);
+    expect(pending).toBeGreaterThan(-1);
+    expect(postAt).toBeGreaterThan(pre);
+    expect(postAt).toBeGreaterThan(pending);
+    expect(fn).toContain("const next = Number(revision) + 1;");
+    // Every way out but a 200 puts the copy back at this revision, with the text, and drops the pending line.
+    expect(fn).toMatch(/const undo = \(\) => \{\s*keep\(\);\s*forgetFollowupResult\(ref\);\s*\};/);
+    expect(fn).toMatch(/if \(r\.restarted\) \{\s*undo\(\);/);
+    expect(fn).toMatch(/if \(r\.status === 409\) \{\s*undo\(\);\s*return applyConflict\(followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\), conflictDeps\);/);
+    expect(fn).toMatch(/if \(!out\.sent\) \{\s*undo\(\);/);
+    expect(fn).toContain("rememberFollowupResult(ref, out.revision, out.text);");
+    expect(fn).toMatch(/catch \(e\) \{\s*undo\(\);/);
   });
 
-  it("App: the card starts with a result left for its revision", () => {
-    expect(src("App.tsx")).toContain('const [result, setResult] = useState(() => followupResultFor(ref, revision) ?? "");');
+  it("App: the card reads the result store by subscription, not once at mount", () => {
+    const app = src("App.tsx");
+    expect(app).toContain("const readFollowResult = () => followupResultFor(ref, revision);");
+    expect(app).toContain("const followResult = useSyncExternalStore(subscribeFollowupResults, readFollowResult, readFollowResult);");
+    expect(app).toContain('const [result, setResult] = useState("");');
+  });
+
+  it("the card remounted at N+1 before the 200 keeps the picks, shows no sent text, and shows the pending line", async () => {
+    // What sendFollowup leaves before it posts, at revision 3 → 4.
+    saveUnsent(REF, rebaseAfterFollowup(cardUnsent("3", { values: { GO: ["NO"] }, text: {}, note: "", need: "", followup: "why NO?" }), 4));
+    rememberFollowupResult(REF, 4, FOLLOWUP_PENDING);
+    const at4 = stored(head("open", 4) + BODY + fence({ ...F1, addressedIn: undefined, n: 1, delivery: "pending" }));
+    const h = await render(at4);
+    expect(h).not.toContain("The ask changed under you");
+    // The pick at revision 3 is still picked at 4 (an option input carries no value; its wrapper says "on").
+    expect(h.match(/class="optwrap on/g)).toHaveLength(1);
+    expect(h).toMatch(/class="optwrap on[^"]*"><label(?:(?!optwrap)[\s\S])*No, hold/);
+    expect(h).not.toContain("why NO?</textarea>");
+    expect(h).toContain(FOLLOWUP_PENDING);
+  });
+});
+
+describe("SHOULD-2: the follow-up starts from the question you are on, with your picks, and keeps its settings", () => {
+  it("cardUnsent keeps kind, fork and the attach box beside the text, and none of them without it", () => {
+    expect(cardUnsent("3", { values: {}, text: {}, note: "", need: "", followup: "why?", followKind: "first", followFork: "WHEN", followAttach: false })).toEqual({
+      revision: "3", values: {}, text: {}, note: "", followup: "why?", followKind: "first", followFork: "WHEN", followAttach: false,
+    });
+    expect(cardUnsent("3", { values: {}, text: {}, note: "", need: "", followup: " ", followKind: "first", followFork: "WHEN", followAttach: false })).toEqual({ revision: "3", values: {}, text: {}, note: "" });
+  });
+
+  it("a remount brings back Do this first, the fork and an unticked attach box", async () => {
+    saveUnsent(REF, cardUnsent("3", { values: { GO: ["YES"] }, text: {}, note: "", need: "", followup: "check the bill", followKind: "first", followFork: "WHEN", followAttach: false }));
+    const h = await render(open);
+    expect(h).toMatch(/<input type="radio"(?=[^>]*value="first")(?=[^>]*checked="")[^>]*>/);
+    expect(h).toContain('<option value="WHEN" selected="">WHEN: When?</option>');
+    expect(h).toMatch(/<input type="checkbox"(?![^>]*checked="")[^>]*>/);
+  });
+
+  it("with no kept copy, the fork is the focused one and the picks are attached by default", async () => {
+    saveUnsent(REF, cardUnsent("3", { values: { GO: ["YES"] }, text: {}, note: "", need: "", followup: "x" }));
+    const { AskDetail } = await import("../src/client/App.tsx");
+    const h = renderToStaticMarkup(createElement(AskDetail, { ask: open, all: [open], onChanged: () => {}, onSent: () => {}, focusFork: "q2" }));
+    expect(h).toContain('<option value="WHEN" selected="">WHEN: When?</option>');
+    expect(h).toMatch(/<input type="checkbox"(?=[^>]*checked="")(?![^>]*disabled="")[^>]*>/);
   });
 });

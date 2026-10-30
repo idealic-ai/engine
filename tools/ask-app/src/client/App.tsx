@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type Ref } from "react";
 import {
   answeredByText,
   cardFor,
@@ -75,7 +75,7 @@ import { applyConflict, conflictStep, hopWords, pathOf, supersededInfo, supersed
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay } from "./search.ts";
-import { FOLLOWUP_KIND_OPTIONS, followupBody, followupConflict, followupLine, followupOutcome, followupResultFor, followupsOf, isAddressed, mayFollowUp, rebaseAfterFollowup, rememberFollowupResult } from "./followup.ts";
+import { FOLLOWUP_KIND_OPTIONS, FOLLOWUP_PENDING, followupBody, followupConflict, followupLine, followupOutcome, followupResultFor, followupsOf, forgetFollowupResult, isAddressed, mayFollowUp, rebaseAfterFollowup, rememberFollowupResult, subscribeFollowupResults } from "./followup.ts";
 import { CHANGE_WORDING, OVERRULE_WORDING, cancelDiscards, changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, overruleOutcome, planClick, requestSend, sendRoute, staleChangeKeys, unsentKey, withoutGrant, type CardAction } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
@@ -318,13 +318,18 @@ export function App() {
   async function sendBatch() {
     setBatchConfirm(undefined);
     setSending(true);
+    // SHOULD-1 (ASKWITHDRAWN delta): every word is next.ts batchOutcome's, written once; a withdrawal gets its
+    // own line. NIT-5 (ASKFOLLOW critique): the old line is hidden while sending, and a throw replaces it.
+    let line = "";
     try {
-      // SHOULD-1 (ASKWITHDRAWN delta): every word is next.ts batchOutcome's, written once; a withdrawal gets its own line.
       const out = batchOutcome(await post("/api/send", { refs: drafts.map(askRef) }));
-      setBatchResult(out.line);
+      line = out.line;
       if (out.reload) load();
+    } catch (e) {
+      line = `Error: ${(e as Error).message}`;
     } finally {
       setSending(false);
+      setBatchResult(line);
     }
   }
 
@@ -371,7 +376,7 @@ export function App() {
           </div>
         )}
         {appNotice && <p className="tray-result" role="alert">{appNotice} <button className="linkish" onClick={() => location.reload()}>Reload</button></p>}
-        {batchResult && <p className="tray-result" role="status">{batchResult}</p>}
+        {batchResult && !sending && <p className="tray-result" role="status">{batchResult}</p>}
         <div className="desk" ref={desk} style={{ gridTemplateColumns: `${sideW}px 8px minmax(0, 1fr)` }}>
           <nav className={`side${slim ? " slim" : ""}`} {...{ [SCROLL_ROOT]: "" }} id="asklist" aria-label={view === "asks" ? "Asks" : view === "proofs" ? "Proof pages" : "Broadcasts"}>
             {view === "proofs" && (
@@ -448,7 +453,7 @@ export function App() {
                 {view === "broadcasts" ? (
                   <BroadcastFeed list={broadcasts.list} error={broadcasts.error} current={bcast} />
                 ) : askMissing ? (
-                  <p className="chip warn notice" role="status">No ask “{named}” here. It may have gone to another seat or been deleted; pick one from the list.</p>
+                  <p className="chip warn notice" role="status">No ask “{named}” here. It may have been moved to another seat, renamed or deleted; pick one from the list.</p>
                 ) : current ? (
                   <AskDetail
                     key={askRef(current) + current.header.revision}
@@ -829,8 +834,11 @@ export function AskDetail({
   const [values, setValues] = useState<Values>(start.values);
   const [text, setText] = useState<Record<string, string>>(start.text);
   const [note, setNote] = useState(start.note);
-  // ASKFOLLOW: a follow-up's 200 bumps the revision and so remounts this card; its result is kept for the new one.
-  const [result, setResult] = useState(() => followupResultFor(ref, revision) ?? "");
+  const [result, setResult] = useState("");
+  // ASKFOLLOW MUST-FIX-1: a follow-up remounts this card at the next revision, often before its 200;
+  // the line it leaves for that revision is read by subscription, so it shows whenever it lands.
+  const readFollowResult = () => followupResultFor(ref, revision);
+  const followResult = useSyncExternalStore(subscribeFollowupResults, readFollowResult, readFollowResult);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [changedUnder, setChangedUnder] = useState(start.notice);
@@ -843,17 +851,21 @@ export function AskDetail({
   const [needText, setNeedText] = useState(keptNeed);
   // ASKFOLLOW: the follow-up's text is kept with the picks too, so a remount or a reload brings it back.
   const followable = mayFollowUp(ask);
-  const [keptFollow] = useState(() => (followable ? loadUnsent(ref)?.followup ?? "" : ""));
+  // SHOULD-2: its kind, fork and attach box come back with it; else the fork is the one in focus, and
+  // the picks go along, so the asker knows what you are talking about.
+  const [keptCopy] = useState(() => (followable ? loadUnsent(ref) : undefined));
+  const keptFollow = keptCopy?.followup ?? "";
+  const focused = focusFork === undefined ? undefined : resolveFork(ask, focusFork);
   const [followOpen, setFollowOpen] = useState(!!keptFollow);
-  const [followKind, setFollowKind] = useState<FollowupKind>("question");
-  const [followFork, setFollowFork] = useState("");
+  const [followKind, setFollowKind] = useState<FollowupKind>(keptCopy?.followKind === "first" ? "first" : "question");
+  const [followFork, setFollowFork] = useState(keptCopy?.followFork !== undefined && (keptCopy.followFork === "" || keys.includes(keptCopy.followFork)) ? keptCopy.followFork : focused !== undefined ? keys[focused] : "");
   const [followText, setFollowText] = useState(keptFollow);
-  const [attachPicks, setAttachPicks] = useState(false);
+  const [attachPicks, setAttachPicks] = useState(keptCopy?.followAttach ?? true);
   /** The one copy every save writes: picks, notes, the request text and the follow-up text. */
-  const snap = () => cardUnsent(revision, { values, text, note, need: needText, needKind, followup: followText });
+  const snap = () => cardUnsent(revision, { values, text, note, need: needText, needKind, followup: followText, followKind, followFork, followAttach: attachPicks });
   useEffect(() => {
     if (editable) saveUnsent(keyFor(changing), snap());
-  }, [editable, changing, ref, revision, values, text, note, needText, needKind, followText]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [editable, changing, ref, revision, values, text, note, needText, needKind, followText, followKind, followFork, attachPicks]); // eslint-disable-line react-hooks/exhaustive-deps
   /**
    * S-1: a 409, as supersede.ts conflictStep words it. App adds nothing: it keeps where the step says
    * (a withdrawal under the open form's key, which WithdrawnBar reads, NIT-2), names a replacement,
@@ -912,26 +924,45 @@ export function AskDetail({
   }, [focusFork, ask]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
-   * ASKFOLLOW: Send follow-up. A 409 takes conflictStep's step (followupConflict adds a closed ask's
-   * words); a 200 re-bases the unsent copy onto the new revision, drops the sent text, keeps the result
-   * for the card that remounts at that revision, and re-reads. A failed one keeps the text and stays.
+   * ASKFOLLOW: Send follow-up. MUST-FIX-1: the server writes the file, then pushes, then answers, and the
+   * page hears the write (SSE) first; so BEFORE the post the unsent copy is re-based onto the next
+   * revision without the follow-up, and a pending line is left there, for the card that remounts. Every
+   * way out but a 200 undoes that: the copy goes back to this revision with the text. A 409 then takes
+   * followupConflict's step; a 200 leaves its line for the next revision and re-reads.
    */
   async function sendFollowup() {
     setBusy(true);
     setResult("");
     const keep = () => saveUnsent(keyFor(false), snap());
+    const undo = () => {
+      keep();
+      forgetFollowupResult(ref);
+    };
+    const next = Number(revision) + 1;
+    saveUnsent(keyFor(false), rebaseAfterFollowup(snap(), next));
+    rememberFollowupResult(ref, next, FOLLOWUP_PENDING);
     try {
-      const r = await post("/api/followup", followupBody(ask, { kind: followKind, fork: followFork, text: followText, attachPicks }, answers), keep);
-      if (r.restarted) return setResult(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
+      // No beforeRetry: the re-based copy above is what a reload must find.
+      const r = await post("/api/followup", followupBody(ask, { kind: followKind, fork: followFork, text: followText, attachPicks }, answers));
+      if (r.restarted) {
+        undo();
+        return setResult(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
+      }
       if (r.status === 409) {
+        undo();
         return applyConflict(followupConflict(r.json, keyFor(false), unsentKey(ref, false)), conflictDeps);
       }
       const out = followupOutcome(ask, r.status, r.json);
-      if (!out.sent) return setResult(out.text);
-      saveUnsent(keyFor(false), rebaseAfterFollowup(snap(), revision, out.revision));
+      if (!out.sent) {
+        undo();
+        return setResult(out.text);
+      }
       rememberFollowupResult(ref, out.revision, out.text);
       setResult(out.text);
       onChanged();
+    } catch (e) {
+      undo();
+      setResult(`Error: ${(e as Error).message}. Reload to see whether the follow-up was sent.`);
     } finally {
       setBusy(false);
     }
@@ -1250,8 +1281,8 @@ export function AskDetail({
               <button className="btn primary" disabled={busy || nothing} onClick={askSend}>{nothing ? "Send answers" : picked ? `Send ${picked} answer${picked === 1 ? "" : "s"}` : "Send your notes"}</button>
               {onSent && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("send", true)} title="Sends exactly as Send does, then opens the next ask in the list that is waiting on you">Send &amp; next</button>}
               {/* Partial on purpose: never the "N questions unanswered" confirm; while the server does not keep `provisional`, an honest confirm instead. */}
-              {/* IDE-339: Send as draft and Need something first are provisional rounds, and Draft a decline is
-                  sent at once as "Send a decline", so all three stay off an overrule. ASKFOLLOWUP widened
+              {/* IDE-339: Send as draft and Need something first are provisional rounds, so both stay off an
+                  overrule; its decline is sent at once, as "Send a decline". ASKFOLLOWUP widened
                   writeDraft to the operator over a seat's ruling, so Save draft is offered on one. */}
               {!overrule && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("draft")} title={kept ? "Sends your picks marked as not final, with a note saying so; the ask stays open for a second round" : "Today this closes the ask with your picks and a 'not final' note; the asker should come back with a second round"}>Send as draft</button>}
               {!overrule && <button className="btn" disabled={busy} aria-expanded={needOpen} aria-controls={`need-${ask.header.id}`} onClick={() => setNeedOpen(!needOpen)}>Need something first ▾</button>}
@@ -1334,6 +1365,7 @@ export function AskDetail({
           </>
         )}
         {result && <p className="result" role="status">{result}</p>}
+        {!result && followResult && <p className="result" role="status">{followResult}</p>}
         {sentNotice && <p className="result sent-notice" role="status">{sentNotice}</p>}
         {replacedBy && <p className="result"><AskLink to={replacedBy} onOpen={onOpenAsk}>Open the new ask: {replacedBy}</AskLink></p>}
         <AskDetails ask={ask} />

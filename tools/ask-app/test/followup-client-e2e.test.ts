@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { answerAsk, newAsk, reviseAsk, supersedeAsk, withdrawAsk } from "../src/lib/store.ts";
+import { answerAsk, followupAsk, newAsk, reviseAsk, supersedeAsk, withdrawAsk } from "../src/lib/store.ts";
 import { parseAskFile } from "../src/lib/format.ts";
 import { followupBody, followupConflict, followupOutcome, followupsOf, isAddressed } from "../src/client/followup.ts";
 import { draftBody } from "../src/client/reanswer.ts";
@@ -132,5 +132,40 @@ describe("the card's follow-up against the server", () => {
     const b = await askOf("ovr");
     expect(b.answer).toMatchObject({ answeredBy: "operator", answers: { GO: ["NO"] } });
     expect(b.header.overruled).toBe(MGR);
+  });
+});
+
+describe("MUST-FIX-1: a slow push lets the file change reach the page before the 200", () => {
+  it("with a push that sleeps 300 ms, the file is written (and /api/events would fire 100 ms later) well before followupAsk returns", async () => {
+    newAsk(root, { from: SEAT, to: MGR, id: "slow" }, BODY);
+    const changes: number[] = [];
+    const w = fs.watch(path.join(root, SEAT), (_e, name) => {
+      if (String(name).startsWith("slow.md") && !String(name).endsWith(".tmp")) changes.push(Date.now());
+    });
+    let pushStartedAt = 0;
+    let pushedAt = 0;
+    let revisionAtPush = "";
+    const slowPush = async () => {
+      pushStartedAt = Date.now();
+      revisionAtPush = parseAskFile(fs.readFileSync(path.join(root, SEAT, "slow.md"), "utf8")).header.revision ?? "";
+      await new Promise((r) => setTimeout(r, 300));
+      pushedAt = Date.now();
+      return { status: "undelivered" as const, reason: "slow seat" };
+    };
+    const out = await followupAsk(root, SEAT, "slow", { by: "operator", via: "browser", kind: "question", text: "why?" }, { expectedRevision: 1, push: slowPush });
+    const answeredAt = Date.now();
+    w.close();
+    expect(out.revision).toBe(2);
+    expect(changes.length).toBeGreaterThan(0);
+    // The write lands before the push starts (read at the push, not timed, so load cannot flake it): the server's SSE debounce (100 ms) fires a `change` while the 200 is still 300 ms away,
+    // so the card reloads and remounts at revision 2 first.
+    expect(revisionAtPush).toBe("2");
+    expect(pushedAt - pushStartedAt).toBeGreaterThanOrEqual(290);
+    // The watcher (what /api/events debounces by 100 ms) heard the write with most of the push still to run.
+    expect(answeredAt - changes[0]).toBeGreaterThanOrEqual(200);
+    // What the remounted card reads at that moment: revision 2, the follow-up pending. The client saved
+    // its re-based copy at revision 2 before it posted, so restoreUnsent takes it as current.
+    const mid = parseAskFile(fs.readFileSync(path.join(root, SEAT, "slow.md"), "utf8"));
+    expect(mid.header.revision).toBe("2");
   });
 });

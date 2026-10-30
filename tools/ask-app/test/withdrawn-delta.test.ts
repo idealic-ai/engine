@@ -70,7 +70,7 @@ describe("SHOULD-1: App's conflict wiring, pinned whole", () => {
     expect(app.match(/conflictStep\(/g)).toHaveLength(1);
   });
   it("the follow-up's 409 goes through the same apply", () => {
-    expect(app).toContain("return applyConflict(followupConflict(r.json, keyFor(false), unsentKey(ref, false)), conflictDeps);");
+    expect(app).toMatch(/undo\(\);\s*return applyConflict\(followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\), conflictDeps\);/);
     expect(app.match(/applyConflict\(/g)).toHaveLength(2);
   });
 });
@@ -84,13 +84,21 @@ describe("SHOULD-1: Send batch writes its line once, from batchOutcome (plant A)
     expect(batchOutcome({ status: 200, json })).toEqual({ line: batchResultLine(json), reload: true });
   });
   it("sendBatch calls setBatchResult once, with batchOutcome's line", () => {
-    const fn = fnBody("async function sendBatch(", 700);
+    const fn = fnBody("async function sendBatch(", 900);
     expect(fn.match(/setBatchResult\(/g)).toEqual(["setBatchResult("]);
-    expect(fn).toContain("setBatchResult(out.line);");
+    expect(fn).toContain("line = out.line;");
     expect(fn).toContain("if (out.reload) load();");
+    // NIT-5 (ASKFOLLOW critique): a throw replaces the old line too, and the line is written once, last.
+    expect(fn).toMatch(/catch \(e\) \{\s*line = `Error: \$\{\(e as Error\)\.message\}`;\s*\} finally \{\s*setSending\(false\);\s*setBatchResult\(line\);/);
   });
-  it("App words no move of its own: the word is not in App at all", () => {
-    expect(app).not.toMatch(/moved/);
+  it("NIT-5: the old batch line is not shown while a new batch sends", () => {
+    expect(app).toContain('{batchResult && !sending && <p className="tray-result" role="status">{batchResult}</p>}');
+  });
+  // NIT-4 (ASKFOLLOW critique): the ban is on the conflict paths, where "moved" misnamed a stale revision;
+  // the missing-ask line may say moved, since a move to another seat is one of its causes.
+  it("App words no move on its conflict paths", () => {
+    for (const start of ["async function sendBatch(", "const conflictDeps = ", "const onConflict = ", "async function sendFollowup("]) expect(fnBody(start, 2400)).not.toMatch(/moved/);
+    expect(app).toContain("It may have been moved to another seat, renamed or deleted;");
   });
 });
 
@@ -128,7 +136,7 @@ describe("NIT-A: the kept words say what is kept, and a request keeps its kind",
     expect(keptSentence(cardUnsent("4", { values: { GO: "YES" }, text: {}, note: "", need: "x", followup: "y" }))).toBe("Your picks, request and follow-up are kept in this browser:");
   });
   it("a request line carries its kind", () => {
-    expect(keptDraftLines(withdrawn, cardUnsent("4", { values: {}, text: {}, note: "", need: "is BIND worth it?", needKind: "proof:explore" }))).toEqual(["Request (proof:explore): is BIND worth it?"]);
+    expect(keptDraftLines(withdrawn, cardUnsent("4", { values: {}, text: {}, note: "", need: "is BIND worth it?", needKind: "proof:explore" }))).toEqual(["Request (Explore: map the whole): is BIND worth it?"]);
     // A copy kept before the kind was kept reads as it did.
     expect(keptDraftLines(withdrawn, cardUnsent("4", { values: {}, text: {}, note: "", need: "is BIND worth it?" }))).toEqual(["Request: is BIND worth it?"]);
     expect(cardUnsent("4", { values: {}, text: {}, note: "", need: " ", needKind: "proof:explore" })).toEqual({ revision: "4", values: {}, text: {}, note: "" });
@@ -138,11 +146,11 @@ describe("NIT-A: the kept words say what is kept, and a request keeps its kind",
     saveUnsent(REF, cardUnsent("4", { values: {}, text: {}, note: "", need: "is BIND worth it?", needKind: "proof:explore" }));
     const w = renderToStaticMarkup(createElement(AskDetail, { ask: withdrawn, all: [withdrawn], onChanged: () => {}, onSent: () => {} }));
     expect(w).toContain("Your request is kept in this browser:");
-    expect(w).toContain("Request (proof:explore): is BIND worth it?");
+    expect(w).toContain("Request (Explore: map the whole): is BIND worth it?");
     const o = renderToStaticMarkup(createElement(AskDetail, { ask: open, all: [open], onChanged: () => {}, onSent: () => {} }));
     expect(o).toContain('<option value="proof:explore" selected="">');
   });
   it("App's one snapshot holds the request's kind", () => {
-    expect(app).toContain("const snap = () => cardUnsent(revision, { values, text, note, need: needText, needKind, followup: followText });");
+    expect(app).toContain("const snap = () => cardUnsent(revision, { values, text, note, need: needText, needKind, followup: followText, followKind, followFork, followAttach: attachPicks });");
   });
 });

@@ -5,6 +5,7 @@
  */
 import { questionKey, type AskOption, type ParsedAsk } from "../lib/format.ts";
 import { forkLabel, type Unsent, type Values } from "./model.ts";
+import { REQUEST_KINDS } from "./loop.ts";
 
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 const KEY = (ref: string) => `askclient.unsent.${ref}`;
@@ -27,6 +28,7 @@ export function loadUnsent(ref: string, s: Store | undefined = storage()): Unsen
     if (u.need !== undefined && typeof u.need !== "string") return undefined;
     if (u.followup !== undefined && typeof u.followup !== "string") return undefined;
     if (u.needKind !== undefined && typeof u.needKind !== "string") return undefined;
+    if ((u.followKind !== undefined && typeof u.followKind !== "string") || (u.followFork !== undefined && typeof u.followFork !== "string") || (u.followAttach !== undefined && typeof u.followAttach !== "boolean")) return undefined;
     memory.set(ref, u);
     return u;
   } catch {
@@ -60,12 +62,15 @@ export function forgetMemory() {
 }
 
 /** What a card keeps: its picks, notes, request and follow-up text at this revision; a blank request or follow-up is left out. */
-export function cardUnsent(revision: string, s: { values: Values; text: Record<string, string>; note: string; need: string; needKind?: string; followup?: string }): Unsent {
+export function cardUnsent(revision: string, s: { values: Values; text: Record<string, string>; note: string; need: string; needKind?: string; followup?: string; followKind?: string; followFork?: string; followAttach?: boolean }): Unsent {
   return {
     revision, values: s.values, text: s.text, note: s.note,
     // NIT-A: the request keeps its kind, so the kept line and a remount say what kind of request it was.
     ...(s.need.trim() ? { need: s.need, ...(s.needKind ? { needKind: s.needKind } : {}) } : {}),
-    ...(s.followup?.trim() ? { followup: s.followup } : {}),
+    // ASKFOLLOW SHOULD-2: the follow-up's kind, fork and attach box ride with its text, never alone.
+    ...(s.followup?.trim()
+      ? { followup: s.followup, ...(s.followKind ? { followKind: s.followKind } : {}), ...(s.followFork !== undefined ? { followFork: s.followFork } : {}), ...(s.followAttach !== undefined ? { followAttach: s.followAttach } : {}) }
+      : {}),
   };
 }
 
@@ -120,7 +125,9 @@ export function keptDraftLines(ask: Pick<ParsedAsk, "questions">, u: Unsent): st
     if (words.length || t) out.push(`${forkLabel(q, i)}: ${[words.join(" · "), t].filter(Boolean).join("; ")}`);
   });
   if (u.note.trim()) out.push(`Note: ${u.note.trim()}`);
-  if (u.need?.trim()) out.push(`Request${u.needKind ? ` (${u.needKind})` : ""}: ${u.need.trim()}`);
+  // NIT-3 (ASKFOLLOW critique): the kind by its label, as the request form shows it; an unknown kind as itself.
+  const kind = u.needKind ? REQUEST_KINDS.find((k) => k.kind === u.needKind)?.label ?? u.needKind : "";
+  if (u.need?.trim()) out.push(`Request${kind ? ` (${kind})` : ""}: ${u.need.trim()}`);
   if (u.followup?.trim()) out.push(`Follow-up: ${u.followup.trim()}`);
   return out;
 }

@@ -450,7 +450,10 @@ export function sendConfirmation(unanswered: string[]): string | undefined {
   return `${n} question${n === 1 ? "" : "s"} unanswered (${unanswered.join(", ")}) — send anyway? Sending settles the whole ask; ${n === 1 ? "it reaches" : "they reach"} the asker unanswered and cannot be answered here afterwards.`;
 }
 
-/** The batch tray's confirm: one line per draft that leaves forks unpicked. A decline is not partial. */
+/**
+ * The batch tray's confirm: one line per draft that leaves forks unpicked (a decline is not partial),
+ * and (ASKFOLLOW SHOULD-1) every draft that overrules a seat's ruling, by ask and seat.
+ */
 export function batchConfirmation(drafts: ParsedAsk[], refOf: (a: ParsedAsk) => string): string | undefined {
   let n = 0;
   const parts = drafts.flatMap((d) => {
@@ -459,8 +462,11 @@ export function batchConfirmation(drafts: ParsedAsk[], refOf: (a: ParsedAsk) => 
     n += left.length;
     return left.length ? [`${refOf(d)}: ${left.join(", ")}`] : [];
   });
-  if (!parts.length) return undefined;
-  return `${n} question${n === 1 ? "" : "s"} unanswered — send anyway? Each ask is settled when sent. ${parts.join(" · ")}`;
+  const settled = (d: ParsedAsk) => d.header.status === "answered" || d.header.status === "declined";
+  const overrules = drafts.filter((d) => d.draft && settled(d) && d.answer && !isOperatorAnswer(d.answer)).map((d) => `${refOf(d)} overrules ${d.answer?.answeredBy?.trim() || "a seat"}'s ruling`);
+  const over = overrules.length ? `Sending overrules a seat's ruling: ${overrules.join(" · ")}. The asker and the seat that ruled are told.` : "";
+  if (!parts.length) return over ? `${over} Send anyway?` : undefined;
+  return [`${n} question${n === 1 ? "" : "s"} unanswered — send anyway? Each ask is settled when sent. ${parts.join(" · ")}`, over].filter(Boolean).join(" ");
 }
 
 export type Filter = "open" | "ruled" | "settled" | "all";
@@ -493,7 +499,7 @@ export function sortRuled(rows: Row[]): Row[] {
  */
 /** `need`: the text typed in "Need something first", kept like the notes (ASKWITHDRAWN-UI MF-1). */
 /** ASKFOLLOW: `followup` is the unsent text of the card's Send follow-up; `needKind` the request's kind (NIT-A). */
-export type Unsent = { revision: string; values: Values; text: Record<string, string>; note: string; need?: string; needKind?: string; followup?: string };
+export type Unsent = { revision: string; values: Values; text: Record<string, string>; note: string; need?: string; needKind?: string; followup?: string; followKind?: string; followFork?: string; followAttach?: boolean };
 export function restoreUnsent(
   init: { values: Values; text: Record<string, string>; note: string },
   kept: Unsent | undefined,
