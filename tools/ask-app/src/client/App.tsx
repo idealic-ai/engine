@@ -22,8 +22,8 @@ import {
   ageOf,
   answerInWords,
   answererText,
+  grantClassOf,
   earlierAnswers,
-  grantOf,
   acceptListed,
   suggestionList,
   batchConfirmation,
@@ -1847,7 +1847,7 @@ export function AnsweredBy({ answer }: { answer?: AskAnswer }) {
   return (
     <p className="answered-by">
       by <b>{answer.answeredBy || "unknown"}</b>
-      {grantOf(answer) && <> <span className="chip quiet grant" title="The grant class the answering manager gave this answer">class {grantOf(answer)}</span></>}
+      {grantClassOf(answer) && <> <span className="chip quiet grant" title="The grant class the answering manager gave this answer">class {grantClassOf(answer)}</span></>}
       {relayer ? (
         <span className="chip warn relay" title={`${relayer} recorded this as the operator's answer${answer.note ? `: ${answer.note}` : ""}`}>
           relayed by {relayer}

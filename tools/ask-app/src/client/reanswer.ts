@@ -31,7 +31,7 @@ export function mayChangeAnswer(a: ParsedAsk): boolean {
 
 /** What sending an overrule does, said beside the sends. */
 export const OVERRULE_WORDING =
-  "Sending replaces this seat's ruling with your answer. The asker is told the ruling was overruled, and the ruling is kept under Earlier answers.";
+  "Sending replaces this seat's ruling with your answer. The asker and the seat that ruled are told it was overruled, and the ruling is kept under Earlier answers.";
 
 /**
  * IDE-339: the /api/answer body for an overrule. The store takes no draft over a seat's answer
