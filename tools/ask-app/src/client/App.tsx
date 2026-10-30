@@ -75,7 +75,7 @@ import { applyConflict, conflictStep, hopWords, pathOf, supersededInfo, supersed
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay } from "./search.ts";
-import { FOLLOWUP_KIND_OPTIONS, FOLLOWUP_PENDING, followupBody, followupConflict, followupLine, followupOutcome, followupResultFor, followupsOf, forgetFollowupResult, isAddressed, mayFollowUp, rebaseAfterFollowup, rememberFollowupResult, subscribeFollowupResults } from "./followup.ts";
+import { FOLLOWUP_KIND_OPTIONS, FOLLOWUP_PENDING, adoptAfterFollowup, followupBody, followupConflict, followupLine, followupOutcome, followupResultFor, followupsOf, forkOnOpen, isAddressed, keepsOver, mayFollowUp, rememberFollowupResult, subscribeFollowupResults } from "./followup.ts";
 import { CHANGE_WORDING, OVERRULE_WORDING, cancelDiscards, changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, overruleOutcome, planClick, requestSend, sendRoute, staleChangeKeys, unsentKey, withoutGrant, type CardAction } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
@@ -826,17 +826,19 @@ export function AskDetail({
   const keyFor = (c: boolean) => unsentKey(ref, c);
   const revision = String(ask.header.revision ?? "");
   const keys = ask.questions.map((q, i) => questionKey(q, i));
+  // Delta SHOULD-A/B (b): the open form's kept copy, adopted when the one revision since it was a follow-up.
+  const [openKept] = useState(() => (open ? adoptAfterFollowup(loadUnsent(ref), ask) : undefined));
   const start = useMemo(() => {
     if (changing) return restoreUnsent(changeAnswerStart(ask), loadUnsent(keyFor(true)), revision, keys);
     const init = initialValues(ask);
-    return open ? restoreUnsent(init, loadUnsent(ref), revision, keys) : { ...init, notice: "" };
+    return open ? restoreUnsent(init, openKept, revision, keys) : { ...init, notice: "" };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- the card is keyed by ref+revision
   const [values, setValues] = useState<Values>(start.values);
   const [text, setText] = useState<Record<string, string>>(start.text);
   const [note, setNote] = useState(start.note);
   const [result, setResult] = useState("");
   // ASKFOLLOW MUST-FIX-1: a follow-up remounts this card at the next revision, often before its 200;
-  // the line it leaves for that revision is read by subscription, so it shows whenever it lands.
+  // every line it says is left for both revisions and read by subscription, so it shows whenever it lands.
   const readFollowResult = () => followupResultFor(ref, revision);
   const followResult = useSyncExternalStore(subscribeFollowupResults, readFollowResult, readFollowResult);
   const [busy, setBusy] = useState(false);
@@ -844,16 +846,16 @@ export function AskDetail({
   const [changedUnder, setChangedUnder] = useState(start.notice);
   const [confirmSend, setConfirmSend] = useState<{ msg: string; kind: SendKind; next?: boolean } | undefined>();
   // MF-1: the request typed in "Need something first" is kept with the picks, and comes back on a remount.
-  const [keptNeed] = useState(() => (open && !changing ? loadUnsent(ref)?.need ?? "" : ""));
+  const [keptNeed] = useState(() => (open && !changing ? openKept?.need ?? "" : ""));
   const [needOpen, setNeedOpen] = useState(!!keptNeed);
   // NIT-A: the request's kind comes back with its text.
-  const [needKind, setNeedKind] = useState(() => (open && !changing ? loadUnsent(ref)?.needKind : undefined) ?? "proof:best");
+  const [needKind, setNeedKind] = useState(() => (open && !changing ? openKept?.needKind : undefined) ?? "proof:best");
   const [needText, setNeedText] = useState(keptNeed);
   // ASKFOLLOW: the follow-up's text is kept with the picks too, so a remount or a reload brings it back.
   const followable = mayFollowUp(ask);
   // SHOULD-2: its kind, fork and attach box come back with it; else the fork is the one in focus, and
   // the picks go along, so the asker knows what you are talking about.
-  const [keptCopy] = useState(() => (followable ? loadUnsent(ref) : undefined));
+  const [keptCopy] = useState(() => (followable ? openKept : undefined));
   const keptFollow = keptCopy?.followup ?? "";
   const focused = focusFork === undefined ? undefined : resolveFork(ask, focusFork);
   const [followOpen, setFollowOpen] = useState(!!keptFollow);
@@ -924,45 +926,45 @@ export function AskDetail({
   }, [focusFork, ask]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
-   * ASKFOLLOW: Send follow-up. MUST-FIX-1: the server writes the file, then pushes, then answers, and the
-   * page hears the write (SSE) first; so BEFORE the post the unsent copy is re-based onto the next
-   * revision without the follow-up, and a pending line is left there, for the card that remounts. Every
-   * way out but a 200 undoes that: the copy goes back to this revision with the text. A 409 then takes
-   * followupConflict's step; a 200 leaves its line for the next revision and re-reads.
+   * ASKFOLLOW: Send follow-up. The server writes the file, then pushes, then answers, and the page hears
+   * the write (SSE) first, so the card may remount at the next revision before any answer. Nothing is
+   * re-based ahead of the post (delta SHOULD-A/B): the card at N+1 adopts this copy only when the ask
+   * says a follow-up made N+1 (adoptAfterFollowup). Every line is said for N and N+1, so whichever card
+   * shows says it; `keep` never writes over a copy a newer card saved (keepsOver).
    */
   async function sendFollowup() {
     setBusy(true);
-    setResult("");
-    const keep = () => saveUnsent(keyFor(false), snap());
-    const undo = () => {
-      keep();
-      forgetFollowupResult(ref);
-    };
     const next = Number(revision) + 1;
-    saveUnsent(keyFor(false), rebaseAfterFollowup(snap(), next));
-    rememberFollowupResult(ref, next, FOLLOWUP_PENDING);
+    const say = (t: string) => {
+      setResult(t);
+      rememberFollowupResult(ref, [revision, next], t);
+    };
+    const keep = () => {
+      if (keepsOver(loadUnsent(keyFor(false)), revision)) saveUnsent(keyFor(false), snap());
+    };
+    say(FOLLOWUP_PENDING);
     try {
-      // No beforeRetry: the re-based copy above is what a reload must find.
-      const r = await post("/api/followup", followupBody(ask, { kind: followKind, fork: followFork, text: followText, attachPicks }, answers));
+      const r = await post("/api/followup", followupBody(ask, { kind: followKind, fork: followFork, text: followText, attachPicks }, answers), keep);
       if (r.restarted) {
-        undo();
-        return setResult(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
+        keep();
+        return say(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
       }
       if (r.status === 409) {
-        undo();
-        return applyConflict(followupConflict(r.json, keyFor(false), unsentKey(ref, false)), conflictDeps);
+        keep();
+        const step = followupConflict(r.json, keyFor(false), unsentKey(ref, false));
+        rememberFollowupResult(ref, [revision, next], step.text);
+        return applyConflict(step, conflictDeps);
       }
       const out = followupOutcome(ask, r.status, r.json);
       if (!out.sent) {
-        undo();
-        return setResult(out.text);
+        keep();
+        return say(out.text);
       }
-      rememberFollowupResult(ref, out.revision, out.text);
-      setResult(out.text);
+      say(out.text);
       onChanged();
     } catch (e) {
-      undo();
-      setResult(`Error: ${(e as Error).message}. Reload to see whether the follow-up was sent.`);
+      keep();
+      say(`Error: ${(e as Error).message}. Reload to see whether the follow-up was sent.`);
     } finally {
       setBusy(false);
     }
@@ -1291,7 +1293,10 @@ export function AskDetail({
               <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => act("draft-decline")}>{overrule ? "Send a decline" : "Draft a decline"}</button>
               {ask.draft && <button className="btn" disabled={busy} onClick={() => act("discard")}>Discard draft</button>}
               {changing && <button className="btn quiet" disabled={busy} onClick={cancelChange}>Cancel</button>}
-              {followable && <button className="btn" disabled={busy} aria-expanded={followOpen} aria-controls={`followup-${ask.header.id}`} onClick={() => setFollowOpen(!followOpen)} title="Ask the asker something, or ask it to do something first; the ask stays open">Send follow-up ▾</button>}
+              {followable && <button className="btn" disabled={busy} aria-expanded={followOpen} aria-controls={`followup-${ask.header.id}`} onClick={() => {
+                    if (!followOpen) setFollowFork(forkOnOpen(followText, focused === undefined ? undefined : keys[focused], followFork));
+                    setFollowOpen(!followOpen);
+                  }} title="Ask the asker something, or ask it to do something first; the ask stays open">Send follow-up ▾</button>}
             </p>
             {confirmSend && (
               <div className="confirm-send" role="alertdialog" aria-label="Confirm sending a partial answer">
@@ -1330,20 +1335,20 @@ export function AskDetail({
                 <span className="followup-kinds" role="radiogroup" aria-label="Kind of follow-up">
                   {FOLLOWUP_KIND_OPTIONS.map((o) => (
                     <label key={o.kind} title={o.hint}>
-                      <input type="radio" name={`followup-kind-${ask.header.id}`} value={o.kind} checked={followKind === o.kind} onChange={() => setFollowKind(o.kind)} />
+                      <input type="radio" name={`followup-kind-${ask.header.id}`} value={o.kind} checked={followKind === o.kind} disabled={busy} onChange={() => setFollowKind(o.kind)} />
                       <span>{o.label}</span>
                     </label>
                   ))}
                 </span>
                 <label className="field-label" htmlFor={`followup-fork-${ask.header.id}`}>Which question you mean</label>
-                <select id={`followup-fork-${ask.header.id}`} value={followFork} onChange={(e) => setFollowFork(e.target.value)}>
+                <select id={`followup-fork-${ask.header.id}`} value={followFork} disabled={busy} onChange={(e) => setFollowFork(e.target.value)}>
                   <option value="">The whole ask</option>
                   {ask.questions.map((q, i) => <option key={questionKey(q, i)} value={questionKey(q, i)}>{`${forkLabel(q, i)}: ${q.title}`}</option>)}
                 </select>
                 <label className="field-label" htmlFor={`followup-text-${ask.header.id}`}>In your words</label>
-                <textarea id={`followup-text-${ask.header.id}`} rows={2} placeholder={followKind === "first" ? "For example: run the dry-run migration and say what breaks" : "For example: what does NO hold the release for?"} value={followText} onChange={(e) => setFollowText(e.target.value)} />
+                <textarea id={`followup-text-${ask.header.id}`} rows={2} placeholder={followKind === "first" ? "For example: run the dry-run migration and say what breaks" : "For example: what does NO hold the release for?"} value={followText} disabled={busy} onChange={(e) => setFollowText(e.target.value)} />
                 <label className="followup-picks">
-                  <input type="checkbox" checked={attachPicks && !nothing} disabled={nothing} onChange={(e) => setAttachPicks(e.target.checked)} />
+                  <input type="checkbox" checked={attachPicks && !nothing} disabled={busy || nothing} onChange={(e) => setAttachPicks(e.target.checked)} />
                   <span>{nothing ? "No picks to attach yet" : `Attach your current picks (${picked} pick${picked === 1 ? "" : "s"}${Object.keys(answers).length > picked ? " and your fork notes" : ""}) as context`}</span>
                 </label>
                 <p className="muted need-preview">

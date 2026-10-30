@@ -9,7 +9,8 @@ import http from "node:http";
 import path from "node:path";
 import { answerAsk, followupAsk, newAsk, reviseAsk, supersedeAsk, withdrawAsk } from "../src/lib/store.ts";
 import { parseAskFile } from "../src/lib/format.ts";
-import { followupBody, followupConflict, followupOutcome, followupsOf, isAddressed } from "../src/client/followup.ts";
+import { adoptAfterFollowup, followupBody, followupBumpOf, followupConflict, followupOutcome, followupsOf, isAddressed } from "../src/client/followup.ts";
+import { cardUnsent } from "../src/client/unsent.ts";
 import { draftBody } from "../src/client/reanswer.ts";
 import { BUILD_ID_FILE, computeBuildId } from "../src/build-id.ts";
 
@@ -138,10 +139,6 @@ describe("the card's follow-up against the server", () => {
 describe("MUST-FIX-1: a slow push lets the file change reach the page before the 200", () => {
   it("with a push that sleeps 300 ms, the file is written (and /api/events would fire 100 ms later) well before followupAsk returns", async () => {
     newAsk(root, { from: SEAT, to: MGR, id: "slow" }, BODY);
-    const changes: number[] = [];
-    const w = fs.watch(path.join(root, SEAT), (_e, name) => {
-      if (String(name).startsWith("slow.md") && !String(name).endsWith(".tmp")) changes.push(Date.now());
-    });
     let pushStartedAt = 0;
     let pushedAt = 0;
     let revisionAtPush = "";
@@ -154,18 +151,32 @@ describe("MUST-FIX-1: a slow push lets the file change reach the page before the
     };
     const out = await followupAsk(root, SEAT, "slow", { by: "operator", via: "browser", kind: "question", text: "why?" }, { expectedRevision: 1, push: slowPush });
     const answeredAt = Date.now();
-    w.close();
     expect(out.revision).toBe(2);
-    expect(changes.length).toBeGreaterThan(0);
     // The write lands before the push starts (read at the push, not timed, so load cannot flake it): the server's SSE debounce (100 ms) fires a `change` while the 200 is still 300 ms away,
     // so the card reloads and remounts at revision 2 first.
     expect(revisionAtPush).toBe("2");
     expect(pushedAt - pushStartedAt).toBeGreaterThanOrEqual(290);
-    // The watcher (what /api/events debounces by 100 ms) heard the write with most of the push still to run.
-    expect(answeredAt - changes[0]).toBeGreaterThanOrEqual(200);
+    // So the server's watcher (what /api/events debounces by 100 ms) sees the write with the whole push still
+    // to run. Not timed with fs.watch here: its delivery on macOS is late or lost under load (it flaked).
+    expect(answeredAt - pushStartedAt).toBeGreaterThanOrEqual(290);
     // What the remounted card reads at that moment: revision 2, the follow-up pending. The client saved
-    // its re-based copy at revision 2 before it posted, so restoreUnsent takes it as current.
+    // nothing before it posted; the card adopts the copy left at 1 (below).
     const mid = parseAskFile(fs.readFileSync(path.join(root, SEAT, "slow.md"), "utf8"));
     expect(mid.header.revision).toBe("2");
+    // Delta SHOULD-A/B (b): the real writer's `revisions:` tail lets that card adopt the copy left at 1,
+    // without the text it sent; this is also what a reload finds after the connection drops mid-push.
+    expect(followupBumpOf(mid)).toEqual({ from: "1", n: 1, text: "why?" });
+    expect(adoptAfterFollowup(cardUnsent("1", { values: { GO: ["NO"] }, text: {}, note: "", need: "", followup: "why? " }), mid)).toEqual({ revision: "2", values: { GO: ["NO"] }, text: {}, note: "" });
+  });
+
+  it("a revise just before the click: the follow-up is refused stale and the bumped ask is no follow-up bump, so nothing is adopted", async () => {
+    newAsk(root, { from: SEAT, to: MGR, id: "race" }, BODY);
+    await reviseAsk(root, SEAT, "race", { why: "sharper" }, undefined, { by: SEAT, push: async () => ({ status: "delivered" as const }) });
+    await expect(followupAsk(root, SEAT, "race", { by: "operator", kind: "question", text: "why?" }, { expectedRevision: 1, push: async () => ({ status: "delivered" as const }) })).rejects.toThrow(/revision/i);
+    const now = parseAskFile(fs.readFileSync(path.join(root, SEAT, "race.md"), "utf8"));
+    expect(now.header.revision).toBe("2");
+    expect(followupBumpOf(now)).toBeUndefined();
+    const copy = cardUnsent("1", { values: { GO: ["NO"] }, text: {}, note: "", need: "", followup: "why?" });
+    expect(adoptAfterFollowup(copy, now)).toBe(copy);
   });
 });

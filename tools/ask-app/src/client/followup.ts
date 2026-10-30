@@ -90,33 +90,65 @@ export function followupLine(a: ParsedAsk, f: AskFollowup): string {
   return [`Follow-up ${f.n}`, kindLabel(f.kind), fork, picks ? `with your picks ${picks}` : "", delivery, addressed].filter(Boolean).join(" · ");
 }
 
-/**
- * MUST-FIX-1: the card's unsent copy, moved to the revision a follow-up makes (writeFollowup bumps it by
- * exactly one, and changes neither the questions nor the body, so the picks still stand), without the
- * follow-up itself. App saves it BEFORE it posts: the file change reaches the page (SSE, 100 ms) before a
- * slow push lets the 200 come back, and the card remounts at the new revision reading this copy.
- */
+/** The card's unsent copy moved to `revision`, without the follow-up it sent (text, kind, fork, attach box). */
 export function rebaseAfterFollowup(u: Unsent, revision: number): Unsent {
   const { followup: _t, followKind: _k, followFork: _f, followAttach: _a, ...rest } = u;
   return { ...rest, revision: String(revision) };
 }
 
-/** Shown on the card at the new revision while the push is still out. */
-export const FOLLOWUP_PENDING = "Follow-up written to the file; pushing it to the asker…";
+/** Shown while the post is out, on this card and on one that remounts meanwhile (NIT-C: it claims no write). */
+export const FOLLOWUP_PENDING = "Sending the follow-up to the asker…";
+
+/**
+ * Delta SHOULD-A/B, option (b): the follow-up that made the ask's CURRENT revision, read from the
+ * `revisions:` tail writeFollowup writes (`<cur>@<at>:followup <k>`), with its text. Undefined when the
+ * tail names another revision (forward and act bump without a `revisions:` entry) or another change.
+ */
+export function followupBumpOf(ask: ParsedAsk): { from: string; n: number; text?: string } | undefined {
+  const cur = String(ask.header.revision ?? "").trim();
+  const tail = (ask.header.revisions ?? "").split(";").map((s) => s.trim()).filter(Boolean).pop();
+  const m = tail?.match(/^(\d+)@.*:followup (\d+)$/);
+  if (!m || m[1] !== cur || !/^\d+$/.test(cur)) return undefined;
+  const n = Number(m[2]);
+  return { from: String(Number(cur) - 1), n, text: (ask.followups ?? []).find((f) => f.n === n)?.text };
+}
+
+/**
+ * MUST-FIX-1 and delta SHOULD-A/B: a copy saved one revision behind is still current when that one
+ * revision was a follow-up (it changes neither the questions nor the body; writeFollowup re-bases the
+ * operator's draft for the same reason). Its text is dropped when it is the follow-up that was sent. Any
+ * other copy is returned as it is, for restoreUnsent to judge.
+ */
+export function adoptAfterFollowup(kept: Unsent | undefined, ask: ParsedAsk): Unsent | undefined {
+  const b = followupBumpOf(ask);
+  if (!kept || !b || kept.revision !== b.from) return kept;
+  const sent = b.text !== undefined && kept.followup?.trim() === b.text.trim();
+  return sent ? rebaseAfterFollowup(kept, Number(ask.header.revision)) : { ...kept, revision: String(ask.header.revision) };
+}
+
+/** Delta SHOULD-A: a card writes its copy only when no newer card has saved one since. */
+export function keepsOver(stored: Unsent | undefined, revision: string): boolean {
+  return !stored || !(Number(stored.revision) > Number(revision));
+}
+
+/** Delta SHOULD-C: opening the panel on blank text takes the fork in focus now; typed text keeps its fork. */
+export function forkOnOpen(text: string, focusedKey: string | undefined, current: string): string {
+  return text.trim() ? current : focusedKey ?? "";
+}
 
 /**
  * The result line, kept per ask for the card at the revision it names, and subscribable: a card that
  * remounted before the 200 (MUST-FIX-1) still gets the line when it lands.
  */
-const results = new Map<string, { revision: string; text: string }>();
+const results = new Map<string, { revisions: string[]; text: string }>();
 const listeners = new Set<() => void>();
 const changed = () => listeners.forEach((l) => l());
 export function subscribeFollowupResults(l: () => void): () => void {
   listeners.add(l);
   return () => void listeners.delete(l);
 }
-export function rememberFollowupResult(ref: string, revision: number | string, text: string) {
-  results.set(ref, { revision: String(revision), text });
+export function rememberFollowupResult(ref: string, revision: number | string | (number | string)[], text: string) {
+  results.set(ref, { revisions: (Array.isArray(revision) ? revision : [revision]).map(String), text });
   changed();
 }
 export function forgetFollowupResult(ref: string) {
@@ -124,5 +156,5 @@ export function forgetFollowupResult(ref: string) {
 }
 export function followupResultFor(ref: string, revision: string): string | undefined {
   const r = results.get(ref);
-  return r && r.revision === revision ? r.text : undefined;
+  return r && r.revisions.includes(revision) ? r.text : undefined;
 }

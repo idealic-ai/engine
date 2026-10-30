@@ -30,6 +30,10 @@ import {
   forgetFollowupResult,
   subscribeFollowupResults,
   FOLLOWUP_PENDING,
+  adoptAfterFollowup,
+  followupBumpOf,
+  forkOnOpen,
+  keepsOver,
 } from "../src/client/followup.ts";
 
 const BODY = "## ¶ASK_GO: Choose one: Ship it?\n- [ ] [YES] Yes, ship\n- [ ] [NO] No, hold\n\n## ¶ASK_WHEN: Choose one: When?\n- [ ] [NOW] Now\n- [ ] [LATER] Later\n";
@@ -221,65 +225,117 @@ describe("unsent follow-up text survives a remount (cardUnsent)", () => {
   });
 });
 
-describe("re-base before the post (MUST-FIX-1): the unsent copy and the result outlive a remount", () => {
-  it("rebaseAfterFollowup moves the copy to the given revision and drops the sent follow-up, its kind, fork and attach box", () => {
-    const u = cardUnsent("3", { values: { GO: ["YES"] }, text: { GO: "half" }, note: "n", need: "", followup: "why?", followKind: "first", followFork: "GO", followAttach: false });
-    expect(rebaseAfterFollowup(u, 4)).toEqual({ revision: "4", values: { GO: ["YES"] }, text: { GO: "half" }, note: "n" });
+describe("MUST-FIX-1 by adoption (delta SHOULD-A/B): the card at N+1 adopts the copy left at N only after this follow-up", () => {
+  const F = (n: number, text: string) => fence({ n, at: "2026-10-30T12:00:00.000Z", by: "operator", kind: "question", text, delivery: "pending" });
+  const afterFollowup = (text = "why NO?") => stored(head("open", 4, "revisions: 4@2026-10-30T12:00:00.000Z:followup 1\n") + BODY + F(1, text));
+  const copyAt3 = (followup = "why NO?") => cardUnsent("3", { values: { GO: ["NO"] }, text: {}, note: "", need: "", followup, followKind: "first", followFork: "GO", followAttach: true });
+
+  it("followupBumpOf reads the revisions tail only when it names the current revision", () => {
+    expect(followupBumpOf(afterFollowup())).toEqual({ from: "3", n: 1, text: "why NO?" });
+    // A later bump that wrote no revisions entry (forward, act) leaves an older tail: not a follow-up bump.
+    expect(followupBumpOf(stored(head("open", 5, "revisions: 4@2026-10-30T12:00:00.000Z:followup 1\n") + BODY + F(1, "why NO?")))).toBeUndefined();
+    expect(followupBumpOf(stored(head("open", 4, "revisions: 2@x:followup 1 ; 4@2026-10-30T12:00:00.000Z:body\n") + BODY))).toBeUndefined();
+    expect(followupBumpOf(open)).toBeUndefined();
   });
 
-  it("the result store tells a card that mounted before the 200, and forgets on a failed send", () => {
+  it("adopts the copy one behind, dropping the follow-up it sent with its kind, fork and attach box", () => {
+    expect(adoptAfterFollowup(copyAt3(), afterFollowup())).toEqual({ revision: "4", values: { GO: ["NO"] }, text: {}, note: "" });
+    // Different text was not this follow-up: it is kept, at the new revision, with its settings.
+    expect(adoptAfterFollowup(copyAt3("another thing"), afterFollowup())).toMatchObject({ revision: "4", followup: "another thing", followKind: "first" });
+  });
+
+  it("does not adopt two behind, or a copy already current, or nothing", () => {
+    const two = cardUnsent("2", { values: { GO: ["NO"] }, text: {}, note: "", need: "" });
+    expect(adoptAfterFollowup(two, afterFollowup())).toBe(two);
+    const cur = cardUnsent("4", { values: { GO: ["NO"] }, text: {}, note: "", need: "" });
+    expect(adoptAfterFollowup(cur, afterFollowup())).toBe(cur);
+    expect(adoptAfterFollowup(undefined, afterFollowup())).toBeUndefined();
+  });
+
+  it("case 1, the connection drops mid-push after the write: the copy left at N (with the sent text) comes back at N+1 with picks and without the text", async () => {
+    saveUnsent(REF, copyAt3());
+    const h = await render(afterFollowup());
+    expect(h).not.toContain("The ask changed under you");
+    expect(h.match(/class="optwrap on/g)).toHaveLength(1);
+    expect(h).not.toContain("why NO?</textarea>");
+    expect(h).not.toMatch(/aria-controls="followup-f1"[^>]*aria-expanded="true"|aria-expanded="true"[^>]*aria-controls="followup-f1"/);
+  });
+
+  it("case 2, a revise lands before the click and the post gets a stale 409: the card at N+1 does not adopt, says the ask changed, and keeps the text", async () => {
+    saveUnsent(REF, copyAt3());
+    const revised = stored(head("open", 4, "revisions: 4@2026-10-30T12:00:00.000Z:body\n") + BODY);
+    rememberFollowupResult(REF, ["3", "4"], "Not sent: the ask changed (now revision 4). Re-read it, then send again.");
+    const h = await render(revised);
+    expect(h).toContain("The ask changed under you");
+    expect(h).toContain("why NO?</textarea>");
+    expect(h).toContain("Not sent: the ask changed (now revision 4). Re-read it, then send again.");
+    expect(h).not.toContain(FOLLOWUP_PENDING);
+  });
+
+  it("case 3, no false line: the pending words never claim a write", () => {
+    expect(FOLLOWUP_PENDING).toBe("Sending the follow-up to the asker…");
+    expect(FOLLOWUP_PENDING).not.toMatch(/written|file/);
+  });
+
+  it("keepsOver: a card never writes its copy over one a newer card saved", () => {
+    expect(keepsOver(undefined, "3")).toBe(true);
+    expect(keepsOver(cardUnsent("3", { values: {}, text: {}, note: "", need: "" }), "3")).toBe(true);
+    expect(keepsOver(cardUnsent("2", { values: {}, text: {}, note: "", need: "" }), "3")).toBe(true);
+    expect(keepsOver(cardUnsent("4", { values: {}, text: {}, note: "", need: "" }), "3")).toBe(false);
+  });
+
+  it("the result store: a line for several revisions, a subscription, a forget", () => {
     const seen: number[] = [];
     const off = subscribeFollowupResults(() => seen.push(1));
-    rememberFollowupResult(REF, 4, "Follow-up 1 sent to idealic:kernel: delivered.");
-    expect(followupResultFor(REF, "4")).toBe("Follow-up 1 sent to idealic:kernel: delivered.");
+    rememberFollowupResult(REF, ["3", 4], "x");
+    expect(followupResultFor(REF, "3")).toBe("x");
+    expect(followupResultFor(REF, "4")).toBe("x");
     expect(followupResultFor(REF, "5")).toBeUndefined();
     forgetFollowupResult(REF);
     expect(followupResultFor(REF, "4")).toBeUndefined();
     expect(seen.length).toBe(2);
     off();
-    rememberFollowupResult(REF, 4, "x");
-    expect(seen.length).toBe(2);
   });
 
-  it("App: the re-based copy and a pending line are saved BEFORE the post; a non-200 restores the copy with the text", () => {
+  it("App: nothing is re-based before the post; every outcome is said for N and N+1; keep is guarded; the card adopts", () => {
     const app = src("App.tsx");
-    const fn = app.slice(app.indexOf("async function sendFollowup("), app.indexOf("async function sendFollowup(") + 2400);
-    const pre = fn.indexOf("saveUnsent(keyFor(false), rebaseAfterFollowup(snap(), next));");
-    const pending = fn.indexOf("rememberFollowupResult(ref, next, FOLLOWUP_PENDING);");
-    const postAt = fn.indexOf('post("/api/followup", followupBody(ask, { kind: followKind, fork: followFork, text: followText, attachPicks }, answers));');
-    expect(pre).toBeGreaterThan(-1);
-    expect(pending).toBeGreaterThan(-1);
-    expect(postAt).toBeGreaterThan(pre);
-    expect(postAt).toBeGreaterThan(pending);
-    expect(fn).toContain("const next = Number(revision) + 1;");
-    // Every way out but a 200 puts the copy back at this revision, with the text, and drops the pending line.
-    expect(fn).toMatch(/const undo = \(\) => \{\s*keep\(\);\s*forgetFollowupResult\(ref\);\s*\};/);
-    expect(fn).toMatch(/if \(r\.restarted\) \{\s*undo\(\);/);
-    expect(fn).toMatch(/if \(r\.status === 409\) \{\s*undo\(\);\s*return applyConflict\(followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\), conflictDeps\);/);
-    expect(fn).toMatch(/if \(!out\.sent\) \{\s*undo\(\);/);
-    expect(fn).toContain("rememberFollowupResult(ref, out.revision, out.text);");
-    expect(fn).toMatch(/catch \(e\) \{\s*undo\(\);/);
+    const fn = app.slice(app.indexOf("async function sendFollowup("), app.indexOf("async function sendFollowup(") + 2600);
+    expect(app).toContain("async function sendFollowup(");
+    expect(app).not.toContain("rebaseAfterFollowup(");
+    expect(fn).toContain("const say = (t: string) => {\n      setResult(t);\n      rememberFollowupResult(ref, [revision, next], t);\n    };");
+    expect(fn).toContain("const keep = () => {\n      if (keepsOver(loadUnsent(keyFor(false)), revision)) saveUnsent(keyFor(false), snap());\n    };");
+    expect(fn.indexOf("say(FOLLOWUP_PENDING);")).toBeLessThan(fn.indexOf('post("/api/followup"'));
+    expect(fn).toMatch(/if \(r\.restarted\) \{\s*keep\(\);\s*return say\(/);
+    expect(fn).toMatch(/if \(r\.status === 409\) \{\s*keep\(\);\s*const step = followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\);\s*rememberFollowupResult\(ref, \[revision, next\], step\.text\);\s*return applyConflict\(step, conflictDeps\);/);
+    expect(fn).toMatch(/if \(!out\.sent\) \{\s*keep\(\);\s*return say\(out\.text\);/);
+    expect(fn).toMatch(/catch \(e\) \{\s*keep\(\);\s*say\(/);
+    expect(app).toContain("const [openKept] = useState(() => (open ? adoptAfterFollowup(loadUnsent(ref), ask) : undefined));");
+    expect(app).toContain("restoreUnsent(init, openKept, revision, keys)");
+    expect(app).toContain("const [keptCopy] = useState(() => (followable ? openKept : undefined));");
   });
 
-  it("App: the card reads the result store by subscription, not once at mount", () => {
+  it("App: the card reads the result store by subscription", () => {
     const app = src("App.tsx");
     expect(app).toContain("const readFollowResult = () => followupResultFor(ref, revision);");
     expect(app).toContain("const followResult = useSyncExternalStore(subscribeFollowupResults, readFollowResult, readFollowResult);");
-    expect(app).toContain('const [result, setResult] = useState("");');
   });
+});
 
-  it("the card remounted at N+1 before the 200 keeps the picks, shows no sent text, and shows the pending line", async () => {
-    // What sendFollowup leaves before it posts, at revision 3 → 4.
-    saveUnsent(REF, rebaseAfterFollowup(cardUnsent("3", { values: { GO: ["NO"] }, text: {}, note: "", need: "", followup: "why NO?" }), 4));
-    rememberFollowupResult(REF, 4, FOLLOWUP_PENDING);
-    const at4 = stored(head("open", 4) + BODY + fence({ ...F1, addressedIn: undefined, n: 1, delivery: "pending" }));
-    const h = await render(at4);
-    expect(h).not.toContain("The ask changed under you");
-    // The pick at revision 3 is still picked at 4 (an option input carries no value; its wrapper says "on").
-    expect(h.match(/class="optwrap on/g)).toHaveLength(1);
-    expect(h).toMatch(/class="optwrap on[^"]*"><label(?:(?!optwrap)[\s\S])*No, hold/);
-    expect(h).not.toContain("why NO?</textarea>");
-    expect(h).toContain(FOLLOWUP_PENDING);
+describe("SHOULD-C and NIT-A: the fork follows the focus when the panel opens blank; inputs wait for the send", () => {
+  it("forkOnOpen: blank text takes the focused fork, typed text keeps its fork", () => {
+    expect(forkOnOpen("", "WHEN", "GO")).toBe("WHEN");
+    expect(forkOnOpen("  ", undefined, "GO")).toBe("");
+    expect(forkOnOpen("why?", "WHEN", "GO")).toBe("GO");
+  });
+  it("App: the toggle opens through forkOnOpen with the current focus", () => {
+    const app = src("App.tsx");
+    expect(app).toContain("if (!followOpen) setFollowFork(forkOnOpen(followText, focused === undefined ? undefined : keys[focused], followFork));");
+  });
+  it("the follow-up inputs are disabled while a send is in flight", () => {
+    const app = src("App.tsx");
+    const panel = app.slice(app.indexOf('<div className="need followup"'), app.indexOf('<div className="need followup"') + 3000);
+    expect(panel.match(/disabled=\{busy\}/g)?.length).toBeGreaterThanOrEqual(3); // radios, select, textarea
+    expect(panel).toContain("disabled={busy || nothing}");
   });
 });
 

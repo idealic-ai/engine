@@ -143,7 +143,7 @@ describe("App says only what the helpers say", () => {
     const all = app.match(/status === 409/g) ?? [];
     const one = app.match(/if \(r\.status === 409\) return onConflict\(r\.json, keyFor\((?:true|changing)\)\);/g) ?? [];
     // ASKFOLLOW: the follow-up's 409 is conflictStep's too, through followupConflict and the same apply step.
-    const follow = app.match(/if \(r\.status === 409\) \{\s*undo\(\);\s*return applyConflict\(followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\), conflictDeps\);\s*\}/g) ?? [];
+    const follow = app.match(/if \(r\.status === 409\) \{\s*keep\(\);\s*const step = followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\);[^}]*return applyConflict\(step, conflictDeps\);\s*\}/g) ?? [];
     expect(all.length).toBe(3);
     expect(one.length + follow.length).toBe(all.length);
     expect(follow.length).toBe(1);

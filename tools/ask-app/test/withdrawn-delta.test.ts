@@ -25,7 +25,11 @@ const withdrawn = stored(head(W) + BODY);
 const open = stored(head("", "open") + BODY);
 const REF = "idealic:kernel/w1";
 const app = fs.readFileSync(path.join(import.meta.dirname, "../src/client/App.tsx"), "utf8");
-const fnBody = (start: string, len = 1200) => app.slice(app.indexOf(start), app.indexOf(start) + len);
+const fnBody = (start: string, len = 1200) => {
+  // NIT-B (delta): a start that is not in App fails here rather than slicing "" and passing on nothing.
+  if (!app.includes(start)) throw new Error(`fnBody: ${start} is not in App.tsx`);
+  return app.slice(app.indexOf(start), app.indexOf(start) + len);
+};
 
 afterEach(() => forgetMemory());
 
@@ -70,7 +74,7 @@ describe("SHOULD-1: App's conflict wiring, pinned whole", () => {
     expect(app.match(/conflictStep\(/g)).toHaveLength(1);
   });
   it("the follow-up's 409 goes through the same apply", () => {
-    expect(app).toMatch(/undo\(\);\s*return applyConflict\(followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\), conflictDeps\);/);
+    expect(app).toMatch(/const step = followupConflict\(r\.json, keyFor\(false\), unsentKey\(ref, false\)\);[^}]*return applyConflict\(step, conflictDeps\);/);
     expect(app.match(/applyConflict\(/g)).toHaveLength(2);
   });
 });
@@ -97,7 +101,11 @@ describe("SHOULD-1: Send batch writes its line once, from batchOutcome (plant A)
   // NIT-4 (ASKFOLLOW critique): the ban is on the conflict paths, where "moved" misnamed a stale revision;
   // the missing-ask line may say moved, since a move to another seat is one of its causes.
   it("App words no move on its conflict paths", () => {
-    for (const start of ["async function sendBatch(", "const conflictDeps = ", "const onConflict = ", "async function sendFollowup("]) expect(fnBody(start, 2400)).not.toMatch(/moved/);
+    for (const start of ["async function sendBatch(", "const conflictDeps = ", "const onConflict = ", "async function sendFollowup("]) {
+      // NIT-B (delta): a renamed start would slice "" and pass on nothing.
+      expect(app).toContain(start);
+      expect(fnBody(start, 2400)).not.toMatch(/moved/);
+    }
     expect(app).toContain("It may have been moved to another seat, renamed or deleted;");
   });
 });
