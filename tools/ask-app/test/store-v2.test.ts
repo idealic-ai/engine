@@ -391,7 +391,8 @@ describe("forwarding when the holder is silent (operator's ruling)", () => {
     await answerAsk(root, "idealic:kernel", "n5", { answers: { GO: ["YES"] }, answeredBy: "boss@y" }, { expectedRevision: 2, push: recorder().push });
     const r = recorder();
     await answerAsk(root, "idealic:kernel", "n5", { answers: { GO: ["NO"] }, answeredBy: "operator" }, { expectedRevision: 3, push: r.push });
-    expect(r.sent.map((s) => s.seat)).toEqual(["idealic:kernel", "team@x"]);
+    // IDE-339 round 2 (SHOULD-2): the operator overruled boss@y, so boss@y hears it too.
+    expect(r.sent.map((s) => s.seat)).toEqual(["idealic:kernel", "team@x", "boss@y"]);
   });
 });
 

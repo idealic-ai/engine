@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk } from "./lib/store.ts";
-import { answeredByText, authorWarnings, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, type AnswerMap, type AskAnswer, type GrantClass } from "./lib/format.ts";
+import { answeredByText, authorWarnings, noteLine, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, type AnswerMap, type AskAnswer, type GrantClass } from "./lib/format.ts";
 
 /** The author guide, pointed to whenever `new` or `revise` warns or refuses. */
 const GUIDE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "skills", "ask", "assets", "ASK_AUTHOR_GUIDE.md");
@@ -252,7 +252,7 @@ async function main() {
       }
       // A decline of a reserved ask by a seat is passed up to the decliner's own parent (live, as for
       // the default --to; none → operator) instead of closing it.
-      const res = await answerAsk(root, seat, id, input, { expectedRevision: Number(opt.revision), relayerManages: manages, passUpTo: live.parent || "operator", parentOf: (s) => parentOfSeat(s) });
+      const res = await answerAsk(root, seat, id, input, { expectedRevision: Number(opt.revision), relayerManages: manages, answererManages: manages, passUpTo: live.parent || "operator", parentOf: (s) => parentOfSeat(s) });
       if (res.passedUpTo) {
         console.log(`passed up, not declined\t${seat}/${id} → ${res.passedUpTo}\trevision ${res.revision}\t(it is reserved; a decline by anyone else moves it one rung up, with the reason)`);
         console.log(`notice ${res.passedUpTo} ${res.delivery.status}${res.delivery.reason ? `: ${res.delivery.reason}` : ""}`);
@@ -294,8 +294,12 @@ async function main() {
     // S3: an answer whose push died with its writer is pushed again on the next read.
     for (const r of await repushPending(root, { by: by || undefined })) console.error(`repushed ${r.ref}\t${r.delivery.status}`);
     const print = (r: { ref: string; file: string; lines: string[]; stamped: boolean; why?: string; ask: { answer?: AskAnswer } }) => {
-      console.log(`${r.ref}\t${r.file}${r.ask.answer ? `\tby ${answeredByText(r.ask.answer)}` : ""}`);
+      // SHOULD-3 (round 2): the grant class beside who answered; ASKNOTE: the note marked, on its own line.
+      const a = r.ask.answer;
+      console.log(`${r.ref}\t${r.file}${a ? `\tby ${answeredByText(a)}${a.grantClass ? ` · grant ${a.grantClass}` : ""}` : ""}`);
       for (const l of r.lines) console.log(`  ${l}`);
+      const note = noteLine(a);
+      if (note) console.log(`  ${note}`);
       if (!r.stamped) console.error(`  (not stamped read: ${r.why})`);
     };
     if (opt.unread === "true") {

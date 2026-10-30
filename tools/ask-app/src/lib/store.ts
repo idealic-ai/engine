@@ -10,6 +10,8 @@ import {
   AskFormatError,
   assertNotSuperseded,
   answerLines,
+  noteLine,
+  overruledNow,
   bodyDigest,
   clearDraft,
   currentRevision,
@@ -71,7 +73,7 @@ export function newAsk(root: string, fields: NewAskFields, body: string): string
   // M1: answer and draft blocks are records the store writes. A body that carries one — planted or
   // quoted — would be read back as somebody's answer, so it is refused, not stored.
   if (RECORD_FENCE_RE.test(body)) {
-    throw new AskFormatError("the body holds a ```json answer or ```json draft block: those are records the store writes, never part of a question (indent it or use another fence language to quote one)");
+    throw new AskFormatError("the body holds a ```json answer, ```json draft or ```json history block: those are records the store writes, never part of a question (indent it or use another fence language to quote one)");
   }
   for (const k of STAMP_FIELDS) {
     if (fields[k] !== undefined) throw new AskFormatError(`${k} is written by the store as the ask moves; a new ask does not set it`);
@@ -147,18 +149,23 @@ function assertCodes(ask: ParsedAsk) {
  */
 export function deliveryMessage(seat: string, id: string, file: string, answer: AskAnswer, lines: string[] = [], o: { replaced?: string; resent?: boolean; overruled?: string } = {}): string {
   const verb = answer.declined ? "declined" : "answered";
+  // SHOULD-3 (round 2): the grant class rides the first line, so the worker sees it before acting.
+  const grant = answer.grantClass ? ` · grant ${answer.grantClass}` : "";
+  const note = noteLine(answer);
   // IDE-304: a second answer says it CHANGED and what it replaced; a re-push says it is one.
   // IDE-339: when a different answerer replaced it, it says it OVERRULED that answerer.
-  const first = o.replaced && o.overruled
+  const head = o.replaced && o.overruled
     ? `[ask-overruled] from ${answer.answeredBy || "unknown"} via ask-app: ${seat}/${id} is ${verb} again; this answer overrules ${o.overruled}'s`
     : o.replaced
     ? `[ask-answer-changed] from ${answer.answeredBy || "unknown"} via ask-app: ${seat}/${id} is ${verb} again; this answer replaces the earlier one`
     : `[ask-answer] from ${answer.answeredBy || "unknown"} via ask-app: ${seat}/${id} is ${verb}`;
   return [
-    first,
+    `${head}${grant}`,
     ...(o.replaced ? [`Replaced: ${o.replaced}`] : []),
     ...(o.resent ? ["Re-sent: an earlier push of this answer may not have arrived; nothing changed since."] : []),
     ...lines.map((l) => `- ${l}`),
+    // ASKNOTE (round 2): the note is set apart and marked, never folded into a choice line.
+    ...(note ? [`  ${note}`] : []),
     `${seat}/${id} was ${verb} at revision ${answer.revision}. The file is the record; \`engine ask read ${seat}/${id}\` prints it and marks it read:`,
     file,
   ].join("\n");
@@ -308,6 +315,8 @@ export async function answerAsk(
       passUpTo?: string;
       /** A seat's parent ("" when none), to climb past the asker when the pass-up would land on it. */
       parentOf?: (seat: string) => string;
+      /** The answerer's FLEET_MANAGES: a grant class is accepted only when it lists the asker (MUST-1). */
+      answererManages?: string[];
     },
 ): Promise<{ file: string; revision: number; delivery: DeliveryResult; passedUpTo?: string }> {
   const file = resolveAskPath(root, seat, id);
@@ -318,7 +327,7 @@ export async function answerAsk(
   const passed = await withFileLock(file, () => {
     const before = fs.readFileSync(file, "utf8");
     const ask = parseAskFile(before);
-    assertGrant(ask, input);
+    assertGrant(ask, input, opts.answererManages);
     if (!isPassUp(ask, input)) return undefined;
     assertNotSuperseded(ask);
     if (!input.reason?.trim()) throw new AskFormatError("a decline needs a non-empty reason");
@@ -346,7 +355,8 @@ export async function answerAsk(
   const { written, record, parsed, replaced } = await withFileLock(file, () => {
     const before = fs.readFileSync(file, "utf8");
     assertMayAnswer(parseAskFile(before), input, opts);
-    assertGrant(parseAskFile(before), input);
+    assertGrant(parseAskFile(before), input, opts.answererManages);
+    assertHistoryReadable(parseAskFile(before), file);
     const replaced = replacedSummary(parseAskFile(before));
     const grant = input.grantClass ? { grantClass: input.grantClass } : {};
     let text: string;
@@ -386,16 +396,22 @@ async function pushAnswer(parsed: ParsedAsk, seat: string, file: string, record:
   const id = parsed.header.id ?? "";
   const msg = deliveryMessage(seat, id, file, record, answerLines(parsed, seat), how);
   const results: Record<string, DeliveryResult> = {};
-  for (const s of pushTargets(parsed, seat)) {
+  for (const s of pushTargets(parsed, seat, how.overruled)) {
     results[s] = isSelf(s, record) ? SELF : await safePush(push, s, msg, opts);
   }
   return combine(results);
 }
 
-/** The seats an answer is pushed to: the asker and every forwarder (the asker's seat when none is named). */
-function pushTargets(parsed: ParsedAsk, seat: string): string[] {
+/**
+ * The seats an answer is pushed to: the asker and every forwarder (the asker's seat when none is
+ * named). SHOULD-2 (round 2): an overrule is pushed to the seat it overruled as well — the one
+ * whose ruling was reversed — unless that is the operator, who is not a seat.
+ */
+function pushTargets(parsed: ParsedAsk, seat: string, overruled?: string): string[] {
   const seats = recipientsOf(parsed);
-  return seats.length ? seats : [seat];
+  const out = seats.length ? seats : [seat];
+  const prior = overruled?.trim();
+  return prior && !isOperatorName(prior) && !out.includes(prior) ? [...out, prior] : out;
 }
 
 /**
@@ -516,19 +532,33 @@ function isPassUp(ask: ParsedAsk, a: AskAnswer): boolean {
   return !!a.declined && !!reserved && a.answeredBy !== reserved;
 }
 
-/** IDE-339: the `overruled:` stamp the settle just wrote, read only beside a `replaced:` one. */
-const overruledOf = (ask: ParsedAsk, replaced: string | undefined) => (replaced && ask.header.overruled?.trim()) || undefined;
+/**
+ * IDE-339: whom this settle overruled, read only beside a `replaced:` one. Round 2: read from the
+ * history (`overruledNow`), not the `overruled:` header, which keeps its trail across a self-change.
+ */
+const overruledOf = (ask: ParsedAsk, replaced: string | undefined) => (replaced ? overruledNow(ask) : undefined);
+
+/** NIT-1 (round 2): a settle rewrites the history fence, so one that cannot be read whole is refused, naming the file. */
+function assertHistoryReadable(ask: ParsedAsk, file: string) {
+  if (ask.historyError) throw new AskFormatError(`${ask.historyError} in ${file}: fix or remove it by hand before this ask is answered again`);
+}
 
 /**
  * IDE-339: a grant class is A–D, written by the answering manager (`engine ask answer --grant`): never
- * on the operator's answer (relayed or not), and never on an ask reserved for someone.
+ * on the operator's answer (relayed or not), and never on an ask reserved for someone. Round 2
+ * (MUST-1): only by a MANAGER of the asker — the answerer's FLEET_MANAGES must list the asker's seat
+ * or label — so a peer addressee cannot record an authority it does not hold.
  */
-function assertGrant(ask: ParsedAsk, a: AskAnswer) {
+function assertGrant(ask: ParsedAsk, a: AskAnswer, answererManages: string[] = []) {
   if (a.grantClass === undefined) return;
   const id = ask.header.id ?? "";
   if (!(GRANT_CLASSES as readonly unknown[]).includes(a.grantClass)) throw new AskFormatError(`a grant class is A, B, C or D, not ${String(a.grantClass)}`);
   if (isOperatorName(a.answeredBy)) throw new AskFormatError(`the operator's answer to ${id} carries no grant class: a grant class is the answering manager's`);
   if (reservedOf(ask)) throw new AskFormatError(`ask ${id} is reserved for ${reservedOf(ask)}: a reserved ask's answer carries no grant class`);
+  const asker = ask.header.from ?? "";
+  if (!asker || !managesSeat(answererManages, asker)) {
+    throw new AskFormatError(`${a.answeredBy || "an unnamed answerer"} is not a manager of ${asker || "the asker"}: only the asker's manager (its FLEET_MANAGES lists the asker) gives a grant class on ${id}`);
+  }
 }
 
 /** R4 and M3: an ask marked `reserved-for: operator` is answered by the operator; any ask only by its answerers. */
@@ -604,12 +634,15 @@ export type BatchResult = {
 };
 
 /** The batch push: a summary built from the files just written, one per recipient seat. */
-export function batchMessage(seat: string, answeredBy: string, items: { ref: string; file: string; lines: string[]; replaced?: string; overruled?: string }[]): string {
+export function batchMessage(seat: string, answeredBy: string, items: { ref: string; file: string; lines: string[]; replaced?: string; overruled?: string; note?: string }[]): string {
   const n = items.length;
   return [
     `[ask-batch] from ${answeredBy || "unknown"} via ask-app: ${n} answer${n === 1 ? "" : "s"} for ${seat}`,
     // IDE-304: an item that replaces an earlier answer says so, and what it replaced.
     // IDE-339: one that a different answerer gave is overruled, and says whose it was.
+    // NIT-4 (round 2): the `[ask-overruled]` branch is unreachable from sendBatch today — a draft on
+    // a settled ask is only the operator's, over the operator's own answer, so a batch never changes
+    // answerer. It is kept (and pinned through this export) for when writeDraft allows that.
     ...items.flatMap((it) => [
       ...(it.replaced && it.overruled
         ? [`- [ask-overruled] ${it.ref} overrules ${it.overruled}; replaces ${it.replaced}`]
@@ -617,6 +650,8 @@ export function batchMessage(seat: string, answeredBy: string, items: { ref: str
           ? [`- [ask-answer-changed] ${it.ref} replaces ${it.replaced}`]
           : []),
       ...it.lines.map((l) => `- ${l}`),
+      // ASKNOTE (round 2): the item's note, marked and set apart under its lines.
+      ...(it.note ? [`  ${it.note}`] : []),
     ]),
     "",
     "Each answer is in its file, the only record. `engine ask read <seat>/<id>` prints it in full and marks it read:",
@@ -636,7 +671,7 @@ export async function sendBatch(root: string, refs: string[] | undefined, opts: 
   if (!by) throw new AskFormatError("send must name its sender: a batch sends only the sender's own drafts");
   const out: BatchResult = { repushed: await repushPending(root, opts), settled: [], refused: [], pushes: [] };
   const list = refs ?? listAsks(root).filter((a) => a.draft && draftAuthor(a.draft) === by).sort((a, b) => a.file.localeCompare(b.file)).map((a) => `${a.seat}/${a.header.id}`);
-  const bySeat = new Map<string, { ref: string; file: string; lines: string[]; written: number; replaced?: string; overruled?: string }[]>();
+  const bySeat = new Map<string, { ref: string; file: string; lines: string[]; written: number; replaced?: string; overruled?: string; note?: string }[]>();
   const answerers = new Set<string>();
   const selfOnly: { file: string; written: number; seat: string }[] = [];
   for (const ref of list) {
@@ -651,6 +686,7 @@ export async function sendBatch(root: string, refs: string[] | undefined, opts: 
         if (!d) throw new AskFormatError(`${ref} has no draft to send`);
         if (draftAuthor(d) !== by) throw new AskFormatError(`${ref}'s draft was saved by ${draftAuthor(d) || "an unnamed answerer"}; only its author sends it`);
         assertMayAnswer(ask, d, opts);
+        assertHistoryReadable(ask, file);
         // S4: the draft answers the question as it was when it was saved.
         if (d.bodyHash && d.bodyHash !== bodyDigest(before)) throw new AskFormatError(`${ref}: stale draft, the question was edited after the draft was saved: re-read it and draft again`);
         const replaced = replacedSummary(ask);
@@ -667,8 +703,9 @@ export async function sendBatch(root: string, refs: string[] | undefined, opts: 
       out.settled.push({ ref, revision: written, file });
       answerers.add(settled.answer?.answeredBy ?? "");
       const overruled = overruledOf(settled, settled.replaced);
-      const item = { ref, file, lines: answerLines(settled, seat), written, ...(settled.replaced ? { replaced: settled.replaced } : {}), ...(overruled ? { overruled } : {}) };
-      for (const s of pushTargets(settled, seat)) {
+      const note = noteLine(settled.answer);
+      const item = { ref, file, lines: answerLines(settled, seat), written, ...(settled.replaced ? { replaced: settled.replaced } : {}), ...(overruled ? { overruled } : {}), ...(note ? { note } : {}) };
+      for (const s of pushTargets(settled, seat, overruled)) {
         if (isSelf(s, settled.answer)) selfOnly.push({ file, written, seat: s });
         else bySeat.set(s, [...(bySeat.get(s) ?? []), item]);
       }

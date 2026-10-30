@@ -66,10 +66,10 @@ describe("settle: overruled", () => {
     expect(parseAskFile(t2).header.replaced).toContain("by manager:docs");
   });
 
-  it("is cleared when the same answerer changes its answer again", () => {
+  it("is kept when the same answerer changes its answer again (NIT-3: the trail stays until a different answerer)", () => {
     const t2 = writeAnswer(writeAnswer(ASK, SEAT_A, 1), OP_A, 2);
     const t3 = writeAnswer(t2, { ...OP_A, answers: { GO: ["YES"] } }, 3);
-    expect(parseAskFile(t3).header.overruled).toBeUndefined();
+    expect(parseAskFile(t3).header.overruled).toBe("manager:docs");
   });
 
   it("is never stamped on a self-change", () => {
@@ -175,7 +175,7 @@ describe("the push: [ask-overruled]", () => {
 
 describe("grantClass", () => {
   it("a manager's answer records the grant class it was given", async () => {
-    await answerAsk(root, SEAT, "go", { answers: { GO: ["YES"] }, answeredBy: MGR, answeredVia: "cli", grantClass: "B" }, { expectedRevision: 1, push });
+    await answerAsk(root, SEAT, "go", { answers: { GO: ["YES"] }, answeredBy: MGR, answeredVia: "cli", grantClass: "B" }, { expectedRevision: 1, push, answererManages: ["handbook"] });
     expect(readAsk("go").answer?.grantClass).toBe("B");
   });
 
@@ -186,12 +186,12 @@ describe("grantClass", () => {
 
   it("is refused on a reserved-for ask", async () => {
     newAsk(root, { from: SEAT, to: MGR, id: "res", "reserved-for": MGR }, BODY);
-    await expect(answerAsk(root, SEAT, "res", { answers: { GO: ["YES"] }, answeredBy: MGR, answeredVia: "cli", grantClass: "C" }, { expectedRevision: 1, push })).rejects.toThrow(/reserved/);
+    await expect(answerAsk(root, SEAT, "res", { answers: { GO: ["YES"] }, answeredBy: MGR, answeredVia: "cli", grantClass: "C" }, { expectedRevision: 1, push, answererManages: ["handbook"] })).rejects.toThrow(/reserved/);
     expect(readAsk("res").header.status).toBe("open");
   });
 
   it("only A, B, C or D", async () => {
-    await expect(answerAsk(root, SEAT, "go", { answers: { GO: ["YES"] }, answeredBy: MGR, answeredVia: "cli", grantClass: "E" as never }, { expectedRevision: 1, push })).rejects.toThrow(/A, B, C or D/);
+    await expect(answerAsk(root, SEAT, "go", { answers: { GO: ["YES"] }, answeredBy: MGR, answeredVia: "cli", grantClass: "E" as never }, { expectedRevision: 1, push, answererManages: ["handbook"] })).rejects.toThrow(/A, B, C or D/);
   });
 
   it("is never drafted", async () => {

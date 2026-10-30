@@ -46,7 +46,7 @@ beforeAll(async () => {
   newAsk(root, { from: SEAT, to: MGR, id: "g1" }, BODY);
   newAsk(root, { from: SEAT, to: MGR, id: "h1" }, BODY);
   const push = async () => ({ status: "delivered" as const });
-  await answerAsk(root, SEAT, "h1", { answers: { GO: ["YES"] }, answeredBy: MGR, answeredVia: "cli", grantClass: "B" }, { expectedRevision: 1, push });
+  await answerAsk(root, SEAT, "h1", { answers: { GO: ["YES"] }, answeredBy: MGR, answeredVia: "cli", grantClass: "B" }, { expectedRevision: 1, push, answererManages: [SEAT] });
   await answerAsk(root, SEAT, "h1", { answers: { GO: ["NO"] }, answeredBy: "operator", answeredVia: "browser" }, { expectedRevision: 2, push });
   port = 30000 + Math.floor(Math.random() * 20000);
   const env: NodeJS.ProcessEnv = { ...process.env, ASK_SESSIONS_DIR: path.join(base, "sessions"), ASK_LINEAR_ENV: "/dev/null", ASK_APP_DIST: fakeDist(base) };

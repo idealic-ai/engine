@@ -110,6 +110,13 @@ export type ParsedAsk = {
    * and all), from the file's ```json history``` fence. Empty when nothing was replaced.
    */
   history: AskAnswer[];
+  /**
+   * IDE-339 round 2 (NIT-1): why the history fence could not be read whole — not valid JSON, not a
+   * list, or entries that are not answer records. The ask still parses (it stays listed), `history`
+   * holds only the entries that are records, and a settle is refused while this is set, so a bad
+   * fence is never silently overwritten.
+   */
+  historyError?: string;
 };
 
 export const HEADER_FIELDS = [
@@ -540,20 +547,29 @@ export function parseAskFile(text: string): ParsedAsk {
   // IDE-304: on a settled ask, only the operator's draft of a change to the operator's own answer counts.
   if (draft && !open && !(isOperatorAnswer(answer) && isOperatorName(draft.answeredBy))) draft = undefined;
   // IDE-339: like the answer, the history counts only on a settled ask, and the last fence is the record.
-  let history: AskAnswer[] = [];
   const hms = [...rest.matchAll(HISTORY_FENCES)];
-  if (hms.length && settled) {
-    let h: unknown;
-    try {
-      h = JSON.parse(hms[hms.length - 1][1]);
-    } catch {
-      throw new AskFormatError("the json history block is not valid JSON");
-    }
-    if (!Array.isArray(h)) throw new AskFormatError("the json history block must be a list of answers");
-    history = h as AskAnswer[];
-  }
+  const { history, historyError } = hms.length && settled ? readHistory(hms[hms.length - 1][1]) : { history: [] as AskAnswer[], historyError: undefined };
   const { preamble, questions } = parseQuestions(stripRecords(rest));
-  return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}), history };
+  return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}), history, ...(historyError ? { historyError } : {}) };
+}
+
+const isRecord = (x: unknown): x is AskAnswer => !!x && typeof x === "object" && !Array.isArray(x);
+
+/**
+ * NIT-1 (round 2): the history fence's JSON, kept to the entries that are answer records (plain
+ * objects). Anything else is named in `historyError` rather than thrown, so the ask still lists.
+ */
+function readHistory(json: string): { history: AskAnswer[]; historyError?: string } {
+  let h: unknown;
+  try {
+    h = JSON.parse(json);
+  } catch {
+    return { history: [], historyError: "the json history block is not valid JSON" };
+  }
+  if (!Array.isArray(h)) return { history: [], historyError: "the json history block must be a list of answers" };
+  const bad = h.flatMap((x, i) => (isRecord(x) ? [] : [i]));
+  const history = h.filter(isRecord);
+  return bad.length ? { history, historyError: `the json history block's entr${bad.length > 1 ? "ies" : "y"} ${bad.join(", ")} ${bad.length > 1 ? "are" : "is"} not answer records` } : { history };
 }
 
 /**
@@ -639,13 +655,27 @@ const answererOf = (a: AskAnswer) => (isOperatorName(a.answeredBy) ? "operator" 
  */
 export function overruledBy(ask: ParsedAsk, record: AskAnswer): string | undefined {
   const prior = ask.header.status === "answered" || ask.header.status === "declined" ? ask.answer : undefined;
-  if (!prior || answererOf(prior) === answererOf(record)) return undefined;
-  return prior.answeredBy || "unknown";
+  // NIT-2 (round 2): a prior answer that names nobody overrules nobody we can name; stamp nothing.
+  if (!prior || !prior.answeredBy?.trim() || answererOf(prior) === answererOf(record)) return undefined;
+  return prior.answeredBy;
+}
+
+/**
+ * IDE-339 round 2: whom the CURRENT answer overruled — the last replaced answer's answerer, when it
+ * is someone else. Read from the history, not the `overruled:` header, because the header keeps its
+ * trail across a later self-change (NIT-3) while the push for that self-change is no overrule.
+ */
+export function overruledNow(ask: ParsedAsk): string | undefined {
+  const prev = ask.history.at(-1);
+  if (!ask.answer || !prev || !prev.answeredBy?.trim() || answererOf(prev) === answererOf(ask.answer)) return undefined;
+  return prev.answeredBy;
 }
 
 function settle(text: string, record: AskAnswer, status: "answered" | "declined", expectedRevision?: number): string {
   const ask = parseAskFile(text);
   assertNotSuperseded(ask);
+  // NIT-1 (round 2): a settle rewrites the history fence, so one it cannot read whole is refused.
+  if (ask.historyError) throw new AskFormatError(`${ask.historyError}: fix or remove it by hand before this ask is answered again`);
   const cur = currentRevision(ask);
   if (expectedRevision !== undefined && expectedRevision !== cur) throw new StaleRevisionError(expectedRevision, cur);
   const revision = String(cur + 1);
@@ -656,7 +686,9 @@ function settle(text: string, record: AskAnswer, status: "answered" | "declined"
   const history = replaced && ask.answer ? [...ask.history, ask.answer] : ask.history;
   let out = setHeaderField(text, "status", status);
   out = replaced ? setHeaderField(out, "replaced", replaced) : removeHeaderField(out, "replaced");
-  out = overruled ? setHeaderField(out, "overruled", overruled) : removeHeaderField(out, "overruled");
+  // NIT-3 (round 2): a self-change keeps the stamp, so the header still says an overrule happened;
+  // only a different answerer's answer moves it, to the answerer that one overruled.
+  if (overruled) out = setHeaderField(out, "overruled", overruled);
   out = setHeaderField(out, "revision", revision);
   // A new answer is unread and not yet acted on, whatever the last one was.
   for (const k of ["readAt", "readBy", "reads", "acted", "actedAt", "actedBy", "draft", "deliveryWriter"]) out = removeHeaderField(out, k);
@@ -869,6 +901,15 @@ export function describeAnswer(q: AskQuestion, v: AnswerValue | undefined, other
 }
 
 /**
+ * ASKNOTE (round 2): an answer's note, marked and on its own line, never folded into a choice:
+ * `⚠ note from <answerer>: "<text>"` (JSON-quoted, so a multi-line note stays one line).
+ */
+export function noteLine(a: AskAnswer | undefined): string | undefined {
+  if (!a?.note?.trim()) return undefined;
+  return `⚠ note from ${answeredByText(a)}: ${JSON.stringify(a.note.trim())}`;
+}
+
+/**
  * `title → answer · seat/id#KEY` for each answered question, read from the FILE's answer block —
  * never from a request — so a batch message cannot carry an answer the file does not hold.
  */
@@ -876,7 +917,9 @@ export function answerLines(ask: ParsedAsk, seat: string): string[] {
   const ref = `${seat}/${ask.header.id ?? ""}`;
   const a = ask.answer;
   if (!a) return [];
-  if (a.declined) return [`${ask.questions[0]?.title ?? ask.header.id} → declined: ${a.reason ?? ""} · ${ref}`];
+  // SHOULD-3 (round 2): the grant class the answering manager gave, as its own line after the picks.
+  const grant = a.grantClass ? [`grant class ${a.grantClass}, given by ${a.answeredBy || "unknown"} · ${ref}`] : [];
+  if (a.declined) return [`${ask.questions[0]?.title ?? ask.header.id} → declined: ${a.reason ?? ""} · ${ref}`, ...grant];
   const answers = a.answers ?? {};
   const out: string[] = [];
   ask.questions.forEach((q, i) => {
@@ -885,7 +928,7 @@ export function answerLines(ask: ParsedAsk, seat: string): string[] {
     if (answers[k] === undefined && other === undefined) return;
     out.push(`${q.title} → ${describeAnswer(q, answers[k], typeof other === "string" ? other : undefined)} · ${ref}#${k}`);
   });
-  return out;
+  return [...out, ...grant];
 }
 
 // ── the forward chain (COORDHOP S4) ──────────────────────
