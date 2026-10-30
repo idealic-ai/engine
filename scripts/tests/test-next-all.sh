@@ -361,12 +361,12 @@ test_ask_fold_per_id() {
 }
 
 # TEXT — NEXTUNATT: a seat with a parent, or a relayed run, never blocks on AskUserQuestion. The
-# parented path names `engine ask new` and hop.sh, and its section never tells the agent to put up
+# parented path names `Skill(ask, …)` and hop.sh, and its section never tells the agent to put up
 # an AskUserQuestion except to reserve it for a seat with no parent. The relay counts as typed.
 test_unwatched_seat_asks_up() {
   local sec line
   sec=$(section '^## An unwatched seat never blocks' '^## Documentation signals')
-  has_fixed "engine ask new --to" "$sec" "§ unwatched: the parented path writes the question with engine ask new"
+  has_fixed "Skill(ask, \"<the question you need answered> --to" "$sec" "§ unwatched: the parented path writes the question by invoking /ask"
   has_fixed "hop.sh target" "$sec" "§ unwatched: whether the seat has a parent is read from hop.sh target"
   has_fixed "puts up no \`AskUserQuestion\`, whatever its argument" "$sec" "§ unwatched: no AskUserQuestion whatever the argument"
   has_fixed "A plain \`/next\` on a parented seat" "$sec" "§ unwatched: a plain /next on a parented seat is covered"
@@ -376,7 +376,7 @@ test_unwatched_seat_asks_up() {
   bad=$(printf '%s\n' "$sec" | grep -F 'AskUserQuestion' | grep -vF 'no `AskUserQuestion`' | grep -vF 'never hand-rolls an `AskUserQuestion`' | grep -vF 'put up the consent `AskUserQuestion`' | grep -vF '`AskUserQuestion` stays for a seat with no parent' || true)
   assert_empty "$bad" "§ unwatched: AskUserQuestion appears only as forbidden or reserved for a seat with no parent"
   line=$(inv_line INV_NEXT_UNWATCHED_SEAT_ASKS_UP)
-  has_fixed "engine ask new" "$line" "¶INV_NEXT_UNWATCHED_SEAT_ASKS_UP names engine ask new"
+  has_fixed "Skill(ask, " "$line" "¶INV_NEXT_UNWATCHED_SEAT_ASKS_UP names Skill(ask, …)"
   has_fixed "never puts up an \`AskUserQuestion\`" "$line" "¶INV_NEXT_UNWATCHED_SEAT_ASKS_UP forbids AskUserQuestion"
   line=$(inv_line INV_NEXT_ALL_IS_THE_WORD_ONLY)
   has_fixed "manager chain or the director" "$line" "¶INV_NEXT_ALL_IS_THE_WORD_ONLY: a relay from the manager chain or the director counts as typed"

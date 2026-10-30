@@ -289,7 +289,7 @@ test_atom_carries_the_whole_guidance() {
     'blocking-first' \
     'do NOT hand-roll an `AskUserQuestion`' \
     '`bash ~/.claude/engine/skills/coordinate/scripts/hop.sh target`' \
-    '`engine ask new --to <that target>`' \
+    '`Skill(ask, "<the question you need answered> --to <that target>")`' \
     'one-line row under `🔓 Open claims`' \
     'an operator who is present at this terminal' \
     'A seat with a parent never uses them' \
@@ -336,13 +336,13 @@ run_test test_atom_has_no_anchor_or_call_form
 
 test_commands_entry_names_the_ask_route() {
   local entry; entry=$(atom_section)
-  if [[ "$entry" == *'engine ask new --to'* ]] && [[ "$entry" == *'the first word `hop.sh target` prints'* ]] \
+  if [[ "$entry" == *'Skill(ask, "<the question you need answered> --to'* ]] && [[ "$entry" == *'the first word `hop.sh target` prints'* ]] \
      && [[ "$entry" == *'`engine open-asks`'* ]] \
      && [[ "$entry" == *'present at this terminal'* ]] && [[ "$entry" != *'auto-continues;'* ]]; then
     pass "ATOM-04: the COMMANDS.md entry routes an operator-only question to an ask, the skills only for an operator present"
   else
     fail "ATOM-04: the COMMANDS.md entry routes an operator-only question to an ask, the skills only for an operator present" \
-      "engine ask new --to, the first word hop.sh target prints, engine open-asks, present at this terminal" "$entry"
+      "Skill(ask, … --to), the first word hop.sh target prints, engine open-asks, present at this terminal" "$entry"
   fi
 }
 run_test test_commands_entry_names_the_ask_route

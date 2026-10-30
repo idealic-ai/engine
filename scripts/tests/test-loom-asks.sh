@@ -6,7 +6,7 @@
 #                                       engine (how a worktree is tested before it lands).
 #
 # WHAT THIS COVERS (IDE-255, LOOMASK)
-#   1. The decide pass writes asks (`engine ask new`, routed per § The manager chain), never a board
+#   1. The decide pass writes asks (`Skill(ask, …)`, routed per § The manager chain), never a board
 #      unless the operator asks for one; /decide is composed, not retired.
 #   2. The `🗳️ Boards` register is now `🗳️ Asks`, and the Board-fold trigger is an Asks read
 #      (`engine ask list --seat`, then `engine ask read`, which stamps readAt).
@@ -146,7 +146,7 @@ check_asks_register_declared() {  # $1 log template $2 inheritance $3 debrief
 check_decide_pass_writes_asks() {  # $1 skill
   local b; b=$(trigger_block "$1" 'Decide pass')
   [ -n "$b" ] || { echo "skill: no Decide pass trigger"; return; }
-  printf '%s' "$b" | grep -q -F 'engine ask new' || echo "Decide pass: does not write an ask (engine ask new)"
+  printf '%s' "$b" | grep -q -F 'Skill(ask, ' || echo "Decide pass: does not write an ask (Skill(ask, …))"
   printf '%s' "$b" | grep -q -F '**Publishes**: no' || echo "Decide pass: still publishes"
   printf '%s' "$b" | grep -q -F 'only when the operator asks for one' || echo "Decide pass: a board is not limited to the operator's request"
   printf '%s' "$b" | grep -q -E '/decide` §1–§3.*§6' || echo "Decide pass: does not compose /decide's mining, cards and record"

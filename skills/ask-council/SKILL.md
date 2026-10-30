@@ -65,9 +65,8 @@ Unblocks: the operator answers three asks with the panel's reads beside the opti
 - [ ] [SKIP] Not this set
 ```
 
-```bash
-engine ask new --to operator --reserved-for operator --topic "ask council pass" \
-  --why "a council per topic instead of per question; nothing runs until you pick" --body-file <plan.md>
+```
+Skill(ask, "<the council plan above> --to operator --reserved-for operator --topic \"ask council pass\" --why \"a council per topic instead of per question; nothing runs until you pick\" --body-file <plan.md>")
 ```
 
 List the "waiting for company" asks in the preamble. Do not give them forks. Then **stop and wait**. Do not run a set because the plan has sat unanswered; an unanswered plan runs nothing (`IfUnanswered: nothing runs`). Go back to whatever else you were doing; the answer arrives through the ask's delivery.

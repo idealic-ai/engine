@@ -115,7 +115,7 @@ elif cmd == "pins":
     if seat < 0: missing.append("seat -> ask route bullet")
     if lane >= 0 and seat >= 0 and lane > seat: missing.append("lane bullet comes before the seat bullet")
     if idx("- " + OP_PRESENT) < 0: missing.append("operator-present bullet")
-    for needle in ["hop.sh target", "§CMD_CONTINUE_ON_STOP", "engine ask new --to", "engine ask read",
+    for needle in ["hop.sh target", "§CMD_CONTINUE_ON_STOP", "Skill(ask, \"<the draft question> --to", "engine ask read",
                    "--reserved-for operator", "Rendered description (postable)", "ONE ask",
                    "`/ticket-search --report`", "/inbox-post --channel",
                    "**`FILE` counts only when every visible fork is answered**",
