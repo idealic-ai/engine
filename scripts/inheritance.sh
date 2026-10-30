@@ -29,10 +29,13 @@
 #   * A seat is a RELATION, never the owner, when with/to/from/by/via/for/and stands directly
 #     before it, or parent/formerly/was/now/"on behalf of"/an arrow stands earlier in its clause.
 #   * Who is one loom: a chunk links its session to its owner seat; a heading with an owner seat and
-#     no session takes the session its first 3 body lines name beside owner/session/loom; a rename
-#     (`A → B`, `B, formerly A`, `was`, `now`) links two seats that share a side. A loom is
-#     everything so linked, so a renamed seat, its old name and every session it ran in reach the
-#     same rows, and `--latest` is the newest block among them by file position.
+#     no session takes the session its first 3 body lines name beside owner/session/loom. Only a
+#     heading that opens a chunk can rename: a seat right after formerly/renamed/was/now/becoming
+#     joins the chunk's owner, and `A → B` is a rename only when the heading also says rename,
+#     formerly or becomes (elsewhere an arrow is a direction). A loom is everything so linked, so a
+#     renamed seat, its old name and every session it ran in reach the same rows. `--latest` is the
+#     newest block in the subject's own chain: the session given, or the sessions the given seat
+#     headed a chunk with; a seat reached only through renames must reach one session, else exit 2.
 #   * Kind: a heading saying addendum, delta or correction is a delta; any other chunk is a block.
 #   * Headings inside a fence (``` or ~~~, matched by character and length) are text. A fence still
 #     open at the end of the file is an instrument fault: every heading after it would be lost.
@@ -100,7 +103,9 @@ SEAT = re.compile(r"(?<![\w/:.\-])([a-z]+):([A-Za-z][A-Za-z0-9_\-]*)")
 DIRECT = re.compile(r"\b(?:with|to|from|by|via|for|and)\s*[`\"'(]*\s*$", re.I)
 CLAUSE_REL = re.compile(r"\bparent\b|\bformerly\b|\bwas\b|\bnow\b|\bon behalf of\b|→|->", re.I)
 SEP = re.compile(r"[,;()\[\]—–|]|:\s")
-RENAME = re.compile(r"[\s`\"'(,]*(?:→|->|formerly|was|now|becoming|renamed to)[\s`\"'(]*", re.I)
+ARROW = re.compile(r"[\s`\"'(,]*(?:→|->)[\s`\"'(]*")
+RENAME_SAID = re.compile(r"\brenam|\bformerly\b|\bbecom", re.I)
+RENAME_WORD = re.compile(r"\b(?:formerly|renamed(?:\s+(?:to|from))?|was|now|becoming|becomes)\s*[`\"'(]*\s*$", re.I)
 CUE = re.compile(r"addend|delta|hand-?over|inheritance|supersed|\brows\b|\bblock\b|written|refresh", re.I)
 DELTA = re.compile(r"addend|\bdelta\b|correction", re.I)
 REGISTER = re.compile(r"^[\W_]*(?:threads|asks\b|lane asks|open claims|operator asks|docs owed|rules owed|"
@@ -115,16 +120,18 @@ def seat_name(m):
     return f"{m.group(1)}:{m.group(2)}".lower()
 
 def parse(txt):
-    """-> (session, owner seat, [(seat, seat)] renames) for one heading's text."""
+    """-> (session, owner seat, renames) for one heading's text. A rename is (a, b), where a None
+    means "this chunk's session". Only a heading that opens a chunk contributes its renames."""
     s = SESSION.search(txt)
     owner, renames, prev = None, [], None
+    said = RENAME_SAID.search(txt)
     for m in SEAT.finditer(txt):
         seat, before = seat_name(m), txt[:m.start()]
         clause = SEP.split(before)[-1]
-        if prev and RENAME.fullmatch(txt[prev[1]:m.start()]):
-            a, b = prev[0].split(":"), seat.split(":")
-            if a[0] == b[0] or a[1] == b[1]:
-                renames.append((prev[0], seat))
+        if prev and said and ARROW.fullmatch(txt[prev[1]:m.start()]):
+            renames.append((prev[0], seat))          # "A → B" in a heading that says rename/formerly/becomes
+        elif RENAME_WORD.search(before):
+            renames.append((owner, seat))            # "B, formerly A" / "(… now B)": links to this chunk's owner
         if owner is None and not DIRECT.search(before) and not CLAUSE_REL.search(clause):
             owner = seat
         prev = (seat, m.end())
@@ -178,12 +185,11 @@ def union(a, b):
 
 # Pass 2: chunks. Lines are attributed to the top of a stack of open chunks.
 PRE = {"owner": "(preamble)", "session": None, "seat": None, "kind": "block", "level": 0, "start": 0}
-chunks, owner_line, stack, last_l1, cut = [], [None] * N, [], None, []
+chunks, owner_line, stack, last_l1, cut, pairs = [], [None] * N, [], None, [], set()
 for i in range(N):
     if i in head_at and head_at[i][0] <= 3:
         lvl, txt = head_at[i]
         sess, seat, renames = parse(txt)
-        for a, b in renames: union(a, b)
         opens = None
         if lvl == 1:
             kind = "delta" if DELTA.search(txt) else "block"
@@ -213,9 +219,13 @@ for i in range(N):
                 cut.append((popped, i))
         if opens:
             sess, seat, kind = opens
-            if sess and seat: union(sess, seat)
+            if sess and seat:
+                union(sess, seat); pairs.add((sess, seat))
             own = sess or seat or "(unowned)"
             find(own)
+            for a, b in renames:
+                a = a or own
+                if a != b: union(a, b)
             c = {"owner": own, "session": sess, "seat": seat, "kind": kind, "level": lvl,
                  "heading": lines[i], "start": i}
             chunks.append(c)
@@ -308,14 +318,29 @@ if not cs:
     sys.exit(3)
 mine = set(id(c) for c in cs)
 if latest:
-    blocks = [c for c in cs if c["kind"] == "block"]
-    if blocks:
-        cs = cs[cs.index(blocks[-1]):]
+    # Stay in the subject's own session chain: the session it names, or the sessions its seat
+    # headed a chunk with. A loom reached only through renames must have one session to choose.
+    lsess = sorted({c["session"] for c in cs if c["session"]})
+    own = {key} if SESSION.fullmatch(key) else {s for s, t in pairs if t == key}
+    if not own:
+        if len(lsess) > 1:
+            print(f"inheritance: {subject} reaches {', '.join(lsess)} only through renames, so --latest cannot "
+                  f"choose one; run show with the session name you inherit from", file=sys.stderr)
+            sys.exit(2)
+        own = set(lsess)
+    chain = [c for c in cs if c["session"] in own or not c["session"]]
+    blocks = [c for c in chain if c["kind"] == "block"]
+    every = [c for c in cs if c["kind"] == "block"]
+    if every and blocks and every[-1] is not blocks[-1]:
+        print(f"inheritance: this loom spans {', '.join(lsess)}; --latest kept to {', '.join(sorted(own))}, and "
+              f"{every[-1]['session'] or every[-1]['seat']} has a newer block at :{every[-1]['start'] + 1}",
+              file=sys.stderr)
+    cs = chain[chain.index(blocks[-1]):] if blocks else chain
 printed = 0
 runs = sorted((a, b, n, c) for c in cs for n, (a, b) in enumerate(segments(c)))
 for a, b, n, c in runs:
     if not raw:
-        print(f"==> {base}:{a + 1}-{b + 1} {c['kind']}{' (continued)' if n else ''} · {c['owner']}")
+        print(f"==> {base}:{a + 1}-{b + 1} {c['kind']}{' (continued)' if n else ''} · session={c['session'] or '-'} seat={c['seat'] or '-'}")
     for i in range(a, b + 1):
         print(lines[i])
     printed += b - a + 1

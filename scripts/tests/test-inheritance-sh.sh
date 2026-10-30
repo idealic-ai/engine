@@ -56,15 +56,15 @@ test_by_one_seat_for_another_session_the_session_owns() {
   assert_eq "2" "$rc" "the writer named after 'by' owns nothing, and is named, so it is not exit 3"
   o=$(show 2026_01_03_PITCH_LOOM)
   assert_contains "pitch arrangement row" "$o" "an addendum naming a counterparty after 'with' stays with its writer"
-  rc=$(run "$out" show app:scribe --file "$FIX")
-  assert_eq "2" "$rc" "a seat after 'now' in a clause is a relation, not linked to the loom"
+  assert_contains "pitch row" "$(show app:scribe)" "a seat after 'now' is the loom's new name, even across windows (R2-S1)"
+  assert_eq "" "$(show app:scribe | grep 'mgr:west' | grep -v '^#')" "and the writer after 'by' is still not linked"
 }
 
 test_foreign_addendum_inside_a_section_and_the_plain_heading_after_it() {
   # Case 4: old:trade's ## addendum sits inside meta:alpha's # section; the plain ## after it is alpha's.
   local o out="$TMP_DIR/tr.out"
-  o=$(show new:trade)
-  assert_contains "trade block row" "$o" "the trade loom's block, found by its new name through the arrow"
+  o=$(show old:trade)
+  assert_contains "trade block row" "$o" "the trade loom's block"
   assert_contains "trade addendum row" "$o" "and its addendum from inside alpha's section"
   assert_not_contains "alpha notes row" "$o" "the plain ## heading after the addendum is not the trade loom's"
   o=$(show meta:alpha)
@@ -73,6 +73,8 @@ test_foreign_addendum_inside_a_section_and_the_plain_heading_after_it() {
   assert_not_contains "trade addendum row" "$o" "and alpha does not get the trade addendum"
   run "$out" show old:trade --file "$FIX" >/dev/null
   assert_contains "==> note:" "$(cat "$out")" "show says a plain heading closed the delta into another owner"
+  local rc; rc=$(run "$out" show new:trade --file "$FIX")
+  assert_eq "2" "$rc" "a bare arrow in a heading that never says rename links nothing (R2-M1)"
 }
 
 test_deeper_delta_and_renamed_manager() {
@@ -185,6 +187,72 @@ test_delta_registers_at_level_2_stay_in_the_delta() {
   o=$(show meta:alpha --latest)
   assert_contains "alpha delta thread row" "$o" "the ## 🧵 register after a ## delta stays with it"
   assert_not_contains "alpha delta thread row" "$(show lane:world)" "and does not go to the enclosing section"
+}
+
+test_an_arrow_is_a_rename_only_where_the_heading_says_so() {
+  # R2-M1: a register "Asks relayed: A → B" between two managers merged their looms, and --latest
+  # printed the other manager's newer block with exit 0.
+  local f="$TMP_DIR/arrow.md" out="$TMP_DIR/ar.out" rc
+  printf '%s\n' \
+    "# Inheritance — owner \`/srv/demo/sessions/2026_03_01_DOMMGR\` (seat \`mgr:dom\`), written 2026-03-01 10:00" \
+    "## 🧵 Threads" "*   dommgr row OLD" \
+    "# Inheritance — owner \`/srv/demo/sessions/2026_03_01_DIRECTOR\` (seat \`mgr:dir\`), written 2026-03-01 10:05" \
+    "## 🧵 Threads" "*   director row" \
+    "## Asks relayed: mgr:dom → mgr:dir (all forwarded)" "*   ask x" \
+    "# Inheritance — owner \`/srv/demo/sessions/2026_03_01_DOMMGR\` (seat \`mgr:dom\`), written 2026-03-01 11:00" \
+    "## 🧵 Threads" "*   dommgr row NEW" \
+    "# Inheritance — owner \`/srv/demo/sessions/2026_03_02_STUDIO\` (seat \`lane:studio\`), written 2026-03-02 09:00" \
+    "*   studio row OLD" \
+    "# Inheritance — owner \`/srv/demo/sessions/2026_03_02_STUDIO\` (seat \`app:writer\`, formerly \`lane:studio\`), written 2026-03-02 12:00" \
+    "*   writer row NEW" \
+    "## [2026-03-03 09:00:00] core:paint → core:brush hand-over (2026_03_03_PAINT_LOOM), written for the fleet rename" \
+    "*   paint row" \
+    "## [2026-03-03 10:00:00] core:brush addendum: one more row" "*   brush row" >"$f"
+  rc=$(run "$out" show mgr:dir --latest --file "$f")
+  assert_eq "0" "$rc" "the director's --latest exits 0"
+  assert_contains "director row" "$(cat "$out")" "with the director's own block"
+  assert_not_contains "dommgr row" "$(cat "$out")" "and not the domain manager's newer block"
+  assert_not_contains "DIRECTOR" "$(bash "$INH" show mgr:dom --raw --file "$f")" "the domain manager does not get the director's rows"
+  run "$out" show app:writer --latest --file "$f" >/dev/null
+  assert_contains "writer row NEW" "$(cat "$out")" "'formerly' links two seats that share no part"
+  assert_not_contains "studio row OLD" "$(cat "$out")" "and --latest is the newer block"
+  assert_contains "studio row OLD" "$(bash "$INH" show lane:studio --raw --file "$f")" "the old name reaches the loom's history"
+  assert_contains "brush row" "$(bash "$INH" show core:paint --raw --file "$f")" "an arrow in a heading that says rename is a rename"
+}
+
+test_latest_stays_in_the_subjects_session_chain() {
+  # R2-M1: a loom spanning several sessions keeps --latest to the subject's own, or exits 2.
+  local f="$TMP_DIR/chain.md" out="$TMP_DIR/ch.out" rc
+  printf '%s\n' \
+    "# Inheritance — owner \`/srv/demo/sessions/2026_04_01_ONE\` (seat \`lane:one\`), written 2026-04-01" "*   one row" \
+    "# Inheritance — owner \`/srv/demo/sessions/2026_04_02_TWO\` (seat \`lane:two\`, formerly \`lane:one\`)" "*   two row" >"$f"
+  rc=$(run "$out" show lane:one --latest --file "$f")
+  assert_eq "0" "$rc" "the old seat's --latest exits 0"
+  assert_contains "one row" "$(cat "$out")" "and stays in the session the old seat headed"
+  assert_not_contains "two row" "$(cat "$out")" "rather than jumping to the renamed seat's session"
+  assert_contains "newer block" "$(cat "$out.err")" "and says a newer block exists elsewhere in the loom"
+  rc=$(run "$out" show 2026_04_02_TWO --latest --file "$f")
+  assert_contains "two row" "$(cat "$out")" "a session subject keeps to that session"
+  printf '%s\n' "## [2026-04-03 09:00:00] lane:three hand-over delta" "*   three row" \
+    "# Inheritance — owner \`/srv/demo/sessions/2026_04_03_FOUR\` (seat \`lane:four\`), formerly lane:three" "*   four row" >>"$f"
+  printf '%s\n' "# Inheritance — owner \`/srv/demo/sessions/2026_04_05_FIVE\` (seat \`lane:three\`, formerly \`lane:two\`)" "*   five row" >>"$f"
+  rc=$(run "$out" show lane:three --latest --file "$f")
+  assert_eq "0" "$rc" "a seat that headed one session of a multi-session loom is still answered"
+  rc=$(run "$out" show 2026_04_01_ONE --latest --file "$f")
+  assert_contains "one row" "$(cat "$out")" "a session subject is answered from that session"
+  printf '%s\n' \
+    "# Inheritance — owner \`/srv/demo/sessions/2026_04_06_SIX\` (seat \`lane:six\`, formerly \`lane:gone\`)" "*   six row" \
+    "# Inheritance — owner \`/srv/demo/sessions/2026_04_07_SEVEN\` (seat \`lane:seven\`, formerly \`lane:gone\`)" "*   seven row" >>"$f"
+  rc=$(run "$out" show lane:gone --latest --file "$f")
+  assert_eq "2" "$rc" "a seat reaching several sessions only through renames cannot choose, so it exits 2"
+  assert_contains "only through renames" "$(cat "$out.err")" "and says so"
+}
+
+test_markers_name_session_and_seat() {
+  # R2-N1
+  local out="$TMP_DIR/n1.out"
+  run "$out" show mgr:new --file "$FIX" >/dev/null
+  assert_contains "· session=2026_01_05_MGR_LOOM seat=mgr:old" "$(cat "$out")" "a marker names both the chunk's session and its seat"
 }
 
 test_list_reports_figures_that_can_be_nonzero() {
