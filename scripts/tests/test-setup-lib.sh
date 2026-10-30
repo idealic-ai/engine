@@ -373,6 +373,48 @@ bqt_count=$(jq '[.hooks.PostToolUse[] | select(.matcher == "*" and .hooks[0].com
 [ "$bqt_count" = "1" ] && pass "HOOKS-05b: the queue drain also runs on PostToolUse, once, for every tool (SEATACT)" || fail "HOOKS-05b" "1" "$bqt_count"
 teardown
 
+# No sound at turn end: a fresh configure wires stop-notify.sh and no afplay chime (NOSOUND).
+setup
+echo '{}' > "$TEST_DIR/claude/settings.json"
+configure_hooks "$TEST_DIR/claude/settings.json"
+afplay_n=$(jq '[.. | objects | select(.command? // "" | test("afplay"))] | length' "$TEST_DIR/claude/settings.json")
+[ "$afplay_n" = "0" ] && pass "HOOKS-06: a fresh configure registers no afplay hook" || fail "HOOKS-06" "0" "$afplay_n"
+notify_n=$(jq '[.hooks.Stop[].hooks[] | select(.command == "~/.claude/hooks/stop-notify.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$notify_n" = "1" ] && pass "HOOKS-06b: the Stop notifier is still wired once" || fail "HOOKS-06b" "1" "$notify_n"
+teardown
+
+# An install that already has the Glass chime loses it; every other Stop hook stays (NOSOUND).
+setup
+cat > "$TEST_DIR/claude/settings.json" << 'OLDSTOP'
+{
+  "hooks": {
+    "Stop": [
+      {"hooks": [
+        {"type": "command", "command": "~/.claude/hooks/stop-notify.sh"},
+        {"type": "command", "command": "afplay /System/Library/Sounds/Glass.aiff"}
+      ]},
+      {"hooks": [{"type": "command", "command": "afplay /System/Library/Sounds/Glass.aiff"}]},
+      {"hooks": [{"type": "command", "command": "~/.claude/hooks/my-stop.sh"}]},
+      {"hooks": [{"type": "command", "command": "afplay /System/Library/Sounds/Ping.aiff"}]}
+    ]
+  }
+}
+OLDSTOP
+configure_hooks "$TEST_DIR/claude/settings.json"
+glass_n=$(jq '[.hooks.Stop[].hooks[] | select(.command == "afplay /System/Library/Sounds/Glass.aiff")] | length' "$TEST_DIR/claude/settings.json")
+[ "$glass_n" = "0" ] && pass "HOOKS-07: an existing Glass afplay Stop hook is removed" || fail "HOOKS-07" "0" "$glass_n"
+notify_n=$(jq '[.hooks.Stop[].hooks[] | select(.command == "~/.claude/hooks/stop-notify.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$notify_n" = "1" ] && pass "HOOKS-07b: stop-notify.sh, which shared the chime's entry, stays once" || fail "HOOKS-07b" "1" "$notify_n"
+mine_n=$(jq '[.hooks.Stop[].hooks[] | select(.command == "~/.claude/hooks/my-stop.sh")] | length' "$TEST_DIR/claude/settings.json")
+[ "$mine_n" = "1" ] && pass "HOOKS-07c: a user's own Stop hook stays" || fail "HOOKS-07c" "1" "$mine_n"
+ping_n=$(jq '[.hooks.Stop[].hooks[] | select(.command == "afplay /System/Library/Sounds/Ping.aiff")] | length' "$TEST_DIR/claude/settings.json")
+[ "$ping_n" = "1" ] && pass "HOOKS-07d: an afplay command other than the Glass one stays" || fail "HOOKS-07d" "1" "$ping_n"
+empty_n=$(jq '[.hooks.Stop[] | select((.hooks | length) == 0)] | length' "$TEST_DIR/claude/settings.json")
+[ "$empty_n" = "0" ] && pass "HOOKS-07e: an entry that held only the chime is dropped, not left empty" || fail "HOOKS-07e" "0" "$empty_n"
+stop_n=$(jq '.hooks.Stop | length' "$TEST_DIR/claude/settings.json")
+[ "$stop_n" = "3" ] && pass "HOOKS-07f: three Stop entries remain (notifier, user hook, Ping)" || fail "HOOKS-07f" "3" "$stop_n"
+teardown
+
 # ============================================================================
 # link_project_dir tests
 # ============================================================================

@@ -494,13 +494,14 @@ configure_hooks() {
         })
     )
 
-    # Stop: engine notifier + terminal bell.
+    # Stop: engine notifier. Earlier installs also played a Glass chime here, which with
+    # dozens of seats sounded every few seconds; drop exactly that command (and an entry
+    # it leaves empty) so a later setup cleans it. Any other afplay hook belongs to the user.
     | .hooks.Stop = ((.hooks.Stop // [])
+      | map(.hooks = ((.hooks // []) | map(select(.command != "afplay /System/Library/Sounds/Glass.aiff"))))
+      | map(select((.hooks | length) > 0))
       | add_if_missing({
-          "hooks": [
-            {"type": "command", "command": "~/.claude/hooks/stop-notify.sh"},
-            {"type": "command", "command": "afplay /System/Library/Sounds/Glass.aiff"}
-          ]
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/stop-notify.sh"}]
         })
     )
 
