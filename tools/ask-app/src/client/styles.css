@@ -398,7 +398,6 @@ details.round ul { margin: 6px 0; padding-left: 1.2em; }
 
 /* ── supersede and decline pass-up ───────────────────── */
 .superseded { margin: 0; padding: 8px 12px; border-left: 3px solid var(--ink-3); background: var(--sunken); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; font-size: 14px; overflow-wrap: anywhere; }
-.superseded.withdrawn { border-left-color: var(--ink-2); }
 .replaces { margin: 0; font-size: 13px; overflow-wrap: anywhere; }
 .path { margin: 0; font-size: 12px; color: var(--ink-2); overflow-wrap: anywhere; }
 .path .hop { color: var(--ink-3); cursor: help; }
