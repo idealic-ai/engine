@@ -47,7 +47,9 @@ describe("the rule: answered by a seat itself", () => {
     expect(app).toContain('ruled: "Ruled below you"');
     expect(app).not.toMatch(/"Drafts"/);
     expect(app).toMatch(/\{FILTER_LABEL\[f\]\} <span className="n">\{count\(f\)\}<\/span>/);
-    expect(app).toMatch(/const count = \(f: Filter\) => rows\.filter\(\(r\) => rowInFilter\(r, f\)\)\.length;/);
+    // ASKSEARCH SHOULD-2: the count moved into search.ts's sidebarView, beside the list it must agree with.
+    expect(src("search.ts")).toMatch(/const count = \(f: Filter\) => rows\.filter\(\(r\) => rowInFilter\(r, f\)\)\.length;/);
+    expect(app).toMatch(/const \{ rows, inFilter, count, waiting \} = useMemo\(\(\) => sidebarView\(/);
   });
 
   it("a ruled row's meta says who ruled and how long ago", async () => {

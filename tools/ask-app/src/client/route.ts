@@ -7,6 +7,8 @@
  *   ?ask=<seat>/<id>          the ask kept open beside the Proofs or Broadcasts list
  *   ?pane=off | ?pane=<url>   the split pane closed, or showing that page (absent: the default)
  *   ?q=<text>                 the sidebar search (IDE-304); typing replaces the entry, never pushes
+ *                             (debounced ~300ms). Typing after opening an ask rewrites that ask's
+ *                             entry, so Back lands on the entry before it, with its earlier q.
  *   #F2, #Q1                  the fork in view
  *
  * Personal layout (sidebar width, split ratio, theme) stays in localStorage, and unsent picks stay

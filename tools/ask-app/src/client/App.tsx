@@ -24,9 +24,7 @@ import {
   acceptListed,
   suggestionList,
   batchConfirmation,
-  rowInFilter,
   ruledBelow,
-  sortRuled,
   restoreUnsent,
   sendConfirmation,
   unansweredForks,
@@ -61,6 +59,7 @@ import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
 import { CodeBlock } from "./highlight.tsx";
 import { afterSendNext } from "./next.ts";
+import { createUrlSync } from "./urlsync.ts";
 import { blocks, displayTitle } from "./md.ts";
 import { RELOAD_RESTARTED, RELOAD_UPDATED, authedFetch, recordBuild, refreshToken, type Authed } from "./token.ts";
 import { clearUnsent, loadUnsent, saveUnsent } from "./unsent.ts";
@@ -70,7 +69,7 @@ import { pushEsc } from "./esc.ts";
 import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, type PathHop } from "./supersede.ts";
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
-import { highlight, isTypingTarget, searchRows, searchTerms, snippet, type Hay } from "./search.ts";
+import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay } from "./search.ts";
 import { CHANGE_WORDING, cancelDiscards, changeAnswerStart, draftBody, mayChangeAnswer, planClick, requestSend, staleChangeKeys, unsentKey } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
@@ -183,29 +182,54 @@ export function App() {
   }, [load]);
 
   // Back and Forward restore the screen from the URL; a legacy #seat/id link is rewritten in place.
+  // SHOULD-1 (ASKSEARCH): the URL is written outside the state updater, through a writer that
+  // debounces a keystroke's write and drops a write the browser throws on (WebKit's rate limit).
+  const routeNow = useRef(route);
+  const urlSync = useMemo(
+    () => createUrlSync({ pushState: (d, u, url) => history.pushState(d, u, url), replaceState: (d, u, url) => history.replaceState(d, u, url) }, { set: (fn, ms) => setTimeout(fn, ms), clear: (h) => clearTimeout(h as ReturnType<typeof setTimeout>) }),
+    [],
+  );
   useEffect(() => {
-    const pop = () => setRoute(parseRoute(location.pathname, location.search, location.hash));
+    const pop = () => {
+      urlSync.cancel();
+      routeNow.current = parseRoute(location.pathname, location.search, location.hash);
+      setRoute(routeNow.current);
+    };
     addEventListener("popstate", pop);
     const canonical = serializeRoute(route);
-    if (canonical !== location.pathname + location.search + location.hash) history.replaceState(null, "", canonical);
-    return () => removeEventListener("popstate", pop);
+    if (canonical !== location.pathname + location.search + location.hash) urlSync.now(canonical, false);
+    return () => {
+      removeEventListener("popstate", pop);
+      urlSync.flush();
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /** Move to a new state: pushed when Back should undo it (or when asked), replaced otherwise. */
-  const navigate = useCallback((patch: Partial<Route>, push?: boolean) => {
-    setRoute((cur) => {
-      const next = { ...cur, ...patch };
-      const url = serializeRoute(next);
-      if (push ?? isNavigation(cur, next)) history.pushState(null, "", url);
-      else history.replaceState(null, "", url);
-      return next;
-    });
-  }, []);
+  /**
+   * Move to a new state: pushed when Back should undo it (or when asked), replaced otherwise. The
+   * state changes at once; with `typing` the URL write waits for a pause in the keystrokes.
+   */
+  const navigate = useCallback((patch: Partial<Route>, push?: boolean, typing = false) => {
+    const cur = routeNow.current;
+    const next = { ...cur, ...patch };
+    routeNow.current = next;
+    setRoute(next);
+    const url = serializeRoute(next);
+    if (typing) return urlSync.later(url);
+    const pushIt = push ?? isNavigation(cur, next);
+    // A push first lands any pending query on the entry it leaves, so Back returns to what was typed.
+    if (pushIt) urlSync.flush();
+    urlSync.now(url, pushIt);
+  }, [urlSync]);
   const setFilter = (f: Filter) => navigate({ filter: f });
   const setGroupBy = (g: GroupBy) => navigate({ group: g });
   // IDE-304: the search text lives in ?q=; a keystroke replaces the history entry, never pushes one.
+  // NIT-3: with no ask named in the URL, typing names the ask on screen, so the reading pane stays put.
   const query = route.q ?? "";
-  const setQuery = useCallback((v: string) => navigate({ q: v || undefined }, false), [navigate]);
+  const shownAsk = useRef<string | undefined>(undefined);
+  const setQuery = useCallback((v: string) => {
+    const pin = !routeNow.current.ask && routeNow.current.section === "asks" && shownAsk.current ? { ask: shownAsk.current } : {};
+    navigate({ q: v || undefined, ...pin }, false, true);
+  }, [navigate]);
   const searchBox = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const onSlash = (e: KeyboardEvent) => {
@@ -235,16 +259,18 @@ export function App() {
   // IDE-304: the search narrows the rows first, so the filters, their counts and the groups all read it.
   const terms = useMemo(() => searchTerms(route.q), [route.q]);
   // `rows` is what the list and every count read: the searched rows (all of them when ?q= is empty).
-  const rows = useMemo(() => searchRows(allRows, shown, route.q), [allRows, shown, route.q]);
+  // SF-4: the list and its count read one predicate, so they cannot disagree. Ruled below you lists
+  // the newest ruling first; the other filters keep the waiting-on-you order. SHOULD-2: sidebarView
+  // owns which set each reads (tested in search.test.ts); the header's waiting count reads allRows.
+  // SHOULD-3: the seat counts as shown only when the row renders it.
+  const seatShown = !(sideW < SIDE_SLIM) && groupBy !== "seat";
+  const { rows, inFilter, count, waiting } = useMemo(() => sidebarView(allRows, shown, route.q, filter, { seat: seatShown }), [allRows, shown, route.q, filter, seatShown]);
   const extraOf = useMemo(() => new Map(rows.map((r) => [r.ref, r.extra])), [rows]);
-  // SF-4: the list and its count read one predicate, so they cannot disagree.
-  // Ruled below you lists the newest ruling first; the other filters keep the waiting-on-you order.
-  const inFilter = filter === "ruled" ? sortRuled(rows.filter((r) => rowInFilter(r, filter))) : rows.filter((r) => rowInFilter(r, filter));
-  const count = (f: Filter) => rows.filter((r) => rowInFilter(r, f)).length;
   const loaded = root !== "";
   const named = route.ask;
   const current = named ? asks.find((a) => askRef(a) === named) : view === "asks" ? asks.find((a) => askRef(a) === inFilter[0]?.ref) : undefined;
   const currentRef = current ? askRef(current) : undefined;
+  shownAsk.current = currentRef;
   const askMissing = loaded && !!named && !current;
   const brief = current ? briefFor(current) : undefined;
   const proofHit = route.proof ? proofs.list?.proofs.find((p) => p.key === route.proof) : undefined;
@@ -272,7 +298,8 @@ export function App() {
   }, [currentRef]);
 
   const pick = (ref: string) => navigate({ section: "asks", ask: ref, fork: undefined, pane: undefined });
-  const setView = (v: View) => navigate({ section: v, ask: currentRef, proof: undefined, broadcast: undefined, pane: undefined, fork: undefined });
+  // NIT-1: the search box lives in the asks view only, so ?q= is dropped on the way to proofs or broadcasts.
+  const setView = (v: View) => navigate({ section: v, ask: currentRef, proof: undefined, broadcast: undefined, pane: undefined, fork: undefined, ...(v === "asks" ? {} : { q: undefined }) });
   const openInPane = useCallback((url: string) => navigate({ pane: url }, true), [navigate]);
   const closePane = () => navigate({ pane: "off" }, false);
   const toggleBrief = () => {
@@ -308,7 +335,6 @@ export function App() {
     }
   }
 
-  const waiting = allRows.filter((r) => r.waitingOnYou).length;
   const slim = sideW < SIDE_SLIM;
   return (
     <PaneContext.Provider value={openInPane}>
