@@ -1681,7 +1681,7 @@ function PanelStrip({ q, named }: { q: AskQuestion; named: ReturnType<typeof nam
     if (!named.named) return null;
     return (
       <p className="panel-line panel-named muted">
-        A council is named here, but no lens reads were recorded on this question.
+        A council is named here, but no lens reads were recorded on this {named.scope === "ask" ? "ask" : "question"}.
         {named.report && <span className="council-link"> · <CouncilLink v={named.report} /></span>}
       </p>
     );

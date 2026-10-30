@@ -151,7 +151,7 @@ describe("S1: a council named in prose, with no reads recorded", () => {
     const ask = parseAskFile(real);
     expect(ask.questions[0].panel).toEqual([]);
     expect(ask.questions[0].council).toBeUndefined();
-    expect(namedReport(ask, 0)).toEqual({ named: true, report: "builds/VOICE_COUNCIL.md" });
+    expect(namedReport(ask, 0)).toEqual({ named: true, scope: "fork", report: "builds/VOICE_COUNCIL.md" });
     expect(namedReport(ask, 1)).toEqual({ named: false });
     const html = await render(real);
     const v2 = html.slice(html.indexOf("Land draft 2"), html.indexOf("What should change?"));
@@ -169,12 +169,56 @@ describe("S1: a council named in prose, with no reads recorded", () => {
   it("a council named only above the forks (preamble or header) is said once, on the first fork", async () => {
     const text = head() + "The council's verdict: sound (report: builds/X_COUNCIL.md).\n\n## ¶ASK_A: Choose one: First?\n- [ ] [A] a\n- [ ] [B] b\n\n## ¶ASK_B: Choose one: Second?\n- [ ] [P] p\n- [ ] [Q] q\n";
     const ask = parseAskFile(text);
-    expect(namedReport(ask, 0)).toEqual({ named: true, report: "builds/X_COUNCIL.md" });
+    expect(namedReport(ask, 0)).toEqual({ named: true, scope: "ask", report: "builds/X_COUNCIL.md" });
     expect(namedReport(ask, 1)).toEqual({ named: false });
     const html = await render(text);
     expect(html.split("A council is named here").length - 1).toBe(1);
+    expect(html).toContain("A council is named here, but no lens reads were recorded on this ask.");
     // and not when some fork already carries reads
     expect(namedReport(parseAskFile(text.replace("- [ ] [P] p", "Panel: Security → P — x\n- [ ] [P] p")), 0)).toEqual({ named: false });
+  });
+
+  // S-A: above the forks only a council report FILE fires the line; prose about panels never does.
+  const FORK = "\n## ¶ASK_A: Choose one: First?\n- [ ] [A] a\n- [ ] [B] b\n";
+  const fixture = (f: string) => fs.readFileSync(path.join(import.meta.dirname, "fixtures", f), "utf8");
+
+  it("the real council-panel-picks header and preamble (prose about panels, a COUNCILUI critique as context) give no line", async () => {
+    const text = fixture("council-panel-picks.head.md") + FORK;
+    expect(namedReport(parseAskFile(text), 0)).toEqual({ named: false });
+    // its preamble quotes the line's own words, so look for the line itself
+    expect(await render(text)).not.toContain("panel-named");
+  });
+
+  it("the real docs-outline-r1b header and preamble (a council still to run) give no line", async () => {
+    const text = fixture("docs-outline-r1b.head.md") + FORK;
+    expect(namedReport(parseAskFile(text), 0)).toEqual({ named: false });
+    expect(await render(text)).not.toContain("A council is named here");
+  });
+
+  it("prose naming 'the five-reviewer panel report' above the forks, with no report file, gives no line", () => {
+    expect(namedReport(parseAskFile(head() + "Filed from the five-reviewer panel report behind the outline.\n" + FORK), 0)).toEqual({ named: false });
+  });
+
+  it("a council report file in a header field, or an http(s) URL to one, fires it", () => {
+    const ctx = head().replace("status: open", "context: /x/sessions/builds/stateenv-designoff_COUNCIL_20261030T1545.md\nstatus: open");
+    expect(namedReport(parseAskFile(ctx + FORK), 0)).toEqual({ named: true, scope: "ask", report: "/x/sessions/builds/stateenv-designoff_COUNCIL_20261030T1545.md" });
+    expect(namedReport(parseAskFile(head() + "Report: " + URL1 + "\n" + FORK), 0)).toEqual({ named: true, scope: "ask", report: URL1 });
+  });
+
+  it("S-B: council or panel must be a whole segment of the file name", () => {
+    const text = head().replace("status: open", "context: /x/builds/COUNCILUI_CRITIQUE.md\nstatus: open") + FORK;
+    expect(namedReport(parseAskFile(text), 0)).toEqual({ named: false });
+    // fork level: the fork says the council ran, but the only file is no report; the line shows with no report
+    const own = head() + "## ¶ASK_A: Choose one: First?\nContext: the council's verdict, see builds/COUNCILUI_CRITIQUE.md and builds/PANELIST.md\n- [ ] [A] a\n- [ ] [B] b\n";
+    expect(namedReport(parseAskFile(own), 0)).toEqual({ named: true, scope: "fork" });
+  });
+
+  it("N-b: a markdown link counts by its URL as well as its label", () => {
+    const own = head() + "## ¶ASK_A: Choose one: First?\nContext: the council's verdict is in [the report](http://127.0.0.1:9440/proofs/x_COUNCIL.html)\n- [ ] [A] a\n- [ ] [B] b\n";
+    expect(namedReport(parseAskFile(own), 0)).toEqual({ named: true, scope: "fork", report: "[the report](http://127.0.0.1:9440/proofs/x_COUNCIL.html)" });
+    expect(namedReport(parseAskFile(head() + "See [the report](http://127.0.0.1:9440/proofs/x_COUNCIL.html).\n" + FORK), 0)).toEqual({ named: true, scope: "ask", report: "[the report](http://127.0.0.1:9440/proofs/x_COUNCIL.html)" });
+    // above the forks a label is prose: "the council report" linking to no report file does not fire it
+    expect(namedReport(parseAskFile(head() + "See [the council report](http://127.0.0.1:9440/proofs/abc.html).\n" + FORK), 0)).toEqual({ named: false });
   });
 
   it("a fork that only proposes a council, or carries reads, gets no such line", async () => {

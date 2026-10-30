@@ -86,27 +86,58 @@ export function proposalLabel(label: string): string {
 /** A report reference in prose: a markdown link, a bare URL or a file path. */
 const REPORT_TOKEN = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)|https?:\/\/[^\s)<>\]"'`]+|(?:~|\.{0,2}\/)?[\w.@-]+(?:\/[\w.@-]+)*\.(?:md|html?)\b/gi;
 
+/** S-B: a file name with `council` or `panel` as a whole segment (VOICE_COUNCIL.md, x_COUNCIL_2026.md, fund-council-1.html), never a substring (COUNCILUI_CRITIQUE.md). */
+const REPORT_FILE = /(?:^|[_.-])(?:council|panel)(?:[_.-]|$)/i;
+
+function isReportFile(pathOrUrl: string): boolean {
+  let p = pathOrUrl;
+  if (/^https?:\/\//i.test(p)) {
+    try {
+      p = new URL(p).pathname;
+    } catch {
+      return false;
+    }
+  }
+  const base = p.split("/").filter(Boolean).pop() ?? "";
+  return REPORT_FILE.test(base);
+}
+
 /**
- * S1: a fork whose own text says a council or panel ran (format.ts's mentionsPanelReport) but that
- * carries no reads, no Council: and no proposals — or, on the first fork only, an ask whose preamble
- * or header prose says so while no fork carries reads. `report` is the first reference that names a
- * council or panel, looked for in the fork's text, then the text above the first fork, then the
- * header's prose fields; it is shown as written (councilRef decides whether it links).
+ * The first council report a text names, as written. A file path or an http(s) URL counts when its
+ * file name is a report file (S-B); a markdown link counts by its URL (N-b) and, unless `filesOnly`,
+ * by a label that says council or panel.
  */
-export function namedReport(ask: Pick<ParsedAsk, "questions" | "preamble" | "header">, at: number | AskQuestion): { named: boolean; report?: string } {
+function firstReport(texts: string[], filesOnly: boolean): string | undefined {
+  for (const text of texts) {
+    for (const m of text.matchAll(REPORT_TOKEN)) {
+      const tok = m[1] !== undefined ? m[0] : m[0].replace(/[.,;:]+$/, "");
+      const ok = m[1] !== undefined ? isReportFile(m[2]) || (!filesOnly && /\b(?:council|panel)\b/i.test(m[1])) : isReportFile(tok);
+      if (ok) return tok;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * S1: a fork that carries no reads, no Council: and no proposals, but where a council evidently ran.
+ * - scope "fork": the fork's own text says a council or panel ran (format.ts's mentionsPanelReport).
+ *   `report` is the first report it, the text above the first fork or the header's prose names.
+ * - scope "ask" (S-A), on the first fork only and while no fork carries reads: the text above the
+ *   forks or a header prose field names a council report FILE, or an http(s) URL to one. Prose
+ *   about panels never fires this, because it so often describes a council still to run.
+ * `report` is shown as written; councilRef decides whether it links.
+ */
+export function namedReport(ask: Pick<ParsedAsk, "questions" | "preamble" | "header">, at: number | AskQuestion): { named: boolean; scope?: "fork" | "ask"; report?: string } {
   const q = typeof at === "number" ? ask.questions[at] : at;
   if (!q || q.panel.length || q.council !== undefined || (q.proposals ?? []).length) return { named: false };
   const own = forkText(q);
   const header = ask.header as Record<string, string | undefined>;
   const above = [ask.preamble, ...ASK_TEXT_FIELDS.map((k) => header[k] ?? "")];
-  // A council named only above the forks is said once, on the first fork, and only while no fork carries reads.
-  const askLevel = ask.questions[0] === q && !ask.questions.some((x) => x.panel.length) && above.some(mentionsPanelReport);
-  if (!own.some(mentionsPanelReport) && !askLevel) return { named: false };
-  for (const text of [...own, ...above]) {
-    for (const m of text.matchAll(REPORT_TOKEN)) {
-      const tok = m[0].replace(/[.,;:]+$/, "");
-      if (/council|panel/i.test(m[1] ?? tok)) return { named: true, report: tok };
-    }
+  if (own.some(mentionsPanelReport)) {
+    const report = firstReport([...own, ...above], false);
+    return { named: true, scope: "fork", ...(report ? { report } : {}) };
   }
-  return { named: true };
+  if (ask.questions[0] !== q || ask.questions.some((x) => x.panel.length)) return { named: false };
+  const report = firstReport(above, true);
+  return report ? { named: true, scope: "ask", report } : { named: false };
 }
