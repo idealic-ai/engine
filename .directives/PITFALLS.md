@@ -834,11 +834,12 @@ the main clone, so the bytes you can see are not the whole of what you break.
 
 ## [2026-10-29 22:31:48] ¶PTF_A_SUBAGENT_FROM_A_PREVIOUS_CONVERSATION_IS_RESUMABLE_BY_COPYING_ITS_TRANSCRIPT
 
-**After a `/clear`, a restart or a reboot, an old agent id is not lost: copy its transcript into the current conversation and resume it.** `SendMessage` to the old id fails with *"No transcript found"*, which reads as the agent being gone. It is not gone; it is filed under the conversation that spawned it.
+**After a process exit, a restart or a reboot, an old agent id is not lost: copy its transcript into the current conversation and resume it.** `SendMessage` to the old id fails with *"No transcript found"*, which reads as the agent being gone. It is not gone; it is filed under the conversation that spawned it. **A `/clear` in the same Claude process is not this case**: the id stays addressable there and needs no copy.
 
-*   ✅ **Measured 2026-10-29**: copying `<proj>/<old-conv>/subagents/agent-<id>.{jsonl,meta.json}` into `<proj>/<current-conv>/subagents/` made each agent resumable with its full context — **6 of 6 lanes resumed**.
+*   ✅ **Measured 2026-10-29**: copying `<proj>/<old-conv>/subagents/agent-<id>.{jsonl,meta.json}` into `<proj>/<current-conv>/subagents/` made each agent resumable with its full context — **6 of 6 lanes resumed**. *Relayed by manager:director*: those ids were lost to a process restart (an engine session dehydrate/restart, a pane relaunch, a crash), not to a `/clear`.
+*   ✅ **Measured 2026-10-30 (meta:engine, `sessions/2026_10_29_META_ENGINE/LOOM_LOG.md`, "Agents survive /clear in the same process")**: at a 15:31 `/clear` in the same process, lanes dispatched in the old conversation kept writing and their hand-backs arrived in the new one; at 17:50 `SendMessage` to an id dispatched before the clear (`ab089c2ec80ad85eb`) resumed it, and it replied *"[ASKOVERRULE] reachable after /clear"*. No transcript was copied.
 *   ⛔ **Re-dispatching from scratch is the forbidden move.** It reads as the safe recovery, but the new agent starts without the old one's context and re-does work the old one already holds.
-*   **Redirection**: on *"No transcript found"*, find the old conversation's `subagents/` directory, copy both files for the id, and send the message again.
+*   **Redirection**: on *"No transcript found"* after a process exit, restart or reboot, find the old conversation's `subagents/` directory, copy both files for the id, and send the message again.
 *   ⚠️ **Stated, not enforced.** Nothing suggests the copy when the resume fails. Per `§INV_A_RULE_IN_PROSE_IS_NOT_ENFORCED_UNTIL_A_CHECK_CAN_FAIL`.
 
 ## [2026-10-29 22:31:58] ¶PTF_A_LANE_SAYING_IT_LEFT_A_FILE_UNTOUCHED_IS_A_CLAIM_ABOUT_THAT_FILE
