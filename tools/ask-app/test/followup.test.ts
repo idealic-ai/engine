@@ -12,13 +12,15 @@ import {
   dialogueHistory,
   FollowupClosedError,
   parseAskFile,
+  SupersededError,
+  WithdrawnError,
   setHeaderField,
   StaleRevisionError,
   writeDraft,
   writeFollowup,
 } from "../src/lib/format.ts";
 import { answerAsk, followupAsk, newAsk, renameSeat, reviseAsk, saveDraft, sendBatch, supersedeAsk } from "../src/lib/store.ts";
-import { rewriteSeatRefs } from "../src/lib/rename-seat.ts";
+import { leftRefs, rewriteSeatRefs } from "../src/lib/rename-seat.ts";
 
 let root: string;
 const ASKER = "idealic:kernel";
@@ -78,11 +80,30 @@ describe("writeFollowup: the file record", () => {
     expect(() => writeFollowup(t, { ...OP, kind: "question", text: "x", by: "" }, 1)).toThrow(/name who/);
   });
 
-  it("refuses a closed ask — answered, declined, superseded, withdrawn, ruled — as FollowupClosedError", () => {
-    for (const status of ["answered", "declined", "superseded", "withdrawn", "ruled"]) {
+  it("refuses a closed ask — answered, declined, ruled — as FollowupClosedError", () => {
+    for (const status of ["answered", "declined", "ruled"]) {
       const t = setHeaderField(text(), "status", status);
       expect(() => writeFollowup(t, { ...OP, kind: "question", text: "x" }, 1), status).toThrow(FollowupClosedError);
     }
+  });
+
+  it("round 2 SHOULD-3: a superseded or withdrawn ask is refused by assertLive first, so the refusal names the replacement or who took it back", () => {
+    const sup = setHeaderField(setHeaderField(text(), "status", "superseded"), "superseded-by", `${ASKER}/repl`);
+    expect(() => writeFollowup(sup, { ...OP, kind: "question", text: "x" }, 1)).toThrow(SupersededError);
+    try { writeFollowup(sup, { ...OP, kind: "question", text: "x" }, 1); } catch (e) { expect((e as SupersededError).by).toBe(`${ASKER}/repl`); }
+    let wd = setHeaderField(text(), "status", "withdrawn");
+    wd = setHeaderField(setHeaderField(setHeaderField(wd, "withdrawn-actor", ASKER), "withdrawn-reason", "no longer needed"), "withdrawn-at", "2026-10-30T10:00:00.000Z");
+    expect(() => writeFollowup(wd, { ...OP, kind: "question", text: "x" }, 1)).toThrow(WithdrawnError);
+    try { writeFollowup(wd, { ...OP, kind: "question", text: "x" }, 1); } catch (e) { expect(e).toMatchObject({ actor: ASKER, reason: "no longer needed", at: "2026-10-30T10:00:00.000Z" }); }
+  });
+
+  it("round 2 SHOULD-2: a draft saved at the current revision is re-based onto the follow-up's revision", () => {
+    let t = writeDraft(text(), { answers: { GO: ["NO"] }, answeredBy: "operator", answeredVia: "browser" }, 1);
+    t = writeFollowup(t, { ...OP, kind: "question", text: "what does NO cost?" }, 1).text;
+    const p = parseAskFile(t);
+    expect(p.header.revision).toBe("2");
+    expect(p.draft).toMatchObject({ basedOn: 2, answers: { GO: ["NO"] } });
+    expect(t.lastIndexOf("```json draft")).toBeGreaterThan(t.lastIndexOf("```json followup"));
   });
 
   it("an asker cannot plant a follow-up: new and revise refuse the fence", async () => {
@@ -103,7 +124,8 @@ describe("followupAsk: the push to the asker", () => {
     expect(lines).toContain("title: Ship it?");
     expect(lines).toContain("unsent picks: GO YES");
     expect(lines).toContain(file());
-    expect(pushes[0].content).toContain(`reply by \`engine ask revise ${ASKER}/go --answers-followup 1\`; the ask stays open`);
+    // NIT-1 (round 2): a "first" asks for the body to change; never a bare revise that reads stdin.
+    expect(pushes[0].content).toContain(`do it, then reply by \`engine ask revise ${ASKER}/go --answers-followup 1 --body-file <F>\` (or --keep-body if the body still stands); the ask stays open`);
     expect(read().followups[0].delivery).toBe("delivered");
     expect(read().header.status).toBe("open");
   });
@@ -114,6 +136,7 @@ describe("followupAsk: the push to the asker", () => {
     expect(lines[0]).toBe(`[ask-followup] from operator on ${ASKER}/go: is this blocking?`);
     expect(lines).toContain("kind: question");
     expect(pushes[0].content).not.toContain("unsent picks");
+    expect(pushes[0].content).toContain(`reply by \`engine ask revise ${ASKER}/go --keep-body --answers-followup 1\`; the ask stays open`);
   });
 
   it("a failed push leaves the entry marked delivery: undelivered, with the reason; the follow-up is kept", async () => {
@@ -178,6 +201,14 @@ describe("revise --answers-followup", () => {
     await followupAsk(root, ASKER, "go", { ...OP, kind: "question", text: "a?" }, { expectedRevision: 1, push });
     await expect(reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, answersFollowup: [3] })).rejects.toThrow(/no follow-up 3/);
   });
+
+  it("NIT-4 (round 2): refuses to re-address a follow-up already addressed, keeping the first stamp", async () => {
+    await followupAsk(root, ASKER, "go", { ...OP, kind: "question", text: "a?" }, { expectedRevision: 1, push });
+    await reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, answersFollowup: [1], now: "2026-10-30T16:00:00.000Z" });
+    const before = text();
+    await expect(reviseAsk(root, ASKER, "go", {}, undefined, { by: ASKER, push, answersFollowup: [1] })).rejects.toThrow(/follow-up 1 is already addressed in revision 3 by idealic:kernel/);
+    expect(text()).toBe(before);
+  });
 });
 
 describe("dialogueHistory and /api/asks' history", () => {
@@ -218,6 +249,33 @@ describe("rename-seat rewrites the seats in follow-up entries", () => {
   });
 });
 
+describe("rename-seat leftRefs", () => {
+  it("NIT-3 (round 2): lists an old ref in a follow-up's deliveryNote", async () => {
+    await followupAsk(root, ASKER, "go", { ...OP, kind: "question", text: "x" }, { expectedRevision: 1, push: async () => ({ status: "undelivered" as const, reason: `no pane for ${ASKER}/go` }) });
+    expect(leftRefs(text(), ASKER)).toContainEqual({ field: "followup.deliveryNote", ref: `${ASKER}/go` });
+  });
+});
+
+describe("round 2 SHOULD-2: the operator's own follow-up does not stale the operator's draft", () => {
+  it("a draft saved, then a follow-up from the operator: the draft still sends", async () => {
+    await saveDraft(root, ASKER, "go", { answers: { GO: ["NO"] }, answeredBy: "operator", answeredVia: "browser" }, 1);
+    await followupAsk(root, ASKER, "go", { ...OP, kind: "question", text: "anything else?", picks: { GO: ["NO"] } }, { expectedRevision: 1, push });
+    const res = await sendBatch(root, [`${ASKER}/go`], { by: "operator", push });
+    expect(res.refused).toEqual([]);
+    expect(read().answer).toMatchObject({ answeredBy: "operator", answers: { GO: ["NO"] } });
+    expect(read().followups).toHaveLength(1);
+  });
+
+  it("a draft already stale (an asker's revise moved the ask) is not re-based: it stays refused", async () => {
+    await saveDraft(root, ASKER, "go", { answers: { GO: ["NO"] }, answeredBy: "operator", answeredVia: "browser" }, 1);
+    await reviseAsk(root, ASKER, "go", { why: "changed" }, undefined, { by: ASKER, push });
+    await followupAsk(root, ASKER, "go", { ...OP, kind: "question", text: "?" }, { expectedRevision: 2, push });
+    expect(read().draft?.basedOn).toBe(1);
+    const res = await sendBatch(root, [`${ASKER}/go`], { by: "operator", push });
+    expect(res.refused.length).toBe(1);
+  });
+});
+
 describe("writeDraft: the operator may draft over a seat's answer (the overrule form)", () => {
   it("an operator draft over a manager's answer is kept, and its send overrules the manager", async () => {
     await answerAsk(root, ASKER, "go", { answers: { GO: ["YES"] }, answeredBy: MGR }, { expectedRevision: 1, push });
@@ -240,6 +298,19 @@ describe("writeDraft: the operator may draft over a seat's answer (the overrule 
     await answerAsk(root, ASKER, "own", { answers: { GO: ["YES"] }, answeredBy: MGR }, { expectedRevision: 1, push });
     await expect(saveDraft(root, ASKER, "own", { answers: { GO: ["NO"] }, answeredBy: MGR }, 2)).rejects.toThrow(/only an open ask, or the operator over a settled answer, takes a draft/);
     expect(() => writeDraft(text("own"), { answers: { GO: ["NO"] }, answeredBy: "operator-bot" }, 2)).toThrow(/only an open ask, or the operator over a settled answer/);
+  });
+
+  it("SHOULD-1 (round 2): a relay draft is not the operator's: refused over a seat's answer, kept over the operator's own (IDE-304)", async () => {
+    const RELAY = { answeredBy: "operator", answeredVia: `relay:${MGR}`, note: "said on a call" };
+    await answerAsk(root, ASKER, "go", { answers: { GO: ["YES"] }, answeredBy: MGR }, { expectedRevision: 1, push });
+    await expect(saveDraft(root, ASKER, "go", { answers: { GO: ["NO"] }, ...RELAY }, 2)).rejects.toThrow(/only an open ask, or the operator over a settled answer, takes a draft/);
+    // A relay draft planted in the file over the seat's ruling does not count either.
+    const planted = writeDraft(text(), { answers: { GO: ["NO"] }, answeredBy: "operator", answeredVia: "browser" }, 2).replace('"answeredVia": "browser"', `"answeredVia": "relay:${MGR}"`);
+    expect(parseAskFile(planted).draft).toBeUndefined();
+    newAsk(root, { from: ASKER, to: MGR, id: "own" }, BODY);
+    await answerAsk(root, ASKER, "own", { answers: { GO: ["YES"] }, answeredBy: "operator", answeredVia: "browser" }, { expectedRevision: 1, push });
+    await saveDraft(root, ASKER, "own", { answers: { GO: ["NO"] }, ...RELAY }, 2);
+    expect(read("own").draft?.answers).toEqual({ GO: ["NO"] });
   });
 
   it("a superseded ask still takes no draft from anybody", async () => {

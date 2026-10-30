@@ -187,7 +187,7 @@ export function leftRefs(text: string, old: string): LeftRef[] {
         // The history fence is a list of records; the others are one.
         const parsed = JSON.parse(json) as Record<string, unknown> | Record<string, unknown>[];
         for (const rec of Array.isArray(parsed) ? parsed : [parsed]) {
-          for (const k of ["note", "reason", "text"]) if (typeof rec?.[k] === "string") find(`${which}.${k}`, rec[k] as string);
+          for (const k of ["note", "reason", "text", "deliveryNote"]) if (typeof rec?.[k] === "string") find(`${which}.${k}`, rec[k] as string);
         }
       } catch {
         // an unreadable record names nothing we can point at

@@ -608,8 +608,8 @@ export function parseAskFile(text: string): ParsedAsk {
   const dms = [...rest.matchAll(DRAFT_FENCES)];
   if (dms.length && (open || settled)) draft = honouredDraft(rest, dms[dms.length - 1], header);
   // IDE-304: on a settled ask, only the operator's draft counts — a change to the operator's own
-  // answer, or (ASKFOLLOWUP) an overrule of a seat's.
-  if (draft && !open && !isOperatorName(draft.answeredBy)) draft = undefined;
+  // answer, or (ASKFOLLOWUP) an overrule of a seat's; a relay draft is a seat's, kept to the first case.
+  if (draft && !open && !(isOperatorName(draft.answeredBy) && (isOperatorAnswer(answer) || !relayerOf(draft)))) draft = undefined;
   // IDE-339: like the answer, the history counts only on a settled ask, and the last fence is the record.
   const hms = [...rest.matchAll(HISTORY_FENCES)];
   const { history, historyError } = hms.length && settled ? readHistory(hms[hms.length - 1][1]) : { history: [] as AskAnswer[], historyError: undefined };
@@ -865,9 +865,11 @@ export function writeDraft(text: string, d: AskAnswer & { savedAt?: string }, ex
   assertLive(ask);
   // IDE-304: a settled ask takes the operator's draft of a change to the operator's own answer.
   // ASKFOLLOWUP: and the operator's draft over a seat's answer too (the overrule form drafts); a
-  // seat never drafts over any settled answer, its own included.
+  // seat never drafts over any settled answer, its own included. A relay draft (`--relayed-from
+  // operator`) is a seat's: over a settled answer it stays limited to IDE-304's own-answer case.
   const open = ask.header.status === "open" || ask.header.status === undefined;
-  const operatorChange = (ask.header.status === "answered" || ask.header.status === "declined") && isOperatorName(d.answeredBy);
+  const settledAsk = ask.header.status === "answered" || ask.header.status === "declined";
+  const operatorChange = settledAsk && isOperatorName(d.answeredBy) && (isOperatorAnswer(ask.answer) || !relayerOf(d));
   if (!open && !operatorChange) {
     throw new AskFormatError(`ask ${ask.header.id ?? ""} is ${ask.header.status}; only an open ask, or the operator over a settled answer, takes a draft`);
   }
@@ -937,11 +939,16 @@ function followupPicks(ask: ParsedAsk, picks: unknown): AnswerMap | undefined {
 /**
  * Append a follow-up to an OPEN ask: a `## Follow-up <n>` entry, the revision bumped (so an answer
  * made against the view before it is refused as stale) and `revisions:` noting it. The answer, the
- * questions and the body digest are untouched. Refused: a closed ask (FollowupClosedError), a stale
- * revision, no sender, an unknown kind, empty text, an unknown fork, picks for unknown questions.
+ * questions and the body digest are untouched. Refused: a superseded or withdrawn ask (assertLive's
+ * errors, so the refusal names the replacement or who took it back), any other closed ask
+ * (FollowupClosedError), a stale revision, no sender, an unknown kind, empty text, an unknown fork,
+ * picks for unknown questions. Round 2 SHOULD-2: an honoured draft saved at the current revision is
+ * re-based onto the new one — a follow-up changes neither the questions nor the body, so the draft's
+ * compare-and-swap has nothing to guard against; a draft already stale stays stale.
  */
 export function writeFollowup(text: string, input: FollowupInput, expectedRevision: number): { text: string; followup: AskFollowup } {
   const ask = parseAskFile(text);
+  assertLive(ask);
   const status = ask.header.status || "open";
   if (status !== "open") throw new FollowupClosedError(ask.header.id ?? "", status);
   const cur = currentRevision(ask);
@@ -959,6 +966,10 @@ export function writeFollowup(text: string, input: FollowupInput, expectedRevisi
   const revisions = (ask.header.revisions ?? "").trim();
   let out = setHeaderField(text, "revision", String(cur + 1));
   out = setHeaderField(out, "revisions", `${revisions ? `${revisions} ; ` : ""}${cur + 1}@${at}:followup ${n}`);
+  if (ask.draft && ask.draft.basedOn === cur) {
+    const fence = trailingDraftFence(out);
+    if (fence) out = `${out.slice(0, out.lastIndexOf(fence))}\`\`\`json draft\n${JSON.stringify({ ...ask.draft, basedOn: cur + 1 }, null, 2)}\n\`\`\`\n`;
+  }
   return { text: insertBeforeDraft(out, followupBlock(record)), followup };
 }
 

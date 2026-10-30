@@ -973,7 +973,10 @@ export function followupMessage(seat: string, id: string, file: string, ask: Par
     `title: ${ask.questions[0]?.title ?? id}`,
     ...(picks ? [`unsent picks: ${picks}`] : []),
     file,
-    `reply by \`engine ask revise ${seat}/${id} --answers-followup ${f.n}\`; the ask stays open`,
+    // NIT-1 (round 2): a bare revise reads the body from stdin; say which body the reply keeps.
+    f.kind === "first"
+      ? `do it, then reply by \`engine ask revise ${seat}/${id} --answers-followup ${f.n} --body-file <F>\` (or --keep-body if the body still stands); the ask stays open`
+      : `reply by \`engine ask revise ${seat}/${id} --keep-body --answers-followup ${f.n}\`; the ask stays open`,
   ].join("\n");
 }
 
@@ -1074,6 +1077,10 @@ export async function reviseAsk(
     const answers = [...new Set(o.answersFollowup ?? [])];
     if (answers.length) {
       if (answers.some((n) => !Number.isInteger(n) || n < 1)) throw new AskFormatError("--answers-followup takes follow-up numbers: <n>[,<n>]");
+      // NIT-4 (round 2): an addressed follow-up keeps its first stamp; a second revise naming it is refused.
+      for (const f of ask.followups) {
+        if (answers.includes(f.n) && f.addressedIn !== undefined) throw new AskFormatError(`follow-up ${f.n} is already addressed in revision ${f.addressedIn} by ${f.addressedBy ?? "?"}`);
+      }
       changed.push(`followup ${answers.join(",")}`);
     }
     if (changed.length === 0) throw new AskFormatError(`nothing to revise: ${seat}/${id} already says that`);

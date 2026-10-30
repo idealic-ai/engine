@@ -57,11 +57,18 @@ it("the seat's ruling renders with its grant class and offers Overrule", async (
   expect(h).not.toContain("Earlier answers");
 });
 
-it("the draft path is refused on a seat's ruling, which is why the overrule posts /api/answer", async () => {
+it("ASKFOLLOWUP: the operator's draft over a seat's ruling is stored (the overrule may draft); discarded, the ruling stands", async () => {
   const a = await askOf();
   const r = await req("POST", "/api/draft", draftBody(a, "send-now", { answers: { GO: ["NO"] }, note: "" }));
-  expect(r.json?.error).toMatch(/only an open ask, or the operator's own answer, takes a draft/);
-  expect(r.status).toBe(400);
+  expect(r.status).toBe(200);
+  expect(r.json).toMatchObject({ draft: true });
+  const d = await askOf();
+  expect(d.header.status).toBe("answered");
+  expect(d.draft).toMatchObject({ answeredBy: "operator", answers: { GO: ["NO"] } });
+  expect(d.answer).toMatchObject({ answeredBy: MGR, grantClass: "B" });
+  // Leave the file as the later cases expect: the ruling, with no draft.
+  expect((await req("POST", "/api/discard", { seat: SEAT, id: "g1" })).status).toBe(200);
+  expect((await askOf()).draft).toBeUndefined();
 });
 
 it("a grantClass smuggled into a body is dropped by withoutGrant, so the server takes it", async () => {

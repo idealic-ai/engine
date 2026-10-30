@@ -8,7 +8,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
-import { answerAsk, newAsk } from "../src/lib/store.ts";
+import { answerAsk, newAsk, supersedeAsk, withdrawAsk } from "../src/lib/store.ts";
 import { parseAskFile } from "../src/lib/format.ts";
 import { BUILD_ID_FILE, computeBuildId } from "../src/build-id.ts";
 
@@ -46,7 +46,10 @@ beforeAll(async () => {
   base = fs.mkdtempSync(path.join("/tmp", "asksrv-followup-"));
   root = path.join(base, "asks");
   fs.mkdirSync(path.join(base, "sessions"));
-  for (const id of ["f1", "f2", "done"]) newAsk(root, { from: SEAT, to: MGR, id }, BODY);
+  for (const id of ["f1", "f2", "done", "old", "repl", "gone"]) newAsk(root, { from: SEAT, to: MGR, id }, BODY);
+  const quiet = async () => ({ status: "delivered" as const });
+  await supersedeAsk(root, { seat: SEAT, id: "old" }, { seat: SEAT, id: "repl" }, { by: SEAT, push: quiet });
+  await withdrawAsk(root, { seat: SEAT, id: "gone" }, { by: SEAT, reason: "no longer asked", push: quiet, now: "2026-10-30T10:00:00.000Z" });
   await answerAsk(root, SEAT, "done", { answers: { GO: ["YES"] }, answeredBy: MGR }, { expectedRevision: 1, push: async () => ({ status: "delivered" as const }) });
   port = 30000 + Math.floor(Math.random() * 20000);
   const env: NodeJS.ProcessEnv = { ...process.env, ASK_SESSIONS_DIR: path.join(base, "sessions"), ASK_LINEAR_ENV: "/dev/null", ASK_APP_DIST: fakeDist(base) };
@@ -94,6 +97,18 @@ describe("POST /api/followup", () => {
     expect(r.status).toBe(409);
     expect(JSON.parse(r.body)).toMatchObject({ status: "answered" });
     expect(fs.readFileSync(fileOf("done"), "utf8")).toBe(before);
+  });
+
+  it("SHOULD-3 (round 2): 409 on a superseded ask names the replacement, as /api/answer does", async () => {
+    const r = await post("/api/followup", { seat: SEAT, id: "old", expectedRevision: 1, kind: "question", text: "x" });
+    expect(r.status).toBe(409);
+    expect(JSON.parse(r.body)).toMatchObject({ status: "superseded", supersededBy: `${SEAT}/repl` });
+  });
+
+  it("SHOULD-3 (round 2): 409 on a withdrawn ask says who took it back, when and why", async () => {
+    const r = await post("/api/followup", { seat: SEAT, id: "gone", expectedRevision: 1, kind: "question", text: "x" });
+    expect(r.status).toBe(409);
+    expect(JSON.parse(r.body)).toMatchObject({ status: "withdrawn", withdrawnBy: SEAT, withdrawnAt: "2026-10-30T10:00:00.000Z", withdrawnReason: "no longer asked" });
   });
 
   it("400 on empty text, an unknown kind and an unknown fork, writing nothing", async () => {

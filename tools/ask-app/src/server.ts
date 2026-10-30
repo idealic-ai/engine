@@ -18,7 +18,8 @@
  *   POST /api/followup {seat, id, expectedRevision, kind: "question"|"first", fork?, text, picks?} → a follow-up
  *                      to the asker, stamped `by` the server's answerer (never the body's); the ask stays open
  *                      → 200 {revision, followup: {n, at, by, kind, fork, text, picks}, delivery} · 400 empty text,
- *                        unknown kind or fork · 409 stale revision (+ current revision) or a closed ask (+ status)
+ *                        unknown kind or fork · 409 stale revision (+ current revision) or a closed ask (+ status;
+ *                        a superseded or withdrawn ask carries the same fields as /api/answer's 409)
  *   POST /api/send     {refs?: ["seat/id", …]} → every named draft (the operator's own drafts when refs
  *                      is absent) is settled from its file and ONE message per recipient seat is pushed. The body's
  *                      refs are the only input: answers in the body are never read (the file is the record).
@@ -218,6 +219,9 @@ const server = http.createServer(async (req, res) => {
           );
           return send(res, 200, { revision: out.revision, followup: out.followup, delivery: out.delivery });
         } catch (e) {
+          // SHOULD-3 (round 2): the same 409 payloads as /api/answer for a replaced or withdrawn ask.
+          if (e instanceof SupersededError) return send(res, 409, { error: e.message, status: "superseded", supersededBy: e.by });
+          if (e instanceof WithdrawnError) return send(res, 409, { error: e.message, status: "withdrawn", withdrawnBy: e.actor, withdrawnAt: e.at, withdrawnReason: e.reason });
           if (e instanceof FollowupClosedError) return send(res, 409, { error: e.message, status: e.status });
           if (e instanceof StaleRevisionError) return send(res, 409, { error: e.message, revision: e.current });
           if (e instanceof AskFormatError) return send(res, 400, { error: e.message });
