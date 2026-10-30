@@ -17,6 +17,8 @@
 #                  --relayed-from operator --note "<when/where>"   a seat records the operator's answer
 #                  on a reserved ask, answer --decline by anyone but the operator passes it up to your parent
 #                  (past the asker, else operator; it stays open); draft --decline there is refused
+#                  --grant A|B|C|D   the answering manager records its answer's grant class (refused for
+#                  the operator, on a reserved-for ask, and on draft; the browser never writes one)
 #   engine ask revise <seat>/<id> [card flags as for new] [--keep-body]   the asker revises an open ask
 #   engine ask draft  <seat>/<id> --revision N (--json … | --decline <reason>)   save in the file, push nothing
 #   engine ask send [<seat>/<id> …]       settle YOUR drafts (all of yours, by default); ONE push per seat

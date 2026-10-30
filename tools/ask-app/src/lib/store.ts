@@ -22,6 +22,8 @@ import {
   invalidOptionCodes,
   parseAskFile,
   draftAuthor,
+  GRANT_CLASSES,
+  isOperatorName,
   readsOf,
   relayerOf,
   replacedSummary,
@@ -143,10 +145,13 @@ function assertCodes(ask: ParsedAsk) {
  * message names it and how to fold it. The socket stamps no sender (measured), so the first line
  * names who answered and which ask.
  */
-export function deliveryMessage(seat: string, id: string, file: string, answer: AskAnswer, lines: string[] = [], o: { replaced?: string; resent?: boolean } = {}): string {
+export function deliveryMessage(seat: string, id: string, file: string, answer: AskAnswer, lines: string[] = [], o: { replaced?: string; resent?: boolean; overruled?: string } = {}): string {
   const verb = answer.declined ? "declined" : "answered";
   // IDE-304: a second answer says it CHANGED and what it replaced; a re-push says it is one.
-  const first = o.replaced
+  // IDE-339: when a different answerer replaced it, it says it OVERRULED that answerer.
+  const first = o.replaced && o.overruled
+    ? `[ask-overruled] from ${answer.answeredBy || "unknown"} via ask-app: ${seat}/${id} is ${verb} again; this answer overrules ${o.overruled}'s`
+    : o.replaced
     ? `[ask-answer-changed] from ${answer.answeredBy || "unknown"} via ask-app: ${seat}/${id} is ${verb} again; this answer replaces the earlier one`
     : `[ask-answer] from ${answer.answeredBy || "unknown"} via ask-app: ${seat}/${id} is ${verb}`;
   return [
@@ -313,6 +318,7 @@ export async function answerAsk(
   const passed = await withFileLock(file, () => {
     const before = fs.readFileSync(file, "utf8");
     const ask = parseAskFile(before);
+    assertGrant(ask, input);
     if (!isPassUp(ask, input)) return undefined;
     assertNotSuperseded(ask);
     if (!input.reason?.trim()) throw new AskFormatError("a decline needs a non-empty reason");
@@ -340,20 +346,22 @@ export async function answerAsk(
   const { written, record, parsed, replaced } = await withFileLock(file, () => {
     const before = fs.readFileSync(file, "utf8");
     assertMayAnswer(parseAskFile(before), input, opts);
+    assertGrant(parseAskFile(before), input);
     const replaced = replacedSummary(parseAskFile(before));
+    const grant = input.grantClass ? { grantClass: input.grantClass } : {};
     let text: string;
     if (input.declined) {
-      text = writeDecline(before, { reason: input.reason ?? "", answeredBy: input.answeredBy, ...via, answeredAt: at, ...(input.note ? { note: input.note } : {}) }, opts.expectedRevision);
+      text = writeDecline(before, { reason: input.reason ?? "", answeredBy: input.answeredBy, ...via, answeredAt: at, ...(input.note ? { note: input.note } : {}), ...grant }, opts.expectedRevision);
     } else {
       validateAnswer(parseAskFile(before), input.answers);
-      text = writeAnswer(before, { answers: input.answers, ...(input.note ? { note: input.note } : {}), answeredBy: input.answeredBy, ...via, answeredAt: at }, opts.expectedRevision);
+      text = writeAnswer(before, { answers: input.answers, ...(input.note ? { note: input.note } : {}), answeredBy: input.answeredBy, ...via, answeredAt: at, ...grant }, opts.expectedRevision);
     }
     text = setHeaderField(setHeaderField(text, "delivery", "pending"), "deliveryWriter", writerStamp());
     atomicWrite(file, text);
     const parsed = parseAskFile(text);
     return { written: currentRevision(parsed), record: parsed.answer!, parsed, replaced };
   });
-  const delivery = await pushAnswer(parsed, seat, file, record, opts, { replaced });
+  const delivery = await pushAnswer(parsed, seat, file, record, opts, { replaced, overruled: overruledOf(parsed, replaced) });
   try {
     await stampDelivery(file, written, delivery);
   } catch (e) {
@@ -373,7 +381,7 @@ export async function answerAsk(
 }
 
 /** S4: the asker and every seat that held and forwarded the ask hear the answer, with its lines. */
-async function pushAnswer(parsed: ParsedAsk, seat: string, file: string, record: AskAnswer, opts: DeliverOptions & { push?: typeof pushToSeat }, how: { replaced?: string; resent?: boolean } = {}): Promise<DeliveryResult> {
+async function pushAnswer(parsed: ParsedAsk, seat: string, file: string, record: AskAnswer, opts: DeliverOptions & { push?: typeof pushToSeat }, how: { replaced?: string; resent?: boolean; overruled?: string } = {}): Promise<DeliveryResult> {
   const push = opts.push ?? pushToSeat;
   const id = parsed.header.id ?? "";
   const msg = deliveryMessage(seat, id, file, record, answerLines(parsed, seat), how);
@@ -508,6 +516,21 @@ function isPassUp(ask: ParsedAsk, a: AskAnswer): boolean {
   return !!a.declined && !!reserved && a.answeredBy !== reserved;
 }
 
+/** IDE-339: the `overruled:` stamp the settle just wrote, read only beside a `replaced:` one. */
+const overruledOf = (ask: ParsedAsk, replaced: string | undefined) => (replaced && ask.header.overruled?.trim()) || undefined;
+
+/**
+ * IDE-339: a grant class is A–D, written by the answering manager (`engine ask answer --grant`): never
+ * on the operator's answer (relayed or not), and never on an ask reserved for someone.
+ */
+function assertGrant(ask: ParsedAsk, a: AskAnswer) {
+  if (a.grantClass === undefined) return;
+  const id = ask.header.id ?? "";
+  if (!(GRANT_CLASSES as readonly unknown[]).includes(a.grantClass)) throw new AskFormatError(`a grant class is A, B, C or D, not ${String(a.grantClass)}`);
+  if (isOperatorName(a.answeredBy)) throw new AskFormatError(`the operator's answer to ${id} carries no grant class: a grant class is the answering manager's`);
+  if (reservedOf(ask)) throw new AskFormatError(`ask ${id} is reserved for ${reservedOf(ask)}: a reserved ask's answer carries no grant class`);
+}
+
 /** R4 and M3: an ask marked `reserved-for: operator` is answered by the operator; any ask only by its answerers. */
 function assertMayAnswer(ask: ParsedAsk, a: AskAnswer, standing?: RelayStanding) {
   // First: a superseded ask is refused whoever answers, pointing at the ask that replaced it.
@@ -541,6 +564,7 @@ export async function saveDraft(root: string, seat: string, id: string, input: A
     const before = fs.readFileSync(file, "utf8");
     const ask = parseAskFile(before);
     assertNotSuperseded(ask);
+    if (input.grantClass !== undefined) throw new AskFormatError("a grant class is never drafted: it is written with `engine ask answer --grant`");
     // S3 (round 2): a seat's decline of a reserved ask is a pass-up, which moves the ask at once;
     // it is never held as a draft.
     if (isPassUp(ask, input)) {
@@ -580,12 +604,20 @@ export type BatchResult = {
 };
 
 /** The batch push: a summary built from the files just written, one per recipient seat. */
-export function batchMessage(seat: string, answeredBy: string, items: { ref: string; file: string; lines: string[]; replaced?: string }[]): string {
+export function batchMessage(seat: string, answeredBy: string, items: { ref: string; file: string; lines: string[]; replaced?: string; overruled?: string }[]): string {
   const n = items.length;
   return [
     `[ask-batch] from ${answeredBy || "unknown"} via ask-app: ${n} answer${n === 1 ? "" : "s"} for ${seat}`,
     // IDE-304: an item that replaces an earlier answer says so, and what it replaced.
-    ...items.flatMap((it) => [...(it.replaced ? [`- [ask-answer-changed] ${it.ref} replaces ${it.replaced}`] : []), ...it.lines.map((l) => `- ${l}`)]),
+    // IDE-339: one that a different answerer gave is overruled, and says whose it was.
+    ...items.flatMap((it) => [
+      ...(it.replaced && it.overruled
+        ? [`- [ask-overruled] ${it.ref} overrules ${it.overruled}; replaces ${it.replaced}`]
+        : it.replaced
+          ? [`- [ask-answer-changed] ${it.ref} replaces ${it.replaced}`]
+          : []),
+      ...it.lines.map((l) => `- ${l}`),
+    ]),
     "",
     "Each answer is in its file, the only record. `engine ask read <seat>/<id>` prints it in full and marks it read:",
     ...items.map((it) => it.file),
@@ -604,7 +636,7 @@ export async function sendBatch(root: string, refs: string[] | undefined, opts: 
   if (!by) throw new AskFormatError("send must name its sender: a batch sends only the sender's own drafts");
   const out: BatchResult = { repushed: await repushPending(root, opts), settled: [], refused: [], pushes: [] };
   const list = refs ?? listAsks(root).filter((a) => a.draft && draftAuthor(a.draft) === by).sort((a, b) => a.file.localeCompare(b.file)).map((a) => `${a.seat}/${a.header.id}`);
-  const bySeat = new Map<string, { ref: string; file: string; lines: string[]; written: number; replaced?: string }[]>();
+  const bySeat = new Map<string, { ref: string; file: string; lines: string[]; written: number; replaced?: string; overruled?: string }[]>();
   const answerers = new Set<string>();
   const selfOnly: { file: string; written: number; seat: string }[] = [];
   for (const ref of list) {
@@ -634,7 +666,8 @@ export async function sendBatch(root: string, refs: string[] | undefined, opts: 
       const written = currentRevision(settled);
       out.settled.push({ ref, revision: written, file });
       answerers.add(settled.answer?.answeredBy ?? "");
-      const item = { ref, file, lines: answerLines(settled, seat), written, ...(settled.replaced ? { replaced: settled.replaced } : {}) };
+      const overruled = overruledOf(settled, settled.replaced);
+      const item = { ref, file, lines: answerLines(settled, seat), written, ...(settled.replaced ? { replaced: settled.replaced } : {}), ...(overruled ? { overruled } : {}) };
       for (const s of pushTargets(settled, seat)) {
         if (isSelf(s, settled.answer)) selfOnly.push({ file, written, seat: s });
         else bySeat.set(s, [...(bySeat.get(s) ?? []), item]);
@@ -715,7 +748,8 @@ export async function repushPending(root: string, opts: DeliverOptions & { push?
     });
     if (!claimed?.answer) continue;
     // The answer's own `replaced:` line, if it was a change; marked re-sent either way.
-    const delivery = await pushAnswer(claimed, a.seat, a.file, claimed.answer, opts, { replaced: claimed.header.replaced?.trim() || undefined, resent: true });
+    const replaced = claimed.header.replaced?.trim() || undefined;
+    const delivery = await pushAnswer(claimed, a.seat, a.file, claimed.answer, opts, { replaced, overruled: overruledOf(claimed, replaced), resent: true });
     await stampDelivery(a.file, currentRevision(claimed), delivery);
     out.push({ ref: `${a.seat}/${claimed.header.id ?? ""}`, delivery });
   }
@@ -907,7 +941,7 @@ export async function reviseAsk(
   const file = resolveAskPath(root, seat, id);
   if (!o?.by) throw new AskFormatError("revise must name who is revising");
   if (body !== undefined && RECORD_FENCE_RE.test(body)) {
-    throw new AskFormatError("the body holds a ```json answer or ```json draft block: those are records the store writes, never part of a question");
+    throw new AskFormatError("the body holds a ```json answer, ```json draft or ```json history block: those are records the store writes, never part of a question");
   }
   for (const k of Object.keys(fields)) {
     if (fields[k] === undefined) continue;

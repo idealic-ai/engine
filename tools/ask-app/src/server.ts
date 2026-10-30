@@ -3,12 +3,12 @@
  * root. Binds 127.0.0.1 only; no auth, no database — the files are the state.
  *
  *   GET  /api/health   {app, root, pid, port}
- *   GET  /api/asks     every ask under the root, all statuses
+ *   GET  /api/asks     every ask under the root, all statuses; each with `history`, its replaced answers, oldest first
  *   GET  /api/proofs   (token required) published proof pages in the local proof store, newest first
  *                      (?fresh skips the cache, and joins a listing already running rather than starting one)
  *   GET  /api/broadcasts  (token required) broadcasts newest first, with acks; read-only, BROADCAST_DIR overrides the dir
  *   GET  /api/events   server-sent events: "change" whenever a file under the root changes
- *   POST /api/answer   {seat, id, expectedRevision, answers | decline: reason, note?}
+ *   POST /api/answer   {seat, id, expectedRevision, answers | decline: reason, note?}  (a `grantClass` is refused: 400)
  *                      → 200 written + pushed · 400 invalid/empty · 409 stale revision (+ current answer)
  *                        · 409 superseded ({ error, status: "superseded", supersededBy: "<seat>/<id>" })
  *   POST /api/draft    same body as /api/answer → the answer is saved IN THE FILE as a draft; nothing pushed
@@ -200,6 +200,9 @@ const server = http.createServer(async (req, res) => {
           throw e;
         }
       }
+      // IDE-339: a grant class is the answering manager's, written from the CLI; the browser is the
+      // operator, whose answer never carries one. Refused, not dropped, so a client that sends one learns.
+      if (b.grantClass !== undefined) return send(res, 400, { error: "a grant class is never written from the browser: the answering manager writes it with `engine ask answer --grant`" });
       // NEW-3: a decline's reason is a string; null, false or an object is not a reason.
       if (b.decline !== undefined && typeof b.decline !== "string") return send(res, 400, { error: "decline must be a non-empty string reason" });
       const input =

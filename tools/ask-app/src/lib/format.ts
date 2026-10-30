@@ -76,7 +76,16 @@ export type AskAnswer = {
   /** How the answerer was established (`ask-app loopback UI`, `cli`): the stamp says what was proven. */
   answeredVia?: string;
   answeredAt?: string;
+  /**
+   * IDE-339: the class of grant a manager's answer gives (A–D), written only by the answering manager
+   * through `engine ask answer --grant`. Never on the operator's answer, a reserved ask, or a draft.
+   */
+  grantClass?: GrantClass;
 };
+
+/** IDE-339: the grant classes a manager's answer may carry. */
+export const GRANT_CLASSES = ["A", "B", "C", "D"] as const;
+export type GrantClass = (typeof GRANT_CLASSES)[number];
 
 /** A saved, unsent answer: kept in the file, never in a message, until a batch send settles it. */
 export type AskDraft = AskAnswer & { basedOn: number; savedAt?: string; bodyHash?: string };
@@ -96,6 +105,11 @@ export type ParsedAsk = {
   questions: AskQuestion[];
   answer?: AskAnswer;
   draft?: AskDraft;
+  /**
+   * IDE-339: every answer this one replaced, oldest first, each record as it was written (revision
+   * and all), from the file's ```json history``` fence. Empty when nothing was replaced.
+   */
+  history: AskAnswer[];
 };
 
 export const HEADER_FIELDS = [
@@ -114,6 +128,8 @@ export const STAMP_FIELDS = [
   "superseded-by", "superseded-at", "superseded-actor", "supersedes",
   // IDE-304: the answer a later answer replaced, on one line (revision, who, when, what).
   "replaced",
+  // IDE-339: the answerer whose settled answer a different answerer replaced.
+  "overruled",
 ] as const;
 
 const KIND_WORDS: Record<string, QuestionKind> = {
@@ -150,8 +166,12 @@ const DEPENDS_RE = /^DependsOn:\s*(?:¶|§)?\s*ASK_(\w+)(?:\s*=\s*(\S+))?\s*$/;
 /** The store-written record fences (`rename-seat` rewrites seats inside them). */
 export const ANSWER_FENCES = /(?:^|\n)```json answer\n([\s\S]*?)\n```(?=\n|$)\n?/g;
 export const DRAFT_FENCES = /(?:^|\n)```json draft\n([\s\S]*?)\n```(?=\n|$)\n?/g;
-/** Any record fence (`json answer` or `json draft`), wherever it sits: a body never carries one (M1). */
-export const RECORD_FENCE_RE = /^\s*```json (?:answer|draft)\b/m;
+/** IDE-339: the earlier answers, one JSON array in one fence, written by settle() before the answer. */
+export const HISTORY_FENCES = /(?:^|\n)```json history\n([\s\S]*?)\n```(?=\n|$)\n?/g;
+/** Any record fence (`json answer`, `json draft` or `json history`), wherever it sits: a body never carries one (M1). */
+export const RECORD_FENCE_RE = /^\s*```json (?:answer|draft|history)\b/m;
+/** The text with every record fence taken out: what the ask asks. */
+const stripRecords = (t: string) => t.replace(ANSWER_FENCES, "\n").replace(DRAFT_FENCES, "\n").replace(HISTORY_FENCES, "\n");
 
 export class AskFormatError extends Error {
   constructor(message: string) {
@@ -519,9 +539,21 @@ export function parseAskFile(text: string): ParsedAsk {
   if (dms.length && (open || settled)) draft = honouredDraft(rest, dms[dms.length - 1], header);
   // IDE-304: on a settled ask, only the operator's draft of a change to the operator's own answer counts.
   if (draft && !open && !(isOperatorAnswer(answer) && isOperatorName(draft.answeredBy))) draft = undefined;
-  const body = rest.replace(ANSWER_FENCES, "\n").replace(DRAFT_FENCES, "\n");
-  const { preamble, questions } = parseQuestions(body);
-  return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}) };
+  // IDE-339: like the answer, the history counts only on a settled ask, and the last fence is the record.
+  let history: AskAnswer[] = [];
+  const hms = [...rest.matchAll(HISTORY_FENCES)];
+  if (hms.length && settled) {
+    let h: unknown;
+    try {
+      h = JSON.parse(hms[hms.length - 1][1]);
+    } catch {
+      throw new AskFormatError("the json history block is not valid JSON");
+    }
+    if (!Array.isArray(h)) throw new AskFormatError("the json history block must be a list of answers");
+    history = h as AskAnswer[];
+  }
+  const { preamble, questions } = parseQuestions(stripRecords(rest));
+  return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}), history };
 }
 
 /**
@@ -546,7 +578,7 @@ function honouredDraft(rest: string, m: RegExpMatchArray, header: AskHeader): As
  * tell that the question was edited after it was saved (S4). FNV-1a, 32 bit: pure, no node.
  */
 export function bodyDigest(text: string): string {
-  const body = splitHeader(text).rest.replace(ANSWER_FENCES, "\n").replace(DRAFT_FENCES, "\n").trim();
+  const body = stripRecords(splitHeader(text).rest).trim();
   let h = 0x811c9dc5;
   for (let i = 0; i < body.length; i++) {
     h ^= body.charCodeAt(i);
@@ -598,6 +630,19 @@ export function replacedSummary(ask: ParsedAsk): string | undefined {
   return `revision ${rev} by ${a.answeredBy || "unknown"} at ${a.answeredAt ?? "?"}; was ${was}`.replace(/\s+/g, " ").trim();
 }
 
+/** One answerer, whatever form its name took: the operator relayed or not is the operator. */
+const answererOf = (a: AskAnswer) => (isOperatorName(a.answeredBy) ? "operator" : (a.answeredBy ?? "").trim());
+
+/**
+ * IDE-339: who a new answer by `record` overrules — the prior settled answer's answerer, when that
+ * is someone else. Undefined for a first answer or a change by the same answerer.
+ */
+export function overruledBy(ask: ParsedAsk, record: AskAnswer): string | undefined {
+  const prior = ask.header.status === "answered" || ask.header.status === "declined" ? ask.answer : undefined;
+  if (!prior || answererOf(prior) === answererOf(record)) return undefined;
+  return prior.answeredBy || "unknown";
+}
+
 function settle(text: string, record: AskAnswer, status: "answered" | "declined", expectedRevision?: number): string {
   const ask = parseAskFile(text);
   assertNotSuperseded(ask);
@@ -606,14 +651,19 @@ function settle(text: string, record: AskAnswer, status: "answered" | "declined"
   const revision = String(cur + 1);
   const answer = { ...record, revision: cur + 1 };
   const replaced = replacedSummary(ask);
+  const overruled = overruledBy(ask, record);
+  // IDE-339: the answer being replaced joins the history whole, after the ones it replaced.
+  const history = replaced && ask.answer ? [...ask.history, ask.answer] : ask.history;
   let out = setHeaderField(text, "status", status);
   out = replaced ? setHeaderField(out, "replaced", replaced) : removeHeaderField(out, "replaced");
+  out = overruled ? setHeaderField(out, "overruled", overruled) : removeHeaderField(out, "overruled");
   out = setHeaderField(out, "revision", revision);
   // A new answer is unread and not yet acted on, whatever the last one was.
   for (const k of ["readAt", "readBy", "reads", "acted", "actedAt", "actedBy", "draft", "deliveryWriter"]) out = removeHeaderField(out, k);
-  out = out.replace(ANSWER_FENCES, "\n").replace(DRAFT_FENCES, "\n");
+  out = stripRecords(out);
   out = out.replace(/\n*$/, "\n");
-  return `${out}\n\`\`\`json answer\n${JSON.stringify(answer, null, 2)}\n\`\`\`\n`;
+  const kept = history.length ? `\n\`\`\`json history\n${JSON.stringify(history, null, 2)}\n\`\`\`\n` : "";
+  return `${out}${kept}\n\`\`\`json answer\n${JSON.stringify(answer, null, 2)}\n\`\`\`\n`;
 }
 
 /** Answer the ask. With `expectedRevision`, refuse (StaleRevisionError) if the ask has moved since it was read. */
@@ -624,7 +674,7 @@ export function writeAnswer(text: string, answer: AskAnswer, expectedRevision?: 
 /** Decline the ask: `status: declined`, with a required, non-blank reason. */
 export function writeDecline(
   text: string,
-  d: { reason: string; answeredBy?: string; answeredVia?: string; answeredAt?: string; note?: string },
+  d: { reason: string; answeredBy?: string; answeredVia?: string; answeredAt?: string; note?: string; grantClass?: GrantClass },
   expectedRevision?: number,
 ): string {
   if (!d.reason || !d.reason.trim()) throw new AskFormatError("a decline needs a non-empty reason");

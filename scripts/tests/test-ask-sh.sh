@@ -805,4 +805,30 @@ test_rename_seat_route_moves_asks_and_refuses_a_bystander() {
   assert_contains "moved 0 asks; changed 0 fields in 0 files" "$out" "a second pass changes nothing"
 }
 
+test_ide339_answer_grant_records_class_and_refusals() {
+  printf '%s\n' "$BODY" | "$ASK_SH" new --id gr1 --to manager:idealic >/dev/null
+  printf '%s\n' "$BODY" | "$ASK_SH" new --id gr2 --to manager:idealic >/dev/null
+  printf '%s\n' "$BODY" | "$ASK_SH" new --id gr3 --to manager:idealic --reserved-for manager:idealic >/dev/null
+  assert_fails_with "--grant takes only A-D" "--grant takes A, B, C or D" \
+    env FLEET_PANE=manager:idealic "$ASK_SH" answer idealic:kernel/gr1 --revision 1 --json '{"GO":["YES"]}' --grant E
+  assert_fails_with "--grant is refused for the operator" "grant class" as_op answer idealic:kernel/gr2 --revision 1 --json '{"GO":["YES"]}' --grant A
+  assert_fails_with "--grant is refused on a reserved-for ask" "reserved" \
+    env FLEET_PANE=manager:idealic "$ASK_SH" answer idealic:kernel/gr3 --revision 1 --json '{"GO":["YES"]}' --grant C
+  assert_fails_with "--grant is refused on a draft" "--grant" \
+    env FLEET_PANE=manager:idealic "$ASK_SH" draft idealic:kernel/gr2 --revision 1 --json '{"GO":["YES"]}' --grant B
+  assert_contains "status: open" "$(cat "$ASK_ROOT/idealic:kernel/gr2.md")" "a refused grant writes nothing"
+  FLEET_PANE=manager:idealic "$ASK_SH" answer idealic:kernel/gr1 --revision 1 --json '{"GO":["YES"]}' --grant B >/dev/null
+  assert_contains '"grantClass": "B"' "$(cat "$ASK_ROOT/idealic:kernel/gr1.md")" "a manager's --grant B is recorded in the answer"
+}
+
+test_ide339_operator_over_a_seat_answer_is_overruled_and_kept_in_history() {
+  printf '%s\n' "$BODY" | "$ASK_SH" new --id ov1 --to manager:idealic >/dev/null
+  FLEET_PANE=manager:idealic "$ASK_SH" answer idealic:kernel/ov1 --revision 1 --json '{"GO":["YES"]}' >/dev/null
+  as_op answer idealic:kernel/ov1 --revision 2 --json '{"GO":["NO"]}' >/dev/null
+  local f="$ASK_ROOT/idealic:kernel/ov1.md"
+  assert_contains "overruled: manager:idealic" "$(cat "$f")" "the operator's answer over a seat's stamps overruled:"
+  assert_contains '```json history' "$(cat "$f")" "the seat's answer is kept in the history fence"
+  assert_contains '"answeredBy": "manager:idealic"' "$(cat "$f")" "with its answerer"
+}
+
 run_discovered_tests

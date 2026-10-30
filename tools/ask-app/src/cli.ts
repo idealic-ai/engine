@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk } from "./lib/store.ts";
-import { answeredByText, authorWarnings, HEADER_FIELDS, parseAskFile, type AnswerMap, type AskAnswer } from "./lib/format.ts";
+import { answeredByText, authorWarnings, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, type AnswerMap, type AskAnswer, type GrantClass } from "./lib/format.ts";
 
 /** The author guide, pointed to whenever `new` or `revise` warns or refuses. */
 const GUIDE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "skills", "ask", "assets", "ASK_AUTHOR_GUIDE.md");
@@ -164,14 +164,20 @@ async function main() {
   };
   const answerInput = (by: string): AskAnswer => {
     const who = relayStamp(by);
-    if (opt.decline !== undefined) return { declined: true, reason: opt.decline === "true" ? "" : opt.decline, ...who, ...(opt.note ? { note: opt.note } : {}) };
+    if (opt.decline !== undefined) return { declined: true, reason: opt.decline === "true" ? "" : opt.decline, ...who, ...(opt.note ? { note: opt.note } : {}), ...grant() };
     let answers: unknown;
     try {
       answers = JSON.parse(opt.json || die("--json or --decline is required"));
     } catch {
       die("--json is not valid JSON");
     }
-    return { answers: answers as AnswerMap, ...who, ...(opt.note ? { note: opt.note } : {}) };
+    return { answers: answers as AnswerMap, ...who, ...(opt.note ? { note: opt.note } : {}), ...grant() };
+  };
+  /** IDE-339: `--grant <A-D>`, the class of grant the answering manager's answer gives. */
+  const grant = (): { grantClass?: GrantClass } => {
+    if (opt.grant === undefined) return {};
+    if (!(GRANT_CLASSES as readonly string[]).includes(opt.grant)) die(`--grant takes A, B, C or D (got ${opt.grant})`);
+    return { grantClass: opt.grant as GrantClass };
   };
 
   if (cmd === "new") {
@@ -234,9 +240,10 @@ async function main() {
   }
 
   if (cmd === "answer" || cmd === "draft") {
-    const { seat, id } = splitRef(pos[0], `usage: ask ${cmd} <seat>/<id> --revision N (--json '{"Q":["CODE"]}' | --decline <reason>) [--by who] [--note text]`);
+    const { seat, id } = splitRef(pos[0], `usage: ask ${cmd} <seat>/<id> --revision N (--json '{"Q":["CODE"]}' | --decline <reason>) [--by who] [--note text]${cmd === "answer" ? " [--grant A|B|C|D]" : ""}`);
     // Compare-and-swap: the answerer names the revision it read (shown by `engine ask list`).
     if (opt.revision === undefined || !/^\d+$/.test(opt.revision)) die("--revision is required: pass the revision you read (engine ask list shows it)");
+    if (cmd === "draft" && opt.grant !== undefined) die("--grant is written with `engine ask answer`, never drafted");
     const input = answerInput(identity(cmd));
     try {
       if (cmd === "draft") {
