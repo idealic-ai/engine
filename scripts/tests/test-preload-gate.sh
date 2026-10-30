@@ -58,7 +58,7 @@ start_session 30 10
 pending && pass "G1pre2: SessionStart left a pending record" || fail "G1pre2: SessionStart left a pending record"
 OUT=$(pre Bash "$LS"); expect_deny "G1a: Bash ls denied" "$OUT"
 case "$OUT" in *"$(pg 1)"*"$(pg 2)"*"$(pg 3)"*) pass "G1b: deny lists every page, in order" ;; *) fail "G1b: deny lists every page, in order" "${OUT:0:300}" ;; esac
-case "$OUT" in *"allow_large: true"*"PRELOAD_READ_GATE=off"*"$PEND"*) pass "G1c: deny names allow_large and both escape hatches" ;; *) fail "G1c: deny names allow_large and both escape hatches" "${OUT:0:400}" ;; esac
+case "$OUT" in *"allow_large: true"*"rm -f $PEND"*"PRELOAD_READ_GATE=off"*) pass "G1c: deny names allow_large and both escape hatches" ;; *) fail "G1c: deny names allow_large and both escape hatches" "${OUT:0:400}" ;; esac
 expect_deny "G1d: Read of another file denied" "$(pre Read '{"file_path":"/etc/hosts"}')"
 expect_deny "G1e: Edit denied" "$(pre Edit '{"file_path":"/x","old_string":"a","new_string":"b"}')"
 expect_deny "G1f: Bash cat of a page is not an allowed read" "$(pre Bash "$(jq -nc --arg c "cat $(pg 1)" '{command:$c}')")"
@@ -134,6 +134,36 @@ start_session 30 10
 read_whole "$(pg 1)" & A=$!; read_whole "$(pg 2)" & B=$!; read_whole "$(pg 3)" & C=$!
 wait "$A" "$B" "$C"
 pending && fail "G9: parallel full reads clear it" "$(cat "$PEND")" || pass "G9: parallel full reads clear it"
+
+echo "=== G10: the named escape hatch, exactly rm -f <pending.json>, gets through ==="
+start_session 30 10
+expect_allow "G10a: rm -f <pending> is allowed" "$(pre Bash "$(jq -nc --arg c "rm -f $PEND" '{command:$c}')")"
+expect_allow "G10b: rm -f '<pending>' (quoted) is allowed" "$(pre Bash "$(jq -nc --arg c "rm -f '$PEND'" '{command:$c}')")"
+expect_deny "G10c: rm -f <pending> chained with another command is denied" "$(pre Bash "$(jq -nc --arg c "rm -f $PEND; ls" '{command:$c}')")"
+expect_deny "G10d: rm -rf of the session dir is denied" "$(pre Bash "$(jq -nc --arg c "rm -rf $(dirname "$PEND")" '{command:$c}')")"
+
+echo "=== G11: a session that never reads fails open after 5 denials in a row ==="
+start_session 30 10
+for k in 1 2 3 4 5; do OUT=$(pre Bash "$LS"); expect_deny "G11a: denial $k of 5" "$OUT"; done
+case "$OUT" in *"denial 5 of 5"*) pass "G11b: the deny counts down" ;; *) fail "G11b: the deny counts down" "${OUT:0:300}" ;; esac
+OUT=$(pre Bash "$LS")
+[ "$(decision "$OUT")" = "deny" ] && fail "G11c: the 6th blocked call fails open" "${OUT:0:200}" || pass "G11c: the 6th blocked call fails open"
+case "$OUT" in *systemMessage*"read gate is off"*) pass "G11d: with one warning" ;; *) fail "G11d: with one warning" "${OUT:0:200}" ;; esac
+pending && fail "G11e: the record is gone" || pass "G11e: the record is gone"
+expect_quiet "G11f: quiet afterwards" "$(pre Bash "$LS")"
+start_session 30 10
+for k in 1 2 3 4; do pre Bash "$LS" > /dev/null; done
+pre Read "$(jq -nc --arg p "$(pg 1)" '{file_path:$p}')" > /dev/null
+for k in 1 2 3 4; do pre Bash "$LS" > /dev/null; done
+expect_deny "G11g: a page Read resets the count (4 + Read + 4 + 1 still denied)" "$(pre Bash "$LS")"
+
+echo "=== G12: an orphaned lock older than 5 s is reclaimed ==="
+start_session 5
+mkdir "$PEND.lockd"; touch -t 202001010000 "$PEND.lockd"
+T0=$(date +%s); read_whole "$(pg 1)"; T1=$(date +%s)
+pending && fail "G12a: the read is recorded despite the orphan" || pass "G12a: the read is recorded despite the orphan"
+if [ $((T1 - T0)) -lt 3 ]; then pass "G12b: no wait on the orphan ($((T1 - T0)) s)"; else fail "G12b: no wait on the orphan" "$((T1 - T0)) s"; fi
+[ -e "$PEND.lockd" ] && fail "G12c: the lock is released" || pass "G12c: the lock is released"
 
 echo ""
 echo "======================================="

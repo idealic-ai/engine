@@ -38,12 +38,22 @@ END_LINE=$(jq -r --arg p "$FP" '.pages[] | select(.path == $p) | "[END OF PAGE \
 SAW_END=false
 [[ "$CONTENT" == *"$END_LINE"* ]] && SAW_END=true
 
-# Parallel Reads of several pages fire this hook concurrently: serialise the
-# read-modify-write with a mkdir lock (macOS has no flock).
+# Parallel Reads of several pages fire this hook concurrently.
+# pending.json is rewritten by this hook and its sibling; serialise with a mkdir
+# lock (macOS has no flock). A lockdir older than 5 s is an orphan from a hook
+# killed mid-write: reclaim it, so later hooks do not wait out their timeout.
+_lock_age() { local m; m=$(stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null) || { echo 0; return; }; echo $(( $(date +%s) - m )); }
+_take_lock() {
+  local _
+  for _ in $(seq 1 100); do
+    mkdir "$1" 2>/dev/null && return 0
+    [ "$(_lock_age "$1")" -ge 5 ] && rmdir "$1" 2>/dev/null && continue
+    sleep 0.05
+  done
+  return 1
+}
 LOCK="$PENDING.lockd"
-GOT=""
-for _ in $(seq 1 100); do mkdir "$LOCK" 2>/dev/null && { GOT=1; break; }; sleep 0.05; done
-[ -n "$GOT" ] && trap 'rmdir "$LOCK" 2>/dev/null; exit 0' EXIT
+_take_lock "$LOCK" && trap 'rmdir "$LOCK" 2>/dev/null; exit 0' EXIT
 [ -f "$PENDING" ] || exit 0
 
 jq --arg p "$FP" --argjson s "${START:-1}" --argjson n "${NUM:-0}" --argjson end "$SAW_END" '
