@@ -23,5 +23,7 @@ export default defineConfig({
   build: { outDir: "../../dist", emptyOutDir: true },
   server: { host: "127.0.0.1", proxy: { "/api": "http://127.0.0.1:4977" } },
   // The suite runs on a shared, often heavily loaded machine; the limits are for a hang, not a pace.
-  test: { root: ".", include: ["test/**/*.test.ts"], testTimeout: 30_000, hookTimeout: 60_000 },
+  // ASK_SEARCH_AUTO=0: a server a test spawns inherits this env, so it never indexes on start or on an ask write,
+  // and never reaches this machine's real embedder or proof store that way (IDE-334). A search test turns it back on with its own sources.
+  test: { root: ".", include: ["test/**/*.test.ts"], testTimeout: 30_000, hookTimeout: 60_000, env: { ASK_SEARCH_AUTO: "0" } },
 });

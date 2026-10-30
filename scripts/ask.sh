@@ -43,6 +43,10 @@
 #                  The operator (--by operator) or <old>'s own manager only. Re-run until a pass reports
 #                  "moved 0 asks and changed 0 fields"; a run that stops partway is finished by running it again
 #   engine ask serve [dir] [--port N] [--stop]   start (or reuse) the local app on 127.0.0.1
+#   engine ask search index [--full] | query "<q>" [--kind ask|proof|broadcast] [--limit N] | status  [--json]
+#                  semantic search over asks (all statuses, cut by fork), broadcasts and proof pages (the
+#                  proof store and sessions' builds/*_PROOF.html, deduped): the same index the app's
+#                  /api/search reads, <root>/.ask-app.search.db. Needs Ollama with embeddinggemma.
 #
 # Exit: 0 done; 1 refused or failed; 2 only from new/revise, when the body holds a fenced block
 #      with no language (stderr names each such line, every line prefixed "ask: "; tag it, ```text
@@ -340,6 +344,14 @@ case "$sub" in
     ;;
   serve)
     cmd_serve "$@"
+    ;;
+  search)
+    # The proof store the server lists is the one serve remembered; read it, never rewrite it here.
+    if [ -z "${PROVE_S3_ENV:-}" ] && [ -f "$ASK_ROOT/.ask-app.env" ]; then
+      _pe=$(sed -n 's/^PROVE_S3_ENV=//p' "$ASK_ROOT/.ask-app.env" | head -1)
+      [ -n "$_pe" ] && [ -f "$_pe" ] && export PROVE_S3_ENV="$_pe"
+    fi
+    exec node --no-warnings "$APP_DIR/src/search/cli.ts" "$@"
     ;;
   ""|-h|--help|help)
     usage

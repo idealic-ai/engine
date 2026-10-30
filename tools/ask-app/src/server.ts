@@ -9,6 +9,15 @@
  *   GET  /api/proofs   (token required) published proof pages in the local proof store, newest first
  *                      (?fresh skips the cache, and joins a listing already running rather than starting one)
  *   GET  /api/broadcasts  (token required) broadcasts newest first, with acks; read-only, BROADCAST_DIR overrides the dir
+ *   GET  /api/search   (token required) ?q=<text>&limit=<1-100, default 20>&kind=<ask|proof|broadcast[,…]> → 200
+ *                      [{kind, seat, id, title, status, score, excerpt, url, appPath, section}], best first, one per
+ *                      item (IDE-334). Semantic: the query is embedded by the local model and compared with the index
+ *                      of asks (all statuses, cut by fork), broadcasts and proof pages (src/search/). Headers
+ *                      x-search-indexed-at (the last full pass) and x-search-refreshing (1 when a pass runs).
+ *                      → 400 bad q, limit or kind · 503 {error, reason, code?} when it cannot answer: reason
+ *                      index-missing | index-empty | index-error | embedder-unavailable. Never an empty 200 for a failure.
+ *                      A search finding the index older than ASK_SEARCH_STALE_MS starts a pass behind its answer.
+ *   GET  /api/search/status  (token required) {indexedAt, items, chunks, running, lastReport}
  *   GET  /api/events   server-sent events: "change" whenever a file under the root changes
  *   POST /api/answer   {seat, id, expectedRevision, answers | decline: reason, note?}  (a `grantClass` is refused: 400)
  *                      → 200 written + pushed · 400 invalid/empty · 409 stale revision (+ current answer)
@@ -57,6 +66,11 @@ import { AnsweredByOperatorError, AskFormatError, dialogueHistory, FollowupClose
 import { computeBuildId, recordedBuildId } from "./build-id.ts";
 import { listProofs } from "./lib/proofs.ts";
 import { listBroadcasts } from "./lib/broadcasts.ts";
+import { createLocalEmbeddingClient, INDEXER_EMBED_RETRY, resolveEmbedConfig } from "../../embed-local/src/index.ts";
+import { openSearchDb, searchDbPath, type SearchDb } from "./search/db.ts";
+import { createRefresher, type Refresher } from "./search/refresher.ts";
+import { askSource, defaultSources, KINDS, type Kind } from "./search/sources.ts";
+import { indexState, search, SearchUnavailable } from "./search/query.ts";
 
 const args = process.argv.slice(2);
 const arg = (name: string) => {
@@ -98,10 +112,37 @@ const BUILD_ID = computeBuildId(process.env.ASK_BUILD_SRC || undefined);
 
 fs.mkdirSync(root, { recursive: true });
 
+/**
+ * IDE-334: the search index, opened (or created) at start. A file this code cannot read leaves `searchDb`
+ * null and /api/search answers 503 index-error; the rest of the app is unaffected.
+ */
+const searchFile = searchDbPath(root);
+let searchDb: SearchDb | null = null;
+let searchDbError = "";
+let refresher: Refresher | null = null;
+// A query fails fast; an indexing pass retries a busy runner (embed-local README).
+const queryEmbedder = createLocalEmbeddingClient({ config: { ...resolveEmbedConfig(), timeoutMs: Number(process.env.ASK_SEARCH_QUERY_TIMEOUT_MS || 10_000) } });
+try {
+  searchDb = openSearchDb(searchFile);
+  refresher = createRefresher({
+    db: searchDb,
+    dbFile: searchFile,
+    sources: () => defaultSources(root),
+    askSources: () => [askSource(root)],
+    embedder: createLocalEmbeddingClient({ retry: INDEXER_EMBED_RETRY }),
+    log: (line) => process.stdout.write(`${line}\n`),
+  });
+  if (process.env.ASK_SEARCH_AUTO !== "0") void refresher.start();
+} catch (e) {
+  searchDbError = (e as Error).message;
+  process.stderr.write(`ask-app: search index unavailable: ${searchDbError}\n`);
+}
+
 const clients = new Set<http.ServerResponse>();
 let pending: NodeJS.Timeout | undefined;
 fs.watch(root, { recursive: true }, (_ev, name) => {
   if (name && (String(name).endsWith(".tmp") || String(name).startsWith(".ask-app"))) return;
+  if (name && String(name).endsWith(".md") && process.env.ASK_SEARCH_AUTO !== "0") refresher?.asksChanged();
   clearTimeout(pending);
   pending = setTimeout(() => {
     for (const c of clients) c.write(`event: change\ndata: ${Date.now()}\n\n`);
@@ -160,6 +201,37 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === "/api/broadcasts" && req.method === "GET") {
       if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });
       return send(res, 200, { broadcasts: listBroadcasts() });
+    }
+    // IDE-334: semantic search over asks, broadcasts and proofs. Gated like /api/proofs: GET, the page's
+    // token, no foreign Origin (a query costs an embedding, and the index holds every ask's text).
+    if ((url.pathname === "/api/search" || url.pathname === "/api/search/status") && req.method === "GET") {
+      const origin = req.headers.origin;
+      if (origin !== undefined && !ORIGINS.includes(origin)) return send(res, 403, { error: "cross-origin read refused" });
+      if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });
+      if (!searchDb || !refresher) return send(res, 503, { error: `the search index cannot be opened: ${searchDbError}`, reason: "index-error" });
+      if (url.pathname === "/api/search/status") return send(res, 200, { ...indexState(searchDb), running: refresher.state().running, lastAttemptAt: refresher.state().lastAttemptAt });
+      const q = (url.searchParams.get("q") ?? "").trim();
+      if (!q) return send(res, 400, { error: "q is required" });
+      if (q.length > 500) return send(res, 400, { error: "q is longer than 500 characters" });
+      const rawLimit = url.searchParams.get("limit");
+      const limit = rawLimit === null || rawLimit === "" ? 20 : Number(rawLimit);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) return send(res, 400, { error: "limit must be a whole number from 1 to 100" });
+      const kinds = (url.searchParams.get("kind") ?? "").split(",").map((k) => k.trim()).filter(Boolean);
+      const bad = kinds.filter((k) => !KINDS.includes(k as Kind));
+      if (bad.length) return send(res, 400, { error: `unknown kind ${bad.join(", ")}: one of ${KINDS.join(", ")}` });
+      refresher.ensureFresh();
+      const st = refresher.state();
+      try {
+        const hits = await search(searchDb, queryEmbedder, { q, limit, kinds: kinds as Kind[] });
+        res.setHeader("x-search-indexed-at", st.indexedAt ?? "");
+        res.setHeader("x-search-refreshing", refresher.state().running ? "1" : "0");
+        return send(res, 200, hits);
+      } catch (e) {
+        if (e instanceof SearchUnavailable) {
+          return send(res, 503, { error: e.message, reason: e.reason, ...(e.code ? { code: e.code } : {}), indexing: refresher.state().running !== null });
+        }
+        throw e;
+      }
     }
     if (url.pathname === "/api/events") {
       res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
