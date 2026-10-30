@@ -75,15 +75,27 @@
 #       are the backticked paths in that row's Owner cell, read from CONTRACTS.md at the range's tip
 #       (`git rev-parse` of the range's end) AND at its base (the merge-base): a PR that repoints an
 #       Owner cell still asks the owner it repoints away from. Each path's seat comes from the owners
-#       map: by default the "Ownership is fixed" line of docs/LIVE_MARKET_DIRECT.md as the range's
-#       tip has it (never the working tree), read by skills/next/assets/doc-signals.sh
-#       owners-from-doc --emit lane (a lane keyed by its seat, "domain:language: …", or by a name
-#       with the seat backticked in parentheses; shared ground is seat "shared"). The doc or a
-#       usable line missing at the tip refuses (exit 2) naming what is missing. --owners FILE, else
-#       BROADCAST_OWNERS, replaces it with a file of "<path> <seat>" lines. Precedence: an exact
-#       path > a longer dir/ > a shorter dir/ > a glob (* or ?, ** as *; globs by /-depth among
-#       themselves); two seats at the same rank tie and refuse. A "shared" path asks every lane
-#       seat in the map (the distinct non-shared seats). Per owner and commit the receipt is
+#       map: by default the "Ownership is fixed" line of docs/LIVE_MARKET_DIRECT.md, read by
+#       skills/next/assets/doc-signals.sh owners-from-doc --emit lane (a lane keyed by its seat,
+#       "domain:language: …", or by a name with the seat backticked in parentheses; shared ground is
+#       seat "shared"), plus the "Who owns each folder" table of handbook/README.md, each at the
+#       range's tip AND at its base (never the working tree). Each path is asked of its seat at both,
+#       so a PR that edits the line still asks the owner it moves a path away from; a tie or a guard
+#       on either side refuses, naming the side; a path with no seat on one side is asked of the
+#       other's. A range that edits the Ownership line asks every lane of base ∪ tip for the doc,
+#       and one that edits the table asks each changed row's seats for handbook/README.md. A base
+#       with no Ownership line (or no base) leaves the tip's alone, and the message says so. The doc
+#       or a usable line missing at the tip refuses (exit 2) naming what is missing. --owners FILE,
+#       else BROADCAST_OWNERS, replaces both sides with a file of "<path> <seat>" lines (no default
+#       file is read any more: ~/.claude/data/<user>/owners.tsv was the round-4 default). Precedence:
+#       an exact path > a longer dir/ > a shorter dir/ > a glob (* or ?, ** as *; globs by /-depth
+#       among themselves); two seats at the same rank tie and refuse. A guard (a sentence of the
+#       line names the path and assigns it to no lane) that wins or ties refuses, unless the path
+#       resolves without it to shared ground or to a seat that sentence names. A "shared" path asks
+#       every lane seat in the map (the distinct non-shared seats; 19 on kit's line in 2026-10, and
+#       every one must be live or the request refuses with exit 3: package-lock.json is shared). The
+#       lanes the parser reads no path for are named in every request text, so the asked seat can
+#       forward it. Per owner and commit the receipt is
 #       `git show --text <commit> -- <paths> | git patch-id --stable`; merge commits are skipped
 #       (--no-merges). RANGE defaults to origin/main..HEAD; a rev without ".." is one commit. ONE
 #       broadcast to exactly the owner seats; each seat's message carries only its own receipt lines
@@ -799,43 +811,79 @@ cmd_pending() {
 OWNERS_MAP="${BROADCAST_OWNERS:-}"
 OWNERS_DOC="docs/LIVE_MARKET_DIRECT.md"
 DOC_SIGNALS="${BROADCAST_DOC_SIGNALS:-$HERE/../skills/next/assets/doc-signals.sh}"
-OWNERS_TEXT="" OWNERS_SRC="" LANE_SEATS="" UNCOVERED=""
-# load_owners <repo> <tip> — fills OWNERS_TEXT, OWNERS_SRC and LANE_SEATS (the distinct seats
-# other than "shared", in map order), or dies 2 naming what is missing.
+OWNERS_TEXT="" OWNERS_SRC="" LANE_SEATS="" UNCOVERED="" UNCOVERED_GIVES=""
+# A doc-read map has two sides: the tip (the owners the PR lands) and the base (the owners it lands
+# over). Each path is asked of both, so a PR that edits the line cannot choose its own owners.
+TIP_TEXT="" TIP_SRC="" BASE_TEXT="" BASE_SRC="" HAVE_BASE=0 BASE_NOTE=""
+# load_owners <repo> <rev> [<side>] — fills OWNERS_TEXT and OWNERS_SRC from the map at that rev
+# (the side, "tip" or "base", names it), plus OWN_BLOCK (the doc's "Ownership is fixed" block) and
+# HB_ROWS (the handbook table's "# hb <dir> <seat>" lines). At the tip a missing doc or an unusable
+# map dies 2 naming what is missing. At the base a doc with no Ownership line, or none, returns 1
+# (the caller reads the tip alone); an unusable map there dies 2 naming the base.
+OWN_BLOCK="" HB_ROWS=""
 load_owners() {
-  local repo="$1" tip="$2" doc err rc=0
+  local repo="$1" tip="$2" side="${3:-tip}" doc err rc=0 text
+  OWN_BLOCK="" HB_ROWS=""
   if [ -n "$OWNERS_MAP" ]; then
     [ -r "$OWNERS_MAP" ] || die 2 "go-request: no owners map at $OWNERS_MAP (lines '<path> <seat>')"
     OWNERS_TEXT=$(cat "$OWNERS_MAP"); OWNERS_SRC="$OWNERS_MAP"
   else
     [ -r "$DOC_SIGNALS" ] || die 2 "go-request: no owners parser at $DOC_SIGNALS (doc-signals.sh owners-from-doc)"
+    if ! text=$(git -C "$repo" show "$tip:$OWNERS_DOC" 2>/dev/null); then
+      [ "$side" != tip ] || die 2 "go-request: no $OWNERS_DOC at the $side $tip (the owners are read from its \"Ownership is fixed\" line; --owners FILE overrides)"
+      return 1
+    fi
+    case $'\n'"$text" in *$'\n- **Ownership is fixed.**'*) ;; *) [ "$side" = tip ] || return 1 ;; esac
     doc=$(mktemp "${TMPDIR:-/tmp}/go-owners.XXXXXX") err=$(mktemp "${TMPDIR:-/tmp}/go-owners.XXXXXX")
-    git -C "$repo" show "$tip:$OWNERS_DOC" > "$doc" 2>/dev/null \
-      || { rm -f "$doc" "$err"; die 2 "go-request: no $OWNERS_DOC at the tip $tip (the owners are read from its \"Ownership is fixed\" line; --owners FILE overrides)"; }
-    OWNERS_TEXT=$(bash "$DOC_SIGNALS" owners-from-doc --repo "$repo" --rev "$tip" --emit lane "$doc" 2>"$err") || rc=$?
+    printf '%s\n' "$text" > "$doc"
+    OWNERS_TEXT=$(bash "$DOC_SIGNALS" owners-from-doc --repo "$repo" --repo-id go --rev "$tip" --emit lane "$doc" 2>"$err") || rc=$?
     if [ "$rc" != 0 ]; then
       local why; why=$(sed 's/^owners-from-doc: //' "$err" | tr '\n' ';' | sed 's/;$//; s/;/; /g')
       rm -f "$doc" "$err"
-      die 2 "go-request: no owners map from $OWNERS_DOC at the tip $tip: $why"
+      die 2 "go-request: no owners map from $OWNERS_DOC at the $side $tip: $why"
     fi
     rm -f "$doc" "$err"
-    OWNERS_SRC="$OWNERS_DOC at $tip"
+    OWNERS_SRC="$OWNERS_DOC at the $side $tip"
+    OWN_BLOCK=$(awk '/^- \*\*Ownership is fixed\.\*\*/ { f = 1; print; next } f && /^[^ ]/ { f = 0 } f' <<<"$text")
+    HB_ROWS=$(grep '^# hb ' <<<"$OWNERS_TEXT" || true)
   fi
-  # Every lane seat: the "# lane" lines owners-from-doc prints (a lane with no path at the tip is
-  # still a lane), else the distinct seats of a FILE's rows.
-  LANE_SEATS=$(awk '$1 == "#" && $2 == "lane" && !seen[$3]++ { print $3 }' <<<"$OWNERS_TEXT" | sort | tr '\n' ' ' | sed 's/ $//')
-  [ -n "$LANE_SEATS" ] || LANE_SEATS=$(awk '$1 !~ /^#/ && NF >= 2 && $2 != "shared" && $2 != "unread" && !seen[$2]++ { print $2 }' <<<"$OWNERS_TEXT" | tr '\n' ' ' | sed 's/ $//')
-  UNCOVERED=$(awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$OWNERS_TEXT" | sort -u | tr '\n' ' ' | sed 's/ $//')
+}
+# lane_seats_of <text> → every lane seat of a map: the "# lane" lines owners-from-doc prints (a lane
+# with no path is still a lane), else the distinct seats of a FILE's rows. One per line.
+lane_seats_of() {
+  local s
+  s=$(awk '$1 == "#" && $2 == "lane" && !seen[$3]++ { print $3 }' <<<"$1")
+  [ -n "$s" ] || s=$(awk '$1 !~ /^#/ && NF >= 2 && $2 != "shared" && $2 != "unread" && !seen[$2]++ { print $2 }' <<<"$1")
+  [ -z "$s" ] || echo "$s"
 }
 # uncovered_note → for an unmapped path, the lanes the line names whose paths the parser read none
 # of: the path may be theirs, so the refusal names them rather than saying it has no owner.
 uncovered_note() { [ -z "$UNCOVERED" ] || echo " (the line names lane(s) $UNCOVERED, which the owners parser does not cover: no path of theirs was read; it may be theirs)"; }
-# asked_of <seat> → the seats asked for a path of that seat: itself, or every lane seat when it
-# is "shared" (operator ruling SHARED=ALLLANES). rc 1 for "shared" when the map has no lane seat.
-asked_of() {
-  if [ "$1" != shared ]; then echo "$1"; return 0; fi
-  [ -n "$LANE_SEATS" ] || return 1
-  tr ' ' '\n' <<<"$LANE_SEATS"
+# ask_for <path> → rc 0 with ASKED (the seats asked for it, one per line: its seat at the tip ∪ at
+# the base, every lane of both for shared ground on either side) and ASK_SHARED; rc 1 with WHY.
+# A tie or a guard on either side refuses, naming the side. A path with no seat on one side is
+# asked of the other side's owner (no owner is skipped); with no seat on both it refuses.
+ASKED="" ASK_SHARED=0 WHY=""
+ask_for() {
+  local p="$1" side text src rc seat got="" srcs=""
+  ASKED="" ASK_SHARED=0 WHY=""
+  for side in tip base; do
+    if [ "$side" = tip ]; then text=$TIP_TEXT src=$TIP_SRC
+    else [ "$HAVE_BASE" = 1 ] || continue; text=$BASE_TEXT src=$BASE_SRC; fi
+    srcs+="${srcs:+ or }$src"
+    OWNERS_TEXT=$text; rc=0; seat=$(seat_of_path "$p") || rc=$?
+    case "$rc" in
+      1) continue ;;
+      2) WHY="maps to two seats equally in $src"; return 1 ;;
+      3) WHY="is named by a sentence of the Ownership line that assigns it to no lane ('${seat}…', in $src)"; return 1 ;;
+    esac
+    if [ "$seat" = shared ]; then
+      [ -n "$LANE_SEATS" ] || { WHY="is shared ground and $src names no lane seat"; return 1; }
+      ASK_SHARED=1; got+=$(tr ' ' '\n' <<<"$LANE_SEATS")$'\n'
+    else got+="$seat"$'\n'; fi
+  done
+  [ -n "$got" ] || { WHY="maps to no seat in $srcs$(uncovered_note)"; return 1; }
+  ASKED=$(awk 'NF && !seen[$0]++' <<<"$got")
 }
 is_go() { [ "$(header "$1" kind)" = go-request ]; }
 declined() { [ -e "$BDIR/$1.declines.d/$(ack_key "$2")" ]; }
@@ -889,12 +937,15 @@ row_owner_paths() {
 # in / covers what is under what it matches. Globs rank below every literal, and among themselves
 # by /-segment depth (*/a.ts beats kern*a.ts): kern/ beats kern/*.ts, resource-kernel/ beats
 # resource-*, a catch-all * is the default. Two different seats at the same rank are a tie.
-# A row of seat "unread" (owners-from-doc's guard: a sentence of the line names the path but
-# assigns it to no lane) that wins or ties refuses; its third field, the sentence, is printed.
+# A row "<path> unread <names> <sentence>" is owners-from-doc's guard: a sentence of the line names
+# the path but assigns it to no lane. A guard that wins or ties refuses, printing its sentence,
+# unless the path resolves without it, at any rank, to shared ground (every lane is asked already)
+# or to a seat the sentence names (<names>, comma-joined): then the sentence agrees with the map.
 # rc 1 none · 2 a tie · 3 guarded.
 seat_of_path() {
-  local p="$1" pat seat why best="" bseg=-1 tie=0 seg t guard="" gseg=-1
-  while read -r pat seat why; do
+  local p="$1" pat seat f3 f4 best="" bseg=-1 tie=0 seg t ng=0 i
+  local -a gs gn gw
+  while read -r pat seat f3 f4; do
     case "$pat" in ''|'#'*) continue ;; esac
     [ -n "$seat" ] || continue
     t="${pat%/}"; t="${t//[!\/]/}"
@@ -906,23 +957,52 @@ seat_of_path() {
       */) [[ "$p" == "$pat"* ]] || continue; seg=$(( 1000 + ${#t} + 1 )) ;;
       *) [ "$p" = "$pat" ] || continue; seg=100000 ;;
     esac
-    if [ "$seat" = unread ]; then [ "$seg" -le "$gseg" ] || { guard="$why"; gseg="$seg"; }; continue; fi
+    if [ "$seat" = unread ]; then gs[ng]="$seg" gn[ng]="$f3" gw[ng]="$f4"; ng=$((ng + 1)); continue; fi
     if [ "$seg" -gt "$bseg" ]; then best="$seat"; bseg="$seg"; tie=0
     elif [ "$seg" = "$bseg" ] && [ "$seat" != "$best" ]; then tie=1; fi
   done <<<"$OWNERS_TEXT"
-  if [ -n "$guard" ] && [ "$gseg" -ge "$bseg" ]; then echo "$guard"; return 3; fi
+  for ((i = 0; i < ng; i++)); do
+    [ "${gs[i]}" -ge "$bseg" ] || continue
+    if [ -n "$best" ] && [ "$tie" = 0 ]; then
+      [ "$best" != shared ] || continue
+      case ",${gn[i]}," in *",$best,"*) continue ;; esac
+    fi
+    echo "${gw[i]}"; return 3
+  done
   [ -n "$best" ] || return 1
   [ "$tie" = 0 ] || return 2
   echo "$best"
 }
 
+# rid_memo <repo> <commit> <path>… → receipt_id, computed once per commit and path set: shared ground
+# and an Ownership-line edit send the same paths to every lane seat, and the empty-receipt check
+# and the receipts themselves read the same ids. RID_MEMO holds "\n<commit> <paths>\t<id>" lines.
+# (receipts_text runs in $(…), a subshell, so the caller fills the memo first with memo_fill.)
+RID_MEMO=$'\n'
+# memo_fill <repo> <commits> <path>… — adds each commit's id over those paths to RID_MEMO.
+memo_fill() {
+  local repo="$1" commits="$2" c key; shift 2
+  while IFS= read -r c; do
+    [ -n "$c" ] || continue
+    key="$c $*"
+    case "$RID_MEMO" in *$'\n'"$key"$'\t'*) continue ;; esac
+    RID_MEMO+="$key"$'\t'"$(receipt_id "$repo" "$c" "$@")"$'\n'
+  done <<<"$commits"
+}
+rid_memo() {
+  local key="$2 ${*:3}" rest
+  case "$RID_MEMO" in
+    *$'\n'"$key"$'\t'*) rest=${RID_MEMO#*$'\n'"$key"$'\t'}; echo "${rest%%$'\n'*}"; return 0 ;;
+  esac
+  receipt_id "$@"
+}
 # receipts_text <repo> <commits> <seat> <path>… → "path"-kind receipt / untouched lines for one owner.
 receipts_text() {
   local repo="$1" commits="$2" seat="$3" c pid; shift 3
   [ $# -gt 0 ] || return 1   # no paths would be the whole commit, never a receipt
   while IFS= read -r c; do
     [ -n "$c" ] || continue
-    pid=$(receipt_id "$repo" "$c" "$@")
+    pid=$(rid_memo "$repo" "$c" "$@")
     if [ -n "$pid" ]; then echo "receipt path $seat $c $pid -- $*"; else echo "untouched path $seat $c -- $*"; fi
   done <<<"$commits"
 }
@@ -995,7 +1075,24 @@ cmd_go_request() {
   read -r tip base <<<"$ends"
   commits=$(commits_of "$repo" "$range") || die 2 "go-request: '$range' is not a commit range in $repo"
   [ -n "$commits" ] || die 2 "go-request: '$range' holds no commits (merge commits are skipped)"
-  load_owners "$repo" "$tip"
+  load_owners "$repo" "$tip" tip; TIP_TEXT=$OWNERS_TEXT TIP_SRC=$OWNERS_SRC
+  local tip_block=$OWN_BLOCK tip_hb=$HB_ROWS
+  # The base side, and what the range edits of who owns what. Only for the doc: a FILE is one map.
+  local line_seats="" hb_seats="" ls
+  if [ -z "$OWNERS_MAP" ]; then
+    if [ "$base" = - ]; then BASE_NOTE="The range has no base, so the owners are the tip's alone."
+    elif load_owners "$repo" "$base" base; then BASE_TEXT=$OWNERS_TEXT BASE_SRC=$OWNERS_SRC HAVE_BASE=1
+    else BASE_NOTE="The base $base has no \"Ownership is fixed\" line in $OWNERS_DOC, so the owners are the tip's alone."; fi
+  fi
+  LANE_SEATS=$({ lane_seats_of "$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || lane_seats_of "$BASE_TEXT"; } | awk 'NF && !seen[$0]++' | sort | tr '\n' ' ' | sed 's/ $//')
+  UNCOVERED=$({ awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$BASE_TEXT"; } | sort -u | tr '\n' ' ' | sed 's/ $//')
+  UNCOVERED_GIVES=$({ awk '$1 == "#" && $2 == "uncovered" && NF > 3 { s = $3; $1 = $2 = $3 = ""; sub(/^ +/, ""); print s " (" $0 ")" }' <<<"$TIP_TEXT"; [ "$HAVE_BASE" = 0 ] || awk '$1 == "#" && $2 == "uncovered" && NF > 3 { s = $3; $1 = $2 = $3 = ""; sub(/^ +/, ""); print s " (" $0 ")" }' <<<"$BASE_TEXT"; } | awk '!seen[$1]++' | awk 'NR > 1 { printf " · " } { printf "%s", $0 }')
+  if [ "$HAVE_BASE" = 1 ]; then
+    # An edit of the Ownership line is a change to who owns what: every lane of base ∪ tip is asked
+    # for the doc. An edit of the handbook folder table asks the seats of each row it changes.
+    [ "$OWN_BLOCK" = "$tip_block" ] || line_seats=$LANE_SEATS
+    [ "$HB_ROWS" = "$tip_hb" ] || hb_seats=$(printf '%s\n%s\n' "$HB_ROWS" "$tip_hb" | sort | uniq -u | awk 'NF >= 4 && !seen[$4]++ { print $4 }' | tr '\n' ' ' | sed 's/ $//')
+  fi
   # CONTRACTS.md as the range's tip has it (the rows this PR lands) AND as its base has it (the
   # owners it would land over), never a working-tree copy. A row's owners are the union of both, so
   # a PR that repoints an Owner cell still asks the owner it repoints away from.
@@ -1015,36 +1112,37 @@ cmd_go_request() {
     [ -n "$src" ] || { bad+="row '$r' has no owner path; "; continue; }
     while IFS= read -r p; do
       [[ "$p" =~ ^[^[:space:]]+$ ]] || { bad+="row '$r' owner path '$p' is not one path; "; continue; }
-      rc=0; seat=$(seat_of_path "$p") || rc=$?
-      case "$rc" in
-        1) bad+="row '$r' owner path '$p' maps to no seat in $OWNERS_SRC$(uncovered_note); "; continue ;;
-        2) bad+="row '$r' owner path '$p' maps to two seats equally in $OWNERS_SRC; "; continue ;;
-        3) bad+="row '$r' owner path '$p' is named by a sentence of the Ownership line that assigns it to no lane ('${seat}…'); "; continue ;;
-      esac
-      [ "$seat" != shared ] || shared_hit+="$p "
-      asked=$(asked_of "$seat") || { bad+="row '$r' owner path '$p' is shared ground and $OWNERS_SRC names no lane seat; "; continue; }
+      ask_for "$p" || { bad+="row '$r' owner path '$p' $WHY; "; continue; }
+      [ "$ASK_SHARED" = 0 ] || shared_hit+="$p "
       while IFS= read -r seat; do
         valid_seat "owner of row '$r'" "$seat"
         pairs+="$seat $p $r"$'\n'
         case " ${seat_arr[*]-} " in *" $seat "*) ;; *) seat_arr+=("$seat") ;; esac
-      done <<<"$asked"
+      done <<<"$ASKED"
     done <<<"$src"
   done
   # --paths: each given path → seat through the same map. ppairs holds "<seat> <path>".
   for p in ${path_arr[@]+"${path_arr[@]}"}; do
-    rc=0; seat=$(seat_of_path "$p") || rc=$?
-    case "$rc" in
-      1) bad+="path '$p' maps to no seat in $OWNERS_SRC$(uncovered_note); "; continue ;;
-      2) bad+="path '$p' maps to two seats equally in $OWNERS_SRC; "; continue ;;
-      3) bad+="path '$p' is named by a sentence of the Ownership line that assigns it to no lane ('${seat}…'); "; continue ;;
-    esac
-    [ "$seat" != shared ] || shared_hit+="$p "
-    asked=$(asked_of "$seat") || { bad+="path '$p' is shared ground and $OWNERS_SRC names no lane seat; "; continue; }
+    ask_for "$p" || { bad+="path '$p' $WHY; "; continue; }
+    [ "$ASK_SHARED" = 0 ] || shared_hit+="$p "
     while IFS= read -r seat; do
       valid_seat "owner of path '$p'" "$seat"
       ppairs+="$seat $p"$'\n'
       case " ${seat_arr[*]-} " in *" $seat "*) ;; *) seat_arr+=("$seat") ;; esac
-    done <<<"$asked"
+    done <<<"$ASKED"
+  done
+  # A range that edits who owns what: the doc (every lane of base ∪ tip) and the handbook table
+  # (each changed row's seats) are asked of those seats beside whatever was given.
+  local extra_paths=""
+  for ls in "$OWNERS_DOC:$line_seats" "handbook/README.md:$hb_seats"; do
+    p=${ls%%:*}; ls=${ls#*:}
+    [ -n "$ls" ] || continue
+    extra_paths+="$p "
+    for seat in $ls; do
+      valid_seat "owner of path '$p'" "$seat"
+      ppairs+="$seat $p"$'\n'
+      case " ${seat_arr[*]-} " in *" $seat "*) ;; *) seat_arr+=("$seat") ;; esac
+    done
   done
   [ -z "$bad" ] || die 2 "go-request refused: ${bad%; }"
 
@@ -1070,6 +1168,7 @@ cmd_go_request() {
       parr=()
       while IFS= read -r p; do [ -z "$p" ] || parr+=("$p"); done < <(awk -v s="$seat" -v r="$r" '$1 == s && $3 == r { print $2 }' <<<"$pairs")
       [ "${#parr[@]}" -gt 0 ] || continue
+      memo_fill "$repo" "$commits" "${parr[@]}"
       # A here-string, not a pipe: grep -q exits on the first match and pipefail would count the
       # writer's SIGPIPE as a failure.
       grep -q '^receipt ' <<<"$(receipts_text "$repo" "$commits" "$seat" "${parr[@]}")" \
@@ -1081,6 +1180,7 @@ cmd_go_request() {
     parr=()
     while IFS= read -r p; do [ -z "$p" ] || parr+=("$p"); done < <(awk -v s="$seat" '$1 == s { print $2 }' <<<"$ppairs")
     [ "${#parr[@]}" -gt 0 ] || continue
+    memo_fill "$repo" "$commits" "${parr[@]}"
     grep -q '^receipt ' <<<"$(receipts_text "$repo" "$commits" "$seat" "${parr[@]}")" \
       || bad+="--paths: the receipt for owner '$seat' is empty on every commit in $range (paths: ${parr[*]}); "
   done
@@ -1089,6 +1189,7 @@ cmd_go_request() {
   for seat in "${seat_arr[@]}"; do
     parr=()
     while IFS= read -r p; do [ -z "$p" ] || parr+=("$p"); done < <({ awk -v s="$seat" '$1 == s { print $2 }' <<<"$pairs"; awk -v s="$seat" '$1 == s { print $2 }' <<<"$ppairs"; } | awk '!seen[$0]++')
+    memo_fill "$repo" "$commits" "${parr[@]}"
     lines=$(receipts_text "$repo" "$commits" "$seat" "${parr[@]}")
     receipts+="$lines"$'\n'
   done
@@ -1097,12 +1198,22 @@ cmd_go_request() {
   n=$(grep -c . <<<"$commits" | tr -d ' ')
   local covers="" owners_line=""
   [ -z "$rows" ] || { covers+="rows: $rows"$'\n'; owners_line+="Owners are read from CONTRACTS.md at the tip $tip and the base $base; both are asked."$'\n'; }
-  [ -z "$paths" ] || { covers+="paths: $paths"$'\n'; owners_line+="Each --paths path is asked of its owner in the owners map."$'\n'; }
-  [ -n "$OWNERS_MAP" ] || owners_line+="The owners map is the \"Ownership is fixed\" line of $OWNERS_SRC."$'\n'
+  local allp; allp=$(tr ' ' '\n' <<<"$paths $extra_paths" | awk 'NF && !seen[$0]++' | tr '\n' ' ' | sed 's/ $//')
+  [ -z "$allp" ] || covers+="paths: $allp"$'\n'
+  [ -z "$paths" ] || owners_line+="Each --paths path is asked of its owner in the owners map."$'\n'
+  if [ -z "$OWNERS_MAP" ]; then
+    if [ "$HAVE_BASE" = 1 ]; then owners_line+="The owners map is the \"Ownership is fixed\" line of $TIP_SRC and of $BASE_SRC (with the \"Who owns each folder\" table of handbook/README.md at each); each path is asked of its owner at both."$'\n'
+    else owners_line+="The owners map is the \"Ownership is fixed\" line of $TIP_SRC (with the \"Who owns each folder\" table of handbook/README.md there). $BASE_NOTE"$'\n'; fi
+  fi
+  [ -z "$line_seats" ] || owners_line+="The range edits the \"Ownership is fixed\" line, so every lane seat of the base and the tip is asked for $OWNERS_DOC: $line_seats."$'\n'
+  [ -z "$hb_seats" ] || owners_line+="The range edits the \"Who owns each folder\" table, so the seats of each changed row are asked for handbook/README.md: $hb_seats."$'\n'
   [ -z "$shared_hit" ] || owners_line+="Shared ground (${shared_hit% }) asks every lane seat: $LANE_SEATS."$'\n'
+  # Last, after the receipts, so a long list cannot push a seat's receipts past the inline cap.
+  local unc_line=""
+  [ -z "$UNCOVERED" ] || unc_line=$'\n\n'"The line names lane(s) the owners parser reads no path for, so no change is routed to them: ${UNCOVERED_GIVES:-$UNCOVERED}. If this change is theirs, forward this request to them."
 
   text=$(printf 'GO request: PR %s\n%scommits: %s (%s, in %s; merge commits skipped)\n%sEach receipt is a --text, path-scoped `git patch-id --stable` id per commit (LANDING.md step 2).\nAnswer without prose. GO: engine broadcast ack %s  ·  decline: engine broadcast decline %s --reason "<one line>"\n\n%s' \
-    "$pr" "$covers" "$range" "$n commits" "$repo" "$owners_line" "$id" "$id" "${receipts%$'\n'}")
+    "$pr" "$covers" "$range" "$n commits" "$repo" "$owners_line" "$id" "$id" "${receipts%$'\n'}")$unc_line
   local rec="$BDIR/$id.md" extra
   extra=$(printf 'kind: go-request\npr: %s\n%srepo: %s\ncommits: %s' "$pr" "$covers" "$repo" "$range")$'\n'
   printf 'id: %s\nfrom: %s\nsent-by: %s\nscope: go-request\naudience: %s\n%s' "$id" "$sent_by" "$sent_by" "$oseats" "$extra"

@@ -1709,16 +1709,21 @@ live_add() {
 # doc_repo <fixture> — go_repo plus that doc committed at the tag dbase, then one commit (HEAD)
 # touching a file under each lane the tests ask about.
 DOC_FILES="README.md ARCHITECTURE.md VOICE.md LANDING.md CI.md world-runner/src/ideas-app/server/main.ts world-runner/src/ideas-app/server/server.ts world-runner/src/ideas-app/hire.ts world-runner/src/ideas-app/server/worker-main.ts world-runner/src/other.ts ideas-exchange/x.ts ideas-storage/x.ts design/a.ts design/cli-theme/t.css handbook/README.md playground/p.ts app/Dockerfile package.json .husky/pre-commit"
+# A second fixture argument is copied to handbook/README.md (its "Who owns each folder" table);
+# DOC_EXTRA names more files, made and touched like DOC_FILES.
 doc_repo() {
   go_repo
   live_add $DOC_SEATS
   local f
-  for f in $DOC_FILES; do mkdir -p "$FIX/repo/$(dirname "$f")"; echo 0 > "$FIX/repo/$f"; done
+  for f in $DOC_FILES ${DOC_EXTRA-}; do mkdir -p "$FIX/repo/$(dirname "$f")"; echo 0 > "$FIX/repo/$f"; done
   mkdir -p "$FIX/repo/docs"; cp "$OWN_FIX/$1" "$FIX/repo/docs/LIVE_MARKET_DIRECT.md"
+  [ -z "${2:-}" ] || cp "$OWN_FIX/$2" "$FIX/repo/handbook/README.md"
   G add -A; G commit -qm doc; G tag dbase
-  for f in $DOC_FILES CONTRACTS.md; do echo 1 >> "$FIX/repo/$f"; done
+  for f in $DOC_FILES ${DOC_EXTRA-} CONTRACTS.md; do echo 1 >> "$FIX/repo/$f"; done
   G commit -qam lanes
 }
+# msg_has <seat> <path> → 0 when that seat's last message has a receipt line over the path
+msg_has() { grep -E "^receipt path $1 [0-9a-f]+ [0-9a-f]+ -- (.* )?$2( |\$)" "$FIX/msg.$1" >/dev/null 2>&1; }
 goreqd() { bc go-request --repo "$FIX/repo" --commits dbase..HEAD "$@"; }
 
 test_go_owners_from_doc_is_the_default() {
@@ -1813,12 +1818,139 @@ test_go_owners_from_doc_guards_and_uncovered() {
   assert_eq 0 "$(sent_count)" "guard/uncovered: nothing sent"
 }
 
-test_go_owners_from_doc_partial_paths_refuse() {
+test_go_owners_from_doc_partial_paths_guard_only_their_files() {
   doc_repo ide330c-a31c445f1.md
-  PANE=%2 goreqd --pr 5 --paths world-runner/src/other.ts
-  assert_eq 2 "$RC" "ide330c: a lane naming a real file by a partial path refuses the whole map"
-  assert_has "core:world: main.ts" "$OUT" "ide330c: naming the lane and the partial path"
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/other.ts --dry-run
+  assert_eq 0 "$RC" "M2 ide330c: a lane naming a real file by a partial path no longer refuses the whole map"
+  assert_eq "domain:language" "$(audience)" "M2 ide330c: an unrelated path still resolves"
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/ideas-app/server/main.ts
+  assert_eq 2 "$RC" "M2 ide330c: the file the partial path names is guarded and refuses"
+  assert_has "lane core:world names it only as \`main.ts\`" "$OUT" "M2 ide330c: naming the lane and the partial path"
   assert_has "world-runner/src/ideas-app/server/worker-main.ts" "$(cat "$OWN_FIX/ide330c-a31c445f1.md" | sed -n 's/.*(`\(ideas-app[^`]*\)`).*/world-runner\/src\/\1/p')" "ide330c: fixture: the partial path is the tail of the real file"
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/ideas-app/server/worker-main.ts
+  assert_has "names it only as \`ideas-app/server/worker-main.ts\`" "$OUT" "M2 tail: worker-main.ts is guarded by its own partial path"
+  assert_hasnt "only as \`main.ts\`" "$OUT" "M2 tail: and not by 'main.ts' (a tail is whole segments)"
+}
+
+# The kit line at a63569b6d (after 789e8f6bf: docs:visions, the .envrc rule) and its handbook table.
+A63_SEATS="$DOC_SEATS docs:visions"
+A63_EXTRA="VISION.md .gitignore .envrc .env.example world-runner/src/ideas-app/world.ts world-runner/src/ideas-app/worker/boot.ts design/brand-new.md handbook/agent/a.md handbook/worlds/w.md docs/packages.md ideas-storage/.idea/workspace.xml world-runner/.idea/workspace.xml"
+a63_repo() { DOC_EXTRA="$A63_EXTRA" doc_repo ownfix-a63569b6d.md handbook-a63569b6d.md; live_add docs:visions; }
+
+test_go_owners_kit_tip_shared_ground_drops_guards() {
+  a63_repo
+  local all p; all=$(tr ' ' '\n' <<<"$A63_SEATS" | sort | tr '\n' ' ' | sed 's/ $//')
+  for p in .husky/pre-commit .gitignore .envrc .env.example; do
+    PANE=%2 goreqd --pr 5 --paths "$p" --dry-run
+    assert_eq 0 "$RC" "S1 a63569b6d: $p, guarded by the .envrc sentence and shared ground, resolves"
+    assert_eq "$all" "$(audience)" "S1 a63569b6d: $p asks every lane (a guard on shared ground is dropped)"
+  done
+}
+
+test_go_owners_kit_tip_guard_drop_by_named_seat() {
+  a63_repo
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/ideas-app/world.ts --dry-run
+  assert_eq 0 "$RC" "S2: world.ts, which the boot sentence names as domain:language's, resolves"
+  assert_eq "domain:language" "$(audience)" "S2: through the ancestor world-runner/ row, a seat the sentence names"
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/ideas-app/worker/boot.ts --dry-run
+  assert_eq "domain:language" "$(audience)" "S2: worker/boot.ts likewise"
+  PANE=%2 goreqd --pr 5 --paths VISION.md --dry-run
+  assert_eq "docs:visions" "$(audience)" "N1: the sentence after '. ' in docs:visions' bullet guards VISION.md, and names docs:visions, so the guard drops"
+  PANE=%2 goreqd --pr 5 --paths design/brand-new.md
+  assert_eq 2 "$RC" "S2: a design/ file outside the themes still refuses (the materials clause names no seat)"
+  assert_has "that covers the site's build" "$OUT" "N4: the refusal quotes the sentence"
+  assert_hasnt "('app:writer" "$OUT" "N4: not the lane key"
+  # The guard-drop rule itself, on a FILE map: a guard that ties is dropped only for a named seat.
+  printf 'w/ domain:language\nw/a.ts unread core:world,domain:language the sentence\nw/b.ts unread core:world the other sentence\n' > "$FIX/owners3"
+  mkdir -p "$FIX/repo/w"; echo 0 > "$FIX/repo/w/a.ts"; echo 0 > "$FIX/repo/w/b.ts"; G add -A; G commit -qm w
+  PANE=%2 bc go-request --repo "$FIX/repo" --owners "$FIX/owners3" --commits HEAD --pr 5 --paths w/a.ts --dry-run
+  assert_eq "domain:language" "$(audience)" "guard drop: a guard naming the path's resolved seat (from an ancestor dir/) is dropped"
+  PANE=%2 bc go-request --repo "$FIX/repo" --owners "$FIX/owners3" --commits HEAD --pr 5 --paths w/b.ts --dry-run
+  assert_eq 2 "$RC" "guard drop: a guard that does not name the resolved seat refuses"
+  assert_has "the other sentence" "$OUT" "guard drop: quoting its sentence"
+}
+
+test_go_owners_kit_tip_partial_paths_and_idea_dirs() {
+  a63_repo
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/other.ts --dry-run
+  assert_eq 0 "$RC" "M2 scenario A: docs/packages.md landed and a .idea/ dir committed: the map still loads"
+  PANE=%2 goreqd --pr 5 --paths docs/packages.md
+  assert_eq 2 "$RC" "M2 scenario A: docs/packages.md, which docs:api names only as packages.md, refuses"
+  assert_has "lane docs:api names it only as \`packages.md\`" "$OUT" "M2 scenario A: naming the lane and the item"
+  PANE=%2 goreqd --pr 5 --paths ideas-storage/.idea/workspace.xml
+  assert_eq 2 "$RC" "M2 .idea: a .idea/ dir under another lane's tree is guarded"
+  assert_has "lane domain:language names it only as \`.idea\`" "$OUT" "M2 .idea: naming the lane"
+  PANE=%2 goreqd --pr 5 --paths world-runner/.idea/workspace.xml --dry-run
+  assert_eq "domain:language" "$(audience)" "M2 .idea: under the naming lane's own tree the guard drops"
+}
+
+test_go_owners_kit_tip_handbook_table() {
+  a63_repo
+  PANE=%2 goreqd --pr 5 --paths handbook/agent/a.md --dry-run
+  assert_eq "domain:agent" "$(audience)" "handbook table: handbook/agent/ is domain:agent's"
+  PANE=%2 goreqd --pr 5 --paths handbook/worlds/w.md --dry-run
+  assert_eq "docs:handbook" "$(audience)" "handbook table: 'docs:handbook, until a lane claims it' is docs:handbook"
+  PANE=%2 goreqd --pr 5 --paths handbook/README.md --dry-run
+  assert_eq 0 "$RC" "handbook table: the sentence deferring to the table no longer guards handbook/README.md"
+  assert_eq "docs:handbook" "$(audience)" "handbook table: the root is the hub's"
+  # A claim: the table moves handbook/agent/ to core:ui; both owners are asked for the folder and the table.
+  sed -i.bak 's/^| `handbook\/agent\/` | domain:agent |/| `handbook\/agent\/` | core:ui |/' "$FIX/repo/handbook/README.md"; rm -f "$FIX/repo/handbook/README.md.bak"
+  echo 2 >> "$FIX/repo/handbook/agent/a.md"; G commit -qam claim
+  PANE=%2 goreqd --pr 5 --paths handbook/agent/a.md --id ghb1
+  assert_eq 0 "$RC" "handbook claim: a request over the claimed folder is sent"
+  assert_eq "core:ui domain:agent" "$(audience)" "handbook claim: the folder's owner at the tip and at the base are asked"
+  msg_has domain:agent handbook/agent/a.md && pass "handbook claim: the losing owner gets the folder's receipt" || fail "handbook claim: the losing owner gets the folder's receipt" "receipt over handbook/agent/a.md" "$(cat "$FIX/msg.domain:agent")"
+  msg_has domain:agent handbook/README.md && pass "handbook claim: and the table's" || fail "handbook claim: and the table's" "receipt over handbook/README.md" "$(cat "$FIX/msg.domain:agent")"
+  # A cell that is not a seat refuses, naming it.
+  printf '## Who owns each folder\n\n| Folder | Owner |\n| --- | --- |\n| `handbook/agent/` | Agent lane |\n' > "$FIX/repo/handbook/README.md"; G commit -qam badcell
+  PANE=%2 goreqd --pr 5 --paths handbook/agent/a.md
+  assert_eq 2 "$RC" "handbook table: an owner cell that is not a fleet seat refuses"
+  assert_has '"Agent lane"' "$OUT" "handbook table: naming the cell"
+}
+
+test_go_owners_kit_tip_uncovered_lanes_in_every_request() {
+  a63_repo
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/other.ts --id gunc
+  assert_eq 0 "$RC" "S3: a request whose path resolves"
+  assert_has "docs:api (the generated package map" "$(cat "$FIX/msg.domain:language")" "S3: still names the uncovered lane and what the line gives it"
+  assert_has "forward this request" "$(cat "$FIX/msg.domain:language")" "S3: so the asked seat can forward it"
+}
+
+# M1: the critic's scenario B2. A PR moves resource-kernel to domain:agent in the line (+1/-2).
+test_go_owners_union_of_base_and_tip() {
+  DOC_EXTRA="resource-kernel/src/x.ts" doc_repo ownfix-073237f16.md
+  local d="$FIX/repo/docs/LIVE_MARKET_DIRECT.md" all
+  all=$(tr ' ' '\n' <<<"$DOC_SEATS" | sort | tr '\n' ' ' | sed 's/ $//')
+  sed -i.bak 's/^  - core:kernel: resource-kernel;/  - domain:agent: resource-kernel, `docs\/LIVE_MARKET_DIRECT.md`;/; /^    - core:kernel: /d' "$d"; rm -f "$d.bak"
+  echo 2 >> "$FIX/repo/resource-kernel/src/x.ts"; G commit -qam hijack
+  PANE=%2 goreqd --pr 5 --paths resource-kernel/src/x.ts --id gb2
+  assert_eq 0 "$RC" "M1 B2: the request is sent"
+  msg_has core:kernel resource-kernel/src/x.ts && pass "M1 B2: core:kernel, the base owner, is asked for the path the PR moves away from it" || fail "M1 B2: core:kernel, the base owner, is asked for the path the PR moves away from it" "receipt over resource-kernel/src/x.ts" "$(cat "$FIX/msg.core:kernel" 2>/dev/null)"
+  msg_has domain:agent resource-kernel/src/x.ts && pass "M1 B2: and domain:agent, the tip owner" || fail "M1 B2: and domain:agent, the tip owner" "receipt" "$(cat "$FIX/msg.domain:agent" 2>/dev/null)"
+  assert_eq "$all" "$(tr ' ' '\n' <<<"$(audience)" | sort | tr '\n' ' ' | sed 's/ $//')" "M1 B2: the range edits the Ownership line, so every lane of base ∪ tip is asked"
+  msg_has core:ui docs/LIVE_MARKET_DIRECT.md && pass "M1 B2: each lane's receipt is over the doc" || fail "M1 B2: each lane's receipt is over the doc" "receipt over the doc" "$(cat "$FIX/msg.core:ui")"
+  assert_has 'edits the "Ownership is fixed" line' "$(cat "$FIX/msg.core:ui")" "M1 B2: the message says why"
+  assert_has "at the base" "$(cat "$FIX/msg.core:ui")" "M1 B2: and that both sides were read"
+}
+
+test_go_owners_base_side_refusal_and_fallbacks() {
+  DOC_EXTRA="newpkg/x.ts" doc_repo ownfix-073237f16.md
+  local d="$FIX/repo/docs/LIVE_MARKET_DIRECT.md"
+  # A tie at the base, fixed at the tip: still refused, naming the base.
+  awk '{ print } /^  - core:exchange: / { print "  - domain:stats: world-runner." }' "$OWN_FIX/ownfix-073237f16.md" > "$d"; G commit -qam tie; G tag tbase
+  cp "$OWN_FIX/ownfix-073237f16.md" "$d"; echo 3 >> "$FIX/repo/world-runner/src/other.ts"; G commit -qam fix
+  PANE=%2 bc go-request --repo "$FIX/repo" --commits tbase..HEAD --pr 5 --paths world-runner/src/other.ts
+  assert_eq 2 "$RC" "M1: a tie on the base side refuses"
+  assert_has "maps to two seats equally in docs/LIVE_MARKET_DIRECT.md at the base" "$OUT" "M1: naming the base"
+  # A new package the PR gives a lane: no seat at the base, so the tip's owner is asked.
+  awk '{ print } /^  - core:exchange: / { print "  - domain:stats: `newpkg/`." }' "$OWN_FIX/ownfix-073237f16.md" > "$d"; echo 4 >> "$FIX/repo/newpkg/x.ts"; G commit -qam newpkg; G tag nbase
+  PANE=%2 bc go-request --repo "$FIX/repo" --commits nbase~1..nbase --pr 5 --paths newpkg/x.ts --id gnp
+  assert_eq 0 "$RC" "M1: a path with no seat at the base is asked of its tip owner"
+  msg_has domain:stats newpkg/x.ts && pass "M1: domain:stats gets newpkg/x.ts" || fail "M1: domain:stats gets newpkg/x.ts" "receipt" "$(cat "$FIX/msg.domain:stats" 2>/dev/null)"
+  # A base with no Ownership line: the tip alone, said in the message.
+  PANE=%2 bc go-request --repo "$FIX/repo" --commits base..dbase --pr 5 --paths world-runner/src/other.ts --dry-run
+  assert_eq 0 "$RC" "M1: a base with no doc reads the tip alone"
+  assert_has "so the owners are the tip's alone" "$OUT" "M1: and says so"
 }
 
 test_go_owners_missing_doc_or_line_refused() {

@@ -395,6 +395,57 @@ EOF
   assert_contains "gone/ (not at HEAD)" "$(cat "$WORK/own.err")" "19 owners-from-doc: a path absent at HEAD is skipped and named"
 }
 
+# 30: the round-5/6 changes to project mode (IDE-350): the override header's "inside a seat's area"
+# form, a ";" segment that starts with a backtick continuing the list, the paren-aware ";" cut, an
+# empty-key list entry, --rev, the seat-keyed skip report under --verbose only, and a sentence
+# after ". " inside a lane bullet read as a rule, not more of the list.
+arm_owners_project_r6() {
+  local ds="$1" r="$WORK/own6.$RANDOM" out err
+  fixture "$r" >/dev/null
+  mkdir -p "$r/world-runner/src/merge" "$r/ui/examples" "$r/morph" "$r/tui" "$r/gone6" "$r/kern" "$r/sec"
+  for f in world-runner/a world-runner/src/merge/m ui/a ui/examples/e morph/a tui/a gone6/a kern/a sec/a; do printf 'x\n' >"$r/$f"; done
+  commit_all "$r" "tree"
+  local old; old=$(git -C "$r" rev-parse HEAD)
+  (cd "$r" && git rm -rq gone6 && git commit -qm gone) >/dev/null 2>&1
+  cat >"$r/OWN6.md" <<'EOF'
+- **Ownership is fixed.**
+  - domain:language: world-runner and `missing6/`.
+  - core:ui: `ui/` (its library; and its themes); `ui/examples/`; and `morph/`; its reviews of `tui/` go to core:ui.
+  - core:kernel: `kern/`. domain:security owns `sec/`.
+  - core:old: `gone6/`.
+  - Which Linear project receives a seat's documentation signals, read by `/next`.
+    - domain:language: Product: Idea.
+    - core:ui: Product: UI & Design.
+    - core:kernel: Product: Resources & Platform.
+    - core:old: Product: Old.
+    - an entry with no key
+    - A sub-path inside a seat's area that belongs to a different project, the longest prefix winning:
+      - `world-runner/src/merge/`: Product: Worlds & Branches (inferred).
+- **Next principle.**
+EOF
+  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit "$r/OWN6.md" 2>"$WORK/own6.err"); rc=$?
+  err=$(cat "$WORK/own6.err")
+  assert_eq "0" "$rc" "30 owners-from-doc: a seat-keyed line parses"
+  assert_contains "kit${T}world-runner/src/merge/${T}Product: Worlds & Branches" "$out" "30 override header: 'A sub-path inside a seat's area' is read as the override list"
+  assert_contains "kit${T}ui/examples/${T}Product: UI & Design" "$out" "30 ';' continuation: a segment that starts with a backtick continues the lane's list"
+  assert_contains "kit${T}morph/${T}Product: UI & Design" "$out" "30 ';' continuation: 'and \`morph/\`' too"
+  assert_not_contains "kit${T}tui/" "$out" "30 ';' continuation: a segment that starts with a word is a rule, not the list"
+  assert_contains "kit${T}ui/${T}Product: UI & Design" "$out" "30 paren-aware cut: a ';' inside parentheses does not end the list"
+  assert_not_contains "sec/" "$out" "30 N1: a sentence after '. ' (a seat name next) is a rule, not more of core:kernel's list"
+  assert_contains "kit${T}kern/${T}Product: Resources & Platform" "$out" "30 N1: the list before it stands"
+  assert_not_contains "no key" "$out$err" "30 an empty-key list entry is skipped"
+  assert_not_contains "skipped" "$err" "30 skip report: a seat-keyed lane's skips are quiet by default"
+  err=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit --verbose "$r/OWN6.md" 2>&1 >/dev/null)
+  assert_contains "skipped domain:language: missing6/ (not at HEAD)" "$err" "30 skip report: named with --verbose"
+  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit "$r/OWN6.md" 2>/dev/null)
+  assert_not_contains "gone6/" "$out" "30 --rev: at HEAD a removed path is not emitted"
+  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit --rev "$old" "$r/OWN6.md" 2>/dev/null)
+  assert_contains "kit${T}gone6/${T}Product: Old" "$out" "30 --rev: at an older rev its tree is read"
+  out=$(bash "$ds" owners-from-doc --repo "$r" --repo-id kit --emit lane "$r/OWN6.md" 2>/dev/null)
+  assert_contains "kern/${T}core:kernel" "$out" "30 --emit lane: '<path> <seat>' rows"
+  assert_contains "sec/${T}unread${T}-${T}domain:security owns" "$out" "30 --emit lane: the sentence's path is a guard naming the lane seats it names (none here: domain:security is no lane) and the sentence"
+}
+
 arm_fold() {
   local ds="$1" d out
   d=$(newdir fold)
@@ -598,6 +649,7 @@ test_b_26_other_markers()   { arm_other_markers "$DS"; }
 test_b_27_pause_across_seats(){ arm_pause "$DS"; }
 test_b_28_space_key()        { arm_space_key "$DS"; }
 test_b_29_apply_lock()       { arm_apply_lock "$DS"; }
+test_b_30_owners_project_r6() { arm_owners_project_r6 "$DS"; }
 
 test_b_21_empty_range() {
   local r="$WORK/empty.$RANDOM" out rc
