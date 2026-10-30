@@ -103,7 +103,7 @@ Append a fresh copy of each register block that has a row to change — the loom
 
 Its address, its computed root, its `UNKNOWN — <why>` rule and its per-row `owner` all live in `skills/loom/assets/TEMPLATE_LOOM_INHERITANCE.md`, whose *Where it lives* section is normative. Follow it.
 
-**Full lane**: read the template, read any existing copy at the computed root, claim and carry the rows.
+**Full lane**: read the template, read this loom's part of any existing copy at the computed root with `engine inheritance show <this seat> --latest --file <absolute path>` (never the whole file, which other looms share; read every line its *named elsewhere* footer lists), claim and carry the rows. Write the hand-over as a new block, or as a delta appended with `engine log` under a heading naming this loom as owner; the template's *Where it lives* section gives both heading shapes.
 
 **Memory lane**: ⚠️ the template and the existing file are both too large to read here. If their shape is **already in your context** (you wrote or claimed the file this session), write it from memory. If it is not, **do not invent a half-shaped file at the sessions root** — instead carry the rows in the register appends you just made, and hand the write forward: name it as the first entry in the atom's `nextSteps` and put the template's and the file's absolute paths in `requiredFiles`. The rehydrated agent writes it with a fresh budget.
 
