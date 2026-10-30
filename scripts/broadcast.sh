@@ -50,7 +50,7 @@
 #                                             resend line then says kind=wake. A live push clears
 #                                             its queue entry
 #   engine broadcast retract <id>             withdraw a sticky broadcast (its sender only)
-#   engine broadcast pending [--for SEAT] [--limit N] [--queued]   first the broadcasts queued for
+#   engine broadcast pending [--for SEAT] [--limit N] [--queued] [--peek]   first the broadcasts queued for
 #                                             the seat (oldest first, each with its message; without
 #                                             --for each is marked delivered as it is shown, so it
 #                                             is shown once; an ack also clears it), then sticky
@@ -58,6 +58,8 @@
 #                                             and are unacked, newest first; N (default 5, 0 = all)
 #                                             bounds both together. --queued lists only the queue,
 #                                             and exits 0 at once when no seat has one.
+#                                             --peek lists this pane's own seat as --for would:
+#                                             nothing is marked (the hook on a slash prompt)
 #                                             BROADCAST_WAKE_KEY (set by session-start-chunk.sh to
 #                                             one SessionStart event's key) keeps what a marking
 #                                             pending claimed, and a later pending with the same
@@ -65,7 +67,7 @@
 #
 #   Go requests (kit LANDING.md "Get the go"; IDE-350):
 #   engine broadcast go-request --pr N [--rows ROW[,ROW…]] [--paths PATH[,PATH…]] [--repo PATH]
-#                    [--commits RANGE] [--owners FILE] [--id SLUG] [--all-live] [--dry-run]
+#                    [--commits RANGE] [--owners FILE] [--id SLUG] [--wake|--all-live] [--dry-run]
 #       --rows, --paths or both; at least one. A --paths PATH goes straight to the owners map, as a
 #       row's owner path does; the audience is the union of the rows' seats and the paths' seats,
 #       and each seat's receipt covers all its paths from either flag.
@@ -371,6 +373,9 @@ idle_words() {
   [ -z "$via" ] || printf ' via=%s' "$via"
 }
 queue_dir() { echo "$BDIR/queued/$(ack_key "$1")"; }
+# unqueue <seat> <id> — drop the seat's queue entry and every wake key's copy of it (an ack: an
+# acked item is not listed again by a regenerated preload either).
+unqueue() { local qd; qd=$(queue_dir "$1"); rm -f "$qd/$2" "$qd"/.wake.*/"$2" 2>/dev/null; return 0; }
 # bind_note <bind-result> — the dry run's "(queue: idle Nm)" for a bound seat that would be queued.
 bind_note() {
   local m pid
@@ -612,13 +617,13 @@ cmd_ack() {
   mkdir -p "$BDIR/$id.acks.d" || die 2 "cannot create the ack dir"
   # An acked item is not shown again at the seat's next wake (go_ack dies on a refusal, so the
   # entry is cleared only once the answer stands).
-  if is_go "$rec"; then go_ack "$id" "$rec" "$seat"; rm -f "$(queue_dir "$seat")/$id"; return 0; fi
+  if is_go "$rec"; then go_ack "$id" "$rec" "$seat"; unqueue "$seat" "$id"; return 0; fi
   if ( set -C; printf '%s\t%s\n' "$seat" "$(now)" > "$BDIR/$id.acks.d/$(ack_key "$seat")" ) 2>/dev/null; then
     echo "acked: $seat"
   else
     echo "already acked: $seat"
   fi
-  rm -f "$(queue_dir "$seat")/$id"
+  unqueue "$seat" "$id"
 }
 
 cmd_status() {
@@ -672,12 +677,13 @@ wake_message() {
 }
 
 cmd_pending() {
-  local seat="" limit=5 qonly=0 mark=0
+  local seat="" limit=5 qonly=0 mark=0 peek=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --for) need_val "$1" $# "${2:-}"; seat="$2"; shift 2 ;;
       --limit) need_val "$1" $# "${2:-}"; limit="$2"; shift 2 ;;
       --queued) qonly=1; shift ;;
+      --peek) peek=1; shift ;;
       *) die 2 "pending: unknown argument $1" ;;
     esac
   done
@@ -686,7 +692,8 @@ cmd_pending() {
   # Without --for, the seat is this pane's LIVE label: a cache-only identity would hand this
   # session another seat's standing guidance, which it could then never ack. Refused, loudly.
   # Only then is a queued broadcast marked delivered: --for is a read, never a delivery.
-  if [ -z "$seat" ]; then seat=$(live_self) || exit $?; mark=1; fi
+  # --peek reads this pane's own queue as --for would, marking nothing (a slash prompt's hook).
+  if [ -z "$seat" ]; then seat=$(live_self) || exit $?; [ "$peek" = 1 ] || mark=1; fi
   valid_seat --for "$seat"
   local tree id rec shown=0 more=0 qmore=0 qids=" " qd claim wk="" f
   # Queued broadcasts first (IDE-352), oldest first: each is shown once, with the message the
@@ -915,7 +922,7 @@ cmd_go_request() {
       --commits) need_val "$1" $# "${2:-}"; range="$2"; shift 2 ;;
       --owners) need_val "$1" $# "${2:-}"; OWNERS_MAP="$2"; shift 2 ;;
       --id) need_val "$1" $# "${2:-}"; id="$2"; shift 2 ;;
-      --all-live) LIVE_ALL=1; shift ;;
+      --wake|--all-live) LIVE_ALL=1; shift ;;
       --dry-run) dry=1; shift ;;
       *) die 2 "go-request: unknown argument $1" ;;
     esac

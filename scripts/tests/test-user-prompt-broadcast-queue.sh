@@ -5,8 +5,8 @@
 # asking `engine broadcast pending --queued` (which marks each one delivered as it lists it). It
 # runs only inside tmux, says nothing when nothing is queued, and never blocks a prompt: a failing
 # broadcast.sh leaves the prompt untouched (the queue stays, and SessionStart reports the failure).
-# A prompt that starts with "/" (a slash command such as /dehydrate) shows nothing and leaves the
-# queue as it is. broadcast.sh is a stub in a temp HOME, or (the "real" tests) the worktree's
+# A prompt that starts with "/" (a slash command such as /dehydrate or /loom) lists the queue with
+# `pending --queued --peek`, which marks nothing, so the queue stays as it is (IDE-352 round 5). broadcast.sh is a stub in a temp HOME, or (the "real" tests) the worktree's
 # broadcast.sh behind a wrapper pinned to fixtures; no real pane, record or seat is touched.
 #
 # Run: bash scripts/tests/test-user-prompt-broadcast-queue.sh
@@ -88,19 +88,22 @@ test_missing_broadcast_sh() {
   assert_eq "" "$OUT" "hook: and prints nothing"
 }
 
-test_slash_prompt_shows_nothing() {
+test_slash_prompt_lists_without_marking() {
   stub list
-  local p
-  for p in "/dehydrate" "/dehydrate restart" "  /clear" "/loom go"; do
+  local p ctx
+  for p in "/dehydrate" "/dehydrate restart" "  /next" "/loom go"; do
     rm -f "$T/calls"
     PROMPT="$p" run tmux
     assert_eq 0 "$RC" "slash: '$p' exits 0"
-    assert_eq "" "$OUT" "slash: '$p' adds nothing"
-    assert_file_not_exists "$T/calls" "slash: '$p' never asks pending (which would mark the queue delivered)"
+    assert_eq "pending --queued --peek" "$(cat "$T/calls")" "slash: '$p' asks a read that marks nothing"
+    ctx=$(jq -r '.hookSpecificOutput.additionalContext' <<<"$OUT")
+    assert_contains $'q1\tmanager:app\tqueued\t/x/q1.md' "$ctx" "slash: '$p' still shows the queue"
+    assert_contains "listed, not marked shown" "$ctx" "slash: '$p' says the items stay queued"
   done
   rm -f "$T/calls"
   PROMPT="please read a/b and /tmp" run tmux
-  assert_eq "pending --queued" "$(cat "$T/calls")" "slash: a plain prompt holding a / still asks"
+  assert_eq "pending --queued" "$(cat "$T/calls")" "slash: a plain prompt holding a / still asks the marking read"
+  assert_contains "shown once" "$(jq -r '.hookSpecificOutput.additionalContext' <<<"$OUT")" "slash: and gets the shown-once header"
 }
 
 test_no_jq_does_not_consume_the_queue() {
@@ -140,10 +143,24 @@ test_real_dehydrate_leaves_the_item_pending() {
   assert_file_exists "$T/fx/bc/queued/app:ask/hq1" "real: hq1 is queued for the idle seat (send: $(tr '\n' ' ' < "$T/send.out"))"
   PROMPT="/dehydrate" PANE=%4 run tmux
   assert_eq 0 "$RC" "real /dehydrate: exits 0"
-  assert_eq "" "$OUT" "real /dehydrate: shows nothing"
+  assert_contains $'hq1\tmanager:director\tqueued' "$(jq -r '.hookSpecificOutput.additionalContext' <<<"$OUT")" "real /dehydrate: lists the item"
   assert_file_exists "$T/fx/bc/queued/app:ask/hq1" "real /dehydrate: the item stays queued"
   if grep -q 'at-wake' "$T/fx/bc/hq1.md"; then fail "real /dehydrate: not marked delivered" "no at-wake" "$(cat "$T/fx/bc/hq1.md")"
   else pass "real /dehydrate: not marked delivered"; fi
+}
+
+test_real_loom_shows_then_plain_prompt_marks() {
+  real_fixture
+  PROMPT="/loom" PANE=%4 run tmux
+  assert_contains "ack (from manager:director): engine broadcast ack hq1" "$(jq -r '.hookSpecificOutput.additionalContext' <<<"$OUT")" "real /loom: the item is shown at once, with its message"
+  assert_file_exists "$T/fx/bc/queued/app:ask/hq1" "real /loom: and stays queued"
+  PROMPT="/next" PANE=%4 run tmux
+  assert_contains $'hq1\tmanager:director\tqueued' "$(jq -r '.hookSpecificOutput.additionalContext' <<<"$OUT")" "real /next after /loom: shown again"
+  PROMPT="carry on" PANE=%4 run tmux
+  assert_contains $'hq1\tmanager:director\tqueued' "$(jq -r '.hookSpecificOutput.additionalContext' <<<"$OUT")" "real plain after /loom: shown and marked"
+  assert_file_not_exists "$T/fx/bc/queued/app:ask/hq1" "real plain after /loom: the entry is gone"
+  PROMPT="/loom" PANE=%4 run tmux
+  assert_eq "" "$OUT" "real /loom after it was marked: nothing more"
 }
 
 test_real_plain_prompt_shows_and_marks() {

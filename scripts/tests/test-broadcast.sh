@@ -828,6 +828,79 @@ test_queue_push_sets_the_entry_aside_first() {
   assert_file_not_exists "$FIX/bc/queued/app:ask/ps1" "push aside: and is gone after it"
 }
 
+# ---------------------------------------------------------------- round 5 (critique R-B, R-C, P1, P3, NITs)
+test_queue_peek_lists_without_marking() {
+  act 2004 idle 120
+  bc --children --from manager:app --id pk1
+  PANE=%4 bc pending --queued --peek
+  assert_eq 0 "$RC" "peek: exits 0"
+  assert_has $'pk1\tmanager:director\tqueued' "$OUT" "peek: lists this pane's own queue"
+  assert_has "ack (from manager:director): engine broadcast ack pk1" "$OUT" "peek: with the message"
+  assert_file_exists "$FIX/bc/queued/app:ask/pk1" "peek: the entry stays queued"
+  assert_hasnt "at-wake" "$(cat "$FIX/bc/pk1.md")" "peek: nothing is marked delivered"
+  PANE=%4 bc pending --queued
+  assert_has $'pk1\tmanager:director\tqueued' "$OUT" "peek: a later marking read still shows it"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/pk1" "peek: and that one consumes it"
+}
+
+test_queue_readonly_dir_falls_back_live() {
+  act 2004 idle 120
+  mkdir -p "$FIX/bc/queued/app:ask"; chmod 555 "$FIX/bc/queued/app:ask"
+  bc --children --from manager:app --id ro1
+  chmod 755 "$FIX/bc/queued/app:ask"
+  assert_eq 0 "$RC" "read-only queue: exits 0"
+  assert_has "app:ask|" "$(cat "$FIX/sent.log")" "read-only queue: the idle seat is pushed live instead"
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/ro1.md")" "read-only queue: and recorded delivered"
+  assert_hasnt "queued app:ask" "$(cat "$FIX/bc/ro1.md")" "read-only queue: never a queued line with no entry"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/ro1" "read-only queue: and no entry was written"
+}
+
+test_idle_status_field_missing_still_reads() {
+  local ms=$(( ($(date +%s) - 7200) * 1000 ))
+  jq -c --argjson t "$ms" 'del(.status) + {statusUpdatedAt: $t, sessionId: "", cwd: "/w/x"}' "$FIX/sess/2004.json" > "$FIX/sess/2004.tmp" \
+    && mv "$FIX/sess/2004.tmp" "$FIX/sess/2004.json"
+  bc --children --from manager:app --id ef1
+  assert_has "queued app:ask pid=2004 idle=120m via=status" "$(cat "$FIX/bc/ef1.md")" "empty field: no status and an empty sessionId do not shift statusUpdatedAt"
+}
+
+test_idle_same_name_in_two_projects_takes_newest() {
+  act 2004 idle 120; tx 2004 3
+  local sid="sess-2004" a="$FIX/projects/-a-stale" z="$FIX/projects/-z-live"
+  mkdir -p "$a" "$z"
+  { printf '{"type":"user","timestamp":"%s"}\n' "$(iso_ago 1000)"; } > "$a/$sid.jsonl"
+  touch -t 202001010000 "$a/$sid.jsonl"
+  mv "$TXF" "$z/$sid.jsonl"   # the cwd's slug now misses; the live copy sorts after the stale one
+  rmdir "$(dirname "$TXF")" 2>/dev/null
+  bc --children --from manager:app --id nw1
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/nw1.md")" "same name: the newest copy (a turn 3m ago) is read, not the first directory's"
+  assert_hasnt "queued app:ask" "$(cat "$FIX/bc/nw1.md")" "same name: and the seat is not queued from the stale copy"
+  local got; got=$(bash -c 'source "$1" >/dev/null 2>&1; transcript_by_key "$2" /w/none "$3"' _ "$LIB_SH" "$sid.jsonl" "$FIX/projects")
+  assert_eq "$z/$sid.jsonl" "$got" "same name: transcript_by_key prints the newest by mtime"
+  touch -t 202001010000 "$z/$sid.jsonl"; touch "$a/$sid.jsonl"
+  got=$(bash -c 'source "$1" >/dev/null 2>&1; transcript_by_key "$2" /w/none "$3"' _ "$LIB_SH" "$sid.jsonl" "$FIX/projects")
+  assert_eq "$a/$sid.jsonl" "$got" "same name: and follows the mtime, not the directory order"
+}
+
+test_ack_drops_the_wake_copy() {
+  act 2004 idle 120
+  bc --children --from manager:app --id wc1
+  PANE=%4 BROADCAST_WAKE_KEY=ss-sid9_startup bc pending
+  assert_file_exists "$FIX/bc/queued/app:ask/.wake.ss-sid9_startup/wc1" "wake copy: the claimed item is kept for its wake key"
+  PANE=%4 bc ack wc1
+  assert_file_not_exists "$FIX/bc/queued/app:ask/.wake.ss-sid9_startup/wc1" "wake copy: an ack drops it"
+  PANE=%4 BROADCAST_WAKE_KEY=ss-sid9_startup bc pending
+  assert_hasnt "wc1" "$OUT" "wake copy: a regenerated preload does not list an acked item"
+}
+
+test_go_request_takes_wake() {
+  go_repo
+  act 2004 idle 120
+  PANE=%2 goreq --pr 29 --rows alpha,beta --commits base..HEAD --id gwk1 --wake
+  assert_eq 0 "$RC" "go --wake: accepted"
+  assert_has "app:ask|" "$(cat "$FIX/sent.log")" "go --wake: the idle owner is pushed live"
+  assert_eq "go-request" "$(awk '/^## Text/ { exit } /^kind: / { print $2 }' "$FIX/bc/gwk1.md")" "go --wake: the record stays kind: go-request"
+}
+
 test_queue_requeue_keeps_its_place() {
   act 2004 idle 120
   bc --children --from manager:app --id rp1

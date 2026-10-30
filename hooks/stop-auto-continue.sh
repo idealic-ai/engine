@@ -89,7 +89,11 @@ fi
 # cwd's slug first, then every project directory), shared with broadcast's idle_for.
 KEY=$(read_state '.primaryTranscriptKey')
 if [ -z "$JSONL" ] && [ -n "${KEY:-}" ]; then
-  JSONL=$(transcript_by_key "$KEY" "$PWD") || JSONL=""
+  # Guarded: a hook landed without the lib.sh that defines it fails quietly into Guard 3's
+  # fail-closed branch below, rather than printing "command not found" on every stop.
+  if type transcript_by_key > /dev/null 2>&1; then
+    JSONL=$(transcript_by_key "$KEY" "$PWD") || JSONL=""
+  fi
 fi
 
 # ⛔ Fail CLOSED when this session's transcript cannot be named — neither by the hook input
