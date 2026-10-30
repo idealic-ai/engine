@@ -127,6 +127,17 @@ describe("item 4: markdown", () => {
       expect(displayTitle(`ASK_W206REFINE ${sep} what happens`), `bare ${sep}`).toBe("What happens");
     }
     expect(displayTitle("¶ASK_W206REFINE—what happens")).toBe("What happens");
+    // ASKOVR fix 2, NIT-1: anchor names are uppercase, so a hyphen with no space ends the name.
+    expect(displayTitle("¶ASK_X-what happens")).toBe("What happens");
+    expect(displayTitle("¶ASK_X-title")).toBe("Title");
+    expect(displayTitle("ASK_RATE-limits")).toBe("Limits");
+    expect(displayTitle("¶ASK_MF-1: Fix it")).toBe("Fix it"); // an uppercase hyphenated name stays one name
+    // NIT-2: a first word with `.`, `:` or `/` is an identifier, kept as written.
+    expect(displayTitle("¶ASK_RESOURCEYML: resource.yml's advisory date")).toBe("resource.yml's advisory date");
+    expect(displayTitle("¶ASK_RO2: domain:stats' five-item fleet job")).toBe("domain:stats' five-item fleet job");
+    expect(displayTitle("¶ASK_P: tools/ask-app first")).toBe("tools/ask-app first");
+    expect(displayTitle("¶ASK_P: npm ci fails")).toBe("Npm ci fails"); // a plain word is still capitalised
+    expect(displayTitle("¶ASK_P: note: hold it")).toBe("Note: hold it"); // a word that only ends in `:` is prose
     expect(displayTitle("¶ASK_X title")).toBe("Title");
     expect(displayTitle("ASK_X: title")).toBe("Title");
     expect(displayTitle("¶ASK_X — `refinements` table first")).toBe("`refinements` table first");
@@ -134,6 +145,7 @@ describe("item 4: markdown", () => {
     expect(displayTitle("¶ASK_X — été first")).toBe("Été first");
     // Not an anchor: left as written, its case too.
     expect(displayTitle("ASK_RATE limits")).toBe("ASK_RATE limits");
+    expect(displayTitle("¶ASK_Foo title")).toBe("¶ASK_Foo title"); // a lowercase letter in the name: not an anchor, not half-eaten
     expect(displayTitle("lowercase plain title")).toBe("lowercase plain title");
     expect(displayTitle("## lowercase heading")).toBe("## lowercase heading"); // no anchor: untouched, hashes and case
     // The real heading the operator saw, through the parser and the sidebar row.

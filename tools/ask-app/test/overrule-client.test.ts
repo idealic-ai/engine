@@ -229,6 +229,15 @@ describe("Overrule is not offered where the store always refuses it (SHOULD-1)",
     const h = await render(reservedForSeat);
     expect(h).not.toContain(">Overrule<");
     expect(h).not.toContain(">Change answer<");
+    // ASKOVR fix 2: the ruled-by line offers no Overrule either, and the seat answered in its own place.
+    expect(h).toContain("Ruled by manager:docs");
+    expect(h).not.toContain("Overrule it");
+    expect(h).not.toContain("in your place");
+    expect(h).toContain("it was reserved for that seat, which answered.");
+    // Positive control: the unreserved ruling, which does offer Overrule, says so on the same line.
+    const open = await render(ruled);
+    expect(open).toContain(">Overrule<");
+    expect(open).toContain("a seat answered in your place. Overrule it to answer in its place.");
   });
 
   it("an ask reserved for the operator is still overruled, and the operator's own answer is still changed", () => {
@@ -256,7 +265,12 @@ describe("where a card's send goes (SHOULD-3)", () => {
     expect(sendRoute(true, "discard")).toEqual({ endpoint: "/api/discard", kind: "discard", next: false });
   });
 
-  it("App routes every card send through sendRoute: act hands an /api/answer route to sendOverrule with its next, and nothing else calls it", () => {
+  it("an overrule's Save draft takes the draft path, where the store refuses it, never /api/answer as a final answer", () => {
+    // Save draft is hidden on an overrule (pinned above); if it were reached, it must not send as final.
+    expect(sendRoute(true, "draft")).toEqual({ endpoint: "/api/draft", kind: "draft", next: false });
+  });
+
+  it("act()'s sends are routed by sendRoute: act hands an /api/answer route to sendOverrule with its next, and nothing else calls it", () => {
     const app = src("App.tsx");
     const act = app.slice(app.indexOf("async function act("), app.indexOf("async function act(") + 400);
     expect(act).toMatch(/const route = sendRoute\(overrule, kind, next\);\s*if \(route\.endpoint === "\/api\/answer"\) return sendOverrule\(route\.kind, route\.next\);/);
@@ -285,5 +299,14 @@ describe("a history the server could not read is said on the card (NIT-3)", () =
     expect(h).toContain("the json history block is not valid JSON");
     expect(h).toContain("fix or remove it by hand");
     expect(await render(ruled)).not.toContain("history-error");
+  });
+
+  it("historyError shows when Earlier answers has entries too, above the list", async () => {
+    const h = await render({ ...overruled, historyError: "the json history block is not valid JSON" });
+    expect(h).toMatch(/<details class="earlier-answers"><summary>Earlier answers \(2\)<\/summary>/);
+    const at = h.indexOf("the json history block is not valid JSON");
+    expect(at).toBeGreaterThan(-1);
+    expect(at).toBeLessThan(h.indexOf('class="earlier-answers"'));
+    expect(h).toContain("fix or remove it by hand");
   });
 });

@@ -104,7 +104,10 @@ export type SendRoute =
 /**
  * IDE-339 (ASKOVR SHOULD-3): the one place a card send picks its endpoint. An overrule's Send, Send &
  * next and decline go to /api/answer, because the store takes no draft over a seat's answer; every
- * other send drafts first. App's act() dispatches on this and nothing else.
+ * other send drafts first. App's act() dispatches its sends on this. Send as draft and Send request do
+ * not come here: they go sendDraft / sendRequest → provisionalSend (loop.ts), which posts /api/draft
+ * itself, and neither is offered on an overrule. An overrule's Save draft is hidden too; if reached it
+ * takes the draft path, where the store refuses it, rather than going out as a final answer.
  */
 export function sendRoute(overrule: boolean, kind: CardAction, next = false): SendRoute {
   if (overrule && kind === "send-now") return { endpoint: "/api/answer", kind: "send", next };

@@ -1162,7 +1162,12 @@ export function AskDetail({
               <p className="ruled-by" role="note">
                 <b>Ruled by {answererText(ask.answer)}</b>
                 {ask.answer?.answeredAt && <> · <time dateTime={ask.answer.answeredAt} title={new Date(ask.answer.answeredAt).toLocaleString()}>{ask.answer.answeredAt.replace("T", " ").slice(0, 16)} ({ageOf(Date.parse(ask.answer.answeredAt), Date.now())} ago)</time></>}
-                <span className="muted"> · a seat answered in your place{ask.header.status === "declined" ? " and declined" : ""}. Overrule it to answer in its place.</span>
+                {/* ASKOVR fix 2: say Overrule only where the card offers it; a seat an ask was reserved for answered in its own place. */}
+                {overrule ? (
+                  <span className="muted"> · a seat answered in your place{ask.header.status === "declined" ? " and declined" : ""}. Overrule it to answer in its place.</span>
+                ) : ask.header["reserved-for"]?.trim() ? (
+                  <span className="muted"> · it was reserved for that seat, which answered{ask.header.status === "declined" ? " and declined" : ""}.</span>
+                ) : null}
               </p>
             ) : null}
             <h3>{provisional ? (row.followedBy ? "Draft sent; the asker came back" : "Waiting on the asker: draft sent") : ask.header.status === "declined" ? "Declined" : "Answered"} · revision {ask.header.revision}</h3>

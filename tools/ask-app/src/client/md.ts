@@ -84,19 +84,24 @@ const indentOf = (l: string) => l.length - l.trimStart().length;
 
 /** One separator after an anchor: `:`, an em or en dash, a hyphen or a middle dot (operator 16:25). */
 const ANCHOR_SEP = "[:—–\\-·]";
-const ANCHOR_RE = new RegExp(`^\\s*(?:#{1,6}\\s+)?(?:Q\\d+\\s+)?(?:¶\\s*ASK_[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*\\s*(?:${ANCHOR_SEP}\\s*)?|ASK_[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*\\s*${ANCHOR_SEP})\\s*`);
+/** An anchor name is uppercase (ASKOVR fix 2, NIT-1), so `-word` after it is a separator, not more name. */
+const ANCHOR_NAME = "ASK_[A-Z0-9_]+(?:-[A-Z0-9_]+)*(?![A-Za-z0-9_])";
+const ANCHOR_RE = new RegExp(`^\\s*(?:#{1,6}\\s+)?(?:Q\\d+\\s+)?(?:¶\\s*${ANCHOR_NAME}\\s*(?:${ANCHOR_SEP}\\s*)?|${ANCHOR_NAME}\\s*${ANCHOR_SEP})\\s*`);
 
 /**
  * A heading's display text: an ask fork's `¶ASK_NAME:` anchor is for machines, not for reading.
  * `¶ASK_X: title`, `¶ASK_X — title` (any one separator), `¶ASK_X title` (none, operator 01:29) and a
  * bare `ASK_X: title`. What remains starts with a capital when the anchor came off and it began with a
- * lowercase letter; inline code at the start is left as written.
+ * lowercase letter, unless its first word holds `.`, `:` or `/`; inline code at the start is left as written.
  */
 export function displayTitle(t: string): string {
   const m = t.match(ANCHOR_RE);
   const rest = t.replace(ANCHOR_RE, "").trim();
   if (!rest) return t.trim();
-  return m && /ASK_/.test(m[0]) ? rest.replace(/^\p{Ll}/u, (c) => c.toUpperCase()) : rest;
+  // NIT-2: a first word with `.`, `:` or `/` inside it is a file, seat or path name, and its case is part
+  // of it. A word that only ends in `.` or `:` ("note: …") is prose.
+  const identifier = /\/|[.:]\S/.test(rest.split(/\s/, 1)[0]);
+  return m && /ASK_/.test(m[0]) && !identifier ? rest.replace(/^\p{Ll}/u, (c) => c.toUpperCase()) : rest;
 }
 
 /** Split prose into blocks. Fenced code keeps its blank lines; a callout runs while lines start with `>`. */
