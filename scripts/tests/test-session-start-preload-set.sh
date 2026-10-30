@@ -617,7 +617,10 @@ test_startup_with_dehydrated_context_keeps_session_state_inline() {
   has "DEHYDRATED_SUMMARY_MARKER" "$(cat "$TMP_DIR/inline.txt")" "startup: dehydrated summary is inline"
   assert_session_state_inline "$TMP_DIR/inline.txt" "startup with dehydrated context"
   has "[Already in this preload" "$(line_after "#### File: $LOOM_SESSION/LOOM_LOG.md" "$TMP_DIR/preload.txt")" "the loom log as a required file is not delivered again"
-  has "[Already in this preload" "$(line_after "#### File: $HOME/.claude/skills/loom/SKILL.md" "$TMP_DIR/preload.txt")" "the active SKILL.md as a required file is not delivered again"
+  # A required file that is a skill file is carried whole in the required block, and the skill
+  # files drop it, so it is delivered once (ENGRESTART).
+  has "[The skill file, whole; carried here" "$(line_after "#### File: $HOME/.claude/skills/loom/SKILL.md" "$TMP_DIR/preload.txt")" "the active SKILL.md as a required file is carried in the required block"
+  assert_eq "0" "$(grep -cF "[Preloaded: $HOME/.claude/skills/loom/SKILL.md]" "$TMP_DIR/preload.txt")" "the active SKILL.md as a required file is not delivered again"
   has "required 1 entry 700" "$all" "an ordinary required file is still delivered"
   local notice; notice=$(grep -F '[preload overflow:' "$TMP_DIR/inline.txt" || true)
   if [ -n "$notice" ]; then

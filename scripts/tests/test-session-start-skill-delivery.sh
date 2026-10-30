@@ -1174,6 +1174,15 @@ test_broadcast_pending_shown_under_tmux() {
   assert_contains "engine broadcast ack <id>" "$output" "the header names the ack verb"
   assert_eq "pending" "$(cat "$TMP_DIR/broadcast-calls" 2>/dev/null)" \
     "broadcast.sh is called exactly once, as 'pending' with no --for"
+  # The block sits right after the session line, ahead of the standards, so no slot cut reaches it.
+  local bc_line std_line
+  bc_line=$(printf '%s\n' "$output" | grep -n -m1 '^\[Standing broadcasts' | cut -d: -f1)
+  std_line=$(printf '%s\n' "$output" | grep -n -m1 '^\[Preloaded: ' | cut -d: -f1)
+  if [ -n "$bc_line" ] && [ -n "$std_line" ] && [ "$bc_line" -lt "$std_line" ]; then
+    pass "the standing broadcasts come before the first preloaded file"
+  else
+    fail "the standing broadcasts come before the first preloaded file" "line < ${std_line:-?}" "${bc_line:-absent}"
+  fi
 }
 
 test_broadcast_nothing_outside_tmux() {

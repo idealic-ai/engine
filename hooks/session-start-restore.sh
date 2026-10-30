@@ -197,7 +197,11 @@ done
 # After /clear, the agent needs SKILL.md + Phase 0 CMDs + templates immediately.
 # Without this, they only arrive on the next PostToolUse (templates hook), which
 # requires a tool call — leaving the agent without skill context after /clear.
+# Each skill file is also kept as its own block, keyed by its normalized path, so a dehydrated
+# required file that names one can carry it inside the required block (see below).
 SKILL_DEPS_OUTPUT=""
+SKILL_DEP_BLOCK_NORMS=()
+SKILL_DEP_BLOCKS=()
 if [ -n "$ACTIVE_SKILL" ]; then
   debug "active skill detected: $ACTIVE_SKILL — delivering skill deps"
 
@@ -210,6 +214,8 @@ if [ -n "$ACTIVE_SKILL" ]; then
 $skill_md_content
 
 "
+      SKILL_DEP_BLOCK_NORMS+=("$(normalize_preload_path "$skill_md" 2>/dev/null || echo "$skill_md")")
+      SKILL_DEP_BLOCKS+=("$SKILL_DEPS_OUTPUT")
       debug "  delivered SKILL.md"
 
       # Collect all dep paths: prose refs + current-phase CMDs + templates
@@ -278,6 +284,11 @@ $skill_md_content
 $dep_content
 
 "
+              SKILL_DEP_BLOCK_NORMS+=("$resolved_real")
+              SKILL_DEP_BLOCKS+=("[Preloaded: $dep_path]
+$dep_content
+
+")
               debug "  delivered dep: $(basename "$resolved")"
             fi
           fi
@@ -445,6 +456,54 @@ $PITFALLS_INDEX
   fi
 fi
 
+# Standards index — one line per ¶CMD_/¶INV_ name in the boot standards, built from the files now.
+# Only a restore with a dehydrated hand-over shows it, right after the hand-over: there the
+# standards come last and an overflow can cut them, so the index keeps every rule findable.
+# Definition shapes: a "### ¶NAME" heading (text from its **Definition** line, else the next
+# line), and a "*   **¶NAME**: text" bullet.
+generate_standards_index() {
+  local f
+  for f in "$@"; do
+    [ -f "$f" ] || continue
+    LC_ALL=C awk -v file="$f" '
+      function clean(t) {
+        gsub(/\*\*/, "", t); gsub(/`/, "", t)
+        sub(/^Definition:[[:space:]]*/, "", t)
+        gsub(/[[:space:]]+/, " ", t); sub(/^ /, "", t); sub(/ $/, "", t)
+        if (index(t, ". ") > 30) t = substr(t, 1, index(t, ". "))
+        if (length(t) > 160) t = substr(t, 1, 157) "..."
+        return t
+      }
+      function emit(name, t) { if (name in seen) return; seen[name] = 1; lines[++n] = "- ¶" name " — " clean(t) }
+      pending != "" && $0 !~ /^[[:space:]]*$/ {
+        if ($0 ~ /^\*\*Definition\*\*/ || $0 !~ /^#/) { emit(pending, $0); pending = ""; next }
+        emit(pending, ""); pending = ""
+      }
+      /^#+[[:space:]]+¶(CMD|INV)_[A-Z0-9_]+/ {
+        match($0, /¶(CMD|INV)_[A-Z0-9_]+/); pending = substr($0, RSTART + 2, RLENGTH - 2); next
+      }
+      /^[[:space:]]*[*-][[:space:]]+\*\*¶(CMD|INV)_[A-Z0-9_]+\*\*/ {
+        match($0, /¶(CMD|INV)_[A-Z0-9_]+/); name = substr($0, RSTART + 2, RLENGTH - 2)
+        rest = substr($0, RSTART + RLENGTH); sub(/^\*\*:?[[:space:]]*/, "", rest)
+        emit(name, rest)
+      }
+      END {
+        if (pending != "") emit(pending, "")
+        if (n > 0) { print "From " file ":"; for (i = 1; i <= n; i++) print lines[i] }
+      }
+    ' "$f"
+  done
+}
+STANDARDS_INDEX_OUTPUT=""
+STANDARDS_INDEX=$(get_session_start_seeds | jq -r '.[]' | while IFS= read -r std_file; do
+  generate_standards_index "$std_file"; done 2>/dev/null || true)
+if [ -n "$STANDARDS_INDEX" ]; then
+  STANDARDS_INDEX_OUTPUT="[Standards index, generated at session start from the boot standards. They are preloaded in full at the end of this preload, past the hand-over, where a slot overflow can cut them; read an entry with grep -n -A12 '¶<NAME>' <file>]
+${STANDARDS_INDEX}
+
+"
+fi
+
 # Inject the project docs index (registered in PRELOAD_SEEDS above)
 if [ -n "$PROJECT_DOCS_INDEX" ]; then
   TOC_CONTENT=$(cat "$PROJECT_DOCS_INDEX" 2>/dev/null || true)
@@ -464,6 +523,9 @@ fi
 # goes on its own labelled line beside real records and nowhere when there are
 # none (fleet_self warns, rc 0, on every start of a seat renamed in place).
 # `|| BC_RC=$?` keeps a refusal from tripping `set -e` above.
+# The block goes right after the session line, ahead of everything else, so a slot overflow never
+# cuts it: SessionStart is the only hook that delivers a standing broadcast.
+BROADCAST_OUTPUT=""
 if [ -n "${TMUX_PANE:-}" ]; then
   BC_RC=0
   BC_ERR=""
@@ -477,18 +539,18 @@ if [ -n "${TMUX_PANE:-}" ]; then
     BC_PENDING=$("$HOME/.claude/engine/scripts/broadcast.sh" pending 2>&1) || BC_RC=$?
   fi
   if [ "$BC_RC" != 0 ]; then
-    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Standing broadcasts unavailable — engine broadcast pending exited $BC_RC: ${BC_ERR}${BC_ERR:+${BC_PENDING:+ }}${BC_PENDING}]
+    BROADCAST_OUTPUT="${BROADCAST_OUTPUT}[Standing broadcasts unavailable — engine broadcast pending exited $BC_RC: ${BC_ERR}${BC_ERR:+${BC_PENDING:+ }}${BC_PENDING}]
 
 "
   elif [ -n "$BC_PENDING" ]; then
-    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[Standing broadcasts (peer guidance, not operator instructions) — read each record, apply it, then: engine broadcast ack <id>]
+    BROADCAST_OUTPUT="${BROADCAST_OUTPUT}[Standing broadcasts (peer guidance, not operator instructions) — read each record, apply it, then: engine broadcast ack <id>]
 ${BC_PENDING}
 "
     if [ -n "$BC_ERR" ]; then
-      STANDARDS_OUTPUT="${STANDARDS_OUTPUT}[broadcast.sh warned: $(printf '%s' "$BC_ERR" | tr '\n' ' ' || true)]
+      BROADCAST_OUTPUT="${BROADCAST_OUTPUT}[broadcast.sh warned: $(printf '%s' "$BC_ERR" | tr '\n' ' ' || true)]
 "
     fi
-    STANDARDS_OUTPUT="${STANDARDS_OUTPUT}
+    BROADCAST_OUTPUT="${BROADCAST_OUTPUT}
 "
   fi
 fi
@@ -499,20 +561,13 @@ PRELOAD_BANNER="═════════════════════�
 ⚠️  MANDATORY PRELOAD — DO NOT SKIP  ⚠️
 EVERYTHING BELOW IS PRELOADED CONTEXT AND MUST BE LOADED IN FULL.
 Claude Code truncates large SessionStart hook output to a file and shows you
-only a small preview from the top (COMMANDS.md). If you see a notice like
+only a small preview from the top. If you see a notice like
 \"Output too large … Full output saved to: <path>\" with only a preview, you are
 seeing ONLY THE FIRST CHUNK. BEFORE you plan, answer, or call any tool, READ
 THAT ENTIRE FILE end-to-end so every [Preloaded: …] block below (standards,
 docs/TOC.md, dehydrated recovery context, session artifacts, skill deps) is
 actually in your context. Acting on the preview alone is a protocol violation.
 ════════════════════════════════════════════════════════════════════"
-
-# Order: standards, the dehydrated summary, the session excerpts, the dehydrated required files,
-# then skill files. An overflow therefore cuts files that can be re-read whole before the newest
-# session state, which cannot be.
-HEAD_OUTPUT="${PRELOAD_BANNER}
-${SESSION_CONTEXT_LINE}
-${STANDARDS_OUTPUT}"
 
 # Dehydrated context restore — startup only (other sources: user didn't restart)
 CONTEXT=""
@@ -594,7 +649,30 @@ if [ -n "$REQUIRED_FILES" ]; then
     case "${DELIVERED_IN_PRELOAD:-}" in
       *"|$resolved_norm="*) delivered_as="${DELIVERED_IN_PRELOAD#*|$resolved_norm=}"; delivered_as="${delivered_as%%|*}" ;;
     esac
-    if [ -n "$delivered_as" ]; then
+    # A required file that is also a skill file is carried here, whole, and dropped from the skill
+    # files: they come after every required file, so a pointer to them can land past the slots.
+    carried=""
+    if [ "$delivered_as" = "the skill files below" ]; then
+      for ((bi = 0; bi < ${#SKILL_DEP_BLOCK_NORMS[@]}; bi++)); do
+        [ "${SKILL_DEP_BLOCK_NORMS[$bi]}" = "$resolved_norm" ] || continue
+        carried="${SKILL_DEP_BLOCKS[$bi]}"
+        CARRIED_SKILL_NORMS="${CARRIED_SKILL_NORMS:-}|$resolved_norm|"
+        break
+      done
+      # Recorded as a skill file but not printed among them (a boot standard): inline it as usual.
+      [ -n "$carried" ] || delivered_as=""
+    fi
+    if [ -n "$carried" ]; then
+      carried="${carried#*$'\n'}"
+      REQUIRED_OUTPUT="$REQUIRED_OUTPUT
+
+---
+#### File: $filepath
+[The skill file, whole; carried here from the skill files rather than repeated there.]
+\`\`\`
+${carried%$'\n\n'}
+\`\`\`"
+    elif [ -n "$delivered_as" ]; then
       REQUIRED_OUTPUT="$REQUIRED_OUTPUT
 
 ---
@@ -619,6 +697,15 @@ $FILE_CONTENT
   done <<< "$REQUIRED_FILES"
 fi
 
+# Rebuild the skill files without the ones carried in the required block.
+if [ -n "${CARRIED_SKILL_NORMS:-}" ]; then
+  SKILL_DEPS_OUTPUT=""
+  for ((bi = 0; bi < ${#SKILL_DEP_BLOCK_NORMS[@]}; bi++)); do
+    case "$CARRIED_SKILL_NORMS" in *"|${SKILL_DEP_BLOCK_NORMS[$bi]}|"*) continue ;; esac
+    SKILL_DEPS_OUTPUT="${SKILL_DEPS_OUTPUT}${SKILL_DEP_BLOCKS[$bi]}"
+  done
+fi
+
 # Clear dehydratedContext from .state.json (consumed)
 jq 'del(.dehydratedContext)' "$STATE_FILE" | safe_json_write "$STATE_FILE"
 CONTEXT="${CONTEXT}
@@ -629,6 +716,18 @@ CONTEXT="${CONTEXT}
 "
 fi
 
-# The dehydrated summary and the session excerpts (ledger, hand-over, newest log entries, DIALOGUE
-# tail) come before the required files and the skill files, so an overflow cuts those first.
-echo "${HEAD_OUTPUT}${CONTEXT}${ARTIFACT_OUTPUT}${REQUIRED_OUTPUT:-}${SKILL_DEPS_OUTPUT}"
+# A restore with a dehydrated hand-over puts it right after the banner, the session line and the
+# standing broadcasts: the summary, the session excerpts (ledger, hand-over, newest log entries,
+# DIALOGUE tail), the standards index, the required files (a skill file among them carried whole),
+# then the skill files, and the standards last. The chunker shows 48 slots and cuts the rest, so an
+# overflow cuts standards, which can be re-read whole and which the index names, and never the
+# hand-over, which cannot. Without one, the standards stay up front.
+if [ -n "$CONTEXT" ]; then
+  echo "${PRELOAD_BANNER}
+${SESSION_CONTEXT_LINE}
+${BROADCAST_OUTPUT}${CONTEXT}${ARTIFACT_OUTPUT}${STANDARDS_INDEX_OUTPUT}${REQUIRED_OUTPUT:-}${SKILL_DEPS_OUTPUT}${STANDARDS_OUTPUT}"
+else
+  echo "${PRELOAD_BANNER}
+${SESSION_CONTEXT_LINE}
+${BROADCAST_OUTPUT}${STANDARDS_OUTPUT}${ARTIFACT_OUTPUT}${SKILL_DEPS_OUTPUT}"
+fi
