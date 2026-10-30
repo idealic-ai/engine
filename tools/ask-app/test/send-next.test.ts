@@ -75,7 +75,7 @@ describe("the button and its wiring", () => {
   it("the Change answer form offers it too: the same editable bar renders both", () => {
     // One bar serves the open ask and the Change answer form (`editable` covers `changing`).
     const bar = app.slice(app.indexOf("{editable && ("), app.indexOf("{confirmSend && ("));
-    expect(bar).toContain("{changing && <h3>Change your answer");
+    expect(bar).toContain('{changing && <h3>{overrule ? `Overrule ${ask.answer?.answeredBy || "the seat"}` : "Change your answer"}');
     expect(bar).toContain("Send &amp; next");
   });
 

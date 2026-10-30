@@ -14,13 +14,43 @@ export const CHANGE_WORDING =
   "Sending replaces your earlier answer. The asker is told the answer changed and what it replaced, and gets the new one unread.";
 
 /**
- * Change answer is offered on a settled or provisional ask whose recorded answer is the operator's
- * own (the store's rule, which ruledBelow reads too): not one a seat ruled, never a superseded ask.
+ * What the operator may do to a recorded answer: change their own ("change", the store's rule, which
+ * ruledBelow reads too), or overrule a seat's ruling ("overrule", IDE-339). Never on a superseded ask.
  */
+export function changeMode(a: ParsedAsk): "change" | "overrule" | undefined {
+  if (a.header.status === "superseded" || !a.answer) return undefined;
+  if (!isSettled(a) && !isProvisional(a)) return undefined;
+  return isOperatorAnswer(a.answer) ? "change" : "overrule";
+}
+
+/** Change answer or Overrule is offered: a settled or provisional ask, not superseded. */
 export function mayChangeAnswer(a: ParsedAsk): boolean {
-  if (a.header.status === "superseded" || !a.answer) return false;
-  if (!isSettled(a) && !isProvisional(a)) return false;
-  return isOperatorAnswer(a.answer);
+  return changeMode(a) !== undefined;
+}
+
+/** What sending an overrule does, said beside the sends. */
+export const OVERRULE_WORDING =
+  "Sending replaces this seat's ruling with your answer. The asker is told the ruling was overruled, and the ruling is kept under Earlier answers.";
+
+/**
+ * IDE-339: the /api/answer body for an overrule. The store takes no draft over a seat's answer
+ * (writeDraft accepts one only over the operator's own), so an overrule is sent at once, never drafted.
+ */
+export function overruleBody(ask: StoredAsk, kind: "send" | "decline", s: { answers: AnswerMap; note: string }) {
+  const plain = stripLoopLines(s.note);
+  const base = { seat: ask.seat, id: ask.header.id, expectedRevision: Number(ask.header.revision) };
+  return kind === "decline" ? { ...base, decline: plain.trim() } : { ...base, answers: s.answers, ...(plain ? { note: plain } : {}) };
+}
+
+/**
+ * IDE-339: a grant class is the answering manager's, written from the CLI; the server refuses one from
+ * the browser. Every request body leaves through this, so no send path can carry one.
+ */
+export function withoutGrant<T>(body: T): T {
+  if (!body || typeof body !== "object" || Array.isArray(body) || !("grantClass" in body)) return body;
+  const rest = { ...(body as Record<string, unknown>) };
+  delete rest.grantClass;
+  return rest as T;
 }
 
 /**
@@ -39,7 +69,8 @@ export function changeAnswerStart(a: ParsedAsk): { values: Record<string, Answer
       if (t) text[k.slice(0, -6)] = t;
     } else values[k] = v;
   }
-  const note = src?.declined ? src.reason ?? "" : src?.note ?? "";
+  // IDE-339: an overrule starts from the seat's picks, but its note and reason were the seat's words, not yours.
+  const note = !own && !isOperatorAnswer(a.answer) ? "" : src?.declined ? src.reason ?? "" : src?.note ?? "";
   return { values, text, note: stripLoopLines(note) };
 }
 

@@ -434,3 +434,10 @@ details.round ul { margin: 6px 0; padding-left: 1.2em; }
 .row-hit-field { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
 .side.slim .row-hit { font-size: 11px; white-space: normal; }
 .search-empty .linkish { margin-left: 4px; }
+
+/* IDE-339: earlier answers, collapsed under the answer; the overrule and grant marks stay quiet. */
+.earlier-answers { margin: 8px 0; font-size: 14px; }
+.earlier-answers ol { margin: 6px 0 0; padding-left: 18px; }
+.earlier-answers li { margin: 6px 0; overflow-wrap: anywhere; }
+.earlier-answers .ea-head { margin: 0; }
+.chip.grant { margin-left: 4px; }

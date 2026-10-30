@@ -39,8 +39,9 @@ async function render(ask: ReturnType<typeof stored>, extra: Record<string, unkn
 describe("which asks offer Change answer", () => {
   it("the operator's own answer does (any case, as ruledBelow reads it); a seat-ruled, superseded or open ask does not", () => {
     expect(isProvisional(provisional)).toBe(true);
-    for (const a of [provisional, plain, declined, capital]) expect(mayChangeAnswer(a)).toBe(true);
-    for (const a of [ruled, superseded, openAsk]) expect(mayChangeAnswer(a)).toBe(false);
+    // IDE-339: a seat-ruled ask is now offered too, as Overrule (overrule-client.test.ts covers the button).
+    for (const a of [provisional, plain, declined, capital, ruled]) expect(mayChangeAnswer(a)).toBe(true);
+    for (const a of [superseded, openAsk]) expect(mayChangeAnswer(a)).toBe(false);
   });
 
   it("the answer bar shows the button on the operator's answers and not elsewhere", async () => {
@@ -231,8 +232,8 @@ describe("round 2: Cancel and stale change edits", () => {
     expect(staleChangeKeys([plain, ruled, superseded, openAsk, provisional])).toEqual([]);
     const seatRuled = { ...ruled, header: { ...ruled.header, id: "r9" } };
     const gone = { ...superseded, header: { ...superseded.header, id: "s9" } };
+    // IDE-339: a seat-ruled ask can be overruled, so its change:<ref> edits are kept; a superseded one's go.
     expect(staleChangeKeys([plain, seatRuled, gone], (k) => k === "change:manager:docs/r9" || k === "change:manager:docs/s9" || k === "change:manager:docs/a1")).toEqual([
-      "change:manager:docs/r9",
       "change:manager:docs/s9",
     ]);
   });

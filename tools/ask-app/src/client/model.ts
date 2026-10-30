@@ -6,9 +6,48 @@
 import { displayTitle } from "./md.ts";
 import { isOperatorAnswer } from "../lib/format.ts";
 import { isProvisional } from "./loop.ts";
-import { cardFor, draftAuthor, questionKey, visibleQuestions, type AnswerMap, type AnswerValue, type AskOption, type ParsedAsk } from "../lib/format.ts";
+import { cardFor, draftAuthor, questionKey, visibleQuestions, type AnswerMap, type AnswerValue, type AskAnswer, type AskOption, type ParsedAsk } from "../lib/format.ts";
 
-export type StoredAsk = ParsedAsk & { seat: string; file: string; mtimeMs: number };
+/**
+ * IDE-339: /api/asks sends `history` (every replaced answer, oldest first) once the server parses the
+ * history fence; the old server sends none. Optional here until lib/format.ts carries it.
+ */
+export type StoredAsk = ParsedAsk & { seat: string; file: string; mtimeMs: number; history?: unknown[] };
+
+/** IDE-339: the grant classes a manager's answer may carry (the store's GRANT_CLASSES, read only). */
+const GRANT_CLASSES = ["A", "B", "C", "D"];
+
+/** The grant class an answer record carries, when it is one of A to D. Read only: the client never writes one. */
+export function grantOf(a: AskAnswer | undefined): string | undefined {
+  const g = (a as { grantClass?: unknown } | undefined)?.grantClass;
+  return typeof g === "string" && GRANT_CLASSES.includes(g) ? g : undefined;
+}
+
+/** Who answered, with the grant class beside the name when there is one: "manager:core · class B". */
+export function answererText(a: AskAnswer | undefined): string {
+  const by = a?.answeredBy?.trim() || "unknown";
+  const g = grantOf(a);
+  return g ? `${by} · class ${g}` : by;
+}
+
+/** One earlier answer: a whole record from the history, or the old server's one-line `replaced:`. */
+export type EarlierAnswer = { kind: "record"; answer: AskAnswer } | { kind: "summary"; text: string };
+
+/**
+ * IDE-339: the answers this one replaced, newest first. The history is read when the server sent one
+ * (an empty one means nothing was replaced); without it, the `replaced:` line stands in. Entries that
+ * are not answers (a follow-up marker carries a `type`) are left out.
+ */
+export function earlierAnswers(a: ParsedAsk & { history?: unknown[] }): EarlierAnswer[] {
+  if (Array.isArray(a.history)) {
+    return a.history
+      .filter((h): h is AskAnswer => !!h && typeof h === "object" && ((h as { type?: unknown }).type === undefined || (h as { type?: unknown }).type === "answer"))
+      .map((answer) => ({ kind: "record" as const, answer }))
+      .reverse();
+  }
+  const line = a.header.replaced?.trim();
+  return line ? [{ kind: "summary", text: line }] : [];
+}
 
 export type Row = {
   ref: string;
@@ -31,6 +70,10 @@ export type Row = {
   /** Ruled below you: the seat that answered in the operator's place, and when (ISO). */
   ruledBy?: string;
   ruledAt?: string;
+  /** IDE-339: the grant class the seat ruled under, when it named one. */
+  ruledClass?: string;
+  /** IDE-339: whose settled answer this answer overruled (the `overruled:` stamp). */
+  overruled?: string;
   /** A provisional ask whose asker came back: the ask that followed it up (operator, 04:05). */
   followedBy?: string;
 };
@@ -121,7 +164,8 @@ export function askRow(a: StoredAsk, now = Date.now(), all: StoredAsk[] = []): R
     draft: !!a.draft && author === "operator",
     seatDraft: a.draft && author !== "operator" ? author : undefined,
     status: a.header.status ?? "open",
-    ...(ruledBelow(a) ? { ruledBy: a.answer!.answeredBy!.trim(), ruledAt: a.answer!.answeredAt } : {}),
+    ...(ruledBelow(a) ? { ruledBy: a.answer!.answeredBy!.trim(), ruledAt: a.answer!.answeredAt, ...(grantOf(a.answer) ? { ruledClass: grantOf(a.answer) } : {}) } : {}),
+    ...(a.header.overruled?.trim() ? { overruled: a.header.overruled.trim() } : {}),
     ...(followedBy ? { followedBy } : {}),
   };
 }

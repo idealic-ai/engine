@@ -90,12 +90,12 @@ describe("drafts stay reachable", () => {
 });
 
 describe("the card", () => {
-  it("shows 'Ruled by <seat> · <time>' above the answer, and says there is no overrule yet", async () => {
+  it("shows 'Ruled by <seat> · <time>' above the answer, and points at Overrule (IDE-339)", async () => {
     const { AskDetail } = await import("../src/client/App.tsx");
     const a = answered({ answers: { A: ["X"] }, answeredBy: "manager:meta", answeredAt: "2026-10-29T12:00:00Z" });
     const html = renderToStaticMarkup(createElement(AskDetail, { ask: a, all: [a], onChanged: () => {} }));
     expect(html).toMatch(/<p class="ruled-by" role="note"><b>Ruled by manager:meta<\/b> · <time dateTime="2026-10-29T12:00:00Z"[^>]*>2026-10-29 12:00 \(/);
-    expect(html).toContain("This app has no overrule yet.");
+    expect(html).toContain("Overrule it to answer in its place.");
     expect(html.indexOf("ruled-by")).toBeLessThan(html.indexOf("Answered · revision"));
     const own = answered({ answers: { A: ["X"] }, answeredBy: "operator" });
     expect(renderToStaticMarkup(createElement(AskDetail, { ask: own, all: [own], onChanged: () => {} }))).not.toContain("ruled-by");

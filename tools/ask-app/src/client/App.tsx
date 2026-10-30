@@ -21,6 +21,9 @@ import {
   acceptAll,
   ageOf,
   answerInWords,
+  answererText,
+  earlierAnswers,
+  grantOf,
   acceptListed,
   suggestionList,
   batchConfirmation,
@@ -70,7 +73,7 @@ import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, type
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay } from "./search.ts";
-import { CHANGE_WORDING, cancelDiscards, changeAnswerStart, draftBody, mayChangeAnswer, planClick, requestSend, staleChangeKeys, unsentKey } from "./reanswer.ts";
+import { CHANGE_WORDING, OVERRULE_WORDING, cancelDiscards, changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, planClick, requestSend, staleChangeKeys, unsentKey, withoutGrant } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
 export { ticketKeys };
@@ -103,7 +106,7 @@ const store = {
 
 /** A write with the token; a token rejected after a server restart is refreshed and retried once (token.ts). */
 async function post(url: string, body: unknown, beforeRetry?: () => void): Promise<Authed> {
-  return authedFetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }, { beforeRetry });
+  return authedFetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(withoutGrant(body)) }, { beforeRetry });
 }
 
 function useMedia(q: string): boolean {
@@ -551,13 +554,15 @@ function Plain({ text, terms = [] }: { text: string; terms?: string[] }) {
  * grouped by seat, since the group heading already says it.
  */
 export function AskRowButton({ r, current, onPick, slim, groupBy = "none", terms = [], extra }: { r: Row; current: boolean; onPick: () => void; slim: boolean; groupBy?: GroupBy; terms?: string[]; extra?: Hay }) {
-  const left = r.ruledBy ? `ruled by ${r.ruledBy}${r.ruledAt ? ` · ${ageOf(Date.parse(r.ruledAt), Date.now())} ago` : ""}` : r.status === "open" ? `${r.left} of ${r.total} left` : r.status;
+  const left = r.ruledBy ? `ruled by ${r.ruledBy}${r.ruledClass ? ` · class ${r.ruledClass}` : ""}${r.ruledAt ? ` · ${ageOf(Date.parse(r.ruledAt), Date.now())} ago` : ""}` : r.status === "open" ? `${r.left} of ${r.total} left` : r.status;
   const marks: [string, string, string][] = [
     ...(r.reserved === "operator" ? [["res", "◆", "Reserved for you: only you may answer; seats may forward it"] as [string, string, string]] : []),
     ...(r.reserved && r.reserved !== "operator" ? [["res other", "◇", `Reserved for ${r.reserved}`] as [string, string, string]] : []),
     ...(r.draft ? [["draft", "✎", "Your draft is saved, not sent"] as [string, string, string]] : []),
     ...(r.seatDraft ? [["sdraft", "✎", `${r.seatDraft} holds a draft here`] as [string, string, string]] : []),
     // Round 5: a provisional answer is with its asker; a small mark, like the others, never a chip.
+    // IDE-339: an answer that overruled a seat's ruling says whose, as quietly as the other marks.
+    ...(r.overruled ? [["ovr", "↺", `Overruled ${r.overruled}’s ruling`] as [string, string, string]] : []),
     ...(r.draftSent ? [["sent", "⏳", "Draft sent: your provisional answer is with the asker, who should come back with a second round"] as [string, string, string]] : []),
   ];
   const tone = r.waitingOnYou ? "you" : "other";
@@ -812,6 +817,8 @@ export function AskDetail({
   const open = (ask.header.status ?? "open") === "open";
   // IDE-304: the operator may reopen their own recorded answer and send a new one in its place.
   const mayChange = mayChangeAnswer(ask);
+  // IDE-339: on a seat's ruling the same form is an overrule, sent straight to /api/answer.
+  const overrule = changeMode(ask) === "overrule";
   const ref = askRef(ask);
   // A change in progress survives a remount: its unsent edits, or the operator's saved change draft.
   const [changing, setChanging] = useState(() => mayChange && (!!startChanging || !!loadUnsent(unsentKey(ref, true)) || (!!ask.draft && draftAuthor(ask.draft) === "operator")));
@@ -889,7 +896,40 @@ export function AskDetail({
     }
   }, [focusFork, ask]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /** IDE-339: an overrule is sent at once through /api/answer (the store takes no draft over a seat's answer). */
+  async function sendOverrule(kind: "send" | "decline", next = false) {
+    setConfirmSend(undefined);
+    setNextNotice("");
+    setBusy(true);
+    setResult("");
+    const keep = () => saveUnsent(keyFor(true), { revision, values, text, note });
+    try {
+      const r = await post("/api/answer", overruleBody(ask, kind, { answers, note }), keep);
+      if (r.restarted) return setResult(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
+      if (r.status === 409) {
+        const c = conflictMessage(r.json);
+        if (c.supersededBy || r.json?.status === "superseded") {
+          keep();
+          setReplacedBy(c.supersededBy ?? "");
+        }
+        return setResult(c.text);
+      }
+      if (r.status !== 200) return setResult(`Error: ${r.json?.error ?? r.status}`);
+      clearUnsent(keyFor(true));
+      const d = r.json?.delivery;
+      setResult(d?.status === "delivered" ? "Overruled. The asker is told, and the ruling is kept under Earlier answers." : `Overruled and saved${d?.status ? `, but ${d.status}${d.reason ? ` (${d.reason})` : ""}` : ""}. The asker's /next picks it up from the file.`);
+      onChanged();
+      if (next) {
+        const n = onSendNext?.(true);
+        if (n?.notice) setNextNotice(n.notice);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function act(kind: "draft" | "draft-decline" | "discard" | "send-now", next = false) {
+    if (overrule && kind === "send-now") return sendOverrule("send", next);
     setConfirmSend(undefined);
     setNextNotice("");
     setBusy(true);
@@ -1029,6 +1069,7 @@ export function AskDetail({
           {row.high && <span className="chip danger">! High importance</span>}
           {ask.header["reserved-for"] && <span className="chip" title="Only this party may answer; others may forward it">reserved for {ask.header["reserved-for"]}</span>}
           {ask.header.round && <span className="chip quiet">round {ask.header.round}</span>}
+          {ask.header.overruled?.trim() && <span className="chip quiet overruled">Overruled {ask.header.overruled.trim()}’s ruling</span>}
           <span className="chip quiet">{provisional ? "draft sent" : ask.header.status === "open" ? `${row.left} of ${row.total} left` : ask.header.status}</span>
         </p>
         {superseded && (
@@ -1123,9 +1164,9 @@ export function AskDetail({
           <>
             {ruledBelow(ask) ? (
               <p className="ruled-by" role="note">
-                <b>Ruled by {ask.answer!.answeredBy}</b>
+                <b>Ruled by {answererText(ask.answer)}</b>
                 {ask.answer?.answeredAt && <> · <time dateTime={ask.answer.answeredAt} title={new Date(ask.answer.answeredAt).toLocaleString()}>{ask.answer.answeredAt.replace("T", " ").slice(0, 16)} ({ageOf(Date.parse(ask.answer.answeredAt), Date.now())} ago)</time></>}
-                <span className="muted"> · a seat answered in your place{ask.header.status === "declined" ? " and declined" : ""}. This app has no overrule yet.</span>
+                <span className="muted"> · a seat answered in your place{ask.header.status === "declined" ? " and declined" : ""}. Overrule it to answer in its place.</span>
               </p>
             ) : null}
             <h3>{provisional ? (row.followedBy ? "Draft sent; the asker came back" : "Waiting on the asker: draft sent") : ask.header.status === "declined" ? "Declined" : "Answered"} · revision {ask.header.revision}</h3>
@@ -1135,25 +1176,28 @@ export function AskDetail({
             {ask.answer?.note && <p className="answer-note"><Inline text={ask.answer.note} /></p>}
             <Life h={ask.header} />
             {ask.header.status !== "declined" && <AnswerWords ask={ask} />}
+            <EarlierAnswers ask={ask} />
             <details className="raw-answer">
               <summary>Recorded answer block</summary>
               <RecordedAnswer answer={ask.answer} />
             </details>
             {mayChange && (
               <p className="actions">
-                <button className="btn" disabled={busy} onClick={beginChange} title="Reopen your answer and send a new one in its place">Change answer</button>
+                {overrule
+                  ? <button className="btn" disabled={busy} onClick={beginChange} title={`Answer in place of ${ask.answer?.answeredBy || "the seat"}; the asker is told the ruling was overruled`}>Overrule</button>
+                  : <button className="btn" disabled={busy} onClick={beginChange} title="Reopen your answer and send a new one in its place">Change answer</button>}
               </p>
             )}
           </>
         )}
         {editable && (
           <>
-            {changing && <h3>Change your answer · revision {ask.header.revision}</h3>}
-            {changing && <p className="muted sends">{CHANGE_WORDING}</p>}
+            {changing && <h3>{overrule ? `Overrule ${ask.answer?.answeredBy || "the seat"}` : "Change your answer"} · revision {ask.header.revision}</h3>}
+            {changing && <p className="muted sends">{overrule ? OVERRULE_WORDING : CHANGE_WORDING}</p>}
             <p className="muted sends">
               {nothing
                 ? "Nothing picked yet. Suggestions are not sent."
-                : `Sending settles this ask: the asker gets ${picked} of ${visible.length} fork${visible.length === 1 ? "" : "s"} answered${Object.keys(answers).length > picked ? " and your notes" : ""}${unanswered.length ? `, and ${unanswered.join(", ")} reach${unanswered.length === 1 ? "es" : ""} the asker unanswered. The ask closes; nothing here is left open` : ""}. Save draft keeps it in the file and sends nothing.`}
+                : `Sending settles this ask: the asker gets ${picked} of ${visible.length} fork${visible.length === 1 ? "" : "s"} answered${Object.keys(answers).length > picked ? " and your notes" : ""}${unanswered.length ? `, and ${unanswered.join(", ")} reach${unanswered.length === 1 ? "es" : ""} the asker unanswered. The ask closes; nothing here is left open` : ""}.${overrule ? "" : " Save draft keeps it in the file and sends nothing."}`}
             </p>
             <label className="field-label" htmlFor={`${changing ? "change-note" : "note"}-${ask.header.id}`}>Note to the asker</label>
             <textarea id={`${changing ? "change-note" : "note"}-${ask.header.id}`} rows={2} placeholder="Optional. To decline, write the reason here." value={note} onChange={(e) => setNote(e.target.value)} />
@@ -1161,10 +1205,12 @@ export function AskDetail({
               <button className="btn primary" disabled={busy || nothing} onClick={askSend}>{nothing ? "Send answers" : picked ? `Send ${picked} answer${picked === 1 ? "" : "s"}` : "Send your notes"}</button>
               {onSendNext && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("send", true)} title="Sends exactly as Send does, then opens the next ask in the list that is waiting on you">Send &amp; next</button>}
               {/* Partial on purpose: never the "N questions unanswered" confirm; while the server does not keep `provisional`, an honest confirm instead. */}
-              <button className="btn" disabled={busy || nothing} onClick={() => clickSend("draft")} title={kept ? "Sends your picks marked as not final, with a note saying so; the ask stays open for a second round" : "Today this closes the ask with your picks and a 'not final' note; the asker should come back with a second round"}>Send as draft</button>
-              <button className="btn" disabled={busy} aria-expanded={needOpen} aria-controls={`need-${ask.header.id}`} onClick={() => setNeedOpen(!needOpen)}>Need something first ▾</button>
-              <button className="btn quiet" disabled={busy || nothing} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>
-              <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => act("draft-decline")}>Draft a decline</button>
+              {/* IDE-339: an overrule cannot be drafted, so the draft sends are not offered on one. */}
+              {overrule && <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => sendOverrule("decline")}>Send a decline</button>}
+              {!overrule && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("draft")} title={kept ? "Sends your picks marked as not final, with a note saying so; the ask stays open for a second round" : "Today this closes the ask with your picks and a 'not final' note; the asker should come back with a second round"}>Send as draft</button>}
+              {!overrule && <button className="btn" disabled={busy} aria-expanded={needOpen} aria-controls={`need-${ask.header.id}`} onClick={() => setNeedOpen(!needOpen)}>Need something first ▾</button>}
+              {!overrule && <button className="btn quiet" disabled={busy || nothing} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>}
+              {!overrule && <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => act("draft-decline")}>Draft a decline</button>}
               {ask.draft && <button className="btn" disabled={busy} onClick={() => act("discard")}>Discard draft</button>}
               {changing && <button className="btn quiet" disabled={busy} onClick={cancelChange}>Cancel</button>}
             </p>
@@ -1218,11 +1264,11 @@ export function AskDetail({
 }
 
 /** IDE-304 item 5: the recorded answer read out fork by fork, above the raw block (which stays closed). */
-export function AnswerWords({ ask }: { ask: StoredAsk }) {
-  const lines = answerInWords(ask, ask.answer);
+export function AnswerWords({ ask, answer = ask.answer, label = "The answer, fork by fork" }: { ask: StoredAsk; answer?: AskAnswer; label?: string }) {
+  const lines = answerInWords(ask, answer);
   if (!lines.length) return null;
   return (
-    <dl className="answer-words" aria-label="The answer, fork by fork">
+    <dl className="answer-words" aria-label={label}>
       {lines.map((l) => (
         <div key={l.label}>
           <dt><span className="flabel">{l.label}</span> <Inline text={l.title} /></dt>
@@ -1233,6 +1279,43 @@ export function AnswerWords({ ask }: { ask: StoredAsk }) {
         </div>
       ))}
     </dl>
+  );
+}
+
+/** A time as the card shows it: "2026-10-29 10:30", the full local time on hover. */
+function When({ at }: { at?: string }) {
+  if (!at) return null;
+  return <time dateTime={at} title={new Date(at).toLocaleString()}>{at.replace("T", " ").slice(0, 16)}</time>;
+}
+
+/**
+ * IDE-339: every answer this one replaced, newest first, collapsed: who answered (with the grant class),
+ * when, via what, the picks in words and the note. The old server sends only the one-line `replaced:`.
+ */
+export function EarlierAnswers({ ask }: { ask: StoredAsk }) {
+  const list = earlierAnswers(ask);
+  if (!list.length) return null;
+  return (
+    <details className="earlier-answers">
+      <summary>Earlier answers ({list.length})</summary>
+      <ol>
+        {list.map((e, i) =>
+          e.kind === "summary" ? (
+            <li key={i} className="muted">{e.text}</li>
+          ) : (
+            <li key={i}>
+              <p className="ea-head">
+                <span className="muted">revision {String(e.answer.revision ?? "?")}</span> · <b>{answererText(e.answer)}</b>
+                {e.answer.answeredAt && <> · <When at={e.answer.answeredAt} /></>}
+                {e.answer.answeredVia && <span className="muted"> · via {e.answer.answeredVia}</span>}
+              </p>
+              {e.answer.declined ? <p>declined: <Inline text={e.answer.reason ?? ""} /></p> : <AnswerWords ask={ask} answer={e.answer} label={`Revision ${String(e.answer.revision ?? "?")}, fork by fork`} />}
+              {e.answer.note && <p className="answer-note"><Inline text={e.answer.note} /></p>}
+            </li>
+          ),
+        )}
+      </ol>
+    </details>
   );
 }
 
@@ -1767,6 +1850,7 @@ export function AnsweredBy({ answer }: { answer?: AskAnswer }) {
   return (
     <p className="answered-by">
       by <b>{answer.answeredBy || "unknown"}</b>
+      {grantOf(answer) && <> <span className="chip quiet grant" title="The grant class the answering manager gave this answer">class {grantOf(answer)}</span></>}
       {relayer ? (
         <span className="chip warn relay" title={`${relayer} recorded this as the operator's answer${answer.note ? `: ${answer.note}` : ""}`}>
           relayed by {relayer}
