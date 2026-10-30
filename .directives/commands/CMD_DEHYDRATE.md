@@ -20,7 +20,7 @@ The status-line `Context: X%` is **already normalized so 100% = the dehydration 
 
 **Aim to dehydrate at 95%** — the sweet spot. 85% is too early, since a lot of the time it takes ~50% just to load all context.
 
-**One scoped exception**: a `/loom` conductor dehydrates at about 70%, on the operator's ruling (`§INV_LOOM_DEHYDRATES_AT_SEVENTY` in `skills/loom/SKILL.md`). Its lanes and every other session keep the levels above.
+**One scoped exception**: a `/loom` conductor dehydrates at about 70% on the status line, whenever it is between moves, on the operator's ruling (`§INV_LOOM_DEHYDRATES_AT_SEVENTY` in `skills/loom/SKILL.md`). Its lanes and every other session keep the levels above.
 
 ---
 
