@@ -85,8 +85,9 @@ done
 
 # --- Every code block names its language: refused before any byte moves ---
 # The mechanical half of every prove skill's integrity pass. A <pre> with no `language-*` class on
-# itself or on a <code> inside it is refused, each one named by line, exit 6. `language-text` is the
-# tag when nothing fits. Checked against the AUTHORED page, ahead of every rewrite below, so the
+# itself or on a <code> directly inside it is refused, each one named by line, exit 6 (a block
+# hand-coloured with the kit's spans counts as tagged; a board's <pre data-fb-payload> is exempt).
+# `language-text` is the tag when nothing fits; `_fence-lang.py tag` adds it to every untagged block. Checked against the AUTHORED page, ahead of every rewrite below, so the
 # refusal points at lines the author can find. The helper ships beside this script like the
 # seat-strip helpers: a partial landing without it refuses rather than publishing unchecked.
 if [ ! -f "$here/_fence-lang.py" ]; then

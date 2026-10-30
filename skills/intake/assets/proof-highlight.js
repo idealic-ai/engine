@@ -15,7 +15,10 @@
  *   - language-text (and plaintext / txt / none / output / log): the author said "no language";
  *   - an unknown language: rendered as the plain text it is, never guessed at;
  *   - a block that already holds child elements: it was marked up by hand (the .codewrap .c/.k/.g
- *     spans in proof-blocks.css), and rewriting it would erase that marking.
+ *     spans in proof-blocks.css), and rewriting it would erase that marking. A block holding those
+ *     kit colour spans is already highlighted, so _fence-lang.py's check counts it as tagged.
+ *
+ * Which <code> is a block: only one directly inside a <pre> (`pre > code`); the check agrees.
  *
  * Behaviour only: it injects no <style>. proof-highlight.css rides at this file's version.
  * In node, module.exports = { highlight, highlightElement } for the test harness.
@@ -23,7 +26,15 @@
 (function (root) {
   "use strict";
 
-  var PLAIN = { text: 1, plaintext: 1, plain: 1, txt: 1, none: 1, nohighlight: 1, output: 1, log: 1 };
+  // Every lookup table is a null-prototype map, so a language named "constructor" or "__proto__"
+  // finds nothing rather than an Object.prototype member.
+  function dict(o) {
+    var m = Object.create(null);
+    for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) m[k] = o[k];
+    return m;
+  }
+
+  var PLAIN = dict({ text: 1, plaintext: 1, plain: 1, txt: 1, none: 1, nohighlight: 1, output: 1, log: 1 });
 
   function words(list) { return "\\b(?:" + list.split(" ").join("|") + ")\\b"; }
 
@@ -42,7 +53,7 @@
 
   // Each language: an ordered list of [class, regex source]. Order is precedence: the first rule that
   // matches at a position wins, so comments and strings come before anything they could contain.
-  var L = {};
+  var L = Object.create(null);
   L.js = [["c", C_LINE], ["c", C_BLOCK], ["s", S_DQ], ["s", S_SQ], ["s", S_BT],
     ["k", words(JS_KW)], ["l", words(JS_LIT)], ["n", NUM], ["f", CALL]];
   L.json = [["a", S_DQ + '(?=\\s*:)'], ["s", S_DQ], ["l", words("true false null")], ["n", "-?" + NUM]];
@@ -58,7 +69,8 @@
     ["l", words("True False None self")], ["n", NUM], ["f", CALL]];
   L.css = [["c", C_BLOCK], ["s", S_DQ], ["s", S_SQ], ["k", "@[\\w-]+"], ["n", "#[0-9a-fA-F]{3,8}\\b"],
     ["a", "--?[A-Za-z][\\w-]*(?=\\s*:)"], ["n", "-?\\b\\d+(?:\\.\\d+)?(?:%|[a-z]+)?\\b"], ["f", "\\b[\\w-]+(?=\\()"]];
-  L.html = [["c", "<!--[\\s\\S]*?-->"], ["t", "</?[A-Za-z][\\w:.-]*|/?>"], ["a", "\\s[A-Za-z_:@][\\w:.-]*(?==)"],
+  // "<!-" + "-": the inlined script must never hold an HTML comment opener (see _fence-lang.py).
+  L.html = [["c", "<!-" + "-[\\s\\S]*?-->"], ["t", "</?[A-Za-z][\\w:.-]*|/?>"], ["a", "\\s[A-Za-z_:@][\\w:.-]*(?==)"],
     ["s", S_DQ], ["s", S_SQ]];
   L.sql = [["c", "--.*"], ["c", C_BLOCK], ["s", S_SQ], ["a", S_DQ],
     ["k", words("select from where and or not insert into values update set delete create table " +
@@ -86,7 +98,7 @@
     "class namespace template typename public private protected virtual new delete using include define",
     "true false NULL nullptr");
 
-  var ALIAS = {
+  var ALIAS = dict({
     javascript: "js", mjs: "js", cjs: "js", jsx: "js", ts: "js", typescript: "js", tsx: "js", mts: "js",
     jsonc: "json", json5: "json",
     bash: "sh", shell: "sh", zsh: "sh", console: "sh", "shell-session": "sh", shellsession: "sh",
@@ -97,12 +109,12 @@
     yml: "yaml", toml: "yaml",
     patch: "diff",
     golang: "go", rs: "rust", kotlin: "java", kt: "java", cpp: "c", "c++": "c", h: "c", hpp: "c", cs: "c", csharp: "c"
-  };
+  });
 
   // Per-language regex flags beyond "gm": SQL keywords are case-insensitive.
-  var FLAGS = { sql: "i" };
+  var FLAGS = dict({ sql: "i" });
 
-  var compiled = {};
+  var compiled = Object.create(null);
   function rulesFor(lang) {
     var key = L[lang] ? lang : ALIAS[lang];
     if (!key || !L[key]) return null;
@@ -156,12 +168,18 @@
     if (el.dataset) el.dataset.hl = "done";
   }
 
+  function hasCodeChild(pre) {
+    for (var c = pre.firstElementChild; c; c = c.nextElementSibling) if (c.tagName === "CODE") return true;
+    return false;
+  }
+
   function run(doc) {
     var els = doc.querySelectorAll('pre > code, pre[class*="language-"]');
     for (var i = 0; i < els.length; i++) {
       var el = els[i];
-      // A <pre> carrying the language with a <code> child: the <code> is the block, handled itself.
-      if (el.tagName === "PRE" && el.querySelector("code")) continue;
+      // A <pre> carrying the language with a <code> directly inside: the <code> is the block,
+      // handled itself. Only a direct child counts, as in _fence-lang.py's check.
+      if (el.tagName === "PRE" && hasCodeChild(el)) continue;
       highlightElement(el);
     }
   }
