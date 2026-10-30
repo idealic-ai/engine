@@ -12,7 +12,8 @@
 # Credential storage:
 #   Profiles: ~/.claude/accounts/profiles/<email>.json
 #   State:    ~/.claude/accounts/state.json
-#   Keychain: "Claude Code-credentials" (macOS Keychain)
+#   Keychain: "Claude Code-credentials", account $USER (macOS Keychain);
+#             a switch replaces only claudeAiOauth and keeps mcpOAuth
 #
 # Race condition prevention:
 #   run.sh exports CLAUDE_ACCOUNT=<email> at launch.
@@ -39,18 +40,42 @@ ensure_dirs() {
   mkdir -p "$PROFILES_DIR"
 }
 
+# Claude Code reads the item for service "$KEYCHAIN_SERVICE" and account $USER.
+# Every read and write names that account: a call without -a matches whichever
+# item comes first, which may be a stale one under another account.
+KEYCHAIN_ACCOUNT="${USER:-$(id -un)}"
+
 # Read current credentials from macOS Keychain
 read_keychain() {
-  security find-generic-password -s "$KEYCHAIN_SERVICE" -w 2>/dev/null
+  security find-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w 2>/dev/null
 }
 
-# Write credentials to macOS Keychain (delete + add to avoid duplicates)
+# Put a profile's claudeAiOauth into the Keychain item Claude Code reads.
+# The item also holds keys that belong to this machine rather than to an
+# account (mcpOAuth: every MCP server's OAuth sign-in), so only claudeAiOauth is
+# replaced and every other key is kept as it is. The item is updated in place
+# (-U), never deleted, so there is no moment without one. If the current item
+# cannot be read as a JSON object, refuse: writing anyway would drop its keys.
 write_keychain() {
   local json="$1"
-  # Delete existing entry (ignore error if not found)
-  security delete-generic-password -s "$KEYCHAIN_SERVICE" 2>/dev/null || true
-  # Add new entry
-  security add-generic-password -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_SERVICE" -w "$json"
+  local existing oauth merged
+  if ! existing=$(read_keychain); then
+    echo "ERROR: Cannot read the Keychain item \"$KEYCHAIN_SERVICE\" for account $KEYCHAIN_ACCOUNT; refusing to write one that would drop its other keys (mcpOAuth). Log in with 'claude' first." >&2
+    return 1
+  fi
+  if ! printf '%s' "$existing" | jq -e 'type == "object"' > /dev/null 2>&1; then
+    echo "ERROR: The Keychain item for account $KEYCHAIN_ACCOUNT is not a JSON object; refusing to overwrite it." >&2
+    return 1
+  fi
+  if ! oauth=$(printf '%s' "$json" | jq -ce '.claudeAiOauth | select(type == "object")' 2>/dev/null); then
+    echo "ERROR: The profile holds no claudeAiOauth object; refusing to write." >&2
+    return 1
+  fi
+  merged=$(printf '%s' "$existing" | jq -c --argjson oauth "$oauth" '.claudeAiOauth = $oauth') || {
+    echo "ERROR: Could not merge credentials; Keychain left unchanged." >&2
+    return 1
+  }
+  security add-generic-password -U -s "$KEYCHAIN_SERVICE" -a "$KEYCHAIN_ACCOUNT" -w "$merged"
 }
 
 # Extract email from credential JSON
@@ -161,8 +186,8 @@ cmd_switch() {
   local creds
   creds=$(jq -r '.credentials' "$profile_file")
 
-  # Write to Keychain
-  write_keychain "$creds"
+  # Write to Keychain (refuses, and leaves state alone, if the item cannot be read)
+  write_keychain "$creds" || exit 1
 
   # Update state
   local state

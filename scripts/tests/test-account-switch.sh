@@ -25,37 +25,60 @@ setup() {
   export CLAUDE_ACCOUNTS_DIR="$TMP_DIR/accounts"
   mkdir -p "$CLAUDE_ACCOUNTS_DIR/profiles"
 
-  # Create mock `security` command that uses a flat file as "Keychain"
-  MOCK_KEYCHAIN="$TMP_DIR/mock-keychain"
+  # Mock `security`: an account-keyed "Keychain" — one file per account under
+  # $KC_DIR, named by the -a value — plus a call log. It never touches the real
+  # keychain. Like the real binary: find/delete without -a hit the first item,
+  # add without -U refuses an existing item (exit 45). Touch $KC_FAIL_FIND to
+  # make every find fail.
+  export USER="${USER:-tester}"
+  KC_DIR="$TMP_DIR/kc"
+  KC_LOG="$TMP_DIR/security-calls.log"
+  KC_FAIL_FIND="$TMP_DIR/fail-find"
+  mkdir -p "$KC_DIR"
+  : > "$KC_LOG"
+  MOCK_KEYCHAIN="$KC_DIR/$USER"
   echo "$MOCK_CREDS_1" > "$MOCK_KEYCHAIN"
 
   MOCK_BIN="$TMP_DIR/bin"
   mkdir -p "$MOCK_BIN"
   cat > "$MOCK_BIN/security" <<MOCK
 #!/bin/bash
-KEYCHAIN_FILE="$MOCK_KEYCHAIN"
-case "\$1" in
+KC_DIR="$KC_DIR"
+verb="\$1"; shift
+acct=""; svc=""; w_val=""; upd=0; has_w=0
+while [ \$# -gt 0 ]; do
+  case "\$1" in
+    -a) shift; acct="\$1" ;;
+    -s) shift; svc="\$1" ;;
+    -U) upd=1 ;;
+    -w) has_w=1; if [ "\$verb" = add-generic-password ]; then shift; w_val="\$1"; fi ;;
+  esac
+  shift
+done
+echo "\$verb|a=\$acct|s=\$svc|U=\$upd" >> "$KC_LOG"
+first_item() { ls "\$KC_DIR" | head -n1; }
+case "\$verb" in
   find-generic-password)
-    if [ -f "\$KEYCHAIN_FILE" ]; then
-      cat "\$KEYCHAIN_FILE"
+    [ -e "$KC_FAIL_FIND" ] && { echo "security: forced failure" >&2; exit 51; }
+    item="\${acct:-\$(first_item)}"
+    if [ -n "\$item" ] && [ -f "\$KC_DIR/\$item" ]; then
+      cat "\$KC_DIR/\$item"
     else
       echo "security: SecKeychainSearchCopyNext: The specified item could not be found in the keychain." >&2
       exit 44
     fi
     ;;
   delete-generic-password)
-    rm -f "\$KEYCHAIN_FILE" 2>/dev/null || true
+    item="\${acct:-\$(first_item)}"
+    [ -n "\$item" ] && [ -f "\$KC_DIR/\$item" ] || exit 44
+    rm -f "\$KC_DIR/\$item"
     ;;
   add-generic-password)
-    # Extract -w value (last argument)
-    local w_val=""
-    while [ \$# -gt 0 ]; do
-      case "\$1" in
-        -w) shift; w_val="\$1" ;;
-      esac
-      shift
-    done
-    echo "\$w_val" > "\$KEYCHAIN_FILE"
+    if [ -f "\$KC_DIR/\$acct" ] && [ "\$upd" = 0 ]; then
+      echo "security: SecKeychainItemCreateFromContent: The specified item already exists in the keychain." >&2
+      exit 45
+    fi
+    printf '%s\\n' "\$w_val" > "\$KC_DIR/\$acct"
     ;;
 esac
 MOCK
@@ -219,6 +242,106 @@ test_account_switch_rotate_increments_count() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
+# keychain write tests (ROTATEKEEP) — what a switch leaves in the Keychain item
+# Claude Code reads (service "Claude Code-credentials", account $USER)
+# ─────────────────────────────────────────────────────────────────────────────
+
+ORPHAN_ACCOUNT="Claude Code-credentials"
+LIVE_MCP='{"plugin:linear:linear|abc123":{"serverName":"linear","accessToken":"mcp-live","expiresAt":1793000000000,"scope":"read write"},"sentry|9f":{"serverName":"sentry","accessToken":"mcp-sentry","expiresAt":1500000000000.5}}'
+LIVE_ITEM='{"claudeAiOauth":{"accessToken":"tok1","refreshToken":"ref1","email":"user1@gmail.com"},"mcpOAuth":'"$LIVE_MCP"',"organizationUuid":"org-live"}'
+
+# The item is compact JSON as Claude Code writes it (JSON.stringify). The merge
+# goes through jq, which keeps key order and number literals of that form but
+# would print an exponent literal such as 1.5e12 as 1.5E+12 (same value);
+# JSON.stringify never writes one below 1e21.
+
+# Two profiles as they exist on disk: credentials hold only claudeAiOauth
+# (user2's also carries a foreign mcpOAuth, which must not reach the item).
+seed_profiles() {
+  jq -n '{email:"user1@gmail.com",credentials:{claudeAiOauth:{accessToken:"tok1",refreshToken:"ref1",email:"user1@gmail.com"}},savedAt:"x"}' \
+    > "$CLAUDE_ACCOUNTS_DIR/profiles/user1@gmail.com.json"
+  jq -n '{email:"user2@gmail.com",credentials:{claudeAiOauth:{accessToken:"tok2",refreshToken:"ref2",email:"user2@gmail.com"},mcpOAuth:{"foreign|1":{accessToken:"mcp-foreign"}}},savedAt:"x"}' \
+    > "$CLAUDE_ACCOUNTS_DIR/profiles/user2@gmail.com.json"
+  echo '{"activeAccount":"user1@gmail.com","accounts":["user1@gmail.com","user2@gmail.com"],"lastRotation":"","rotationCount":0}' \
+    > "$CLAUDE_ACCOUNTS_DIR/state.json"
+  printf '%s\n' "$LIVE_ITEM" > "$MOCK_KEYCHAIN"
+  : > "$KC_LOG"
+}
+
+test_account_switch_rotate_keeps_mcp_oauth() {
+  seed_profiles
+  local rc=0
+  "$ACCOUNT_SWITCH" rotate > /dev/null 2>&1 || rc=$?
+  assert_eq "0" "$rc" "rotate exits 0"
+  assert_eq "tok2" "$(jq -r '.claudeAiOauth.accessToken' "$MOCK_KEYCHAIN")" "item now holds the next account's claudeAiOauth"
+  assert_eq '{"claudeAiOauth":{"accessToken":"tok2","refreshToken":"ref2","email":"user2@gmail.com"},"mcpOAuth":'"$LIVE_MCP"',"organizationUuid":"org-live"}' \
+    "$(cat "$MOCK_KEYCHAIN")" "item bytes: only claudeAiOauth changed, mcpOAuth and the rest byte-for-byte"
+  assert_eq "org-live" "$(jq -r '.organizationUuid' "$MOCK_KEYCHAIN")" "other top-level keys survive"
+  assert_eq '["claudeAiOauth","mcpOAuth","organizationUuid"]' "$(jq -c 'keys_unsorted' "$MOCK_KEYCHAIN")" "key order kept"
+  assert_not_contains "mcp-foreign" "$(cat "$MOCK_KEYCHAIN")" "a profile's mcpOAuth is never copied into the item"
+}
+
+test_account_switch_writes_user_account_in_place() {
+  seed_profiles
+  "$ACCOUNT_SWITCH" switch "user2@gmail.com" > /dev/null 2>&1 || true
+  local log; log=$(cat "$KC_LOG")
+  assert_contains "find-generic-password|a=$USER|s=Claude Code-credentials" "$log" "reads the \$USER item"
+  assert_contains "add-generic-password|a=$USER|s=Claude Code-credentials|U=1" "$log" "updates the \$USER item in place (-U)"
+  assert_not_contains "delete-generic-password" "$log" "never deletes the item"
+}
+
+test_account_switch_never_writes_orphan_account() {
+  seed_profiles
+  printf '%s\n' '{"claudeAiOauth":{"accessToken":"orphan"}}' > "$KC_DIR/$ORPHAN_ACCOUNT"
+  local before; before=$(cat "$KC_DIR/$ORPHAN_ACCOUNT")
+  "$ACCOUNT_SWITCH" rotate > /dev/null 2>&1 || true
+  assert_not_contains "a=$ORPHAN_ACCOUNT" "$(cat "$KC_LOG")" "no call names the orphan account"
+  assert_eq "$before" "$(cat "$KC_DIR/$ORPHAN_ACCOUNT")" "orphan item untouched"
+  assert_eq "$LIVE_MCP" "$(jq -c '.mcpOAuth' "$MOCK_KEYCHAIN")" "merge read the \$USER item, not the first item"
+}
+
+test_account_switch_read_failure_refuses() {
+  seed_profiles
+  touch "$KC_FAIL_FIND"
+  local before; before=$(cat "$MOCK_KEYCHAIN")
+  local output rc=0
+  output=$("$ACCOUNT_SWITCH" switch "user2@gmail.com" 2>&1) || rc=$?
+  assert_not_empty "$([ "$rc" != 0 ] && echo nonzero)" "switch exits nonzero when the item cannot be read"
+  assert_contains "ERROR" "$output" "refusal is reported"
+  assert_not_contains "add-generic-password" "$(cat "$KC_LOG")" "nothing is written"
+  assert_eq "$before" "$(cat "$MOCK_KEYCHAIN")" "item unchanged"
+  assert_json "$CLAUDE_ACCOUNTS_DIR/state.json" ".activeAccount" "user1@gmail.com" "state not advanced"
+}
+
+test_account_switch_missing_item_refuses() {
+  seed_profiles
+  rm -f "$MOCK_KEYCHAIN"
+  local rc=0
+  "$ACCOUNT_SWITCH" switch "user2@gmail.com" > /dev/null 2>&1 || rc=$?
+  assert_not_empty "$([ "$rc" != 0 ] && echo nonzero)" "switch refuses when no \$USER item exists"
+  assert_not_contains "add-generic-password" "$(cat "$KC_LOG")" "no fresh blob written"
+}
+
+test_account_switch_profile_without_oauth_refuses() {
+  seed_profiles
+  jq -n '{email:"user2@gmail.com",credentials:{mcpOAuth:{}},savedAt:"x"}' > "$CLAUDE_ACCOUNTS_DIR/profiles/user2@gmail.com.json"
+  local before; before=$(cat "$MOCK_KEYCHAIN")
+  local rc=0
+  "$ACCOUNT_SWITCH" switch "user2@gmail.com" > /dev/null 2>&1 || rc=$?
+  assert_not_empty "$([ "$rc" != 0 ] && echo nonzero)" "switch refuses a profile with no claudeAiOauth"
+  assert_eq "$before" "$(cat "$MOCK_KEYCHAIN")" "item unchanged"
+}
+
+test_account_switch_write_idempotent() {
+  seed_profiles
+  "$ACCOUNT_SWITCH" switch "user2@gmail.com" > /dev/null 2>&1 || true
+  local first; first=$(cat "$MOCK_KEYCHAIN")
+  "$ACCOUNT_SWITCH" switch "user2@gmail.com" > /dev/null 2>&1 || true
+  assert_eq "$first" "$(cat "$MOCK_KEYCHAIN")" "second identical switch leaves identical bytes"
+  assert_eq "1" "$(ls "$KC_DIR" | wc -l | tr -d ' ')" "still exactly one item"
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
 # list tests
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -321,6 +444,13 @@ run_test test_account_switch_rotate_wraps_around
 run_test test_account_switch_rotate_needs_two_accounts
 run_test test_account_switch_rotate_idempotent_via_env
 run_test test_account_switch_rotate_increments_count
+run_test test_account_switch_rotate_keeps_mcp_oauth
+run_test test_account_switch_writes_user_account_in_place
+run_test test_account_switch_never_writes_orphan_account
+run_test test_account_switch_read_failure_refuses
+run_test test_account_switch_missing_item_refuses
+run_test test_account_switch_profile_without_oauth_refuses
+run_test test_account_switch_write_idempotent
 run_test test_account_switch_list_empty
 run_test test_account_switch_list_shows_active
 run_test test_account_switch_status_empty
