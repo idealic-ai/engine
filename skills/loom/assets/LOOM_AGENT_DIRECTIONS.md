@@ -95,7 +95,7 @@ When the session's **Run length** is Long-running, these apply to you:
 
 ## Your LOG is your hand-over — you may be replaced by a fresh lane reading it
 
-**Write for a successor who cannot talk to you.** A context clear ends every in-process lane, so your agent id stops resolving the moment the conductor's context goes; your log is what survives, and the conductor hands a successor your LOG PATH rather than your id. That is what binds how you write it:
+**Write for a successor who cannot talk to you.** Your agent id still resolves after a `/clear` in the conductor's process (*measured 2026-10-30*) but stops resolving when that process exits or restarts (*relayed, 2026-10-29*); your log is what survives both, and the conductor hands a successor your LOG PATH rather than your id alone. That is what binds how you write it:
 
 *   **Append as you go, not at the end.** A lane killed by a rate limit or an interruption leaves exactly what reached disk. A long preamble composed first and written last leaves nothing.
 *   **State where you stopped, in your last entry**, with the next step named concretely enough to execute. *"Register landed. Now the contract."* is a usable hand-over; *"continuing"* is not.

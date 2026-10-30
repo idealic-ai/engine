@@ -23,7 +23,7 @@
 
 ## 🧵 Threads — work in flight or parked
 
-*A row closes when its thread reaches a terminal stage with its proof URL recorded, or when the operator parks it with a reason. `reach it by` is the lane's **LOG PATH**, never an agent id: a context clear ends every in-process subagent, so an id is executable only while the parent context lives, and the log is what a fresh lane reads to take over.*
+*A row closes when its thread reaches a terminal stage with its proof URL recorded, or when the operator parks it with a reason. `reach it by` is the lane's **LOG PATH**, never an agent id alone: an id survives a `/clear` in the same process (*measured 2026-10-30*) but not a process exit or restart (`/dehydrate`'s restart, a pane relaunch, a crash), where `SendMessage` answers *no transcript found* (*relayed, 2026-10-29*), and the log is what a fresh lane reads to take over.*
 
 *🔍 `scrutiny` travels because it is the reading a successor cannot re-take (`§INV_LOOM_SCRUTINY_IS_DECLARED_AND_ROWED`). Once the lane is gone, nothing in git or in the ticket says whether anybody other than its author read its work, and `clean` and `never read` look identical in the diff. So the cell is carried verbatim — `clean` · `[n] findings → triaged` · `not scrutinized — [why]` — and a row arriving with it **empty** reads `UNKNOWN — cell never written`, which a successor stops on rather than acting past, like any other `UNKNOWN` in a field it needs.*
 
