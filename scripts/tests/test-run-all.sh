@@ -6,6 +6,9 @@ source "$(dirname "$0")/test-helpers.sh"
 
 TESTS_DIR="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT_DIR="$(cd "$TESTS_DIR/.." && pwd)"
+# RUN_ALL_SH points the verdict tests at another copy of the runner (origin/main's, to watch
+# them go red before trusting them).
+RUN_ALL="${RUN_ALL_SH:-$TESTS_DIR/run-all.sh}"
 
 # ============================================================
 # Test 1: run_discovered_tests discovers and runs all test_* functions
@@ -206,6 +209,93 @@ test_e2e_recursive_discovery() {
   assert_gt "$protocol_count" "0" "protocol/ tests are discoverable under e2e/ (found $protocol_count)"
 }
 
+# ============================================================
+# Verdict tests (LOOMINSTR Fix 1). A suite's exit status alone is not its verdict.
+# plant_suite <dir> <name> <body> writes a suite that prints <body> and exits per the body.
+# ============================================================
+plant_runner() {
+  local dir="$1"
+  mkdir -p "$dir/tests"
+  ln -sf "$TESTS_DIR/test-helpers.sh" "$dir/tests/test-helpers.sh"
+  cp "$RUN_ALL" "$dir/tests/run-all.sh"
+}
+plant_suite() {
+  printf '#!/bin/bash\n%s\n' "$3" > "$1/tests/$2"
+}
+
+# Control: an honest green suite is still a pass, and a passing line that merely NAMES failure
+# ("PASS: bad JSON produces FAIL") does not condemn it.
+test_verdict_control_green_suite_passes() {
+  local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-good.sh 'echo "PASS: bad JSON produces FAIL"; echo "Results: 2 passed, 0 failed (2 total)"; exit 0'
+  local output rc
+  output=$(bash "$tmp/tests/run-all.sh" 2>&1); rc=$?
+  assert_eq "0" "$rc" "an honest green suite leaves run-all at exit 0"
+  assert_contains "ALL 1 SUITES PASSED" "$output" "the honest suite is counted a pass"
+  rm -rf "$tmp"
+}
+
+# A bare "N passed, M failed" tally is a results line too; without it three honest suites in this
+# tree read as having no tally. RED: drop the bare shape from RESULTS_LINE_RE.
+test_verdict_bare_tally_shape_passes() {
+  local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-bare.sh 'echo "  ok   a case"; echo; echo "21 passed, 0 failed"; exit 0'
+  local output rc
+  output=$(bash "$tmp/tests/run-all.sh" 2>&1); rc=$?
+  assert_eq "0" "$rc" "a bare tally suite leaves run-all at exit 0"
+  assert_contains "(21 passed)" "$output" "the bare tally's count is read"
+  rm -rf "$tmp"
+}
+
+# RED on main: the suite prints FAIL and exits 0; main ticks it and exits 0.
+test_verdict_fail_line_at_exit_zero_is_red() {
+  local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-liar.sh 'echo "FAIL: the thing is BROKEN"; echo "Results: 1 passed, 1 failed (2 total)"; exit 0'
+  local output rc
+  output=$(bash "$tmp/tests/run-all.sh" 2>&1); rc=$?
+  assert_eq "1" "$rc" "a suite that prints FAIL and exits 0 makes run-all exit 1"
+  assert_contains "1/1 SUITES FAILED" "$output" "the lying suite is counted a failure"
+  assert_contains "failure line" "$output" "the row names the reason"
+  rm -rf "$tmp"
+}
+
+# RED on main: a suite that ran zero cases is displayed "(0 passed)" and ticked.
+test_verdict_zero_cases_is_red() {
+  local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-empty.sh 'echo "Results: 0 passed, 0 failed (0 total)"; exit 0'
+  local output rc
+  output=$(bash "$tmp/tests/run-all.sh" 2>&1); rc=$?
+  assert_eq "1" "$rc" "a suite that ran zero cases makes run-all exit 1"
+  assert_contains "ran 0 cases" "$output" "the row says nothing was checked"
+  rm -rf "$tmp"
+}
+
+# RED on main: a suite with no results line at all is ticked on its exit status.
+test_verdict_missing_results_line_is_red() {
+  local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-silent.sh 'exit 0'
+  local rc
+  bash "$tmp/tests/run-all.sh" >/dev/null 2>&1; rc=$?
+  assert_eq "1" "$rc" "a suite with no results line makes run-all exit 1"
+  rm -rf "$tmp"
+}
+
+# RED on main: a hung suite stops the glob. With a 2s budget the hang is killed, named as a
+# timeout, and the suite after it still runs and is counted.
+test_verdict_hung_suite_times_out_and_later_suites_run() {
+  local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-a-hang.sh 'sleep 30; echo "Results: 1 passed, 0 failed (1 total)"'
+  plant_suite "$tmp" test-b-after.sh 'echo "Results: 1 passed, 0 failed (1 total)"; exit 0'
+  local output rc
+  # The outer bound only stops a runner with no timeout from holding this suite for 30s.
+  output=$(ENGINE_TEST_TIMEOUT=2 perl -e 'alarm 10; exec @ARGV' bash "$tmp/tests/run-all.sh" 2>&1); rc=$?
+  assert_eq "1" "$rc" "a hung suite makes run-all exit 1, not hang"
+  assert_contains "TIMEOUT" "$output" "the hung suite's row names the timeout"
+  assert_contains "test-b-after.sh" "$output" "the suite after the hang still ran"
+  assert_contains "1/2 SUITES FAILED" "$output" "both suites are counted"
+  rm -rf "$tmp"
+}
+
 # Run
 run_test test_discovered_tests_runs_all
 run_test test_filter_matches_function
@@ -213,4 +303,10 @@ run_test test_filter_no_match_exits_zero
 run_test test_file_prefilter_skips_nonmatching
 run_test test_grep_flag_parsed
 run_test test_e2e_recursive_discovery
+run_test test_verdict_control_green_suite_passes
+run_test test_verdict_bare_tally_shape_passes
+run_test test_verdict_fail_line_at_exit_zero_is_red
+run_test test_verdict_zero_cases_is_red
+run_test test_verdict_missing_results_line_is_red
+run_test test_verdict_hung_suite_times_out_and_later_suites_run
 exit_with_results

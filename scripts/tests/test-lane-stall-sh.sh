@@ -1273,4 +1273,46 @@ test_lane_stall_pending_names_every_tool_of_a_parallel_batch() {
   assert_contains "pending=Agent,Bash " "$row" "PARALANE: pending names both tools of the batch"
 }
 
+# A retirement marker inside a ``` fence is an EXAMPLE (a lane quoting its close-out
+# instructions), not the lane retiring itself. Control and plant are the same heading; the plant
+# only wraps it in a fence. RED: drop the fence pass from the heading loop (the fenced marker
+# retires the lane, exit 0).
+test_lane_stall_a_fenced_retirement_marker_retires_nothing() {
+  local session="$TMP_DIR/fence/2026_10_12_FENCETEST"
+  local projects="$TMP_DIR/projects-fence"
+  plant_parked_lane "$projects" "$session" "FENCECTL" \
+    "## [2026-10-20 10:00:00] [FENCECTL] example retired=landed"
+  plant_parked_lane "$projects" "$session" "FENCED" ""
+  printf '## [2026-10-20 10:00:00] [FENCED] parked\n```\n## [2026-10-20 10:00:00] [FENCED] example retired=landed\n```\n' \
+    > "$session/builds/FENCED_LOG.md"
+  local out="$TMP_DIR/fence.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  local rc=$?
+  assert_contains "retired=landed" "$(grep '\[FENCECTL\]' "$out")" \
+    "the unfenced control marker still retires its lane"
+  assert_contains "STALE" "$(grep '\[FENCED\]' "$out")" \
+    "the fenced marker leaves its lane STALE"
+  assert_contains "retired=no" "$(grep '\[FENCED\]' "$out")" \
+    "the fenced marker gives its lane no disposition"
+  assert_contains "fenced-retirement-markers-ignored=1" "$(head -1 "$out")" \
+    "the verdict line counts the ignored fenced marker"
+  assert_eq "3" "$rc" "the fenced lane is stale, so the exit status is 3"
+}
+
+# A fence left open swallows the rest of its log, so the reading is incomplete: exit 2, naming the
+# file, rather than a verdict of either colour. RED: drop the unclosed-fence check (exit 0/3).
+test_lane_stall_an_unclosed_fence_is_a_fault_not_a_verdict() {
+  local session="$TMP_DIR/openfence/2026_10_12_OPENFENCE"
+  local projects="$TMP_DIR/projects-openfence"
+  plant_parked_lane "$projects" "$session" "OPENFENCE" ""
+  printf '## [2026-10-20 10:00:00] [OPENFENCE] parked\n```\n## [2026-10-20 10:00:00] [OPENFENCE] retired=landed\n' \
+    > "$session/builds/OPENFENCE_LOG.md"
+  local out="$TMP_DIR/openfence.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  local rc=$?
+  assert_eq "2" "$rc" "an unclosed fence exits 2"
+  assert_contains "OPENFENCE_LOG.md" "$(cat "$out.err")" "the fault names the log"
+  assert_contains "never closed" "$(cat "$out.err")" "the fault says the fence never closed"
+}
+
 run_discovered_tests

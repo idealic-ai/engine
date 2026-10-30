@@ -67,6 +67,9 @@
 #               consumes it in the order marker -> ticket -> worktree, and a lane that ended
 #               WITHOUT landing is the one whose tree may still hold uncommitted work: one
 #               undifferentiated token is what makes a close-out delete it.
+#               A heading inside a ``` code fence is an EXAMPLE and retires nothing; the count
+#               of markers ignored that way rides the verdict line, so a snippet quoting a
+#               close-out reads differently from a weave that never wrote one.
 #               WRITE IT AS THE HEADING'S OPENING TAG: "## [TAG] … retired=landed". The marker
 #               binds to the LEADING tag only, so a lane retires itself and naming another lane
 #               in the same heading does nothing to it — these headings share one log, and a
@@ -102,7 +105,8 @@
 # looks like one. Nothing after it is ever printed, which is what makes the sed form exact.
 # Prints only lanes that are not done and whose freshest signal is older than --minutes
 # (default 30), unless --all, plus every failed lane whatever its age. Exit 0 = nothing stale
-# or failed, 3 = at least one stale or failed lane.
+# or failed, 3 = at least one stale or failed lane, 2 = a log left a code fence open, so part of
+# it was never read and the reading is not a verdict.
 #
 # The first line states the window, the threshold and the lane count, because every reading
 # below is scoped to that window. --since-hours defaults to the SESSION'S OWN AGE (floored at
@@ -346,13 +350,39 @@ def session_logs(top):
     except OSError as exc:
         unreadable.append(str(exc))
 
+# A heading inside a fenced code block is an EXAMPLE, not an entry. The fence pass is
+# sweep-check.sh's, line for line, because a second implementation of the same rule is a second
+# thing to get wrong: a fence line that closes itself on the same line opens nothing, and a fence
+# left open is an instrument fault rather than a silently shortened file. Without this a lane that
+# pastes its own close-out instructions, or LOOM_AGENT_DIRECTIONS.md, into a ``` snippet retires
+# itself — and a retired lane never counts toward the exit status, so the fault direction is a
+# false clean, which is the one this sweep cannot afford (¶INV_LOOM_STALL_IS_SWEPT_NOT_SENSED).
+unclosed_fences = []
+fenced_retirements = 0
+
 def scan_log(log):
+    global fenced_retirements
     last_ts = None
     unstamped, seen_tags = set(), set()
     file_retired = None
+    fence, fence_open = False, 0
     try:
         with open(log, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
+            for lineno, line in enumerate(fh, 1):
+                s = line.lstrip()
+                if s.startswith("```"):
+                    if not fence and s.count("```") >= 2:
+                        continue
+                    fence = not fence
+                    if fence:
+                        fence_open = lineno
+                    continue
+                if fence:
+                    # Counted, not just skipped: a marker that was ignored for the right reason
+                    # and a weave with no marker at all must not read alike on the verdict line.
+                    if line.startswith("## ") and RETIRED.search(line):
+                        fenced_retirements += 1
+                    continue
                 if not line.startswith("## "):
                     continue
                 m = TS.search(line)
@@ -387,6 +417,8 @@ def scan_log(log):
                     continue
                 for tag in heading_tags:
                     date_tag(tag, last_ts, log, False)
+        if fence:
+            unclosed_fences.append((log, fence_open))
         if not seen_tags:
             m = LOGNAME_TAG.match(os.path.basename(log))
             stamp = last_ts if last_ts is not None else os.path.getmtime(log)
@@ -585,7 +617,13 @@ for tag, lane in sorted(lanes.items()):
 # failed= is appended only when nonzero, because the verdict line is read by exact comparison
 # and a quiet weave's line should not change shape.
 print(f"window={since_hours:.0f}h  threshold={minutes:.0f}m  lanes={len(lanes)}  "
-      f"retired={retired_lanes}" + (f"  failed={failed_lanes}" if failed_lanes else ""))
+      f"retired={retired_lanes}"
+      # Each count after retired= is appended only when nonzero, because the verdict line is
+      # read by exact comparison and a quiet weave's line should not change shape. Field order
+      # is fixed: window, threshold, lanes, retired, then failed, then
+      # fenced-retirement-markers-ignored.
+      + (f"  failed={failed_lanes}" if failed_lanes else "")
+      + (f"  fenced-retirement-markers-ignored={fenced_retirements}" if fenced_retirements else ""))
 fmt = lambda a: "-" if a is None else f"{a:.0f}m"
 for (tag, state, via, t_age, l_age, is_stale, path, disposition, error, lane_session,
      is_failed, pending) in rows:
@@ -613,5 +651,15 @@ if not rows:
 if unreadable:
     print(f"warning: {len(unreadable)} path(s) unreadable; counts above are a floor. "
           f"first: {unreadable[0]}", file=sys.stderr)
+# An open fence swallows the rest of its file, so every dating and every marker below it was
+# never read. That is an incomplete reading, and an incomplete reading is not a verdict of
+# either colour — hence 2, ahead of both 0 and 3.
+for log, opened_at in unclosed_fences:
+    print(f"lane-stall: code fence opened at L{opened_at} of {log} is never closed; "
+          f"the rest of that file was not read", file=sys.stderr)
+if unclosed_fences:
+    print(f"lane-stall: {len(unclosed_fences)} log(s) left a code fence open; the readings "
+          f"above are a floor and the exit status is a fault, not a verdict", file=sys.stderr)
+    sys.exit(2)
 sys.exit(3 if stale else 0)
 PY
