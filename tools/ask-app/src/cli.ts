@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
+import { askUrl } from "./lib/url.ts";
 import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk } from "./lib/store.ts";
 import { answeredByText, authorWarnings, noteLine, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, seatEq, UntaggedFenceError, type AnswerMap, type AskAnswer, type AskFollowup, type GrantClass } from "./lib/format.ts";
 
@@ -213,6 +214,8 @@ async function main() {
       die((e as Error).message, e instanceof UntaggedFenceError ? 2 : 1);
     }
     console.log(file);
+    // ASKLINK: the app URL on its own line — what the operator is given, never the path or a bare id.
+    console.log(askUrl(root, from, fields.id));
     warnAuthoring(file);
     return;
   }
@@ -247,7 +250,7 @@ async function main() {
       (a) => (wanted.has("all") || wanted.has(a.header.status ?? "")) && (!opt.to || seatEq(a.header.to, opt.to)) && (!opt.seat || seatEq(a.seat, opt.seat)),
     );
     if (opt.json === "true") {
-      console.log(JSON.stringify(asks, null, 2));
+      console.log(JSON.stringify(asks.map((a) => ({ ...a, url: askUrl(root, a.seat, a.header.id ?? "") })), null, 2));
       return;
     }
     for (const a of asks) {
@@ -256,8 +259,16 @@ async function main() {
       const delivery = life ? ` (${life})` : a.draft ? " (draft)" : "";
       // ASKWITHDRAW: a withdrawn ask's reason follows its title.
       const why = a.header.status === "withdrawn" && a.header["withdrawn-reason"] ? `\twithdrawn by ${a.header["withdrawn-actor"] || "?"}: ${a.header["withdrawn-reason"]}` : "";
-      console.log(`${a.header.status}${delivery}\t${a.seat}/${a.header.id}\trev=${a.header.revision}\tto=${a.header.to}\t${a.header.importance || "-"}\t${title}${why}`);
+      console.log(`${a.header.status}${delivery}\t${a.seat}/${a.header.id}\trev=${a.header.revision}\tto=${a.header.to}\t${a.header.importance || "-"}\t${title}${why}${opt.url === "true" ? `\t${askUrl(root, a.seat, a.header.id ?? "")}` : ""}`);
     }
+    return;
+  }
+
+  if (cmd === "url") {
+    // ASKLINK: the clickable app URL of one existing ask.
+    const { seat, id } = splitRef(pos[0], "usage: ask url <seat>/<id>");
+    if (!listAsks(root).some((a) => a.seat === seat && a.header.id === id)) die(`no ask ${seat}/${id} under ${root}`);
+    console.log(askUrl(root, seat, id));
     return;
   }
 

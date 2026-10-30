@@ -12,7 +12,9 @@
 #                  v2 card fields: [--stake …] [--unblocks …] [--related …] [--counter …] [--evidence "a ; b"]
 #                  [--rank "2 of 5"] [--topic …] [--tickets "IDE-1, IDE-2"] [--confidence …] [--reversible …]
 #                  [--verify …] [--ifUnanswered …] [--neededBy …] [--askedBy …] [--blocks …] [--reserved-for operator]
-#   engine ask list [--status open|answered|declined|settled|superseded|withdrawn|all|a,b] [--to T] [--seat S] [--json]
+#                  prints the ask's file path, then its app URL on its own line
+#   engine ask list [--status open|answered|declined|settled|superseded|withdrawn|all|a,b] [--to T] [--seat S] [--json] [--url]
+#   engine ask url <seat>/<id>           the ask's app URL, http://127.0.0.1:<serve's port>/a/<seat>/<id>: give the operator this
 #   engine ask answer <seat>/<id> --revision N (--json '{"Q":["CODE"]}' | --decline <reason>) [--note text]
 #                  --relayed-from operator --note "<when/where>"   a seat records the operator's answer
 #                  on a reserved ask, answer --decline by anyone but the operator passes it up to your parent
@@ -64,7 +66,7 @@ export ASK_ROOT
 APP_DIST="${ASK_APP_DIST:-$APP_DIR/dist}"
 
 usage() {
-  sed -n '6,40p' "$0" | sed 's/^# \{0,1\}//' >&2
+  sed -n '6,42p' "$0" | sed 's/^# \{0,1\}//' >&2
 }
 
 health() { # health <port> [max-seconds] → prints the health JSON, or nothing
@@ -329,7 +331,7 @@ case "$sub" in
     else echo "$ASK_ROOT/$1/$2.md"
     fi
     ;;
-  new|revise|list|answer|draft|send|discard|read|acted|forward|supersede|withdraw|rename-seat)
+  new|url|revise|list|answer|draft|send|discard|read|acted|forward|supersede|withdraw|rename-seat)
     exec node --no-warnings "$APP_DIR/src/cli.ts" "$sub" "$@"
     ;;
   serve)

@@ -89,8 +89,11 @@ test_engine_dispatcher_reaches_ask() {
 
 test_new_writes_file_with_defaults_from_env() {
   local out
-  out=$(printf '%s\n' "$BODY" | "$ASK_SH" new --id a1 --why "blocks two lanes" --importance high)
+  local all
+  all=$(printf '%s\n' "$BODY" | "$ASK_SH" new --id a1 --why "blocks two lanes" --importance high)
+  out=$(printf '%s\n' "$all" | sed -n 1p)
   assert_eq "$ASK_ROOT/idealic:kernel/a1.md" "$out" "new prints the file path under the FLEET_PANE seat"
+  assert_eq "http://127.0.0.1:4977/a/idealic:kernel/a1" "$(printf '%s\n' "$all" | sed -n 2p)" "new prints the app URL on its own second line"
   assert_file_exists "$out" "the ask file exists"
   assert_contains "to: operator" "$(cat "$out")" "with no FLEET_PARENT the ask goes to the operator"
   assert_contains "status: open" "$(cat "$out")" "a new ask is open"
@@ -99,7 +102,7 @@ test_new_writes_file_with_defaults_from_env() {
 
 test_new_to_defaults_to_fleet_parent() {
   local out
-  out=$(printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id a2)
+  out=$(printf '%s\n' "$BODY" | FLEET_PARENT=manager:idealic "$ASK_SH" new --id a2 | sed -n 1p)
   assert_contains "to: manager:idealic" "$(cat "$out")" "FLEET_PARENT is the default recipient"
 }
 
@@ -140,6 +143,17 @@ test_list_shows_open_and_filters() {
   out=$("$ASK_SH" list --to manager:director)
   assert_not_contains "idealic:kernel/l1" "$out" "--to filters by recipient"
   assert_contains "manager:app/l2" "$out" "--to keeps the matching ask"
+}
+
+# ASKLINK: the operator is given the app URL of an ask, never a bare id or a path.
+test_url_prints_app_url_with_serve_port() {
+  printf '%s\n' "$BODY" | "$ASK_SH" new --id k1 >/dev/null
+  assert_eq "http://127.0.0.1:4977/a/idealic:kernel/k1" "$("$ENGINE_SH" ask url idealic:kernel/k1)" "engine ask url prints the default-port URL"
+  echo "1 5099" > "$ASK_ROOT/.ask-app.pid"
+  assert_eq "http://127.0.0.1:5099/a/idealic:kernel/k1" "$("$ASK_SH" url idealic:kernel/k1)" "url follows the port ask serve recorded"
+  assert_contains "http://127.0.0.1:5099/a/idealic:kernel/k1" "$("$ASK_SH" list --url)" "list --url shows the URL column"
+  assert_not_contains "http://" "$("$ASK_SH" list)" "plain list is unchanged"
+  assert_fail "url refuses an ask that does not exist" "$ASK_SH" url idealic:kernel/nope
 }
 
 test_answer_writes_json_and_marks_undelivered() {
@@ -234,7 +248,7 @@ test_unknown_subcommand_fails() {
 
 test_v2_new_sets_card_fields_and_reserved_for() {
   local out
-  out=$(printf '%s\n' "$BODY" | "$ASK_SH" new --id c1 --stake "two lanes stall" --unblocks "E14" --tickets "IDE-253" --reserved-for operator --rank "1 of 3")
+  out=$(printf '%s\n' "$BODY" | "$ASK_SH" new --id c1 --stake "two lanes stall" --unblocks "E14" --tickets "IDE-253" --reserved-for operator --rank "1 of 3" | sed -n 1p)
   assert_contains "stake: two lanes stall" "$(cat "$out")" "--stake lands in the header"
   assert_contains "reserved-for: operator" "$(cat "$out")" "--reserved-for lands in the header"
   assert_contains "tickets: IDE-253" "$(cat "$out")" "--tickets lands in the header"
@@ -671,7 +685,7 @@ test_r1_author_guide_says_search_before_you_ask() {
 test_r1_live_pane_label_beats_a_stale_fleet_pane() {
   local live="$TMP/live-panes" out
   printf 'domain:stats %%7 manager:domain\nmanager:domain %%3 -\n' > "$live"
-  out=$(printf '%s\n' "$BODY" | TMUX_PANE=%7 ASK_LIVE_PANES="$live" FLEET_PANE=domain:domain FLEET_PARENT=manager:director "$ASK_SH" new --id lv1 2>"$TMP/lv.err")
+  out=$(printf '%s\n' "$BODY" | TMUX_PANE=%7 ASK_LIVE_PANES="$live" FLEET_PANE=domain:domain FLEET_PARENT=manager:director "$ASK_SH" new --id lv1 2>"$TMP/lv.err" | sed -n 1p)
   assert_eq "$ASK_ROOT/domain:stats/lv1.md" "$out" "the live label is the asker, not the stale FLEET_PANE"
   assert_contains "to: manager:domain" "$(cat "$out")" "the live @pane_parent is the default recipient"
   assert_contains "FLEET_PANE 'domain:domain' is stale; using the live pane label 'domain:stats'" "$(cat "$TMP/lv.err")" "the stale cache is warned about"
