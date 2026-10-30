@@ -33,6 +33,8 @@ import {
   trailingDraftFence,
   removeHeaderField,
   recipientsOf,
+  hasSeat,
+  seatEq,
   RECORD_FENCE_RE,
   assertFenceLanguages,
   STAMP_FIELDS,
@@ -771,7 +773,7 @@ export function pendingOutlivedWriter(ask: ParsedAsk, o: { now?: number; by?: st
   if (ask.header.delivery !== "pending" || !ask.answer) return false;
   const m = (ask.header.deliveryWriter ?? "").match(/^(\d+)@(.+)$/);
   if (!m) {
-    if (!o.by || !recipientsOf(ask).includes(o.by)) return false;
+    if (!o.by || !hasSeat(recipientsOf(ask), o.by)) return false;
     const at = Date.parse(ask.answer.answeredAt ?? "");
     return !Number.isFinite(at) || (o.now ?? Date.now()) - at > NO_WRITER_GRACE_MS;
   }
@@ -813,10 +815,10 @@ export type ReadResult = { ref: string; file: string; ask: ParsedAsk; lines: str
 
 /** Add `by`'s own read to the text: its `reads:` entry, and `readAt`/`readBy` when `by` is the asker (M2). */
 function stampRead(text: string, ask: ParsedAsk, by: string, at: string): string {
-  const reads = readsOf(ask.header).filter((r) => r.seat !== by);
+  const reads = readsOf(ask.header).filter((r) => !seatEq(r.seat, by));
   reads.push({ seat: by, at });
   let after = setHeaderField(text, "reads", reads.map((r) => `${r.seat}@${r.at}`).join(" ; "));
-  if (by === ask.header.from) {
+  if (seatEq(by, ask.header.from)) {
     after = setHeaderField(after, "readAt", at);
     after = setHeaderField(after, "readBy", by);
   }
@@ -841,7 +843,7 @@ export async function readAsk(root: string, seat: string, id: string, o: { by?: 
     const lines = answerLines(ask, seat);
     const base = { ref, file, ask, lines };
     if (!ask.answer) return { ...base, stamped: false, why: `not settled (status ${ask.header.status})` };
-    if (!o.by || !readersOf(ask).includes(o.by)) return { ...base, stamped: false, why: `${o.by || "an unnamed reader"} is not a recipient of this answer` };
+    if (!o.by || !hasSeat(readersOf(ask), o.by)) return { ...base, stamped: false, why: `${o.by || "an unnamed reader"} is not a recipient of this answer` };
     if (hasRead(ask, o.by)) return { ...base, stamped: false, why: `already read by ${o.by}` };
     const after = stampRead(text, ask, o.by, o.now ?? new Date().toISOString());
     atomicWrite(file, after);
@@ -856,7 +858,7 @@ export async function readAsk(root: string, seat: string, id: string, o: { by?: 
  * nothing is stamped. Every unread ask is returned, stamped or not.
  */
 export async function pickupUnread(root: string, seat: string, o: { by?: string; now?: string } = {}): Promise<ReadResult[]> {
-  const unread = listAsks(root).filter((a) => a.answer && (readersOf(a).includes(seat) || (a.seat === seat && !a.header.from)) && !hasRead(a, seat));
+  const unread = listAsks(root).filter((a) => a.answer && (hasSeat(readersOf(a), seat) || (seatEq(a.seat, seat) && !a.header.from)) && !hasRead(a, seat));
   unread.sort((a, b) => a.file.localeCompare(b.file));
   const out: ReadResult[] = [];
   for (const a of unread) out.push(await readAsk(root, a.seat, a.header.id!, { by: o.by, now: o.now }));
@@ -897,8 +899,8 @@ export async function actedAsk(
       if (!o.note?.trim()) throw new AskFormatError(`closing a reserved ask as ruled in chat needs a --note saying when and where ${reserved} ruled`);
       assertMayRelay(ask, { answeredBy: reserved, answeredVia: `relay:${by}` }, o);
     }
-    const allowed = new Set([...recipientsOf(ask), ask.header.to ?? ""].filter(Boolean));
-    if (!closingReserved && !allowed.has(by)) throw new AskFormatError(`${by} is not a recipient of ${seat}/${id} (the asker, a forwarder or the addressed seat); it cannot mark it acted`);
+    const allowed = [...recipientsOf(ask), ask.header.to ?? ""].filter(Boolean);
+    if (!closingReserved && !hasSeat(allowed, by)) throw new AskFormatError(`${by} is not a recipient of ${seat}/${id} (the asker, a forwarder or the addressed seat); it cannot mark it acted`);
     const now = o.now ?? new Date().toISOString();
     let after = text;
     if (!ask.answer && ruled) {
@@ -913,7 +915,7 @@ export async function actedAsk(
     after = setHeaderField(after, "acted", summary.trim());
     after = setHeaderField(after, "actedAt", now);
     after = setHeaderField(after, "actedBy", by);
-    if (ask.answer && readersOf(ask).includes(by) && !hasRead(ask, by)) after = stampRead(after, parseAskFile(after), by, now);
+    if (ask.answer && hasSeat(readersOf(ask), by) && !hasRead(ask, by)) after = stampRead(after, parseAskFile(after), by, now);
     atomicWrite(file, after);
   });
 }
@@ -1328,6 +1330,13 @@ const isDir = (d: string) => {
     return false;
   }
 };
+const isSymlink = (p: string) => {
+  try {
+    return fs.lstatSync(p).isSymbolicLink();
+  } catch {
+    return false;
+  }
+};
 const sameFile = (a: string, b: string) => {
   try {
     const [x, y] = [fs.statSync(a), fs.statSync(b)];
@@ -1406,6 +1415,12 @@ export async function renameSeat(root: string, old: string, neu: string, o: Rena
   const fromDir = path.join(root, old);
   const toDir = path.join(root, neu);
   const stage = stagingOf(root, old);
+  // ASKCASE: a case-only rename (`domain:Language` → `domain:language`) on a case-insensitive volume
+  // names ONE folder twice (the same inode). Its asks are not a clash with themselves: the folder
+  // moves through staging, and comes back under the new name, case and all.
+  const caseOnly = old.toLowerCase() === neu.toLowerCase();
+  const aliasOfNew = (d: string) => caseOnly && isDir(d) && sameFile(d, toDir);
+  const aliased = aliasOfNew(fromDir);
   const ledgerWas = readLedger(root, old);
   if (isDir(stage) && ledgerWas && ledgerWas !== neu) {
     throw new AskFormatError(`an earlier rename-seat ${old} → ${ledgerWas} stopped partway (its asks wait in ${stage}); finish it first: engine ask rename-seat ${old} ${ledgerWas}`);
@@ -1414,8 +1429,8 @@ export async function renameSeat(root: string, old: string, neu: string, o: Rena
   const oldMd = mdFiles(fromDir);
   const staged = mdFiles(stage);
   const ids = [...new Set([...oldMd, ...staged].map(strip))].sort();
-  const mode: RenameSeatResult["folder"]["mode"] = !isDir(fromDir) && !isDir(stage) ? "none" : isDir(toDir) ? "merge" : "move";
-  const clash = [...new Set([...oldMd.filter((f) => fs.existsSync(path.join(toDir, f))), ...staged.filter((f) => fs.existsSync(path.join(toDir, f)) && !sameFile(path.join(stage, f), path.join(toDir, f)))])].sort();
+  const mode: RenameSeatResult["folder"]["mode"] = !isDir(fromDir) && !isDir(stage) ? "none" : isDir(toDir) && !aliased ? "merge" : "move";
+  const clash = [...new Set([...oldMd.filter((f) => !aliased && fs.existsSync(path.join(toDir, f))), ...staged.filter((f) => fs.existsSync(path.join(toDir, f)) && !sameFile(path.join(stage, f), path.join(toDir, f)))])].sort();
   if (clash.length) {
     throw new AskFormatError(`refusing to rename ${old} → ${neu}: ${clash.map((f) => `${neu}/${strip(f)}`).join(", ")} already exist${clash.length === 1 ? "s" : ""}; nothing was changed`);
   }
@@ -1463,11 +1478,17 @@ export async function renameSeat(root: string, old: string, neu: string, o: Rena
     fs.mkdirSync(path.join(root, RENAME_DIR), { recursive: true });
     if (ledgerWas !== neu) atomicWrite(ledgerOf(root, old), `${neu}\n${new Date().toISOString()}\n`);
     // `neu` is a live seat now: a ledger from an earlier rename away from that name no longer applies.
-    if (readLedger(root, neu)) fs.rmSync(ledgerOf(root, neu), { force: true });
+    // On a case-insensitive volume a case-only rename's two ledgers are one file: that one is kept.
+    if (readLedger(root, neu) && !sameFile(ledgerOf(root, old), ledgerOf(root, neu))) fs.rmSync(ledgerOf(root, neu), { force: true });
     step("ledger");
     // A few passes at most: one for a staging folder a stopped run left, one for an old folder filed into again.
-    for (let pass = 0; pass < 3 && (isDir(stage) || isDir(fromDir)); pass++) {
+    // Once moved, the old name of a case-only rename still finds the folder through the alias: that is
+    // the new folder, not an old one filed into again.
+    const oldLeft = () => isDir(fromDir) && !aliasOfNew(fromDir);
+    for (let pass = 0; pass < 3 && ((pass === 0 && aliased) || isDir(stage) || oldLeft()); pass++) {
       if (!isDir(stage)) fs.renameSync(fromDir, stage);
+      // An alias that is a symlink (not a case-folding volume) is left dangling by the move: it goes.
+      if (aliased && !isDir(toDir) && isSymlink(toDir)) fs.unlinkSync(toDir);
       step("staged");
       const waitMs = o.waitMs ?? LOCK_STALE_MS + 5_000;
       const busy = await settleStaging(stage, waitMs);

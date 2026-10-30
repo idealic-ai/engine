@@ -1263,11 +1263,19 @@ export function forwardChain(h: AskHeader): Hop[] {
 /** One hop as `forwards:` holds it. */
 export const hopText = (h: Hop) => `${h.from}→${h.to}@${h.at}${h.reason ? ` [declined: ${hopReason(h.reason)}]` : ""}`;
 
+/**
+ * ASKCASE: one seat, whatever its case. Every fleet name is lowercase now, while asks filed before
+ * that still name `domain:Language`; a lookup folds both sides, and a stored name stays as written.
+ */
+export const seatEq = (a: string | undefined, b: string | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+/** Is `seat` in `list`, case folded (seatEq)? */
+export const hasSeat = (list: readonly (string | undefined)[], seat: string | undefined) => list.some((s) => seatEq(s, seat));
+
 /** Who an answer is pushed to: the asker, then every seat that held and forwarded it, minus the answerer. */
 export function recipientsOf(ask: ParsedAsk, answeredBy?: string): string[] {
   const out: string[] = [];
   for (const s of [ask.header.from ?? "", ...forwardChain(ask.header).map((h) => h.from)]) {
-    if (s && s !== answeredBy && !out.includes(s)) out.push(s);
+    if (s && !seatEq(s, answeredBy) && !hasSeat(out, s)) out.push(s);
   }
   return out;
 }
@@ -1309,8 +1317,8 @@ export function readsOf(h: AskHeader): Read[] {
  */
 export function hasRead(ask: ParsedAsk, seat: string): boolean {
   const h = ask.header;
-  if (readsOf(h).some((r) => r.seat === seat)) return true;
-  return seat === (h.from ?? "") && !!h.readAt && (!h.readBy || h.readBy === seat);
+  if (readsOf(h).some((r) => seatEq(r.seat, seat))) return true;
+  return seatEq(seat, h.from) && !!h.readAt && (!h.readBy || seatEq(h.readBy, seat));
 }
 
 // ── visibility ────────────────────────────────────────────

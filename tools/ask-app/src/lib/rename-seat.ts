@@ -8,8 +8,9 @@
  * - `reads: seat@iso ; …` — each entry's seat;
  * - `forwards: a→b@iso [declined: …] ; …` — each hop's two seats; the reason is kept byte for byte,
  *   escapes and all (it is prose, like a note);
- * - `delivery`, `deliveryNote`, `revisions` — store-written stamps, where any whole-name mention is
- *   the seat (`deliveryNote: idealic:ui: no live session …`);
+ * - `delivery`, `deliveryNote`, `revisions`, `replaced` — store-written stamps, where any whole-name
+ *   mention is the seat (`deliveryNote: idealic:ui: no live session …`, `replaced: revision 2 by
+ *   idealic:ui at …`);
  * - every other header field: each `<seat>/<id>` ref (`supersedes`, `superseded-by`, `related`,
  *   `dependsOn`, and a ref or an ask's file path quoted in `context`, `evidence`, `why`, …). A bare
  *   seat named in such prose (`acted: told idealic:ui`) is history, like a note, and is left alone;
@@ -19,8 +20,10 @@
  * - ASKFOLLOWUP: each ```json followup``` record's `by` and `addressedBy`. Its `text` is prose, left alone.
  * The body is never touched: its digest guards drafts (S4), and a question's wording is the asker's.
  *
- * Seats compare exactly, case and all, as the store compares them (`===`). A match is a WHOLE seat
- * name: never preceded by a seat-name character, and never followed by one that would continue it.
+ * Seats compare exactly, case and all: a rename names the spelling it replaces, and a case-only
+ * rename (ASKCASE: `domain:Language` → `domain:language`) rewrites only that spelling. A match is a
+ * WHOLE seat name: never preceded by a seat-name character, and never followed by one that would
+ * continue it.
  */
 import { ANSWER_FENCES, DRAFT_FENCES, FOLLOWUP_ENTRIES, HISTORY_FENCES } from "./format.ts";
 
@@ -29,7 +32,7 @@ export type SeatChange = { field: string; from: string; to: string };
 /** Header fields whose whole value is one seat. */
 export const SEAT_FIELDS = ["to", "from", "reserved-for", "askedBy", "readBy", "actedBy", "superseded-actor", "overruled", "withdrawn-actor", "withdrawn-draft-of"] as const;
 /** Store-written stamps in which any whole-name mention of the seat is the seat. */
-const STAMP_TEXT_FIELDS = ["delivery", "deliveryNote", "revisions"] as const;
+const STAMP_TEXT_FIELDS = ["delivery", "deliveryNote", "revisions", "replaced"] as const;
 /** JSON keys, in the answer and draft records, whose value is a seat. */
 const JSON_SEAT_KEYS = ["answeredBy", "readBy", "relayedFrom", "actedBy"];
 /** ASKFOLLOWUP: JSON keys, in a follow-up record, whose value is a seat. */
