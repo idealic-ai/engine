@@ -135,7 +135,7 @@ describe("item 4: markdown", () => {
     // Not an anchor: left as written, its case too.
     expect(displayTitle("ASK_RATE limits")).toBe("ASK_RATE limits");
     expect(displayTitle("lowercase plain title")).toBe("lowercase plain title");
-    expect(displayTitle("## lowercase heading")).toBe("lowercase heading");
+    expect(displayTitle("## lowercase heading")).toBe("## lowercase heading"); // no anchor: untouched, hashes and case
     // The real heading the operator saw, through the parser and the sidebar row.
     const real = stored(head() + "## Choose one: ¶ASK_W206REFINE — what happens to the `refinements` table under per-world policies?\n- [ ] [A] a\n- [ ] [B] b\n");
     expect(askRow(real).title).toBe("What happens to the `refinements` table under per-world policies?");
