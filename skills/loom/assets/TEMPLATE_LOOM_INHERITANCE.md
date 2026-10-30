@@ -33,7 +33,7 @@
 
 ## 🗳️ Asks — asks this loom raised, still open
 
-*Carried from the session log's `## 🗳️ Asks` block **unchanged**. The ask file itself survives the session, so a row here is a pointer: a successor reads it with `engine ask read <seat>/<id>` once it is answered, or re-pings by hand while it is not. A row closes when a successor has read the answer and recorded it; it may be passed on open, and it may not be discarded.*
+*Carried from the session log's `## 🗳️ Asks` block **unchanged**. The ask file itself survives the session, so a row here is a pointer: a successor reads it with `engine ask read <seat>/<id>` once it is answered, or re-pings by hand while it is not. A row closes when a successor has read the answer and recorded it; it may be passed on open, and it may not be discarded. An inherited `🗳️ Boards` row, from a log written before IDE-255, is still folded with `/decide` §4's fold and closed there, never re-asked.*
 
 | owner | ask | to | forks held | closes when |
 |-------|-----|----|------------|-------------|

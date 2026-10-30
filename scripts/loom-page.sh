@@ -98,7 +98,9 @@ BRACKETS = r"(?:\[[^\]]*\]\s*)*"
 # `Council` — none of which is a register rewrite.
 REGISTERS = [
     ("Ledger",      "\U0001F9F5", r"Ledger"),
-    ("Asks",        "\U0001F5F3", r"(?:Asks|Boards)"),
+    # Asks/Boards end at a separator or the end of the heading: an "Asks read" event named after the
+    # trigger is not the register (LOOMASK round 2, S1).
+    ("Asks",        "\U0001F5F3", r"(?:Asks|Boards)(?=\s*(?:[\u2014\u2013:(\u00B7-]|at\b|$))"),
     ("Docs owed",   "\U0001F4DA", r"Docs owed"),
     ("Rules owed",  "\u2696",     r"Rules owed"),
     ("Open claims", "\U0001F513", r"Open claims"),

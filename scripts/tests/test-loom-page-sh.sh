@@ -237,6 +237,25 @@ test_a_register_name_quoted_mid_heading_is_not_a_register() {
   assert_contains "QUOTEDMARK" "$txt" "and it is still reported, under the glyph it does carry"
 }
 
+# An event heading named after the asks-read trigger is not the present Asks register (LOOMASK round
+# 2, S1): the register's name ends at a separator or the end of the heading, and `Asks read` continues
+# it. The critic's probe/read.md shape; before the fix the event line rendered as "latest of 2".
+test_an_asks_read_event_heading_is_not_the_asks_register() {
+  local log="$TMP_DIR/asksread.md" out="$TMP_DIR/asksread.out" rc
+  write_log "$log" '## 🧵 Ledger' '' '## 🗳️ Asks' '* seat/a1 — open — REGISTERMARK' '' \
+    '## 📚 Docs owed' '' '## 🔓 Open claims' '' '## 🅿️ Parked' '' '## 💡 Decision — d1' '' \
+    '## [2026-10-30 03:00:00] 🗳️ Asks read — gate 3: seat/a1 still open, EVENTMARK' ''
+  rc=$(run_text "$out" "$log")
+  local txt; txt=$(cat "$out")
+  assert_contains "Asks         register instrument=  1" "$txt" "the asks-read event heading is not counted as the register"
+  assert_contains "REGISTERMARK" "$(register_section "$out" "Asks")" "the real Asks register is the one rendered"
+  assert_not_contains "EVENTMARK" "$(register_section "$out" "Asks")" "the event heading is not rendered as the present Asks"
+  write_log "$log" '## [2026-10-30 03:00:00] 🗳️ Asks (live) — LIVEMARK' '' '## 🗳️ Boards: none — COLONMARK' ''
+  rc=$(run_text "$out" "$log")
+  assert_contains "COLONMARK" "$(register_section "$out" "Asks")" "control: '🗳️ Boards: …' still reads as the register (latest wins)"
+  assert_contains "Asks         register instrument=  2" "$(cat "$out")" "control: '🗳️ Asks (live)' still counts"
+}
+
 test_a_known_mark_may_sit_around_the_glyph() {
   local log="$TMP_DIR/marks.md" out="$TMP_DIR/marks.out" rc
   write_log "$log" \

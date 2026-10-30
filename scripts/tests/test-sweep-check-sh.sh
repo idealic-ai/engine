@@ -102,6 +102,23 @@ test_each_register_block_counts_and_mentions_do_not() {
   assert_eq "3" "$rc" "a heading that mentions a register, and a glyph in prose, are not register writes"
 }
 
+# An event heading named after the asks-read trigger is not a write of the Asks register (LOOMASK
+# round 2, S1). The register's name ends at a separator or the end of the heading; `Asks read`
+# continues it, so a decision followed only by that event is UNROWED. The critic's probe/read.md shape.
+test_an_asks_read_event_heading_is_not_the_register() {
+  local log="$TMP_DIR/asksread.md" out="$TMP_DIR/asksread.out" rc head
+  write_log "$log" '## 🧵 Ledger' '' '## 🗳️ Asks' '* seat/a1 — open — to manager:x since gate 2' '' \
+    '## 📚 Docs owed' '' '## 🔓 Open claims' '' '## 🅿️ Parked' '' '## 💡 Decision — d1' '' \
+    '## [2026-10-30 03:00:00] 🗳️ Asks read — gate 3: seat/a1 still open'
+  rc=$(run_check "$out" "$log")
+  assert_eq "3" "$rc" "a '🗳️ Asks read — …' event heading after the decision is not a register write"
+  for head in '🗳️ Asks' '🗳️ Asks (live)' '🗳️ Asks: none open' '[2026-10-30 03:00:00] 🗳️ Asks — rewritten' '🗳️ Boards at 22:2x' '🗳️ Boards: none'; do
+    write_log "$log" '## 💡 Decision — a plain decision' '' "## $head"
+    rc=$(run_check "$out" "$log")
+    assert_eq "0" "$rc" "control: '$head' still counts as the register"
+  done
+}
+
 # Both heading shapes are decisions. The anchored pattern sees one of these two.
 test_stamped_and_unstamped_headings_are_both_found() {
   local log="$TMP_DIR/shapes.md" out="$TMP_DIR/shapes.out" anchored

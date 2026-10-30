@@ -34,7 +34,7 @@ This skill runs when context is nearly gone, so **every step it adds must be che
 
 Each step deposits durably before the next begins, and value descends down the list, so a death mid-run loses the cheapest half.
 
-*   **The inheritance write comes BEFORE the log receipt.** A lost receipt costs a paragraph in a file that already holds the narrative. A lost inheritance file costs every open thread, board, owed doc, owed rule and open claim — it is the only artifact a *successor* reads.
+*   **The inheritance write comes BEFORE the log receipt.** A lost receipt costs a paragraph in a file that already holds the narrative. A lost inheritance file costs every open thread, open ask, owed doc, owed rule and open claim — it is the only artifact a *successor* reads.
 *   **Inside the loom's duty the order is data dependency, not preference.** HANDOFF.md: *the sweep rows nothing itself, so the conductor rows what it accepts into the registers before the inheritance file carries them.* The inheritance file copies from the rows; written first, it is short rows.
 *   **The atom is last** because it kills the process.
 

@@ -22,6 +22,13 @@
 #   checks run the real scripts on fixture logs, and plant E9 runs a copy of sweep-check with the
 #   new word removed to show E1 can go red.
 #
+# ROUND 2 (the critic's S6): the text checks read what each SENTENCE instructs, not one old wording.
+#   A sentence in the loom's files or /next that pairs `board` with render/publish/fold, or that
+#   invokes `Skill(decide…)`, must say the operator asked for the board (or that the row is an
+#   inherited one from an older log). The Forbidden clause keeps its chat clause, the lane rule has no
+#   `engine ask new` outside its "never", and every check matches case-insensitively where the word
+#   can be capitalised. P9's setup failure names itself rather than standing in for a detection.
+#
 # THE CONTROL
 #   C1 counts "conductor" in the skill and the directions. A zero means the instrument read nothing.
 
@@ -35,6 +42,7 @@ DIRS="$ENGINE/skills/loom/assets/LOOM_AGENT_DIRECTIONS.md"
 TPL="$ENGINE/skills/loom/assets/TEMPLATE_LOOM_LOG.md"
 INH="$ENGINE/skills/loom/assets/TEMPLATE_LOOM_INHERITANCE.md"
 DEB="$ENGINE/skills/loom/assets/TEMPLATE_LOOM.md"
+NEXT="$ENGINE/skills/next/SKILL.md"
 READERS=(
   "$ENGINE/.directives/COMMANDS.md"
   "$ENGINE/skills/next/SKILL.md"
@@ -44,7 +52,7 @@ READERS=(
 SWEEP="$ENGINE/scripts/sweep-check.sh"
 PAGE="$ENGINE/scripts/loom-page.sh"
 
-for f in "$SKILL" "$DIRS" "$TPL" "$INH" "$DEB" "${READERS[@]}" "$SWEEP" "$PAGE"; do
+for f in "$NEXT" "$SKILL" "$DIRS" "$TPL" "$INH" "$DEB" "${READERS[@]}" "$SWEEP" "$PAGE"; do
   [ -f "$f" ] || { echo "missing file under test: $f" >&2; exit 1; }
 done
 echo "under test: $ENGINE"
@@ -61,13 +69,71 @@ inv_line() {  # $1 file, $2 invariant name: its definition line
   grep -F "*   **\`$2\`**:" "$1"
 }
 
+sentences() {  # $1 file → "<basename>:<line>: <sentence>" per sentence (a line is a paragraph)
+  perl -CSD -ne 'chomp; my $n=$.; for my $x (split /(?<=[.!?])\s+(?=[*A-Z`¶§(])/) { print "$ARGV:$n: $x\n" if $x =~ /\S/ }' "$1" \
+    | sed "s|^$1|$(basename "$(dirname "$1")")/$(basename "$1")|"
+}
+
+# A sentence may speak of rendering, publishing or folding a board only for a board the operator
+# asked for, or for a row inherited from an older log.
+BOARD_QUALIFIER='operator (asks|asked|requests|requested|did not ask)|asked for|operator.s request|inherit|older log|before IDE-255'
+
 # ── checks: each prints one line per violation, so the plants can reuse them ─────────────────
 
-check_no_board_register() {  # $@ files
+check_no_board_register() {  # $@ files — a sentence naming 🗳️ Boards must be about an inherited/older row
   local f
   for f in "$@"; do
-    grep -n -E "$OLD_REGISTER" "$f" 2>/dev/null | sed "s|^|$(basename "$f"): names the old register: |" | cut -c1-200
+    sentences "$f" | grep -E "$OLD_REGISTER" | grep -v -i -E 'inherit|older|before IDE-255' \
+      | sed 's|^|names the old register: |' | cut -c1-220
   done
+}
+
+check_board_sentences() {  # $@ files — what each sentence instructs about boards and Skill(decide)
+  local f
+  for f in "$@"; do
+    sentences "$f" | grep -i -E '\bboards?\b' \
+      | grep -i -E '\b(render|renders|rendered|rendering|publish|publishes|published|publishing|fold|folds|folded|folding)\b' \
+      | grep -v -i -E "$BOARD_QUALIFIER" | sed 's|^|renders, publishes or folds a board unasked: |' | cut -c1-240
+    sentences "$f" | grep -F 'Skill(decide' | grep -v -i -E "$BOARD_QUALIFIER|not a loom" \
+      | sed 's|^|invokes Skill(decide) outside an operator-asked board: |' | cut -c1-240
+  done
+}
+
+check_forbidden_keeps_chat() {  # $1 skill
+  local a; a=$(inv_line "$1" '¶INV_LOOM_ASKS_AT_A_BOUNDARY')
+  [ -n "$a" ] || { echo "skill: ¶INV_LOOM_ASKS_AT_A_BOUNDARY is not defined"; return; }
+  printf '%s' "$a" | grep -q -F '**Forbidden**:' || { echo "ASKS_AT_A_BOUNDARY: no Forbidden clause"; return; }
+  printf '%s' "${a#*\*\*Forbidden\*\*:}" | grep -q -i 'in chat' || echo "ASKS_AT_A_BOUNDARY: the Forbidden clause lost its chat clause"
+  printf '%s' "$a" | grep -q -F -- '--to operator' || echo "ASKS_AT_A_BOUNDARY: a seated conductor with no parent is not told to ask --to operator"
+  printf '%s' "$a" | grep -q -i -E 'no seat' || echo "ASKS_AT_A_BOUNDARY: a loom with no seat has no branch"
+  printf '%s' "$a" | grep -q -F '§FMT_DECISION_CARD' || echo "ASKS_AT_A_BOUNDARY: the no-seat branch does not put the forks as decision cards"
+}
+
+check_decide_is_followed_not_invoked() {  # $1 skill — M1, S3, S4
+  local b; b=$(trigger_block "$1" 'Decide pass')
+  printf '%s' "$b" | grep -q -i 'own procedure' || echo "Decide pass: does not say the loom follows /decide's sections as its own procedure"
+  sentences "$1" | grep -i 'no waiver' | grep -F '`/decide`' | grep -v -i -E "$BOARD_QUALIFIER" \
+    | sed 's|^|names /decide as a missing waiver for a step the loom no longer runs: |' | cut -c1-240
+  sentences "$1" | grep -i -E 'decision pass|decide pass' | grep -i -E 'end in a page|ends in a page' | grep -v -i 'ask' \
+    | sed 's|^|a decide pass whose output is an ask must end in a page: |' | cut -c1-240
+  # captured, never `grep -q` at a pipe's end: under pipefail an early exit SIGPIPEs `sentences`
+  [ -n "$(sentences "$1" | grep -i -E 'decide pass whose output is an ask.*(exempt|outside this rule)')" ] \
+    || echo "EVERY_THREAD_PROVES: a decide pass whose output is an ask is not exempt"
+}
+
+check_next_routes_forks_to_the_decide_pass() {  # $1 next/SKILL.md — M2
+  local r; r=$(grep -E '^2\.  \*\*An unanswered fork' "$1")
+  [ -n "$r" ] || { echo "next: no rung 2"; return; }
+  printf '%s' "$r" | grep -q -i "loom's decide pass" || echo "next rung 2: a loom's fork is not routed to the loom's decide pass"
+  printf '%s' "$r" | grep -q -i 'waiting for the decision page' && echo "next rung 2: still waits for the decision page"
+  printf '%s' "$r" | grep -q -i 'page the asking surface' && echo "next rung 2: still calls the published page the asking surface"
+  local route; route=$(grep -E '^\*   Fork' "$1")
+  printf '%s' "$route" | grep -q -i "decide pass" || echo "next routes: a fork is not routed to the loom's decide pass"
+}
+
+check_inherited_boards_row() {  # $1 inheritance — S5
+  [ -n "$(sentences "$1" | grep -E "$OLD_REGISTER" | grep -i 'inherit' | grep -i 'never re-asked' | grep '§4')" ] \
+    || echo "inheritance: an inherited 🗳️ Boards row has no rule (fold with /decide §4, never re-asked)"
 }
 
 check_asks_register_declared() {  # $1 log template $2 inheritance $3 debrief
@@ -83,9 +149,7 @@ check_decide_pass_writes_asks() {  # $1 skill
   printf '%s' "$b" | grep -q -F 'engine ask new' || echo "Decide pass: does not write an ask (engine ask new)"
   printf '%s' "$b" | grep -q -F '**Publishes**: no' || echo "Decide pass: still publishes"
   printf '%s' "$b" | grep -q -F 'only when the operator asks for one' || echo "Decide pass: a board is not limited to the operator's request"
-  printf '%s' "$b" | grep -q -F '/decide` §1–§3 and §6' || echo "Decide pass: does not compose /decide's mining, cards and record"
-  grep -q -F 'renders its board at that gate' "$1" && echo "skill: a pass still renders its board at the gate"
-  grep -q -F 'The board stays the page a fork is asked on' "$1" && echo "manager chain: the board is still the asking surface"
+  printf '%s' "$b" | grep -q -E '/decide` §1–§3.*§6' || echo "Decide pass: does not compose /decide's mining, cards and record"
 }
 
 check_asks_read_trigger() {  # $1 skill
@@ -122,10 +186,22 @@ check_lane_raises_a_question() {  # $1 directions
   printf '%s' "$p" | grep -q -F 'SendMessage' || echo "directions: the rule does not say SendMessage"
   printf '%s' "$p" | grep -q -F 'never `engine ask new`' || echo "directions: the rule lets a lane write an ask file"
   printf '%s' "$p" | grep -q -F 'never `AskUserQuestion`' || echo "directions: the rule lets a lane block on AskUserQuestion"
+  local all never
+  all=$(printf '%s' "$p" | grep -o -F '`engine ask new' | wc -l | tr -d ' ')
+  never=$(printf '%s' "$p" | grep -o -i -F 'never `engine ask new' | wc -l | tr -d ' ')
+  [ "$all" = "$never" ] || echo "directions: the lane rule allows engine ask new outside its never ($all mentions, $never under never)"
+  all=$(printf '%s' "$p" | grep -o -F '`AskUserQuestion`' | wc -l | tr -d ' ')
+  never=$(printf '%s' "$p" | grep -o -i -F 'never `AskUserQuestion`' | wc -l | tr -d ' ')
+  [ "$all" = "$never" ] || echo "directions: the lane rule allows AskUserQuestion outside its never"
 }
 
-all_violations() {  # $1 skill $2 dirs $3 log tpl $4 inheritance $5 debrief
-  check_no_board_register "$1" "$2" "$3" "$4" "$5"
+all_violations() {  # $1 skill $2 dirs $3 log tpl $4 inheritance $5 debrief $6 next
+  check_no_board_register "$1" "$2" "$3" "$4" "$5" "$6"
+  check_board_sentences "$1" "$2" "$3" "$4" "$5" "$6"
+  check_forbidden_keeps_chat "$1"
+  check_decide_is_followed_not_invoked "$1"
+  check_next_routes_forks_to_the_decide_pass "$6"
+  check_inherited_boards_row "$4"
   check_asks_register_declared "$3" "$4" "$5"
   check_decide_pass_writes_asks "$1"
   check_asks_read_trigger "$1"
@@ -158,6 +234,14 @@ test_A3_asks_read_replaces_board_fold() { report "A3: the Asks read trigger repl
 test_A4_invariants_key_on_open_asks() { report "A4: decisionPasses and pass-on key on open asks" "$(check_invariants "$SKILL")"; }
 test_A5_handover_carries_open_asks() { report "A5: LOOM_INHERITANCE carries open asks" "$(check_handover_carries_asks "$INH")"; }
 test_A6_lane_raises_a_question() { report "A6: the directions tell a lane how to raise a question" "$(check_lane_raises_a_question "$DIRS")"; }
+test_A8_no_sentence_renders_a_board_unasked() {
+  report "A8: no sentence in the loom's files or /next renders, publishes or folds a board, or invokes Skill(decide), unasked" \
+    "$(check_board_sentences "$SKILL" "$DIRS" "$TPL" "$INH" "$DEB" "$NEXT")"
+}
+test_A9_forbidden_keeps_chat_and_no_parent_branch() { report "A9: the Forbidden clause keeps chat, and the no-parent / no-seat branch is stated" "$(check_forbidden_keeps_chat "$SKILL")"; }
+test_A10_decide_followed_not_invoked() { report "A10: the loom follows /decide as its own procedure; no stale waiver; an ask-only pass is exempt from a page" "$(check_decide_is_followed_not_invoked "$SKILL")"; }
+test_A11_next_routes_loom_forks_to_the_decide_pass() { report "A11: /next routes a loom's fork to the loom's decide pass" "$(check_next_routes_forks_to_the_decide_pass "$NEXT")"; }
+test_A12_inherited_boards_row_has_a_rule() { report "A12: an inherited 🗳️ Boards row is folded with /decide §4, never re-asked" "$(check_inherited_boards_row "$INH")"; }
 test_A7_no_file_names_the_old_register() {
   report "A7: no loom file or reader names the register 🗳️ Boards" \
     "$(check_no_board_register "$SKILL" "$DIRS" "$TPL" "$INH" "$DEB" "${READERS[@]}")"
@@ -200,13 +284,50 @@ test_E3_loom_page_reads_the_asks_heading() {
   rm -rf "$fixture_dir"
 }
 
+test_E4_loom_page_still_reads_an_old_boards_heading() {
+  make_fixture Boards
+  local out; out=$(bash "$PAGE" "$fixture_dir/LOOM_LOG.md" --text 2>&1 </dev/null)
+  if printf '%s' "$out" | grep -q '^=== Asks — latest' && printf '%s' "$out" | grep -q -F 'a/b'; then
+    pass "E4: loom-page still reads an old log's '🗳️ Boards' as the Asks register"
+  else
+    fail "E4: loom-page reads '🗳️ Boards'" "an Asks register, found" "$(printf '%s' "$out" | grep -i -E 'asks' | head -3)"
+  fi
+  rm -rf "$fixture_dir"
+}
+
+make_asks_read_fixture() {  # the critic's probe/read.md shape: registers, a decision, then an asks-read EVENT
+  fixture_dir=$(mktemp -d "${TMPDIR:-/tmp}/loom-asks-fx.XXXXXX")
+  printf '%s\n' '## 🧵 Ledger' '' '## 🗳️ Asks' '* seat/a1 — open — REGISTERMARK' '' '## 📚 Docs owed' '' \
+    '## 🔓 Open claims' '' '## 🅿️ Parked' '' '## 💡 Decision — d1' '' \
+    '## [2026-10-30 03:00:00] 🗳️ Asks read — gate 3: seat/a1 still open, EVENTMARK' > "$fixture_dir/LOOM_LOG.md"
+}
+
+test_E5_sweep_check_does_not_count_an_asks_read_event() {
+  make_asks_read_fixture
+  local rc; bash "$SWEEP" "$fixture_dir/LOOM_LOG.md" >/dev/null 2>&1; rc=$?
+  assert_eq "3" "$rc" "E5: sweep-check: a '🗳️ Asks read — …' event after a decision is not a register write (exit 3)"
+  rm -rf "$fixture_dir"
+}
+
+test_E6_loom_page_does_not_render_an_asks_read_event_as_the_register() {
+  make_asks_read_fixture
+  local out; out=$(bash "$PAGE" "$fixture_dir/LOOM_LOG.md" --text 2>&1 </dev/null)
+  local sec; sec=$(printf '%s\n' "$out" | sed -n '/^=== Asks/,/^$/p')
+  if printf '%s' "$sec" | grep -q REGISTERMARK && ! printf '%s' "$sec" | grep -q EVENTMARK; then
+    pass "E6: loom-page renders the real Asks register, not the asks-read event"
+  else
+    fail "E6: loom-page Asks section" "REGISTERMARK and no EVENTMARK" "$(printf '%s' "$sec" | head -3)"
+  fi
+  rm -rf "$fixture_dir"
+}
+
 # ── P — plants: each removal or inversion must turn the aggregate red ─────────────────────────
 
 plant_dir=""
 setup() {
   plant_dir=$(mktemp -d "${TMPDIR:-/tmp}/loom-asks-plant.XXXXXX")
   cp "$SKILL" "$plant_dir/S.md"; cp "$DIRS" "$plant_dir/D.md"; cp "$TPL" "$plant_dir/T.md"
-  cp "$INH" "$plant_dir/I.md"; cp "$DEB" "$plant_dir/L.md"
+  cp "$INH" "$plant_dir/I.md"; cp "$DEB" "$plant_dir/L.md"; mkdir -p "$plant_dir/next"; cp "$NEXT" "$plant_dir/next/SKILL.md"
 }
 teardown() { [ -n "$plant_dir" ] && rm -rf "$plant_dir"; plant_dir=""; }
 
@@ -214,7 +335,11 @@ perl_in() {  # $1 file, $2 literal to find, $3 replacement — one occurrence re
   FIND="$2" REPL="$3" perl -0pi -e 'my $n = s/\Q$ENV{FIND}\E/$ENV{REPL}/; die "plant missed\n" unless $n' "$1"
 }
 
-plant_violations() { all_violations "$plant_dir/S.md" "$plant_dir/D.md" "$plant_dir/T.md" "$plant_dir/I.md" "$plant_dir/L.md"; }
+plant_violations() { all_violations "$plant_dir/S.md" "$plant_dir/D.md" "$plant_dir/T.md" "$plant_dir/I.md" "$plant_dir/L.md" "$plant_dir/next/SKILL.md"; }
+
+setup_missed() {  # $1 plant label, $2 the literal it needed — a setup failure that names itself
+  fail "$1: SETUP FAILED — the planted string was not found, so this plant did not run (not a detection)" "the string present" "missing: $2"
+}
 
 assert_plant_reddens() {  # $1 label
   if [ -n "$(plant_violations)" ]; then pass "P: plant '$1' reddens the contract"
@@ -267,12 +392,44 @@ test_P9_sweep_check_without_the_asks_word() {
   # The script check, planted: a copy of sweep-check that knows only `Boards` must miss the
   # Asks register and exit 3 on the same fixture E1 passes on.
   cp "$SWEEP" "$plant_dir/sweep.sh"
-  perl_in "$plant_dir/sweep.sh" '(?:Asks|Boards)' 'Boards' 2>/dev/null || { fail "P9: setup" "applied" "missed"; return; }
+  perl_in "$plant_dir/sweep.sh" '(?:Asks|Boards)' '(?:Boards)' 2>/dev/null || { setup_missed "P9" "(?:Asks|Boards) in sweep-check.sh"; return; }
   make_fixture Asks
   local rc; bash "$plant_dir/sweep.sh" "$fixture_dir/LOOM_LOG.md" >/dev/null 2>&1; rc=$?
   rm -rf "$fixture_dir"
   if [ "$rc" -ne 0 ]; then pass "P9: sweep-check without 'Asks' misses the register (exit $rc), so E1 can go red"
   else fail "P9: the plant reddens E1" "non-zero exit" "exit 0"; fi
+}
+
+# The critic's surviving plants (round 1, plant-a/b/d/e), each as an in-harness plant.
+test_P10_next_folds_a_board_again() {  # plant-a
+  perl_in "$plant_dir/next/SKILL.md" '*   **Forks and asks.**' '*   **Forks and boards.** A boards row whose fold state is unread is a board **never folded**; fold it with /decide §4. **Forks and asks.**' 2>/dev/null || { setup_missed "P10" "Forks and asks in next"; return; }
+  assert_plant_reddens "P10 /next folds a board with /decide §4 (critic plant-a)"
+}
+
+test_P11_gate_renders_a_board_every_pass() {  # plant-b
+  perl_in "$plant_dir/S.md" 'A pass that mines nothing presents the menu alone.' 'A pass that mines nothing presents the menu alone. Render the /decide board for the mined forks at every pass and fold it at the next gate.' 2>/dev/null || { setup_missed "P11" "the gate's menu-alone sentence"; return; }
+  assert_plant_reddens "P11 the loop gate renders a board at every pass (critic plant-b)"
+}
+
+test_P12_lane_rule_gains_an_exception() {  # plant-d
+  perl_in "$plant_dir/D.md" 'never `engine ask new` and never `AskUserQuestion`.' 'never `engine ask new` and never `AskUserQuestion`. If the conductor has not answered in 10 minutes, write it yourself with `engine ask new --to operator`.' 2>/dev/null || { setup_missed "P12" "the lane rule's never clause"; return; }
+  assert_plant_reddens "P12 the lane rule allows engine ask new after 10 minutes (critic plant-d)"
+}
+
+test_P13_forbidden_loses_its_chat_clause() {  # plant-e
+  perl -CSD -0pi -e 's/(\*\*Forbidden\*\*: publishing a board for a mined fork the operator did not ask for)[^\n]*/$1, and nothing else./ or die "plant missed\n"' "$plant_dir/S.md" 2>/dev/null || { setup_missed "P13" "the ASKS_AT_A_BOUNDARY Forbidden clause"; return; }
+  assert_plant_reddens "P13 the Forbidden clause loses its chat clause (critic plant-e)"
+}
+
+test_P14_gate_invokes_skill_decide_on_cadence() {  # M1
+  perl_in "$plant_dir/S.md" 'A pass that mines nothing presents the menu alone.' 'A pass that mines nothing presents the menu alone. Then run `Skill(decide)` whenever its §1E cadence says to.' 2>/dev/null || { setup_missed "P14" "the gate's menu-alone sentence"; return; }
+  assert_plant_reddens "P14 the loop gate invokes Skill(decide) on its cadence (M1)"
+}
+
+test_P15_capitalised_boards_register() {  # case-insensitive
+  perl_in "$plant_dir/T.md" '## 🗳️ Asks' '## 🗳️ Asks
+Keep the BOARDS rendered at every gate.' 2>/dev/null || { setup_missed "P15" "the log template's Asks heading"; return; }
+  assert_plant_reddens "P15 an upper-case BOARDS instruction is still read"
 }
 
 run_discovered_tests
