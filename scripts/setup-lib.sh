@@ -507,6 +507,10 @@ configure_hooks() {
       | add_if_missing({
           "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-submit-freeform-chat.sh", "timeout": 60}]
         })
+      # Broadcasts queued while this seat was idle, shown once at its next prompt (IDE-352).
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/user-prompt-broadcast-queue.sh", "timeout": 30}]
+        })
     )
 
     # SubagentStart: inject log template + discovered directives into sub-agents.

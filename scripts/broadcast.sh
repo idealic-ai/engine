@@ -3,7 +3,7 @@
 # with a durable record, receipts, and standing (sticky) guidance for sessions that start later.
 #
 #   engine broadcast [send] (--subtree SEAT | --children | --all) [--from SEAT] [--id SLUG]
-#                    [--sticky [--expires YYYY-MM-DD[THH:MM:SSZ]]] [--dry-run] <<'MSG'
+#                    [--sticky [--expires YYYY-MM-DD[THH:MM:SSZ]]] [--all-live] [--dry-run] <<'MSG'
 #   <text>
 #   MSG
 #       Audience from the live tmux tree (@pane_parent chains):
@@ -16,20 +16,36 @@
 #       without --for — refuses an identity that is only the launch-time FLEET_PANE cache, or none
 #       (outside tmux): there is no unseated send. --dry-run prints the audience and each seat's
 #       binding; writes and sends nothing.
-#       exit 0 every seat accepted (or dry run) · 1 record written, ≥1 seat undelivered ·
+#       Live or queued (IDE-352): a seat is pushed live only when its session was active within
+#       BROADCAST_LIVE_WINDOW minutes (default 60, the prompt-cache window): status "busy", or a
+#       statusUpdatedAt that recent, in the seat's ~/.claude/sessions/<pid>.json. Any other bound
+#       seat is queued ("queued <seat> pid=<pid> idle=<N>m"; $BROADCAST_DIR/queued/<seat>/<id>) and
+#       shown once at its next wake by `pending` (SessionStart, and `pending --queued` on each
+#       prompt), which then records "delivered <seat> at-wake <time>". A session with no reading is
+#       pushed live. --all-live pushes every audience seat whatever its activity (--all still means
+#       the audience is every live seat). A queued seat is not a failure: it does not set exit 1.
+#       exit 0 every seat accepted or queued (or dry run) · 1 record written, ≥1 seat undelivered ·
 #       2 usage / identity / existing id · 3 seat not in the live tree · 4 live tree unreadable.
 #
 #   engine broadcast ack <id>                 this seat applied it (own seat only; must be in the
 #                                             audience, or in a live sticky scope)
-#   engine broadcast status <id>              per seat: delivery state + ack; complete marker
-#   engine broadcast resend <id> [--undelivered]   explicit retry (there is no automatic one)
+#   engine broadcast status <id>              per seat: delivered | queued | undelivered |
+#                                             not-attempted, then acked | not-acked; complete marker
+#   engine broadcast resend <id> [--undelivered] [--all-live]   explicit retry (there is no
+#                                             automatic one); an idle seat is queued again unless
+#                                             --all-live, and a live push clears its queue entry
 #   engine broadcast retract <id>             withdraw a sticky broadcast (its sender only)
-#   engine broadcast pending [--for SEAT] [--limit N]   sticky broadcasts that apply now and are
-#                                             unacked, newest first; N defaults to 5, 0 = all
+#   engine broadcast pending [--for SEAT] [--limit N] [--queued]   first the broadcasts queued for
+#                                             the seat (oldest first, each with its message; without
+#                                             --for each is marked delivered as it is shown, so it
+#                                             is shown once), then sticky broadcasts that apply now
+#                                             and are unacked, newest first; N (default 5, 0 = all)
+#                                             bounds both together. --queued lists only the queue,
+#                                             and exits 0 at once when no seat has one
 #
 #   Go requests (kit LANDING.md "Get the go"; IDE-350):
 #   engine broadcast go-request --pr N [--rows ROW[,ROW…]] [--paths PATH[,PATH…]] [--repo PATH]
-#                    [--commits RANGE] [--owners FILE] [--id SLUG] [--dry-run]
+#                    [--commits RANGE] [--owners FILE] [--id SLUG] [--all-live] [--dry-run]
 #       --rows, --paths or both; at least one. A --paths PATH goes straight to the owners map, as a
 #       row's owner path does; the audience is the union of the rows' seats and the paths' seats,
 #       and each seat's receipt covers all its paths from either flag.
@@ -98,6 +114,8 @@
 #        ASK_SESSIONS_DIR — the session registry (shared with deliver.ts).
 #        BROADCAST_INLINE_MAX — the cut, in characters (default 1500); anything but a positive
 #        integer of at most 9 digits warns on stderr and falls back to 1500.
+#        BROADCAST_LIVE_WINDOW — minutes a seat counts as active (default 60); anything but a
+#        whole number of at most 6 digits warns and falls back to 60. 0 pushes only busy seats.
 #        Test seams: BROADCAST_DELIVER (`<cmd> <seat> <pid> <message>`, exit 0 = delivered),
 #        BROADCAST_PANE_PIDS ("<pane_id> <pid>" lines), BROADCAST_PS_FILE ("<pid> <ppid>" lines).
 set -uo pipefail
@@ -260,6 +278,42 @@ deliver() { # deliver <seat> <pid> <name> <message> → one status line; rc 0 = 
   return "$rc"
 }
 
+# ---- who is pushed live, who is queued (IDE-352) ----
+# A push wakes the seat, and a seat whose prompt cache has gone cold re-reads its whole context to
+# take it. So a bound seat is pushed live only when its session was active within
+# BROADCAST_LIVE_WINDOW minutes (default 60, the prompt-cache window); any other is queued and
+# shown at its next wake by `pending`. The reading is the session registry file bind() already
+# reads (~/.claude/sessions/<pid>.json, written by Claude Code itself): status "busy" is mid-turn,
+# so active; otherwise statusUpdatedAt (epoch ms) is when the status last changed, which for an
+# idle seat is the end of its last turn. A file with neither field gives no reading, and a seat
+# with no reading is pushed live, as before this rule. --all-live pushes every seat.
+LIVE_ALL=0
+BROADCAST_LIVE_WINDOW="${BROADCAST_LIVE_WINDOW:-60}"
+if ! [[ "$BROADCAST_LIVE_WINDOW" =~ ^[0-9]{1,6}$ ]]; then
+  echo "broadcast: BROADCAST_LIVE_WINDOW '$BROADCAST_LIVE_WINDOW' is not a whole number of minutes; using 60" >&2
+  BROADCAST_LIVE_WINDOW=60
+fi
+# idle_for <pid> → prints the minutes idle and returns 0 when the seat is past the window;
+# returns 1 (active, or no reading) otherwise.
+idle_for() {
+  local st t age
+  IFS=$'\t' read -r st t < <(jq -r '[(.status // "" | tostring), (.statusUpdatedAt // "" | tostring)] | @tsv' "$SESS_DIR/$1.json" 2>/dev/null) || return 1
+  [ "$st" != busy ] || return 1
+  [[ "$t" =~ ^[0-9]{10,16}$ ]] || return 1
+  age=$(( $(date +%s) - t / 1000 ))
+  [ "$age" -gt $(( BROADCAST_LIVE_WINDOW * 60 )) ] || return 1
+  echo $(( age / 60 ))
+}
+queue_dir() { echo "$BDIR/queued/$(ack_key "$1")"; }
+# bind_note <bind-result> — the dry run's "(queue: idle Nm)" for a bound seat that would be queued.
+bind_note() {
+  local m pid
+  [ "$LIVE_ALL" = 0 ] && [ "${1%% *}" = ok ] || return 0
+  read -r _ pid _ <<<"$1"
+  m=$(idle_for "$pid") && echo " (queue: idle ${m}m)"
+  return 0
+}
+
 BROADCAST_INLINE_MAX="${BROADCAST_INLINE_MAX:-1500}"
 if ! [[ "$BROADCAST_INLINE_MAX" =~ ^[1-9][0-9]{0,8}$ ]]; then
   echo "broadcast: BROADCAST_INLINE_MAX '$BROADCAST_INLINE_MAX' is not a positive integer; using 1500" >&2
@@ -325,21 +379,29 @@ write_record() {
 SEAT_MSG=""
 # fan_out <tree> <id> <rec> <message> <seats…> — deliver, append one line per seat, then done.
 fan_out() {
-  local tree="$1" id="$2" rec="$3" msg="$4" s b res m rc=0 ok=0 bad=0; shift 4
+  local tree="$1" id="$2" rec="$3" msg="$4" s b res m idle qd rc=0 ok=0 bad=0 q=0; shift 4
   for s in "$@"; do
     b=$(bind "$tree" "$s")
     if [ "${b%% *}" = ok ]; then
       local pid name
       read -r _ pid name <<<"$b"
+      # An idle seat is queued, not pushed (IDE-352). A queue that cannot be written falls
+      # through to the live push: a broadcast is never left neither pushed nor queued.
+      qd=$(queue_dir "$s")
+      if [ "$LIVE_ALL" = 0 ] && idle=$(idle_for "$pid") && mkdir -p "$qd" 2>/dev/null && : > "$qd/$id" 2>/dev/null; then
+        echo "queued $s pid=$pid idle=${idle}m" | tee -a "$rec"; q=$((q + 1)); continue
+      fi
       m="$msg"; [ -z "$SEAT_MSG" ] || m=$("$SEAT_MSG" "$s")
       if res=$(deliver "$s" "$pid" "$name" "$m"); then
+        [ ! -e "$qd/$id" ] || rm -f "$qd/$id"   # pushed live now: not shown again at wake
         echo "delivered $s pid=$pid" | tee -a "$rec"; ok=$((ok + 1)); continue
       fi
       b="${res:-no reason}"
     fi
     echo "undelivered $s — $b" | tee -a "$rec"; bad=$((bad + 1)); rc=1
   done
-  echo "done: rc=$rc delivered=$ok undelivered=$bad at $(now)" >> "$rec"
+  local qn=""; [ "$q" = 0 ] || qn=" queued=$q"
+  echo "done: rc=$rc delivered=$ok undelivered=$bad$qn at $(now)" >> "$rec"
   return "$rc"
 }
 
@@ -354,6 +416,7 @@ cmd_send() {
       --id) need_val "$1" $# "${2:-}"; id="$2"; shift 2 ;;
       --expires) need_val "$1" $# "${2:-}"; expires="$2"; shift 2 ;;
       --sticky) sticky=yes; shift ;;
+      --all-live) LIVE_ALL=1; shift ;;
       --dry-run) dry=1; shift ;;
       *) die 2 "unknown argument $1" ;;
     esac
@@ -373,7 +436,7 @@ cmd_send() {
   [ -n "${text//[[:space:]]/}" ] || die 2 "empty message: pass the text on stdin"
 
   # The tree first: an unreadable tree is exit 4 whatever the identity read then says.
-  local tree audience="" skipped="" s sent_by
+  local tree audience="" skipped="" s b sent_by
   tree=$(live_tree) || exit $?
   sent_by=$(live_self) || exit $?
   [ -n "$from" ] || from="$sent_by"
@@ -397,7 +460,7 @@ cmd_send() {
     "$id" "$from" "$sent_by" "$scope" "$sticky" "$expires" "$audience"
   [ -z "$skipped" ] || echo "skipped (no Claude session in pane): $skipped"
   if [ "$dry" = 1 ]; then
-    for s in $audience; do echo "binds $s → $(bind "$tree" "$s")"; done
+    for s in $audience; do b=$(bind "$tree" "$s"); echo "binds $s → $b$(bind_note "$b")"; done
     echo "message: $msg"
     echo "dry-run: nothing written, nothing sent"
     return 0
@@ -415,9 +478,10 @@ cmd_send() {
   return "$rc"
 }
 
-# last_state <rec> <seat> → delivered | undelivered | not-attempted
+# last_state <rec> <seat> → delivered | undelivered | queued | not-attempted. A queued seat reads
+# delivered once `pending` has shown it ("delivered <seat> at-wake <time>").
 last_state() {
-  awk -v s="$2" '/^## Delivery/ { d = 1; next } d && ($1 == "delivered" || $1 == "undelivered") && $2 == s { st = $1 }
+  awk -v s="$2" '/^## Delivery/ { d = 1; next } d && ($1 == "delivered" || $1 == "undelivered" || $1 == "queued") && $2 == s { st = $1 }
     END { print (st == "" ? "not-attempted" : st) }' "$1"
 }
 
@@ -426,6 +490,7 @@ cmd_resend() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --undelivered) only=1; shift ;;
+      --all-live) LIVE_ALL=1; shift ;;
       -*) die 2 "resend: unknown argument $1" ;;
       *) [ -z "$id" ] || die 2 "resend: one id"; id="$1"; shift ;;
     esac
@@ -509,25 +574,65 @@ cmd_retract() {
   echo "retracted: $id"
 }
 
+# any_queued — is any seat's queue non-empty? Read before an identity, so the per-prompt hook
+# costs one glob when nothing is queued anywhere.
+any_queued() { local f; for f in "$BDIR"/queued/*/*; do [ -e "$f" ] && return 0; done; return 1; }
+
+# wake_message <id> <rec> <seat> — what the live push would have carried to that seat.
+wake_message() {
+  local by text; by=$(header "$2" sent-by); text=$(text_of "$2")
+  if is_go "$2"; then GO_ID="$1" GO_REC="$2" GO_BY="$by" GO_TEXT="$text"; go_msg_for "$3"
+  else message "$1" "$text" "$2" "$by"; fi
+}
+
 cmd_pending() {
-  local seat="" limit=5
+  local seat="" limit=5 qonly=0 mark=0
   while [ $# -gt 0 ]; do
     case "$1" in
       --for) need_val "$1" $# "${2:-}"; seat="$2"; shift 2 ;;
       --limit) need_val "$1" $# "${2:-}"; limit="$2"; shift 2 ;;
+      --queued) qonly=1; shift ;;
       *) die 2 "pending: unknown argument $1" ;;
     esac
   done
   [[ "$limit" =~ ^[0-9]+$ ]] || die 2 "--limit takes a number"
+  [ "$qonly" = 0 ] || any_queued || return 0
   # Without --for, the seat is this pane's LIVE label: a cache-only identity would hand this
   # session another seat's standing guidance, which it could then never ack. Refused, loudly.
-  [ -n "$seat" ] || seat=$(live_self) || exit $?
+  # Only then is a queued broadcast marked delivered: --for is a read, never a delivery.
+  if [ -z "$seat" ]; then seat=$(live_self) || exit $?; mark=1; fi
   valid_seat --for "$seat"
+  local tree id rec shown=0 more=0 qmore=0 qids=" " qd claim
+  # Queued broadcasts first (IDE-352), oldest first: each is shown once, with the message the
+  # live push would have carried, and claimed by an atomic rename so two hooks firing together
+  # cannot both show it. A retracted or expired one is dropped unshown.
+  qd=$(queue_dir "$seat")
+  if [ -d "$qd" ]; then
+    for id in $(ls -tr "$qd" 2>/dev/null); do
+      [[ "$id" =~ $ID_RE ]] || continue
+      rec="$BDIR/$id.md"
+      if [ ! -r "$rec" ] || retracted "$rec" || expired "$rec"; then rm -f "$qd/$id"; continue; fi
+      qids+="$id "
+      if [ "$limit" != 0 ] && [ "$shown" -ge "$limit" ]; then qmore=$((qmore + 1)); continue; fi
+      if [ "$mark" = 1 ]; then
+        claim="$qd/.$id.claim.$$"
+        mv "$qd/$id" "$claim" 2>/dev/null || continue
+      fi
+      printf '%s\t%s\tqueued\t%s\n%s\n' "$id" "$(header "$rec" sent-by)" "$rec" "$(wake_message "$id" "$rec" "$seat")"
+      shown=$((shown + 1))
+      if [ "$mark" = 1 ]; then
+        echo "delivered $seat at-wake $(now)" >> "$rec"
+        rm -f "$claim"
+      fi
+    done
+  fi
+  [ "$qmore" = 0 ] || echo "+$qmore more queued: shown at the next wake"
+  [ "$qonly" = 0 ] || return 0
   [ -d "$BDIR/sticky" ] || return 0
-  local tree id rec shown=0 more=0
   tree=$(live_tree) || exit $?
   for id in $(ls -t "$BDIR/sticky" 2>/dev/null); do
     [[ "$id" =~ $ID_RE ]] || continue
+    case "$qids" in *" $id "*) continue ;; esac   # listed (or still queued) above
     rec="$BDIR/$id.md"
     [ -r "$rec" ] || continue
     retracted "$rec" && continue
@@ -694,6 +799,7 @@ cmd_go_request() {
       --commits) need_val "$1" $# "${2:-}"; range="$2"; shift 2 ;;
       --owners) need_val "$1" $# "${2:-}"; OWNERS_MAP="$2"; shift 2 ;;
       --id) need_val "$1" $# "${2:-}"; id="$2"; shift 2 ;;
+      --all-live) LIVE_ALL=1; shift ;;
       --dry-run) dry=1; shift ;;
       *) die 2 "go-request: unknown argument $1" ;;
     esac
@@ -803,7 +909,7 @@ cmd_go_request() {
     receipts+="$lines"$'\n'
   done
 
-  local text n oseats="${seat_arr[*]}"
+  local text n b oseats="${seat_arr[*]}"
   n=$(grep -c . <<<"$commits" | tr -d ' ')
   local covers="" owners_line=""
   [ -z "$rows" ] || { covers+="rows: $rows"$'\n'; owners_line+="Owners are read from CONTRACTS.md at the tip $tip and the base $base; both are asked."$'\n'; }
@@ -815,7 +921,7 @@ cmd_go_request() {
   printf 'id: %s\nfrom: %s\nsent-by: %s\nscope: go-request\naudience: %s\n%s' "$id" "$sent_by" "$sent_by" "$oseats" "$extra"
   GO_ID="$id" GO_TEXT="$text" GO_REC="$rec" GO_BY="$sent_by"
   if [ "$dry" = 1 ]; then
-    for seat in "${seat_arr[@]}"; do echo "binds $seat → $(bind "$tree" "$seat")"; echo "message to $seat: $(go_msg_for "$seat")"; done
+    for seat in "${seat_arr[@]}"; do b=$(bind "$tree" "$seat"); echo "binds $seat → $b$(bind_note "$b")"; echo "message to $seat: $(go_msg_for "$seat")"; done
     echo "dry-run: nothing written, nothing sent"
     return 0
   fi

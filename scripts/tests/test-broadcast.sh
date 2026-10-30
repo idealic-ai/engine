@@ -500,6 +500,148 @@ test_retract_expires_limit() {
   assert_eq 7 "$(grep -c '^many' <<<"$OUT")" "S6: --limit 0 lists all"
 }
 
+# ---------------------------------------------------------------- queue for idle seats (IDE-352)
+# act <pid> <status> <minutes-ago> — give a registered session the activity reading Claude Code
+# writes: status and statusUpdatedAt (epoch ms). A session without one has no reading.
+act() {
+  local ms=$(( ($(date +%s) - $3 * 60) * 1000 ))
+  jq -c --arg st "$2" --argjson t "$ms" '. + {status: $st, statusUpdatedAt: $t}' "$FIX/sess/$1.json" > "$FIX/sess/$1.tmp" \
+    && mv "$FIX/sess/$1.tmp" "$FIX/sess/$1.json"
+}
+
+test_queue_idle_seat_is_queued_not_pushed() {
+  act 2004 idle 120; act 2005 idle 5
+  bc --children --from manager:app --id q1
+  assert_eq 0 "$RC" "queue: a send with a queued seat exits 0"
+  assert_eq "app:ui" "$(cut -d'|' -f1 "$FIX/sent.log" | tr '\n' ' ' | sed 's/ $//')" "queue: only the seat active within the hour is pushed"
+  local body; body=$(cat "$FIX/bc/q1.md")
+  assert_has "queued app:ask pid=2004 idle=120m" "$body" "queue: the idle seat gets a queued line with its idle time"
+  assert_has "delivered app:ui pid=2005" "$body" "queue: the active seat is delivered as before"
+  assert_has "done: rc=0 delivered=1 undelivered=0 queued=1 at " "$body" "queue: the done line counts the queued seat"
+  assert_file_exists "$FIX/bc/queued/app:ask/q1" "queue: the seat's queue holds the id"
+  assert_has "queued app:ask" "$OUT" "queue: the sender is told the seat was queued"
+  bc status q1
+  assert_has $'app:ask\tqueued\tnot-acked' "$OUT" "queue: status says queued, apart from delivered"
+  assert_has $'app:ui\tdelivered\tnot-acked' "$OUT" "queue: status says delivered for the pushed seat"
+}
+
+test_queue_busy_and_unread_seats_are_live() {
+  act 2004 busy 300
+  bc --children --from manager:app --id q2
+  assert_eq 2 "$(sent_count)" "queue: a busy seat (mid-turn) and a seat with no reading are both pushed live"
+  assert_hasnt "queued" "$(cat "$FIX/bc/q2.md")" "queue: nothing is queued"
+  assert_has "done: rc=0 delivered=2 undelivered=0 at " "$(cat "$FIX/bc/q2.md")" "queue: the done line is unchanged when nothing is queued"
+}
+
+test_queue_window_is_a_setting() {
+  act 2004 idle 120; act 2005 idle 5
+  BROADCAST_LIVE_WINDOW=180 bc --children --from manager:app --id w1
+  assert_eq 2 "$(sent_count)" "window: 180 minutes pushes a seat idle 120m"
+  : > "$FIX/sent.log"
+  BROADCAST_LIVE_WINDOW=1 bc --children --from manager:app --id w2
+  assert_eq 0 "$(sent_count)" "window: 1 minute queues a seat idle 5m"
+  assert_has "queued app:ui pid=2005 idle=5m" "$(cat "$FIX/bc/w2.md")" "window: and records it queued"
+  BROADCAST_LIVE_WINDOW=soon bc --children --from manager:app --id w3
+  assert_has "BROADCAST_LIVE_WINDOW 'soon' is not" "$OUT" "window: a bad value warns"
+  assert_has "queued app:ask" "$(cat "$FIX/bc/w3.md")" "window: and falls back to 60 minutes"
+  assert_has "delivered app:ui" "$(cat "$FIX/bc/w3.md")" "window: 60 minutes still pushes a seat idle 5m"
+}
+
+test_queue_all_live_pushes_everyone() {
+  act 2004 idle 120; act 2005 idle 500
+  bc --children --from manager:app --id al1 --all-live
+  assert_eq 0 "$RC" "all-live: exits 0"
+  assert_eq 2 "$(sent_count)" "all-live: every audience seat is pushed whatever its activity"
+  assert_hasnt "queued" "$(cat "$FIX/bc/al1.md")" "all-live: nothing queued"
+  : > "$FIX/sent.log"
+  bc --all --all-live --from manager:director --id al2
+  assert_eq "manager:app manager:domain app:ask app:ui ask:helper domain:stats" "$(audience)" "all-live: --all keeps its audience"
+  assert_eq 6 "$(sent_count)" "all-live: and pushes all of it"
+  bc --all --from manager:director --id al3 --dry-run
+  assert_has "binds app:ask → ok 2004 app:ask (queue: idle 120m)" "$OUT" "dry-run: shows which seats would be queued"
+}
+
+test_queue_shown_once_at_wake() {
+  act 2004 idle 120
+  bc --children --from manager:app --id wk1
+  bc pending --for app:ask
+  assert_has $'wk1\tmanager:director\tqueued' "$OUT" "wake: pending --for lists a queued broadcast"
+  bc status wk1
+  assert_has $'app:ask\tqueued' "$OUT" "wake: --for is a read; it does not mark it delivered"
+  PANE=%4 bc pending
+  assert_eq 0 "$RC" "wake: pending at the seat's wake exits 0"
+  assert_has $'wk1\tmanager:director\tqueued\t'"$FIX/bc/wk1.md" "$OUT" "wake: the seat is shown its queued broadcast"
+  assert_has "Use /ask, not AskUserQuestion."$'\n'"ack (from manager:director): engine broadcast ack wk1" "$OUT" "wake: with the text and ack line the push would have carried"
+  assert_has "delivered app:ask at-wake " "$(cat "$FIX/bc/wk1.md")" "wake: the record marks it delivered at wake"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/wk1" "wake: and the queue entry is gone"
+  bc status wk1
+  assert_has $'app:ask\tdelivered\tnot-acked' "$OUT" "wake: status reads delivered once shown"
+  PANE=%4 bc pending
+  assert_hasnt "wk1" "$OUT" "wake: it is shown once"
+  PANE=%4 bc ack wk1
+  assert_eq 0 "$RC" "wake: the woken seat acks it"
+}
+
+test_queue_queued_mode_fast_path() {
+  PANE=none bc pending --queued
+  assert_eq 0 "$RC" "queued mode: no queue anywhere exits 0 before reading an identity"
+  assert_eq "" "$OUT" "queued mode: and prints nothing"
+  act 2004 idle 120; act 2005 idle 120
+  bc --subtree manager:app --from manager:director --id qm1 --sticky
+  PANE=%5 bc pending --queued
+  assert_has $'qm1\tmanager:director\tqueued' "$OUT" "queued mode: shows the seat's queued broadcast"
+  assert_eq 1 "$(grep -c '^qm1' <<<"$OUT")" "queued mode: once, not again as a sticky line"
+  PANE=%4 bc pending
+  assert_eq 1 "$(grep -c '^qm1' <<<"$OUT")" "full pending: a sticky that was also queued is listed once"
+  PANE=%4 bc pending
+  assert_has $'qm1\tmanager:director\tsubtree:manager:app' "$OUT" "full pending: once shown, an unacked sticky stands as before"
+  PANE=%5 bc pending --queued
+  assert_hasnt "qm1" "$OUT" "queued mode: never lists standing sticky broadcasts"
+  bc --children --from manager:app --id qm2
+  PANE=none bc pending --queued
+  assert_eq 2 "$RC" "queued mode: with a queue present, no identity is refused"
+  assert_file_exists "$FIX/bc/queued/app:ask/qm2" "queued mode: and the refusal leaves the queue as it was"
+}
+
+test_queue_limit() {
+  act 2005 idle 120
+  local i; for i in 1 2 3 4 5 6 7; do bc --children --from manager:app --id ql$i; done
+  PANE=%5 bc pending
+  assert_eq 5 "$(grep -c '^ql' <<<"$OUT")" "queue limit: 5 shown"
+  assert_has "+2 more queued" "$OUT" "queue limit: and the rest named"
+  assert_eq 2 "$(ls "$FIX/bc/queued/app:ui" | grep -c .)" "queue limit: the rest stay queued for the next wake"
+  PANE=%5 bc pending
+  assert_eq 2 "$(grep -c '^ql' <<<"$OUT")" "queue limit: the next wake shows the rest"
+}
+
+test_queue_resend_all_live_clears_the_queue() {
+  act 2004 idle 120
+  bc --children --from manager:app --id rq1
+  : > "$FIX/sent.log"
+  PANE=%3 bc resend rq1 --undelivered
+  assert_eq 0 "$(sent_count)" "resend: an idle queued seat stays queued"
+  PANE=%3 bc resend rq1 --undelivered --all-live
+  assert_eq 1 "$(sent_count)" "resend --all-live: pushes the queued seat"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/rq1" "resend --all-live: the queue entry is cleared"
+  PANE=%4 bc pending
+  assert_hasnt "rq1" "$OUT" "resend --all-live: it is not shown again at wake"
+}
+
+test_queue_go_request_idle_owner() {
+  go_repo
+  act 2004 idle 120
+  local c1; c1=$(G rev-parse HEAD~1)
+  PANE=%2 goreq --pr 29 --rows alpha,beta --commits base..HEAD --id gq1
+  assert_eq 0 "$RC" "go queue: exits 0"
+  assert_hasnt "app:ask|" "$(cat "$FIX/sent.log")" "go queue: the idle owner is not pushed"
+  bc status gq1
+  assert_has $'app:ask\tqueued\tPENDING' "$OUT" "go queue: status says queued and pending"
+  PANE=%4 bc pending
+  assert_has "receipt path app:ask $c1 $(rid "$c1" kern/a.ts) -- kern/a.ts" "$OUT" "go queue: at wake the owner sees its own receipts"
+  assert_hasnt "receipt path domain:stats" "$OUT" "go queue: and only its own"
+  assert_has "ack (from manager:app): engine broadcast ack gq1" "$OUT" "go queue: with the go command"
+}
+
 # ---------------------------------------------------------------- parity (S7)
 # ---------------------------------------------------------------- the inline text: cap and resend
 xs() { printf 'x%.0s' $(seq "$1"); }
