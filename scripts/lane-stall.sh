@@ -23,7 +23,23 @@
 #               names every lane and dates none of them. A "~" marks
 #               a reading taken from the log file's mtime because its headings carry no
 #               timestamp, which is what `engine log` does to a heading opening with "[".
-#   state       done (handed back) | parked (turn ended, no hand-back) | running
+#   state       done (handed back) | parked (turn ended, no hand-back) | failed |
+#               presumed-dead | running
+#               presumed-dead: a STALE lane (transcript and log both past the threshold) whose
+#               newest record is a tool call with no result after it. A lane killed mid-tool
+#               reads this rather than "running" forever; a lane inside a tool that really
+#               runs longer than the threshold reads it too, so it is a presumption to check.
+#               failed: the lane's LAST assistant record is an API error (top-level "error"
+#               with "isApiErrorMessage": true — "Not logged in", a rate limit, an overload).
+#               The row then carries "error=<value>" and reads FAILED at any age; the verdict
+#               line counts it as failed=N and it makes the exit status 3. The lane is not
+#               gone: its transcript is kept, and a SendMessage from the process that
+#               dispatched it resumes it with its context. "session=<id>" on every row names
+#               the conversation the lane was dispatched from. It is a hint, not the test: a
+#               /clear changes the conductor's own session id and keeps the lane addressable,
+#               so the conductor tries SendMessage first and re-dispatches from logpath only
+#               when that answers "no transcript found" (LANEAUTH, measured 2026-10-30: four
+#               auth-dead lanes resumed this way, one five hours later).
 #               DO NOT build on "done": it is unreachable for a lane this tool is pointed at.
 #               It fires only on a SubagentHandback call in the transcript tail, and whether a
 #               lane is granted that tool is a property of the session that dispatched it —
@@ -61,9 +77,12 @@
 #               ¶INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID forbids a hand-over to do silently.
 #   agent       the lane's agent transcript. Diagnostic only — NEVER a hand-over handle.
 #   logpath     the log the "log" reading above was taken from, or "none". This is the field
-#               a hand-over carries (¶INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID): a context clear
-#               ends every in-process subagent, so an agent id or transcript is unexecutable
-#               on arrival while the log survives and briefs a fresh lane. "none" is a
+#               a hand-over carries (¶INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID): an agent id
+#               stays addressable only while the process that dispatched the lane lives. A
+#               /clear in that same process keeps it (measured 2026-10-30: a pre-clear lane
+#               resumed by SendMessage and replied); the id ends when the process exits or
+#               restarts, and a hand-over is read by a successor that may arrive after either,
+#               while the log survives both and briefs a fresh lane. "none" is a
 #               reading, not a blank — a lane with no log is a different hand-over from a
 #               lane with one. It comes LAST because the tail of a row is what gets copied.
 #
@@ -72,7 +91,8 @@
 # have them ("…/Shared drives/…"), so `awk '{print $NF}'` returns a truncated path that still
 # looks like one. Nothing after it is ever printed, which is what makes the sed form exact.
 # Prints only lanes that are not done and whose freshest signal is older than --minutes
-# (default 30), unless --all. Exit 0 = nothing stale, 3 = at least one stale lane.
+# (default 30), unless --all, plus every failed lane whatever its age. Exit 0 = nothing stale
+# or failed, 3 = at least one stale or failed lane.
 #
 # The first line states the window, the threshold and the lane count, because every reading
 # below is scoped to that window. --since-hours defaults to the SESSION'S OWN AGE (floored at
@@ -245,8 +265,9 @@ MTIME_FALLBACK_MAX_TAGS = 2
 # this file's last stamp would report a stale lane as fresh. It correctly stays "none".
 LOGNAME_TAG = re.compile(r"^([A-Z][A-Z0-9_-]{2,})_LOG\.md$")
 # log_path is the field every consumer of this sweep is required to hand over and forbidden
-# to substitute (`§INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID`): a lane's agent id dies with the
-# parent context and its transcript is not a brief, while its log survives both. The sweep
+# to substitute (`§INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID`): a lane's agent id ends when the
+# process that dispatched it exits or restarts (a /clear in the same process keeps it), and
+# its transcript is not a brief, while its log survives both. The sweep
 # already knows which file dated each tag, so withholding the path only made every caller
 # re-derive it.
 log_last, log_path, log_approx = {}, {}, set()
@@ -256,6 +277,10 @@ log_last, log_path, log_approx = {}, {}, set()
 # newest-mention-wins handed a successor whichever file last said the tag.
 log_rank = {}
 SESSION_ROOT = os.path.normpath(session_dir)
+# None while the swept session's own logs are read. When another session's logs are read for
+# a lane the swept session holds no log for (see "brief-named sessions" below), it is the set
+# of tags that scan may date or retire, and SESSION_ROOT is that session's root.
+SCAN_ONLY = None
 
 # The <KIND> a lane's own log may carry after its tag, optionally numbered or behind a round
 # (R2_CRITIQUE). Closed, so a sibling tag is never read as a kind: VOICE-COUNCIL_LOG.md is not
@@ -283,6 +308,8 @@ def is_own_log(log, tag):
 def date_tag(tag, stamp, log, approx):
     # The conductor's log sits at the session root and names every lane, so a root log dates
     # only the lane it belongs to by name (older looms kept <TAG>_LOG.md there).
+    if SCAN_ONLY is not None and tag not in SCAN_ONLY:
+        return
     own = is_own_log(log, tag)
     if not own and os.path.normpath(os.path.dirname(log)) == SESSION_ROOT:
         return
@@ -305,9 +332,9 @@ unreadable = []
 # os.walk with onerror, not glob(recursive=True): a session dir on a cloud-synced mount can
 # time out mid-walk, and glob raises that straight out of the process. An unreadable path is
 # counted and reported, never swallowed — a silent read failure would read as "no lanes".
-def session_logs():
+def session_logs(top):
     try:
-        walker = os.walk(session_dir, onerror=lambda e: unreadable.append(str(e)))
+        walker = os.walk(top, onerror=lambda e: unreadable.append(str(e)))
         for root, dirs, files in walker:
             for name in files:
                 if name.endswith("_LOG.md"):
@@ -315,7 +342,7 @@ def session_logs():
     except OSError as exc:
         unreadable.append(str(exc))
 
-for log in session_logs():
+def scan_log(log):
     last_ts = None
     unstamped, seen_tags = set(), set()
     file_retired = None
@@ -345,7 +372,7 @@ for log in session_logs():
                 rm = RETIRED.search(line)
                 if rm:
                     hm = HEAD_TAG.match(TS.sub("", line)[3:])
-                    if hm:
+                    if hm and (SCAN_ONLY is None or hm.group(1) in SCAN_ONLY):
                         retired[hm.group(1)] = rm.group(1)
                     elif not heading_tags:
                         # No tag anywhere on the heading: the file's own name may supply it
@@ -363,7 +390,7 @@ for log in session_logs():
             # from its filename too. This is the path the 45-of-117 lanes with no log of their
             # own take: they are GIVEN builds/<TAG>_LOG.md carrying the retirement heading and
             # nothing else, so a retirement does not depend on a lane having logged in life.
-            if m and file_retired:
+            if m and file_retired and (SCAN_ONLY is None or m.group(1) in SCAN_ONLY):
                 retired[m.group(1)] = file_retired
             if m:
                 date_tag(m.group(1), stamp, log, last_ts is None)
@@ -373,6 +400,10 @@ for log in session_logs():
                 date_tag(tag, mtime, log, True)
     except OSError as exc:
         unreadable.append(str(exc))
+
+
+for log in session_logs(session_dir):
+    scan_log(log)
 
 # A lane is claimed by this session when its prompt names the session's PARENT DIRECTORY and
 # name together ("sessions/2026_10_14_LAND_TREE_BRANCHES"), not the name alone. The bare
@@ -408,7 +439,7 @@ for path in glob.glob(os.path.join(projects_dir, "*", "*", "subagents", "agent-*
     tag, via = resolve_tag(path, text)
     if tag is None:
         continue
-    state = "running"
+    state, error, lane_session, unanswered, newest = "running", None, None, False, True
     try:
         with open(path, "rb") as fh:
             fh.seek(max(0, os.path.getsize(path) - 65536))
@@ -421,25 +452,73 @@ for path in glob.glob(os.path.join(projects_dir, "*", "*", "subagents", "agent-*
             rec = json.loads(raw)
         except Exception:
             continue
+        lane_session = lane_session or rec.get("sessionId")
         msg = rec.get("message") or {}
+        is_newest, newest = newest, False
         if msg.get("role") != "assistant":
             continue
         blocks = msg.get("content") or []
         names = [b.get("name") for b in blocks if isinstance(b, dict) and b.get("type") == "tool_use"]
-        if "SubagentHandback" in names:
+        # The NEWEST record is a tool call with no result after it: the lane is inside a tool.
+        # That is "running" while it is fresh and "presumed-dead" once both signals are stale.
+        unanswered = is_newest and bool(names)
+        # An API error (auth, rate limit, overload) ends a lane's turn with ONE synthetic
+        # assistant record: model "<synthetic>", stop_reason "stop_sequence", and a TOP-LEVEL
+        # "error" beside "isApiErrorMessage": true. It is neither a hand-back nor an end_turn,
+        # so before this branch it read "running" (LANEAUTH, 2026-10-30). Only the LAST
+        # assistant record decides: a lane resumed after its error has newer turns and is not
+        # failed.
+        if rec.get("isApiErrorMessage") and rec.get("error"):
+            state, error = "failed", str(rec["error"])
+        elif "SubagentHandback" in names:
             state = "done"
         elif not names and msg.get("stop_reason") == "end_turn":
             state = "parked"
         break
     prev = lanes.get(tag)
     if prev is None or mtime > prev["mtime"]:
-        lanes[tag] = {"mtime": mtime, "state": state, "path": path, "via": via}
+        lanes[tag] = {"mtime": mtime, "state": state, "path": path, "via": via,
+                      "error": error, "session": lane_session, "brief": text,
+                      "unanswered": unanswered}
+
+# Brief-named sessions. A lane is found project-wide by its transcript, but its log may live in
+# ANOTHER session's builds/ (manager:docs, 2026-10-30: IDE330 logged in 2026_10_18_DOCS_HUB_LOOM
+# read STALE logpath=none from a different session, its retired= marker never read). For a lane
+# the swept session holds no log for, every session directory its brief names is read too —
+# for THAT lane's tag only, so a foreign log can neither date nor retire any other lane. A
+# session is named by an absolute path through a dated directory, or by "sessions/<dated>"
+# resolved beside the swept session.
+NAMED_SESSION = re.compile(r"(/[^\s\"'`<>()]*?/\d{4}_\d\d_\d\d_[A-Za-z0-9_]+)|"
+                           r"(?<![\w/])sessions/(\d{4}_\d\d_\d\d_[A-Za-z0-9_]+)")
+
+def named_sessions(text):
+    found = []
+    for m in NAMED_SESSION.finditer(text):
+        cand = m.group(1) or os.path.join(os.path.dirname(SESSION_ROOT), m.group(2))
+        cand = os.path.normpath(cand)
+        if cand != SESSION_ROOT and cand not in found and os.path.isdir(cand):
+            found.append(cand)
+    return found
+
+# Grouped by session, so each named session is walked once however many lanes name it.
+wanted = {}
+for tag, lane in sorted(lanes.items()):
+    if tag in log_path or tag in retired:
+        continue
+    for other in named_sessions(lane["brief"]):
+        wanted.setdefault(other, set()).add(tag)
+_swept_root = SESSION_ROOT
+for other, tags in sorted(wanted.items()):
+    SESSION_ROOT, SCAN_ONLY = other, tags
+    for log in session_logs(other):
+        scan_log(log)
+SESSION_ROOT, SCAN_ONLY = _swept_root, None
 
 def age(t):
     # A file written during this run is "newer than now"; report 0, never a negative age.
     return None if not t else max(0.0, (now - t) / 60)
 
-rows, stale, retired_lanes = [], 0, 0
+rows, stale, retired_lanes, failed_lanes = [], 0, 0, 0
 for tag, lane in sorted(lanes.items()):
     t_age, l_age = age(lane["mtime"]), age(log_last.get(tag))
     fresh = min(a for a in (t_age, l_age) if a is not None)
@@ -449,10 +528,22 @@ for tag, lane in sorted(lanes.items()):
     disposition = retired.get(tag)
     retired_lanes += disposition is not None
     is_stale = lane["state"] != "done" and disposition is None and fresh > minutes
-    stale += is_stale
-    if show_all or is_stale:
-        rows.append((tag, lane["state"], lane["via"], t_age, l_age, is_stale, lane["path"],
-                     disposition))
+    # A failed lane is flagged at ANY age, and never silenced: its last turn was an API error,
+    # so it will not move again until someone resumes it, and a fresh transcript is exactly
+    # when resuming it by name still works.
+    is_failed = lane["state"] == "failed" and disposition is None
+    # presumed-dead: still "running" by the tail walk, but its newest record is an unanswered
+    # tool call and BOTH the transcript and the log are past the threshold (is_stale means the
+    # freshest of them is). A lane killed mid-tool-call reads this instead of running forever;
+    # a lane inside a long tool reads it too, which is why it is a presumption to check.
+    state = lane["state"]
+    if state == "running" and lane["unanswered"] and is_stale:
+        state = "presumed-dead"
+    failed_lanes += is_failed
+    stale += is_stale or is_failed
+    if show_all or is_stale or is_failed:
+        rows.append((tag, state, lane["via"], t_age, l_age, is_stale, lane["path"],
+                     disposition, lane["error"], lane["session"], is_failed))
 
 # Every reading below is scoped to this window, and a horizon left unstated is how "0 lanes
 # seen" over half a day read identically to the same words over a whole weave.
@@ -460,16 +551,22 @@ for tag, lane in sorted(lanes.items()):
 # stale-only output that a retired lane has (correctly) dropped out of: a count that only
 # appears under --all would make a drained backlog and a broken marker read alike.
 print(f"window={since_hours:.0f}h  threshold={minutes:.0f}m  lanes={len(lanes)}  "
-      f"retired={retired_lanes}")
+      f"retired={retired_lanes}  failed={failed_lanes}")
 fmt = lambda a: "-" if a is None else f"{a:.0f}m"
-for tag, state, via, t_age, l_age, is_stale, path, disposition in rows:
-    flag = "STALE" if is_stale else ("RETIRED" if disposition else "ok")
+for (tag, state, via, t_age, l_age, is_stale, path, disposition, error, lane_session,
+     is_failed) in rows:
+    flag = "FAILED" if is_failed else ("STALE" if is_stale else ("RETIRED" if disposition else "ok"))
+    # error= rides only a failed row; session= rides every row and names the conversation the
+    # lane was dispatched from. It is a hint for the resume, not a reachability test: only a
+    # SendMessage settles that (see the "failed" entry in the header).
+    err_col = f"error={error}  " if state == "failed" and error else ""
     log_col = fmt(l_age) + ("~" if tag in log_approx and l_age is not None else "")
     # logpath LAST, because the tail of a row is what a reader copies and the agent
     # transcript in that position is what produced every caller's hand-rolled workaround.
     # "none" is a reading, not a blank: a lane with no log is a different hand-over.
-    print(f"{flag:7}  [{tag}]  state={state:7}  retired={disposition or 'no':22}  via={via:6}  "
-          f"transcript={fmt(t_age):>6}  log={log_col:>7}  "
+    print(f"{flag:7}  [{tag}]  state={state:7}  {err_col}retired={disposition or 'no':22}  "
+          f"via={via:6}  transcript={fmt(t_age):>6}  log={log_col:>7}  "
+          f"session={lane_session or '-'}  "
           f"agent={path}  logpath={log_path.get(tag, 'none')}")
 if not rows:
     print(f"no stale lanes (threshold {minutes:.0f}m, {len(lanes)} lanes seen, "

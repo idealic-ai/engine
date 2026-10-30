@@ -56,6 +56,7 @@ Error can occur at any point and persists until cleared.
 | Hook | Trigger | File |
 |------|---------|------|
 | `Stop` | When Claude's turn ends (normal) | `~/.claude/hooks/stop-notify.sh` |
+| `StopFailure` | When an API error ends the turn, instead of `Stop` | `~/.claude/hooks/stop-failure-record.sh` (records it; output ignored) |
 | `SessionEnd` | When session ends | `~/.claude/hooks/session-end-notify.sh` |
 | `PostToolUseFailure` | When tool fails/interrupted | `~/.claude/hooks/post-tool-failure-notify.sh` |
 

@@ -539,6 +539,15 @@ configure_hooks() {
         })
     )
 
+    # StopFailure: fires INSTEAD of Stop when an API error ends a turn (auth, rate limit,
+    # overload). Records the failed lane, or a failed conductor turn, in a log (LANEAUTH).
+    # No matcher: every API error ends a lane the same way, and the heading names the error.
+    | .hooks.StopFailure = ((.hooks.StopFailure // [])
+      | add_if_missing({
+          "hooks": [{"type": "command", "command": "~/.claude/hooks/stop-failure-record.sh", "timeout": 10}]
+        })
+    )
+
     # SessionStart: chunked preload. Claude Code truncates any single hook stdout
     # over ~9000 chars to ~2000, so the preload is split across 48 slice commands
     # (session-start-chunk.sh <i> 48) that Claude concatenates back inline. Rebuild

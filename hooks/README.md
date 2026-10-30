@@ -60,7 +60,7 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 
 **Testing**: Set `TEST_MODE=1` for dry-run (prints actions without killing). Example: `echo '{"event":"auto"}' | TEST_MODE=1 bash ~/.claude/engine/hooks/pre-compact-kill.sh`.
 
-### Notification / Lifecycle (4 hooks)
+### Notification / Lifecycle (5 hooks)
 
 | Hook | Purpose |
 |------|---------|
@@ -68,6 +68,7 @@ Hooks fire at specific points in the Claude Code lifecycle. PreToolUse hooks can
 | `notification-idle.sh` | Clears working state when Claude is idle/waiting. |
 | `pane-focus-style.sh` | Sets focused tmux pane to black background, unfocused to status tint. |
 | `stop-notify.sh` | Sends "done" notification when Claude's turn ends. |
+| `stop-failure-record.sh` | StopFailure (an API error ended the turn): appends `## [TAG] lane failed: <error>` to the lane's own log, or records the conductor's failed turn in the session log. |
 | `session-end-notify.sh` | Sends "done" notification when the Claude session exits. |
 
 ## Key Patterns

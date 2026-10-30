@@ -511,14 +511,14 @@ test_lane_stall_dates_a_log_whose_headings_are_stamped_but_untagged() {
 # `retired=` is pinned here for a reason of its own: a retired lane drops out of the default
 # stale-only output, so without a count on this line a drained backlog and a marker that
 # silently stopped matching read identically (¶INV_RETIRED_IS_NOT_SILENCED).
-# RED: drop the window from the verdict line, or drop threshold=, lanes= or retired= from it.
+# RED: drop the window from the verdict line, or drop threshold=, lanes=, retired= or failed= from it.
 test_lane_stall_states_the_window_it_searched() {
   local empty="$TMP_DIR/window-empty"
   mkdir -p "$empty"
   local out="$TMP_DIR/window.txt"
   run_lane_stall "$out" "$empty" 12 >/dev/null
-  assert_eq "window=12h  threshold=30m  lanes=0  retired=0" "$(head -1 "$out")" \
-    "the verdict line states the window, the threshold, the lane count and the retired count"
+  assert_eq "window=12h  threshold=30m  lanes=0  retired=0  failed=0" "$(head -1 "$out")" \
+    "the verdict line states the window, the threshold, the lane count, the retired and the failed count"
 }
 
 # A loom that runs longer than the old 12h default lost its own early lanes, silently. The
@@ -944,6 +944,169 @@ test_lane_stall_own_log_match_is_exact() {
     assert_eq "$want" "$(grep "\[$tag\]" "$out" | sed 's/.*logpath=//')" \
       "$tag: the logpath is the lane's own log"
   done
+}
+
+# A lane that died on an API error. Shaped on the two real deaths of 2026-10-30 16:12 that
+# LANEAUTH names (b6ad136f…/subagents/agent-a49655845fa9fed86.jsonl:51, GOREQ r5 critique, 4
+# tool calls in; agent-ab8115d220f531e02.jsonl:209, FENCELANG critique, 33 tool calls in): the
+# transcript's LAST record is one synthetic assistant turn, model "<synthetic>", stop_reason
+# "stop_sequence", text "Not logged in · Please run /login", with a TOP-LEVEL "error" and
+# "isApiErrorMessage":true beside the sessionId of the conversation that dispatched it.
+# $5 = the number of tool round-trips before the death, $6 = the error value, $7 = "resumed"
+# to append what a SendMessage resume leaves behind (a coordinator turn, then more tool calls).
+LANEAUTH_SID="b6ad136f-4cfb-447e-bd4f-e68a3f42464c"
+plant_api_error_lane() {
+  local projects="$1" session="$2" tag="$3" calls="$4" error="$5" resumed="${6:-}"
+  plant_synthetic_lane "$projects" "$session" "$tag" ""
+  local t="$projects/proj/sess/subagents/agent-${tag}.jsonl" i=0
+  while [ "$i" -lt "$calls" ]; do
+    printf '{"type":"assistant","sessionId":"%s","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t%s","name":"Bash","input":{"command":"true"}}]}}\n' \
+      "$LANEAUTH_SID" "$i" >> "$t"
+    printf '{"type":"user","sessionId":"%s","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t%s","content":"ok"}]}}\n' \
+      "$LANEAUTH_SID" "$i" >> "$t"
+    i=$((i + 1))
+  done
+  [ "$error" = "none" ] && return 0
+  printf '{"isSidechain":true,"type":"assistant","timestamp":"2026-10-30T08:12:47.889Z","message":{"model":"<synthetic>","role":"assistant","stop_reason":"stop_sequence","stop_sequence":"","type":"message","usage":{"input_tokens":0,"output_tokens":0},"content":[{"type":"text","text":"Not logged in · Please run /login"}]},"error":"%s","isApiErrorMessage":true,"sessionId":"%s"}\n' \
+    "$error" "$LANEAUTH_SID" >> "$t"
+  if [ "$resumed" = "resumed" ]; then
+    printf '{"type":"user","sessionId":"%s","message":{"role":"user","content":"You were stopped by an API auth error. Resume from where you were."}}\n' \
+      "$LANEAUTH_SID" >> "$t"
+    printf '{"type":"assistant","sessionId":"%s","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"r1","name":"Bash","input":{"command":"true"}}]}}\n' \
+      "$LANEAUTH_SID" >> "$t"
+  fi
+}
+
+# LANEAUTH acceptance (a)/(d). An auth-dead lane read "state=running" — the tail walk set
+# "done" only on a hand-back and "parked" only on end_turn, and a death is stop_sequence — so
+# it sat beside a lane hung on a long tool. Five lanes that differ only in their last records:
+#   GOREQ      4 calls, then authentication_failed            -> FAILED state=failed
+#   FENCELANG  33 calls, then authentication_failed           -> FAILED state=failed
+#   RATELANE   2 calls, then rate_limit                       -> FAILED error=rate_limit
+#   LIVELANE   33 calls, no error (the control)               -> state=running, unchanged
+#   BACKLANE   error, then resumed by SendMessage and working -> state=running: a resumed lane
+#              is not failed, so the reading is the LAST assistant record, not "ever errored"
+# Every transcript is seconds old, so FRESHNESS cannot be what flags the failed rows.
+# RED: drop the isApiErrorMessage branch in lane-stall's tail walk (all three read running).
+test_lane_stall_reads_an_api_error_death_as_failed() {
+  local session="$TMP_DIR/apierr/2026_10_30_APIERR"
+  local projects="$TMP_DIR/projects-apierr"
+  plant_api_error_lane "$projects" "$session" "GOREQ" 4 authentication_failed
+  plant_api_error_lane "$projects" "$session" "FENCELANG" 33 authentication_failed
+  plant_api_error_lane "$projects" "$session" "RATELANE" 2 rate_limit
+  plant_api_error_lane "$projects" "$session" "LIVELANE" 33 none
+  plant_api_error_lane "$projects" "$session" "BACKLANE" 4 authentication_failed resumed
+  local out="$TMP_DIR/apierr.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  local rc=$?
+  local tag row
+  for tag in GOREQ FENCELANG; do
+    row=$(grep "\[$tag\]" "$out")
+    assert_contains "FAILED" "$row" "$tag: an auth death is flagged FAILED"
+    assert_contains "state=failed" "$row" "$tag: an auth death reads state=failed, not running"
+    assert_contains "error=authentication_failed" "$row" "$tag: the row names the error"
+    assert_contains "session=$LANEAUTH_SID" "$row" \
+      "$tag: the row names the conversation the lane lives in, so the conductor can tell if it is addressable"
+  done
+  row=$(grep "\[RATELANE\]" "$out")
+  assert_contains "state=failed" "$row" "RATELANE: any API error reads failed"
+  assert_contains "error=rate_limit" "$row" "RATELANE: the error value is read, not assumed"
+  row=$(grep "\[LIVELANE\]" "$out")
+  assert_contains "state=running" "$row" "LIVELANE: the control without an error keeps state=running"
+  assert_not_contains "error=" "$row" "LIVELANE: no error field on a lane that did not fail"
+  row=$(grep "\[BACKLANE\]" "$out")
+  assert_contains "state=running" "$row" "BACKLANE: a lane resumed after its error is running again"
+  assert_contains "failed=3" "$(head -1 "$out")" "the verdict line counts the failed lanes on their own"
+  assert_eq "3" "$rc" "a failed lane makes the exit status 3"
+  # The default (stale-only) output must still carry them: a fresh failed lane is never silenced.
+  local plain="$TMP_DIR/apierr-plain.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" >"$plain" 2>"$plain.err"
+  local rc_plain=$?
+  assert_contains "[FENCELANG]" "$(cat "$plain")" "a fresh failed lane is printed without --all"
+  assert_not_contains "[LIVELANE]" "$(cat "$plain")" "a fresh running lane is not"
+  assert_eq "3" "$rc_plain" "the bare sweep exits 3 on a failed lane"
+  # logpath stays the last field even with the new ones in the row.
+  assert_eq "none" "$(grep '\[GOREQ\]' "$out" | sed 's/.*logpath=//')" \
+    "logpath is still the row's last field"
+}
+
+# A lane whose log lives in ANOTHER session's builds/ (reported by manager:docs: IDE330 logged
+# in 2026_10_18_DOCS_HUB_LOOM, swept from a different session): the transcript is found
+# project-wide, but the log walk covered only the swept session, so the lane read STALE with
+# logpath=none and its retired= marker was never read. Lanes, all parked and backdated:
+#   AWAYLANE   brief names the home session; its log there says retired=landed
+#              -> RETIRED, logpath = the home session's log
+#   BLINDLANE  identical log in the home session, but its brief does not name it (control)
+#              -> STALE, logpath=none: only a session the brief names is read
+#   HERELANE   has its own log in the swept session; the home session's log mentions it with a
+#              retired= heading -> stays STALE with its own log: a foreign log only fills a
+#              lane that has none, and never retires a lane the swept session already dates
+# RED: skip the brief-named session scan (AWAYLANE reads STALE logpath=none).
+test_lane_stall_reads_a_lanes_log_in_the_session_its_brief_names() {
+  local root="$TMP_DIR/xsess"
+  local swept="$root/2026_10_20_SWEPT" home="$root/2026_10_18_HOME_LOOM"
+  local projects="$TMP_DIR/projects-xsess"
+  mkdir -p "$swept/builds" "$home/builds" "$projects/proj/sess/subagents"
+  local key="xsess/2026_10_20_SWEPT" tag t brief
+  for tag in AWAYLANE BLINDLANE HERELANE; do
+    t="$projects/proj/sess/subagents/agent-${tag}.jsonl"
+    brief="[$tag] thread brief, session $key"
+    [ "$tag" != BLINDLANE ] && brief="$brief, log $home/builds/${tag}_LOG.md"
+    printf '{"message":{"role":"user","content":[{"type":"text","text":"%s"}]}}\n' "$brief" > "$t"
+    printf '{"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}\n' >> "$t"
+    touch -t 202610201000 "$t"
+  done
+  printf '## [2026-10-20 10:00:00] [AWAYLANE] landed, retired=landed\n' > "$home/builds/AWAYLANE_LOG.md"
+  printf '## [2026-10-20 10:00:00] [BLINDLANE] landed, retired=landed\n' > "$home/builds/BLINDLANE_LOG.md"
+  printf '## [2026-10-20 10:00:00] [HERELANE] working\n' > "$swept/builds/HERELANE_LOG.md"
+  printf '## [2026-10-20 10:30:00] [HERELANE] retired=abandoned\n' > "$home/builds/HERELANE_LOG.md"
+  local out="$TMP_DIR/xsess.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$swept" --all >"$out" 2>"$out.err"
+  local row
+  row=$(grep '\[AWAYLANE\]' "$out")
+  assert_contains "RETIRED" "$row" "AWAYLANE: the retirement in the session its brief names is read"
+  assert_eq "$home/builds/AWAYLANE_LOG.md" "$(printf '%s' "$row" | sed 's/.*logpath=//')" \
+    "AWAYLANE: logpath is its log in the session its brief names"
+  row=$(grep '\[BLINDLANE\]' "$out")
+  assert_contains "STALE" "$row" "BLINDLANE: the control whose brief names no other session stays STALE"
+  assert_eq "none" "$(printf '%s' "$row" | sed 's/.*logpath=//')" "BLINDLANE: and reads logpath=none"
+  row=$(grep '\[HERELANE\]' "$out")
+  assert_contains "STALE" "$row" "HERELANE: a foreign log does not retire a lane the swept session dates"
+  assert_eq "$swept/builds/HERELANE_LOG.md" "$(printf '%s' "$row" | sed 's/.*logpath=//')" \
+    "HERELANE: its own log in the swept session keeps the logpath"
+}
+
+# presumed-dead (meta:utils): a lane killed mid-tool-call has an assistant tool_use as its LAST
+# record and no tool_result after it, and read "running" forever. Three lanes:
+#   KILLEDLANE  last record an unanswered tool call, transcript backdated, no log
+#               -> STALE state=presumed-dead
+#   WAITLANE    same call, but its tool_result landed after it, backdated (control)
+#               -> STALE state=running: the lane was between turns, not inside a tool
+#   BUSYLANE    unanswered tool call, transcript fresh (control) -> ok state=running: a lane
+#               inside a long tool is not presumed dead until both signals pass the threshold
+# RED: drop the presumed-dead branch (KILLEDLANE reads running).
+test_lane_stall_presumes_dead_a_lane_stale_inside_a_tool_call() {
+  local session="$TMP_DIR/pdead/2026_10_12_PDEAD"
+  local projects="$TMP_DIR/projects-pdead"
+  local tag t
+  for tag in KILLEDLANE WAITLANE BUSYLANE; do
+    plant_synthetic_lane "$projects" "$session" "$tag" ""
+    t="$projects/proj/sess/subagents/agent-${tag}.jsonl"
+    printf '{"message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"k1","name":"Bash","input":{"command":"sleep 9999"}}]}}\n' >> "$t"
+    [ "$tag" = WAITLANE ] && printf '{"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"k1","content":"ok"}]}}\n' >> "$t"
+    [ "$tag" != BUSYLANE ] && touch -t 202610201000 "$t"
+  done
+  local out="$TMP_DIR/pdead.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  local row
+  row=$(grep '\[KILLEDLANE\]' "$out")
+  assert_contains "STALE" "$row" "KILLEDLANE: stale"
+  assert_contains "state=presumed-dead" "$row" "KILLEDLANE: stale inside an unanswered tool call reads presumed-dead"
+  row=$(grep '\[WAITLANE\]' "$out")
+  assert_contains "state=running" "$row" "WAITLANE: a stale lane whose tool call was answered still reads running"
+  row=$(grep '\[BUSYLANE\]' "$out")
+  assert_contains "state=running" "$row" "BUSYLANE: a fresh lane inside a tool call reads running"
+  assert_not_contains "STALE" "$row" "BUSYLANE: and is not stale"
 }
 
 run_discovered_tests
