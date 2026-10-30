@@ -85,17 +85,11 @@ fi
 # whose cwd is a worktree computes a slug for a directory that does not exist, every guard
 # below is skipped whole, and the hook then injects on every stop until the ceiling — with
 # nothing to show it never ran. Measured on a kit seat working in kit-wt/ci-speed whose
-# transcript lives under -Users-invizko-Projects-kit.
+# transcript lives under -Users-invizko-Projects-kit. The rule is lib.sh transcript_by_key (the
+# cwd's slug first, then every project directory), shared with broadcast's idle_for.
 KEY=$(read_state '.primaryTranscriptKey')
 if [ -z "$JSONL" ] && [ -n "${KEY:-}" ]; then
-  CAND="$HOME/.claude/projects/$(echo "$PWD" | sed 's|/|-|g')/$KEY"
-  if [ -f "$CAND" ]; then
-    JSONL="$CAND"
-  else
-    for d in "$HOME"/.claude/projects/*/; do
-      if [ -f "$d$KEY" ]; then JSONL="$d$KEY"; break; fi
-    done
-  fi
+  JSONL=$(transcript_by_key "$KEY" "$PWD") || JSONL=""
 fi
 
 # ⛔ Fail CLOSED when this session's transcript cannot be named — neither by the hook input

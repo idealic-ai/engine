@@ -109,7 +109,7 @@ bc() {
   OUT=$(env $clean -u FLEET_PARENT -u FLEET_PANE -u TMUX_PANE -u HOP_CHAIN_FILE -u FLEET_LIVE_PANES \
     -u HOP_TMUX_SOCKET -u FLEET_TMUX_SOCKET -u TMUX \
     ${keep[@]+"${keep[@]}"} PATH="$path" HOP_LIVE_PANES="$tree" BROADCAST_DIR="$FIX/bc" BROADCAST_DELIVER="$stub" \
-    BROADCAST_PANE_PIDS="$FIX/panepids" BROADCAST_PS_FILE="$FIX/ps" ASK_SESSIONS_DIR="$FIX/sess" \
+    BROADCAST_PANE_PIDS="$FIX/panepids" BROADCAST_PS_FILE="$FIX/ps" ASK_SESSIONS_DIR="$FIX/sess" BROADCAST_PROJECTS_DIR="$FIX/projects" \
     BROADCAST_LIB="${LIB:-$LIB_SH}" ${pane:+TMUX_PANE="$pane"} ${tmuxenv:+TMUX="$tmuxenv"} ${SELF:+FLEET_PANE="$SELF"} \
     perl -e 'alarm 10; exec @ARGV' bash "$BROADCAST_SH" "$@" 2>&1 <<<"${MSG-Use /ask, not AskUserQuestion.}")
   RC=$?
@@ -560,7 +560,7 @@ test_queue_all_live_pushes_everyone() {
   assert_eq "manager:app manager:domain app:ask app:ui ask:helper domain:stats" "$(audience)" "all-live: --all keeps its audience"
   assert_eq 6 "$(sent_count)" "all-live: and pushes all of it"
   bc --all --from manager:director --id al3 --dry-run
-  assert_has "binds app:ask → ok 2004 app:ask (queue: idle=120m)" "$OUT" "dry-run: shows which seats would be queued"
+  assert_has "binds app:ask → ok 2004 app:ask (queue: idle=120m via=status)" "$OUT" "dry-run: shows which seats would be queued"
 }
 
 test_queue_shown_once_at_wake() {
@@ -680,7 +680,7 @@ test_queue_retracted_or_expired_is_dropped_unshown() {
 test_queue_waiting_status_is_named() {
   act 2004 waiting 120; act 2005 idle 120
   bc --children --from manager:app --id ws1 --dry-run
-  assert_has "binds app:ask → ok 2004 app:ask (queue: idle=120m status=waiting)" "$OUT" "waiting: the dry run names the status"
+  assert_has "binds app:ask → ok 2004 app:ask (queue: idle=120m status=waiting via=status)" "$OUT" "waiting: the dry run names the status"
   bc --children --from manager:app --id ws1
   assert_has "queued app:ask pid=2004 idle=120m status=waiting" "$(cat "$FIX/bc/ws1.md")" "waiting: the queued line says status=waiting"
   assert_has "queued app:ask pid=2004 idle=120m status=waiting" "$OUT" "waiting: and the sender sees it"
@@ -699,7 +699,7 @@ test_queue_idle_flag_and_choice_gate() {
   : > "$FIX/sent.log"
   BROADCAST_QUEUE_NEEDS_CHOICE=1 bc --children --from manager:app --id qi3
   assert_eq 2 "$RC" "gate: a send that would queue, with no choice given, is refused"
-  assert_has "1 of 2 seats would be queued, not woken: app:ask (idle=120m)" "$OUT" "gate: naming the idle seats"
+  assert_has "1 of 2 seats would be queued, not woken: app:ask (idle=120m via=status)" "$OUT" "gate: naming the idle seats"
   assert_has "--all-live" "$OUT" "gate: and offering --all-live"
   assert_has "--queue-idle" "$OUT" "gate: and --queue-idle"
   assert_file_not_exists "$FIX/bc/qi3.md" "gate: before the record is written"
@@ -783,6 +783,82 @@ test_queue_requeue_keeps_its_place() {
   assert_has "queued app:ask" "$(tail -n 3 "$FIX/bc/rp1.md")" "requeue: queued again"
   if [ "$FIX/bc/queued/app:ask/rp1" -ot "$FIX/now" ]; then pass "requeue: the entry keeps its mtime (its place in the queue)"
   else fail "requeue: the entry keeps its mtime (its place in the queue)" "older than now" "touched"; fi
+}
+
+# ---------------------------------------------------------------- idle by transcript (IDE-352 round 3)
+# tx <pid> <user-minutes-ago> [assistant-minutes-ago] — bind the session to a transcript under
+# $FIX/projects (slugged from its cwd, as lib.sh transcript_by_key finds it) holding one user and
+# one assistant event at those ages, after a summary line that carries no timestamp of its own.
+iso_ago() { date -u -r $(( $(date +%s) - $1 * 60 )) +%Y-%m-%dT%H:%M:%S.123Z; }
+tx() {
+  local sid="sess-$1" cwd="/w/seat$1" d
+  jq -c --arg s "$sid" --arg c "$cwd" '. + {sessionId: $s, cwd: $c}' "$FIX/sess/$1.json" > "$FIX/sess/$1.tmp" \
+    && mv "$FIX/sess/$1.tmp" "$FIX/sess/$1.json"
+  d="$FIX/projects/$(printf '%s' "$cwd" | sed 's|/|-|g')"; mkdir -p "$d"
+  { printf '{"type":"summary","summary":"s"}\n'
+    printf '{"type":"user","timestamp":"%s","message":{"role":"user","content":"hi"}}\n' "$(iso_ago "$2")"
+    printf '{"type":"assistant","timestamp":"%s","message":{"role":"assistant","content":[]}}\n' "$(iso_ago "${3:-$2}")"
+  } > "$d/$sid.jsonl"
+  TXF="$d/$sid.jsonl"
+}
+
+test_idle_transcript_newer_than_status_is_active() {
+  act 2004 idle 120; tx 2004 3
+  bc --children --from manager:app --id tr1
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/tr1.md")" "transcript: a turn 3m ago in the transcript is active though the status is 120m old"
+  assert_hasnt "queued app:ask" "$(cat "$FIX/bc/tr1.md")" "transcript: and is not queued"
+}
+
+test_idle_status_newer_but_transcript_old_is_idle() {
+  act 2004 idle 5; tx 2004 130 120
+  bc --children --from manager:app --id tr2
+  assert_has "queued app:ask pid=2004 idle=120m via=transcript" "$(cat "$FIX/bc/tr2.md")" "transcript: an old transcript queues the seat though the status changed 5m ago, from its newest event"
+  assert_file_exists "$FIX/bc/queued/app:ask/tr2" "transcript: and the queue holds it"
+  bc --children --from manager:app --id tr2d --dry-run
+  assert_has "(queue: idle=120m via=transcript)" "$OUT" "transcript: the dry run names the source"
+}
+
+test_idle_busy_is_active_whatever_the_transcript() {
+  act 2004 busy 120; tx 2004 120
+  bc --children --from manager:app --id tr3
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/tr3.md")" "transcript: a busy session is active even with an old transcript"
+}
+
+test_idle_no_transcript_falls_back_to_status() {
+  act 2004 idle 120; act 2005 idle 120; tx 2005 120
+  jq -c '. + {sessionId: "no-such-session", cwd: "/w/none"}' "$FIX/sess/2004.json" > "$FIX/sess/2004.tmp" && mv "$FIX/sess/2004.tmp" "$FIX/sess/2004.json"
+  bc --children --from manager:app --id tr4
+  assert_has "queued app:ask pid=2004 idle=120m via=status" "$(cat "$FIX/bc/tr4.md")" "fallback: no transcript for the session id reads statusUpdatedAt"
+  assert_has "queued app:ui pid=2005 idle=120m via=transcript" "$(cat "$FIX/bc/tr4.md")" "fallback: beside a seat read from its transcript"
+  act 2004 idle 5
+  bc --children --from manager:app --id tr4b
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/tr4b.md")" "fallback: a recent status with no transcript is active"
+}
+
+test_idle_transcript_without_event_falls_back() {
+  act 2004 idle 120; tx 2004 3
+  printf '{"type":"summary","summary":"s"}\n' > "$TXF"
+  bc --children --from manager:app --id tr5
+  assert_has "queued app:ask pid=2004 idle=120m via=status" "$(cat "$FIX/bc/tr5.md")" "fallback: a transcript with no user/assistant event reads statusUpdatedAt"
+}
+
+test_idle_malformed_last_line_is_skipped() {
+  act 2004 idle 5; tx 2004 130 120
+  printf '{"type":"assistant","timestamp":"%s","message":' "$(iso_ago 1)" >> "$TXF"
+  bc --children --from manager:app --id tr6
+  assert_has "queued app:ask pid=2004 idle=120m via=transcript" "$(cat "$FIX/bc/tr6.md")" "malformed: a cut-off last line is skipped; the previous event is read"
+}
+
+test_idle_reads_only_the_tail() {
+  act 2004 idle 120; tx 2004 120
+  local big; big=$(printf 'x%.0s' $(seq 3000))
+  printf '{"type":"user","timestamp":"%s","message":{"content":"%s"}}\n' "$(iso_ago 2)" "$big" > "$TXF.new"
+  printf '{"type":"progress","data":"%s"}\n' "$big" >> "$TXF.new"
+  mv "$TXF.new" "$TXF"
+  BROADCAST_TRANSCRIPT_TAIL=2000 bc --children --from manager:app --id tr7
+  assert_has "queued app:ask pid=2004 idle=120m via=status" "$(cat "$FIX/bc/tr7.md")" "tail: an event before the tail is not read (the cut first line is dropped)"
+  bc --children --from manager:app --id tr7b
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/tr7b.md")" "tail: with the default tail the same event is read"
 }
 
 # ---------------------------------------------------------------- parity (S7)

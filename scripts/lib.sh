@@ -1738,3 +1738,22 @@ fleet_parent() {
   echo "$pfx: cannot resolve this seat's parent (no live @pane_parent, no FLEET_PARENT)" >&2
   return 1
 }
+
+# transcript_by_key <key> [cwd] [projects-dir] — print the path of the transcript file named <key>
+# (e.g. "<sessionId>.jsonl") and return 0, or return 1 when none is found. Looks first in the
+# project directory slugged from <cwd> (default $PWD), then in every directory under
+# <projects-dir> (default $HOME/.claude/projects): a seat whose cwd is a worktree keeps its
+# transcript under the slug of the directory it was launched from. Never falls back to the newest
+# file by mtime: several seats share one project directory, and that fallback reads a sibling's
+# turn. One rule for every reader (Guard 3 of hooks/stop-auto-continue.sh, broadcast idle_for).
+# A key holding a "/" or "..", or empty, finds nothing.
+transcript_by_key() {
+  local key="${1:-}" cwd="${2:-$PWD}" root="${3:-$HOME/.claude/projects}" cand d
+  case "$key" in ""|*/*|*..*) return 1 ;; esac
+  cand="$root/$(printf '%s' "$cwd" | sed 's|/|-|g')/$key"
+  if [ -f "$cand" ]; then printf '%s\n' "$cand"; return 0; fi
+  for d in "$root"/*/; do
+    if [ -f "$d$key" ]; then printf '%s\n' "$d$key"; return 0; fi
+  done
+  return 1
+}

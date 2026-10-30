@@ -19,10 +19,13 @@
 #       binding; writes and sends nothing.
 #       Live or queued (IDE-352): a seat is pushed live only when its session was active within
 #       BROADCAST_LIVE_WINDOW minutes (default 60: a default threshold, a policy choice, not a
-#       measured prompt-cache TTL): status "busy", or a statusUpdatedAt that recent, in the seat's
-#       ~/.claude/sessions/<pid>.json. Any other bound seat is queued ("queued <seat> pid=<pid>
-#       idle=<N>m", plus " status=<s>" when the reading is neither idle nor empty, e.g. waiting: a
-#       seat blocked on a permission prompt needs the operator, not a broadcast;
+#       measured prompt-cache TTL): status "busy" in the seat's ~/.claude/sessions/<pid>.json, or a
+#       newest user/assistant event that recent in its bound transcript (the session id's .jsonl,
+#       found by lib.sh transcript_by_key; only its tail is read), or, when no transcript resolves
+#       or it holds no such event, a statusUpdatedAt that recent. Any other bound seat is queued
+#       ("queued <seat> pid=<pid> idle=<N>m", plus " status=<s>" when the reading is neither idle
+#       nor empty, e.g. waiting: a seat blocked on a permission prompt needs the operator, not a
+#       broadcast; then " via=transcript|status", the reading the idle time came from;
 #       $BROADCAST_DIR/queued/<seat>/<id>) and
 #       shown once at its next wake by `pending` (SessionStart, and `pending --queued` on each
 #       prompt), which then records "delivered <seat> at-wake <time>". A session with no reading is
@@ -316,21 +319,60 @@ if ! [[ "$BROADCAST_LIVE_WINDOW" =~ ^[0-9]{1,6}$ ]]; then
   echo "broadcast: BROADCAST_LIVE_WINDOW '$BROADCAST_LIVE_WINDOW' is not a whole number of minutes; using 60" >&2
   BROADCAST_LIVE_WINDOW=60
 fi
-# idle_for <pid> → prints "<minutes idle> <status>" and returns 0 when the seat is past the window;
-# returns 1 (active, or no reading) otherwise.
-idle_for() {
-  local st t age
-  IFS=$'\t' read -r st t < <(jq -r '[(.status // "" | tostring), (.statusUpdatedAt // "" | tostring)] | @tsv' "$SESS_DIR/$1.json" 2>/dev/null) || return 1
-  [ "$st" != busy ] || return 1
-  [[ "$t" =~ ^[0-9]{10,16}$ ]] || return 1
-  age=$(( $(date +%s) - t / 1000 ))
-  [ "$age" -gt $(( BROADCAST_LIVE_WINDOW * 60 )) ] || return 1
-  echo "$(( age / 60 )) ${st:-idle}"
+# Since round 3 (operator ruling, IDE-352) the reading is the seat's bound transcript first: the
+# newest user or assistant event's `timestamp` in ~/.claude/projects/*/<sessionId>.jsonl, found by
+# lib.sh transcript_by_key (the rule Guard 3 of hooks/stop-auto-continue.sh uses), and read from the
+# last BROADCAST_TRANSCRIPT_TAIL bytes only (default 1 MiB; a transcript can be large). A line that
+# does not parse is skipped. statusUpdatedAt is the fallback when no transcript resolves or its tail
+# holds no such event. A busy session is active whichever source is read.
+BROADCAST_TRANSCRIPT_TAIL="${BROADCAST_TRANSCRIPT_TAIL:-1048576}"
+[[ "$BROADCAST_TRANSCRIPT_TAIL" =~ ^[1-9][0-9]{0,9}$ ]] || BROADCAST_TRANSCRIPT_TAIL=1048576
+# transcript_of <sessionId> <cwd> → the transcript path, by lib.sh's rule; rc 1 when none.
+transcript_of() {
+  [[ "$1" =~ ^[A-Za-z0-9_-]{1,128}$ ]] || return 1
+  [ -f "$LIB_SH" ] || return 1
+  bash -c 'source "$1" >/dev/null 2>&1 || exit 9; type transcript_by_key >/dev/null 2>&1 || exit 8; transcript_by_key "$2.jsonl" "$3" "$4"' \
+    _ "$LIB_SH" "$1" "$2" "${BROADCAST_PROJECTS_DIR:-$HOME/.claude/projects}" 2>/dev/null
 }
-# idle_words <idle_for output> → "idle=<N>m", plus " status=<s>" unless the status is idle.
+# transcript_ts <file> → epoch seconds of the newest user/assistant event in its tail; rc 1 when none.
+# When the file is longer than the tail, the tail's first (partial) line is dropped.
+transcript_ts() {
+  local size out
+  size=$(wc -c < "$1" 2>/dev/null | tr -d ' ') || return 1
+  out=$(tail -c "$BROADCAST_TRANSCRIPT_TAIL" "$1" 2>/dev/null \
+    | { if [ "${size:-0}" -gt "$BROADCAST_TRANSCRIPT_TAIL" ]; then sed 1d; else cat; fi; } \
+    | jq -nR '[inputs | fromjson? | objects | select(.type == "user" or .type == "assistant")
+              | .timestamp | strings | try (sub("\\.[0-9]+"; "") | fromdateiso8601) catch empty]
+              | max // empty' 2>/dev/null) || return 1
+  [[ "$out" =~ ^[0-9]{9,11}$ ]] || return 1
+  echo "$out"
+}
+# idle_for <pid> → prints "<minutes idle> <status> <via>" (via: transcript | status) and returns 0
+# when the seat is past the window; returns 1 (active, or no reading) otherwise.
+idle_for() {
+  local st t sid cwd f last="" via=status age
+  # Joined on US (0x1f), not tab: tab is IFS whitespace, so an empty field would shift the rest.
+  IFS=$'\x1f' read -r st t sid cwd < <(jq -r '[(.status // "" | tostring), (.statusUpdatedAt // "" | tostring),
+      (.sessionId // "" | tostring), (.cwd // "" | tostring)] | map(gsub("[\u001f\n]"; " ")) | join("\u001f")' \
+      "$SESS_DIR/$1.json" 2>/dev/null) || return 1
+  [ "$st" != busy ] || return 1
+  if [ -n "$sid" ] && f=$(transcript_of "$sid" "$cwd") && last=$(transcript_ts "$f"); then
+    via=transcript
+  elif [[ "$t" =~ ^[0-9]{10,16}$ ]]; then
+    last=$(( t / 1000 ))
+  else
+    return 1
+  fi
+  age=$(( $(date +%s) - last ))
+  [ "$age" -gt $(( BROADCAST_LIVE_WINDOW * 60 )) ] || return 1
+  echo "$(( age / 60 )) ${st:-idle} $via"
+}
+# idle_words <idle_for output> → "idle=<N>m", plus " status=<s>" unless the status is idle, then
+# " via=<transcript|status>": which reading the idle time came from.
 idle_words() {
-  local m st; read -r m st <<<"$1"
+  local m st via; read -r m st via <<<"$1"
   printf 'idle=%sm' "$m"; [ "$st" = idle ] || printf ' status=%s' "$st"
+  [ -z "$via" ] || printf ' via=%s' "$via"
 }
 queue_dir() { echo "$BDIR/queued/$(ack_key "$1")"; }
 # bind_note <bind-result> — the dry run's "(queue: idle Nm)" for a bound seat that would be queued.
