@@ -134,6 +134,23 @@ code.ic { background: var(--code-bg); border: 1px solid var(--line); border-radi
 /* IDE-304 item 2: long lines wrap instead of adding a scrollbar of their own. */
 pre.code { margin: 0 0 10px; padding: 10px 12px; background: var(--code-bg); border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: visible; font-size: 13px; line-height: 1.45; max-width: 100%; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 pre.code code { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Fenced code (IDE-304): a quiet label over the block, token colours from the --hl-* Slate tokens. */
+.codeblock { position: relative; margin: 0 0 10px; min-width: 0; max-width: 100%; }
+.codeblock > pre.code { margin: 0; padding-top: 16px; }
+.code-lang { position: absolute; top: 4px; right: 8px; font-family: var(--mono); font-size: 10px; line-height: 1; letter-spacing: 0.04em; text-transform: lowercase; color: var(--ink-3); user-select: none; pointer-events: none; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-section { color: var(--hl-keyword); }
+.hljs-string, .hljs-regexp, .hljs-symbol, .hljs-template-tag, .hljs-char.escape_ { color: var(--hl-string); }
+.hljs-number, .hljs-bullet, .hljs-link { color: var(--hl-number); }
+.hljs-comment, .hljs-quote { color: var(--hl-comment); font-style: italic; }
+.hljs-title, .hljs-name, .hljs-selector-id, .hljs-selector-class { color: var(--hl-title); }
+.hljs-type, .hljs-built_in, .hljs-title.class_ { color: var(--hl-type); }
+.hljs-attr, .hljs-attribute, .hljs-property, .hljs-selector-attr, .hljs-selector-pseudo { color: var(--hl-attr); }
+.hljs-meta, .hljs-tag, .hljs-subst, .hljs-operator { color: var(--hl-meta); }
+.hljs-variable, .hljs-template-variable, .hljs-params { color: var(--hl-variable); }
+.hljs-addition { color: var(--hl-addition); background: var(--ok-soft); }
+.hljs-deletion { color: var(--hl-deletion); background: var(--danger-soft); }
+.hljs-strong { font-weight: 600; }
+.hljs-emphasis { font-style: italic; }
 .fork-prose.between-forks { margin: -4px 0 18px; padding: 0 4px; color: var(--ink-2); }
 
 details.callout { margin: 0 0 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--surface-2); }
@@ -350,6 +367,8 @@ h5.md-h, h6.md-h { font-size: 14px; color: var(--ink-2); }
    and takes the theme's own code tokens in light and dark. */
 .opt-desc pre.code { margin: 4px 0 6px; max-width: 100%; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink); background: var(--code-bg); border-color: var(--line); cursor: text; user-select: text; }
 .opt-desc pre.code code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.opt-desc .codeblock { margin: 4px 0 6px; }
+.opt-desc .codeblock > pre.code { margin: 0; }
 /* A lens popover that would run past the pane's bottom opens above its mark instead. */
 @media (min-width: 561px) {
   .lens-pop.above { top: auto; bottom: calc(100% + 6px); }

@@ -7,6 +7,7 @@ import { createContext, useContext, useEffect, useLayoutEffect, useRef, useState
 import { blocks, inlineTokens, type CalloutKind } from "./md.ts";
 import { isProofUrl } from "./related.ts";
 import { pushEsc } from "./esc.ts";
+import { CodeBlock } from "./highlight.tsx";
 
 export { blocks, inlineTokens } from "./md.ts";
 
@@ -71,7 +72,7 @@ export function Rich({ text, className }: { text?: string; className?: string })
     <div className={className ?? "rich"}>
       {blocks(text).map((b, i) => {
         if (b.t === "p") return <p key={i}><Inline text={b.text} /></p>;
-        if (b.t === "pre") return <pre key={i} className="code"><code>{b.code}</code></pre>;
+        if (b.t === "pre") return <CodeBlock key={i} code={b.code} lang={b.lang} />;
         if (b.t === "quote") return <blockquote key={i}><Rich text={b.text} /></blockquote>;
         if (b.t === "hr") return <hr key={i} />;
         if (b.t === "h") {
@@ -97,7 +98,7 @@ export function Rich({ text, className }: { text?: string; className?: string })
               <span className="co-kind">{label}</span>
               {b.title ? <span className="co-title"><Inline text={b.title} /></span> : <span className="co-title muted">{lines} line{lines === 1 ? "" : "s"}</span>}
             </summary>
-            <div className="co-body">{b.kind === "code" && !b.body.includes("```") ? <pre className="code"><code>{b.body}</code></pre> : <Rich text={b.body} />}</div>
+            <div className="co-body">{b.kind === "code" && !b.body.includes("```") ? <CodeBlock code={b.body} /> : <Rich text={b.body} />}</div>
           </details>
         );
       })}

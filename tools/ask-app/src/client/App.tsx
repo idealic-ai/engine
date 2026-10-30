@@ -59,6 +59,7 @@ import {
 } from "./model.ts";
 import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
+import { CodeBlock } from "./highlight.tsx";
 import { blocks, displayTitle } from "./md.ts";
 import { RELOAD_RESTARTED, RELOAD_UPDATED, authedFetch, recordBuild, refreshToken, type Authed } from "./token.ts";
 import { clearUnsent, loadUnsent, saveUnsent } from "./unsent.ts";
@@ -1004,7 +1005,7 @@ export function AskDetail({
         {turns.length > 0 && (
           <section className="dialogue" aria-label="Dialogue so far">
             <span className="lg-label">Dialogue so far</span>
-            <ol>{turns.map((t, i) => <li key={i}><b>{t.who}</b> <Inline text={t.text} /></li>)}</ol>
+            <ol>{turns.map((t, i) => <li key={i}><b>{t.who}</b> <TurnText text={t.text} /></li>)}</ol>
           </section>
         )}
         {ask.header.why && <p className="ask-why"><Inline text={ask.header.why} /></p>}
@@ -1094,7 +1095,7 @@ export function AskDetail({
             {ask.header.status !== "declined" && <AnswerWords ask={ask} />}
             <details className="raw-answer">
               <summary>Recorded answer block</summary>
-              <pre className="code">{JSON.stringify(ask.answer, null, 2)}</pre>
+              <RecordedAnswer answer={ask.answer} />
             </details>
             {mayChange && (
               <p className="actions">
@@ -1588,6 +1589,16 @@ export function LensMark({ read, id }: { read: PanelRead; id: string }) {
  * An option's description (fence round). One paragraph renders exactly as before, inline; anything
  * more (paragraphs, a fenced code block kept verbatim by the parser) goes through the block renderer.
  */
+/** The answer block exactly as it was recorded, shown as highlighted JSON. */
+export function RecordedAnswer({ answer }: { answer: unknown }) {
+  return <CodeBlock code={JSON.stringify(answer, null, 2) ?? ""} lang="json" />;
+}
+
+/** A dialogue turn: inline prose, or its blocks when the turn carries a fenced code block. */
+export function TurnText({ text }: { text: string }) {
+  return /^\s*(?:`{3,}|~{3,})/m.test(text) ? <Rich text={text} className="rich turn-md" /> : <Inline text={text} />;
+}
+
 export function OptionDescription({ text }: { text: string }) {
   const bs = blocks(text);
   if (bs.length <= 1 && (bs[0]?.t ?? "p") === "p") return <span className="opt-desc"><Inline text={text} /></span>;

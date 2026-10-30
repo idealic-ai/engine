@@ -9,6 +9,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseAskFile } from "../src/lib/format.ts";
 import { blocks, closesFence } from "../src/client/md.ts";
+import { CodeBlock } from "../src/client/highlight.tsx";
+
+// IDE-304: a fence renders through CodeBlock (label + highlighted code); the fixtures compare against it.
+const CB = (code: string, lang: string) => renderToStaticMarkup(createElement(CodeBlock, { code, lang }));
+const textOf = (html: string) => html.replace(/<[^>]+>/g, "");
 
 const dir = path.join(import.meta.dirname, "../src/client");
 const css = fs.readFileSync(path.join(dir, "styles.css"), "utf8");
@@ -21,7 +26,7 @@ describe("item 1: an option description renders its blocks", () => {
     expect(blocks(FENCED)).toEqual([{ t: "p", text: "The caller destructures it." }, { t: "pre", lang: "ts", code: "const [ok, err] = run();" }]);
     const { OptionDescription } = await import("../src/client/App.tsx");
     const html = renderToStaticMarkup(createElement(OptionDescription, { text: FENCED }));
-    expect(html).toBe('<span class="opt-desc opt-desc-blocks"><div class="rich"><p><span>The caller destructures it.</span></p><pre class="code"><code>const [ok, err] = run();</code></pre></div></span>');
+    expect(html).toBe(`<span class="opt-desc opt-desc-blocks"><div class="rich"><p><span>The caller destructures it.</span></p>${CB("const [ok, err] = run();", "ts")}</div></span>`);
   });
 
   it("prose after the fence is its own paragraph; blank lines inside the fence stay", async () => {
@@ -32,7 +37,8 @@ describe("item 1: an option description renders its blocks", () => {
     ]);
     const { OptionDescription } = await import("../src/client/App.tsx");
     const html = renderToStaticMarkup(createElement(OptionDescription, { text: FENCED_THEN_PROSE }));
-    expect(html).toContain("<code>const [ok, err] = run();\n\nif (err) throw err;</code>");
+    expect(html).toContain(CB("const [ok, err] = run();\n\nif (err) throw err;", "ts"));
+    expect(textOf(CB("const [ok, err] = run();\n\nif (err) throw err;", "ts"))).toBe("tsconst [ok, err] = run();\n\nif (err) throw err;");
     expect(html).toContain("<p><span>After the fence, a </span><strong><span>second</span></strong><span> paragraph.</span></p>");
   });
 
@@ -52,7 +58,7 @@ describe("item 1: an option description renders its blocks", () => {
     const tup = html.slice(html.indexOf('<code class="okey">TUP</code>'), html.indexOf('<code class="okey">OBJ</code>'));
     expect(tup).toMatch(/^<code class="okey">TUP<\/code><span class="opt-text"><span>Tuple<\/span><\/span>.*?<span class="strip"/);
     expect(tup.indexOf('class="strip"')).toBeLessThan(tup.indexOf("opt-desc"));
-    expect(tup).toContain('<pre class="code"><code>const [ok, err] = run();</code></pre>');
+    expect(tup).toContain(CB("const [ok, err] = run();", "ts"));
   });
 });
 
