@@ -14,7 +14,7 @@ revision: 3
 dependsOn:
 created: 2026-10-29T19:26:20.640Z
 related: manager:docs/docs-outline-r1
-evidence: /Users/invizko/Projects/kit/sessions/2026_10_28_DOCS_LOOM/builds/DOCS_OUTLINE.md
+evidence: /home/user/project/sessions/2026_10_28_DOCS_LOOM/builds/DOCS_OUTLINE.md
 ifUnanswered: Nothing follows from this revision; the real questions come in the next one.
 reserved-for: operator
 revisions: 2@2026-10-29T19:27:03.255Z:why,ifUnanswered,body

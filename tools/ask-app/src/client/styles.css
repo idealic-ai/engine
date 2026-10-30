@@ -464,3 +464,70 @@ details.round ul { margin: 6px 0; padding-left: 1.2em; }
 .followups li { border-left: 2px solid var(--line-strong); padding-left: 10px; overflow-wrap: anywhere; }
 .followups li.pending { border-left-color: var(--warn); }
 .followups li p { margin: 0; }
+
+/* ASKTREEUI: more context per answer. Elegance is a first-class line beside Cost, never folded. */
+.opt-elegance { font-size: 13px; color: var(--ink); overflow-wrap: anywhere; padding-left: 6px; border-left: 2px solid var(--accent); }
+.opt-elegance b { font-weight: 650; color: var(--accent-ink); margin-right: 4px; }
+.opt-elegance.none { border-left-color: var(--line-strong); }
+.opt-elegance.none b { color: var(--ink-3); }
+.opt-line { font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.opt-line b { font-weight: 600; color: var(--ink-3); margin-right: 4px; }
+.opt-opens, .fork-opens { font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+.fork-opens { margin: 0 0 8px; }
+.fork-link { font-family: var(--mono); font-size: 12px; }
+.chip.oneway { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-soft); font-weight: 600; }
+.fork:focus { outline: none; }
+.fork:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* N2: the fork an outline click reached keeps a visible ring for a moment, mouse or keyboard. */
+.fork.reached { outline: 2px solid var(--accent); outline-offset: 2px; transition: outline-color .4s; }
+
+.compare-view { margin: 0 0 8px; container: cmp / inline-size; }
+.compare-toggle[aria-pressed="true"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.compare-wrap { margin-top: 8px; max-width: 100%; min-width: 0; }
+table.compare { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+table.compare th, table.compare td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+table.compare thead th { background: var(--surface-2); font-weight: 600; }
+table.compare th[scope="row"] { width: 7.5em; color: var(--ink-3); font-weight: 600; background: var(--surface-2); }
+table.compare tr[data-field="Elegance"] th[scope="row"] { color: var(--accent-ink); }
+table.compare tr[data-field="Elegance"] td { color: var(--ink); }
+table.compare tr.same td { opacity: .6; }
+.cmp-omitted { margin: 4px 0 0; font-size: 12px; }
+
+/* S6: stacked on the card's width, not the window's: one block per field, each value labelled with
+   its option's code and label. The more options, the wider the card at which the columns give up. */
+@container cmp (max-width: 560px) {
+  table.compare, table.compare tbody, table.compare tr, table.compare th, table.compare td { display: block; width: auto; }
+  table.compare thead { display: none; }
+  table.compare tr { border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 6px; }
+  table.compare th[scope="row"] { width: auto; border: 0; border-bottom: 1px solid var(--line); }
+  table.compare td { border: 0; padding: 4px 8px; }
+  table.compare td::before { content: attr(data-opt); display: block; font-size: 12px; font-weight: 600; color: var(--accent-ink); }
+}
+@container cmp (max-width: 720px) {
+  .compare-view[data-cols="4"] table.compare, .compare-view[data-cols="4"] table.compare tbody, .compare-view[data-cols="4"] table.compare tr, .compare-view[data-cols="4"] table.compare th, .compare-view[data-cols="4"] table.compare td { display: block; width: auto; }
+  .compare-view[data-cols="4"] table.compare thead { display: none; }
+  .compare-view[data-cols="4"] table.compare tr { border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 6px; }
+  .compare-view[data-cols="4"] table.compare th[scope="row"] { width: auto; border: 0; border-bottom: 1px solid var(--line); }
+  .compare-view[data-cols="4"] table.compare td { border: 0; padding: 4px 8px; }
+  .compare-view[data-cols="4"] table.compare td::before { content: attr(data-opt); display: block; font-size: 12px; font-weight: 600; color: var(--accent-ink); }
+}
+@container cmp (max-width: 900px) {
+  .compare-view[data-cols="5"] table.compare, .compare-view[data-cols="5"] table.compare tbody, .compare-view[data-cols="5"] table.compare tr, .compare-view[data-cols="5"] table.compare th, .compare-view[data-cols="5"] table.compare td { display: block; width: auto; }
+  .compare-view[data-cols="5"] table.compare thead { display: none; }
+  .compare-view[data-cols="5"] table.compare tr { border: 1px solid var(--line); border-radius: var(--radius-sm); margin-bottom: 6px; }
+  .compare-view[data-cols="5"] table.compare th[scope="row"] { width: auto; border: 0; border-bottom: 1px solid var(--line); }
+  .compare-view[data-cols="5"] table.compare td { border: 0; padding: 4px 8px; }
+  .compare-view[data-cols="5"] table.compare td::before { content: attr(data-opt); display: block; font-size: 12px; font-weight: 600; color: var(--accent-ink); }
+}
+
+.outline { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 12px; font-size: 13px; }
+.outline ol { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 2px; }
+.outline li { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; min-width: 0; }
+.outline li a { display: inline-flex; gap: 6px; align-items: baseline; min-width: 0; color: var(--ink); text-decoration: none; }
+.outline li a:hover .ol-title { text-decoration: underline; }
+.outline .ol-title { overflow-wrap: anywhere; }
+.outline .ol-glyph { width: 1em; text-align: center; color: var(--ink-3); }
+.outline li[data-state="answered"] .ol-glyph, .outline .ol-state.answered { color: var(--ok); }
+.outline li[data-state="waiting"], .outline li[data-state="not-opened"] { opacity: .65; }
+.outline .ol-elegance { color: var(--accent-ink); }
+.outline .ol-state, .outline .ol-dep { font-size: 12px; color: var(--ink-3); }

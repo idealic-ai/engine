@@ -153,11 +153,17 @@ describe("S1: a council named in prose, with no reads recorded", () => {
     expect(ask.questions[0].council).toBeUndefined();
     expect(namedReport(ask, 0)).toEqual({ named: true, scope: "fork", report: "builds/VOICE_COUNCIL.md" });
     expect(namedReport(ask, 1)).toEqual({ named: false });
-    const html = await render(real);
-    const v2 = html.slice(html.indexOf("Land draft 2"), html.indexOf("What should change?"));
+    // ASKTREEUI: the outline above the cards and the first fork's "Opens ¶ASK_V2N — What should change?"
+    // repeat the second fork's title, so each card is cut at the card boundaries instead.
+    const page = await render(real);
+    const html = page.slice(page.indexOf('<article class="fork"'));
+    const second = html.indexOf('<article class="fork"', 1);
+    const v2 = html.slice(0, second);
+    expect(v2).toContain("Land draft 2");
     expect(v2).toContain("A council is named here, but no lens reads were recorded on this question.");
     expect(v2).toContain('<code class="council-ref">builds/VOICE_COUNCIL.md</code>');
-    expect(html.slice(html.indexOf("What should change?"))).not.toContain("A council is named here");
+    expect(html.slice(second)).toContain("What should change?");
+    expect(html.slice(second)).not.toContain("A council is named here");
   });
 
   it("an http(s) report named in the fork is linked", async () => {

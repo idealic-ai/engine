@@ -242,11 +242,11 @@ const OPTION_META: Record<string, OptionField> = {
 /** Every per-option field, in the order buildTree copies them. */
 const OPTION_FIELDS: OptionField[] = ["cost", "effort", "blastRadius", "unblocks", "then", "elegance"];
 /**
- * ASKTREE round 2 (M2): the fields the app's card does not render yet (that is meta:utils' client).
- * Each line is parsed onto its field AND kept in the description text, exactly where f0368fc put it,
- * so the operator's card still shows it. Drop a field from this set once the card renders it.
+ * ASKTREE round 2 (M2): the fields the app's card does not render yet, parsed onto their field AND
+ * kept in the description text. ASKTREEUI: the card now draws Unblocks, Then and Elegance as lines of
+ * their own, so none is echoed; the set stays for the next field that lands before its card does.
  */
-const ECHOED_IN_DESCRIPTION = new Set<OptionField>(["unblocks", "then", "elegance"]);
+const ECHOED_IN_DESCRIPTION = new Set<OptionField>([]);
 const PANEL_RE = /^(.+?)\s*(?:→|->)\s*(\S+?)\s*(?:—|–|:|\s-)\s*(.+)$/;
 // v1 took 2–4 capitals; v2 also takes one letter (A, B, as /decide boards key options) and digits (L2).
 /**
@@ -1354,7 +1354,7 @@ export function ticketKeys(ask: ParsedAsk): string[] {
   return seen;
 }
 function optionText(opts: AskOption[]): string[] {
-  return opts.flatMap((o) => [o.label, o.description ?? "", o.cost ?? "", ...optionText(o.children ?? [])]);
+  return opts.flatMap((o) => [o.label, o.description ?? "", ...OPTION_FIELDS.map((f) => o[f] ?? ""), ...optionText(o.children ?? [])]);
 }
 
 // ── the batch message (acceptance 1) ─────────────────────

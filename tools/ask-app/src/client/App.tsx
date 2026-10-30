@@ -11,6 +11,7 @@ import {
   dependsOnDeclined,
   visibleQuestions,
   type AskAnswer,
+  type AnswerMap,
   type AnswerValue,
   type AskOption,
   type AskQuestion,
@@ -64,6 +65,7 @@ import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type
 import { Inline, PaneContext, Rich, SmartLink, TicketLink, inlineTokens } from "./rich.tsx";
 import { attachedText, councilRef, forkCouncils, isStale, namedReport, optionTally, proposalLabel, tallyText } from "./panel.ts";
 import { CodeBlock } from "./highlight.tsx";
+import { NO_ELEGANCE, anyAnswerOpens, cellLabel, compareCols, compareRows, forkGivesElegance, isOneWay, markReached, opensUnder, outlineOf, valueOf, type ForkRef, type OutlinePick } from "./tree.ts";
 import { batchOutcome, noticeFor, postSendStep, sendOutcome, type SentNotice } from "./next.ts";
 import { createRouteNav, createUrlSync } from "./urlsync.ts";
 import { blocks, displayTitle } from "./md.ts";
@@ -87,7 +89,6 @@ type View = "asks" | "proofs" | "broadcasts";
 const FILTERS: Filter[] = ["open", "ruled", "settled", "all"];
 const FILTER_LABEL: Record<Filter, string> = { open: "Open", ruled: "Ruled below you", settled: "Settled", all: "All" };
 
-const valueOf = (o: AskOption) => o.code ?? o.label;
 /** Proof hosts besides loopback :9440, set at build time (VITE_PROOF_ORIGINS); :9440 needs no entry. */
 const PROOF_ORIGINS = proofOriginsFromEnv((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_PROOF_ORIGINS);
 const store = {
@@ -913,6 +914,13 @@ export function AskDetail({
     scrollWithin(scrollRootOf(el), el, { behavior: "smooth" });
     if (i !== undefined) onForkHash?.(forkLabel(ask.questions[i], i));
   };
+  /** ASKTREEUI: the outline's click scrolls to the fork and moves focus there, for a keyboard reader too. */
+  const focusForkAt = (i: number) => {
+    scrollToFork(i);
+    const el = document.getElementById(forkId(i));
+    el?.focus({ preventScroll: true });
+    markReached(el);
+  };
 
   // #Q2, #q2 and #f2 open that fork; an unknown one says so and shows the first.
   useEffect(() => {
@@ -1209,6 +1217,7 @@ export function AskDetail({
       </header>
       {depMissing && <p className="chip warn">depends on {dep}, which is not in this root</p>}
       {depDeclined && <p className="chip warn">depends on {dep}, which was declined</p>}
+      {ask.questions.length > 1 && <Outline ask={ask} answers={answers} onFocus={(i) => focusForkAt(i)} />}
       {ask.questions.map((q, i) => {
         const k = questionKey(q, i);
         return (
@@ -1556,7 +1565,7 @@ const KIND_LABEL: Record<string, string> = { "choose-one": "choose one", choose:
 
 /** Ticket keys written in this one fork: its title, prose, card lines, evidence and options. */
 function forkTickets(q: AskQuestion): string[] {
-  const opt = (os: AskOption[]): string[] => os.flatMap((o) => [o.label, o.description ?? "", o.cost ?? "", ...opt(o.children ?? [])]);
+  const opt = (os: AskOption[]): string[] => os.flatMap((o) => [o.label, o.description ?? "", o.cost ?? "", o.unblocks ?? "", o.then ?? "", o.elegance ?? "", ...opt(o.children ?? [])]);
   const text = [q.title, q.prose ?? "", ...Object.values(q.meta), ...q.evidence, ...opt(q.options)].join("\n");
   return [...new Set([...text.matchAll(/\b([A-Z][A-Z0-9]{1,9}-\d{1,6})\b/g)].map((m) => m[1]))];
 }
@@ -1578,8 +1587,10 @@ function QuestionCard(p: {
   const high = ask.header.importance?.trim().toLowerCase() === "high";
   const choice = q.kind === "choose-one" || q.kind === "choose" || q.kind === "yesno";
   const preamble = index === 0 ? dialogueOf(ask).preamble : "";
+  const anyOpens = anyAnswerOpens(ask.questions, q);
+  const tree = { questions: ask.questions, ask, elegance: forkGivesElegance(q) };
   return (
-    <article className="fork" id={p.domId} data-kind={q.kind}>
+    <article className="fork" id={p.domId} data-kind={q.kind} tabIndex={-1}>
       <div className="fork-head">
         <span className="eyebrow">
           <b className="flabel">{label}</b>
@@ -1590,6 +1601,7 @@ function QuestionCard(p: {
         </span>
         <span className="fork-aff">
           {high && <span className="chip danger" title="The ask is marked high importance; it applies to every fork">! High importance</span>}
+          {isOneWay(card.reversible) && <span className="chip oneway" title={`Reversible: ${card.reversible}`}>One-way</span>}
           {tickets.length > 0 && <span className="chip quiet" title={tickets.join(", ")}>{tickets.length} ticket{tickets.length === 1 ? "" : "s"}</span>}
           {card.reservedFor && <span className="chip" title="Only this party may answer; others may forward it">reserved · {card.reservedFor}</span>}
           <a className="perma" href={`#${askRef(ask)}/${label}`} aria-label={`Link to ${label}`}>¶</a>
@@ -1607,6 +1619,9 @@ function QuestionCard(p: {
           {card.unblocks && <div><dt>Deciding this unblocks</dt><dd><Inline text={card.unblocks} /></dd></div>}
         </dl>
       )}
+      {anyOpens.length > 0 && (
+        <p className="fork-opens">Any answer opens <ForkLinks ask={ask} refs={anyOpens} /></p>
+      )}
       {card.evidence.length > 0 && (
         <details className="evidence">
           <summary>Evidence <span className="n">{card.evidence.length}</span></summary>
@@ -1619,7 +1634,8 @@ function QuestionCard(p: {
       ) : (
         <>
           {choice && q.options.length > 1 && trade.shown.length > 0 && <TradeLegend trade={trade} />}
-          <Input q={q} card={card} lean={leanCode} leanText={lean?.text} trade={trade} radioBase={`${askRef(ask)}#${k}`} value={p.value} suggestion={p.suggestion} onValue={p.onValue} onConfirm={p.onConfirm} readOnly={p.readOnly} />
+          {choice && q.options.length > 1 && <CompareView q={q} />}
+          <Input q={q} card={card} lean={leanCode} leanText={lean?.text} trade={trade} tree={tree} radioBase={`${askRef(ask)}#${k}`} value={p.value} suggestion={p.suggestion} onValue={p.onValue} onConfirm={p.onConfirm} readOnly={p.readOnly} />
         </>
       )}
       {lean && !leanCode && leanReason(lean.text) && (
@@ -1749,6 +1765,8 @@ export function ForkProse({ text, between }: { text?: string; between?: boolean 
 
 type InputProps = {
   q: AskQuestion; card: Card; lean?: string; leanText?: string; trade: Trade; radioBase: string;
+  /** ASKTREEUI: the ask's forks (for the follow-ups an option opens) and whether this fork states Elegance. */
+  tree?: OptionContext;
   value: AnswerValue | undefined; suggestion?: string;
   onValue: (v: AnswerValue | undefined) => void; onConfirm: (v: AnswerValue) => void; readOnly: boolean;
 };
@@ -1783,6 +1801,98 @@ function Input(p: InputProps) {
   );
 }
 
+/**
+ * ASKTREEUI: a fork's options side by side. A toggle, off by default; opened, a table with one
+ * column per option and one row per field (compareRows). Stacked on a narrow screen (styles.css).
+ */
+export function CompareView({ q, initialOpen = false }: { q: AskQuestion; initialOpen?: boolean }) {
+  const [open, setOpen] = useState(initialOpen);
+  const { columns, rows, omitted } = useMemo(() => compareRows(q), [q]);
+  return (
+    <div className="compare-view" data-cols={compareCols(columns.length)}>
+      <button type="button" className="chip toggle compare-toggle" aria-pressed={open} onClick={() => setOpen(!open)} title="Lay the options side by side, one row per field">⇆ Compare side by side</button>
+      {open && (
+        <div className="compare-wrap">
+          <table className="compare">
+            <thead>
+              <tr>
+                <th scope="col" className="cmp-corner"><span className="sr-only">Field</span></th>
+                {columns.map((c, i) => (
+                  <th scope="col" key={c.code ?? i}>{c.code && <code className="okey">{c.code}</code>} <Inline text={c.label.replace(/\s*\(lean\)\s*$/i, "")} /></th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.label} className={r.same ? "same" : undefined} data-field={r.label}>
+                  <th scope="row">{r.label}</th>
+                  {r.cells.map((c, i) => (
+                    <td data-opt={cellLabel(columns[i])} key={i}>{c ? <Inline text={c} /> : <span className="muted">{r.missing ?? "–"}</span>}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {omitted.length > 0 && <p className="muted cmp-omitted">Not given on any option: {omitted.join(", ")}.</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * ASKTREEUI: for an ask of several forks, a compact list at the top: each fork's label and title,
+ * answered (with its picks), unanswered or waiting, and what it depends on. A click focuses the fork.
+ */
+/** N4/S5: an answered fork's picks by label, each with its Elegance where the option states one; past two, a count. */
+function PickWords({ picks }: { picks: OutlinePick[] }) {
+  const shown = picks.length > 2 ? picks.slice(0, 2) : picks;
+  return (
+    <span className="ol-picks" title={picks.map((p) => p.label).join(" · ")}>
+      {shown.map((p, i) => (
+        <Fragment key={p.value}>
+          {i > 0 && ", "}
+          <Inline text={p.label} />
+          {p.elegance && <span className="ol-elegance"> (Elegance: <Inline text={p.elegance} />)</span>}
+        </Fragment>
+      ))}
+      {picks.length > 2 && ` +${picks.length - 2} more`}
+    </span>
+  );
+}
+
+function Outline({ ask, answers, onFocus }: { ask: StoredAsk; answers: AnswerMap; onFocus: (i: number) => void }) {
+  const entries = outlineOf(ask.questions, answers);
+  return (
+    <nav className="outline" aria-label="The forks in this ask">
+      <span className="lg-label">Forks</span>
+      <ol>
+        {entries.map((e) => {
+          const state = e.notOpened ? "not-opened" : e.waiting ? "waiting" : e.answered ? "answered" : "open";
+          return (
+            <li key={e.label} data-state={state}>
+              <a
+                href={`#${askRef(ask)}/${e.label}`}
+                onClick={(ev) => {
+                  ev.preventDefault();
+                  onFocus(e.index);
+                }}
+              >
+                <span className="ol-glyph" aria-hidden="true">{e.notOpened ? "–" : e.waiting ? "◌" : e.answered ? "✓" : "○"}</span>
+                <b className="flabel">{e.label}</b>
+                <span className="ol-title"><Inline text={displayTitle(e.title)} /></span>
+              </a>
+              <span className={`ol-state ${state}`}>{e.notOpened ? `not opened (${e.notOpened})` : e.waiting ? "waiting" : e.answered ? <>answered{e.picks.length > 0 && <> · <PickWords picks={e.picks} /></>}</> : "unanswered"}</span>
+              {e.after && <span className="ol-dep muted">after {e.after}</span>}
+              {e.opens.length > 0 && <span className="ol-dep muted">opens {e.opens.map((l) => `¶ASK_${l}`).join(", ")}</span>}
+            </li>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+}
+
 const glyphOr = (c: { glyph: string; text: string } | undefined) => (c ? c.glyph || c.text : "–");
 function Strip({ trade, cells }: { trade: Trade; cells: Trade["rows"][string] | undefined }) {
   const show = trade.shown.filter((d) => d !== "cost");
@@ -1802,13 +1912,32 @@ function Strip({ trade, cells }: { trade: Trade; cells: Trade["rows"][string] | 
   );
 }
 
-function OptionBody({ o, card, q, lean, leanText, trade, suggested }: { o: AskOption; card: Card; q: AskQuestion; lean?: string; leanText?: string; trade: Trade; suggested?: boolean }) {
+type OptionContext = { questions: AskQuestion[]; ask: StoredAsk; elegance: boolean };
+
+/** ASKTREEUI: links to forks of this ask, each `¶ASK_<label> — title`, through the fork's deep link. */
+function ForkLinks({ ask, refs }: { ask: StoredAsk; refs: ForkRef[] }) {
+  return (
+    <>
+      {refs.map((r, i) => (
+        <Fragment key={r.label}>
+          {i > 0 && <span className="muted"> · </span>}
+          <a className="fork-link" href={`#${askRef(ask)}/${r.label}`}>¶ASK_{r.label}</a>
+          <span className="muted"> — </span>
+          <Inline text={displayTitle(r.title)} />
+        </Fragment>
+      ))}
+    </>
+  );
+}
+
+function OptionBody({ o, card, q, lean, leanText, trade, suggested, tree }: { o: AskOption; card: Card; q: AskQuestion; lean?: string; leanText?: string; trade: Trade; suggested?: boolean; tree?: OptionContext }) {
   const isLean = !!lean && lean === o.code;
   const tally = optionTally(q, o);
   const marks = tally.reads;
   const cells = trade.rows[o.code ?? o.label];
   const label = o.label.replace(/\s*\(lean\)\s*$/i, "");
   const costSame = trade.same.includes("cost");
+  const opens = tree ? opensUnder(tree.questions, q, o) : [];
   const extra = [
     o.effort && cells?.effort?.glyph && saysMore(o.effort) ? ["Effort", o.effort] : undefined,
     o.blastRadius && cells?.blast?.glyph && saysMore(o.blastRadius) ? ["Blast radius", o.blastRadius] : undefined,
@@ -1822,6 +1951,12 @@ function OptionBody({ o, card, q, lean, leanText, trade, suggested }: { o: AskOp
         {suggested && <span className="sr-only">Suggested by the asker, not picked. Click to confirm.</span>}
         <Strip trade={trade} cells={cells} />
       </span>
+      {/* ASKTREEUI S5: Elegance sits straight under the label, before the description, so a long one never pushes it down; on a fork that states it, an option without it says so. */}
+      {o.elegance?.trim() ? (
+        <span className="opt-elegance"><b>Elegance</b> <Inline text={o.elegance} /></span>
+      ) : tree?.elegance ? (
+        <span className="opt-elegance none" title="Other options on this fork state their elegance; this one does not"><b>Elegance</b> <span className="muted">{NO_ELEGANCE}</span></span>
+      ) : null}
       {o.description && <OptionDescription text={o.description} />}
       {o.cost && <span className={`opt-cost${costSame ? " same" : ""}`}><b>Cost</b> <Inline text={o.cost} /></span>}
       {extra.length > 0 && (
@@ -1829,6 +1964,10 @@ function OptionBody({ o, card, q, lean, leanText, trade, suggested }: { o: AskOp
           {extra.map(([l, v]) => <span key={l}><b>{l}</b> {v}</span>)}
         </span>
       )}
+      {o.unblocks?.trim() && <span className="opt-line opt-unblocks"><b>Unblocks</b> <Inline text={o.unblocks} /></span>}
+      {o.then?.trim() && <span className="opt-line opt-then" title="What the asker does next if you pick this"><b>Then</b> <Inline text={o.then} /></span>}
+      {opens.length === 1 && <span className="opt-opens">Opens <ForkLinks ask={tree!.ask} refs={opens} /></span>}
+      {opens.length > 1 && <span className="opt-opens">+{opens.length} follow-ups: <ForkLinks ask={tree!.ask} refs={opens} /></span>}
       {isLean && leanReason(leanText) && <span className="opt-lean"><b>Why the lean</b> <Inline text={leanReason(leanText)} /></span>}
       {tally.of > 0 && (
         <span className="lens-row">
@@ -2004,7 +2143,7 @@ function OptionTree(p: InputProps & { options: AskOption[]; picks: string[]; nam
                 aria-checked={on}
                 {...optionInputHandlers(click)}
               />
-              <OptionBody o={o} card={p.card} q={q} lean={p.lean} leanText={p.leanText} trade={p.trade} suggested={suggested} />
+              <OptionBody o={o} card={p.card} q={q} lean={p.lean} leanText={p.leanText} trade={p.trade} suggested={suggested} tree={p.tree} />
             </label>
             {on && o.children && (
               <div className="nested">
@@ -2036,7 +2175,7 @@ function RankInput(p: InputProps & { value: string[] | undefined }) {
           return (
             <li key={v} className="opt rank-row">
               <span className="rank-n">{i + 1}</span>
-              <OptionBody o={o} card={p.card} q={q} lean={p.lean} leanText={p.leanText} trade={p.trade} />
+              <OptionBody o={o} card={p.card} q={q} lean={p.lean} leanText={p.leanText} trade={p.trade} tree={p.tree} />
               {!readOnly && (
                 <span className="rank-btns">
                   <button className="btn" aria-label={`Move ${o.label} up`} disabled={i === 0} onClick={() => move(i, -1)}>↑</button>

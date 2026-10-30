@@ -313,7 +313,9 @@ describe("the app renders fork prose between the cards (operator's screenshot)",
     const { AskDetail } = await import("../src/client/App.tsx");
     const text = head() + "## ¶ASK_A: Choose one: First?\nWhy first matters.\n- [ ] [X] x\n- [ ] [Y] y\nBETWEEN-THE-FORKS note.\n\n## ¶ASK_B: Choose one: Second?\nWhy second.\n- [ ] [P] p\n";
     const ask = { ...parseAskFile(text), seat: "idealic:kernel", file: "/x.md", mtimeMs: 0 };
-    const html = renderToStaticMarkup(createElement(AskDetail, { ask, all: [ask], onChanged: () => {} }));
+    // ASKTREEUI: the outline above the cards repeats each fork's title, so the order is read from the first card on.
+    const page = renderToStaticMarkup(createElement(AskDetail, { ask, all: [ask], onChanged: () => {} }));
+    const html = page.slice(page.indexOf('<article class="fork"'));
     const iFirst = html.indexOf("First?"), iBetween = html.indexOf("BETWEEN-THE-FORKS"), iSecond = html.indexOf("Second?");
     expect(html).toContain("Why first matters.");
     expect(html).toContain("Why second.");
