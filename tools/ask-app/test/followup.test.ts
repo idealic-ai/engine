@@ -293,7 +293,8 @@ describe("writeDraft: the operator may draft over a seat's answer (the overrule 
 
   it("a seat still never drafts over a settled answer — the operator's, another seat's, or its own", async () => {
     await answerAsk(root, ASKER, "go", { answers: { GO: ["YES"] }, answeredBy: "operator", answeredVia: "browser" }, { expectedRevision: 1, push });
-    await expect(saveDraft(root, ASKER, "go", { answers: { GO: ["NO"] }, answeredBy: MGR }, 2)).rejects.toThrow(/only an open ask, or the operator over a settled answer, takes a draft/);
+    // OVEROP: over the operator's answer the refusal names that answer (test/overop.test.ts).
+    await expect(saveDraft(root, ASKER, "go", { answers: { GO: ["NO"] }, answeredBy: MGR }, 2)).rejects.toThrow(/operator already answered this at .* \(GO YES\); a seat cannot replace it/);
     newAsk(root, { from: ASKER, to: MGR, id: "own" }, BODY);
     await answerAsk(root, ASKER, "own", { answers: { GO: ["YES"] }, answeredBy: MGR }, { expectedRevision: 1, push });
     await expect(saveDraft(root, ASKER, "own", { answers: { GO: ["NO"] }, answeredBy: MGR }, 2)).rejects.toThrow(/only an open ask, or the operator over a settled answer, takes a draft/);

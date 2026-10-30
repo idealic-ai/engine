@@ -96,11 +96,13 @@ describe("SHOULD-2: the overruled answerer is pushed the overrule", () => {
     expect(pushes.map((p) => p.seat)).toEqual([SEAT]);
   });
 
-  it("the operator, overruled, is not pushed (it is not a seat)", async () => {
+  // OVEROP (the operator's ruling, ask meta:engine/20261030-075406): a seat never overrules the
+  // operator any more, so this is now a refusal that pushes nobody (test/overop.test.ts covers it).
+  it("the operator is never overruled by a seat: the seat's answer is refused and nobody is pushed", async () => {
     await answerAsk(root, SEAT, "go", { answers: { GO: ["NO"] }, answeredBy: "operator", answeredVia: "browser" }, { expectedRevision: 1, push });
     pushes = [];
-    await answerAsk(root, SEAT, "go", yes(MGR), { expectedRevision: 2, push });
-    expect(pushes.map((p) => p.seat)).toEqual([SEAT]);
+    await expect(answerAsk(root, SEAT, "go", yes(MGR), { expectedRevision: 2, push })).rejects.toThrow(/operator already answered this/);
+    expect(pushes).toEqual([]);
   });
 });
 

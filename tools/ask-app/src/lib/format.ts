@@ -324,6 +324,34 @@ export class WithdrawnError extends AskFormatError {
   }
 }
 
+/**
+ * IDE-339 OVEROP (the operator's ruling, ask meta:engine/20261030-075406): the operator already
+ * answered, and a seat never replaces that answer. `answeredAt` and `answeredBy` are the operator's
+ * answer's own stamps, so the refusal (and the server's 409) says whose answer stands and since when.
+ */
+export class AnsweredByOperatorError extends AskFormatError {
+  readonly answeredAt: string;
+  readonly answeredBy: string;
+  constructor(id: string, answeredAt: string, answeredBy: string, choice: string) {
+    super(`ask ${id}: operator already answered this at ${answeredAt || "?"} (${choice}); a seat cannot replace it — send a follow-up instead`);
+    this.name = "AnsweredByOperatorError";
+    this.answeredAt = answeredAt;
+    this.answeredBy = answeredBy;
+  }
+}
+
+/**
+ * OVEROP: refuse a seat's answer, decline, pass-up or draft over the operator's current answer. The
+ * operator, by name, may change its own; a relay of it reaches here only after the relay standing
+ * check (assertMayRelay), so a permitted relay counts as the operator.
+ */
+export function assertNotOverOperator(ask: ParsedAsk, by: string | undefined) {
+  const settled = ask.header.status === "answered" || ask.header.status === "declined";
+  if (!settled || !isOperatorAnswer(ask.answer) || isOperatorName(by)) return;
+  const choice = replacedSummary(ask)?.split("; was ").slice(1).join("; was ") || "its answer";
+  throw new AnsweredByOperatorError(ask.header.id ?? "", ask.answer!.answeredAt ?? "", ask.answer!.answeredBy ?? "operator", choice);
+}
+
 /** Refuse any answer, decline or draft on an ask that is no longer live: superseded or withdrawn. */
 export function assertLive(ask: ParsedAsk) {
   assertNotSuperseded(ask);

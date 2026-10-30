@@ -9,6 +9,7 @@ import { pushToSeat, type DeliverOptions, type DeliveryResult } from "./deliver.
 import {
   AskFormatError,
   assertLive,
+  assertNotOverOperator,
   answerLines,
   noteLine,
   overruledNow,
@@ -339,6 +340,7 @@ export async function answerAsk(
     assertGrant(ask, input, opts.answererManages);
     if (!isPassUp(ask, input)) return undefined;
     assertLive(ask);
+    assertNotOverOperator(ask, input.answeredBy);
     if (!input.reason?.trim()) throw new AskFormatError("a decline needs a non-empty reason");
     const cur = currentRevision(ask);
     if (opts.expectedRevision !== cur) throw new StaleRevisionError(opts.expectedRevision, cur);
@@ -364,6 +366,7 @@ export async function answerAsk(
   const { written, record, parsed, replaced } = await withFileLock(file, () => {
     const before = fs.readFileSync(file, "utf8");
     assertMayAnswer(parseAskFile(before), input, opts);
+    assertNotOverOperator(parseAskFile(before), input.answeredBy);
     assertGrant(parseAskFile(before), input, opts.answererManages);
     assertHistoryReadable(parseAskFile(before), file);
     const replaced = replacedSummary(parseAskFile(before));
@@ -610,6 +613,7 @@ export async function saveDraft(root: string, seat: string, id: string, input: A
       throw new AskFormatError(`${seat}/${id} is reserved for ${reservedOf(ask)}: a seat's decline of it is not drafted; use \`engine ask answer --decline\` to pass it up`);
     }
     assertMayAnswer(ask, input, standing);
+    assertNotOverOperator(ask, input.answeredBy);
     // One draft per ask, owned by whoever saved it: another answerer does not overwrite it.
     // Round 3 (MUST-2): the operator outranks every answerer, so it may supersede a seat's draft
     // (the seat's draft is replaced, not answered); a seat never replaces another author's.
@@ -691,6 +695,8 @@ export async function sendBatch(root: string, refs: string[] | undefined, opts: 
         const ask = parseAskFile(before);
         const d = ask.draft;
         assertLive(ask);
+        // OVEROP: a seat's draft over the operator's answer is not honoured (the parser hides it); say why.
+        assertNotOverOperator(ask, d?.answeredBy ?? by);
         if (!d) throw new AskFormatError(`${ref} has no draft to send`);
         if (draftAuthor(d) !== by) throw new AskFormatError(`${ref}'s draft was saved by ${draftAuthor(d) || "an unnamed answerer"}; only its author sends it`);
         assertMayAnswer(ask, d, opts);

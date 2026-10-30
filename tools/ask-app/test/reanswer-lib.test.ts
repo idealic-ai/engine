@@ -114,7 +114,8 @@ describe("writeDraft: the operator may draft a change over their own answer", ()
     expect(parseAskFile(fs.readFileSync(path.join(root, SEAT, "ruled.md"), "utf8")).draft?.answers).toEqual({ GO: ["NO"] });
     newAsk(root, { from: SEAT, to: "manager:director", id: "own" }, BODY);
     await answerAsk(root, SEAT, "own", { answers: { GO: ["YES"] }, ...OP }, { expectedRevision: 1, push });
-    await expect(saveDraft(root, SEAT, "own", { answers: { GO: ["NO"] }, answeredBy: "manager:director" }, 2)).rejects.toThrow(/only an open ask, or the operator over a settled answer, takes a draft/);
+    // OVEROP: a seat's draft over the operator's answer is refused naming that answer.
+    await expect(saveDraft(root, SEAT, "own", { answers: { GO: ["NO"] }, answeredBy: "manager:director" }, 2)).rejects.toThrow(/operator already answered this at .* \(GO YES\); a seat cannot replace it/);
   });
 });
 

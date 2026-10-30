@@ -1001,4 +1001,21 @@ test_fencelang_every_line_of_a_multi_line_refusal_starts_with_ask_prefix() {
   assert_eq "0" "$bad" "every stderr line of the refusal starts with ask: "
 }
 
+# IDE-339 OVEROP: a seat never replaces the operator's answer; the operator changes its own.
+test_overop_a_seat_cannot_replace_the_operators_answer() {
+  printf '%s\n' "$BODY" | "$ASK_SH" new --id op1 --to manager:idealic >/dev/null
+  as_op answer idealic:kernel/op1 --revision 1 --json '{"GO":["NO"]}' >/dev/null
+  local f="$ASK_ROOT/idealic:kernel/op1.md" before
+  before=$(cat "$f")
+  assert_fails_with "a manager's re-answer over the operator is refused" "operator already answered this at" \
+    env FLEET_PANE=manager:idealic "$ASK_SH" answer idealic:kernel/op1 --revision 2 --json '{"GO":["YES"]}'
+  assert_fails_with "the refusal names the operator's choice and says what to do" "(GO NO); a seat cannot replace it — send a follow-up instead" \
+    env FLEET_PANE=manager:idealic "$ASK_SH" answer idealic:kernel/op1 --revision 2 --json '{"GO":["YES"]}'
+  assert_fails_with "a seat's draft over the operator is refused" "operator already answered this at" \
+    env FLEET_PANE=manager:idealic "$ASK_SH" draft idealic:kernel/op1 --revision 2 --json '{"GO":["YES"]}'
+  assert_eq "$before" "$(cat "$f")" "the refused answer and draft write nothing"
+  as_op answer idealic:kernel/op1 --revision 2 --json '{"GO":["YES"]}' >/dev/null
+  assert_contains '"YES"' "$(sed -n '/```json answer/,/```$/p' "$f")" "the operator changes its own answer"
+}
+
 run_discovered_tests
