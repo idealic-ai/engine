@@ -29,6 +29,17 @@ describe("untaggedFenceLines", () => {
   it("a longer fence holds a shorter untagged run as content", () => {
     expect(untaggedFenceLines("````md\n```\ninner\n```\n````\n")).toEqual([]);
   });
+  it("a backtick run whose info holds a backtick is inline code, not a fence (CommonMark)", () => {
+    // Without the rule, "```a`b" opens a phantom fence and the bare run after it reads as its closer.
+    expect(untaggedFenceLines("```a`b\nx\n```")).toEqual([3]);
+    // A prose line that starts with inline code must not shift the pairing of the fences after it:
+    // read as a phantom fence, it is closed by the inner bare run and the next one reads as an opener.
+    const body = "```npm test``` is the command\n\n````md\n```\ninner\n```\n````\n";
+    expect(untaggedFenceLines(body)).toEqual([]);
+    expect(() => mk("bt1", GO + "\n" + body)).not.toThrow();
+    // A tilde fence may hold a backtick in its info; it is a fence, and tagged.
+    expect(untaggedFenceLines("~~~a`b\nx\n~~~\n")).toEqual([]);
+  });
   it("an indented fence under an option counts", () => {
     expect(untaggedFenceLines("## ¶ASK_Q: Choose one: Q?\n- [ ] [A] a\n  ```\n  code\n  ```\n- [ ] [B] b\n")).toEqual([3]);
   });
@@ -59,6 +70,36 @@ describe("new refuses an untagged fence", () => {
   it("a fence indented under an option counts too", () => {
     const body = "## ¶ASK_Q: Choose one: Which shape?\n- [ ] [A] Tuple\n  The caller destructures it.\n  ```\n  const [ok, err] = run();\n  ```\n- [ ] [B] Throw\n";
     expect(() => mk("u3", body)).toThrow("line 4: fenced block has no language");
+  });
+
+  it("a fence left open at the end adds a mispairing hint naming its line", () => {
+    // A fork line opened with a backtick in its info is not a fence to the checker, so the bare run
+    // meant to close it is named as an untagged opener and is still open at the end of the body.
+    const body = "## ¶ASK_Q: Choose one: X?\n- [ ] [A] a\n```a`b\n- [ ] [B] b\n```\n";
+    let err: unknown;
+    try {
+      mk("mp1", body);
+    } catch (e) {
+      err = e;
+    }
+    expect(err).toBeInstanceOf(UntaggedFenceError);
+    expect((err as UntaggedFenceError).lines).toEqual([5]);
+    expect((err as Error).message.split("\n")).toEqual([
+      "line 5: fenced block has no language; write ```text if nothing fits",
+      "fences may be mispaired: the fence opened on line 5 is never closed; if line 5 is meant to close a block, check the fence that opens before it",
+    ]);
+  });
+
+  it("an unclosed fence under an option shifts the pairing: the closer named is hinted at", () => {
+    // Line 3 never closes, so line 7 reads as its closer and line 9, really a closer, as a bare opener.
+    const body = "## ¶ASK_Q: Choose one: Q?\n- [ ] [A] a\n  ```ts\n  oops\n- [ ] [B] b\n\n```\nx\n```\n";
+    expect(() => mk("mp2", body)).toThrow(
+      "line 9: fenced block has no language; write ```text if nothing fits\nfences may be mispaired: the fence opened on line 9 is never closed",
+    );
+  });
+
+  it("a well-paired refusal carries no mispairing hint", () => {
+    expect(() => mk("mp3", GO + "\n```\na\n```\n")).toThrow(/^line 5: fenced block has no language; write ```text if nothing fits$/);
   });
 
   it("tagged fences pass, top-level and indented, and `text` is a tag", () => {

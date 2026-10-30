@@ -38,6 +38,9 @@
 #                  "moved 0 asks and changed 0 fields"; a run that stops partway is finished by running it again
 #   engine ask serve [dir] [--port N] [--stop]   start (or reuse) the local app on 127.0.0.1
 #
+# Exit: 0 done; 1 refused or failed; 2 only from new/revise, when the body holds a fenced block
+#      with no language (stderr names each such line, every line prefixed "ask: "; tag it, ```text
+#      if nothing fits). A body that also holds a record fence exits 1: that check runs first.
 # Identity: a seat (FLEET_PANE set) acts as itself; --by naming anyone else, or operator, is refused.
 #      With no FLEET_PANE the shell is not a seat and --by is required (the operator: --by operator).
 # Env: ASK_ROOT (default ~/.claude/data/yarik/asks), ASK_SESSIONS_DIR (default ~/.claude/sessions),

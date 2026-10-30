@@ -233,27 +233,43 @@ export class AskFormatError extends Error {
  * are content, so a shorter run held by a longer fence is never counted.
  */
 export function untaggedFenceLines(body: string): number[] {
-  const out: number[] = [];
+  return scanFences(body).untagged;
+}
+
+/** The fence scan behind untaggedFenceLines; `openAt` is the line of a fence still open at the end, if any. */
+function scanFences(body: string): { untagged: number[]; openAt: number | null } {
+  const untagged: number[] = [];
   let open: string | null = null;
+  let openAt: number | null = null;
   body.split("\n").forEach((line, i) => {
     const t = line.trim();
     if (open) {
-      if (t.startsWith(open) && new RegExp(`^\\${open[0]}+$`).test(t)) open = null;
+      if (t.startsWith(open) && new RegExp(`^\\${open[0]}+$`).test(t)) open = openAt = null;
       return;
     }
     const m = t.match(/^(`{3,}|~{3,})(.*)$/);
+    // CommonMark: a backtick run whose info string holds a backtick is inline code, not a fence.
     if (!m || (m[1][0] === "`" && m[2].includes("`"))) return;
     open = m[1];
-    if (!m[2].trim()) out.push(i + 1);
+    openAt = i + 1;
+    if (!m[2].trim()) untagged.push(i + 1);
   });
-  return out;
+  return { untagged, openAt };
 }
 
-/** `new` and `revise` refuse a body whose fences lack a language; the CLI exits 2 on it. */
+/**
+ * `new` and `revise` refuse a body whose fences lack a language; the CLI exits 2 on it. When a fence
+ * is still open at the end of the body, the pairing is likely off by one (a fence left unclosed, or
+ * one opened with a backtick in its info), so the line named may be a closer: a hint line says so.
+ */
 export class UntaggedFenceError extends AskFormatError {
   readonly lines: number[];
-  constructor(lines: number[]) {
-    super(lines.map((n) => `line ${n}: fenced block has no language; write \`\`\`text if nothing fits`).join("\n"));
+  constructor(lines: number[], openAt: number | null = null) {
+    const rows = lines.map((n) => `line ${n}: fenced block has no language; write \`\`\`text if nothing fits`);
+    if (openAt !== null) {
+      rows.push(`fences may be mispaired: the fence opened on line ${openAt} is never closed; if line ${openAt} is meant to close a block, check the fence that opens before it`);
+    }
+    super(rows.join("\n"));
     this.name = "UntaggedFenceError";
     this.lines = lines;
   }
@@ -261,8 +277,8 @@ export class UntaggedFenceError extends AskFormatError {
 
 /** Throws UntaggedFenceError when any fence in an authored body has no language. */
 export function assertFenceLanguages(body: string): void {
-  const lines = untaggedFenceLines(body);
-  if (lines.length) throw new UntaggedFenceError(lines);
+  const { untagged, openAt } = scanFences(body);
+  if (untagged.length) throw new UntaggedFenceError(untagged, openAt);
 }
 
 /**

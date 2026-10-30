@@ -990,4 +990,15 @@ test_fencelang_new_and_revise_refuse_an_untagged_fence_with_exit_2() {
   assert_contains "fenced block has no language" "$out" "revise names it"
 }
 
+test_fencelang_every_line_of_a_multi_line_refusal_starts_with_ask_prefix() {
+  local bf="$TMP/untagged2.md" rc out n bad
+  printf '%s\n\n```\na\n```\n\n```\nb\n```\n' "$BODY" > "$bf"
+  out=$("$ASK_SH" new --id fl3 --body-file "$bf" 2>&1 >/dev/null); rc=$?
+  assert_eq "2" "$rc" "new exits 2 on two untagged fences"
+  n=$(printf '%s\n' "$out" | grep -c 'fenced block has no language')
+  assert_eq "2" "$n" "both untagged fences are named, one line each"
+  bad=$(printf '%s\n' "$out" | grep -vc '^ask: ' || true)
+  assert_eq "0" "$bad" "every stderr line of the refusal starts with ask: "
+}
+
 run_discovered_tests
