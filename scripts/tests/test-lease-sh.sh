@@ -1,5 +1,6 @@
 #!/bin/bash
-# tests/test-lease-sh.sh — Tests for lease.sh (`engine lease take|release|show`), the landing lease v2.
+# tests/test-lease-sh.sh — Tests for lease.sh (`engine lease take|release|show|check`), the landing lease v2, per
+# (repo, branch) since L40.
 # Run: bash ~/.claude/engine/scripts/tests/run-all.sh test-lease-sh.sh
 #      bash ~/.claude/engine/scripts/tests/test-lease-sh.sh
 #
@@ -54,8 +55,8 @@ reset
 out="$(run take studio --repo kit --branch main --what 'IDE-1 fix' 2>&1)"; rc=$?
 assert_eq 0 "$rc" "L3  take on an absent directory succeeds"
 assert_contains "created $DIR" "$out" "L3  take says it created the directory (the landing record must say so)"
-f="$DIR/studio.lease"
-assert_file_exists "$f" "L3  take writes the seat's own file"
+f="$DIR/studio@kit@main.lease"
+assert_file_exists "$f" "L3  take writes the seat's own file for its scope (<seat>@<repo>@<branch>.lease)"
 taken="$(sed -n 's/^taken=//p' "$f")"; expires="$(sed -n 's/^expires=//p' "$f")"
 assert_contains 'Z$' "$taken" "L3  taken= is UTC with a trailing Z"
 te="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$taken" +%s 2>/dev/null || date -u -d "$taken" +%s)"
@@ -67,7 +68,7 @@ out="$(run take ui --repo kit --branch main --what 'other' 2>&1)"; rc=$?
 assert_neq 0 "$rc" "L4  take over another seat's unexpired lease is refused"
 assert_contains "studio" "$out" "L4  the refusal names the holder"
 assert_contains "$expires" "$out" "L4  the refusal names when the lease expires"
-assert_file_not_exists "$DIR/ui.lease" "L4  the refused seat leaves no file behind"
+assert_file_not_exists "$DIR/ui@kit@main.lease" "L4  the refused seat leaves no file behind"
 out="$(run show 2>&1)"
 assert_contains "held by studio" "$out" "L4  show names the live holder"
 
@@ -102,11 +103,11 @@ assert_contains "aa" "$out" "L8  the later row is still listed"
 # L9 — a seat name with a colon (the fleet's form) maps to a safe file name and keeps its name inside.
 reset
 run take manager:domain --repo engine --branch b >/dev/null 2>&1
-assert_file_exists "$DIR/manager_domain.lease" "L9  'manager:domain' writes manager_domain.lease"
+assert_file_exists "$DIR/manager_domain@engine@b.lease" "L9  'manager:domain' writes manager_domain@engine@b.lease"
 out="$(run show 2>&1)"
 assert_contains "held by manager:domain" "$out" "L9  show prints the seat's real name"
 run release manager:domain >/dev/null 2>&1
-assert_file_not_exists "$DIR/manager_domain.lease" "L9  release by the same name finds the file"
+assert_file_not_exists "$DIR/manager_domain@engine@b.lease" "L9  release by the same name finds the file"
 
 # L10 — M2: a local-time stamp written with a Z (UTC+8 here) reads 8h in the future. It is not a lease.
 reset; mkdir -p "$DIR"; now=$(date -u +%s)
@@ -131,7 +132,7 @@ assert_contains "held by ui" "$out" "L11 a row 10s old with expires= 1h out is l
 # L12 — the writer stamps UTC, even when the caller's TZ is not UTC.
 reset
 LANDING_LEASE_DIR="$DIR" TZ=Asia/Shanghai bash "$LEASE" take studio --repo kit --branch main >/dev/null 2>&1
-taken="$(sed -n 's/^taken=//p' "$DIR/studio.lease" 2>/dev/null)"
+taken="$(sed -n 's/^taken=//p' "$DIR/studio@kit@main.lease" 2>/dev/null)"
 te="$(date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$taken" +%s 2>/dev/null || date -u -d "$taken" +%s 2>/dev/null || echo 0)"
 d=$(( $(date -u +%s) - te )); [ "$d" -lt 0 ] && d=$((-d))
 [ "$d" -le 10 ] && pass "L12 under TZ=Asia/Shanghai taken= is UTC (off by ${d}s)" || fail "L12 taken= is UTC under a non-UTC TZ" "within 10s of now" "off by ${d}s ($taken)"
@@ -149,13 +150,13 @@ assert_contains "nobody holds a lease" "$out" "L13 a '+08:00' stamp is not a lea
 # and the later taker deletes its own file and refuses. The settle window is widened so the plant is deterministic.
 reset; mkdir -p "$DIR"
 ( LANDING_LEASE_DIR="$DIR" LANDING_LEASE_SETTLE=3 bash "$LEASE" take studio --repo kit --branch main > "$TMP_DIR/l14.out" 2>&1; echo $? > "$TMP_DIR/l14.rc" ) &
-i=0; while [ ! -f "$DIR/studio.lease" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+i=0; while [ ! -f "$DIR/studio@kit@main.lease" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
 now=$(date -u +%s)
 printf 'seat=ui\nrepo=kit\nbranch=main\ntaken=%s\nexpires=%s\nwhat=x\n' "$(iso_at $((now-30)))" "$(iso_at $((now+570)))" > "$DIR/ui.lease"
 wait
 assert_eq 1 "$(cat "$TMP_DIR/l14.rc")" "L14 a take that is overtaken by an earlier taken= after its write is refused"
 assert_contains "lost the tiebreak" "$(cat "$TMP_DIR/l14.out")" "L14 the refusal says it lost the tiebreak"
-assert_file_not_exists "$DIR/studio.lease" "L14 the loser deletes its own file"
+assert_file_not_exists "$DIR/studio@kit@main.lease" "L14 the loser deletes its own file"
 assert_file_exists "$DIR/ui.lease" "L14 the winner's file is untouched"
 
 # L15 — M1: two seats taking at the same moment get exactly one winner, over many concurrent pairs.
@@ -345,7 +346,7 @@ assert_eq 0 "$rc" "L33 folding does not widen: engine's lease still does not sto
 reset; mkdir -p "$DIR/history.log"
 out="$(run take runner --repo kit --branch main 2>&1)"; rc=$?
 assert_eq 0 "$rc" "L34 take succeeds when history.log cannot be appended to"
-assert_file_exists "$DIR/runner.lease" "L34 and the lease is held"
+assert_file_exists "$DIR/runner@kit@main.lease" "L34 and the lease is held"
 out="$(run release runner 2>&1)"; rc=$?
 assert_eq 0 "$rc" "L34 release succeeds when history.log cannot be appended to"
 
@@ -392,5 +393,171 @@ run take runner --repo kit --branch main --what "$(printf 'a\302\205b\342\200\25
 h="$DIR/history.log"
 assert_eq "what=a b c d" "$(awk -F'\t' '{print $7}' "$h")" "L39 NEL, LS and PS in what= are folded to spaces"
 assert_eq 0 "$(LC_ALL=C grep -c "$(printf '\302\205')\|$(printf '\342\200\250')\|$(printf '\342\200\251')" "$h")" "L39 history.log holds none of the three"
+
+# L40-L47 — the lease is per (repo, branch). A live lease refuses a take only where its scope overlaps the taker's:
+# the same normalised repo and branch, or a lease that names no repo (or no branch), which covers every repo (or
+# every branch) exactly as `check` counts it (L30). A file with no repo=/branch= lines (written before scopes, or by
+# hand) is therefore a lease on everything until it expires. Before this, take refused on ANY live lease, so an
+# engine landing held kit's trunk and the reverse.
+
+# L40 — an engine/main holder does not block a kit/main take, and both leases are then live.
+reset
+run take meta:engine --repo engine --branch main --what "engine PR" >/dev/null 2>&1
+out="$(run take core:world --repo kit --branch main --what "kit PR" 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L40 a kit/main take succeeds while engine/main is held"
+assert_contains "taken by core:world" "$out" "L40 and says it was taken"
+assert_file_exists "$DIR/meta_engine@engine@main.lease" "L40 the engine/main lease is still on disk"
+assert_file_exists "$DIR/core_world@kit@main.lease" "L40 the kit/main lease has its own file"
+out="$(run check ui --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L40 a third seat's kit/main check now sees core:world"
+assert_contains "core:world" "$out" "L40 and names core:world, not the engine holder"
+out="$(run check ui --repo engine --branch main 2>&1)"; rc=$?
+assert_contains "meta:engine" "$out" "L40 an engine/main check names meta:engine"
+
+# L41 — a kit/main holder still blocks a second kit/main take, however the second spells the scope.
+reset
+run take core:world --repo kit --branch main >/dev/null 2>&1
+out="$(run take packages:schemistry --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L41 a second kit/main take is refused"
+assert_contains "held by core:world" "$out" "L41 and the refusal names the holder"
+assert_file_not_exists "$DIR/packages_schemistry@kit@main.lease" "L41 the refused seat leaves no file"
+out="$(run take packages:schemistry --repo Kit --branch refs/heads/main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L41 a take spelled --repo Kit --branch refs/heads/main is the same scope and is refused"
+out="$(run take packages:schemistry --repo kit --branch dev 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L41 a kit/dev take is another scope and succeeds"
+out="$(run take packages:schemistry --repo kit 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L41 a take with --repo kit and no branch covers kit/main and is refused"
+out="$(run take packages:schemistry 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L41 a take with no scope covers every trunk and is refused"
+
+# L42 — the tie-break within one scope: a row with an earlier taken= on the SAME scope that appears after the take's
+# first look wins; the same plant on ANOTHER scope does not touch the take (the control that shows the tie-break is
+# scoped, not global).
+reset; mkdir -p "$DIR"
+( LANDING_LEASE_DIR="$DIR" LANDING_LEASE_SETTLE=3 bash "$LEASE" take studio --repo kit --branch main > "$TMP_DIR/l42.out" 2>&1; echo $? > "$TMP_DIR/l42.rc" ) &
+i=0; while [ ! -f "$DIR/studio@kit@main.lease" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+now=$(date -u +%s)
+printf 'seat=ui\nrepo=kit\nbranch=main\ntaken=%s\nexpires=%s\nwhat=x\n' "$(iso_at $((now-30)))" "$(iso_at $((now+570)))" > "$DIR/ui@kit@main.lease"
+wait
+assert_eq 1 "$(cat "$TMP_DIR/l42.rc")" "L42 a kit/main take overtaken by an earlier kit/main taken= is refused"
+assert_contains "lost the tiebreak" "$(cat "$TMP_DIR/l42.out")" "L42 the refusal says it lost the tiebreak"
+assert_file_not_exists "$DIR/studio@kit@main.lease" "L42 the loser deletes its own file"
+reset; mkdir -p "$DIR"
+( LANDING_LEASE_DIR="$DIR" LANDING_LEASE_SETTLE=3 bash "$LEASE" take studio --repo kit --branch main > "$TMP_DIR/l42b.out" 2>&1; echo $? > "$TMP_DIR/l42b.rc" ) &
+i=0; while [ ! -f "$DIR/studio@kit@main.lease" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i+1)); done
+now=$(date -u +%s)
+printf 'seat=ui\nrepo=engine\nbranch=main\ntaken=%s\nexpires=%s\nwhat=x\n' "$(iso_at $((now-30)))" "$(iso_at $((now+570)))" > "$DIR/ui@engine@main.lease"
+wait
+assert_eq 0 "$(cat "$TMP_DIR/l42b.rc")" "L42 an earlier engine/main row does not win a kit/main tie-break"
+assert_file_exists "$DIR/studio@kit@main.lease" "L42 and the kit/main take keeps its file"
+
+# L43 — concurrent takes in two scopes both succeed, over many pairs; and the take lock is per scope, so a take is
+# not held up by another scope's lock.
+TRIALS=20; bad=0
+for n in $(seq 1 $TRIALS); do
+  D="$TMP_DIR/race2/$n"; mkdir -p "$D"
+  ( LANDING_LEASE_DIR="$D" bash "$LEASE" take aa --repo kit --branch main > "$D/.out-aa" 2>&1; echo $? > "$D/.rc-aa" ) &
+  ( LANDING_LEASE_DIR="$D" bash "$LEASE" take zz --repo engine --branch main > "$D/.out-zz" 2>&1; echo $? > "$D/.rc-zz" ) &
+done
+wait
+for n in $(seq 1 $TRIALS); do
+  D="$TMP_DIR/race2/$n"
+  [ "$(cat "$D/.rc-aa")" = 0 ] && [ "$(cat "$D/.rc-zz")" = 0 ] || { bad=$((bad+1)); echo "  L43 trial $n: aa rc=$(cat "$D/.rc-aa") zz rc=$(cat "$D/.rc-zz")"; cat "$D/.out-aa" "$D/.out-zz" 2>/dev/null | sed 's/^/    /'; }
+done
+assert_eq 0 "$bad" "L43 $TRIALS concurrent kit/main + engine/main take pairs both succeed"
+TRIALS=20; bad=0
+for n in $(seq 1 $TRIALS); do
+  D="$TMP_DIR/race3/$n"; mkdir -p "$D"
+  ( LANDING_LEASE_DIR="$D" bash "$LEASE" take aa --repo kit --branch main > "$D/.out-aa" 2>&1; echo $? > "$D/.rc-aa" ) &
+  ( LANDING_LEASE_DIR="$D" bash "$LEASE" take zz --repo KIT --branch refs/heads/main > "$D/.out-zz" 2>&1; echo $? > "$D/.rc-zz" ) &
+done
+wait
+for n in $(seq 1 $TRIALS); do
+  D="$TMP_DIR/race3/$n"; w=0
+  [ "$(cat "$D/.rc-aa")" = 0 ] && w=$((w+1)); [ "$(cat "$D/.rc-zz")" = 0 ] && w=$((w+1))
+  [ "$w" = 1 ] || { bad=$((bad+1)); echo "  L43 trial $n (same scope): aa rc=$(cat "$D/.rc-aa") zz rc=$(cat "$D/.rc-zz")"; }
+done
+assert_eq 0 "$bad" "L43 $TRIALS concurrent same-scope pairs (kit/main and KIT/refs/heads/main) each have exactly one winner"
+reset; mkdir -p "$DIR/.take.lock@kit@main"
+start=$(date -u +%s)
+out="$(run take zz --repo engine --branch main 2>&1)"; rc=$?
+took=$(( $(date -u +%s) - start ))
+assert_eq 0 "$rc" "L43 an engine/main take succeeds while kit/main's take lock is held"
+[ "$took" -le 3 ] && pass "L43 and does not wait on it (${took}s)" || fail "L43 an engine/main take does not wait on kit/main's lock" "<= 3s" "${took}s"
+( LANDING_LEASE_DIR="$DIR" bash "$LEASE" take aa --repo Kit --branch refs/heads/main > "$TMP_DIR/l43.out" 2>&1; echo $? > "$TMP_DIR/l43.rc" ) &
+sleep 1.5
+assert_file_not_exists "$DIR/aa@kit@main.lease" "L43 a kit/main take writes nothing while kit/main's take lock is held"
+rmdir "$DIR/.take.lock@kit@main"; wait
+assert_eq 0 "$(cat "$TMP_DIR/l43.rc")" "L43 and proceeds once it is released"
+
+# L44 — an old lease file with no repo=/branch= lines covers everything until it expires: it refuses a kit/main and an
+# engine/main take alike, and once expired it refuses nothing.
+reset; mkdir -p "$DIR"; now=$(date -u +%s)
+printf 'seat=old\ntaken=%s\nexpires=%s\nwhat=pre-scope\n' "$(iso_at $((now-5)))" "$(iso_at $((now+595)))" > "$DIR/old.lease"
+out="$(run take core:world --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L44 an old unscoped lease refuses a kit/main take"
+assert_contains "held by old" "$out" "L44 and names it"
+out="$(run take meta:engine --repo engine --branch main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L44 an old unscoped lease refuses an engine/main take"
+printf 'seat=old\ntaken=%s\nexpires=%s\nwhat=pre-scope\n' "$(iso_at $((now-900)))" "$(iso_at $((now-300)))" > "$DIR/old.lease"
+out="$(run take core:world --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L44 once expired the old lease refuses nothing"
+
+# L45 — show lists every live lease with its scope; --repo/--branch narrows it to the leases that cover that trunk.
+reset
+run take meta:engine --repo engine --branch main >/dev/null 2>&1
+run take core:world --repo kit --branch main >/dev/null 2>&1
+out="$(run show 2>&1)"
+assert_contains "held by meta:engine (repo=engine branch=main" "$out" "L45 show lists the engine/main holder with its scope"
+assert_contains "held by core:world (repo=kit branch=main" "$out" "L45 show lists the kit/main holder with its scope"
+assert_not_contains "later take" "$out" "L45 two disjoint scopes are both holders, neither a later take"
+out="$(run show --repo Kit --branch refs/heads/main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L45 show --repo --branch exits 0"
+assert_contains "held by core:world" "$out" "L45 show --repo kit --branch main lists kit/main's holder"
+assert_not_contains "meta:engine" "$out" "L45 and not engine/main's"
+out="$(run show --repo kit --branch dev 2>&1)"
+assert_contains "nobody holds a lease that covers kit/dev" "$out" "L45 show for a free scope says nobody holds that scope"
+out="$(run show --what x 2>&1)"; rc=$?
+assert_eq 2 "$rc" "L45 show with an unknown argument is exit 2"
+
+# L46 — a seat may hold one lease per scope; release with a scope releases that scope only, and with no scope every
+# lease the seat holds (LANDING.md's `engine lease release <seat>`). history.log keeps its format: one release line,
+# seat= only, per file removed.
+reset
+run take runner --repo kit --branch main >/dev/null 2>&1
+out="$(run take runner --repo engine --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L46 a seat holding kit/main may also take engine/main"
+out="$(run take runner --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 1 "$rc" "L46 but not a second kit/main"
+assert_contains "already holds" "$out" "L46 and is told it already holds it"
+run release runner --repo engine --branch main >/dev/null 2>&1
+assert_file_not_exists "$DIR/runner@engine@main.lease" "L46 a scoped release removes that scope's file"
+assert_file_exists "$DIR/runner@kit@main.lease" "L46 and leaves the seat's other scope held"
+run take runner --repo engine --branch main >/dev/null 2>&1
+run take ui --repo kit --branch dev >/dev/null 2>&1
+lines_before=$(wc -l < "$DIR/history.log" | tr -d ' ')
+out="$(run release runner 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L46 an unscoped release exits 0"
+assert_contains "released by runner (repo=kit branch=main)" "$out" "L46 and names each scope it released"
+assert_file_not_exists "$DIR/runner@kit@main.lease" "L46 an unscoped release removes the seat's kit/main lease"
+assert_file_not_exists "$DIR/runner@engine@main.lease" "L46 and its engine/main lease"
+assert_file_exists "$DIR/ui@kit@dev.lease" "L46 and nobody else's"
+assert_eq $((lines_before + 2)) "$(wc -l < "$DIR/history.log" | tr -d ' ')" "L46 two files removed append two release lines"
+assert_eq "release	seat=runner" "$(tail -1 "$DIR/history.log" | cut -f2-)" "L46 a release line is still release + seat= only"
+out="$(run release ui --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L46 releasing a scope the seat does not hold exits 0"
+assert_file_exists "$DIR/ui@kit@dev.lease" "L46 and removes nothing"
+
+# L47 — the kit pre-push call, unchanged: `check <seat> --repo kit --branch main` sees kit/main's holder, ignores an
+# engine/main holder, and lets the kit/main holder itself through.
+reset
+run take meta:engine --repo engine --branch main >/dev/null 2>&1
+out="$(run check core:world --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L47 kit's pre-push check passes while only engine/main is held"
+run take core:world --repo kit --branch main >/dev/null 2>&1
+out="$(run check core:world --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 0 "$rc" "L47 the kit/main holder passes its own check"
+out="$(run check packages:schemistry --repo kit --branch main 2>&1)"; rc=$?
+assert_eq 3 "$rc" "L47 another seat's kit/main check is refused"
 
 exit_with_results
