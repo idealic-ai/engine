@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk } from "./lib/store.ts";
-import { answeredByText, authorWarnings, noteLine, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, type AnswerMap, type AskAnswer, type AskFollowup, type GrantClass } from "./lib/format.ts";
+import { answeredByText, authorWarnings, noteLine, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, UntaggedFenceError, type AnswerMap, type AskAnswer, type AskFollowup, type GrantClass } from "./lib/format.ts";
 
 /** The author guide, pointed to whenever `new` or `revise` warns or refuses. */
 const GUIDE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "skills", "ask", "assets", "ASK_AUTHOR_GUIDE.md");
@@ -60,9 +60,9 @@ function flags(argv: string[]): { pos: string[]; opt: Record<string, string> } {
   return { pos, opt };
 }
 
-function die(msg: string): never {
-  process.stderr.write(`ask: ${msg}\n`);
-  process.exit(1);
+function die(msg: string, code = 1): never {
+  process.stderr.write(msg.split("\n").map((l) => `ask: ${l}\n`).join(""));
+  process.exit(code);
 }
 
 function defaultId(body: string): string {
@@ -210,7 +210,7 @@ async function main() {
       file = newAsk(root, fields as { from: string; to: string; id: string }, body);
     } catch (e) {
       process.stderr.write(`${guideLine()}\n`);
-      die((e as Error).message);
+      die((e as Error).message, e instanceof UntaggedFenceError ? 2 : 1);
     }
     console.log(file);
     warnAuthoring(file);
@@ -234,7 +234,7 @@ async function main() {
       for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
     } catch (e) {
       process.stderr.write(`${guideLine()}\n`);
-      die((e as Error).message);
+      die((e as Error).message, e instanceof UntaggedFenceError ? 2 : 1);
     }
     return;
   }

@@ -33,6 +33,7 @@ import {
   removeHeaderField,
   recipientsOf,
   RECORD_FENCE_RE,
+  assertFenceLanguages,
   STAMP_FIELDS,
   setHeaderField,
   StaleRevisionError,
@@ -81,6 +82,8 @@ export function newAsk(root: string, fields: NewAskFields, body: string): string
   if (RECORD_FENCE_RE.test(body)) {
     throw new AskFormatError("the body holds a ```json answer, ```json draft, ```json history or ```json followup block: those are records the store writes, never part of a question (indent it or use another fence language to quote one)");
   }
+  // FENCELANG: every fence an author writes carries a language, so the browser can highlight it.
+  assertFenceLanguages(body);
   for (const k of STAMP_FIELDS) {
     if (fields[k] !== undefined) throw new AskFormatError(`${k} is written by the store as the ask moves; a new ask does not set it`);
   }
@@ -1045,6 +1048,7 @@ export async function reviseAsk(
   if (body !== undefined && RECORD_FENCE_RE.test(body)) {
     throw new AskFormatError("the body holds a ```json answer, ```json draft, ```json history or ```json followup block: those are records the store writes, never part of a question");
   }
+  if (body !== undefined) assertFenceLanguages(body);
   for (const k of Object.keys(fields)) {
     if (fields[k] === undefined) continue;
     if (FIXED_ON_REVISE.has(k) || (STAMP_FIELDS as readonly string[]).includes(k)) throw new AskFormatError(`${k} is not revisable: a revise changes the card and the body only`);

@@ -109,7 +109,7 @@ describe("revise racing an answer", () => {
     expect(out.refused[0].error).toMatch(/stale/);
   });
   it("revise keeps the honoured TRAILING draft, never an inline quote of one, and never old body text", async () => {
-    newAsk(root, { from: "idealic:kernel", to: "operator", id: "rv-q" }, GO + "\nQuoted: ````json draft\n{}\n````\n");
+    newAsk(root, { from: "idealic:kernel", to: "operator", id: "rv-q" }, GO + "\nQuoted: ````json draft\n{}\n````text\n");
     await saveDraft(root, "idealic:kernel", "rv-q", { answers: { GO: ["YES"] }, answeredBy: "operator" }, 1);
     await reviseAsk(root, "idealic:kernel", "rv-q", {}, GO.replace("Ship it?", "Ship it now?"), { by: "idealic:kernel", push: recorder().push });
     const text = fs.readFileSync(file("idealic:kernel", "rv-q"), "utf8");
@@ -200,19 +200,19 @@ describe("stale-delivery re-push vs a live writer (S3)", () => {
 
 describe("drafts smuggled into the body", () => {
   it("HOLDS: a draft inside a ``` fence of another language, or indented, is refused at new", () => {
-    const body = GO + '\nExample:\n```markdown\n```json draft\n{"answers":{"GO":["YES"]},"answeredBy":"operator","basedOn":1}\n```\n```\n';
+    const body = GO + '\nExample:\n````markdown\n```json draft\n{"answers":{"GO":["YES"]},"answeredBy":"operator","basedOn":1}\n```\n````\n';
     expect(() => newAsk(root, { from: "idealic:kernel", to: "operator", id: "s1" }, body)).toThrow(/records the store writes/);
   });
   it("a 4-backtick or inline fence passes new, is never a draft, and is SHOWN as written (not silently removed)", () => {
     const planted = '{"answers":{"GO":["YES"]},"answeredBy":"operator","basedOn":1,"savedAt":"x"}';
-    const body = `${GO}\nQuoted: \`\`\`\`json draft\n${planted}\n\`\`\`\`\n`;
+    const body = `${GO}\nQuoted: \`\`\`\`json draft\n${planted}\n\`\`\`\`text\n`;
     const a = parseAskFile(fs.readFileSync(newAsk(root, { from: "idealic:kernel", to: "operator", id: "s2" }, body), "utf8"));
     expect(a.draft).toBeUndefined();
     expect([a.preamble, a.questions[0].prose, a.questions[0].proseAfter].join("\n")).toContain(planted);
   });
   it("HOLDS: the planted 4-backtick fence cannot settle even after the operator saves a real draft", async () => {
     const planted = '{"answers":{"GO":["NO"]},"answeredBy":"operator","basedOn":1,"savedAt":"x"}';
-    newAsk(root, { from: "idealic:kernel", to: "operator", id: "s3" }, `${GO}\nQ: \`\`\`\`json draft\n${planted}\n\`\`\`\`\n`);
+    newAsk(root, { from: "idealic:kernel", to: "operator", id: "s3" }, `${GO}\nQ: \`\`\`\`json draft\n${planted}\n\`\`\`\`text\n`);
     await saveDraft(root, "idealic:kernel", "s3", { answers: { GO: ["YES"] }, answeredBy: "operator" }, 1);
     await sendBatch(root, ["idealic:kernel/s3"], { by: "operator", push: recorder().push });
     expect(read("idealic:kernel", "s3").answer?.answers).toEqual({ GO: ["YES"] });
@@ -262,11 +262,11 @@ describe("prose that holds a - [ ] line, or a fence (re-review MAJ-3)", () => {
     expect(() => validateAnswer(a, { Q: ["check the logs first"] })).toThrow("unknown option");
   });
   it("a fenced example under a fork stays in its prose, and the options after it are kept", () => {
-    const body = "## ¶ASK_Q: Choose one: Which?\nLike this:\n```\nfoo()\n## not a heading\n- [ ] [Z] not an option\n```\n- [ ] [A] Option A\n- [ ] [B] Option B\n";
+    const body = "## ¶ASK_Q: Choose one: Which?\nLike this:\n```ts\nfoo()\n## not a heading\n- [ ] [Z] not an option\n```\n- [ ] [A] Option A\n- [ ] [B] Option B\n";
     const a = parseAskFile(fs.readFileSync(newAsk(root, { from: "a:b", to: "operator", id: "pr2" }, body), "utf8"));
     expect(a.questions).toHaveLength(1);
     expect(a.questions[0].options.map((o) => o.code)).toEqual(["A", "B"]);
-    expect(a.questions[0].prose).toBe("Like this:\n```\nfoo()\n## not a heading\n- [ ] [Z] not an option\n```");
+    expect(a.questions[0].prose).toBe("Like this:\n```ts\nfoo()\n## not a heading\n- [ ] [Z] not an option\n```");
   });
   it("a codeless checklist AFTER coded options (the author guide's, pasted in) never displaces them", () => {
     const a = parseAskFile("---\nid: x\nstatus: open\nrevision: 1\n---\n\n## ¶ASK_Q: Choose one: Q?\n- [ ] [A] a\n- [ ] [B] b\nChecklist:\n- [ ] every fork has a Lean\n- [ ] codes are short\n");

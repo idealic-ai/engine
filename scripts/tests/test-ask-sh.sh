@@ -974,4 +974,20 @@ test_askfollowup_operator_drafts_over_a_seat_answer_and_sends_an_overrule() {
   assert_contains "overruled: manager:idealic" "$(cat "$f")" "and overrules the seat"
 }
 
+test_fencelang_new_and_revise_refuse_an_untagged_fence_with_exit_2() {
+  local bf="$TMP/untagged.md" rc out
+  printf 'Context.\n\n```\nnpm test\n```\n\n%s\n' "$BODY" > "$bf"
+  out=$("$ASK_SH" new --id fl1 --body-file "$bf" 2>&1); rc=$?
+  assert_eq "2" "$rc" "new exits 2 on a fence with no language"
+  assert_contains 'line 3: fenced block has no language; write ```text if nothing fits' "$out" "new names the line and the text hint"
+  [ -e "$ASK_ROOT/idealic:kernel/fl1.md" ] && fail "new writes nothing when refused" "no file" "file exists" || pass "new writes nothing when refused"
+  printf '```text\nnpm test\n```\n\n%s\n' "$BODY" > "$bf"
+  "$ASK_SH" new --id fl2 --body-file "$bf" >/dev/null 2>&1; rc=$?
+  assert_eq "0" "$rc" "new accepts a fence tagged text"
+  printf '%s\n\n```\nx\n```\n' "$BODY" > "$bf"
+  out=$("$ASK_SH" revise idealic:kernel/fl2 --body-file "$bf" 2>&1); rc=$?
+  assert_eq "2" "$rc" "revise exits 2 on a fence with no language"
+  assert_contains "fenced block has no language" "$out" "revise names it"
+}
+
 run_discovered_tests

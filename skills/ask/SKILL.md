@@ -190,4 +190,5 @@ Answered, that is `{"ORDER":["MGR","OPS","LAN"],"NAME":"the ask digest","DAYS":7
 
 *   **Never answer your own ask.** An ask is a question to somebody else; answering it yourself is deciding without the record saying so.
 *   **One question per decision, many decisions per file.** Put related forks in one file with `DependsOn` between them rather than a chain of files the answerer has to reassemble.
+*   **Every fence carries a language.** A fenced block in an ask body opens with its language, `text` when nothing fits; `new` and `revise` refuse (exit 2) an untagged one, naming its line. See the author guide's "What the parser reads today".
 *   **The answer is the file's.** A reply sent only as a message, with nothing written to the file, is lost the moment the asker's context ends.

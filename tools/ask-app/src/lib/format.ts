@@ -227,6 +227,45 @@ export class AskFormatError extends Error {
 }
 
 /**
+ * FENCELANG: the 1-based body lines that open a fenced block with no language (no info string).
+ * A fence opens on a run of 3+ backticks or tildes at any indent (an option's indented fence
+ * counts); it closes on a bare run of the same character at least as long. Lines inside a fence
+ * are content, so a shorter run held by a longer fence is never counted.
+ */
+export function untaggedFenceLines(body: string): number[] {
+  const out: number[] = [];
+  let open: string | null = null;
+  body.split("\n").forEach((line, i) => {
+    const t = line.trim();
+    if (open) {
+      if (t.startsWith(open) && new RegExp(`^\\${open[0]}+$`).test(t)) open = null;
+      return;
+    }
+    const m = t.match(/^(`{3,}|~{3,})(.*)$/);
+    if (!m || (m[1][0] === "`" && m[2].includes("`"))) return;
+    open = m[1];
+    if (!m[2].trim()) out.push(i + 1);
+  });
+  return out;
+}
+
+/** `new` and `revise` refuse a body whose fences lack a language; the CLI exits 2 on it. */
+export class UntaggedFenceError extends AskFormatError {
+  readonly lines: number[];
+  constructor(lines: number[]) {
+    super(lines.map((n) => `line ${n}: fenced block has no language; write \`\`\`text if nothing fits`).join("\n"));
+    this.name = "UntaggedFenceError";
+    this.lines = lines;
+  }
+}
+
+/** Throws UntaggedFenceError when any fence in an authored body has no language. */
+export function assertFenceLanguages(body: string): void {
+  const lines = untaggedFenceLines(body);
+  if (lines.length) throw new UntaggedFenceError(lines);
+}
+
+/**
  * The ask was replaced by another (`engine ask supersede`): nothing answers, declines or drafts it
  * any more. `by` is the replacement's `<seat>/<id>`, so a refusal can say where to answer instead.
  */
