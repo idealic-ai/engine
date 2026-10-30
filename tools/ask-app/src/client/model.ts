@@ -491,7 +491,8 @@ export function sortRuled(rows: Row[]): Row[] {
  * and fork and restored over what the file holds. Unsent picks come back only at the same revision:
  * when the revision moved, the forks may have changed, so they are cleared and the notice says so.
  */
-export type Unsent = { revision: string; values: Values; text: Record<string, string>; note: string };
+/** `need`: the text typed in "Need something first", kept like the notes (ASKWITHDRAWN-UI MF-1). */
+export type Unsent = { revision: string; values: Values; text: Record<string, string>; note: string; need?: string };
 export function restoreUnsent(
   init: { values: Values; text: Record<string, string>; note: string },
   kept: Unsent | undefined,

@@ -152,10 +152,10 @@ describe("the withdrawn card", () => {
     const html = await render(withdrawn);
     expect(html).toContain("You were answering this ask when it was withdrawn");
     expect(html).toContain("Nothing was sent");
-    expect(html).toContain("GO: YES; because the kernel needs it");
+    expect(html).toContain("GO: Yes, ship; because the kernel needs it");
     expect(html).toContain("Note: ship today");
     expect(html).toContain(">Copy<");
-    expect(html).toContain(">Forget them<");
+    expect(html).toContain(">Forget them…<");
   });
 
   it("with no unsent copy, a saved draft the withdrawal discarded is still named", async () => {
@@ -168,7 +168,7 @@ describe("the withdrawn card", () => {
   });
 
   it("keptDraftLines lists each fork's picks and text by its name, then the note", () => {
-    expect(keptDraftLines(withdrawn, { revision: "4", values: { GO: ["YES", "NO"] }, text: { GO: "and more" }, note: "n" })).toEqual(["GO: YES, NO; and more", "Note: n"]);
+    expect(keptDraftLines(withdrawn, { revision: "4", values: { GO: ["YES", "NO"] }, text: { GO: "and more" }, note: "n" })).toEqual(["GO: Yes, ship · No, hold; and more", "Note: n"]);
     expect(keptDraftLines(withdrawn, { revision: "4", values: {}, text: { GO: "  " }, note: "" })).toEqual([]);
   });
 
@@ -180,14 +180,9 @@ describe("the withdrawn card", () => {
   });
 });
 
-/** App's send handlers need a browser to click; pin the source the way the overrule suite does. */
-describe("App wires the withdrawal into its sends", () => {
-  const app = fs.readFileSync(path.join(import.meta.dirname, "../src/client/App.tsx"), "utf8");
-  it("Send batch words each refusal through refusedLine", () => {
-    expect(app).toMatch(/json\.refused as \{ ref: string; error: string \}\[\]\)\.map\(refusedLine\)/);
-  });
-  it("both 409 branches (overrule and draft) keep the picks and reload, so the card redraws withdrawn", () => {
-    const hits = app.match(/if \(c\.withdrawn\) \{\s*keep\(\);\s*onChanged\(\);\s*\}/g) ?? [];
-    expect(hits.length).toBe(2);
-  });
-});
+/**
+ * The source pins that stood here (B7: `.map(refusedLine)` in sendBatch; B8: two `if (c.withdrawn)`
+ * blocks) passed with "the ask moved" planted after them (critique S-1). Their behaviour is now in
+ * next.ts batchResultLine and supersede.ts conflictStep, tested on what the operator reads, with App
+ * pinned to call only them: see withdrawn-fix.test.ts.
+ */

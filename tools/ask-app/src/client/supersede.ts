@@ -92,6 +92,25 @@ export function conflictMessage(
   return { text: rev !== undefined && rev !== null && String(rev) !== "" ? `Not saved: the ask moved (now revision ${rev}). Read the current state before answering again.` : "Not saved: the ask moved. Read the current state before answering again." };
 }
 
+type ConflictJson = Parameters<typeof conflictMessage>[0];
+/** What a card does with a 409: the line it shows, where it keeps the picks (if anywhere), and whether it reloads. */
+export type ConflictStep = { text: string; keepUnder?: string; replacedBy?: string; reload: boolean };
+
+/**
+ * S-1: a card's whole 409 step, so App only applies it. `here` is the key the card keeps its edits
+ * under; `openKey` is the open form's (unsentKey(ref, false)), the one WithdrawnBar reads.
+ * - withdrawn: the withdrawn notice; keep under `openKey`, even from an overrule (NIT-2), and reload
+ *   so the card redraws withdrawn with the kept copy in sight;
+ * - superseded: name the replacement, keep here, stay;
+ * - else: the ask moved; nothing extra kept (the card's own copy already is), stay.
+ */
+export function conflictStep(json: ConflictJson, here: string, openKey: string): ConflictStep {
+  const c = conflictMessage(json);
+  if (c.withdrawn) return { text: c.text, keepUnder: openKey, reload: true };
+  if (c.supersededBy !== undefined || json?.status === "superseded") return { text: c.text, keepUnder: here, replacedBy: c.supersededBy ?? "", reload: false };
+  return { text: c.text, reload: false };
+}
+
 export type PathHop = { from: string; to: string; at: string; reason?: string };
 
 /** The forward chain with each hop's decline reason, as forwardChain reads it (unescaped). */

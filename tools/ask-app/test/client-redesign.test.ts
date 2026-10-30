@@ -814,7 +814,11 @@ describe("supersede (1): a 409 for a superseded ask", () => {
   it("App's 409 branch keeps the picks and goes through conflictMessage", async () => {
     const fs = await import("node:fs");
     const src = fs.readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
-    expect(src).toMatch(/if \(r\.status === 409\) \{\s*\/\/[^\n]*\n\s*const c = conflictMessage\(r\.json\);\s*if \(c\.supersededBy \|\| r\.json\?\.status === "superseded"\) \{\s*keep\(\);/);
+    // ASKWITHDRAWN-UI S-1: the branch is one onConflict call; supersede.ts conflictStep words it through
+    // conflictMessage and keeps a superseded ask's picks where the card keeps them (withdrawn-fix.test.ts).
+    expect(src).toMatch(/if \(r\.status === 409\) return onConflict\(r\.json, keyFor\(changing\)\);/);
+    const { conflictStep } = await import("../src/client/supersede.ts");
+    expect(conflictStep({ status: "superseded", supersededBy: "a/b" }, "here", "open")).toMatchObject({ keepUnder: "here", replacedBy: "a/b" });
     expect(src).not.toContain("now revision ${r.json.revision}");
   });
 });

@@ -62,15 +62,15 @@ import {
 import { briefFor, isLocalOnly, paneTrust, proofLinks, proofOriginsFromEnv, type Brief, type Trust } from "./related.ts";
 import { Inline, PaneContext, Rich, TicketLink, inlineTokens } from "./rich.tsx";
 import { CodeBlock } from "./highlight.tsx";
-import { noticeFor, postSendStep, sendOutcome, type SentNotice } from "./next.ts";
+import { batchResultLine, noticeFor, postSendStep, sendOutcome, type SentNotice } from "./next.ts";
 import { createRouteNav, createUrlSync } from "./urlsync.ts";
 import { blocks, displayTitle } from "./md.ts";
 import { RELOAD_RESTARTED, RELOAD_UPDATED, authedFetch, recordBuild, refreshToken, type Authed } from "./token.ts";
-import { clearUnsent, keptDraftLines, loadUnsent, saveUnsent } from "./unsent.ts";
+import { cardUnsent, clearUnsent, copyText, forgetWords, keptDraftLines, loadUnsent, saveUnsent } from "./unsent.ts";
 import { SCROLL_ROOT, scrollRootOf, scrollToId, scrollWithin } from "./scroll.ts";
 import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, sideDefault, useStoredNumber } from "./layout.tsx";
 import { pushEsc } from "./esc.ts";
-import { conflictMessage, hopWords, pathOf, refusedLine, supersededInfo, supersedesList, withdrawnInfo, withdrawnWords, type PathHop, type Withdrawn } from "./supersede.ts";
+import { conflictStep, hopWords, pathOf, supersededInfo, supersedesList, withdrawnInfo, withdrawnWords, type PathHop, type Withdrawn } from "./supersede.ts";
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay } from "./search.ts";
@@ -321,12 +321,8 @@ export function App() {
       const { status, json, restarted } = await post("/api/send", { refs: drafts.map(askRef) });
       if (restarted) return setBatchResult(restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
       if (status !== 200) return setBatchResult(`Error: ${json.error}`);
-      const pushes = (json.pushes as { seat: string; refs: string[]; delivery: { status: string; reason?: string } }[])
-        .map((p) => `${p.seat}: ${p.delivery.status === "delivered" ? "queued, not read yet" : `${p.delivery.status}${p.delivery.reason ? ` (${p.delivery.reason})` : ""}`} — ${p.refs.length} answer${p.refs.length === 1 ? "" : "s"} in one message`)
-        .join(" · ");
-      // ASKWITHDRAW: a withdrawn ask reads "<ref>: withdrawn by X: reason", never the raw refusal.
-      const refused = (json.refused as { ref: string; error: string }[]).map(refusedLine).join(" · ");
-      setBatchResult(`Sent ${json.settled.length}. ${pushes}${refused ? ` · Refused: ${refused}` : ""}`);
+      // ASKWITHDRAW (S-1, NIT-3): every word is next.ts batchResultLine's; a withdrawal gets its own line.
+      setBatchResult(batchResultLine(json));
       load();
     } finally {
       setSending(false);
@@ -838,9 +834,28 @@ export function AskDetail({
   const [notice, setNotice] = useState("");
   const [moved, setMoved] = useState(start.notice);
   const [confirmSend, setConfirmSend] = useState<{ msg: string; kind: SendKind; next?: boolean } | undefined>();
+  // MF-1: the request typed in "Need something first" is kept with the picks, and comes back on a remount.
+  const [keptNeed] = useState(() => (open && !changing ? loadUnsent(ref)?.need ?? "" : ""));
+  const [needOpen, setNeedOpen] = useState(!!keptNeed);
+  const [needKind, setNeedKind] = useState("proof:best");
+  const [needText, setNeedText] = useState(keptNeed);
+  /** The one copy every save writes: picks, notes and the request text. */
+  const snap = () => cardUnsent(revision, { values, text, note, need: needText });
   useEffect(() => {
-    if (editable) saveUnsent(keyFor(changing), { revision, values, text, note });
-  }, [editable, changing, ref, revision, values, text, note]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (editable) saveUnsent(keyFor(changing), snap());
+  }, [editable, changing, ref, revision, values, text, note, needText]); // eslint-disable-line react-hooks/exhaustive-deps
+  /**
+   * S-1: a 409, as supersede.ts conflictStep words it. App adds nothing: it keeps where the step says
+   * (a withdrawal under the open form's key, which WithdrawnBar reads, NIT-2), names a replacement,
+   * reloads so a withdrawn card redraws with the kept copy in sight, and shows the step's text.
+   */
+  const onConflict = (json: Parameters<typeof conflictStep>[0], here: string) => {
+    const s = conflictStep(json, here, unsentKey(ref, false));
+    if (s.keepUnder) saveUnsent(s.keepUnder, snap());
+    if (s.replacedBy !== undefined) setReplacedBy(s.replacedBy);
+    if (s.reload) onChanged();
+    return setResult(s.text);
+  };
 
   // Only questions visible under the answers so far are sent, repeated until stable, so a hidden
   // dependent's stale pick is dropped. A suggestion is never an answer, so it never unhides one.
@@ -863,9 +878,6 @@ export function AskDetail({
   const rounds = useMemo(() => earlierRounds(ask, all), [ask, all]);
   const dialogue = useMemo(() => dialogueOf(ask), [ask]);
   const turns = dialogue.turns;
-  const [needOpen, setNeedOpen] = useState(false);
-  const [needKind, setNeedKind] = useState("proof:best");
-  const [needText, setNeedText] = useState("");
   const kept = provisionalKept ?? provisionalKeptSeen;
   const dep = ask.header.dependsOn?.trim();
   const depMissing = dep && !all.some((a) => a.header.id === dep);
@@ -899,24 +911,11 @@ export function AskDetail({
     setConfirmSend(undefined);
     setBusy(true);
     setResult("");
-    const keep = () => saveUnsent(keyFor(true), { revision, values, text, note });
+    const keep = () => saveUnsent(keyFor(true), snap());
     try {
       const r = await post("/api/answer", overruleBody(ask, kind, { answers, note }), keep);
       if (r.restarted) return setResult(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED);
-      if (r.status === 409) {
-        const c = conflictMessage(r.json);
-        if (c.supersededBy || r.json?.status === "superseded") {
-          keep();
-          setReplacedBy(c.supersededBy ?? "");
-        }
-        // ASKWITHDRAW: no ask replaces it. The picks are kept and the card redraws withdrawn, where
-        // the kept copy is shown; the line below says so until it does.
-        if (c.withdrawn) {
-          keep();
-          onChanged();
-        }
-        return setResult(c.text);
-      }
+      if (r.status === 409) return onConflict(r.json, keyFor(true));
       // Send's after-send path (ASKHL SHOULD-1/2): a failed overrule keeps its copy and stays; an
       // accepted one hands App the line, which moves on for Send & next only while this ask is still shown.
       const out = overruleOutcome(ask, r.status, r.json);
@@ -942,7 +941,7 @@ export function AskDetail({
     setResult("");
     // Operator 01:29: a token refused after a server restart is refreshed and the request retried once;
     // the picks and notes are saved in this browser first, so even a reload keeps them.
-    const keep = () => saveUnsent(keyFor(changing), { revision, values, text, note });
+    const keep = () => saveUnsent(keyFor(changing), snap());
     const gaveUp = (r: Authed) => (r.restarted ? (setResult(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED), true) : false);
     try {
       if (kind === "discard") {
@@ -953,21 +952,8 @@ export function AskDetail({
       }
       const r = await post(route.endpoint, draftBody(ask, kind, { answers, note }), keep);
       if (gaveUp(r)) return;
-      if (r.status === 409) {
-        // A superseded ask names its replacement; the picks stay in this browser for it.
-        const c = conflictMessage(r.json);
-        if (c.supersededBy || r.json?.status === "superseded") {
-          keep();
-          setReplacedBy(c.supersededBy ?? "");
-        }
-        // ASKWITHDRAW: no ask replaces it. The picks are kept and the card redraws withdrawn, where
-        // the kept copy is shown; the line below says so until it does.
-        if (c.withdrawn) {
-          keep();
-          onChanged();
-        }
-        return setResult(c.text);
-      }
+      // A superseded ask names its replacement; a withdrawn one redraws with the kept copy (onConflict).
+      if (r.status === 409) return onConflict(r.json, keyFor(changing));
       if (r.status !== 200) return setResult(`Error: ${r.json.error}`);
       if (kind === "send-now") {
         const s = await post("/api/send", { refs: [askRef(ask)] }, keep);
@@ -997,7 +983,7 @@ export function AskDetail({
     setConfirmSend(undefined);
     setBusy(true);
     setResult("");
-    const keep = () => saveUnsent(keyFor(changing), { revision, values, text, note });
+    const keep = () => saveUnsent(keyFor(changing), snap());
     let restarted: Authed["restarted"];
     // The token refresh and the restart notice, as act() has them: edits are kept before a retry.
     const poster = async (url: string, body: unknown) => {
@@ -1888,16 +1874,16 @@ function RankInput(p: InputProps & { value: string[] | undefined }) {
  * withdrawal mid-draft never drops them without a word. A saved draft the withdrawal discarded
  * (`withdrawn-draft-of`) is named when it was the operator's.
  */
-function WithdrawnBar({ ask, w }: { ask: StoredAsk; w: Withdrawn }) {
+export function WithdrawnBar({ ask, w, seed }: { ask: StoredAsk; w: Withdrawn; seed?: { copy?: "ok" | "failed"; confirming?: boolean } }) {
   const ref = askRef(ask);
   const [kept, setKept] = useState(() => loadUnsent(unsentKey(ref, false)));
-  const [copied, setCopied] = useState("");
+  // S-2: "Copied." only once the clipboard took the text; otherwise say so and show it to select by hand.
+  const [copy, setCopy] = useState<"ok" | "failed" | undefined>(seed?.copy);
+  const [confirming, setConfirming] = useState(!!seed?.confirming);
   const lines = kept ? keptDraftLines(ask, kept) : [];
+  const all = lines.join("\n");
   const ownDraft = !!w.draftOf && isOperatorName(w.draftOf);
-  const copy = () => {
-    const t = lines.join("\n");
-    Promise.resolve(navigator.clipboard?.writeText(t)).then(() => setCopied("Copied."), () => setCopied("Copy failed; select the lines by hand."));
-  };
+  const doCopy = () => void copyText(all).then((ok) => setCopy(ok ? "ok" : "failed"));
   return (
     <>
       <h3>Withdrawn · revision {ask.header.revision}</h3>
@@ -1908,11 +1894,20 @@ function WithdrawnBar({ ask, w }: { ask: StoredAsk; w: Withdrawn }) {
             You were answering this ask when it was withdrawn. Nothing was sent.{ownDraft ? " The draft saved in the file was discarded;" : ""} Your picks and notes are kept in this browser:
           </p>
           <ul>{lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
-          <p className="actions">
-            <button className="btn quiet" onClick={copy}>Copy</button>
-            <button className="btn quiet" onClick={() => { clearUnsent(unsentKey(ref, false)); setKept(undefined); }}>Forget them</button>
-            {copied && <span className="muted"> {copied}</span>}
-          </p>
+          {copy === "failed" && <pre className="kept-copy" tabIndex={0}>{all}</pre>}
+          {confirming ? (
+            <p className="actions">
+              <span>{forgetWords(copy === "ok")}</span>{" "}
+              <button className="btn quiet" onClick={() => { clearUnsent(unsentKey(ref, false)); setKept(undefined); setConfirming(false); }}>Yes, forget them</button>
+              <button className="btn quiet" onClick={() => setConfirming(false)}>Keep them</button>
+            </p>
+          ) : (
+            <p className="actions">
+              <button className="btn quiet" onClick={doCopy}>Copy</button>
+              <button className="btn quiet" onClick={() => setConfirming(true)}>Forget them…</button>
+              {copy && <span className="muted"> {copy === "ok" ? "Copied." : "Copy failed; select the lines below by hand."}</span>}
+            </p>
+          )}
         </div>
       ) : ownDraft ? (
         <p className="chip warn notice" role="status">Your saved draft on this ask was discarded when it was withdrawn. Nothing was sent.</p>

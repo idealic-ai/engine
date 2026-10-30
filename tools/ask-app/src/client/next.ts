@@ -4,7 +4,7 @@
  * the order and the "failed send stays put" rule are tested without a browser.
  */
 
-import { withdrawnRefusal } from "./supersede.ts";
+import { refusalWords, withdrawnRefusal, withdrawnWords } from "./supersede.ts";
 
 export type NextRow = { ref: string; waitingOnYou: boolean };
 
@@ -68,4 +68,25 @@ export function postSendStep(o: { sentRef: string; text: string; next: boolean; 
   if (r.go) return { go: r.go };
   const text = [o.text, r.notice].filter(Boolean).join(" ");
   return { ...(text ? { notice: { ref: o.sentRef, text } } : {}), ...(o.routeAsk ? {} : { pin: o.sentRef }) };
+}
+
+type BatchPush = { seat: string; refs: string[]; delivery: { status: string; reason?: string } };
+/**
+ * S-1 / NIT-3: what Send batch shows for a 200 from /api/send. Each push in one line, any other refusal
+ * under "Refused:", and each withdrawn ask on a line of its own that says who withdrew it, why, and
+ * that the operator's picks are kept (they are not an error, and nothing about them moved).
+ */
+export function batchResultLine(json: { settled?: unknown[]; pushes?: BatchPush[]; refused?: { ref: string; error: string }[] }): string {
+  const pushes = (json.pushes ?? [])
+    .map((p) => `${p.seat}: ${p.delivery.status === "delivered" ? "queued, not read yet" : `${p.delivery.status}${p.delivery.reason ? ` (${p.delivery.reason})` : ""}`} — ${p.refs.length} answer${p.refs.length === 1 ? "" : "s"} in one message`)
+    .join(" · ");
+  const withdrawn: string[] = [];
+  const refused: string[] = [];
+  for (const r of json.refused ?? []) {
+    const w = refusalWords(r.error);
+    if (w) withdrawn.push(`${r.ref}: ${withdrawnWords(w)}; your picks are kept in this browser`);
+    else refused.push(`${r.ref}: ${r.error}`);
+  }
+  const first = `Sent ${json.settled?.length ?? 0}. ${pushes}${refused.length ? ` · Refused: ${refused.join(" · ")}` : ""}`;
+  return [first, ...withdrawn].join("\n");
 }
