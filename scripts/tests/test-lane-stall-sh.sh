@@ -1118,8 +1118,9 @@ test_lane_stall_a_prior_rounds_retirement_does_not_retire_the_next_round() {
   local projects="$TMP_DIR/projects-m1"
   mkdir -p "$new/builds" "$old/builds" "$projects/proj/sess/subagents"
   printf '## [2026-10-01 10:00:00] [IDE330] landed, retired=landed\n' > "$old/builds/IDE330_LOG.md"
+  touch -d 2026-10-01T10:00:00Z "$old/builds/IDE330_LOG.md"
   local t="$projects/proj/sess/subagents/agent-a1.jsonl"
-  printf '{"sessionId":"S1","message":{"role":"user","content":[{"type":"text","text":"[IDE330] round 2 for sessions/2026_10_12_NEW_LOOM. Prior round log: %s/builds/IDE330_LOG.md"}]}}\n' "$old" > "$t"
+  printf '{"sessionId":"S1","timestamp":"2026-10-12T10:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"[IDE330] round 2 for sessions/2026_10_12_NEW_LOOM. Prior round log: %s/builds/IDE330_LOG.md"}]}}\n' "$old" > "$t"
   printf '{"sessionId":"S1","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}]}}\n' >> "$t"
   touch -t 202610201000 "$t"
   local out="$TMP_DIR/m1.txt"
@@ -1129,8 +1130,94 @@ test_lane_stall_a_prior_rounds_retirement_does_not_retire_the_next_round() {
   assert_contains "STALE" "$row" "IDE330 r2: still STALE in the default output"
   assert_not_contains "RETIRED" "$(cat "$out")" "IDE330 r2: not retired by round 1's marker"
   assert_contains "log=      -" "$row" "IDE330 r2: not dated from round 1's log"
-  assert_contains "retired-elsewhere=landed" "$row" "IDE330 r2: round 1's retirement is only a hint"
+  assert_not_contains "retired-elsewhere" "$row" "IDE330 r2: round 1's log, older than this lane, gives no hint"
+  assert_eq "none" "$(printf '%s' "$row" | sed 's/.*logpath=//')" \
+    "IDE330 r2: round 1's log, last written before this lane began, is not its logpath"
   assert_eq "3" "$rc" "IDE330 r2: the sweep still exits 3"
+}
+
+# The critic's fx2 (LANEAUTH R2 critique SF1): a tag is reused across rounds, so a name cannot
+# tell this round's log from a prior round's. A foreign own-named log counts only when it was
+# written at or after the lane's first record (the transcript's first "timestamp"), and among
+# several such the newest wins. Lanes, each born 2026-10-20 10:00Z:
+#   IDE331  brief cites round 1's log (last written 10 days earlier) FIRST, then the current
+#           one (written at 10:05)          -> logpath = the current log
+#   IDE332  brief cites two post-birth own logs, 10:05 then 10:30 -> the 10:30 one
+#   IDE333  brief cites only a pre-birth own log (control)      -> logpath=none
+#   IDE334  same as IDE333 but its transcript has no timestamp  -> the cited log is kept
+#           (no birth to compare: the pre-SF1 reading)
+# RED: drop the mtime check (IDE331 reads round 1's log, IDE333 gets a logpath); take the
+#      first qualifying candidate instead of the newest (IDE332 reads the 10:05 one).
+test_lane_stall_a_foreign_log_older_than_the_lane_is_not_its_log() {
+  local root="$TMP_DIR/sf1/sessions"
+  local swept="$root/2026_10_30_SWEPT" r1="$root/2026_10_20_R1" work="$root/2026_10_30_WORK"
+  local projects="$TMP_DIR/projects-sf1"
+  mkdir -p "$swept/builds" "$r1/builds" "$work/builds" "$projects/proj/sess/subagents"
+  local tag
+  for tag in IDE331 IDE332 IDE333 IDE334; do
+    printf '## [%s] round 1 notes\n' "$tag" > "$r1/builds/${tag}_LOG.md"
+    touch -d 2026-10-10T10:00:00Z "$r1/builds/${tag}_LOG.md"
+  done
+  printf '## [IDE331] working\n' > "$work/builds/IDE331_LOG.md"
+  touch -d 2026-10-20T10:05:00Z "$work/builds/IDE331_LOG.md"
+  printf '## [IDE332] a\n' > "$work/builds/IDE332_LOG.md"
+  touch -d 2026-10-20T10:05:00Z "$work/builds/IDE332_LOG.md"
+  printf '## [IDE332] b\n' > "$work/builds/IDE332_BUILD_LOG.md"
+  touch -d 2026-10-20T10:30:00Z "$work/builds/IDE332_BUILD_LOG.md"
+  local t brief ts
+  for tag in IDE331 IDE332 IDE333 IDE334; do
+    t="$projects/proj/sess/subagents/agent-${tag}.jsonl"
+    case "$tag" in
+      IDE331) brief="Prior round log: $r1/builds/IDE331_LOG.md. Write your log to $work/builds/IDE331_LOG.md." ;;
+      IDE332) brief="Logs: $work/builds/IDE332_LOG.md and $work/builds/IDE332_BUILD_LOG.md." ;;
+      *) brief="Prior round log: $r1/builds/${tag}_LOG.md." ;;
+    esac
+    ts='"timestamp":"2026-10-20T10:00:00.000Z",'
+    [ "$tag" = IDE334 ] && ts=''
+    printf '{%s"message":{"role":"user","content":[{"type":"text","text":"[%s] round 2, session sessions/2026_10_30_SWEPT. %s"}]}}\n' \
+      "$ts" "$tag" "$brief" > "$t"
+    printf '{"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}\n' >> "$t"
+    touch -d 2026-10-20T11:00:00Z "$t"
+  done
+  local out="$TMP_DIR/sf1.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$swept" --all --since-hours 100000 >"$out" 2>"$out.err"
+  local lp
+  lp() { grep "\[$1\]" "$out" | sed 's/.*logpath=//'; }
+  assert_eq "$work/builds/IDE331_LOG.md" "$(lp IDE331)" \
+    "IDE331: the current round's log, not round 1's cited first"
+  assert_eq "$work/builds/IDE332_BUILD_LOG.md" "$(lp IDE332)" \
+    "IDE332: of two logs written after the lane began, the newest"
+  assert_eq "none" "$(lp IDE333)" "IDE333: a log last written before the lane began is not its log"
+  assert_eq "$r1/builds/IDE334_LOG.md" "$(lp IDE334)" \
+    "IDE334: with no first-record timestamp the cited own log is kept"
+}
+
+# A path with spaces (LANEAUTH R2 critique NIT1): lane-stall's own header says such session
+# roots are routine ("Shared drives"). Unquoted, the path cannot be told from the prose around
+# it and stays unread; in backticks it is read whole.
+#   SPACELANE  brief cites `…/My Sessions/…/SPACELANE_LOG.md` in backticks -> that logpath
+#   BAREPACE   the same path unquoted (control)                           -> logpath=none
+# RED: drop the backtick pattern (SPACELANE reads none).
+test_lane_stall_reads_a_backticked_log_path_with_spaces() {
+  local root="$TMP_DIR/sp/My Sessions"
+  local swept="$TMP_DIR/sp/sessions/2026_10_30_SWEPT" home="$root/2026_10_29_SPACE"
+  local projects="$TMP_DIR/projects-sp"
+  mkdir -p "$swept/builds" "$home/builds" "$projects/proj/sess/subagents"
+  local tag t brief
+  for tag in SPACELANE BAREPACE; do
+    printf '## [%s] working\n' "$tag" > "$home/builds/${tag}_LOG.md"
+    t="$projects/proj/sess/subagents/agent-${tag}.jsonl"
+    if [ "$tag" = SPACELANE ]; then brief="log \`$home/builds/${tag}_LOG.md\`"
+    else brief="log $home/builds/${tag}_LOG.md"; fi
+    printf '{"message":{"role":"user","content":[{"type":"text","text":"[%s] session sessions/2026_10_30_SWEPT, %s"}]}}\n' "$tag" "$brief" > "$t"
+    printf '{"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}\n' >> "$t"
+  done
+  local out="$TMP_DIR/sp.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$swept" --all >"$out" 2>"$out.err"
+  assert_eq "$home/builds/SPACELANE_LOG.md" "$(grep '\[SPACELANE\]' "$out" | sed 's/.*logpath=//')" \
+    "SPACELANE: a backticked path with spaces is read whole"
+  assert_eq "none" "$(grep '\[BAREPACE\]' "$out" | sed 's/.*logpath=//')" \
+    "BAREPACE: the same path unquoted stays unread"
 }
 
 # presumed-dead (meta:utils): a lane killed mid-tool-call has an assistant tool_use as its LAST
@@ -1166,6 +1253,24 @@ test_lane_stall_presumes_dead_a_lane_stale_inside_a_tool_call() {
   row=$(grep '\[BUSYLANE\]' "$out")
   assert_contains "state=running" "$row" "BUSYLANE: a fresh lane inside a tool call reads running"
   assert_not_contains "STALE" "$row" "BUSYLANE: and is not stale"
+}
+
+# A parallel batch (LANEAUTH R2 critique NIT6): an Agent call beside a Bash call read
+# pending=Bash, which hides the "check the child first" case. pending= lists every unanswered
+# tool of the newest record, in order.
+# RED: name only the last tool (PARALANE reads pending=Bash).
+test_lane_stall_pending_names_every_tool_of_a_parallel_batch() {
+  local session="$TMP_DIR/para/2026_10_12_PARA"
+  local projects="$TMP_DIR/projects-para"
+  plant_synthetic_lane "$projects" "$session" PARALANE ""
+  local t="$projects/proj/sess/subagents/agent-PARALANE.jsonl"
+  printf '{"message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"p1","name":"Agent","input":{}},{"type":"tool_use","id":"p2","name":"Bash","input":{}}]}}\n' >> "$t"
+  touch -t 202610201000 "$t"
+  local out="$TMP_DIR/para.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  local row; row=$(grep '\[PARALANE\]' "$out")
+  assert_contains "state=presumed-dead" "$row" "PARALANE: presumed-dead"
+  assert_contains "pending=Agent,Bash " "$row" "PARALANE: pending names both tools of the batch"
 }
 
 run_discovered_tests

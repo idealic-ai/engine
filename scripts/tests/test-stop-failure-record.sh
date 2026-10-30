@@ -174,6 +174,19 @@ test_the_heading_says_resume_or_redispatch_by_error_class() {
 }
 run_test test_the_heading_says_resume_or_redispatch_by_error_class
 
+# billing_error is the account's, not the lane's request: the conductor's own calls fail with it,
+# and once the operator fixes billing a resume keeps the lane's context (LANEAUTH R2 critique SF2).
+# RED: billing_error back in the recurring (re-dispatch) branch.
+test_billing_error_goes_to_the_operator() {
+  printf '## [BILL] start\n' > "$TEST_SESSION/builds/BILL_LOG.md"
+  plant_lane BILL "[BILL] Log: $TEST_SESSION/builds/BILL_LOG.md"
+  run_hook billing_error aBILL >/dev/null
+  local b; b=$(cat "$TEST_SESSION/builds/BILL_LOG.md")
+  assert_contains "ask the operator" "$b" "CLASS-04: billing_error says ask the operator"
+  assert_not_contains "re-dispatch" "$b" "CLASS-05: and never re-dispatch"
+}
+run_test test_billing_error_goes_to_the_operator
+
 test_the_input_as_measured_live() {
   printf '## [BADLANE] start\n' > "$TEST_SESSION/builds/BADLANE_LOG.md"
   jq -cn --arg t "[BADLANE] say hello, log $TEST_SESSION/builds/BADLANE_LOG.md" \

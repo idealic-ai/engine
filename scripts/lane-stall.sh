@@ -29,8 +29,8 @@
 #               newest record is a tool call with no result after it. A lane killed mid-tool
 #               reads this rather than "running" forever; a lane inside a tool that really
 #               runs longer than the threshold reads it too, so it is a presumption to check:
-#               the row adds "pending=<tool>", and a pending Agent/Task is a lane waiting on
-#               its own child. Probe it; never re-dispatch on this reading alone.
+#               the row adds "pending=<tool>[,<tool>…]" (every tool of a parallel batch),
+#               and a pending Agent/Task is a lane waiting on its own child. Probe it; never re-dispatch on this reading alone.
 #               failed: the lane's LAST assistant record is an API error (top-level "error"
 #               with "isApiErrorMessage": true — "Not logged in", a rate limit, an overload).
 #               The row then carries "error=<value>" and reads FAILED at any age; the verdict
@@ -84,7 +84,9 @@
 #               tags are reused across sessions, so it may be an earlier round's.
 #   logpath     the log the "log" reading above was taken from, or "none". When the swept
 #               session holds no log for the lane, an existing own log in another session that
-#               the brief names by its exact path (undated: log reads "-"). This is the field
+#               the brief names by its exact path (undated: log reads "-"), and only one last
+#               written at or after the lane's first record, the newest of several; a path
+#               with spaces counts only in backticks. This is the field
 #               a hand-over carries (¶INV_LOOM_HANDS_OVER_A_PATH_NOT_AN_ID): an agent id
 #               stays addressable only while the process that dispatched the lane lives. A
 #               /clear in that same process keeps it (measured 2026-10-30: a pre-clear lane
@@ -463,7 +465,7 @@ for path in glob.glob(os.path.join(projects_dir, "*", "*", "subagents", "agent-*
         names = [b.get("name") for b in blocks if isinstance(b, dict) and b.get("type") == "tool_use"]
         # The NEWEST record is a tool call with no result after it: the lane is inside a tool.
         # That is "running" while it is fresh and "presumed-dead" once both signals are stale.
-        pending = names[-1] if is_newest and names else None
+        pending = ",".join(names) if is_newest and names else None
         # An API error (auth, rate limit, overload) ends a lane's turn with ONE synthetic
         # assistant record: model "<synthetic>", stop_reason "stop_sequence", and a TOP-LEVEL
         # "error" beside "isApiErrorMessage": true. It is neither a hand-back nor an end_turn,
@@ -492,29 +494,57 @@ for path in glob.glob(os.path.join(projects_dir, "*", "*", "subagents", "agent-*
 # brief routinely cites an earlier round's log, so its retired= may belong to a lane that is not
 # this one. A retirement found there rides the row only as the hint "retired-elsewhere=". A
 # session DIRECTORY named in the brief resolves nothing.
+# A name cannot tell this round's log from a prior round's, so a foreign log counts only when it
+# was last written at or after the lane's first record (its transcript's first "timestamp"), and
+# of several the newest wins (LANEAUTH R2 critique SF1: a brief citing round 1's log first handed
+# a successor round 1's state). With no first-record timestamp there is nothing to compare, and
+# the first cited own log is kept. A path with spaces is read only inside backticks; unquoted it
+# cannot be told from the prose around it.
 BRIEF_LOG = re.compile(r"/[^\s\"'`<>()]+_LOG\.md")
+BRIEF_LOG_TICKED = re.compile(r"`(/[^`\n]+_LOG\.md)`")
+
+def lane_birth(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            stamp = json.loads(fh.readline()).get("timestamp")
+        return datetime.fromisoformat(str(stamp).replace("Z", "+00:00")).timestamp()
+    except Exception:
+        return None
+
 elsewhere = {}
 for tag, lane in sorted(lanes.items()):
     if tag in log_path:
         continue
-    for cand in BRIEF_LOG.findall(lane["brief"]):
+    born, best = lane_birth(lane["path"]), None
+    for cand in BRIEF_LOG_TICKED.findall(lane["brief"]) + BRIEF_LOG.findall(lane["brief"]):
         cand = os.path.normpath(cand)
         if (cand.startswith(SESSION_ROOT + os.sep) or not is_own_log(cand, tag)
                 or not os.path.isfile(cand)):
             continue
-        log_path[tag] = cand
+        if born is None:
+            best = (0, cand)
+            break
         try:
-            with open(cand, encoding="utf-8", errors="replace") as fh:
-                for line in fh:
-                    if not line.startswith("## "):
-                        continue
-                    rm = RETIRED.search(line)
-                    hm = HEAD_TAG.match(TS.sub("", line)[3:])
-                    if rm and hm and hm.group(1) == tag:
-                        elsewhere[tag] = rm.group(1)
-        except OSError as exc:
-            unreadable.append(str(exc))
-        break
+            written = os.path.getmtime(cand)
+        except OSError:
+            continue
+        if written >= born and (best is None or written > best[0]):
+            best = (written, cand)
+    if best is None:
+        continue
+    cand = best[1]
+    log_path[tag] = cand
+    try:
+        with open(cand, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                if not line.startswith("## "):
+                    continue
+                rm = RETIRED.search(line)
+                hm = HEAD_TAG.match(TS.sub("", line)[3:])
+                if rm and hm and hm.group(1) == tag:
+                    elsewhere[tag] = rm.group(1)
+    except OSError as exc:
+        unreadable.append(str(exc))
 
 def age(t):
     # A file written during this run is "newer than now"; report 0, never a negative age.
@@ -564,7 +594,7 @@ for (tag, state, via, t_age, l_age, is_stale, path, disposition, error, lane_ses
     # lane was dispatched from. It is a hint for the resume, not a reachability test: only a
     # SendMessage settles that (see the "failed" entry in the header).
     err_col = f"error={error}  " if state == "failed" and error else ""
-    # pending= names the tool a presumed-dead lane is inside (Agent/Task means: check its
+    # pending= names the tools a presumed-dead lane is inside (Agent/Task means: check its
     # child before anything else). retired-elsewhere= is a foreign log's retirement, a hint
     # only (see "A log named in the brief").
     err_col += f"pending={pending}  " if state == "presumed-dead" and pending else ""

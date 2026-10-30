@@ -20,8 +20,8 @@
 # The session-log headings are written only when the session's skill is loom, and an untagged
 # subagent gets no heading. Each heading names the next move by error class: transient errors
 # (authentication_failed, rate_limit, overloaded, server_error) resume by SendMessage; recurring
-# ones (invalid_request, max_output_tokens, model_not_found, billing_error) re-dispatch from
-# the log; anything else goes to the operator.
+# ones (invalid_request, max_output_tokens, model_not_found) re-dispatch from the log; anything
+# else, billing_error among them, goes to the operator.
 # MEASURED 2026-10-30 (claude 2.1.314, a --settings recorder, a subagent with a bad model id):
 # StopFailure fires INSIDE a subagent, with agent_id and agent_type set, and with the PARENT's
 # session_id and transcript_path. No SubagentStop fires for it.
@@ -72,8 +72,14 @@ SESSION_DIR=$("$HOME/.claude/scripts/session.sh" find 2>/dev/null || echo "")
 # Only the session's OWN conversation writes here. A child `claude -p` (an e2e suite, a lane
 # shelling out) inherits CLAUDE_SUPERVISOR_PID, so session.sh resolves it to the parent's
 # session, but its session_id is its own. An in-process lane carries its parent's session_id
-# (measured live 2026-10-30), so it matches. A session that records no sessionId cannot be
-# confirmed, and gets nothing.
+# (measured live 2026-10-30), so it matches. .state.json's sessionId is written by the engine
+# statusline (tools/statusline.sh) on every tick, so it follows a /clear on the next tick.
+# Two cases are NOT covered, and neither is measured: a lane dispatched BEFORE a /clear that
+# fails after it may carry the old session_id and is then dropped; and a session with no
+# sessionId at all (no engine statusline, the dehydrating/overflow windows where the statusline
+# skips the write, or the gap after `engine session restart` until the next tick) gets nothing.
+# The heading is best-effort. lane-stall's state=failed is read from the transcript and still
+# shows every one of these lanes, so the sweep row is the authority.
 OWN_ID=$(jq -r '.sessionId // empty' "$SESSION_DIR/.state.json" 2>/dev/null || true)
 [ -n "$CONVO_ID" ] && [ "$CONVO_ID" = "$OWN_ID" ] || exit 0
 
@@ -96,13 +102,14 @@ append() { [ -n "$1" ] && printf '\n%s\n' "$2" >> "$1"; }
 
 # What the next move is depends on the error. A transient one (an auth gap, a rate limit, an
 # overload, a server error) clears on its own and the lane resumes with its context. A
-# recurring one (the request itself, the output cap, the model, billing) ends the same turn
-# again on resume, so the lane is re-dispatched from its log. Anything else is an account or
-# unknown error, for the operator.
+# recurring one (the request itself, the output cap, the model) ends the same turn again on
+# resume, so the lane is re-dispatched from its log. Anything else is an account or unknown
+# error, for the operator: billing_error is the account the conductor shares, not the lane's
+# request, and once the operator fixes it a resume keeps the lane's context.
 case "$ERROR" in
   authentication_failed|rate_limit|overloaded|server_error)
     MOVE="resume by SendMessage once a call of your own succeeds" ;;
-  invalid_request|max_output_tokens|model_not_found|billing_error)
+  invalid_request|max_output_tokens|model_not_found)
     MOVE="this error recurs on resume, so re-dispatch fresh from this log" ;;
   *)
     MOVE="an account or unknown error; ask the operator before resuming" ;;
