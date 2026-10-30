@@ -25,7 +25,7 @@
 ### Asks
 *Sibling to the thread rows — an ask can span threads, so it has no stage of its own. One per ask this loom raised. `read back` is the log row's cell carried over unchanged (the log's `## 🗳️ Asks` block defines the admissible forms), so an ask left open arrives here saying what keeps it open.*
 
-*   **[seat/id]** — to [seat] — **read back**: [`answered gate N — [choice] — [record path]` | `open — to [seat] since gate N`]
+*   **[seat/id]** — to [seat] — **read back**: [`answered gate N — [choice] — [record path]` | `withdrawn gate N — [reason] — [ask path]` | `open — to [seat] since gate N`]
 
 ## 3. The Weave (Narrative)
 *How the threads ran together. What parallelized, what serialized and why.*

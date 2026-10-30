@@ -165,6 +165,8 @@ export type ParsedAsk = {
   panelAttachments: PanelAttachment[];
   /** Entries whose fork is gone or was retitled since they were attached; kept in the file, drawn nowhere. */
   panelOrphans?: PanelOrphan[];
+  /** The draft a withdraw set aside (```json withdrawn-draft```), on a withdrawn ask only. Never sendable. */
+  withdrawnDraft?: AskDraft;
 };
 
 /** ASKFOLLOWUP: a question back about the ask, or "do this first, then revise the ask". */
@@ -259,10 +261,15 @@ export const HISTORY_FENCES = /(?:^|\n)```json history\n([\s\S]*?)\n```(?=\n|$)\
 /** IDE-338: the panels attach-panel added, one JSON list in one fence; append-only. */
 export const PANEL_FENCES = /(?:^|\n)```json panels\n([\s\S]*?)\n```(?=\n|$)\n?/g;
 export const FOLLOWUP_ENTRIES = /(?:^|\n)(?:## Follow-up \d+\n+)?```json followup\n([\s\S]*?)\n```(?=\n|$)\n?/g;
-/** Any record fence (`json answer`, `json draft`, `json history` or `json followup`), wherever it sits: a body never carries one (M1). */
-export const RECORD_FENCE_RE = /^\s*```json (?:answer|draft|history|followup|panels)\b/m;
+/**
+ * ASKWITHDRAW follow-up (meta:utils): the draft a withdraw set aside, its JSON kept byte for byte so
+ * the operator never loses unsent work. Read only on a withdrawn ask; never a live draft.
+ */
+export const WITHDRAWN_DRAFT_FENCES = /(?:^|\n)```json withdrawn-draft\n([\s\S]*?)\n```(?=\n|$)\n?/g;
+/** Any record fence (`json answer`, `json draft`, `json history`, `json followup`, `json panels` or `json withdrawn-draft`), wherever it sits: a body never carries one (M1). */
+export const RECORD_FENCE_RE = /^\s*```json (?:answer|draft|history|followup|panels|withdrawn-draft)\b/m;
 /** The text with every record fence taken out: what the ask asks. */
-const stripRecords = (t: string) => t.replace(ANSWER_FENCES, "\n").replace(DRAFT_FENCES, "\n").replace(HISTORY_FENCES, "\n").replace(FOLLOWUP_ENTRIES, "\n").replace(PANEL_FENCES, "\n");
+const stripRecords = (t: string) => t.replace(ANSWER_FENCES, "\n").replace(DRAFT_FENCES, "\n").replace(HISTORY_FENCES, "\n").replace(FOLLOWUP_ENTRIES, "\n").replace(PANEL_FENCES, "\n").replace(WITHDRAWN_DRAFT_FENCES, "\n");
 
 export class AskFormatError extends Error {
   constructor(message: string) {
@@ -748,11 +755,22 @@ export function parseAskFile(text: string): ParsedAsk {
   // IDE-339: like the answer, the history counts only on a settled ask, and the last fence is the record.
   const hms = [...rest.matchAll(HISTORY_FENCES)];
   const { history, historyError } = hms.length && settled ? readHistory(hms[hms.length - 1][1]) : { history: [] as AskAnswer[], historyError: undefined };
+  // Like the history: read only where the store writes it (a withdrawn ask), and the last fence is the record.
+  let withdrawnDraft: AskDraft | undefined;
+  const wms = header.status === "withdrawn" ? [...rest.matchAll(WITHDRAWN_DRAFT_FENCES)] : [];
+  if (wms.length) {
+    try {
+      const d = JSON.parse(wms[wms.length - 1][1]) as AskDraft;
+      if (d && typeof d === "object" && !Array.isArray(d)) withdrawnDraft = d;
+    } catch {
+      // an unreadable record is left in the file as written, and not offered
+    }
+  }
   const { preamble, questions } = parseQuestions(stripRecords(rest));
   const followups = readFollowups(rest);
   const panelAttachments = readPanelAttachments(rest);
   const panelOrphans = mergeAttachments(questions, panelAttachments);
-  return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}), history, ...(historyError ? { historyError } : {}), followups, panelAttachments, ...(panelOrphans.length ? { panelOrphans } : {}) };
+  return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}), history, ...(historyError ? { historyError } : {}), followups, panelAttachments, ...(panelOrphans.length ? { panelOrphans } : {}), ...(withdrawnDraft ? { withdrawnDraft } : {}) };
 }
 
 /** IDE-338: the attach-panel entries (the last panels fence is the record); an unreadable fence reads as none. */

@@ -195,7 +195,22 @@ check_lane_raises_a_question() {  # $1 directions
   [ "$all" = "$never" ] || echo "directions: the lane rule allows AskUserQuestion outside its never"
 }
 
+check_withdrawn_row_closes() {  # $1 skill $2 log tpl $3 debrief — ASKWITHDRAW S2
+  # A withdrawn ask's row CLOSES (it is neither answered nor open), so decisionPasses does not block
+  # on it; and a moot ask is withdrawn rather than left open. The form is the same in all three files.
+  local form='withdrawn gate N — '
+  local close; close=$(grep -F '**A row closes on an ANSWER' "$1")
+  printf '%s' "$close" | grep -q -F "\`${form}<reason> — <ask path>\`" || echo "skill: an Asks row has no withdrawn closing form (${form}<reason> — <ask path>)"
+  printf '%s' "$close" | grep -q -F 'engine ask withdraw' || echo "skill: the withdrawn row does not name engine ask withdraw"
+  printf '%s' "$close" | grep -q -i 'decisionPasses. does not block' || echo "skill: the withdrawn row is not said to leave decisionPasses unblocked"
+  printf '%s' "$close" | grep -q -i 'a moot ask is withdrawn, not left open' || echo "skill: a moot ask is not said to be withdrawn rather than left open"
+  grep -A1 -E '^## 🗳️ Asks' "$2" | grep -q -F "\`${form}<reason> — <ask path>\`" || echo "log template: the Asks register has no withdrawn closing form"
+  grep -A6 -E '^## 🗳️ Asks' "$2" | grep -E '^\| \[seat/id\]' | grep -q -F "${form}[reason] — [ask path]" || echo "log template: the Asks row's read-back cell has no withdrawn form"
+  grep -A4 -E '^### Asks' "$3" | grep -q -F "\`${form}[reason] — [ask path]\`" || echo "debrief: the Asks read-back has no withdrawn form"
+}
+
 all_violations() {  # $1 skill $2 dirs $3 log tpl $4 inheritance $5 debrief $6 next
+  check_withdrawn_row_closes "$1" "$3" "$5"
   check_no_board_register "$1" "$2" "$3" "$4" "$5" "$6"
   check_board_sentences "$1" "$2" "$3" "$4" "$5" "$6"
   check_forbidden_keeps_chat "$1"
@@ -242,6 +257,7 @@ test_A9_forbidden_keeps_chat_and_no_parent_branch() { report "A9: the Forbidden 
 test_A10_decide_followed_not_invoked() { report "A10: the loom follows /decide as its own procedure; no stale waiver; an ask-only pass is exempt from a page" "$(check_decide_is_followed_not_invoked "$SKILL")"; }
 test_A11_next_routes_loom_forks_to_the_decide_pass() { report "A11: /next routes a loom's fork to the loom's decide pass" "$(check_next_routes_forks_to_the_decide_pass "$NEXT")"; }
 test_A12_inherited_boards_row_has_a_rule() { report "A12: an inherited 🗳️ Boards row is folded with /decide §4, never re-asked" "$(check_inherited_boards_row "$INH")"; }
+test_A13_withdrawn_ask_row_closes() { report "A13: a withdrawn ask's row closes (withdrawn gate N — <reason> — <ask path>) and a moot ask is withdrawn" "$(check_withdrawn_row_closes "$SKILL" "$TPL" "$DEB")"; }
 test_A7_no_file_names_the_old_register() {
   report "A7: no loom file or reader names the register 🗳️ Boards" \
     "$(check_no_board_register "$SKILL" "$DIRS" "$TPL" "$INH" "$DEB" "${READERS[@]}")"
@@ -430,6 +446,16 @@ test_P15_capitalised_boards_register() {  # case-insensitive
   perl_in "$plant_dir/T.md" '## 🗳️ Asks' '## 🗳️ Asks
 Keep the BOARDS rendered at every gate.' 2>/dev/null || { setup_missed "P15" "the log template's Asks heading"; return; }
   assert_plant_reddens "P15 an upper-case BOARDS instruction is still read"
+}
+
+test_P16_withdrawn_row_form_removed() {  # ASKWITHDRAW S2
+  perl_in "$plant_dir/T.md" ' or on a withdrawal (`withdrawn gate N — <reason> — <ask path>`, after `engine ask withdraw`; a moot ask is withdrawn rather than left open)' '' 2>/dev/null || { setup_missed "P16" "the log template's withdrawn closing form"; return; }
+  assert_plant_reddens "P16 the log template drops the withdrawn closing form"
+}
+
+test_P17_moot_ask_left_open() {  # ASKWITHDRAW S2
+  perl_in "$plant_dir/S.md" '**A moot ask is withdrawn, not left open**' '**A moot ask may be left open**' 2>/dev/null || { setup_missed "P17" "the skill's moot-ask sentence"; return; }
+  assert_plant_reddens "P17 the skill lets a moot ask stay open"
 }
 
 run_discovered_tests

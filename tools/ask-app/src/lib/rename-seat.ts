@@ -14,8 +14,9 @@
  * - every other header field: each `<seat>/<id>` ref (`supersedes`, `superseded-by`, `related`,
  *   `dependsOn`, and a ref or an ask's file path quoted in `context`, `evidence`, `why`, …). A bare
  *   seat named in such prose (`acted: told idealic:ui`) is history, like a note, and is left alone;
- * - the ```json answer```, ```json draft``` and ```json history``` records (IDE-339: history holds
- *   every replaced answer, each rewritten like the answer): `answeredBy`, `readBy`, `relayedFrom`,
+ * - the ```json answer```, ```json draft```, ```json history``` and ```json withdrawn-draft``` records
+ *   (IDE-339: history holds every replaced answer, each rewritten like the answer; ASKWITHDRAW: the
+ *   draft a withdraw set aside): `answeredBy`, `readBy`, `relayedFrom`,
  *   `actedBy`, and the seat in `answeredVia: relay:<seat>`. A seat inside a note or reason is left alone;
  * - ASKFOLLOWUP: each ```json followup``` record's `by` and `addressedBy`. Its `text` is prose, left alone.
  * The body is never touched: its digest guards drafts (S4), and a question's wording is the asker's.
@@ -25,7 +26,7 @@
  * WHOLE seat name: never preceded by a seat-name character, and never followed by one that would
  * continue it.
  */
-import { ANSWER_FENCES, DRAFT_FENCES, FOLLOWUP_ENTRIES, HISTORY_FENCES, PANEL_FENCES } from "./format.ts";
+import { ANSWER_FENCES, DRAFT_FENCES, FOLLOWUP_ENTRIES, HISTORY_FENCES, PANEL_FENCES, WITHDRAWN_DRAFT_FENCES } from "./format.ts";
 
 export type SeatChange = { field: string; from: string; to: string };
 
@@ -149,7 +150,7 @@ export function rewriteSeatRefs(text: string, old: string, neu: string): { text:
   let rest = lines.slice(end + 1).join("\n");
   // `rest` starts at the line after `---`, so a fence on that very line still has its `\n` before it.
   rest = `\n${rest}`;
-  for (const [re, which] of [[ANSWER_FENCES, "answer"], [DRAFT_FENCES, "draft"], [HISTORY_FENCES, "history"], [FOLLOWUP_ENTRIES, "followup"], [PANEL_FENCES, "panels"]] as const) {
+  for (const [re, which] of [[ANSWER_FENCES, "answer"], [DRAFT_FENCES, "draft"], [HISTORY_FENCES, "history"], [FOLLOWUP_ENTRIES, "followup"], [PANEL_FENCES, "panels"], [WITHDRAWN_DRAFT_FENCES, "withdrawn-draft"]] as const) {
     rest = rest.replace(re, (whole: string, json: string) => {
       const out = rewriteRecord(json, which, old, neu, changes);
       return out === json ? whole : whole.replace(json, () => out);
@@ -186,7 +187,7 @@ export function leftRefs(text: string, old: string): LeftRef[] {
     }
   }
   let body = `\n${lines.slice(end + 1).join("\n")}`;
-  for (const [re, which] of [[ANSWER_FENCES, "answer"], [DRAFT_FENCES, "draft"], [HISTORY_FENCES, "history"], [FOLLOWUP_ENTRIES, "followup"], [PANEL_FENCES, "panels"]] as const) {
+  for (const [re, which] of [[ANSWER_FENCES, "answer"], [DRAFT_FENCES, "draft"], [HISTORY_FENCES, "history"], [FOLLOWUP_ENTRIES, "followup"], [PANEL_FENCES, "panels"], [WITHDRAWN_DRAFT_FENCES, "withdrawn-draft"]] as const) {
     body = body.replace(re, (_whole: string, json: string) => {
       try {
         // The history fence is a list of records; the others are one.

@@ -6,8 +6,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
-import { answerAsk, listAsks, newAsk, readAsk, renameSeat, saveDraft, sendBatch, supersedeAsk, withdrawAsk } from "../src/lib/store.ts";
-import { assertLive, parseAskFile, WithdrawnError } from "../src/lib/format.ts";
+import { actedAsk, answerAsk, assertMayRetract, listAsks, newAsk, readAsk, renameSeat, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk } from "../src/lib/store.ts";
+import { assertLive, bodyDigest, parseAskFile, trailingDraftFence, WithdrawnError } from "../src/lib/format.ts";
 import { SEAT_FIELDS } from "../src/lib/rename-seat.ts";
 import { askRow, rowInFilter } from "../src/client/model.ts";
 
@@ -74,7 +74,8 @@ describe("withdrawAsk: the asker takes its question back", () => {
     await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
     expect(pushes.map((p) => p.seat)).toEqual([HOLDER]);
     const c = pushes[0].content;
-    expect(c).toMatch(/^\[ask-withdrawn\] from idealic:kernel via ask-app: idealic:kernel\/w1 is withdrawn: moot/);
+    expect(c).toMatch(/^\[ask-withdrawn\] from idealic:kernel via the ask CLI: idealic:kernel\/w1 is withdrawn: moot/);
+    expect(c).not.toContain("via ask-app");
     expect(c).toContain("No action needed");
     expect(c).toMatch(/do not acknowledge/i);
     expect(c).toContain(file("w1"));
@@ -90,14 +91,46 @@ describe("withdrawAsk: the asker takes its question back", () => {
     expect(pushes).toEqual([]);
   });
 
-  it("a saved draft is discarded, and the withdrawal records whose it was", async () => {
+  it("a saved draft stops being a draft, and the withdrawal records whose it was", async () => {
     ask();
     await saveDraft(root, ASKER, "w1", { answers: { GO: ["YES"] }, answeredBy: HOLDER }, 1);
     await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
-    expect(text("w1")).not.toContain("```json draft");
+    expect(text("w1")).not.toContain("```json draft\n");
     expect(read("w1").draft).toBeUndefined();
     expect(read("w1").header["withdrawn-draft-of"]).toBe(HOLDER);
-    expect(pushes[0].content).toContain(`A draft saved by ${HOLDER} on it was discarded`);
+    expect(pushes[0].content).toContain(`A draft saved by ${HOLDER} on it is no longer sendable; its content is kept in the file`);
+  });
+
+  it("the draft's content is kept byte for byte as a ```json withdrawn-draft``` record (meta:utils)", async () => {
+    ask();
+    await saveDraft(root, ASKER, "w1", { answers: { GO: ["YES"] }, answeredBy: HOLDER, note: "half-written thought" }, 1);
+    const json = /```json draft\n([\s\S]*?)\n```/.exec(text("w1"))![1];
+    const digest = bodyDigest(text("w1"));
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    const after = text("w1");
+    expect(after).toContain("```json withdrawn-draft\n" + json + "\n```");
+    const p = read("w1");
+    expect(p.withdrawnDraft).toEqual(JSON.parse(json));
+    expect(p.withdrawnDraft?.note).toBe("half-written thought");
+    // The record is not a live draft: no draft, the questions parse as before, the digest is unmoved.
+    expect(p.draft).toBeUndefined();
+    expect(p.questions.map((q) => q.askName)).toEqual(["GO"]);
+    expect(bodyDigest(after)).toBe(digest);
+    expect(trailingDraftFence(after)).toBe("");
+  });
+
+  it("a withdrawn-draft fence never counts as a draft, and only a withdrawn ask reads it", () => {
+    const planted = `---\nid: p1\nto: ${HOLDER}\nfrom: ${ASKER}\nstatus: open\nrevision: 1\ndraft: 2026-10-30T00:00:00.000Z\n---\n${BODY}\n\`\`\`json withdrawn-draft\n{"answers":{"GO":["YES"]},"answeredBy":"x","savedAt":"2026-10-30T00:00:00.000Z","basedOn":1}\n\`\`\`\n`;
+    const p = parseAskFile(planted);
+    expect(p.draft).toBeUndefined();
+    expect(p.withdrawnDraft).toBeUndefined();
+  });
+
+  it("new and revise refuse a body carrying a withdrawn-draft fence", async () => {
+    const fence = "\n```json withdrawn-draft\n{}\n```\n";
+    expect(() => newAsk(root, { from: ASKER, to: HOLDER, id: "x1" }, BODY + fence)).toThrow(/withdrawn-draft/);
+    ask();
+    await expect(reviseAsk(root, ASKER, "w1", {}, BODY + fence, { by: ASKER, push })).rejects.toThrow(/withdrawn-draft/);
   });
 
   it("with no draft, no draft field is written", async () => {
@@ -125,6 +158,37 @@ describe("withdrawAsk: who may withdraw (the supersede set; pending an operator 
     await expect(withdrawAsk(root, REF, { by: HOLDER, manages: ["runner"], reason: "r", push })).rejects.toThrow(/only the asker/);
     expect(text("w1")).toBe(before);
     expect(pushes).toEqual([]);
+  });
+
+  it("Q2: supersede and withdraw share one who-may-retract check, so both refuse the same peer with the same rule", async () => {
+    ask("w1");
+    ask("old");
+    ask("new");
+    const peer = { by: "idealic:runner", manages: ["runner"], reason: "r", push };
+    const rule = /^only the asker \(idealic:kernel\), its manager or the operator (withdraws|supersedes) idealic:kernel\/(w1|old); idealic:runner is none of them$/;
+    const w = await withdrawAsk(root, REF, peer).catch((e: Error) => e.message);
+    const s = await supersedeAsk(root, { seat: ASKER, id: "old" }, { seat: ASKER, id: "new" }, peer).catch((e: Error) => e.message);
+    expect(w).toMatch(rule);
+    expect(s).toMatch(rule);
+    // The helper is the rule: the same peer is refused for either verb, and the same three pass.
+    const hdr = read("w1");
+    for (const verb of ["withdraws", "supersedes"] as const) {
+      expect(() => assertMayRetract(hdr, { by: "idealic:runner", manages: ["runner"] }, verb, "x/y")).toThrow(`only the asker (idealic:kernel), its manager or the operator ${verb} x/y; idealic:runner is none of them`);
+      for (const ok of [{ by: ASKER }, { by: "operator" }, { by: "manager:idealic", manages: ["kernel"] }]) expect(() => assertMayRetract(hdr, ok, verb, "x/y")).not.toThrow();
+    }
+    expect(pushes).toEqual([]);
+  });
+
+  it("ASKCASE: the asker under another spelling may withdraw and may supersede, through the one retract rule", async () => {
+    ask("w1");
+    ask("old");
+    ask("new");
+    const spelled = "Idealic:Kernel";
+    for (const verb of ["withdraws", "supersedes"] as const) expect(() => assertMayRetract(read("w1"), { by: spelled }, verb, "x/y")).not.toThrow();
+    await withdrawAsk(root, REF, { by: spelled, reason: "moot", push });
+    expect(read("w1").header.status).toBe("withdrawn");
+    await supersedeAsk(root, { seat: ASKER, id: "old" }, { seat: ASKER, id: "new" }, { by: spelled, push });
+    expect(read("old").header.status).toBe("superseded");
   });
 });
 
@@ -220,8 +284,31 @@ describe("a withdrawn ask takes no answer, draft or send", () => {
     await withdrawn();
     const r = await sendBatch(root, [`${ASKER}/w1`], { by: HOLDER, push });
     expect(r.settled).toEqual([]);
-    expect(r.refused).toEqual([{ ref: `${ASKER}/w1`, error: "ask w1 is withdrawn by idealic:kernel (moot): there is nothing to answer" }]);
+    expect(r.refused).toEqual([{ ref: `${ASKER}/w1`, error: "ask w1 is withdrawn by idealic:kernel (moot): there is nothing to answer", status: "withdrawn", withdrawnBy: ASKER, withdrawnAt: read("w1").header["withdrawn-at"], withdrawnReason: "moot" }]);
     expect(read("w1").header.status).toBe("withdrawn");
+  });
+});
+
+describe("N3: acted on a withdrawn ask suggests no command that is then refused", () => {
+  it("names the withdrawal and does not offer answer --relayed-from or --ruled-in-chat", async () => {
+    ask();
+    await withdrawAsk(root, REF, { by: ASKER, reason: "moot", push });
+    const before = text("w1");
+    const msg = await actedAsk(root, ASKER, "w1", "done", { by: ASKER }).catch((e: Error) => e.message);
+    expect(msg).toMatch(/idealic:kernel\/w1 is withdrawn by idealic:kernel \(moot\)/);
+    expect(msg).not.toMatch(/relayed-from|ruled-in-chat/);
+    // The command the old text offered is indeed refused, which is why it may not be suggested.
+    await expect(answerAsk(root, ASKER, "w1", { answers: { GO: ["YES"] }, answeredBy: "operator" }, { expectedRevision: 2, push } as never)).rejects.toThrow(/withdrawn/);
+    expect(text("w1")).toBe(before);
+  });
+
+  it("a superseded ask names its replacement rather than suggesting an answer", async () => {
+    ask("old");
+    ask("new");
+    await supersedeAsk(root, { seat: ASKER, id: "old" }, { seat: ASKER, id: "new" }, { by: ASKER, push });
+    const msg = await actedAsk(root, ASKER, "old", "done", { by: ASKER }).catch((e: Error) => e.message);
+    expect(msg).toMatch(/superseded by idealic:kernel\/new/);
+    expect(msg).not.toMatch(/relayed-from|ruled-in-chat/);
   });
 });
 
@@ -250,5 +337,8 @@ describe("rename-seat rewrites the withdrawal's seat fields", () => {
     expect(h["withdrawn-actor"]).toBe("idealic:core");
     expect(h["withdrawn-draft-of"]).toBe("manager:kit");
     expect(h.status).toBe("withdrawn");
+    // The kept draft's seat fields are rewritten like any record's.
+    const p = parseAskFile(fs.readFileSync(path.join(root, "idealic:core", "w1.md"), "utf8"));
+    expect(p.withdrawnDraft?.answeredBy).toBe("manager:kit");
   });
 });

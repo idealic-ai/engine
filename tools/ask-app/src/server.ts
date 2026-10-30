@@ -5,6 +5,7 @@
  *   GET  /api/health   {app, root, pid, port}
  *   GET  /api/asks     every ask under the root, all statuses; each with `history`, its replaced answers and
  *                      (ASKFOLLOWUP) its follow-ups as `{type: "followup", …}`, oldest first
+ *                      and, on a withdrawn ask whose draft was set aside, `withdrawnDraft` (that draft, parsed)
  *   GET  /api/proofs   (token required) published proof pages in the local proof store, newest first
  *                      (?fresh skips the cache, and joins a listing already running rather than starting one)
  *   GET  /api/broadcasts  (token required) broadcasts newest first, with acks; read-only, BROADCAST_DIR overrides the dir
@@ -26,6 +27,8 @@
  *   POST /api/send     {refs?: ["seat/id", …]} → every named draft (the operator's own drafts when refs
  *                      is absent) is settled from its file and ONE message per recipient seat is pushed. The body's
  *                      refs are the only input: answers in the body are never read (the file is the record).
+ *                      Each `refused[]` entry is {ref, error}; a withdrawn or superseded ask's also carries the
+ *                      409's fields (status + withdrawnBy/At/Reason, or supersededBy), so no reader parses `error`.
  *   GET  /api/ticket/:key  (token required) → {key,title,status,statusType,statusSince,assignee,summary,url},
  *                      fetched from Linear by this server. The Linear key is read from LINEAR_API_KEY or
  *                      the env file named by ASK_LINEAR_ENV, never argv, and never written to a response.

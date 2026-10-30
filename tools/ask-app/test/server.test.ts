@@ -216,5 +216,43 @@ describe("withdraw (ASKWITHDRAW): the server refuses an answer, a draft or a sen
     expect(h.status).toBe("withdrawn");
     expect(h["withdrawn-reason"]).toBe("moot now");
     expect(h.draft).toBeUndefined();
+    // meta:utils: the draft the withdraw set aside is returned parsed, so the client can show or recover it.
+    const row = all.find((a) => a.header.id === id)! as unknown as { draft?: unknown; withdrawnDraft?: { answers: unknown; answeredBy: string } };
+    expect(row.draft).toBeUndefined();
+    expect(row.withdrawnDraft?.answers).toEqual({ GO: ["YES"] });
+    expect(row.withdrawnDraft?.answeredBy).toBe("operator");
+  });
+});
+
+describe("/api/send refused[]: a withdrawn or superseded ask carries the 409's structured fields (meta:utils)", () => {
+  it("each entry has ref, the unchanged error, and status with who/when/why or the replacement", async () => {
+    const quiet = async () => ({ status: "delivered" as const });
+    const w = freshAsk();
+    await saveDraft(root, "idealic:kernel", w, { answers: { GO: ["YES"] }, answeredBy: "operator" }, 1);
+    await withdrawAsk(root, { seat: "idealic:kernel", id: w }, { by: "idealic:kernel", reason: "moot now", now: "2026-10-30T16:30:00.000Z", push: quiet });
+    const old = freshAsk();
+    const neu = freshAsk();
+    await saveDraft(root, "idealic:kernel", old, { answers: { GO: ["YES"] }, answeredBy: "operator" }, 1);
+    await supersedeAsk(root, { seat: "idealic:kernel", id: old }, { seat: "idealic:kernel", id: neu }, { by: "idealic:kernel", push: quiet });
+    const s = await req("POST", "/api/send", { headers: GOOD(), body: JSON.stringify({ refs: [`idealic:kernel/${w}`, `idealic:kernel/${old}`] }) });
+    expect(s.status).toBe(200);
+    const j = JSON.parse(s.body);
+    expect(j.settled).toEqual([]);
+    expect(j.refused).toEqual([
+      {
+        ref: `idealic:kernel/${w}`,
+        error: `ask ${w} is withdrawn by idealic:kernel (moot now): there is nothing to answer`,
+        status: "withdrawn",
+        withdrawnBy: "idealic:kernel",
+        withdrawnAt: "2026-10-30T16:30:00.000Z",
+        withdrawnReason: "moot now",
+      },
+      {
+        ref: `idealic:kernel/${old}`,
+        error: `ask ${old} is superseded by idealic:kernel/${neu}; answer that one instead`,
+        status: "superseded",
+        supersededBy: `idealic:kernel/${neu}`,
+      },
+    ]);
   });
 });
