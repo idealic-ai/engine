@@ -82,7 +82,7 @@ export function resolveAskPath(root: string, seat: string, id: string): string {
 }
 
 /** Write `text` beside `file` and rename over it, so a watcher never reads half a file. */
-function atomicWrite(file: string, text: string) {
+export function atomicWrite(file: string, text: string) {
   const tmp = path.join(path.dirname(file), `.${path.basename(file)}.${process.pid}.tmp`);
   fs.writeFileSync(tmp, text);
   fs.renameSync(tmp, file);
@@ -219,7 +219,7 @@ const writerStamp = (now = new Date()) => `${process.pid}@${now.toISOString()}`;
 const LOCK_STALE_MS = 10_000;
 
 /** A per-file mkdir lock: atomic on every local filesystem, and cleared if a holder died holding it. */
-async function withFileLock<T>(file: string, fn: () => T | Promise<T>): Promise<T> {
+export async function withFileLock<T>(file: string, fn: () => T | Promise<T>): Promise<T> {
   const lock = `${file}.lock`;
   for (let i = 0; ; i++) {
     try {

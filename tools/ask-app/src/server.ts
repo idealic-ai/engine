@@ -38,6 +38,17 @@
  *                      refs are the only input: answers in the body are never read (the file is the record).
  *                      Each `refused[]` entry is {ref, error}; a withdrawn or superseded ask's also carries the
  *                      409's fields (status + withdrawnBy/At/Reason, or supersededBy), so no reader parses `error`.
+ *   POST /api/asks/<seat>/<id>/wake  (WAKEBTN; body `{}`; same guards as /api/answer) → wake the seat the ask is
+ *                      waiting on (its `to:`, which a forward moves): push it "operator woke you for ask <seat>/<id>:
+ *                      … read your asks", and record wokenAt/wokenBy/wokenSeat/wakeDelivery in the ask's header.
+ *                      This IS a wake, and the operator's click on it is the operator's order that the standing
+ *                      rule "no --wake without the operator's order" asks for: only this route calls wakeAsk, for
+ *                      the page's token holder, stamped `operator`. Nothing wakes on a timer or from anywhere else.
+ *                      → 200 {ref, target, wokenAt, wokenBy, delivery: {status, reason?}, wakeAfter?}
+ *                        · 409 {error, code: "operator"|"closed"|"no-pane"|"cooldown", wakeAfter?} · 404 no such ask
+ *                        · 400 invalid seat or id
+ *                      /api/asks rows carry the same state, known without trying: wakeTarget, wokenAt, wokenBy,
+ *                      wokenSeat, wakeDelivery, wakeDeliveryNote, wakeAfter, wakeBlocked (the code), wakeBlockedReason.
  *   GET  /api/ticket/:key  (token required) → {key,title,status,statusType,statusSince,assignee,summary,url},
  *                      fetched from Linear by this server. The Linear key is read from LINEAR_API_KEY or
  *                      the env file named by ASK_LINEAR_ENV, never argv, and never written to a response.
@@ -71,6 +82,7 @@ import { openSearchDb, searchDbPath, type SearchDb } from "./search/db.ts";
 import { createRefresher, type Refresher } from "./search/refresher.ts";
 import { askSource, defaultSources, KINDS, type Kind } from "./search/sources.ts";
 import { indexState, search, SearchUnavailable } from "./search/query.ts";
+import { memoLookup, wakeAsk, WakeRefused, wakeView } from "./lib/wake.ts";
 
 const args = process.argv.slice(2);
 const arg = (name: string) => {
@@ -187,7 +199,12 @@ const server = http.createServer(async (req, res) => {
   if (!HOSTS.includes(String(req.headers.host ?? ""))) return send(res, 403, { error: "bad host" });
   try {
     if (url.pathname === "/api/health") return send(res, 200, { app: "ask-app", root, pid: process.pid, port, tickets: tickets.enabled, build: BUILD_ID });
-    if (url.pathname === "/api/asks") return send(res, 200, { root, asks: listAsks(root).map((a) => ({ ...a, history: dialogueHistory(a) })) });
+    if (url.pathname === "/api/asks") {
+      // WAKEBTN: each row carries its wake state; the session registry is read once per seat per listing.
+      const lookup = memoLookup();
+      const now = Date.now();
+      return send(res, 200, { root, asks: listAsks(root).map((a) => ({ ...a, history: dialogueHistory(a), ...wakeView(a, { now, lookup }) })) });
+    }
     // The published proof pages in the local MinIO store, read-only (ported from the ASKDESIGN prototype).
     // SF-6: a listing spawns bash + aws, so it is gated like /api/broadcasts: GET only, the page's token,
     // and no foreign Origin. Any other method falls through to the 404 below.
@@ -255,6 +272,30 @@ const server = http.createServer(async (req, res) => {
       } catch (e) {
         if (e instanceof TicketNotFound) return send(res, 404, { error: `no ticket ${key}` });
         return send(res, 502, { error: "Linear lookup failed" });
+      }
+    }
+    const wakeRoute = url.pathname.match(/^\/api\/asks\/([^/]+)\/([^/]+)\/wake$/);
+    if (wakeRoute && req.method === "POST") {
+      // The same three guards as /api/answer: who may act is whoever holds this page's token, on this origin.
+      if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) return send(res, 415, { error: "content-type must be application/json" });
+      const origin = req.headers.origin;
+      if (origin !== undefined && !ORIGINS.includes(origin)) return send(res, 403, { error: "cross-origin write refused" });
+      if (req.headers["x-ask-token"] !== token) return send(res, 403, { error: "missing or wrong ask token" });
+      let seat = "", id = "";
+      try {
+        seat = decodeURIComponent(wakeRoute[1]);
+        id = decodeURIComponent(wakeRoute[2]);
+      } catch {
+        return send(res, 400, { error: "not a seat/id" });
+      }
+      try {
+        // `by` is the server's answerer, never the body's: the operator's click is the order to wake.
+        return send(res, 200, await wakeAsk(root, seat, id, { by: ANSWERER.answeredBy }));
+      } catch (e) {
+        if (e instanceof WakeRefused) return send(res, 409, { error: e.message, code: e.code, ...(e.wakeAfter ? { wakeAfter: e.wakeAfter } : {}) });
+        if (e instanceof AskFormatError) return send(res, 400, { error: e.message });
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") return send(res, 404, { error: "no such ask" });
+        throw e;
       }
     }
     if (req.method === "POST" && ["/api/answer", "/api/draft", "/api/discard", "/api/send", "/api/followup"].includes(url.pathname)) {

@@ -223,6 +223,8 @@ export const STAMP_FIELDS = [
   "replaced",
   // IDE-339: the answerer whose settled answer a different answerer replaced.
   "overruled",
+  // WAKEBTN: the operator's latest wake of the ask's holder (lib/wake.ts).
+  "wokenAt", "wokenBy", "wokenSeat", "wakeDelivery", "wakeDeliveryNote",
 ] as const;
 
 const KIND_WORDS: Record<string, QuestionKind> = {
