@@ -21,6 +21,7 @@ import {
   type Hop,
   CODE_RULE,
   hasRead,
+  duplicateForkNames,
   invalidDependsOn,
   invalidOptionCodes,
   forkNameAfterKind,
@@ -162,6 +163,8 @@ function assertCodes(ask: ParsedAsk) {
   // SHOULD-3: a choice fork with no options cannot be answered at all.
   const empty = ask.questions.filter((q) => (q.kind === "choose-one" || q.kind === "choose" || q.kind === "rank") && q.options.length === 0);
   if (empty.length) throw new AskFormatError(`${empty.map((q) => `"${q.title}"`).join(", ")}: a ${empty[0].kind} fork needs at least one option (- [ ] [CODE] Label)`);
+  const dupes = duplicateForkNames(ask);
+  if (dupes.length) throw new AskFormatError(`fork name refused: ${dupes.join("; ")}`);
   const deps = invalidDependsOn(ask);
   if (deps.length) throw new AskFormatError(`DependsOn refused: ${deps.join("; ")}`);
 }

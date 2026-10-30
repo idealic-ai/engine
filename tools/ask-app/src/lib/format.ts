@@ -27,6 +27,8 @@ export type AskOption = {
   then?: string;
   /** ASKTREE: how cleanly this option fits — a driving factor the asker states per option (`Elegance:`). */
   elegance?: string;
+  /** ASKDEPS: whether picking this option can be undone (`Reversible:` under the option); the fork's own line stays in meta. */
+  reversible?: string;
   children?: AskOption[];
 };
 
@@ -234,19 +236,20 @@ const META_KEYS: Record<string, string> = {
   ifunanswered: "ifUnanswered", neededby: "neededBy", blocks: "blocks", context: "context", range: "range", unit: "unit",
 };
 const META_RE = /^([A-Za-z][A-Za-z ]*?):\s+(.+)$/;
-type OptionField = "cost" | "effort" | "blastRadius" | "unblocks" | "then" | "elegance";
+type OptionField = "cost" | "effort" | "blastRadius" | "unblocks" | "then" | "elegance" | "reversible";
 const OPTION_META: Record<string, OptionField> = {
   cost: "cost", effort: "effort", blast: "blastRadius", blastradius: "blastRadius", "blast radius": "blastRadius",
-  unblocks: "unblocks", then: "then", elegance: "elegance",
+  unblocks: "unblocks", then: "then", elegance: "elegance", reversible: "reversible",
 };
 /** Every per-option field, in the order buildTree copies them. */
-const OPTION_FIELDS: OptionField[] = ["cost", "effort", "blastRadius", "unblocks", "then", "elegance"];
+const OPTION_FIELDS: OptionField[] = ["cost", "effort", "blastRadius", "unblocks", "then", "elegance", "reversible"];
 /**
  * ASKTREE round 2 (M2): the fields the app's card does not render yet, parsed onto their field AND
  * kept in the description text. ASKTREEUI: the card now draws Unblocks, Then and Elegance as lines of
  * their own, so none is echoed; the set stays for the next field that lands before its card does.
+ * ASKDEPS: an option's own `Reversible:` is echoed until the card draws `option.reversible`.
  */
-const ECHOED_IN_DESCRIPTION = new Set<OptionField>([]);
+const ECHOED_IN_DESCRIPTION = new Set<OptionField>(["reversible"]);
 const PANEL_RE = /^(.+?)\s*(?:→|->)\s*(\S+?)\s*(?:—|–|:|\s-)\s*(.+)$/;
 // v1 took 2–4 capitals; v2 also takes one letter (A, B, as /decide boards key options) and digits (L2).
 /**
@@ -1576,15 +1579,49 @@ export const CODE_RULE = `a capital letter, then up to ${CODE_MAX - 1} capitals 
 const CODE_FULL_RE = new RegExp(`^${CODE_SRC}$`);
 
 /**
+ * ASKDEPS: a `¶ASK_` name carried by more than one fork. Answers and DependsOn find a fork by its
+ * name, so a repeat makes one of them unreachable; `new` and `revise` refuse it before DependsOn is read.
+ */
+export function duplicateForkNames(ask: ParsedAsk): string[] {
+  const titles = new Map<string, string[]>();
+  for (const q of ask.questions) if (q.askName) titles.set(q.askName, [...(titles.get(q.askName) ?? []), q.title]);
+  return [...titles].filter(([, t]) => t.length > 1).map(([n, t]) => `¶ASK_${n} names ${t.length} forks (${t.map((x) => `"${x}"`).join(", ")}), and a name has to pick out one fork, because answers and DependsOn find a fork by its name`);
+}
+
+/**
  * `DependsOn: ASK_X=CODE` lines that cannot work: a question X the ask does not have, a code that
  * breaks the code rule, or a code X has no option for (which would hide the dependent for good).
+ * ASKDEPS: also a fork that names itself, and a loop of forks each waiting on the next, since
+ * none of those forks would ever show.
  */
 export function invalidDependsOn(ask: ParsedAsk): string[] {
   const out: string[] = [];
+  const named = (n: string) => ask.questions.find((t) => t.askName === n);
+  const seen = new Set<string>();
+  for (const q of ask.questions) {
+    // Each fork has at most one DependsOn, so following them from q either ends or comes back round.
+    const path: string[] = [];
+    let at: AskQuestion | undefined = q;
+    while (at?.askName && at.dependsOn && !path.includes(at.askName)) {
+      path.push(at.askName);
+      at = named(at.dependsOn.ask);
+    }
+    // A self-reference is a ring of one; it is refused below with its own words.
+    const ring = at?.askName && path.includes(at.askName) ? path.slice(path.indexOf(at.askName)) : [];
+    if (ring.length < 2 || ring.some((n) => seen.has(n))) continue;
+    ring.forEach((n) => seen.add(n));
+    const say = (n: string) => `ASK_${n} ("${named(n)!.title}")`;
+    const chain = ring.slice(1).map((n, i) => `${i ? ", which waits on" : " waits on"} ${say(n)}`).join("");
+    out.push(`DependsOn forms a loop: ${say(ring[0])}${chain}, which waits on ASK_${ring[0]}, so none of them ever shows`);
+  }
   for (const q of ask.questions) {
     const d = q.dependsOn;
     if (!d) continue;
-    const target = ask.questions.find((t) => t.askName === d.ask);
+    if (q.askName && d.ask === q.askName) {
+      out.push(`"${q.title}": DependsOn ASK_${d.ask} names its own fork, so it would wait on its own answer and never show`);
+      continue;
+    }
+    const target = named(d.ask);
     if (!target) out.push(`"${q.title}": DependsOn ASK_${d.ask} names no question in this ask`);
     else if (d.code !== undefined && !CODE_FULL_RE.test(d.code)) out.push(`"${q.title}": DependsOn ASK_${d.ask}=${d.code} is not a code (${CODE_RULE})`);
     else if (d.code !== undefined && !allCodes(target.options).includes(d.code)) out.push(`"${q.title}": DependsOn ASK_${d.ask}=${d.code} names no option of ASK_${d.ask} (it has ${allCodes(target.options).join(", ") || "no codes"})`);

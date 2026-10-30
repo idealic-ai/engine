@@ -280,12 +280,13 @@ describe("FIELDS: per-option Unblocks, Then and Elegance", () => {
     "",
   ].join("\n");
 
-  it("parses them onto the option, leaving the fork's Unblocks in meta and Reversible as description", () => {
+  it("parses them onto the option, leaving the fork's Unblocks in meta; ASKDEPS: Reversible is the option's too", () => {
     const q = parse(b).questions[0];
     const yes = q.options[0] as AskOption;
     expect(yes.unblocks).toBe("IDE-12 and the deploy lane");
     expect(yes.then).toBe("run engine deploy and post the URL here");
     expect(yes.elegance).toBe("high — one release path");
+    expect(yes.reversible).toBe("yes");
     expect(q.meta.unblocks).toBe("the fork-level line stays the fork's");
     expect(q.options[1]).not.toHaveProperty("then");
   });
