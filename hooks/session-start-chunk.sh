@@ -63,9 +63,12 @@ find "$CACHE_DIR" -maxdepth 1 -type d -name '*.lockd' -mmin +"$LOCK_MIN" -exec r
 # killed generation never permanently empties the preload. Exporting the
 # chunker's own PPID (= Claude's PID) lets the generator key its seed/preload
 # state to Claude's process rather than this transient chunker's PID.
+# BROADCAST_WAKE_KEY names this SessionStart event: a second generation after a lock reclaim
+# passes the same key, so `engine broadcast pending` lists again the queued broadcasts the first
+# generation claimed (and marked delivered) instead of dropping them (IDE-352 critique SHOULD-2).
 _generate() {
   if [ ! -f "$CACHE" ]; then
-    printf '%s' "$INPUT" | CLAUDE_HOOK_PPID="$PPID" bash "$GENERATOR" > "$CACHE.tmp.$$" 2>/dev/null \
+    printf '%s' "$INPUT" | CLAUDE_HOOK_PPID="$PPID" BROADCAST_WAKE_KEY="ss-$KEY" bash "$GENERATOR" > "$CACHE.tmp.$$" 2>/dev/null \
       && mv -f "$CACHE.tmp.$$" "$CACHE" 2>/dev/null
     rm -f "$CACHE.tmp.$$" 2>/dev/null || true
   fi

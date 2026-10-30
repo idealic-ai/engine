@@ -73,6 +73,8 @@ if grep -qxF -- "\$1" "$FIX/failseats"; then echo "undelivered: stub refused \$1
 id=\$(sed -n 's/^ack (from [^)]*): engine broadcast ack //p' <<<"\$3")
 printf '%s' "\$3" > "$FIX/msg.\$1"   # the raw bytes, per seat (last message wins)
 if [ -n "\$id" ] && [ -f "$FIX/bc/\$id.md" ]; then st=record-present; else st=record-absent; fi
+# Whether the seat's queue still held this id when it was pushed (IDE-352 NIT-5).
+if [ -n "\$id" ] && [ -e "$FIX/bc/queued/\$1/\$id" ]; then echo "\$1 \$id" >> "$FIX/queued-at-push"; fi
 printf '%s|%s|%s|%s\n' "\$1" "\$2" "\$st" "\$(printf '%s' "\$3" | tr '\n' '~')" >> "$FIX/sent.log"
 echo delivered
 EOF
@@ -558,7 +560,7 @@ test_queue_all_live_pushes_everyone() {
   assert_eq "manager:app manager:domain app:ask app:ui ask:helper domain:stats" "$(audience)" "all-live: --all keeps its audience"
   assert_eq 6 "$(sent_count)" "all-live: and pushes all of it"
   bc --all --from manager:director --id al3 --dry-run
-  assert_has "binds app:ask → ok 2004 app:ask (queue: idle 120m)" "$OUT" "dry-run: shows which seats would be queued"
+  assert_has "binds app:ask → ok 2004 app:ask (queue: idle=120m)" "$OUT" "dry-run: shows which seats would be queued"
 }
 
 test_queue_shown_once_at_wake() {
@@ -640,6 +642,147 @@ test_queue_go_request_idle_owner() {
   assert_has "receipt path app:ask $c1 $(rid "$c1" kern/a.ts) -- kern/a.ts" "$OUT" "go queue: at wake the owner sees its own receipts"
   assert_hasnt "receipt path domain:stats" "$OUT" "go queue: and only its own"
   assert_has "ack (from manager:app): engine broadcast ack gq1" "$OUT" "go queue: with the go command"
+}
+
+# ---------------------------------------------------------------- queue, round 2 (critique SHOULD/NIT)
+test_queue_unwritable_falls_back_live() {
+  act 2004 idle 120
+  : > "$FIX/bc/queued"   # a file where the queue directory should be: no seat's queue can be written
+  bc --children --from manager:app --id uw1
+  assert_eq 0 "$RC" "unwritable queue: exits 0"
+  assert_has "app:ask|" "$(cat "$FIX/sent.log")" "unwritable queue: the idle seat is pushed live instead"
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/uw1.md")" "unwritable queue: and recorded delivered"
+  assert_hasnt "queued app:ask" "$(cat "$FIX/bc/uw1.md")" "unwritable queue: never a queued line with no entry"
+  bc status uw1
+  assert_has $'app:ask\tdelivered' "$OUT" "unwritable queue: status reads delivered, not queued"
+}
+
+test_queue_retracted_or_expired_is_dropped_unshown() {
+  act 2004 idle 120; act 2005 idle 120
+  bc --children --from manager:app --id rx1 --sticky
+  bc --children --from manager:app --id rx2 --sticky --expires 2030-01-01
+  assert_file_exists "$FIX/bc/queued/app:ask/rx1" "dropped: rx1 queued"
+  bc retract rx1
+  assert_eq 0 "$RC" "dropped: rx1 retracted"
+  # Expire rx2 in place: its record now says it ended in 2000.
+  sed -i.bak 's/^expires: .*/expires: 2000-01-01T00:00:00Z/' "$FIX/bc/rx2.md"
+  PANE=%4 bc pending
+  assert_hasnt "rx1" "$OUT" "dropped: a retracted queued broadcast is not shown"
+  assert_hasnt "rx2" "$OUT" "dropped: an expired queued broadcast is not shown"
+  assert_hasnt "delivered app:ask at-wake" "$(cat "$FIX/bc/rx1.md")" "dropped: a retracted one is not marked delivered"
+  assert_hasnt "delivered app:ask at-wake" "$(cat "$FIX/bc/rx2.md")" "dropped: an expired one is not marked delivered"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/rx1" "dropped: the retracted entry is removed"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/rx2" "dropped: the expired entry is removed"
+  PANE=%5 bc pending --for app:ui
+  assert_hasnt "rx1" "$OUT" "dropped: pending --for does not list a retracted one either"
+}
+
+test_queue_waiting_status_is_named() {
+  act 2004 waiting 120; act 2005 idle 120
+  bc --children --from manager:app --id ws1 --dry-run
+  assert_has "binds app:ask → ok 2004 app:ask (queue: idle=120m status=waiting)" "$OUT" "waiting: the dry run names the status"
+  bc --children --from manager:app --id ws1
+  assert_has "queued app:ask pid=2004 idle=120m status=waiting" "$(cat "$FIX/bc/ws1.md")" "waiting: the queued line says status=waiting"
+  assert_has "queued app:ask pid=2004 idle=120m status=waiting" "$OUT" "waiting: and the sender sees it"
+  assert_has "queued app:ui pid=2005 idle=120m" "$(cat "$FIX/bc/ws1.md")" "waiting: an idle seat is queued as before"
+  assert_hasnt "app:ui pid=2005 idle=120m status=" "$(cat "$FIX/bc/ws1.md")" "waiting: with no status field for an idle one"
+}
+
+test_queue_idle_flag_and_choice_gate() {
+  act 2004 idle 120
+  bc --children --from manager:app --id qi1 --queue-idle
+  assert_eq 0 "$RC" "queue-idle: accepted"
+  assert_has "queued app:ask" "$(cat "$FIX/bc/qi1.md")" "queue-idle: queues the idle seat, as the default does"
+  bc --children --from manager:app --id qi2 --queue-idle --all-live
+  assert_eq 2 "$RC" "queue-idle: with --all-live is refused"
+  assert_file_not_exists "$FIX/bc/qi2.md" "queue-idle: and nothing is written"
+  : > "$FIX/sent.log"
+  BROADCAST_QUEUE_NEEDS_CHOICE=1 bc --children --from manager:app --id qi3
+  assert_eq 2 "$RC" "gate: a send that would queue, with no choice given, is refused"
+  assert_has "1 of 2 seats would be queued, not woken: app:ask (idle=120m)" "$OUT" "gate: naming the idle seats"
+  assert_has "--all-live" "$OUT" "gate: and offering --all-live"
+  assert_has "--queue-idle" "$OUT" "gate: and --queue-idle"
+  assert_file_not_exists "$FIX/bc/qi3.md" "gate: before the record is written"
+  assert_eq 0 "$(sent_count)" "gate: and before any push"
+  BROADCAST_QUEUE_NEEDS_CHOICE=1 bc --children --from manager:app --id qi4 --queue-idle
+  assert_eq 0 "$RC" "gate: --queue-idle passes it"
+  assert_has "queued app:ask" "$(cat "$FIX/bc/qi4.md")" "gate: and queues"
+  BROADCAST_QUEUE_NEEDS_CHOICE=1 bc --children --from manager:app --id qi5 --all-live
+  assert_eq 0 "$RC" "gate: --all-live passes it"
+  assert_hasnt "queued" "$(cat "$FIX/bc/qi5.md")" "gate: and pushes everyone"
+  act 2004 idle 5
+  BROADCAST_QUEUE_NEEDS_CHOICE=1 bc --children --from manager:app --id qi6
+  assert_eq 0 "$RC" "gate: a send that queues nobody needs no choice"
+  bc --children --from manager:app --id qi7
+  assert_eq 0 "$RC" "gate: off by default (MUST-1 awaits the operator)"
+}
+
+test_queue_wake_key_keeps_what_it_claimed() {
+  act 2004 idle 120
+  bc --children --from manager:app --id wkk1
+  PANE=%4 BROADCAST_WAKE_KEY=ss-sid1_startup bc pending
+  assert_has $'wkk1\tmanager:director\tqueued' "$OUT" "wake key: the first generation shows it"
+  PANE=%4 BROADCAST_WAKE_KEY=ss-sid1_startup bc pending
+  assert_has $'wkk1\tmanager:director\tqueued' "$OUT" "wake key: a second generation for the same event shows it again"
+  assert_has "ack (from manager:director): engine broadcast ack wkk1" "$OUT" "wake key: with its message"
+  assert_eq 1 "$(grep -c '^delivered app:ask at-wake' "$FIX/bc/wkk1.md")" "wake key: marked delivered once"
+  PANE=%4 BROADCAST_WAKE_KEY=ss-sid2_clear bc pending
+  assert_hasnt "wkk1" "$OUT" "wake key: another event does not see it"
+  PANE=%4 bc pending
+  assert_hasnt "wkk1" "$OUT" "wake key: nor does a pending with no key"
+  PANE=%4 BROADCAST_WAKE_KEY='../x' bc pending
+  assert_eq 2 "$RC" "wake key: a key that is not a plain name is refused"
+}
+
+test_queue_dead_claim_is_recovered() {
+  act 2004 idle 120
+  bc --children --from manager:app --id dc1
+  bc --children --from manager:app --id dc2
+  local qd="$FIX/bc/queued/app:ask"
+  mv "$qd/dc1" "$qd/.dc1.claim.99999999"   # its hook was killed after the claim
+  mv "$qd/dc2" "$qd/.dc2.claim.$$"         # a claim whose process still runs
+  PANE=%4 bc pending --for app:ask
+  assert_hasnt "dc1" "$OUT" "dead claim: a read does not recover it"
+  PANE=%4 bc pending
+  assert_has $'dc1\tmanager:director\tqueued' "$OUT" "dead claim: a claim whose process died is shown again"
+  assert_file_not_exists "$qd/.dc1.claim.99999999" "dead claim: and the claim file is gone"
+  assert_hasnt "dc2" "$OUT" "dead claim: a live process's claim is left to it"
+  assert_file_exists "$qd/.dc2.claim.$$" "dead claim: untouched"
+}
+
+test_queue_ack_clears_the_entry() {
+  act 2004 idle 120
+  bc --children --from manager:app --id ak1
+  PANE=%4 bc ack ak1
+  assert_eq 0 "$RC" "ack clears: the seat acks from the record"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/ak1" "ack clears: its queue entry is gone"
+  PANE=%4 bc pending
+  assert_hasnt "ak1" "$OUT" "ack clears: it is not shown at the next wake"
+}
+
+test_queue_push_sets_the_entry_aside_first() {
+  act 2004 idle 120
+  bc --children --from manager:app --id ps1
+  echo app:ask > "$FIX/failseats"
+  PANE=%3 bc resend ps1 --undelivered --all-live
+  assert_has "undelivered app:ask" "$(cat "$FIX/bc/ps1.md")" "push aside: a failed push is undelivered"
+  assert_file_exists "$FIX/bc/queued/app:ask/ps1" "push aside: and its queue entry is put back"
+  : > "$FIX/failseats"; rm -f "$FIX/queued-at-push"
+  PANE=%3 bc resend ps1 --undelivered --all-live
+  assert_has "delivered app:ask pid=2004" "$(cat "$FIX/bc/ps1.md")" "push aside: the retry lands"
+  assert_file_not_exists "$FIX/queued-at-push" "push aside: the entry was out of the queue while the push ran"
+  assert_file_not_exists "$FIX/bc/queued/app:ask/ps1" "push aside: and is gone after it"
+}
+
+test_queue_requeue_keeps_its_place() {
+  act 2004 idle 120
+  bc --children --from manager:app --id rp1
+  touch -t 202001010000 "$FIX/bc/queued/app:ask/rp1"
+  touch "$FIX/now"
+  PANE=%3 bc resend rp1 --undelivered
+  assert_has "queued app:ask" "$(tail -n 3 "$FIX/bc/rp1.md")" "requeue: queued again"
+  if [ "$FIX/bc/queued/app:ask/rp1" -ot "$FIX/now" ]; then pass "requeue: the entry keeps its mtime (its place in the queue)"
+  else fail "requeue: the entry keeps its mtime (its place in the queue)" "older than now" "touched"; fi
 }
 
 # ---------------------------------------------------------------- parity (S7)

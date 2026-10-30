@@ -3,7 +3,8 @@
 # with a durable record, receipts, and standing (sticky) guidance for sessions that start later.
 #
 #   engine broadcast [send] (--subtree SEAT | --children | --all) [--from SEAT] [--id SLUG]
-#                    [--sticky [--expires YYYY-MM-DD[THH:MM:SSZ]]] [--all-live] [--dry-run] <<'MSG'
+#                    [--sticky [--expires YYYY-MM-DD[THH:MM:SSZ]]] [--all-live | --queue-idle]
+#                    [--dry-run] <<'MSG'
 #   <text>
 #   MSG
 #       Audience from the live tmux tree (@pane_parent chains):
@@ -17,13 +18,20 @@
 #       (outside tmux): there is no unseated send. --dry-run prints the audience and each seat's
 #       binding; writes and sends nothing.
 #       Live or queued (IDE-352): a seat is pushed live only when its session was active within
-#       BROADCAST_LIVE_WINDOW minutes (default 60, the prompt-cache window): status "busy", or a
-#       statusUpdatedAt that recent, in the seat's ~/.claude/sessions/<pid>.json. Any other bound
-#       seat is queued ("queued <seat> pid=<pid> idle=<N>m"; $BROADCAST_DIR/queued/<seat>/<id>) and
+#       BROADCAST_LIVE_WINDOW minutes (default 60: a default threshold, a policy choice, not a
+#       measured prompt-cache TTL): status "busy", or a statusUpdatedAt that recent, in the seat's
+#       ~/.claude/sessions/<pid>.json. Any other bound seat is queued ("queued <seat> pid=<pid>
+#       idle=<N>m", plus " status=<s>" when the reading is neither idle nor empty, e.g. waiting: a
+#       seat blocked on a permission prompt needs the operator, not a broadcast;
+#       $BROADCAST_DIR/queued/<seat>/<id>) and
 #       shown once at its next wake by `pending` (SessionStart, and `pending --queued` on each
 #       prompt), which then records "delivered <seat> at-wake <time>". A session with no reading is
 #       pushed live. --all-live pushes every audience seat whatever its activity (--all still means
 #       the audience is every live seat). A queued seat is not a failure: it does not set exit 1.
+#       --queue-idle states the default (queue the idle seats) explicitly; it changes nothing today.
+#       With BROADCAST_QUEUE_NEEDS_CHOICE=1 a send that would queue any seat, given neither flag,
+#       is refused (exit 2, naming the idle seats) before the record is written. Its default is 0
+#       until the operator rules on the default (IDE-352 critique MUST-1).
 #       exit 0 every seat accepted or queued (or dry run) · 1 record written, ≥1 seat undelivered ·
 #       2 usage / identity / existing id · 3 seat not in the live tree · 4 live tree unreadable.
 #
@@ -31,17 +39,22 @@
 #                                             audience, or in a live sticky scope)
 #   engine broadcast status <id>              per seat: delivered | queued | undelivered |
 #                                             not-attempted, then acked | not-acked; complete marker
-#   engine broadcast resend <id> [--undelivered] [--all-live]   explicit retry (there is no
+#   engine broadcast resend <id> [--undelivered] [--all-live | --queue-idle]   explicit retry (no
 #                                             automatic one); an idle seat is queued again unless
 #                                             --all-live, and a live push clears its queue entry
 #   engine broadcast retract <id>             withdraw a sticky broadcast (its sender only)
 #   engine broadcast pending [--for SEAT] [--limit N] [--queued]   first the broadcasts queued for
 #                                             the seat (oldest first, each with its message; without
 #                                             --for each is marked delivered as it is shown, so it
-#                                             is shown once), then sticky broadcasts that apply now
+#                                             is shown once; an ack also clears it), then sticky
+#                                             broadcasts that apply now
 #                                             and are unacked, newest first; N (default 5, 0 = all)
 #                                             bounds both together. --queued lists only the queue,
-#                                             and exits 0 at once when no seat has one
+#                                             and exits 0 at once when no seat has one.
+#                                             BROADCAST_WAKE_KEY (set by session-start-chunk.sh to
+#                                             one SessionStart event's key) keeps what a marking
+#                                             pending claimed, and a later pending with the same
+#                                             key lists it again: a regenerated preload keeps it
 #
 #   Go requests (kit LANDING.md "Get the go"; IDE-350):
 #   engine broadcast go-request --pr N [--rows ROW[,ROW…]] [--paths PATH[,PATH…]] [--repo PATH]
@@ -281,19 +294,29 @@ deliver() { # deliver <seat> <pid> <name> <message> → one status line; rc 0 = 
 # ---- who is pushed live, who is queued (IDE-352) ----
 # A push wakes the seat, and a seat whose prompt cache has gone cold re-reads its whole context to
 # take it. So a bound seat is pushed live only when its session was active within
-# BROADCAST_LIVE_WINDOW minutes (default 60, the prompt-cache window); any other is queued and
-# shown at its next wake by `pending`. The reading is the session registry file bind() already
+# BROADCAST_LIVE_WINDOW minutes (default 60: a default threshold, chosen as policy; no TTL for these
+# sessions' prompt cache has been confirmed); any other is queued and shown at its next wake by
+# `pending`. The reading is the session registry file bind() already
 # reads (~/.claude/sessions/<pid>.json, written by Claude Code itself): status "busy" is mid-turn,
 # so active; otherwise statusUpdatedAt (epoch ms) is when the status last changed, which for an
 # idle seat is the end of its last turn. A file with neither field gives no reading, and a seat
 # with no reading is pushed live, as before this rule. --all-live pushes every seat.
+# QUEUE_MODE is the sender's explicit choice: "" (none given), all-live or queue-idle. Only
+# queue_choice_gate reads it; LIVE_ALL is what fan_out obeys.
 LIVE_ALL=0
+QUEUE_MODE=""
+# set_queue_mode <all-live|queue-idle> — one choice per command.
+set_queue_mode() {
+  [ -z "$QUEUE_MODE" ] || [ "$QUEUE_MODE" = "$1" ] || die 2 "--all-live and --queue-idle contradict each other; give one"
+  QUEUE_MODE="$1"; [ "$1" = all-live ] && LIVE_ALL=1
+  return 0
+}
 BROADCAST_LIVE_WINDOW="${BROADCAST_LIVE_WINDOW:-60}"
 if ! [[ "$BROADCAST_LIVE_WINDOW" =~ ^[0-9]{1,6}$ ]]; then
   echo "broadcast: BROADCAST_LIVE_WINDOW '$BROADCAST_LIVE_WINDOW' is not a whole number of minutes; using 60" >&2
   BROADCAST_LIVE_WINDOW=60
 fi
-# idle_for <pid> → prints the minutes idle and returns 0 when the seat is past the window;
+# idle_for <pid> → prints "<minutes idle> <status>" and returns 0 when the seat is past the window;
 # returns 1 (active, or no reading) otherwise.
 idle_for() {
   local st t age
@@ -302,7 +325,12 @@ idle_for() {
   [[ "$t" =~ ^[0-9]{10,16}$ ]] || return 1
   age=$(( $(date +%s) - t / 1000 ))
   [ "$age" -gt $(( BROADCAST_LIVE_WINDOW * 60 )) ] || return 1
-  echo $(( age / 60 ))
+  echo "$(( age / 60 )) ${st:-idle}"
+}
+# idle_words <idle_for output> → "idle=<N>m", plus " status=<s>" unless the status is idle.
+idle_words() {
+  local m st; read -r m st <<<"$1"
+  printf 'idle=%sm' "$m"; [ "$st" = idle ] || printf ' status=%s' "$st"
 }
 queue_dir() { echo "$BDIR/queued/$(ack_key "$1")"; }
 # bind_note <bind-result> — the dry run's "(queue: idle Nm)" for a bound seat that would be queued.
@@ -310,8 +338,26 @@ bind_note() {
   local m pid
   [ "$LIVE_ALL" = 0 ] && [ "${1%% *}" = ok ] || return 0
   read -r _ pid _ <<<"$1"
-  m=$(idle_for "$pid") && echo " (queue: idle ${m}m)"
+  m=$(idle_for "$pid") && echo " (queue: $(idle_words "$m"))"
   return 0
+}
+
+# queue_choice_gate <tree> <seats…> — the one place a send may refuse to queue silently (MUST-1).
+# With BROADCAST_QUEUE_NEEDS_CHOICE=1 and no --all-live or --queue-idle, a send that would queue
+# any seat is refused, exit 2, before its record is written, naming each idle seat. Its default is
+# 0 until the operator rules on the default; making the refusal the default is that one value.
+BROADCAST_QUEUE_NEEDS_CHOICE="${BROADCAST_QUEUE_NEEDS_CHOICE:-0}"
+queue_choice_gate() {
+  local tree="$1" s b pid m idle="" k=0 n=0; shift
+  [ "$BROADCAST_QUEUE_NEEDS_CHOICE" = 1 ] && [ -z "$QUEUE_MODE" ] || return 0
+  for s in "$@"; do
+    n=$((n + 1)); b=$(bind "$tree" "$s")
+    [ "${b%% *}" = ok ] || continue
+    read -r _ pid _ <<<"$b"
+    m=$(idle_for "$pid") || continue
+    idle+="${idle:+, }$s ($(idle_words "$m"))"; k=$((k + 1))
+  done
+  [ "$k" = 0 ] || die 2 "$k of $n seats would be queued, not woken: $idle. Give --all-live to wake them, or --queue-idle to queue them until their next wake"
 }
 
 BROADCAST_INLINE_MAX="${BROADCAST_INLINE_MAX:-1500}"
@@ -379,7 +425,7 @@ write_record() {
 SEAT_MSG=""
 # fan_out <tree> <id> <rec> <message> <seats…> — deliver, append one line per seat, then done.
 fan_out() {
-  local tree="$1" id="$2" rec="$3" msg="$4" s b res m idle qd rc=0 ok=0 bad=0 q=0; shift 4
+  local tree="$1" id="$2" rec="$3" msg="$4" s b res m idle qd hold rc=0 ok=0 bad=0 q=0; shift 4
   for s in "$@"; do
     b=$(bind "$tree" "$s")
     if [ "${b%% *}" = ok ]; then
@@ -388,14 +434,22 @@ fan_out() {
       # An idle seat is queued, not pushed (IDE-352). A queue that cannot be written falls
       # through to the live push: a broadcast is never left neither pushed nor queued.
       qd=$(queue_dir "$s")
-      if [ "$LIVE_ALL" = 0 ] && idle=$(idle_for "$pid") && mkdir -p "$qd" 2>/dev/null && : > "$qd/$id" 2>/dev/null; then
-        echo "queued $s pid=$pid idle=${idle}m" | tee -a "$rec"; q=$((q + 1)); continue
+      # A re-queue keeps an existing entry as it is (its mtime is its place in the queue).
+      if [ "$LIVE_ALL" = 0 ] && idle=$(idle_for "$pid") && mkdir -p "$qd" 2>/dev/null \
+         && { [ -f "$qd/$id" ] || : > "$qd/$id"; } 2>/dev/null; then
+        echo "queued $s pid=$pid $(idle_words "$idle")" | tee -a "$rec"; q=$((q + 1)); continue
       fi
       m="$msg"; [ -z "$SEAT_MSG" ] || m=$("$SEAT_MSG" "$s")
+      # A queue entry is set aside BEFORE the push: the push fires the seat's UserPromptSubmit
+      # hook, which would otherwise show the same item again from the queue. Dropped once the push
+      # lands; put back when it fails, so the seat still sees it at its next wake.
+      hold=""
+      if [ -e "$qd/$id" ]; then hold="$qd/.$id.hold.$$"; mv -f "$qd/$id" "$hold" 2>/dev/null || hold=""; fi
       if res=$(deliver "$s" "$pid" "$name" "$m"); then
-        [ ! -e "$qd/$id" ] || rm -f "$qd/$id"   # pushed live now: not shown again at wake
+        [ -z "$hold" ] || rm -f "$hold"
         echo "delivered $s pid=$pid" | tee -a "$rec"; ok=$((ok + 1)); continue
       fi
+      [ -z "$hold" ] || mv -f "$hold" "$qd/$id" 2>/dev/null || true
       b="${res:-no reason}"
     fi
     echo "undelivered $s — $b" | tee -a "$rec"; bad=$((bad + 1)); rc=1
@@ -416,7 +470,8 @@ cmd_send() {
       --id) need_val "$1" $# "${2:-}"; id="$2"; shift 2 ;;
       --expires) need_val "$1" $# "${2:-}"; expires="$2"; shift 2 ;;
       --sticky) sticky=yes; shift ;;
-      --all-live) LIVE_ALL=1; shift ;;
+      --all-live) set_queue_mode all-live; shift ;;
+      --queue-idle) set_queue_mode queue-idle; shift ;;
       --dry-run) dry=1; shift ;;
       *) die 2 "unknown argument $1" ;;
     esac
@@ -465,6 +520,8 @@ cmd_send() {
     echo "dry-run: nothing written, nothing sent"
     return 0
   fi
+  # shellcheck disable=SC2086
+  queue_choice_gate "$tree" $audience
   mkdir -p "$BDIR" || die 2 "cannot create $BDIR"
 
   write_record "$rec" "$id" "$from" "$sent_by" "$scope" "$sticky" "$expires" "$audience" "$text" ""
@@ -490,7 +547,8 @@ cmd_resend() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --undelivered) only=1; shift ;;
-      --all-live) LIVE_ALL=1; shift ;;
+      --all-live) set_queue_mode all-live; shift ;;
+      --queue-idle) set_queue_mode queue-idle; shift ;;
       -*) die 2 "resend: unknown argument $1" ;;
       *) [ -z "$id" ] || die 2 "resend: one id"; id="$1"; shift ;;
     esac
@@ -531,12 +589,15 @@ cmd_ack() {
     in_live_scope "$tree" "$seat" "$(header "$rec" scope)" || die 2 "'$seat' is not in the audience or the live scope of '$id'"
   fi
   mkdir -p "$BDIR/$id.acks.d" || die 2 "cannot create the ack dir"
-  if is_go "$rec"; then go_ack "$id" "$rec" "$seat"; return; fi
+  # An acked item is not shown again at the seat's next wake (go_ack dies on a refusal, so the
+  # entry is cleared only once the answer stands).
+  if is_go "$rec"; then go_ack "$id" "$rec" "$seat"; rm -f "$(queue_dir "$seat")/$id"; return 0; fi
   if ( set -C; printf '%s\t%s\n' "$seat" "$(now)" > "$BDIR/$id.acks.d/$(ack_key "$seat")" ) 2>/dev/null; then
     echo "acked: $seat"
   else
     echo "already acked: $seat"
   fi
+  rm -f "$(queue_dir "$seat")/$id"
 }
 
 cmd_status() {
@@ -602,14 +663,44 @@ cmd_pending() {
   # Only then is a queued broadcast marked delivered: --for is a read, never a delivery.
   if [ -z "$seat" ]; then seat=$(live_self) || exit $?; mark=1; fi
   valid_seat --for "$seat"
-  local tree id rec shown=0 more=0 qmore=0 qids=" " qd claim
+  local tree id rec shown=0 more=0 qmore=0 qids=" " qd claim wk="" f
   # Queued broadcasts first (IDE-352), oldest first: each is shown once, with the message the
   # live push would have carried, and claimed by an atomic rename so two hooks firing together
   # cannot both show it. A retracted or expired one is dropped unshown.
   qd=$(queue_dir "$seat")
+  if [ "$mark" = 1 ] && [ -n "${BROADCAST_WAKE_KEY:-}" ]; then
+    [[ "$BROADCAST_WAKE_KEY" =~ ^[A-Za-z0-9._-]{1,200}$ ]] || die 2 "BROADCAST_WAKE_KEY '$BROADCAST_WAKE_KEY' is not a key ([A-Za-z0-9._-], at most 200)"
+    wk="$qd/.wake.$BROADCAST_WAKE_KEY"
+  fi
   if [ -d "$qd" ]; then
-    for id in $(ls -tr "$qd" 2>/dev/null); do
+    if [ "$mark" = 1 ]; then
+      # A claim or a pre-push hold (.<id>.claim.<pid>, .<id>.hold.<pid>) whose process is gone
+      # (a killed hook, a killed send) goes back in the queue. Its mtime is the entry's own, kept
+      # by the rename, so age cannot tell a dead claim from a live one; the pid can. A wake key's
+      # record of what it showed is dropped after 30 minutes.
+      local cp
+      while IFS= read -r f; do
+        cp=${f##*.}; [[ "$cp" =~ ^[0-9]+$ ]] || continue
+        ! kill -0 "$cp" 2>/dev/null || continue
+        id=${f##*/}; id=${id#.}; id=${id%.*}; id=${id%.*}
+        [[ "$id" =~ $ID_RE ]] && [ ! -e "$qd/$id" ] && mv "$f" "$qd/$id" 2>/dev/null || rm -f "$f"
+      done < <(find "$qd" -maxdepth 1 -type f \( -name '.*.claim.*' -o -name '.*.hold.*' \) 2>/dev/null)
+      find "$qd" -maxdepth 1 -type d -name '.wake.*' -mmin +30 -exec rm -rf {} + 2>/dev/null || true
+    fi
+    # Already shown to this wake (a regenerated SessionStart preload): listed again, not re-marked.
+    if [ -n "$wk" ] && [ -d "$wk" ]; then
+      while IFS= read -r id <&3; do
+        [[ "$id" =~ $ID_RE ]] && [ -r "$BDIR/$id.md" ] || continue
+        rec="$BDIR/$id.md"; qids+="$id "
+        retracted "$rec" || expired "$rec" && continue
+        printf '%s\t%s\tqueued\t%s\n%s\n' "$id" "$(header "$rec" sent-by)" "$rec" "$(wake_message "$id" "$rec" "$seat")"
+        shown=$((shown + 1))
+      done 3< <(ls -tr "$wk" 2>/dev/null)
+    fi
+    # Names are checked against ID_RE before use, so reading ls line by line is safe here.
+    while IFS= read -r id <&3; do
       [[ "$id" =~ $ID_RE ]] || continue
+      case "$qids" in *" $id "*) rm -f "$qd/$id"; continue ;; esac   # shown to this wake above
       rec="$BDIR/$id.md"
       if [ ! -r "$rec" ] || retracted "$rec" || expired "$rec"; then rm -f "$qd/$id"; continue; fi
       qids+="$id "
@@ -622,9 +713,9 @@ cmd_pending() {
       shown=$((shown + 1))
       if [ "$mark" = 1 ]; then
         echo "delivered $seat at-wake $(now)" >> "$rec"
-        rm -f "$claim"
+        if [ -n "$wk" ] && mkdir -p "$wk" 2>/dev/null && mv -f "$claim" "$wk/$id" 2>/dev/null; then :; else rm -f "$claim"; fi
       fi
-    done
+    done 3< <(ls -tr "$qd" 2>/dev/null)
   fi
   [ "$qmore" = 0 ] || echo "+$qmore more queued: shown at the next wake"
   [ "$qonly" = 0 ] || return 0

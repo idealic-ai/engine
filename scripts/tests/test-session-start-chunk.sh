@@ -14,7 +14,7 @@ assert_eq() {
 SANDBOX=$(mktemp -d)
 trap 'rm -rf "$SANDBOX"' EXIT
 
-CHUNKER="$HOME/.claude/engine/hooks/session-start-chunk.sh"
+CHUNKER="${CHUNKER:-$HOME/.claude/engine/hooks/session-start-chunk.sh}"
 CHUNK=8500
 TOTAL=24
 INPUT='{"hook_event_name":"SessionStart","source":"resume","session_id":"testsid","cwd":"/tmp"}'
@@ -135,6 +135,21 @@ KEY7=$(printf 'testsid_resume' | tr -c 'A-Za-z0-9._-' '_')
 mkdir -p "$CD7/$KEY7.lockd"; touch -t 202001010000 "$CD7/$KEY7.lockd"
 OUT7=$(printf '%s' "$INPUT" | PRELOAD_GENERATOR="$GEN" PRELOAD_CACHE_DIR="$CD7" PRELOAD_CHUNK_BYTES="$CHUNK" bash "$CHUNKER" 0 "$TOTAL")
 if [ -n "$OUT7" ]; then assert_eq "C7: orphaned lock reclaimed, slice non-empty" "ok" "ok"; else assert_eq "C7: orphaned lock reclaimed, slice non-empty" "ok" "EMPTY"; fi
+
+echo "=== C8: every generation for one SessionStart event gets the same BROADCAST_WAKE_KEY ==="
+# A second generation (after a lock reclaim) must name the same event, so `engine broadcast
+# pending` re-lists what the first one claimed (IDE-352 critique SHOULD-2).
+GEN8="$SANDBOX/gen8.sh"
+printf '#!/bin/bash\necho "key=${BROADCAST_WAKE_KEY:-unset}"\n' > "$GEN8"; chmod +x "$GEN8"
+CD8="$SANDBOX/cache8"; mkdir -p "$CD8"
+K8A=$(printf '%s' "$INPUT" | PRELOAD_GENERATOR="$GEN8" PRELOAD_CACHE_DIR="$CD8" bash "$CHUNKER" 0 "$TOTAL")
+rm -f "$CD8"/*.txt   # the second generation regenerates from scratch
+K8B=$(printf '%s' "$INPUT" | PRELOAD_GENERATOR="$GEN8" PRELOAD_CACHE_DIR="$CD8" bash "$CHUNKER" 0 "$TOTAL")
+assert_eq "C8: the generator is given the event's key" "key=ss-testsid_resume" "$K8A"
+assert_eq "C8: a regenerated preload is given the same key" "$K8A" "$K8B"
+INPUT8='{"hook_event_name":"SessionStart","source":"clear","session_id":"othersid","cwd":"/tmp"}'
+K8C=$(printf '%s' "$INPUT8" | PRELOAD_GENERATOR="$GEN8" PRELOAD_CACHE_DIR="$CD8" bash "$CHUNKER" 0 "$TOTAL")
+assert_eq "C8: another event gets another key" "key=ss-othersid_clear" "$K8C"
 
 echo ""
 echo "======================================="
