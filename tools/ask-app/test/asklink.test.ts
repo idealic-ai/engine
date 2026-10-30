@@ -79,6 +79,15 @@ describe("cli", () => {
     expect(miss.stderr).toMatch(/no ask domain:stats\/nope/);
   });
 
+  it("url warns on stderr, and only there, when nothing answers on the port", () => {
+    cli(["new", "--id", "w1"], BODY);
+    fs.writeFileSync(path.join(root, ".ask-app.pid"), "1 1\n"); // port 1: nothing listens
+    const r = cli(["url", "domain:stats/w1"]);
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe("http://127.0.0.1:1/a/domain:stats/w1");
+    expect(r.stderr).toMatch(/nothing answers on http:\/\/127\.0\.0\.1:1 yet; engine ask serve starts it/);
+  });
+
   it("list --url adds the URL as the last column", () => {
     cli(["new", "--id", "l1"], BODY);
     const plain = cli(["list"]).stdout.trim();

@@ -268,7 +268,12 @@ async function main() {
     // ASKLINK: the clickable app URL of one existing ask.
     const { seat, id } = splitRef(pos[0], "usage: ask url <seat>/<id>");
     if (!listAsks(root).some((a) => a.seat === seat && a.header.id === id)) die(`no ask ${seat}/${id} under ${root}`);
-    console.log(askUrl(root, seat, id));
+    const url = askUrl(root, seat, id);
+    console.log(url);
+    // N2: a link to a server that is not running opens nothing; say so on stderr, stdout unchanged.
+    const base = new URL(url).origin;
+    const up = await fetch(`${base}/api/health`, { signal: AbortSignal.timeout(1000) }).then((r) => r.ok, () => false);
+    if (!up) process.stderr.write(`ask: nothing answers on ${base} yet; engine ask serve starts it\n`);
     return;
   }
 
