@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Ref } from "react";
 import {
   answeredByText,
   cardFor,
@@ -68,6 +68,7 @@ import { pushEsc } from "./esc.ts";
 import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, type PathHop } from "./supersede.ts";
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
+import { highlight, isTypingTarget, searchRows, searchTerms, snippet, type Hay } from "./search.ts";
 import { CHANGE_WORDING, cancelDiscards, changeAnswerStart, draftBody, mayChangeAnswer, planClick, requestSend, staleChangeKeys, unsentKey } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
@@ -200,6 +201,21 @@ export function App() {
   }, []);
   const setFilter = (f: Filter) => navigate({ filter: f });
   const setGroupBy = (g: GroupBy) => navigate({ group: g });
+  // IDE-304: the search text lives in ?q=; a keystroke replaces the history entry, never pushes one.
+  const query = route.q ?? "";
+  const setQuery = useCallback((v: string) => navigate({ q: v || undefined }, false), [navigate]);
+  const searchBox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const onSlash = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(document.activeElement as HTMLElement | null)) return;
+      if (!searchBox.current) return;
+      e.preventDefault();
+      searchBox.current.focus();
+      searchBox.current.select();
+    };
+    document.addEventListener("keydown", onSlash);
+    return () => document.removeEventListener("keydown", onSlash);
+  }, []);
 
   useEffect(() => {
     if (theme === "auto") delete document.documentElement.dataset.theme;
@@ -213,7 +229,12 @@ export function App() {
   const hiddenCount = asks.length - shown.length;
   const drafts = trayDrafts(shown);
   const now = Date.now();
-  const rows = useMemo(() => sortRows(shown.map((a) => askRow(a, now, asks))), [shown, asks]); // eslint-disable-line react-hooks/exhaustive-deps
+  const allRows = useMemo(() => sortRows(shown.map((a) => askRow(a, now, asks))), [shown, asks]); // eslint-disable-line react-hooks/exhaustive-deps
+  // IDE-304: the search narrows the rows first, so the filters, their counts and the groups all read it.
+  const terms = useMemo(() => searchTerms(route.q), [route.q]);
+  // `rows` is what the list and every count read: the searched rows (all of them when ?q= is empty).
+  const rows = useMemo(() => searchRows(allRows, shown, route.q), [allRows, shown, route.q]);
+  const extraOf = useMemo(() => new Map(rows.map((r) => [r.ref, r.extra])), [rows]);
   // SF-4: the list and its count read one predicate, so they cannot disagree.
   // Ruled below you lists the newest ruling first; the other filters keep the waiting-on-you order.
   const inFilter = filter === "ruled" ? sortRuled(rows.filter((r) => rowInFilter(r, filter))) : rows.filter((r) => rowInFilter(r, filter));
@@ -285,7 +306,7 @@ export function App() {
     }
   }
 
-  const waiting = rows.filter((r) => r.waitingOnYou).length;
+  const waiting = allRows.filter((r) => r.waitingOnYou).length;
   const slim = sideW < SIDE_SLIM;
   return (
     <PaneContext.Provider value={openInPane}>
@@ -338,6 +359,7 @@ export function App() {
             {view === "broadcasts" && <BroadcastRows list={broadcasts.list} error={broadcasts.error} current={bcast} onPick={(id) => navigate({ broadcast: id }, true)} slim={slim} />}
             {view === "asks" && <>
             <div className="side-tools">
+              <AskSearch q={query} onQuery={setQuery} slim={slim} inputRef={searchBox} />
               {slim ? (
                 <select aria-label="Show" value={filter} onChange={(e) => setFilter(e.target.value as Filter)} id="filter-slim">
                   {FILTERS.map((f) => <option key={f} value={f}>{FILTER_LABEL[f]} {count(f)}</option>)}
@@ -365,14 +387,15 @@ export function App() {
             {drafts.length > 0 && trayHidden && (
               <p className="side-drafts"><button className="linkish" onClick={showTray}>✎ {drafts.length} draft{drafts.length === 1 ? "" : "s"}</button> <span className="muted">saved, not sent</span></p>
             )}
-            {inFilter.length === 0 && <p className="muted pad">{filter === "ruled" ? "No seat has ruled on an ask in your place." : `No ${filter === "all" ? "" : filter} asks.`}</p>}
+            {inFilter.length === 0 && terms.length > 0 && <SearchEmpty q={query.trim()} onClear={() => setQuery("")} />}
+            {inFilter.length === 0 && terms.length === 0 && <p className="muted pad">{filter === "ruled" ? "No seat has ruled on an ask in your place." : `No ${filter === "all" ? "" : filter} asks.`}</p>}
             {groupRows(inFilter, slim ? "none" : groupBy).map((g) => (
               <section key={g.name || "all"} className="group" aria-label={g.name || undefined}>
                 {g.name && <h2 className="group-name">{g.name} <span className="n">{g.rows.length}</span></h2>}
                 <ul className="rows">
                   {g.rows.map((r) => (
                     <li key={r.ref}>
-                      <AskRowButton r={r} slim={slim} groupBy={slim ? "none" : groupBy} current={r.ref === currentRef} onPick={() => pick(r.ref)} />
+                      <AskRowButton r={r} slim={slim} groupBy={slim ? "none" : groupBy} current={r.ref === currentRef} onPick={() => pick(r.ref)} terms={terms} extra={extraOf.get(r.ref)} />
                     </li>
                   ))}
                 </ul>
@@ -436,8 +459,55 @@ export function App() {
 }
 
 /** A title inside a button: code spans keep their look, links and tickets become plain text. */
-function Plain({ text }: { text: string }) {
-  return <>{inlineTokens(displayTitle(text)).map((t, i) => (t.t === "code" ? <code key={i} className="ic">{t.v}</code> : t.t === "strong" ? <b key={i}>{t.v}</b> : t.t === "em" ? <i key={i}>{t.v}</i> : <span key={i}>{t.t === "text" ? t.v : t.t === "ticket" ? t.key : t.label}</span>))}</>;
+/** Text with the search's hits wrapped in <mark>; unchanged when nothing matches. */
+function Marked({ text, terms }: { text: string; terms: string[] }) {
+  if (terms.length === 0) return <>{text}</>;
+  return <>{highlight(text, terms).map((p, i) => (p.hit ? <mark key={i}>{p.text}</mark> : <Fragment key={i}>{p.text}</Fragment>))}</>;
+}
+
+const HIT_LABEL: Record<Hay["field"], string> = { title: "title", why: "why", id: "id", seat: "seat", question: "question", option: "option", answer: "answer", note: "note" };
+
+/**
+ * IDE-304: the search box at the top of the ask list. Esc clears it; `/` elsewhere focuses it (App).
+ * At the slim width it takes the full row above the filter select.
+ */
+export function AskSearch({ q, onQuery, slim, inputRef }: { q: string; onQuery: (v: string) => void; slim: boolean; inputRef?: Ref<HTMLInputElement> }) {
+  return (
+    <div className={`search${slim ? " slim" : ""}`} role="search">
+      <input
+        ref={inputRef}
+        type="search"
+        value={q}
+        placeholder={slim ? "Search" : "Search asks  /"}
+        aria-label="Search asks"
+        aria-keyshortcuts="/"
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(e) => onQuery(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key !== "Escape") return;
+          e.preventDefault();
+          if (q) onQuery("");
+          else e.currentTarget.blur();
+        }}
+      />
+      {q && <button type="button" className="search-clear" aria-label="Clear search" title="Clear search (Esc)" onClick={() => onQuery("")}>×</button>}
+    </div>
+  );
+}
+
+/** IDE-304: nothing matched; say what was searched for and offer the way back. */
+export function SearchEmpty({ q, onClear }: { q: string; onClear: () => void }) {
+  return (
+    <p className="muted pad search-empty" role="status">
+      No asks match “{q}”. <button type="button" className="linkish" onClick={onClear}>Clear search</button>
+    </p>
+  );
+}
+
+function Plain({ text, terms = [] }: { text: string; terms?: string[] }) {
+  const h = (v: string) => <Marked text={v} terms={terms} />;
+  return <>{inlineTokens(displayTitle(text)).map((t, i) => (t.t === "code" ? <code key={i} className="ic">{h(t.v)}</code> : t.t === "strong" ? <b key={i}>{h(t.v)}</b> : t.t === "em" ? <i key={i}>{h(t.v)}</i> : <span key={i}>{h(t.t === "text" ? t.v : t.t === "ticket" ? t.key : t.label)}</span>))}</>;
 }
 
 /**
@@ -447,7 +517,7 @@ function Plain({ text }: { text: string }) {
  * marks with their words in the title and the accessible label. The seat is left out when the list is
  * grouped by seat, since the group heading already says it.
  */
-export function AskRowButton({ r, current, onPick, slim, groupBy = "none" }: { r: Row; current: boolean; onPick: () => void; slim: boolean; groupBy?: GroupBy }) {
+export function AskRowButton({ r, current, onPick, slim, groupBy = "none", terms = [], extra }: { r: Row; current: boolean; onPick: () => void; slim: boolean; groupBy?: GroupBy; terms?: string[]; extra?: Hay }) {
   const left = r.ruledBy ? `ruled by ${r.ruledBy}${r.ruledAt ? ` · ${ageOf(Date.parse(r.ruledAt), Date.now())} ago` : ""}` : r.status === "open" ? `${r.left} of ${r.total} left` : r.status;
   const marks: [string, string, string][] = [
     ...(r.reserved === "operator" ? [["res", "◆", "Reserved for you: only you may answer; seats may forward it"] as [string, string, string]] : []),
@@ -462,10 +532,15 @@ export function AskRowButton({ r, current, onPick, slim, groupBy = "none" }: { r
     <button className={`row ${tone}`} aria-current={current} onClick={onPick} title={slim ? `${r.title} · ${r.seat} · ${left}` : undefined}>
       <span className="row-top">
         {r.high && <span className="imp" title="High importance" aria-label="High importance">!</span>}
-        <span className="row-title"><Plain text={r.title} /></span>
+        <span className="row-title"><Plain text={r.title} terms={terms} /></span>
       </span>
+      {extra && terms.length > 0 && (
+        <span className="row-hit" title={`Matched in the ${HIT_LABEL[extra.field]}`}>
+          <span className="row-hit-field">{HIT_LABEL[extra.field]}</span> <Marked text={snippet(extra.text, terms, slim ? 12 : 30)} terms={terms} />
+        </span>
+      )}
       <span className="row-meta">
-        {!slim && groupBy !== "seat" && <span className="seat">{r.seat}</span>}
+        {!slim && groupBy !== "seat" && <span className="seat"><Marked text={r.seat} terms={terms} /></span>}
         {!slim && r.age && <span className="age" title={new Date(r.created).toLocaleString()}>{r.age}</span>}
         {!slim && marks.map(([c, g, t]) => <span key={c} className={`mk-i ${c}`} title={t} aria-label={t}>{g}</span>)}
         <span className={`left${r.left === 0 ? " zero" : ""}${r.ruledBy ? " ruled" : ""}`} title={r.ruledAt ? new Date(r.ruledAt).toLocaleString() : undefined}>{left}</span>
