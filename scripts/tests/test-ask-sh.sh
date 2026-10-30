@@ -38,6 +38,35 @@ setup() {
   export ASK_LINEAR_ENV=/dev/null
 }
 
+# free_port: a TCP port the OS reports unused right now. Never a fixed number: 4977 is the live ask
+# server's default port, and other lanes run this suite at the same time.
+free_port() {
+  python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
+}
+
+# start_stranger: a process that is not ask-app, listening on its own OS-picked port and answering
+# every GET with a non-ask body. Sets STRANGER_PID and STRANGER_PORT. A test whose meaning is "the
+# pidfile names someone else's port" uses this, so that port is taken by the test, not by whatever
+# else happens to run on the machine.
+start_stranger() {
+  local f="$TMP/stranger.port" i
+  rm -f "$f"
+  python3 -c '
+import http.server, sys
+class H(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        b = b"{\"app\":\"stranger\"}"
+        self.send_response(200); self.send_header("Content-Length", str(len(b))); self.end_headers(); self.wfile.write(b)
+    def log_message(self, *a): pass
+srv = http.server.HTTPServer(("127.0.0.1", 0), H)
+open(sys.argv[1], "w").write(str(srv.server_address[1]))
+srv.serve_forever()
+' "$f" >/dev/null 2>&1 &
+  STRANGER_PID=$!
+  for i in $(seq 1 50); do [ -s "$f" ] && break; sleep 0.1; done
+  STRANGER_PORT=$(cat "$f")
+}
+
 # as_op <args…>: the operator at a bare terminal (no FLEET_PANE), naming itself.
 as_op() { env -u FLEET_PANE "$ASK_SH" "$@" --by operator; }
 teardown() {
@@ -159,7 +188,7 @@ test_answer_decline_needs_reason() {
 
 test_stop_never_kills_a_stranger() {
   sleep 300 & local victim=$!
-  mkdir -p "$ASK_ROOT"; echo "$victim 4977" > "$ASK_ROOT/.ask-app.pid"
+  mkdir -p "$ASK_ROOT"; echo "$victim $(free_port)" > "$ASK_ROOT/.ask-app.pid"
   local out; out=$("$ASK_SH" serve "$ASK_ROOT" --stop 2>&1)
   if kill -0 "$victim" 2>/dev/null; then pass "--stop leaves a recycled pid alone"; else fail "--stop leaves a recycled pid alone" "victim alive" "victim killed"; fi
   assert_contains "stale" "$out" "--stop says the pidfile was stale"
@@ -168,7 +197,7 @@ test_stop_never_kills_a_stranger() {
 }
 
 test_serve_concurrent_starts_leave_one_server() {
-  local port=$((20000 + RANDOM % 20000)) i pids
+  local port=$(free_port) i pids
   for i in 1 2 3; do "$ASK_SH" serve "$ASK_ROOT" --port "$port" >"$TMP/race$i.out" 2>&1 & done
   wait
   pids=$(pgrep -f "server.ts --root $(cd "$ASK_ROOT" && pwd -P) " | wc -l | tr -d ' ')
@@ -183,7 +212,7 @@ test_serve_concurrent_starts_leave_one_server() {
 
 test_serve_is_idempotent() {
   local port url1 url2 pid1 pid2 health
-  port=$((20000 + RANDOM % 20000))
+  port=$(free_port)
   url1=$("$ASK_SH" serve "$ASK_ROOT" --port "$port" | tail -1)
   assert_eq "http://127.0.0.1:$port/" "$url1" "serve prints the loopback URL"
   health=$(curl -s "http://127.0.0.1:$port/api/health")
@@ -307,15 +336,17 @@ test_v2_stale_serve_lock_is_recovered() {
 
 # NEW-1: a server whose pidfile was lost is found by its root, so a second serve adopts it.
 test_v2_lost_pidfile_server_is_adopted_not_doubled() {
-  local port=$((20000 + RANDOM % 20000)) root
+  local port=$(free_port) root
   "$ASK_SH" serve "$ASK_ROOT" --port "$port" >/dev/null 2>&1
   root=$(cd "$ASK_ROOT" && pwd -P)
-  sleep 300 & local stranger=$!
-  echo "$stranger 4977" > "$ASK_ROOT/.ask-app.pid"
+  # The pidfile names a stranger that owns the port it names: the test's own listener, never the
+  # operator's server on 4977, so a missed discovery fails here the same way on every machine.
+  start_stranger; local stranger=$STRANGER_PID
+  echo "$stranger $STRANGER_PORT" > "$ASK_ROOT/.ask-app.pid"
   local out; out=$("$ASK_SH" serve "$ASK_ROOT" 2>&1)
   assert_contains "http://127.0.0.1:$port/" "$out" "serve adopts the running server on its own port"
   assert_eq "1" "$(pgrep -f "ask-app/src/server.ts --root $root --port " | wc -l | tr -d ' ')" "and starts no second server"
-  echo "$stranger 4977" > "$ASK_ROOT/.ask-app.pid"
+  echo "$stranger $STRANGER_PORT" > "$ASK_ROOT/.ask-app.pid"
   "$ASK_SH" serve "$ASK_ROOT" --stop >/dev/null 2>&1
   assert_eq "0" "$(pgrep -f "ask-app/src/server.ts --root $root --port " | wc -l | tr -d ' ')" "--stop finds it by root even with a wrong pidfile"
   if kill -0 "$stranger" 2>/dev/null; then pass "--stop still never kills the stranger"; else fail "--stop still never kills the stranger" alive killed; fi
@@ -410,7 +441,7 @@ PY
 
 # S7: the Linear key file is the working project's .env.local, found as env-lib.sh finds it.
 test_r1_linear_key_comes_from_the_working_project() {
-  local proj="$TMP/proj" port=$((20000 + RANDOM % 20000)) h
+  local proj="$TMP/proj" port=$(free_port) h
   mkdir -p "$proj/.git" "$proj/sessions/s1"
   printf 'LINEAR_API_KEY=lin_api_PROJECTKEY\n' > "$proj/.env.local"
   ( cd "$proj/sessions/s1" && unset ASK_LINEAR_ENV && _ENV_ANCHOR_RESOLVING=1 "$ASK_SH" serve "$ASK_ROOT" --port "$port" >/dev/null 2>&1 )
@@ -440,7 +471,7 @@ test_r1_linear_key_comes_from_the_working_project() {
 
 # N1: an exported LINEAR_API_KEY never reaches the server's environment block.
 test_r1_exported_linear_key_is_not_in_the_server_env() {
-  local port=$((20000 + RANDOM % 20000)) pid
+  local port=$(free_port) pid
   LINEAR_API_KEY=lin_api_EXPORTEDFAKE "$ASK_SH" serve "$ASK_ROOT" --port "$port" >/dev/null 2>&1
   pid=$(cut -d' ' -f1 < "$ASK_ROOT/.ask-app.pid")
   assert_not_contains "EXPORTEDFAKE" "$(ps eww -o command= -p "$pid")" "ps eww shows no exported key"
@@ -450,7 +481,7 @@ test_r1_exported_linear_key_is_not_in_the_server_env() {
 # S9 (round 2): the client is rebuilt when its BUILD ID differs from the sources' — not by mtime —
 # into a temp dir moved into place under a lock; and the server refuses a client of another build.
 test_r2_serve_rebuilds_by_build_id_and_the_server_refuses_a_mismatch() {
-  local port=$((20000 + RANDOM % 20000)) d="$TMP/dist" want out
+  local port=$(free_port) d="$TMP/dist" want out
   want=$(node --no-warnings "$ENGINE_DIR/tools/ask-app/src/build-id.ts")
   cp -R "$ASK_TEST_DIST_DIR/dist" "$d"
   assert_eq "$want" "$(cat "$d/.build-id")" "the throwaway build is stamped with the sources' build id"
@@ -477,7 +508,7 @@ test_r2_serve_rebuilds_by_build_id_and_the_server_refuses_a_mismatch() {
 
 # N4: a root whose path holds regex characters still finds its own server.
 test_r1_root_with_regex_characters_is_found() {
-  local port=$((20000 + RANDOM % 20000)) r="$TMP/a+b(c)" out
+  local port=$(free_port) r="$TMP/a+b(c)" out
   "$ASK_SH" serve "$r" --port "$port" >/dev/null 2>&1
   rm -f "$r/.ask-app.pid"
   out=$("$ASK_SH" serve "$r" 2>&1)
@@ -626,7 +657,7 @@ test_r1_live_pane_label_beats_a_stale_fleet_pane() {
 # K3 (round 3): the temp build's id is checked BEFORE it is moved in — a build that comes out as
 # another id (here a stand-in vite) never replaces the client, and nothing is left behind.
 test_r3_a_build_of_the_wrong_id_is_never_moved_in() {
-  local port=$((20000 + RANDOM % 20000)) d="$TMP/dist" fake="$TMP/fake-vite" out before
+  local port=$(free_port) d="$TMP/dist" fake="$TMP/fake-vite" out before
   cp -R "$ASK_TEST_DIST_DIR/dist" "$d"
   echo "0000000000000000" > "$d/.build-id"
   before=$(cat "$d/index.html")

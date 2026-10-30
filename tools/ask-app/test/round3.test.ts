@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
+import net from "node:net";
 import path from "node:path";
 import { answerAsk, discardDraft, forwardAsk, managesSeat, newAsk, reviseAsk, saveDraft, sendBatch } from "../src/lib/store.ts";
 import { parseAskFile } from "../src/lib/format.ts";
@@ -93,6 +94,19 @@ describe("SHOULD-3: a choice fork with no options is refused", () => {
   });
 });
 
+/** A port the OS reports unused right now: never a fixed or random guess, which can land on the live
+ * ask server (4977) or on another lane's test server. */
+function freePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const s = net.createServer();
+    s.once("error", reject);
+    s.listen(0, "127.0.0.1", () => {
+      const { port } = s.address() as net.AddressInfo;
+      s.close(() => resolve(port));
+    });
+  });
+}
+
 /** A copy of what the build id hashes, laid out as in the engine (app + the kit sheets main.tsx imports). */
 function copySources(dest: string): string {
   const engine = path.resolve(APP_DIR, "..", "..");
@@ -124,7 +138,7 @@ describe("SHOULD-7: the S9 guards", () => {
     fs.writeFileSync(path.join(dist, "index.html"), "<!doctype html><html><head></head><body>pinned</body></html>\n");
     const id = computeBuildId(app);
     fs.writeFileSync(path.join(dist, BUILD_ID_FILE), `${id}\n`);
-    const port = 30000 + Math.floor(Math.random() * 20000);
+    const port = await freePort();
     const proc = spawn(process.execPath, ["--no-warnings", "src/server.ts", "--root", root, "--port", String(port), "--token", "t"], {
       env: { ...process.env, ASK_APP_DIST: dist, ASK_BUILD_SRC: app, ASK_SESSIONS_DIR: path.join(base, "s"), ASK_LINEAR_ENV: "/dev/null" },
       stdio: "ignore",
