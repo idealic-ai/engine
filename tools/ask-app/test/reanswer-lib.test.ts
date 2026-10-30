@@ -105,15 +105,16 @@ describe("writeDraft: the operator may draft a change over their own answer", ()
     expect(read().answer?.answers).toEqual({ GO: ["YES"] });
   });
 
-  it("is refused at a stale revision, on a seat-ruled answer, and for a seat", async () => {
+  it("is refused at a stale revision and for a seat; a seat-ruled answer now takes the operator's draft (ASKFOLLOWUP)", async () => {
     await answerAsk(root, SEAT, "go", { answers: { GO: ["YES"] }, ...OP }, { expectedRevision: 1, push });
     await expect(saveDraft(root, SEAT, "go", { answers: { GO: ["NO"] }, ...OP }, 1)).rejects.toThrow(/revision/i);
     newAsk(root, { from: SEAT, to: "manager:director", id: "ruled" }, BODY);
     await answerAsk(root, SEAT, "ruled", { answers: { GO: ["YES"] }, answeredBy: "manager:director" }, { expectedRevision: 1, push });
-    await expect(saveDraft(root, SEAT, "ruled", { answers: { GO: ["NO"] }, ...OP }, 2)).rejects.toThrow(/only an open ask, or the operator's own answer, takes a draft/);
+    await saveDraft(root, SEAT, "ruled", { answers: { GO: ["NO"] }, ...OP }, 2);
+    expect(parseAskFile(fs.readFileSync(path.join(root, SEAT, "ruled.md"), "utf8")).draft?.answers).toEqual({ GO: ["NO"] });
     newAsk(root, { from: SEAT, to: "manager:director", id: "own" }, BODY);
     await answerAsk(root, SEAT, "own", { answers: { GO: ["YES"] }, ...OP }, { expectedRevision: 1, push });
-    await expect(saveDraft(root, SEAT, "own", { answers: { GO: ["NO"] }, answeredBy: "manager:director" }, 2)).rejects.toThrow(/only an open ask, or the operator's own answer, takes a draft/);
+    await expect(saveDraft(root, SEAT, "own", { answers: { GO: ["NO"] }, answeredBy: "manager:director" }, 2)).rejects.toThrow(/only an open ask, or the operator over a settled answer, takes a draft/);
   });
 });
 
@@ -142,6 +143,6 @@ describe("isOperatorAnswer: the operator by name, not a seat whose name starts w
   it("a seat named operator-bot cannot draft over an answer as if it were the operator", async () => {
     await answerAsk(root, SEAT, "go", { answers: { GO: ["YES"] }, ...OP }, { expectedRevision: 1, push });
     const { writeDraft } = await import("../src/lib/format.ts");
-    expect(() => writeDraft(fs.readFileSync(file(), "utf8"), { answers: { GO: ["NO"] }, answeredBy: "operator-bot" }, 2)).toThrow(/only an open ask, or the operator's own answer, takes a draft/);
+    expect(() => writeDraft(fs.readFileSync(file(), "utf8"), { answers: { GO: ["NO"] }, answeredBy: "operator-bot" }, 2)).toThrow(/only an open ask, or the operator over a settled answer, takes a draft/);
   });
 });

@@ -3,7 +3,8 @@
  * root. Binds 127.0.0.1 only; no auth, no database — the files are the state.
  *
  *   GET  /api/health   {app, root, pid, port}
- *   GET  /api/asks     every ask under the root, all statuses; each with `history`, its replaced answers, oldest first
+ *   GET  /api/asks     every ask under the root, all statuses; each with `history`, its replaced answers and
+ *                      (ASKFOLLOWUP) its follow-ups as `{type: "followup", …}`, oldest first
  *   GET  /api/proofs   (token required) published proof pages in the local proof store, newest first
  *                      (?fresh skips the cache, and joins a listing already running rather than starting one)
  *   GET  /api/broadcasts  (token required) broadcasts newest first, with acks; read-only, BROADCAST_DIR overrides the dir
@@ -14,6 +15,10 @@
  *                        · 409 withdrawn ({ error, status: "withdrawn", withdrawnBy, withdrawnAt, withdrawnReason })
  *   POST /api/draft    same body as /api/answer → the answer is saved IN THE FILE as a draft; nothing pushed
  *   POST /api/discard  {seat, id} → the operator's draft is removed (404 when there is no such ask)
+ *   POST /api/followup {seat, id, expectedRevision, kind: "question"|"first", fork?, text, picks?} → a follow-up
+ *                      to the asker, stamped `by` the server's answerer (never the body's); the ask stays open
+ *                      → 200 {revision, followup: {n, at, by, kind, fork, text, picks}, delivery} · 400 empty text,
+ *                        unknown kind or fork · 409 stale revision (+ current revision) or a closed ask (+ status)
  *   POST /api/send     {refs?: ["seat/id", …]} → every named draft (the operator's own drafts when refs
  *                      is absent) is settled from its file and ONE message per recipient seat is pushed. The body's
  *                      refs are the only input: answers in the body are never read (the file is the record).
@@ -39,9 +44,9 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomBytes } from "node:crypto";
-import { answerAsk, defaultAskRoot, discardDraft, listAsks, resolveAskPath, saveDraft, sendBatch } from "./lib/store.ts";
+import { answerAsk, defaultAskRoot, discardDraft, followupAsk, listAsks, resolveAskPath, saveDraft, sendBatch } from "./lib/store.ts";
 import { loadLinearKey, makeTicketFetcher, TICKET_KEY_RE, TicketNotFound } from "./lib/linear.ts";
-import { AskFormatError, parseAskFile, StaleRevisionError, SupersededError, WithdrawnError } from "./lib/format.ts";
+import { AskFormatError, dialogueHistory, FollowupClosedError, parseAskFile, StaleRevisionError, SupersededError, WithdrawnError } from "./lib/format.ts";
 import { computeBuildId, recordedBuildId } from "./build-id.ts";
 import { listProofs } from "./lib/proofs.ts";
 import { listBroadcasts } from "./lib/broadcasts.ts";
@@ -134,7 +139,7 @@ const server = http.createServer(async (req, res) => {
   if (!HOSTS.includes(String(req.headers.host ?? ""))) return send(res, 403, { error: "bad host" });
   try {
     if (url.pathname === "/api/health") return send(res, 200, { app: "ask-app", root, pid: process.pid, port, tickets: tickets.enabled, build: BUILD_ID });
-    if (url.pathname === "/api/asks") return send(res, 200, { root, asks: listAsks(root) });
+    if (url.pathname === "/api/asks") return send(res, 200, { root, asks: listAsks(root).map((a) => ({ ...a, history: dialogueHistory(a) })) });
     // The published proof pages in the local MinIO store, read-only (ported from the ASKDESIGN prototype).
     // SF-6: a listing spawns bash + aws, so it is gated like /api/broadcasts: GET only, the page's token,
     // and no foreign Origin. Any other method falls through to the 404 below.
@@ -173,7 +178,7 @@ const server = http.createServer(async (req, res) => {
         return send(res, 502, { error: "Linear lookup failed" });
       }
     }
-    if (req.method === "POST" && ["/api/answer", "/api/draft", "/api/discard", "/api/send"].includes(url.pathname)) {
+    if (req.method === "POST" && ["/api/answer", "/api/draft", "/api/discard", "/api/send", "/api/followup"].includes(url.pathname)) {
       if (!String(req.headers["content-type"] ?? "").startsWith("application/json")) return send(res, 415, { error: "content-type must be application/json" });
       const origin = req.headers.origin;
       if (origin !== undefined && !ORIGINS.includes(origin)) return send(res, 403, { error: "cross-origin write refused" });
@@ -196,6 +201,25 @@ const server = http.createServer(async (req, res) => {
           await discardDraft(root, b.seat, b.id, ANSWERER.answeredBy);
           return send(res, 200, { ok: true });
         } catch (e) {
+          if (e instanceof AskFormatError) return send(res, 400, { error: e.message });
+          if ((e as NodeJS.ErrnoException).code === "ENOENT") return send(res, 404, { error: "no such ask" });
+          throw e;
+        }
+      }
+      if (url.pathname === "/api/followup") {
+        // ASKFOLLOWUP: `by` and `via` are the server's (R4); whatever the body says about them is ignored.
+        try {
+          const out = await followupAsk(
+            root,
+            b.seat,
+            b.id,
+            { by: ANSWERER.answeredBy, via: ANSWERER.answeredVia, kind: b.kind as never, ...(b.fork !== undefined ? { fork: b.fork as string } : {}), text: b.text as string, ...(b.picks !== undefined ? { picks: b.picks as never } : {}) },
+            { expectedRevision: Number(b.expectedRevision) },
+          );
+          return send(res, 200, { revision: out.revision, followup: out.followup, delivery: out.delivery });
+        } catch (e) {
+          if (e instanceof FollowupClosedError) return send(res, 409, { error: e.message, status: e.status });
+          if (e instanceof StaleRevisionError) return send(res, 409, { error: e.message, revision: e.current });
           if (e instanceof AskFormatError) return send(res, 400, { error: e.message });
           if ((e as NodeJS.ErrnoException).code === "ENOENT") return send(res, 404, { error: "no such ask" });
           throw e;

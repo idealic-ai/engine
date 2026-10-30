@@ -40,7 +40,13 @@ import {
   writeAnswer,
   writeDecline,
   writeDraft,
+  writeFollowup,
+  markFollowups,
+  followupEntries,
+  questionKey,
   type AskAnswer,
+  type AskFollowup,
+  type FollowupInput,
   type ParsedAsk,
 } from "./format.ts";
 import { leftRefs, rewriteSeatRefs, type LeftRef, type SeatChange } from "./rename-seat.ts";
@@ -73,7 +79,7 @@ export function newAsk(root: string, fields: NewAskFields, body: string): string
   // M1: answer and draft blocks are records the store writes. A body that carries one — planted or
   // quoted — would be read back as somebody's answer, so it is refused, not stored.
   if (RECORD_FENCE_RE.test(body)) {
-    throw new AskFormatError("the body holds a ```json answer, ```json draft or ```json history block: those are records the store writes, never part of a question (indent it or use another fence language to quote one)");
+    throw new AskFormatError("the body holds a ```json answer, ```json draft, ```json history or ```json followup block: those are records the store writes, never part of a question (indent it or use another fence language to quote one)");
   }
   for (const k of STAMP_FIELDS) {
     if (fields[k] !== undefined) throw new AskFormatError(`${k} is written by the store as the ask moves; a new ask does not set it`);
@@ -640,9 +646,8 @@ export function batchMessage(seat: string, answeredBy: string, items: { ref: str
     `[ask-batch] from ${answeredBy || "unknown"} via ask-app: ${n} answer${n === 1 ? "" : "s"} for ${seat}`,
     // IDE-304: an item that replaces an earlier answer says so, and what it replaced.
     // IDE-339: one that a different answerer gave is overruled, and says whose it was.
-    // NIT-4 (round 2): the `[ask-overruled]` branch is unreachable from sendBatch today — a draft on
-    // a settled ask is only the operator's, over the operator's own answer, so a batch never changes
-    // answerer. It is kept (and pinned through this export) for when writeDraft allows that.
+    // ASKFOLLOWUP: reachable from sendBatch now that the operator may draft over a seat's answer
+    // (writeDraft), so a batch can change answerer (NIT-4 of round 2 kept it for this).
     ...items.flatMap((it) => [
       ...(it.replaced && it.overruled
         ? [`- [ask-overruled] ${it.ref} overrules ${it.overruled}; replaces ${it.replaced}`]
@@ -952,6 +957,63 @@ function forwardedText(text: string, ask: ParsedAsk, ref: string, o: { to: strin
   return setHeaderField(after, "revision", String(currentRevision(ask) + 1));
 }
 
+// ── follow-ups (ASKFOLLOWUP) ──────────────────────────────
+
+/**
+ * The push a follow-up wakes the asker with: who, on which ask and fork (and that fork's question),
+ * the text, then the kind, the ask's title, the sender's unsent picks, the file and how to reply.
+ */
+export function followupMessage(seat: string, id: string, file: string, ask: ParsedAsk, f: AskFollowup): string {
+  const qi = f.fork === undefined ? -1 : ask.questions.findIndex((q, i) => questionKey(q, i) === f.fork);
+  const fork = qi >= 0 ? ` (fork ${f.fork}: "${ask.questions[qi].title}")` : "";
+  const picks = Object.entries(f.picks ?? {}).map(([k, v]) => `${k} ${Array.isArray(v) ? v.join("+") : String(v)}`).join(", ");
+  return [
+    `[ask-followup] from ${f.by} on ${seat}/${id}${fork}: ${f.text.replace(/\n/g, "\n  ")}`,
+    f.kind === "first" ? "kind: first — do this first, then revise the ask" : "kind: question",
+    `title: ${ask.questions[0]?.title ?? id}`,
+    ...(picks ? [`unsent picks: ${picks}`] : []),
+    file,
+    `reply by \`engine ask revise ${seat}/${id} --answers-followup ${f.n}\`; the ask stays open`,
+  ].join("\n");
+}
+
+/**
+ * A follow-up from the answerer (the server stamps the operator, as it stamps an answer): written
+ * first under the file lock with compare-and-swap on `expectedRevision`, then pushed to the asker,
+ * then its entry stamped with the push's outcome — `delivery: undelivered` and the reason when it
+ * failed. The ask stays open; its answer, if any, is never touched (a closed ask is refused).
+ */
+export async function followupAsk(
+  root: string,
+  seat: string,
+  id: string,
+  input: FollowupInput,
+  opts: DeliverOptions & { push?: typeof pushToSeat; expectedRevision: number },
+): Promise<{ file: string; revision: number; followup: AskFollowup; delivery: DeliveryResult }> {
+  const file = resolveAskPath(root, seat, id);
+  if (!Number.isInteger(opts?.expectedRevision)) throw new AskFormatError("expectedRevision is required: pass the revision you read");
+  const { parsed, followup } = await withFileLock(file, () => {
+    const before = fs.readFileSync(file, "utf8");
+    const { text, followup } = writeFollowup(before, input, opts.expectedRevision);
+    atomicWrite(file, text);
+    return { parsed: parseAskFile(text), followup };
+  });
+  const asker = parsed.header.from || seat;
+  const delivery = asker === followup.by ? SELF : await safePush(opts.push ?? pushToSeat, asker, followupMessage(seat, id, file, parsed, followup), opts);
+  const stamp = { delivery: delivery.status, deliveryNote: delivery.reason ? delivery.reason.replace(/\n/g, " ") : undefined };
+  const stampAt = async (f: string) => withFileLock(f, () => atomicWrite(f, markFollowups(fs.readFileSync(f, "utf8"), [followup.n], stamp)));
+  let at = file;
+  try {
+    await stampAt(file);
+  } catch (e) {
+    if (!(e instanceof SeatRenamedError)) throw e;
+    // S1's rule: the follow-up landed and was pushed; the stamp follows the moved ask.
+    at = resolveAskPath(root, e.to, id);
+    await stampAt(at).catch(() => undefined);
+  }
+  return { file: at, revision: currentRevision(parsed), followup, delivery };
+}
+
 // ── revising an open ask (the asker only) ─────────────────
 
 /** Header fields a revise may change: the card, never identity or state. */
@@ -973,12 +1035,12 @@ export async function reviseAsk(
   id: string,
   fields: Record<string, string | undefined>,
   body: string | undefined,
-  o: DeliverOptions & { by: string; push?: typeof pushToSeat; now?: string },
+  o: DeliverOptions & { by: string; push?: typeof pushToSeat; now?: string; /** ASKFOLLOWUP: the follow-ups this revision answers. */ answersFollowup?: number[] },
 ): Promise<ReviseResult> {
   const file = resolveAskPath(root, seat, id);
   if (!o?.by) throw new AskFormatError("revise must name who is revising");
   if (body !== undefined && RECORD_FENCE_RE.test(body)) {
-    throw new AskFormatError("the body holds a ```json answer, ```json draft or ```json history block: those are records the store writes, never part of a question");
+    throw new AskFormatError("the body holds a ```json answer, ```json draft, ```json history or ```json followup block: those are records the store writes, never part of a question");
   }
   for (const k of Object.keys(fields)) {
     if (fields[k] === undefined) continue;
@@ -1002,14 +1064,21 @@ export async function reviseAsk(
       const oldBody = bodyDigest(text);
       const head = after.slice(0, after.indexOf("\n---", 3) + 4);
       const draftFence = trailingDraftFence(text);
-      after = `${head}\n\n${body.replace(/\n*$/, "\n")}${draftFence ? `\n${draftFence.replace(/^\n+/, "")}` : ""}`;
+      // ASKFOLLOWUP: the follow-ups are the dialogue about the ask, not its body: they stay.
+      after = `${head}\n\n${body.replace(/\n*$/, "\n")}${followupEntries(text)}${draftFence ? `\n${draftFence.replace(/^\n+/, "")}` : ""}`;
       const reparsed = parseAskFile(after);
       if (reparsed.questions.length === 0) throw new AskFormatError('body holds no question: write at least one "## Choose one: …" heading');
       assertCodes(reparsed);
       if (bodyDigest(after) !== oldBody) changed.push("body");
     }
+    const answers = [...new Set(o.answersFollowup ?? [])];
+    if (answers.length) {
+      if (answers.some((n) => !Number.isInteger(n) || n < 1)) throw new AskFormatError("--answers-followup takes follow-up numbers: <n>[,<n>]");
+      changed.push(`followup ${answers.join(",")}`);
+    }
     if (changed.length === 0) throw new AskFormatError(`nothing to revise: ${seat}/${id} already says that`);
     const revision = currentRevision(ask) + 1;
+    if (answers.length) after = markFollowups(after, answers, { addressedIn: revision, addressedBy: o.by, addressedAt: at });
     after = setHeaderField(after, "revision", String(revision));
     const history = (ask.header.revisions ?? "").trim();
     after = setHeaderField(after, "revisions", `${history ? `${history} ; ` : ""}${revision}@${at}:${changed.join(",")}`);

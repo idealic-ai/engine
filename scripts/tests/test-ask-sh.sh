@@ -927,4 +927,51 @@ test_ide339_operator_over_a_seat_answer_is_overruled_and_kept_in_history() {
   assert_contains '"answeredBy": "manager:idealic"' "$(cat "$f")" "with its answerer"
 }
 
+# ASKFOLLOWUP: fu <ref-seat> <id> <rev> <kind> <fork|-> <text>: the operator's follow-up, written through
+# the store as the server writes it (stamped operator/browser). No live session: the push is undelivered.
+fu() {
+  local fork="$5"; [ "$fork" = "-" ] && fork=""
+  node --no-warnings --input-type=module -e '
+    const [root, seat, id, rev, kind, fork, text] = process.argv.slice(1);
+    const { followupAsk } = await import(process.env.ASK_STORE);
+    await followupAsk(root, seat, id, { by: "operator", via: "browser", kind, ...(fork ? { fork } : {}), text, picks: fork ? { [fork]: ["YES"] } : undefined }, { expectedRevision: Number(rev) });
+  ' "$ASK_ROOT" "$1" "$2" "$3" "$4" "$fork" "$6"
+}
+export ASK_STORE="$ENGINE_DIR/tools/ask-app/src/lib/store.ts"
+
+test_askfollowup_read_prints_followups_and_revise_answers_them() {
+  printf '%s\n' "$BODY" | "$ASK_SH" new --id fu1 --to manager:idealic >/dev/null
+  fu idealic:kernel fu1 1 first GO "run the smoke test first"
+  fu idealic:kernel fu1 2 question - "is this blocking two lanes?"
+  local f="$ASK_ROOT/idealic:kernel/fu1.md" out
+  assert_has_fixed "## Follow-up 1" "$f" "the follow-up is a ## Follow-up entry in the file"
+  assert_contains "status: open" "$(cat "$f")" "the ask stays open"
+  out=$(env -u FLEET_PANE "$ASK_SH" read idealic:kernel/fu1 2>/dev/null)
+  assert_contains "follow-up 1 · first · fork GO · from operator" "$out" "read prints the first follow-up with its kind and fork"
+  assert_contains "run the smoke test first" "$out" "with its text"
+  assert_contains "unsent picks: GO YES" "$out" "and the unsent picks"
+  assert_contains "follow-up 2 · question · from operator" "$out" "and the second, a question with no fork"
+  assert_contains "undelivered" "$out" "a failed push is shown as undelivered"
+  assert_contains "awaiting a revise" "$out" "an unanswered follow-up says it waits on a revise"
+  out=$("$ASK_SH" revise idealic:kernel/fu1 --keep-body --answers-followup 1,2)
+  assert_contains "changed: followup 1,2" "$out" "revise --answers-followup alone is a revision"
+  out=$(env -u FLEET_PANE "$ASK_SH" read idealic:kernel/fu1 2>/dev/null)
+  assert_contains "addressed in revision 4 by idealic:kernel" "$out" "read shows the follow-ups as addressed"
+  assert_fails_with "an unknown follow-up is refused" "holds no follow-up 7" "$ASK_SH" revise idealic:kernel/fu1 --keep-body --answers-followup 7
+  assert_fails_with "a non-number is refused" "--answers-followup takes" "$ASK_SH" revise idealic:kernel/fu1 --keep-body --answers-followup x
+  assert_fails_with "only the asker revises, follow-up or not" "only the asker" env FLEET_PANE=manager:idealic "$ASK_SH" revise idealic:kernel/fu1 --keep-body --answers-followup 1
+}
+
+test_askfollowup_operator_drafts_over_a_seat_answer_and_sends_an_overrule() {
+  printf '%s\n' "$BODY" | "$ASK_SH" new --id fd1 --to manager:idealic >/dev/null
+  FLEET_PANE=manager:idealic "$ASK_SH" answer idealic:kernel/fd1 --revision 1 --json '{"GO":["YES"]}' >/dev/null
+  local f="$ASK_ROOT/idealic:kernel/fd1.md"
+  assert_fails_with "a seat never drafts over a settled answer" "only an open ask, or the operator over a settled answer, takes a draft" \
+    env FLEET_PANE=manager:idealic "$ASK_SH" draft idealic:kernel/fd1 --revision 2 --json '{"GO":["NO"]}'
+  assert_contains "draft saved" "$(as_op draft idealic:kernel/fd1 --revision 2 --json '{"GO":["NO"]}')" "the operator drafts over the seat's answer"
+  assert_contains "status: answered" "$(cat "$f")" "the seat's answer stands until the draft is sent"
+  assert_contains "settled idealic:kernel/fd1" "$(as_op send idealic:kernel/fd1)" "the operator's draft sends"
+  assert_contains "overruled: manager:idealic" "$(cat "$f")" "and overrules the seat"
+}
+
 run_discovered_tests

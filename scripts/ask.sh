@@ -21,10 +21,11 @@
 #                  FLEET_MANAGES lists the asker, for the operator, on a reserved-for ask, and on draft;
 #                  the browser never writes one)
 #   engine ask revise <seat>/<id> [card flags as for new] [--keep-body]   the asker revises an open ask
+#                     [--answers-followup <n>[,<n>]]   …and records which operator follow-ups the revision answers
 #   engine ask draft  <seat>/<id> --revision N (--json … | --decline <reason>)   save in the file, push nothing
 #   engine ask send [<seat>/<id> …]       settle YOUR drafts (all of yours, by default); ONE push per seat
 #   engine ask discard <seat>/<id>       drop your draft
-#   engine ask read <seat>/<id> [--full] | read --unread [--seat S]   print the answer; stamps YOUR read
+#   engine ask read <seat>/<id> [--full] | read --unread [--seat S]   print the answer; stamps YOUR read (and the operator's follow-ups, each with its delivery and whether a revise answered it)
 #   engine ask acted <seat>/<id> "<summary>" [--ruled-in-chat "<who, when>"]   stamps acted (recipients only)
 #   engine ask forward <seat>/<id> --to <seat>   the holder (to:), or its parent, moves it one rung
 #   engine ask supersede <seat>/<old-id> --by <seat>/<new-id>   the asker, its manager or the operator retires an open ask for its replacement

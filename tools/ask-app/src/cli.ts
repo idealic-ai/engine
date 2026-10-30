@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk } from "./lib/store.ts";
-import { answeredByText, authorWarnings, noteLine, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, type AnswerMap, type AskAnswer, type GrantClass } from "./lib/format.ts";
+import { answeredByText, authorWarnings, noteLine, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, type AnswerMap, type AskAnswer, type AskFollowup, type GrantClass } from "./lib/format.ts";
 
 /** The author guide, pointed to whenever `new` or `revise` warns or refuses. */
 const GUIDE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "skills", "ask", "assets", "ASK_AUTHOR_GUIDE.md");
@@ -16,6 +16,22 @@ function warnAuthoring(file: string) {
   const w = authorWarnings(parseAskFile(fs.readFileSync(file, "utf8")));
   for (const x of w) process.stderr.write(`ask: warning: ${x}\n`);
   if (w.length) process.stderr.write(`${guideLine()}\n`);
+}
+
+/**
+ * ASKFOLLOWUP: a follow-up as `engine ask read` prints it — a head line (number, kind, fork, who,
+ * when, the push's outcome, and whether a revise answered it), then its text and unsent picks.
+ */
+export function followupLines(f: AskFollowup): string[] {
+  const head = [`follow-up ${f.n}`, f.kind, ...(f.fork ? [`fork ${f.fork}`] : []), `from ${f.by} at ${f.at}`, f.delivery ?? "pending"];
+  const addressed = f.addressedIn !== undefined ? `addressed in revision ${f.addressedIn} by ${f.addressedBy ?? "?"}` : "awaiting a revise (--answers-followup " + f.n + ")";
+  const picks = Object.entries(f.picks ?? {}).map(([k, v]) => `${k} ${Array.isArray(v) ? v.join("+") : String(v)}`).join(", ");
+  return [
+    `${head.join(" · ")} · ${addressed}`,
+    ...f.text.split("\n").map((l) => `  ${l}`),
+    ...(picks ? [`  unsent picks: ${picks}`] : []),
+    ...(f.deliveryNote ? [`  delivery note: ${f.deliveryNote}`] : []),
+  ];
 }
 
 /** Where an answer is in its life: never shows a queued push as read. */
@@ -202,13 +218,17 @@ async function main() {
   }
 
   if (cmd === "revise") {
-    const { seat, id } = splitRef(pos[0], "usage: ask revise <seat>/<id> [card flags as for new] [--body-file F | body on stdin | --keep-body]");
+    const { seat, id } = splitRef(pos[0], "usage: ask revise <seat>/<id> [card flags as for new] [--body-file F | body on stdin | --keep-body] [--answers-followup <n>[,<n>]]");
     const by = identity("revise");
+    // ASKFOLLOWUP: the follow-ups this revision answers, recorded on each one (the app shows them addressed).
+    const fu = opt["answers-followup"];
+    if (fu !== undefined && !/^\d+(,\d+)*$/.test(fu)) die("--answers-followup takes follow-up numbers: <n>[,<n>]");
+    const answersFollowup = fu === undefined ? undefined : fu.split(",").map(Number);
     const body = opt["keep-body"] === "true" ? undefined : opt["body-file"] ? fs.readFileSync(opt["body-file"], "utf8") : fs.readFileSync(0, "utf8");
     const fields: Record<string, string> = {};
     for (const k of HEADER_FIELDS) if (opt[k] !== undefined && !["id", "from", "to", "status", "revision", "created"].includes(k)) fields[k] = opt[k];
     try {
-      const r = await reviseAsk(root, seat, id, fields, body !== undefined && body.trim() ? body : undefined, { by });
+      const r = await reviseAsk(root, seat, id, fields, body !== undefined && body.trim() ? body : undefined, { by, ...(answersFollowup ? { answersFollowup } : {}) });
       warnAuthoring(r.file);
       console.log(`revised\t${seat}/${id}\trevision ${r.revision}\tchanged: ${r.changed.join(", ")}`);
       for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
@@ -295,7 +315,7 @@ async function main() {
     const by = reader();
     // S3: an answer whose push died with its writer is pushed again on the next read.
     for (const r of await repushPending(root, { by: by || undefined })) console.error(`repushed ${r.ref}\t${r.delivery.status}`);
-    const print = (r: { ref: string; file: string; lines: string[]; stamped: boolean; why?: string; ask: { answer?: AskAnswer; header: Record<string, string | undefined> } }) => {
+    const print = (r: { ref: string; file: string; lines: string[]; stamped: boolean; why?: string; ask: { answer?: AskAnswer; header: Record<string, string | undefined>; followups?: AskFollowup[] } }) => {
       // SHOULD-3 (round 2): the grant class beside who answered; ASKNOTE: the note marked, on its own line.
       const a = r.ask.answer;
       console.log(`${r.ref}\t${r.file}${a ? `\tby ${answeredByText(a)}${a.grantClass ? ` · grant ${a.grantClass}` : ""}` : ""}`);
@@ -305,6 +325,7 @@ async function main() {
       if (h.status === "withdrawn") console.log(`  withdrawn by ${h["withdrawn-actor"] || "?"}${h["withdrawn-at"] ? ` at ${h["withdrawn-at"]}` : ""}: ${h["withdrawn-reason"] || "no reason given"}`);
       const note = noteLine(a);
       if (note) console.log(`  ${note}`);
+      for (const f of r.ask.followups ?? []) for (const l of followupLines(f)) console.log(`  ${l}`);
       if (!r.stamped) console.error(`  (not stamped read: ${r.why})`);
     };
     if (opt.unread === "true") {

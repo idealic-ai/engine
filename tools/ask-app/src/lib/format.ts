@@ -117,6 +117,37 @@ export type ParsedAsk = {
    * fence is never silently overwritten.
    */
   historyError?: string;
+  /**
+   * ASKFOLLOWUP: the operator's follow-ups on this ask, in file order — each a `## Follow-up <n>`
+   * entry holding one ```json followup``` record. Read on any status: the dialogue outlives the answer.
+   */
+  followups: AskFollowup[];
+};
+
+/** ASKFOLLOWUP: a question back about the ask, or "do this first, then revise the ask". */
+export const FOLLOWUP_KINDS = ["question", "first"] as const;
+export type FollowupKind = (typeof FOLLOWUP_KINDS)[number];
+
+/**
+ * ASKFOLLOWUP: one follow-up, as the store writes it. `by` is stamped by whoever writes it (the server
+ * stamps the operator, as it stamps an answerer); `picks` are the answerer's unsent picks, if any.
+ * `delivery` is the push's outcome; `addressedIn` the revision whose `engine ask revise
+ * --answers-followup <n>` answered it, with who and when.
+ */
+export type AskFollowup = {
+  n: number;
+  at: string;
+  by: string;
+  via?: string;
+  kind: FollowupKind;
+  fork?: string;
+  text: string;
+  picks?: AnswerMap;
+  delivery?: "pending" | "delivered" | "undelivered" | "partial";
+  deliveryNote?: string;
+  addressedIn?: number;
+  addressedBy?: string;
+  addressedAt?: string;
 };
 
 export const HEADER_FIELDS = [
@@ -177,10 +208,16 @@ export const ANSWER_FENCES = /(?:^|\n)```json answer\n([\s\S]*?)\n```(?=\n|$)\n?
 export const DRAFT_FENCES = /(?:^|\n)```json draft\n([\s\S]*?)\n```(?=\n|$)\n?/g;
 /** IDE-339: the earlier answers, one JSON array in one fence, written by settle() before the answer. */
 export const HISTORY_FENCES = /(?:^|\n)```json history\n([\s\S]*?)\n```(?=\n|$)\n?/g;
-/** Any record fence (`json answer`, `json draft` or `json history`), wherever it sits: a body never carries one (M1). */
-export const RECORD_FENCE_RE = /^\s*```json (?:answer|draft|history)\b/m;
+/**
+ * ASKFOLLOWUP: one follow-up entry — its `## Follow-up <n>` heading (optional to the reader) and its
+ * ```json followup``` record. Taken out with the other records, so neither the question parse nor
+ * the body digest sees a follow-up: a draft saved before one still matches the body (S4).
+ */
+export const FOLLOWUP_ENTRIES = /(?:^|\n)(?:## Follow-up \d+\n+)?```json followup\n([\s\S]*?)\n```(?=\n|$)\n?/g;
+/** Any record fence (`json answer`, `json draft`, `json history` or `json followup`), wherever it sits: a body never carries one (M1). */
+export const RECORD_FENCE_RE = /^\s*```json (?:answer|draft|history|followup)\b/m;
 /** The text with every record fence taken out: what the ask asks. */
-const stripRecords = (t: string) => t.replace(ANSWER_FENCES, "\n").replace(DRAFT_FENCES, "\n").replace(HISTORY_FENCES, "\n");
+const stripRecords = (t: string) => t.replace(ANSWER_FENCES, "\n").replace(DRAFT_FENCES, "\n").replace(HISTORY_FENCES, "\n").replace(FOLLOWUP_ENTRIES, "\n");
 
 export class AskFormatError extends Error {
   constructor(message: string) {
@@ -570,13 +607,29 @@ export function parseAskFile(text: string): ParsedAsk {
   const open = header.status === "open" || header.status === undefined;
   const dms = [...rest.matchAll(DRAFT_FENCES)];
   if (dms.length && (open || settled)) draft = honouredDraft(rest, dms[dms.length - 1], header);
-  // IDE-304: on a settled ask, only the operator's draft of a change to the operator's own answer counts.
-  if (draft && !open && !(isOperatorAnswer(answer) && isOperatorName(draft.answeredBy))) draft = undefined;
+  // IDE-304: on a settled ask, only the operator's draft counts — a change to the operator's own
+  // answer, or (ASKFOLLOWUP) an overrule of a seat's.
+  if (draft && !open && !isOperatorName(draft.answeredBy)) draft = undefined;
   // IDE-339: like the answer, the history counts only on a settled ask, and the last fence is the record.
   const hms = [...rest.matchAll(HISTORY_FENCES)];
   const { history, historyError } = hms.length && settled ? readHistory(hms[hms.length - 1][1]) : { history: [] as AskAnswer[], historyError: undefined };
   const { preamble, questions } = parseQuestions(stripRecords(rest));
-  return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}), history, ...(historyError ? { historyError } : {}) };
+  const followups = readFollowups(rest);
+  return { header, preamble, questions, ...(answer ? { answer } : {}), ...(draft ? { draft } : {}), history, ...(historyError ? { historyError } : {}), followups };
+}
+
+/** ASKFOLLOWUP: every follow-up record in the text, in file order; an unreadable one is skipped. */
+function readFollowups(rest: string): AskFollowup[] {
+  const out: AskFollowup[] = [];
+  for (const m of rest.matchAll(FOLLOWUP_ENTRIES)) {
+    try {
+      const f = JSON.parse(m[1]) as AskFollowup;
+      if (f && typeof f === "object" && Number.isInteger(f.n)) out.push(f);
+    } catch {
+      // not a record the store wrote; the dialogue shows what it can read
+    }
+  }
+  return out;
 }
 
 const isRecord = (x: unknown): x is AskAnswer => !!x && typeof x === "object" && !Array.isArray(x);
@@ -718,8 +771,10 @@ function settle(text: string, record: AskAnswer, status: "answered" | "declined"
   out = setHeaderField(out, "revision", revision);
   // A new answer is unread and not yet acted on, whatever the last one was.
   for (const k of ["readAt", "readBy", "reads", "acted", "actedAt", "actedBy", "draft", "deliveryWriter"]) out = removeHeaderField(out, k);
+  // ASKFOLLOWUP: the follow-ups stay, after the body and before the records.
+  const dialogue = followupEntries(out);
   out = stripRecords(out);
-  out = out.replace(/\n*$/, "\n");
+  out = out.replace(/\n*$/, "\n") + dialogue;
   const kept = history.length ? `\n\`\`\`json history\n${JSON.stringify(history, null, 2)}\n\`\`\`\n` : "";
   return `${out}${kept}\n\`\`\`json answer\n${JSON.stringify(answer, null, 2)}\n\`\`\`\n`;
 }
@@ -809,10 +864,12 @@ export function writeDraft(text: string, d: AskAnswer & { savedAt?: string }, ex
   const ask = parseAskFile(text);
   assertLive(ask);
   // IDE-304: a settled ask takes the operator's draft of a change to the operator's own answer.
+  // ASKFOLLOWUP: and the operator's draft over a seat's answer too (the overrule form drafts); a
+  // seat never drafts over any settled answer, its own included.
   const open = ask.header.status === "open" || ask.header.status === undefined;
-  const ownChange = (ask.header.status === "answered" || ask.header.status === "declined") && isOperatorAnswer(ask.answer) && isOperatorName(d.answeredBy);
-  if (!open && !ownChange) {
-    throw new AskFormatError(`ask ${ask.header.id ?? ""} is ${ask.header.status}; only an open ask, or the operator's own answer, takes a draft`);
+  const operatorChange = (ask.header.status === "answered" || ask.header.status === "declined") && isOperatorName(d.answeredBy);
+  if (!open && !operatorChange) {
+    throw new AskFormatError(`ask ${ask.header.id ?? ""} is ${ask.header.status}; only an open ask, or the operator over a settled answer, takes a draft`);
   }
   const cur = currentRevision(ask);
   if (expectedRevision !== cur) throw new StaleRevisionError(expectedRevision, cur);
@@ -829,6 +886,110 @@ export function writeDraft(text: string, d: AskAnswer & { savedAt?: string }, ex
 /** Remove a draft (discard), leaving the ask exactly as open as it was. */
 export function clearDraft(text: string): string {
   return removeHeaderField(text, "draft").replace(DRAFT_FENCES, "\n").replace(/\n*$/, "\n");
+}
+
+// ── follow-ups (ASKFOLLOWUP) ──────────────────────────────
+
+/** A follow-up on an ask that is no longer open: answered, declined, superseded, withdrawn, ruled. */
+export class FollowupClosedError extends AskFormatError {
+  readonly status: string;
+  constructor(id: string, status: string) {
+    super(`ask ${id} is ${status}; a follow-up goes only to an open ask`);
+    this.name = "FollowupClosedError";
+    this.status = status;
+  }
+}
+
+export type FollowupInput = { by: string; via?: string; kind: FollowupKind; fork?: string; text: string; picks?: AnswerMap; at?: string };
+
+/** One entry as the store writes it: the heading, a blank line, the record. */
+function followupBlock(f: AskFollowup): string {
+  return `\n## Follow-up ${f.n}\n\n\`\`\`json followup\n${JSON.stringify(f, null, 2)}\n\`\`\`\n`;
+}
+
+/** Every follow-up entry in the text, re-laid one after another: what a rewrite of the file must keep. */
+export function followupEntries(text: string): string {
+  return [...text.matchAll(FOLLOWUP_ENTRIES)].map((m) => `\n${m[0].replace(/^\n+/, "").replace(/\n*$/, "\n")}`).join("");
+}
+
+/** Put a block after the body and the entries before it, ahead of a trailing draft, which must stay last (M1). */
+function insertBeforeDraft(text: string, block: string): string {
+  const d = trailingDraftFence(text);
+  if (!d) return text.replace(/\n*$/, "\n") + block;
+  const at = text.lastIndexOf(d);
+  return `${text.slice(0, at).replace(/\n*$/, "\n")}${block}\n${d.replace(/\n*$/, "\n")}`;
+}
+
+/** Unsent picks travel with a follow-up as context: keyed by known questions, never validated as an answer. */
+function followupPicks(ask: ParsedAsk, picks: unknown): AnswerMap | undefined {
+  if (picks === undefined || picks === null) return undefined;
+  if (typeof picks !== "object" || Array.isArray(picks)) throw new AskFormatError("picks must be an object keyed by question");
+  const keys = new Set(ask.questions.map(questionKey));
+  const entries = Object.entries(picks as Record<string, unknown>);
+  for (const [k, v] of entries) {
+    if (!keys.has(k.endsWith(".other") ? k.slice(0, -6) : k)) throw new AskFormatError(`unknown question in picks: ${k}`);
+    const ok = typeof v === "string" || (typeof v === "number" && Number.isFinite(v)) || (Array.isArray(v) && v.every((x) => typeof x === "string"));
+    if (!ok) throw new AskFormatError(`picks.${k} must be a code list, text or a number`);
+  }
+  return entries.length ? (picks as AnswerMap) : undefined;
+}
+
+/**
+ * Append a follow-up to an OPEN ask: a `## Follow-up <n>` entry, the revision bumped (so an answer
+ * made against the view before it is refused as stale) and `revisions:` noting it. The answer, the
+ * questions and the body digest are untouched. Refused: a closed ask (FollowupClosedError), a stale
+ * revision, no sender, an unknown kind, empty text, an unknown fork, picks for unknown questions.
+ */
+export function writeFollowup(text: string, input: FollowupInput, expectedRevision: number): { text: string; followup: AskFollowup } {
+  const ask = parseAskFile(text);
+  const status = ask.header.status || "open";
+  if (status !== "open") throw new FollowupClosedError(ask.header.id ?? "", status);
+  const cur = currentRevision(ask);
+  if (expectedRevision !== cur) throw new StaleRevisionError(expectedRevision, cur);
+  if (!input.by?.trim()) throw new AskFormatError("a follow-up must name who sent it");
+  if (!(FOLLOWUP_KINDS as readonly unknown[]).includes(input.kind)) throw new AskFormatError(`a follow-up's kind is question or first, not ${String(input.kind)}`);
+  if (typeof input.text !== "string" || !input.text.trim()) throw new AskFormatError("an empty follow-up is not a follow-up: say what you are asking");
+  const keys = ask.questions.map(questionKey);
+  if (input.fork !== undefined && (typeof input.fork !== "string" || !keys.includes(input.fork))) throw new AskFormatError(`unknown fork: ${String(input.fork)} (known: ${keys.join(", ")})`);
+  const picks = followupPicks(ask, input.picks);
+  const n = Math.max(0, ...ask.followups.map((f) => f.n)) + 1;
+  const at = input.at ?? new Date().toISOString();
+  const followup: AskFollowup = { n, at, by: input.by.trim(), kind: input.kind, ...(input.fork !== undefined ? { fork: input.fork } : {}), text: input.text.trim(), ...(picks ? { picks } : {}) };
+  const record: AskFollowup = { ...followup, ...(input.via ? { via: input.via } : {}), delivery: "pending" };
+  const revisions = (ask.header.revisions ?? "").trim();
+  let out = setHeaderField(text, "revision", String(cur + 1));
+  out = setHeaderField(out, "revisions", `${revisions ? `${revisions} ; ` : ""}${cur + 1}@${at}:followup ${n}`);
+  return { text: insertBeforeDraft(out, followupBlock(record)), followup };
+}
+
+/** Merge `patch` into the follow-ups numbered `ns` (a delivery stamp, an addressed mark); every one must exist. */
+export function markFollowups(text: string, ns: number[], patch: Partial<AskFollowup>): string {
+  const ask = parseAskFile(text);
+  const have = ask.followups.map((f) => f.n);
+  const missing = ns.filter((n) => !have.includes(n));
+  if (missing.length) throw new AskFormatError(`${ask.header.id ?? "the ask"} holds no follow-up ${missing.join(", ")} (it holds ${have.length ? have.join(", ") : "none"})`);
+  return text.replace(FOLLOWUP_ENTRIES, (whole: string, json: string) => {
+    let f: AskFollowup;
+    try {
+      f = JSON.parse(json) as AskFollowup;
+    } catch {
+      return whole;
+    }
+    if (!ns.includes(f?.n)) return whole;
+    return `${whole.startsWith("\n") ? "\n" : ""}## Follow-up ${f.n}\n\n\`\`\`json followup\n${JSON.stringify({ ...f, ...patch }, null, 2)}\n\`\`\`\n`;
+  });
+}
+
+/** An entry of an ask's dialogue as /api/asks serves it: a replaced answer as it was, or a follow-up. */
+export type DialogueEntry = AskAnswer | ({ type: "followup" } & AskFollowup);
+
+/** The replaced answers (IDE-339's shape, untouched) and the follow-ups (`type: "followup"`), oldest first. */
+export function dialogueHistory(ask: ParsedAsk): DialogueEntry[] {
+  const items: { t: string; e: DialogueEntry }[] = [
+    ...ask.history.map((a) => ({ t: a.answeredAt ?? "", e: a as DialogueEntry })),
+    ...ask.followups.map((f) => ({ t: f.at ?? "", e: { type: "followup" as const, ...f } })),
+  ];
+  return items.sort((a, b) => (a.t < b.t ? -1 : a.t > b.t ? 1 : 0)).map((x) => x.e);
 }
 
 // ── the card (§FMT_DECISION_CARD) ──────────────────
