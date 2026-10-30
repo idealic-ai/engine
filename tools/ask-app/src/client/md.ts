@@ -1,3 +1,7 @@
+// The SERVER imports this module (through model.ts; src/lib/settle.ts, ASKLIST) and runs it under plain node.
+// Keep it, and everything it imports, DOM-free: no React, no .tsx or CSS import, no window/document,
+// and no TypeScript node cannot strip (enums, parameter properties). settle.test.ts and server.test.ts
+// spawn or load it, so a break shows there.
 /**
  * The small slice of markdown an ask's prose uses, as data: inline code, links, bare URLs and ticket
  * keys inside a line; paragraphs, lists, fenced code, quotes and `> [!kind] Title` callouts across

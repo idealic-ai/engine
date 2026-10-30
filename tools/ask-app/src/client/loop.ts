@@ -1,3 +1,7 @@
+// The SERVER imports this module (directly (isProvisional); src/lib/settle.ts, ASKLIST) and runs it under plain node.
+// Keep it, and everything it imports, DOM-free: no React, no .tsx or CSS import, no window/document,
+// and no TypeScript node cannot strip (enums, parameter properties). settle.test.ts and server.test.ts
+// spawn or load it, so a break shows there.
 /**
  * Round 5: the ask loop as the client sees it before meta:engine's LOOMASK change lands. A request
  * for something first, a draft answer sent as "provisional", and rounds linked by `round:` and

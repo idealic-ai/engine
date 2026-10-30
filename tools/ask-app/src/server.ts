@@ -5,7 +5,8 @@
  *   GET  /api/health   {app, root, pid, port}
  *   GET  /api/asks     every ask under the root, all statuses; each with `history`, its replaced answers and
  *                      (ASKFOLLOWUP) its follow-ups as `{type: "followup", …}`, oldest first
- *                      and, on a withdrawn ask whose draft was set aside, `withdrawnDraft` (that draft, parsed)
+ *                      and, on a withdrawn ask whose draft was set aside, `withdrawnDraft` (that draft, parsed);
+ *                      (ASKLIST) `settled`, and `owed: {kind: "delivery"|"follow-up", by, why}` when something is owed
  *   GET  /api/proofs   (token required) published proof pages in the local proof store, newest first
  *                      (?fresh skips the cache, and joins a listing already running rather than starting one)
  *   GET  /api/broadcasts  (token required) broadcasts newest first, with acks; read-only, BROADCAST_DIR overrides the dir
@@ -83,6 +84,7 @@ import { createRefresher, type Refresher } from "./search/refresher.ts";
 import { askSource, defaultSources, KINDS, type Kind } from "./search/sources.ts";
 import { indexState, search, SearchUnavailable } from "./search/query.ts";
 import { memoLookup, wakeAsk, WakeRefused, wakeView } from "./lib/wake.ts";
+import { withSettlement } from "./lib/settle.ts";
 
 const args = process.argv.slice(2);
 const arg = (name: string) => {
@@ -203,7 +205,7 @@ const server = http.createServer(async (req, res) => {
       // WAKEBTN: each row carries its wake state; the session registry is read once per seat per listing.
       const lookup = memoLookup();
       const now = Date.now();
-      return send(res, 200, { root, asks: listAsks(root).map((a) => ({ ...a, history: dialogueHistory(a), ...wakeView(a, { now, lookup }) })) });
+      return send(res, 200, { root, asks: withSettlement(listAsks(root)).map((a) => ({ ...a, history: dialogueHistory(a), ...wakeView(a, { now, lookup }) })) });
     }
     // The published proof pages in the local MinIO store, read-only (ported from the ASKDESIGN prototype).
     // SF-6: a listing spawns bash + aws, so it is gated like /api/broadcasts: GET only, the page's token,

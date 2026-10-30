@@ -1,3 +1,7 @@
+// The SERVER imports this module (directly (followUpOf); src/lib/settle.ts, ASKLIST) and runs it under plain node.
+// Keep it, and everything it imports, DOM-free: no React, no .tsx or CSS import, no window/document,
+// and no TypeScript node cannot strip (enums, parameter properties). settle.test.ts and server.test.ts
+// spawn or load it, so a break shows there.
 /**
  * The client's view of an ask, as plain data: one sidebar row per ask (never per fork), the order
  * and grouping of those rows, which option a fork leans to, and which trade-off dimensions are

@@ -1,3 +1,7 @@
+// The SERVER imports this module (through loop.ts; src/lib/settle.ts, ASKLIST) and runs it under plain node.
+// Keep it, and everything it imports, DOM-free: no React, no .tsx or CSS import, no window/document,
+// and no TypeScript node cannot strip (enums, parameter properties). settle.test.ts and server.test.ts
+// spawn or load it, so a break shows there.
 /**
  * `engine ask supersede` and the decline pass-up, as the client reads them:
  * - a superseded ask: `status: superseded`, `superseded-by`, `superseded-at`, `superseded-actor`;
