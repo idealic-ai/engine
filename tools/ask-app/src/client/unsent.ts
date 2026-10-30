@@ -3,7 +3,8 @@
  * remount (a revision bump) nor a reload after a server restart loses them (operator 01:29). Cleared when
  * the ask is sent. Storage may be missing or throw (a private window); memory still holds them then.
  */
-import type { Unsent } from "./model.ts";
+import { questionKey, type ParsedAsk } from "../lib/format.ts";
+import { forkLabel, type Unsent } from "./model.ts";
 
 type Store = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 const KEY = (ref: string) => `askclient.unsent.${ref}`;
@@ -53,4 +54,18 @@ export function clearUnsent(ref: string, s: Store | undefined = storage()) {
 /** Test seam: forget what memory holds, as a reload would. */
 export function forgetMemory() {
   memory.clear();
+}
+
+/** The operator's unsent picks and notes on a withdrawn ask, one line per fork by its name, then the note. */
+export function keptDraftLines(ask: Pick<ParsedAsk, "questions">, u: Unsent): string[] {
+  const out: string[] = [];
+  ask.questions.forEach((q, i) => {
+    const k = questionKey(q, i);
+    const v = u.values[k];
+    const picks = Array.isArray(v) ? v.map(String).filter(Boolean) : v !== undefined && v !== "" ? [String(v)] : [];
+    const t = u.text[k]?.trim() ?? "";
+    if (picks.length || t) out.push(`${forkLabel(q, i)}: ${[picks.join(", "), t].filter(Boolean).join("; ")}`);
+  });
+  if (u.note.trim()) out.push(`Note: ${u.note.trim()}`);
+  return out;
 }

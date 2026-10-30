@@ -19,7 +19,7 @@ export const CHANGE_WORDING =
  * ruledBelow reads too), or overrule a seat's ruling ("overrule", IDE-339). Never on a superseded ask.
  */
 export function changeMode(a: ParsedAsk): "change" | "overrule" | undefined {
-  if (a.header.status === "superseded" || !a.answer) return undefined;
+  if (a.header.status === "superseded" || a.header.status === "withdrawn" || !a.answer) return undefined;
   if (!isSettled(a) && !isProvisional(a)) return undefined;
   if (isOperatorAnswer(a.answer)) return "change";
   // ASKOVR SHOULD-1: the store's assertMayAnswer (store.ts, not exported) refuses any answerer but the

@@ -3,6 +3,7 @@ import {
   answeredByText,
   cardFor,
   draftAuthor,
+  isOperatorName,
   questionKey,
   relayerOf,
   ticketKeys,
@@ -65,11 +66,11 @@ import { noticeFor, postSendStep, sendOutcome, type SentNotice } from "./next.ts
 import { createRouteNav, createUrlSync } from "./urlsync.ts";
 import { blocks, displayTitle } from "./md.ts";
 import { RELOAD_RESTARTED, RELOAD_UPDATED, authedFetch, recordBuild, refreshToken, type Authed } from "./token.ts";
-import { clearUnsent, loadUnsent, saveUnsent } from "./unsent.ts";
+import { clearUnsent, keptDraftLines, loadUnsent, saveUnsent } from "./unsent.ts";
 import { SCROLL_ROOT, scrollRootOf, scrollToId, scrollWithin } from "./scroll.ts";
 import { Grip, Split, SIDE_MAX, SIDE_MIN, SIDE_SLIM, clampRatio, clampSide, sideDefault, useStoredNumber } from "./layout.tsx";
 import { pushEsc } from "./esc.ts";
-import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, type PathHop } from "./supersede.ts";
+import { conflictMessage, hopWords, pathOf, refusedLine, supersededInfo, supersedesList, withdrawnInfo, withdrawnWords, type PathHop, type Withdrawn } from "./supersede.ts";
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay } from "./search.ts";
@@ -323,7 +324,8 @@ export function App() {
       const pushes = (json.pushes as { seat: string; refs: string[]; delivery: { status: string; reason?: string } }[])
         .map((p) => `${p.seat}: ${p.delivery.status === "delivered" ? "queued, not read yet" : `${p.delivery.status}${p.delivery.reason ? ` (${p.delivery.reason})` : ""}`} — ${p.refs.length} answer${p.refs.length === 1 ? "" : "s"} in one message`)
         .join(" · ");
-      const refused = (json.refused as { ref: string; error: string }[]).map((r) => `${r.ref}: ${r.error}`).join(" · ");
+      // ASKWITHDRAW: a withdrawn ask reads "<ref>: withdrawn by X: reason", never the raw refusal.
+      const refused = (json.refused as { ref: string; error: string }[]).map(refusedLine).join(" · ");
       setBatchResult(`Sent ${json.settled.length}. ${pushes}${refused ? ` · Refused: ${refused}` : ""}`);
       load();
     } finally {
@@ -550,7 +552,7 @@ function Plain({ text, terms = [] }: { text: string; terms?: string[] }) {
  * grouped by seat, since the group heading already says it.
  */
 export function AskRowButton({ r, current, onPick, slim, groupBy = "none", terms = [], extra }: { r: Row; current: boolean; onPick: () => void; slim: boolean; groupBy?: GroupBy; terms?: string[]; extra?: Hay }) {
-  const left = r.ruledBy ? `ruled by ${r.ruledBy}${r.ruledClass ? ` · class ${r.ruledClass}` : ""}${r.ruledAt ? ` · ${ageOf(Date.parse(r.ruledAt), Date.now())} ago` : ""}` : r.status === "open" ? `${r.left} of ${r.total} left` : r.status;
+  const left = r.status === "withdrawn" ? withdrawnWords({ actor: r.withdrawnBy }) : r.ruledBy ? `ruled by ${r.ruledBy}${r.ruledClass ? ` · class ${r.ruledClass}` : ""}${r.ruledAt ? ` · ${ageOf(Date.parse(r.ruledAt), Date.now())} ago` : ""}` : r.status === "open" ? `${r.left} of ${r.total} left` : r.status;
   const marks: [string, string, string][] = [
     ...(r.reserved === "operator" ? [["res", "◆", "Reserved for you: only you may answer; seats may forward it"] as [string, string, string]] : []),
     ...(r.reserved && r.reserved !== "operator" ? [["res other", "◇", `Reserved for ${r.reserved}`] as [string, string, string]] : []),
@@ -807,6 +809,7 @@ export function AskDetail({
 }: { ask: StoredAsk; all: StoredAsk[]; onChanged: () => void; brief?: Brief; paneOpen?: boolean; onToggleBrief?: () => void; focusFork?: string; onForkHash?: (label: string) => void; provisionalKept?: boolean; onOpenAsk?: (ref: string) => void; /** Open the card already changing its answer (IDE-304). */ startChanging?: boolean; /** Called once /api/send accepted this ask, with the delivery line; `next` for Send & next. App moves on or keeps the line. */ onSent?: (text: string, next: boolean) => void; /** App's post-send line for this ask (it outlives this card's remount). */ sentNotice?: string }) {
   const [replacedBy, setReplacedBy] = useState<string | undefined>();
   const superseded = supersededInfo(ask.header);
+  const withdrawn = withdrawnInfo(ask.header);
   const replaces = supersedesList(ask.header);
   const path = pathOf(ask.header);
   // NIT: an ask with no status line is open, as the list and the server read it.
@@ -906,6 +909,12 @@ export function AskDetail({
           keep();
           setReplacedBy(c.supersededBy ?? "");
         }
+        // ASKWITHDRAW: no ask replaces it. The picks are kept and the card redraws withdrawn, where
+        // the kept copy is shown; the line below says so until it does.
+        if (c.withdrawn) {
+          keep();
+          onChanged();
+        }
         return setResult(c.text);
       }
       // Send's after-send path (ASKHL SHOULD-1/2): a failed overrule keeps its copy and stays; an
@@ -950,6 +959,12 @@ export function AskDetail({
         if (c.supersededBy || r.json?.status === "superseded") {
           keep();
           setReplacedBy(c.supersededBy ?? "");
+        }
+        // ASKWITHDRAW: no ask replaces it. The picks are kept and the card redraws withdrawn, where
+        // the kept copy is shown; the line below says so until it does.
+        if (c.withdrawn) {
+          keep();
+          onChanged();
         }
         return setResult(c.text);
       }
@@ -1003,6 +1018,7 @@ export function AskDetail({
         keep();
         setReplacedBy(out.supersededBy ?? "");
       }
+      if (out.withdrawn) keep();
       if (out.ok) {
         clearUnsent(keyFor(changing));
         setNeedText("");
@@ -1074,6 +1090,15 @@ export function AskDetail({
             {superseded.actor && <> · {superseded.actor}</>}
             {superseded.at && <> · <time dateTime={superseded.at} title={new Date(superseded.at).toLocaleString()}>{superseded.at.replace("T", " ").slice(0, 16)}</time></>}
             <span className="muted"> · read-only; answer the new ask</span>
+          </p>
+        )}
+        {withdrawn && (
+          <p className="superseded withdrawn" role="note">
+            <b>Withdrawn</b>
+            {withdrawn.actor && <> by {withdrawn.actor}</>}
+            {withdrawn.at && <> · <time dateTime={withdrawn.at} title={new Date(withdrawn.at).toLocaleString()}>{withdrawn.at.replace("T", " ").slice(0, 16)}</time></>}
+            {withdrawn.reason && <>: {withdrawn.reason}</>}
+            <span className="muted"> · read-only; nothing to answer</span>
           </p>
         )}
         {replaces.length > 0 && (
@@ -1156,6 +1181,7 @@ export function AskDetail({
       })}
 
       <section className="answerbar" id={`answerbar-${ask.header.id}`}>
+        {withdrawn && <WithdrawnBar ask={ask} w={withdrawn} />}
         {(isSettled(ask) || provisional) && !changing && (
           <>
             {ruledBelow(ask) ? (
@@ -1856,6 +1882,45 @@ function RankInput(p: InputProps & { value: string[] | undefined }) {
  * Who answered, with a relay made visible: an answer a seat RECORDED for the operator says so in
  * plain words, so the operator can spot a relay it never gave.
  */
+/**
+ * ASKWITHDRAW: the answer bar of a withdrawn ask. No controls; the operator's unsent picks and notes
+ * on it (unsent.ts, under the open form's key) are listed as kept, with Copy and Forget, so a
+ * withdrawal mid-draft never drops them without a word. A saved draft the withdrawal discarded
+ * (`withdrawn-draft-of`) is named when it was the operator's.
+ */
+function WithdrawnBar({ ask, w }: { ask: StoredAsk; w: Withdrawn }) {
+  const ref = askRef(ask);
+  const [kept, setKept] = useState(() => loadUnsent(unsentKey(ref, false)));
+  const [copied, setCopied] = useState("");
+  const lines = kept ? keptDraftLines(ask, kept) : [];
+  const ownDraft = !!w.draftOf && isOperatorName(w.draftOf);
+  const copy = () => {
+    const t = lines.join("\n");
+    Promise.resolve(navigator.clipboard?.writeText(t)).then(() => setCopied("Copied."), () => setCopied("Copy failed; select the lines by hand."));
+  };
+  return (
+    <>
+      <h3>Withdrawn · revision {ask.header.revision}</h3>
+      <p className="muted">This ask was {withdrawnWords(w)}. Nobody is waiting on an answer, and nothing here can be sent.</p>
+      {lines.length > 0 ? (
+        <div className="chip warn notice kept-draft" role="status">
+          <p>
+            You were answering this ask when it was withdrawn. Nothing was sent.{ownDraft ? " The draft saved in the file was discarded;" : ""} Your picks and notes are kept in this browser:
+          </p>
+          <ul>{lines.map((l, i) => <li key={i}>{l}</li>)}</ul>
+          <p className="actions">
+            <button className="btn quiet" onClick={copy}>Copy</button>
+            <button className="btn quiet" onClick={() => { clearUnsent(unsentKey(ref, false)); setKept(undefined); }}>Forget them</button>
+            {copied && <span className="muted"> {copied}</span>}
+          </p>
+        </div>
+      ) : ownDraft ? (
+        <p className="chip warn notice" role="status">Your saved draft on this ask was discarded when it was withdrawn. Nothing was sent.</p>
+      ) : null}
+    </>
+  );
+}
+
 export function AnsweredBy({ answer }: { answer?: AskAnswer }) {
   if (!answer) return null;
   const relayer = relayerOf(answer);

@@ -72,6 +72,8 @@ export type Row = {
   overruled?: string;
   /** A provisional ask whose asker came back: the ask that followed it up (operator, 04:05). */
   followedBy?: string;
+  /** ASKWITHDRAW: who took the ask back (`withdrawn-actor`), when it is withdrawn. */
+  withdrawnBy?: string;
 };
 
 export const askRef = (a: StoredAsk) => `${a.seat}/${a.header.id}`;
@@ -163,6 +165,7 @@ export function askRow(a: StoredAsk, now = Date.now(), all: StoredAsk[] = []): R
     ...(ruledBelow(a) ? { ruledBy: a.answer!.answeredBy!.trim(), ruledAt: a.answer!.answeredAt, ...(grantClassOf(a.answer) ? { ruledClass: grantClassOf(a.answer) } : {}) } : {}),
     ...(a.header.overruled?.trim() ? { overruled: a.header.overruled.trim() } : {}),
     ...(followedBy ? { followedBy } : {}),
+    ...(a.header.status === "withdrawn" && a.header["withdrawn-actor"]?.trim() ? { withdrawnBy: a.header["withdrawn-actor"].trim() } : {}),
   };
 }
 
@@ -463,11 +466,13 @@ export function batchConfirmation(drafts: ParsedAsk[], refOf: (a: ParsedAsk) => 
 export type Filter = "open" | "ruled" | "settled" | "all";
 /**
  * SF-4: the one predicate behind both a filter's list and its count. Settled is answered or declined;
- * a superseded ask is in All only (it was replaced, not settled by anyone here).
+ * a superseded ask is in All only (it was replaced, not settled by anyone here), and so is a withdrawn
+ * one (ASKWITHDRAW: its asker took it back; nothing is left to answer).
  */
 export function rowInFilter(r: Pick<Row, "status" | "draft" | "ruledBy"> & { draftSent?: boolean; followedBy?: string }, f: Filter): boolean {
   // Round 5: a provisional answer waits on its asker, so it stays under Open, never Settled, until
   // the asker comes back with a follow-up ask (operator, 04:05): then it reads as settled.
+  if (r.status === "withdrawn") return f === "all";
   if (r.draftSent && !r.followedBy) return f === "all" || f === "open";
   return f === "all" ? true : f === "ruled" ? !!r.ruledBy : f === "settled" ? r.status === "answered" || r.status === "declined" : r.status === "open";
 }

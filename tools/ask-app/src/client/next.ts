@@ -4,6 +4,8 @@
  * the order and the "failed send stays put" rule are tested without a browser.
  */
 
+import { withdrawnRefusal } from "./supersede.ts";
+
 export type NextRow = { ref: string; waitingOnYou: boolean };
 
 /**
@@ -41,8 +43,9 @@ type Push = { seat: string; delivery: { status: string; reason?: string } };
  * What a single-ask /api/send answered. Only a 200 with nothing refused is sent; a refusal or any
  * other status shows the server's words and keeps the browser's unsent copy (SHOULD-1).
  */
-export function sendOutcome(status: number, json: { refused?: { error: string }[]; pushes?: Push[]; error?: string } | undefined): { sent: boolean; text: string } {
-  if (json?.refused?.length) return { sent: false, text: `Refused: ${json.refused[0].error}` };
+export function sendOutcome(status: number, json: { refused?: { ref?: string; error: string }[]; pushes?: Push[]; error?: string } | undefined): { sent: boolean; text: string } {
+  // ASKWITHDRAW: a withdrawn ask stays in refused[] under a 200; say who withdrew it and why.
+  if (json?.refused?.length) return { sent: false, text: withdrawnRefusal(json.refused[0].error) ?? `Refused: ${json.refused[0].error}` };
   if (status !== 200) return { sent: false, text: `Error: ${json?.error ?? `HTTP ${status}`}` };
   const p = json?.pushes?.[0];
   if (!p) return { sent: true, text: "" };
