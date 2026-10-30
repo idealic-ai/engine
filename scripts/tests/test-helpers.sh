@@ -27,6 +27,9 @@ RESET='\033[0m'
 TESTS_RUN=0
 TESTS_PASSED=0
 TESTS_FAILED=0
+# A skip is a case that ran nothing. It counts toward the total, so run-all.sh can tell "every
+# case skipped" (skipped == total) from "one skipped and the rest asserted nothing".
+TESTS_SKIPPED=0
 
 # ============================================================
 # Core Functions
@@ -48,6 +51,8 @@ fail() {
 
 skip() {
   echo -e "${YELLOW}SKIP${RESET}: $1${2:+ — $2}"
+  TESTS_SKIPPED=$((TESTS_SKIPPED + 1))
+  TESTS_RUN=$((TESTS_RUN + 1))
 }
 
 # ============================================================
@@ -255,7 +260,9 @@ run_discovered_tests() {
 print_results() {
   echo ""
   echo "======================================"
-  echo -e "Results: ${GREEN}${TESTS_PASSED} passed${RESET}, ${RED}${TESTS_FAILED} failed${RESET} (${TESTS_RUN} total)"
+  local skipped=""
+  [ "$TESTS_SKIPPED" -gt 0 ] && skipped=", ${TESTS_SKIPPED} skipped"
+  echo -e "Results: ${GREEN}${TESTS_PASSED} passed${RESET}, ${RED}${TESTS_FAILED} failed${RESET}${skipped} (${TESTS_RUN} total)"
   echo "======================================"
 }
 

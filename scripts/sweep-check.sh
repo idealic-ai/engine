@@ -70,29 +70,79 @@ REGISTERS = [
 def head_text(n):
     return STAMP.sub("", lines[n - 1][3:])
 
-# Pass 1: headings outside code fences. A fence line that closes itself on the same line
-# (an inline span or a one-line fence) opens nothing. A fence left open swallows the rest of the
-# log, which would read as "0 decisions, exit 0", so it is an instrument fault instead.
-headings, fenced_decisions, fenced_lines = [], 0, 0
-fence, fence_open = False, 0
-for i, line in enumerate(lines, 1):
-    s = line.lstrip()
-    if s.startswith("```"):
-        if not fence and s.count("```") >= 2:
-            continue
-        fence = not fence
-        if fence:
-            fence_open = i
-        continue
-    if fence:
-        fenced_lines += 1
-    if line.startswith("## "):
-        if fence:
-            if DECISION.match(head_text(i)):
-                fenced_decisions += 1
-            continue
-        headings.append(i)
-if fence:
+# >>> fence-pass: shared by lane-stall.sh and sweep-check.sh, byte for byte (a test compares them)
+# A line inside a fenced code block is an EXAMPLE, not an entry. The rule is CommonMark's for the
+# fence characters: a fence opens on a line of 3+ backticks or 3+ tildes and closes only on a line
+# of the SAME character, at least as long, with nothing else on it. So a ```` fence can quote a
+# ``` example, and ~~~ fences count too. A backtick run with another backtick later on the line is
+# an inline span, not a fence (CommonMark forbids backticks in a backtick fence's info string).
+# Indentation is read relative to the opener, which may sit at any depth so a fence inside a list
+# item is still seen: a line indented 4 or more columns past the opener is content and never
+# closes the fence. That is the case that bites: engine docs indent a ``` 4 spaces under a bullet,
+# and closing on it would end a top-level fence early and read the quoted rest as real.
+# Not handled: fences inside blockquotes ("> ```").
+#
+# The CALLER owns every counter: one FencePass per file read, so a second read of a log, or a log
+# read for another session, never adds to this sweep's figures. A fence left open is reported
+# through finish(), which reads whatever the caller did not, so a caller that stops early still
+# learns about a fence the rest of the file leaves open. Each caller decides what that means
+# for its own exit status.
+class FencePass:
+    OPEN = re.compile(r"^(`{3,}|~{3,})(.*)$")
+
+    def __init__(self, lines, fenced_marker=None):
+        """lines: any iterable of lines. fenced_marker(line) -> bool is counted inside fences."""
+        self.fenced_marker = fenced_marker
+        self.fenced_markers = 0   # fenced lines fenced_marker matched
+        self.fenced_lines = 0     # lines inside a fence, the fence lines themselves excluded
+        self.open_at = None       # line number of the fence open at the current position
+        self.exhausted = False
+        self._gen = self._scan(lines)
+
+    def __iter__(self):
+        return self._gen
+
+    @staticmethod
+    def _indent(body):
+        wide = body.expandtabs(4)
+        return len(wide) - len(wide.lstrip(" "))
+
+    def _scan(self, lines):
+        fence, fence_indent = None, 0
+        for lineno, line in enumerate(lines, 1):
+            body = line.rstrip("\r\n")
+            stripped = body.lstrip(" \t")
+            if fence is None:
+                m = self.OPEN.match(stripped)
+                if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                    fence, fence_indent, self.open_at = m.group(1), self._indent(body), lineno
+                    continue
+                yield lineno, line
+                continue
+            t = stripped.rstrip()
+            if (t and set(t) == {fence[0]} and len(t) >= len(fence)
+                    and self._indent(body) < fence_indent + 4):
+                fence, self.open_at = None, None
+                continue
+            self.fenced_lines += 1
+            if self.fenced_marker and self.fenced_marker(line):
+                self.fenced_markers += 1
+        self.exhausted = True
+
+    def finish(self):
+        """Read what the caller did not; return the line a fence left open at EOF, or None."""
+        for _ in self._gen:
+            pass
+        return self.open_at
+# <<< fence-pass
+
+# Pass 1: headings outside code fences. A fence left open swallows the rest of the log, which
+# would read as "0 decisions, exit 0", so it is an instrument fault instead.
+fp = FencePass(lines, lambda line: line.startswith("## ") and bool(DECISION.match(STAMP.sub("", line[3:]))))
+headings = [i for i, line in fp if line.startswith("## ")]
+fence_open = fp.finish()
+fenced_decisions, fenced_lines = fp.fenced_markers, fp.fenced_lines
+if fence_open is not None:
     print(f"sweep-check: code fence opened at L{fence_open} is never closed; "
           f"the {len(lines) - fence_open} lines after it were not read", file=sys.stderr)
     sys.exit(2)

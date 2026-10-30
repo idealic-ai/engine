@@ -280,20 +280,118 @@ test_verdict_missing_results_line_is_red() {
   rm -rf "$tmp"
 }
 
-# RED on main: a hung suite stops the glob. With a 2s budget the hang is killed, named as a
-# timeout, and the suite after it still runs and is counted.
+# A hung suite under an opted-in budget is killed, named as a timeout, and the suite after it
+# still runs and is counted. The planted sleep writes its pid, and the test checks it is GONE.
+# RED: drop the timeout, or let the kill miss the suite's process group.
 test_verdict_hung_suite_times_out_and_later_suites_run() {
   local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
-  plant_suite "$tmp" test-a-hang.sh 'sleep 30; echo "Results: 1 passed, 0 failed (1 total)"'
+  plant_suite "$tmp" test-a-hang.sh "sleep 30 & echo \$! > '$tmp/hang.pid'; wait; echo 'Results: 1 passed, 0 failed (1 total)'"
   plant_suite "$tmp" test-b-after.sh 'echo "Results: 1 passed, 0 failed (1 total)"; exit 0'
   local output rc
   # The outer bound only stops a runner with no timeout from holding this suite for 30s.
-  output=$(ENGINE_TEST_TIMEOUT=2 perl -e 'alarm 10; exec @ARGV' bash "$tmp/tests/run-all.sh" 2>&1); rc=$?
+  output=$(ENGINE_TEST_TIMEOUT=2 perl -e 'alarm 15; exec @ARGV' bash "$tmp/tests/run-all.sh" 2>&1); rc=$?
   assert_eq "1" "$rc" "a hung suite makes run-all exit 1, not hang"
-  assert_contains "TIMEOUT" "$output" "the hung suite's row names the timeout"
+  assert_contains "TIMEOUT after" "$output" "the hung suite's row names the timeout"
+  assert_contains "load" "$output" "the timeout row carries the load"
   assert_contains "test-b-after.sh" "$output" "the suite after the hang still ran"
   assert_contains "1/2 SUITES FAILED" "$output" "both suites are counted"
+  local hp; hp=$(cat "$tmp/hang.pid" 2>/dev/null)
+  if [ -n "$hp" ] && ! kill -0 "$hp" 2>/dev/null; then pass "the hung suite's sleep was killed"
+  else fail "the hung suite's sleep was killed" "pid $hp gone" "still alive"; kill "$hp" 2>/dev/null; fi
   rm -rf "$tmp"
+}
+
+# The timeout is opt-in: with ENGINE_TEST_TIMEOUT unset a slow honest suite is green, and the
+# header says no budget applies. RED: restore a default budget shorter than the suite.
+test_verdict_timeout_is_opt_in() {
+  local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-slow.sh 'sleep 3; echo "Results: 1 passed, 0 failed (1 total)"; exit 0'
+  local output rc
+  output=$(env -u ENGINE_TEST_TIMEOUT bash "$tmp/tests/run-all.sh" 2>&1); rc=$?
+  assert_eq "0" "$rc" "a slow honest suite is green with no budget set"
+  assert_contains "per-suite timeout off" "$output" "the header says the run is unbounded"
+  rm -rf "$tmp"
+}
+
+# A suite's OWN exit 124 is an ordinary red exit, not a timeout. RED: map 124 to TIMEOUT unconditionally.
+test_verdict_own_124_is_not_a_timeout() {
+  local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-own124.sh 'echo "Results: 1 passed, 0 failed (1 total)"; exit 124'
+  local output
+  output=$(ENGINE_TEST_TIMEOUT=60 bash "$tmp/tests/run-all.sh" 2>&1)
+  assert_contains "exit 124" "$output" "the row reads the suite's own exit 124"
+  assert_not_contains "TIMEOUT after" "$output" "and does not call it a timeout"
+  rm -rf "$tmp"
+}
+
+# A suite whose every case SKIPped ran nothing on this machine: green, with a note saying so, and
+# the summary counts it. Driven through the real test-helpers.sh, so the helper's results line
+# and the runner's reading of it are tested together. RED: treat 0 passed as red even when every
+# case skipped, or leave the summary silent about it.
+test_verdict_all_skipped_is_green_with_a_note() {
+  local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-skips.sh 'source "$(dirname "$0")/test-helpers.sh"
+test_a() { skip "needs a tool" "not installed"; }
+test_b() { skip "another"; }
+run_discovered_tests'
+  local output rc
+  output=$(bash "$tmp/tests/run-all.sh" 2>&1); rc=$?
+  assert_eq "0" "$rc" "an all-skipped suite leaves run-all at exit 0"
+  assert_contains "2 skipped" "$output" "the row counts the skips"
+  assert_contains "nothing ran on this machine" "$output" "the row says nothing ran"
+  assert_contains "1 suite(s) ran nothing" "$output" "the summary banner says how many suites ran nothing"
+  rm -rf "$tmp"
+}
+
+# One case skipped and the others asserted nothing: that is not "every case skipped". RED: pass
+# any 0-passed suite that printed a SKIP line.
+test_verdict_some_skipped_rest_empty_is_red() {
+  local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-partskip.sh 'echo "SKIP: case one needs X"; echo "Results: 0 passed, 0 failed (3 total)"; exit 0'
+  local output rc
+  output=$(bash "$tmp/tests/run-all.sh" 2>&1); rc=$?
+  assert_eq "1" "$rc" "a suite where 1 of 3 cases skipped and none passed is red"
+  assert_contains "1 of 3" "$output" "the row says how many of the total skipped"
+  rm -rf "$tmp"
+}
+
+# The skip count is read with grep -c, never grep -q in a pipe: under pipefail a large output
+# makes grep -q's early exit SIGPIPE the producer and the test read false (N1). RED: probe with
+# printf | grep -q.
+test_verdict_all_skipped_reads_the_same_with_large_output() {
+  local tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-bigskip.sh 'echo "SKIP: only case"; for i in $(seq 1 20000); do echo "noise line $i"; done; echo "Results: 0 passed, 0 failed, 1 skipped (1 total)"; exit 0'
+  local output rc
+  output=$(bash "$tmp/tests/run-all.sh" 2>&1); rc=$?
+  assert_eq "0" "$rc" "an all-skipped suite with 20000 lines of output is still green"
+  rm -rf "$tmp"
+}
+
+# INT or TERM to the runner stops the running suite and its children. RED: run the suite in a
+# process group the runner does not kill (main's runner under a timeout, or no trap).
+interrupt_arm() {
+  local sig="$1" tmp; tmp=$(mktemp -d); plant_runner "$tmp"
+  plant_suite "$tmp" test-long.sh "echo \$\$ > '$tmp/suite.pid'; sleep 30 & echo \$! > '$tmp/child.pid'; wait"
+  # INT restored to default: an async command in a script starts with INT ignored, and bash
+  # cannot trap a signal ignored on entry.
+  ENGINE_TEST_TIMEOUT="${2:-0}" perl -e '$SIG{INT}="DEFAULT"; exec @ARGV' bash "$tmp/tests/run-all.sh" >"$tmp/out" 2>&1 &
+  local rpid=$! i
+  for i in $(seq 1 50); do [ -s "$tmp/child.pid" ] && break; sleep 0.1; done
+  kill "-$sig" "$rpid"
+  wait "$rpid"; local rc=$?
+  sleep 0.5
+  local sp cp; sp=$(cat "$tmp/suite.pid" 2>/dev/null); cp=$(cat "$tmp/child.pid" 2>/dev/null)
+  assert_eq "130" "$rc" "$sig (budget ${2:-0}): the runner exits 130"
+  if [ -n "$sp" ] && ! kill -0 "$sp" 2>/dev/null; then pass "$sig (budget ${2:-0}): the running suite is gone"
+  else fail "$sig (budget ${2:-0}): the running suite is gone" "pid $sp gone" "alive"; kill "$sp" 2>/dev/null; fi
+  if [ -n "$cp" ] && ! kill -0 "$cp" 2>/dev/null; then pass "$sig (budget ${2:-0}): the suite's child is gone"
+  else fail "$sig (budget ${2:-0}): the suite's child is gone" "pid $cp gone" "alive"; kill "$cp" 2>/dev/null; fi
+  rm -rf "$tmp"
+}
+test_interrupt_stops_the_running_suite() {
+  interrupt_arm INT 0
+  interrupt_arm INT 60
+  interrupt_arm TERM 60
 }
 
 # Run
@@ -309,4 +407,10 @@ run_test test_verdict_fail_line_at_exit_zero_is_red
 run_test test_verdict_zero_cases_is_red
 run_test test_verdict_missing_results_line_is_red
 run_test test_verdict_hung_suite_times_out_and_later_suites_run
+run_test test_verdict_timeout_is_opt_in
+run_test test_verdict_own_124_is_not_a_timeout
+run_test test_verdict_all_skipped_is_green_with_a_note
+run_test test_verdict_some_skipped_rest_empty_is_red
+run_test test_verdict_all_skipped_reads_the_same_with_large_output
+run_test test_interrupt_stops_the_running_suite
 exit_with_results

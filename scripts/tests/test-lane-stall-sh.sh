@@ -33,7 +33,12 @@ source "$(dirname "$0")/test-helpers.sh"
 #     -> mints "STALE [MANDATORY]" from a real non-lane transcript (refusal test goes red)
 #   the session walk pruned with dirs[:] = [] (the pre-fix root-only glob)
 #     -> every log column reads "-" (log-discovery test goes red)
-LANE_STALL="${LANE_STALL_SH:-$HOME/.claude/engine/scripts/lane-stall.sh}"
+# The default is the lane-stall.sh in THIS suite's own tree, not the installed engine: a suite run
+# from a worktree that fixes lane-stall must test that fix, the way test-run-all.sh tests
+# $TESTS_DIR/run-all.sh. LANE_STALL_SH still overrides it.
+SUITE_TREE_SCRIPTS="$(cd "$(dirname "$0")/.." && pwd -P)"
+default_lane_stall() { echo "$SUITE_TREE_SCRIPTS/lane-stall.sh"; }
+LANE_STALL="${LANE_STALL_SH:-$(default_lane_stall)}"
 KERNEL_SESSION="$HOME/sessions/2026_09_16_KIT_UI_KERNEL"
 NEG_SESSION="$HOME/Projects/finch/sessions/2026_10_07_KIT_SUBSYSTEM_GAP_CHART"
 # The corpora are weeks old, so each run pins an explicit window rather than relying on the
@@ -53,6 +58,28 @@ ARCHIVE_HOURS="$KERNEL_HOURS"
 TMP_DIR=$(mktemp -d)
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
+
+# How many subagent transcripts open with a prompt naming <session-key> ("sessions/<name>"),
+# the only text lane-stall mints a lane from. A corpus is present only while these exist:
+# Claude Code deletes old transcripts, and the session directory outlives them. Checking the
+# directory alone turned a deleted corpus into a red row (KIT_UI_KERNEL, 2026-10-30) where
+# the honest reading is "no corpus". Counted here, independently of lane-stall, so a
+# lane-stall that stops seeing lanes in a corpus that IS present still goes red.
+prompt_transcripts() {
+  python3 - "$1" "${CLAUDE_PROJECTS_DIR:-$HOME/.claude/projects}" <<'PY'
+import glob, os, sys
+key, root = sys.argv[1], sys.argv[2]
+n = 0
+for path in glob.glob(os.path.join(root, "*", "*", "subagents", "agent-*.jsonl")):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            if key in fh.readline():
+                n += 1
+    except OSError:
+        pass
+print(n)
+PY
+}
 
 # Occurrences, not matching lines: `grep -c` would answer a narrower question than the
 # callers below take it for.
@@ -149,6 +176,12 @@ test_lane_stall_script_exists() {
 test_lane_stall_sees_lanes_whose_brief_opens_with_prose() {
   if [ ! -d "$KERNEL_SESSION" ]; then
     skip "prose-opened lanes are seen" "no corpus at $KERNEL_SESSION"
+    return 0
+  fi
+  # The assertion needs 20 lanes, so it needs at least 20 transcripts to mint them from.
+  local have; have=$(prompt_transcripts "sessions/$(basename "$KERNEL_SESSION")")
+  if [ "$have" -lt 20 ]; then
+    skip "prose-opened lanes are seen" "corpus transcripts deleted: $have of the 28 remain"
     return 0
   fi
   local out="$TMP_DIR/kernel.txt"
@@ -295,6 +328,14 @@ test_lane_stall_separates_sibling_sessions_at_one_root() {
   local sibling="$HOME/sessions/2026_09_18_IDEAS_GRANTS_LOOM"
   if [ ! -d "$KERNEL_SESSION" ] || [ ! -d "$sibling" ]; then
     skip "sibling sessions at one root stay separate" "no corpus"
+    return 0
+  fi
+  local have_a have_b
+  have_a=$(prompt_transcripts "sessions/$(basename "$KERNEL_SESSION")")
+  have_b=$(prompt_transcripts "sessions/$(basename "$sibling")")
+  if [ "$have_a" -lt 20 ] || [ "$have_b" -lt 5 ]; then
+    skip "sibling sessions at one root stay separate" \
+      "corpus transcripts deleted: $have_a (needs 20) and $have_b (needs 5) remain"
     return 0
   fi
   local a="$TMP_DIR/sib-a.txt" b="$TMP_DIR/sib-b.txt"
@@ -1313,6 +1354,170 @@ test_lane_stall_an_unclosed_fence_is_a_fault_not_a_verdict() {
   assert_eq "2" "$rc" "an unclosed fence exits 2"
   assert_contains "OPENFENCE_LOG.md" "$(cat "$out.err")" "the fault names the log"
   assert_contains "never closed" "$(cat "$out.err")" "the fault says the fence never closed"
+}
+
+# CommonMark fences: a ```` fence quoting a ``` example stays one fence, and ~~~ is a fence.
+# RED: toggle on any ``` line (the 4-backtick fence closes at the inner ```, so the quoted
+# marker retires the lane), or recognise only backticks (the ~~~-fenced marker retires it).
+test_lane_stall_four_backtick_and_tilde_fences_hide_markers() {
+  local session="$TMP_DIR/fence4/2026_10_12_FENCEFOUR"
+  local projects="$TMP_DIR/projects-fence4"
+  plant_parked_lane "$projects" "$session" "FOURTICK" ""
+  plant_parked_lane "$projects" "$session" "TILDE" ""
+  printf '## [2026-10-20 10:00:00] [FOURTICK] parked\n````\n```\n## [2026-10-20 10:00:00] [FOURTICK] example retired=landed\n```\n````\n' \
+    > "$session/builds/FOURTICK_LOG.md"
+  printf '## [2026-10-20 10:00:00] [TILDE] parked\n~~~bash\n## [2026-10-20 10:00:00] [TILDE] example retired=landed\n~~~\n' \
+    > "$session/builds/TILDE_LOG.md"
+  local out="$TMP_DIR/fence4.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  local rc=$?
+  assert_contains "retired=no" "$(grep '\[FOURTICK\]' "$out")" \
+    "a marker quoted inside a 4-backtick fence retires nothing"
+  assert_contains "retired=no" "$(grep '\[TILDE\]' "$out")" \
+    "a marker inside a ~~~ fence retires nothing"
+  assert_contains "fenced-retirement-markers-ignored=2" "$(head -1 "$out")" \
+    "both fenced markers are counted"
+  assert_eq "3" "$rc" "both lanes stay stale, and no fence is left open"
+}
+
+# The fence pass, cut out of a script by its markers so it can be driven directly. Prints
+# nothing when the script has no marked block, which the callers below assert against.
+fence_block() {
+  sed -n '/^# >>> fence-pass/,/^# <<< fence-pass/p' "$1"
+}
+
+# Runs <python> against the fence pass cut from lane-stall.sh. Prints "no-block" when there is
+# none, so a missing block is a failed assertion and never a silent pass.
+drive_fence_pass() {
+  local block="$TMP_DIR/fencepass.py"
+  { echo "import io, re"; fence_block "$LANE_STALL"; echo "$1"; } > "$block"
+  if ! grep -q '^class FencePass' "$block"; then echo "no-block"; return 0; fi
+  python3 "$block" 2>&1
+}
+
+# S4. sweep-check.sh reads the same logs with the same fence rule, or the two instruments
+# disagree about one file. RED: edit either copy of the block and not the other.
+test_fence_pass_is_byte_identical_in_both_instruments() {
+  local sweep="$SUITE_TREE_SCRIPTS/sweep-check.sh"
+  [ -n "${LANE_STALL_SH:-}" ] && sweep="$(dirname "$LANE_STALL_SH")/sweep-check.sh"
+  local a b
+  a=$(fence_block "$LANE_STALL"); b=$(fence_block "$sweep")
+  assert_gt "$(printf '%s' "$a" | grep -c 'class FencePass')" 0 "lane-stall.sh carries the marked fence pass"
+  if [ -n "$a" ] && [ "$a" = "$b" ]; then
+    pass "sweep-check.sh carries the same fence pass, byte for byte"
+  else
+    fail "sweep-check.sh carries the same fence pass, byte for byte" "identical blocks" \
+      "$(diff <(printf '%s\n' "$a") <(printf '%s\n' "$b") | head -5)"
+  fi
+}
+
+# S1. The caller owns the counters: a log read twice (once for this sweep, once by a second
+# caller such as a cross-session read) is counted once per read, never summed into a shared
+# total. RED: count into a module global.
+test_fence_pass_counters_belong_to_the_caller() {
+  local got
+  got=$(drive_fence_pass '
+log = "```\n## [T] retired=landed\n```\n"
+mark = lambda l: "retired=" in l
+a = FencePass(io.StringIO(log), mark); list(a); a.finish()
+b = FencePass(io.StringIO(log), mark); list(b); b.finish()
+print(a.fenced_markers, b.fenced_markers)')
+  assert_eq "1 1" "$got" "two reads of one log each count its one fenced marker"
+}
+
+# S2. A caller that stops reading early still learns of a fence the rest of the file leaves
+# open. RED: report the open fence only when the generator runs to its end.
+test_fence_pass_reports_an_open_fence_after_an_early_stop() {
+  local got
+  got=$(drive_fence_pass '
+fp = FencePass(io.StringIO("## [T] a\n```\n## [T] retired=landed\n"))
+for lineno, line in fp:
+    break
+print(fp.exhausted, fp.finish(), fp.exhausted)')
+  assert_eq "False 2 True" "$got" "an early stop reads as unfinished, and finish() names the fence opened at L2"
+}
+
+# S3. Engine docs indent a ``` 4 spaces under a bullet. Inside a top-level fence that line is
+# content: closing on it reads the quoted retirement below as real, and leaves the fence's real
+# closer to open a new fence that never closes (exit 2). RED: close on any indent.
+test_lane_stall_deeply_indented_fence_line_does_not_close() {
+  local session="$TMP_DIR/fenceind/2026_10_12_FENCEIND"
+  local projects="$TMP_DIR/projects-fenceind"
+  plant_parked_lane "$projects" "$session" "IND" ""
+  printf '%s\n' '## [2026-10-20 10:00:00] [IND] parked' '```' '*   Run:' '    ```bash' \
+    '    engine log x' '    ```' '## [2026-10-20 10:00:00] [IND] example retired=landed' '```' \
+    > "$session/builds/IND_LOG.md"
+  local out="$TMP_DIR/fenceind.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  local rc=$?
+  assert_contains "retired=no" "$(grep '\[IND\]' "$out")" "the quoted retirement retires nothing"
+  assert_contains "fenced-retirement-markers-ignored=1" "$(head -1 "$out")" "it is counted as fenced"
+  assert_eq "3" "$rc" "the lane stays stale and no fence is left open"
+}
+
+# S6. Run with no override, the suite tests the lane-stall.sh beside it. RED: default to the
+# installed engine.
+test_suite_defaults_to_its_own_trees_lane_stall() {
+  local tree; tree="$(cd "$(dirname "$0")/.." && pwd -P)"
+  assert_eq "$tree/lane-stall.sh" "$(default_lane_stall 2>/dev/null)" \
+    "with LANE_STALL_SH unset the suite reads its own tree's lane-stall.sh"
+}
+
+# A foreign log read for retired-elsewhere= goes through the same fence pass: a retirement it
+# only QUOTES in a fence is no hint, and its fenced markers stay out of this session's
+# fenced-retirement-markers-ignored= (that field counts the swept session's logs only). Its open
+# fence is not this sweep's exit 2. Lanes:
+#   QUOTELANE  foreign log quotes retired=landed inside a ``` fence -> no hint
+#   OPENLANE   foreign log leaves a fence open                     -> no hint, and no exit 2
+#   REALLANE   foreign log retires for real (control)               -> retired-elsewhere=landed
+# RED: read the foreign log without the fence pass (QUOTELANE gets a hint), or add its fenced
+# count to this session's (the verdict line gains the fenced field).
+test_lane_stall_a_foreign_logs_fenced_retirement_is_no_hint() {
+  local root="$TMP_DIR/xfence"
+  local swept="$root/2026_10_20_SWEPT" home="$root/2026_10_18_HOME"
+  local projects="$TMP_DIR/projects-xfence"
+  mkdir -p "$swept/builds" "$home/builds" "$projects/proj/sess/subagents"
+  local tag t
+  for tag in QUOTELANE OPENLANE REALLANE; do
+    t="$projects/proj/sess/subagents/agent-${tag}.jsonl"
+    printf '{"message":{"role":"user","content":[{"type":"text","text":"[%s] brief, session xfence/2026_10_20_SWEPT, log %s/builds/%s_LOG.md"}]}}\n' \
+      "$tag" "$home" "$tag" > "$t"
+    printf '{"message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"done"}]}}\n' >> "$t"
+    touch -t 202610201000 "$t"
+  done
+  printf '%s\n' '## [2026-10-20 10:00:00] [QUOTELANE] parked' '```' \
+    '## [2026-10-20 10:00:00] [QUOTELANE] example retired=landed' '```' > "$home/builds/QUOTELANE_LOG.md"
+  printf '%s\n' '## [2026-10-20 10:00:00] [OPENLANE] parked' '```' \
+    '## [2026-10-20 10:00:00] [OPENLANE] example retired=landed' > "$home/builds/OPENLANE_LOG.md"
+  printf '%s\n' '## [2026-10-20 10:00:00] [REALLANE] landed, retired=landed' > "$home/builds/REALLANE_LOG.md"
+  local out="$TMP_DIR/xfence.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$swept" --all >"$out" 2>"$out.err"
+  local rc=$?
+  assert_contains "retired-elsewhere=landed" "$(grep '\[REALLANE\]' "$out")" \
+    "REALLANE: the control's real foreign retirement is a hint"
+  assert_not_contains "retired-elsewhere" "$(grep '\[QUOTELANE\]' "$out")" \
+    "QUOTELANE: a retirement quoted in a fence in a foreign log is no hint"
+  assert_not_contains "retired-elsewhere" "$(grep '\[OPENLANE\]' "$out")" \
+    "OPENLANE: a marker past a foreign log's open fence is no hint"
+  assert_not_contains "fenced-retirement-markers-ignored" "$(head -1 "$out")" \
+    "a foreign log's fenced markers stay out of this session's count"
+  assert_eq "3" "$rc" "a foreign log's open fence is not this sweep's exit 2"
+}
+
+# The verdict line's field order, with every optional field present: retired, then failed, then
+# fenced, each printed only when nonzero. RED: print fenced before failed.
+test_lane_stall_verdict_fields_run_retired_failed_fenced() {
+  local session="$TMP_DIR/order/2026_10_12_ORDER"
+  local projects="$TMP_DIR/projects-order"
+  plant_api_error_lane "$projects" "$session" "DEADLANE" 2 authentication_failed
+  plant_parked_lane "$projects" "$session" "DONELANE" "## [2026-10-20 10:00:00] [DONELANE] retired=landed"
+  plant_parked_lane "$projects" "$session" "QUOTED" ""
+  printf '%s\n' '## [2026-10-20 10:00:00] [QUOTED] parked' '```' \
+    '## [2026-10-20 10:00:00] [QUOTED] example retired=landed' '```' > "$session/builds/QUOTED_LOG.md"
+  local out="$TMP_DIR/order.txt"
+  CLAUDE_PROJECTS_DIR="$projects" bash "$LANE_STALL" "$session" --all >"$out" 2>"$out.err"
+  assert_contains "retired=1  failed=1  fenced-retirement-markers-ignored=1" "$(head -1 "$out")" \
+    "the verdict line reads retired, then failed, then fenced"
 }
 
 run_discovered_tests

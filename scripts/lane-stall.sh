@@ -350,39 +350,92 @@ def session_logs(top):
     except OSError as exc:
         unreadable.append(str(exc))
 
-# A heading inside a fenced code block is an EXAMPLE, not an entry. The fence pass is
-# sweep-check.sh's, line for line, because a second implementation of the same rule is a second
-# thing to get wrong: a fence line that closes itself on the same line opens nothing, and a fence
-# left open is an instrument fault rather than a silently shortened file. Without this a lane that
-# pastes its own close-out instructions, or LOOM_AGENT_DIRECTIONS.md, into a ``` snippet retires
-# itself — and a retired lane never counts toward the exit status, so the fault direction is a
-# false clean, which is the one this sweep cannot afford (¶INV_LOOM_STALL_IS_SWEPT_NOT_SENSED).
+# A heading inside a fence is an example, not an entry. Without this a lane that pastes its own
+# close-out instructions, or LOOM_AGENT_DIRECTIONS.md, into a ``` snippet retires itself, and a
+# retired lane never counts toward the exit status: a false clean, the one fault this sweep cannot
+# afford (¶INV_LOOM_STALL_IS_SWEPT_NOT_SENSED). A fence left open is an instrument fault rather
+# than a silently shortened file.
+# >>> fence-pass: shared by lane-stall.sh and sweep-check.sh, byte for byte (a test compares them)
+# A line inside a fenced code block is an EXAMPLE, not an entry. The rule is CommonMark's for the
+# fence characters: a fence opens on a line of 3+ backticks or 3+ tildes and closes only on a line
+# of the SAME character, at least as long, with nothing else on it. So a ```` fence can quote a
+# ``` example, and ~~~ fences count too. A backtick run with another backtick later on the line is
+# an inline span, not a fence (CommonMark forbids backticks in a backtick fence's info string).
+# Indentation is read relative to the opener, which may sit at any depth so a fence inside a list
+# item is still seen: a line indented 4 or more columns past the opener is content and never
+# closes the fence. That is the case that bites: engine docs indent a ``` 4 spaces under a bullet,
+# and closing on it would end a top-level fence early and read the quoted rest as real.
+# Not handled: fences inside blockquotes ("> ```").
+#
+# The CALLER owns every counter: one FencePass per file read, so a second read of a log, or a log
+# read for another session, never adds to this sweep's figures. A fence left open is reported
+# through finish(), which reads whatever the caller did not, so a caller that stops early still
+# learns about a fence the rest of the file leaves open. Each caller decides what that means
+# for its own exit status.
+class FencePass:
+    OPEN = re.compile(r"^(`{3,}|~{3,})(.*)$")
+
+    def __init__(self, lines, fenced_marker=None):
+        """lines: any iterable of lines. fenced_marker(line) -> bool is counted inside fences."""
+        self.fenced_marker = fenced_marker
+        self.fenced_markers = 0   # fenced lines fenced_marker matched
+        self.fenced_lines = 0     # lines inside a fence, the fence lines themselves excluded
+        self.open_at = None       # line number of the fence open at the current position
+        self.exhausted = False
+        self._gen = self._scan(lines)
+
+    def __iter__(self):
+        return self._gen
+
+    @staticmethod
+    def _indent(body):
+        wide = body.expandtabs(4)
+        return len(wide) - len(wide.lstrip(" "))
+
+    def _scan(self, lines):
+        fence, fence_indent = None, 0
+        for lineno, line in enumerate(lines, 1):
+            body = line.rstrip("\r\n")
+            stripped = body.lstrip(" \t")
+            if fence is None:
+                m = self.OPEN.match(stripped)
+                if m and not (m.group(1)[0] == "`" and "`" in m.group(2)):
+                    fence, fence_indent, self.open_at = m.group(1), self._indent(body), lineno
+                    continue
+                yield lineno, line
+                continue
+            t = stripped.rstrip()
+            if (t and set(t) == {fence[0]} and len(t) >= len(fence)
+                    and self._indent(body) < fence_indent + 4):
+                fence, self.open_at = None, None
+                continue
+            self.fenced_lines += 1
+            if self.fenced_marker and self.fenced_marker(line):
+                self.fenced_markers += 1
+        self.exhausted = True
+
+    def finish(self):
+        """Read what the caller did not; return the line a fence left open at EOF, or None."""
+        for _ in self._gen:
+            pass
+        return self.open_at
+# <<< fence-pass
+
 unclosed_fences = []
+# Counted, not just skipped: a marker ignored for the right reason and a weave with no marker at
+# all must not read alike on the verdict line. Summed here, by this sweep, over its own logs only.
 fenced_retirements = 0
+fenced_retirement = lambda line: line.startswith("## ") and bool(RETIRED.search(line))
 
 def scan_log(log):
     global fenced_retirements
     last_ts = None
     unstamped, seen_tags = set(), set()
     file_retired = None
-    fence, fence_open = False, 0
     try:
         with open(log, encoding="utf-8", errors="replace") as fh:
-            for lineno, line in enumerate(fh, 1):
-                s = line.lstrip()
-                if s.startswith("```"):
-                    if not fence and s.count("```") >= 2:
-                        continue
-                    fence = not fence
-                    if fence:
-                        fence_open = lineno
-                    continue
-                if fence:
-                    # Counted, not just skipped: a marker that was ignored for the right reason
-                    # and a weave with no marker at all must not read alike on the verdict line.
-                    if line.startswith("## ") and RETIRED.search(line):
-                        fenced_retirements += 1
-                    continue
+            fp = FencePass(fh, fenced_retirement)
+            for lineno, line in fp:
                 if not line.startswith("## "):
                     continue
                 m = TS.search(line)
@@ -417,8 +470,10 @@ def scan_log(log):
                     continue
                 for tag in heading_tags:
                     date_tag(tag, last_ts, log, False)
-        if fence:
-            unclosed_fences.append((log, fence_open))
+            opened_at = fp.finish()
+            fenced_retirements += fp.fenced_markers
+            if opened_at is not None:
+                unclosed_fences.append((log, opened_at))
         if not seen_tags:
             m = LOGNAME_TAG.match(os.path.basename(log))
             stamp = last_ts if last_ts is not None else os.path.getmtime(log)
@@ -568,7 +623,12 @@ for tag, lane in sorted(lanes.items()):
     log_path[tag] = cand
     try:
         with open(cand, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
+            # The same fence pass as this session's own logs, so a retirement quoted in a fence
+            # is not a hint either. Its own FencePass, and its counts are dropped: a foreign
+            # log's fenced markers are not this session's, and the verdict line's
+            # fenced-retirement-markers-ignored= counts this session's logs only. A fence that
+            # log leaves open is not this sweep's fault to exit 2 on, so it is left unread.
+            for _, line in FencePass(fh):
                 if not line.startswith("## "):
                     continue
                 rm = RETIRED.search(line)
@@ -614,8 +674,6 @@ for tag, lane in sorted(lanes.items()):
 # retired= rides the verdict line so a retirement is never invisible, even in the default
 # stale-only output that a retired lane has (correctly) dropped out of: a count that only
 # appears under --all would make a drained backlog and a broken marker read alike.
-# failed= is appended only when nonzero, because the verdict line is read by exact comparison
-# and a quiet weave's line should not change shape.
 print(f"window={since_hours:.0f}h  threshold={minutes:.0f}m  lanes={len(lanes)}  "
       f"retired={retired_lanes}"
       # Each count after retired= is appended only when nonzero, because the verdict line is

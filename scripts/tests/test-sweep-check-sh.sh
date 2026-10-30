@@ -27,7 +27,9 @@ set -uo pipefail
 
 source "$(dirname "$0")/test-helpers.sh"
 
-SWEEP_CHECK="${SWEEP_CHECK_SH:-$HOME/.claude/engine/scripts/sweep-check.sh}"
+# Defaults to the sweep-check.sh in this suite's own tree, not the installed engine, so a run
+# from a worktree tests that worktree's fix. SWEEP_CHECK_SH still overrides it.
+SWEEP_CHECK="${SWEEP_CHECK_SH:-$(cd "$(dirname "$0")/.." && pwd -P)/sweep-check.sh}"
 FINISHED_LOG="$HOME/Projects/finch/sessions/2026_09_09_IDEAS_EXAMPLE/LOOM_LOG.md"
 LIVE_LOG="$HOME/Library/CloudStorage/GoogleDrive-yarik@finchclaims.com/Shared drives/finch-os/yarik/finch/sessions/2026_10_14_LAND_TREE_BRANCHES/LOOM_LOG.md"
 
@@ -316,6 +318,19 @@ test_real_live_log_floor_and_the_anchor_trap() {
   anchored=$(grep -c '^## 💡 Decision' "$snap")
   assert_gt "$found" "45" "at least the decisions measured on 2026-10-21 are found ($found)"
   assert_gt "$found" "$((anchored * 3))" "and well above the anchored pattern's reading ($anchored)"
+}
+
+# The fence rule is lane-stall.sh's (one shared block): ~~~ fences count, and a fence closes only
+# on its own character. A ``` inside a ~~~ fence is content. RED: toggle on any ``` and ignore
+# tildes, which reads this log as a fence opened at L3 and never closed (exit 2).
+test_tilde_fence_holds_a_backtick_line_as_content() {
+  local log="$TMP_DIR/tilde.md" out="$TMP_DIR/tilde.out" rc
+  write_log "$log" '## [2026-10-30 10:00:00] [X] start' '~~~' '```' '## 💡 Decision — quoted' '~~~' \
+    '## [2026-10-30 10:01:00] 💡 Decision — real'
+  rc=$(run_check "$out" "$log")
+  assert_eq "3" "$rc" "the log is read to the end, and its one real decision is unrowed (exit 3)"
+  assert_contains "fenced 1 excluded" "$(cat "$out")" "the quoted decision inside the ~~~ fence is excluded"
+  assert_eq "1" "$(unrowed_count "$out")" "only the real decision is reported"
 }
 
 run_discovered_tests
