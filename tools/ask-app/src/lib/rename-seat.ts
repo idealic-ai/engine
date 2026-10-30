@@ -25,7 +25,7 @@
  * WHOLE seat name: never preceded by a seat-name character, and never followed by one that would
  * continue it.
  */
-import { ANSWER_FENCES, DRAFT_FENCES, FOLLOWUP_ENTRIES, HISTORY_FENCES } from "./format.ts";
+import { ANSWER_FENCES, DRAFT_FENCES, FOLLOWUP_ENTRIES, HISTORY_FENCES, PANEL_FENCES } from "./format.ts";
 
 export type SeatChange = { field: string; from: string; to: string };
 
@@ -37,6 +37,8 @@ const STAMP_TEXT_FIELDS = ["delivery", "deliveryNote", "revisions", "replaced"] 
 const JSON_SEAT_KEYS = ["answeredBy", "readBy", "relayedFrom", "actedBy"];
 /** ASKFOLLOWUP: JSON keys, in a follow-up record, whose value is a seat. */
 const FOLLOWUP_SEAT_KEYS = ["by", "addressedBy"];
+/** IDE-338: JSON keys, in an attach-panel entry, whose value is a seat. */
+const PANEL_SEAT_KEYS = ["by"];
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Not after a seat-name character: `xidealic:kernel` and `app:idealic:kernel` are other names. */
@@ -112,7 +114,7 @@ function rewriteHeaderValue(key: string, value: string, old: string, neu: string
 
 /** Rewrite the seats in one JSON record's text, keeping its layout; `which` is `answer`, `draft` or `history`. */
 function rewriteRecord(json: string, which: string, old: string, neu: string, changes: SeatChange[]): string {
-  const keys = which === "followup" ? FOLLOWUP_SEAT_KEYS : JSON_SEAT_KEYS;
+  const keys = which === "followup" ? FOLLOWUP_SEAT_KEYS : which === "panels" ? PANEL_SEAT_KEYS : JSON_SEAT_KEYS;
   const keyed = new RegExp(`("(${keys.join("|")})"\\s*:\\s*")${esc(old)}(")`, "g");
   let out = json.replace(keyed, (_m, pre: string, key: string, post: string) => {
     changes.push({ field: `${which}.${key}`, from: old, to: neu });
@@ -147,7 +149,7 @@ export function rewriteSeatRefs(text: string, old: string, neu: string): { text:
   let rest = lines.slice(end + 1).join("\n");
   // `rest` starts at the line after `---`, so a fence on that very line still has its `\n` before it.
   rest = `\n${rest}`;
-  for (const [re, which] of [[ANSWER_FENCES, "answer"], [DRAFT_FENCES, "draft"], [HISTORY_FENCES, "history"], [FOLLOWUP_ENTRIES, "followup"]] as const) {
+  for (const [re, which] of [[ANSWER_FENCES, "answer"], [DRAFT_FENCES, "draft"], [HISTORY_FENCES, "history"], [FOLLOWUP_ENTRIES, "followup"], [PANEL_FENCES, "panels"]] as const) {
     rest = rest.replace(re, (whole: string, json: string) => {
       const out = rewriteRecord(json, which, old, neu, changes);
       return out === json ? whole : whole.replace(json, () => out);
@@ -184,7 +186,7 @@ export function leftRefs(text: string, old: string): LeftRef[] {
     }
   }
   let body = `\n${lines.slice(end + 1).join("\n")}`;
-  for (const [re, which] of [[ANSWER_FENCES, "answer"], [DRAFT_FENCES, "draft"], [HISTORY_FENCES, "history"], [FOLLOWUP_ENTRIES, "followup"]] as const) {
+  for (const [re, which] of [[ANSWER_FENCES, "answer"], [DRAFT_FENCES, "draft"], [HISTORY_FENCES, "history"], [FOLLOWUP_ENTRIES, "followup"], [PANEL_FENCES, "panels"]] as const) {
     body = body.replace(re, (_whole: string, json: string) => {
       try {
         // The history fence is a list of records; the others are one.

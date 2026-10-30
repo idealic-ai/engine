@@ -44,6 +44,36 @@ describe("Council: field", () => {
   });
 });
 
+describe("a Council: line that names no report (S3)", () => {
+  const ask = `${head}## Choose one: Run it?\nLean: A\nCouncil: auto after each PR\n- [ ] [A] a\n- [ ] [B] b\n`;
+  it("stays in the fork's prose and sets no council", () => {
+    const q = parseAskFile(ask).questions[0];
+    expect(q.council).toBeUndefined();
+    expect(q.prose).toContain("Council: auto after each PR");
+  });
+  it("warns that it names no path or URL, and not the panel warning", () => {
+    const ws = authorWarnings(parseAskFile(ask));
+    expect(ws.some((w) => w.includes("names no report path or URL"))).toBe(true);
+    expect(ws.some((w) => w.includes("carries no Panel: line"))).toBe(false);
+  });
+  it.each(["builds/X_COUNCIL.md", "/Users/x/r.md", "~/r.html", "https://x.example/r.html", "[board](https://x.example/b.html)"])("takes %s as the report", (v) => {
+    expect(parseAskFile(ask.replace("auto after each PR", v)).questions[0].council).toBe(v);
+  });
+});
+
+describe("a Panel: pick that names no option (S2)", () => {
+  const ask = (pick: string) => `${head}## Choose one: Land?\nLean: LAND\nPanel: Security → ${pick} — fine\nCouncil: builds/X_COUNCIL.md\n- [ ] [LAND] Land it\n- [ ] [HOLD] Hold it\n`;
+  const w = (pick: string) => authorWarnings(parseAskFile(ask(pick))).find((x) => x.includes("names no option"));
+  it("warns on a bracketed or unknown code, naming the codes", () => {
+    expect(w("[LAND]")).toContain("LAND, HOLD");
+    expect(w("LNAD")).toBeDefined();
+  });
+  it("is silent on a bare code or the option's label", () => {
+    expect(w("LAND")).toBeUndefined();
+    expect(w("Hold it")).toBeUndefined();
+  });
+});
+
 describe("a fork that reports a panel without Panel: lines", () => {
   const reported = [
     "The council report: builds/VOICE_COUNCIL.md",
@@ -60,6 +90,17 @@ describe("a fork that reports a panel without Panel: lines", () => {
     "Stake: a council per question is expensive; batching by topic is the saving.",
     "The app's side panel shows the fork list.",
     "Council auto-after-PR, Interrogation None",
+    // The review's probes (ASKCOUNCIL_CRITIQUE.md S1, N3): a UI panel, or a council only proposed.
+    "The panel's layout is cramped on mobile.",
+    "Move it to the side panel read by the screen reader.",
+    "The settings panel found in the sidebar.",
+    "Data from the panel on the left.",
+    "Council ran out of budget, so none ran.",
+    "Should we convene the council?",
+    "a 3-lens council would cost too much; propose one",
+    "Should we file a council report next week?",
+    "the panel reads should show beside each option",
+    "Confidence: medium — the panel's view would help",
   ];
   it.each(reported)("names a panel report: %s", (line) => expect(mentionsPanelReport(line)).toBe(true));
   it.each(proposed)("does not name one: %s", (line) => expect(mentionsPanelReport(line)).toBe(false));

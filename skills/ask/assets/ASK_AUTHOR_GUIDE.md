@@ -99,6 +99,14 @@ Council: sessions/2026_10_29_KERNEL/builds/fund_COUNCIL_20261030T1545.md
 
 The reads go in `Panel:` lines, never only in prose. The app draws a panel only from `Panel:` lines, so "the panel's consensus is LAND" written in a Context line shows nothing beside the options. `engine ask new` and `revise` warn on stderr when a fork, or the header and the text above the first fork, names a council or panel report and carries no `Panel:` line. The warning names the fork and does not stop the filing. If the panel ran on several forks at once, each fork carries its own lens reads, and every fork names the same report.
 
+**A panel run on an ask you did not file is attached, never pasted**: `engine ask attach-panel <seat>/<id> --fork <KEY> --panel '<lens> → <code> — <why>' [--panel …] [--proposed '<lens> → <label> — <why>' …] --council <url>`.
+- Any panel runner may use it, for example `/ask-council` or a seat that ran `/council` for someone else.
+- It is append-only. It writes a ```json panels``` record and leaves the question, the options, any answer and the revision unchanged, so an answer in flight is not refused.
+- It records who attached the reads and when, and it tells the asker.
+- `--council` must be the published report's http(s) URL. Publish the report first with `skills/ask-council/assets/council-page.py`, then `publish-s3.sh`.
+- A `--panel` pick must be one of the fork's codes. An option the panel proposes (the design-off angle) goes in `--proposed`, which the app shows apart from the options. Only the asker can turn a proposal into a real option, with `revise`.
+- It is refused on a withdrawn or superseded ask. An answered ask still takes the reads, as a record.
+
 Not built yet: `CouncilAsOf:`, and a richer `Panel:` line with a weight, an alternative and a thin-grounds mark.
 
 ## Reserved for the operator

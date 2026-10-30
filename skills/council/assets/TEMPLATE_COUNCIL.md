@@ -92,14 +92,17 @@
 ---
 
 ## Ask Lines
-*Included ONLY when the Brief's poll items are forks of an ask (omit this whole block otherwise). One block per fork, ready for the asker to paste under that fork's heading with `engine ask revise`. One `Panel:` line per lens that voted on the item, in the vote's own words, then the report itself. Council writes these here and nowhere else; it never edits the ask.*
+*Included ONLY when the Brief's poll items are forks of an ask (omit this whole block otherwise). One block per fork, ready for `engine ask attach-panel`, which any panel runner may use (or for the asker of a new ask to write under the fork). One `Panel:` line per lens that voted on the item, in the vote's own words, then the report itself. Council writes these here and nowhere else; it never edits the ask.*
 
 ```
 <seat>/<ask-id> ¶ASK_<NAME>
-Panel: <lens> → <key> — <the vote's one-sentence why>
+Panel: <lens> → <key> — <the vote's one-sentence why>     (<key> is the fork's option code, bare: LAND, not [LAND])
 Panel: <lens> → <key> — <why>
-Council: <absolute path to this file, or the published board's URL>
+Proposed: <lens> → <label> — <why>     (design-off only)
+Council: <the published report's URL>
 ```
+
+The runner attaches each block with `engine ask attach-panel <seat>/<ask-id> --fork <NAME> --panel '…' [--proposed '…'] --council <url>`, which takes an http(s) URL only, so publish the report first (skills/ask-council §5). An asker filing a NEW ask writes the same `Panel:` lines and the `Council:` URL under the fork instead.
 
 ---
 

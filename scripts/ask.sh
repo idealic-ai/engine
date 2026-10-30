@@ -33,6 +33,10 @@
 #   engine ask supersede <seat>/<old-id> --by <seat>/<new-id>   the asker, its manager or the operator retires an open ask for its replacement
 #   engine ask withdraw <seat>/<id> --reason "<why>"   the asker, its manager or the operator takes an open ask back:
 #                  no replacement, nothing to answer; the holder is told no action is needed
+#   engine ask attach-panel <seat>/<id> --fork <KEY> --panel '<lens> → <code> — <why>' [--panel …]
+#                  [--proposed '<lens> → <label> — <why>' …] --council <url>   any panel runner appends one
+#                  council's reads on one fork; append-only (question, options, answer and revision unchanged),
+#                  records who and when; refused on a withdrawn or superseded ask; the asker is told
 #   engine ask rename-seat <old> <new> [--dry-run]   a fleet rename: move <old>/'s asks to <new>/ and rewrite
 #                  every reference to <old> in every ask (seat fields, hops, <seat>/<id> refs, answer/draft
 #                  records); revisions and mtimes kept; refused if <new>/ holds an ask of the same id.
@@ -331,7 +335,7 @@ case "$sub" in
     else echo "$ASK_ROOT/$1/$2.md"
     fi
     ;;
-  new|url|revise|list|answer|draft|send|discard|read|acted|forward|supersede|withdraw|rename-seat)
+  new|url|revise|list|answer|draft|send|discard|read|acted|forward|supersede|withdraw|rename-seat|attach-panel)
     exec node --no-warnings "$APP_DIR/src/cli.ts" "$sub" "$@"
     ;;
   serve)

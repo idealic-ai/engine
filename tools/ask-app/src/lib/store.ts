@@ -47,6 +47,12 @@ import {
   writeFollowup,
   markFollowups,
   followupEntries,
+  allCodes,
+  appendPanelEntry,
+  panelFence,
+  type PanelAttachment,
+  type PanelProposal,
+  type PanelRead,
   questionKey,
   type AskAnswer,
   type AskFollowup,
@@ -83,7 +89,7 @@ export function newAsk(root: string, fields: NewAskFields, body: string): string
   // M1: answer and draft blocks are records the store writes. A body that carries one — planted or
   // quoted — would be read back as somebody's answer, so it is refused, not stored.
   if (RECORD_FENCE_RE.test(body)) {
-    throw new AskFormatError("the body holds a ```json answer, ```json draft, ```json history or ```json followup block: those are records the store writes, never part of a question (indent it or use another fence language to quote one)");
+    throw new AskFormatError("the body holds a ```json answer, ```json draft, ```json history, ```json followup or ```json panels block: those are records the store writes, never part of a question (indent it or use another fence language to quote one)");
   }
   // FENCELANG: every fence an author writes carries a language, so the browser can highlight it.
   assertFenceLanguages(body);
@@ -1055,7 +1061,7 @@ export async function reviseAsk(
   const file = resolveAskPath(root, seat, id);
   if (!o?.by) throw new AskFormatError("revise must name who is revising");
   if (body !== undefined && RECORD_FENCE_RE.test(body)) {
-    throw new AskFormatError("the body holds a ```json answer, ```json draft, ```json history or ```json followup block: those are records the store writes, never part of a question");
+    throw new AskFormatError("the body holds a ```json answer, ```json draft, ```json history, ```json followup or ```json panels block: those are records the store writes, never part of a question");
   }
   if (body !== undefined) assertFenceLanguages(body);
   for (const k of Object.keys(fields)) {
@@ -1081,7 +1087,7 @@ export async function reviseAsk(
       const head = after.slice(0, after.indexOf("\n---", 3) + 4);
       const draftFence = trailingDraftFence(text);
       // ASKFOLLOWUP: the follow-ups are the dialogue about the ask, not its body: they stay.
-      after = `${head}\n\n${body.replace(/\n*$/, "\n")}${followupEntries(text)}${draftFence ? `\n${draftFence.replace(/^\n+/, "")}` : ""}`;
+      after = `${head}\n\n${body.replace(/\n*$/, "\n")}${followupEntries(text)}${panelFence(text)}${draftFence ? `\n${draftFence.replace(/^\n+/, "")}` : ""}`;
       const reparsed = parseAskFile(after);
       if (reparsed.questions.length === 0) throw new AskFormatError('body holds no question: write at least one "## Choose one: …" heading');
       assertCodes(reparsed);
@@ -1610,4 +1616,62 @@ function moveStaged(stage: string, fromDir: string, toDir: string, old: string, 
       `${stuck.length ? `${stuck.join(", ")} wait in ${stage}. ` : ""}${moved} other ask${moved === 1 ? "" : "s"} moved. ` +
       `Compare each pair, keep the one with the higher revision, remove the other, and run the same command again.`,
   );
+}
+
+// ── IDE-338: attach a panel's reads to an ask ─────────────
+
+export type AttachPanelResult = { file: string; entry: PanelAttachment; pushes: { seat: string; delivery: DeliveryResult }[] };
+
+/**
+ * `engine ask attach-panel`: any panel runner appends one council's reads on one fork (and any
+ * options it proposed) to the ask's ```json panels``` record. Append-only: the question, options,
+ * answer, revision and body digest do not move, so an answer or draft in flight stays valid. Refused
+ * on a withdrawn or superseded ask; an answered or declined one takes it as a record beside the answer.
+ */
+export async function attachPanel(
+  root: string,
+  ref: AskRef,
+  o: DeliverOptions & { by: string; fork: string; panel?: PanelRead[]; proposals?: PanelProposal[]; council?: string; push?: typeof pushToSeat; now?: string },
+): Promise<AttachPanelResult> {
+  const r = `${ref.seat}/${ref.id}`;
+  if (!o?.by) throw new AskFormatError("attach-panel must name who is attaching");
+  const panel = (o.panel ?? []).map(({ lens, pick, why }) => ({ lens, pick, why }));
+  const proposals = (o.proposals ?? []).map(({ lens, label, why }) => ({ lens, label, why }));
+  if (!panel.length && !proposals.length) throw new AskFormatError(`attach-panel on ${r} needs at least one --panel or --proposed line`);
+  if (!o.council || !/^https?:\/\/\S+$/.test(o.council)) {
+    throw new AskFormatError(`--council must be the published report's http(s) URL (publish it to the proof store first); got ${o.council ? `"${o.council}"` : "none"}`);
+  }
+  for (const x of [...panel, ...proposals]) {
+    for (const [k, v] of Object.entries(x)) if (!String(v).trim() || /\n/.test(String(v))) throw new AskFormatError(`attach-panel: a read's ${k} must be one non-empty line`);
+  }
+  const file = resolveAskPath(root, ref.seat, ref.id);
+  if (!fs.existsSync(file)) throw new AskFormatError(`no ask ${r}`);
+  const at = o.now ?? new Date().toISOString();
+  const res = await withFileLock(file, () => {
+    const before = fs.readFileSync(file, "utf8");
+    const ask = parseAskFile(before);
+    assertLive(ask);
+    const keys = ask.questions.map((q, i) => questionKey(q, i));
+    const qi = keys.indexOf(o.fork);
+    if (qi === -1) throw new AskFormatError(`${r} has no fork ${o.fork}; its forks are ${keys.join(", ")}`);
+    const codes = allCodes(ask.questions[qi].options);
+    for (const p of panel) {
+      if (!codes.includes(p.pick)) throw new AskFormatError(`${p.lens}'s pick ${p.pick} names no option of ${o.fork} (it has ${codes.join(", ") || "no codes"}); an option the panel proposes goes in --proposed`);
+    }
+    const entry: PanelAttachment = { fork: o.fork, panel, proposals, council: o.council!, by: o.by, at };
+    atomicWrite(file, appendPanelEntry(before, entry));
+    return { entry, asker: ask.header.from ?? "" };
+  });
+  const push = o.push ?? pushToSeat;
+  const pushes: AttachPanelResult["pushes"] = [];
+  if (res.asker && res.asker !== o.by && res.asker !== "operator") {
+    const n = (k: number, w: string) => `${k} ${w}${k === 1 ? "" : "s"}`;
+    const msg = [
+      `[ask-panel] from ${o.by} via ask-app: ${r} fork ${o.fork} has a panel attached: ${n(panel.length, "read")}${proposals.length ? `, ${n(proposals.length, "proposed option")}` : ""}. Report: ${o.council}`,
+      "No action needed: the reads show beside the fork's options; the question and any answer are unchanged. The file is the record:",
+      file,
+    ].join("\n");
+    pushes.push({ seat: res.asker, delivery: await safePush(push, res.asker, msg, o) });
+  }
+  return { file, entry: res.entry, pushes };
 }

@@ -1,5 +1,5 @@
 /**
- * Node half of `engine ask new|list|answer|…|supersede|withdraw|rename-seat` (scripts/ask.sh handles `path` and `serve`).
+ * Node half of `engine ask new|list|answer|…|supersede|withdraw|rename-seat|attach-panel` (scripts/ask.sh handles `path` and `serve`).
  * Run with node >= 23.6, which strips the types itself.
  */
 import fs from "node:fs";
@@ -7,8 +7,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { execFileSync } from "node:child_process";
 import { askUrl } from "./lib/url.ts";
-import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk } from "./lib/store.ts";
-import { answeredByText, authorWarnings, noteLine, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, seatEq, UntaggedFenceError, type AnswerMap, type AskAnswer, type AskFollowup, type GrantClass } from "./lib/format.ts";
+import { actedAsk, answerAsk, defaultAskRoot, discardDraft, forwardAsk, listAsks, newAsk, pickupUnread, readAsk, renameSeat, repushPending, reviseAsk, saveDraft, sendBatch, supersedeAsk, withdrawAsk, attachPanel } from "./lib/store.ts";
+import { answeredByText, authorWarnings, noteLine, parsePanelArg, parseProposalArg, GRANT_CLASSES, HEADER_FIELDS, parseAskFile, seatEq, UntaggedFenceError, type AnswerMap, type AskAnswer, type AskFollowup, type GrantClass } from "./lib/format.ts";
 
 /** The author guide, pointed to whenever `new` or `revise` warns or refuses. */
 const GUIDE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "skills", "ask", "assets", "ASK_AUTHOR_GUIDE.md");
@@ -433,6 +433,26 @@ async function main() {
       const r = await withdrawAsk(root, ref, { by: identity("withdraw"), reason: opt.reason, manages });
       console.log(`withdrawn\t${ref.seat}/${ref.id}\trevision ${r.revision}\t${opt.reason.replace(/\s+/g, " ").trim()}`);
       if (r.draftOf) console.log(`draft discarded\tsaved by ${r.draftOf}`);
+      for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
+    } catch (e) {
+      die((e as Error).message);
+    }
+    return;
+  }
+
+  if (cmd === "attach-panel") {
+    // IDE-338: any panel runner appends one council's reads on one fork; append-only.
+    const usage = "usage: ask attach-panel <seat>/<id> --fork <KEY> --panel '<lens> → <code> — <why>' [--panel …] [--proposed '<lens> → <label> — <why>' …] --council <url>";
+    if (pos.length !== 1) die(`${usage}: name exactly one ask`);
+    if (!opt.fork || opt.fork === "true") die(`${usage}: --fork is required`);
+    // flags() keeps the last of a repeated flag, so the repeatable ones are read from argv directly.
+    const every = (flag: string) => rest.flatMap((a, i) => (a === flag && rest[i + 1] !== undefined ? [rest[i + 1]] : []));
+    const panel = every("--panel").map((s) => parsePanelArg(s) ?? die(`--panel "${s}" is not \`<lens> → <code> — <why>\``));
+    const proposals = every("--proposed").map((s) => parseProposalArg(s) ?? die(`--proposed "${s}" is not \`<lens> → <label> — <why>\``));
+    const ref = splitRef(pos[0], usage);
+    try {
+      const r = await attachPanel(root, ref, { by: identity("attach-panel"), fork: opt.fork, panel, proposals, council: opt.council === "true" ? undefined : opt.council });
+      console.log(`attached\t${ref.seat}/${ref.id}#${opt.fork}\t${panel.length} reads\t${proposals.length} proposed\t${r.entry.council}`);
       for (const p of r.pushes) console.log(`notice ${p.seat} ${p.delivery.status}${p.delivery.reason ? `: ${p.delivery.reason}` : ""}`);
     } catch (e) {
       die((e as Error).message);
