@@ -103,7 +103,9 @@
 #       are literal, never glob-expanded. Refuses, naming the row or path: an unknown row, no owner
 #       path, a path no seat maps or two seats map equally, an owner seat not in the live tree
 #       (exit 3), a row whose receipt is empty on every commit, an owner whose --paths give an empty
-#       receipt on every commit (exit 2).
+#       receipt on every commit (exit 2). The record is written before the first send, so a
+#       fan-out cut short (a Ctrl-C, a kill) leaves some seats asked and some not: finish it with
+#       `engine broadcast resend <id> --undelivered`, never a new go-request.
 #   engine broadcast ack <id>                 on a go request: a GO, bound to the receipts sent
 #   engine broadcast decline <id> --reason "<one line>"   on a go request only; a reason is required
 #                                             One answer per seat, claimed atomically: a GO and a
@@ -865,7 +867,7 @@ uncovered_note() { [ -z "$UNCOVERED" ] || echo " (the line names lane(s) $UNCOVE
 # asked of the other side's owner (no owner is skipped); with no seat on both it refuses.
 ASKED="" ASK_SHARED=0 WHY=""
 ask_for() {
-  local p="$1" side text src rc seat got="" srcs=""
+  local p="$1" side text src rc seat got="" srcs="" pl
   ASKED="" ASK_SHARED=0 WHY=""
   for side in tip base; do
     if [ "$side" = tip ]; then text=$TIP_TEXT src=$TIP_SRC
@@ -874,9 +876,20 @@ ask_for() {
     OWNERS_TEXT=$text; rc=0; seat=$(seat_of_path "$p") || rc=$?
     case "$rc" in
       1) continue ;;
-      2) WHY="maps to two seats equally in $src"; return 1 ;;
-      3) WHY="is named by a sentence of the Ownership line that assigns it to no lane ('${seat}…', in $src)"; return 1 ;;
+      2) WHY="maps to two seats equally in $src" ;;
+      3)
+        case "$seat" in
+          'lane '*' names it only as `'*'`')
+            pl=${seat#lane }; pl=${pl%% names it only as *}
+            WHY="is named by the Ownership line only by the partial path ${seat#* names it only as } (lane $pl), in $src; name it by its full path there" ;;
+          *) WHY="is named by a sentence of the Ownership line that assigns it to no lane ('${seat}…', in $src)" ;;
+        esac ;;
     esac
+    if [ "$rc" != 0 ]; then
+      # A base-side tie or guard also blocks the PR that fixes the line (R6-N1).
+      [ "$side" != base ] || WHY+="; it is at the base, so a PR that fixes the line refuses too: land the line fix first, or pass --owners"
+      return 1
+    fi
     if [ "$seat" = shared ]; then
       [ -n "$LANE_SEATS" ] || { WHY="is shared ground and $src names no lane seat"; return 1; }
       ASK_SHARED=1; got+=$(tr ' ' '\n' <<<"$LANE_SEATS")$'\n'

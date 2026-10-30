@@ -91,12 +91,20 @@ reg() {
   echo "$1 $3" >> "$FIX/ps"
 }
 
-# bc <args…> — run broadcast.sh against the fixtures, bounded by a 10 s alarm (a hang = rc 142).
+# bc <args…> — run broadcast.sh against the fixtures, bounded by an alarm of BC_ALARM_SECS seconds
+# (default 60; a hang = rc 142). 10 s timed out under load around 190 with nothing wrong in the code.
 # Stdout+stderr in OUT, exit code in RC. PANE → TMUX_PANE, SELF → FLEET_PANE (the launch cache),
 # TREE → the fixture tree ("none" = no HOP_LIVE_PANES; the stub tmux on PATH answers).
 # PANE defaults to %1 (manager:director); PANE=none runs as if outside tmux. DELIVER=real drops the
 # stub so the real deliver.ts path runs. LIB → BROADCAST_LIB. CLEAN=1 runs under `env -i` (only
 # PATH, HOME and the fixture variables), as launchd, cron and some hook runners do.
+# BC_BOUND: run the command in its own process group and, at the alarm, kill the whole group and
+# exit 142. A plain `alarm; exec` kills only broadcast.sh itself: a child it started (tmux, node, a
+# sleep) keeps the $(…) pipe open, so the suite waits on it past the bound and never goes red.
+BC_BOUND='my $t = shift; my $p = fork; die "fork: $!" unless defined $p;
+  if (!$p) { setpgrp(0, 0); exec @ARGV or exit 127 }
+  $SIG{ALRM} = sub { kill "KILL", -$p; exit 142 }; alarm $t; waitpid($p, 0); alarm 0;
+  exit($? & 127 ? 128 + ($? & 127) : $? >> 8)'
 OUT="" RC=0
 bc() {
   local tree="${TREE:-$FIX/live.txt}" path="$PATH" pane="${PANE-%1}" stub="$FIX/stub.sh"
@@ -111,7 +119,7 @@ bc() {
     ${keep[@]+"${keep[@]}"} PATH="$path" HOP_LIVE_PANES="$tree" BROADCAST_DIR="$FIX/bc" BROADCAST_DELIVER="$stub" \
     BROADCAST_PANE_PIDS="$FIX/panepids" BROADCAST_PS_FILE="$FIX/ps" ASK_SESSIONS_DIR="$FIX/sess" BROADCAST_PROJECTS_DIR="$FIX/projects" \
     BROADCAST_LIB="${LIB:-$LIB_SH}" ${pane:+TMUX_PANE="$pane"} ${tmuxenv:+TMUX="$tmuxenv"} ${SELF:+FLEET_PANE="$SELF"} \
-    perl -e 'alarm 10; exec @ARGV' bash "$BROADCAST_SH" "$@" 2>&1 <<<"${MSG-Use /ask, not AskUserQuestion.}")
+    perl -e "$BC_BOUND" "${BC_ALARM_SECS:-60}" bash "$BROADCAST_SH" "$@" 2>&1 <<<"${MSG-Use /ask, not AskUserQuestion.}")
   RC=$?
 }
 audience() { sed -n 's/^audience: //p' <<<"$OUT"; }
@@ -642,6 +650,15 @@ test_queue_go_request_idle_owner() {
   assert_has "receipt path app:ask $c1 $(rid "$c1" kern/a.ts) -- kern/a.ts" "$OUT" "go queue: at wake the owner sees its own receipts"
   assert_hasnt "receipt path domain:stats" "$OUT" "go queue: and only its own"
   assert_has "ack (from manager:app): engine broadcast ack gq1" "$OUT" "go queue: with the go command"
+}
+
+test_queue_go_request_wake_pushes_idle_owner() {
+  go_repo
+  act 2004 idle 120
+  PANE=%2 goreq --pr 29 --rows alpha,beta --commits base..HEAD --id gw1 --wake
+  assert_eq 0 "$RC" "go --wake: go-request accepts --wake"
+  assert_has "app:ask|" "$(cat "$FIX/sent.log")" "go --wake: the idle owner is pushed live"
+  assert_hasnt "queued app:ask" "$(cat "$FIX/bc/gw1.md")" "go --wake: and not queued"
 }
 
 # ---------------------------------------------------------------- queue, round 2 (critique SHOULD/NIT)
@@ -1825,11 +1842,11 @@ test_go_owners_from_doc_partial_paths_guard_only_their_files() {
   assert_eq "domain:language" "$(audience)" "M2 ide330c: an unrelated path still resolves"
   PANE=%2 goreqd --pr 5 --paths world-runner/src/ideas-app/server/main.ts
   assert_eq 2 "$RC" "M2 ide330c: the file the partial path names is guarded and refuses"
-  assert_has "lane core:world names it only as \`main.ts\`" "$OUT" "M2 ide330c: naming the lane and the partial path"
+  assert_has "only by the partial path \`main.ts\` (lane core:world)" "$OUT" "M2 ide330c: naming the lane and the partial path"
   assert_has "world-runner/src/ideas-app/server/worker-main.ts" "$(cat "$OWN_FIX/ide330c-a31c445f1.md" | sed -n 's/.*(`\(ideas-app[^`]*\)`).*/world-runner\/src\/\1/p')" "ide330c: fixture: the partial path is the tail of the real file"
   PANE=%2 goreqd --pr 5 --paths world-runner/src/ideas-app/server/worker-main.ts
-  assert_has "names it only as \`ideas-app/server/worker-main.ts\`" "$OUT" "M2 tail: worker-main.ts is guarded by its own partial path"
-  assert_hasnt "only as \`main.ts\`" "$OUT" "M2 tail: and not by 'main.ts' (a tail is whole segments)"
+  assert_has "partial path \`ideas-app/server/worker-main.ts\`" "$OUT" "M2 tail: worker-main.ts is guarded by its own partial path"
+  assert_hasnt "partial path \`main.ts\`" "$OUT" "M2 tail: and not by 'main.ts' (a tail is whole segments)"
 }
 
 # The kit line at a63569b6d (after 789e8f6bf: docs:visions, the .envrc rule) and its handbook table.
@@ -1876,10 +1893,13 @@ test_go_owners_kit_tip_partial_paths_and_idea_dirs() {
   assert_eq 0 "$RC" "M2 scenario A: docs/packages.md landed and a .idea/ dir committed: the map still loads"
   PANE=%2 goreqd --pr 5 --paths docs/packages.md
   assert_eq 2 "$RC" "M2 scenario A: docs/packages.md, which docs:api names only as packages.md, refuses"
-  assert_has "lane docs:api names it only as \`packages.md\`" "$OUT" "M2 scenario A: naming the lane and the item"
+  assert_has "only by the partial path \`packages.md\` (lane docs:api)" "$OUT" "M2 scenario A: naming the lane and the item"
+  assert_has "name it by its full path" "$OUT" "R6-N3: the partial-path refusal says how to fix it, and never says 'no lane'"
+  assert_hasnt "assigns it to no lane" "$OUT" "R6-N3: not the sentence-guard wording"
+  assert_hasnt "land the line fix first" "$OUT" "R6-N1: a tip-side guard gives no base hint"
   PANE=%2 goreqd --pr 5 --paths ideas-storage/.idea/workspace.xml
   assert_eq 2 "$RC" "M2 .idea: a .idea/ dir under another lane's tree is guarded"
-  assert_has "lane domain:language names it only as \`.idea\`" "$OUT" "M2 .idea: naming the lane"
+  assert_has "only by the partial path \`.idea\` (lane domain:language)" "$OUT" "M2 .idea: naming the lane"
   PANE=%2 goreqd --pr 5 --paths world-runner/.idea/workspace.xml --dry-run
   assert_eq "domain:language" "$(audience)" "M2 .idea: under the naming lane's own tree the guard drops"
 }
@@ -1942,6 +1962,7 @@ test_go_owners_base_side_refusal_and_fallbacks() {
   PANE=%2 bc go-request --repo "$FIX/repo" --commits tbase..HEAD --pr 5 --paths world-runner/src/other.ts
   assert_eq 2 "$RC" "M1: a tie on the base side refuses"
   assert_has "maps to two seats equally in docs/LIVE_MARKET_DIRECT.md at the base" "$OUT" "M1: naming the base"
+  assert_has "land the line fix first, or pass --owners" "$OUT" "R6-N1: a base-side refusal says how to get past it"
   # A new package the PR gives a lane: no seat at the base, so the tip's owner is asked.
   awk '{ print } /^  - core:exchange: / { print "  - domain:stats: `newpkg/`." }' "$OWN_FIX/ownfix-073237f16.md" > "$d"; echo 4 >> "$FIX/repo/newpkg/x.ts"; G commit -qam newpkg; G tag nbase
   PANE=%2 bc go-request --repo "$FIX/repo" --commits nbase~1..nbase --pr 5 --paths newpkg/x.ts --id gnp
