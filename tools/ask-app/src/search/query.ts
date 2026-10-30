@@ -42,13 +42,20 @@ export class SearchUnavailable extends Error {
   }
 }
 
-type Vec = { chunkId: number; itemKey: string; kind: Kind; v: Float32Array };
-const cache = new WeakMap<SearchDb, { generation: string; model: string; vecs: Vec[] }>();
+/**
+ * Every searchable chunk's vector in one contiguous matrix (row i = chunk i), normalised, so ranking is one
+ * tight loop of dot products. Measured on this machine's index (25,755 chunks, 768-d): an array of 25k
+ * separate Float32Arrays ranked in 300-800 ms per query; the matrix is what keeps a query near the cost
+ * of embedding it.
+ */
+type Matrix = { n: number; d: number; mat: Float32Array; chunkIds: Int32Array; itemKeys: string[]; kinds: Kind[] };
+const cache = new WeakMap<SearchDb, { generation: string; model: string; m: Matrix }>();
 
-function vectors(db: SearchDb, e: EmbeddingClient): Vec[] {
+function vectors(db: SearchDb, e: EmbeddingClient): Matrix {
   const generation = getMeta(db, "generation") ?? "0";
+  const model = `${e.model}:${e.dimensions}`;
   const hit = cache.get(db);
-  if (hit && hit.generation === generation && hit.model === `${e.model}:${e.dimensions}`) return hit.vecs;
+  if (hit && hit.generation === generation && hit.model === model) return hit.m;
   const rows = db
     .prepare(
       `SELECT c.id AS id, c.item_key AS item_key, i.kind AS kind, e.embedding AS embedding
@@ -56,9 +63,16 @@ function vectors(db: SearchDb, e: EmbeddingClient): Vec[] {
        WHERE i.dup_of IS NULL AND e.model = ? AND e.dimensions = ?`,
     )
     .all(e.model, e.dimensions) as { id: number; item_key: string; kind: Kind; embedding: Uint8Array }[];
-  const vecs = rows.map((r) => ({ chunkId: r.id, itemKey: r.item_key, kind: r.kind, v: normalise(bytesToFloat32(r.embedding)) }));
-  cache.set(db, { generation, model: `${e.model}:${e.dimensions}`, vecs });
-  return vecs;
+  const d = e.dimensions;
+  const m: Matrix = { n: rows.length, d, mat: new Float32Array(rows.length * d), chunkIds: new Int32Array(rows.length), itemKeys: [], kinds: [] };
+  rows.forEach((r, i) => {
+    m.mat.set(normalise(bytesToFloat32(r.embedding)), i * d);
+    m.chunkIds[i] = r.id;
+    m.itemKeys.push(r.item_key);
+    m.kinds.push(r.kind);
+  });
+  cache.set(db, { generation, model, m });
+  return m;
 }
 
 function normalise(v: Float32Array): Float32Array {
@@ -69,11 +83,6 @@ function normalise(v: Float32Array): Float32Array {
   return v;
 }
 
-function dot(a: Float32Array, b: Float32Array): number {
-  let d = 0;
-  for (let i = 0; i < a.length; i++) d += a[i] * b[i];
-  return d;
-}
 
 export function terms(q: string): string[] {
   return q.toLowerCase().split(/\s+/).map((t) => t.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, "")).filter((t) => t.length > 1);
@@ -109,11 +118,14 @@ export async function search(db: SearchDb, embedder: EmbeddingClient, opts: Sear
     throw new SearchUnavailable("embedder-unavailable", `the query could not be embedded: ${(e as Error).message}`);
   }
   const best = new Map<string, { score: number; chunkId: number }>();
-  for (const r of vectors(db, embedder)) {
-    if (!kinds.has(r.kind)) continue;
-    const s = dot(qv, r.v);
-    const b = best.get(r.itemKey);
-    if (!b || s > b.score) best.set(r.itemKey, { score: s, chunkId: r.chunkId });
+  const m = vectors(db, embedder);
+  for (let i = 0; i < m.n; i++) {
+    if (!kinds.has(m.kinds[i])) continue;
+    let s = 0;
+    const off = i * m.d;
+    for (let j = 0; j < m.d; j++) s += qv[j] * m.mat[off + j];
+    const b = best.get(m.itemKeys[i]);
+    if (!b || s > b.score) best.set(m.itemKeys[i], { score: s, chunkId: m.chunkIds[i] });
   }
   const words = terms(opts.q);
   const itemQ = db.prepare("SELECT kind, seat, id, title, status, url, app_path FROM items WHERE key = ?");
