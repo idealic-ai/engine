@@ -82,10 +82,21 @@ const HR_RE = /^\s{0,3}([-*_])(?:\s*\1){2,}\s*$/;
 const HEAD_RE = /^\s{0,3}(#{1,6})\s+(.*?)\s*#*\s*$/;
 const indentOf = (l: string) => l.length - l.trimStart().length;
 
-/** A heading's display text: an ask fork's `¶ASK_NAME:` anchor is for machines, not for reading. */
+/** One separator after an anchor: `:`, an em or en dash, a hyphen or a middle dot (operator 16:25). */
+const ANCHOR_SEP = "[:—–\\-·]";
+const ANCHOR_RE = new RegExp(`^\\s*(?:#{1,6}\\s+)?(?:Q\\d+\\s+)?(?:¶\\s*ASK_[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*\\s*(?:${ANCHOR_SEP}\\s*)?|ASK_[A-Za-z0-9_]+(?:-[A-Za-z0-9_]+)*\\s*${ANCHOR_SEP})\\s*`);
+
+/**
+ * A heading's display text: an ask fork's `¶ASK_NAME:` anchor is for machines, not for reading.
+ * `¶ASK_X: title`, `¶ASK_X — title` (any one separator), `¶ASK_X title` (none, operator 01:29) and a
+ * bare `ASK_X: title`. What remains starts with a capital when the anchor came off and it began with a
+ * lowercase letter; inline code at the start is left as written.
+ */
 export function displayTitle(t: string): string {
-  // `¶ASK_X: title`, `¶ASK_X title` (no colon, operator 01:29) and a bare `ASK_X: title`.
-  return t.replace(/^\s*(?:#{1,6}\s+)?(?:Q\d+\s+)?(?:¶\s*ASK_[A-Za-z0-9_-]+\s*:?|ASK_[A-Za-z0-9_-]+\s*:)\s*/, "").trim() || t.trim();
+  const m = t.match(ANCHOR_RE);
+  const rest = t.replace(ANCHOR_RE, "").trim();
+  if (!rest) return t.trim();
+  return m && /ASK_/.test(m[0]) ? rest.replace(/^\p{Ll}/u, (c) => c.toUpperCase()) : rest;
 }
 
 /** Split prose into blocks. Fenced code keeps its blank lines; a callout runs while lines start with `>`. */

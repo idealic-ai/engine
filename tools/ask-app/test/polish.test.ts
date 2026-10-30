@@ -121,6 +121,25 @@ describe("item 4: markdown", () => {
     const { AskDetail } = await import("../src/client/App.tsx");
     expect(renderToStaticMarkup(createElement(AskDetail, { ask: a, all: [a], onChanged: () => {} }))).not.toMatch(/<h3 class="fork-q">[^<]*<span>¶?ASK_/);
   });
+  it("the anchor drops with any one separator after it, and what remains starts with a capital (operator 16:25)", () => {
+    for (const sep of [":", "—", "–", "-", "·"]) {
+      expect(displayTitle(`¶ASK_W206REFINE ${sep} what happens to the table?`), sep).toBe("What happens to the table?");
+      expect(displayTitle(`ASK_W206REFINE ${sep} what happens`), `bare ${sep}`).toBe("What happens");
+    }
+    expect(displayTitle("¶ASK_W206REFINE—what happens")).toBe("What happens");
+    expect(displayTitle("¶ASK_X title")).toBe("Title");
+    expect(displayTitle("ASK_X: title")).toBe("Title");
+    expect(displayTitle("¶ASK_X — `refinements` table first")).toBe("`refinements` table first");
+    expect(displayTitle("¶ASK_X — Already capital")).toBe("Already capital");
+    expect(displayTitle("¶ASK_X — été first")).toBe("Été first");
+    // Not an anchor: left as written, its case too.
+    expect(displayTitle("ASK_RATE limits")).toBe("ASK_RATE limits");
+    expect(displayTitle("lowercase plain title")).toBe("lowercase plain title");
+    expect(displayTitle("## lowercase heading")).toBe("lowercase heading");
+    // The real heading the operator saw, through the parser and the sidebar row.
+    const real = stored(head() + "## Choose one: ¶ASK_W206REFINE — what happens to the `refinements` table under per-world policies?\n- [ ] [A] a\n- [ ] [B] b\n");
+    expect(askRow(real).title).toBe("What happens to the `refinements` table under per-world policies?");
+  });
   it("links, inside bold too, are links (and found for the pane)", () => {
     expect(R("see [the page](https://x.example/p.html)")).toContain('href="https://x.example/p.html"');
     expect(linksIn("**see [it](https://x.example/a.html)**")).toEqual([{ href: "https://x.example/a.html", label: "it" }]);
