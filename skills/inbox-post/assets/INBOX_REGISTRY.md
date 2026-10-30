@@ -206,6 +206,12 @@ A wave can attach a project to an initiative it is given by name — `save_proje
 
 *Created 2026-10-30 on the operator's per-area project ruling. Channels and an Inboxes milestone are not scaffolded; add them here when they exist rather than inventing ids.*
 
+## Product: Resources & Platform
+- **Project id**: `d0d527e1-51d9-4121-85c1-e265ac7b4fae` (`P-IDE-11`) · **Inboxes milestone**: none yet
+- No channels and no inbox handbook yet, so no handbook rules apply. Its project description says it covers `resource-kernel`, `resource-database`, `resource-edge`, `resource-mount`, `afford`, `ideas-grants`, `ideas-storage`, `ideas-secrets`, `ideas-identity`, `ideas-scope`, `ideas-process`, `ideas-stats` and `app/`.
+
+*Created 2026-10-28 on the operator's ruling, under the Domain platform initiative; added here 2026-10-30 from Linear's get_project. Channels and an Inboxes milestone are not scaffolded; add them here when they exist rather than inventing ids.*
+
 ## Product: Example
 - **Project id**: `00000000-0000-4000-8000-000000000001` · **Inboxes milestone**: `00000000-0000-4000-8000-000000000002`
 - 🔴 Observed problems — [ENG-1001](https://linear.app/acme/issue/ENG-1001)
