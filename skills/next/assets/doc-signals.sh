@@ -730,19 +730,22 @@ cmd_registry_channels() {
 
 # ---------------------------------------------------------------- owners-from-doc
 cmd_owners_from_doc() {
-  local repo="" rid="" file=""
+  local repo="" rid="" file="" rev=HEAD emit=project
   while [ $# -gt 0 ]; do
     case "$1" in
       --repo) repo="$2"; shift 2 ;;
       --repo-id) rid="$2"; shift 2 ;;
+      --rev) rev="${2:-}"; shift 2 ;;
+      --emit) emit="${2:-}"; shift 2 ;;
       *) file="$1"; shift ;;
     esac
   done
-  [ -n "$repo" ] && [ -n "$file" ] && [ -f "$file" ] || die "owners-from-doc: --repo DIR [--repo-id ID] FILE"
+  [ -n "$repo" ] && [ -n "$file" ] && [ -f "$file" ] && [ -n "$rev" ] || die "owners-from-doc: --repo DIR [--repo-id ID] [--rev REV] [--emit project|lane] FILE"
+  case "$emit" in project|lane) ;; *) die "owners-from-doc: --emit takes project or lane" ;; esac
   [ -n "$rid" ] || rid=$(repo_id "$repo")
   local tree; tree=$(mktemp "${TMPDIR:-/tmp}/doc-owners.XXXXXX")
-  git -C "$repo" ls-tree -r --name-only HEAD >"$tree" || { rm -f "$tree"; die "owners-from-doc: cannot list $repo"; }
-  "$FAST_AWK" -v rid="$rid" -v tree="$tree" '
+  git -C "$repo" ls-tree -r --name-only "$rev" >"$tree" || { rm -f "$tree"; die "owners-from-doc: cannot list $repo at $rev"; }
+  "$FAST_AWK" -v rid="$rid" -v tree="$tree" -v mode="$emit" -v rev="$rev" '
     function trim(s) { sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s); return s }
     # kind_of <path> → "file", "dir" or "" (a trailing * is a name-prefix glob: "glob")
     function kind_of(p,   q, t) {
@@ -752,13 +755,24 @@ cmd_owners_from_doc() {
       for (t in files) if (index(t, q) == 1) return "dir"
       return ""
     }
-    function emit(lane, p, kind,   k) {
-      p = trim(p); gsub(/`/, "", p); sub(/^\.\//, "", p); sub(/[[:space:]]*(—|-|\.)$/, "", p); p = trim(p)
+    # elsewhere <p> → 1 when p is not a path at REV but is the tail of one ("main.ts" for
+    # world-runner/src/ideas-app/server/main.ts): the doc names a real file by a partial path.
+    function elsewhere(p,   t, q) {
+      q = "/" p; sub(/\/$/, "", q)
+      for (t in files) if (length(t) > length(q) && substr(t, length(t) - length(q) + 1) == q) return 1
+      for (t in files) if (index(t, q "/")) return 1
+      return 0
+    }
+    function emit(lane, p, kind,   k, bt) {
+      p = trim(p); bt = (p ~ /`/); gsub(/`/, "", p); sub(/^\.\//, "", p); sub(/[[:space:]]*(—|-|\.)$/, "", p); p = trim(p)
       if (p == "") return
-      if (p ~ /[[:space:]]/) { skipped[++ns] = lane ": " p " (prose, not a path)"; return }
+      if (p ~ /[[:space:]]/) { skipped[++ns] = lane ": " p " (prose, not a path)"; slane[ns] = lane; return }
       k = kind_of(p)
-      if (k == "") { skipped[++ns] = lane ": " p " (not at HEAD)"; return }
+      if (k == "" && kind == "unread") return      # a guard on a path that is not there guards nothing
+      if (k == "") { skipped[++ns] = lane ": " p " (not at " rev ")"; slane[ns] = lane; sabs[ns] = bt && elsewhere(p); return }
       if (k == "dir" && p !~ /\/$/) p = p "/"
+      if (kind == "shared") { if (!(p in shared)) { shared[p] = 1; sh[++nsh] = p }; return }
+      if (kind == "unread") { if (!(p in ur)) { ur[p] = lane; urt[p] = utext; urp[++nur] = p }; return }
       if (kind == "override") over[p] = lane; else if (!((lane SUBSEP p) in seen)) { seen[lane SUBSEP p] = 1; lp[++nl] = lane; pp[nl] = p }
     }
     # item <lane> <text>: a backticked path inside it wins; otherwise the bare text, if it is one word
@@ -771,11 +785,50 @@ cmd_owners_from_doc() {
       sub(/ except .*$/, "", t); sub(/^the /, "", t)
       emit(lane, t, "lane")
     }
+    # lane_end: --emit lane. Rows "<path>\t<seat>" for every lane whose key names a seat, then
+    # "<path>\tshared" for each shared-ground path. A lane is a key that names a seat, or one the
+    # lane → project list names (which then must name a seat). Refusals (xrc 2): no anchor; a
+    # listed lane with no seat; a backticked lane item that is not a path at REV but is the tail of
+    # one (the doc names a real file by a partial path, so that file would fall to a shorter
+    # prefix owner unseen); no row. Any other miss (a bare word, `.idea`, `--check`, a file not
+    # landed yet) is a name, not a path, and is only named on stderr.
+    function lane_end(   i, l, p) {
+      if (!anchor) { print "owners-from-doc: no \"- **Ownership is fixed.**\" line in this file" > "/dev/stderr"; xrc = 2; return }
+      for (l in project) if (!(l in seatof)) { print "owners-from-doc: lane \"" l "\" names no seat (a fleet name as its key, or a backticked one in its parenthetical); the seat map is unread" > "/dev/stderr"; xrc = 2 }
+      for (i = 1; i <= ns; i++) if (sabs[i] && slane[i] in seatof) { print "owners-from-doc: lane " skipped[i] "; the seat map is unread" > "/dev/stderr"; xrc = 2 }
+      if (xrc) return
+      for (i = 1; i <= nl; i++) {
+        l = lp[i]; p = pp[i]
+        if (!(l in seatof)) continue
+        if ((p SUBSEP seatof[l]) in out) continue
+        out[p SUBSEP seatof[l]] = 1; rows++; has[seatof[l]] = 1; rowseat[p] = seatof[l]
+        print p "\t" seatof[l]
+      }
+      for (i = 1; i <= nsh; i++) { print sh[i] "\tshared"; rows++ }
+      # A guard is dropped when a lane row gives the same path and the guarding sentence names
+      # that row seat: the sentence agrees with the lane (the theme sentence naming app:writer
+      # beside app:writer own design/cli-theme/ row).
+      for (i = 1; i <= nur; i++) {
+        p = urp[i]
+        if ((p in rowseat) && index(urt[p], rowseat[p])) continue
+        print p "\tunread\t" ur[p]
+      }
+      # A lane the line names that yields no path: a path of its may map to no seat, and the
+      # refusal then names it rather than saying the path has no owner.
+      for (l in seatof) { print "# lane " seatof[l]; if (!(seatof[l] in has)) print "# uncovered " seatof[l] }
+      if (!rows) { print "owners-from-doc: the Ownership line yielded no row; the seat map is unread" > "/dev/stderr"; xrc = 2 }
+    }
+    # unread <label> <text>: every backticked path in text is named by a sentence the parser cannot
+    # assign; --emit lane prints it as a guard row "<path>\tunread\t<label>", which go-request refuses.
+    function unread(label, t,   all) {
+      all = t
+      while (match(t, /`[^`]+`/)) { utext = all; emit(label, substr(t, RSTART, RLENGTH), "unread"); t = substr(t, RSTART + RLENGTH) }
+    }
     BEGIN { while ((getline t < tree) > 0) files[t] = 1 }
     /^- \*\*Ownership is fixed\.\*\*/ { inown = 1; anchor = 1; next }
     inown && /^- / { inown = 0 }
     !inown { next }
-    /^    - A sub-path inside a lane/ { inover = 1; next }
+    /^    - A sub-path inside a (lane|seat)/ { inover = 1; next }
     inover && /^      - / {
       line = substr($0, 9); c = index(line, ": "); paths = substr(line, 1, c - 1); proj = trim(substr(line, c + 2))
       sub(/ \(.*$/, "", proj); sub(/\.$/, "", proj)
@@ -785,26 +838,67 @@ cmd_owners_from_doc() {
     }
     /^  - Which Linear project receives/ { inproj = 1; listed = 1; next }
     inproj && /^    - / {
-      line = substr($0, 7); c = index(line, ": "); lane = substr(line, 1, c - 1); proj = trim(substr(line, c + 2))
+      line = substr($0, 7); c = index(line, ": "); if (c == 0) next
+      lane = substr(line, 1, c - 1); proj = trim(substr(line, c + 2))
       sub(/ \(.*$/, "", proj); sub(/\.$/, "", proj)
       project[lane] = proj
       next
     }
+    # cut_semi <s> → s up to its first ";" outside parentheses
+    function cut_semi(s,   i, ch, d) {
+      for (i = 1; i <= length(s); i++) {
+        ch = substr(s, i, 1)
+        if (ch == "(") d++; else if (ch == ")" && d > 0) d--; else if (ch == ";" && d == 0) return substr(s, 1, i - 1)
+      }
+      return s
+    }
     /^  - / {
       inproj = 0; inover = 0
-      line = substr($0, 5); c = index(line, ": "); if (c == 0) next
-      lane = substr(line, 1, c - 1); sub(/ \(.*$/, "", lane); sub(/,.*$/, "", lane)
-      body = substr(line, c + 2); sub(/;.*$/, "", body)
-      # drop parenthetical prose, but keep a path a parenthetical names
+      line = substr($0, 5)
+      # Shared ground: the backticked paths of a bullet that says it lists shared ground, up to
+      # its first ": " (what follows is a rule about the paths, not more of them).
+      if (line ~ /^Shared ground/ || line ~ /is shared ground/) {
+        t = line; c = index(t, ": "); if (c) t = substr(t, 1, c - 1)
+        # "the Dockerfiles at the `app/` root" names files at a root, not the tree: skipped, so app/
+        # is not made shared (those files then map to no seat, and a request on one refuses).
+        while (match(t, /`[^`]+`/)) {
+          if (substr(t, RSTART + RLENGTH, 5) != " root") emit("shared", substr(t, RSTART, RLENGTH), "shared")
+          t = substr(t, RSTART + RLENGTH)
+        }
+        next
+      }
+      label = substr(line, 1, 48); gsub(/\t/, " ", label)
+      c = index(line, ": "); if (c == 0) { unread(label, line); next }
+      raw = substr(line, 1, c - 1)
+      lane = raw; sub(/ \(.*$/, "", lane); sub(/,.*$/, "", lane)
+      # The seat a lane key names: the key itself when it is a fleet name (window:label), else a
+      # backticked fleet name in its parenthetical ("Runner (the `idealic:runner` seat)").
+      if (lane ~ /^[a-z0-9][a-z0-9._-]*:[a-z0-9][a-z0-9._-]*$/) seatof[lane] = lane
+      else if (match(raw, /\([^)]*`[a-z0-9][a-z0-9._-]*:[a-z0-9][a-z0-9._-]*`[^)]*\)/)) {
+        t = substr(raw, RSTART, RLENGTH); match(t, /`[^`]+`/); seatof[lane] = substr(t, RSTART + 1, RLENGTH - 2)
+      }
+      # A bullet whose key names no seat is a rule, not a lane: its paths are guarded.
+      if (!(lane in seatof)) unread(label, line)
+      full = substr(line, c + 2); body = cut_semi(full); rest = (length(body) < length(full)) ? substr(full, length(body) + 2) : ""
+      # Each later ";" segment that starts with a backticked path (or "and `…`") continues the
+      # list ("`ui/`, …; `morph/`; and `tui/`"); any other segment is a rule whose paths are guarded.
+      while (rest != "") {
+        seg = cut_semi(rest); rest = (length(seg) < length(rest)) ? substr(rest, length(seg) + 2) : ""
+        t = trim(seg); sub(/^and /, "", t)
+        if (t ~ /^`/) body = body ", " t; else unread(lane, seg)
+      }
+      # drop parenthetical prose, but keep a path a parenthetical names; a dropped parenthetical
+      # that names paths guards them
       while (match(body, /\([^()]*\)/)) {
-        par = substr(body, RSTART + 1, RLENGTH - 2)
-        if (par ~ /^`[^`]*`$/) emit(lane, par, "lane")
-        body = substr(body, 1, RSTART - 1) substr(body, RSTART + RLENGTH)
+        ps0 = RSTART; pl0 = RLENGTH; par = substr(body, ps0 + 1, pl0 - 2)
+        if (par ~ /^`[^`]*`$/) emit(lane, par, "lane"); else unread(lane, par)
+        body = substr(body, 1, ps0 - 1) substr(body, ps0 + pl0)
       }
       gsub(/ and /, ",", body); m = split(body, ps, ",")
       for (i = 1; i <= m; i++) item(lane, ps[i])
     }
     END {
+      if (mode == "lane") { lane_end(); exit xrc }
       # Only lanes the lane → project list names are lanes; other bullets in the line are rules.
       for (i = 1; i <= nl; i++) {
         l = lp[i]; p = pp[i]
@@ -817,7 +911,7 @@ cmd_owners_from_doc() {
         print rid "\t" p "\t" (project[l] == "none" ? "-" : project[l])
       }
       for (p in over) { print rid "\t" p "\t" over[p]; rows++ }
-      for (i = 1; i <= ns; i++) { split(skipped[i], q, ":"); if (q[1] in project || q[1] ~ /^Product: /) print "owners-from-doc: skipped " skipped[i] > "/dev/stderr" }
+      for (i = 1; i <= ns; i++) if (slane[i] in project || slane[i] ~ /^Product: /) print "owners-from-doc: skipped " skipped[i] > "/dev/stderr"
       # Never an empty map at exit 0: a missing anchor, a missing lane → project list, or no row
       # at all is a map that could not be built, and the caller must report it as unread.
       if (!anchor) { print "owners-from-doc: no \"- **Ownership is fixed.**\" line in this file" > "/dev/stderr"; exit 2 }

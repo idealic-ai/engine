@@ -107,7 +107,7 @@ bc() {
   [ "${DELIVER:-}" = real ] && stub=""
   local clean="" keep=(); [ "${CLEAN:-}" = 1 ] && { clean=-i; keep=(HOME="$HOME" ${BROADCAST_INLINE_MAX:+BROADCAST_INLINE_MAX="$BROADCAST_INLINE_MAX"}); }
   OUT=$(env $clean -u FLEET_PARENT -u FLEET_PANE -u TMUX_PANE -u HOP_CHAIN_FILE -u FLEET_LIVE_PANES \
-    -u HOP_TMUX_SOCKET -u FLEET_TMUX_SOCKET -u TMUX \
+    -u HOP_TMUX_SOCKET -u FLEET_TMUX_SOCKET -u TMUX -u BROADCAST_OWNERS ${OWNERS_ENV:+BROADCAST_OWNERS="$OWNERS_ENV"} \
     ${keep[@]+"${keep[@]}"} PATH="$path" HOP_LIVE_PANES="$tree" BROADCAST_DIR="$FIX/bc" BROADCAST_DELIVER="$stub" \
     BROADCAST_PANE_PIDS="$FIX/panepids" BROADCAST_PS_FILE="$FIX/ps" ASK_SESSIONS_DIR="$FIX/sess" BROADCAST_PROJECTS_DIR="$FIX/projects" \
     BROADCAST_LIB="${LIB:-$LIB_SH}" ${pane:+TMUX_PANE="$pane"} ${tmuxenv:+TMUX="$tmuxenv"} ${SELF:+FLEET_PANE="$SELF"} \
@@ -1462,6 +1462,8 @@ test_go_status_shows_an_ack_without_receipts() {
 # characters. kern*a.ts (1 segment, 9 chars) loses to */a.ts (2 segments, 6 chars).
 test_go_owners_map_specificity_is_by_segments() {
   go_repo
+  # Globs alone: a kern/ dir line would outrank both (round 5: every literal beats every glob).
+  sed -i.bak '/^kern\//d' "$FIX/owners"; rm -f "$FIX/owners.bak"
   printf 'kern*a.ts domain:stats\n*/a.ts app:ui\n' >> "$FIX/owners"
   PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD --dry-run
   assert_eq 0 "$RC" "N4: the request resolves"
@@ -1512,6 +1514,7 @@ test_go_owners_map_literal_file_beats_file_glob() {
 # Two globs at the same depth that map to different seats still tie and refuse.
 test_go_owners_map_glob_vs_glob_still_ties() {
   go_repo
+  sed -i.bak '/^kern\//d' "$FIX/owners"; rm -f "$FIX/owners.bak"   # no dir line to outrank them
   printf 'kern/*.ts app:ui\nkern/a.* domain:stats\n' >> "$FIX/owners"
   PANE=%2 goreq --pr 28 --rows alpha --commits base..HEAD
   assert_eq 2 "$RC" "R2-S1: two globs at equal depth for one path, two seats, refuse"
@@ -1685,6 +1688,151 @@ test_go_check_line_shift_passes() {
   assert_eq 1 "$RC" "line shift control: a changed context line moves the receipt"
   assert_has "MOVED app:ask" "$OUT" "line shift control: naming the owner"
   assert_has "context lines" "$OUT" "line shift control: and the FAIL text points context-only changes at LANDING step 4"
+}
+
+# ---------------------------------------------------------------- owners from the doc (round 5)
+# Operator rulings OWNERS=LINE and SHARED=ALLLANES: with no --owners, a go-request reads the seats
+# from the "Ownership is fixed" line of docs/LIVE_MARKET_DIRECT.md at the range's tip, through
+# doc-signals.sh owners-from-doc --emit lane. Fixtures are copies of that line from kit:
+# ownfix-073237f16.md (docs:handbook's fixed line, the expected-good case) and ide330c-a31c445f1.md.
+OWN_FIX="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fixtures/ownership"
+DOC_SEATS="domain:platform core:exchange domain:language core:world core:realm domain:agent packages:converge packages:schemistry core:kernel domain:storage domain:security domain:stats app:deploy core:ops docs:handbook docs:api app:writer core:ui"
+# live_add <seat>… — more live seats (pane %2N, a registered interactive session each).
+live_add() {
+  local n=20 seat
+  for seat in "$@"; do
+    grep -q "^$seat " "$FIX/live.txt" && continue
+    n=$((n + 1)); echo "$seat %$n manager:director" >> "$FIX/live.txt"
+    echo "%$n 10$n" >> "$FIX/panepids"; echo "10$n 1" >> "$FIX/ps"; reg "20$n" "$seat" "10$n"
+  done
+}
+# doc_repo <fixture> — go_repo plus that doc committed at the tag dbase, then one commit (HEAD)
+# touching a file under each lane the tests ask about.
+DOC_FILES="README.md ARCHITECTURE.md VOICE.md LANDING.md CI.md world-runner/src/ideas-app/server/main.ts world-runner/src/ideas-app/server/server.ts world-runner/src/ideas-app/hire.ts world-runner/src/ideas-app/server/worker-main.ts world-runner/src/other.ts ideas-exchange/x.ts ideas-storage/x.ts design/a.ts design/cli-theme/t.css handbook/README.md playground/p.ts app/Dockerfile package.json .husky/pre-commit"
+doc_repo() {
+  go_repo
+  live_add $DOC_SEATS
+  local f
+  for f in $DOC_FILES; do mkdir -p "$FIX/repo/$(dirname "$f")"; echo 0 > "$FIX/repo/$f"; done
+  mkdir -p "$FIX/repo/docs"; cp "$OWN_FIX/$1" "$FIX/repo/docs/LIVE_MARKET_DIRECT.md"
+  G add -A; G commit -qm doc; G tag dbase
+  for f in $DOC_FILES CONTRACTS.md; do echo 1 >> "$FIX/repo/$f"; done
+  G commit -qam lanes
+}
+goreqd() { bc go-request --repo "$FIX/repo" --commits dbase..HEAD "$@"; }
+
+test_go_owners_from_doc_is_the_default() {
+  doc_repo ownfix-073237f16.md
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/other.ts --dry-run
+  assert_eq 0 "$RC" "doc owners: a request with no --owners resolves from the doc"
+  assert_eq "domain:language" "$(audience)" "doc owners: world-runner/ is domain:language's"
+  assert_has 'The owners map is the "Ownership is fixed" line of docs/LIVE_MARKET_DIRECT.md at' "$OUT" "doc owners: the message names the line and the tip it was read at"
+  PANE=%2 goreqd --pr 5 --paths ideas-exchange/x.ts --dry-run
+  assert_eq "core:exchange" "$(audience)" "doc owners: ideas-exchange/ is core:exchange's"
+  PANE=%2 goreqd --pr 5 --paths playground/p.ts --dry-run
+  assert_eq "domain:agent" "$(audience)" "doc owners: playground/, its own lane bullet in the fixed line"
+}
+
+test_go_owners_from_doc_reads_the_tip_not_the_worktree() {
+  doc_repo ownfix-073237f16.md
+  sed -i.bak 's/^  - core:world: /  - domain:stats: /; s/^  - domain:language: /  - app:ui: /' "$FIX/repo/docs/LIVE_MARKET_DIRECT.md"; rm -f "$FIX/repo/docs/LIVE_MARKET_DIRECT.md.bak"
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/ideas-app/server/main.ts,world-runner/src/other.ts --dry-run
+  assert_eq 0 "$RC" "doc tip: an uncommitted edit of the doc does not change the answer"
+  assert_eq "core:world domain:language" "$(audience)" "doc tip: the seats are the committed line's"
+  # A later commit that removes the doc: a range ending before it still reads it; one ending on it refuses.
+  G checkout -q docs/LIVE_MARKET_DIRECT.md; G rm -q docs/LIVE_MARKET_DIRECT.md; G commit -qm nodoc
+  PANE=%2 bc go-request --repo "$FIX/repo" --commits dbase..HEAD~1 --pr 5 --paths world-runner/src/other.ts --dry-run
+  assert_eq 0 "$RC" "doc tip: the doc is read at the range's tip, not at HEAD"
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/other.ts --dry-run
+  assert_eq 2 "$RC" "doc tip: no doc at the tip refuses"
+  assert_has "no docs/LIVE_MARKET_DIRECT.md at the tip" "$OUT" "doc tip: naming the doc and the tip"
+}
+
+test_go_owners_from_doc_precedence() {
+  doc_repo ownfix-073237f16.md
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/ideas-app/server/main.ts --dry-run
+  assert_eq "core:world" "$(audience)" "doc precedence: an exact path beats its dir/ (main.ts → core:world)"
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/other.ts --dry-run
+  assert_eq "domain:language" "$(audience)" "doc precedence: the rest of world-runner/ stays domain:language's"
+  PANE=%2 goreqd --pr 5 --paths design/cli-theme/t.css --dry-run
+  assert_eq "app:writer" "$(audience)" "doc precedence: a longer dir/ beats a shorter one (design/cli-theme/ over design/)"
+  PANE=%2 goreqd --pr 5 --paths ideas-storage/x.ts --dry-run
+  assert_eq "domain:storage" "$(audience)" "doc precedence: a dir/ beats a glob (ideas-storage/ over ideas-*)"
+  # A deeper glob still loses to a shallower dir/: every literal outranks every glob.
+  printf 'kern/*.ts app:ui\nkern/ app:ask\n' > "$FIX/owners2"
+  PANE=%2 bc go-request --repo "$FIX/repo" --owners "$FIX/owners2" --commits base..dbase --pr 5 --rows alpha --dry-run
+  assert_eq 0 "$RC" "precedence: kern/ against a deeper kern/*.ts resolves"
+  assert_eq "app:ask" "$(audience)" "precedence: the dir/ wins over a deeper glob"
+}
+
+test_go_owners_from_doc_tie_refused() {
+  doc_repo ownfix-073237f16.md
+  awk '{ print } /^  - core:exchange: / { print "  - domain:stats: world-runner." }' "$OWN_FIX/ownfix-073237f16.md" > "$FIX/repo/docs/LIVE_MARKET_DIRECT.md"
+  G commit -qam tie
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/other.ts
+  assert_eq 2 "$RC" "doc tie: two lanes giving world-runner/ refuse"
+  assert_has "maps to two seats equally" "$OUT" "doc tie: and say it is a tie"
+  assert_eq 0 "$(sent_count)" "doc tie: nothing sent"
+}
+
+test_go_owners_from_doc_shared_asks_every_lane() {
+  doc_repo ownfix-073237f16.md
+  local c; c=$(G rev-parse HEAD)
+  local all; all=$(tr ' ' '\n' <<<"$DOC_SEATS" | sort | tr '\n' ' ' | sed 's/ $//')
+  PANE=%2 goreqd --pr 5 --paths CONTRACTS.md --id gsh1
+  assert_eq 0 "$RC" "shared: a shared-ground path is asked"
+  assert_eq "$all" "$(audience)" "shared: every lane seat the line names is asked, docs:api (no path of its own) included"
+  assert_eq 18 "$(sent_count)" "shared: one message per lane seat"
+  assert_has "receipt path core:ui $c $(rid "$c" CONTRACTS.md) -- CONTRACTS.md" "$(cat "$FIX/msg.core:ui")" "shared: each seat's receipt is over the shared path"
+  assert_has "Shared ground (CONTRACTS.md) asks every lane seat" "$(cat "$FIX/msg.core:ui")" "shared: the message says why this seat is asked"
+  PANE=%2 goreqd --pr 5 --paths .husky/pre-commit --dry-run
+  assert_eq "$all" "$(audience)" "shared: .husky/ asks every lane (its wording-only carve-out cannot be read from a diff)"
+  PANE=%2 goreqd --pr 5 --paths package.json --dry-run
+  assert_eq "$all" "$(audience)" "shared: a root config file the line lists is shared"
+  PANE=%2 goreqd --pr 5 --paths app/Dockerfile --dry-run
+  assert_eq 0 "$RC" "shared: a Dockerfile at the app/ root the line lists by name is shared"
+  assert_eq "$all" "$(audience)" "shared: and asks every lane"
+  echo 1 > "$FIX/repo/app/other.ts"; G add -A; G commit -qm appother
+  PANE=%2 goreqd --pr 5 --paths app/other.ts --dry-run
+  assert_eq 2 "$RC" "shared: 'the Dockerfiles at the app/ root' does not make all of app/ shared"
+}
+
+test_go_owners_from_doc_guards_and_uncovered() {
+  doc_repo ownfix-073237f16.md
+  PANE=%2 goreqd --pr 5 --paths handbook/README.md
+  assert_eq 2 "$RC" "guard: a path a sentence names but no lane assigns refuses"
+  assert_has "assigns it to no lane" "$OUT" "guard: saying why"
+  assert_has "Each lane owns" "$OUT" "guard: quoting the sentence"
+  PANE=%2 goreqd --pr 5 --paths design/a.ts
+  assert_eq 2 "$RC" "guard: design/ is named by app:writer's themes-and-materials clause too, so it refuses"
+  echo 1 > "$FIX/repo/nowhere.ts"; G add -A; G commit -qm nowhere
+  PANE=%2 goreqd --pr 5 --paths nowhere.ts
+  assert_eq 2 "$RC" "uncovered: an unmapped path refuses"
+  assert_has "which the owners parser does not cover" "$OUT" "uncovered: the refusal says some lanes the line names are not covered, never just 'no owner'"
+  assert_has "docs:api" "$(sed -n 's/.*the line names lane(s) \([^,]*\), which.*/\1/p' <<<"$OUT")" "uncovered: naming docs:api, a lane whose only path is not landed yet"
+  assert_eq 0 "$(sent_count)" "guard/uncovered: nothing sent"
+}
+
+test_go_owners_from_doc_partial_paths_refuse() {
+  doc_repo ide330c-a31c445f1.md
+  PANE=%2 goreqd --pr 5 --paths world-runner/src/other.ts
+  assert_eq 2 "$RC" "ide330c: a lane naming a real file by a partial path refuses the whole map"
+  assert_has "core:world: main.ts" "$OUT" "ide330c: naming the lane and the partial path"
+  assert_has "world-runner/src/ideas-app/server/worker-main.ts" "$(cat "$OWN_FIX/ide330c-a31c445f1.md" | sed -n 's/.*(`\(ideas-app[^`]*\)`).*/world-runner\/src\/\1/p')" "ide330c: fixture: the partial path is the tail of the real file"
+}
+
+test_go_owners_missing_doc_or_line_refused() {
+  go_repo
+  PANE=%2 bc go-request --repo "$FIX/repo" --commits base..HEAD --pr 5 --rows alpha
+  assert_eq 2 "$RC" "missing: no doc at the tip refuses"
+  assert_has "no docs/LIVE_MARKET_DIRECT.md at the tip" "$OUT" "missing: naming the doc"
+  mkdir -p "$FIX/repo/docs"; printf '# Live market\n\n- **Something else.**\n' > "$FIX/repo/docs/LIVE_MARKET_DIRECT.md"; G add -A; G commit -qm nolines
+  PANE=%2 bc go-request --repo "$FIX/repo" --commits base..HEAD --pr 5 --rows alpha
+  assert_eq 2 "$RC" "missing: a doc with no Ownership line refuses"
+  assert_has "Ownership is fixed" "$OUT" "missing: naming the line"
+  OWNERS_ENV="$FIX/owners" PANE=%2 bc go-request --repo "$FIX/repo" --commits base..HEAD --pr 5 --rows alpha --dry-run
+  assert_eq 0 "$RC" "override: BROADCAST_OWNERS still replaces the doc"
+  assert_eq "app:ask" "$(audience)" "override: with its own seats"
 }
 
 test_tree_parity() {

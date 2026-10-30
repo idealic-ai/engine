@@ -75,12 +75,15 @@
 #       are the backticked paths in that row's Owner cell, read from CONTRACTS.md at the range's tip
 #       (`git rev-parse` of the range's end) AND at its base (the merge-base): a PR that repoints an
 #       Owner cell still asks the owner it repoints away from. Each path's seat comes from the owners
-#       map (FILE, else BROADCAST_OWNERS, else ~/.claude/data/yarik/owners.tsv: lines
-#       "<path-glob> <seat>", a trailing / covers a tree; the pattern with the most /-separated
-#       segments wins; at equal segments a pattern with no * or ? (a path or a dir/ prefix) beats
-#       one holding either, so "resource-* A" plus "resource-kernel/ B" gives resource-kernel to B
-#       and a catch-all "* S" is the default; two literals or two globs at equal segments that map
-#       to different seats tie and refuse). Per owner and commit the receipt is
+#       map: by default the "Ownership is fixed" line of docs/LIVE_MARKET_DIRECT.md as the range's
+#       tip has it (never the working tree), read by skills/next/assets/doc-signals.sh
+#       owners-from-doc --emit lane (a lane keyed by its seat, "domain:language: …", or by a name
+#       with the seat backticked in parentheses; shared ground is seat "shared"). The doc or a
+#       usable line missing at the tip refuses (exit 2) naming what is missing. --owners FILE, else
+#       BROADCAST_OWNERS, replaces it with a file of "<path> <seat>" lines. Precedence: an exact
+#       path > a longer dir/ > a shorter dir/ > a glob (* or ?, ** as *; globs by /-depth among
+#       themselves); two seats at the same rank tie and refuse. A "shared" path asks every lane
+#       seat in the map (the distinct non-shared seats). Per owner and commit the receipt is
 #       `git show --text <commit> -- <paths> | git patch-id --stable`; merge commits are skipped
 #       (--no-merges). RANGE defaults to origin/main..HEAD; a rev without ".." is one commit. ONE
 #       broadcast to exactly the owner seats; each seat's message carries only its own receipt lines
@@ -789,7 +792,51 @@ cmd_pending() {
 #
 # Paths, rows and seats are kept in arrays and never expanded unquoted: an Owner cell, a --rows or
 # a --paths value holding * is that literal string, never file names from the caller's cwd.
-OWNERS_MAP="${BROADCAST_OWNERS:-$HOME/.claude/data/yarik/owners.tsv}"
+# The owners map. By default it is the "Ownership is fixed" line of docs/LIVE_MARKET_DIRECT.md as
+# the range's tip has it (never a working-tree copy), parsed by doc-signals.sh owners-from-doc
+# --emit lane: "<path> <seat>" rows, "<path> shared" for shared ground. --owners FILE or
+# BROADCAST_OWNERS replaces it with a file of the same rows (tests, emergencies).
+OWNERS_MAP="${BROADCAST_OWNERS:-}"
+OWNERS_DOC="docs/LIVE_MARKET_DIRECT.md"
+DOC_SIGNALS="${BROADCAST_DOC_SIGNALS:-$HERE/../skills/next/assets/doc-signals.sh}"
+OWNERS_TEXT="" OWNERS_SRC="" LANE_SEATS="" UNCOVERED=""
+# load_owners <repo> <tip> — fills OWNERS_TEXT, OWNERS_SRC and LANE_SEATS (the distinct seats
+# other than "shared", in map order), or dies 2 naming what is missing.
+load_owners() {
+  local repo="$1" tip="$2" doc err rc=0
+  if [ -n "$OWNERS_MAP" ]; then
+    [ -r "$OWNERS_MAP" ] || die 2 "go-request: no owners map at $OWNERS_MAP (lines '<path> <seat>')"
+    OWNERS_TEXT=$(cat "$OWNERS_MAP"); OWNERS_SRC="$OWNERS_MAP"
+  else
+    [ -r "$DOC_SIGNALS" ] || die 2 "go-request: no owners parser at $DOC_SIGNALS (doc-signals.sh owners-from-doc)"
+    doc=$(mktemp "${TMPDIR:-/tmp}/go-owners.XXXXXX") err=$(mktemp "${TMPDIR:-/tmp}/go-owners.XXXXXX")
+    git -C "$repo" show "$tip:$OWNERS_DOC" > "$doc" 2>/dev/null \
+      || { rm -f "$doc" "$err"; die 2 "go-request: no $OWNERS_DOC at the tip $tip (the owners are read from its \"Ownership is fixed\" line; --owners FILE overrides)"; }
+    OWNERS_TEXT=$(bash "$DOC_SIGNALS" owners-from-doc --repo "$repo" --rev "$tip" --emit lane "$doc" 2>"$err") || rc=$?
+    if [ "$rc" != 0 ]; then
+      local why; why=$(sed 's/^owners-from-doc: //' "$err" | tr '\n' ';' | sed 's/;$//; s/;/; /g')
+      rm -f "$doc" "$err"
+      die 2 "go-request: no owners map from $OWNERS_DOC at the tip $tip: $why"
+    fi
+    rm -f "$doc" "$err"
+    OWNERS_SRC="$OWNERS_DOC at $tip"
+  fi
+  # Every lane seat: the "# lane" lines owners-from-doc prints (a lane with no path at the tip is
+  # still a lane), else the distinct seats of a FILE's rows.
+  LANE_SEATS=$(awk '$1 == "#" && $2 == "lane" && !seen[$3]++ { print $3 }' <<<"$OWNERS_TEXT" | sort | tr '\n' ' ' | sed 's/ $//')
+  [ -n "$LANE_SEATS" ] || LANE_SEATS=$(awk '$1 !~ /^#/ && NF >= 2 && $2 != "shared" && $2 != "unread" && !seen[$2]++ { print $2 }' <<<"$OWNERS_TEXT" | tr '\n' ' ' | sed 's/ $//')
+  UNCOVERED=$(awk '$1 == "#" && $2 == "uncovered" { print $3 }' <<<"$OWNERS_TEXT" | sort -u | tr '\n' ' ' | sed 's/ $//')
+}
+# uncovered_note → for an unmapped path, the lanes the line names whose paths the parser read none
+# of: the path may be theirs, so the refusal names them rather than saying it has no owner.
+uncovered_note() { [ -z "$UNCOVERED" ] || echo " (the line names lane(s) $UNCOVERED, which the owners parser does not cover: no path of theirs was read; it may be theirs)"; }
+# asked_of <seat> → the seats asked for a path of that seat: itself, or every lane seat when it
+# is "shared" (operator ruling SHARED=ALLLANES). rc 1 for "shared" when the map has no lane seat.
+asked_of() {
+  if [ "$1" != shared ]; then echo "$1"; return 0; fi
+  [ -n "$LANE_SEATS" ] || return 1
+  tr ' ' '\n' <<<"$LANE_SEATS"
+}
 is_go() { [ "$(header "$1" kind)" = go-request ]; }
 declined() { [ -e "$BDIR/$1.declines.d/$(ack_key "$2")" ]; }
 
@@ -836,30 +883,34 @@ row_owner_paths() {
   { grep -o '`[^`]*`' <<<"$cell" || true; } | tr -d '`'
 }
 
-# seat_of_path <path> → the seat whose map pattern matches most specifically. Specificity is the
-# number of /-separated segments in the pattern (a trailing / adds none): kern/a.ts (2) beats kern/
-# (1), and */schemas/*.ts (3) beats resource-kernel/ (1) whatever their lengths in characters. At
-# equal segments a literal (no * or ?: a path, or a dir/ prefix) beats a glob: resource-kernel/
-# beats resource-*, kern/ beats a catch-all *, kern/a.ts beats kern/*.ts. A pattern ending in /
-# covers everything under it; any other pattern is a shell glob, whose * also matches /. Two
-# different seats at the same rank (two literals, or two globs, at equal segments) are a tie.
-# rc 1 none · 2 a tie.
+# seat_of_path <path> → the seat whose map pattern matches with the highest precedence (operator
+# ruling): an exact path > a longer dir/ > a shorter dir/ > a glob. A dir/ covers everything under
+# it; a pattern holding * or ? is a shell glob, whose * (and **) also matches /, and a glob ending
+# in / covers what is under what it matches. Globs rank below every literal, and among themselves
+# by /-segment depth (*/a.ts beats kern*a.ts): kern/ beats kern/*.ts, resource-kernel/ beats
+# resource-*, a catch-all * is the default. Two different seats at the same rank are a tie.
+# A row of seat "unread" (owners-from-doc's guard: a sentence of the line names the path but
+# assigns it to no lane) that wins or ties refuses; its third field, the sentence, is printed.
+# rc 1 none · 2 a tie · 3 guarded.
 seat_of_path() {
-  local p="$1" pat seat best="" bseg=-1 tie=0 seg t
-  while read -r pat seat _; do
+  local p="$1" pat seat why best="" bseg=-1 tie=0 seg t guard="" gseg=-1
+  while read -r pat seat why; do
     case "$pat" in ''|'#'*) continue ;; esac
     [ -n "$seat" ] || continue
+    t="${pat%/}"; t="${t//[!\/]/}"
     case "$pat" in
-      */) [[ "$p" == "$pat"* ]] || continue ;;
-      *)
+      *'*'*|*'?'*)
         # shellcheck disable=SC2053 # $pat is a glob on purpose
-        [[ "$p" == $pat ]] || continue ;;
+        [[ "$p" == $pat ]] || { [[ "$pat" == */ ]] && [[ "$p" == $pat* ]]; } || continue
+        seg=$(( ${#t} + 1 )) ;;
+      */) [[ "$p" == "$pat"* ]] || continue; seg=$(( 1000 + ${#t} + 1 )) ;;
+      *) [ "$p" = "$pat" ] || continue; seg=100000 ;;
     esac
-    t="${pat%/}"; t="${t//[!\/]/}"; seg=$(( (${#t} + 1) * 2 ))
-    case "$pat" in *'*'*|*'?'*) ;; *) seg=$(( seg + 1 )) ;; esac   # literal beats glob at equal depth
+    if [ "$seat" = unread ]; then [ "$seg" -le "$gseg" ] || { guard="$why"; gseg="$seg"; }; continue; fi
     if [ "$seg" -gt "$bseg" ]; then best="$seat"; bseg="$seg"; tie=0
     elif [ "$seg" = "$bseg" ] && [ "$seat" != "$best" ]; then tie=1; fi
-  done < "$OWNERS_MAP"
+  done <<<"$OWNERS_TEXT"
+  if [ -n "$guard" ] && [ "$gseg" -ge "$bseg" ]; then echo "$guard"; return 3; fi
   [ -n "$best" ] || return 1
   [ "$tie" = 0 ] || return 2
   echo "$best"
@@ -938,13 +989,13 @@ cmd_go_request() {
   else id="go-pr$pr-$(date -u +%Y%m%dt%H%M%Sz)-$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"; fi
   [ -n "$repo" ] || repo=$(git rev-parse --show-toplevel 2>/dev/null) || die 2 "go-request: not in a git repo; pass --repo"
   repo=$(cd "$repo" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null) || die 2 "go-request: '$repo' is not a git repo"
-  [ -r "$OWNERS_MAP" ] || die 2 "go-request: no owners map at $OWNERS_MAP (lines '<path-glob> <seat>'; --owners FILE or BROADCAST_OWNERS)"
 
   local ends tip base commits contracts cbase=""
   ends=$(range_ends "$repo" "$range") || die 2 "go-request: '$range' is not a commit range in $repo"
   read -r tip base <<<"$ends"
   commits=$(commits_of "$repo" "$range") || die 2 "go-request: '$range' is not a commit range in $repo"
   [ -n "$commits" ] || die 2 "go-request: '$range' holds no commits (merge commits are skipped)"
+  load_owners "$repo" "$tip"
   # CONTRACTS.md as the range's tip has it (the rows this PR lands) AND as its base has it (the
   # owners it would land over), never a working-tree copy. A row's owners are the union of both, so
   # a PR that repoints an Owner cell still asks the owner it repoints away from.
@@ -954,7 +1005,7 @@ cmd_go_request() {
   fi
 
   # Row → owner paths → seat. Each refusal names the row; nothing is guessed.
-  local r p seat src srcb found rc pairs="" ppairs="" bad=""
+  local r p seat src srcb found rc pairs="" ppairs="" bad="" asked shared_hit=""
   for r in ${row_arr[@]+"${row_arr[@]}"}; do
     found=0 src="" srcb=""
     if src=$(row_owner_paths "$contracts" "$r"); then found=1; fi
@@ -966,24 +1017,34 @@ cmd_go_request() {
       [[ "$p" =~ ^[^[:space:]]+$ ]] || { bad+="row '$r' owner path '$p' is not one path; "; continue; }
       rc=0; seat=$(seat_of_path "$p") || rc=$?
       case "$rc" in
-        1) bad+="row '$r' owner path '$p' maps to no seat in $OWNERS_MAP; "; continue ;;
-        2) bad+="row '$r' owner path '$p' maps to two seats equally in $OWNERS_MAP; "; continue ;;
+        1) bad+="row '$r' owner path '$p' maps to no seat in $OWNERS_SRC$(uncovered_note); "; continue ;;
+        2) bad+="row '$r' owner path '$p' maps to two seats equally in $OWNERS_SRC; "; continue ;;
+        3) bad+="row '$r' owner path '$p' is named by a sentence of the Ownership line that assigns it to no lane ('${seat}…'); "; continue ;;
       esac
-      valid_seat "owner of row '$r'" "$seat"
-      pairs+="$seat $p $r"$'\n'
-      case " ${seat_arr[*]-} " in *" $seat "*) ;; *) seat_arr+=("$seat") ;; esac
+      [ "$seat" != shared ] || shared_hit+="$p "
+      asked=$(asked_of "$seat") || { bad+="row '$r' owner path '$p' is shared ground and $OWNERS_SRC names no lane seat; "; continue; }
+      while IFS= read -r seat; do
+        valid_seat "owner of row '$r'" "$seat"
+        pairs+="$seat $p $r"$'\n'
+        case " ${seat_arr[*]-} " in *" $seat "*) ;; *) seat_arr+=("$seat") ;; esac
+      done <<<"$asked"
     done <<<"$src"
   done
   # --paths: each given path → seat through the same map. ppairs holds "<seat> <path>".
   for p in ${path_arr[@]+"${path_arr[@]}"}; do
     rc=0; seat=$(seat_of_path "$p") || rc=$?
     case "$rc" in
-      1) bad+="path '$p' maps to no seat in $OWNERS_MAP; "; continue ;;
-      2) bad+="path '$p' maps to two seats equally in $OWNERS_MAP; "; continue ;;
+      1) bad+="path '$p' maps to no seat in $OWNERS_SRC$(uncovered_note); "; continue ;;
+      2) bad+="path '$p' maps to two seats equally in $OWNERS_SRC; "; continue ;;
+      3) bad+="path '$p' is named by a sentence of the Ownership line that assigns it to no lane ('${seat}…'); "; continue ;;
     esac
-    valid_seat "owner of path '$p'" "$seat"
-    ppairs+="$seat $p"$'\n'
-    case " ${seat_arr[*]-} " in *" $seat "*) ;; *) seat_arr+=("$seat") ;; esac
+    [ "$seat" != shared ] || shared_hit+="$p "
+    asked=$(asked_of "$seat") || { bad+="path '$p' is shared ground and $OWNERS_SRC names no lane seat; "; continue; }
+    while IFS= read -r seat; do
+      valid_seat "owner of path '$p'" "$seat"
+      ppairs+="$seat $p"$'\n'
+      case " ${seat_arr[*]-} " in *" $seat "*) ;; *) seat_arr+=("$seat") ;; esac
+    done <<<"$asked"
   done
   [ -z "$bad" ] || die 2 "go-request refused: ${bad%; }"
 
@@ -1037,6 +1098,9 @@ cmd_go_request() {
   local covers="" owners_line=""
   [ -z "$rows" ] || { covers+="rows: $rows"$'\n'; owners_line+="Owners are read from CONTRACTS.md at the tip $tip and the base $base; both are asked."$'\n'; }
   [ -z "$paths" ] || { covers+="paths: $paths"$'\n'; owners_line+="Each --paths path is asked of its owner in the owners map."$'\n'; }
+  [ -n "$OWNERS_MAP" ] || owners_line+="The owners map is the \"Ownership is fixed\" line of $OWNERS_SRC."$'\n'
+  [ -z "$shared_hit" ] || owners_line+="Shared ground (${shared_hit% }) asks every lane seat: $LANE_SEATS."$'\n'
+
   text=$(printf 'GO request: PR %s\n%scommits: %s (%s, in %s; merge commits skipped)\n%sEach receipt is a --text, path-scoped `git patch-id --stable` id per commit (LANDING.md step 2).\nAnswer without prose. GO: engine broadcast ack %s  ·  decline: engine broadcast decline %s --reason "<one line>"\n\n%s' \
     "$pr" "$covers" "$range" "$n commits" "$repo" "$owners_line" "$id" "$id" "${receipts%$'\n'}")
   local rec="$BDIR/$id.md" extra
