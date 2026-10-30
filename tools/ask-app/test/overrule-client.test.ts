@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseAskFile } from "../src/lib/format.ts";
 import { askRow, answererText, earlierAnswers } from "../src/client/model.ts";
-import { changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, overruleOutcome, requestSend, withoutGrant } from "../src/client/reanswer.ts";
+import { changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, overruleOutcome, requestSend, sendRoute, withoutGrant } from "../src/client/reanswer.ts";
 import { sendProvisional } from "../src/client/loop.ts";
 
 const head = (extra = "", status = "answered", id = "a1") =>
@@ -130,8 +130,12 @@ describe("earlier answers", () => {
 
   it("falls back to the one-line replaced: when the server sends no history", () => {
     expect(earlierAnswers(legacy)).toEqual([{ kind: "summary", text: "revision 3 by operator at 2026-10-29T10:30:00.000Z; was GO=YES" }]);
-    // An empty history is the new server saying nothing was replaced: no fallback to a stale line.
-    expect(earlierAnswers({ ...legacy, history: [] } as typeof legacy)).toEqual([]);
+    // ASKOVR SHOULD-2: the new server sends `history: []` for a file with no history fence, and it writes
+    // `replaced:` only beside a non-empty history, so an empty one with a `replaced:` line is a file
+    // changed before IDE-339: the line stands in.
+    expect(earlierAnswers({ ...legacy, history: [] } as typeof legacy)).toEqual([{ kind: "summary", text: "revision 3 by operator at 2026-10-29T10:30:00.000Z; was GO=YES" }]);
+    // Empty history and no `replaced:` line: nothing was replaced.
+    expect(earlierAnswers({ ...own, history: [] })).toEqual([]);
     expect(earlierAnswers(own)).toEqual([]);
   });
 
@@ -209,5 +213,77 @@ describe("no send body carries grantClass", () => {
     const sent: unknown[] = [];
     await sendProvisional(async (_u, b) => (sent.push(b), { status: 500, json: { error: "x" } }), async () => undefined, { seat: "docs:handbook", id: "a1", expectedRevision: 4, answers, note: "n" });
     for (const b of [...bodies, ...sent]) expect(JSON.stringify(b)).not.toContain("grantClass");
+  });
+});
+
+/** ASKOVR critique, SHOULD-1 and SHOULD-3 and NIT-3. */
+describe("Overrule is not offered where the store always refuses it (SHOULD-1)", () => {
+  // MGR without its grant class: a reserved ask's answer carries none.
+  const { grantClass: _g, ...plainMgr } = MGR;
+  const reservedForSeat = stored(head("reserved-for: manager:docs\n") + BODY + block(plainMgr));
+  const reservedForOperator = stored(head("reserved-for: operator\n") + BODY + block(plainMgr));
+
+  it("an ask reserved for the seat that ruled it gets no Overrule: assertMayAnswer refuses the operator there", async () => {
+    expect(changeMode(reservedForSeat)).toBeUndefined();
+    expect(mayChangeAnswer(reservedForSeat)).toBe(false);
+    const h = await render(reservedForSeat);
+    expect(h).not.toContain(">Overrule<");
+    expect(h).not.toContain(">Change answer<");
+  });
+
+  it("an ask reserved for the operator is still overruled, and the operator's own answer is still changed", () => {
+    expect(changeMode(reservedForOperator)).toBe("overrule");
+    expect(changeMode(stored(head("reserved-for: operator\n") + BODY + block({ answers: { GO: ["NO"] }, answeredBy: "operator", revision: 4 })))).toBe("change");
+  });
+});
+
+describe("where a card's send goes (SHOULD-3)", () => {
+  it("an overrule's Send and Send & next go to /api/answer as a send, keeping next", () => {
+    expect(sendRoute(true, "send-now")).toEqual({ endpoint: "/api/answer", kind: "send", next: false });
+    expect(sendRoute(true, "send-now", true)).toEqual({ endpoint: "/api/answer", kind: "send", next: true });
+  });
+
+  it("an overrule's decline goes to /api/answer as a decline, never to the draft the store refuses", () => {
+    expect(sendRoute(true, "draft-decline")).toEqual({ endpoint: "/api/answer", kind: "decline", next: false });
+  });
+
+  it("the open form and a change take the draft path; a discard goes to /api/discard", () => {
+    for (const k of ["draft", "draft-decline", "send-now"] as const) {
+      expect(sendRoute(false, k)).toEqual({ endpoint: "/api/draft", kind: k, next: false });
+    }
+    expect(sendRoute(false, "send-now", true)).toEqual({ endpoint: "/api/draft", kind: "send-now", next: true });
+    expect(sendRoute(false, "discard")).toEqual({ endpoint: "/api/discard", kind: "discard", next: false });
+    expect(sendRoute(true, "discard")).toEqual({ endpoint: "/api/discard", kind: "discard", next: false });
+  });
+
+  it("App routes every card send through sendRoute: act hands an /api/answer route to sendOverrule with its next, and nothing else calls it", () => {
+    const app = src("App.tsx");
+    const act = app.slice(app.indexOf("async function act("), app.indexOf("async function act(") + 400);
+    expect(act).toMatch(/const route = sendRoute\(overrule, kind, next\);\s*if \(route\.endpoint === "\/api\/answer"\) return sendOverrule\(route\.kind, route\.next\);/);
+    // The draft path posts to the routed endpoint, not a literal one.
+    expect(app).toContain("post(route.endpoint, draftBody(ask, kind, { answers, note }), keep)");
+    expect(app).not.toContain('post("/api/draft"');
+    // One definition, one call (in act): no button reaches sendOverrule around the route.
+    expect(app.match(/sendOverrule\(/g)).toHaveLength(2);
+    // The decline button is one button on every form, through act; its label says which it does.
+    expect(app).toContain('onClick={() => act("draft-decline")}>{overrule ? "Send a decline" : "Draft a decline"}</button>');
+  });
+
+  it("an overrule starts with an empty note: the seat's note and reason were its words, not yours; your own answer keeps its note", () => {
+    expect(changeAnswerStart(ruled).note).toBe("");
+    expect(changeAnswerStart(ruledDeclined).note).toBe("");
+    expect(changeAnswerStart(ruled).values).toEqual({ GO: ["YES"] });
+    const ownNoted = stored(head() + BODY + block({ answers: { GO: ["NO"] }, note: "hold it", answeredBy: "operator", revision: 4 }));
+    expect(changeAnswerStart(ownNoted).note).toBe("hold it");
+  });
+});
+
+describe("a history the server could not read is said on the card (NIT-3)", () => {
+  it("historyError shows beside Earlier answers, with what it means for a second answer", async () => {
+    const bad = { ...ruled, history: [], historyError: "the json history block is not valid JSON" };
+    const h = await render(bad);
+    expect(h).toContain("the json history block is not valid JSON");
+    expect(h).toContain("fix or remove it by hand");
+    expect(await render(ruled)).not.toContain("history-error");
   });
 });

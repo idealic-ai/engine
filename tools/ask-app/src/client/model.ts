@@ -27,13 +27,15 @@ export function answererText(a: AskAnswer | undefined): string {
 export type EarlierAnswer = { kind: "record"; answer: AskAnswer } | { kind: "summary"; text: string };
 
 /**
- * IDE-339: the answers this one replaced, newest first. The history is read when the server sent one
- * (an empty one means nothing was replaced); without it, the `replaced:` line stands in. Entries that
- * are not answers (a follow-up marker carries a `type`) are left out.
+ * IDE-339: the answers this one replaced, newest first. The history is read when the server sent a
+ * non-empty one; when it sent none or an empty one, the `replaced:` line stands in (ASKOVR SHOULD-2:
+ * the server writes `replaced:` only beside a non-empty history, so an empty history with the line is
+ * a file changed before IDE-339). Entries that are not answers (a follow-up marker carries a `type`)
+ * are left out.
  */
 export function earlierAnswers(a: ParsedAsk): EarlierAnswer[] {
   // ParsedAsk always carries `history`, but a server from before IDE-339 sends none over /api/asks.
-  if (Array.isArray(a.history as AskAnswer[] | undefined)) {
+  if (Array.isArray(a.history as AskAnswer[] | undefined) && a.history.length) {
     return a.history
       .filter((h): h is AskAnswer => !!h && typeof h === "object" && ((h as { type?: unknown }).type === undefined || (h as { type?: unknown }).type === "answer"))
       .map((answer) => ({ kind: "record" as const, answer }))

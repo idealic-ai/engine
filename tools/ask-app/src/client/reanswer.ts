@@ -21,7 +21,11 @@ export const CHANGE_WORDING =
 export function changeMode(a: ParsedAsk): "change" | "overrule" | undefined {
   if (a.header.status === "superseded" || !a.answer) return undefined;
   if (!isSettled(a) && !isProvisional(a)) return undefined;
-  return isOperatorAnswer(a.answer) ? "change" : "overrule";
+  if (isOperatorAnswer(a.answer)) return "change";
+  // ASKOVR SHOULD-1: the store's assertMayAnswer (store.ts, not exported) refuses any answerer but the
+  // one an ask is reserved for, so an ask reserved for a seat is never the operator's to overrule.
+  const reserved = a.header["reserved-for"]?.trim();
+  return reserved && reserved !== "operator" ? undefined : "overrule";
 }
 
 /** Change answer or Overrule is offered: a settled or provisional ask, not superseded. */
@@ -88,6 +92,25 @@ export function changeAnswerStart(a: ParsedAsk): { values: Record<string, Answer
 
 /** Where a card keeps its unsent edits: a change apart from the open form's, so neither restores the other. */
 export const unsentKey = (ref: string, changing: boolean) => (changing ? `change:${ref}` : ref);
+
+/** A card's send verbs, for the open form, a change and an overrule alike. */
+export type CardAction = "draft" | "draft-decline" | "discard" | "send-now";
+
+/** Where a card's send goes: /api/answer at once for an overrule, else the draft path (Send then posts /api/send). */
+export type SendRoute =
+  | { endpoint: "/api/answer"; kind: "send" | "decline"; next: boolean }
+  | { endpoint: "/api/draft" | "/api/discard"; kind: CardAction; next: boolean };
+
+/**
+ * IDE-339 (ASKOVR SHOULD-3): the one place a card send picks its endpoint. An overrule's Send, Send &
+ * next and decline go to /api/answer, because the store takes no draft over a seat's answer; every
+ * other send drafts first. App's act() dispatches on this and nothing else.
+ */
+export function sendRoute(overrule: boolean, kind: CardAction, next = false): SendRoute {
+  if (overrule && kind === "send-now") return { endpoint: "/api/answer", kind: "send", next };
+  if (overrule && kind === "draft-decline") return { endpoint: "/api/answer", kind: "decline", next: false };
+  return { endpoint: kind === "discard" ? "/api/discard" : "/api/draft", kind, next };
+}
 
 /** The /api/draft body for Save draft, Draft a decline and Send (which then posts /api/send). */
 export function draftBody(ask: StoredAsk, kind: "draft" | "draft-decline" | "send-now", s: { answers: AnswerMap; note: string }) {

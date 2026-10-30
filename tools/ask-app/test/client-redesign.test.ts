@@ -718,7 +718,7 @@ describe("round-5 fixes SF-2: only the operator's own browser answer can be prov
     const fs = await import("node:fs");
     const src = fs.readFileSync(new URL("../src/client/App.tsx", import.meta.url), "utf8");
     // The body is decided in reanswer.ts draftBody (IDE-304), which strips the loop lines.
-    expect(src).toContain('post("/api/draft", draftBody(ask, kind, { answers, note }), keep)');
+    expect(src).toContain('post(route.endpoint, draftBody(ask, kind, { answers, note }), keep)');
     const { draftBody } = await import("../src/client/reanswer.ts");
     expect(draftBody(left, "draft", { answers: {}, note: composeNote(DRAFT_NOTE, "mine") }).note).toBe("mine");
   });

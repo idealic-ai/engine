@@ -73,7 +73,7 @@ import { conflictMessage, hopWords, pathOf, supersededInfo, supersedesList, type
 import { DRAFT_NOTE, REQUEST_KINDS, clickPlan, composeNote, stripLoopLines, type SendKind, dialogueOf, earlierRounds, isProvisional, priorPicks, provisionalAnswers, requestLine, sendProvisional, type RoundView } from "./loop.ts";
 import { isNavigation, parseRoute, serializeRoute, type Route } from "./route.ts";
 import { highlight, isTypingTarget, searchTerms, sidebarView, snippet, type Hay } from "./search.ts";
-import { CHANGE_WORDING, OVERRULE_WORDING, cancelDiscards, changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, overruleOutcome, planClick, requestSend, staleChangeKeys, unsentKey, withoutGrant } from "./reanswer.ts";
+import { CHANGE_WORDING, OVERRULE_WORDING, cancelDiscards, changeAnswerStart, changeMode, draftBody, mayChangeAnswer, overruleBody, overruleOutcome, planClick, requestSend, sendRoute, staleChangeKeys, unsentKey, withoutGrant, type CardAction } from "./reanswer.ts";
 import { BroadcastFeed, BroadcastRows, ProofRows, ProofStatus, useBroadcasts, useProofs } from "./feeds.tsx";
 
 export { ticketKeys };
@@ -925,8 +925,9 @@ export function AskDetail({
     }
   }
 
-  async function act(kind: "draft" | "draft-decline" | "discard" | "send-now", next = false) {
-    if (overrule && kind === "send-now") return sendOverrule("send", next);
+  async function act(kind: CardAction, next = false) {
+    const route = sendRoute(overrule, kind, next);
+    if (route.endpoint === "/api/answer") return sendOverrule(route.kind, route.next);
     setConfirmSend(undefined);
     setBusy(true);
     setResult("");
@@ -936,12 +937,12 @@ export function AskDetail({
     const gaveUp = (r: Authed) => (r.restarted ? (setResult(r.restarted === "updated" ? RELOAD_UPDATED : RELOAD_RESTARTED), true) : false);
     try {
       if (kind === "discard") {
-        const r = await post("/api/discard", { seat: ask.seat, id: ask.header.id }, keep);
+        const r = await post(route.endpoint, { seat: ask.seat, id: ask.header.id }, keep);
         if (gaveUp(r)) return;
         setResult(r.status === 200 ? "Draft discarded." : `Error: ${r.json.error}`);
         return onChanged();
       }
-      const r = await post("/api/draft", draftBody(ask, kind, { answers, note }), keep);
+      const r = await post(route.endpoint, draftBody(ask, kind, { answers, note }), keep);
       if (gaveUp(r)) return;
       if (r.status === 409) {
         // A superseded ask names its replacement; the picks stay in this browser for it.
@@ -1203,11 +1204,11 @@ export function AskDetail({
               {/* IDE-339: an overrule cannot be drafted: writeDraft takes a draft over the operator's own answer only,
                   so Send as draft, Need something first, Save draft and Draft a decline are hidden on one;
                   they return when the ASKFOLLOWUP round widens writeDraft to a seat's ruling. */}
-              {overrule && <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => sendOverrule("decline")}>Send a decline</button>}
               {!overrule && <button className="btn" disabled={busy || nothing} onClick={() => clickSend("draft")} title={kept ? "Sends your picks marked as not final, with a note saying so; the ask stays open for a second round" : "Today this closes the ask with your picks and a 'not final' note; the asker should come back with a second round"}>Send as draft</button>}
               {!overrule && <button className="btn" disabled={busy} aria-expanded={needOpen} aria-controls={`need-${ask.header.id}`} onClick={() => setNeedOpen(!needOpen)}>Need something first ▾</button>}
               {!overrule && <button className="btn quiet" disabled={busy || nothing} onClick={() => act("draft")}>{ask.draft ? "Update draft" : "Save draft"}</button>}
-              {!overrule && <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => act("draft-decline")}>Draft a decline</button>}
+              {/* One decline button: on an overrule sendRoute sends it at once through /api/answer; elsewhere it is drafted. */}
+              <button className="btn" disabled={busy || !note.trim()} title="Declining needs a reason: write it in the note" onClick={() => act("draft-decline")}>{overrule ? "Send a decline" : "Draft a decline"}</button>
               {ask.draft && <button className="btn" disabled={busy} onClick={() => act("discard")}>Discard draft</button>}
               {changing && <button className="btn quiet" disabled={busy} onClick={cancelChange}>Cancel</button>}
             </p>
@@ -1291,8 +1292,16 @@ function When({ at }: { at?: string }) {
  */
 export function EarlierAnswers({ ask }: { ask: StoredAsk }) {
   const list = earlierAnswers(ask);
-  if (!list.length) return null;
+  // ASKOVR NIT-3: the server names a history fence it could not read, and refuses a second answer until it is fixed.
+  const bad = ask.historyError && (
+    <p className="history-error" role="note">
+      The earlier answers could not be read: {ask.historyError}. The server takes no new answer here until someone fixes the history block: fix or remove it by hand.
+    </p>
+  );
+  if (!list.length) return bad || null;
   return (
+    <>
+    {bad}
     <details className="earlier-answers">
       <summary>Earlier answers ({list.length})</summary>
       <ol>
@@ -1313,6 +1322,7 @@ export function EarlierAnswers({ ask }: { ask: StoredAsk }) {
         )}
       </ol>
     </details>
+    </>
   );
 }
 
